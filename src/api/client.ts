@@ -39,6 +39,28 @@ export function saveFile(path: string, content: string, commit = false): Promise
   }).then(json<{ ok: true; commit: CommitResult | null }>)
 }
 
+export function deleteFile(path: string): Promise<{ ok: true; commit: CommitResult | null }> {
+  return fetch(`/api/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' }).then(
+    json<{ ok: true; commit: CommitResult | null }>,
+  )
+}
+
+export function renamePath(oldPath: string, newPath: string): Promise<{ ok: true; relPath: string; commit: CommitResult | null }> {
+  return fetch('/api/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ oldPath, newPath }),
+  }).then(json<{ ok: true; relPath: string; commit: CommitResult | null }>)
+}
+
+export function createFolder(relPath: string): Promise<{ ok: true; relPath: string }> {
+  return fetch('/api/new-folder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relPath }),
+  }).then(json<{ ok: true; relPath: string }>)
+}
+
 export interface DocRules {
   archived: boolean
   mocApplicable: boolean
@@ -50,10 +72,6 @@ export function fetchRules(path: string): Promise<DocRules> {
   return fetch(`/api/rules?path=${encodeURIComponent(path)}`).then(json<DocRules>)
 }
 
-export function fetchNextAdrNumber(): Promise<{ number: string }> {
-  return fetch('/api/adr-next').then(json<{ number: string }>)
-}
-
 export function createNewDocument(relPath: string, title: string): Promise<{ ok: true; relPath: string; commit: CommitResult | null }> {
   return fetch('/api/new-document', {
     method: 'POST',
@@ -62,33 +80,10 @@ export function createNewDocument(relPath: string, title: string): Promise<{ ok:
   }).then(json<{ ok: true; relPath: string; commit: CommitResult | null }>)
 }
 
-export function createNewAdr(
-  scope: string,
-  title: string,
-): Promise<{ ok: true; relPath: string; number: string; commit: CommitResult | null }> {
-  return fetch('/api/new-adr', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scope, title }),
-  }).then(json<{ ok: true; relPath: string; number: string; commit: CommitResult | null }>)
-}
-
 export function uploadAsset(file: File): Promise<{ url: string; name: string; mimetype: string }> {
   const body = new FormData()
   body.append('file', file)
   return fetch('/api/upload', { method: 'POST', body }).then(json<{ url: string; name: string; mimetype: string }>)
-}
-
-export function saveToInbox(title: string, content: string): Promise<{ ok: boolean; path: string }> {
-  return fetch('/api/inbox-new', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, content }),
-  }).then(json<{ ok: boolean; path: string }>)
-}
-
-export function triggerAgentFileInbox(): Promise<{ ok: boolean; result: string }> {
-  return fetch('/api/inbox-file', { method: 'POST' }).then(json<{ ok: boolean; result: string }>)
 }
 
 export interface AgentSession {

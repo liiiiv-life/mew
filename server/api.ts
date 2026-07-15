@@ -6,9 +6,9 @@ import { resolveDocsPath, toRelativePath, UnsafePathError, DOCS_ROOT } from './p
 import { buildTree } from './tree'
 import { commitFile } from './git'
 import { evaluateRules, isArchived } from './rules'
-import { createAdr, createDocument, nextAdrNumber, ConflictError } from './documents'
+import { createDocument, createFolder, renamePath, deletePath, ConflictError } from './documents'
 import { uploadAsset, R2NotConfiguredError } from './r2'
-import { agentChat, fileInbox, getAgentSessionMessages, listAgentModels, listAgentSessions, listAgentSkills } from './agent'
+import { agentChat, getAgentSessionMessages, listAgentModels, listAgentSessions, listAgentSkills } from './agent'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
 
@@ -71,6 +71,65 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
     }
   })
 
+  app.delete('/file', async (req, res) => {
+    const relPath = String(req.query.path ?? '')
+    try {
+      resolveDocsPath(relPath)
+      if (isArchived(relPath)) {
+        res.status(403).json({ error: 'archives/ 문서는 삭제할 수 없습니다' })
+        return
+      }
+      deletePath(relPath)
+      // 빈 디렉터리처럼 git이 전혀 알지 못하는 경로는 git add가 pathspec 오류를 던진다 —
+      // 디스크 삭제 자체는 이미 끝났으므로 커밋 실패로 전체 요청을 실패시키지 않는다.
+      let commit = null
+      try {
+        commit = await commitFile(relPath, 'delete', `docs: delete ${relPath}`)
+      } catch (err) {
+        console.error('delete commit failed:', err)
+      }
+      res.json({ ok: true, commit })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/rename', async (req, res) => {
+    const { oldPath, newPath } = req.body as { oldPath: string; newPath: string }
+    try {
+      resolveDocsPath(oldPath)
+      resolveDocsPath(newPath)
+      if (isArchived(oldPath) || isArchived(newPath)) {
+        res.status(403).json({ error: 'archives/ 문서는 이름을 바꿀 수 없습니다' })
+        return
+      }
+      if (oldPath.endsWith('.md') && !newPath.endsWith('.md')) {
+        res.status(400).json({ error: '.md 파일만 이름을 바꿀 수 있습니다' })
+        return
+      }
+      renamePath(oldPath, newPath)
+      const commit = await commitFile([oldPath, newPath], 'rename', `docs: rename ${oldPath} → ${newPath}`)
+      res.json({ ok: true, relPath: newPath, commit })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/new-folder', (req, res) => {
+    const { relPath } = req.body as { relPath: string }
+    try {
+      resolveDocsPath(relPath)
+      if (isArchived(relPath)) {
+        res.status(403).json({ error: 'archives/ 밑에는 새 폴더를 만들 수 없습니다' })
+        return
+      }
+      createFolder(relPath)
+      res.json({ ok: true, relPath })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   app.get('/rules', (req, res) => {
     const relPath = String(req.query.path ?? '')
     try {
@@ -79,10 +138,6 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
     } catch (err) {
       handleError(res, err)
     }
-  })
-
-  app.get('/adr-next', (_req, res) => {
-    res.json({ number: nextAdrNumber() })
   })
 
   app.post('/upload', upload.single('file'), async (req, res) => {
@@ -118,52 +173,6 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
       createDocument(relPath, title)
       const commit = await commitFile(relPath, 'add')
       res.json({ ok: true, relPath, commit })
-    } catch (err) {
-      handleError(res, err)
-    }
-  })
-
-  app.post('/new-adr', async (req, res) => {
-    const { scope, title } = req.body as { scope: string; title: string }
-    try {
-      if (!scope.trim() || !title.trim()) {
-        res.status(400).json({ error: '스코프와 제목을 입력하세요' })
-        return
-      }
-      const { relPath, number } = createAdr(scope.trim(), title.trim())
-      const commit = await commitFile(relPath, 'add', `docs: new ADR ${number} — ${title}`)
-      res.json({ ok: true, relPath, number, commit })
-    } catch (err) {
-      handleError(res, err)
-    }
-  })
-
-  app.post('/inbox-new', (req, res) => {
-    const { content, title } = req.body as { content: string; title?: string }
-    if (!content?.trim()) {
-      res.status(400).json({ error: '내용을 입력하세요' })
-      return
-    }
-    try {
-      const timestamp = Date.now()
-      const filename = `${timestamp}.md`
-      const inboxDir = path.join(DOCS_ROOT, '.new')
-      if (!fs.existsSync(inboxDir)) {
-        fs.mkdirSync(inboxDir, { recursive: true })
-      }
-      const header = title ? `# ${title}\n\n` : ''
-      const fileContent = header + content
-      fs.writeFileSync(path.join(inboxDir, filename), fileContent, 'utf-8')
-      res.json({ ok: true, path: `.new/${filename}` })
-    } catch (err) {
-      handleError(res, err)
-    }
-  })
-
-  app.post('/inbox-file', async (_req, res) => {
-    try {
-      const result = await fileInbox()
-      res.json({ ok: true, result })
     } catch (err) {
       handleError(res, err)
     }

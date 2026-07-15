@@ -64,14 +64,6 @@ async function callHermes(
   return { text: clean || '(no response)', sessionId }
 }
 
-export async function fileInbox(): Promise<string> {
-  const { text } = await callHermes('.new/ 인박스를 정리해주세요. /newdocs 스킬을 사용하세요.', {
-    skill: 'newdocs',
-    timeoutMs: 120_000,
-  })
-  return text
-}
-
 export async function agentChat(
   prompt: string,
   opts: { sessionId?: string; skill?: string; model?: string } = {},
