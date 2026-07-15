@@ -9,6 +9,16 @@ export function flattenFiles(tree: TreeNode[]): string[] {
   return out
 }
 
+/** fromDocPath가 속한 문서에서 toDocPath로 향하는 상대 경로 (마크다운 링크용) */
+export function relativeLinkPath(fromDocPath: string, toDocPath: string): string {
+  const fromDir = fromDocPath.split('/').slice(0, -1)
+  const toParts = toDocPath.split('/')
+  let i = 0
+  while (i < fromDir.length && i < toParts.length - 1 && fromDir[i] === toParts[i]) i++
+  const ups = fromDir.length - i
+  return [...Array(ups).fill('..'), ...toParts.slice(i)].join('/')
+}
+
 export function fuzzyScore(query: string, target: string): number | null {
   if (!query) return 0
   const q = query.toLowerCase()

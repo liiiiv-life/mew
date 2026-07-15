@@ -343,6 +343,8 @@ function App() {
                 value={activeTab.content}
                 onChange={(content) => updateTabContent(activeTab.path, content)}
                 readOnly={readOnly || activeTab.path.startsWith('archives/')}
+                path={activeTab.path}
+                tree={tree}
               />
             </div>
             <TableOfContents content={activeTab.content} onJump={(i) => editorRef.current?.scrollToHeading(i)} />

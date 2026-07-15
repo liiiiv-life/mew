@@ -17,11 +17,13 @@ import Blockquote from '@tiptap/extension-blockquote'
 import HorizontalRule from '@tiptap/extension-horizontal-rule'
 import Link from '@tiptap/extension-link'
 import { TableKit } from '@tiptap/extension-table'
-import { NodeSelection } from '@tiptap/pm/state'
+import { NodeSelection, TextSelection } from '@tiptap/pm/state'
+import { findTable, selectionCell, TableMap } from '@tiptap/pm/tables'
 import { Markdown } from 'tiptap-markdown'
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from 'react'
-import { uploadAsset } from '../api/client'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { uploadAsset, type TreeNode } from '../api/client'
 import { ResizableImage } from './ResizableImage'
+import { flattenFiles, fuzzyScore, relativeLinkPath } from '../utils/fuzzy'
 
 export interface EditorHandle {
   scrollToHeading: (index: number) => void
@@ -206,14 +208,56 @@ function LinkTooltip({ editor, position, initialHref, onClose }: LinkTooltipProp
   )
 }
 
+// @ 멘션 툴팁 컴포넌트 (문서 검색 → 선택 시 링크 삽입)
+interface MentionResult {
+  path: string
+  label: string
+}
+
+interface MentionTooltipProps {
+  position: { top: number; left: number }
+  results: MentionResult[]
+  selectedIndex: number
+  onSelect: (result: MentionResult) => void
+}
+
+function MentionTooltip({ position, results, selectedIndex, onSelect }: MentionTooltipProps) {
+  return (
+    <div
+      style={{ position: 'fixed', top: position.top, left: position.left, zIndex: 1000 }}
+      className="max-h-64 w-72 overflow-y-auto rounded border border-edge-bright bg-surface-raised p-1 shadow-lg"
+    >
+      {results.length === 0 ? (
+        <div className="px-2 py-1.5 text-xs text-ink-muted">일치하는 문서 없음</div>
+      ) : (
+        results.map((result, i) => (
+          <button
+            key={result.path}
+            type="button"
+            onMouseDown={() => onSelect(result)}
+            className={`block w-full truncate rounded px-2 py-1 text-left text-xs ${
+              i === selectedIndex ? 'bg-accent text-ink-on-accent' : 'text-ink hover:bg-surface-hover'
+            }`}
+          >
+            <div className="truncate font-medium">{result.label}</div>
+            <div className="truncate text-[10px] opacity-70">{result.path}</div>
+          </button>
+        ))
+      )}
+    </div>
+  )
+}
+
 export const Editor = forwardRef<
   EditorHandle,
   {
     value: string
     onChange: (value: string) => void
     readOnly?: boolean
+    path?: string
+    tree?: TreeNode[]
   }
->(function Editor({ value, onChange, readOnly }, ref) {
+>(function Editor({ value, onChange, readOnly, path = '', tree = [] }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -225,6 +269,12 @@ export const Editor = forwardRef<
   const [linkTooltip, setLinkTooltip] = useState<{
     position: { top: number; left: number }
     href: string
+  } | null>(null)
+  const [mention, setMention] = useState<{
+    from: number
+    query: string
+    position: { top: number; left: number }
+    selectedIndex: number
   } | null>(null)
 
   const editor = useEditor({
@@ -252,7 +302,8 @@ export const Editor = forwardRef<
       HorizontalRule,
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-link underline' } }),
       // allowTableNodeSelection: 테이블 NodeSelection이 CellSelection으로 강제 변환되지 않게 함 (테두리 클릭 선택용)
-      TableKit.configure({ table: { allowTableNodeSelection: true } }),
+      // resizable: 세로선(열 너비) 드래그 조절만 지원 — prosemirror-tables는 행 높이 조절 기능이 없음
+      TableKit.configure({ table: { allowTableNodeSelection: true, resizable: true } }),
       ResizableImage,
       Placeholder.configure({ placeholder: '노션처럼 작성하세요... # 으로 제목, - 으로 목록' }),
       Markdown.configure({
@@ -266,6 +317,10 @@ export const Editor = forwardRef<
       const markdownInstance = (editor.storage as any).markdown
       const markdown = markdownInstance ? markdownInstance.getMarkdown() : ''
       if (markdown !== undefined) onChange(markdown)
+      updateMentionState(editor)
+    },
+    onSelectionUpdate: ({ editor }) => {
+      updateMentionState(editor)
     },
     editorProps: {
       handleClick: (view, _pos, event) => {
@@ -302,6 +357,38 @@ export const Editor = forwardRef<
         return false
       },
       handleKeyDown: (_view, event) => {
+        // @ 멘션 팝업이 열려있을 때 키보드 내비게이션
+        if (mention) {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            event.stopPropagation()
+            setMention((m) =>
+              m ? { ...m, selectedIndex: Math.min(m.selectedIndex + 1, Math.max(mentionResults.length - 1, 0)) } : m,
+            )
+            return true
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            event.stopPropagation()
+            setMention((m) => (m ? { ...m, selectedIndex: Math.max(m.selectedIndex - 1, 0) } : m))
+            return true
+          }
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            event.stopPropagation()
+            const result = mentionResults[mention.selectedIndex]
+            if (result) selectMention(result)
+            else setMention(null)
+            return true
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            setMention(null)
+            return true
+          }
+        }
+
         // Tab 키 처리: 커서 자리가 아니라 줄 맨 앞에 들여쓰기
         if (event.key === 'Tab') {
           event.preventDefault()
@@ -338,7 +425,7 @@ export const Editor = forwardRef<
             ? $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
             : ''
 
-          if (textBefore.trim() === '/table') {
+          if (textBefore.trim() === '/table' || textBefore.trim() === '/표') {
             event.preventDefault()
             event.stopPropagation()
             // 명령어 텍스트를 지운 뒤 그 자리에 3x3 테이블 생성
@@ -367,6 +454,27 @@ export const Editor = forwardRef<
               break
             }
             if (i === 0) break
+          }
+
+          // Ctrl+Enter: 현재 셀이 속한 행 바로 아래에 새 행 추가, 새 행의 첫 번째 셀(가장 왼쪽)로 포커스 이동
+          if (event.ctrlKey && event.key === 'Enter' && inTable) {
+            event.preventDefault()
+            event.stopPropagation()
+            const $cell = selectionCell(state)
+            const table = findTable($cell)
+            if (table) {
+              const map = TableMap.get(table.node)
+              const targetRow = map.findCell($cell.pos - table.start).bottom
+              editor.chain().focus().addRowAfter().run()
+              const newTable = findTable(editor.state.selection.$from)
+              if (newTable) {
+                const newMap = TableMap.get(newTable.node)
+                const cellPos = newTable.start + newMap.positionAt(targetRow, 0, newTable.node)
+                const nextSelection = TextSelection.near(editor.state.doc.resolve(cellPos + 1))
+                editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
+              }
+            }
+            return true
           }
 
           // Insert 키 또는 Ctrl+Shift+'=' 키 (추가 모드 툴팁)
@@ -500,6 +608,59 @@ export const Editor = forwardRef<
     }
   }, [tooltip])
 
+  // 커서 바로 앞의 "@query" 패턴을 감지해 멘션 팝업 상태를 갱신
+  const updateMentionState = useCallback((ed: any) => {
+    const { $from, empty } = ed.state.selection
+    if (!empty) {
+      setMention(null)
+      return
+    }
+    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(textBefore)
+    if (!match) {
+      setMention(null)
+      return
+    }
+    const query = match[1]
+    const from = $from.start() + $from.parentOffset - query.length - 1
+    const coords = ed.view.coordsAtPos(from)
+    setMention((prev) =>
+      prev && prev.from === from && prev.query === query
+        ? prev
+        : { from, query, position: { top: coords.bottom + 6, left: coords.left }, selectedIndex: 0 },
+    )
+  }, [])
+
+  const mentionResults = useMemo<MentionResult[]>(() => {
+    if (!mention) return []
+    return flattenFiles(tree)
+      .map((p) => ({ path: p, score: fuzzyScore(mention.query, p) }))
+      .filter((r): r is { path: string; score: number } => r.score !== null)
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 8)
+      .map((r) => ({ path: r.path, label: r.path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? r.path }))
+  }, [tree, mention])
+
+  const selectMention = useCallback(
+    (result: MentionResult) => {
+      if (!mention || !editor) return
+      const to = mention.from + 1 + mention.query.length
+      const href = relativeLinkPath(path, result.path)
+      editor.chain().focus().deleteRange({ from: mention.from, to }).insertContent(`[${result.label}](${href}) `).run()
+      setMention(null)
+    },
+    [mention, editor, path],
+  )
+
+  // 멘션 팝업 바깥 클릭 시 닫기
+  useEffect(() => {
+    const handleClick = () => setMention(null)
+    if (mention) {
+      document.addEventListener('mousedown', handleClick)
+      return () => document.removeEventListener('mousedown', handleClick)
+    }
+  }, [mention])
+
   useEffect(() => {
     if (editor && value !== undefined) {
       const current = (editor.storage as any).markdown?.getMarkdown() ?? ''
@@ -623,14 +784,28 @@ export const Editor = forwardRef<
         }
         .tiptap table {
           border-collapse: collapse;
+          table-layout: fixed;
           width: 100%;
           margin: 0.75em 0;
           font-size: 0.95em;
         }
         .tiptap th, .tiptap td {
+          position: relative;
           border: 1px solid var(--color-edge-strong);
           padding: 0.4em 0.75em;
           vertical-align: top;
+        }
+        .tiptap .column-resize-handle {
+          position: absolute;
+          right: -2px;
+          top: 0;
+          bottom: -2px;
+          width: 4px;
+          background-color: var(--color-link);
+          pointer-events: none;
+        }
+        .tiptap.resize-cursor {
+          cursor: col-resize;
         }
         .tiptap th {
           background: var(--color-surface-raised);
@@ -669,6 +844,14 @@ export const Editor = forwardRef<
           position={linkTooltip.position}
           initialHref={linkTooltip.href}
           onClose={closeLinkTooltip}
+        />
+      )}
+      {mention && (
+        <MentionTooltip
+          position={mention.position}
+          results={mentionResults}
+          selectedIndex={mention.selectedIndex}
+          onSelect={selectMention}
         />
       )}
     </div>
