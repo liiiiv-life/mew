@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchFile, fetchMode, fetchRules, fetchTree, saveFile, type TreeNode, type DocRules } from './api/client'
 import { FileTree } from './components/FileTree'
-import { Editor } from './components/Editor'
-import { QuickOpen } from './components/QuickOpen'
-import { QuickCreateModal } from './components/QuickCreateModal'
+import { Editor, type EditorHandle } from './components/Editor'
 import { AgentSidebar } from './components/AgentSidebar'
-import { NewAdrModal } from './components/NewAdrModal'
+import { TableOfContents } from './components/TableOfContents'
 
 type Tab = {
   path: string
@@ -23,13 +21,12 @@ function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activePath, setActivePath] = useState<string | null>(null)
-  const [adrWizard, setAdrWizard] = useState(false)
-  const [quickOpen, setQuickOpen] = useState(false)
-  const [quickCreate, setQuickCreate] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   const [agentOpen, setAgentOpen] = useState(false)
+  const [searchFocusSignal, setSearchFocusSignal] = useState(0)
   // 서버 모드를 확인하기 전까지는 편집 UI를 숨긴다 (뷰어에서 깜빡임 방지)
   const [readOnly, setReadOnly] = useState(true)
+  const editorRef = useRef<EditorHandle>(null)
 
   const activeTab = tabs.find((t) => t.path === activePath) ?? null
 
@@ -138,10 +135,42 @@ function App() {
     [activeTab, readOnly],
   )
 
-  function handleAdrCreated(_relPath: string) {
-    setAdrWizard(false)
+  const handleFileCreated = useCallback(
+    (relPath: string) => {
+      refreshTree()
+      openFile(relPath, { preview: false })
+    },
+    [openFile],
+  )
+
+  const handleFolderCreated = useCallback(() => {
     refreshTree()
-  }
+  }, [])
+
+  const handleRenamed = useCallback((oldPath: string, newPath: string, type: 'file' | 'dir') => {
+    refreshTree()
+    const remap = (p: string) => {
+      if (type === 'file') return p === oldPath ? newPath : p
+      return p === oldPath || p.startsWith(oldPath + '/') ? newPath + p.slice(oldPath.length) : p
+    }
+    setTabs((prev) => prev.map((t) => ({ ...t, path: remap(t.path) })))
+    setActivePath((p) => (p ? remap(p) : p))
+  }, [])
+
+  const handleDeleted = useCallback((path: string, type: 'file' | 'dir') => {
+    refreshTree()
+    setTabs((prev) => {
+      const removed = new Set(
+        prev
+          .filter((t) => (type === 'file' ? t.path === path : t.path === path || t.path.startsWith(path + '/')))
+          .map((t) => t.path),
+      )
+      if (removed.size === 0) return prev
+      const next = prev.filter((t) => !removed.has(t.path))
+      setActivePath((p) => (p && removed.has(p) ? (next[0]?.path ?? null) : p))
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -154,10 +183,8 @@ function App() {
         saveCurrentTab(true)
       } else if (mod && e.key === 'p') {
         e.preventDefault()
-        setQuickOpen((v) => !v)
-      } else if (mod && e.key === 'n') {
-        e.preventDefault()
-        if (!readOnly) setQuickCreate(true)
+        setSidebarOpen(true)
+        setSearchFocusSignal((s) => s + 1)
       } else if (mod && e.key === 'w') {
         e.preventDefault()
         if (activePath) {
@@ -176,7 +203,7 @@ function App() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [saveCurrentTab, closeTab, activePath, readOnly])
+  }, [saveCurrentTab, closeTab, activePath])
 
   return (
     <div className="flex h-dvh flex-col bg-surface text-ink">
@@ -197,33 +224,6 @@ function App() {
           {readOnly && (
             <span className="rounded bg-surface-raised px-2 py-0.5 text-xs text-ink-secondary">읽기 전용</span>
           )}
-          {!readOnly && (
-            <>
-              <button
-                type="button"
-                onClick={() => setQuickCreate(true)}
-                className="rounded border border-edge-strong px-2 py-1 text-xs hover:bg-surface-raised"
-                title="Ctrl+N"
-              >
-                + 새 메모
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdrWizard(true)}
-                className="rounded border border-edge-strong px-2 py-1 text-xs hover:bg-surface-raised"
-              >
-                + 새 ADR
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => setQuickOpen(true)}
-            className="rounded border border-edge-strong px-2 py-1 text-xs hover:bg-surface-raised"
-            title="Ctrl+P"
-          >
-            문서 찾기 (⌘P)
-          </button>
         </div>
         <div className="flex items-center gap-3 text-sm">
           {activeTab && <span className="hidden max-w-xs truncate text-ink-muted md:inline-block">{activePath}</span>}
@@ -312,10 +312,19 @@ function App() {
               <FileTree
                 tree={tree}
                 selectedPath={activePath}
+                readOnly={readOnly}
+                searchFocusSignal={searchFocusSignal}
                 onSelect={(path, opts) => {
                   openFile(path, opts)
                   if (!isDesktop()) setSidebarOpen(false)
                 }}
+                onFileCreated={(relPath) => {
+                  handleFileCreated(relPath)
+                  if (!isDesktop()) setSidebarOpen(false)
+                }}
+                onFolderCreated={handleFolderCreated}
+                onRenamed={handleRenamed}
+                onDeleted={handleDeleted}
               />
             </div>
           </div>
@@ -329,22 +338,24 @@ function App() {
               </div>
             )}
             <div className="min-w-0 flex-1">
-                          <Editor
-                            value={activeTab.content}
-                            onChange={(content) => updateTabContent(activeTab.path, content)}
-                            readOnly={readOnly || activeTab.path.startsWith('archives/')}
-            />
-                        </div>
+              <Editor
+                ref={editorRef}
+                value={activeTab.content}
+                onChange={(content) => updateTabContent(activeTab.path, content)}
+                readOnly={readOnly || activeTab.path.startsWith('archives/')}
+              />
+            </div>
+            <TableOfContents content={activeTab.content} onJump={(i) => editorRef.current?.scrollToHeading(i)} />
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center text-ink-secondary">
             <div className="text-center">
               <div className="mb-2">왼쪽에서 문서를 선택하세요</div>
               {readOnly ? (
-                <div className="text-xs text-ink-muted">Ctrl+P 찾기</div>
+                <div className="text-xs text-ink-muted">Ctrl+P 검색</div>
               ) : (
                 <>
-                  <div className="text-xs text-ink-muted">Ctrl+N 새 메모 · Ctrl+P 찾기</div>
+                  <div className="text-xs text-ink-muted">Ctrl+P 검색 · 사이드바에서 Insert로 새 파일</div>
                   <div className="mt-2 text-xs text-ink-faint">
                     Ctrl+S 저장 · Ctrl+Shift+S 커밋
                   </div>
@@ -374,19 +385,6 @@ function App() {
           </svg>
         </button>
       )}
-
-      {adrWizard && <NewAdrModal onClose={() => setAdrWizard(false)} onCreated={handleAdrCreated} />}
-      {quickOpen && (
-        <QuickOpen
-          tree={tree}
-          onClose={() => setQuickOpen(false)}
-          onSelect={(path) => {
-            openFile(path)
-            setQuickOpen(false)
-          }}
-        />
-      )}
-      {quickCreate && <QuickCreateModal onClose={() => setQuickCreate(false)} />}
     </div>
   )
 }
