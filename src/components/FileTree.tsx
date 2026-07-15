@@ -110,10 +110,19 @@ function ActionPopover({
 
   useEffect(() => {
     function onDown(e: PointerEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+      if (!ref.current || ref.current.contains(e.target as Node)) return
+      onClose()
+      // 팝오버를 닫은 이 상호작용이 그 아래 요소의 클릭(파일 열기/폴더 토글 등)까지
+      // 이어지지 않도록, 뒤따라올 click 이벤트 하나를 캡처 단계에서 삼킨다.
+      function swallowClick(ce: MouseEvent) {
+        ce.preventDefault()
+        ce.stopPropagation()
+      }
+      document.addEventListener('click', swallowClick, { capture: true, once: true })
+      setTimeout(() => document.removeEventListener('click', swallowClick, true), 0)
     }
-    document.addEventListener('pointerdown', onDown)
-    return () => document.removeEventListener('pointerdown', onDown)
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
   }, [onClose])
 
   const left = Math.min(x, window.innerWidth - 180)
@@ -176,13 +185,20 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
     }
   }
 
+  function handleContextMenu(e: React.MouseEvent) {
+    if (ctx.readOnly) return
+    e.preventDefault()
+    ctx.focusNode(node.path, node.type)
+    ctx.openPopover(node.path, node.type, e.clientX, e.clientY)
+  }
+
   const isFocused = ctx.focused?.path === node.path
   const touchProps = {
     onTouchStart,
     onTouchEnd: clearLongPress,
     onTouchMove: clearLongPress,
     onTouchCancel: clearLongPress,
-    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    onContextMenu: handleContextMenu,
   }
 
   const renameEditing = ctx.editing?.mode === 'rename' && ctx.editing.path === node.path ? ctx.editing : null
