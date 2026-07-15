@@ -19,9 +19,13 @@ import Link from '@tiptap/extension-link'
 import { TableKit } from '@tiptap/extension-table'
 import { NodeSelection } from '@tiptap/pm/state'
 import { Markdown } from 'tiptap-markdown'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from 'react'
 import { uploadAsset } from '../api/client'
 import { ResizableImage } from './ResizableImage'
+
+export interface EditorHandle {
+  scrollToHeading: (index: number) => void
+}
 
 function markdownForAsset(url: string, name: string, mimetype: string): string {
   const alt = name.replace(/\.[^.]+$/, '')
@@ -202,15 +206,14 @@ function LinkTooltip({ editor, position, initialHref, onClose }: LinkTooltipProp
   )
 }
 
-export function Editor({
-  value,
-  onChange,
-  readOnly,
-}: {
-  value: string
-  onChange: (value: string) => void
-  readOnly?: boolean
-}) {
+export const Editor = forwardRef<
+  EditorHandle,
+  {
+    value: string
+    onChange: (value: string) => void
+    readOnly?: boolean
+  }
+>(function Editor({ value, onChange, readOnly }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -514,6 +517,18 @@ export function Editor({
     }
   }, [editor, readOnly])
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToHeading(index: number) {
+        const headings = containerRef.current?.querySelectorAll('h1, h2, h3, h4, h5, h6')
+        const el = headings?.[index] as HTMLElement | undefined
+        el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      },
+    }),
+    [],
+  )
+
   async function insertUpload(file: File) {
     setUploading(true)
     setUploadError(null)
@@ -658,4 +673,4 @@ export function Editor({
       )}
     </div>
   )
-}
+})
