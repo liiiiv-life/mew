@@ -8,7 +8,8 @@ import { TableOfContents } from './components/TableOfContents'
 type Tab = {
   path: string
   content: string
-  savedContent: string
+  savedContent: string // 디스크에 마지막으로 저장된 내용 (자동저장 기준)
+  committedContent: string // 마지막 커밋 시점의 내용 (Commit 버튼 활성화 기준)
   rules: DocRules | null
   status: 'idle' | 'saving' | 'saved' | 'error'
   statusMessage?: string
@@ -27,8 +28,14 @@ function App() {
   // 서버 모드를 확인하기 전까지는 편집 UI를 숨긴다 (뷰어에서 깜빡임 방지)
   const [readOnly, setReadOnly] = useState(true)
   const editorRef = useRef<EditorHandle>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tabsRef = useRef<Tab[]>([])
 
   const activeTab = tabs.find((t) => t.path === activePath) ?? null
+
+  useEffect(() => {
+    tabsRef.current = tabs
+  }, [tabs])
 
   const refreshTree = () => fetchTree().then(setTree).catch(console.error)
 
@@ -50,7 +57,7 @@ function App() {
         setActivePath(path)
         return
       }
-      const newTab: Tab = { path, content: '', savedContent: '', rules: null, status: 'idle', preview }
+      const newTab: Tab = { path, content: '', savedContent: '', committedContent: '', rules: null, status: 'idle', preview }
       setTabs((prev) => {
         // 미리보기 탭은 하나만 유지 — 새로 여는 문서가 그 자리를 재사용
         const previewIdx = prev.findIndex((t) => t.preview)
@@ -63,7 +70,9 @@ function App() {
       fetchFile(path)
         .then(({ content }) => {
           setTabs((curr) =>
-            curr.map((t) => (t.path === path ? { ...t, content, savedContent: content, status: 'idle' } : t)),
+            curr.map((t) =>
+              t.path === path ? { ...t, content, savedContent: content, committedContent: content, status: 'idle' } : t,
+            ),
           )
         })
         .catch(console.error)
@@ -78,8 +87,52 @@ function App() {
     setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, preview: false } : t)))
   }, [])
 
+  // 경로 기준으로 디스크에 저장 (git 커밋 없음)
+  // tabsRef로 최신 content를 읽어 디바운스 스테일 문제를 피하고, setState 업데이터 안에서 부수효과(fetch)를
+  // 실행하지 않는다 — StrictMode가 업데이터 함수를 두 번 호출해 fetch가 중복 발생하는 것을 방지
+  const autosave = useCallback(
+    (path: string) => {
+      if (readOnly) return
+      const tab = tabsRef.current.find((t) => t.path === path)
+      if (!tab || tab.content === tab.savedContent || tab.path.startsWith('archives/')) return
+      const content = tab.content
+      setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, status: 'saving' } : t)))
+      saveFile(path, content, false)
+        .then(() => {
+          setTabs((curr) =>
+            curr.map((t) => (t.path === path && t.content === content ? { ...t, savedContent: content, status: 'saved', statusMessage: 'Saved' } : t)),
+          )
+        })
+        .catch((err) => {
+          setTabs((curr) =>
+            curr.map((t) =>
+              t.path === path ? { ...t, status: 'error', statusMessage: err instanceof Error ? err.message : String(err) } : t,
+            ),
+          )
+        })
+    },
+    [readOnly],
+  )
+
+  const scheduleAutosave = useCallback(
+    (path: string) => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null
+        autosave(path)
+      }, 500)
+    },
+    [autosave],
+  )
+
   const closeTab = useCallback(
     (path: string) => {
+      // 디바운스를 기다리지 않고 닫히는 탭의 변경 내용을 즉시 디스크에 반영
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      autosave(path)
       setTabs((prev) => {
         const next = prev.filter((t) => t.path !== path)
         if (path === activePath) {
@@ -89,22 +142,30 @@ function App() {
         return next
       })
     },
-    [activePath],
+    [activePath, autosave],
   )
 
-  const updateTabContent = useCallback((path: string, content: string) => {
-    // 편집이 시작되면 미리보기 탭을 고정 탭으로 승격 (VSCode와 동일)
-    setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, content, preview: false } : t)))
-  }, [])
+  const updateTabContent = useCallback(
+    (path: string, content: string) => {
+      // 편집이 시작되면 미리보기 탭을 고정 탭으로 승격 (VSCode와 동일)
+      setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, content, preview: false } : t)))
+      scheduleAutosave(path)
+    },
+    [scheduleAutosave],
+  )
 
   const saveCurrentTab = useCallback(
     async (commit = false) => {
       const tab = activeTab
       if (!tab || readOnly) return
-      const dirty = tab.content !== tab.savedContent
+      const dirty = commit ? tab.content !== tab.committedContent : tab.content !== tab.savedContent
       const isArchived = tab.path.startsWith('archives/')
       if (!dirty || isArchived) return
 
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
       setTabs((prev) => prev.map((t) => (t.path === tab.path ? { ...t, status: 'saving' } : t)))
       try {
         const result = await saveFile(tab.path, tab.content, commit)
@@ -113,7 +174,15 @@ function App() {
           : 'Saved'
         setTabs((prev) =>
           prev.map((t) =>
-            t.path === tab.path ? { ...t, savedContent: tab.content, status: 'saved', statusMessage: message } : t,
+            t.path === tab.path
+              ? {
+                  ...t,
+                  savedContent: tab.content,
+                  committedContent: commit ? tab.content : t.committedContent,
+                  status: 'saved',
+                  statusMessage: message,
+                }
+              : t,
           ),
         )
         if (commit) {
@@ -175,10 +244,7 @@ function App() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const mod = e.ctrlKey || e.metaKey
-      if (mod && !e.shiftKey && e.key === 's') {
-        e.preventDefault()
-        saveCurrentTab(false)
-      } else if (mod && e.shiftKey && e.key === 'S') {
+      if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault()
         saveCurrentTab(true)
       } else if (mod && e.key === 'p') {
@@ -192,7 +258,15 @@ function App() {
           setTabs((prev) => {
             const next = prev.filter((t) => t.path !== activePath)
             // 가장 마지막에 새 탭 열기
-            const newTab: Tab = { path: '', content: '', savedContent: '', rules: null, status: 'idle', preview: false }
+            const newTab: Tab = {
+              path: '',
+              content: '',
+              savedContent: '',
+              committedContent: '',
+              rules: null,
+              status: 'idle',
+              preview: false,
+            }
             const result = [...next, newTab]
             // 새 탭이 열렸으므로 그 탭을 활성화
             setActivePath(newTab.path)
@@ -229,24 +303,12 @@ function App() {
           {activeTab && <span className="hidden max-w-xs truncate text-ink-muted md:inline-block">{activePath}</span>}
           {!readOnly && (
             <>
-              {activeTab && activeTab.content !== activeTab.savedContent && !activeTab.path.startsWith('archives/') && (
-                <span className="text-warning" title="저장되지 않은 변경">●</span>
-              )}
-              <button
-                type="button"
-                onClick={() => saveCurrentTab(false)}
-                disabled={!activeTab || activeTab.content === activeTab.savedContent || activeTab.path.startsWith('archives/')}
-                className="rounded bg-surface-inverse px-3 py-1 text-ink-inverse disabled:opacity-40"
-                title="Ctrl+S"
-              >
-                Save
-              </button>
               <button
                 type="button"
                 onClick={() => saveCurrentTab(true)}
-                disabled={!activeTab || activeTab.content === activeTab.savedContent || activeTab.path.startsWith('archives/')}
+                disabled={!activeTab || activeTab.content === activeTab.committedContent || activeTab.path.startsWith('archives/')}
                 className="rounded bg-accent px-3 py-1 text-ink-on-accent disabled:opacity-40"
-                title="Ctrl+Shift+S"
+                title="Ctrl+S"
               >
                 Commit
               </button>
@@ -266,7 +328,6 @@ function App() {
       <div className="flex h-9 items-center overflow-x-auto border-b border-edge bg-surface-deep">
         {tabs.map((tab) => {
           const isActive = tab.path === activePath
-          const isDirty = tab.content !== tab.savedContent
           const fileName = tab.path.split('/').pop() ?? tab.path
           return (
             <div
@@ -277,7 +338,6 @@ function App() {
               onClick={() => setActivePath(tab.path)}
               onDoubleClick={() => pinTab(tab.path)}
             >
-              {isDirty && <span className="text-warning">●</span>}
               <span className={`max-w-[150px] truncate ${tab.preview ? 'italic' : ''}`}>{fileName}</span>
               <button
                 type="button"
@@ -358,9 +418,7 @@ function App() {
               ) : (
                 <>
                   <div className="text-xs text-ink-muted">Ctrl+P 검색 · 사이드바에서 Insert로 새 파일</div>
-                  <div className="mt-2 text-xs text-ink-faint">
-                    Ctrl+S 저장 · Ctrl+Shift+S 커밋
-                  </div>
+                  <div className="mt-2 text-xs text-ink-faint">자동 저장 · Ctrl+S 커밋</div>
                 </>
               )}
             </div>
