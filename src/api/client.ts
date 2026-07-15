@@ -86,6 +86,8 @@ export function uploadAsset(file: File): Promise<{ url: string; name: string; mi
   return fetch('/api/upload', { method: 'POST', body }).then(json<{ url: string; name: string; mimetype: string }>)
 }
 
+export type AgentProvider = 'hermes' | 'claude'
+
 export interface AgentSession {
   id: string
   title: string | null
@@ -101,25 +103,25 @@ export interface AgentMessage {
 
 export function chatWithAgent(
   message: string,
-  opts: { sessionId?: string; skill?: string; model?: string } = {},
+  opts: { sessionId?: string; skill?: string; model?: string; provider?: AgentProvider } = {},
 ): Promise<{ ok: boolean; response: string; sessionId: string | null }> {
   return fetch('/api/agent-chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, sessionId: opts.sessionId, skill: opts.skill, model: opts.model }),
+    body: JSON.stringify({ message, sessionId: opts.sessionId, skill: opts.skill, model: opts.model, provider: opts.provider }),
   }).then(json<{ ok: boolean; response: string; sessionId: string | null }>)
 }
 
-export function fetchAgentSessions(): Promise<AgentSession[]> {
-  return fetch('/api/agent-sessions').then(json<AgentSession[]>)
+export function fetchAgentSessions(provider: AgentProvider): Promise<AgentSession[]> {
+  return fetch(`/api/agent-sessions?provider=${provider}`).then(json<AgentSession[]>)
 }
 
-export function fetchAgentMessages(sessionId: string): Promise<AgentMessage[]> {
-  return fetch(`/api/agent-messages?id=${encodeURIComponent(sessionId)}`).then(json<AgentMessage[]>)
+export function fetchAgentMessages(provider: AgentProvider, sessionId: string): Promise<AgentMessage[]> {
+  return fetch(`/api/agent-messages?provider=${provider}&id=${encodeURIComponent(sessionId)}`).then(json<AgentMessage[]>)
 }
 
-export function fetchAgentSkills(): Promise<string[]> {
-  return fetch('/api/agent-skills').then(json<string[]>)
+export function fetchAgentSkills(provider: AgentProvider): Promise<string[]> {
+  return fetch(`/api/agent-skills?provider=${provider}`).then(json<string[]>)
 }
 
 export interface AgentModels {
@@ -127,6 +129,6 @@ export interface AgentModels {
   models: string[]
 }
 
-export function fetchAgentModels(): Promise<AgentModels> {
-  return fetch('/api/agent-models').then(json<AgentModels>)
+export function fetchAgentModels(provider: AgentProvider): Promise<AgentModels> {
+  return fetch(`/api/agent-models?provider=${provider}`).then(json<AgentModels>)
 }

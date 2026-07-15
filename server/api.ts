@@ -8,9 +8,13 @@ import { commitFile } from './git'
 import { evaluateRules, isArchived } from './rules'
 import { createDocument, createFolder, renamePath, deletePath, ConflictError } from './documents'
 import { uploadAsset, R2NotConfiguredError } from './r2'
-import { agentChat, getAgentSessionMessages, listAgentModels, listAgentSessions, listAgentSkills } from './agent'
+import { agentChat, getAgentSessionMessages, listAgentModels, listAgentSessions, listAgentSkills, type AgentProvider } from './agent'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
+
+function parseProvider(value: unknown): AgentProvider {
+  return value === 'claude' ? 'claude' : 'hermes'
+}
 
 export function createApiApp(opts: { readOnly?: boolean } = {}) {
   const readOnly = opts.readOnly ?? false
@@ -179,11 +183,12 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
   })
 
   app.post('/agent-chat', async (req, res) => {
-    const { message, sessionId, skill, model } = req.body as {
+    const { message, sessionId, skill, model, provider } = req.body as {
       message: string
       sessionId?: string
       skill?: string
       model?: string
+      provider?: AgentProvider
     }
     if (!message?.trim()) {
       res.status(400).json({ error: '메시지를 입력하세요' })
@@ -194,6 +199,7 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
         sessionId: sessionId || undefined,
         skill: skill || undefined,
         model: model || undefined,
+        provider,
       })
       res.json({ ok: true, response: text, sessionId: resultSessionId })
     } catch (err) {
@@ -201,9 +207,9 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
     }
   })
 
-  app.get('/agent-sessions', (_req, res) => {
+  app.get('/agent-sessions', (req, res) => {
     try {
-      res.json(listAgentSessions())
+      res.json(listAgentSessions(parseProvider(req.query.provider)))
     } catch (err) {
       handleError(res, err)
     }
@@ -216,23 +222,23 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
       return
     }
     try {
-      res.json(getAgentSessionMessages(sessionId))
+      res.json(getAgentSessionMessages(parseProvider(req.query.provider), sessionId))
     } catch (err) {
       handleError(res, err)
     }
   })
 
-  app.get('/agent-skills', (_req, res) => {
+  app.get('/agent-skills', (req, res) => {
     try {
-      res.json(listAgentSkills())
+      res.json(listAgentSkills(parseProvider(req.query.provider)))
     } catch (err) {
       handleError(res, err)
     }
   })
 
-  app.get('/agent-models', (_req, res) => {
+  app.get('/agent-models', (req, res) => {
     try {
-      res.json(listAgentModels())
+      res.json(listAgentModels(parseProvider(req.query.provider)))
     } catch (err) {
       handleError(res, err)
     }

@@ -6,14 +6,29 @@ import { homedir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 
 const exec = promisify(execFile)
+
+export type AgentProvider = 'hermes' | 'claude'
+
 const HERMES_BIN = path.join(homedir(), '.local', 'bin', 'hermes')
+const CLAUDE_BIN = path.join(homedir(), '.local', 'bin', 'claude')
 const DOCS_CWD = path.join(homedir(), 'dev', 'liiiiv')
-const PROVIDER = 'headroom'
-const DEFAULT_MODEL = 'google/gemini-3.1-flash-lite'
+
+const HEADROOM_PROVIDER = 'headroom'
+const DEFAULT_HERMES_MODEL = 'google/gemini-3.1-flash-lite'
 const HERMES_HOME = path.join(homedir(), '.hermes')
 const STATE_DB = path.join(HERMES_HOME, 'state.db')
-const SKILLS_DIR = path.join(HERMES_HOME, 'skills')
+const HERMES_SKILLS_DIR = path.join(HERMES_HOME, 'skills')
 const MODELS_CACHE = path.join(HERMES_HOME, 'provider_models_cache.json')
+
+const DEFAULT_CLAUDE_MODEL = 'sonnet'
+const CLAUDE_MODELS = ['sonnet', 'opus', 'haiku']
+const CLAUDE_HOME = path.join(homedir(), '.claude')
+const CLAUDE_SKILLS_DIR = path.join(CLAUDE_HOME, 'skills')
+// Claude Code keys session transcripts by cwd, encoded as the absolute path with '/' -> '-'
+const CLAUDE_PROJECT_DIR = path.join(CLAUDE_HOME, 'projects', DOCS_CWD.replace(/\//g, '-'))
+// docs-editor's own record of sessions it created — Claude Code has no equivalent to Hermes'
+// state.db "source = 'cli'" filter, so we track just the ones started from this app.
+const CLAUDE_SESSIONS_REGISTRY = path.join(homedir(), '.docs-editor', 'claude-sessions.json')
 
 export interface AgentSession {
   id: string
@@ -37,7 +52,7 @@ async function callHermes(
   prompt: string,
   opts: { skill?: string; resume?: string; model?: string; timeoutMs?: number } = {},
 ): Promise<CallResult> {
-  const args = ['chat', '-Q', '-q', prompt, '--provider', PROVIDER, '-m', opts.model || DEFAULT_MODEL]
+  const args = ['chat', '-Q', '-q', prompt, '--provider', HEADROOM_PROVIDER, '-m', opts.model || DEFAULT_HERMES_MODEL]
   if (opts.skill) args.push('-s', opts.skill)
   if (opts.resume) args.push('--resume', opts.resume)
 
@@ -51,7 +66,7 @@ async function callHermes(
   // strip terminal escape codes and control chars; keep readable text only
   const clean = stdout
     .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-    .replace(/[\r\u0007]/g, '')
+    .replace(/[\r]/g, '')
     .replace(/^\s*─+\s*⚕ Hermes\s*─+\s*/m, '')
     .split('\n')
     .filter((l) => !/^(\s*─+\s*$|Query:)/.test(l))
@@ -64,11 +79,60 @@ async function callHermes(
   return { text: clean || '(no response)', sessionId }
 }
 
+interface ClaudePrintResult {
+  subtype: string
+  is_error: boolean
+  result?: string
+  session_id: string
+}
+
+async function callClaude(
+  prompt: string,
+  opts: { skill?: string; resume?: string; model?: string; timeoutMs?: number } = {},
+): Promise<CallResult> {
+  // Claude Code has no CLI flag for skills — they're invoked as /skill-name inside the prompt itself.
+  const fullPrompt = opts.skill ? `/${opts.skill} ${prompt}` : prompt
+  const args = [
+    '-p',
+    fullPrompt,
+    '--output-format',
+    'json',
+    '--model',
+    opts.model || DEFAULT_CLAUDE_MODEL,
+    // Non-interactive: nothing can answer a permission prompt, so this session must be trusted
+    // up front. Reachable only from the read-write dev server — the read-only viewer already
+    // blocks every non-GET /api/* route, including this one.
+    '--permission-mode',
+    'bypassPermissions',
+  ]
+  if (opts.resume) args.push('--resume', opts.resume)
+
+  const { stdout } = await exec(CLAUDE_BIN, args, {
+    cwd: DOCS_CWD,
+    timeout: opts.timeoutMs ?? 120_000,
+    maxBuffer: 20 * 1024 * 1024,
+  })
+
+  let parsed: ClaudePrintResult
+  try {
+    parsed = JSON.parse(stdout) as ClaudePrintResult
+  } catch {
+    throw new Error(`Claude Code 응답을 파싱할 수 없습니다: ${stdout.slice(0, 500)}`)
+  }
+  if (parsed.is_error || parsed.subtype !== 'success') {
+    throw new Error(parsed.result || `Claude Code 오류 (${parsed.subtype})`)
+  }
+
+  recordClaudeSession(parsed.session_id, prompt)
+  return { text: parsed.result || '(no response)', sessionId: parsed.session_id }
+}
+
 export async function agentChat(
   prompt: string,
-  opts: { sessionId?: string; skill?: string; model?: string } = {},
+  opts: { sessionId?: string; skill?: string; model?: string; provider?: AgentProvider } = {},
 ): Promise<CallResult> {
-  return callHermes(prompt, {
+  const call = opts.provider === 'claude' ? callClaude : callHermes
+  return call(prompt, {
     resume: opts.sessionId,
     skill: opts.skill,
     model: opts.model,
@@ -80,7 +144,7 @@ function openStateDb(): DatabaseSync {
   return new DatabaseSync(STATE_DB, { readOnly: true })
 }
 
-export function listAgentSessions(limit = 30): AgentSession[] {
+function listHermesSessions(limit: number): AgentSession[] {
   const db = openStateDb()
   try {
     const rows = db
@@ -104,7 +168,7 @@ export function listAgentSessions(limit = 30): AgentSession[] {
   }
 }
 
-export function getAgentSessionMessages(sessionId: string): AgentMessage[] {
+function getHermesSessionMessages(sessionId: string): AgentMessage[] {
   const db = openStateDb()
   try {
     return db
@@ -119,35 +183,114 @@ export function getAgentSessionMessages(sessionId: string): AgentMessage[] {
   }
 }
 
-export function listAgentModels(): { default: string; models: string[] } {
+interface ClaudeSessionRecord {
+  id: string
+  title: string
+  startedAt: number
+  lastActiveAt: number
+  messageCount: number
+}
+
+function readClaudeRegistry(): ClaudeSessionRecord[] {
+  try {
+    return JSON.parse(fs.readFileSync(CLAUDE_SESSIONS_REGISTRY, 'utf-8')) as ClaudeSessionRecord[]
+  } catch {
+    return []
+  }
+}
+
+function recordClaudeSession(sessionId: string, firstPrompt: string) {
+  const records = readClaudeRegistry()
+  const now = Math.floor(Date.now() / 1000)
+  const existing = records.find((r) => r.id === sessionId)
+  if (existing) {
+    existing.lastActiveAt = now
+    existing.messageCount += 1
+  } else {
+    records.unshift({ id: sessionId, title: firstPrompt.slice(0, 60), startedAt: now, lastActiveAt: now, messageCount: 1 })
+  }
+  fs.mkdirSync(path.dirname(CLAUDE_SESSIONS_REGISTRY), { recursive: true })
+  fs.writeFileSync(CLAUDE_SESSIONS_REGISTRY, JSON.stringify(records.slice(0, 100), null, 2), 'utf-8')
+}
+
+function listClaudeSessions(limit: number): AgentSession[] {
+  return readClaudeRegistry()
+    .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+    .slice(0, limit)
+    .map((r) => ({ id: r.id, title: r.title, startedAt: r.startedAt, lastActiveAt: r.lastActiveAt, messageCount: r.messageCount }))
+}
+
+function getClaudeSessionMessages(sessionId: string): AgentMessage[] {
+  const transcriptPath = path.join(CLAUDE_PROJECT_DIR, `${sessionId}.jsonl`)
+  if (!fs.existsSync(transcriptPath)) return []
+  const messages: AgentMessage[] = []
+  for (const line of fs.readFileSync(transcriptPath, 'utf-8').split('\n')) {
+    if (!line.trim()) continue
+    let entry: { type?: string; message?: { content?: unknown } }
+    try {
+      entry = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (entry.type !== 'user' && entry.type !== 'assistant') continue
+    const content = entry.message?.content
+    const text = Array.isArray(content)
+      ? content
+          .filter((b): b is { type: string; text: string } => typeof b === 'object' && b !== null && b.type === 'text')
+          .map((b) => b.text)
+          .join('\n')
+      : typeof content === 'string'
+        ? content
+        : ''
+    if (text.trim()) messages.push({ role: entry.type, content: text })
+  }
+  return messages
+}
+
+export function listAgentSessions(provider: AgentProvider = 'hermes', limit = 30): AgentSession[] {
+  return provider === 'claude' ? listClaudeSessions(limit) : listHermesSessions(limit)
+}
+
+export function getAgentSessionMessages(provider: AgentProvider, sessionId: string): AgentMessage[] {
+  return provider === 'claude' ? getClaudeSessionMessages(sessionId) : getHermesSessionMessages(sessionId)
+}
+
+function listHermesModels(): { default: string; models: string[] } {
   // headroom은 OpenRouter 프록시이므로 hermes의 openrouter 모델 캐시를 그대로 쓴다
   let models: string[] = []
   try {
-    const cache = JSON.parse(fs.readFileSync(MODELS_CACHE, 'utf-8')) as Record<
-      string,
-      { models?: string[] }
-    >
+    const cache = JSON.parse(fs.readFileSync(MODELS_CACHE, 'utf-8')) as Record<string, { models?: string[] }>
     models = cache.openrouter?.models ?? []
   } catch {
     // 캐시가 없으면 기본 모델만 노출
   }
-  if (!models.includes(DEFAULT_MODEL)) models = [DEFAULT_MODEL, ...models]
-  return { default: DEFAULT_MODEL, models }
+  if (!models.includes(DEFAULT_HERMES_MODEL)) models = [DEFAULT_HERMES_MODEL, ...models]
+  return { default: DEFAULT_HERMES_MODEL, models }
 }
 
-export function listAgentSkills(): string[] {
-  // a skill is any directory holding a SKILL.md, either at the top level or one category level down
+export function listAgentModels(provider: AgentProvider = 'hermes'): { default: string; models: string[] } {
+  if (provider === 'claude') return { default: DEFAULT_CLAUDE_MODEL, models: CLAUDE_MODELS }
+  return listHermesModels()
+}
+
+// a skill is any directory holding a SKILL.md, either at the top level or one category level down
+function scanSkillsDir(dir: string): string[] {
+  if (!fs.existsSync(dir)) return []
   const names = new Set<string>()
-  for (const entry of fs.readdirSync(SKILLS_DIR, { withFileTypes: true })) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
-    const dir = path.join(SKILLS_DIR, entry.name)
-    if (fs.existsSync(path.join(dir, 'SKILL.md'))) {
+    const sub = path.join(dir, entry.name)
+    if (fs.existsSync(path.join(sub, 'SKILL.md'))) {
       names.add(entry.name)
       continue
     }
-    for (const sub of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (sub.isDirectory() && fs.existsSync(path.join(dir, sub.name, 'SKILL.md'))) names.add(sub.name)
+    for (const inner of fs.readdirSync(sub, { withFileTypes: true })) {
+      if (inner.isDirectory() && fs.existsSync(path.join(sub, inner.name, 'SKILL.md'))) names.add(inner.name)
     }
   }
   return [...names].sort()
+}
+
+export function listAgentSkills(provider: AgentProvider = 'hermes'): string[] {
+  return scanSkillsDir(provider === 'claude' ? CLAUDE_SKILLS_DIR : HERMES_SKILLS_DIR)
 }
