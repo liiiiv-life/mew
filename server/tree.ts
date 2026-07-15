@@ -9,7 +9,14 @@ export interface TreeNode {
   children?: TreeNode[]
 }
 
-const IGNORE = new Set(['.git', 'node_modules', '.foam', '.github', '.obsidian', '.tokensave', '.new'])
+const IGNORE = new Set(['.git', 'node_modules', '.foam', '.github', '.obsidian', '.tokensave', '.vscode'])
+
+const TOP_LEVEL_DIR_ORDER = ['.new', 'company', 'products', 'programs', 'events', 'ops', 'decisions', 'archives']
+
+function topLevelRank(name: string): number {
+  const index = TOP_LEVEL_DIR_ORDER.indexOf(name)
+  return index === -1 ? TOP_LEVEL_DIR_ORDER.length : index
+}
 
 function walk(absDir: string, relDir: string): TreeNode[] {
   const entries = fs.readdirSync(absDir, { withFileTypes: true })
@@ -26,6 +33,10 @@ function walk(absDir: string, relDir: string): TreeNode[] {
   }
   nodes.sort((a, b) => {
     if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+    if (relDir === '' && a.type === 'dir') {
+      const rankDiff = topLevelRank(a.name) - topLevelRank(b.name)
+      if (rankDiff !== 0) return rankDiff
+    }
     return a.name.localeCompare(b.name)
   })
   return nodes
