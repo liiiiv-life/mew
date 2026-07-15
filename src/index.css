@@ -1,0 +1,72 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+@variant dark (&:where(.dark, .dark *));
+
+/*
+ * 시맨틱 디자인 토큰 (SSoT)
+ * - 색은 여기서만 정의한다. 컴포넌트는 생성된 유틸리티(bg-surface, text-ink 등)를,
+ *   런타임 <style> 블록은 var(--color-*)를 사용한다.
+ * - 라이트 테마가 필요해지면 :root 스코프 오버라이드로 값만 갈아끼우면 된다.
+ */
+@theme {
+  --font-sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  /* 배경 */
+  --color-surface-deep: #0a0a0a; /* 에디터 본문·탭바·사이드바 */
+  --color-surface: #171717; /* 앱 기본 배경 */
+  --color-surface-raised: #262626; /* 패널·배지·활성 탭·호버 */
+  --color-surface-hover: #404040; /* 한 단계 더 밝은 호버 */
+  --color-surface-inverse: #ffffff; /* 밝은 솔리드 버튼(Save 등) */
+
+  /* 테두리 */
+  --color-edge: #262626; /* 구조 구분선 */
+  --color-edge-strong: #404040; /* 컨트롤·테이블 테두리 */
+  --color-edge-bright: #525252; /* 포커스·강조 테두리 */
+
+  /* 텍스트 */
+  --color-ink-bright: #fafafa; /* 제목 */
+  --color-ink: #e5e5e5; /* 본문 */
+  --color-ink-soft: #d4d4d4;
+  --color-ink-secondary: #a3a3a3;
+  --color-ink-muted: #737373; /* 힌트·보조 설명 */
+  --color-ink-faint: #525252; /* 플레이스홀더 */
+  --color-ink-inverse: #171717; /* 밝은 배경 위 텍스트 */
+  --color-ink-on-accent: #ffffff; /* 컬러 솔리드 배경 위 텍스트 */
+
+  /* 액센트 */
+  --color-accent: #3b82f6;
+  --color-accent-strong: #2563eb;
+  --color-link: #60a5fa;
+
+  /* 상태 */
+  --color-warning: #f59e0b;
+  --color-warning-surface: #78350f;
+  --color-warning-ink: #fef3c7;
+  --color-danger: #ef4444;
+  --color-danger-strong: #dc2626;
+  --color-danger-surface: #450a0a;
+  --color-danger-ink: #fca5a5;
+  --color-success: #059669;
+  --color-success-surface: #022c22;
+  --color-success-ink: #6ee7b7;
+
+  /* 에디터 전용 */
+  --color-code: #f97316; /* 인라인 코드 텍스트 */
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+}
