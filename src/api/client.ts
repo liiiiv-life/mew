@@ -132,3 +132,34 @@ export interface AgentModels {
 export function fetchAgentModels(provider: AgentProvider): Promise<AgentModels> {
   return fetch(`/api/agent-models?provider=${provider}`).then(json<AgentModels>)
 }
+
+export interface TmuxSession {
+  name: string
+  createdAt: number
+  attached: boolean
+  windows: number
+}
+
+export function fetchTmuxSessions(): Promise<TmuxSession[]> {
+  return fetch('/api/tmux/sessions').then(json<TmuxSession[]>)
+}
+
+export function createTmuxSession(name: string): Promise<{ ok: true; name: string }> {
+  return fetch('/api/tmux/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  }).then(json<{ ok: true; name: string }>)
+}
+
+export function killTmuxSession(name: string): Promise<{ ok: true }> {
+  return fetch(`/api/tmux/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+}
+
+export function renameTmuxSession(name: string, newName: string): Promise<{ ok: true; name: string }> {
+  return fetch(`/api/tmux/sessions/${encodeURIComponent(name)}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newName }),
+  }).then(json<{ ok: true; name: string }>)
+}
