@@ -35,7 +35,8 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
   }
 
   app.get('/mode', (_req, res) => {
-    res.json({ readOnly })
+    // 읽기 전용(게스트 터널) 모드에서는 서버 파일시스템 절대경로(홈 디렉터리명 등)를 노출하지 않는다
+    res.json({ readOnly, docsRoot: readOnly ? null : DOCS_ROOT })
   })
 
   app.get('/tree', (_req, res) => {
