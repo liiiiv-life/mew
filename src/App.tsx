@@ -3,7 +3,13 @@ import { fetchFile, fetchMode, fetchRules, fetchTree, saveFile, type TreeNode, t
 import { FileTree } from './components/FileTree'
 import { Editor, type EditorHandle } from './components/Editor'
 import { AgentSidebar } from './components/AgentSidebar'
+import { TmuxTerminalPanel } from './components/TmuxTerminalPanel'
 import { TableOfContents } from './components/TableOfContents'
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen()
+  else document.documentElement.requestFullscreen().catch(() => {})
+}
 
 type Tab = {
   path: string
@@ -14,9 +20,24 @@ type Tab = {
   status: 'idle' | 'saving' | 'saved' | 'error'
   statusMessage?: string
   preview: boolean
+  viewMode: 'hotview' | 'plain'
 }
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
+
+const TMUX_WIDTH_KEY = 'docs-editor:tmux-panel-width'
+const TMUX_WIDTH_MIN = 320
+const TMUX_WIDTH_MAX = 1000
+const TMUX_WIDTH_DEFAULT = 640
+
+function clampTmuxWidth(w: number): number {
+  return Math.min(TMUX_WIDTH_MAX, Math.max(TMUX_WIDTH_MIN, w))
+}
+
+function loadTmuxWidth(): number {
+  const stored = Number(localStorage.getItem(TMUX_WIDTH_KEY))
+  return Number.isFinite(stored) && stored > 0 ? clampTmuxWidth(stored) : TMUX_WIDTH_DEFAULT
+}
 
 function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
@@ -24,25 +45,49 @@ function App() {
   const [activePath, setActivePath] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   const [agentOpen, setAgentOpen] = useState(false)
+  const [tmuxOpen, setTmuxOpen] = useState(false)
+  const [tmuxWidth, setTmuxWidth] = useState(loadTmuxWidth)
+  const [fabMenuOpen, setFabMenuOpen] = useState(false)
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
   // 서버 모드를 확인하기 전까지는 편집 UI를 숨긴다 (뷰어에서 깜빡임 방지)
   const [readOnly, setReadOnly] = useState(true)
+  const [docsRoot, setDocsRoot] = useState<string | null>(null)
   const editorRef = useRef<EditorHandle>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tabsRef = useRef<Tab[]>([])
 
   const activeTab = tabs.find((t) => t.path === activePath) ?? null
+  const activeAbsolutePath = docsRoot && activeTab ? `${docsRoot}/${activeTab.path}` : null
 
   useEffect(() => {
     tabsRef.current = tabs
   }, [tabs])
+
+  // 모바일 키보드가 뜨면 visualViewport만 줄어들고 레이아웃 뷰포트(100dvh)는 그대로인 브라우저가 있어
+  // (iOS Safari 등, interactive-widget 메타 태그 미지원) 실제 보이는 높이를 직접 재서 반영한다
+  useEffect(() => {
+    function updateAppHeight() {
+      const height = window.visualViewport?.height ?? window.innerHeight
+      document.documentElement.style.setProperty('--app-height', `${height}px`)
+    }
+    updateAppHeight()
+    window.visualViewport?.addEventListener('resize', updateAppHeight)
+    window.addEventListener('resize', updateAppHeight)
+    return () => {
+      window.visualViewport?.removeEventListener('resize', updateAppHeight)
+      window.removeEventListener('resize', updateAppHeight)
+    }
+  }, [])
 
   const refreshTree = () => fetchTree().then(setTree).catch(console.error)
 
   useEffect(() => {
     refreshTree()
     fetchMode()
-      .then(({ readOnly }) => setReadOnly(readOnly))
+      .then(({ readOnly, docsRoot }) => {
+        setReadOnly(readOnly)
+        setDocsRoot(docsRoot)
+      })
       .catch(console.error)
   }, [])
 
@@ -57,7 +102,7 @@ function App() {
         setActivePath(path)
         return
       }
-      const newTab: Tab = { path, content: '', savedContent: '', committedContent: '', rules: null, status: 'idle', preview }
+      const newTab: Tab = { path, content: '', savedContent: '', committedContent: '', rules: null, status: 'idle', preview, viewMode: 'hotview' }
       setTabs((prev) => {
         // 미리보기 탭은 하나만 유지 — 새로 여는 문서가 그 자리를 재사용
         const previewIdx = prev.findIndex((t) => t.preview)
@@ -85,6 +130,10 @@ function App() {
 
   const pinTab = useCallback((path: string) => {
     setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, preview: false } : t)))
+  }, [])
+
+  const setTabViewMode = useCallback((path: string, viewMode: Tab['viewMode']) => {
+    setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, viewMode } : t)))
   }, [])
 
   // 경로 기준으로 디스크에 저장 (git 커밋 없음)
@@ -251,7 +300,9 @@ function App() {
         e.preventDefault()
         setSidebarOpen(true)
         setSearchFocusSignal((s) => s + 1)
-      } else if (mod && e.key === 'w') {
+      } else if (e.altKey && e.code === 'KeyW') {
+        // Ctrl+W는 Chromium이 예약한 브라우저 단축키라 preventDefault로 막을 수 없어 Alt+W를 대신 쓴다
+        // (e.code로 비교 — macOS에서 Option+문자는 e.key가 특수문자로 바뀌어 레이아웃에 취약함)
         e.preventDefault()
         if (activePath) {
           // 현재 탭 닫기
@@ -266,6 +317,7 @@ function App() {
               rules: null,
               status: 'idle',
               preview: false,
+              viewMode: 'hotview',
             }
             const result = [...next, newTab]
             // 새 탭이 열렸으므로 그 탭을 활성화
@@ -273,14 +325,54 @@ function App() {
             return result
           })
         }
+      } else if (e.altKey && e.code === 'KeyN') {
+        // Ctrl+N도 마찬가지로 브라우저 예약 단축키라 가로챌 수 없어 Alt+N을 쓴다
+        e.preventDefault()
+        setTabs((prev) => {
+          const newTab: Tab = {
+            path: '',
+            content: '',
+            savedContent: '',
+            committedContent: '',
+            rules: null,
+            status: 'idle',
+            preview: false,
+            viewMode: 'hotview',
+          }
+          setActivePath(newTab.path)
+          return [...prev, newTab]
+        })
+      } else if (e.altKey && e.code === 'Enter') {
+        e.preventDefault()
+        toggleFullscreen()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [saveCurrentTab, closeTab, activePath])
 
+  function startTmuxResize(e: React.PointerEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = tmuxWidth
+    function onMove(ev: PointerEvent) {
+      // 패널이 화면 오른쪽에 붙어 있으므로 왼쪽으로 끌수록(dx 음수) 넓어진다
+      setTmuxWidth(clampTmuxWidth(startWidth - (ev.clientX - startX)))
+    }
+    function onUp() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setTmuxWidth((w) => {
+        localStorage.setItem(TMUX_WIDTH_KEY, String(w))
+        return w
+      })
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
   return (
-    <div className="flex h-dvh flex-col bg-surface text-ink">
+    <div className="flex flex-col bg-surface text-ink" style={{ height: 'var(--app-height, 100dvh)' }}>
       <header className="flex items-center justify-between border-b border-edge px-4 py-2">
         <div className="flex items-center gap-2">
           <button
@@ -397,15 +489,52 @@ function App() {
                 archives/ 문서는 불변입니다 — 편집이 차단되었습니다
               </div>
             )}
-            <div className="min-w-0 flex-1">
-              <Editor
-                ref={editorRef}
-                value={activeTab.content}
-                onChange={(content) => updateTabContent(activeTab.path, content)}
-                readOnly={readOnly || activeTab.path.startsWith('archives/')}
-                path={activeTab.path}
-                tree={tree}
-              />
+            <div className="relative min-w-0 flex-1">
+              {activeTab.path.endsWith('.md') && (
+                <div className="absolute right-3 top-3 z-20 flex overflow-hidden rounded border border-edge-strong text-xs shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setTabViewMode(activeTab.path, 'hotview')}
+                    className={`px-2 py-1 ${
+                      activeTab.viewMode === 'hotview'
+                        ? 'bg-accent text-ink-on-accent'
+                        : 'bg-surface-raised text-ink-secondary hover:bg-surface-hover'
+                    }`}
+                  >
+                    Hotview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTabViewMode(activeTab.path, 'plain')}
+                    className={`px-2 py-1 ${
+                      activeTab.viewMode === 'plain'
+                        ? 'bg-accent text-ink-on-accent'
+                        : 'bg-surface-raised text-ink-secondary hover:bg-surface-hover'
+                    }`}
+                  >
+                    Plain
+                  </button>
+                </div>
+              )}
+              {activeTab.viewMode === 'plain' ? (
+                <textarea
+                  value={activeTab.content}
+                  onChange={(e) => updateTabContent(activeTab.path, e.target.value)}
+                  readOnly={readOnly || activeTab.path.startsWith('archives/')}
+                  spellCheck={false}
+                  className="h-full w-full resize-none bg-surface-deep p-8 font-mono text-sm text-ink outline-none"
+                />
+              ) : (
+                <Editor
+                  ref={editorRef}
+                  value={activeTab.content}
+                  onChange={(content) => updateTabContent(activeTab.path, content)}
+                  readOnly={readOnly || activeTab.path.startsWith('archives/')}
+                  path={activeTab.path}
+                  tree={tree}
+                  onOpenLink={(linkPath) => openFile(linkPath)}
+                />
+              )}
             </div>
             <TableOfContents content={activeTab.content} onJump={(i) => editorRef.current?.scrollToHeading(i)} />
           </>
@@ -427,23 +556,101 @@ function App() {
 
         {agentOpen && (
           <div className="fixed inset-0 z-30 md:static md:z-auto md:w-96 md:shrink-0 md:border-l md:border-edge">
-            <AgentSidebar onClose={() => setAgentOpen(false)} />
+            <AgentSidebar onClose={() => setAgentOpen(false)} activeFilePath={activeAbsolutePath} />
+          </div>
+        )}
+
+        {tmuxOpen && (
+          <div className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0" style={{ width: isDesktop() ? tmuxWidth : undefined }}>
+            <div
+              onPointerDown={startTmuxResize}
+              className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
+              aria-hidden="true"
+            />
+            <div className="min-w-0 flex-1">
+              <TmuxTerminalPanel onClose={() => setTmuxOpen(false)} activeFilePath={activeAbsolutePath} />
+            </div>
           </div>
         )}
       </div>
 
-      {!readOnly && !agentOpen && (
-        <button
-          type="button"
-          onClick={() => setAgentOpen(true)}
-          className="fixed right-4 bottom-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-accent-strong text-ink-on-accent shadow-lg hover:bg-accent"
-          title="에이전트 채팅"
-          aria-label="에이전트 채팅 열기"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-          </svg>
-        </button>
+      {!readOnly && !agentOpen && !tmuxOpen && (
+        <>
+          {fabMenuOpen && <div className="fixed inset-0 z-30" onClick={() => setFabMenuOpen(false)} />}
+          <div className="fixed right-4 bottom-4 z-40 flex flex-col items-center gap-3">
+            {fabMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    toggleFullscreen()
+                    setFabMenuOpen(false)
+                  }}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
+                  title="전체화면 (Alt+Enter)"
+                  aria-label="전체화면 토글"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                    <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+                    <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+                    <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAgentOpen(true)
+                    setFabMenuOpen(false)
+                  }}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
+                  title="에이전트 채팅"
+                  aria-label="에이전트 채팅 열기"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTmuxOpen(true)
+                    setFabMenuOpen(false)
+                  }}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
+                  title="터미널"
+                  aria-label="터미널 열기"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                    <path d="m7 9 3 3-3 3" />
+                    <line x1="13" y1="15" x2="17" y2="15" />
+                  </svg>
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setFabMenuOpen((v) => !v)}
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
+              title={fabMenuOpen ? '닫기' : '메뉴'}
+              aria-label={fabMenuOpen ? '메뉴 닫기' : '메뉴 열기'}
+            >
+              {fabMenuOpen ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="5" cy="12" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="19" cy="12" r="2" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </>
       )}
     </div>
   )
