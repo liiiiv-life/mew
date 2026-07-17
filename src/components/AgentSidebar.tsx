@@ -55,6 +55,53 @@ function makeTab(provider: AgentProvider, defaultModel: string): AgentTab {
   }
 }
 
+function NewChatButton({ onPick }: { onPick: (provider: AgentProvider) => void }) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="새 대화"
+        aria-label="새 대화 시작"
+        aria-haspopup="true"
+        aria-expanded={open}
+        className="rounded border border-edge-strong px-2 py-0.5 text-xs text-ink-secondary hover:bg-surface-raised"
+      >
+        +
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-10 mt-1 min-w-32 overflow-hidden rounded-lg border border-edge-strong bg-surface py-1 shadow-lg">
+          {PROVIDERS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                onPick(p.id)
+                setOpen(false)
+              }}
+              className="block w-full whitespace-nowrap px-3 py-1.5 text-left text-xs text-ink-soft hover:bg-surface-raised hover:text-ink"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ModelPicker({
   models,
   value,
@@ -368,17 +415,7 @@ export function AgentSidebar({ onClose, activeFilePath }: { onClose?: () => void
           </div>
         ))}
         <div className="flex shrink-0 items-center gap-1 px-2">
-          {PROVIDERS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => addTab(p.id)}
-              title={`새 ${p.label} 대화`}
-              className="rounded border border-edge-strong px-1.5 py-0.5 text-xs text-ink-secondary hover:bg-surface-raised"
-            >
-              + {p.label}
-            </button>
-          ))}
+          <NewChatButton onPick={addTab} />
         </div>
       </div>
 
