@@ -9,6 +9,7 @@ import { evaluateRules, isArchived } from './rules'
 import { createDocument, createFolder, renamePath, deletePath, ConflictError } from './documents'
 import { uploadAsset, R2NotConfiguredError } from './r2'
 import { agentChat, getAgentSessionMessages, listAgentModels, listAgentSessions, listAgentSkills, type AgentProvider } from './agent'
+import { createTmuxSession, killTmuxSession, listTmuxSessions, renameTmuxSession, TmuxError } from './tmux'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
 
@@ -244,6 +245,43 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
     }
   })
 
+  app.get('/tmux/sessions', async (_req, res) => {
+    try {
+      res.json(await listTmuxSessions())
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/tmux/sessions', async (req, res) => {
+    const { name } = req.body as { name: string }
+    try {
+      await createTmuxSession(name)
+      res.json({ ok: true, name })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.delete('/tmux/sessions/:name', async (req, res) => {
+    try {
+      await killTmuxSession(req.params.name)
+      res.json({ ok: true })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/tmux/sessions/:name/rename', async (req, res) => {
+    const { newName } = req.body as { newName: string }
+    try {
+      await renameTmuxSession(req.params.name, newName)
+      res.json({ ok: true, name: newName })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   return app
 }
 
@@ -258,6 +296,10 @@ function handleError(res: express.Response, err: unknown) {
   }
   if (err instanceof R2NotConfiguredError) {
     res.status(503).json({ error: err.message })
+    return
+  }
+  if (err instanceof TmuxError) {
+    res.status(400).json({ error: err.message })
     return
   }
   if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
