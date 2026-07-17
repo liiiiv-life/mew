@@ -57,11 +57,17 @@ function InlineInput({
   paddingLeft: number
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const committedRef = useRef(false)
 
   useEffect(() => {
     inputRef.current?.focus()
     inputRef.current?.select()
   }, [])
+
+  // 서버가 에러를 돌려주면 재시도할 수 있도록 커밋 잠금을 푼다
+  useEffect(() => {
+    if (error) committedRef.current = false
+  }, [error])
 
   return (
     <div style={{ paddingLeft }} className="py-0.5 pr-2">
@@ -74,13 +80,26 @@ function InlineInput({
           e.stopPropagation()
           if (e.key === 'Enter') {
             e.preventDefault()
+            // 한글 등 IME 조합 확정용 Enter는 무시 — 조합 중 상태로 한 번, 실제 제출로 또
+            // 한 번 발화되어 submitEdit이 중복 실행되는 것을 막는다 (keyCode 229는 구형 브라우저 호환)
+            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
+            if (committedRef.current) return
+            committedRef.current = true
             onCommit()
           } else if (e.key === 'Escape') {
             e.preventDefault()
             onCancel()
           }
         }}
-        onBlur={onCancel}
+        onBlur={() => {
+          // 포커스를 잃으면 취소가 아니라 커밋을 시도한다 — 모바일에서 엔터 키 이벤트가
+          // 안정적으로 발화되지 않는 경우가 있어(키보드 자동 닫힘 등), blur를 곧 "완료 의도"로
+          // 취급해야 "아무 반응 없음"으로 보이는 상황을 막을 수 있다. 값이 안 바뀐 경우엔
+          // onCommit 내부에서 알아서 무동작 처리됨. 명시적 취소는 Escape로만 가능하다.
+          if (committedRef.current) return
+          committedRef.current = true
+          onCommit()
+        }}
         placeholder={placeholder}
         className="w-full rounded border border-accent bg-surface px-1.5 py-0.5 text-sm text-ink outline-none"
       />
@@ -302,8 +321,13 @@ export function FileTree({
   const [popover, setPopover] = useState<PopoverState>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const initializedOpenDirs = useRef(false)
+  const isFirstSearchFocus = useRef(true)
 
   useEffect(() => {
+    if (isFirstSearchFocus.current) {
+      isFirstSearchFocus.current = false
+      return
+    }
     searchInputRef.current?.focus()
   }, [searchFocusSignal])
 
@@ -380,7 +404,7 @@ export function FileTree({
 
   async function submitEdit() {
     const current = editing
-    if (!current) return
+    if (!current || current.busy) return
 
     if (current.mode === 'rename') {
       let name = current.value.trim()
