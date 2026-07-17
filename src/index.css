@@ -6,7 +6,7 @@
  * 시맨틱 디자인 토큰 (SSoT)
  * - 색은 여기서만 정의한다. 컴포넌트는 생성된 유틸리티(bg-surface, text-ink 등)를,
  *   런타임 <style> 블록은 var(--color-*)를 사용한다.
- * - 라이트 테마가 필요해지면 :root 스코프 오버라이드로 값만 갈아끼우면 된다.
+ * - 여기 있는 값은 다크 테마(기본값). 라이트 테마 오버라이드는 아래 `:root:not(.dark)` 참고.
  */
 @theme {
   --font-sans: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -56,6 +56,47 @@
 
 :root {
   color-scheme: dark;
+}
+
+/* 라이트 테마 — html에서 .dark 클래스를 빼면 여기로 떨어진다 (SSoT 주석에서 예고된 방식) */
+:root:not(.dark) {
+  color-scheme: light;
+
+  --color-surface-deep: #ffffff;
+  --color-surface: #f5f5f5;
+  --color-surface-raised: #e5e5e5;
+  --color-surface-hover: #d4d4d4;
+  --color-surface-inverse: #171717;
+
+  --color-edge: #e5e5e5;
+  --color-edge-strong: #d4d4d4;
+  --color-edge-bright: #a3a3a3;
+
+  --color-ink-bright: #171717;
+  --color-ink: #262626;
+  --color-ink-soft: #404040;
+  --color-ink-secondary: #525252;
+  --color-ink-muted: #737373;
+  --color-ink-faint: #a3a3a3;
+  --color-ink-inverse: #fafafa;
+  --color-ink-on-accent: #ffffff;
+
+  --color-accent: #2563eb;
+  --color-accent-strong: #1d4ed8;
+  --color-link: #2563eb;
+
+  --color-warning: #f59e0b;
+  --color-warning-surface: #fef3c7;
+  --color-warning-ink: #78350f;
+  --color-danger: #dc2626;
+  --color-danger-strong: #b91c1c;
+  --color-danger-surface: #fee2e2;
+  --color-danger-ink: #991b1b;
+  --color-success: #059669;
+  --color-success-surface: #d1fae5;
+  --color-success-ink: #065f46;
+
+  --color-code: #c2410c;
 }
 
 html,

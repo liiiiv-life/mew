@@ -66,6 +66,13 @@ function loadStoredTabs(): StoredTabs | null {
   }
 }
 
+type Theme = 'dark' | 'light'
+const THEME_KEY = 'docs-editor:theme'
+
+function loadTheme(): Theme {
+  return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
+}
+
 function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [tabs, setTabs] = useState<Tab[]>([])
@@ -75,6 +82,7 @@ function App() {
   const [tmuxOpen, setTmuxOpen] = useState(false)
   const [tmuxWidth, setTmuxWidth] = useState(loadTmuxWidth)
   const [fabMenuOpen, setFabMenuOpen] = useState(false)
+  const [theme, setTheme] = useState<Theme>(loadTheme)
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
   // 서버 모드를 확인하기 전까지는 편집 UI를 숨긴다 (뷰어에서 깜빡임 방지)
   const [readOnly, setReadOnly] = useState(true)
@@ -91,6 +99,11 @@ function App() {
   useEffect(() => {
     tabsRef.current = tabs
   }, [tabs])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    localStorage.setItem(THEME_KEY, theme)
+  }, [theme])
 
   // 모바일 키보드가 뜨면 visualViewport만 줄어들고 레이아웃 뷰포트(100dvh)는 그대로인 브라우저가 있어
   // (iOS Safari 등, interactive-widget 메타 태그 미지원) 실제 보이는 높이를 직접 재서 반영한다
@@ -656,6 +669,27 @@ function App() {
                     <path d="m7 9 3 3-3 3" />
                     <line x1="13" y1="15" x2="17" y2="15" />
                   </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
+                    setFabMenuOpen(false)
+                  }}
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
+                  title={theme === 'dark' ? '라이트 모드' : '다크 모드'}
+                  aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}
+                >
+                  {theme === 'dark' ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="4" />
+                      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                    </svg>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                  )}
                 </button>
               </>
             )}
