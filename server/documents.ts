@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DOCS_ROOT } from './paths'
+import { buildFrontmatter } from './frontmatter'
 
 export class ConflictError extends Error {}
 
@@ -22,12 +23,12 @@ function appendMocLink(mocRelPath: string, targetRelPath: string, title: string)
   fs.writeFileSync(mocAbs, content.replace(/\s*$/, '') + `\n- [${title}](${linkPath})\n`, 'utf-8')
 }
 
-/** Creates a new document with a bare `# title` heading and links it from the nearest MOC.md. */
+/** Creates a new document with a YAML frontmatter block, a `# title` heading, and links it from the nearest MOC.md. */
 export function createDocument(relPath: string, title: string): { relPath: string; mocRelPath: string } {
   const abs = path.join(DOCS_ROOT, relPath)
   if (fs.existsSync(abs)) throw new ConflictError(`이미 존재하는 파일입니다: ${relPath}`)
   fs.mkdirSync(path.dirname(abs), { recursive: true })
-  fs.writeFileSync(abs, `# ${title}\n`, 'utf-8')
+  fs.writeFileSync(abs, `${buildFrontmatter(title)}# ${title}\n`, 'utf-8')
   const mocRelPath = findNearestMoc(path.dirname(relPath))
   appendMocLink(mocRelPath, relPath, title)
   return { relPath, mocRelPath }

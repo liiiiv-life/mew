@@ -25,6 +25,7 @@ import { uploadAsset, type TreeNode } from '../api/client'
 import { ResizableImage } from './ResizableImage'
 import { AudioNode, VideoNode, Youtube, YOUTUBE_URL_RE } from './MediaNodes'
 import { flattenFiles, fuzzyScore, relativeLinkPath, resolveRelativePath } from '../utils/fuzzy'
+import { splitFrontmatter, joinFrontmatter, todayDate, type FrontmatterData } from '../utils/frontmatter'
 
 export interface EditorHandle {
   scrollToHeading: (index: number) => void
@@ -285,6 +286,21 @@ function MentionTooltip({ position, results, selectedIndex, onSelect }: MentionT
   )
 }
 
+// frontmatter는 본문(tiptap) 밖에서 다룬다 — 편집 가능한 리치텍스트 흐름에 섞이면
+// 사용자가 실수로 YAML 구조를 깨뜨릴 수 있어, 여기서는 읽기 전용 메타데이터 바로 보여준다.
+function FrontmatterPanel({ data }: { data: FrontmatterData }) {
+  return (
+    // mt-12: App.tsx가 우측 상단(top-3/right-3)에 Hotview/Plain 토글을 겹쳐 띄우므로 그 아래로 여유를 둔다
+    <div className="mx-8 mt-12 rounded border border-edge bg-surface-raised px-4 py-2 text-xs text-ink-secondary">
+      <div className="mb-1 truncate text-sm font-semibold text-ink-bright">{data.title}</div>
+      <div className="flex gap-3">
+        <span>생성 {data.created}</span>
+        <span>수정 {data.updated}</span>
+      </div>
+    </div>
+  )
+}
+
 export const Editor = forwardRef<
   EditorHandle,
   {
@@ -296,6 +312,7 @@ export const Editor = forwardRef<
     onOpenLink?: (path: string) => void
   }
 >(function Editor({ value, onChange, readOnly, path = '', tree = [], onOpenLink }, ref) {
+  const { frontmatter, body } = useMemo(() => splitFrontmatter(value), [value])
   const containerRef = useRef<HTMLDivElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const uploadPosRef = useRef<number | null>(null)
@@ -358,12 +375,20 @@ export const Editor = forwardRef<
         transformPastedText: true,
       }),
     ],
-    content: value,
+    content: body,
     editable: !readOnly,
     onUpdate: ({ editor }) => {
       const markdownInstance = (editor.storage as any).markdown
       const markdown = markdownInstance ? markdownInstance.getMarkdown() : ''
-      if (markdown !== undefined) onChange(markdown)
+      if (markdown !== undefined) {
+        if (frontmatter) {
+          const today = todayDate()
+          const next = frontmatter.updated === today ? frontmatter : { ...frontmatter, updated: today }
+          onChange(joinFrontmatter(next, markdown))
+        } else {
+          onChange(markdown)
+        }
+      }
       updateMentionState(editor)
     },
     onSelectionUpdate: ({ editor }) => {
@@ -776,14 +801,14 @@ export const Editor = forwardRef<
   }, [mention])
 
   useEffect(() => {
-    if (editor && value !== undefined) {
+    if (editor && body !== undefined) {
       const current = (editor.storage as any).markdown?.getMarkdown() ?? ''
-      if (current !== value) {
+      if (current !== body) {
         // 프로그램적 로드는 onUpdate를 발생시키지 않아야 함 (탭 dirty/승격 오작동 방지)
-        editor.commands.setContent(value, { emitUpdate: false })
+        editor.commands.setContent(body, { emitUpdate: false })
       }
     }
-  }, [editor, value])
+  }, [editor, body])
 
   useEffect(() => {
     if (editor) {
@@ -855,6 +880,7 @@ export const Editor = forwardRef<
     >
       {/* /upload 커맨드 전용 숨은 파일 인풋 — accept 없이 모든 타입, 모바일에서도 네이티브 피커가 뜬다 */}
       <input ref={uploadInputRef} type="file" onChange={handleUploadInputChange} style={{ display: 'none' }} />
+      {frontmatter && <FrontmatterPanel data={frontmatter} />}
       {/* 런타임 <style>은 Tailwind가 처리하지 않으므로 @apply 금지 — 순수 CSS만 사용 */}
       <style>{`
         .tiptap {
