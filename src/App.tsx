@@ -105,7 +105,9 @@ function App() {
   }, [])
 
   const openFile = useCallback(
-    (path: string, opts?: { preview?: boolean }) => {
+    // forceNewTab: 이미 열려 있지 않은 문서라도 미리보기 탭 자리를 재사용하지 않고 항상 새 탭으로 연다
+    // (에디터 안에서 Ctrl+클릭으로 내부 링크를 열 때 — 사이드바 클릭의 미리보기 재사용 동작과는 별개)
+    (path: string, opts?: { preview?: boolean; forceNewTab?: boolean }) => {
       const preview = opts?.preview ?? true
       const existing = tabs.find((t) => t.path === path)
       if (existing) {
@@ -117,6 +119,7 @@ function App() {
       }
       const newTab: Tab = { path, content: '', savedContent: '', committedContent: '', rules: null, status: 'idle', preview, viewMode: 'hotview' }
       setTabs((prev) => {
+        if (opts?.forceNewTab) return [...prev, newTab]
         // 미리보기 탭은 하나만 유지 — 새로 여는 문서가 그 자리를 재사용
         const previewIdx = prev.findIndex((t) => t.preview)
         if (previewIdx === -1) return [...prev, newTab]
@@ -516,7 +519,7 @@ function App() {
                   readOnly={readOnly || activeTab.path.startsWith('archives/')}
                   path={activeTab.path}
                   tree={tree}
-                  onOpenLink={(linkPath) => openFile(linkPath)}
+                  onOpenLink={(linkPath) => openFile(linkPath, { preview: false, forceNewTab: true })}
                 />
               )}
             </div>
