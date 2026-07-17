@@ -23,7 +23,8 @@ import { Markdown } from 'tiptap-markdown'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { uploadAsset, type TreeNode } from '../api/client'
 import { ResizableImage } from './ResizableImage'
-import { flattenFiles, fuzzyScore, relativeLinkPath } from '../utils/fuzzy'
+import { AudioNode, VideoNode, Youtube, YOUTUBE_URL_RE } from './MediaNodes'
+import { flattenFiles, fuzzyScore, relativeLinkPath, resolveRelativePath } from '../utils/fuzzy'
 
 export interface EditorHandle {
   scrollToHeading: (index: number) => void
@@ -35,6 +36,20 @@ function markdownForAsset(url: string, name: string, mimetype: string): string {
   if (mimetype.startsWith('audio/')) return `<audio src="${url}" controls></audio>`
   if (mimetype.startsWith('video/')) return `<video src="${url}" controls></video>`
   return `[${name}](${url})`
+}
+
+// paste로 붙일 수 없는 파일 타입용 — 항상 순수 링크로 삽입 (/upload 커맨드 전용)
+function markdownForLink(url: string, name: string): string {
+  return `[${name}](${url})`
+}
+
+function isPasteableMedia(mimetype: string): boolean {
+  return mimetype.startsWith('image/') || mimetype.startsWith('audio/') || mimetype.startsWith('video/')
+}
+
+// 절대 URL(스킴 있음) 여부 — 내부 문서 상대 경로와 구분해서 새 탭/내부 탭을 가른다
+function isExternalHref(href: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')
 }
 
 // 테이블 툴팁 컴포넌트
@@ -130,22 +145,25 @@ function TableTooltip({ editor, position, onClose, mode }: TableTooltipProps) {
   )
 }
 
-// 링크 툴팁 컴포넌트 (텍스트 선택 후 Ctrl+K)
+// 링크 툴팁 컴포넌트 (텍스트 선택 후 Ctrl+K) — 링크 URL과 표시 텍스트를 함께 편집
 interface LinkTooltipProps {
   editor: any
   position: { top: number; left: number }
   initialHref: string
+  initialText: string
+  range: { from: number; to: number }
   onClose: () => void
 }
 
-function LinkTooltip({ editor, position, initialHref, onClose }: LinkTooltipProps) {
+function LinkTooltip({ editor, position, initialHref, initialText, range, onClose }: LinkTooltipProps) {
   const [url, setUrl] = useState(initialHref)
+  const [text, setText] = useState(initialText)
   const ref = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const urlInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    inputRef.current?.focus()
-    inputRef.current?.select()
+    urlInputRef.current?.focus()
+    urlInputRef.current?.select()
   }, [])
 
   // 툴팁 바깥 클릭 시 닫기
@@ -159,51 +177,70 @@ function LinkTooltip({ editor, position, initialHref, onClose }: LinkTooltipProp
 
   const apply = () => {
     const href = url.trim()
-    if (href) editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
-    else editor.chain().focus().extendMarkRange('link').unsetLink().run()
+    const label = text.trim() || initialText
+    let { from, to } = range
+    let chain = editor.chain().focus().setTextSelection({ from, to })
+    if (label !== initialText) {
+      chain = chain.insertContentAt({ from, to }, label)
+      to = from + label.length
+      chain = chain.setTextSelection({ from, to })
+    }
+    if (href) chain.extendMarkRange('link').setLink({ href }).run()
+    else chain.extendMarkRange('link').unsetLink().run()
     onClose()
   }
 
   const remove = () => {
-    editor.chain().focus().extendMarkRange('link').unsetLink().run()
+    editor.chain().focus().setTextSelection(range).extendMarkRange('link').unsetLink().run()
     onClose()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      apply()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onClose()
+      editor.chain().focus().run()
+    }
   }
 
   return (
     <div
       ref={ref}
       style={{ position: 'fixed', top: position.top, left: position.left, zIndex: 1000 }}
-      className="flex items-center gap-1.5 rounded border border-edge-bright bg-surface-raised p-1.5 shadow-lg"
+      className="flex flex-col gap-1.5 rounded border border-edge-bright bg-surface-raised p-1.5 shadow-lg"
     >
       <input
-        ref={inputRef}
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            apply()
-          } else if (e.key === 'Escape') {
-            e.preventDefault()
-            onClose()
-            editor.chain().focus().run()
-          }
-        }}
-        placeholder="https://... 또는 문서 경로"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="표시 텍스트"
         className="w-64 rounded border border-edge-bright bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent"
       />
-      <button type="button" onClick={apply} className="rounded bg-accent-strong px-2 py-1 text-xs text-ink-on-accent hover:bg-accent">
-        적용
-      </button>
-      {initialHref && (
-        <button
-          type="button"
-          onClick={remove}
-          className="rounded border border-edge-bright px-2 py-1 text-xs text-ink-soft hover:bg-surface-hover"
-        >
-          제거
+      <div className="flex items-center gap-1.5">
+        <input
+          ref={urlInputRef}
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="https://... 또는 문서 경로"
+          className="w-64 rounded border border-edge-bright bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent"
+        />
+        <button type="button" onClick={apply} className="rounded bg-accent-strong px-2 py-1 text-xs text-ink-on-accent hover:bg-accent">
+          적용
         </button>
-      )}
+        {initialHref && (
+          <button
+            type="button"
+            onClick={remove}
+            className="rounded border border-edge-bright px-2 py-1 text-xs text-ink-soft hover:bg-surface-hover"
+          >
+            제거
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -256,9 +293,12 @@ export const Editor = forwardRef<
     readOnly?: boolean
     path?: string
     tree?: TreeNode[]
+    onOpenLink?: (path: string) => void
   }
->(function Editor({ value, onChange, readOnly, path = '', tree = [] }, ref) {
+>(function Editor({ value, onChange, readOnly, path = '', tree = [], onOpenLink }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
+  const uploadPosRef = useRef<number | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<{
@@ -269,6 +309,8 @@ export const Editor = forwardRef<
   const [linkTooltip, setLinkTooltip] = useState<{
     position: { top: number; left: number }
     href: string
+    text: string
+    range: { from: number; to: number }
   } | null>(null)
   const [mention, setMention] = useState<{
     from: number
@@ -300,11 +342,16 @@ export const Editor = forwardRef<
       ListItem,
       Blockquote,
       HorizontalRule,
-      Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-link underline' } }),
+      // target: null — Chromium/Brave는 contenteditable 안의 target="_blank" 링크를 클릭하면
+      // preventDefault()를 호출해도 새 탭을 강제로 연다 (Ctrl+Click 여부 무관). 속성 자체를 없애야 함.
+      Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-link underline', target: null, rel: null } }),
       // allowTableNodeSelection: 테이블 NodeSelection이 CellSelection으로 강제 변환되지 않게 함 (테두리 클릭 선택용)
       // resizable: 세로선(열 너비) 드래그 조절만 지원 — prosemirror-tables는 행 높이 조절 기능이 없음
       TableKit.configure({ table: { allowTableNodeSelection: true, resizable: true } }),
       ResizableImage,
+      AudioNode,
+      VideoNode,
+      Youtube,
       Placeholder.configure({ placeholder: '노션처럼 작성하세요... # 으로 제목, - 으로 목록' }),
       Markdown.configure({
         transformCopiedText: true,
@@ -437,6 +484,15 @@ export const Editor = forwardRef<
               .run()
             return true
           }
+
+          if (textBefore.trim() === '/upload' || textBefore.trim() === '/업로드') {
+            event.preventDefault()
+            event.stopPropagation()
+            const deleteFrom = from - textBefore.length
+            editor.chain().focus().deleteRange({ from: deleteFrom, to: from }).run()
+            openUploadPicker(deleteFrom)
+            return true
+          }
         }
 
         // 테이블 관련 키보드 처리
@@ -544,11 +600,19 @@ export const Editor = forwardRef<
         if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
           event.preventDefault()
           if (!readOnly && editor) {
-            const { empty, from } = editor.state.selection
+            // 커서가 기존 링크 위에 있을 뿐 선택 범위가 없으면 링크 전체로 확장
+            editor.chain().extendMarkRange('link').run()
+            const { empty, from, to } = editor.state.selection
             const href = editor.getAttributes('link').href ?? ''
             if (!empty || href) {
+              const text = editor.state.doc.textBetween(from, to, ' ')
               const coords = _view.coordsAtPos(from)
-              setLinkTooltip({ position: { top: coords.bottom + 6, left: coords.left }, href })
+              setLinkTooltip({
+                position: { top: coords.bottom + 6, left: coords.left },
+                href,
+                text,
+                range: { from, to },
+              })
             }
           }
           return true
@@ -560,9 +624,22 @@ export const Editor = forwardRef<
         if (readOnly) return false
         const dt = event.clipboardData
         if (!dt) return false
+
+        // 유튜브 링크를 통째로 붙여넣으면 임베드로 변환
+        const text = dt.getData('text/plain')?.trim()
+        if (text) {
+          const match = YOUTUBE_URL_RE.exec(text)
+          if (match) {
+            event.preventDefault()
+            event.stopPropagation()
+            editor?.chain().focus().insertContent({ type: 'youtube', attrs: { videoId: match[1] } }).run()
+            return true
+          }
+        }
+
         for (let i = 0; i < dt.items.length; i++) {
           const item = dt.items[i]
-          if (item.kind !== 'file' || !item.type.startsWith('image/')) continue
+          if (item.kind !== 'file' || !isPasteableMedia(item.type)) continue
           event.preventDefault()
           // Prevent the container-level onPaste fallback from uploading again
           event.stopPropagation()
@@ -575,16 +652,53 @@ export const Editor = forwardRef<
         }
         return false
       },
-      handleDrop: (_view, event) => {
+      handleDrop: (view, event) => {
         if (readOnly) return false
         const dt = event.dataTransfer
         if (!dt || !dt.files || dt.files.length === 0) return false
         const file = dt.files[0]
-        if (!file.type.startsWith('image/')) return false
         event.preventDefault()
         event.stopPropagation()
-        setTimeout(() => insertUpload(file), 0)
+        // 마우스를 놓은 위치에 정확히 삽입 (기본 커서 위치가 아님)
+        const dropPos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos
+        setTimeout(() => insertUpload(file, dropPos), 0)
         return true
+      },
+      handleDOMEvents: {
+        // 링크 클릭: 일반 클릭은 커서만 이동(네비게이션 없음), Ctrl/Cmd+클릭만 열기
+        // — 내부 문서 상대 경로는 새 탭이 아니라 에디터 내부 탭에서 연다
+        mousedown: (view, event) => {
+          if (readOnly) return false
+          const e = event as MouseEvent
+          const target = e.target as HTMLElement | null
+          if (!(target instanceof HTMLElement)) return false
+          const anchor = target.closest('a')
+          if (!anchor || !view.dom.contains(anchor)) return false
+          if (!(e.ctrlKey || e.metaKey)) {
+            e.preventDefault()
+          }
+          return false
+        },
+        click: (view, event) => {
+          if (readOnly) return false
+          const e = event as MouseEvent
+          const target = e.target as HTMLElement | null
+          if (!(target instanceof HTMLElement)) return false
+          const anchor = target.closest('a')
+          if (!anchor || !view.dom.contains(anchor)) return false
+
+          const href = anchor.getAttribute('href') ?? ''
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            if (href) {
+              if (isExternalHref(href)) window.open(href, '_blank', 'noopener,noreferrer')
+              else onOpenLink?.(resolveRelativePath(path, href))
+            }
+            return true
+          }
+          e.preventDefault()
+          return false
+        },
       },
     },
   })
@@ -690,13 +804,14 @@ export const Editor = forwardRef<
     [],
   )
 
-  async function insertUpload(file: File) {
+  async function insertUpload(file: File, pos?: number) {
     setUploading(true)
     setUploadError(null)
     try {
       const { url, name, mimetype } = await uploadAsset(file)
       const markdown = markdownForAsset(url, name, mimetype)
-      editor?.chain().focus().insertContent(markdown).run()
+      if (pos != null && editor) editor.chain().focus().insertContentAt(pos, markdown).run()
+      else editor?.chain().focus().insertContent(markdown).run()
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : '업로드 실패')
     } finally {
@@ -704,11 +819,42 @@ export const Editor = forwardRef<
     }
   }
 
+  // /upload 커맨드 전용 — 어떤 파일이든 항상 순수 링크로 삽입
+  async function insertUploadAsLink(file: File, pos: number | null) {
+    setUploading(true)
+    setUploadError(null)
+    try {
+      const { url, name } = await uploadAsset(file)
+      const markdown = markdownForLink(url, name)
+      if (pos != null && editor) editor.chain().focus().insertContentAt(pos, markdown).run()
+      else editor?.chain().focus().insertContent(markdown).run()
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : '업로드 실패')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function openUploadPicker(pos: number) {
+    uploadPosRef.current = pos
+    uploadInputRef.current?.click()
+  }
+
+  function handleUploadInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    const pos = uploadPosRef.current
+    event.target.value = ''
+    uploadPosRef.current = null
+    if (file) insertUploadAsLink(file, pos)
+  }
+
   return (
     <div
       ref={containerRef}
       className="relative flex h-full flex-col overflow-auto bg-surface-deep"
     >
+      {/* /upload 커맨드 전용 숨은 파일 인풋 — accept 없이 모든 타입, 모바일에서도 네이티브 피커가 뜬다 */}
+      <input ref={uploadInputRef} type="file" onChange={handleUploadInputChange} style={{ display: 'none' }} />
       {/* 런타임 <style>은 Tailwind가 처리하지 않으므로 @apply 금지 — 순수 CSS만 사용 */}
       <style>{`
         .tiptap {
@@ -782,6 +928,15 @@ export const Editor = forwardRef<
           max-width: 100%;
           margin: 0.5em 0;
         }
+        .tiptap iframe.youtube-embed {
+          display: block;
+          width: 100%;
+          max-width: 560px;
+          aspect-ratio: 16 / 9;
+          height: auto;
+          margin: 0.5em 0;
+          border-radius: 6px;
+        }
         .tiptap table {
           border-collapse: collapse;
           table-layout: fixed;
@@ -843,6 +998,8 @@ export const Editor = forwardRef<
           editor={editor}
           position={linkTooltip.position}
           initialHref={linkTooltip.href}
+          initialText={linkTooltip.text}
+          range={linkTooltip.range}
           onClose={closeLinkTooltip}
         />
       )}

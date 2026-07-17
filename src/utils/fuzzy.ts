@@ -19,6 +19,18 @@ export function relativeLinkPath(fromDocPath: string, toDocPath: string): string
   return [...Array(ups).fill('..'), ...toParts.slice(i)].join('/')
 }
 
+/** relativeLinkPath의 역연산 — fromDocPath가 속한 문서 기준 상대 href가 가리키는 절대 문서 경로 */
+export function resolveRelativePath(fromDocPath: string, relativeHref: string): string {
+  const [hrefPath] = relativeHref.split('#')
+  const stack = fromDocPath.split('/').slice(0, -1)
+  for (const part of hrefPath.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') stack.pop()
+    else stack.push(part)
+  }
+  return stack.join('/')
+}
+
 export function fuzzyScore(query: string, target: string): number | null {
   if (!query) return 0
   const q = query.toLowerCase()
