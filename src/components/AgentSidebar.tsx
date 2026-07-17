@@ -157,7 +157,7 @@ function ModelPicker({
   )
 }
 
-export function AgentSidebar({ onClose }: { onClose?: () => void }) {
+export function AgentSidebar({ onClose, activeFilePath }: { onClose?: () => void; activeFilePath?: string | null }) {
   const [tabs, setTabs] = useState<AgentTab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [skillsByProvider, setSkillsByProvider] = useState<Record<AgentProvider, string[]>>({ hermes: [], claude: [] })
@@ -169,6 +169,7 @@ export function AgentSidebar({ onClose }: { onClose?: () => void }) {
   const [slashIndex, setSlashIndex] = useState(0)
   const [slashCancelled, setSlashCancelled] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null
   const activeSkills = activeTab ? skillsByProvider[activeTab.provider] : []
@@ -304,6 +305,19 @@ export function AgentSidebar({ onClose }: { onClose?: () => void }) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault()
       send(activeTab.id)
+      return
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+      if (!activeFilePath) return
+      e.preventDefault()
+      const el = inputRef.current
+      const current = activeTab.input
+      const start = el?.selectionStart ?? current.length
+      const end = el?.selectionEnd ?? current.length
+      const next = current.slice(0, start) + activeFilePath + current.slice(end)
+      patchTab(activeTab.id, { input: next })
+      const cursor = start + activeFilePath.length
+      requestAnimationFrame(() => el?.setSelectionRange(cursor, cursor))
     }
   }
 
@@ -429,6 +443,7 @@ export function AgentSidebar({ onClose }: { onClose?: () => void }) {
               </div>
             )}
             <textarea
+              ref={inputRef}
               value={activeTab.input}
               onChange={(e) => {
                 patchTab(activeTab.id, { input: e.target.value })
