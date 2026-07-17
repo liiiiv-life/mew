@@ -19,8 +19,8 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export function fetchMode(): Promise<{ readOnly: boolean }> {
-  return fetch('/api/mode').then(json<{ readOnly: boolean }>)
+export function fetchMode(): Promise<{ readOnly: boolean; docsRoot: string | null }> {
+  return fetch('/api/mode').then(json<{ readOnly: boolean; docsRoot: string | null }>)
 }
 
 export function fetchTree(): Promise<TreeNode[]> {
