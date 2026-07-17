@@ -52,6 +52,20 @@ function loadTmuxWidth(): number {
   return Number.isFinite(stored) && stored > 0 ? clampTmuxWidth(stored) : TMUX_WIDTH_DEFAULT
 }
 
+const OPEN_TABS_KEY = 'docs-editor:open-tabs'
+
+type StoredTabs = { tabs: { path: string; preview: boolean; viewMode: Tab['viewMode'] }[]; activePath: string | null }
+
+function loadStoredTabs(): StoredTabs | null {
+  const raw = localStorage.getItem(OPEN_TABS_KEY)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as StoredTabs
+  } catch {
+    return null
+  }
+}
+
 function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [tabs, setTabs] = useState<Tab[]>([])
@@ -68,6 +82,8 @@ function App() {
   const editorRef = useRef<EditorHandle>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tabsRef = useRef<Tab[]>([])
+  const hasRestoredTabsRef = useRef(false)
+  const isFirstPersistRef = useRef(true)
 
   const activeTab = tabs.find((t) => t.path === activePath) ?? null
   const activeAbsolutePath = docsRoot && activeTab ? `${docsRoot}/${activeTab.path}` : null
@@ -143,6 +159,33 @@ function App() {
     },
     [tabs],
   )
+
+  // 브라우저를 껐다 켜거나 F5로 새로고침해도 열려 있던 탭들을 복원한다.
+  // StrictMode는 마운트 이펙트를 두 번 실행하므로 ref로 한 번만 동작하게 막는다.
+  useEffect(() => {
+    if (hasRestoredTabsRef.current) return
+    hasRestoredTabsRef.current = true
+    const stored = loadStoredTabs()
+    if (!stored) return
+    for (const t of stored.tabs) {
+      openFile(t.path, { preview: t.preview, forceNewTab: true })
+    }
+    if (stored.activePath) setActivePath(stored.activePath)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    // 복원 전(초기 마운트, tabs=[]) 값으로 저장을 덮어쓰지 않도록 첫 실행은 건너뛴다
+    if (isFirstPersistRef.current) {
+      isFirstPersistRef.current = false
+      return
+    }
+    const payload: StoredTabs = {
+      tabs: tabs.map((t) => ({ path: t.path, preview: t.preview, viewMode: t.viewMode })),
+      activePath,
+    }
+    localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(payload))
+  }, [tabs, activePath])
 
   const pinTab = useCallback((path: string) => {
     setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, preview: false } : t)))
