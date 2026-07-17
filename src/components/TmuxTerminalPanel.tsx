@@ -3,6 +3,7 @@ import { createTmuxSession, fetchTmuxSessions, killTmuxSession, renameTmuxSessio
 import { TmuxTerminal } from './TmuxTerminal'
 
 const POLL_INTERVAL_MS = 4000
+const ACTIVE_SESSION_KEY = 'docs-editor:tmux-active-session'
 
 type Editing = { mode: 'rename'; oldName: string; value: string } | { mode: 'create'; value: string } | null
 
@@ -215,6 +216,9 @@ export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () =>
           if (cur && list.some((s) => s.name === cur)) return cur
           if (!autoSelected.current && list.length > 0) {
             autoSelected.current = true
+            // 새로고침/재접속 시 이전에 보던 세션으로 복원 — 그 세션이 아직 있으면 우선
+            const remembered = localStorage.getItem(ACTIVE_SESSION_KEY)
+            if (remembered && list.some((s) => s.name === remembered)) return remembered
             return list[0].name
           }
           return null
@@ -222,6 +226,10 @@ export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () =>
       })
       .catch(console.error)
   }
+
+  useEffect(() => {
+    if (activeSession) localStorage.setItem(ACTIVE_SESSION_KEY, activeSession)
+  }, [activeSession])
 
   useEffect(() => {
     refresh()

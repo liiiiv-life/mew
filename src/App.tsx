@@ -54,7 +54,12 @@ function loadTmuxWidth(): number {
 
 const OPEN_TABS_KEY = 'docs-editor:open-tabs'
 
-type StoredTabs = { tabs: { path: string; preview: boolean; viewMode: Tab['viewMode'] }[]; activePath: string | null }
+type StoredTabs = {
+  tabs: { path: string; preview: boolean; viewMode: Tab['viewMode'] }[]
+  activePath: string | null
+  agentOpen: boolean
+  tmuxOpen: boolean
+}
 
 function loadStoredTabs(): StoredTabs | null {
   const raw = localStorage.getItem(OPEN_TABS_KEY)
@@ -233,6 +238,8 @@ function App() {
       openFile(t.path, { preview: t.preview, forceNewTab: true })
     }
     if (stored.activePath) setActivePath(stored.activePath)
+    if (stored.agentOpen) setAgentOpen(true)
+    if (stored.tmuxOpen) setTmuxOpen(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -245,9 +252,11 @@ function App() {
     const payload: StoredTabs = {
       tabs: tabs.map((t) => ({ path: t.path, preview: t.preview, viewMode: t.viewMode })),
       activePath,
+      agentOpen,
+      tmuxOpen,
     }
     localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(payload))
-  }, [tabs, activePath])
+  }, [tabs, activePath, agentOpen, tmuxOpen])
 
   const pinTab = useCallback((path: string) => {
     setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, preview: false } : t)))
