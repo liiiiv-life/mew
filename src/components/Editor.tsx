@@ -25,7 +25,7 @@ import { uploadAsset, type TreeNode } from '../api/client'
 import { ResizableImage } from './ResizableImage'
 import { AudioNode, VideoNode, Youtube, YOUTUBE_URL_RE } from './MediaNodes'
 import { flattenFiles, fuzzyScore, relativeLinkPath, resolveRelativePath } from '../utils/fuzzy'
-import { splitFrontmatter, joinFrontmatter, todayDate, type FrontmatterData } from '../utils/frontmatter'
+import { splitFrontmatter, joinFrontmatter, todayDate, extractDescription, type FrontmatterData } from '../utils/frontmatter'
 
 export interface EditorHandle {
   scrollToHeading: (index: number) => void
@@ -293,6 +293,7 @@ function FrontmatterPanel({ data }: { data: FrontmatterData }) {
     // mt-12: App.tsx가 우측 상단(top-3/right-3)에 Hotview/Plain 토글을 겹쳐 띄우므로 그 아래로 여유를 둔다
     <div className="mx-8 mt-12 rounded border border-edge bg-surface-raised px-4 py-2 text-xs text-ink-secondary">
       <div className="mb-1 truncate text-sm font-semibold text-ink-bright">{data.title}</div>
+      {data.desc && <div className="mb-1 text-ink-secondary">{data.desc}</div>}
       <div className="flex gap-3">
         <span>생성 {data.created}</span>
         <span>수정 {data.updated}</span>
@@ -383,7 +384,12 @@ export const Editor = forwardRef<
       if (markdown !== undefined) {
         if (frontmatter) {
           const today = todayDate()
-          const next = frontmatter.updated === today ? frontmatter : { ...frontmatter, updated: today }
+          let next = frontmatter.updated === today ? frontmatter : { ...frontmatter, updated: today }
+          // desc는 한 번 채워지면 덮어쓰지 않는다 — 비어 있을 때만 본문에서 다시 뽑아본다
+          if (!next.desc) {
+            const desc = extractDescription(markdown)
+            if (desc) next = { ...next, desc }
+          }
           onChange(joinFrontmatter(next, markdown))
         } else {
           onChange(markdown)
