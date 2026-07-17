@@ -87,11 +87,15 @@ function App() {
   // 서버 모드를 확인하기 전까지는 편집 UI를 숨긴다 (뷰어에서 깜빡임 방지)
   const [readOnly, setReadOnly] = useState(true)
   const [docsRoot, setDocsRoot] = useState<string | null>(null)
+  // 경로별로 지금 몇 개의 브라우저 세션이 이 문서를 탭으로 열어두고 있는지 (협업 충돌 방지용)
+  const [tabPresence, setTabPresence] = useState<Record<string, number>>({})
   const editorRef = useRef<EditorHandle>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tabsRef = useRef<Tab[]>([])
   const hasRestoredTabsRef = useRef(false)
   const isFirstPersistRef = useRef(true)
+  const presenceWsRef = useRef<WebSocket | null>(null)
+  const tabPathsRef = useRef<string[]>([])
 
   const activeTab = tabs.find((t) => t.path === activePath) ?? null
   const activeAbsolutePath = docsRoot && activeTab ? `${docsRoot}/${activeTab.path}` : null
@@ -104,6 +108,51 @@ function App() {
     document.documentElement.classList.toggle('dark', theme === 'dark')
     localStorage.setItem(THEME_KEY, theme)
   }, [theme])
+
+  // 열려 있는 문서 탭 목록이 바뀔 때마다 서버에 알려서, 같은 문서를 열고 있는
+  // 다른 세션 수를 집계하게 한다 (협업 중 겹치는 편집 방지용 배지)
+  useEffect(() => {
+    tabPathsRef.current = tabs.map((t) => t.path).filter(Boolean)
+    const ws = presenceWsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'open', paths: tabPathsRef.current }))
+    }
+  }, [tabs])
+
+  useEffect(() => {
+    let cancelled = false
+    let ws: WebSocket | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+
+    function connect() {
+      if (cancelled) return
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      ws = new WebSocket(`${protocol}//${location.host}/api/presence`)
+      presenceWsRef.current = ws
+      ws.onopen = () => {
+        ws?.send(JSON.stringify({ type: 'open', paths: tabPathsRef.current }))
+      }
+      ws.onmessage = (event) => {
+        if (typeof event.data !== 'string') return
+        try {
+          const msg = JSON.parse(event.data) as { type?: string; counts?: Record<string, number> }
+          if (msg.type === 'counts' && msg.counts) setTabPresence(msg.counts)
+        } catch {
+          // 잘못된 메시지는 무시
+        }
+      }
+      ws.onclose = () => {
+        if (!cancelled) retryTimer = setTimeout(connect, 3000)
+      }
+    }
+    connect()
+
+    return () => {
+      cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
+      ws?.close()
+    }
+  }, [])
 
   // 모바일 키보드가 뜨면 visualViewport만 줄어들고 레이아웃 뷰포트(100dvh)는 그대로인 브라우저가 있어
   // (iOS Safari 등, interactive-widget 메타 태그 미지원) 실제 보이는 높이를 직접 재서 반영한다
@@ -464,6 +513,7 @@ function App() {
         {tabs.map((tab) => {
           const isActive = tab.path === activePath
           const fileName = tab.path.split('/').pop() ?? tab.path
+          const sessionCount = tabPresence[tab.path] ?? 0
           return (
             <div
               key={tab.path}
@@ -474,6 +524,14 @@ function App() {
               onDoubleClick={() => pinTab(tab.path)}
             >
               <span className={`max-w-[150px] truncate ${tab.preview ? 'italic' : ''}`}>{fileName}</span>
+              {sessionCount > 1 && (
+                <span
+                  className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-medium text-ink-inverse"
+                  title={`이 문서를 ${sessionCount}개 세션에서 열어두고 있습니다`}
+                >
+                  {sessionCount}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
