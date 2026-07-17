@@ -11,6 +11,19 @@ function toggleFullscreen() {
   else document.documentElement.requestFullscreen().catch(() => {})
 }
 
+function blankTab(): Tab {
+  return {
+    path: '',
+    content: '',
+    savedContent: '',
+    committedContent: '',
+    rules: null,
+    status: 'idle',
+    preview: false,
+    viewMode: 'hotview',
+  }
+}
+
 type Tab = {
   path: string
   content: string
@@ -304,41 +317,12 @@ function App() {
         // Ctrl+W는 Chromium이 예약한 브라우저 단축키라 preventDefault로 막을 수 없어 Alt+W를 대신 쓴다
         // (e.code로 비교 — macOS에서 Option+문자는 e.key가 특수문자로 바뀌어 레이아웃에 취약함)
         e.preventDefault()
-        if (activePath) {
-          // 현재 탭 닫기
-          setTabs((prev) => {
-            const next = prev.filter((t) => t.path !== activePath)
-            // 가장 마지막에 새 탭 열기
-            const newTab: Tab = {
-              path: '',
-              content: '',
-              savedContent: '',
-              committedContent: '',
-              rules: null,
-              status: 'idle',
-              preview: false,
-              viewMode: 'hotview',
-            }
-            const result = [...next, newTab]
-            // 새 탭이 열렸으므로 그 탭을 활성화
-            setActivePath(newTab.path)
-            return result
-          })
-        }
+        if (activePath) closeTab(activePath)
       } else if (e.altKey && e.code === 'KeyN') {
         // Ctrl+N도 마찬가지로 브라우저 예약 단축키라 가로챌 수 없어 Alt+N을 쓴다
         e.preventDefault()
         setTabs((prev) => {
-          const newTab: Tab = {
-            path: '',
-            content: '',
-            savedContent: '',
-            committedContent: '',
-            rules: null,
-            status: 'idle',
-            preview: false,
-            viewMode: 'hotview',
-          }
+          const newTab = blankTab()
           setActivePath(newTab.path)
           return [...prev, newTab]
         })
