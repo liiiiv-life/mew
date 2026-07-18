@@ -64,34 +64,3 @@ export function nextFieldKey(fields: FrontmatterField[]): string {
   while (existing.has(`필드${n}`)) n++
   return `필드${n}`
 }
-
-const MAX_DESC_LENGTH = 200
-
-/**
- * 본문 맨 앞 문단에서 desc 후보를 뽑는다 — title은 body에 H1으로 중복되지 않으므로
- * (frontmatter가 유일한 출처) 그냥 첫 줄부터 본다. 목록·인용·표·코드블록·제목 등이면
- * (항상 그런 건 아니라서) 후보 없음으로 취급하고 undefined를 반환한다.
- */
-export function extractDescription(body: string): string | undefined {
-  const lines = body.split(/\r?\n/)
-  let i = 0
-  while (i < lines.length && lines[i].trim() === '') i++
-  if (i >= lines.length) return undefined
-
-  const first = lines[i].trim()
-  if (/^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||`{3,}|~{3,}|---|<!--)/.test(first)) return undefined
-
-  let paragraph = first
-  let j = i + 1
-  while (j < lines.length && lines[j].trim() !== '') {
-    paragraph += ' ' + lines[j].trim()
-    j++
-  }
-  paragraph = paragraph.trim()
-  if (!paragraph) return undefined
-
-  const sentenceEnd = paragraph.search(/[.!?](?=\s|$)/)
-  let desc = sentenceEnd >= 0 ? paragraph.slice(0, sentenceEnd + 1) : paragraph
-  if (desc.length > MAX_DESC_LENGTH) desc = desc.slice(0, MAX_DESC_LENGTH - 1).trimEnd() + '…'
-  return desc
-}
