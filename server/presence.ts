@@ -6,14 +6,15 @@ import type { HttpServer } from 'vite'
 const WS_PATH = '/api/presence'
 
 const wss = new WebSocketServer({ noServer: true })
-// 연결(세션)마다 "지금 열려 있는 문서 탭 경로들" — 협업 중 같은 문서를 여러 세션이 동시에
-// 열고 있는지 알려주기 위함이라 편집(readWrite)·게스트(readOnly) 서버 둘 다에 붙는다.
-const openPathsByClient = new Map<WebSocket, Set<string>>()
+// 연결(세션)마다 "지금 포커스 중인 문서 경로 하나" — 탭으로 열어만 둔 문서는 세지 않는다.
+// 협업 중 같은 문서를 실제로 동시에 보고/편집하는지 알려주기 위함이라
+// 편집(readWrite)·게스트(readOnly) 서버 둘 다에 붙는다.
+const focusedPathByClient = new Map<WebSocket, string | null>()
 
 function computeCounts(): Record<string, number> {
   const counts: Record<string, number> = {}
-  for (const paths of openPathsByClient.values()) {
-    for (const p of paths) counts[p] = (counts[p] ?? 0) + 1
+  for (const p of focusedPathByClient.values()) {
+    if (p) counts[p] = (counts[p] ?? 0) + 1
   }
   return counts
 }
@@ -31,24 +32,24 @@ function broadcastCounts() {
 }
 
 wss.on('connection', (ws: WebSocket) => {
-  openPathsByClient.set(ws, new Set())
+  focusedPathByClient.set(ws, null)
   broadcastCounts()
 
   ws.on('message', (raw) => {
-    let msg: { type?: string; paths?: unknown }
+    let msg: { type?: string; path?: unknown }
     try {
       msg = JSON.parse(raw.toString())
     } catch {
       return
     }
-    if (msg.type === 'open' && Array.isArray(msg.paths)) {
-      openPathsByClient.set(ws, new Set(msg.paths.filter((p): p is string => typeof p === 'string')))
+    if (msg.type === 'focus' && (typeof msg.path === 'string' || msg.path === null)) {
+      focusedPathByClient.set(ws, msg.path || null)
       broadcastCounts()
     }
   })
 
   ws.on('close', () => {
-    openPathsByClient.delete(ws)
+    focusedPathByClient.delete(ws)
     broadcastCounts()
   })
 })

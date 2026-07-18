@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { TreeNode } from '../api/client'
 import { createFolder, createNewDocument, deleteFile, renamePath } from '../api/client'
 import { flattenFiles, fuzzyScore } from '../utils/fuzzy'
+import { PresenceBadge } from './PresenceBadge'
 
 type EditingState =
   | { mode: 'rename'; path: string; type: 'file' | 'dir'; value: string; error?: string; busy?: boolean }
@@ -34,19 +35,6 @@ interface NodeCtx {
 function parentOf(p: string): string {
   const i = p.lastIndexOf('/')
   return i === -1 ? '' : p.slice(0, i)
-}
-
-// 이 문서를 탭으로 열어둔 세션 수 배지 (탭 바의 배지와 동일한 시각 언어)
-function PresenceBadge({ count }: { count: number }) {
-  if (count < 1) return null
-  return (
-    <span
-      className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-medium text-ink-inverse"
-      title={`이 문서를 ${count}개 세션에서 열어두고 있습니다`}
-    >
-      {count}
-    </span>
-  )
 }
 
 function sanitizeSegment(input: string): string {
@@ -263,7 +251,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
       >
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
-        <PresenceBadge count={ctx.presence[node.path] ?? 0} />
+        <PresenceBadge count={ctx.presence[node.path] ?? 0} mine={node.path === ctx.selectedPath} />
       </button>
     )
   }
@@ -601,7 +589,7 @@ export function FileTree({
                 className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-ink hover:bg-surface-raised"
               >
                 <span className="min-w-0 flex-1 truncate">{path}</span>
-                <PresenceBadge count={presence[path] ?? 0} />
+                <PresenceBadge count={presence[path] ?? 0} mine={path === selectedPath} />
               </button>
             ))
           )

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchMode, fetchTree, type TreeNode } from './api/client'
 import { FileTree } from './components/FileTree'
 import { Editor, type EditorHandle } from './components/Editor'
@@ -79,10 +79,9 @@ function App() {
     removePaths,
   } = useTabs(readOnly, refreshTree)
 
-  // 경로별로 지금 몇 개의 브라우저 세션이 이 문서를 탭으로 열어두고 있는지 (협업 충돌 방지용)
+  // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
   // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
-  const openPaths = useMemo(() => tabs.map((t) => t.path).filter(Boolean), [tabs])
-  const tabPresence = usePresence(openPaths, refreshTree)
+  const tabPresence = usePresence(activePath || null, refreshTree)
 
   const { width: sidebarWidth, startResize: startSidebarResize } = usePanelWidth('docs-editor:sidebar-width', {
     min: 180,

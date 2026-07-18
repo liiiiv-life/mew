@@ -50,6 +50,12 @@
   --color-success-surface: #022c22;
   --color-success-ink: #6ee7b7;
 
+  /* 작업자(포커스) 배지 — PresenceBadge.tsx */
+  --color-presence-mine: #3b82f6; /* 파랑: 내가 포커스 중 */
+  --color-presence-other: #eab308; /* 노랑: 다른 1명이 포커스 중 */
+  --color-presence-crowd: #f97316; /* 주황: 다른 2명 이상 */
+  --color-presence-joined: #22c55e; /* 초록: 나 + 다른 사람 */
+
   /* 에디터 전용 */
   --color-code: #f97316; /* 인라인 코드 텍스트 */
 }
@@ -95,6 +101,11 @@
   --color-success: #059669;
   --color-success-surface: #d1fae5;
   --color-success-ink: #065f46;
+
+  --color-presence-mine: #2563eb;
+  --color-presence-other: #ca8a04;
+  --color-presence-crowd: #ea580c;
+  --color-presence-joined: #16a34a;
 
   --color-code: #c2410c;
 }
