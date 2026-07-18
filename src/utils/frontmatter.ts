@@ -11,8 +11,9 @@ export interface FrontmatterData {
 
 // 닫는 --- 뒤의 개행을 전부 삼킨다 (하나만 삼키면 split→join을 반복할 때마다 빈 줄이 하나씩 늘어남)
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)+/
-// 키에 콜론만 없으면 뭐든 허용(공백·한글 포함) — 값에 콜론이 있어도 첫 콜론까지만 키로 본다
-const FIELD_LINE_RE = /^([^:\n]+):\s*(.*)$/
+// 키가 비어 있어도 허용한다 — 필드명을 지우고 새로 입력하는 도중(빈 키 상태)에도 필드가
+// 사라지면 안 된다. 필드 삭제는 오직 × 버튼으로만 한다. 값에 콜론이 있어도 첫 콜론까지만 키로 본다.
+const FIELD_LINE_RE = /^([^:\n]*):\s*(.*)$/
 
 function unquote(raw: string): string {
   const t = raw.trim()
@@ -47,7 +48,6 @@ export function splitFrontmatter(content: string): { frontmatter: FrontmatterDat
 export function joinFrontmatter(frontmatter: FrontmatterData, body: string): string {
   const lines = [`title: ${quote(frontmatter.title)}`]
   for (const f of frontmatter.fields) {
-    if (!f.key.trim()) continue // 키를 지우는 중인 빈 행은 저장하지 않는다
     lines.push(`${f.key}: ${quote(f.value)}`)
   }
   return `---\n${lines.join('\n')}\n---\n\n${body}`
