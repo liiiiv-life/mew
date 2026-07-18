@@ -21,10 +21,10 @@ import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { findTable, selectionCell, TableMap } from '@tiptap/pm/tables'
 import { Markdown } from 'tiptap-markdown'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { uploadAsset, type TreeNode } from '../api/client'
+import { fetchFile, uploadAsset, type TreeNode } from '../api/client'
 import { ResizableImage } from './ResizableImage'
 import { AudioNode, VideoNode, Youtube, YOUTUBE_URL_RE } from './MediaNodes'
-import { flattenFiles, fuzzyScore, relativeLinkPath, resolveRelativePath } from '../utils/fuzzy'
+import { flattenFiles, fuzzyScore, isExternalHref, relativeLinkPath, resolveRelativePath } from '../utils/fuzzy'
 import { splitFrontmatter, joinFrontmatter, todayDate, type FrontmatterData } from '../utils/frontmatter'
 import { MobileKeyBar } from './MobileKeyBar'
 import { useKeyboardOpen } from '../hooks/useKeyboardOpen'
@@ -53,11 +53,6 @@ function markdownForLink(url: string, name: string): string {
 
 function isPasteableMedia(mimetype: string): boolean {
   return mimetype.startsWith('image/') || mimetype.startsWith('audio/') || mimetype.startsWith('video/')
-}
-
-// 절대 URL(스킴 있음) 여부 — 내부 문서 상대 경로와 구분해서 새 탭/내부 탭을 가른다
-function isExternalHref(href: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')
 }
 
 // updated는 필드가 이미 있을 때만 오늘 날짜로 갱신한다 — 없으면(사용자가 지웠으면) 되살리지 않는다.
@@ -95,6 +90,7 @@ export const Editor = forwardRef<
     mode: 'add' | 'remove'
   } | null>(null)
   const [linkTooltip, setLinkTooltip] = useState<{
+    mode: 'view' | 'edit'
     position: { top: number; left: number }
     href: string
     text: string
@@ -408,6 +404,7 @@ export const Editor = forwardRef<
               const text = editor.state.doc.textBetween(from, to, ' ')
               const coords = _view.coordsAtPos(from)
               setLinkTooltip({
+                mode: 'edit',
                 position: { top: coords.bottom + 6, left: coords.left },
                 href,
                 text,
@@ -465,7 +462,7 @@ export const Editor = forwardRef<
         return true
       },
       handleDOMEvents: {
-        // 링크 클릭: 일반 클릭은 커서만 이동(네비게이션 없음), Ctrl/Cmd+클릭만 열기
+        // 링크 클릭: 일반 클릭은 보기 툴팁(미리보기·편집 진입), Ctrl/Cmd+클릭은 바로 열기
         // — 내부 문서 상대 경로는 새 탭이 아니라 에디터 내부 탭에서 연다
         mousedown: (view, event) => {
           if (readOnly) return false
@@ -479,8 +476,8 @@ export const Editor = forwardRef<
           }
           return false
         },
+        // readOnly(뷰어)에서도 동작한다 — 상대 경로 네비게이션(깨진 URL)을 막고 툴팁으로 대체
         click: (view, event) => {
-          if (readOnly) return false
           const e = event as MouseEvent
           const target = e.target as HTMLElement | null
           if (!(target instanceof HTMLElement)) return false
@@ -497,7 +494,25 @@ export const Editor = forwardRef<
             return true
           }
           e.preventDefault()
-          return false
+          if (!href || !editor) return true
+          try {
+            // 클릭한 앵커의 문서 내 범위를 구한다 (편집 모드 전환 시 그대로 사용)
+            const inside = Math.min(view.posAtDOM(anchor, 0) + 1, view.state.doc.content.size)
+            editor.chain().setTextSelection(inside).extendMarkRange('link').run()
+            const { from, to } = editor.state.selection
+            const text = editor.state.doc.textBetween(from, to, ' ')
+            const rect = anchor.getBoundingClientRect()
+            setLinkTooltip({
+              mode: 'view',
+              position: { top: rect.bottom + 6, left: rect.left },
+              href,
+              text,
+              range: { from, to },
+            })
+          } catch {
+            // posAtDOM 실패 등 — 툴팁 없이 무시
+          }
+          return true
         },
       },
     },
@@ -591,10 +606,17 @@ export const Editor = forwardRef<
   const selectMention = useCallback(
     (result: MentionResult) => {
       if (!mention || !editor) return
-      const to = mention.from + 1 + mention.query.length
+      const { from } = mention
+      const to = from + 1 + mention.query.length
       const href = relativeLinkPath(path, result.path)
-      editor.chain().focus().deleteRange({ from: mention.from, to }).insertContent(`[${result.label}](${href}) `).run()
       setMention(null)
+      // 내부 링크의 표시 텍스트는 대상 문서의 title — 파일명은 title을 못 읽을 때의 폴백
+      fetchFile(result.path)
+        .then(({ content }) => splitFrontmatter(content).frontmatter?.title || result.label)
+        .catch(() => result.label)
+        .then((label) => {
+          editor.chain().focus().deleteRange({ from, to }).insertContent(`[${label}](${href}) `).run()
+        })
     },
     [mention, editor, path],
   )
@@ -711,7 +733,14 @@ export const Editor = forwardRef<
           initialHref={linkTooltip.href}
           initialText={linkTooltip.text}
           range={linkTooltip.range}
+          docPath={path}
+          readOnly={readOnly}
+          initialMode={linkTooltip.mode}
           onClose={closeLinkTooltip}
+          onOpenInternal={(target) => {
+            closeLinkTooltip()
+            onOpenLink?.(target)
+          }}
         />
       )}
       {mention && (

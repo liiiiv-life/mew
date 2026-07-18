@@ -9,6 +9,11 @@ export function flattenFiles(tree: TreeNode[]): string[] {
   return out
 }
 
+/** 절대 URL(스킴 있음) 여부 — 내부 문서 상대 경로와 구분해서 새 탭/내부 탭을 가른다 */
+export function isExternalHref(href: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')
+}
+
 /** fromDocPath가 속한 문서에서 toDocPath로 향하는 상대 경로 (마크다운 링크용) */
 export function relativeLinkPath(fromDocPath: string, toDocPath: string): string {
   const fromDir = fromDocPath.split('/').slice(0, -1)

@@ -10,6 +10,15 @@ export interface CommitResult {
   hash: string | null
 }
 
+/** 마지막 커밋(HEAD) 시점의 파일 내용 — 없으면(새 파일 등) null */
+export async function showHeadContent(relPath: string): Promise<string | null> {
+  try {
+    return await git.show([`HEAD:${relPath}`])
+  } catch {
+    return null
+  }
+}
+
 /** Stages relPath(s) plus any changed MOC.md files and commits them together. Returns null if nothing changed. */
 export async function commitFile(
   relPaths: string | string[],

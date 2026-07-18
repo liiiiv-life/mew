@@ -80,6 +80,13 @@ export function createNewDocument(relPath: string, title: string): Promise<{ ok:
   }).then(json<{ ok: true; relPath: string; commit: CommitResult | null }>)
 }
 
+/** 외부 링크 미리보기 — 서버가 대신 fetch해서 제목·설명을 뽑아준다 (뷰어 모드에선 403) */
+export function fetchLinkPreview(url: string): Promise<{ title: string | null; description: string | null }> {
+  return fetch(`/api/link-preview?url=${encodeURIComponent(url)}`).then(
+    json<{ title: string | null; description: string | null }>,
+  )
+}
+
 export function uploadAsset(file: File): Promise<{ url: string; name: string; mimetype: string }> {
   const body = new FormData()
   body.append('file', file)

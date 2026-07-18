@@ -4,9 +4,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { resolveDocsPath, toRelativePath, UnsafePathError, DOCS_ROOT } from './paths'
 import { buildTree } from './tree'
-import { commitFile } from './git'
+import { commitFile, showHeadContent } from './git'
 import { evaluateRules, isArchived } from './rules'
 import { createDocument, createFolder, renamePath, deletePath, ConflictError } from './documents'
+import { parseTitle } from './frontmatter'
+import { updateLinkLabelsFor } from './links'
 import { uploadAsset, R2NotConfiguredError } from './r2'
 import { agentChat, getAgentSessionMessages, listAgentModels, listAgentSessions, listAgentSkills, type AgentProvider } from './agent'
 import { createTmuxSession, killTmuxSession, listTmuxSessions, renameTmuxSession, TmuxError } from './tmux'
@@ -67,7 +69,24 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
       const isNew = !fs.existsSync(absPath)
       fs.writeFileSync(absPath, content, 'utf-8')
       if (commit) {
-        const result = await commitFile(relPath, isNew ? 'add' : 'update')
+        // "내부 링크 라벨 = 대상 문서 title" 정책: 커밋 시점에만 title 변경을 감지해
+        // 참조 문서들의 라벨을 전파한다 — 자동저장마다 하면 타이핑 중인 미완성 title이
+        // 퍼지므로, 기준은 마지막 커밋(HEAD)의 title이다.
+        let linkUpdates: string[] = []
+        if (relPath.endsWith('.md')) {
+          const headContent = await showHeadContent(relPath)
+          const oldTitle = headContent ? parseTitle(headContent) : null
+          const newTitle = parseTitle(content)
+          if (oldTitle && newTitle && oldTitle !== newTitle) {
+            try {
+              linkUpdates = updateLinkLabelsFor(relPath, newTitle)
+            } catch (err) {
+              console.error('link label sync failed:', err)
+            }
+          }
+        }
+        const message = linkUpdates.length > 0 ? `docs: update ${relPath} + sync link labels` : undefined
+        const result = await commitFile([relPath, ...linkUpdates], isNew ? 'add' : 'update', message)
         res.json({ ok: true, commit: result })
       } else {
         res.json({ ok: true, commit: null })
@@ -143,6 +162,33 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
       res.json(evaluateRules(relPath))
     } catch (err) {
       handleError(res, err)
+    }
+  })
+
+  // 외부 링크 미리보기(제목·설명) — 브라우저 CORS를 피해 서버가 대신 가져온다.
+  // 게스트 뷰어(5001)의 GET 허용 목록에는 넣지 않는다 (터널 경유 SSRF 방지).
+  app.get('/link-preview', async (req, res) => {
+    const url = String(req.query.url ?? '')
+    if (!/^https?:\/\//i.test(url)) {
+      res.status(400).json({ error: '올바른 http(s) URL이 아닙니다' })
+      return
+    }
+    try {
+      const resp = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+        headers: { 'user-agent': 'Mozilla/5.0 (compatible; docs-editor-link-preview)' },
+      })
+      const html = (await resp.text()).slice(0, 200_000)
+      const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.trim() || null
+      const metaTag = /<meta[^>]+(?:name|property)=["'](?:og:description|description)["'][^>]*>/i.exec(html)?.[0] ?? null
+      const description = metaTag ? /content=["']([^"']*)["']/i.exec(metaTag)?.[1] || null : null
+      res.json({
+        title: title ? decodeEntities(title) : null,
+        description: description ? decodeEntities(description) : null,
+      })
+    } catch {
+      // 타임아웃·네트워크 실패 등 — 미리보기 없음으로 응답 (클라이언트는 URL만 표시)
+      res.json({ title: null, description: null })
     }
   })
 
@@ -284,6 +330,16 @@ export function createApiApp(opts: { readOnly?: boolean } = {}) {
   })
 
   return app
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
 }
 
 function handleError(res: express.Response, err: unknown) {

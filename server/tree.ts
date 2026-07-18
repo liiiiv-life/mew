@@ -9,7 +9,7 @@ export interface TreeNode {
   children?: TreeNode[]
 }
 
-const IGNORE = new Set(['.git', 'node_modules', '.foam', '.github', '.obsidian', '.tokensave', '.vscode'])
+export const IGNORE = new Set(['.git', 'node_modules', '.foam', '.github', '.obsidian', '.tokensave', '.vscode'])
 
 const TOP_LEVEL_DIR_ORDER = ['.new', 'company', 'products', 'programs', 'events', 'ops', 'decisions', 'archives']
 
