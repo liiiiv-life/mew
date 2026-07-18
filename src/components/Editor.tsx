@@ -25,7 +25,14 @@ import { uploadAsset, type TreeNode } from '../api/client'
 import { ResizableImage } from './ResizableImage'
 import { AudioNode, VideoNode, Youtube, YOUTUBE_URL_RE } from './MediaNodes'
 import { flattenFiles, fuzzyScore, relativeLinkPath, resolveRelativePath } from '../utils/fuzzy'
-import { splitFrontmatter, joinFrontmatter, todayDate, extractDescription, type FrontmatterData } from '../utils/frontmatter'
+import {
+  splitFrontmatter,
+  joinFrontmatter,
+  todayDate,
+  extractDescription,
+  nextFieldKey,
+  type FrontmatterData,
+} from '../utils/frontmatter'
 import { MobileKeyBar } from './MobileKeyBar'
 import { useKeyboardOpen } from '../hooks/useKeyboardOpen'
 
@@ -53,6 +60,22 @@ function isPasteableMedia(mimetype: string): boolean {
 // 절대 URL(스킴 있음) 여부 — 내부 문서 상대 경로와 구분해서 새 탭/내부 탭을 가른다
 function isExternalHref(href: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')
+}
+
+// updated는 필드가 이미 있을 때만 오늘 날짜로 갱신한다 — 없으면(사용자가 지웠으면) 되살리지 않는다.
+// desc는 필드 자체가 없을 때만 본문에서 뽑아 채운다 — 값만 비워둔 건 "지운 것"으로 보고 안 건드림.
+function bumpUpdatedAndFillDesc(frontmatter: FrontmatterData, markdown: string): FrontmatterData {
+  const today = todayDate()
+  let fields = frontmatter.fields
+  const updatedIdx = fields.findIndex((f) => f.key === 'updated')
+  if (updatedIdx !== -1 && fields[updatedIdx].value !== today) {
+    fields = fields.map((f, i) => (i === updatedIdx ? { ...f, value: today } : f))
+  }
+  if (!fields.some((f) => f.key === 'desc')) {
+    const desc = extractDescription(markdown)
+    if (desc) fields = [...fields, { key: 'desc', value: desc }]
+  }
+  return fields === frontmatter.fields ? frontmatter : { ...frontmatter, fields }
 }
 
 // 테이블 툴팁 컴포넌트
@@ -288,20 +311,84 @@ function MentionTooltip({ position, results, selectedIndex, onSelect }: MentionT
   )
 }
 
-// frontmatter는 본문(tiptap) 밖에서 다룬다 — 편집 가능한 리치텍스트 흐름에 섞이면
-// 사용자가 실수로 YAML 구조를 깨뜨릴 수 있어, 여기서는 읽기 전용 메타데이터 바로 보여준다.
-function FrontmatterPanel({ data }: { data: FrontmatterData }) {
+// frontmatter는 본문(tiptap) 밖에서 다룬다 — 편집 가능한 리치텍스트 흐름에 섞이면 사용자가
+// 실수로 YAML 구조를 깨뜨릴 수 있다. title 외 모든 필드(desc/created/updated 포함)는 동일하게
+// 취급하는 자유 key-value 목록 — 여기서 추가·수정·삭제한다. 값에 :이 있어도 되지만 키에는 안 됨.
+function FrontmatterPanel({
+  data,
+  onChange,
+  readOnly,
+}: {
+  data: FrontmatterData
+  onChange: (next: FrontmatterData) => void
+  readOnly?: boolean
+}) {
+  function setTitle(title: string) {
+    onChange({ ...data, title })
+  }
+  function setFieldKey(index: number, key: string) {
+    onChange({ ...data, fields: data.fields.map((f, i) => (i === index ? { ...f, key } : f)) })
+  }
+  function setFieldValue(index: number, value: string) {
+    onChange({ ...data, fields: data.fields.map((f, i) => (i === index ? { ...f, value } : f)) })
+  }
+  function removeField(index: number) {
+    onChange({ ...data, fields: data.fields.filter((_, i) => i !== index) })
+  }
+  function addField() {
+    onChange({ ...data, fields: [...data.fields, { key: nextFieldKey(data.fields), value: '' }] })
+  }
+
   return (
     // mt-12: App.tsx가 우측 상단(top-3/right-3)에 Hotview/Plain 토글을 겹쳐 띄우므로 그 아래로 여유를 둔다.
-    // 본문 H1과 같은 역할을 대신하는 자리라 그만큼 크게 — border-b로 아래 본문과만 구분한다.
-    <div className="mx-8 mt-12 mb-6 border-b border-edge pb-5">
-      <h1 className="text-3xl leading-tight font-bold text-ink-bright">{data.title}</h1>
-      <div className="mt-2 flex items-center gap-2 text-xs text-ink-muted">
-        <span>생성 {data.created}</span>
-        <span className="text-ink-faint">·</span>
-        <span>수정 {data.updated}</span>
+    // 본문 H1과 같은 역할을 대신하는 자리라 제목만 그만큼 크게 — border-b로 아래 본문과 구분한다.
+    <div className="mx-8 mt-12 mb-6 border-b border-edge pb-4">
+      <input
+        value={data.title}
+        onChange={(e) => setTitle(e.target.value)}
+        readOnly={readOnly}
+        placeholder="제목"
+        className="w-full border-none bg-transparent text-3xl leading-tight font-bold text-ink-bright outline-none placeholder:text-ink-faint"
+      />
+      <div className="mt-3 flex flex-col gap-1">
+        {data.fields.map((field, i) => (
+          <div key={i} className="group flex items-center gap-2">
+            <input
+              value={field.key}
+              onChange={(e) => setFieldKey(i, e.target.value)}
+              readOnly={readOnly}
+              placeholder="필드명"
+              className="w-24 shrink-0 truncate rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-muted outline-none hover:border-edge focus:border-edge-bright"
+            />
+            <input
+              value={field.value}
+              onChange={(e) => setFieldValue(i, e.target.value)}
+              readOnly={readOnly}
+              placeholder="값"
+              className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-secondary outline-none hover:border-edge focus:border-edge-bright"
+            />
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => removeField(i)}
+                aria-label="필드 삭제"
+                className="shrink-0 rounded px-1.5 py-0.5 text-xs text-ink-faint opacity-0 hover:bg-surface-hover hover:text-ink group-hover:opacity-100"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        ))}
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={addField}
+            className="mt-1 self-start rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-hover hover:text-ink"
+          >
+            + 필드 추가
+          </button>
+        )}
       </div>
-      {data.desc && <p className="mt-3 text-base text-ink-secondary italic">{data.desc}</p>}
     </div>
   )
 }
@@ -318,6 +405,9 @@ export const Editor = forwardRef<
   }
 >(function Editor({ value, onChange, readOnly, path = '', tree = [], onOpenLink }, ref) {
   const { frontmatter, body } = useMemo(() => splitFrontmatter(value), [value])
+  function handleFrontmatterChange(next: FrontmatterData) {
+    onChange(joinFrontmatter(next, body))
+  }
   const containerRef = useRef<HTMLDivElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const uploadPosRef = useRef<number | null>(null)
@@ -391,14 +481,7 @@ export const Editor = forwardRef<
       const markdown = markdownInstance ? markdownInstance.getMarkdown() : ''
       if (markdown !== undefined) {
         if (frontmatter) {
-          const today = todayDate()
-          let next = frontmatter.updated === today ? frontmatter : { ...frontmatter, updated: today }
-          // desc는 한 번 채워지면 덮어쓰지 않는다 — 비어 있을 때만 본문에서 다시 뽑아본다
-          if (!next.desc) {
-            const desc = extractDescription(markdown)
-            if (desc) next = { ...next, desc }
-          }
-          onChange(joinFrontmatter(next, markdown))
+          onChange(joinFrontmatter(bumpUpdatedAndFillDesc(frontmatter, markdown), markdown))
         } else {
           onChange(markdown)
         }
@@ -929,7 +1012,7 @@ export const Editor = forwardRef<
     >
       {/* /upload 커맨드 전용 숨은 파일 인풋 — accept 없이 모든 타입, 모바일에서도 네이티브 피커가 뜬다 */}
       <input ref={uploadInputRef} type="file" onChange={handleUploadInputChange} style={{ display: 'none' }} />
-      {frontmatter && <FrontmatterPanel data={frontmatter} />}
+      {frontmatter && <FrontmatterPanel data={frontmatter} onChange={handleFrontmatterChange} readOnly={readOnly} />}
       {/* 런타임 <style>은 Tailwind가 처리하지 않으므로 @apply 금지 — 순수 CSS만 사용 */}
       <style>{`
         .tiptap {
