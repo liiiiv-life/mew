@@ -321,13 +321,15 @@ export function FileTree({
   const [popover, setPopover] = useState<PopoverState>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const initializedOpenDirs = useRef(false)
-  const isFirstSearchFocus = useRef(true)
+  // 마운트 시점 값으로 초기화 — "처음 한 번은 건너뛰기" 식 불리언 가드는 StrictMode가
+  // 마운트 이펙트를 두 번 실행할 때(두 번째 호출에서 가드가 이미 소진됨) 무력화돼 사이드바를
+  // 열기만 해도 검색창에 포커스가 가는(모바일 키보드가 뜨는) 버그가 있었다. 값 비교면
+  // 두 번 호출돼도 항상 "신호가 안 바뀌었으니 스킵"으로 같은 결론이 난다.
+  const lastHandledSearchFocusSignal = useRef(searchFocusSignal)
 
   useEffect(() => {
-    if (isFirstSearchFocus.current) {
-      isFirstSearchFocus.current = false
-      return
-    }
+    if (searchFocusSignal === lastHandledSearchFocusSignal.current) return
+    lastHandledSearchFocusSignal.current = searchFocusSignal
     searchInputRef.current?.focus()
   }, [searchFocusSignal])
 
