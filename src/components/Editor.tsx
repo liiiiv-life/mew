@@ -26,6 +26,8 @@ import { ResizableImage } from './ResizableImage'
 import { AudioNode, VideoNode, Youtube, YOUTUBE_URL_RE } from './MediaNodes'
 import { flattenFiles, fuzzyScore, relativeLinkPath, resolveRelativePath } from '../utils/fuzzy'
 import { splitFrontmatter, joinFrontmatter, todayDate, extractDescription, type FrontmatterData } from '../utils/frontmatter'
+import { MobileKeyBar } from './MobileKeyBar'
+import { useKeyboardOpen } from '../hooks/useKeyboardOpen'
 
 export interface EditorHandle {
   scrollToHeading: (index: number) => void
@@ -338,6 +340,10 @@ export const Editor = forwardRef<
     position: { top: number; left: number }
     selectedIndex: number
   } | null>(null)
+  const [editorFocused, setEditorFocused] = useState(false)
+  const [keyBarCtrl, setKeyBarCtrl] = useState(false)
+  const [keyBarShift, setKeyBarShift] = useState(false)
+  const keyboardOpen = useKeyboardOpen()
 
   const editor = useEditor({
     extensions: [
@@ -399,6 +405,8 @@ export const Editor = forwardRef<
       }
       updateMentionState(editor)
     },
+    onFocus: () => setEditorFocused(true),
+    onBlur: () => setEditorFocused(false),
     onSelectionUpdate: ({ editor }) => {
       updateMentionState(editor)
     },
@@ -746,6 +754,39 @@ export const Editor = forwardRef<
     setLinkTooltip(null)
   }, [])
 
+  // 모바일 보조키 바 — 열려 있는 팝업이 있으면 그것만 닫고, 없으면 에디터에서 blur(키보드 닫기)
+  function handleKeyBarEsc() {
+    if (tooltip || linkTooltip || mention) {
+      closeTooltip()
+      closeLinkTooltip()
+      setMention(null)
+      return
+    }
+    editor?.commands.blur()
+  }
+
+  // Tab/Shift-Tab을 진짜 keydown처럼 에디터 DOM에 흘려보낸다 — ProseMirror의 키맵(리스트
+  // 들여쓰기 등)은 자체 JS 이벤트 처리라 합성 이벤트에도 반응한다 (네이티브 텍스트 입력과 달리)
+  function handleKeyBarTab() {
+    editor?.view.dom.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', shiftKey: keyBarShift, bubbles: true, cancelable: true }),
+    )
+    setKeyBarShift(false)
+  }
+
+  // 화살표는 합성 keydown으로 안 됨(브라우저가 신뢰되지 않은 이벤트엔 커서 이동 같은 기본 동작을
+  // 수행하지 않음) — Selection.modify로 직접 캐럿을 옮긴다 (Chromium/WebKit 지원, Firefox는 미지원)
+  function handleKeyBarArrow(dir: 'up' | 'down' | 'left' | 'right') {
+    const sel = window.getSelection() as (Selection & { modify?: (a: string, d: string, g: string) => void }) | null
+    const alter = keyBarShift ? 'extend' : 'move'
+    if (dir === 'left') sel?.modify?.(alter, 'backward', keyBarCtrl ? 'word' : 'character')
+    else if (dir === 'right') sel?.modify?.(alter, 'forward', keyBarCtrl ? 'word' : 'character')
+    else if (dir === 'up') sel?.modify?.(alter, 'backward', 'line')
+    else sel?.modify?.(alter, 'forward', 'line')
+    setKeyBarCtrl(false)
+    setKeyBarShift(false)
+  }
+
   // 툴팁 클릭 방지
   useEffect(() => {
     const handleClick = () => setTooltip(null)
@@ -1043,6 +1084,17 @@ export const Editor = forwardRef<
           results={mentionResults}
           selectedIndex={mention.selectedIndex}
           onSelect={selectMention}
+        />
+      )}
+      {keyboardOpen && editorFocused && (
+        <MobileKeyBar
+          ctrlActive={keyBarCtrl}
+          shiftActive={keyBarShift}
+          onToggleCtrl={() => setKeyBarCtrl((v) => !v)}
+          onToggleShift={() => setKeyBarShift((v) => !v)}
+          onEsc={handleKeyBarEsc}
+          onTab={handleKeyBarTab}
+          onArrow={handleKeyBarArrow}
         />
       )}
     </div>

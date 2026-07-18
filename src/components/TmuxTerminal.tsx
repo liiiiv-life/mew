@@ -1,15 +1,38 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { MobileKeyBar } from './MobileKeyBar'
+import { useKeyboardOpen } from '../hooks/useKeyboardOpen'
+
+function arrowSequence(dir: 'up' | 'down' | 'left' | 'right', ctrl: boolean, shift: boolean): string {
+  const letter = { up: 'A', down: 'B', right: 'C', left: 'D' }[dir]
+  const mod = ctrl && shift ? 6 : ctrl ? 5 : shift ? 2 : 1
+  return mod === 1 ? `\x1b[${letter}` : `\x1b[1;${mod}${letter}`
+}
 
 export function TmuxTerminal({ sessionName, activeFilePath }: { sessionName: string; activeFilePath?: string | null }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const activeFilePathRef = useRef(activeFilePath)
+  const wsRef = useRef<WebSocket | null>(null)
+  const termRef = useRef<Terminal | null>(null)
+  const ctrlActiveRef = useRef(false)
+  const [ctrlActive, setCtrlActive] = useState(false)
+  const [shiftActive, setShiftActive] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const keyboardOpen = useKeyboardOpen()
 
   useEffect(() => {
     activeFilePathRef.current = activeFilePath
   }, [activeFilePath])
+
+  useEffect(() => {
+    ctrlActiveRef.current = ctrlActive
+  }, [ctrlActive])
+
+  function send(data: string) {
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'input', data }))
+  }
 
   useEffect(() => {
     const container = containerRef.current
@@ -30,6 +53,12 @@ export function TmuxTerminal({ sessionName, activeFilePath }: { sessionName: str
     term.loadAddon(fitAddon)
     term.open(container)
     fitAddon.fit()
+    termRef.current = term
+
+    const onFocus = () => setFocused(true)
+    const onBlur = () => setFocused(false)
+    term.textarea?.addEventListener('focus', onFocus)
+    term.textarea?.addEventListener('blur', onBlur)
 
     // Ctrl+L: 마지막으로 열려있던 파일의 절대경로를 셸 입력에 그대로 꽂아준다
     // (열린 파일이 없으면 원래 동작인 화면 지우기로 그대로 통과시킴)
@@ -46,6 +75,7 @@ export function TmuxTerminal({ sessionName, activeFilePath }: { sessionName: str
     const ws = new WebSocket(
       `${protocol}//${location.host}/api/tmux/ws?session=${encodeURIComponent(sessionName)}&cols=${term.cols}&rows=${term.rows}`,
     )
+    wsRef.current = ws
 
     ws.onmessage = (event) => {
       if (typeof event.data === 'string') term.write(event.data)
@@ -58,7 +88,15 @@ export function TmuxTerminal({ sessionName, activeFilePath }: { sessionName: str
     }
 
     const dataDisposable = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }))
+      // 보조키 바에서 Ctrl을 켜둔 상태로 실제 문자를 하나 치면 그 문자를 제어 코드로 바꿔 보낸다
+      // (Ctrl+C, Ctrl+D 같은 진짜 터미널 조작 — Termux의 Ctrl 키와 동일한 동작)
+      let out = data
+      if (ctrlActiveRef.current && data.length === 1 && /[a-zA-Z]/.test(data)) {
+        out = String.fromCharCode(data.toUpperCase().charCodeAt(0) - 64)
+        ctrlActiveRef.current = false
+        setCtrlActive(false)
+      }
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data: out }))
     })
 
     // fitAddon.fit()이 실제로 cols/rows를 바꿀 때만 발생 — 여기서 서버에 리사이즈를 알린다
@@ -118,13 +156,48 @@ export function TmuxTerminal({ sessionName, activeFilePath }: { sessionName: str
       container.removeEventListener('touchstart', onTouchStart)
       container.removeEventListener('touchmove', onTouchMove)
       container.removeEventListener('touchend', onTouchEnd)
+      term.textarea?.removeEventListener('focus', onFocus)
+      term.textarea?.removeEventListener('blur', onBlur)
       resizeObserver.disconnect()
       dataDisposable.dispose()
       resizeDisposable.dispose()
       ws.close()
       term.dispose()
+      wsRef.current = null
+      termRef.current = null
     }
   }, [sessionName])
 
-  return <div ref={containerRef} className="h-full w-full overflow-hidden bg-surface-deep p-1" />
+  function focusTerminal() {
+    termRef.current?.focus()
+  }
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden bg-surface-deep p-1" />
+      {keyboardOpen && focused && (
+        <MobileKeyBar
+          ctrlActive={ctrlActive}
+          shiftActive={shiftActive}
+          onToggleCtrl={() => setCtrlActive((v) => !v)}
+          onToggleShift={() => setShiftActive((v) => !v)}
+          onEsc={() => {
+            send('\x1b')
+            focusTerminal()
+          }}
+          onTab={() => {
+            send(shiftActive ? '\x1b[Z' : '\t')
+            setShiftActive(false)
+            focusTerminal()
+          }}
+          onArrow={(dir) => {
+            send(arrowSequence(dir, ctrlActive, shiftActive))
+            setCtrlActive(false)
+            setShiftActive(false)
+            focusTerminal()
+          }}
+        />
+      )}
+    </div>
+  )
 }
