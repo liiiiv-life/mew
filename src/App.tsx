@@ -1,61 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchFile, fetchMode, fetchRules, fetchTree, saveFile, type TreeNode, type DocRules } from './api/client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { fetchMode, fetchTree, type TreeNode } from './api/client'
 import { FileTree } from './components/FileTree'
 import { Editor, type EditorHandle } from './components/Editor'
 import { AgentSidebar } from './components/AgentSidebar'
 import { TmuxTerminalPanel } from './components/TmuxTerminalPanel'
 import { TableOfContents } from './components/TableOfContents'
+import { TabBar } from './components/TabBar'
+import { FabMenu } from './components/FabMenu'
+import { useTabs } from './hooks/useTabs'
+import { usePresence } from './hooks/usePresence'
+import { usePanelWidth } from './hooks/usePanelWidth'
+import { useSwipe } from './hooks/useSwipe'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
   else document.documentElement.requestFullscreen().catch(() => {})
 }
 
-function blankTab(): Tab {
-  return {
-    path: '',
-    content: '',
-    savedContent: '',
-    committedContent: '',
-    rules: null,
-    status: 'idle',
-    preview: false,
-    viewMode: 'hotview',
-  }
-}
-
-type Tab = {
-  path: string
-  content: string
-  savedContent: string // 디스크에 마지막으로 저장된 내용 (자동저장 기준)
-  committedContent: string // 마지막 커밋 시점의 내용 (Commit 버튼 활성화 기준)
-  rules: DocRules | null
-  status: 'idle' | 'saving' | 'saved' | 'error'
-  statusMessage?: string
-  preview: boolean
-  viewMode: 'hotview' | 'plain'
-}
-
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
-
-const TMUX_WIDTH_KEY = 'docs-editor:tmux-panel-width'
-const TMUX_WIDTH_MIN = 320
-const TMUX_WIDTH_MAX = 1000
-const TMUX_WIDTH_DEFAULT = 640
-
-function clampTmuxWidth(w: number): number {
-  return Math.min(TMUX_WIDTH_MAX, Math.max(TMUX_WIDTH_MIN, w))
-}
-
-function loadTmuxWidth(): number {
-  const stored = Number(localStorage.getItem(TMUX_WIDTH_KEY))
-  return Number.isFinite(stored) && stored > 0 ? clampTmuxWidth(stored) : TMUX_WIDTH_DEFAULT
-}
 
 const OPEN_TABS_KEY = 'docs-editor:open-tabs'
 
 type StoredTabs = {
-  tabs: { path: string; preview: boolean; viewMode: Tab['viewMode'] }[]
+  tabs: { path: string; preview: boolean; viewMode: 'hotview' | 'plain' }[]
   activePath: string | null
   agentOpen: boolean
   tmuxOpen: boolean
@@ -73,6 +40,7 @@ function loadStoredTabs(): StoredTabs | null {
 
 type Theme = 'dark' | 'light'
 const THEME_KEY = 'docs-editor:theme'
+const TOC_KEY = 'docs-editor:toc-open'
 
 function loadTheme(): Theme {
   return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
@@ -80,84 +48,72 @@ function loadTheme(): Theme {
 
 function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
-  const [tabs, setTabs] = useState<Tab[]>([])
-  const [activePath, setActivePath] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   const [agentOpen, setAgentOpen] = useState(false)
   const [tmuxOpen, setTmuxOpen] = useState(false)
-  const [tmuxWidth, setTmuxWidth] = useState(loadTmuxWidth)
-  const [fabMenuOpen, setFabMenuOpen] = useState(false)
+  const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
   // 서버 모드를 확인하기 전까지는 편집 UI를 숨긴다 (뷰어에서 깜빡임 방지)
   const [readOnly, setReadOnly] = useState(true)
   const [docsRoot, setDocsRoot] = useState<string | null>(null)
-  // 경로별로 지금 몇 개의 브라우저 세션이 이 문서를 탭으로 열어두고 있는지 (협업 충돌 방지용)
-  const [tabPresence, setTabPresence] = useState<Record<string, number>>({})
   const editorRef = useRef<EditorHandle>(null)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const tabsRef = useRef<Tab[]>([])
   const hasRestoredTabsRef = useRef(false)
   const isFirstPersistRef = useRef(true)
-  const presenceWsRef = useRef<WebSocket | null>(null)
-  const tabPathsRef = useRef<string[]>([])
 
-  const activeTab = tabs.find((t) => t.path === activePath) ?? null
+  const refreshTree = useCallback(() => fetchTree().then(setTree).catch(console.error), [])
+
+  const {
+    tabs,
+    activePath,
+    activeTab,
+    setActivePath,
+    openFile,
+    openBlankTab,
+    pinTab,
+    setTabViewMode,
+    updateTabContent,
+    saveCurrentTab,
+    closeTab,
+    remapPaths,
+    removePaths,
+  } = useTabs(readOnly, refreshTree)
+
+  // 경로별로 지금 몇 개의 브라우저 세션이 이 문서를 탭으로 열어두고 있는지 (협업 충돌 방지용)
+  // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
+  const openPaths = useMemo(() => tabs.map((t) => t.path).filter(Boolean), [tabs])
+  const tabPresence = usePresence(openPaths, refreshTree)
+
+  const { width: sidebarWidth, startResize: startSidebarResize } = usePanelWidth('docs-editor:sidebar-width', {
+    min: 180,
+    max: 480,
+    initial: 256,
+  })
+  const { width: tmuxWidth, startResize: startTmuxResize } = usePanelWidth('docs-editor:tmux-panel-width', {
+    min: 320,
+    max: 1000,
+    initial: 640,
+    invert: true, // 패널이 화면 오른쪽에 붙어 있으므로 왼쪽으로 끌수록 넓어진다
+  })
+
+  const sidebarSwipe = useSwipe({ onLeft: () => setSidebarOpen(false) })
+  const editorSwipe = useSwipe({
+    onRight: () => setSidebarOpen(true),
+    onLeft: () => setTmuxOpen(true),
+  })
+  const agentSwipe = useSwipe({ onRight: () => setAgentOpen(false) })
+  const tmuxSwipe = useSwipe({ onRight: () => setTmuxOpen(false) })
+
   const activeAbsolutePath = docsRoot && activeTab ? `${docsRoot}/${activeTab.path}` : null
-
-  useEffect(() => {
-    tabsRef.current = tabs
-  }, [tabs])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
     localStorage.setItem(THEME_KEY, theme)
   }, [theme])
 
-  // 열려 있는 문서 탭 목록이 바뀔 때마다 서버에 알려서, 같은 문서를 열고 있는
-  // 다른 세션 수를 집계하게 한다 (협업 중 겹치는 편집 방지용 배지)
   useEffect(() => {
-    tabPathsRef.current = tabs.map((t) => t.path).filter(Boolean)
-    const ws = presenceWsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'open', paths: tabPathsRef.current }))
-    }
-  }, [tabs])
-
-  useEffect(() => {
-    let cancelled = false
-    let ws: WebSocket | null = null
-    let retryTimer: ReturnType<typeof setTimeout> | null = null
-
-    function connect() {
-      if (cancelled) return
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      ws = new WebSocket(`${protocol}//${location.host}/api/presence`)
-      presenceWsRef.current = ws
-      ws.onopen = () => {
-        ws?.send(JSON.stringify({ type: 'open', paths: tabPathsRef.current }))
-      }
-      ws.onmessage = (event) => {
-        if (typeof event.data !== 'string') return
-        try {
-          const msg = JSON.parse(event.data) as { type?: string; counts?: Record<string, number> }
-          if (msg.type === 'counts' && msg.counts) setTabPresence(msg.counts)
-        } catch {
-          // 잘못된 메시지는 무시
-        }
-      }
-      ws.onclose = () => {
-        if (!cancelled) retryTimer = setTimeout(connect, 3000)
-      }
-    }
-    connect()
-
-    return () => {
-      cancelled = true
-      if (retryTimer) clearTimeout(retryTimer)
-      ws?.close()
-    }
-  }, [])
+    localStorage.setItem(TOC_KEY, tocOpen ? '1' : '0')
+  }, [tocOpen])
 
   // 모바일 키보드가 뜨면 visualViewport만 줄어들고 레이아웃 뷰포트(100dvh)는 그대로인 브라우저가 있어
   // (iOS Safari 등, interactive-widget 메타 태그 미지원) 실제 보이는 높이를 직접 재서 반영한다
@@ -175,8 +131,6 @@ function App() {
     }
   }, [])
 
-  const refreshTree = () => fetchTree().then(setTree).catch(console.error)
-
   useEffect(() => {
     refreshTree()
     fetchMode()
@@ -185,47 +139,7 @@ function App() {
         setDocsRoot(docsRoot)
       })
       .catch(console.error)
-  }, [])
-
-  const openFile = useCallback(
-    // forceNewTab: 이미 열려 있지 않은 문서라도 미리보기 탭 자리를 재사용하지 않고 항상 새 탭으로 연다
-    // (에디터 안에서 Ctrl+클릭으로 내부 링크를 열 때 — 사이드바 클릭의 미리보기 재사용 동작과는 별개)
-    (path: string, opts?: { preview?: boolean; forceNewTab?: boolean }) => {
-      const preview = opts?.preview ?? true
-      const existing = tabs.find((t) => t.path === path)
-      if (existing) {
-        if (!preview && existing.preview) {
-          setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, preview: false } : t)))
-        }
-        setActivePath(path)
-        return
-      }
-      const newTab: Tab = { path, content: '', savedContent: '', committedContent: '', rules: null, status: 'idle', preview, viewMode: 'hotview' }
-      setTabs((prev) => {
-        if (opts?.forceNewTab) return [...prev, newTab]
-        // 미리보기 탭은 하나만 유지 — 새로 여는 문서가 그 자리를 재사용
-        const previewIdx = prev.findIndex((t) => t.preview)
-        if (previewIdx === -1) return [...prev, newTab]
-        const next = [...prev]
-        next[previewIdx] = newTab
-        return next
-      })
-      setActivePath(path)
-      fetchFile(path)
-        .then(({ content }) => {
-          setTabs((curr) =>
-            curr.map((t) =>
-              t.path === path ? { ...t, content, savedContent: content, committedContent: content, status: 'idle' } : t,
-            ),
-          )
-        })
-        .catch(console.error)
-      fetchRules(path)
-        .then((rules) => setTabs((curr) => curr.map((t) => (t.path === path ? { ...t, rules } : t))))
-        .catch(console.error)
-    },
-    [tabs],
-  )
+  }, [refreshTree])
 
   // 브라우저를 껐다 켜거나 F5로 새로고침해도 열려 있던 탭들을 복원한다.
   // StrictMode는 마운트 이펙트를 두 번 실행하므로 ref로 한 번만 동작하게 막는다.
@@ -258,167 +172,29 @@ function App() {
     localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(payload))
   }, [tabs, activePath, agentOpen, tmuxOpen])
 
-  const pinTab = useCallback((path: string) => {
-    setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, preview: false } : t)))
-  }, [])
-
-  const setTabViewMode = useCallback((path: string, viewMode: Tab['viewMode']) => {
-    setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, viewMode } : t)))
-  }, [])
-
-  // 경로 기준으로 디스크에 저장 (git 커밋 없음)
-  // tabsRef로 최신 content를 읽어 디바운스 스테일 문제를 피하고, setState 업데이터 안에서 부수효과(fetch)를
-  // 실행하지 않는다 — StrictMode가 업데이터 함수를 두 번 호출해 fetch가 중복 발생하는 것을 방지
-  const autosave = useCallback(
-    (path: string) => {
-      if (readOnly) return
-      const tab = tabsRef.current.find((t) => t.path === path)
-      if (!tab || tab.content === tab.savedContent || tab.path.startsWith('archives/')) return
-      const content = tab.content
-      setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, status: 'saving' } : t)))
-      saveFile(path, content, false)
-        .then(() => {
-          setTabs((curr) =>
-            curr.map((t) => (t.path === path && t.content === content ? { ...t, savedContent: content, status: 'saved', statusMessage: 'Saved' } : t)),
-          )
-        })
-        .catch((err) => {
-          setTabs((curr) =>
-            curr.map((t) =>
-              t.path === path ? { ...t, status: 'error', statusMessage: err instanceof Error ? err.message : String(err) } : t,
-            ),
-          )
-        })
-    },
-    [readOnly],
-  )
-
-  const scheduleAutosave = useCallback(
-    (path: string) => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(() => {
-        saveTimerRef.current = null
-        autosave(path)
-      }, 500)
-    },
-    [autosave],
-  )
-
-  const closeTab = useCallback(
-    (path: string) => {
-      // 디바운스를 기다리지 않고 닫히는 탭의 변경 내용을 즉시 디스크에 반영
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current)
-        saveTimerRef.current = null
-      }
-      autosave(path)
-      setTabs((prev) => {
-        const next = prev.filter((t) => t.path !== path)
-        if (path === activePath) {
-          const idx = prev.findIndex((t) => t.path === path)
-          setActivePath(next[Math.min(idx, next.length - 1)]?.path ?? null)
-        }
-        return next
-      })
-    },
-    [activePath, autosave],
-  )
-
-  const updateTabContent = useCallback(
-    (path: string, content: string) => {
-      // 편집이 시작되면 미리보기 탭을 고정 탭으로 승격 (VSCode와 동일)
-      setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, content, preview: false } : t)))
-      scheduleAutosave(path)
-    },
-    [scheduleAutosave],
-  )
-
-  const saveCurrentTab = useCallback(
-    async (commit = false) => {
-      const tab = activeTab
-      if (!tab || readOnly) return
-      const dirty = commit ? tab.content !== tab.committedContent : tab.content !== tab.savedContent
-      const isArchived = tab.path.startsWith('archives/')
-      if (!dirty || isArchived) return
-
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current)
-        saveTimerRef.current = null
-      }
-      setTabs((prev) => prev.map((t) => (t.path === tab.path ? { ...t, status: 'saving' } : t)))
-      try {
-        const result = await saveFile(tab.path, tab.content, commit)
-        const message = commit
-          ? `Committed${result.commit?.hash ? ' ' + result.commit.hash.slice(0, 7) : ''}`
-          : 'Saved'
-        setTabs((prev) =>
-          prev.map((t) =>
-            t.path === tab.path
-              ? {
-                  ...t,
-                  savedContent: tab.content,
-                  committedContent: commit ? tab.content : t.committedContent,
-                  status: 'saved',
-                  statusMessage: message,
-                }
-              : t,
-          ),
-        )
-        if (commit) {
-          refreshTree()
-          fetchRules(tab.path)
-            .then((rules) => setTabs((curr) => curr.map((t) => (t.path === tab.path ? { ...t, rules } : t))))
-            .catch(console.error)
-        }
-      } catch (err) {
-        setTabs((prev) =>
-          prev.map((t) =>
-            t.path === tab.path
-              ? { ...t, status: 'error', statusMessage: err instanceof Error ? err.message : String(err) }
-              : t,
-          ),
-        )
-      }
-    },
-    [activeTab, readOnly],
-  )
-
   const handleFileCreated = useCallback(
     (relPath: string) => {
       refreshTree()
       openFile(relPath, { preview: false })
     },
-    [openFile],
+    [refreshTree, openFile],
   )
 
-  const handleFolderCreated = useCallback(() => {
-    refreshTree()
-  }, [])
+  const handleRenamed = useCallback(
+    (oldPath: string, newPath: string, type: 'file' | 'dir') => {
+      refreshTree()
+      remapPaths(oldPath, newPath, type)
+    },
+    [refreshTree, remapPaths],
+  )
 
-  const handleRenamed = useCallback((oldPath: string, newPath: string, type: 'file' | 'dir') => {
-    refreshTree()
-    const remap = (p: string) => {
-      if (type === 'file') return p === oldPath ? newPath : p
-      return p === oldPath || p.startsWith(oldPath + '/') ? newPath + p.slice(oldPath.length) : p
-    }
-    setTabs((prev) => prev.map((t) => ({ ...t, path: remap(t.path) })))
-    setActivePath((p) => (p ? remap(p) : p))
-  }, [])
-
-  const handleDeleted = useCallback((path: string, type: 'file' | 'dir') => {
-    refreshTree()
-    setTabs((prev) => {
-      const removed = new Set(
-        prev
-          .filter((t) => (type === 'file' ? t.path === path : t.path === path || t.path.startsWith(path + '/')))
-          .map((t) => t.path),
-      )
-      if (removed.size === 0) return prev
-      const next = prev.filter((t) => !removed.has(t.path))
-      setActivePath((p) => (p && removed.has(p) ? (next[0]?.path ?? null) : p))
-      return next
-    })
-  }, [])
+  const handleDeleted = useCallback(
+    (path: string, type: 'file' | 'dir') => {
+      refreshTree()
+      removePaths(path, type)
+    },
+    [refreshTree, removePaths],
+  )
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -430,6 +206,15 @@ function App() {
         e.preventDefault()
         setSidebarOpen(true)
         setSearchFocusSignal((s) => s + 1)
+      } else if (mod && e.code === 'Backquote') {
+        // VSCode처럼 어디에 포커스가 있어도 터미널을 토글한다 (Shift 조합 ~ 포함)
+        e.preventDefault()
+        setTmuxOpen((v) => !v)
+      } else if (mod && !e.shiftKey && !e.altKey && e.code === 'KeyB') {
+        // 에디터의 Ctrl+B(굵게, defaultPrevented로 감지)와 터미널의 tmux prefix에는 양보한다
+        if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.xterm'))) return
+        e.preventDefault()
+        setSidebarOpen((v) => !v)
       } else if (e.altKey && e.code === 'KeyW') {
         // Ctrl+W는 Chromium이 예약한 브라우저 단축키라 preventDefault로 막을 수 없어 Alt+W를 대신 쓴다
         // (e.code로 비교 — macOS에서 Option+문자는 e.key가 특수문자로 바뀌어 레이아웃에 취약함)
@@ -438,11 +223,7 @@ function App() {
       } else if (e.altKey && e.code === 'KeyN') {
         // Ctrl+N도 마찬가지로 브라우저 예약 단축키라 가로챌 수 없어 Alt+N을 쓴다
         e.preventDefault()
-        setTabs((prev) => {
-          const newTab = blankTab()
-          setActivePath(newTab.path)
-          return [...prev, newTab]
-        })
+        openBlankTab()
       } else if (e.altKey && e.code === 'Enter') {
         e.preventDefault()
         toggleFullscreen()
@@ -450,27 +231,7 @@ function App() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [saveCurrentTab, closeTab, activePath])
-
-  function startTmuxResize(e: React.PointerEvent) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startWidth = tmuxWidth
-    function onMove(ev: PointerEvent) {
-      // 패널이 화면 오른쪽에 붙어 있으므로 왼쪽으로 끌수록(dx 음수) 넓어진다
-      setTmuxWidth(clampTmuxWidth(startWidth - (ev.clientX - startX)))
-    }
-    function onUp() {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      setTmuxWidth((w) => {
-        localStorage.setItem(TMUX_WIDTH_KEY, String(w))
-        return w
-      })
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }
+  }, [saveCurrentTab, closeTab, activePath, openBlankTab])
 
   return (
     <div className="flex flex-col bg-surface text-ink" style={{ height: 'var(--app-height, 100dvh)' }}>
@@ -480,7 +241,7 @@ function App() {
             type="button"
             onClick={() => setSidebarOpen((v) => !v)}
             className="rounded border border-edge-strong p-1.5 hover:bg-surface-raised"
-            title="사이드바 열기/닫기"
+            title="사이드바 열기/닫기 (Ctrl+B)"
             aria-label="사이드바 열기/닫기"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -494,6 +255,22 @@ function App() {
         </div>
         <div className="flex items-center gap-3 text-sm">
           {activeTab && <span className="hidden max-w-xs truncate text-ink-muted md:inline-block">{activePath}</span>}
+          <button
+            type="button"
+            onClick={() => setTocOpen((v) => !v)}
+            className={`hidden rounded border border-edge-strong p-1.5 hover:bg-surface-raised lg:block ${
+              tocOpen ? 'text-ink' : 'text-ink-muted'
+            }`}
+            title="목차 열기/닫기"
+            aria-label="목차 열기/닫기"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M9 6h12M9 12h12M9 18h12" />
+              <circle cx="4" cy="6" r="1" fill="currentColor" />
+              <circle cx="4" cy="12" r="1" fill="currentColor" />
+              <circle cx="4" cy="18" r="1" fill="currentColor" />
+            </svg>
+          </button>
           {!readOnly && (
             <>
               <button
@@ -517,78 +294,60 @@ function App() {
         </div>
       </header>
 
-      {/* Tab bar */}
-      <div className="flex h-9 items-center overflow-x-auto border-b border-edge bg-surface-deep">
-        {tabs.map((tab) => {
-          const isActive = tab.path === activePath
-          const fileName = tab.path.split('/').pop() ?? tab.path
-          const sessionCount = tabPresence[tab.path] ?? 0
-          return (
-            <div
-              key={tab.path}
-              className={`group flex h-full shrink-0 cursor-pointer items-center gap-1.5 border-r border-edge px-3 text-xs select-none ${
-                isActive ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
-              }`}
-              onClick={() => setActivePath(tab.path)}
-              onDoubleClick={() => pinTab(tab.path)}
-            >
-              <span className={`max-w-[150px] truncate ${tab.preview ? 'italic' : ''}`}>{fileName}</span>
-              {sessionCount > 1 && (
-                <span
-                  className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-medium text-ink-inverse"
-                  title={`이 문서를 ${sessionCount}개 세션에서 열어두고 있습니다`}
-                >
-                  {sessionCount}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  closeTab(tab.path)
-                }}
-                className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
-              >
-                ×
-              </button>
-            </div>
-          )
-        })}
-      </div>
+      <TabBar
+        tabs={tabs}
+        activePath={activePath}
+        presence={tabPresence}
+        onActivate={setActivePath}
+        onPin={pinTab}
+        onClose={closeTab}
+      />
 
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && (
-          <div className="fixed inset-0 z-30 flex flex-col bg-surface-deep md:static md:z-auto md:w-64 md:shrink-0">
-            <div className="flex items-center justify-between border-b border-edge px-3 py-2 md:hidden">
-              <span className="text-sm font-semibold">문서</span>
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-                aria-label="사이드바 닫기"
-              >
-                ×
-              </button>
+          <div
+            {...sidebarSwipe}
+            className="fixed inset-0 z-30 flex bg-surface-deep md:static md:z-auto md:shrink-0"
+            style={{ width: isDesktop() ? sidebarWidth : undefined }}
+          >
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-center justify-between border-b border-edge px-3 py-2 md:hidden">
+                <span className="text-sm font-semibold">문서</span>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+                  aria-label="사이드바 닫기"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="min-h-0 flex-1">
+                <FileTree
+                  tree={tree}
+                  selectedPath={activePath}
+                  readOnly={readOnly}
+                  searchFocusSignal={searchFocusSignal}
+                  presence={tabPresence}
+                  onSelect={(path, opts) => {
+                    openFile(path, opts)
+                    if (!isDesktop()) setSidebarOpen(false)
+                  }}
+                  onFileCreated={(relPath) => {
+                    handleFileCreated(relPath)
+                    if (!isDesktop()) setSidebarOpen(false)
+                  }}
+                  onFolderCreated={refreshTree}
+                  onRenamed={handleRenamed}
+                  onDeleted={handleDeleted}
+                />
+              </div>
             </div>
-            <div className="min-h-0 flex-1">
-              <FileTree
-                tree={tree}
-                selectedPath={activePath}
-                readOnly={readOnly}
-                searchFocusSignal={searchFocusSignal}
-                onSelect={(path, opts) => {
-                  openFile(path, opts)
-                  if (!isDesktop()) setSidebarOpen(false)
-                }}
-                onFileCreated={(relPath) => {
-                  handleFileCreated(relPath)
-                  if (!isDesktop()) setSidebarOpen(false)
-                }}
-                onFolderCreated={handleFolderCreated}
-                onRenamed={handleRenamed}
-                onDeleted={handleDeleted}
-              />
-            </div>
+            <div
+              onPointerDown={startSidebarResize}
+              className="hidden w-1.5 shrink-0 cursor-col-resize touch-none bg-transparent hover:bg-accent md:block"
+              aria-hidden="true"
+            />
           </div>
         )}
 
@@ -599,7 +358,7 @@ function App() {
                 archives/ 문서는 불변입니다 — 편집이 차단되었습니다
               </div>
             )}
-            <div className="relative min-w-0 flex-1">
+            <div className="relative min-w-0 flex-1" {...editorSwipe}>
               {activeTab.path.endsWith('.md') && (
                 <div className="absolute right-3 top-3 z-20 flex overflow-hidden rounded border border-edge-strong text-xs shadow-sm">
                   <button
@@ -646,10 +405,12 @@ function App() {
                 />
               )}
             </div>
-            <TableOfContents content={activeTab.content} onJump={(i) => editorRef.current?.scrollToHeading(i)} />
+            {tocOpen && (
+              <TableOfContents content={activeTab.content} onJump={(i) => editorRef.current?.scrollToHeading(i)} />
+            )}
           </>
         ) : (
-          <div className="flex flex-1 items-center justify-center text-ink-secondary">
+          <div className="flex flex-1 items-center justify-center text-ink-secondary" {...editorSwipe}>
             <div className="text-center">
               <div className="mb-2">왼쪽에서 문서를 선택하세요</div>
               {readOnly ? (
@@ -665,13 +426,17 @@ function App() {
         )}
 
         {agentOpen && (
-          <div className="fixed inset-0 z-30 md:static md:z-auto md:w-96 md:shrink-0 md:border-l md:border-edge">
+          <div {...agentSwipe} className="fixed inset-0 z-30 md:static md:z-auto md:w-96 md:shrink-0 md:border-l md:border-edge">
             <AgentSidebar onClose={() => setAgentOpen(false)} activeFilePath={activeAbsolutePath} />
           </div>
         )}
 
         {tmuxOpen && (
-          <div className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0" style={{ width: isDesktop() ? tmuxWidth : undefined }}>
+          <div
+            {...tmuxSwipe}
+            className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
+            style={{ width: isDesktop() ? tmuxWidth : undefined }}
+          >
             <div
               onPointerDown={startTmuxResize}
               className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
@@ -685,103 +450,13 @@ function App() {
       </div>
 
       {!readOnly && !agentOpen && !tmuxOpen && (
-        <>
-          {fabMenuOpen && <div className="fixed inset-0 z-30" onClick={() => setFabMenuOpen(false)} />}
-          <div className="fixed right-4 bottom-4 z-40 flex flex-col items-center gap-3">
-            {fabMenuOpen && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    toggleFullscreen()
-                    setFabMenuOpen(false)
-                  }}
-                  className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
-                  title="전체화면 (Alt+Enter)"
-                  aria-label="전체화면 토글"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M8 3H5a2 2 0 0 0-2 2v3" />
-                    <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
-                    <path d="M3 16v3a2 2 0 0 0 2 2h3" />
-                    <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAgentOpen(true)
-                    setFabMenuOpen(false)
-                  }}
-                  className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
-                  title="에이전트 채팅"
-                  aria-label="에이전트 채팅 열기"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTmuxOpen(true)
-                    setFabMenuOpen(false)
-                  }}
-                  className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
-                  title="터미널"
-                  aria-label="터미널 열기"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                    <path d="m7 9 3 3-3 3" />
-                    <line x1="13" y1="15" x2="17" y2="15" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
-                    setFabMenuOpen(false)
-                  }}
-                  className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
-                  title={theme === 'dark' ? '라이트 모드' : '다크 모드'}
-                  aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}
-                >
-                  {theme === 'dark' ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="4" />
-                      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-                    </svg>
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                    </svg>
-                  )}
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => setFabMenuOpen((v) => !v)}
-              className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-raised text-ink-bright shadow-lg hover:bg-surface-hover"
-              title={fabMenuOpen ? '닫기' : '메뉴'}
-              aria-label={fabMenuOpen ? '메뉴 닫기' : '메뉴 열기'}
-            >
-              {fabMenuOpen ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                  <circle cx="5" cy="12" r="2" />
-                  <circle cx="12" cy="12" r="2" />
-                  <circle cx="19" cy="12" r="2" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </>
+        <FabMenu
+          theme={theme}
+          onFullscreen={toggleFullscreen}
+          onOpenAgent={() => setAgentOpen(true)}
+          onOpenTerminal={() => setTmuxOpen(true)}
+          onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        />
       )}
     </div>
   )

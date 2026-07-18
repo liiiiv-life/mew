@@ -18,6 +18,7 @@ interface NodeCtx {
   openDirs: Set<string>
   editing: EditingState
   readOnly: boolean
+  presence: Record<string, number>
   onSelect: (path: string, opts?: { preview?: boolean }) => void
   toggleDir: (path: string) => void
   focusNode: (path: string, type: 'file' | 'dir') => void
@@ -33,6 +34,19 @@ interface NodeCtx {
 function parentOf(p: string): string {
   const i = p.lastIndexOf('/')
   return i === -1 ? '' : p.slice(0, i)
+}
+
+// 이 문서를 탭으로 열어둔 세션 수 배지 (탭 바의 배지와 동일한 시각 언어)
+function PresenceBadge({ count }: { count: number }) {
+  if (count < 1) return null
+  return (
+    <span
+      className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-medium text-ink-inverse"
+      title={`이 문서를 ${count}개 세션에서 열어두고 있습니다`}
+    >
+      {count}
+    </span>
+  )
 }
 
 function sanitizeSegment(input: string): string {
@@ -239,15 +253,17 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
     return (
       <button
         type="button"
+        data-path={node.path}
         onClick={handleClick}
         onDoubleClick={() => ctx.onSelect(node.path, { preview: false })}
         {...touchProps}
-        className={`block w-full truncate rounded px-2 py-1 text-left text-sm select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
+        className={`flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
           isSelected ? 'bg-surface-raised font-medium' : ''
         } ${isFocused ? 'ring-1 ring-inset ring-accent' : ''}`}
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
       >
-        {node.name}
+        <span className="min-w-0 flex-1 truncate">{node.name}</span>
+        <PresenceBadge count={ctx.presence[node.path] ?? 0} />
       </button>
     )
   }
@@ -298,6 +314,7 @@ export function FileTree({
   selectedPath,
   readOnly,
   searchFocusSignal,
+  presence,
   onSelect,
   onFileCreated,
   onFolderCreated,
@@ -308,6 +325,7 @@ export function FileTree({
   selectedPath: string | null
   readOnly: boolean
   searchFocusSignal: number
+  presence: Record<string, number>
   onSelect: (path: string, opts?: { preview?: boolean }) => void
   onFileCreated: (relPath: string) => void
   onFolderCreated: () => void
@@ -320,6 +338,7 @@ export function FileTree({
   const [editing, setEditing] = useState<EditingState>(null)
   const [popover, setPopover] = useState<PopoverState>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const initializedOpenDirs = useRef(false)
   // 마운트 시점 값으로 초기화 — "처음 한 번은 건너뛰기" 식 불리언 가드는 StrictMode가
   // 마운트 이펙트를 두 번 실행할 때(두 번째 호출에서 가드가 이미 소진됨) 무력화돼 사이드바를
@@ -338,6 +357,21 @@ export function FileTree({
     initializedOpenDirs.current = true
     setOpenDirs(new Set(tree.filter((n) => n.type === 'dir').map((n) => n.path)))
   }, [tree])
+
+  // 활성 탭이 바뀌면 사이드바에서도 해당 파일이 보이게 부모 폴더 체인을 열고 스크롤한다.
+  // 사이드바가 닫혀 있으면 이 컴포넌트는 언마운트 상태 — 다시 열릴 때 이 이펙트가 반영한다.
+  useEffect(() => {
+    if (!selectedPath || tree.length === 0) return
+    ensureOpenChain(parentOf(selectedPath))
+    // openDirs 반영으로 노드가 DOM에 나타난 다음 프레임에 스크롤
+    const raf = requestAnimationFrame(() => {
+      listRef.current
+        ?.querySelector(`[data-path="${CSS.escape(selectedPath)}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPath, tree])
 
   function toggleDir(path: string) {
     setOpenDirs((prev) => {
@@ -529,6 +563,7 @@ export function FileTree({
     openDirs,
     editing,
     readOnly,
+    presence,
     onSelect,
     toggleDir,
     focusNode,
@@ -553,7 +588,7 @@ export function FileTree({
           className="w-full rounded border border-edge-strong bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent"
         />
       </div>
-      <div tabIndex={-1} onKeyDown={handleTreeKeyDown} className="min-h-0 flex-1 overflow-y-auto py-2 outline-none">
+      <div ref={listRef} tabIndex={-1} onKeyDown={handleTreeKeyDown} className="min-h-0 flex-1 overflow-y-auto py-2 outline-none">
         {filteredPaths !== null ? (
           filteredPaths.length === 0 ? (
             <div className="px-3 py-2 text-xs text-ink-muted">결과 없음</div>
@@ -563,9 +598,10 @@ export function FileTree({
                 key={path}
                 type="button"
                 onClick={() => onSelect(path)}
-                className="block w-full truncate rounded px-2 py-1 text-left text-sm text-ink hover:bg-surface-raised"
+                className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-ink hover:bg-surface-raised"
               >
-                {path}
+                <span className="min-w-0 flex-1 truncate">{path}</span>
+                <PresenceBadge count={presence[path] ?? 0} />
               </button>
             ))
           )
