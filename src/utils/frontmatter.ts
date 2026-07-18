@@ -45,14 +45,13 @@ export function todayDate(): string {
 const MAX_DESC_LENGTH = 200
 
 /**
- * 본문의 첫 문단에서 desc 후보를 뽑는다 — 제목(H1) 바로 아래가 목록·인용·표·코드블록 등이면
+ * 본문 맨 앞 문단에서 desc 후보를 뽑는다 — title은 이제 body에 H1으로 중복되지 않으므로
+ * (frontmatter가 유일한 출처) 그냥 첫 줄부터 본다. 목록·인용·표·코드블록·제목 등이면
  * (항상 그런 건 아니라서) 후보 없음으로 취급하고 undefined를 반환한다.
  */
 export function extractDescription(body: string): string | undefined {
   const lines = body.split(/\r?\n/)
   let i = 0
-  while (i < lines.length && !/^#\s+/.test(lines[i])) i++
-  i++
   while (i < lines.length && lines[i].trim() === '') i++
   if (i >= lines.length) return undefined
 

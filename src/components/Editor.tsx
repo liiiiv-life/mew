@@ -290,14 +290,16 @@ function MentionTooltip({ position, results, selectedIndex, onSelect }: MentionT
 // 사용자가 실수로 YAML 구조를 깨뜨릴 수 있어, 여기서는 읽기 전용 메타데이터 바로 보여준다.
 function FrontmatterPanel({ data }: { data: FrontmatterData }) {
   return (
-    // mt-12: App.tsx가 우측 상단(top-3/right-3)에 Hotview/Plain 토글을 겹쳐 띄우므로 그 아래로 여유를 둔다
-    <div className="mx-8 mt-12 rounded border border-edge bg-surface-raised px-4 py-2 text-xs text-ink-secondary">
-      <div className="mb-1 truncate text-sm font-semibold text-ink-bright">{data.title}</div>
-      {data.desc && <div className="mb-1 text-ink-secondary">{data.desc}</div>}
-      <div className="flex gap-3">
+    // mt-12: App.tsx가 우측 상단(top-3/right-3)에 Hotview/Plain 토글을 겹쳐 띄우므로 그 아래로 여유를 둔다.
+    // 본문 H1과 같은 역할을 대신하는 자리라 그만큼 크게 — border-b로 아래 본문과만 구분한다.
+    <div className="mx-8 mt-12 mb-6 border-b border-edge pb-5">
+      <h1 className="text-3xl leading-tight font-bold text-ink-bright">{data.title}</h1>
+      <div className="mt-2 flex items-center gap-2 text-xs text-ink-muted">
         <span>생성 {data.created}</span>
+        <span className="text-ink-faint">·</span>
         <span>수정 {data.updated}</span>
       </div>
+      {data.desc && <p className="mt-3 text-base text-ink-secondary italic">{data.desc}</p>}
     </div>
   )
 }
