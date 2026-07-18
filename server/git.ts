@@ -20,7 +20,7 @@ export async function commitFile(
   const status = await git.status()
   const filesToStage = new Set<string>(paths)
   for (const f of [...status.modified, ...status.not_added, ...status.created, ...status.deleted]) {
-    if (path.basename(f) === 'MOC.md') filesToStage.add(f)
+    if (/^_?MOC\.md$/.test(path.basename(f))) filesToStage.add(f)
   }
 
   await git.add([...filesToStage])

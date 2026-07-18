@@ -5,12 +5,17 @@ import { buildFrontmatter } from './frontmatter'
 
 export class ConflictError extends Error {}
 
-/** Walks up from relDir toward DOCS_ROOT looking for the nearest MOC.md, falling back to the root one. */
+// 폴더에 따라 MOC.md 또는 _MOC.md(정렬을 위해 언더스코어를 붙인 경우)를 쓴다
+const MOC_NAMES = ['_MOC.md', 'MOC.md']
+
+/** Walks up from relDir toward DOCS_ROOT looking for the nearest MOC file, falling back to the root one. */
 function findNearestMoc(relDir: string): string {
   let dir = relDir
   while (dir && dir !== '.') {
-    const candidate = path.join(dir, 'MOC.md')
-    if (fs.existsSync(path.join(DOCS_ROOT, candidate))) return candidate.split(path.sep).join('/')
+    for (const name of MOC_NAMES) {
+      const candidate = path.join(dir, name)
+      if (fs.existsSync(path.join(DOCS_ROOT, candidate))) return candidate.split(path.sep).join('/')
+    }
     dir = path.dirname(dir)
   }
   return 'MOC.md'
