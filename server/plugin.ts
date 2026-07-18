@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { createApiApp } from './api'
 import { attachTmuxWebSocket } from './tmuxWs'
 import { attachPresenceWebSocket } from './presence'
+import { watchDocsTree } from './watcher'
 
 const envPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env')
 if (fs.existsSync(envPath)) process.loadEnvFile(envPath)
@@ -19,6 +20,7 @@ export function docsApiPlugin(): Plugin {
       if (server.httpServer) {
         attachTmuxWebSocket(server.httpServer)
         attachPresenceWebSocket(server.httpServer)
+        watchDocsTree()
       }
     },
     configurePreviewServer(server) {
@@ -26,6 +28,7 @@ export function docsApiPlugin(): Plugin {
       // 의도적으로 attachTmuxWebSocket을 붙이지 않음 — 5001은 cloudflare tunnel로 게스트에게 노출됨
       // presence는 셸 접근이 아니라 "누가 이 문서를 열어뒀는지" 카운트일 뿐이라 게스트 쪽에도 붙인다
       attachPresenceWebSocket(server.httpServer)
+      watchDocsTree()
     },
   }
 }

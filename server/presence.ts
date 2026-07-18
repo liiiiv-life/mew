@@ -18,11 +18,16 @@ function computeCounts(): Record<string, number> {
   return counts
 }
 
-function broadcastCounts() {
-  const payload = JSON.stringify({ type: 'counts', counts: computeCounts() })
+/** presence 소켓에 연결된 모든 세션에 메시지를 보낸다 — 트리 변경 알림(watcher) 등에도 재사용 */
+export function broadcast(msg: object) {
+  const payload = JSON.stringify(msg)
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(payload)
   }
+}
+
+function broadcastCounts() {
+  broadcast({ type: 'counts', counts: computeCounts() })
 }
 
 wss.on('connection', (ws: WebSocket) => {
