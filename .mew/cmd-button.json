@@ -1,0 +1,11 @@
+{
+  "commands": [
+    { "name": "개발 서버 (4999)", "command": "npm run dev" },
+    { "name": "빌드 (= 5000에 즉시 배포)", "command": "npm run build" },
+    { "name": "서버 실행", "command": "npm run serve" },
+    { "name": "테스트", "command": "npm run test" },
+    { "name": "린트", "command": "npm run lint" },
+    { "name": "DB 시작", "command": "npm run db:up" },
+    { "name": "DB 종료", "command": "npm run db:down" }
+  ]
+}
