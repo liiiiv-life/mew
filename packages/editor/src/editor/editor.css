@@ -42,7 +42,46 @@
   padding: 0.15em 0.4em;
   border-radius: 4px;
   font-size: 0.9em;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
+}
+.code-block-wrap {
+  position: relative;
+}
+.code-block-copy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3em;
+  color: var(--color-ink-secondary);
+  background: var(--color-surface);
+  border: 1px solid var(--color-edge-strong);
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+.code-block-copy svg {
+  display: block;
+}
+.code-block-wrap:hover .code-block-copy,
+.code-block-copy:focus-visible {
+  opacity: 1;
+}
+.code-block-copy:hover {
+  color: var(--color-ink);
+}
+.code-block-copy.is-copied {
+  opacity: 1;
+  color: var(--color-accent, var(--color-ink));
+}
+/* 코드블럭 노드 자체가 선택됐을 때(거터 클릭) — 복사 시 ``` 펜스가 포함되는 상태를 시각적으로 알림 */
+.code-block-wrap.ProseMirror-selectednode pre {
+  outline: 2px solid var(--color-accent, var(--color-edge-strong));
+  outline-offset: 1px;
 }
 .tiptap pre {
   background: var(--color-surface);
@@ -123,3 +162,44 @@
   outline-offset: 1px;
 }
 .tiptap table p { margin: 0; }
+
+/* 실시간 협업 원격 캐럿 — CollaborationCaret 기본 render()가 만드는 .collaboration-carets__caret
+   (span) + .collaboration-carets__label (div)은 스타일이 없으면 인라인 위젯 안의 block 요소인
+   label이 줄바꿈을 강제해 한 줄을 통째로 차지해버린다. label을 캐럿 기준 absolute로 띄워서
+   문서 줄 흐름·line-height에 전혀 영향을 주지 않는 반투명 말풍선으로 만든다. */
+.collaboration-carets__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 1.5px solid;
+  border-right: 1px solid;
+  word-break: normal;
+  pointer-events: none;
+}
+.collaboration-carets__label {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px 6px 6px 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: white;
+  white-space: nowrap;
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+  z-index: 20;
+}
+
+/* 문서 내 찾기(Ctrl+F) 매치 하이라이트 — searchExtension이 인라인 데코레이션으로 붙인다 */
+.tiptap .search-match {
+  background: rgba(245, 158, 11, 0.35);
+  border-radius: 2px;
+}
+.tiptap .search-match-current {
+  background: var(--color-warning);
+  color: #1a1200;
+}

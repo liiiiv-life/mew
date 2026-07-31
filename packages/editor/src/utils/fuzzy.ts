@@ -1,4 +1,4 @@
-import type { TreeNode } from '../api/client'
+import type { TreeNode } from '../types'
 
 export function flattenFiles(tree: TreeNode[]): string[] {
   const out: string[] = []

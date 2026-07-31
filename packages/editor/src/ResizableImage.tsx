@@ -1,6 +1,6 @@
-import { Node, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from '@tiptap/react'
 import { useRef, useState } from 'react'
+import { imageNode } from './imageSchema'
 
 const MIN_WIDTH = 80
 
@@ -54,59 +54,9 @@ function ImageView({ node, updateAttributes, selected, editor }: NodeViewProps) 
   )
 }
 
-export const ResizableImage = Node.create({
-  name: 'image',
-  group: 'block',
-  draggable: true,
-
-  addAttributes() {
-    return {
-      src: { default: null },
-      alt: { default: null },
-      title: { default: null },
-      width: {
-        default: null,
-        parseHTML: (element) => {
-          const width = Number.parseInt(element.getAttribute('width') ?? '', 10)
-          return Number.isNaN(width) ? null : width
-        },
-        renderHTML: (attributes) => (attributes.width ? { width: attributes.width } : {}),
-      },
-    }
-  },
-
-  parseHTML() {
-    return [{ tag: 'img[src]' }]
-  },
-
-  renderHTML({ HTMLAttributes }) {
-    return ['img', mergeAttributes(HTMLAttributes)]
-  },
-
+// 스키마·마크다운은 imageNode(React 없음, 서버와 공유)에 있고, 여기선 리사이즈 노드뷰만 얹는다.
+export const ResizableImage = imageNode.extend({
   addNodeView() {
     return ReactNodeViewRenderer(ImageView)
-  },
-
-  addStorage() {
-    return {
-      markdown: {
-        serialize(state: any, node: any) {
-          const { src, alt, title, width } = node.attrs
-          if (width) {
-            // 크기가 지정되면 순수 마크다운으로 표현할 수 없어 HTML img로 저장
-            const altAttr = alt ? ` alt="${String(alt).replace(/"/g, '&quot;')}"` : ''
-            const titleAttr = title ? ` title="${String(title).replace(/"/g, '&quot;')}"` : ''
-            state.write(`<img src="${src}"${altAttr}${titleAttr} width="${width}">`)
-          } else {
-            const titlePart = title ? ` "${String(title).replace(/"/g, '\\"')}"` : ''
-            state.write(`![${state.esc(alt ?? '')}](${src}${titlePart})`)
-          }
-          state.closeBlock(node)
-        },
-        parse: {
-          // markdown-it이 HTML로 변환한 것을 parseHTML이 처리
-        },
-      },
-    }
   },
 })

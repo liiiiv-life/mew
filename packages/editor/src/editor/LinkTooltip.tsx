@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
-import { fetchFile, fetchLinkPreview } from '../../api/client'
-import { splitFrontmatter } from '../../utils/frontmatter'
-import { isExternalHref, resolveRelativePath } from '../../utils/fuzzy'
+import type { EditorApi } from '../types'
+import { splitFrontmatter } from '../utils/frontmatter'
+import { isExternalHref, resolveRelativePath } from '../utils/fuzzy'
 
 type Preview =
   | { state: 'loading' }
@@ -15,6 +15,7 @@ type Preview =
 // 대상 문서의 title로 강제되므로 편집 모드에서도 직접 수정할 수 없다.
 export function LinkTooltip({
   editor,
+  api,
   position,
   initialHref,
   initialText,
@@ -26,6 +27,7 @@ export function LinkTooltip({
   onOpenInternal,
 }: {
   editor: Editor | null
+  api: EditorApi
   position: { top: number; left: number }
   initialHref: string
   initialText: string
@@ -58,7 +60,10 @@ export function LinkTooltip({
       if (ref.current && !ref.current.contains(e.target as Node)) onClose()
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      // 여기서 멈추지 않으면 window까지 올라가 오버레이 스택이 사이드바·터미널까지 닫는다
+      e.stopPropagation()
+      onClose()
     }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
@@ -73,7 +78,7 @@ export function LinkTooltip({
     if (mode !== 'view' || !initialHref) return
     let cancelled = false
     if (isExternalHref(initialHref)) {
-      fetchLinkPreview(initialHref)
+      api.fetchLinkPreview(initialHref)
         .then(({ title, description }) => {
           if (!cancelled) setPreview({ state: 'external', title, description })
         })
@@ -83,7 +88,7 @@ export function LinkTooltip({
         })
     } else {
       const target = resolveRelativePath(docPath, initialHref)
-      fetchFile(target)
+      api.fetchFile(target)
         .then(({ content }) => {
           if (cancelled) return
           const fm = splitFrontmatter(content).frontmatter
@@ -101,7 +106,7 @@ export function LinkTooltip({
     return () => {
       cancelled = true
     }
-  }, [mode, initialHref, docPath])
+  }, [mode, initialHref, docPath, api])
 
   const apply = async () => {
     if (!editor) return
@@ -110,7 +115,7 @@ export function LinkTooltip({
     // 내부 링크의 표시 텍스트는 대상 문서의 title로 강제한다
     if (href && !isExternalHref(href)) {
       try {
-        const { content } = await fetchFile(resolveRelativePath(docPath, href))
+        const { content } = await api.fetchFile(resolveRelativePath(docPath, href))
         const fmTitle = splitFrontmatter(content).frontmatter?.title
         if (fmTitle) label = fmTitle
       } catch {

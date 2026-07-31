@@ -1,9 +1,32 @@
-import { useEffect, useRef, useState } from 'react'
-import { createTmuxSession, fetchTmuxSessions, killTmuxSession, renameTmuxSession, type TmuxSession } from '../api/client'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ConfirmDialog, keepFocusOnPress, useDragReorder, type DragItemProps } from '@mew/ui'
+import { useSwipeGesture } from '@mew/mobile-keys'
+import type { TmuxPanelApi, TmuxSession } from './types'
 import { TmuxTerminal } from './TmuxTerminal'
+import { clearInputDraft, renameInputDraft } from './inputDrafts'
 
 const POLL_INTERVAL_MS = 4000
-const ACTIVE_SESSION_KEY = 'docs-editor:tmux-active-session'
+const ACTIVE_SESSION_KEY = 'mew:tmux-active-session'
+// 탭 순서는 tmux가 아니라 브라우저에만 저장한다 — 서버의 세션 목록엔 순서 개념이 없다
+const TAB_ORDER_KEY = 'mew:tmux-tab-order'
+
+function readTabOrder(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(TAB_ORDER_KEY) ?? '[]')
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+// 저장된 순서 우선, 처음 보는 세션은 서버가 준 순서대로 뒤에 붙인다
+function sortByTabOrder(sessions: TmuxSession[], order: string[]): TmuxSession[] {
+  const rank = new Map(order.map((name, i) => [name, i]))
+  return sessions
+    .map((s, i) => [s, rank.get(s.name) ?? order.length + i] as const)
+    .sort((a, b) => a[1] - b[1])
+    .map(([s]) => s)
+}
 
 type Editing = { mode: 'rename'; oldName: string; value: string } | { mode: 'create'; value: string } | null
 
@@ -120,68 +143,54 @@ function TabContextMenu({ x, y, onRename, onClose }: { x: number; y: number; onR
 function TabButton({
   session,
   isActive,
+  isDragging,
+  dragProps,
   onSelect,
+  onConsumeClick,
   onOpenMenu,
   onRename,
   onKill,
 }: {
   session: TmuxSession
   isActive: boolean
+  isDragging: boolean
+  /** useDragReorder의 getItemProps — 터치 길게누르기(메뉴·드래그)와 마우스 드래그를 담당 */
+  dragProps: DragItemProps
   onSelect: () => void
+  /** 드래그·길게누르기 직후 따라온 click이면 true — 탭 전환을 건너뛴다 */
+  onConsumeClick: () => boolean
   onOpenMenu: (x: number, y: number) => void
   onRename: () => void
   onKill: () => void
 }) {
-  const longPressTimer = useRef<number | null>(null)
-  const longPressFired = useRef(false)
-
-  function clearLongPress() {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
-  }
-
-  function onTouchStart(e: React.TouchEvent) {
-    const touch = e.touches[0]
-    longPressFired.current = false
-    longPressTimer.current = window.setTimeout(() => {
-      longPressFired.current = true
-      onOpenMenu(touch.clientX, touch.clientY)
-    }, 500)
-  }
-
   function handleClick() {
-    if (longPressFired.current) {
-      longPressFired.current = false
-      return
-    }
+    if (onConsumeClick()) return
     onSelect()
   }
 
   function handleContextMenu(e: React.MouseEvent) {
     e.preventDefault()
+    // 터치 길게누르기는 useDragReorder의 onLongPress가 이미 메뉴를 열었다 — 여기는 우클릭 전용
+    if (isDragging) return
     onOpenMenu(e.clientX, e.clientY)
   }
 
   return (
     <div
+      {...dragProps}
       tabIndex={0}
       onClick={handleClick}
+      onDoubleClick={onRename}
       onKeyDown={(e) => {
         if (e.key === 'F2') {
           e.preventDefault()
           onRename()
         }
       }}
-      onTouchStart={onTouchStart}
-      onTouchEnd={clearLongPress}
-      onTouchMove={clearLongPress}
-      onTouchCancel={clearLongPress}
       onContextMenu={handleContextMenu}
       className={`flex h-full shrink-0 cursor-pointer items-center gap-1.5 border-r border-edge px-2.5 text-xs select-none [-webkit-touch-callout:none] focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent ${
         isActive ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-raised'
-      }`}
+      } ${isDragging ? 'opacity-70 ring-1 ring-inset ring-accent' : ''}`}
     >
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${session.attached ? 'bg-accent-strong' : 'bg-ink-muted'}`} />
       <span className="max-w-[100px] truncate">{session.name}</span>
@@ -200,28 +209,91 @@ function TabButton({
   )
 }
 
-export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () => void; activeFilePath?: string | null }) {
+export function TmuxTerminalPanel({
+  api,
+  onClose,
+  activeFilePath,
+  getSelectedText,
+  renderCommandButtons,
+  wsPath,
+}: {
+  /** 호스트 앱의 서버 연동 — 렌더 간 identity가 안정적인 객체를 넘길 것 */
+  api: TmuxPanelApi
+  onClose?: () => void
+  activeFilePath?: string | null
+  getSelectedText?: () => string | null
+  /** 버튼 줄에 끼워 넣을 명령어 버튼 UI — run(command)로 지금 열린 세션에 명령을 보낸다 */
+  renderCommandButtons?: (run: (command: string) => void) => ReactNode
+  wsPath?: string
+}) {
   const [sessions, setSessions] = useState<TmuxSession[] | null>(null)
   const [activeSession, setActiveSession] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
   const [editError, setEditError] = useState<string | undefined>(undefined)
   const [contextMenu, setContextMenu] = useState<{ session: TmuxSession; x: number; y: number } | null>(null)
+  const [tabOrder, setTabOrder] = useState<string[]>(readTabOrder)
+  const [killTarget, setKillTarget] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const autoSelected = useRef(false)
 
+  const orderedSessions = sessions ? sortByTabOrder(sessions, tabOrder) : null
+
+  // 화면 위 반쪽 좌우 스와이프로 탭(세션) 전환 — 우→좌면 오른쪽 탭(끝이면 처음으로), 좌→우면 왼쪽 탭(처음이면 끝으로)
+  // (아래 반쪽 스와이프는 부모 컨테이너로 버블링되어 터미널 창을 닫는다)
+  const switchSession = (dir: 'left' | 'right') => {
+    const list = orderedSessions
+    if (!list || list.length < 2 || !activeSession) return
+    const idx = list.findIndex((s) => s.name === activeSession)
+    if (idx < 0) return
+    const nextIdx = dir === 'left' ? (idx + 1) % list.length : (idx - 1 + list.length) % list.length
+    setActiveSession(list[nextIdx].name)
+  }
+  const swipeSessions = useSwipeGesture({
+    onTopLeft: () => switchSession('left'),
+    onTopRight: () => switchSession('right'),
+  })
+
+  function saveTabOrder(names: string[]) {
+    setTabOrder(names)
+    localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(names))
+  }
+
+  function reorderTabs(from: number, to: number) {
+    const list = orderedSessions ?? []
+    if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return
+    const names = list.map((s) => s.name)
+    const [moved] = names.splice(from, 1)
+    names.splice(to, 0, moved)
+    saveTabOrder(names)
+  }
+
+  const drag = useDragReorder({
+    onReorder: reorderTabs,
+    onLongPress: (i, x, y) => {
+      const s = orderedSessions?.[i]
+      if (s) setContextMenu({ session: s, x, y })
+    },
+    // 길게누르기로 연 메뉴는 드래그가 시작되면 닫는다
+    onDragStart: () => setContextMenu(null),
+  })
+
   function refresh() {
-    fetchTmuxSessions()
+    api
+      .fetchSessions()
       .then((list) => {
         setSessions(list)
+        // StrictMode는 개발 모드에서 setState 업데이터 함수를 순수성 검증차 두 번 호출한다 —
+        // ref mutation을 업데이터 "안"에 두면 두 번째 호출이 그 mutation을 이미 반영된 걸로 보고
+        // 다른 분기를 타 버린다. 그래서 autoSelected 판단·mutation은 업데이터 밖에서 미리 끝낸다.
+        const shouldAutoSelect = !autoSelected.current && list.length > 0
+        if (shouldAutoSelect) autoSelected.current = true
         setActiveSession((cur) => {
           if (cur && list.some((s) => s.name === cur)) return cur
-          if (!autoSelected.current && list.length > 0) {
-            autoSelected.current = true
-            // 새로고침/재접속 시 이전에 보던 세션으로 복원 — 그 세션이 아직 있으면 우선
-            const remembered = localStorage.getItem(ACTIVE_SESSION_KEY)
-            if (remembered && list.some((s) => s.name === remembered)) return remembered
-            return list[0].name
-          }
-          return null
+          if (!shouldAutoSelect) return null
+          // 새로고침/재접속 시 이전에 보던 세션으로 복원 — 그 세션이 아직 있으면 우선
+          const remembered = localStorage.getItem(ACTIVE_SESSION_KEY)
+          if (remembered && list.some((s) => s.name === remembered)) return remembered
+          return list[0].name
         })
       })
       .catch(console.error)
@@ -257,7 +329,7 @@ export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () =>
     }
     try {
       if (editing.mode === 'create') {
-        await createTmuxSession(value)
+        await api.createSession(value)
         setEditing(null)
         setActiveSession(value)
       } else {
@@ -265,9 +337,12 @@ export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () =>
           setEditing(null)
           return
         }
-        await renameTmuxSession(editing.oldName, value)
+        await api.renameSession(editing.oldName, value)
         setEditing(null)
         setActiveSession((cur) => (cur === editing.oldName ? value : cur))
+        // 저장된 탭 순서·입력 초안도 새 이름을 따라간다
+        if (tabOrder.includes(editing.oldName)) saveTabOrder(tabOrder.map((n) => (n === editing.oldName ? value : n)))
+        renameInputDraft(editing.oldName, value)
       }
       refresh()
     } catch (err) {
@@ -275,19 +350,24 @@ export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () =>
     }
   }
 
-  async function requestKill(name: string) {
-    if (!window.confirm(`세션 "${name}"을(를) 종료할까요? 실행 중인 프로세스가 함께 종료됩니다.`)) return
+  async function killConfirmed() {
+    const name = killTarget
+    setKillTarget(null)
+    if (!name) return
     try {
-      await killTmuxSession(name)
+      await api.killSession(name)
+      clearInputDraft(name)
       if (activeSession === name) setActiveSession(null)
       refresh()
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err))
+      setErrorMsg(err instanceof Error ? err.message : String(err))
     }
   }
 
   return (
-    <div className="flex h-full w-full flex-col bg-surface-deep">
+    // onMouseDown: 세션 탭·도구 버튼을 눌러도 포커스(=모바일 키보드)를 뺏지 않는다. 뺏기면 키보드가
+    // 내려가며 레이아웃이 커지고, 버튼이 손가락 밑에서 밀려나 첫 탭의 click이 사라진다
+    <div className="flex h-full w-full flex-col bg-surface-deep" onMouseDown={keepFocusOnPress}>
       <div className="flex items-center justify-between border-b border-edge px-3 py-2">
         <div className="text-sm font-semibold text-ink-soft">터미널</div>
         {onClose && (
@@ -303,7 +383,7 @@ export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () =>
       </div>
 
       <div className="flex h-9 items-center overflow-x-auto border-b border-edge bg-surface">
-        {(sessions ?? []).map((s) => {
+        {(orderedSessions ?? []).map((s, i) => {
           if (editing?.mode === 'rename' && editing.oldName === s.name) {
             return (
               <InlineTabInput
@@ -321,10 +401,13 @@ export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () =>
               key={s.name}
               session={s}
               isActive={s.name === activeSession}
+              isDragging={drag.dragIndex === i}
+              dragProps={drag.getItemProps(i)}
               onSelect={() => setActiveSession(s.name)}
+              onConsumeClick={drag.consumeClick}
               onOpenMenu={(x, y) => setContextMenu({ session: s, x, y })}
               onRename={() => startRename(s)}
-              onKill={() => requestKill(s.name)}
+              onKill={() => setKillTarget(s.name)}
             />
           )
         })}
@@ -349,9 +432,16 @@ export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () =>
         )}
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1" {...swipeSessions}>
         {activeSession ? (
-          <TmuxTerminal key={activeSession} sessionName={activeSession} activeFilePath={activeFilePath} />
+          <TmuxTerminal
+            key={activeSession}
+            sessionName={activeSession}
+            activeFilePath={activeFilePath}
+            getSelectedText={getSelectedText}
+            renderCommandButtons={renderCommandButtons}
+            wsPath={wsPath}
+          />
         ) : (
           <div className="flex h-full items-center justify-center p-4 text-center text-sm text-ink-muted">
             {sessions === null ? '세션 불러오는 중…' : '탭에서 세션을 선택하거나 +로 새 세션을 만드세요'}
@@ -370,6 +460,18 @@ export function TmuxTerminalPanel({ onClose, activeFilePath }: { onClose?: () =>
           onClose={() => setContextMenu(null)}
         />
       )}
+
+      {killTarget !== null && (
+        <ConfirmDialog
+          message={`세션 "${killTarget}"을(를) 종료할까요?`}
+          detail="실행 중인 프로세스가 함께 종료됩니다."
+          confirmLabel="종료"
+          danger
+          onConfirm={killConfirmed}
+          onCancel={() => setKillTarget(null)}
+        />
+      )}
+      {errorMsg !== null && <ConfirmDialog message={errorMsg} onConfirm={() => setErrorMsg(null)} />}
     </div>
   )
 }
