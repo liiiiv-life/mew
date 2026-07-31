@@ -9,7 +9,7 @@ const REQUIRED_ENV = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY
 function assertConfigured() {
   const missing = REQUIRED_ENV.filter((key) => !process.env[key])
   if (missing.length) {
-    throw new R2NotConfiguredError(`R2 자격증명이 설정되지 않았습니다: ${missing.join(', ')} (docs-editor/.env.example 참고)`)
+    throw new R2NotConfiguredError(`R2 자격증명이 설정되지 않았습니다: ${missing.join(', ')} (mew/.env.example 참고)`)
   }
 }
 

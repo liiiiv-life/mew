@@ -9,7 +9,8 @@
  * - 여기 있는 값은 다크 테마(기본값). 라이트 테마 오버라이드는 아래 `:root:not(.dark)` 참고.
  */
 @theme {
-  --font-sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Noto Serif KR', ui-serif, Georgia, serif;
+  --font-mono: 'IBM Plex Mono', 'IBM Plex Sans KR', ui-monospace, monospace;
 
   /* 배경 */
   --color-surface-deep: #0a0a0a; /* 에디터 본문·탭바·사이드바 */
@@ -50,14 +51,16 @@
   --color-success-surface: #022c22;
   --color-success-ink: #6ee7b7;
 
-  /* 작업자(포커스) 배지 — PresenceBadge.tsx */
-  --color-presence-mine: #3b82f6; /* 파랑: 내가 포커스 중 */
-  --color-presence-other: #eab308; /* 노랑: 다른 1명이 포커스 중 */
-  --color-presence-crowd: #f97316; /* 주황: 다른 2명 이상 */
-  --color-presence-joined: #22c55e; /* 초록: 나 + 다른 사람 */
-
   /* 에디터 전용 */
   --color-code: #f97316; /* 인라인 코드 텍스트 */
+
+  /* 코드 구문강조 (CodePane) — GitHub Dark 계열 */
+  --color-syntax-keyword: #ff7b72;
+  --color-syntax-string: #a5d6ff;
+  --color-syntax-comment: #8b949e;
+  --color-syntax-number: #79c0ff; /* 숫자·불리언·상수 */
+  --color-syntax-property: #d2a8ff; /* 속성명·함수명 */
+  --color-syntax-type: #7ee787; /* 타입·클래스·태그명 */
 }
 
 :root {
@@ -102,12 +105,15 @@
   --color-success-surface: #d1fae5;
   --color-success-ink: #065f46;
 
-  --color-presence-mine: #2563eb;
-  --color-presence-other: #ca8a04;
-  --color-presence-crowd: #ea580c;
-  --color-presence-joined: #16a34a;
-
   --color-code: #c2410c;
+
+  /* 코드 구문강조 — GitHub Light 계열 */
+  --color-syntax-keyword: #cf222e;
+  --color-syntax-string: #0a3069;
+  --color-syntax-comment: #6e7781;
+  --color-syntax-number: #0550ae;
+  --color-syntax-property: #8250df;
+  --color-syntax-type: #116329;
 }
 
 html,
@@ -121,4 +127,23 @@ body {
   font-family: var(--font-sans);
   background-color: var(--color-surface);
   color: var(--color-ink);
+  font-weight: 300;
+}
+
+/* 프로젝트 탭 줄처럼 높이가 빠듯한 가로 스크롤 영역 — 스크롤바가 줄 높이를 잡아먹지 않게 감춘다.
+   (스크롤은 그대로 된다: 손가락·트랙패드·shift+휠) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tailwind preflight는 b/strong을 "bolder"(부모 대비 상대값)로 리셋하는데,
+   본문이 300(Light)일 때 상대 계산 결과가 400에 그쳐 볼드 대비가 흐려진다.
+   실제 로드된 Bold(700) 글꼴 파일을 쓰도록 절대값으로 덮어쓴다. */
+b,
+strong {
+  font-weight: 700;
 }

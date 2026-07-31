@@ -1,0 +1,52 @@
+// copyPathInto — 파일·폴더를 다른 폴더 안으로 복사(붙여넣기)한다. 실제 프로젝트(docs) 안에
+// 임시 하위 폴더를 만들어 검증하고 끝나면 지운다. 이름 충돌·폴더 재귀·자기 자신 복사 금지를 본다.
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import { DEFAULT_PROJECT } from './paths.ts'
+import { resolveProjectPath } from './paths.ts'
+import { ConflictError, copyPathInto } from './documents.ts'
+
+const rand = () => `ztest${process.pid}${Math.random().toString(36).slice(2, 6)}`
+
+test('copyPathInto: 파일을 다른 폴더로 복사하면 원래 이름을 유지하고, 같은 폴더면 " copy"를 붙인다', () => {
+  const root = rand()
+  const rootAbs = resolveProjectPath(DEFAULT_PROJECT, root)
+  try {
+    fs.mkdirSync(path.join(rootAbs, 'sub'), { recursive: true })
+    fs.writeFileSync(path.join(rootAbs, 'note.md'), '# n\n', 'utf-8')
+
+    // 다른 폴더로 → 이름 유지
+    const rel1 = copyPathInto(DEFAULT_PROJECT, `${root}/note.md`, `${root}/sub`)
+    assert.equal(rel1, `${root}/sub/note.md`)
+    assert.ok(fs.existsSync(path.join(rootAbs, 'sub', 'note.md')))
+
+    // 같은 폴더로 → " copy" 비켜쓰기
+    const rel2 = copyPathInto(DEFAULT_PROJECT, `${root}/note.md`, root)
+    assert.equal(rel2, `${root}/note copy.md`)
+    const rel3 = copyPathInto(DEFAULT_PROJECT, `${root}/note.md`, root)
+    assert.equal(rel3, `${root}/note copy 2.md`)
+  } finally {
+    fs.rmSync(rootAbs, { recursive: true, force: true })
+  }
+})
+
+test('copyPathInto: 폴더를 재귀 복사하고, 자기 자신·하위로의 복사는 거부한다', () => {
+  const root = rand()
+  const rootAbs = resolveProjectPath(DEFAULT_PROJECT, root)
+  try {
+    fs.mkdirSync(path.join(rootAbs, 'src', 'deep'), { recursive: true })
+    fs.mkdirSync(path.join(rootAbs, 'dest'), { recursive: true })
+    fs.writeFileSync(path.join(rootAbs, 'src', 'deep', 'a.md'), '# a\n', 'utf-8')
+
+    const rel = copyPathInto(DEFAULT_PROJECT, `${root}/src`, `${root}/dest`)
+    assert.equal(rel, `${root}/dest/src`)
+    assert.ok(fs.existsSync(path.join(rootAbs, 'dest', 'src', 'deep', 'a.md')), '폴더가 재귀적으로 복사돼야 한다')
+
+    assert.throws(() => copyPathInto(DEFAULT_PROJECT, `${root}/src`, `${root}/src`), ConflictError)
+    assert.throws(() => copyPathInto(DEFAULT_PROJECT, `${root}/src`, `${root}/src/deep`), ConflictError)
+  } finally {
+    fs.rmSync(rootAbs, { recursive: true, force: true })
+  }
+})

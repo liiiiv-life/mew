@@ -1,0 +1,158 @@
+// 오버레이 Esc·뒤로가기 스택. 규칙은 하나뿐이지만 어긋나면 증상이 크다 —
+// 겹친 팝업이 한 번에 다 닫히거나, 팝업 위에서 뒤로가기를 눌렀는데 뒤의 터미널이 닫히거나,
+// 에디터 슬래시 메뉴의 Esc가 사이드바를 대신 닫는 식이다.
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { Window } from 'happy-dom'
+
+const win = new Window({ url: 'http://localhost' })
+const w = win as unknown as Record<string, unknown>
+for (const k of ['window', 'document', 'Node', 'Element', 'HTMLElement', 'Event', 'KeyboardEvent']) {
+  if (k in globalThis) continue
+  try {
+    ;(globalThis as Record<string, unknown>)[k] = w[k]
+  } catch {
+    Object.defineProperty(globalThis, k, { value: w[k], configurable: true })
+  }
+}
+
+const { registerOverlay } = await import('./useOverlayDismiss.ts')
+
+// history는 happy-dom 구현에 기대지 않고 직접 센다 — pushState/back 호출 자체가 검증 대상이다
+let pushes = 0
+let backs = 0
+window.history.pushState = () => {
+  pushes += 1
+}
+window.history.back = () => {
+  backs += 1
+}
+
+/** scheduleSync가 마이크로태스크로 미뤄 두는 히스토리 정리를 흘려보낸다 */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+function pressEscape(target: EventTarget = window.document.body) {
+  target.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+}
+
+function reset() {
+  pushes = 0
+  backs = 0
+}
+
+test('Esc는 가장 나중에 열린 것 하나만 닫는다', async () => {
+  reset()
+  const closed: string[] = []
+  const closeFirst = registerOverlay({ close: () => closed.push('first'), closeOnEscape: () => true, escapePhase: 'capture' })
+  const closeSecond = registerOverlay({ close: () => closed.push('second'), closeOnEscape: () => true, escapePhase: 'capture' })
+  await settle()
+
+  pressEscape()
+  assert.deepEqual(closed, ['second'], '맨 위 하나만 닫혀야 한다')
+
+  // 실제로는 close()가 언마운트를 부르지만, 여기선 등록 해제를 직접 흉내 낸다
+  closeSecond()
+  pressEscape()
+  assert.deepEqual(closed, ['second', 'first'])
+
+  closeFirst()
+  await settle()
+})
+
+test('closeOnEscape가 false면 Esc를 삼키지 않는다 (터미널 안의 vim 등)', async () => {
+  reset()
+  let closedCount = 0
+  const unregister = registerOverlay({ close: () => (closedCount += 1), closeOnEscape: () => false, escapePhase: 'capture' })
+  await settle()
+
+  const event = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  window.document.body.dispatchEvent(event)
+  assert.equal(closedCount, 0)
+  assert.equal(event.defaultPrevented, false, 'preventDefault도 하면 안 된다 — 콘텐츠가 Esc를 받아야 한다')
+
+  unregister()
+  await settle()
+})
+
+test("escapePhase: 'bubble'인 패널은 안쪽이 Esc를 먼저 쓰면 닫히지 않는다", async () => {
+  reset()
+  let panelClosed = 0
+  const unregister = registerOverlay({ close: () => (panelClosed += 1), closeOnEscape: () => true, escapePhase: 'bubble' })
+  await settle()
+
+  // 에디터의 슬래시 메뉴처럼 안쪽에서 Esc를 소비하는 경우
+  const swallow = (e: Event) => e.stopPropagation()
+  window.document.body.addEventListener('keydown', swallow)
+  pressEscape()
+  assert.equal(panelClosed, 0, '안쪽이 Esc를 가져갔으면 패널은 그대로여야 한다')
+
+  window.document.body.removeEventListener('keydown', swallow)
+  pressEscape()
+  assert.equal(panelClosed, 1, '안쪽이 안 쓰면 그때 패널이 닫힌다')
+
+  unregister()
+  await settle()
+})
+
+test('capture 오버레이가 위에 있으면 bubble 패널은 Esc를 받지 않는다', async () => {
+  reset()
+  let panelClosed = 0
+  let dialogClosed = 0
+  const unregisterPanel = registerOverlay({ close: () => (panelClosed += 1), closeOnEscape: () => true, escapePhase: 'bubble' })
+  const unregisterDialog = registerOverlay({ close: () => (dialogClosed += 1), closeOnEscape: () => true, escapePhase: 'capture' })
+  await settle()
+
+  pressEscape()
+  assert.equal(dialogClosed, 1)
+  assert.equal(panelClosed, 0)
+
+  unregisterDialog()
+  unregisterPanel()
+  await settle()
+})
+
+test('뒤로가기 가드는 겹쳐도 한 개만 얹고, 한 겹 닫힐 때마다 다시 얹는다', async () => {
+  reset()
+  const closed: string[] = []
+  const unregisterPanel = registerOverlay({ close: () => closed.push('panel'), closeOnEscape: () => true, escapePhase: 'bubble' })
+  await settle()
+  assert.equal(pushes, 1, '오버레이가 열리면 뒤로가기가 소비할 가드 항목을 얹는다')
+
+  const unregisterDialog = registerOverlay({ close: () => closed.push('dialog'), closeOnEscape: () => true, escapePhase: 'capture' })
+  await settle()
+  assert.equal(pushes, 1, '두 겹이어도 가드는 하나뿐이다')
+
+  // 안드로이드 뒤로가기 = 가드 항목 소비
+  window.dispatchEvent(new window.Event('popstate'))
+  assert.deepEqual(closed, ['dialog'], '맨 위 하나만 닫힌다')
+  assert.equal(backs, 0, '뒤로가기로 닫혔으니 history.back()을 또 부르면 안 된다')
+
+  unregisterDialog()
+  await settle()
+  assert.equal(pushes, 2, '패널이 아직 열려 있으니 가드를 다시 얹는다')
+
+  // 이번엔 UI(닫기 버튼)로 닫는다 — 얹어둔 가드를 걷어야 히스토리가 원래대로 돌아온다
+  unregisterPanel()
+  await settle()
+  assert.equal(backs, 1)
+})
+
+test('한 커밋에서 A가 닫히고 B가 열리면 history를 건드리지 않는다', async () => {
+  reset()
+  const unregisterA = registerOverlay({ close: () => {}, closeOnEscape: () => true, escapePhase: 'capture' })
+  await settle()
+  assert.equal(pushes, 1)
+
+  // React는 정리(cleanup)를 전부 돌린 뒤 등록(setup)을 돌린다 — 그 사이 스택이 잠깐 빈다.
+  // 여기서 back()을 불러 버리면 곧이어 B가 얹는 가드를 그 back()이 소비해 B가 저절로 닫힌다.
+  unregisterA()
+  const unregisterB = registerOverlay({ close: () => {}, closeOnEscape: () => true, escapePhase: 'capture' })
+  await settle()
+
+  assert.equal(backs, 0, '스택이 계속 비어 있지 않았으므로 뒤로 갈 일이 없다')
+  assert.equal(pushes, 1, '가드도 그대로 하나')
+
+  unregisterB()
+  await settle()
+  assert.equal(backs, 1)
+})

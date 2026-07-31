@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { DOCS_ROOT } from './paths'
+import { DOCS_ROOT } from './paths.ts'
 
 /** Mirrors docs/.github/scripts/moc_coverage.py exactly — keep both in sync. */
 const HUB = new Set(['README.md', 'CLAUDE.md', 'MOC.md'])

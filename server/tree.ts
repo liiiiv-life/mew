@@ -1,15 +1,62 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { DOCS_ROOT } from './paths'
+import { DEFAULT_PROJECT, isDeniedSegment, isSecretFile, projectRoot } from './paths.ts'
+import { readIgnoreSet } from './ignoreList.ts'
 
 export interface TreeNode {
   name: string
   path: string
   type: 'file' | 'dir'
   children?: TreeNode[]
+  guestAccess?: { view: boolean; edit: boolean }
 }
 
-export const IGNORE = new Set(['.git', 'node_modules', '.foam', '.github', '.obsidian', '.tokensave', '.vscode'])
+/**
+ * 트리를 어떤 눈으로 그릴지.
+ *
+ * `showAll`이면 **숨김 목록도 확장자 필터도 적용하지 않고 디스크에 있는 그대로** 보여준다 —
+ * owner·manager 전용이다(`reqAuth.ts`의 `seesEveryFile`). 셸을 가진 역할에게 확장자 화이트리스트는
+ * 방어가 아니라 "방금 만든 파일이 사이드바에 안 뜬다"는 혼란일 뿐이라 역할별로 갈랐다.
+ * 정책 기준본은 `docs/ops/mew/access-model.md`.
+ *
+ * showAll이어도 걷어내지 않는 둘 — 숨김 규칙이 아니라 구조적 제약이다:
+ *  - `.git`·`node_modules`·`.data`(`isDeniedSegment`) — API가 경로 자체를 거부하므로 트리에 세워도
+ *    열리지 않고, node_modules 하나로 항목이 수만 개가 된다.
+ *  - `build/` 안의 산출물(`DOWNLOAD_ONLY_DIRS`) — flutter build 하나가 9천 항목이다. APK/AAB는 보인다.
+ */
+export interface TreeOptions {
+  showAll?: boolean
+}
+
+// 숨길 이름 목록은 설정 창에서 바뀌므로 상수가 아니라 매 트리마다 읽는다(ignoreList.ts가 캐시한다).
+// 트리 한 번에 한 번만 읽어 walk 전체에 같은 집합을 흘려보낸다 — 도중에 바뀌어도 트리 하나는 일관된다.
+
+// docs 외 프로젝트에서 트리에 노출할 텍스트 파일들 — 에디터는 utf-8 텍스트만 다룬다
+const TEXT_EXTENSIONS = new Set([
+  '.md', '.mdx', '.txt',
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.json', '.jsonc', '.yml', '.yaml', '.toml', '.ini',
+  '.css', '.scss', '.html', '.svg',
+  '.sh', '.zsh', '.bash', '.py', '.sql', '.rs', '.go',
+])
+const TEXT_FILENAMES = new Set(['README', 'Dockerfile', 'Makefile', 'LICENSE', '.gitignore', '.env.example', '.oxlintrc.json'])
+
+// 트리에 노출하고 미디어 뷰어(/api/raw 스트리밍)로 여는 바이너리 파일들 — 에디터로는 열지 않는다
+export const MEDIA_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.ico',
+  '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus',
+  '.mp4', '.webm', '.mov', '.m4v', '.mkv',
+  '.pdf',
+])
+
+// 트리에 노출하되 미리보기 없이 다운로드만 하는 바이너리 — 빌드 산출물 등 (Android APK/AAB)
+export const DOWNLOAD_EXTENSIONS = new Set([
+  '.apk', '.aab',
+])
+
+// 기본은 숨기지만 내부의 다운로드 파일(APK/AAB)만은 노출하는 디렉터리 — flutter build/ 등
+// 산출물 전체(에셋 사본·중간 파일 수천 개)를 트리에 쏟지 않으려고 다운로드 파일만 통과시키고 빈 폴더는 접는다
+const DOWNLOAD_ONLY_DIRS = new Set(['build'])
 
 const TOP_LEVEL_DIR_ORDER = ['.new', 'company', 'products', 'programs', 'events', 'ops', 'decisions', 'archives']
 
@@ -18,22 +65,60 @@ function topLevelRank(name: string): number {
   return index === -1 ? TOP_LEVEL_DIR_ORDER.length : index
 }
 
-function walk(absDir: string, relDir: string): TreeNode[] {
+function isVisibleFile(name: string, docsOnly: boolean): boolean {
+  const ext = path.extname(name).toLowerCase()
+  if (docsOnly) return name.endsWith('.md') || MEDIA_EXTENSIONS.has(ext) || DOWNLOAD_EXTENSIONS.has(ext)
+  // .env·.env.local 등 — 트리에는 보이지만 게스트 트리에서는 guestAccess가 걷어낸다
+  if (isSecretFile(name)) return true
+  if (TEXT_FILENAMES.has(name)) return true
+  return TEXT_EXTENSIONS.has(ext) || MEDIA_EXTENSIONS.has(ext) || DOWNLOAD_EXTENSIONS.has(ext)
+}
+
+// 트리 하나를 그리는 동안 변하지 않는 판정 재료 — 옵션·프로젝트에서 한 번만 뽑아 walk 전체에 흘려보낸다
+interface Filters {
+  /** docs 프로젝트 — SSoT 규칙대로 .md와 미디어만 보이고, 최상위 폴더는 정해진 순서로 선다 */
+  docsOnly: boolean
+  ignore: Set<string>
+  showAll: boolean
+}
+
+const NOTHING_IGNORED: ReadonlySet<string> = new Set()
+
+function filtersFor(project: string, opts: TreeOptions): Filters {
+  const showAll = opts.showAll === true
+  return {
+    docsOnly: project === DEFAULT_PROJECT,
+    // showAll이면 숨김 목록을 읽지도 않는다 — 정렬 규칙(docsOnly)은 역할과 무관하므로 그대로 둔다
+    ignore: showAll ? (NOTHING_IGNORED as Set<string>) : readIgnoreSet(),
+    showAll,
+  }
+}
+
+function fileVisible(name: string, f: Filters, downloadOnly: boolean): boolean {
+  if (downloadOnly) return DOWNLOAD_EXTENSIONS.has(path.extname(name).toLowerCase())
+  return f.showAll || isVisibleFile(name, f.docsOnly)
+}
+
+function walk(absDir: string, relDir: string, f: Filters, downloadOnly = false): TreeNode[] {
   const entries = fs.readdirSync(absDir, { withFileTypes: true })
   const nodes: TreeNode[] = []
   for (const entry of entries) {
-    if (IGNORE.has(entry.name)) continue
+    if (f.ignore.has(entry.name) || isDeniedSegment(entry.name)) continue
     const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
     const absPath = path.join(absDir, entry.name)
     if (entry.isDirectory()) {
-      nodes.push({ name: entry.name, path: relPath, type: 'dir', children: walk(absPath, relPath) })
-    } else if (entry.isFile() && entry.name.endsWith('.md')) {
-      nodes.push({ name: entry.name, path: relPath, type: 'file' })
+      // build/ 같은 다운로드 전용 구역은 내부를 훑되 APK/AAB로 이어지지 않는 빈 폴더는 접는다 (산출물 홍수 방지)
+      const childDownloadOnly = downloadOnly || DOWNLOAD_ONLY_DIRS.has(entry.name)
+      const children = walk(absPath, relPath, f, childDownloadOnly)
+      if (childDownloadOnly && children.length === 0) continue
+      nodes.push({ name: entry.name, path: relPath, type: 'dir', children })
+    } else if (entry.isFile()) {
+      if (fileVisible(entry.name, f, downloadOnly)) nodes.push({ name: entry.name, path: relPath, type: 'file' })
     }
   }
   nodes.sort((a, b) => {
     if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
-    if (relDir === '' && a.type === 'dir') {
+    if (f.docsOnly && relDir === '' && a.type === 'dir') {
       const rankDiff = topLevelRank(a.name) - topLevelRank(b.name)
       if (rankDiff !== 0) return rankDiff
     }
@@ -42,6 +127,31 @@ function walk(absDir: string, relDir: string): TreeNode[] {
   return nodes
 }
 
-export function buildTree(): TreeNode[] {
-  return walk(DOCS_ROOT, '')
+export function buildTree(project: string = DEFAULT_PROJECT, opts: TreeOptions = {}): TreeNode[] {
+  return walk(projectRoot(project), '', filtersFor(project, opts))
+}
+
+/**
+ * 이 경로가 그 눈으로 그린 트리에 실제로 뜨는지 — 디스크를 읽지 않고 이름 규칙만으로 판정한다.
+ * 파일을 만들었는데 사이드바에 나타나지 않을 때 조용히 넘어가지 않고 그 자리에서 알려주려고 쓴다.
+ *
+ * **인가 경계가 아니라 UI 판정이다.** 트리에 안 뜨는 파일도 경로만 알면 API로 읽힌다 —
+ * 실제 경계는 `guestAccess.ts`와 `paths.ts`가 친다(`docs/ops/mew/access-model.md`).
+ */
+export function isPathVisible(
+  project: string,
+  relPath: string,
+  opts: TreeOptions & { type?: 'file' | 'dir' } = {},
+): boolean {
+  const f = filtersFor(project, opts)
+  const segments = relPath.split('/').filter((s) => s.length > 0)
+  if (segments.length === 0) return false
+  let downloadOnly = false
+  for (let i = 0; i < segments.length; i++) {
+    const name = segments[i]
+    if (f.ignore.has(name) || isDeniedSegment(name)) return false
+    if (i === segments.length - 1 && opts.type !== 'dir') return fileVisible(name, f, downloadOnly)
+    if (DOWNLOAD_ONLY_DIRS.has(name)) downloadOnly = true
+  }
+  return true
 }

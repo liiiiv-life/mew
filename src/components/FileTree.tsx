@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { TreeNode } from '../api/client'
-import { createFolder, createNewDocument, deleteFile, renamePath } from '../api/client'
-import { flattenFiles, fuzzyScore } from '../utils/fuzzy'
-import { PresenceBadge } from './PresenceBadge'
+import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, renamePath, setGuestAccess } from '../api/client'
+import { flattenFiles, fuzzyScore } from '@mew/editor'
+import { ConfirmDialog, setPathDragData } from '@mew/ui'
+import { getBinding, matchesShortcut } from '@mew/shortcuts'
+import { PresenceDots } from './PresenceDots'
 
 type EditingState =
   | { mode: 'rename'; path: string; type: 'file' | 'dir'; value: string; error?: string; busy?: boolean }
@@ -13,13 +15,18 @@ type Focused = { path: string; type: 'file' | 'dir' } | null
 
 type PopoverState = { path: string; type: 'file' | 'dir'; x: number; y: number } | null
 
+// Ctrl+C(복사)/Ctrl+X(잘라내기)로 담아둔 항목 — Ctrl+V로 붙여넣기(cut=이동, copy=복사)
+type Clipboard = { path: string; type: 'file' | 'dir'; mode: 'copy' | 'cut' } | null
+
 interface NodeCtx {
   selectedPath: string | null
   focused: Focused
   openDirs: Set<string>
   editing: EditingState
   readOnly: boolean
-  presence: Record<string, number>
+  presence: Record<string, string[]>
+  /** 드롭 강조 중인 폴더 경로(''=루트). 이동 대상 미리보기 */
+  dropDir: string | null
   onSelect: (path: string, opts?: { preview?: boolean }) => void
   toggleDir: (path: string) => void
   focusNode: (path: string, type: 'file' | 'dir') => void
@@ -30,11 +37,106 @@ interface NodeCtx {
   setEditValue: (v: string) => void
   submitEdit: () => void
   cancelEdit: () => void
+  onToggleGuestView: (node: TreeNode) => void
+  onToggleGuestEdit: (node: TreeNode) => void
+  // ── 드래그 이동 ──
+  beginDrag: (path: string, type: 'file' | 'dir') => void
+  endDrag: () => void
+  canDropInto: (dir: string) => boolean
+  onDragOverDir: (dir: string) => void
+  onDropDir: (dir: string) => void
 }
 
 function parentOf(p: string): string {
   const i = p.lastIndexOf('/')
   return i === -1 ? '' : p.slice(0, i)
+}
+
+// 검색 결과 경로를 짧게: 디렉터리는 첫 글자만, 파일명은 그대로
+// (products/notes/2026/drafts/plan-01.md → p/n/2/d/plan-01.md).
+// Array.from으로 잘라 한글 등 멀티바이트 첫 글자도 안전하게 뽑는다.
+function abbreviatePath(path: string): string {
+  const parts = path.split('/')
+  if (parts.length <= 1) return path
+  const dirs = parts.slice(0, -1).map((seg) => (seg ? (Array.from(seg)[0] ?? '') : ''))
+  return [...dirs, parts[parts.length - 1]].join('/')
+}
+
+// MOC(Map of Content)는 파일명 그대로 목록에 섞이지 않는다 — 자기 폴더의 첫 줄에 지도 아이콘 +
+// "Map Of Contents"로 고정된다. 정렬용 언더스코어를 붙인 _MOC.md도 같은 문서다
+// (server/documents.ts·git.ts와 같은 규칙).
+const MOC_FILE = /^_?MOC\.md$/i
+
+function isMocNode(node: TreeNode): boolean {
+  return node.type === 'file' && MOC_FILE.test(node.name)
+}
+
+function MapIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 6 9 3l6 3 6-3v15l-6 3-6-3-6 3Z" />
+      <path d="M9 3v15" />
+      <path d="M15 6v15" />
+    </svg>
+  )
+}
+
+// MOC 한 줄 — 파일명(MOC.md/_MOC.md) 대신 지도 아이콘 + "Map Of Contents"로, 그 폴더의 첫 항목에 고정한다.
+// 어느 깊이에서든 같은 모양이라 "이 폴더의 입구"라는 뜻이 한눈에 읽힌다.
+function MocItem({
+  path,
+  depth,
+  active,
+  presenceColors,
+  onSelect,
+}: {
+  path: string
+  depth: number
+  active: boolean
+  presenceColors: string[]
+  onSelect: (path: string, opts?: { preview?: boolean }) => void
+}) {
+  return (
+    <button
+      type="button"
+      data-path={path}
+      onClick={() => onSelect(path)}
+      onDoubleClick={() => onSelect(path, { preview: false })}
+      title={path}
+      className={`mb-0.5 flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none hover:bg-surface-raised ${
+        active ? 'bg-surface-raised font-medium text-ink' : 'text-ink-secondary'
+      }`}
+      style={{ paddingLeft: `${depth * 14 + 8}px` }}
+    >
+      <MapIcon size={14} />
+      <span className="min-w-0 flex-1 truncate">Map Of Contents</span>
+      <PresenceDots colors={presenceColors} />
+    </button>
+  )
+}
+
+type SortMode = 'name' | 'ext'
+const SORT_KEY = 'mew:tree-sort'
+
+// 만들거나 옮기는 데는 성공했는데 그 결과가 내 트리에는 안 뜰 때(숨김 목록·확장자 필터) 띄우는 안내.
+// 조용히 아무 일도 없었던 것처럼 보이는 게 제일 나쁘다 — 파일은 디스크에 실제로 있다.
+// owner·manager는 필터가 없어 이 안내를 볼 일이 없다 (server/reqAuth.ts의 seesEveryFile).
+const NOT_ALLOWED = '권한이 없습니다'
+
+function extOf(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
+}
+
+// 확장자순: 폴더는 서버 순서(docs 최상위 랭킹 포함)를 그대로 두고, 파일만 확장자별로 묶는다
+// (a.png a.svg b.png b.svg → a.png b.png a.svg b.svg) — sort는 stable이라 0 반환 = 순서 유지
+function sortTreeByExt(nodes: TreeNode[]): TreeNode[] {
+  const sorted = [...nodes].sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+    if (a.type === 'dir') return 0
+    return extOf(a.name).localeCompare(extOf(b.name)) || a.name.localeCompare(b.name)
+  })
+  return sorted.map((n) => (n.type === 'dir' && n.children ? { ...n, children: sortTreeByExt(n.children) } : n))
 }
 
 function sanitizeSegment(input: string): string {
@@ -114,6 +216,11 @@ function ActionPopover({
   x,
   y,
   onRename,
+  onDuplicate,
+  onCopyClip,
+  onCutClip,
+  onPasteClip,
+  onDownload,
   onDelete,
   onNewFile,
   onNewFolder,
@@ -122,6 +229,13 @@ function ActionPopover({
   x: number
   y: number
   onRename: () => void
+  /** 복제 — 파일에만 제공(폴더는 undefined로 숨긴다) */
+  onDuplicate?: () => void
+  onCopyClip: () => void
+  onCutClip: () => void
+  /** 클립보드에 담긴 항목이 있을 때만 제공 — 없으면 undefined로 숨긴다 */
+  onPasteClip?: () => void
+  onDownload?: () => void
   onDelete: () => void
   onNewFile: () => void
   onNewFolder: () => void
@@ -147,7 +261,7 @@ function ActionPopover({
   }, [onClose])
 
   const left = Math.min(x, window.innerWidth - 180)
-  const top = Math.min(y, window.innerHeight - 176)
+  const top = Math.min(y, window.innerHeight - 336)
 
   return (
     <div
@@ -158,6 +272,27 @@ function ActionPopover({
       <button type="button" onClick={onRename} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
         ✎ 이름 수정
       </button>
+      {onDuplicate && (
+        <button type="button" onClick={onDuplicate} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+          ⧉ 복제
+        </button>
+      )}
+      <button type="button" onClick={onCopyClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+        ⎘ 복사 (Ctrl+C)
+      </button>
+      <button type="button" onClick={onCutClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+        ✂ 잘라내기 (Ctrl+X)
+      </button>
+      {onPasteClip && (
+        <button type="button" onClick={onPasteClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+          📋 붙여넣기 (Ctrl+V)
+        </button>
+      )}
+      {onDownload && (
+        <button type="button" onClick={onDownload} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+          ⬇ 다운로드
+        </button>
+      )}
       <button type="button" onClick={onNewFile} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
         ＋ 새 파일
       </button>
@@ -166,6 +301,55 @@ function ActionPopover({
       </button>
       <button type="button" onClick={onDelete} className="block w-full px-3 py-2 text-left text-danger hover:bg-surface-hover">
         🗑 삭제
+      </button>
+    </div>
+  )
+}
+
+// member+ 전용 — 눈/연필 아이콘으로 이 경로의 게스트 열람/편집 허용을 직접 토글한다.
+// 서버가 edit=true면 view도 강제로 켠다(편집은 열람을 전제).
+function GuestAccessIcons({
+  node,
+  onToggleView,
+  onToggleEdit,
+}: {
+  node: TreeNode
+  onToggleView: (node: TreeNode) => void
+  onToggleEdit: (node: TreeNode) => void
+}) {
+  const view = node.guestAccess?.view ?? false
+  const edit = node.guestAccess?.edit ?? false
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 pr-0.5">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggleView(node)
+        }}
+        title={view ? '게스트 열람 허용됨 — 클릭하여 해제' : '게스트 열람 허용'}
+        aria-label="게스트 열람 권한 전환"
+        className={`flex h-5 w-5 items-center justify-center rounded hover:bg-surface-hover ${view ? 'text-accent' : 'text-ink-faint'}`}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggleEdit(node)
+        }}
+        title={edit ? '게스트 편집 허용됨 — 클릭하여 해제' : '게스트 편집 허용'}
+        aria-label="게스트 편집 권한 전환"
+        className={`flex h-5 w-5 items-center justify-center rounded hover:bg-surface-hover ${edit ? 'text-accent' : 'text-ink-faint'}`}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+          <path d="m15 5 4 4" />
+        </svg>
       </button>
     </div>
   )
@@ -239,44 +423,95 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
   if (node.type === 'file') {
     const isSelected = node.path === ctx.selectedPath
     return (
-      <button
-        type="button"
-        data-path={node.path}
-        onClick={handleClick}
-        onDoubleClick={() => ctx.onSelect(node.path, { preview: false })}
-        {...touchProps}
-        className={`flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
-          isSelected ? 'bg-surface-raised font-medium' : ''
-        } ${isFocused ? 'ring-1 ring-inset ring-accent' : ''}`}
-        style={{ paddingLeft: `${depth * 14 + 8}px` }}
-      >
-        <span className="min-w-0 flex-1 truncate">{node.name}</span>
-        <PresenceBadge count={ctx.presence[node.path] ?? 0} mine={node.path === ctx.selectedPath} />
-      </button>
+      <div className="flex w-full items-center gap-0.5">
+        <button
+          type="button"
+          data-path={node.path}
+          draggable={!ctx.readOnly}
+          onDragStart={(e) => {
+            setPathDragData(e.dataTransfer, node.path)
+            ctx.beginDrag(node.path, 'file')
+          }}
+          onDragEnd={ctx.endDrag}
+          onClick={handleClick}
+          onDoubleClick={() => ctx.onSelect(node.path, { preview: false })}
+          {...touchProps}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
+            isSelected ? 'bg-surface-raised font-medium' : ''
+          } ${isFocused ? 'ring-1 ring-inset ring-accent' : ''}`}
+          style={{ paddingLeft: `${depth * 14 + 8}px` }}
+        >
+          <span className="min-w-0 flex-1 truncate">{node.name}</span>
+          <PresenceDots colors={ctx.presence[node.path] ?? []} />
+        </button>
+        {!ctx.readOnly && (
+          <GuestAccessIcons node={node} onToggleView={ctx.onToggleGuestView} onToggleEdit={ctx.onToggleGuestEdit} />
+        )}
+      </div>
     )
   }
 
   const isOpen = ctx.openDirs.has(node.path)
+  const isDropTarget = ctx.dropDir === node.path
+  // 이 폴더의 MOC는 파일 목록에서 빼고, 펼쳤을 때 맨 첫 줄에 따로 세운다
+  const moc = node.children?.find(isMocNode) ?? null
+  const children = moc ? node.children?.filter((c) => !isMocNode(c)) : node.children
   const createEditing =
     (ctx.editing?.mode === 'create-file' || ctx.editing?.mode === 'create-folder') && ctx.editing.parentPath === node.path
       ? ctx.editing
       : null
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={handleClick}
-        {...touchProps}
-        className={`block w-full truncate rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
-          isFocused ? 'ring-1 ring-inset ring-accent' : ''
-        }`}
-        style={{ paddingLeft: `${depth * 14 + 8}px` }}
-      >
-        {isOpen ? '▾' : '▸'} {node.name}
-      </button>
+    <div
+      // 폴더(및 그 안의 파일)로 드롭하면 이 폴더로 이동한다. 자식 폴더는 자기 dragover에서
+      // stopPropagation하므로, 하위 파일 위에서 놓으면 가장 가까운 폴더(=여기)가 대상이 된다.
+      onDragOver={(e) => {
+        if (!ctx.canDropInto(node.path)) return
+        e.preventDefault()
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = 'move'
+        ctx.onDragOverDir(node.path)
+      }}
+      onDrop={(e) => {
+        if (!ctx.canDropInto(node.path)) return
+        e.preventDefault()
+        e.stopPropagation()
+        ctx.onDropDir(node.path)
+      }}
+    >
+      <div className="flex w-full items-center gap-0.5">
+        <button
+          type="button"
+          draggable={!ctx.readOnly}
+          onDragStart={(e) => {
+            setPathDragData(e.dataTransfer, node.path)
+            ctx.beginDrag(node.path, 'dir')
+          }}
+          onDragEnd={ctx.endDrag}
+          onClick={handleClick}
+          {...touchProps}
+          className={`block min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
+            isFocused ? 'ring-1 ring-inset ring-accent' : ''
+          } ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : ''}`}
+          style={{ paddingLeft: `${depth * 14 + 8}px` }}
+        >
+          {isOpen ? '▾' : '▸'} {node.name}
+        </button>
+        {!ctx.readOnly && (
+          <GuestAccessIcons node={node} onToggleView={ctx.onToggleGuestView} onToggleEdit={ctx.onToggleGuestEdit} />
+        )}
+      </div>
       {isOpen && (
         <div>
+          {moc && (
+            <MocItem
+              path={moc.path}
+              depth={depth + 1}
+              active={moc.path === ctx.selectedPath}
+              presenceColors={ctx.presence[moc.path] ?? []}
+              onSelect={ctx.onSelect}
+            />
+          )}
           {createEditing && (
             <InlineInput
               value={createEditing.value}
@@ -288,7 +523,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
               paddingLeft={(depth + 1) * 14 + 8}
             />
           )}
-          {node.children?.map((child) => (
+          {children?.map((child) => (
             <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />
           ))}
         </div>
@@ -308,25 +543,41 @@ export function FileTree({
   onFolderCreated,
   onRenamed,
   onDeleted,
+  onGuestAccessChanged,
+  onCloseSidebar,
+  onNotice,
 }: {
   tree: TreeNode[]
   selectedPath: string | null
   readOnly: boolean
   searchFocusSignal: number
-  presence: Record<string, number>
+  presence: Record<string, string[]>
   onSelect: (path: string, opts?: { preview?: boolean }) => void
   onFileCreated: (relPath: string) => void
   onFolderCreated: () => void
   onRenamed: (oldPath: string, newPath: string, type: 'file' | 'dir') => void
   onDeleted: (path: string, type: 'file' | 'dir') => void
+  /** member+ 전용 — 눈/연필 아이콘으로 게스트 열람/편집 규칙을 바꾼 뒤 트리를 다시 불러오도록 호출 */
+  onGuestAccessChanged: () => void
+  /** 정렬 버튼 오른쪽의 접기 버튼으로 사이드바를 닫는다 (Ctrl+B) */
+  onCloseSidebar: () => void
+  /** 흐름을 끊지 않는 짧은 안내(토스트) — 실패는 아니지만 말해줘야 하는 것들 */
+  onNotice: (message: string) => void
 }) {
   const [query, setQuery] = useState('')
+  const [sortMode, setSortMode] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) === 'ext' ? 'ext' : 'name'))
   const [focused, setFocused] = useState<Focused>(null)
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<EditingState>(null)
   const [popover, setPopover] = useState<PopoverState>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ path: string; type: 'file' | 'dir' } | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [clipboard, setClipboard] = useState<Clipboard>(null)
+  const [dropDir, setDropDir] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  // 드래그 중인 항목 — dragover가 초당 여러 번 발화하므로 상태 대신 ref로 들고 다닌다
+  const draggingRef = useRef<{ path: string; type: 'file' | 'dir' } | null>(null)
   const initializedOpenDirs = useRef(false)
   // 마운트 시점 값으로 초기화 — "처음 한 번은 건너뛰기" 식 불리언 가드는 StrictMode가
   // 마운트 이펙트를 두 번 실행할 때(두 번째 호출에서 가드가 이미 소진됨) 무력화돼 사이드바를
@@ -400,22 +651,66 @@ export function FileTree({
     setEditing({ mode: kind === 'file' ? 'create-file' : 'create-folder', parentPath, value: '' })
   }
 
-  async function requestDelete(path: string, type: 'file' | 'dir') {
+  async function requestCopy(path: string) {
     if (readOnly) return
-    const label = type === 'dir' ? '폴더' : '파일'
-    if (!window.confirm(`${label} "${path}"을(를) 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return
     try {
-      await deleteFile(path)
-      setFocused((f) => (f?.path === path ? null : f))
-      onDeleted(path, type)
+      const { relPath, hidden } = await copyFile(path)
+      if (hidden) onNotice(NOT_ALLOWED)
+      // 새 파일 생성과 같은 후처리 — 트리 갱신 + 복사본을 탭으로 연다
+      onFileCreated(relPath)
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err))
+      setErrorMsg(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  function requestDownload(path: string) {
+    const a = document.createElement('a')
+    a.href = downloadUrl(path)
+    a.download = path.split('/').pop() ?? path
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
+  function requestDelete(path: string, type: 'file' | 'dir') {
+    if (readOnly) return
+    setDeleteTarget({ path, type })
+  }
+
+  async function deleteConfirmed() {
+    const target = deleteTarget
+    setDeleteTarget(null)
+    if (!target) return
+    try {
+      await deleteFile(target.path)
+      setFocused((f) => (f?.path === target.path ? null : f))
+      onDeleted(target.path, target.type)
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err))
     }
   }
 
   function openPopover(path: string, type: 'file' | 'dir', x: number, y: number) {
     if (readOnly) return
     setPopover({ path, type, x, y })
+  }
+
+  function handleToggleGuestView(node: TreeNode) {
+    if (readOnly) return
+    const current = node.guestAccess ?? { view: false, edit: false }
+    const nextView = !current.view
+    setGuestAccess(node.path, nextView, nextView ? current.edit : false)
+      .then(onGuestAccessChanged)
+      .catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)))
+  }
+
+  function handleToggleGuestEdit(node: TreeNode) {
+    if (readOnly) return
+    const current = node.guestAccess ?? { view: false, edit: false }
+    const nextEdit = !current.edit
+    setGuestAccess(node.path, nextEdit ? true : current.view, nextEdit)
+      .then(onGuestAccessChanged)
+      .catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)))
   }
 
   function cancelEdit() {
@@ -437,7 +732,8 @@ export function FileTree({
         setEditing(null)
         return
       }
-      if (current.type === 'file' && !name.toLowerCase().endsWith('.md')) name += '.md'
+      // .md 문서만 확장자를 보정한다 — 미디어·코드 파일 이름에 .md를 덧붙이면 안 된다
+      if (current.type === 'file' && oldName.toLowerCase().endsWith('.md') && !name.toLowerCase().endsWith('.md')) name += '.md'
       name = sanitizeSegment(name)
       const parent = parentOf(current.path)
       const newPath = parent ? `${parent}/${name}` : name
@@ -447,8 +743,10 @@ export function FileTree({
       }
       setEditing({ ...current, busy: true, error: undefined })
       try {
-        await renamePath(current.path, newPath)
+        const { hidden } = await renamePath(current.path, newPath)
         setEditing(null)
+        // 바꾼 이름이 트리에 안 뜨는 종류면(확장자·숨김 목록) 사라진 것처럼 보인다 — 이유를 알린다
+        if (hidden) onNotice(NOT_ALLOWED)
         onRenamed(current.path, newPath, current.type)
       } catch (err) {
         setEditing({ ...current, busy: false, error: err instanceof Error ? err.message : String(err) })
@@ -471,8 +769,9 @@ export function FileTree({
       }
       const relPath = current.parentPath ? `${current.parentPath}/${name}.md` : `${name}.md`
       try {
-        const { relPath: created } = await createNewDocument(relPath, name)
+        const { relPath: created, hidden } = await createNewDocument(relPath, name)
         setEditing(null)
+        if (hidden) onNotice(NOT_ALLOWED)
         onFileCreated(created)
       } catch (err) {
         setEditing({ ...current, busy: false, error: err instanceof Error ? err.message : String(err) })
@@ -485,8 +784,9 @@ export function FileTree({
       }
       const relPath = current.parentPath ? `${current.parentPath}/${name}` : name
       try {
-        await createFolder(relPath)
+        const { hidden } = await createFolder(relPath)
         setEditing(null)
+        if (hidden) onNotice(NOT_ALLOWED)
         ensureOpenChain(relPath)
         onFolderCreated()
       } catch (err) {
@@ -495,27 +795,135 @@ export function FileTree({
     }
   }
 
+  function basenameOf(p: string): string {
+    return p.split('/').pop() ?? p
+  }
+
+  // 폴더를 자기 자신 또는 그 하위 경로로 옮기거나 복사하는 것을 막는다(무한 재귀·경로 소실 방지)
+  function isSelfOrDescendant(srcPath: string, srcType: 'file' | 'dir', destDir: string): boolean {
+    return srcType === 'dir' && (destDir === srcPath || destDir.startsWith(`${srcPath}/`))
+  }
+
+  // 드래그 이동·잘라내기 붙여넣기 — 내부적으로 terminal mv(=fs.renameSync)인 /rename을 재사용한다
+  async function moveInto(srcPath: string, srcType: 'file' | 'dir', destDir: string) {
+    if (readOnly) return
+    const newPath = destDir ? `${destDir}/${basenameOf(srcPath)}` : basenameOf(srcPath)
+    if (newPath === srcPath) return // 같은 위치로의 이동 — 무동작
+    if (isSelfOrDescendant(srcPath, srcType, destDir)) {
+      setErrorMsg('폴더를 자기 자신 안으로는 옮길 수 없습니다')
+      return
+    }
+    try {
+      const { hidden } = await renamePath(srcPath, newPath)
+      if (hidden) onNotice(NOT_ALLOWED)
+      onRenamed(srcPath, newPath, srcType)
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // 복사 붙여넣기 — 내부적으로 terminal cp(=fs.cpSync, 폴더 재귀)인 /copy-into를 호출한다
+  async function copyIntoDir(srcPath: string, srcType: 'file' | 'dir', destDir: string) {
+    if (readOnly) return
+    if (isSelfOrDescendant(srcPath, srcType, destDir)) {
+      setErrorMsg('폴더를 자기 자신 안으로는 복사할 수 없습니다')
+      return
+    }
+    try {
+      const { relPath, hidden } = await copyInto(srcPath, destDir)
+      if (hidden) onNotice(NOT_ALLOWED)
+      if (srcType === 'file') onFileCreated(relPath)
+      else onFolderCreated()
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // Ctrl+V / 우클릭 붙여넣기 — cut은 이동(클립보드 비움), copy는 복사(여러 번 붙일 수 있게 유지)
+  async function pasteInto(destDir: string) {
+    const clip = clipboard
+    if (!clip || readOnly) return
+    if (clip.mode === 'cut') {
+      await moveInto(clip.path, clip.type, destDir)
+      setClipboard(null)
+    } else {
+      await copyIntoDir(clip.path, clip.type, destDir)
+    }
+    ensureOpenChain(destDir)
+  }
+
+  function beginDrag(path: string, type: 'file' | 'dir') {
+    draggingRef.current = { path, type }
+  }
+
+  function endDrag() {
+    draggingRef.current = null
+    setDropDir(null)
+  }
+
+  function canDropInto(dir: string): boolean {
+    const item = draggingRef.current
+    if (!item || readOnly) return false
+    return !isSelfOrDescendant(item.path, item.type, dir)
+  }
+
+  function onDragOverDir(dir: string) {
+    setDropDir((cur) => (cur === dir ? cur : dir))
+  }
+
+  function onDropDir(dir: string) {
+    const item = draggingRef.current
+    draggingRef.current = null
+    setDropDir(null)
+    if (item) void moveInto(item.path, item.type, dir)
+  }
+
   function handleTreeKeyDown(e: React.KeyboardEvent) {
     if (readOnly || !focused || editing) return
-    const mod = e.ctrlKey || e.metaKey
     const targetParent = focused.type === 'dir' ? focused.path : parentOf(focused.path)
 
-    if (e.key === 'F2') {
+    // Ctrl/⌘ + C(복사)·X(잘라내기)·V(붙여넣기)·D(복제). 트리 노드는 select-none이라
+    // 가로챌 텍스트 선택이 없어 네이티브 클립보드를 덮어써도 안전하다.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      const k = e.key.toLowerCase()
+      if (k === 'c') {
+        e.preventDefault()
+        setClipboard({ path: focused.path, type: focused.type, mode: 'copy' })
+        return
+      }
+      if (k === 'x') {
+        e.preventDefault()
+        setClipboard({ path: focused.path, type: focused.type, mode: 'cut' })
+        return
+      }
+      if (k === 'v') {
+        e.preventDefault()
+        void pasteInto(targetParent)
+        return
+      }
+      if (k === 'd') {
+        e.preventDefault()
+        if (focused.type === 'file') void requestCopy(focused.path) // 폴더 복제는 금지
+        return
+      }
+    }
+
+    if (matchesShortcut(e, getBinding('treeRename'))) {
       e.preventDefault()
       startRename(focused.path, focused.type)
-    } else if (e.key === 'Delete') {
+    } else if (matchesShortcut(e, getBinding('treeDelete'))) {
       e.preventDefault()
       requestDelete(focused.path, focused.type)
-    } else if (e.key === 'Insert' && !e.shiftKey) {
+    } else if (matchesShortcut(e, getBinding('treeNewFile'))) {
       e.preventDefault()
       startCreate(targetParent, 'file')
-    } else if (e.key === 'Insert' && e.shiftKey) {
+    } else if (matchesShortcut(e, getBinding('treeNewFolder'))) {
       e.preventDefault()
       startCreate(targetParent, 'folder')
-    } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'n') {
+    } else if (matchesShortcut(e, getBinding('treeNewFileAlt'))) {
       e.preventDefault()
       startCreate(targetParent, 'file')
-    } else if (mod && e.shiftKey && e.key.toLowerCase() === 'n') {
+    } else if (matchesShortcut(e, getBinding('treeNewFolderAlt'))) {
       e.preventDefault()
       startCreate(targetParent, 'folder')
     }
@@ -523,12 +931,31 @@ export function FileTree({
 
   function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Escape') {
+      // 검색어가 있으면 그것만 지우고 멈춘다 — 흘려보내면 오버레이 스택이 사이드바까지 닫는다.
+      // 이미 비어 있으면 그대로 흘려보내 사이드바가 닫히게 둔다 (Esc 두 번 = 검색 취소 → 닫기)
+      if (!query) return
       e.preventDefault()
+      e.stopPropagation()
       setQuery('')
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (filteredPaths && filteredPaths.length > 0) onSelect(filteredPaths[0])
     }
+  }
+
+  const sortedTree = useMemo(() => (sortMode === 'ext' ? sortTreeByExt(tree) : tree), [tree, sortMode])
+
+  // 최상위 MOC는 담을 폴더가 없으니 여기서 직접 세운다 — 프로젝트 전체의 입구라서 어떤 폴더보다 위에.
+  // 하위 폴더의 MOC는 각 Node가 자기 첫 줄에 같은 모양으로 세운다.
+  const rootMoc = useMemo(() => sortedTree.find(isMocNode) ?? null, [sortedTree])
+  const rootNodes = useMemo(() => (rootMoc ? sortedTree.filter((n) => !isMocNode(n)) : sortedTree), [sortedTree, rootMoc])
+
+  function toggleSortMode() {
+    setSortMode((prev) => {
+      const next = prev === 'name' ? 'ext' : 'name'
+      localStorage.setItem(SORT_KEY, next)
+      return next
+    })
   }
 
   const filteredPaths = useMemo(() => {
@@ -552,6 +979,7 @@ export function FileTree({
     editing,
     readOnly,
     presence,
+    dropDir,
     onSelect,
     toggleDir,
     focusNode,
@@ -562,11 +990,18 @@ export function FileTree({
     setEditValue,
     submitEdit,
     cancelEdit,
+    onToggleGuestView: handleToggleGuestView,
+    onToggleGuestEdit: handleToggleGuestEdit,
+    beginDrag,
+    endDrag,
+    canDropInto,
+    onDragOverDir,
+    onDropDir,
   }
 
   return (
     <div className="flex h-full flex-col border-r border-edge bg-surface-deep">
-      <div className="border-b border-edge p-2">
+      <div className="flex items-center gap-1.5 border-b border-edge p-2">
         <input
           ref={searchInputRef}
           value={query}
@@ -575,8 +1010,49 @@ export function FileTree({
           placeholder="문서 검색… (Ctrl+P)"
           className="w-full rounded border border-edge-strong bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent"
         />
+        <button
+          type="button"
+          onClick={toggleSortMode}
+          className="shrink-0 rounded border border-edge-strong px-1.5 py-1 text-xs text-ink-secondary hover:bg-surface-raised hover:text-ink"
+          title={sortMode === 'name' ? '정렬: 이름순 (클릭 → 확장자순)' : '정렬: 확장자순 (클릭 → 이름순)'}
+          aria-label="정렬 방식 전환"
+        >
+          {sortMode === 'name' ? '가나다' : '확장자'}
+        </button>
+        <button
+          type="button"
+          onClick={onCloseSidebar}
+          className="shrink-0 rounded border border-edge-strong p-1 text-ink-secondary hover:bg-surface-raised hover:text-ink"
+          title="사이드바 닫기 (Ctrl+B)"
+          aria-label="사이드바 닫기"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M9 3v18" />
+            <path d="m16 15-3-3 3-3" />
+          </svg>
+        </button>
       </div>
-      <div ref={listRef} tabIndex={-1} onKeyDown={handleTreeKeyDown} className="min-h-0 flex-1 overflow-y-auto py-2 outline-none">
+      <div
+        ref={listRef}
+        tabIndex={-1}
+        onKeyDown={handleTreeKeyDown}
+        onDragOver={(e) => {
+          // 폴더 위에서는 폴더의 핸들러가 stopPropagation하므로, 여기까지 온 건 빈 영역·최상위 파일 = 루트로 이동
+          if (!draggingRef.current || readOnly) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          setDropDir((cur) => (cur === '' ? cur : ''))
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          const item = draggingRef.current
+          draggingRef.current = null
+          setDropDir(null)
+          if (item) void moveInto(item.path, item.type, '')
+        }}
+        className={`min-h-0 flex-1 overflow-y-auto py-2 outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
+      >
         {filteredPaths !== null ? (
           filteredPaths.length === 0 ? (
             <div className="px-3 py-2 text-xs text-ink-muted">결과 없음</div>
@@ -586,15 +1062,28 @@ export function FileTree({
                 key={path}
                 type="button"
                 onClick={() => onSelect(path)}
+                title={path}
                 className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-ink hover:bg-surface-raised"
               >
-                <span className="min-w-0 flex-1 truncate">{path}</span>
-                <PresenceBadge count={presence[path] ?? 0} mine={path === selectedPath} />
+                {/* direction:rtl + text-align:left → 넘칠 때 ...이 왼쪽에 붙어 오른쪽(파일명)이 보인다 */}
+                <span style={{ direction: 'rtl', textAlign: 'left' }} className="min-w-0 flex-1 truncate">
+                  {abbreviatePath(path)}
+                </span>
+                <PresenceDots colors={presence[path] ?? []} />
               </button>
             ))
           )
         ) : (
           <>
+            {rootMoc && (
+              <MocItem
+                path={rootMoc.path}
+                depth={0}
+                active={rootMoc.path === selectedPath}
+                presenceColors={presence[rootMoc.path] ?? []}
+                onSelect={onSelect}
+              />
+            )}
             {rootCreateEditing && (
               <InlineInput
                 value={rootCreateEditing.value}
@@ -606,7 +1095,7 @@ export function FileTree({
                 paddingLeft={8}
               />
             )}
-            {tree.map((node) => (
+            {rootNodes.map((node) => (
               <Node key={node.path} node={node} depth={0} ctx={ctx} />
             ))}
           </>
@@ -620,6 +1109,38 @@ export function FileTree({
             startRename(popover.path, popover.type)
             setPopover(null)
           }}
+          onDuplicate={
+            popover.type === 'file'
+              ? () => {
+                  void requestCopy(popover.path)
+                  setPopover(null)
+                }
+              : undefined
+          }
+          onCopyClip={() => {
+            setClipboard({ path: popover.path, type: popover.type, mode: 'copy' })
+            setPopover(null)
+          }}
+          onCutClip={() => {
+            setClipboard({ path: popover.path, type: popover.type, mode: 'cut' })
+            setPopover(null)
+          }}
+          onPasteClip={
+            clipboard
+              ? () => {
+                  void pasteInto(popover.type === 'dir' ? popover.path : parentOf(popover.path))
+                  setPopover(null)
+                }
+              : undefined
+          }
+          onDownload={
+            popover.type === 'file'
+              ? () => {
+                  requestDownload(popover.path)
+                  setPopover(null)
+                }
+              : undefined
+          }
           onDelete={() => {
             requestDelete(popover.path, popover.type)
             setPopover(null)
@@ -635,6 +1156,18 @@ export function FileTree({
           onClose={() => setPopover(null)}
         />
       )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          message={`${deleteTarget.type === 'dir' ? '폴더' : '파일'} "${deleteTarget.path}"을(를) 삭제할까요?`}
+          detail="이 작업은 되돌릴 수 없습니다."
+          confirmLabel="삭제"
+          danger
+          onConfirm={deleteConfirmed}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+      {errorMsg !== null && <ConfirmDialog message={errorMsg} onConfirm={() => setErrorMsg(null)} />}
     </div>
   )
 }

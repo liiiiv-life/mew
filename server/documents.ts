@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { DOCS_ROOT } from './paths'
-import { buildFrontmatter } from './frontmatter'
+import { DEFAULT_PROJECT, DOCS_ROOT, resolveProjectPath } from './paths.ts'
+import { buildFrontmatter } from './frontmatter.ts'
 
 export class ConflictError extends Error {}
 
@@ -28,11 +28,18 @@ function appendMocLink(mocRelPath: string, targetRelPath: string, title: string)
   fs.writeFileSync(mocAbs, content.replace(/\s*$/, '') + `\n- [${title}](${linkPath})\n`, 'utf-8')
 }
 
-/** Creates a new document with a YAML frontmatter block (title lives there, not as a body H1) and links it from the nearest MOC.md. */
-export function createDocument(relPath: string, title: string): { relPath: string; mocRelPath: string } {
-  const abs = path.join(DOCS_ROOT, relPath)
+/**
+ * 새 문서 생성. docs는 SSoT 규칙대로 frontmatter(title은 본문 H1이 아니라 여기)와
+ * 가장 가까운 MOC 등록까지, 다른 프로젝트는 H1만 있는 평범한 마크다운으로 만든다.
+ */
+export function createDocument(project: string, relPath: string, title: string): { relPath: string; mocRelPath: string | null } {
+  const abs = resolveProjectPath(project, relPath)
   if (fs.existsSync(abs)) throw new ConflictError(`이미 존재하는 파일입니다: ${relPath}`)
   fs.mkdirSync(path.dirname(abs), { recursive: true })
+  if (project !== DEFAULT_PROJECT) {
+    fs.writeFileSync(abs, `# ${title}\n`, 'utf-8')
+    return { relPath, mocRelPath: null }
+  }
   fs.writeFileSync(abs, buildFrontmatter(title), 'utf-8')
   const mocRelPath = findNearestMoc(path.dirname(relPath))
   appendMocLink(mocRelPath, relPath, title)
@@ -40,17 +47,17 @@ export function createDocument(relPath: string, title: string): { relPath: strin
 }
 
 /** Creates an empty directory (a no-op in git until it holds a tracked file). */
-export function createFolder(relPath: string): { relPath: string } {
-  const abs = path.join(DOCS_ROOT, relPath)
+export function createFolder(project: string, relPath: string): { relPath: string } {
+  const abs = resolveProjectPath(project, relPath)
   if (fs.existsSync(abs)) throw new ConflictError(`이미 존재하는 폴더입니다: ${relPath}`)
   fs.mkdirSync(abs, { recursive: true })
   return { relPath }
 }
 
 /** Renames/moves a file or directory on disk. */
-export function renamePath(oldRelPath: string, newRelPath: string): void {
-  const oldAbs = path.join(DOCS_ROOT, oldRelPath)
-  const newAbs = path.join(DOCS_ROOT, newRelPath)
+export function renamePath(project: string, oldRelPath: string, newRelPath: string): void {
+  const oldAbs = resolveProjectPath(project, oldRelPath)
+  const newAbs = resolveProjectPath(project, newRelPath)
   if (!fs.existsSync(oldAbs)) throw new ConflictError(`존재하지 않는 경로입니다: ${oldRelPath}`)
   if (fs.existsSync(newAbs)) throw new ConflictError(`이미 존재하는 경로입니다: ${newRelPath}`)
   fs.mkdirSync(path.dirname(newAbs), { recursive: true })
@@ -58,6 +65,60 @@ export function renamePath(oldRelPath: string, newRelPath: string): void {
 }
 
 /** Deletes a file or directory (recursively) from disk. */
-export function deletePath(relPath: string): void {
-  fs.rmSync(path.join(DOCS_ROOT, relPath), { recursive: true, force: true })
+export function deletePath(project: string, relPath: string): void {
+  fs.rmSync(resolveProjectPath(project, relPath), { recursive: true, force: true })
+}
+
+/** 같은 폴더에 "이름 copy.ext"(충돌 시 "이름 copy 2.ext" …)로 파일을 복제하고 새 상대 경로를 돌려준다. */
+export function copyFile(project: string, relPath: string): string {
+  const abs = resolveProjectPath(project, relPath)
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+    throw new ConflictError(`존재하지 않는 파일입니다: ${relPath}`)
+  }
+  const ext = path.extname(relPath)
+  const base = path.basename(relPath, ext)
+  const parent = path.dirname(relPath)
+  for (let i = 1; i < 100; i++) {
+    const name = i === 1 ? `${base} copy${ext}` : `${base} copy ${i}${ext}`
+    const candidateRel = parent === '.' ? name : `${parent}/${name}`
+    const candidateAbs = resolveProjectPath(project, candidateRel)
+    if (!fs.existsSync(candidateAbs)) {
+      fs.copyFileSync(abs, candidateAbs)
+      return candidateRel
+    }
+  }
+  throw new ConflictError(`복사본 이름을 만들 수 없습니다: ${relPath}`)
+}
+
+/**
+ * 파일 또는 폴더를 destDir 안으로 복사한다(붙여넣기). 원래 이름을 유지하되,
+ * 같은 폴더에 이미 있으면 "이름 copy"(→ "이름 copy 2" …)로 비켜 쓴다. 폴더는 재귀 복사한다.
+ * destDir=''는 프로젝트 루트. 새 상대 경로를 돌려준다.
+ */
+export function copyPathInto(project: string, srcRelPath: string, destDir: string): string {
+  const srcAbs = resolveProjectPath(project, srcRelPath)
+  if (!fs.existsSync(srcAbs)) throw new ConflictError(`존재하지 않는 경로입니다: ${srcRelPath}`)
+  const destDirAbs = resolveProjectPath(project, destDir)
+  if (fs.existsSync(destDirAbs) && !fs.statSync(destDirAbs).isDirectory()) {
+    throw new ConflictError(`폴더가 아닙니다: ${destDir}`)
+  }
+  // 폴더를 자기 자신 또는 그 하위로 복사하면 무한 재귀가 된다 — 막는다
+  if (srcAbs === destDirAbs || destDirAbs.startsWith(srcAbs + path.sep)) {
+    throw new ConflictError('폴더를 자기 자신 안으로는 복사할 수 없습니다')
+  }
+  const isFile = fs.statSync(srcAbs).isFile()
+  const ext = isFile ? path.extname(srcRelPath) : ''
+  const base = isFile ? path.basename(srcRelPath, ext) : path.basename(srcRelPath)
+  const joinDest = (name: string) => (destDir === '' || destDir === '.' ? name : `${destDir}/${name}`)
+  for (let i = 0; i < 100; i++) {
+    // i=0은 원래 이름 그대로(다른 폴더로 붙여넣기), 이후 " copy" → " copy 2" …(같은 폴더 충돌 시)
+    const name = i === 0 ? `${base}${ext}` : i === 1 ? `${base} copy${ext}` : `${base} copy ${i}${ext}`
+    const candidateRel = joinDest(name)
+    const candidateAbs = resolveProjectPath(project, candidateRel)
+    if (!fs.existsSync(candidateAbs)) {
+      fs.cpSync(srcAbs, candidateAbs, { recursive: true })
+      return candidateRel
+    }
+  }
+  throw new ConflictError(`복사본 이름을 만들 수 없습니다: ${srcRelPath}`)
 }

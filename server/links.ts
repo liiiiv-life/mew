@@ -1,13 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { DOCS_ROOT } from './paths'
-import { IGNORE } from './tree'
+import { DOCS_ROOT } from './paths.ts'
+import { readIgnoreSet } from './ignoreList.ts'
 
-function walkMdFiles(absDir: string, acc: string[] = []): string[] {
+function walkMdFiles(absDir: string, ignore: Set<string>, acc: string[] = []): string[] {
   for (const entry of fs.readdirSync(absDir, { withFileTypes: true })) {
-    if (IGNORE.has(entry.name)) continue
+    if (ignore.has(entry.name)) continue
     const abs = path.join(absDir, entry.name)
-    if (entry.isDirectory()) walkMdFiles(abs, acc)
+    if (entry.isDirectory()) walkMdFiles(abs, ignore, acc)
     else if (entry.isFile() && entry.name.endsWith('.md')) acc.push(abs)
   }
   return acc
@@ -27,7 +27,7 @@ function isExternalHref(href: string): boolean {
  */
 export function updateLinkLabelsFor(targetRel: string, newTitle: string): string[] {
   const changed: string[] = []
-  for (const abs of walkMdFiles(DOCS_ROOT)) {
+  for (const abs of walkMdFiles(DOCS_ROOT, readIgnoreSet())) {
     const rel = path.relative(DOCS_ROOT, abs).split(path.sep).join('/')
     if (rel === targetRel) continue
     const src = fs.readFileSync(abs, 'utf-8')
