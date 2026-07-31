@@ -16,6 +16,8 @@ dist-ssr
 .env
 .env.*
 !.env.example
+# 인증 데이터 (사용자 해시·세션) — 절대 커밋 금지
+.data/
 
 # Editor directories and files
 .vscode/*

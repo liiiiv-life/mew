@@ -1,0 +1,54 @@
+# Two independent uses of this file:
+#   npm run db:up                          → Postgres only, for the /db table view while running natively
+#   docker compose --profile app up -d --build  → the whole app in containers (servers, VPSes)
+# The native install (`./mew setup`) is the primary path — see README.md.
+services:
+  # The app. Behind a profile so `npm run db:up` never accidentally starts a second server.
+  mew:
+    profiles: [app]
+    build: .
+    image: mew:local
+    restart: unless-stopped
+    # Files created through mew land in the mounted workspace — make them belong to you, not root.
+    user: "${MEW_UID:-1000}:${MEW_GID:-1000}"
+    ports:
+      # Localhost only by default. Read SECURITY.md before setting MEW_BIND=0.0.0.0.
+      - "${MEW_BIND:-127.0.0.1}:${MEW_PORT:-5000}:5000"
+    volumes:
+      # Defaults to the folder this clone sits in — the same workspace the native install uses.
+      - "${MEW_WORKSPACE_HOST:-..}:/workspace"
+      # Accounts, sessions, guest rules. Losing this = losing every login.
+      - "${MEW_DATA_HOST:-./.data}:/data"
+    environment:
+      MEW_WORKSPACE: /workspace
+      MEW_DATA_DIR: /data
+      DATABASE_URL: postgres://mew:${MEW_PG_PASSWORD:-mew_dev_password}@postgres:5432/mew
+      MEW_GIT_NAME: ${MEW_GIT_NAME:-mew}
+      MEW_GIT_EMAIL: ${MEW_GIT_EMAIL:-mew@localhost}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_PUBLIC_URL_BASE: ${R2_PUBLIC_URL_BASE:-}
+
+  # Postgres for the /db table view. Published on localhost only so a native install can use it too.
+  postgres:
+    image: postgres:16-alpine
+    container_name: mew-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mew
+      POSTGRES_PASSWORD: ${MEW_PG_PASSWORD:-mew_dev_password}
+      POSTGRES_DB: mew
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - mew_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mew -d mew"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mew_pgdata:

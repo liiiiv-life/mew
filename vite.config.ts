@@ -6,17 +6,12 @@ import { docsApiPlugin } from './server/plugin'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), docsApiPlugin()],
-  // 5000 = 편집용 dev 서버, 5001 = 읽기 전용 게스트 뷰어 (cloudflare tunnel로 노출)
+  // 4999 = dev(HMR) 서버 — server/plugin.ts가 5000과 동일한 인증(미로그인 = 게스트)을 붙인다.
+  // 그래도 HMR·소스맵 노출 때문에 tailnet 밖으로는 열지 않는다.
+  // 프로덕션 서버(5000)는 server/serve.ts가 담당한다.
   server: {
     host: '0.0.0.0',
-    port: 5000,
+    port: 4999,
     strictPort: true,
-  },
-  preview: {
-    host: '0.0.0.0',
-    port: 5001,
-    strictPort: true,
-    // tunnel 도메인의 Host 헤더를 허용 (특정 도메인으로 좁혀도 됨)
-    allowedHosts: true,
   },
 })

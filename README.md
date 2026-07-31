@@ -1,32 +1,416 @@
-# React + TypeScript + Vite
+# mew
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+내 컴퓨터의 **폴더 하나를 브라우저 작업공간으로** 바꾸는 편집기. 그 폴더의 최상위 하위 폴더 하나가
+프로젝트 하나가 되고, 마크다운·코드 편집, 파일 트리, 전문 검색, git 커밋, 실시간 협업, 터미널(tmux),
+계정 없는 사람에게 주는 열람 링크가 한 화면에 있다. 모바일에서도 쓰도록 만들어져 있다.
 
-Currently, two official plugins are available:
+```bash
+git clone <이 레포> mew && cd mew
+./mew setup
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+`setup`은 필요한 것(Node·빌드 도구·tmux)을 확인하고, 편집할 폴더와 포트를 물어보고, 빌드한 뒤
+첫 계정을 만들어 임시 비밀번호를 알려준다. 다시 돌려도 안전하다. 권한 모델과 노출 시 주의는
+**[SECURITY.md](SECURITY.md)** — 계정 하나를 주는 것이 어디까지를 주는 것인지 먼저 읽는다.
 
-## React Compiler
+**이 폴더에는 아무것도 저장되지 않는다.** 설정은 `~/.config/mew/config.env`, 계정·세션은
+`~/.local/share/mew/`, 로그는 `~/.local/state/mew/`에 산다(`server/config.ts`). 클론을 지워도
+데이터는 남고, `git pull`이 곧 업데이트다.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+./mew start | stop | restart   # 서버
+./mew status                   # 지금 뭐가 어디에 있는지
+./mew logs                     # 로그 따라가기
+./mew update                   # git pull + 재빌드 + 재시작
+./mew users add you@x.com owner
+```
 
-## Expanding the Oxlint configuration
+**MOC는 파일명으로 목록에 섞이지 않는다** — `MOC.md`·`_MOC.md`(둘은 같은 것)는 파일 목록에서 빠지고,
+대신 **자기 폴더를 펼쳤을 때 맨 첫 줄**에 지도 아이콘 + `Map Of Contents`로 고정된다. 프로젝트 루트의
+MOC는 담을 폴더가 없으니 트리 전체의 맨 위, 어떤 폴더보다 앞에 같은 모양으로 선다.
+판별은 파일명뿐이라 프로젝트를 가리지 않는다.
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## 프로젝트 탭
+
+워크스페이스의 최상위 폴더 하나가 프로젝트 하나다(docs, ai, server …). **라우트는 없다** — 주소는
+항상 `/`이고 프로젝트 전환은 페이지 이동이 아니라 탭 전환이다.
+옛 `/{프로젝트}` 주소로 들어오면 그 프로젝트로 시작한 뒤 주소만 `/`로 정리한다.
+
+화면 맨 위는 두 줄이다(`App.tsx`) — 윗줄이 **프로젝트 탭 + 도구 버튼**, 아랫줄이 그 프로젝트의
+**문서 탭**이다. 두 줄 다 전폭을 쓴다.
+
+- **볼 수 있는 프로젝트는 전부 탭으로 서 있다.** 닫기(×)는 없고, 순서는 팝업 격자에서 끌어 정한
+  자리(slot)다. 프로젝트 탭 줄은 "열어둔 것 목록"이 아니라 워크스페이스의 지도다.
+- 생김새는 아래 문서 탭 줄과 같다 — 테두리 없이 세로 구분선만, **선택된 탭은 배경만 밝아진다.**
+  데스크톱은 아이콘+이름, 모바일은 아이콘만 — 단 **보고 있는 탭은 모바일에서도 이름을 편다**
+  (아이콘만 늘어선 줄에서 지금 어디인지 알 수 있어야 한다).
+- **그냥 누르면** 그 프로젝트를 연다. 단 **모바일에서 지금 보고 있지 않은 탭은 두 번 눌러야 한다** —
+  아이콘만 보이는 탭이라 무엇을 누르는지 모른 채 프로젝트가 바뀌지 않게, 첫 탭은 탭 아래에 이름표를
+  띄운다(`ProjectPeek`). 이름표에는 **이름 + 그 프로젝트의 ▶**가 있어, 프로젝트를 바꾸지 않고도 명령을
+  돌릴 수 있다. 이름표나 같은 탭을 한 번 더 누르면 그때 옮겨 간다. 데스크톱은 그대로 한 번에 열린다.
+- **꾹 눌렀다 떼거나(모바일) 우클릭하면** 프로젝트 격자 팝업이 뜬다
+  (아이콘 지정 · 자리 배치 · 생성 · 개명 · 삭제). 팝업에서 고르면 그 프로젝트가 열린다 —
+  페이지는 이동하지 않는다. **팝업으로 가는 입구는 이 제스처뿐이다.**
+- **꾹 누른 채 좌우로 끌면 탭 순서가 바뀐다**(데스크톱은 그냥 끌면 된다). 끄는 동안 탭 줄 좌우
+  가장자리에 닿으면 **줄이 저절로 굴러간다** — 화면 밖 자리로 옮길 때 놓았다 스크롤했다를 반복하지
+  않아도 된다. 문서 탭 줄과 같은 훅(`@mew/ui`의 `useDragReorder`)을 쓰고, 바뀐 순서는 **팝업 격자의 자리(slot)로 그대로 저장된다** —
+  탭 줄과 격자는 같은 값 하나를 본다(`utils/projectLayout.ts`). 쓰이는 칸은 그대로 두고 주인만 바꾸므로
+  격자에 일부러 비워둔 자리는 유지된다. 저장은 손을 뗄 때 한 번(PUT `/api/project-layout`, 게스트는 불가).
+- 각 프로젝트 탭 오른쪽에는 **그 프로젝트의 명령어 버튼(▶)** 이 붙는다. 모바일은 탭이 좁아 ▶가
+  **지금 보고 있는 탭에만** 뜬다.
+- 문서 탭·활성 탭·스크롤 위치·내용 캐시는 **프로젝트별로 따로** 산다. 옮겼다 돌아오면 그대로다.
+- 아이콘은 팝업에서 지정한다(라인 아이콘 600여 개 + 이모지 직접 입력 + SVG, 영문 키로 검색). 아이콘이
+  없으면 이름 첫 글자가 대신 뜬다.
+
+화면 상태는 `localStorage`에 남는다 — `mew:project`(활성 프로젝트) · `mew:tmux-open` ·
+`mew:open-tabs[:{프로젝트}]`(열린 문서 탭).
+
+클라이언트에서 대상 프로젝트는 **모듈 상수가 아니라 런타임 값**이다(`api/client.ts`의
+`getProject()`/`setProject()`). 전환보다 오래 사는 비동기 작업(자동저장 디바운스, 탭 복원)은 이 값을
+믿지 말고 자기 프로젝트를 인자로 넘긴다 — `useTabs`가 그렇게 되어 있다.
+
+**헤더 오른쪽 도구 뭉치**(전부 아이콘): 커밋(Ctrl+S) · 계정 관리(owner) · 데이터베이스(로그인 사용자) ·
+설정(=내 계정 동그라미) · 로그인(게스트). 왼쪽은 프로젝트 탭이 다 쓰므로 버튼은 오른쪽에 몰려 있다.
+여는 파일 경로·저장 상태 같은 **글자는 여기 두지 않는다** — 지금 무엇을 보고 있는지는 문서 탭 줄이
+말한다. 커밋 실패만 커밋 버튼 옆에 빨간 글씨로 남는다.
+
+**아이콘은 한 벌이다.** 프로젝트 아이콘과 터미널 명령어 버튼은 같은 목록·같은 표기·같은 고르는 칸을
+쓴다 — 값은 `i:{키}`(라인 아이콘) · 이모지 문자 · `svg:{마크업}`(`utils/projectIcons.ts`),
+고르는 칸은 `components/IconPicker.tsx`, 그리는 것은 `components/ProjectIcon.tsx`,
+서버 검사는 `server/svgIcon.ts`의 `normalizeIconValue` 하나다. 한쪽에만 기능을 붙이지 않는다.
+
+**SVG 직접 넣기**: 목록에 없는 아이콘(회사 로고 등)은 `SVG 직접 넣기`에 코드를 붙여넣거나 `.svg`
+파일을 고르면 된다. **SVG가 들고 있는 색은 언제나 버린다** — 모양만 CSS 마스크로 떠서 라인 아이콘과
+똑같은 테마 색(currentColor)으로 칠한다. 로고마다 흰색·미색이 제각각이면 탭 줄이 얼룩덜룩해지고
+단색 아이콘은 밝은·어두운 테마 한쪽에서 묻히기 때문이라, 색을 살리는 선택지는 두지 않는다.
+(옛 `svgt:` 접두사로 저장된 값도 지금은 `svg:`와 똑같이 그린다.)
+마스크로만 그리므로 그 안의 스크립트·외부 참조는 실행되지 않는다. 저장할 때 서버가 한 번 걸러서,
+스크립트·이벤트 핸들러·외부 URL·DOCTYPE이 들어 있거나 16KB를 넘으면 **저장을 거부하고 이유를
+알려준다**(조용히 지우지 않는다).
+
+## 실행
+
+```bash
+npm run dev     # 4999 — 개발 (vite HMR)
+npm run build   # tsc + vite build → dist/
+npm run serve   # 5000 — dist/ 필요
+npm start       # build + serve
+npm test        # node:test
+npm run lint    # oxlint
+```
+
+⚠️ **`npm run build`는 즉시 배포다** — 서버가 `dist/`를 디스크에서 읽어 서빙하므로, 빌드하는 순간
+띄워 둔 화면이 바뀐다. `server/`까지 고쳤으면 build 후 프로세스 재시작이 따로 필요하다
+(`./mew restart`).
+
+### 설정
+
+설정 파일은 **레포 밖**에 있다 — `~/.config/mew/config.env`(`XDG_CONFIG_HOME` 존중). 레포 안의
+`.env`가 있으면 그것이 마지막에 덮으므로 개발 중 임시 덮어쓰기로 쓴다. 읽는 순서와 기본 경로는
+`server/config.ts` 한 곳이 정한다.
+
+| 변수 | 기본값 | 무엇 |
+| --- | --- | --- |
+| `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더 |
+| `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·게스트 규칙·아이콘 |
+| `MEW_TEAM_PORT` | 5000 | 서버 포트 |
+| `DATABASE_URL` | 없음 | `/db`용 Postgres. 없거나 접속 불가면 `/db` API만 503 |
+| `R2_*` | 없음 | 미디어 업로드(S3 호환). 없으면 업로드 기능만 꺼진다 |
+
+전부 선택이다 — 하나도 없어도 뜬다. 지금 값이 어디서 오는지는 `./mew status`.
+
+### 컨테이너로 띄우기 (선택)
+
+서버·VPS용 경로다. 자기 컴퓨터에서는 `./mew setup`(네이티브)이 낫다 — **컨테이너 안 터미널에는
+당신의 개발 도구가 없다.**
+
+```bash
+docker compose --profile app up -d --build   # 앱 + Postgres
+```
+
+`MEW_WORKSPACE_HOST`(기본: 이 레포의 부모) · `MEW_PORT` · `MEW_BIND` · `MEW_UID`/`MEW_GID`를
+`.env`로 준다. `npm run db:up`은 같은 파일에서 Postgres만 띄우는 것이라 서로 간섭하지 않는다.
+
+### 사용자 관리 (호스트에서)
+
+```bash
+npm run users -- add <email> [role]   # 임시 비밀번호 발급 — 첫 로그인 때 변경 강제 (role 생략 시 member)
+npm run users -- role <email> <role>  # 기존 계정의 역할 변경 (owner|manager|member)
+npm run users -- reset <email>        # 임시 비밀번호 재발급 + 기존 세션 전부 무효화
+npm run users -- remove <email>       # 삭제 (세션 즉시 무효화)
+npm run users -- list
+```
+
+임시 비밀번호는 안전한 채널로 본인에게 전달한다. 최초 owner 계정은 이 CLI로만 만들 수 있다
+(`npm run users -- add <email> owner`) — 이후로는 owner가 앱 내 설정 팝업에서 다른 계정의
+역할을 바꿀 수 있다.
+
+## /db 데이터베이스
+
+에디터에서 `/db`를 치면 노션식 표 데이터베이스를 삽입한다 (v1은 표 보기만). 본문에는 참조
+id만 저장되고(`<div data-mew-db="uuid">`), 실제 데이터는 **Postgres가 SSoT**다.
+
+- **컬럼 타입**: 텍스트 · 숫자 · 체크박스 · 날짜. 열 헤더의 `+`로 추가하고, 헤더를 눌러 이름을 바꾼다.
+- **실시간 협업**: 행·셀·열·제목 변경이 인프로세스 허브를 거쳐 WS로 같은 DB를 보는 모든 세션에 즉시 방송된다.
+- **참조(뷰 전용)**: `/db 참조`로 기존 데이터베이스를 읽기 전용 뷰로 삽입하거나, 외부 Postgres
+  테이블(`schema.table`)을 `external`로 붙일 수 있다. 참조 노드는 절대 원본을 수정하지 않는다.
+- **프로젝트 격리**: 물리 테이블은 프로젝트별 스키마 `mew_{프로젝트}`에, 메타데이터(제목·컬럼)는
+  카탈로그 스키마 `mew`에 저장된다. 다른 프로젝트의 dbId로는 조회조차 되지 않는다.
+- **전체 DB 팝업**: 헤더의 원통 아이콘(설정 옆, 로그인 사용자 전용)을 누르면 이 프로젝트의 모든
+  데이터베이스를 한 팝업에서 골라 열람·편집한다 (에디터 노드와 같은 표를 재사용).
+
+```bash
+npm run db:up     # docker-compose로 Postgres 기동 (127.0.0.1:55432, 외부 미노출)
+npm run db:down   # 중지
+```
+
+접속 정보는 `.env`의 `DATABASE_URL`로 준다(`.env.example` 참고). `DATABASE_URL`이 없거나
+접속 불가면 `/db` API는 503을 반환하고, 통합 테스트는 통째로 skip된다 (에디터의 나머지 기능은 정상 동작).
+
+### 보안
+
+- 모든 값은 파라미터(`$1`)로, 모든 식별자는 앱이 생성하거나 화이트리스트 검증(`[a-z0-9_]+`) 후
+  쿼팅한다 (`server/db/identifiers.ts`) — SQL 인젝션 차단.
+- external(참조) 테이블은 **읽기 전용**이다. 원본 테이블에 대한 INSERT/UPDATE/DELETE/DDL은 일절 없다.
+- `/db`의 모든 REST·WS는 마운트 시 `requireAuthenticated`라 **게스트는 행 데이터를 받지 못한다**.
+- 백엔드 계층: `pool → identifiers → schema → catalog → databaseService → hub`,
+  REST는 `server/db/routes.ts`, 실시간 릴레이는 `server/db/socket.ts`.
+
+보안 경계를 구현하는 지점: `server/guestAccess.ts`(게스트 파일 단위 승인), `server/paths.ts`(deny 목록),
+`server/reqAuth.ts`(역할 게이팅). **정책 자체는 [SECURITY.md](SECURITY.md)가 기준본**이고,
+여기 코드는 그것의 구현이다 — 정책을 바꾸면 docs를 같은 세션에 고친다.
+
+## 명령어 버튼 — 두 종류
+
+이름이 비슷하지만 별개 기능이다. 프로젝트 탭의 ▶는 **프로젝트별 배치 실행**, 터미널 줄의 버튼은
+**지금 보고 있는 세션에 타이핑**이다.
+
+| | 프로젝트 탭 ▶ 버튼 | 터미널 버튼 |
+|---|---|---|
+| 설정 파일 | `<프로젝트>/.mew/cmd-button.json` | `.data/term-button.json` (**전역** — 모든 프로젝트·탭 공통) |
+| 편집 방법 | UI의 `＋ 명령 추가`·줄 꾹 누르기(우클릭), 또는 파일 직접 편집 | UI의 `+`·버튼 꾹 누르기(우클릭) |
+| 실행 위치 | 전용 숨김 세션 `mewcmd-<해시>` | 지금 열려 있는 tmux 세션 |
+| 실행 주체 | 서버(`tmux send-keys`) | 클라이언트(터미널 WebSocket에 직접 타이핑) |
+
+### 프로젝트 탭 ▶ 버튼 (.mew/cmd-button.json)
+
+프로젝트 탭 오른쪽의 ▶ 아이콘 = 그 프로젝트의 명령어 버튼. 각 프로젝트의 `.mew/cmd-button.json` 에
+정의한 명령을 tmux에서 바로 실행한다 (owner/manager 전용 — tmux와 같은 보안 경계).
+탭마다 자기 목록을 보므로 **다른 프로젝트의 명령도 프로젝트를 옮기지 않고 실행할 수 있다.**
+
+파일 형식:
 
 ```json
 {
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+  "commands": [
+    { "name": "빌드", "command": "npm run build" },
+    { "name": "개발 서버", "command": "npm run dev" }
+  ]
+}
+```
+
+- ▶ 아이콘을 누르면 그 명령이 **프로젝트 폴더를 cwd로** 하는 tmux 세션에서 실행된다. 같은 버튼은
+  늘 같은 세션(`mewcmd-<해시>`)으로 이어져, 다시 누르면 그 세션에서 재실행된다.
+- **실행 중인 줄의 ▶는 ■(정지)가 된다** — 누르면 그 명령의 세션만 죽는다(`DELETE /api/tmux/sessions/:name`).
+  실행 여부는 서버가 붙여주는 `running`이 정하므로, 다른 곳에서 세션이 죽으면 다음 갱신에 ▶로 돌아온다.
+- 명령어 세션은 특수 이름(`mewcmd-*`)이라 **터미널 탭 목록에는 뜨지 않는다**(`isCommandSession`
+  으로 필터). 각 줄의 터미널 아이콘을 누르면 팝업으로 그 세션을 본다 — 팝업의 **[종료]**는 세션을
+  죽이고 닫고, **[닫기]**는 세션을 살려둔 채 팝업만 닫는다.
+- **실행할 명령 문자열은 언제나 서버가 파일에서 읽는다** — 실행 요청 본문의 명령은 신뢰하지 않는다.
+  (편집은 별도 경로다: `PUT`으로 목록을 통째로 저장하면 그 다음 실행이 새 파일 내용을 읽는다.)
+- 편집: 드롭다운 맨 아래 `＋ 명령 추가`, 기존 줄을 **꾹 누르거나 우클릭**하면 수정·삭제. 저장은
+  목록 전체 쓰기라 손으로 고친 파일과 같은 자리를 덮어쓴다(`{ "commands": [...] }` 형태로 정규화되고
+  다른 최상위 키는 보존되지 않는다). **이름을 바꾸면 세션 이름 해시가 바뀐다** — 그전에 띄워둔
+  실행 세션은 살아 있되 이 버튼에서는 더 이상 보이지 않는다.
+- 이름은 프로젝트 안에서 겹칠 수 없다(겹치면 두 명령이 한 세션을 공유하게 되므로 400).
+- 서버: `server/cmdButtons.ts`(파일 파싱·정규화·쓰기·세션 이름) + `GET/PUT/POST /api/cmd-buttons*`
+  (owner/manager). 클라이언트: `src/components/CommandButtonMenu.tsx`·`CommandTerminalPopup.tsx`.
+  드롭다운은 탭 줄이 가로 스크롤 컨테이너라 잘리므로 **body로 포털해 fixed로** 띄운다 — 포털이라도
+  React 트리에서는 탭 안이라, 탭을 여는 클릭·꾹 누르기·드래그 핸들러는 컨테이너가 아니라 **이름 버튼에만**
+  건다(드래그가 자리를 재는 기준 `ref`만 ▶까지 포함한 탭 전체에 건다).
+
+### 터미널 버튼 (.data/term-button.json)
+
+터미널 패널 버튼 줄(선택 모드 버튼과 같은 줄) 왼쪽에 뜬다. 누르면 **지금 보고 있는 tmux 세션**에
+하단 입력칸 전송과 똑같은 경로로 들어간다 — 명령을 타이핑한 뒤 조금 늦게 별도 Enter를 보내므로
+Claude Code 같은 TUI의 슬래시 명령(`/clear`·`/model`)도 버튼 한 번으로 제출된다.
+
+```json
+{
+  "commands": [
+    { "name": "정리", "command": "/clear", "icon": "i:sparks" },
+    { "name": "커밋", "command": "/commit", "icon": "i:git-commit", "iconOnly": true },
+    { "name": "모델", "command": "/model" }
+  ]
+}
+```
+
+- 목록은 **전역 하나**다 — 프로젝트나 터미널 탭마다 다르지 않다. 그래서 프로젝트 폴더가 아니라
+  서버가 `.data/`에 저장한다(`.data/`는 `paths.ts` deny 목록이라 편집 API로 열리지 않는다).
+  손으로 고칠 파일이 아니라 **UI가 편집 수단**이다: `+`로 추가하고, 버튼을 꾹 누르면(데스크톱은
+  우클릭) 이름·명령어·아이콘 수정과 삭제가 나온다.
+- `icon`은 **프로젝트 아이콘과 같은 표기**다 — `i:{키}` · 이모지 · `svg:{마크업}`. 고르는 칸도 같은
+  `IconPicker`라 SVG 직접 넣기까지 그대로 된다(검사는 `normalizeIconValue` 하나).
+- `iconOnly: true`면 그 버튼은 **이름을 감추고 아이콘만** 그린다(버튼마다 따로 정한다 — 편집 창의
+  `이름 숨기고 아이콘만 보이기`). 아이콘이 없으면 빈 칸이 되므로 무시하고 이름을 그대로 둔다.
+- 실행은 서버가 하지 않는다. 클라이언트가 이미 열려 있는 터미널 WebSocket으로 직접 보내므로
+  세션·cwd가 화면과 항상 일치한다. 그 소켓 자체가 owner/manager 경계라 별도 게이팅이 없다.
+- 서버: `server/termButtons.ts` + `GET/PUT /api/term-buttons`(owner/manager, 목록 읽기·쓰기만).
+  클라이언트: `src/components/TermButtonBar.tsx` — `TmuxTerminalPanel`의 `renderCommandButtons`
+  렌더 프롭으로 주입된다(터미널 패키지는 이 기능의 API를 모른다).
+
+### 숨김 목록 (.data/ignore.json)
+
+파일 목록·검색·트리 감시에서 통째로 건너뛸 **이름** 목록. 경로가 아니라 이름이라 어느 깊이에 있든
+그 이름의 폴더·파일이 사라진다(`dist` → 모든 프로젝트의 모든 `dist/`). 설정 창 → **숨김 목록**에서
+고친다(owner/manager). 파일이 없으면 `server/ignoreList.ts`의 `DEFAULT_IGNORE`를 쓴다.
+
+```json
+{ "names": ["dist", ".next", "node_modules", ".git", ".data"] }
+```
+
+- 목록은 **전역 하나**다 — 프로젝트마다 다르지 않다. 그래서 `.data/`에 서버가 저장한다.
+- `.git`·`node_modules`·`.data`는 `paths.ts`의 `DENY_SEGMENTS`가 API 계층에서 따로 막는다.
+  목록에서 빼도 계속 안 보이므로, 저장할 때 서버가 도로 넣고 UI는 **고정**으로 표시한다 —
+  지울 수 있는 것처럼 보이면 "지웠는데 왜 그대로냐"가 된다.
+- 저장하면 서버가 감시자를 전부 접고(`resetTreeWatchers`) `tree` 신호를 보낸다. 살아 있는 감시자는
+  옛 규칙으로 만든 트리 서명을 들고 있어 새 규칙을 "변화 없음"으로 흘려버리기 때문 — 접어두면
+  클라이언트가 새 트리를 받아 갈 때(`GET /api/tree`) 새 규칙으로 다시 등록된다.
+- `build/`는 기본 숨김이 **아니다**. 트리는 안의 APK/AAB만 노출하고 나머지·빈 폴더는 접으며
+  (`tree.ts`의 `DOWNLOAD_ONLY_DIRS`), 감시는 숨김 목록과 별개로 `build`에 내려가지 않는다.
+- **owner·manager의 트리에는 이 목록도 확장자 필터도 적용되지 않는다** — 있는 그대로 다 보인다.
+  목록은 계속 살아서 member 이하의 트리와, 역할과 무관하게 **검색·트리 감시**에 적용된다.
+  정책 기준본은 [SECURITY.md](SECURITY.md)이고,
+  판정은 `server/tree.ts`의 `isPathVisible`과 `server/reqAuth.ts`의 `seesEveryFile` 둘뿐이다.
+- 서버: `server/ignoreList.ts` + `GET/PUT /api/ignore`(owner/manager).
+  클라이언트: `src/components/SettingsModal.tsx`의 `IgnorePanel`.
+
+### 사이드바 항목 끌어놓기
+
+파일·폴더를 끌면 **놓는 자리에 따라 뜻이 다르다**. 두 뜻을 한 드래그에 담으려고 `@mew/ui`의
+`pathDrag.ts`가 전용 MIME(`application/x-mew-path`)과 `text/plain` 양쪽에 경로를 싣는다.
+
+| 놓는 곳 | 결과 |
+| --- | --- |
+| 사이드바의 폴더 (빈 곳 = 프로젝트 루트) | 그 폴더로 **이동**(`POST /api/rename`) |
+| 에디터 Hotview·Plain | 놓은 자리에 **경로 텍스트** 삽입 |
+| 터미널 화면 | 셸에 그대로 **타이핑**(Enter는 보내지 않는다 — 명령을 완성하는 건 사용자다) |
+| 터미널 하단 입력칸 | 커서 자리에 **경로 삽입**(선택 영역이 있으면 대체) |
+
+- **`dragover`에서는 `getData()`가 언제나 빈 문자열이다**(DataTransfer 보호 모드). 받는 쪽 판정은
+  `hasPathDrag`(=`types` 검사)로 하고, 값 읽기(`pathFromDrag`)는 `drop`에서만 한다. 여기서 헷갈리면
+  `preventDefault`를 못 해 드롭 자체가 발생하지 않는다.
+- `effectAllowed`는 `copyMove`다 — `move`만 허용하면 `dropEffect='copy'`로 받는 에디터·터미널에서
+  드롭이 통째로 거부된다. 트리 안 폴더는 자기 `dragover`에서 `move`를 명시해 원래 뜻을 지킨다.
+- 에디터는 **전용 MIME이 있을 때만** 가로챈다. 바깥에서 끌어온 이미지·텍스트는 종전대로 업로드·삽입된다.
+
+### 표 열 너비 (.mew/table-layout.json)
+
+Hotview에서 표의 세로선을 끌어 조절한 **열 너비**는 마크다운이 담지 못한다(HTML `<table>`로 쓰면
+담기지만 plain 모드가 지저분해진다). 그래서 본문은 순수 md 표로 두고, 너비만 그 프로젝트의
+`.mew/table-layout.json`에 문서 경로별로 저장한다.
+
+```json
+{
+  "version": 1,
+  "docs": {
+    "ops/repos.md": [[220, 380, 160], null, [120, 120]]
   }
 }
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- 바깥 배열 = **그 문서 안 표의 등장 순서**, 안쪽 배열 = 그 표의 열 너비(px).
+  `null`은 저장된 너비가 없는 표, `0`은 아직 끌지 않은 열이다.
+- 표를 **추가·삭제·이동하면 순서가 밀려 너비가 어긋날 수 있다.** 다시 끌면 덮어써진다 —
+  본문 md를 건드리지 않는 대가다.
+- 복원은 본문 시딩 뒤에 한 번, `addToHistory: false`(collab이면 `SEED_ORIGIN`)로 들어간다.
+  사용자의 undo 스택에 올라가면 Ctrl+Z 한 번에 너비가 통째로 되돌아가기 때문이다.
+- **불러오기에 실패하면 저장도 하지 않는다.** 못 읽은 것을 "너비 없음"으로 오해해 덮어쓰면
+  저장돼 있던 값이 사라진다.
+- 서버: `server/tableLayout.ts` + `GET /api/table-layout`(게스트는 보기 권한 필요)·
+  `PUT /api/table-layout`(로그인 필요). 클라이언트: `packages/editor/src/Editor.tsx`의
+  `readTableWidths`/`applyTableWidths`, 주입은 `EditorApi.fetchTableLayout`/`saveTableLayout`.
+
+## 구조
+
+- `server/serve.ts` — 프로덕션 서버 (5000, 단일 포트)
+- `server/plugin.ts` — vite dev 플러그인 (4999)
+- `server/dataDir.ts` — `.data/` 상태 파일 공용 입출력 (아래)
+- `server/auth.ts`, `server/authRoutes.ts` — 인증 (사용자·세션·로그인 라우트)
+- `server/reqAuth.ts` — 요청별 역할 해석(`req.auth`)·역할 게이팅 미들웨어
+- `server/guestAccess.ts` — 게스트 경로별 보기/편집 승인 규칙
+- `server/usersCli.ts` — 승인 리스트 CLI
+- docs 전용 규칙(MOC 커버리지·archives 불변·링크 라벨 동기화)은 docs 프로젝트에만 적용된다.
+
+### 서버 상태 파일 (`.data/`)
+
+사용자·세션·게스트 규칙·프로젝트 아이콘·프로젝트 배치·터미널 버튼·숨김 목록이 여기 있다. 전부
+`server/dataDir.ts`를 거쳐 읽고 쓴다:
+
+- **쓰기는 임시 파일 + rename**뿐이다. `writeFileSync`로 바로 쓰면 파일이 잠깐 0바이트가 되고,
+  그 순간 다른 프로세스가 읽으면 빈 값으로 오해한다.
+- **읽기 실패를 빈 값으로 넘기지 않는다.** 파일이 없으면 `null`, 깨졌으면 사본(`*.corrupt-*`)을
+  남기고 던진다. 못 읽은 걸 `{}`로 보고 덮어쓰면 남아 있던 설정이 통째로 사라지기 때문 —
+  실제로 프로젝트 아이콘이 이 경로로 초기화됐었다.
+- 위치는 `MEW_DATA_DIR`로 바꿀 수 있다. `npm test`가 이걸 임시 경로로 지정해 **테스트가 실제
+  `.data/`를 건드리지 않게** 한다 (테스트는 프로젝트를 만들었다 지우면서 아이콘·배치를 함께 고친다).
+
+## 패키지 (npm workspaces)
+
+재사용 가능한 부분은 `packages/*`의 소스 패키지로 분리되어 있다 (빌드 없음 — vite·node가
+소스를 직접 소비). 컴포넌트는 fetch 경로·인증을 모르고, 호스트 앱이 `api` prop으로
+서버 연동을 주입한다 (앱 쪽 구현은 `src/api/client.ts`).
+
+- `@mew/editor` — TipTap 마크다운 에디터(`Editor`). frontmatter 패널·표·링크/멘션 툴팁·
+  미디어 업로드 포함. `EditorApi`(fetchFile·uploadAsset·fetchLinkPreview) 주입.
+  fuzzy 검색·frontmatter 유틸도 여기서 export.
+- `@mew/shortcuts` — 단축키 바인딩.
+- `@mew/tmux-term` — 터미널. 클라이언트(`TmuxTerminalPanel`, xterm.js)와 서버
+  (`@mew/tmux-term/server`: `createTmuxManager`·`createTmuxRouter`·`attachTmuxWebSocket`,
+  cwd 파라미터) 양쪽 제공.
+  버튼 줄 오른쪽 도구는 **전부 아이콘 하나**다(맨 아래 · 키보드 잠금 · 선택 모드 · 복사) — 좁은 화면에서
+  왼쪽 명령어 버튼 자리를 뺏지 않게. 무엇인지는 `data-tip`·`aria-label`이 말한다.
+  버튼 줄 전체는 `HoverTipLayer`(`@mew/ui`)로 감싸 **마우스를 올리면 기다림 없이** 이름표가 뜬다 —
+  `data-tip="이름"`이 붙은 요소면 무엇이든 대상이라 버튼마다 배선하지 않는다(명령어 버튼도 같이 따라온다).
+  이 줄의 버튼에는 `title`을 걸지 않는다: 이름표가 뜬 뒤에 브라우저 기본 툴팁이 겹쳐 뜬다.
+  - **[맨 아래]**는 올라간 스크롤을 **누가 들고 있는지**에 따라 셋을 다 한다: ① xterm 자체 스크롤백이면
+    `scrollToBottom` ② tmux copy-mode(마우스를 안 쓰는 프로그램)면 WebSocket `exitCopyMode` → 서버가
+    `tmux copy-mode -q`(멱등. PTY에 `q`·Esc를 쏘면 모드가 아닐 때 TUI에 오입력된다) ③ **앱이 직접
+    스크롤하는 경우**(Claude Code처럼 마우스를 잡는 TUI) — tmux는 휠을 앱에 넘겼을 뿐이라 ①②가 통하지
+    않는다. 이때는 SGR 휠 아래를 한 번에 몰아 보내 앱 스스로 최신까지 내려가게 한다.
+  - **[키보드 잠금]**(자물쇠)은 모바일 소프트 키보드가 뜨지 않게 한다 — 터미널의 보조 textarea와 하단
+    입력칸에 `inputMode='none'`을 건다. 포커스는 살아 있어 붙여넣기·하드웨어 키보드·명령어 버튼은
+    그대로 쓴다. 세션이 아니라 브라우저 설정이라 `localStorage: mew:tmux-keyboard-lock`에 남는다.
+- `@mew/mobile-keys` — 모바일 키보드 보조키 바(`MobileKeyBar`, `useKeyboardOpen`).
+  에디터·터미널이 공용으로 쓴다. 좌우 스와이프 감지(`useSwipeGesture`)도 여기 —
+  **손가락이 처음 닿은 화면 높이로 갈린다**: 위 반쪽 = 탭 전환(`onTopLeft`/`onTopRight`),
+  아래 반쪽 = 창 전환(`onBottomLeft`/`onBottomRight`). 손가락 수(1·2개)는 구분하지 않는다.
+  `scrollEdgeZones`를 준 구역은 가로 스크롤을 먼저 존중한다 — 손댄 곳이 가로로 스크롤되면
+  좌→우는 맨 왼쪽에서, 우→좌는 맨 오른쪽에서만 통한다(시작 시점 기준). 에디터는 위아래 양쪽에
+  걸어 두어 플레인 뷰에서 긴 줄을 스크롤하다 탭·창이 전환되지 않게 한다.
+- `@mew/ui` — 의존성 없는 공용 조각: `ConfirmDialog`(네이티브 confirm 대체 — 전체화면이 풀리지
+  않게), `useToast`(답을 받을 필요가 없는 짧은 안내 — 화면 아래 알약 하나, 2.6초 뒤 저절로 사라지고
+  `pointer-events-none`이라 아무것도 가로채지 않는다. **오버레이 스택에 등록하지 않는다** — 등록하면
+  안드로이드 뒤로가기가 토스트를 닫는 데 쓰인다), `pathDrag`(위 §사이드바 항목 끌어놓기),
+  `useDragReorder`, `useOverlayDismiss`(아래).
+
+### 오버레이 닫기 규칙 (`useOverlayDismiss`)
+
+**팝업·모달·드롭다운을 새로 만들면 반드시 `useOverlayDismiss(onClose)`를 부른다.** 열려 있는
+오버레이를 앱 전체에서 하나의 스택으로 모아, Esc와 **안드로이드 하드웨어 뒤로가기**가 언제나
+*가장 나중에 열린 것 하나만* 닫게 한다. 등록하지 않은 팝업 위에서 뒤로가기를 누르면 그 팝업 대신
+뒤에 있는 터미널·사이드바가 닫히거나 페이지를 떠난다.
+
+- 뒤로가기 대응은 History에 더미 항목(가드)을 하나 얹어 두는 방식이다. 겹쳐 있어도 가드는 하나뿐이고,
+  한 겹 닫힐 때마다 다시 얹는다. UI로 닫혔을 땐 `history.back()`으로 걷어 스택을 맞춘다.
+- 오버레이마다 각자 keydown 리스너를 달면 안 된다 — capture 단계에서 `stopPropagation`을 해도
+  같은 노드(window)에 붙은 다른 리스너는 그대로 실행돼, 겹친 팝업이 Esc 한 번에 전부 닫힌다.
+- `escapePhase: 'bubble'`은 사이드바·터미널 패널처럼 **콘텐츠를 감싸고만 있는** 오버레이용이다.
+  안쪽(에디터 슬래시 메뉴, 파일 이름 바꾸기)이 Esc를 먼저 쓰고 `stopPropagation` 하면 패널은 닫히지
+  않는다. 기본값 `'capture'`는 다이얼로그용 — 아래 에디터·터미널이 손대기 전에 가로챈다.
+- `closeOnEscape`는 Esc를 삼킬지 판단한다. 터미널을 품은 오버레이는 `outsideTerminal`
+  (`src/utils/terminalFocus.ts`)을 넘겨 vim 등의 Esc를 양보한다. 뒤로가기에는 영향이 없다.
+
+에디터의 멘션·슬래시 메뉴와 링크/표 툴팁은 **일부러 등록하지 않았다.** 타이핑·선택에 따라 수시로
+떴다 사라져서 그때마다 History를 밀고 당기면 브라우저 pushState 제한에 걸린다. 이들의 Esc는
+`Editor.tsx`의 ProseMirror `handleKeyDown`이 직접 처리한다.

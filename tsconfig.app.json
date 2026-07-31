@@ -6,6 +6,7 @@
     "module": "esnext",
     "types": ["vite/client"],
     "allowArbitraryExtensions": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
 
     /* Bundler mode */
@@ -22,5 +23,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  // 테스트는 node:test로 돌린다(브라우저 번들이 아니다) — packages/의 테스트와 같은 취급
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }

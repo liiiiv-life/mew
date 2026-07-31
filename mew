@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+# mew — install and run this editor on your own machine.
+#   ./mew setup    first time (safe to re-run)
+#   ./mew help     everything else
+#
+# Nothing is stored in this folder: settings go to ~/.config/mew/config.env,
+# accounts to ~/.local/share/mew, logs to ~/.local/state/mew. Delete the clone, keep your data.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+APP=$(pwd)
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/mew"
+CONFIG="$CONFIG_DIR/config.env"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/mew"
+PIDFILE="$STATE_DIR/mew.pid"
+LOG="$STATE_DIR/mew.log"
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# `read -p` writes the prompt to stderr, so callers can capture the answer.
+ask() {
+  local answer=''
+  if [ -t 0 ]; then read -r -p "$1 [$2]: " answer </dev/tty || true; fi
+  printf '%s' "${answer:-$2}"
+}
+
+yes_no() { [ "$(ask "$1 (y/n)" "$2")" = y ]; }
+
+port_in_use() {
+  (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null || return 1
+  exec 3<&-
+  return 0
+}
+
+pick_port() {
+  local port=$1 tries=0
+  while port_in_use "$port" && [ "$tries" -lt 20 ]; do
+    port=$((port + 1)); tries=$((tries + 1))
+  done
+  printf '%s' "$port"
+}
+
+set_config() {
+  local key=$1 value=$2 esc
+  mkdir -p "$CONFIG_DIR"; chmod 700 "$CONFIG_DIR"
+  touch "$CONFIG"; chmod 600 "$CONFIG"
+  esc=${value//\\/\\\\}; esc=${esc//|/\\|}; esc=${esc//&/\\&}
+  if grep -q "^${key}=" "$CONFIG"; then
+    sed -i "s|^${key}=.*|${key}=${esc}|" "$CONFIG"
+  else
+    printf '%s=%s\n' "$key" "$value" >>"$CONFIG"
+  fi
+}
+
+load_config() {
+  [ -f "$CONFIG" ] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  . "$CONFIG"
+  set +a
+}
+
+url() { printf 'http://localhost:%s' "${MEW_TEAM_PORT:-5000}"; }
+
+# ── requirements ────────────────────────────────────────────────────────────
+
+# Node runs the server's TypeScript directly, which needs type stripping on by default (22.18+).
+node_version_ok() {
+  local v major minor
+  v=$(node -p 'process.versions.node' 2>/dev/null) || return 1
+  major=${v%%.*}; minor=${v#*.}; minor=${minor%%.*}
+  [ "$major" -ge 24 ] && return 0
+  [ "$major" -eq 22 ] && [ "$minor" -ge 18 ]
+}
+
+need_node() {
+  node_version_ok && return 0
+  say "Node 22.18+ (or 24+) is required; found: $(node -v 2>/dev/null || echo 'none')"
+  if [ -t 0 ] && yes_no "Install it with nvm? (no sudo, installs into your home)" y; then
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    [ -s "$NVM_DIR/nvm.sh" ] || die "nvm did not install into $NVM_DIR — install Node 24 yourself and re-run"
+    # shellcheck disable=SC1091
+    . "$NVM_DIR/nvm.sh"
+    nvm install 24
+    node_version_ok || die "still on $(node -v) — open a new terminal and run ./mew setup again"
+  else
+    die "install Node 24 (https://nodejs.org) and run ./mew setup again"
+  fi
+}
+
+# The terminal panel is built from source (node-pty has no Linux prebuilt), so npm needs a compiler.
+# Without this, `npm ci` dies in node-gyp with pages of unrelated-looking errors.
+need_build_tools() {
+  local missing=()
+  command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || missing+=(build-essential)
+  command -v make >/dev/null 2>&1 || missing+=(build-essential)
+  command -v python3 >/dev/null 2>&1 || missing+=(python3)
+  command -v tmux >/dev/null 2>&1 || missing+=(tmux)
+  [ ${#missing[@]} -eq 0 ] && return 0
+
+  local pkgs; pkgs=$(printf '%s\n' "${missing[@]}" | sort -u | tr '\n' ' ')
+  say "Missing system packages: $pkgs"
+  say "  build-essential/python3 — needed to build the terminal (node-pty)"
+  say "  tmux                    — the terminal panel itself"
+  if command -v apt-get >/dev/null 2>&1 && [ -t 0 ] && yes_no "Install them with apt? (asks for your sudo password)" y; then
+    # shellcheck disable=SC2086
+    sudo apt-get update && sudo apt-get install -y $pkgs
+  else
+    die "install them yourself, then run ./mew setup again (Debian/Ubuntu: sudo apt install $pkgs)"
+  fi
+}
+
+# ── process ─────────────────────────────────────────────────────────────────
+
+running_pid() {
+  [ -f "$PIDFILE" ] || return 1
+  local pid; pid=$(cat "$PIDFILE")
+  kill -0 "$pid" 2>/dev/null || return 1
+  printf '%s' "$pid"
+}
+
+start_server() {
+  local pid
+  if pid=$(running_pid); then say "already running (pid $pid) — $(url)"; return 0; fi
+  [ -f dist/index.html ] || die "not built yet — run: ./mew setup"
+  mkdir -p "$STATE_DIR"
+  nohup node server/serve.ts >>"$LOG" 2>&1 &
+  echo $! >"$PIDFILE"
+  disown || true
+  sleep 1
+  running_pid >/dev/null || { tail -n 20 "$LOG" >&2; die "failed to start — see $LOG"; }
+}
+
+stop_server() {
+  local pid
+  if ! pid=$(running_pid); then say "not running"; return 0; fi
+  kill "$pid"
+  for _ in $(seq 1 20); do running_pid >/dev/null || break; sleep 0.2; done
+  running_pid >/dev/null && kill -9 "$pid" 2>/dev/null || true
+  rm -f "$PIDFILE"
+  say "stopped"
+}
+
+create_first_owner() {
+  if node server/usersCli.ts list 2>/dev/null | grep -q '@'; then
+    say "accounts already exist — list them with: ./mew users list"
+    return 0
+  fi
+  if [ ! -t 0 ]; then
+    say "no account yet. Create one with: ./mew users add you@example.com owner"
+    return 0
+  fi
+  local email; email=$(ask "Email for the first account (the owner)" "")
+  [ -n "$email" ] || { say "skipped — create it later with: ./mew users add you@example.com owner"; return 0; }
+  node server/usersCli.ts add "$email" owner
+}
+
+# ── commands ────────────────────────────────────────────────────────────────
+
+cmd_setup() {
+  need_node
+  need_build_tools
+
+  if [ -f "$CONFIG" ]; then
+    say "using existing settings: $CONFIG"
+  else
+    local ws port
+    ws=$(ask "Folder to edit — each subfolder in it becomes a project" "$HOME/mew-workspace")
+    ws=${ws/#\~/$HOME}
+    mkdir -p "$ws"; ws=$(cd "$ws" && pwd)
+    if [ -z "$(ls -A "$ws")" ]; then
+      mkdir -p "$ws/docs"
+      printf '# Welcome to mew\n\nEvery top-level folder in this workspace is a project.\nThis file is `docs/README.md`.\n' >"$ws/docs/README.md"
+      say "workspace was empty — created $ws/docs to start with"
+    fi
+    port=$(pick_port "$(ask 'Port' 5000)")
+    set_config MEW_WORKSPACE "$ws"
+    set_config MEW_TEAM_PORT "$port"
+
+    if [ -t 0 ] && yes_no "Set up media uploads now? (S3-compatible bucket; you can do it later)" n; then
+      set_config R2_ACCOUNT_ID "$(ask 'account id' '')"
+      set_config R2_ACCESS_KEY_ID "$(ask 'access key id' '')"
+      set_config R2_SECRET_ACCESS_KEY "$(ask 'secret access key' '')"
+      set_config R2_BUCKET "$(ask 'bucket' '')"
+      set_config R2_PUBLIC_URL_BASE "$(ask 'public url base' '')"
+    fi
+    if [ -t 0 ] && yes_no "Connect a Postgres for the /db table view? (you can do it later)" n; then
+      set_config DATABASE_URL "$(ask 'DATABASE_URL' 'postgres://mew:mew@127.0.0.1:5432/mew')"
+    fi
+    say "settings written to $CONFIG"
+  fi
+  load_config
+
+  say "installing dependencies..."
+  npm ci --no-audit --no-fund
+  say "building..."
+  npm run build
+  start_server
+  say ""
+  say "mew is running: $(url)"
+  say ""
+  create_first_owner
+  say ""
+  say "Next: open the URL above, log in, and change the temporary password."
+}
+
+cmd_update() {
+  load_config
+  git pull --ff-only || die "git pull failed — commit or stash your local changes first"
+  npm ci --no-audit --no-fund
+  npm run build
+  stop_server
+  start_server
+  say "updated. $(url)"
+}
+
+cmd_status() {
+  load_config
+  local pid
+  if pid=$(running_pid); then say "running (pid $pid)"; else say "stopped"; fi
+  say "url:       $(url)"
+  say "workspace: ${MEW_WORKSPACE:-$(dirname "$APP") (default)}"
+  say "settings:  $CONFIG"
+  # mirrors server/config.ts: an existing .data/ from an older install keeps winning
+  local data=${MEW_DATA_DIR:-}
+  if [ -z "$data" ]; then
+    if [ -d "$APP/.data" ]; then data="$APP/.data"; else data="${XDG_DATA_HOME:-$HOME/.local/share}/mew"; fi
+  fi
+  say "accounts:  $data"
+  say "log:       $LOG"
+}
+
+usage() {
+  cat <<'EOF'
+mew — a browser workspace for a folder on your machine
+
+  ./mew setup           install, configure and start (safe to re-run)
+  ./mew start | stop    start / stop the server
+  ./mew restart         restart it
+  ./mew update          git pull, rebuild, restart
+  ./mew status          what is running, and where things live
+  ./mew logs            follow the log (ctrl-c to stop)
+  ./mew users <args>    accounts: add <email> [owner|manager|member] | list | role | reset | remove
+EOF
+}
+
+case "${1:-setup}" in
+  setup) cmd_setup ;;
+  update) cmd_update ;;
+  status) cmd_status ;;
+  start) load_config; start_server; say "$(url)" ;;
+  stop) stop_server ;;
+  restart) load_config; stop_server; start_server; say "$(url)" ;;
+  logs) mkdir -p "$STATE_DIR"; touch "$LOG"; tail -f -n 100 "$LOG" ;;
+  users) shift; load_config; node server/usersCli.ts "$@" ;;
+  help | -h | --help) usage ;;
+  *) usage; exit 1 ;;
+esac
