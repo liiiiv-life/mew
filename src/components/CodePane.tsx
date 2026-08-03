@@ -31,7 +31,6 @@ import { toml } from '@codemirror/legacy-modes/mode/toml'
 import { properties } from '@codemirror/legacy-modes/mode/properties'
 import { sCSS } from '@codemirror/legacy-modes/mode/css'
 import { lintFile } from '../api/client'
-import { getScrollOffset, setScrollOffset } from '../utils/viewState'
 
 // value prop 동기화로 들어온 트랜잭션 표시 — 이걸 다시 onChange로 올리면 열기만 한
 // 미리보기 탭이 "편집됨"으로 승격되고 무의미한 자동저장이 잡힌다
@@ -283,43 +282,7 @@ export const CodePane = forwardRef<
     const view = new EditorView({ state, parent: container })
     viewRef.current = view
 
-    // ── 스크롤 위치 복원·저장 (문서별, 기기 세션) ──────────────────────────
-    // 'p:' 접두사로 hotview(tiptap, 'h:')와 키가 겹치지 않게 한다.
-    const scrollKey = 'p:' + path
-    const scroller = view.scrollDOM
-    let restored = false
-    let saveTimer: ReturnType<typeof setTimeout> | null = null
-    const onScroll = () => {
-      if (!restored) return
-      if (saveTimer) clearTimeout(saveTimer)
-      saveTimer = setTimeout(() => setScrollOffset(scrollKey, scroller.scrollTop), 150)
-    }
-    scroller.addEventListener('scroll', onScroll, { passive: true })
-
-    // 내용이 렌더돼 스크롤 높이가 확보된 뒤에 적용한다. collab 문서는 ySync가 비동기로
-    // 채우므로 몇 프레임 재시도하고, 끝내 목표에 못 미치면 도달 가능한 만큼만 맞춘다.
-    const target = getScrollOffset(scrollKey)
-    let raf = 0
-    let attempts = 0
-    const tryRestore = () => {
-      const reachable = scroller.scrollHeight - scroller.clientHeight
-      if (target <= 0 || reachable >= target || attempts >= 30) {
-        if (target > 0) scroller.scrollTop = Math.min(target, Math.max(0, reachable))
-        restored = true
-        return
-      }
-      attempts += 1
-      raf = requestAnimationFrame(tryRestore)
-    }
-    raf = requestAnimationFrame(tryRestore)
-
     return () => {
-      if (saveTimer) clearTimeout(saveTimer)
-      cancelAnimationFrame(raf)
-      scroller.removeEventListener('scroll', onScroll)
-      // 이 뷰를 떠나기 직전 위치를 저장(디바운스 대기 중이던 마지막 스크롤 보전).
-      // 아직 복원 전이면 사용자가 정한 위치가 아니므로 덮어쓰지 않는다.
-      if (restored) setScrollOffset(scrollKey, scroller.scrollTop)
       view.destroy()
       viewRef.current = null
     }

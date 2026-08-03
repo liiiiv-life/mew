@@ -22,6 +22,7 @@ import { createDbRouter } from './db/routes.ts'
 import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
 import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
+import { collectSystemStats } from './sysStats.ts'
 import {
   DEFAULT_IGNORE,
   IgnoreListError,
@@ -744,6 +745,15 @@ export function createApiApp() {
   })
 
   app.use('/tmux', requireRole('owner', 'manager'), createTmuxRouter(tmuxManager))
+
+  // 호스트 자원 현황(프로파일링 팝업) — 서버가 도는 기계의 정보라 셸과 같은 역할로 묶는다
+  app.get('/system-stats', requireRole('owner', 'manager'), async (_req, res) => {
+    try {
+      res.json(await collectSystemStats())
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
 
   // 명령어 버튼 — <프로젝트>/.mew/cmd-button.json 을 읽어 목록·실행 상태를 준다. 임의 명령 실행이므로
   // tmux와 동일하게 owner/manager만. 명령 문자열은 언제나 서버가 파일에서 읽고(요청 본문의 명령은 신뢰하지

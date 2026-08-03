@@ -12,7 +12,6 @@ import { CodeBlockWithCopy } from './editor/CodeBlockWithCopy'
 import Heading from '@tiptap/extension-heading'
 import BulletList from '@tiptap/extension-bullet-list'
 import OrderedList from '@tiptap/extension-ordered-list'
-import ListItem from '@tiptap/extension-list-item'
 import Blockquote from '@tiptap/extension-blockquote'
 import HorizontalRule from '@tiptap/extension-horizontal-rule'
 import Link from '@tiptap/extension-link'
@@ -24,7 +23,7 @@ import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { findTable, selectionCell, TableMap } from '@tiptap/pm/tables'
 import { Markdown } from 'tiptap-markdown'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import type { EditorApi, EditorCollab, ScrollStore, TableWidths, TreeNode } from './types'
+import type { EditorApi, EditorCollab, TableWidths, TreeNode } from './types'
 import { ResizableImage } from './ResizableImage'
 import { AudioNode, VideoNode, Youtube, YOUTUBE_URL_RE } from './MediaNodes'
 import { Database } from './database/Database'
@@ -40,6 +39,8 @@ import { LinkTooltip } from './editor/LinkTooltip'
 import { MentionTooltip, type MentionResult } from './editor/MentionTooltip'
 import { SlashMenu, type SlashCommand } from './editor/SlashMenu'
 import { ListConversion } from './editor/listConversion'
+import { IndentableListItem, liftFirstListItemTransaction, sinkFirstListItemTransaction } from './editor/listIndent'
+import { HeadingEnter } from './editor/headingEnter'
 import { SearchAndReplace } from './editor/searchExtension'
 import { docHasTable, readTableWidths, tableWidthsTransaction } from './editor/tableWidths'
 import { EditorSearchBar } from './editor/EditorSearchBar'
@@ -216,19 +217,15 @@ export const Editor = forwardRef<
     onOpenLink?: (path: string) => void
     /** 있으면 이 방의 Y.XmlFragment가 본문의 진실 원천이 된다 — value/onChange는 그 결과를 반영만 한다 */
     collab?: EditorCollab | null
-    /** 문서별 스크롤 위치 저장소 — 있으면 파일 전환·복귀 시 마지막으로 보던 자리로 되돌린다 */
-    scrollStore?: ScrollStore
   }
->(function Editor({ value, onChange, api, readOnly, path = '', tree = [], onOpenLink, collab, scrollStore }, ref) {
+>(function Editor({ value, onChange, api, readOnly, path = '', tree = [], onOpenLink, collab }, ref) {
   const { frontmatter, body } = useMemo(() => splitFrontmatter(value), [value])
   function handleFrontmatterChange(next: FrontmatterData) {
     onChange(joinFrontmatter(next, body))
   }
   const containerRef = useRef<HTMLDivElement>(null)
-  // 스크롤 위치 저장·복원용 — pathRef는 스크롤 리스너가 항상 현재 문서 키를 참조하도록,
-  // restoredRef는 문서마다 "복원을 마쳤는지"를 표시해 복원 전 스크롤을 저장으로 오인하지 않게 한다
+  // 비동기 작업이 항상 현재 문서를 참조하도록 하는 최신 path
   const pathRef = useRef(path)
-  const restoredRef = useRef(false)
   // 표 열 너비 동기화 상태 — 어느 문서의 것인지(path), 서버에서 받은 값(baseline), 복원을 마쳤는지.
   // 복원 전에는 절대 저장하지 않는다 — 시딩 직후의 "너비 없음"을 저장해 원래 값을 지워버리기 때문.
   const tableSyncRef = useRef<{ path: string; baseline: string; restored: boolean } | null>(null)
@@ -275,12 +272,22 @@ export const Editor = forwardRef<
   // Ctrl+F 찾기 바 — seed는 열 때 미리 채울 검색어, nonce는 이미 열려 있어도 새 seed로 다시 실행시키는 신호
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchSeed, setSearchSeed] = useState<{ q?: string; n: number }>({ n: 0 })
+  // 하단 상태줄에 띄우는 선택 글자 수. 커서만 움직일 때는 계속 0이라 setState가 bail out되므로
+  // 선택이 없는 동안에는 재렌더가 생기지 않는다.
+  const [selectedChars, setSelectedChars] = useState(0)
   const mobileLayout = useMobileLayout()
 
   // 외부(프로젝트 검색 등)에서도 찾기 바를 열 수 있게 하는 헬퍼 — imperative handle과 아래 keydown이 공유
   const openSearchBar = useCallback((seedQuery?: string) => {
     setSearchSeed((prev) => ({ q: seedQuery, n: prev.n + 1 }))
     setSearchOpen(true)
+  }, [])
+
+  // 블록 경계는 공백 한 칸으로 세어 여러 문단을 걸쳐 잡아도 대략 눈에 보이는 글자 수와 맞춘다.
+  // 이미지처럼 텍스트가 없는 NodeSelection이면 0이 되어 상태줄이 뜨지 않는다.
+  const updateSelectedChars = useCallback((ed: any) => {
+    const { from, to, empty } = ed.state.selection
+    setSelectedChars(empty ? 0 : ed.state.doc.textBetween(from, to, ' ').length)
   }, [])
 
   // editorProps 핸들러(handleKeyDown·handlePaste 등)는 에디터 생성 시점의 클로저에 얼어붙는다 —
@@ -341,9 +348,13 @@ export const Editor = forwardRef<
       Heading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
       BulletList,
       OrderedList,
-      ListItem,
+      // 첫 자식으로 리스트를 허용하는 ListItem — 첫 항목 Tab 들여쓰기가 성립하는 스키마(listIndent.ts).
+      // serverExtensions.ts와 반드시 같은 것을 써야 협업 병합에서 문서가 갈라지지 않는다
+      IndentableListItem,
       // 이미 리스트 항목 안에서 `- `/`1. `를 치면 그 줄만 반대 타입으로 변환한다 (기본 규칙은 중첩만 함)
       ListConversion,
+      // 제목 중간 Enter → 뒷부분은 제목이 아니라 본문
+      HeadingEnter,
       // Ctrl+F 문서 내 찾기·바꾸기 (정규식·대소문자) — 매치를 데코레이션으로 하이라이트
       SearchAndReplace,
       Blockquote,
@@ -395,12 +406,14 @@ export const Editor = forwardRef<
       }
       updateMentionState(editor)
       updateSlashState(editor)
+      updateSelectedChars(editor)
     },
     onFocus: () => setEditorFocused(true),
     onBlur: () => setEditorFocused(false),
     onSelectionUpdate: ({ editor }) => {
       updateMentionState(editor)
       updateSlashState(editor)
+      updateSelectedChars(editor)
     },
     editorProps: {
       handleClick: (view, _pos, event) => {
@@ -474,11 +487,8 @@ export const Editor = forwardRef<
         if ((event.ctrlKey || event.metaKey) && !event.altKey && (event.key === 'z' || event.key === 'Z' || event.key === 'y' || event.key === 'Y')) {
           event.preventDefault()
           if (editor) {
-            if (event.key === 'y' || event.key === 'Y' || (event.shiftKey && (event.key === 'z' || event.key === 'Z'))) {
-              editor.commands.redo()
-            } else {
-              editor.commands.undo()
-            }
+            const redo = event.key === 'y' || event.key === 'Y' || (event.shiftKey && (event.key === 'z' || event.key === 'Z'))
+            runUndoRedoKeepingView(redo ? 'redo' : 'undo')
           }
           return true
         }
@@ -849,6 +859,33 @@ export const Editor = forwardRef<
     editor?.commands.blur()
   }
 
+  // Ctrl+Z/Ctrl+Y — y-tiptap은 undo/redo 때마다 문서 전체를 replace한 뒤 복원한 커서로
+  // scrollIntoView를 부른다. 커서 복원이 어긋나면(상대 위치가 이미 지워진 Y 아이템을 가리키면 그
+  // 전체 replace를 통과하며 문서 끝으로 매핑된다) 화면이 문서 맨 아래로 튄다. 되돌리기 전 스크롤을
+  // 기억해 두고 되돌린 뒤 그대로 되돌려 놓는다 — 커서가 그 화면 밖으로 나갔을 때만 따라간다.
+  // (제거된 "문서별 스크롤 위치 저장·복원"(ADR 0029)과 무관하다 — 저장하지도, 전환 때 되돌리지도 않는다.)
+  function runUndoRedoKeepingView(action: 'undo' | 'redo') {
+    const editor = editorRef.current
+    if (!editor) return
+    const el = containerRef.current
+    if (!el) {
+      editor.commands[action]()
+      return
+    }
+    const top = el.scrollTop
+    editor.commands[action]()
+    el.scrollTop = top // dispatch가 동기라 여기서 되돌리면 튀는 게 화면에 그려지지 않는다
+    try {
+      const caret = editor.view.coordsAtPos(editor.state.selection.head)
+      const box = el.getBoundingClientRect()
+      if (caret.top < box.top || caret.bottom > box.bottom) {
+        el.scrollTop = top + caret.top - box.top - el.clientHeight / 3
+      }
+    } catch {
+      // coordsAtPos 실패(그 위치가 아직 렌더되지 않음 등) — 기억한 스크롤을 그대로 둔다
+    }
+  }
+
   // Tab/Shift-Tab 실제 동작 — keydown 핸들러와 모바일 보조키바가 공유한다. editorRef로 최신
   // 인스턴스를 읽으므로 얼어붙은 클로저 걱정이 없다. 모바일에선 합성 keydown이 신뢰되지 않아
   // ProseMirror 기본 동작이 안 먹는 경우가 있어(특히 Tab), 여기서 직접 트랜잭션을 만든다.
@@ -859,9 +896,19 @@ export const Editor = forwardRef<
 
     // 리스트 항목은 텍스트 앞에 \t를 넣어도 불렛이 안 움직이므로 중첩 리스트로 처리
     if (editor.isActive('listItem')) {
-      if (shift) editor.chain().focus().liftListItem('listItem').run()
-      else if (editor.can().sinkListItem('listItem')) editor.chain().focus().sinkListItem('listItem').run()
-      else nestBlockIntoPrevList(editor) // 앞줄이 다른 형태(불렛↔숫자)면 앞 형제 리스트로 통째 중첩
+      if (shift) {
+        // 기본 lift가 안 되는 자리(자기 줄 없는 부모 항목 안)는 직접 꺼낸다 — 아니면 들여쓴 걸 되돌릴 수 없다
+        if (!editor.chain().focus().liftListItem('listItem').run()) {
+          const tr = liftFirstListItemTransaction(editor.state)
+          if (tr) editor.view.dispatch(tr)
+        }
+      } else if (editor.can().sinkListItem('listItem')) editor.chain().focus().sinkListItem('listItem').run()
+      else if (!nestBlockIntoPrevList(editor)) {
+        // 앞줄이 다른 형태(불렛↔숫자)면 앞 형제 리스트로 통째 중첩(nest), 그것도 아니면
+        // 앞 형제 항목이 없는 첫 항목이라 빈 부모 항목을 만들어 들여쓴다
+        const tr = sinkFirstListItemTransaction(editor.state)
+        if (tr) editor.view.dispatch(tr)
+      }
       return
     }
 
@@ -896,11 +943,10 @@ export const Editor = forwardRef<
     if (!editor) return
     switch (letter) {
       case 'z':
-        if (shift) editor.commands.redo()
-        else editor.commands.undo()
+        runUndoRedoKeepingView(shift ? 'redo' : 'undo')
         break
       case 'y':
-        editor.commands.redo()
+        runUndoRedoKeepingView('redo')
         break
       case 'b':
         editor.chain().focus().toggleBold().run()
@@ -1125,62 +1171,9 @@ export const Editor = forwardRef<
     }
   }, [editor, collab?.synced, collab?.ydoc, body])
 
-  // ── 스크롤 위치 저장·복원 (문서별, 기기 세션) ────────────────────────────
-  // editor-root div는 파일이 바뀌어도 재생성되지 않으므로(안쪽 tiptap 인스턴스만 교체) 스크롤
-  // 리스너는 한 번만 붙인다. 저장 키는 스크롤 시점의 path/scrollTop을 스냅샷해 두어, 전환 직후
-  // 남은 디바운스가 엉뚱한 문서에 기록되지 않게 한다. 'h:' 접두사로 plain(CodePane, 'p:')과 분리.
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el || !scrollStore) return
-    let saveTimer: ReturnType<typeof setTimeout> | null = null
-    const onScroll = () => {
-      if (!restoredRef.current) return
-      const key = 'h:' + pathRef.current
-      const top = el.scrollTop
-      if (saveTimer) clearTimeout(saveTimer)
-      saveTimer = setTimeout(() => scrollStore.set(key, top), 150)
-    }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      if (saveTimer) clearTimeout(saveTimer)
-      el.removeEventListener('scroll', onScroll)
-      // 언마운트(다른 뷰로 전환 등) 직전 마지막 위치 저장 — 복원 전이면 건드리지 않는다
-      if (restoredRef.current) scrollStore.set('h:' + pathRef.current, el.scrollTop)
-    }
-  }, [scrollStore])
-
-  // 문서가 바뀌면 복원 플래그를 초기화한다 — 아래 복원 effect가 새 문서 내용이 찬 뒤 다시 맞춘다.
-  // (반드시 복원 effect보다 먼저 선언해 같은 커밋에서 플래그가 false로 리셋된 뒤 복원이 돌게 한다)
   useEffect(() => {
     pathRef.current = path
-    restoredRef.current = false
   }, [path])
-
-  // 내용이 렌더돼 높이가 확보된 뒤 저장된 위치로 스크롤. collab은 synced, 비-collab은 body 존재로
-  // "내용 있음"을 판단하고, 이미지 등으로 높이가 늦게 커질 수 있어 몇 프레임 재시도한다.
-  useEffect(() => {
-    if (!scrollStore || !editor || restoredRef.current) return
-    const el = containerRef.current
-    if (!el) return
-    const hasContent = collab ? collab.synced : body.length > 0
-    if (!hasContent) return
-    restoredRef.current = true
-    const target = scrollStore.get('h:' + path)
-    if (target <= 0) return
-    let raf = 0
-    let attempts = 0
-    const apply = () => {
-      const reachable = el.scrollHeight - el.clientHeight
-      if (reachable >= target || attempts >= 30) {
-        el.scrollTop = Math.min(target, Math.max(0, reachable))
-        return
-      }
-      attempts += 1
-      raf = requestAnimationFrame(apply)
-    }
-    raf = requestAnimationFrame(apply)
-    return () => cancelAnimationFrame(raf)
-  }, [editor, body, collab, scrollStore, path])
 
   useEffect(() => {
     if (editor) {
@@ -1505,19 +1498,28 @@ export const Editor = forwardRef<
           onClose={() => setDbPicker(null)}
         />
       )}
-      {/* 키보드가 떠 있는지는 보지 않는다 — 키보드를 내린 채 방향키·Esc만 쓰는 경우가 더 많다.
-          다만 에디터에 포커스가 없으면 보조키가 갈 곳이 없으므로 그때는 숨긴다. */}
-      {mobileLayout && editorFocused && (
-        <MobileKeyBar
-          ctrlActive={keyBarCtrl}
-          shiftActive={keyBarShift}
-          onToggleCtrl={() => setKeyBarCtrl((v) => !v)}
-          onToggleShift={() => setKeyBarShift((v) => !v)}
-          onEsc={handleKeyBarEsc}
-          onTab={handleKeyBarTab}
-          onArrow={handleKeyBarArrow}
-        />
-      )}
+      {/* 하단 바 묶음 — 상태줄과 보조키 바는 둘 다 스크롤 컨테이너 바닥에 붙어야 하므로 한 sticky 안에
+          쌓는다. 각자 sticky bottom-0을 달면 서로 겹친다. */}
+      <div className="sticky bottom-0 z-30 shrink-0">
+        {selectedChars > 0 && (
+          <div className="border-t border-edge bg-surface-deep px-2 py-0.5 text-right text-[10px] leading-none text-ink-muted">
+            {selectedChars}자 선택
+          </div>
+        )}
+        {/* 키보드가 떠 있는지는 보지 않는다 — 키보드를 내린 채 방향키·Esc만 쓰는 경우가 더 많다.
+            다만 에디터에 포커스가 없으면 보조키가 갈 곳이 없으므로 그때는 숨긴다. */}
+        {mobileLayout && editorFocused && (
+          <MobileKeyBar
+            ctrlActive={keyBarCtrl}
+            shiftActive={keyBarShift}
+            onToggleCtrl={() => setKeyBarCtrl((v) => !v)}
+            onToggleShift={() => setKeyBarShift((v) => !v)}
+            onEsc={handleKeyBarEsc}
+            onTab={handleKeyBarTab}
+            onArrow={handleKeyBarArrow}
+          />
+        )}
+      </div>
     </div>
   )
 })

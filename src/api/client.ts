@@ -421,6 +421,39 @@ export function fetchTmuxSessions(): Promise<TmuxSession[]> {
     .then((sessions) => sessions.filter((s) => !isCommandSession(s.name)))
 }
 
+// ---- 호스트 자원 현황(프로파일링 팝업) ----
+
+export interface GpuStat {
+  name: string
+  utilization: number | null
+  memoryUsedMb: number | null
+  memoryTotalMb: number | null
+  temperature: number | null
+}
+
+export interface ProcStat {
+  pid: number
+  name: string
+  cmd: string
+  /** % — 코어 하나 기준이라 100을 넘을 수 있다 */
+  cpu: number
+  memMb: number
+  gpuMemMb: number
+}
+
+export interface SystemStats {
+  cpu: { model: string; cores: number; usage: number | null; loadavg: number[]; temperature: number | null }
+  memory: { total: number; used: number; available: number }
+  gpus: GpuStat[]
+  processes: ProcStat[]
+  uptime: number
+  hostname: string
+}
+
+export function fetchSystemStats(): Promise<SystemStats> {
+  return fetch('/api/system-stats').then(json<SystemStats>)
+}
+
 // ---- 명령어 버튼 (.mew/cmd-button.json) ----
 
 export interface CmdButtonState {

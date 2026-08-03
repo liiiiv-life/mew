@@ -5,7 +5,6 @@ export type {
   TreeNode,
   EditorApi,
   EditorCollab,
-  ScrollStore,
   TableWidths,
   EditorDbApi,
   DbColumn,

@@ -77,15 +77,6 @@ export interface EditorDbApi {
   subscribe: (id: string, onEvent: (event: DbEvent) => void) => () => void
 }
 
-/**
- * 문서별 스크롤 위치 저장소 — 호스트 앱이 주입한다. 에디터는 어디에(localStorage 등)
- * 어떤 키 규칙으로 저장하는지 모르고, get/set만 호출한다.
- */
-export interface ScrollStore {
-  get: (key: string) => number
-  set: (key: string, offset: number) => void
-}
-
 /** 호스트 앱이 주입하는 서버 연동 — 에디터는 fetch 경로·인증을 모른다 */
 /** 문서 안 표의 등장 순서대로의 열 너비(px). null = 그 표는 저장된 너비 없음 */
 export type TableWidths = (number[] | null)[]

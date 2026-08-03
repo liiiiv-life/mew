@@ -16,7 +16,6 @@ import CodeBlock from '@tiptap/extension-code-block'
 import Heading from '@tiptap/extension-heading'
 import BulletList from '@tiptap/extension-bullet-list'
 import OrderedList from '@tiptap/extension-ordered-list'
-import ListItem from '@tiptap/extension-list-item'
 import Blockquote from '@tiptap/extension-blockquote'
 import HorizontalRule from '@tiptap/extension-horizontal-rule'
 import Link from '@tiptap/extension-link'
@@ -25,6 +24,7 @@ import { Markdown } from 'tiptap-markdown'
 // 이 모듈 그래프는 server/collabAgent가 Node에서 직접 로드하므로(@mew/editor/server 서브패스),
 // 상대 임포트는 server/*.ts처럼 반드시 확장자를 붙인다 — Node ESM 로더는 확장자 생략을 해석하지 않는다.
 import { ListConversion } from './editor/listConversion.ts'
+import { IndentableListItem } from './editor/listIndent.ts'
 import { imageNode } from './imageSchema.ts'
 import { AudioNode, VideoNode, Youtube } from './MediaNodes.ts'
 import { databaseNode } from './database/databaseSchema.ts'
@@ -67,7 +67,8 @@ export function serverEditorExtensions(): Extensions {
     Heading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
     BulletList,
     OrderedList,
-    ListItem,
+    // 기본 ListItem이 아니라 첫 자식으로 리스트를 허용하는 쪽 — 이유는 editor/listIndent.ts
+    IndentableListItem,
     ListConversion,
     Blockquote,
     HorizontalRule,

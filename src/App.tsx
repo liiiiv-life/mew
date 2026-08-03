@@ -21,10 +21,11 @@ import { LoginPage } from './components/LoginPage'
 import { SettingsModal } from './components/SettingsModal'
 import { AdminSettingsModal } from './components/AdminSettingsModal'
 import { DatabaseListModal } from './components/DatabaseListModal'
+import { SystemStatsModal } from './components/SystemStatsModal'
 import { FileTree } from './components/FileTree'
 import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
-import { Editor, type EditorHandle, type ScrollStore } from '@mew/editor'
+import { Editor, type EditorHandle } from '@mew/editor'
 import { TmuxTerminalPanel } from '@mew/tmux-term'
 import { TableOfContents } from './components/TableOfContents'
 import { FileHistoryModal } from './components/FileHistoryModal'
@@ -39,7 +40,6 @@ import { SvgPreview } from './components/SvgPreview'
 import { FabMenu } from './components/FabMenu'
 import { mediaKind } from './utils/media'
 import { openTabsKey, useTabs, type Tab } from './hooks/useTabs'
-import { getScrollOffset, setScrollOffset } from './utils/viewState'
 import { applyLayout, bySlot, reorderedLayout } from './utils/projectLayout'
 import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
@@ -60,10 +60,6 @@ function primaryCollabPath(tab: Tab | null, role: Role): string | null {
   const eligible = tab.path.endsWith('.md') ? tab.viewMode === 'hotview' : tab.viewMode === 'plain'
   return eligible ? tab.path : null
 }
-
-// Hotview(tiptap) 문서별 스크롤 위치 저장소 — 모듈 함수라 identity가 고정돼 Editor의 리스너
-// effect가 재구독되지 않는다. 키 접두사('h:')는 Editor 내부에서 붙인다.
-const hotviewScroll: ScrollStore = { get: getScrollOffset, set: setScrollOffset }
 
 type Theme = 'dark' | 'light'
 const THEME_KEY = 'mew:theme'
@@ -115,6 +111,27 @@ function TerminalOpenButton({ onClick }: { onClick: () => void }) {
   )
 }
 
+/** 터미널 버튼 바로 아래 — 서버가 도는 기계의 CPU·메모리·GPU 현황 팝업 */
+function SystemStatsButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
+      title="시스템 자원 (CPU·메모리·GPU)"
+      aria-label="시스템 자원 보기"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 14a8 8 0 0 1 8-8" />
+        <path d="M4 14a8 8 0 0 1 3.5-6.6" />
+        <path d="M12 14 8.5 9.5" />
+        <path d="M4 14h16" />
+        <path d="M3 18h18" />
+      </svg>
+    </button>
+  )
+}
+
 function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const { role, email: authEmail } = auth
   const isGuest = role === 'guest'
@@ -130,6 +147,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
   const [dbListOpen, setDbListOpen] = useState(false)
+  const [sysStatsOpen, setSysStatsOpen] = useState(false)
   // 목록이 오기 전의 자리표시자 — 이걸 진짜 목록으로 착각하면 보고 있던 프로젝트가 애먼 것으로 밀린다
   const [projects, setProjects] = useState<ProjectInfo[]>([{ name: project, icon: null, slot: null }])
   const [projectsLoaded, setProjectsLoaded] = useState(false)
@@ -208,8 +226,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     invert: true, // 패널이 화면 오른쪽에 붙어 있으므로 왼쪽으로 끌수록 넓어진다
   })
 
-  // 화면 위 반쪽 스와이프 = 탭 전환, 아래 반쪽 = 창(사이드바·터미널) 전환
-  // 위 반쪽에서 우→좌면 오른쪽 탭(끝이면 처음으로), 좌→우면 왼쪽 탭(처음이면 끝으로)
+  // 화면 위 40% 스와이프 = 탭 전환, 아래 20% = 창(사이드바·터미널) 전환, 가운데 40%는 제스처 없음
+  // 탭 전환 구역에서 우→좌면 오른쪽 탭(끝이면 처음으로), 좌→우면 왼쪽 탭(처음이면 끝으로)
   const switchTab = (dir: 'left' | 'right') => {
     if (tabs.length < 2 || !activePath) return
     const idx = tabs.findIndex((t) => t.path === activePath)
@@ -219,20 +237,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   }
 
   const sidebarSwipe = useSwipeGesture({ onBottomLeft: () => setSidebarOpen(false) })
-  // 에디터 스와이프는 위아래 모두 가로 스크롤을 먼저 존중한다 — 플레인 뷰의 긴 줄을 스크롤하려던
-  // 손짓이 탭·창 전환으로 새지 않게, 좌→우(사이드바·이전 탭)는 맨 왼쪽에서 /
-  // 우→좌(터미널·다음 탭)는 맨 오른쪽에서만 먹는다.
-  const editorSwipe = useSwipeGesture(
-    {
-      onTopLeft: () => switchTab('left'),
-      onTopRight: () => switchTab('right'),
-      onBottomRight: () => setSidebarOpen(true),
-      onBottomLeft: () => {
-        if (canUseTerminal) setTmuxOpen(true)
-      },
+  // 구역 안에서는 스크롤 위치를 따지지 않고 바로 전환한다 — 긴 줄을 가로로 끄는 손짓은 가운데
+  // 40%(제스처 없는 구역)의 몫이라, 예전처럼 "맨 끝에 닿아야 통과" 규칙을 둘 이유가 없다.
+  const editorSwipe = useSwipeGesture({
+    onTopLeft: () => switchTab('left'),
+    onTopRight: () => switchTab('right'),
+    onBottomRight: () => setSidebarOpen(true),
+    onBottomLeft: () => {
+      if (canUseTerminal) setTmuxOpen(true)
     },
-    { scrollEdgeZones: ['top', 'bottom'] },
-  )
+  })
   const tmuxSwipe = useSwipeGesture({ onBottomRight: () => setTmuxOpen(false) })
 
   // Esc·안드로이드 뒤로가기로 열린 것을 한 겹씩 닫는다 — 모달·팝업도 같은 스택에 등록돼 있어
@@ -724,7 +738,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             <div className="relative min-w-0 flex-1" {...editorSwipe}>
               {/* 에디터 우상단 도구 줄 — 히스토리·뷰 모드·목차는 md/svg 문서에만, 터미널은 파일 종류와
                   무관하게 뜬다. right-5는 에디터 오른쪽 스크롤바를 비켜 앉기 위한 여백 */}
-              <div className="absolute right-5 top-3 z-20 flex items-center gap-2">
+              <div className="absolute right-5 top-3 z-20 flex items-start gap-2">
                 {(activeTab.path.endsWith('.md') || activeTab.path.endsWith('.svg')) && (
                   <>
                     {!isGuest && (
@@ -804,7 +818,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     </svg>
                   </button>
                 )}
-                {canUseTerminal && !tmuxOpen && <TerminalOpenButton onClick={() => setTmuxOpen(true)} />}
+                {canUseTerminal && (
+                  <div className="flex flex-col gap-2">
+                    {!tmuxOpen && <TerminalOpenButton onClick={() => setTmuxOpen(true)} />}
+                    <SystemStatsButton onClick={() => setSysStatsOpen(true)} />
+                  </div>
+                )}
               </div>
               {mediaKind(activeTab.path) ? (
                 // key로 파일 전환 시 리마운트 — 이전 파일의 재생 상태가 남지 않게
@@ -831,7 +850,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                   tree={tree}
                   onOpenLink={(linkPath) => openFile(linkPath, { preview: false, forceNewTab: true })}
                   collab={collab}
-                  scrollStore={hotviewScroll}
                 />
               )}
             </div>
@@ -846,9 +864,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         ) : (
           <div className="relative flex flex-1 items-center justify-center text-ink-secondary" {...editorSwipe}>
             {/* 문서가 없어도 터미널은 열 수 있어야 한다 — 도구 줄과 같은 자리 */}
-            {canUseTerminal && !tmuxOpen && (
-              <div className="absolute right-5 top-3 z-20">
-                <TerminalOpenButton onClick={() => setTmuxOpen(true)} />
+            {canUseTerminal && (
+              <div className="absolute right-5 top-3 z-20 flex flex-col gap-2">
+                {!tmuxOpen && <TerminalOpenButton onClick={() => setTmuxOpen(true)} />}
+                <SystemStatsButton onClick={() => setSysStatsOpen(true)} />
               </div>
             )}
             <div className="text-center">
@@ -921,6 +940,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       {adminOpen && isOwner && <AdminSettingsModal onClose={() => setAdminOpen(false)} />}
 
       {dbListOpen && !isGuest && <DatabaseListModal onClose={() => setDbListOpen(false)} />}
+
+      {sysStatsOpen && canUseTerminal && <SystemStatsModal onClose={() => setSysStatsOpen(false)} />}
 
       {historyOpen && activeTab && (
         <FileHistoryModal

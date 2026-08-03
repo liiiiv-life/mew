@@ -58,7 +58,8 @@ MOC는 담을 폴더가 없으니 트리 전체의 맨 위, 어떤 폴더보다 
   격자에 일부러 비워둔 자리는 유지된다. 저장은 손을 뗄 때 한 번(PUT `/api/project-layout`, 게스트는 불가).
 - 각 프로젝트 탭 오른쪽에는 **그 프로젝트의 명령어 버튼(▶)** 이 붙는다. 모바일은 탭이 좁아 ▶가
   **지금 보고 있는 탭에만** 뜬다.
-- 문서 탭·활성 탭·스크롤 위치·내용 캐시는 **프로젝트별로 따로** 산다. 옮겼다 돌아오면 그대로다.
+- 문서 탭·활성 탭·내용 캐시는 **프로젝트별로 따로** 산다. 옮겼다 돌아오면 그대로다. 다만 **스크롤
+  위치는 저장하지 않는다** — 탭·창을 바꾸면 지연 없이 곧장 맨 위에서 열린다.
 - 아이콘은 팝업에서 지정한다(라인 아이콘 600여 개 + 이모지 직접 입력 + SVG, 영문 키로 검색). 아이콘이
   없으면 이름 첫 글자가 대신 뜬다.
 
@@ -259,6 +260,29 @@ Claude Code 같은 TUI의 슬래시 명령(`/clear`·`/model`)도 버튼 한 번
   클라이언트: `src/components/TermButtonBar.tsx` — `TmuxTerminalPanel`의 `renderCommandButtons`
   렌더 프롭으로 주입된다(터미널 패키지는 이 기능의 API를 모른다).
 
+### 시스템 자원 팝업
+
+에디터 우상단 도구 줄, **터미널 버튼 바로 아래 계기판 아이콘** — 서버가 도는 기계의 CPU·메모리·GPU
+사용량과 온도, 그리고 **프로세스별 점유**를 2초마다 새로 읽어 보여준다. 터미널 버튼과 달리 터미널이
+열려 있어도 계속 보인다.
+
+- 서버: `server/sysStats.ts` + `GET /api/system-stats`(owner/manager — 셸과 같은 경계다).
+  클라이언트: `src/components/SystemStatsModal.tsx`.
+- CPU 사용률은 `os.cpus()` 누적 시간의 **직전 호출 대비 증분**이다. 표본을 모듈 하나가 들고 있어
+  창이 여럿이면 각자의 구간이 짧아질 뿐 값은 유효하다.
+- 메모리 여유는 `/proc/meminfo`의 `MemAvailable`을 쓴다 — `os.freemem()`은 캐시를 사용 중으로 세서
+  리눅스에서 항상 과장된다.
+- GPU는 `nvidia-smi --query-gpu=...` 한 번. 없으면 빈 배열이고 팝업은 "GPU 정보 없음"을 띄운다.
+- CPU 온도는 `/sys/class/thermal/thermal_zone*/temp`. **WSL·컨테이너에는 노출되지 않아 `null`**이고,
+  그때는 팝업이 그 사실을 한 줄로 알린다(GPU 온도는 `nvidia-smi`에서 따로 오므로 WSL에서도 뜬다).
+- `processes[]`는 `/proc/<pid>/stat`을 직접 읽는다 — `ps %cpu`는 **프로세스 수명 전체의 평균**이라
+  "지금 누가 먹고 있나"에 못 쓴다. CPU는 `utime+stime` tick의 직전 표본 대비 증분이고 코어 하나
+  기준이라 100%를 넘을 수 있다. RSS·CPU·GPU가 모두 0인 항목(커널 스레드)은 빼고 보낸다.
+  프로세스별 GPU는 `nvidia-smi --query-compute-apps`가 주는 **메모리(MB)뿐**이다 — 프로세스별
+  GPU 사용률은 그 쿼리에 없다. `/proc`이 없는 환경(비리눅스)에서는 빈 배열.
+- **추이 그래프는 클라이언트가 모은다** — 서버에 링버퍼가 없다. 팝업이 열려 있는 동안 최근 60표본
+  (2분)을 들고 있다가 닫으면 버린다. 개별 프로세스 그래프도 이 이력에서 pid로 뽑는다.
+
 ### 숨김 목록 (.data/ignore.json)
 
 파일 목록·검색·트리 감시에서 통째로 건너뛸 **이름** 목록. 경로가 아니라 이름이라 어느 깊이에 있든
@@ -331,6 +355,19 @@ Hotview에서 표의 세로선을 끌어 조절한 **열 너비**는 마크다�
   `PUT /api/table-layout`(로그인 필요). 클라이언트: `packages/editor/src/Editor.tsx`의
   `readTableWidths`/`applyTableWidths`, 주입은 `EditorApi.fetchTableLayout`/`saveTableLayout`.
 
+### 리스트 첫 항목 들여쓰기 (`- - b`)
+
+Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **바로 앞 형제 항목 안으로** 밀어 넣는
+방식이라 앞에 형제가 없는 첫 항목에서는 아무 일도 하지 않는다. mew는 그 자리에 **자기 줄이 없는
+부모 항목**을 만들어 들여쓴다 — 마크다운으로는 `- - b`, Shift+Tab이 그대로 되돌린다.
+
+- 그래서 `listItem`의 content가 기본값 `paragraph block*`이 아니라 `(paragraph|bulletList|orderedList) block*`다
+  (`packages/editor/src/editor/listIndent.ts`의 `IndentableListItem`). 문단이 필수면 markdown-it이
+  중첩으로 읽어 준 `- - b`의 HTML을 항목 안에 넣지 못해 두 리스트로 풀려, 들여쓰기가 왕복에서 사라진다.
+- **클라이언트(`Editor.tsx`)와 서버(`serverExtensions.ts`)가 같은 `IndentableListItem`을 써야 한다.**
+  한쪽만 바꾸면 협업 병합에서 문서가 갈라진다. 그래서 정의는 한 모듈에만 둔다.
+- 부모 마커 없는 `  - b`로는 저장할 수 없다 — 마크다운 규칙상 다시 읽으면 최상위 항목이 된다.
+
 ## 구조
 
 - `server/serve.ts` — 프로덕션 서버 (5000, 단일 포트)
@@ -383,11 +420,12 @@ Hotview에서 표의 세로선을 끌어 조절한 **열 너비**는 마크다�
     그대로 쓴다. 세션이 아니라 브라우저 설정이라 `localStorage: mew:tmux-keyboard-lock`에 남는다.
 - `@mew/mobile-keys` — 모바일 키보드 보조키 바(`MobileKeyBar`, `useKeyboardOpen`).
   에디터·터미널이 공용으로 쓴다. 좌우 스와이프 감지(`useSwipeGesture`)도 여기 —
-  **손가락이 처음 닿은 화면 높이로 갈린다**: 위 반쪽 = 탭 전환(`onTopLeft`/`onTopRight`),
-  아래 반쪽 = 창 전환(`onBottomLeft`/`onBottomRight`). 손가락 수(1·2개)는 구분하지 않는다.
-  `scrollEdgeZones`를 준 구역은 가로 스크롤을 먼저 존중한다 — 손댄 곳이 가로로 스크롤되면
-  좌→우는 맨 왼쪽에서, 우→좌는 맨 오른쪽에서만 통한다(시작 시점 기준). 에디터는 위아래 양쪽에
-  걸어 두어 플레인 뷰에서 긴 줄을 스크롤하다 탭·창이 전환되지 않게 한다.
+  **손가락이 처음 닿은 화면 높이로 갈린다**(`zoneForY`): 위 40% = 탭 전환(`onTopLeft`/`onTopRight`),
+  아래 20% = 창 전환(`onBottomLeft`/`onBottomRight`), **가운데 40%는 아무 제스처도 아니다**.
+  손가락 수(1·2개)는 구분하지 않는다.
+  가운데를 비워 둔 것이 가로 스크롤 보호 장치다 — 긴 줄·넓은 표는 거기서 끈다. 그래서 구역 안에서는
+  스크롤 위치를 따지지 않고 바로 전환한다(옛 `scrollEdgeZones`·"맨 끝에 닿아야 통과" 규칙은 없앴다:
+  끝까지 스크롤한 뒤의 손짓까지 창 전환으로 오인했다).
 - `@mew/ui` — 의존성 없는 공용 조각: `ConfirmDialog`(네이티브 confirm 대체 — 전체화면이 풀리지
   않게), `useToast`(답을 받을 필요가 없는 짧은 안내 — 화면 아래 알약 하나, 2.6초 뒤 저절로 사라지고
   `pointer-events-none`이라 아무것도 가로채지 않는다. **오버레이 스택에 등록하지 않는다** — 등록하면

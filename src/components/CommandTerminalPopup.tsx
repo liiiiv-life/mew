@@ -1,6 +1,11 @@
 // 명령어 버튼의 터미널 아이콘으로 여는 팝업 — 그 버튼 전용 tmux 세션(mewcmd-*)을 붙여서 보여준다.
 // [종료]는 세션을 죽이고 닫고, [닫기]는 세션을 살려둔 채 팝업만 닫는다(다음에 다시 열면 이어서 보인다).
+//
+// **반드시 body로 포털한다.** 모바일 이름표(ProjectPeek)가 transform을 써서 fixed 자손의 containing
+// block이 되기 때문에, 그 안에 두면 inset-0이 화면이 아니라 이름표 상자 크기로 잡혀 팝업이 손톱만 해진다.
+// data-cmd-overlay도 함께 붙인다 — 없으면 팝업 안을 누를 때 이름표가 닫히며 팝업까지 사라진다.
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { TmuxTerminal } from '@mew/tmux-term'
 import { useOverlayDismiss } from '@mew/ui'
 import { killTmuxSession, runCmdButton, type CmdButtonState } from '../api/client'
@@ -56,10 +61,14 @@ export function CommandTerminalPopup({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+  return createPortal(
+    <div
+      data-cmd-overlay
+      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-3 sm:p-4"
+      onMouseDown={onClose}
+    >
       <div
-        className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface-raised shadow-xl"
+        className="flex h-full max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface-raised shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-edge px-3 py-2.5">
@@ -114,7 +123,8 @@ export function CommandTerminalPopup({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
