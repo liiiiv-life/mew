@@ -1,6 +1,7 @@
 # Logs
 logs
 *.log
+nohup.out
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -18,6 +19,9 @@ dist-ssr
 !.env.example
 # 인증 데이터 (사용자 해시·세션) — 절대 커밋 금지
 .data/
+
+# 도구 로컬 상태 (토큰 사용량 집계) — 커밋 금지
+.tokensave/
 
 # Editor directories and files
 .vscode/*
