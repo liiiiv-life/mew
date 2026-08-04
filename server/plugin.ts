@@ -10,6 +10,7 @@ import { attachPresenceWebSocket } from './presence.ts'
 import { attachCollabWebSocket } from './collab.ts'
 import { attachCollabAgents } from './collabAgent.ts'
 import { attachDbWebSocket } from './db/socket.ts'
+import { attachAgentWebSocket } from './agentWs.ts'
 import { watchDocsTree } from './watcher.ts'
 
 export function docsApiPlugin(): Plugin {
@@ -31,6 +32,7 @@ export function docsApiPlugin(): Plugin {
         attachPresenceWebSocket(server.httpServer, { getAuth: resolveAuth })
         attachCollabWebSocket(server.httpServer, { authorize: authorizeCollab })
         attachDbWebSocket(server.httpServer, { authorize: authorizeCollab })
+        attachAgentWebSocket(server.httpServer, { authorize: authorizeTmux })
         // AI가 터미널에서 직접 고친 파일을 열려 있는 협업 방에 'agent' 협업자로 실시간 주입한다
         attachCollabAgents()
         watchDocsTree()

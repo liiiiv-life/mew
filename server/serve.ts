@@ -15,6 +15,7 @@ import { attachPresenceWebSocket } from './presence.ts'
 import { attachCollabWebSocket } from './collab.ts'
 import { attachCollabAgents } from './collabAgent.ts'
 import { attachDbWebSocket } from './db/socket.ts'
+import { attachAgentWebSocket, AGENT_WS_PATH } from './agentWs.ts'
 import { watchDocsTree } from './watcher.ts'
 
 // 프로덕션 서버 — `npm run build` 후 `npm run serve`.
@@ -85,7 +86,9 @@ attachTmuxWebSocket(server, { cwd: WORKSPACE_ROOT, authorize: authorizeTmux })
 attachPresenceWebSocket(server, { getAuth: resolveAuth })
 attachCollabWebSocket(server, { authorize: authorizeCollab })
 attachDbWebSocket(server, { authorize: authorizeCollab })
-destroyUnknownUpgrades(server, ['/api/tmux/ws', '/api/presence', '/api/collab', '/api/db/ws'])
+// 에이전트는 셸을 쓸 수 있다 — 게이트가 tmux와 같은 집합(owner/manager)이어야 한다
+attachAgentWebSocket(server, { authorize: authorizeTmux })
+destroyUnknownUpgrades(server, ['/api/tmux/ws', '/api/presence', '/api/collab', '/api/db/ws', AGENT_WS_PATH])
 
 // AI가 터미널에서 직접 고친 파일을 열려 있는 협업 방에 'agent' 협업자로 실시간 주입한다
 attachCollabAgents()

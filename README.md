@@ -368,6 +368,30 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
   한쪽만 바꾸면 협업 병합에서 문서가 갈라진다. 그래서 정의는 한 모듈에만 둔다.
 - 부모 마커 없는 `  - b`로는 저장할 수 없다 — 마크다운 규칙상 다시 읽으면 최상위 항목이 된다.
 
+## 에이전트 창 (ACP)
+
+헤더의 말풍선 버튼 — 프로젝트 하나에 묶인 AI 에이전트와 대화하는 **채팅 창**이다(터미널이 아니다).
+에이전트는 별도 프로세스로 뜨고 [ACP](https://agentclientprotocol.com)(stdio JSON-RPC)로만 말한다.
+mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이스다. 근거는
+[ADR 0034](../docs/decisions/0034-mew-agent-panel-acp-reintroduction.md), 권한 경계는 [SECURITY.md](SECURITY.md).
+
+- 서버: `server/agentAcp.ts`(세션·spawn·파일 스코프) + `server/agentWs.ts`(WS 릴레이).
+  클라이언트: `src/components/AgentPanel.tsx`. 접근은 **owner/manager**(`authorizeTmux`와 같은 집합).
+- 채널: `/api/agent/ws?project=<이름>` — 프로젝트당 세션 하나. 창을 닫아도 세션은 남고,
+  다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다(붙은 창이 없는 채로 10분이면 종료).
+
+| 방향 | 메시지 |
+| --- | --- |
+| 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId\|null}` |
+| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start'}` · `{type:'turn_end', stopReason}` · `{type:'error'\|'fatal', message}` |
+
+- 백엔드 교체는 **spawn 대상 교체**다: `MEW_AGENT_CMD`(기본 `node_modules/.bin/claude-code-acp`,
+  버전 고정) · `MEW_AGENT_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`).
+- 클라이언트 capability로 `fs.readTextFile`·`fs.writeTextFile`을 **켠다** — 켜야 에이전트의 파일
+  읽기·쓰기가 mew로 돌아와 프로젝트 폴더 밖을 거부할 수 있다. `terminal`은 켜지 않는다.
+- 자식 환경에서 **`CLAUDECODE`를 지운다.** 남아 있으면 Claude Code가 중첩 세션으로 보고 실행을 거부해
+  세션 생성이 통째로 실패한다(mew 서버를 Claude Code 터미널에서 띄우면 상속된다).
+
 ## 구조
 
 - `server/serve.ts` — 프로덕션 서버 (5000, 단일 포트)
