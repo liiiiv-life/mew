@@ -4,17 +4,25 @@
 // 덮어써 무의미해지던 문제를 해결한다.
 //
 // 방식: 방마다 헤드리스 tiptap 에디터(클라이언트와 "정확히 같은 스키마" = @mew/editor/server)를
-// room.doc(field 'default')에 매어 둔다. ySyncPlugin이 방↔에디터를 계속 동기화하므로, 파일이 외부에서
-// 바뀌면 그 본문을 이 에디터에 setContent → updateYFragment의 최소 diff가 방에 반영 → 모든 클라이언트로
-// 브로드캐스트된다. 에이전트의 커서는 room.awareness의 로컬 슬롯(서버 relay가 안 쓰던 자리)을 차지한다.
+// **브리지 자신의 Y.Doc**(field 'default')에 매어 두고, 그 doc을 sync 프로토콜로 방과 동기화한다.
+// ySyncPlugin이 doc↔에디터를 계속 동기화하므로, 파일이 외부에서 바뀌면 그 본문을 이 에디터에
+// setContent → updateYFragment의 최소 diff가 doc에 반영 → 프로토콜로 방에 올라가 모든 클라이언트로
+// 브로드캐스트된다. 에이전트의 커서도 브리지 자신의 awareness에 실려 같은 경로로 방에 전달된다.
+//
+// **브리지는 방의 doc을 붙들지 않는다** (ADR 0035) — 방 상태가 Rust(yrs)일 수 있어서다. 브라우저
+// 클라이언트와 정확히 같은 프로토콜 경로를 타고, 전송만 인프로세스 채널이다. 실제 루프백 소켓을 쓰지
+// 않는 이유는 그러면 authorizeCollab(게스트 차단)을 우회할 통로를 새로 뚫어야 하기 때문이다.
 //
 // 메아리 차단: 앱 자동저장도 디스크에 쓰므로(api.ts), appWrites 원장으로 "우리가 쓴 것"을 걸러내
 // 외부(AI) 변경만 주입한다 — 정상 타이핑이 에이전트와 서로 덮어쓰지 않게 하는 핵심.
 import fs from 'node:fs'
 import path from 'node:path'
+import * as Y from 'yjs'
 import type { Editor } from '@tiptap/core'
-import type { CollabRoom } from './collab.ts'
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
+import type { CollabRoom, RoomConnection } from './collab.ts'
 import { setRoomLifecycle } from './collab.ts'
+import { SYNC_STEP1, decodeMessage, encodeAwarenessFrame, encodeSyncStep2, encodeSyncUpdate } from './syncCodec.ts'
 import { consumeAppWrite } from './appWrites.ts'
 import { resolveProjectPath } from './paths.ts'
 import { splitFrontmatter } from '@mew/editor/frontmatter'
@@ -27,6 +35,9 @@ const DEBOUNCE_MS = 150
 
 interface AgentState {
   editor: Editor
+  ydoc: Y.Doc
+  awareness: Awareness
+  connection: RoomConnection
   absPath: string
   watcher: fs.FSWatcher
   timer: NodeJS.Timeout | null
@@ -67,28 +78,109 @@ function parseRoomKey(roomKey: string): { project: string; relPath: string } | n
 // tsconfig.node엔 DOM lib이 없다 — happy-dom 셧으로 런타임엔 존재하는 전역 document를 최소 타입으로 참조
 const domGlobal = globalThis as unknown as { document: { createElement(tag: string): unknown } }
 
-async function createEditor(room: CollabRoom): Promise<Editor> {
-  await ensureDom()
-  // happy-dom 셧을 깐 뒤에 로드해야 tiptap 초기화가 전역 DOM을 본다
-  const { Editor } = await import('@tiptap/core')
-  const { Collaboration } = await import('@tiptap/extension-collaboration')
-  const { CollaborationCaret } = await import('@tiptap/extension-collaboration-caret')
-  const { serverEditorExtensions } = await import('@mew/editor/server')
+// DOM 셧 + tiptap 모듈 그래프를 한 번만 로드해 재사용한다. 이 로드가 ~170ms라서 서버가 뜬 뒤 첫 .md 방을
+// 여는 사람이 그만큼을 혼자 물었다 — attachCollabAgents가 부팅 때 미리 부른다(warmEditorDeps).
+let depsPromise: Promise<{
+  Editor: typeof import('@tiptap/core').Editor
+  Collaboration: typeof import('@tiptap/extension-collaboration').Collaboration
+  CollaborationCaret: typeof import('@tiptap/extension-collaboration-caret').CollaborationCaret
+  serverEditorExtensions: typeof import('@mew/editor/server').serverEditorExtensions
+}> | null = null
+function loadEditorDeps() {
+  if (!depsPromise) {
+    depsPromise = (async () => {
+      // happy-dom 셧을 깐 뒤에 로드해야 tiptap 초기화가 전역 DOM을 본다
+      await ensureDom()
+      const [core, collaboration, caret, editorPkg] = await Promise.all([
+        import('@tiptap/core'),
+        import('@tiptap/extension-collaboration'),
+        import('@tiptap/extension-collaboration-caret'),
+        import('@mew/editor/server'),
+      ])
+      return {
+        Editor: core.Editor,
+        Collaboration: collaboration.Collaboration,
+        CollaborationCaret: caret.CollaborationCaret,
+        serverEditorExtensions: editorPkg.serverEditorExtensions,
+      }
+    })().catch((err) => {
+      // 실패를 캐시하면 이후 모든 방이 같은 에러를 물려받는다 — 다음 호출이 다시 시도하게 비운다
+      depsPromise = null
+      throw err
+    })
+  }
+  return depsPromise
+}
+
+async function createEditor(ydoc: Y.Doc, awareness: Awareness): Promise<Editor> {
+  const { Editor, Collaboration, CollaborationCaret, serverEditorExtensions } = await loadEditorDeps()
 
   return new Editor({
     element: domGlobal.document.createElement('div') as never,
     extensions: [
       ...serverEditorExtensions(),
-      Collaboration.configure({ document: room.doc, field: 'default' }),
+      Collaboration.configure({ document: ydoc, field: 'default' }),
       CollaborationCaret.configure({
-        provider: { awareness: room.awareness },
+        provider: { awareness },
         user: { name: 'agent', color: AGENT_COLOR },
       }),
     ],
-    // 방(room.doc)이 진실 원천 — ySyncPlugin이 마운트 즉시 방 내용으로 채운다. content는 방이 빈
-    // 초기에만 유효하지만 어차피 곧 클라이언트 sync로 덮이므로 빈 문자열로 둔다.
+    // 이 doc이 진실 원천 — ySyncPlugin이 마운트 즉시 doc 내용으로 채운다. doc은 이 시점에 이미
+    // 방과 동기화돼 있다(connect가 붙는 즉시 전체 상태를 받는다). content는 방이 빈 초기에만
+    // 유효하지만 어차피 곧 sync로 덮이므로 빈 문자열로 둔다.
     content: '',
   })
+}
+
+// ── 방과의 프로토콜 대화 ────────────────────────────────────────────────────
+// src/hooks/useCollab.ts(브라우저 클라이언트)의 수신·발신 처리와 같은 일을 한다. 전송만
+// WebSocket이 아니라 인프로세스 채널이다.
+const REMOTE_ORIGIN = Symbol('collab-agent-remote')
+
+/** 브리지의 doc·awareness를 방에 붙인다. 방이 이미 닫혔으면 null. */
+function joinRoom(room: CollabRoom, ydoc: Y.Doc, awareness: Awareness): RoomConnection | null {
+  // 방은 connect() 안에서 곧바로 step1을 보낸다 — 그 시점엔 아직 connection 손잡이가 없으므로
+  // 답장을 모아 두고 붙은 뒤에 흘려보낸다.
+  let conn: RoomConnection | null = null
+  const outbox: Uint8Array[] = []
+  const send = (frame: Uint8Array) => {
+    if (conn) conn.send(frame)
+    else outbox.push(frame)
+  }
+
+  const connection = room.connect((frame) => {
+    const message = decodeMessage(frame)
+    if (!message) return
+    if (message.channel === 'awareness') {
+      applyAwarenessUpdate(awareness, message.payload, REMOTE_ORIGIN)
+      return
+    }
+    if (message.syncType === SYNC_STEP1) {
+      send(encodeSyncStep2(Y.encodeStateAsUpdate(ydoc, message.payload)))
+      return
+    }
+    Y.applyUpdate(ydoc, message.payload, REMOTE_ORIGIN)
+  })
+  if (!connection) return null
+  conn = connection
+  for (const frame of outbox) connection.send(frame)
+
+  // 내 편집분을 방으로 — 방에서 받아 적용한 것(REMOTE_ORIGIN)은 되돌려 보내지 않는다
+  ydoc.on('update', (update: Uint8Array, origin: unknown) => {
+    if (origin === REMOTE_ORIGIN) return
+    connection.send(encodeSyncUpdate(update))
+  })
+
+  awareness.on(
+    'update',
+    ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
+      if (origin === REMOTE_ORIGIN) return
+      const changed = added.concat(updated, removed)
+      connection.send(encodeAwarenessFrame(encodeAwarenessUpdate(awareness, changed)))
+    },
+  )
+
+  return connection
 }
 
 function scheduleReconcile(roomKey: string): void {
@@ -143,10 +235,33 @@ async function onOpen(roomKey: string, room: CollabRoom): Promise<void> {
     return // 알 수 없는 프로젝트·경로 탈출 등 — 브리지를 붙이지 않는다
   }
 
-  const editor = await createEditor(room)
-  // onOpen을 await하는 사이 방이 이미 닫혔거나(doc 파괴됨) 중복 등록됐으면 이 에디터를 버린다
-  if (room.doc.isDestroyed || agents.has(roomKey)) {
+  // 에디터보다 doc·awareness를 먼저 방에 붙인다 — 아래 에디터 로드를 기다리는 동안 도착한
+  // 프레임이 doc에 쌓이고, ySyncPlugin이 마운트 시점에 그 상태를 그대로 집어간다.
+  const ydoc = new Y.Doc()
+  const awareness = new Awareness(ydoc)
+  const connection = joinRoom(room, ydoc, awareness)
+  if (!connection) {
+    awareness.destroy()
+    ydoc.destroy()
+    return
+  }
+  const abandon = () => {
+    connection.close()
+    awareness.destroy()
+    ydoc.destroy()
+  }
+
+  let editor: Editor
+  try {
+    editor = await createEditor(ydoc, awareness)
+  } catch (err) {
+    abandon()
+    throw err
+  }
+  // await하는 사이 방이 닫혔거나 중복 등록됐으면 이쪽을 버린다
+  if (!connection.open || agents.has(roomKey)) {
     editor.destroy()
+    abandon()
     return
   }
 
@@ -162,9 +277,10 @@ async function onOpen(roomKey: string, room: CollabRoom): Promise<void> {
     })
   } catch {
     editor.destroy()
+    abandon()
     return
   }
-  agents.set(roomKey, { editor, absPath, watcher, timer: null })
+  agents.set(roomKey, { editor, ydoc, awareness, connection, absPath, watcher, timer: null })
 }
 
 function onClose(roomKey: string): void {
@@ -173,8 +289,12 @@ function onClose(roomKey: string): void {
   agents.delete(roomKey)
   if (state.timer) clearTimeout(state.timer)
   state.watcher.close()
-  // 에디터 파괴 — room.doc/awareness는 호출부(collab.ts)가 이 다음에 파괴한다
+  // 에디터 → 방 연결 → 자체 상태 순으로 내린다. 연결을 먼저 끊으면 에디터 파괴 중에 나오는
+  // 트랜잭션이 방에 전달되지 않고, 에이전트 커서도 남는다.
   state.editor.destroy()
+  state.connection.close()
+  state.awareness.destroy()
+  state.ydoc.destroy()
 }
 
 // relay가 부르는 생명주기 훅 묶음 — 테스트가 방을 직접 만들어 onOpen/onClose를 호출할 수 있도록 반환한다
@@ -188,6 +308,9 @@ let bridge: CollabAgentBridge | null = null
 export function attachCollabAgents(): CollabAgentBridge {
   if (bridge) return bridge
   bridge = { onOpen, onClose }
+  // 부팅 때 미리 로드해 사용자의 첫 문서 열기에서 이 ~170ms를 뺀다. 실패해도 무해하다 —
+  // 캐시를 비우므로 첫 onOpen이 다시 시도한다.
+  void loadEditorDeps().catch((err) => console.error('[mew] collabAgent 에디터 예열 실패:', err))
   setRoomLifecycle({
     onOpen: (roomKey, room) => {
       void onOpen(roomKey, room).catch((err) => console.error('[mew] collabAgent onOpen 실패:', err))

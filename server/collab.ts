@@ -2,28 +2,57 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { HttpServer } from 'vite'
-import * as encoding from 'lib0/encoding'
-import * as decoding from 'lib0/decoding'
 import * as Y from 'yjs'
-import { readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
+import { createRoomDoc, type RoomDoc } from './roomDoc.ts'
+import {
+  SYNC_STEP1,
+  decodeMessage,
+  encodeAwarenessFrame,
+  encodeSyncStep1,
+  encodeSyncStep2,
+  encodeSyncUpdate,
+} from './syncCodec.ts'
 
 const WS_PATH = '/api/collab'
-const MESSAGE_SYNC = 0
-const MESSAGE_AWARENESS = 1
 
-interface Room {
-  doc: Y.Doc
-  awareness: Awareness
-  // ws별로 자신이 소유한 awareness clientID들을 추적 — 연결이 끊기면 30초 타임아웃을 기다리지 않고
-  // 즉시 커서를 지워주기 위함 (y-websocket 서버 구현의 doc.conns 패턴과 동일)
-  clients: Map<WebSocket, Set<number>>
+/**
+ * 방에 붙은 상대 하나. 실제 WebSocket이거나, 디스크→방 브리지의 인프로세스 클라이언트다
+ * (ADR 0035 — 브리지는 방의 doc을 붙들지 않고 프로토콜로 말한다).
+ */
+interface Client {
+  send(frame: Uint8Array): void
+  /** 브리지처럼 방 자신이 띄운 클라이언트. 방을 살려두는 근거가 되지 않는다 — closeRoomIfEmpty 참고 */
+  local: boolean
 }
 
-// 협업 방의 공개 표면 — collabAgent(디스크→방 브리지)가 방의 doc/awareness에만 접근하도록 좁힌 타입.
-export interface CollabRoom {
-  doc: Y.Doc
+interface Room {
+  doc: RoomDoc
   awareness: Awareness
+  // 상대별로 자신이 소유한 awareness clientID들을 추적 — 연결이 끊기면 30초 타임아웃을 기다리지 않고
+  // 즉시 커서를 지워주기 위함 (y-websocket 서버 구현의 doc.conns 패턴과 동일)
+  clients: Map<Client, Set<number>>
+  destroyed: boolean
+}
+
+/** 방에 인프로세스로 붙은 클라이언트의 손잡이 */
+export interface RoomConnection {
+  send(frame: Uint8Array): void
+  close(): void
+  /** 아직 방에 붙어 있는지. 붙는 쪽이 await 하는 사이 방이 닫힐 수 있다. */
+  readonly open: boolean
+}
+
+// 협업 방의 공개 표면 — collabAgent(디스크→방 브리지)가 쓰는 것만 노출한다.
+// **doc은 노출하지 않는다**: 방 상태는 Rust(yrs)일 수 있고, 붙들면 백엔드를 갈 수 없다.
+export interface CollabRoom {
+  awareness: Awareness
+  /**
+   * 방에 인프로세스 클라이언트로 붙는다. 프레임 형식은 WebSocket 경로와 완전히 같다.
+   * 붙는 즉시 step1 + 전체 상태 step2 + 현재 awareness를 받는다(ws 클라이언트와 동일).
+   * 방이 이미 닫혔으면 null.
+   */
+  connect(onFrame: (frame: Uint8Array) => void): RoomConnection | null
 }
 
 // 방이 처음 열릴 때/마지막 클라이언트가 나가 닫힐 때 알림받는 훅. collabAgent가 방마다 헤드리스
@@ -51,27 +80,112 @@ function toUint8Array(raw: Buffer | ArrayBuffer | Buffer[]): Uint8Array {
   return raw
 }
 
-function send(ws: WebSocket, buf: Uint8Array) {
-  if (ws.readyState === WebSocket.OPEN) ws.send(buf)
-}
-
-function broadcast(room: Room, buf: Uint8Array, exclude: WebSocket | null) {
+function broadcast(room: Room, frame: Uint8Array, exclude: Client | null) {
   for (const client of room.clients.keys()) {
-    if (client !== exclude) send(client, buf)
+    if (client !== exclude) client.send(frame)
   }
 }
 
+/** 방을 살려두는 것은 실제 접속자뿐이다 — 브리지의 인프로세스 클라이언트는 세지 않는다.
+ * 세면 브리지가 붙은 방이 영원히 닫히지 않아 헤드리스 에디터와 fs watcher가 그대로 쌓인다. */
+function realClientCount(room: Room): number {
+  let count = 0
+  for (const client of room.clients.keys()) {
+    if (!client.local) count++
+  }
+  return count
+}
+
 function closeRoomIfEmpty(roomKey: string, room: Room) {
-  if (room.clients.size === 0) {
-    // 에이전트 에디터가 room.doc/awareness에 매여 있으므로, doc을 파괴하기 전에 먼저 떼어낸다
-    try {
-      lifecycle?.onClose(roomKey, room)
-    } catch (err) {
-      console.error('[mew] collab onClose 실패:', err)
-    }
-    room.awareness.destroy()
-    room.doc.destroy()
-    rooms.delete(roomKey)
+  if (realClientCount(room) > 0) return
+  // 에이전트 에디터가 방에 매여 있으므로, 상태를 버리기 전에 먼저 떼어낸다
+  try {
+    lifecycle?.onClose(roomKey, publicRoom(room))
+  } catch (err) {
+    console.error('[mew] collab onClose 실패:', err)
+  }
+  room.destroyed = true
+  room.clients.clear()
+  room.awareness.destroy()
+  room.doc.destroy()
+  rooms.delete(roomKey)
+}
+
+/** 방에 붙은 상대 하나를 받아들이고, 따라잡을 것을 전부 보낸다 (ws·인프로세스 공통 경로) */
+function admit(room: Room, client: Client) {
+  room.clients.set(client, new Set())
+
+  // step1(내 상태 벡터)로 상대의 편집분을 요청하고,
+  client.send(encodeSyncStep1(room.doc.stateVector()))
+  // 요청받기 전에 step2(방의 전체 상태)도 같은 묶음으로 보낸다. 상대의 step1을 기다리지 않으므로
+  // 접속 직후에 synced가 되고, 본문 렌더가 왕복 한 번을 덜 기다린다(3 RTT -> 2 RTT).
+  // 상태 벡터 없는 step2 = 전체 상태이고, Yjs 업데이트 적용은 멱등이라 뒤이어 올 step1 응답과
+  // 겹쳐도 결과가 같다. 위 step1은 그대로 남겨 상대가 자기 편집분을 올려보내게 한다.
+  client.send(encodeSyncStep2(room.doc.encodeStateAsUpdate()))
+
+  const states = room.awareness.getStates()
+  if (states.size > 0) {
+    client.send(encodeAwarenessFrame(encodeAwarenessUpdate(room.awareness, Array.from(states.keys()))))
+  }
+}
+
+/** 상대가 보낸 프레임 하나를 처리한다 (ws·인프로세스 공통 경로) */
+function handleFrame(room: Room, client: Client, bytes: Uint8Array) {
+  const message = decodeMessage(bytes)
+  if (!message) return // 알 수 없거나 잘린 프레임 — 무시한다
+
+  if (message.channel === 'awareness') {
+    applyAwarenessUpdate(room.awareness, message.payload, client)
+    return
+  }
+
+  if (message.syncType === SYNC_STEP1) {
+    // 상대의 상태 벡터 요청 — 그 기준 diff를 돌려준다
+    client.send(encodeSyncStep2(room.doc.encodeStateAsUpdate(message.payload)))
+    return
+  }
+
+  // step2·update — 둘 다 업데이트 바이트다. 적용하고 새로 생긴 만큼만 남에게 퍼뜨린다.
+  let diff: Uint8Array | null
+  try {
+    diff = room.doc.applyUpdate(message.payload)
+  } catch (err) {
+    // 깨진 업데이트로 방을 죽이지 않는다 — 보낸 쪽만 손해다
+    console.error('[mew] collab 업데이트 적용 실패:', err)
+    return
+  }
+  if (diff) broadcast(room, encodeSyncUpdate(diff), client)
+}
+
+function publicRoom(room: Room): CollabRoom {
+  return {
+    awareness: room.awareness,
+    connect(onFrame) {
+      if (room.destroyed) return null
+      const client: Client = { send: onFrame, local: true }
+      admit(room, client)
+      let joined = true
+      return {
+        get open() {
+          return joined && !room.destroyed
+        },
+        // 닫힌 뒤·방이 파괴된 뒤의 프레임은 버린다 — 파괴된 doc에 손대면 던진다(Rust 백엔드는 확실히)
+        send: (frame) => {
+          if (joined && !room.destroyed) handleFrame(room, client, frame)
+        },
+        close: () => {
+          if (!joined) return
+          joined = false
+          const owned = room.clients.get(client)
+          room.clients.delete(client)
+          if (owned && owned.size > 0 && !room.destroyed) {
+            removeAwarenessStates(room.awareness, Array.from(owned), null)
+          }
+          // 방의 수명은 실제 접속자만 결정한다 — 여기서 closeRoomIfEmpty를 부르면
+          // onClose 처리 중에 다시 들어온다(재진입).
+        },
+      }
+    },
   }
 }
 
@@ -79,39 +193,30 @@ function getRoom(roomKey: string): Room {
   const existing = rooms.get(roomKey)
   if (existing) return existing
 
-  const doc = new Y.Doc()
-  const awareness = new Awareness(doc)
-  const room: Room = { doc, awareness, clients: new Map() }
+  // awareness는 CRDT가 아니라 clock+JSON 맵이라 백엔드와 무관하게 JS에 남는다. Awareness가
+  // clientID를 doc에서 얻으므로 그 용도로만 쓰는 빈 Y.Doc을 붙인다 — 방의 내용은 여기 없다.
+  const awareness = new Awareness(new Y.Doc())
+  const room: Room = { doc: createRoomDoc(), awareness, clients: new Map(), destroyed: false }
   rooms.set(roomKey, room)
-
-  doc.on('update', (update: Uint8Array, origin: unknown) => {
-    const encoder = encoding.createEncoder()
-    encoding.writeVarUint(encoder, MESSAGE_SYNC)
-    writeUpdate(encoder, update)
-    broadcast(room, encoding.toUint8Array(encoder), origin instanceof WebSocket ? origin : null)
-  })
 
   awareness.on(
     'update',
     ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
-      if (origin instanceof WebSocket) {
-        const owned = room.clients.get(origin)
-        if (owned) {
-          for (const id of added) owned.add(id)
-          for (const id of removed) owned.delete(id)
-        }
+      const client = origin as Client | null
+      const owned = client && room.clients.get(client)
+      if (owned) {
+        for (const id of added) owned.add(id)
+        for (const id of removed) owned.delete(id)
       }
       const changed = added.concat(updated, removed)
-      const encoder = encoding.createEncoder()
-      encoding.writeVarUint(encoder, MESSAGE_AWARENESS)
-      encoding.writeVarUint8Array(encoder, encodeAwarenessUpdate(awareness, changed))
-      broadcast(room, encoding.toUint8Array(encoder), origin instanceof WebSocket ? origin : null)
+      const frame = encodeAwarenessFrame(encodeAwarenessUpdate(awareness, changed))
+      broadcast(room, frame, owned ? client : null)
     },
   )
 
-  // 방이 완전히 구성된 뒤에 브리지에 알린다 — 에이전트 에디터가 이 doc/awareness에 매인다
+  // 방이 완전히 구성된 뒤에 브리지에 알린다
   try {
-    lifecycle?.onOpen(roomKey, room)
+    lifecycle?.onOpen(roomKey, publicRoom(room))
   } catch (err) {
     console.error('[mew] collab onOpen 실패:', err)
   }
@@ -133,45 +238,21 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     return
   }
   const room = getRoom(roomKey)
-  room.clients.set(ws, new Set())
-
-  // 접속 즉시 sync step1(내 상태 벡터)과 현재 awareness 상태를 보내 새 클라이언트가 따라잡게 한다
-  {
-    const encoder = encoding.createEncoder()
-    encoding.writeVarUint(encoder, MESSAGE_SYNC)
-    writeSyncStep1(encoder, room.doc)
-    send(ws, encoding.toUint8Array(encoder))
-
-    const states = room.awareness.getStates()
-    if (states.size > 0) {
-      const awarenessEncoder = encoding.createEncoder()
-      encoding.writeVarUint(awarenessEncoder, MESSAGE_AWARENESS)
-      encoding.writeVarUint8Array(awarenessEncoder, encodeAwarenessUpdate(room.awareness, Array.from(states.keys())))
-      send(ws, encoding.toUint8Array(awarenessEncoder))
-    }
+  const client: Client = {
+    send: (frame) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(frame)
+    },
+    local: false,
   }
+  admit(room, client)
 
   ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
-    const decoder = decoding.createDecoder(toUint8Array(raw))
-    const messageType = decoding.readVarUint(decoder)
-    switch (messageType) {
-      case MESSAGE_SYNC: {
-        const encoder = encoding.createEncoder()
-        encoding.writeVarUint(encoder, MESSAGE_SYNC)
-        readSyncMessage(decoder, encoder, room.doc, ws)
-        if (encoding.length(encoder) > 1) send(ws, encoding.toUint8Array(encoder))
-        break
-      }
-      case MESSAGE_AWARENESS: {
-        applyAwarenessUpdate(room.awareness, decoding.readVarUint8Array(decoder), ws)
-        break
-      }
-    }
+    handleFrame(room, client, toUint8Array(raw))
   })
 
   ws.on('close', () => {
-    const owned = room.clients.get(ws)
-    room.clients.delete(ws)
+    const owned = room.clients.get(client)
+    room.clients.delete(client)
     if (owned && owned.size > 0) removeAwarenessStates(room.awareness, Array.from(owned), null)
     closeRoomIfEmpty(roomKey, room)
   })

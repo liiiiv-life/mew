@@ -115,6 +115,7 @@ npm run lint    # oxlint
 | `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더 |
 | `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·게스트 규칙·아이콘 |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
+| `MEW_COLLAB_RUST` | 없음(=JS Yjs) | `1`이면 협업 방 상태를 Rust(yrs)로 — 먼저 `npm run build:native` (아래 §협업 방) |
 | `DATABASE_URL` | 없음 | `/db`용 Postgres. 없거나 접속 불가면 `/db` API만 503 |
 | `R2_*` | 없음 | 미디어 업로드(S3 호환). 없으면 업로드 기능만 꺼진다 |
 
@@ -402,6 +403,35 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 - `server/guestAccess.ts` — 게스트 경로별 보기/편집 승인 규칙
 - `server/usersCli.ts` — 승인 리스트 CLI
 - docs 전용 규칙(MOC 커버리지·archives 불변·링크 라벨 동기화)은 docs 프로젝트에만 적용된다.
+
+### 협업 방 (Yjs 릴레이)
+
+- `server/collab.ts` — 방·클라이언트·awareness·`/api/collab` 웹소켓. 방 하나 = `프로젝트:상대경로`
+- `server/syncCodec.ts` — 프레임 인코딩/디코딩. **와이어 포맷이 코드 결합 계약이다**:
+  바깥 varUint 채널(`0` sync · `1` awareness) + sync 안의 varUint 종류(`0` step1 · `1` step2 ·
+  `2` update) + varUint8Array 본문. y-protocols와 바이트 단위로 같아야 하고
+  `server/syncCodec.test.ts`가 그것을 대조한다 — 어긋나면 배포 순간 열려 있는 모든 탭이 조용히 깨진다.
+  신뢰할 수 없는 바이트에는 던지지 않고 `null`을 준다
+- `server/roomDoc.ts` — CRDT 백엔드 둘(JS Yjs · Rust yrs). 요구 면은 셋뿐:
+  `stateVector()` · `encodeStateAsUpdate(sv?)` · `applyUpdate(update)`.
+  `applyUpdate`는 **방이 새로 얻은 업데이트**를 돌려준다(없으면 `null`) — 브로드캐스트는 이 값으로
+  한다. 상태 벡터 diff로 계산하면 삭제만 있는 업데이트가 빈 diff로 보여 사라진다
+- `server/collabAgent.ts` — 디스크→방 브리지. **자기 Y.Doc + awareness를 들고 방의 `connect()`로
+  붙는 인프로세스 클라이언트다** — 방의 doc을 붙들지 않는다(백엔드를 갈 수 없게 된다).
+  루프백 소켓을 쓰지 않는 이유는 `authorizeCollab`(게스트 차단) 우회 통로를 뚫어야 하기 때문
+- 인증·`MAX_ROOMS`·awareness·방 수명은 백엔드와 무관하게 JS에 남는다. 방을 살려두는 것은 **실제
+  접속자뿐**이다 — 브리지의 인프로세스 클라이언트를 세면 방이 영원히 닫히지 않아 헤드리스
+  에디터와 fs watcher가 쌓인다
+
+Rust 백엔드는 선택이고 기본은 꺼져 있다([ADR 0035](../docs/decisions/0035-mew-collab-rooms-rust-yrs.md)):
+
+```bash
+npm run build:native        # native/collab (cargo, napi-rs) → native/collab/mew-collab.node
+MEW_COLLAB_RUST=1 npm run serve
+```
+
+`.node`는 플랫폼별 산물이라 커밋하지 않는다. `MEW_COLLAB_RUST=1`인데 로드가 실패하면 **조용히 JS로
+돌지 않고 던진다** — 어느 구현이 도는지 모르는 상태가 협업 경로에서 제일 위험하다.
 
 ### 서버 상태 파일 (`.data/`)
 
