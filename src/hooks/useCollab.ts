@@ -8,6 +8,8 @@ import { guestName, identityColor } from '../utils/collabColor'
 
 const MESSAGE_SYNC = 0
 const MESSAGE_AWARENESS = 1
+const RETRY_MIN_MS = 300
+const RETRY_MAX_MS = 3000
 
 export interface Collab {
   ydoc: Y.Doc
@@ -34,6 +36,10 @@ export function useCollab(project: string, path: string | null, authEmail: strin
     let cancelled = false
     let ws: WebSocket | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
+    // 순간 끊김(랩탑 깨어남·와이파이 전환)은 곧바로 다시 붙는 게 맞다 — 3초를 그냥 기다리면 그동안 내
+    // 편집이 방에 안 올라간다. 반면 서버가 죽었거나 인증이 막힌 경우엔 300ms 재시도가 두들기는 셈이라
+    // 붙을 때까지 두 배씩 늘린다. 접속 성공하면 다시 300ms로 되돌린다.
+    let retryDelay = RETRY_MIN_MS
     // 서버에서 온 메시지를 적용할 때 이 값을 origin으로 넘겨, 되돌려 보내지 않게 걸러낸다
     const remoteOrigin = {}
 
@@ -77,6 +83,7 @@ export function useCollab(project: string, path: string | null, authEmail: strin
       ws.binaryType = 'arraybuffer'
 
       ws.onopen = () => {
+        retryDelay = RETRY_MIN_MS
         const syncEncoder = encoding.createEncoder()
         encoding.writeVarUint(syncEncoder, MESSAGE_SYNC)
         writeSyncStep1(syncEncoder, ydoc)
@@ -115,7 +122,9 @@ export function useCollab(project: string, path: string | null, authEmail: strin
       }
 
       ws.onclose = () => {
-        if (!cancelled) retryTimer = setTimeout(connect, 3000)
+        if (cancelled) return
+        retryTimer = setTimeout(connect, retryDelay)
+        retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
       }
     }
     connect()
