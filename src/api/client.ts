@@ -2,6 +2,7 @@ import type { EditorApi, EditorDbApi, DbColumn, DbColumnType, DbRow, DbSummary, 
 import type { TmuxPanelApi, TmuxSession } from '@mew/tmux-term'
 import { isCommandSession } from '@mew/tmux-term'
 import { subscribeDb } from './dbSocket'
+import { compressImage } from '../utils/compressImage'
 
 export type { TreeNode } from '@mew/editor'
 export type { TmuxSession } from '@mew/tmux-term'
@@ -408,9 +409,11 @@ export function fetchLinkPreview(url: string): Promise<{ title: string | null; d
   )
 }
 
-export function uploadAsset(file: File): Promise<{ url: string; name: string; mimetype: string }> {
+export async function uploadAsset(file: File): Promise<{ url: string; name: string; mimetype: string }> {
+  // 큰 사진은 여기서 한 번 줄여 올린다 — 서버·R2는 받은 바이트를 그대로 보관하므로 줄일 수 있는
+  // 유일한 자리다. 대상이 아니거나 실패하면 원본이 그대로 넘어온다(compressImage는 던지지 않는다).
   const body = new FormData()
-  body.append('file', file)
+  body.append('file', await compressImage(file))
   return fetch('/api/upload', { method: 'POST', body }).then(json<{ url: string; name: string; mimetype: string }>)
 }
 
