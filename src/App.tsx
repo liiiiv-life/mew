@@ -12,7 +12,6 @@ import {
   tmuxApi,
   type AuthStatus,
   type ProjectInfo,
-  type Role,
   type TreeNode,
 } from './api/client'
 import { ProjectPicker } from './components/ProjectPicker'
@@ -25,25 +24,21 @@ import { SystemStatsModal } from './components/SystemStatsModal'
 import { FileTree } from './components/FileTree'
 import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
-import { Editor, type EditorHandle } from '@mew/editor'
 import { TmuxTerminalPanel } from '@mew/tmux-term'
-import { TableOfContents } from './components/TableOfContents'
+import { AgentPanel } from './components/AgentPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { useOverlayDismiss, useToast } from '@mew/ui'
 import { useSwipeGesture } from '@mew/mobile-keys'
-import { TabBar } from './components/TabBar'
+import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
-import { CodePane, type CodePaneHandle } from './components/CodePane'
-import { MediaViewer } from './components/MediaViewer'
-import { SvgPreview } from './components/SvgPreview'
 import { FabMenu } from './components/FabMenu'
 import { mediaKind } from './utils/media'
-import { openTabsKey, useTabs, type Tab } from './hooks/useTabs'
+import { openTabsKey, useTabs } from './hooks/useTabs'
 import { applyLayout, bySlot, reorderedLayout } from './utils/projectLayout'
+import { dropZoneAt, paneIds, type DropZone, type PaneNode } from './utils/paneTree'
 import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
-import { useCollab } from './hooks/useCollab'
 import { outsideTerminal } from './utils/terminalFocus'
 
 function toggleFullscreen() {
@@ -52,14 +47,6 @@ function toggleFullscreen() {
 }
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
-
-// 실시간 협업은 파일별 "주 편집화면"에서만 지원한다 — .md는 Hotview, 그 외는 Plain.
-// 게스트는 파일별 편집 허용이 있어도 collab 소켓 자체가 서버에서 막혀 있어 항상 로컬 편집으로 처리한다.
-function primaryCollabPath(tab: Tab | null, role: Role): string | null {
-  if (role === 'guest' || !tab || !tab.editable || isArchivedPath(tab.path) || mediaKind(tab.path)) return null
-  const eligible = tab.path.endsWith('.md') ? tab.viewMode === 'hotview' : tab.viewMode === 'plain'
-  return eligible ? tab.path : null
-}
 
 type Theme = 'dark' | 'light'
 const THEME_KEY = 'mew:theme'
@@ -92,46 +79,6 @@ interface EditorAppProps {
   onRequestLogin: () => void
 }
 
-/** 에디터 우상단 도구 줄의 터미널 버튼 — 문서가 열려 있지 않을 때도 같은 자리에 뜬다 */
-function TerminalOpenButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
-      title="터미널 (Ctrl+` / Alt+T)"
-      aria-label="터미널 열기"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="m7 9 3 3-3 3" />
-        <line x1="13" y1="15" x2="17" y2="15" />
-      </svg>
-    </button>
-  )
-}
-
-/** 터미널 버튼 바로 아래 — 서버가 도는 기계의 CPU·메모리·GPU 현황 팝업 */
-function SystemStatsButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
-      title="시스템 자원 (CPU·메모리·GPU)"
-      aria-label="시스템 자원 보기"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 14a8 8 0 0 1 8-8" />
-        <path d="M4 14a8 8 0 0 1 3.5-6.6" />
-        <path d="M12 14 8.5 9.5" />
-        <path d="M4 14h16" />
-        <path d="M3 18h18" />
-      </svg>
-    </button>
-  )
-}
-
 function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const { role, email: authEmail } = auth
   const isGuest = role === 'guest'
@@ -144,6 +91,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   const [tmuxOpen, setTmuxOpen] = useState(() => canUseTerminal && loadTmuxOpen(getProject()))
+  // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034)
+  const [agentOpen, setAgentOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
   const [dbListOpen, setDbListOpen] = useState(false)
@@ -159,8 +108,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 사이드바 뷰: 파일 탐색기 vs 프로젝트 전체 검색(Ctrl+Shift+F). projectSearchFocus는 검색창 포커스 신호
   const [sidebarView, setSidebarView] = useState<'files' | 'search'>('files')
   const [projectSearchFocus, setProjectSearchFocus] = useState(0)
-  const editorRef = useRef<EditorHandle>(null)
-  const codePaneRef = useRef<CodePaneHandle>(null)
+  // 탭을 끌고 있는 동안 그림자가 뜰 칸과 자리 — 손을 떼면 그 자리가 실제 분할·이동이 된다
+  const [dropTarget, setDropTarget] = useState<{ paneId: string; zone: DropZone } | null>(null)
+  // 칸별 에디터 손잡이(선택 영역·찾기·되돌리기)와 본문 영역 DOM(드롭 자리 판정)
+  const paneHandles = useRef(new Map<string, PaneHandle>())
+  const paneEls = useRef(new Map<string, HTMLElement>())
   // 프로젝트 검색 결과를 클릭해 파일을 연 뒤, 그 파일 내용이 로드되면 해당 위치로 점프시키기 위한 대기 정보
   const pendingRevealRef = useRef<{ path: string; line: number; query: string } | null>(null)
 
@@ -190,6 +142,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   }, [])
 
   const {
+    panes,
+    layout,
+    focusedPaneId,
+    focusPane,
     tabs,
     activePath,
     activeTab,
@@ -203,16 +159,55 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     saveCurrentTab,
     applyRevertedContent,
     closeTab,
+    moveTabToPane,
+    splitWithTab,
     remapPaths,
     removePaths,
     forgetProject,
   } = useTabs(project, refreshTree, showToast)
 
+  const registerPaneHandle = useCallback((id: string, handle: PaneHandle | null) => {
+    if (handle) paneHandles.current.set(id, handle)
+    else paneHandles.current.delete(id)
+  }, [])
+
+  const registerPaneElement = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) paneEls.current.set(id, el)
+    else paneEls.current.delete(id)
+  }, [])
+
+  /** 지금 포커스된 칸의 에디터 — 커밋·찾기·되돌리기·터미널 붙여넣기가 가리키는 곳 */
+  const focusedEditor = useCallback(() => paneHandles.current.get(focusedPaneId) ?? null, [focusedPaneId])
+
+  /** 그 좌표에 있는 편집 칸의 **본문** 영역 — 탭 줄은 빠져 있다(줄 안에서 끄는 건 순서 바꾸기다) */
+  const paneAt = (x: number, y: number) => {
+    for (const [id, el] of paneEls.current) {
+      const rect = el.getBoundingClientRect()
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return { id, rect }
+    }
+    return null
+  }
+
+  const handleTabDragMove = useCallback((_paneId: string, _path: string, x: number, y: number) => {
+    const hit = paneAt(x, y)
+    setDropTarget(hit ? { paneId: hit.id, zone: dropZoneAt(hit.rect, x, y) } : null)
+  }, [])
+
+  const handleTabDrop = useCallback(
+    (paneId: string, path: string, x: number, y: number) => {
+      setDropTarget(null)
+      const hit = paneAt(x, y)
+      if (!hit) return
+      const zone = dropZoneAt(hit.rect, x, y)
+      if (zone === 'center') moveTabToPane(path, paneId, hit.id)
+      else splitWithTab(path, paneId, hit.id, zone)
+    },
+    [moveTabToPane, splitWithTab],
+  )
+
   // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
   // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
   const tabPresence = usePresence(project, activePath || null, authEmail, refreshTree)
-
-  const collab = useCollab(project, primaryCollabPath(activeTab, role), authEmail)
 
   const { width: sidebarWidth, startResize: startSidebarResize } = usePanelWidth('mew:sidebar-width', {
     min: 180,
@@ -226,27 +221,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     invert: true, // 패널이 화면 오른쪽에 붙어 있으므로 왼쪽으로 끌수록 넓어진다
   })
 
-  // 화면 위 40% 스와이프 = 탭 전환, 아래 20% = 창(사이드바·터미널) 전환, 가운데 40%는 제스처 없음
-  // 탭 전환 구역에서 우→좌면 오른쪽 탭(끝이면 처음으로), 좌→우면 왼쪽 탭(처음이면 끝으로)
-  const switchTab = (dir: 'left' | 'right') => {
-    if (tabs.length < 2 || !activePath) return
-    const idx = tabs.findIndex((t) => t.path === activePath)
-    if (idx < 0) return
-    const nextIdx = dir === 'left' ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length
-    setActivePath(tabs[nextIdx].path)
-  }
-
+  // 탭 전환·창 전환 스와이프는 편집 칸이 각자 처리한다 (EditorPane) — 칸마다 탭 줄이 따로다
   const sidebarSwipe = useSwipeGesture({ onBottomLeft: () => setSidebarOpen(false) })
-  // 구역 안에서는 스크롤 위치를 따지지 않고 바로 전환한다 — 긴 줄을 가로로 끄는 손짓은 가운데
-  // 40%(제스처 없는 구역)의 몫이라, 예전처럼 "맨 끝에 닿아야 통과" 규칙을 둘 이유가 없다.
-  const editorSwipe = useSwipeGesture({
-    onTopLeft: () => switchTab('left'),
-    onTopRight: () => switchTab('right'),
-    onBottomRight: () => setSidebarOpen(true),
-    onBottomLeft: () => {
-      if (canUseTerminal) setTmuxOpen(true)
-    },
-  })
   const tmuxSwipe = useSwipeGesture({ onBottomRight: () => setTmuxOpen(false) })
 
   // Esc·안드로이드 뒤로가기로 열린 것을 한 겹씩 닫는다 — 모달·팝업도 같은 스택에 등록돼 있어
@@ -304,13 +280,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     [project, forgetProject, switchProject],
   )
 
-  // 터미널·에이전트의 Ctrl+L이 우선 사용할 값 — 활성 뷰(hotview/plain)에 맞는 에디터에서
-  // 선택된 텍스트를 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
-  const getSelectedText = useCallback(() => {
-    if (!activeTab) return null
-    if (activeTab.viewMode === 'plain') return codePaneRef.current?.getSelectedText() ?? null
-    return editorRef.current?.getSelectedText() ?? null
-  }, [activeTab])
+  // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
+  // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
+  const getSelectedText = useCallback(() => focusedEditor()?.getSelectedText() ?? null, [focusedEditor])
 
   // 터미널 버튼 줄의 명령어 버튼 — 목록은 프로젝트와 무관한 전역 설정이라 패널 바깥에서 주입한다
   const renderTermButtons = useCallback((run: (command: string) => void) => <TermButtonBar run={run} />, [])
@@ -326,12 +298,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       const { content } = await revertFileToCommit(activeTab.path, hash)
       // hotview(md)는 collab의 Y.XmlFragment가 진실 원천이라 에디터를 통해 갈아끼워야
       // 다른 세션·다음 자동저장에 정상 반영된다. 그 외(plain 등)는 탭 상태만 갱신하면 된다.
-      if (editorRef.current && activeTab.path.endsWith('.md') && activeTab.viewMode === 'hotview') {
-        editorRef.current.setRawContent(content)
-      }
+      if (activeTab.path.endsWith('.md') && activeTab.viewMode === 'hotview') focusedEditor()?.setRawContent(content)
       applyRevertedContent(activeTab.path, content)
     },
-    [activeTab, applyRevertedContent],
+    [activeTab, applyRevertedContent, focusedEditor],
   )
 
   useEffect(() => {
@@ -442,7 +412,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         if (e.target instanceof HTMLElement && e.target.closest('.xterm')) return
         if (activeTab && !mediaKind(activeTab.path) && activeTab.viewMode === 'hotview' && !activeTab.path.endsWith('.svg')) {
           e.preventDefault()
-          editorRef.current?.openSearch()
+          focusedEditor()?.openSearch()
         }
       } else if (matchesShortcut(e, getBinding('toggleTerminal'))) {
         // VSCode처럼 어디에 포커스가 있어도 터미널을 토글한다 (Shift 조합 ~ 포함)
@@ -481,7 +451,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, openBlankTab, canUseTerminal])
+  }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, openBlankTab, canUseTerminal, focusedEditor])
 
   // 프로젝트 검색 결과 클릭 — 파일을 열고, 위치 점프 정보를 대기시킨다 (내용 로드 후 아래 effect가 처리)
   const openSearchResult = useCallback(
@@ -506,20 +476,90 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     const { line, query } = pending
     pendingRevealRef.current = null
     const timer = setTimeout(() => {
-      if (activeTab.viewMode === 'plain') codePaneRef.current?.revealLine(line)
-      else editorRef.current?.openSearch(query)
+      if (activeTab.viewMode === 'plain') focusedEditor()?.revealLine(line)
+      else focusedEditor()?.openSearch(query)
     }, 90)
     return () => clearTimeout(timer)
-  }, [activeTab])
+  }, [activeTab, focusedEditor])
 
   const canEditActiveTab = !!activeTab?.editable && !isArchivedPath(activeTab.path)
 
+  // 터미널·시스템 자원 버튼은 화면에 하나뿐이다 — 맨 끝 칸(오른쪽·아래)이 맡는다
+  const toolPaneId = paneIds(layout).at(-1)
+
+  /** 배치 나무를 그대로 화면으로 — 잎이 편집 칸, 가지가 가로(row)·세로(col) 분할이다 */
+  const renderLayout = (node: PaneNode, key: string) => {
+    if (node.kind === 'leaf') {
+      const pane = panes.find((p) => p.id === node.pane)
+      if (!pane) return null
+      return (
+        <EditorPane
+          key={pane.id}
+          pane={pane}
+          role={role}
+          authEmail={authEmail}
+          project={project}
+          tree={tree}
+          presence={tabPresence}
+          focused={pane.id === focusedPaneId}
+          isGuest={isGuest}
+          canUseTerminal={canUseTerminal}
+          tmuxOpen={tmuxOpen}
+          showGlobalTools={pane.id === toolPaneId}
+          tocOpen={tocOpen}
+          dropZone={dropTarget?.paneId === pane.id ? dropTarget.zone : null}
+          registerHandle={registerPaneHandle}
+          registerElement={registerPaneElement}
+          onFocus={() => focusPane(pane.id)}
+          onActivate={(path) => setActivePath(path, pane.id)}
+          onPin={(path) => pinTab(path, pane.id)}
+          onCloseTab={(path) => closeTab(path, pane.id)}
+          onReorder={(from, to) => reorderTabs(from, to, pane.id)}
+          onSetViewMode={(path, viewMode) => setTabViewMode(path, viewMode, pane.id)}
+          onChangeContent={updateTabContent}
+          onOpenLink={(linkPath) => openFile(linkPath, { preview: false, forceNewTab: true, paneId: pane.id })}
+          onOpenHistory={() => setHistoryOpen(true)}
+          onOpenTerminal={() => setTmuxOpen(true)}
+          onOpenSysStats={() => setSysStatsOpen(true)}
+          onSetTocOpen={setTocOpen}
+          onOpenSidebar={() => setSidebarOpen(true)}
+          onTabDragMove={handleTabDragMove}
+          onTabDrop={handleTabDrop}
+        />
+      )
+    }
+    return (
+      <div
+        key={key}
+        className={`flex min-h-0 min-w-0 flex-1 divide-edge ${node.dir === 'col' ? 'flex-col divide-y' : 'divide-x'}`}
+      >
+        {node.kids.map((kid, i) => renderLayout(kid, `${key}.${i}`))}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col bg-surface text-ink" style={{ height: 'var(--app-height, 100dvh)' }}>
-      {/* 윗줄 = 프로젝트 탭 + 도구 버튼, 아랫줄 = 그 프로젝트의 문서 탭. 두 줄 다 화면 전폭을 쓴다.
-          탭이 줄 높이를 꽉 채워야 아래 문서 탭 줄과 같은 모양이 되므로 헤더에 세로 여백은 두지 않는다. */}
+      {/* 화면 전폭을 쓰는 줄은 이 헤더 하나뿐이다 — 프로젝트 탭 + 도구 버튼. 문서 탭 줄은 각
+          편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
         <header className="flex h-10 items-stretch border-b border-edge pr-2">
+          {/* 사이드바가 닫혀 있을 때만 뜨는 여는 버튼 — 프로젝트 탭 왼쪽, 사이드바가 서는 자리 위 */}
+          {!sidebarOpen && (
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              className="shrink-0 px-2 text-ink-muted hover:bg-surface-raised hover:text-ink"
+              title="사이드바 열기 (Ctrl+B)"
+              aria-label="사이드바 열기"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M9 3v18" />
+                <path d="m14 9 3 3-3 3" />
+              </svg>
+            </button>
+          )}
           <ProjectTabs
             projects={projectTabs}
             activeProject={project}
@@ -553,6 +593,20 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                   <span className="hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
                 )}
               </>
+            )}
+            {canUseTerminal && (
+              <button
+                type="button"
+                onClick={() => setAgentOpen((open) => !open)}
+                className={`rounded border border-edge-strong p-1.5 hover:bg-surface-raised ${agentOpen ? 'bg-surface-raised text-ink' : ''}`}
+                title="에이전트"
+                aria-label="에이전트"
+              >
+                {/* 말풍선 — 채팅 창이지 터미널이 아니다 */}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
+                </svg>
+              </button>
             )}
             {isOwner && (
               <button
@@ -618,35 +672,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             )}
           </div>
         </header>
-
-        <TabBar
-          tabs={tabs}
-          activePath={activePath}
-          presence={tabPresence}
-          onActivate={setActivePath}
-          onPin={pinTab}
-          onClose={closeTab}
-          onReorder={reorderTabs}
-        />
       </div>
 
       <div className="relative flex min-h-0 flex-1">
-        {/* 사이드바가 닫혀 있을 때만 뜨는 여는 버튼 — 탭 아래, 에디터 왼쪽 위 */}
-        {!sidebarOpen && (
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            className="absolute left-3 top-3 z-20 rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
-            title="사이드바 열기 (Ctrl+B)"
-            aria-label="사이드바 열기"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M9 3v18" />
-              <path d="m14 9 3 3-3 3" />
-            </svg>
-          </button>
-        )}
         {sidebarOpen && (
           <div
             {...sidebarSwipe}
@@ -728,158 +756,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           </div>
         )}
 
-        {activeTab ? (
-          <>
-            {isArchivedPath(activeTab.path) && !isGuest && (
-              <div className="absolute inset-x-0 top-11 z-10 bg-warning-surface px-4 py-1 text-center text-sm text-warning-ink">
-                archives/ 문서는 불변입니다 — 편집이 차단되었습니다
-              </div>
-            )}
-            <div className="relative min-w-0 flex-1" {...editorSwipe}>
-              {/* 에디터 우상단 도구 줄 — 히스토리·뷰 모드·목차는 md/svg 문서에만, 터미널은 파일 종류와
-                  무관하게 뜬다. right-5는 에디터 오른쪽 스크롤바를 비켜 앉기 위한 여백 */}
-              <div className="absolute right-5 top-3 z-20 flex items-start gap-2">
-                {(activeTab.path.endsWith('.md') || activeTab.path.endsWith('.svg')) && (
-                  <>
-                    {!isGuest && (
-                      <button
-                        type="button"
-                        onClick={() => setHistoryOpen(true)}
-                        className="rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
-                        title="히스토리"
-                        aria-label="히스토리"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 3v5h5" />
-                          <path d="M3.05 13a9 9 0 1 0 .5-4.5L3 8" />
-                          <path d="M12 7v5l4 2" />
-                        </svg>
-                      </button>
-                    )}
-                    {/* 렌더 보기(md=Hotview 눈, svg=이미지) ↔ 원문 보기(Plain, 코드 괄호) */}
-                    <div className="flex overflow-hidden rounded border border-edge-strong shadow-sm">
-                      <button
-                        type="button"
-                        onClick={() => setTabViewMode(activeTab.path, 'hotview')}
-                        className={`p-1.5 ${
-                          activeTab.viewMode === 'hotview'
-                            ? 'bg-accent text-ink-on-accent'
-                            : 'bg-surface-raised text-ink-secondary hover:bg-surface-hover'
-                        }`}
-                        title={activeTab.path.endsWith('.svg') ? '이미지' : 'Hotview'}
-                        aria-label={activeTab.path.endsWith('.svg') ? '이미지' : 'Hotview'}
-                      >
-                        {activeTab.path.endsWith('.svg') ? (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="3" width="18" height="18" rx="2" />
-                            <circle cx="9" cy="9" r="1.5" />
-                            <path d="m21 15-4.5-4.5L6 21" />
-                          </svg>
-                        ) : (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
-                            <circle cx="12" cy="12" r="3" />
-                          </svg>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTabViewMode(activeTab.path, 'plain')}
-                        className={`p-1.5 ${
-                          activeTab.viewMode === 'plain'
-                            ? 'bg-accent text-ink-on-accent'
-                            : 'bg-surface-raised text-ink-secondary hover:bg-surface-hover'
-                        }`}
-                        title={activeTab.path.endsWith('.svg') ? '텍스트' : 'Plain'}
-                        aria-label={activeTab.path.endsWith('.svg') ? '텍스트' : 'Plain'}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="m18 16 4-4-4-4" />
-                          <path d="m6 8-4 4 4 4" />
-                          <path d="m14.5 4-5 16" />
-                        </svg>
-                      </button>
-                    </div>
-                  </>
-                )}
-                {activeTab.path.endsWith('.md') && !tocOpen && (
-                  <button
-                    type="button"
-                    onClick={() => setTocOpen(true)}
-                    className="hidden rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover lg:block"
-                    title="목차 열기"
-                    aria-label="목차 열기"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                      <path d="M9 6h12M9 12h12M9 18h12" />
-                      <circle cx="4" cy="6" r="1" fill="currentColor" />
-                      <circle cx="4" cy="12" r="1" fill="currentColor" />
-                      <circle cx="4" cy="18" r="1" fill="currentColor" />
-                    </svg>
-                  </button>
-                )}
-                {canUseTerminal && (
-                  <div className="flex flex-col gap-2">
-                    {!tmuxOpen && <TerminalOpenButton onClick={() => setTmuxOpen(true)} />}
-                    <SystemStatsButton onClick={() => setSysStatsOpen(true)} />
-                  </div>
-                )}
-              </div>
-              {mediaKind(activeTab.path) ? (
-                // key로 파일 전환 시 리마운트 — 이전 파일의 재생 상태가 남지 않게
-                <MediaViewer key={activeTab.path} path={activeTab.path} kind={mediaKind(activeTab.path)!} />
-              ) : activeTab.path.endsWith('.svg') && activeTab.viewMode === 'hotview' ? (
-                <SvgPreview content={activeTab.content} />
-              ) : activeTab.viewMode === 'plain' ? (
-                <CodePane
-                  ref={codePaneRef}
-                  path={activeTab.path}
-                  value={activeTab.content}
-                  onChange={(content) => updateTabContent(activeTab.path, content)}
-                  readOnly={!activeTab.editable || isArchivedPath(activeTab.path)}
-                  collab={collab}
-                />
-              ) : (
-                <Editor
-                  ref={editorRef}
-                  value={activeTab.content}
-                  api={editorApi}
-                  onChange={(content) => updateTabContent(activeTab.path, content)}
-                  readOnly={!activeTab.editable || isArchivedPath(activeTab.path)}
-                  path={activeTab.path}
-                  tree={tree}
-                  onOpenLink={(linkPath) => openFile(linkPath, { preview: false, forceNewTab: true })}
-                  collab={collab}
-                />
-              )}
-            </div>
-            {tocOpen && activeTab.path.endsWith('.md') && (
-              <TableOfContents
-                content={activeTab.content}
-                onJump={(i) => editorRef.current?.scrollToHeading(i)}
-                onClose={() => setTocOpen(false)}
-              />
-            )}
-          </>
-        ) : (
-          <div className="relative flex flex-1 items-center justify-center text-ink-secondary" {...editorSwipe}>
-            {/* 문서가 없어도 터미널은 열 수 있어야 한다 — 도구 줄과 같은 자리 */}
-            {canUseTerminal && (
-              <div className="absolute right-5 top-3 z-20 flex flex-col gap-2">
-                {!tmuxOpen && <TerminalOpenButton onClick={() => setTmuxOpen(true)} />}
-                <SystemStatsButton onClick={() => setSysStatsOpen(true)} />
-              </div>
-            )}
-            <div className="text-center">
-              <div className="mb-2">왼쪽에서 문서를 선택하세요</div>
-              {isGuest ? (
-                <div className="text-xs text-ink-muted">Ctrl+P 검색</div>
-              ) : (
-                <>
-                  <div className="text-xs text-ink-muted">Ctrl+P 검색 · 사이드바에서 Insert로 새 파일</div>
-                  <div className="mt-2 text-xs text-ink-faint">자동 저장 · Ctrl+S 커밋</div>
-                </>
-              )}
+        {/* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */}
+        {renderLayout(layout, 'root')}
+
+        {agentOpen && canUseTerminal && (
+          <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[26rem] md:shrink-0">
+            <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <AgentPanel project={project} onClose={() => setAgentOpen(false)} />
             </div>
           </div>
         )}

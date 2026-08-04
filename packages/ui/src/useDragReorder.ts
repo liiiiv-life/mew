@@ -63,12 +63,18 @@ export function useDragReorder({
   onReorder,
   onLongPress,
   onDragStart,
+  onDragMove,
+  onDrop,
 }: {
   onReorder: (from: number, to: number) => void
   /** 터치 길게누르기 시점(이동 전) — 컨텍스트 메뉴 열기 등에 쓴다 */
   onLongPress?: (index: number, x: number, y: number) => void
   /** 실제 드래그 이동이 시작될 때 — 길게누르기로 연 메뉴 닫기 등에 쓴다 */
   onDragStart?: () => void
+  /** 드래그 중 포인터가 움직일 때마다 — 줄 **바깥**에 놓는 뜻(에디터 분할 등)을 미리 보이는 데 쓴다 */
+  onDragMove?: (index: number, x: number, y: number) => void
+  /** 손을 뗄 때 (취소는 제외) — 줄 바깥에 놓았을 때의 처리를 여기서 한다 */
+  onDrop?: (index: number, x: number, y: number) => void
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const itemsRef = useRef(new Map<number, HTMLElement>())
@@ -212,12 +218,14 @@ export function useDragReorder({
     if (state.phase !== 'active') return
 
     applyTarget(e.clientX)
+    onDragMove?.(state.index, e.clientX, e.clientY)
   }
 
-  function onPointerEnd(e: React.PointerEvent) {
+  function onPointerEnd(e: React.PointerEvent, dropped: boolean) {
     const state = stateRef.current
     if (!state || e.pointerId !== state.pointerId) return
     if (state.phase !== 'pending') clickSuppressedAt.current = Date.now()
+    if (dropped && state.phase === 'active') onDrop?.(state.index, e.clientX, e.clientY)
     cleanup()
   }
 
@@ -237,8 +245,8 @@ export function useDragReorder({
       },
       onPointerDown: (e) => onPointerDown(index, e),
       onPointerMove,
-      onPointerUp: onPointerEnd,
-      onPointerCancel: onPointerEnd,
+      onPointerUp: (e) => onPointerEnd(e, true),
+      onPointerCancel: (e) => onPointerEnd(e, false),
     }
   }
 

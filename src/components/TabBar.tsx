@@ -14,6 +14,8 @@ export function TabBar({
   onPin,
   onClose,
   onReorder,
+  onDragMove,
+  onDrop,
 }: {
   tabs: TabBarItem[]
   activePath: string | null
@@ -22,8 +24,16 @@ export function TabBar({
   onPin: (path: string) => void
   onClose: (path: string) => void
   onReorder: (from: number, to: number) => void
+  /** 탭을 줄 바깥으로 끌고 있는 동안 — 편집 칸 위면 그 자리가 무엇이 될지 미리 보인다 */
+  onDragMove?: (path: string, x: number, y: number) => void
+  /** 탭을 놓았을 때 — 다른 칸이면 옮기기, 칸 가장자리면 분할 */
+  onDrop?: (path: string, x: number, y: number) => void
 }) {
-  const drag = useDragReorder({ onReorder })
+  const drag = useDragReorder({
+    onReorder,
+    onDragMove: (i, x, y) => onDragMove?.(tabs[i]?.path ?? '', x, y),
+    onDrop: (i, x, y) => onDrop?.(tabs[i]?.path ?? '', x, y),
+  })
 
   return (
     <div className="flex h-9 items-center border-b border-edge bg-surface-deep">

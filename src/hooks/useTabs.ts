@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchFile, fetchRules, isArchivedPath, saveFile, type DocRules } from '../api/client'
 import { mediaKind } from '../utils/media'
 import { dropCachedFile, getCachedFile, putCachedFile } from '../utils/contentCache'
+import { leaf, normalizeLayout, removeLeaf, splitLeaf, type DropSide, type PaneNode } from '../utils/paneTree'
 
 export type Tab = {
   path: string
@@ -16,27 +17,52 @@ export type Tab = {
   editable: boolean // 서버가 /api/file에서 계산해 내려주는 값 — 게스트의 부분 편집 승인을 반영
 }
 
-/** 한 프로젝트의 탭 묶음 — 프로젝트 탭을 옮겨도 각자 열어둔 문서와 활성 탭이 그대로 남는다 */
-type ProjectTabs = { tabs: Tab[]; activePath: string | null }
+/** 화면 분할의 칸 하나 — 자기 탭 줄과 자기 활성 탭을 가진다 */
+export type Pane = { id: string; tabs: Tab[]; activePath: string | null }
 
-const EMPTY: ProjectTabs = { tabs: [], activePath: null }
+/** 한 프로젝트의 편집 화면 — 칸들 + 그 칸들의 배치 + 지금 포커스된 칸 */
+type ProjectTabs = { panes: Pane[]; layout: PaneNode; focusedPaneId: string }
+
+/** 분할하지 않은 상태의 칸 id — 저장분과 옛 형식 이관이 이 이름 하나만 알면 되게 고정값이다 */
+const MAIN_PANE = 'main'
+
+const EMPTY: ProjectTabs = { panes: [{ id: MAIN_PANE, tabs: [], activePath: null }], layout: leaf(MAIN_PANE), focusedPaneId: MAIN_PANE }
+
+let paneSeq = 0
+function newPaneId(): string {
+  paneSeq += 1
+  return `pane-${Date.now().toString(36)}-${paneSeq}`
+}
 
 // 탭 복원은 프로젝트별로 — docs는 예전 키를 그대로 써서 기존에 열려 있던 탭을 잃지 않는다
 export function openTabsKey(project: string): string {
   return project === 'docs' ? 'mew:open-tabs' : `mew:open-tabs:${project}`
 }
 
+type StoredTab = { path: string; preview: boolean; viewMode: 'hotview' | 'plain' }
 type StoredTabs = {
-  tabs: { path: string; preview: boolean; viewMode: 'hotview' | 'plain' }[]
-  activePath: string | null
+  panes: { id: string; tabs: StoredTab[]; activePath: string | null }[]
+  layout: PaneNode
+  focusedPaneId: string
 }
 
+/** 저장분 읽기 — 분할 이전 형식(`{tabs, activePath}`)은 칸 하나짜리로 읽는다 */
 function loadStoredTabs(project: string): StoredTabs | null {
   const raw = localStorage.getItem(openTabsKey(project))
   if (!raw) return null
   try {
-    const parsed = JSON.parse(raw) as Partial<StoredTabs>
-    return Array.isArray(parsed?.tabs) ? { tabs: parsed.tabs, activePath: parsed.activePath ?? null } : null
+    const parsed = JSON.parse(raw) as Partial<StoredTabs> & { tabs?: StoredTab[]; activePath?: string | null }
+    const panes = Array.isArray(parsed?.panes)
+      ? parsed.panes.filter((p) => p && typeof p.id === 'string' && Array.isArray(p.tabs))
+      : Array.isArray(parsed?.tabs)
+        ? [{ id: MAIN_PANE, tabs: parsed.tabs, activePath: parsed.activePath ?? null }]
+        : []
+    if (panes.length === 0) return null
+    return {
+      panes: panes.map((p) => ({ id: p.id, tabs: p.tabs, activePath: p.activePath ?? null })),
+      layout: normalizeLayout(parsed.layout, panes.map((p) => p.id)),
+      focusedPaneId: panes.some((p) => p.id === parsed.focusedPaneId) ? parsed.focusedPaneId! : panes[0].id,
+    }
   } catch {
     return null
   }
@@ -56,13 +82,32 @@ function blankTab(): Tab {
   }
 }
 
+/**
+ * 탭이 하나도 남지 않은 칸은 접는다 — 배치에서 빼고, 그 칸을 보고 있었으면 포커스를 옮긴다.
+ * 칸이 하나뿐이면 접지 않는다(빈 화면 안내가 그 자리에 뜬다).
+ */
+function prunePanes(s: ProjectTabs): ProjectTabs {
+  if (s.panes.length < 2) return s
+  const kept = s.panes.filter((p) => p.tabs.length > 0)
+  if (kept.length === s.panes.length) return s
+  if (kept.length === 0) return { panes: [s.panes[0]], layout: leaf(s.panes[0].id), focusedPaneId: s.panes[0].id }
+  let layout = s.layout
+  for (const p of s.panes) if (!kept.includes(p)) layout = removeLeaf(layout, p.id) ?? layout
+  return {
+    panes: kept,
+    layout: normalizeLayout(layout, kept.map((p) => p.id)),
+    focusedPaneId: kept.some((p) => p.id === s.focusedPaneId) ? s.focusedPaneId : kept[0].id,
+  }
+}
+
 // 열린 탭 목록과 탭별 저장 상태 머신(자동저장·커밋) 전부 — App은 여기서 받은 상태와
 // 액션만 배선한다. onCommitted는 커밋 성공 시 트리 갱신 등 바깥 후처리용.
 //
 // 상태는 **프로젝트별**로 들고 있고, 밖으로는 지금 활성 프로젝트(project 인자)의 것만 내보낸다.
-// 액션도 특별히 명시하지 않는 한 활성 프로젝트에 대해 동작한다 — 화면에서 만질 수 있는 게
-// 그것뿐이기 때문이다. 예외는 자동저장·커밋으로, 이들은 예약된 시점의 프로젝트를 붙들고 있어야
-// 전환 뒤에 엉뚱한 프로젝트의 같은 이름 파일을 덮어쓰지 않는다.
+// 한 프로젝트 안은 다시 **칸(pane)별**로 나뉜다 — 칸마다 자기 탭 줄과 활성 탭이 있고, paneId를
+// 넘기지 않는 액션은 지금 포커스된 칸에 대해 동작한다.
+// 예외는 자동저장·커밋으로, 이들은 예약된 시점의 프로젝트를 붙들고 있어야 전환 뒤에 엉뚱한
+// 프로젝트의 같은 이름 파일을 덮어쓰지 않는다.
 export function useTabs(project: string, onCommitted: () => void, onNotice: (message: string) => void) {
   const [states, setStates] = useState<Record<string, ProjectTabs>>({})
   // 콜백 identity가 바뀌어도 openFileIn 등의 useCallback을 다시 만들지 않도록 ref로 든다
@@ -76,31 +121,57 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   const hydratedRef = useRef(new Set<string>())
 
   const state = states[project] ?? EMPTY
-  const { tabs, activePath } = state
+  const { panes, layout, focusedPaneId } = state
+  const focusedPane = panes.find((p) => p.id === focusedPaneId) ?? panes[0]
+  const { tabs, activePath } = focusedPane
   const activeTab = tabs.find((t) => t.path === activePath) ?? null
 
   useEffect(() => {
     statesRef.current = states
   }, [states])
 
-  const tabsOf = (p: string) => statesRef.current[p]?.tabs ?? []
+  const stateOf = (p: string) => statesRef.current[p] ?? EMPTY
+  const paneOf = (p: string, paneId?: string) => {
+    const s = stateOf(p)
+    const id = paneId ?? s.focusedPaneId
+    return s.panes.find((x) => x.id === id) ?? s.panes[0]
+  }
+  /** 그 프로젝트에서 이 경로로 열린 탭 아무거나 — 내용·저장 상태는 칸이 달라도 같은 것을 본다 */
+  const findTab = (p: string, path: string) => stateOf(p).panes.flatMap((x) => x.tabs).find((t) => t.path === path)
 
-  /** 한 프로젝트의 탭 묶음만 바꾼다 — 다른 프로젝트 상태는 그대로 둔다 */
+  /** 한 프로젝트의 화면 상태만 바꾼다 — 다른 프로젝트 상태는 그대로 둔다 */
   const patch = useCallback((p: string, fn: (prev: ProjectTabs) => ProjectTabs) => {
     setStates((all) => ({ ...all, [p]: fn(all[p] ?? EMPTY) }))
   }, [])
 
-  /** 그 프로젝트의 탭들을 한 번에 매핑 */
+  /** 칸 하나만 바꾼다 */
+  const patchPane = useCallback(
+    (p: string, paneId: string, fn: (pane: Pane) => Pane) => {
+      patch(p, (s) => ({ ...s, panes: s.panes.map((x) => (x.id === paneId ? fn(x) : x)) }))
+    },
+    [patch],
+  )
+
+  /** 그 프로젝트의 **모든 칸**의 탭을 한 번에 매핑 — 내용·저장 상태는 경로 단위라 칸을 가리지 않는다 */
   const mapTabs = useCallback(
     (p: string, fn: (t: Tab) => Tab) => {
-      patch(p, (s) => ({ ...s, tabs: s.tabs.map(fn) }))
+      patch(p, (s) => ({ ...s, panes: s.panes.map((pane) => ({ ...pane, tabs: pane.tabs.map(fn) })) }))
     },
     [patch],
   )
 
   const setActivePath = useCallback(
-    (path: string | null) => {
-      patch(projectRef.current, (s) => ({ ...s, activePath: path }))
+    (path: string | null, paneId?: string) => {
+      const p = projectRef.current
+      patchPane(p, paneId ?? stateOf(p).focusedPaneId, (pane) => ({ ...pane, activePath: path }))
+    },
+    [patchPane],
+  )
+
+  /** 포커스 칸 옮기기 — 커밋·단축키·터미널 붙여넣기가 어느 칸을 가리키는지가 이걸로 정해진다 */
+  const focusPane = useCallback(
+    (paneId: string) => {
+      patch(projectRef.current, (s) => (s.focusedPaneId === paneId ? s : { ...s, focusedPaneId: paneId }))
     },
     [patch],
   )
@@ -108,12 +179,13 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   const openFileIn = useCallback(
     // forceNewTab: 이미 열려 있지 않은 문서라도 미리보기 탭 자리를 재사용하지 않고 항상 새 탭으로 연다
     // (에디터 안에서 Ctrl+클릭으로 내부 링크를 열 때 — 사이드바 클릭의 미리보기 재사용 동작과는 별개)
-    (p: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean }) => {
+    (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean }) => {
       const preview = opts?.preview ?? true
-      const existing = tabsOf(p).find((t) => t.path === path)
+      const existing = paneOf(p, paneId).tabs.find((t) => t.path === path)
       if (existing) {
-        patch(p, (s) => ({
-          tabs: !preview && existing.preview ? s.tabs.map((t) => (t.path === path ? { ...t, preview: false } : t)) : s.tabs,
+        patchPane(p, paneId, (pane) => ({
+          ...pane,
+          tabs: !preview && existing.preview ? pane.tabs.map((t) => (t.path === path ? { ...t, preview: false } : t)) : pane.tabs,
           activePath: path,
         }))
         return
@@ -133,14 +205,14 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
           ? { content: cached.content, savedContent: cached.content, committedContent: cached.content, editable: cached.editable }
           : {}),
       }
-      patch(p, (s) => {
-        if (opts?.forceNewTab) return { tabs: [...s.tabs, newTab], activePath: path }
-        // 미리보기 탭은 하나만 유지 — 새로 여는 문서가 그 자리를 재사용
-        const previewIdx = s.tabs.findIndex((t) => t.preview)
-        if (previewIdx === -1) return { tabs: [...s.tabs, newTab], activePath: path }
-        const next = [...s.tabs]
+      patchPane(p, paneId, (pane) => {
+        if (opts?.forceNewTab) return { ...pane, tabs: [...pane.tabs, newTab], activePath: path }
+        // 미리보기 탭은 칸마다 하나만 유지 — 새로 여는 문서가 그 자리를 재사용
+        const previewIdx = pane.tabs.findIndex((t) => t.preview)
+        if (previewIdx === -1) return { ...pane, tabs: [...pane.tabs, newTab], activePath: path }
+        const next = [...pane.tabs]
         next[previewIdx] = newTab
-        return { tabs: next, activePath: path }
+        return { ...pane, tabs: next, activePath: path }
       })
       // 바이너리 미디어는 뷰어가 /api/raw로 직접 스트리밍한다 — utf-8 fetch도 규칙 검사도 없음
       if (mediaKind(path)) return
@@ -160,16 +232,19 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
         .then((rules) => mapTabs(p, (t) => (t.path === path ? { ...t, rules } : t)))
         .catch(console.error)
     },
-    [patch, mapTabs],
+    [patchPane, mapTabs],
   )
 
   const openFile = useCallback(
-    (path: string, opts?: { preview?: boolean; forceNewTab?: boolean }) => openFileIn(projectRef.current, path, opts),
+    (path: string, opts?: { preview?: boolean; forceNewTab?: boolean; paneId?: string }) => {
+      const p = projectRef.current
+      openFileIn(p, opts?.paneId ?? stateOf(p).focusedPaneId, path, opts)
+    },
     [openFileIn],
   )
 
-  // 브라우저를 껐다 켜거나 F5로 새로고침해도 열려 있던 탭들을 복원한다. 프로젝트를 처음 열 때
-  // (전환 포함) 한 번만 — StrictMode의 이펙트 2회 실행도 hydratedRef가 막는다.
+  // 브라우저를 껐다 켜거나 F5로 새로고침해도 열려 있던 탭들과 분할 배치를 복원한다. 프로젝트를
+  // 처음 열 때(전환 포함) 한 번만 — StrictMode의 이펙트 2회 실행도 hydratedRef가 막는다.
   useEffect(() => {
     if (hydratedRef.current.has(project)) return
     hydratedRef.current.add(project)
@@ -178,52 +253,75 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       patch(project, (s) => s) // 빈 상태라도 만들어 둬야 이후 저장이 이 프로젝트를 기록한다
       return
     }
-    for (const t of stored.tabs) openFileIn(project, t.path, { preview: t.preview, forceNewTab: true })
-    if (stored.activePath) patch(project, (s) => ({ ...s, activePath: stored.activePath }))
-  }, [project, openFileIn, patch])
+    // 칸 뼈대를 먼저 세운다 — openFileIn이 그 칸을 찾아 탭을 붙인다
+    patch(project, () => ({
+      panes: stored.panes.map((p) => ({ id: p.id, tabs: [], activePath: null })),
+      layout: stored.layout,
+      focusedPaneId: stored.focusedPaneId,
+    }))
+    for (const pane of stored.panes) {
+      for (const t of pane.tabs) openFileIn(project, pane.id, t.path, { preview: t.preview, forceNewTab: true })
+      if (pane.activePath) patchPane(project, pane.id, (x) => ({ ...x, activePath: pane.activePath }))
+    }
+  }, [project, openFileIn, patch, patchPane])
 
   // 복원이 끝난(=상태가 만들어진) 프로젝트만 저장한다 — 아직 열어보지 않은 프로젝트의 저장분을
   // 빈 목록으로 덮어쓰지 않는다.
   useEffect(() => {
     for (const [p, s] of Object.entries(states)) {
       const payload: StoredTabs = {
-        tabs: s.tabs.map((t) => ({ path: t.path, preview: t.preview, viewMode: t.viewMode })),
-        activePath: s.activePath,
+        panes: s.panes.map((pane) => ({
+          id: pane.id,
+          tabs: pane.tabs.map((t) => ({ path: t.path, preview: t.preview, viewMode: t.viewMode })),
+          activePath: pane.activePath,
+        })),
+        layout: s.layout,
+        focusedPaneId: s.focusedPaneId,
       }
       localStorage.setItem(openTabsKey(p), JSON.stringify(payload))
     }
   }, [states])
 
   const openBlankTab = useCallback(() => {
+    const p = projectRef.current
     const newTab = blankTab()
-    patch(projectRef.current, (s) => ({ tabs: [...s.tabs, newTab], activePath: newTab.path }))
-  }, [patch])
+    patchPane(p, stateOf(p).focusedPaneId, (pane) => ({ ...pane, tabs: [...pane.tabs, newTab], activePath: newTab.path }))
+  }, [patchPane])
 
   const pinTab = useCallback(
-    (path: string) => {
-      mapTabs(projectRef.current, (t) => (t.path === path ? { ...t, preview: false } : t))
+    (path: string, paneId?: string) => {
+      const p = projectRef.current
+      patchPane(p, paneId ?? stateOf(p).focusedPaneId, (pane) => ({
+        ...pane,
+        tabs: pane.tabs.map((t) => (t.path === path ? { ...t, preview: false } : t)),
+      }))
     },
-    [mapTabs],
+    [patchPane],
   )
 
   const reorderTabs = useCallback(
-    (from: number, to: number) => {
-      patch(projectRef.current, (s) => {
-        if (from === to || from < 0 || to < 0 || from >= s.tabs.length || to >= s.tabs.length) return s
-        const next = [...s.tabs]
+    (from: number, to: number, paneId?: string) => {
+      const p = projectRef.current
+      patchPane(p, paneId ?? stateOf(p).focusedPaneId, (pane) => {
+        if (from === to || from < 0 || to < 0 || from >= pane.tabs.length || to >= pane.tabs.length) return pane
+        const next = [...pane.tabs]
         const [moved] = next.splice(from, 1)
         next.splice(to, 0, moved)
-        return { ...s, tabs: next }
+        return { ...pane, tabs: next }
       })
     },
-    [patch],
+    [patchPane],
   )
 
   const setTabViewMode = useCallback(
-    (path: string, viewMode: Tab['viewMode']) => {
-      mapTabs(projectRef.current, (t) => (t.path === path ? { ...t, viewMode } : t))
+    (path: string, viewMode: Tab['viewMode'], paneId?: string) => {
+      const p = projectRef.current
+      patchPane(p, paneId ?? stateOf(p).focusedPaneId, (pane) => ({
+        ...pane,
+        tabs: pane.tabs.map((t) => (t.path === path ? { ...t, viewMode } : t)),
+      }))
     },
-    [mapTabs],
+    [patchPane],
   )
 
   // 경로 기준으로 디스크에 저장 (git 커밋 없음)
@@ -231,7 +329,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   // 실행하지 않는다 — StrictMode가 업데이터 함수를 두 번 호출해 fetch가 중복 발생하는 것을 방지
   const autosave = useCallback(
     (p: string, path: string) => {
-      const tab = tabsOf(p).find((t) => t.path === path)
+      const tab = findTab(p, path)
       if (!tab || tab.content === tab.savedContent || isArchivedPath(tab.path, p) || !tab.editable) return
       const content = tab.content
       mapTabs(p, (t) => (t.path === path ? { ...t, status: 'saving' } : t))
@@ -280,17 +378,24 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   )
 
   const closeTab = useCallback(
-    (path: string) => {
+    (path: string, paneId?: string) => {
       const p = projectRef.current
+      const id = paneId ?? stateOf(p).focusedPaneId
       // 디바운스를 기다리지 않고 닫히는 탭의 변경 내용을 즉시 디스크에 반영
       settlePendingSave(p, path)
       autosave(p, path)
-      patch(p, (s) => {
-        const next = s.tabs.filter((t) => t.path !== path)
-        if (s.activePath !== path) return { ...s, tabs: next }
-        const idx = s.tabs.findIndex((t) => t.path === path)
-        return { tabs: next, activePath: next[Math.min(idx, next.length - 1)]?.path ?? null }
-      })
+      patch(p, (s) =>
+        prunePanes({
+          ...s,
+          panes: s.panes.map((pane) => {
+            if (pane.id !== id) return pane
+            const next = pane.tabs.filter((t) => t.path !== path)
+            if (pane.activePath !== path) return { ...pane, tabs: next }
+            const idx = pane.tabs.findIndex((t) => t.path === path)
+            return { ...pane, tabs: next, activePath: next[Math.min(idx, next.length - 1)]?.path ?? null }
+          }),
+        }),
+      )
     },
     [autosave, settlePendingSave, patch],
   )
@@ -308,8 +413,8 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   const saveCurrentTab = useCallback(
     async (commit = false) => {
       const p = projectRef.current
-      const current = statesRef.current[p] ?? EMPTY
-      const tab = current.tabs.find((t) => t.path === current.activePath) ?? null
+      const pane = paneOf(p)
+      const tab = pane.tabs.find((t) => t.path === pane.activePath) ?? null
       if (!tab || !tab.editable) return
       const dirty = commit ? tab.content !== tab.committedContent : tab.content !== tab.savedContent
       if (!dirty || isArchivedPath(tab.path, p)) return
@@ -355,7 +460,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       const p = projectRef.current
       // 되돌리기는 지금 버퍼를 통째로 대체하므로 이 탭에 예약된 저장은 취소한다
       settlePendingSave(p, path)
-      putCachedFile(p, path, { content, editable: tabsOf(p).find((t) => t.path === path)?.editable ?? true })
+      putCachedFile(p, path, { content, editable: findTab(p, path)?.editable ?? true })
       mapTabs(p, (t) =>
         t.path === path
           ? { ...t, content, savedContent: content, committedContent: content, status: 'saved', statusMessage: 'Reverted' }
@@ -369,6 +474,60 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     [settlePendingSave, mapTabs, onCommitted],
   )
 
+  /** 탭을 다른 칸으로 옮긴다 (탭을 끌어 그 칸 가운데에 놓았을 때) */
+  const moveTabToPane = useCallback(
+    (path: string, fromPaneId: string, toPaneId: string) => {
+      if (fromPaneId === toPaneId) return
+      patch(projectRef.current, (s) => {
+        const moved = s.panes.find((x) => x.id === fromPaneId)?.tabs.find((t) => t.path === path)
+        if (!moved || !s.panes.some((x) => x.id === toPaneId)) return s
+        return prunePanes({
+          ...s,
+          focusedPaneId: toPaneId,
+          panes: s.panes.map((pane) => {
+            if (pane.id === fromPaneId) {
+              const next = pane.tabs.filter((t) => t.path !== path)
+              return { ...pane, tabs: next, activePath: pane.activePath === path ? (next[0]?.path ?? null) : pane.activePath }
+            }
+            if (pane.id !== toPaneId) return pane
+            // 그 칸에 이미 열려 있으면 그 탭을 활성화만 한다
+            if (pane.tabs.some((t) => t.path === path)) return { ...pane, activePath: path }
+            return { ...pane, tabs: [...pane.tabs, moved], activePath: path }
+          }),
+        })
+      })
+    },
+    [patch],
+  )
+
+  /** 탭을 끌어 칸의 가장자리에 놓았을 때 — 그 방향으로 새 칸을 세우고 탭을 옮긴다 */
+  const splitWithTab = useCallback(
+    (path: string, fromPaneId: string, targetPaneId: string, side: DropSide) => {
+      patch(projectRef.current, (s) => {
+        const from = s.panes.find((x) => x.id === fromPaneId)
+        const moved = from?.tabs.find((t) => t.path === path)
+        if (!from || !moved || !s.panes.some((x) => x.id === targetPaneId)) return s
+        // 그 칸의 유일한 탭을 자기 칸에서 갈라내면 옮기기 전과 같은 화면이 된다 — 하지 않는다
+        if (from.id === targetPaneId && from.tabs.length === 1) return s
+        const id = newPaneId()
+        const rest = from.tabs.filter((t) => t.path !== path)
+        return prunePanes({
+          layout: splitLeaf(s.layout, targetPaneId, id, side),
+          focusedPaneId: id,
+          panes: [
+            ...s.panes.map((pane) =>
+              pane.id === fromPaneId
+                ? { ...pane, tabs: rest, activePath: pane.activePath === path ? (rest[0]?.path ?? null) : pane.activePath }
+                : pane,
+            ),
+            { id, tabs: [moved], activePath: path },
+          ],
+        })
+      })
+    },
+    [patch],
+  )
+
   // 파일/폴더 이름 변경을 열린 탭 경로에 반영
   const remapPaths = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -380,8 +539,12 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
         return path === oldPath || path.startsWith(oldPath + '/') ? newPath + path.slice(oldPath.length) : path
       }
       patch(p, (s) => ({
-        tabs: s.tabs.map((t) => ({ ...t, path: remap(t.path) })),
-        activePath: s.activePath ? remap(s.activePath) : s.activePath,
+        ...s,
+        panes: s.panes.map((pane) => ({
+          ...pane,
+          tabs: pane.tabs.map((t) => ({ ...t, path: remap(t.path) })),
+          activePath: pane.activePath ? remap(pane.activePath) : pane.activePath,
+        })),
       }))
     },
     [patch],
@@ -392,15 +555,21 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     (path: string, type: 'file' | 'dir') => {
       const p = projectRef.current
       patch(p, (s) => {
-        const removed = new Set(
-          s.tabs
-            .filter((t) => (type === 'file' ? t.path === path : t.path === path || t.path.startsWith(path + '/')))
-            .map((t) => t.path),
-        )
+        const gone = (t: Tab) => (type === 'file' ? t.path === path : t.path === path || t.path.startsWith(path + '/'))
+        const removed = new Set(s.panes.flatMap((pane) => pane.tabs.filter(gone).map((t) => t.path)))
         if (removed.size === 0) return s
-        removed.forEach((gone) => dropCachedFile(p, gone))
-        const next = s.tabs.filter((t) => !removed.has(t.path))
-        return { tabs: next, activePath: s.activePath && removed.has(s.activePath) ? (next[0]?.path ?? null) : s.activePath }
+        removed.forEach((x) => dropCachedFile(p, x))
+        return prunePanes({
+          ...s,
+          panes: s.panes.map((pane) => {
+            const next = pane.tabs.filter((t) => !removed.has(t.path))
+            return {
+              ...pane,
+              tabs: next,
+              activePath: pane.activePath && removed.has(pane.activePath) ? (next[0]?.path ?? null) : pane.activePath,
+            }
+          }),
+        })
       })
     },
     [patch],
@@ -421,6 +590,10 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   }, [])
 
   return {
+    panes,
+    layout,
+    focusedPaneId: focusedPane.id,
+    focusPane,
     tabs,
     activePath,
     activeTab,
@@ -434,6 +607,8 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     saveCurrentTab,
     applyRevertedContent,
     closeTab,
+    moveTabToPane,
+    splitWithTab,
     remapPaths,
     removePaths,
     forgetProject,
