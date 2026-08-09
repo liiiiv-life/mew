@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { editorApi, isArchivedPath, type Role, type TreeNode } from '../api/client'
 import { Editor, type EditorHandle } from '@mew/editor'
 import { useSwipeGesture } from '@mew/mobile-keys'
@@ -8,6 +8,7 @@ import { SvgPreview } from './SvgPreview'
 import { TableOfContents } from './TableOfContents'
 import { TabBar } from './TabBar'
 import { mediaKind } from '../utils/media'
+import { saveScroll, getScroll } from '../utils/scrollMemory'
 import { useCollab } from '../hooks/useCollab'
 import type { Pane, Tab } from '../hooks/useTabs'
 import type { DropZone } from '../utils/paneTree'
@@ -43,6 +44,25 @@ function TerminalOpenButton({ onClick }: { onClick: () => void }) {
         <rect x="3" y="4" width="18" height="16" rx="2" />
         <path d="m7 9 3 3-3 3" />
         <line x1="13" y1="15" x2="17" y2="15" />
+      </svg>
+    </button>
+  )
+}
+
+/** 사이드바가 닫혀 있을 때 맨 왼쪽 칸 좌상단에 뜨는 여는 버튼 — 우상단 도구 줄과 같은 생김새 */
+function SidebarOpenButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
+      title="사이드바 열기 (Ctrl+B)"
+      aria-label="사이드바 열기"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M9 3v18" />
+        <path d="m14 9 3 3-3 3" />
       </svg>
     </button>
   )
@@ -98,10 +118,14 @@ export interface EditorPaneProps {
   tmuxOpen: boolean
   /** 터미널·시스템 자원처럼 화면에 하나뿐인 버튼을 이 칸이 맡는지 (맨 끝 칸) */
   showGlobalTools: boolean
+  /** 사이드바 여는 버튼을 이 칸이 맡는지 (사이드바 닫힘 + 맨 앞 칸) */
+  showSidebarButton: boolean
   tocOpen: boolean
   dropZone: DropZone | null
   registerHandle: (paneId: string, handle: PaneHandle | null) => void
   registerElement: (paneId: string, el: HTMLElement | null) => void
+  /** 탭 줄 — 다른 칸의 탭을 여기에 놓으면 이 칸으로 옮겨온다 */
+  registerTabBar: (paneId: string, el: HTMLElement | null) => void
   onFocus: () => void
   onActivate: (path: string) => void
   onPin: (path: string) => void
@@ -135,10 +159,12 @@ export function EditorPane({
   canUseTerminal,
   tmuxOpen,
   showGlobalTools,
+  showSidebarButton,
   tocOpen,
   dropZone,
   registerHandle,
   registerElement,
+  registerTabBar,
   onFocus,
   onActivate,
   onPin,
@@ -160,6 +186,7 @@ export function EditorPane({
   const codePaneRef = useRef<CodePaneHandle>(null)
   const activeTabRef = useRef(activeTab)
   activeTabRef.current = activeTab
+  const scrollHostRef = useRef<HTMLDivElement | null>(null)
 
   const collab = useCollab(project, primaryCollabPath(activeTab, role), authEmail)
 
@@ -172,8 +199,15 @@ export function EditorPane({
         if (tab.viewMode === 'plain') return codePaneRef.current?.getSelectedText() ?? null
         return editorRef.current?.getSelectedText() ?? null
       },
-      openSearch: (query) => editorRef.current?.openSearch(query),
-      revealLine: (line) => codePaneRef.current?.revealLine(line),
+      // 검색 결과 점프는 칸 밖(사이드바) 클릭에서 와서 pin 해제 입력이 없다 — 직접 풀고 점프한다
+      openSearch: (query) => {
+        disarmRestoreRef.current()
+        editorRef.current?.openSearch(query)
+      },
+      revealLine: (line) => {
+        disarmRestoreRef.current()
+        codePaneRef.current?.revealLine(line)
+      },
       setRawContent: (content) => editorRef.current?.setRawContent(content),
     }),
     [],
@@ -183,6 +217,64 @@ export function EditorPane({
     registerHandle(pane.id, handle)
     return () => registerHandle(pane.id, null)
   }, [pane.id, handle, registerHandle])
+
+  // 복원 추격이 도는 동안은 저장을 막는다 — 에디터 초기화가 쏘는 scroll(0)이 pending에
+  // 끼어들어 저장값을 0으로 오염시키면 다음 복원이 통째로 사라진다
+  const restoringRef = useRef(false)
+
+  // 스크롤 위치 저장 — scroll은 버블링하지 않아 capture로 받는다. 에디터 종류(hotview .editor-root /
+  // plain .cm-scroller)와 무관하게 칸 래퍼 한 곳에서 처리한다 (ADR 0038)
+  useEffect(() => {
+    const host = scrollHostRef.current
+    if (!host) return
+    const onScroll = (e: Event) => {
+      if (restoringRef.current) return
+      const el = e.target
+      if (!(el instanceof HTMLElement) || !el.matches('.editor-root, .cm-scroller')) return
+      const tab = activeTabRef.current
+      if (tab) saveScroll(project, tab.path, el.scrollTop)
+    }
+    host.addEventListener('scroll', onScroll, true)
+    return () => host.removeEventListener('scroll', onScroll, true)
+  }, [project])
+
+  // 복원은 활성 문서가 바뀔 때마다 — 새로고침 hydration·탭 전환·칸 분할 리마운트 모두 (ADR 0039).
+  // useLayoutEffect인 이유: paint 뒤(useEffect)로 미루면 에디터 초기화의 scroll(0) 이벤트가 먼저
+  // 도착해 복원할 값을 읽기도 전에 0으로 덮는다 — paint 전에 값을 확보해야 한다.
+  //
+  // 한 번 맞추고 끝내지 않고 **첫 사용자 입력까지 위치를 붙든다(pin)** — 분할·해제 리마운트에서는
+  // 에디터 초기화·collab 재동기화가 복원 완료 *뒤에도* scroll(0)을 쏴서, 한 번짜리 복원은 화면이
+  // 되돌아가고 저장값까지 0으로 오염됐다. 붙드는 동안은 저장도 잠근다. 사용자 입력(휠·터치·
+  // 포인터·키)이 오는 순간 풀어 정상 스크롤 저장으로 복귀한다.
+  const disarmRestoreRef = useRef<() => void>(() => {})
+  useLayoutEffect(() => {
+    const tab = activeTabRef.current
+    const host = scrollHostRef.current
+    if (!tab || !tab.path || !host) return
+    const top = getScroll(project, tab.path)
+    if (top === null) return
+    restoringRef.current = true
+    let raf = 0
+    let tries = 0
+    const events = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
+    const stop = () => {
+      restoringRef.current = false
+      cancelAnimationFrame(raf)
+      for (const ev of events) host.removeEventListener(ev, stop, true)
+    }
+    disarmRestoreRef.current = stop
+    const attempt = () => {
+      if (activeTabRef.current?.path !== tab.path) return stop() // 탭을 바꿨으면 그만둔다
+      const el = host.querySelector<HTMLElement>('.editor-root, .cm-scroller')
+      // ponytail: 복원 지점 아래에서 늦게 뜨는 이미지가 있으면 위치가 밀릴 수 있다 — 문제되면 높이 안정 감지로
+      if (el && el.scrollHeight >= top + el.clientHeight && Math.abs(el.scrollTop - top) > 1) el.scrollTop = top
+      if (++tries < 600) raf = requestAnimationFrame(attempt) // 최대 ~10초 — collab 동기화가 늦어도 따라붙는다
+      else stop()
+    }
+    for (const ev of events) host.addEventListener(ev, stop, true)
+    attempt()
+    return stop
+  }, [pane.activePath, project])
 
   // 화면 위 40% 스와이프 = 탭 전환, 아래 20% = 창(사이드바·터미널) 전환, 가운데 40%는 제스처 없음
   // 구역 안에서는 스크롤 위치를 따지지 않고 바로 전환한다 — 긴 줄을 가로로 끄는 손짓은 가운데
@@ -210,7 +302,7 @@ export function EditorPane({
   return (
     <div onPointerDownCapture={onFocus} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
       {/* 포커스되지 않은 칸의 탭 줄은 흐리게 — 커밋·단축키가 어느 칸을 가리키는지 보이게 */}
-      <div className={focused ? undefined : 'opacity-60'}>
+      <div ref={(el) => registerTabBar(pane.id, el)} className={focused ? undefined : 'opacity-60'}>
         <TabBar
           tabs={pane.tabs}
           activePath={pane.activePath}
@@ -225,7 +317,13 @@ export function EditorPane({
       </div>
 
       {/* 드롭 자리 판정은 **본문**만 본다 — 탭 줄 안에서 끄는 건 순서 바꾸기지 분할이 아니다 */}
-      <div ref={(el) => registerElement(pane.id, el)} className="relative flex min-h-0 flex-1">
+      <div
+        ref={(el) => {
+          scrollHostRef.current = el
+          registerElement(pane.id, el)
+        }}
+        className="relative flex min-h-0 flex-1"
+      >
         {activeTab ? (
           <>
             {isArchivedPath(activeTab.path) && !isGuest && (
@@ -234,6 +332,11 @@ export function EditorPane({
               </div>
             )}
             <div className="relative min-w-0 flex-1" {...swipe}>
+              {showSidebarButton && (
+                <div className="absolute left-3 top-3 z-20">
+                  <SidebarOpenButton onClick={onOpenSidebar} />
+                </div>
+              )}
               {/* 에디터 우상단 도구 줄 — 히스토리·뷰 모드·목차는 md/svg 문서에만, 터미널은 파일 종류와
                   무관하게 뜬다. right-5는 에디터 오른쪽 스크롤바를 비켜 앉기 위한 여백 */}
               <div className="absolute right-5 top-3 z-20 flex items-start gap-2">
@@ -300,13 +403,15 @@ export function EditorPane({
                     </div>
                   </>
                 )}
-                {isMd && !tocOpen && (
+                {isMd && (
                   <button
                     type="button"
-                    onClick={() => onSetTocOpen(true)}
-                    className="hidden rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover lg:block"
-                    title="목차 열기"
-                    aria-label="목차 열기"
+                    onClick={() => onSetTocOpen(!tocOpen)}
+                    className={`hidden rounded border border-edge-strong p-1.5 shadow-sm lg:block ${
+                      tocOpen ? 'bg-accent text-ink-on-accent' : 'bg-surface-raised text-ink-muted hover:bg-surface-hover'
+                    }`}
+                    title="목차"
+                    aria-label="목차"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                       <path d="M9 6h12M9 12h12M9 18h12" />
@@ -361,7 +466,12 @@ export function EditorPane({
           </>
         ) : (
           <div className="relative flex flex-1 items-center justify-center text-ink-secondary" {...swipe}>
-            {/* 문서가 없어도 터미널은 열 수 있어야 한다 — 도구 줄과 같은 자리 */}
+            {/* 문서가 없어도 사이드바·터미널은 열 수 있어야 한다 — 도구 줄과 같은 자리 */}
+            {showSidebarButton && (
+              <div className="absolute left-3 top-3 z-20">
+                <SidebarOpenButton onClick={onOpenSidebar} />
+              </div>
+            )}
             {canUseTerminal && showGlobalTools && (
               <div className="absolute right-5 top-3 z-20 flex flex-col gap-2">
                 {!tmuxOpen && <TerminalOpenButton onClick={onOpenTerminal} />}
