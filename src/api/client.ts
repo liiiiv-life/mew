@@ -112,6 +112,35 @@ export function browseDirs(path = ''): Promise<BrowseResult> {
   return fetch(`/api/fs/dirs?path=${encodeURIComponent(path)}`).then(json<BrowseResult>)
 }
 
+export interface WorkspaceInfo {
+  path: string
+  /** 그 폴더 안에서 프로젝트로 잡히는 것들 — 폴더 하나가 프로젝트 하나 */
+  projects: string[]
+}
+
+/** 지금 열려 있는 워크스페이스 — owner 전용(서버 기계의 경로다) */
+export function fetchWorkspace(): Promise<WorkspaceInfo> {
+  return fetch('/api/workspace').then(json<WorkspaceInfo>)
+}
+
+/** 워크스페이스를 통째로 바꾼다 — owner 전용. 성공하면 **모든 화면을 새로고침해야 한다**(열린 탭이 남의 폴더 것이다) */
+export function switchWorkspace(path: string): Promise<WorkspaceInfo> {
+  return fetch('/api/workspace', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(json<WorkspaceInfo>)
+}
+
+/** 기억해 둔 활성 프로젝트를 버린다 — 워크스페이스가 바뀌면 그 이름은 남의 폴더 것이라 docs부터 다시 시작한다 */
+export function forgetSavedProject(): void {
+  try {
+    localStorage.removeItem(PROJECT_KEY)
+  } catch {
+    // 저장소를 못 쓰는 브라우저 — 어차피 기억해 둔 것도 없다
+  }
+}
+
 /** 외부 폴더로 docs를 덮어쓴다 — owner 전용, **기존 docs 내용은 사라진다**(호출 전 확인 필수) */
 export function importDocs(path: string): Promise<{ ok: true }> {
   return fetch('/api/docs/import', {
@@ -128,6 +157,36 @@ export function exportDocs(path: string): Promise<{ ok: true; path: string }> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
   }).then(json<{ ok: true; path: string }>)
+}
+
+export interface TodoItem {
+  project: string
+  /** 프로젝트 상대 경로 */
+  path: string
+  /** 1부터 시작하는 줄번호 */
+  line: number
+  /** 표식 안의 라벨 — 기한 표기는 뺀 것 */
+  text: string
+  done: boolean
+  /** YYYY-MM-DD 또는 null */
+  due: string | null
+}
+
+/** 워크스페이스 전체(docs + 모든 프로젝트)의 할 일 표식 — 홈 탭. 게스트에게는 닫혀 있다 */
+export function fetchTodos(): Promise<{ items: TodoItem[]; truncated: boolean }> {
+  return fetch('/api/todos').then(json<{ items: TodoItem[]; truncated: boolean }>)
+}
+
+/** 체크·기한을 바꾼다 — 서버가 그 줄의 표식을 고쳐 **파일에 되쓴다**(되돌리려면 다시 부른다) */
+export function updateTodo(
+  item: TodoItem,
+  change: { done?: boolean; due?: string | null },
+): Promise<{ item: TodoItem }> {
+  return fetch('/api/todos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: item.project, path: item.path, line: item.line, text: item.text, ...change }),
+  }).then(json<{ item: TodoItem }>)
 }
 
 /** archives/ 불변 규칙은 docs 프로젝트 전용 — 다른 프로젝트의 같은 이름 폴더에는 적용하지 않는다 */

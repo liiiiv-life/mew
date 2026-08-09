@@ -72,7 +72,8 @@ async function sessionExists(name: string): Promise<boolean> {
 }
 
 export function createTmuxManager({ cwd }: TmuxManagerOptions): TmuxManager {
-  return {
+  // 새 세션은 항상 **지금의** manager.cwd에서 연다 — 호스트 앱이 작업 폴더를 갈아끼울 수 있다(mew 워크스페이스 바꾸기)
+  const manager: TmuxManager = {
     cwd,
 
     list: listTmuxSessions,
@@ -82,7 +83,7 @@ export function createTmuxManager({ cwd }: TmuxManagerOptions): TmuxManager {
       if (await sessionExists(name)) {
         throw new TmuxError(`이미 존재하는 세션입니다: ${name}`)
       }
-      await run(['new-session', '-d', '-s', name, '-c', cwd])
+      await run(['new-session', '-d', '-s', name, '-c', manager.cwd])
     },
 
     async kill(name) {
@@ -127,4 +128,5 @@ export function createTmuxManager({ cwd }: TmuxManagerOptions): TmuxManager {
       await run(['send-keys', '-t', name, 'Enter'])
     },
   }
+  return manager
 }

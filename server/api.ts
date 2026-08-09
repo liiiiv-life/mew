@@ -24,6 +24,8 @@ import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { DocsRepoError, exportDocs, importDocs } from './docsRepo.ts'
 import { BrowseError, listDirs, resolveBrowsePath } from './fsBrowse.ts'
+import { scanTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
+import { currentWorkspace, switchWorkspace, WorkspaceError } from './workspace.ts'
 import { collectSystemStats } from './sysStats.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
@@ -210,6 +212,32 @@ export function createApiApp() {
     }
   })
 
+  // ── 워크스페이스 자체 갈아끼우기 (owner 전용) ──────────────────────────────
+  // 어느 폴더를 열고 있는지 = 서버 기계의 경로다. owner 밖으로 내보내지 않는다.
+  app.get('/workspace', requireRole('owner'), (_req, res) => {
+    try {
+      res.json(currentWorkspace())
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/workspace', requireRole('owner'), (req, res) => {
+    const { path: target } = req.body as { path?: unknown }
+    try {
+      if (typeof target !== 'string' || !target.trim()) {
+        res.status(400).json({ error: '열 폴더 경로가 없습니다' })
+        return
+      }
+      const info = switchWorkspace(resolveBrowsePath(target))
+      // 세션 만들기가 모듈 초기화 때 받은 cwd를 쓴다 — 라이브 바인딩이 닿지 않는 유일한 곳이라 여기서 고친다
+      tmuxManager.cwd = info.path
+      res.json(info)
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   // ── docs 특별 레포와 워크스페이스 밖 폴더 고르기 (owner 전용) ────────────────
   // /fs/dirs는 워크스페이스 경계 밖을 그대로 보여준다 — 역할을 낮추지 말 것.
   app.get('/fs/dirs', requireRole('owner'), (req, res) => {
@@ -246,6 +274,53 @@ export function createApiApp() {
         return
       }
       res.json({ ok: true, path: exportDocs(resolveBrowsePath(to)) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // ── 홈 탭: 워크스페이스 전체의 할 일 표식 ──────────────────────────────────
+  // 응답에 **모든 프로젝트의 파일 경로**가 그대로 실린다 — 게스트에게는 열지 않는다.
+  app.get('/todos', requireAuthenticated, (_req, res) => {
+    try {
+      res.json(scanTodos())
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 체크·기한 바꾸기 = 그 줄의 표식을 고쳐 파일에 되쓰는 일이다(todos.ts). 열려 있는 협업 방에는
+  // 파일 감시자를 통해 들어간다.
+  app.post('/todos', requireAuthenticated, (req, res) => {
+    const { project, path: relPath, line, text, done, due } = req.body as {
+      project?: unknown
+      path?: unknown
+      line?: unknown
+      text?: unknown
+      done?: unknown
+      due?: unknown
+    }
+    if (typeof project !== 'string' || typeof relPath !== 'string' || typeof text !== 'string' || typeof line !== 'number') {
+      res.status(400).json({ error: '항목 정보가 올바르지 않습니다' })
+      return
+    }
+    const change: TodoChange = {}
+    if (done !== undefined) {
+      if (typeof done !== 'boolean') {
+        res.status(400).json({ error: '완료 여부가 올바르지 않습니다' })
+        return
+      }
+      change.done = done
+    }
+    if (due !== undefined) {
+      if (due !== null && typeof due !== 'string') {
+        res.status(400).json({ error: '기한이 올바르지 않습니다' })
+        return
+      }
+      change.due = due
+    }
+    try {
+      res.json({ item: updateTodo({ project, path: relPath, line, text }, change) })
     } catch (err) {
       handleError(res, err)
     }
@@ -1024,6 +1099,10 @@ function handleError(res: express.Response, err: unknown) {
     return
   }
   if (err instanceof ScheduleError) {
+    res.status(400).json({ error: err.message })
+    return
+  }
+  if (err instanceof TodoError || err instanceof WorkspaceError) {
     res.status(400).json({ error: err.message })
     return
   }

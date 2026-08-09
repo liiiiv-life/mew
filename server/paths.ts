@@ -6,19 +6,31 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 
 /** 프로젝트들이 사는 폴더 — 최상위 폴더 하나가 프로젝트 하나.
  *  기본값은 앱 폴더의 부모. 앱과 워크스페이스가 떨어져 있으면
- *  (컨테이너 배포처럼) `MEW_WORKSPACE`로 지정한다. */
-export const WORKSPACE_ROOT = process.env.MEW_WORKSPACE
+ *  (컨테이너 배포처럼) `MEW_WORKSPACE`로 지정한다.
+ *
+ *  const가 아니라 let인 이유: 홈 탭에서 워크스페이스를 통째로 바꿀 수 있다(workspace.ts).
+ *  ESM 라이브 바인딩이라 **호출 시점에 읽는 쪽**은 자동으로 새 값을 본다 — 모듈 최상단에서
+ *  이 값을 복사해 두면 낡는다는 뜻이다(그런 곳은 setWorkspaceRoot를 부르는 쪽이 같이 고쳐야 한다). */
+export let WORKSPACE_ROOT = process.env.MEW_WORKSPACE
   ? path.resolve(process.env.MEW_WORKSPACE)
   : path.resolve(here, '../..')
 /** 워크스페이스 하나에 딸린 mew 전용 폴더 — docs 레포가 여기 산다 */
-export const MEW_DIR = path.join(WORKSPACE_ROOT, '.mew')
+export let MEW_DIR = path.join(WORKSPACE_ROOT, '.mew')
 
 /** docs는 **프로젝트가 아니라** 워크스페이스에 하나뿐인 특별 레포다. 프로젝트 목록에 서지 않고
  *  (점으로 시작하는 `.mew` 아래라 PROJECT_NAME_RE에 애초에 걸리지 않는다) 만들거나 지울 수 없다.
  *  다만 문서·트리·검색·협업 방 키는 전부 프로젝트 이름으로 도는 구조라, **이름 'docs'는 그대로 두고
  *  경로만** 여기로 꺾는다 — projectRoot가 이 이름만 특별 취급한다. */
 export const DEFAULT_PROJECT = 'docs'
-export const DOCS_ROOT = path.join(MEW_DIR, DEFAULT_PROJECT)
+export let DOCS_ROOT = path.join(MEW_DIR, DEFAULT_PROJECT)
+
+/** 워크스페이스를 갈아끼운다 — 파생 경로(MEW_DIR·DOCS_ROOT)도 같이 다시 계산한다.
+ *  실제 전환 절차(검증·설정 저장·감시자/협업 방 정리)는 workspace.ts가 맡는다. */
+export function setWorkspaceRoot(absolutePath: string): void {
+  WORKSPACE_ROOT = path.resolve(absolutePath)
+  MEW_DIR = path.join(WORKSPACE_ROOT, '.mew')
+  DOCS_ROOT = path.join(MEW_DIR, DEFAULT_PROJECT)
+}
 
 /** docs 폴더는 항상 존재한다 — 없으면 빈 폴더로 만든다(새 워크스페이스는 빈 docs로 시작) */
 export function ensureDocsRoot(): string {

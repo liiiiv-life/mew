@@ -12,12 +12,16 @@ import {
   tmuxApi,
   type AuthStatus,
   type ProjectInfo,
+  type TodoItem,
   type TreeNode,
 } from './api/client'
 import { ProjectPicker } from './components/ProjectPicker'
 import { ProjectTabs } from './components/ProjectTabs'
 import { DocsTab } from './components/DocsTab'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
+import { HomeTab } from './components/HomeTab'
+import { HomePanel } from './components/home/HomePanel'
+import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { LoginPage } from './components/LoginPage'
 import { SettingsModal } from './components/SettingsModal'
 import { AdminSettingsModal } from './components/AdminSettingsModal'
@@ -106,6 +110,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   // docs 탭을 꾹 누르면 뜨는 폴더 가져오기/내보내기 창 — owner 전용
   const [docsSettingsOpen, setDocsSettingsOpen] = useState(false)
+  // 홈 화면(워크스페이스 전체 — 할 일·달력)이 편집 칸 자리를 차지하고 있는지. 게스트에게는 없다
+  const [homeOpen, setHomeOpen] = useState(false)
+  // 홈에서 고른 할 일 — 그 프로젝트로 옮겨 간 뒤(리렌더 후) 파일을 연다
+  const [pendingTodo, setPendingTodo] = useState<TodoItem | null>(null)
+  const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadTheme)
@@ -149,6 +158,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const switchProject = useCallback((name: string) => {
     setProject(name)
     setActiveProject(name)
+    // 탭을 눌렀다는 것은 홈에서 나온다는 뜻이다 — 홈은 프로젝트 위가 아니라 옆에 있는 화면이다
+    setHomeOpen(false)
   }, [])
 
   const {
@@ -529,6 +540,28 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, canUseTerminal, focusedEditor])
 
+  /**
+   * 홈의 할 일 항목 클릭 — 그 표식이 있는 파일을 그 줄에서 연다. 다른 프로젝트일 수 있으므로
+   * 여기서는 프로젝트만 옮기고, 실제로 여는 것은 **그 프로젝트로 리렌더된 다음**이다
+   * (openFile은 지금 프로젝트의 탭 목록에 대고 여는 함수라 같은 렌더에서 부르면 옛 프로젝트에 열린다).
+   */
+  const openTodoItem = useCallback(
+    (item: TodoItem) => {
+      setHomeOpen(false)
+      setPendingTodo(item)
+      if (item.project !== project) switchProject(item.project)
+    },
+    [project, switchProject],
+  )
+
+  useEffect(() => {
+    if (!pendingTodo || pendingTodo.project !== project) return
+    // 검색 결과 클릭과 같은 대기 경로를 탄다 — plain은 그 줄로 스크롤, md는 그 라벨로 찾기 바를 연다
+    pendingRevealRef.current = { path: pendingTodo.path, line: pendingTodo.line, query: pendingTodo.text }
+    openFile(pendingTodo.path, { preview: true })
+    setPendingTodo(null)
+  }, [pendingTodo, project, openFile])
+
   // 프로젝트 검색 결과 클릭 — 파일을 열고, 위치 점프 정보를 대기시킨다 (내용 로드 후 아래 effect가 처리)
   const openSearchResult = useCallback(
     (path: string, match: SearchMatch, query: string) => {
@@ -624,16 +657,26 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
         <header className="flex h-10 items-stretch border-b border-edge pr-2">
-          {/* docs는 프로젝트가 아니라 워크스페이스에 하나뿐인 특별 레포 — 맨 왼쪽 고정 탭이다 */}
+          {/* 홈은 프로젝트도 레포도 아니다 — 워크스페이스 전체를 보는 화면이라 맨 앞에 선다 */}
+          {!isGuest && (
+            <HomeTab
+              active={homeOpen}
+              canSwitchWorkspace={isOwner}
+              onActivate={() => setHomeOpen(true)}
+              onOpenSwitcher={() => setWorkspaceSwitcherOpen(true)}
+            />
+          )}
+          {/* docs는 프로젝트가 아니라 워크스페이스에 하나뿐인 특별 레포 — 그 다음 고정 탭이다 */}
           <DocsTab
-            active={project === DEFAULT_PROJECT}
+            active={!homeOpen && project === DEFAULT_PROJECT}
             canManage={isOwner}
             onActivate={() => switchProject(DEFAULT_PROJECT)}
             onOpenSettings={() => setDocsSettingsOpen(true)}
           />
           <ProjectTabs
             projects={projectTabs}
-            activeProject={project}
+            // 홈이 떠 있으면 어느 프로젝트도 활성이 아니다 — 돌아갈 곳(project)은 그대로 기억한다
+            activeProject={homeOpen ? '' : project}
             canUseTerminal={canUseTerminal}
             canReorder={!isGuest}
             onActivate={switchProject}
@@ -877,8 +920,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           </div>
         )}
 
-        {/* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */}
-        {renderLayout(layout, 'root')}
+        {/* 홈이 떠 있으면 편집 칸 자리를 홈 화면이 대신 쓴다 — 사이드바·터미널·에이전트 패널은 그대로다.
+            열어 둔 탭 목록은 App(useTabs)에 있으므로 홈에서 나오면 보던 문서로 그대로 돌아온다. */}
+        {homeOpen && !isGuest ? (
+          <HomePanel onOpenItem={openTodoItem} />
+        ) : (
+          /* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */
+          renderLayout(layout, 'root')
+        )}
 
         {agentOpen && canUseTerminal && (
           <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[26rem] md:shrink-0">
@@ -955,6 +1004,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           onClose={() => setDocsSettingsOpen(false)}
         />
       )}
+
+      {workspaceSwitcherOpen && isOwner && <WorkspaceSwitcher onClose={() => setWorkspaceSwitcherOpen(false)} />}
 
       {dbListOpen && !isGuest && <DatabaseListModal onClose={() => setDbListOpen(false)} />}
 

@@ -258,6 +258,16 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   })
 })
 
+/** 열려 있는 방을 전부 끊는다 — 워크스페이스를 바꿀 때 부른다.
+ *
+ * 방 키는 `프로젝트:경로`뿐이라 워크스페이스가 바뀌면 **같은 키가 다른 파일**을 가리킨다. 옛 워크스페이스
+ * 내용을 든 방을 그대로 두면 디스크 브리지(collabAgent)가 그 내용을 새 워크스페이스의 동명 파일에 쓴다.
+ * 소켓을 끊으면 close 핸들러가 방을 정리하고(closeRoomIfEmpty) 브리지도 떨어진다 — close 프레임 왕복을
+ * 기다리지 않도록 terminate로 즉시 끊는다. 클라이언트는 어차피 곧 새로고침한다. */
+export function closeAllRooms(): void {
+  for (const ws of wss.clients) ws.terminate()
+}
+
 export function attachCollabWebSocket(
   httpServer: HttpServer,
   opts: { authorize?: (req: IncomingMessage) => boolean } = {},

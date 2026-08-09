@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { forgetSavedProject } from '../api/client'
 import { identityColor } from '../utils/collabColor'
 
 // 서버는 경로 문자열 단위로만 세므로 프로젝트를 접두어로 붙여 프로젝트끼리 섞이지 않게 한다
@@ -65,6 +66,11 @@ export function usePresence(
             }
             setParticipants(mine)
           } else if (msg.type === 'tree') onTreeChangeRef.current()
+          // 워크스페이스가 통째로 바뀌었다 — 열린 탭·트리가 전부 남의 폴더 것이라 다시 띄우는 수밖에 없다
+          else if (msg.type === 'workspace') {
+            forgetSavedProject()
+            location.reload()
+          }
         } catch {
           // 잘못된 메시지는 무시
         }
