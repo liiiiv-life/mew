@@ -13,6 +13,7 @@ import { configFiles } from './config.ts'
 import { ensureDocsRoot, listProjects, setWorkspaceRoot, WORKSPACE_ROOT } from './paths.ts'
 import { resetTreeWatchers, watchDocsTree } from './watcher.ts'
 import { closeAllRooms } from './collab.ts'
+import { disposeAllSessions } from './agentAcp.ts'
 import { broadcast } from './presence.ts'
 
 export class WorkspaceError extends Error {}
@@ -81,6 +82,8 @@ export function switchWorkspace(target: string): WorkspaceInfo {
   // 옛 폴더에 매인 것부터 접는다 — 새 경로가 걸린 뒤에 접으면 엉뚱한 파일을 붙들고 있게 된다
   resetTreeWatchers()
   closeAllRooms()
+  // 에이전트는 뜰 때 cwd가 정해진다(child process) — 새 폴더에서 다시 떠야 한다
+  disposeAllSessions()
 
   setWorkspaceRoot(abs)
   ensureDocsRoot()

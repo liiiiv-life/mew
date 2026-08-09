@@ -1,10 +1,14 @@
-// ACP(Agent Client Protocol) 클라이언트 — 에이전트를 child process로 띄우고 한 프로젝트에 묶는다.
-// 벤더 전환은 spawn 대상 교체다(MEW_AGENT_CMD). 자체 어댑터 인터페이스는 두지 않는다 — ACP가 인터페이스다.
-// 결정 기준본: docs/decisions/0034-mew-agent-panel-acp-reintroduction.md
+// ACP(Agent Client Protocol) 클라이언트 — 에이전트를 child process로 띄우고 **워크스페이스**에 묶는다.
+// 벤더 전환은 spawn 대상 교체다(런타임 등록표 RUNTIMES). 자체 어댑터 인터페이스는 두지 않는다 — ACP가 인터페이스다.
+// 결정 기준본: docs/decisions/0034-mew-agent-panel-acp-reintroduction.md,
+// 워크스페이스 스코프·런타임 전환은 docs/decisions/0043-mew-agent-workspace-scope-and-runtimes.md
+//
+// 스코프는 프로젝트가 아니라 워크스페이스다 — 어느 프로젝트를 보고 있든 같은 세션이 뜬다. 레포를 오가며
+// 시키는 일(문서는 docs에, 코드는 제품 레포에)이 창을 바꾸지 않고 한 대화에서 되게 하려는 것.
 //
 // 보안 경계 두 겹:
 //  1. 이 모듈을 붙이는 WS가 owner/manager만 통과시킨다(server/agentWs.ts)
-//  2. 파일 도구는 fs capability로 **mew 프로세스 안에서** 실행돼 projectRoot 밖을 거부한다.
+//  2. 파일 도구는 fs capability로 **mew 프로세스 안에서** 실행돼 워크스페이스 밖을 거부한다.
 //     Bash는 경로 스코프가 되지 않는다 — 승인 프롬프트가 유일한 통제이고, 실질 격리는 OS 층(2단계)이다.
 import { spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
@@ -29,7 +33,7 @@ import {
   type ToolCallUpdate,
   type WriteTextFileRequest,
 } from '@agentclientprotocol/sdk'
-import { projectRoot, resolveProjectPath } from './paths.ts'
+import { UnsafePathError, WORKSPACE_ROOT } from './paths.ts'
 import { UsageReader, type Usage } from './agentUsage.ts'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -98,7 +102,7 @@ function findExecutable(name: string): string | null {
   return null
 }
 
-function defaultSpawnSpec(): SpawnSpec {
+function claudeSpawnSpec(): SpawnSpec {
   const cmd = process.env.MEW_AGENT_CMD || DEFAULT_AGENT_CMD
   const args = process.env.MEW_AGENT_ARGS ? process.env.MEW_AGENT_ARGS.split(' ').filter(Boolean) : []
   const env: Record<string, string | undefined> = {}
@@ -113,8 +117,29 @@ function defaultSpawnSpec(): SpawnSpec {
   return { cmd, args, env }
 }
 
+/** Hermes는 mew가 번들하지 않는다 — 사용자가 자기 기계에 깔아 둔 ACP 진입점을 가리키게만 한다.
+ *  실행 파일이 없거나 ACP를 말하지 않으면 창에 "에이전트를 실행하지 못했습니다"로 그대로 드러난다. */
+function hermesSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_HERMES_CMD || 'hermes'
+  const raw = process.env.MEW_AGENT_HERMES_ARGS
+  return { cmd, args: raw === undefined ? ['acp'] : raw.split(' ').filter(Boolean) }
+}
+
+/** 창에서 고를 수 있는 에이전트 런타임. 여기 없는 id는 서버가 거부한다 */
+export const RUNTIMES: Record<string, { label: string; spec: () => SpawnSpec }> = {
+  claude: { label: 'Claude Code', spec: claudeSpawnSpec },
+  hermes: { label: 'Hermes', spec: hermesSpawnSpec },
+}
+
+export const DEFAULT_RUNTIME = 'claude'
+
+export function isRuntime(id: string): boolean {
+  return Object.hasOwn(RUNTIMES, id)
+}
+
 export class AgentSession {
-  readonly project: string
+  /** 어떤 백엔드로 떠 있는지(RUNTIMES의 키) — 창의 아이콘이 이것을 그린다 */
+  readonly runtime: string
   readonly cwd: string
   #child: ChildProcess
   #conn: ClientSideConnection
@@ -135,9 +160,9 @@ export class AgentSession {
   #usage: Usage | null = null
   busy = false
 
-  private constructor(project: string, spec: SpawnSpec) {
-    this.project = project
-    this.cwd = projectRoot(project)
+  private constructor(runtime: string, spec: SpawnSpec) {
+    this.runtime = runtime
+    this.cwd = WORKSPACE_ROOT
     const env = { ...process.env, ...spec.env }
     // CLAUDECODE가 켜져 있으면 Claude Code가 "중첩 세션"으로 보고 실행을 거부한다. mew 서버를 Claude Code
     // 터미널에서 띄우면 이 변수가 그대로 상속돼 에이전트 창이 통째로 죽는다 — 여기 세션은 중첩이 아니라
@@ -149,7 +174,7 @@ export class AgentSession {
       env,
     })
     this.#child.stderr?.on('data', (chunk: Buffer) => {
-      console.error(`[mew:agent:${project}]`, chunk.toString().trimEnd())
+      console.error(`[mew:agent:${runtime}]`, chunk.toString().trimEnd())
     })
     this.#child.on('error', (err) => this.#fail(`에이전트를 실행하지 못했습니다: ${err.message}`))
     this.#child.on('exit', (code, signal) => {
@@ -163,8 +188,8 @@ export class AgentSession {
     this.#armIdleTimer()
   }
 
-  static async start(project: string, spec: SpawnSpec = defaultSpawnSpec()): Promise<AgentSession> {
-    const session = new AgentSession(project, spec)
+  static async start(runtime: string, spec: SpawnSpec = RUNTIMES[runtime].spec()): Promise<AgentSession> {
+    const session = new AgentSession(runtime, spec)
     try {
       await session.#handshake()
     } catch (err) {
@@ -248,9 +273,15 @@ export class AgentSession {
     }
   }
 
-  /** 에이전트가 준 절대 경로를 프로젝트 안으로 가둔다 — 밖이면 resolveProjectPath가 던진다 */
+  /** 에이전트가 준 절대 경로를 워크스페이스 안으로 가둔다 — 밖이면 던진다.
+   *  차단 경로(.git·node_modules·.data)는 여기서 막지 않는다: 에이전트는 워크스페이스 전체를 다루는
+   *  owner/manager 전용 도구이고, 어차피 Bash로 같은 것을 할 수 있다(ADR 0043). */
   #scoped(absolutePath: string): string {
-    return resolveProjectPath(this.project, path.relative(this.cwd, path.resolve(this.cwd, absolutePath)))
+    const resolved = path.resolve(this.cwd, absolutePath)
+    if (resolved !== this.cwd && !resolved.startsWith(this.cwd + path.sep)) {
+      throw new UnsafePathError(`워크스페이스 밖입니다: ${absolutePath}`)
+    }
+    return resolved
   }
 
   attach(listener: (event: AgentEvent) => void): () => void {
@@ -443,7 +474,7 @@ export class AgentSession {
   #armIdleTimer() {
     if (this.#listeners.size > 0 || this.#idleTimer || this.#disposed) return
     this.#idleTimer = setTimeout(() => {
-      sessions.delete(keyOf(this.project))
+      sessions.delete(this.runtime)
       this.dispose()
     }, IDLE_KILL_MS)
     this.#idleTimer.unref?.()
@@ -460,28 +491,29 @@ export class AgentSession {
   }
 }
 
+// 워크스페이스에 런타임당 하나 — 프로젝트별로 나누지 않는다. 런타임을 바꿔 갔다 돌아오면 그쪽 대화가 그대로 남아 있다.
 const sessions = new Map<string, Promise<AgentSession>>()
 
-function keyOf(project: string): string {
-  return project
-}
-
-/** 프로젝트당 하나. 창을 닫았다 다시 열어도 같은 대화가 이어진다(IDLE_KILL_MS까지) */
-export function sessionFor(project: string): Promise<AgentSession> {
-  const key = keyOf(project)
-  const existing = sessions.get(key)
+/** 창을 닫았다 다시 열어도 같은 대화가 이어진다(IDLE_KILL_MS까지) */
+export function sessionFor(runtime: string): Promise<AgentSession> {
+  const existing = sessions.get(runtime)
   if (existing) return existing
-  const started = AgentSession.start(project).catch((err: unknown) => {
-    sessions.delete(key)
+  const started = AgentSession.start(runtime).catch((err: unknown) => {
+    sessions.delete(runtime)
     throw err
   })
-  sessions.set(key, started)
+  sessions.set(runtime, started)
   return started
 }
 
-export function disposeSession(project: string) {
-  const pending = sessions.get(keyOf(project))
+export function disposeSession(runtime: string) {
+  const pending = sessions.get(runtime)
   if (!pending) return
-  sessions.delete(keyOf(project))
+  sessions.delete(runtime)
   void pending.then((session) => session.dispose()).catch(() => {})
+}
+
+/** 워크스페이스가 바뀌면 전부 접는다 — 세션의 cwd는 뜰 때 정해지므로 옛 폴더에 매여 있다 */
+export function disposeAllSessions() {
+  for (const runtime of [...sessions.keys()]) disposeSession(runtime)
 }

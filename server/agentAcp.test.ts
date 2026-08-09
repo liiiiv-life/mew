@@ -14,8 +14,8 @@ type AgentEvent = import('./agentAcp.ts').AgentEvent
 
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
 
-const project = 'sample'
-const projectDir = path.join(workspace, project)
+// 세션은 워크스페이스에 묶인다 — 스텁이 쓰는 상대 경로도 전부 여기 기준이다(ADR 0043)
+const runtime = 'claude'
 
 const stubSource = `
 import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
@@ -102,14 +102,15 @@ function textOf(events: AgentEvent[]): string {
   return chunks.join('|')
 }
 
-test('ACP 한 턴: 스트리밍·승인 왕복·프로젝트 밖 읽기 차단·쓰기', async (t) => {
-  fs.mkdirSync(projectDir, { recursive: true })
-  fs.writeFileSync(path.join(projectDir, 'inside.txt'), 'ok')
+test('ACP 한 턴: 스트리밍·승인 왕복·워크스페이스 밖 읽기 차단·쓰기', async (t) => {
+  // 파일은 워크스페이스 루트에 둔다 — 세션의 cwd가 여기다
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'inside.txt'), 'ok')
   const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
   fs.writeFileSync(stubPath, stubSource)
-  t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
 
-  const session = await AgentSession.start(project, { cmd: process.execPath, args: [stubPath] })
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
   t.after(() => session.dispose())
 
   const events: AgentEvent[] = []
@@ -127,19 +128,19 @@ test('ACP 한 턴: 스트리밍·승인 왕복·프로젝트 밖 읽기 차단·
   const text = textOf(events)
   assert.match(text, /^안녕\|/, '첫 청크가 스트리밍으로 도착')
   assert.match(text, /decision:allow/, '승인 응답이 에이전트로 돌아감')
-  assert.match(text, /read:ok/, '프로젝트 안 파일은 읽힘')
-  assert.match(text, /escape:blocked/, '프로젝트 밖 경로는 거부')
+  assert.match(text, /read:ok/, '워크스페이스 안 파일은 읽힘')
+  assert.match(text, /escape:blocked/, '워크스페이스 밖 경로는 거부')
   assert.deepEqual(events.at(-1), { type: 'turn_end', stopReason: 'end_turn' })
-  assert.equal(fs.readFileSync(path.join(projectDir, 'written/out.txt'), 'utf8'), 'from-agent', '쓰기는 프로젝트 안에 떨어짐')
+  assert.equal(fs.readFileSync(path.join(workspace, 'written/out.txt'), 'utf8'), 'from-agent', '쓰기는 워크스페이스 안에 떨어짐')
 })
 
 test('세션을 잡으면 기본 권한 모드(bypassPermissions)를 걸어 준다', async (t) => {
-  fs.mkdirSync(projectDir, { recursive: true })
+  fs.mkdirSync(workspace, { recursive: true })
   const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'mode-stub.mjs')
   fs.writeFileSync(stubPath, modeStubSource)
-  t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
 
-  const session = await AgentSession.start(project, { cmd: process.execPath, args: [stubPath] })
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
   t.after(() => session.dispose())
 
   assert.equal(session.modes?.currentModeId, 'bypassPermissions', '핸드셰이크 직후 기본 모드가 걸린다')
@@ -161,13 +162,13 @@ test('세션을 잡으면 기본 권한 모드(bypassPermissions)를 걸어 준�
 })
 
 test('취소하면 대기 중인 승인 요청이 cancelled로 닫힌다', async (t) => {
-  fs.mkdirSync(projectDir, { recursive: true })
-  fs.writeFileSync(path.join(projectDir, 'inside.txt'), 'ok')
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'inside.txt'), 'ok')
   const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
   fs.writeFileSync(stubPath, stubSource)
-  t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
 
-  const session = await AgentSession.start(project, { cmd: process.execPath, args: [stubPath] })
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
   t.after(() => session.dispose())
 
   const events: AgentEvent[] = []
@@ -190,13 +191,13 @@ test('취소하면 대기 중인 승인 요청이 cancelled로 닫힌다', async
 })
 
 test('재접속하면 지나간 이벤트를 되돌려 받는다', async (t) => {
-  fs.mkdirSync(projectDir, { recursive: true })
-  fs.writeFileSync(path.join(projectDir, 'inside.txt'), 'ok')
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'inside.txt'), 'ok')
   const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
   fs.writeFileSync(stubPath, stubSource)
-  t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
 
-  const session = await AgentSession.start(project, { cmd: process.execPath, args: [stubPath] })
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
   t.after(() => session.dispose())
 
   const first: AgentEvent[] = []
@@ -222,13 +223,13 @@ test('재접속하면 지나간 이벤트를 되돌려 받는다', async (t) => 
 })
 
 test('진행 중에 보낸 메시지는 줄을 섰다가 이어서 돈다', async (t) => {
-  fs.mkdirSync(projectDir, { recursive: true })
-  fs.writeFileSync(path.join(projectDir, 'inside.txt'), 'ok')
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'inside.txt'), 'ok')
   const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
   fs.writeFileSync(stubPath, stubSource)
-  t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
 
-  const session = await AgentSession.start(project, { cmd: process.execPath, args: [stubPath] })
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
   t.after(() => session.dispose())
 
   const prompts: string[] = []
@@ -252,13 +253,13 @@ test('진행 중에 보낸 메시지는 줄을 섰다가 이어서 돈다', asyn
 })
 
 test('중단하면 대기 중인 메시지도 같이 버린다', async (t) => {
-  fs.mkdirSync(projectDir, { recursive: true })
-  fs.writeFileSync(path.join(projectDir, 'inside.txt'), 'ok')
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'inside.txt'), 'ok')
   const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
   fs.writeFileSync(stubPath, stubSource)
-  t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
 
-  const session = await AgentSession.start(project, { cmd: process.execPath, args: [stubPath] })
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
   t.after(() => session.dispose())
 
   const prompts: string[] = []

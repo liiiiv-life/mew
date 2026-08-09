@@ -6,7 +6,7 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { sessionFor, type AgentEvent, type AgentSession } from './agentAcp.ts'
+import { DEFAULT_RUNTIME, isRuntime, sessionFor, type AgentEvent, type AgentSession } from './agentAcp.ts'
 
 export const AGENT_WS_PATH = '/api/agent/ws'
 
@@ -31,10 +31,10 @@ function send(ws: WebSocket, payload: ServerMessage) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload))
 }
 
-async function handleConnection(ws: WebSocket, project: string) {
+async function handleConnection(ws: WebSocket, runtime: string) {
   let session: AgentSession
   try {
-    session = await sessionFor(project)
+    session = await sessionFor(runtime)
   } catch (err) {
     send(ws, { type: 'fatal', message: err instanceof Error ? err.message : String(err) })
     ws.close()
@@ -86,14 +86,15 @@ export function attachAgentWebSocket(
       socket.destroy()
       return
     }
-    const project = url.searchParams.get('project') ?? ''
-    if (!project) {
+    // 프로젝트가 아니라 런타임으로 붙는다 — 세션 스코프는 워크스페이스다(ADR 0043)
+    const runtime = url.searchParams.get('runtime') || DEFAULT_RUNTIME
+    if (!isRuntime(runtime)) {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      void handleConnection(ws, project)
+      void handleConnection(ws, runtime)
     })
   })
 }

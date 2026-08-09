@@ -2,7 +2,7 @@
 // 대화 화면은 전부 서버가 보내 준 이벤트에서 파생한다(접는 규칙은 utils/agentFold.ts) — 재접속하면
 // 지나간 이벤트를 그대로 되받으므로 클라이언트가 따로 대화를 저장하지 않아도 복원된다.
 // 정보줄(세션·토큰·턴 수)은 이벤트가 아니라 서버가 보내는 meta 스냅샷을 그대로 그린다.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { keepFocusOnPress, useOverlayDismiss } from '@mew/ui'
 import {
   foldEvents,
@@ -21,6 +21,18 @@ const MODE_LABEL: Record<string, string> = {
   dontAsk: '묻지 않음(거절)',
   bypassPermissions: '권한 무시',
 }
+
+/**
+ * 창에서 고를 수 있는 에이전트 런타임 — 서버의 RUNTIMES(server/agentAcp.ts)와 id가 같아야 한다.
+ * 목록이 양쪽에 있는 것은 **아이콘 때문**이다(서버는 spawn 명령만 안다). 판정은 언제나 서버가 한다 —
+ * 여기 없는 id를 보내도 WS가 400으로 끊는다.
+ */
+const RUNTIMES = [
+  { id: 'claude', label: 'Claude Code', Glyph: ClaudeGlyph },
+  { id: 'hermes', label: 'Hermes', Glyph: HermesGlyph },
+]
+
+const RUNTIME_KEY = 'mew:agent-runtime'
 
 const STATUS_LABEL: Record<string, string> = {
   pending: '대기',
@@ -66,11 +78,14 @@ function HeaderSelect({
   options,
   onPick,
   title,
+  trigger,
 }: {
   value: string
   options: { id: string; label: string }[]
   onPick: (id: string) => void
   title: string
+  /** 버튼에 이름 대신 그릴 것(런타임 아이콘) */
+  trigger?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -100,7 +115,7 @@ function HeaderSelect({
           open ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary'
         }`}
       >
-        <span className="truncate">{current?.label ?? value}</span>
+        {trigger ?? <span className="truncate">{current?.label ?? value}</span>}
         <CaretGlyph dir="down" />
       </button>
       {open && (
@@ -151,7 +166,7 @@ function SessionList({
   return (
     <div className="max-h-64 overflow-y-auto border-b border-edge bg-surface px-3 py-2 text-xs">
       {sessions === null && <div className="py-2 text-ink-muted">불러오는 중…</div>}
-      {sessions?.length === 0 && <div className="py-2 text-ink-muted">이 프로젝트에 지난 세션이 없습니다.</div>}
+      {sessions?.length === 0 && <div className="py-2 text-ink-muted">이 워크스페이스에 지난 세션이 없습니다.</div>}
       {sessions?.map((session) => (
         <button
           key={session.sessionId}
@@ -171,7 +186,12 @@ function SessionList({
   )
 }
 
-export function AgentPanel({ project, onClose }: { project: string; onClose: () => void }) {
+export function AgentPanel({ onClose }: { onClose: () => void }) {
+  // 어느 프로젝트를 보고 있든 같은 창이다 — 스코프는 워크스페이스, 나뉘는 축은 런타임뿐이다
+  const [runtime, setRuntime] = useState(() => {
+    const saved = localStorage.getItem(RUNTIME_KEY)
+    return RUNTIMES.some((r) => r.id === saved) ? saved! : RUNTIMES[0].id
+  })
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [connected, setConnected] = useState(false)
   const [draft, setDraft] = useState('')
@@ -192,10 +212,15 @@ export function AgentPanel({ project, onClose }: { project: string; onClose: () 
     let closed = false
     let retry: number | undefined
     let ws: WebSocket
+    // 런타임을 갈아탄 뒤 옛 대화가 새 세션의 되돌림 이벤트 앞에 남지 않게 비운다
+    setEvents([])
+    setModels(null)
+    setModes(null)
+    setMeta(null)
 
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?project=${encodeURIComponent(project)}`)
+      ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?runtime=${encodeURIComponent(runtime)}`)
       wsRef.current = ws
       ws.onopen = () => setConnected(true)
       ws.onmessage = (raw) => {
@@ -229,7 +254,8 @@ export function AgentPanel({ project, onClose }: { project: string; onClose: () 
       ws.close()
       wsRef.current = null
     }
-  }, [project])
+    // 런타임을 바꾸면 저쪽 세션으로 갈아탄다 — 이쪽 세션은 서버에 그대로 남아 돌아오면 이어진다
+  }, [runtime])
 
   // 경과 시간만 흐르게 한다 — 나머지 값은 서버 meta가 밀어 준다
   useEffect(() => {
@@ -275,6 +301,7 @@ export function AgentPanel({ project, onClose }: { project: string; onClose: () 
     return next
   }), [])
 
+  const currentRuntime = RUNTIMES.find((r) => r.id === runtime) ?? RUNTIMES[0]
   const currentModel = models?.availableModels.find((m) => m.modelId === models.currentModelId)?.name
   const status = !connected ? '연결 중' : loadingSession ? '세션 불러오는 중' : pending ? '승인 대기' : busy ? '진행 중' : '대기 중'
   const totalTokens = usage ? usage.input + usage.output + usage.cacheWrite + usage.cacheRead : 0
@@ -283,7 +310,17 @@ export function AgentPanel({ project, onClose }: { project: string; onClose: () 
     <div className="flex h-full w-full flex-col bg-surface-deep" onMouseDown={keepFocusOnPress}>
       <div className="flex items-center justify-between gap-2 border-b border-edge px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 text-sm font-semibold text-ink-soft">에이전트</span>
+          {/* 창 이름 대신 지금 붙어 있는 런타임 아이콘 — 누르면 다른 런타임으로 갈아탄다 */}
+          <HeaderSelect
+            value={runtime}
+            options={RUNTIMES.map((r) => ({ id: r.id, label: r.label }))}
+            onPick={(id) => {
+              localStorage.setItem(RUNTIME_KEY, id)
+              setRuntime(id)
+            }}
+            title={`에이전트: ${currentRuntime.label}`}
+            trigger={<currentRuntime.Glyph />}
+          />
           {models && models.availableModels.length > 1 ? (
             <HeaderSelect
               value={models.currentModelId}
@@ -292,7 +329,7 @@ export function AgentPanel({ project, onClose }: { project: string; onClose: () 
               title="모델"
             />
           ) : (
-            <span className="truncate text-xs font-normal text-ink-muted">{currentModel ?? project}</span>
+            <span className="truncate text-xs font-normal text-ink-muted">{currentModel ?? currentRuntime.label}</span>
           )}
           {modes && modes.availableModes.length > 1 && (
             <HeaderSelect
@@ -552,6 +589,26 @@ export function AgentPanel({ project, onClose }: { project: string; onClose: () 
         </button>
       </div>
     </div>
+  )
+}
+
+/** Claude Code — Anthropic의 방사형 표식 */
+function ClaudeGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="shrink-0">
+      <path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9" />
+    </svg>
+  )
+}
+
+/** Hermes — 날개 달린 투구 */
+function HermesGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <path d="M7 14a5 5 0 0 1 10 0v3a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2Z" />
+      <path d="M7 10 2 8m5 4-4 1" />
+      <path d="m17 10 5-2m-5 4 4 1" />
+    </svg>
   )
 }
 

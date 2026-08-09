@@ -933,7 +933,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[26rem] md:shrink-0">
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
             <div className="min-w-0 flex-1">
-              <AgentPanel project={project} onClose={() => setAgentOpen(false)} />
+              <AgentPanel onClose={() => setAgentOpen(false)} />
             </div>
           </div>
         )}
