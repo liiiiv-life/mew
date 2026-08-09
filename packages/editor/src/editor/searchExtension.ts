@@ -133,6 +133,7 @@ export const SearchAndReplace = Extension.create<Record<string, never>, SearchSt
       if (dispatch) dispatch(tr.setMeta(searchPluginKey, true))
       return true
     }
+    const editor = this.editor
     const goto = (index: number, state: { tr: any; doc: any }, dispatch: ((tr: unknown) => void) | undefined): boolean => {
       const s = store()
       if (!s.results.length) return false
@@ -142,8 +143,12 @@ export const SearchAndReplace = Extension.create<Record<string, never>, SearchSt
       if (dispatch) {
         const tr = state.tr
         tr.setSelection(TextSelection.create(tr.doc, r.from, r.to))
-        tr.scrollIntoView()
+        tr.scrollIntoView() // 에디터에 포커스가 있을 때의 경로 — 아래 폴백이 필요한 이유는 그 다음 주석
         dispatch(tr.setMeta(searchPluginKey, true))
+        // 찾기 바에 포커스가 있으면 tr.scrollIntoView()는 아무것도 하지 않는다: prosemirror-view의
+        // scrollToSelection이 "브라우저 DOM 선택이 에디터 밖"이라며 통째로 건너뛰기 때문이다.
+        // 그래서 방금 그려진 현재 매치 데코레이션을 직접 화면 가운데로 끌어온다(디스패치는 동기라 DOM이 이미 갱신됐다).
+        editor.view.dom.querySelector('.search-match-current')?.scrollIntoView({ block: 'center' })
       }
       return true
     }
