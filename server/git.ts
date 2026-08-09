@@ -10,7 +10,11 @@ function gitFor(project: string): SimpleGit | null {
   let git = gitByProject.get(project)
   if (git === undefined) {
     const root = projectRoot(project)
-    git = fs.existsSync(path.join(root, '.git')) ? simpleGit({ baseDir: root }) : null
+    // core.quotepath=false — 기본값이면 git이 한글 등 비ASCII 경로를 8진수 이스케이프로 출력해
+    // check-ignore·status 결과가 우리가 든 경로 문자열과 안 맞는다(한글 파일명만 커밋이 깨지는 원인)
+    git = fs.existsSync(path.join(root, '.git'))
+      ? simpleGit({ baseDir: root, config: ['core.quotepath=false'] })
+      : null
     gitByProject.set(project, git)
   }
   return git
@@ -80,6 +84,14 @@ export async function commitFile(
       if (/^_?MOC\.md$/.test(path.basename(f))) filesToStage.add(f)
     }
   }
+
+  // .gitignore에 걸린 경로는 스테이징에서 뺀다 — 그대로 add하면 git이 통째로 거부해, 이미
+  // 디스크에 반영된 파일 작업이 500으로 둔갑한다(새 파일은 생겼는데 UI는 실패·재시도 "이미 존재"
+  // 루프). 이력에서 빠질 뿐 작업 자체는 성공이다. check-ignore는 걸린 게 없으면 exit 1이라
+  // catch로 빈 목록 처리한다.
+  const ignored = await git.checkIgnore([...filesToStage]).catch(() => [] as string[])
+  for (const f of ignored) filesToStage.delete(f)
+  if (filesToStage.size === 0) return null
 
   await git.add([...filesToStage])
   const staged = await git.diff(['--cached', '--name-only'])
