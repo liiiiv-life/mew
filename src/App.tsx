@@ -21,6 +21,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { AdminSettingsModal } from './components/AdminSettingsModal'
 import { DatabaseListModal } from './components/DatabaseListModal'
 import { SystemStatsModal } from './components/SystemStatsModal'
+import { CrontabModal } from './components/CrontabModal'
 import { FileTree } from './components/FileTree'
 import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
@@ -97,6 +98,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [adminOpen, setAdminOpen] = useState(false)
   const [dbListOpen, setDbListOpen] = useState(false)
   const [sysStatsOpen, setSysStatsOpen] = useState(false)
+  const [crontabOpen, setCrontabOpen] = useState(false)
   // 목록이 오기 전의 자리표시자 — 이걸 진짜 목록으로 착각하면 보고 있던 프로젝트가 애먼 것으로 밀린다
   const [projects, setProjects] = useState<ProjectInfo[]>([{ name: project, icon: null, slot: null }])
   const [projectsLoaded, setProjectsLoaded] = useState(false)
@@ -597,6 +599,20 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             {canUseTerminal && (
               <button
                 type="button"
+                onClick={() => setCrontabOpen(true)}
+                className="rounded border border-edge-strong p-1.5 hover:bg-surface-raised"
+                title="crontab"
+                aria-label="crontab"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+              </button>
+            )}
+            {canUseTerminal && (
+              <button
+                type="button"
                 onClick={() => setAgentOpen((open) => !open)}
                 className={`rounded border border-edge-strong p-1.5 hover:bg-surface-raised ${agentOpen ? 'bg-surface-raised text-ink' : ''}`}
                 title="에이전트"
@@ -826,6 +842,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       {dbListOpen && !isGuest && <DatabaseListModal onClose={() => setDbListOpen(false)} />}
 
       {sysStatsOpen && canUseTerminal && <SystemStatsModal onClose={() => setSysStatsOpen(false)} />}
+      {crontabOpen && canUseTerminal && <CrontabModal onClose={() => setCrontabOpen(false)} />}
 
       {historyOpen && activeTab && (
         <FileHistoryModal

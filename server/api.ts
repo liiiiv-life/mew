@@ -23,6 +23,7 @@ import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
 import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { collectSystemStats } from './sysStats.ts'
+import { readCrontab, writeCrontab } from './crontab.ts'
 import {
   DEFAULT_IGNORE,
   IgnoreListError,
@@ -750,6 +751,29 @@ export function createApiApp() {
   app.get('/system-stats', requireRole('owner', 'manager'), async (_req, res) => {
     try {
       res.json(await collectSystemStats())
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 서버 사용자의 crontab — 임의 명령이 예약 실행되는 표면이라 tmux와 동일하게 owner/manager만
+  app.get('/crontab', requireRole('owner', 'manager'), async (_req, res) => {
+    try {
+      res.json({ text: await readCrontab() })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.put('/crontab', requireRole('owner', 'manager'), async (req, res) => {
+    try {
+      const { text } = req.body as { text?: unknown }
+      if (typeof text !== 'string') {
+        res.status(400).json({ error: 'text가 없습니다' })
+        return
+      }
+      await writeCrontab(text)
+      res.json({ text: await readCrontab() })
     } catch (err) {
       handleError(res, err)
     }

@@ -457,6 +457,20 @@ export function fetchSystemStats(): Promise<SystemStats> {
   return fetch('/api/system-stats').then(json<SystemStats>)
 }
 
+// ---- 서버 사용자의 crontab ----
+
+export function fetchCrontab(): Promise<{ text: string }> {
+  return fetch('/api/crontab').then(json<{ text: string }>)
+}
+
+export function saveCrontab(text: string): Promise<{ text: string }> {
+  return fetch('/api/crontab', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  }).then(json<{ text: string }>)
+}
+
 // ---- 명령어 버튼 (.mew/cmd-button.json) ----
 
 export interface CmdButtonState {
