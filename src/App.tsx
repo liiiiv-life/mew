@@ -33,7 +33,6 @@ import { useOverlayDismiss, useToast } from '@mew/ui'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
-import { FabMenu } from './components/FabMenu'
 import { mediaKind } from './utils/media'
 import { openTabsKey, useTabs } from './hooks/useTabs'
 import { applyLayout, bySlot, reorderedLayout } from './utils/projectLayout'
@@ -578,6 +577,20 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               <>
                 <button
                   type="button"
+                  onClick={toggleFullscreen}
+                  className="rounded border border-edge-strong p-1.5 hover:bg-surface-raised"
+                  title="전체화면 (Alt+Enter)"
+                  aria-label="전체화면 토글"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                    <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+                    <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+                    <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
                   onClick={() => saveCurrentTab(true)}
                   disabled={!activeTab || !canEditActiveTab || activeTab.content === activeTab.committedContent}
                   className="rounded bg-accent p-1.5 text-ink-on-accent disabled:opacity-40"
@@ -808,7 +821,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         )}
       </div>
 
-      {!tmuxOpen && <FabMenu onFullscreen={toggleFullscreen} />}
+
 
       {projectPickerOpen && (
         <ProjectPicker
