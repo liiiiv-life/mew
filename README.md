@@ -549,10 +549,12 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 
 ## 에이전트 창 (ACP)
 
-헤더의 말풍선 버튼 — 프로젝트 하나에 묶인 AI 에이전트와 대화하는 **채팅 창**이다(터미널이 아니다).
+헤더의 말풍선 버튼 — **워크스페이스**에 묶인 AI 에이전트와 대화하는 **채팅 창**이다(터미널이 아니다).
+어느 프로젝트를 보고 있든 같은 창·같은 세션이 뜬다(cwd는 워크스페이스 루트).
 에이전트는 별도 프로세스로 뜨고 [ACP](https://agentclientprotocol.com)(stdio JSON-RPC)로만 말한다.
 mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이스다. 근거는
-[ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md), 권한 경계는 [SECURITY.md](SECURITY.md).
+[ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md)·[ADR 0043](../.mew/docs/decisions/0043-mew-agent-workspace-scope-and-runtimes.md),
+권한 경계는 [SECURITY.md](SECURITY.md).
 
 ⚠️ **`serve.ts` 요청 핸들러 안에서 에이전트를 직접 돌리지 않는다.** 2026-07-25에 지운 옛 에이전트
 창은 Claude Code를 `-p --output-format json`으로, 즉 블로킹·비스트리밍으로 불러 첫 응답이 ~20초
@@ -564,7 +566,9 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   `src/utils/agentFold.ts`(이벤트→화면 항목). 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) —
   에이전트는 Bash를 쓸 수 있어 tmux와 같은 경계여야 한다. 권한 모드 기본값이 `bypassPermissions`라
   (승인 프롬프트 없음) **이 역할 게이트가 유일한 통제다** — tmux보다 낮추면 무인 셸을 여는 것이다.
-- 채널: `/api/agent/ws?project=<이름>` — 프로젝트당 **살아 있는 세션 하나**. 창을 닫아도 세션은 남고,
+- 채널: `/api/agent/ws?runtime=<claude|hermes>` — 런타임당 **살아 있는 세션 하나**(생략하면 `claude`,
+  등록표에 없는 id는 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 —
+  고른 값은 브라우저에만 남는다(`mew:agent-runtime`). 창을 닫아도 세션은 남고,
   다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다(붙은 창이 없는 채로 10분이면 종료).
 
 | 방향 | 메시지 |
@@ -587,14 +591,22 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   ACP 세션은 언제나 `default`로 시작하므로 서버가 `session/new`·`session/load` 뒤마다 다시 걸어 준다
   (`#applyDefaultMode`). 헤더 선택기로 턴마다 바꿀 수 있고, 서버 기본값은 `MEW_AGENT_MODE`로 바꾼다.
   모드 목록은 백엔드가 광고하는 것을 그대로 쓴다 — 광고에 없으면(예: root 실행) 조용히 넘어간다.
-- 백엔드 교체는 **spawn 대상 교체**다: `MEW_AGENT_CMD`(기본 `node_modules/.bin/claude-code-acp`,
-  버전 고정) · `MEW_AGENT_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) ·
-  `MEW_AGENT_MODE`(기본 `bypassPermissions`).
+- 백엔드 교체는 **spawn 대상 교체**다. 창에서 고를 수 있는 것은 `agentAcp.ts`의 `RUNTIMES` 등록표에
+  있는 것뿐이고, 클라이언트에 같은 목록이 또 있는 이유는 **아이콘**뿐이다(판정은 서버가 한다):
+  | 런타임 | 명령 | 환경변수 |
+  | --- | --- | --- |
+  | `claude` | `node_modules/.bin/claude-code-acp`(버전 고정) | `MEW_AGENT_CMD` · `MEW_AGENT_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) |
+  | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
+
+  공통은 `MEW_AGENT_MODE`(기본 `bypassPermissions`). 진입점이 없거나 ACP를 말하지 않으면 창에
+  "에이전트를 실행하지 못했습니다"로 그대로 드러난다 — 목록에서 감추지 않는다.
 - **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
   PATH에 시스템 `claude`가 있으면 자동으로 그걸 쓴다(`CLAUDE_CODE_EXECUTABLE`로 전달, 이미 지정돼
   있으면 존중). 시스템 설치본이 없으면 번들 CLI로 돌아간다.
 - 클라이언트 capability로 `fs.readTextFile`·`fs.writeTextFile`을 **켠다** — 켜야 에이전트의 파일
-  읽기·쓰기가 mew로 돌아와 프로젝트 폴더 밖을 거부할 수 있다. `terminal`은 켜지 않는다.
+  읽기·쓰기가 mew로 돌아와 워크스페이스 밖을 거부할 수 있다. `terminal`은 켜지 않는다.
+- 워크스페이스를 갈아끼우면 **떠 있던 세션을 전부 접는다**(`disposeAllSessions`) — 자식 프로세스의
+  cwd는 뜰 때 정해져 옛 폴더에 매여 있다.
 - 자식 환경에서 **`CLAUDECODE`를 지운다.** 남아 있으면 Claude Code가 중첩 세션으로 보고 실행을 거부해
   세션 생성이 통째로 실패한다(mew 서버를 Claude Code 터미널에서 띄우면 상속된다).
 
