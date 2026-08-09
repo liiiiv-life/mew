@@ -17,7 +17,7 @@ const LONG_PRESS_MS = 500
 const MENU_WIDTH = 288 // w-72
 
 /** 편집 중인 명령. index가 null이면 새로 추가하는 중 */
-type Editing = { index: number | null; name: string; command: string }
+type Editing = { index: number | null; name: string; command: string; oneShot: boolean }
 
 export function CommandButtonMenu({ project, title }: { project: string; title?: string }) {
   const [open, setOpen] = useState(false)
@@ -113,7 +113,7 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
   }
 
   /** 추가·수정·삭제 모두 목록 전체 저장 한 경로로 처리한다 */
-  async function commit(next: { name: string; command: string }[]) {
+  async function commit(next: { name: string; command: string; oneShot?: boolean }[]) {
     const res = await saveCmdButtons(project, next)
     setButtons(res.buttons)
     setError(null)
@@ -165,7 +165,7 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
                     setPopup(b)
                     setOpen(false)
                   }}
-                  onEdit={() => setEditing({ index: i, name: b.name, command: b.command })}
+                  onEdit={() => setEditing({ index: i, name: b.name, command: b.command, oneShot: b.oneShot })}
                 />
               ))
             )}
@@ -174,7 +174,7 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
             )}
             <button
               type="button"
-              onClick={() => setEditing({ index: null, name: '', command: '' })}
+              onClick={() => setEditing({ index: null, name: '', command: '', oneShot: false })}
               className="mt-1 flex w-full items-center gap-1.5 border-t border-edge px-3 py-2 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink"
             >
               <span className="text-sm leading-none">＋</span> 명령 추가
@@ -189,8 +189,8 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
           editing={editing}
           onCancel={() => setEditing(null)}
           onSave={async (draft) => {
-            const base = list.map((b) => ({ name: b.name, command: b.command }))
-            const entry = { name: draft.name.trim(), command: draft.command.trim() }
+            const base = list.map((b) => ({ name: b.name, command: b.command, oneShot: b.oneShot }))
+            const entry = { name: draft.name.trim(), command: draft.command.trim(), oneShot: draft.oneShot }
             await commit(draft.index === null ? [...base, entry] : base.map((b, i) => (i === draft.index ? entry : b)))
             setEditing(null)
           }}
@@ -198,7 +198,9 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
             editing.index === null
               ? undefined
               : async () => {
-                  await commit(list.filter((_, i) => i !== editing.index).map((b) => ({ name: b.name, command: b.command })))
+                  await commit(
+                    list.filter((_, i) => i !== editing.index).map((b) => ({ name: b.name, command: b.command, oneShot: b.oneShot })),
+                  )
                   setEditing(null)
                 }
           }
@@ -375,6 +377,15 @@ function CmdButtonEditor({
           autoCorrect="off"
           className="mb-3 w-full resize-none rounded border border-edge-strong bg-surface px-2 py-1.5 font-mono text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
         />
+
+        <label className="mb-3 flex items-center gap-1.5 text-xs text-ink-secondary">
+          <input
+            type="checkbox"
+            checked={draft.oneShot}
+            onChange={(e) => setDraft({ ...draft, oneShot: e.target.checked })}
+          />
+          일회성 — 끝나면 세션을 자동으로 닫는다 (배포·빌드 등)
+        </label>
 
         {error && <div className="mb-2 text-xs text-danger-strong">{error}</div>}
 

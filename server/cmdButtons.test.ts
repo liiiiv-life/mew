@@ -38,7 +38,7 @@ test('readCmdButtons: { commands: [...] } 를 이름·명령 쌍으로 읽는다
     ] }))
     const buttons = readCmdButtons(name)
     assert.equal(buttons.length, 2)
-    assert.deepEqual(buttons[0], { name: '빌드', command: 'npm run build' })
+    assert.deepEqual(buttons[0], { name: '빌드', command: 'npm run build', oneShot: false })
     assert.equal(buttons[1].command, 'npm run dev')
   })
 })
@@ -67,14 +67,14 @@ test('readCmdButtons: 이름·명령이 빠진 항목은 건너뛰고 공백은 
     ] }))
     const buttons = readCmdButtons(name)
     assert.equal(buttons.length, 1)
-    assert.deepEqual(buttons[0], { name: '다듬기', command: 'echo hi' })
+    assert.deepEqual(buttons[0], { name: '다듬기', command: 'echo hi', oneShot: false })
   })
 })
 
 test('readCmdButtons: 최상위가 배열이어도 관대하게 받는다', () => {
   withProject((name, dir) => {
     writeCmd(dir, JSON.stringify([{ name: 'A', command: 'ls' }]))
-    assert.deepEqual(readCmdButtons(name), [{ name: 'A', command: 'ls' }])
+    assert.deepEqual(readCmdButtons(name), [{ name: 'A', command: 'ls', oneShot: false }])
   })
 })
 
@@ -82,7 +82,7 @@ test('writeCmdButtons: .mew 폴더가 없어도 만들고, 읽기와 왕복한�
   withProject((name, dir) => {
     writeCmdButtons(name, [{ name: '빌드', command: 'npm run build' }])
     assert.ok(fs.existsSync(path.join(dir, '.mew', 'cmd-button.json')))
-    assert.deepEqual(readCmdButtons(name), [{ name: '빌드', command: 'npm run build' }])
+    assert.deepEqual(readCmdButtons(name), [{ name: '빌드', command: 'npm run build', oneShot: false }])
     // 손으로 고친 파일과 같은 자리를 쓰므로 다시 저장하면 통째로 대체된다
     writeCmdButtons(name, [])
     assert.deepEqual(readCmdButtons(name), [])
@@ -91,11 +91,27 @@ test('writeCmdButtons: .mew 폴더가 없어도 만들고, 읽기와 왕복한�
 
 test('normalizeCmdButtons: 공백을 다듬고 이름·명령이 비면 거부한다', () => {
   assert.deepEqual(normalizeCmdButtons([{ name: '  빌드 ', command: ' npm run build ' }]), [
-    { name: '빌드', command: 'npm run build' },
+    { name: '빌드', command: 'npm run build', oneShot: false },
   ])
   assert.throws(() => normalizeCmdButtons([{ name: '', command: 'ls' }]), CmdButtonError)
   assert.throws(() => normalizeCmdButtons([{ name: 'A', command: '   ' }]), CmdButtonError)
   assert.throws(() => normalizeCmdButtons('배열 아님'), CmdButtonError)
+})
+
+test('oneShot: true는 저장·왕복되고, false는 파일에서 키 자체가 빠진다', () => {
+  withProject((name, dir) => {
+    writeCmdButtons(name, [
+      { name: '배포', command: 'npm run deploy', oneShot: true },
+      { name: '개발 서버', command: 'npm run dev', oneShot: false },
+    ])
+    const raw = fs.readFileSync(path.join(dir, '.mew', 'cmd-button.json'), 'utf-8')
+    assert.ok(raw.includes('"oneShot": true'))
+    assert.ok(!raw.includes('"oneShot": false'))
+    assert.deepEqual(readCmdButtons(name), [
+      { name: '배포', command: 'npm run deploy', oneShot: true },
+      { name: '개발 서버', command: 'npm run dev', oneShot: false },
+    ])
+  })
 })
 
 test('normalizeCmdButtons: 이름이 겹치면 거부한다 (세션 이름이 이름 해시라 세션을 공유하게 된다)', () => {

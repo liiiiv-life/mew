@@ -765,7 +765,7 @@ export function createApiApp() {
       const running = new Set((await tmuxManager.list()).map((s) => s.name))
       const buttons = readCmdButtons(project).map((b) => {
         const session = commandSessionName(project, b.name)
-        return { name: b.name, command: b.command, session, running: running.has(session) }
+        return { name: b.name, command: b.command, oneShot: !!b.oneShot, session, running: running.has(session) }
       })
       res.json({ buttons })
     } catch (err) {
@@ -786,7 +786,7 @@ export function createApiApp() {
       res.json({
         buttons: buttons.map((b) => {
           const session = commandSessionName(project, b.name)
-          return { name: b.name, command: b.command, session, running: running.has(session) }
+          return { name: b.name, command: b.command, oneShot: !!b.oneShot, session, running: running.has(session) }
         }),
       })
     } catch (err) {
@@ -813,7 +813,10 @@ export function createApiApp() {
         return
       }
       const session = commandSessionName(project, button.name)
-      await tmuxManager.runCommand(session, button.command, root)
+      // 일회성 명령은 끝나자마자 자기 세션을 스스로 닫는다 — 세션 이름은 SESSION_NAME_RE로 검증된
+      // 값이라 셸에 그대로 이어 붙여도 안전하다
+      const command = button.oneShot ? `${button.command}; tmux kill-session -t ${session}` : button.command
+      await tmuxManager.runCommand(session, command, root)
       res.json({ ok: true, session })
     } catch (err) {
       handleError(res, err)

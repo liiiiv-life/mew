@@ -12,6 +12,8 @@ import { COMMAND_SESSION_PREFIX } from '@mew/tmux-term/server'
 export interface CmdButton {
   name: string
   command: string
+  /** true면 실행 후 명령이 끝나는 즉시 그 tmux 세션을 스스로 닫는다(배포·빌드 등 일회성 명령용) */
+  oneShot?: boolean
 }
 
 export class CmdButtonError extends Error {}
@@ -44,7 +46,7 @@ export function readCmdButtons(project: string): CmdButton[] {
     const command = typeof rec.command === 'string' ? rec.command.trim() : ''
     if (!name || !command) continue
     if (name.length > MAX_NAME_LEN || command.length > MAX_COMMAND_LEN) continue
-    out.push({ name, command })
+    out.push({ name, command, oneShot: rec.oneShot === true })
     if (out.length >= MAX_BUTTONS) break
   }
   return out
@@ -68,7 +70,7 @@ export function normalizeCmdButtons(input: unknown): CmdButton[] {
     // 실행 세션 이름이 프로젝트+이름 해시라 이름이 겹치면 두 명령이 한 세션을 공유해 버린다
     if (seen.has(name)) throw new CmdButtonError(`이름이 겹칩니다: ${name}`)
     seen.add(name)
-    out.push({ name, command })
+    out.push({ name, command, oneShot: rec.oneShot === true })
   }
   return out
 }
@@ -77,7 +79,9 @@ export function writeCmdButtons(project: string, buttons: CmdButton[]): void {
   const file = path.join(projectRoot(project), MEW_DIR, CMD_FILE)
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const tmp = `${file}.tmp-${process.pid}`
-  fs.writeFileSync(tmp, `${JSON.stringify({ commands: buttons }, null, 2)}\n`, 'utf-8')
+  // oneShot이 false인 경우엔 키를 아예 안 써서 옛 파일과 diff 소음을 줄인다
+  const commands = buttons.map((b) => (b.oneShot ? { name: b.name, command: b.command, oneShot: true } : { name: b.name, command: b.command }))
+  fs.writeFileSync(tmp, `${JSON.stringify({ commands }, null, 2)}\n`, 'utf-8')
   fs.renameSync(tmp, file) // 쓰는 도중 읽어도 반쪽짜리 JSON을 보지 않도록 (tableLayout.ts와 같은 이유)
 }
 

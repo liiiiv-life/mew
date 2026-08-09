@@ -462,6 +462,8 @@ export function fetchSystemStats(): Promise<SystemStats> {
 export interface CmdButtonState {
   name: string
   command: string
+  /** true면 명령이 끝나자마자 이 세션을 스스로 닫는다(배포·빌드 등) */
+  oneShot: boolean
   /** 이 버튼 전용 tmux 세션 이름(mewcmd-*) */
   session: string
   /** 그 세션이 지금 떠 있는지 */
@@ -472,6 +474,7 @@ export interface CmdButtonState {
 export interface CmdButton {
   name: string
   command: string
+  oneShot?: boolean
 }
 
 // 프로젝트 탭마다 자기 메뉴를 띄우므로(활성 프로젝트 것만 보는 게 아니다) 프로젝트를 명시적으로 받는다
