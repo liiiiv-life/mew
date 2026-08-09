@@ -42,6 +42,7 @@ import { ListConversion } from './editor/listConversion'
 import { IndentableListItem, liftFirstListItemTransaction, sinkFirstListItemTransaction } from './editor/listIndent'
 import { HeadingEnter } from './editor/headingEnter'
 import { DeleteLine } from './editor/deleteLine'
+import { changedCaretPos } from './editor/undoCaret'
 import { SearchAndReplace } from './editor/searchExtension'
 import { docHasTable, readTableWidths, tableWidthsTransaction } from './editor/tableWidths'
 import { EditorSearchBar } from './editor/EditorSearchBar'
@@ -864,8 +865,8 @@ export const Editor = forwardRef<
 
   // Ctrl+Z/Ctrl+Y — y-tiptap은 undo/redo 때마다 문서 전체를 replace한 뒤 복원한 커서로
   // scrollIntoView를 부른다. 커서 복원이 어긋나면(상대 위치가 이미 지워진 Y 아이템을 가리키면 그
-  // 전체 replace를 통과하며 문서 끝으로 매핑된다) 화면이 문서 맨 아래로 튄다. 되돌리기 전 스크롤을
-  // 기억해 두고 되돌린 뒤 그대로 되돌려 놓는다 — 커서가 그 화면 밖으로 나갔을 때만 따라간다.
+  // 전체 replace를 통과하며 문서 끝으로 매핑된다) 화면이 엉뚱한 곳으로 튄다. 복원된 커서는 믿지 않고,
+  // 되돌리기 전후 문서를 diff해 **실제 바뀐 자리**에 커서를 놓는다 — 그 자리가 화면 밖이면 따라간다.
   // (제거된 "문서별 스크롤 위치 저장·복원"(ADR 0029)과 무관하다 — 저장하지도, 전환 때 되돌리지도 않는다.)
   function runUndoRedoKeepingView(action: 'undo' | 'redo') {
     const editor = editorRef.current
@@ -875,9 +876,16 @@ export const Editor = forwardRef<
       editor.commands[action]()
       return
     }
+    const before = editor.state.doc
     const top = el.scrollTop
     editor.commands[action]()
     el.scrollTop = top // dispatch가 동기라 여기서 되돌리면 튀는 게 화면에 그려지지 않는다
+    const pos = changedCaretPos(before, editor.state.doc)
+    if (pos !== null) {
+      const view = editor.view
+      view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
+      view.focus()
+    }
     try {
       const caret = editor.view.coordsAtPos(editor.state.selection.head)
       const box = el.getBoundingClientRect()
