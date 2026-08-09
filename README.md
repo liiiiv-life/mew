@@ -272,7 +272,8 @@ npm run db:down   # 중지
   실행 세션은 살아 있되 이 버튼에서는 더 이상 보이지 않는다.
 - 이름은 프로젝트 안에서 겹칠 수 없다(겹치면 두 명령이 한 세션을 공유하게 되므로 400).
 - 서버: `server/cmdButtons.ts`(파일 파싱·정규화·쓰기·세션 이름) + `GET/PUT/POST /api/cmd-buttons*`
-  (owner/manager). 클라이언트: `src/components/CommandButtonMenu.tsx`·`CommandTerminalPopup.tsx`.
+  (owner/manager). 클라이언트: `src/components/CommandButtonMenu.tsx`·`SessionTerminalPopup.tsx`
+  (세션 팝업은 예약 작업과 **같은 컴포넌트**를 쓴다 — 세션 이름·제목·실행 함수만 다르게 넘긴다).
   드롭다운은 탭 줄이 가로 스크롤 컨테이너라 잘리므로 **body로 포털해 fixed로** 띄운다 — 포털이라도
   React 트리에서는 탭 안이라, 탭을 여는 클릭·꾹 누르기·드래그 핸들러는 컨테이너가 아니라 **이름 버튼에만**
   건다(드래그가 자리를 재는 기준 `ref`만 ▶까지 포함한 탭 전체에 건다).
@@ -329,6 +330,39 @@ Claude Code 같은 TUI의 슬래시 명령(`/clear`·`/model`)도 버튼 한 번
   GPU 사용률은 그 쿼리에 없다. `/proc`이 없는 환경(비리눅스)에서는 빈 배열.
 - **추이 그래프는 클라이언트가 모은다** — 서버에 링버퍼가 없다. 팝업이 열려 있는 동안 최근 60표본
   (2분)을 들고 있다가 닫으면 버린다. 개별 프로세스 그래프도 이 이력에서 pid로 뽑는다.
+
+### 예약 작업 (.data/schedules.json)
+
+도구 줄 **시계 아이콘** — "언제 / 어느 폴더에서 / 어떤 에이전트로 / 어떤 프롬프트를" 을 등록하면 그
+시각에 에이전트가 무인으로 돈다. owner/manager만(임의 프롬프트가 무인 실행되는 표면 — 셸과 같은 경계).
+
+- 서버: `server/schedules.ts` + `GET/PUT /api/schedules`, `POST /api/schedules/run`(지금 실행).
+  클라이언트: `src/components/ScheduleModal.tsx`, 크론식↔GUI 변환은 `src/utils/cron.ts`.
+- **원본은 `.data/schedules.json`, crontab은 파생물이다.** 저장할 때마다 `# mew-job:<id>` 마커가 붙은
+  줄만 걷어내고 다시 쓴다 — 손으로 쓴 크론 줄은 건드리지 않고, 창에도 읽기 전용으로 보여준다.
+- **실행은 잡 전용 tmux 세션 안에서 일어난다.** 크론 줄이 하는 일은 세 가지뿐이다 —
+  `tmux new-session -d -s <세션> -c <설정한 폴더>`(이미 있으면 실패시키고 그 세션을 재사용) →
+  `send-keys -l <에이전트 명령>` → `send-keys Enter`. 명령어 버튼과 같은 구조라, 무인 실행이 끝난 뒤에도
+  화면이 세션에 남아 각 줄의 **터미널 아이콘**으로 그대로 들여다볼 수 있다(같은 `SessionTerminalPopup`).
+- 세션 이름은 `mewcmd-job-<id 앞 8자>`다. 명령어 버튼과 같은 프리픽스라 **터미널 탭 목록에는 뜨지
+  않고**(`isCommandSession` 필터), 팝업의 **[종료]**는 그 세션을 죽인다(`DELETE /api/tmux/sessions/:name`).
+  팝업 안의 **실행** 버튼과 `POST /api/schedules/run`은 크론과 **똑같은 세션·똑같은 명령**을 쓴다 —
+  예약 시각을 기다리지 않고 확인할 수 있다. 실행 요청 본문에서 받는 건 잡 `id`뿐이다.
+- **프롬프트는 셸에 인라인하지 않는다.** `.data/schedules/<id>.prompt`에 쓰고 명령이 그 파일을 읽는다
+  — 따옴표·개행, 그리고 크론에서 stdin 구분자로 먹히는 `%`를 통째로 피한다(명령 쪽 `%`는 escape).
+- 실행 명령은 에이전트별로 고정이다. 사용자가 명령 문자열을 넣는 곳은 없다:
+  | 에이전트 | 세션에 타이핑되는 명령 |
+  |---|---|
+  | `claude` | `claude -p --dangerously-skip-permissions < <프롬프트파일> 2>&1 \| tee -a <로그>` |
+  | `hermes` | `hermes --yolo -z "$(cat <프롬프트파일>)" 2>&1 \| tee -a <로그>` |
+  무인 실행이라 둘 다 승인 우회 플래그가 붙는다. 바이너리(`tmux` 포함)는 저장 시점에 `command -v`로
+  **절대 경로로 굳힌다** — cron의 PATH로는 이름만으로 못 찾는다.
+- 크론 5필드는 `[A-Za-z0-9*/,-]`만 통과시킨다(crontab 주입 차단). 출력은 세션 화면에 보이면서 동시에
+  `tee -a`로 `.data/schedules/<id>.log`에 덧붙고, 그 파일의 mtime이 창의 "마지막 실행"이다.
+  **로그는 자동으로 줄지 않는다** — 커지면 직접 지운다.
+- 앞 실행이 아직 돌고 있는데 다음 예약 시각이 오면 **같은 세션에 그대로 타이핑된다**(=돌고 있는
+  에이전트의 stdin으로 들어간다). 주기를 실행 시간보다 짧게 잡지 말 것.
+- 잡을 지우면 저장할 때 그 잡의 세션도 함께 죽인다 — 숨은 세션이라 UI 어디에서도 잡을 수 없기 때문.
 
 ### 숨김 목록 (.data/ignore.json)
 
@@ -526,7 +560,7 @@ MEW_COLLAB_RUST=1 npm run serve
 
 ### 서버 상태 파일 (`.data/`)
 
-사용자·세션·게스트 규칙·프로젝트 아이콘·프로젝트 배치·터미널 버튼·숨김 목록이 여기 있다. 전부
+사용자·세션·게스트 규칙·프로젝트 아이콘·프로젝트 배치·터미널 버튼·숨김 목록·예약 작업이 여기 있다. 전부
 `server/dataDir.ts`를 거쳐 읽고 쓴다:
 
 - **쓰기는 임시 파일 + rename**뿐이다. `writeFileSync`로 바로 쓰면 파일이 잠깐 0바이트가 되고,

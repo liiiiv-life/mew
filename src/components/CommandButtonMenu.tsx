@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@mew/ui'
 import { fetchCmdButtons, killTmuxSession, runCmdButton, saveCmdButtons, type CmdButtonState } from '../api/client'
-import { CommandTerminalPopup } from './CommandTerminalPopup'
+import { SessionTerminalPopup } from './SessionTerminalPopup'
 
 const LONG_PRESS_MS = 500
 const MENU_WIDTH = 288 // w-72
@@ -207,7 +207,18 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
         />
       )}
 
-      {popup && <CommandTerminalPopup project={project} button={popup} onClose={() => setPopup(null)} onChanged={refresh} />}
+      {popup && (
+        <SessionTerminalPopup
+          title={popup.name}
+          subtitle={popup.command}
+          idleNote={popup.command}
+          session={popup.session}
+          running={popup.running}
+          onRun={() => runCmdButton(project, popup.name)}
+          onClose={() => setPopup(null)}
+          onChanged={refresh}
+        />
+      )}
     </>
   )
 }

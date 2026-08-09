@@ -23,7 +23,8 @@ import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
 import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { collectSystemStats } from './sysStats.ts'
-import { readCrontab, writeCrontab } from './crontab.ts'
+import { readCrontab } from './crontab.ts'
+import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
 import {
   DEFAULT_IGNORE,
   IgnoreListError,
@@ -779,24 +780,51 @@ export function createApiApp() {
     }
   })
 
-  // 서버 사용자의 crontab — 임의 명령이 예약 실행되는 표면이라 tmux와 동일하게 owner/manager만
-  app.get('/crontab', requireRole('owner', 'manager'), async (_req, res) => {
+  // 예약 에이전트 작업 — 임의 프롬프트가 무인 실행되는 표면이라 tmux와 동일하게 owner/manager만.
+  // 손으로 쓴 크론 줄(otherLines)은 읽기 전용으로 함께 내려준다 — 여기서 지워지지 않는다는 걸 보이려고.
+  // 실행은 잡 전용 tmux 세션에서 이뤄지므로 그 세션이 떠 있는지(running)도 함께 계산해 붙인다.
+  const liveSessions = async () => new Set((await tmuxManager.list()).map((s) => s.name))
+
+  app.get('/schedules', requireRole('owner', 'manager'), async (_req, res) => {
     try {
-      res.json({ text: await readCrontab() })
+      res.json({ jobs: jobViews(readJobs(), await liveSessions()), otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== '') })
     } catch (err) {
       handleError(res, err)
     }
   })
 
-  app.put('/crontab', requireRole('owner', 'manager'), async (req, res) => {
+  app.put('/schedules', requireRole('owner', 'manager'), async (req, res) => {
     try {
-      const { text } = req.body as { text?: unknown }
-      if (typeof text !== 'string') {
-        res.status(400).json({ error: 'text가 없습니다' })
+      const { jobs } = req.body as { jobs?: unknown }
+      const before = readJobs()
+      const saved = await saveSchedules(jobs)
+      // 지워진 잡의 세션은 탭 목록에도 안 뜨는 숨은 세션이라 여기서 정리하지 않으면 죽일 방법이 없다
+      const live = await liveSessions()
+      const kept = new Set(saved.map((j) => j.id))
+      for (const job of before) {
+        if (kept.has(job.id)) continue
+        const session = jobSessionName(job.id)
+        if (live.has(session)) await tmuxManager.kill(session).catch(() => {})
+      }
+      res.json({ jobs: jobViews(saved, await liveSessions()), otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== '') })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // "지금 실행" — 크론이 도는 것과 똑같이 잡 전용 세션에 에이전트 명령을 타이핑한다(같은 문자열).
+  // 프롬프트·명령은 언제나 서버가 저장된 잡에서 만든다 — 요청 본문에서는 id만 받는다.
+  app.post('/schedules/run', requireRole('owner', 'manager'), async (req, res) => {
+    try {
+      const { id } = req.body as { id?: unknown }
+      const job = typeof id === 'string' ? readJobs().find((j) => j.id === id) : undefined
+      if (!job) {
+        res.status(404).json({ error: '해당 예약 작업을 찾을 수 없습니다' })
         return
       }
-      await writeCrontab(text)
-      res.json({ text: await readCrontab() })
+      const session = jobSessionName(job.id)
+      await tmuxManager.runCommand(session, agentCommand(job), jobCwd(job.project))
+      res.json({ ok: true, session })
     } catch (err) {
       handleError(res, err)
     }
@@ -949,6 +977,10 @@ function handleError(res: express.Response, err: unknown) {
     return
   }
   if (err instanceof ProjectNameError) {
+    res.status(400).json({ error: err.message })
+    return
+  }
+  if (err instanceof ScheduleError) {
     res.status(400).json({ error: err.message })
     return
   }

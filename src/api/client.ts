@@ -469,18 +469,52 @@ export function fetchSystemStats(): Promise<SystemStats> {
   return fetch('/api/system-stats').then(json<SystemStats>)
 }
 
-// ---- 서버 사용자의 crontab ----
+// ---- 예약 에이전트 작업 (crontab 생성원) ----
 
-export function fetchCrontab(): Promise<{ text: string }> {
-  return fetch('/api/crontab').then(json<{ text: string }>)
+export interface AgentJob {
+  id: string
+  name: string
+  cron: string
+  project: string
+  agent: 'claude' | 'hermes'
+  prompt: string
+  enabled: boolean
 }
 
-export function saveCrontab(text: string): Promise<{ text: string }> {
-  return fetch('/api/crontab', {
+export interface AgentJobView extends AgentJob {
+  command: string
+  lastRun: string | null
+  /** 이 잡 전용 tmux 세션 이름(mewcmd-job-*) — 터미널 창으로 열어 본다 */
+  session: string
+  /** 그 세션이 지금 떠 있는지 */
+  running: boolean
+}
+
+export interface SchedulesResponse {
+  jobs: AgentJobView[]
+  /** mew가 만들지 않은 크론 줄 — 읽기 전용 */
+  otherLines: string[]
+}
+
+export function fetchSchedules(): Promise<SchedulesResponse> {
+  return fetch('/api/schedules').then(json<SchedulesResponse>)
+}
+
+export function saveSchedules(jobs: AgentJob[]): Promise<SchedulesResponse> {
+  return fetch('/api/schedules', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  }).then(json<{ text: string }>)
+    body: JSON.stringify({ jobs }),
+  }).then(json<SchedulesResponse>)
+}
+
+/** 예약을 기다리지 않고 지금 한 번 돌린다 — 크론이 도는 것과 같은 세션·같은 명령이다 */
+export function runSchedule(id: string): Promise<{ ok: true; session: string }> {
+  return fetch('/api/schedules/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  }).then(json<{ ok: true; session: string }>)
 }
 
 // ---- 명령어 버튼 (.mew/cmd-button.json) ----

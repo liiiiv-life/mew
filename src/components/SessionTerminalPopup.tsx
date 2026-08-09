@@ -1,4 +1,5 @@
-// 명령어 버튼의 터미널 아이콘으로 여는 팝업 — 그 버튼 전용 tmux 세션(mewcmd-*)을 붙여서 보여준다.
+// tmux 세션 하나를 붙여 보여주는 팝업 — 명령어 버튼(mewcmd-*)과 예약 작업(mewcmd-job-*)이 함께 쓴다.
+// 두 기능 다 "전용 세션에서 무언가를 돌리고 그 화면을 들여다본다"가 같아서 창을 한 벌만 둔다.
 // [종료]는 세션을 죽이고 닫고, [닫기]는 세션을 살려둔 채 팝업만 닫는다(다음에 다시 열면 이어서 보인다).
 //
 // **반드시 body로 포털한다.** 모바일 이름표(ProjectPeek)가 transform을 써서 fixed 자손의 containing
@@ -8,24 +9,36 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { TmuxTerminal } from '@mew/tmux-term'
 import { useOverlayDismiss } from '@mew/ui'
-import { killTmuxSession, runCmdButton, type CmdButtonState } from '../api/client'
+import { killTmuxSession } from '../api/client'
 import { outsideTerminal } from '../utils/terminalFocus'
 
-export function CommandTerminalPopup({
-  project,
-  button,
+export function SessionTerminalPopup({
+  title,
+  subtitle,
+  session,
+  running,
+  idleNote,
+  onRun,
   onClose,
   onChanged,
 }: {
-  /** 이 버튼이 속한 프로젝트 — 화면의 활성 프로젝트와 다를 수 있다(다른 프로젝트 탭의 메뉴에서 열림) */
-  project: string
-  button: CmdButtonState
+  title: string
+  /** 제목 아래 한 줄(명령어·주기 등) */
+  subtitle?: string
+  /** 붙여 볼 tmux 세션 이름 */
+  session: string
+  /** 열 때 이미 세션이 떠 있는지 — 아니면 실행 버튼만 보여준다 */
+  running: boolean
+  /** 아직 실행 전일 때 가운데 보여줄 한 줄 */
+  idleNote?: string
+  /** 실행(=세션 생성) 요청 */
+  onRun: () => Promise<unknown>
   /** 세션은 유지한 채 팝업만 닫는다 */
   onClose: () => void
-  /** 실행/종료로 세션 상태가 바뀌었을 때 — 부모(드롭다운)가 목록을 새로고침한다 */
+  /** 실행/종료로 세션 상태가 바뀌었을 때 — 부모가 목록을 새로고침한다 */
   onChanged: () => void
 }) {
-  const [started, setStarted] = useState(button.running)
+  const [started, setStarted] = useState(running)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,7 +50,7 @@ export function CommandTerminalPopup({
     setBusy(true)
     setError(null)
     try {
-      await runCmdButton(project, button.name)
+      await onRun()
       setStarted(true)
       onChanged()
     } catch (err) {
@@ -52,7 +65,7 @@ export function CommandTerminalPopup({
     setBusy(true)
     setError(null)
     try {
-      await killTmuxSession(button.session)
+      await killTmuxSession(session)
       onChanged()
       onClose()
     } catch (err) {
@@ -74,8 +87,12 @@ export function CommandTerminalPopup({
         <div className="flex items-center gap-2 border-b border-edge px-3 py-2.5">
           <PlayGlyph className="shrink-0 text-accent-strong" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold text-ink">{button.name}</div>
-            <div className="truncate font-mono text-xs text-ink-muted" title={button.command}>{button.command}</div>
+            <div className="truncate text-sm font-semibold text-ink">{title}</div>
+            {subtitle && (
+              <div className="truncate font-mono text-xs text-ink-muted" title={subtitle}>
+                {subtitle}
+              </div>
+            )}
           </div>
           {started && <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] text-ink-secondary">실행 세션</span>}
         </div>
@@ -83,12 +100,14 @@ export function CommandTerminalPopup({
         <div className="relative min-h-0 flex-1 bg-surface-deep">
           {started ? (
             <div className="h-full">
-              <TmuxTerminal sessionName={button.session} />
+              <TmuxTerminal sessionName={session} />
             </div>
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-              <div className="text-sm text-ink-muted">이 명령은 아직 실행되지 않았습니다.</div>
-              <code className="max-w-full truncate rounded bg-surface px-2 py-1 font-mono text-xs text-ink-secondary">{button.command}</code>
+              <div className="text-sm text-ink-muted">아직 실행되지 않았습니다.</div>
+              {idleNote && (
+                <code className="max-w-full truncate rounded bg-surface px-2 py-1 font-mono text-xs text-ink-secondary">{idleNote}</code>
+              )}
               <button
                 type="button"
                 onClick={run}
