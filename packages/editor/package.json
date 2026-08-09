@@ -13,6 +13,7 @@
     "@mew/ui": "*",
     "@tiptap/extension-collaboration": "3.27.4",
     "@tiptap/extension-collaboration-caret": "3.27.4",
+    "@tiptap/extension-drag-handle": "^3.27.4",
     "@tiptap/extension-placeholder": "^3.27.4",
     "@tiptap/extension-table": "^3.27.4",
     "@tiptap/pm": "^3.27.4",

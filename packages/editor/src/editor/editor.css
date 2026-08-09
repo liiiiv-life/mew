@@ -78,11 +78,7 @@
   opacity: 1;
   color: var(--color-accent, var(--color-ink));
 }
-/* 코드블럭 노드 자체가 선택됐을 때(거터 클릭) — 복사 시 ``` 펜스가 포함되는 상태를 시각적으로 알림 */
-.code-block-wrap.ProseMirror-selectednode pre {
-  outline: 2px solid var(--color-accent, var(--color-edge-strong));
-  outline-offset: 1px;
-}
+/* 코드블럭 노드 선택 표시는 아래 범용 .ProseMirror-selectednode 규칙이 담당한다 */
 .tiptap pre {
   background: var(--color-surface);
   border: 1px solid var(--color-edge-strong);
@@ -122,11 +118,22 @@
   margin: 0.5em 0;
   border-radius: 6px;
 }
+/* 넓은 표(리사이즈로 min-width가 커진 표)는 문서가 아니라 표 안에서 좌우 스크롤한다 —
+   문서 화면에 가로 스크롤이 생기면 안 된다.
+   overflow-y는 명시적으로 hidden — 한 축만 auto면 다른 축의 visible이 auto로 강제 계산돼
+   (CSS overflow 규칙) 리사이즈 핸들의 bottom: -2px 삐져나옴만으로 세로 스크롤바가 생긴다. */
+.tiptap .tableWrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 0.75em 0;
+}
+/* 스크롤바 스타일은 앱 전역 규칙(src/index.css의 *::-webkit-scrollbar)이 담당한다 —
+   여기 있던 표 전용 스크롤바 정의를 그쪽으로 승격했다. */
 .tiptap table {
   border-collapse: collapse;
   table-layout: fixed;
   width: 100%;
-  margin: 0.75em 0;
+  margin: 0;
   font-size: 0.95em;
 }
 .tiptap th, .tiptap td {
@@ -156,7 +163,17 @@
 .tiptap td.selectedCell, .tiptap th.selectedCell {
   background: color-mix(in srgb, var(--color-link) 15%, transparent);
 }
-.tiptap .tableWrapper.ProseMirror-selectednode table,
+/* NodeSelection(핸들 클릭·거터 클릭 등)은 브라우저 기본 선택 표시가 없다 — 하이라이트를 직접
+   그린다. 배경만 칠하면 코드블럭처럼 불투명한 블록에선 안 보여 outline을 같이 쓴다.
+   이미지(.node-image)는 노드뷰가 자체 링(ring-accent)을 그리므로 여기서 빼 이중 표시를 막는다 */
+.tiptap .ProseMirror-selectednode:not(.node-image) {
+  outline: 2px solid var(--color-link);
+  outline-offset: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-link) 10%, transparent);
+}
+/* 선택 테두리는 wrapper에 — 안쪽 table에 그리면 overflow 클리핑에 잘린다 */
+.tiptap .tableWrapper.ProseMirror-selectednode,
 .tiptap table.ProseMirror-selectednode {
   outline: 2px solid var(--color-link);
   outline-offset: 1px;

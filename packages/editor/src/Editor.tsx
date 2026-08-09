@@ -16,6 +16,8 @@ import Blockquote from '@tiptap/extension-blockquote'
 import HorizontalRule from '@tiptap/extension-horizontal-rule'
 import Link from '@tiptap/extension-link'
 import { TableKit } from '@tiptap/extension-table'
+import { MarkdownTable } from './editor/tableMarkdown'
+import DragHandle from '@tiptap/extension-drag-handle'
 import { Collaboration } from '@tiptap/extension-collaboration'
 import { CollaborationCaret } from '@tiptap/extension-collaboration-caret'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
@@ -36,6 +38,7 @@ import { MobileKeyBar, useMobileLayout } from '@mew/mobile-keys'
 import { pathFromDrag } from '@mew/ui'
 import { FrontmatterPanel } from './editor/FrontmatterPanel'
 import { TableTooltip } from './editor/TableTooltip'
+import { TableCopyMenu } from './editor/TableCopyMenu'
 import { LinkTooltip } from './editor/LinkTooltip'
 import { MentionTooltip, type MentionResult } from './editor/MentionTooltip'
 import { SlashMenu, type SlashCommand } from './editor/SlashMenu'
@@ -270,6 +273,15 @@ export const Editor = forwardRef<
   const [editorFocused, setEditorFocused] = useState(false)
   // /db 참조 커맨드로 여는 데이터베이스 선택 모달 — pos는 삽입 위치(문서 좌표)
   const [dbPicker, setDbPicker] = useState<{ pos: number } | null>(null)
+  // 표 우클릭 복사 메뉴 — pos는 표 노드 시작 위치, dom은 이미지 복사용 실제 렌더 엘리먼트
+  const [tableCopyMenu, setTableCopyMenu] = useState<{
+    position: { top: number; left: number }
+    pos: number
+    dom: HTMLTableElement
+  } | null>(null)
+  // 드래그 핸들이 지금 가리키는 블록의 문서 위치 — 핸들 클릭 시 NodeSelection 대상
+  const dragHandlePosRef = useRef(-1)
+  const dragHandleElRef = useRef<HTMLDivElement | null>(null)
   const [keyBarCtrl, setKeyBarCtrl] = useState(false)
   const [keyBarShift, setKeyBarShift] = useState(false)
   // Ctrl+F 찾기 바 — seed는 열 때 미리 채울 검색어, nonce는 이미 열려 있어도 새 seed로 다시 실행시키는 신호
@@ -369,7 +381,51 @@ export const Editor = forwardRef<
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-link underline', target: null, rel: null } }),
       // allowTableNodeSelection: 테이블 NodeSelection이 CellSelection으로 강제 변환되지 않게 함 (테두리 클릭 선택용)
       // resizable: 세로선(열 너비) 드래그 조절만 지원 — prosemirror-tables는 행 높이 조절 기능이 없음
-      TableKit.configure({ table: { allowTableNodeSelection: true, resizable: true } }),
+      // table 노드는 md 직렬화를 고친 MarkdownTable로 등록한다 (editor/tableMarkdown.ts, 서버와 공유)
+      TableKit.configure({ table: false }),
+      MarkdownTable.configure({ allowTableNodeSelection: true, resizable: true }),
+      // 노션식 블록 드래그 핸들 — 호버한 줄 왼쪽에 그립이 뜨고, 끌면 블록 이동.
+      // 클릭하면 그 블록을 NodeSelection으로 통째로 선택한다 (아래 onNodeChange가 추적한 pos 사용)
+      DragHandle.configure({
+        render: () => {
+          const el = document.createElement('div')
+          el.className = 'mew-drag-handle'
+          el.innerHTML =
+            '<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.3"/><circle cx="7" cy="3" r="1.3"/><circle cx="3" cy="8" r="1.3"/><circle cx="7" cy="8" r="1.3"/><circle cx="3" cy="13" r="1.3"/><circle cx="7" cy="13" r="1.3"/></svg>'
+          el.addEventListener('click', () => {
+            const ed = editorRef.current
+            const pos = dragHandlePosRef.current
+            if (!ed || pos < 0) return
+            ed.chain().setNodeSelection(pos).focus().run()
+          })
+          dragHandleElRef.current = el
+          return el
+        },
+        // 옵션 타입에는 node·editor만 있지만 런타임은 pos도 넘긴다 (플러그인 레벨 시그니처와 동일)
+        onNodeChange: (opts) => {
+          const { node, pos } = opts as unknown as { node: PMNode | null; pos: number }
+          dragHandlePosRef.current = pos
+          // 리스트 항목은 불렛·번호 마커가 li 박스 왼쪽 바깥에 그려진다 — 핸들이 마커와 겹치지
+          // 않게 마커 폭만큼 더 왼쪽으로 밀어낸다 (index.css의 --list 변형)
+          dragHandleElRef.current?.classList.toggle('mew-drag-handle--list', node?.type.name === 'listItem')
+        },
+        nested: {
+          rules: [
+            {
+              // 표 내부는 전부 제외 — 핸들이 항상 표 전체를 잡아 하나의 오브젝트로 선택·이동되게.
+              // $pos는 모든 후보가 공유하므로 반드시 depth로 "이 후보보다 얕은 조상"만 봐야 한다 —
+              // 조상 전체를 보면 표 자신까지 제외돼 표 위에서 핸들이 아예 안 뜬다
+              id: 'table-as-one-object',
+              evaluate: ({ node, depth, $pos }) => {
+                if (node.type.name === 'table') return 0
+                for (let d = 1; d < depth && d <= $pos.depth; d++)
+                  if ($pos.node(d).type.name === 'table') return 1000
+                return 0
+              },
+            },
+          ],
+        },
+      }),
       ResizableImage,
       AudioNode,
       VideoNode,
@@ -786,6 +842,31 @@ export const Editor = forwardRef<
         return true
       },
       handleDOMEvents: {
+        // 표 우클릭 → 복사 메뉴 (md·csv·이미지). readOnly에서도 복사는 된다
+        contextmenu: (view, event) => {
+          const e = event as MouseEvent
+          const target = e.target as HTMLElement | null
+          if (!(target instanceof HTMLElement)) return false
+          const tableEl = target.closest('table')
+          if (!tableEl || !view.dom.contains(tableEl)) return false
+          try {
+            const $pos = view.state.doc.resolve(view.posAtDOM(tableEl, 0))
+            for (let d = $pos.depth; d > 0; d--) {
+              if ($pos.node(d).type.name === 'table') {
+                e.preventDefault()
+                setTableCopyMenu({
+                  position: { top: e.clientY, left: e.clientX },
+                  pos: $pos.before(d),
+                  dom: tableEl as HTMLTableElement,
+                })
+                return true
+              }
+            }
+          } catch {
+            // posAtDOM 실패 — 브라우저 기본 메뉴로
+          }
+          return false
+        },
         // 링크 클릭: 일반 클릭은 보기 툴팁(미리보기·편집 진입), Ctrl/Cmd+클릭은 바로 열기
         // — 내부 문서 상대 경로는 새 탭이 아니라 에디터 내부 탭에서 연다
         mousedown: (view, event) => {
@@ -1202,6 +1283,8 @@ export const Editor = forwardRef<
       // emitUpdate=false: editable 토글이 onUpdate를 발생시켜 탭 상태를 오염시키지 않도록
       editor.setEditable(!readOnly, false)
     }
+    // 블록 이동은 편집이다 — 읽기 전용에서는 드래그 핸들 자체를 숨긴다
+    if (dragHandleElRef.current) dragHandleElRef.current.style.display = readOnly ? 'none' : ''
   }, [editor, readOnly])
 
   // ── 표 열 너비 복원·저장 (md 밖 레이아웃, .mew/table-layout.json) ─────────────
@@ -1469,6 +1552,16 @@ export const Editor = forwardRef<
           <span className="min-w-0 break-words">{uploadError}</span>
           <span aria-hidden className="shrink-0 opacity-70">✕</span>
         </div>
+      )}
+      {tableCopyMenu && editor && (
+        <TableCopyMenu
+          editor={editor}
+          pos={tableCopyMenu.pos}
+          tableDom={tableCopyMenu.dom}
+          position={tableCopyMenu.position}
+          onClose={() => setTableCopyMenu(null)}
+          onError={setUploadError}
+        />
       )}
       {tooltip?.show && (
         <TableTooltip

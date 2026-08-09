@@ -24,6 +24,7 @@ import { Markdown } from 'tiptap-markdown'
 // 이 모듈 그래프는 server/collabAgent가 Node에서 직접 로드하므로(@mew/editor/server 서브패스),
 // 상대 임포트는 server/*.ts처럼 반드시 확장자를 붙인다 — Node ESM 로더는 확장자 생략을 해석하지 않는다.
 import { ListConversion } from './editor/listConversion.ts'
+import { MarkdownTable } from './editor/tableMarkdown.ts'
 import { IndentableListItem } from './editor/listIndent.ts'
 import { imageNode } from './imageSchema.ts'
 import { AudioNode, VideoNode, Youtube } from './MediaNodes.ts'
@@ -73,7 +74,9 @@ export function serverEditorExtensions(): Extensions {
     Blockquote,
     HorizontalRule,
     Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-link underline', target: null, rel: null } }),
-    TableKit.configure({ table: { allowTableNodeSelection: true, resizable: true } }),
+    // table 노드는 md 직렬화를 고친 MarkdownTable로 등록 — Editor.tsx와 같은 것을 써야 한다
+    TableKit.configure({ table: false }),
+    MarkdownTable.configure({ allowTableNodeSelection: true, resizable: true }),
     imageNode,
     AudioNode,
     VideoNode,
