@@ -2,11 +2,13 @@
   "commands": [
     {
       "name": "개발 서버 (4999)",
-      "command": "npm run dev"
+      "command": "npm run build && ./mew restart",
+      "oneShot": true
     },
     {
       "name": "빌드",
-      "command": "npm run build"
+      "command": "npm run build && ./mew restart",
+      "oneShot": true
     },
     {
       "name": "서버 실행",
@@ -14,19 +16,23 @@
     },
     {
       "name": "테스트",
-      "command": "npm run test"
+      "command": "npm run test",
+      "oneShot": true
     },
     {
       "name": "린트",
-      "command": "npm run lint"
+      "command": "npm run lint",
+      "oneShot": true
     },
     {
       "name": "DB 시작",
-      "command": "npm run db:up"
+      "command": "npm run db:up",
+      "oneShot": true
     },
     {
       "name": "DB 종료",
-      "command": "npm run db:down"
+      "command": "npm run db:down",
+      "oneShot": true
     }
   ]
 }
