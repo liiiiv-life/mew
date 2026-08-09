@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react'
 import { parseHeadings, type TocNode } from '../utils/toc'
 
+// 제목 수준별 글자 크기 — 문서의 h1~h6 위계가 목차에서도 보이게
+const LEVEL_STYLE: Record<number, string> = {
+  1: 'text-sm font-semibold',
+  2: 'text-[13px] font-medium',
+  3: 'text-xs',
+}
+
 function TocEntry({ node, depth, onJump }: { node: TocNode; depth: number; onJump: (index: number) => void }) {
   const [open, setOpen] = useState(true)
   const hasChildren = node.children.length > 0
@@ -8,7 +15,7 @@ function TocEntry({ node, depth, onJump }: { node: TocNode; depth: number; onJum
   return (
     <div>
       <div
-        className="flex items-center gap-1 py-1 pr-2 text-xs hover:bg-surface-raised"
+        className={`flex items-center gap-1 py-1 pr-2 hover:bg-surface-raised ${LEVEL_STYLE[node.level] ?? 'text-[11px]'}`}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
         {hasChildren ? (
@@ -55,7 +62,8 @@ export function TableOfContents({
   const tree = useMemo(() => parseHeadings(content), [content])
 
   return (
-    <div className="hidden h-full w-56 shrink-0 flex-col overflow-y-auto border-l border-edge bg-surface-deep py-2 lg:flex">
+    // 툴팁처럼 본문 위에 뜬다 — 칸 폭을 먹지 않는다. absolute 기준은 EditorPane의 본문 래퍼(relative)
+    <div className="absolute right-3 top-12 z-20 hidden max-h-[calc(100%-4rem)] w-56 flex-col overflow-y-auto rounded-lg border border-edge bg-surface-deep/80 py-2 shadow-lg backdrop-blur-sm lg:flex">
       <div className="flex items-center justify-between px-3 pb-2">
         <span className="text-xs font-semibold text-ink-muted">목차</span>
         <button
