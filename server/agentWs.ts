@@ -14,8 +14,20 @@ type ClientMessage =
   | { type: 'prompt'; text: string }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
+  | { type: 'set_model'; modelId: string }
+  | { type: 'set_mode'; modeId: string }
+  | { type: 'unqueue'; index: number }
+  | { type: 'new_session' }
+  | { type: 'list_sessions' }
+  | { type: 'load_session'; sessionId: string }
 
-function send(ws: WebSocket, payload: AgentEvent | { type: 'ready' | 'fatal'; message?: string }) {
+type ServerMessage =
+  | AgentEvent
+  | { type: 'ready' | 'fatal'; message?: string }
+  // 목록은 물어본 창에만 답한다 — 상태가 아니라 조회 결과라 이벤트 버퍼에 넣지 않는다
+  | { type: 'sessions'; sessions: { sessionId: string; title?: string | null; updatedAt?: string | null }[] }
+
+function send(ws: WebSocket, payload: ServerMessage) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload))
 }
 
@@ -29,8 +41,8 @@ async function handleConnection(ws: WebSocket, project: string) {
     return
   }
   // 창을 닫아도 세션은 남는다(agentAcp의 유휴 타이머가 정리) — 재접속하면 지나간 이벤트를 되받는다
-  const detach = session.attach((event) => send(ws, event))
   send(ws, { type: 'ready' })
+  const detach = session.attach((event) => send(ws, event))
 
   ws.on('message', (raw) => {
     let msg: ClientMessage
@@ -39,12 +51,23 @@ async function handleConnection(ws: WebSocket, project: string) {
     } catch {
       return
     }
+    const fail = (err: unknown) => send(ws, { type: 'error', message: err instanceof Error ? err.message : String(err) })
     try {
       if (msg.type === 'prompt') session.prompt(msg.text)
       else if (msg.type === 'cancel') session.cancel()
       else if (msg.type === 'permission') session.answerPermission(msg.id, msg.optionId)
+      else if (msg.type === 'unqueue') session.unqueue(msg.index)
+      else if (msg.type === 'set_model') void session.setModel(msg.modelId).catch(fail)
+      else if (msg.type === 'set_mode') void session.setMode(msg.modeId).catch(fail)
+      else if (msg.type === 'new_session') void session.newSession().catch(fail)
+      else if (msg.type === 'load_session') void session.loadSession(msg.sessionId).catch(fail)
+      else if (msg.type === 'list_sessions')
+        void session
+          .listSessions()
+          .then((sessions) => send(ws, { type: 'sessions', sessions }))
+          .catch(fail)
     } catch (err) {
-      send(ws, { type: 'error', message: err instanceof Error ? err.message : String(err) })
+      fail(err)
     }
   })
   ws.on('close', detach)
