@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TreeNode } from '../api/client'
-import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, renamePath, setGuestAccess } from '../api/client'
+import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, renamePath, setGuestAccess, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
 import { ConfirmDialog, setPathDragData } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { PresenceDots } from './PresenceDots'
+import { setScrollSaveSuppressed } from '../utils/scrollMemory'
 
 type EditingState =
   | { mode: 'rename'; path: string; type: 'file' | 'dir'; value: string; error?: string; busy?: boolean }
@@ -45,6 +46,16 @@ interface NodeCtx {
   canDropInto: (dir: string) => boolean
   onDragOverDir: (dir: string) => void
   onDropDir: (dir: string) => void
+  /** 바깥(파일 탐색기)에서 끌어온 파일을 그 폴더에 업로드 */
+  onDropFiles: (dir: string, files: FileList) => void
+}
+
+/**
+ * 바깥에서 끌어온 파일인지 — dragover에서는 DataTransfer가 보호 모드라 `types`만 읽을 수 있다.
+ * 사이드바 안에서 끄는 항목은 파일이 아니므로 이 목록에 'Files'가 없다.
+ */
+function hasExternalFiles(dt: DataTransfer | null | undefined): boolean {
+  return dt ? Array.prototype.includes.call(dt.types, 'Files') : false
 }
 
 function parentOf(p: string): string {
@@ -224,24 +235,30 @@ function ActionPopover({
   onDelete,
   onNewFile,
   onNewFolder,
+  onUpload,
   onClose,
 }: {
   x: number
   y: number
-  onRename: () => void
+  /** 루트(빈 공간) 메뉴에서는 대상 경로가 없어 undefined로 숨긴다 */
+  onRename?: () => void
   /** 복제 — 파일에만 제공(폴더는 undefined로 숨긴다) */
   onDuplicate?: () => void
-  onCopyClip: () => void
-  onCutClip: () => void
+  onCopyClip?: () => void
+  onCutClip?: () => void
   /** 클립보드에 담긴 항목이 있을 때만 제공 — 없으면 undefined로 숨긴다 */
   onPasteClip?: () => void
   onDownload?: () => void
-  onDelete: () => void
+  onDelete?: () => void
   onNewFile: () => void
   onNewFolder: () => void
+  onUpload: () => void
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // 항목 개수(파일/폴더/루트)마다 실제 높이가 달라 고정 상수로는 못 잡는다 —
+  // 렌더된 실측 크기로 화면 밖을 벗어나지 않게 클램프한다.
+  const [pos, setPos] = useState({ left: x, top: y })
 
   useEffect(() => {
     function onDown(e: PointerEvent) {
@@ -260,29 +277,41 @@ function ActionPopover({
     return () => document.removeEventListener('pointerdown', onDown, true)
   }, [onClose])
 
-  const left = Math.min(x, window.innerWidth - 180)
-  const top = Math.min(y, window.innerHeight - 336)
+  useLayoutEffect(() => {
+    const rect = ref.current?.getBoundingClientRect()
+    if (!rect) return
+    setPos({
+      left: Math.max(0, Math.min(x, window.innerWidth - rect.width - 4)),
+      top: Math.max(0, Math.min(y, window.innerHeight - rect.height - 4)),
+    })
+  }, [x, y])
 
   return (
     <div
       ref={ref}
-      style={{ position: 'fixed', top, left, zIndex: 1000 }}
+      style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 1000 }}
       className="min-w-[9rem] overflow-hidden rounded-lg border border-edge-bright bg-surface-raised text-sm shadow-xl"
     >
-      <button type="button" onClick={onRename} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-        ✎ 이름 수정
-      </button>
+      {onRename && (
+        <button type="button" onClick={onRename} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+          ✎ 이름 수정
+        </button>
+      )}
       {onDuplicate && (
         <button type="button" onClick={onDuplicate} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
           ⧉ 복제
         </button>
       )}
-      <button type="button" onClick={onCopyClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-        ⎘ 복사 (Ctrl+C)
-      </button>
-      <button type="button" onClick={onCutClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-        ✂ 잘라내기 (Ctrl+X)
-      </button>
+      {onCopyClip && (
+        <button type="button" onClick={onCopyClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+          ⎘ 복사 (Ctrl+C)
+        </button>
+      )}
+      {onCutClip && (
+        <button type="button" onClick={onCutClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+          ✂ 잘라내기 (Ctrl+X)
+        </button>
+      )}
       {onPasteClip && (
         <button type="button" onClick={onPasteClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
           📋 붙여넣기 (Ctrl+V)
@@ -299,9 +328,14 @@ function ActionPopover({
       <button type="button" onClick={onNewFolder} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
         ＋ 새 폴더
       </button>
-      <button type="button" onClick={onDelete} className="block w-full px-3 py-2 text-left text-danger hover:bg-surface-hover">
-        🗑 삭제
+      <button type="button" onClick={onUpload} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+        ⬆ 업로드
       </button>
+      {onDelete && (
+        <button type="button" onClick={onDelete} className="block w-full px-3 py-2 text-left text-danger hover:bg-surface-hover">
+          🗑 삭제
+        </button>
+      )}
     </div>
   )
 }
@@ -466,13 +500,22 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
       // 폴더(및 그 안의 파일)로 드롭하면 이 폴더로 이동한다. 자식 폴더는 자기 dragover에서
       // stopPropagation하므로, 하위 파일 위에서 놓으면 가장 가까운 폴더(=여기)가 대상이 된다.
       onDragOver={(e) => {
-        if (!ctx.canDropInto(node.path)) return
+        // 바깥에서 끌어온 파일이면 이 폴더에 업로드, 사이드바 항목이면 이 폴더로 이동
+        const external = hasExternalFiles(e.dataTransfer)
+        if (external ? ctx.readOnly : !ctx.canDropInto(node.path)) return
         e.preventDefault()
         e.stopPropagation()
-        e.dataTransfer.dropEffect = 'move'
+        e.dataTransfer.dropEffect = external ? 'copy' : 'move'
         ctx.onDragOverDir(node.path)
       }}
       onDrop={(e) => {
+        if (hasExternalFiles(e.dataTransfer)) {
+          if (ctx.readOnly) return
+          e.preventDefault()
+          e.stopPropagation()
+          ctx.onDropFiles(node.path, e.dataTransfer.files)
+          return
+        }
         if (!ctx.canDropInto(node.path)) return
         e.preventDefault()
         e.stopPropagation()
@@ -484,7 +527,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           type="button"
           draggable={!ctx.readOnly}
           onDragStart={(e) => {
-            setPathDragData(e.dataTransfer, node.path)
+            setPathDragData(e.dataTransfer, node.path, 'dir')
             ctx.beginDrag(node.path, 'dir')
           }}
           onDragEnd={ctx.endDrag}
@@ -537,6 +580,7 @@ export function FileTree({
   selectedPath,
   readOnly,
   searchFocusSignal,
+  newFileSignal,
   presence,
   onSelect,
   onFileCreated,
@@ -544,13 +588,14 @@ export function FileTree({
   onRenamed,
   onDeleted,
   onGuestAccessChanged,
-  onCloseSidebar,
   onNotice,
 }: {
   tree: TreeNode[]
   selectedPath: string | null
   readOnly: boolean
   searchFocusSignal: number
+  /** Alt+N — 새 파일 이름 입력 열기. parentPath가 null이면 트리의 선택 항목 기준 */
+  newFileSignal: { n: number; parentPath: string | null }
   presence: Record<string, string[]>
   onSelect: (path: string, opts?: { preview?: boolean }) => void
   onFileCreated: (relPath: string) => void
@@ -559,8 +604,6 @@ export function FileTree({
   onDeleted: (path: string, type: 'file' | 'dir') => void
   /** member+ 전용 — 눈/연필 아이콘으로 게스트 열람/편집 규칙을 바꾼 뒤 트리를 다시 불러오도록 호출 */
   onGuestAccessChanged: () => void
-  /** 정렬 버튼 오른쪽의 접기 버튼으로 사이드바를 닫는다 (Ctrl+B) */
-  onCloseSidebar: () => void
   /** 흐름을 끊지 않는 짧은 안내(토스트) — 실패는 아니지만 말해줘야 하는 것들 */
   onNotice: (message: string) => void
 }) {
@@ -576,6 +619,21 @@ export function FileTree({
   const [dropDir, setDropDir] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  // 팝오버의 "업로드"는 파일 선택창을 띄워야 해서 클릭 시점의 대상 폴더를 잠깐 들고 있는다
+  const uploadInputRef = useRef<HTMLInputElement>(null)
+  const uploadDirRef = useRef('')
+  function triggerUpload(dir: string) {
+    uploadDirRef.current = dir
+    uploadInputRef.current?.click()
+  }
+  // 빈 영역 롱프레스(모바일) — Node의 onTouchStart와 같은 500ms 타이머 패턴
+  const rootLongPressTimer = useRef<number | null>(null)
+  function clearRootLongPress() {
+    if (rootLongPressTimer.current !== null) {
+      window.clearTimeout(rootLongPressTimer.current)
+      rootLongPressTimer.current = null
+    }
+  }
   // 드래그 중인 항목 — dragover가 초당 여러 번 발화하므로 상태 대신 ref로 들고 다닌다
   const draggingRef = useRef<{ path: string; type: 'file' | 'dir' } | null>(null)
   const initializedOpenDirs = useRef(false)
@@ -590,6 +648,19 @@ export function FileTree({
     lastHandledSearchFocusSignal.current = searchFocusSignal
     searchInputRef.current?.focus()
   }, [searchFocusSignal])
+
+  // Alt+N — 0으로 초기화(마운트 시점 값이 아니라): 사이드바가 닫힌 채 Alt+N을 누르면
+  // 신호가 먼저 오르고 이 컴포넌트가 그 뒤에 마운트되므로, 마운트 직후에도 처리해야 한다
+  const lastHandledNewFileSignal = useRef(0)
+
+  useEffect(() => {
+    if (newFileSignal.n === lastHandledNewFileSignal.current) return
+    lastHandledNewFileSignal.current = newFileSignal.n
+    const parent =
+      newFileSignal.parentPath ?? (focused ? (focused.type === 'dir' ? focused.path : parentOf(focused.path)) : '')
+    startCreate(parent, 'file')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 신호가 오를 때만 실행하는 이벤트성 이펙트
+  }, [newFileSignal])
 
   useEffect(() => {
     if (initializedOpenDirs.current || tree.length === 0) return
@@ -854,11 +925,14 @@ export function FileTree({
 
   function beginDrag(path: string, type: 'file' | 'dir') {
     draggingRef.current = { path, type }
+    // 드래그 동안 스크롤 저장 잠금 — 브라우저 자동 스크롤이 저장값을 오염시킨다 (scrollMemory 주석 참고)
+    setScrollSaveSuppressed(true)
   }
 
   function endDrag() {
     draggingRef.current = null
     setDropDir(null)
+    setScrollSaveSuppressed(false)
   }
 
   function canDropInto(dir: string): boolean {
@@ -876,6 +950,27 @@ export function FileTree({
     draggingRef.current = null
     setDropDir(null)
     if (item) void moveInto(item.path, item.type, dir)
+  }
+
+  // 바깥(파일 탐색기)에서 끌어온 파일을 놓은 폴더에 그대로 업로드한다. 여러 개면 순서대로 —
+  // 이름 충돌 회피가 서버에서 "이미 있나" 확인으로 이뤄지므로 동시에 보내면 같은 이름을 집을 수 있다.
+  async function uploadFilesInto(dir: string, fileList: FileList) {
+    if (readOnly) return
+    const files = Array.from(fileList)
+    if (files.length === 0) return
+    setDropDir(null)
+    let hiddenAny = false
+    try {
+      for (const file of files) {
+        const { hidden } = await uploadInto(file, dir)
+        hiddenAny = hiddenAny || hidden === true
+      }
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err))
+    }
+    if (dir) ensureOpenChain(dir)
+    onFolderCreated() // = 트리 새로고침
+    if (hiddenAny) onNotice(NOT_ALLOWED)
   }
 
   function handleTreeKeyDown(e: React.KeyboardEvent) {
@@ -997,6 +1092,7 @@ export function FileTree({
     canDropInto,
     onDragOverDir,
     onDropDir,
+    onDropFiles: (dir, files) => void uploadFilesInto(dir, files),
   }
 
   return (
@@ -1019,33 +1115,44 @@ export function FileTree({
         >
           {sortMode === 'name' ? '가나다' : '확장자'}
         </button>
-        <button
-          type="button"
-          onClick={onCloseSidebar}
-          className="shrink-0 rounded border border-edge-strong p-1 text-ink-secondary hover:bg-surface-raised hover:text-ink"
-          title="사이드바 닫기 (Ctrl+B)"
-          aria-label="사이드바 닫기"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <path d="M9 3v18" />
-            <path d="m16 15-3-3 3-3" />
-          </svg>
-        </button>
       </div>
       <div
         ref={listRef}
         tabIndex={-1}
         onKeyDown={handleTreeKeyDown}
-        onDragOver={(e) => {
-          // 폴더 위에서는 폴더의 핸들러가 stopPropagation하므로, 여기까지 온 건 빈 영역·최상위 파일 = 루트로 이동
-          if (!draggingRef.current || readOnly) return
+        onContextMenu={(e) => {
+          // 노드 위 우클릭은 Node.handleContextMenu가 먼저 처리하고 버블링되어 여기 닿는다 —
+          // e.target이 컨테이너 자신일 때만(=빈 영역) 루트 메뉴를 연다.
+          if (readOnly || e.target !== e.currentTarget) return
           e.preventDefault()
-          e.dataTransfer.dropEffect = 'move'
+          openPopover('', 'dir', e.clientX, e.clientY)
+        }}
+        onTouchStart={(e) => {
+          if (readOnly || e.target !== e.currentTarget) return
+          const touch = e.touches[0]
+          rootLongPressTimer.current = window.setTimeout(() => {
+            openPopover('', 'dir', touch.clientX, touch.clientY)
+          }, 500)
+        }}
+        onTouchEnd={clearRootLongPress}
+        onTouchMove={clearRootLongPress}
+        onTouchCancel={clearRootLongPress}
+        onDragOver={(e) => {
+          // 폴더 위에서는 폴더의 핸들러가 stopPropagation하므로, 여기까지 온 건 빈 영역·최상위 파일 = 루트로
+          const external = hasExternalFiles(e.dataTransfer)
+          if (readOnly || (!external && !draggingRef.current)) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = external ? 'copy' : 'move'
           setDropDir((cur) => (cur === '' ? cur : ''))
         }}
         onDrop={(e) => {
+          if (readOnly) return
           e.preventDefault()
+          if (hasExternalFiles(e.dataTransfer)) {
+            setDropDir(null)
+            void uploadFilesInto('', e.dataTransfer.files)
+            return
+          }
           const item = draggingRef.current
           draggingRef.current = null
           setDropDir(null)
@@ -1105,10 +1212,14 @@ export function FileTree({
         <ActionPopover
           x={popover.x}
           y={popover.y}
-          onRename={() => {
-            startRename(popover.path, popover.type)
-            setPopover(null)
-          }}
+          onRename={
+            popover.path === ''
+              ? undefined
+              : () => {
+                  startRename(popover.path, popover.type)
+                  setPopover(null)
+                }
+          }
           onDuplicate={
             popover.type === 'file'
               ? () => {
@@ -1117,14 +1228,22 @@ export function FileTree({
                 }
               : undefined
           }
-          onCopyClip={() => {
-            setClipboard({ path: popover.path, type: popover.type, mode: 'copy' })
-            setPopover(null)
-          }}
-          onCutClip={() => {
-            setClipboard({ path: popover.path, type: popover.type, mode: 'cut' })
-            setPopover(null)
-          }}
+          onCopyClip={
+            popover.path === ''
+              ? undefined
+              : () => {
+                  setClipboard({ path: popover.path, type: popover.type, mode: 'copy' })
+                  setPopover(null)
+                }
+          }
+          onCutClip={
+            popover.path === ''
+              ? undefined
+              : () => {
+                  setClipboard({ path: popover.path, type: popover.type, mode: 'cut' })
+                  setPopover(null)
+                }
+          }
           onPasteClip={
             clipboard
               ? () => {
@@ -1141,10 +1260,14 @@ export function FileTree({
                 }
               : undefined
           }
-          onDelete={() => {
-            requestDelete(popover.path, popover.type)
-            setPopover(null)
-          }}
+          onDelete={
+            popover.path === ''
+              ? undefined
+              : () => {
+                  requestDelete(popover.path, popover.type)
+                  setPopover(null)
+                }
+          }
           onNewFile={() => {
             startCreate(popover.type === 'dir' ? popover.path : parentOf(popover.path), 'file')
             setPopover(null)
@@ -1153,9 +1276,24 @@ export function FileTree({
             startCreate(popover.type === 'dir' ? popover.path : parentOf(popover.path), 'folder')
             setPopover(null)
           }}
+          onUpload={() => {
+            triggerUpload(popover.type === 'dir' ? popover.path : parentOf(popover.path))
+            setPopover(null)
+          }}
           onClose={() => setPopover(null)}
         />
       )}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = e.target.files
+          if (files) void uploadFilesInto(uploadDirRef.current, files)
+          e.target.value = ''
+        }}
+      />
 
       {deleteTarget && (
         <ConfirmDialog

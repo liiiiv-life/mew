@@ -8,7 +8,7 @@ import { buildTree, isPathVisible } from './tree.ts'
 import { flattenTextFiles, replaceInFile, searchInProject } from './search.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
 import { evaluateRules, isArchived } from './rules.ts'
-import { copyFile, copyPathInto, createDocument, createFolder, renamePath, deletePath, ConflictError } from './documents.ts'
+import { copyFile, copyPathInto, createDocument, createFolder, renamePath, deletePath, writeFileInto, ConflictError } from './documents.ts'
 import { lintContent } from './lint.ts'
 import { parseTitle } from './frontmatter.ts'
 import { noteAppWrite } from './appWrites.ts'
@@ -652,6 +652,29 @@ export function createApiApp() {
     try {
       const url = await uploadAsset(file.buffer, file.originalname, file.mimetype)
       res.json({ url, name: file.originalname, mimetype: file.mimetype })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 바깥에서 사이드바(파일 트리)로 끌어다 놓은 파일 — R2가 아니라 프로젝트 폴더의 그 자리에 그대로 저장한다.
+  // multer가 먼저 돌아 destDir·project 같은 텍스트 필드도 req.body에 채워 준다.
+  app.post('/upload-into', requireAuthenticated, upload.single('file'), async (req, res) => {
+    const file = req.file
+    const destDir = String((req.body as { destDir?: unknown }).destDir ?? '')
+    const project = projectOf(req)
+    try {
+      if (!file) {
+        res.status(400).json({ error: '파일이 없습니다' })
+        return
+      }
+      if (project === DEFAULT_PROJECT && isArchived(destDir)) {
+        res.status(403).json({ error: 'archives/ 밑에는 파일을 올릴 수 없습니다' })
+        return
+      }
+      const relPath = writeFileInto(project, destDir, file.originalname, file.buffer)
+      const commit = await commitFile(project, relPath, 'add', `${project}: upload ${relPath}`)
+      res.json({ ok: true, relPath, commit, hidden: hiddenFromTree(req, relPath) })
     } catch (err) {
       handleError(res, err)
     }

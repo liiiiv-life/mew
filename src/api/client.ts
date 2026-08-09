@@ -357,6 +357,18 @@ export function copyInto(srcPath: string, destDir: string): Promise<FileOpResult
   }).then(json<FileOpResult>)
 }
 
+/**
+ * 바깥에서 사이드바로 끌어다 놓은 파일을 프로젝트의 destDir(''=루트) 안에 그대로 저장한다.
+ * uploadAsset(R2 링크)과 달리 바이트를 손대지 않는다 — 사용자가 놓은 그 파일이 그 자리에 생겨야 한다.
+ */
+export function uploadInto(file: File, destDir: string): Promise<FileOpResult> {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('destDir', destDir)
+  body.append('project', currentProject)
+  return fetch('/api/upload-into', { method: 'POST', body }).then(json<FileOpResult>)
+}
+
 export function downloadUrl(path: string): string {
   return `/api/download?path=${encodeURIComponent(path)}&${projectQs()}`
 }

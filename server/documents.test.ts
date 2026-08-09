@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_PROJECT } from './paths.ts'
 import { resolveProjectPath } from './paths.ts'
-import { ConflictError, copyPathInto } from './documents.ts'
+import { ConflictError, copyPathInto, writeFileInto } from './documents.ts'
 
 const rand = () => `ztest${process.pid}${Math.random().toString(36).slice(2, 6)}`
 
@@ -27,6 +27,29 @@ test('copyPathInto: 파일을 다른 폴더로 복사하면 원래 이름을 유
     assert.equal(rel2, `${root}/note copy.md`)
     const rel3 = copyPathInto(DEFAULT_PROJECT, `${root}/note.md`, root)
     assert.equal(rel3, `${root}/note copy 2.md`)
+  } finally {
+    fs.rmSync(rootAbs, { recursive: true, force: true })
+  }
+})
+
+test('writeFileInto: 놓은 폴더에 원래 이름으로 저장하고, 같은 이름이면 " copy"로 비켜 쓴다', () => {
+  const root = rand()
+  const rootAbs = resolveProjectPath(DEFAULT_PROJECT, root)
+  try {
+    fs.mkdirSync(rootAbs, { recursive: true })
+    const data = Buffer.from([0x89, 0x50, 0x4e, 0x47]) // 바이너리도 그대로 — 텍스트 변환 없음
+
+    const rel1 = writeFileInto(DEFAULT_PROJECT, root, 'shot.png', data)
+    assert.equal(rel1, `${root}/shot.png`)
+    assert.deepEqual(fs.readFileSync(path.join(rootAbs, 'shot.png')), data)
+
+    const rel2 = writeFileInto(DEFAULT_PROJECT, root, 'shot.png', data)
+    assert.equal(rel2, `${root}/shot copy.png`)
+
+    // 파일명은 바깥 값이다 — 경로 조각은 떨어져 나가고 이름만 남는다
+    const rel3 = writeFileInto(DEFAULT_PROJECT, root, '../../etc/passwd', data)
+    assert.equal(rel3, `${root}/passwd`)
+    assert.throws(() => writeFileInto(DEFAULT_PROJECT, root, '..', data), ConflictError)
   } finally {
     fs.rmSync(rootAbs, { recursive: true, force: true })
   }

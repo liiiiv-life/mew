@@ -91,6 +91,21 @@ export function copyFile(project: string, relPath: string): string {
 }
 
 /**
+ * destDir 안에서 아직 비어 있는 이름을 고른다 — 원래 이름 → "이름 copy" → "이름 copy 2" …
+ * destDir=''는 프로젝트 루트.
+ */
+function availableRelPath(project: string, destDir: string, base: string, ext: string): string {
+  const joinDest = (name: string) => (destDir === '' || destDir === '.' ? name : `${destDir}/${name}`)
+  for (let i = 0; i < 100; i++) {
+    // i=0은 원래 이름 그대로, 이후 " copy" → " copy 2" …(같은 이름이 이미 있을 때)
+    const name = i === 0 ? `${base}${ext}` : i === 1 ? `${base} copy${ext}` : `${base} copy ${i}${ext}`
+    const candidateRel = joinDest(name)
+    if (!fs.existsSync(resolveProjectPath(project, candidateRel))) return candidateRel
+  }
+  throw new ConflictError(`쓸 수 있는 이름을 만들 수 없습니다: ${base}${ext}`)
+}
+
+/**
  * 파일 또는 폴더를 destDir 안으로 복사한다(붙여넣기). 원래 이름을 유지하되,
  * 같은 폴더에 이미 있으면 "이름 copy"(→ "이름 copy 2" …)로 비켜 쓴다. 폴더는 재귀 복사한다.
  * destDir=''는 프로젝트 루트. 새 상대 경로를 돌려준다.
@@ -109,16 +124,26 @@ export function copyPathInto(project: string, srcRelPath: string, destDir: strin
   const isFile = fs.statSync(srcAbs).isFile()
   const ext = isFile ? path.extname(srcRelPath) : ''
   const base = isFile ? path.basename(srcRelPath, ext) : path.basename(srcRelPath)
-  const joinDest = (name: string) => (destDir === '' || destDir === '.' ? name : `${destDir}/${name}`)
-  for (let i = 0; i < 100; i++) {
-    // i=0은 원래 이름 그대로(다른 폴더로 붙여넣기), 이후 " copy" → " copy 2" …(같은 폴더 충돌 시)
-    const name = i === 0 ? `${base}${ext}` : i === 1 ? `${base} copy${ext}` : `${base} copy ${i}${ext}`
-    const candidateRel = joinDest(name)
-    const candidateAbs = resolveProjectPath(project, candidateRel)
-    if (!fs.existsSync(candidateAbs)) {
-      fs.cpSync(srcAbs, candidateAbs, { recursive: true })
-      return candidateRel
-    }
+  const relPath = availableRelPath(project, destDir, base, ext)
+  fs.cpSync(srcAbs, resolveProjectPath(project, relPath), { recursive: true })
+  return relPath
+}
+
+/**
+ * 바깥(파일 탐색기)에서 사이드바로 끌어다 놓은 파일을 destDir 안에 그대로 저장한다.
+ * 이름은 원본 그대로 쓰되 같은 이름이 있으면 " copy"로 비켜 쓴다. destDir=''는 프로젝트 루트.
+ */
+export function writeFileInto(project: string, destDir: string, fileName: string, data: Buffer): string {
+  const destDirAbs = resolveProjectPath(project, destDir)
+  if (fs.existsSync(destDirAbs) && !fs.statSync(destDirAbs).isDirectory()) {
+    throw new ConflictError(`폴더가 아닙니다: ${destDir}`)
   }
-  throw new ConflictError(`복사본 이름을 만들 수 없습니다: ${srcRelPath}`)
+  // 파일명은 브라우저가 그대로 실어 보낸 바깥 값이다 — 경로 조각(윈도 역슬래시 포함)을 떼고 이름만 쓴다
+  const name = path.basename(fileName.replace(/\\/g, '/')).trim()
+  if (!name || name === '.' || name === '..') throw new ConflictError(`올바른 파일 이름이 아닙니다: ${fileName}`)
+  const ext = path.extname(name)
+  const relPath = availableRelPath(project, destDir, path.basename(name, ext), ext)
+  fs.mkdirSync(destDirAbs, { recursive: true })
+  fs.writeFileSync(resolveProjectPath(project, relPath), data)
+  return relPath
 }
