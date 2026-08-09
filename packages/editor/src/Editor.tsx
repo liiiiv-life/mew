@@ -30,6 +30,7 @@ import { Database } from './database/Database'
 import { DbReferencePicker } from './database/DbReferencePicker'
 import { flattenFiles, fuzzyScore, isExternalHref, relativeLinkPath, resolveRelativePath } from './utils/fuzzy'
 import { splitFrontmatter, joinFrontmatter, todayDate, type FrontmatterData } from './utils/frontmatter'
+import { unwrapOpenListWrappers } from './utils/clipboardList'
 import { isSvgMarkup, svgFileName } from './utils/svgPaste'
 import { MobileKeyBar, useMobileLayout } from '@mew/mobile-keys'
 import { pathFromDrag } from '@mew/ui'
@@ -420,6 +421,16 @@ export const Editor = forwardRef<
       updateSelectedChars(editor)
     },
     editorProps: {
+      // 복사 text/plain의 md 직렬화 — tiptap-markdown의 것(플러그인 레벨)을 view 레벨에서 덮는다.
+      // 중첩 리스트 중간을 잘라 복사하면 slice에 열린 조상 리스트 래퍼가 남아 마커가 겹친
+      // "- - - 항목"이 나온다 — 래퍼를 벗기고 직렬화해 선택한 항목들 층의 마커만 남긴다
+      clipboardTextSerializer: (slice) => {
+        const content = unwrapOpenListWrappers(slice.content, slice.openStart, slice.openEnd)
+        const serializer = (editorRef.current?.storage as unknown as {
+          markdown?: { serializer?: { serialize: (c: Fragment) => string } }
+        })?.markdown?.serializer
+        return serializer ? serializer.serialize(content) : content.textBetween(0, content.size, '\n\n')
+      },
       handleClick: (view, _pos, event) => {
         if (readOnlyRef.current) return false
         const target = event.target as HTMLElement
