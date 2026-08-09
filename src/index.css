@@ -130,6 +130,33 @@ body {
   font-weight: 300;
 }
 
+/* 앱 전역 스크롤바 — OS 기본 대신 테마 색의 얇은 바 하나로 통일한다(에디터·목차·사이드바·터미널·표 전부).
+   Chromium은 ::-webkit-scrollbar, 그걸 모르는 엔진(Firefox)만 표준 속성으로 폴백 —
+   Chromium에 scrollbar-color를 같이 주면 webkit 커스텀이 통째로 무시되므로 @supports로 가른다. */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-edge-strong);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-edge-bright);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-edge-strong) transparent;
+  }
+}
+
 /* 프로젝트 탭 줄처럼 높이가 빠듯한 가로 스크롤 영역 — 스크롤바가 줄 높이를 잡아먹지 않게 감춘다.
    (스크롤은 그대로 된다: 손가락·트랙패드·shift+휠) */
 .no-scrollbar {
