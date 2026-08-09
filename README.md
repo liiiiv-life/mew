@@ -32,9 +32,12 @@ MOC는 담을 폴더가 없으니 트리 전체의 맨 위, 어떤 폴더보다 
 
 ## 프로젝트 탭
 
-워크스페이스의 최상위 폴더 하나가 프로젝트 하나다(docs, ai, server …). **라우트는 없다** — 주소는
+워크스페이스의 최상위 폴더 하나가 프로젝트 하나다(ai, med-gen, server …). **라우트는 없다** — 주소는
 항상 `/`이고 프로젝트 전환은 페이지 이동이 아니라 탭 전환이다.
 옛 `/{프로젝트}` 주소로 들어오면 그 프로젝트로 시작한 뒤 주소만 `/`로 정리한다.
+
+**docs는 프로젝트가 아니다** — 워크스페이스에 하나뿐인 특별 레포이고 `<워크스페이스>/.mew/docs`에 산다.
+아래 §docs 탭.
 
 화면 맨 위는 **한 줄**이다(`App.tsx`) — **프로젝트 탭 + 도구 버튼**. 그 아래가 사이드바 · 편집 칸 ·
 터미널이고, **문서 탭 줄은 전폭이 아니라 편집 칸 안에 있다**(아래 §편집 칸). 칸을 나누면 탭 줄도
@@ -60,10 +63,10 @@ MOC는 담을 폴더가 없으니 트리 전체의 맨 위, 어떤 폴더보다 
 - 각 프로젝트 탭 오른쪽에는 **그 프로젝트의 명령어 버튼(▶)** 이 붙는다. 모바일은 탭이 좁아 ▶가
   **지금 보고 있는 탭에만** 뜬다.
 - 문서 탭·활성 탭·**칸 배치**·내용 캐시는 **프로젝트별로 따로** 산다. 옮겼다 돌아오면 그대로다.
-  **스크롤 위치는 활성 문서가 바뀔 때마다 복원**된다 — 새로고침·재시작([ADR 0038](../docs/decisions/0038-mew-scroll-restore-on-reload.md))과
-  탭·창 전환([ADR 0039](../docs/decisions/0039-mew-scroll-restore-on-tab-switch.md)) 모두. 저장·복원은
+  **스크롤 위치는 활성 문서가 바뀔 때마다 복원**된다 — 새로고침·재시작([ADR 0038](../.mew/docs/decisions/0038-mew-scroll-restore-on-reload.md))과
+  탭·창 전환([ADR 0039](../.mew/docs/decisions/0039-mew-scroll-restore-on-tab-switch.md)) 모두. 저장·복원은
   `src/utils/scrollMemory.ts`·`EditorPane.tsx` 한 쌍이 전부다(`mew:scroll:{프로젝트}`, 문서당 하나) —
-  `packages/editor`에 prop을 뚫거나 별도 메커니즘을 만들지 않는다. 옛 [ADR 0029](../docs/decisions/0029-mew-drop-scroll-position-restore.md)의
+  `packages/editor`에 prop을 뚫거나 별도 메커니즘을 만들지 않는다. 옛 [ADR 0029](../.mew/docs/decisions/0029-mew-drop-scroll-position-restore.md)의
   전환 복원 금지는 해제됐다.
 - 아이콘은 팝업에서 지정한다(라인 아이콘 600여 개 + 이모지 직접 입력 + SVG, 영문 키로 검색). 아이콘이
   없으면 이름 첫 글자가 대신 뜬다.
@@ -96,6 +99,34 @@ MOC는 담을 폴더가 없으니 트리 전체의 맨 위, 어떤 폴더보다 
 마스크로만 그리므로 그 안의 스크립트·외부 참조는 실행되지 않는다. 저장할 때 서버가 한 번 걸러서,
 스크립트·이벤트 핸들러·외부 URL·DOCTYPE이 들어 있거나 16KB를 넘으면 **저장을 거부하고 이유를
 알려준다**(조용히 지우지 않는다).
+
+## docs 탭
+
+docs는 워크스페이스에 **하나뿐인 특별 레포**다 — 프로젝트가 아니다. 폴더는 `<워크스페이스>/.mew/docs`에
+있고, 없으면 서버가 **빈 폴더로 만든다**(`server/paths.ts`의 `ensureDocsRoot`). 새 워크스페이스는 빈 docs로 시작한다.
+
+- 프로젝트 목록(`GET /api/projects`)에 **없다**. `listProjects()`가 걸러내고,
+  `isValidProjectName('docs')`가 false라 같은 이름의 프로젝트를 만들 수도 없다(만들면 이름이 겹친다).
+- **내부 이름은 그대로 `docs`다.** 문서·트리·검색·협업 방 키(`프로젝트:경로`)·git·명령어 버튼이 전부
+  프로젝트 이름으로 도는 구조라, 경로만 `projectRoot('docs')`에서 꺾는다. 이름을 바꾸지 말 것 —
+  바꾸면 열린 방·저장된 탭·`.data/` 키가 통째로 어긋난다.
+- 탭은 **프로젝트 탭 줄 맨 왼쪽에 고정**이다(`components/DocsTab.tsx`). 끌 수 없고, 순서를 바꿀 수 없고,
+  이름이 없고(아이콘만, `i:notes` 고정), **프로젝트 격자 팝업에 나오지 않는다**.
+- **꾹 누르거나 우클릭하면** 가져오기/내보내기 창(`components/DocsSettingsModal.tsx`) — owner 전용.
+  - **가져오기**: 고른 폴더의 내용으로 docs를 덮어쓴다. **기존 내용은 전부 지워진다** — 폴더를 고른 뒤
+    경고 확인을 한 번 더 받는다.
+  - **내보내기**: docs 폴더를 고른 위치 아래 `docs`로 그대로 복사한다. 같은 이름이 이미 있으면 거부한다.
+- 폴더를 고르는 창은 네이티브 대화상자가 아니라 서버가 목록을 내려주는 컴포넌트다
+  (`components/FolderPicker.tsx` ← `GET /api/fs/dirs`). 브라우저는 서버가 도는 기계의 파일시스템을 볼 수 없다.
+
+| 라우트 | 역할 | 하는 일 |
+|---|---|---|
+| `GET /api/fs/dirs?path=` | **owner** | 그 폴더의 하위 폴더 목록. **워크스페이스 경계 밖을 그대로 보여준다 — 역할을 낮추지 말 것** |
+| `POST /api/docs/import` `{path}` | **owner** | docs를 통째로 갈아끼운다(되돌릴 수 없음) |
+| `POST /api/docs/export` `{path}` | **owner** | `{path}/docs`로 복사 |
+
+각 레포의 `AGENTS.md`가 가리키는 docs 경로도 이 이동을 따라 `../.mew/docs`(워크스페이스 루트에서는
+`.mew/docs`)다.
 
 ## 편집 칸 (문서 탭 · 화면 분할)
 
@@ -469,7 +500,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 헤더의 말풍선 버튼 — 프로젝트 하나에 묶인 AI 에이전트와 대화하는 **채팅 창**이다(터미널이 아니다).
 에이전트는 별도 프로세스로 뜨고 [ACP](https://agentclientprotocol.com)(stdio JSON-RPC)로만 말한다.
 mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이스다. 근거는
-[ADR 0034](../docs/decisions/0034-mew-agent-panel-acp-reintroduction.md), 권한 경계는 [SECURITY.md](SECURITY.md).
+[ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md), 권한 경계는 [SECURITY.md](SECURITY.md).
 
 ⚠️ **`serve.ts` 요청 핸들러 안에서 에이전트를 직접 돌리지 않는다.** 2026-07-25에 지운 옛 에이전트
 창은 Claude Code를 `-p --output-format json`으로, 즉 블로킹·비스트리밍으로 불러 첫 응답이 ~20초
@@ -498,9 +529,9 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   자식 프로세스는 그대로 두고 세션만 갈아끼운다. 버튼 노출 여부는 `initialize`의 capability로 정한다.
 - **토큰 사용량만 ACP 밖에서 온다** — 어댑터가 사용량을 보내지 않아 `agentUsage.ts`가
   `<CLAUDE_CONFIG_DIR>/projects/<인코딩된 cwd>/<sessionId>.jsonl`을 읽는다. 읽기 전용·선택적이고,
-  파일이 없으면 사용량 칸만 빈다([ADR 0036](../docs/decisions/0036-mew-agent-session-controls-and-usage.md)).
+  파일이 없으면 사용량 칸만 빈다([ADR 0036](../.mew/docs/decisions/0036-mew-agent-session-controls-and-usage.md)).
 
-- **권한 모드 기본값은 `bypassPermissions`다**([ADR 0037](../docs/decisions/0037-mew-agent-bypass-permissions-default.md)).
+- **권한 모드 기본값은 `bypassPermissions`다**([ADR 0037](../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)).
   ACP 세션은 언제나 `default`로 시작하므로 서버가 `session/new`·`session/load` 뒤마다 다시 걸어 준다
   (`#applyDefaultMode`). 헤더 선택기로 턴마다 바꿀 수 있고, 서버 기본값은 `MEW_AGENT_MODE`로 바꾼다.
   모드 목록은 백엔드가 광고하는 것을 그대로 쓴다 — 광고에 없으면(예: root 실행) 조용히 넘어간다.
@@ -524,6 +555,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 - `server/reqAuth.ts` — 요청별 역할 해석(`req.auth`)·역할 게이팅 미들웨어
 - `server/guestAccess.ts` — 게스트 경로별 보기/편집 승인 규칙
 - `server/usersCli.ts` — 승인 리스트 CLI
+- `server/docsRepo.ts` — docs 폴더 가져오기/내보내기, `server/fsBrowse.ts` — 워크스페이스 밖 폴더 목록
 - docs 전용 규칙(MOC 커버리지·archives 불변·링크 라벨 동기화)은 docs 프로젝트에만 적용된다.
 
 ### 협업 방 (Yjs 릴레이)
@@ -548,7 +580,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   접속자뿐**이다 — 브리지의 인프로세스 클라이언트를 세면 방이 영원히 닫히지 않아 헤드리스
   에디터와 fs watcher가 쌓인다
 
-Rust 백엔드는 선택이고 기본은 꺼져 있다([ADR 0035](../docs/decisions/0035-mew-collab-rooms-rust-yrs.md)):
+Rust 백엔드는 선택이고 기본은 꺼져 있다([ADR 0035](../.mew/docs/decisions/0035-mew-collab-rooms-rust-yrs.md)):
 
 ```bash
 npm run build:native        # native/collab (cargo, napi-rs) → native/collab/mew-collab.node

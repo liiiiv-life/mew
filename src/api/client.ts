@@ -100,6 +100,36 @@ export function deleteProject(name: string): Promise<{ ok: true }> {
   return fetch(`/api/project?name=${encodeURIComponent(name)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
+export interface BrowseResult {
+  path: string
+  /** 최상위(/)면 null */
+  parent: string | null
+  dirs: { name: string; path: string }[]
+}
+
+/** 워크스페이스 밖 폴더를 훑는다 — owner 전용. 폴더만 돌아온다(파일 브라우저·워크스페이스 고르기) */
+export function browseDirs(path = ''): Promise<BrowseResult> {
+  return fetch(`/api/fs/dirs?path=${encodeURIComponent(path)}`).then(json<BrowseResult>)
+}
+
+/** 외부 폴더로 docs를 덮어쓴다 — owner 전용, **기존 docs 내용은 사라진다**(호출 전 확인 필수) */
+export function importDocs(path: string): Promise<{ ok: true }> {
+  return fetch('/api/docs/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(json<{ ok: true }>)
+}
+
+/** docs 폴더를 대상 폴더 아래 `docs`로 복사한다 — owner 전용. 응답의 path는 만들어진 폴더 */
+export function exportDocs(path: string): Promise<{ ok: true; path: string }> {
+  return fetch('/api/docs/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(json<{ ok: true; path: string }>)
+}
+
 /** archives/ 불변 규칙은 docs 프로젝트 전용 — 다른 프로젝트의 같은 이름 폴더에는 적용하지 않는다 */
 export function isArchivedPath(path: string, project: string = currentProject): boolean {
   return project === 'docs' && (path === 'archives' || path.startsWith('archives/'))

@@ -22,6 +22,8 @@ import { createDbRouter } from './db/routes.ts'
 import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
 import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
+import { DocsRepoError, exportDocs, importDocs } from './docsRepo.ts'
+import { BrowseError, listDirs, resolveBrowsePath } from './fsBrowse.ts'
 import { collectSystemStats } from './sysStats.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
@@ -203,6 +205,47 @@ export function createApiApp() {
       }
       writeProjectLayout(next)
       res.json({ ok: true })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // ── docs 특별 레포와 워크스페이스 밖 폴더 고르기 (owner 전용) ────────────────
+  // /fs/dirs는 워크스페이스 경계 밖을 그대로 보여준다 — 역할을 낮추지 말 것.
+  app.get('/fs/dirs', requireRole('owner'), (req, res) => {
+    try {
+      res.json(listDirs(resolveBrowsePath(String(req.query.path ?? ''))))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 가져오기는 기존 docs를 통째로 지운다 — 클라이언트가 경고를 띄우고 확인을 받은 뒤 호출한다
+  app.post('/docs/import', requireRole('owner'), (req, res) => {
+    const { path: from } = req.body as { path?: unknown }
+    try {
+      if (typeof from !== 'string' || !from.trim()) {
+        res.status(400).json({ error: '가져올 폴더 경로가 없습니다' })
+        return
+      }
+      importDocs(resolveBrowsePath(from))
+      // 폴더가 통째로 바뀌었다 — 옛 폴더를 물고 있는 감시자를 접고 모두에게 다시 받아 가라고 알린다
+      resetTreeWatchers()
+      broadcast({ type: 'tree' })
+      res.json({ ok: true })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/docs/export', requireRole('owner'), (req, res) => {
+    const { path: to } = req.body as { path?: unknown }
+    try {
+      if (typeof to !== 'string' || !to.trim()) {
+        res.status(400).json({ error: '내보낼 폴더 경로가 없습니다' })
+        return
+      }
+      res.json({ ok: true, path: exportDocs(resolveBrowsePath(to)) })
     } catch (err) {
       handleError(res, err)
     }
@@ -981,6 +1024,10 @@ function handleError(res: express.Response, err: unknown) {
     return
   }
   if (err instanceof ScheduleError) {
+    res.status(400).json({ error: err.message })
+    return
+  }
+  if (err instanceof DocsRepoError || err instanceof BrowseError) {
     res.status(400).json({ error: err.message })
     return
   }

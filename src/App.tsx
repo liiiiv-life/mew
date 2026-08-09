@@ -16,6 +16,8 @@ import {
 } from './api/client'
 import { ProjectPicker } from './components/ProjectPicker'
 import { ProjectTabs } from './components/ProjectTabs'
+import { DocsTab } from './components/DocsTab'
+import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { LoginPage } from './components/LoginPage'
 import { SettingsModal } from './components/SettingsModal'
 import { AdminSettingsModal } from './components/AdminSettingsModal'
@@ -102,6 +104,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [projects, setProjects] = useState<ProjectInfo[]>([{ name: project, icon: null, slot: null }])
   const [projectsLoaded, setProjectsLoaded] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+  // docs 탭을 꾹 누르면 뜨는 폴더 가져오기/내보내기 창 — owner 전용
+  const [docsSettingsOpen, setDocsSettingsOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadTheme)
@@ -293,8 +297,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   const activeRelativePath = activeTab?.path ?? null
 
-  // 볼 수 있는 프로젝트는 전부 탭으로 세운다 — 순서는 팝업 격자에서 끌어 정한 자리
-  const projectTabs = useMemo(() => [...projects].sort(bySlot), [projects])
+  // 볼 수 있는 프로젝트는 전부 탭으로 세운다 — 순서는 팝업 격자에서 끌어 정한 자리.
+  // docs는 프로젝트가 아니라 따로 선 고정 탭이라 여기서 뺀다(자리표시자로 들어올 수 있다)
+  const projectTabs = useMemo(
+    () => projects.filter((p) => p.name !== DEFAULT_PROJECT).sort(bySlot),
+    [projects],
+  )
 
   // 탭을 끄는 동안엔 화면의 순서만 바꾸고(자리 번호는 팝업 격자와 공유하는 값이다), 손을 뗄 때
   // 한 번만 저장한다 — 탭 하나 지날 때마다 PUT을 날리면 요청들이 서로를 덮어쓴다.
@@ -396,10 +404,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 기억해 둔 프로젝트가 목록에 없을 수 있다 — 폴더가 사라졌거나, 로그아웃해서 권한을 잃었거나.
   // 그럴 땐 열 수 있는 첫 프로젝트로 물러난다(안 그러면 없는 폴더를 가리킨 채 굳는다).
   useEffect(() => {
-    if (!projectsLoaded || projects.length === 0) return
-    if (projects.some((p) => p.name === project)) return
-    switchProject([...projects].sort(bySlot)[0].name)
-  }, [projectsLoaded, projects, project, switchProject])
+    // docs는 프로젝트 목록에 없는 특별 레포다 — 목록에 없다고 밀어내면 안 된다
+    if (project === DEFAULT_PROJECT) return
+    if (!projectsLoaded || projectTabs.length === 0) return
+    if (projectTabs.some((p) => p.name === project)) return
+    switchProject(projectTabs[0].name)
+  }, [projectsLoaded, projectTabs, project, switchProject])
 
   // 프로젝트를 옮기면 사이드바 트리를 그 프로젝트 것으로 갈아끼운다. 옆 프로젝트의 트리가 잠깐
   // 남아 있지 않도록 먼저 비우고, 늦게 도착한 옛 응답이 새 트리를 덮지 않게 취소 플래그를 둔다.
@@ -614,6 +624,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
         <header className="flex h-10 items-stretch border-b border-edge pr-2">
+          {/* docs는 프로젝트가 아니라 워크스페이스에 하나뿐인 특별 레포 — 맨 왼쪽 고정 탭이다 */}
+          <DocsTab
+            active={project === DEFAULT_PROJECT}
+            canManage={isOwner}
+            onActivate={() => switchProject(DEFAULT_PROJECT)}
+            onOpenSettings={() => setDocsSettingsOpen(true)}
+          />
           <ProjectTabs
             projects={projectTabs}
             activeProject={project}
@@ -900,7 +917,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
       {projectPickerOpen && (
         <ProjectPicker
-          projects={projects}
+          // docs는 여기서 관리하지 않는다 — 이름도 자리도 없는 고정 탭이다
+          projects={projectTabs}
           currentProject={project}
           readOnly={isGuest}
           isOwner={isOwner}
@@ -926,6 +944,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       )}
 
       {adminOpen && isOwner && <AdminSettingsModal onClose={() => setAdminOpen(false)} />}
+
+      {docsSettingsOpen && isOwner && (
+        <DocsSettingsModal
+          onDone={(message) => {
+            showToast(message)
+            // 가져오기로 폴더가 통째로 바뀌었을 수 있다 — 보고 있는 트리를 다시 받는다
+            void refreshTree()
+          }}
+          onClose={() => setDocsSettingsOpen(false)}
+        />
+      )}
 
       {dbListOpen && !isGuest && <DatabaseListModal onClose={() => setDbListOpen(false)} />}
 

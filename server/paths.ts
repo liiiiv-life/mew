@@ -10,8 +10,21 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 export const WORKSPACE_ROOT = process.env.MEW_WORKSPACE
   ? path.resolve(process.env.MEW_WORKSPACE)
   : path.resolve(here, '../..')
+/** 워크스페이스 하나에 딸린 mew 전용 폴더 — docs 레포가 여기 산다 */
+export const MEW_DIR = path.join(WORKSPACE_ROOT, '.mew')
+
+/** docs는 **프로젝트가 아니라** 워크스페이스에 하나뿐인 특별 레포다. 프로젝트 목록에 서지 않고
+ *  (점으로 시작하는 `.mew` 아래라 PROJECT_NAME_RE에 애초에 걸리지 않는다) 만들거나 지울 수 없다.
+ *  다만 문서·트리·검색·협업 방 키는 전부 프로젝트 이름으로 도는 구조라, **이름 'docs'는 그대로 두고
+ *  경로만** 여기로 꺾는다 — projectRoot가 이 이름만 특별 취급한다. */
 export const DEFAULT_PROJECT = 'docs'
-export const DOCS_ROOT = path.join(WORKSPACE_ROOT, DEFAULT_PROJECT)
+export const DOCS_ROOT = path.join(MEW_DIR, DEFAULT_PROJECT)
+
+/** docs 폴더는 항상 존재한다 — 없으면 빈 폴더로 만든다(새 워크스페이스는 빈 docs로 시작) */
+export function ensureDocsRoot(): string {
+  fs.mkdirSync(DOCS_ROOT, { recursive: true })
+  return DOCS_ROOT
+}
 
 /** 이 편집기 앱 자신이 들어 있는 프로젝트 폴더 이름(예: 'mew') — UI로 자기 자신을 삭제/개명하지 못하게 보호한다 */
 export const APP_PROJECT = path.basename(path.resolve(here, '..'))
@@ -41,20 +54,23 @@ export function isDeniedSegment(name: string): boolean {
   return DENY_SEGMENTS.has(name)
 }
 
-/** 새 프로젝트 폴더로 허용되는 이름인지 — listProjects의 필터와 같은 규칙 */
+/** 새 프로젝트 폴더로 허용되는 이름인지 — listProjects의 필터와 같은 규칙.
+ *  'docs'는 특별 레포 이름이라 프로젝트로 만들 수 없다(만들면 경로가 겹쳐 가려진다). */
 export function isValidProjectName(name: string): boolean {
-  return PROJECT_NAME_RE.test(name) && name !== 'node_modules'
+  return PROJECT_NAME_RE.test(name) && name !== 'node_modules' && name !== DEFAULT_PROJECT
 }
 
+/** 워크스페이스의 프로젝트 목록 — docs는 프로젝트가 아니므로 들어가지 않는다 */
 export function listProjects(): string[] {
   return fs
     .readdirSync(WORKSPACE_ROOT, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && PROJECT_NAME_RE.test(e.name) && e.name !== 'node_modules')
+    .filter((e) => e.isDirectory() && isValidProjectName(e.name))
     .map((e) => e.name)
-    .sort((a, b) => (a === DEFAULT_PROJECT ? -1 : b === DEFAULT_PROJECT ? 1 : a.localeCompare(b)))
+    .sort((a, b) => a.localeCompare(b))
 }
 
 export function projectRoot(project: string): string {
+  if (project === DEFAULT_PROJECT) return ensureDocsRoot()
   if (!PROJECT_NAME_RE.test(project)) throw new UnknownProjectError(`올바른 프로젝트 이름이 아닙니다: ${project}`)
   const root = path.join(WORKSPACE_ROOT, project)
   let stat: fs.Stats
