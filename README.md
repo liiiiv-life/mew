@@ -60,13 +60,18 @@ MOC는 담을 폴더가 없으니 트리 전체의 맨 위, 어떤 폴더보다 
 - 각 프로젝트 탭 오른쪽에는 **그 프로젝트의 명령어 버튼(▶)** 이 붙는다. 모바일은 탭이 좁아 ▶가
   **지금 보고 있는 탭에만** 뜬다.
 - 문서 탭·활성 탭·**칸 배치**·내용 캐시는 **프로젝트별로 따로** 산다. 옮겼다 돌아오면 그대로다.
-  다만 **스크롤 위치는 저장하지 않는다** — 탭·창을 바꾸면 지연 없이 곧장 맨 위에서 열린다.
+  **스크롤 위치는 활성 문서가 바뀔 때마다 복원**된다 — 새로고침·재시작([ADR 0038](../docs/decisions/0038-mew-scroll-restore-on-reload.md))과
+  탭·창 전환([ADR 0039](../docs/decisions/0039-mew-scroll-restore-on-tab-switch.md)) 모두. 저장·복원은
+  `src/utils/scrollMemory.ts`·`EditorPane.tsx` 한 쌍이 전부다(`mew:scroll:{프로젝트}`, 문서당 하나) —
+  `packages/editor`에 prop을 뚫거나 별도 메커니즘을 만들지 않는다. 옛 [ADR 0029](../docs/decisions/0029-mew-drop-scroll-position-restore.md)의
+  전환 복원 금지는 해제됐다.
 - 아이콘은 팝업에서 지정한다(라인 아이콘 600여 개 + 이모지 직접 입력 + SVG, 영문 키로 검색). 아이콘이
   없으면 이름 첫 글자가 대신 뜬다.
 
 화면 상태는 `localStorage`에 남는다 — `mew:project`(활성 프로젝트) · `mew:tmux-open` ·
 `mew:open-tabs[:{프로젝트}]`(열린 문서 탭 + 칸 배치 — `{ panes, layout, focusedPaneId }`.
-칸이 없던 옛 `{ tabs, activePath }`는 읽을 때 `main` 칸 하나로 이관한다).
+칸이 없던 옛 `{ tabs, activePath }`는 읽을 때 `main` 칸 하나로 이관한다) ·
+`mew:scroll:{프로젝트}`(문서별 스크롤 위치, `utils/scrollMemory.ts`).
 
 클라이언트에서 대상 프로젝트는 **모듈 상수가 아니라 런타임 값**이다(`api/client.ts`의
 `getProject()`/`setProject()`). 전환보다 오래 사는 비동기 작업(자동저장 디바운스, 탭 복원)은 이 값을
@@ -104,8 +109,12 @@ type PaneNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 'row' | '
 - **문서 탭을 끌어다 놓으면 갈라진다.** 놓는 자리는 칸 넓이·높이의 **가장자리 30%**로 정해진다
   (`dropZoneAt`) — 오른쪽 30%면 오른쪽에, 아래 30%면 아래에 새 칸이 생기고 그 탭이 거기로 간다.
   **가운데면 분할 없이 그 칸으로 옮기기**만 한다. 끄는 동안 놓일 자리가 반투명으로 미리 보인다.
-- **자리를 재는 대상은 칸의 본문 영역뿐이다** — 탭 줄은 뺀다. 넣으면 자기 줄 안에서 순서만 바꾸는
-  동안에도 "위로 분할" 미리보기가 번쩍인다.
+- **사이드바에서 파일을 끌어 가장자리에 놓아도 같은 규칙으로 갈라진다** — 새 칸에 그 파일이 열린다.
+  가운데는 분할이 아니라 경로 텍스트 삽입이다("사이드바 항목 끌어놓기" 절).
+- **분할 자리를 재는 대상은 칸의 본문 영역뿐이다** — 탭 줄은 뺀다. 넣으면 자기 줄 안에서 순서만
+  바꾸는 동안에도 "위로 분할" 미리보기가 번쩍인다.
+- **다른 칸의 탭 줄에 놓으면 그 칸으로 옮겨진다**(가장자리를 따지지 않고 언제나 옮기기, 맨 뒤에 붙는다).
+  제 칸의 탭 줄은 순서 바꾸기이므로 드롭 자리로 치지 않는다(`App.tsx`의 `dropTargetAt`).
 - **그 칸의 유일한 탭을 자기 칸 가장자리에 놓는 것은 무시한다** — 갈라도 옮기기 전과 같은 화면이다.
 - 같은 방향 분할은 **중첩하지 않고 형제로 편다**(`splitLeaf`). 칸 크기는 **언제나 균등**이다 —
   크기 값도 끌어서 조절하는 손잡이도 없다.
@@ -129,21 +138,27 @@ npm run serve   # 5000 — dist/ 필요
 npm start       # build + serve
 npm test        # node:test
 npm run lint    # oxlint
+npx tsc -b      # 타입만 (빌드 없이)
 ```
 
 ⚠️ **`npm run build`는 즉시 배포다** — 서버가 `dist/`를 디스크에서 읽어 서빙하므로, 빌드하는 순간
 띄워 둔 화면이 바뀐다. `server/`까지 고쳤으면 build 후 프로세스 재시작이 따로 필요하다
 (`./mew restart`).
 
+**터미널에서 이 레포 파일을 고쳤는데 다음에 보니 되돌아가 있으면**, 사용자가 그 파일을 mew
+에디터에 열어둔 채라 버퍼 저장이 디스크를 덮어쓴 것이다. 반영 여부를 다시 확인하고, 해당 파일을
+닫거나 Revert File 하도록 안내한다.
+
 ### 설정
 
 설정 파일은 **레포 밖**에 있다 — `~/.config/mew/config.env`(`XDG_CONFIG_HOME` 존중). 레포 안의
 `.env`가 있으면 그것이 마지막에 덮으므로 개발 중 임시 덮어쓰기로 쓴다. 읽는 순서와 기본 경로는
-`server/config.ts` 한 곳이 정한다.
+`server/config.ts` 한 곳이 정한다 — **진입점의 첫 import여야 한다.** 뒤로 밀리면 `MEW_DATA_DIR`
+같은 값이 다른 모듈이 이미 읽어 버린 뒤라 조용히 무시된다.
 
 | 변수 | 기본값 | 무엇 |
 | --- | --- | --- |
-| `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더 |
+| `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더. `server/paths.ts`의 `WORKSPACE_ROOT`를 고정 경로로 되돌리지 않는다 — 앱과 워크스페이스를 뗄 수 있어야 컨테이너·다른 폴더 배포가 성립한다 |
 | `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·게스트 규칙·아이콘 |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
 | `MEW_COLLAB_RUST` | 없음(=JS Yjs) | `1`이면 협업 방 상태를 Rust(yrs)로 — 먼저 `npm run build:native` (아래 §협업 방) |
@@ -343,15 +358,22 @@ Claude Code 같은 TUI의 슬래시 명령(`/clear`·`/model`)도 버튼 한 번
 
 ### 사이드바 항목 끌어놓기
 
-파일·폴더를 끌면 **놓는 자리에 따라 뜻이 다르다**. 두 뜻을 한 드래그에 담으려고 `@mew/ui`의
-`pathDrag.ts`가 전용 MIME(`application/x-mew-path`)과 `text/plain` 양쪽에 경로를 싣는다.
+파일·폴더를 끌면 **놓는 자리에 따라 뜻이 다르다**. 여러 뜻을 한 드래그에 담으려고 `@mew/ui`의
+`pathDrag.ts`가 전용 MIME(`application/x-mew-path`)과 `text/plain` 양쪽에 경로를 싣고, 폴더는
+`application/x-mew-dir`을 하나 더 실어 **값을 못 읽는 `dragover` 단계에서도 파일과 구분**되게 한다.
 
 | 놓는 곳 | 결과 |
 | --- | --- |
 | 사이드바의 폴더 (빈 곳 = 프로젝트 루트) | 그 폴더로 **이동**(`POST /api/rename`) |
-| 에디터 Hotview·Plain | 놓은 자리에 **경로 텍스트** 삽입 |
+| 에디터 칸의 **가장자리 30%** (파일만) | 탭 드래그와 같은 규칙으로 **그 방향 화면 분할** + 새 칸에 그 파일이 열린다 |
+| 에디터 Hotview·Plain (가운데) | 놓은 자리에 **경로 텍스트** 삽입 |
 | 터미널 화면 | 셸에 그대로 **타이핑**(Enter는 보내지 않는다 — 명령을 완성하는 건 사용자다) |
 | 터미널 하단 입력칸 | 커서 자리에 **경로 삽입**(선택 영역이 있으면 대체) |
+
+가장자리 분할 가로채기는 `App.tsx`가 칸 컨테이너의 **캡처 단계** `dragover`/`drop`에서 한다
+(`pathDropTargetAt`) — 가운데·폴더는 `preventDefault` 없이 흘려보내 아래 표의 원래 뜻을 지키고,
+가장자리 드롭은 `stopPropagation`으로 끊어 ProseMirror의 경로 삽입이 뒤따르지 않게 한다.
+새 칸은 `useTabs.splitEmptyPane`이 비워서 세우고 탭은 `openFile(paneId)`가 붙인다.
 
 - **`dragover`에서는 `getData()`가 언제나 빈 문자열이다**(DataTransfer 보호 모드). 받는 쪽 판정은
   `hasPathDrag`(=`types` 검사)로 하고, 값 읽기(`pathFromDrag`)는 `drop`에서만 한다. 여기서 헷갈리면
@@ -359,6 +381,12 @@ Claude Code 같은 TUI의 슬래시 명령(`/clear`·`/model`)도 버튼 한 번
 - `effectAllowed`는 `copyMove`다 — `move`만 허용하면 `dropEffect='copy'`로 받는 에디터·터미널에서
   드롭이 통째로 거부된다. 트리 안 폴더는 자기 `dragover`에서 `move`를 명시해 원래 뜻을 지킨다.
 - 에디터는 **전용 MIME이 있을 때만** 가로챈다. 바깥에서 끌어온 이미지·텍스트는 종전대로 업로드·삽입된다.
+
+**바깥(파일 탐색기)에서 사이드바로 끌어놓기**는 반대 방향이다 — 놓은 폴더(빈 곳 = 프로젝트 루트)에
+그 파일이 **그대로 저장된다**(`POST /api/upload-into`, multipart `file`·`destDir`). 판정은 `dataTransfer.types`에
+`'Files'`가 있는지로 하고, 그때만 `dropEffect='copy'`가 된다. 이름이 겹치면 서버가 `이름 copy`로 비켜 쓰고,
+여러 개를 놓으면 **순서대로** 올린다(동시에 보내면 같은 빈 이름을 함께 집는다). 에디터 본문 드롭이 R2 링크를
+만드는 것과 달리 여기는 R2를 거치지 않는다 — 바이트를 프로젝트 폴더에 그대로 쓰고 git에 커밋한다.
 
 ### 표 열 너비 (.mew/table-layout.json)
 
@@ -381,6 +409,8 @@ Hotview에서 표의 세로선을 끌어 조절한 **열 너비**는 마크다�
   본문 md를 건드리지 않는 대가다.
 - 복원은 본문 시딩 뒤에 한 번, `addToHistory: false`(collab이면 `SEED_ORIGIN`)로 들어간다.
   사용자의 undo 스택에 올라가면 Ctrl+Z 한 번에 너비가 통째로 되돌아가기 때문이다.
+  **콘텐츠를 코드로 시딩하는 곳은 전부 이 규칙을 따른다** — `SEED_ORIGIN` 트랜잭션으로 감싸지 않으면
+  시딩이 사용자 undo 스택에 잡혀 Ctrl+Z 한 번에 문서 전체가 사라진다(`Editor.tsx`).
 - **불러오기에 실패하면 저장도 하지 않는다.** 못 읽은 것을 "너비 없음"으로 오해해 덮어쓰면
   저장돼 있던 값이 사라진다.
 - 서버: `server/tableLayout.ts` + `GET /api/table-layout`(게스트는 보기 권한 필요)·
@@ -407,18 +437,45 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이스다. 근거는
 [ADR 0034](../docs/decisions/0034-mew-agent-panel-acp-reintroduction.md), 권한 경계는 [SECURITY.md](SECURITY.md).
 
-- 서버: `server/agentAcp.ts`(세션·spawn·파일 스코프) + `server/agentWs.ts`(WS 릴레이).
-  클라이언트: `src/components/AgentPanel.tsx`. 접근은 **owner/manager**(`authorizeTmux`와 같은 집합).
-- 채널: `/api/agent/ws?project=<이름>` — 프로젝트당 세션 하나. 창을 닫아도 세션은 남고,
+⚠️ **`serve.ts` 요청 핸들러 안에서 에이전트를 직접 돌리지 않는다.** 2026-07-25에 지운 옛 에이전트
+창은 Claude Code를 `-p --output-format json`으로, 즉 블로킹·비스트리밍으로 불러 첫 응답이 ~20초
+멎었다. 지금 구현(child process + ACP 스트리밍, `server/agentAcp.ts`)이 그 문제를 푼 구조라 되돌리지
+않는다.
+
+- 서버: `server/agentAcp.ts`(세션·spawn·파일 스코프) + `server/agentWs.ts`(WS 릴레이) +
+  `server/agentUsage.ts`(토큰 사용량). 클라이언트: `src/components/AgentPanel.tsx` +
+  `src/utils/agentFold.ts`(이벤트→화면 항목). 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) —
+  에이전트는 Bash를 쓸 수 있어 tmux와 같은 경계여야 한다. 권한 모드 기본값이 `bypassPermissions`라
+  (승인 프롬프트 없음) **이 역할 게이트가 유일한 통제다** — tmux보다 낮추면 무인 셸을 여는 것이다.
+- 채널: `/api/agent/ws?project=<이름>` — 프로젝트당 **살아 있는 세션 하나**. 창을 닫아도 세션은 남고,
   다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다(붙은 창이 없는 채로 10분이면 종료).
 
 | 방향 | 메시지 |
 | --- | --- |
-| 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId\|null}` |
-| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start'}` · `{type:'turn_end', stopReason}` · `{type:'error'\|'fatal', message}` |
+| 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId\|null}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'new_session'}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` |
+| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start'}` · `{type:'turn_end', stopReason}` · `{type:'error'\|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
 
+- **`meta`·`sessions`·`reset`은 이벤트 버퍼에 쌓지 않는다.** `meta`는 상태 스냅샷이라 붙을 때·바뀔 때
+  통째로 보내고(`sessionId`·`startedAt`·`turns`·`busy`·`queued`·`usage`·`canLoad`·`canList`),
+  `sessions`는 물어본 창에만 답한다. `reset`을 받은 창은 지금까지 그린 대화를 버린다.
+- **진행 중에 온 `prompt`는 던지지 않고 줄을 세운다.** 턴이 끝나면 서버가 순서대로 이어 돌리고,
+  `cancel`은 대기열도 함께 비운다.
+- 새 세션(`/clear`)·불러오기(`/resume`)는 **ACP 메서드**(`session/new`·`session/list`·`session/load`)다.
+  자식 프로세스는 그대로 두고 세션만 갈아끼운다. 버튼 노출 여부는 `initialize`의 capability로 정한다.
+- **토큰 사용량만 ACP 밖에서 온다** — 어댑터가 사용량을 보내지 않아 `agentUsage.ts`가
+  `<CLAUDE_CONFIG_DIR>/projects/<인코딩된 cwd>/<sessionId>.jsonl`을 읽는다. 읽기 전용·선택적이고,
+  파일이 없으면 사용량 칸만 빈다([ADR 0036](../docs/decisions/0036-mew-agent-session-controls-and-usage.md)).
+
+- **권한 모드 기본값은 `bypassPermissions`다**([ADR 0037](../docs/decisions/0037-mew-agent-bypass-permissions-default.md)).
+  ACP 세션은 언제나 `default`로 시작하므로 서버가 `session/new`·`session/load` 뒤마다 다시 걸어 준다
+  (`#applyDefaultMode`). 헤더 선택기로 턴마다 바꿀 수 있고, 서버 기본값은 `MEW_AGENT_MODE`로 바꾼다.
+  모드 목록은 백엔드가 광고하는 것을 그대로 쓴다 — 광고에 없으면(예: root 실행) 조용히 넘어간다.
 - 백엔드 교체는 **spawn 대상 교체**다: `MEW_AGENT_CMD`(기본 `node_modules/.bin/claude-code-acp`,
-  버전 고정) · `MEW_AGENT_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`).
+  버전 고정) · `MEW_AGENT_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) ·
+  `MEW_AGENT_MODE`(기본 `bypassPermissions`).
+- **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
+  PATH에 시스템 `claude`가 있으면 자동으로 그걸 쓴다(`CLAUDE_CODE_EXECUTABLE`로 전달, 이미 지정돼
+  있으면 존중). 시스템 설치본이 없으면 번들 CLI로 돌아간다.
 - 클라이언트 capability로 `fs.readTextFile`·`fs.writeTextFile`을 **켠다** — 켜야 에이전트의 파일
   읽기·쓰기가 mew로 돌아와 프로젝트 폴더 밖을 거부할 수 있다. `terminal`은 켜지 않는다.
 - 자식 환경에서 **`CLAUDECODE`를 지운다.** 남아 있으면 Claude Code가 중첩 세션으로 보고 실행을 거부해
@@ -449,7 +506,10 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   한다. 상태 벡터 diff로 계산하면 삭제만 있는 업데이트가 빈 diff로 보여 사라진다
 - `server/collabAgent.ts` — 디스크→방 브리지. **자기 Y.Doc + awareness를 들고 방의 `connect()`로
   붙는 인프로세스 클라이언트다** — 방의 doc을 붙들지 않는다(백엔드를 갈 수 없게 된다).
-  루프백 소켓을 쓰지 않는 이유는 `authorizeCollab`(게스트 차단) 우회 통로를 뚫어야 하기 때문
+  루프백 소켓을 쓰지 않는 이유는 `authorizeCollab`(게스트 차단) 우회 통로를 뚫어야 하기 때문.
+  터미널에서 고친 `.md`가 열려 있는 Yjs 방에 `agent` 커서로 실시간 주입되는 정상 기능이다 —
+  2026-07-25에 지운 에이전트 창과는 무관하니 헷갈려서 지우지 말 것. `appWrites` 메아리 원장이
+  사용자의 정상 타이핑을 보호한다
 - 인증·`MAX_ROOMS`·awareness·방 수명은 백엔드와 무관하게 JS에 남는다. 방을 살려두는 것은 **실제
   접속자뿐**이다 — 브리지의 인프로세스 클라이언트를 세면 방이 영원히 닫히지 않아 헤드리스
   에디터와 fs watcher가 쌓인다
@@ -486,6 +546,8 @@ MEW_COLLAB_RUST=1 npm run serve
 - `@mew/editor` — TipTap 마크다운 에디터(`Editor`). frontmatter 패널·표·링크/멘션 툴팁·
   미디어 업로드 포함. `EditorApi`(fetchFile·uploadAsset·fetchLinkPreview) 주입.
   fuzzy 검색·frontmatter 유틸도 여기서 export.
+  **`@`·`/` 입력 감지는 `keydown`이 아니라 `onUpdate`/`onSelectionUpdate`(트랜잭션 기반)로 한다** —
+  keydown 스페이스 트리거는 모바일에서 조용히 실패한다(`SlashMenu.tsx`가 현재 구현).
 - `@mew/shortcuts` — 단축키 바인딩.
 - `@mew/tmux-term` — 터미널. 클라이언트(`TmuxTerminalPanel`, xterm.js)와 서버
   (`@mew/tmux-term/server`: `createTmuxManager`·`createTmuxRouter`·`attachTmuxWebSocket`,
