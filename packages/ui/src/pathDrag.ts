@@ -7,14 +7,23 @@
 //    에디터는 이게 있을 때만 가로챈다. 없으면 바깥에서 끌어온 텍스트·이미지로 보고 원래대로 처리한다.
 //  - `text/plain` — 전용 MIME을 모르는 곳(터미널 xterm, 입력칸)도 그냥 받을 수 있게.
 const FILE_PATH_MIME = 'application/x-mew-path'
+// 폴더 표시 — 받는 쪽이 dragover 단계(값을 못 읽고 types만 보이는 보호 모드)에서도
+// "이건 파일이 아니라 폴더"를 알 수 있게 MIME 존재 자체로 알린다. 화면 분할은 파일만 받는다.
+const DIR_PATH_MIME = 'application/x-mew-dir'
 
 /** 끄는 쪽(사이드바 항목의 onDragStart)에서 부른다 */
-export function setPathDragData(dt: DataTransfer, path: string): void {
+export function setPathDragData(dt: DataTransfer, path: string, type: 'file' | 'dir' = 'file'): void {
   dt.setData(FILE_PATH_MIME, path)
+  if (type === 'dir') dt.setData(DIR_PATH_MIME, path)
   dt.setData('text/plain', path)
   // 'move'만 허용하면 dropEffect='copy'로 받는 쪽(에디터·터미널)에서 드롭이 통째로 거부된다.
   // 트리 안의 폴더는 자기 dragover에서 dropEffect='move'를 명시해 원래 뜻을 유지한다.
   dt.effectAllowed = 'copyMove'
+}
+
+/** dragover에서 쓴다 — 이 드래그가 사이드바의 **폴더**인지 */
+export function hasDirPathDrag(dt: DataTransfer | null | undefined): boolean {
+  return dt ? Array.prototype.includes.call(dt.types, DIR_PATH_MIME) : false
 }
 
 /**

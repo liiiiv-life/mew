@@ -282,12 +282,6 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     }
   }, [states])
 
-  const openBlankTab = useCallback(() => {
-    const p = projectRef.current
-    const newTab = blankTab()
-    patchPane(p, stateOf(p).focusedPaneId, (pane) => ({ ...pane, tabs: [...pane.tabs, newTab], activePath: newTab.path }))
-  }, [patchPane])
-
   const pinTab = useCallback(
     (path: string, paneId?: string) => {
       const p = projectRef.current
@@ -528,6 +522,26 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     [patch],
   )
 
+  /**
+   * 사이드바에서 파일을 끌어 칸 가장자리에 놓았을 때 — 그 방향으로 **빈** 새 칸을 세우고 id를 돌려준다.
+   * 탭은 호출한 쪽이 openFile(paneId)로 붙인다 — 탭 생성·본문 로딩 경로를 openFileIn 하나로 유지하기 위해서다.
+   */
+  const splitEmptyPane = useCallback(
+    (targetPaneId: string, side: DropSide): string => {
+      const id = newPaneId()
+      patch(projectRef.current, (s) => {
+        if (!s.panes.some((x) => x.id === targetPaneId)) return s
+        return {
+          layout: splitLeaf(s.layout, targetPaneId, id, side),
+          focusedPaneId: id,
+          panes: [...s.panes, { id, tabs: [], activePath: null }],
+        }
+      })
+      return id
+    },
+    [patch],
+  )
+
   // 파일/폴더 이름 변경을 열린 탭 경로에 반영
   const remapPaths = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -599,7 +613,6 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     activeTab,
     setActivePath,
     openFile,
-    openBlankTab,
     pinTab,
     reorderTabs,
     setTabViewMode,
@@ -609,6 +622,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     closeTab,
     moveTabToPane,
     splitWithTab,
+    splitEmptyPane,
     remapPaths,
     removePaths,
     forgetProject,

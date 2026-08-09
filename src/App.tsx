@@ -29,14 +29,14 @@ import { TmuxTerminalPanel } from '@mew/tmux-term'
 import { AgentPanel } from './components/AgentPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
-import { useOverlayDismiss, useToast } from '@mew/ui'
+import { hasDirPathDrag, hasPathDrag, pathFromDrag, useOverlayDismiss, useToast } from '@mew/ui'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
 import { mediaKind } from './utils/media'
 import { openTabsKey, useTabs } from './hooks/useTabs'
 import { applyLayout, bySlot, reorderedLayout } from './utils/projectLayout'
-import { dropZoneAt, paneIds, type DropZone, type PaneNode } from './utils/paneTree'
+import { dropZoneAt, paneIds, type DropSide, type DropZone, type PaneNode } from './utils/paneTree'
 import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
 import { outsideTerminal } from './utils/terminalFocus'
@@ -109,11 +109,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 사이드바 뷰: 파일 탐색기 vs 프로젝트 전체 검색(Ctrl+Shift+F). projectSearchFocus는 검색창 포커스 신호
   const [sidebarView, setSidebarView] = useState<'files' | 'search'>('files')
   const [projectSearchFocus, setProjectSearchFocus] = useState(0)
+  // Alt+N 새 파일 신호 — parentPath가 있으면 그 폴더에(에디터 포커스였을 때 활성 문서 폴더),
+  // null이면 FileTree가 자기 선택 항목 기준으로 이름 입력을 연다
+  const [newFileSignal, setNewFileSignal] = useState<{ n: number; parentPath: string | null }>({ n: 0, parentPath: null })
   // 탭을 끌고 있는 동안 그림자가 뜰 칸과 자리 — 손을 떼면 그 자리가 실제 분할·이동이 된다
   const [dropTarget, setDropTarget] = useState<{ paneId: string; zone: DropZone } | null>(null)
   // 칸별 에디터 손잡이(선택 영역·찾기·되돌리기)와 본문 영역 DOM(드롭 자리 판정)
   const paneHandles = useRef(new Map<string, PaneHandle>())
   const paneEls = useRef(new Map<string, HTMLElement>())
+  // 탭 줄도 드롭 자리다 — 다른 칸의 탭 줄에 놓으면 그 칸으로 **옮기기**(분할 아님)
+  const paneBarEls = useRef(new Map<string, HTMLElement>())
   // 프로젝트 검색 결과를 클릭해 파일을 연 뒤, 그 파일 내용이 로드되면 해당 위치로 점프시키기 위한 대기 정보
   const pendingRevealRef = useRef<{ path: string; line: number; query: string } | null>(null)
 
@@ -152,7 +157,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     activeTab,
     setActivePath,
     openFile,
-    openBlankTab,
     pinTab,
     reorderTabs,
     setTabViewMode,
@@ -162,6 +166,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     closeTab,
     moveTabToPane,
     splitWithTab,
+    splitEmptyPane,
     remapPaths,
     removePaths,
     forgetProject,
@@ -177,31 +182,85 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     else paneEls.current.delete(id)
   }, [])
 
+  const registerPaneTabBar = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) paneBarEls.current.set(id, el)
+    else paneBarEls.current.delete(id)
+  }, [])
+
   /** 지금 포커스된 칸의 에디터 — 커밋·찾기·되돌리기·터미널 붙여넣기가 가리키는 곳 */
   const focusedEditor = useCallback(() => paneHandles.current.get(focusedPaneId) ?? null, [focusedPaneId])
 
-  /** 그 좌표에 있는 편집 칸의 **본문** 영역 — 탭 줄은 빠져 있다(줄 안에서 끄는 건 순서 바꾸기다) */
-  const paneAt = (x: number, y: number) => {
-    for (const [id, el] of paneEls.current) {
+  const hitAt = (els: Map<string, HTMLElement>, x: number, y: number) => {
+    for (const [id, el] of els) {
       const rect = el.getBoundingClientRect()
-      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return { id, rect }
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return { id, el, rect }
     }
     return null
   }
 
-  const handleTabDragMove = useCallback((_paneId: string, _path: string, x: number, y: number) => {
-    const hit = paneAt(x, y)
-    setDropTarget(hit ? { paneId: hit.id, zone: dropZoneAt(hit.rect, x, y) } : null)
+  /**
+   * 이 좌표에 놓으면 무엇이 되는지. 본문 가장자리는 분할, 본문 가운데와 **탭 줄**은 그 칸으로 옮기기다 —
+   * 탭 줄에서는 자리를 따지지 않는다(줄 안에서 끄는 건 순서 바꾸기이므로 제 칸이면 아무 일도 없다).
+   */
+  const dropTargetAt = (fromPaneId: string, x: number, y: number): { paneId: string; zone: DropZone } | null => {
+    const bar = hitAt(paneBarEls.current, x, y)
+    if (bar) return bar.id === fromPaneId ? null : { paneId: bar.id, zone: 'center' }
+    const hit = hitAt(paneEls.current, x, y)
+    if (!hit) return null
+    const zone = dropZoneAt(hit.rect, x, y)
+    // 제 칸 가운데로 놓기 = 아무 일도 없음 — 그림자도 띄우지 않는다
+    if (zone === 'center' && hit.id === fromPaneId) return null
+    return { paneId: hit.id, zone }
+  }
+
+  const handleTabDragMove = useCallback((paneId: string, _path: string, x: number, y: number) => {
+    setDropTarget(dropTargetAt(paneId, x, y))
   }, [])
+
+  /**
+   * 사이드바 **파일** 드래그가 이 좌표에서 분할 드롭이 되는지 — 탭 드래그와 같은 가장자리 규칙이다.
+   * 가운데는 기존 뜻(에디터에 경로 입력)을 지키러 가로채지 않고, 폴더는 분할 대상이 아니다.
+   * contains 검사는 모바일에서 사이드바가 칸 위를 fixed로 덮을 때 좌표만으로 오인하는 것을 막는다.
+   */
+  const pathDropTargetAt = (e: React.DragEvent): { paneId: string; zone: DropSide } | null => {
+    if (!hasPathDrag(e.dataTransfer) || hasDirPathDrag(e.dataTransfer)) return null
+    const hit = hitAt(paneEls.current, e.clientX, e.clientY)
+    if (!hit || !hit.el.contains(e.target as Node)) return null
+    const zone = dropZoneAt(hit.rect, e.clientX, e.clientY)
+    return zone === 'center' ? null : { paneId: hit.id, zone }
+  }
+
+  const handlePathDragOver = (e: React.DragEvent) => {
+    if (!hasPathDrag(e.dataTransfer)) return
+    const target = pathDropTargetAt(e)
+    if (target) {
+      // preventDefault가 있어야 drop 자체가 발생한다 — 가장자리에서만 허용해 가운데는 에디터에 넘긴다
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+    }
+    setDropTarget(target)
+  }
+
+  const handlePathDrop = (e: React.DragEvent) => {
+    const target = pathDropTargetAt(e)
+    if (!target) return
+    setDropTarget(null)
+    const path = pathFromDrag(e.dataTransfer)
+    if (!path) return
+    // 캡처 단계에서 끊어야 ProseMirror의 드롭(경로 텍스트 입력)이 뒤따라 돌지 않는다
+    e.preventDefault()
+    e.stopPropagation()
+    const paneId = splitEmptyPane(target.paneId, target.zone)
+    openFile(path, { paneId, preview: false, forceNewTab: true })
+  }
 
   const handleTabDrop = useCallback(
     (paneId: string, path: string, x: number, y: number) => {
       setDropTarget(null)
-      const hit = paneAt(x, y)
-      if (!hit) return
-      const zone = dropZoneAt(hit.rect, x, y)
-      if (zone === 'center') moveTabToPane(path, paneId, hit.id)
-      else splitWithTab(path, paneId, hit.id, zone)
+      const target = dropTargetAt(paneId, x, y)
+      if (!target) return
+      if (target.zone === 'center') moveTabToPane(path, paneId, target.paneId)
+      else splitWithTab(path, paneId, target.paneId, target.zone)
     },
     [moveTabToPane, splitWithTab],
   )
@@ -430,9 +489,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         e.preventDefault()
         if (activePath) closeTab(activePath)
       } else if (matchesShortcut(e, getBinding('newTab'))) {
-        // Ctrl+N도 마찬가지로 브라우저 예약 단축키라 가로챌 수 없어 기본값은 Alt+N이다
+        // Ctrl+N도 마찬가지로 브라우저 예약 단축키라 가로챌 수 없어 기본값은 Alt+N이다.
+        // 빈 탭이 아니라 새 파일 흐름 — 사이드바에 포커스면 거기 선택된 항목 기준(FileTree가
+        // 알고 있다), 에디터 등 다른 곳이면 활성 문서와 같은 폴더에 이름 입력을 연다
         e.preventDefault()
-        openBlankTab()
+        const inSidebar = e.target instanceof HTMLElement && !!e.target.closest('[data-sidebar]')
+        const parentPath = !inSidebar && activeTab?.path ? activeTab.path.split('/').slice(0, -1).join('/') : null
+        setSidebarView('files')
+        setSidebarOpen(true)
+        setNewFileSignal((s) => ({ n: s.n + 1, parentPath }))
       } else if (matchesShortcut(e, getBinding('prevTab')) || matchesShortcut(e, getBinding('nextTab'))) {
         // Ctrl+Alt+←/→ 탭 이동 — 끝에 닿으면 반대편으로 감싼다. 터미널에 포커스가 있어도 동작한다
         // (TmuxTerminal이 이 조합을 PTY로 보내지 않고 통과시킨다)
@@ -452,7 +517,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, openBlankTab, canUseTerminal, focusedEditor])
+  }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, canUseTerminal, focusedEditor])
 
   // 프로젝트 검색 결과 클릭 — 파일을 열고, 위치 점프 정보를 대기시킨다 (내용 로드 후 아래 effect가 처리)
   const openSearchResult = useCallback(
@@ -487,6 +552,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   // 터미널·시스템 자원 버튼은 화면에 하나뿐이다 — 맨 끝 칸(오른쪽·아래)이 맡는다
   const toolPaneId = paneIds(layout).at(-1)
+  // 사이드바 여는 버튼은 사이드바가 서는 자리와 붙은 맨 앞 칸(왼쪽·위)이 맡는다
+  const sidebarPaneId = paneIds(layout)[0]
 
   /** 배치 나무를 그대로 화면으로 — 잎이 편집 칸, 가지가 가로(row)·세로(col) 분할이다 */
   const renderLayout = (node: PaneNode, key: string) => {
@@ -507,10 +574,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           canUseTerminal={canUseTerminal}
           tmuxOpen={tmuxOpen}
           showGlobalTools={pane.id === toolPaneId}
+          showSidebarButton={!sidebarOpen && pane.id === sidebarPaneId}
           tocOpen={tocOpen}
           dropZone={dropTarget?.paneId === pane.id ? dropTarget.zone : null}
           registerHandle={registerPaneHandle}
           registerElement={registerPaneElement}
+          registerTabBar={registerPaneTabBar}
           onFocus={() => focusPane(pane.id)}
           onActivate={(path) => setActivePath(path, pane.id)}
           onPin={(path) => pinTab(path, pane.id)}
@@ -545,22 +614,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
         <header className="flex h-10 items-stretch border-b border-edge pr-2">
-          {/* 사이드바가 닫혀 있을 때만 뜨는 여는 버튼 — 프로젝트 탭 왼쪽, 사이드바가 서는 자리 위 */}
-          {!sidebarOpen && (
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="shrink-0 px-2 text-ink-muted hover:bg-surface-raised hover:text-ink"
-              title="사이드바 열기 (Ctrl+B)"
-              aria-label="사이드바 열기"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <path d="M9 3v18" />
-                <path d="m14 9 3 3-3 3" />
-              </svg>
-            </button>
-          )}
           <ProjectTabs
             projects={projectTabs}
             activeProject={project}
@@ -703,10 +756,20 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         </header>
       </div>
 
-      <div className="relative flex min-h-0 flex-1">
+      <div
+        className="relative flex min-h-0 flex-1"
+        onDragOverCapture={handlePathDragOver}
+        onDropCapture={handlePathDrop}
+        // 드래그를 취소하거나(Esc) 컨테이너 밖으로 나가면 분할 그림자를 지운다
+        onDragEndCapture={() => setDropTarget(null)}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null)
+        }}
+      >
         {sidebarOpen && (
           <div
             {...sidebarSwipe}
+            data-sidebar
             className="fixed inset-0 z-30 flex bg-surface-deep md:static md:z-auto md:shrink-0"
             style={{ width: isDesktop() ? sidebarWidth : undefined }}
           >
@@ -739,6 +802,18 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     <path d="m21 21-4.3-4.3" />
                   </svg>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="ml-auto rounded p-1 text-ink-muted hover:bg-surface-hover hover:text-ink"
+                  title="사이드바 닫기 (Ctrl+B)"
+                  aria-label="사이드바 닫기"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6 6 18" />
+                    <path d="m6 6 12 12" />
+                  </svg>
+                </button>
               </div>
               <div className="min-h-0 flex-1">
                 <div className={sidebarView === 'files' ? 'h-full' : 'hidden'}>
@@ -749,6 +824,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     selectedPath={activePath}
                     readOnly={isGuest}
                     searchFocusSignal={searchFocusSignal}
+                    newFileSignal={newFileSignal}
                     presence={tabPresence}
                     onSelect={(path, opts) => {
                       openFile(path, opts)
@@ -762,7 +838,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     onRenamed={handleRenamed}
                     onDeleted={handleDeleted}
                     onGuestAccessChanged={refreshTree}
-                    onCloseSidebar={() => setSidebarOpen(false)}
                     onNotice={showToast}
                   />
                 </div>
