@@ -33,8 +33,9 @@ test('showAll: docs에서도 확장자를 가리지 않는다', () => {
 test('코드 프로젝트: 기본 눈은 텍스트 화이트리스트, showAll은 무엇이든 통과', () => {
   assert.equal(isPathVisible(CODE, 'src/App.tsx'), true)
   assert.equal(isPathVisible(CODE, '.env'), true) // 시크릿은 로그인 역할에 열려 있다 (게스트는 guestAccess가 거른다)
-  assert.equal(isPathVisible(CODE, 'tools/report.xlsx'), false)
-  assert.equal(isPathVisible(CODE, 'tools/report.xlsx', { showAll: true }), true)
+  assert.equal(isPathVisible(CODE, 'tools/report.zip'), false)
+  assert.equal(isPathVisible(CODE, 'tools/report.zip', { showAll: true }), true)
+  assert.equal(isPathVisible(CODE, 'tools/report.xlsx'), true) // 뷰어가 있는 바이너리는 화이트리스트다
 })
 
 test('숨김 목록은 showAll에서만 풀린다', () => {
@@ -86,7 +87,7 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
   fs.mkdirSync(path.join(dir, 'node_modules', 'left-pad'), { recursive: true })
 
   fs.writeFileSync(path.join(dir, 'note.md'), '# hi\n')
-  fs.writeFileSync(path.join(dir, 'sheet.xlsx'), 'not really a spreadsheet')
+  fs.writeFileSync(path.join(dir, 'archive.zip'), 'not really an archive')
   fs.writeFileSync(path.join(dir, 'src', 'app.ts'), 'export {}\n')
   fs.writeFileSync(path.join(dir, 'dist', 'bundle.js'), '// built\n')
   fs.writeFileSync(path.join(dir, 'node_modules', 'left-pad', 'index.js'), '// dep\n')
@@ -116,12 +117,12 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
     const member = await treeFor('member')
     assert.ok(member.includes('note.md'), 'member도 .md는 본다')
     assert.ok(member.includes('src/app.ts'), 'member도 소스 파일은 본다')
-    assert.ok(!member.includes('sheet.xlsx'), 'member에게 화이트리스트 밖 확장자는 안 보인다')
+    assert.ok(!member.includes('archive.zip'), 'member에게 화이트리스트 밖 확장자는 안 보인다')
     assert.ok(!member.some((p) => p.startsWith('dist')), 'member에게 숨김 목록(dist)은 안 보인다')
 
     for (const as of ['owner', 'manager'] as const) {
       const all = await treeFor(as)
-      assert.ok(all.includes('sheet.xlsx'), `${as}는 확장자를 가리지 않고 본다`)
+      assert.ok(all.includes('archive.zip'), `${as}는 확장자를 가리지 않고 본다`)
       assert.ok(all.includes('dist/bundle.js'), `${as}는 숨김 목록도 뚫고 본다`)
       assert.ok(
         !all.some((p) => p.startsWith('node_modules')),

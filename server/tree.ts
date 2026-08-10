@@ -47,6 +47,7 @@ export const MEDIA_EXTENSIONS = new Set([
   '.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus',
   '.mp4', '.webm', '.mov', '.m4v', '.mkv',
   '.pdf',
+  '.xlsx', // 표는 브라우저에서 직접 파싱해 읽기 전용으로 그린다 (src/utils/xlsx.ts)
 ])
 
 // 트리에 노출하되 미리보기 없이 다운로드만 하는 바이너리 — 빌드 산출물 등 (Android APK/AAB)

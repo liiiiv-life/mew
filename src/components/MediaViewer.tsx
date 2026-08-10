@@ -1,4 +1,5 @@
 import { downloadUrl, rawUrl } from '../api/client'
+import { SheetViewer } from './SheetViewer'
 import type { MediaKind } from '../utils/media'
 
 /** 바이너리 미디어 탭 본문 — 내용은 /api/raw에서 브라우저가 직접 스트리밍한다 */
@@ -17,6 +18,10 @@ export function MediaViewer({ path, kind }: { path: string; kind: MediaKind }) {
         <span className="text-xs text-ink-muted">미리보기 없이 내려받는 파일</span>
       </div>
     )
+  }
+
+  if (kind === 'sheet') {
+    return <SheetViewer path={path} />
   }
 
   if (kind === 'pdf') {
