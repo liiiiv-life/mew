@@ -45,6 +45,7 @@ import { SlashMenu, type SlashCommand } from './editor/SlashMenu'
 import { ListConversion } from './editor/listConversion'
 import { IndentableListItem, liftFirstListItemTransaction, sinkFirstListItemTransaction } from './editor/listIndent'
 import { HeadingEnter } from './editor/headingEnter'
+import { HeadingShortcut } from './editor/headingShortcut'
 import { DeleteLine } from './editor/deleteLine'
 import { changedCaretPos } from './editor/undoCaret'
 import { SearchAndReplace } from './editor/searchExtension'
@@ -372,6 +373,8 @@ export const Editor = forwardRef<
       ListConversion,
       // 제목 중간 Enter → 뒷부분은 제목이 아니라 본문
       HeadingEnter,
+      // Alt+1~6 — 커서가 있는 줄을 제목으로
+      HeadingShortcut,
       // Shift+Ctrl+Backspace — 커서가 있는 줄(블록·리스트 항목·코드 한 줄)을 통째로 삭제
       DeleteLine,
       // Ctrl+F 문서 내 찾기·바꾸기 (정규식·대소문자) — 매치를 데코레이션으로 하이라이트
