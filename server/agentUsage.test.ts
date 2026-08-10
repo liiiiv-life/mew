@@ -50,6 +50,7 @@ test('토큰·턴 수를 모으고, 덧붙은 줄만 이어서 읽는다', async
     context: 1110,
     turns: 1,
     startedAt: '2026-08-05T00:00:00.000Z',
+    cost: null,
   })
 
   // 서브에이전트(sidechain) 사용량은 합계에 들어가지만 컨텍스트는 본선 기준으로 남는다
@@ -65,6 +66,40 @@ test('토큰·턴 수를 모으고, 덧붙은 줄만 이어서 읽는다', async
   assert.equal(second?.output, 13)
   assert.equal(second?.cacheRead, 3007)
   assert.equal(second?.context, 2020, '컨텍스트는 마지막 본선 응답이 들고 간 양')
+})
+
+test('모델을 아는 줄만 돈으로 환산한다 — 캐시 쓰기는 TTL별 배수가 다르다', async () => {
+  const file = sessionFilePath(cwd, 'cost')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(
+    file,
+    // opus 5 = 입력 $5 / 출력 $25 per MTok. 1M 입력 + 1M 출력 + 1M(5분 쓰기 ×1.25) + 1M(1시간 쓰기 ×2) + 1M(읽기 ×0.1)
+    line({
+      type: 'assistant',
+      timestamp: '2026-08-05T00:00:01.000Z',
+      message: {
+        model: 'claude-opus-5-20260101',
+        usage: {
+          input_tokens: 1_000_000,
+          output_tokens: 1_000_000,
+          cache_creation_input_tokens: 2_000_000,
+          cache_read_input_tokens: 1_000_000,
+          cache_creation: { ephemeral_5m_input_tokens: 1_000_000, ephemeral_1h_input_tokens: 1_000_000 },
+        },
+      },
+    }) +
+      // 가격표에 없는 모델은 토큰만 세고 돈에는 넣지 않는다
+      line({
+        type: 'assistant',
+        timestamp: '2026-08-05T00:00:02.000Z',
+        message: { model: 'some-local-model', usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 } },
+      }),
+  )
+
+  const usage = await new UsageReader(cwd, 'cost').read()
+  assert.equal(usage?.input, 2_000_000, '값을 모르는 모델도 토큰은 센다')
+  // 5 + 25 + 6.25 + 10 + 0.5
+  assert.equal(usage?.cost, 46.75)
 })
 
 test('아직 다 쓰이지 않은 마지막 줄은 다음 읽기에 이어 붙인다', async () => {

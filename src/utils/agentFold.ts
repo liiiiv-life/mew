@@ -19,6 +19,8 @@ export type Usage = {
   context: number
   turns: number
   startedAt: string | null
+  /** 같은 토큰을 API로 샀다면 얼마인가(USD) — 구독제면 실제 청구액이 아니라 환산값이다(server/agentUsage.ts) */
+  cost: number | null
 }
 
 export type SessionMeta = {

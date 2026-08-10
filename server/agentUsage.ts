@@ -14,6 +14,36 @@ export type Usage = {
   /** 사용자 발화 수 — 도구 결과로 되돌아온 user 항목은 세지 않는다 */
   turns: number
   startedAt: string | null
+  /**
+   * 같은 토큰을 API로 샀다면 얼마인가(USD). 구독제로 도는 세션이면 실제 청구액이 아니라 환산값이다.
+   * 값을 매길 수 없는 모델(가격표에 없는 이름)만 나왔으면 null.
+   */
+  cost: number | null
+}
+
+/**
+ * 100만 토큰당 정가(USD). 입력·출력만 둔다 — 캐시는 입력가에서 파생한다:
+ * 쓰기 5분 ×1.25 · 1시간 ×2, 읽기 ×0.1.
+ * 도입가 할인(Sonnet 5 등)은 넣지 않는다. 기간이 끝나면 조용히 틀리는 값이 되기 때문에, 정가로 조금 비싸게 잡는다.
+ */
+const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
+  'claude-fable-5': { input: 10, output: 50 },
+  'claude-mythos-5': { input: 10, output: 50 },
+  'claude-opus-5': { input: 5, output: 25 },
+  'claude-opus-4-8': { input: 5, output: 25 },
+  'claude-opus-4-7': { input: 5, output: 25 },
+  'claude-opus-4-6': { input: 5, output: 25 },
+  'claude-sonnet-5': { input: 3, output: 15 },
+  'claude-sonnet-4-6': { input: 3, output: 15 },
+  'claude-sonnet-4-5': { input: 3, output: 15 },
+  'claude-haiku-4-5': { input: 1, output: 5 },
+}
+
+/** JSONL의 모델 이름은 날짜가 붙기도 한다(claude-sonnet-4-5-20250929) — 앞부분으로 찾는다 */
+function priceOf(model: string | undefined): { input: number; output: number } | null {
+  if (!model) return null
+  const key = Object.keys(PRICE_PER_MTOK).find((id) => model.startsWith(id))
+  return key ? PRICE_PER_MTOK[key] : null
 }
 
 /** 자식에게 넘기는 CLAUDE_CONFIG_DIR과 같은 값이어야 한다(agentAcp의 spawn env 참고) */
@@ -22,8 +52,12 @@ function configDir(): string {
 }
 
 /** claude-code-acp의 encodeProjectPath와 같은 규칙이어야 한다 — 어긋나면 사용량만 비어 보인다 */
+export function sessionDirPath(cwd: string): string {
+  return path.join(configDir(), 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'))
+}
+
 export function sessionFilePath(cwd: string, sessionId: string): string {
-  return path.join(configDir(), 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`)
+  return path.join(sessionDirPath(cwd), `${sessionId}.jsonl`)
 }
 
 type Entry = {
@@ -33,11 +67,14 @@ type Entry = {
   isMeta?: boolean
   message?: {
     content?: unknown
+    model?: string
     usage?: {
       input_tokens?: number
       output_tokens?: number
       cache_creation_input_tokens?: number
       cache_read_input_tokens?: number
+      /** 캐시 쓰기는 TTL마다 값이 다르다(5분 ×1.25 · 1시간 ×2) — 있으면 이걸로 나눠 센다 */
+      cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number }
     }
   }
 }
@@ -54,7 +91,7 @@ export class UsageReader {
   #offset = 0
   #partial = ''
   #seen = false
-  #usage: Usage = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, context: 0, turns: 0, startedAt: null }
+  #usage: Usage = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, context: 0, turns: 0, startedAt: null, cost: null }
 
   constructor(cwd: string, sessionId: string) {
     this.file = sessionFilePath(cwd, sessionId)
@@ -68,7 +105,7 @@ export class UsageReader {
       if (stat.size < this.#offset) {
         this.#offset = 0
         this.#partial = ''
-        this.#usage = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, context: 0, turns: 0, startedAt: null }
+        this.#usage = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0, context: 0, turns: 0, startedAt: null, cost: null }
       }
       if (stat.size > this.#offset) {
         const handle = await fsp.open(this.file, 'r')
@@ -113,6 +150,20 @@ export class UsageReader {
         usage.output += output
         usage.cacheWrite += cacheWrite
         usage.cacheRead += cacheRead
+        // 값을 아는 모델만 더한다 — 서브에이전트(sidechain)도 돈은 나가므로 함께 센다
+        const price = priceOf(entry.message?.model)
+        if (price) {
+          const write5m = u.cache_creation?.ephemeral_5m_input_tokens ?? cacheWrite
+          const write1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0
+          const dollars =
+            (input * price.input +
+              output * price.output +
+              write5m * price.input * 1.25 +
+              write1h * price.input * 2 +
+              cacheRead * price.input * 0.1) /
+            1_000_000
+          usage.cost = (usage.cost ?? 0) + dollars
+        }
         // 컨텍스트는 본선 응답 기준 — 서브에이전트(sidechain)는 자기 컨텍스트라 섞지 않는다
         if (entry.isSidechain !== true) usage.context = input + cacheWrite + cacheRead
       } else if (entry.type === 'user' && entry.isSidechain !== true && entry.isMeta !== true) {
