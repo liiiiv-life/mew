@@ -3,17 +3,16 @@
 // 결정 기준본: docs/decisions/0034-mew-agent-panel-acp-reintroduction.md,
 // 워크스페이스 스코프·런타임 전환은 docs/decisions/0043-mew-agent-workspace-scope-and-runtimes.md
 //
-// 스코프는 프로젝트가 아니라 워크스페이스다 — 어느 프로젝트를 보고 있든 같은 세션이 뜬다. 레포를 오가며
+// 스코프는 프로젝트가 아니라 워크스페이스다 — 어느 프로젝트를 보고 있든 같은 창이 뜬다. 레포를 오가며
 // 시키는 일(문서는 docs에, 코드는 제품 레포에)이 창을 바꾸지 않고 한 대화에서 되게 하려는 것.
+// 대화를 여럿 굴리는 축은 프로젝트가 아니라 **창의 탭**이다 — 탭 하나에 세션 하나, 자식 프로세스 하나.
 //
-// 보안 경계 두 겹:
-//  1. 이 모듈을 붙이는 WS가 owner/manager만 통과시킨다(server/agentWs.ts)
-//  2. 파일 도구는 fs capability로 **mew 프로세스 안에서** 실행돼 워크스페이스 밖을 거부한다.
-//     Bash는 경로 스코프가 되지 않는다 — 승인 프롬프트가 유일한 통제이고, 실질 격리는 OS 층(2단계)이다.
-import { spawn, type ChildProcess } from 'node:child_process'
+// 보안 경계는 한 겹이다 — 이 모듈을 붙이는 WS가 owner/manager만 통과시킨다(server/agentWs.ts).
+// 파일 도구도 Bash도 mew 서버와 같은 유닉스 사용자 권한으로 돌고 경로 스코프가 없다. 창을 열어 주는 것은
+// 무인 셸을 주는 것과 같다(ADR 0044). 실질 격리는 OS 층이며 아직 없다.
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import fs from 'node:fs'
-import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -30,10 +29,10 @@ import {
   type SessionModeState,
   type SessionNotification,
   type ToolCallUpdate,
-  type WriteTextFileRequest,
 } from '@agentclientprotocol/sdk'
-import { UnsafePathError, WORKSPACE_ROOT } from './paths.ts'
+import { WORKSPACE_ROOT } from './paths.ts'
 import { UsageReader, type Usage } from './agentUsage.ts'
+import { listSessionsFromDisk } from './agentSessionList.ts'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -136,9 +135,15 @@ export function isRuntime(id: string): boolean {
   return Object.hasOwn(RUNTIMES, id)
 }
 
+/** 떠 있는 세션 전부. sessions 맵과 달리 Promise가 아니다 — 나가는 길(process 'exit')에서는
+ *  then이 돌 기회가 없어서, 동기적으로 죽일 수 있는 목록이 따로 있어야 한다 */
+const live = new Set<AgentSession>()
+
 export class AgentSession {
   /** 어떤 백엔드로 떠 있는지(RUNTIMES의 키) — 창의 아이콘이 이것을 그린다 */
   readonly runtime: string
+  /** sessions 맵에서 자기를 지우기 위한 열쇠 — sessionFor가 심는다(테스트가 직접 띄운 세션은 빈 값) */
+  key = ''
   readonly cwd: string
   #child: ChildProcess
   #conn: ClientSideConnection
@@ -167,11 +172,15 @@ export class AgentSession {
     // 터미널에서 띄우면 이 변수가 그대로 상속돼 에이전트 창이 통째로 죽는다 — 여기 세션은 중첩이 아니라
     // 별개 프로세스이므로 떼고 넘긴다.
     delete env.CLAUDECODE
+    // detached — 어댑터를 프로세스 그룹 리더로 띄운다. 어댑터는 세션마다 CLI를 하나씩 밑에 두는데,
+    // 어댑터만 죽이면 그 손자들이 고아로 남는다(#killTree가 그룹째 보낼 수 있어야 한다).
     this.#child = spawn(spec.cmd, spec.args, {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
+      detached: true,
     })
+    live.add(this)
     this.#child.stderr?.on('data', (chunk: Buffer) => {
       console.error(`[mew:agent:${runtime}]`, chunk.toString().trimEnd())
     })
@@ -322,15 +331,6 @@ export class AgentSession {
       })
   }
 
-  /** 대화를 비우고 새 세션을 연다 — Claude Code CLI의 `/clear` */
-  async newSession() {
-    this.#resetConversation()
-    const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
-    this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null)
-    await this.#applyDefaultMode()
-    await this.#pushMeta()
-  }
-
   /** 지난 세션을 불러온다 — 에이전트가 히스토리를 session/update로 다시 흘려준다(`/resume`) */
   async loadSession(sessionId: string) {
     this.#resetConversation()
@@ -351,6 +351,9 @@ export class AgentSession {
 
   /** 이 프로젝트 폴더에서 돌았던 세션 목록 */
   async listSessions(): Promise<SessionInfo[]> {
+    // claude는 디스크를 직접 훑는다 — 어댑터 호출은 세션 파일을 통째로 읽어(1초+) 탭 수만큼 곱해진다
+    // (server/agentSessionList.ts). 기록 형식을 아는 런타임에서만 쓰는 지름길이다
+    if (this.runtime === 'claude') return listSessionsFromDisk(this.cwd)
     const res = await this.#conn.unstable_listSessions({ cwd: this.cwd })
     return res.sessions
   }
@@ -451,7 +454,7 @@ export class AgentSession {
   #armIdleTimer() {
     if (this.#listeners.size > 0 || this.#idleTimer || this.#disposed) return
     this.#idleTimer = setTimeout(() => {
-      sessions.delete(this.runtime)
+      sessions.delete(this.key)
       this.dispose()
     }, IDLE_KILL_MS)
     this.#idleTimer.unref?.()
@@ -460,37 +463,109 @@ export class AgentSession {
   dispose() {
     if (this.#disposed) return
     this.#disposed = true
+    live.delete(this)
     if (this.#idleTimer) clearTimeout(this.#idleTimer)
     for (const resolve of this.#pending.values()) resolve({ outcome: { outcome: 'cancelled' } })
     this.#pending.clear()
     this.#listeners.clear()
-    this.#child.kill()
+    this.#killTree()
+  }
+
+  /** 어댑터가 밑에 둔 CLI까지 같이 보낸다 — 그룹 리더로 띄웠으므로 음수 pid가 그룹 전체다.
+   *  프로세스 종료 경로(process.on('exit'))에서도 불리므로 동기여야 한다 */
+  #killTree() {
+    const pid = this.#child.pid
+    if (pid === undefined) return
+    try {
+      process.kill(-pid, 'SIGTERM')
+    } catch {
+      this.#child.kill()
+    }
   }
 }
 
-// 워크스페이스에 런타임당 하나 — 프로젝트별로 나누지 않는다. 런타임을 바꿔 갔다 돌아오면 그쪽 대화가 그대로 남아 있다.
+// 창의 **탭 하나가 세션 하나**다 — 같은 런타임이어도 탭이 다르면 다른 대화·다른 자식 프로세스다.
+// 스코프는 여전히 워크스페이스라 프로젝트별로는 나누지 않는다.
 const sessions = new Map<string, Promise<AgentSession>>()
 
-/** 창을 닫았다 다시 열어도 같은 대화가 이어진다(IDLE_KILL_MS까지) */
-export function sessionFor(runtime: string): Promise<AgentSession> {
-  const existing = sessions.get(runtime)
+const keyOf = (runtime: string, tab: string) => `${runtime} ${tab}`
+
+/** 창을 닫았다 다시 열어도 탭마다 같은 대화가 이어진다(IDLE_KILL_MS까지) */
+export function sessionFor(runtime: string, tab: string): Promise<AgentSession> {
+  const key = keyOf(runtime, tab)
+  const existing = sessions.get(key)
   if (existing) return existing
-  const started = AgentSession.start(runtime).catch((err: unknown) => {
-    sessions.delete(runtime)
-    throw err
-  })
-  sessions.set(runtime, started)
+  const started = AgentSession.start(runtime)
+    .then((session) => {
+      session.key = key
+      return session
+    })
+    .catch((err: unknown) => {
+      sessions.delete(key)
+      throw err
+    })
+  sessions.set(key, started)
   return started
 }
 
-export function disposeSession(runtime: string) {
-  const pending = sessions.get(runtime)
+/** 탭을 닫았다 — 유휴 타이머를 기다리지 않고 지금 접는다 */
+export function disposeSession(runtime: string, tab: string) {
+  const key = keyOf(runtime, tab)
+  const pending = sessions.get(key)
   if (!pending) return
-  sessions.delete(runtime)
+  sessions.delete(key)
   void pending.then((session) => session.dispose()).catch(() => {})
 }
 
-/** 워크스페이스가 바뀌면 전부 접는다 — 세션의 cwd는 뜰 때 정해지므로 옛 폴더에 매여 있다 */
+/** 워크스페이스가 바뀌면 전부 접는다 — 세션의 cwd는 뜰 때 정해지므로 옛 폴더에 매여 있다.
+ *  아직 핸드셰이크 중이라 sessions에 Promise로만 있는 것도 live로 잡히므로 같이 죽는다. */
 export function disposeAllSessions() {
-  for (const runtime of [...sessions.keys()]) disposeSession(runtime)
+  sessions.clear()
+  for (const session of [...live]) session.dispose()
+}
+
+// 서버가 정상 종료하면 자식도 데려간다. SIGINT/SIGTERM은 serve.ts가 잡아 여기로 온다(vite dev는
+// vite가 잡아 process.exit을 부르므로 이 훅으로 들어온다).
+process.on('exit', () => disposeAllSessions())
+
+/**
+ * 서버가 SIGKILL로 죽으면 위의 어느 것도 돌지 못해 어댑터와 그 밑 CLI가 통째로 남는다 —
+ * 2026-08-10에 6일치 고아 28개가 3.4GB를 물고 있었다. 뜰 때 한 번 걷어낸다.
+ *
+ * 부모를 잃은 것(PPID 1)만 고른다 — PPID가 살아 있으면 지금 돌고 있는 다른 mew의 자식이다.
+ * 그룹(-pid)으로 보내지 않는다: 이 변경 전에 뜬 고아는 그룹 리더가 아니라서, 그 그룹에
+ * 지금 이 서버가 들어 있을 수도 있다. 스냅샷에서 자손을 직접 훑어 하나씩 보낸다.
+ */
+export function reapOrphanAgents() {
+  const target = process.env.MEW_AGENT_CMD || DEFAULT_AGENT_CMD
+  let snapshot: string
+  try {
+    snapshot = execFileSync('ps', ['-eo', 'pid=,ppid=,args='], { encoding: 'utf8' })
+  } catch {
+    return // ps가 없는 환경 — 청소는 있으면 좋은 것이지 서버가 뜨는 조건은 아니다
+  }
+  const rows = snapshot
+    .split('\n')
+    .map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line))
+    .filter((m) => m !== null)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), args: m[3] }))
+
+  const doomed = new Set<number>()
+  const collect = (pid: number) => {
+    if (doomed.has(pid)) return
+    doomed.add(pid)
+    for (const row of rows) if (row.ppid === pid) collect(row.pid)
+  }
+  for (const row of rows) {
+    if (row.ppid === 1 && row.args.includes(target)) collect(row.pid)
+  }
+  if (doomed.size === 0) return
+  for (const pid of doomed) {
+    try {
+      process.kill(pid)
+    } catch {
+      /* 이미 죽었다 */
+    }
+  }
+  console.log(`[mew:agent] 부모 잃은 에이전트 프로세스 ${doomed.size}개를 정리했습니다`)
 }

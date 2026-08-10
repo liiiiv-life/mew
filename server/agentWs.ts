@@ -6,9 +6,14 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { DEFAULT_RUNTIME, isRuntime, sessionFor, type AgentEvent, type AgentSession } from './agentAcp.ts'
+import { DEFAULT_RUNTIME, disposeSession, isRuntime, sessionFor, type AgentEvent, type AgentSession } from './agentAcp.ts'
+import { listSessionsFromDisk } from './agentSessionList.ts'
+import { WORKSPACE_ROOT } from './paths.ts'
 
 export const AGENT_WS_PATH = '/api/agent/ws'
+
+/** 탭 식별자 — 브라우저가 만들어 보내는 불투명한 값이다. 맵 열쇠로만 쓰지만 길이는 묶어 둔다 */
+const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 type ClientMessage =
   | { type: 'prompt'; text: string }
@@ -17,9 +22,10 @@ type ClientMessage =
   | { type: 'set_model'; modelId: string }
   | { type: 'set_mode'; modeId: string }
   | { type: 'unqueue'; index: number }
-  | { type: 'new_session' }
   | { type: 'list_sessions' }
   | { type: 'load_session'; sessionId: string }
+  /** 탭을 닫았다 — 창만 닫은 것과 달리 세션도 여기서 끝난다 */
+  | { type: 'close_session' }
 
 type ServerMessage =
   | AgentEvent
@@ -31,18 +37,53 @@ function send(ws: WebSocket, payload: ServerMessage) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload))
 }
 
-async function handleConnection(ws: WebSocket, runtime: string) {
-  let session: AgentSession
-  try {
-    session = await sessionFor(runtime)
-  } catch (err) {
-    send(ws, { type: 'fatal', message: err instanceof Error ? err.message : String(err) })
-    ws.close()
-    return
-  }
-  // 창을 닫아도 세션은 남는다(agentAcp의 유휴 타이머가 정리) — 재접속하면 지나간 이벤트를 되받는다
+async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
+  const fail = (err: unknown) => send(ws, { type: 'error', message: err instanceof Error ? err.message : String(err) })
+
+  // 에이전트가 뜨는 데는 1초가 넘게 걸린다(spawn + initialize + newSession). 그동안 창을 세워 두지 않는다:
+  // ready를 먼저 보내고, 지난 세션 목록도 먼저 보낸다 — 목록은 디스크만 읽으므로 자식 프로세스가 필요 없다.
   send(ws, { type: 'ready' })
-  const detach = session.attach((event) => send(ws, event))
+  if (runtime === 'claude')
+    void listSessionsFromDisk(WORKSPACE_ROOT)
+      .then((sessions) => send(ws, { type: 'sessions', sessions }))
+      .catch(() => {
+        /* 목록은 있으면 좋은 것이다 — 실패해도 창은 그대로 뜬다 */
+      })
+
+  // 세션이 준비되기 전에 온 말은 버리지 않고 줄을 세운다 — 예전에는 조용히 사라졌다
+  // (뜨는 데 몇 초가 걸리므로 그 사이에 보낸 첫 질문이 실제로 없어졌다)
+  let session: AgentSession | null = null
+  const early: ClientMessage[] = []
+  let detach = () => {}
+
+  const handle = (msg: ClientMessage) => {
+    if (!session) {
+      early.push(msg)
+      return
+    }
+    const live = session
+    try {
+      if (msg.type === 'prompt') live.prompt(msg.text)
+      else if (msg.type === 'cancel') live.cancel()
+      else if (msg.type === 'permission') live.answerPermission(msg.id, msg.optionId)
+      else if (msg.type === 'unqueue') live.unqueue(msg.index)
+      else if (msg.type === 'set_model') void live.setModel(msg.modelId).catch(fail)
+      else if (msg.type === 'set_mode') void live.setMode(msg.modeId).catch(fail)
+      else if (msg.type === 'load_session') void live.loadSession(msg.sessionId).catch(fail)
+      else if (msg.type === 'list_sessions')
+        void live
+          .listSessions()
+          .then((sessions) => send(ws, { type: 'sessions', sessions }))
+          .catch(fail)
+      else if (msg.type === 'close_session') {
+        detach()
+        disposeSession(runtime, tab)
+        ws.close()
+      }
+    } catch (err) {
+      fail(err)
+    }
+  }
 
   ws.on('message', (raw) => {
     let msg: ClientMessage
@@ -51,26 +92,25 @@ async function handleConnection(ws: WebSocket, runtime: string) {
     } catch {
       return
     }
-    const fail = (err: unknown) => send(ws, { type: 'error', message: err instanceof Error ? err.message : String(err) })
-    try {
-      if (msg.type === 'prompt') session.prompt(msg.text)
-      else if (msg.type === 'cancel') session.cancel()
-      else if (msg.type === 'permission') session.answerPermission(msg.id, msg.optionId)
-      else if (msg.type === 'unqueue') session.unqueue(msg.index)
-      else if (msg.type === 'set_model') void session.setModel(msg.modelId).catch(fail)
-      else if (msg.type === 'set_mode') void session.setMode(msg.modeId).catch(fail)
-      else if (msg.type === 'new_session') void session.newSession().catch(fail)
-      else if (msg.type === 'load_session') void session.loadSession(msg.sessionId).catch(fail)
-      else if (msg.type === 'list_sessions')
-        void session
-          .listSessions()
-          .then((sessions) => send(ws, { type: 'sessions', sessions }))
-          .catch(fail)
-    } catch (err) {
-      fail(err)
-    }
+    handle(msg)
   })
-  ws.on('close', detach)
+
+  let started: AgentSession
+  try {
+    started = await sessionFor(runtime, tab)
+  } catch (err) {
+    send(ws, { type: 'fatal', message: err instanceof Error ? err.message : String(err) })
+    ws.close()
+    return
+  }
+  // 뜨는 동안 창이 닫혔다 — 세션은 그대로 두고(유휴 타이머가 정리) 여기서 손을 뗀다
+  if (ws.readyState !== ws.OPEN) return
+  session = started
+  // 창을 닫아도 세션은 남는다(agentAcp의 유휴 타이머가 정리) — 재접속하면 지나간 이벤트를 되받는다.
+  // 탭을 닫는 것만 세션을 끝낸다(close_session).
+  detach = session.attach((event) => send(ws, event))
+  ws.on('close', () => detach())
+  for (const msg of early.splice(0)) handle(msg)
 }
 
 export function attachAgentWebSocket(
@@ -86,15 +126,16 @@ export function attachAgentWebSocket(
       socket.destroy()
       return
     }
-    // 프로젝트가 아니라 런타임으로 붙는다 — 세션 스코프는 워크스페이스다(ADR 0043)
+    // 프로젝트가 아니라 런타임+탭으로 붙는다 — 세션 스코프는 워크스페이스고, 대화를 나누는 축은 탭이다(ADR 0043)
     const runtime = url.searchParams.get('runtime') || DEFAULT_RUNTIME
-    if (!isRuntime(runtime)) {
+    const tab = url.searchParams.get('tab') || 'default'
+    if (!isRuntime(runtime) || !TAB_ID.test(tab)) {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      void handleConnection(ws, runtime)
+      void handleConnection(ws, runtime, tab)
     })
   })
 }

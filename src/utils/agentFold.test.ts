@@ -18,6 +18,16 @@ test('한 턴은 질문 하나와 답변 묶음 하나로 접힌다', () => {
   assert.equal(turn.kind === 'turn' && turn.done, true)
 })
 
+test('턴은 어떻게 끝났는지를 들고 있다 — 색으로 중단·에러를 갈라 그린다', () => {
+  const items = foldEvents([user('안녕'), { type: 'turn_start' }, { type: 'turn_end', stopReason: 'cancelled' }])
+  const turn = items[1]
+  assert.equal(turn.kind === 'turn' && turn.stopReason, 'cancelled')
+  // 되받은 히스토리에는 turn_end가 없다 — 끝난 줄은 알아도 이유는 모른다
+  const loaded = foldEvents([user('첫 질문'), agent('첫 답'), user('둘째 질문')])
+  const first = loaded[1]
+  assert.equal(first.kind === 'turn' && first.done && first.stopReason, null)
+})
+
 test('불러온 히스토리에는 turn_end가 없어도 질문마다 턴이 끊긴다', () => {
   // session/load 재생은 turn_start·turn_end 없이 메시지 청크만 흘려준다
   const items = foldEvents([user('첫 질문'), agent('첫 답'), user('둘째 질문'), agent('둘째 답')])

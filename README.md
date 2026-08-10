@@ -550,7 +550,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 ## 에이전트 창 (ACP)
 
 헤더의 말풍선 버튼 — **워크스페이스**에 묶인 AI 에이전트와 대화하는 **채팅 창**이다(터미널이 아니다).
-어느 프로젝트를 보고 있든 같은 창·같은 세션이 뜬다(cwd는 워크스페이스 루트).
+어느 프로젝트를 보고 있든 같은 창이 뜨고(cwd는 워크스페이스 루트), 대화는 **탭마다** 하나씩 굴린다.
 에이전트는 별도 프로세스로 뜨고 [ACP](https://agentclientprotocol.com)(stdio JSON-RPC)로만 말한다.
 mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이스다. 근거는
 [ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md)·[ADR 0043](../.mew/docs/decisions/0043-mew-agent-workspace-scope-and-runtimes.md),
@@ -566,14 +566,22 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   `src/utils/agentFold.ts`(이벤트→화면 항목). 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) —
   에이전트는 Bash를 쓸 수 있어 tmux와 같은 경계여야 한다. 권한 모드 기본값이 `bypassPermissions`라
   (승인 프롬프트 없음) **이 역할 게이트가 유일한 통제다** — tmux보다 낮추면 무인 셸을 여는 것이다.
-- 채널: `/api/agent/ws?runtime=<claude|hermes>` — 런타임당 **살아 있는 세션 하나**(생략하면 `claude`,
-  등록표에 없는 id는 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 —
+- 채널: `/api/agent/ws?runtime=<claude|hermes>&tab=<id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
+  `런타임+탭`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`,
+  `[A-Za-z0-9_-]{1,64}`이 아니면 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 —
   고른 값은 브라우저에만 남는다(`mew:agent-runtime`). 창을 닫아도 세션은 남고,
   다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다(붙은 창이 없는 채로 10분이면 종료).
+- 탭 목록·이름도 브라우저에만 있다(`mew:agent-tabs`) — 서버는 **탭 id만** 알고 뜻은 모른다.
+  이름은 그 대화의 첫 질문 한 줄에서 뽑는다([ADR 0046](../.mew/docs/decisions/0046-mew-agent-panel-tabs-one-session-per-tab.md)).
+  - **아직 아무 말도 오가지 않은 탭은 대화 자리에 지난 세션 목록을 그린다** — 고르면 이어받고(`load_session`),
+    그냥 입력하면 이미 잡혀 있는 새 세션으로 간다. 탭 줄의 `+`가 그 빈 탭을 연다
+  - 같은 세션을 두 탭에서 열지 않는다(목록에서 잠근다) — 한 전사를 두 프로세스가 붙들면 기록이 엉킨다
+  - **탭을 닫는 것만 세션을 끝낸다**(`close_session`). 창을 닫는 것과 다르다. 안 보고 있는 탭도 WS는
+    붙어 있고(돌던 대화가 멎으면 안 된다), 한 번이라도 연 탭만 붙인다(복원된 탭을 한꺼번에 띄우지 않는다)
 
 | 방향 | 메시지 |
 | --- | --- |
-| 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId\|null}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'new_session'}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` |
+| 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId\|null}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` · `{type:'close_session'}` |
 | 서버 → 클라이언트 | `{type:'ready'}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start'}` · `{type:'turn_end', stopReason}` · `{type:'error'\|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
 
 - **`meta`·`sessions`·`reset`은 이벤트 버퍼에 쌓지 않는다.** `meta`는 상태 스냅샷이라 붙을 때·바뀔 때
@@ -581,8 +589,10 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   `sessions`는 물어본 창에만 답한다. `reset`을 받은 창은 지금까지 그린 대화를 버린다.
 - **진행 중에 온 `prompt`는 던지지 않고 줄을 세운다.** 턴이 끝나면 서버가 순서대로 이어 돌리고,
   `cancel`은 대기열도 함께 비운다.
-- 새 세션(`/clear`)·불러오기(`/resume`)는 **ACP 메서드**(`session/new`·`session/list`·`session/load`)다.
-  자식 프로세스는 그대로 두고 세션만 갈아끼운다. 버튼 노출 여부는 `initialize`의 capability로 정한다.
+- 불러오기(`/resume`)는 **ACP 메서드**(`session/list`·`session/load`)다. 자식 프로세스는 그대로 두고
+  세션만 갈아끼운다. 목록을 물어볼지는 `initialize`의 capability(`meta.canList`)로 정한다.
+  제자리에서 대화만 비우는 `/clear`(`new_session`)는 **없다** — 새 탭이 곧 새 대화다(ADR 0046).
+  `session/new` 자체는 핸드셰이크에서 그대로 쓴다.
 - **토큰 사용량만 ACP 밖에서 온다** — 어댑터가 사용량을 보내지 않아 `agentUsage.ts`가
   `<CLAUDE_CONFIG_DIR>/projects/<인코딩된 cwd>/<sessionId>.jsonl`을 읽는다. 읽기 전용·선택적이고,
   파일이 없으면 사용량 칸만 빈다([ADR 0036](../.mew/docs/decisions/0036-mew-agent-session-controls-and-usage.md)).

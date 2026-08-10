@@ -16,6 +16,7 @@ import { attachCollabWebSocket } from './collab.ts'
 import { attachCollabAgents } from './collabAgent.ts'
 import { attachDbWebSocket } from './db/socket.ts'
 import { attachAgentWebSocket, AGENT_WS_PATH } from './agentWs.ts'
+import { disposeAllSessions, reapOrphanAgents } from './agentAcp.ts'
 import { watchDocsTree } from './watcher.ts'
 
 // 프로덕션 서버 — `npm run build` 후 `npm run serve`.
@@ -33,6 +34,15 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (err) => {
   console.error('[mew] uncaughtException (무시하고 계속):', err)
 })
+
+// 에이전트 자식(ACP 어댑터와 그 밑 CLI)은 부모가 죽어도 저 혼자 산다 — 나가는 길에 반드시 접는다.
+// 신호를 잡는 쪽이 여기뿐이므로 처리 후 직접 나가야 한다(기본 동작이 사라진다).
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.once(signal, () => {
+    disposeAllSessions()
+    process.exit(0)
+  })
+}
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.resolve(here, '../dist')
@@ -89,6 +99,9 @@ attachDbWebSocket(server, { authorize: authorizeCollab })
 // 에이전트는 셸을 쓸 수 있다 — 게이트가 tmux와 같은 집합(owner/manager)이어야 한다
 attachAgentWebSocket(server, { authorize: authorizeTmux })
 destroyUnknownUpgrades(server, ['/api/tmux/ws', '/api/presence', '/api/collab', '/api/db/ws', AGENT_WS_PATH])
+
+// 지난 실행이 SIGKILL로 끊겼다면 그때 남은 에이전트 자식이 아직 램을 물고 있다
+reapOrphanAgents()
 
 // AI가 터미널에서 직접 고친 파일을 열려 있는 협업 방에 'agent' 협업자로 실시간 주입한다
 attachCollabAgents()

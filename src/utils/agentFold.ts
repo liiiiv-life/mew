@@ -68,7 +68,9 @@ export type InnerItem =
 
 export type Item =
   | { key: string; kind: 'user'; text: string }
-  | { key: string; kind: 'turn'; children: InnerItem[]; done: boolean }
+  // stopReason — 턴이 어떻게 끝났나('end_turn'·'cancelled'·'error' 등, ACP 값 그대로).
+  // 되받은 히스토리에는 turn_end가 없어 null로 남는다
+  | { key: string; kind: 'turn'; children: InnerItem[]; done: boolean; stopReason: string | null }
   | { key: string; kind: 'error'; text: string }
 
 /** 이벤트 목록을 화면에 그릴 항목으로 접는다 — 질문·턴(답변+작업 묶음)·에러의 세 종류로 나뉜다 */
@@ -77,7 +79,7 @@ export function foldEvents(events: AgentEvent[]): Item[] {
   // toolCallId -> 위치 — turn 안의 children 배열 기준
   const toolIndex = new Map<string, { turn: number; child: number; entry: number }>()
 
-  type TurnItem = { key: string; kind: 'turn'; children: InnerItem[]; done: boolean }
+  type TurnItem = { key: string; kind: 'turn'; children: InnerItem[]; done: boolean; stopReason: string | null }
   let turnIdx = -1
 
   const currentTurn = (): TurnItem | null => {
@@ -89,7 +91,7 @@ export function foldEvents(events: AgentEvent[]): Item[] {
   const ensureTurn = (eventIdx: number): TurnItem => {
     const t = currentTurn()
     if (t) return t
-    const turn: TurnItem = { key: `turn${eventIdx}`, kind: 'turn', children: [], done: false }
+    const turn: TurnItem = { key: `turn${eventIdx}`, kind: 'turn', children: [], done: false, stopReason: null }
     turnIdx = items.length
     items.push(turn)
     return turn
@@ -115,7 +117,7 @@ export function foldEvents(events: AgentEvent[]): Item[] {
     }
     if (event.type === 'turn_end') {
       const t = currentTurn()
-      if (t) t.done = true
+      if (t) { t.done = true; t.stopReason = event.stopReason }
       turnIdx = -1
       continue
     }

@@ -6,10 +6,11 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 // 진짜 워크스페이스를 건드리지 않는다 — paths.ts가 import 시점에 MEW_WORKSPACE를 읽으므로 먼저 심고 동적 import
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-ws-'))
 process.env.MEW_WORKSPACE = workspace
-const { AgentSession } = await import('./agentAcp.ts')
+const { AgentSession, disposeSession, reapOrphanAgents, sessionFor } = await import('./agentAcp.ts')
 type AgentEvent = import('./agentAcp.ts').AgentEvent
 
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
@@ -85,6 +86,43 @@ new AgentSideConnection(
   ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
 )
 `
+
+// 어댑터가 세션마다 CLI를 하나씩 밑에 두는 것을 흉내 낸다 — 그 손자까지 죽는지 보려는 스텁
+const treeStubSource = `
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
+import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import { Readable, Writable } from 'node:stream'
+
+const grandchild = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' })
+fs.writeFileSync(process.argv[2], String(grandchild.pid))
+
+class TreeAgent {
+  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} } }
+  async newSession() { return { sessionId: 'stub-tree' } }
+  async authenticate() { return {} }
+  async cancel() {}
+  async prompt() { return { stopReason: 'end_turn' } }
+}
+
+new AgentSideConnection(
+  () => new TreeAgent(),
+  ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
+)
+`
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitGone(pid: number) {
+  for (let i = 0; i < 100 && alive(pid); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+}
 
 function textOf(events: AgentEvent[]): string {
   const chunks: string[] = []
@@ -246,6 +284,67 @@ test('진행 중에 보낸 메시지는 줄을 섰다가 이어서 돈다', asyn
   assert.deepEqual(prompts, ['첫째', '둘째'], '첫 턴이 끝나면 대기 메시지가 이어서 돈다')
 })
 
+test('세션을 접으면 어댑터가 밑에 둔 프로세스까지 같이 죽는다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-'))
+  const stubPath = path.join(dir, 'tree-stub.mjs')
+  const pidFile = path.join(dir, 'grandchild.pid')
+  fs.writeFileSync(stubPath, treeStubSource)
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
+
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath, pidFile] })
+  const grandchild = Number(fs.readFileSync(pidFile, 'utf8'))
+  assert.ok(alive(grandchild), '손자가 떠 있다')
+
+  session.dispose()
+  await waitGone(grandchild)
+  assert.equal(alive(grandchild), false, '어댑터만이 아니라 그 밑까지 정리된다')
+})
+
+test('뜰 때 부모 잃은 에이전트 프로세스를 걷어낸다', async (t) => {
+  // 이 테스트가 만든 것만 잡히도록 표식을 대상 명령으로 심는다
+  const marker = `mew-reap-test-${process.pid}-${Math.random().toString(36).slice(2)}`
+  const previous = process.env.MEW_AGENT_CMD
+  process.env.MEW_AGENT_CMD = marker
+  t.after(() => {
+    if (previous === undefined) delete process.env.MEW_AGENT_CMD
+    else process.env.MEW_AGENT_CMD = previous
+  })
+
+  // 부모가 먼저 죽어 PPID 1로 남는 모양을 만든다 — 서버가 SIGKILL로 끊겼을 때와 같다
+  const pidFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-reap-')), 'pid')
+  const bootstrap = `
+    const { spawn } = require('node:child_process')
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', ${JSON.stringify(marker)}], {
+      detached: true,
+      stdio: 'ignore',
+    })
+    require('node:fs').writeFileSync(process.argv[1], String(child.pid))
+    child.unref()
+  `
+  await new Promise((resolve) => {
+    spawn(process.execPath, ['-e', bootstrap, pidFile], { stdio: 'ignore' }).on('exit', resolve)
+  })
+  const orphan = Number(fs.readFileSync(pidFile, 'utf8'))
+  t.after(() => {
+    try {
+      process.kill(orphan, 'SIGKILL')
+    } catch {
+      /* 이미 죽었다 */
+    }
+  })
+  assert.ok(alive(orphan), '고아가 떠 있다')
+
+  // 같은 표식이라도 부모가 살아 있으면 지금 돌고 있는 다른 mew의 자식이다 — 건드리면 안 된다
+  const attached = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', marker], { stdio: 'ignore' })
+  t.after(() => attached.kill('SIGKILL'))
+
+  reapOrphanAgents()
+  await waitGone(orphan)
+  assert.equal(alive(orphan), false, '지난 실행이 남긴 프로세스를 뜰 때 정리한다')
+  assert.ok(alive(attached.pid!), '부모가 살아 있는 프로세스는 남긴다')
+})
+
 test('중단하면 대기 중인 메시지도 같이 버린다', async (t) => {
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'inside.txt'), 'ok')
@@ -274,4 +373,31 @@ test('중단하면 대기 중인 메시지도 같이 버린다', async (t) => {
   await new Promise((resolve) => setTimeout(resolve, 50))
 
   assert.deepEqual(prompts, ['첫째'], '중단한 뒤에는 대기 메시지가 돌지 않는다')
+})
+
+test('탭마다 세션이 따로 뜬다 — 한 탭을 닫아도 다른 탭은 그대로다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'tab-stub.mjs')
+  fs.writeFileSync(stubPath, stubSource)
+  // sessionFor는 spec을 받지 않는다(등록표에서 뽑는다) — 환경변수로 스텁을 가리킨다
+  const saved = { cmd: process.env.MEW_AGENT_CMD, args: process.env.MEW_AGENT_ARGS }
+  process.env.MEW_AGENT_CMD = process.execPath
+  process.env.MEW_AGENT_ARGS = stubPath
+  t.after(() => {
+    for (const tab of ['tab-a', 'tab-b']) disposeSession(runtime, tab)
+    if (saved.cmd === undefined) delete process.env.MEW_AGENT_CMD
+    else process.env.MEW_AGENT_CMD = saved.cmd
+    if (saved.args === undefined) delete process.env.MEW_AGENT_ARGS
+    else process.env.MEW_AGENT_ARGS = saved.args
+    fs.rmSync(workspace, { recursive: true, force: true })
+  })
+
+  const a = await sessionFor(runtime, 'tab-a')
+  const b = await sessionFor(runtime, 'tab-b')
+  assert.notEqual(a, b, '탭이 다르면 대화도 자식 프로세스도 다르다')
+  assert.equal(await sessionFor(runtime, 'tab-a'), a, '같은 탭으로 다시 붙으면 하던 대화가 이어진다')
+
+  disposeSession(runtime, 'tab-a')
+  assert.equal(await sessionFor(runtime, 'tab-b'), b, '탭 하나를 닫아도 옆 탭 세션은 살아 있다')
+  assert.notEqual(await sessionFor(runtime, 'tab-a'), a, '닫은 탭은 다음에 붙을 때 새로 뜬다')
 })
