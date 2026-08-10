@@ -41,6 +41,7 @@ import { useSwipeGesture } from '@mew/mobile-keys'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
 import { mediaKind } from './utils/media'
+import { setContentIdentity } from './utils/contentCache'
 import { openTabsKey, useTabs } from './hooks/useTabs'
 import { applyLayout, bySlot, reorderedLayout } from './utils/projectLayout'
 import { dropZoneAt, paneIds, type DropSide, type DropZone, type PaneNode } from './utils/paneTree'
@@ -1055,22 +1056,30 @@ function App() {
   const [auth, setAuth] = useState<AuthStatus | null>(null)
   const [loginOpen, setLoginOpen] = useState(false)
 
-  useEffect(() => {
-    fetchAuthStatus()
-      .then(setAuth)
-      .catch((err) => {
-        console.error(err)
-        setAuth(GUEST_AUTH)
-      })
+  // 본문 캐시 칸을 신원과 함께 옮긴다 — setState보다 **먼저** 불러야 한다. EditorApp의 탭 복원은
+  // 자식 이펙트라 App의 이펙트보다 먼저 도는데, 그 시점에 칸이 안 바뀌어 있으면 캐시를 못 읽는다
+  // (그리고 로그아웃 뒤 남의 본문을 읽어 버린다).
+  const applyAuth = useCallback((status: AuthStatus) => {
+    setContentIdentity(status.email)
+    setAuth(status)
   }, [])
 
   useEffect(() => {
+    fetchAuthStatus()
+      .then(applyAuth)
+      .catch((err) => {
+        console.error(err)
+        applyAuth(GUEST_AUTH)
+      })
+  }, [applyAuth])
+
+  useEffect(() => {
     function onExpired() {
-      setAuth(GUEST_AUTH)
+      applyAuth(GUEST_AUTH)
     }
     window.addEventListener('mew:auth-expired', onExpired)
     return () => window.removeEventListener('mew:auth-expired', onExpired)
-  }, [])
+  }, [applyAuth])
 
   if (!auth) {
     return <div className="bg-surface" style={{ height: '100dvh' }} />
@@ -1081,14 +1090,14 @@ function App() {
       <EditorApp
         key={auth.email ?? 'guest'}
         auth={auth}
-        onLoggedOut={() => setAuth(GUEST_AUTH)}
+        onLoggedOut={() => applyAuth(GUEST_AUTH)}
         onRequestLogin={() => setLoginOpen(true)}
       />
       {loginOpen && (
         <LoginPage
           onClose={() => setLoginOpen(false)}
           onSuccess={(status) => {
-            setAuth(status)
+            applyAuth(status)
             setLoginOpen(false)
           }}
         />

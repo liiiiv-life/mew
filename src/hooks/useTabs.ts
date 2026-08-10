@@ -219,9 +219,20 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       fetchFile(path, p)
         .then(({ content, editable }) => {
           putCachedFile(p, path, { content, editable })
-          mapTabs(p, (t) =>
-            t.path === path ? { ...t, content, savedContent: content, committedContent: content, status: 'idle', editable } : t,
-          )
+          mapTabs(p, (t) => {
+            if (t.path !== path) return t
+            // 캐시 본문으로 이미 그려 둔 사이에 손을 댔으면(타이핑·협업 방 내용) 그 버퍼를 덮지 않는다.
+            // 서버 본문은 savedContent로만 들어가므로, 다르면 dirty가 되어 자동저장이 내 것을 올린다.
+            const edited = cached !== undefined && t.content !== cached.content
+            return {
+              ...t,
+              content: edited ? t.content : content,
+              savedContent: content,
+              committedContent: content,
+              status: 'idle',
+              editable,
+            }
+          })
         })
         // 열 수 없는 파일(게스트 권한 밖 등)은 빈 탭만 남아 "아무 일도 안 일어난" 것처럼 보인다 — 이유를 띄운다
         .catch((err) => {
