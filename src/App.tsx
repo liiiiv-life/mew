@@ -20,6 +20,7 @@ import { ProjectTabs } from './components/ProjectTabs'
 import { DocsTab } from './components/DocsTab'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { HomeTab } from './components/HomeTab'
+import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
 import { HomePanel } from './components/home/HomePanel'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { LoginPage } from './components/LoginPage'
@@ -655,6 +656,131 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     )
   }
 
+  // 헤더 오른쪽 도구 목록 — 권한별로 보이는 것이 다르다. 그리는 건 HeaderMenu(햄버거) 하나뿐이다
+  const headerMenuItems: HeaderMenuItem[] = [
+    ...(!isGuest || canEditActiveTab
+      ? [
+          {
+            id: 'fullscreen',
+            label: '전체화면',
+            hint: 'Alt+Enter',
+            onSelect: toggleFullscreen,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+                <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+                <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+              </svg>
+            ),
+          },
+          {
+            id: 'commit',
+            label: 'Commit',
+            hint: 'Ctrl+S',
+            onSelect: () => saveCurrentTab(true),
+            disabled: !activeTab || !canEditActiveTab || activeTab.content === activeTab.committedContent,
+            // git commit — 커밋 하나가 이력선 위에 찍힌 모양
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <line x1="1.5" y1="12" x2="8" y2="12" />
+                <line x1="16" y1="12" x2="22.5" y2="12" />
+              </svg>
+            ),
+          },
+        ]
+      : []),
+    ...(canUseTerminal
+      ? [
+          {
+            id: 'schedule',
+            label: '예약 작업',
+            onSelect: () => setScheduleOpen(true),
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+            ),
+          },
+          {
+            id: 'agent',
+            label: '에이전트',
+            onSelect: () => setAgentOpen((open) => !open),
+            active: agentOpen,
+            // 말풍선 — 채팅 창이지 터미널이 아니다
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
+              </svg>
+            ),
+          },
+        ]
+      : []),
+    ...(isGuest
+      ? []
+      : [
+          {
+            id: 'database',
+            label: '데이터베이스',
+            onSelect: () => setDbListOpen(true),
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <ellipse cx="12" cy="5" rx="8" ry="3" />
+                <path d="M20 5v6c0 1.66-3.58 3-8 3s-8-1.34-8-3V5" />
+                <path d="M20 11v6c0 1.66-3.58 3-8 3s-8-1.34-8-3v-6" />
+              </svg>
+            ),
+          },
+        ]),
+    ...(isOwner
+      ? [
+          {
+            id: 'admin',
+            label: '계정 관리',
+            onSelect: () => setAdminOpen(true),
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            ),
+          },
+        ]
+      : []),
+    {
+      id: 'settings',
+      // 로그인해 있으면 이 항목이 곧 계정 자리다 — 누구 계정인지 이름을 붙여 준다
+      label: isGuest ? '설정' : (authEmail ?? '설정'),
+      onSelect: () => setSettingsOpen(true),
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      ),
+    },
+    ...(isGuest
+      ? [
+          {
+            id: 'login',
+            label: '로그인',
+            onSelect: onRequestLogin,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                <path d="M10 17l5-5-5-5" />
+                <path d="M15 12H3" />
+              </svg>
+            ),
+          },
+        ]
+      : []),
+  ]
+
   return (
     <div className="flex flex-col bg-surface text-ink" style={{ height: 'var(--app-height, 100dvh)' }}>
       {/* 화면 전폭을 쓰는 줄은 이 헤더 하나뿐이다 — 프로젝트 탭 + 도구 버튼. 문서 탭 줄은 각
@@ -688,134 +814,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             onReorder={reorderProjectTabs}
             onReorderEnd={commitProjectOrder}
           />
+          {/* 도구는 전부 햄버거 하나로 접는다 — 아이콘을 늘어놓으면 좁은 화면에서 프로젝트 탭이 밀린다.
+              버튼이 아닌 것(게스트 표시·저장 실패 문구)만 헤더에 남는다 */}
           <div className="flex shrink-0 items-center gap-1.5 pl-2 text-sm">
             {isGuest && <span className="rounded bg-surface-raised px-2 py-0.5 text-xs text-ink-secondary">게스트</span>}
-            {(!isGuest || canEditActiveTab) && (
-              <>
-                <button
-                  type="button"
-                  onClick={toggleFullscreen}
-                  className="rounded border border-edge-strong p-1.5 hover:bg-surface-raised"
-                  title="전체화면 (Alt+Enter)"
-                  aria-label="전체화면 토글"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M8 3H5a2 2 0 0 0-2 2v3" />
-                    <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
-                    <path d="M3 16v3a2 2 0 0 0 2 2h3" />
-                    <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => saveCurrentTab(true)}
-                  disabled={!activeTab || !canEditActiveTab || activeTab.content === activeTab.committedContent}
-                  className="rounded bg-accent p-1.5 text-ink-on-accent disabled:opacity-40"
-                  title="Commit (Ctrl+S)"
-                  aria-label="Commit"
-                >
-                  {/* git commit — 커밋 하나가 이력선 위에 찍힌 모양 */}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="4" />
-                    <line x1="1.5" y1="12" x2="8" y2="12" />
-                    <line x1="16" y1="12" x2="22.5" y2="12" />
-                  </svg>
-                </button>
-                {activeTab?.status === 'error' && (
-                  <span className="hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
-                )}
-              </>
+            {activeTab?.status === 'error' && (
+              <span className="hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
             )}
-            {canUseTerminal && (
-              <button
-                type="button"
-                onClick={() => setScheduleOpen(true)}
-                className="rounded border border-edge-strong p-1.5 hover:bg-surface-raised"
-                title="예약 작업"
-                aria-label="예약 작업"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 7v5l3 2" />
-                </svg>
-              </button>
-            )}
-            {canUseTerminal && (
-              <button
-                type="button"
-                onClick={() => setAgentOpen((open) => !open)}
-                className={`rounded border border-edge-strong p-1.5 hover:bg-surface-raised ${agentOpen ? 'bg-surface-raised text-ink' : ''}`}
-                title="에이전트"
-                aria-label="에이전트"
-              >
-                {/* 말풍선 — 채팅 창이지 터미널이 아니다 */}
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
-                </svg>
-              </button>
-            )}
-            {isOwner && (
-              <button
-                type="button"
-                onClick={() => setAdminOpen(true)}
-                className="rounded border border-edge-strong p-1.5 hover:bg-surface-raised"
-                title="계정 관리"
-                aria-label="계정 관리"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-              </button>
-            )}
-            {!isGuest && (
-              <button
-                type="button"
-                onClick={() => setDbListOpen(true)}
-                className="rounded border border-edge-strong p-1.5 hover:bg-surface-raised"
-                title="데이터베이스"
-                aria-label="데이터베이스"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <ellipse cx="12" cy="5" rx="8" ry="3" />
-                  <path d="M20 5v6c0 1.66-3.58 3-8 3s-8-1.34-8-3V5" />
-                  <path d="M20 11v6c0 1.66-3.58 3-8 3s-8-1.34-8-3v-6" />
-                </svg>
-              </button>
-            )}
-            {isGuest ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setSettingsOpen(true)}
-                  className="rounded border border-edge-strong p-1.5 hover:bg-surface-raised"
-                  title="설정"
-                  aria-label="설정"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={onRequestLogin}
-                  className="rounded border border-edge-strong px-3 py-1 text-sm font-medium text-ink hover:bg-surface-raised"
-                >
-                  로그인
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-edge-strong bg-surface-raised text-xs font-semibold uppercase text-ink-secondary hover:bg-surface-hover hover:text-ink"
-                title={`${authEmail} — 설정`}
-                aria-label="설정"
-              >
-                {authEmail?.[0]}
-              </button>
-            )}
+            <HeaderMenu items={headerMenuItems} />
           </div>
         </header>
       </div>
