@@ -488,10 +488,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         setSidebarView('search')
         setProjectSearchFocus((s) => s + 1)
       } else if (matchesShortcut(e, getBinding('editorFind'))) {
-        // 에디터에 포커스가 있으면 에디터 자체 핸들러가 먼저 가로채(stopPropagation) 여기 안 온다.
-        // 그 외(사이드바 등)에서 눌렀을 때 활성 문서가 tiptap 에디터면 찾기 바를 연다.
+        // 에디터에 포커스가 있으면 에디터가 먼저 처리한다 — tiptap은 stopPropagation(여기 안 옴),
+        // CodeMirror의 searchKeymap은 preventDefault. 그 외(사이드바 등)에서 눌렀을 때 활성 문서의
+        // 편집기로 찾기 바를 연다. md든 코드든 csv든 텍스트 편집기가 붙는 파일이면 전부 대상이다 —
+        // 편집기가 없는 미디어 뷰어와 svg 이미지 미리보기만 빠진다.
+        if (e.defaultPrevented) return
         if (e.target instanceof HTMLElement && e.target.closest('.xterm')) return
-        if (activeTab && !mediaKind(activeTab.path) && activeTab.viewMode === 'hotview' && !activeTab.path.endsWith('.svg')) {
+        const svgPreview = activeTab?.viewMode === 'hotview' && activeTab.path.endsWith('.svg')
+        if (activeTab && !mediaKind(activeTab.path) && !svgPreview) {
           e.preventDefault()
           focusedEditor()?.openSearch()
         }

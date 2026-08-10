@@ -202,7 +202,8 @@ export function EditorPane({
       // 검색 결과 점프는 칸 밖(사이드바) 클릭에서 와서 pin 해제 입력이 없다 — 직접 풀고 점프한다
       openSearch: (query) => {
         disarmRestoreRef.current()
-        editorRef.current?.openSearch(query)
+        if (activeTabRef.current?.viewMode === 'plain') codePaneRef.current?.openSearch(query)
+        else editorRef.current?.openSearch(query)
       },
       revealLine: (line) => {
         disarmRestoreRef.current()

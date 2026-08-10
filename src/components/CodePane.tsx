@@ -9,6 +9,7 @@ import {
   lineNumbers,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { SearchQuery, openSearchPanel, setSearchQuery } from '@codemirror/search'
 import { HighlightStyle, StreamLanguage, bracketMatching, syntaxHighlighting } from '@codemirror/language'
 import { linter, lintGutter } from '@codemirror/lint'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
@@ -31,6 +32,7 @@ import { toml } from '@codemirror/legacy-modes/mode/toml'
 import { properties } from '@codemirror/legacy-modes/mode/properties'
 import { sCSS } from '@codemirror/legacy-modes/mode/css'
 import { lintFile } from '../api/client'
+import { codeSearchExtensions } from '../utils/codeSearch'
 
 // value prop 동기화로 들어온 트랜잭션 표시 — 이걸 다시 onChange로 올리면 열기만 한
 // 미리보기 탭이 "편집됨"으로 승격되고 무의미한 자동저장이 잡힌다
@@ -184,6 +186,34 @@ const theme = EditorView.theme({
     color: 'var(--color-ink)',
     border: '1px solid var(--color-edge-strong)',
   },
+  // 찾기·줄이동 패널 — 기본 테마가 밝은 회색으로 못박아 둬서 다크에서 튄다. 색을 전부 토큰으로 바꾼다
+  '.cm-panels': { backgroundColor: 'var(--color-surface-raised)', color: 'var(--color-ink)' },
+  '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--color-edge-strong)' },
+  '.cm-panels.cm-panels-bottom': { borderTop: '1px solid var(--color-edge-strong)' },
+  '.cm-panel.cm-search': { padding: '6px 28px 6px 8px', fontSize: '12px' },
+  '.cm-panel.cm-search label': { fontSize: '11px', color: 'var(--color-ink-secondary)' },
+  '.cm-panel.cm-search [name=close]': { color: 'var(--color-ink-muted)', fontSize: '16px', padding: '0 4px' },
+  '.cm-textfield': {
+    backgroundColor: 'var(--color-surface-deep)',
+    color: 'var(--color-ink)',
+    border: '1px solid var(--color-edge-strong)',
+    borderRadius: '4px',
+    padding: '2px 6px',
+  },
+  '.cm-textfield:focus': { outline: 'none', borderColor: 'var(--color-accent)' },
+  '.cm-button': {
+    backgroundColor: 'var(--color-surface-deep)',
+    backgroundImage: 'none',
+    color: 'var(--color-ink-secondary)',
+    border: '1px solid var(--color-edge-strong)',
+    borderRadius: '4px',
+    padding: '2px 8px',
+  },
+  '.cm-button:hover': { backgroundColor: 'var(--color-surface-hover)' },
+  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--color-accent) 25%, transparent)' },
+  '.cm-searchMatch.cm-searchMatch-selected': {
+    backgroundColor: 'color-mix(in srgb, var(--color-accent) 55%, transparent)',
+  },
   // yCollab 원격 캐럿 — 기본 테마는 이름표(.cm-ySelectionInfo)를 hover에만 보여준다. Tiptap 쪽
   // 말풍선 오버레이(editor.css의 .collaboration-carets__label)와 동일하게 항상 떠 있는 반투명
   // 말풍선으로 바꾼다. absolute 포지션이라 원래도 줄 높이엔 영향 없음 — 여기서는 표시 방식만 조정.
@@ -205,6 +235,8 @@ export interface CodePaneHandle {
   revealLine: (line: number) => void
   /** 현재 선택된 텍스트 — 선택이 없으면 null (터미널/에이전트로 선택 텍스트를 보내는 단축키용) */
   getSelectedText: () => string | null
+  /** 찾기 패널을 연다 — 에디터 밖(사이드바 등)에서 Ctrl+F를 눌렀을 때. 안에서 눌렀으면 searchKeymap이 처리한다 */
+  openSearch: (query?: string) => void
 }
 
 /**
@@ -246,6 +278,7 @@ export const CodePane = forwardRef<
         ...(collab
           ? [keymap.of([...defaultKeymap, ...yUndoManagerKeymap, indentWithTab]), yCollab(collab.ydoc.getText(COLLAB_TEXT_KEY), collab.awareness)]
           : [history(), keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab])]),
+        codeSearchExtensions, // Ctrl+F 문서 내 찾기·바꾸기
         syntaxHighlighting(highlight),
         theme,
         ...languageFor(path),
@@ -320,6 +353,13 @@ export const CodePane = forwardRef<
         if (sel.empty) return null
         return view.state.sliceDoc(sel.from, sel.to)
       },
+      openSearch(query?: string) {
+        const view = viewRef.current
+        if (!view) return
+        // 검색어를 먼저 넣어야 한다 — openSearchPanel은 선택 텍스트가 없으면 지금 검색어를 그대로 쓴다
+        if (query) view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: query })) })
+        openSearchPanel(view)
+      },
       revealLine(line: number) {
         const view = viewRef.current
         if (!view) return
@@ -335,5 +375,15 @@ export const CodePane = forwardRef<
     [],
   )
 
-  return <div ref={containerRef} className="h-full w-full overflow-hidden bg-surface-deep" />
+  // 찾기 패널이 Esc를 먹었으면 거기서 끊는다 — 흘려보내면 같은 Esc로 사이드바·터미널까지 닫힌다
+  // (useOverlayDismiss는 window bubble 단계에서 듣는다)
+  return (
+    <div
+      ref={containerRef}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && e.defaultPrevented) e.stopPropagation()
+      }}
+      className="h-full w-full overflow-hidden bg-surface-deep"
+    />
+  )
 })
