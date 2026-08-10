@@ -221,10 +221,12 @@ export const Editor = forwardRef<
     path?: string
     tree?: TreeNode[]
     onOpenLink?: (path: string) => void
+    /** 선택 글자 수를 호스트 상태줄에 넘긴다 — 상태줄은 파일 종류를 가리지 않으므로 에디터 밖(EditorPane)에 있다 */
+    onSelectionChars?: (count: number) => void
     /** 있으면 이 방의 Y.XmlFragment가 본문의 진실 원천이 된다 — value/onChange는 그 결과를 반영만 한다 */
     collab?: EditorCollab | null
   }
->(function Editor({ value, onChange, api, readOnly, path = '', tree = [], onOpenLink, collab }, ref) {
+>(function Editor({ value, onChange, api, readOnly, path = '', tree = [], onOpenLink, onSelectionChars, collab }, ref) {
   const { frontmatter, body } = useMemo(() => splitFrontmatter(value), [value])
   function handleFrontmatterChange(next: FrontmatterData) {
     onChange(joinFrontmatter(next, body))
@@ -287,9 +289,6 @@ export const Editor = forwardRef<
   // Ctrl+F 찾기 바 — seed는 열 때 미리 채울 검색어, nonce는 이미 열려 있어도 새 seed로 다시 실행시키는 신호
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchSeed, setSearchSeed] = useState<{ q?: string; n: number }>({ n: 0 })
-  // 하단 상태줄에 띄우는 선택 글자 수. 커서만 움직일 때는 계속 0이라 setState가 bail out되므로
-  // 선택이 없는 동안에는 재렌더가 생기지 않는다.
-  const [selectedChars, setSelectedChars] = useState(0)
   const mobileLayout = useMobileLayout()
 
   // 외부(프로젝트 검색 등)에서도 찾기 바를 열 수 있게 하는 헬퍼 — imperative handle과 아래 keydown이 공유
@@ -299,10 +298,13 @@ export const Editor = forwardRef<
   }, [])
 
   // 블록 경계는 공백 한 칸으로 세어 여러 문단을 걸쳐 잡아도 대략 눈에 보이는 글자 수와 맞춘다.
-  // 이미지처럼 텍스트가 없는 NodeSelection이면 0이 되어 상태줄이 뜨지 않는다.
+  // 이미지처럼 텍스트가 없는 NodeSelection이면 0이 되어 상태줄에 글자 수가 안 뜬다.
+  // 호출부(onSelectionUpdate 등)는 에디터 생성 시점 클로저라 콜백은 ref로 최신 것을 읽는다.
+  const selectionCharsRef = useRef(onSelectionChars)
+  selectionCharsRef.current = onSelectionChars
   const updateSelectedChars = useCallback((ed: any) => {
     const { from, to, empty } = ed.state.selection
-    setSelectedChars(empty ? 0 : ed.state.doc.textBetween(from, to, ' ').length)
+    selectionCharsRef.current?.(empty ? 0 : ed.state.doc.textBetween(from, to, ' ').length)
   }, [])
 
   // editorProps 핸들러(handleKeyDown·handlePaste 등)는 에디터 생성 시점의 클로저에 얼어붙는다 —
@@ -1613,14 +1615,9 @@ export const Editor = forwardRef<
           onClose={() => setDbPicker(null)}
         />
       )}
-      {/* 하단 바 묶음 — 상태줄과 보조키 바는 둘 다 스크롤 컨테이너 바닥에 붙어야 하므로 한 sticky 안에
-          쌓는다. 각자 sticky bottom-0을 달면 서로 겹친다. */}
+      {/* 보조키 바는 스크롤 컨테이너 바닥에 붙는다. 상태줄은 파일 종류를 가리지 않아야 해서
+          이 컴포넌트 밖(EditorPane)으로 나갔다 — 여기 남기면 md 문서에만 뜬다. */}
       <div className="sticky bottom-0 z-30 shrink-0">
-        {selectedChars > 0 && (
-          <div className="border-t border-edge bg-surface-deep px-2 py-0.5 text-right text-[10px] leading-none text-ink-muted">
-            {selectedChars}자 선택
-          </div>
-        )}
         {/* 키보드가 떠 있는지는 보지 않는다 — 키보드를 내린 채 방향키·Esc만 쓰는 경우가 더 많다.
             다만 에디터에 포커스가 없으면 보조키가 갈 곳이 없으므로 그때는 숨긴다. */}
         {mobileLayout && editorFocused && (

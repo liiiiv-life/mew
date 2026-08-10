@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
-import { editorApi, isArchivedPath, type Role, type TreeNode } from '../api/client'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { editorApi, isArchivedPath, rawUrl, type Role, type TreeNode } from '../api/client'
 import { Editor, type EditorHandle } from '@mew/editor'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { CodePane, type CodePaneHandle } from './CodePane'
@@ -12,6 +12,13 @@ import { saveScroll, getScroll } from '../utils/scrollMemory'
 import { useCollab } from '../hooks/useCollab'
 import type { Pane, Tab } from '../hooks/useTabs'
 import type { DropZone } from '../utils/paneTree'
+
+/** 상태줄용 바이트 표기 — 1KB 미만은 바이트 그대로, 그 위는 소수 한 자리 */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 /** 칸 바깥(App)에서 지금 포커스된 칸의 에디터를 건드릴 때 쓰는 손잡이 */
 export interface PaneHandle {
@@ -190,6 +197,34 @@ export function EditorPane({
 
   const collab = useCollab(project, primaryCollabPath(activeTab, role), authEmail)
 
+  // 하단 상태줄 — 파일 종류를 가리지 않아야 하므로 뷰어(Editor)가 아니라 칸이 그린다.
+  const [selChars, setSelChars] = useState(0)
+  const activePath = activeTab?.path ?? null
+  useEffect(() => setSelChars(0), [activePath]) // 탭을 바꾸면 앞 문서의 선택 수가 남는다
+  // 미디어(바이너리)는 본문을 받아오지 않는다 — 크기는 /raw HEAD의 Content-Length로 묻는다
+  const mediaPath = activeTab && mediaKind(activeTab.path) ? activeTab.path : null
+  const [mediaBytes, setMediaBytes] = useState<number | null>(null)
+  useEffect(() => {
+    setMediaBytes(null)
+    if (!mediaPath) return
+    let alive = true
+    fetch(rawUrl(mediaPath), { method: 'HEAD' })
+      .then((res) => {
+        const len = Number(res.headers.get('content-length'))
+        if (alive && Number.isFinite(len)) setMediaBytes(len)
+      })
+      .catch(() => {}) // 크기를 못 구하면 상태줄에서 빼는 것으로 충분하다
+    return () => {
+      alive = false
+    }
+  }, [mediaPath])
+  // 저장된 파일이 아니라 지금 화면의 본문 기준이라 타이핑하는 대로 움직인다
+  const textBytes = useMemo(
+    () => (activeTab && !mediaPath ? new TextEncoder().encode(activeTab.content).length : null),
+    [activeTab?.content, mediaPath],
+  )
+  const fileBytes = mediaPath ? mediaBytes : textBytes
+
   // 손잡이는 항상 같은 객체다 — 안에서 ref로 지금 값을 읽으므로 탭이 바뀌어도 다시 등록할 일이 없다
   const handle = useMemo<PaneHandle>(
     () => ({
@@ -332,7 +367,7 @@ export function EditorPane({
                 archives/ 문서는 불변입니다 — 편집이 차단되었습니다
               </div>
             )}
-            <div className="relative min-w-0 flex-1" {...swipe}>
+            <div className="relative flex min-w-0 flex-1 flex-col" {...swipe}>
               {showSidebarButton && (
                 <div className="absolute left-3 top-3 z-20">
                   <SidebarOpenButton onClick={onOpenSidebar} />
@@ -429,33 +464,45 @@ export function EditorPane({
                   </div>
                 )}
               </div>
-              {mediaKind(activeTab.path) ? (
-                // key로 파일 전환 시 리마운트 — 이전 파일의 재생 상태가 남지 않게
-                <MediaViewer key={activeTab.path} path={activeTab.path} kind={mediaKind(activeTab.path)!} />
-              ) : isSvg && activeTab.viewMode === 'hotview' ? (
-                <SvgPreview content={activeTab.content} />
-              ) : activeTab.viewMode === 'plain' ? (
-                <CodePane
-                  ref={codePaneRef}
-                  path={activeTab.path}
-                  value={activeTab.content}
-                  onChange={(content) => onChangeContent(activeTab.path, content)}
-                  readOnly={!activeTab.editable || isArchivedPath(activeTab.path)}
-                  collab={collab}
-                />
-              ) : (
-                <Editor
-                  ref={editorRef}
-                  value={activeTab.content}
-                  api={editorApi}
-                  onChange={(content) => onChangeContent(activeTab.path, content)}
-                  readOnly={!activeTab.editable || isArchivedPath(activeTab.path)}
-                  path={activeTab.path}
-                  tree={tree}
-                  onOpenLink={onOpenLink}
-                  collab={collab}
-                />
-              )}
+              {/* 뷰어는 남는 높이를 전부 차지한다 — 그래야 아래 상태줄이 짧은 문서에서도 칸 맨 밑에 선다.
+                  min-h-0이 없으면 내용이 긴 문서에서 뷰어가 칸 밖으로 자라 상태줄을 밀어낸다. */}
+              <div className="relative min-h-0 flex-1">
+                {mediaKind(activeTab.path) ? (
+                  // key로 파일 전환 시 리마운트 — 이전 파일의 재생 상태가 남지 않게
+                  <MediaViewer key={activeTab.path} path={activeTab.path} kind={mediaKind(activeTab.path)!} />
+                ) : isSvg && activeTab.viewMode === 'hotview' ? (
+                  <SvgPreview content={activeTab.content} />
+                ) : activeTab.viewMode === 'plain' ? (
+                  <CodePane
+                    ref={codePaneRef}
+                    path={activeTab.path}
+                    value={activeTab.content}
+                    onChange={(content) => onChangeContent(activeTab.path, content)}
+                    readOnly={!activeTab.editable || isArchivedPath(activeTab.path)}
+                    collab={collab}
+                  />
+                ) : (
+                  <Editor
+                    ref={editorRef}
+                    value={activeTab.content}
+                    api={editorApi}
+                    onChange={(content) => onChangeContent(activeTab.path, content)}
+                    readOnly={!activeTab.editable || isArchivedPath(activeTab.path)}
+                    path={activeTab.path}
+                    tree={tree}
+                    onOpenLink={onOpenLink}
+                    onSelectionChars={setSelChars}
+                    collab={collab}
+                  />
+                )}
+              </div>
+              {/* 상태줄은 늘 떠 있다 — 가운데는 파일 크기, 오른쪽은 선택했을 때만 글자 수.
+                  양옆 칸을 같은 flex-1로 둬야 가운데가 바 한가운데에 선다. */}
+              <div className="flex shrink-0 items-center border-t border-edge bg-surface-deep px-2 py-0.5 text-[10px] leading-none text-ink-muted">
+                <span className="flex-1" />
+                <span>{fileBytes === null ? '' : formatBytes(fileBytes)}</span>
+                <span className="flex-1 text-right">{selChars > 0 && `${selChars}자 선택`}</span>
+              </div>
             </div>
             {tocOpen && isMd && (
               <TableOfContents
