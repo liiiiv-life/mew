@@ -61,6 +61,9 @@ const TOC_KEY = 'mew:toc-open'
 const TMUX_OPEN_KEY = 'mew:tmux-open'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
+/** 홈 탭의 스코프 — 워크스페이스 폴더 자신을 프로젝트처럼 본다(server/paths.ts의 WORKSPACE_PROJECT).
+ *  사이드바는 여기서 워크스페이스 루트를 그린다(프로젝트 폴더·.mew는 서버가 걷어낸다). */
+const WORKSPACE_PROJECT = '.workspace'
 
 function loadTheme(): Theme {
   return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
@@ -416,8 +419,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 기억해 둔 프로젝트가 목록에 없을 수 있다 — 폴더가 사라졌거나, 로그아웃해서 권한을 잃었거나.
   // 그럴 땐 열 수 있는 첫 프로젝트로 물러난다(안 그러면 없는 폴더를 가리킨 채 굳는다).
   useEffect(() => {
-    // docs는 프로젝트 목록에 없는 특별 레포다 — 목록에 없다고 밀어내면 안 된다
-    if (project === DEFAULT_PROJECT) return
+    // docs·홈은 프로젝트 목록에 없는 특별 스코프다 — 목록에 없다고 밀어내면 안 된다
+    if (project === DEFAULT_PROJECT || project === WORKSPACE_PROJECT) return
     if (!projectsLoaded || projectTabs.length === 0) return
     if (projectTabs.some((p) => p.name === project)) return
     switchProject(projectTabs[0].name)
@@ -790,9 +793,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           {/* 홈은 프로젝트도 레포도 아니다 — 워크스페이스 전체를 보는 화면이라 맨 앞에 선다 */}
           {!isGuest && (
             <HomeTab
-              active={homeOpen}
+              // 홈 화면을 닫고 워크스페이스 루트의 파일을 열어 둔 동안에도 홈은 활성이다 — 스코프가 홈이다
+              active={project === WORKSPACE_PROJECT}
               canSwitchWorkspace={isOwner}
-              onActivate={() => setHomeOpen(true)}
+              onActivate={() => {
+                // 사이드바까지 워크스페이스 루트로 옮긴다 — switchProject가 homeOpen을 끄므로 뒤에 켠다
+                switchProject(WORKSPACE_PROJECT)
+                setHomeOpen(true)
+              }}
               onOpenSwitcher={() => setWorkspaceSwitcherOpen(true)}
             />
           )}
@@ -898,6 +906,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     presence={tabPresence}
                     onSelect={(path, opts) => {
                       openFile(path, opts)
+                      // 홈 화면이 편집 칸을 덮고 있으면 방금 연 파일이 안 보인다 — 비켜 준다
+                      setHomeOpen(false)
                       if (!isDesktop()) setSidebarOpen(false)
                     }}
                     onFileCreated={(relPath) => {

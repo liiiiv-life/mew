@@ -15,7 +15,8 @@ export let WORKSPACE_ROOT = process.env.MEW_WORKSPACE
   ? path.resolve(process.env.MEW_WORKSPACE)
   : path.resolve(here, '../..')
 /** 워크스페이스 하나에 딸린 mew 전용 폴더 — docs 레포가 여기 산다 */
-export let MEW_DIR = path.join(WORKSPACE_ROOT, '.mew')
+export const MEW_DIR_NAME = '.mew'
+export let MEW_DIR = path.join(WORKSPACE_ROOT, MEW_DIR_NAME)
 
 /** docs는 **프로젝트가 아니라** 워크스페이스에 하나뿐인 특별 레포다. 프로젝트 목록에 서지 않고
  *  (점으로 시작하는 `.mew` 아래라 PROJECT_NAME_RE에 애초에 걸리지 않는다) 만들거나 지울 수 없다.
@@ -24,11 +25,17 @@ export let MEW_DIR = path.join(WORKSPACE_ROOT, '.mew')
 export const DEFAULT_PROJECT = 'docs'
 export let DOCS_ROOT = path.join(MEW_DIR, DEFAULT_PROJECT)
 
+/** 홈 탭이 보는 가짜 프로젝트 — 루트가 **워크스페이스 폴더 자신**이다. docs와 같은 요령으로
+ *  이름만 특별 취급하고 경로를 꺾어, 트리·문서·검색이 프로젝트 스코프 그대로 돈다.
+ *  점으로 시작해 실제 프로젝트 이름과 겹칠 수 없고(isValidProjectName) 프로젝트 목록에도 서지 않는다.
+ *  트리에서는 프로젝트 폴더와 `.mew`를 걷어낸다(tree.ts) — 그 자리는 위쪽 탭 줄이 맡는다. */
+export const WORKSPACE_PROJECT = '.workspace'
+
 /** 워크스페이스를 갈아끼운다 — 파생 경로(MEW_DIR·DOCS_ROOT)도 같이 다시 계산한다.
  *  실제 전환 절차(검증·설정 저장·감시자/협업 방 정리)는 workspace.ts가 맡는다. */
 export function setWorkspaceRoot(absolutePath: string): void {
   WORKSPACE_ROOT = path.resolve(absolutePath)
-  MEW_DIR = path.join(WORKSPACE_ROOT, '.mew')
+  MEW_DIR = path.join(WORKSPACE_ROOT, MEW_DIR_NAME)
   DOCS_ROOT = path.join(MEW_DIR, DEFAULT_PROJECT)
 }
 
@@ -83,6 +90,7 @@ export function listProjects(): string[] {
 
 export function projectRoot(project: string): string {
   if (project === DEFAULT_PROJECT) return ensureDocsRoot()
+  if (project === WORKSPACE_PROJECT) return WORKSPACE_ROOT
   if (!PROJECT_NAME_RE.test(project)) throw new UnknownProjectError(`올바른 프로젝트 이름이 아닙니다: ${project}`)
   const root = path.join(WORKSPACE_ROOT, project)
   let stat: fs.Stats

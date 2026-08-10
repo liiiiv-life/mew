@@ -1,6 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_PROJECT, isDeniedSegment, isSecretFile, projectRoot } from './paths.ts'
+import {
+  DEFAULT_PROJECT,
+  MEW_DIR_NAME,
+  WORKSPACE_PROJECT,
+  isDeniedSegment,
+  isSecretFile,
+  listProjects,
+  projectRoot,
+} from './paths.ts'
 import { readIgnoreSet } from './ignoreList.ts'
 
 export interface TreeNode {
@@ -81,6 +89,10 @@ interface Filters {
   docsOnly: boolean
   ignore: Set<string>
   showAll: boolean
+  /** **맨 위 칸에서만** 걷어낼 이름들 — 홈(워크스페이스 루트)의 프로젝트 폴더와 `.mew`.
+   *  숨기는 게 아니라 자리를 옮긴 것이다: 프로젝트는 프로젝트 탭이, docs는 docs 탭이 맡는다.
+   *  깊은 곳에 같은 이름이 있으면 그건 그냥 폴더이므로 건드리지 않는다. */
+  hideAtRoot: ReadonlySet<string>
 }
 
 const NOTHING_IGNORED: ReadonlySet<string> = new Set()
@@ -92,6 +104,8 @@ function filtersFor(project: string, opts: TreeOptions): Filters {
     // showAll이면 숨김 목록을 읽지도 않는다 — 정렬 규칙(docsOnly)은 역할과 무관하므로 그대로 둔다
     ignore: showAll ? (NOTHING_IGNORED as Set<string>) : readIgnoreSet(),
     showAll,
+    hideAtRoot:
+      project === WORKSPACE_PROJECT ? new Set([...listProjects(), MEW_DIR_NAME]) : NOTHING_IGNORED,
   }
 }
 
@@ -105,6 +119,7 @@ function walk(absDir: string, relDir: string, f: Filters, downloadOnly = false):
   const nodes: TreeNode[] = []
   for (const entry of entries) {
     if (f.ignore.has(entry.name) || isDeniedSegment(entry.name)) continue
+    if (relDir === '' && f.hideAtRoot.has(entry.name)) continue
     const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
     const absPath = path.join(absDir, entry.name)
     if (entry.isDirectory()) {
@@ -151,6 +166,7 @@ export function isPathVisible(
   for (let i = 0; i < segments.length; i++) {
     const name = segments[i]
     if (f.ignore.has(name) || isDeniedSegment(name)) return false
+    if (i === 0 && f.hideAtRoot.has(name)) return false
     if (i === segments.length - 1 && opts.type !== 'dir') return fileVisible(name, f, downloadOnly)
     if (DOWNLOAD_ONLY_DIRS.has(name)) downloadOnly = true
   }

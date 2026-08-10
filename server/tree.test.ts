@@ -5,11 +5,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import http from 'node:http'
+import os from 'node:os'
 import path from 'node:path'
 import express from 'express'
-import { WORKSPACE_ROOT } from './paths.ts'
+import { WORKSPACE_PROJECT, WORKSPACE_ROOT, setWorkspaceRoot } from './paths.ts'
 import type { Role } from './reqAuth.ts'
-import { isPathVisible, type TreeNode } from './tree.ts'
+import { buildTree, isPathVisible, type TreeNode } from './tree.ts'
 import { createApiApp } from './api.ts'
 import { resetTreeWatchers } from './watcher.ts'
 
@@ -138,4 +139,32 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
   }
 
   t.diagnostic(`임시 프로젝트 ${project} 정리 완료`)
+})
+
+// ── 홈(.workspace) 스코프 ─────────────────────────────────────────────────────
+// 홈 탭은 워크스페이스 폴더 자신을 프로젝트처럼 본다. 프로젝트 폴더와 .mew(docs)는 위쪽 탭 줄이
+// 맡는 자리라 트리에서 빠진다 — 다만 **맨 위 칸에서만** 빠진다.
+
+test('홈(.workspace) 트리: 워크스페이스 루트를 보되 프로젝트 폴더와 .mew는 빠진다', () => {
+  const original = WORKSPACE_ROOT
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-ws-')))
+  fs.mkdirSync(path.join(root, 'some-project'))
+  fs.mkdirSync(path.join(root, '.mew', 'docs'), { recursive: true })
+  fs.mkdirSync(path.join(root, '.agents', 'some-project'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'some-project', 'app.ts'), 'export {}\n')
+  fs.writeFileSync(path.join(root, '.mew', 'docs', 'MOC.md'), '# moc\n')
+  fs.writeFileSync(path.join(root, '.agents', 'some-project', 'note.md'), '# note\n')
+  fs.writeFileSync(path.join(root, 'AGENTS.md'), '# rules\n')
+
+  try {
+    setWorkspaceRoot(root)
+    const all = paths(buildTree(WORKSPACE_PROJECT, { showAll: true })).sort()
+    assert.deepEqual(all, ['.agents', '.agents/some-project', '.agents/some-project/note.md', 'AGENTS.md'].sort())
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'some-project', { type: 'dir', showAll: true }), false)
+    // 깊은 곳의 같은 이름은 그냥 폴더다
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, '.agents/some-project/note.md', { showAll: true }), true)
+  } finally {
+    setWorkspaceRoot(original)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
