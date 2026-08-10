@@ -24,6 +24,8 @@
 .tiptap h4 { font-size: 1.1em; font-weight: 600; margin: 0.5em 0; color: var(--color-ink-bright); }
 .tiptap h5 { font-size: 1em; font-weight: 600; margin: 0.5em 0; color: var(--color-ink-bright); }
 .tiptap h6 { font-size: 0.9em; font-weight: 600; margin: 0.5em 0; color: var(--color-ink-secondary); }
+/* 제목 위 여백만 4px 더 — 0.5em은 제목마다 실제 크기가 다르므로 고정값을 얹는다 */
+.tiptap :is(h1, h2, h3, h4, h5, h6) { margin-top: calc(1em + 6px); }
 .tiptap ul, .tiptap ol { padding-left: 1.5em; margin: 0.5em 0; list-style: revert; }
 .tiptap ul li::marker { color: var(--color-ink-muted); font-size: 1.2em; }
 .tiptap ol li::marker { color: var(--color-ink-muted); font-weight: 600; }
@@ -129,18 +131,24 @@
 }
 /* 스크롤바 스타일은 앱 전역 규칙(src/index.css의 *::-webkit-scrollbar)이 담당한다 —
    여기 있던 표 전용 스크롤바 정의를 그쪽으로 승격했다. */
+/* 아직 폭을 조절하지 않은 표는 내용에 맞춰 늘어난다(hug) — width:100% + fixed였을 때는 좁은
+   화면에서 표가 항상 화면 폭에 갇혀 글자만 세로로 터졌다. 좌우 스크롤(위 wrapper)이 정작 모바일에서
+   전혀 걸리지 않던 이유다. table-layout도 auto여야 첫 행뿐 아니라 모든 행 내용이 열 폭에 반영된다.
+   폭을 다 조절한 표는 prosemirror-tables가 인라인 width(px)를 박으므로 저장된 폭이 그대로 이긴다. */
 .tiptap table {
   border-collapse: collapse;
-  table-layout: fixed;
-  width: 100%;
+  table-layout: auto;
+  width: max-content;
   margin: 0;
   font-size: 0.95em;
 }
+/* 한 열이 끝없이 넓어지는 것만 막는 상한 — 좁은 화면에선 뷰포트 기준으로 더 죈다 */
 .tiptap th, .tiptap td {
   position: relative;
   border: 1px solid var(--color-edge-strong);
   padding: 0.4em 0.75em;
   vertical-align: top;
+  max-width: min(28em, 60vw);
 }
 .tiptap .column-resize-handle {
   position: absolute;
