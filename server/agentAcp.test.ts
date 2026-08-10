@@ -23,7 +23,10 @@ import { Readable, Writable } from 'node:stream'
 
 class StubAgent {
   constructor(conn) { this.conn = conn }
-  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} } }
+  async initialize(params) {
+    this.caps = params.clientCapabilities
+    return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} }
+  }
   async newSession() { return { sessionId: 'stub-1' } }
   async authenticate() { return {} }
   async cancel() {}
@@ -40,16 +43,7 @@ class StubAgent {
     })
     await this.conn.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'decision:' + decision.outcome.optionId } } })
 
-    const inside = await this.conn.readTextFile({ sessionId, path: 'inside.txt' })
-    await this.conn.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'read:' + inside.content } } })
-
-    let escaped = 'allowed'
-    try {
-      await this.conn.readTextFile({ sessionId, path: '../../etc/passwd' })
-    } catch { escaped = 'blocked' }
-    await this.conn.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'escape:' + escaped } } })
-
-    await this.conn.writeTextFile({ sessionId, path: 'written/out.txt', content: 'from-agent' })
+    await this.conn.sessionUpdate({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'caps:' + JSON.stringify(this.caps) } } })
     return { stopReason: 'end_turn' }
   }
 }
@@ -102,10 +96,8 @@ function textOf(events: AgentEvent[]): string {
   return chunks.join('|')
 }
 
-test('ACP 한 턴: 스트리밍·승인 왕복·워크스페이스 밖 읽기 차단·쓰기', async (t) => {
-  // 파일은 워크스페이스 루트에 둔다 — 세션의 cwd가 여기다
+test('ACP 한 턴: 스트리밍·승인 왕복·CLI 기본 파일 도구 유지', async (t) => {
   fs.mkdirSync(workspace, { recursive: true })
-  fs.writeFileSync(path.join(workspace, 'inside.txt'), 'ok')
   const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
   fs.writeFileSync(stubPath, stubSource)
   t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
@@ -128,10 +120,12 @@ test('ACP 한 턴: 스트리밍·승인 왕복·워크스페이스 밖 읽기 �
   const text = textOf(events)
   assert.match(text, /^안녕\|/, '첫 청크가 스트리밍으로 도착')
   assert.match(text, /decision:allow/, '승인 응답이 에이전트로 돌아감')
-  assert.match(text, /read:ok/, '워크스페이스 안 파일은 읽힘')
-  assert.match(text, /escape:blocked/, '워크스페이스 밖 경로는 거부')
+  // fs capability를 광고하면 어댑터가 CLI의 Read/Write/Edit를 끄고 mcp__acp__*로 갈아끼운다.
+  // 그러면 CLI에서 만든 대화를 창에서 불러올 때 전사 속 `Edit` 참조가 API에서 거부된다(ADR 0044).
+  assert.match(text, /caps:\{/, '에이전트가 받은 클라이언트 capability를 되돌려 준다')
+  assert.doesNotMatch(text, /"readTextFile":\s*true/, 'fs.readTextFile을 광고하지 않는다')
+  assert.doesNotMatch(text, /"writeTextFile":\s*true/, 'fs.writeTextFile을 광고하지 않는다')
   assert.deepEqual(events.at(-1), { type: 'turn_end', stopReason: 'end_turn' })
-  assert.equal(fs.readFileSync(path.join(workspace, 'written/out.txt'), 'utf8'), 'from-agent', '쓰기는 워크스페이스 안에 떨어짐')
 })
 
 test('세션을 잡으면 기본 권한 모드(bypassPermissions)를 걸어 준다', async (t) => {

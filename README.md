@@ -603,8 +603,10 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 - **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
   PATH에 시스템 `claude`가 있으면 자동으로 그걸 쓴다(`CLAUDE_CODE_EXECUTABLE`로 전달, 이미 지정돼
   있으면 존중). 시스템 설치본이 없으면 번들 CLI로 돌아간다.
-- 클라이언트 capability로 `fs.readTextFile`·`fs.writeTextFile`을 **켠다** — 켜야 에이전트의 파일
-  읽기·쓰기가 mew로 돌아와 워크스페이스 밖을 거부할 수 있다. `terminal`은 켜지 않는다.
+- 클라이언트 capability를 **하나도 광고하지 않는다**(`clientCapabilities: {}`) — `fs`를 켜면 어댑터가
+  CLI의 `Read`·`Write`·`Edit`를 끄고 `mcp__acp__*`로 갈아끼워서, 터미널에서 만든 대화를 창에서 불러올 때
+  전사 속 `Edit` 참조가 API 400으로 거부된다. 도구 이름을 CLI와 맞춰 두는 것이 계약이다
+  ([ADR 0044](../.mew/docs/decisions/0044-mew-agent-cli-tool-parity.md)) — 경로 스코프는 없다.
 - 워크스페이스를 갈아끼우면 **떠 있던 세션을 전부 접는다**(`disposeAllSessions`) — 자식 프로세스의
   cwd는 뜰 때 정해져 옛 폴더에 매여 있다.
 - 자식 환경에서 **`CLAUDECODE`를 지운다.** 남아 있으면 Claude Code가 중첩 세션으로 보고 실행을 거부해

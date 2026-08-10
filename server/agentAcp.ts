@@ -23,7 +23,6 @@ import {
   type AgentCapabilities,
   type Client,
   type PermissionOption,
-  type ReadTextFileRequest,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionInfo,
@@ -200,11 +199,13 @@ export class AgentSession {
   }
 
   async #handshake() {
-    // terminal capability는 광고하지 않는다 — 셸은 승인 프롬프트를 거쳐 에이전트 쪽에서 돈다.
-    // fs는 광고한다: 이걸 켜야 Read/Write가 mew로 되돌아와 프로젝트 밖을 막을 수 있다.
+    // capability를 하나도 광고하지 않는다 — 어댑터가 CLI 기본 도구(Read/Write/Edit/Bash)를 그대로 쓴다.
+    // fs를 켜면 그 도구들이 꺼지고 mcp__acp__* 로 갈리는데, 그러면 CLI에서 만든 대화를 창에서 불러올 때
+    // 전사 속 `Edit` 참조를 API가 거부한다("Tool reference 'Edit' not found"). 도구 이름을 CLI와
+    // 맞춰 두는 쪽을 택했다 — 경로 스코프를 잃는 대신 대화가 양쪽에서 이어진다(ADR 0044).
     const init = await this.#conn.initialize({
       protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },
+      clientCapabilities: {},
     })
     this.#caps = init.agentCapabilities ?? {}
     const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
@@ -255,33 +256,9 @@ export class AgentSession {
           this.#emit({ type: 'permission', id, toolCall: params.toolCall, options: params.options })
         })
       },
-      readTextFile: async (params: ReadTextFileRequest) => {
-        const content = await fsp.readFile(this.#scoped(params.path), 'utf8')
-        if (params.line == null && params.limit == null) return { content }
-        const lines = content.split('\n')
-        const from = Math.max(0, (params.line ?? 1) - 1)
-        const to = params.limit == null ? undefined : from + params.limit
-        return { content: lines.slice(from, to).join('\n') }
-      },
-      writeTextFile: async (params: WriteTextFileRequest) => {
-        const target = this.#scoped(params.path)
-        await fsp.mkdir(path.dirname(target), { recursive: true })
-        await fsp.writeFile(target, params.content, 'utf8')
-        // appWrites 원장에 기록하지 않는다 — 에이전트의 쓰기는 열린 방에 주입돼야 하는 "외부 변경"이다
-        return {}
-      },
+      // fs capability를 광고하지 않으므로 readTextFile·writeTextFile은 구현하지 않는다 — 파일은
+      // CLI가 자기 Read/Write/Edit로 직접 다룬다(ADR 0044).
     }
-  }
-
-  /** 에이전트가 준 절대 경로를 워크스페이스 안으로 가둔다 — 밖이면 던진다.
-   *  차단 경로(.git·node_modules·.data)는 여기서 막지 않는다: 에이전트는 워크스페이스 전체를 다루는
-   *  owner/manager 전용 도구이고, 어차피 Bash로 같은 것을 할 수 있다(ADR 0043). */
-  #scoped(absolutePath: string): string {
-    const resolved = path.resolve(this.cwd, absolutePath)
-    if (resolved !== this.cwd && !resolved.startsWith(this.cwd + path.sep)) {
-      throw new UnsafePathError(`워크스페이스 밖입니다: ${absolutePath}`)
-    }
-    return resolved
   }
 
   attach(listener: (event: AgentEvent) => void): () => void {
