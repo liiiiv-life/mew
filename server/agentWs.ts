@@ -22,6 +22,9 @@ type ClientMessage =
   | { type: 'set_model'; modelId: string }
   | { type: 'set_mode'; modeId: string }
   | { type: 'unqueue'; index: number }
+  | { type: 'move_queued'; from: number; to: number }
+  /** expect = 창이 보고 있던 원본 — 그 사이 큐가 당겨졌으면 서버가 무시한다 */
+  | { type: 'edit_queued'; index: number; text: string; expect: string }
   | { type: 'list_sessions' }
   | { type: 'load_session'; sessionId: string }
   /** 탭을 닫았다 — 창만 닫은 것과 달리 세션도 여기서 끝난다 */
@@ -67,6 +70,8 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
       else if (msg.type === 'cancel') live.cancel()
       else if (msg.type === 'permission') live.answerPermission(msg.id, msg.optionId)
       else if (msg.type === 'unqueue') live.unqueue(msg.index)
+      else if (msg.type === 'move_queued') live.moveQueued(msg.from, msg.to)
+      else if (msg.type === 'edit_queued') live.editQueued(msg.index, msg.text, msg.expect)
       else if (msg.type === 'set_model') void live.setModel(msg.modelId).catch(fail)
       else if (msg.type === 'set_mode') void live.setMode(msg.modeId).catch(fail)
       else if (msg.type === 'load_session') void live.loadSession(msg.sessionId).catch(fail)

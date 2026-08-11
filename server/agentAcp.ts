@@ -302,6 +302,27 @@ export class AgentSession {
     this.#broadcast(this.#metaEvent())
   }
 
+  /** 대기 중인 메시지의 내용을 고친다 — 창의 더블클릭 편집(진행 중인 턴은 건드리지 않는다) */
+  editQueued(index: number, text: string, expect: string) {
+    if (!Number.isInteger(index) || index < 0 || index >= this.#queue.length) return
+    // 고치는 사이 앞 턴이 끝나 큐가 당겨졌으면 같은 번호가 다른 메시지를 가리킨다 — 원본이 그대로일 때만 덮어쓴다
+    if (this.#queue[index] !== expect) return
+    const next = text.trim()
+    if (!next) return
+    this.#queue[index] = next
+    this.#broadcast(this.#metaEvent())
+  }
+
+  /** 대기 중인 메시지의 자리를 옮긴다 — 창의 드래그 재정렬(진행 중인 턴은 건드리지 않는다) */
+  moveQueued(from: number, to: number) {
+    // WS로 오는 값이라 정수인지도 본다 — NaN은 모든 범위 비교를 통과해 splice가 엉뚱한 항목을 옮긴다
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return
+    if (from < 0 || from >= this.#queue.length || to < 0 || to >= this.#queue.length) return
+    const [moved] = this.#queue.splice(from, 1)
+    this.#queue.splice(to, 0, moved)
+    this.#broadcast(this.#metaEvent())
+  }
+
   #run(text: string) {
     this.busy = true
     this.#turns += 1

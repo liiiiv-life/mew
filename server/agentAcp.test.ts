@@ -345,6 +345,37 @@ test('뜰 때 부모 잃은 에이전트 프로세스를 걷어낸다', async (t
   assert.ok(alive(attached.pid!), '부모가 살아 있는 프로세스는 남긴다')
 })
 
+test('대기 중인 메시지를 고치면 고친 내용으로 돈다 — 원본이 어긋나면 무시한다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
+  fs.writeFileSync(stubPath, stubSource)
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
+
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+
+  const prompts: string[] = []
+  const done = new Promise<void>((resolve) => {
+    session.attach((event) => {
+      if (event.type === 'permission') session.answerPermission(event.id, 'allow')
+      if (event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk') {
+        const content = event.update.content
+        if (!Array.isArray(content) && content?.type === 'text') prompts.push(content.text)
+      }
+      if (event.type === 'turn_end' && prompts.length === 2) resolve()
+    })
+  })
+
+  session.prompt('첫째')
+  session.prompt('둘째')
+  // 창이 다른 원본을 보고 있었다 = 그 사이 큐가 당겨졌다 — 엉뚱한 항목을 덮어쓰지 않는다
+  session.editQueued(0, '가로채기', '셋째')
+  session.editQueued(0, '고친 둘째', '둘째')
+  await done
+
+  assert.deepEqual(prompts, ['첫째', '고친 둘째'], '고친 내용이 대기 순서 그대로 돈다')
+})
+
 test('중단하면 대기 중인 메시지도 같이 버린다', async (t) => {
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'inside.txt'), 'ok')
