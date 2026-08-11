@@ -5,7 +5,10 @@
 // 정보줄(세션·토큰·턴 수)은 이벤트가 아니라 서버가 보내는 meta 스냅샷을 그대로 그린다.
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import MarkdownIt from 'markdown-it'
-import { keepFocusOnPress, useOverlayDismiss } from '@mew/ui'
+import { keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
+import { useSwipeGesture } from '@mew/mobile-keys'
+import { useGridDrag } from '../hooks/useGridDrag'
+import { withAutoLabel, withRename, type AgentTab } from '../utils/agentTabs'
 import {
   foldEvents,
   type AgentEvent,
@@ -40,9 +43,6 @@ const TABS_KEY = 'mew:agent-tabs'
 
 /** 아직 아무 말도 오가지 않은 탭의 이름 — 이 상태의 탭은 화면에 지난 세션 목록을 대신 그린다 */
 const NEW_TAB_LABEL = '새 대화'
-
-/** 탭 이름은 첫 질문에서 뽑고 브라우저에만 남는다(서버는 탭 id만 안다) */
-type AgentTab = { id: string; label: string }
 
 /** 탭 줄이 그리는 살아 있는 값 — 대화가 아니라 상태라 localStorage에 남기지 않는다 */
 type TabInfo = { busy: boolean; sessionId: string }
@@ -202,6 +202,7 @@ function HeaderSelect({
   onPick,
   title,
   trigger,
+  searchable,
 }: {
   value: string
   options: { id: string; label: string }[]
@@ -209,8 +210,11 @@ function HeaderSelect({
   title: string
   /** 버튼에 이름 대신 그릴 것(런타임 아이콘) */
   trigger?: ReactNode
+  /** 목록이 길 때(모델) — 열리면 검색 입력이 먼저 뜬다 */
+  searchable?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const ref = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(false), [])
   // Esc·모바일 뒤로가기가 패널 대신 이 드롭다운을 닫게 한다
@@ -226,11 +230,16 @@ function HeaderSelect({
   }, [open])
 
   const current = options.find((o) => o.id === value)
+  const q = query.trim().toLowerCase()
+  const shown = q ? options.filter((o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q)) : options
   return (
     <div ref={ref} className="relative min-w-0">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setQuery('')
+          setOpen((v) => !v)
+        }}
         title={title}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -247,24 +256,44 @@ function HeaderSelect({
           aria-label={title}
           className="absolute left-0 top-full z-40 mt-1 min-w-full whitespace-nowrap rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
         >
-          {options.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              role="option"
-              aria-selected={option.id === value}
-              onClick={() => {
-                onPick(option.id)
-                setOpen(false)
+          {searchable && (
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter는 첫 번째 결과 선택 — 몇 글자 치고 바로 고르는 흐름
+                if (e.key === 'Enter' && shown.length > 0) {
+                  onPick(shown[0].id)
+                  setOpen(false)
+                }
               }}
-              className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-surface-hover ${
-                option.id === value ? 'text-ink' : 'text-ink-secondary'
-              }`}
-            >
-              <span className="flex w-3.5 shrink-0 items-center justify-center">{option.id === value && <CheckGlyph />}</span>
-              <span className="truncate">{option.label}</span>
-            </button>
-          ))}
+              placeholder="검색"
+              className="mx-1 mb-1 w-[calc(100%-0.5rem)] rounded bg-surface px-2 py-1 text-xs text-ink outline-none placeholder:text-ink-muted"
+            />
+          )}
+          {/* 목록이 길면(모델) 화면 아래로 삐져나가는 대신 여기서만 스크롤된다 */}
+          <div className="max-h-56 overflow-y-auto">
+            {shown.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="option"
+                aria-selected={option.id === value}
+                onClick={() => {
+                  onPick(option.id)
+                  setOpen(false)
+                }}
+                className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-surface-hover ${
+                  option.id === value ? 'text-ink' : 'text-ink-secondary'
+                }`}
+              >
+                <span className="flex w-3.5 shrink-0 items-center justify-center">{option.id === value && <CheckGlyph />}</span>
+                <span className="truncate">{option.label}</span>
+              </button>
+            ))}
+            {shown.length === 0 && <div className="px-2.5 py-1.5 text-xs text-ink-muted">결과 없음</div>}
+          </div>
         </div>
       )}
     </div>
@@ -324,6 +353,8 @@ function AgentTabBar({
   infos,
   onActivate,
   onAdd,
+  onRename,
+  onReorder,
   onCloseTab,
   onClosePanel,
 }: {
@@ -332,25 +363,74 @@ function AgentTabBar({
   infos: Record<string, TabInfo>
   onActivate: (id: string) => void
   onAdd: () => void
+  onRename: (id: string, label: string) => void
+  onReorder: (from: number, to: number) => void
   onCloseTab: (id: string) => void
   onClosePanel: () => void
 }) {
+  // 두 번 눌러 이름 고치기 — 고치는 동안만 여기 남는다(이름 자체는 위에서 localStorage로 간다)
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
+  // 문서 탭·터미널 탭과 같은 훅 — 꾹 눌러 끌면 순서 바꾸기, 그냥 끌면 탭 줄 굴리기
+  const drag = useDragReorder({ onReorder })
   return (
     <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
+      <button
+        type="button"
+        onClick={onClosePanel}
+        className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+        aria-label="에이전트 창 닫기"
+      >
+        <XGlyph />
+      </button>
       <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto">
-        {tabs.map((tab) => {
+        {tabs.map((tab, i) => {
           const isActive = tab.id === activeId
           return (
             <div
               key={tab.id}
-              onClick={() => onActivate(tab.id)}
-              className={`group flex h-full shrink-0 cursor-pointer items-center gap-1.5 border-r border-edge px-3 text-xs select-none ${
+              {...drag.getItemProps(i)}
+              onClick={() => {
+                if (drag.consumeClick()) return
+                onActivate(tab.id)
+              }}
+              onContextMenu={(e) => {
+                // 터치 길게누르기가 드래그로 예약된 동안 Android 네이티브 메뉴가 끼어들지 않게
+                if (drag.dragIndex !== null) e.preventDefault()
+              }}
+              className={`group flex h-full shrink-0 cursor-pointer items-center gap-1.5 border-r border-edge px-3 text-xs select-none [-webkit-touch-callout:none] ${
                 isActive ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
-              }`}
+              } ${drag.dragIndex === i ? 'opacity-70 ring-1 ring-inset ring-accent' : ''}`}
             >
               {/* 안 보고 있는 탭이 돌고 있는지 — 탭 줄에서 바로 보이는 유일한 신호다 */}
               {infos[tab.id]?.busy && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent-strong" />}
-              <span className="max-w-[9rem] truncate">{tab.label}</span>
+              {editing?.id === tab.id ? (
+                <input
+                  autoFocus
+                  value={editing.text}
+                  onChange={(e) => setEditing({ id: tab.id, text: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') return setEditing(null)
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                      onRename(tab.id, editing.text)
+                      setEditing(null)
+                    }
+                  }}
+                  onBlur={() => {
+                    onRename(tab.id, editing.text)
+                    setEditing(null)
+                  }}
+                  className="w-[9rem] rounded bg-surface px-1 text-xs text-ink outline-none select-text"
+                  aria-label="탭 이름"
+                />
+              ) : (
+                <span
+                  onDoubleClick={() => setEditing({ id: tab.id, text: tab.label })}
+                  title="두 번 눌러 이름 고치기"
+                  className="max-w-[9rem] truncate"
+                >
+                  {tab.label}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -365,23 +445,15 @@ function AgentTabBar({
             </div>
           )
         })}
-        <button
-          type="button"
-          onClick={onAdd}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-          aria-label="새 탭"
-          title="새 탭 (지난 세션 고르기)"
-        >
-          <PlusGlyph />
-        </button>
       </div>
       <button
         type="button"
-        onClick={onClosePanel}
+        onClick={onAdd}
         className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-        aria-label="에이전트 창 닫기"
+        aria-label="새 탭"
+        title="새 탭 (지난 세션 고르기)"
       >
-        <XGlyph />
+        <PlusGlyph />
       </button>
     </div>
   )
@@ -433,15 +505,41 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
     if (activeId === id) setActiveId(next[Math.min(index, next.length - 1)].id)
   }
 
+  // 화면 위 40% 좌우 스와이프로 탭 전환 — 터미널·에디터와 같은 손짓 (우→좌면 오른쪽 탭, 좌→우면 왼쪽 탭)
+  const switchTab = (dir: 'left' | 'right') => {
+    if (tabs.length < 2) return
+    const idx = tabs.findIndex((tab) => tab.id === activeId)
+    if (idx < 0) return
+    const next = dir === 'left' ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length
+    activate(tabs[next].id)
+  }
+  const swipe = useSwipeGesture({
+    onTopLeft: () => switchTab('left'),
+    onTopRight: () => switchTab('right'),
+    // 화면 아래 20%에서 좌→우로 밀면 창이 닫힌다 — 오른쪽에 붙은 창을 밀어내는 손짓, 터미널과 같다
+    onBottomRight: onClose,
+  })
+
   const register = useCallback((id: string, send: ((payload: Record<string, unknown>) => void) | null) => {
     if (send) sendersRef.current.set(id, send)
     else sendersRef.current.delete(id)
   }, [])
 
+  // 대화에서 뽑은 이름 — 사람이 직접 붙인 이름은 건드리지 않는다(불러온 세션 제목도 여기로 온다)
   const setTabLabel = useCallback((id: string, label: string) => {
-    setTabs((prev) =>
-      prev.find((tab) => tab.id === id)?.label === label ? prev : prev.map((tab) => (tab.id === id ? { ...tab, label } : tab)),
-    )
+    setTabs((prev) => withAutoLabel(prev, id, label))
+  }, [])
+
+  const renameTab = useCallback((id: string, label: string) => {
+    setTabs((prev) => withRename(prev, id, label))
+  }, [])
+
+  const reorderTabs = useCallback((from: number, to: number) => {
+    setTabs((prev) => {
+      const next = [...prev]
+      next.splice(to, 0, ...next.splice(from, 1))
+      return next
+    })
   }, [])
 
   const setTabInfo = useCallback((id: string, info: TabInfo) => {
@@ -455,6 +553,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
       className="flex h-full w-full flex-col bg-surface-deep"
       onMouseDown={dropOutsideFocus}
       onClick={dropInputFocusAfterPress}
+      {...swipe}
     >
       <AgentTabBar
         tabs={tabs}
@@ -462,6 +561,8 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
         infos={infos}
         onActivate={activate}
         onAdd={addTab}
+        onRename={renameTab}
+        onReorder={reorderTabs}
         onCloseTab={closeTab}
         onClosePanel={onClose}
       />
@@ -623,6 +724,24 @@ function AgentSessionView({
   const queued = meta?.queued ?? []
   const usage = meta?.usage ?? null
 
+  // 대기 큐 재정렬 — 꾹(마우스 0.5초·터치 길게) 눌러 집은 항목을 다른 항목 위에 놓으면 서버 큐에서 자리를 옮긴다
+  const queueDrag = useGridDrag({
+    enabled: queued.length > 1,
+    mouseHoldMs: 500,
+    onMove: (from, to) => send({ type: 'move_queued', from, to }),
+  })
+
+  // 한 줄로 잘린 대기 메시지를 한 번 누르면 전문을 펴고, 두 번 누르면 그 자리에서 고친다
+  const [openQueued, setOpenQueued] = useState<number | null>(null)
+  // original = 고치기 시작할 때 보고 있던 원본. 그 사이 앞 턴이 끝나 큐가 당겨졌으면 서버가 이걸 보고 거른다
+  const [editingQueued, setEditingQueued] = useState<{ index: number; text: string; original: string } | null>(null)
+  const commitQueuedEdit = (edit: { index: number; text: string; original: string }) => {
+    const text = edit.text.trim()
+    if (text && text !== edit.original)
+      send({ type: 'edit_queued', index: edit.index, text, expect: edit.original })
+    setEditingQueued(null)
+  }
+
   const submit = () => {
     const text = draft.trim()
     if (!text || !connected) return
@@ -677,6 +796,7 @@ function AgentSessionView({
               options={models.availableModels.map((m) => ({ id: m.modelId, label: m.name }))}
               onPick={(modelId) => send({ type: 'set_model', modelId })}
               title="모델"
+              searchable
             />
           ) : (
             <span className="truncate text-xs font-normal text-ink-muted">{currentModel ?? currentRuntime.label}</span>
@@ -905,19 +1025,70 @@ function AgentSessionView({
       {queued.length > 0 && (
         <div className="space-y-1 border-t border-edge bg-surface px-3 py-1.5 text-xs">
           <div className="text-ink-muted">대기 {queued.length}건 — 지금 턴이 끝나면 순서대로 보냅니다</div>
-          {queued.map((text, index) => (
-            <div key={`${index}-${text}`} className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-ink-secondary">{text}</span>
-              <button
-                type="button"
-                onClick={() => send({ type: 'unqueue', index })}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink"
-                aria-label="대기 메시지 취소"
+          {queued.map((text, index) => {
+            const drag = queueDrag.drag
+            const lifted = drag !== null && drag.slot === index
+            const editing = editingQueued?.index === index ? editingQueued : null
+            return (
+              <div
+                key={`${index}-${text}`}
+                ref={queueDrag.registerCell(index)}
+                // 고치는 중에는 드래그를 떼어 둔다 — 글자를 끌어 고르는 동안 타일이 들려 버린다
+                {...(editing ? {} : queueDrag.getTileProps(index))}
+                style={lifted ? { transform: `translate(${drag.dx}px, ${drag.dy}px)` } : undefined}
+                className={`flex items-center gap-2 ${editing ? '' : 'select-none'} ${
+                  lifted
+                    ? 'relative z-10 rounded bg-surface-raised opacity-80'
+                    : drag !== null && drag.target === index
+                      ? 'rounded bg-surface-raised'
+                      : ''
+                }`}
               >
-                <XGlyph small />
-              </button>
-            </div>
-          ))}
+                {editing ? (
+                  <textarea
+                    autoFocus
+                    value={editing.text}
+                    onChange={(e) => setEditingQueued({ ...editing, text: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') return setEditingQueued(null)
+                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
+                        e.preventDefault()
+                        commitQueuedEdit(editing)
+                      }
+                    }}
+                    onBlur={() => commitQueuedEdit(editing)}
+                    rows={3}
+                    className="min-w-0 flex-1 resize-none rounded bg-surface-raised px-2 py-1 text-xs text-ink outline-none"
+                  />
+                ) : (
+                  <span
+                    onClick={() => {
+                      if (queueDrag.consumeClick()) return
+                      setOpenQueued(openQueued === index ? null : index)
+                    }}
+                    onDoubleClick={() => setEditingQueued({ index, text, original: text })}
+                    title="한 번 눌러 전문 보기 · 두 번 눌러 고치기"
+                    className={`min-w-0 flex-1 cursor-pointer text-ink-secondary ${
+                      openQueued === index ? 'whitespace-pre-wrap break-words' : 'truncate'
+                    }`}
+                  >
+                    {text}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (queueDrag.consumeClick()) return
+                    send({ type: 'unqueue', index })
+                  }}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink"
+                  aria-label="대기 메시지 취소"
+                >
+                  <XGlyph small />
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
 

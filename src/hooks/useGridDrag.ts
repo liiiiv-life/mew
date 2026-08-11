@@ -44,7 +44,16 @@ function blockTouchScroll(e: TouchEvent) {
 // 격자(윈도우 바탕화면식) 드래그 훅 — 타일을 끌어 원하는 칸에 놓는다. 탭바의 useDragReorder와 달리
 // 지나가는 중에 순서를 바꾸지 않고, 손을 뗀 칸에만 onMove(from, to)를 한 번 호출한다. 빈 칸으로
 // 옮기면 그 자리에 놓이고, 다른 타일이 있는 칸이면 호출부가 서로 자리를 맞바꾼다.
-export function useGridDrag({ enabled, onMove }: { enabled: boolean; onMove: (from: number, to: number) => void }) {
+export function useGridDrag({
+  enabled,
+  onMove,
+  mouseHoldMs,
+}: {
+  enabled: boolean
+  onMove: (from: number, to: number) => void
+  /** 마우스도 이 시간(ms)만큼 눌러야 드래그가 시작된다 — 없으면 마우스는 슬롭만 넘기면 바로 */
+  mouseHoldMs?: number
+}) {
   const [drag, setDrag] = useState<GridDrag | null>(null)
   const cellsRef = useRef(new Map<number, HTMLElement>())
   const stateRef = useRef<DragState | null>(null)
@@ -90,7 +99,7 @@ export function useGridDrag({ enabled, onMove }: { enabled: boolean; onMove: (fr
       phase: 'pending',
     }
     stateRef.current = state
-    if (!state.isTouch) {
+    if (!state.isTouch && mouseHoldMs == null) {
       // 마우스는 누르는 즉시 포인터를 잡는다 — 빠르게 끌면 첫 pointermove가 타일 밖에서 일어나
       // 타일의 핸들러가 아예 호출되지 않고, 드래그가 시작되지 않는다
       capture(state)
@@ -101,10 +110,10 @@ export function useGridDrag({ enabled, onMove }: { enabled: boolean; onMove: (fr
         capture(state)
         // 손가락이 아직 슬롭 안에 있어 스크롤이 시작되지 않은 시점 — 여기서부터 touchmove를 막으면
         // 목록 스크롤과 공존한다 (touch-action: none을 정적으로 걸면 스크롤이 죽는다)
-        document.addEventListener('touchmove', blockTouchScroll, { passive: false })
+        if (state.isTouch) document.addEventListener('touchmove', blockTouchScroll, { passive: false })
         clickSuppressedAt.current = Date.now()
         setDrag({ slot, dx: 0, dy: 0, target: slot })
-      }, LONG_PRESS_MS)
+      }, state.isTouch ? LONG_PRESS_MS : mouseHoldMs)
     }
   }
 
@@ -116,8 +125,8 @@ export function useGridDrag({ enabled, onMove }: { enabled: boolean; onMove: (fr
     const dist = Math.hypot(dx, dy)
 
     if (state.phase === 'pending') {
-      if (state.isTouch) {
-        if (dist > TOUCH_SLOP_PX) cleanup() // 길게누르기 전에 움직임 — 스크롤에 양보
+      if (state.isTouch || mouseHoldMs != null) {
+        if (dist > TOUCH_SLOP_PX) cleanup() // 길게누르기 전에 움직임 — 스크롤·클릭에 양보
         return
       }
       if (dist <= MOUSE_SLOP_PX) return
