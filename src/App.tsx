@@ -504,6 +504,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           e.preventDefault()
           focusedEditor()?.openSearch()
         }
+      } else if (matchesShortcut(e, getBinding('insertPathOrSelection'))) {
+        // 에디터의 Ctrl+L — 현재 줄(선택이면 범위)의 [경로:줄] 참조를 열려 있는 터미널·에이전트
+        // 입력에 써 준다. 터미널 안에서 누른 Ctrl+L은 TmuxTerminal이 직접 처리한다(defaultPrevented).
+        if (e.defaultPrevented) return
+        if (!(e.target instanceof HTMLElement) || !e.target.closest('.ProseMirror, .cm-editor')) return
+        const range = focusedEditor()?.getSelectedLineRange()
+        if (!range || !activeRelativePath) return
+        e.preventDefault()
+        const lines = range.start === range.end ? `${range.start}` : `${range.start}-${range.end}`
+        window.dispatchEvent(new CustomEvent('mew:insert-ref', { detail: `[${activeRelativePath}:${lines}] ` }))
       } else if (matchesShortcut(e, getBinding('toggleTerminal'))) {
         // VSCode처럼 어디에 포커스가 있어도 터미널을 토글한다 (Shift 조합 ~ 포함)
         if (!canUseTerminal) return

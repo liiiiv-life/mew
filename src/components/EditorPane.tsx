@@ -23,6 +23,8 @@ function formatBytes(bytes: number): string {
 /** 칸 바깥(App)에서 지금 포커스된 칸의 에디터를 건드릴 때 쓰는 손잡이 */
 export interface PaneHandle {
   getSelectedText: () => string | null
+  /** 선택(없으면 커서) 시작·끝의 파일 줄 번호 — [경로:줄] 참조 삽입용. 텍스트 편집기가 아니면 null */
+  getSelectedLineRange: () => { start: number; end: number } | null
   openSearch: (query?: string) => void
   revealLine: (line: number) => void
   /** 히스토리 되돌리기 — hotview(md)는 collab 문서가 진실 원천이라 에디터를 통해 갈아끼워야 한다 */
@@ -233,6 +235,12 @@ export function EditorPane({
         if (!tab) return null
         if (tab.viewMode === 'plain') return codePaneRef.current?.getSelectedText() ?? null
         return editorRef.current?.getSelectedText() ?? null
+      },
+      getSelectedLineRange: () => {
+        const tab = activeTabRef.current
+        if (!tab) return null
+        if (tab.viewMode === 'plain') return codePaneRef.current?.getSelectedLineRange() ?? null
+        return editorRef.current?.getSelectedLineRange() ?? null
       },
       // 검색 결과 점프는 칸 밖(사이드바) 클릭에서 와서 pin 해제 입력이 없다 — 직접 풀고 점프한다
       openSearch: (query) => {

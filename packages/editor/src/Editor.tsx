@@ -32,6 +32,7 @@ import { Database } from './database/Database'
 import { DbReferencePicker } from './database/DbReferencePicker'
 import { flattenFiles, fuzzyScore, isExternalHref, relativeLinkPath, resolveRelativePath } from './utils/fuzzy'
 import { splitFrontmatter, joinFrontmatter, todayDate, type FrontmatterData } from './utils/frontmatter'
+import { sourceLineOfPos } from './utils/sourceLine'
 import { unwrapOpenListWrappers } from './utils/clipboardList'
 import { isSvgMarkup, svgFileName } from './utils/svgPaste'
 import { MobileKeyBar, useMobileLayout } from '@mew/mobile-keys'
@@ -60,6 +61,8 @@ export interface EditorHandle {
   setRawContent: (content: string) => void
   /** 현재 선택된 텍스트 — 선택이 없으면 null (터미널/에이전트로 선택 텍스트를 보내는 단축키용) */
   getSelectedText: () => string | null
+  /** 선택 시작·끝의 파일 줄 번호(1부터, frontmatter 줄 포함) — [경로:줄] 참조 삽입용 */
+  getSelectedLineRange: () => { start: number; end: number } | null
   /** 문서 내 찾기 바를 연다 — seedQuery가 있으면 그 검색어로 채우고 첫 매치로 이동 (프로젝트 검색 연동용) */
   openSearch: (seedQuery?: string) => void
 }
@@ -1404,8 +1407,21 @@ export const Editor = forwardRef<
         if (empty) return null
         return editor.state.doc.textBetween(from, to, '\n')
       },
+      getSelectedLineRange() {
+        const serializer = (editor?.storage as unknown as {
+          markdown?: { serializer?: { serialize: (c: Fragment) => string } }
+        })?.markdown?.serializer
+        if (!editor || !serializer) return null
+        // 파일 줄 번호 = frontmatter가 차지하는 줄 수(닫는 --- 뒤 빈 줄 포함) + 본문 줄 번호
+        const offset = frontmatter ? joinFrontmatter(frontmatter, '').split('\n').length - 1 : 0
+        const { from, to } = editor.state.selection
+        return {
+          start: offset + sourceLineOfPos(editor.state.doc, (c) => serializer.serialize(c), from),
+          end: offset + sourceLineOfPos(editor.state.doc, (c) => serializer.serialize(c), to),
+        }
+      },
     }),
-    [editor, onChange, openSearchBar],
+    [editor, onChange, openSearchBar, frontmatter],
   )
 
   // editorRef.current를 쓰는 이유는 위 editorRef 선언부 주석 참고 — handlePaste·handleDrop이

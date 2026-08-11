@@ -235,6 +235,8 @@ export interface CodePaneHandle {
   revealLine: (line: number) => void
   /** 현재 선택된 텍스트 — 선택이 없으면 null (터미널/에이전트로 선택 텍스트를 보내는 단축키용) */
   getSelectedText: () => string | null
+  /** 선택 시작·끝의 파일 줄 번호(1부터) — [경로:줄] 참조 삽입용. plain은 파일 원문 그대로라 보정 없음 */
+  getSelectedLineRange: () => { start: number; end: number } | null
   /** 찾기 패널을 연다 — 에디터 밖(사이드바 등)에서 Ctrl+F를 눌렀을 때. 안에서 눌렀으면 searchKeymap이 처리한다 */
   openSearch: (query?: string) => void
 }
@@ -352,6 +354,12 @@ export const CodePane = forwardRef<
         const sel = view.state.selection.main
         if (sel.empty) return null
         return view.state.sliceDoc(sel.from, sel.to)
+      },
+      getSelectedLineRange() {
+        const view = viewRef.current
+        if (!view) return null
+        const sel = view.state.selection.main
+        return { start: view.state.doc.lineAt(sel.from).number, end: view.state.doc.lineAt(sel.to).number }
       },
       openSearch(query?: string) {
         const view = viewRef.current

@@ -513,6 +513,13 @@ function AgentSessionView({
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const wsRef = useRef<WebSocket | null>(null)
+
+  // 에디터에서 누른 Ctrl+L의 [경로:줄] 참조를 입력창에 이어 붙인다 — 터미널과 같은 broadcast를 받는다
+  useEffect(() => {
+    const onInsertRef = (e: Event) => setDraft((d) => d + (e as CustomEvent<string>).detail)
+    window.addEventListener('mew:insert-ref', onInsertRef)
+    return () => window.removeEventListener('mew:insert-ref', onInsertRef)
+  }, [])
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

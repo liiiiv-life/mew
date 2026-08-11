@@ -387,6 +387,11 @@ export function TmuxTerminal({
       return false
     })
 
+    // 에디터에서 누른 Ctrl+L의 [경로:줄] 참조 — 호스트 앱이 window 이벤트로 broadcast하고,
+    // 마운트된 활성 세션 터미널이 셸 입력으로 받아 적는다 (에이전트 패널도 같은 이벤트를 받는다)
+    const onInsertRef = (e: Event) => sendRaw({ type: 'input', data: (e as CustomEvent<string>).detail })
+    window.addEventListener('mew:insert-ref', onInsertRef)
+
     // ── 자동 재연결 ──────────────────────────────────────────────────────────────
     // 모바일 네트워크 끊김·탭 백그라운드로 WebSocket이 죽어도 tmux 세션은 서버에 그대로 살아 있다
     // (서버는 ws가 닫히면 attach 클라이언트만 죽이고 세션은 남긴다). 다시 붙기만 하면 tmux가 현재
@@ -520,6 +525,7 @@ export function TmuxTerminal({
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('online', reconnectNow)
+      window.removeEventListener('mew:insert-ref', onInsertRef)
       container.removeEventListener('touchstart', onTouchStart)
       container.removeEventListener('touchmove', onTouchMove)
       container.removeEventListener('touchend', onTouchEnd)
