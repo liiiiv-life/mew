@@ -612,8 +612,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   const canEditActiveTab = !!activeTab?.editable && !isArchivedPath(activeTab.path)
 
-  // 터미널·시스템 자원 버튼은 화면에 하나뿐이다 — 맨 끝 칸(오른쪽·아래)이 맡는다
-  const toolPaneId = paneIds(layout).at(-1)
   // 사이드바 여는 버튼은 사이드바가 서는 자리와 붙은 맨 앞 칸(왼쪽·위)이 맡는다
   const sidebarPaneId = paneIds(layout)[0]
 
@@ -634,8 +632,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           focused={pane.id === focusedPaneId}
           isGuest={isGuest}
           canUseTerminal={canUseTerminal}
-          tmuxOpen={tmuxOpen}
-          showGlobalTools={pane.id === toolPaneId}
           showSidebarButton={!sidebarOpen && pane.id === sidebarPaneId}
           tocOpen={tocOpen}
           dropZone={dropTarget?.paneId === pane.id ? dropTarget.zone : null}
@@ -651,8 +647,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           onChangeContent={updateTabContent}
           onOpenLink={(linkPath) => openFile(linkPath, { preview: false, forceNewTab: true, paneId: pane.id })}
           onOpenHistory={() => setHistoryOpen(true)}
-          onOpenTerminal={() => setTmuxOpen(true)}
-          onOpenSysStats={() => setSysStatsOpen(true)}
+          onOpenAgent={() => setAgentOpen(true)}
           onSetTocOpen={setTocOpen}
           onOpenSidebar={() => setSidebarOpen(true)}
           onTabDragMove={handleTabDragMove}
@@ -715,6 +710,34 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 7v5l3 2" />
+              </svg>
+            ),
+          },
+          {
+            id: 'terminal',
+            label: '터미널',
+            hint: 'Ctrl+`',
+            onSelect: () => setTmuxOpen((v) => !v),
+            active: tmuxOpen,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="m7 9 3 3-3 3" />
+                <line x1="13" y1="15" x2="17" y2="15" />
+              </svg>
+            ),
+          },
+          {
+            id: 'sysstats',
+            label: '시스템 자원',
+            onSelect: () => setSysStatsOpen(true),
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 14a8 8 0 0 1 8-8" />
+                <path d="M4 14a8 8 0 0 1 3.5-6.6" />
+                <path d="M12 14 8.5 9.5" />
+                <path d="M4 14h16" />
+                <path d="M3 18h18" />
               </svg>
             ),
           },

@@ -39,25 +39,6 @@ function primaryCollabPath(tab: Tab | null, role: Role): string | null {
   return eligible ? tab.path : null
 }
 
-/** 에디터 우상단 도구 줄의 터미널 버튼 — 문서가 열려 있지 않을 때도 같은 자리에 뜬다 */
-function TerminalOpenButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
-      title="터미널 (Ctrl+` / Alt+T)"
-      aria-label="터미널 열기"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <path d="m7 9 3 3-3 3" />
-        <line x1="13" y1="15" x2="17" y2="15" />
-      </svg>
-    </button>
-  )
-}
-
 /** 사이드바가 닫혀 있을 때 맨 왼쪽 칸 좌상단에 뜨는 여는 버튼 — 우상단 도구 줄과 같은 생김새 */
 function SidebarOpenButton({ onClick }: { onClick: () => void }) {
   return (
@@ -72,27 +53,6 @@ function SidebarOpenButton({ onClick }: { onClick: () => void }) {
         <rect x="3" y="3" width="18" height="18" rx="2" />
         <path d="M9 3v18" />
         <path d="m14 9 3 3-3 3" />
-      </svg>
-    </button>
-  )
-}
-
-/** 터미널 버튼 바로 아래 — 서버가 도는 기계의 CPU·메모리·GPU 현황 팝업 */
-function SystemStatsButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
-      title="시스템 자원 (CPU·메모리·GPU)"
-      aria-label="시스템 자원 보기"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 14a8 8 0 0 1 8-8" />
-        <path d="M4 14a8 8 0 0 1 3.5-6.6" />
-        <path d="M12 14 8.5 9.5" />
-        <path d="M4 14h16" />
-        <path d="M3 18h18" />
       </svg>
     </button>
   )
@@ -124,9 +84,6 @@ export interface EditorPaneProps {
   focused: boolean
   isGuest: boolean
   canUseTerminal: boolean
-  tmuxOpen: boolean
-  /** 터미널·시스템 자원처럼 화면에 하나뿐인 버튼을 이 칸이 맡는지 (맨 끝 칸) */
-  showGlobalTools: boolean
   /** 사이드바 여는 버튼을 이 칸이 맡는지 (사이드바 닫힘 + 맨 앞 칸) */
   showSidebarButton: boolean
   tocOpen: boolean
@@ -144,8 +101,8 @@ export interface EditorPaneProps {
   onChangeContent: (path: string, content: string) => void
   onOpenLink: (path: string) => void
   onOpenHistory: () => void
-  onOpenTerminal: () => void
-  onOpenSysStats: () => void
+  /** 모바일 하단 우→좌 스와이프 제스처의 에이전트 창 열기 — 버튼은 햄버거 메뉴(App)에 있다 */
+  onOpenAgent: () => void
   onSetTocOpen: (open: boolean) => void
   onOpenSidebar: () => void
   onTabDragMove: (paneId: string, path: string, x: number, y: number) => void
@@ -166,8 +123,6 @@ export function EditorPane({
   focused,
   isGuest,
   canUseTerminal,
-  tmuxOpen,
-  showGlobalTools,
   showSidebarButton,
   tocOpen,
   dropZone,
@@ -183,8 +138,7 @@ export function EditorPane({
   onChangeContent,
   onOpenLink,
   onOpenHistory,
-  onOpenTerminal,
-  onOpenSysStats,
+  onOpenAgent,
   onSetTocOpen,
   onOpenSidebar,
   onTabDragMove,
@@ -336,7 +290,7 @@ export function EditorPane({
     onTopRight: () => switchTab('right'),
     onBottomRight: onOpenSidebar,
     onBottomLeft: () => {
-      if (canUseTerminal) onOpenTerminal()
+      if (canUseTerminal) onOpenAgent()
     },
   })
 
@@ -465,12 +419,6 @@ export function EditorPane({
                     </svg>
                   </button>
                 )}
-                {canUseTerminal && showGlobalTools && (
-                  <div className="flex flex-col gap-2">
-                    {!tmuxOpen && <TerminalOpenButton onClick={onOpenTerminal} />}
-                    <SystemStatsButton onClick={onOpenSysStats} />
-                  </div>
-                )}
               </div>
               {/* 뷰어는 남는 높이를 전부 차지한다 — 그래야 아래 상태줄이 짧은 문서에서도 칸 맨 밑에 선다.
                   min-h-0이 없으면 내용이 긴 문서에서 뷰어가 칸 밖으로 자라 상태줄을 밀어낸다. */}
@@ -526,12 +474,6 @@ export function EditorPane({
             {showSidebarButton && (
               <div className="absolute left-3 top-3 z-20">
                 <SidebarOpenButton onClick={onOpenSidebar} />
-              </div>
-            )}
-            {canUseTerminal && showGlobalTools && (
-              <div className="absolute right-5 top-3 z-20 flex flex-col gap-2">
-                {!tmuxOpen && <TerminalOpenButton onClick={onOpenTerminal} />}
-                <SystemStatsButton onClick={onOpenSysStats} />
               </div>
             )}
             <div className="text-center">
