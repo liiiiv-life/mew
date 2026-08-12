@@ -283,12 +283,21 @@ export class AgentSession {
     }
   }
 
+  /**
+   * 지금까지 쌓인 대화 이벤트 — 재접속한 창이 **한 덩어리로**(`replay`) 받아 통째로 갈아끼운다.
+   * 예전에는 attach가 이걸 한 개씩 흘려보냈는데, 창은 이벤트마다 다시 그리느라 500개짜리 되감기에서
+   * 눈에 띄게 굳었고 그 사이 대화가 빈 것으로 보였다(빈 탭 화면이 잠깐 뜨는 원인).
+   */
+  snapshot(): AgentEvent[] {
+    return [...this.#events]
+  }
+
+  /** 지금부터 오는 이벤트만 받는다 — 지나간 것은 위 snapshot()이 준다 */
   attach(listener: (event: AgentEvent) => void): () => void {
     if (this.#idleTimer) {
       clearTimeout(this.#idleTimer)
       this.#idleTimer = null
     }
-    for (const event of this.#events) listener(event)
     listener(this.#metaEvent())
     this.#listeners.add(listener)
     void this.#pushMeta()

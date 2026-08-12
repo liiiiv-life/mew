@@ -35,6 +35,8 @@ type ServerMessage =
   | { type: 'ready' | 'fatal'; message?: string }
   // 목록은 물어본 창에만 답한다 — 상태가 아니라 조회 결과라 이벤트 버퍼에 넣지 않는다
   | { type: 'sessions'; sessions: { sessionId: string; title?: string | null; updatedAt?: string | null }[] }
+  // 지나간 대화는 한 덩어리로 간다 — 창은 이걸 받아 지금 그린 대화를 통째로 갈아끼운다
+  | { type: 'replay'; events: AgentEvent[] }
 
 function send(ws: WebSocket, payload: ServerMessage) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload))
@@ -46,6 +48,14 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
   // 에이전트가 뜨는 데는 1초가 넘게 걸린다(spawn + initialize + newSession). 그동안 창을 세워 두지 않는다:
   // ready를 먼저 보낸다. 지난 세션 목록은 **창이 물어볼 때만** 간다 — 붙을 때마다 훑으면 탭 수만큼 곱해진다.
   send(ws, { type: 'ready' })
+
+  // 대화가 오래 조용하면(에이전트가 긴 작업 중이거나 사용자가 읽고만 있을 때) 중간 장비가 유휴 소켓을
+  // 끊는다 — 창은 되감기로 복구하지만 그때마다 화면이 한 번 출렁인다. 30초 핑으로 살아 있다고 알린다
+  const keepAlive = setInterval(() => {
+    if (ws.readyState === ws.OPEN) ws.ping()
+  }, 30_000)
+  keepAlive.unref?.()
+  ws.on('close', () => clearInterval(keepAlive))
 
   // 세션이 준비되기 전에 온 말은 버리지 않고 줄을 세운다 — 예전에는 조용히 사라졌다
   // (뜨는 데 몇 초가 걸리므로 그 사이에 보낸 첫 질문이 실제로 없어졌다)
@@ -112,8 +122,10 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
   // 뜨는 동안 창이 닫혔다 — 세션은 그대로 두고(유휴 타이머가 정리) 여기서 손을 뗀다
   if (ws.readyState !== ws.OPEN) return
   session = started
-  // 창을 닫아도 세션은 남는다(agentAcp의 유휴 타이머가 정리) — 재접속하면 지나간 이벤트를 되받는다.
-  // 탭을 닫는 것만 세션을 끝낸다(close_session).
+  // 창을 닫아도 세션은 남는다(agentAcp의 유휴 타이머가 정리) — 재접속하면 지나간 대화를 되받는다.
+  // 되감기는 **한 프레임**이다: 창이 그걸로 통째로 갈아끼우므로 재접속 순간에도 대화가 비지 않는다.
+  // 스냅샷을 읽고 붙이는 사이에 await가 없어야 이벤트가 새지 않는다(둘 사이는 동기 코드여야 한다).
+  send(ws, { type: 'replay', events: session.snapshot() })
   detach = session.attach((event) => send(ws, event))
   ws.on('close', () => detach())
   for (const msg of early.splice(0)) handle(msg)

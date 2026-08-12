@@ -157,6 +157,21 @@ md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
   return self.renderToken(tokens, idx, options)
 }
 
+/**
+ * 같은 본문을 두 번 파싱하지 않는다 — 대화가 길어지면 상태가 하나 바뀔 때마다(meta·스크롤·읽음 표시)
+ * 펼쳐 둔 버블 전부가 다시 그려지고, 그때마다 markdown-it이 같은 글을 처음부터 다시 읽는다.
+ * ponytail: 200개 넘으면 통째로 비우는 단순 상한 — 문자열 키라 LRU가 필요할 만큼 크지 않다.
+ */
+const renderedMarkdown = new Map<string, string>()
+function renderMarkdown(text: string): string {
+  const hit = renderedMarkdown.get(text)
+  if (hit !== undefined) return hit
+  const html = md.render(text)
+  if (renderedMarkdown.size > 200) renderedMarkdown.clear()
+  renderedMarkdown.set(text, html)
+  return html
+}
+
 const nf = new Intl.NumberFormat('ko-KR')
 /** 토큰 수는 자릿수가 길어 줄을 밀어낸다 — 1.2K·3.4M으로 줄인다(ko-KR은 '천·만'이 되므로 en-US) */
 const tf = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
@@ -686,12 +701,49 @@ function AgentSessionView({
   const stickRef = useRef(true)
   const [unread, setUnread] = useState(false)
 
+  // 들어오는 이벤트는 **한 프레임에 모아** 한 번만 그린다. 이벤트마다 setState하면 스트리밍 청크
+  // 하나하나가 foldEvents 한 번 + 목록 전체 다시 그리기 한 번이 되어(청크는 초당 수십 개다) 창이 굳는다.
+  const pendingRef = useRef<AgentEvent[]>([])
+  const frameRef = useRef<number | null>(null)
+  // 붙자마자 오는 첫 덩어리는 되감기다 — 지금 그린 대화에 **덧붙이지 말고 갈아끼운다**.
+  // 새 서버는 replay 한 프레임으로 주고, 아직 재시작하지 않은 옛 서버는 이벤트를 하나씩 흘린다.
+  // 이 스위치가 없으면 옛 서버에 다시 붙었을 때 대화가 두 벌로 이어 붙는다
+  const swapRef = useRef(false)
+  const queueEvent = useCallback((event: AgentEvent) => {
+    pendingRef.current.push(event)
+    if (frameRef.current !== null) return
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null
+      const batch = pendingRef.current
+      if (batch.length === 0) return
+      pendingRef.current = []
+      // 갈아끼우기 여부는 여기서 소비한다 — setEvents 콜백 안에서 ref를 건드리면 순수하지 않다
+      const swap = swapRef.current
+      swapRef.current = false
+      // reset도 순서대로 처리한다 — 히스토리를 불러올 때 "비우기"와 "새 대화"가 같은 프레임에 들어와
+      // 중간의 빈 화면이 뜨지 않는다
+      setEvents((prev) => {
+        const next = swap ? [] : [...prev]
+        for (const item of batch) {
+          if (item.type === 'reset') next.length = 0
+          else next.push(item)
+        }
+        return next
+      })
+    })
+  }, [])
+
+  useEffect(() => () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+  }, [])
+
   useEffect(() => {
     let closed = false
     let retry: number | undefined
     let ws: WebSocket
     // 런타임을 갈아탄 뒤 옛 대화가 새 세션의 되돌림 이벤트 앞에 남지 않게 비운다
     setEvents([])
+    pendingRef.current = []
     setModels(null)
     setModes(null)
     setMeta(null)
@@ -701,7 +753,11 @@ function AgentSessionView({
       const query = `runtime=${encodeURIComponent(runtime)}&tab=${encodeURIComponent(tabId)}`
       ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?${query}`)
       wsRef.current = ws
-      ws.onopen = () => setConnected(true)
+      ws.onopen = () => {
+        // 다시 붙었다 — 다음에 오는 대화는 이어 붙이는 것이 아니라 지금 화면을 대신할 것이다
+        swapRef.current = true
+        setConnected(true)
+      }
       ws.onmessage = (raw) => {
         const event = JSON.parse(String(raw.data)) as AgentEvent
         if (event.type === 'ready') return
@@ -709,18 +765,25 @@ function AgentSessionView({
         if (event.type === 'modes') return setModes(event.modes)
         if (event.type === 'meta') return setMeta(event.meta)
         if (event.type === 'sessions') return setSessions(event.sessions)
-        // 히스토리 불러오기 — 지금까지 그린 대화를 버린다. 새 대화는 바닥에서 시작한다
+        // 재접속 되감기 — 지나간 대화가 한 덩어리로 온다. 그린 것을 통째로 갈아끼우므로 중간에 비지 않는다
+        if (event.type === 'replay') {
+          pendingRef.current = []
+          swapRef.current = false
+          return setEvents(event.events)
+        }
+        // 히스토리 불러오기 — 지금까지 그린 대화를 버린다. 새 대화는 바닥에서 시작한다.
+        // 비우는 것 자체는 아래 줄 세우기가 순서대로 처리한다(뒤따라 오는 히스토리와 같은 프레임에 그려진다)
         if (event.type === 'reset') {
           setLoadingSession(null)
           stickRef.current = true
-          return setEvents([])
         }
-        setEvents((prev) => [...prev, event])
+        queueEvent(event)
       }
       ws.onclose = () => {
         if (closed) return
         setConnected(false)
-        setEvents([])
+        // 대화는 지우지 않는다 — 잠깐 끊긴 사이 화면이 빈 탭(히스토리 드롭다운)으로 보이던 원인이다.
+        // 다시 붙으면 서버가 보내는 replay가 통째로 갈아끼운다
         setMeta(null)
         retry = window.setTimeout(connect, 1000)
       }
@@ -734,7 +797,8 @@ function AgentSessionView({
       wsRef.current = null
     }
     // 런타임을 바꾸면 저쪽 세션으로 갈아탄다 — 이쪽 세션은 서버에 그대로 남아 돌아오면 이어진다
-  }, [runtime, tabId])
+    // (queueEvent는 값이 바뀌지 않는 useCallback이라 여기 있어도 재접속을 부르지 않는다)
+  }, [runtime, tabId, queueEvent])
 
   // 경과 시간만 흐르게 한다 — 나머지 값은 서버 meta가 밀어 준다
   useEffect(() => {
@@ -1039,7 +1103,7 @@ function AgentSessionView({
                           <div
                             key={child.key}
                             className="prose prose-sm max-w-none text-ink dark:prose-invert prose-pre:overflow-x-auto prose-pre:bg-surface-deep prose-code:text-ink-secondary"
-                            dangerouslySetInnerHTML={{ __html: md.render(child.text) }}
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(child.text) }}
                           />
                         )
                       if (child.kind === 'thought')

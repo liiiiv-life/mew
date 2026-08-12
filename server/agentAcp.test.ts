@@ -306,12 +306,14 @@ test('재접속하면 지나간 이벤트를 되돌려 받는다', async (t) => 
   session.prompt('테스트')
   await done
 
-  const replayed: AgentEvent[] = []
-  session.attach((event) => replayed.push(event))
+  // 지나간 대화는 스냅샷 한 덩어리로 간다(창이 통째로 갈아끼운다). attach는 그 뒤부터의 것만 흘린다
+  const fresh: AgentEvent[] = []
+  session.attach((event) => fresh.push(event))
   // meta는 이벤트 흐름이 아니라 현재 상태 스냅샷이라 붙을 때마다 새로 온다 — 대화 비교에서는 뺀다
   const conversation = (events: AgentEvent[]) => events.filter((e) => e.type !== 'meta')
-  assert.deepEqual(conversation(replayed), conversation(first), '새로 붙은 창이 같은 대화를 그대로 본다')
-  assert.ok(replayed.some((e) => e.type === 'meta'), '붙자마자 세션 상태를 받는다')
+  assert.deepEqual(session.snapshot(), conversation(first), '새로 붙은 창이 같은 대화를 그대로 본다')
+  assert.ok(fresh.some((e) => e.type === 'meta'), '붙자마자 세션 상태를 받는다')
+  assert.deepEqual(conversation(fresh), [], '지나간 대화가 attach로 두 번 오지 않는다')
 })
 
 test('진행 중에 보낸 메시지는 줄을 섰다가 이어서 돈다', async (t) => {

@@ -608,12 +608,21 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 | 방향 | 메시지 |
 | --- | --- |
 | 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId\|null}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'move_queued', from, to}` · `{type:'edit_queued', index, text, expect}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` · `{type:'close_session'}` |
-| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start'}` · `{type:'turn_end', stopReason}` · `{type:'error'\|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
+| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start'}` · `{type:'turn_end', stopReason}` · `{type:'error'\|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
 
+- **되감기는 한 프레임이다(`replay`).** 붙는 순간 서버가 쌓아 둔 대화(`snapshot()`, 최대 500개)를
+  통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 `replay`로 지금 그린 대화를 **갈아끼운다** —
+  그래서 잠깐 끊겼다 붙어도 화면이 비지 않는다(빈 탭의 히스토리 드롭다운이 번쩍이던 원인).
+  창은 소켓이 끊겨도 대화를 지우지 않는다. 예전에는 이벤트를 500개까지 **한 개씩** 되돌려 보냈고,
+  창은 그때마다 다시 그리느라(이벤트당 `foldEvents` 한 번 + 목록 전체) 눈에 띄게 굳었다.
+- **창은 들어오는 이벤트를 한 프레임에 모아 한 번만 그린다**(`requestAnimationFrame`). 스트리밍 청크는
+  초당 수십 개다. `reset`도 그 줄에서 순서대로 처리돼 "비우기"와 "새 대화"가 같은 프레임에 들어간다.
 - **`meta`·`sessions`·`reset`은 이벤트 버퍼에 쌓지 않는다.** `meta`는 상태 스냅샷이라 붙을 때·바뀔 때
   통째로 보내고(`sessionId`·`startedAt`·`turns`·`busy`·`queued`·`usage`·`canLoad`·`canList`),
   `sessions`는 **물어본 창에만, 물어봤을 때만** 답한다(claude 런타임은 세션이 뜨기를 기다리지 않고
   디스크에서 바로 읽는다). `reset`을 받은 창은 지금까지 그린 대화를 버린다.
+- 서버는 소켓에 **30초마다 핑**을 보낸다 — 조용한 대화(에이전트가 긴 작업 중일 때)가 중간 장비의
+  유휴 타임아웃에 끊기지 않게. 그래도 끊기면 창이 1초 뒤 다시 붙고 `replay`로 복구한다.
 - **진행 중에 온 `prompt`는 던지지 않고 줄을 세운다.** 턴이 끝나면 서버가 순서대로 이어 돌리고,
   `cancel`은 대기열도 함께 비운다. 대기 항목은 창에서 자리를 옮기고(`move_queued`) 내용도 고칠 수
   있다(`edit_queued`) — 고치는 사이 앞 턴이 끝나 큐가 당겨질 수 있으므로 `expect`(창이 보고 있던

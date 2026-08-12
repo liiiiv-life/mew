@@ -57,6 +57,8 @@ export type AgentEvent =
   | { type: 'meta'; meta: SessionMeta }
   | { type: 'reset' }
   | { type: 'sessions'; sessions: SessionInfo[] }
+  // 재접속했을 때 지나간 대화를 한 덩어리로 받는다 — 창은 그린 대화를 이걸로 통째로 갈아끼운다
+  | { type: 'replay'; events: AgentEvent[] }
 
 export type ToolEntry = { id: string; title: string; status: string }
 
