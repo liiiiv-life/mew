@@ -49,6 +49,7 @@ import { dropZoneAt, paneIds, type DropSide, type DropZone, type PaneNode } from
 import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
 import { outsideTerminal } from './utils/terminalFocus'
+import { pickRefTarget, type RefPanel } from './utils/refTarget'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
@@ -320,6 +321,19 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   const activeRelativePath = activeTab?.path ?? null
 
+  // Ctrl+L 참조는 **마지막으로 연 보조창 하나**에만 간다(예전엔 열려 있는 창 전부가 받아 적었다).
+  // 여는 순간을 기억해 두고, 그 창이 닫혀 있으면 지금 열려 있는 다른 창으로 흘려보낸다.
+  const lastPanelRef = useRef<RefPanel | null>(null)
+  useEffect(() => {
+    if (agentOpen) lastPanelRef.current = 'agent'
+  }, [agentOpen])
+  useEffect(() => {
+    if (tmuxOpen) lastPanelRef.current = 'tmux'
+  }, [tmuxOpen])
+  useEffect(() => {
+    if (chatOpen) lastPanelRef.current = 'chat'
+  }, [chatOpen])
+
   // 볼 수 있는 프로젝트는 전부 탭으로 세운다 — 순서는 팝업 격자에서 끌어 정한 자리.
   // docs는 프로젝트가 아니라 따로 선 고정 탭이라 여기서 뺀다(자리표시자로 들어올 수 있다)
   const projectTabs = useMemo(
@@ -512,19 +526,25 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           focusedEditor()?.openSearch()
         }
       } else if (matchesShortcut(e, getBinding('insertPathOrSelection'))) {
-        // 에디터의 Ctrl+L — 현재 줄(선택이면 범위)의 [경로:줄] 참조를 열려 있는 터미널·에이전트
-        // 입력에 써 준다. 터미널 안에서 누른 Ctrl+L은 TmuxTerminal이 직접 처리한다(defaultPrevented).
+        // 에디터의 Ctrl+L — 커서가 있는 줄(선택이면 그 범위)의 `경로:줄` 참조를 **마지막으로 연 보조창**
+        // 입력칸에 써 준다. md 핫뷰든 코드·텍스트든 편집기가 붙는 파일이면 전부 대상이다
+        // (줄 번호는 각 편집기의 getSelectedLineRange가 낸다 — 핫뷰는 md 원본 줄로 환산한다).
+        // 터미널 안에서 누른 Ctrl+L은 TmuxTerminal이 직접 처리한다(defaultPrevented).
         if (e.defaultPrevented) return
         if (!(e.target instanceof HTMLElement) || !e.target.closest('.ProseMirror, .cm-editor')) return
         const range = focusedEditor()?.getSelectedLineRange()
         if (!range || !activeRelativePath) return
+        // 받을 창이 없어도 여기서 삼킨다 — 안 그러면 브라우저 기본 Ctrl+L(주소창)로 샌다
         e.preventDefault()
+        // 열려 있는 보조창이 하나도 없으면 쓸 곳이 없으니 그대로 끝낸다
+        const target = pickRefTarget(lastPanelRef.current, { agent: agentOpen, tmux: tmuxOpen, chat: chatOpen })
+        if (!target) return
         const lines = range.start === range.end ? `${range.start}` : `${range.start}-${range.end}`
-        // 받는 쪽이 셋이라 화면에 쓸 글자(text)와 구조(project·path)를 함께 싣는다 — 터미널·에이전트는
-        // text를 그대로 타이핑하고, 채팅 창은 project·path로 파일 멘션 토큰을 만든다
+        // 화면에 쓸 글자(text)와 구조(project·path)를 함께 싣는다 — 터미널·에이전트는 text를 그대로
+        // 타이핑하고, 채팅 창은 project·path로 파일 멘션 토큰을 만든다. target이 자기 것인 창만 받는다
         window.dispatchEvent(
           new CustomEvent('mew:insert-ref', {
-            detail: { text: `[${activeRelativePath}:${lines}] `, project, path: activeRelativePath },
+            detail: { target, text: `${activeRelativePath}:${lines} `, project, path: activeRelativePath },
           }),
         )
       } else if (matchesShortcut(e, getBinding('toggleChat'))) {
@@ -579,7 +599,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, canUseTerminal, focusedEditor, isGuest, project])
+    // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다
+  }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, canUseTerminal, focusedEditor, isGuest, project, agentOpen, tmuxOpen, chatOpen])
 
   /**
    * 홈의 할 일 항목 클릭 — 그 표식이 있는 파일을 그 줄에서 연다. 다른 프로젝트일 수 있으므로

@@ -1,0 +1,18 @@
+// Ctrl+L 참조가 갈 창 고르기 — 마지막으로 연 창 하나에만 간다.
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { pickRefTarget } from './refTarget.ts'
+
+test('마지막으로 연 창이 열려 있으면 그 창이 받는다', () => {
+  assert.equal(pickRefTarget('tmux', { agent: true, tmux: true, chat: true }), 'tmux')
+  assert.equal(pickRefTarget('agent', { agent: true, tmux: true, chat: false }), 'agent')
+})
+
+test('마지막으로 연 창이 닫혔으면 열려 있는 다른 창으로 간다', () => {
+  assert.equal(pickRefTarget('chat', { agent: false, tmux: true, chat: false }), 'tmux')
+})
+
+test('아무 창도 안 열려 있으면 갈 곳이 없다', () => {
+  assert.equal(pickRefTarget('agent', { agent: false, tmux: false, chat: false }), null)
+  assert.equal(pickRefTarget(null, { agent: false, tmux: false, chat: false }), null)
+})

@@ -387,9 +387,13 @@ export function TmuxTerminal({
       return false
     })
 
-    // 에디터에서 누른 Ctrl+L의 [경로:줄] 참조 — 호스트 앱이 window 이벤트로 broadcast하고,
-    // 마운트된 활성 세션 터미널이 셸 입력으로 받아 적는다 (에이전트 패널도 같은 이벤트를 받는다)
-    const onInsertRef = (e: Event) => sendRaw({ type: 'input', data: (e as CustomEvent<{ text: string }>).detail.text })
+    // 에디터에서 누른 Ctrl+L의 `경로:줄` 참조 — 호스트 앱이 **마지막으로 연 보조창**을 골라 target을
+    // 실어 보낸다. 터미널 차례일 때만 셸 입력으로 받아 적는다(에이전트·채팅 창이 같은 이벤트를 나눠 쓴다)
+    const onInsertRef = (e: Event) => {
+      const detail = (e as CustomEvent<{ target?: string; text: string }>).detail
+      if (detail.target !== 'tmux') return
+      sendRaw({ type: 'input', data: detail.text })
+    }
     window.addEventListener('mew:insert-ref', onInsertRef)
 
     // ── 자동 재연결 ──────────────────────────────────────────────────────────────

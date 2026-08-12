@@ -213,11 +213,13 @@ export function ChatPanel({
     if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight
   }, [messages])
 
-  // 에디터의 Ctrl+L — [경로:줄] 대신 이 창에서는 파일 멘션 토큰으로 받는다
+  // 에디터의 Ctrl+L — `경로:줄` 대신 이 창에서는 파일 멘션 토큰으로 받는다.
+  // 창(App)이 마지막으로 연 보조창 하나를 골라 보내므로 채팅 차례일 때만 받는다
   useEffect(() => {
     const onInsertRef = (e: Event) => {
-      const detail = (e as CustomEvent<{ project?: string; path?: string }>).detail
-      if (detail?.project && detail.path) setDraft((d) => `${d}[[${detail.project}:${detail.path}]] `)
+      const detail = (e as CustomEvent<{ target?: string; project?: string; path?: string }>).detail
+      if (detail?.target !== 'chat') return
+      if (detail.project && detail.path) setDraft((d) => `${d}[[${detail.project}:${detail.path}]] `)
     }
     window.addEventListener('mew:insert-ref', onInsertRef)
     return () => window.removeEventListener('mew:insert-ref', onInsertRef)
