@@ -434,8 +434,8 @@ function SetTasksPopup({
           )}
         </div>
 
-        {/* 대기 줄 — 목록 화면에서만(상세를 보는 중에는 자리를 뺏지 않는다) */}
-        {!openTask && set.queued.length > 0 && (
+        {/* 대기 줄 — 목록에서도 상세에서도 늘 보인다(지금 이 셋 뒤에 뭐가 밀려 있는지가 늘 궁금하다) */}
+        {set.queued.length > 0 && (
           <div className="space-y-1 border-t border-edge bg-surface px-3 py-1.5 text-xs">
             <div className="text-ink-muted">대기 {set.queued.length}건 — 순서대로 보냅니다</div>
             {set.queued.map((text, index) => {
