@@ -5,7 +5,7 @@ import { flattenFiles, fuzzyScore } from '@mew/editor'
 import { ConfirmDialog, setPathDragData } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { PresenceDots } from './PresenceDots'
-import { setScrollSaveSuppressed } from '../utils/scrollMemory'
+import { getTreeScroll, saveTreeScroll, setScrollSaveSuppressed } from '../utils/scrollMemory'
 
 type EditingState =
   | { mode: 'rename'; path: string; type: 'file' | 'dir'; value: string; error?: string; busy?: boolean }
@@ -128,6 +128,21 @@ function MocItem({
 
 type SortMode = 'name' | 'ext'
 const SORT_KEY = 'mew:tree-sort'
+
+/** 펼쳐 둔 폴더는 프로젝트마다 따로 기억한다 — 브라우저를 껐다 켜도 보던 모양 그대로 뜬다 */
+const openDirsKey = (project: string) => `mew:tree-open:${project}`
+
+/** 저장된 펼침 목록. 저장된 적이 없으면 null(= 처음 여는 프로젝트라 기본값을 쓴다) */
+function loadOpenDirs(project: string): Set<string> | null {
+  try {
+    const raw = localStorage.getItem(openDirsKey(project))
+    if (raw === null) return null
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? new Set(parsed.filter((p): p is string => typeof p === 'string')) : null
+  } catch {
+    return null
+  }
+}
 
 // 만들거나 옮기는 데는 성공했는데 그 결과가 내 트리에는 안 뜰 때(숨김 목록·확장자 필터) 띄우는 안내.
 // 조용히 아무 일도 없었던 것처럼 보이는 게 제일 나쁘다 — 파일은 디스크에 실제로 있다.
@@ -577,6 +592,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
 
 export function FileTree({
   tree,
+  project,
   selectedPath,
   readOnly,
   searchFocusSignal,
@@ -591,6 +607,8 @@ export function FileTree({
   onNotice,
 }: {
   tree: TreeNode[]
+  /** 펼친 폴더·스크롤을 프로젝트별로 기억하는 열쇠 (이 컴포넌트는 key={project}로 갈아 끼워진다) */
+  project: string
   selectedPath: string | null
   readOnly: boolean
   searchFocusSignal: number
@@ -610,7 +628,9 @@ export function FileTree({
   const [query, setQuery] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) === 'ext' ? 'ext' : 'name'))
   const [focused, setFocused] = useState<Focused>(null)
-  const [openDirs, setOpenDirs] = useState<Set<string>>(new Set())
+  const [openDirs, setOpenDirs] = useState<Set<string>>(() => loadOpenDirs(project) ?? new Set())
+  // 저장된 펼침 상태가 있으면(전부 접어 둔 빈 목록이어도) 아래 "처음엔 최상위 폴더를 모두 편다"를 건너뛴다
+  const [hadSavedOpenDirs] = useState(() => loadOpenDirs(project) !== null)
   const [editing, setEditing] = useState<EditingState>(null)
   const [popover, setPopover] = useState<PopoverState>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; type: 'file' | 'dir' } | null>(null)
@@ -662,11 +682,30 @@ export function FileTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 신호가 오를 때만 실행하는 이벤트성 이펙트
   }, [newFileSignal])
 
+  // 처음 여는 프로젝트만 최상위 폴더를 모두 펴 준다 — 기억해 둔 모양이 있으면 그대로 둔다
   useEffect(() => {
-    if (initializedOpenDirs.current || tree.length === 0) return
+    if (hadSavedOpenDirs || initializedOpenDirs.current || tree.length === 0) return
     initializedOpenDirs.current = true
     setOpenDirs(new Set(tree.filter((n) => n.type === 'dir').map((n) => n.path)))
-  }, [tree])
+  }, [tree, hadSavedOpenDirs])
+
+  useEffect(() => {
+    localStorage.setItem(openDirsKey(project), JSON.stringify([...openDirs]))
+  }, [openDirs, project])
+
+  // 사이드바 스크롤 복원 — 트리가 처음 들어온 프레임에 한 번만. 그 뒤로는 사용자가 굴린 대로 두고,
+  // 활성 파일 드러내기(위 이펙트)는 이미 보이면 아무것도 하지 않으므로 복원 위치를 뺏지 않는다
+  const restoredScroll = useRef(false)
+  useEffect(() => {
+    if (restoredScroll.current || tree.length === 0) return
+    restoredScroll.current = true
+    const top = getTreeScroll(project)
+    if (top === null) return
+    const raf = requestAnimationFrame(() => {
+      if (listRef.current) listRef.current.scrollTop = top
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [tree, project])
 
   // 활성 탭이 바뀌면 사이드바에서도 해당 파일이 보이게 부모 폴더 체인을 열고 스크롤한다.
   // 사이드바가 닫혀 있으면 이 컴포넌트는 언마운트 상태 — 다시 열릴 때 이 이펙트가 반영한다.
@@ -1119,6 +1158,8 @@ export function FileTree({
       <div
         ref={listRef}
         tabIndex={-1}
+        // 스크롤 위치도 기억한다 — 저장은 문서 스크롤과 같은 저장소가 모아서 쓴다(utils/scrollMemory.ts)
+        onScroll={(e) => saveTreeScroll(project, e.currentTarget.scrollTop)}
         onKeyDown={handleTreeKeyDown}
         onContextMenu={(e) => {
           // 노드 위 우클릭은 Node.handleContextMenu가 먼저 처리하고 버블링되어 여기 닿는다 —

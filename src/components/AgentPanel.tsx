@@ -40,6 +40,8 @@ const RUNTIMES = [
 
 const RUNTIME_KEY = 'mew:agent-runtime'
 const TABS_KEY = 'mew:agent-tabs'
+/** 마지막으로 보던 탭 — 창을 다시 열거나 브라우저를 껐다 켜도 그 대화로 돌아온다 */
+const ACTIVE_TAB_KEY = 'mew:agent-active-tab'
 
 /** 아직 아무 말도 오가지 않은 탭의 이름 — 이 상태의 탭은 화면에 지난 세션 목록을 대신 그린다 */
 const NEW_TAB_LABEL = '새 대화'
@@ -527,9 +529,14 @@ function AgentTabBar({
 
 export function AgentPanel({ onClose }: { onClose: () => void }) {
   const [tabs, setTabs] = useState<AgentTab[]>(loadTabs)
-  const [activeId, setActiveId] = useState(() => tabs[0].id)
+  // 브라우저를 껐다 켜도 보던 탭에서 이어 하도록 마지막으로 본 탭을 기억한다.
+  // 그 탭이 목록에서 사라졌으면(다른 창에서 닫았거나 저장분이 깨졌으면) 첫 탭으로 돌아간다
+  const [activeId, setActiveId] = useState(() => {
+    const saved = localStorage.getItem(ACTIVE_TAB_KEY)
+    return saved && tabs.some((tab) => tab.id === saved) ? saved : tabs[0].id
+  })
   // 한 번이라도 연 탭만 붙인다 — 탭 하나가 에이전트 프로세스 하나라, 복원된 탭까지 다 띄우면 우르르 뜬다
-  const [opened, setOpened] = useState<Set<string>>(() => new Set([tabs[0].id]))
+  const [opened, setOpened] = useState<Set<string>>(() => new Set([activeId]))
   const [infos, setInfos] = useState<Record<string, TabInfo>>({})
   // 탭을 닫을 때 그 탭의 WS로 close_session을 보내야 한다 — 창을 닫는 것과 달리 세션을 끝내는 뜻이다
   const sendersRef = useRef(new Map<string, (payload: Record<string, unknown>) => void>())
@@ -539,6 +546,10 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     localStorage.setItem(TABS_KEY, JSON.stringify(tabs))
   }, [tabs])
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_TAB_KEY, activeId)
+  }, [activeId])
 
   const activate = (id: string) => {
     setActiveId(id)

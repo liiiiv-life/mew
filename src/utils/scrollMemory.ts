@@ -55,4 +55,10 @@ export function getScroll(project: string, path: string): number | null {
   return typeof top === 'number' && top > 0 ? top : null
 }
 
+// 사이드바 파일 트리의 스크롤도 같은 저장소에 얹는다 — 모아쓰기·pagehide 마무리를 그대로 쓴다.
+// 실제 경로에는 NUL이 들어갈 수 없으므로 어떤 파일과도 겹치지 않는 자리다
+const TREE_PATH = '\u0000tree'
+export const saveTreeScroll = (project: string, top: number) => saveScroll(project, TREE_PATH, top)
+export const getTreeScroll = (project: string) => getScroll(project, TREE_PATH)
+
 if (typeof window !== 'undefined') window.addEventListener('pagehide', flushScroll)

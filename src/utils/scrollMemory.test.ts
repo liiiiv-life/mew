@@ -7,7 +7,7 @@ const store = new Map<string, string>()
   getItem: (k: string) => store.get(k) ?? null,
   setItem: (k: string, v: string) => void store.set(k, v),
 }
-const { saveScroll, getScroll, flushScroll } = await import('./scrollMemory.ts')
+const { saveScroll, getScroll, flushScroll, saveTreeScroll, getTreeScroll } = await import('./scrollMemory.ts')
 
 test('flush 뒤 localStorage에 남고, getScroll은 몇 번이고 준다 — 탭 전환마다 복원 (ADR 0039)', () => {
   saveScroll('proj', 'a.md', 123.7)
@@ -20,6 +20,17 @@ test('flush 뒤 localStorage에 남고, getScroll은 몇 번이고 준다 — �
 test('flush 전에도 대기 중인 최신값을 준다', () => {
   saveScroll('proj', 'b.md', 50)
   assert.equal(getScroll('proj', 'b.md'), 50)
+})
+
+test('사이드바 트리 스크롤은 프로젝트마다 따로, 어떤 파일과도 겹치지 않는 자리에 남는다', () => {
+  saveTreeScroll('proj', 300)
+  saveTreeScroll('other', 40)
+  saveScroll('proj', 'tree', 7) // 'tree'라는 이름의 파일이 있어도 트리 값과 섞이지 않는다
+  flushScroll()
+  assert.equal(getTreeScroll('proj'), 300)
+  assert.equal(getTreeScroll('other'), 40)
+  assert.equal(getScroll('proj', 'tree'), 7)
+  assert.equal(getTreeScroll('없는프로젝트'), null)
 })
 
 test('저장값 없거나 0이면 null — 괜히 맨 위로 스크롤하지 않는다', () => {

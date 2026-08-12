@@ -62,6 +62,8 @@ type Theme = 'dark' | 'light'
 const THEME_KEY = 'mew:theme'
 const TOC_KEY = 'mew:toc-open'
 const TMUX_OPEN_KEY = 'mew:tmux-open'
+/** 에이전트 창이 열려 있었는지 — 터미널과 같이 프로젝트와 무관한 화면 상태다(세션 스코프가 워크스페이스다) */
+const AGENT_OPEN_KEY = 'mew:agent-open'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
 /** 홈 탭의 스코프 — 워크스페이스 폴더 자신을 프로젝트처럼 본다(server/paths.ts의 WORKSPACE_PROJECT).
@@ -104,8 +106,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   const [tmuxOpen, setTmuxOpen] = useState(() => canUseTerminal && loadTmuxOpen(getProject()))
-  // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034)
-  const [agentOpen, setAgentOpen] = useState(false)
+  // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034).
+  // 열려 있었는지도 터미널과 같이 기억한다 — 열린 채로 껐으면 다시 켤 때 그 탭에서 이어 한다
+  const [agentOpen, setAgentOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_OPEN_KEY) === '1')
   // 멤버 채팅 창(Alt+C) — 사람끼리 쓰는 창이라 로그인만 하면 열린다(게스트 제외)
   const [chatOpen, setChatOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -471,6 +474,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   useEffect(() => {
     localStorage.setItem(TMUX_OPEN_KEY, tmuxOpen ? '1' : '0')
   }, [tmuxOpen])
+
+  useEffect(() => {
+    localStorage.setItem(AGENT_OPEN_KEY, agentOpen ? '1' : '0')
+  }, [agentOpen])
 
   const handleFileCreated = useCallback(
     (relPath: string) => {
@@ -1009,6 +1016,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                   <FileTree
                     key={project}
                     tree={tree}
+                    project={project}
                     selectedPath={activePath}
                     readOnly={isGuest}
                     searchFocusSignal={searchFocusSignal}
