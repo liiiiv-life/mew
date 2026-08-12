@@ -301,47 +301,98 @@ function HeaderSelect({
 }
 
 /**
- * 빈 탭의 화면 — 지난 세션 목록이다. 고르면 이 탭이 그 대화를 이어받고(CLI의 `/resume`),
+ * 빈 탭의 화면 — [히스토리] 하나뿐이다. **누를 때 비로소** 목록을 물어본다(onOpen): 붙을 때마다 미리
+ * 훑으면 세션 파일 훑기가 탭 수만큼 곱해져 창이 굳는다. 고르면 이 탭이 그 대화를 이어받고(CLI의 `/resume`),
  * 그냥 아래에 입력하면 이미 잡혀 있는 새 세션으로 간다. 새 탭 = 새 대화이므로 따로 '새 세션' 버튼은 없다.
  */
 function SessionPicker({
   sessions,
   takenIds,
   loadingSession,
+  onOpen,
   onPick,
 }: {
   sessions: SessionInfo[] | null
   /** 다른 탭이 이미 열어 둔 세션 — 같은 세션을 두 프로세스가 붙들면 전사가 엉킨다 */
   takenIds: string[]
   loadingSession: string | null
+  /** 드롭다운을 열었다 — 여기서 목록을 받아 온다 */
+  onOpen: () => void
   onPick: (session: SessionInfo) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+  // Esc·모바일 뒤로가기가 패널 대신 이 드롭다운을 닫게 한다
+  useOverlayDismiss(open && close)
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: PointerEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [open])
+
   return (
-    <div className="text-xs">
-      <div className="px-2 pb-2 text-ink-muted">이어서 할 대화를 고르거나, 아래에 바로 입력해 새 대화를 시작하세요.</div>
-      {sessions === null && <div className="px-2 py-2 text-ink-muted">불러오는 중…</div>}
-      {sessions?.length === 0 && <div className="px-2 py-2 text-ink-muted">이 워크스페이스에 지난 세션이 없습니다.</div>}
-      {sessions?.map((session) => {
-        const taken = takenIds.includes(session.sessionId)
-        return (
-          <button
-            key={session.sessionId}
-            type="button"
-            onClick={() => onPick(session)}
-            disabled={taken || loadingSession !== null}
-            className="flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left hover:bg-surface-raised disabled:opacity-40"
-          >
-            <span className="w-full truncate text-ink">{session.title || session.sessionId.slice(0, 8)}</span>
-            <span className="text-ink-muted">
-              {session.sessionId === loadingSession
-                ? '불러오는 중…'
-                : taken
-                  ? '다른 탭에서 열림'
-                  : formatTime(session.updatedAt ?? null)}
-            </span>
-          </button>
-        )
-      })}
+    <div ref={ref} className="relative px-2 text-xs">
+      <button
+        type="button"
+        onClick={() => {
+          if (!open) onOpen()
+          setOpen((v) => !v)
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`flex items-center gap-1 rounded px-2 py-1 hover:bg-surface-raised hover:text-ink ${
+          open ? 'bg-surface-raised text-ink' : 'text-ink-secondary'
+        }`}
+      >
+        <span>히스토리</span>
+        <CaretGlyph dir="down" />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label="지난 세션"
+          className="absolute left-2 top-full z-40 mt-1 w-4/5 rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
+        >
+          {/* 한 번에 다섯 줄쯤만 보이고 나머지는 여기서만 스크롤된다 */}
+          <div className="max-h-56 overflow-y-auto">
+            {sessions === null && <div className="px-2.5 py-1.5 text-ink-muted">불러오는 중…</div>}
+            {sessions?.length === 0 && (
+              <div className="px-2.5 py-1.5 text-ink-muted">이 워크스페이스에 지난 세션이 없습니다.</div>
+            )}
+            {sessions?.map((session) => {
+              const taken = takenIds.includes(session.sessionId)
+              return (
+                <button
+                  key={session.sessionId}
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  onClick={() => {
+                    onPick(session)
+                    setOpen(false)
+                  }}
+                  disabled={taken || loadingSession !== null}
+                  className="flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left hover:bg-surface-hover disabled:opacity-40"
+                >
+                  <span className="w-full truncate text-ink">{session.title || session.sessionId.slice(0, 8)}</span>
+                  <span className="text-ink-muted">
+                    {session.sessionId === loadingSession
+                      ? '불러오는 중…'
+                      : taken
+                        ? '다른 탭에서 열림'
+                        : formatTime(session.updatedAt ?? null)}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -573,6 +624,7 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
           <div key={tab.id} className={tab.id === activeId ? 'min-h-0 flex-1' : 'hidden'}>
             <AgentSessionView
               tabId={tab.id}
+              active={tab.id === activeId}
               infos={infos}
               onLabel={setTabLabel}
               onInfo={setTabInfo}
@@ -587,12 +639,15 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
 /** 탭 하나 — WS 하나, 세션 하나. 대화 상태는 전부 여기 안에 있다 */
 function AgentSessionView({
   tabId,
+  active,
   infos,
   onLabel,
   onInfo,
   onRegister,
 }: {
   tabId: string
+  /** 지금 보이는 탭인지 — 안 보이는 탭은 높이가 0이라 스크롤을 못 잡는다(아래 effect) */
+  active: boolean
   infos: Record<string, TabInfo>
   onLabel: (tabId: string, label: string) => void
   onInfo: (tabId: string, info: TabInfo) => void
@@ -615,13 +670,21 @@ function AgentSessionView({
   const [now, setNow] = useState(() => Date.now())
   const wsRef = useRef<WebSocket | null>(null)
 
-  // 에디터에서 누른 Ctrl+L의 [경로:줄] 참조를 입력창에 이어 붙인다 — 터미널과 같은 broadcast를 받는다
+  // 에디터에서 누른 Ctrl+L의 `경로:줄` 참조를 입력창에 이어 붙인다. 창(App)이 마지막으로 연 보조창을
+  // 골라 target을 실어 보내므로 에이전트 창 차례일 때만 받고, 탭이 여럿이면 **보이는 탭**만 받아 적는다
   useEffect(() => {
-    const onInsertRef = (e: Event) => setDraft((d) => d + (e as CustomEvent<{ text: string }>).detail.text)
+    const onInsertRef = (e: Event) => {
+      const detail = (e as CustomEvent<{ target?: string; text: string }>).detail
+      if (!active || detail.target !== 'agent') return
+      setDraft((d) => d + detail.text)
+    }
     window.addEventListener('mew:insert-ref', onInsertRef)
     return () => window.removeEventListener('mew:insert-ref', onInsertRef)
-  }, [])
+  }, [active])
   const scrollRef = useRef<HTMLDivElement>(null)
+  // 지금 대화 바닥에 붙어 있는지 — 붙어 있을 때만 새 내용을 따라 내려간다
+  const stickRef = useRef(true)
+  const [unread, setUnread] = useState(false)
 
   useEffect(() => {
     let closed = false
@@ -634,8 +697,6 @@ function AgentSessionView({
     setMeta(null)
 
     const connect = () => {
-      // 빈 탭이 곧바로 지난 세션을 그릴 수 있게, 붙자마자 한 번만 목록을 물어본다(capability가 있을 때만)
-      let listed = false
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
       const query = `runtime=${encodeURIComponent(runtime)}&tab=${encodeURIComponent(tabId)}`
       ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?${query}`)
@@ -646,17 +707,12 @@ function AgentSessionView({
         if (event.type === 'ready') return
         if (event.type === 'models') return setModels(event.models)
         if (event.type === 'modes') return setModes(event.modes)
-        if (event.type === 'meta') {
-          if (!listed && event.meta.canList) {
-            listed = true
-            ws.send(JSON.stringify({ type: 'list_sessions' }))
-          }
-          return setMeta(event.meta)
-        }
+        if (event.type === 'meta') return setMeta(event.meta)
         if (event.type === 'sessions') return setSessions(event.sessions)
-        // 히스토리 불러오기 — 지금까지 그린 대화를 버린다
+        // 히스토리 불러오기 — 지금까지 그린 대화를 버린다. 새 대화는 바닥에서 시작한다
         if (event.type === 'reset') {
           setLoadingSession(null)
+          stickRef.current = true
           return setEvents([])
         }
         setEvents((prev) => [...prev, event])
@@ -689,10 +745,34 @@ function AgentSessionView({
 
   const items = useMemo(() => foldEvents(events), [events])
 
-  useEffect(() => {
+  // 대화가 자라도 **바닥에 붙어 있을 때만** 따라 내려간다 — 위로 올려 읽는 중(펼친 작업 버블을 읽는
+  // 중이 대부분이다)이면 자리를 그대로 두고 "새 메시지"만 띄운다. 누르면 바닥으로 가고, 스스로
+  // 바닥까지 내려가도 사라진다
+  const scrollToBottom = useCallback(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [items])
+    stickRef.current = true
+    setUnread(false)
+  }, [])
+
+  useEffect(() => {
+    if (stickRef.current) scrollToBottom()
+    else setUnread(true)
+  }, [items, scrollToBottom])
+
+  // 안 보이는 탭은 display:none이라 scrollHeight가 0이다 — 그동안 온 말은 못 따라 내려간 것이므로
+  // 이 탭이 보이게 될 때 한 번 더 바닥으로 붙인다(위로 올려 두고 나간 탭은 그 자리를 지킨다)
+  useEffect(() => {
+    if (active && stickRef.current) scrollToBottom()
+  }, [active, scrollToBottom])
+
+  // 스트리밍으로 한두 줄씩 늘어나는 동안 붙었다 떨어졌다 하지 않게 바닥 판정에 여유를 둔다
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 48
+    if (stickRef.current) setUnread(false)
+  }, [])
 
   const send = useCallback((payload: Record<string, unknown>) => wsRef.current?.send(JSON.stringify(payload)), [])
 
@@ -748,6 +828,8 @@ function AgentSessionView({
     // 진행 중이어도 막지 않는다 — 서버가 줄을 세웠다가 턴이 끝나면 이어서 돈다
     send({ type: 'prompt', text })
     setDraft('')
+    // 내가 말을 걸었으면 답을 보겠다는 뜻이다 — 다시 바닥에 붙인다
+    stickRef.current = true
   }
 
   const pending = items.some((item) => item.kind === 'turn' && item.children.some((c) => c.kind === 'permission' && !c.answered))
@@ -867,15 +949,20 @@ function AgentSessionView({
         </div>
       )}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
-        {/* 아직 아무 말도 오가지 않은 탭 = 새 대화 자리 — 대신 지난 세션을 고르는 화면을 그린다.
-            meta(=에이전트가 떴다)나 세션 목록 중 먼저 오는 것으로 그린다. 목록은 디스크만 읽어 먼저 오고,
-            되받을 대화가 있는 탭은 세션이 이미 살아 있어서 이벤트가 그보다 먼저 replay된다 */}
-        {(meta || sessions !== null) && items.length === 0 && (
+      <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
+        {/* 아직 아무 말도 오가지 않은 탭 = 새 대화 자리 — 대신 [히스토리] 드롭다운만 그린다.
+            목록 자체는 그 드롭다운을 열 때 받아 온다(붙자마자 미리 받지 않는다).
+            되받을 대화가 있는 탭은 이벤트가 replay되면서 이 자리가 대화로 바뀐다 */}
+        {connected && items.length === 0 && (
           <SessionPicker
             sessions={sessions}
             takenIds={takenIds}
             loadingSession={loadingSession}
+            onOpen={() => {
+              // 열 때마다 새로 물어본다 — 그 사이 다른 탭에서 돈 대화가 목록에 있어야 한다
+              setSessions(null)
+              send({ type: 'list_sessions' })
+            }}
             onPick={(session) => {
               setLoadingSession(session.sessionId)
               onLabel(tabId, session.title || session.sessionId.slice(0, 8))
@@ -1029,6 +1116,20 @@ function AgentSessionView({
             </div>
           )
         })}
+        {/* 올려 읽는 동안 밑에서 대화가 자랐다는 표시 — 누르면 바닥으로 간다(바닥에 닿으면 스스로 사라진다).
+            찾기 바(에디터)와 같은 수법: 스크롤 컨테이너에 sticky로 붙는 높이 0짜리 앵커라 본문을 밀지 않는다.
+            marginTop은 인라인으로 지운다 — 부모의 space-y-3가 이 앵커에도 간격을 넣기 때문 */}
+        {unread && (
+          <div className="sticky bottom-0 z-10 h-0" style={{ marginTop: 0 }}>
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-surface-inverse px-3 py-1 text-xs text-ink-inverse shadow-lg"
+            >
+              새 메시지 <CaretGlyph dir="down" />
+            </button>
+          </div>
+        )}
       </div>
 
       {queued.length > 0 && (

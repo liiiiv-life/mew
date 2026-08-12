@@ -49,7 +49,7 @@ process.env.MEW_AGENT_ARGS = stubPath
 const { AGENT_WS_PATH, attachAgentWebSocket } = await import('./agentWs.ts')
 const { disposeAllSessions } = await import('./agentAcp.ts')
 
-test('에이전트가 뜨기 전에 보낸 질문도 잃지 않고, 세션 목록은 먼저 온다', async (t) => {
+test('에이전트가 뜨기 전에 보낸 질문도 잃지 않고, 목록은 물어본 창에만 먼저 간다', async (t) => {
   const server = http.createServer()
   attachAgentWebSocket(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -73,10 +73,14 @@ test('에이전트가 뜨기 전에 보낸 질문도 잃지 않고, 세션 목�
     })
   })
   // 붙자마자 — 세션은 아직 뜨는 중이다
-  ws.on('open', () => ws.send(JSON.stringify({ type: 'prompt', text: '안녕' })))
+  ws.on('open', () => {
+    ws.send(JSON.stringify({ type: 'prompt', text: '안녕' }))
+    ws.send(JSON.stringify({ type: 'list_sessions' }))
+  })
 
   assert.equal(await answered, '받음:안녕', '뜨기 전에 보낸 질문이 뜬 뒤에 그대로 실행된다')
   assert.equal(kinds[0], 'ready', 'ready는 에이전트를 기다리지 않는다')
   assert.ok(kinds.indexOf('sessions') < kinds.indexOf('meta'), '세션 목록은 디스크만 읽으므로 meta보다 먼저 온다')
+  assert.equal(kinds.filter((k) => k === 'sessions').length, 1, '목록은 물어본 만큼만 간다(붙을 때 미리 보내지 않는다)')
   ws.close()
 })

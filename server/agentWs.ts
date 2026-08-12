@@ -44,14 +44,8 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
   const fail = (err: unknown) => send(ws, { type: 'error', message: err instanceof Error ? err.message : String(err) })
 
   // 에이전트가 뜨는 데는 1초가 넘게 걸린다(spawn + initialize + newSession). 그동안 창을 세워 두지 않는다:
-  // ready를 먼저 보내고, 지난 세션 목록도 먼저 보낸다 — 목록은 디스크만 읽으므로 자식 프로세스가 필요 없다.
+  // ready를 먼저 보낸다. 지난 세션 목록은 **창이 물어볼 때만** 간다 — 붙을 때마다 훑으면 탭 수만큼 곱해진다.
   send(ws, { type: 'ready' })
-  if (runtime === 'claude')
-    void listSessionsFromDisk(WORKSPACE_ROOT)
-      .then((sessions) => send(ws, { type: 'sessions', sessions }))
-      .catch(() => {
-        /* 목록은 있으면 좋은 것이다 — 실패해도 창은 그대로 뜬다 */
-      })
 
   // 세션이 준비되기 전에 온 말은 버리지 않고 줄을 세운다 — 예전에는 조용히 사라졌다
   // (뜨는 데 몇 초가 걸리므로 그 사이에 보낸 첫 질문이 실제로 없어졌다)
@@ -60,6 +54,13 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
   let detach = () => {}
 
   const handle = (msg: ClientMessage) => {
+    // 목록은 디스크만 읽는다 — 자식 프로세스가 뜨기를 기다리지 않는다(세션의 listSessions와 같은 지름길)
+    if (msg.type === 'list_sessions' && runtime === 'claude') {
+      void listSessionsFromDisk(WORKSPACE_ROOT)
+        .then((sessions) => send(ws, { type: 'sessions', sessions }))
+        .catch(fail)
+      return
+    }
     if (!session) {
       early.push(msg)
       return
