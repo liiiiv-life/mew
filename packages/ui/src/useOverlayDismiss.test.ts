@@ -137,6 +137,65 @@ test('뒤로가기 가드는 겹쳐도 한 개만 얹고, 한 겹 닫힐 때마�
   assert.equal(backs, 1)
 })
 
+test('outside를 준 오버레이는 바깥을 누르면 닫히고 안쪽은 그대로다', async () => {
+  reset()
+  const card = window.document.createElement('div')
+  const inside = window.document.createElement('button')
+  card.appendChild(inside)
+  window.document.body.appendChild(card)
+
+  let closed = 0
+  const unregister = registerOverlay({
+    close: () => (closed += 1),
+    closeOnEscape: () => true,
+    escapePhase: 'capture',
+    outside: () => card,
+  })
+  await settle()
+
+  const press = (target: EventTarget) => target.dispatchEvent(new window.Event('pointerdown', { bubbles: true }))
+  // 팝업 안쪽이 stopPropagation을 해도 capture로 이미 지나간 뒤다 — 위치로 판단하므로 안 닫힌다
+  inside.addEventListener('pointerdown', (e: Event) => e.stopPropagation())
+  press(inside)
+  assert.equal(closed, 0, '카드 안을 누르면 닫히지 않는다')
+
+  press(window.document.body)
+  assert.equal(closed, 1, '바깥을 누르면 닫힌다')
+
+  unregister()
+  await settle()
+  card.remove()
+})
+
+test('바깥 클릭도 맨 위 하나만 닫는다 — outside가 없는 오버레이는 건드리지 않는다', async () => {
+  reset()
+  const card = window.document.createElement('div')
+  window.document.body.appendChild(card)
+  const closed: string[] = []
+
+  // 아래는 사이드바처럼 바깥 클릭으로 닫히면 안 되는 오버레이
+  const unregisterPanel = registerOverlay({ close: () => closed.push('panel'), closeOnEscape: () => true, escapePhase: 'bubble' })
+  const unregisterCard = registerOverlay({
+    close: () => closed.push('card'),
+    closeOnEscape: () => true,
+    escapePhase: 'capture',
+    outside: () => card,
+  })
+  await settle()
+
+  window.document.body.dispatchEvent(new window.Event('pointerdown', { bubbles: true }))
+  assert.deepEqual(closed, ['card'], '맨 위 카드만 닫힌다')
+
+  unregisterCard()
+  await settle()
+  window.document.body.dispatchEvent(new window.Event('pointerdown', { bubbles: true }))
+  assert.deepEqual(closed, ['card'], 'outside가 없는 패널은 바깥 클릭에 반응하지 않는다')
+
+  unregisterPanel()
+  await settle()
+  card.remove()
+})
+
 test('한 커밋에서 A가 닫히고 B가 열리면 history를 건드리지 않는다', async () => {
   reset()
   const unregisterA = registerOverlay({ close: () => {}, closeOnEscape: () => true, escapePhase: 'capture' })

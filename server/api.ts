@@ -18,6 +18,8 @@ import { createTmuxManager, createTmuxRouter } from '@mew/tmux-term/server'
 import { CmdButtonError, commandSessionName, normalizeCmdButtons, readCmdButtons, writeCmdButtons } from './cmdButtons.ts'
 import { normalizeTermButtons, readTermButtons, TermButtonError, writeTermButtons } from './termButtons.ts'
 import { readTableLayout, TableLayoutError, writeTableLayout } from './tableLayout.ts'
+import { ChatError, listChatFor, markChatRead, mentionedEmails, postChatMessage } from './chat.ts'
+import { addComment, addThread, CommentsError, deleteComment, editComment, listThreads } from './comments.ts'
 import { createDbRouter } from './db/routes.ts'
 import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
 import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
@@ -729,6 +731,165 @@ export function createApiApp() {
       res.json({ ok: true, tables: writeTableLayout(project, relPath, tables) })
     } catch (err) {
       if (err instanceof TableLayoutError) {
+        res.status(400).json({ error: err.message })
+        return
+      }
+      handleError(res, err)
+    }
+  })
+
+  // ── 협업: 멤버 채팅 · 파일 댓글 ──────────────────────────────────────────────
+  // 실시간 전달은 presence 신호({type:'chat'}·{type:'comments'})가 전부다 — 신호에 내용·경로를
+  // 싣지 않는다(broadcast는 게스트에게도 간다). 받는 쪽이 REST로 다시 읽는다. 전부 로그인 전용.
+
+  /** 계정 목록 — 채팅 상대와 읽음 계산의 모집단이다 */
+  const memberEmails = () => listUsers().map(({ email }) => email)
+
+  // 단체방 + 내 DM을 한 번에 준다(원장이 500줄뿐이다). 남의 DM은 애초에 실리지 않는다
+  app.get('/chat', requireAuthenticated, (req, res) => {
+    res.json(listChatFor(authOf(req).email ?? '', memberEmails()))
+  })
+
+  app.post('/chat', requireAuthenticated, (req, res) => {
+    const { text, to } = (req.body ?? {}) as { text?: unknown; to?: unknown }
+    try {
+      const author = authOf(req).email ?? ''
+      // 수신자는 실재하는 계정만 — 오타 하나로 아무도 못 보는 메시지가 남지 않게 한다
+      let recipients: string[] | undefined
+      if (to !== undefined && to !== null) {
+        if (!Array.isArray(to)) {
+          res.status(400).json({ error: '수신자 형식이 잘못됐습니다' })
+          return
+        }
+        const members = memberEmails()
+        const unknown = to.filter((email) => typeof email !== 'string' || !members.includes(email))
+        if (unknown.length > 0) {
+          res.status(400).json({ error: '없는 계정에는 보낼 수 없습니다' })
+          return
+        }
+        recipients = to as string[]
+      }
+      const message = postChatMessage(author, text, recipients)
+      broadcast({ type: 'chat' })
+      res.json({ ok: true, message })
+    } catch (err) {
+      if (err instanceof ChatError) {
+        res.status(400).json({ error: err.message })
+        return
+      }
+      handleError(res, err)
+    }
+  })
+
+  // 이 대화를 여기까지 읽었다 — 보낸 쪽 화면의 숫자가 줄어야 하므로 읽음도 방송한다
+  app.post('/chat/read', requireAuthenticated, (req, res) => {
+    const conversation = (req.body as { conversation?: unknown } | null)?.conversation
+    if (typeof conversation !== 'string' || !conversation) {
+      res.status(400).json({ error: 'conversation이 필요합니다' })
+      return
+    }
+    try {
+      if (markChatRead(authOf(req).email ?? '', conversation)) broadcast({ type: 'chat' })
+      res.json({ ok: true })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 멘션 자동완성용 계정 목록 — 이메일만. /admin/users(owner 전용)와 달리 역할·상태는 주지 않는다
+  app.get('/members', requireAuthenticated, (_req, res) => {
+    res.json({ members: listUsers().map(({ email }) => email) })
+  })
+
+  app.get('/comments', requireAuthenticated, (req, res) => {
+    const relPath = String(req.query.path ?? '')
+    const project = projectOf(req)
+    try {
+      resolveProjectPath(project, relPath) // 경로 탈출·차단 경로 검증
+      res.json({ threads: listThreads(project, relPath) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // threadId가 있으면 그 스레드에 답글, 없으면 anchor로 새 스레드 — 작성자는 언제나 세션에서 온다
+  app.post('/comments', requireAuthenticated, (req, res) => {
+    const { path: relPath, threadId, anchor, text } = req.body as {
+      path?: unknown
+      threadId?: unknown
+      anchor?: unknown
+      text?: unknown
+    }
+    const project = projectOf(req)
+    try {
+      if (typeof relPath !== 'string' || !relPath) {
+        res.status(400).json({ error: 'path가 필요합니다' })
+        return
+      }
+      resolveProjectPath(project, relPath)
+      const author = authOf(req).email ?? ''
+      const thread =
+        typeof threadId === 'string' && threadId
+          ? addComment(project, relPath, threadId, author, text)
+          : addThread(project, relPath, anchor, author, text)
+      broadcast({ type: 'comments' })
+      // 댓글 속 @이메일 멘션 — 그 사람이 보는 채팅에 파일 멘션과 함께 흘려 준다
+      // 지목된 사람에게만 간다(ADR 0049 §4·0050) — 단체방에 흘리면 남의 대화가 새어 나간다
+      const mentioned = mentionedEmails(String(text), memberEmails())
+      if (mentioned.length > 0) {
+        postChatMessage(author, `[[${project}:${relPath}]] 댓글에서 — ${String(text).trim().slice(0, 500)}`, mentioned)
+        broadcast({ type: 'chat' })
+      }
+      res.json({ ok: true, thread })
+    } catch (err) {
+      if (err instanceof CommentsError) {
+        res.status(400).json({ error: err.message })
+        return
+      }
+      handleError(res, err)
+    }
+  })
+
+  app.put('/comments', requireAuthenticated, (req, res) => {
+    const { path: relPath, threadId, commentId, text } = req.body as {
+      path?: unknown
+      threadId?: unknown
+      commentId?: unknown
+      text?: unknown
+    }
+    const project = projectOf(req)
+    try {
+      if (typeof relPath !== 'string' || typeof threadId !== 'string' || typeof commentId !== 'string') {
+        res.status(400).json({ error: 'path, threadId, commentId가 필요합니다' })
+        return
+      }
+      resolveProjectPath(project, relPath)
+      const auth = authOf(req)
+      const thread = editComment(project, relPath, threadId, commentId, { email: auth.email ?? '', isOwner: auth.role === 'owner' }, text)
+      broadcast({ type: 'comments' })
+      res.json({ ok: true, thread })
+    } catch (err) {
+      if (err instanceof CommentsError) {
+        res.status(400).json({ error: err.message })
+        return
+      }
+      handleError(res, err)
+    }
+  })
+
+  app.delete('/comments', requireAuthenticated, (req, res) => {
+    const relPath = String(req.query.path ?? '')
+    const threadId = String(req.query.threadId ?? '')
+    const commentId = String(req.query.commentId ?? '')
+    const project = projectOf(req)
+    try {
+      resolveProjectPath(project, relPath)
+      const auth = authOf(req)
+      const thread = deleteComment(project, relPath, threadId, commentId, { email: auth.email ?? '', isOwner: auth.role === 'owner' })
+      broadcast({ type: 'comments' })
+      res.json({ ok: true, thread })
+    } catch (err) {
+      if (err instanceof CommentsError) {
         res.status(400).json({ error: err.message })
         return
       }

@@ -1,8 +1,21 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { editorApi, isArchivedPath, rawUrl, type Role, type TreeNode } from '../api/client'
-import { Editor, type EditorHandle } from '@mew/editor'
+import {
+  deleteComment,
+  editorApi,
+  fetchComments,
+  fetchMembers,
+  isArchivedPath,
+  postComment,
+  rawUrl,
+  updateComment,
+  type CommentThread,
+  type Role,
+  type TreeNode,
+} from '../api/client'
+import { Editor, type CommentAnchor, type EditorHandle } from '@mew/editor'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { CodePane, type CodePaneHandle } from './CodePane'
+import { CommentComposer, CommentListPopover, CommentPopover, CommentThreadView } from './Comments'
 import { MediaViewer } from './MediaViewer'
 import { SvgPreview } from './SvgPreview'
 import { TableOfContents } from './TableOfContents'
@@ -20,6 +33,15 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+/** 댓글 팝업을 띄울 화면 좌표 — hotview·plain 모두 진짜 DOM 선택을 쓰므로 한 함수로 충분하다 */
+function selectionPoint(fallback: HTMLElement | null): { x: number; y: number } {
+  const sel = window.getSelection()
+  const rect = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).getBoundingClientRect() : null
+  if (rect && (rect.width > 0 || rect.height > 0)) return { x: rect.left, y: rect.bottom }
+  const box = fallback?.getBoundingClientRect()
+  return box ? { x: box.left + 24, y: box.top + 24 } : { x: 24, y: 80 }
+}
+
 /** 칸 바깥(App)에서 지금 포커스된 칸의 에디터를 건드릴 때 쓰는 손잡이 */
 export interface PaneHandle {
   getSelectedText: () => string | null
@@ -29,7 +51,16 @@ export interface PaneHandle {
   revealLine: (line: number) => void
   /** 히스토리 되돌리기 — hotview(md)는 collab 문서가 진실 원천이라 에디터를 통해 갈아끼워야 한다 */
   setRawContent: (content: string) => void
+  /** Alt+Shift+C — 현재 선택(없으면 커서) 자리에 댓글 작성 팝업을 연다. 텍스트 편집기가 아니면 무시 */
+  startComment: () => void
 }
+
+/** 지금 떠 있는 댓글 팝업 — 새로 쓰는 중(compose)이거나 기존 스레드를 보는 중(thread) 하나뿐이다 */
+type CommentPopup =
+  | { kind: 'compose'; anchor: CommentAnchor; x: number; y: number }
+  // notice: 본문에서 자리를 못 찾았을 때 그 사실을 적는다 — 스크롤이 안 된 이유가 화면에 보여야 한다
+  | { kind: 'thread'; id: string; x: number; y: number; notice?: string }
+  | null
 
 // 실시간 협업은 파일별 "주 편집화면"에서만 지원한다 — .md는 Hotview, 그 외는 Plain.
 // 게스트는 파일별 편집 허용이 있어도 collab 소켓 자체가 서버에서 막혀 있어 항상 로컬 편집으로 처리한다.
@@ -181,6 +212,133 @@ export function EditorPane({
   )
   const fileBytes = mediaPath ? mediaBytes : textBytes
 
+  // ── 파일 댓글 ────────────────────────────────────────────────────────────────
+  // 스레드는 서버(`<프로젝트>/.mew/comments.json`)에 있고 이 칸은 **지금 문서의 것만** 들고 있다.
+  // 본문에는 아무것도 남기지 않는다 — 하이라이트는 에디터가 앵커를 다시 풀어 그리는 장식이다.
+  // 미디어·SVG 미리보기처럼 텍스트 편집기가 없는 화면과 게스트에게는 아예 뜨지 않는다.
+  const isTextPane =
+    !!activeTab && !mediaKind(activeTab.path) && !(activeTab.path.endsWith('.svg') && activeTab.viewMode === 'hotview')
+  const canComment = !isGuest && isTextPane
+  const canCommentRef = useRef(canComment)
+  canCommentRef.current = canComment
+  const [threads, setThreads] = useState<CommentThread[]>([])
+  const [members, setMembers] = useState<string[]>([])
+  const [commentPopup, setCommentPopup] = useState<CommentPopup>(null)
+  const [commentListOpen, setCommentListOpen] = useState(false)
+  // 다른 사람이 남긴 댓글도 바로 뜨게 — presence의 {type:'comments'} 신호를 받아 다시 읽는다
+  const reloadThreads = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    if (!canComment || !activePath) {
+      setThreads([])
+      return
+    }
+    let alive = true
+    const load = () => {
+      fetchComments(activePath, project)
+        .then((list) => {
+          if (alive) setThreads(list)
+        })
+        .catch(() => {}) // 못 읽으면 하이라이트만 없는 것 — 편집을 막지는 않는다
+    }
+    reloadThreads.current = load
+    load()
+    const onSignal = (e: Event) => {
+      if ((e as CustomEvent<{ type?: string }>).detail?.type === 'comments') load()
+    }
+    window.addEventListener('mew:signal', onSignal)
+    return () => {
+      alive = false
+      window.removeEventListener('mew:signal', onSignal)
+    }
+  }, [canComment, activePath, project])
+
+  // 멘션 자동완성용 계정 목록 — 바뀌는 일이 드물어 칸이 뜰 때 한 번만 읽는다
+  useEffect(() => {
+    if (isGuest) return
+    fetchMembers()
+      .then(setMembers)
+      .catch(() => {})
+  }, [isGuest])
+
+  useEffect(() => setCommentPopup(null), [activePath]) // 탭을 바꾸면 앞 문서의 팝업이 남는다
+
+  /** 지금 화면의 텍스트 편집기 — 앵커를 만들고 되찾는 쪽. hotview·plain이 같은 두 메서드를 낸다 */
+  const commentPane = (): Pick<EditorHandle, 'getCommentAnchor' | 'revealCommentAnchor'> | null =>
+    activeTabRef.current?.viewMode === 'plain' ? codePaneRef.current : editorRef.current
+
+  const commentPath = () => activeTabRef.current?.path ?? null
+
+  const failComment = (err: unknown) => console.error(err) // 서버가 이유를 주지만 팝업을 붙들 만큼은 아니다
+
+  const submitThread = (anchor: CommentAnchor, text: string) => {
+    const path = commentPath()
+    if (!path) return
+    setCommentPopup(null)
+    postComment(path, { anchor, text }, project).then(() => reloadThreads.current(), failComment)
+  }
+
+  const submitReply = (threadId: string, text: string) => {
+    const path = commentPath()
+    if (!path) return
+    postComment(path, { threadId, text }, project).then(() => reloadThreads.current(), failComment)
+  }
+
+  const submitEdit = (threadId: string, commentId: string, text: string) => {
+    const path = commentPath()
+    if (!path) return
+    updateComment(path, threadId, commentId, text, project).then(() => reloadThreads.current(), failComment)
+  }
+
+  const submitDelete = (threadId: string, commentId: string) => {
+    const path = commentPath()
+    if (!path) return
+    deleteComment(path, threadId, commentId, project).then((thread) => {
+      if (!thread) setCommentPopup(null) // 마지막 댓글이었다 — 스레드째 사라졌으니 팝업도 닫는다
+      reloadThreads.current()
+    }, failComment)
+  }
+
+  /** 본문에서 자리를 못 찾았을 때 화면에 적을 말 — 대개 다른 보기 모드에서 단 댓글이다(ADR 0049) */
+  const lostAnchorNotice = (): string => {
+    const tab = activeTabRef.current
+    const other = tab?.path.endsWith('.md') ? (tab.viewMode === 'plain' ? 'Hotview' : 'Plain') : null
+    return other
+      ? `본문에서 이 댓글의 자리를 찾지 못했습니다 — ${other} 보기에서 달았거나 그 부분이 바뀐 댓글입니다`
+      : '본문에서 이 댓글의 자리를 찾지 못했습니다 — 그 부분이 바뀌었거나 지워졌습니다'
+  }
+
+  /**
+   * 목록에서 고른 스레드 — 그 자리로 스크롤하고 거기에 팝업을 띄운다.
+   * 자리를 못 찾으면 **누른 자리**에 띄우고 왜 안 갔는지 적는다. 예전에는 칸 좌상단 구석에
+   * 조용히 떠서, 눌러도 아무 일도 안 일어난 것처럼 보였다.
+   */
+  const jumpToThread = (thread: CommentThread, from?: { x: number; y: number }) => {
+    setCommentListOpen(false)
+    disarmRestoreRef.current()
+    const at = commentPane()?.revealCommentAnchor(thread.anchor)
+    const point = at ?? from ?? selectionPoint(scrollHostRef.current)
+    setCommentPopup({ kind: 'thread', id: thread.id, x: point.x, y: point.y, notice: at ? undefined : lostAnchorNotice() })
+  }
+
+  /**
+   * 고른 글자에 새 댓글 — Alt+Shift+C와 모바일 보조키의 댓글 아이콘이 같이 쓴다.
+   * 선택이 비어 있으면 앵커가 null이라 아무 일도 하지 않는다(보조키 아이콘도 그때는 안 뜬다, ADR 0051).
+   */
+  const startComment = () => {
+    if (!canCommentRef.current) return
+    const anchor = commentPane()?.getCommentAnchor()
+    if (!anchor) return
+    const { x, y } = selectionPoint(scrollHostRef.current)
+    setCommentPopup({ kind: 'compose', anchor, x, y })
+  }
+  // 손잡이(handle)는 한 번만 만들어지므로 최신 함수를 ref로 읽는다
+  const startCommentRef = useRef(startComment)
+  startCommentRef.current = startComment
+
+  const openThread = (id: string, x: number, y: number) => setCommentPopup({ kind: 'thread', id, x, y })
+  const shownThread = commentPopup?.kind === 'thread' ? threads.find((t) => t.id === commentPopup.id) : undefined
+
   // 손잡이는 항상 같은 객체다 — 안에서 ref로 지금 값을 읽으므로 탭이 바뀌어도 다시 등록할 일이 없다
   const handle = useMemo<PaneHandle>(
     () => ({
@@ -207,6 +365,7 @@ export function EditorPane({
         codePaneRef.current?.revealLine(line)
       },
       setRawContent: (content) => editorRef.current?.setRawContent(content),
+      startComment: () => startCommentRef.current(),
     }),
     [],
   )
@@ -401,6 +560,33 @@ export function EditorPane({
                     </div>
                   </>
                 )}
+                {/* 댓글 목록 — 목차 버튼 **왼쪽**의 플로팅 버튼. 목차와 달리 md가 아니어도,
+                    좁은 화면에서도 뜬다(댓글은 코드 파일에도 달린다). 팝업은 이 버튼 아래에 붙는다 */}
+                {canComment && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setCommentListOpen((open) => !open)}
+                      className={`rounded border border-edge-strong p-1.5 shadow-sm ${
+                        commentListOpen ? 'bg-accent text-ink-on-accent' : 'bg-surface-raised text-ink-muted hover:bg-surface-hover'
+                      }`}
+                      title="댓글 목록 (Alt+Shift+C로 달기)"
+                      aria-label="댓글 목록"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
+                      </svg>
+                      {threads.length > 0 && (
+                        <span className="absolute -right-1 -top-1 min-w-[14px] rounded-full bg-accent px-1 text-[9px] leading-[14px] text-ink-on-accent">
+                          {threads.length}
+                        </span>
+                      )}
+                    </button>
+                    {commentListOpen && (
+                      <CommentListPopover threads={threads} onPick={jumpToThread} onClose={() => setCommentListOpen(false)} />
+                    )}
+                  </div>
+                )}
                 {isMd && (
                   <button
                     type="button"
@@ -436,6 +622,8 @@ export function EditorPane({
                     onChange={(content) => onChangeContent(activeTab.path, content)}
                     readOnly={!activeTab.editable || isArchivedPath(activeTab.path)}
                     collab={collab}
+                    commentThreads={threads}
+                    onCommentClick={openThread}
                   />
                 ) : (
                   <Editor
@@ -449,6 +637,9 @@ export function EditorPane({
                     onOpenLink={onOpenLink}
                     onSelectionChars={setSelChars}
                     collab={collab}
+                    commentThreads={threads}
+                    onCommentClick={openThread}
+                    onStartComment={canComment && selChars > 0 ? startComment : undefined}
                   />
                 )}
               </div>
@@ -466,6 +657,32 @@ export function EditorPane({
                 onJump={(i) => editorRef.current?.scrollToHeading(i)}
                 onClose={() => onSetTocOpen(false)}
               />
+            )}
+            {/* 댓글 작성·스레드 보기 — 하이라이트나 커서 자리에 붙는 카드 하나. 둘이 동시에 뜨지 않는다 */}
+            {commentPopup?.kind === 'compose' && (
+              <CommentPopover x={commentPopup.x} y={commentPopup.y} onClose={() => setCommentPopup(null)}>
+                <CommentComposer
+                  quote={commentPopup.anchor.text}
+                  members={members}
+                  onSubmit={(text) => submitThread(commentPopup.anchor, text)}
+                  onClose={() => setCommentPopup(null)}
+                />
+              </CommentPopover>
+            )}
+            {commentPopup?.kind === 'thread' && shownThread && (
+              <CommentPopover x={commentPopup.x} y={commentPopup.y} onClose={() => setCommentPopup(null)}>
+                <CommentThreadView
+                  thread={shownThread}
+                  authEmail={authEmail}
+                  isOwner={role === 'owner'}
+                  members={members}
+                  notice={commentPopup.notice}
+                  onReply={(text) => submitReply(shownThread.id, text)}
+                  onEdit={(commentId, text) => submitEdit(shownThread.id, commentId, text)}
+                  onDelete={(commentId) => submitDelete(shownThread.id, commentId)}
+                  onClose={() => setCommentPopup(null)}
+                />
+              </CommentPopover>
             )}
           </>
         ) : (

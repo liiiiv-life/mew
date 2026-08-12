@@ -617,7 +617,7 @@ function AgentSessionView({
 
   // 에디터에서 누른 Ctrl+L의 [경로:줄] 참조를 입력창에 이어 붙인다 — 터미널과 같은 broadcast를 받는다
   useEffect(() => {
-    const onInsertRef = (e: Event) => setDraft((d) => d + (e as CustomEvent<string>).detail)
+    const onInsertRef = (e: Event) => setDraft((d) => d + (e as CustomEvent<{ text: string }>).detail.text)
     window.addEventListener('mew:insert-ref', onInsertRef)
     return () => window.removeEventListener('mew:insert-ref', onInsertRef)
   }, [])

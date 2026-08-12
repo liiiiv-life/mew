@@ -1,12 +1,14 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import { Annotation, EditorState, type Extension } from '@codemirror/state'
+import { Annotation, EditorState, StateEffect, StateField, type Extension } from '@codemirror/state'
 import {
+  Decoration,
   EditorView,
   drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
   lineNumbers,
+  type DecorationSet,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { SearchQuery, openSearchPanel, setSearchQuery } from '@codemirror/search'
@@ -33,6 +35,7 @@ import { properties } from '@codemirror/legacy-modes/mode/properties'
 import { sCSS } from '@codemirror/legacy-modes/mode/css'
 import { lintFile } from '../api/client'
 import { codeSearchExtensions } from '../utils/codeSearch'
+import { makeCommentAnchor, resolveCommentAnchor, type CommentAnchor, type CommentThreadInput } from '@mew/editor'
 
 // value prop 동기화로 들어온 트랜잭션 표시 — 이걸 다시 onChange로 올리면 열기만 한
 // 미리보기 탭이 "편집됨"으로 승격되고 무의미한 자동저장이 잡힌다
@@ -40,6 +43,40 @@ const externalSync = Annotation.define<boolean>()
 
 // collab 방의 Y.Text 공유 키 — 방마다 이 이름 하나만 쓰므로 컴포넌트 내부 상수면 충분하다
 const COLLAB_TEXT_KEY = 'content'
+
+// ── 파일 댓글 하이라이트 — hotview의 CommentHighlight(장식)와 같은 규칙·같은 CSS 클래스.
+// 본문에는 아무것도 넣지 않고, 앵커(텍스트 문맥)를 지금 원문에서 다시 풀어 장식으로만 그린다.
+const setCommentThreads = StateEffect.define<CommentThreadInput[]>()
+
+function buildCommentDecorations(docText: string, threads: CommentThreadInput[]): DecorationSet {
+  const ranges = []
+  for (const thread of threads) {
+    const range = resolveCommentAnchor(docText, thread.anchor)
+    if (!range) continue // 고아 — 목록 팝업에서만 보인다
+    ranges.push(
+      Decoration.mark({ class: 'mew-comment', attributes: { 'data-thread': thread.id } }).range(range.from, range.to),
+    )
+  }
+  return Decoration.set(ranges, true)
+}
+
+// ponytail: 변경마다 문서 전체 텍스트로 다시 푼다 — 큰 파일에서 느려지면 디바운스로
+const commentField = StateField.define<{ threads: CommentThreadInput[]; deco: DecorationSet }>({
+  create: () => ({ threads: [], deco: Decoration.none }),
+  update(value, tr) {
+    let threads = value.threads
+    let changed = tr.docChanged
+    for (const effect of tr.effects) {
+      if (effect.is(setCommentThreads)) {
+        threads = effect.value
+        changed = true
+      }
+    }
+    if (!changed) return value
+    return { threads, deco: buildCommentDecorations(tr.state.doc.toString(), threads) }
+  },
+  provide: (field) => EditorView.decorations.from(field, (value) => value.deco),
+})
 
 /** 서버 oxlint가 처리하는 확장자 — server/lint.ts의 LINTABLE_EXTENSIONS와 맞춰야 한다 */
 const OXLINT_EXTS = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'])
@@ -239,6 +276,10 @@ export interface CodePaneHandle {
   getSelectedLineRange: () => { start: number; end: number } | null
   /** 찾기 패널을 연다 — 에디터 밖(사이드바 등)에서 Ctrl+F를 눌렀을 때. 안에서 눌렀으면 searchKeymap이 처리한다 */
   openSearch: (query?: string) => void
+  /** 현재 선택(없으면 커서)의 댓글 앵커 — 텍스트 공간은 파일 원문 그대로 */
+  getCommentAnchor: () => CommentAnchor | null
+  /** 앵커 자리로 스크롤하고 그 화면 좌표를 준다 — 댓글 목록에서 스레드로 점프할 때. 고아면 null */
+  revealCommentAnchor: (anchor: CommentAnchor) => { x: number; y: number } | null
 }
 
 /**
@@ -254,14 +295,21 @@ export const CodePane = forwardRef<
     readOnly: boolean
     /** 있으면 이 방의 Y.Text가 문서 내용의 진실 원천이 된다 — value/onChange는 그 결과를 반영만 한다 */
     collab?: Collab | null
+    /** 파일 댓글 스레드 — 본문 위 장식(하이라이트)으로만 그린다. 저장·해석은 호스트 몫 */
+    commentThreads?: CommentThreadInput[]
+    onCommentClick?: (id: string, x: number, y: number) => void
   }
->(function CodePane({ path, value, onChange, readOnly, collab }, ref) {
+>(function CodePane({ path, value, onChange, readOnly, collab, commentThreads, onCommentClick }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   const valueRef = useRef(value)
+  const commentThreadsRef = useRef(commentThreads ?? [])
+  const onCommentClickRef = useRef(onCommentClick)
   onChangeRef.current = onChange
   valueRef.current = value
+  commentThreadsRef.current = commentThreads ?? []
+  onCommentClickRef.current = onCommentClick
 
   useEffect(() => {
     const container = containerRef.current
@@ -288,10 +336,19 @@ export const CodePane = forwardRef<
         ...(readOnly ? [] : lintExtensions(path)),
         EditorState.readOnly.of(readOnly),
         EditorView.editable.of(!readOnly),
+        commentField,
         // 사이드바에서 끌어온 파일 항목 — 놓은 자리에 그 파일의 프로젝트 상대경로를 적는다.
         // CodeMirror 기본 드롭도 text/plain을 넣지만, 전용 MIME일 때는 우리가 직접 처리해
         // hotview(tiptap)와 삽입 결과가 같도록 맞춘다.
         EditorView.domEventHandlers({
+          // 댓글 하이라이트 클릭 → 스레드 팝업 (hotview의 handleClick과 같은 규칙)
+          click(event) {
+            const el = (event.target as HTMLElement | null)?.closest?.('[data-thread]')
+            const id = el?.getAttribute('data-thread')
+            if (!id) return false
+            onCommentClickRef.current?.(id, event.clientX, event.clientY)
+            return true
+          },
           drop(event, view) {
             if (readOnly) return false
             const draggedPath = pathFromDrag(event.dataTransfer)
@@ -316,6 +373,8 @@ export const CodePane = forwardRef<
     })
     const view = new EditorView({ state, parent: container })
     viewRef.current = view
+    // 방금 만든 뷰에 지금 스레드를 흘려 넣는다 — 필드 초기값은 빈 목록이다
+    if (commentThreadsRef.current.length > 0) view.dispatch({ effects: setCommentThreads.of(commentThreadsRef.current) })
 
     return () => {
       view.destroy()
@@ -344,6 +403,11 @@ export const CodePane = forwardRef<
       view.dispatch({ changes: { from: 0, to: current.length, insert: value }, annotations: externalSync.of(true) })
     }
   }, [value, collab])
+
+  // 스레드 목록이 바뀌면 장식을 다시 푼다 — 문서 편집 쪽은 필드가 docChanged로 스스로 다시 푼다
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: setCommentThreads.of(commentThreads ?? []) })
+  }, [commentThreads])
 
   useImperativeHandle(
     ref,
@@ -378,6 +442,24 @@ export const CodePane = forwardRef<
           effects: EditorView.scrollIntoView(info.from, { y: 'center' }),
         })
         view.focus()
+      },
+      getCommentAnchor() {
+        const view = viewRef.current
+        if (!view) return null
+        const sel = view.state.selection.main
+        return makeCommentAnchor(view.state.doc.toString(), sel.from, sel.to)
+      },
+      revealCommentAnchor(anchor: CommentAnchor) {
+        const view = viewRef.current
+        if (!view) return null
+        const range = resolveCommentAnchor(view.state.doc.toString(), anchor)
+        if (!range) return null
+        view.dispatch({
+          selection: { anchor: range.from },
+          effects: EditorView.scrollIntoView(range.from, { y: 'center' }),
+        })
+        const coords = view.coordsAtPos(range.from)
+        return coords ? { x: coords.left, y: coords.bottom } : null
       },
     }),
     [],

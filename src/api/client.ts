@@ -504,6 +504,134 @@ export function saveTableLayout(path: string, tables: TableWidths): Promise<void
     .then(() => undefined)
 }
 
+// ---- 협업: 멤버 채팅 · 파일 댓글 ----
+// 실시간 갱신은 presence 신호({type:'chat'}·{type:'comments'})를 받아 이 함수들로 다시 읽는 방식이다.
+
+/** 단체방의 대화 키 — 서버의 GROUP과 같은 값이다(DM은 상대 이메일이 곧 키다) */
+export const GROUP_CHAT = 'group'
+
+export interface ChatMessage {
+  id: string
+  author: string
+  /** 수신자 — 없으면 단체방, 있으면 보낸 사람과 이 사람들만 보는 DM */
+  to?: string[]
+  time: number
+  /** 본문 — `[[프로젝트:상대경로]]` 파일 멘션 토큰을 담을 수 있다(그리는 쪽이 칩으로 바꾼다) */
+  text: string
+  /** 아직 이 메시지를 안 읽은 수신자 수. 0이면 숫자를 감춘다 */
+  unread: number
+}
+
+/** 내가 볼 수 있는 메시지 전부(단체 + 내 DM)와 대화별 안 읽은 수 */
+export interface ChatView {
+  messages: ChatMessage[]
+  unread: Record<string, number>
+  /**
+   * 서버가 DM을 아는가. 화면만 새로 받고 서버가 아직 옛 버전이면(빌드 후 재시작 전) `to`를 무시해
+   * **DM이 단체방으로 나간다** — 그동안은 DM 자체를 잠근다. 옛 응답에는 unread 키가 없다.
+   */
+  dmSupported: boolean
+}
+
+export function fetchChat(): Promise<ChatView> {
+  return fetch('/api/chat')
+    .then(json<Partial<ChatView>>)
+    .then((r) => ({ messages: r.messages ?? [], unread: r.unread ?? {}, dmSupported: r.unread !== undefined }))
+}
+
+/** to를 주면 그 사람들에게만 가는 DM이다 */
+export function postChat(text: string, to?: string[]): Promise<ChatMessage> {
+  return fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(to && to.length > 0 ? { text, to } : { text }),
+  })
+    .then(json<{ ok: true; message: ChatMessage }>)
+    .then((r) => r.message)
+}
+
+/** 이 대화를 여기까지 읽었다고 서버에 알린다 — 보낸 쪽 화면의 숫자가 줄어든다 */
+export function markChatRead(conversation: string): Promise<void> {
+  return fetch('/api/chat/read', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation }),
+  })
+    .then(json<{ ok: true }>)
+    .then(() => undefined)
+}
+
+/** 멘션 자동완성용 계정 이메일 목록 — 로그인 사용자 전용 */
+export function fetchMembers(): Promise<string[]> {
+  return fetch('/api/members')
+    .then(json<{ members: string[] }>)
+    .then((r) => r.members)
+}
+
+export interface CommentEntry {
+  id: string
+  author: string
+  time: number
+  text: string
+  edited?: number
+}
+
+export interface CommentThread {
+  id: string
+  anchor: import('@mew/editor').CommentAnchor
+  comments: CommentEntry[]
+}
+
+export function fetchComments(path: string, project: string = currentProject): Promise<CommentThread[]> {
+  return fetch(`/api/comments?path=${encodeURIComponent(path)}&${projectQs(project)}`)
+    .then(json<{ threads: CommentThread[] }>)
+    .then((r) => r.threads)
+}
+
+/** threadId가 있으면 그 스레드에 답글, 없으면 anchor로 새 스레드를 만든다 */
+export function postComment(
+  path: string,
+  body: { threadId?: string; anchor?: import('@mew/editor').CommentAnchor; text: string },
+  project: string = currentProject,
+): Promise<CommentThread> {
+  return fetch('/api/comments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, project, ...body }),
+  })
+    .then(json<{ ok: true; thread: CommentThread }>)
+    .then((r) => r.thread)
+}
+
+export function updateComment(
+  path: string,
+  threadId: string,
+  commentId: string,
+  text: string,
+  project: string = currentProject,
+): Promise<CommentThread> {
+  return fetch('/api/comments', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, project, threadId, commentId, text }),
+  })
+    .then(json<{ ok: true; thread: CommentThread }>)
+    .then((r) => r.thread)
+}
+
+/** 마지막 댓글을 지우면 스레드도 사라진다 — 그때 thread는 null */
+export function deleteComment(
+  path: string,
+  threadId: string,
+  commentId: string,
+  project: string = currentProject,
+): Promise<CommentThread | null> {
+  const qs = `path=${encodeURIComponent(path)}&threadId=${encodeURIComponent(threadId)}&commentId=${encodeURIComponent(commentId)}&${projectQs(project)}`
+  return fetch(`/api/comments?${qs}`, { method: 'DELETE' })
+    .then(json<{ ok: true; thread: CommentThread | null }>)
+    .then((r) => r.thread)
+}
+
 export function fetchLinkPreview(url: string): Promise<{ title: string | null; description: string | null }> {
   return fetch(`/api/link-preview?url=${encodeURIComponent(url)}`).then(
     json<{ title: string | null; description: string | null }>,

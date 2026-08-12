@@ -15,6 +15,8 @@ export type {
   DbEvent,
 } from './types'
 export { flattenFiles, fuzzyScore, isExternalHref, relativeLinkPath, resolveRelativePath } from './utils/fuzzy'
+export { makeCommentAnchor, resolveCommentAnchor, type CommentAnchor } from './utils/commentAnchor'
+export type { CommentThreadInput } from './editor/commentHighlight'
 export {
   splitFrontmatter,
   joinFrontmatter,

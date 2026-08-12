@@ -198,3 +198,32 @@ b,
 strong {
   font-weight: 700;
 }
+
+/* 파일 댓글 하이라이트 — hotview(장식)·plain(CodeMirror mark) 공용. 노션처럼 노란 형광펜이고,
+   커서(선택 없음) 댓글은 글자 대신 작은 네모 하나가 자리를 표시한다. 색은 라이트·다크 공용으로
+   반투명 노랑 — 어느 배경에서든 글자가 살아 있어야 해서 진하게 칠하지 않는다. */
+/* References 목록은 화면에서 `1)`로 보인다. 파일에는 표준 순서 목록(`1.`)으로 저장된다 —
+   문단에 `1) 내용`이라고 적으면 마크다운이 그걸 목록으로 되읽어 구역이 어긋나기 때문이다 */
+.mew-references > li::marker {
+  content: counter(list-item) ') ';
+}
+
+/* 각주 — 본문 마커(아래첨자 글자 그대로)와 References의 번호. 둘 다 눌러서 오갈 수 있다 */
+.mew-footnote,
+.mew-footnote-ref {
+  color: var(--color-link, #2563eb);
+  cursor: pointer;
+}
+.mew-footnote:hover,
+.mew-footnote-ref:hover {
+  text-decoration: underline;
+}
+
+.mew-comment {
+  background-color: color-mix(in srgb, #eab308 32%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, #eab308 70%, transparent);
+  cursor: pointer;
+}
+.mew-comment:hover {
+  background-color: color-mix(in srgb, #eab308 48%, transparent);
+}

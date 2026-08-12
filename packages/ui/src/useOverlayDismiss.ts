@@ -14,6 +14,8 @@ type Entry = {
   close: () => void
   closeOnEscape: (event: KeyboardEvent) => boolean
   escapePhase: EscapePhase
+  /** 주면 이 요소 **바깥**을 누를 때도 닫는다 — Esc·뒤로가기가 없는 터치 화면의 유일한 탈출구 */
+  outside?: () => Element | null
 }
 
 /** 열린 순서대로 쌓인다 — 맨 뒤가 "가장 위" */
@@ -35,6 +37,17 @@ function handleEscape(event: KeyboardEvent, phase: EscapePhase) {
 const onKeyDownCapture = (event: KeyboardEvent) => handleEscape(event, 'capture')
 const onKeyDownBubble = (event: KeyboardEvent) => handleEscape(event, 'bubble')
 
+// Esc와 같은 규칙 — 바깥 클릭도 맨 위 하나만 닫는다. capture로 듣고 요소 포함 여부로 안팎을 가른다
+// (안쪽에서 stopPropagation을 해도 capture는 이미 지나갔다 — 전파가 아니라 위치로 판단해야 한다).
+function onPointerDownCapture(event: Event) {
+  const top = stack[stack.length - 1]
+  const el = top?.outside?.()
+  if (!el) return
+  const target = event.target
+  if (target instanceof Node && el.contains(target)) return
+  top.close()
+}
+
 function onPopState() {
   if (!guardActive) return
   // 뒤로가기가 우리 가드 항목을 소비했다 — 페이지를 떠나는 대신 맨 위 오버레이 하나를 닫는다.
@@ -51,10 +64,12 @@ function sync() {
     if (anyOpen) {
       window.addEventListener('keydown', onKeyDownCapture, true)
       window.addEventListener('keydown', onKeyDownBubble)
+      window.addEventListener('pointerdown', onPointerDownCapture, true)
       window.addEventListener('popstate', onPopState)
     } else {
       window.removeEventListener('keydown', onKeyDownCapture, true)
       window.removeEventListener('keydown', onKeyDownBubble)
+      window.removeEventListener('pointerdown', onPointerDownCapture, true)
       window.removeEventListener('popstate', onPopState)
     }
   }
@@ -98,6 +113,11 @@ export interface OverlayDismissOptions {
    * 안쪽이 먼저 Esc를 쓰고 stopPropagation 하는 경우 패널이 대신 닫혀 버리면 안 된다.
    */
   escapePhase?: EscapePhase
+  /**
+   * 이 요소 바깥을 누르면 닫는다. 터치 화면에는 Esc 키가 없으므로, 닫기 버튼이 없는 팝업은
+   * 이걸 주지 않으면 뒤로가기 말고는 빠져나갈 길이 없다.
+   */
+  outside?: () => Element | null
 }
 
 /** React 없이도 쓸 수 있는 등록 함수 — 훅은 이걸 감싼 것뿐이고, 테스트도 여기로 붙는다 */
@@ -135,6 +155,7 @@ export function useOverlayDismiss(close: (() => void) | null | false, options?: 
             },
             closeOnEscape: (event) => optionsRef.current?.closeOnEscape?.(event) ?? true,
             escapePhase: optionsRef.current?.escapePhase ?? 'capture',
+            outside: () => optionsRef.current?.outside?.() ?? null,
           })
         : undefined,
     [active],

@@ -34,6 +34,7 @@ import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
 import { TmuxTerminalPanel } from '@mew/tmux-term'
 import { AgentPanel } from './components/AgentPanel'
+import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { hasDirPathDrag, hasPathDrag, pathFromDrag, useOverlayDismiss, useToast } from '@mew/ui'
@@ -104,6 +105,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [tmuxOpen, setTmuxOpen] = useState(() => canUseTerminal && loadTmuxOpen(getProject()))
   // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034)
   const [agentOpen, setAgentOpen] = useState(false)
+  // 멤버 채팅 창(Alt+C) — 사람끼리 쓰는 창이라 로그인만 하면 열린다(게스트 제외)
+  const [chatOpen, setChatOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
   const [dbListOpen, setDbListOpen] = useState(false)
@@ -119,6 +122,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [homeOpen, setHomeOpen] = useState(false)
   // 홈에서 고른 할 일 — 그 프로젝트로 옮겨 간 뒤(리렌더 후) 파일을 연다
   const [pendingTodo, setPendingTodo] = useState<TodoItem | null>(null)
+  // 채팅의 파일 멘션을 누른 것 — 할 일과 같은 이유로 프로젝트를 옮긴 다음 렌더에서 연다
+  const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string } | null>(null)
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -310,6 +315,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 패널은 bubble 단계라야 안쪽(에디터 슬래시 메뉴, 파일 이름 바꾸기, 터미널의 vim)이 Esc를 먼저 쓴다.
   useOverlayDismiss(tmuxOpen && (() => setTmuxOpen(false)), { escapePhase: 'bubble', closeOnEscape: outsideTerminal })
   useOverlayDismiss(sidebarOpen && (() => setSidebarOpen(false)), { escapePhase: 'bubble' })
+  // 채팅도 패널이라 bubble — 안쪽 멘션 목록이 Esc를 먼저 쓰고 stopPropagation 하면 창은 남는다
+  useOverlayDismiss(chatOpen && (() => setChatOpen(false)), { escapePhase: 'bubble' })
 
   const activeRelativePath = activeTab?.path ?? null
 
@@ -513,7 +520,22 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         if (!range || !activeRelativePath) return
         e.preventDefault()
         const lines = range.start === range.end ? `${range.start}` : `${range.start}-${range.end}`
-        window.dispatchEvent(new CustomEvent('mew:insert-ref', { detail: `[${activeRelativePath}:${lines}] ` }))
+        // 받는 쪽이 셋이라 화면에 쓸 글자(text)와 구조(project·path)를 함께 싣는다 — 터미널·에이전트는
+        // text를 그대로 타이핑하고, 채팅 창은 project·path로 파일 멘션 토큰을 만든다
+        window.dispatchEvent(
+          new CustomEvent('mew:insert-ref', {
+            detail: { text: `[${activeRelativePath}:${lines}] `, project, path: activeRelativePath },
+          }),
+        )
+      } else if (matchesShortcut(e, getBinding('toggleChat'))) {
+        if (isGuest) return
+        e.preventDefault()
+        setChatOpen((v) => !v)
+      } else if (matchesShortcut(e, getBinding('addComment'))) {
+        // 지금 포커스된 칸의 선택(없으면 커서) 자리에 댓글 작성 팝업 — 텍스트 편집기가 아니면 아무 일도 없다
+        if (isGuest) return
+        e.preventDefault()
+        focusedEditor()?.startComment()
       } else if (matchesShortcut(e, getBinding('toggleTerminal'))) {
         // VSCode처럼 어디에 포커스가 있어도 터미널을 토글한다 (Shift 조합 ~ 포함)
         if (!canUseTerminal) return
@@ -557,7 +579,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, canUseTerminal, focusedEditor])
+  }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, canUseTerminal, focusedEditor, isGuest, project])
 
   /**
    * 홈의 할 일 항목 클릭 — 그 표식이 있는 파일을 그 줄에서 연다. 다른 프로젝트일 수 있으므로
@@ -572,6 +594,25 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     },
     [project, switchProject],
   )
+
+  /**
+   * 채팅 메시지의 파일 멘션 클릭 — 새 창이 아니라 **같은 창의 에디터 탭**으로 연다.
+   * 다른 프로젝트일 수 있으므로 할 일 항목과 같은 대기 경로를 탄다(프로젝트를 옮긴 다음 렌더에서 열기).
+   */
+  const openMentionedFile = useCallback(
+    (target: string, path: string) => {
+      setHomeOpen(false)
+      setPendingOpen({ project: target, path })
+      if (target !== project) switchProject(target)
+    },
+    [project, switchProject],
+  )
+
+  useEffect(() => {
+    if (!pendingOpen || pendingOpen.project !== project) return
+    openFile(pendingOpen.path, { preview: false })
+    setPendingOpen(null)
+  }, [pendingOpen, project, openFile])
 
   useEffect(() => {
     if (!pendingTodo || pendingTodo.project !== project) return
@@ -758,6 +799,20 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     ...(isGuest
       ? []
       : [
+          {
+            id: 'chat',
+            label: '채팅',
+            hint: 'Alt+C',
+            onSelect: () => setChatOpen((open) => !open),
+            active: chatOpen,
+            // 겹친 말풍선 둘 — 에이전트(말풍선 하나)·계정 관리(사람)와 구분된다
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 9a2 2 0 0 1-2 2H6l-4 3V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z" />
+                <path d="M18 8h2a2 2 0 0 1 2 2v11l-4-3h-6a2 2 0 0 1-2-2v-1" />
+              </svg>
+            ),
+          },
           {
             id: 'database',
             label: '데이터베이스',
@@ -981,6 +1036,22 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         ) : (
           /* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */
           renderLayout(layout, 'root')
+        )}
+
+        {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 좁은 화면에서는 전체를 덮는다 */}
+        {chatOpen && !isGuest && (
+          <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[22rem] md:shrink-0">
+            <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <ChatPanel
+                authEmail={authEmail}
+                project={project}
+                tree={tree}
+                onOpenFile={openMentionedFile}
+                onClose={() => setChatOpen(false)}
+              />
+            </div>
+          </div>
         )}
 
         {agentOpen && canUseTerminal && (

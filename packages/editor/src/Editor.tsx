@@ -47,9 +47,12 @@ import { ListConversion } from './editor/listConversion'
 import { IndentableListItem, liftFirstListItemTransaction, sinkFirstListItemTransaction } from './editor/listIndent'
 import { HeadingEnter } from './editor/headingEnter'
 import { HeadingShortcut } from './editor/headingShortcut'
+import { Footnotes, scanFootnotes } from './editor/footnoteSync'
 import { DeleteLine } from './editor/deleteLine'
 import { changedCaretPos } from './editor/undoCaret'
 import { SearchAndReplace } from './editor/searchExtension'
+import { CommentHighlight, commentRefreshKey, docTextWithMap, indexOfPos, type CommentThreadInput } from './editor/commentHighlight'
+import { makeCommentAnchor, resolveCommentAnchor, type CommentAnchor } from './utils/commentAnchor'
 import { docHasTable, readTableWidths, tableWidthsTransaction } from './editor/tableWidths'
 import { EditorSearchBar } from './editor/EditorSearchBar'
 import './editor/editor.css'
@@ -65,6 +68,10 @@ export interface EditorHandle {
   getSelectedLineRange: () => { start: number; end: number } | null
   /** 문서 내 찾기 바를 연다 — seedQuery가 있으면 그 검색어로 채우고 첫 매치로 이동 (프로젝트 검색 연동용) */
   openSearch: (seedQuery?: string) => void
+  /** 현재 선택(없으면 커서)의 댓글 앵커 — 텍스트 공간은 렌더된 본문(docTextWithMap) */
+  getCommentAnchor: () => CommentAnchor | null
+  /** 앵커 자리로 스크롤하고 그 화면 좌표를 준다 — 댓글 목록에서 스레드로 점프할 때. 고아면 null */
+  revealCommentAnchor: (anchor: CommentAnchor) => { x: number; y: number } | null
 }
 
 // Collaboration.configure()의 field 기본값과 맞춰야 시딩 시 같은 Y.XmlFragment를 본다
@@ -229,8 +236,16 @@ export const Editor = forwardRef<
     onSelectionChars?: (count: number) => void
     /** 있으면 이 방의 Y.XmlFragment가 본문의 진실 원천이 된다 — value/onChange는 그 결과를 반영만 한다 */
     collab?: EditorCollab | null
+    /** 파일 댓글 스레드 — 본문 위 장식(하이라이트)으로만 그린다. 저장·해석은 호스트 몫 */
+    commentThreads?: CommentThreadInput[]
+    onCommentClick?: (id: string, x: number, y: number) => void
+    /** 주면 모바일 보조키에 댓글 아이콘이 뜬다 — 폰에는 Alt+Shift+C가 없다. 호스트가 앵커를 만든다 */
+    onStartComment?: () => void
   }
->(function Editor({ value, onChange, api, readOnly, path = '', tree = [], onOpenLink, onSelectionChars, collab }, ref) {
+>(function Editor(
+  { value, onChange, api, readOnly, path = '', tree = [], onOpenLink, onSelectionChars, collab, commentThreads, onCommentClick, onStartComment },
+  ref,
+) {
   const { frontmatter, body } = useMemo(() => splitFrontmatter(value), [value])
   function handleFrontmatterChange(next: FrontmatterData) {
     onChange(joinFrontmatter(next, body))
@@ -256,6 +271,8 @@ export const Editor = forwardRef<
     position: { top: number; left: number }
     mode: 'add' | 'remove'
   } | null>(null)
+  // 각주 마커를 눌렀을 때 뜨는 쪽지 — References에 적힌 그 번호의 내용을 보여 준다
+  const [footnoteTip, setFootnoteTip] = useState<{ num: number; content: string; left: number; top: number } | null>(null)
   const [linkTooltip, setLinkTooltip] = useState<{
     mode: 'view' | 'edit'
     position: { top: number; left: number }
@@ -326,6 +343,9 @@ export const Editor = forwardRef<
   const runSlashCommandRef = useRef<(command: SlashCommand) => void>(() => {})
   const selectMentionRef = useRef<(result: MentionResult) => void>(() => {})
   const readOnlyRef = useRef(readOnly)
+  // 댓글 스레드·클릭 콜백 — 확장 옵션은 에디터 생성 시 한 번 잡히므로 ref 게터로 최신 값을 본다
+  const commentThreadsRef = useRef<CommentThreadInput[]>(commentThreads ?? [])
+  const onCommentClickRef = useRef(onCommentClick)
   // 보조키바 Ctrl/Shift 토글 — beforeinput 리스너가 매 렌더 재등록 없이 최신 값을 읽도록 ref로도 둔다
   const keyBarCtrlRef = useRef(keyBarCtrl)
   const keyBarShiftRef = useRef(keyBarShift)
@@ -382,6 +402,16 @@ export const Editor = forwardRef<
       DeleteLine,
       // Ctrl+F 문서 내 찾기·바꾸기 (정규식·대소문자) — 매치를 데코레이션으로 하이라이트
       SearchAndReplace,
+      // 파일 댓글 하이라이트 — 옵션이 생성 시 한 번 잡히므로 ref 게터로 최신 스레드를 본다
+      CommentHighlight.configure({
+        getThreads: () => commentThreadsRef.current,
+        onClick: (id, x, y) => onCommentClickRef.current?.(id, x, y),
+      }),
+      // 각주(Alt+E) — 마커를 누르면 내용 툴팁, References 줄 번호를 누르면 그 마커 자리로
+      Footnotes.configure({
+        onMarkerClick: (num, x, y) => footnoteHandlersRef.current.onMarker(num, x, y),
+        onEntryClick: (num) => footnoteHandlersRef.current.onEntry(num),
+      }),
       Blockquote,
       HorizontalRule,
       // target: null — Chromium/Brave는 contenteditable 안의 target="_blank" 링크를 클릭하면
@@ -941,6 +971,48 @@ export const Editor = forwardRef<
     editorRef.current = editor
   }, [editor])
 
+  // 각주 클릭 처리 — 확장 옵션은 생성 시 한 번 잡히므로 ref로 최신 함수를 본다
+  const footnoteHandlersRef = useRef({
+    onMarker: (_num: number, _x: number, _y: number) => {},
+    onEntry: (_num: number) => {},
+  })
+  footnoteHandlersRef.current = {
+    // 마커 → 그 번호의 References 내용을 쪽지로
+    onMarker: (num, x, y) => {
+      const ed = editorRef.current
+      if (!ed) return
+      const entry = scanFootnotes(ed.state.doc).entries.find((e) => e.num === num)
+      setFootnoteTip({ num, content: entry?.content?.trim() || '아직 내용이 없습니다 — References에 적어 주세요', left: x, top: y })
+    },
+    // References 줄 → 그 번호의 마커 자리로 커서를 옮기고 화면을 그리로 끌어온다
+    onEntry: (num) => {
+      const ed = editorRef.current
+      if (!ed) return
+      const marker = scanFootnotes(ed.state.doc).markers.find((m) => m.num === num)
+      if (!marker) return
+      setFootnoteTip(null)
+      ed.chain().focus().setTextSelection({ from: marker.from, to: marker.to }).scrollIntoView().run()
+    },
+  }
+
+  // 각주 쪽지는 다음 클릭·Esc·스크롤에 닫는다. 오버레이 스택에는 올리지 않는다 —
+  // 링크·표 툴팁과 같은 이유로, 수시로 떴다 사라지는 것에 History를 밀고 당기면 안 된다
+  useEffect(() => {
+    if (!footnoteTip) return
+    const close = () => setFootnoteTip(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [footnoteTip])
+
   // 툴팁 닫기 핸들러
   const closeTooltip = useCallback(() => {
     setTooltip(null)
@@ -1420,9 +1492,33 @@ export const Editor = forwardRef<
           end: offset + sourceLineOfPos(editor.state.doc, (c) => serializer.serialize(c), to),
         }
       },
+      getCommentAnchor() {
+        if (!editor) return null
+        const { text, map } = docTextWithMap(editor.state.doc)
+        const { from, to } = editor.state.selection
+        return makeCommentAnchor(text, indexOfPos(map, from), indexOfPos(map, to))
+      },
+      revealCommentAnchor(anchor) {
+        if (!editor) return null
+        const { text, map } = docTextWithMap(editor.state.doc)
+        const range = resolveCommentAnchor(text, anchor)
+        if (!range) return null
+        const pos = Math.min(map[range.from] ?? editor.state.doc.content.size, editor.state.doc.content.size)
+        editor.view.dispatch(
+          editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(pos))).scrollIntoView(),
+        )
+        const coords = editor.view.coordsAtPos(pos)
+        return { x: coords.left, y: coords.bottom }
+      },
     }),
     [editor, onChange, openSearchBar, frontmatter],
   )
+
+  // 스레드 목록이 바뀌면 하이라이트를 다시 푼다 — 문서 편집 쪽은 플러그인이 docChanged로 스스로 다시 푼다
+  useEffect(() => {
+    if (!editor) return
+    editor.view.dispatch(editor.state.tr.setMeta(commentRefreshKey, true))
+  }, [editor, commentThreads])
 
   // editorRef.current를 쓰는 이유는 위 editorRef 선언부 주석 참고 — handlePaste·handleDrop이
   // 생성 시점 클로저에 얼어붙어 이 함수를 호출하는데, 그때 캡처된 editor는 아직 null이거나
@@ -1529,6 +1625,8 @@ export const Editor = forwardRef<
   mentionResultsRef.current = mentionResults
   runSlashCommandRef.current = runSlashCommand
   selectMentionRef.current = selectMention
+  commentThreadsRef.current = commentThreads ?? []
+  onCommentClickRef.current = onCommentClick
   keyBarCtrlRef.current = keyBarCtrl
   keyBarShiftRef.current = keyBarShift
 
@@ -1634,9 +1732,19 @@ export const Editor = forwardRef<
           onClose={() => setDbPicker(null)}
         />
       )}
+      {footnoteTip && (
+        <div
+          className="fixed z-50 max-w-[22rem] rounded-lg border border-edge-bright bg-surface-raised px-2.5 py-1.5 text-xs text-ink shadow-xl"
+          style={{ left: Math.min(footnoteTip.left, window.innerWidth - 360), top: footnoteTip.top + 12 }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <span className="mr-1.5 text-ink-muted">{footnoteTip.num})</span>
+          {footnoteTip.content}
+        </div>
+      )}
       {/* 보조키 바는 스크롤 컨테이너 바닥에 붙는다. 상태줄은 파일 종류를 가리지 않아야 해서
           이 컴포넌트 밖(EditorPane)으로 나갔다 — 여기 남기면 md 문서에만 뜬다. */}
-      <div className="sticky bottom-0 z-30 shrink-0">
+      <div className="sticky bottom-0 z-20 shrink-0">
         {/* 키보드가 떠 있는지는 보지 않는다 — 키보드를 내린 채 방향키·Esc만 쓰는 경우가 더 많다.
             다만 에디터에 포커스가 없으면 보조키가 갈 곳이 없으므로 그때는 숨긴다. */}
         {mobileLayout && editorFocused && (
@@ -1648,6 +1756,7 @@ export const Editor = forwardRef<
             onEsc={handleKeyBarEsc}
             onTab={handleKeyBarTab}
             onArrow={handleKeyBarArrow}
+            onComment={onStartComment}
           />
         )}
       </div>

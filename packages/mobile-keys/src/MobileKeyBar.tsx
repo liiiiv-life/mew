@@ -26,6 +26,7 @@ export function MobileKeyBar({
   onEsc,
   onTab,
   onArrow,
+  onComment,
 }: {
   ctrlActive: boolean
   shiftActive: boolean
@@ -34,9 +35,13 @@ export function MobileKeyBar({
   onEsc: () => void
   onTab: () => void
   onArrow: (dir: 'up' | 'down' | 'left' | 'right') => void
+  /** 주면 댓글 아이콘이 뜬다 — 선택(없으면 커서) 자리에 댓글을 단다. 폰에는 Alt+Shift+C가 없다 */
+  onComment?: () => void
 }) {
   return (
-    <div className="sticky bottom-0 z-30 flex shrink-0 items-center gap-0.5 overflow-x-auto border-t border-edge bg-surface-deep px-1.5 py-1">
+    // z-20 — 전체 화면 오버레이(사이드바·채팅·에이전트·터미널)는 z-30이다. 같은 z-30으로 두면
+    // DOM 순서상 에디터가 사이드바보다 뒤라 보조키가 사이드바 위에 떠 버린다
+    <div className="sticky bottom-0 z-20 flex shrink-0 items-center gap-0.5 overflow-x-auto border-t border-edge bg-surface-deep px-1.5 py-1">
       <KeyButton label="Esc" onClick={onEsc} />
       <KeyButton label="Tab" onClick={onTab} />
       <KeyButton label="Ctrl" active={ctrlActive} onClick={onToggleCtrl} />
@@ -46,6 +51,24 @@ export function MobileKeyBar({
       <KeyButton label="↑" onClick={() => onArrow('up')} />
       <KeyButton label="↓" onClick={() => onArrow('down')} />
       <KeyButton label="→" onClick={() => onArrow('right')} />
+      {onComment && (
+        <>
+          <div className="mx-0.5 h-3.5 w-px shrink-0 bg-edge" />
+          <button
+            type="button"
+            // 선택을 살려야 그 자리에 댓글이 붙는다 — 탭이 blur를 일으키면 선택이 풀린다
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onComment}
+            className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-surface-raised px-1.5 text-ink-secondary hover:bg-surface-hover"
+            aria-label="선택한 곳에 댓글"
+            title="선택한 곳에 댓글"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
+            </svg>
+          </button>
+        </>
+      )}
     </div>
   )
 }

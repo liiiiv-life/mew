@@ -389,7 +389,7 @@ export function TmuxTerminal({
 
     // 에디터에서 누른 Ctrl+L의 [경로:줄] 참조 — 호스트 앱이 window 이벤트로 broadcast하고,
     // 마운트된 활성 세션 터미널이 셸 입력으로 받아 적는다 (에이전트 패널도 같은 이벤트를 받는다)
-    const onInsertRef = (e: Event) => sendRaw({ type: 'input', data: (e as CustomEvent<string>).detail })
+    const onInsertRef = (e: Event) => sendRaw({ type: 'input', data: (e as CustomEvent<{ text: string }>).detail.text })
     window.addEventListener('mew:insert-ref', onInsertRef)
 
     // ── 자동 재연결 ──────────────────────────────────────────────────────────────

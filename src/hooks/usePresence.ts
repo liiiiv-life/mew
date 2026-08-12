@@ -66,6 +66,11 @@ export function usePresence(
             }
             setParticipants(mine)
           } else if (msg.type === 'tree') onTreeChangeRef.current()
+          // 채팅·댓글이 바뀌었다는 **내용 없는 신호** — 받은 쪽이 REST로 다시 읽는다(신호는 게스트에게도
+          // 가므로 경로·본문을 싣지 않는다). 창은 소켓을 따로 열지 않고 window 이벤트로 받는다
+          else if (msg.type === 'chat' || msg.type === 'comments') {
+            window.dispatchEvent(new CustomEvent('mew:signal', { detail: { type: msg.type } }))
+          }
           // 워크스페이스가 통째로 바뀌었다 — 열린 탭·트리가 전부 남의 폴더 것이라 다시 띄우는 수밖에 없다
           else if (msg.type === 'workspace') {
             forgetSavedProject()
