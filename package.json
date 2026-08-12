@@ -52,6 +52,7 @@
     "@tiptap/extension-collaboration": "^3.27.4",
     "@tiptap/extension-collaboration-caret": "^3.27.4",
     "@zed-industries/claude-code-acp": "0.16.2",
+    "@zed-industries/codex-acp": "0.16.0",
     "express": "^5.2.1",
     "happy-dom": "^15.11.7",
     "iconoir-react": "^7.11.1",

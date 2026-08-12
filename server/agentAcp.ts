@@ -123,9 +123,18 @@ function hermesSpawnSpec(): SpawnSpec {
   return { cmd, args: raw === undefined ? ['acp'] : raw.split(' ').filter(Boolean) }
 }
 
+/** Codex — 버전 고정된 로컬 어댑터(@zed-industries/codex-acp). codex CLI를 따로 띄우지 않고
+ *  어댑터가 곧 에이전트다 — 자격증명은 사용자의 ~/.codex를 그대로 쓴다. */
+function codexSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_CODEX_CMD || path.resolve(here, '../node_modules/.bin/codex-acp')
+  const raw = process.env.MEW_AGENT_CODEX_ARGS
+  return { cmd, args: raw === undefined ? [] : raw.split(' ').filter(Boolean) }
+}
+
 /** 창에서 고를 수 있는 에이전트 런타임. 여기 없는 id는 서버가 거부한다 */
 export const RUNTIMES: Record<string, { label: string; spec: () => SpawnSpec }> = {
   claude: { label: 'Claude Code', spec: claudeSpawnSpec },
+  codex: { label: 'Codex', spec: codexSpawnSpec },
   hermes: { label: 'Hermes', spec: hermesSpawnSpec },
 }
 
@@ -531,7 +540,7 @@ export class AgentSession {
 // 스코프는 여전히 워크스페이스라 프로젝트별로는 나누지 않는다.
 const sessions = new Map<string, Promise<AgentSession>>()
 
-const keyOf = (runtime: string, tab: string) => `${runtime} ${tab}`
+const keyOf = (runtime: string, tab: string) => `${runtime} ${tab}`
 
 /** 창을 닫았다 다시 열어도 탭마다 같은 대화가 이어진다(IDLE_KILL_MS까지) */
 export function sessionFor(runtime: string, tab: string): Promise<AgentSession> {

@@ -35,6 +35,7 @@ const MODE_LABEL: Record<string, string> = {
  */
 const RUNTIMES = [
   { id: 'claude', label: 'Claude Code', Glyph: ClaudeGlyph },
+  { id: 'codex', label: 'Codex', Glyph: CodexGlyph },
   { id: 'hermes', label: 'Hermes', Glyph: HermesGlyph },
 ]
 
@@ -1312,6 +1313,16 @@ function ClaudeGlyph() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="shrink-0">
       <path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9" />
+    </svg>
+  )
+}
+
+/** Codex — 육각 매듭 */
+function CodexGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <path d="M12 3 4.2 7.5v9L12 21l7.8-4.5v-9Z" />
+      <path d="M12 12v5M12 12l4.3-2.5" />
     </svg>
   )
 }

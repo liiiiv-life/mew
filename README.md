@@ -595,7 +595,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   `src/utils/agentFold.ts`(이벤트→화면 항목). 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) —
   에이전트는 Bash를 쓸 수 있어 tmux와 같은 경계여야 한다. 권한 모드 기본값이 `bypassPermissions`라
   (승인 프롬프트 없음) **이 역할 게이트가 유일한 통제다** — tmux보다 낮추면 무인 셸을 여는 것이다.
-- 채널: `/api/agent/ws?runtime=<claude|hermes>&tab=<id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
+- 채널: `/api/agent/ws?runtime=<claude|codex|hermes>&tab=<id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
   `런타임+탭`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`,
   `[A-Za-z0-9_-]{1,64}`이 아니면 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 —
   고른 값은 브라우저에만 남는다(`mew:agent-runtime`). 창을 닫아도 세션은 남고,
@@ -656,6 +656,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   | 런타임 | 명령 | 환경변수 |
   | --- | --- | --- |
   | `claude` | `node_modules/.bin/claude-code-acp`(버전 고정) | `MEW_AGENT_CMD` · `MEW_AGENT_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) |
+  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — codex CLI를 띄우지 않고 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
 
   공통은 `MEW_AGENT_MODE`(기본 `bypassPermissions`). 진입점이 없거나 ACP를 말하지 않으면 창에
@@ -663,6 +664,8 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 - **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
   PATH에 시스템 `claude`가 있으면 자동으로 그걸 쓴다(`CLAUDE_CODE_EXECUTABLE`로 전달, 이미 지정돼
   있으면 존중). 시스템 설치본이 없으면 번들 CLI로 돌아간다.
+  `codex`는 모델 선택기가 빌 수 있다 — 어댑터 내장 코어가 서버 모델 응답의 새 필드를 모르면
+  목록 갱신만 실패한다(stderr에 ERROR 로그). 기본 모델로 대화는 정상이고, 어댑터를 올리면 돌아온다.
 - 클라이언트 capability를 **하나도 광고하지 않는다**(`clientCapabilities: {}`) — `fs`를 켜면 어댑터가
   CLI의 `Read`·`Write`·`Edit`를 끄고 `mcp__acp__*`로 갈아끼워서, 터미널에서 만든 대화를 창에서 불러올 때
   전사 속 `Edit` 참조가 API 400으로 거부된다. 도구 이름을 CLI와 맞춰 두는 것이 계약이다
