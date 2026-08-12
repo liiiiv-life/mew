@@ -193,7 +193,8 @@
 .tiptap .tableWrapper {
   overflow-x: auto;
   overflow-y: hidden;
-  margin: 0.75em 0;
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
 }
 /* 스크롤바 스타일은 앱 전역 규칙(src/index.css의 *::-webkit-scrollbar)이 담당한다 —
    여기 있던 표 전용 스크롤바 정의를 그쪽으로 승격했다. */
