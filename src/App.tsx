@@ -34,6 +34,7 @@ import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
 import { TmuxTerminalPanel } from '@mew/tmux-term'
 import { AgentPanel } from './components/AgentPanel'
+import { AgentSetPanel } from './components/AgentSetPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
@@ -64,6 +65,7 @@ const TOC_KEY = 'mew:toc-open'
 const TMUX_OPEN_KEY = 'mew:tmux-open'
 /** 에이전트 창이 열려 있었는지 — 터미널과 같이 프로젝트와 무관한 화면 상태다(세션 스코프가 워크스페이스다) */
 const AGENT_OPEN_KEY = 'mew:agent-open'
+const AGENT_SET_OPEN_KEY = 'mew:agent-set-open'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
 /** 홈 탭의 스코프 — 워크스페이스 폴더 자신을 프로젝트처럼 본다(server/paths.ts의 WORKSPACE_PROJECT).
@@ -109,6 +111,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034).
   // 열려 있었는지도 터미널과 같이 기억한다 — 열린 채로 껐으면 다시 켤 때 그 탭에서 이어 한다
   const [agentOpen, setAgentOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_OPEN_KEY) === '1')
+  // 에이전트셋 창 — 에이전트 창과 별개다(여러 셋에게 시켜 두고 구경하는 자리). 같은 게이트를 쓴다
+  const [agentSetOpen, setAgentSetOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_SET_OPEN_KEY) === '1')
   // 멤버 채팅 창(Alt+C) — 사람끼리 쓰는 창이라 로그인만 하면 열린다(게스트 제외)
   const [chatOpen, setChatOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -482,6 +486,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     localStorage.setItem(AGENT_OPEN_KEY, agentOpen ? '1' : '0')
   }, [agentOpen])
 
+  useEffect(() => {
+    localStorage.setItem(AGENT_SET_OPEN_KEY, agentSetOpen ? '1' : '0')
+  }, [agentSetOpen])
+
   const handleFileCreated = useCallback(
     (relPath: string) => {
       refreshTree()
@@ -828,6 +836,21 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               </svg>
             ),
           },
+          {
+            id: 'agent-sets',
+            label: '에이전트셋',
+            onSelect: () => setAgentSetOpen((open) => !open),
+            active: agentSetOpen,
+            // 칸 넷 — 여러 셋이 한 판에 놓인 그리드
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
+                <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+                <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
+                <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+              </svg>
+            ),
+          },
         ]
       : []),
     ...(isGuest
@@ -1095,6 +1118,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
             <div className="min-w-0 flex-1">
               <AgentPanel onClose={() => setAgentOpen(false)} />
+            </div>
+          </div>
+        )}
+
+        {agentSetOpen && canUseTerminal && (
+          <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[30rem] md:shrink-0">
+            <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <AgentSetPanel onClose={() => setAgentSetOpen(false)} />
             </div>
           </div>
         )}

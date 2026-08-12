@@ -16,6 +16,7 @@ import { attachCollabWebSocket } from './collab.ts'
 import { attachCollabAgents } from './collabAgent.ts'
 import { attachDbWebSocket } from './db/socket.ts'
 import { attachAgentWebSocket, AGENT_WS_PATH } from './agentWs.ts'
+import { attachAgentSetWebSocket, AGENT_SET_WS_PATH } from './agentSetWs.ts'
 import { disposeAllSessions, reapOrphanAgents } from './agentAcp.ts'
 import { watchDocsTree } from './watcher.ts'
 
@@ -98,7 +99,16 @@ attachCollabWebSocket(server, { authorize: authorizeCollab })
 attachDbWebSocket(server, { authorize: authorizeCollab })
 // 에이전트는 셸을 쓸 수 있다 — 게이트가 tmux와 같은 집합(owner/manager)이어야 한다
 attachAgentWebSocket(server, { authorize: authorizeTmux })
-destroyUnknownUpgrades(server, ['/api/tmux/ws', '/api/presence', '/api/collab', '/api/db/ws', AGENT_WS_PATH])
+// 에이전트셋도 결국 에이전트다 — 같은 게이트
+attachAgentSetWebSocket(server, { authorize: authorizeTmux })
+destroyUnknownUpgrades(server, [
+  '/api/tmux/ws',
+  '/api/presence',
+  '/api/collab',
+  '/api/db/ws',
+  AGENT_WS_PATH,
+  AGENT_SET_WS_PATH,
+])
 
 // 지난 실행이 SIGKILL로 끊겼다면 그때 남은 에이전트 자식이 아직 램을 물고 있다
 reapOrphanAgents()

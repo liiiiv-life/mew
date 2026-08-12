@@ -31,6 +31,9 @@ import { currentWorkspace, switchWorkspace, WorkspaceError } from './workspace.t
 import { collectSystemStats } from './sysStats.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
+import { AgentSetError, readSets, writeSets } from './agentSets.ts'
+import { reloadSets } from './agentSetRunner.ts'
+import { RUNTIMES } from './agentAcp.ts'
 import {
   DEFAULT_IGNORE,
   IgnoreListError,
@@ -1091,6 +1094,28 @@ export function createApiApp() {
     }
   })
 
+  // 에이전트셋 정의 — 임의 프롬프트가 무인 실행되는 표면이라 예약 작업·터미널과 같은 게이트.
+  // 돌아가는 상태(켜짐·큐·작업)는 여기 없다 — 그건 WS(/api/agentset/ws)가 흘린다.
+  app.get('/agent-sets', requireRole('owner', 'manager'), (_req, res) => {
+    try {
+      res.json({ sets: readSets(), runtimes: Object.entries(RUNTIMES).map(([id, r]) => ({ id, label: r.label })) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.put('/agent-sets', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      const { sets } = req.body as { sets?: unknown }
+      const saved = writeSets(sets)
+      // 러너를 새 정의에 맞춘다 — 지워진 셋은 접히고, 런타임·모델·역할이 바뀐 셋은 다음 작업에 새로 뜬다
+      reloadSets()
+      res.json({ sets: saved })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   // "지금 실행" — 크론이 도는 것과 똑같이 잡 전용 세션에 에이전트 명령을 타이핑한다(같은 문자열).
   // 프롬프트·명령은 언제나 서버가 저장된 잡에서 만든다 — 요청 본문에서는 id만 받는다.
   app.post('/schedules/run', requireRole('owner', 'manager'), async (req, res) => {
@@ -1259,7 +1284,7 @@ function handleError(res: express.Response, err: unknown) {
     res.status(400).json({ error: err.message })
     return
   }
-  if (err instanceof ScheduleError) {
+  if (err instanceof ScheduleError || err instanceof AgentSetError) {
     res.status(400).json({ error: err.message })
     return
   }

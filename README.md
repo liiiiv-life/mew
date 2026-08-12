@@ -592,7 +592,9 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 
 - 서버: `server/agentAcp.ts`(세션·spawn·파일 스코프) + `server/agentWs.ts`(WS 릴레이) +
   `server/agentUsage.ts`(토큰 사용량). 클라이언트: `src/components/AgentPanel.tsx` +
-  `src/utils/agentFold.ts`(이벤트→화면 항목). 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) —
+  `src/utils/agentFold.ts`(이벤트→화면 항목) + `src/components/agentRuntimes.tsx`(런타임 목록·아이콘,
+  에이전트셋 창과 공용) + `src/utils/agentMarkdown.ts`(답변 마크다운, 두 창 공용).
+  접근은 **owner/manager**(`authorizeTmux`와 같은 집합) —
   에이전트는 Bash를 쓸 수 있어 tmux와 같은 경계여야 한다. 권한 모드 기본값이 `bypassPermissions`라
   (승인 프롬프트 없음) **이 역할 게이트가 유일한 통제다** — tmux보다 낮추면 무인 셸을 여는 것이다.
 - 채널: `/api/agent/ws?runtime=<claude|codex|hermes>&tab=<id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
@@ -674,6 +676,32 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   cwd는 뜰 때 정해져 옛 폴더에 매여 있다.
 - 자식 환경에서 **`CLAUDECODE`를 지운다.** 남아 있으면 Claude Code가 중첩 세션으로 보고 실행을 거부해
   세션 생성이 통째로 실패한다(mew 서버를 Claude Code 터미널에서 띄우면 상속된다).
+
+## 에이전트셋 창
+
+헤더의 **칸 넷 아이콘** — 에이전트 창과 **별개 창**이다. 에이전트 창이 "한 대화를 사람이 붙들고 가는"
+자리라면, 여기는 "여러 셋에게 시켜 두고 구경하는" 자리다
+([ADR 0052](../.mew/docs/decisions/0052-mew-agent-sets-router-dispatch.md)).
+
+**에이전트셋** = 런타임 + 모델 + 역할(시스템 프롬프트) 묶음 하나. 그리드에 라우터까지 전부 보인다.
+
+- 채널: `/api/agentset/ws` — 파라미터 없다. **연결이 세션을 만들지 않는다**(에이전트 창과 다른 점):
+  세션·큐를 들고 있는 것은 서버(`server/agentSetRunner.ts`)이고 창은 구경창이다. 창을 닫아도 일은 돈다
+  - 창→서버: `submit`(text, setId?) · `open_task`(taskId|null) · `cancel_task` · `queue`(unqueue·move·edit)
+    · `permission` · `stop_set`
+  - 서버→창: `state`(셋 전체 스냅샷, 50ms로 묶어 보냄) · `task`(상세 열기 응답) ·
+    `task_events`(**열어 둔 작업 하나만** 흘린다 — 전부 보내면 그리드만 보는 창에도 청크가 쏟아진다) · `error`
+- 정의 CRUD는 REST: `GET`·`PUT /api/agent-sets` (owner/manager). 저장은 `<DATA_DIR>/agent-sets.json`
+- 게이트는 터미널·에이전트 창과 **같은 집합**(`authorizeTmux`) — 셋도 Bash를 쓴다
+- **라우터**(`id: 'router'`)는 목록에 항상 있다. 삭제·이름·역할 수정 불가 — 서버(`normalizeSets`)가
+  저장값을 고정값으로 덮어써 강제한다. 고칠 수 있는 것은 **어떤 에이전트·어떤 모델로 판정할지**뿐이다
+- 입력줄 하나가 창 전체의 입구다. `@셋이름`으로 시작하면 라우터를 건너뛰고 그 셋이 바로 받는다
+  (이름에 공백이 있어 정규식이 아니라 **목록과 맞춰 보고** 자른다 — `src/utils/agentSetMention.ts`)
+- 역할은 ACP에 자리가 없어 **그 세션의 첫 프롬프트 머리말**로 들어간다. 역할·런타임·모델을 고치면
+  세션을 접는다(다음 작업에 새로 뜬다)
+- 세션은 **첫 작업에 뜨고**(지연 시작) **10분 놀면 꺼진다**. 셋 카드의 점: 회색=꺼짐, 초록=켜짐·대기, 파랑=진행 중
+- ⚠️ 작업 이력은 **메모리에만** 있다(셋당 50개). [ADR 0048](../.mew/docs/decisions/0048-mew-agent-supervisor-process.md)의
+  감독 프로세스가 아직 없어서 **mew를 재시작하면 돌던 셋 작업이 죽고 이력도 사라진다**
 
 ## 구조
 
