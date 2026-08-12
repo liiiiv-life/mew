@@ -32,7 +32,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import { WORKSPACE_ROOT } from './paths.ts'
 import { UsageReader, type Usage } from './agentUsage.ts'
-import { listSessionsFromDisk } from './agentSessionList.ts'
+import { listSessionsFromDisk, stripLocalCommandMeta } from './agentSessionList.ts'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -255,6 +255,19 @@ export class AgentSession {
         if (params.update.sessionUpdate === 'current_mode_update' && this.#modes) {
           this.#modes = { ...this.#modes, currentModeId: params.update.currentModeId }
           this.#emit({ type: 'modes', modes: this.#modes })
+        }
+        // 불러온 히스토리의 사용자 발화에는 CLI 메타가 섞여 온다(어댑터가 기록을 그대로 되재생한다).
+        // 창에서 방금 친 프롬프트는 #run이 직접 넣으므로 이 길로 오지 않는다 — 여기 필터는 히스토리만 탄다.
+        if (params.update.sessionUpdate === 'user_message_chunk') {
+          const content = params.update.content
+          if (!Array.isArray(content) && content?.type === 'text') {
+            const text = stripLocalCommandMeta(content.text)
+            if (!text) return
+            if (text !== content.text) {
+              this.#emit({ type: 'update', update: { ...params.update, content: { ...content, text } } })
+              return
+            }
+          }
         }
         this.#emit({ type: 'update', update: params.update })
       },

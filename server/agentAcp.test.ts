@@ -87,6 +87,33 @@ new AgentSideConnection(
 )
 `
 
+// 지난 대화를 되재생하는 어댑터를 흉내 낸다 — 사용자 발화에 CLI 메타(caveat·커맨드 머리)가 섞여 온다
+const historyStubSource = `
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
+import { Readable, Writable } from 'node:stream'
+
+const userChunk = (text) => ({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text } })
+
+class HistoryAgent {
+  constructor(conn) { this.conn = conn }
+  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} } }
+  async newSession() { return { sessionId: 'stub-history' } }
+  async authenticate() { return {} }
+  async cancel() {}
+  async prompt({ sessionId }) {
+    await this.conn.sessionUpdate({ sessionId, update: userChunk('<local-command-caveat>Caveat: local commands.</local-command-caveat>') })
+    await this.conn.sessionUpdate({ sessionId, update: userChunk('<command-name>/model</command-name>\\n<command-args>opus</command-args>') })
+    await this.conn.sessionUpdate({ sessionId, update: userChunk('이 <local-command-caveat>x</local-command-caveat> 왜 붙어?') })
+    return { stopReason: 'end_turn' }
+  }
+}
+
+new AgentSideConnection(
+  (conn) => new HistoryAgent(conn),
+  ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
+)
+`
+
 // 어댑터가 세션마다 CLI를 하나씩 밑에 두는 것을 흉내 낸다 — 그 손자까지 죽는지 보려는 스텁
 const treeStubSource = `
 import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
@@ -164,6 +191,39 @@ test('ACP 한 턴: 스트리밍·승인 왕복·CLI 기본 파일 도구 유지'
   assert.doesNotMatch(text, /"readTextFile":\s*true/, 'fs.readTextFile을 광고하지 않는다')
   assert.doesNotMatch(text, /"writeTextFile":\s*true/, 'fs.writeTextFile을 광고하지 않는다')
   assert.deepEqual(events.at(-1), { type: 'turn_end', stopReason: 'end_turn' })
+})
+
+test('되재생된 사용자 발화에서 CLI 메타만 걷어낸다 — 창에서 친 프롬프트는 그대로 남는다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'history-stub.mjs')
+  fs.writeFileSync(stubPath, historyStubSource)
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
+
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+
+  const events: AgentEvent[] = []
+  const done = new Promise<void>((resolve) => {
+    session.attach((event) => {
+      events.push(event)
+      if (event.type === 'turn_end') resolve()
+    })
+  })
+  const typed = '내가 친 <local-command-caveat>진짜</local-command-caveat> 프롬프트'
+  session.prompt(typed)
+  await done
+
+  const said: string[] = []
+  for (const event of events) {
+    if (event.type !== 'update' || event.update.sessionUpdate !== 'user_message_chunk') continue
+    const content = event.update.content
+    if (!Array.isArray(content) && content?.type === 'text') said.push(content.text)
+  }
+  assert.deepEqual(said, [
+    typed, // #run이 넣은 라이브 발화 — 태그를 쳐도 손대지 않는다
+    '/model opus', // 되재생된 슬래시 커맨드는 입력한 모양으로
+    '이 <local-command-caveat>x</local-command-caveat> 왜 붙어?', // 문장 안의 태그는 그대로
+  ])
 })
 
 test('세션을 잡으면 기본 권한 모드(bypassPermissions)를 걸어 준다', async (t) => {

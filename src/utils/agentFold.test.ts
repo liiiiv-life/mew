@@ -61,3 +61,9 @@ test('승인 응답은 해당 요청만 답한 상태로 바꾼다', () => {
   const permission = turn.children[0]
   assert.equal(permission.kind === 'permission' && permission.answered, true)
 })
+
+test('잇따른 사용자 발화는 한 말풍선에 줄바꿈으로 갈려 들어간다', () => {
+  // 메시지 경계가 없는 청크 스트림이라 묶이는 것 자체는 정상이다 — 붙어서 한 줄이 되면 안 될 뿐
+  const items = foldEvents([user('첫 질문'), user('둘째 질문'), agent('답')])
+  assert.deepEqual(items.map((i) => (i.kind === 'user' ? i.text : i.kind)), ['첫 질문\n둘째 질문', 'turn'])
+})

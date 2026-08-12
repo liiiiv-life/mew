@@ -154,7 +154,8 @@ export function foldEvents(events: AgentEvent[]): Item[] {
     if (update.sessionUpdate === 'user_message_chunk') {
       const text = update.content?.type === 'text' ? (update.content.text ?? '') : `[${update.content?.type}]`
       const last = items.at(-1)
-      if (last && last.kind === 'user') last.text += text
+      // 청크 스트림에는 메시지 경계가 없어 연속 사용자 발화는 한 말풍선이 된다 — 줄바꿈으로만 가른다
+      if (last && last.kind === 'user') last.text += (last.text ? '\n' : '') + text
       else items.push({ key: `m${i}`, kind: 'user', text })
       // 새 질문은 앞 턴을 닫는다 — 불러온 히스토리에는 turn_end가 없어서 여기서 끊지 않으면
       // 지난 대화 전체가 턴 하나로 뭉친다

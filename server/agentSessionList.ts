@@ -17,6 +17,39 @@ const HEAD_BYTES = 64 * 1024
 /** 어댑터의 PAGE_SIZE와 같다 — 창은 첫 페이지만 그린다 */
 const MAX_SESSIONS = 50
 
+/** 메시지 맨 앞에 붙는 CLI 메타 블록 하나 — caveat 안내문·로컬 실행 출력·슬래시 커맨드 머리 */
+const HEAD_META =
+  /^\s*(?:<local-command-(caveat|stdout|stderr)>[\s\S]*?<\/local-command-\1>|<command-(name|message|args)>([\s\S]*?)<\/command-\2>)/
+
+/**
+ * Claude Code가 세션 기록에 끼워 넣는 로컬 커맨드 메타를 걷어낸다 — 사용자가 친 말이 아니라 CLI 안내문이다.
+ * 커맨드 이름·인자만 남겨 `/model opus`처럼 실제로 입력한 모양으로 되살리고, 뒤에 붙은 본문은 그대로 둔다
+ * (`/doctor`처럼 커맨드가 프롬프트로 펼쳐지는 경우). 전부 메타면 빈 문자열이 나온다.
+ *
+ * **맨 앞에 붙은 블록만 벗긴다.** 어댑터가 isMeta 플래그를 넘겨주지 않아 본문만 보고 갈라야 하는데,
+ * 기록을 세어 보면 CLI가 만든 메타는 예외 없이 메시지 맨 앞에서 시작한다(태그 낀 메시지 563개 중 561개가
+ * 메타뿐이고 나머지 2개도 태그가 앞). 그래서 "이 `<local-command-caveat>…</local-command-caveat>` 왜 떠?"처럼
+ * 사용자가 문장 안에 태그를 쓴 말은 건드리지 않는다.
+ */
+export function stripLocalCommandMeta(text: string): string {
+  let rest = text
+  let stripped = false
+  const command: string[] = []
+  for (let match = HEAD_META.exec(rest); match; match = HEAD_META.exec(rest)) {
+    stripped = true
+    // 이름과 인자만 사람이 친 것이다 — message는 이름의 사본, caveat·stdout은 CLI가 쓴 안내문이다
+    if (match[2] === 'name' || match[2] === 'args') {
+      const part = match[3].trim()
+      if (part) command.push(part)
+    }
+    rest = rest.slice(match[0].length)
+  }
+  if (!stripped) return text
+  const body = rest.trim()
+  const head = command.join(' ')
+  return head && body ? `${head}\n\n${body}` : head || body
+}
+
 type Parsed = { title: string | null; cwd: string | null }
 type Cached = Parsed & { mtimeMs: number; size: number }
 
@@ -59,9 +92,10 @@ async function readHead(file: string, size: number): Promise<Parsed> {
     if (typeof entry.cwd === 'string') parsed.cwd = entry.cwd
     if (!parsed.title && entry.type === 'user') {
       const title = titleOf(entry.message?.content)
-      // 어댑터의 sanitizeTitle과 같은 규칙 — 목록에 보이던 이름이 달라지지 않게 한다
+      // 어댑터의 sanitizeTitle과 같은 규칙 — 목록에 보이던 이름이 달라지지 않게 한다.
+      // caveat 같은 메타뿐인 발화는 제목이 못 되므로 다음 사용자 발화를 계속 찾는다
       if (title) {
-        const flat = title.replace(/\s+/g, ' ').trim()
+        const flat = stripLocalCommandMeta(title).replace(/\s+/g, ' ').trim()
         parsed.title = flat.length > 128 ? `${flat.slice(0, 127)}…` : flat || null
       }
     }
