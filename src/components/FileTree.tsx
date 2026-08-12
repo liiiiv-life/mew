@@ -597,6 +597,7 @@ export function FileTree({
   readOnly,
   searchFocusSignal,
   newFileSignal,
+  revealSignal,
   presence,
   onSelect,
   onFileCreated,
@@ -614,6 +615,8 @@ export function FileTree({
   searchFocusSignal: number
   /** Alt+N — 새 파일 이름 입력 열기. parentPath가 null이면 트리의 선택 항목 기준 */
   newFileSignal: { n: number; parentPath: string | null }
+  /** 오를 때마다 지금 문서 자리를 다시 드러낸다 — 이미 열린 탭을 다시 눌렀을 때도 반응하려고 신호로 받는다 */
+  revealSignal: number
   presence: Record<string, string[]>
   onSelect: (path: string, opts?: { preview?: boolean }) => void
   onFileCreated: (relPath: string) => void
@@ -709,6 +712,7 @@ export function FileTree({
 
   // 활성 탭이 바뀌면 사이드바에서도 해당 파일이 보이게 부모 폴더 체인을 열고 스크롤한다.
   // 사이드바가 닫혀 있으면 이 컴포넌트는 언마운트 상태 — 다시 열릴 때 이 이펙트가 반영한다.
+  // revealSignal도 함께 본다 — **이미 열린 탭을 다시 눌렀을 때**는 경로가 그대로라 그 신호만이 유일한 단서다.
   useEffect(() => {
     if (!selectedPath || tree.length === 0) return
     ensureOpenChain(parentOf(selectedPath))
@@ -720,7 +724,7 @@ export function FileTree({
     })
     return () => cancelAnimationFrame(raf)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPath, tree])
+  }, [selectedPath, tree, revealSignal])
 
   function toggleDir(path: string) {
     setOpenDirs((prev) => {
@@ -734,13 +738,17 @@ export function FileTree({
   function ensureOpenChain(dirPath: string) {
     if (!dirPath) return
     setOpenDirs((prev) => {
-      const next = new Set(prev)
       const parts = dirPath.split('/')
+      const missing: string[] = []
       let acc = ''
       for (const part of parts) {
         acc = acc ? `${acc}/${part}` : part
-        next.add(acc)
+        if (!prev.has(acc)) missing.push(acc)
       }
+      // 이미 다 열려 있으면 그대로 둔다 — 탭을 누를 때마다 새 Set을 만들면 괜한 리렌더와 저장이 따라온다
+      if (missing.length === 0) return prev
+      const next = new Set(prev)
+      for (const dir of missing) next.add(dir)
       return next
     })
   }

@@ -139,6 +139,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // Alt+N 새 파일 신호 — parentPath가 있으면 그 폴더에(에디터 포커스였을 때 활성 문서 폴더),
   // null이면 FileTree가 자기 선택 항목 기준으로 이름 입력을 연다
   const [newFileSignal, setNewFileSignal] = useState<{ n: number; parentPath: string | null }>({ n: 0, parentPath: null })
+  // 사이드바에서 지금 문서 자리를 드러내라는 신호(부모 폴더 펼치기 + 스크롤). 경로가 아니라 신호인 이유는
+  // **이미 열려 있는 탭을 다시 눌렀을 때**다 — 그때는 활성 경로가 그대로라 경로만 보면 아무 일도 안 일어난다
+  const [revealSignal, setRevealSignal] = useState(0)
   // 탭을 끌고 있는 동안 그림자가 뜰 칸과 자리 — 손을 떼면 그 자리가 실제 분할·이동이 된다
   const [dropTarget, setDropTarget] = useState<{ paneId: string; zone: DropZone } | null>(null)
   // 칸별 에디터 손잡이(선택 영역·찾기·되돌리기)와 본문 영역 DOM(드롭 자리 판정)
@@ -708,7 +711,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           registerElement={registerPaneElement}
           registerTabBar={registerPaneTabBar}
           onFocus={() => focusPane(pane.id)}
-          onActivate={(path) => setActivePath(path, pane.id)}
+          onActivate={(path) => {
+            setActivePath(path, pane.id)
+            setRevealSignal((n) => n + 1)
+          }}
           onPin={(path) => pinTab(path, pane.id)}
           onCloseTab={(path) => closeTab(path, pane.id)}
           onReorder={(from, to) => reorderTabs(from, to, pane.id)}
@@ -1021,6 +1027,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     readOnly={isGuest}
                     searchFocusSignal={searchFocusSignal}
                     newFileSignal={newFileSignal}
+                    revealSignal={revealSignal}
                     presence={tabPresence}
                     onSelect={(path, opts) => {
                       openFile(path, opts)
