@@ -5,7 +5,7 @@
 // 정보줄(세션·토큰·턴 수)은 이벤트가 아니라 서버가 보내는 meta 스냅샷을 그대로 그린다.
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import MarkdownIt from 'markdown-it'
-import { keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
+import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { useGridDrag } from '../hooks/useGridDrag'
 import { withAutoLabel, withRename, type AgentTab } from '../utils/agentTabs'
@@ -888,15 +888,16 @@ function AgentSessionView({
             // 내가 쓴 말이라 이미 아는 내용이다 — 턴 버블과 같게 접어 두고, 눌러야 다 보인다
             const open = expanded.has(item.key)
             return (
-              <div key={item.key} className="ml-6 rounded-lg bg-surface-raised">
+              <div key={item.key} className="ml-6 flex items-start rounded-lg bg-surface-raised">
                 <button
                   type="button"
                   onClick={() => toggle(item.key)}
-                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-ink"
+                  className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left text-ink"
                 >
                   <span className="shrink-0 pt-1 text-ink-secondary"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
                   <span className={`min-w-0 flex-1 ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
                 </button>
+                <CopyButton text={item.text} label="이 질문 복사" />
               </div>
             )
           }
@@ -920,6 +921,14 @@ function AgentSessionView({
                     <span className="shrink-0 pt-0.5"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
                     <span className={open ? 'sr-only' : 'line-clamp-2 text-ink'}>{summary}</span>
                   </button>
+                  {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
+                  <CopyButton
+                    text={item.children
+                      .filter((c) => c.kind === 'agent')
+                      .map((c) => (c.kind === 'agent' ? c.text : ''))
+                      .join('\n\n')}
+                    label="이 답변 복사"
+                  />
                   {/* 돌고 있는 턴만 중단할 수 있다 — 지난 턴에는 버튼이 없다 */}
                   {busy && !item.done && (
                     <button
@@ -1148,6 +1157,40 @@ function CaretGlyph({ dir }: { dir: 'right' | 'down' | 'up' }) {
   return (
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`shrink-0 ${rotate}`}>
       <path d="m9 5 7 7-7 7" />
+    </svg>
+  )
+}
+
+/**
+ * 버블 텍스트를 그대로 클립보드에 넣는다. 말풍선 본문이 접기 버튼 안에 들어 있어 드래그·길게 눌러
+ * 고르는 게 막혀 있으므로, 복사는 이 버튼이 유일한 길이다.
+ */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [done, setDone] = useState(false)
+  useEffect(() => {
+    if (!done) return
+    const timer = setTimeout(() => setDone(false), 1200)
+    return () => clearTimeout(timer)
+  }, [done])
+  if (!text.trim()) return null
+  return (
+    <button
+      type="button"
+      onClick={() => void copyText(text).then((ok) => ok && setDone(true))}
+      className="m-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
+      aria-label={label}
+      title={label}
+    >
+      {done ? <CheckGlyph /> : <CopyGlyph />}
+    </button>
+  )
+}
+
+function CopyGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect width="13" height="13" x="9" y="9" rx="2" />
+      <path d="M5 15c-1.1 0-2-.9-2-2V5c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2" />
     </svg>
   )
 }
