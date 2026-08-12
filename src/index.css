@@ -168,28 +168,19 @@ body {
 }
 
 /* 노션식 블록 드래그 핸들 (@tiptap/extension-drag-handle이 위치를 잡아 주는 엘리먼트).
-   호버한 줄 왼쪽에 그립이 뜬다 — 클릭은 블록 선택, 드래그는 블록 이동 */
+   **그림이 없는 투명한 손잡이**다 — 눈에 보이는 것은 그 자리에 늘 떠 있는 줄 번호이고
+   (packages/editor/src/editor/editor.css의 counter), 이 상자는 그 위에 포개져 잡히기만 한다.
+   클릭은 블록 선택, 드래그는 블록 이동, 호버 표시는 번호가 밝아지는 것(mew-line--hover)으로 낸다 */
 .mew-drag-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
+  width: 24px;
   height: 24px;
-  border-radius: 4px;
-  color: var(--color-ink-faint);
   cursor: grab;
-}
-.mew-drag-handle:hover {
-  background-color: var(--color-surface-raised);
-  color: var(--color-ink-muted);
 }
 .mew-drag-handle:active {
   cursor: grabbing;
 }
-/* 리스트 항목: 불렛·번호 마커가 li 박스 왼쪽 바깥에 그려지므로 마커 폭만큼 더 밀어 겹침 방지 */
-.mew-drag-handle--list {
-  transform: translateX(-24px);
-}
+/* 리스트 항목 위에서는 Editor.tsx가 중첩 깊이만큼(한 단 24px) transform으로 직접 밀어 준다 —
+   숫자도 같은 만큼 되돌아가 있으므로(editor.css의 li::before) 손잡이가 계속 숫자 위에 포개진다 */
 
 /* Tailwind preflight는 b/strong을 "bolder"(부모 대비 상대값)로 리셋하는데,
    본문이 300(Light)일 때 상대 계산 결과가 400에 그쳐 볼드 대비가 흐려진다.

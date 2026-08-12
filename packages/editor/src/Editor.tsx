@@ -49,6 +49,7 @@ import { HeadingEnter } from './editor/headingEnter'
 import { HeadingShortcut } from './editor/headingShortcut'
 import { Footnotes, scanFootnotes } from './editor/footnoteSync'
 import { DeleteLine } from './editor/deleteLine'
+import { LineFocus, listLevel } from './editor/lineFocus'
 import { changedCaretPos } from './editor/undoCaret'
 import { SearchAndReplace } from './editor/searchExtension'
 import { CommentHighlight, commentRefreshKey, docTextWithMap, indexOfPos, type CommentThreadInput } from './editor/commentHighlight'
@@ -305,6 +306,8 @@ export const Editor = forwardRef<
   // 드래그 핸들이 지금 가리키는 블록의 문서 위치 — 핸들 클릭 시 NodeSelection 대상
   const dragHandlePosRef = useRef(-1)
   const dragHandleElRef = useRef<HTMLDivElement | null>(null)
+  // 지금 핸들이 잡고 있는 줄의 DOM — 그 줄의 번호만 밝히려고 클래스를 옮겨 붙인다
+  const hoverLineElRef = useRef<HTMLElement | null>(null)
   const [keyBarCtrl, setKeyBarCtrl] = useState(false)
   const [keyBarShift, setKeyBarShift] = useState(false)
   // Ctrl+F 찾기 바 — seed는 열 때 미리 채울 검색어, nonce는 이미 열려 있어도 새 seed로 다시 실행시키는 신호
@@ -400,6 +403,8 @@ export const Editor = forwardRef<
       HeadingShortcut,
       // Shift+Ctrl+Backspace — 커서가 있는 줄(블록·리스트 항목·코드 한 줄)을 통째로 삭제
       DeleteLine,
+      // 커서가 있는 줄에 클래스 — 왼쪽 거터의 줄 번호를 그 줄만 밝게 한다(editor.css)
+      LineFocus,
       // Ctrl+F 문서 내 찾기·바꾸기 (정규식·대소문자) — 매치를 데코레이션으로 하이라이트
       SearchAndReplace,
       // 파일 댓글 하이라이트 — 옵션이 생성 시 한 번 잡히므로 ref 게터로 최신 스레드를 본다
@@ -422,14 +427,14 @@ export const Editor = forwardRef<
       // table 노드는 md 직렬화를 고친 MarkdownTable로 등록한다 (editor/tableMarkdown.ts, 서버와 공유)
       TableKit.configure({ table: false }),
       MarkdownTable.configure({ allowTableNodeSelection: true, resizable: true }),
-      // 노션식 블록 드래그 핸들 — 호버한 줄 왼쪽에 그립이 뜨고, 끌면 블록 이동.
-      // 클릭하면 그 블록을 NodeSelection으로 통째로 선택한다 (아래 onNodeChange가 추적한 pos 사용)
+      // 노션식 블록 드래그 핸들 — **눈에 보이는 것은 줄 번호**(editor.css의 counter로 줄마다 늘 떠 있다)이고,
+      // 이 엘리먼트는 그 번호 위에 포개지는 투명한 손잡이다: 끌면 블록 이동, 클릭하면 그 블록을
+      // NodeSelection으로 통째로 선택한다 (아래 onNodeChange가 추적한 pos 사용).
+      // 호버 표시도 그립이 아니라 번호가 낸다 — onNodeChange가 그 줄에 mew-line--hover를 붙인다.
       DragHandle.configure({
         render: () => {
           const el = document.createElement('div')
           el.className = 'mew-drag-handle'
-          el.innerHTML =
-            '<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.3"/><circle cx="7" cy="3" r="1.3"/><circle cx="3" cy="8" r="1.3"/><circle cx="7" cy="8" r="1.3"/><circle cx="3" cy="13" r="1.3"/><circle cx="7" cy="13" r="1.3"/></svg>'
           el.addEventListener('click', () => {
             const ed = editorRef.current
             const pos = dragHandlePosRef.current
@@ -443,9 +448,17 @@ export const Editor = forwardRef<
         onNodeChange: (opts) => {
           const { node, pos } = opts as unknown as { node: PMNode | null; pos: number }
           dragHandlePosRef.current = pos
-          // 리스트 항목은 불렛·번호 마커가 li 박스 왼쪽 바깥에 그려진다 — 핸들이 마커와 겹치지
-          // 않게 마커 폭만큼 더 왼쪽으로 밀어낸다 (index.css의 --list 변형)
-          dragHandleElRef.current?.classList.toggle('mew-drag-handle--list', node?.type.name === 'listItem')
+          // 리스트 항목은 중첩 한 단(24px)마다 오른쪽으로 들여쓰인다 — 손잡이를 그만큼 되돌려
+          // 왼쪽 거터의 줄 번호 위에 포갠다 (같은 계산이 editor.css의 li::before에 있다)
+          const doc = editorRef.current?.state.doc
+          if (dragHandleElRef.current)
+            dragHandleElRef.current.style.transform = `translateX(-${24 * (doc ? listLevel(doc, pos) : 0)}px)`
+          // 지금 잡히는 줄의 번호를 밝힌다 — 핸들이 투명하므로 호버 표시는 번호가 낸다.
+          // 편집으로 그 블록의 DOM이 새로 그려지면 클래스가 날아가지만 다음 마우스 이동이 다시 붙인다
+          hoverLineElRef.current?.classList.remove('mew-line--hover')
+          const dom = node && pos >= 0 ? editorRef.current?.view.nodeDOM(pos) : null
+          hoverLineElRef.current = dom instanceof HTMLElement ? dom : null
+          hoverLineElRef.current?.classList.add('mew-line--hover')
         },
         nested: {
           rules: [
