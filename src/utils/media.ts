@@ -16,7 +16,7 @@ export function mediaKind(path: string): MediaKind | null {
   if (AUDIO_EXTS.has(ext)) return 'audio'
   if (VIDEO_EXTS.has(ext)) return 'video'
   if (ext === 'pdf') return 'pdf'
-  if (ext === 'xlsx') return 'sheet'
+  if (ext === 'xlsx' || ext === 'csv' || ext === 'tsv') return 'sheet'
   if (DOWNLOAD_EXTS.has(ext)) return 'download'
   return null
 }

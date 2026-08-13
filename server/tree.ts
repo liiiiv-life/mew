@@ -56,6 +56,9 @@ export const MEDIA_EXTENSIONS = new Set([
   '.mp4', '.webm', '.mov', '.m4v', '.mkv',
   '.pdf',
   '.xlsx', // 표는 브라우저에서 직접 파싱해 읽기 전용으로 그린다 (src/utils/xlsx.ts)
+  // csv·tsv도 같은 표 뷰어로 간다. 글자 파일이지만 에디터에 그대로 펴면 쉼표 줄이 늘어서 읽을 수 없고,
+  // 엑셀이 뱉은 파일은 대개 cp949라 utf-8로 읽으면 글자가 깨진다 (src/utils/csv.ts)
+  '.csv', '.tsv',
 ])
 
 // 트리에 노출하되 미리보기 없이 다운로드만 하는 바이너리 — 빌드 산출물 등 (Android APK/AAB)
