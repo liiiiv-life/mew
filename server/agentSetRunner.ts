@@ -320,12 +320,16 @@ class AgentSetRunner {
     return starting
   }
 
-  /** 역할은 시스템 프롬프트 자리가 없어서 첫 프롬프트 머리말로 간다 */
+  /**
+   * 역할은 시스템 프롬프트 자리가 없어서 첫 프롬프트 머리말로 간다.
+   * 라우터만 예외로 **판정할 때마다** 다시 붙인다 — 한 세션에서 판정이 쌓이면 지난 대화가 문맥을
+   * 덮어 "id 하나만" 규칙이 흐려지고, 그때부터 군말 섞인 답이 나와 셋을 못 고른다.
+   */
   #compose(prompt: string): string {
-    if (this.#rolePrimed) return prompt
+    const router = this.set.id === ROUTER_ID
+    if (this.#rolePrimed && !router) return prompt
     this.#rolePrimed = true
-    const role = this.set.id === ROUTER_ID ? ROUTER_ROLE : this.set.role
-    return `${role}\n\n---\n\n${prompt}`
+    return `${router ? ROUTER_ROLE : this.set.role}\n\n---\n\n${prompt}`
   }
 
   #pump() {
@@ -506,25 +510,49 @@ export function submit(text: string, setId?: string | null): { ok: boolean; mess
   return { ok: true }
 }
 
-/** 라우터가 무엇을 보고 판단할지 — 후보 목록과 사용자 프롬프트를 한 덩어리로 준다 */
+/** 라우터가 무엇을 보고 판단할지 — 후보 목록과 사용자 프롬프트를 한 덩어리로 준다.
+ *  역할 글이 곧 판단 재료라 너무 짧게 자르면 후보들이 다 비슷해 보인다 */
 function routePrompt(prompt: string, candidates: AgentSet[]): string {
-  const list = candidates.map((s) => `- ${s.id} · ${s.name}: ${s.role.replace(/\s+/g, ' ').slice(0, 200)}`).join('\n')
-  return [`[후보]`, list, '', '[사용자 프롬프트]', prompt].join('\n')
+  const list = candidates.map((s) => `- ${s.id} · ${s.name}: ${s.role.replace(/\s+/g, ' ').slice(0, 400)}`).join('\n')
+  return [`[후보]`, list, '', '[사용자 프롬프트]', prompt, '', '위 후보 중 하나의 id만 출력한다. 없으면 none.'].join('\n')
+}
+
+/** 글머리표·따옴표·마침표를 걷어낸 한 줄 — 모델이 `- \`id\`.` 처럼 답해도 같은 줄로 본다 */
+function normalizeLine(line: string): string {
+  return line
+    .toLowerCase()
+    .replace(/^[\s>*•\-–—]+/, '')
+    .replace(/[`'"*_.,:;!?()[\]{}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /**
  * 판정 응답에서 셋을 골라낸다. 모델이 id 대신 이름을 답하는 일이 잦아서 둘 다 본다.
  * 못 고르면 null — 그 작업은 라우팅 실패로 남고, 사용자가 @로 직접 맡기면 된다.
+ *
+ * 줄 통째로 id·이름인 줄을 먼저 찾는다. 군말 섞인 줄에서 부분 문자열로 집으면, 후보 이름이 서로의
+ * 부분인 경우("코드"·"코드리뷰")나 라우터가 후보를 열거하며 설명한 문장에서 엉뚱한 셋이 걸린다.
  */
 export function pickSet(answer: string, candidates: AgentSet[]): AgentSet | null {
-  const text = answer.toLowerCase()
   // 마지막 줄부터 본다 — 모델이 앞에 군말을 붙여도 결론은 끝에 있다
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean).reverse()
+  const lines = answer.split('\n').map(normalizeLine).filter(Boolean).reverse()
+  const named = (line: string, exact: boolean) =>
+    candidates.find((set) => {
+      const id = set.id.toLowerCase()
+      const name = set.name.toLowerCase()
+      return exact ? line === id || line === name : line.includes(id) || line.includes(name)
+    }) ?? null
+
   for (const line of lines) {
-    for (const set of candidates) {
-      if (line.includes(set.id.toLowerCase())) return set
-      if (line.includes(set.name.toLowerCase())) return set
-    }
+    const hit = named(line, true)
+    if (hit) return hit
+  }
+  for (const line of lines) {
+    // "마땅한 후보가 없으면 none" — 그렇게 못 박은 줄을 지나쳐 부분 매칭으로 아무나 집지 않는다
+    if (/\bnone\b/.test(line)) return null
+    const hit = named(line, false)
+    if (hit) return hit
   }
   return null
 }
