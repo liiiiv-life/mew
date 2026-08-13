@@ -60,6 +60,9 @@ const MAX_BUFFERED_EVENTS = 500
 /** 붙어 있는 창이 하나도 없는 채로 이만큼 지나면 에이전트를 죽인다 */
 const IDLE_KILL_MS = 10 * 60_000
 
+/** 어댑터를 띄운 뒤 ACP 핸드셰이크가 이만큼 걸리면 포기한다 — 정상이면 몇 초다 */
+const HANDSHAKE_TIMEOUT_MS = 30_000
+
 /** 창 상단 정보줄이 그리는 값 — 이벤트 버퍼에 쌓지 않고 바뀔 때마다 현재 값을 통째로 보낸다 */
 export type SessionMeta = {
   sessionId: string
@@ -218,7 +221,19 @@ export class AgentSession {
   static async start(runtime: string, spec: SpawnSpec = RUNTIMES[runtime].spec()): Promise<AgentSession> {
     const session = new AgentSession(runtime, spec)
     try {
-      await session.#handshake()
+      // 핸드셰이크에 시한을 둔다 — 어댑터가 떴는데 ACP를 말하지 않으면(잘못 깔린 실행 파일, 로그인
+      // 안 된 CLI) initialize의 응답이 영영 오지 않는다. 시한이 없으면 그 자리에서 기다리는 쪽이
+      // 통째로 멎는다: 창은 "에이전트 준비 중"에서, 셋은 작업이 running인 채로 굳는다
+      await Promise.race([
+        session.#handshake(),
+        new Promise<never>((_, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error('에이전트가 응답하지 않습니다 (핸드셰이크 시간 초과)')),
+            HANDSHAKE_TIMEOUT_MS,
+          )
+          timer.unref?.()
+        }),
+      ])
     } catch (err) {
       session.dispose()
       throw err
