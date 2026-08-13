@@ -40,6 +40,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_AGENT_CMD = path.resolve(here, '../node_modules/.bin/claude-code-acp')
 
 /** 에이전트와 그 자손에 심는 주인 표식 — 값은 띄운 mew 서버의 pid다(reapOrphanAgents가 읽는다) */
+const OWNER_ENV = 'MEW_AGENT_OWNER'
 
 /**
  * 새 세션은 그 런타임에서 **가장 많이 열린 모드**로 시작한다 — 에이전트 창은 터미널과 같은 게이트를
@@ -184,6 +185,8 @@ export class AgentSession {
     this.runtime = runtime
     this.cwd = WORKSPACE_ROOT
     const env = { ...process.env, ...spec.env }
+    // 주인 표식은 자손까지 그대로 상속된다 — 서버가 SIGKILL로 죽어도 다음 실행이 이걸 보고 걷어낸다
+    env[OWNER_ENV] = String(process.pid)
     // CLAUDECODE가 켜져 있으면 Claude Code가 "중첩 세션"으로 보고 실행을 거부한다. mew 서버를 Claude Code
     // 터미널에서 띄우면 이 변수가 그대로 상속돼 에이전트 창이 통째로 죽는다 — 여기 세션은 중첩이 아니라
     // 별개 프로세스이므로 떼고 넘긴다.
@@ -592,11 +595,38 @@ export function disposeAllSessions() {
 // vite가 잡아 process.exit을 부르므로 이 훅으로 들어온다).
 process.on('exit', () => disposeAllSessions())
 
+/** 그 pid가 지금 떠 있는지. EPERM은 남의 프로세스라 못 건드리는 것 = 살아 있다 */
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/** 그 프로세스에 박힌 주인 pid(= 띄운 mew 서버). 표식이 없거나 /proc이 없으면 null */
+function ownerOf(pid: number): number | null {
+  try {
+    const entry = fs
+      .readFileSync(`/proc/${pid}/environ`, 'utf8')
+      .split('\0')
+      .find((line) => line.startsWith(`${OWNER_ENV}=`))
+    return entry ? Number(entry.slice(OWNER_ENV.length + 1)) || null : null
+  } catch {
+    return null // /proc이 없거나(맥) 읽을 수 없다
+  }
+}
+
 /**
  * 서버가 SIGKILL로 죽으면 위의 어느 것도 돌지 못해 어댑터와 그 밑 CLI가 통째로 남는다 —
  * 2026-08-10에 6일치 고아 28개가 3.4GB를 물고 있었다. 뜰 때 한 번 걷어낸다.
  *
- * 부모를 잃은 것(PPID 1)만 고른다 — PPID가 살아 있으면 지금 돌고 있는 다른 mew의 자식이다.
+ * 고아 판정은 **주인 표식**으로 한다(MEW_AGENT_OWNER = 띄운 서버의 pid): 그 pid가 죽어 있으면
+ * 지난 실행이 남긴 것이고, 살아 있으면 지금 돌고 있는 다른 mew의 자식이라 건드리지 않는다.
+ * PPID 1로 보지 않는 이유 — WSL은 부모를 잃은 프로세스를 PID 1이 아니라 중간의 `/init` 릴레이가
+ * 거둬 가서 영영 안 잡힌다. /proc이 없는 환경을 위해 옛 PPID 1 규칙은 보조로 남긴다.
+ *
  * 그룹(-pid)으로 보내지 않는다: 이 변경 전에 뜬 고아는 그룹 리더가 아니라서, 그 그룹에
  * 지금 이 서버가 들어 있을 수도 있다. 스냅샷에서 자손을 직접 훑어 하나씩 보낸다.
  */
@@ -621,6 +651,13 @@ export function reapOrphanAgents() {
     for (const row of rows) if (row.ppid === pid) collect(row.pid)
   }
   for (const row of rows) {
+    if (row.pid === process.pid) continue
+    const owner = ownerOf(row.pid)
+    // 표식이 있으면 그것만 본다 — 어댑터든 그 밑 CLI든 주인이 죽었으면 남은 것이다
+    if (owner !== null) {
+      if (!pidAlive(owner)) collect(row.pid)
+      continue
+    }
     if (row.ppid === 1 && row.args.includes(target)) collect(row.pid)
   }
   if (doomed.size === 0) return

@@ -393,13 +393,15 @@ test('뜰 때 부모 잃은 에이전트 프로세스를 걷어낸다', async (t
     else process.env.MEW_AGENT_CMD = previous
   })
 
-  // 부모가 먼저 죽어 PPID 1로 남는 모양을 만든다 — 서버가 SIGKILL로 끊겼을 때와 같다
+  // 주인(= 띄운 서버)이 먼저 죽고 혼자 남은 모양을 만든다 — 서버가 SIGKILL로 끊겼을 때와 같다.
+  // 부트스트랩이 곧 주인 노릇을 한다: 자식을 띄우고 자기 pid를 표식으로 남긴 뒤 바로 죽는다.
   const pidFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-reap-')), 'pid')
   const bootstrap = `
     const { spawn } = require('node:child_process')
     const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', ${JSON.stringify(marker)}], {
       detached: true,
       stdio: 'ignore',
+      env: { ...process.env, MEW_AGENT_OWNER: String(process.pid) },
     })
     require('node:fs').writeFileSync(process.argv[1], String(child.pid))
     child.unref()
@@ -417,14 +419,17 @@ test('뜰 때 부모 잃은 에이전트 프로세스를 걷어낸다', async (t
   })
   assert.ok(alive(orphan), '고아가 떠 있다')
 
-  // 같은 표식이라도 부모가 살아 있으면 지금 돌고 있는 다른 mew의 자식이다 — 건드리면 안 된다
-  const attached = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', marker], { stdio: 'ignore' })
+  // 같은 표식이라도 주인이 살아 있으면 지금 돌고 있는 다른 mew의 자식이다 — 건드리면 안 된다
+  const attached = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', marker], {
+    stdio: 'ignore',
+    env: { ...process.env, MEW_AGENT_OWNER: String(process.pid) },
+  })
   t.after(() => attached.kill('SIGKILL'))
 
   reapOrphanAgents()
   await waitGone(orphan)
   assert.equal(alive(orphan), false, '지난 실행이 남긴 프로세스를 뜰 때 정리한다')
-  assert.ok(alive(attached.pid!), '부모가 살아 있는 프로세스는 남긴다')
+  assert.ok(alive(attached.pid!), '주인이 살아 있는 프로세스는 남긴다')
 })
 
 test('대기 중인 메시지를 고치면 고친 내용으로 돈다 — 원본이 어긋나면 무시한다', async (t) => {
