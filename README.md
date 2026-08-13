@@ -649,9 +649,12 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   `<CLAUDE_CONFIG_DIR>/projects/<인코딩된 cwd>/<sessionId>.jsonl`을 읽는다. 읽기 전용·선택적이고,
   파일이 없으면 사용량 칸만 빈다([ADR 0036](../.mew/docs/decisions/0036-mew-agent-session-controls-and-usage.md)).
 
-- **권한 모드 기본값은 `bypassPermissions`다**([ADR 0037](../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)).
-  ACP 세션은 언제나 `default`로 시작하므로 서버가 `session/new`·`session/load` 뒤마다 다시 걸어 준다
-  (`#applyDefaultMode`). 헤더 선택기로 턴마다 바꿀 수 있고, 서버 기본값은 `MEW_AGENT_MODE`로 바꾼다.
+- **권한 모드 기본값은 그 런타임의 "전체 허용"이다**([ADR 0037](../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)).
+  ACP 세션은 제한 모드로 시작하므로(claude `default`·codex `auto`) 서버가 `session/new`·`session/load`
+  뒤마다 다시 걸어 준다(`#applyDefaultMode`). 이름이 런타임마다 달라 한 값으로 박지 않고 후보 순서
+  (`FULL_ACCESS_MODES`)로 고른다 — claude `bypassPermissions` · codex `full-access` · hermes `dont_ask`.
+  claude의 `dontAsk`는 뜻이 반대(미리 승인 안 된 건 거절)라 순서로 갈린다. 헤더 선택기로 턴마다 바꿀 수
+  있고, 서버 기본값은 `MEW_AGENT_MODE`에 모드 id를 박아 바꾼다(그 하나만 시도한다).
   모드 목록은 백엔드가 광고하는 것을 그대로 쓴다 — 광고에 없으면(예: root 실행) 조용히 넘어간다.
 - 백엔드 교체는 **spawn 대상 교체**다. 창에서 고를 수 있는 것은 `agentAcp.ts`의 `RUNTIMES` 등록표에
   있는 것뿐이고, 클라이언트에 같은 목록이 또 있는 이유는 **아이콘**뿐이다(판정은 서버가 한다):
@@ -661,7 +664,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — codex CLI를 띄우지 않고 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
 
-  공통은 `MEW_AGENT_MODE`(기본 `bypassPermissions`). 진입점이 없거나 ACP를 말하지 않으면 창에
+  공통은 `MEW_AGENT_MODE`(안 주면 위의 전체 허용 후보 순서). 진입점이 없거나 ACP를 말하지 않으면 창에
   "에이전트를 실행하지 못했습니다"로 그대로 드러난다 — 목록에서 감추지 않는다.
 - **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
   PATH에 시스템 `claude`가 있으면 자동으로 그걸 쓴다(`CLAUDE_CODE_EXECUTABLE`로 전달, 이미 지정돼

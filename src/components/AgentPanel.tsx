@@ -27,6 +27,13 @@ const MODE_LABEL: Record<string, string> = {
   plan: '계획만',
   dontAsk: '묻지 않음(거절)',
   bypassPermissions: '권한 무시',
+  // codex
+  'read-only': '읽기만',
+  auto: '작업 폴더만',
+  'full-access': '전체 허용',
+  // hermes
+  accept_edits: '편집 자동 승인',
+  dont_ask: '묻지 않음(허용)',
 }
 
 const RUNTIME_KEY = 'mew:agent-runtime'

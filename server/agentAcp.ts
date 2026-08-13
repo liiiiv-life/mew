@@ -39,12 +39,19 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 /** 기본 백엔드 — 버전 고정된 로컬 설치본. `npx @latest`로 띄우지 않는다(ADR 0034) */
 const DEFAULT_AGENT_CMD = path.resolve(here, '../node_modules/.bin/claude-code-acp')
 
+/** 에이전트와 그 자손에 심는 주인 표식 — 값은 띄운 mew 서버의 pid다(reapOrphanAgents가 읽는다) */
+
 /**
- * 새 세션이 시작할 권한 모드. 기본이 `bypassPermissions`다 — 에이전트 창은 터미널과 같은 게이트를
+ * 새 세션은 그 런타임에서 **가장 많이 열린 모드**로 시작한다 — 에이전트 창은 터미널과 같은 게이트를
  * 쓰는 owner/manager 전용 도구이고, 승인 프롬프트는 그 사람이 이미 가진 권한을 다시 묻는 것뿐이다
- * (ADR 0037). 되돌리려면 `MEW_AGENT_MODE=default`.
+ * (ADR 0037). 한 가지 값으로 못 박지 않는 이유는 런타임마다 이름이 다르기 때문이다:
+ * claude는 `bypassPermissions`, codex는 `full-access`, hermes는 `dont_ask`가 그 자리다
+ * (claude에도 `dontAsk`가 있지만 그쪽은 "미리 승인 안 된 건 거절"이라 뜻이 반대다 — 순서로 갈린다).
+ * 앞에서부터 그 세션이 광고한 것 중 처음 맞는 것을 고른다. 되돌리려면 `MEW_AGENT_MODE=default`처럼
+ * 모드 id를 박아 준다(그 하나만 시도한다).
  */
-const DEFAULT_MODE = process.env.MEW_AGENT_MODE || 'bypassPermissions'
+const MODE_OVERRIDE = process.env.MEW_AGENT_MODE || null
+const FULL_ACCESS_MODES = ['bypassPermissions', 'full-access', 'full_access', 'fullAccess', 'yolo', 'dont_ask', 'dontAsk']
 
 /** 재접속(모바일 화면 꺼짐 등) 때 되돌려 줄 이벤트 개수 상한 */
 const MAX_BUFFERED_EVENTS = 500
@@ -247,14 +254,19 @@ export class AgentSession {
   }
 
   /**
-   * 세션은 언제나 `default`로 시작한다(claude-code-acp). 원하는 모드는 세션을 새로 잡을 때마다
-   * 다시 걸어 줘야 한다 — 백엔드가 그 모드를 광고하지 않으면(예: root로 돌면 bypass가 빠진다) 넘어간다.
+   * 세션은 대개 제한 모드로 시작한다(claude `default`·codex `auto`). 원하는 모드는 세션을 새로 잡을
+   * 때마다 다시 걸어 줘야 한다 — 그 런타임이 그런 모드를 아예 광고하지 않으면(root로 도는 claude에는
+   * bypass가 없다) 그냥 넘어간다. 실패해도 세션은 살린다: 모드 하나 때문에 창이 안 뜨면 안 된다.
    */
   async #applyDefaultMode() {
     const modes = this.#modes
-    if (!modes || modes.currentModeId === DEFAULT_MODE) return
-    if (!modes.availableModes.some((mode) => mode.id === DEFAULT_MODE)) return
-    await this.setMode(DEFAULT_MODE)
+    if (!modes) return
+    const wanted = MODE_OVERRIDE ? [MODE_OVERRIDE] : FULL_ACCESS_MODES
+    const pick = wanted.find((id) => modes.availableModes.some((mode) => mode.id === id))
+    if (!pick || pick === modes.currentModeId) return
+    await this.setMode(pick).catch((err: unknown) => {
+      console.error(`[mew:agent:${this.runtime}] 권한 모드 ${pick} 적용 실패:`, err)
+    })
   }
 
   #client(): Client {

@@ -106,9 +106,10 @@ API·셸·협업이 차단된다.**
   아니다 — 등록표(`RUNTIMES`)에 없는 id는 WS가 거부하고, 실행 명령은 서버 환경변수로만 정해진다.
   **사용자가 보낸 문자열이 명령이 되는 경로는 없다.**
 - **Bash는 경로 스코프가 되지 않는다.** 명령은 mew 서버와 같은 유닉스 사용자 권한으로 돈다.
-- **기본 권한 모드는 `bypassPermissions`다** — 승인 프롬프트 없이 실행된다
-  ([ADR 0037](../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)). 창 헤더의 모드 선택기로
-  세션마다 바꿀 수 있고, 서버 기본값은 `MEW_AGENT_MODE=default`로 되돌린다.
+- **기본 권한 모드는 그 런타임의 "전체 허용"이다** — 승인 프롬프트 없이 실행된다
+  ([ADR 0037](../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)). 런타임마다 이름이 달라
+  claude는 `bypassPermissions`, codex는 `full-access`, hermes는 `dont_ask`가 걸린다(에이전트 창·에이전트셋
+  둘 다). 창 헤더의 모드 선택기로 세션마다 바꿀 수 있고, 서버 기본값은 `MEW_AGENT_MODE=default`로 되돌린다.
 - 따라서 에이전트 창을 열어 주는 것은 **그 사람에게 무인 셸을 주는 것과 같다.** 게이트(`authorizeTmux`)가
   남은 통제의 전부이고, OS 층 격리는 없다(보류 근거는 ADR 0037).
 - 그래서 **신뢰하지 않는 내용을 에이전트에게 읽히는 것이 실질적인 위험이다.** 프롬프트 인젝션이 성공하면

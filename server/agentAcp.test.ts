@@ -87,6 +87,14 @@ new AgentSideConnection(
 )
 `
 
+// 같은 가짜 에이전트를 codex 이름으로 — "다 허용"의 이름이 런타임마다 다르다는 것이 요점이다
+const codexModeStubSource = modeStubSource
+  .replace(
+    "[{ id: 'default', name: 'Default' }, { id: 'bypassPermissions', name: 'Bypass Permissions' }]",
+    "[{ id: 'read-only', name: 'Read Only' }, { id: 'auto', name: 'Default' }, { id: 'full-access', name: 'Full Access' }]",
+  )
+  .replace("currentModeId: 'default'", "currentModeId: 'auto'")
+
 // 지난 대화를 되재생하는 어댑터를 흉내 낸다 — 사용자 발화에 CLI 메타(caveat·커맨드 머리)가 섞여 온다
 const historyStubSource = `
 import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
@@ -251,6 +259,18 @@ test('세션을 잡으면 기본 권한 모드(bypassPermissions)를 걸어 준�
 
   await session.setMode('default')
   assert.equal(session.modes?.currentModeId, 'default', '창에서 모드를 되돌릴 수 있다')
+})
+
+test('"다 허용" 모드의 이름이 달라도(codex full-access) 그걸 골라 건다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'codex-mode-stub.mjs')
+  fs.writeFileSync(stubPath, codexModeStubSource)
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
+
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+
+  assert.equal(session.modes?.currentModeId, 'full-access', 'bypassPermissions가 없으면 그 런타임의 전체 허용으로 간다')
 })
 
 test('취소하면 대기 중인 승인 요청이 cancelled로 닫힌다', async (t) => {
