@@ -10,7 +10,7 @@
 // 보안 경계는 에이전트 창과 같다 — 셋도 결국 Bash를 쓰는 에이전트다(agentSetWs.ts가 owner/manager만
 // 통과시킨다). 무인으로 도는 표면이라는 점에서는 예약 작업(schedules.ts)과 같은 급이다.
 import crypto from 'node:crypto'
-import { AgentSession, type AgentEvent } from './agentAcp.ts'
+import { AgentSession, modelsByRuntime, type AgentEvent, type ModelInfo } from './agentAcp.ts'
 import { readSets, ROUTER_ID, ROUTER_ROLE, type AgentSet } from './agentSets.ts'
 
 /** 아무 일도 없이 이만큼 지나면 세션을 끈다(사용자 규칙: 10분) */
@@ -61,7 +61,7 @@ export interface SetView extends AgentSet {
 }
 
 export type SetServerMessage =
-  | { type: 'state'; sets: SetView[] }
+  | { type: 'state'; sets: SetView[]; models: Record<string, ModelInfo[]> }
   | { type: 'task'; task: TaskSummary; events: AgentEvent[] }
   | { type: 'task_events'; taskId: string; events: AgentEvent[] }
   | { type: 'error'; message: string }
@@ -96,7 +96,7 @@ export function pushState() {
   if (stateTimer) return
   stateTimer = setTimeout(() => {
     stateTimer = null
-    if (listeners.size > 0) emit({ type: 'state', sets: viewSets() })
+    if (listeners.size > 0) emit({ type: 'state', sets: viewSets(), models: modelsByRuntime() })
   }, 50)
   stateTimer.unref?.()
 }
@@ -301,10 +301,16 @@ class AgentSetRunner {
   }
 
   #onEvent(event: AgentEvent) {
+    // 모델 목록은 작업과 무관하게(세션이 뜨자마자) 온다. 런타임별 후보는 agentAcp가 담으므로
+    // 여기서는 편집 창이 새 후보를 받도록 상태만 한 번 밀어 준다
+    if (event.type === 'models') {
+      pushState()
+      return
+    }
     const task = this.#current
     if (!task) return
-    // meta·models·modes는 창 상단 정보줄용이라 작업 기록에 쌓지 않는다(계속 흐른다)
-    if (event.type === 'meta' || event.type === 'models' || event.type === 'modes') return
+    // meta·modes는 창 상단 정보줄용이라 작업 기록에 쌓지 않는다(계속 흐른다)
+    if (event.type === 'meta' || event.type === 'modes') return
 
     task.events.push(event)
     if (task.events.length > MAX_TASK_EVENTS) task.events.splice(0, task.events.length - MAX_TASK_EVENTS)

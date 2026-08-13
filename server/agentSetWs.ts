@@ -8,9 +8,11 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
+import { isRuntime, modelsByRuntime, probeModels } from './agentAcp.ts'
 import {
   answerPermission,
   cancelTask,
+  pushState,
   queueOp,
   stopSet,
   submit,
@@ -29,6 +31,8 @@ type ClientMessage =
   | { type: 'queue'; setId: string; op: { type: 'unqueue' | 'move' | 'edit'; [k: string]: unknown } }
   | { type: 'permission'; setId: string; id: string; optionId: string | null }
   | { type: 'stop_set'; setId: string }
+  /** 그 런타임의 모델 후보를 모를 때 — 세션을 잠깐 띄워 알아본다(셋 편집 창이 열릴 때만 온다) */
+  | { type: 'probe_models'; runtime: string }
 
 function send(ws: WebSocket, payload: SetServerMessage) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload))
@@ -46,7 +50,7 @@ function handleConnection(ws: WebSocket) {
   ws.on('close', unsubscribe)
 
   // 붙자마자 지금 상태를 통째로 준다 — 그리드는 이걸로 바로 그려진다
-  send(ws, { type: 'state', sets: viewSets() })
+  send(ws, { type: 'state', sets: viewSets(), models: modelsByRuntime() })
 
   // 유휴 소켓을 끊는 중간 장비 대비(에이전트 창과 같은 30초 핑)
   const keepAlive = setInterval(() => {
@@ -76,6 +80,19 @@ function handleConnection(ws: WebSocket) {
       else if (msg.type === 'queue') queueOp(String(msg.setId), msg.op)
       else if (msg.type === 'permission') answerPermission(String(msg.setId), String(msg.id), msg.optionId ?? null)
       else if (msg.type === 'stop_set') stopSet(String(msg.setId))
+      else if (msg.type === 'probe_models') {
+        const runtime = String(msg.runtime)
+        if (!isRuntime(runtime)) return
+        // 결과는 다음 state에 실려 모든 창으로 간다 — 물어본 창만 받을 이유가 없다
+        void probeModels(runtime)
+          .then(() => pushState())
+          .catch((err: unknown) =>
+            send(ws, {
+              type: 'error',
+              message: `${runtime} 모델 목록을 불러오지 못했습니다: ${err instanceof Error ? err.message : String(err)}`,
+            }),
+          )
+      }
     } catch (err) {
       send(ws, { type: 'error', message: err instanceof Error ? err.message : String(err) })
     }

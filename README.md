@@ -691,7 +691,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 - 채널: `/api/agentset/ws` — 파라미터 없다. **연결이 세션을 만들지 않는다**(에이전트 창과 다른 점):
   세션·큐를 들고 있는 것은 서버(`server/agentSetRunner.ts`)이고 창은 구경창이다. 창을 닫아도 일은 돈다
   - 창→서버: `submit`(text, setId?) · `open_task`(taskId|null) · `cancel_task` · `queue`(unqueue·move·edit)
-    · `permission` · `stop_set`
+    · `permission` · `stop_set` · `probe_models`(runtime)
   - 서버→창: `state`(셋 전체 스냅샷, 50ms로 묶어 보냄) · `task`(상세 열기 응답) ·
     `task_events`(**열어 둔 작업 하나만** 흘린다 — 전부 보내면 그리드만 보는 창에도 청크가 쏟아진다) · `error`
 - 정의 CRUD는 REST: `GET`·`PUT /api/agent-sets` (owner/manager). 저장은 `<DATA_DIR>/agent-sets.json`
@@ -702,6 +702,10 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   (이름에 공백이 있어 정규식이 아니라 **목록과 맞춰 보고** 자른다 — `src/utils/agentSetMention.ts`)
 - 역할은 ACP에 자리가 없어 **그 세션의 첫 프롬프트 머리말**로 들어간다. 역할·런타임·모델을 고치면
   세션을 접는다(다음 작업에 새로 뜬다)
+- 모델 칸은 **검색 드롭다운 + 자유 입력**이다. 후보는 런타임별로 서버 메모리에 모인다
+  (`server/agentAcp.ts`의 `knownModels` — 에이전트 창이든 셋이든 세션이 뜰 때마다 갱신). 모르는
+  런타임이면 편집 창이 `probe_models`를 보내고 서버가 **세션을 잠깐 띄웠다 접어** 목록만 받아온다
+  (`probeModels`, spawn+handshake라 1~2초). 목록에 없는 id도 그대로 저장된다 — 판정은 에이전트가 한다
 - 세션은 **첫 작업에 뜨고**(지연 시작) **10분 놀면 꺼진다**. 셋 카드의 점: 회색=꺼짐, 초록=켜짐·대기, 파랑=진행 중
 - ⚠️ 작업 이력은 **메모리에만** 있다(셋당 50개). [ADR 0048](../.mew/docs/decisions/0048-mew-agent-supervisor-process.md)의
   감독 프로세스가 아직 없어서 **mew를 재시작하면 돌던 셋 작업이 죽고 이력도 사라진다**

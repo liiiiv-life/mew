@@ -155,6 +155,20 @@ export function isRuntime(id: string): boolean {
   return Object.hasOwn(RUNTIMES, id)
 }
 
+export interface ModelInfo {
+  modelId: string
+  name: string
+}
+
+/**
+ * 런타임별로 마지막에 본 모델 목록 — 셋 편집 창의 모델 검색이 이걸 쓴다.
+ * ACP는 세션이 떠야 모델을 알려 주므로, 창(agentWs)·셋 러너·probeModels 중 **무엇으로 떴든**
+ * 여기 한 곳에 모인다. ponytail: 메모리에만 산다 — 재시작하면 다시 빈다.
+ */
+const knownModels = new Map<string, ModelInfo[]>()
+
+export const modelsByRuntime = (): Record<string, ModelInfo[]> => Object.fromEntries(knownModels)
+
 /** 떠 있는 세션 전부. sessions 맵과 달리 Promise가 아니다 — 나가는 길(process 'exit')에서는
  *  then이 돌 기회가 없어서, 동기적으로 죽일 수 있는 목록이 따로 있어야 한다 */
 const live = new Set<AgentSession>()
@@ -261,10 +275,7 @@ export class AgentSession {
     this.#sessionId = sessionId
     this.#reader = new UsageReader(this.cwd, sessionId)
     this.#usage = null
-    if (models) {
-      this.#models = models
-      this.#emit({ type: 'models', models })
-    }
+    if (models) this.#useModels(models)
     if (modes) {
       this.#modes = modes
       this.#emit({ type: 'modes', modes })
@@ -419,10 +430,7 @@ export class AgentSession {
     this.#adopt(sessionId, null, null)
     await this.#pushMeta() // 세션 전환을 즉시 클라이언트에 반영 — ACP 히스토리 재생 전
     const loaded = await this.#conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [] })
-    if (loaded.models) {
-      this.#models = loaded.models
-      this.#emit({ type: 'models', models: loaded.models })
-    }
+    if (loaded.models) this.#useModels(loaded.models)
     if (loaded.modes) {
       this.#modes = loaded.modes
       this.#emit({ type: 'modes', modes: loaded.modes })
@@ -468,10 +476,17 @@ export class AgentSession {
 
   async setModel(modelId: string) {
     await this.#conn.unstable_setSessionModel({ sessionId: this.#sessionId, modelId })
-    if (this.#models) {
-      this.#models = { ...this.#models, currentModelId: modelId }
-      this.#emit({ type: 'models', models: this.#models })
-    }
+    if (this.#models) this.#useModels({ ...this.#models, currentModelId: modelId })
+  }
+
+  /** 모델 상태를 갈아끼운다 — 창에 흘리는 김에 런타임별 후보 목록도 같이 채운다 */
+  #useModels(models: SessionModelState) {
+    this.#models = models
+    knownModels.set(
+      this.runtime,
+      models.availableModels.map(({ modelId, name }) => ({ modelId, name })),
+    )
+    this.#emit({ type: 'models', models })
   }
 
   /** 승인 대기 중인 요청은 취소 결과로 닫는다 — 스펙 요구사항(cancel 시 outcome: cancelled) */
@@ -588,6 +603,40 @@ export function sessionFor(runtime: string, tab: string): Promise<AgentSession> 
     })
   sessions.set(key, started)
   return started
+}
+
+/** 모델 목록만 보려고 도는 임시 세션 — 같은 런타임을 두 번 띄우지 않게 붙잡는다 */
+const probing = new Map<string, Promise<ModelInfo[]>>()
+
+/** 목록을 물어본 뒤 이만큼 지나면 포기한다(그 런타임이 뜨지 않는 것으로 본다) */
+const PROBE_TIMEOUT_MS = 20_000
+
+/**
+ * 그 런타임이 어떤 모델을 지원하는지 알아본다. 이미 아는 런타임이면 프로세스를 띄우지 않는다.
+ * 모르면 세션을 하나 띄웠다 **바로 접는다** — ACP는 세션이 떠야 모델을 알려 주므로 목록만 보는
+ * 길이 따로 없다(spawn + handshake라 1~2초 걸린다. 셋 편집 창이 열릴 때만 부른다).
+ */
+export function probeModels(runtime: string, spec?: SpawnSpec): Promise<ModelInfo[]> {
+  const known = knownModels.get(runtime)
+  if (known) return Promise.resolve(known)
+  const running = probing.get(runtime)
+  if (running) return running
+  const started = AgentSession.start(runtime, spec ?? RUNTIMES[runtime].spec()).then((session) => {
+    // 핸드셰이크의 #useModels가 이미 담았다 — 세션 자체는 쓸 데가 없다
+    session.dispose()
+    return knownModels.get(runtime) ?? []
+  })
+  // 실행 파일이 없거나(사용자가 깔아 둔 hermes) ACP를 말하지 않으면 핸드셰이크가 끝나지 않는다 —
+  // 창을 무한정 세워 두지 않는다. 늦게 뜨더라도 위의 then이 그때 접으므로 프로세스는 남지 않는다
+  const probe = Promise.race([
+    started,
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error('에이전트가 응답하지 않습니다')), PROBE_TIMEOUT_MS)
+      timer.unref?.()
+    }),
+  ]).finally(() => probing.delete(runtime))
+  probing.set(runtime, probe)
+  return probe
 }
 
 /** 탭을 닫았다 — 유휴 타이머를 기다리지 않고 지금 접는다 */

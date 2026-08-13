@@ -67,8 +67,15 @@ function formatTime(iso: string | null): string {
   return date.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+interface ModelInfo {
+  modelId: string
+  name: string
+}
+
 export function AgentSetPanel({ onClose }: { onClose: () => void }) {
   const [sets, setSets] = useState<SetView[]>([])
+  /** 런타임별로 서버가 본 적 있는 모델 — 편집 창의 모델 검색 후보다(비어 있으면 자유 입력) */
+  const [models, setModels] = useState<Record<string, ModelInfo[]>>({})
   const [connected, setConnected] = useState(false)
   const [draft, setDraft] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
@@ -89,11 +96,14 @@ export function AgentSetPanel({ onClose }: { onClose: () => void }) {
       ws.onopen = () => setConnected(true)
       ws.onmessage = (raw) => {
         const msg = JSON.parse(String(raw.data)) as
-          | { type: 'state'; sets: SetView[] }
+          | { type: 'state'; sets: SetView[]; models: Record<string, ModelInfo[]> }
           | { type: 'task'; task: TaskSummary; events: AgentEvent[] }
           | { type: 'task_events'; taskId: string; events: AgentEvent[] }
           | { type: 'error'; message: string }
-        if (msg.type === 'state') return setSets(msg.sets)
+        if (msg.type === 'state') {
+          setModels(msg.models ?? {})
+          return setSets(msg.sets)
+        }
         if (msg.type === 'task') return setOpenTask({ task: msg.task, events: msg.events })
         if (msg.type === 'task_events')
           return setOpenTask((prev) =>
@@ -251,6 +261,8 @@ export function AgentSetPanel({ onClose }: { onClose: () => void }) {
         <SetEditModal
           draft={editing}
           isNew={!editing.id}
+          models={models}
+          onProbe={(runtime) => send({ type: 'probe_models', runtime })}
           onClose={() => setEditing(null)}
           onSave={async (next) => {
             const others = sets.filter((s) => s.id !== next.id).map(({ id, name, role, runtime, modelId }) => ({ id, name, role, runtime, modelId }))
@@ -619,12 +631,17 @@ function TaskEvents({
 function SetEditModal({
   draft,
   isNew,
+  models,
+  onProbe,
   onClose,
   onSave,
   onDelete,
 }: {
   draft: AgentSetDef
   isNew: boolean
+  models: Record<string, ModelInfo[]>
+  /** 그 런타임의 모델 후보를 서버가 아직 모를 때 알아봐 달라고 한다 */
+  onProbe: (runtime: string) => void
   onClose: () => void
   onSave: (set: AgentSetDef) => void
   onDelete?: () => void
@@ -632,6 +649,17 @@ function SetEditModal({
   const [form, setForm] = useState(draft)
   const locked = form.id === ROUTER_ID
   useOverlayDismiss(onClose)
+
+  const choices = models[form.runtime] ?? []
+  // 후보를 모르는 런타임이면 서버가 세션을 잠깐 띄워 알아본다 — 런타임당 한 번만 조른다
+  // (실패해도 다시 묻지 않는다. 자유 입력은 그대로 살아 있다)
+  const [asked, setAsked] = useState<string[]>([])
+  useEffect(() => {
+    if (choices.length > 0 || asked.includes(form.runtime)) return
+    setAsked((prev) => [...prev, form.runtime])
+    onProbe(form.runtime)
+  }, [form.runtime, choices.length, asked, onProbe])
+  const loading = choices.length === 0 && asked.includes(form.runtime)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -661,15 +689,18 @@ function SetEditModal({
               ))}
             </select>
           </label>
-          <label className="block">
-            <span className="text-xs text-ink-muted">모델 — 비워 두면 그 에이전트의 기본 모델</span>
-            <input
+          <div className="block">
+            <span className="text-xs text-ink-muted">
+              모델 — 비워 두면 그 에이전트의 기본 모델
+              {/* 실패해도 이 문구가 남는다 — 사유는 창의 알림줄로 간다. 어느 쪽이든 그냥 쳐 넣으면 된다 */}
+              {loading && ' (후보를 찾는 중 — 안 뜨면 직접 쳐 넣으세요)'}
+            </span>
+            <ModelCombo
               value={form.modelId}
-              placeholder="예: claude-opus-5"
-              onChange={(e) => setForm({ ...form, modelId: e.target.value })}
-              className="mt-1 w-full rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
+              choices={choices}
+              onChange={(modelId) => setForm({ ...form, modelId })}
             />
-          </label>
+          </div>
           <label className="block">
             <span className="text-xs text-ink-muted">
               {locked ? '역할 — 라우터는 고칠 수 없습니다' : '역할 — 이 셋이 무엇을 하는지(시스템 프롬프트)'}
@@ -706,6 +737,110 @@ function SetEditModal({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * 모델 고르기 — 친 글자로 후보를 걸러 아래에 펼치고, 고르면 그 modelId가 값이 된다.
+ * <select>가 아니라 입력창인 이유: 후보를 모르는 런타임이거나 방금 나온 모델이어도 그냥 쳐서 넣을 수
+ * 있어야 한다(서버는 여기 없는 id도 그대로 받는다). 목록은 그 위에 얹은 검색 결과일 뿐이다.
+ */
+function ModelCombo({
+  value,
+  choices,
+  onChange,
+}: {
+  value: string
+  choices: ModelInfo[]
+  onChange: (modelId: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+  // Esc·모바일 뒤로가기가 편집 창 대신 이 목록을 먼저 닫게 한다
+  useOverlayDismiss(open && close)
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: PointerEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [open])
+
+  const q = value.trim().toLowerCase()
+  // 이미 고른 값이 그대로 들어 있으면 그건 검색어가 아니다 — 그 한 줄만 남기지 말고 후보를 다 보여
+  // 준다(고른 뒤 다시 열었을 때 다른 모델로 갈아탈 수 있어야 한다)
+  const picked = choices.some((m) => m.modelId.toLowerCase() === q)
+  const shown =
+    q && !picked
+      ? choices.filter((m) => m.modelId.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))
+      : choices
+  const pick = (modelId: string) => {
+    onChange(modelId)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        value={value}
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        onChange={(e) => {
+          onChange(e.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          // Enter는 첫 번째 결과 — 몇 글자 치고 바로 고르는 흐름(에이전트 창의 HeaderSelect와 같다)
+          if (e.key === 'Enter' && open && shown.length > 0) {
+            e.preventDefault()
+            pick(shown[0].modelId)
+          }
+        }}
+        placeholder={choices.length > 0 ? '쳐서 찾기 — 예: claude-opus-5' : '예: claude-opus-5'}
+        className="mt-1 w-full rounded bg-surface py-1.5 pl-2 pr-8 text-sm text-ink outline-none placeholder:text-ink-muted"
+      />
+      {/* 그냥 입력칸으로 보이면 아무도 목록이 있는 줄 모른다 — 누르면 후보가 통째로 펼쳐진다 */}
+      {choices.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="모델 후보"
+          className="absolute right-1 top-1 flex h-8 w-7 items-center justify-center rounded text-ink-muted hover:text-ink"
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m5 9 7 7 7-7" />
+          </svg>
+        </button>
+      )}
+      {open && shown.length > 0 && (
+        <div
+          role="listbox"
+          aria-label="모델"
+          className="absolute inset-x-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
+        >
+          {shown.map((m) => (
+            <button
+              key={m.modelId}
+              type="button"
+              role="option"
+              aria-selected={m.modelId === value}
+              onClick={() => pick(m.modelId)}
+              className={`block w-full px-2.5 py-1.5 text-left text-xs hover:bg-surface-hover ${
+                m.modelId === value ? 'text-ink' : 'text-ink-secondary'
+              }`}
+            >
+              <span className="block truncate">{m.name}</span>
+              {m.name !== m.modelId && <span className="block truncate text-ink-muted">{m.modelId}</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

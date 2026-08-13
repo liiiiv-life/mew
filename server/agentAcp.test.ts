@@ -10,7 +10,9 @@ import { spawn } from 'node:child_process'
 // 진짜 워크스페이스를 건드리지 않는다 — paths.ts가 import 시점에 MEW_WORKSPACE를 읽으므로 먼저 심고 동적 import
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-ws-'))
 process.env.MEW_WORKSPACE = workspace
-const { AgentSession, disposeSession, reapOrphanAgents, sessionFor } = await import('./agentAcp.ts')
+const { AgentSession, disposeSession, modelsByRuntime, probeModels, reapOrphanAgents, sessionFor } = await import(
+  './agentAcp.ts'
+)
 type AgentEvent = import('./agentAcp.ts').AgentEvent
 
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
@@ -123,6 +125,36 @@ new AgentSideConnection(
 `
 
 // 어댑터가 세션마다 CLI를 하나씩 밑에 두는 것을 흉내 낸다 — 그 손자까지 죽는지 보려는 스텁
+// 모델을 광고하는 가짜 에이전트 — 자기 pid를 적어 둬서 목록만 받고 접혔는지 볼 수 있게 한다
+const modelStubSource = `
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
+import fs from 'node:fs'
+import { Readable, Writable } from 'node:stream'
+
+fs.writeFileSync(process.argv[2], String(process.pid))
+
+class ModelAgent {
+  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} } }
+  async newSession() {
+    return {
+      sessionId: 'stub-model',
+      models: {
+        currentModelId: 'alpha-1',
+        availableModels: [{ modelId: 'alpha-1', name: 'Alpha' }, { modelId: 'beta-2', name: 'Beta' }],
+      },
+    }
+  }
+  async authenticate() { return {} }
+  async cancel() {}
+  async prompt() { return { stopReason: 'end_turn' } }
+}
+
+new AgentSideConnection(
+  () => new ModelAgent(),
+  ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
+)
+`
+
 const treeStubSource = `
 import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
 import { spawn } from 'node:child_process'
@@ -518,4 +550,28 @@ test('탭마다 세션이 따로 뜬다 — 한 탭을 닫아도 다른 탭은 �
   disposeSession(runtime, 'tab-a')
   assert.equal(await sessionFor(runtime, 'tab-b'), b, '탭 하나를 닫아도 옆 탭 세션은 살아 있다')
   assert.notEqual(await sessionFor(runtime, 'tab-a'), a, '닫은 탭은 다음에 붙을 때 새로 뜬다')
+})
+
+test('모델 후보를 물어보면 세션을 잠깐 띄웠다 접는다 — 두 번째부터는 안 띄운다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-'))
+  const stubPath = path.join(dir, 'model-stub.mjs')
+  const pidFile = path.join(dir, 'pid')
+  fs.writeFileSync(stubPath, modelStubSource)
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
+
+  // 등록표에 없는 id로 돈다 — 캐시가 런타임별이라 다른 테스트의 'claude'와 섞이지 않는다
+  const probeRuntime = 'probe-stub'
+  const models = await probeModels(probeRuntime, { cmd: process.execPath, args: [stubPath, pidFile] })
+  assert.deepEqual(
+    models.map((m) => m.modelId),
+    ['alpha-1', 'beta-2'],
+  )
+  assert.deepEqual(modelsByRuntime()[probeRuntime], models, '런타임별 후보로 남아 다음 창이 바로 쓴다')
+
+  await waitGone(Number(fs.readFileSync(pidFile, 'utf8')))
+  assert.equal(alive(Number(fs.readFileSync(pidFile, 'utf8'))), false, '목록만 받고 프로세스는 접힌다')
+
+  // 이미 아는 런타임이면 뜨지 않는다 — 없는 실행 파일을 줘도 캐시가 그대로 돌아온다
+  assert.deepEqual(await probeModels(probeRuntime, { cmd: '/nonexistent/agent', args: [] }), models)
 })
