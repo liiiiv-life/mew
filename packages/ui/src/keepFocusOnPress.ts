@@ -13,5 +13,9 @@ import type { MouseEvent } from 'react'
  * 화면 등)은 건드리지 않으므로 평소의 포커스 이동·텍스트 선택은 그대로다.
  */
 export function keepFocusOnPress(e: MouseEvent) {
-  if (e.target instanceof Element && e.target.closest('button')) e.preventDefault()
+  if (!(e.target instanceof Element)) return
+  // 글자를 끌어 고르라고 내놓은 자리(`select-text`)는 건드리지 않는다 — mousedown을 막으면 드래그
+  // 선택이 시작조차 하지 않는다. 버튼 안에 든 본문(에이전트 창 말풍선)이 이 경우다
+  if (e.target.closest('.select-text')) return
+  if (e.target.closest('button')) e.preventDefault()
 }

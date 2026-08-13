@@ -77,6 +77,14 @@ function dropInputFocusAfterPress(e: MouseEvent<HTMLDivElement>) {
   if (active instanceof HTMLElement && active.matches(KEYBOARD_OWNER)) active.blur()
 }
 
+/**
+ * 말풍선 본문은 접기 버튼 안에 있다 — 글자를 끌어 고른 뒤 손을 떼면 그 click이 버블을 접어 버린다.
+ * 골라 둔 글자가 있으면 그 클릭은 "고르기의 끝"이지 "접기"가 아니다.
+ */
+function hasSelection(): boolean {
+  return (window.getSelection()?.toString().length ?? 0) > 0
+}
+
 function loadTabs(): AgentTab[] {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(TABS_KEY) ?? '[]')
@@ -1016,11 +1024,14 @@ function AgentSessionView({
               <div key={item.key} className="ml-6 flex items-start rounded-lg bg-surface-raised">
                 <button
                   type="button"
-                  onClick={() => toggle(item.key)}
+                  onClick={() => {
+                    if (hasSelection()) return
+                    toggle(item.key)
+                  }}
                   className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left text-ink"
                 >
                   <span className="shrink-0 pt-1 text-ink-secondary"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
-                  <span className={`min-w-0 flex-1 ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
+                  <span className={`min-w-0 flex-1 select-text ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
                 </button>
                 <CopyButton text={item.text} label="이 질문 복사" />
               </div>
@@ -1037,14 +1048,21 @@ function AgentSessionView({
             return (
               <div key={item.key} className="rounded-lg border border-edge bg-surface">
                 <div className="flex items-start">
-                  <button type="button" onClick={() => toggle(item.key)} className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left text-xs text-ink-secondary hover:text-ink">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (hasSelection()) return
+                      toggle(item.key)
+                    }}
+                    className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left text-xs text-ink-secondary hover:text-ink"
+                  >
                     <span
                       className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[state]}`}
                       title={BUBBLE_LABEL[state]}
                       aria-label={BUBBLE_LABEL[state]}
                     />
                     <span className="shrink-0 pt-0.5"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
-                    <span className={open ? 'sr-only' : 'line-clamp-2 text-ink'}>{summary}</span>
+                    <span className={open ? 'sr-only' : 'line-clamp-2 select-text text-ink'}>{summary}</span>
                   </button>
                   {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
                   <CopyButton
@@ -1280,10 +1298,7 @@ function CaretGlyph({ dir }: { dir: 'right' | 'down' | 'up' }) {
   )
 }
 
-/**
- * 버블 텍스트를 그대로 클립보드에 넣는다. 말풍선 본문이 접기 버튼 안에 들어 있어 드래그·길게 눌러
- * 고르는 게 막혀 있으므로, 복사는 이 버튼이 유일한 길이다.
- */
+/** 버블 텍스트를 통째로 클립보드에 넣는다 — 끌어 고르지 않고 한 번에 가져가는 길 */
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [done, setDone] = useState(false)
   useEffect(() => {
