@@ -1,7 +1,9 @@
 /* tiptap 본문 스타일 — Tailwind로 처리되지 않는 ProseMirror 내부 DOM 대상이라 순수 CSS */
 .tiptap {
   outline: none;
-  padding: 2rem;
+  /* 좌우 여백은 표의 줄 번호가 거터 위치를 되짚는 데 쓴다(아래 .tableWrapper::before) */
+  --mew-pad-x: 2rem;
+  padding: var(--mew-pad-x);
   min-height: 100%;
   color: var(--color-ink);
   font-size: 15px;
@@ -19,6 +21,8 @@
    editor/lineFocus.ts의 장식). */
 .tiptap {
   counter-reset: mew-line;
+  /* 표의 줄 번호가 스크롤 상자 밖에서 기준으로 삼는 박스(아래 .tableWrapper::before) */
+  position: relative;
 }
 .tiptap > :not(ul, ol, .ProseMirror-gapcursor),
 .tiptap li {
@@ -60,14 +64,20 @@
 .tiptap li li li li::before {
   left: calc(-1.9rem - 96px);
 }
-/* 표는 wrapper가 가로 스크롤(overflow-x: auto) 상자라 바깥으로 나간 번호가 잘린다 —
-   상자를 거터만큼 왼쪽으로 넓히고 같은 폭의 안쪽 여백으로 표를 제자리에 둔다 */
+/* 표는 wrapper가 가로 스크롤(overflow-x: auto) 상자라 바깥으로 나간 번호가 잘린다. 상자를 거터만큼
+   넓혀 번호를 안에 넣으면(옛 방식: margin-left -1.9rem + padding-left 1.9rem) 스크롤바가 표보다
+   1.9rem 왼쪽에서 시작한다 — 스크롤바는 스크롤 상자(패딩 박스) 전체 폭을 차지하기 때문이다.
+   그래서 상자는 표에 딱 맞추고, 번호만 상자 밖으로 뺀다: wrapper를 static으로 두면 abs-pos인
+   ::before의 컨테이닝 블록이 .tiptap이 되어 overflow 클리핑에 걸리지 않는다(스크롤해도 번호가
+   따라 움직이지 않는 것은 덤). 기준이 .tiptap의 패딩 박스이므로 왼쪽은 좌우 여백에서 거터만큼
+   되짚고, 위쪽은 top: auto로 정적 위치(표의 첫 줄)를 그대로 쓴다. */
 .tiptap > .tableWrapper {
-  margin-left: -1.9rem;
-  padding-left: 1.9rem;
+  position: static;
 }
 .tiptap > .tableWrapper::before {
-  left: 0;
+  left: calc(var(--mew-pad-x) - 1.9rem);
+  top: auto;
+  margin-top: 0.2em;
 }
 .tiptap .mew-line--hover::before {
   opacity: 0.75;
