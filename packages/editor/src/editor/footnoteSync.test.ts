@@ -136,6 +136,31 @@ test('References 안의 아래첨자는 마커로 세지 않는다', () => {
   editor.destroy()
 })
 
+test('References는 번호만 누르는 자리다 — 본문 글자는 아니다', () => {
+  const jumped: number[] = []
+  const editor = new Editor({
+    element: document.createElement('div'),
+    extensions: [...serverEditorExtensions(), Footnotes.configure({ onEntryClick: (num) => jumped.push(num) })],
+    content: `<p>가${markerFor(1)} 나${markerFor(2)}</p><h1>References</h1><ol><li><p>첫째</p></li><li><p>둘째</p></li></ol>`,
+  })
+
+  const nums = [...editor.view.dom.querySelectorAll('[data-footnote-ref]')] as HTMLElement[]
+  assert.deepEqual(nums.map((el) => el.textContent), ['1)', '2)'], '항목마다 번호 하나가 붙는다')
+
+  // 항목(li)과 그 본문에는 손잡이가 없다 — 눌러도 아무 일도 일어나지 않아야 한다
+  const items = [...editor.view.dom.querySelectorAll('li')] as HTMLElement[]
+  assert.equal(items.length, 2)
+  assert.equal(
+    items.some((li) => li.hasAttribute('data-footnote-ref') || li.classList.contains('mew-footnote-ref')),
+    false,
+    '항목 전체가 눌리면 안 된다',
+  )
+
+  nums[1].dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }) as unknown as MouseEvent)
+  assert.deepEqual(jumped, [2], '누른 번호의 각주 자리로 간다')
+  editor.destroy()
+})
+
 test('마크다운 왕복에서 마커와 References가 그대로 남는다', () => {
   // 마커는 그냥 글자라 직렬화기가 따로 알 필요가 없다 — 그게 이 표기를 고른 이유다
   const editor = makeEditor(`<p>본문 22만명${markerFor(1)}</p><h1>References</h1><ol><li><p>통계청 2025</p></li></ol>`)

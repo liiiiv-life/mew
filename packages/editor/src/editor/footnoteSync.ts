@@ -111,17 +111,35 @@ export function scanFootnotes(doc: PMNode): Scan {
   return { markers, entries, list, entriesStart, sectionFrom, sectionTo }
 }
 
+/** References 항목 앞의 `1)` — 이것만이 마커 자리로 가는 손잡이다 */
+function entryNumber(num: number, onEntryClick: (num: number) => void): HTMLElement {
+  const el = document.createElement('span')
+  el.className = 'mew-footnote-ref'
+  el.setAttribute('data-footnote-ref', String(num))
+  el.contentEditable = 'false'
+  el.textContent = `${num})`
+  // 위젯이 목록의 들여쓰기 자리(li 바깥)에 떠 있어 PM의 좌표→위치 변환이 닿지 않는다 —
+  // 클릭은 handleClick에 맡기지 않고 이 엘리먼트가 직접 받는다
+  el.addEventListener('mousedown', (event) => {
+    event.preventDefault()
+    onEntryClick(num)
+  })
+  return el
+}
+
 /** 마커는 누를 수 있게, References 번호는 그 자리로 갈 수 있게 표시를 단다 */
-function buildDecorations(doc: PMNode): DecorationSet {
+function buildDecorations(doc: PMNode, onEntryClick: (num: number) => void): DecorationSet {
   const scan = scanFootnotes(doc)
   if (scan.markers.length === 0 && scan.entries.length === 0) return DecorationSet.empty
   const decos = [
-    // 참고문헌 목록임을 CSS에 알린다 — 화면의 번호를 `1.`이 아니라 `1)`로 그린다
+    // 참고문헌 목록임을 CSS에 알린다 — 목록 자체 번호(::marker)는 끄고 아래 위젯이 `1)`을 그린다
     ...(scan.list ? [Decoration.node(scan.list.pos, scan.list.pos + scan.list.nodeSize, { class: 'mew-references' })] : []),
     ...scan.markers.map((m) => Decoration.inline(m.from, m.to, { class: 'mew-footnote', 'data-footnote': String(m.num) })),
-    // 항목 전체가 누르는 자리다 — 번호는 목록이 그리므로 글자로 존재하지 않는다
+    // 누르는 자리는 번호뿐이다 — 항목 본문은 평범한 글이고 그 안의 링크는 링크대로 눌린다.
+    // ::marker는 히트 테스트 대상이 아니라 눌리지 않으므로 번호를 위젯으로 직접 그린다.
+    // e.pos + 2 = listItem 안 첫 블록의 내용이 시작하는 자리
     ...scan.entries.map((e) =>
-      Decoration.node(e.pos, e.pos + e.nodeSize, { class: 'mew-footnote-ref', 'data-footnote-ref': String(e.num) }),
+      Decoration.widget(e.pos + 2, () => entryNumber(e.num, onEntryClick), { side: -1, key: `fn-num-${e.num}` }),
     ),
   ]
   return DecorationSet.create(doc, decos)
@@ -225,8 +243,9 @@ export const Footnotes = Extension.create<FootnoteOptions>({
 
         // 장식은 문서가 바뀔 때만 다시 만든다 — 훑기가 문서 크기에 비례하므로 매 렌더마다 돌면 안 된다
         state: {
-          init: (_config, state) => buildDecorations(state.doc),
-          apply: (tr, old, _oldState, newState) => (tr.docChanged ? buildDecorations(newState.doc) : old),
+          init: (_config, state) => buildDecorations(state.doc, onEntryClick),
+          apply: (tr, old, _oldState, newState) =>
+            tr.docChanged ? buildDecorations(newState.doc, onEntryClick) : old,
         },
 
         props: {
@@ -234,20 +253,12 @@ export const Footnotes = Extension.create<FootnoteOptions>({
             return this.getState(state)
           },
 
+          // 본문 마커만 여기서 받는다 — References 번호는 위젯이 직접 받는다(entryNumber)
           handleClick: (_view, _pos, event) => {
-            const el = (event.target as HTMLElement | null)?.closest?.('[data-footnote],[data-footnote-ref]')
+            const el = (event.target as HTMLElement | null)?.closest?.('[data-footnote]')
             if (!el) return false
-            const markerNum = el.getAttribute('data-footnote')
-            if (markerNum) {
-              onMarkerClick(Number(markerNum), event.clientX, event.clientY)
-              return true
-            }
-            const refNum = el.getAttribute('data-footnote-ref')
-            if (refNum) {
-              onEntryClick(Number(refNum))
-              return true
-            }
-            return false
+            onMarkerClick(Number(el.getAttribute('data-footnote')), event.clientX, event.clientY)
+            return true
           },
         },
       }),

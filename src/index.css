@@ -194,12 +194,26 @@ strong {
    커서(선택 없음) 댓글은 글자 대신 작은 네모 하나가 자리를 표시한다. 색은 라이트·다크 공용으로
    반투명 노랑 — 어느 배경에서든 글자가 살아 있어야 해서 진하게 칠하지 않는다. */
 /* References 목록은 화면에서 `1)`로 보인다. 파일에는 표준 순서 목록(`1.`)으로 저장된다 —
-   문단에 `1) 내용`이라고 적으면 마크다운이 그걸 목록으로 되읽어 구역이 어긋나기 때문이다 */
-.mew-references > li::marker {
-  content: counter(list-item) ') ';
+   문단에 `1) 내용`이라고 적으면 마크다운이 그걸 목록으로 되읽어 구역이 어긋나기 때문이다.
+   그 `1)`은 ::marker가 아니라 각주 위젯이 그린다(footnoteSync.ts) — ::marker는 눌리지 않아
+   각주 자리로 갈 수 없기 때문이다. 목록 자체 번호는 그래서 끈다. 들여쓰기는 두 자리 번호(`10)`)가
+   본문을 침범하지 않을 만큼 준다 */
+.mew-references {
+  list-style: none;
+  padding-left: 2.5em;
+}
+/* 번호는 항목 왼쪽 들여쓰기 자리에 걸어 둔다 — 본문은 줄이 넘어가도 같은 왼쪽에서 이어진다
+   (li의 position: relative는 editor.css의 줄 번호 규칙이 이미 걸어 둔다) */
+.mew-references .mew-footnote-ref {
+  position: absolute;
+  right: 100%;
+  /* 왼쪽 여백은 손가락용 — 오른쪽에 붙어 있어 늘려도 번호는 제자리다 */
+  padding: 0 0.35em 0 0.6em;
+  user-select: none;
 }
 
-/* 각주 — 본문 마커(아래첨자 글자 그대로)와 References의 번호. 둘 다 눌러서 오갈 수 있다 */
+/* 각주 — 본문 마커(아래첨자 글자 그대로)와 References의 번호. 둘 다 눌러서 오갈 수 있다.
+   항목 본문은 평범한 글이다 — 누르는 자리는 번호뿐 */
 .mew-footnote,
 .mew-footnote-ref {
   color: var(--color-link, #2563eb);
