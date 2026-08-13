@@ -868,6 +868,22 @@ function AgentSessionView({
     setEditingQueued(null)
   }
 
+  /**
+   * 이 탭의 세션을 끝내고 새로 잡는다 — 탭은 그대로 두고 대화만 새 탭처럼 비운다.
+   * 서버는 close_session을 받으면 세션을 접고 소켓을 닫는다. 아래 재접속(1초)이 같은 탭 id로 다시
+   * 붙으면서 새 세션이 뜨고, 되감기가 빈 대화로 오므로 화면은 히스토리 드롭다운으로 돌아간다.
+   * 끝난 세션은 사라지지 않는다 — 그 드롭다운에서 다시 불러올 수 있다.
+   */
+  const clearSession = () => {
+    send({ type: 'close_session' })
+    pendingRef.current = []
+    setEvents([])
+    setMeta(null)
+    setSessions(null)
+    stickRef.current = true
+    setUnread(false)
+  }
+
   const submit = () => {
     const text = draft.trim()
     if (!text || !connected) return
@@ -940,6 +956,17 @@ function AgentSessionView({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <span className={`text-xs ${busy ? 'text-ink-secondary' : 'text-ink-muted'}`}>{status}</span>
+          {/* 이 탭에서 돌던 세션을 끝내고 새 세션으로 — 탭은 그대로, 화면만 새 탭처럼 돌아간다 */}
+          <button
+            type="button"
+            onClick={clearSession}
+            disabled={!connected}
+            className="flex h-6 w-6 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
+            aria-label="새 세션"
+            title="새 세션 — 이 탭의 세션을 끝내고 새로 시작합니다 (지난 세션은 히스토리에 남습니다)"
+          >
+            <ClearGlyph />
+          </button>
           <button
             type="button"
             onClick={() => setShowInfo((v) => !v)}
@@ -1341,6 +1368,16 @@ function PlusGlyph() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+
+/** 새 세션 — 빗자루 대신 "다시 시작" 화살표 하나 */
+function ClearGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
     </svg>
   )
 }
