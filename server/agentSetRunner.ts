@@ -19,6 +19,9 @@ const IDLE_KILL_MS = 10 * 60_000
 /** 작업 하나가 들고 있을 이벤트 상한 — 넘치면 앞에서 버린다(창은 뒤쪽을 본다) */
 const MAX_TASK_EVENTS = 400
 
+/** 중단을 누른 뒤 이만큼 기다려도 턴이 안 끝나면 세션을 프로세스째 접는다 — 중단은 언제나 먹어야 한다 */
+const STOP_GRACE_MS = 5_000
+
 /** 셋 하나가 들고 있을 지난 작업 수. ponytail: 메모리에만 산다 — 서버를 재시작하면 이력은 사라진다.
  *  영속이 필요해지면 <DATA_DIR>/agent-sets/<id>.jsonl 로 떨어뜨리는 것이 다음 단계다 */
 const MAX_TASKS_PER_SET = 50
@@ -111,6 +114,8 @@ class AgentSetRunner {
   #current: Task | null = null
   #tasks: Task[] = []
   #idleTimer: NodeJS.Timeout | null = null
+  /** 중단을 누른 뒤 도는 시한 — 이 안에 턴이 안 끝나면 프로세스째 접는다 */
+  #stopTimer: NodeJS.Timeout | null = null
   #detach: (() => void) | null = null
   /** 이 세션에 역할 머리말을 이미 붙였는지 — 첫 프롬프트에만 붙인다 */
   #rolePrimed = false
@@ -176,7 +181,14 @@ class AgentSetRunner {
     return task
   }
 
-  /** 대기 중인 작업을 취소한다. 진행 중인 작업이면 턴을 중단한다 */
+  /**
+   * 대기 중인 작업을 취소한다. 진행 중인 작업이면 턴을 중단한다.
+   *
+   * 중단은 **언제나 먹어야 한다**. 예전에는 세션이 아직 뜨는 중이거나(그때 #session은 null이다)
+   * 어댑터가 취소를 흘려버리면 눌러도 아무 일이 없었고, 그 작업이 running인 채로 남아 그 셋의
+   * 다음 작업이 영영 돌지 않았다. 그래서 두 겹이다: 뜨는 중이면 여기서 바로 닫고, 돌고 있으면
+   * 정상 취소를 보낸 뒤 시한을 걸어 안 끝나면 프로세스째 접는다.
+   */
   cancel(taskId: string) {
     const index = this.#queue.findIndex((t) => t.id === taskId)
     if (index >= 0) {
@@ -185,7 +197,41 @@ class AgentSetRunner {
       pushState()
       return
     }
-    if (this.#current?.id === taskId) this.#session?.cancel()
+    if (this.#current?.id !== taskId) return
+    if (!this.#session) {
+      // 아직 뜨는 중 — 취소할 턴이 없다. #pump의 then은 current가 바뀐 것을 보고 프롬프트를 보내지 않는다
+      this.#dropCurrent('cancelled', null)
+      pushState()
+      this.#pump()
+      return
+    }
+    this.#session.cancel()
+    this.#armStopTimer()
+  }
+
+  /** turn_end가 오지 않는 길(취소·세션 사망·강제 종료)에서 지금 도는 작업을 닫는다 */
+  #dropCurrent(status: TaskStatus, error: string | null) {
+    const task = this.#current
+    if (!task) return
+    this.#current = null
+    if (this.#stopTimer) {
+      clearTimeout(this.#stopTimer)
+      this.#stopTimer = null
+    }
+    this.#finish(task, status, error)
+  }
+
+  #armStopTimer() {
+    if (this.#stopTimer) return
+    this.#stopTimer = setTimeout(() => {
+      this.#stopTimer = null
+      if (!this.#current) return
+      // 취소가 안 먹었다 — 세션을 통째로 접는다(#shutdown이 그 작업을 닫는다). 다음 작업은 새로 뜬다
+      this.#shutdown()
+      pushState()
+      this.#pump()
+    }, STOP_GRACE_MS)
+    this.#stopTimer.unref?.()
   }
 
   unqueue(index: number) {
@@ -230,6 +276,9 @@ class AgentSetRunner {
       clearTimeout(this.#idleTimer)
       this.#idleTimer = null
     }
+    // 프로세스가 사라지면 그 작업의 turn_end는 영영 오지 않는다 — 여기서 닫지 않으면 셋이 busy인 채로
+    // 굳어 뒤에 줄 선 작업이 하나도 돌지 않는다. 다음 작업을 여기서 밀지는 않는다(끈 것을 도로 켜는 셈이다)
+    this.#dropCurrent('cancelled', null)
   }
 
   stop() {
@@ -317,12 +366,22 @@ class AgentSetRunner {
     // 그 작업을 열어 둔 창에만 델타를 흘린다 — 상태 스냅샷에는 이벤트가 들어가지 않는다
     emit({ type: 'task_events', taskId: task.id, events: [event] })
 
-    if (event.type === 'error') task.error = event.message
+    if (event.type === 'error') {
+      task.error = event.message
+      // 에이전트가 통째로 죽는 길(agentAcp #fail)은 error만 남기고 turn_end를 주지 않는다 —
+      // 이벤트가 다 지나간 뒤 세션이 접혀 있으면 그 작업도 여기서 닫는다(안 그러면 셋이 영영 busy)
+      queueMicrotask(() => {
+        if (this.#current?.id !== task.id || this.#session?.disposed !== true) return
+        this.#dropCurrent('error', task.error)
+        this.#shutdown()
+        pushState()
+        this.#pump()
+      })
+    }
     if (event.type === 'turn_end') {
       const status: TaskStatus =
         event.stopReason === 'cancelled' ? 'cancelled' : event.stopReason === 'error' || task.error ? 'error' : 'done'
-      this.#finish(task, status, task.error)
-      this.#current = null
+      this.#dropCurrent(status, task.error)
       if (task.routing) routeFinished(task)
       pushState()
       this.#pump()

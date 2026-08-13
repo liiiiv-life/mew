@@ -255,6 +255,11 @@ export class AgentSession {
     return session
   }
 
+  /** 이 세션이 이미 접혔는지 — 죽은 세션에 매달린 작업을 닫는 쪽(agentSetRunner)이 본다 */
+  get disposed(): boolean {
+    return this.#disposed
+  }
+
   async #handshake() {
     // capability를 하나도 광고하지 않는다 — 어댑터가 CLI 기본 도구(Read/Write/Edit/Bash)를 그대로 쓴다.
     // fs를 켜면 그 도구들이 꺼지고 mcp__acp__* 로 갈리는데, 그러면 CLI에서 만든 대화를 창에서 불러올 때
