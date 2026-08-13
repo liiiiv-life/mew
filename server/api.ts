@@ -632,7 +632,11 @@ export function createApiApp() {
       // serve.ts의 전역 X-Frame-Options: DENY는 유지하되, PDF를 같은 오리진 iframe에
       // 담을 수 있어야 하므로 이 라우트만 SAMEORIGIN으로 완화한다
       res.setHeader('X-Frame-Options', 'SAMEORIGIN')
-      res.sendFile(absPath, (err) => {
+      // dotfiles: 'allow' — express의 send는 기본으로 점으로 시작하는 폴더·파일을 통째로 404 낸다.
+      // 이 워크스페이스는 문서가 `.mew/docs/` 밑에 산다: 그냥 두면 그 아래 PDF·xlsx가 전부 500이었다
+      // ({"error":"Internal error"}). 접근 판정은 이미 위에서 끝났다 —
+      // resolveProjectPath가 루트 탈출과 .git·node_modules·.data를 막고, requireGuestView가 게스트를 건다
+      res.sendFile(absPath, { dotfiles: 'allow' }, (err) => {
         if (err && !res.headersSent) handleError(res, err)
       })
     } catch (err) {
@@ -645,7 +649,9 @@ export function createApiApp() {
     if (!requireGuestView(req, res, relPath)) return
     try {
       const absPath = resolveProjectPath(projectOf(req), relPath)
-      res.download(absPath, (err) => {
+      // dotfiles는 /raw와 같은 이유로 열어 둔다 — `.mew/docs/` 밑 파일 내려받기가 통째로 막혀 있었다.
+      // 옵션을 주려면 파일 이름 자리를 채워야 한다 — express가 기본으로 쓰는 값(경로의 마지막 조각)과 같다
+      res.download(absPath, path.basename(absPath), { dotfiles: 'allow' }, (err) => {
         if (err && !res.headersSent) handleError(res, err)
       })
     } catch (err) {
