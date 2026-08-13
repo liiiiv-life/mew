@@ -79,6 +79,9 @@ function handleConnection(ws: WebSocket, session: string, cols: number, rows: nu
     if (ws.readyState === WebSocket.OPEN) ws.close()
   })
 
+  // 진행 중인 tmux copy-mode 탈출 — 끝날 때까지 들어온 입력을 뒤로 미룬다 (아래 'input' 처리 참고)
+  let pendingExitCopyMode: Promise<void> | null = null
+
   ws.on('message', (raw) => {
     let msg: { type?: string; data?: string; cols?: number; rows?: number }
     try {
@@ -87,7 +90,14 @@ function handleConnection(ws: WebSocket, session: string, cols: number, rows: nu
       return
     }
     if (msg.type === 'input' && typeof msg.data === 'string') {
-      ptyProcess.write(msg.data)
+      // copy-mode 탈출은 별도 프로세스라 비동기다 — 그게 끝나기 전에 쓴 입력은 아직 copy-mode 키로
+      // 먹힌다(전송한 글이 통째로 사라짐). 탈출이 끝날 때까지 입력을 붙잡아 순서를 지킨다.
+      if (pendingExitCopyMode) {
+        const data = msg.data
+        void pendingExitCopyMode.then(() => ptyProcess.write(data))
+      } else {
+        ptyProcess.write(msg.data)
+      }
     } else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
       ptyProcess.resize(clamp(msg.cols, MIN_COLS, MAX_COLS, cols), clamp(msg.rows, MIN_ROWS, MAX_ROWS, rows))
     } else if (msg.type === 'exitCopyMode') {
@@ -95,7 +105,12 @@ function handleConnection(ws: WebSocket, session: string, cols: number, rows: nu
       // 멈춘 것처럼 보인다. copy-mode -q는 모드에 있을 때만 취소하고 아니면 아무 일도 하지 않으므로
       // (멱등) 상태를 먼저 조회할 필요가 없다. PTY에 키를 쓰지 않는 이유도 이것 — 모드가 아닐 때
       // q나 Esc를 보내면 실행 중인 TUI(Claude Code 등)에 그대로 입력돼 버린다.
-      execFile('tmux', ['copy-mode', '-q', '-t', session], () => {})
+      pendingExitCopyMode = new Promise<void>((resolve) => {
+        execFile('tmux', ['copy-mode', '-q', '-t', session], () => {
+          pendingExitCopyMode = null
+          resolve()
+        })
+      })
     }
   })
 

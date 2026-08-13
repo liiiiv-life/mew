@@ -208,7 +208,15 @@ export function TmuxTerminal({
   //   확정에 써버려 제출이 안 된다(입력만 됨). bash는 감싸도 제출되지만 Claude Code는 아니라 안 감싸는 게 안전.
   // - 여러 줄이면 bracketed paste로 감싼다 → 중간 줄바꿈이 조기 제출로 새지 않게(내용 보존 우선).
   // - 제출용 \r은 텍스트와 다른 read로 도착하도록 살짝 늦게 따로 보낸다(같은 read면 붙여넣기 개행으로 흡수됨).
-  function sendAsTyped(text: string) {
+  // 보냈으면 true. 연결이 끊긴 동안(재연결 중)엔 아무것도 보내지 않고 false를 돌려준다 —
+  // 호출한 쪽이 입력칸을 비우지 않게 해서, 소켓이 죽은 줄 모르고 전송을 눌렀을 때 글이 통째로 사라지는 걸 막는다.
+  function sendAsTyped(text: string): boolean {
+    const w = wsRef.current
+    if (w?.readyState !== WebSocket.OPEN) return false
+    // 위로 스크롤해 tmux copy-mode에 들어가 있으면 보낸 글자가 전부 copy-mode 키로 먹혀 사라진다.
+    // 보내기 전에 항상 빠져나온다 — 모드가 아니면 아무 일도 하지 않고(멱등), 서버가 이 명령이 끝날
+    // 때까지 뒤따르는 입력을 붙잡아 주므로 순서가 보장된다.
+    w.send(JSON.stringify({ type: 'exitCopyMode' }))
     if (text) {
       const term = termRef.current
       const body = text.replace(/\r?\n/g, '\r')
@@ -216,6 +224,7 @@ export function TmuxTerminal({
       send(wrap ? `\x1b[200~${body}\x1b[201~` : body)
     }
     window.setTimeout(() => send('\r'), SUBMIT_ENTER_DELAY_MS)
+    return true
   }
 
   // 하단 입력칸의 커서 자리에 글자를 끼워 넣는다 (사이드바에서 끌어다 놓은 파일 경로).
@@ -238,14 +247,13 @@ export function TmuxTerminal({
   }
 
   function submitCommand() {
-    const text = command
+    if (!sendAsTyped(command)) return // 재연결 중 — 입력칸을 그대로 두고 다시 누를 수 있게 한다
     setCommand('')
     const ta = inputRef.current
     if (ta) ta.style.height = 'auto' // 자동 늘어난 높이를 한 줄로 되돌린다
     // 여기서 ta.focus()를 그냥 부르면 키보드를 내려둔 채 전송할 때 키보드가 도로 올라온다 —
     // 뺏겼을 때만 되돌리는 refocusActive에 맡긴다
     refocusActive()
-    sendAsTyped(text)
   }
 
   // "맨 아래" 버튼: 스크롤을 최신 출력으로 되돌린다. 올라가 있는 스크롤을 **누가 들고 있는지**가
