@@ -4,6 +4,7 @@ import {
   DEFAULT_PROJECT,
   MEW_DIR_NAME,
   WORKSPACE_PROJECT,
+  docsTopSegment,
   isDeniedSegment,
   isSecretFile,
   listProjects,
@@ -92,7 +93,7 @@ interface Filters {
   docsOnly: boolean
   ignore: Set<string>
   showAll: boolean
-  /** **맨 위 칸에서만** 걷어낼 이름들 — 홈(워크스페이스 루트)의 프로젝트 폴더와 `.mew`.
+  /** **맨 위 칸에서만** 걷어낼 이름들 — 홈(워크스페이스 루트)의 프로젝트 폴더·docs 폴더·`.mew`.
    *  숨기는 게 아니라 자리를 옮긴 것이다: 프로젝트는 프로젝트 탭이, docs는 docs 탭이 맡는다.
    *  깊은 곳에 같은 이름이 있으면 그건 그냥 폴더이므로 건드리지 않는다. */
   hideAtRoot: ReadonlySet<string>
@@ -108,7 +109,9 @@ function filtersFor(project: string, opts: TreeOptions): Filters {
     ignore: showAll ? (NOTHING_IGNORED as Set<string>) : readIgnoreSet(),
     showAll,
     hideAtRoot:
-      project === WORKSPACE_PROJECT ? new Set([...listProjects(), MEW_DIR_NAME]) : NOTHING_IGNORED,
+      project === WORKSPACE_PROJECT
+        ? new Set([...listProjects(), MEW_DIR_NAME, docsTopSegment()])
+        : NOTHING_IGNORED,
   }
 }
 

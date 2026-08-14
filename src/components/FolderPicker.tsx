@@ -10,6 +10,7 @@ export function FolderPicker({
   hint,
   confirmLabel,
   busy,
+  initialPath,
   onPick,
   onClose,
 }: {
@@ -18,11 +19,13 @@ export function FolderPicker({
   hint?: string
   confirmLabel: string
   busy?: boolean
+  /** 처음 열어 둘 폴더 — 비우면 홈에서 시작한다 */
+  initialPath?: string
   /** 지금 열려 있는 폴더를 고른다 — 창을 닫는 것은 호출한 쪽의 몫 */
   onPick: (path: string) => void
   onClose: () => void
 }) {
-  const [path, setPath] = useState('')
+  const [path, setPath] = useState(initialPath ?? '')
   const [draft, setDraft] = useState('')
   const [result, setResult] = useState<BrowseResult | null>(null)
   const [error, setError] = useState<string | null>(null)

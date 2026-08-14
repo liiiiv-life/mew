@@ -14,16 +14,30 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 export let WORKSPACE_ROOT = process.env.MEW_WORKSPACE
   ? path.resolve(process.env.MEW_WORKSPACE)
   : path.resolve(here, '../..')
-/** 워크스페이스 하나에 딸린 mew 전용 폴더 — docs 레포가 여기 산다 */
+/** 워크스페이스 하나에 딸린 mew 전용 폴더 — 프로젝트별 설정(`.mew/cmd-button.json` 등)이 여기 산다 */
 export const MEW_DIR_NAME = '.mew'
-export let MEW_DIR = path.join(WORKSPACE_ROOT, MEW_DIR_NAME)
 
 /** docs는 **프로젝트가 아니라** 워크스페이스에 하나뿐인 특별 레포다. 프로젝트 목록에 서지 않고
- *  (점으로 시작하는 `.mew` 아래라 PROJECT_NAME_RE에 애초에 걸리지 않는다) 만들거나 지울 수 없다.
+ *  (listProjects가 DOCS_DIR을 걸러낸다) 만들거나 지울 수 없다.
  *  다만 문서·트리·검색·협업 방 키는 전부 프로젝트 이름으로 도는 구조라, **이름 'docs'는 그대로 두고
  *  경로만** 여기로 꺾는다 — projectRoot가 이 이름만 특별 취급한다. */
 export const DEFAULT_PROJECT = 'docs'
-export let DOCS_ROOT = path.join(MEW_DIR, DEFAULT_PROJECT)
+
+/** docs로 쓸 폴더 — **워크스페이스 루트 기준 상대 경로**다(기본 `docs`).
+ *  워크스페이스 안의 폴더 아무거나 고를 수 있다(홈/docs 설정 → `MEW_DOCS`에 저장, workspace.ts).
+ *  옛 설치는 `.mew/docs`에 있었다 — 고른 것이 없고 그 폴더만 있으면 그대로 쓴다. */
+export let DOCS_DIR = resolveDocsDir(WORKSPACE_ROOT)
+export let DOCS_ROOT = path.join(WORKSPACE_ROOT, DOCS_DIR)
+
+function resolveDocsDir(root: string): string {
+  // 고른 이름은 **그 워크스페이스에 실제로 있을 때만** 쓴다 — 워크스페이스를 갈아끼우면 남의 폴더
+  // 이름이 따라와 엉뚱한 빈 폴더를 만들기 때문이다(고를 때는 존재를 검사한다, workspace.ts)
+  const chosen = process.env.MEW_DOCS?.trim()
+  if (chosen && fs.existsSync(path.join(root, chosen))) return path.normalize(chosen)
+  const legacy = path.join(MEW_DIR_NAME, DEFAULT_PROJECT)
+  if (!fs.existsSync(path.join(root, DEFAULT_PROJECT)) && fs.existsSync(path.join(root, legacy))) return legacy
+  return DEFAULT_PROJECT
+}
 
 /** 홈 탭이 보는 가짜 프로젝트 — 루트가 **워크스페이스 폴더 자신**이다. docs와 같은 요령으로
  *  이름만 특별 취급하고 경로를 꺾어, 트리·문서·검색이 프로젝트 스코프 그대로 돈다.
@@ -31,12 +45,20 @@ export let DOCS_ROOT = path.join(MEW_DIR, DEFAULT_PROJECT)
  *  트리에서는 프로젝트 폴더와 `.mew`를 걷어낸다(tree.ts) — 그 자리는 위쪽 탭 줄이 맡는다. */
 export const WORKSPACE_PROJECT = '.workspace'
 
-/** 워크스페이스를 갈아끼운다 — 파생 경로(MEW_DIR·DOCS_ROOT)도 같이 다시 계산한다.
+/** 워크스페이스를 갈아끼운다 — 파생 경로(DOCS_DIR·DOCS_ROOT)도 같이 다시 계산한다.
  *  실제 전환 절차(검증·설정 저장·감시자/협업 방 정리)는 workspace.ts가 맡는다. */
 export function setWorkspaceRoot(absolutePath: string): void {
   WORKSPACE_ROOT = path.resolve(absolutePath)
-  MEW_DIR = path.join(WORKSPACE_ROOT, MEW_DIR_NAME)
-  DOCS_ROOT = path.join(MEW_DIR, DEFAULT_PROJECT)
+  DOCS_DIR = resolveDocsDir(WORKSPACE_ROOT)
+  DOCS_ROOT = path.join(WORKSPACE_ROOT, DOCS_DIR)
+}
+
+/** docs 폴더를 워크스페이스 안 다른 폴더로 바꾼다 — 인자는 워크스페이스 루트 기준 상대 경로.
+ *  다음 실행에도 남도록 `MEW_DOCS`에 같이 적는다(setWorkspaceRoot가 이 값을 다시 읽는다). */
+export function setDocsDir(relativeDir: string): void {
+  DOCS_DIR = path.normalize(relativeDir)
+  DOCS_ROOT = path.join(WORKSPACE_ROOT, DOCS_DIR)
+  process.env.MEW_DOCS = DOCS_DIR
 }
 
 /** docs 폴더는 항상 존재한다 — 없으면 빈 폴더로 만든다(새 워크스페이스는 빈 docs로 시작) */
@@ -74,9 +96,17 @@ export function isDeniedSegment(name: string): boolean {
 }
 
 /** 새 프로젝트 폴더로 허용되는 이름인지 — listProjects의 필터와 같은 규칙.
- *  'docs'는 특별 레포 이름이라 프로젝트로 만들 수 없다(만들면 경로가 겹쳐 가려진다). */
+ *  'docs'는 특별 레포 이름이라 프로젝트로 만들 수 없다(만들면 경로가 겹쳐 가려진다).
+ *  지금 docs로 쓰는 폴더도 마찬가지 — 프로젝트 탭과 docs 탭에 같은 폴더가 두 번 서면 안 된다. */
 export function isValidProjectName(name: string): boolean {
-  return PROJECT_NAME_RE.test(name) && name !== 'node_modules' && name !== DEFAULT_PROJECT
+  return (
+    PROJECT_NAME_RE.test(name) && name !== 'node_modules' && name !== DEFAULT_PROJECT && name !== docsTopSegment()
+  )
+}
+
+/** DOCS_DIR의 첫 칸 — 워크스페이스 루트에서 docs가 차지하는 폴더 이름(`.mew/docs`면 `.mew`) */
+export function docsTopSegment(): string {
+  return DOCS_DIR.split(path.sep)[0]
 }
 
 /** 워크스페이스의 프로젝트 목록 — docs는 프로젝트가 아니므로 들어가지 않는다 */

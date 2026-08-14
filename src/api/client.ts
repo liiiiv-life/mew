@@ -116,6 +116,10 @@ export interface WorkspaceInfo {
   path: string
   /** 그 폴더 안에서 프로젝트로 잡히는 것들 — 폴더 하나가 프로젝트 하나 */
   projects: string[]
+  /** docs로 쓰는 폴더 — 워크스페이스 루트 기준 상대 경로 */
+  docs: string
+  /** 같은 폴더의 절대 경로 */
+  docsPath: string
 }
 
 /** 지금 열려 있는 워크스페이스 — owner 전용(서버 기계의 경로다) */
@@ -139,6 +143,15 @@ export function forgetSavedProject(): void {
   } catch {
     // 저장소를 못 쓰는 브라우저 — 어차피 기억해 둔 것도 없다
   }
+}
+
+/** docs로 쓸 폴더를 워크스페이스 안에서 바꾼다 — owner 전용. 성공하면 **화면을 다시 띄워야 한다**(열린 docs 탭이 옛 폴더 것이다) */
+export function setDocsRoot(path: string): Promise<WorkspaceInfo> {
+  return fetch('/api/docs/root', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(json<WorkspaceInfo>)
 }
 
 /** 외부 폴더로 docs를 덮어쓴다 — owner 전용, **기존 docs 내용은 사라진다**(호출 전 확인 필수) */

@@ -27,7 +27,7 @@ import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { DocsRepoError, exportDocs, importDocs } from './docsRepo.ts'
 import { BrowseError, listDirs, resolveBrowsePath } from './fsBrowse.ts'
 import { scanTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
-import { currentWorkspace, switchWorkspace, WorkspaceError } from './workspace.ts'
+import { currentWorkspace, switchDocsRoot, switchWorkspace, WorkspaceError } from './workspace.ts'
 import { collectSystemStats } from './sysStats.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
@@ -248,6 +248,20 @@ export function createApiApp() {
   app.get('/fs/dirs', requireRole('owner'), (req, res) => {
     try {
       res.json(listDirs(resolveBrowsePath(String(req.query.path ?? ''))))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // docs로 쓸 폴더 바꾸기 — 워크스페이스 **안**의 폴더만 받는다(workspace.ts가 경계를 검사한다)
+  app.post('/docs/root', requireRole('owner'), (req, res) => {
+    const { path: target } = req.body as { path?: unknown }
+    try {
+      if (typeof target !== 'string' || !target.trim()) {
+        res.status(400).json({ error: 'docs로 쓸 폴더 경로가 없습니다' })
+        return
+      }
+      res.json(switchDocsRoot(resolveBrowsePath(target)))
     } catch (err) {
       handleError(res, err)
     }
