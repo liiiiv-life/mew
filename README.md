@@ -76,6 +76,7 @@ docs로 쓴다(기본 `docs`, owner가 바꿀 수 있다). 아래 §docs 탭.
 `mew:agent-open`(에이전트 창이 열려 있었는지) · `mew:agent-tabs`·`mew:agent-active-tab`(에이전트 탭 목록과
 마지막으로 보던 탭) · `mew:open-tabs[:{프로젝트}]`(열린 문서 탭 + 칸 배치 — `{ panes, layout, focusedPaneId }`.
 칸이 없던 옛 `{ tabs, activePath }`는 읽을 때 `main` 칸 하나로 이관한다) ·
+`mew:browser-open`·`mew:browser-tabs`·`mew:browser-active-tab`(브라우저 창과 탭) ·
 `mew:scroll:{프로젝트}`(문서별 스크롤 위치 + 사이드바 트리 스크롤, `utils/scrollMemory.ts`) ·
 `mew:tree-open:{프로젝트}`(사이드바에서 펼쳐 둔 폴더).
 
@@ -122,23 +123,13 @@ docs로 쓴다(기본 `docs`, owner가 바꿀 수 있다). 아래 §docs 탭.
 
 ### 할 일 트래커 · 달력
 
-워크스페이스 전체를 훑어 파일 안의 표식을 모은다(`server/todos.ts`). 표식이 곧 원장이다 — 옆에 따로 저장하는
-목록은 없다.
+할 일은 사용자가 홈 탭에서 직접 등록한다(`server/todos.ts`). 원장은 서버 데이터 폴더의 `todos.json`이고,
+로그인 사용자 이메일별로 분리된다. 프로젝트 파일·문서 본문을 훑거나 되쓰지 않는다.
 
-| 표식 | 뜻 |
-|---|---|
-| `[TODO:라벨]` | 남은 일 |
-| `[DONE:라벨]` | 끝난 일 |
-| `[TODO:라벨 @2026-08-20]` | 기한이 걸린 일 (기한은 선택) |
-
-- 체크하면 서버가 **그 파일의 그 표식을 고쳐 되쓴다**(`TODO` ↔ `DONE`). 기한 입력도 같은 되쓰기다.
-- 되쓸 때 `noteAppWrite`를 **부르지 않는다** — 외부 변경으로 취급되어야 열려 있는 협업 방에 그대로 들어간다
-  (디스크→방 브리지). 이 생략은 의도이니 "빠뜨린 것"으로 보고 채우지 말 것.
-- 고칠 표식은 **줄 번호가 아니라 라벨로** 찾는다. 목록이 낡았으면 엉뚱한 줄을 고치는 대신 400으로 실패한다.
-- 백틱으로 감싼 표식(`` `[TODO:…]` ``)은 형식 설명용 예시로 보고 건너뛴다. 이 문단이 목록에 잡히지 않는 이유다.
-- 훑기는 점으로 시작하는 폴더와 빌드 산출물(`build`·`.dart_tool`·`target`·`vendor` 등)을 건너뛴다.
-  이 제외를 지우면 실제 워크스페이스 훑기가 0.1초에서 4초로 늘어난다.
+- 항목은 `id`·`text`·`done`·`due`·`createdAt`·`updatedAt`을 가진다. `due`는 `YYYY-MM-DD` 또는 `null`.
+- 할 일 위젯에서 추가·본문 수정·완료 전환·기한 변경·삭제를 한다.
 - 달력 위젯에는 **기한이 잡힌 항목만** 뜬다. 날짜는 전부 `YYYY-MM-DD` 문자열로 비교한다(Date로 바꾸면 시간대 때문에 하루씩 밀린다).
+- 달력의 항목을 누르면 완료 상태를 토글한다. 본문 수정과 삭제는 할 일 위젯에서 한다.
 
 ### 워크스페이스 바꾸기 (owner)
 
@@ -158,10 +149,36 @@ docs로 쓴다(기본 `docs`, owner가 바꿀 수 있다). 아래 §docs 탭.
 
 | 라우트 | 역할 | 하는 일 |
 |---|---|---|
-| `GET /api/todos` | 로그인 사용자 | `{ items, truncated }` — 모든 프로젝트의 표식. **게스트 차단**(응답에 전 프로젝트 경로가 실린다) |
-| `POST /api/todos` `{project,path,line,text,done?,due?}` | 로그인 사용자 | 표식 하나를 고쳐 파일에 되쓴다. `due: null`이면 기한 삭제 |
+| `GET /api/todos` | 로그인 사용자 | `{ items }` — 자기 할 일 목록 |
+| `POST /api/todos` `{text,due?}` | 로그인 사용자 | 할 일 생성 |
+| `PATCH /api/todos/:id` `{text?,done?,due?}` | 로그인 사용자 | 할 일 수정. `due: null`이면 기한 삭제 |
+| `DELETE /api/todos/:id` | 로그인 사용자 | 할 일 삭제 |
 | `GET /api/workspace` | **owner** | 지금 열린 워크스페이스 경로·프로젝트 목록·docs 폴더(`docs` 상대 경로, `docsPath` 절대 경로) |
 | `POST /api/workspace` `{path}` | **owner** | 워크스페이스를 갈아끼운다(모든 화면 새로고침) |
+
+## 브라우저 창
+
+Alt+B 또는 헤더 메뉴의 브라우저 버튼으로 오른쪽 끝에 여는 보조창(`components/BrowserPanel.tsx`). 탭은
+여러 개이고, 탭 바로 아래 주소창에 `localhost:3100` 같은 주소를 넣으면 `http://localhost:3100/`로 정규화해
+연다. 상태는 브라우저 localStorage(`mew:browser-*`)에만 남는다. 보조창 없이 전체 페이지로 열고 싶으면
+`/3100`처럼 포트 번호를 첫 경로로 연다.
+
+중요한 점: 이 창의 `localhost`는 **방문자 기기의 localhost가 아니라 mew 서버가 도는 기계의 loopback**이다.
+원격에서 mew에 접속해도 WSL 안에서 떠 있는 `med-app` 같은 로컬 개발 서버를 볼 수 있게 하려고
+`/__mew_browser/<origin-token>/...` 프록시를 탄다(`server/browserProxy.ts`).
+
+- 권한은 터미널과 같다 — **manager·owner만** 연다. 로컬 개발 서버에는 시크릿과 관리자 화면이 있을 수 있고,
+  프록시는 SSRF 표면이기 때문이다.
+- 대상은 `http(s)://localhost`, `127.0.0.0/8`, `::1`만 허용한다. tailnet·사설망·공개 인터넷 URL은 거부한다.
+- mew 세션 쿠키·Authorization 헤더는 대상 서버로 넘기지 않고, 대상의 `Set-Cookie`도 브라우저에 전달하지 않는다.
+- 보조창 iframe과 `/3100` 전체 페이지 모두 sandbox로 뜨며 `allow-same-origin`을 주지 않는다. 대상 앱이
+  mew와 같은 origin 권한을 얻지 못하게 하는 경계다. 이 대가로 일부 앱의 localStorage·HMR WebSocket은
+  제한될 수 있다.
+
+| 라우트 | 역할 | 하는 일 |
+|---|---|---|
+| `ANY /__mew_browser/<origin-token>/...` | **manager·owner** | 허용된 loopback origin으로 HTTP 프록시. root-relative URL 일부를 프록시 경로로 재작성 |
+| `ANY /<port>` · `/<port>/...` | **manager·owner** | 같은 프록시를 전체 페이지로 연다. 첫 요청에서 짧은 토큰 경로로 리다이렉트 |
 
 ## docs 탭
 

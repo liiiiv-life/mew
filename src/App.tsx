@@ -12,7 +12,6 @@ import {
   tmuxApi,
   type AuthStatus,
   type ProjectInfo,
-  type TodoItem,
   type TreeNode,
 } from './api/client'
 import { ProjectPicker } from './components/ProjectPicker'
@@ -35,6 +34,7 @@ import type { SearchMatch } from './api/client'
 import { TmuxTerminalPanel } from '@mew/tmux-term'
 import { AgentPanel } from './components/AgentPanel'
 import { AgentSetPanel } from './components/AgentSetPanel'
+import { BrowserPanel } from './components/BrowserPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
@@ -66,6 +66,7 @@ const TMUX_OPEN_KEY = 'mew:tmux-open'
 /** 에이전트 창이 열려 있었는지 — 터미널과 같이 프로젝트와 무관한 화면 상태다(세션 스코프가 워크스페이스다) */
 const AGENT_OPEN_KEY = 'mew:agent-open'
 const AGENT_SET_OPEN_KEY = 'mew:agent-set-open'
+const BROWSER_OPEN_KEY = 'mew:browser-open'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
 /** 홈 탭의 스코프 — 워크스페이스 폴더 자신을 프로젝트처럼 본다(server/paths.ts의 WORKSPACE_PROJECT).
@@ -113,6 +114,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [agentOpen, setAgentOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_OPEN_KEY) === '1')
   // 에이전트셋 창 — 에이전트 창과 별개다(여러 셋에게 시켜 두고 구경하는 자리). 같은 게이트를 쓴다
   const [agentSetOpen, setAgentSetOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_SET_OPEN_KEY) === '1')
+  // 브라우저 창 — 서버 localhost를 프록시로 보는 도구라 터미널과 같은 게이트(owner/manager)를 쓴다
+  const [browserOpen, setBrowserOpen] = useState(() => canUseTerminal && localStorage.getItem(BROWSER_OPEN_KEY) === '1')
   // 멤버 채팅 창(Alt+C) — 사람끼리 쓰는 창이라 로그인만 하면 열린다(게스트 제외)
   const [chatOpen, setChatOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -128,8 +131,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [docsSettingsOpen, setDocsSettingsOpen] = useState(false)
   // 홈 화면(워크스페이스 전체 — 할 일·달력)이 편집 칸 자리를 차지하고 있는지. 게스트에게는 없다
   const [homeOpen, setHomeOpen] = useState(false)
-  // 홈에서 고른 할 일 — 그 프로젝트로 옮겨 간 뒤(리렌더 후) 파일을 연다
-  const [pendingTodo, setPendingTodo] = useState<TodoItem | null>(null)
   // 채팅의 파일 멘션을 누른 것 — 할 일과 같은 이유로 프로젝트를 옮긴 다음 렌더에서 연다
   const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string } | null>(null)
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false)
@@ -316,10 +317,22 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     initial: 640,
     invert: true, // 패널이 화면 오른쪽에 붙어 있으므로 왼쪽으로 끌수록 넓어진다
   })
+  const { width: browserWidth, startResize: startBrowserResize } = usePanelWidth('mew:browser-panel-width', {
+    min: 360,
+    max: 1200,
+    initial: 720,
+    invert: true,
+  })
 
   // 탭 전환·창 전환 스와이프는 편집 칸이 각자 처리한다 (EditorPane) — 칸마다 탭 줄이 따로다
   const sidebarSwipe = useSwipeGesture({ onBottomLeft: () => setSidebarOpen(false) })
   const tmuxSwipe = useSwipeGesture({ onBottomRight: () => setTmuxOpen(false) })
+  const homeSwipe = useSwipeGesture({
+    onBottomRight: () => setSidebarOpen(true),
+    onBottomLeft: () => {
+      if (canUseTerminal) setAgentOpen(true)
+    },
+  })
 
   // Esc·안드로이드 뒤로가기로 열린 것을 한 겹씩 닫는다 — 모달·팝업도 같은 스택에 등록돼 있어
   // (useOverlayDismiss) 그쪽이 떠 있으면 언제나 먼저 닫히고, 패널은 마지막에 닫힌다.
@@ -490,6 +503,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     localStorage.setItem(AGENT_SET_OPEN_KEY, agentSetOpen ? '1' : '0')
   }, [agentSetOpen])
 
+  useEffect(() => {
+    localStorage.setItem(BROWSER_OPEN_KEY, browserOpen ? '1' : '0')
+  }, [browserOpen])
+
   const handleFileCreated = useCallback(
     (relPath: string) => {
       refreshTree()
@@ -569,6 +586,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         if (isGuest) return
         e.preventDefault()
         setChatOpen((v) => !v)
+      } else if (matchesShortcut(e, getBinding('toggleBrowser'))) {
+        if (!canUseTerminal) return
+        e.preventDefault()
+        setBrowserOpen((v) => !v)
       } else if (matchesShortcut(e, getBinding('addComment'))) {
         // 지금 포커스된 칸의 선택(없으면 커서) 자리에 댓글 작성 팝업 — 텍스트 편집기가 아니면 아무 일도 없다
         if (isGuest) return
@@ -618,25 +639,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
     // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다
-  }, [saveCurrentTab, closeTab, activePath, activeTab, tabs, setActivePath, canUseTerminal, focusedEditor, isGuest, project, agentOpen, tmuxOpen, chatOpen])
-
-  /**
-   * 홈의 할 일 항목 클릭 — 그 표식이 있는 파일을 그 줄에서 연다. 다른 프로젝트일 수 있으므로
-   * 여기서는 프로젝트만 옮기고, 실제로 여는 것은 **그 프로젝트로 리렌더된 다음**이다
-   * (openFile은 지금 프로젝트의 탭 목록에 대고 여는 함수라 같은 렌더에서 부르면 옛 프로젝트에 열린다).
-   */
-  const openTodoItem = useCallback(
-    (item: TodoItem) => {
-      setHomeOpen(false)
-      setPendingTodo(item)
-      if (item.project !== project) switchProject(item.project)
-    },
-    [project, switchProject],
-  )
+  }, [saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath, canUseTerminal, focusedEditor, isGuest, project, agentOpen, tmuxOpen, chatOpen])
 
   /**
    * 채팅 메시지의 파일 멘션 클릭 — 새 창이 아니라 **같은 창의 에디터 탭**으로 연다.
-   * 다른 프로젝트일 수 있으므로 할 일 항목과 같은 대기 경로를 탄다(프로젝트를 옮긴 다음 렌더에서 열기).
+   * 다른 프로젝트일 수 있으므로 프로젝트를 옮긴 다음 렌더에서 연다.
    */
   const openMentionedFile = useCallback(
     (target: string, path: string) => {
@@ -652,14 +659,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     openFile(pendingOpen.path, { preview: false })
     setPendingOpen(null)
   }, [pendingOpen, project, openFile])
-
-  useEffect(() => {
-    if (!pendingTodo || pendingTodo.project !== project) return
-    // 검색 결과 클릭과 같은 대기 경로를 탄다 — plain은 그 줄로 스크롤, md는 그 라벨로 찾기 바를 연다
-    pendingRevealRef.current = { path: pendingTodo.path, line: pendingTodo.line, query: pendingTodo.text }
-    openFile(pendingTodo.path, { preview: true })
-    setPendingTodo(null)
-  }, [pendingTodo, project, openFile])
 
   // 프로젝트 검색 결과 클릭 — 파일을 열고, 위치 점프 정보를 대기시킨다 (내용 로드 후 아래 effect가 처리)
   const openSearchResult = useCallback(
@@ -848,6 +847,21 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                 <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
                 <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
                 <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+              </svg>
+            ),
+          },
+          {
+            id: 'browser',
+            label: '브라우저',
+            hint: 'Alt+B',
+            onSelect: () => setBrowserOpen((open) => !open),
+            active: browserOpen,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M3 12h18" />
+                <path d="M12 3a13.5 13.5 0 0 1 0 18" />
+                <path d="M12 3a13.5 13.5 0 0 0 0 18" />
               </svg>
             ),
           },
@@ -1091,7 +1105,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         {/* 홈이 떠 있으면 편집 칸 자리를 홈 화면이 대신 쓴다 — 사이드바·터미널·에이전트 패널은 그대로다.
             열어 둔 탭 목록은 App(useTabs)에 있으므로 홈에서 나오면 보던 문서로 그대로 돌아온다. */}
         {homeOpen && !isGuest ? (
-          <HomePanel onOpenItem={openTodoItem} />
+          <div className="flex min-h-0 min-w-0 flex-1" {...homeSwipe}>
+            <HomePanel />
+          </div>
         ) : (
           /* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */
           renderLayout(layout, 'root')
@@ -1150,6 +1166,22 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                 getSelectedText={getSelectedText}
                 renderCommandButtons={renderTermButtons}
               />
+            </div>
+          </div>
+        )}
+
+        {browserOpen && canUseTerminal && (
+          <div
+            className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
+            style={{ width: isDesktop() ? browserWidth : undefined }}
+          >
+            <div
+              onPointerDown={startBrowserResize}
+              className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
+              aria-hidden="true"
+            />
+            <div className="min-w-0 flex-1">
+              <BrowserPanel onClose={() => setBrowserOpen(false)} />
             </div>
           </div>
         )}

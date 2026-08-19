@@ -10,7 +10,13 @@ function iso(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-export function DueCalendar({ items, onOpen }: { items: TodoItem[]; onOpen: (item: TodoItem) => void }) {
+export function DueCalendar({
+  items,
+  onUpdate,
+}: {
+  items: TodoItem[]
+  onUpdate: (item: TodoItem, change: { text?: string; done?: boolean; due?: string | null }) => void
+}) {
   const now = new Date()
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() })
   const today = iso(now.getFullYear(), now.getMonth(), now.getDate())
@@ -75,10 +81,10 @@ export function DueCalendar({ items, onOpen }: { items: TodoItem[]; onOpen: (ite
               <div className={date === today ? 'font-semibold text-ink' : 'text-ink-muted'}>{day}</div>
               {dayItems.slice(0, 3).map((item) => (
                 <button
-                  key={`${item.project}:${item.path}:${item.line}:${item.text}`}
+                  key={item.id}
                   type="button"
-                  onClick={() => onOpen(item)}
-                  title={`${item.project}/${item.path}:${item.line} — ${item.text}`}
+                  onClick={() => onUpdate(item, { done: !item.done })}
+                  title={item.text}
                   className={`block w-full truncate text-left ${item.done ? 'text-ink-muted line-through' : 'text-ink-secondary hover:text-ink'}`}
                 >
                   {item.text}

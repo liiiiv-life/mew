@@ -26,7 +26,8 @@ import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { DocsRepoError, exportDocs, importDocs } from './docsRepo.ts'
 import { BrowseError, listDirs, resolveBrowsePath } from './fsBrowse.ts'
-import { scanTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
+import { browserProxyFrameUrl } from './browserProxy.ts'
+import { createTodo, deleteTodo, listTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
 import { currentWorkspace, switchDocsRoot, switchWorkspace, WorkspaceError } from './workspace.ts'
 import { collectSystemStats } from './sysStats.ts'
 import { readCrontab } from './crontab.ts'
@@ -159,6 +160,20 @@ export function createApiApp() {
     try {
       deleteProject(name)
       res.json({ ok: true })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // ── 브라우저 창: sandbox iframe용 짧은 프록시 URL 발급 ─────────────────────
+  app.get('/browser-url', requireRole('manager', 'owner'), (req, res) => {
+    try {
+      const target = String(req.query.url ?? '')
+      if (!target.trim()) {
+        res.status(400).json({ error: '주소가 없습니다' })
+        return
+      }
+      res.json({ url: browserProxyFrameUrl(target) })
     } catch (err) {
       handleError(res, err)
     }
@@ -298,32 +313,50 @@ export function createApiApp() {
     }
   })
 
-  // ── 홈 탭: 워크스페이스 전체의 할 일 표식 ──────────────────────────────────
-  // 응답에 **모든 프로젝트의 파일 경로**가 그대로 실린다 — 게스트에게는 열지 않는다.
-  app.get('/todos', requireAuthenticated, (_req, res) => {
+  // ── 홈 탭: 로그인 사용자별 할 일 ───────────────────────────────────────────
+  app.get('/todos', requireAuthenticated, (req, res) => {
     try {
-      res.json(scanTodos())
+      res.json({ items: listTodos(authOf(req).email ?? '') })
     } catch (err) {
       handleError(res, err)
     }
   })
 
-  // 체크·기한 바꾸기 = 그 줄의 표식을 고쳐 파일에 되쓰는 일이다(todos.ts). 열려 있는 협업 방에는
-  // 파일 감시자를 통해 들어간다.
   app.post('/todos', requireAuthenticated, (req, res) => {
-    const { project, path: relPath, line, text, done, due } = req.body as {
-      project?: unknown
-      path?: unknown
-      line?: unknown
+    const { text, due } = req.body as {
       text?: unknown
-      done?: unknown
       due?: unknown
     }
-    if (typeof project !== 'string' || typeof relPath !== 'string' || typeof text !== 'string' || typeof line !== 'number') {
-      res.status(400).json({ error: '항목 정보가 올바르지 않습니다' })
+    if (typeof text !== 'string') {
+      res.status(400).json({ error: '할 일을 입력하세요' })
       return
     }
+    if (due !== undefined && due !== null && typeof due !== 'string') {
+      res.status(400).json({ error: '기한이 올바르지 않습니다' })
+      return
+    }
+    try {
+      res.json({ item: createTodo(authOf(req).email ?? '', { text, due: due ?? null }) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.patch('/todos/:id', requireAuthenticated, (req, res) => {
+    const id = req.params.id
+    if (typeof id !== 'string') {
+      res.status(400).json({ error: '할 일을 찾을 수 없습니다' })
+      return
+    }
+    const { text, done, due } = req.body as { text?: unknown; done?: unknown; due?: unknown }
     const change: TodoChange = {}
+    if (text !== undefined) {
+      if (typeof text !== 'string') {
+        res.status(400).json({ error: '할 일이 올바르지 않습니다' })
+        return
+      }
+      change.text = text
+    }
     if (done !== undefined) {
       if (typeof done !== 'boolean') {
         res.status(400).json({ error: '완료 여부가 올바르지 않습니다' })
@@ -339,7 +372,21 @@ export function createApiApp() {
       change.due = due
     }
     try {
-      res.json({ item: updateTodo({ project, path: relPath, line, text }, change) })
+      res.json({ item: updateTodo(authOf(req).email ?? '', id, change) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.delete('/todos/:id', requireAuthenticated, (req, res) => {
+    const id = req.params.id
+    if (typeof id !== 'string') {
+      res.status(400).json({ error: '할 일을 찾을 수 없습니다' })
+      return
+    }
+    try {
+      deleteTodo(authOf(req).email ?? '', id)
+      res.json({ ok: true })
     } catch (err) {
       handleError(res, err)
     }

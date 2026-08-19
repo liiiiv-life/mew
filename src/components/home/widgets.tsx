@@ -11,10 +11,9 @@ import { TodoTracker } from './TodoTracker'
 export interface HomeWidgetContext {
   items: TodoItem[]
   loading: boolean
-  onToggle: (item: TodoItem, done: boolean) => void
-  onSetDue: (item: TodoItem, due: string | null) => void
-  /** 그 표식이 있는 파일을 그 줄에서 연다 */
-  onOpen: (item: TodoItem) => void
+  onCreate: (input: { text: string; due: string | null }) => void
+  onUpdate: (item: TodoItem, change: { text?: string; done?: boolean; due?: string | null }) => void
+  onDelete: (item: TodoItem) => void
 }
 
 export interface HomeWidget {
@@ -25,7 +24,7 @@ export interface HomeWidget {
 
 export const HOME_WIDGETS: HomeWidget[] = [
   { id: 'todos', title: '할 일', render: (c) => <TodoTracker {...c} /> },
-  { id: 'calendar', title: '달력', render: (c) => <DueCalendar items={c.items} onOpen={c.onOpen} /> },
+  { id: 'calendar', title: '달력', render: (c) => <DueCalendar items={c.items} onUpdate={c.onUpdate} /> },
 ]
 
 export interface HomeLayout {

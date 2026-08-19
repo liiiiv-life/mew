@@ -172,34 +172,43 @@ export function exportDocs(path: string): Promise<{ ok: true; path: string }> {
   }).then(json<{ ok: true; path: string }>)
 }
 
+export function fetchBrowserFrameUrl(url: string): Promise<{ url: string }> {
+  return fetch(`/api/browser-url?url=${encodeURIComponent(url)}`).then(json<{ url: string }>)
+}
+
 export interface TodoItem {
-  project: string
-  /** 프로젝트 상대 경로 */
-  path: string
-  /** 1부터 시작하는 줄번호 */
-  line: number
-  /** 표식 안의 라벨 — 기한 표기는 뺀 것 */
+  id: string
   text: string
   done: boolean
   /** YYYY-MM-DD 또는 null */
   due: string | null
+  createdAt: string
+  updatedAt: string
 }
 
-/** 워크스페이스 전체(docs + 모든 프로젝트)의 할 일 표식 — 홈 탭. 게스트에게는 닫혀 있다 */
-export function fetchTodos(): Promise<{ items: TodoItem[]; truncated: boolean }> {
-  return fetch('/api/todos').then(json<{ items: TodoItem[]; truncated: boolean }>)
+/** 로그인 사용자의 할 일 — 홈 탭. 게스트에게는 닫혀 있다 */
+export function fetchTodos(): Promise<{ items: TodoItem[] }> {
+  return fetch('/api/todos').then(json<{ items: TodoItem[] }>)
 }
 
-/** 체크·기한을 바꾼다 — 서버가 그 줄의 표식을 고쳐 **파일에 되쓴다**(되돌리려면 다시 부른다) */
-export function updateTodo(
-  item: TodoItem,
-  change: { done?: boolean; due?: string | null },
-): Promise<{ item: TodoItem }> {
+export function createTodo(input: { text: string; due?: string | null }): Promise<{ item: TodoItem }> {
   return fetch('/api/todos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project: item.project, path: item.path, line: item.line, text: item.text, ...change }),
+    body: JSON.stringify(input),
   }).then(json<{ item: TodoItem }>)
+}
+
+export function updateTodo(id: string, change: { text?: string; done?: boolean; due?: string | null }): Promise<{ item: TodoItem }> {
+  return fetch(`/api/todos/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(change),
+  }).then(json<{ item: TodoItem }>)
+}
+
+export function deleteTodo(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/todos/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
 /** archives/ 불변 규칙은 docs 프로젝트 전용 — 다른 프로젝트의 같은 이름 폴더에는 적용하지 않는다 */

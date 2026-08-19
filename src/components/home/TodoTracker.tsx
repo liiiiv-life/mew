@@ -1,38 +1,56 @@
-// 할 일 위젯 — 워크스페이스 전체의 `[TODO:…]` 표식을 프로젝트별로 모아 보여준다.
-//
-// 체크는 곧 **파일 수정**이다(서버가 그 줄의 TODO를 DONE으로 바꿔 되쓴다). 그래서 낙관적으로
-// 먼저 칠하지 않고 응답이 온 뒤에 목록을 갈아끼운다 — 표식이 사라졌거나 라벨이 바뀌었으면 실패한다.
-import { useMemo, useState } from 'react'
+// 할 일 위젯 — 로그인 사용자가 직접 등록한 항목을 보여주고 고친다.
+import { useState, type FormEvent } from 'react'
 import type { TodoItem } from '../../api/client'
 import type { HomeWidgetContext } from './widgets'
-
-// 빈 목록 안내에 쓰는 예시. 리터럴로 적으면 **이 파일 자신이** 스캔 결과에 잡히므로 조립한다
-const SAMPLE_MARKER = `[${'TODO'}:할 일]`
 
 function todayISO(): string {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
-export function TodoTracker({ items, loading, onToggle, onSetDue, onOpen }: HomeWidgetContext) {
+export function TodoTracker({ items, loading, onCreate, onUpdate, onDelete }: HomeWidgetContext) {
+  const [text, setText] = useState('')
+  const [due, setDue] = useState('')
   const [showDone, setShowDone] = useState(false)
   const today = todayISO()
-
-  const groups = useMemo(() => {
-    const byProject = new Map<string, TodoItem[]>()
-    for (const item of items) {
-      if (item.done && !showDone) continue
-      const list = byProject.get(item.project) ?? []
-      list.push(item)
-      byProject.set(item.project, list)
-    }
-    return [...byProject.entries()]
-  }, [items, showDone])
-
   const openCount = items.filter((i) => !i.done).length
+  const shown = items.filter((item) => showDone || !item.done)
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    const value = text.trim()
+    if (!value) return
+    onCreate({ text: value, due: due || null })
+    setText('')
+    setDue('')
+  }
 
   return (
     <div className="flex min-h-0 flex-col">
+      <form onSubmit={submit} className="flex flex-wrap items-center gap-2 px-1 pb-3">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          maxLength={240}
+          placeholder="할 일"
+          className="min-w-48 flex-1 rounded border border-edge bg-surface px-2 py-1 text-sm text-ink placeholder:text-ink-muted"
+        />
+        <input
+          type="date"
+          value={due}
+          onChange={(e) => setDue(e.target.value)}
+          className="shrink-0 rounded border border-edge bg-surface px-2 py-1 text-sm text-ink-secondary"
+          aria-label="기한"
+        />
+        <button
+          type="submit"
+          disabled={!text.trim()}
+          className="rounded bg-accent px-3 py-1 text-sm font-medium text-white hover:bg-accent-strong disabled:opacity-40"
+        >
+          추가
+        </button>
+      </form>
+
       <div className="flex items-center gap-2 px-1 pb-2 text-xs text-ink-muted">
         <span>
           남은 일 {openCount}개 · 전체 {items.length}개
@@ -44,30 +62,19 @@ export function TodoTracker({ items, loading, onToggle, onSetDue, onOpen }: Home
       </div>
 
       {loading && items.length === 0 ? (
-        <div className="px-1 py-6 text-center text-xs text-ink-muted">훑는 중…</div>
-      ) : groups.length === 0 ? (
-        <div className="px-1 py-6 text-center text-xs text-ink-muted">
-          할 일이 없습니다 — 코드나 문서 어디에든 <code className="text-ink-secondary">{SAMPLE_MARKER}</code> 이라고
-          적으면 여기 모입니다
-        </div>
+        <div className="px-1 py-6 text-center text-xs text-ink-muted">불러오는 중...</div>
+      ) : shown.length === 0 ? (
+        <div className="px-1 py-6 text-center text-xs text-ink-muted">등록된 할 일이 없습니다</div>
       ) : (
-        <div className="flex flex-col gap-3">
-          {groups.map(([project, list]) => (
-            <div key={project}>
-              <div className="px-1 pb-1 text-xs font-semibold text-ink-secondary">{project}</div>
-              <div className="flex flex-col">
-                {list.map((item) => (
-                  <TodoRow
-                    key={`${item.project}:${item.path}:${item.line}:${item.text}`}
-                    item={item}
-                    overdue={!item.done && item.due != null && item.due < today}
-                    onToggle={onToggle}
-                    onSetDue={onSetDue}
-                    onOpen={onOpen}
-                  />
-                ))}
-              </div>
-            </div>
+        <div className="flex flex-col">
+          {shown.map((item) => (
+            <TodoRow
+              key={item.id}
+              item={item}
+              overdue={!item.done && item.due != null && item.due < today}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+            />
           ))}
         </div>
       )}
@@ -78,46 +85,83 @@ export function TodoTracker({ items, loading, onToggle, onSetDue, onOpen }: Home
 function TodoRow({
   item,
   overdue,
-  onToggle,
-  onSetDue,
-  onOpen,
+  onUpdate,
+  onDelete,
 }: {
   item: TodoItem
   overdue: boolean
-  onToggle: (item: TodoItem, done: boolean) => void
-  onSetDue: (item: TodoItem, due: string | null) => void
-  onOpen: (item: TodoItem) => void
+  onUpdate: (item: TodoItem, change: { text?: string; done?: boolean; due?: string | null }) => void
+  onDelete: (item: TodoItem) => void
 }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(item.text)
+
+  const saveText = () => {
+    const text = draft.trim()
+    if (!text) {
+      setDraft(item.text)
+      setEditing(false)
+      return
+    }
+    if (text !== item.text) onUpdate(item, { text })
+    setEditing(false)
+  }
+
   return (
     <div className="flex items-center gap-2 rounded px-1 py-1 hover:bg-surface-hover">
       <input
         type="checkbox"
         checked={item.done}
-        onChange={(e) => onToggle(item, e.target.checked)}
+        onChange={(e) => onUpdate(item, { done: e.target.checked })}
         aria-label={item.done ? '되돌리기' : '완료'}
         className="shrink-0"
       />
-      <button
-        type="button"
-        onClick={() => onOpen(item)}
-        className="min-w-0 flex-1 truncate text-left text-sm text-ink"
-        title={`${item.path}:${item.line}`}
-      >
-        <span className={item.done ? 'text-ink-muted line-through' : ''}>{item.text}</span>
-        <span className="ml-2 font-mono text-[11px] text-ink-muted">
-          {item.path}:{item.line}
-        </span>
-      </button>
-      {/* 기한은 브라우저 기본 날짜 입력 — 비워서 지운다 */}
+      {editing ? (
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={saveText}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') saveText()
+            if (e.key === 'Escape') {
+              setDraft(item.text)
+              setEditing(false)
+            }
+          }}
+          maxLength={240}
+          autoFocus
+          className="min-w-0 flex-1 rounded border border-edge bg-surface px-2 py-1 text-sm text-ink"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(item.text)
+            setEditing(true)
+          }}
+          className={`min-w-0 flex-1 truncate text-left text-sm ${item.done ? 'text-ink-muted line-through' : 'text-ink'}`}
+          title={item.text}
+        >
+          {item.text}
+        </button>
+      )}
       <input
         type="date"
         value={item.due ?? ''}
-        onChange={(e) => onSetDue(item, e.target.value || null)}
+        onChange={(e) => onUpdate(item, { due: e.target.value || null })}
         className={`shrink-0 rounded bg-surface px-1 py-0.5 text-[11px] ${
           overdue ? 'text-danger-strong' : item.due ? 'text-ink-secondary' : 'text-ink-muted'
         }`}
         aria-label="기한"
       />
+      <button
+        type="button"
+        onClick={() => onDelete(item)}
+        className="shrink-0 rounded px-2 py-0.5 text-xs text-ink-muted hover:bg-surface-hover hover:text-danger-strong"
+        aria-label="삭제"
+      >
+        삭제
+      </button>
     </div>
   )
 }
