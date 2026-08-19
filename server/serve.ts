@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { createApiApp } from './api.ts'
+import { createBrowserPortProxyMiddleware, createBrowserProxyApp } from './browserProxy.ts'
 import { createAuthRouter, checkOrigin } from './authRoutes.ts'
 import { attachAuthContext, resolveAuth, authorizeTmux, authorizeCollab } from './reqAuth.ts'
 import { attachTmuxWebSocket } from '@mew/tmux-term/server'
@@ -88,6 +89,8 @@ const app = express()
 app.disable('x-powered-by')
 app.use(securityHeaders)
 app.use(checkOrigin)
+app.use(createBrowserPortProxyMiddleware())
+app.use('/__mew_browser', attachAuthContext, createBrowserProxyApp())
 app.use('/api/auth', createAuthRouter())
 app.use('/api', attachAuthContext, createApiApp())
 addStaticAndSpaFallback(app)

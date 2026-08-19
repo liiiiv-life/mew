@@ -11,6 +11,7 @@
   { "id": "nextTab", "category": "전역", "label": "다음 탭", "keys": "Ctrl+Alt+ArrowRight", "editable": true },
   { "id": "fullscreen", "category": "전역", "label": "전체화면 전환", "keys": "Alt+Enter", "editable": true },
   { "id": "toggleChat", "category": "협업", "label": "채팅 열기/닫기", "keys": "Alt+C", "editable": true },
+  { "id": "toggleBrowser", "category": "전역", "label": "브라우저 열기/닫기", "keys": "Alt+B", "editable": true },
   { "id": "addComment", "category": "협업", "label": "선택한 곳에 댓글 달기", "keys": "Alt+Shift+C", "editable": true },
   { "id": "treeRename", "category": "파일 트리", "label": "이름 변경", "keys": "F2", "editable": true },
   { "id": "treeDelete", "category": "파일 트리", "label": "삭제", "keys": "Delete", "editable": true },

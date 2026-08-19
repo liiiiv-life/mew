@@ -2,6 +2,7 @@ import './config.ts' // 반드시 첫 줄 — 설정 파일을 다른 모듈보�
 import type { Plugin } from 'vite'
 import express from 'express'
 import { createApiApp } from './api.ts'
+import { createBrowserPortProxyMiddleware, createBrowserProxyApp } from './browserProxy.ts'
 import { createAuthRouter, checkOrigin } from './authRoutes.ts'
 import { attachAuthContext, resolveAuth, authorizeTmux, authorizeCollab } from './reqAuth.ts'
 import { attachTmuxWebSocket } from '@mew/tmux-term/server'
@@ -24,6 +25,8 @@ export function docsApiPlugin(): Plugin {
       // 미들웨어로 낱개 등록하지 않고 하나의 Express 앱으로 묶어 mount한다.
       const app = express()
       app.use(checkOrigin)
+      app.use(createBrowserPortProxyMiddleware())
+      app.use('/__mew_browser', attachAuthContext, createBrowserProxyApp())
       app.use('/api/auth', createAuthRouter())
       app.use('/api', attachAuthContext, createApiApp())
       server.middlewares.use(app)
