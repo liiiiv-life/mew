@@ -1,9 +1,10 @@
-// 프로파일링 팝업이 읽는 호스트 자원 스냅샷. CPU·메모리는 stdlib, 프로세스별 사용량은 /proc,
-// GPU는 nvidia-smi, 온도는 /sys/class/thermal에서 온다 — 없는 환경(WSL·컨테이너·비NVIDIA)에서는
-// 해당 값만 null/빈 배열이고 나머지는 그대로 나간다.
+// 프로파일링 팝업이 읽는 호스트 자원 스냅샷. CPU·메모리는 stdlib, 리눅스 프로세스별 사용량은 /proc,
+// macOS 프로세스별 사용량은 ps에서 온다. GPU는 nvidia-smi, 온도는 /sys/class/thermal에서 온다 —
+// 없는 환경(WSL·컨테이너·비NVIDIA·macOS)에서는 해당 값만 null/빈 배열이고 나머지는 그대로 나간다.
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -172,12 +173,12 @@ const PAGE_SIZE = 4096
 /** 프로세스별 CPU는 누적 tick의 차분이라 직전 표본이 필요하다 — 전역 표본 하나를 공유한다 */
 let prevProcTicks = new Map<number, { ticks: number; at: number }>()
 
-function processes(gpuMem: Map<number, number>, cores: number): ProcStat[] {
+function linuxProcesses(gpuMem: Map<number, number>, cores: number): ProcStat[] {
   let entries: string[]
   try {
     entries = fs.readdirSync('/proc')
   } catch {
-    return [] // /proc 없음(비리눅스) — 프로세스 목록 없이 나머지를 보여준다
+    return []
   }
 
   const now = Date.now()
@@ -244,6 +245,45 @@ function processes(gpuMem: Map<number, number>, cores: number): ProcStat[] {
   return out.sort((a, b) => b.cpu - a.cpu)
 }
 
+export function parsePsProcesses(stdout: string, gpuMem: Map<number, number>, cores: number): ProcStat[] {
+  const out: ProcStat[] = []
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue
+    const match = /^\s*(\d+)\s+([0-9.]+)\s+(\d+)\s+(\S+)\s*(.*)$/.exec(line)
+    if (!match) continue
+    const pid = Number(match[1])
+    const cpu = Number(match[2])
+    const rssKb = Number(match[3])
+    if (!Number.isInteger(pid) || pid <= 0 || !Number.isFinite(cpu) || !Number.isFinite(rssKb)) continue
+    const comm = match[4] ?? ''
+    const command = (match[5] ?? '').replace(/[\p{Cc}]+/gu, ' ').trim()
+    const name = path.basename(comm) || command.split(/\s+/, 1)[0] || String(pid)
+    out.push({
+      pid,
+      name,
+      cmd: command.slice(0, 200),
+      cpu: Math.min(cores * 100, Math.max(0, cpu)),
+      memMb: Math.max(0, rssKb / 1024),
+      gpuMemMb: gpuMem.get(pid) ?? 0,
+    })
+  }
+  return out.sort((a, b) => b.cpu - a.cpu)
+}
+
+async function macProcesses(gpuMem: Map<number, number>, cores: number): Promise<ProcStat[]> {
+  try {
+    const { stdout } = await run('ps', ['-axo', 'pid=,pcpu=,rss=,comm=,command='], { timeout: 3000, maxBuffer: 1024 * 1024 })
+    return parsePsProcesses(stdout, gpuMem, cores)
+  } catch {
+    return []
+  }
+}
+
+async function processes(gpuMem: Map<number, number>, cores: number): Promise<ProcStat[]> {
+  if (process.platform === 'darwin') return macProcesses(gpuMem, cores)
+  return linuxProcesses(gpuMem, cores)
+}
+
 export async function collectSystemStats(): Promise<SystemStats> {
   const cpus = os.cpus()
   const [gpuList, gpuMem] = await Promise.all([gpus(), gpuProcesses()])
@@ -257,7 +297,7 @@ export async function collectSystemStats(): Promise<SystemStats> {
     },
     memory: memory(),
     gpus: gpuList,
-    processes: processes(gpuMem, cpus.length),
+    processes: await processes(gpuMem, cpus.length),
     uptime: os.uptime(),
     hostname: os.hostname(),
   }

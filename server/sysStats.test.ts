@@ -2,7 +2,27 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import os from 'node:os'
-import { collectSystemStats } from './sysStats.ts'
+import { collectSystemStats, parsePsProcesses } from './sysStats.ts'
+
+test('parsePsProcesses: macOS ps 출력을 프로세스 목록으로 바꾼다', () => {
+  const stats = parsePsProcesses(
+    [
+      '  101   0.0   512 /sbin/launchd /sbin/launchd',
+      '  202 123.4 20480 /Applications/Foo.app/Contents/MacOS/Foo /Applications/Foo.app/Contents/MacOS/Foo --flag',
+      '',
+    ].join('\n'),
+    new Map([[202, 64]]),
+    8,
+  )
+
+  assert.equal(stats.length, 2)
+  assert.equal(stats[0].pid, 202)
+  assert.equal(stats[0].name, 'Foo')
+  assert.equal(stats[0].cpu, 123.4)
+  assert.equal(stats[0].memMb, 20)
+  assert.equal(stats[0].gpuMemMb, 64)
+  assert.ok(!stats[0].cmd.includes('\0'))
+})
 
 test('collectSystemStats: 범위가 성립한다', async () => {
   await collectSystemStats() // 첫 호출은 표본만 잡는다

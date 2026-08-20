@@ -43,12 +43,18 @@ pick_port() {
 }
 
 set_config() {
-  local key=$1 value=$2 esc
+  local key=$1 value=$2 tmp
   mkdir -p "$CONFIG_DIR"; chmod 700 "$CONFIG_DIR"
   touch "$CONFIG"; chmod 600 "$CONFIG"
-  esc=${value//\\/\\\\}; esc=${esc//|/\\|}; esc=${esc//&/\\&}
   if grep -q "^${key}=" "$CONFIG"; then
-    sed -i "s|^${key}=.*|${key}=${esc}|" "$CONFIG"
+    tmp="${CONFIG}.tmp.$$"
+    awk -v key="$key" -v value="$value" '
+      BEGIN { prefix = key "=" }
+      index($0, prefix) == 1 { $0 = prefix value }
+      { print }
+    ' "$CONFIG" >"$tmp"
+    mv "$tmp" "$CONFIG"
+    chmod 600 "$CONFIG"
   else
     printf '%s=%s\n' "$key" "$value" >>"$CONFIG"
   fi
@@ -91,21 +97,46 @@ need_node() {
   fi
 }
 
-# The terminal panel is built from source (node-pty has no Linux prebuilt), so npm needs a compiler.
+# The terminal panel is built from source (node-pty has no prebuilt), so npm needs a compiler.
 # Without this, `npm ci` dies in node-gyp with pages of unrelated-looking errors.
 need_build_tools() {
   local missing=()
-  command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || missing+=(build-essential)
-  command -v make >/dev/null 2>&1 || missing+=(build-essential)
-  command -v python3 >/dev/null 2>&1 || missing+=(python3)
-  command -v tmux >/dev/null 2>&1 || missing+=(tmux)
+  local os; os=$(uname -s 2>/dev/null || echo unknown)
+
+  if [ "$os" = Darwin ]; then
+    xcode-select -p >/dev/null 2>&1 || missing+=("xcode-command-line-tools")
+    command -v cc >/dev/null 2>&1 || missing+=("xcode-command-line-tools")
+    command -v make >/dev/null 2>&1 || missing+=("xcode-command-line-tools")
+    command -v python3 >/dev/null 2>&1 || missing+=(python3)
+    command -v tmux >/dev/null 2>&1 || missing+=(tmux)
+  else
+    command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || missing+=(build-essential)
+    command -v make >/dev/null 2>&1 || missing+=(build-essential)
+    command -v python3 >/dev/null 2>&1 || missing+=(python3)
+    command -v tmux >/dev/null 2>&1 || missing+=(tmux)
+  fi
   [ ${#missing[@]} -eq 0 ] && return 0
 
   local pkgs; pkgs=$(printf '%s\n' "${missing[@]}" | sort -u | tr '\n' ' ')
   say "Missing system packages: $pkgs"
-  say "  build-essential/python3 — needed to build the terminal (node-pty)"
-  say "  tmux                    — the terminal panel itself"
-  if command -v apt-get >/dev/null 2>&1 && [ -t 0 ] && yes_no "Install them with apt? (asks for your sudo password)" y; then
+  say "  compiler/python3 — needed to build the terminal (node-pty)"
+  say "  tmux             — the terminal panel itself"
+  if [ "$os" = Darwin ]; then
+    local brew_missing=()
+    say ""
+    say "On macOS:"
+    printf '%s\n' "${missing[@]}" | grep -qx "xcode-command-line-tools" && say "  xcode-select --install"
+    printf '%s\n' "${missing[@]}" | grep -qx "tmux" && brew_missing+=(tmux)
+    printf '%s\n' "${missing[@]}" | grep -qx "python3" && brew_missing+=(python)
+    [ ${#brew_missing[@]} -gt 0 ] && say "  brew install ${brew_missing[*]}"
+    if printf '%s\n' "${missing[@]}" | grep -qx "xcode-command-line-tools"; then
+      die "install Xcode Command Line Tools, then run ./mew setup again"
+    elif command -v brew >/dev/null 2>&1 && [ -t 0 ] && yes_no "Install missing Homebrew packages now?" y; then
+      brew install "${brew_missing[@]}"
+    else
+      die "install the missing tools, then run ./mew setup again"
+    fi
+  elif command -v apt-get >/dev/null 2>&1 && [ -t 0 ] && yes_no "Install them with apt? (asks for your sudo password)" y; then
     # shellcheck disable=SC2086
     sudo apt-get update && sudo apt-get install -y $pkgs
   else
