@@ -2,7 +2,8 @@
 //
 // 날짜는 전부 `YYYY-MM-DD` 문자열로만 다룬다. Date로 바꿔 비교하면 시간대 때문에 하루씩 밀린다.
 import { useMemo, useState } from 'react'
-import type { TodoItem } from '../../api/client'
+import { NavArrowLeft, NavArrowRight } from 'iconoir-react'
+import type { TodoItem, TodoStatus, TodoType } from '../../api/client'
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 
@@ -15,7 +16,10 @@ export function DueCalendar({
   onUpdate,
 }: {
   items: TodoItem[]
-  onUpdate: (item: TodoItem, change: { text?: string; done?: boolean; due?: string | null }) => void
+  onUpdate: (
+    item: TodoItem,
+    change: { text?: string; type?: TodoType; status?: TodoStatus; done?: boolean; due?: string | null; projects?: string[] },
+  ) => void
 }) {
   const now = new Date()
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() })
@@ -44,28 +48,40 @@ export function DueCalendar({
 
   return (
     <div>
-      <div className="flex items-center gap-1 px-1 pb-2">
-        <button type="button" onClick={() => step(-1)} className="rounded px-2 py-0.5 text-xs text-ink-secondary hover:bg-surface-hover">
-          ‹
+      <div className="flex items-center gap-2 pb-3">
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          className="flex h-8 w-8 items-center justify-center rounded border border-edge bg-surface-raised text-ink-secondary hover:border-edge-strong hover:bg-surface-hover hover:text-ink"
+          aria-label="이전 달"
+          title="이전 달"
+        >
+          <NavArrowLeft width={15} height={15} aria-hidden="true" />
         </button>
-        <span className="text-xs text-ink-secondary">
+        <span className="min-w-0 flex-1 text-center text-sm font-semibold text-ink-bright">
           {cursor.year}년 {cursor.month + 1}월
         </span>
-        <button type="button" onClick={() => step(1)} className="rounded px-2 py-0.5 text-xs text-ink-secondary hover:bg-surface-hover">
-          ›
+        <button
+          type="button"
+          onClick={() => step(1)}
+          className="flex h-8 w-8 items-center justify-center rounded border border-edge bg-surface-raised text-ink-secondary hover:border-edge-strong hover:bg-surface-hover hover:text-ink"
+          aria-label="다음 달"
+          title="다음 달"
+        >
+          <NavArrowRight width={15} height={15} aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={() => setCursor({ year: now.getFullYear(), month: now.getMonth() })}
-          className="ml-auto rounded px-2 py-0.5 text-xs text-ink-muted hover:bg-surface-hover"
+          className="rounded border border-edge bg-surface-raised px-2.5 py-1 text-xs text-ink-muted hover:border-edge-strong hover:bg-surface-hover hover:text-ink"
         >
           오늘
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-px text-[11px]">
+      <div className="grid grid-cols-7 gap-1 text-[11px]">
         {WEEKDAYS.map((w) => (
-          <div key={w} className="px-1 pb-1 text-center text-ink-muted">
+          <div key={w} className="px-1 pb-1 text-center font-medium text-ink-muted">
             {w}
           </div>
         ))}
@@ -73,24 +89,38 @@ export function DueCalendar({
           if (day === null) return <div key={`blank-${i}`} />
           const date = iso(cursor.year, cursor.month, day)
           const dayItems = byDay.get(date) ?? []
+          const hasOpen = dayItems.some((item) => !item.done)
           return (
             <div
               key={date}
-              className={`min-h-[3.5rem] rounded p-1 ${date === today ? 'bg-surface-hover' : 'bg-surface-raised'}`}
+              className={`min-h-[4.25rem] rounded-lg border p-1.5 ${
+                date === today
+                  ? 'border-accent/70 bg-accent/10'
+                  : hasOpen
+                    ? 'border-edge-strong bg-surface-raised'
+                    : 'border-edge bg-surface'
+              }`}
             >
-              <div className={date === today ? 'font-semibold text-ink' : 'text-ink-muted'}>{day}</div>
+              <div className="mb-1 flex items-center justify-between">
+                <span className={date === today ? 'font-semibold text-ink-bright' : 'text-ink-muted'}>{day}</span>
+                {hasOpen && <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />}
+              </div>
               {dayItems.slice(0, 3).map((item) => (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => onUpdate(item, { done: !item.done })}
+                  onClick={() => onUpdate(item, { status: item.status === 'done' ? 'open' : 'done' })}
                   title={item.text}
-                  className={`block w-full truncate text-left ${item.done ? 'text-ink-muted line-through' : 'text-ink-secondary hover:text-ink'}`}
+                  className={`mb-0.5 block w-full truncate rounded px-1 py-0.5 text-left ${
+                    item.status === 'done'
+                      ? 'text-ink-muted line-through'
+                      : 'bg-surface-hover/70 text-ink-secondary hover:text-ink'
+                  }`}
                 >
                   {item.text}
                 </button>
               ))}
-              {dayItems.length > 3 && <div className="text-ink-muted">+{dayItems.length - 3}</div>}
+              {dayItems.length > 3 && <div className="px-1 text-ink-muted">+{dayItems.length - 3}</div>}
             </div>
           )
         })}

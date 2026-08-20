@@ -176,22 +176,99 @@ export function fetchBrowserFrameUrl(url: string): Promise<{ url: string }> {
   return fetch(`/api/browser-url?url=${encodeURIComponent(url)}`).then(json<{ url: string }>)
 }
 
+export interface AndroidEnvCheck {
+  id: string
+  label: string
+  ok: boolean
+  detail: string
+  fixes?: Array<{ context: string; command?: string }>
+}
+
+export interface AndroidEnvStatus {
+  platform: string
+  architecture: string
+  isWsl: boolean
+  sdkRoot: string
+  checks: AndroidEnvCheck[]
+  suggestedCommands: Array<{ context: string; command: string }>
+}
+
+export function fetchAndroidEnvStatus(): Promise<AndroidEnvStatus> {
+  return fetch('/api/android/status').then(json<AndroidEnvStatus>)
+}
+
+export interface SkillSummary {
+  name: string
+  description: string
+  path: string
+}
+
+export function fetchSkills(): Promise<{ skills: SkillSummary[] }> {
+  return fetch('/api/skills').then(json<{ skills: SkillSummary[] }>)
+}
+
+export interface AgentRuntimeStatus {
+  id: string
+  label: string
+  installed: boolean
+  installing: boolean
+  installable: boolean
+}
+
+export function fetchAgentRuntimes(): Promise<{ runtimes: AgentRuntimeStatus[] }> {
+  return fetch('/api/agent-runtimes').then(json<{ runtimes: AgentRuntimeStatus[] }>)
+}
+
+export function installAgentRuntime(id: string): Promise<{ status: AgentRuntimeStatus; output: string }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/install`, { method: 'POST' }).then(
+    json<{ status: AgentRuntimeStatus; output: string }>,
+  )
+}
+
+export interface AgentRuntimeDefault {
+  modelId?: string
+  modeId?: string
+}
+
+export function fetchAgentDefault(id: string): Promise<{ settings: AgentRuntimeDefault | null }> {
+  return fetch(`/api/agent-defaults/${encodeURIComponent(id)}`).then(json<{ settings: AgentRuntimeDefault | null }>)
+}
+
+export function saveAgentDefault(id: string, settings: AgentRuntimeDefault): Promise<{ settings: AgentRuntimeDefault }> {
+  return fetch(`/api/agent-defaults/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  }).then(json<{ settings: AgentRuntimeDefault }>)
+}
+
 export interface TodoItem {
   id: string
   text: string
+  type: TodoType
+  status: TodoStatus
   done: boolean
   /** YYYY-MM-DD 또는 null */
   due: string | null
+  projects: string[]
   createdAt: string
   updatedAt: string
 }
+
+export type TodoType = 'today' | 'dated' | 'recurring'
+export type TodoStatus = 'open' | 'done' | 'canceled' | 'missed'
 
 /** 로그인 사용자의 할 일 — 홈 탭. 게스트에게는 닫혀 있다 */
 export function fetchTodos(): Promise<{ items: TodoItem[] }> {
   return fetch('/api/todos').then(json<{ items: TodoItem[] }>)
 }
 
-export function createTodo(input: { text: string; due?: string | null }): Promise<{ item: TodoItem }> {
+export function createTodo(input: {
+  text: string
+  type?: TodoType
+  due?: string | null
+  projects?: string[]
+}): Promise<{ item: TodoItem }> {
   return fetch('/api/todos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -199,7 +276,17 @@ export function createTodo(input: { text: string; due?: string | null }): Promis
   }).then(json<{ item: TodoItem }>)
 }
 
-export function updateTodo(id: string, change: { text?: string; done?: boolean; due?: string | null }): Promise<{ item: TodoItem }> {
+export function updateTodo(
+  id: string,
+  change: {
+    text?: string
+    type?: TodoType
+    status?: TodoStatus
+    done?: boolean
+    due?: string | null
+    projects?: string[]
+  },
+): Promise<{ item: TodoItem }> {
   return fetch(`/api/todos/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -715,7 +802,7 @@ export interface AgentJob {
   name: string
   cron: string
   project: string
-  agent: 'claude' | 'hermes'
+  agent: string
   prompt: string
   enabled: boolean
 }
@@ -731,6 +818,7 @@ export interface AgentJobView extends AgentJob {
 
 export interface SchedulesResponse {
   jobs: AgentJobView[]
+  runtimes: { id: string; label: string }[]
   /** mew가 만들지 않은 크론 줄 — 읽기 전용 */
   otherLines: string[]
 }

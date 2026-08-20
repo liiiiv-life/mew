@@ -36,6 +36,7 @@ API·셸·협업이 차단된다.**
 | **터미널(tmux)** | ❌ | ❌ | ✅ | ✅ |
 | **에이전트 창(ACP)** | ❌ | ❌ | ✅ | ✅ |
 | **브라우저 창(localhost 프록시)** | ❌ | ❌ | ✅ | ✅ |
+| **Android 창(localhost gateway + SDK 상태)** | ❌ | ❌ | ✅ | ✅ |
 | 명령어 버튼 실행 | ❌ | ❌ | ✅ | ✅ |
 | 사이드바 숨김 목록 편집 · 거르지 않은 트리 | ❌ | ❌ | ✅ | ✅ |
 | 프로젝트 폴더 생성·개명·삭제 | ❌ | ❌ | ❌ | ✅ |
@@ -109,10 +110,13 @@ API·셸·협업이 차단된다.**
 - **Bash는 경로 스코프가 되지 않는다.** 명령은 mew 서버와 같은 유닉스 사용자 권한으로 돈다.
 - **기본 권한 모드는 그 런타임의 "전체 허용"이다** — 승인 프롬프트 없이 실행된다
   ([ADR 0037](../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)). 런타임마다 이름이 달라
-  claude는 `bypassPermissions`, codex는 `full-access`, hermes는 `dont_ask`가 걸린다(에이전트 창·에이전트셋
+  claude는 `bypassPermissions`, codex는 `agent-full-access`, hermes는 `dont_ask`가 걸린다(에이전트 창·에이전트셋
   둘 다). 창 헤더의 모드 선택기로 세션마다 바꿀 수 있고, 서버 기본값은 `MEW_AGENT_MODE=default`로 되돌린다.
 - 따라서 에이전트 창을 열어 주는 것은 **그 사람에게 무인 셸을 주는 것과 같다.** 게이트(`authorizeTmux`)가
   남은 통제의 전부이고, OS 층 격리는 없다(보류 근거는 ADR 0037).
+- 런타임 선택 화면의 **설치**는 서버 사용자 권한으로 npm·uv·공식 설치 스크립트를 실행한다.
+  manager·owner만 쓰고, HTTP 요청에서는 런타임 id만 받으며 명령·인자·URL은 `server/agentRuntimes.ts`의
+  고정 등록표 값만 쓴다([ADR 0062](../.mew/docs/decisions/0062-mew-agent-tab-runtime-gate-and-install.md)).
 - 그래서 **신뢰하지 않는 내용을 에이전트에게 읽히는 것이 실질적인 위험이다.** 프롬프트 인젝션이 성공하면
   중간 확인 없이 그대로 실행된다.
 
@@ -131,6 +135,20 @@ API·셸·협업이 차단된다.**
   origin의 localStorage나 인증 쿠키를 읽고 mew API를 호출하는 일을 막기 위해서다. 대신 프록시가 CORS
   `Origin: null` 응답과 root-relative URL 재작성을 제공한다. 일부 앱의 localStorage·HMR WebSocket은 이
   경계 때문에 깨질 수 있다.
+
+## Android 창
+
+Android 창은 브라우저 창과 같은 loopback 프록시 경계를 쓴다. 패널 자체는 Android Emulator를 실행하지 않고,
+Linux·WSL 서버의 `/dev/kvm` 또는 macOS 서버의 Emulator 가속 상태와 Android SDK 도구 존재 여부만 읽는다.
+
+- **접근은 manager·owner뿐** — gateway가 실제 Android 세션 화면과 입력을 열 수 있고, 로컬 개발 서버와 같은
+  민감도를 가진다.
+- 입력한 gateway 주소는 브라우저 창과 같은 `server/browserProxy.ts` 검사를 탄다. `localhost`·`127.0.0.0/8`·`::1`
+  외부는 열리지 않는다.
+- 상태 점검은 `/dev/kvm` 권한 또는 macOS 가속 상태와 SDK 경로를 노출한다. 이 정보도 서버 기계 운영 정보라
+  member에게 열지 않는다.
+- emulator 프로세스 시작, system image 설치, AVD 생성은 이 패널에서 하지 않는다. 그런 작업은 터미널 권한과 같은
+  명시적 실행 경로로만 한다.
 
 ## 노출
 

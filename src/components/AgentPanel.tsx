@@ -5,8 +5,21 @@
 // 정보줄(세션·토큰·턴 수)은 이벤트가 아니라 서버가 보내는 meta 스냅샷을 그대로 그린다.
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
-import { renderMarkdown } from '../utils/agentMarkdown'
+import { flattenFiles, type TreeNode } from '@mew/editor'
+import { copyTextFromAgentMarkdownClick, markAgentMarkdownCopied, renderMarkdown } from '../utils/agentMarkdown'
+import { clearAgentInputDraft, readAgentInputDraft, writeAgentInputDraft } from '../utils/agentInputDrafts'
 import { RUNTIMES } from './agentRuntimes'
+import {
+  fetchAgentDefault,
+  fetchAgentRuntimes,
+  fetchSkills,
+  installAgentRuntime,
+  saveAgentDefault,
+  type AgentRuntimeDefault,
+  type AgentRuntimeStatus,
+  type SkillSummary,
+} from '../api/client'
+import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './MentionTextarea'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { useGridDrag } from '../hooks/useGridDrag'
 import { withAutoLabel, withRename, type AgentTab } from '../utils/agentTabs'
@@ -31,6 +44,8 @@ const MODE_LABEL: Record<string, string> = {
   'read-only': '읽기만',
   auto: '작업 폴더만',
   'full-access': '전체 허용',
+  agent: '작업 폴더만',
+  'agent-full-access': '전체 허용',
   // hermes
   accept_edits: '편집 자동 승인',
   dont_ask: '묻지 않음(허용)',
@@ -47,7 +62,7 @@ const NEW_TAB_LABEL = '새 대화'
 /** 탭 줄이 그리는 살아 있는 값 — 대화가 아니라 상태라 localStorage에 남기지 않는다 */
 type TabInfo = { busy: boolean; sessionId: string }
 
-const newTab = (): AgentTab => ({ id: Math.random().toString(36).slice(2, 10), label: NEW_TAB_LABEL })
+const newTab = (): AgentTab => ({ id: Math.random().toString(36).slice(2, 10), label: NEW_TAB_LABEL, runtime: null })
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
 
@@ -100,12 +115,18 @@ function loadTabs(): AgentTab[] {
         const tab = entry as AgentTab | null
         return typeof tab?.id === 'string' && typeof tab?.label === 'string'
       })
-      if (tabs.length > 0) return tabs
+      if (tabs.length > 0) {
+        // ADR 0062 이전 탭에는 runtime이 없다. 마지막으로 쓴 런타임을 한 번만 승격해
+        // 기존 runtime+tab 세션 키와 히스토리를 보전한다. 새 탭은 여전히 미선택으로 만든다.
+        const legacyRuntime = localStorage.getItem(RUNTIME_KEY)
+        const migratedRuntime = RUNTIMES.some((runtime) => runtime.id === legacyRuntime) ? legacyRuntime! : RUNTIMES[0].id
+        return tabs.map((tab) => (tab.runtime === undefined ? { ...tab, runtime: migratedRuntime } : tab))
+      }
     }
   } catch {
     /* 깨진 값이면 새 탭으로 시작한다 */
   }
-  return [newTab()]
+  return []
 }
 
 /** 탭 이름 — 그 대화의 첫 질문 한 줄. 아직 없으면 '새 대화'(= 지난 세션을 고를 수 있는 상태) */
@@ -185,6 +206,26 @@ function InfoRow({ label, value, title }: { label: string; value: string; title?
       <span className="truncate text-right text-ink-secondary" title={title ?? value}>{value}</span>
     </div>
   )
+}
+
+function copyFromMarkdownButton(e: MouseEvent<HTMLElement>) {
+  const text = copyTextFromAgentMarkdownClick(e.target)
+  if (text === null) return
+  e.preventDefault()
+  e.stopPropagation()
+  void copyText(text).then((ok) => {
+    if (ok) markAgentMarkdownCopied(e.target)
+  })
+}
+
+function selectedSkillNames(text: string, skills: SkillSummary[]): string[] {
+  const names = new Set(skills.map((skill) => skill.name))
+  const selected = new Set<string>()
+  for (const match of text.matchAll(/(^|\s)\/([A-Za-z0-9][A-Za-z0-9._-]*)/g)) {
+    const name = match[2]
+    if (names.has(name)) selected.add(name)
+  }
+  return [...selected]
 }
 
 /**
@@ -392,7 +433,7 @@ function SessionPicker({
   )
 }
 
-/** 탭 줄 — 탭 하나가 세션 하나다. `+`는 빈 탭(= 지난 세션 고르기 화면)을 연다 */
+/** 탭 줄 — `+`는 런타임을 아직 고르지 않은 새 탭을 연다. */
 function AgentTabBar({
   tabs,
   activeId,
@@ -405,7 +446,7 @@ function AgentTabBar({
   onClosePanel,
 }: {
   tabs: AgentTab[]
-  activeId: string
+  activeId: string | null
   infos: Record<string, TabInfo>
   onActivate: (id: string) => void
   onAdd: () => void
@@ -505,16 +546,95 @@ function AgentTabBar({
   )
 }
 
-export function AgentPanel({ onClose }: { onClose: () => void }) {
+function RuntimePicker({ onSelect }: { onSelect: (runtime: string) => void }) {
+  const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(null)
+  const [installing, setInstalling] = useState<string | null>(null)
+  const [error, setError] = useState<{ id: string; message: string } | null>(null)
+
+  const refresh = useCallback(() => {
+    void fetchAgentRuntimes()
+      .then(({ runtimes }) => setStatuses(runtimes))
+      .catch((err: unknown) => setError({ id: '', message: err instanceof Error ? err.message : String(err) }))
+  }, [])
+
+  useEffect(refresh, [refresh])
+
+  const install = (id: string) => {
+    setInstalling(id)
+    setError(null)
+    void installAgentRuntime(id)
+      .then(({ status }) => {
+        if (!status.installed) throw new Error('설치 후에도 실행 파일을 찾지 못했습니다')
+        onSelect(id)
+      })
+      .catch((err: unknown) => {
+        setError({ id, message: err instanceof Error ? err.message : String(err) })
+        refresh()
+      })
+      .finally(() => setInstalling(null))
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
+      <div className="w-full max-w-xl">
+        <h2 className="mb-1 text-center text-sm font-medium text-ink">에이전트 선택</h2>
+        <p className="mb-4 text-center text-xs text-ink-muted">선택한 뒤에 히스토리와 입력창이 열립니다.</p>
+        {statuses === null ? (
+          <div className="py-8 text-center text-xs text-ink-muted">런타임 확인 중…</div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {RUNTIMES.map((runtime) => {
+              const status = statuses.find((item) => item.id === runtime.id)
+              const busy = installing === runtime.id || status?.installing === true
+              return (
+                <div key={runtime.id} className="flex min-h-14 flex-wrap items-center gap-3 rounded-md border border-edge bg-surface px-3 py-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center text-ink-secondary"><runtime.Glyph /></span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-ink">{runtime.label}</div>
+                    <div className="text-xs text-ink-muted">{status?.installed ? '설치됨' : '설치 필요'}</div>
+                  </div>
+                  {status?.installed ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelect(runtime.id)}
+                      className="rounded px-2.5 py-1 text-xs text-accent hover:bg-surface-raised"
+                    >
+                      사용
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => install(runtime.id)}
+                      disabled={!status?.installable || busy}
+                      className="rounded px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
+                    >
+                      {busy ? '설치 중…' : '설치'}
+                    </button>
+                  )}
+                  {error?.id === runtime.id && (
+                    <div className="max-h-24 w-full basis-full overflow-auto whitespace-pre-wrap text-xs text-danger">{error.message}</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {error?.id === '' && <div className="mt-3 whitespace-pre-wrap text-xs text-danger">{error.message}</div>}
+      </div>
+    </div>
+  )
+}
+
+export function AgentPanel({ project, tree, onClose }: { project: string; tree: TreeNode[]; onClose: () => void }) {
   const [tabs, setTabs] = useState<AgentTab[]>(loadTabs)
   // 브라우저를 껐다 켜도 보던 탭에서 이어 하도록 마지막으로 본 탭을 기억한다.
   // 그 탭이 목록에서 사라졌으면(다른 창에서 닫았거나 저장분이 깨졌으면) 첫 탭으로 돌아간다
   const [activeId, setActiveId] = useState(() => {
     const saved = localStorage.getItem(ACTIVE_TAB_KEY)
-    return saved && tabs.some((tab) => tab.id === saved) ? saved : tabs[0].id
+    return saved && tabs.some((tab) => tab.id === saved) ? saved : (tabs[0]?.id ?? null)
   })
   // 한 번이라도 연 탭만 붙인다 — 탭 하나가 에이전트 프로세스 하나라, 복원된 탭까지 다 띄우면 우르르 뜬다
-  const [opened, setOpened] = useState<Set<string>>(() => new Set([activeId]))
+  const [opened, setOpened] = useState<Set<string>>(() => new Set(activeId ? [activeId] : []))
   const [infos, setInfos] = useState<Record<string, TabInfo>>({})
   // 탭을 닫을 때 그 탭의 WS로 close_session을 보내야 한다 — 창을 닫는 것과 달리 세션을 끝내는 뜻이다
   const sendersRef = useRef(new Map<string, (payload: Record<string, unknown>) => void>())
@@ -526,7 +646,8 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   }, [tabs])
 
   useEffect(() => {
-    localStorage.setItem(ACTIVE_TAB_KEY, activeId)
+    if (activeId) localStorage.setItem(ACTIVE_TAB_KEY, activeId)
+    else localStorage.removeItem(ACTIVE_TAB_KEY)
   }, [activeId])
 
   const activate = (id: string) => {
@@ -538,26 +659,30 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
     const tab = newTab()
     setTabs((prev) => [...prev, tab])
     setActiveId(tab.id)
-    setOpened((prev) => new Set(prev).add(tab.id))
+  }
+
+  const selectRuntime = (id: string, runtime: string) => {
+    localStorage.setItem(RUNTIME_KEY, runtime)
+    setTabs((prev) => prev.map((tab) => (tab.id === id ? { ...tab, runtime } : tab)))
+    setOpened((prev) => new Set(prev).add(id))
   }
 
   const closeTab = (id: string) => {
     sendersRef.current.get(id)?.({ type: 'close_session' })
+    clearAgentInputDraft(id)
     const index = tabs.findIndex((tab) => tab.id === id)
     const rest = tabs.filter((tab) => tab.id !== id)
-    // 마지막 탭을 닫아도 창은 빈 채로 두지 않는다 — 언제나 고를 수 있는 빈 탭 하나가 있다
-    const next = rest.length > 0 ? rest : [newTab()]
-    setTabs(next)
+    setTabs(rest)
     setOpened((prev) => {
       const set = new Set(prev)
       set.delete(id)
-      return set.add(next[Math.min(index, next.length - 1)].id)
+      return set
     })
     setInfos((prev) => {
       const { [id]: _closed, ...keep } = prev
       return keep
     })
-    if (activeId === id) setActiveId(next[Math.min(index, next.length - 1)].id)
+    if (activeId === id) setActiveId(rest[Math.min(index, rest.length - 1)]?.id ?? null)
   }
 
   // 화면 위 40% 좌우 스와이프로 탭 전환 — 터미널·에디터와 같은 손짓 (우→좌면 오른쪽 탭, 좌→우면 왼쪽 탭)
@@ -621,14 +746,28 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
         onCloseTab={closeTab}
         onClosePanel={onClose}
       />
+      {tabs.length === 0 && (
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <button
+            type="button"
+            onClick={addTab}
+            className="rounded-md border border-edge-bright bg-surface px-4 py-2 text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink"
+          >
+            새 탭
+          </button>
+        </div>
+      )}
       {/* 안 보이는 탭도 붙어 있는 채로 둔다 — 돌고 있는 대화가 탭을 바꿨다고 멎으면 안 된다 */}
       {tabs
-        .filter((tab) => opened.has(tab.id))
+        .filter((tab) => tab.runtime && opened.has(tab.id))
         .map((tab) => (
           <div key={tab.id} className={tab.id === activeId ? 'min-h-0 flex-1' : 'hidden'}>
             <AgentSessionView
               tabId={tab.id}
               active={tab.id === activeId}
+              runtime={tab.runtime!}
+              project={project}
+              tree={tree}
               infos={infos}
               onLabel={setTabLabel}
               onInfo={setTabInfo}
@@ -636,6 +775,11 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
             />
           </div>
         ))}
+      {tabs.map((tab) =>
+        tab.id === activeId && !tab.runtime ? (
+          <RuntimePicker key={tab.id} onSelect={(runtime) => selectRuntime(tab.id, runtime)} />
+        ) : null,
+      )}
     </div>
   )
 }
@@ -644,6 +788,9 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
 function AgentSessionView({
   tabId,
   active,
+  runtime,
+  project,
+  tree,
   infos,
   onLabel,
   onInfo,
@@ -652,25 +799,27 @@ function AgentSessionView({
   tabId: string
   /** 지금 보이는 탭인지 — 안 보이는 탭은 높이가 0이라 스크롤을 못 잡는다(아래 effect) */
   active: boolean
+  runtime: string
+  project: string
+  tree: TreeNode[]
   infos: Record<string, TabInfo>
   onLabel: (tabId: string, label: string) => void
   onInfo: (tabId: string, info: TabInfo) => void
   onRegister: (tabId: string, send: ((payload: Record<string, unknown>) => void) | null) => void
 }) {
   // 어느 프로젝트를 보고 있든 같은 창이다 — 스코프는 워크스페이스, 대화가 나뉘는 축은 탭과 런타임이다
-  const [runtime, setRuntime] = useState(() => {
-    const saved = localStorage.getItem(RUNTIME_KEY)
-    return RUNTIMES.some((r) => r.id === saved) ? saved! : RUNTIMES[0].id
-  })
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [connected, setConnected] = useState(false)
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(() => readAgentInputDraft(tabId))
   const [models, setModels] = useState<ModelState | null>(null)
   const [modes, setModes] = useState<ModeState | null>(null)
+  const [skills, setSkills] = useState<SkillSummary[]>([])
   const [meta, setMeta] = useState<SessionMeta | null>(null)
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
   const [showInfo, setShowInfo] = useState(false)
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
+  const [savedDefault, setSavedDefault] = useState<AgentRuntimeDefault | null>(null)
+  const [savingDefault, setSavingDefault] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const wsRef = useRef<WebSocket | null>(null)
 
@@ -685,6 +834,10 @@ function AgentSessionView({
     window.addEventListener('mew:insert-ref', onInsertRef)
     return () => window.removeEventListener('mew:insert-ref', onInsertRef)
   }, [active])
+
+  useEffect(() => {
+    writeAgentInputDraft(tabId, draft)
+  }, [draft, tabId])
   const scrollRef = useRef<HTMLDivElement>(null)
   // 지금 대화 바닥에 붙어 있는지 — 붙어 있을 때만 새 내용을 따라 내려간다
   const stickRef = useRef(true)
@@ -756,6 +909,21 @@ function AgentSessionView({
         if (event.type === 'sessions') return setSessions(event.sessions)
         // 재접속 되감기 — 지나간 대화가 한 덩어리로 온다. 그린 것을 통째로 갈아끼우므로 중간에 비지 않는다
         if (event.type === 'replay') {
+          // 모델·모드는 세션이 처음 뜨는 동안 이미 온다. 그 뒤 창이 붙으면 실시간 이벤트가
+          // 아니라 replay 안에만 있으므로, 마지막 스냅샷을 상태로도 복원해야 상단 선택기가 산다.
+          let foundModels = false
+          let foundModes = false
+          for (let i = event.events.length - 1; i >= 0 && (!foundModels || !foundModes); i -= 1) {
+            const replayed = event.events[i]
+            if (replayed.type === 'models' && !foundModels) {
+              setModels(replayed.models)
+              foundModels = true
+            }
+            if (replayed.type === 'modes' && !foundModes) {
+              setModes(replayed.modes)
+              foundModes = true
+            }
+          }
           pendingRef.current = []
           swapRef.current = false
           return setEvents(event.events)
@@ -868,10 +1036,11 @@ function AgentSessionView({
   const [openQueued, setOpenQueued] = useState<number | null>(null)
   // original = 고치기 시작할 때 보고 있던 원본. 그 사이 앞 턴이 끝나 큐가 당겨졌으면 서버가 이걸 보고 거른다
   const [editingQueued, setEditingQueued] = useState<{ index: number; text: string; original: string } | null>(null)
+  const [errorDetail, setErrorDetail] = useState<{ title: string; detail: string } | null>(null)
   const commitQueuedEdit = (edit: { index: number; text: string; original: string }) => {
     const text = edit.text.trim()
     if (text && text !== edit.original)
-      send({ type: 'edit_queued', index: edit.index, text, expect: edit.original })
+      send({ type: 'edit_queued', index: edit.index, text, expect: edit.original, skills: selectedSkillNames(text, skills) })
     setEditingQueued(null)
   }
 
@@ -895,7 +1064,7 @@ function AgentSessionView({
     const text = draft.trim()
     if (!text || !connected) return
     // 진행 중이어도 막지 않는다 — 서버가 줄을 세웠다가 턴이 끝나면 이어서 돈다
-    send({ type: 'prompt', text })
+    send({ type: 'prompt', text, skills: selectedSkillNames(text, skills) })
     setDraft('')
     // 내가 말을 걸었으면 답을 보겠다는 뜻이다 — 다시 바닥에 붙인다
     stickRef.current = true
@@ -912,6 +1081,14 @@ function AgentSessionView({
 
   const currentRuntime = RUNTIMES.find((r) => r.id === runtime) ?? RUNTIMES[0]
   const currentModel = models?.availableModels.find((m) => m.modelId === models.currentModelId)?.name
+  const currentDefault = useMemo<AgentRuntimeDefault | null>(() => {
+    const modelId = models?.currentModelId
+    const modeId = modes?.currentModeId
+    return modelId || modeId ? { ...(modelId ? { modelId } : {}), ...(modeId ? { modeId } : {}) } : null
+  }, [models?.currentModelId, modes?.currentModeId])
+  const defaultIsSaved = currentDefault !== null
+    && (savedDefault?.modelId ?? null) === (currentDefault.modelId ?? null)
+    && (savedDefault?.modeId ?? null) === (currentDefault.modeId ?? null)
   // meta가 오기 전 = 에이전트 프로세스가 아직 뜨는 중이다(질문은 그동안에도 받아 둔다 — 서버가 줄을 세운다)
   const status = !connected
     ? '연결 중'
@@ -925,22 +1102,79 @@ function AgentSessionView({
             ? '진행 중'
             : '대기 중'
   const totalTokens = usage ? usage.input + usage.output + usage.cacheWrite + usage.cacheRead : 0
+  useEffect(() => {
+    let alive = true
+    fetchSkills()
+      .then((res) => {
+        if (alive) setSkills(res.skills)
+      })
+      .catch(() => {
+        if (alive) setSkills([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    fetchAgentDefault(runtime)
+      .then(({ settings }) => {
+        if (alive) setSavedDefault(settings)
+      })
+      .catch(() => {
+        if (alive) setSavedDefault(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [runtime])
+
+  const saveCurrentDefault = () => {
+    if (!currentDefault || savingDefault) return
+    setSavingDefault(true)
+    saveAgentDefault(runtime, currentDefault)
+      .then(({ settings }) => setSavedDefault(settings))
+      .catch((err: unknown) => {
+        const detail = err instanceof Error ? err.message : String(err)
+        setErrorDetail({ title: '에이전트 기본값 저장 실패', detail })
+      })
+      .finally(() => setSavingDefault(false))
+  }
+
+  const fileMentionOptions = useMemo<MentionOption[]>(
+    () =>
+      flattenFiles(tree).map((path) => ({
+        id: path,
+        label: path.split('/').pop() ?? path,
+        hint: path,
+        insert: `[[${project}:${path}]]`,
+      })),
+    [tree, project],
+  )
+  const slashTriggers = useMemo<TriggerOptionSet[]>(
+    () => [
+      {
+        trigger: '/',
+        options: skills.map((skill) => ({
+          id: skill.name,
+          label: skill.name,
+          hint: skill.description,
+          insert: `/${skill.name}`,
+        })),
+      },
+    ],
+    [skills],
+  )
 
   return (
     <div className="flex h-full w-full flex-col bg-surface-deep">
       <div className="flex items-center justify-between gap-2 border-b border-edge px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          {/* 창 이름 대신 지금 붙어 있는 런타임 아이콘 — 누르면 다른 런타임으로 갈아탄다 */}
-          <HeaderSelect
-            value={runtime}
-            options={RUNTIMES.map((r) => ({ id: r.id, label: r.label }))}
-            onPick={(id) => {
-              localStorage.setItem(RUNTIME_KEY, id)
-              setRuntime(id)
-            }}
-            title={`에이전트: ${currentRuntime.label}`}
-            trigger={<currentRuntime.Glyph />}
-          />
+          {/* 런타임은 탭을 만들 때 고정한다 — 바꾸려면 새 탭을 연다(ADR 0062). */}
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center" title={`에이전트: ${currentRuntime.label}`}>
+            <currentRuntime.Glyph />
+          </span>
           {models && models.availableModels.length > 1 ? (
             <HeaderSelect
               value={models.currentModelId}
@@ -960,6 +1194,22 @@ function AgentSessionView({
               title="권한 모드"
             />
           )}
+          <button
+            type="button"
+            onClick={saveCurrentDefault}
+            disabled={!currentDefault || savingDefault}
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${
+              defaultIsSaved ? 'text-accent' : 'text-ink-secondary'
+            }`}
+            aria-label="현재 모델과 권한을 기본값으로 저장"
+            title={savingDefault
+              ? '기본값 저장 중…'
+              : defaultIsSaved
+                ? `${currentRuntime.label}의 저장된 기본값입니다`
+                : `현재 모델과 권한을 ${currentRuntime.label} 기본값으로 저장`}
+          >
+            <SaveGlyph />
+          </button>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <span className={`text-xs ${busy ? 'text-ink-secondary' : 'text-ink-muted'}`}>{status}</span>
@@ -1128,7 +1378,8 @@ function AgentSessionView({
                         return (
                           <div
                             key={child.key}
-                            className="prose prose-sm max-w-none text-ink dark:prose-invert prose-pre:overflow-x-auto prose-pre:bg-surface-deep prose-code:text-ink-secondary"
+                            className="mew-agent-markdown prose prose-sm max-w-none text-ink dark:prose-invert prose-pre:overflow-x-auto prose-pre:bg-surface-deep prose-code:text-ink-secondary"
+                            onClick={copyFromMarkdownButton}
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(child.text) }}
                           />
                         )
@@ -1183,7 +1434,7 @@ function AgentSessionView({
                             )}
                           </div>
                         )
-                      return <div key={child.key} className="text-xs text-danger">{child.text}</div>
+                      return <AgentErrorButton key={child.key} text={child.text} onOpen={setErrorDetail} />
                     })}
                     {/* 긴 버블은 끝까지 읽고 나면 위로 돌아갈 필요 없이 여기서 접는다 */}
                     <div className="flex justify-end pt-0.5">
@@ -1201,9 +1452,7 @@ function AgentSessionView({
             )
           }
           return (
-            <div key={item.key} className="rounded-lg bg-surface px-3 py-2 text-xs text-danger">
-              {item.text}
-            </div>
+            <AgentErrorButton key={item.key} text={item.text} onOpen={setErrorDetail} block />
           )
         })}
         {/* 올려 읽는 동안 밑에서 대화가 자랐다는 표시 — 누르면 바닥으로 간다(바닥에 닿으면 스스로 사라진다).
@@ -1221,6 +1470,8 @@ function AgentSessionView({
           </div>
         )}
       </div>
+
+      {errorDetail && <AgentErrorDialog title={errorDetail.title} detail={errorDetail.detail} onClose={() => setErrorDetail(null)} />}
 
       {queued.length > 0 && (
         <div className="space-y-1 border-t border-edge bg-surface px-3 py-1.5 text-xs">
@@ -1294,18 +1545,17 @@ function AgentSessionView({
 
       {/* 키보드를 쥐어도 되는 유일한 자리 — 전송 버튼을 눌러도 이어 쓰도록 포커스를 뺏지 않는다 */}
       <div className="flex items-end gap-2 border-t border-edge p-2" data-keep-keyboard>
-        <textarea
+        <MentionTextarea
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              submit()
-            }
-          }}
+          onChange={setDraft}
+          options={fileMentionOptions}
+          triggers={slashTriggers}
+          onSubmit={submit}
           rows={2}
           placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 (Ctrl+Enter 전송)'}
-          className="min-w-0 flex-1 resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
+          className="w-full resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
+          submitHint="Ctrl+Enter로 전송"
+          submitShortcut="mod-enter"
         />
         <button
           type="button"
@@ -1329,6 +1579,69 @@ function CaretGlyph({ dir }: { dir: 'right' | 'down' | 'up' }) {
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`shrink-0 ${rotate}`}>
       <path d="m9 5 7 7-7 7" />
     </svg>
+  )
+}
+
+function errorTitle(text: string): string {
+  const first = text.split(/\r?\n/, 1)[0]?.trim()
+  return first || 'Internal Error'
+}
+
+function AgentErrorButton({
+  text,
+  onOpen,
+  block,
+}: {
+  text: string
+  onOpen: (detail: { title: string; detail: string }) => void
+  block?: boolean
+}) {
+  const title = errorTitle(text)
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen({ title, detail: text })}
+      className={`${block ? 'rounded-lg bg-surface px-3 py-2' : 'rounded border border-danger/30 bg-surface-deep px-2 py-1'} text-left text-xs text-danger hover:bg-surface-raised hover:underline`}
+      title="오류 상세 보기"
+    >
+      {title}
+    </button>
+  )
+}
+
+function AgentErrorDialog({ title, detail, onClose }: { title: string; detail: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" onMouseDown={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="에이전트 오류 상세"
+        className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface shadow-xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center gap-2 border-b border-edge px-3 py-2">
+          <div className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{title}</div>
+          <CopyButton text={detail} label="오류 상세 복사" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+            aria-label="닫기"
+          >
+            <XGlyph />
+          </button>
+        </div>
+        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 text-xs text-ink-secondary">{detail}</pre>
+      </div>
+    </div>
   )
 }
 
@@ -1395,6 +1708,15 @@ function InfoGlyph() {
       <circle cx="12" cy="12" r="9" />
       <path d="M12 11v5" />
       <path d="M12 8h.01" />
+    </svg>
+  )
+}
+
+function SaveGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 4h13l3 3v13H4z" />
+      <path d="M8 4v6h8V4M8 20v-6h8v6" />
     </svg>
   )
 }

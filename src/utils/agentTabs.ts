@@ -4,7 +4,8 @@
  * 이름이 붙는 길이 둘이라 여기 모아 둔다: 대화에서 뽑은 이름(첫 질문·불러온 세션 제목)과
  * 사람이 두 번 눌러 직접 붙인 이름. 사람이 붙인 쪽이 이긴다 — 안 그러면 다음 턴에 도로 덮인다.
  */
-export type AgentTab = { id: string; label: string; renamed?: boolean }
+/** runtime 없음(undefined)=ADR 0062 이전 저장값, null=새 탭의 명시적 미선택 */
+export type AgentTab = { id: string; label: string; runtime?: string | null; renamed?: boolean }
 
 /** 대화에서 뽑은 이름을 얹는다 — 사람이 직접 붙인 탭은 그대로 둔다 */
 export function withAutoLabel(tabs: AgentTab[], id: string, label: string): AgentTab[] {

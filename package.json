@@ -20,6 +20,8 @@
     "setup": "./mew setup"
   },
   "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.65.0",
+    "@agentclientprotocol/codex-acp": "1.6.0",
     "@agentclientprotocol/sdk": "0.14.1",
     "@aws-sdk/client-s3": "^3.1086.0",
     "@codemirror/commands": "^6.10.4",
@@ -41,6 +43,7 @@
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.6",
     "@lezer/highlight": "^1.2.3",
+    "@lobehub/icons-static-svg": "1.94.0",
     "@mew/editor": "*",
     "@mew/mobile-keys": "*",
     "@mew/shortcuts": "*",
@@ -51,8 +54,6 @@
     "@tiptap/core": "^3.27.4",
     "@tiptap/extension-collaboration": "^3.27.4",
     "@tiptap/extension-collaboration-caret": "^3.27.4",
-    "@zed-industries/claude-code-acp": "0.16.2",
-    "@zed-industries/codex-acp": "0.16.0",
     "express": "^5.2.1",
     "happy-dom": "^15.11.7",
     "iconoir-react": "^7.11.1",

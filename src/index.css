@@ -121,6 +121,8 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
@@ -167,15 +169,75 @@ body {
   display: none;
 }
 
+/* 에이전트 답변 마크다운 표 — 긴 열은 말풍선을 밀지 않고 표 안에서만 가로로 굴러간다. */
+.mew-agent-markdown .mew-agent-code-copy,
+.mew-agent-markdown .mew-agent-table-scroll {
+  position: relative;
+}
+.mew-agent-markdown .mew-agent-code-copy {
+  margin: 1.7142857em 0;
+}
+.mew-agent-markdown .mew-agent-code-copy pre {
+  margin: 0;
+}
+.mew-agent-markdown :not(pre) > code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.mew-agent-markdown .mew-agent-table-scroll {
+  margin: 1.7142857em 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-top: 1.65rem;
+}
+.mew-agent-markdown .mew-agent-table-scroll table {
+  margin: 0;
+  width: max-content;
+  min-width: 100%;
+}
+.mew-agent-markdown .mew-agent-copy-button {
+  position: absolute;
+  right: 0.35rem;
+  top: 0.35rem;
+  z-index: 1;
+  display: inline-flex;
+  height: 1.35rem;
+  width: 1.35rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-edge-strong);
+  border-radius: 0.25rem;
+  background: var(--color-surface-raised);
+  color: var(--color-ink-secondary);
+  opacity: 0.86;
+}
+.mew-agent-markdown .mew-agent-copy-button:hover,
+.mew-agent-markdown .mew-agent-copy-button[data-copied='1'] {
+  background: var(--color-surface-hover);
+  color: var(--color-ink);
+  opacity: 1;
+}
+.mew-agent-markdown .mew-agent-copy-button[data-copied='1'] {
+  border-color: var(--color-success);
+  color: var(--color-success-ink);
+}
+
 /* 노션식 블록 드래그 핸들 (@tiptap/extension-drag-handle이 위치를 잡아 주는 엘리먼트).
    **그림이 없는 투명한 손잡이**다 — 눈에 보이는 것은 그 자리에 늘 떠 있는 줄 번호이고
    (packages/editor/src/editor/editor.css의 counter), 이 상자는 그 위에 포개져 잡히기만 한다.
    클릭은 블록 선택, 드래그는 블록 이동, 호버 표시는 번호가 밝아지는 것(mew-line--hover)으로 낸다 */
 .mew-drag-handle {
-  width: 24px;
+  width: 32px;
   height: 24px;
   cursor: grab;
+  z-index: 30;
+  touch-action: none;
 }
+.mew-drag-handle[data-line-handle-mode='scroll'] {
+  cursor: ns-resize;
+}
+.mew-drag-handle[data-line-handle-mode='move'],
 .mew-drag-handle:active {
   cursor: grabbing;
 }

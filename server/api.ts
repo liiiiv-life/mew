@@ -30,11 +30,15 @@ import { browserProxyFrameUrl } from './browserProxy.ts'
 import { createTodo, deleteTodo, listTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
 import { currentWorkspace, switchDocsRoot, switchWorkspace, WorkspaceError } from './workspace.ts'
 import { collectSystemStats } from './sysStats.ts'
+import { collectAndroidEnvStatus } from './androidEnv.ts'
+import { listSkills } from './skills.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
 import { reloadSets } from './agentSetRunner.ts'
-import { RUNTIMES } from './agentAcp.ts'
+import { runtimeList } from './agentAcp.ts'
+import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRuntimeInstall.ts'
+import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import {
   DEFAULT_IGNORE,
   IgnoreListError,
@@ -174,6 +178,15 @@ export function createApiApp() {
         return
       }
       res.json({ url: browserProxyFrameUrl(target) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // ── Android 패널: 무거운 emulator는 실행하지 않고, 로컬 도구 상태만 확인한다 ─────
+  app.get('/android/status', requireRole('manager', 'owner'), async (_req, res) => {
+    try {
+      res.json(await collectAndroidEnvStatus())
     } catch (err) {
       handleError(res, err)
     }
@@ -323,20 +336,30 @@ export function createApiApp() {
   })
 
   app.post('/todos', requireAuthenticated, (req, res) => {
-    const { text, due } = req.body as {
+    const { text, type, due, projects } = req.body as {
       text?: unknown
+      type?: unknown
       due?: unknown
+      projects?: unknown
     }
     if (typeof text !== 'string') {
       res.status(400).json({ error: '할 일을 입력하세요' })
+      return
+    }
+    if (type !== undefined && type !== 'today' && type !== 'dated' && type !== 'recurring') {
+      res.status(400).json({ error: '할 일 종류가 올바르지 않습니다' })
       return
     }
     if (due !== undefined && due !== null && typeof due !== 'string') {
       res.status(400).json({ error: '기한이 올바르지 않습니다' })
       return
     }
+    if (projects !== undefined && !Array.isArray(projects)) {
+      res.status(400).json({ error: '프로젝트 목록이 올바르지 않습니다' })
+      return
+    }
     try {
-      res.json({ item: createTodo(authOf(req).email ?? '', { text, due: due ?? null }) })
+      res.json({ item: createTodo(authOf(req).email ?? '', { text, type, due: due ?? null, projects }) })
     } catch (err) {
       handleError(res, err)
     }
@@ -348,7 +371,14 @@ export function createApiApp() {
       res.status(400).json({ error: '할 일을 찾을 수 없습니다' })
       return
     }
-    const { text, done, due } = req.body as { text?: unknown; done?: unknown; due?: unknown }
+    const { text, type, status, done, due, projects } = req.body as {
+      text?: unknown
+      type?: unknown
+      status?: unknown
+      done?: unknown
+      due?: unknown
+      projects?: unknown
+    }
     const change: TodoChange = {}
     if (text !== undefined) {
       if (typeof text !== 'string') {
@@ -356,6 +386,20 @@ export function createApiApp() {
         return
       }
       change.text = text
+    }
+    if (type !== undefined) {
+      if (type !== 'today' && type !== 'dated' && type !== 'recurring') {
+        res.status(400).json({ error: '할 일 종류가 올바르지 않습니다' })
+        return
+      }
+      change.type = type
+    }
+    if (status !== undefined) {
+      if (status !== 'open' && status !== 'done' && status !== 'canceled' && status !== 'missed') {
+        res.status(400).json({ error: '상태가 올바르지 않습니다' })
+        return
+      }
+      change.status = status
     }
     if (done !== undefined) {
       if (typeof done !== 'boolean') {
@@ -370,6 +414,13 @@ export function createApiApp() {
         return
       }
       change.due = due
+    }
+    if (projects !== undefined) {
+      if (!Array.isArray(projects)) {
+        res.status(400).json({ error: '프로젝트 목록이 올바르지 않습니다' })
+        return
+      }
+      change.projects = projects
     }
     try {
       res.json({ item: updateTodo(authOf(req).email ?? '', id, change) })
@@ -402,6 +453,14 @@ export function createApiApp() {
       // 사이드바에 바로 반영되도록(멱등). docs는 부팅 때부터 감시 중. 게스트는 감시를 유발하지 않는다.
       if (role !== 'guest') watchProjectTree(project)
       res.json(role === 'guest' ? filterTreeForGuest(project, tree) : decorateTreeWithGuestAccess(project, tree))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.get('/skills', requireRole('owner', 'manager'), (_req, res) => {
+    try {
+      res.json({ skills: listSkills() })
     } catch (err) {
       handleError(res, err)
     }
@@ -1129,6 +1188,37 @@ export function createApiApp() {
     }
   })
 
+  // 에이전트 런타임 설치는 서버 머신에 실행 파일을 쓰는 작업 — 터미널과 같은 역할만.
+  app.get('/agent-runtimes', requireRole('owner', 'manager'), (_req, res) => {
+    res.json({ runtimes: runtimeStatuses() })
+  })
+
+  app.post('/agent-runtimes/:id/install', requireRole('owner', 'manager'), async (req, res) => {
+    try {
+      res.json(await installRuntime(String(req.params.id)))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 에이전트 창에서 고른 모델·권한을 런타임별 기본값으로 영속화한다. 저장 위치는 DATA_DIR이고,
+  // 다음 session/new·session/load부터 공통 AgentSession 경로가 적용한다.
+  app.get('/agent-defaults/:id', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      res.json({ settings: readAgentDefault(String(req.params.id)) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.put('/agent-defaults/:id', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      res.json({ settings: writeAgentDefault(String(req.params.id), req.body) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   // 예약 에이전트 작업 — 임의 프롬프트가 무인 실행되는 표면이라 tmux와 동일하게 owner/manager만.
   // 손으로 쓴 크론 줄(otherLines)은 읽기 전용으로 함께 내려준다 — 여기서 지워지지 않는다는 걸 보이려고.
   // 실행은 잡 전용 tmux 세션에서 이뤄지므로 그 세션이 떠 있는지(running)도 함께 계산해 붙인다.
@@ -1136,7 +1226,11 @@ export function createApiApp() {
 
   app.get('/schedules', requireRole('owner', 'manager'), async (_req, res) => {
     try {
-      res.json({ jobs: jobViews(readJobs(), await liveSessions()), otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== '') })
+      res.json({
+        jobs: jobViews(readJobs(), await liveSessions()),
+        otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== ''),
+        runtimes: runtimeList(),
+      })
     } catch (err) {
       handleError(res, err)
     }
@@ -1155,7 +1249,11 @@ export function createApiApp() {
         const session = jobSessionName(job.id)
         if (live.has(session)) await tmuxManager.kill(session).catch(() => {})
       }
-      res.json({ jobs: jobViews(saved, await liveSessions()), otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== '') })
+      res.json({
+        jobs: jobViews(saved, await liveSessions()),
+        otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== ''),
+        runtimes: runtimeList(),
+      })
     } catch (err) {
       handleError(res, err)
     }
@@ -1165,7 +1263,7 @@ export function createApiApp() {
   // 돌아가는 상태(켜짐·큐·작업)는 여기 없다 — 그건 WS(/api/agentset/ws)가 흘린다.
   app.get('/agent-sets', requireRole('owner', 'manager'), (_req, res) => {
     try {
-      res.json({ sets: readSets(), runtimes: Object.entries(RUNTIMES).map(([id, r]) => ({ id, label: r.label })) })
+      res.json({ sets: readSets(), runtimes: runtimeList() })
     } catch (err) {
       handleError(res, err)
     }
@@ -1351,7 +1449,7 @@ function handleError(res: express.Response, err: unknown) {
     res.status(400).json({ error: err.message })
     return
   }
-  if (err instanceof ScheduleError || err instanceof AgentSetError) {
+  if (err instanceof ScheduleError || err instanceof AgentSetError || err instanceof RuntimeInstallError || err instanceof AgentDefaultError) {
     res.status(400).json({ error: err.message })
     return
   }

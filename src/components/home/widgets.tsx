@@ -4,15 +4,26 @@
 // 사용자가 고른 배치(순서·숨김)만 브라우저에 남는다. 나중에 등록표에 새 위젯이 생기면 이미 배치를
 // 저장해 둔 사람에게도 뜬다 — 저장분에 없는 아이디는 "아직 못 본 위젯"으로 보고 뒤에 붙이기 때문이다.
 import type { ReactNode } from 'react'
-import type { TodoItem } from '../../api/client'
+import type { ProjectInfo, TodoItem, TodoStatus, TodoType } from '../../api/client'
 import { DueCalendar } from './DueCalendar'
 import { TodoTracker } from './TodoTracker'
 
 export interface HomeWidgetContext {
   items: TodoItem[]
+  projects: ProjectInfo[]
   loading: boolean
-  onCreate: (input: { text: string; due: string | null }) => void
-  onUpdate: (item: TodoItem, change: { text?: string; done?: boolean; due?: string | null }) => void
+  onCreate: (input: { text: string; type: TodoType; due: string | null; projects: string[] }) => void
+  onUpdate: (
+    item: TodoItem,
+    change: {
+      text?: string
+      type?: TodoType
+      status?: TodoStatus
+      done?: boolean
+      due?: string | null
+      projects?: string[]
+    },
+  ) => void
   onDelete: (item: TodoItem) => void
 }
 

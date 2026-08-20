@@ -10,6 +10,9 @@ test('정상 입력은 그대로 통과한다', () => {
   assert.equal(job.id, base.id)
   assert.equal(job.agent, 'claude')
   assert.equal(job.enabled, true)
+
+  const [codex] = normalizeJobs([{ ...base, agent: 'codex' }])
+  assert.equal(codex.agent, 'codex')
 })
 
 test('크론 필드에 셸 메타문자가 들어오면 거부한다', () => {
@@ -27,6 +30,8 @@ test('명령에는 프롬프트 본문이 아니라 프롬프트 파일 경로�
   const [job] = normalizeJobs([{ ...base, prompt: "따옴표'와 % 기호" }])
   const cmd = buildCommand(job)
   assert.ok(cmd.includes(`${job.id}.prompt`))
+  assert.ok(cmd.includes('runAgentJob.ts'))
+  assert.ok(cmd.includes("--runtime '\\''claude'\\''") || cmd.includes("--runtime 'claude'"))
   assert.ok(!cmd.includes('따옴표'))
   assert.ok(!/(^|[^\\])%/.test(cmd), `크론 %가 escape되지 않음: ${cmd}`)
 })

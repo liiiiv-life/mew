@@ -5,11 +5,11 @@
 //
 // 창은 상태를 소유하지 않는다 — 큐를 밀고 작업을 닫는 주체는 서버(agentSetRunner.ts)다.
 // 창을 닫아도 일은 계속 돌고, 다시 열면 그때의 상태를 통째로 받아 그린다.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useOverlayDismiss } from '@mew/ui'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { copyText, useOverlayDismiss } from '@mew/ui'
 import { MentionTextarea, type MentionOption } from './MentionTextarea'
 import { RUNTIMES, runtimeOf } from './agentRuntimes'
-import { renderMarkdown } from '../utils/agentMarkdown'
+import { copyTextFromAgentMarkdownClick, markAgentMarkdownCopied, renderMarkdown } from '../utils/agentMarkdown'
 import { foldEvents, type AgentEvent } from '../utils/agentFold'
 import { parseAssignment } from '../utils/agentSetMention'
 import { useGridDrag } from '../hooks/useGridDrag'
@@ -33,6 +33,16 @@ interface TaskSummary {
   endedAt: string | null
   routedTo: string | null
   error: string | null
+}
+
+function copyFromMarkdownButton(e: MouseEvent<HTMLElement>) {
+  const text = copyTextFromAgentMarkdownClick(e.target)
+  if (text === null) return
+  e.preventDefault()
+  e.stopPropagation()
+  void copyText(text).then((ok) => {
+    if (ok) markAgentMarkdownCopied(e.target)
+  })
 }
 
 interface SetView extends AgentSetDef {
@@ -565,7 +575,8 @@ function TaskEvents({
                 return (
                   <div
                     key={child.key}
-                    className="prose prose-sm max-w-none rounded-lg bg-surface px-3 py-2 text-ink dark:prose-invert prose-pre:overflow-x-auto prose-pre:bg-surface-deep"
+                    className="mew-agent-markdown prose prose-sm max-w-none rounded-lg bg-surface px-3 py-2 text-ink dark:prose-invert prose-pre:overflow-x-auto prose-pre:bg-surface-deep"
+                    onClick={copyFromMarkdownButton}
                     dangerouslySetInnerHTML={{ __html: renderMarkdown(child.text) }}
                   />
                 )

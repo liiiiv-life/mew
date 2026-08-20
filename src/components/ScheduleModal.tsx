@@ -7,9 +7,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import { fetchProjects, fetchSchedules, runSchedule, saveSchedules, type AgentJob, type AgentJobView } from '../api/client'
 import { DAY_NAMES, describeSchedule, fromCron, toCron, type Schedule } from '../utils/cron'
+import { runtimeOf } from './agentRuntimes'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
 
-const AGENT_LABEL: Record<AgentJob['agent'], string> = { claude: 'Claude Code', hermes: 'Hermes' }
 const KIND_LABEL: Record<Schedule['kind'], string> = {
   daily: '매일',
   weekly: '요일마다',
@@ -130,6 +130,7 @@ function ScheduleFields({ cron, onChange }: { cron: string; onChange: (cron: str
 
 export function ScheduleModal({ onClose }: { onClose: () => void }) {
   const [jobs, setJobs] = useState<AgentJobView[] | null>(null)
+  const [runtimes, setRuntimes] = useState<{ id: string; label: string }[]>([])
   const [otherLines, setOtherLines] = useState<string[]>([])
   const [projects, setProjects] = useState<string[]>([])
   const [openId, setOpenId] = useState<string | null>(null)
@@ -144,6 +145,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
     fetchSchedules()
       .then((res) => {
         const live = new Map(res.jobs.map((j) => [j.id, j]))
+        setRuntimes(res.runtimes)
         setJobs((prev) =>
           (prev ?? []).map((job) => {
             const fresh = live.get(job.id)
@@ -160,6 +162,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
     fetchSchedules()
       .then((res) => {
         setJobs(res.jobs)
+        setRuntimes(res.runtimes)
         setOtherLines(res.otherLines)
       })
       .catch((err) => setError(err instanceof Error ? err.message : '불러오기 실패'))
@@ -183,6 +186,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
         jobs.map(({ id, name, cron, project, agent, prompt, enabled }) => ({ id, name, cron, project, agent, prompt, enabled })),
       )
       setJobs(res.jobs)
+      setRuntimes(res.runtimes)
       setOtherLines(res.otherLines)
     } catch (err) {
       setError(err instanceof Error ? err.message : '저장 실패')
@@ -225,7 +229,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                     <button type="button" onClick={() => setOpenId(open ? null : job.id)} className="flex flex-1 items-baseline gap-2 text-left">
                       <span className="truncate text-xs text-ink">{job.name || '(이름 없음)'}</span>
                       <span className="truncate text-[11px] text-ink-muted">
-                        {describeSchedule(job.cron)} · {AGENT_LABEL[job.agent]} · {job.project || '워크스페이스 루트'}
+                        {describeSchedule(job.cron)} · {runtimeLabel(job.agent, runtimes)} · {job.project || '워크스페이스 루트'}
                       </span>
                     </button>
                     <span className="hidden shrink-0 text-[10px] text-ink-faint sm:inline">{lastRunLabel(job.lastRun)}</span>
@@ -261,8 +265,8 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                           className={`${inputClass} w-40`}
                         />
                         <select value={job.agent} onChange={(e) => patch(job.id, { agent: e.target.value as AgentJob['agent'] })} className={inputClass}>
-                          {Object.entries(AGENT_LABEL).map(([value, label]) => (
-                            <option key={value} value={value}>
+                          {runtimes.map(({ id, label }) => (
+                            <option key={id} value={id}>
                               {label}
                             </option>
                           ))}
@@ -348,7 +352,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
       {session && (
         <SessionTerminalPopup
           title={session.name || '(이름 없음)'}
-          subtitle={`${describeSchedule(session.cron)} · ${AGENT_LABEL[session.agent]} · ${session.project || '워크스페이스 루트'}`}
+          subtitle={`${describeSchedule(session.cron)} · ${runtimeLabel(session.agent, runtimes)} · ${session.project || '워크스페이스 루트'}`}
           session={session.session}
           running={session.running}
           onRun={() => runSchedule(session.id)}
@@ -358,6 +362,10 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
       )}
     </div>
   )
+}
+
+function runtimeLabel(id: string, runtimes: { id: string; label: string }[]): string {
+  return runtimes.find((runtime) => runtime.id === id)?.label ?? runtimeOf(id).label
 }
 
 function TerminalGlyph() {

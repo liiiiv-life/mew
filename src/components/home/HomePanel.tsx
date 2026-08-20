@@ -4,8 +4,8 @@
 // 화면 구성은 위젯 등록표(widgets.tsx)가 정한다 — 사용자가 넣고 빼고 순서를 바꾼 결과는 브라우저에 남는다.
 import { useCallback, useEffect, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
-import { MoreHoriz, Refresh } from 'iconoir-react'
-import { createTodo, deleteTodo, fetchTodos, updateTodo, type TodoItem } from '../../api/client'
+import { MoreHoriz, NavArrowDown, NavArrowUp, Refresh } from 'iconoir-react'
+import { createTodo, deleteTodo, fetchTodos, updateTodo, type ProjectInfo, type TodoItem, type TodoStatus, type TodoType } from '../../api/client'
 import { useGridDrag } from '../../hooks/useGridDrag'
 import {
   loadHomeLayout,
@@ -17,7 +17,7 @@ import {
   type HomeLayout,
 } from './widgets'
 
-export function HomePanel() {
+export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
   const [items, setItems] = useState<TodoItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +40,7 @@ export function HomePanel() {
   const sortItems = useCallback((next: TodoItem[]) => [...next].sort(compareTodos), [])
 
   const addItem = useCallback(
-    (input: { text: string; due: string | null }) => {
+    (input: { text: string; type: TodoType; due: string | null; projects: string[] }) => {
       createTodo(input)
         .then(({ item }) => {
           setItems((prev) => sortItems([item, ...prev]))
@@ -55,7 +55,17 @@ export function HomePanel() {
   )
 
   const applyChange = useCallback(
-    (item: TodoItem, change: { text?: string; done?: boolean; due?: string | null }) => {
+    (
+      item: TodoItem,
+      change: {
+        text?: string
+        type?: TodoType
+        status?: TodoStatus
+        done?: boolean
+        due?: string | null
+        projects?: string[]
+      },
+    ) => {
       updateTodo(item.id, change)
         .then(({ item: next }) => {
           setItems((prev) => sortItems(prev.map((i) => (i.id === item.id ? next : i))))
@@ -97,13 +107,13 @@ export function HomePanel() {
   })
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
-      <div className="absolute right-3 top-3 z-20 flex items-center gap-1">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-surface-deep">
+      <div className="absolute right-4 top-4 z-20 flex items-center gap-1">
         <button
           type="button"
           onClick={refresh}
           disabled={loading}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-edge-strong bg-surface-raised text-ink-secondary shadow-sm hover:bg-surface-hover disabled:opacity-40"
+          className="flex h-8 w-8 items-center justify-center rounded border border-edge-strong bg-surface-raised text-ink-secondary shadow-sm hover:border-edge-bright hover:bg-surface-hover hover:text-ink disabled:opacity-40"
           title="새로고침"
           aria-label="새로고침"
         >
@@ -113,7 +123,7 @@ export function HomePanel() {
           <button
             type="button"
             onClick={() => setSettingsOpen((v) => !v)}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-edge-strong bg-surface-raised text-ink-secondary shadow-sm hover:bg-surface-hover"
+            className="flex h-8 w-8 items-center justify-center rounded border border-edge-strong bg-surface-raised text-ink-secondary shadow-sm hover:border-edge-bright hover:bg-surface-hover hover:text-ink"
             title="위젯"
             aria-label="위젯"
             aria-haspopup="menu"
@@ -129,17 +139,19 @@ export function HomePanel() {
 
       {error && <div className="shrink-0 bg-warning-surface px-3 py-1.5 text-xs text-warning-ink">{error}</div>}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 pt-12">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pt-14 sm:px-5 lg:px-7">
         {shown.length === 0 ? (
-          <div className="py-10 text-center text-xs text-ink-muted">세운 위젯이 없습니다 — "위젯"에서 켜세요</div>
+          <div className="mx-auto max-w-lg rounded-lg border border-dashed border-edge-strong bg-surface px-5 py-10 text-center text-xs text-ink-muted">
+            세운 위젯이 없습니다. 위젯 메뉴에서 켜세요
+          </div>
         ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-4">
+          <div className="mx-auto grid max-w-6xl grid-cols-1 items-start gap-4 xl:grid-cols-2">
             {shown.map((widget, index) => (
               <section
                 key={widget.id}
                 ref={widgetDrag.registerCell(index)}
-                className={`rounded-lg bg-surface-raised p-3 transition-shadow ${
-                  widgetDrag.drag?.slot === index ? 'relative z-30 shadow-2xl' : ''
+                className={`overflow-hidden rounded-lg border border-edge bg-surface shadow-sm transition-[border-color,box-shadow] ${
+                  widgetDrag.drag?.slot === index ? 'relative z-30 border-edge-bright shadow-2xl transition-none' : 'hover:border-edge-strong'
                 }`}
                 style={
                   widgetDrag.drag?.slot === index
@@ -147,19 +159,23 @@ export function HomePanel() {
                     : undefined
                 }
               >
-                <h2
+                <div
                   {...widgetDrag.getTileProps(index)}
-                  className="cursor-grab select-none px-1 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted active:cursor-grabbing"
+                  className="flex cursor-grab select-none items-center justify-between border-b border-edge bg-surface-raised px-3 py-2 active:cursor-grabbing"
                 >
-                  {widget.title}
-                </h2>
-                {widget.render({
-                  items,
-                  loading,
-                  onCreate: addItem,
-                  onUpdate: applyChange,
-                  onDelete: removeItem,
-                })}
+                  <h2 className="text-sm font-semibold text-ink-bright">{widget.title}</h2>
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+                </div>
+                <div className="p-3 sm:p-4">
+                  {widget.render({
+                    items,
+                    projects,
+                    loading,
+                    onCreate: addItem,
+                    onUpdate: applyChange,
+                    onDelete: removeItem,
+                  })}
+                </div>
               </section>
             ))}
           </div>
@@ -170,8 +186,11 @@ export function HomePanel() {
 }
 
 function compareTodos(a: TodoItem, b: TodoItem): number {
+  const typeRank: Record<TodoType, number> = { today: 0, dated: 1, recurring: 2 }
+  const statusRank: Record<TodoStatus, number> = { open: 0, missed: 1, canceled: 2, done: 3 }
   return (
-    Number(a.done) - Number(b.done) ||
+    typeRank[a.type] - typeRank[b.type] ||
+    statusRank[a.status] - statusRank[b.status] ||
     Number(a.due == null) - Number(b.due == null) ||
     (a.due ?? '').localeCompare(b.due ?? '') ||
     b.createdAt.localeCompare(a.createdAt)
@@ -201,9 +220,9 @@ function WidgetSettings({
   const widgets = orderedWidgets(layout)
 
   return (
-    <div className="absolute right-0 top-full z-[1000] mt-1 w-56 rounded-lg border border-edge-bright bg-surface-raised p-1 shadow-xl">
+    <div className="absolute right-0 top-full z-[1000] mt-1 w-60 rounded-lg border border-edge-bright bg-surface-raised p-1.5 shadow-xl">
       {widgets.map((widget, i) => (
-        <div key={widget.id} className="flex items-center gap-1 rounded px-1.5 py-1 hover:bg-surface-hover">
+        <div key={widget.id} className="flex items-center gap-1 rounded px-1.5 py-1.5 hover:bg-surface-hover">
           <label className="flex min-w-0 flex-1 select-none items-center gap-2 text-xs text-ink">
             <input
               type="checkbox"
@@ -216,19 +235,19 @@ function WidgetSettings({
             type="button"
             disabled={i === 0}
             onClick={() => onChange(movedLayout(layout, widget.id, -1))}
-            className="rounded px-1 text-xs text-ink-muted hover:bg-surface-hover disabled:opacity-30"
+            className="flex h-6 w-6 items-center justify-center rounded text-ink-muted hover:bg-surface disabled:opacity-30"
             aria-label="위로"
           >
-            ↑
+            <NavArrowUp width={14} height={14} aria-hidden="true" />
           </button>
           <button
             type="button"
             disabled={i === widgets.length - 1}
             onClick={() => onChange(movedLayout(layout, widget.id, 1))}
-            className="rounded px-1 text-xs text-ink-muted hover:bg-surface-hover disabled:opacity-30"
+            className="flex h-6 w-6 items-center justify-center rounded text-ink-muted hover:bg-surface disabled:opacity-30"
             aria-label="아래로"
           >
-            ↓
+            <NavArrowDown width={14} height={14} aria-hidden="true" />
           </button>
         </div>
       ))}

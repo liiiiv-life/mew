@@ -51,7 +51,7 @@ function configDir(): string {
   return process.env.MEW_AGENT_CONFIG_DIR || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
 }
 
-/** claude-code-acp의 encodeProjectPath와 같은 규칙이어야 한다 — 어긋나면 사용량만 비어 보인다 */
+/** claude-agent-acp의 encodeProjectPath와 같은 규칙이어야 한다 — 어긋나면 사용량만 비어 보인다 */
 export function sessionDirPath(cwd: string): string {
   return path.join(configDir(), 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'))
 }

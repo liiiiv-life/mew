@@ -10,12 +10,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { COMMAND_SESSION_PREFIX } from '@mew/tmux-term/server'
 import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
 import { WORKSPACE_ROOT, projectRoot } from './paths.ts'
 import { readCrontab, writeCrontab } from './crontab.ts'
+import { isRuntime } from './agentRuntimes.ts'
 
-export type AgentKind = 'claude' | 'hermes'
+export type AgentKind = string
 
 export interface AgentJob {
   id: string
@@ -44,6 +46,7 @@ export class ScheduleError extends Error {}
 
 const JOBS_FILE = path.join(DATA_DIR, 'schedules.json')
 const JOBS_DIR = path.join(DATA_DIR, 'schedules')
+const RUNNER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'runAgentJob.ts')
 const MARKER = '# mew-job:'
 const MAX_JOBS = 50
 const MAX_NAME_LEN = 80
@@ -51,12 +54,6 @@ const MAX_PROMPT_LEN = 8000
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // 크론 필드에 허용하는 글자 — 셸 메타문자를 원천 차단해서 crontab 주입을 막는다
 const CRON_FIELD_RE = /^[A-Za-z0-9*/,-]+$/
-
-const AGENTS: Record<AgentKind, { bin: string; args: (promptFile: string) => string }> = {
-  // 무인 실행이라 권한 프롬프트에서 멈추면 안 된다 — 두 에이전트 모두 승인 우회 플래그를 붙인다
-  claude: { bin: 'claude', args: (f) => `-p --dangerously-skip-permissions < ${f}` },
-  hermes: { bin: 'hermes', args: (f) => `--yolo -z "$(cat ${f})"` },
-}
 
 function shQuote(s: string): string {
   return `'${s.replaceAll("'", `'\\''`)}'`
@@ -98,8 +95,18 @@ export function jobCwd(project: string): string {
  * 크론과 "지금 실행" 버튼이 같은 문자열을 쓴다.
  */
 export function agentCommand(job: AgentJob): string {
-  const spec = AGENTS[job.agent]
-  return `${shQuote(resolveBin(spec.bin))} ${spec.args(shQuote(promptFile(job.id)))} 2>&1 | tee -a ${shQuote(logFile(job.id))}`
+  return [
+    shQuote(resolveBin(process.execPath)),
+    shQuote(RUNNER),
+    '--runtime',
+    shQuote(job.agent),
+    '--prompt-file',
+    shQuote(promptFile(job.id)),
+    '--log-file',
+    shQuote(logFile(job.id)),
+    '--cwd',
+    shQuote(jobCwd(job.project)),
+  ].join(' ')
 }
 
 /**
@@ -160,8 +167,8 @@ export function normalizeJobs(input: unknown): AgentJob[] {
       throw new ScheduleError(`실행 주기가 올바르지 않습니다: ${cron || '(비어 있음)'}`)
     }
 
-    const agent = rec.agent
-    if (agent !== 'claude' && agent !== 'hermes') throw new ScheduleError('에이전트를 고르세요')
+    const agent = typeof rec.agent === 'string' ? rec.agent : ''
+    if (!isRuntime(agent)) throw new ScheduleError('에이전트를 고르세요')
 
     const project = typeof rec.project === 'string' ? rec.project : ''
     if (project !== '') projectRoot(project) // 없는 프로젝트면 여기서 던진다

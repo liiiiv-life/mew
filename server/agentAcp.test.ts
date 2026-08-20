@@ -10,9 +10,11 @@ import { spawn } from 'node:child_process'
 // 진짜 워크스페이스를 건드리지 않는다 — paths.ts가 import 시점에 MEW_WORKSPACE를 읽으므로 먼저 심고 동적 import
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-ws-'))
 process.env.MEW_WORKSPACE = workspace
+process.env.MEW_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-data-'))
 const { AgentSession, disposeSession, modelsByRuntime, probeModels, reapOrphanAgents, sessionFor } = await import(
   './agentAcp.ts'
 )
+const { writeAgentDefault } = await import('./agentDefaults.ts')
 type AgentEvent = import('./agentAcp.ts').AgentEvent
 
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
@@ -144,6 +146,7 @@ class ModelAgent {
       },
     }
   }
+  async unstable_setSessionModel() { return {} }
   async authenticate() { return {} }
   async cancel() {}
   async prompt() { return { stopReason: 'end_turn' } }
@@ -303,6 +306,30 @@ test('"다 허용" 모드의 이름이 달라도(codex full-access) 그걸 골�
   t.after(() => session.dispose())
 
   assert.equal(session.modes?.currentModeId, 'full-access', 'bypassPermissions가 없으면 그 런타임의 전체 허용으로 간다')
+})
+
+test('저장한 런타임별 권한을 새 세션 기본값으로 적용한다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'saved-mode-stub.mjs')
+  fs.writeFileSync(stubPath, codexModeStubSource)
+  writeAgentDefault('codex', { modeId: 'read-only' })
+
+  const session = await AgentSession.start('codex', { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+
+  assert.equal(session.modes?.currentModeId, 'read-only')
+})
+
+test('저장한 런타임별 모델을 새 세션 기본값으로 적용한다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'saved-model-stub.mjs')
+  fs.writeFileSync(stubPath, modelStubSource)
+  writeAgentDefault('codex', { modelId: 'beta-2' })
+
+  const session = await AgentSession.start('codex', { cmd: process.execPath, args: [stubPath, path.join(os.tmpdir(), 'unused-pid')] })
+  t.after(() => session.dispose())
+
+  assert.equal(session.models?.currentModelId, 'beta-2')
 })
 
 test('취소하면 대기 중인 승인 요청이 cancelled로 닫힌다', async (t) => {

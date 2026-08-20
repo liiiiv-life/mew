@@ -35,6 +35,7 @@ import { TmuxTerminalPanel } from '@mew/tmux-term'
 import { AgentPanel } from './components/AgentPanel'
 import { AgentSetPanel } from './components/AgentSetPanel'
 import { BrowserPanel } from './components/BrowserPanel'
+import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
@@ -67,6 +68,7 @@ const TMUX_OPEN_KEY = 'mew:tmux-open'
 const AGENT_OPEN_KEY = 'mew:agent-open'
 const AGENT_SET_OPEN_KEY = 'mew:agent-set-open'
 const BROWSER_OPEN_KEY = 'mew:browser-open'
+const ANDROID_OPEN_KEY = 'mew:android-open'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
 /** 홈 탭의 스코프 — 워크스페이스 폴더 자신을 프로젝트처럼 본다(server/paths.ts의 WORKSPACE_PROJECT).
@@ -116,6 +118,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [agentSetOpen, setAgentSetOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_SET_OPEN_KEY) === '1')
   // 브라우저 창 — 서버 localhost를 프록시로 보는 도구라 터미널과 같은 게이트(owner/manager)를 쓴다
   const [browserOpen, setBrowserOpen] = useState(() => canUseTerminal && localStorage.getItem(BROWSER_OPEN_KEY) === '1')
+  // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
+  const [androidOpen, setAndroidOpen] = useState(() => canUseTerminal && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
   // 멤버 채팅 창(Alt+C) — 사람끼리 쓰는 창이라 로그인만 하면 열린다(게스트 제외)
   const [chatOpen, setChatOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -129,8 +133,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   // docs 탭을 꾹 누르면 뜨는 폴더 가져오기/내보내기 창 — owner 전용
   const [docsSettingsOpen, setDocsSettingsOpen] = useState(false)
-  // 홈 화면(워크스페이스 전체 — 할 일·달력)이 편집 칸 자리를 차지하고 있는지. 게스트에게는 없다
-  const [homeOpen, setHomeOpen] = useState(false)
+  // 홈 화면(워크스페이스 전체 — 할 일·달력)이 편집 칸 자리를 차지하고 있는지. 게스트에게는 없다.
+  // 홈 탭도 마지막으로 본 화면이면 `mew:project=.workspace`로 남기므로 새로 열 때 그대로 복원한다.
+  const [homeOpen, setHomeOpen] = useState(() => !isGuest && getProject() === WORKSPACE_PROJECT)
   // 채팅의 파일 멘션을 누른 것 — 할 일과 같은 이유로 프로젝트를 옮긴 다음 렌더에서 연다
   const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string } | null>(null)
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false)
@@ -323,6 +328,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     initial: 720,
     invert: true,
   })
+  const { width: androidWidth, startResize: startAndroidResize } = usePanelWidth('mew:android-panel-width', {
+    min: 380,
+    max: 1200,
+    initial: 760,
+    invert: true,
+  })
 
   // 탭 전환·창 전환 스와이프는 편집 칸이 각자 처리한다 (EditorPane) — 칸마다 탭 줄이 따로다
   const sidebarSwipe = useSwipeGesture({ onBottomLeft: () => setSidebarOpen(false) })
@@ -506,6 +517,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   useEffect(() => {
     localStorage.setItem(BROWSER_OPEN_KEY, browserOpen ? '1' : '0')
   }, [browserOpen])
+
+  useEffect(() => {
+    localStorage.setItem(ANDROID_OPEN_KEY, androidOpen ? '1' : '0')
+  }, [androidOpen])
 
   const handleFileCreated = useCallback(
     (relPath: string) => {
@@ -865,6 +880,21 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               </svg>
             ),
           },
+          {
+            id: 'android',
+            label: 'Android',
+            onSelect: () => setAndroidOpen((open) => !open),
+            active: androidOpen,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="6" y="4" width="12" height="16" rx="2" />
+                <path d="M9 8h6" />
+                <path d="M9 17h6" />
+                <path d="M8 2 6.5 4.5" />
+                <path d="m16 2 1.5 2.5" />
+              </svg>
+            ),
+          },
         ]
       : []),
     ...(isGuest
@@ -945,7 +975,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   ]
 
   return (
-    <div className="flex flex-col bg-surface text-ink" style={{ height: 'var(--app-height, 100dvh)' }}>
+    <div className="flex flex-col overflow-hidden bg-surface text-ink" style={{ height: 'var(--app-height, 100dvh)' }}>
       {/* 화면 전폭을 쓰는 줄은 이 헤더 하나뿐이다 — 프로젝트 탭 + 도구 버튼. 문서 탭 줄은 각
           편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
@@ -995,7 +1025,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       </div>
 
       <div
-        className="relative flex min-h-0 flex-1"
+        className="relative flex min-h-0 flex-1 overflow-hidden"
         onDragOverCapture={handlePathDragOver}
         onDropCapture={handlePathDrop}
         // 드래그를 취소하거나(Esc) 컨테이너 밖으로 나가면 분할 그림자를 지운다
@@ -1106,7 +1136,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             열어 둔 탭 목록은 App(useTabs)에 있으므로 홈에서 나오면 보던 문서로 그대로 돌아온다. */}
         {homeOpen && !isGuest ? (
           <div className="flex min-h-0 min-w-0 flex-1" {...homeSwipe}>
-            <HomePanel />
+            <HomePanel projects={projects} />
           </div>
         ) : (
           /* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */
@@ -1117,7 +1147,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         {chatOpen && !isGuest && (
           <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[22rem] md:shrink-0">
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
-            <div className="min-w-0 flex-1">
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <ChatPanel
                 authEmail={authEmail}
                 project={project}
@@ -1132,8 +1162,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         {agentOpen && canUseTerminal && (
           <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[26rem] md:shrink-0">
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
-            <div className="min-w-0 flex-1">
-              <AgentPanel onClose={() => setAgentOpen(false)} />
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+              <AgentPanel project={project} tree={tree} onClose={() => setAgentOpen(false)} />
             </div>
           </div>
         )}
@@ -1141,7 +1171,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         {agentSetOpen && canUseTerminal && (
           <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[30rem] md:shrink-0">
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
-            <div className="min-w-0 flex-1">
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <AgentSetPanel onClose={() => setAgentSetOpen(false)} />
             </div>
           </div>
@@ -1158,7 +1188,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
               aria-hidden="true"
             />
-            <div className="min-w-0 flex-1">
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <TmuxTerminalPanel
                 api={tmuxApi}
                 onClose={() => setTmuxOpen(false)}
@@ -1180,8 +1210,24 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
               aria-hidden="true"
             />
-            <div className="min-w-0 flex-1">
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <BrowserPanel onClose={() => setBrowserOpen(false)} />
+            </div>
+          </div>
+        )}
+
+        {androidOpen && canUseTerminal && (
+          <div
+            className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
+            style={{ width: isDesktop() ? androidWidth : undefined }}
+          >
+            <div
+              onPointerDown={startAndroidResize}
+              className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
+              aria-hidden="true"
+            />
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+              <AndroidPanel onClose={() => setAndroidOpen(false)} />
             </div>
           </div>
         )}

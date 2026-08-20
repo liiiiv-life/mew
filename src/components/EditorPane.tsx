@@ -686,7 +686,7 @@ export function EditorPane({
             )}
           </>
         ) : (
-          <div className="relative flex flex-1 items-center justify-center text-ink-secondary" {...swipe}>
+          <div className="relative flex min-h-0 flex-1 items-center justify-center text-ink-secondary" {...swipe}>
             {/* 문서가 없어도 사이드바·터미널은 열 수 있어야 한다 — 도구 줄과 같은 자리 */}
             {showSidebarButton && (
               <div className="absolute left-3 top-3 z-20">

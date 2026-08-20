@@ -7,11 +7,67 @@ import MarkdownIt from 'markdown-it'
  * 에이전트 창과 에이전트셋 창이 같은 규칙으로 그려야 해서 여기 한 곳에 둔다.
  */
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+const fence = md.renderer.rules.fence
+const codeBlock = md.renderer.rules.code_block
+
+function attr(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+}
+
+function copyButton(text: string, label: string): string {
+  return `<button type="button" class="mew-agent-copy-button" data-mew-copy="${attr(text)}" title="${label}" aria-label="${label}">
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect width="13" height="13" x="9" y="9" rx="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+  </button>`
+}
+
 // 링크는 새 탭으로 — 창 안에서 열리면 돌아가던 세션 화면을 통째로 잃는다
 md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
   tokens[idx].attrSet('target', '_blank')
   tokens[idx].attrSet('rel', 'noreferrer noopener')
   return self.renderToken(tokens, idx, options)
+}
+md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+  const rendered = fence
+    ? fence(tokens, idx, options, env, self)
+    : self.renderToken(tokens, idx, options)
+  return `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, '코드 복사')}${rendered}</div>`
+}
+md.renderer.rules.code_block = (tokens, idx, options, _env, self) =>
+  `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, '코드 복사')}${
+    codeBlock ? codeBlock(tokens, idx, options, _env, self) : `<pre><code>${md.utils.escapeHtml(tokens[idx].content)}</code></pre>`
+  }</div>`
+md.renderer.rules.table_open = (tokens, idx, options, env: { source?: string }, self) => {
+  const range = tokens[idx].map
+  const source = env.source && range ? env.source.split('\n').slice(range[0], range[1]).join('\n') : ''
+  return `<div class="mew-agent-table-scroll">${copyButton(source, '표 복사')}${self.renderToken(tokens, idx, options)}`
+}
+md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
+  `${self.renderToken(tokens, idx, options)}</div>`
+
+export function copyTextFromAgentMarkdownClick(target: EventTarget | null): string | null {
+  const button = target instanceof Element ? target.closest<HTMLButtonElement>('button[data-mew-copy]') : null
+  return button?.dataset.mewCopy ?? null
+}
+
+export function markAgentMarkdownCopied(target: EventTarget | null) {
+  const button = target instanceof Element ? target.closest<HTMLButtonElement>('button[data-mew-copy]') : null
+  if (!button) return
+  button.dataset.copied = '1'
+  button.title = '복사됨'
+  button.setAttribute('aria-label', '복사됨')
+  window.setTimeout(() => {
+    delete button.dataset.copied
+    const label = button.closest('.mew-agent-table-scroll') ? '표 복사' : '코드 복사'
+    button.title = label
+    button.setAttribute('aria-label', label)
+  }, 900)
 }
 
 /**
@@ -24,7 +80,7 @@ const rendered = new Map<string, string>()
 export function renderMarkdown(text: string): string {
   const hit = rendered.get(text)
   if (hit !== undefined) return hit
-  const html = md.render(text)
+  const html = md.render(text, { source: text })
   if (rendered.size > 200) rendered.clear()
   rendered.set(text, html)
   return html

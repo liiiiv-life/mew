@@ -13,8 +13,6 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -33,11 +31,9 @@ import {
 import { WORKSPACE_ROOT } from './paths.ts'
 import { UsageReader, type Usage } from './agentUsage.ts'
 import { listSessionsFromDisk, stripLocalCommandMeta } from './agentSessionList.ts'
-
-const here = path.dirname(fileURLToPath(import.meta.url))
-
-/** 기본 백엔드 — 버전 고정된 로컬 설치본. `npx @latest`로 띄우지 않는다(ADR 0034) */
-const DEFAULT_AGENT_CMD = path.resolve(here, '../node_modules/.bin/claude-code-acp')
+import { readAgentDefault, type AgentRuntimeDefault } from './agentDefaults.ts'
+export { DEFAULT_RUNTIME, isRuntime, runtimeList, RUNTIMES, type SpawnSpec } from './agentRuntimes.ts'
+import { RUNTIMES, type SpawnSpec } from './agentRuntimes.ts'
 
 /** 에이전트와 그 자손에 심는 주인 표식 — 값은 띄운 mew 서버의 pid다(reapOrphanAgents가 읽는다) */
 const OWNER_ENV = 'MEW_AGENT_OWNER'
@@ -46,13 +42,22 @@ const OWNER_ENV = 'MEW_AGENT_OWNER'
  * 새 세션은 그 런타임에서 **가장 많이 열린 모드**로 시작한다 — 에이전트 창은 터미널과 같은 게이트를
  * 쓰는 owner/manager 전용 도구이고, 승인 프롬프트는 그 사람이 이미 가진 권한을 다시 묻는 것뿐이다
  * (ADR 0037). 한 가지 값으로 못 박지 않는 이유는 런타임마다 이름이 다르기 때문이다:
- * claude는 `bypassPermissions`, codex는 `full-access`, hermes는 `dont_ask`가 그 자리다
+ * claude는 `bypassPermissions`, codex는 `agent-full-access`, hermes는 `dont_ask`가 그 자리다
  * (claude에도 `dontAsk`가 있지만 그쪽은 "미리 승인 안 된 건 거절"이라 뜻이 반대다 — 순서로 갈린다).
  * 앞에서부터 그 세션이 광고한 것 중 처음 맞는 것을 고른다. 되돌리려면 `MEW_AGENT_MODE=default`처럼
  * 모드 id를 박아 준다(그 하나만 시도한다).
  */
 const MODE_OVERRIDE = process.env.MEW_AGENT_MODE || null
-const FULL_ACCESS_MODES = ['bypassPermissions', 'full-access', 'full_access', 'fullAccess', 'yolo', 'dont_ask', 'dontAsk']
+const FULL_ACCESS_MODES = [
+  'bypassPermissions',
+  'agent-full-access',
+  'full-access',
+  'full_access',
+  'fullAccess',
+  'yolo',
+  'dont_ask',
+  'dontAsk',
+]
 
 /** 재접속(모바일 화면 꺼짐 등) 때 되돌려 줄 이벤트 개수 상한 */
 const MAX_BUFFERED_EVENTS = 500
@@ -62,6 +67,13 @@ const IDLE_KILL_MS = 10 * 60_000
 
 /** 어댑터를 띄운 뒤 ACP 핸드셰이크가 이만큼 걸리면 포기한다 — 정상이면 몇 초다 */
 const HANDSHAKE_TIMEOUT_MS = 30_000
+
+type QueuedPrompt = {
+  /** 창에 보여 줄 원문 */
+  text: string
+  /** ACP 런타임에 실제로 보낼 프롬프트 */
+  promptText: string
+}
 
 /** 창 상단 정보줄이 그리는 값 — 이벤트 버퍼에 쌓지 않고 바뀔 때마다 현재 값을 통째로 보낸다 */
 export type SessionMeta = {
@@ -90,71 +102,6 @@ export type AgentEvent =
   /** 대화가 갈아끼워졌다(새 세션·히스토리 불러오기) — 창은 지금까지 그린 것을 버린다 */
   | { type: 'reset' }
 
-export interface SpawnSpec {
-  cmd: string
-  args: string[]
-  env?: Record<string, string | undefined>
-}
-
-/** PATH에서 실행 파일을 찾는다. 없으면 null */
-function findExecutable(name: string): string | null {
-  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-    if (!dir) continue
-    const candidate = path.join(dir, name)
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK)
-      return candidate
-    } catch {
-      /* 다음 디렉터리 */
-    }
-  }
-  return null
-}
-
-function claudeSpawnSpec(): SpawnSpec {
-  const cmd = process.env.MEW_AGENT_CMD || DEFAULT_AGENT_CMD
-  const args = process.env.MEW_AGENT_ARGS ? process.env.MEW_AGENT_ARGS.split(' ').filter(Boolean) : []
-  const env: Record<string, string | undefined> = {}
-  // CLAUDE_CONFIG_DIR을 넘기면 에이전트가 mew 서버 사용자의 자격증명을 보지 않는다(2단계 준비).
-  if (process.env.MEW_AGENT_CONFIG_DIR) env.CLAUDE_CONFIG_DIR = process.env.MEW_AGENT_CONFIG_DIR
-  // 어댑터가 번들한 CLI는 어댑터 버전 핀에 묶여 모델 목록이 낡는다(새 모델이 안 보인다).
-  // 시스템에 설치된 claude가 있으면 그걸 쓰게 해 모델 목록이 사용자의 설치본을 따라가게 한다.
-  if (!process.env.CLAUDE_CODE_EXECUTABLE) {
-    const systemClaude = findExecutable('claude')
-    if (systemClaude) env.CLAUDE_CODE_EXECUTABLE = systemClaude
-  }
-  return { cmd, args, env }
-}
-
-/** Hermes는 mew가 번들하지 않는다 — 사용자가 자기 기계에 깔아 둔 ACP 진입점을 가리키게만 한다.
- *  실행 파일이 없거나 ACP를 말하지 않으면 창에 "에이전트를 실행하지 못했습니다"로 그대로 드러난다. */
-function hermesSpawnSpec(): SpawnSpec {
-  const cmd = process.env.MEW_AGENT_HERMES_CMD || 'hermes'
-  const raw = process.env.MEW_AGENT_HERMES_ARGS
-  return { cmd, args: raw === undefined ? ['acp'] : raw.split(' ').filter(Boolean) }
-}
-
-/** Codex — 버전 고정된 로컬 어댑터(@zed-industries/codex-acp). codex CLI를 따로 띄우지 않고
- *  어댑터가 곧 에이전트다 — 자격증명은 사용자의 ~/.codex를 그대로 쓴다. */
-function codexSpawnSpec(): SpawnSpec {
-  const cmd = process.env.MEW_AGENT_CODEX_CMD || path.resolve(here, '../node_modules/.bin/codex-acp')
-  const raw = process.env.MEW_AGENT_CODEX_ARGS
-  return { cmd, args: raw === undefined ? [] : raw.split(' ').filter(Boolean) }
-}
-
-/** 창에서 고를 수 있는 에이전트 런타임. 여기 없는 id는 서버가 거부한다 */
-export const RUNTIMES: Record<string, { label: string; spec: () => SpawnSpec }> = {
-  claude: { label: 'Claude Code', spec: claudeSpawnSpec },
-  codex: { label: 'Codex', spec: codexSpawnSpec },
-  hermes: { label: 'Hermes', spec: hermesSpawnSpec },
-}
-
-export const DEFAULT_RUNTIME = 'claude'
-
-export function isRuntime(id: string): boolean {
-  return Object.hasOwn(RUNTIMES, id)
-}
-
 export interface ModelInfo {
   modelId: string
   name: string
@@ -168,6 +115,22 @@ export interface ModelInfo {
 const knownModels = new Map<string, ModelInfo[]>()
 
 export const modelsByRuntime = (): Record<string, ModelInfo[]> => Object.fromEntries(knownModels)
+
+function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    const details = Object.fromEntries(
+      Object.entries(err as Error & Record<string, unknown>).filter(([key]) => key !== 'name' && key !== 'message' && key !== 'stack'),
+    )
+    const extra = Object.keys(details).length > 0 ? `\n${JSON.stringify(details, null, 2)}` : ''
+    return `${err.message}${extra}`
+  }
+  if (typeof err === 'object' && err !== null) {
+    const message = (err as { message?: unknown }).message
+    const head = typeof message === 'string' ? message : '에이전트 오류'
+    return `${head}\n${JSON.stringify(err, null, 2)}`
+  }
+  return String(err)
+}
 
 /** 떠 있는 세션 전부. sessions 맵과 달리 Promise가 아니다 — 나가는 길(process 'exit')에서는
  *  then이 돌 기회가 없어서, 동기적으로 죽일 수 있는 목록이 따로 있어야 한다 */
@@ -193,14 +156,14 @@ export class AgentSession {
   #caps: AgentCapabilities = {}
   #startedAt = new Date().toISOString()
   #turns = 0
-  #queue: string[] = []
+  #queue: QueuedPrompt[] = []
   #reader: UsageReader | null = null
   #usage: Usage | null = null
   busy = false
 
-  private constructor(runtime: string, spec: SpawnSpec) {
+  private constructor(runtime: string, spec: SpawnSpec, cwd = WORKSPACE_ROOT) {
     this.runtime = runtime
-    this.cwd = WORKSPACE_ROOT
+    this.cwd = cwd
     const env = { ...process.env, ...spec.env }
     // 주인 표식은 자손까지 그대로 상속된다 — 서버가 SIGKILL로 죽어도 다음 실행이 이걸 보고 걷어낸다
     env[OWNER_ENV] = String(process.pid)
@@ -232,8 +195,8 @@ export class AgentSession {
     this.#armIdleTimer()
   }
 
-  static async start(runtime: string, spec: SpawnSpec = RUNTIMES[runtime].spec()): Promise<AgentSession> {
-    const session = new AgentSession(runtime, spec)
+  static async start(runtime: string, spec: SpawnSpec = RUNTIMES[runtime].spec(), cwd = WORKSPACE_ROOT): Promise<AgentSession> {
+    const session = new AgentSession(runtime, spec, cwd)
     try {
       // 핸드셰이크에 시한을 둔다 — 어댑터가 떴는데 ACP를 말하지 않으면(잘못 깔린 실행 파일, 로그인
       // 안 된 CLI) initialize의 응답이 영영 오지 않는다. 시한이 없으면 그 자리에서 기다리는 쪽이
@@ -272,7 +235,7 @@ export class AgentSession {
     this.#caps = init.agentCapabilities ?? {}
     const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
     this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null)
-    await this.#applyDefaultMode()
+    await this.#applyDefaults()
   }
 
   /** 새로 만들었거나 불러온 ACP 세션으로 갈아탄다 — 사용량 리더도 그 세션 파일을 보게 바꾼다 */
@@ -292,10 +255,31 @@ export class AgentSession {
    * 때마다 다시 걸어 줘야 한다 — 그 런타임이 그런 모드를 아예 광고하지 않으면(root로 도는 claude에는
    * bypass가 없다) 그냥 넘어간다. 실패해도 세션은 살린다: 모드 하나 때문에 창이 안 뜨면 안 된다.
    */
-  async #applyDefaultMode() {
+  async #applyDefaults() {
+    let saved: AgentRuntimeDefault | null = null
+    // 계약 테스트·probe가 직접 넘기는 임시 런타임 id는 등록표 기본값의 대상이 아니다.
+    if (RUNTIMES[this.runtime]) {
+      try {
+        saved = readAgentDefault(this.runtime)
+      } catch (err) {
+        // 기본값 파일 하나가 깨져도 에이전트 창 자체는 떠야 한다. 쓰기 API는 같은 오류를 숨기지 않고 돌려준다.
+        console.error(`[mew:agent:${this.runtime}] 저장된 기본값을 읽지 못했습니다:`, err)
+      }
+    }
+
+    const models = this.#models
+    const modelId = saved?.modelId
+    if (models && modelId && models.availableModels.some((model) => model.modelId === modelId) && modelId !== models.currentModelId) {
+      await this.setModel(modelId).catch((err: unknown) => {
+        console.error(`[mew:agent:${this.runtime}] 기본 모델 ${modelId} 적용 실패:`, err)
+      })
+    }
+
     const modes = this.#modes
     if (!modes) return
-    const wanted = MODE_OVERRIDE ? [MODE_OVERRIDE] : FULL_ACCESS_MODES
+    // 환경변수는 운영자가 서버 전체에 강제한 값이라 UI 저장값보다 우선한다. 저장값이 없거나 런타임이
+    // 더는 그 id를 광고하지 않으면 ADR 0037의 전체 허용 후보 순서로 안전하게 폴백한다.
+    const wanted = MODE_OVERRIDE ? [MODE_OVERRIDE] : saved?.modeId ? [saved.modeId, ...FULL_ACCESS_MODES] : FULL_ACCESS_MODES
     const pick = wanted.find((id) => modes.availableModes.some((mode) => mode.id === id))
     if (!pick || pick === modes.currentModeId) return
     await this.setMode(pick).catch((err: unknown) => {
@@ -363,13 +347,30 @@ export class AgentSession {
   }
 
   /** 진행 중인 턴이 있으면 줄을 세운다 — 끝나는 대로 순서대로 이어 돈다 */
-  prompt(text: string) {
+  prompt(text: string, promptText = text) {
     if (this.busy) {
-      this.#queue.push(text)
+      this.#queue.push({ text, promptText })
       this.#broadcast(this.#metaEvent())
       return
     }
-    this.#run(text)
+    this.#run(text, promptText)
+  }
+
+  /** 예약 작업처럼 창 없이 한 턴만 돌리는 경로. 진행 중인 세션에는 쓰지 않는다. */
+  runOnce(text: string): Promise<string> {
+    if (this.busy) return Promise.reject(new Error('에이전트가 이미 실행 중입니다'))
+    return new Promise((resolve, reject) => {
+      const detach = this.attach((event) => {
+        if (event.type === 'turn_end') {
+          detach()
+          resolve(event.stopReason)
+        } else if (event.type === 'error') {
+          detach()
+          reject(new Error(event.message))
+        }
+      })
+      this.prompt(text)
+    })
   }
 
   /** 대기 중인 메시지를 취소한다(진행 중인 턴은 건드리지 않는다) */
@@ -380,13 +381,13 @@ export class AgentSession {
   }
 
   /** 대기 중인 메시지의 내용을 고친다 — 창의 더블클릭 편집(진행 중인 턴은 건드리지 않는다) */
-  editQueued(index: number, text: string, expect: string) {
+  editQueued(index: number, text: string, expect: string, promptText = text) {
     if (!Number.isInteger(index) || index < 0 || index >= this.#queue.length) return
     // 고치는 사이 앞 턴이 끝나 큐가 당겨졌으면 같은 번호가 다른 메시지를 가리킨다 — 원본이 그대로일 때만 덮어쓴다
-    if (this.#queue[index] !== expect) return
+    if (this.#queue[index].text !== expect) return
     const next = text.trim()
     if (!next) return
-    this.#queue[index] = next
+    this.#queue[index] = { text: next, promptText }
     this.#broadcast(this.#metaEvent())
   }
 
@@ -400,7 +401,7 @@ export class AgentSession {
     this.#broadcast(this.#metaEvent())
   }
 
-  #run(text: string) {
+  #run(text: string, promptText = text) {
     this.busy = true
     this.#turns += 1
     // 사용자 발화도 이벤트 버퍼에 남긴다 — 재접속한 창이 대화를 그대로 복원하려면 여기 있어야 한다
@@ -408,24 +409,18 @@ export class AgentSession {
     this.#emit({ type: 'turn_start' })
     this.#broadcast(this.#metaEvent())
     this.#conn
-      .prompt({ sessionId: this.#sessionId, prompt: [{ type: 'text', text }] })
+      .prompt({ sessionId: this.#sessionId, prompt: [{ type: 'text', text: promptText }] })
       .then((res) => this.#emit({ type: 'turn_end', stopReason: res.stopReason }))
       .catch((err: unknown) => {
         // ACP 오류는 JSON-RPC 오류 객체(plain object)로도 온다 — String()하면 "[object Object]"만 남는다
-        const message =
-          err instanceof Error
-            ? err.message
-            : typeof err === 'object' && err !== null
-              ? String((err as { message?: unknown }).message ?? JSON.stringify(err))
-              : String(err)
-        this.#emit({ type: 'error', message })
+        this.#emit({ type: 'error', message: describeError(err) })
         this.#emit({ type: 'turn_end', stopReason: 'error' })
       })
       .finally(() => {
         this.busy = false
         const next = this.#queue.shift()
         if (next === undefined) void this.#pushMeta()
-        else this.#run(next)
+        else this.#run(next.text, next.promptText)
       })
   }
 
@@ -440,7 +435,7 @@ export class AgentSession {
       this.#modes = loaded.modes
       this.#emit({ type: 'modes', modes: loaded.modes })
     }
-    await this.#applyDefaultMode()
+    await this.#applyDefaults()
     await this.#pushMeta()
   }
 
@@ -534,7 +529,7 @@ export class AgentSession {
         // 불러온 세션은 지난 턴까지 세야 한다 — 그 수는 세션 기록에만 있다
         turns: this.#usage?.turns ?? this.#turns,
         busy: this.busy,
-        queued: [...this.#queue],
+        queued: this.#queue.map((item) => item.text),
         usage: this.#usage,
         canLoad: this.#caps.loadSession === true,
         canList: this.#caps.sessionCapabilities?.list != null,
@@ -662,7 +657,12 @@ export function disposeAllSessions() {
 
 // 서버가 정상 종료하면 자식도 데려간다. SIGINT/SIGTERM은 serve.ts가 잡아 여기로 온다(vite dev는
 // vite가 잡아 process.exit을 부르므로 이 훅으로 들어온다).
-process.on('exit', () => disposeAllSessions())
+const EXIT_HANDLER_KEY = Symbol.for('mew.agentAcp.exitHandler')
+const previousExitHandler = (globalThis as Record<symbol, (() => void) | undefined>)[EXIT_HANDLER_KEY]
+if (previousExitHandler) process.off('exit', previousExitHandler)
+const exitHandler = () => disposeAllSessions()
+;(globalThis as Record<symbol, (() => void) | undefined>)[EXIT_HANDLER_KEY] = exitHandler
+process.on('exit', exitHandler)
 
 /** 그 pid가 지금 떠 있는지. EPERM은 남의 프로세스라 못 건드리는 것 = 살아 있다 */
 function pidAlive(pid: number): boolean {
@@ -700,7 +700,7 @@ function ownerOf(pid: number): number | null {
  * 지금 이 서버가 들어 있을 수도 있다. 스냅샷에서 자손을 직접 훑어 하나씩 보낸다.
  */
 export function reapOrphanAgents() {
-  const target = process.env.MEW_AGENT_CMD || DEFAULT_AGENT_CMD
+  const targets = Object.values(RUNTIMES).map((runtime) => runtime.spec().cmd)
   let snapshot: string
   try {
     snapshot = execFileSync('ps', ['-eo', 'pid=,ppid=,args='], { encoding: 'utf8' })
@@ -727,7 +727,7 @@ export function reapOrphanAgents() {
       if (!pidAlive(owner)) collect(row.pid)
       continue
     }
-    if (row.ppid === 1 && row.args.includes(target)) collect(row.pid)
+    if (row.ppid === 1 && targets.some((target) => row.args.includes(target))) collect(row.pid)
   }
   if (doomed.size === 0) return
   for (const pid of doomed) {

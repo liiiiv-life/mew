@@ -7,8 +7,10 @@ import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { DEFAULT_RUNTIME, disposeSession, isRuntime, sessionFor, type AgentEvent, type AgentSession } from './agentAcp.ts'
+import { composeRuntimePrompt } from './agentRuntimes.ts'
 import { listSessionsFromDisk } from './agentSessionList.ts'
 import { WORKSPACE_ROOT } from './paths.ts'
+import { listSkills } from './skills.ts'
 
 export const AGENT_WS_PATH = '/api/agent/ws'
 
@@ -16,7 +18,7 @@ export const AGENT_WS_PATH = '/api/agent/ws'
 const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 type ClientMessage =
-  | { type: 'prompt'; text: string }
+  | { type: 'prompt'; text: string; skills?: string[] }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'set_model'; modelId: string }
@@ -24,7 +26,7 @@ type ClientMessage =
   | { type: 'unqueue'; index: number }
   | { type: 'move_queued'; from: number; to: number }
   /** expect = 창이 보고 있던 원본 — 그 사이 큐가 당겨졌으면 서버가 무시한다 */
-  | { type: 'edit_queued'; index: number; text: string; expect: string }
+  | { type: 'edit_queued'; index: number; text: string; expect: string; skills?: string[] }
   | { type: 'list_sessions' }
   | { type: 'load_session'; sessionId: string }
   /** 탭을 닫았다 — 창만 닫은 것과 달리 세션도 여기서 끝난다 */
@@ -42,8 +44,31 @@ function send(ws: WebSocket, payload: ServerMessage) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload))
 }
 
+function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    const details = Object.fromEntries(
+      Object.entries(err as Error & Record<string, unknown>).filter(([key]) => key !== 'name' && key !== 'message' && key !== 'stack'),
+    )
+    const extra = Object.keys(details).length > 0 ? `\n${JSON.stringify(details, null, 2)}` : ''
+    return `${err.message}${extra}`
+  }
+  if (typeof err === 'object' && err !== null) {
+    const message = (err as { message?: unknown }).message
+    const head = typeof message === 'string' ? message : '에이전트 오류'
+    return `${head}\n${JSON.stringify(err, null, 2)}`
+  }
+  return String(err)
+}
+
+function promptForRuntime(runtime: string, text: string, skillNames: string[] | undefined): string {
+  if (!Array.isArray(skillNames) || skillNames.length === 0) return text
+  const wanted = new Set(skillNames.filter((name): name is string => typeof name === 'string'))
+  const skills = listSkills().filter((skill) => wanted.has(skill.name))
+  return composeRuntimePrompt(runtime, text, skills)
+}
+
 async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
-  const fail = (err: unknown) => send(ws, { type: 'error', message: err instanceof Error ? err.message : String(err) })
+  const fail = (err: unknown) => send(ws, { type: 'error', message: describeError(err) })
 
   // 에이전트가 뜨는 데는 1초가 넘게 걸린다(spawn + initialize + newSession). 그동안 창을 세워 두지 않는다:
   // ready를 먼저 보낸다. 지난 세션 목록은 **창이 물어볼 때만** 간다 — 붙을 때마다 훑으면 탭 수만큼 곱해진다.
@@ -77,12 +102,12 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
     }
     const live = session
     try {
-      if (msg.type === 'prompt') live.prompt(msg.text)
+      if (msg.type === 'prompt') live.prompt(msg.text, promptForRuntime(runtime, msg.text, msg.skills))
       else if (msg.type === 'cancel') live.cancel()
       else if (msg.type === 'permission') live.answerPermission(msg.id, msg.optionId)
       else if (msg.type === 'unqueue') live.unqueue(msg.index)
       else if (msg.type === 'move_queued') live.moveQueued(msg.from, msg.to)
-      else if (msg.type === 'edit_queued') live.editQueued(msg.index, msg.text, msg.expect)
+      else if (msg.type === 'edit_queued') live.editQueued(msg.index, msg.text, msg.expect, promptForRuntime(runtime, msg.text, msg.skills))
       else if (msg.type === 'set_model') void live.setModel(msg.modelId).catch(fail)
       else if (msg.type === 'set_mode') void live.setMode(msg.modeId).catch(fail)
       else if (msg.type === 'load_session') void live.loadSession(msg.sessionId).catch(fail)
@@ -115,7 +140,7 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
   try {
     started = await sessionFor(runtime, tab)
   } catch (err) {
-    send(ws, { type: 'fatal', message: err instanceof Error ? err.message : String(err) })
+    send(ws, { type: 'fatal', message: describeError(err) })
     ws.close()
     return
   }

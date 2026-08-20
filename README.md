@@ -13,6 +13,18 @@ git clone <이 레포> mew && cd mew
 첫 계정을 만들어 임시 비밀번호를 알려준다. 다시 돌려도 안전하다. 권한 모델과 노출 시 주의는
 **[SECURITY.md](SECURITY.md)** — 계정 하나를 주는 것이 어디까지를 주는 것인지 먼저 읽는다.
 
+지원 대상은 Linux와 macOS다. 터미널 패널은 `node-pty`를 로컬에서 빌드하고 `tmux`에 붙으므로 OS별 기본
+도구가 필요하다.
+
+```bash
+# Debian/Ubuntu
+sudo apt install build-essential python3 tmux
+
+# macOS
+xcode-select --install
+brew install tmux python
+```
+
 **이 폴더에는 아무것도 저장되지 않는다.** 설정은 `~/.config/mew/config.env`, 계정·세션은
 `~/.local/share/mew/`, 로그는 `~/.local/state/mew/`에 산다(`server/config.ts`). 클론을 지워도
 데이터는 남고, `git pull`이 곧 업데이트다.
@@ -72,11 +84,13 @@ docs로 쓴다(기본 `docs`, owner가 바꿀 수 있다). 아래 §docs 탭.
 - 아이콘은 팝업에서 지정한다(라인 아이콘 600여 개 + 이모지 직접 입력 + SVG, 영문 키로 검색). 아이콘이
   없으면 이름 첫 글자가 대신 뜬다.
 
-화면 상태는 `localStorage`에 남는다 — `mew:project`(활성 프로젝트) · `mew:tmux-open` ·
+화면 상태는 `localStorage`에 남는다 — `mew:project`(활성 프로젝트, 홈이면 `.workspace`) · `mew:tmux-open` ·
 `mew:agent-open`(에이전트 창이 열려 있었는지) · `mew:agent-tabs`·`mew:agent-active-tab`(에이전트 탭 목록과
-마지막으로 보던 탭) · `mew:open-tabs[:{프로젝트}]`(열린 문서 탭 + 칸 배치 — `{ panes, layout, focusedPaneId }`.
+마지막으로 보던 탭) · `mew:agent-input-drafts`(에이전트 탭별 전송 전 입력 초안) ·
+`mew:open-tabs[:{프로젝트}]`(열린 문서 탭 + 칸 배치 — `{ panes, layout, focusedPaneId }`.
 칸이 없던 옛 `{ tabs, activePath }`는 읽을 때 `main` 칸 하나로 이관한다) ·
 `mew:browser-open`·`mew:browser-tabs`·`mew:browser-active-tab`(브라우저 창과 탭) ·
+`mew:android-open`·`mew:android-gateway-url`(Android 보조창과 gateway 주소) ·
 `mew:scroll:{프로젝트}`(문서별 스크롤 위치 + 사이드바 트리 스크롤, `utils/scrollMemory.ts`) ·
 `mew:tree-open:{프로젝트}`(사이드바에서 펼쳐 둔 폴더).
 
@@ -126,8 +140,11 @@ docs로 쓴다(기본 `docs`, owner가 바꿀 수 있다). 아래 §docs 탭.
 할 일은 사용자가 홈 탭에서 직접 등록한다(`server/todos.ts`). 원장은 서버 데이터 폴더의 `todos.json`이고,
 로그인 사용자 이메일별로 분리된다. 프로젝트 파일·문서 본문을 훑거나 되쓰지 않는다.
 
-- 항목은 `id`·`text`·`done`·`due`·`createdAt`·`updatedAt`을 가진다. `due`는 `YYYY-MM-DD` 또는 `null`.
-- 할 일 위젯에서 추가·본문 수정·완료 전환·기한 변경·삭제를 한다.
+- 항목은 `id`·`text`·`type`·`status`·`done`·`due`·`projects`·`createdAt`·`updatedAt`을 가진다.
+  `type`은 `today`·`dated`·`recurring`, `status`는 `open`·`done`·`canceled`·`missed`,
+  `due`는 `YYYY-MM-DD` 또는 `null`, `projects`는 연관 프로젝트 이름 배열이다.
+- 할 일 위젯에서 추가·본문 수정·상태 전환·기한 변경·프로젝트 다중 연결·삭제를 한다. 옛 `done`만 있는 항목은
+  읽을 때 `status`로 승격한다([ADR 0059](../.mew/docs/decisions/0059-mew-typed-project-linked-home-todos.md)).
 - 달력 위젯에는 **기한이 잡힌 항목만** 뜬다. 날짜는 전부 `YYYY-MM-DD` 문자열로 비교한다(Date로 바꾸면 시간대 때문에 하루씩 밀린다).
 - 달력의 항목을 누르면 완료 상태를 토글한다. 본문 수정과 삭제는 할 일 위젯에서 한다.
 
@@ -150,8 +167,8 @@ docs로 쓴다(기본 `docs`, owner가 바꿀 수 있다). 아래 §docs 탭.
 | 라우트 | 역할 | 하는 일 |
 |---|---|---|
 | `GET /api/todos` | 로그인 사용자 | `{ items }` — 자기 할 일 목록 |
-| `POST /api/todos` `{text,due?}` | 로그인 사용자 | 할 일 생성 |
-| `PATCH /api/todos/:id` `{text?,done?,due?}` | 로그인 사용자 | 할 일 수정. `due: null`이면 기한 삭제 |
+| `POST /api/todos` `{text,type?,due?,projects?}` | 로그인 사용자 | 할 일 생성. `dated`는 `due` 필수 |
+| `PATCH /api/todos/:id` `{text?,type?,status?,done?,due?,projects?}` | 로그인 사용자 | 할 일 수정. `due: null`이면 기한 삭제, `done`은 호환용 |
 | `DELETE /api/todos/:id` | 로그인 사용자 | 할 일 삭제 |
 | `GET /api/workspace` | **owner** | 지금 열린 워크스페이스 경로·프로젝트 목록·docs 폴더(`docs` 상대 경로, `docsPath` 절대 경로) |
 | `POST /api/workspace` `{path}` | **owner** | 워크스페이스를 갈아끼운다(모든 화면 새로고침) |
@@ -179,6 +196,25 @@ Alt+B 또는 헤더 메뉴의 브라우저 버튼으로 오른쪽 끝에 여는 
 |---|---|---|
 | `ANY /__mew_browser/<origin-token>/...` | **manager·owner** | 허용된 loopback origin으로 HTTP 프록시. root-relative URL 일부를 프록시 경로로 재작성 |
 | `ANY /<port>` · `/<port>/...` | **manager·owner** | 같은 프록시를 전체 페이지로 연다. 첫 요청에서 짧은 토큰 경로로 리다이렉트 |
+
+## Android 창
+
+헤더 메뉴의 Android 버튼으로 오른쪽 끝에 여는 보조창(`components/AndroidPanel.tsx`). Android Emulator나
+system image는 mew 배포물에 넣지 않는다([ADR 0058](../.mew/docs/decisions/0058-mew-android-panel-optional-gateway.md)).
+패널이 하는 일은 두 가지뿐이다.
+
+- Linux·WSL에서는 `/dev/kvm`, macOS에서는 Emulator의 Hypervisor.Framework 가속 상태를 확인하고,
+  Android SDK 도구(`sdkmanager`·`adb`·`emulator`·`avdmanager`)와 AVD 존재 여부를 보여준다. Apple Silicon은
+  `arm64-v8a`, Intel/AMD는 `x86_64` system image 명령을 제시한다.
+- 이미 떠 있는 Android WebRTC/gateway 주소를 입력하면 브라우저 창과 같은 loopback 프록시로 iframe에 연다.
+
+권한은 브라우저 창·터미널과 같다 — **manager·owner만** 연다. 상태 점검 API는 emulator를 실행하지 않고,
+프로세스 시작·설치·system image 다운로드도 하지 않는다. 따라서 Android 창을 열지 않으면 mew 기본 실행 경로에
+붙는 무게는 패널 코드와 API 라우트뿐이다.
+
+| 라우트 | 역할 | 하는 일 |
+|---|---|---|
+| `GET /api/android/status` | **manager·owner** | Linux·WSL KVM 또는 macOS 가속, Android SDK, 호스트 아키텍처용 AVD 상태 점검. emulator 실행 없음 |
 
 ## docs 탭
 
@@ -474,7 +510,8 @@ Claude Code 같은 TUI의 슬래시 명령(`/clear`·`/model`)도 버튼 한 번
 도구 줄 **시계 아이콘** — "언제 / 어느 폴더에서 / 어떤 에이전트로 / 어떤 프롬프트를" 을 등록하면 그
 시각에 에이전트가 무인으로 돈다. owner/manager만(임의 프롬프트가 무인 실행되는 표면 — 셸과 같은 경계).
 
-- 서버: `server/schedules.ts` + `GET/PUT /api/schedules`, `POST /api/schedules/run`(지금 실행).
+- 서버: `server/schedules.ts` + `server/runAgentJob.ts` + `GET/PUT /api/schedules`,
+  `POST /api/schedules/run`(지금 실행).
   클라이언트: `src/components/ScheduleModal.tsx`, 크론식↔GUI 변환은 `src/utils/cron.ts`.
 - **원본은 `.data/schedules.json`, crontab은 파생물이다.** 저장할 때마다 `# mew-job:<id>` 마커가 붙은
   줄만 걷어내고 다시 쓴다 — 손으로 쓴 크론 줄은 건드리지 않고, 창에도 읽기 전용으로 보여준다.
@@ -488,15 +525,13 @@ Claude Code 같은 TUI의 슬래시 명령(`/clear`·`/model`)도 버튼 한 번
   예약 시각을 기다리지 않고 확인할 수 있다. 실행 요청 본문에서 받는 건 잡 `id`뿐이다.
 - **프롬프트는 셸에 인라인하지 않는다.** `.data/schedules/<id>.prompt`에 쓰고 명령이 그 파일을 읽는다
   — 따옴표·개행, 그리고 크론에서 stdin 구분자로 먹히는 `%`를 통째로 피한다(명령 쪽 `%`는 escape).
-- 실행 명령은 에이전트별로 고정이다. 사용자가 명령 문자열을 넣는 곳은 없다:
-  | 에이전트 | 세션에 타이핑되는 명령 |
-  |---|---|
-  | `claude` | `claude -p --dangerously-skip-permissions < <프롬프트파일> 2>&1 \| tee -a <로그>` |
-  | `hermes` | `hermes --yolo -z "$(cat <프롬프트파일>)" 2>&1 \| tee -a <로그>` |
-  무인 실행이라 둘 다 승인 우회 플래그가 붙는다. 바이너리(`tmux` 포함)는 저장 시점에 `command -v`로
-  **절대 경로로 굳힌다** — cron의 PATH로는 이름만으로 못 찾는다.
+- 실행 명령은 에이전트별 템플릿이 아니라 공통 ACP runner다:
+  `node server/runAgentJob.ts --runtime <id> --prompt-file <프롬프트파일> --log-file <로그> --cwd <폴더>`.
+  runner가 `server/agentRuntimes.ts`의 같은 등록표로 ACP 런타임을 띄운다([ADR 0060](../.mew/docs/decisions/0060-mew-shared-agent-runtime-registry.md)).
+  사용자가 명령 문자열을 넣는 곳은 없다. `node`·`tmux`는 저장 시점에 `command -v`로 **절대 경로로 굳힌다** —
+  cron의 PATH로는 이름만으로 못 찾는다.
 - 크론 5필드는 `[A-Za-z0-9*/,-]`만 통과시킨다(crontab 주입 차단). 출력은 세션 화면에 보이면서 동시에
-  `tee -a`로 `.data/schedules/<id>.log`에 덧붙고, 그 파일의 mtime이 창의 "마지막 실행"이다.
+  `runAgentJob.ts`가 `.data/schedules/<id>.log`에 덧붙이고, 그 파일의 mtime이 창의 "마지막 실행"이다.
   **로그는 자동으로 줄지 않는다** — 커지면 직접 지운다.
 - 앞 실행이 아직 돌고 있는데 다음 예약 시각이 오면 **같은 세션에 그대로 타이핑된다**(=돌고 있는
   에이전트의 stdin으로 들어간다). 주기를 실행 시간보다 짧게 잡지 말 것.
@@ -616,14 +651,20 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 멎었다. 지금 구현(child process + ACP 스트리밍, `server/agentAcp.ts`)이 그 문제를 푼 구조라 되돌리지
 않는다.
 
-- 서버: `server/agentAcp.ts`(세션·spawn·파일 스코프) + `server/agentWs.ts`(WS 릴레이) +
+- 서버: `server/agentRuntimes.ts`(공통 런타임 등록표) + `server/agentDefaults.ts`(런타임별 모델·권한 기본값) + `server/agentAcp.ts`(세션·파일 스코프) +
+  `server/agentWs.ts`(WS 릴레이) +
   `server/agentUsage.ts`(토큰 사용량). 클라이언트: `src/components/AgentPanel.tsx` +
   `src/utils/agentFold.ts`(이벤트→화면 항목) + `src/components/agentRuntimes.tsx`(런타임 목록·아이콘,
-  에이전트셋 창과 공용) + `src/utils/agentMarkdown.ts`(답변 마크다운, 두 창 공용).
+  에이전트셋 창·예약 작업 창과 공용) + `src/utils/agentMarkdown.ts`(답변 마크다운, 두 창 공용).
   접근은 **owner/manager**(`authorizeTmux`와 같은 집합) —
   에이전트는 Bash를 쓸 수 있어 tmux와 같은 경계여야 한다. 권한 모드 기본값이 `bypassPermissions`라
   (승인 프롬프트 없음) **이 역할 게이트가 유일한 통제다** — tmux보다 낮추면 무인 셸을 여는 것이다.
-- 채널: `/api/agent/ws?runtime=<claude|codex|hermes>&tab=<id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
+- 입력창은 `/`로 로컬 스킬을, `@`로 지금 프로젝트의 파일을 검색해 넣는다. 스킬 목록은
+  `GET /api/skills`가 `CODEX_HOME/skills`와 `<워크스페이스>/.agents/skills`의 `SKILL.md`를 읽어 만든다.
+  `/스킬명`을 고르면 브라우저는 스킬 id만 WS에 싣고, 서버가 `server/agentRuntimes.ts`의 런타임 등록표로
+  실제 프롬프트를 합성한다. 기본 합성기는 모든 ACP 런타임에 대해 선택된 `SKILL.md`를 먼저 읽고 따르라고
+  지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다.
+- 채널: `/api/agent/ws?runtime=<id>&tab=<id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
   `런타임+탭`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`,
   `[A-Za-z0-9_-]{1,64}`이 아니면 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 —
   고른 값은 브라우저에만 남는다(`mew:agent-runtime`). 창을 닫아도 세션은 남고,
@@ -675,23 +716,43 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   `<CLAUDE_CONFIG_DIR>/projects/<인코딩된 cwd>/<sessionId>.jsonl`을 읽는다. 읽기 전용·선택적이고,
   파일이 없으면 사용량 칸만 빈다([ADR 0036](../.mew/docs/decisions/0036-mew-agent-session-controls-and-usage.md)).
 
-- **권한 모드 기본값은 그 런타임의 "전체 허용"이다**([ADR 0037](../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)).
+- **모델·권한 선택기 옆 저장 아이콘은 현재 값을 그 런타임의 기본값으로 남긴다**([ADR 0063](../.mew/docs/decisions/0063-mew-agent-runtime-saved-defaults.md)).
+  값은 브라우저가 아니라 `<DATA_DIR>/agent-defaults.json`에 런타임별로 저장되어, 새 탭·서버 재시작 뒤
+  `session/new`·`session/load`에도 적용된다. 현재 선택이 저장값과 같으면 아이콘이 강조된다.
+  저장값이 없는 **권한 모드 기본값은 그 런타임의 "전체 허용"이다**([ADR 0037](../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)).
   ACP 세션은 제한 모드로 시작하므로(claude `default`·codex `auto`) 서버가 `session/new`·`session/load`
-  뒤마다 다시 걸어 준다(`#applyDefaultMode`). 이름이 런타임마다 달라 한 값으로 박지 않고 후보 순서
-  (`FULL_ACCESS_MODES`)로 고른다 — claude `bypassPermissions` · codex `full-access` · hermes `dont_ask`.
+  뒤마다 다시 걸어 준다(`#applyDefaults`). 이름이 런타임마다 달라 한 값으로 박지 않고 후보 순서
+  (`FULL_ACCESS_MODES`)로 고른다 — claude `bypassPermissions` · codex `agent-full-access` · hermes `dont_ask`.
   claude의 `dontAsk`는 뜻이 반대(미리 승인 안 된 건 거절)라 순서로 갈린다. 헤더 선택기로 턴마다 바꿀 수
-  있고, 서버 기본값은 `MEW_AGENT_MODE`에 모드 id를 박아 바꾼다(그 하나만 시도한다).
+  있다. `MEW_AGENT_MODE`에 모드 id를 박으면 운영자 강제값으로 저장된 권한보다 우선한다.
   모드 목록은 백엔드가 광고하는 것을 그대로 쓴다 — 광고에 없으면(예: root 실행) 조용히 넘어간다.
-- 백엔드 교체는 **spawn 대상 교체**다. 창에서 고를 수 있는 것은 `agentAcp.ts`의 `RUNTIMES` 등록표에
+- **새 탭은 런타임을 고르기 전에 세션을 띄우지 않는다**([ADR 0062](../.mew/docs/decisions/0062-mew-agent-tab-runtime-gate-and-install.md)).
+  마지막 탭을 닫으면 가운데 `새 탭` 버튼만 남고, 새 탭에서는 먼저 런타임 목록을 본다.
+  설치되지 않은 런타임은 서버 등록표의 고정 설치 명령으로만 설치하고, 성공하면 새로고침 없이
+  그 런타임을 선택한다. 선택 후에만 WS·히스토리·입력창이 생긴다. 런타임은 탭별로
+  `mew:agent-tabs` 안에 남고, 예전 탭은 마지막 `mew:agent-runtime` 값으로 한 번 승격한다.
+- 백엔드 교체는 **spawn 대상 교체**다. 고를 수 있는 것은 `server/agentRuntimes.ts`의 `RUNTIMES` 등록표에
   있는 것뿐이고, 클라이언트에 같은 목록이 또 있는 이유는 **아이콘**뿐이다(판정은 서버가 한다):
   | 런타임 | 명령 | 환경변수 |
   | --- | --- | --- |
-  | `claude` | `node_modules/.bin/claude-code-acp`(버전 고정) | `MEW_AGENT_CMD` · `MEW_AGENT_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) |
+  | `claude` | `node_modules/.bin/claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`, 버전 고정) | `MEW_AGENT_CMD` · `MEW_AGENT_ARGS` · `MEW_AGENT_CLAUDE_CMD` · `MEW_AGENT_CLAUDE_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) |
   | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — codex CLI를 띄우지 않고 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
+  | `kimi` | `kimi acp` | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
+  | `gemini` | `gemini --experimental-acp` | `MEW_AGENT_GEMINI_CMD` · `MEW_AGENT_GEMINI_ARGS` |
+  | `openclaw` | `openclaw acp` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
+  | `opencode` | `opencode acp` | `MEW_AGENT_OPENCODE_CMD` · `MEW_AGENT_OPENCODE_ARGS` |
+  | `cursor` | `agent acp` | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
 
   공통은 `MEW_AGENT_MODE`(안 주면 위의 전체 허용 후보 순서). 진입점이 없거나 ACP를 말하지 않으면 창에
   "에이전트를 실행하지 못했습니다"로 그대로 드러난다 — 목록에서 감추지 않는다.
+
+| 라우트 | 역할 | 하는 일 |
+|---|---|---|
+| `GET /api/agent-runtimes` | manager·owner | 등록 런타임의 실행 파일 존재·설치 가능·설치 중 상태 |
+| `POST /api/agent-runtimes/:id/install` | manager·owner | id에 대응하는 등록표의 고정 설치 명령 실행. 임의 명령·인자는 받지 않음 |
+| `GET /api/agent-defaults/:id` | manager·owner | 런타임별로 저장된 모델·권한 기본값 |
+| `PUT /api/agent-defaults/:id` | manager·owner | 현재 모델·권한을 그 런타임의 기본값으로 원자적 저장 |
 - **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
   PATH에 시스템 `claude`가 있으면 자동으로 그걸 쓴다(`CLAUDE_CODE_EXECUTABLE`로 전달, 이미 지정돼
   있으면 존중). 시스템 설치본이 없으면 번들 CLI로 돌아간다.

@@ -14,26 +14,33 @@ test.after(() => {
 })
 
 test('createTodo/listTodos: 로그인 사용자별로 저장한다', () => {
-  const a = createTodo('A@EXAMPLE.COM', { text: ' 첫째  항목 ', due: '2026-08-20' })
+  const a = createTodo('A@EXAMPLE.COM', { text: ' 첫째  항목 ', type: 'dated', due: '2026-08-20', projects: ['mew', 'docs'] })
   const b = createTodo('b@example.com', { text: '남의 항목', due: null })
 
   assert.equal(a.text, '첫째 항목')
+  assert.equal(a.type, 'dated')
+  assert.equal(a.status, 'open')
   assert.equal(a.due, '2026-08-20')
+  assert.deepEqual(a.projects, ['mew', 'docs'])
   assert.equal(a.done, false)
   assert.equal(listTodos('a@example.com').length, 1)
   assert.equal(listTodos('a@example.com')[0].id, a.id)
   assert.equal(listTodos('b@example.com')[0].id, b.id)
 })
 
-test('updateTodo: 본문·완료·기한을 바꾼다', () => {
+test('updateTodo: 본문·상태·기한·프로젝트를 바꾼다', () => {
   const item = createTodo('edit@example.com', { text: '고칠 항목' })
-  const done = updateTodo('edit@example.com', item.id, { done: true, due: '2026-09-01' })
+  const done = updateTodo('edit@example.com', item.id, { type: 'dated', status: 'done', due: '2026-09-01', projects: ['mew'] })
 
+  assert.equal(done.type, 'dated')
+  assert.equal(done.status, 'done')
   assert.equal(done.done, true)
   assert.equal(done.due, '2026-09-01')
+  assert.deepEqual(done.projects, ['mew'])
 
-  const renamed = updateTodo('edit@example.com', item.id, { text: '바꾼 항목', due: null })
+  const renamed = updateTodo('edit@example.com', item.id, { text: '바꾼 항목', type: 'recurring', due: null })
   assert.equal(renamed.text, '바꾼 항목')
+  assert.equal(renamed.type, 'recurring')
   assert.equal(renamed.due, null)
 })
 
@@ -47,6 +54,42 @@ test('deleteTodo: 자기 항목만 지운다', () => {
 test('validation: 빈 본문과 잘못된 기한은 거부한다', () => {
   assert.throws(() => createTodo('bad@example.com', { text: '' }), TodoError)
   assert.throws(() => createTodo('bad@example.com', { text: '날짜', due: '내일' }), TodoError)
+  assert.throws(() => createTodo('bad@example.com', { text: '기한 없음', type: 'dated' }), TodoError)
+  assert.throws(() => createTodo('bad@example.com', { text: '프로젝트', projects: ['../bad'] }), TodoError)
   const item = createTodo('bad@example.com', { text: '정상' })
   assert.throws(() => updateTodo('bad@example.com', item.id, { done: 'yes' as unknown as boolean }), TodoError)
+})
+
+test('listTodos: 예전 done/due 항목을 새 타입과 상태로 읽는다', () => {
+  const file = path.join(dir, 'todos.json')
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      'legacy@example.com': [
+        {
+          id: 'legacy-open',
+          text: '오늘 항목',
+          done: false,
+          due: null,
+          createdAt: '2026-08-20T00:00:00.000Z',
+          updatedAt: '2026-08-20T00:00:00.000Z',
+        },
+        {
+          id: 'legacy-done',
+          text: '기한 항목',
+          done: true,
+          due: '2026-08-21',
+          createdAt: '2026-08-20T00:00:00.000Z',
+          updatedAt: '2026-08-20T00:00:00.000Z',
+        },
+      ],
+    }),
+  )
+
+  const items = listTodos('legacy@example.com')
+  assert.equal(items[0].type, 'today')
+  assert.equal(items[0].status, 'open')
+  assert.equal(items[1].type, 'dated')
+  assert.equal(items[1].status, 'done')
+  assert.deepEqual(items[1].projects, [])
 })

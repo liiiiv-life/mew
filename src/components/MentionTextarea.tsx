@@ -14,18 +14,23 @@ export interface MentionOption {
   insert: string
 }
 
+export interface TriggerOptionSet {
+  trigger: string
+  options: MentionOption[]
+}
+
 /** 멤버 이메일 → 멘션 옵션 — 넣는 문자열이 `@이메일` 그대로여야 서버가 멘션으로 알아본다(server/chat.ts) */
 export function memberMentionOptions(members: string[]): MentionOption[] {
   return members.map((email) => ({ id: email, label: email.split('@')[0] || email, hint: email, insert: `@${email}` }))
 }
 
-/** 커서 앞의 '@검색어' — '@'가 줄 처음이나 공백 뒤에 있을 때만 멘션으로 본다 */
-function mentionQueryAt(value: string, caret: number): { from: number; query: string } | null {
+/** 커서 앞의 트리거+검색어 — 트리거가 줄 처음이나 공백 뒤에 있을 때만 멘션으로 본다 */
+function mentionQueryAt(value: string, caret: number, triggers: string[]): { trigger: string; from: number; query: string } | null {
   for (let i = caret - 1; i >= 0; i--) {
     const ch = value[i]
-    if (ch === '@') {
+    if (triggers.includes(ch)) {
       if (i > 0 && !/\s/.test(value[i - 1])) return null
-      return { from: i, query: value.slice(i + 1, caret) }
+      return { trigger: ch, from: i, query: value.slice(i + 1, caret) }
     }
     if (/\s/.test(ch)) return null
   }
@@ -42,6 +47,8 @@ export function MentionTextarea({
   rows = 1,
   className,
   submitHint,
+  triggers,
+  submitShortcut = 'enter',
 }: {
   value: string
   onChange: (value: string) => void
@@ -54,23 +61,35 @@ export function MentionTextarea({
   className?: string
   /** 자리표시자 아래가 아니라 접근성 라벨로만 쓰는 설명 */
   submitHint?: string
+  /** 기본 '@' 외에 '/' 같은 트리거를 추가한다. */
+  triggers?: TriggerOptionSet[]
+  submitShortcut?: 'enter' | 'mod-enter'
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [mention, setMention] = useState<{ from: number; query: string } | null>(null)
+  const optionSets = useMemo<TriggerOptionSet[]>(() => [{ trigger: '@', options }, ...(triggers ?? [])], [options, triggers])
+  const triggerChars = useMemo(() => optionSets.map((set) => set.trigger), [optionSets])
+  const [mention, setMention] = useState<{ trigger: string; from: number; query: string } | null>(null)
   const [selected, setSelected] = useState(0)
 
   const shown = useMemo(() => {
     if (!mention) return []
-    return options
+    const activeOptions = optionSets.find((set) => set.trigger === mention.trigger)?.options ?? []
+    const query = mention.query.toLowerCase()
+    return activeOptions
       .map((option) => ({ option, score: fuzzyScore(mention.query, option.label) }))
       .filter((x): x is { option: MentionOption; score: number } => x.score !== null)
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => {
+        const aStarts = a.option.label.toLowerCase().startsWith(query)
+        const bStarts = b.option.label.toLowerCase().startsWith(query)
+        if (aStarts !== bStarts) return aStarts ? -1 : 1
+        return b.score - a.score
+      })
       .slice(0, 8)
       .map((x) => x.option)
-  }, [mention, options])
+  }, [mention, optionSets])
 
   const syncMention = (next: string, caret: number) => {
-    const found = mentionQueryAt(next, caret)
+    const found = mentionQueryAt(next, caret, triggerChars)
     setMention(found)
     if (!found) setSelected(0)
   }
@@ -145,7 +164,11 @@ export function MentionTextarea({
               return
             }
           }
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && onSubmit) {
+          const shouldSubmit =
+            submitShortcut === 'enter'
+              ? e.key === 'Enter' && !e.shiftKey
+              : e.key === 'Enter' && (e.ctrlKey || e.metaKey)
+          if (shouldSubmit && !e.nativeEvent.isComposing && onSubmit) {
             e.preventDefault()
             onSubmit()
           }
