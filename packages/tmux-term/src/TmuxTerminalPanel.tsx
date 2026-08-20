@@ -368,49 +368,47 @@ export function TmuxTerminalPanel({
     // onMouseDown: 세션 탭·도구 버튼을 눌러도 포커스(=모바일 키보드)를 뺏지 않는다. 뺏기면 키보드가
     // 내려가며 레이아웃이 커지고, 버튼이 손가락 밑에서 밀려나 첫 탭의 click이 사라진다
     <div className="flex h-full w-full flex-col bg-surface-deep" onMouseDown={keepFocusOnPress}>
-      <div className="flex items-center justify-between border-b border-edge px-3 py-2">
-        <div className="text-sm font-semibold text-ink-soft">터미널</div>
+      <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
         {onClose && (
           <button
             type="button"
             onClick={onClose}
-            className="flex h-6 w-6 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+            className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
             aria-label="터미널 닫기"
           >
             ×
           </button>
         )}
-      </div>
-
-      <div className="flex h-9 items-center overflow-x-auto border-b border-edge bg-surface">
-        {(orderedSessions ?? []).map((s, i) => {
-          if (editing?.mode === 'rename' && editing.oldName === s.name) {
+        <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto">
+          {(orderedSessions ?? []).map((s, i) => {
+            if (editing?.mode === 'rename' && editing.oldName === s.name) {
+              return (
+                <InlineTabInput
+                  key={s.name}
+                  value={editing.value}
+                  onChange={(v) => setEditing((e) => (e ? { ...e, value: v } : e))}
+                  onCommit={commitEdit}
+                  onCancel={() => setEditing(null)}
+                  error={editError}
+                />
+              )
+            }
             return (
-              <InlineTabInput
+              <TabButton
                 key={s.name}
-                value={editing.value}
-                onChange={(v) => setEditing((e) => (e ? { ...e, value: v } : e))}
-                onCommit={commitEdit}
-                onCancel={() => setEditing(null)}
-                error={editError}
+                session={s}
+                isActive={s.name === activeSession}
+                isDragging={drag.dragIndex === i}
+                dragProps={drag.getItemProps(i)}
+                onSelect={() => setActiveSession(s.name)}
+                onConsumeClick={drag.consumeClick}
+                onOpenMenu={(x, y) => setContextMenu({ session: s, x, y })}
+                onRename={() => startRename(s)}
+                onKill={() => setKillTarget(s.name)}
               />
             )
-          }
-          return (
-            <TabButton
-              key={s.name}
-              session={s}
-              isActive={s.name === activeSession}
-              isDragging={drag.dragIndex === i}
-              dragProps={drag.getItemProps(i)}
-              onSelect={() => setActiveSession(s.name)}
-              onConsumeClick={drag.consumeClick}
-              onOpenMenu={(x, y) => setContextMenu({ session: s, x, y })}
-              onRename={() => startRename(s)}
-              onKill={() => setKillTarget(s.name)}
-            />
-          )
-        })}
+          })}
+        </div>
         {editing?.mode === 'create' ? (
           <InlineTabInput
             value={editing.value}
@@ -425,7 +423,7 @@ export function TmuxTerminalPanel({
             type="button"
             onClick={startCreate}
             title="새 tmux 세션"
-            className="flex shrink-0 items-center px-2.5 text-sm text-ink-secondary hover:bg-surface-raised"
+            className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink"
           >
             +
           </button>
