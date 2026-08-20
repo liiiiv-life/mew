@@ -23,6 +23,7 @@ import { CollaborationCaret } from '@tiptap/extension-collaboration-caret'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { findTable, selectionCell, TableMap } from '@tiptap/pm/tables'
+import type { EditorView } from '@tiptap/pm/view'
 import { Markdown } from 'tiptap-markdown'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { EditorApi, EditorCollab, TableWidths, TreeNode } from './types'
@@ -77,6 +78,9 @@ export interface EditorHandle {
 
 // Collaboration.configure()의 field 기본값과 맞춰야 시딩 시 같은 Y.XmlFragment를 본다
 const COLLAB_FIELD = 'default'
+const LINE_HANDLE_LONG_PRESS_MS = 350
+const LINE_HANDLE_SCROLL_SLOP = 3
+const LINE_HANDLE_GUTTER_WIDTH = 88
 
 // y-tiptap의 yUndoPlugin은 로컬 PM 편집을 전부 origin=ySyncPluginKey인 Y 트랜잭션으로 감싸서
 // undo 스택에 올린다 (trackedOrigins 기본값이 ySyncPluginKey만 포함). Yjs는 이미 진행 중인
@@ -113,6 +117,35 @@ function bumpUpdated(frontmatter: FrontmatterData): FrontmatterData {
 
 function isListNode(node: PMNode): boolean {
   return node.type.name === 'bulletList' || node.type.name === 'orderedList'
+}
+
+function domPos(view: EditorView, el: HTMLElement): number {
+  let found = -1
+  view.state.doc.descendants((_node, pos) => {
+    if (found < 0 && view.nodeDOM(pos) === el) found = pos
+    return found < 0
+  })
+  return found
+}
+
+function lineHandleTargetAt(view: EditorView, event: MouseEvent): { pos: number; el: HTMLElement } | null {
+  const lineHeight = Number.parseFloat(getComputedStyle(view.dom).getPropertyValue('--mew-body-line-height')) || 25.5
+  const candidates = Array.from(
+    view.dom.querySelectorAll(':scope > :not(ul, ol, .ProseMirror-gapcursor), li'),
+  ) as HTMLElement[]
+  let best: { pos: number; el: HTMLElement; depth: number } | null = null
+
+  for (const el of candidates) {
+    const rect = el.getBoundingClientRect()
+    if (event.clientY < rect.top || event.clientY > Math.min(rect.bottom, rect.top + lineHeight)) continue
+    if (event.clientX < rect.left - LINE_HANDLE_GUTTER_WIDTH || event.clientX > rect.left + 2) continue
+    const pos = domPos(view, el)
+    if (pos < 0) continue
+    const depth = view.state.doc.resolve(pos).depth
+    if (!best || depth > best.depth) best = { pos, el, depth }
+  }
+
+  return best ? { pos: best.pos, el: best.el } : null
 }
 
 /** 저장된 표 열 너비를 현재 문서에 입힌다 — 자세한 규칙은 editor/tableWidths.ts */
@@ -248,10 +281,19 @@ export const Editor = forwardRef<
   ref,
 ) {
   const { frontmatter, body } = useMemo(() => splitFrontmatter(value), [value])
+  const lineNumberOffset = useMemo(() => {
+    if (!frontmatter) return 0
+    const bodyStart = value.length - body.length
+    return value.slice(0, bodyStart).match(/\n/g)?.length ?? 0
+  }, [body.length, frontmatter, value])
   function handleFrontmatterChange(next: FrontmatterData) {
     onChange(joinFrontmatter(next, body))
   }
   const containerRef = useRef<HTMLDivElement>(null)
+  const lineNumberOffsetRef = useRef(lineNumberOffset)
+  lineNumberOffsetRef.current = lineNumberOffset
+  const bodyRef = useRef(body)
+  bodyRef.current = body
   // 비동기 작업이 항상 현재 문서를 참조하도록 하는 최신 path
   const pathRef = useRef(path)
   // 표 열 너비 동기화 상태 — 어느 문서의 것인지(path), 서버에서 받은 값(baseline), 복원을 마쳤는지.
@@ -404,7 +446,10 @@ export const Editor = forwardRef<
       // Shift+Ctrl+Backspace — 커서가 있는 줄(블록·리스트 항목·코드 한 줄)을 통째로 삭제
       DeleteLine,
       // 커서가 있는 줄에 클래스 — 왼쪽 거터의 줄 번호를 그 줄만 밝게 한다(editor.css)
-      LineFocus,
+      LineFocus.configure({
+        getLineOffset: () => lineNumberOffsetRef.current,
+        getSource: () => bodyRef.current,
+      }),
       // Ctrl+F 문서 내 찾기·바꾸기 (정규식·대소문자) — 매치를 데코레이션으로 하이라이트
       SearchAndReplace,
       // 파일 댓글 하이라이트 — 옵션이 생성 시 한 번 잡히므로 ref 게터로 최신 스레드를 본다
@@ -435,7 +480,83 @@ export const Editor = forwardRef<
         render: () => {
           const el = document.createElement('div')
           el.className = 'mew-drag-handle'
-          el.addEventListener('click', () => {
+          let gesture: {
+            startY: number
+            lastY: number
+            mode: 'pending' | 'scroll' | 'move'
+            timer: ReturnType<typeof window.setTimeout>
+          } | null = null
+          let suppressNextClick = false
+
+          const resetLineHandleGesture = () => {
+            if (gesture) window.clearTimeout(gesture.timer)
+            gesture = null
+            el.draggable = true
+            el.dataset.lineHandleMode = ''
+            window.removeEventListener('mousemove', onLineHandleMove)
+            window.removeEventListener('mouseup', onLineHandleUp)
+          }
+          const onLineHandleMove = (event: MouseEvent) => {
+            if (!gesture) return
+            const dy = event.clientY - gesture.lastY
+            const totalDy = event.clientY - gesture.startY
+
+            if (gesture.mode === 'pending' && Math.abs(totalDy) > LINE_HANDLE_SCROLL_SLOP) {
+              window.clearTimeout(gesture.timer)
+              gesture.mode = 'scroll'
+              suppressNextClick = true
+              el.dataset.lineHandleMode = 'scroll'
+            }
+
+            if (gesture.mode === 'scroll') {
+              event.preventDefault()
+              const scroller = containerRef.current
+              if (scroller) scroller.scrollTop -= dy
+              gesture.lastY = event.clientY
+            }
+          }
+          const onLineHandleUp = () => {
+            resetLineHandleGesture()
+            window.setTimeout(() => {
+              suppressNextClick = false
+            }, 0)
+          }
+
+          el.addEventListener('mousedown', (event) => {
+            if (event.button !== 0 || readOnlyRef.current) return
+            resetLineHandleGesture()
+            const timer = window.setTimeout(() => {
+              if (!gesture || gesture.mode !== 'pending') return
+              gesture.mode = 'move'
+              el.dataset.lineHandleMode = 'move'
+            }, LINE_HANDLE_LONG_PRESS_MS)
+            gesture = { startY: event.clientY, lastY: event.clientY, mode: 'pending', timer }
+            window.addEventListener('mousemove', onLineHandleMove, { passive: false })
+            window.addEventListener('mouseup', onLineHandleUp, { once: true })
+          })
+          el.addEventListener(
+            'dragstart',
+            (event) => {
+              if (gesture?.mode === 'move') return
+              if (gesture) {
+                window.clearTimeout(gesture.timer)
+                gesture.mode = 'scroll'
+                gesture.lastY = event.clientY
+                suppressNextClick = true
+                el.dataset.lineHandleMode = 'scroll'
+              }
+              event.preventDefault()
+              event.stopImmediatePropagation()
+            },
+            true,
+          )
+          el.addEventListener('dragend', resetLineHandleGesture)
+          el.addEventListener('click', (event) => {
+            if (suppressNextClick) {
+              event.preventDefault()
+              event.stopPropagation()
+              return
+            }
             const ed = editorRef.current
             const pos = dragHandlePosRef.current
             if (!ed || pos < 0) return
@@ -925,6 +1046,38 @@ export const Editor = forwardRef<
           const e = event as MouseEvent
           const target = e.target as HTMLElement | null
           if (!(target instanceof HTMLElement)) return false
+
+          const lineTarget = lineHandleTargetAt(view, e)
+          if (lineTarget) {
+            e.preventDefault()
+            let mode: 'pending' | 'scroll' = 'pending'
+            let lastY = e.clientY
+            const onMove = (moveEvent: MouseEvent) => {
+              const dy = moveEvent.clientY - lastY
+              if (mode === 'pending' && Math.abs(moveEvent.clientY - e.clientY) > LINE_HANDLE_SCROLL_SLOP) mode = 'scroll'
+              if (mode === 'scroll') {
+                moveEvent.preventDefault()
+                const scroller = containerRef.current
+                if (scroller) scroller.scrollTop -= dy
+                lastY = moveEvent.clientY
+              }
+            }
+            const onUp = () => {
+              window.removeEventListener('mousemove', onMove)
+              if (mode === 'pending') {
+                try {
+                  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, lineTarget.pos)).scrollIntoView())
+                  view.focus()
+                } catch {
+                  // 선택 불가 노드면 기본 처리 없이 무시
+                }
+              }
+            }
+            window.addEventListener('mousemove', onMove, { passive: false })
+            window.addEventListener('mouseup', onUp, { once: true })
+            return true
+          }
+
           const anchor = target.closest('a')
           if (!anchor || !view.dom.contains(anchor)) return false
           if (!(e.ctrlKey || e.metaKey)) {

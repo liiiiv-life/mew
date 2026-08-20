@@ -3,11 +3,12 @@
   outline: none;
   /* 좌우 여백은 표의 줄 번호가 거터 위치를 되짚는 데 쓴다(아래 .tableWrapper::before) */
   --mew-pad-x: 2rem;
+  --mew-body-line-height: calc(15px * 1.7);
   padding: var(--mew-pad-x);
   min-height: 100%;
   color: var(--color-ink);
   font-size: 15px;
-  line-height: 1.7;
+  line-height: var(--mew-body-line-height);
 }
 /* frontmatter 패널이 위에 있을 때는 본문 상단 여백을 줄인다 (패널 자체 여백과 중복되므로) */
 .editor-root.has-frontmatter .tiptap {
@@ -34,18 +35,58 @@
 .tiptap li::before {
   content: counter(mew-line);
   position: absolute;
-  top: 0.2em;
+  top: 0;
   left: -1.9rem;
   width: 1.4rem;
   text-align: right;
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 400;
-  line-height: 1.7;
-  color: var(--color-ink-faint);
-  opacity: 0.45;
+  line-height: var(--mew-body-line-height);
+  color: var(--color-ink-muted);
+  opacity: 0.62;
   pointer-events: none;
   user-select: none;
+}
+.tiptap > :not(ul, ol, .ProseMirror-gapcursor, p.is-editor-empty)[data-mew-line-numbers],
+.tiptap li[data-mew-line-numbers] {
+  counter-increment: mew-line var(--mew-line-count, 1);
+}
+.tiptap > :not(ul, ol, .ProseMirror-gapcursor, p.is-editor-empty)[data-mew-line-numbers]::before,
+.tiptap li[data-mew-line-numbers]::before {
+  content: attr(data-mew-line-numbers);
+  white-space: pre;
+}
+.tiptap > :not(ul, ol, .ProseMirror-gapcursor, p.is-editor-empty)[data-mew-line-widget],
+.tiptap li[data-mew-line-widget] {
+  counter-increment: mew-line var(--mew-line-count, 1);
+}
+.tiptap > :not(ul, ol, .ProseMirror-gapcursor, p.is-editor-empty)[data-mew-line-widget]::before,
+.tiptap li[data-mew-line-widget]::before {
+  content: none;
+}
+.mew-line-number-widget {
+  position: absolute;
+  top: 0;
+  left: -1.9rem;
+  width: 1.4rem;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: var(--mew-body-line-height);
+  color: var(--color-ink-muted);
+  opacity: 0.62;
+  pointer-events: none;
+  user-select: none;
+}
+.mew-line-number-widget > span {
+  display: block;
+  height: var(--mew-body-line-height);
+}
+.mew-line-number-widget--focus {
+  opacity: 1;
+  color: var(--color-ink-secondary);
 }
 /* 리스트 항목은 들여쓴 만큼(ul/ol의 padding-left 1.5em ≈ 24px) 오른쪽에 있고, 불렛·번호 마커가
    li 박스 왼쪽 바깥에 그려진다 — 중첩 깊이만큼 되돌려 번호를 다른 줄과 같은 왼쪽 거터에 세운다.
@@ -77,10 +118,20 @@
 .tiptap > .tableWrapper::before {
   left: calc(var(--mew-pad-x) - 1.9rem);
   top: auto;
-  margin-top: 0.2em;
+  margin-top: 0;
+}
+.tiptap > .tableWrapper[data-mew-line-numbers] {
+  position: relative;
+  margin-left: -1.9rem;
+  padding-left: 1.9rem;
+}
+.tiptap > .tableWrapper[data-mew-line-numbers]::before {
+  left: 0;
+  top: 0;
+  margin-top: 0;
 }
 .tiptap .mew-line--hover::before {
-  opacity: 0.75;
+  opacity: 0.82;
   color: var(--color-ink-muted);
 }
 .tiptap .mew-line--focus::before {
@@ -102,6 +153,14 @@
 .tiptap h6 { font-size: 0.9em; font-weight: 600; margin: 0.5em 0; color: var(--color-ink-secondary); }
 /* 제목 위 여백만 4px 더 — 0.5em은 제목마다 실제 크기가 다르므로 고정값을 얹는다 */
 .tiptap :is(h1, h2, h3, h4, h5, h6) { margin-top: calc(1em + 6px); }
+.tiptap :is(h1, h2, h3, h4, h5, h6).mew-line--hover::before {
+  opacity: 0.82;
+  color: var(--color-ink-muted);
+}
+.tiptap :is(h1, h2, h3, h4, h5, h6).mew-line--focus::before {
+  opacity: 1;
+  color: var(--color-ink-secondary);
+}
 .tiptap ul, .tiptap ol { padding-left: 1.5em; margin: 0.5em 0; list-style: revert; }
 .tiptap ul li::marker { color: var(--color-ink-muted); font-size: 1.2em; }
 .tiptap ol li::marker { color: var(--color-ink-muted); font-weight: 600; }
