@@ -39,6 +39,7 @@ import { AgentSetError, readSets, writeSets } from './agentSets.ts'
 import { reloadSets } from './agentSetRunner.ts'
 import { isRuntime, runtimeList } from './agentAcp.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
+import { prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
 import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRuntimeInstall.ts'
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import {
@@ -75,18 +76,6 @@ import {
 export const tmuxManager = createTmuxManager({ cwd: WORKSPACE_ROOT })
 
 const AGENT_TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
-
-/** tmux runCommand는 셸에 한 줄을 타이핑하므로, 고정 spec도 각 인자를 단일 셸 인자로 감싼다. */
-function shellArg(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`
-}
-
-function spawnSpecCommand(spec: { cmd: string; args: string[]; env?: Record<string, string | undefined> }): string {
-  const env = Object.entries(spec.env ?? {})
-    .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .map(([key, value]) => `${key}=${shellArg(value)}`)
-  return [...env, shellArg(spec.cmd), ...spec.args.map(shellArg)].join(' ')
-}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
 
@@ -1295,8 +1284,8 @@ export function createApiApp() {
     }
   })
 
-  // ACP terminal auth는 사용자가 브라우저 안 tmux에서 직접 조작한다. 요청은 런타임·탭·광고된 method id만
-  // 받고, 실제 실행 파일·인자는 살아 있는 AgentSession이 보관한 고정 spec에서 꺼낸다.
+  // terminal auth는 사용자가 브라우저 안 tmux에서 직접 조작한다. 요청은 런타임·탭·노출된 method id만
+  // 받고, 실제 실행 파일·인자는 ACP 세션 또는 런타임 등록표가 보관한 고정 spec에서 꺼낸다.
   app.post('/agent-runtimes/:id/auth/:method/run', requireRole('owner', 'manager'), async (req, res) => {
     try {
       const id = String(req.params.id)
@@ -1309,11 +1298,32 @@ export function createApiApp() {
       const spec = await terminalAuthFromHost(id, tab, WORKSPACE_ROOT, methodId)
       const session = commandSessionName('agent-auth', `${id}:${tab}:${methodId}`)
       const running = (await tmuxManager.list()).some((item) => item.name === session)
-      if (!running) await tmuxManager.runCommand(session, spawnSpecCommand(spec), WORKSPACE_ROOT)
-      res.json({ ok: true, session, label: spec.label, running: true })
+      if (!running) {
+        const command = prepareAgentAuthTerminal(id, tab, methodId, spec)
+        await tmuxManager.runCommand(session, command, WORKSPACE_ROOT)
+      }
+      const status = readAgentAuthTerminalStatus(id, tab, methodId, true)
+      res.json({ ok: true, session, label: spec.label, running: true, ...status })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       res.status(400).json({ error: message })
+    }
+  })
+
+  app.get('/agent-runtimes/:id/auth/:method/status', requireRole('owner', 'manager'), async (req, res) => {
+    try {
+      const id = String(req.params.id)
+      const methodId = String(req.params.method)
+      const tab = typeof req.query.tab === 'string' ? req.query.tab : ''
+      if (!isRuntime(id) || !AGENT_TAB_ID.test(tab) || !methodId || methodId.length > 100) {
+        res.status(400).json({ error: '로그인 상태 요청이 올바르지 않습니다' })
+        return
+      }
+      const session = commandSessionName('agent-auth', `${id}:${tab}:${methodId}`)
+      const running = (await tmuxManager.list()).some((item) => item.name === session)
+      res.json(readAgentAuthTerminalStatus(id, tab, methodId, running))
+    } catch (err) {
+      handleError(res, err)
     }
   })
 

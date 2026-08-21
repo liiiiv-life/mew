@@ -10,7 +10,15 @@ import fs from 'node:fs'
 import net, { type Socket } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { AgentSession, isRuntime, type AgentEvent, type TerminalAuthSpec } from './agentAcp.ts'
+import {
+  AGENT_IDLE_MS,
+  AgentSession,
+  isRuntime,
+  runtimeLoginAuthEvent,
+  type AgentEvent,
+  type TerminalAuthSpec,
+} from './agentAcp.ts'
+import { RUNTIME_LOGIN_METHOD_ID, runtimeLoginSpec } from './agentRuntimes.ts'
 import { DATA_DIR } from './dataDir.ts'
 
 const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
@@ -155,12 +163,36 @@ async function runHost(runtime: string, tab: string, cwd: string) {
   const peers = new Set<Peer>()
   const early: Array<{ peer: Peer; message: HostInbound }> = []
   let session: AgentSession | null = null
+  let sessionStarting = false
+  let startupError: string | null = null
+  let startupIdleTimer: NodeJS.Timeout | null = null
   let stopping = false
   let ownsFiles = false
+
+  const fallbackTerminalSpec = (): TerminalAuthSpec => {
+    const { cmd, args, env, label } = runtimeLoginSpec(runtime)
+    return { cmd, args, env, label }
+  }
+
+  const broadcastEvent = (event: AgentEvent) => {
+    for (const peer of peers) sendLine(peer.socket, { type: 'event', event })
+  }
+
+  const clearStartupIdle = () => {
+    if (!startupIdleTimer) return
+    clearTimeout(startupIdleTimer)
+    startupIdleTimer = null
+  }
+
+  let startSession: () => Promise<void>
+  let restartSession: () => Promise<void>
+  let armStartupIdle: () => void
+  let stop: (code?: number) => void
 
   const server = net.createServer((socket) => {
     const peer: Peer = { socket, detach: null }
     peers.add(peer)
+    clearStartupIdle()
     sendLine(socket, { type: 'hello', runtime, tab, cwd })
 
     const attach = () => {
@@ -170,14 +202,56 @@ async function runHost(runtime: string, tab: string, cwd: string) {
       peer.detach = session.attach((event) => sendLine(socket, { type: 'event', event }))
     }
     if (session) attach()
+    else if (startupError) {
+      sendLine(socket, {
+        type: 'event',
+        event: runtimeLoginAuthEvent(runtime, sessionStarting ? null : startupError, sessionStarting),
+      })
+    }
 
     const receive = (raw: unknown) => {
       if (!raw || typeof raw !== 'object') return
       const message = raw as HostInbound
       if (message.type !== 'command' && message.type !== 'request') return
       if (!session) {
-        // 프론트와 mew가 이 직후 모두 사라져도 이미 받은 프롬프트는 감독이 끝까지 실행한다.
-        early.push({ peer, message })
+        if (message.type === 'request') {
+          if (message.request.type === 'terminal_auth'
+            && String(message.request.methodId) === RUNTIME_LOGIN_METHOD_ID) {
+            sendLine(socket, { type: 'response', id: String(message.id), ok: true, value: fallbackTerminalSpec() })
+          } else if (sessionStarting && !startupError) {
+            early.push({ peer, message })
+          } else {
+            sendLine(socket, {
+              type: 'response',
+              id: String(message.id),
+              ok: false,
+              error: '에이전트 로그인 후 다시 시도하세요',
+            })
+          }
+          return
+        }
+
+        const command = message.command
+        if (command.type === 'close_session') {
+          stop()
+        } else if (command.type === 'retry_auth') {
+          void startSession()
+        } else if (sessionStarting && !startupError) {
+          // 프론트와 mew가 이 직후 모두 사라져도 시작 전에 받은 프롬프트는 인증 뒤까지 보존한다.
+          // 비밀값은 실패 상태에서 쌓지 않는다. authenticate는 ACP가 뜬 경우에만 도달한다.
+          if (command.type !== 'authenticate') early.push({ peer, message })
+        } else {
+          sendLine(socket, {
+            type: 'event',
+            event: { type: 'error', message: '로그인 터미널을 완료한 뒤 다시 확인하세요' },
+          })
+        }
+        return
+      }
+      // terminal auth는 별도 프로세스가 자격증명을 쓴 뒤 ACP를 다시 initialize하는 것이 표준 계약이다.
+      // 살아 있는 어댑터가 설정을 캐시해도 새 프로세스가 반드시 새 자격증명을 읽게 한다.
+      if (message.type === 'command' && message.command.type === 'retry_auth') {
+        void restartSession()
         return
       }
       void handleHostMessage(session, peer, message, stop)
@@ -187,6 +261,7 @@ async function runHost(runtime: string, tab: string, cwd: string) {
       peer.detach?.()
       peer.detach = null
       peers.delete(peer)
+      armStartupIdle()
     })
     socket.on('error', () => {})
   })
@@ -197,9 +272,10 @@ async function runHost(runtime: string, tab: string, cwd: string) {
     fs.rmSync(files.socket, { force: true })
     fs.rmSync(files.meta, { force: true })
   }
-  const stop = (code = 0) => {
+  stop = (code = 0) => {
     if (stopping) return
     stopping = true
+    clearStartupIdle()
     for (const peer of peers) {
       peer.detach?.()
       peer.socket.end()
@@ -210,6 +286,59 @@ async function runHost(runtime: string, tab: string, cwd: string) {
     if (session && !session.disposed) session.dispose()
     // 소켓의 마지막 프레임을 flush할 한 틱을 주되, 고장 난 peer 때문에 종료가 매달리지는 않게 한다.
     setTimeout(() => process.exit(code), 10)
+  }
+
+  armStartupIdle = () => {
+    if (session || sessionStarting || peers.size > 0 || startupIdleTimer || stopping) return
+    startupIdleTimer = setTimeout(() => stop(), AGENT_IDLE_MS)
+    startupIdleTimer.unref?.()
+  }
+
+  startSession = async () => {
+    if (session || sessionStarting || stopping) return
+    const recovering = startupError !== null
+    sessionStarting = true
+    clearStartupIdle()
+    if (recovering) broadcastEvent(runtimeLoginAuthEvent(runtime, null, true))
+    try {
+      const started = await AgentSession.start(runtime, undefined, cwd)
+      if (stopping) {
+        started.dispose()
+        return
+      }
+      session = started
+      startupError = null
+      started.onDispose(() => {
+        if (session === started) stop()
+      })
+      if (recovering) broadcastEvent({ type: 'auth_complete' })
+      for (const peer of peers) {
+        if (peer.socket.destroyed) continue
+        sendLine(peer.socket, { type: 'replay', events: started.snapshot() })
+        peer.detach = started.attach((event) => sendLine(peer.socket, { type: 'event', event }))
+      }
+      for (const item of early.splice(0)) void handleHostMessage(started, item.peer, item.message, stop)
+    } catch (err) {
+      startupError = describeError(err)
+      broadcastEvent(runtimeLoginAuthEvent(runtime, startupError))
+    } finally {
+      sessionStarting = false
+      armStartupIdle()
+    }
+  }
+
+  restartSession = async () => {
+    if (!session || sessionStarting || stopping) return
+    const previous = session
+    session = null
+    startupError = '로그인 뒤 에이전트 연결을 다시 확인합니다'
+    for (const peer of peers) {
+      peer.detach?.()
+      peer.detach = null
+    }
+    // onDispose는 `session === previous`일 때만 감독을 닫으므로 의도적인 재시작은 감독을 살린다.
+    previous.dispose()
+    await startSession()
   }
 
   try {
@@ -230,20 +359,7 @@ async function runHost(runtime: string, tab: string, cwd: string) {
   const meta: HostMeta = { pid: process.pid, runtime, tab, cwd, socket: files.socket, startedAt: new Date().toISOString() }
   fs.writeFileSync(files.meta, JSON.stringify(meta), { mode: 0o600 })
 
-  try {
-    session = await AgentSession.start(runtime, undefined, cwd)
-  } catch (err) {
-    for (const peer of peers) sendLine(peer.socket, { type: 'fatal', message: describeError(err) })
-    stop(1)
-    return
-  }
-  session.onDispose(() => stop())
-  for (const peer of peers) {
-    if (peer.socket.destroyed) continue
-    sendLine(peer.socket, { type: 'replay', events: session.snapshot() })
-    peer.detach = session.attach((event) => sendLine(peer.socket, { type: 'event', event }))
-  }
-  for (const item of early.splice(0)) void handleHostMessage(session, item.peer, item.message, stop)
+  await startSession()
 }
 
 async function handleHostMessage(
@@ -484,7 +600,7 @@ export async function connectAgentHost(
   throw lastError
 }
 
-/** terminal auth API가 살아 있는 탭 감독에서 고정 실행 spec만 읽는다. */
+/** terminal auth API가 탭 감독에서 ACP 광고 또는 런타임 등록표의 고정 실행 spec만 읽는다. */
 export async function terminalAuthFromHost(runtime: string, tab: string, cwd: string, methodId: string) {
   const client = await connectAgentHost(runtime, tab, cwd)
   try {

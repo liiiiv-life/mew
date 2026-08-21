@@ -34,8 +34,21 @@ import { WORKSPACE_ROOT } from './paths.ts'
 import { UsageReader, type Usage } from './agentUsage.ts'
 import { listSessionsFromDisk, stripLocalCommandMeta } from './agentSessionList.ts'
 import { readAgentDefault, type AgentRuntimeDefault } from './agentDefaults.ts'
-export { DEFAULT_RUNTIME, isRuntime, runtimeList, RUNTIMES, type SpawnSpec } from './agentRuntimes.ts'
-import { RUNTIMES, type SpawnSpec } from './agentRuntimes.ts'
+export {
+  DEFAULT_RUNTIME,
+  isRuntime,
+  runtimeList,
+  RUNTIMES,
+  RUNTIME_LOGIN_METHOD_ID,
+  runtimeLoginSpec,
+  type SpawnSpec,
+} from './agentRuntimes.ts'
+import {
+  RUNTIMES,
+  RUNTIME_LOGIN_METHOD_ID,
+  runtimeLoginSpec,
+  type SpawnSpec,
+} from './agentRuntimes.ts'
 
 /** 에이전트와 그 자손에 심는 주인 표식 — 값은 AgentSession을 소유한 프로세스 pid다(reapOrphanAgents가 읽는다) */
 const OWNER_ENV = 'MEW_AGENT_OWNER'
@@ -160,13 +173,33 @@ function recordOf(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
 
+function runtimeLoginMethod(runtime: string): AuthMethodInternal {
+  const { cmd, args, env, label, name, description } = runtimeLoginSpec(runtime)
+  return {
+    id: RUNTIME_LOGIN_METHOD_ID,
+    name,
+    description,
+    kind: 'terminal',
+    terminal: { cmd, args, env, label },
+  }
+}
+
+/** initialize 전에 ACP가 죽은 탭도 같은 로그인 UI를 그릴 수 있는 공개 상태. */
+export function runtimeLoginAuthEvent(runtime: string, error: string | null, authenticating = false): AgentEvent {
+  const { id, name, description, kind } = runtimeLoginMethod(runtime)
+  return { type: 'auth', methods: [{ id, name, description, kind }], authenticating, error }
+}
+
 /**
  * SDK 0.14는 ACP v1의 id/name/_meta를 보존한다. 최신 terminal auth의 실행 정보는 어댑터가
  * 호환용 `_meta["terminal-auth"]`에도 싣기 때문에, 모델/config 계약을 함께 이관하지 않고 인증만
  * 받을 수 있다. HTTP에는 정규화한 공개 정보만 보내고 실제 명령은 세션 안에 둔다.
  */
 function normalizeAuthMethods(runtime: string, methods: AuthMethod[]): AuthMethodInternal[] {
-  return methods.flatMap((method) => {
+  const runtimeAuth = RUNTIMES[runtime]?.auth
+  const replaced = new Set(runtimeAuth?.replaceMethodIds ?? [])
+  const normalized = methods.flatMap<AuthMethodInternal>((method) => {
+    if (replaced.has(method.id)) return []
     const meta = recordOf(method._meta)
     const terminalMeta = recordOf(meta?.['terminal-auth'])
     const command = typeof terminalMeta?.command === 'string' ? terminalMeta.command : null
@@ -181,7 +214,10 @@ function normalizeAuthMethods(runtime: string, methods: AuthMethod[]): AuthMetho
           label: typeof terminalMeta?.label === 'string' ? terminalMeta.label : method.name,
         }
       : undefined
-    const apiKey = method.id === 'api-key' || recordOf(meta?.['api-key']) !== null
+    const apiKey = method.id === 'api-key'
+      || method.id.endsWith('-api-key')
+      || /api[ -]?key/i.test(method.name)
+      || meta?.['api-key'] !== undefined
     return [{
       id: method.id,
       name: method.name,
@@ -190,6 +226,12 @@ function normalizeAuthMethods(runtime: string, methods: AuthMethod[]): AuthMetho
       terminal,
     }]
   })
+  // terminal type/args가 SDK 0.14에서 사라지는 런타임과 initialize 자체가 실패하는 런타임 모두가
+  // 같은 GUI 경로를 쓴다. 어댑터가 이미 더 구체적인 terminal 방법을 주면 중복 카드는 만들지 않는다.
+  if (runtimeAuth && !normalized.some((method) => method.kind === 'terminal')) {
+    normalized.push(runtimeLoginMethod(runtime))
+  }
+  return normalized
 }
 
 function safeAuthUrl(raw: unknown): string | null {
@@ -215,6 +257,8 @@ export class AgentSession {
   readonly cwd: string
   #child: ChildProcess
   #conn: ClientSideConnection
+  #startupFailure: Promise<never>
+  #rejectStartup: ((err: Error) => void) | null = null
   #sessionId = ''
   #events: AgentEvent[] = []
   #listeners = new Set<(event: AgentEvent) => void>()
@@ -244,6 +288,9 @@ export class AgentSession {
     this.runtime = runtime
     this.cwd = cwd
     this.#idleKillMs = idleKillMs
+    this.#startupFailure = new Promise<never>((_resolve, reject) => {
+      this.#rejectStartup = reject
+    })
     const env = { ...process.env, ...spec.env }
     // 주인 표식은 자손까지 그대로 상속된다 — 서버가 SIGKILL로 죽어도 다음 실행이 이걸 보고 걷어낸다
     env[OWNER_ENV] = String(process.pid)
@@ -263,9 +310,11 @@ export class AgentSession {
     this.#child.stderr?.on('data', (chunk: Buffer) => {
       console.error(`[mew:agent:${runtime}]`, chunk.toString().trimEnd())
     })
-    this.#child.on('error', (err) => this.#fail(`에이전트를 실행하지 못했습니다: ${err.message}`))
+    this.#child.on('error', (err) => {
+      if (!this.#disposed) this.#failStartup(`에이전트를 실행하지 못했습니다: ${err.message}`)
+    })
     this.#child.on('exit', (code, signal) => {
-      if (!this.#disposed) this.#fail(`에이전트가 종료됐습니다 (code=${code} signal=${signal})`)
+      if (!this.#disposed) this.#failStartup(`에이전트가 종료됐습니다 (code=${code} signal=${signal})`)
     })
     const stream = ndJsonStream(
       Writable.toWeb(this.#child.stdin!) as WritableStream<Uint8Array>,
@@ -281,24 +330,29 @@ export class AgentSession {
     idleKillMs = AGENT_IDLE_MS,
   ): Promise<AgentSession> {
     const session = new AgentSession(runtime, spec, cwd, idleKillMs)
+    let handshakeTimer: NodeJS.Timeout | null = null
     try {
       // 핸드셰이크에 시한을 둔다 — 어댑터가 떴는데 ACP를 말하지 않으면(잘못 깔린 실행 파일, 로그인
       // 안 된 CLI) initialize의 응답이 영영 오지 않는다. 시한이 없으면 그 자리에서 기다리는 쪽이
       // 통째로 멎는다: 창은 "에이전트 준비 중"에서, 셋은 작업이 running인 채로 굳는다
       await Promise.race([
         session.#handshake(),
+        session.#startupFailure,
         new Promise<never>((_, reject) => {
-          const timer = setTimeout(
+          handshakeTimer = setTimeout(
             () => reject(new Error('에이전트가 응답하지 않습니다 (핸드셰이크 시간 초과)')),
             HANDSHAKE_TIMEOUT_MS,
           )
-          timer.unref?.()
+          handshakeTimer.unref?.()
         }),
       ])
+      session.#rejectStartup = null
       session.#armIdleTimer()
     } catch (err) {
       session.dispose()
       throw err
+    } finally {
+      if (handshakeTimer) clearTimeout(handshakeTimer)
     }
     return session
   }
@@ -523,9 +577,13 @@ export class AgentSession {
     this.#authenticating = true
     this.#authError = null
     this.#broadcast(this.#authEvent())
-    const request: AuthenticateRequest = method.kind === 'api-key'
-      ? { methodId, _meta: { 'api-key': { apiKey: secret!.trim() } } }
-      : { methodId }
+    const cleanSecret = secret?.trim()
+    const apiKeyMeta = cleanSecret
+      ? RUNTIMES[this.runtime]?.auth.apiKeyMeta?.(cleanSecret) ?? { 'api-key': { apiKey: cleanSecret } }
+      : undefined
+    const request = (method.kind === 'api-key'
+      ? { methodId, _meta: apiKeyMeta }
+      : { methodId }) as AuthenticateRequest
     try {
       await this.#conn.authenticate(request)
       await this.#createSession()
@@ -790,6 +848,14 @@ export class AgentSession {
   #fail(message: string) {
     this.#emit({ type: 'error', message })
     this.dispose()
+  }
+
+  /** SDK가 stdio EOF를 initialize 실패로 풀어 주지 않아도 자식 종료 즉시 start()를 깨운다. */
+  #failStartup(message: string) {
+    const reject = this.#rejectStartup
+    this.#rejectStartup = null
+    reject?.(new Error(message))
+    this.#fail(message)
   }
 
   #armIdleTimer() {

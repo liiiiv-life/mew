@@ -9,6 +9,10 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 /** 기본 Claude Code ACP 백엔드 — 버전 고정된 로컬 설치본. `npx @latest`로 띄우지 않는다(ADR 0034). */
 const DEFAULT_CLAUDE_ACP_CMD = path.resolve(here, '../node_modules/.bin/claude-agent-acp')
 const DEFAULT_CODEX_ACP_CMD = path.resolve(here, '../node_modules/.bin/codex-acp')
+const DEFAULT_CODEX_CLI_CMD = path.resolve(here, '../node_modules/.bin/codex')
+
+/** ACP가 인증 전에 뜨지 못해도 브라우저 터미널에서 실행할 수 있는 공통 로그인 method id. */
+export const RUNTIME_LOGIN_METHOD_ID = 'mew-runtime-login'
 
 export interface SpawnSpec {
   cmd: string
@@ -22,6 +26,22 @@ export interface RuntimeSkill {
   path: string
 }
 
+/** 브라우저에는 name/description만 보내고 실행 spec은 owner/manager 전용 서버 경계 안에 둔다. */
+export interface RuntimeLoginSpec extends SpawnSpec {
+  name: string
+  description: string
+  label: string
+}
+
+export interface RuntimeAuthentication {
+  /** ACP initialize 이전 실패까지 복구하는 런타임 고정 로그인/초기 설정 명령. */
+  login: () => RuntimeLoginSpec
+  /** 구형 SDK가 terminal `type`/`args`를 지우는 method는 이 GUI 터미널 하나로 치환한다. */
+  replaceMethodIds?: string[]
+  /** 공급자마다 다른 ACP API-key `_meta` wire shape. */
+  apiKeyMeta?: (secret: string) => Record<string, unknown>
+}
+
 export interface AgentRuntime {
   id: string
   label: string
@@ -29,6 +49,8 @@ export interface AgentRuntime {
   spec: () => SpawnSpec
   /** UI 설치 버튼이 실행하는 고정 명령. 요청 값을 인자에 섞지 않는다. */
   install?: () => SpawnSpec
+  /** 설치와 별개인 인증 계약. 등록된 모든 런타임이 GUI 로그인 복구 경로를 가진다. */
+  auth: RuntimeAuthentication
   /** 런타임이 스킬을 해석하는 방법. 없으면 모든 ACP 에이전트가 읽을 수 있는 일반 지시문을 쓴다. */
   skillPrompt?: (skills: RuntimeSkill[]) => string
 }
@@ -91,7 +113,11 @@ function kimiSpawnSpec(): SpawnSpec {
 
 function geminiSpawnSpec(): SpawnSpec {
   const cmd = process.env.MEW_AGENT_GEMINI_CMD || 'gemini'
-  return { cmd, args: splitArgs(process.env.MEW_AGENT_GEMINI_ARGS, ['--experimental-acp']) }
+  return {
+    cmd,
+    args: splitArgs(process.env.MEW_AGENT_GEMINI_ARGS, ['--acp']),
+    env: { NO_BROWSER: process.env.NO_BROWSER ?? 'true' },
+  }
 }
 
 function openclawSpawnSpec(): SpawnSpec {
@@ -107,41 +133,91 @@ function opencodeSpawnSpec(): SpawnSpec {
 /** Cursor CLI는 기본 실행 파일 이름이 `agent`다. ACP 진입점이 달라지면 env로 덮어쓴다. */
 function cursorSpawnSpec(): SpawnSpec {
   const cmd = process.env.MEW_AGENT_CURSOR_CMD || 'agent'
-  return { cmd, args: splitArgs(process.env.MEW_AGENT_CURSOR_ARGS, ['acp']) }
+  return {
+    cmd,
+    args: splitArgs(process.env.MEW_AGENT_CURSOR_ARGS, ['acp']),
+    env: { NO_OPEN_BROWSER: process.env.NO_OPEN_BROWSER ?? '1' },
+  }
 }
+
+const login = (
+  spec: SpawnSpec,
+  args: string[],
+  name: string,
+  description: string,
+  label = name,
+): RuntimeLoginSpec => ({ cmd: spec.cmd, args, env: spec.env, name, description, label })
 
 export const RUNTIMES: Record<string, AgentRuntime> = {
   claude: {
     id: 'claude', label: 'Claude Code', spec: claudeSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/claude-agent-acp@0.65.0'] }),
+    auth: {
+      login: () => {
+        const spec = claudeSpawnSpec()
+        return login(spec, [...spec.args, '--cli'], 'Claude Code 로그인', 'Claude Code 로그인 화면을 터미널에서 엽니다.')
+      },
+    },
   },
   codex: {
     id: 'codex', label: 'Codex', spec: codexSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/codex-acp@1.6.0'] }),
+    auth: {
+      login: () => login(
+        { cmd: DEFAULT_CODEX_CLI_CMD, args: [], env: codexSpawnSpec().env },
+        ['login', '--device-auth'],
+        'Codex 로그인',
+        '기기 코드를 이용해 ChatGPT 계정으로 로그인합니다.',
+      ),
+    },
   },
   hermes: {
     id: 'hermes', label: 'Hermes', spec: hermesSpawnSpec,
     install: () => ({ cmd: 'uv', args: ['tool', 'install', '--force', 'hermes-agent[acp]'] }),
+    auth: {
+      login: () => login(hermesSpawnSpec(), ['acp', '--setup'], 'Hermes 로그인/설정', '모델 공급자와 자격증명을 설정합니다.'),
+      replaceMethodIds: ['hermes-setup'],
+    },
   },
   kimi: {
     id: 'kimi', label: 'Kimi Code', spec: kimiSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '-g', '@moonshot-ai/kimi-code@latest'] }),
+    auth: {
+      login: () => login(kimiSpawnSpec(), ['login'], 'Kimi Code 로그인', '기기 코드를 이용해 Kimi 계정으로 로그인합니다.'),
+      replaceMethodIds: ['login'],
+    },
   },
   gemini: {
     id: 'gemini', label: 'Gemini CLI', spec: geminiSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '-g', '@google/gemini-cli@latest'] }),
+    auth: {
+      login: () => login(geminiSpawnSpec(), ['--skip-trust'], 'Gemini CLI 로그인/설정', 'Google 로그인 또는 인증 방식을 터미널에서 선택합니다.'),
+      replaceMethodIds: ['oauth-personal', 'vertex-ai', 'gateway'],
+      // Gemini ACP는 객체가 아니라 문자열을 요구한다. Codex 호환 shape를 공통 적용하면 로그인이 실패한다.
+      apiKeyMeta: (secret) => ({ 'api-key': secret }),
+    },
   },
   openclaw: {
     id: 'openclaw', label: 'OpenClaw', spec: openclawSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '-g', 'openclaw@latest'] }),
+    auth: {
+      login: () => login(openclawSpawnSpec(), ['onboard', '--tui'], 'OpenClaw 로그인/설정', '공급자 인증과 게이트웨이를 대화형으로 설정합니다.'),
+    },
   },
   opencode: {
     id: 'opencode', label: 'OpenCode', spec: opencodeSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '-g', 'opencode-ai@latest'] }),
+    auth: {
+      login: () => login(opencodeSpawnSpec(), ['auth', 'login'], 'OpenCode 로그인', '모델 공급자를 골라 로그인합니다.'),
+    },
   },
   cursor: {
     id: 'cursor', label: 'Cursor CLI', spec: cursorSpawnSpec,
     install: () => ({ cmd: 'bash', args: ['-lc', 'curl https://cursor.com/install -fsS | bash'] }),
+    auth: {
+      login: () => login(cursorSpawnSpec(), ['login'], 'Cursor CLI 로그인', 'Cursor 계정으로 로그인합니다.'),
+      replaceMethodIds: ['cursor_login'],
+    },
   },
 }
 
@@ -153,6 +229,13 @@ export function isRuntime(id: string): boolean {
 
 export function runtimeList(): { id: string; label: string }[] {
   return Object.values(RUNTIMES).map(({ id, label }) => ({ id, label }))
+}
+
+/** 요청값으로 명령을 만들지 않는다. 등록표에 박힌 로그인 spec만 돌려준다. */
+export function runtimeLoginSpec(runtime: string): RuntimeLoginSpec {
+  const entry = RUNTIMES[runtime]
+  if (!entry) throw new Error('지원하지 않는 에이전트 런타임입니다')
+  return entry.auth.login()
 }
 
 function defaultSkillPrompt(skills: RuntimeSkill[]): string {
