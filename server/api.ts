@@ -15,7 +15,7 @@ import { noteAppWrite } from './appWrites.ts'
 import { updateLinkLabelsFor } from './links.ts'
 import { uploadAsset, R2NotConfiguredError } from './r2.ts'
 import { createTmuxManager, createTmuxRouter } from '@mew/tmux-term/server'
-import { CmdButtonError, commandSessionName, normalizeCmdButtons, readCmdButtons, writeCmdButtons } from './cmdButtons.ts'
+import { CmdButtonError, commandSessionName, normalizeCmdButtons, oneShotCommand, readCmdButtons, writeCmdButtons } from './cmdButtons.ts'
 import { normalizeTermButtons, readTermButtons, TermButtonError, writeTermButtons } from './termButtons.ts'
 import { readTableLayout, TableLayoutError, writeTableLayout } from './tableLayout.ts'
 import { ChatError, listChatFor, markChatRead, mentionedEmails, postChatMessage } from './chat.ts'
@@ -30,7 +30,7 @@ import { browserProxyFrameUrl } from './browserProxy.ts'
 import { createTodo, deleteTodo, listTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
 import { currentWorkspace, switchDocsRoot, switchWorkspace, WorkspaceError } from './workspace.ts'
 import { collectSystemStats } from './sysStats.ts'
-import { collectAndroidEnvStatus } from './androidEnv.ts'
+import { androidCommandById, collectAndroidEnvStatus } from './androidEnv.ts'
 import { listSkills } from './skills.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
@@ -183,10 +183,28 @@ export function createApiApp() {
     }
   })
 
-  // ── Android 패널: 무거운 emulator는 실행하지 않고, 로컬 도구 상태만 확인한다 ─────
+  // ── Android 패널: 상태 확인 + 사용자가 누른 서버 등록표 명령만 one-shot tmux로 실행 ─────
   app.get('/android/status', requireRole('manager', 'owner'), async (_req, res) => {
     try {
-      res.json(await collectAndroidEnvStatus())
+      const running = new Set((await tmuxManager.list()).map((session) => session.name))
+      res.json(await collectAndroidEnvStatus(running))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/android/commands/:id/run', requireRole('manager', 'owner'), async (req, res) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+      const runnable = androidCommandById(id)
+      if (!runnable) {
+        res.status(404).json({ error: '해당 Android 안내 명령을 찾을 수 없습니다' })
+        return
+      }
+      // Android 안내 명령은 모두 one-shot이다. 대화형 명령은 사용자가 팝업 터미널에서 응답할 수 있고,
+      // 명령이 끝나면 프로젝트 명령어 버튼과 똑같이 자기 숨김 세션을 정리한다.
+      await tmuxManager.runCommand(runnable.session, oneShotCommand(runnable.command, runnable.session), WORKSPACE_ROOT)
+      res.json({ ok: true, session: runnable.session })
     } catch (err) {
       handleError(res, err)
     }
@@ -1372,7 +1390,7 @@ export function createApiApp() {
       const session = commandSessionName(project, button.name)
       // 일회성 명령은 끝나자마자 자기 세션을 스스로 닫는다 — 세션 이름은 SESSION_NAME_RE로 검증된
       // 값이라 셸에 그대로 이어 붙여도 안전하다
-      const command = button.oneShot ? `${button.command}; tmux kill-session -t ${session}` : button.command
+      const command = button.oneShot ? oneShotCommand(button.command, session) : button.command
       await tmuxManager.runCommand(session, command, root)
       res.json({ ok: true, session })
     } catch (err) {

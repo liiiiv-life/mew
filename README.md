@@ -211,8 +211,12 @@ system image는 mew 배포물에 넣지 않는다([ADR 0058](../.mew/docs/decisi
 패널이 하는 일은 두 가지뿐이다.
 
 - Linux·WSL에서는 `/dev/kvm`, macOS에서는 Emulator의 Hypervisor.Framework 가속 상태를 확인하고,
-  Android SDK 도구(`sdkmanager`·`adb`·`emulator`·`avdmanager`)와 AVD 존재 여부를 보여준다. Apple Silicon은
-  `arm64-v8a`, Intel/AMD는 `x86_64` system image 명령을 제시한다.
+  Android SDK 도구(`sdkmanager`·`adb`·`emulator`·`avdmanager`), API 36 system image, AVD 존재 여부를
+  보여준다. Apple Silicon은 `arm64-v8a`, Intel/AMD는 `x86_64` image를 고르고, image가 없으면 설치
+  명령만 제시한 뒤 새로고침 후에 AVD 생성 명령을 제시한다.
+- 안내 명령의 복사 아이콘 옆 **▶**는 서버가 정한 명령 ID를 전용 숨김 tmux 세션(`mewcmd-*`)에서 실행한다.
+  옆 터미널 아이콘은 `SessionTerminalPopup`으로 진행 화면과 대화형 입력을 열고, 명령이 끝나면 프로젝트
+  one-shot 명령어 버튼과 같은 경로로 자기 세션을 자동 종료한다. 브라우저가 보낸 임의 명령 문자열은 실행하지 않는다.
 - 이미 떠 있는 Android WebRTC/gateway 주소를 입력하면 브라우저 창과 같은 loopback 프록시로 iframe에 연다.
 
 권한은 브라우저 창·터미널과 같다 — **manager·owner만** 연다. 상태 점검 API는 emulator를 실행하지 않고,
@@ -222,6 +226,7 @@ system image는 mew 배포물에 넣지 않는다([ADR 0058](../.mew/docs/decisi
 | 라우트 | 역할 | 하는 일 |
 |---|---|---|
 | `GET /api/android/status` | **manager·owner** | Linux·WSL KVM 또는 macOS 가속, Android SDK, 호스트 아키텍처용 AVD 상태 점검. emulator 실행 없음 |
+| `POST /api/android/commands/:id/run` | **manager·owner** | 서버 등록표의 Android 안내 명령을 one-shot tmux 세션에서 실행 |
 
 ## docs 탭
 

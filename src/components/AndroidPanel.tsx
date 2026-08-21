@@ -1,7 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { copyText } from '@mew/ui'
 import { Check, Copy, Refresh, Xmark } from 'iconoir-react'
-import { fetchAndroidEnvStatus, fetchBrowserFrameUrl, type AndroidEnvStatus } from '../api/client'
+import {
+  fetchAndroidEnvStatus,
+  fetchBrowserFrameUrl,
+  killTmuxSession,
+  runAndroidCommand,
+  type AndroidCommandItem,
+  type AndroidEnvStatus,
+} from '../api/client'
+import { SessionTerminalPopup } from './SessionTerminalPopup'
 
 const GATEWAY_KEY = 'mew:android-gateway-url'
 const DEFAULT_GATEWAY = 'http://localhost:8080/'
@@ -10,7 +18,29 @@ function loadGatewayUrl(): string {
   return localStorage.getItem(GATEWAY_KEY) || DEFAULT_GATEWAY
 }
 
-function CopyableCode({ text, label = '복사' }: { text: string; label?: string }) {
+type RunnableAndroidCommand = AndroidCommandItem & {
+  id: string
+  command: string
+  session: string
+  running: boolean
+}
+
+function isRunnableCommand(item: AndroidCommandItem): item is RunnableAndroidCommand {
+  return typeof item.id === 'string'
+    && typeof item.command === 'string'
+    && typeof item.session === 'string'
+    && typeof item.running === 'boolean'
+}
+
+function CopyableCode({ text, label = '복사', action, busy, onRun, onStop, onOpenSession }: {
+  text: string
+  label?: string
+  action?: RunnableAndroidCommand
+  busy?: boolean
+  onRun?: () => void
+  onStop?: () => void
+  onOpenSession?: () => void
+}) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -29,15 +59,44 @@ function CopyableCode({ text, label = '복사' }: { text: string; label?: string
       >
         {copied ? <Check width={12} height={12} strokeWidth={2.2} aria-hidden="true" /> : <Copy width={12} height={12} strokeWidth={2} aria-hidden="true" />}
       </button>
+      {action && (
+        <>
+          <button
+            type="button"
+            onClick={action.running ? onStop : onRun}
+            disabled={busy}
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover disabled:opacity-40 ${
+              action.running ? 'hover:text-danger-strong' : 'hover:text-accent-strong'
+            }`}
+            aria-label={`${action.context} ${action.running ? '정지' : '실행'}`}
+            title={action.running ? '정지 — tmux 세션 종료' : 'tmux에서 실행'}
+          >
+            {action.running ? <StopGlyph /> : <PlayGlyph />}
+          </button>
+          <button
+            type="button"
+            onClick={onOpenSession}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
+            aria-label={`${action.context} 터미널 세션`}
+            title="터미널 세션 보기"
+          >
+            <TerminalGlyph />
+          </button>
+        </>
+      )}
     </span>
   )
 }
 
-function CheckRow({ label, ok, detail, fixes }: {
+function CheckRow({ label, ok, detail, fixes, busyId, onRun, onStop, onOpenSession }: {
   label: string
   ok: boolean
   detail: string
-  fixes?: Array<{ context: string; command?: string }>
+  fixes?: AndroidCommandItem[]
+  busyId: string | null
+  onRun: (command: RunnableAndroidCommand) => void
+  onStop: (command: RunnableAndroidCommand) => void
+  onOpenSession: (command: RunnableAndroidCommand) => void
 }) {
   return (
     <div className="grid grid-cols-[1.5rem_7rem_1fr] gap-2 border-b border-edge px-3 py-2 text-xs last:border-b-0">
@@ -50,7 +109,17 @@ function CheckRow({ label, ok, detail, fixes }: {
         {fixes?.map((step) => (
           <span key={`${step.context}:${step.command}`} className="mt-1 block">
             <span className="text-[11px] text-ink-muted">{step.context}</span>
-            {step.command && <CopyableCode text={step.command} label={`${step.context} 명령 복사`} />}
+            {step.command && (
+              <CopyableCode
+                text={step.command}
+                label={`${step.context} 명령 복사`}
+                action={isRunnableCommand(step) ? step : undefined}
+                busy={step.id === busyId}
+                onRun={() => isRunnableCommand(step) && onRun(step)}
+                onStop={() => isRunnableCommand(step) && onStop(step)}
+                onOpenSession={() => isRunnableCommand(step) && onOpenSession(step)}
+              />
+            )}
           </span>
         ))}
       </span>
@@ -61,24 +130,65 @@ function CheckRow({ label, ok, detail, fixes }: {
 export function AndroidPanel({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<AndroidEnvStatus | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
+  const [commandError, setCommandError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [popup, setPopup] = useState<RunnableAndroidCommand | null>(null)
   const [gatewayDraft, setGatewayDraft] = useState(loadGatewayUrl)
   const [gatewayUrl, setGatewayUrl] = useState(loadGatewayUrl)
   const [frameSrc, setFrameSrc] = useState('about:blank')
   const [frameError, setFrameError] = useState<string | null>(null)
 
-  function refreshStatus() {
+  const refreshStatus = useCallback(() => {
     setLoading(true)
     setStatusError(null)
-    fetchAndroidEnvStatus()
+    return fetchAndroidEnvStatus()
       .then(setStatus)
       .catch((err) => setStatusError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false))
-  }
+  }, [])
 
   useEffect(() => {
-    refreshStatus()
-  }, [])
+    void refreshStatus()
+  }, [refreshStatus])
+
+  const running = status?.suggestedCommands.some((item) => item.running)
+    || status?.checks.some((check) => check.fixes?.some((item) => item.running))
+
+  // one-shot 명령이 끝나 자기 세션을 닫으면 ▶ 상태도 자동으로 돌아오게, 실행 중일 때만 폴링한다.
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => void refreshStatus(), 2000)
+    return () => window.clearInterval(timer)
+  }, [refreshStatus, running])
+
+  async function run(command: RunnableAndroidCommand) {
+    if (busyId) return
+    setBusyId(command.id)
+    setCommandError(null)
+    try {
+      await runAndroidCommand(command.id)
+      await refreshStatus()
+    } catch (err) {
+      setCommandError(err instanceof Error ? err.message : '실행 실패')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function stop(command: RunnableAndroidCommand) {
+    if (busyId) return
+    setBusyId(command.id)
+    setCommandError(null)
+    try {
+      await killTmuxSession(command.session)
+      await refreshStatus()
+    } catch (err) {
+      setCommandError(err instanceof Error ? err.message : '종료 실패')
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -102,7 +212,8 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
   }, [gatewayUrl])
 
   return (
-    <section className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label="Android">
+    <>
+      <section className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label="Android">
       <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface px-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -151,12 +262,23 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
             <div className="px-3 py-2 text-xs text-danger">{statusError}</div>
           ) : status ? (
             <>
+              {commandError && <div className="border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{commandError}</div>}
               <div className="border-b border-edge px-3 py-2 text-xs text-ink-muted">
                 <span>SDK</span>
                 <CopyableCode text={status.sdkRoot} label="SDK 경로 복사" />
               </div>
               {status.checks.map((check) => (
-                <CheckRow key={check.id} label={check.label} ok={check.ok} detail={check.detail} fixes={check.fixes} />
+                <CheckRow
+                  key={check.id}
+                  label={check.label}
+                  ok={check.ok}
+                  detail={check.detail}
+                  fixes={check.fixes}
+                  busyId={busyId}
+                  onRun={(command) => void run(command)}
+                  onStop={(command) => void stop(command)}
+                  onOpenSession={setPopup}
+                />
               ))}
               {status.suggestedCommands.length > 0 && (
                 <div className="border-t border-edge px-3 py-2 text-xs text-ink-muted">
@@ -165,7 +287,15 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
                     {status.suggestedCommands.map((item) => (
                       <div key={`${item.context}:${item.command}`}>
                         <div className="text-[11px] text-ink-muted">{item.context}</div>
-                        <CopyableCode text={item.command} label={`${item.context} 명령 복사`} />
+                        <CopyableCode
+                          text={item.command}
+                          label={`${item.context} 명령 복사`}
+                          action={item}
+                          busy={item.id === busyId}
+                          onRun={() => void run(item)}
+                          onStop={() => void stop(item)}
+                          onOpenSession={() => setPopup(item)}
+                        />
                       </div>
                     ))}
                   </div>
@@ -185,6 +315,46 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
           referrerPolicy="same-origin"
         />
       </div>
-    </section>
+      </section>
+
+      {popup && (
+        <SessionTerminalPopup
+          title={popup.context}
+          subtitle={popup.command}
+          idleNote={popup.command}
+          session={popup.session}
+          running={popup.running}
+          onRun={() => runAndroidCommand(popup.id)}
+          onClose={() => setPopup(null)}
+          onChanged={() => void refreshStatus()}
+        />
+      )}
+    </>
+  )
+}
+
+function PlayGlyph() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  )
+}
+
+function StopGlyph() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+    </svg>
+  )
+}
+
+function TerminalGlyph() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m6 9 3 3-3 3" />
+      <path d="M13 15h4" />
+    </svg>
   )
 }

@@ -102,3 +102,8 @@ export function commandSessionName(project: string, name: string): string {
   const hash = crypto.createHash('sha256').update(`${project} ${name}`).digest('hex').slice(0, 16)
   return `${COMMAND_SESSION_PREFIX}${hash}`
 }
+
+/** 명령이 끝난 뒤 자기 숨김 tmux 세션을 닫는 one-shot 명령 — 프로젝트 버튼과 안내 실행이 공유한다. */
+export function oneShotCommand(command: string, session: string): string {
+  return `${command}; tmux kill-session -t ${session}`
+}

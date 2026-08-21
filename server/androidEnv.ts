@@ -3,12 +3,27 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { commandSessionName } from './cmdButtons.ts'
 
 const run = promisify(execFile)
 
-export interface AndroidEnvFix { context: string; command?: string }
+export type AndroidCommandId = 'licenses' | 'install-image' | 'create-avd' | 'start-emulator'
+export interface AndroidCommand {
+  id: AndroidCommandId
+  context: string
+  command: string
+  session: string
+}
+export interface AndroidRunnableCommand extends AndroidCommand { running: boolean }
+export interface AndroidEnvFix {
+  context: string
+  command?: string
+  id?: AndroidCommandId
+  session?: string
+  running?: boolean
+}
 export interface AndroidEnvCheck { id: string; label: string; ok: boolean; detail: string; fixes?: AndroidEnvFix[] }
-export interface AndroidSuggestedCommand { context: string; command: string }
+export interface AndroidSuggestedCommand extends AndroidRunnableCommand {}
 export interface AndroidEnvStatus {
   platform: NodeJS.Platform
   architecture: string
@@ -59,6 +74,43 @@ export function systemImageArchitecture(architecture: string): 'arm64-v8a' | 'x8
   return architecture === 'arm64' ? 'arm64-v8a' : 'x86_64'
 }
 
+export function isSystemImageInstalled(root: string, packageId: string): boolean {
+  const packageDir = path.join(root, ...packageId.split(';'))
+  return fileExists(path.join(packageDir, 'package.xml'))
+}
+
+export function androidCommands(root: string, architecture: string): AndroidCommand[] {
+  const tools = commandPaths(root)
+  const imageArchitecture = systemImageArchitecture(architecture)
+  const imagePackage = `system-images;android-36;google_apis;${imageArchitecture}`
+  const commands: Array<Omit<AndroidCommand, 'session'>> = [
+    { id: 'licenses', context: 'SDK 라이선스 확인', command: `${tools.sdkmanager} --licenses` },
+    {
+      id: 'install-image',
+      context: `${imageArchitecture} 도구와 system image 설치`,
+      command: `${tools.sdkmanager} "platform-tools" "emulator" "${imagePackage}"`,
+    },
+    {
+      id: 'create-avd',
+      context: 'AVD 생성',
+      command: `${tools.avdmanager} create avd -n mew-api36 -k "${imagePackage}"`,
+    },
+    {
+      id: 'start-emulator',
+      context: '헤드리스 emulator 실행',
+      command: `${tools.emulator} @mew-api36 -no-window -no-snapshot`,
+    },
+  ]
+  return commands.map((command) => ({
+    ...command,
+    session: commandSessionName('mew-android', command.id),
+  }))
+}
+
+export function androidCommandById(id: string): AndroidCommand | null {
+  return androidCommands(sdkRoot(), os.arch()).find((command) => command.id === id) ?? null
+}
+
 async function avdCount(avdmanager: string): Promise<number | null> {
   if (!executable(avdmanager)) return null
   try {
@@ -79,7 +131,7 @@ async function accelerationStatus(emulator: string): Promise<{ ok: boolean; deta
   }
 }
 
-export async function collectAndroidEnvStatus(): Promise<AndroidEnvStatus> {
+export async function collectAndroidEnvStatus(runningSessions: ReadonlySet<string> = new Set()): Promise<AndroidEnvStatus> {
   const platform = process.platform
   const architecture = os.arch()
   const wsl = platform === 'linux' && isWsl()
@@ -90,9 +142,15 @@ export async function collectAndroidEnvStatus(): Promise<AndroidEnvStatus> {
   const hasEmulator = executable(tools.emulator)
   const imageArchitecture = systemImageArchitecture(architecture)
   const imagePackage = `system-images;android-36;google_apis;${imageArchitecture}`
+  const hasSystemImage = isSystemImageInstalled(root, imagePackage)
+  const commands = androidCommands(root, architecture)
+  const command = (id: AndroidCommandId): AndroidRunnableCommand => {
+    const found = commands.find((item) => item.id === id)
+    if (!found) throw new Error(`Android command not found: ${id}`)
+    return { ...found, running: runningSessions.has(found.session) }
+  }
   const count = await avdCount(tools.avdmanager)
   const acceleration = await accelerationStatus(tools.emulator)
-  const createCommand = `${tools.avdmanager} create avd -n mew-api36 -k "${imagePackage}"`
   const checks: AndroidEnvCheck[] = [{
     id: 'host', label: '호스트', ok: supported,
     detail: platform === 'darwin' ? `macOS ${architecture}` : wsl ? `WSL ${architecture}` : `${platform} ${architecture}`,
@@ -149,21 +207,34 @@ export async function collectAndroidEnvStatus(): Promise<AndroidEnvStatus> {
       detail: executable(tools.avdmanager) ? tools.avdmanager : 'Android SDK Command-Line Tools 없음',
     },
     {
+      id: 'system-image', label: 'API 36 image', ok: hasSystemImage,
+      detail: hasSystemImage ? imagePackage : `미설치: ${imagePackage}`,
+      fixes: hasSystemImage || !hasSdkManager ? undefined : [
+        { ...command('licenses'), context: '1. SDK 라이선스 확인' },
+        { ...command('install-image'), context: `2. ${imageArchitecture} system image 설치` },
+      ],
+    },
+    {
       id: 'avd', label: 'AVD', ok: typeof count === 'number' && count > 0,
-      detail: typeof count === 'number' ? `${count}개` : 'avdmanager가 없어 확인 불가',
-      fixes: typeof count === 'number' && count === 0 ? [{ context: `${imageArchitecture} AVD 생성`, command: createCommand }] : undefined,
+      detail: typeof count !== 'number' ? 'avdmanager가 없어 확인 불가'
+        : count > 0 ? `${count}개`
+          : hasSystemImage ? '0개' : 'system image 설치 후 생성 가능',
+      fixes: typeof count === 'number' && count === 0 && hasSystemImage
+        ? [{ ...command('create-avd'), context: `${imageArchitecture} AVD 생성` }]
+        : undefined,
     },
   )
 
   const suggestedCommands: AndroidSuggestedCommand[] = []
-  if (hasSdkManager) {
-    suggestedCommands.push(
-      { context: 'SDK 라이선스 확인', command: `${tools.sdkmanager} --licenses` },
-      { context: `${imageArchitecture} 도구와 system image 설치`, command: `${tools.sdkmanager} "platform-tools" "emulator" "${imagePackage}"` },
-    )
+  if (hasSdkManager && !hasSystemImage) {
+    suggestedCommands.push(command('licenses'), command('install-image'))
   }
-  if (executable(tools.avdmanager)) suggestedCommands.push({ context: 'AVD가 없을 때 생성', command: createCommand })
-  if (hasEmulator) suggestedCommands.push({ context: '헤드리스 emulator 실행', command: `${tools.emulator} @mew-api36 -no-window -no-snapshot` })
+  if (hasSystemImage && executable(tools.avdmanager) && count === 0) {
+    suggestedCommands.push(command('create-avd'))
+  }
+  if (hasEmulator && typeof count === 'number' && count > 0) {
+    suggestedCommands.push(command('start-emulator'))
+  }
 
   return { platform, architecture, isWsl: wsl, sdkRoot: root, checks, suggestedCommands }
 }

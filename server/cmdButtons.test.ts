@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { WORKSPACE_ROOT } from './paths.ts'
 import { createProject, deleteProject } from './projects.ts'
-import { CmdButtonError, commandSessionName, normalizeCmdButtons, readCmdButtons, writeCmdButtons } from './cmdButtons.ts'
+import { CmdButtonError, commandSessionName, normalizeCmdButtons, oneShotCommand, readCmdButtons, writeCmdButtons } from './cmdButtons.ts'
 
 const rand = () => `ztest${process.pid}${Math.random().toString(36).slice(2, 6)}`
 
@@ -128,4 +128,8 @@ test('commandSessionName: 결정적이고 세션 이름 규칙을 만족하며 �
   assert.match(a, /^[a-zA-Z0-9_-]{1,50}$/) // tmux 세션 이름 규칙
   assert.notEqual(a, commandSessionName('other', '빌드')) // 프로젝트가 다르면 다름
   assert.notEqual(a, commandSessionName('proj', '테스트')) // 버튼명이 다르면 다름
+})
+
+test('oneShotCommand: 명령 결과와 무관하게 자기 tmux 세션을 마지막에 닫는다', () => {
+  assert.equal(oneShotCommand('sdkmanager --licenses', 'mewcmd-abc'), 'sdkmanager --licenses; tmux kill-session -t mewcmd-abc')
 })

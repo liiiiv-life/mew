@@ -178,7 +178,15 @@ export interface AndroidEnvCheck {
   label: string
   ok: boolean
   detail: string
-  fixes?: Array<{ context: string; command?: string }>
+  fixes?: AndroidCommandItem[]
+}
+
+export interface AndroidCommandItem {
+  id?: string
+  context: string
+  command?: string
+  session?: string
+  running?: boolean
 }
 
 export interface AndroidEnvStatus {
@@ -187,11 +195,17 @@ export interface AndroidEnvStatus {
   isWsl: boolean
   sdkRoot: string
   checks: AndroidEnvCheck[]
-  suggestedCommands: Array<{ context: string; command: string }>
+  suggestedCommands: Array<AndroidCommandItem & { id: string; command: string; session: string; running: boolean }>
 }
 
 export function fetchAndroidEnvStatus(): Promise<AndroidEnvStatus> {
   return fetch('/api/android/status').then(json<AndroidEnvStatus>)
+}
+
+export function runAndroidCommand(id: string): Promise<{ ok: true; session: string }> {
+  return fetch(`/api/android/commands/${encodeURIComponent(id)}/run`, { method: 'POST' }).then(
+    json<{ ok: true; session: string }>,
+  )
 }
 
 export interface SkillSummary {
