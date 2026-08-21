@@ -18,6 +18,8 @@ export function SessionTerminalPopup({
   session,
   running,
   idleNote,
+  statusNote,
+  statusTone = 'muted',
   onRun,
   onClose,
   onChanged,
@@ -31,6 +33,9 @@ export function SessionTerminalPopup({
   running: boolean
   /** 아직 실행 전일 때 가운데 보여줄 한 줄 */
   idleNote?: string
+  /** 실행 중인 전용 작업의 외부 상태 — 로그인 exit code처럼 터미널 연결과 별개인 값 */
+  statusNote?: string
+  statusTone?: 'muted' | 'success' | 'danger'
   /** 실행(=세션 생성) 요청 */
   onRun: () => Promise<unknown>
   /** 세션은 유지한 채 팝업만 닫는다 */
@@ -122,7 +127,15 @@ export function SessionTerminalPopup({
         </div>
 
         <div className="flex items-center gap-2 border-t border-edge px-3 py-2">
-          {error && <span className="mr-auto truncate text-xs text-danger-strong">{error}</span>}
+          {error ? (
+            <span className="mr-auto truncate text-xs text-danger-strong">{error}</span>
+          ) : statusNote ? (
+            <span className={`mr-auto truncate text-xs ${
+              statusTone === 'danger'
+                ? 'text-danger-strong'
+                : statusTone === 'success' ? 'text-success' : 'text-ink-muted'
+            }`}>{statusNote}</span>
+          ) : null}
           <button
             type="button"
             onClick={kill}

@@ -3,7 +3,17 @@
 // 대화 화면은 전부 서버가 보내 준 이벤트에서 파생한다(접는 규칙은 utils/agentFold.ts) — 재접속하면
 // 지나간 이벤트를 그대로 되받으므로 클라이언트가 따로 대화를 저장하지 않아도 복원된다.
 // 정보줄(세션·토큰·턴 수)은 이벤트가 아니라 서버가 보내는 meta 스냅샷을 그대로 그린다.
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react'
 import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { flattenFiles, type TreeNode } from '@mew/editor'
 import { copyTextFromAgentMarkdownClick, markAgentMarkdownCopied, renderMarkdown } from '../utils/agentMarkdown'
@@ -11,6 +21,7 @@ import { clearAgentInputDraft, readAgentInputDraft, writeAgentInputDraft } from 
 import { RUNTIMES } from './agentRuntimes'
 import {
   fetchAgentDefault,
+  fetchAgentAuthTerminalStatus,
   fetchAgentRuntimes,
   fetchSkills,
   installAgentRuntime,
@@ -73,6 +84,11 @@ const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
 
 /** 소프트 키보드를 띄우는 요소 — 여기 포커스가 남아 있으면 엉뚱한 탭에도 키보드가 딸려 온다 */
 const KEYBOARD_OWNER = 'textarea, input, [contenteditable="true"]'
+
+/** 두 줄 입력창의 기본 높이. 경계선을 위로 끌면 viewport의 80%까지 커진다. */
+const MIN_AGENT_INPUT_HEIGHT = 52
+const agentInputMaxHeight = () =>
+  Math.max(MIN_AGENT_INPUT_HEIGHT, Math.floor((window.visualViewport?.height ?? window.innerHeight) * 0.8))
 
 /**
  * 이 창에서 모바일 키보드를 띄우는 건 채팅 입력칸 하나뿐이다.
@@ -823,7 +839,14 @@ function AgentSessionView({
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
   const [auth, setAuth] = useState<AgentAuthState | null>(null)
   const [authUrl, setAuthUrl] = useState<AgentAuthUrl | null>(null)
-  const [authTerminal, setAuthTerminal] = useState<{ session: string; label: string; methodId: string } | null>(null)
+  const [authTerminal, setAuthTerminal] = useState<{
+    session: string
+    label: string
+    methodId: string
+    state: 'running' | 'succeeded' | 'failed' | 'interrupted'
+    exitCode: number | null
+  } | null>(null)
+  const [authTerminalOpen, setAuthTerminalOpen] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [savedDefault, setSavedDefault] = useState<AgentRuntimeDefault | null>(null)
@@ -847,9 +870,56 @@ function AgentSessionView({
     writeAgentInputDraft(tabId, draft)
   }, [draft, tabId])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [inputHeight, setInputHeight] = useState(MIN_AGENT_INPUT_HEIGHT)
+  const inputResizeCleanupRef = useRef<(() => void) | null>(null)
   // 지금 대화 바닥에 붙어 있는지 — 붙어 있을 때만 새 내용을 따라 내려간다
   const stickRef = useRef(true)
   const [unread, setUnread] = useState(false)
+
+  const startInputResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    inputResizeCleanupRef.current?.()
+
+    const pointerId = e.pointerId
+    const startY = e.clientY
+    const startHeight = e.currentTarget.parentElement?.querySelector('textarea')?.getBoundingClientRect().height
+      ?? inputHeight
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMove = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return
+      const next = startHeight + startY - event.clientY
+      setInputHeight(Math.min(agentInputMaxHeight(), Math.max(MIN_AGENT_INPUT_HEIGHT, next)))
+    }
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onEnd)
+      window.removeEventListener('pointercancel', onEnd)
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      if (inputResizeCleanupRef.current === cleanup) inputResizeCleanupRef.current = null
+    }
+    const onEnd = (event: PointerEvent) => {
+      if (event.pointerId === pointerId) cleanup()
+    }
+    inputResizeCleanupRef.current = cleanup
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onEnd)
+    window.addEventListener('pointercancel', onEnd)
+  }, [inputHeight])
+
+  const resizeInputWithKeyboard = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+    e.preventDefault()
+    const delta = e.key === 'ArrowUp' ? 12 : -12
+    setInputHeight((height) => Math.min(agentInputMaxHeight(), Math.max(MIN_AGENT_INPUT_HEIGHT, height + delta)))
+  }, [])
+
+  useEffect(() => () => inputResizeCleanupRef.current?.(), [])
 
   // 들어오는 이벤트는 **한 프레임에 모아** 한 번만 그린다. 이벤트마다 setState하면 스트리밍 청크
   // 하나하나가 foldEvents 한 번 + 목록 전체 다시 그리기 한 번이 되어(청크는 초당 수십 개다) 창이 굳는다.
@@ -900,6 +970,7 @@ function AgentSessionView({
     setAuth(null)
     setAuthUrl(null)
     setAuthTerminal(null)
+    setAuthTerminalOpen(false)
 
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -928,6 +999,7 @@ function AgentSessionView({
         if (event.type === 'auth_complete') {
           setAuth(null)
           setAuthUrl(null)
+          setAuthTerminalOpen(false)
           return setAuthTerminal(null)
         }
         if (event.type === 'sessions') return setSessions(event.sessions)
@@ -1020,6 +1092,45 @@ function AgentSessionView({
   }, [])
 
   const send = useCallback((payload: Record<string, unknown>) => wsRef.current?.send(JSON.stringify(payload)), [])
+
+  // terminal auth 명령의 실제 exit code를 본다. 성공했을 때만 tmux를 닫고 ACP를 새로 initialize한다.
+  // 팝업을 닫아도 로그인 명령과 감시는 계속된다 — 외부 브라우저 인증 중 화면을 오갈 수 있어야 한다.
+  useEffect(() => {
+    if (!authTerminal || authTerminal.state === 'failed' || authTerminal.state === 'interrupted') return
+    const terminal = authTerminal
+    let cancelled = false
+    let timer: number | undefined
+    const finish = async () => {
+      await killTmuxSession(terminal.session).catch(() => {})
+      if (cancelled) return
+      setAuthTerminalOpen(false)
+      setAuthTerminal(null)
+      send({ type: 'retry_auth' })
+    }
+    const poll = async () => {
+      try {
+        const status = await fetchAgentAuthTerminalStatus(runtime, tabId, terminal.methodId)
+        if (cancelled) return
+        if (status.state === 'succeeded') {
+          await finish()
+          return
+        }
+        if (status.state === 'failed' || status.state === 'interrupted') {
+          setAuthTerminal((current) => current?.session === terminal.session ? { ...current, ...status } : current)
+          return
+        }
+      } catch {
+        // 잠깐의 HTTP 단절은 WS처럼 다음 poll에서 복구한다. 로그인 프로세스는 건드리지 않는다.
+      }
+      timer = window.setTimeout(poll, 750)
+    }
+    if (terminal.state === 'succeeded') void finish()
+    else timer = window.setTimeout(poll, 400)
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [authTerminal, runtime, send, tabId])
 
   // 탭을 닫을 때 창이 이 탭의 WS로 close_session을 보낼 수 있게 보내는 손잡이를 올려 준다
   useEffect(() => {
@@ -1318,18 +1429,14 @@ function AgentSessionView({
           onCancelUrl={(id) => send({ type: 'auth_url_response', id, action: 'cancel' })}
           onOpenTerminal={(methodId) => {
             void runAgentAuthTerminal(runtime, tabId, methodId)
-              .then(({ session, label }) => setAuthTerminal({ session, label, methodId }))
+              .then(({ session, label, state, exitCode }) => {
+                setAuthTerminal({ session, label, methodId, state, exitCode })
+                setAuthTerminalOpen(true)
+              })
               .catch((err: unknown) => setErrorDetail({
                 title: '로그인 터미널을 열지 못했습니다',
                 detail: err instanceof Error ? err.message : String(err),
               }))
-          }}
-          onRetry={() => {
-            if (authTerminal) {
-              void killTmuxSession(authTerminal.session).catch(() => {})
-              setAuthTerminal(null)
-            }
-            send({ type: 'retry_auth' })
           }}
         />
       ) : (
@@ -1599,7 +1706,23 @@ function AgentSessionView({
       )}
 
       {/* 키보드를 쥐어도 되는 유일한 자리 — 전송 버튼을 눌러도 이어 쓰도록 포커스를 뺏지 않는다 */}
-      <div className="flex shrink-0 items-end gap-2 border-t border-edge p-2" data-keep-keyboard>
+      <div className="relative flex shrink-0 items-end gap-2 border-t border-edge p-2" data-keep-keyboard>
+        {/* 채팅과 입력창 사이의 선 전체가 손잡이다. 투명한 hit area를 넓혀 선을 정확히 누르지 않아도 잡힌다. */}
+        <div
+          role="separator"
+          aria-label="입력창 높이 조절"
+          aria-orientation="horizontal"
+          aria-valuemin={MIN_AGENT_INPUT_HEIGHT}
+          aria-valuemax={agentInputMaxHeight()}
+          aria-valuenow={Math.round(inputHeight)}
+          tabIndex={0}
+          onPointerDown={startInputResize}
+          onKeyDown={resizeInputWithKeyboard}
+          className="group absolute inset-x-0 -top-1.5 z-20 h-3 cursor-row-resize touch-none outline-none"
+          title="끌어서 입력창 높이 조절"
+        >
+          <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent" />
+        </div>
         <MentionTextarea
           value={draft}
           onChange={setDraft}
@@ -1608,7 +1731,8 @@ function AgentSessionView({
           onSubmit={submit}
           rows={2}
           placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 (Ctrl+Enter 전송)'}
-          className="block max-h-[80dvh] w-full resize-y rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
+          className="block max-h-[80dvh] w-full resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
+          style={{ height: `${inputHeight}px` }}
           submitHint="Ctrl+Enter로 전송"
           submitShortcut="mod-enter"
         />
@@ -1626,14 +1750,22 @@ function AgentSessionView({
         </>
       )}
 
-      {authTerminal && (
+      {authTerminal && authTerminalOpen && (
         <SessionTerminalPopup
           title={authTerminal.label}
           subtitle={`${currentRuntime.label} 로그인`}
           session={authTerminal.session}
           running
+          statusNote={authTerminal.state === 'running'
+            ? '로그인 명령 실행 중 · 완료되면 자동으로 연결합니다'
+            : authTerminal.state === 'failed'
+              ? `로그인 실패${authTerminal.exitCode === null ? '' : ` (exit ${authTerminal.exitCode})`} · 종료 후 다시 여세요`
+              : authTerminal.state === 'interrupted'
+                ? '로그인 명령이 완료 전에 종료됐습니다 · 다시 여세요'
+                : '로그인 성공 · 연결 중'}
+          statusTone={authTerminal.state === 'failed' || authTerminal.state === 'interrupted' ? 'danger' : 'muted'}
           onRun={() => runAgentAuthTerminal(runtime, tabId, authTerminal.methodId)}
-          onClose={() => setAuthTerminal(null)}
+          onClose={() => setAuthTerminalOpen(false)}
           onChanged={() => {}}
         />
       )}
@@ -1649,7 +1781,6 @@ function AgentAuthPanel({
   onOpenUrl,
   onCancelUrl,
   onOpenTerminal,
-  onRetry,
 }: {
   runtime: string
   state: AgentAuthState
@@ -1658,7 +1789,6 @@ function AgentAuthPanel({
   onOpenUrl: (request: AgentAuthUrl) => void
   onCancelUrl: (id: string) => void
   onOpenTerminal: (methodId: string) => void
-  onRetry: () => void
 }) {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
   const terminalMethods = state.methods.filter((method) => method.kind === 'terminal')
@@ -1763,16 +1893,8 @@ function AgentAuthPanel({
           ))}
         </div>
         {terminalMethods.length > 0 && (
-          <div className="mt-3 flex items-center justify-between gap-3 rounded bg-surface px-3 py-2">
-            <span className="text-xs text-ink-muted">터미널에서 로그인을 마친 뒤 확인하세요.</span>
-            <button
-              type="button"
-              onClick={onRetry}
-              disabled={state.authenticating}
-              className="shrink-0 rounded border border-edge-strong px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-raised disabled:opacity-40"
-            >
-              로그인 완료 확인
-            </button>
+          <div className="mt-3 rounded bg-surface px-3 py-2 text-center">
+            <span className="text-xs text-ink-muted">터미널 명령이 성공하면 자동으로 로그인 상태를 확인합니다.</span>
           </div>
         )}
         {state.authenticating && <div className="mt-3 text-center text-xs text-ink-muted">로그인 확인 중…</div>}

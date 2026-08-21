@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import { fuzzyScore } from '@mew/editor'
 
 // '@' 멘션이 되는 textarea — 채팅 입력(파일 멘션)과 댓글 작성(사용자 멘션)이 같이 쓴다.
@@ -46,6 +46,7 @@ export function MentionTextarea({
   autoFocus,
   rows = 1,
   className,
+  style,
   submitHint,
   triggers,
   submitShortcut = 'enter',
@@ -59,6 +60,7 @@ export function MentionTextarea({
   autoFocus?: boolean
   rows?: number
   className?: string
+  style?: CSSProperties
   /** 자리표시자 아래가 아니라 접근성 라벨로만 쓰는 설명 */
   submitHint?: string
   /** 기본 '@' 외에 '/' 같은 트리거를 추가한다. */
@@ -173,6 +175,7 @@ export function MentionTextarea({
             onSubmit()
           }
         }}
+        style={style}
         className={
           className ??
           'w-full resize-none rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-edge-bright'

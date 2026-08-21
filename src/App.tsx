@@ -342,6 +342,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     initial: 640,
     invert: true, // 패널이 화면 오른쪽에 붙어 있으므로 왼쪽으로 끌수록 넓어진다
   })
+  const { width: agentWidth, startResize: startAgentResize } = usePanelWidth('mew:agent-panel-width', {
+    min: 320,
+    max: 1000,
+    initial: 416,
+    invert: true,
+  })
   const { width: browserWidth, startResize: startBrowserResize } = usePanelWidth('mew:browser-panel-width', {
     min: 360,
     max: 1200,
@@ -1196,8 +1202,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         )}
 
         {agentOpen && canUseTerminal && (
-          <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[26rem] md:shrink-0">
-            <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
+          <div
+            className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
+            style={{ width: isDesktop() ? agentWidth : undefined }}
+          >
+            <div
+              onPointerDown={startAgentResize}
+              className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
+              aria-hidden="true"
+            />
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <AgentPanel project={project} tree={tree} onClose={() => setAgentOpen(false)} />
             </div>

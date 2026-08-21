@@ -240,6 +240,15 @@ export interface AgentAuthTerminal {
   session: string
   label: string
   running: true
+  state: AgentAuthTerminalState
+  exitCode: number | null
+}
+
+export type AgentAuthTerminalState = 'running' | 'succeeded' | 'failed' | 'interrupted'
+
+export interface AgentAuthTerminalStatus {
+  state: AgentAuthTerminalState
+  exitCode: number | null
 }
 
 export function runAgentAuthTerminal(runtime: string, tab: string, methodId: string): Promise<AgentAuthTerminal> {
@@ -249,7 +258,18 @@ export function runAgentAuthTerminal(runtime: string, tab: string, methodId: str
     body: JSON.stringify({ tab }),
   })
     .then(json<{ ok: true } & AgentAuthTerminal>)
-    .then(({ session, label, running }) => ({ session, label, running }))
+    .then(({ session, label, running, state, exitCode }) => ({ session, label, running, state, exitCode }))
+}
+
+export function fetchAgentAuthTerminalStatus(
+  runtime: string,
+  tab: string,
+  methodId: string,
+): Promise<AgentAuthTerminalStatus> {
+  const query = new URLSearchParams({ tab })
+  return fetch(
+    `/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/status?${query}`,
+  ).then(json<AgentAuthTerminalStatus>)
 }
 
 export interface AgentRuntimeDefault {
