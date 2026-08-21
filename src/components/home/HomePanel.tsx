@@ -2,7 +2,7 @@
 //
 // 편집 칸(EditorPane) 자리를 대신 차지한다. 여기서 여는 것은 문서가 아니라 "사용자가 등록한 일"이고,
 // 화면 구성은 위젯 등록표(widgets.tsx)가 정한다 — 사용자가 넣고 빼고 순서를 바꾼 결과는 브라우저에 남는다.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import { MoreHoriz, NavArrowDown, NavArrowUp, Refresh } from 'iconoir-react'
 import { createTodo, deleteTodo, fetchTodos, updateTodo, type ProjectInfo, type TodoItem, type TodoStatus, type TodoType } from '../../api/client'
@@ -17,81 +17,160 @@ import {
   type HomeLayout,
 } from './widgets'
 
+type TodoChange = {
+  text?: string
+  type?: TodoType
+  status?: TodoStatus
+  done?: boolean
+  due?: string | null
+  time?: string | null
+  projects?: string[]
+}
+
 export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
   const [items, setItems] = useState<TodoItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [layout, setLayout] = useState<HomeLayout>(loadHomeLayout)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const mutationTailRef = useRef<Promise<void>>(Promise.resolve())
+  const pendingMutationsRef = useRef(0)
+  const mutationRevisionRef = useRef(0)
+  const reconcileAfterQueueRef = useRef(false)
+  const serverTodoIdsRef = useRef(new Map<string, string>())
+  const failedCreatesRef = useRef(new Set<string>())
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(function refreshTodos() {
+    if (pendingMutationsRef.current > 0) {
+      reconcileAfterQueueRef.current = true
+      return
+    }
+    const revision = mutationRevisionRef.current
     setLoading(true)
     fetchTodos()
       .then((r) => {
+        if (revision !== mutationRevisionRef.current) {
+          reconcileAfterQueueRef.current = true
+          return
+        }
         setItems(r.items)
         setError(null)
       })
       .catch((e) => setError(e instanceof Error ? e.message : '할 일을 불러오지 못했습니다'))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        setLoading(false)
+        if (pendingMutationsRef.current === 0 && reconcileAfterQueueRef.current) {
+          reconcileAfterQueueRef.current = false
+          refreshTodos()
+        }
+      })
   }, [])
 
   useEffect(refresh, [refresh])
 
   const sortItems = useCallback((next: TodoItem[]) => [...next].sort(compareTodos), [])
 
-  const addItem = useCallback(
-    (input: { text: string; type: TodoType; due: string | null; projects: string[] }) => {
-      createTodo(input)
-        .then(({ item }) => {
-          setItems((prev) => sortItems([item, ...prev]))
-          setError(null)
-        })
+  const enqueueMutation = useCallback(
+    (operation: () => Promise<void>, fallbackError: string, onFailure?: () => void) => {
+      pendingMutationsRef.current += 1
+      const run = mutationTailRef.current.then(operation)
+      mutationTailRef.current = run
         .catch((e) => {
-          setError(e instanceof Error ? e.message : '추가하지 못했습니다')
-          refresh()
+          onFailure?.()
+          reconcileAfterQueueRef.current = true
+          setError(e instanceof Error ? e.message : fallbackError)
+        })
+        .then(() => {
+          pendingMutationsRef.current -= 1
+          if (pendingMutationsRef.current === 0 && reconcileAfterQueueRef.current) {
+            reconcileAfterQueueRef.current = false
+            refresh()
+          }
         })
     },
-    [refresh, sortItems],
+    [refresh],
+  )
+
+  const addItem = useCallback(
+    (input: { text: string; type: TodoType; due: string | null; time: string | null; projects: string[] }) => {
+      const now = new Date().toISOString()
+      const temporaryId = `pending-${crypto.randomUUID()}`
+      const temporaryItem: TodoItem = {
+        id: temporaryId,
+        text: input.text,
+        type: input.type,
+        status: 'open',
+        done: false,
+        due: input.type === 'dated' ? input.due : null,
+        time: input.time,
+        projects: input.projects,
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      mutationRevisionRef.current += 1
+      setItems((prev) => sortItems([temporaryItem, ...prev]))
+      setError(null)
+
+      enqueueMutation(
+        async () => {
+          const { item } = await createTodo(input)
+          serverTodoIdsRef.current.set(temporaryId, item.id)
+          serverTodoIdsRef.current.set(item.id, item.id)
+          setItems((prev) =>
+            sortItems(
+              prev.map((current) =>
+                current.id === temporaryId
+                  ? { ...current, id: item.id, createdAt: item.createdAt, updatedAt: item.updatedAt }
+                  : current,
+              ),
+            ),
+          )
+        },
+        '추가하지 못했습니다',
+        () => {
+          failedCreatesRef.current.add(temporaryId)
+          setItems((prev) => prev.filter((item) => item.id !== temporaryId))
+        },
+      )
+    },
+    [enqueueMutation, sortItems],
   )
 
   const applyChange = useCallback(
     (
       item: TodoItem,
-      change: {
-        text?: string
-        type?: TodoType
-        status?: TodoStatus
-        done?: boolean
-        due?: string | null
-        projects?: string[]
-      },
+      change: TodoChange,
     ) => {
-      updateTodo(item.id, change)
-        .then(({ item: next }) => {
-          setItems((prev) => sortItems(prev.map((i) => (i.id === item.id ? next : i))))
-          setError(null)
-        })
-        .catch((e) => {
-          setError(e instanceof Error ? e.message : '고치지 못했습니다')
-          refresh()
-        })
+      const next = applyOptimisticChange(item, change)
+      mutationRevisionRef.current += 1
+      setItems((prev) => sortItems(prev.map((current) => (current.id === item.id ? next : current))))
+      setError(null)
+
+      enqueueMutation(async () => {
+        if (failedCreatesRef.current.has(item.id)) return
+        const serverId = serverTodoIdsRef.current.get(item.id) ?? item.id
+        await updateTodo(serverId, todoChangeFromSnapshot(next))
+      }, '고치지 못했습니다')
     },
-    [refresh, sortItems],
+    [enqueueMutation, sortItems],
   )
 
   const removeItem = useCallback(
     (item: TodoItem) => {
-      deleteTodo(item.id)
-        .then(() => {
-          setItems((prev) => prev.filter((i) => i.id !== item.id))
-          setError(null)
-        })
-        .catch((e) => {
-          setError(e instanceof Error ? e.message : '삭제하지 못했습니다')
-          refresh()
-        })
+      mutationRevisionRef.current += 1
+      setItems((prev) => prev.filter((current) => current.id !== item.id))
+      setError(null)
+
+      enqueueMutation(async () => {
+        if (failedCreatesRef.current.has(item.id)) return
+        const serverId = serverTodoIdsRef.current.get(item.id) ?? item.id
+        await deleteTodo(serverId)
+        serverTodoIdsRef.current.delete(item.id)
+        serverTodoIdsRef.current.delete(serverId)
+      }, '삭제하지 못했습니다')
     },
-    [refresh],
+    [enqueueMutation],
   )
 
   const changeLayout = (next: HomeLayout) => {
@@ -166,7 +245,7 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
                   <h2 className="text-sm font-semibold text-ink-bright">{widget.title}</h2>
                   <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
                 </div>
-                <div className="p-3 sm:p-4">
+                <div className={widget.id === 'todos' ? 'p-[21px] sm:p-7' : 'p-3 sm:p-4'}>
                   {widget.render({
                     items,
                     projects,
@@ -185,6 +264,37 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
   )
 }
 
+function applyOptimisticChange(
+  item: TodoItem,
+  change: TodoChange,
+): TodoItem {
+  const status = change.status ?? (change.done === undefined ? item.status : change.done ? 'done' : 'open')
+  const type = change.type ?? item.type
+  const due = type === 'dated' ? (change.due === undefined ? item.due : change.due) : null
+  return {
+    ...item,
+    text: change.text ?? item.text,
+    type,
+    status,
+    done: status === 'done',
+    due,
+    time: change.time === undefined ? item.time : change.time,
+    projects: change.projects ?? item.projects,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+function todoChangeFromSnapshot(item: TodoItem): TodoChange {
+  return {
+    text: item.text,
+    type: item.type,
+    status: item.status,
+    due: item.due,
+    time: item.time,
+    projects: item.projects,
+  }
+}
+
 function compareTodos(a: TodoItem, b: TodoItem): number {
   const typeRank: Record<TodoType, number> = { today: 0, dated: 1, recurring: 2 }
   const statusRank: Record<TodoStatus, number> = { open: 0, missed: 1, canceled: 2, done: 3 }
@@ -193,6 +303,8 @@ function compareTodos(a: TodoItem, b: TodoItem): number {
     statusRank[a.status] - statusRank[b.status] ||
     Number(a.due == null) - Number(b.due == null) ||
     (a.due ?? '').localeCompare(b.due ?? '') ||
+    Number(a.time == null) - Number(b.time == null) ||
+    (a.time ?? '').localeCompare(b.time ?? '') ||
     b.createdAt.localeCompare(a.createdAt)
   )
 }

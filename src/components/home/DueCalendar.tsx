@@ -18,7 +18,7 @@ export function DueCalendar({
   items: TodoItem[]
   onUpdate: (
     item: TodoItem,
-    change: { text?: string; type?: TodoType; status?: TodoStatus; done?: boolean; due?: string | null; projects?: string[] },
+    change: { text?: string; type?: TodoType; status?: TodoStatus; done?: boolean; due?: string | null; time?: string | null; projects?: string[] },
   ) => void
 }) {
   const now = new Date()
@@ -90,6 +90,7 @@ export function DueCalendar({
           const date = iso(cursor.year, cursor.month, day)
           const dayItems = byDay.get(date) ?? []
           const hasOpen = dayItems.some((item) => !item.done)
+          const isFuture = date > today
           return (
             <div
               key={date}
@@ -97,8 +98,10 @@ export function DueCalendar({
                 date === today
                   ? 'border-accent/70 bg-accent/10'
                   : hasOpen
-                    ? 'border-edge-strong bg-surface-raised'
-                    : 'border-edge bg-surface'
+                    ? `border-edge-strong ${isFuture ? 'bg-surface-hover/60' : 'bg-surface-raised'}`
+                    : isFuture
+                      ? 'border-edge bg-surface-raised'
+                      : 'border-edge bg-surface'
               }`}
             >
               <div className="mb-1 flex items-center justify-between">

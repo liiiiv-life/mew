@@ -11,6 +11,8 @@ export interface TodoItem {
   done: boolean
   /** YYYY-MM-DD 또는 null */
   due: string | null
+  /** HH:MM(24시간제) 또는 null */
+  time: string | null
   projects: string[]
   createdAt: string
   updatedAt: string
@@ -23,6 +25,7 @@ export interface TodoCreate {
   text: string
   type?: TodoType
   due?: string | null
+  time?: string | null
   projects?: string[]
 }
 
@@ -33,6 +36,8 @@ export interface TodoChange {
   done?: boolean
   /** null이면 기한을 지운다 */
   due?: string | null
+  /** null이면 시간을 지운다 */
+  time?: string | null
   projects?: string[]
 }
 
@@ -40,6 +45,7 @@ export class TodoError extends Error {}
 
 const FILE = path.join(DATA_DIR, 'todos.json')
 const DUE_RE = /^\d{4}-\d{2}-\d{2}$/
+const TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/
 const PROJECT_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const MAX_TEXT = 240
 const MAX_ITEMS_PER_USER = 1000
@@ -75,6 +81,12 @@ function normalizeText(value: unknown): string {
 function normalizeDue(value: unknown): string | null {
   if (value === undefined || value === null || value === '') return null
   if (typeof value !== 'string' || !DUE_RE.test(value)) throw new TodoError('기한 형식이 올바르지 않습니다')
+  return value
+}
+
+function normalizeTime(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value !== 'string' || !TIME_RE.test(value)) throw new TodoError('시간 형식이 올바르지 않습니다')
   return value
 }
 
@@ -131,6 +143,7 @@ function normalizeItem(value: TodoItem): TodoItem | null {
       status,
       done: doneFromStatus(status),
       due: schedule.due,
+      time: normalizeTime(value.time),
       projects: normalizeProjects(value.projects),
       createdAt: value.createdAt,
       updatedAt: value.updatedAt,
@@ -149,6 +162,8 @@ function sortTodos(items: TodoItem[]): TodoItem[] {
       statusRank[a.status] - statusRank[b.status] ||
       Number(a.due == null) - Number(b.due == null) ||
       (a.due ?? '').localeCompare(b.due ?? '') ||
+      Number(a.time == null) - Number(b.time == null) ||
+      (a.time ?? '').localeCompare(b.time ?? '') ||
       b.createdAt.localeCompare(a.createdAt),
   )
 }
@@ -173,6 +188,7 @@ export function createTodo(email: string, input: TodoCreate): TodoItem {
     status: 'open',
     done: false,
     due: schedule.due,
+    time: normalizeTime(input.time),
     projects: normalizeProjects(input.projects),
     createdAt: at,
     updatedAt: at,
@@ -209,6 +225,7 @@ export function updateTodo(email: string, id: string, change: TodoChange): TodoI
     status,
     done: doneFromStatus(status),
     due: schedule.due,
+    time: change.time === undefined ? prev.time : normalizeTime(change.time),
     projects: change.projects === undefined ? prev.projects : normalizeProjects(change.projects),
     updatedAt: nowISO(),
   }

@@ -247,6 +247,8 @@ export interface TodoItem {
   done: boolean
   /** YYYY-MM-DD 또는 null */
   due: string | null
+  /** HH:MM(24시간제) 또는 null */
+  time: string | null
   projects: string[]
   createdAt: string
   updatedAt: string
@@ -264,6 +266,7 @@ export function createTodo(input: {
   text: string
   type?: TodoType
   due?: string | null
+  time?: string | null
   projects?: string[]
 }): Promise<{ item: TodoItem }> {
   return fetch('/api/todos', {
@@ -281,6 +284,7 @@ export function updateTodo(
     status?: TodoStatus
     done?: boolean
     due?: string | null
+    time?: string | null
     projects?: string[]
   },
 ): Promise<{ item: TodoItem }> {

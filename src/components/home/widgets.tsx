@@ -12,7 +12,7 @@ export interface HomeWidgetContext {
   items: TodoItem[]
   projects: ProjectInfo[]
   loading: boolean
-  onCreate: (input: { text: string; type: TodoType; due: string | null; projects: string[] }) => void
+  onCreate: (input: { text: string; type: TodoType; due: string | null; time: string | null; projects: string[] }) => void
   onUpdate: (
     item: TodoItem,
     change: {
@@ -21,6 +21,7 @@ export interface HomeWidgetContext {
       status?: TodoStatus
       done?: boolean
       due?: string | null
+      time?: string | null
       projects?: string[]
     },
   ) => void

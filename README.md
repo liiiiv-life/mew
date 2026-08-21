@@ -142,11 +142,16 @@ Ctrl+P 파일 검색은 입력창 오른쪽 × 또는 Esc로 검색어를 한 �
 할 일은 사용자가 홈 탭에서 직접 등록한다(`server/todos.ts`). 원장은 서버 데이터 폴더의 `todos.json`이고,
 로그인 사용자 이메일별로 분리된다. 프로젝트 파일·문서 본문을 훑거나 되쓰지 않는다.
 
-- 항목은 `id`·`text`·`type`·`status`·`done`·`due`·`projects`·`createdAt`·`updatedAt`을 가진다.
+- 항목은 `id`·`text`·`type`·`status`·`done`·`due`·`time`·`projects`·`createdAt`·`updatedAt`을 가진다.
   `type`은 `today`·`dated`·`recurring`, `status`는 `open`·`done`·`canceled`·`missed`,
-  `due`는 `YYYY-MM-DD` 또는 `null`, `projects`는 연관 프로젝트 이름 배열이다.
-- 할 일 위젯에서 추가·본문 수정·상태 전환·기한 변경·프로젝트 다중 연결·삭제를 한다. 옛 `done`만 있는 항목은
-  읽을 때 `status`로 승격한다([ADR 0059](../.mew/docs/decisions/0059-mew-typed-project-linked-home-todos.md)).
+  `due`는 `YYYY-MM-DD` 또는 `null`, `time`은 24시간제 `HH:MM` 또는 `null`, `projects`는 연관 프로젝트 이름 배열이다.
+- 할 일 위젯에서 추가·본문 수정·완료 체크·기한·시간 변경·프로젝트 다중 연결·삭제를 한다. 시간은 모든 타입에
+  설정할 수 있다. 세 타입 모두 체크박스
+  하나로 `open`·`done`만 전환한다. `canceled`·`missed`는 과거 데이터/API 호환용으로만 남긴다
+  ([ADR 0066](../.mew/docs/decisions/0066-mew-todo-single-completion-checkbox.md)). 옛 `done`만 있는 항목은 읽을 때
+  `status`로 승격한다([ADR 0059](../.mew/docs/decisions/0059-mew-typed-project-linked-home-todos.md)).
+- 생성·수정·삭제는 화면에 먼저 반영하고 서버 요청은 브라우저의 단일 직렬 큐로 보낸다. 연속 수정은 매번 항목의
+  최신 전체 스냅샷을 보내 요청 순서 역전으로 옛 상태가 되살아나지 않게 하며, 실패할 때만 큐가 빈 뒤 다시 조회한다.
 - 달력 위젯에는 **기한이 잡힌 항목만** 뜬다. 날짜는 전부 `YYYY-MM-DD` 문자열로 비교한다(Date로 바꾸면 시간대 때문에 하루씩 밀린다).
 - 달력의 항목을 누르면 완료 상태를 토글한다. 본문 수정과 삭제는 할 일 위젯에서 한다.
 
@@ -169,8 +174,8 @@ Ctrl+P 파일 검색은 입력창 오른쪽 × 또는 Esc로 검색어를 한 �
 | 라우트 | 역할 | 하는 일 |
 |---|---|---|
 | `GET /api/todos` | 로그인 사용자 | `{ items }` — 자기 할 일 목록 |
-| `POST /api/todos` `{text,type?,due?,projects?}` | 로그인 사용자 | 할 일 생성. `dated`는 `due` 필수 |
-| `PATCH /api/todos/:id` `{text?,type?,status?,done?,due?,projects?}` | 로그인 사용자 | 할 일 수정. `due: null`이면 기한 삭제, `done`은 호환용 |
+| `POST /api/todos` `{text,type?,due?,time?,projects?}` | 로그인 사용자 | 할 일 생성. `dated`는 `due` 필수, `time`은 `HH:MM` 또는 `null` |
+| `PATCH /api/todos/:id` `{text?,type?,status?,done?,due?,time?,projects?}` | 로그인 사용자 | 할 일 수정. `due: null`이면 기한 삭제, `time: null`이면 시간 삭제, `done`은 호환용 |
 | `DELETE /api/todos/:id` | 로그인 사용자 | 할 일 삭제 |
 | `GET /api/workspace` | **owner** | 지금 열린 워크스페이스 경로·프로젝트 목록·docs 폴더(`docs` 상대 경로, `docsPath` 절대 경로) |
 | `POST /api/workspace` `{path}` | **owner** | 워크스페이스를 갈아끼운다(모든 화면 새로고침) |

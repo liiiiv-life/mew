@@ -336,10 +336,11 @@ export function createApiApp() {
   })
 
   app.post('/todos', requireAuthenticated, (req, res) => {
-    const { text, type, due, projects } = req.body as {
+    const { text, type, due, time, projects } = req.body as {
       text?: unknown
       type?: unknown
       due?: unknown
+      time?: unknown
       projects?: unknown
     }
     if (typeof text !== 'string') {
@@ -354,12 +355,16 @@ export function createApiApp() {
       res.status(400).json({ error: '기한이 올바르지 않습니다' })
       return
     }
+    if (time !== undefined && time !== null && typeof time !== 'string') {
+      res.status(400).json({ error: '시간이 올바르지 않습니다' })
+      return
+    }
     if (projects !== undefined && !Array.isArray(projects)) {
       res.status(400).json({ error: '프로젝트 목록이 올바르지 않습니다' })
       return
     }
     try {
-      res.json({ item: createTodo(authOf(req).email ?? '', { text, type, due: due ?? null, projects }) })
+      res.json({ item: createTodo(authOf(req).email ?? '', { text, type, due: due ?? null, time: time ?? null, projects }) })
     } catch (err) {
       handleError(res, err)
     }
@@ -371,12 +376,13 @@ export function createApiApp() {
       res.status(400).json({ error: '할 일을 찾을 수 없습니다' })
       return
     }
-    const { text, type, status, done, due, projects } = req.body as {
+    const { text, type, status, done, due, time, projects } = req.body as {
       text?: unknown
       type?: unknown
       status?: unknown
       done?: unknown
       due?: unknown
+      time?: unknown
       projects?: unknown
     }
     const change: TodoChange = {}
@@ -414,6 +420,13 @@ export function createApiApp() {
         return
       }
       change.due = due
+    }
+    if (time !== undefined) {
+      if (time !== null && typeof time !== 'string') {
+        res.status(400).json({ error: '시간이 올바르지 않습니다' })
+        return
+      }
+      change.time = time
     }
     if (projects !== undefined) {
       if (!Array.isArray(projects)) {
