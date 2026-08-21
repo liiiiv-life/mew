@@ -236,6 +236,22 @@ export function installAgentRuntime(id: string): Promise<{ status: AgentRuntimeS
   )
 }
 
+export interface AgentAuthTerminal {
+  session: string
+  label: string
+  running: true
+}
+
+export function runAgentAuthTerminal(runtime: string, tab: string, methodId: string): Promise<AgentAuthTerminal> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tab }),
+  })
+    .then(json<{ ok: true } & AgentAuthTerminal>)
+    .then(({ session, label, running }) => ({ session, label, running }))
+}
+
 export interface AgentRuntimeDefault {
   modelId?: string
   modeId?: string

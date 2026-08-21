@@ -22,6 +22,7 @@ import {
 import { resetTreeWatchers, watchDocsTree } from './watcher.ts'
 import { closeAllRooms } from './collab.ts'
 import { disposeAllSessions } from './agentAcp.ts'
+import { shutdownAgentHostsForWorkspace } from './agentHost.ts'
 import { broadcast } from './presence.ts'
 
 export class WorkspaceError extends Error {}
@@ -96,6 +97,7 @@ export function switchWorkspace(target: string): WorkspaceInfo {
   resetTreeWatchers()
   closeAllRooms()
   // 에이전트는 뜰 때 cwd가 정해진다(child process) — 새 폴더에서 다시 떠야 한다
+  shutdownAgentHostsForWorkspace(WORKSPACE_ROOT)
   disposeAllSessions()
 
   setWorkspaceRoot(abs)

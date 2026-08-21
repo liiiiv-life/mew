@@ -36,6 +36,21 @@ export type SessionMeta = {
 
 export type SessionInfo = { sessionId: string; title?: string | null; updatedAt?: string | null }
 
+export type AgentAuthMethod = {
+  id: string
+  name: string
+  description?: string | null
+  kind: 'agent' | 'api-key' | 'terminal'
+}
+
+export type AgentAuthState = {
+  methods: AgentAuthMethod[]
+  authenticating: boolean
+  error: string | null
+}
+
+export type AgentAuthUrl = { id: string; url: string; message: string }
+
 export type SessionUpdate =
   | { sessionUpdate: 'user_message_chunk' | 'agent_message_chunk' | 'agent_thought_chunk'; content: { type: string; text?: string } }
   | { sessionUpdate: 'tool_call'; toolCallId: string; title: string; status?: string; kind?: string }
@@ -55,6 +70,10 @@ export type AgentEvent =
   | { type: 'models'; models: ModelState }
   | { type: 'modes'; modes: ModeState }
   | { type: 'meta'; meta: SessionMeta }
+  | ({ type: 'auth' } & AgentAuthState)
+  | ({ type: 'auth_url' } & AgentAuthUrl)
+  | { type: 'auth_url_done'; id: string }
+  | { type: 'auth_complete' }
   | { type: 'reset' }
   | { type: 'sessions'; sessions: SessionInfo[] }
   // 재접속했을 때 지나간 대화를 한 덩어리로 받는다 — 창은 그린 대화를 이걸로 통째로 갈아끼운다

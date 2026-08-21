@@ -682,7 +682,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 않는다.
 
 - 서버: `server/agentRuntimes.ts`(공통 런타임 등록표) + `server/agentDefaults.ts`(런타임별 모델·권한 기본값) + `server/agentAcp.ts`(세션·파일 스코프) +
-  `server/agentWs.ts`(WS 릴레이) +
+  `server/agentHost.ts`(탭별 독립 감독 프로세스·유닉스 소켓) + `server/agentWs.ts`(WS↔감독 릴레이) +
   `server/agentUsage.ts`(토큰 사용량). 클라이언트: `src/components/AgentPanel.tsx` +
   `src/utils/agentFold.ts`(이벤트→화면 항목) + `src/components/agentRuntimes.tsx`(런타임 목록·아이콘,
   에이전트셋 창·예약 작업 창과 공용) + `src/utils/agentMarkdown.ts`(답변 마크다운, 두 창 공용).
@@ -693,12 +693,21 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   `GET /api/skills`가 `CODEX_HOME/skills`와 `<워크스페이스>/.agents/skills`의 `SKILL.md`를 읽어 만든다.
   `/스킬명`을 고르면 브라우저는 스킬 id만 WS에 싣고, 서버가 `server/agentRuntimes.ts`의 런타임 등록표로
   실제 프롬프트를 합성한다. 기본 합성기는 모든 ACP 런타임에 대해 선택된 `SKILL.md`를 먼저 읽고 따르라고
-  지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다.
+  지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다. 입력창 오른쪽 아래를 끌어
+  화면 높이의 80%까지 세로로 늘릴 수 있다.
 - 채널: `/api/agent/ws?runtime=<id>&tab=<id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
   `런타임+탭`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`,
   `[A-Za-z0-9_-]{1,64}`이 아니면 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 —
   고른 값은 브라우저에만 남는다(`mew:agent-runtime`). 창을 닫아도 세션은 남고,
-  다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다(붙은 창이 없는 채로 10분이면 종료).
+  다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다. 각 탭의 감독은 mew와 다른 프로세스
+  그룹에서 `<DATA_DIR>/agent/*.sock`으로 중계되므로 **브라우저 종료·mew 종료/재시작에도 진행 중인 턴은
+  끊기지 않는다**. 모든 턴과 대기열이 끝난 뒤 붙은 창 없이 30분이 지나야 감독과 ACP/CLI가 종료된다
+  ([ADR 0048](../.mew/docs/decisions/0048-mew-agent-supervisor-process.md)).
+- **설치와 로그인은 별개다**([ADR 0072](../.mew/docs/decisions/0072-mew-agent-gui-authentication.md)).
+  `session/new`가 인증 필요를 돌려주면 프로세스를 닫지 않고 로그인 화면으로 전환한다. ACP 일반 로그인은
+  사용자가 주소를 확인하고 **로그인 페이지 열기**를 눌러 현재 브라우저의 새 탭에서 진행한다. API 키는
+  한 번만 ACP 요청으로 보내고 저장·이벤트 기록하지 않는다. terminal auth는 어댑터가 광고한 고정 명령만
+  Mew tmux 팝업에서 실행하며, **로그인 완료 확인** 뒤 같은 ACP 연결에서 세션 생성을 재시도한다.
 - 탭 목록·이름도 브라우저에만 있다(`mew:agent-tabs`) — 서버는 **탭 id만** 알고 뜻은 모른다.
   마지막으로 보던 탭도 남는다(`mew:agent-active-tab`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이
   선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라).
@@ -718,8 +727,8 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 
 | 방향 | 메시지 |
 | --- | --- |
-| 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId\|null}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'move_queued', from, to}` · `{type:'edit_queued', index, text, expect}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` · `{type:'close_session'}` |
-| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start'}` · `{type:'turn_end', stopReason}` · `{type:'error'\|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
+| 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId\|null}` · `{type:'authenticate', methodId, secret?}` · `{type:'retry_auth'}` · `{type:'auth_url_response', id, action}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'move_queued', from, to}` · `{type:'edit_queued', index, text, expect}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` · `{type:'close_session'}` |
+| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start'}` · `{type:'turn_end', stopReason}` · `{type:'error'\|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'auth', methods, authenticating, error}` · `{type:'auth_url', id, url, message}` · `{type:'auth_url_done', id}` · `{type:'auth_complete'}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
 
 - **되감기는 한 프레임이다(`replay`).** 붙는 순간 서버가 쌓아 둔 대화(`snapshot()`, 최대 500개)를
   통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 `replay`로 지금 그린 대화를 **갈아끼운다** —
@@ -766,7 +775,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   | 런타임 | 명령 | 환경변수 |
   | --- | --- | --- |
   | `claude` | `node_modules/.bin/claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`, 버전 고정) | `MEW_AGENT_CMD` · `MEW_AGENT_ARGS` · `MEW_AGENT_CLAUDE_CMD` · `MEW_AGENT_CLAUDE_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) |
-  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — codex CLI를 띄우지 않고 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` |
+  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — codex CLI를 띄우지 않고 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `NO_BROWSER`(기본 `1`, GUI device-code 로그인) |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
   | `kimi` | `kimi acp` | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
   | `gemini` | `gemini --experimental-acp` | `MEW_AGENT_GEMINI_CMD` · `MEW_AGENT_GEMINI_ARGS` |
@@ -781,6 +790,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 |---|---|---|
 | `GET /api/agent-runtimes` | manager·owner | 등록 런타임의 실행 파일 존재·설치 가능·설치 중 상태 |
 | `POST /api/agent-runtimes/:id/install` | manager·owner | id에 대응하는 등록표의 고정 설치 명령 실행. 임의 명령·인자는 받지 않음 |
+| `POST /api/agent-runtimes/:id/auth/:method/run` | manager·owner | 살아 있는 세션이 광고한 terminal auth 고정 명령을 숨김 tmux에서 실행. body는 `{tab}`만 |
 | `GET /api/agent-defaults/:id` | manager·owner | 런타임별로 저장된 모델·권한 기본값 |
 | `PUT /api/agent-defaults/:id` | manager·owner | 현재 모델·권한을 그 런타임의 기본값으로 원자적 저장 |
 - **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
@@ -788,7 +798,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   있으면 존중). 시스템 설치본이 없으면 번들 CLI로 돌아간다.
   `codex`는 모델 선택기가 빌 수 있다 — 어댑터 내장 코어가 서버 모델 응답의 새 필드를 모르면
   목록 갱신만 실패한다(stderr에 ERROR 로그). 기본 모델로 대화는 정상이고, 어댑터를 올리면 돌아온다.
-- 클라이언트 capability를 **하나도 광고하지 않는다**(`clientCapabilities: {}`) — `fs`를 켜면 어댑터가
+- 클라이언트 capability는 **인증에 필요한 `auth.terminal`·`elicitation.url`만 광고하고 `fs`는 광고하지 않는다** — `fs`를 켜면 어댑터가
   CLI의 `Read`·`Write`·`Edit`를 끄고 `mcp__acp__*`로 갈아끼워서, 터미널에서 만든 대화를 창에서 불러올 때
   전사 속 `Edit` 참조가 API 400으로 거부된다. 도구 이름을 CLI와 맞춰 두는 것이 계약이다
   ([ADR 0044](../.mew/docs/decisions/0044-mew-agent-cli-tool-parity.md)) — 경로 스코프는 없다.

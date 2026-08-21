@@ -126,6 +126,82 @@ new AgentSideConnection(
 )
 `
 
+// 연결이 끊긴 뒤에도 진행 중인 턴은 유휴 시한보다 오래 살아야 한다.
+const slowStubSource = `
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
+import { Readable, Writable } from 'node:stream'
+
+class SlowAgent {
+  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} } }
+  async newSession() { return { sessionId: 'stub-slow' } }
+  async authenticate() { return {} }
+  async cancel() {}
+  async prompt() {
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    return { stopReason: 'end_turn' }
+  }
+}
+
+new AgentSideConnection(
+  () => new SlowAgent(),
+  ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
+)
+`
+
+// 인증 전에는 session/new가 auth_required를 내고, ACP URL elicitation 뒤 같은 연결에서 세션을 여는 스텁
+const authStubSource = `
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError } from ${JSON.stringify(sdkUrl)}
+import { Readable, Writable } from 'node:stream'
+
+class AuthAgent {
+  constructor(conn) { this.conn = conn; this.authenticated = false }
+  async initialize(params) {
+    this.caps = params.clientCapabilities
+    return {
+      protocolVersion: PROTOCOL_VERSION,
+      agentCapabilities: {},
+      authMethods: [
+        { id: 'device', name: 'Browser login' },
+        { id: 'api-key', name: 'API key', _meta: { 'api-key': { provider: 'test' } } },
+        { id: 'terminal', name: 'Terminal login', _meta: { 'terminal-auth': {
+          command: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+          label: 'Test Login',
+        } } },
+      ],
+    }
+  }
+  async newSession() {
+    if (!this.authenticated) throw RequestError.authRequired()
+    return { sessionId: 'stub-auth' }
+  }
+  async authenticate(params) {
+    if (params.methodId === 'api-key') {
+      if (params._meta?.['api-key']?.apiKey !== 'secret-value') throw new Error('bad key')
+      this.authenticated = true
+      return {}
+    }
+    const response = await this.conn.extMethod('elicitation/create', {
+      mode: 'url',
+      elicitationId: 'login-1',
+      url: 'https://example.com/device',
+      message: 'Enter code ABCD',
+    })
+    if (response.action !== 'accept') throw new Error('declined')
+    this.authenticated = true
+    await this.conn.extNotification('elicitation/complete', { elicitationId: 'login-1' })
+    return {}
+  }
+  async cancel() {}
+  async prompt() { return { stopReason: 'end_turn' } }
+}
+
+new AgentSideConnection(
+  (conn) => new AuthAgent(conn),
+  ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
+)
+`
+
 // 어댑터가 세션마다 CLI를 하나씩 밑에 두는 것을 흉내 낸다 — 그 손자까지 죽는지 보려는 스텁
 // 모델을 광고하는 가짜 에이전트 — 자기 pid를 적어 둬서 목록만 받고 접혔는지 볼 수 있게 한다
 const modelStubSource = `
@@ -234,6 +310,67 @@ test('ACP 한 턴: 스트리밍·승인 왕복·CLI 기본 파일 도구 유지'
   assert.doesNotMatch(text, /"readTextFile":\s*true/, 'fs.readTextFile을 광고하지 않는다')
   assert.doesNotMatch(text, /"writeTextFile":\s*true/, 'fs.writeTextFile을 광고하지 않는다')
   assert.deepEqual(events.at(-1), { type: 'turn_end', stopReason: 'end_turn' })
+})
+
+test('인증 필요 상태를 유지하고 URL 로그인 뒤 같은 연결에서 세션을 시작한다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-auth-'))
+  const stubPath = path.join(dir, 'auth-stub.mjs')
+  fs.writeFileSync(stubPath, authStubSource)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const session = await AgentSession.start('codex', { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+  const events: AgentEvent[] = []
+  let resolveUrl!: (event: Extract<AgentEvent, { type: 'auth_url' }>) => void
+  const urlReady = new Promise<Extract<AgentEvent, { type: 'auth_url' }>>((resolve) => { resolveUrl = resolve })
+  const detach = session.attach((event) => {
+    events.push(event)
+    if (event.type === 'auth_url') resolveUrl(event)
+  })
+
+  const auth = events.find((event) => event.type === 'auth')
+  assert.ok(auth && auth.type === 'auth')
+  assert.deepEqual(auth.methods.map(({ id, kind }) => ({ id, kind })), [
+    { id: 'device', kind: 'agent' },
+    { id: 'api-key', kind: 'api-key' },
+    { id: 'terminal', kind: 'terminal' },
+  ])
+  assert.deepEqual(session.terminalAuthSpec('terminal'), {
+    cmd: process.execPath,
+    args: ['-e', 'process.exit(0)'],
+    env: { NO_BROWSER: '1' },
+    label: 'Test Login',
+  })
+
+  const authenticating = session.authenticate('device')
+  const urlRequest = await urlReady
+  detach()
+  const reconnected: AgentEvent[] = []
+  session.attach((event) => reconnected.push(event))
+  assert.ok(reconnected.some((event) => event.type === 'auth_url' && event.id === urlRequest.id), '재접속해도 대기 중인 로그인 주소를 다시 받는다')
+  session.answerElicitation(urlRequest.id, 'accept')
+  await authenticating
+  assert.ok(events.some((event) => event.type === 'auth_url'))
+  assert.ok(reconnected.some((event) => event.type === 'auth_url_done'))
+  const meta = [...reconnected].reverse().find((event) => event.type === 'meta')
+  assert.ok(meta && meta.type === 'meta' && meta.meta.sessionId === 'stub-auth')
+})
+
+test('API 키는 이벤트에 남기지 않고 authenticate 요청에만 싣는다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-auth-key-'))
+  const stubPath = path.join(dir, 'auth-stub.mjs')
+  fs.writeFileSync(stubPath, authStubSource)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const session = await AgentSession.start('codex', { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+  const events: AgentEvent[] = []
+  session.attach((event) => events.push(event))
+  await session.authenticate('api-key', 'secret-value')
+  assert.doesNotMatch(JSON.stringify(events), /secret-value/)
+  assert.ok(events.some((event) => event.type === 'auth_complete'))
 })
 
 test('되재생된 사용자 발화에서 CLI 메타만 걷어낸다 — 창에서 친 프롬프트는 그대로 남는다', async (t) => {
@@ -423,6 +560,28 @@ test('진행 중에 보낸 메시지는 줄을 섰다가 이어서 돈다', asyn
   await done
 
   assert.deepEqual(prompts, ['첫째', '둘째'], '첫 턴이 끝나면 대기 메시지가 이어서 돈다')
+})
+
+test('창이 끊겨도 진행 중인 턴은 죽이지 않고, 완료된 뒤부터 유휴 시간을 센다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-idle-'))
+  const stubPath = path.join(dir, 'slow-stub.mjs')
+  fs.writeFileSync(stubPath, slowStubSource)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  // 실제 30분 대신 같은 상태 전이만 60ms 시한으로 검증한다. 턴은 그보다 세 배 오래 돈다.
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] }, workspace, 60)
+  t.after(() => session.dispose())
+  const detach = session.attach(() => {})
+  session.prompt('오래 걸리는 작업')
+  detach()
+
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(session.disposed, false, '연결 없는 시간이 시한을 넘어도 작업 중이면 살아 있다')
+  assert.equal(session.busy, true)
+
+  for (let i = 0; i < 30 && !session.disposed; i++) await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(session.disposed, true, '턴 완료 뒤 새로 센 유휴 시간이 지나면 정리된다')
 })
 
 test('세션을 접으면 어댑터가 밑에 둔 프로세스까지 같이 죽는다', async (t) => {

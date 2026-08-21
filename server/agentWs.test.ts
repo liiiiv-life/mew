@@ -10,7 +10,9 @@ import { WebSocket } from 'ws'
 
 // paths.ts가 import 시점에 MEW_WORKSPACE를 읽으므로 먼저 심고 동적 import
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agentws-'))
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agentws-data-'))
 process.env.MEW_WORKSPACE = workspace
+process.env.MEW_DATA_DIR = dataDir
 
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
 const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agentws-stub-'))
@@ -47,7 +49,7 @@ process.env.MEW_AGENT_CMD = process.execPath
 process.env.MEW_AGENT_ARGS = stubPath
 
 const { AGENT_WS_PATH, attachAgentWebSocket } = await import('./agentWs.ts')
-const { disposeAllSessions } = await import('./agentAcp.ts')
+const { shutdownAgentHostsForWorkspace } = await import('./agentHost.ts')
 
 test('에이전트가 뜨기 전에 보낸 질문도 잃지 않고, 목록은 물어본 창에만 먼저 간다', async (t) => {
   const server = http.createServer()
@@ -56,9 +58,11 @@ test('에이전트가 뜨기 전에 보낸 질문도 잃지 않고, 목록은 �
   const { port } = server.address() as { port: number }
 
   t.after(() => {
-    disposeAllSessions()
+    shutdownAgentHostsForWorkspace(workspace)
     server.close()
     fs.rmSync(workspace, { recursive: true, force: true })
+    // 감독은 SIGTERM에서 자기 파일을 지운다. 테스트 임시 루트는 다음 프로세스와 공유하지 않는다.
+    setTimeout(() => fs.rmSync(dataDir, { recursive: true, force: true }), 100)
     fs.rmSync(stubDir, { recursive: true, force: true })
   })
 

@@ -14,17 +14,22 @@ import {
   fetchAgentRuntimes,
   fetchSkills,
   installAgentRuntime,
+  killTmuxSession,
+  runAgentAuthTerminal,
   saveAgentDefault,
   type AgentRuntimeDefault,
   type AgentRuntimeStatus,
   type SkillSummary,
 } from '../api/client'
 import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './MentionTextarea'
+import { SessionTerminalPopup } from './SessionTerminalPopup'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { useGridDrag } from '../hooks/useGridDrag'
 import { withAutoLabel, withRename, type AgentTab } from '../utils/agentTabs'
 import {
   foldEvents,
+  type AgentAuthState,
+  type AgentAuthUrl,
   type AgentEvent,
   type Item,
   type ModelState,
@@ -816,6 +821,9 @@ function AgentSessionView({
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [meta, setMeta] = useState<SessionMeta | null>(null)
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
+  const [auth, setAuth] = useState<AgentAuthState | null>(null)
+  const [authUrl, setAuthUrl] = useState<AgentAuthUrl | null>(null)
+  const [authTerminal, setAuthTerminal] = useState<{ session: string; label: string; methodId: string } | null>(null)
   const [showInfo, setShowInfo] = useState(false)
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [savedDefault, setSavedDefault] = useState<AgentRuntimeDefault | null>(null)
@@ -889,6 +897,9 @@ function AgentSessionView({
     setModels(null)
     setModes(null)
     setMeta(null)
+    setAuth(null)
+    setAuthUrl(null)
+    setAuthTerminal(null)
 
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -906,6 +917,19 @@ function AgentSessionView({
         if (event.type === 'models') return setModels(event.models)
         if (event.type === 'modes') return setModes(event.modes)
         if (event.type === 'meta') return setMeta(event.meta)
+        if (event.type === 'auth') {
+          setMeta(null)
+          return setAuth({ methods: event.methods, authenticating: event.authenticating, error: event.error })
+        }
+        if (event.type === 'auth_url') return setAuthUrl({ id: event.id, url: event.url, message: event.message })
+        if (event.type === 'auth_url_done') {
+          return setAuthUrl((current) => current?.id === event.id ? null : current)
+        }
+        if (event.type === 'auth_complete') {
+          setAuth(null)
+          setAuthUrl(null)
+          return setAuthTerminal(null)
+        }
         if (event.type === 'sessions') return setSessions(event.sessions)
         // 재접속 되감기 — 지나간 대화가 한 덩어리로 온다. 그린 것을 통째로 갈아끼우므로 중간에 비지 않는다
         if (event.type === 'replay') {
@@ -1092,7 +1116,9 @@ function AgentSessionView({
   // meta가 오기 전 = 에이전트 프로세스가 아직 뜨는 중이다(질문은 그동안에도 받아 둔다 — 서버가 줄을 세운다)
   const status = !connected
     ? '연결 중'
-    : !meta
+    : auth
+      ? auth.authenticating ? '로그인 확인 중' : '로그인 필요'
+      : !meta
       ? '에이전트 준비 중'
       : loadingSession
         ? '세션 불러오는 중'
@@ -1279,6 +1305,35 @@ function AgentSessionView({
         </div>
       )}
 
+      {auth ? (
+        <AgentAuthPanel
+          runtime={currentRuntime.label}
+          state={auth}
+          urlRequest={authUrl}
+          onAuthenticate={(methodId, secret) => send({ type: 'authenticate', methodId, ...(secret ? { secret } : {}) })}
+          onOpenUrl={(request) => {
+            window.open(request.url, '_blank', 'noopener,noreferrer')
+            send({ type: 'auth_url_response', id: request.id, action: 'accept' })
+          }}
+          onCancelUrl={(id) => send({ type: 'auth_url_response', id, action: 'cancel' })}
+          onOpenTerminal={(methodId) => {
+            void runAgentAuthTerminal(runtime, tabId, methodId)
+              .then(({ session, label }) => setAuthTerminal({ session, label, methodId }))
+              .catch((err: unknown) => setErrorDetail({
+                title: '로그인 터미널을 열지 못했습니다',
+                detail: err instanceof Error ? err.message : String(err),
+              }))
+          }}
+          onRetry={() => {
+            if (authTerminal) {
+              void killTmuxSession(authTerminal.session).catch(() => {})
+              setAuthTerminal(null)
+            }
+            send({ type: 'retry_auth' })
+          }}
+        />
+      ) : (
+        <>
       <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
         {/* 아직 아무 말도 오가지 않은 탭 = 새 대화 자리 — 대신 [히스토리] 드롭다운만 그린다.
             목록 자체는 그 드롭다운을 열 때 받아 온다(붙자마자 미리 받지 않는다).
@@ -1544,7 +1599,7 @@ function AgentSessionView({
       )}
 
       {/* 키보드를 쥐어도 되는 유일한 자리 — 전송 버튼을 눌러도 이어 쓰도록 포커스를 뺏지 않는다 */}
-      <div className="flex items-end gap-2 border-t border-edge p-2" data-keep-keyboard>
+      <div className="flex shrink-0 items-end gap-2 border-t border-edge p-2" data-keep-keyboard>
         <MentionTextarea
           value={draft}
           onChange={setDraft}
@@ -1553,7 +1608,7 @@ function AgentSessionView({
           onSubmit={submit}
           rows={2}
           placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 (Ctrl+Enter 전송)'}
-          className="w-full resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
+          className="block max-h-[80dvh] w-full resize-y rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
           submitHint="Ctrl+Enter로 전송"
           submitShortcut="mod-enter"
         />
@@ -1567,6 +1622,161 @@ function AgentSessionView({
         >
           <SendGlyph />
         </button>
+      </div>
+        </>
+      )}
+
+      {authTerminal && (
+        <SessionTerminalPopup
+          title={authTerminal.label}
+          subtitle={`${currentRuntime.label} 로그인`}
+          session={authTerminal.session}
+          running
+          onRun={() => runAgentAuthTerminal(runtime, tabId, authTerminal.methodId)}
+          onClose={() => setAuthTerminal(null)}
+          onChanged={() => {}}
+        />
+      )}
+    </div>
+  )
+}
+
+function AgentAuthPanel({
+  runtime,
+  state,
+  urlRequest,
+  onAuthenticate,
+  onOpenUrl,
+  onCancelUrl,
+  onOpenTerminal,
+  onRetry,
+}: {
+  runtime: string
+  state: AgentAuthState
+  urlRequest: AgentAuthUrl | null
+  onAuthenticate: (methodId: string, secret?: string) => void
+  onOpenUrl: (request: AgentAuthUrl) => void
+  onCancelUrl: (id: string) => void
+  onOpenTerminal: (methodId: string) => void
+  onRetry: () => void
+}) {
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
+  const terminalMethods = state.methods.filter((method) => method.kind === 'terminal')
+
+  if (urlRequest) {
+    let host = urlRequest.url
+    try { host = new URL(urlRequest.url).host } catch { /* 서버가 이미 검사했다 */ }
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
+        <div className="w-full max-w-lg rounded-lg border border-edge-bright bg-surface p-4">
+          <h2 className="text-sm font-semibold text-ink">{runtime} 로그인</h2>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-ink-secondary">{urlRequest.message}</p>
+          <div className="mt-3 rounded bg-surface-deep p-2">
+            <div className="text-xs font-medium text-ink">{host}</div>
+            <div className="mt-1 break-all font-mono text-[11px] text-ink-muted">{urlRequest.url}</div>
+          </div>
+          <p className="mt-2 text-xs text-ink-muted">주소를 확인한 뒤 새 브라우저 탭에서 로그인하세요. Mew는 로그인 페이지의 입력값을 읽지 않습니다.</p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => onCancelUrl(urlRequest.id)}
+              className="rounded border border-edge-strong px-3 py-1.5 text-sm text-ink-secondary hover:bg-surface-raised"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenUrl(urlRequest)}
+              className="rounded bg-accent px-3 py-1.5 text-sm text-ink-on-accent"
+            >
+              로그인 페이지 열기
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
+      <div className="w-full max-w-xl">
+        <h2 className="mb-1 text-center text-sm font-medium text-ink">{runtime} 로그인 필요</h2>
+        <p className="mb-4 text-center text-xs text-ink-muted">로그인을 마치면 이 탭에서 바로 새 세션을 시작합니다.</p>
+        <div className="space-y-2">
+          {state.methods.map((method) => (
+            <div key={method.id} className="rounded-md border border-edge bg-surface px-3 py-2.5">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-ink">{method.name}</div>
+                  {method.description && <div className="mt-0.5 text-xs text-ink-muted">{method.description}</div>}
+                </div>
+                {method.kind === 'agent' && (
+                  <button
+                    type="button"
+                    onClick={() => onAuthenticate(method.id)}
+                    disabled={state.authenticating}
+                    className="rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent disabled:opacity-40"
+                  >
+                    로그인
+                  </button>
+                )}
+                {method.kind === 'terminal' && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenTerminal(method.id)}
+                    disabled={state.authenticating}
+                    className="rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent disabled:opacity-40"
+                  >
+                    터미널 열기
+                  </button>
+                )}
+              </div>
+              {method.kind === 'api-key' && (
+                <form
+                  className="mt-2 flex gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const value = apiKeys[method.id]?.trim()
+                    if (!value) return
+                    onAuthenticate(method.id, value)
+                    setApiKeys((current) => ({ ...current, [method.id]: '' }))
+                  }}
+                >
+                  <input
+                    type="password"
+                    value={apiKeys[method.id] ?? ''}
+                    onChange={(event) => setApiKeys((current) => ({ ...current, [method.id]: event.target.value }))}
+                    autoComplete="off"
+                    placeholder="API 키"
+                    className="min-w-0 flex-1 rounded bg-surface-deep px-2 py-1.5 text-xs text-ink outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={state.authenticating || !apiKeys[method.id]?.trim()}
+                    className="rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent disabled:opacity-40"
+                  >
+                    로그인
+                  </button>
+                </form>
+              )}
+            </div>
+          ))}
+        </div>
+        {terminalMethods.length > 0 && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded bg-surface px-3 py-2">
+            <span className="text-xs text-ink-muted">터미널에서 로그인을 마친 뒤 확인하세요.</span>
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={state.authenticating}
+              className="shrink-0 rounded border border-edge-strong px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-raised disabled:opacity-40"
+            >
+              로그인 완료 확인
+            </button>
+          </div>
+        )}
+        {state.authenticating && <div className="mt-3 text-center text-xs text-ink-muted">로그인 확인 중…</div>}
+        {state.error && <div className="mt-3 whitespace-pre-wrap rounded bg-danger/10 px-3 py-2 text-xs text-danger">{state.error}</div>}
       </div>
     </div>
   )
@@ -1733,8 +1943,7 @@ function XGlyph({ small }: { small?: boolean }) {
 function SendGlyph() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m22 2-11 11" />
-      <path d="M22 2 15 22l-4-9-9-4Z" />
+      <path d="M12 19V5m-6 6 6-6 6 6" />
     </svg>
   )
 }

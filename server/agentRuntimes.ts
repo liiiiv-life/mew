@@ -70,7 +70,13 @@ function claudeSpawnSpec(): SpawnSpec {
 /** Codex — 버전 고정된 로컬 어댑터(@agentclientprotocol/codex-acp). */
 function codexSpawnSpec(): SpawnSpec {
   const cmd = process.env.MEW_AGENT_CODEX_CMD || DEFAULT_CODEX_ACP_CMD
-  return { cmd, args: splitArgs(process.env.MEW_AGENT_CODEX_ARGS) }
+  // mew는 서버 쪽 브라우저가 아니라 접속한 사용자의 브라우저에서 로그인해야 한다. 일반 OAuth가
+  // 서버 머신의 localhost를 열지 않게 감추고, ACP URL elicitation 기반 device-code 방법을 쓴다.
+  return {
+    cmd,
+    args: splitArgs(process.env.MEW_AGENT_CODEX_ARGS),
+    env: { NO_BROWSER: process.env.NO_BROWSER ?? '1' },
+  }
 }
 
 function hermesSpawnSpec(): SpawnSpec {

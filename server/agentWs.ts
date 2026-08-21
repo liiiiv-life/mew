@@ -6,7 +6,8 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { DEFAULT_RUNTIME, disposeSession, isRuntime, sessionFor, type AgentEvent, type AgentSession } from './agentAcp.ts'
+import { DEFAULT_RUNTIME, isRuntime, type AgentEvent } from './agentAcp.ts'
+import { connectAgentHost, type AgentHostClient } from './agentHost.ts'
 import { composeRuntimePrompt } from './agentRuntimes.ts'
 import { listSessionsFromDisk } from './agentSessionList.ts'
 import { WORKSPACE_ROOT } from './paths.ts'
@@ -21,6 +22,9 @@ type ClientMessage =
   | { type: 'prompt'; text: string; skills?: string[] }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
+  | { type: 'authenticate'; methodId: string; secret?: string }
+  | { type: 'retry_auth' }
+  | { type: 'auth_url_response'; id: string; action: 'accept' | 'decline' | 'cancel' }
   | { type: 'set_model'; modelId: string }
   | { type: 'set_mode'; modeId: string }
   | { type: 'unqueue'; index: number }
@@ -76,15 +80,24 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
 
   // 대화가 오래 조용하면(에이전트가 긴 작업 중이거나 사용자가 읽고만 있을 때) 중간 장비가 유휴 소켓을
   // 끊는다 — 창은 되감기로 복구하지만 그때마다 화면이 한 번 출렁인다. 30초 핑으로 살아 있다고 알린다
+  let alive = true
+  ws.on('pong', () => { alive = true })
   const keepAlive = setInterval(() => {
-    if (ws.readyState === ws.OPEN) ws.ping()
+    if (!alive) {
+      ws.terminate()
+      return
+    }
+    if (ws.readyState === ws.OPEN) {
+      alive = false
+      ws.ping()
+    }
   }, 30_000)
   keepAlive.unref?.()
   ws.on('close', () => clearInterval(keepAlive))
 
   // 세션이 준비되기 전에 온 말은 버리지 않고 줄을 세운다 — 예전에는 조용히 사라졌다
   // (뜨는 데 몇 초가 걸리므로 그 사이에 보낸 첫 질문이 실제로 없어졌다)
-  let session: AgentSession | null = null
+  let session: AgentHostClient | null = null
   const early: ClientMessage[] = []
   let detach = () => {}
 
@@ -102,23 +115,34 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
     }
     const live = session
     try {
-      if (msg.type === 'prompt') live.prompt(msg.text, promptForRuntime(runtime, msg.text, msg.skills))
-      else if (msg.type === 'cancel') live.cancel()
-      else if (msg.type === 'permission') live.answerPermission(msg.id, msg.optionId)
-      else if (msg.type === 'unqueue') live.unqueue(msg.index)
-      else if (msg.type === 'move_queued') live.moveQueued(msg.from, msg.to)
-      else if (msg.type === 'edit_queued') live.editQueued(msg.index, msg.text, msg.expect, promptForRuntime(runtime, msg.text, msg.skills))
-      else if (msg.type === 'set_model') void live.setModel(msg.modelId).catch(fail)
-      else if (msg.type === 'set_mode') void live.setMode(msg.modeId).catch(fail)
-      else if (msg.type === 'load_session') void live.loadSession(msg.sessionId).catch(fail)
+      if (msg.type === 'prompt') live.send({ type: 'prompt', text: msg.text, promptText: promptForRuntime(runtime, msg.text, msg.skills) })
+      else if (msg.type === 'cancel') live.send({ type: 'cancel' })
+      else if (msg.type === 'permission') live.send({ type: 'permission', id: msg.id, optionId: msg.optionId })
+      // 인증 실패는 대화 오류가 아니라 auth 상태의 error로 돌아간다. 여기서 error 이벤트를 하나 더 보내지 않는다.
+      else if (msg.type === 'authenticate') live.send({ type: 'authenticate', methodId: msg.methodId, secret: msg.secret })
+      else if (msg.type === 'retry_auth') live.send({ type: 'retry_auth' })
+      else if (msg.type === 'auth_url_response') live.send({ type: 'auth_url_response', id: msg.id, action: msg.action })
+      else if (msg.type === 'unqueue') live.send({ type: 'unqueue', index: msg.index })
+      else if (msg.type === 'move_queued') live.send({ type: 'move_queued', from: msg.from, to: msg.to })
+      else if (msg.type === 'edit_queued')
+        live.send({
+          type: 'edit_queued',
+          index: msg.index,
+          text: msg.text,
+          expect: msg.expect,
+          promptText: promptForRuntime(runtime, msg.text, msg.skills),
+        })
+      else if (msg.type === 'set_model') live.send({ type: 'set_model', modelId: msg.modelId })
+      else if (msg.type === 'set_mode') live.send({ type: 'set_mode', modeId: msg.modeId })
+      else if (msg.type === 'load_session') live.send({ type: 'load_session', sessionId: msg.sessionId })
       else if (msg.type === 'list_sessions')
         void live
-          .listSessions()
+          .request<{ sessionId: string; title?: string | null; updatedAt?: string | null }[]>({ type: 'list_sessions' })
           .then((sessions) => send(ws, { type: 'sessions', sessions }))
           .catch(fail)
       else if (msg.type === 'close_session') {
-        detach()
-        disposeSession(runtime, tab)
+        live.send({ type: 'close_session' })
+        live.close()
         ws.close()
       }
     } catch (err) {
@@ -136,24 +160,36 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
     handle(msg)
   })
 
-  let started: AgentSession
+  let started: AgentHostClient
   try {
-    started = await sessionFor(runtime, tab)
+    started = await connectAgentHost(runtime, tab, WORKSPACE_ROOT, {
+      onReplay: (events) => send(ws, { type: 'replay', events }),
+      onEvent: (event) => send(ws, event),
+      onFatal: (message) => {
+        send(ws, { type: 'fatal', message })
+        ws.close()
+      },
+      onClose: () => {
+        if (ws.readyState !== ws.OPEN) return
+        send(ws, { type: 'fatal', message: '에이전트 감독 연결이 끊겼습니다' })
+        ws.close()
+      },
+    })
   } catch (err) {
     send(ws, { type: 'fatal', message: describeError(err) })
     ws.close()
     return
   }
-  // 뜨는 동안 창이 닫혔다 — 세션은 그대로 두고(유휴 타이머가 정리) 여기서 손을 뗀다
-  if (ws.readyState !== ws.OPEN) return
   session = started
-  // 창을 닫아도 세션은 남는다(agentAcp의 유휴 타이머가 정리) — 재접속하면 지나간 대화를 되받는다.
-  // 되감기는 **한 프레임**이다: 창이 그걸로 통째로 갈아끼우므로 재접속 순간에도 대화가 비지 않는다.
-  // 스냅샷을 읽고 붙이는 사이에 await가 없어야 이벤트가 새지 않는다(둘 사이는 동기 코드여야 한다).
-  send(ws, { type: 'replay', events: session.snapshot() })
-  detach = session.attach((event) => send(ws, event))
-  ws.on('close', () => detach())
+  // 준비 중 받은 프롬프트는 창이 그 사이 닫혔어도 감독에 먼저 인계한다. 프론트 종료가 이미 수락한
+  // 작업을 취소하는 신호가 되어서는 안 된다.
   for (const msg of early.splice(0)) handle(msg)
+  if (ws.readyState !== ws.OPEN) {
+    started.close()
+    return
+  }
+  detach = () => session?.close()
+  ws.on('close', detach)
 }
 
 export function attachAgentWebSocket(

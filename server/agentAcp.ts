@@ -18,6 +18,8 @@ import {
   ndJsonStream,
   PROTOCOL_VERSION,
   type AgentCapabilities,
+  type AuthMethod,
+  type AuthenticateRequest,
   type Client,
   type PermissionOption,
   type RequestPermissionRequest,
@@ -35,7 +37,7 @@ import { readAgentDefault, type AgentRuntimeDefault } from './agentDefaults.ts'
 export { DEFAULT_RUNTIME, isRuntime, runtimeList, RUNTIMES, type SpawnSpec } from './agentRuntimes.ts'
 import { RUNTIMES, type SpawnSpec } from './agentRuntimes.ts'
 
-/** 에이전트와 그 자손에 심는 주인 표식 — 값은 띄운 mew 서버의 pid다(reapOrphanAgents가 읽는다) */
+/** 에이전트와 그 자손에 심는 주인 표식 — 값은 AgentSession을 소유한 프로세스 pid다(reapOrphanAgents가 읽는다) */
 const OWNER_ENV = 'MEW_AGENT_OWNER'
 
 /**
@@ -62,8 +64,8 @@ const FULL_ACCESS_MODES = [
 /** 재접속(모바일 화면 꺼짐 등) 때 되돌려 줄 이벤트 개수 상한 */
 const MAX_BUFFERED_EVENTS = 500
 
-/** 붙어 있는 창이 하나도 없는 채로 이만큼 지나면 에이전트를 죽인다 */
-const IDLE_KILL_MS = 10 * 60_000
+/** 작업이 끝났고 붙어 있는 창도 없는 채로 이만큼 지나면 에이전트를 죽인다 */
+export const AGENT_IDLE_MS = 30 * 60_000
 
 /** 어댑터를 띄운 뒤 ACP 핸드셰이크가 이만큼 걸리면 포기한다 — 정상이면 몇 초다 */
 const HANDSHAKE_TIMEOUT_MS = 30_000
@@ -89,6 +91,18 @@ export type SessionMeta = {
   canList: boolean
 }
 
+/** 브라우저에 보여 줄 인증 방법. 비밀값과 실행 명령은 서버 밖으로 내보내지 않는다. */
+export type AgentAuthMethod = {
+  id: string
+  name: string
+  description?: string | null
+  kind: 'agent' | 'api-key' | 'terminal'
+}
+
+export type TerminalAuthSpec = SpawnSpec & { label: string }
+
+type AuthMethodInternal = AgentAuthMethod & { terminal?: TerminalAuthSpec }
+
 export type AgentEvent =
   | { type: 'update'; update: SessionNotification['update'] }
   | { type: 'permission'; id: string; toolCall: ToolCallUpdate; options: PermissionOption[] }
@@ -99,6 +113,10 @@ export type AgentEvent =
   | { type: 'models'; models: SessionModelState }
   | { type: 'modes'; modes: SessionModeState }
   | { type: 'meta'; meta: SessionMeta }
+  | { type: 'auth'; methods: AgentAuthMethod[]; authenticating: boolean; error: string | null }
+  | { type: 'auth_url'; id: string; url: string; message: string }
+  | { type: 'auth_url_done'; id: string }
+  | { type: 'auth_complete' }
   /** 대화가 갈아끼워졌다(새 세션·히스토리 불러오기) — 창은 지금까지 그린 것을 버린다 */
   | { type: 'reset' }
 
@@ -132,6 +150,59 @@ function describeError(err: unknown): string {
   return String(err)
 }
 
+function isAuthRequiredError(err: unknown): boolean {
+  if (err && typeof err === 'object' && (err as { code?: unknown }).code === -32000) return true
+  const message = err instanceof Error ? err.message : String(err)
+  return /authentication required|auth_required|not logged in|please (?:run \/login|log in|sign in)/i.test(message)
+}
+
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+/**
+ * SDK 0.14는 ACP v1의 id/name/_meta를 보존한다. 최신 terminal auth의 실행 정보는 어댑터가
+ * 호환용 `_meta["terminal-auth"]`에도 싣기 때문에, 모델/config 계약을 함께 이관하지 않고 인증만
+ * 받을 수 있다. HTTP에는 정규화한 공개 정보만 보내고 실제 명령은 세션 안에 둔다.
+ */
+function normalizeAuthMethods(runtime: string, methods: AuthMethod[]): AuthMethodInternal[] {
+  return methods.flatMap((method) => {
+    const meta = recordOf(method._meta)
+    const terminalMeta = recordOf(meta?.['terminal-auth'])
+    const command = typeof terminalMeta?.command === 'string' ? terminalMeta.command : null
+    const args = Array.isArray(terminalMeta?.args) && terminalMeta.args.every((arg) => typeof arg === 'string')
+      ? terminalMeta.args as string[]
+      : null
+    const terminal = command && args
+      ? {
+          cmd: command,
+          args,
+          env: RUNTIMES[runtime]?.spec().env,
+          label: typeof terminalMeta?.label === 'string' ? terminalMeta.label : method.name,
+        }
+      : undefined
+    const apiKey = method.id === 'api-key' || recordOf(meta?.['api-key']) !== null
+    return [{
+      id: method.id,
+      name: method.name,
+      description: method.description,
+      kind: terminal ? 'terminal' : apiKey ? 'api-key' : 'agent',
+      terminal,
+    }]
+  })
+}
+
+function safeAuthUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  try {
+    const url = new URL(raw)
+    const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
+    return url.protocol === 'https:' || (url.protocol === 'http:' && local) ? url.toString() : null
+  } catch {
+    return null
+  }
+}
+
 /** 떠 있는 세션 전부. sessions 맵과 달리 Promise가 아니다 — 나가는 길(process 'exit')에서는
  *  then이 돌 기회가 없어서, 동기적으로 죽일 수 있는 목록이 따로 있어야 한다 */
 const live = new Set<AgentSession>()
@@ -149,11 +220,19 @@ export class AgentSession {
   #listeners = new Set<(event: AgentEvent) => void>()
   #pending = new Map<string, (response: RequestPermissionResponse) => void>()
   #idleTimer: NodeJS.Timeout | null = null
+  #idleKillMs: number
+  #disposeListeners = new Set<() => void>()
   #nextPermissionId = 1
   #disposed = false
   #models: SessionModelState | null = null
   #modes: SessionModeState | null = null
   #caps: AgentCapabilities = {}
+  #authMethods: AuthMethodInternal[] = []
+  #authRequired = false
+  #authenticating = false
+  #authError: string | null = null
+  #pendingElicitations = new Map<string, (response: Record<string, unknown>) => void>()
+  #authUrls = new Map<string, Extract<AgentEvent, { type: 'auth_url' }>>()
   #startedAt = new Date().toISOString()
   #turns = 0
   #queue: QueuedPrompt[] = []
@@ -161,9 +240,10 @@ export class AgentSession {
   #usage: Usage | null = null
   busy = false
 
-  private constructor(runtime: string, spec: SpawnSpec, cwd = WORKSPACE_ROOT) {
+  private constructor(runtime: string, spec: SpawnSpec, cwd = WORKSPACE_ROOT, idleKillMs = AGENT_IDLE_MS) {
     this.runtime = runtime
     this.cwd = cwd
+    this.#idleKillMs = idleKillMs
     const env = { ...process.env, ...spec.env }
     // 주인 표식은 자손까지 그대로 상속된다 — 서버가 SIGKILL로 죽어도 다음 실행이 이걸 보고 걷어낸다
     env[OWNER_ENV] = String(process.pid)
@@ -192,11 +272,15 @@ export class AgentSession {
       Readable.toWeb(this.#child.stdout!) as ReadableStream<Uint8Array>,
     )
     this.#conn = new ClientSideConnection(() => this.#client(), stream)
-    this.#armIdleTimer()
   }
 
-  static async start(runtime: string, spec: SpawnSpec = RUNTIMES[runtime].spec(), cwd = WORKSPACE_ROOT): Promise<AgentSession> {
-    const session = new AgentSession(runtime, spec, cwd)
+  static async start(
+    runtime: string,
+    spec: SpawnSpec = RUNTIMES[runtime].spec(),
+    cwd = WORKSPACE_ROOT,
+    idleKillMs = AGENT_IDLE_MS,
+  ): Promise<AgentSession> {
+    const session = new AgentSession(runtime, spec, cwd, idleKillMs)
     try {
       // 핸드셰이크에 시한을 둔다 — 어댑터가 떴는데 ACP를 말하지 않으면(잘못 깔린 실행 파일, 로그인
       // 안 된 CLI) initialize의 응답이 영영 오지 않는다. 시한이 없으면 그 자리에서 기다리는 쪽이
@@ -211,6 +295,7 @@ export class AgentSession {
           timer.unref?.()
         }),
       ])
+      session.#armIdleTimer()
     } catch (err) {
       session.dispose()
       throw err
@@ -223,6 +308,16 @@ export class AgentSession {
     return this.#disposed
   }
 
+  /** 감독 프로세스가 세션의 유휴 종료를 자기 수명 종료로 이어 붙이는 손잡이. */
+  onDispose(listener: () => void): () => void {
+    if (this.#disposed) {
+      queueMicrotask(listener)
+      return () => {}
+    }
+    this.#disposeListeners.add(listener)
+    return () => this.#disposeListeners.delete(listener)
+  }
+
   async #handshake() {
     // capability를 하나도 광고하지 않는다 — 어댑터가 CLI 기본 도구(Read/Write/Edit/Bash)를 그대로 쓴다.
     // fs를 켜면 그 도구들이 꺼지고 mcp__acp__* 로 갈리는데, 그러면 CLI에서 만든 대화를 창에서 불러올 때
@@ -230,12 +325,61 @@ export class AgentSession {
     // 맞춰 두는 쪽을 택했다 — 경로 스코프를 잃는 대신 대화가 양쪽에서 이어진다(ADR 0044).
     const init = await this.#conn.initialize({
       protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {},
+      // fs는 의도적으로 광고하지 않는다. 인증에 필요한 terminal/url capability만 더한다.
+      // direct SDK 0.14의 타입보다 새 ACP v1 필드가 앞서 있어 wire-compatible 값을 좁게 캐스팅한다.
+      clientCapabilities: {
+        auth: { terminal: true },
+        elicitation: { url: {} },
+        _meta: { 'terminal-auth': true },
+      } as never,
     })
     this.#caps = init.agentCapabilities ?? {}
+    this.#authMethods = normalizeAuthMethods(this.runtime, init.authMethods ?? [])
+    try {
+      await this.#createSession()
+    } catch (err) {
+      if (!isAuthRequiredError(err) || this.#authMethods.length === 0) throw err
+      this.#enterAuth()
+    }
+  }
+
+  async #createSession() {
     const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
     this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null)
+    this.#authRequired = false
+    this.#authenticating = false
+    this.#authError = null
     await this.#applyDefaults()
+  }
+
+  #enterAuth(err?: unknown) {
+    this.#authRequired = true
+    this.#authenticating = false
+    this.#authError = err ? describeError(err) : null
+    this.#broadcast(this.#authEvent())
+    this.#armIdleTimer()
+  }
+
+  #closeAuthUrl(id: string) {
+    if (!this.#authUrls.delete(id)) return
+    this.#broadcast({ type: 'auth_url_done', id })
+  }
+
+  #closeAuthUrls() {
+    for (const id of [...this.#authUrls.keys()]) this.#closeAuthUrl(id)
+  }
+
+  #publicAuthMethods(): AgentAuthMethod[] {
+    return this.#authMethods.map(({ id, name, description, kind }) => ({ id, name, description, kind }))
+  }
+
+  #authEvent(): AgentEvent {
+    return {
+      type: 'auth',
+      methods: this.#publicAuthMethods(),
+      authenticating: this.#authenticating,
+      error: this.#authError,
+    }
   }
 
   /** 새로 만들었거나 불러온 ACP 세션으로 갈아탄다 — 사용량 리더도 그 세션 파일을 보게 바꾼다 */
@@ -317,6 +461,26 @@ export class AgentSession {
           this.#emit({ type: 'permission', id, toolCall: params.toolCall, options: params.options })
         })
       },
+      // SDK 0.14가 아직 이름을 모르는 ACP v1 elicitation 요청은 확장 메서드 통로로 들어온다.
+      // URL은 브라우저가 명시적으로 동의해 열 때까지 기다리고, 비밀값은 ACP로 되돌리지 않는다.
+      extMethod: (method, params) => {
+        if (method !== 'elicitation/create') return Promise.reject(new Error(`지원하지 않는 ACP 요청입니다: ${method}`))
+        const url = safeAuthUrl(params.url)
+        const id = typeof params.elicitationId === 'string' ? params.elicitationId : `auth-${Date.now()}`
+        if (params.mode !== 'url' || !url) return Promise.reject(new Error('안전한 HTTPS 로그인 주소가 아닙니다'))
+        const message = typeof params.message === 'string' ? params.message : '브라우저에서 로그인을 완료하세요.'
+        return new Promise<Record<string, unknown>>((resolve) => {
+          this.#pendingElicitations.set(id, resolve)
+          const event = { type: 'auth_url', id, url, message } as const
+          this.#authUrls.set(id, event)
+          this.#broadcast(event)
+        })
+      },
+      extNotification: async (method, params) => {
+        if (method !== 'elicitation/complete') return
+        const id = typeof params.elicitationId === 'string' ? params.elicitationId : ''
+        if (id) this.#closeAuthUrl(id)
+      },
       // fs capability를 광고하지 않으므로 readTextFile·writeTextFile은 구현하지 않는다 — 파일은
       // CLI가 자기 Read/Write/Edit로 직접 다룬다(ADR 0044).
     }
@@ -337,17 +501,81 @@ export class AgentSession {
       clearTimeout(this.#idleTimer)
       this.#idleTimer = null
     }
-    listener(this.#metaEvent())
+    listener(this.#authRequired ? this.#authEvent() : this.#metaEvent())
+    if (this.#authRequired) for (const event of this.#authUrls.values()) listener(event)
     this.#listeners.add(listener)
-    void this.#pushMeta()
+    if (!this.#authRequired) void this.#pushMeta()
     return () => {
       this.#listeners.delete(listener)
       this.#armIdleTimer()
     }
   }
 
+  /** ACP가 직접 처리하는 로그인(ChatGPT device code·API key 등). */
+  async authenticate(methodId: string, secret?: string) {
+    if (!this.#authRequired) return
+    if (this.#authenticating) throw new Error('이미 로그인 중입니다')
+    const method = this.#authMethods.find((item) => item.id === methodId)
+    if (!method) throw new Error('에이전트가 광고하지 않은 로그인 방법입니다')
+    if (method.kind === 'terminal') throw new Error('이 로그인 방법은 전용 터미널에서 실행해야 합니다')
+    if (method.kind === 'api-key' && !secret?.trim()) throw new Error('API 키를 입력하세요')
+
+    this.#authenticating = true
+    this.#authError = null
+    this.#broadcast(this.#authEvent())
+    const request: AuthenticateRequest = method.kind === 'api-key'
+      ? { methodId, _meta: { 'api-key': { apiKey: secret!.trim() } } }
+      : { methodId }
+    try {
+      await this.#conn.authenticate(request)
+      await this.#createSession()
+      this.#closeAuthUrls()
+      this.#broadcast({ type: 'auth_complete' })
+      await this.#pushMeta()
+    } catch (err) {
+      this.#closeAuthUrls()
+      this.#enterAuth(err)
+      throw err
+    } finally {
+      this.#armIdleTimer()
+    }
+  }
+
+  /** terminal auth가 다른 프로세스에서 자격증명을 쓴 뒤 같은 ACP 연결로 세션 생성을 다시 시도한다. */
+  async retryAuthentication() {
+    if (!this.#authRequired || this.#authenticating) return
+    this.#authenticating = true
+    this.#authError = null
+    this.#broadcast(this.#authEvent())
+    try {
+      await this.#createSession()
+      this.#broadcast({ type: 'auth_complete' })
+      await this.#pushMeta()
+    } catch (err) {
+      this.#enterAuth(err)
+      throw err
+    } finally {
+      this.#armIdleTimer()
+    }
+  }
+
+  answerElicitation(id: string, action: 'accept' | 'decline' | 'cancel') {
+    const resolve = this.#pendingElicitations.get(id)
+    if (!resolve) return
+    this.#pendingElicitations.delete(id)
+    resolve({ action })
+    if (action !== 'accept') this.#closeAuthUrl(id)
+  }
+
+  terminalAuthSpec(methodId: string): TerminalAuthSpec {
+    const method = this.#authMethods.find((item) => item.id === methodId)
+    if (!method?.terminal) throw new Error('터미널 로그인 방법을 찾을 수 없습니다')
+    return method.terminal
+  }
+
   /** 진행 중인 턴이 있으면 줄을 세운다 — 끝나는 대로 순서대로 이어 돈다 */
   prompt(text: string, promptText = text) {
+    if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
     if (this.busy) {
       this.#queue.push({ text, promptText })
       this.#broadcast(this.#metaEvent())
@@ -402,6 +630,10 @@ export class AgentSession {
   }
 
   #run(text: string, promptText = text) {
+    if (this.#idleTimer) {
+      clearTimeout(this.#idleTimer)
+      this.#idleTimer = null
+    }
     this.busy = true
     this.#turns += 1
     // 사용자 발화도 이벤트 버퍼에 남긴다 — 재접속한 창이 대화를 그대로 복원하려면 여기 있어야 한다
@@ -412,14 +644,26 @@ export class AgentSession {
       .prompt({ sessionId: this.#sessionId, prompt: [{ type: 'text', text: promptText }] })
       .then((res) => this.#emit({ type: 'turn_end', stopReason: res.stopReason }))
       .catch((err: unknown) => {
+        if (isAuthRequiredError(err) && this.#authMethods.length > 0) {
+          this.#emit({ type: 'turn_end', stopReason: 'error' })
+          this.#enterAuth(err)
+          return
+        }
         // ACP 오류는 JSON-RPC 오류 객체(plain object)로도 온다 — String()하면 "[object Object]"만 남는다
         this.#emit({ type: 'error', message: describeError(err) })
         this.#emit({ type: 'turn_end', stopReason: 'error' })
       })
       .finally(() => {
         this.busy = false
+        if (this.#authRequired) {
+          this.#armIdleTimer()
+          return
+        }
         const next = this.#queue.shift()
-        if (next === undefined) void this.#pushMeta()
+        if (next === undefined) {
+          void this.#pushMeta()
+          this.#armIdleTimer()
+        }
         else this.#run(next.text, next.promptText)
       })
   }
@@ -498,7 +742,7 @@ export class AgentSession {
     this.#pending.clear()
     // 줄 서 있던 메시지도 같이 버린다 — 중단해 놓고 다음 것이 저절로 도는 건 놀라운 동작이다
     this.#queue = []
-    void this.#conn.cancel({ sessionId: this.#sessionId }).catch(() => {})
+    if (this.#sessionId) void this.#conn.cancel({ sessionId: this.#sessionId }).catch(() => {})
   }
 
   answerPermission(id: string, optionId: string | null) {
@@ -549,11 +793,20 @@ export class AgentSession {
   }
 
   #armIdleTimer() {
-    if (this.#listeners.size > 0 || this.#idleTimer || this.#disposed) return
+    // 프론트가 끊긴 것은 작업 중단 신호가 아니다. 진행 중인 턴·로그인은 끝까지 둔 뒤,
+    // 완전히 놀기 시작한 시점부터 30분을 새로 센다.
+    if (
+      this.#listeners.size > 0 ||
+      this.busy ||
+      this.#authenticating ||
+      this.#pendingElicitations.size > 0 ||
+      this.#idleTimer ||
+      this.#disposed
+    ) return
     this.#idleTimer = setTimeout(() => {
       sessions.delete(this.key)
       this.dispose()
-    }, IDLE_KILL_MS)
+    }, this.#idleKillMs)
     this.#idleTimer.unref?.()
   }
 
@@ -564,8 +817,13 @@ export class AgentSession {
     if (this.#idleTimer) clearTimeout(this.#idleTimer)
     for (const resolve of this.#pending.values()) resolve({ outcome: { outcome: 'cancelled' } })
     this.#pending.clear()
+    for (const resolve of this.#pendingElicitations.values()) resolve({ action: 'cancel' })
+    this.#pendingElicitations.clear()
+    this.#authUrls.clear()
     this.#listeners.clear()
     this.#killTree()
+    for (const listener of this.#disposeListeners) listener()
+    this.#disposeListeners.clear()
   }
 
   /** 어댑터가 밑에 둔 CLI까지 같이 보낸다 — 그룹 리더로 띄웠으므로 음수 pid가 그룹 전체다.
@@ -587,7 +845,7 @@ const sessions = new Map<string, Promise<AgentSession>>()
 
 const keyOf = (runtime: string, tab: string) => `${runtime} ${tab}`
 
-/** 창을 닫았다 다시 열어도 탭마다 같은 대화가 이어진다(IDLE_KILL_MS까지) */
+/** 창을 닫았다 다시 열어도 탭마다 같은 대화가 이어진다(작업 완료 뒤 AGENT_IDLE_MS까지) */
 export function sessionFor(runtime: string, tab: string): Promise<AgentSession> {
   const key = keyOf(runtime, tab)
   const existing = sessions.get(key)
@@ -603,6 +861,11 @@ export function sessionFor(runtime: string, tab: string): Promise<AgentSession> 
     })
   sessions.set(key, started)
   return started
+}
+
+/** 로그인 화면이 광고받은 terminal 방법의 실제 고정 실행 spec을 얻는다. */
+export async function terminalAuthFor(runtime: string, tab: string, methodId: string): Promise<TerminalAuthSpec> {
+  return (await sessionFor(runtime, tab)).terminalAuthSpec(methodId)
 }
 
 /** 모델 목록만 보려고 도는 임시 세션 — 같은 런타임을 두 번 띄우지 않게 붙잡는다 */
@@ -691,8 +954,8 @@ function ownerOf(pid: number): number | null {
  * 서버가 SIGKILL로 죽으면 위의 어느 것도 돌지 못해 어댑터와 그 밑 CLI가 통째로 남는다 —
  * 2026-08-10에 6일치 고아 28개가 3.4GB를 물고 있었다. 뜰 때 한 번 걷어낸다.
  *
- * 고아 판정은 **주인 표식**으로 한다(MEW_AGENT_OWNER = 띄운 서버의 pid): 그 pid가 죽어 있으면
- * 지난 실행이 남긴 것이고, 살아 있으면 지금 돌고 있는 다른 mew의 자식이라 건드리지 않는다.
+ * 고아 판정은 **주인 표식**으로 한다(MEW_AGENT_OWNER = AgentSession 소유 프로세스 pid): 그 pid가
+ * 죽어 있으면 지난 실행이 남긴 것이고, 살아 있으면 독립 감독이나 지금 mew가 소유하므로 건드리지 않는다.
  * PPID 1로 보지 않는 이유 — WSL은 부모를 잃은 프로세스를 PID 1이 아니라 중간의 `/init` 릴레이가
  * 거둬 가서 영영 안 잡힌다. /proc이 없는 환경을 위해 옛 PPID 1 규칙은 보조로 남긴다.
  *

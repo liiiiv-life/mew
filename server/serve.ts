@@ -37,8 +37,8 @@ process.on('uncaughtException', (err) => {
   console.error('[mew] uncaughtException (무시하고 계속):', err)
 })
 
-// 에이전트 자식(ACP 어댑터와 그 밑 CLI)은 부모가 죽어도 저 혼자 산다 — 나가는 길에 반드시 접는다.
-// 신호를 잡는 쪽이 여기뿐이므로 처리 후 직접 나가야 한다(기본 동작이 사라진다).
+// 이 프로세스가 직접 소유한 일회성/에이전트셋 세션만 정리한다. 에이전트 탭은 별도 감독 프로세스가
+// 소유하므로 mew 종료·재시작과 함께 접지 않는다. 신호 처리 뒤에는 직접 나가야 한다.
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.once(signal, () => {
     disposeAllSessions()
