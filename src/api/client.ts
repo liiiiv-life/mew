@@ -3,22 +3,19 @@ import type { TmuxPanelApi, TmuxSession } from '@mew/tmux-term'
 import { isCommandSession } from '@mew/tmux-term'
 import { subscribeDb } from './dbSocket'
 import { compressImage } from '../utils/compressImage'
+import { detectInitialProject } from '../utils/active-project'
 
 export type { TreeNode } from '@mew/editor'
 export type { TmuxSession } from '@mew/tmux-term'
 import type { TreeNode } from '@mew/editor'
 
-const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const PROJECT_KEY = 'mew:project'
 
 // 프로젝트 전환은 **페이지 이동이 아니다** — 앱 안에서 활성 프로젝트만 바뀐다(프로젝트 탭).
 // 그래서 이 값은 상수가 아니라 런타임 상태이고, 요청을 보내는 순간에 읽어야 한다.
 // 옛 `/{프로젝트}` 주소로 들어와도 그 프로젝트로 시작한다 — 밖에 나가 있는 링크를 살려두기 위해서다.
 function detectProject(): string {
-  const seg = decodeURIComponent(location.pathname.split('/')[1] ?? '')
-  if (PROJECT_NAME_RE.test(seg)) return seg
-  const saved = localStorage.getItem(PROJECT_KEY)
-  return saved && PROJECT_NAME_RE.test(saved) ? saved : 'docs'
+  return detectInitialProject(location.pathname, localStorage.getItem(PROJECT_KEY))
 }
 
 let currentProject = detectProject()

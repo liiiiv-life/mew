@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TreeNode } from '../api/client'
 import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, renamePath, setGuestAccess, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
-import { ConfirmDialog, setPathDragData } from '@mew/ui'
+import { ConfirmDialog, keepFocusOnPress, setPathDragData } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { PresenceDots } from './PresenceDots'
 import { getTreeScroll, saveTreeScroll, setScrollSaveSuppressed } from '../utils/scrollMemory'
@@ -606,6 +606,7 @@ export function FileTree({
   onDeleted,
   onGuestAccessChanged,
   onNotice,
+  registerSearchCancel,
 }: {
   tree: TreeNode[]
   /** 펼친 폴더·스크롤을 프로젝트별로 기억하는 열쇠 (이 컴포넌트는 key={project}로 갈아 끼워진다) */
@@ -627,6 +628,8 @@ export function FileTree({
   onGuestAccessChanged: () => void
   /** 흐름을 끊지 않는 짧은 안내(토스트) — 실패는 아니지만 말해줘야 하는 것들 */
   onNotice: (message: string) => void
+  /** 검색창 밖에 포커스가 있어도 사이드바의 첫 Esc가 검색부터 취소할 수 있게 App에 등록한다 */
+  registerSearchCancel: (cancel: (() => boolean) | null) => void
 }) {
   const [query, setQuery] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) === 'ext' ? 'ext' : 'name'))
@@ -641,6 +644,8 @@ export function FileTree({
   const [clipboard, setClipboard] = useState<Clipboard>(null)
   const [dropDir, setDropDir] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const queryRef = useRef(query)
+  queryRef.current = query
   const listRef = useRef<HTMLDivElement>(null)
   // 팝오버의 "업로드"는 파일 선택창을 띄워야 해서 클릭 시점의 대상 폴더를 잠깐 들고 있는다
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -671,6 +676,15 @@ export function FileTree({
     lastHandledSearchFocusSignal.current = searchFocusSignal
     searchInputRef.current?.focus()
   }, [searchFocusSignal])
+
+  useEffect(() => {
+    registerSearchCancel(() => {
+      if (!queryRef.current) return false
+      setQuery('')
+      return true
+    })
+    return () => registerSearchCancel(null)
+  }, [registerSearchCancel])
 
   // Alt+N — 0으로 초기화(마운트 시점 값이 아니라): 사이드바가 닫힌 채 Alt+N을 누르면
   // 신호가 먼저 오르고 이 컴포넌트가 그 뒤에 마운트되므로, 마운트 직후에도 처리해야 한다
@@ -1145,14 +1159,27 @@ export function FileTree({
   return (
     <div className="flex h-full flex-col border-r border-edge bg-surface-deep">
       <div className="flex items-center gap-1.5 border-b border-edge p-2">
-        <input
-          ref={searchInputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleSearchKeyDown}
-          placeholder="문서 검색… (Ctrl+P)"
-          className="w-full rounded border border-edge-strong bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent"
-        />
+        <div className="relative min-w-0 flex-1" onMouseDown={keepFocusOnPress}>
+          <input
+            ref={searchInputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="문서 검색… (Ctrl+P)"
+            className="w-full rounded border border-edge-strong bg-surface py-1 pr-7 pl-2 text-xs text-ink outline-none focus:border-accent"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="absolute top-1/2 right-1 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-sm leading-none text-ink-muted hover:bg-surface-raised hover:text-ink"
+              title="검색 취소"
+              aria-label="파일 검색 지우기"
+            >
+              ×
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={toggleSortMode}

@@ -615,6 +615,8 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   }, [])
 
   return {
+    /** 저장된 탭 복원이 끝났는지 — 복원 전의 잠깐 빈 상태를 진짜 빈 프로젝트로 오인하지 않게 한다 */
+    hydrated: hydratedRef.current.has(project),
     panes,
     layout,
     focusedPaneId: focusedPane.id,

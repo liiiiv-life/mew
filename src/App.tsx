@@ -39,7 +39,7 @@ import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
-import { hasDirPathDrag, hasPathDrag, pathFromDrag, useOverlayDismiss, useToast } from '@mew/ui'
+import { hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
@@ -52,6 +52,8 @@ import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
 import { outsideTerminal } from './utils/terminalFocus'
 import { pickRefTarget, type RefPanel } from './utils/refTarget'
+import { WORKSPACE_PROJECT } from './utils/active-project'
+import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
@@ -71,10 +73,6 @@ const BROWSER_OPEN_KEY = 'mew:browser-open'
 const ANDROID_OPEN_KEY = 'mew:android-open'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
-/** 홈 탭의 스코프 — 워크스페이스 폴더 자신을 프로젝트처럼 본다(server/paths.ts의 WORKSPACE_PROJECT).
- *  사이드바는 여기서 워크스페이스 루트를 그린다(프로젝트 폴더·.mew는 서버가 걷어낸다). */
-const WORKSPACE_PROJECT = '.workspace'
-
 function loadTheme(): Theme {
   return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
 }
@@ -106,7 +104,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const canUseTerminal = role === 'owner' || role === 'manager'
 
   // 지금 보고 있는 프로젝트. 라우트가 아니라 앱 상태다 — client.ts의 모듈 값과 항상 함께 움직인다.
-  const [project, setActiveProject] = useState(getProject)
+  const [project, setActiveProject] = useState(() => {
+    const remembered = getProject()
+    // 홈은 로그인 사용자 전용이다. 이전 로그인 세션이 홈에서 끝났어도 게스트에게 워크스페이스 루트를 열지 않는다.
+    if (isGuest && remembered === WORKSPACE_PROJECT) {
+      setProject(DEFAULT_PROJECT)
+      return DEFAULT_PROJECT
+    }
+    return remembered
+  })
 
   const [tree, setTree] = useState<TreeNode[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
@@ -159,6 +165,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const paneEls = useRef(new Map<string, HTMLElement>())
   // 탭 줄도 드롭 자리다 — 다른 칸의 탭 줄에 놓으면 그 칸으로 **옮기기**(분할 아님)
   const paneBarEls = useRef(new Map<string, HTMLElement>())
+  // 파일 검색어는 FileTree가 소유하지만, Esc로 사이드바를 닫을지는 App의 오버레이 스택이 결정한다.
+  const sidebarSearchCancelRef = useRef<(() => boolean) | null>(null)
   // 프로젝트 검색 결과를 클릭해 파일을 연 뒤, 그 파일 내용이 로드되면 해당 위치로 점프시키기 위한 대기 정보
   const pendingRevealRef = useRef<{ path: string; line: number; query: string } | null>(null)
 
@@ -190,6 +198,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   }, [])
 
   const {
+    hydrated: tabsHydrated,
     panes,
     layout,
     focusedPaneId,
@@ -214,6 +223,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     forgetProject,
   } = useTabs(project, refreshTree, showToast)
 
+  const hasOpenFiles = panes.some((pane) => pane.tabs.length > 0)
+  useEffect(() => {
+    // 복원 전에는 항상 빈 칸으로 한 번 렌더된다. 저장된 파일 탭이 실제로 복원된 뒤 판정해야
+    // 파일이 있는 프로젝트에서 사이드바가 잘못 열리지 않는다. 홈은 편집 프로젝트가 아니다.
+    if (tabsHydrated && !homeOpen && !hasOpenFiles) setSidebarOpen(true)
+  }, [project, tabsHydrated, homeOpen, hasOpenFiles])
+
   const registerPaneHandle = useCallback((id: string, handle: PaneHandle | null) => {
     if (handle) paneHandles.current.set(id, handle)
     else paneHandles.current.delete(id)
@@ -227,6 +243,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const registerPaneTabBar = useCallback((id: string, el: HTMLElement | null) => {
     if (el) paneBarEls.current.set(id, el)
     else paneBarEls.current.delete(id)
+  }, [])
+
+  const registerSidebarSearchCancel = useCallback((cancel: (() => boolean) | null) => {
+    sidebarSearchCancelRef.current = cancel
   }, [])
 
   /** 지금 포커스된 칸의 에디터 — 커밋·찾기·되돌리기·터미널 붙여넣기가 가리키는 곳 */
@@ -347,11 +367,22 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   // Esc·안드로이드 뒤로가기로 열린 것을 한 겹씩 닫는다 — 모달·팝업도 같은 스택에 등록돼 있어
   // (useOverlayDismiss) 그쪽이 떠 있으면 언제나 먼저 닫히고, 패널은 마지막에 닫힌다.
-  // 패널은 bubble 단계라야 안쪽(에디터 슬래시 메뉴, 파일 이름 바꾸기, 터미널의 vim)이 Esc를 먼저 쓴다.
-  useOverlayDismiss(tmuxOpen && (() => setTmuxOpen(false)), { escapePhase: 'bubble', closeOnEscape: outsideTerminal })
-  useOverlayDismiss(sidebarOpen && (() => setSidebarOpen(false)), { escapePhase: 'bubble' })
-  // 채팅도 패널이라 bubble — 안쪽 멘션 목록이 Esc를 먼저 쓰고 stopPropagation 하면 창은 남는다
-  useOverlayDismiss(chatOpen && (() => setChatOpen(false)), { escapePhase: 'bubble' })
+  // App이 직접 소유하는 보조 패널은 여기 한 번에 등록한다. 모달·드롭다운은 각 컴포넌트가 같은 전역
+  // 오버레이 스택에 등록하므로, Esc·모바일 뒤로가기는 가장 나중에 연 창 하나만 닫는다.
+  useWorkspacePanelDismissals({
+    sidebar: {
+      open: sidebarOpen,
+      close: () => setSidebarOpen(false),
+      // 검색 중이면 첫 Esc는 FileTree가 소비한다. 검색이 비어 있을 때 다음 Esc가 패널을 닫는다.
+      closeOnEscape: () => !(sidebarSearchCancelRef.current?.() ?? false),
+    },
+    chat: { open: chatOpen, close: () => setChatOpen(false) },
+    agent: { open: agentOpen, close: () => setAgentOpen(false) },
+    agentSet: { open: agentSetOpen, close: () => setAgentSetOpen(false) },
+    terminal: { open: tmuxOpen, close: () => setTmuxOpen(false), closeOnEscape: outsideTerminal },
+    browser: { open: browserOpen, close: () => setBrowserOpen(false) },
+    android: { open: androidOpen, close: () => setAndroidOpen(false) },
+  })
 
   const activeRelativePath = activeTab?.path ?? null
 
@@ -1038,7 +1069,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           <div
             {...sidebarSwipe}
             data-sidebar
-            className="fixed inset-0 z-30 flex bg-surface-deep md:static md:z-auto md:shrink-0"
+            // 모바일은 프로젝트 헤더 아래의 작업 영역만 덮고, 문서 탭(h-9)도 눌러 전환할 수 있게 남긴다.
+            // 홈에는 문서 탭이 없으므로 그때만 작업 영역 맨 위부터 채운다. 데스크톱은 기존 고정 칸이다.
+            className={`absolute inset-x-0 bottom-0 z-30 flex bg-surface-deep ${
+              homeOpen && !isGuest ? 'top-0' : 'top-9'
+            } md:static md:z-auto md:shrink-0`}
             style={{ width: isDesktop() ? sidebarWidth : undefined }}
           >
             <div className="flex min-w-0 flex-1 flex-col">
@@ -1111,6 +1146,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     onDeleted={handleDeleted}
                     onGuestAccessChanged={refreshTree}
                     onNotice={showToast}
+                    registerSearchCancel={registerSidebarSearchCancel}
                   />
                 </div>
                 <div className={sidebarView === 'search' ? 'h-full' : 'hidden'}>
