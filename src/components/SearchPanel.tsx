@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { replaceInProjectFile, searchProject, type SearchFileResult, type SearchMatch, type SearchOptions } from '../api/client'
+import {
+  replaceInProjectFile,
+  searchProject,
+  semanticSearchProject,
+  type SearchFileResult,
+  type SearchMatch,
+  type SearchOptions,
+  type SemanticSearchResult,
+} from '../api/client'
 
 // VSCode식 프로젝트 전체 검색 패널(Ctrl+Shift+F) — 사이드바에 뜨며 찾기·바꾸기·정규식을 지원한다.
 // 파일별로 매치를 접을 수 있고, 매치를 클릭하면 해당 파일을 열어 그 위치를 강조한다.
@@ -23,10 +31,13 @@ export function SearchPanel({
   const [showReplace, setShowReplace] = useState(false)
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [regex, setRegex] = useState(false)
+  const [semantic, setSemantic] = useState(false)
+  const [includeHistory, setIncludeHistory] = useState(false)
   const [results, setResults] = useState<SearchFileResult[]>([])
   const [truncated, setTruncated] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [indexInfo, setIndexInfo] = useState<{ files: number; chunks: number; updated: number } | null>(null)
   const [collapsed, toggleCollapsed] = useReducer((set: Set<string>, path: string) => {
     const next = new Set(set)
     if (next.has(path)) next.delete(path)
@@ -51,7 +62,16 @@ export function SearchPanel({
         return
       }
       setLoading(true)
-      searchProject(q, o)
+      const request = semantic
+        ? semanticSearchProject(q, includeHistory).then((res) => {
+            setIndexInfo({ files: res.indexedFiles, chunks: res.indexedChunks, updated: res.updatedFiles })
+            return { results: groupSemanticResults(res.results), truncated: false }
+          })
+        : searchProject(q, o).then((res) => {
+            setIndexInfo(null)
+            return res
+          })
+      request
         .then((res) => {
           if (id !== reqIdRef.current) return // 더 최신 요청이 있으면 버린다
           setResults(res.results)
@@ -67,7 +87,7 @@ export function SearchPanel({
           if (id === reqIdRef.current) setLoading(false)
         })
     },
-    [],
+    [semantic, includeHistory],
   )
 
   // 검색어·옵션 변경 시 디바운스 후 검색
@@ -78,7 +98,7 @@ export function SearchPanel({
       if (timerRef.current) clearTimeout(timerRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, regex, caseSensitive])
+  }, [query, regex, caseSensitive, semantic, includeHistory])
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -124,7 +144,8 @@ export function SearchPanel({
         <button
           type="button"
           onClick={() => setShowReplace((v) => !v)}
-          className="mt-1 rounded p-1 text-ink-muted hover:bg-surface-hover"
+          disabled={semantic}
+          className="mt-1 rounded p-1 text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-30"
           title={showReplace ? '바꾸기 접기' : '바꾸기 펼치기'}
           aria-label="바꾸기 토글"
         >
@@ -142,10 +163,12 @@ export function SearchPanel({
               className="min-w-0 flex-1 bg-transparent py-1 text-sm text-ink outline-none placeholder:text-ink-faint"
               spellCheck={false}
             />
-            <button type="button" onClick={() => setCaseSensitive((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${caseSensitive ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title="대소문자 구분">Aa</button>
-            <button type="button" onClick={() => setRegex((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title="정규식 사용">.*</button>
+            {!semantic && <button type="button" onClick={() => setCaseSensitive((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${caseSensitive ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title="대소문자 구분">Aa</button>}
+            {!semantic && <button type="button" onClick={() => setRegex((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title="정규식 사용">.*</button>}
+            {!readOnly && <button type="button" onClick={() => setSemantic((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-[10px] ${semantic ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title="로컬 RAG 의미 검색">의미</button>}
+            {semantic && <button type="button" onClick={() => setIncludeHistory((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-[10px] ${includeHistory ? 'bg-warning/50 text-ink' : 'text-ink-muted hover:bg-surface-hover'}`} title="History / raw까지 검색">이력</button>}
           </div>
-          {showReplace && !readOnly && (
+          {showReplace && !readOnly && !semantic && (
             <div className="flex items-center gap-1">
               <div className="flex min-w-0 flex-1 items-center rounded border border-edge-strong bg-surface-deep pl-1.5 focus-within:border-accent">
                 <input
@@ -172,12 +195,16 @@ export function SearchPanel({
 
       <div className="min-h-0 flex-1 overflow-auto">
         {error && <div className="px-3 py-2 text-xs text-danger-strong">{error}</div>}
+        {!error && loading && semantic && (
+          <div className="px-3 py-2 text-xs text-ink-muted">로컬 모델로 인덱싱·검색 중… 최초 1회는 모델을 내려받습니다.</div>
+        )}
         {!error && query && !loading && results.length === 0 && (
           <div className="px-3 py-2 text-xs text-ink-muted">결과 없음</div>
         )}
         {!error && query && (
           <div className="px-3 py-1 text-xs text-ink-muted">
             {totalMatches}개 결과 · {results.length}개 파일{truncated ? ' (일부만 표시)' : ''}
+            {semantic && indexInfo ? ` · ${indexInfo.files}파일/${indexInfo.chunks}청크${indexInfo.updated ? ` · ${indexInfo.updated}파일 갱신` : ''}` : ''}
           </div>
         )}
         {results.map((file) => {
@@ -211,12 +238,14 @@ export function SearchPanel({
                   <button
                     key={i}
                     type="button"
-                    onClick={() => onOpenResult(file.path, m, query, opts)}
+                    onClick={() => onOpenResult(file.path, m, m.reveal || query, opts)}
                     className="flex w-full items-baseline gap-2 py-0.5 pl-7 pr-2 text-left hover:bg-surface-hover"
                   >
                     <span className="shrink-0 text-[10px] tabular-nums text-ink-faint">{m.line}</span>
                     <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-secondary">
+                      {m.heading && <span className="mr-1 text-accent">{m.heading}</span>}
                       {renderPreview(m)}
+                      {typeof m.score === 'number' && <span className="ml-1 text-[10px] text-ink-faint">{m.score.toFixed(2)}</span>}
                     </span>
                   </button>
                 ))}
@@ -226,6 +255,28 @@ export function SearchPanel({
       </div>
     </div>
   )
+}
+
+function groupSemanticResults(rows: SemanticSearchResult[]): SearchFileResult[] {
+  const grouped = new Map<string, SearchMatch[]>()
+  for (const row of rows) {
+    const matches = grouped.get(row.path) ?? []
+    matches.push({
+      line: row.line,
+      lineEnd: row.lineEnd,
+      column: 0,
+      text: row.text,
+      matchStart: 0,
+      matchEnd: 0,
+      title: row.title,
+      heading: row.heading,
+      tier: row.tier,
+      score: row.score,
+      reveal: row.reveal,
+    })
+    grouped.set(row.path, matches)
+  }
+  return [...grouped].map(([path, matches]) => ({ path, matches }))
 }
 
 function fileName(p: string): string {
@@ -239,6 +290,7 @@ function dirName(p: string): string {
 /** 매치 줄 미리보기 — 앞쪽 공백을 접고, 매치 구간을 강조한다 */
 function renderPreview(m: SearchMatch) {
   const trimmed = m.text.trimStart()
+  if (typeof m.score === 'number') return trimmed
   const lead = m.text.length - trimmed.length
   const s = Math.max(0, m.matchStart - lead)
   const e = Math.max(s, m.matchEnd - lead)

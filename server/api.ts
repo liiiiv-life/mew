@@ -6,6 +6,7 @@ import { DEFAULT_PROJECT, isProtectedProject, listProjects, projectRoot, resolve
 import { createProject, deleteProject, ProjectNameError, renameProject } from './projects.ts'
 import { buildTree, isPathVisible } from './tree.ts'
 import { flattenTextFiles, replaceInFile, searchInProject } from './search.ts'
+import { currentRagIndex, ragEnabled, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
 import { evaluateRules, isArchived } from './rules.ts'
 import { copyFile, copyPathInto, createDocument, createFolder, renamePath, deletePath, writeFileInto, ConflictError } from './documents.ts'
@@ -686,6 +687,53 @@ export function createApiApp() {
         res.status(400).json({ error: '잘못된 정규식입니다' })
         return
       }
+      handleError(res, err)
+    }
+  })
+
+  // 의미 검색(RAG retrieval) — 인덱스는 권한 경계가 아니라 파생 캐시다. 로그인 사용자만 허용하고,
+  // 결과도 요청 시점의 기본 트리에 보이는 파일 집합으로 다시 제한한다.
+  app.get('/search/semantic', requireAuthenticated, async (req, res) => {
+    const project = projectOf(req)
+    const query = String(req.query.q ?? '').trim()
+    try {
+      if (!query) {
+        res.json({ results: [], indexedFiles: 0, indexedChunks: 0, updatedFiles: 0, model: '' })
+        return
+      }
+      if (query.length > 2_000) {
+        res.status(400).json({ error: '검색어가 너무 깁니다' })
+        return
+      }
+      validateRagProject(project)
+      const files = flattenTextFiles(buildTree(project))
+      res.json(await currentRagIndex().search(project, files, query, req.query.history === '1'))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.get('/rag/status', requireAuthenticated, (req, res) => {
+    const project = projectOf(req)
+    try {
+      validateRagProject(project)
+      if (!ragEnabled()) {
+        res.json({ enabled: false, model: '', ready: false, indexedFiles: 0, indexedChunks: 0 })
+        return
+      }
+      res.json(currentRagIndex().status(project))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/rag/reindex', requireRole('manager', 'owner'), async (req, res) => {
+    const project = projectOf(req)
+    try {
+      validateRagProject(project)
+      const files = flattenTextFiles(buildTree(project))
+      res.json({ ok: true, ...(await currentRagIndex().ensureProject(project, files, true)) })
+    } catch (err) {
       handleError(res, err)
     }
   })
@@ -1493,6 +1541,10 @@ function handleError(res: express.Response, err: unknown) {
     return
   }
   if (err instanceof R2NotConfiguredError) {
+    res.status(503).json({ error: err.message })
+    return
+  }
+  if (err instanceof RagDisabledError || err instanceof RagUnavailableError) {
     res.status(503).json({ error: err.message })
     return
   }

@@ -390,6 +390,12 @@ export interface SearchMatch {
   text: string
   matchStart: number
   matchEnd: number
+  lineEnd?: number
+  title?: string
+  heading?: string
+  tier?: 'current' | 'history'
+  score?: number
+  reveal?: string
 }
 export interface SearchFileResult {
   path: string
@@ -409,6 +415,56 @@ export function searchProject(query: string, opts: SearchOptions): Promise<{ res
     case: opts.caseSensitive ? '1' : '0',
   })
   return fetch(`/api/search?${params.toString()}`).then(json<{ results: SearchFileResult[]; truncated: boolean }>)
+}
+
+export interface SemanticSearchResult {
+  path: string
+  line: number
+  lineEnd: number
+  title: string
+  heading: string
+  text: string
+  reveal: string
+  tier: 'current' | 'history'
+  score: number
+}
+
+export interface SemanticSearchResponse {
+  results: SemanticSearchResult[]
+  indexedFiles: number
+  indexedChunks: number
+  updatedFiles: number
+  model: string
+}
+
+/** 내장 LanceDB + 로컬 다국어 임베딩 의미 검색. 로그인 사용자 전용. */
+export function semanticSearchProject(query: string, includeHistory: boolean): Promise<SemanticSearchResponse> {
+  const params = new URLSearchParams({
+    q: query,
+    project: currentProject,
+    history: includeHistory ? '1' : '0',
+  })
+  return fetch(`/api/search/semantic?${params.toString()}`).then(json<SemanticSearchResponse>)
+}
+
+export interface RagStatus {
+  enabled: boolean
+  model: string
+  ready: boolean
+  indexedFiles: number
+  indexedChunks: number
+}
+
+export function fetchRagStatus(): Promise<RagStatus> {
+  return fetch(`/api/rag/status?${projectQs()}`).then(json<RagStatus>)
+}
+
+export function reindexRag(): Promise<{ ok: true; files: number; chunks: number; updated: number }> {
+  return fetch('/api/rag/reindex', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: currentProject }),
+  }).then(json<{ ok: true; files: number; chunks: number; updated: number }>)
 }
 
 /** 한 파일 안의 모든 매치를 치환하고 커밋한다 — 전역 "모두 바꾸기"는 파일마다 호출한다 */

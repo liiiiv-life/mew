@@ -15,6 +15,7 @@
     "lint": "oxlint",
     "build:native": "cd native/collab && cargo build --release && cp target/release/libmew_collab.so mew-collab.node",
     "test": "MEW_DATA_DIR=\"${TMPDIR:-/tmp}/mew-test-data\" node --test 'server/**/*.test.ts' 'packages/**/*.test.ts' 'src/**/*.test.ts'",
+    "rag:eval": "node server/rag/evaluate.ts",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose stop postgres",
     "setup": "./mew setup"
@@ -42,6 +43,8 @@
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.6",
+    "@huggingface/transformers": "3.8.1",
+    "@lancedb/lancedb": "0.22.3",
     "@lezer/highlight": "^1.2.3",
     "@lobehub/icons-static-svg": "1.94.0",
     "@mew/editor": "*",

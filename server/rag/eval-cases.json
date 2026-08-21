@@ -1,0 +1,42 @@
+[
+  {
+    "question": "ADR이 너무 많을 때 기본 컨텍스트를 어떻게 줄이지?",
+    "expectedPaths": ["decisions/0069-docs-scope-routed-adr-mocs.md", "decisions/0070-docs-hot-cold-context-layers.md"]
+  },
+  {
+    "question": "med-gen은 DB 자격증명이 없으면 고정 데이터로 폴백하나?",
+    "expectedPaths": ["decisions/0027-med-gen-drop-silent-memory-fallback.md", "platform/med-gen.md"]
+  },
+  {
+    "question": "mew 에이전트 패널은 제거됐어 아니면 다시 생겼어?",
+    "expectedPaths": ["decisions/0034-mew-agent-panel-acp-reintroduction.md"]
+  },
+  {
+    "question": "모두의 창업 1라운드 최종 제출 사업계획서는 어디야?",
+    "expectedPaths": ["programs/modoo-2026/MOC.md", "programs/modoo-2026/사업계획서-0813.md"]
+  },
+  {
+    "question": "mew RAG의 벡터 DB와 임베딩 모델은 무엇이야?",
+    "expectedPaths": ["decisions/0071-mew-embedded-lancedb-local-rag.md", "ops/mew/rag.md"]
+  },
+  {
+    "question": "docs 폴더를 워크스페이스에서 바꿀 수 있는 결정은?",
+    "expectedPaths": ["decisions/0053-mew-docs-folder-chosen-in-workspace-root.md"]
+  },
+  {
+    "question": "med-gen 세그먼트 문장 유일성은 전역이야 언어별이야?",
+    "expectedPaths": ["decisions/0032-med-gen-multilingual-catalog-lang-column.md", "products/sleeeep/specs/backend.md", "platform/med-gen.md"]
+  },
+  {
+    "question": "Alaaaarm은 전원 종료로 알람을 피하는 걸 어떻게 막아?",
+    "expectedPaths": ["decisions/0011-alaaaarm-power-off-escape-blocking.md", "products/alaaaarm/product.md"]
+  },
+  {
+    "question": "Along 일기 사진과 영상 원본은 어디에 저장해?",
+    "expectedPaths": ["decisions/0055-along-diary-bytes-in-r2-behind-worker.md", "products/along/specs/architecture.md"]
+  },
+  {
+    "question": "코드 변경 뒤 docs에 되돌려 써야 하는 조건은?",
+    "expectedPaths": ["README.md", "decisions/0008-docs-agent-write-back-contract-and-repo-wiring.md"]
+  }
+]
