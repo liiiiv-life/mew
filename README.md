@@ -87,7 +87,8 @@ Ctrl+P 파일 검색은 입력창 오른쪽 × 또는 Esc로 검색어를 한 �
   없으면 이름 첫 글자가 대신 뜬다.
 
 화면 상태는 `localStorage`에 남는다 — `mew:project`(활성 프로젝트, 홈이면 `.workspace`) · `mew:tmux-open` ·
-`mew:agent-open`(에이전트 창이 열려 있었는지) · `mew:agent-tabs`·`mew:agent-active-tab`(에이전트 탭 목록과
+`mew:agent-open`(에이전트 창이 열려 있었는지) · `mew:agent-panel-width`(데스크톱 에이전트 창 너비) ·
+`mew:agent-tabs`·`mew:agent-active-tab`(에이전트 탭 목록과
 마지막으로 보던 탭) · `mew:agent-input-drafts`(에이전트 탭별 전송 전 입력 초안) ·
 `mew:open-tabs[:{프로젝트}]`(열린 문서 탭 + 칸 배치 — `{ panes, layout, focusedPaneId }`.
 칸이 없던 옛 `{ tabs, activePath }`는 읽을 때 `main` 칸 하나로 이관한다) ·
@@ -675,6 +676,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이스다. 근거는
 [ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md)·[ADR 0043](../.mew/docs/decisions/0043-mew-agent-workspace-scope-and-runtimes.md),
 권한 경계는 [SECURITY.md](SECURITY.md).
+데스크톱에서는 창 왼쪽 경계선 전체를 좌우로 끌어 폭을 조절하며, 조절한 폭은 브라우저에 남는다.
 
 ⚠️ **`serve.ts` 요청 핸들러 안에서 에이전트를 직접 돌리지 않는다.** 2026-07-25에 지운 옛 에이전트
 창은 Claude Code를 `-p --output-format json`으로, 즉 블로킹·비스트리밍으로 불러 첫 응답이 ~20초
@@ -693,8 +695,8 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   `GET /api/skills`가 `CODEX_HOME/skills`와 `<워크스페이스>/.agents/skills`의 `SKILL.md`를 읽어 만든다.
   `/스킬명`을 고르면 브라우저는 스킬 id만 WS에 싣고, 서버가 `server/agentRuntimes.ts`의 런타임 등록표로
   실제 프롬프트를 합성한다. 기본 합성기는 모든 ACP 런타임에 대해 선택된 `SKILL.md`를 먼저 읽고 따르라고
-  지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다. 입력창 오른쪽 아래를 끌어
-  화면 높이의 80%까지 세로로 늘릴 수 있다.
+  지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다. **채팅과 입력창 사이의 경계선
+  전체**를 위아래로 끌어 입력창을 화면 높이의 80%까지 늘릴 수 있다(키보드는 경계선에서 ↑·↓).
 - 채널: `/api/agent/ws?runtime=<id>&tab=<id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
   `런타임+탭`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`,
   `[A-Za-z0-9_-]{1,64}`이 아니면 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 —
@@ -706,8 +708,11 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 - **설치와 로그인은 별개다**([ADR 0072](../.mew/docs/decisions/0072-mew-agent-gui-authentication.md)).
   `session/new`가 인증 필요를 돌려주면 프로세스를 닫지 않고 로그인 화면으로 전환한다. ACP 일반 로그인은
   사용자가 주소를 확인하고 **로그인 페이지 열기**를 눌러 현재 브라우저의 새 탭에서 진행한다. API 키는
-  한 번만 ACP 요청으로 보내고 저장·이벤트 기록하지 않는다. terminal auth는 어댑터가 광고한 고정 명령만
-  Mew tmux 팝업에서 실행하며, **로그인 완료 확인** 뒤 같은 ACP 연결에서 세션 생성을 재시도한다.
+  한 번만 ACP 요청으로 보내고 저장·이벤트 기록하지 않는다. terminal auth는 어댑터가 광고했거나 런타임
+  등록표에 박힌 고정 명령만 Mew tmux 팝업에서 실행한다. 서버가 실제 명령의 exit code만 기록하고 GUI가
+  팝업을 닫아도 감시한다. `0`일 때만 자동으로 ACP를 새로 initialize해 CLI가 방금 쓴 자격증명을 다시
+  읽으며, 실패·`Ctrl-C`·강제 종료는 터미널을 유지하고 재시작하지 않는다. 로그인하지 않으면 ACP 자체가
+  뜨지 않는 CLI도 탭 감독은 fatal로 닫지 않고 같은 terminal auth를 내보내 같은 탭에서 복구한다.
 - 탭 목록·이름도 브라우저에만 있다(`mew:agent-tabs`) — 서버는 **탭 id만** 알고 뜻은 모른다.
   마지막으로 보던 탭도 남는다(`mew:agent-active-tab`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이
   선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라).
@@ -772,25 +777,27 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   `mew:agent-tabs` 안에 남고, 예전 탭은 마지막 `mew:agent-runtime` 값으로 한 번 승격한다.
 - 백엔드 교체는 **spawn 대상 교체**다. 고를 수 있는 것은 `server/agentRuntimes.ts`의 `RUNTIMES` 등록표에
   있는 것뿐이고, 클라이언트에 같은 목록이 또 있는 이유는 **아이콘**뿐이다(판정은 서버가 한다):
-  | 런타임 | 명령 | 환경변수 |
-  | --- | --- | --- |
-  | `claude` | `node_modules/.bin/claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`, 버전 고정) | `MEW_AGENT_CMD` · `MEW_AGENT_ARGS` · `MEW_AGENT_CLAUDE_CMD` · `MEW_AGENT_CLAUDE_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) |
-  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — codex CLI를 띄우지 않고 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `NO_BROWSER`(기본 `1`, GUI device-code 로그인) |
-  | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
-  | `kimi` | `kimi acp` | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
-  | `gemini` | `gemini --experimental-acp` | `MEW_AGENT_GEMINI_CMD` · `MEW_AGENT_GEMINI_ARGS` |
-  | `openclaw` | `openclaw acp` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
-  | `opencode` | `opencode acp` | `MEW_AGENT_OPENCODE_CMD` · `MEW_AGENT_OPENCODE_ARGS` |
-  | `cursor` | `agent acp` | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
+  | 런타임 | ACP 명령 | GUI terminal auth | 환경변수 |
+  | --- | --- | --- | --- |
+  | `claude` | `node_modules/.bin/claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`, 버전 고정) | 어댑터 `--cli`(광고된 `claude auth login` 변형 우선) | `MEW_AGENT_CMD` · `MEW_AGENT_ARGS` · `MEW_AGENT_CLAUDE_CMD` · `MEW_AGENT_CLAUDE_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) |
+  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | 번들 `codex login --device-auth` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `NO_BROWSER`(기본 `1`) |
+  | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `hermes acp --setup` | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
+  | `kimi` | `kimi acp` | `kimi login` | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
+  | `gemini` | `gemini --acp` | `gemini --skip-trust`(`NO_BROWSER=true`) | `MEW_AGENT_GEMINI_CMD` · `MEW_AGENT_GEMINI_ARGS` |
+  | `openclaw` | `openclaw acp` | `openclaw onboard --tui` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
+  | `opencode` | `opencode acp` | `opencode auth login` | `MEW_AGENT_OPENCODE_CMD` · `MEW_AGENT_OPENCODE_ARGS` |
+  | `cursor` | `agent acp` | `agent login`(`NO_OPEN_BROWSER=1`) | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
 
-  공통은 `MEW_AGENT_MODE`(안 주면 위의 전체 허용 후보 순서). 진입점이 없거나 ACP를 말하지 않으면 창에
-  "에이전트를 실행하지 못했습니다"로 그대로 드러난다 — 목록에서 감추지 않는다.
+  공통은 `MEW_AGENT_MODE`(안 주면 위의 전체 허용 후보 순서). 진입점이 없거나 로그인 전 ACP를 말하지
+  않으면 오류와 terminal auth를 함께 보여 준다 — 목록에서 감추거나 탭을 닫지 않는다. 로그인 완료 뒤에도
+  실패하면 같은 화면에 최신 시작 오류를 남긴다.
 
 | 라우트 | 역할 | 하는 일 |
 |---|---|---|
 | `GET /api/agent-runtimes` | manager·owner | 등록 런타임의 실행 파일 존재·설치 가능·설치 중 상태 |
 | `POST /api/agent-runtimes/:id/install` | manager·owner | id에 대응하는 등록표의 고정 설치 명령 실행. 임의 명령·인자는 받지 않음 |
-| `POST /api/agent-runtimes/:id/auth/:method/run` | manager·owner | 살아 있는 세션이 광고한 terminal auth 고정 명령을 숨김 tmux에서 실행. body는 `{tab}`만 |
+| `POST /api/agent-runtimes/:id/auth/:method/run` | manager·owner | ACP가 광고했거나 등록표에 박힌 terminal auth 고정 명령을 숨김 tmux에서 실행. body는 `{tab}`만 |
+| `GET /api/agent-runtimes/:id/auth/:method/status?tab=<id>` | manager·owner | terminal auth의 `running`·`succeeded`·`failed`·`interrupted`와 exit code. 비밀값은 기록하지 않음 |
 | `GET /api/agent-defaults/:id` | manager·owner | 런타임별로 저장된 모델·권한 기본값 |
 | `PUT /api/agent-defaults/:id` | manager·owner | 현재 모델·권한을 그 런타임의 기본값으로 원자적 저장 |
 - **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
