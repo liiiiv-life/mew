@@ -247,6 +247,34 @@ export function runtimeList(): { id: string; label: string }[] {
   return Object.values(RUNTIMES).map(({ id, label }) => ({ id, label }))
 }
 
+/**
+ * 저장된 런타임 설정(agentSettings.ts)을 등록표 spec에 얹는다. 모든 spawn 경로(창·셋·예약 작업·
+ * 설치 판정)가 spec() 값을 쓰므로, 설정 화면에서 바꾼 실행 파일·env가 다음 세션부터 곧바로 적용된다.
+ * 파일을 못 읽어도 등록표 기본값으로 에이전트는 띄울 수 있어야 하므로 실패는 조용히 무시한다.
+ */
+function applySetting(base: SpawnSpec, runtime: string): SpawnSpec {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- ESM circular: agentSettings는 isRuntime만 알면 된다
+    const { readAgentSetting } = require('./agentSettings.ts') as typeof import('./agentSettings.ts')
+    const setting = readAgentSetting(runtime)
+    if (!setting) return base
+    return {
+      cmd: setting.cmd ?? base.cmd,
+      args: [...base.args, ...(setting.extraArgs ?? [])],
+      env: { ...base.env, ...setting.env },
+    }
+  } catch {
+    return base
+  }
+}
+
+/** 등록표 기본값 + 저장된 사용자 설정. 모든 spawn 경로는 이 값을 쓴다. */
+export function resolvedSpec(id: string): SpawnSpec | null {
+  const entry = RUNTIMES[id]
+  if (!entry) return null
+  return applySetting(entry.spec(), id)
+}
+
 /** 요청값으로 명령을 만들지 않는다. 등록표에 박힌 로그인 spec만 돌려준다. */
 export function runtimeLoginSpec(runtime: string): RuntimeLoginSpec {
   const entry = RUNTIMES[runtime]

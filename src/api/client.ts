@@ -236,6 +236,37 @@ export function installAgentRuntime(id: string): Promise<{ status: AgentRuntimeS
   )
 }
 
+/** 런타임 설정 — env 값은 마스킹(마지막 4자)이라 원문을 되찾을 수 없다. 덮어쓸 때만 전송한다 */
+export function fetchAgentRuntimeSetting(id: string): Promise<{ settings: RuntimeSettingView | null }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`).then(json<{ settings: RuntimeSettingView | null }>)
+}
+
+export function saveAgentRuntimeSetting(id: string, settings: RuntimeSettingInput): Promise<{ settings: RuntimeSettingView | null }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  }).then(json<{ settings: RuntimeSettingView | null }>)
+}
+
+export function deleteAgentRuntimeSetting(id: string): Promise<{ ok: boolean }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`, { method: 'DELETE' }).then(json<{ ok: boolean }>)
+}
+
+/** 저장된 런타임 설정의 마스킹 뷰 — 시크릿은 ****끝4자만 온다 */
+export interface RuntimeSettingView {
+  cmd?: string
+  extraArgs?: string[]
+  env?: Record<string, string>
+}
+
+/** 설정 팝업이 서버로 보내는 값. 빈 문자열 필드는 저장에서 뺀다 */
+export interface RuntimeSettingInput {
+  cmd?: string
+  extraArgs?: string[]
+  env?: Record<string, string>
+}
+
 export interface AgentAuthTerminal {
   session: string
   label: string

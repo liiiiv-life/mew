@@ -810,6 +810,15 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 | `GET /api/agent-runtimes/:id/auth/:method/status?tab=<id>` | manager·owner | terminal auth의 `running`·`succeeded`·`failed`·`interrupted`와 exit code. 비밀값은 기록하지 않음 |
 | `GET /api/agent-defaults/:id` | manager·owner | 런타임별로 저장된 모델·권한 기본값 |
 | `PUT /api/agent-defaults/:id` | manager·owner | 현재 모델·권한을 그 런타임의 기본값으로 원자적 저장 |
+| `GET /api/agent-runtimes/:id/settings` | manager·owner | 런타임 설정(실행 파일·추가 인자·env). **env 값은 마지막 4자만 마스킹해서** 돌려준다 |
+| `PUT /api/agent-runtimes/:id/settings` | manager·owner | 병합 저장 — 보낸 키만 갈아끼우고 없는 env 키는 기존 값을 유지(시크릿 원문을 브라우저가 모르므로) |
+| `DELETE /api/agent-runtimes/:id/settings` | manager·owner | 그 런타임의 사용자 설정을 지우고 등록표 기본값으로 돌아간다 |
+
+- **런타임 설정 팝업**(목록의 톱니 아이콘) — 실행 파일 경로·추가 인자·공급자 env(`ANTHROPIC_API_KEY`·
+  `PRIME_API_KEY` 같은 시크릿, 커스텀 엔드포인트)를 런타임별로 저장한다. 값은
+  `<DATA_DIR>/agent-settings.json`에 남고 `resolvedSpec`이 등록표 spec에 얹어 **모든 spawn 경로**
+  (에이전트 창·에이전트셋·예약 작업·설치 판정)에 즉시 적용된다. 시크릿은 서버에만 있고 화면은
+  `****끝4자`만 본다 — 바꾸려면 전체 값을 새로 입력한다.
 - **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
   PATH에 시스템 `claude`가 있으면 자동으로 그걸 쓴다(`CLAUDE_CODE_EXECUTABLE`로 전달, 이미 지정돼
   있으면 존중). 시스템 설치본이 없으면 번들 CLI로 돌아간다.

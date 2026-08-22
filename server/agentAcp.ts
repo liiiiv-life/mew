@@ -44,6 +44,7 @@ export {
   type SpawnSpec,
 } from './agentRuntimes.ts'
 import {
+  resolvedSpec,
   RUNTIMES,
   RUNTIME_LOGIN_METHOD_ID,
   runtimeLoginSpec,
@@ -325,7 +326,7 @@ export class AgentSession {
 
   static async start(
     runtime: string,
-    spec: SpawnSpec = RUNTIMES[runtime].spec(),
+    spec: SpawnSpec = resolvedSpec(runtime) ?? RUNTIMES[runtime].spec(),
     cwd = WORKSPACE_ROOT,
     idleKillMs = AGENT_IDLE_MS,
   ): Promise<AgentSession> {
@@ -952,7 +953,7 @@ export function probeModels(runtime: string, spec?: SpawnSpec): Promise<ModelInf
   if (known) return Promise.resolve(known)
   const running = probing.get(runtime)
   if (running) return running
-  const started = AgentSession.start(runtime, spec ?? RUNTIMES[runtime].spec()).then((session) => {
+  const started = AgentSession.start(runtime, spec ?? resolvedSpec(runtime) ?? RUNTIMES[runtime].spec()).then((session) => {
     // 핸드셰이크의 #useModels가 이미 담았다 — 세션 자체는 쓸 데가 없다
     session.dispose()
     return knownModels.get(runtime) ?? []

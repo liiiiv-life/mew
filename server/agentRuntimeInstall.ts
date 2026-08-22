@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { RUNTIMES, findExecutable } from './agentRuntimes.ts'
+import { RUNTIMES, findExecutable, resolvedSpec } from './agentRuntimes.ts'
 
 const run = promisify(execFile)
 const installing = new Set<string>()
@@ -29,7 +29,8 @@ export function runtimeStatuses(): RuntimeStatus[] {
   return Object.values(RUNTIMES).map((runtime) => ({
     id: runtime.id,
     label: runtime.label,
-    installed: executableExists(runtime.spec().cmd),
+    // 설정 화면에서 바꾼 실행 파일 기준으로 판정한다 — 저장한 경로가 실제로 있는지가 "설치됨"이다
+    installed: executableExists(resolvedSpec(runtime.id)?.cmd ?? runtime.spec().cmd),
     installing: installing.has(runtime.id),
     installable: runtime.install !== undefined,
   }))

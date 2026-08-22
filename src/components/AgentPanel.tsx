@@ -34,6 +34,7 @@ import {
 } from '../api/client'
 import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './MentionTextarea'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
+import { RuntimeSettingsButton } from './RuntimeSettingsModal'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { useGridDrag } from '../hooks/useGridDrag'
 import { withAutoLabel, withRename, type AgentTab } from '../utils/agentTabs'
@@ -659,6 +660,7 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
                       {rt.id === current ? '사용 중' : status?.installed ? '설치됨' : '설치 필요'}
                     </div>
                   </div>
+                  <RuntimeSettingsButton runtimeId={rt.id} label={rt.label} />
                   {rt.id !== current &&
                     (status?.installed ? (
                       <button
@@ -740,6 +742,7 @@ function RuntimePicker({ onSelect }: { onSelect: (runtime: string) => void }) {
                     <div className="truncate text-sm text-ink">{runtime.label}</div>
                     <div className="text-xs text-ink-muted">{status?.installed ? '설치됨' : '설치 필요'}</div>
                   </div>
+                  <RuntimeSettingsButton runtimeId={runtime.id} label={runtime.label} />
                   {status?.installed ? (
                     <button
                       type="button"

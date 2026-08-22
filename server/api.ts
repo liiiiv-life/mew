@@ -43,6 +43,12 @@ import { prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAu
 import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRuntimeInstall.ts'
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import {
+  AgentSettingError,
+  deleteAgentSetting,
+  describeAgentSetting,
+  writeAgentSetting,
+} from './agentSettings.ts'
+import {
   DEFAULT_IGNORE,
   IgnoreListError,
   LOCKED_IGNORE,
@@ -1345,6 +1351,35 @@ export function createApiApp() {
     }
   })
 
+  // 런타임 설정 — 실행 파일·추가 인자·공급자 env(API 키·엔드포인트). 시크릿이므로 응답은 마스킹값이고
+  // 전체 값은 절대 브라우저로 돌아오지 않는다. 저장 즉시 다음 spawn부터 적용된다.
+  app.get('/agent-runtimes/:id/settings', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      res.json({ settings: describeAgentSetting(String(req.params.id)) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.put('/agent-runtimes/:id/settings', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      writeAgentSetting(String(req.params.id), req.body)
+      // 마스킹 뷰로 회신 — 이후 세션부터 새 spec이 적용된다
+      res.json({ settings: describeAgentSetting(String(req.params.id)) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.delete('/agent-runtimes/:id/settings', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      deleteAgentSetting(String(req.params.id))
+      res.json({ ok: true })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   // 예약 에이전트 작업 — 임의 프롬프트가 무인 실행되는 표면이라 tmux와 동일하게 owner/manager만.
   // 손으로 쓴 크론 줄(otherLines)은 읽기 전용으로 함께 내려준다 — 여기서 지워지지 않는다는 걸 보이려고.
   // 실행은 잡 전용 tmux 세션에서 이뤄지므로 그 세션이 떠 있는지(running)도 함께 계산해 붙인다.
@@ -1575,7 +1610,7 @@ function handleError(res: express.Response, err: unknown) {
     res.status(400).json({ error: err.message })
     return
   }
-  if (err instanceof ScheduleError || err instanceof AgentSetError || err instanceof RuntimeInstallError || err instanceof AgentDefaultError) {
+  if (err instanceof ScheduleError || err instanceof AgentSetError || err instanceof RuntimeInstallError || err instanceof AgentDefaultError || err instanceof AgentSettingError) {
     res.status(400).json({ error: err.message })
     return
   }
