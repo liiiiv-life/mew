@@ -1324,6 +1324,21 @@ export const Editor = forwardRef<
     setKeyBarShift(false)
   }
 
+  // 코드블럭 버튼 — 커서 문단을 코드블럭으로 바꾸거나 되돌린다(toggle). 마크다운 단축어 ```와 같은 결과.
+  function handleKeyBarCodeBlock() {
+    editorRef.current?.chain().focus().toggleCodeBlock().run()
+  }
+
+  // 표 버튼 — 슬래시 메뉴 '표'와 같은 3×3 표를 삽입한다.
+  function handleKeyBarTable() {
+    editorRef.current?.chain().focus().insertTable({ rows: 3, cols: 3 }).run()
+  }
+
+  // 되돌리기·다시 실행 버튼 — Ctrl+Z/Y 단축키와 같은 경로(runUndoRedoKeepingView)라 커서가
+  // 바뀐 자리로 옮겨지고 화면이 튀지 않는다. 폰에는 Ctrl 토글 + Z 조합이 두 손이라 바로 닿기 어렵다.
+  const handleKeyBarUndo = () => runUndoRedoKeepingView('undo')
+  const handleKeyBarRedo = () => runUndoRedoKeepingView('redo')
+
   // 모바일 보조키바의 Ctrl 단축키 — 온스크린 키보드로 친 글자는 keydown이 아니라 beforeinput
   // (insertText/insertCompositionText)으로 들어와 ctrlKey가 실리지 않는다. Ctrl 토글이 켜져 있으면
   // 그 입력을 가로채 글자 삽입을 막고, 글쇠를 단축키로 실행한다 (한글 자모는 QWERTY 위치로 환원).
@@ -1923,6 +1938,10 @@ export const Editor = forwardRef<
             onTab={handleKeyBarTab}
             onArrow={handleKeyBarArrow}
             onComment={onStartComment}
+            onCodeBlock={readOnly ? undefined : handleKeyBarCodeBlock}
+            onTable={readOnly ? undefined : handleKeyBarTable}
+            onUndo={readOnly ? undefined : handleKeyBarUndo}
+            onRedo={readOnly ? undefined : handleKeyBarRedo}
           />
         )}
       </div>

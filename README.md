@@ -964,7 +964,11 @@ MEW_COLLAB_RUST=1 npm run serve
   에디터·터미널이 공용으로 쓴다. **바는 `z-20`이다 — 전체 화면 오버레이(사이드바·채팅·에이전트·
   터미널)가 `z-30`이라 그 아래로 깔려야 한다.** 같은 `z-30`으로 두면 DOM 순서상 편집 칸이 사이드바보다
   뒤라 보조키가 열린 사이드바 위에 떠 버린다. `onComment`를 주면 댓글 아이콘이 붙는다(폰에는
-  Alt+Shift+C가 없다) — 앵커는 호스트(`EditorPane.startComment`)가 만든다. 좌우 스와이프 감지(`useSwipeGesture`)도 여기 —
+  Alt+Shift+C가 없다) — 앵커는 호스트(`EditorPane.startComment`)가 만든다. `onCodeBlock`·`onTable`을
+  주면 코드블럭·표 아이콘이 붙는다 — 에디터만 넘기고(터미널은 대상이 없다) 코드블럭은 커서 문단 toggle,
+  표는 슬래시 메뉴 '표'와 같은 3×3 삽입이다. `onUndo`·`onRedo`는 되돌리기·다시 실행 아이콘이다 —
+  Ctrl+Z/Y 단축키와 같은 경로(`runUndoRedoKeepingView`)라 커서가 바뀐 자리로 옮겨진다. 읽기 전용일 때는
+  에디터가 이 넷을 모두 감춘다. 좌우 스와이프 감지(`useSwipeGesture`)도 여기 —
   **손가락이 처음 닿은 화면 높이로 갈린다**(`zoneForY`): 위 40% = 탭 전환(`onTopLeft`/`onTopRight`),
   아래 20% = 창 전환(`onBottomLeft`/`onBottomRight`), **가운데 40%는 아무 제스처도 아니다**.
   손가락 수(1·2개)는 구분하지 않는다.
