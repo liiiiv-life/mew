@@ -62,8 +62,9 @@ export type AgentEvent =
   | { type: 'update'; update: SessionUpdate }
   | { type: 'permission'; id: string; toolCall: { title?: string | null }; options: PermissionOption[] }
   | { type: 'permission_done'; id: string }
-  | { type: 'turn_start' }
-  | { type: 'turn_end'; stopReason: string }
+  // startedAt·durationMs — 서버(agentAcp.ts)가 턴 시작·끝에 새겨 보낸다. 옛 서버 이벤트에는 없을 수 있다
+  | { type: 'turn_start'; startedAt?: number }
+  | { type: 'turn_end'; stopReason: string; durationMs?: number }
   | { type: 'error'; message: string }
   | { type: 'ready' }
   | { type: 'fatal'; message?: string }
@@ -91,8 +92,22 @@ export type Item =
   | { key: string; kind: 'user'; text: string }
   // stopReason — 턴이 어떻게 끝났나('end_turn'·'cancelled'·'error' 등, ACP 값 그대로).
   // 되받은 히스토리에는 turn_end가 없어 null로 남는다
-  | { key: string; kind: 'turn'; children: InnerItem[]; done: boolean; stopReason: string | null }
+  // startedAt(에포크 ms)·durationMs — 작업 버블의 걸린 시간 표시용. 옛 히스토리는 null이다
+  | { key: string; kind: 'turn'; children: InnerItem[]; done: boolean; stopReason: string | null; startedAt: number | null; durationMs: number | null }
   | { key: string; kind: 'error'; text: string }
+
+/** 밀리초를 "15초"·"36분 32초"·"2시간 3분 4초" 꼴로 — 0인 윗 단위는 떼고, 초는 반올림한다 */
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const parts: string[] = []
+  if (hours) parts.push(`${hours}시간`)
+  if (minutes) parts.push(`${minutes}분`)
+  if (seconds || parts.length === 0) parts.push(`${seconds}초`)
+  return parts.join(' ')
+}
 
 /** 이벤트 목록을 화면에 그릴 항목으로 접는다 — 질문·턴(답변+작업 묶음)·에러의 세 종류로 나뉜다 */
 export function foldEvents(events: AgentEvent[]): Item[] {
@@ -100,7 +115,15 @@ export function foldEvents(events: AgentEvent[]): Item[] {
   // toolCallId -> 위치 — turn 안의 children 배열 기준
   const toolIndex = new Map<string, { turn: number; child: number; entry: number }>()
 
-  type TurnItem = { key: string; kind: 'turn'; children: InnerItem[]; done: boolean; stopReason: string | null }
+  type TurnItem = {
+    key: string
+    kind: 'turn'
+    children: InnerItem[]
+    done: boolean
+    stopReason: string | null
+    startedAt: number | null
+    durationMs: number | null
+  }
   let turnIdx = -1
 
   const currentTurn = (): TurnItem | null => {
@@ -112,7 +135,7 @@ export function foldEvents(events: AgentEvent[]): Item[] {
   const ensureTurn = (eventIdx: number): TurnItem => {
     const t = currentTurn()
     if (t) return t
-    const turn: TurnItem = { key: `turn${eventIdx}`, kind: 'turn', children: [], done: false, stopReason: null }
+    const turn: TurnItem = { key: `turn${eventIdx}`, kind: 'turn', children: [], done: false, stopReason: null, startedAt: null, durationMs: null }
     turnIdx = items.length
     items.push(turn)
     return turn
@@ -133,12 +156,19 @@ export function foldEvents(events: AgentEvent[]): Item[] {
 
   for (const [i, event] of events.entries()) {
     if (event.type === 'turn_start') {
-      ensureTurn(i)
+      const turn = ensureTurn(i)
+      if (event.startedAt != null) turn.startedAt = event.startedAt
       continue
     }
     if (event.type === 'turn_end') {
       const t = currentTurn()
-      if (t) { t.done = true; t.stopReason = event.stopReason }
+      if (t) {
+        t.done = true
+        t.stopReason = event.stopReason
+        // 서버가 새긴 걸린 시간. 옛 이벤트(필드 없음)면 startedAt으로 계산하고, 그것도 없으면 null
+        if (event.durationMs != null) t.durationMs = event.durationMs
+        else if (t.startedAt != null) t.durationMs = Date.now() - t.startedAt
+      }
       turnIdx = -1
       continue
     }

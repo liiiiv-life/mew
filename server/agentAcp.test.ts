@@ -349,7 +349,11 @@ test('ACP 한 턴: 스트리밍·승인 왕복·CLI 기본 파일 도구 유지'
   assert.match(text, /caps:\{/, '에이전트가 받은 클라이언트 capability를 되돌려 준다')
   assert.doesNotMatch(text, /"readTextFile":\s*true/, 'fs.readTextFile을 광고하지 않는다')
   assert.doesNotMatch(text, /"writeTextFile":\s*true/, 'fs.writeTextFile을 광고하지 않는다')
-  assert.deepEqual(events.at(-1), { type: 'turn_end', stopReason: 'end_turn' })
+  // durationMs는 실제 걸린 시간이라 값이 고정되지 않는다 — 필드만 확인한다
+  const last = events.at(-1)
+  assert.ok(last?.type === 'turn_end')
+  assert.equal(last.stopReason, 'end_turn')
+  assert.equal(typeof last.durationMs, 'number')
 })
 
 test('인증 필요 상태를 유지하고 URL 로그인 뒤 같은 연결에서 세션을 시작한다', async (t) => {

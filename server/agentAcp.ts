@@ -120,8 +120,8 @@ export type AgentEvent =
   | { type: 'update'; update: SessionNotification['update'] }
   | { type: 'permission'; id: string; toolCall: ToolCallUpdate; options: PermissionOption[] }
   | { type: 'permission_done'; id: string }
-  | { type: 'turn_start' }
-  | { type: 'turn_end'; stopReason: string }
+  | { type: 'turn_start'; startedAt: number }
+  | { type: 'turn_end'; stopReason: string; durationMs: number }
   | { type: 'error'; message: string }
   | { type: 'models'; models: SessionModelState }
   | { type: 'modes'; modes: SessionModeState }
@@ -694,22 +694,24 @@ export class AgentSession {
     }
     this.busy = true
     this.#turns += 1
+    const turnStartedAt = Date.now()
     // 사용자 발화도 이벤트 버퍼에 남긴다 — 재접속한 창이 대화를 그대로 복원하려면 여기 있어야 한다
     this.#emit({ type: 'update', update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text } } })
-    this.#emit({ type: 'turn_start' })
+    // startedAt·durationMs는 이벤트에 새겨 나간다 — 되받은 히스토리에서도 턴 걸린 시간을 그대로 본다
+    this.#emit({ type: 'turn_start', startedAt: turnStartedAt })
     this.#broadcast(this.#metaEvent())
     this.#conn
       .prompt({ sessionId: this.#sessionId, prompt: [{ type: 'text', text: promptText }] })
-      .then((res) => this.#emit({ type: 'turn_end', stopReason: res.stopReason }))
+      .then((res) => this.#emit({ type: 'turn_end', stopReason: res.stopReason, durationMs: Date.now() - turnStartedAt }))
       .catch((err: unknown) => {
         if (isAuthRequiredError(err) && this.#authMethods.length > 0) {
-          this.#emit({ type: 'turn_end', stopReason: 'error' })
+          this.#emit({ type: 'turn_end', stopReason: 'error', durationMs: Date.now() - turnStartedAt })
           this.#enterAuth(err)
           return
         }
         // ACP 오류는 JSON-RPC 오류 객체(plain object)로도 온다 — String()하면 "[object Object]"만 남는다
         this.#emit({ type: 'error', message: describeError(err) })
-        this.#emit({ type: 'turn_end', stopReason: 'error' })
+        this.#emit({ type: 'turn_end', stopReason: 'error', durationMs: Date.now() - turnStartedAt })
       })
       .finally(() => {
         this.busy = false

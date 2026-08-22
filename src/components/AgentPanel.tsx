@@ -39,6 +39,7 @@ import { useGridDrag } from '../hooks/useGridDrag'
 import { withAutoLabel, withRename, type AgentTab } from '../utils/agentTabs'
 import {
   foldEvents,
+  formatDuration,
   type AgentAuthState,
   type AgentAuthUrl,
   type AgentEvent,
@@ -1191,6 +1192,14 @@ function AgentSessionView({
 
   const items = useMemo(() => foldEvents(events), [events])
 
+  // 돌고 있는 턴의 걸린 시간을 1초마다 흘린다 — 끝난 턴은 서버가 새긴 durationMs로 고정이다
+  const anyTurnRunning = items.some((item) => item.kind === 'turn' && !item.done)
+  useEffect(() => {
+    if (!anyTurnRunning) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [anyTurnRunning])
+
   // 대화가 자라도 **바닥에 붙어 있을 때만** 따라 내려간다 — 위로 올려 읽는 중(펼친 작업 버블을 읽는
   // 중이 대부분이다)이면 자리를 그대로 두고 "새 메시지"만 띄운다. 누르면 바닥으로 가고, 스스로
   // 바닥까지 내려가도 사라진다
@@ -1618,6 +1627,12 @@ function AgentSessionView({
               ? (lastAgent.text.length > 80 ? lastAgent.text.slice(0, 80) + '…' : lastAgent.text)
               : '작업 중…'
             const state = turnState(item)
+            // 걸린 시간 — 끝난 턴은 서버가 새긴 durationMs, 돌고 있는 턴은 startedAt부터 지금까지(now가 1초마다 흘러 갱신)
+            const durationMs = item.done
+              ? item.durationMs
+              : item.startedAt != null
+                ? Math.max(0, now - item.startedAt)
+                : null
             return (
               <div key={item.key} className="rounded-lg border border-edge bg-surface">
                 <div className="flex items-start">
@@ -1637,6 +1652,10 @@ function AgentSessionView({
                     <span className="shrink-0 pt-0.5"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
                     <span className={open ? 'sr-only' : 'line-clamp-2 select-text text-ink'}>{summary}</span>
                   </button>
+                  {/* 걸린 시간 — "15초"·"36분 32초" 꼴. 옛 히스토리(시간 정보 없음)는 감춘다 */}
+                  {durationMs != null && (
+                    <span className="shrink-0 pt-2 text-xs tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>
+                  )}
                   {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
                   <CopyButton
                     text={item.children

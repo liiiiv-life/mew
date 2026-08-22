@@ -729,11 +729,14 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
     내가 프롬프트를 보냈을 때와 세션을 새로 불러왔을 때(`reset`)는 다시 바닥에 붙인다
   - **탭을 닫는 것만 세션을 끝낸다**(`close_session`). 창을 닫는 것과 다르다. 안 보고 있는 탭도 WS는
     붙어 있고(돌던 대화가 멎으면 안 된다), 한 번이라도 연 탭만 붙인다(복원된 탭을 한꺼번에 띄우지 않는다)
+  - **턴 버블 오른쪽에 걸린 시간이 선다** — "15초"·"36분 32초"·"2시간 5분 4초" 꼴. 서버가
+    `turn_start`에 `startedAt`, `turn_end`에 `durationMs`를 새기므로 되받은 히스토리에서도 그대로 보인다.
+    돌고 있는 턴은 startedAt부터 지금까지를 1초마다 다시 세고, 시간 정보가 없는 옛 히스토리는 감춘다
 
 | 방향 | 메시지 |
 | --- | --- |
 | 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId\|null}` · `{type:'authenticate', methodId, secret?}` · `{type:'retry_auth'}` · `{type:'auth_url_response', id, action}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'move_queued', from, to}` · `{type:'edit_queued', index, text, expect}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` · `{type:'close_session'}` |
-| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start'}` · `{type:'turn_end', stopReason}` · `{type:'error'\|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'auth', methods, authenticating, error}` · `{type:'auth_url', id, url, message}` · `{type:'auth_url_done', id}` · `{type:'auth_complete'}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
+| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · `{type:'error'\|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'auth', methods, authenticating, error}` · `{type:'auth_url', id, url, message}` · `{type:'auth_url_done', id}` · `{type:'auth_complete'}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
 
 - **되감기는 한 프레임이다(`replay`).** 붙는 순간 서버가 쌓아 둔 대화(`snapshot()`, 최대 500개)를
   통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 `replay`로 지금 그린 대화를 **갈아끼운다** —

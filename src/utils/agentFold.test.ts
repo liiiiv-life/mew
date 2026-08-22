@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { foldEvents, type AgentEvent } from './agentFold.ts'
+import { foldEvents, formatDuration, type AgentEvent } from './agentFold.ts'
 
 const user = (text: string): AgentEvent => ({
   type: 'update',
@@ -66,4 +66,26 @@ test('잇따른 사용자 발화는 한 말풍선에 줄바꿈으로 갈려 들�
   // 메시지 경계가 없는 청크 스트림이라 묶이는 것 자체는 정상이다 — 붙어서 한 줄이 되면 안 될 뿐
   const items = foldEvents([user('첫 질문'), user('둘째 질문'), agent('답')])
   assert.deepEqual(items.map((i) => (i.kind === 'user' ? i.text : i.kind)), ['첫 질문\n둘째 질문', 'turn'])
+})
+
+test('턴은 서버가 새긴 걸린 시간을 durationMs로 들고, 없으면 null이다', () => {
+  const items = foldEvents([user('안녕'), { type: 'turn_start', startedAt: 1000 }, { type: 'turn_end', stopReason: 'end_turn', durationMs: 3632000 }])
+  const turn = items[1]
+  assert.ok(turn.kind === 'turn')
+  assert.equal(turn.startedAt, 1000)
+  assert.equal(turn.durationMs, 3632000)
+
+  // 옛 이벤트(필드 없음) — 시간을 모르는 히스토리라 감추는 게 맞다
+  const legacy = foldEvents([user('안녕'), { type: 'turn_start' }, { type: 'turn_end', stopReason: 'end_turn' }])
+  const legacyTurn = legacy[1]
+  assert.ok(legacyTurn.kind === 'turn')
+  assert.equal(legacyTurn.durationMs, null)
+})
+
+test('formatDuration은 0인 윗 단위를 떼고 초 단위로 끝낸다', () => {
+  assert.equal(formatDuration(15_000), '15초')
+  assert.equal(formatDuration(36 * 60_000 + 32_000), '36분 32초')
+  assert.equal(formatDuration(2 * 3_600_000 + 5 * 60_000 + 4_000), '2시간 5분 4초')
+  assert.equal(formatDuration(59_900), '1분') // 반올림 — 59.9초는 1분이 된다
+  assert.equal(formatDuration(0), '0초')
 })
