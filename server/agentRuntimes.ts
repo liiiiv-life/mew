@@ -140,6 +140,12 @@ function cursorSpawnSpec(): SpawnSpec {
   }
 }
 
+function primeSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_PRIME_CMD || 'prime-agent'
+  // --mode acp — JSON-RPC 2.0 on stdin/stdout. 연결당 세션 하나가 Prime Agent의 의도다.
+  return { cmd, args: splitArgs(process.env.MEW_AGENT_PRIME_ARGS, ['--mode', 'acp']) }
+}
+
 const login = (
   spec: SpawnSpec,
   args: string[],
@@ -217,6 +223,16 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     auth: {
       login: () => login(cursorSpawnSpec(), ['login'], 'Cursor CLI 로그인', 'Cursor 계정으로 로그인합니다.'),
       replaceMethodIds: ['cursor_login'],
+    },
+  },
+  prime: {
+    id: 'prime', label: 'Prime Agent', spec: primeSpawnSpec,
+    // 공식 인스톨러 — Linux·macOS 공통. 버전 있는 릴리스를 내려받아 검증 후 prime-agent 명령을 심는다.
+    install: () => ({ cmd: 'sh', args: ['-lc', 'curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh'] }),
+    auth: {
+      // /login은 Prime Agent TUI의 슬래시 명령이다 — 터미널 팝업에서 대화형으로 공급자를 고른다.
+      login: () => login(primeSpawnSpec(), [], 'Prime Agent 로그인/설정', "TUI에서 /login을 입력해 공급자(Claude·ChatGPT·Copilot·API key)를 등록합니다. 설정 뒤 이 탭을 닫으면 ACP로 연결됩니다."),
+      replaceMethodIds: ['login'],
     },
   },
 }

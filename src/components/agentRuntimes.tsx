@@ -13,6 +13,7 @@ import {
   KimiGlyph,
   OpenClawGlyph,
   OpenCodeGlyph,
+  PrimeAgentGlyph,
 } from './agentRuntimeIcons'
 
 export const RUNTIMES = [
@@ -24,6 +25,7 @@ export const RUNTIMES = [
   { id: 'openclaw', label: 'OpenClaw', Glyph: OpenClawGlyph },
   { id: 'opencode', label: 'OpenCode', Glyph: OpenCodeGlyph },
   { id: 'cursor', label: 'Cursor CLI', Glyph: CursorGlyph },
+  { id: 'prime', label: 'Prime Agent', Glyph: PrimeAgentGlyph },
 ]
 
 export const runtimeOf = (id: string) => RUNTIMES.find((runtime) => runtime.id === id) ?? RUNTIMES[0]

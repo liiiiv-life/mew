@@ -795,10 +795,12 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   | `openclaw` | `openclaw acp` | `openclaw onboard --tui` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
   | `opencode` | `opencode acp` | `opencode auth login` | `MEW_AGENT_OPENCODE_CMD` · `MEW_AGENT_OPENCODE_ARGS` |
   | `cursor` | `agent acp` | `agent login`(`NO_OPEN_BROWSER=1`) | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
+  | `prime` | `prime-agent --mode acp` — 공식 인스톨러로 설치(`curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh \| sh`) | TUI `/login`(공급자 선택) | `MEW_AGENT_PRIME_CMD` · `MEW_AGENT_PRIME_ARGS` |
 
   공통은 `MEW_AGENT_MODE`(안 주면 위의 전체 허용 후보 순서). 진입점이 없거나 로그인 전 ACP를 말하지
   않으면 오류와 terminal auth를 함께 보여 준다 — 목록에서 감추거나 탭을 닫지 않는다. 로그인 완료 뒤에도
-  실패하면 같은 화면에 최신 시작 오류를 남긴다.
+  실패하면 같은 화면에 최신 시작 오류를 남긴다. Prime Agent는 연결당 세션 하나라 mew의 탭 하나가 곧
+  하나의 Prime 세션이 된다(둘째 탭은 프로세스를 하나 더 띄운다).
 
 | 라우트 | 역할 | 하는 일 |
 |---|---|---|

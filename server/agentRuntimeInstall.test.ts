@@ -14,18 +14,18 @@ test('등록표에 없는 id로는 설치 명령을 만들 수 없다', async ()
   await assert.rejects(installRuntime('../anything'), RuntimeInstallError)
 })
 
-test('등록된 8개 런타임 모두 요청값과 무관한 GUI 로그인 명령을 가진다', () => {
+test('등록된 9개 런타임 모두 요청값과 무관한 GUI 로그인 명령을 가진다', () => {
   const keys = [
     'MEW_AGENT_ARGS', 'MEW_AGENT_CLAUDE_ARGS', 'MEW_AGENT_CODEX_ARGS', 'MEW_AGENT_HERMES_ARGS',
     'MEW_AGENT_KIMI_ARGS', 'MEW_AGENT_GEMINI_ARGS', 'MEW_AGENT_OPENCLAW_ARGS',
-    'MEW_AGENT_OPENCODE_ARGS', 'MEW_AGENT_CURSOR_ARGS', 'NO_BROWSER', 'NO_OPEN_BROWSER',
+    'MEW_AGENT_OPENCODE_ARGS', 'MEW_AGENT_CURSOR_ARGS', 'MEW_AGENT_PRIME_ARGS', 'NO_BROWSER', 'NO_OPEN_BROWSER',
   ]
   const saved = new Map(keys.map((key) => [key, process.env[key]]))
   for (const key of keys) delete process.env[key]
   try {
     assert.equal(RUNTIME_LOGIN_METHOD_ID, 'mew-runtime-login')
     assert.deepEqual(Object.keys(RUNTIMES), [
-      'claude', 'codex', 'hermes', 'kimi', 'gemini', 'openclaw', 'opencode', 'cursor',
+      'claude', 'codex', 'hermes', 'kimi', 'gemini', 'openclaw', 'opencode', 'cursor', 'prime',
     ])
     assert.deepEqual(runtimeLoginSpec('claude').args.slice(-1), ['--cli'])
     assert.deepEqual(runtimeLoginSpec('codex').args, ['login', '--device-auth'])
@@ -38,6 +38,10 @@ test('등록된 8개 런타임 모두 요청값과 무관한 GUI 로그인 명�
     assert.deepEqual(RUNTIMES.gemini.spec().args, ['--acp'], 'Gemini의 정식 ACP 플래그를 쓴다')
     assert.equal(RUNTIMES.gemini.spec().env?.NO_BROWSER, 'true')
     assert.equal(RUNTIMES.cursor.spec().env?.NO_OPEN_BROWSER, '1')
+    // Prime Agent — 공식 인스톨러와 ACP 모드
+    const primeInstall = RUNTIMES.prime.install?.()
+    assert.ok(primeInstall?.args[1]?.includes('prime-agent/install.sh'), '공식 인스톨러 URL을 쓴다')
+    assert.deepEqual(RUNTIMES.prime.spec().args, ['--mode', 'acp'], "Prime Agent의 ACP 진입은 --mode acp다")
   } finally {
     for (const [key, value] of saved) {
       if (value === undefined) delete process.env[key]
