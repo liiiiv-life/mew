@@ -18,7 +18,7 @@ import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@
 import { flattenFiles, type TreeNode } from '@mew/editor'
 import { copyTextFromAgentMarkdownClick, markAgentMarkdownCopied, renderMarkdown } from '../utils/agentMarkdown'
 import { clearAgentInputDraft, readAgentInputDraft, writeAgentInputDraft } from '../utils/agentInputDrafts'
-import { RUNTIMES } from './agentRuntimes'
+import { RUNTIMES, runtimeOf } from './agentRuntimes'
 import {
   fetchAgentDefault,
   fetchAgentAuthTerminalStatus,
@@ -567,6 +567,131 @@ function AgentTabBar({
   )
 }
 
+/**
+ * 헤더 런타임 아이콘의 드롭다운 — 새 탭의 런타임 목록(RuntimePicker)과 같은 등록표·같은 설치 흐름을
+ * 좁은 패널로 그린 것. 고르면 이 탭의 세션이 그 런타임으로 갈아탄다(ADR 0074 — 0062의
+ * "탭 안에서 런타임 갈아타기 금지"를 다시 연다). 목록은 열 때 서버에서 한 번 읽는다.
+ */
+function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (runtime: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(null)
+  const [installing, setInstalling] = useState<string | null>(null)
+  const [error, setError] = useState<{ id: string; message: string } | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+  // Esc·모바일 뒤로가기가 패널 대신 이 드롭다운을 닫게 한다
+  useOverlayDismiss(open && close)
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: PointerEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [open])
+
+  // 열릴 때마다 최신 설치 상태를 물어본다 — 밖에서 CLI로 설치했을 수도 있다
+  useEffect(() => {
+    if (!open) return
+    let alive = true
+    fetchAgentRuntimes()
+      .then(({ runtimes }) => {
+        if (alive) setStatuses(runtimes)
+      })
+      .catch((err: unknown) => {
+        if (alive) setError({ id: '', message: err instanceof Error ? err.message : String(err) })
+      })
+    return () => {
+      alive = false
+    }
+  }, [open])
+
+  const install = (id: string) => {
+    setInstalling(id)
+    setError(null)
+    void installAgentRuntime(id)
+      .then(({ status }) => {
+        if (!status.installed) throw new Error('설치 후에도 실행 파일을 찾지 못했습니다')
+        setStatuses((prev) => prev?.map((item) => (item.id === id ? status : item)) ?? [status])
+        onSelect(id)
+        setOpen(false)
+      })
+      .catch((err: unknown) => {
+        setError({ id, message: err instanceof Error ? err.message : String(err) })
+        return fetchAgentRuntimes().then(({ runtimes }) => setStatuses(runtimes))
+      })
+      .finally(() => setInstalling(null))
+  }
+
+  const currentRuntime = runtimeOf(current)
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`flex h-6 w-6 items-center justify-center rounded ${open ? 'bg-surface-raised text-ink' : 'hover:bg-surface-raised hover:text-ink'}`}
+        title={`에이전트: ${currentRuntime.label} — 눌러서 바꾸기`}
+      >
+        <currentRuntime.Glyph />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-label="에이전트 선택"
+          className="absolute left-0 top-full z-40 mt-1 w-72 whitespace-nowrap rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
+        >
+          {statuses === null && !error ? (
+            <div className="px-3 py-2 text-xs text-ink-muted">런타임 확인 중…</div>
+          ) : (
+            RUNTIMES.map((rt) => {
+              const status = statuses?.find((item) => item.id === rt.id)
+              const busy = installing === rt.id || status?.installing === true
+              return (
+                <div key={rt.id} className="flex items-center gap-2 px-2.5 py-1.5">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center text-ink-secondary"><rt.Glyph /></span>
+                  <div className="min-w-0 flex-1">
+                    <div className={`truncate text-xs ${rt.id === current ? 'text-ink' : 'text-ink-secondary'}`}>{rt.label}</div>
+                    <div className="text-[10px] leading-tight text-ink-muted">
+                      {rt.id === current ? '사용 중' : status?.installed ? '설치됨' : '설치 필요'}
+                    </div>
+                  </div>
+                  {rt.id !== current &&
+                    (status?.installed ? (
+                      <button
+                        type="button"
+                        role="option"
+                        onClick={() => {
+                          onSelect(rt.id)
+                          setOpen(false)
+                        }}
+                        className="shrink-0 rounded px-2 py-0.5 text-xs text-accent hover:bg-surface-hover"
+                      >
+                        사용
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => install(rt.id)}
+                        disabled={!status?.installable || busy}
+                        className="shrink-0 rounded px-2 py-0.5 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40"
+                      >
+                        {busy ? '설치 중…' : '설치'}
+                      </button>
+                    ))}
+                </div>
+              )
+            })
+          )}
+          {error && <div className="max-h-24 overflow-auto whitespace-pre-wrap px-2.5 py-1.5 text-xs text-danger">{error.message}</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RuntimePicker({ onSelect }: { onSelect: (runtime: string) => void }) {
   const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(null)
   const [installing, setInstalling] = useState<string | null>(null)
@@ -793,6 +918,7 @@ export function AgentPanel({ project, tree, onClose }: { project: string; tree: 
               onLabel={setTabLabel}
               onInfo={setTabInfo}
               onRegister={register}
+              onSwitchRuntime={(runtime) => selectRuntime(tab.id, runtime)}
             />
           </div>
         ))}
@@ -816,6 +942,7 @@ function AgentSessionView({
   onLabel,
   onInfo,
   onRegister,
+  onSwitchRuntime,
 }: {
   tabId: string
   /** 지금 보이는 탭인지 — 안 보이는 탭은 높이가 0이라 스크롤을 못 잡는다(아래 effect) */
@@ -827,6 +954,8 @@ function AgentSessionView({
   onLabel: (tabId: string, label: string) => void
   onInfo: (tabId: string, info: TabInfo) => void
   onRegister: (tabId: string, send: ((payload: Record<string, unknown>) => void) | null) => void
+  /** 헤더 아이콘 드롭다운에서 다른 에이전트를 골랐다 — 이 탭의 세션을 그 런타임으로 갈아탄다 */
+  onSwitchRuntime: (runtime: string) => void
 }) {
   // 어느 프로젝트를 보고 있든 같은 창이다 — 스코프는 워크스페이스, 대화가 나뉘는 축은 탭과 런타임이다
   const [events, setEvents] = useState<AgentEvent[]>([])
@@ -1308,10 +1437,8 @@ function AgentSessionView({
     <div className="flex h-full w-full flex-col bg-surface-deep">
       <div className="flex items-center justify-between gap-2 border-b border-edge px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          {/* 런타임은 탭을 만들 때 고정한다 — 바꾸려면 새 탭을 연다(ADR 0062). */}
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center" title={`에이전트: ${currentRuntime.label}`}>
-            <currentRuntime.Glyph />
-          </span>
+          {/* 누르면 에이전트 목록이 드롭다운으로 뜬다 — 고르면 이 탭의 세션이 갈아탄다(ADR 0074). */}
+          <RuntimeDropdown current={runtime} onSelect={onSwitchRuntime} />
           {models && models.availableModels.length > 1 ? (
             <HeaderSelect
               value={models.currentModelId}
