@@ -326,6 +326,8 @@ export interface TodoItem {
   type: TodoType
   status: TodoStatus
   done: boolean
+  /** 완료한 날짜(YYYY-MM-DD) 또는 null — 주기 항목 매일 초기화용 */
+  doneDate: string | null
   /** YYYY-MM-DD 또는 null */
   due: string | null
   /** HH:MM(24시간제) 또는 null */

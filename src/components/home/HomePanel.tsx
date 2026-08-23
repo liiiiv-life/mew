@@ -101,6 +101,7 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
         type: input.type,
         status: 'open',
         done: false,
+        doneDate: null,
         due: input.type === 'dated' ? input.due : null,
         time: input.time,
         projects: input.projects,
@@ -271,12 +272,18 @@ function applyOptimisticChange(
   const status = change.status ?? (change.done === undefined ? item.status : change.done ? 'done' : 'open')
   const type = change.type ?? item.type
   const due = type === 'dated' ? (change.due === undefined ? item.due : change.due) : null
+  // 오늘 날짜는 서버 todos.ts의 todayLocal()과 같은 근거(현지 시각 YYYY-MM-DD)다 — 날짜 문자열로만 비교한다
+  const today = (() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  })()
   return {
     ...item,
     text: change.text ?? item.text,
     type,
     status,
     done: status === 'done',
+    doneDate: status === 'done' ? (item.doneDate ?? today) : null,
     due,
     time: change.time === undefined ? item.time : change.time,
     projects: change.projects ?? item.projects,

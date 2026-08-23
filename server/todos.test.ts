@@ -101,3 +101,67 @@ test('listTodos: 예전 done/due 항목을 새 타입과 상태로 읽는다', (
   assert.equal(items[1].time, null)
   assert.deepEqual(items[1].projects, [])
 })
+
+/** 서버(todos.ts의 todayLocal)와 같은 기준의 날짜 문자열. offsetDays로 어제·그저께를 만든다 */
+function dayString(offsetDays = 0): string {
+  const now = new Date(Date.now() + offsetDays * 86_400_000)
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+function readStoredEntry(user: string, id: string): Record<string, unknown> {
+  const file = path.join(dir, 'todos.json')
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'))
+  return data[user].find((entry: { id: string }) => entry.id === id)
+}
+
+test('주기 항목: 오늘 끝냈으면 done과 doneDate(오늘)로 남는다', () => {
+  const item = createTodo('daily@example.com', { text: '매일 하는 일', type: 'recurring' })
+  const done = updateTodo('daily@example.com', item.id, { status: 'done' })
+
+  assert.equal(done.status, 'done')
+  assert.equal(done.done, true)
+  assert.equal(done.doneDate, dayString())
+  assert.equal(listTodos('daily@example.com').find((v) => v.id === item.id)?.status, 'done')
+})
+
+test('주기 항목: 하루가 지나면 처음 조회 때 open으로 되돌아온다', () => {
+  const item = createTodo('reset@example.com', { text: '매일 초기화 대상', type: 'recurring' })
+  updateTodo('reset@example.com', item.id, { status: 'done' })
+  assert.equal(readStoredEntry('reset@example.com', item.id).status, 'done')
+
+  // 어제 끝낸 상황을 흉내 낸다 — 원장의 doneDate를 어제로 바꾼다
+  const file = path.join(dir, 'todos.json')
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const entry = data['reset@example.com'].find((stored: { id: string }) => stored.id === item.id)
+  entry.doneDate = dayString(-1)
+  entry.updatedAt = '2026-01-01T00:00:00.000Z'
+  fs.writeFileSync(file, JSON.stringify(data))
+
+  const reset = listTodos('reset@example.com').find((v) => v.id === item.id)
+  assert.equal(reset?.status, 'open')
+  assert.equal(reset?.done, false)
+  assert.equal(reset?.doneDate, null)
+  // 되돌린 값이 원장에도 남는다 — 다음 조회부터는 재계산 없이 그대로다
+  assert.equal(readStoredEntry('reset@example.com', item.id).status, 'open')
+
+  // 같은 날 다시 체크하면 오늘 날짜로 done
+  const again = updateTodo('reset@example.com', item.id, { status: 'done' })
+  assert.equal(again.status, 'done')
+  assert.equal(again.doneDate, dayString())
+})
+
+test('오늘·기한 항목은 며칠 전에 끝냈어도 초기화하지 않는다', () => {
+  const todayItem = createTodo('keep@example.com', { text: '오늘 일', type: 'today' })
+  const datedItem = createTodo('keep@example.com', { text: '기한 일', type: 'dated', due: dayString(-5) })
+  updateTodo('keep@example.com', todayItem.id, { status: 'done' })
+  updateTodo('keep@example.com', datedItem.id, { status: 'done' })
+
+  const file = path.join(dir, 'todos.json')
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'))
+  for (const stored of data['keep@example.com']) stored.doneDate = dayString(-3)
+  fs.writeFileSync(file, JSON.stringify(data))
+
+  const items = listTodos('keep@example.com')
+  assert.equal(items.find((v) => v.id === todayItem.id)?.status, 'done')
+  assert.equal(items.find((v) => v.id === datedItem.id)?.status, 'done')
+})

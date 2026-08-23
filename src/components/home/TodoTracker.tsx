@@ -25,10 +25,11 @@ export function TodoTracker({ items, projects, loading, onCreate, onUpdate, onDe
   const today = todayISO()
 
   const projectByName = useMemo(() => new Map(projects.map((p) => [p.name, p])), [projects])
-  const filtered = showClosed ? items : items.filter((item) => item.status === 'open')
-  const todayItems = filtered.filter((item) => item.type === 'today')
-  const datedItems = filtered.filter((item) => item.type === 'dated')
-  const recurringItems = filtered.filter((item) => item.type === 'recurring')
+  // 주기 할 일은 매일 초기화되는 게 본래 모습이라 "끝난 일도 보기"와 무관하게 항상 보인다
+  const visible = showClosed ? items : items.filter((item) => item.status === 'open' || item.type === 'recurring')
+  const todayItems = visible.filter((item) => item.type === 'today')
+  const datedItems = visible.filter((item) => item.type === 'dated')
+  const recurringItems = visible.filter((item) => item.type === 'recurring')
 
   return (
     <div className="flex min-h-0 flex-col">

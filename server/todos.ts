@@ -1,4 +1,5 @@
 // 홈 탭의 할 일 원장. 코드·문서 안의 표식을 훑지 않고, 로그인 사용자별 JSON 상태 파일에 저장한다.
+// 주기(recurring) 항목은 완료 날짜를 찍어 두고, 하루가 지난 뒤 처음 읽힐 때 open으로 되돌린다.
 import crypto from 'node:crypto'
 import path from 'node:path'
 import { DATA_DIR, readJsonRecord, writeFileAtomic } from './dataDir.ts'
@@ -9,6 +10,8 @@ export interface TodoItem {
   type: TodoType
   status: TodoStatus
   done: boolean
+  /** 완료한 날짜(YYYY-MM-DD) 또는 null — 주기 항목 매일 초기화용 */
+  doneDate: string | null
   /** YYYY-MM-DD 또는 null */
   due: string | null
   /** HH:MM(24시간제) 또는 null */
@@ -54,6 +57,12 @@ type TodoFile = Record<string, TodoItem[]>
 
 function nowISO(): string {
   return new Date().toISOString()
+}
+
+/** 서버 현지 시각의 오늘(YYYY-MM-DD). 클라이언트 todayISO()와 같은 형식이라 날짜 문자열 비교가 어긋나지 않는다 */
+function todayLocal(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
 function userKey(email: string): string {
@@ -106,6 +115,11 @@ function doneFromStatus(status: TodoStatus): boolean {
   return status === 'done'
 }
 
+function normalizeDoneDate(value: unknown): string | null {
+  if (typeof value !== 'string' || !DUE_RE.test(value)) return null
+  return value
+}
+
 function normalizeProjects(value: unknown): string[] {
   if (value === undefined || value === null) return []
   if (!Array.isArray(value)) throw new TodoError('프로젝트 목록이 올바르지 않습니다')
@@ -142,6 +156,7 @@ function normalizeItem(value: TodoItem): TodoItem | null {
       type: schedule.type,
       status,
       done: doneFromStatus(status),
+      doneDate: normalizeDoneDate(value.doneDate),
       due: schedule.due,
       time: normalizeTime(value.time),
       projects: normalizeProjects(value.projects),
@@ -169,8 +184,29 @@ function sortTodos(items: TodoItem[]): TodoItem[] {
 }
 
 export function listTodos(email: string): TodoItem[] {
+  const key = userKey(email)
   const file = readAll()
-  return sortTodos((file[userKey(email)] ?? []).map(normalizeItem).filter((v): v is TodoItem => v != null))
+  const raw = file[key]
+  if (!raw) return []
+  const items = raw.map(normalizeItem).filter((v): v is TodoItem => v != null)
+  // 주기 항목의 매일 초기화 — 별도 타이머 없이 조회 시점에 한다. "오늘 이미 끝냈는지"는 doneDate가 말한다.
+  const today = todayLocal()
+  let reset = false
+  for (const [index, item] of items.entries()) {
+    if (item.type !== 'recurring') continue
+    const stale =
+      item.status === 'canceled' ||
+      item.status === 'missed' ||
+      (item.status === 'done' && item.doneDate !== today)
+    if (!stale) continue
+    items[index] = { ...item, status: 'open', done: false, doneDate: null, updatedAt: nowISO() }
+    reset = true
+  }
+  if (!reset) return sortTodos(items)
+  const sorted = sortTodos(items)
+  file[key] = sorted
+  writeAll(file)
+  return sorted
 }
 
 export function createTodo(email: string, input: TodoCreate): TodoItem {
@@ -187,6 +223,7 @@ export function createTodo(email: string, input: TodoCreate): TodoItem {
     type: schedule.type,
     status: 'open',
     done: false,
+    doneDate: null,
     due: schedule.due,
     time: normalizeTime(input.time),
     projects: normalizeProjects(input.projects),
@@ -224,6 +261,8 @@ export function updateTodo(email: string, id: string, change: TodoChange): TodoI
     type: schedule.type,
     status,
     done: doneFromStatus(status),
+    // 완료로 바뀌면 오늘 날짜를 찍는다 — 주기 항목의 매일 초기화가 이 날짜를 본다
+    doneDate: status === 'done' ? todayLocal() : null,
     due: schedule.due,
     time: change.time === undefined ? prev.time : normalizeTime(change.time),
     projects: change.projects === undefined ? prev.projects : normalizeProjects(change.projects),
