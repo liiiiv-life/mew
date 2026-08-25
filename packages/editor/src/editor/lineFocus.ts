@@ -71,15 +71,6 @@ export function selectedLinePositions(state: EditorState): number[] {
   return positions
 }
 
-function lineNumbersText(startLine: number, lineCount: number): string {
-  return Array.from({ length: lineCount }, (_, i) => String(startLine + i)).join('\n')
-}
-
-function visibleLineNumbersText(node: PMNode, startLine: number, lineCount: number): string {
-  if ((node.type.name === 'table' || node.type.name === 'codeBlock') && lineCount > 1) return String(startLine)
-  return lineNumbersText(startLine, lineCount)
-}
-
 function markdownLineCount(markdown: string): number {
   const trimmed = markdown.replace(/\n$/, '')
   if (!trimmed) return 1
@@ -130,6 +121,8 @@ function sourceLineCandidates(source: string, lineOffset = 0): SourceLineCandida
       candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: token.map[1] - token.map[0], kind: 'block' })
     } else if (token.level === 0 && token.type === 'paragraph_open') {
       candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: token.map[1] - token.map[0], kind: 'block' })
+    } else if (token.level === 0 && token.type === 'blockquote_open') {
+      candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: token.map[1] - token.map[0], kind: 'block' })
     } else if (token.level === 0 && token.type === 'fence') {
       candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: token.map[1] - token.map[0], kind: 'code' })
     } else if (token.level === 0 && token.type === 'table_open') {
@@ -165,7 +158,7 @@ export function lineNumberAttrs(
     if (isListContainer(node)) {
       attrs.push(...listItemNumberAttrs(node, pos, line))
     } else {
-      attrs.push({ pos, lineNumbers: visibleLineNumbersText(node, line, blockLineCount), lineCount: blockLineCount })
+      attrs.push({ pos, lineNumbers: String(line), lineCount: blockLineCount })
     }
     line += blockLineCount + 1
   })
@@ -185,31 +178,17 @@ function sourceLineNumberAttrs(doc: PMNode, source: string, lineOffset = 0): Lin
     while (index < candidates.length && candidates[index].kind !== kind) index++
     const candidate = candidates[index++]
     if (!candidate) return true
-    const visibleLineCount = candidate.kind === 'code' || candidate.kind === 'table' ? 1 : candidate.lineCount
+    // 번호는 원본 범위의 시작 줄에만 붙인다. 범위 안의 번호를 행 높이로 나열하면 긴 원본 한 줄이
+    // 화면에서 접힐 때 다음 번호가 그 시각적 이어진 줄 옆에 붙어, 화면 줄을 md 줄로 오인하게 된다.
     attrs.push({
       pos,
-      lineNumbers: lineNumbersText(candidate.startLine, visibleLineCount),
+      lineNumbers: String(candidate.startLine),
       lineCount: candidate.lineCount,
     })
     return true
   })
 
   return attrs
-}
-
-function usesLineNumberWidget(node: PMNode, lineNumbers: string): boolean {
-  return lineNumbers.includes('\n') && node.type.name !== 'table' && node.type.name !== 'codeBlock'
-}
-
-function lineNumberWidget(lineNumbers: string, focused: boolean): HTMLElement {
-  const wrap = document.createElement('span')
-  wrap.className = `mew-line-number-widget${focused ? ' mew-line-number-widget--focus' : ''}`
-  for (const line of lineNumbers.split('\n')) {
-    const item = document.createElement('span')
-    item.textContent = line
-    wrap.appendChild(item)
-  }
-  return wrap
 }
 
 /**
@@ -254,19 +233,6 @@ export const LineFocus = Extension.create<LineFocusOptions>({
             ).flatMap(({ pos, lineNumbers, lineCount }) => {
               const node = state.doc.nodeAt(pos)
               if (!node) return []
-              const focused = selectedLinePositions(state).includes(pos)
-              if (usesLineNumberWidget(node, lineNumbers)) {
-                return [
-                  Decoration.node(pos, pos + node.nodeSize, {
-                    'data-mew-line-widget': '1',
-                    style: `--mew-line-count: ${lineCount};`,
-                  }),
-                  Decoration.widget(pos + 1, () => lineNumberWidget(lineNumbers, focused), {
-                    key: `mew-line-number-widget-${pos}-${lineNumbers}-${focused ? '1' : '0'}`,
-                    side: -1,
-                  }),
-                ]
-              }
               return [
                 Decoration.node(pos, pos + node.nodeSize, {
                   'data-mew-line-numbers': lineNumbers,

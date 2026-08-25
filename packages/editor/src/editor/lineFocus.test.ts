@@ -115,29 +115,62 @@ test('frontmatter 줄 수만큼 Hotview 본문 줄 번호를 밀어 원본 md �
   ])
 })
 
-test('원본 일반 텍스트 여러 줄이 paragraph 하나로 파싱돼도 각 md 줄번호를 표시한다', () => {
+test('원본 일반 텍스트 여러 줄이 paragraph 하나로 파싱되면 오브젝트 시작 줄번호만 표시한다', () => {
   const source = '호흡을 통해\n몸과 마음의 긴장을 풀어보겠습니다.\n천천히 내려놓습니다.\n\n다음 문단\n'
   const editor = buildEditor(source)
   const serializer = (editor.storage as any).markdown.serializer
   assert.deepEqual(lineNumberAttrs(editor.state.doc, (c) => serializer.serialize(c), 37, source).map(({ lineNumbers, lineCount }) => ({ lineNumbers, lineCount })), [
-    { lineNumbers: '38\n39\n40', lineCount: 3 },
+    { lineNumbers: '38', lineCount: 3 },
     { lineNumbers: '42', lineCount: 1 },
   ])
 })
 
-test('일반 텍스트 여러 줄번호는 실제 DOM 위젯으로 그려 포커스 스타일을 받을 수 있다', () => {
-  const source = '호흡을 통해\n몸과 마음의 긴장을 풀어보겠습니다.\n천천히 내려놓습니다.\n'
+test('긴 원본 한 줄이 화면에서 접혀도 오브젝트 시작 줄번호 하나만 그린다', () => {
+  const source = `${'아주 긴 한 줄 '.repeat(20)}\n\n다음 오브젝트\n`
   const editor = new Editor({
     element: document.createElement('div'),
     extensions: [...serverEditorExtensions(), LineFocus.configure({ getSource: () => source })],
     content: source,
   })
-  const line = editor.view.dom.querySelector('[data-mew-line-widget="1"]')
-  assert.ok(line)
-  const widget = editor.view.dom.querySelector('.mew-line-number-widget')
-  assert.deepEqual(Array.from(widget?.querySelectorAll('span') ?? []).map((el) => el.textContent), ['1', '2', '3'])
-  editor.commands.setTextSelection(textPos(editor, '긴장'))
-  assert.ok(editor.view.dom.querySelector('.mew-line-number-widget--focus'))
+  assert.deepEqual(
+    Array.from(editor.view.dom.querySelectorAll('[data-mew-line-numbers]')).map((el) => el.getAttribute('data-mew-line-numbers')),
+    ['1', '3'],
+  )
+  assert.equal(editor.view.dom.querySelector('.mew-line-number-widget'), null)
+})
+
+test('frontmatter 뒤 일반 문단과 인용문의 번호가 실제 md 줄과 정확히 같다', () => {
+  const source = [
+    '명상 블록을 한 벌 생성해 업로드하는 절차.',
+    '',
+    '> 삭제된 도구에 관한 주의문.',
+    '',
+    '스타일과 문장 기준본.',
+  ].join('\n')
+  const editor = buildEditor(source)
+  const serializer = (editor.storage as any).markdown.serializer
+  const entries = lineNumberAttrs(editor.state.doc, (c) => serializer.serialize(c), 7, source).map((attr) => ({
+    type: editor.state.doc.nodeAt(attr.pos)?.type.name,
+    text: editor.state.doc.nodeAt(attr.pos)?.textContent,
+    lineNumbers: attr.lineNumbers,
+  }))
+  assert.deepEqual(entries, [
+    { type: 'paragraph', text: '명상 블록을 한 벌 생성해 업로드하는 절차.', lineNumbers: '8' },
+    { type: 'blockquote', text: '삭제된 도구에 관한 주의문.', lineNumbers: '10' },
+    { type: 'paragraph', text: '스타일과 문장 기준본.', lineNumbers: '12' },
+  ])
+})
+
+test('일반 문단 포커스는 줄번호 색과 투명도 변수를 바꾼다', () => {
+  const source = '8번째 줄 일반 문단\n'
+  const editor = new Editor({
+    element: document.createElement('div'),
+    extensions: [...serverEditorExtensions(), LineFocus.configure({ getLineOffset: () => 7, getSource: () => source })],
+    content: source,
+  })
+  editor.commands.setTextSelection(textPos(editor, '일반'))
+  const line = editor.view.dom.querySelector('[data-mew-line-numbers="8"]')
+  assert.ok(line?.classList.contains('mew-line--focus'))
 })
 
 test('코드블럭은 원본 줄 수만큼 다음 번호를 밀고, 화면에는 첫 줄번호만 표시한다', () => {
