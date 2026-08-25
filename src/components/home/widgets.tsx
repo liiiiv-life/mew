@@ -30,13 +30,13 @@ export interface HomeWidgetContext {
 
 export interface HomeWidget {
   id: string
-  title: string
+  titleKey: 'home.todos' | 'home.calendar'
   render: (ctx: HomeWidgetContext) => ReactNode
 }
 
 export const HOME_WIDGETS: HomeWidget[] = [
-  { id: 'todos', title: '할 일', render: (c) => <TodoTracker {...c} /> },
-  { id: 'calendar', title: '달력', render: (c) => <DueCalendar items={c.items} onUpdate={c.onUpdate} /> },
+  { id: 'todos', titleKey: 'home.todos', render: (c) => <TodoTracker {...c} /> },
+  { id: 'calendar', titleKey: 'home.calendar', render: (c) => <DueCalendar items={c.items} onUpdate={c.onUpdate} /> },
 ]
 
 export interface HomeLayout {

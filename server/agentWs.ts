@@ -12,11 +12,13 @@ import { composeRuntimePrompt } from './agentRuntimes.ts'
 import { listSessionsFromDisk } from './agentSessionList.ts'
 import { WORKSPACE_ROOT } from './paths.ts'
 import { listSkills } from './skills.ts'
+import { resolveAgentCwd } from './agentCwd.ts'
 
 export const AGENT_WS_PATH = '/api/agent/ws'
 
 /** 탭 식별자 — 브라우저가 만들어 보내는 불투명한 값이다. 맵 열쇠로만 쓰지만 길이는 묶어 둔다 */
 const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 
 type ClientMessage =
   | { type: 'prompt'; text: string; skills?: string[] }
@@ -38,11 +40,12 @@ type ClientMessage =
 
 type ServerMessage =
   | AgentEvent
-  | { type: 'ready' | 'fatal'; message?: string }
+  | { type: 'ready'; cwd: string }
+  | { type: 'fatal'; message?: string }
   // 목록은 물어본 창에만 답한다 — 상태가 아니라 조회 결과라 이벤트 버퍼에 넣지 않는다
   | { type: 'sessions'; sessions: { sessionId: string; title?: string | null; updatedAt?: string | null }[] }
   // 지나간 대화는 한 덩어리로 간다 — 창은 이걸 받아 지금 그린 대화를 통째로 갈아끼운다
-  | { type: 'replay'; events: AgentEvent[] }
+  | { type: 'replay'; events: AgentEvent[]; restored?: boolean }
 
 function send(ws: WebSocket, payload: ServerMessage) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload))
@@ -71,12 +74,12 @@ function promptForRuntime(runtime: string, text: string, skillNames: string[] | 
   return composeRuntimePrompt(runtime, text, skills)
 }
 
-async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
+async function handleConnection(ws: WebSocket, runtime: string, tab: string, cwd: string, resumeSessionId: string | null) {
   const fail = (err: unknown) => send(ws, { type: 'error', message: describeError(err) })
 
   // 에이전트가 뜨는 데는 1초가 넘게 걸린다(spawn + initialize + newSession). 그동안 창을 세워 두지 않는다:
   // ready를 먼저 보낸다. 지난 세션 목록은 **창이 물어볼 때만** 간다 — 붙을 때마다 훑으면 탭 수만큼 곱해진다.
-  send(ws, { type: 'ready' })
+  send(ws, { type: 'ready', cwd })
 
   // 대화가 오래 조용하면(에이전트가 긴 작업 중이거나 사용자가 읽고만 있을 때) 중간 장비가 유휴 소켓을
   // 끊는다 — 창은 되감기로 복구하지만 그때마다 화면이 한 번 출렁인다. 30초 핑으로 살아 있다고 알린다
@@ -104,7 +107,7 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
   const handle = (msg: ClientMessage) => {
     // 목록은 디스크만 읽는다 — 자식 프로세스가 뜨기를 기다리지 않는다(세션의 listSessions와 같은 지름길)
     if (msg.type === 'list_sessions' && runtime === 'claude') {
-      void listSessionsFromDisk(WORKSPACE_ROOT)
+      void listSessionsFromDisk(cwd)
         .then((sessions) => send(ws, { type: 'sessions', sessions }))
         .catch(fail)
       return
@@ -162,8 +165,8 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
 
   let started: AgentHostClient
   try {
-    started = await connectAgentHost(runtime, tab, WORKSPACE_ROOT, {
-      onReplay: (events) => send(ws, { type: 'replay', events }),
+    started = await connectAgentHost(runtime, tab, cwd, {
+      onReplay: (events, restored) => send(ws, { type: 'replay', events, ...(restored ? { restored: true } : {}) }),
       onEvent: (event) => send(ws, event),
       onFatal: (message) => {
         send(ws, { type: 'fatal', message })
@@ -171,10 +174,10 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string) {
       },
       onClose: () => {
         if (ws.readyState !== ws.OPEN) return
-        send(ws, { type: 'fatal', message: '에이전트 감독 연결이 끊겼습니다' })
+        // 유휴 종료도 이 길을 탄다. 재접속할 일시 단절을 대화 오류로 남기지 않는다.
         ws.close()
       },
-    })
+    }, resumeSessionId)
   } catch (err) {
     send(ws, { type: 'fatal', message: describeError(err) })
     ws.close()
@@ -205,16 +208,26 @@ export function attachAgentWebSocket(
       socket.destroy()
       return
     }
-    // 프로젝트가 아니라 런타임+탭으로 붙는다 — 세션 스코프는 워크스페이스고, 대화를 나누는 축은 탭이다(ADR 0043)
+    // 런타임+탭+cwd로 붙는다. cwd는 워크스페이스 밖도 가능하지만 실제 폴더인지 먼저 검사한다(ADR 0077).
     const runtime = url.searchParams.get('runtime') || DEFAULT_RUNTIME
     const tab = url.searchParams.get('tab') || 'default'
-    if (!isRuntime(runtime) || !TAB_ID.test(tab)) {
+    const resumeSessionId = url.searchParams.get('resume')
+    let cwd: string
+    try {
+      cwd = resolveAgentCwd(url.searchParams.get('cwd') ?? '', WORKSPACE_ROOT)
+    } catch {
+      socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    if (!isRuntime(runtime) || !TAB_ID.test(tab)
+      || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))) {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      void handleConnection(ws, runtime, tab)
+      void handleConnection(ws, runtime, tab, cwd, resumeSessionId)
     })
   })
 }

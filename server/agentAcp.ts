@@ -78,6 +78,27 @@ const FULL_ACCESS_MODES = [
 /** 재접속(모바일 화면 꺼짐 등) 때 되돌려 줄 이벤트 개수 상한 */
 const MAX_BUFFERED_EVENTS = 500
 
+const PRIME_META_NAMESPACE = 'ai.primeintellect.prime-agent'
+
+/** Prime Agent exposes its model picker through namespaced ACP metadata. */
+function primeModels(value: unknown): SessionModelState | null {
+  if (!value || typeof value !== 'object') return null
+  const meta = (value as { _meta?: unknown })._meta
+  if (!meta || typeof meta !== 'object') return null
+  const prime = (meta as Record<string, unknown>)[PRIME_META_NAMESPACE]
+  if (!prime || typeof prime !== 'object') return null
+  const modelsJson = (prime as { modelsJson?: unknown }).modelsJson
+  if (typeof modelsJson !== 'string') return null
+  let state: Partial<SessionModelState>
+  try {
+    state = JSON.parse(modelsJson) as Partial<SessionModelState>
+  } catch {
+    return null
+  }
+  if (typeof state.currentModelId !== 'string' || !Array.isArray(state.availableModels)) return null
+  return state as SessionModelState
+}
+
 /** 작업이 끝났고 붙어 있는 창도 없는 채로 이만큼 지나면 에이전트를 죽인다 */
 export const AGENT_IDLE_MS = 30 * 60_000
 
@@ -299,6 +320,8 @@ export class AgentSession {
     // 터미널에서 띄우면 이 변수가 그대로 상속돼 에이전트 창이 통째로 죽는다 — 여기 세션은 중첩이 아니라
     // 별개 프로세스이므로 떼고 넘긴다.
     delete env.CLAUDECODE
+    // 탭 복원 포인터는 감독 프로세스만 쓴다. 아래 ACP/CLI의 환경변수로 넘기지 않는다.
+    delete env.MEW_AGENT_RESUME_SESSION
     // detached — 어댑터를 프로세스 그룹 리더로 띄운다. 어댑터는 세션마다 CLI를 하나씩 밑에 두는데,
     // 어댑터만 죽이면 그 손자들이 고아로 남는다(#killTree가 그룹째 보낼 수 있어야 한다).
     this.#child = spawn(spec.cmd, spec.args, {
@@ -363,6 +386,11 @@ export class AgentSession {
     return this.#disposed
   }
 
+  /** 감독이 새로 뜨었을 때 저장된 탭의 세션을 자동 resume할 수 있는지. */
+  get canLoadSession(): boolean {
+    return this.#caps.loadSession === true
+  }
+
   /** 감독 프로세스가 세션의 유휴 종료를 자기 수명 종료로 이어 붙이는 손잡이. */
   onDispose(listener: () => void): () => void {
     if (this.#disposed) {
@@ -400,7 +428,7 @@ export class AgentSession {
 
   async #createSession() {
     const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
-    this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null)
+    this.#adopt(created.sessionId, created.models ?? primeModels(created), created.modes ?? null)
     this.#authRequired = false
     this.#authenticating = false
     this.#authError = null
@@ -735,7 +763,8 @@ export class AgentSession {
     this.#adopt(sessionId, null, null)
     await this.#pushMeta() // 세션 전환을 즉시 클라이언트에 반영 — ACP 히스토리 재생 전
     const loaded = await this.#conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [] })
-    if (loaded.models) this.#useModels(loaded.models)
+    const models = loaded.models ?? primeModels(loaded)
+    if (models) this.#useModels(models)
     if (loaded.modes) {
       this.#modes = loaded.modes
       this.#emit({ type: 'modes', modes: loaded.modes })

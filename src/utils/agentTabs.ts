@@ -5,7 +5,45 @@
  * 사람이 두 번 눌러 직접 붙인 이름. 사람이 붙인 쪽이 이긴다 — 안 그러면 다음 턴에 도로 덮인다.
  */
 /** runtime 없음(undefined)=ADR 0062 이전 저장값, null=새 탭의 명시적 미선택 */
-export type AgentTab = { id: string; label: string; runtime?: string | null; renamed?: boolean }
+export type AgentTab = {
+  id: string
+  label: string
+  runtime?: string | null
+  cwd?: string | null
+  renamed?: boolean
+  /** 같은 탭이 런타임·cwd를 갈아타도 각 대화로 돌아가기 위한 ACP 세션 포인터 */
+  sessionIds?: Record<string, string>
+}
+
+function sessionSlot(runtime: string, cwd: string): string {
+  return JSON.stringify([runtime, cwd])
+}
+
+export function sessionIdOf(tab: AgentTab, runtime: string, cwd: string): string | null {
+  return tab.sessionIds?.[sessionSlot(runtime, cwd)] ?? null
+}
+
+/** 탭을 닫지 않은 채 감독이 유휴 종료된 뒤에도 같은 ACP 세션을 resume한다. */
+export function withSessionId(
+  tabs: AgentTab[],
+  id: string,
+  runtime: string,
+  cwd: string,
+  sessionId: string | null,
+): AgentTab[] {
+  const tab = tabs.find((item) => item.id === id)
+  if (!tab) return tabs
+  const slot = sessionSlot(runtime, cwd)
+  const current = tab.sessionIds?.[slot] ?? null
+  if (current === sessionId) return tabs
+  return tabs.map((item) => {
+    if (item.id !== id) return item
+    const sessionIds = { ...item.sessionIds }
+    if (sessionId) sessionIds[slot] = sessionId
+    else delete sessionIds[slot]
+    return { ...item, ...(Object.keys(sessionIds).length > 0 ? { sessionIds } : { sessionIds: undefined }) }
+  })
+}
 
 /** 대화에서 뽑은 이름을 얹는다 — 사람이 직접 붙인 탭은 그대로 둔다 */
 export function withAutoLabel(tabs: AgentTab[], id: string, label: string): AgentTab[] {

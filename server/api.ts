@@ -40,8 +40,10 @@ import { reloadSets } from './agentSetRunner.ts'
 import { isRuntime, runtimeList } from './agentAcp.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
 import { prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
+import { resolveWorkspaceLink } from './workspaceLinks.ts'
 import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRuntimeInstall.ts'
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
+import { AgentCwdError, resolveAgentCwd, suggestAgentCwds } from './agentCwd.ts'
 import {
   AgentSettingError,
   deleteAgentSetting,
@@ -295,6 +297,35 @@ export function createApiApp() {
       // 세션 만들기가 모듈 초기화 때 받은 cwd를 쓴다 — 라이브 바인딩이 닿지 않는 유일한 곳이라 여기서 고친다
       tmuxManager.cwd = info.path
       res.json(info)
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 에이전트 답변의 로컬 파일 링크 — 셸을 쓸 수 있는 역할만 서버 절대경로를 프로젝트 경로로 바꿀 수 있다.
+  app.get('/agent-file-link', requireRole('owner', 'manager'), (req, res) => {
+    const href = req.query.href
+    if (typeof href !== 'string') {
+      res.status(400).json({ error: '파일 링크가 없습니다' })
+      return
+    }
+    res.json({ target: resolveWorkspaceLink(href) })
+  })
+
+  // 주소창 입력을 세션을 끊기 전에 검증한다. 파일 접근 범위는 넓히지 않는다 — ACP/CLI 권한은 이미 OS 사용자 범위다.
+  app.get('/agent-cwd', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      const base = resolveAgentCwd(String(req.query.base ?? ''), WORKSPACE_ROOT)
+      res.json({ cwd: resolveAgentCwd(String(req.query.path ?? ''), WORKSPACE_ROOT, base) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.get('/agent-cwd/suggestions', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      const base = resolveAgentCwd(String(req.query.base ?? ''), WORKSPACE_ROOT)
+      res.json(suggestAgentCwds(String(req.query.input ?? ''), WORKSPACE_ROOT, base, req.query.entered === 'true'))
     } catch (err) {
       handleError(res, err)
     }
@@ -1297,11 +1328,12 @@ export function createApiApp() {
       const id = String(req.params.id)
       const methodId = String(req.params.method)
       const tab = typeof req.body?.tab === 'string' ? req.body.tab : ''
+      const cwd = resolveAgentCwd(req.body?.cwd ?? '', WORKSPACE_ROOT)
       if (!isRuntime(id) || !AGENT_TAB_ID.test(tab) || !methodId || methodId.length > 100) {
         res.status(400).json({ error: '로그인 요청이 올바르지 않습니다' })
         return
       }
-      const spec = await terminalAuthFromHost(id, tab, WORKSPACE_ROOT, methodId)
+      const spec = await terminalAuthFromHost(id, tab, cwd, methodId)
       const session = commandSessionName('agent-auth', `${id}:${tab}:${methodId}`)
       const running = (await tmuxManager.list()).some((item) => item.name === session)
       if (!running) {
@@ -1610,7 +1642,7 @@ function handleError(res: express.Response, err: unknown) {
     res.status(400).json({ error: err.message })
     return
   }
-  if (err instanceof ScheduleError || err instanceof AgentSetError || err instanceof RuntimeInstallError || err instanceof AgentDefaultError || err instanceof AgentSettingError) {
+  if (err instanceof ScheduleError || err instanceof AgentSetError || err instanceof RuntimeInstallError || err instanceof AgentDefaultError || err instanceof AgentSettingError || err instanceof AgentCwdError) {
     res.status(400).json({ error: err.message })
     return
   }

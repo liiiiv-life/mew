@@ -10,6 +10,7 @@ import { WebSocket } from 'ws'
 
 // paths.ts가 import 시점에 MEW_WORKSPACE를 읽으므로 먼저 심고 동적 import
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agentws-'))
+const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agentws-outside-'))
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agentws-data-'))
 process.env.MEW_WORKSPACE = workspace
 process.env.MEW_DATA_DIR = dataDir
@@ -59,19 +60,23 @@ test('에이전트가 뜨기 전에 보낸 질문도 잃지 않고, 목록은 �
 
   t.after(() => {
     shutdownAgentHostsForWorkspace(workspace)
+    shutdownAgentHostsForWorkspace(outside)
     server.close()
     fs.rmSync(workspace, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
     // 감독은 SIGTERM에서 자기 파일을 지운다. 테스트 임시 루트는 다음 프로세스와 공유하지 않는다.
     setTimeout(() => fs.rmSync(dataDir, { recursive: true, force: true }), 100)
     fs.rmSync(stubDir, { recursive: true, force: true })
   })
 
-  const ws = new WebSocket(`ws://127.0.0.1:${port}${AGENT_WS_PATH}?tab=slow-tab`)
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${AGENT_WS_PATH}?tab=slow-tab&cwd=${encodeURIComponent(outside)}`)
   const kinds: string[] = []
+  let readyCwd = ''
   const answered = new Promise<string>((resolve) => {
     ws.on('message', (raw) => {
-      const event = JSON.parse(raw.toString()) as { type: string; update?: { sessionUpdate: string; content?: { text?: string } } }
+      const event = JSON.parse(raw.toString()) as { type: string; cwd?: string; update?: { sessionUpdate: string; content?: { text?: string } } }
       kinds.push(event.type)
+      if (event.type === 'ready') readyCwd = event.cwd ?? ''
       if (event.type === 'update' && event.update?.sessionUpdate === 'agent_message_chunk')
         resolve(event.update.content?.text ?? '')
     })
@@ -84,6 +89,7 @@ test('에이전트가 뜨기 전에 보낸 질문도 잃지 않고, 목록은 �
 
   assert.equal(await answered, '받음:안녕', '뜨기 전에 보낸 질문이 뜬 뒤에 그대로 실행된다')
   assert.equal(kinds[0], 'ready', 'ready는 에이전트를 기다리지 않는다')
+  assert.equal(readyCwd, outside, '워크스페이스 밖에서 시작한 실제 cwd를 ready에 돌려준다')
   assert.ok(kinds.indexOf('sessions') < kinds.indexOf('meta'), '세션 목록은 디스크만 읽으므로 meta보다 먼저 온다')
   assert.equal(kinds.filter((k) => k === 'sessions').length, 1, '목록은 물어본 만큼만 간다(붙을 때 미리 보내지 않는다)')
   // 되감기는 붙을 때 한 프레임으로 딱 한 번 — 그 뒤 이벤트는 개별로 흐른다

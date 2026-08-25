@@ -9,8 +9,8 @@
  * - 여기 있는 값은 다크 테마(기본값). 라이트 테마 오버라이드는 아래 `:root:not(.dark)` 참고.
  */
 @theme {
-  --font-sans: 'Noto Serif KR', ui-serif, Georgia, serif;
-  --font-mono: 'IBM Plex Mono', 'IBM Plex Sans KR', ui-monospace, monospace;
+  --font-sans: var(--mew-font-ui, 'Noto Serif KR', ui-serif, Georgia, serif);
+  --font-mono: var(--mew-font-mono, 'IBM Plex Mono', 'IBM Plex Sans KR', ui-monospace, monospace);
 
   /* 배경 */
   --color-surface-deep: #0a0a0a; /* 에디터 본문·탭바·사이드바 */

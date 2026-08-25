@@ -56,6 +56,34 @@ export function fetchProjects(): Promise<ProjectInfo[]> {
   return fetch('/api/projects').then(json<ProjectInfo[]>)
 }
 
+export interface WorkspaceFileLink {
+  project: string
+  path: string
+  line: number | null
+}
+
+/** 에이전트 마크다운의 로컬 경로를 현재 워크스페이스 안의 파일로 검증·해석한다. */
+export function resolveAgentFileLink(href: string): Promise<{ target: WorkspaceFileLink | null }> {
+  return fetch(`/api/agent-file-link?href=${encodeURIComponent(href)}`).then(json<{ target: WorkspaceFileLink | null }>)
+}
+
+/** 에이전트 주소창 경로를 서버 파일시스템 기준 절대 디렉터리로 검증·정규화한다. */
+export function resolveAgentCwd(path: string, base = ''): Promise<{ cwd: string }> {
+  const query = new URLSearchParams({ path, base })
+  return fetch(`/api/agent-cwd?${query}`).then(json<{ cwd: string }>)
+}
+
+export interface AgentCwdSuggestions {
+  directory: string
+  prefix: string
+  dirs: { name: string; path: string }[]
+}
+
+export function fetchAgentCwdSuggestions(input: string, base: string, entered = false): Promise<AgentCwdSuggestions> {
+  const query = new URLSearchParams({ input, base, entered: String(entered) })
+  return fetch(`/api/agent-cwd/suggestions?${query}`).then(json<AgentCwdSuggestions>)
+}
+
 /** 응답의 icon은 서버가 실제로 저장한 값 — 직접 넣은 SVG는 정리를 거치므로 보낸 값과 다를 수 있다 */
 export function setProjectIcon(project: string, icon: string | null): Promise<{ ok: true; icon: string | null }> {
   return fetch('/api/project-icon', {
@@ -282,11 +310,11 @@ export interface AgentAuthTerminalStatus {
   exitCode: number | null
 }
 
-export function runAgentAuthTerminal(runtime: string, tab: string, methodId: string): Promise<AgentAuthTerminal> {
+export function runAgentAuthTerminal(runtime: string, tab: string, cwd: string, methodId: string): Promise<AgentAuthTerminal> {
   return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tab }),
+    body: JSON.stringify({ tab, cwd }),
   })
     .then(json<{ ok: true } & AgentAuthTerminal>)
     .then(({ session, label, running, state, exitCode }) => ({ session, label, running, state, exitCode }))

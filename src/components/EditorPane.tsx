@@ -48,7 +48,8 @@ export interface PaneHandle {
   /** 선택(없으면 커서) 시작·끝의 파일 줄 번호 — [경로:줄] 참조 삽입용. 텍스트 편집기가 아니면 null */
   getSelectedLineRange: () => { start: number; end: number } | null
   openSearch: (query?: string) => void
-  revealLine: (line: number) => void
+  /** 요청한 파일의 Plain 편집기가 준비됐을 때만 이동하고 true. 프로젝트·탭 전환 중 옛 손잡이면 false. */
+  revealLine: (path: string, line: number) => boolean
   /** 히스토리 되돌리기 — hotview(md)는 collab 문서가 진실 원천이라 에디터를 통해 갈아끼워야 한다 */
   setRawContent: (content: string) => void
   /** Alt+Shift+C — 현재 선택(없으면 커서) 자리에 댓글 작성 팝업을 연다. 텍스트 편집기가 아니면 무시 */
@@ -360,9 +361,13 @@ export function EditorPane({
         if (activeTabRef.current?.viewMode === 'plain') codePaneRef.current?.openSearch(query)
         else editorRef.current?.openSearch(query)
       },
-      revealLine: (line) => {
+      revealLine: (path, line) => {
+        const tab = activeTabRef.current
+        if (tab?.path !== path || tab.viewMode !== 'plain' || !codePaneRef.current) return false
+        const moved = codePaneRef.current.revealLine(line, tab.content)
+        if (!moved) return false
         disarmRestoreRef.current()
-        codePaneRef.current?.revealLine(line)
+        return true
       },
       setRawContent: (content) => editorRef.current?.setRawContent(content),
       startComment: () => startCommentRef.current(),

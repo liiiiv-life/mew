@@ -1,6 +1,7 @@
 /* tiptap 본문 스타일 — Tailwind로 처리되지 않는 ProseMirror 내부 DOM 대상이라 순수 CSS */
 .tiptap {
   outline: none;
+  font-family: var(--mew-font-markdown, 'Noto Serif KR', ui-serif, Georgia, serif);
   /* 좌우 여백은 표의 줄 번호가 거터 위치를 되짚는 데 쓴다(아래 .tableWrapper::before) */
   --mew-pad-x: 2rem;
   --mew-body-line-height: calc(15px * 1.7);

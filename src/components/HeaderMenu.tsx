@@ -3,6 +3,7 @@
 // 안에서는 아이콘과 이름을 같이 보여 무슨 기능인지 눌러 보지 않아도 알게 한다.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
+import { useI18n } from '../i18n'
 
 export type HeaderMenuItem = {
   id: string
@@ -17,6 +18,7 @@ export type HeaderMenuItem = {
 }
 
 export function HeaderMenu({ items }: { items: HeaderMenuItem[] }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(false), [])
@@ -40,8 +42,8 @@ export function HeaderMenu({ items }: { items: HeaderMenuItem[] }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={`rounded border border-edge-strong p-1.5 hover:bg-surface-raised ${open ? 'bg-surface-raised text-ink' : ''}`}
-        title="메뉴"
-        aria-label="메뉴"
+        title={t('common.menu')}
+        aria-label={t('common.menu')}
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -52,7 +54,7 @@ export function HeaderMenu({ items }: { items: HeaderMenuItem[] }) {
       {open && (
         <div
           role="menu"
-          aria-label="메뉴"
+          aria-label={t('common.menu')}
           className="absolute right-0 top-full z-40 mt-1 min-w-[12rem] whitespace-nowrap rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
         >
           {items.map((item) => (

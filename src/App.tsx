@@ -20,6 +20,7 @@ import { DocsTab } from './components/DocsTab'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { HomeTab } from './components/HomeTab'
 import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
+import { FabMenu } from './components/FabMenu'
 import { HomePanel } from './components/home/HomePanel'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { LoginPage } from './components/LoginPage'
@@ -54,6 +55,8 @@ import { outsideTerminal } from './utils/terminalFocus'
 import { pickRefTarget, type RefPanel } from './utils/refTarget'
 import { WORKSPACE_PROJECT } from './utils/active-project'
 import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
+import { useI18n } from './i18n'
+import { applyFontPreferences, loadFontPreferences, normalizeFontPreferences, saveFontPreferences } from './utils/fontPreferences'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
@@ -98,6 +101,7 @@ interface EditorAppProps {
 }
 
 function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
+  const { t } = useI18n()
   const { role, email: authEmail } = auth
   const isGuest = role === 'guest'
   const isOwner = role === 'owner'
@@ -142,12 +146,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 홈 화면(워크스페이스 전체 — 할 일·달력)이 편집 칸 자리를 차지하고 있는지. 게스트에게는 없다.
   // 홈 탭도 마지막으로 본 화면이면 `mew:project=.workspace`로 남기므로 새로 열 때 그대로 복원한다.
   const [homeOpen, setHomeOpen] = useState(() => !isGuest && getProject() === WORKSPACE_PROJECT)
-  // 채팅의 파일 멘션을 누른 것 — 할 일과 같은 이유로 프로젝트를 옮긴 다음 렌더에서 연다
-  const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string } | null>(null)
+  // 채팅 멘션·에이전트 답변의 파일 링크 — 다른 프로젝트면 옮긴 다음 렌더에서 파일과 줄을 연다
+  const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string; line: number | null } | null>(null)
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadTheme)
+  const [fontPreferences, setFontPreferences] = useState(loadFontPreferences)
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
   // 사이드바 뷰: 파일 탐색기 vs 프로젝트 전체 검색(Ctrl+Shift+F). projectSearchFocus는 검색창 포커스 신호
   const [sidebarView, setSidebarView] = useState<'files' | 'search'>('files')
@@ -168,7 +173,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 파일 검색어는 FileTree가 소유하지만, Esc로 사이드바를 닫을지는 App의 오버레이 스택이 결정한다.
   const sidebarSearchCancelRef = useRef<(() => boolean) | null>(null)
   // 프로젝트 검색 결과를 클릭해 파일을 연 뒤, 그 파일 내용이 로드되면 해당 위치로 점프시키기 위한 대기 정보
-  const pendingRevealRef = useRef<{ path: string; line: number; query: string } | null>(null)
+  const [pendingReveal, setPendingReveal] = useState<{ path: string; line: number; query?: string } | null>(null)
 
   // 흐름을 끊지 않는 짧은 안내 — 사이드바 작업 결과가 내 트리에 안 뜨거나, 파일을 못 열었을 때
   const { toast, showToast } = useToast()
@@ -395,11 +400,22 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // Ctrl+L 참조는 **마지막으로 연 보조창 하나**에만 간다(예전엔 열려 있는 창 전부가 받아 적었다).
   // 여는 순간을 기억해 두고, 그 창이 닫혀 있으면 지금 열려 있는 다른 창으로 흘려보낸다.
   const lastPanelRef = useRef<RefPanel | null>(null)
+  // 플로팅 핸들의 "현재 창 탭" 명령이 가리키는 마지막 탭형 창.
+  // 핸들을 누르면 DOM 포커스가 옮겨가므로 포커스 대신 포인터 사용 기록을 따로 둔다.
+  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'tmux'>('editor')
+  const [agentNextTabSignal, setAgentNextTabSignal] = useState(0)
+  const [tmuxNextTabSignal, setTmuxNextTabSignal] = useState(0)
   useEffect(() => {
-    if (agentOpen) lastPanelRef.current = 'agent'
+    if (agentOpen) {
+      lastPanelRef.current = 'agent'
+      activeTabbedSurfaceRef.current = 'agent'
+    }
   }, [agentOpen])
   useEffect(() => {
-    if (tmuxOpen) lastPanelRef.current = 'tmux'
+    if (tmuxOpen) {
+      lastPanelRef.current = 'tmux'
+      activeTabbedSurfaceRef.current = 'tmux'
+    }
   }, [tmuxOpen])
   useEffect(() => {
     if (chatOpen) lastPanelRef.current = 'chat'
@@ -411,6 +427,33 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     () => projects.filter((p) => p.name !== DEFAULT_PROJECT).sort(bySlot),
     [projects],
   )
+
+  const switchProjectRight = useCallback(() => {
+    const destinations = projectTabs.map((item) => item.name)
+    if (destinations.length === 0) return
+    const index = destinations.indexOf(project)
+    // 홈·docs는 프로젝트 탭이 아니므로 그 화면에서는 첫 프로젝트로 간다.
+    switchProject(destinations[index < 0 ? 0 : (index + 1) % destinations.length])
+  }, [project, projectTabs, switchProject])
+
+  const switchCurrentWindowTabRight = useCallback(() => {
+    let surface = activeTabbedSurfaceRef.current
+    if (surface === 'agent' && !agentOpen) surface = tmuxOpen ? 'tmux' : 'editor'
+    if (surface === 'tmux' && !tmuxOpen) surface = agentOpen ? 'agent' : 'editor'
+    activeTabbedSurfaceRef.current = surface
+    if (surface === 'agent') {
+      setAgentNextTabSignal((value) => value + 1)
+      return
+    }
+    if (surface === 'tmux') {
+      setTmuxNextTabSignal((value) => value + 1)
+      return
+    }
+    if (tabs.length < 2 || !activePath) return
+    const index = tabs.findIndex((tab) => tab.path === activePath)
+    if (index < 0) return
+    setActivePath(tabs[(index + 1) % tabs.length].path, focusedPaneId)
+  }, [activePath, agentOpen, focusedPaneId, setActivePath, tabs, tmuxOpen])
 
   // 탭을 끄는 동안엔 화면의 순서만 바꾸고(자리 번호는 팝업 격자와 공유하는 값이다), 손을 뗄 때
   // 한 번만 저장한다 — 탭 하나 지날 때마다 PUT을 날리면 요청들이 서로를 덮어쓴다.
@@ -484,6 +527,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     document.documentElement.classList.toggle('dark', theme === 'dark')
     localStorage.setItem(THEME_KEY, theme)
   }, [theme])
+
+  useEffect(() => {
+    applyFontPreferences(fontPreferences)
+    saveFontPreferences(fontPreferences)
+  }, [fontPreferences])
 
   useEffect(() => {
     localStorage.setItem(TOC_KEY, tocOpen ? '1' : '0')
@@ -693,14 +741,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다
   }, [saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath, canUseTerminal, focusedEditor, isGuest, project, agentOpen, tmuxOpen, chatOpen])
 
-  /**
-   * 채팅 메시지의 파일 멘션 클릭 — 새 창이 아니라 **같은 창의 에디터 탭**으로 연다.
-   * 다른 프로젝트일 수 있으므로 프로젝트를 옮긴 다음 렌더에서 연다.
-   */
+  /** 채팅 멘션·에이전트 로컬 링크 — 같은 mew의 알맞은 프로젝트와 문서 탭으로 연다. */
   const openMentionedFile = useCallback(
-    (target: string, path: string) => {
+    (target: string, path: string, line: number | null = null) => {
       setHomeOpen(false)
-      setPendingOpen({ project: target, path })
+      setPendingOpen({ project: target, path, line })
       if (target !== project) switchProject(target)
     },
     [project, switchProject],
@@ -708,14 +753,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   useEffect(() => {
     if (!pendingOpen || pendingOpen.project !== project) return
+    if (pendingOpen.line !== null) setPendingReveal({ path: pendingOpen.path, line: pendingOpen.line })
     openFile(pendingOpen.path, { preview: false })
+    // Hotview는 원본 줄과 렌더 블록 위치가 일대일이 아니다. 줄 링크는 Plain으로 열어 정확히 이동한다.
+    if (pendingOpen.line !== null && pendingOpen.path.endsWith('.md')) setTabViewMode(pendingOpen.path, 'plain')
     setPendingOpen(null)
-  }, [pendingOpen, project, openFile])
+  }, [pendingOpen, project, openFile, setTabViewMode])
 
   // 프로젝트 검색 결과 클릭 — 파일을 열고, 위치 점프 정보를 대기시킨다 (내용 로드 후 아래 effect가 처리)
   const openSearchResult = useCallback(
     (path: string, match: SearchMatch, query: string) => {
-      pendingRevealRef.current = { path, line: match.line, query }
+      setPendingReveal({ path, line: match.line, query })
       openFile(path, { preview: true })
       if (!isDesktop()) setSidebarOpen(false)
     },
@@ -725,21 +773,38 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 대기 중인 점프 실행 — 대상 파일이 활성화되고 내용이 로드되면: 코드/plain은 해당 줄로 스크롤,
   // md(hotview)는 줄번호가 렌더 결과와 어긋나므로 대신 찾기 바를 그 검색어로 열어 강조한다.
   useEffect(() => {
-    const pending = pendingRevealRef.current
+    const pending = pendingReveal
     if (!pending || !activeTab || activeTab.path !== pending.path) return
     if (mediaKind(activeTab.path)) {
-      pendingRevealRef.current = null
+      setPendingReveal(null)
       return
     }
     if (!activeTab.content) return // 아직 로드 전 — 다음 content 갱신 때 다시 시도
     const { line, query } = pending
-    pendingRevealRef.current = null
-    const timer = setTimeout(() => {
-      if (activeTab.viewMode === 'plain') focusedEditor()?.revealLine(line)
-      else focusedEditor()?.openSearch(query)
-    }, 90)
-    return () => clearTimeout(timer)
-  }, [activeTab, focusedEditor])
+    if (activeTab.viewMode !== 'plain') {
+      if (query) focusedEditor()?.openSearch(query)
+      setPendingReveal((current) => (current === pending ? null : current))
+      return
+    }
+
+    let raf = 0
+    let tries = 0
+    let consecutiveSuccesses = 0
+    const attempt = () => {
+      // 프로젝트 전환 중에는 같은 pane id의 옛 손잡이가 잠깐 남을 수 있다. 손잡이가 대상 파일을
+      // 실제로 들고 있을 때만 성공이며, 다음 프레임에도 한 번 더 이동해 늦은 스크롤 복원을 확실히 끊는다.
+      const moved = focusedEditor()?.revealLine(pending.path, line) === true
+      consecutiveSuccesses = moved ? consecutiveSuccesses + 1 : 0
+      tries += 1
+      if (consecutiveSuccesses >= 2 || tries >= 120) {
+        setPendingReveal((current) => (current === pending ? null : current))
+        return
+      }
+      raf = requestAnimationFrame(attempt)
+    }
+    raf = requestAnimationFrame(attempt)
+    return () => cancelAnimationFrame(raf)
+  }, [pendingReveal, activeTab, focusedEditor])
 
   const canEditActiveTab = !!activeTab?.editable && !isArchivedPath(activeTab.path)
 
@@ -769,7 +834,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           registerHandle={registerPaneHandle}
           registerElement={registerPaneElement}
           registerTabBar={registerPaneTabBar}
-          onFocus={() => focusPane(pane.id)}
+          onFocus={() => {
+            activeTabbedSurfaceRef.current = 'editor'
+            focusPane(pane.id)
+          }}
           onActivate={(path) => {
             setActivePath(path, pane.id)
             setRevealSignal((n) => n + 1)
@@ -838,7 +906,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       ? [
           {
             id: 'schedule',
-            label: '예약 작업',
+            label: t('header.scheduledTasks'),
             onSelect: () => setScheduleOpen(true),
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -849,7 +917,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           },
           {
             id: 'terminal',
-            label: '터미널',
+            label: t('header.terminal'),
             hint: 'Ctrl+`',
             onSelect: () => setTmuxOpen((v) => !v),
             active: tmuxOpen,
@@ -863,7 +931,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           },
           {
             id: 'sysstats',
-            label: '시스템 자원',
+            label: t('header.systemResources'),
             onSelect: () => setSysStatsOpen(true),
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -877,7 +945,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           },
           {
             id: 'agent',
-            label: '에이전트',
+            label: t('header.agent'),
             onSelect: () => setAgentOpen((open) => !open),
             active: agentOpen,
             // 말풍선 — 채팅 창이지 터미널이 아니다
@@ -889,7 +957,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           },
           {
             id: 'agent-sets',
-            label: '에이전트셋',
+            label: t('header.agentSets'),
             onSelect: () => setAgentSetOpen((open) => !open),
             active: agentSetOpen,
             // 칸 넷 — 여러 셋이 한 판에 놓인 그리드
@@ -904,7 +972,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           },
           {
             id: 'browser',
-            label: '브라우저',
+            label: t('header.browser'),
             hint: 'Alt+B',
             onSelect: () => setBrowserOpen((open) => !open),
             active: browserOpen,
@@ -939,7 +1007,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       : [
           {
             id: 'chat',
-            label: '채팅',
+            label: t('header.chat'),
             hint: 'Alt+C',
             onSelect: () => setChatOpen((open) => !open),
             active: chatOpen,
@@ -953,7 +1021,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           },
           {
             id: 'database',
-            label: '데이터베이스',
+            label: t('header.database'),
             onSelect: () => setDbListOpen(true),
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -968,7 +1036,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       ? [
           {
             id: 'admin',
-            label: '계정 관리',
+            label: t('header.accountManagement'),
             onSelect: () => setAdminOpen(true),
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -984,7 +1052,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     {
       id: 'settings',
       // 로그인해 있으면 이 항목이 곧 계정 자리다 — 누구 계정인지 이름을 붙여 준다
-      label: isGuest ? '설정' : (authEmail ?? '설정'),
+      label: isGuest ? t('settings.title') : (authEmail ?? t('settings.title')),
       onSelect: () => setSettingsOpen(true),
       icon: (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -997,7 +1065,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       ? [
           {
             id: 'login',
-            label: '로그인',
+            label: t('common.login'),
             onSelect: onRequestLogin,
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1203,6 +1271,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
         {agentOpen && canUseTerminal && (
           <div
+            onPointerDownCapture={() => { activeTabbedSurfaceRef.current = 'agent' }}
             className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
             style={{ width: isDesktop() ? agentWidth : undefined }}
           >
@@ -1212,7 +1281,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               aria-hidden="true"
             />
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <AgentPanel project={project} tree={tree} onClose={() => setAgentOpen(false)} />
+              <AgentPanel project={project} tree={tree} onOpenFile={openMentionedFile} onClose={() => setAgentOpen(false)} nextTabSignal={agentNextTabSignal} />
             </div>
           </div>
         )}
@@ -1221,7 +1290,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[30rem] md:shrink-0">
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <AgentSetPanel onClose={() => setAgentSetOpen(false)} />
+              <AgentSetPanel onOpenFile={openMentionedFile} onClose={() => setAgentSetOpen(false)} />
             </div>
           </div>
         )}
@@ -1229,6 +1298,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         {tmuxOpen && canUseTerminal && (
           <div
             {...tmuxSwipe}
+            onPointerDownCapture={() => { activeTabbedSurfaceRef.current = 'tmux' }}
             className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
             style={{ width: isDesktop() ? tmuxWidth : undefined }}
           >
@@ -1244,6 +1314,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                 activeFilePath={activeRelativePath}
                 getSelectedText={getSelectedText}
                 renderCommandButtons={renderTermButtons}
+                nextTabSignal={tmuxNextTabSignal}
               />
             </div>
           </div>
@@ -1282,7 +1353,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         )}
       </div>
 
-
+      <FabMenu
+        onFullscreen={toggleFullscreen}
+        onNextProject={switchProjectRight}
+        onNextWindowTab={switchCurrentWindowTabRight}
+      />
 
       {projectPickerOpen && (
         <ProjectPicker
@@ -1306,8 +1381,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           email={authEmail}
           canEditIgnore={canUseTerminal}
           theme={theme}
+          fontPreferences={fontPreferences}
           onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-          onClose={() => setSettingsOpen(false)}
+          onFontPreferencesChange={setFontPreferences}
+          onClose={() => {
+            setFontPreferences((fonts) => normalizeFontPreferences(fonts))
+            setSettingsOpen(false)
+          }}
           onLoggedOut={onLoggedOut}
         />
       )}

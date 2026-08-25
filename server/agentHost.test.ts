@@ -23,8 +23,17 @@ import { Readable, Writable } from 'node:stream'
 
 class SlowAgent {
   constructor(conn) { this.conn = conn }
-  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} } }
+  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: { loadSession: true } } }
   async newSession() { return { sessionId: 'host-session' } }
+  async loadSession({ sessionId }) {
+    await this.conn.sessionUpdate({ sessionId, update: {
+      sessionUpdate: 'user_message_chunk', content: { type: 'text', text: '이전 질문' },
+    } })
+    await this.conn.sessionUpdate({ sessionId, update: {
+      sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '이전 답변 복원' },
+    } })
+    return {}
+  }
   async authenticate() { return {} }
   async cancel() {}
   async prompt({ sessionId }) {
@@ -110,6 +119,30 @@ test('mew 연결이 사라져도 독립 감독이 작업을 끝내고 재접속�
   await replayReady
   assert.ok(replayed.some((event) => event.type === 'turn_end'), '완료 이벤트까지 감독 메모리에서 복원된다')
   assert.match(JSON.stringify(replayed), /독립 완료/)
+
+  let restoredEvents: AgentEvent[] = []
+  let restoredReplay = false
+  let restoredMeta = ''
+  let restoreResolve!: () => void
+  const restoreReady = new Promise<void>((resolve) => { restoreResolve = resolve })
+  const restored = await connectAgentHost('claude', 'restore-tab', workspace, {
+    onReplay: (events, restored) => {
+      restoredEvents = events
+      restoredReplay = restored
+    },
+    onEvent: (event) => {
+      if (event.type !== 'meta') return
+      restoredMeta = event.meta.sessionId
+      restoreResolve()
+    },
+  }, 'saved-session')
+  t.after(() => restored.close())
+  await restoreReady
+  assert.equal(restoredMeta, 'saved-session', '새 감독은 탭이 기억한 ACP 세션을 자동 resume한다')
+  assert.equal(restoredReplay, true, '브라우저가 캐시와 중복 병합하지 않도록 복원 replay를 표식한다')
+  assert.match(JSON.stringify(restoredEvents), /이전 답변 복원/, '복원된 세션의 전사가 replay된다')
+  restored.send({ type: 'close_session' })
+  restored.close()
 
   second.send({ type: 'close_session' })
   second.close()

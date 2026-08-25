@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import { changePassword, fetchIgnoreList, logout, saveIgnoreList } from '../api/client'
 import { DEFAULT_SHORTCUTS, formatKeyCombo, resetAllBindings, resetBinding, setBinding, useShortcutBindings } from '@mew/shortcuts'
+import { LOCALES, LOCALE_NAMES, localizeShortcut, useI18n, type Locale, type TranslationKey } from '../i18n'
+import { DEFAULT_FONT_PREFERENCES, type FontPreferences } from '../utils/fontPreferences'
 
 const PASSWORD_MIN_LENGTH = 10
 
@@ -14,21 +16,24 @@ interface SettingsModalProps {
   /** owner·manager만 숨김 목록 탭을 본다 — 모두의 트리를 바꾸는 전역 설정이라 */
   canEditIgnore: boolean
   theme: Theme
+  fontPreferences: FontPreferences
   onToggleTheme: () => void
+  onFontPreferencesChange: (fonts: FontPreferences) => void
   onClose: () => void
   onLoggedOut: () => void
 }
 
-const SECTION_LABEL: Record<Section, string> = {
-  account: '계정',
-  appearance: '화면',
-  shortcuts: '단축키',
-  ignore: '숨김 목록',
+const SECTION_LABEL: Record<Section, TranslationKey> = {
+  account: 'settings.account',
+  appearance: 'settings.appearance',
+  shortcuts: 'settings.shortcuts',
+  ignore: 'settings.ignoreList',
 }
 
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
-export function SettingsModal({ email, canEditIgnore, theme, onToggleTheme, onClose, onLoggedOut }: SettingsModalProps) {
+export function SettingsModal({ email, canEditIgnore, theme, fontPreferences, onToggleTheme, onFontPreferencesChange, onClose, onLoggedOut }: SettingsModalProps) {
   const [section, setSection] = useState<Section>(email ? 'account' : 'appearance')
+  const { t } = useI18n()
 
   // Esc·모바일 뒤로가기로 이 창만 닫는다 (뒤의 사이드바·터미널은 그대로)
   useOverlayDismiss(onClose)
@@ -47,7 +52,7 @@ export function SettingsModal({ email, canEditIgnore, theme, onToggleTheme, onCl
         onClick={(e) => e.stopPropagation()}
       >
         <nav className="flex w-28 shrink-0 flex-col gap-1 border-r border-edge p-3 sm:w-40">
-          <div className="mb-2 px-2 text-sm font-semibold text-ink-bright">설정</div>
+          <div className="mb-2 px-2 text-sm font-semibold text-ink-bright">{t('settings.title')}</div>
           {sections.map((id) => (
             <button
               key={id}
@@ -57,26 +62,33 @@ export function SettingsModal({ email, canEditIgnore, theme, onToggleTheme, onCl
                 section === id ? 'bg-surface-raised font-medium text-ink' : 'text-ink-secondary hover:bg-surface-raised hover:text-ink'
               }`}
             >
-              {SECTION_LABEL[id]}
+              {t(SECTION_LABEL[id])}
             </button>
           ))}
         </nav>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex items-center justify-between gap-2 border-b border-edge px-4 py-3">
-            <div className="text-sm font-semibold text-ink-bright">{SECTION_LABEL[section]}</div>
+            <div className="text-sm font-semibold text-ink-bright">{t(SECTION_LABEL[section])}</div>
             <button
               type="button"
               onClick={onClose}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-              aria-label="닫기"
+              aria-label={t('settings.close')}
             >
               ×
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {section === 'account' && email && <AccountPanel email={email} onLoggedOut={onLoggedOut} />}
-            {section === 'appearance' && <AppearancePanel theme={theme} onToggleTheme={onToggleTheme} />}
+            {section === 'appearance' && (
+              <AppearancePanel
+                theme={theme}
+                fonts={fontPreferences}
+                onToggleTheme={onToggleTheme}
+                onFontsChange={onFontPreferencesChange}
+              />
+            )}
             {section === 'shortcuts' && <ShortcutsPanel />}
             {section === 'ignore' && <IgnorePanel />}
           </div>
@@ -88,6 +100,7 @@ export function SettingsModal({ email, canEditIgnore, theme, onToggleTheme, onCl
 
 // ── 계정: 비밀번호 변경 + 로그아웃 ───────────────────────────────────────────
 function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () => void }) {
+  const { t } = useI18n()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -136,17 +149,17 @@ function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () =
   return (
     <div>
       <div className="mb-4">
-        <div className="text-sm font-semibold text-ink-bright">내 계정</div>
+        <div className="text-sm font-semibold text-ink-bright">{t('settings.myAccount')}</div>
         <div className="text-sm text-ink-secondary">{email}</div>
       </div>
 
       <form onSubmit={handleChangePassword} className="flex flex-col gap-3 border-t border-edge pt-4">
-        <div className="text-sm font-medium">비밀번호 변경</div>
+        <div className="text-sm font-medium">{t('settings.changePassword')}</div>
         <input
           type="password"
           value={currentPassword}
           onChange={(e) => setCurrentPassword(e.target.value)}
-          placeholder="현재 비밀번호"
+          placeholder={t('settings.currentPassword')}
           autoComplete="current-password"
           required
           className={inputClass}
@@ -155,7 +168,7 @@ function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () =
           type="password"
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
-          placeholder={`새 비밀번호 (${PASSWORD_MIN_LENGTH}자 이상)`}
+          placeholder={`${t('settings.newPassword')} (${PASSWORD_MIN_LENGTH}+)`}
           autoComplete="new-password"
           required
           className={inputClass}
@@ -164,7 +177,7 @@ function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () =
           type="password"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
-          placeholder="새 비밀번호 확인"
+          placeholder={t('settings.confirmPassword')}
           autoComplete="new-password"
           required
           className={inputClass}
@@ -178,7 +191,7 @@ function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () =
           disabled={busy || !currentPassword || !newPassword || !confirmPassword}
           className="rounded bg-accent py-2 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
         >
-          {busy ? '변경 중…' : '변경'}
+          {busy ? t('settings.changing') : t('settings.change')}
         </button>
       </form>
 
@@ -188,15 +201,28 @@ function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () =
           onClick={handleLogout}
           className="w-full rounded border border-edge-strong py-2 text-sm text-danger hover:bg-surface-raised"
         >
-          로그아웃
+          {t('settings.logout')}
         </button>
       </div>
     </div>
   )
 }
 
-// ── 화면: 다크/라이트 테마 ───────────────────────────────────────────────────
-function AppearancePanel({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
+const FONT_SUGGESTIONS = ['Noto Serif KR', 'IBM Plex Sans KR', 'IBM Plex Mono', 'Pretendard', 'Arial', 'Georgia', 'Menlo', 'Consolas']
+
+// ── 화면: 테마·언어·글꼴 ─────────────────────────────────────────────────────
+function AppearancePanel({
+  theme,
+  fonts,
+  onToggleTheme,
+  onFontsChange,
+}: {
+  theme: Theme
+  fonts: FontPreferences
+  onToggleTheme: () => void
+  onFontsChange: (fonts: FontPreferences) => void
+}) {
+  const { locale, setLocale, t } = useI18n()
   function select(next: Theme) {
     if (theme !== next) onToggleTheme()
   }
@@ -205,23 +231,73 @@ function AppearancePanel({ theme, onToggleTheme }: { theme: Theme; onToggleTheme
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-sm font-medium">테마</div>
+      <div className="text-sm font-medium">{t('settings.theme')}</div>
       <div className="flex w-max overflow-hidden rounded border border-edge-strong text-sm">
         <button type="button" onClick={() => select('light')} className={optionClass(theme === 'light')}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="4" />
             <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
           </svg>
-          라이트
+          {t('settings.light')}
         </button>
         <button type="button" onClick={() => select('dark')} className={optionClass(theme === 'dark')}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
-          다크
+          {t('settings.dark')}
         </button>
       </div>
-      <div className="text-xs text-ink-muted">밝은 화면과 어두운 화면 중에서 고르세요.</div>
+      <div className="text-xs text-ink-muted">{t('settings.themeDescription')}</div>
+      <div className="mt-2 border-t border-edge pt-3">
+        <label htmlFor="mew-language" className="text-sm font-medium">
+          {t('settings.language')}
+        </label>
+        <select
+          id="mew-language"
+          value={locale}
+          onChange={(event) => setLocale(event.target.value as Locale)}
+          className="mt-2 block rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-edge-bright"
+        >
+          {LOCALES.map((value) => (
+            <option key={value} value={value}>
+              {LOCALE_NAMES[value]}
+            </option>
+          ))}
+        </select>
+        <div className="mt-1.5 text-xs text-ink-muted">{t('settings.languageDescription')}</div>
+      </div>
+      <div className="mt-2 border-t border-edge pt-3">
+        <div className="text-sm font-medium">{t('settings.fonts')}</div>
+        <div className="mt-1 text-xs text-ink-muted">{t('settings.fontsDescription')}</div>
+        <datalist id="mew-font-suggestions">
+          {FONT_SUGGESTIONS.map((font) => <option key={font} value={font} />)}
+        </datalist>
+        <div className="mt-3 flex flex-col gap-3">
+          {(['ui', 'markdown', 'mono'] as const).map((kind) => (
+            <label key={kind} className="block">
+              <span className="text-xs font-medium text-ink-secondary">{t(`settings.font.${kind}`)}</span>
+              <div className="mt-1 flex gap-2">
+                <input
+                  value={fonts[kind]}
+                  onChange={(event) => onFontsChange({ ...fonts, [kind]: event.target.value })}
+                  list="mew-font-suggestions"
+                  spellCheck={false}
+                  className="min-w-0 flex-1 rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-edge-bright"
+                  style={{ fontFamily: kind === 'mono' ? 'var(--font-mono)' : kind === 'markdown' ? 'var(--mew-font-markdown)' : 'var(--font-sans)' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => onFontsChange({ ...fonts, [kind]: DEFAULT_FONT_PREFERENCES[kind] })}
+                  disabled={fonts[kind] === DEFAULT_FONT_PREFERENCES[kind]}
+                  className="shrink-0 rounded border border-edge-strong px-2 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-40"
+                >
+                  {t('common.reset')}
+                </button>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
@@ -287,11 +363,6 @@ function IgnorePanel() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-xs text-ink-muted">
-        여기 적힌 <strong className="font-medium text-ink-secondary">이름</strong>은 경로가 아니라 이름이라, 어느 폴더 안에 있든
-        파일 목록·검색에서 보이지 않습니다. 모든 프로젝트에 함께 적용되고, 저장하면 열려 있는 모든 화면의 트리가 바로 다시 그려집니다.
-      </div>
-
       <ul className="flex flex-col gap-1">
         {names.map((name) => (
           <li key={name} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-surface-raised">
@@ -352,6 +423,7 @@ function IgnorePanel() {
 
 // ── 단축키: 전체 목록 + 키 재지정 ───────────────────────────────────────────
 function ShortcutsPanel() {
+  const { locale, t } = useI18n()
   const bindings = useShortcutBindings()
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -386,11 +458,11 @@ function ShortcutsPanel() {
       {error && <div className="mb-3 text-sm text-danger">{error}</div>}
       {categories.map((category) => (
         <div key={category} className="mb-4 last:mb-0">
-          <div className="mb-1.5 text-xs font-semibold text-ink-muted">{category}</div>
+          <div className="mb-1.5 text-xs font-semibold text-ink-muted">{localizeShortcut(locale, category, category)}</div>
           <ul className="flex flex-col gap-1">
             {DEFAULT_SHORTCUTS.filter((s) => s.category === category).map((s) => (
               <li key={s.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-surface-raised">
-                <span className="text-sm text-ink">{s.label}</span>
+                <span className="text-sm text-ink">{localizeShortcut(locale, s.id, s.label)}</span>
                 <div className="flex items-center gap-1.5">
                   {recordingId === s.id ? (
                     <div
@@ -400,7 +472,7 @@ function ShortcutsPanel() {
                       onBlur={() => setRecordingId(null)}
                       className="rounded border border-accent px-2 py-0.5 font-mono text-xs text-accent outline-none"
                     >
-                      키를 누르세요…
+                      {t('settings.pressKey')}
                     </div>
                   ) : (
                     <kbd className="rounded border border-edge-strong bg-surface px-1.5 py-0.5 font-mono text-xs text-ink-secondary">
@@ -413,7 +485,7 @@ function ShortcutsPanel() {
                       onClick={() => startRecording(s.id)}
                       className="rounded px-1.5 py-0.5 text-xs text-ink-muted hover:bg-surface-hover hover:text-ink"
                     >
-                      재지정
+                      {t('settings.reassign')}
                     </button>
                   )}
                   {s.editable && bindings[s.id] !== s.keys && recordingId !== s.id && (
@@ -423,7 +495,7 @@ function ShortcutsPanel() {
                       className="rounded px-1.5 py-0.5 text-xs text-ink-muted hover:bg-surface-hover hover:text-ink"
                       title="기본값으로 되돌리기"
                     >
-                      초기화
+                      {t('common.reset')}
                     </button>
                   )}
                 </div>
@@ -439,7 +511,7 @@ function ShortcutsPanel() {
           onClick={resetAllBindings}
           className="rounded border border-edge-strong px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-hover"
         >
-          전체 초기화
+          {t('settings.resetAll')}
         </button>
       </div>
     </div>

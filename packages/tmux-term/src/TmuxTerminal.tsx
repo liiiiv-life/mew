@@ -67,6 +67,11 @@ function nativeSelectionWithin(el: HTMLElement): string {
 // 간격이면 자식 프로세스가 텍스트와 Enter를 별개 입력으로 받는다.
 const SUBMIT_ENTER_DELAY_MS = 80
 
+function configuredMonoFont(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--mew-font-mono').trim()
+    || 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+}
+
 /** SGR(1006) 마우스 휠 한 칸 — 64=위, 65=아래. tmux·앱이 이 형식으로 휠을 받는다 */
 function sgrWheel(direction: 'up' | 'down', col: number, row: number): string {
   return `\x1b[<${direction === 'up' ? 64 : 65};${col};${row}M`
@@ -335,7 +340,7 @@ export function TmuxTerminal({
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+      fontFamily: configuredMonoFont(),
       theme: {
         background: '#0a0a0a',
         foreground: '#e5e5e5',
@@ -347,6 +352,12 @@ export function TmuxTerminal({
     term.open(container)
     fitAddon.fit()
     termRef.current = term
+
+    const onFontsChanged = () => {
+      term.options.fontFamily = configuredMonoFont()
+      fitAddon.fit()
+    }
+    window.addEventListener('mew:fonts-changed', onFontsChanged)
 
     const onFocus = () => setFocused(true)
     const onBlur = () => setFocused(false)
@@ -538,6 +549,7 @@ export function TmuxTerminal({
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('online', reconnectNow)
       window.removeEventListener('mew:insert-ref', onInsertRef)
+      window.removeEventListener('mew:fonts-changed', onFontsChanged)
       container.removeEventListener('touchstart', onTouchStart)
       container.removeEventListener('touchmove', onTouchMove)
       container.removeEventListener('touchend', onTouchEnd)
@@ -603,7 +615,7 @@ export function TmuxTerminal({
             style={{
               background: '#0a0a0a',
               color: '#e5e5e5',
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+              fontFamily: 'var(--mew-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)',
               fontSize: 13,
               lineHeight: 1.2,
             }}

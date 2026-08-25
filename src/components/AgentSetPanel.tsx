@@ -9,10 +9,17 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import { copyText, useOverlayDismiss } from '@mew/ui'
 import { MentionTextarea, type MentionOption } from './MentionTextarea'
 import { RUNTIMES, runtimeOf } from './agentRuntimes'
-import { copyTextFromAgentMarkdownClick, markAgentMarkdownCopied, renderMarkdown } from '../utils/agentMarkdown'
+import {
+  agentMarkdownHrefFromClick,
+  copyTextFromAgentMarkdownClick,
+  isAgentWorkspaceHref,
+  markAgentMarkdownCopied,
+  renderMarkdown,
+} from '../utils/agentMarkdown'
 import { foldEvents, type AgentEvent } from '../utils/agentFold'
 import { parseAssignment } from '../utils/agentSetMention'
 import { useGridDrag } from '../hooks/useGridDrag'
+import { resolveAgentFileLink } from '../api/client'
 
 export interface AgentSetDef {
   id: string
@@ -35,14 +42,28 @@ interface TaskSummary {
   error: string | null
 }
 
-function copyFromMarkdownButton(e: MouseEvent<HTMLElement>) {
+type OpenWorkspaceFile = (project: string, path: string, line: number | null) => void
+
+function handleMarkdownClick(e: MouseEvent<HTMLElement>, onOpenFile: OpenWorkspaceFile) {
   const text = copyTextFromAgentMarkdownClick(e.target)
-  if (text === null) return
+  if (text !== null) {
+    e.preventDefault()
+    e.stopPropagation()
+    void copyText(text).then((ok) => {
+      if (ok) markAgentMarkdownCopied(e.target)
+    })
+    return
+  }
+
+  const href = agentMarkdownHrefFromClick(e.target)
+  if (!href || !isAgentWorkspaceHref(href)) return
   e.preventDefault()
   e.stopPropagation()
-  void copyText(text).then((ok) => {
-    if (ok) markAgentMarkdownCopied(e.target)
-  })
+  void resolveAgentFileLink(href)
+    .then(({ target }) => {
+      if (target) onOpenFile(target.project, target.path, target.line)
+    })
+    .catch(console.error)
 }
 
 interface SetView extends AgentSetDef {
@@ -82,7 +103,7 @@ interface ModelInfo {
   name: string
 }
 
-export function AgentSetPanel({ onClose }: { onClose: () => void }) {
+export function AgentSetPanel({ onOpenFile, onClose }: { onOpenFile: OpenWorkspaceFile; onClose: () => void }) {
   const [sets, setSets] = useState<SetView[]>([])
   /** 런타임별로 서버가 본 적 있는 모델 — 편집 창의 모델 검색 후보다(비어 있으면 자유 입력) */
   const [models, setModels] = useState<Record<string, ModelInfo[]>>({})
@@ -264,6 +285,7 @@ export function AgentSetPanel({ onClose }: { onClose: () => void }) {
             setOpenTask(null)
           }}
           send={send}
+          onOpenFile={onOpenFile}
         />
       )}
 
@@ -337,12 +359,14 @@ function SetTasksPopup({
   onOpenTask,
   onClose,
   send,
+  onOpenFile,
 }: {
   set: SetView
   openTask: { task: TaskSummary; events: AgentEvent[] } | null
   onOpenTask: (task: TaskSummary | null) => void
   onClose: () => void
   send: (payload: Record<string, unknown>) => void
+  onOpenFile: OpenWorkspaceFile
 }) {
   const [draft, setDraft] = useState('')
   useOverlayDismiss(openTask ? () => onOpenTask(null) : onClose)
@@ -451,7 +475,11 @@ function SetTasksPopup({
               {items.length === 0 && detail?.status === 'queued' && (
                 <div className="text-xs text-ink-muted">앞 작업이 끝나면 시작합니다</div>
               )}
-              <TaskEvents items={items} onPermission={(id, optionId) => send({ type: 'permission', setId: set.id, id, optionId })} />
+              <TaskEvents
+                items={items}
+                onPermission={(id, optionId) => send({ type: 'permission', setId: set.id, id, optionId })}
+                onOpenFile={onOpenFile}
+              />
             </div>
           )}
         </div>
@@ -554,9 +582,11 @@ function SetTasksPopup({
 function TaskEvents({
   items,
   onPermission,
+  onOpenFile,
 }: {
   items: ReturnType<typeof foldEvents>
   onPermission: (id: string, optionId: string | null) => void
+  onOpenFile: OpenWorkspaceFile
 }) {
   return (
     <div className="space-y-2">
@@ -576,7 +606,7 @@ function TaskEvents({
                   <div
                     key={child.key}
                     className="mew-agent-markdown prose prose-sm max-w-none rounded-lg bg-surface px-3 py-2 text-ink dark:prose-invert prose-pre:overflow-x-auto prose-pre:bg-surface-deep"
-                    onClick={copyFromMarkdownButton}
+                    onClick={(event) => handleMarkdownClick(event, onOpenFile)}
                     dangerouslySetInnerHTML={{ __html: renderMarkdown(child.text) }}
                   />
                 )

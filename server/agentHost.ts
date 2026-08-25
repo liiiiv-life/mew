@@ -22,6 +22,7 @@ import { RUNTIME_LOGIN_METHOD_ID, runtimeLoginSpec } from './agentRuntimes.ts'
 import { DATA_DIR } from './dataDir.ts'
 
 const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 const HOST_DIR = path.join(DATA_DIR, 'agent')
 const HOST_FILE = fileURLToPath(import.meta.url)
 const CONNECT_TIMEOUT_MS = 5_000
@@ -53,7 +54,7 @@ type HostInbound =
 
 type HostOutbound =
   | { type: 'hello'; runtime: string; tab: string; cwd: string }
-  | { type: 'replay'; events: AgentEvent[] }
+  | { type: 'replay'; events: AgentEvent[]; restored?: boolean }
   | { type: 'event'; event: AgentEvent }
   | { type: 'response'; id: string; ok: true; value: unknown }
   | { type: 'response'; id: string; ok: false; error: string }
@@ -155,8 +156,9 @@ async function listenOnSocket(server: net.Server, socketPath: string): Promise<v
   fs.chmodSync(socketPath, 0o600)
 }
 
-async function runHost(runtime: string, tab: string, cwd: string) {
-  if (!isRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)) {
+async function runHost(runtime: string, tab: string, cwd: string, resumeSessionId: string | null = null) {
+  if (!isRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)
+    || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))) {
     throw new Error('올바르지 않은 에이전트 감독 인자입니다')
   }
   const files = pathsFor(runtime, tab, cwd)
@@ -168,6 +170,8 @@ async function runHost(runtime: string, tab: string, cwd: string) {
   let startupIdleTimer: NodeJS.Timeout | null = null
   let stopping = false
   let ownsFiles = false
+  // 유휴 종료 후 새 감독이 뜨는 첫 한 번만 탭의 마지막 ACP 세션을 이어받는다.
+  let initialResumeSessionId = resumeSessionId
 
   const fallbackTerminalSpec = (): TerminalAuthSpec => {
     const { cmd, args, env, label } = runtimeLoginSpec(runtime)
@@ -301,7 +305,21 @@ async function runHost(runtime: string, tab: string, cwd: string) {
     clearStartupIdle()
     if (recovering) broadcastEvent(runtimeLoginAuthEvent(runtime, null, true))
     try {
-      const started = await AgentSession.start(runtime, undefined, cwd)
+      let started = await AgentSession.start(runtime, undefined, cwd)
+      const wantedSessionId = initialResumeSessionId
+      initialResumeSessionId = null
+      let restored = false
+      if (wantedSessionId && started.canLoadSession) {
+        try {
+          await started.loadSession(wantedSessionId)
+          restored = true
+        } catch (err) {
+          // 삭제·손상된 백엔드 기록 하나가 탭 전체를 못 열게 하지 않는다.
+          console.error(`[mew:agent-host:${runtime}] 세션 ${wantedSessionId} 자동 복원 실패:`, err)
+          started.dispose()
+          started = await AgentSession.start(runtime, undefined, cwd)
+        }
+      }
       if (stopping) {
         started.dispose()
         return
@@ -314,7 +332,9 @@ async function runHost(runtime: string, tab: string, cwd: string) {
       if (recovering) broadcastEvent({ type: 'auth_complete' })
       for (const peer of peers) {
         if (peer.socket.destroyed) continue
-        sendLine(peer.socket, { type: 'replay', events: started.snapshot() })
+        // ACP session/load 전사는 살아 있던 감독의 이벤트 replay와 형식이 다르다.
+        // 첫 접속이 브라우저 캐시와 합치지 않고 교체하도록 복원 표식을 내려보낸다.
+        sendLine(peer.socket, { type: 'replay', events: started.snapshot(), ...(restored ? { restored: true } : {}) })
         peer.detach = started.attach((event) => sendLine(peer.socket, { type: 'event', event }))
       }
       for (const item of early.splice(0)) void handleHostMessage(started, item.peer, item.message, stop)
@@ -406,7 +426,7 @@ async function handleHostMessage(
 }
 
 export type AgentHostCallbacks = {
-  onReplay?: (events: AgentEvent[]) => void
+  onReplay?: (events: AgentEvent[], restored: boolean) => void
   onEvent?: (event: AgentEvent) => void
   onFatal?: (message: string) => void
   onClose?: () => void
@@ -445,7 +465,7 @@ export class AgentHostClient {
   receive(raw: unknown) {
     if (!raw || typeof raw !== 'object') return
     const message = raw as HostOutbound
-    if (message.type === 'replay') this.#callbacks.onReplay?.(message.events)
+    if (message.type === 'replay') this.#callbacks.onReplay?.(message.events, message.restored === true)
     else if (message.type === 'event') this.#callbacks.onEvent?.(message.event)
     else if (message.type === 'fatal') this.#callbacks.onFatal?.(message.message)
     else if (message.type === 'response') {
@@ -545,7 +565,13 @@ function openSocket(
 
 const spawning = new Map<string, Promise<void>>()
 
-function spawnHost(runtime: string, tab: string, cwd: string, files: ReturnType<typeof pathsFor>): Promise<void> {
+function spawnHost(
+  runtime: string,
+  tab: string,
+  cwd: string,
+  files: ReturnType<typeof pathsFor>,
+  resumeSessionId: string | null,
+): Promise<void> {
   const existing = spawning.get(files.socket)
   if (existing) return existing
   const started = new Promise<void>((resolve, reject) => {
@@ -553,11 +579,14 @@ function spawnHost(runtime: string, tab: string, cwd: string, files: ReturnType<
     fs.chmodSync(HOST_DIR, 0o700)
     const logFd = fs.openSync(files.log, 'a', 0o600)
     try {
+      const env: NodeJS.ProcessEnv = { ...process.env, MEW_WORKSPACE: cwd }
+      if (resumeSessionId) env.MEW_AGENT_RESUME_SESSION = resumeSessionId
+      else delete env.MEW_AGENT_RESUME_SESSION
       const child = spawn(process.execPath, [HOST_FILE, '--host', runtime, tab, cwd], {
         cwd,
         detached: true,
         stdio: ['ignore', logFd, logFd],
-        env: { ...process.env, MEW_WORKSPACE: cwd },
+        env,
       })
       child.once('spawn', resolve)
       child.once('error', reject)
@@ -576,8 +605,12 @@ export async function connectAgentHost(
   tab: string,
   cwd: string,
   callbacks: AgentHostCallbacks = {},
+  resumeSessionId: string | null = null,
 ): Promise<AgentHostClient> {
-  if (!isRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)) throw new Error('올바르지 않은 에이전트 탭입니다')
+  if (!isRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)
+    || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))) {
+    throw new Error('올바르지 않은 에이전트 탭입니다')
+  }
   const files = pathsFor(runtime, tab, cwd)
   try {
     return await openSocket(files.socket, runtime, tab, cwd, callbacks)
@@ -586,7 +619,7 @@ export async function connectAgentHost(
     if (code !== 'ENOENT' && code !== 'ECONNREFUSED') throw err
   }
 
-  await spawnHost(runtime, tab, cwd, files)
+  await spawnHost(runtime, tab, cwd, files, resumeSessionId)
   const deadline = Date.now() + CONNECT_TIMEOUT_MS
   let lastError: unknown = new Error('에이전트 감독이 시작되지 않았습니다')
   while (Date.now() < deadline) {
@@ -640,7 +673,8 @@ export function shutdownAgentHostsForWorkspace(cwd: string) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === HOST_FILE && process.argv[2] === '--host') {
   const [, , , runtime = '', tab = '', cwd = ''] = process.argv
-  void runHost(runtime, tab, cwd).catch((err) => {
+  const resumeSessionId = process.env.MEW_AGENT_RESUME_SESSION || null
+  void runHost(runtime, tab, cwd, resumeSessionId).catch((err) => {
     console.error('[mew:agent-host]', err)
     process.exit(1)
   })

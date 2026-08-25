@@ -216,6 +216,7 @@ export function TmuxTerminalPanel({
   getSelectedText,
   renderCommandButtons,
   wsPath,
+  nextTabSignal = 0,
 }: {
   /** 호스트 앱의 서버 연동 — 렌더 간 identity가 안정적인 객체를 넘길 것 */
   api: TmuxPanelApi
@@ -225,6 +226,8 @@ export function TmuxTerminalPanel({
   /** 버튼 줄에 끼워 넣을 명령어 버튼 UI — run(command)로 지금 열린 세션에 명령을 보낸다 */
   renderCommandButtons?: (run: (command: string) => void) => ReactNode
   wsPath?: string
+  /** 값이 바뀌면 현재 세션의 오른쪽 탭으로 한 칸 이동한다. */
+  nextTabSignal?: number
 }) {
   const [sessions, setSessions] = useState<TmuxSession[] | null>(null)
   const [activeSession, setActiveSession] = useState<string | null>(null)
@@ -248,6 +251,13 @@ export function TmuxTerminalPanel({
     const nextIdx = dir === 'left' ? (idx + 1) % list.length : (idx - 1 + list.length) % list.length
     setActiveSession(list[nextIdx].name)
   }
+  const seenNextTabSignal = useRef(nextTabSignal)
+  useEffect(() => {
+    if (seenNextTabSignal.current === nextTabSignal) return
+    seenNextTabSignal.current = nextTabSignal
+    switchSession('left')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextTabSignal])
   const swipeSessions = useSwipeGesture({
     onTopLeft: () => switchSession('left'),
     onTopRight: () => switchSession('right'),

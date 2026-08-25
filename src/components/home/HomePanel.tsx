@@ -7,6 +7,7 @@ import { useOverlayDismiss } from '@mew/ui'
 import { MoreHoriz, NavArrowDown, NavArrowUp, Refresh } from 'iconoir-react'
 import { createTodo, deleteTodo, fetchTodos, updateTodo, type ProjectInfo, type TodoItem, type TodoStatus, type TodoType } from '../../api/client'
 import { useGridDrag } from '../../hooks/useGridDrag'
+import { useI18n } from '../../i18n'
 import {
   loadHomeLayout,
   movedLayout,
@@ -28,6 +29,7 @@ type TodoChange = {
 }
 
 export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
+  const { t } = useI18n()
   const [items, setItems] = useState<TodoItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -194,8 +196,8 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
           onClick={refresh}
           disabled={loading}
           className="flex h-8 w-8 items-center justify-center rounded border border-edge-strong bg-surface-raised text-ink-secondary shadow-sm hover:border-edge-bright hover:bg-surface-hover hover:text-ink disabled:opacity-40"
-          title="새로고침"
-          aria-label="새로고침"
+          title={t('common.refresh')}
+          aria-label={t('common.refresh')}
         >
           <Refresh width={16} height={16} aria-hidden="true" />
         </button>
@@ -204,8 +206,8 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
             type="button"
             onClick={() => setSettingsOpen((v) => !v)}
             className="flex h-8 w-8 items-center justify-center rounded border border-edge-strong bg-surface-raised text-ink-secondary shadow-sm hover:border-edge-bright hover:bg-surface-hover hover:text-ink"
-            title="위젯"
-            aria-label="위젯"
+            title={t('home.widgets')}
+            aria-label={t('home.widgets')}
             aria-haspopup="menu"
             aria-expanded={settingsOpen}
           >
@@ -222,7 +224,7 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pt-14 sm:px-5 lg:px-7">
         {shown.length === 0 ? (
           <div className="mx-auto max-w-lg rounded-lg border border-dashed border-edge-strong bg-surface px-5 py-10 text-center text-xs text-ink-muted">
-            세운 위젯이 없습니다. 위젯 메뉴에서 켜세요
+            {t('home.noWidgets')}
           </div>
         ) : (
           <div className="mx-auto grid max-w-6xl grid-cols-1 items-start gap-4 xl:grid-cols-2">
@@ -243,7 +245,7 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
                   {...widgetDrag.getTileProps(index)}
                   className="flex cursor-grab select-none items-center justify-between border-b border-edge bg-surface-raised px-3 py-2 active:cursor-grabbing"
                 >
-                  <h2 className="text-sm font-semibold text-ink-bright">{widget.title}</h2>
+                  <h2 className="text-sm font-semibold text-ink-bright">{t(widget.titleKey)}</h2>
                   <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
                 </div>
                 <div className={widget.id === 'todos' ? 'p-[21px] sm:p-7' : 'p-3 sm:p-4'}>
@@ -335,6 +337,7 @@ function WidgetSettings({
   onChange: (next: HomeLayout) => void
   onClose: () => void
 }) {
+  const { t } = useI18n()
   useOverlayDismiss(onClose)
   const widgets = orderedWidgets(layout)
 
@@ -348,14 +351,14 @@ function WidgetSettings({
               checked={!layout.hidden.includes(widget.id)}
               onChange={() => onChange(toggledLayout(layout, widget.id))}
             />
-            <span className="truncate">{widget.title}</span>
+            <span className="truncate">{t(widget.titleKey)}</span>
           </label>
           <button
             type="button"
             disabled={i === 0}
             onClick={() => onChange(movedLayout(layout, widget.id, -1))}
             className="flex h-6 w-6 items-center justify-center rounded text-ink-muted hover:bg-surface disabled:opacity-30"
-            aria-label="위로"
+            aria-label={t('home.moveUp')}
           >
             <NavArrowUp width={14} height={14} aria-hidden="true" />
           </button>
@@ -364,7 +367,7 @@ function WidgetSettings({
             disabled={i === widgets.length - 1}
             onClick={() => onChange(movedLayout(layout, widget.id, 1))}
             className="flex h-6 w-6 items-center justify-center rounded text-ink-muted hover:bg-surface disabled:opacity-30"
-            aria-label="아래로"
+            aria-label={t('home.moveDown')}
           >
             <NavArrowDown width={14} height={14} aria-hidden="true" />
           </button>

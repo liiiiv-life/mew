@@ -27,7 +27,8 @@ function copyButton(text: string, label: string): string {
   </button>`
 }
 
-// 링크는 새 탭으로 — 창 안에서 열리면 돌아가던 세션 화면을 통째로 잃는다
+// 외부 링크는 새 탭으로 연다. 워크스페이스 파일 링크는 말풍선 클릭 핸들러가 기본 동작을 막고
+// App의 프로젝트 전환·문서 탭 열기로 보낸다.
 md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
   tokens[idx].attrSet('target', '_blank')
   tokens[idx].attrSet('rel', 'noreferrer noopener')
@@ -54,6 +55,17 @@ md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
 export function copyTextFromAgentMarkdownClick(target: EventTarget | null): string | null {
   const button = target instanceof Element ? target.closest<HTMLButtonElement>('button[data-mew-copy]') : null
   return button?.dataset.mewCopy ?? null
+}
+
+export function agentMarkdownHrefFromClick(target: EventTarget | null): string | null {
+  const anchor = target instanceof Element ? target.closest<HTMLAnchorElement>('a[href]') : null
+  return anchor?.getAttribute('href') ?? null
+}
+
+/** 웹·메일·페이지 앵커는 브라우저에 맡기고, 경로처럼 생긴 링크만 서버의 워크스페이스 해석기로 보낸다. */
+export function isAgentWorkspaceHref(href: string): boolean {
+  if (/^file:/i.test(href)) return true
+  return !/^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(href)
 }
 
 export function markAgentMarkdownCopied(target: EventTarget | null) {

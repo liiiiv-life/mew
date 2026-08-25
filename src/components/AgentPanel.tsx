@@ -1,7 +1,7 @@
 // 에이전트 창 — ACP 세션과 대화하는 채팅 패널(터미널이 아니다). 서버 쪽은 server/agentAcp.ts.
 // **탭 하나가 세션 하나**다: 탭마다 자기 WS·자기 대화·서버 쪽 자식 프로세스를 하나씩 가진다.
-// 대화 화면은 전부 서버가 보내 준 이벤트에서 파생한다(접는 규칙은 utils/agentFold.ts) — 재접속하면
-// 지나간 이벤트를 그대로 되받으므로 클라이언트가 따로 대화를 저장하지 않아도 복원된다.
+// 대화 화면은 서버 이벤트에서 파생한다(접는 규칙은 utils/agentFold.ts). 브라우저 재진입 첫 화면은
+// 탭별 이벤트 캐시가 그리고, 서버 replay가 오면 같은 세션의 최신 꼬리를 중복 없이 합친다.
 // 정보줄(세션·토큰·턴 수)은 이벤트가 아니라 서버가 보내는 meta 스냅샷을 그대로 그린다.
 import {
   useCallback,
@@ -16,20 +16,36 @@ import {
 } from 'react'
 import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { flattenFiles, type TreeNode } from '@mew/editor'
-import { copyTextFromAgentMarkdownClick, markAgentMarkdownCopied, renderMarkdown } from '../utils/agentMarkdown'
+import {
+  agentMarkdownHrefFromClick,
+  copyTextFromAgentMarkdownClick,
+  isAgentWorkspaceHref,
+  markAgentMarkdownCopied,
+  renderMarkdown,
+} from '../utils/agentMarkdown'
 import { clearAgentInputDraft, readAgentInputDraft, writeAgentInputDraft } from '../utils/agentInputDrafts'
+import {
+  clearAgentEventCache,
+  mergeAgentReplay,
+  readAgentEventCache,
+  writeAgentEventCache,
+} from '../utils/agentEventCache'
 import { RUNTIMES, runtimeOf } from './agentRuntimes'
 import {
   fetchAgentDefault,
   fetchAgentAuthTerminalStatus,
+  fetchAgentCwdSuggestions,
   fetchAgentRuntimes,
   fetchSkills,
   installAgentRuntime,
   killTmuxSession,
+  resolveAgentCwd,
+  resolveAgentFileLink,
   runAgentAuthTerminal,
   saveAgentDefault,
   type AgentRuntimeDefault,
   type AgentRuntimeStatus,
+  type AgentCwdSuggestions,
   type SkillSummary,
 } from '../api/client'
 import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './MentionTextarea'
@@ -37,7 +53,7 @@ import { SessionTerminalPopup } from './SessionTerminalPopup'
 import { RuntimeSettingsButton } from './RuntimeSettingsModal'
 import { useSwipeGesture } from '@mew/mobile-keys'
 import { useGridDrag } from '../hooks/useGridDrag'
-import { withAutoLabel, withRename, type AgentTab } from '../utils/agentTabs'
+import { sessionIdOf, withAutoLabel, withRename, withSessionId, type AgentTab } from '../utils/agentTabs'
 import {
   foldEvents,
   formatDuration,
@@ -80,7 +96,7 @@ const NEW_TAB_LABEL = '새 대화'
 /** 탭 줄이 그리는 살아 있는 값 — 대화가 아니라 상태라 localStorage에 남기지 않는다 */
 type TabInfo = { busy: boolean; sessionId: string }
 
-const newTab = (): AgentTab => ({ id: Math.random().toString(36).slice(2, 10), label: NEW_TAB_LABEL, runtime: null })
+const newTab = (cwd: string | null = null): AgentTab => ({ id: Math.random().toString(36).slice(2, 10), label: NEW_TAB_LABEL, runtime: null, cwd })
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
 
@@ -137,13 +153,20 @@ function loadTabs(): AgentTab[] {
       const tabs = saved.filter((entry): entry is AgentTab => {
         const tab = entry as AgentTab | null
         return typeof tab?.id === 'string' && typeof tab?.label === 'string'
+          && (tab.cwd === undefined || tab.cwd === null || typeof tab.cwd === 'string')
       })
       if (tabs.length > 0) {
         // ADR 0062 이전 탭에는 runtime이 없다. 마지막으로 쓴 런타임을 한 번만 승격해
         // 기존 runtime+tab 세션 키와 히스토리를 보전한다. 새 탭은 여전히 미선택으로 만든다.
         const legacyRuntime = localStorage.getItem(RUNTIME_KEY)
         const migratedRuntime = RUNTIMES.some((runtime) => runtime.id === legacyRuntime) ? legacyRuntime! : RUNTIMES[0].id
-        return tabs.map((tab) => (tab.runtime === undefined ? { ...tab, runtime: migratedRuntime } : tab))
+        return tabs.map((tab) => {
+          const sessionIds = tab.sessionIds && typeof tab.sessionIds === 'object'
+            ? Object.fromEntries(Object.entries(tab.sessionIds).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+            : undefined
+          const normalized = sessionIds && Object.keys(sessionIds).length > 0 ? { ...tab, sessionIds } : { ...tab, sessionIds: undefined }
+          return normalized.runtime === undefined ? { ...normalized, runtime: migratedRuntime } : normalized
+        })
       }
     }
   } catch {
@@ -231,14 +254,28 @@ function InfoRow({ label, value, title }: { label: string; value: string; title?
   )
 }
 
-function copyFromMarkdownButton(e: MouseEvent<HTMLElement>) {
+type OpenWorkspaceFile = (project: string, path: string, line: number | null) => void
+
+function handleMarkdownClick(e: MouseEvent<HTMLElement>, onOpenFile: OpenWorkspaceFile) {
   const text = copyTextFromAgentMarkdownClick(e.target)
-  if (text === null) return
+  if (text !== null) {
+    e.preventDefault()
+    e.stopPropagation()
+    void copyText(text).then((ok) => {
+      if (ok) markAgentMarkdownCopied(e.target)
+    })
+    return
+  }
+
+  const href = agentMarkdownHrefFromClick(e.target)
+  if (!href || !isAgentWorkspaceHref(href)) return
   e.preventDefault()
   e.stopPropagation()
-  void copyText(text).then((ok) => {
-    if (ok) markAgentMarkdownCopied(e.target)
-  })
+  void resolveAgentFileLink(href)
+    .then(({ target }) => {
+      if (target) onOpenFile(target.project, target.path, target.line)
+    })
+    .catch(console.error)
 }
 
 function selectedSkillNames(text: string, skills: SkillSummary[]): string[] {
@@ -569,6 +606,196 @@ function AgentTabBar({
   )
 }
 
+/** 탭의 ACP cwd. 주소창처럼 Enter로 이동하며 실행 중인 작업은 끊지 못하게 잠근다. */
+function AgentPathBar({
+  cwd,
+  workspaceCwd,
+  busy,
+  saving,
+  error,
+  onCommit,
+}: {
+  cwd: string | null
+  workspaceCwd: string | null
+  busy: boolean
+  saving: boolean
+  error: string | null
+  onCommit: (path: string) => void
+}) {
+  const [draft, setDraft] = useState(cwd ?? '')
+  const [focused, setFocused] = useState(false)
+  const [browsedPath, setBrowsedPath] = useState<string | null>(cwd)
+  const [suggestions, setSuggestions] = useState<AgentCwdSuggestions | null>(null)
+  const [suggestError, setSuggestError] = useState<string | null>(null)
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const suggestionSeqRef = useRef(0)
+
+  useEffect(() => {
+    setDraft(cwd ?? '')
+    setBrowsedPath(cwd)
+  }, [cwd])
+  const disabled = cwd === null || busy || saving
+
+  const loadSuggestions = useCallback((input: string, entered: boolean) => {
+    if (!cwd) return
+    const seq = ++suggestionSeqRef.current
+    setLoadingSuggestions(true)
+    setSuggestError(null)
+    void fetchAgentCwdSuggestions(input, cwd, entered)
+      .then((result) => {
+        if (suggestionSeqRef.current === seq) setSuggestions(result)
+      })
+      .catch((err: unknown) => {
+        if (suggestionSeqRef.current !== seq) return
+        setSuggestions(null)
+        setSuggestError(err instanceof Error ? err.message : String(err))
+        if (entered) setBrowsedPath(null)
+      })
+      .finally(() => {
+        if (suggestionSeqRef.current === seq) setLoadingSuggestions(false)
+      })
+  }, [cwd])
+
+  useEffect(() => {
+    if (!focused || disabled || !cwd) return
+    const timer = window.setTimeout(() => loadSuggestions(draft, browsedPath === draft), 100)
+    return () => clearTimeout(timer)
+  }, [browsedPath, cwd, disabled, draft, focused, loadSuggestions])
+
+  const enterDir = (path: string) => {
+    setDraft(path)
+    setBrowsedPath(path)
+    inputRef.current?.focus()
+  }
+
+  const openHere = () => {
+    if (!disabled && draft.trim()) onCommit(draft)
+  }
+
+  const advanceWithKeyboard = () => {
+    if (!cwd) return
+    const input = draft
+    const seq = ++suggestionSeqRef.current
+    setLoadingSuggestions(true)
+    setSuggestError(null)
+    const explicitlyEntered = input.trim().endsWith('/')
+    void fetchAgentCwdSuggestions(input, cwd, explicitlyEntered)
+      .then((result) => {
+        if (suggestionSeqRef.current !== seq) return
+        setSuggestions(result)
+        if (explicitlyEntered) {
+          setDraft(result.directory)
+          setBrowsedPath(result.directory)
+          return
+        }
+        const first = result.dirs[0]
+        if (first) enterDir(first.path)
+        else setBrowsedPath(input)
+      })
+      .catch((err: unknown) => {
+        if (suggestionSeqRef.current !== seq) return
+        setSuggestError(err instanceof Error ? err.message : String(err))
+        setSuggestions(null)
+        setBrowsedPath(null)
+      })
+      .finally(() => {
+        if (suggestionSeqRef.current === seq) setLoadingSuggestions(false)
+      })
+  }
+
+  return (
+    <div className="relative z-30 shrink-0">
+      <div className="flex h-9 items-center gap-2 border-b border-edge bg-surface px-2">
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (workspaceCwd) onCommit(workspaceCwd)
+          }}
+          disabled={disabled || workspaceCwd === null || cwd === workspaceCwd}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
+          aria-label="워크스페이스 기본 경로에서 에이전트 열기"
+          title="워크스페이스 기본 경로로 돌아가기"
+        >
+          <HomeGlyph />
+        </button>
+        <FolderGlyph />
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(event) => {
+            setDraft(event.target.value)
+            setBrowsedPath(null)
+          }}
+          onFocus={() => setFocused(true)}
+          onBlur={() => window.setTimeout(() => setFocused(false), 0)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setFocused(false)
+              event.currentTarget.blur()
+              return
+            }
+            if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+            event.preventDefault()
+            // 자동완성으로 한 번 들어간 완성 경로에서 Enter를 다시 누르면 그 cwd로 세션을 연다.
+            if (browsedPath === draft) return openHere()
+            advanceWithKeyboard()
+          }}
+          disabled={disabled}
+          aria-label="에이전트 작업 경로"
+          aria-expanded={focused}
+          aria-controls="agent-cwd-suggestions"
+          title={busy ? '작업 중에는 경로를 바꿀 수 없습니다' : 'Enter: 폴더 안으로 · 다시 Enter 또는 →: 여기서 에이전트 열기'}
+          placeholder="현재 워크스페이스 불러오는 중…"
+          className={`min-w-0 flex-1 bg-transparent font-mono text-xs outline-none disabled:cursor-not-allowed ${error ? 'text-danger' : 'text-ink-secondary focus:text-ink'}`}
+        />
+        {saving && <span className="shrink-0 text-[10px] text-ink-muted">이동 중…</span>}
+        {error && <span className="max-w-[35%] shrink-0 truncate text-[10px] text-danger" title={error}>{error}</span>}
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={openHere}
+          disabled={disabled || !draft.trim()}
+          className="flex h-6 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
+          aria-label="이 경로에서 에이전트 열기"
+          title="이 경로에서 에이전트 열기"
+        >
+          <ArrowGlyph />
+        </button>
+      </div>
+      {focused && !disabled && (
+        <div
+          id="agent-cwd-suggestions"
+          role="listbox"
+          className="absolute inset-x-0 top-full max-h-64 overflow-y-auto border-b border-edge-bright bg-surface-raised py-1 shadow-xl"
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {loadingSuggestions && !suggestions && <div className="px-3 py-2 text-xs text-ink-muted">폴더 불러오는 중…</div>}
+          {suggestError && <div className="px-3 py-2 text-xs text-danger">{suggestError}</div>}
+          {!loadingSuggestions && !suggestError && suggestions?.dirs.length === 0 && (
+            <div className="px-3 py-2 text-xs text-ink-muted">하위 폴더가 없습니다. Enter를 다시 누르거나 →로 이 경로를 여세요.</div>
+          )}
+          {suggestions?.dirs.map((dir, index) => (
+            <button
+              key={dir.path}
+              type="button"
+              role="option"
+              aria-selected={index === 0}
+              onClick={() => enterDir(dir.path)}
+              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-xs hover:bg-surface-hover hover:text-ink ${index === 0 ? 'text-ink' : 'text-ink-secondary'}`}
+            >
+              <FolderGlyph />
+              <span className="min-w-0 flex-1 truncate">{dir.name}</span>
+              <span className="min-w-0 max-w-[65%] truncate text-[10px] text-ink-muted">{dir.path}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /**
  * 헤더 런타임 아이콘의 드롭다운 — 새 탭의 런타임 목록(RuntimePicker)과 같은 등록표·같은 설치 흐름을
  * 좁은 패널로 그린 것. 고르면 이 탭의 세션이 그 런타임으로 갈아탄다(ADR 0074 — 0062의
@@ -775,8 +1002,11 @@ function RuntimePicker({ onSelect }: { onSelect: (runtime: string) => void }) {
   )
 }
 
-export function AgentPanel({ project, tree, onClose }: { project: string; tree: TreeNode[]; onClose: () => void }) {
+export function AgentPanel({ project, tree, onOpenFile, onClose, nextTabSignal = 0 }: { project: string; tree: TreeNode[]; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number }) {
   const [tabs, setTabs] = useState<AgentTab[]>(loadTabs)
+  const [defaultCwd, setDefaultCwd] = useState<string | null>(null)
+  const [pathSaving, setPathSaving] = useState(false)
+  const [pathError, setPathError] = useState<string | null>(null)
   // 브라우저를 껐다 켜도 보던 탭에서 이어 하도록 마지막으로 본 탭을 기억한다.
   // 그 탭이 목록에서 사라졌으면(다른 창에서 닫았거나 저장분이 깨졌으면) 첫 탭으로 돌아간다
   const [activeId, setActiveId] = useState(() => {
@@ -796,17 +1026,32 @@ export function AgentPanel({ project, tree, onClose }: { project: string; tree: 
   }, [tabs])
 
   useEffect(() => {
+    let alive = true
+    void resolveAgentCwd('')
+      .then(({ cwd }) => {
+        if (!alive) return
+        setDefaultCwd(cwd)
+        setTabs((prev) => prev.map((tab) => tab.cwd == null ? { ...tab, cwd } : tab))
+      })
+      .catch((err: unknown) => {
+        if (alive) setPathError(err instanceof Error ? err.message : String(err))
+      })
+    return () => { alive = false }
+  }, [])
+
+  useEffect(() => {
     if (activeId) localStorage.setItem(ACTIVE_TAB_KEY, activeId)
     else localStorage.removeItem(ACTIVE_TAB_KEY)
   }, [activeId])
 
   const activate = (id: string) => {
+    setPathError(null)
     setActiveId(id)
     setOpened((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
   }
 
   const addTab = () => {
-    const tab = newTab()
+    const tab = newTab(defaultCwd)
     setTabs((prev) => [...prev, tab])
     setActiveId(tab.id)
   }
@@ -818,8 +1063,14 @@ export function AgentPanel({ project, tree, onClose }: { project: string; tree: 
   }
 
   const closeTab = (id: string) => {
+    const closing = tabs.find((tab) => tab.id === id)
     sendersRef.current.get(id)?.({ type: 'close_session' })
     clearAgentInputDraft(id)
+    if (closing?.runtime && closing.cwd) {
+      const { runtime, cwd } = closing
+      // 자식 view의 unmount flush가 끝난 다음 지운다. 먼저 지우면 cleanup이 캐시를 다시 만들 수 있다.
+      window.setTimeout(() => clearAgentEventCache(runtime, closing.id, cwd), 0)
+    }
     const index = tabs.findIndex((tab) => tab.id === id)
     const rest = tabs.filter((tab) => tab.id !== id)
     setTabs(rest)
@@ -843,6 +1094,14 @@ export function AgentPanel({ project, tree, onClose }: { project: string; tree: 
     const next = dir === 'left' ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length
     activate(tabs[next].id)
   }
+  const seenNextTabSignal = useRef(nextTabSignal)
+  useEffect(() => {
+    if (seenNextTabSignal.current === nextTabSignal) return
+    seenNextTabSignal.current = nextTabSignal
+    switchTab('left')
+    // 이 signal이 바뀌는 순간에만 오른쪽 탭으로 한 칸 간다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextTabSignal])
   const swipe = useSwipeGesture({
     onTopLeft: () => switchTab('left'),
     onTopRight: () => switchTab('right'),
@@ -872,11 +1131,43 @@ export function AgentPanel({ project, tree, onClose }: { project: string; tree: 
     })
   }, [])
 
-  const setTabInfo = useCallback((id: string, info: TabInfo) => {
+  const setTabInfo = useCallback((id: string, runtime: string, cwd: string, info: TabInfo) => {
     setInfos((prev) =>
       prev[id]?.busy === info.busy && prev[id]?.sessionId === info.sessionId ? prev : { ...prev, [id]: info },
     )
+    if (info.sessionId) setTabs((prev) => withSessionId(prev, id, runtime, cwd, info.sessionId))
   }, [])
+
+  const forgetTabSession = useCallback((id: string, runtime: string, cwd: string) => {
+    setTabs((prev) => withSessionId(prev, id, runtime, cwd, null))
+  }, [])
+
+  const activeTab = tabs.find((tab) => tab.id === activeId) ?? null
+  const changeCwd = (input: string) => {
+    if (!activeTab?.cwd || infos[activeTab.id]?.busy || pathSaving) return
+    setPathSaving(true)
+    setPathError(null)
+    void resolveAgentCwd(input, activeTab.cwd)
+      .then(({ cwd }) => {
+        if (cwd === activeTab.cwd) return
+        // 한 탭의 기준 경로를 옮기는 것은 새 세션 시작이다. 기존 대화는 옛 cwd의 히스토리에 남는다.
+        const oldRuntime = activeTab.runtime
+        const oldCwd = activeTab.cwd
+        sendersRef.current.get(activeTab.id)?.({ type: 'close_session' })
+        setInfos((prev) => {
+          const { [activeTab.id]: _old, ...keep } = prev
+          return keep
+        })
+        setTabs((prev) => prev.map((tab) => tab.id === activeTab.id
+          ? { ...tab, cwd, ...(tab.renamed ? {} : { label: NEW_TAB_LABEL }) }
+          : tab))
+        if (oldRuntime && oldCwd) {
+          window.setTimeout(() => clearAgentEventCache(oldRuntime, activeTab.id, oldCwd), 0)
+        }
+      })
+      .catch((err: unknown) => setPathError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setPathSaving(false))
+  }
 
   return (
     <div
@@ -896,6 +1187,16 @@ export function AgentPanel({ project, tree, onClose }: { project: string; tree: 
         onCloseTab={closeTab}
         onClosePanel={onClose}
       />
+      {activeTab && (
+        <AgentPathBar
+          cwd={activeTab.cwd ?? defaultCwd}
+          workspaceCwd={defaultCwd}
+          busy={infos[activeTab.id]?.busy ?? false}
+          saving={pathSaving}
+          error={pathError}
+          onCommit={changeCwd}
+        />
+      )}
       {tabs.length === 0 && (
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <button
@@ -909,23 +1210,32 @@ export function AgentPanel({ project, tree, onClose }: { project: string; tree: 
       )}
       {/* 안 보이는 탭도 붙어 있는 채로 둔다 — 돌고 있는 대화가 탭을 바꿨다고 멎으면 안 된다 */}
       {tabs
-        .filter((tab) => tab.runtime && opened.has(tab.id))
-        .map((tab) => (
-          <div key={tab.id} className={tab.id === activeId ? 'min-h-0 flex-1' : 'hidden'}>
+        .filter((tab) => tab.runtime && tab.cwd && opened.has(tab.id))
+        .map((tab) => {
+          const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!)
+            ?? readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)?.sessionId
+            ?? null
+          return (
+          <div key={`${tab.id}:${tab.runtime}:${tab.cwd}`} className={tab.id === activeId ? 'min-h-0 flex-1' : 'hidden'}>
             <AgentSessionView
               tabId={tab.id}
               active={tab.id === activeId}
               runtime={tab.runtime!}
+              cwd={tab.cwd!}
+              resumeSessionId={resumeSessionId}
               project={project}
               tree={tree}
               infos={infos}
               onLabel={setTabLabel}
               onInfo={setTabInfo}
+              onForgetSession={forgetTabSession}
               onRegister={register}
+              onOpenFile={onOpenFile}
               onSwitchRuntime={(runtime) => selectRuntime(tab.id, runtime)}
             />
           </div>
-        ))}
+          )
+        })}
       {tabs.map((tab) =>
         tab.id === activeId && !tab.runtime ? (
           <RuntimePicker key={tab.id} onSelect={(runtime) => selectRuntime(tab.id, runtime)} />
@@ -940,29 +1250,38 @@ function AgentSessionView({
   tabId,
   active,
   runtime,
+  cwd,
+  resumeSessionId,
   project,
   tree,
   infos,
   onLabel,
   onInfo,
+  onForgetSession,
   onRegister,
+  onOpenFile,
   onSwitchRuntime,
 }: {
   tabId: string
   /** 지금 보이는 탭인지 — 안 보이는 탭은 높이가 0이라 스크롤을 못 잡는다(아래 effect) */
   active: boolean
   runtime: string
+  cwd: string
+  resumeSessionId: string | null
   project: string
   tree: TreeNode[]
   infos: Record<string, TabInfo>
   onLabel: (tabId: string, label: string) => void
-  onInfo: (tabId: string, info: TabInfo) => void
+  onInfo: (tabId: string, runtime: string, cwd: string, info: TabInfo) => void
+  onForgetSession: (tabId: string, runtime: string, cwd: string) => void
   onRegister: (tabId: string, send: ((payload: Record<string, unknown>) => void) | null) => void
+  onOpenFile: OpenWorkspaceFile
   /** 헤더 아이콘 드롭다운에서 다른 에이전트를 골랐다 — 이 탭의 세션을 그 런타임으로 갈아탄다 */
   onSwitchRuntime: (runtime: string) => void
 }) {
-  // 어느 프로젝트를 보고 있든 같은 창이다 — 스코프는 워크스페이스, 대화가 나뉘는 축은 탭과 런타임이다
-  const [events, setEvents] = useState<AgentEvent[]>([])
+  // 어느 프로젝트를 보고 있든 같은 창이다. 탭별 cwd는 워크스페이스 밖 경로도 될 수 있다(ADR 0077).
+  const initialCache = useMemo(() => readAgentEventCache(runtime, tabId, cwd), [cwd, runtime, tabId])
+  const [events, setEvents] = useState<AgentEvent[]>(() => initialCache?.events ?? [])
   const [connected, setConnected] = useState(false)
   const [draft, setDraft] = useState(() => readAgentInputDraft(tabId))
   const [models, setModels] = useState<ModelState | null>(null)
@@ -986,6 +1305,36 @@ function AgentSessionView({
   const [savingDefault, setSavingDefault] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const wsRef = useRef<WebSocket | null>(null)
+  const cacheSessionIdRef = useRef<string | null>(initialCache?.sessionId ?? null)
+  const resumeSessionIdRef = useRef<string | null>(resumeSessionId)
+  const eventsRef = useRef(events)
+  const replayRef = useRef<{ events: AgentEvent[]; restored: boolean } | null>(null)
+
+  // 서버 연결보다 먼저 localStorage 전사를 그린다. 스트리밍 중에는 짧게 모아 쓰고, 탭을 떠나거나
+  // 브라우저를 닫을 때는 마지막 상태를 동기적으로 flush한다.
+  useEffect(() => {
+    eventsRef.current = events
+    if (!cacheSessionIdRef.current && events.length === 0) return
+    const timer = window.setTimeout(() => {
+      writeAgentEventCache(runtime, tabId, cwd, { sessionId: cacheSessionIdRef.current, events })
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [cwd, events, runtime, tabId])
+
+  useEffect(() => {
+    const flush = () => {
+      if (!cacheSessionIdRef.current && eventsRef.current.length === 0) return
+      writeAgentEventCache(runtime, tabId, cwd, {
+        sessionId: cacheSessionIdRef.current,
+        events: eventsRef.current,
+      })
+    }
+    window.addEventListener('pagehide', flush)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      flush()
+    }
+  }, [cwd, runtime, tabId])
 
   // 에디터에서 누른 Ctrl+L의 `경로:줄` 참조를 입력창에 이어 붙인다. 창(App)이 마지막으로 연 보조창을
   // 골라 target을 실어 보내므로 에이전트 창 차례일 때만 받고, 탭이 여럿이면 **보이는 탭**만 받아 적는다
@@ -1094,9 +1443,8 @@ function AgentSessionView({
     let closed = false
     let retry: number | undefined
     let ws: WebSocket
-    // 런타임을 갈아탄 뒤 옛 대화가 새 세션의 되돌림 이벤트 앞에 남지 않게 비운다
-    setEvents([])
     pendingRef.current = []
+    replayRef.current = null
     setModels(null)
     setModes(null)
     setMeta(null)
@@ -1107,7 +1455,12 @@ function AgentSessionView({
 
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const query = `runtime=${encodeURIComponent(runtime)}&tab=${encodeURIComponent(tabId)}`
+      const query = new URLSearchParams({
+        runtime,
+        tab: tabId,
+        cwd,
+        ...(resumeSessionIdRef.current ? { resume: resumeSessionIdRef.current } : {}),
+      }).toString()
       ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?${query}`)
       wsRef.current = ws
       ws.onopen = () => {
@@ -1120,7 +1473,20 @@ function AgentSessionView({
         if (event.type === 'ready') return
         if (event.type === 'models') return setModels(event.models)
         if (event.type === 'modes') return setModes(event.modes)
-        if (event.type === 'meta') return setMeta(event.meta)
+        if (event.type === 'meta') {
+          const replayed = replayRef.current
+          if (replayed) {
+            replayRef.current = null
+            const sameSession = cacheSessionIdRef.current === event.meta.sessionId
+            setEvents((cached) => mergeAgentReplay(cached, replayed.events, sameSession, replayed.restored))
+          } else if (cacheSessionIdRef.current && cacheSessionIdRef.current !== event.meta.sessionId) {
+            // 인증 뒤 새 세션이 생긴 경우처럼 replay 없이 sessionId만 바뀌어도 옛 전사를 남기지 않는다.
+            setEvents([])
+          }
+          cacheSessionIdRef.current = event.meta.sessionId
+          resumeSessionIdRef.current = event.meta.sessionId
+          return setMeta(event.meta)
+        }
         if (event.type === 'auth') {
           setMeta(null)
           return setAuth({ methods: event.methods, authenticating: event.authenticating, error: event.error })
@@ -1155,7 +1521,9 @@ function AgentSessionView({
           }
           pendingRef.current = []
           swapRef.current = false
-          return setEvents(event.events)
+          // 바로 뒤따르는 meta의 sessionId를 보고 같은 세션인지 판정한 뒤 캐시와 합친다.
+          replayRef.current = { events: event.events, restored: event.restored === true }
+          return
         }
         // 히스토리 불러오기 — 지금까지 그린 대화를 버린다. 새 대화는 바닥에서 시작한다.
         // 비우는 것 자체는 아래 줄 세우기가 순서대로 처리한다(뒤따라 오는 히스토리와 같은 프레임에 그려진다)
@@ -1184,7 +1552,7 @@ function AgentSessionView({
     }
     // 런타임을 바꾸면 저쪽 세션으로 갈아탄다 — 이쪽 세션은 서버에 그대로 남아 돌아오면 이어진다
     // (queueEvent는 값이 바뀌지 않는 useCallback이라 여기 있어도 재접속을 부르지 않는다)
-  }, [runtime, tabId, queueEvent])
+  }, [runtime, tabId, cwd, queueEvent])
 
   // 경과 시간만 흐르게 한다 — 나머지 값은 서버 meta가 밀어 준다
   useEffect(() => {
@@ -1285,8 +1653,8 @@ function AgentSessionView({
   }, [items, onLabel, tabId])
 
   useEffect(() => {
-    onInfo(tabId, { busy: meta?.busy ?? false, sessionId: meta?.sessionId ?? '' })
-  }, [meta?.busy, meta?.sessionId, onInfo, tabId])
+    onInfo(tabId, runtime, cwd, { busy: meta?.busy ?? false, sessionId: meta?.sessionId ?? '' })
+  }, [cwd, meta?.busy, meta?.sessionId, onInfo, runtime, tabId])
 
   /** 다른 탭이 붙들고 있는 세션 — 이 탭에서 또 열지 못하게 막는다 */
   const takenIds = useMemo(
@@ -1328,6 +1696,11 @@ function AgentSessionView({
    */
   const clearSession = () => {
     send({ type: 'close_session' })
+    clearAgentEventCache(runtime, tabId, cwd)
+    resumeSessionIdRef.current = null
+    onForgetSession(tabId, runtime, cwd)
+    cacheSessionIdRef.current = null
+    eventsRef.current = []
     pendingRef.current = []
     setEvents([])
     setMeta(null)
@@ -1378,7 +1751,7 @@ function AgentSessionView({
           ? '승인 대기'
           : busy
             ? '진행 중'
-            : '대기 중'
+            : ''
   const totalTokens = usage ? usage.input + usage.output + usage.cacheWrite + usage.cacheRead : 0
   useEffect(() => {
     let alive = true
@@ -1488,7 +1861,7 @@ function AgentSessionView({
           </button>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <span className={`text-xs ${busy ? 'text-ink-secondary' : 'text-ink-muted'}`}>{status}</span>
+          {status && <span className={`text-xs ${busy ? 'text-ink-secondary' : 'text-ink-muted'}`}>{status}</span>}
           {/* 이 탭에서 돌던 세션을 끝내고 새 세션으로 — 탭은 그대로, 화면만 새 탭처럼 돌아간다 */}
           <button
             type="button"
@@ -1519,7 +1892,7 @@ function AgentSessionView({
             label="시작"
             value={meta ? `${formatTime(meta.startedAt)} · ${formatElapsed(meta.startedAt, now)}` : '—'}
           />
-          <InfoRow label="상태" value={status} />
+          {status && <InfoRow label="상태" value={status} />}
           <InfoRow label="모델" value={currentModel ?? models?.currentModelId ?? '—'} />
           <InfoRow
             label="권한 모드"
@@ -1567,7 +1940,7 @@ function AgentSessionView({
           }}
           onCancelUrl={(id) => send({ type: 'auth_url_response', id, action: 'cancel' })}
           onOpenTerminal={(methodId) => {
-            void runAgentAuthTerminal(runtime, tabId, methodId)
+            void runAgentAuthTerminal(runtime, tabId, cwd, methodId)
               .then(({ session, label, state, exitCode }) => {
                 setAuthTerminal({ session, label, methodId, state, exitCode })
                 setAuthTerminalOpen(true)
@@ -1690,7 +2063,7 @@ function AgentSessionView({
                           <div
                             key={child.key}
                             className="mew-agent-markdown prose prose-sm max-w-none text-ink dark:prose-invert prose-pre:overflow-x-auto prose-pre:bg-surface-deep prose-code:text-ink-secondary"
-                            onClick={copyFromMarkdownButton}
+                            onClick={(event) => handleMarkdownClick(event, onOpenFile)}
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(child.text) }}
                           />
                         )
@@ -1913,7 +2286,7 @@ function AgentSessionView({
                 ? '로그인 명령이 완료 전에 종료됐습니다 · 다시 여세요'
                 : '로그인 성공 · 연결 중'}
           statusTone={authTerminal.state === 'failed' || authTerminal.state === 'interrupted' ? 'danger' : 'muted'}
-          onRun={() => runAgentAuthTerminal(runtime, tabId, authTerminal.methodId)}
+          onRun={() => runAgentAuthTerminal(runtime, tabId, cwd, authTerminal.methodId)}
           onClose={() => setAuthTerminalOpen(false)}
           onChanged={() => {}}
         />
@@ -2169,6 +2542,31 @@ function PlusGlyph() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+
+function FolderGlyph() {
+  return (
+    <svg className="shrink-0 text-ink-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z" />
+    </svg>
+  )
+}
+
+function HomeGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m3 11 9-8 9 8" />
+      <path d="M5 10v10h14V10M9 20v-6h6v6" />
+    </svg>
+  )
+}
+
+function ArrowGlyph() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12h14M13 6l6 6-6 6" />
     </svg>
   )
 }

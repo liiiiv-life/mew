@@ -268,8 +268,8 @@ const theme = EditorView.theme({
 })
 
 export interface CodePaneHandle {
-  /** 지정 줄(1부터)로 스크롤·커서 이동 — 프로젝트 검색 결과 클릭 시 해당 위치로 점프한다 */
-  revealLine: (line: number) => void
+  /** 내부 문서가 expectedContent까지 동기화됐을 때만 지정 줄로 이동하고 true를 돌려준다. */
+  revealLine: (line: number, expectedContent: string) => boolean
   /** 현재 선택된 텍스트 — 선택이 없으면 null (터미널/에이전트로 선택 텍스트를 보내는 단축키용) */
   getSelectedText: () => string | null
   /** 선택 시작·끝의 파일 줄 번호(1부터) — [경로:줄] 참조 삽입용. plain은 파일 원문 그대로라 보정 없음 */
@@ -432,9 +432,9 @@ export const CodePane = forwardRef<
         if (query) view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: query })) })
         openSearchPanel(view)
       },
-      revealLine(line: number) {
+      revealLine(line: number, expectedContent: string) {
         const view = viewRef.current
-        if (!view) return
+        if (!view || view.state.doc.toString() !== expectedContent) return false
         const clamped = Math.max(1, Math.min(line, view.state.doc.lines))
         const info = view.state.doc.line(clamped)
         view.dispatch({
@@ -442,6 +442,7 @@ export const CodePane = forwardRef<
           effects: EditorView.scrollIntoView(info.from, { y: 'center' }),
         })
         view.focus()
+        return true
       },
       getCommentAnchor() {
         const view = viewRef.current
