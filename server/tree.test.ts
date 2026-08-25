@@ -10,7 +10,7 @@ import path from 'node:path'
 import express from 'express'
 import { WORKSPACE_PROJECT, WORKSPACE_ROOT, setWorkspaceRoot } from './paths.ts'
 import type { Role } from './reqAuth.ts'
-import { buildTree, isPathVisible, type TreeNode } from './tree.ts'
+import { buildTree, buildTreeAsync, isPathVisible, type TreeNode } from './tree.ts'
 import { createApiApp } from './api.ts'
 import { resetTreeWatchers } from './watcher.ts'
 
@@ -69,6 +69,10 @@ test('폴더 판정은 확장자를 보지 않는다', () => {
 test('빈 경로(프로젝트 루트)는 트리의 항목이 아니다', () => {
   assert.equal(isPathVisible(CODE, ''), false)
   assert.equal(isPathVisible(CODE, '', { type: 'dir', showAll: true }), false)
+})
+
+test('비동기 트리는 동기 트리와 같은 가시성·정렬 결과를 만든다', async () => {
+  assert.deepEqual(await buildTreeAsync(DOCS), buildTree(DOCS))
 })
 
 // ── GET /tree 배선 ────────────────────────────────────────────────────────────

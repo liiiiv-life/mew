@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { collectWatchDirs, watchProjectTree } from './watcher.ts'
+import { collectWatchDirs, collectWatchDirsAsync, watchProjectTree } from './watcher.ts'
 
 function withTree(fn: (root: string) => void) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-watch-'))
@@ -47,4 +47,16 @@ test('collectWatchDirs: 소스·.mew 하위는 감시하고 node_modules·dist·
 
 test('watchProjectTree: 존재하지 않는 프로젝트는 던지지 않고 무시한다', () => {
   assert.doesNotThrow(() => watchProjectTree('this-project-does-not-exist-zzz'))
+})
+
+test('collectWatchDirsAsync: 동기 순회와 같은 감시 대상을 만든다', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-watch-'))
+  try {
+    for (const dir of ['src/components', 'node_modules/foo', 'dist/assets', '.git/objects']) {
+      fs.mkdirSync(path.join(root, dir), { recursive: true })
+    }
+    assert.deepEqual(await collectWatchDirsAsync(root), collectWatchDirs(root))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })

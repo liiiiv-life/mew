@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_PROJECT, isDeniedSegment, projectRoot, UnknownProjectError } from './paths.ts'
-import { buildTree } from './tree.ts'
+import { buildTreeAsync } from './tree.ts'
 import { readIgnoreSet } from './ignoreList.ts'
 import { broadcast } from './presence.ts'
 
@@ -35,6 +35,28 @@ export function collectWatchDirs(root: string, ignore: Set<string> = readIgnoreS
   return out
 }
 
+/** 느린 파일시스템에서도 감시자 등록이 HTTP 이벤트 루프를 독점하지 않는 비동기 순회. */
+export async function collectWatchDirsAsync(root: string, ignore: Set<string> = readIgnoreSet()): Promise<string[]> {
+  const skip = noDescend(ignore)
+  const out: string[] = []
+  const walk = async (dir: string): Promise<void> => {
+    out.push(dir)
+    let entries: fs.Dirent[]
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory() && !skip.has(entry.name) && !isDeniedSegment(entry.name)) {
+        await walk(path.join(dir, entry.name))
+      }
+    }
+  }
+  await walk(root)
+  return out
+}
+
 // 한 프로젝트 루트를 감시한다. 하위 디렉터리마다 non-recursive fs.watch를 걸고(제외 구역은 건너뜀),
 // 이벤트가 나면 디바운스 후 트리 구조 JSON을 다시 계산해 실제로 달라졌을 때만 tree 신호를 브로드캐스트한다.
 // 본문 저장(내용만 변경)도 이벤트를 내지만 트리 구조는 그대로라 브로드캐스트되지 않는다.
@@ -44,25 +66,32 @@ class TreeWatcher {
   private readonly watchers = new Map<string, fs.FSWatcher>() // absDir -> watcher
   private timer: NodeJS.Timeout | null = null
   private lastJson = ''
+  private closed = false
+  private refreshing = false
+  private refreshAgain = false
 
   constructor(project: string, root: string) {
     this.project = project
     this.root = root
-    this.lastJson = this.signature()
-    this.sync()
   }
 
-  private signature(): string {
+  async start() {
+    await this.sync()
+  }
+
+  private async signature(): Promise<string> {
     try {
-      return JSON.stringify(buildTree(this.project))
+      return JSON.stringify(await buildTreeAsync(this.project))
     } catch {
       return this.lastJson // 삭제·이동 도중의 일시 상태는 다음 이벤트에서 따라잡는다
     }
   }
 
   /** 현재 디스크 구조에 맞춰 watch 집합을 맞춘다 — 새 디렉터리엔 watch를 걸고, 사라진 것은 닫는다 */
-  private sync() {
-    const wanted = new Set(collectWatchDirs(this.root))
+  private async sync() {
+    const wanted = new Set(await collectWatchDirsAsync(this.root))
+    // 워크스페이스 전환 중 비동기 순회가 끝나도 옛 폴더 감시자를 되살리지 않는다.
+    if (this.closed) return
     for (const [dir, watcher] of this.watchers) {
       if (!wanted.has(dir)) {
         watcher.close()
@@ -86,21 +115,42 @@ class TreeWatcher {
   }
 
   close() {
+    this.closed = true
     if (this.timer) clearTimeout(this.timer)
     for (const watcher of this.watchers.values()) watcher.close()
     this.watchers.clear()
   }
 
   private schedule() {
+    if (this.closed) return
     if (this.timer) clearTimeout(this.timer)
     this.timer = setTimeout(() => {
       this.timer = null
-      this.sync() // 새로 생긴 하위 디렉터리에 watch 추가 / 사라진 것 정리
-      const json = this.signature()
-      if (json === this.lastJson) return
-      this.lastJson = json
-      broadcast({ type: 'tree' })
+      void this.refresh()
     }, 300)
+  }
+
+  private async refresh() {
+    if (this.refreshing) {
+      this.refreshAgain = true
+      return
+    }
+    this.refreshing = true
+    try {
+      do {
+        this.refreshAgain = false
+        await this.sync() // 새로 생긴 하위 디렉터리에 watch 추가 / 사라진 것 정리
+        if (this.closed) return
+        const json = await this.signature()
+        if (this.closed) return
+        if (json !== this.lastJson) {
+          this.lastJson = json
+          broadcast({ type: 'tree' })
+        }
+      } while (this.refreshAgain && !this.closed)
+    } finally {
+      this.refreshing = false
+    }
   }
 }
 
@@ -117,7 +167,13 @@ export function watchProjectTree(project: string) {
     if (err instanceof UnknownProjectError) return
     throw err
   }
-  watchers.set(project, new TreeWatcher(project, root))
+  const watcher = new TreeWatcher(project, root)
+  watchers.set(project, watcher)
+  void watcher.start().catch(() => {
+    // 권한 변경·삭제·네트워크 드라이브 단절은 트리 응답 자체를 실패시키지 않는다.
+    watcher.close()
+    if (watchers.get(project) === watcher) watchers.delete(project)
+  })
 }
 
 /** docs 루트 감시 — 서버·dev 플러그인 부팅 시 호출(다른 프로젝트는 /api/tree 최초 조회 때 지연 등록된다) */

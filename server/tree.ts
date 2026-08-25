@@ -149,8 +149,47 @@ function walk(absDir: string, relDir: string, f: Filters, downloadOnly = false):
   return nodes
 }
 
+/**
+ * 요청 경로용 비동기 트리 순회. /mnt/c 같은 느린 파일시스템에서 동기 readdirSync를 재귀 호출하면
+ * 디렉터리 하나를 읽는 동안 Node 이벤트 루프 전체가 멎는다. 순서는 일부러 직렬로 유지한다 — 큰
+ * 워크스페이스에서 모든 디렉터리 read를 한꺼번에 던져 파일시스템을 더 압박하지 않으면서, 각 read
+ * 사이에는 다른 HTTP 요청이 처리될 수 있다.
+ */
+async function walkAsync(absDir: string, relDir: string, f: Filters, downloadOnly = false): Promise<TreeNode[]> {
+  const entries = await fs.promises.readdir(absDir, { withFileTypes: true })
+  const nodes: TreeNode[] = []
+  for (const entry of entries) {
+    if (f.ignore.has(entry.name) || isDeniedSegment(entry.name)) continue
+    if (relDir === '' && f.hideAtRoot.has(entry.name)) continue
+    const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
+    const absPath = path.join(absDir, entry.name)
+    if (entry.isDirectory()) {
+      const childDownloadOnly = downloadOnly || DOWNLOAD_ONLY_DIRS.has(entry.name)
+      const children = await walkAsync(absPath, relPath, f, childDownloadOnly)
+      if (childDownloadOnly && children.length === 0) continue
+      nodes.push({ name: entry.name, path: relPath, type: 'dir', children })
+    } else if (entry.isFile()) {
+      if (fileVisible(entry.name, f, downloadOnly)) nodes.push({ name: entry.name, path: relPath, type: 'file' })
+    }
+  }
+  nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+    if (f.docsOnly && relDir === '' && a.type === 'dir') {
+      const rankDiff = topLevelRank(a.name) - topLevelRank(b.name)
+      if (rankDiff !== 0) return rankDiff
+    }
+    return a.name.localeCompare(b.name)
+  })
+  return nodes
+}
+
 export function buildTree(project: string = DEFAULT_PROJECT, opts: TreeOptions = {}): TreeNode[] {
   return walk(projectRoot(project), '', filtersFor(project, opts))
+}
+
+/** HTTP 요청과 파일 감시 갱신에서는 이 버전을 써서 느린 디스크 I/O가 서버 전체를 막지 않게 한다. */
+export function buildTreeAsync(project: string = DEFAULT_PROJECT, opts: TreeOptions = {}): Promise<TreeNode[]> {
+  return walkAsync(projectRoot(project), '', filtersFor(project, opts))
 }
 
 /**
