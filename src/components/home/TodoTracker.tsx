@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@mew/ui'
-import { Calendar, CheckCircle, MoreHoriz, Plus, Repeat, Timer, Xmark } from 'iconoir-react'
+import { Calendar, Check, CheckCircle, MoreHoriz, Plus, Repeat, Timer, Xmark } from 'iconoir-react'
 import type { ProjectInfo, TodoItem, TodoType } from '../../api/client'
 import { ProjectIcon } from '../ProjectIcon'
 import { hasIcon } from '../../utils/projectIcons'
@@ -222,6 +222,7 @@ function ProjectDropdown({
             ref={menuRef}
             role="dialog"
             aria-label="프로젝트 선택"
+            data-todo-project-dropdown
             style={{
               left: anchor.left,
               top: anchor.top,
@@ -378,23 +379,35 @@ function NewTodoRow({
   const [time, setTime] = useState<string | null>(null)
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
+  const dueRef = useRef(today)
+  const timeRef = useRef<string | null>(null)
+  const committedRef = useRef(false)
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  const commit = (nextTime = time) => {
+  const changeTime = (nextTime: string | null) => {
+    timeRef.current = nextTime
+    setTime(nextTime)
+  }
+
+  const commit = (nextTime = timeRef.current) => {
+    if (committedRef.current) return
     const value = text.trim()
     if (!value) return
-    onCreate({ text: value, type, due: type === 'dated' ? due : null, time: nextTime, projects: selectedProjects })
+    committedRef.current = true
+    onCreate({ text: value, type, due: type === 'dated' ? dueRef.current : null, time: nextTime, projects: selectedProjects })
   }
 
   return (
     <div
       className="flex flex-wrap items-center gap-1 rounded border border-accent/60 px-1.5 py-1"
       onBlur={(e) => {
-        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
-        if (!text.trim()) onCancel()
+        const nextFocus = e.relatedTarget as HTMLElement | null
+        if (e.currentTarget.contains(nextFocus) || nextFocus?.closest('[data-todo-project-dropdown]')) return
+        if (text.trim()) commit()
+        else onCancel()
       }}
     >
       <ProjectDropdown
@@ -403,7 +416,7 @@ function NewTodoRow({
         selected={selectedProjects}
         onChange={setSelectedProjects}
       />
-      <TimeFields value={time} onChange={setTime} onSubmit={commit} />
+      <TimeFields value={time} onChange={changeTime} onSubmit={commit} />
       <input
         ref={inputRef}
         value={text}
@@ -417,14 +430,25 @@ function NewTodoRow({
         className="min-w-0 flex-1 rounded border border-edge-strong bg-transparent px-1.5 py-0.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
       />
       {type === 'dated' && (
-        <input
-          type="date"
+        <DateFields
           value={due}
-          onChange={(e) => setDue(e.target.value || today)}
-          className="w-[8.6rem] shrink-0 rounded border border-edge-strong bg-transparent px-1.5 py-0.5 text-[11px] text-ink-secondary outline-none focus:border-edge-bright"
-          aria-label="기한"
+          onChange={(nextDue) => {
+            dueRef.current = nextDue
+            setDue(nextDue)
+          }}
+          onSubmit={() => commit()}
         />
       )}
+      <button
+        type="button"
+        onClick={() => commit()}
+        disabled={!text.trim()}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-accent hover:bg-surface-hover hover:text-accent-strong disabled:text-ink-faint disabled:opacity-50"
+        aria-label="할 일 등록"
+        title="등록"
+      >
+        <Check width={16} height={16} strokeWidth={2.2} aria-hidden="true" />
+      </button>
     </div>
   )
 }
@@ -514,14 +538,12 @@ function TodoRow({
       </div>
 
       {item.type === 'dated' && (
-        <input
-          type="date"
-          value={item.due ?? ''}
-          onChange={(e) => onUpdate(item, { due: e.target.value || null })}
-          className={`w-[8.6rem] shrink-0 rounded border border-edge bg-transparent px-1.5 py-0.5 text-[11px] outline-none focus:border-edge-bright ${
+        <DateFields
+          value={item.due ?? todayISO()}
+          onChange={(due) => onUpdate(item, { due })}
+          className={
             overdue ? 'text-danger-strong' : item.due ? 'text-ink-secondary' : 'text-ink-muted'
-          }`}
-          aria-label="기한"
+          }
         />
       )}
 
@@ -539,6 +561,126 @@ function TodoRow({
   )
 }
 
+function DateFields({
+  value,
+  onChange,
+  onSubmit,
+  className = 'text-ink-secondary',
+}: {
+  value: string
+  onChange: (value: string) => void
+  onSubmit?: (value: string) => void
+  className?: string
+}) {
+  const [year, setYear] = useState(value.slice(0, 4))
+  const [month, setMonth] = useState(value.slice(5, 7))
+  const [day, setDay] = useState(value.slice(8, 10))
+  const monthRef = useRef<HTMLInputElement>(null)
+  const dayRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setYear(value.slice(0, 4))
+    setMonth(value.slice(5, 7))
+    setDay(value.slice(8, 10))
+  }, [value])
+
+  const reset = () => {
+    setYear(value.slice(0, 4))
+    setMonth(value.slice(5, 7))
+    setDay(value.slice(8, 10))
+  }
+
+  const commit = (): string | undefined => {
+    if (year.length !== 4 || month.length !== 2 || day.length !== 2) {
+      reset()
+      return undefined
+    }
+    const yearNumber = Number(year)
+    const monthNumber = Number(month)
+    const dayNumber = Number(day)
+    const leapYear = yearNumber % 4 === 0 && (yearNumber % 100 !== 0 || yearNumber % 400 === 0)
+    const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][monthNumber - 1]
+    if (yearNumber < 1 || monthNumber < 1 || monthNumber > 12 || dayNumber < 1 || dayNumber > daysInMonth) {
+      reset()
+      return undefined
+    }
+    const next = `${year}-${month}-${day}`
+    if (next !== value) onChange(next)
+    return next
+  }
+
+  const digits = (input: string, length: number) => input.replace(/\D/g, '').slice(0, length)
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+    event.preventDefault()
+    const next = commit()
+    if (next !== undefined) onSubmit?.(next)
+  }
+
+  return (
+    <div
+      className={`flex h-6 shrink-0 items-center px-1 text-[11px] tabular-nums ${className}`}
+      onBlur={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+        commit()
+      }}
+      aria-label="기한"
+    >
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={year}
+        onChange={(event) => {
+          const next = digits(event.target.value, 4)
+          setYear(next)
+          if (next.length === 4) monthRef.current?.focus()
+        }}
+        onKeyDown={onKeyDown}
+        onFocus={(event) => event.currentTarget.select()}
+        maxLength={4}
+        placeholder="YYYY"
+        aria-label="연도"
+        className="w-8 bg-transparent text-center text-current outline-none placeholder:text-ink-faint"
+      />
+      <span className="select-none text-ink-muted" aria-hidden="true">-</span>
+      <input
+        ref={monthRef}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={month}
+        onChange={(event) => {
+          const next = digits(event.target.value, 2)
+          setMonth(next)
+          if (next.length === 2) dayRef.current?.focus()
+        }}
+        onKeyDown={onKeyDown}
+        onFocus={(event) => event.currentTarget.select()}
+        maxLength={2}
+        placeholder="MM"
+        aria-label="월"
+        className="w-5 bg-transparent text-center text-current outline-none placeholder:text-ink-faint"
+      />
+      <span className="select-none text-ink-muted" aria-hidden="true">-</span>
+      <input
+        ref={dayRef}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        value={day}
+        onChange={(event) => setDay(digits(event.target.value, 2))}
+        onKeyDown={onKeyDown}
+        onFocus={(event) => event.currentTarget.select()}
+        maxLength={2}
+        placeholder="DD"
+        aria-label="일"
+        className="w-5 bg-transparent text-center text-current outline-none placeholder:text-ink-faint"
+      />
+    </div>
+  )
+}
+
 function TimeFields({
   value,
   onChange,
@@ -550,6 +692,7 @@ function TimeFields({
 }) {
   const [hour, setHour] = useState(value?.slice(0, 2) ?? '')
   const [minute, setMinute] = useState(value?.slice(3, 5) ?? '')
+  const minuteRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setHour(value?.slice(0, 2) ?? '')
@@ -593,7 +736,7 @@ function TimeFields({
 
   return (
     <div
-      className="flex h-6 shrink-0 items-center rounded border border-edge bg-transparent px-1 text-[11px] text-ink-secondary focus-within:border-edge-bright"
+      className="flex h-6 shrink-0 items-center px-1 text-[11px] text-ink-secondary"
       onBlur={(event) => {
         if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
         commit()
@@ -605,7 +748,11 @@ function TimeFields({
         inputMode="numeric"
         pattern="[0-9]*"
         value={hour}
-        onChange={(event) => setHour(digits(event.target.value))}
+        onChange={(event) => {
+          const next = digits(event.target.value)
+          setHour(next)
+          if (next.length === 2) minuteRef.current?.focus()
+        }}
         onKeyDown={onKeyDown}
         onFocus={(event) => event.currentTarget.select()}
         maxLength={2}
@@ -615,6 +762,7 @@ function TimeFields({
       />
       <span className="select-none text-ink-muted" aria-hidden="true">:</span>
       <input
+        ref={minuteRef}
         type="text"
         inputMode="numeric"
         pattern="[0-9]*"
