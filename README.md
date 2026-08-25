@@ -16,6 +16,12 @@ git clone <이 레포> mew && cd mew
 지원 대상은 Linux와 macOS다. 터미널 패널은 `node-pty`를 로컬에서 빌드하고 `tmux`에 붙으므로 OS별 기본
 도구가 필요하다.
 
+> **에이전트 실행 불변식:** 에이전트는 **`mew`를 실행하지 않는다.** 빌드·배포·서버 재시작은 사용자가
+> 직접 맡는다. `npm run build`, `npm start`, `./mew start|stop|restart|update`, 프로세스 직접 종료·백그라운드
+> 실행처럼 현재 화면이나 서버를 바꾸는 명령도 실행하지 않는다. 에이전트는 코드 변경 후 `npm test`,
+> `npm run lint`, `npx tsc -b`처럼 실행 중인 서버를 건드리지 않는 검증까지만 하고, 반영이 필요하다고
+> 사용자에게 알린다.
+
 ```bash
 # Debian/Ubuntu
 sudo apt install build-essential python3 tmux
@@ -59,6 +65,11 @@ docs로 쓴다(기본 `docs`, owner가 바꿀 수 있다). 아래 §docs 탭.
 Ctrl+P 파일 검색은 입력창 오른쪽 × 또는 Esc로 검색어를 한 번에 지운다. 검색 중 Esc는 사이드바를
 닫지 않으며, 검색어가 비워진 상태에서 다시 Esc를 눌러야 사이드바가 닫힌다.
 
+우하단 **핸들 버튼**을 누르면 8방향 메뉴가 펼쳐진다. 12시는 전체화면 전환, 1시 30분은
+오른쪽 프로젝트 탭 전환, 3시는 마지막으로 사용한 탭형 창(에디터·에이전트·터미널)의
+오른쪽 탭 전환이다. 끝에서는 첫 탭으로 감싼다. 나머지 다섯 방향은 후속 명령을 위한 빈 슬롯으로 두며,
+핸들을 다시 누르거나 바깥·Esc를 누르면 접힌다(`src/components/FabMenu.tsx`).
+
 - **볼 수 있는 프로젝트는 전부 탭으로 서 있다.** 닫기(×)는 없고, 순서는 팝업 격자에서 끌어 정한
   자리(slot)다. 프로젝트 탭 줄은 "열어둔 것 목록"이 아니라 워크스페이스의 지도다.
 - 생김새는 문서 탭 줄과 같다 — 테두리 없이 세로 구분선만, **선택된 탭은 배경만 밝아진다.**
@@ -89,11 +100,14 @@ Ctrl+P 파일 검색은 입력창 오른쪽 × 또는 Esc로 검색어를 한 �
 화면 상태는 `localStorage`에 남는다 — `mew:project`(활성 프로젝트, 홈이면 `.workspace`) · `mew:tmux-open` ·
 `mew:agent-open`(에이전트 창이 열려 있었는지) · `mew:agent-panel-width`(데스크톱 에이전트 창 너비) ·
 `mew:agent-tabs`·`mew:agent-active-tab`(에이전트 탭 목록과
-마지막으로 보던 탭) · `mew:agent-input-drafts`(에이전트 탭별 전송 전 입력 초안) ·
+마지막으로 보던 탭. 탭별 런타임·작업 경로·마지막 ACP 세션 포인터 포함) ·
+`mew:agent-input-drafts`(에이전트 탭별 전송 전 입력 초안) ·
+`mew:agent-events:*`(에이전트 탭별 마지막으로 본 대화 전사 캐시) ·
 `mew:open-tabs[:{프로젝트}]`(열린 문서 탭 + 칸 배치 — `{ panes, layout, focusedPaneId }`.
 칸이 없던 옛 `{ tabs, activePath }`는 읽을 때 `main` 칸 하나로 이관한다) ·
 `mew:browser-open`·`mew:browser-tabs`·`mew:browser-active-tab`(브라우저 창과 탭) ·
 `mew:android-open`·`mew:android-gateway-url`(Android 보조창과 gateway 주소) ·
+`mew:fonts`(전역 UI·Markdown 핫뷰·Mono 글꼴 이름) ·
 `mew:scroll:{프로젝트}`(문서별 스크롤 위치 + 사이드바 트리 스크롤, `utils/scrollMemory.ts`) ·
 `mew:tree-open:{프로젝트}`(사이드바에서 펼쳐 둔 폴더).
 
@@ -334,14 +348,19 @@ npx tsc -b      # 타입만 (빌드 없이)
 ```
 
 ⚠️ **`npm run build`는 즉시 배포다** — 서버가 `dist/`를 디스크에서 읽어 서빙하므로, 빌드하는 순간
-띄워 둔 화면이 바뀐다. `server/`까지 고쳤으면 build 후 프로세스 재시작이 따로 필요하다
-(`./mew restart`).
+띄워 둔 화면이 바뀐다. 빌드와 재시작은 사용자가 직접 한다. 에이전트는 위 실행 불변식대로 검증까지만 하고
+`mew`를 포함한 반영 명령을 실행하지 않는다.
 
 **터미널에서 이 레포 파일을 고쳤는데 다음에 보니 되돌아가 있으면**, 사용자가 그 파일을 mew
 에디터에 열어둔 채라 버퍼 저장이 디스크를 덮어쓴 것이다. 반영 여부를 다시 확인하고, 해당 파일을
 닫거나 Revert File 하도록 안내한다.
 
 ### 설정
+
+헤더의 계정/설정 메뉴에서 여는 `설정 > 화면`은 테마·언어와 함께 글꼴 세 벌을 브라우저별로 기억한다.
+전역 UI 텍스트, Markdown 핫뷰 본문, Mono(코드 편집기·터미널·인라인/블록 코드·`font-mono` UI)는 서로 독립이며,
+입력한 글꼴이 이 기기에 없으면 각 범주의 시스템 폴백 글꼴을 쓴다. 값은 `localStorage`의 `mew:fonts`에
+저장되고 각 항목을 기본값으로 되돌릴 수 있다.
 
 설정 파일은 **레포 밖**에 있다 — `~/.config/mew/config.env`(`XDG_CONFIG_HOME` 존중). 레포 안의
 `.env`가 있으면 그것이 마지막에 덮으므로 개발 중 임시 덮어쓰기로 쓴다. 읽는 순서와 기본 경로는
@@ -702,14 +721,29 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   실제 프롬프트를 합성한다. 기본 합성기는 모든 ACP 런타임에 대해 선택된 `SKILL.md`를 먼저 읽고 따르라고
   지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다. **채팅과 입력창 사이의 경계선
   전체**를 위아래로 끌어 입력창을 화면 높이의 80%까지 늘릴 수 있다(키보드는 경계선에서 ↑·↓).
-- 채널: `/api/agent/ws?runtime=<id>&tab=<id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
-  `런타임+탭`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`,
+- 답변의 **현재 워크스페이스 파일 링크**를 누르면 브라우저 새 탭이 아니라 같은 mew에서 해당 프로젝트와
+  문서 탭을 연다. `:줄`·`#L줄`이 붙으면 그 줄로 이동하며, Markdown도 정확한 원본 줄을 보여 주기 위해
+  이 경우 Plain으로 연다. `GET /api/agent-file-link?href=`가 서버 절대경로를 노출하지 않고
+  `{project,path,line}`으로 검증·변환한다(owner/manager). 웹 링크는 계속 새 브라우저 탭으로 연다.
+- 탭 줄 바로 아래의 주소창에는 그 탭 세션의 **작업 경로(cwd)**가 절대경로로 보인다. 새 탭은 현재
+  워크스페이스에서 시작하지만 절대경로·`~`·현재 경로 기준 상대경로를 입력해 워크스페이스 밖 폴더로
+  옮길 수 있다. 포커스하면 드롭다운이 열려 현재 마지막 경로 조각과 접두어가 맞는 하위 폴더를 보여 준다.
+  항목 클릭·Enter는 그 폴더 안으로 들어가고, 들어간 뒤 Enter를 한 번 더 누르거나 오른쪽 `→`를 눌러야
+  실제로 그 cwd를 연다. 맨 왼쪽 홈 버튼은 현재 워크스페이스 기본 경로를 바로 연다. 서버가 실제
+  디렉터리인지 검증하며, 실행 중에는 작업을 끊지 않도록 잠긴다. 경로를 바꾸면
+  기존 세션을 끝내고 그 cwd에서 새 세션을 연다(옛 대화는 옛 cwd의 히스토리에 남는다). 주소창은 ACP의
+  세션 cwd이지 도구 내부 셸에서 일시적으로 실행한 `cd` 추적기가 아니다([ADR 0077](../.mew/docs/decisions/0077-mew-agent-tab-working-directory.md)).
+- 채널: `/api/agent/ws?runtime=<id>&tab=<id>&cwd=<absolute-path>&resume=<session-id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은
+  `런타임+탭+cwd`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`,
   `[A-Za-z0-9_-]{1,64}`이 아니면 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 —
   고른 값은 브라우저에만 남는다(`mew:agent-runtime`). 창을 닫아도 세션은 남고,
   다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다. 각 탭의 감독은 mew와 다른 프로세스
   그룹에서 `<DATA_DIR>/agent/*.sock`으로 중계되므로 **브라우저 종료·mew 종료/재시작에도 진행 중인 턴은
   끊기지 않는다**. 모든 턴과 대기열이 끝난 뒤 붙은 창 없이 30분이 지나야 감독과 ACP/CLI가 종료된다
-  ([ADR 0048](../.mew/docs/decisions/0048-mew-agent-supervisor-process.md)).
+  ([ADR 0048](../.mew/docs/decisions/0048-mew-agent-supervisor-process.md)). 감독이 종료된 뒤에도 탭은 런타임·cwd별 마지막
+  ACP 세션 ID를 기억한다. 다시 열면 새 감독이 그 ID를 `session/load`해 전사를 재생하므로,
+  30분 유휴 종료는 프로세스만 정리하고 탭의 대화를 새 대화로 바꾸지 않는다
+  ([ADR 0079](../.mew/docs/decisions/0079-mew-agent-tabs-resume-after-idle.md)).
 - **설치와 로그인은 별개다**([ADR 0072](../.mew/docs/decisions/0072-mew-agent-gui-authentication.md)).
   `session/new`가 인증 필요를 돌려주면 프로세스를 닫지 않고 로그인 화면으로 전환한다. ACP 일반 로그인은
   사용자가 주소를 확인하고 **로그인 페이지 열기**를 눌러 현재 브라우저의 새 탭에서 진행한다. API 키는
@@ -718,7 +752,9 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   팝업을 닫아도 감시한다. `0`일 때만 자동으로 ACP를 새로 initialize해 CLI가 방금 쓴 자격증명을 다시
   읽으며, 실패·`Ctrl-C`·강제 종료는 터미널을 유지하고 재시작하지 않는다. 로그인하지 않으면 ACP 자체가
   뜨지 않는 CLI도 탭 감독은 fatal로 닫지 않고 같은 terminal auth를 내보내 같은 탭에서 복구한다.
-- 탭 목록·이름도 브라우저에만 있다(`mew:agent-tabs`) — 서버는 **탭 id만** 알고 뜻은 모른다.
+- 탭 목록·이름·런타임·cwd별 마지막 세션 ID는 브라우저에만 있다(`mew:agent-tabs`) — 서버는 **탭 id만**
+  알고 뜻은 모른다. 세션 ID는 탭을 닫을 때 함께 지워지고, 같은 탭에서 런타임이나 cwd를
+  갈아타면 각 조합의 대화 포인터를 따로 보존한다.
   마지막으로 보던 탭도 남는다(`mew:agent-active-tab`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이
   선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라).
   창 아래 20%에서 **좌→우로 스와이프하면 창이 닫힌다**(터미널 창과 같은 손짓. 위 40%는 탭 전환).
@@ -744,9 +780,11 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 | 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · `{type:'error'\|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'auth', methods, authenticating, error}` · `{type:'auth_url', id, url, message}` · `{type:'auth_url_done', id}` · `{type:'auth_complete'}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
 
 - **되감기는 한 프레임이다(`replay`).** 붙는 순간 서버가 쌓아 둔 대화(`snapshot()`, 최대 500개)를
-  통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 `replay`로 지금 그린 대화를 **갈아끼운다** —
-  그래서 잠깐 끊겼다 붙어도 화면이 비지 않는다(빈 탭의 히스토리 드롭다운이 번쩍이던 원인).
-  창은 소켓이 끊겨도 대화를 지우지 않는다. 예전에는 이벤트를 500개까지 **한 개씩** 되돌려 보냈고,
+  통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 마지막으로 본 전사를 탭·런타임·cwd별
+  `localStorage`(`mew:agent-events:*`)에 캐시해 브라우저 재진입 첫 프레임부터 그린다. 같은 세션의
+  `replay`는 캐시와 겹치는 꼬리를 제거한 뒤 최신분만 이어 붙인다 — 서버의 500개 상한 때문에 이미 본
+  앞쪽 프롬프트·답변이 사라지지 않는다. 다른 세션이면 `replay`로 갈아끼운다. 창은 소켓이 끊겨도
+  대화를 지우지 않는다. 예전에는 이벤트를 500개까지 **한 개씩** 되돌려 보냈고,
   창은 그때마다 다시 그리느라(이벤트당 `foldEvents` 한 번 + 목록 전체) 눈에 띄게 굳었다.
 - **창은 들어오는 이벤트를 한 프레임에 모아 한 번만 그린다**(`requestAnimationFrame`). 스트리밍 청크는
   초당 수십 개다. `reset`도 그 줄에서 순서대로 처리돼 "비우기"와 "새 대화"가 같은 프레임에 들어간다.
@@ -764,9 +802,17 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   세션만 갈아끼운다. 목록을 물어볼지는 `initialize`의 capability(`meta.canList`)로 정한다.
   제자리에서 대화만 비우는 `/clear`(`new_session`)는 **없다** — 새 탭이 곧 새 대화다(ADR 0046).
   `session/new` 자체는 핸드셰이크에서 그대로 쓴다.
+- Prime Agent의 모델 상태는 ACP 표준 필드가 사라진 버전과도 공존하도록
+  `_meta['ai.primeintellect.prime-agent'].modelsJson`을 읽는다. 모델 변경 wire method는 기존 클라이언트와
+  호환되는 `session/set_model`이다. 공식 0.8.0은 이 metadata와 `session/list`·`session/load`를 아직
+  광고하지 않으므로, 해당 기능은 이를 구현한 Prime ACP 빌드를 실행할 때만 나타난다.
 - **토큰 사용량만 ACP 밖에서 온다** — 어댑터가 사용량을 보내지 않아 `agentUsage.ts`가
   `<CLAUDE_CONFIG_DIR>/projects/<인코딩된 cwd>/<sessionId>.jsonl`을 읽는다. 읽기 전용·선택적이고,
   파일이 없으면 사용량 칸만 빈다([ADR 0036](../.mew/docs/decisions/0036-mew-agent-session-controls-and-usage.md)).
+- `GET /api/agent-cwd?path=&base=`는 주소창 입력을 서버 파일시스템 기준 절대 디렉터리로 검증한다
+  (owner/manager). 빈 `path`는 현재 워크스페이스, 상대경로는 `base` 기준이다.
+- `GET /api/agent-cwd/suggestions?input=&base=&entered=`는 입력 중인 마지막 경로 조각의 접두어와 맞는
+  하위 디렉터리, 또는 이미 들어간 디렉터리의 하위를 돌려준다(owner/manager).
 
 - **모델·권한 선택기 옆 저장 아이콘은 현재 값을 그 런타임의 기본값으로 남긴다**([ADR 0063](../.mew/docs/decisions/0063-mew-agent-runtime-saved-defaults.md)).
   값은 브라우저가 아니라 `<DATA_DIR>/agent-defaults.json`에 런타임별로 저장되어, 새 탭·서버 재시작 뒤
