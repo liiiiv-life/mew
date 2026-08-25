@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchFile, fetchRules, isArchivedPath, saveFile, type DocRules } from '../api/client'
+import { fetchExternalFile, fetchFile, fetchRules, isArchivedPath, saveExternalFile, saveFile, type DocRules } from '../api/client'
 import { mediaKind } from '../utils/media'
 import { dropCachedFile, getCachedFile, putCachedFile } from '../utils/contentCache'
 import { leaf, normalizeLayout, removeLeaf, splitLeaf, type DropSide, type PaneNode } from '../utils/paneTree'
+import { externalAbsolutePath, externalTabPath, isExternalTabPath } from '../utils/externalFiles'
 
 export type Tab = {
   path: string
@@ -192,10 +193,11 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       }
       // 마크다운이 아닌 파일(코드·설정 등)은 tiptap이 본문을 훼손하므로 plain 편집이 기본
       // svg는 md처럼 이미지 미리보기(hotview)로 먼저 연다
-      const previewFirst = path.endsWith('.md') || path.endsWith('.svg')
+      const external = isExternalTabPath(path)
+      const previewFirst = !external && (path.endsWith('.md') || path.endsWith('.svg'))
       // 최근 연 파일이면 캐시된 본문으로 탭을 즉시 채운다 — 아래 fetch가 백그라운드에서
       // 최신본으로 재조정하지만 그 사이 빈 화면·"처음부터 로딩" 깜빡임을 없앤다
-      const cached = getCachedFile(p, path)
+      const cached = external ? undefined : getCachedFile(p, path)
       const newTab: Tab = {
         ...blankTab(),
         path,
@@ -216,9 +218,10 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       })
       // 바이너리 미디어는 뷰어가 /api/raw로 직접 스트리밍한다 — utf-8 fetch도 규칙 검사도 없음
       if (mediaKind(path)) return
-      fetchFile(path, p)
+      const fileRequest = external ? fetchExternalFile(externalAbsolutePath(path)) : fetchFile(path, p)
+      fileRequest
         .then(({ content, editable }) => {
-          putCachedFile(p, path, { content, editable })
+          if (!external) putCachedFile(p, path, { content, editable })
           mapTabs(p, (t) => {
             if (t.path !== path) return t
             // 캐시 본문으로 이미 그려 둔 사이에 손을 댔으면(타이핑·협업 방 내용) 그 버퍼를 덮지 않는다.
@@ -239,9 +242,11 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
           console.error(err)
           onNoticeRef.current(err instanceof Error ? err.message : String(err))
         })
-      fetchRules(path, p)
-        .then((rules) => mapTabs(p, (t) => (t.path === path ? { ...t, rules } : t)))
-        .catch(console.error)
+      if (!external) {
+        fetchRules(path, p)
+          .then((rules) => mapTabs(p, (t) => (t.path === path ? { ...t, rules } : t)))
+          .catch(console.error)
+      }
     },
     [patchPane, mapTabs],
   )
@@ -250,6 +255,14 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     (path: string, opts?: { preview?: boolean; forceNewTab?: boolean; paneId?: string }) => {
       const p = projectRef.current
       openFileIn(p, opts?.paneId ?? stateOf(p).focusedPaneId, path, opts)
+    },
+    [openFileIn],
+  )
+
+  const openExternalFile = useCallback(
+    (absolutePath: string, opts?: { paneId?: string }) => {
+      const p = projectRef.current
+      openFileIn(p, opts?.paneId ?? stateOf(p).focusedPaneId, externalTabPath(absolutePath), { preview: true })
     },
     [openFileIn],
   )
@@ -283,8 +296,8 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       const payload: StoredTabs = {
         panes: s.panes.map((pane) => ({
           id: pane.id,
-          tabs: pane.tabs.map((t) => ({ path: t.path, preview: t.preview, viewMode: t.viewMode })),
-          activePath: pane.activePath,
+          tabs: pane.tabs.filter((t) => !isExternalTabPath(t.path)).map((t) => ({ path: t.path, preview: t.preview, viewMode: t.viewMode })),
+          activePath: pane.activePath && !isExternalTabPath(pane.activePath) ? pane.activePath : null,
         })),
         layout: s.layout,
         focusedPaneId: s.focusedPaneId,
@@ -338,9 +351,12 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       if (!tab || tab.content === tab.savedContent || isArchivedPath(tab.path, p) || !tab.editable) return
       const content = tab.content
       mapTabs(p, (t) => (t.path === path ? { ...t, status: 'saving' } : t))
-      saveFile(path, content, false, p)
+      const save = isExternalTabPath(path)
+        ? saveExternalFile(externalAbsolutePath(path), content).then(() => ({ ok: true as const, commit: null }))
+        : saveFile(path, content, false, p)
+      save
         .then(() => {
-          putCachedFile(p, path, { content, editable: tab.editable })
+          if (!isExternalTabPath(path)) putCachedFile(p, path, { content, editable: tab.editable })
           mapTabs(p, (t) =>
             t.path === path && t.content === content ? { ...t, savedContent: content, status: 'saved', statusMessage: 'Saved' } : t,
           )
@@ -427,8 +443,11 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       settlePendingSave(p, tab.path)
       mapTabs(p, (t) => (t.path === tab.path ? { ...t, status: 'saving' } : t))
       try {
-        const result = await saveFile(tab.path, tab.content, commit, p)
-        putCachedFile(p, tab.path, { content: tab.content, editable: tab.editable })
+        const external = isExternalTabPath(tab.path)
+        const result = external
+          ? { ...(await saveExternalFile(externalAbsolutePath(tab.path), tab.content)), commit: null }
+          : await saveFile(tab.path, tab.content, commit, p)
+        if (!external) putCachedFile(p, tab.path, { content: tab.content, editable: tab.editable })
         const message = commit
           ? `Committed${result.commit?.hash ? ' ' + result.commit.hash.slice(0, 7) : ''}`
           : 'Saved'
@@ -443,7 +462,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
               }
             : t,
         )
-        if (commit) {
+        if (commit && !external) {
           onCommitted()
           fetchRules(tab.path, p)
             .then((rules) => mapTabs(p, (t) => (t.path === tab.path ? { ...t, rules } : t)))
@@ -626,6 +645,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     activeTab,
     setActivePath,
     openFile,
+    openExternalFile,
     pinTab,
     reorderTabs,
     setTabViewMode,

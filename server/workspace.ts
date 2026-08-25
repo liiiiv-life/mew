@@ -81,7 +81,7 @@ function persist(key: string, value: string) {
  * 워크스페이스를 바꾼다. 성공하면 새 워크스페이스 정보를 돌려준다.
  * 부르는 쪽은 **모든 클라이언트를 새로고침시켜야 한다** — 열린 탭·트리·프로젝트가 전부 옛 폴더의 것이다.
  */
-export function switchWorkspace(target: string): WorkspaceInfo {
+export function switchWorkspace(target: string, initialProject?: string): WorkspaceInfo {
   const abs = path.resolve(target)
   assertStorable(abs)
   let stat: fs.Stats
@@ -104,7 +104,7 @@ export function switchWorkspace(target: string): WorkspaceInfo {
   ensureDocsRoot()
   persist('MEW_WORKSPACE', abs)
   watchDocsTree()
-  broadcast({ type: 'workspace' })
+  broadcast({ type: 'workspace', ...(initialProject ? { project: initialProject } : {}) })
 
   return currentWorkspace()
 }

@@ -4,7 +4,7 @@ import { parseCsv } from '../utils/csv'
 import { parseXlsx, type SheetData } from '../utils/xlsx'
 
 /** 표 탭 본문(xlsx·csv·tsv) — 바이트는 /api/raw에서 받아 브라우저에서 직접 푼다. 읽기 전용이다(편집·수식·서식 없음) */
-export function SheetViewer({ path }: { path: string }) {
+export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSrc?: string; downloadSrc?: string }) {
   const [sheets, setSheets] = useState<SheetData[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [active, setActive] = useState(0)
@@ -15,7 +15,7 @@ export function SheetViewer({ path }: { path: string }) {
     setSheets(null)
     setError(null)
     setActive(0)
-    fetch(rawUrl(path))
+    fetch(rawSrc ?? rawUrl(path))
       .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`파일을 불러오지 못했습니다 (${res.status})`))))
       // xlsx는 ZIP이라 풀어야 하고(비동기), csv·tsv는 글자라 그 자리에서 갈라 놓는다
       .then((buf) => (path.toLowerCase().endsWith('.xlsx') ? parseXlsx(buf) : parseCsv(buf, path)))
@@ -28,14 +28,14 @@ export function SheetViewer({ path }: { path: string }) {
     return () => {
       alive = false
     }
-  }, [path])
+  }, [path, rawSrc])
 
   if (error) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-surface p-6 text-center">
         <span className="max-w-md truncate text-sm text-ink-muted">{name}</span>
         <span className="text-sm text-danger">{error}</span>
-        <a href={downloadUrl(path)} download={name} className="text-xs text-accent hover:underline">
+        <a href={downloadSrc ?? downloadUrl(path)} download={name} className="text-xs text-accent hover:underline">
           다운로드
         </a>
       </div>
@@ -62,7 +62,7 @@ export function SheetViewer({ path }: { path: string }) {
             {s.name}
           </button>
         ))}
-        <a href={downloadUrl(path)} download={name} className="ml-auto shrink-0 text-accent hover:underline">
+        <a href={downloadSrc ?? downloadUrl(path)} download={name} className="ml-auto shrink-0 text-accent hover:underline">
           다운로드
         </a>
       </div>

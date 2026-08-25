@@ -23,6 +23,7 @@ import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
 import { FabMenu } from './components/FabMenu'
 import { HomePanel } from './components/home/HomePanel'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
+import { ServerFileExplorer } from './components/ServerFileExplorer'
 import { LoginPage } from './components/LoginPage'
 import { SettingsModal } from './components/SettingsModal'
 import { AdminSettingsModal } from './components/AdminSettingsModal'
@@ -57,6 +58,7 @@ import { WORKSPACE_PROJECT } from './utils/active-project'
 import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
 import { useI18n } from './i18n'
 import { applyFontPreferences, loadFontPreferences, normalizeFontPreferences, saveFontPreferences } from './utils/fontPreferences'
+import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
@@ -149,6 +151,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 채팅 멘션·에이전트 답변의 파일 링크 — 다른 프로젝트면 옮긴 다음 렌더에서 파일과 줄을 연다
   const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string; line: number | null } | null>(null)
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false)
+  const [serverFileExplorerOpen, setServerFileExplorerOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadTheme)
@@ -213,6 +216,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     activeTab,
     setActivePath,
     openFile,
+    openExternalFile,
     pinTab,
     reorderTabs,
     setTabViewMode,
@@ -334,7 +338,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
   // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
-  const tabPresence = usePresence(project, activePath || null, authEmail, refreshTree)
+  const tabPresence = usePresence(project, activePath && !isExternalTabPath(activePath) ? activePath : null, authEmail, refreshTree)
 
   const { width: sidebarWidth, startResize: startSidebarResize } = usePanelWidth('mew:sidebar-width', {
     min: 180,
@@ -509,7 +513,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 되돌리기는 md 문서의 hotview collab 문서를 직접 갈아끼우는 방식이라 그 경로만 지원한다.
   // 다른 세션이 지금 이 문서를 보고 있으면(나 혼자가 아니면) 충돌 가능성이 있어 막는다.
   const canRevertActiveTab =
-    !!activeTab?.editable && activeTab.path.endsWith('.md') && (tabPresence[activeTab.path]?.length ?? 0) <= 1
+    !!activeTab?.editable && !isExternalTabPath(activeTab.path) && activeTab.path.endsWith('.md') && (tabPresence[activeTab.path]?.length ?? 0) <= 1
 
   const handleRevertFile = useCallback(
     async (hash: string) => {
@@ -904,6 +908,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       : []),
     ...(canUseTerminal
       ? [
+          {
+            id: 'file-explorer',
+            label: t('header.fileExplorer'),
+            onSelect: () => setServerFileExplorerOpen(true),
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h6l2 2h10v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+                <path d="M3 10h18" />
+              </svg>
+            ),
+          },
           {
             id: 'schedule',
             label: t('header.scheduledTasks'),
@@ -1406,6 +1421,19 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       )}
 
       {workspaceSwitcherOpen && isOwner && <WorkspaceSwitcher onClose={() => setWorkspaceSwitcherOpen(false)} />}
+
+      {serverFileExplorerOpen && canUseTerminal && (
+        <ServerFileExplorer
+          isOwner={isOwner}
+          onOpenFile={(path) => {
+            openExternalFile(path)
+            setHomeOpen(false)
+          }}
+          onRenamed={(oldPath, newPath, type) => remapPaths(externalTabPath(oldPath), externalTabPath(newPath), type)}
+          onDeleted={(path, type) => removePaths(externalTabPath(path), type)}
+          onClose={() => setServerFileExplorerOpen(false)}
+        />
+      )}
 
       {dbListOpen && !isGuest && <DatabaseListModal onClose={() => setDbListOpen(false)} />}
 

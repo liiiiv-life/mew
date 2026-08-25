@@ -1,5 +1,6 @@
 import { useDragReorder } from '@mew/ui'
 import { PresenceDots } from './PresenceDots'
+import { externalFileName, isExternalTabPath } from '../utils/externalFiles'
 
 export interface TabBarItem {
   path: string
@@ -40,7 +41,7 @@ export function TabBar({
       <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto">
         {tabs.map((tab, i) => {
           const isActive = tab.path === activePath
-          const fileName = tab.path.split('/').pop() ?? tab.path
+          const fileName = isExternalTabPath(tab.path) ? externalFileName(tab.path) : tab.path.split('/').pop() ?? tab.path
           return (
             <div
               key={tab.path}
@@ -58,7 +59,7 @@ export function TabBar({
                 if (drag.dragIndex !== null) e.preventDefault()
               }}
             >
-              <span className={`max-w-[150px] truncate ${tab.preview ? 'italic' : ''}`}>{fileName}</span>
+              <span title={isExternalTabPath(tab.path) ? tab.path.slice(4) : tab.path} className={`max-w-[150px] truncate ${tab.preview ? 'italic' : ''}`}>{fileName}</span>
               <PresenceDots colors={presence[tab.path] ?? []} />
               <button
                 type="button"

@@ -137,6 +137,77 @@ export function browseDirs(path = ''): Promise<BrowseResult> {
   return fetch(`/api/fs/dirs?path=${encodeURIComponent(path)}`).then(json<BrowseResult>)
 }
 
+export interface ExternalEntry {
+  name: string
+  path: string
+  type: 'file' | 'dir'
+  size: number | null
+}
+
+export interface ExternalEntriesResult {
+  path: string
+  parent: string | null
+  entries: ExternalEntry[]
+}
+
+export function browseExternalEntries(path = ''): Promise<ExternalEntriesResult> {
+  return fetch(`/api/fs/entries?path=${encodeURIComponent(path)}`).then(json<ExternalEntriesResult>)
+}
+
+export function fetchExternalFile(path: string): Promise<{ path: string; content: string; editable: true }> {
+  return fetch(`/api/fs/file?path=${encodeURIComponent(path)}`)
+    .then(json<{ path: string; content: string }>)
+    .then((result) => ({ ...result, editable: true as const }))
+}
+
+export function saveExternalFile(path: string, content: string): Promise<{ ok: true; path: string }> {
+  return fetch('/api/fs/file', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  }).then(json<{ ok: true; path: string }>)
+}
+
+export function renameExternalPath(path: string, name: string): Promise<{ ok: true; path: string }> {
+  return fetch('/api/fs/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, name }),
+  }).then(json<{ ok: true; path: string }>)
+}
+
+export function deleteExternalPath(path: string): Promise<{ ok: true }> {
+  return fetch(`/api/fs/path?path=${encodeURIComponent(path)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+}
+
+export function pasteExternalPath(
+  source: string,
+  destination: string,
+  mode: 'copy' | 'cut',
+): Promise<{ ok: true; path: string }> {
+  return fetch('/api/fs/paste', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, destination, mode }),
+  }).then(json<{ ok: true; path: string }>)
+}
+
+export function externalRawUrl(path: string): string {
+  return `/api/fs/raw?path=${encodeURIComponent(path)}`
+}
+
+export function externalDownloadUrl(path: string): string {
+  return `/api/fs/download?path=${encodeURIComponent(path)}`
+}
+
+export function openExternalProject(path: string): Promise<WorkspaceInfo & { project: string }> {
+  return fetch('/api/fs/open-project', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(json<WorkspaceInfo & { project: string }>)
+}
+
 export interface WorkspaceInfo {
   path: string
   /** 그 폴더 안에서 프로젝트로 잡히는 것들 — 폴더 하나가 프로젝트 하나 */

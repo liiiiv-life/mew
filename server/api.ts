@@ -2,9 +2,9 @@ import express from 'express'
 import multer from 'multer'
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_PROJECT, isProtectedProject, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_ROOT } from './paths.ts'
+import { DEFAULT_PROJECT, isProtectedProject, isValidProjectName, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_ROOT } from './paths.ts'
 import { createProject, deleteProject, ProjectNameError, renameProject } from './projects.ts'
-import { buildTree, isPathVisible } from './tree.ts'
+import { buildTreeAsync, isPathVisible } from './tree.ts'
 import { flattenTextFiles, replaceInFile, searchInProject } from './search.ts'
 import { currentRagIndex, ragEnabled, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
@@ -26,7 +26,18 @@ import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
 import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { DocsRepoError, exportDocs, importDocs } from './docsRepo.ts'
-import { BrowseError, listDirs, resolveBrowsePath } from './fsBrowse.ts'
+import {
+  BrowseError,
+  deleteExternalPath,
+  listDirs,
+  listEntries,
+  pasteExternalPath,
+  readExternalFile,
+  renameExternalPath,
+  resolveBrowsePath,
+  resolveExistingPath,
+  writeExternalFile,
+} from './fsBrowse.ts'
 import { browserProxyFrameUrl } from './browserProxy.ts'
 import { createTodo, deleteTodo, listTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
 import { currentWorkspace, switchDocsRoot, switchWorkspace, WorkspaceError } from './workspace.ts'
@@ -341,6 +352,96 @@ export function createApiApp() {
     }
   })
 
+  // 서버 파일 탐색기 — 셸과 같은 OS 사용자 범위를 노출하므로 manager·owner만 쓴다.
+  app.get('/fs/entries', requireRole('manager', 'owner'), async (req, res) => {
+    try {
+      res.json(await listEntries(String(req.query.path ?? '')))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.get('/fs/file', requireRole('manager', 'owner'), (req, res) => {
+    try {
+      res.json(readExternalFile(req.query.path))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.put('/fs/file', requireRole('manager', 'owner'), (req, res) => {
+    try {
+      const { path: filePath, content } = req.body as { path?: unknown; content?: unknown }
+      res.json({ ok: true, path: writeExternalFile(filePath, content) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/fs/rename', requireRole('manager', 'owner'), (req, res) => {
+    try {
+      const { path: target, name } = req.body as { path?: unknown; name?: unknown }
+      res.json({ ok: true, path: renameExternalPath(target, name) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.delete('/fs/path', requireRole('manager', 'owner'), (req, res) => {
+    try {
+      deleteExternalPath(req.query.path)
+      res.json({ ok: true })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/fs/paste', requireRole('manager', 'owner'), (req, res) => {
+    try {
+      const { source, destination, mode } = req.body as { source?: unknown; destination?: unknown; mode?: unknown }
+      res.json({ ok: true, path: pasteExternalPath(source, destination, mode) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.get('/fs/raw', requireRole('manager', 'owner'), (req, res) => {
+    try {
+      const abs = resolveExistingPath(req.query.path)
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN')
+      res.sendFile(abs, { dotfiles: 'allow' }, (err) => {
+        if (err && !res.headersSent) handleError(res, err)
+      })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.get('/fs/download', requireRole('manager', 'owner'), (req, res) => {
+    try {
+      const abs = resolveExistingPath(req.query.path)
+      res.download(abs, path.basename(abs), { dotfiles: 'allow' }, (err) => {
+        if (err && !res.headersSent) handleError(res, err)
+      })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/fs/open-project', requireRole('owner'), (req, res) => {
+    try {
+      const abs = resolveExistingPath((req.body as { path?: unknown }).path)
+      if (!fs.statSync(abs).isDirectory()) throw new BrowseError(`폴더가 아닙니다: ${abs}`)
+      const project = path.basename(abs)
+      if (!isValidProjectName(project)) throw new BrowseError(`프로젝트로 열 수 없는 폴더 이름입니다: ${project}`)
+      const info = switchWorkspace(path.dirname(abs), project)
+      tmuxManager.cwd = info.path
+      res.json({ ...info, project })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   // docs로 쓸 폴더 바꾸기 — 워크스페이스 **안**의 폴더만 받는다(workspace.ts가 경계를 검사한다)
   app.post('/docs/root', requireRole('owner'), (req, res) => {
     const { path: target } = req.body as { path?: unknown }
@@ -516,12 +617,12 @@ export function createApiApp() {
     }
   })
 
-  app.get('/tree', (req, res) => {
+  app.get('/tree', async (req, res) => {
     try {
       const project = projectOf(req)
       const role = authOf(req).role
       // owner·manager는 걸러내지 않은 트리를 받는다 — 숨김 목록도 확장자 필터도 없다(seesEveryFile)
-      const tree = buildTree(project, { showAll: seesEveryFile(role) })
+      const tree = await buildTreeAsync(project, { showAll: seesEveryFile(role) })
       // 이 프로젝트를 보는 세션이 있으니 트리 감시를 지연 등록한다 — 터미널·다른 세션이 만든 파일이
       // 사이드바에 바로 반영되도록(멱등). docs는 부팅 때부터 감시 중. 게스트는 감시를 유발하지 않는다.
       if (role !== 'guest') watchProjectTree(project)
@@ -710,7 +811,7 @@ export function createApiApp() {
   })
 
   // 프로젝트 전체 파일 내용 검색(Ctrl+Shift+F) — 트리 가시성·게스트 필터를 그대로 거친 파일만 훑는다
-  app.get('/search', (req, res) => {
+  app.get('/search', async (req, res) => {
     const project = projectOf(req)
     const query = String(req.query.q ?? '')
     const opts = { regex: req.query.regex === '1', caseSensitive: req.query.case === '1' }
@@ -719,7 +820,7 @@ export function createApiApp() {
         res.json({ results: [], truncated: false })
         return
       }
-      const tree = buildTree(project)
+      const tree = await buildTreeAsync(project)
       const visible = authOf(req).role === 'guest' ? filterTreeForGuest(project, tree) : tree
       const files = flattenTextFiles(visible)
       res.json(searchInProject(project, files, query, opts))
@@ -747,7 +848,7 @@ export function createApiApp() {
         return
       }
       validateRagProject(project)
-      const files = flattenTextFiles(buildTree(project))
+      const files = flattenTextFiles(await buildTreeAsync(project))
       res.json(await currentRagIndex().search(project, files, query, req.query.history === '1'))
     } catch (err) {
       handleError(res, err)
@@ -772,7 +873,7 @@ export function createApiApp() {
     const project = projectOf(req)
     try {
       validateRagProject(project)
-      const files = flattenTextFiles(buildTree(project))
+      const files = flattenTextFiles(await buildTreeAsync(project))
       res.json({ ok: true, ...(await currentRagIndex().ensureProject(project, files, true)) })
     } catch (err) {
       handleError(res, err)

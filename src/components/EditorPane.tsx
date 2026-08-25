@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteComment,
   editorApi,
+  externalRawUrl,
   fetchComments,
   fetchMembers,
   isArchivedPath,
@@ -25,6 +26,7 @@ import { saveScroll, getScroll } from '../utils/scrollMemory'
 import { useCollab } from '../hooks/useCollab'
 import type { Pane, Tab } from '../hooks/useTabs'
 import type { DropZone } from '../utils/paneTree'
+import { externalAbsolutePath, isExternalTabPath } from '../utils/externalFiles'
 
 /** 상태줄용 바이트 표기 — 1KB 미만은 바이트 그대로, 그 위는 소수 한 자리 */
 function formatBytes(bytes: number): string {
@@ -66,7 +68,7 @@ type CommentPopup =
 // 실시간 협업은 파일별 "주 편집화면"에서만 지원한다 — .md는 Hotview, 그 외는 Plain.
 // 게스트는 파일별 편집 허용이 있어도 collab 소켓 자체가 서버에서 막혀 있어 항상 로컬 편집으로 처리한다.
 function primaryCollabPath(tab: Tab | null, role: Role): string | null {
-  if (role === 'guest' || !tab || !tab.editable || isArchivedPath(tab.path) || mediaKind(tab.path)) return null
+  if (role === 'guest' || !tab || isExternalTabPath(tab.path) || !tab.editable || isArchivedPath(tab.path) || mediaKind(tab.path)) return null
   const eligible = tab.path.endsWith('.md') ? tab.viewMode === 'hotview' : tab.viewMode === 'plain'
   return eligible ? tab.path : null
 }
@@ -196,7 +198,8 @@ export function EditorPane({
     setMediaBytes(null)
     if (!mediaPath) return
     let alive = true
-    fetch(rawUrl(mediaPath), { method: 'HEAD' })
+    const url = isExternalTabPath(mediaPath) ? externalRawUrl(externalAbsolutePath(mediaPath)) : rawUrl(mediaPath)
+    fetch(url, { method: 'HEAD' })
       .then((res) => {
         const len = Number(res.headers.get('content-length'))
         if (alive && Number.isFinite(len)) setMediaBytes(len)
@@ -218,7 +221,7 @@ export function EditorPane({
   // 본문에는 아무것도 남기지 않는다 — 하이라이트는 에디터가 앵커를 다시 풀어 그리는 장식이다.
   // 미디어·SVG 미리보기처럼 텍스트 편집기가 없는 화면과 게스트에게는 아예 뜨지 않는다.
   const isTextPane =
-    !!activeTab && !mediaKind(activeTab.path) && !(activeTab.path.endsWith('.svg') && activeTab.viewMode === 'hotview')
+    !!activeTab && !isExternalTabPath(activeTab.path) && !mediaKind(activeTab.path) && !(activeTab.path.endsWith('.svg') && activeTab.viewMode === 'hotview')
   const canComment = !isGuest && isTextPane
   const canCommentRef = useRef(canComment)
   canCommentRef.current = canComment
@@ -458,8 +461,8 @@ export function EditorPane({
     },
   })
 
-  const isMd = !!activeTab?.path.endsWith('.md')
-  const isSvg = !!activeTab?.path.endsWith('.svg')
+  const isMd = !!activeTab?.path.endsWith('.md') && !isExternalTabPath(activeTab.path)
+  const isSvg = !!activeTab?.path.endsWith('.svg') && !isExternalTabPath(activeTab.path)
 
   return (
     <div onPointerDownCapture={onFocus} className="relative flex min-h-0 min-w-0 flex-1 flex-col">

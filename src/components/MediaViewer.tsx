@@ -1,18 +1,22 @@
-import { downloadUrl, rawUrl } from '../api/client'
+import { downloadUrl, externalDownloadUrl, externalRawUrl, rawUrl } from '../api/client'
 import { SheetViewer } from './SheetViewer'
 import type { MediaKind } from '../utils/media'
+import { externalAbsolutePath, externalFileName, isExternalTabPath } from '../utils/externalFiles'
 
 /** 바이너리 미디어 탭 본문 — 내용은 /api/raw에서 브라우저가 직접 스트리밍한다 */
 export function MediaViewer({ path, kind }: { path: string; kind: MediaKind }) {
-  const src = rawUrl(path)
-  const name = path.split('/').pop() ?? path
+  const external = isExternalTabPath(path)
+  const absolute = externalAbsolutePath(path)
+  const src = external ? externalRawUrl(absolute) : rawUrl(path)
+  const download = external ? externalDownloadUrl(absolute) : downloadUrl(path)
+  const name = external ? externalFileName(path) : path.split('/').pop() ?? path
 
   if (kind === 'download') {
     // 미리보기가 없는 바이너리(APK/AAB 등) — /download는 Content-Disposition attachment로 확실하게 저장된다
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-surface p-6 text-center">
         <span className="max-w-md truncate text-sm text-ink-muted">{name}</span>
-        <a href={downloadUrl(path)} download={name} className="rounded-md bg-accent px-4 py-2 text-sm text-white hover:opacity-90">
+        <a href={download} download={name} className="rounded-md bg-accent px-4 py-2 text-sm text-white hover:opacity-90">
           다운로드
         </a>
         <span className="text-xs text-ink-muted">미리보기 없이 내려받는 파일</span>
@@ -21,7 +25,7 @@ export function MediaViewer({ path, kind }: { path: string; kind: MediaKind }) {
   }
 
   if (kind === 'sheet') {
-    return <SheetViewer path={path} />
+    return <SheetViewer path={path} rawSrc={src} downloadSrc={download} />
   }
 
   if (kind === 'pdf') {

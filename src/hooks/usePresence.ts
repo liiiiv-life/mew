@@ -56,7 +56,7 @@ export function usePresence(
       ws.onmessage = (event) => {
         if (typeof event.data !== 'string') return
         try {
-          const msg = JSON.parse(event.data) as { type?: string; participants?: Record<string, string[]> }
+          const msg = JSON.parse(event.data) as { type?: string; participants?: Record<string, string[]>; project?: string }
           if (msg.type === 'participants' && msg.participants) {
             // 내 프로젝트 것만 남기고 접두어를 벗겨 UI가 기존처럼 rel 경로로 쓰게 한다
             const prefix = `${projectRef.current}:`
@@ -73,7 +73,8 @@ export function usePresence(
           }
           // 워크스페이스가 통째로 바뀌었다 — 열린 탭·트리가 전부 남의 폴더 것이라 다시 띄우는 수밖에 없다
           else if (msg.type === 'workspace') {
-            forgetSavedProject()
+            if (msg.project) localStorage.setItem('mew:project', msg.project)
+            else forgetSavedProject()
             location.reload()
           }
         } catch {
