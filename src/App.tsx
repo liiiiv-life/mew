@@ -138,6 +138,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [rootTree, setRootTree] = useState<TreeNode[]>([])
   const [docsTree, setDocsTree] = useState<TreeNode[]>([])
   const [docsExpanded, setDocsExpanded] = useState(false)
+  // Project는 처음부터 열어 두어 기존의 "Documents 아래에 루트 내용" 밀도를 유지한다.
+  const [rootExpanded, setRootExpanded] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   const [tmuxOpen, setTmuxOpen] = useState(() => canUseTerminal && loadTmuxOpen(getProject()))
   // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034).
@@ -1167,7 +1169,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                       트리의 정체성을 바꾸지 않는다. */}
                   <FileTree
                     key={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
-                    tree={isGuest ? docsTree : rootTree}
+                    tree={isGuest ? docsTree : []}
                     project={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
                     selectedPath={project === (isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? activePath : null}
                     readOnly={isGuest}
@@ -1205,6 +1207,44 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                             onFolderCreated={refreshTree}
                             onRenamed={() => refreshTree()}
                             onDeleted={() => refreshTree()}
+                            onGuestAccessChanged={refreshTree}
+                            onNotice={showToast}
+                            registerSearchCancel={() => {}}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setRootExpanded((expanded) => !expanded)}
+                          className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-semibold hover:bg-surface-raised ${rootExpanded ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
+                          title={rootProjectPath ?? undefined}
+                        >
+                          <span aria-hidden="true">{rootExpanded ? '▾' : '▸'}</span>
+                          <span>Project</span>
+                        </button>
+                        {rootExpanded && (
+                          <FileTree
+                            tree={rootTree}
+                            project={WORKSPACE_PROJECT}
+                            compact
+                            selectedPath={project === WORKSPACE_PROJECT ? activePath : null}
+                            readOnly={isGuest}
+                            canUseCommands={canUseTerminal}
+                            searchFocusSignal={searchFocusSignal}
+                            newFileSignal={newFileSignal}
+                            revealSignal={revealSignal}
+                            presence={project === WORKSPACE_PROJECT ? tabPresence : {}}
+                            onSelect={(path) => {
+                              openMentionedFile(WORKSPACE_PROJECT, path, null)
+                              if (!isDesktop()) setSidebarOpen(false)
+                            }}
+                            onFileCreated={(relPath) => {
+                              refreshTree()
+                              openMentionedFile(WORKSPACE_PROJECT, relPath, null)
+                              if (!isDesktop()) setSidebarOpen(false)
+                            }}
+                            onFolderCreated={refreshTree}
+                            onRenamed={handleRenamed}
+                            onDeleted={handleDeleted}
                             onGuestAccessChanged={refreshTree}
                             onNotice={showToast}
                             registerSearchCancel={() => {}}
