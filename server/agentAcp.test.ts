@@ -126,6 +126,38 @@ new AgentSideConnection(
 )
 `
 
+// session/load가 plain object 오류로 실패한 뒤에도 기존 새 세션으로 프롬프트를 받을 수 있어야 한다.
+const brokenHistoryStubSource = `
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
+import { Readable, Writable } from 'node:stream'
+
+class BrokenHistoryAgent {
+  constructor(conn) { this.conn = conn }
+  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: { loadSession: true } } }
+  async newSession() { return { sessionId: 'fresh-session' } }
+  async loadSession({ sessionId }) {
+    await this.conn.sessionUpdate({ sessionId, update: {
+      sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '실패 전에 온 유령 전사' },
+    } })
+    throw { code: -32603, message: 'Internal error', data: { details: 'no rollout found' } }
+  }
+  async authenticate() { return {} }
+  async cancel() {}
+  async prompt({ sessionId }) {
+    if (sessionId !== 'fresh-session') throw new Error('poisoned session id: ' + sessionId)
+    await this.conn.sessionUpdate({ sessionId, update: {
+      sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '새 세션 정상 응답' },
+    } })
+    return { stopReason: 'end_turn' }
+  }
+}
+
+new AgentSideConnection(
+  (conn) => new BrokenHistoryAgent(conn),
+  ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
+)
+`
+
 // 연결이 끊긴 뒤에도 진행 중인 턴은 유휴 시한보다 오래 살아야 한다.
 const slowStubSource = `
 import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
@@ -472,6 +504,36 @@ test('되재생된 사용자 발화에서 CLI 메타만 걷어낸다 — 창에�
     '/model opus', // 되재생된 슬래시 커맨드는 입력한 모양으로
     '이 <local-command-caveat>x</local-command-caveat> 왜 붙어?', // 문장 안의 태그는 그대로
   ])
+})
+
+test('히스토리 불러오기가 실패하면 기존 세션과 대화를 유지한다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-broken-history-'))
+  const stubPath = path.join(dir, 'broken-history-stub.mjs')
+  fs.writeFileSync(stubPath, brokenHistoryStubSource)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+  const before = session.snapshot()
+
+  await assert.rejects(session.loadSession('missing-session'), (err: unknown) => {
+    assert.equal((err as { message?: string }).message, 'Internal error')
+    return true
+  })
+  assert.deepEqual(session.snapshot(), before, '실패 전에 흘러온 전사와 reset을 현재 화면에 남기지 않는다')
+
+  const events: AgentEvent[] = []
+  const done = new Promise<void>((resolve) => {
+    session.attach((event) => {
+      events.push(event)
+      if (event.type === 'turn_end') resolve()
+    })
+  })
+  session.prompt('계속')
+  await done
+  assert.match(JSON.stringify(events), /새 세션 정상 응답/)
+  assert.doesNotMatch(JSON.stringify(events), /유령 전사|poisoned session id/)
 })
 
 test('세션을 잡으면 기본 권한 모드(bypassPermissions)를 걸어 준다', async (t) => {

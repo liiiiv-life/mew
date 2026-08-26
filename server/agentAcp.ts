@@ -283,6 +283,8 @@ export class AgentSession {
   #rejectStartup: ((err: Error) => void) | null = null
   #sessionId = ''
   #events: AgentEvent[] = []
+  /** session/load가 성공하기 전까지 전사를 숨겨 두는 임시 버퍼 — 실패한 세션이 현재 대화를 오염시키지 않게 한다. */
+  #loadingEvents: AgentEvent[] | null = null
   #listeners = new Set<(event: AgentEvent) => void>()
   #pending = new Map<string, (response: RequestPermissionResponse) => void>()
   #idleTimer: NodeJS.Timeout | null = null
@@ -759,10 +761,30 @@ export class AgentSession {
 
   /** 지난 세션을 불러온다 — 에이전트가 히스토리를 session/update로 다시 흘려준다(`/resume`) */
   async loadSession(sessionId: string) {
+    if (this.#loadingEvents) throw new Error('이미 다른 세션을 불러오는 중입니다')
+    const previousModels = this.#models
+    const previousModes = this.#modes
+    this.#loadingEvents = []
+    let loaded: Awaited<ReturnType<ClientSideConnection['loadSession']>>
+    let replay: AgentEvent[]
+    try {
+      loaded = await this.#conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [] })
+      replay = this.#loadingEvents
+    } catch (err) {
+      // 일부 어댑터는 실패하기 전 update를 몇 개 흘리거나 모드를 바꾼다. 어느 쪽도 현재 세션에 남기지 않는다.
+      this.#models = previousModels
+      this.#modes = previousModes
+      throw err
+    } finally {
+      this.#loadingEvents = null
+    }
+
+    // ACP가 실제 기록을 확인한 뒤에만 이 탭의 기준 세션을 바꾼다. 실패한 ID를 먼저 저장하면 다음
+    // 프롬프트까지 `session not found`로 이어지고 브라우저 복원 포인터에도 유령 ID가 남는다.
     this.#resetConversation()
     this.#adopt(sessionId, null, null)
-    await this.#pushMeta() // 세션 전환을 즉시 클라이언트에 반영 — ACP 히스토리 재생 전
-    const loaded = await this.#conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [] })
+    await this.#pushMeta()
+    for (const event of replay) this.#emit(event)
     const models = loaded.models ?? primeModels(loaded)
     if (models) this.#useModels(models)
     if (loaded.modes) {
@@ -844,6 +866,10 @@ export class AgentSession {
   }
 
   #emit(event: AgentEvent) {
+    if (this.#loadingEvents) {
+      this.#loadingEvents.push(event)
+      return
+    }
     this.#events.push(event)
     if (this.#events.length > MAX_BUFFERED_EVENTS) this.#events.splice(0, this.#events.length - MAX_BUFFERED_EVENTS)
     this.#broadcast(event)

@@ -613,6 +613,10 @@ function AgentPathBar({
   busy,
   saving,
   error,
+  sessionReady,
+  showInfo,
+  onClearSession,
+  onToggleInfo,
   onCommit,
 }: {
   cwd: string | null
@@ -620,6 +624,10 @@ function AgentPathBar({
   busy: boolean
   saving: boolean
   error: string | null
+  sessionReady: boolean
+  showInfo: boolean
+  onClearSession: () => void
+  onToggleInfo: () => void
   onCommit: (path: string) => void
 }) {
   const [draft, setDraft] = useState(cwd ?? '')
@@ -752,6 +760,28 @@ function AgentPathBar({
         />
         {saving && <span className="shrink-0 text-[10px] text-ink-muted">이동 중…</span>}
         {error && <span className="max-w-[35%] shrink-0 truncate text-[10px] text-danger" title={error}>{error}</span>}
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onClearSession}
+          disabled={!sessionReady}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
+          aria-label="새 세션"
+          title="새 세션 — 이 탭의 세션을 끝내고 새로 시작합니다 (지난 세션은 히스토리에 남습니다)"
+        >
+          <ClearGlyph />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onToggleInfo}
+          disabled={!sessionReady}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${showInfo ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
+          aria-label="세션 정보"
+          title="세션 정보"
+        >
+          <InfoGlyph />
+        </button>
         <button
           type="button"
           onMouseDown={(event) => event.preventDefault()}
@@ -1016,8 +1046,11 @@ export function AgentPanel({ project, tree, onOpenFile, onClose, nextTabSignal =
   // 한 번이라도 연 탭만 붙인다 — 탭 하나가 에이전트 프로세스 하나라, 복원된 탭까지 다 띄우면 우르르 뜬다
   const [opened, setOpened] = useState<Set<string>>(() => new Set(activeId ? [activeId] : []))
   const [infos, setInfos] = useState<Record<string, TabInfo>>({})
+  const [readyTabs, setReadyTabs] = useState<Set<string>>(() => new Set())
+  const [infoTabs, setInfoTabs] = useState<Set<string>>(() => new Set())
   // 탭을 닫을 때 그 탭의 WS로 close_session을 보내야 한다 — 창을 닫는 것과 달리 세션을 끝내는 뜻이다
   const sendersRef = useRef(new Map<string, (payload: Record<string, unknown>) => void>())
+  const clearersRef = useRef(new Map<string, () => void>())
 
   useOverlayDismiss(onClose)
 
@@ -1083,6 +1116,18 @@ export function AgentPanel({ project, tree, onOpenFile, onClose, nextTabSignal =
       const { [id]: _closed, ...keep } = prev
       return keep
     })
+    setReadyTabs((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+    setInfoTabs((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
     if (activeId === id) setActiveId(rest[Math.min(index, rest.length - 1)]?.id ?? null)
   }
 
@@ -1112,6 +1157,28 @@ export function AgentPanel({ project, tree, onOpenFile, onClose, nextTabSignal =
   const register = useCallback((id: string, send: ((payload: Record<string, unknown>) => void) | null) => {
     if (send) sendersRef.current.set(id, send)
     else sendersRef.current.delete(id)
+  }, [])
+
+  const registerClear = useCallback((id: string, clear: (() => void) | null) => {
+    if (clear) clearersRef.current.set(id, clear)
+    else clearersRef.current.delete(id)
+    setReadyTabs((prev) => {
+      const ready = clear !== null
+      if (prev.has(id) === ready) return prev
+      const next = new Set(prev)
+      if (ready) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }, [])
+
+  const toggleInfo = useCallback((id: string) => {
+    setInfoTabs((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }, [])
 
   // 대화에서 뽑은 이름 — 사람이 직접 붙인 이름은 건드리지 않는다(불러온 세션 제목도 여기로 온다)
@@ -1194,6 +1261,10 @@ export function AgentPanel({ project, tree, onOpenFile, onClose, nextTabSignal =
           busy={infos[activeTab.id]?.busy ?? false}
           saving={pathSaving}
           error={pathError}
+          sessionReady={readyTabs.has(activeTab.id)}
+          showInfo={infoTabs.has(activeTab.id)}
+          onClearSession={() => clearersRef.current.get(activeTab.id)?.()}
+          onToggleInfo={() => toggleInfo(activeTab.id)}
           onCommit={changeCwd}
         />
       )}
@@ -1230,8 +1301,10 @@ export function AgentPanel({ project, tree, onOpenFile, onClose, nextTabSignal =
               onInfo={setTabInfo}
               onForgetSession={forgetTabSession}
               onRegister={register}
+              onRegisterClear={registerClear}
               onOpenFile={onOpenFile}
               onSwitchRuntime={(runtime) => selectRuntime(tab.id, runtime)}
+              showInfo={infoTabs.has(tab.id)}
             />
           </div>
           )
@@ -1259,8 +1332,10 @@ function AgentSessionView({
   onInfo,
   onForgetSession,
   onRegister,
+  onRegisterClear,
   onOpenFile,
   onSwitchRuntime,
+  showInfo,
 }: {
   tabId: string
   /** 지금 보이는 탭인지 — 안 보이는 탭은 높이가 0이라 스크롤을 못 잡는다(아래 effect) */
@@ -1275,9 +1350,11 @@ function AgentSessionView({
   onInfo: (tabId: string, runtime: string, cwd: string, info: TabInfo) => void
   onForgetSession: (tabId: string, runtime: string, cwd: string) => void
   onRegister: (tabId: string, send: ((payload: Record<string, unknown>) => void) | null) => void
+  onRegisterClear: (tabId: string, clear: (() => void) | null) => void
   onOpenFile: OpenWorkspaceFile
   /** 헤더 아이콘 드롭다운에서 다른 에이전트를 골랐다 — 이 탭의 세션을 그 런타임으로 갈아탄다 */
   onSwitchRuntime: (runtime: string) => void
+  showInfo: boolean
 }) {
   // 어느 프로젝트를 보고 있든 같은 창이다. 탭별 cwd는 워크스페이스 밖 경로도 될 수 있다(ADR 0077).
   const initialCache = useMemo(() => readAgentEventCache(runtime, tabId, cwd), [cwd, runtime, tabId])
@@ -1299,7 +1376,6 @@ function AgentSessionView({
     exitCode: number | null
   } | null>(null)
   const [authTerminalOpen, setAuthTerminalOpen] = useState(false)
-  const [showInfo, setShowInfo] = useState(false)
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [savedDefault, setSavedDefault] = useState<AgentRuntimeDefault | null>(null)
   const [savingDefault, setSavingDefault] = useState(false)
@@ -1531,6 +1607,8 @@ function AgentSessionView({
           setLoadingSession(null)
           stickRef.current = true
         }
+        // session/load가 reset 전에 실패하면 오류만 온다. 선택기를 계속 "불러오는 중"에 가두지 않는다.
+        if (event.type === 'error') setLoadingSession(null)
         queueEvent(event)
       }
       ws.onclose = () => {
@@ -1694,7 +1772,7 @@ function AgentSessionView({
    * 붙으면서 새 세션이 뜨고, 되감기가 빈 대화로 오므로 화면은 히스토리 드롭다운으로 돌아간다.
    * 끝난 세션은 사라지지 않는다 — 그 드롭다운에서 다시 불러올 수 있다.
    */
-  const clearSession = () => {
+  const clearSession = useCallback(() => {
     send({ type: 'close_session' })
     clearAgentEventCache(runtime, tabId, cwd)
     resumeSessionIdRef.current = null
@@ -1707,7 +1785,12 @@ function AgentSessionView({
     setSessions(null)
     stickRef.current = true
     setUnread(false)
-  }
+  }, [cwd, onForgetSession, runtime, send, tabId])
+
+  useEffect(() => {
+    onRegisterClear(tabId, connected ? clearSession : null)
+    return () => onRegisterClear(tabId, null)
+  }, [clearSession, connected, onRegisterClear, tabId])
 
   const submit = () => {
     const text = draft.trim()
@@ -1862,26 +1945,6 @@ function AgentSessionView({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {status && <span className={`text-xs ${busy ? 'text-ink-secondary' : 'text-ink-muted'}`}>{status}</span>}
-          {/* 이 탭에서 돌던 세션을 끝내고 새 세션으로 — 탭은 그대로, 화면만 새 탭처럼 돌아간다 */}
-          <button
-            type="button"
-            onClick={clearSession}
-            disabled={!connected}
-            className="flex h-6 w-6 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
-            aria-label="새 세션"
-            title="새 세션 — 이 탭의 세션을 끝내고 새로 시작합니다 (지난 세션은 히스토리에 남습니다)"
-          >
-            <ClearGlyph />
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowInfo((v) => !v)}
-            className={`flex h-6 w-6 items-center justify-center rounded hover:bg-surface-raised hover:text-ink ${showInfo ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
-            aria-label="세션 정보"
-            title="세션 정보"
-          >
-            <InfoGlyph />
-          </button>
         </div>
       </div>
 

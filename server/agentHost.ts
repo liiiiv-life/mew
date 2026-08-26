@@ -74,8 +74,19 @@ type Peer = {
   detach: (() => void) | null
 }
 
-function describeError(err: unknown): string {
-  if (err instanceof Error) return err.message
+export function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    const details = Object.fromEntries(
+      Object.entries(err as Error & Record<string, unknown>).filter(([key]) => key !== 'name' && key !== 'message' && key !== 'stack'),
+    )
+    const extra = Object.keys(details).length > 0 ? `\n${JSON.stringify(details, null, 2)}` : ''
+    return `${err.message}${extra}`
+  }
+  if (typeof err === 'object' && err !== null) {
+    const message = (err as { message?: unknown }).message
+    const head = typeof message === 'string' ? message : '에이전트 오류'
+    return `${head}\n${JSON.stringify(err, null, 2)}`
+  }
   return String(err)
 }
 

@@ -55,8 +55,19 @@ new AgentSideConnection(
 process.env.MEW_AGENT_CMD = process.execPath
 process.env.MEW_AGENT_ARGS = `${stubPath} ${finishedFile}`
 
-const { connectAgentHost, shutdownAgentHostsForWorkspace } = await import('./agentHost.ts')
+const { connectAgentHost, describeError, shutdownAgentHostsForWorkspace } = await import('./agentHost.ts')
 type AgentEvent = import('./agentAcp.ts').AgentEvent
+
+test('ACP의 plain object 오류에서 메시지와 상세 원인을 보존한다', () => {
+  const message = describeError({
+    code: -32603,
+    message: 'Internal error',
+    data: { details: 'no rollout found for thread id missing-session' },
+  })
+  assert.match(message, /Internal error/)
+  assert.match(message, /no rollout found/)
+  assert.doesNotMatch(message, /\[object Object\]/)
+})
 
 function alive(pid: number): boolean {
   try {
