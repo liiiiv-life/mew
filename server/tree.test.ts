@@ -146,13 +146,14 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
 })
 
 // ── 홈(.workspace) 스코프 ─────────────────────────────────────────────────────
-// 홈 탭은 워크스페이스 폴더 자신을 프로젝트처럼 본다. 프로젝트 폴더와 docs 폴더·.mew는 위쪽 탭 줄이
-// 맡는 자리라 트리에서 빠진다 — 다만 **맨 위 칸에서만** 빠진다.
+// 루트 폴더 자신이 프로젝트다. 하위 폴더와 숨김 폴더도 그대로 보이되 Documents만
+// 사이드바의 가상 폴더와 중복되지 않게 실제 위치를 뺀다.
 
-test('홈(.workspace) 트리: 워크스페이스 루트를 보되 프로젝트 폴더와 docs·.mew는 빠진다', () => {
+test('루트 프로젝트 트리: Documents만 제외하고 Git 하위 프로젝트를 표시한다', () => {
   const original = WORKSPACE_ROOT
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-ws-')))
   fs.mkdirSync(path.join(root, 'some-project'))
+  fs.mkdirSync(path.join(root, 'some-project', '.git'))
   fs.mkdirSync(path.join(root, 'docs'), { recursive: true })
   fs.mkdirSync(path.join(root, '.mew'), { recursive: true })
   fs.mkdirSync(path.join(root, '.agents', 'some-project'), { recursive: true })
@@ -164,9 +165,12 @@ test('홈(.workspace) 트리: 워크스페이스 루트를 보되 프로젝트 �
 
   try {
     setWorkspaceRoot(root)
-    const all = paths(buildTree(WORKSPACE_PROJECT, { showAll: true })).sort()
-    assert.deepEqual(all, ['.agents', '.agents/some-project', '.agents/some-project/note.md', 'AGENTS.md'].sort())
-    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'some-project', { type: 'dir', showAll: true }), false)
+    const tree = buildTree(WORKSPACE_PROJECT, { showAll: true })
+    const all = paths(tree).sort()
+    assert.deepEqual(all, ['.agents', '.agents/some-project', '.agents/some-project/note.md', '.mew', '.mew/cmd-button.json', 'AGENTS.md', 'some-project', 'some-project/app.ts'].sort())
+    assert.equal(tree.find((node) => node.name === 'some-project')?.gitRepo, true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'some-project', { type: 'dir', showAll: true }), true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs', { type: 'dir', showAll: true }), false)
     // 깊은 곳의 같은 이름은 그냥 폴더다
     assert.equal(isPathVisible(WORKSPACE_PROJECT, '.agents/some-project/note.md', { showAll: true }), true)
   } finally {

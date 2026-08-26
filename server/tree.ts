@@ -2,12 +2,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   DEFAULT_PROJECT,
-  MEW_DIR_NAME,
   WORKSPACE_PROJECT,
   docsTopSegment,
   isDeniedSegment,
   isSecretFile,
-  listProjects,
   projectRoot,
 } from './paths.ts'
 import { readIgnoreSet } from './ignoreList.ts'
@@ -17,6 +15,8 @@ export interface TreeNode {
   path: string
   type: 'file' | 'dir'
   children?: TreeNode[]
+  /** 루트 프로젝트 바로 아래에 있는 Git 저장소 폴더 */
+  gitRepo?: boolean
   guestAccess?: { view: boolean; edit: boolean }
 }
 
@@ -108,10 +108,9 @@ function filtersFor(project: string, opts: TreeOptions): Filters {
     // showAll이면 숨김 목록을 읽지도 않는다 — 정렬 규칙(docsOnly)은 역할과 무관하므로 그대로 둔다
     ignore: showAll ? (NOTHING_IGNORED as Set<string>) : readIgnoreSet(),
     showAll,
-    hideAtRoot:
-      project === WORKSPACE_PROJECT
-        ? new Set([...listProjects(), MEW_DIR_NAME, docsTopSegment()])
-        : NOTHING_IGNORED,
+    // 루트 프로젝트의 하위 폴더는 더 이상 프로젝트 탭이 맡지 않는다. Documents만 가상 폴더와
+    // 중복되지 않도록 실제 위치를 숨긴다.
+    hideAtRoot: project === WORKSPACE_PROJECT ? new Set([docsTopSegment()]) : NOTHING_IGNORED,
   }
 }
 
@@ -133,7 +132,13 @@ function walk(absDir: string, relDir: string, f: Filters, downloadOnly = false):
       const childDownloadOnly = downloadOnly || DOWNLOAD_ONLY_DIRS.has(entry.name)
       const children = walk(absPath, relPath, f, childDownloadOnly)
       if (childDownloadOnly && children.length === 0) continue
-      nodes.push({ name: entry.name, path: relPath, type: 'dir', children })
+      nodes.push({
+        name: entry.name,
+        path: relPath,
+        type: 'dir',
+        children,
+        gitRepo: relDir === '' && fs.existsSync(path.join(absPath, '.git')),
+      })
     } else if (entry.isFile()) {
       if (fileVisible(entry.name, f, downloadOnly)) nodes.push({ name: entry.name, path: relPath, type: 'file' })
     }
@@ -167,7 +172,13 @@ async function walkAsync(absDir: string, relDir: string, f: Filters, downloadOnl
       const childDownloadOnly = downloadOnly || DOWNLOAD_ONLY_DIRS.has(entry.name)
       const children = await walkAsync(absPath, relPath, f, childDownloadOnly)
       if (childDownloadOnly && children.length === 0) continue
-      nodes.push({ name: entry.name, path: relPath, type: 'dir', children })
+      nodes.push({
+        name: entry.name,
+        path: relPath,
+        type: 'dir',
+        children,
+        gitRepo: relDir === '' && fs.existsSync(path.join(absPath, '.git')),
+      })
     } else if (entry.isFile()) {
       if (fileVisible(entry.name, f, downloadOnly)) nodes.push({ name: entry.name, path: relPath, type: 'file' })
     }

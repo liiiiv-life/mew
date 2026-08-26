@@ -5,12 +5,10 @@ import {
   deleteExternalPath,
   externalDownloadUrl,
   fetchAgentCwdSuggestions,
-  forgetSavedProject,
   openExternalProject,
   pasteExternalPath,
   renameExternalPath,
   setProject,
-  switchWorkspace,
   type ExternalEntriesResult,
   type ExternalEntry,
 } from '../api/client'
@@ -213,20 +211,17 @@ export function ServerFileExplorer({
       .catch(fail)
   }
 
-  const openWorkspace = (path: string) => {
-    if (!window.confirm(`${t('fileExplorer.openWorkspaceConfirm')}\n\n${path}`)) return
-    switchWorkspace(path)
-      .then(() => {
-        forgetSavedProject()
-        location.reload()
-      })
-      .catch(fail)
-  }
-
   const openProject = (path: string) => {
     if (!window.confirm(`${t('fileExplorer.openProjectConfirm')}\n\n${path}`)) return
     openExternalProject(path)
       .then((result) => {
+        try {
+          const previous: unknown = JSON.parse(localStorage.getItem('mew:open-project-paths') ?? '[]')
+          const paths = Array.isArray(previous) ? previous.filter((item): item is string => typeof item === 'string') : []
+          localStorage.setItem('mew:open-project-paths', JSON.stringify([...new Set([...paths, path])]))
+        } catch {
+          // localStorage가 막혀도 이번 열기는 계속한다.
+        }
         setProject(result.project)
         location.reload()
       })
@@ -285,7 +280,6 @@ export function ServerFileExplorer({
           {menu.entry.type === 'dir' && clipboard && <button type="button" onClick={() => paste(menu.entry.path)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.paste')}</button>}
           {menu.entry.type === 'file' && <a href={externalDownloadUrl(menu.entry.path)} download={menu.entry.name} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.download')}</a>}
           {menu.entry.type === 'dir' && isOwner && <button type="button" onClick={() => openProject(menu.entry.path)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.openProject')}</button>}
-          {menu.entry.type === 'dir' && isOwner && <button type="button" onClick={() => openWorkspace(menu.entry.path)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.openWorkspace')}</button>}
           <button type="button" onClick={() => remove(menu.entry)} className="block w-full px-3 py-2 text-left text-danger hover:bg-surface-hover">{t('fileExplorer.delete')}</button>
         </div>
       )}

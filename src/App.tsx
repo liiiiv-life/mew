@@ -1,28 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   editorApi,
   fetchAuthStatus,
-  fetchProjects,
+  fetchWorkspace,
   fetchTree,
   getProject,
   isArchivedPath,
   revertFileToCommit,
   setProject,
-  setProjectLayout,
+  switchWorkspace,
   tmuxApi,
   type AuthStatus,
-  type ProjectInfo,
   type TreeNode,
 } from './api/client'
-import { ProjectPicker } from './components/ProjectPicker'
-import { ProjectTabs } from './components/ProjectTabs'
-import { DocsTab } from './components/DocsTab'
+import { RootProjectTabs } from './components/RootProjectTabs'
+import { OpenProjectDialog } from './components/OpenProjectDialog'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
-import { HomeTab } from './components/HomeTab'
 import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
 import { FabMenu } from './components/FabMenu'
-import { HomePanel } from './components/home/HomePanel'
-import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { ServerFileExplorer } from './components/ServerFileExplorer'
 import { LoginPage } from './components/LoginPage'
 import { SettingsModal } from './components/SettingsModal'
@@ -31,6 +26,7 @@ import { DatabaseListModal } from './components/DatabaseListModal'
 import { SystemStatsModal } from './components/SystemStatsModal'
 import { ScheduleModal } from './components/ScheduleModal'
 import { FileTree } from './components/FileTree'
+import { CommandButtonMenu } from './components/CommandButtonMenu'
 import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
 import { TmuxTerminalPanel } from '@mew/tmux-term'
@@ -48,7 +44,6 @@ import { TermButtonBar } from './components/TermButtonBar'
 import { mediaKind } from './utils/media'
 import { setContentIdentity } from './utils/contentCache'
 import { openTabsKey, useTabs } from './hooks/useTabs'
-import { applyLayout, bySlot, reorderedLayout } from './utils/projectLayout'
 import { dropZoneAt, paneIds, type DropSide, type DropZone, type PaneNode } from './utils/paneTree'
 import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
@@ -76,10 +71,25 @@ const AGENT_OPEN_KEY = 'mew:agent-open'
 const AGENT_SET_OPEN_KEY = 'mew:agent-set-open'
 const BROWSER_OPEN_KEY = 'mew:browser-open'
 const ANDROID_OPEN_KEY = 'mew:android-open'
+const OPEN_PROJECTS_KEY = 'mew:open-project-paths'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
 function loadTheme(): Theme {
   return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
+}
+
+function loadOpenProjectPaths(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(OPEN_PROJECTS_KEY) ?? '[]')
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string' && value !== '') : []
+  } catch {
+    return []
+  }
+}
+
+function projectLabel(projectPath: string | null): string {
+  if (!projectPath) return 'Project'
+  return projectPath.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || projectPath
 }
 
 // 터미널이 열려 있었는지는 프로젝트와 무관한 화면 상태다(tmux 세션은 워크스페이스 하나뿐).
@@ -109,16 +119,18 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const isOwner = role === 'owner'
   const canUseTerminal = role === 'owner' || role === 'manager'
 
-  // 지금 보고 있는 프로젝트. 라우트가 아니라 앱 상태다 — client.ts의 모듈 값과 항상 함께 움직인다.
+  // 사용자에게 보이는 프로젝트는 서버가 현재 연 루트 폴더다. 내부 API 식별자는 호환을 위해
+  // `.workspace`를 유지하고 Documents를 열 때만 `docs`로 전환한다.
   const [project, setActiveProject] = useState(() => {
-    const remembered = getProject()
-    // 홈은 로그인 사용자 전용이다. 이전 로그인 세션이 홈에서 끝났어도 게스트에게 워크스페이스 루트를 열지 않는다.
-    if (isGuest && remembered === WORKSPACE_PROJECT) {
-      setProject(DEFAULT_PROJECT)
-      return DEFAULT_PROJECT
-    }
-    return remembered
+    const initial = isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT
+    setProject(initial)
+    return initial
   })
+  const [rootProjectPath, setRootProjectPath] = useState<string | null>(null)
+  // 절대경로 탭 목록은 owner UI에만 노출한다. manager는 셸 권한상 현재 경로를 볼 수 있지만 다른
+  // 브라우저 사용자가 남긴 owner 전용 목록까지 물려받지는 않는다.
+  const [openProjectPaths, setOpenProjectPaths] = useState<string[]>(() => (isOwner ? loadOpenProjectPaths() : []))
+  const [openProjectDialog, setOpenProjectDialog] = useState(false)
 
   const [tree, setTree] = useState<TreeNode[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
@@ -139,18 +151,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [dbListOpen, setDbListOpen] = useState(false)
   const [sysStatsOpen, setSysStatsOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
-  // 목록이 오기 전의 자리표시자 — 이걸 진짜 목록으로 착각하면 보고 있던 프로젝트가 애먼 것으로 밀린다
-  const [projects, setProjects] = useState<ProjectInfo[]>([{ name: project, icon: null, slot: null }])
-  const [projectsLoaded, setProjectsLoaded] = useState(false)
-  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   // docs 탭을 꾹 누르면 뜨는 폴더 가져오기/내보내기 창 — owner 전용
   const [docsSettingsOpen, setDocsSettingsOpen] = useState(false)
-  // 홈 화면(워크스페이스 전체 — 할 일·달력)이 편집 칸 자리를 차지하고 있는지. 게스트에게는 없다.
-  // 홈 탭도 마지막으로 본 화면이면 `mew:project=.workspace`로 남기므로 새로 열 때 그대로 복원한다.
-  const [homeOpen, setHomeOpen] = useState(() => !isGuest && getProject() === WORKSPACE_PROJECT)
   // 채팅 멘션·에이전트 답변의 파일 링크 — 다른 프로젝트면 옮긴 다음 렌더에서 파일과 줄을 연다
   const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string; line: number | null } | null>(null)
-  const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false)
   const [serverFileExplorerOpen, setServerFileExplorerOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -183,16 +187,25 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   const refreshTree = useCallback(() => fetchTree().then(setTree).catch(console.error), [])
 
-  const refreshProjects = useCallback(
-    () =>
-      fetchProjects()
-        .then((list) => {
-          setProjects(list.length > 0 ? list : [{ name: getProject(), icon: null, slot: null }])
-          setProjectsLoaded(true)
-        })
-        .catch(console.error),
-    [],
-  )
+  const rememberProjectPath = useCallback((projectPath: string) => {
+    setOpenProjectPaths((previous) => {
+      const next = [...new Set([...previous, projectPath])]
+      localStorage.setItem(OPEN_PROJECTS_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  const openRootProject = useCallback(async (projectPath: string) => {
+    rememberProjectPath(projectPath)
+    setProject(WORKSPACE_PROJECT)
+    if (projectPath === rootProjectPath) {
+      setActiveProject(WORKSPACE_PROJECT)
+      setOpenProjectDialog(false)
+      return
+    }
+    await switchWorkspace(projectPath)
+    location.reload()
+  }, [rememberProjectPath, rootProjectPath])
 
   /**
    * 프로젝트 전환 — 페이지 이동이 아니다. client.ts의 모듈 값을 **먼저 동기로** 바꾼 뒤 리렌더를
@@ -201,8 +214,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const switchProject = useCallback((name: string) => {
     setProject(name)
     setActiveProject(name)
-    // 탭을 눌렀다는 것은 홈에서 나온다는 뜻이다 — 홈은 프로젝트 위가 아니라 옆에 있는 화면이다
-    setHomeOpen(false)
   }, [])
 
   const {
@@ -229,15 +240,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     splitEmptyPane,
     remapPaths,
     removePaths,
-    forgetProject,
   } = useTabs(project, refreshTree, showToast)
 
   const hasOpenFiles = panes.some((pane) => pane.tabs.length > 0)
   useEffect(() => {
     // 복원 전에는 항상 빈 칸으로 한 번 렌더된다. 저장된 파일 탭이 실제로 복원된 뒤 판정해야
-    // 파일이 있는 프로젝트에서 사이드바가 잘못 열리지 않는다. 홈은 편집 프로젝트가 아니다.
-    if (tabsHydrated && !homeOpen && !hasOpenFiles) setSidebarOpen(true)
-  }, [project, tabsHydrated, homeOpen, hasOpenFiles])
+    // 파일이 있는 프로젝트에서 사이드바가 잘못 열리지 않는다.
+    if (tabsHydrated && !hasOpenFiles) setSidebarOpen(true)
+  }, [project, tabsHydrated, hasOpenFiles])
 
   const registerPaneHandle = useCallback((id: string, handle: PaneHandle | null) => {
     if (handle) paneHandles.current.set(id, handle)
@@ -373,12 +383,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 탭 전환·창 전환 스와이프는 편집 칸이 각자 처리한다 (EditorPane) — 칸마다 탭 줄이 따로다
   const sidebarSwipe = useSwipeGesture({ onBottomLeft: () => setSidebarOpen(false) })
   const tmuxSwipe = useSwipeGesture({ onBottomRight: () => setTmuxOpen(false) })
-  const homeSwipe = useSwipeGesture({
-    onBottomRight: () => setSidebarOpen(true),
-    onBottomLeft: () => {
-      if (canUseTerminal) setAgentOpen(true)
-    },
-  })
 
   // Esc·안드로이드 뒤로가기로 열린 것을 한 겹씩 닫는다 — 모달·팝업도 같은 스택에 등록돼 있어
   // (useOverlayDismiss) 그쪽이 떠 있으면 언제나 먼저 닫히고, 패널은 마지막에 닫힌다.
@@ -425,20 +429,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     if (chatOpen) lastPanelRef.current = 'chat'
   }, [chatOpen])
 
-  // 볼 수 있는 프로젝트는 전부 탭으로 세운다 — 순서는 팝업 격자에서 끌어 정한 자리.
-  // docs는 프로젝트가 아니라 따로 선 고정 탭이라 여기서 뺀다(자리표시자로 들어올 수 있다)
-  const projectTabs = useMemo(
-    () => projects.filter((p) => p.name !== DEFAULT_PROJECT).sort(bySlot),
-    [projects],
-  )
-
   const switchProjectRight = useCallback(() => {
-    const destinations = projectTabs.map((item) => item.name)
+    const destinations = [...new Set(rootProjectPath ? [...openProjectPaths, rootProjectPath] : openProjectPaths)]
     if (destinations.length === 0) return
-    const index = destinations.indexOf(project)
-    // 홈·docs는 프로젝트 탭이 아니므로 그 화면에서는 첫 프로젝트로 간다.
-    switchProject(destinations[index < 0 ? 0 : (index + 1) % destinations.length])
-  }, [project, projectTabs, switchProject])
+    const index = rootProjectPath ? destinations.indexOf(rootProjectPath) : -1
+    void openRootProject(destinations[index < 0 ? 0 : (index + 1) % destinations.length])
+  }, [openProjectPaths, openRootProject, rootProjectPath])
 
   const switchCurrentWindowTabRight = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
@@ -459,49 +455,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     setActivePath(tabs[(index + 1) % tabs.length].path, focusedPaneId)
   }, [activePath, agentOpen, focusedPaneId, setActivePath, tabs, tmuxOpen])
 
-  // 탭을 끄는 동안엔 화면의 순서만 바꾸고(자리 번호는 팝업 격자와 공유하는 값이다), 손을 뗄 때
-  // 한 번만 저장한다 — 탭 하나 지날 때마다 PUT을 날리면 요청들이 서로를 덮어쓴다.
-  const reorderProjectTabs = useCallback((from: number, to: number) => {
-    setProjects((prev) => {
-      const layout = reorderedLayout(prev, from, to)
-      return layout ? applyLayout(prev, layout) : prev
-    })
-  }, [])
-
-  const commitProjectOrder = useCallback(() => {
-    const layout: Record<string, number> = {}
-    for (const p of projects) if (p.slot != null) layout[p.name] = p.slot
-    // 실패하면 서버에 있는 배치를 다시 받아 화면을 되돌린다 — 끌어놓은 자리가 남아 있으면 거짓말이 된다
-    setProjectLayout(layout).catch(() => void refreshProjects())
-  }, [projects, refreshProjects])
-
-  /** 팝업에서 프로젝트를 고르면 그 프로젝트를 연다 — 페이지 이동이 아니라 탭 전환이다 */
-  const chooseProject = useCallback(
-    (name: string) => {
-      switchProject(name)
-      setProjectPickerOpen(false)
-    },
-    [switchProject],
-  )
-
-  const handleProjectRenamed = useCallback(
-    (oldName: string, newName: string) => {
-      forgetProject(oldName)
-      localStorage.removeItem(openTabsKey(oldName))
-      if (oldName === project) switchProject(newName)
-    },
-    [project, forgetProject, switchProject],
-  )
-
-  const handleProjectDeleted = useCallback(
-    (name: string) => {
-      forgetProject(name)
-      localStorage.removeItem(openTabsKey(name))
-      // 보고 있던 프로젝트가 사라졌으면 지울 수 없는 기본 프로젝트로 빠진다
-      if (name === project) switchProject(DEFAULT_PROJECT)
-    },
-    [project, forgetProject, switchProject],
-  )
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
   // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
@@ -558,18 +511,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   }, [])
 
   useEffect(() => {
-    refreshProjects()
-  }, [refreshProjects])
-
-  // 기억해 둔 프로젝트가 목록에 없을 수 있다 — 폴더가 사라졌거나, 로그아웃해서 권한을 잃었거나.
-  // 그럴 땐 열 수 있는 첫 프로젝트로 물러난다(안 그러면 없는 폴더를 가리킨 채 굳는다).
-  useEffect(() => {
-    // docs·홈은 프로젝트 목록에 없는 특별 스코프다 — 목록에 없다고 밀어내면 안 된다
-    if (project === DEFAULT_PROJECT || project === WORKSPACE_PROJECT) return
-    if (!projectsLoaded || projectTabs.length === 0) return
-    if (projectTabs.some((p) => p.name === project)) return
-    switchProject(projectTabs[0].name)
-  }, [projectsLoaded, projectTabs, project, switchProject])
+    if (!canUseTerminal) return
+    fetchWorkspace()
+      .then((info) => {
+        setRootProjectPath(info.path)
+        rememberProjectPath(info.path)
+      })
+      .catch(console.error)
+  }, [canUseTerminal, rememberProjectPath])
 
   // 프로젝트를 옮기면 사이드바 트리를 그 프로젝트 것으로 갈아끼운다. 옆 프로젝트의 트리가 잠깐
   // 남아 있지 않도록 먼저 비우고, 늦게 도착한 옛 응답이 새 트리를 덮지 않게 취소 플래그를 둔다.
@@ -638,7 +587,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       // Esc는 useOverlayDismiss 스택이 capture 단계에서 처리한다 (모달 → 터미널 → 사이드바 순)
-      if (matchesShortcut(e, getBinding('save'))) {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
+        if (!isOwner) return
+        e.preventDefault()
+        setOpenProjectDialog(true)
+      } else if (matchesShortcut(e, getBinding('save'))) {
         e.preventDefault()
         saveCurrentTab(true)
       } else if (matchesShortcut(e, getBinding('quickOpen'))) {
@@ -743,12 +696,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
     // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다
-  }, [saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath, canUseTerminal, focusedEditor, isGuest, project, agentOpen, tmuxOpen, chatOpen])
+  }, [saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath, canUseTerminal, focusedEditor, isGuest, isOwner, project, agentOpen, tmuxOpen, chatOpen])
 
   /** 채팅 멘션·에이전트 로컬 링크 — 같은 mew의 알맞은 프로젝트와 문서 탭으로 연다. */
   const openMentionedFile = useCallback(
     (target: string, path: string, line: number | null = null) => {
-      setHomeOpen(false)
       setPendingOpen({ project: target, path, line })
       if (target !== project) switchProject(target)
     },
@@ -1100,37 +1052,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
         <header className="flex h-10 items-stretch border-b border-edge pr-2">
-          {/* 홈은 프로젝트도 레포도 아니다 — 워크스페이스 전체를 보는 화면이라 맨 앞에 선다 */}
-          {!isGuest && (
-            <HomeTab
-              // 홈 화면을 닫고 워크스페이스 루트의 파일을 열어 둔 동안에도 홈은 활성이다 — 스코프가 홈이다
-              active={project === WORKSPACE_PROJECT}
-              canSwitchWorkspace={isOwner}
-              onActivate={() => {
-                // 사이드바까지 워크스페이스 루트로 옮긴다 — switchProject가 homeOpen을 끄므로 뒤에 켠다
-                switchProject(WORKSPACE_PROJECT)
-                setHomeOpen(true)
-              }}
-              onOpenSwitcher={() => setWorkspaceSwitcherOpen(true)}
-            />
-          )}
-          {/* docs는 프로젝트가 아니라 워크스페이스에 하나뿐인 특별 레포 — 그 다음 고정 탭이다 */}
-          <DocsTab
-            active={!homeOpen && project === DEFAULT_PROJECT}
-            canManage={isOwner}
-            onActivate={() => switchProject(DEFAULT_PROJECT)}
-            onOpenSettings={() => setDocsSettingsOpen(true)}
-          />
-          <ProjectTabs
-            projects={projectTabs}
-            // 홈이 떠 있으면 어느 프로젝트도 활성이 아니다 — 돌아갈 곳(project)은 그대로 기억한다
-            activeProject={homeOpen ? '' : project}
-            canUseTerminal={canUseTerminal}
-            canReorder={!isGuest}
-            onActivate={switchProject}
-            onOpenPicker={() => setProjectPickerOpen(true)}
-            onReorder={reorderProjectTabs}
-            onReorderEnd={commitProjectOrder}
+          <RootProjectTabs
+            paths={rootProjectPath ? [...openProjectPaths, rootProjectPath] : openProjectPaths}
+            activePath={rootProjectPath}
+            fallbackLabel={projectLabel(rootProjectPath)}
+            canOpen={isOwner}
+            onActivate={(projectPath) => void openRootProject(projectPath)}
+            onOpen={() => setOpenProjectDialog(true)}
           />
           {/* 도구는 전부 햄버거 하나로 접는다 — 아이콘을 늘어놓으면 좁은 화면에서 프로젝트 탭이 밀린다.
               버튼이 아닌 것(게스트 표시·저장 실패 문구)만 헤더에 남는다 */}
@@ -1160,9 +1088,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             data-sidebar
             // 모바일은 프로젝트 헤더 아래의 작업 영역만 덮고, 문서 탭(h-9)도 눌러 전환할 수 있게 남긴다.
             // 홈에는 문서 탭이 없으므로 그때만 작업 영역 맨 위부터 채운다. 데스크톱은 기존 고정 칸이다.
-            className={`absolute inset-x-0 bottom-0 z-30 flex bg-surface-deep ${
-              homeOpen && !isGuest ? 'top-0' : 'top-9'
-            } md:static md:z-auto md:shrink-0`}
+            className="absolute inset-x-0 top-9 bottom-0 z-30 flex bg-surface-deep md:static md:z-auto md:shrink-0"
             style={{ width: isDesktop() ? sidebarWidth : undefined }}
           >
             <div className="flex min-w-0 flex-1 flex-col">
@@ -1194,6 +1120,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     <path d="m21 21-4.3-4.3" />
                   </svg>
                 </button>
+                {canUseTerminal && <CommandButtonMenu project={WORKSPACE_PROJECT} title={`${projectLabel(rootProjectPath)} 명령어`} />}
                 <button
                   type="button"
                   onClick={() => setSidebarOpen(false)}
@@ -1216,14 +1143,42 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     project={project}
                     selectedPath={activePath}
                     readOnly={isGuest}
+                    canUseCommands={canUseTerminal && project === WORKSPACE_PROJECT}
+                    roots={
+                      <div className="border-b border-edge py-1">
+                        <button
+                          type="button"
+                          onClick={() => switchProject(DEFAULT_PROJECT)}
+                          onContextMenu={(event) => {
+                            if (!isOwner) return
+                            event.preventDefault()
+                            setDocsSettingsOpen(true)
+                          }}
+                          className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-medium hover:bg-surface-raised ${project === DEFAULT_PROJECT ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
+                          title={isOwner ? 'Documents · 우클릭하여 폴더 설정' : 'Documents'}
+                        >
+                          <span aria-hidden="true">{project === DEFAULT_PROJECT ? '▾' : '▸'}</span>
+                          <span>{t('project.documents')}</span>
+                        </button>
+                        {!isGuest && (
+                          <button
+                            type="button"
+                            onClick={() => switchProject(WORKSPACE_PROJECT)}
+                            className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-semibold hover:bg-surface-raised ${project === WORKSPACE_PROJECT ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
+                            title={rootProjectPath ?? undefined}
+                          >
+                            <span aria-hidden="true">{project === WORKSPACE_PROJECT ? '▾' : '▸'}</span>
+                            <span className="truncate">{projectLabel(rootProjectPath)}</span>
+                          </button>
+                        )}
+                      </div>
+                    }
                     searchFocusSignal={searchFocusSignal}
                     newFileSignal={newFileSignal}
                     revealSignal={revealSignal}
                     presence={tabPresence}
                     onSelect={(path, opts) => {
                       openFile(path, opts)
-                      // 홈 화면이 편집 칸을 덮고 있으면 방금 연 파일이 안 보인다 — 비켜 준다
-                      setHomeOpen(false)
                       if (!isDesktop()) setSidebarOpen(false)
                     }}
                     onFileCreated={(relPath) => {
@@ -1257,16 +1212,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           </div>
         )}
 
-        {/* 홈이 떠 있으면 편집 칸 자리를 홈 화면이 대신 쓴다 — 사이드바·터미널·에이전트 패널은 그대로다.
-            열어 둔 탭 목록은 App(useTabs)에 있으므로 홈에서 나오면 보던 문서로 그대로 돌아온다. */}
-        {homeOpen && !isGuest ? (
-          <div className="flex min-h-0 min-w-0 flex-1" {...homeSwipe}>
-            <HomePanel projects={projects} />
-          </div>
-        ) : (
-          /* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */
-          renderLayout(layout, 'root')
-        )}
+        {/* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */}
+        {renderLayout(layout, 'root')}
 
         {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 좁은 화면에서는 전체를 덮는다 */}
         {chatOpen && !isGuest && (
@@ -1374,23 +1321,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         onNextWindowTab={switchCurrentWindowTabRight}
       />
 
-      {projectPickerOpen && (
-        <ProjectPicker
-          // docs는 여기서 관리하지 않는다 — 이름도 자리도 없는 고정 탭이다
-          projects={projectTabs}
-          currentProject={project}
-          readOnly={isGuest}
-          isOwner={isOwner}
-          onClose={() => setProjectPickerOpen(false)}
-          onSelect={chooseProject}
-          onProjectRenamed={handleProjectRenamed}
-          onProjectDeleted={handleProjectDeleted}
-          onIconChanged={(name, icon) => setProjects((prev) => prev.map((p) => (p.name === name ? { ...p, icon } : p)))}
-          onLayoutChanged={(layout) => setProjects((prev) => applyLayout(prev, layout))}
-          onProjectsChanged={refreshProjects}
-        />
-      )}
-
       {settingsOpen && (
         <SettingsModal
           email={authEmail}
@@ -1420,14 +1350,19 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         />
       )}
 
-      {workspaceSwitcherOpen && isOwner && <WorkspaceSwitcher onClose={() => setWorkspaceSwitcherOpen(false)} />}
+      {openProjectDialog && isOwner && (
+        <OpenProjectDialog
+          basePath={rootProjectPath ?? ''}
+          onOpen={openRootProject}
+          onClose={() => setOpenProjectDialog(false)}
+        />
+      )}
 
       {serverFileExplorerOpen && canUseTerminal && (
         <ServerFileExplorer
           isOwner={isOwner}
           onOpenFile={(path) => {
             openExternalFile(path)
-            setHomeOpen(false)
           }}
           onRenamed={(oldPath, newPath, type) => remapPaths(externalTabPath(oldPath), externalTabPath(newPath), type)}
           onDeleted={(path, type) => removePaths(externalTabPath(path), type)}

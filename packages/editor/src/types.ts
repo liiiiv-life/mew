@@ -7,6 +7,8 @@ export interface TreeNode {
   path: string
   type: 'file' | 'dir'
   children?: TreeNode[]
+  /** 프로젝트 루트 바로 아래에서 발견한 Git 저장소 폴더 */
+  gitRepo?: boolean
   guestAccess?: { view: boolean; edit: boolean }
 }
 

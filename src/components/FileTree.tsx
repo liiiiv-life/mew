@@ -5,6 +5,7 @@ import { flattenFiles, fuzzyScore } from '@mew/editor'
 import { ConfirmDialog, keepFocusOnPress, setPathDragData } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { PresenceDots } from './PresenceDots'
+import { CommandButtonMenu } from './CommandButtonMenu'
 import { getTreeScroll, saveTreeScroll, setScrollSaveSuppressed } from '../utils/scrollMemory'
 
 type EditingState =
@@ -25,6 +26,7 @@ interface NodeCtx {
   openDirs: Set<string>
   editing: EditingState
   readOnly: boolean
+  canUseCommands: boolean
   presence: Record<string, string[]>
   /** 드롭 강조 중인 폴더 경로(''=루트). 이동 대상 미리보기 */
   dropDir: string | null
@@ -554,7 +556,13 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
         >
           {isOpen ? '▾' : '▸'} {node.name}
+          {node.gitRepo && (
+            <span className="ml-1 rounded bg-accent/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">
+              Git
+            </span>
+          )}
         </button>
+        {node.gitRepo && ctx.canUseCommands && <CommandButtonMenu project={node.name} />}
         {!ctx.readOnly && (
           <GuestAccessIcons node={node} onToggleView={ctx.onToggleGuestView} onToggleEdit={ctx.onToggleGuestEdit} />
         )}
@@ -595,6 +603,8 @@ export function FileTree({
   project,
   selectedPath,
   readOnly,
+  canUseCommands = false,
+  roots,
   searchFocusSignal,
   newFileSignal,
   revealSignal,
@@ -613,6 +623,9 @@ export function FileTree({
   project: string
   selectedPath: string | null
   readOnly: boolean
+  canUseCommands?: boolean
+  /** 검색창 아래에 서는 Documents/프로젝트 가상 폴더 */
+  roots?: React.ReactNode
   searchFocusSignal: number
   /** Alt+N — 새 파일 이름 입력 열기. parentPath가 null이면 트리의 선택 항목 기준 */
   newFileSignal: { n: number; parentPath: string | null }
@@ -1134,6 +1147,7 @@ export function FileTree({
     openDirs,
     editing,
     readOnly,
+    canUseCommands,
     presence,
     dropDir,
     onSelect,
@@ -1190,6 +1204,7 @@ export function FileTree({
           {sortMode === 'name' ? '가나다' : '확장자'}
         </button>
       </div>
+      {roots}
       <div
         ref={listRef}
         tabIndex={-1}

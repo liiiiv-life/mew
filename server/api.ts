@@ -2,7 +2,7 @@ import express from 'express'
 import multer from 'multer'
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_PROJECT, isProtectedProject, isValidProjectName, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_ROOT } from './paths.ts'
+import { DEFAULT_PROJECT, isProtectedProject, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
 import { createProject, deleteProject, ProjectNameError, renameProject } from './projects.ts'
 import { buildTreeAsync, isPathVisible } from './tree.ts'
 import { flattenTextFiles, replaceInFile, searchInProject } from './search.ts'
@@ -289,7 +289,7 @@ export function createApiApp() {
 
   // ── 워크스페이스 자체 갈아끼우기 (owner 전용) ──────────────────────────────
   // 어느 폴더를 열고 있는지 = 서버 기계의 경로다. owner 밖으로 내보내지 않는다.
-  app.get('/workspace', requireRole('owner'), (_req, res) => {
+  app.get('/workspace', requireRole('manager', 'owner'), (_req, res) => {
     try {
       res.json(currentWorkspace())
     } catch (err) {
@@ -432,11 +432,9 @@ export function createApiApp() {
     try {
       const abs = resolveExistingPath((req.body as { path?: unknown }).path)
       if (!fs.statSync(abs).isDirectory()) throw new BrowseError(`폴더가 아닙니다: ${abs}`)
-      const project = path.basename(abs)
-      if (!isValidProjectName(project)) throw new BrowseError(`프로젝트로 열 수 없는 폴더 이름입니다: ${project}`)
-      const info = switchWorkspace(path.dirname(abs), project)
+      const info = switchWorkspace(abs, WORKSPACE_PROJECT)
       tmuxManager.cwd = info.path
-      res.json({ ...info, project })
+      res.json({ ...info, project: WORKSPACE_PROJECT })
     } catch (err) {
       handleError(res, err)
     }
