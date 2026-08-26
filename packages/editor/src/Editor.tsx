@@ -3,7 +3,6 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Document from '@tiptap/extension-document'
 import Text from '@tiptap/extension-text'
-import Paragraph from '@tiptap/extension-paragraph'
 import Bold from '@tiptap/extension-bold'
 import Italic from '@tiptap/extension-italic'
 import Strike from '@tiptap/extension-strike'
@@ -57,6 +56,7 @@ import { CommentHighlight, commentRefreshKey, docTextWithMap, indexOfPos, type C
 import { makeCommentAnchor, resolveCommentAnchor, type CommentAnchor } from './utils/commentAnchor'
 import { docHasTable, readTableWidths, tableWidthsTransaction } from './editor/tableWidths'
 import { EditorSearchBar } from './editor/EditorSearchBar'
+import { EmptyParagraph } from './editor/emptyParagraph'
 import './editor/editor.css'
 
 export interface EditorHandle {
@@ -399,7 +399,7 @@ export const Editor = forwardRef<
     extensions: [
       Document,
       Text,
-      Paragraph,
+      EmptyParagraph,
       // StarterKit이 기본 제공하는 확장 중 아래에서 개별 등록·설정하는 것들은 전부 꺼야 한다.
       // 켠 채로 같은 이름을 또 등록하면 tiptap이 "Duplicate extension names found"를 경고하고,
       // 플러그인이 두 벌 돌아간다 — 특히 Link는 StarterKit 기본값(openOnClick: true)이 함께

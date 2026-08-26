@@ -40,7 +40,7 @@ test('제목 끝에서 Enter — 다음 줄은 본문 (기본 동작과 같음)'
   editor.commands.setTextSelection(1 + '제목'.length)
   assert.equal(splitHeadingIntoParagraph(editor), true)
   assert.equal(editor.state.doc.lastChild?.type.name, 'paragraph')
-  assert.equal(markdown(editor), '## 제목')
+  assert.equal(markdown(editor), '## 제목\n\n<br/>')
 })
 
 test('제목 맨 앞에서 Enter는 건드리지 않는다 — 위에 빈 줄이 생기는 기본 동작', () => {

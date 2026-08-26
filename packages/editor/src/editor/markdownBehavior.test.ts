@@ -73,6 +73,12 @@ test('병합 셀 때문에 HTML로 갈 때도 colwidth는 벗겨서 낸다', () 
   assert.doesNotMatch(out, /colwidth/)
 })
 
+test('핫뷰의 빈 문단은 plain 뷰에서 <br/>로 남는다', () => {
+  const e = makeEditor('첫 줄\n\n셋째 줄')
+  e.view.dispatch(e.state.tr.insert(e.state.doc.child(0).nodeSize, e.schema.nodes.paragraph.create()))
+  assert.match(md(e), /첫 줄\n\n<br\/>\n\n셋째 줄/)
+})
+
 test('중첩 리스트 중간만 복사하면 그 층의 마커로 시작한다 — "- - -" 금지', () => {
   const e = makeEditor(`- 부모\n  - 자식1\n  - 자식2\n  - 자식3`)
   // 자식1 텍스트 시작부터 자식3 텍스트 끝까지 — 에디터에서 세 항목을 긁은 선택과 같다
