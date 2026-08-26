@@ -16,6 +16,8 @@ export type Tab = {
   preview: boolean
   viewMode: 'hotview' | 'plain'
   editable: boolean // 서버가 /api/file에서 계산해 내려주는 값 — 게스트의 부분 편집 승인을 반영
+  /** 세션 복원 때는 탭 껍데기만 먼저 세운다. 선택되는 순간 기존 파일 로드 경로로 본문을 받는다. */
+  deferredLoad?: boolean
 }
 
 /** 화면 분할의 칸 하나 — 자기 탭 줄과 자기 활성 탭을 가진다 */
@@ -120,6 +122,9 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   const projectRef = useRef(project)
   projectRef.current = project
   const hydratedRef = useRef(new Set<string>())
+  // 탭 껍데기를 setState로 세운 직후에는 statesRef가 아직 옛 상태다. 활성 탭의 실제 로드는
+  // 다음 렌더 effect로 넘겨야 existing 탭을 다시 만들지 않고 deferredLoad만 해제할 수 있다.
+  const pendingRestoreLoadsRef = useRef(new Map<string, { paneId: string; path: string; preview: boolean; viewMode: Tab['viewMode'] }[]>())
 
   const state = states[project] ?? EMPTY
   const { panes, layout, focusedPaneId } = state
@@ -180,16 +185,21 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   const openFileIn = useCallback(
     // forceNewTab: 이미 열려 있지 않은 문서라도 미리보기 탭 자리를 재사용하지 않고 항상 새 탭으로 연다
     // (에디터 안에서 Ctrl+클릭으로 내부 링크를 열 때 — 사이드바 클릭의 미리보기 재사용 동작과는 별개)
-    (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean }) => {
+    (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; deferLoad?: boolean; viewMode?: Tab['viewMode'] }) => {
       const preview = opts?.preview ?? true
       const existing = paneOf(p, paneId).tabs.find((t) => t.path === path)
       if (existing) {
+        // 복원 때 뒤로 미뤘던 탭은 사용자가 고르는 바로 그때만 기존 전체 본문 요청을 시작한다.
+        // 캐시된 본문이 있으면 이미 즉시 보이고, fetch는 최신본 확인 역할만 한다.
+        const loadDeferred = existing.deferredLoad === true && !opts?.deferLoad
         patchPane(p, paneId, (pane) => ({
           ...pane,
-          tabs: !preview && existing.preview ? pane.tabs.map((t) => (t.path === path ? { ...t, preview: false } : t)) : pane.tabs,
+          tabs: pane.tabs.map((t) =>
+            t.path !== path ? t : { ...t, preview: !preview && t.preview ? false : t.preview, deferredLoad: loadDeferred ? false : t.deferredLoad },
+          ),
           activePath: path,
         }))
-        return
+        if (!loadDeferred) return
       }
       // 마크다운이 아닌 파일(코드·설정 등)은 tiptap이 본문을 훼손하므로 plain 편집이 기본
       // svg는 md처럼 이미지 미리보기(hotview)로 먼저 연다
@@ -202,20 +212,26 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
         ...blankTab(),
         path,
         preview,
-        viewMode: previewFirst ? 'hotview' : 'plain',
+        viewMode: opts?.viewMode ?? (previewFirst ? 'hotview' : 'plain'),
+        deferredLoad: opts?.deferLoad === true,
         ...(cached
           ? { content: cached.content, savedContent: cached.content, committedContent: cached.content, editable: cached.editable }
           : {}),
       }
-      patchPane(p, paneId, (pane) => {
-        if (opts?.forceNewTab) return { ...pane, tabs: [...pane.tabs, newTab], activePath: path }
-        // 미리보기 탭은 칸마다 하나만 유지 — 새로 여는 문서가 그 자리를 재사용
-        const previewIdx = pane.tabs.findIndex((t) => t.preview)
-        if (previewIdx === -1) return { ...pane, tabs: [...pane.tabs, newTab], activePath: path }
-        const next = [...pane.tabs]
-        next[previewIdx] = newTab
-        return { ...pane, tabs: next, activePath: path }
-      })
+      if (!existing) {
+        patchPane(p, paneId, (pane) => {
+          if (opts?.forceNewTab) return { ...pane, tabs: [...pane.tabs, newTab], activePath: path }
+          // 미리보기 탭은 칸마다 하나만 유지 — 새로 여는 문서가 그 자리를 재사용
+          const previewIdx = pane.tabs.findIndex((t) => t.preview)
+          if (previewIdx === -1) return { ...pane, tabs: [...pane.tabs, newTab], activePath: path }
+          const next = [...pane.tabs]
+          next[previewIdx] = newTab
+          return { ...pane, tabs: next, activePath: path }
+        })
+      }
+      // 세션 복원은 활성 탭 외에는 본문·규칙 요청을 만들지 않는다. 탭 순서·배치·캐시 본문은
+      // 위에서 이미 복원됐고, 비활성 탭을 고르면 existing 분기의 deferredLoad가 여기로 이어진다.
+      if (opts?.deferLoad) return
       // 바이너리 미디어는 뷰어가 /api/raw로 직접 스트리밍한다 — utf-8 fetch도 규칙 검사도 없음
       if (mediaKind(path)) return
       const fileRequest = external ? fetchExternalFile(externalAbsolutePath(path)) : fetchFile(path, p)
@@ -283,11 +299,32 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       layout: stored.layout,
       focusedPaneId: stored.focusedPaneId,
     }))
+    const activeLoads: { paneId: string; path: string; preview: boolean; viewMode: Tab['viewMode'] }[] = []
     for (const pane of stored.panes) {
-      for (const t of pane.tabs) openFileIn(project, pane.id, t.path, { preview: t.preview, forceNewTab: true })
+      // 탭 껍데기와 캐시 본문은 전부 즉시 복원하되, 첫 요청은 각 칸의 활성 탭 하나로 제한한다.
+      // 비활성 탭은 사용자가 선택할 때만 openFileIn의 deferredLoad 경로로 읽는다.
+      for (const t of pane.tabs) {
+        openFileIn(project, pane.id, t.path, { preview: t.preview, viewMode: t.viewMode, forceNewTab: true, deferLoad: true })
+      }
       if (pane.activePath) patchPane(project, pane.id, (x) => ({ ...x, activePath: pane.activePath }))
+      if (pane.activePath) {
+        const active = pane.tabs.find((t) => t.path === pane.activePath)
+        if (active) activeLoads.push({ paneId: pane.id, path: active.path, preview: active.preview, viewMode: active.viewMode })
+      }
     }
+    pendingRestoreLoadsRef.current.set(project, activeLoads)
   }, [project, openFileIn, patch, patchPane])
+
+  // 위 hydration effect가 만든 모든 탭이 상태에 붙은 뒤 활성 탭만 읽는다. statesRef 동기화 effect가
+  // 선언 순서상 먼저 돌기 때문에 openFileIn은 deferred tab을 찾아 본문 요청만 시작한다.
+  useEffect(() => {
+    const activeLoads = pendingRestoreLoadsRef.current.get(project)
+    if (!activeLoads) return
+    pendingRestoreLoadsRef.current.delete(project)
+    for (const load of activeLoads) {
+      openFileIn(project, load.paneId, load.path, { preview: load.preview, viewMode: load.viewMode })
+    }
+  }, [project, states, openFileIn])
 
   // 복원이 끝난(=상태가 만들어진) 프로젝트만 저장한다 — 아직 열어보지 않은 프로젝트의 저장분을
   // 빈 목록으로 덮어쓰지 않는다.
