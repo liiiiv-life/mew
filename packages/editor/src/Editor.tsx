@@ -78,7 +78,8 @@ export interface EditorHandle {
 
 // Collaboration.configure()의 field 기본값과 맞춰야 시딩 시 같은 Y.XmlFragment를 본다
 const COLLAB_FIELD = 'default'
-const LINE_HANDLE_LONG_PRESS_MS = 350
+// 블록 이동은 짧은 드래그와 구분한다. 0.7초 동안 제자리에 눌러야만 native drag를 허용한다.
+const LINE_HANDLE_LONG_PRESS_MS = 700
 const LINE_HANDLE_SCROLL_SLOP = 3
 const LINE_HANDLE_GUTTER_WIDTH = 88
 
@@ -481,6 +482,7 @@ export const Editor = forwardRef<
           const el = document.createElement('div')
           el.className = 'mew-drag-handle'
           let gesture: {
+            startX: number
             startY: number
             lastY: number
             mode: 'pending' | 'scroll' | 'move'
@@ -499,9 +501,12 @@ export const Editor = forwardRef<
           const onLineHandleMove = (event: MouseEvent) => {
             if (!gesture) return
             const dy = event.clientY - gesture.lastY
+            const totalDx = event.clientX - gesture.startX
             const totalDy = event.clientY - gesture.startY
 
-            if (gesture.mode === 'pending' && Math.abs(totalDy) > LINE_HANDLE_SCROLL_SLOP) {
+            // 대기 중에는 어느 방향으로든 드래그를 시작하면 이동 모드가 될 수 없다.
+            // 수직 이동만 직접 스크롤하지만, 수평 이동도 long press 승격은 취소해야 한다.
+            if (gesture.mode === 'pending' && Math.hypot(totalDx, totalDy) > LINE_HANDLE_SCROLL_SLOP) {
               window.clearTimeout(gesture.timer)
               gesture.mode = 'scroll'
               suppressNextClick = true
@@ -530,7 +535,7 @@ export const Editor = forwardRef<
               gesture.mode = 'move'
               el.dataset.lineHandleMode = 'move'
             }, LINE_HANDLE_LONG_PRESS_MS)
-            gesture = { startY: event.clientY, lastY: event.clientY, mode: 'pending', timer }
+            gesture = { startX: event.clientX, startY: event.clientY, lastY: event.clientY, mode: 'pending', timer }
             window.addEventListener('mousemove', onLineHandleMove, { passive: false })
             window.addEventListener('mouseup', onLineHandleUp, { once: true })
           })

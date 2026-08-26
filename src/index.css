@@ -237,8 +237,7 @@ body {
 .mew-drag-handle[data-line-handle-mode='scroll'] {
   cursor: ns-resize;
 }
-.mew-drag-handle[data-line-handle-mode='move'],
-.mew-drag-handle:active {
+.mew-drag-handle[data-line-handle-mode='move'] {
   cursor: grabbing;
 }
 /* 리스트 항목 위에서는 Editor.tsx가 중첩 깊이만큼(한 단 24px) transform으로 직접 밀어 준다 —
