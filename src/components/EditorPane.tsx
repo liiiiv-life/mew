@@ -420,25 +420,42 @@ export function EditorPane({
     const top = getScroll(project, tab.path)
     if (top === null) return
     restoringRef.current = true
-    let raf = 0
-    let tries = 0
+    let observedScroll: HTMLElement | null = null
+    let observedContent: Element | null = null
+    let resizeObserver: ResizeObserver | null = null
+    let mutationObserver: MutationObserver | null = null
+    let timeout: ReturnType<typeof setTimeout> | null = null
     const events = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
     const stop = () => {
       restoringRef.current = false
-      cancelAnimationFrame(raf)
+      resizeObserver?.disconnect()
+      mutationObserver?.disconnect()
+      if (timeout) clearTimeout(timeout)
       for (const ev of events) host.removeEventListener(ev, stop, true)
     }
-    disarmRestoreRef.current = stop
-    const attempt = () => {
+    const restore = () => {
       if (activeTabRef.current?.path !== tab.path) return stop() // 탭을 바꿨으면 그만둔다
       const el = host.querySelector<HTMLElement>('.editor-root, .cm-scroller')
-      // ponytail: 복원 지점 아래에서 늦게 뜨는 이미지가 있으면 위치가 밀릴 수 있다 — 문제되면 높이 안정 감지로
+      if (!el) return
+      // 늦은 collab 동기화·이미지·분할 리마운트로 본문 높이가 자랄 때만 다시 맞춘다. 예전처럼
+      // 매 프레임 DOM을 읽지 않는다.
       if (el && el.scrollHeight >= top + el.clientHeight && Math.abs(el.scrollTop - top) > 1) el.scrollTop = top
-      if (++tries < 600) raf = requestAnimationFrame(attempt) // 최대 ~10초 — collab 동기화가 늦어도 따라붙는다
-      else stop()
+      const content = el.querySelector('.ProseMirror, .cm-content')
+      if (el === observedScroll && content === observedContent) return
+      resizeObserver?.disconnect()
+      observedScroll = el
+      observedContent = content
+      resizeObserver = new ResizeObserver(restore)
+      resizeObserver.observe(el)
+      if (content) resizeObserver.observe(content)
     }
+    disarmRestoreRef.current = stop
+    mutationObserver = new MutationObserver(restore)
+    mutationObserver.observe(host, { childList: true, subtree: true })
     for (const ev of events) host.addEventListener(ev, stop, true)
-    attempt()
+    restore()
+    // 동기화가 영영 오지 않은 탭이 listener를 무한히 붙들지 않도록 이전과 같은 약 10초 상한은 둔다.
+    timeout = setTimeout(stop, 10_000)
     return stop
   }, [pane.activePath, project])
 
