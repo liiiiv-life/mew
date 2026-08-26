@@ -27,7 +27,7 @@ import { useCollab } from '../hooks/useCollab'
 import type { Pane, Tab } from '../hooks/useTabs'
 import type { DropZone } from '../utils/paneTree'
 import { externalAbsolutePath, isExternalTabPath } from '../utils/externalFiles'
-import { markFileOpen } from '../utils/fileOpenPerformance'
+import { afterFirstPaint, markFileOpen } from '../utils/fileOpenPerformance'
 
 /** 상태줄용 바이트 표기 — 1KB 미만은 바이트 그대로, 그 위는 소수 한 자리 */
 function formatBytes(bytes: number): string {
@@ -242,21 +242,25 @@ export function EditorPane({
     const load = () => {
       fetchComments(activePath, project)
         .then((list) => {
-          if (alive) setThreads(list)
+          if (!alive) return
+          markFileOpen(activeTab?.openTrace, 'comments-response')
+          setThreads(list)
         })
         .catch(() => {}) // 못 읽으면 하이라이트만 없는 것 — 편집을 막지는 않는다
     }
     reloadThreads.current = load
-    load()
+    // 댓글 장식은 첫 본문 표시의 선행조건이 아니다. 첫 paint 뒤에 읽되, 실시간 신호가 오면 즉시 최신 목록을 다시 읽는다.
+    const cancelInitialLoad = afterFirstPaint(load)
     const onSignal = (e: Event) => {
       if ((e as CustomEvent<{ type?: string }>).detail?.type === 'comments') load()
     }
     window.addEventListener('mew:signal', onSignal)
     return () => {
       alive = false
+      cancelInitialLoad()
       window.removeEventListener('mew:signal', onSignal)
     }
-  }, [canComment, activePath, project])
+  }, [canComment, activePath, project, activeTab?.openTrace])
 
   // 멘션 자동완성용 계정 목록 — 바뀌는 일이 드물어 칸이 뜰 때 한 번만 읽는다
   useEffect(() => {
