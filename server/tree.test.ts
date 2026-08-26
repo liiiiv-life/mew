@@ -96,6 +96,8 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
   fs.writeFileSync(path.join(dir, 'src', 'app.ts'), 'export {}\n')
   fs.writeFileSync(path.join(dir, 'dist', 'bundle.js'), '// built\n')
   fs.writeFileSync(path.join(dir, 'node_modules', 'left-pad', 'index.js'), '// dep\n')
+  // 512 KiB를 넘겨야 anchor preview 경로를 탄다. 줄마다 식별자를 넣어 목표 줄과 앞 여백을 함께 검증한다.
+  fs.writeFileSync(path.join(dir, 'large.txt'), Array.from({ length: 12_000 }, (_, i) => `line-${i + 1} ${'x'.repeat(48)}\n`).join(''))
 
   let role: Role = 'member'
   const app = express()
@@ -119,6 +121,18 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
   }
 
   try {
+    const previewRes = await fetch(`${base}/api/file?path=large.txt&project=${project}&anchorLine=1536&chunkLines=400`)
+    assert.equal(previewRes.status, 200, '큰 파일 anchor preview 요청은 성공해야 한다')
+    const preview = (await previewRes.json()) as { partial: boolean; content: string; anchorLine: number; lineStart: number; lineEnd: number; totalLines: number | null }
+    assert.equal(preview.partial, true)
+    assert.equal(preview.anchorLine, 1536)
+    assert.equal(preview.lineStart, 1496, '목표 줄은 첫 조각의 약 10% 아래에 놓인다')
+    assert.equal(preview.lineEnd, 1895)
+    assert.equal(preview.totalLines, null, '첫 조각을 위해 파일 끝까지 스캔하지 않는다')
+    assert.ok(preview.content.startsWith('line-1496 '))
+    assert.ok(preview.content.includes('line-1536 '))
+    assert.ok(!preview.content.includes('line-1897 '), '요청 범위 밖 텍스트를 보내지 않는다')
+
     const member = await treeFor('member')
     assert.ok(member.includes('note.md'), 'member도 .md는 본다')
     assert.ok(member.includes('src/app.ts'), 'member도 소스 파일은 본다')

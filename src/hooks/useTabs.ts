@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchExternalFile, fetchFile, fetchRules, isArchivedPath, saveExternalFile, saveFile, type DocRules } from '../api/client'
+import { fetchExternalFile, fetchFile, fetchFileAnchorPreview, fetchRules, isArchivedPath, saveExternalFile, saveFile, type DocRules, type FileVersion } from '../api/client'
 import { mediaKind } from '../utils/media'
 import { dropCachedFile, getCachedFile, putCachedFile } from '../utils/contentCache'
 import { leaf, normalizeLayout, removeLeaf, splitLeaf, type DropSide, type PaneNode } from '../utils/paneTree'
@@ -21,6 +21,8 @@ export type Tab = {
   deferredLoad?: boolean
   /** DevTools 성능 mark를 잇는 일시 id — 탭 복원 저장에는 넣지 않는다. */
   openTrace?: FileOpenTrace
+  /** 큰 plain 파일의 목표 줄 주변만 받은 읽기 전용 상태. 전체 본문이 오면 즉시 제거한다. */
+  anchorPreview?: { anchorLine: number; lineStart: number; lineEnd: number; totalLines: number | null; version: FileVersion }
 }
 
 /** 화면 분할의 칸 하나 — 자기 탭 줄과 자기 활성 탭을 가진다 */
@@ -196,7 +198,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   const openFileIn = useCallback(
     // forceNewTab: 이미 열려 있지 않은 문서라도 미리보기 탭 자리를 재사용하지 않고 항상 새 탭으로 연다
     // (에디터 안에서 Ctrl+클릭으로 내부 링크를 열 때 — 사이드바 클릭의 미리보기 재사용 동작과는 별개)
-    (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; deferLoad?: boolean; viewMode?: Tab['viewMode'] }) => {
+    (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; deferLoad?: boolean; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
       const preview = opts?.preview ?? true
       const existing = paneOf(p, paneId).tabs.find((t) => t.path === path)
       let trace: FileOpenTrace | undefined
@@ -252,9 +254,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       if (opts?.deferLoad) return
       // 바이너리 미디어는 뷰어가 /api/raw로 직접 스트리밍한다 — utf-8 fetch도 규칙 검사도 없음
       if (mediaKind(path)) return
-      const fileRequest = external ? fetchExternalFile(externalAbsolutePath(path)) : fetchFile(path, p)
-      fileRequest
-        .then(({ content, editable }) => {
+      const applyFullFile = ({ content, editable }: { content: string; editable: boolean }) => {
           markFileOpen(trace, 'file-response')
           if (!external) putCachedFile(p, path, { content, editable })
           mapTabsAtPath(p, path, (t) => {
@@ -269,14 +269,49 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
               status: 'idle',
               editable,
               openTrace: trace ?? t.openTrace,
+              anchorPreview: undefined,
             }
           })
-        })
+      }
+      const handleOpenError = (err: unknown) => {
         // 열 수 없는 파일(게스트 권한 밖 등)은 빈 탭만 남아 "아무 일도 안 일어난" 것처럼 보인다 — 이유를 띄운다
-        .catch((err) => {
-          console.error(err)
-          onNoticeRef.current(err instanceof Error ? err.message : String(err))
-        })
+        console.error(err)
+        onNoticeRef.current(err instanceof Error ? err.message : String(err))
+      }
+      // 목표 줄이 알려진 큰 plain 파일은 조각을 먼저 보여 준다. 조각 상태는 readOnly이고 cache에도
+      // 저장하지 않는다. 뒤의 전체 요청이 완료되면 기존 편집·협업 경로로 원자적으로 바뀐다.
+      const canPreviewAnchor = !external && cached === undefined && opts?.anchorLine !== undefined && opts.viewMode === 'plain'
+      if (canPreviewAnchor) {
+        fetchFileAnchorPreview(path, opts.anchorLine!, p)
+          .then((first) => {
+            if (!first.partial) {
+              applyFullFile(first)
+              return
+            }
+            markFileOpen(trace, 'anchor-preview')
+            mapTabsAtPath(p, path, (t) => ({
+              ...t,
+              content: first.content,
+              savedContent: first.content,
+              committedContent: first.content,
+              status: 'idle',
+              editable: first.editable,
+              openTrace: trace ?? t.openTrace,
+              anchorPreview: {
+                anchorLine: first.anchorLine,
+                lineStart: first.lineStart,
+                lineEnd: first.lineEnd,
+                totalLines: first.totalLines,
+                version: first.version,
+              },
+            }))
+            fetchFile(path, p).then(applyFullFile).catch(handleOpenError)
+          })
+          .catch(handleOpenError)
+      } else {
+        const fileRequest = external ? fetchExternalFile(externalAbsolutePath(path)) : fetchFile(path, p)
+        fileRequest.then(applyFullFile).catch(handleOpenError)
+      }
       if (!external) {
         // MOC·링크 검사는 본문 표시의 선행조건이 아니다. 로컬 서버에서 동기 검사하는 비용도 있으므로
         // 첫 편집기 paint 뒤에 시작한다. 실패해도 본문을 막지 않는 기존 계약은 그대로다.
@@ -294,7 +329,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   )
 
   const openFile = useCallback(
-    (path: string, opts?: { preview?: boolean; forceNewTab?: boolean; paneId?: string }) => {
+    (path: string, opts?: { preview?: boolean; forceNewTab?: boolean; paneId?: string; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
       const p = projectRef.current
       openFileIn(p, opts?.paneId ?? stateOf(p).focusedPaneId, path, opts)
     },

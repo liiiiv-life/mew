@@ -720,7 +720,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const openSearchResult = useCallback(
     (path: string, match: SearchMatch, query: string) => {
       setPendingReveal({ path, line: match.line, query })
-      openFile(path, { preview: true })
+      // 큰 파일은 검색 결과 줄 주변을 먼저 읽는다. Markdown은 줄 구조가 화면 구조와 달라 기존 Hotview
+      // 검색 경로를 유지하며, plain만 preview가 안전하다.
+      openFile(path, path.endsWith('.md') ? { preview: true } : { preview: true, viewMode: 'plain', anchorLine: match.line })
       if (!isDesktop()) setSidebarOpen(false)
     },
     [openFile],

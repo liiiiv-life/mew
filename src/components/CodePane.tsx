@@ -298,8 +298,10 @@ export const CodePane = forwardRef<
     /** 파일 댓글 스레드 — 본문 위 장식(하이라이트)으로만 그린다. 저장·해석은 호스트 몫 */
     commentThreads?: CommentThreadInput[]
     onCommentClick?: (id: string, x: number, y: number) => void
+    /** 부분 preview는 문서 전체 줄 번호를 유지한다. 일반 문서는 0이다. */
+    lineOffset?: number
   }
->(function CodePane({ path, value, onChange, readOnly, collab, commentThreads, onCommentClick }, ref) {
+>(function CodePane({ path, value, onChange, readOnly, collab, commentThreads, onCommentClick, lineOffset = 0 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
@@ -318,7 +320,7 @@ export const CodePane = forwardRef<
       // collab 모드는 yCollab의 ySync가 마운트 즉시 Y.Text 내용을 반영하므로 빈 문서로 시작한다
       doc: collab ? '' : valueRef.current,
       extensions: [
-        lineNumbers(),
+        lineNumbers({ formatNumber: (line) => String(line + lineOffset) }),
         highlightActiveLineGutter(),
         highlightActiveLine(),
         drawSelection(),
@@ -381,7 +383,7 @@ export const CodePane = forwardRef<
       viewRef.current = null
     }
     // 파일이 바뀌면 언어·lint 구성이 달라지므로 뷰를 새로 만든다 (문서 내용은 valueRef로 최신값 사용)
-  }, [path, readOnly, collab?.ydoc])
+  }, [path, readOnly, collab?.ydoc, lineOffset])
 
   // 방을 처음 만든 클라이언트가 이미 로드해 둔 탭 내용으로 Y.Text를 시딩한다 (디스크 재조회 아님) —
   // 이미 누군가 협업 중이던 방이면 ytext가 비어 있지 않으므로 아무 일도 하지 않는다
@@ -423,7 +425,7 @@ export const CodePane = forwardRef<
         const view = viewRef.current
         if (!view) return null
         const sel = view.state.selection.main
-        return { start: view.state.doc.lineAt(sel.from).number, end: view.state.doc.lineAt(sel.to).number }
+        return { start: view.state.doc.lineAt(sel.from).number + lineOffset, end: view.state.doc.lineAt(sel.to).number + lineOffset }
       },
       openSearch(query?: string) {
         const view = viewRef.current
@@ -435,7 +437,7 @@ export const CodePane = forwardRef<
       revealLine(line: number, expectedContent: string) {
         const view = viewRef.current
         if (!view || view.state.doc.toString() !== expectedContent) return false
-        const clamped = Math.max(1, Math.min(line, view.state.doc.lines))
+        const clamped = Math.max(1, Math.min(line - lineOffset, view.state.doc.lines))
         const info = view.state.doc.line(clamped)
         view.dispatch({
           selection: { anchor: info.from },
@@ -463,7 +465,7 @@ export const CodePane = forwardRef<
         return coords ? { x: coords.left, y: coords.bottom } : null
       },
     }),
-    [],
+    [lineOffset],
   )
 
   // 찾기 패널이 Esc를 먹었으면 거기서 끊는다 — 흘려보내면 같은 Esc로 사이드바·터미널까지 닫힌다

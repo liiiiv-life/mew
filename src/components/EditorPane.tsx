@@ -69,7 +69,7 @@ type CommentPopup =
 // 실시간 협업은 파일별 "주 편집화면"에서만 지원한다 — .md는 Hotview, 그 외는 Plain.
 // 게스트는 파일별 편집 허용이 있어도 collab 소켓 자체가 서버에서 막혀 있어 항상 로컬 편집으로 처리한다.
 function primaryCollabPath(tab: Tab | null, role: Role): string | null {
-  if (role === 'guest' || !tab || isExternalTabPath(tab.path) || !tab.editable || isArchivedPath(tab.path) || mediaKind(tab.path)) return null
+  if (role === 'guest' || !tab || tab.anchorPreview || isExternalTabPath(tab.path) || !tab.editable || isArchivedPath(tab.path) || mediaKind(tab.path)) return null
   const eligible = tab.path.endsWith('.md') ? tab.viewMode === 'hotview' : tab.viewMode === 'plain'
   return eligible ? tab.path : null
 }
@@ -223,7 +223,7 @@ export function EditorPane({
   // 미디어·SVG 미리보기처럼 텍스트 편집기가 없는 화면과 게스트에게는 아예 뜨지 않는다.
   const isTextPane =
     !!activeTab && !isExternalTabPath(activeTab.path) && !mediaKind(activeTab.path) && !(activeTab.path.endsWith('.svg') && activeTab.viewMode === 'hotview')
-  const canComment = !isGuest && isTextPane
+  const canComment = !isGuest && isTextPane && !activeTab?.anchorPreview
   const canCommentRef = useRef(canComment)
   canCommentRef.current = canComment
   const [threads, setThreads] = useState<CommentThread[]>([])
@@ -660,10 +660,11 @@ export function EditorPane({
                     path={activeTab.path}
                     value={activeTab.content}
                     onChange={(content) => onChangeContent(activeTab.path, content)}
-                    readOnly={!activeTab.editable || isArchivedPath(activeTab.path)}
+                    readOnly={!activeTab.editable || isArchivedPath(activeTab.path) || !!activeTab.anchorPreview}
                     collab={collab}
                     commentThreads={threads}
                     onCommentClick={openThread}
+                    lineOffset={activeTab.anchorPreview ? activeTab.anchorPreview.lineStart - 1 : 0}
                   />
                 ) : (
                   <Editor
@@ -687,7 +688,13 @@ export function EditorPane({
                   양옆 칸을 같은 flex-1로 둬야 가운데가 바 한가운데에 선다. */}
               <div className="flex shrink-0 items-center border-t border-edge bg-surface-deep px-2 py-0.5 text-[10px] leading-none text-ink-muted">
                 <span className="flex-1" />
-                <span>{fileBytes === null ? '' : formatBytes(fileBytes)}</span>
+                <span>
+                  {activeTab.anchorPreview
+                    ? `${activeTab.anchorPreview.lineStart}–${activeTab.anchorPreview.lineEnd}${activeTab.anchorPreview.totalLines ? ` / ${activeTab.anchorPreview.totalLines}` : ''} lines · loading full file…`
+                    : fileBytes === null
+                      ? ''
+                      : formatBytes(fileBytes)}
+                </span>
                 <span className="flex-1 text-right">{selChars > 0 && `${selChars}자 선택`}</span>
               </div>
             </div>

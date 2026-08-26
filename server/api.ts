@@ -95,8 +95,54 @@ import {
 export const tmuxManager = createTmuxManager({ cwd: WORKSPACE_ROOT })
 
 const AGENT_TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
+const ANCHOR_PREVIEW_MIN_BYTES = 512 * 1024
+const DEFAULT_ANCHOR_CHUNK_LINES = 400
+const MAX_ANCHOR_CHUNK_LINES = 2_000
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
+
+type StableTextFile = { content: string; size: number; mtimeMs: number }
+
+/** `/file`은 UI 요청이므로 sync fs 호출로 다른 API까지 멈추게 하지 않는다. */
+async function readStableTextFile(absPath: string): Promise<StableTextFile> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const before = await fs.promises.stat(absPath)
+    const content = await fs.promises.readFile(absPath, 'utf8')
+    const after = await fs.promises.stat(absPath)
+    if (before.size === after.size && before.mtimeMs === after.mtimeMs) return { content, size: after.size, mtimeMs: after.mtimeMs }
+  }
+  const [content, stat] = await Promise.all([fs.promises.readFile(absPath, 'utf8'), fs.promises.stat(absPath)])
+  return { content, size: stat.size, mtimeMs: stat.mtimeMs }
+}
+
+/**
+ * 목표 줄까지 필요한 바이트만 async stream으로 읽는다. 첫 preview에서 전체 파일 줄 수를 세려고
+ * 끝까지 읽으면 기존 전체 읽기와 같아지므로, 정확한 총 줄 수는 뒤의 전체 본문 경로가 맡는다.
+ */
+async function readAnchoredTextChunk(absPath: string, anchorLine: number, chunkLines: number) {
+  const before = Math.floor(chunkLines * 0.1)
+  const lineStart = Math.max(1, anchorLine - before)
+  const requestedEnd = lineStart + chunkLines - 1
+  let line = 1
+  let content = ''
+  const stream = fs.createReadStream(absPath, { encoding: 'utf8', highWaterMark: 64 * 1024 })
+  for await (const part of stream) {
+    for (let i = 0; i < part.length; i += 1) {
+      const char = part[i]
+      if (line >= lineStart && line <= requestedEnd) content += char
+      if (char !== '\n') continue
+      if (line === requestedEnd) {
+        stream.destroy()
+        return { content, anchorLine, lineStart, lineEnd: requestedEnd }
+      }
+      line += 1
+    }
+  }
+  if (content) return { content, anchorLine, lineStart, lineEnd: line }
+  // 검색 결과의 줄은 서버 검색 결과라 보통 여기로 오지 않는다. 파일이 바뀌어 목표 줄이 없어졌으면
+  // 받은 부분을 버리고 전체 읽기로 폴백한다.
+  return null
+}
 
 /** 요청의 대상 프로젝트 — 쿼리(GET/DELETE) 또는 바디(POST/PUT), 없으면 docs */
 function projectOf(req: express.Request): string {
@@ -638,15 +684,26 @@ export function createApiApp() {
     }
   })
 
-  app.get('/file', (req, res) => {
+  app.get('/file', async (req, res) => {
     const relPath = String(req.query.path ?? '')
     const project = projectOf(req)
     if (!requireGuestView(req, res, relPath)) return
     try {
       const absPath = resolveProjectPath(project, relPath)
-      const content = fs.readFileSync(absPath, 'utf-8')
       const editable = authOf(req).role === 'guest' ? isGuestEditable(project, relPath) : true
-      res.json({ path: relPath, content, editable })
+      const requestedAnchor = Number(req.query.anchorLine)
+      const stat = await fs.promises.stat(absPath)
+      if (Number.isInteger(requestedAnchor) && requestedAnchor > 0 && stat.size >= ANCHOR_PREVIEW_MIN_BYTES) {
+        const requestedLines = Number(req.query.chunkLines)
+        const chunkLines = Number.isInteger(requestedLines) && requestedLines > 0 ? Math.min(requestedLines, MAX_ANCHOR_CHUNK_LINES) : DEFAULT_ANCHOR_CHUNK_LINES
+        const chunk = await readAnchoredTextChunk(absPath, requestedAnchor, chunkLines)
+        if (chunk) {
+          res.json({ path: relPath, editable, version: { size: stat.size, mtimeMs: stat.mtimeMs }, partial: true, totalLines: null, ...chunk })
+          return
+        }
+      }
+      const file = await readStableTextFile(absPath)
+      res.json({ path: relPath, content: file.content, editable, version: { size: file.size, mtimeMs: file.mtimeMs }, partial: false })
     } catch (err) {
       handleError(res, err)
     }

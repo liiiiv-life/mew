@@ -552,6 +552,27 @@ export function fetchFile(path: string, project?: string): Promise<{ path: strin
   )
 }
 
+export type FileVersion = { size: number; mtimeMs: number }
+export type FileAnchorPreview = {
+  path: string
+  content: string
+  editable: boolean
+  partial: true
+  anchorLine: number
+  lineStart: number
+  lineEnd: number
+  /** 첫 preview는 끝까지 스캔하지 않으므로 null; 전체 본문 전환 뒤 CodeMirror가 정확한 줄 수를 안다. */
+  totalLines: number | null
+  version: FileVersion
+}
+export type FileAnchorPreviewResponse = FileAnchorPreview | { path: string; content: string; editable: boolean; partial: false; version: FileVersion }
+
+/** 목표 줄이 있는 큰 plain 파일의 첫 조각. 작은 파일은 호환되는 전체 본문 응답을 돌려준다. */
+export function fetchFileAnchorPreview(path: string, anchorLine: number, project?: string): Promise<FileAnchorPreviewResponse> {
+  const qs = `path=${encodeURIComponent(path)}&anchorLine=${anchorLine}&chunkLines=400&${projectQs(project)}`
+  return fetch(`/api/file?${qs}`).then(json<FileAnchorPreviewResponse>)
+}
+
 export interface SearchMatch {
   line: number
   column: number
