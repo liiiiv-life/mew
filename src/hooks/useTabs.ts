@@ -161,10 +161,18 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     [patch],
   )
 
-  /** 그 프로젝트의 **모든 칸**의 탭을 한 번에 매핑 — 내용·저장 상태는 경로 단위라 칸을 가리지 않는다 */
-  const mapTabs = useCallback(
-    (p: string, fn: (t: Tab) => Tab) => {
-      patch(p, (s) => ({ ...s, panes: s.panes.map((pane) => ({ ...pane, tabs: pane.tabs.map(fn) })) }))
+  /** 같은 경로를 연 칸만 갱신한다. 다른 칸·탭의 객체 identity를 보존해 파일 응답이 넓은 리렌더를 만들지 않게 한다. */
+  const mapTabsAtPath = useCallback(
+    (p: string, path: string, fn: (t: Tab) => Tab) => {
+      patch(p, (s) => {
+        let changed = false
+        const panes = s.panes.map((pane) => {
+          if (!pane.tabs.some((tab) => tab.path === path)) return pane
+          changed = true
+          return { ...pane, tabs: pane.tabs.map((tab) => (tab.path === path ? fn(tab) : tab)) }
+        })
+        return changed ? { ...s, panes } : s
+      })
     },
     [patch],
   )
@@ -249,8 +257,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
         .then(({ content, editable }) => {
           markFileOpen(trace, 'file-response')
           if (!external) putCachedFile(p, path, { content, editable })
-          mapTabs(p, (t) => {
-            if (t.path !== path) return t
+          mapTabsAtPath(p, path, (t) => {
             // 캐시 본문으로 이미 그려 둔 사이에 손을 댔으면(타이핑·협업 방 내용) 그 버퍼를 덮지 않는다.
             // 서버 본문은 savedContent로만 들어가므로, 다르면 dirty가 되어 자동저장이 내 것을 올린다.
             const edited = cached !== undefined && t.content !== cached.content
@@ -277,13 +284,13 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
           fetchRules(path, p)
             .then((rules) => {
               markFileOpen(trace, 'rules-response')
-              mapTabs(p, (t) => (t.path === path ? { ...t, rules } : t))
+              mapTabsAtPath(p, path, (t) => ({ ...t, rules }))
             })
             .catch(console.error)
         })
       }
     },
-    [patchPane, mapTabs],
+    [patchPane, mapTabsAtPath],
   )
 
   const openFile = useCallback(
@@ -406,24 +413,22 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       const tab = findTab(p, path)
       if (!tab || tab.content === tab.savedContent || isArchivedPath(tab.path, p) || !tab.editable) return
       const content = tab.content
-      mapTabs(p, (t) => (t.path === path ? { ...t, status: 'saving' } : t))
+      mapTabsAtPath(p, path, (t) => ({ ...t, status: 'saving' }))
       const save = isExternalTabPath(path)
         ? saveExternalFile(externalAbsolutePath(path), content).then(() => ({ ok: true as const, commit: null }))
         : saveFile(path, content, false, p)
       save
         .then(() => {
           if (!isExternalTabPath(path)) putCachedFile(p, path, { content, editable: tab.editable })
-          mapTabs(p, (t) =>
-            t.path === path && t.content === content ? { ...t, savedContent: content, status: 'saved', statusMessage: 'Saved' } : t,
+          mapTabsAtPath(p, path, (t) =>
+            t.content === content ? { ...t, savedContent: content, status: 'saved', statusMessage: 'Saved' } : t,
           )
         })
         .catch((err) => {
-          mapTabs(p, (t) =>
-            t.path === path ? { ...t, status: 'error', statusMessage: err instanceof Error ? err.message : String(err) } : t,
-          )
+          mapTabsAtPath(p, path, (t) => ({ ...t, status: 'error', statusMessage: err instanceof Error ? err.message : String(err) }))
         })
     },
-    [mapTabs],
+    [mapTabsAtPath],
   )
 
   /**
@@ -481,10 +486,10 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     (path: string, content: string) => {
       const p = projectRef.current
       // 편집이 시작되면 미리보기 탭을 고정 탭으로 승격 (VSCode와 동일)
-      mapTabs(p, (t) => (t.path === path ? { ...t, content, preview: false } : t))
+      mapTabsAtPath(p, path, (t) => ({ ...t, content, preview: false }))
       scheduleAutosave(p, path)
     },
-    [mapTabs, scheduleAutosave],
+    [mapTabsAtPath, scheduleAutosave],
   )
 
   const saveCurrentTab = useCallback(
@@ -497,7 +502,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       if (!dirty || isArchivedPath(tab.path, p)) return
 
       settlePendingSave(p, tab.path)
-      mapTabs(p, (t) => (t.path === tab.path ? { ...t, status: 'saving' } : t))
+      mapTabsAtPath(p, tab.path, (t) => ({ ...t, status: 'saving' }))
       try {
         const external = isExternalTabPath(tab.path)
         const result = external
@@ -507,30 +512,24 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
         const message = commit
           ? `Committed${result.commit?.hash ? ' ' + result.commit.hash.slice(0, 7) : ''}`
           : 'Saved'
-        mapTabs(p, (t) =>
-          t.path === tab.path
-            ? {
-                ...t,
-                savedContent: tab.content,
-                committedContent: commit ? tab.content : t.committedContent,
-                status: 'saved',
-                statusMessage: message,
-              }
-            : t,
-        )
+        mapTabsAtPath(p, tab.path, (t) => ({
+          ...t,
+          savedContent: tab.content,
+          committedContent: commit ? tab.content : t.committedContent,
+          status: 'saved',
+          statusMessage: message,
+        }))
         if (commit && !external) {
           onCommitted()
           fetchRules(tab.path, p)
-            .then((rules) => mapTabs(p, (t) => (t.path === tab.path ? { ...t, rules } : t)))
+            .then((rules) => mapTabsAtPath(p, tab.path, (t) => ({ ...t, rules })))
             .catch(console.error)
         }
       } catch (err) {
-        mapTabs(p, (t) =>
-          t.path === tab.path ? { ...t, status: 'error', statusMessage: err instanceof Error ? err.message : String(err) } : t,
-        )
+        mapTabsAtPath(p, tab.path, (t) => ({ ...t, status: 'error', statusMessage: err instanceof Error ? err.message : String(err) }))
       }
     },
-    [settlePendingSave, mapTabs, onCommitted],
+    [settlePendingSave, mapTabsAtPath, onCommitted],
   )
 
   // 서버에서 이미 쓰기+커밋까지 끝낸 내용(히스토리 되돌리기)을 탭 상태에 반영 — saveFile을 다시
@@ -541,17 +540,13 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       // 되돌리기는 지금 버퍼를 통째로 대체하므로 이 탭에 예약된 저장은 취소한다
       settlePendingSave(p, path)
       putCachedFile(p, path, { content, editable: findTab(p, path)?.editable ?? true })
-      mapTabs(p, (t) =>
-        t.path === path
-          ? { ...t, content, savedContent: content, committedContent: content, status: 'saved', statusMessage: 'Reverted' }
-          : t,
-      )
+      mapTabsAtPath(p, path, (t) => ({ ...t, content, savedContent: content, committedContent: content, status: 'saved', statusMessage: 'Reverted' }))
       onCommitted()
       fetchRules(path, p)
-        .then((rules) => mapTabs(p, (t) => (t.path === path ? { ...t, rules } : t)))
+        .then((rules) => mapTabsAtPath(p, path, (t) => ({ ...t, rules })))
         .catch(console.error)
     },
-    [settlePendingSave, mapTabs, onCommitted],
+    [settlePendingSave, mapTabsAtPath, onCommitted],
   )
 
   /** 탭을 다른 칸으로 옮긴다 (탭을 끌어 그 칸 가운데에 놓았을 때) */
