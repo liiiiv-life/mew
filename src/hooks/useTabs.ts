@@ -4,7 +4,7 @@ import { mediaKind } from '../utils/media'
 import { dropCachedFile, getCachedFile, putCachedFile } from '../utils/contentCache'
 import { leaf, normalizeLayout, removeLeaf, splitLeaf, type DropSide, type PaneNode } from '../utils/paneTree'
 import { externalAbsolutePath, externalTabPath, isExternalTabPath } from '../utils/externalFiles'
-import { markFileOpen, startFileOpen, type FileOpenTrace } from '../utils/fileOpenPerformance'
+import { afterFirstPaint, markFileOpen, startFileOpen, type FileOpenTrace } from '../utils/fileOpenPerformance'
 
 export type Tab = {
   path: string
@@ -271,9 +271,16 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
           onNoticeRef.current(err instanceof Error ? err.message : String(err))
         })
       if (!external) {
-        fetchRules(path, p)
-          .then((rules) => mapTabs(p, (t) => (t.path === path ? { ...t, rules } : t)))
-          .catch(console.error)
+        // MOC·링크 검사는 본문 표시의 선행조건이 아니다. 로컬 서버에서 동기 검사하는 비용도 있으므로
+        // 첫 편집기 paint 뒤에 시작한다. 실패해도 본문을 막지 않는 기존 계약은 그대로다.
+        afterFirstPaint(() => {
+          fetchRules(path, p)
+            .then((rules) => {
+              markFileOpen(trace, 'rules-response')
+              mapTabs(p, (t) => (t.path === path ? { ...t, rules } : t))
+            })
+            .catch(console.error)
+        })
       }
     },
     [patchPane, mapTabs],

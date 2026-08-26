@@ -33,3 +33,15 @@ export function startFileOpen(): FileOpenTrace {
 export function markFileOpen(trace: FileOpenTrace | undefined, phase: string) {
   if (trace) mark(trace, phase)
 }
+
+/** 한 프레임을 실제로 그린 뒤에 비필수 작업을 시작한다. 반환값으로 예약을 취소할 수 있다. */
+export function afterFirstPaint(task: () => void): () => void {
+  let timer: number | null = null
+  const raf = requestAnimationFrame(() => {
+    timer = window.setTimeout(task, 0)
+  })
+  return () => {
+    cancelAnimationFrame(raf)
+    if (timer !== null) window.clearTimeout(timer)
+  }
+}
