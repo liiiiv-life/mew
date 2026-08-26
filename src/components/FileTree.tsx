@@ -556,13 +556,13 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
         >
           {isOpen ? '▾' : '▸'} {node.name}
-          {node.gitRepo && (
+          {node.project && (
             <span className="ml-1 rounded bg-accent/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">
-              Git
+              Project
             </span>
           )}
         </button>
-        {node.gitRepo && ctx.canUseCommands && <CommandButtonMenu project={node.name} />}
+        {node.project && ctx.canUseCommands && <CommandButtonMenu project={node.name} />}
         {!ctx.readOnly && (
           <GuestAccessIcons node={node} onToggleView={ctx.onToggleGuestView} onToggleEdit={ctx.onToggleGuestEdit} />
         )}
@@ -604,6 +604,7 @@ export function FileTree({
   selectedPath,
   readOnly,
   canUseCommands = false,
+  compact = false,
   roots,
   searchFocusSignal,
   newFileSignal,
@@ -624,6 +625,8 @@ export function FileTree({
   selectedPath: string | null
   readOnly: boolean
   canUseCommands?: boolean
+  /** 다른 트리 안에 넣을 때 검색·정렬 도구와 독립 스크롤을 숨긴다. */
+  compact?: boolean
   /** 검색창 아래에 서는 Documents/프로젝트 가상 폴더 */
   roots?: React.ReactNode
   searchFocusSignal: number
@@ -799,7 +802,7 @@ export function FileTree({
   async function requestCopy(path: string) {
     if (readOnly) return
     try {
-      const { relPath, hidden } = await copyFile(path)
+      const { relPath, hidden } = await copyFile(path, project)
       if (hidden) onNotice(NOT_ALLOWED)
       // 새 파일 생성과 같은 후처리 — 트리 갱신 + 복사본을 탭으로 연다
       onFileCreated(relPath)
@@ -810,7 +813,7 @@ export function FileTree({
 
   function requestDownload(path: string) {
     const a = document.createElement('a')
-    a.href = downloadUrl(path)
+    a.href = downloadUrl(path, project)
     a.download = path.split('/').pop() ?? path
     document.body.appendChild(a)
     a.click()
@@ -827,7 +830,7 @@ export function FileTree({
     setDeleteTarget(null)
     if (!target) return
     try {
-      await deleteFile(target.path)
+      await deleteFile(target.path, project)
       setFocused((f) => (f?.path === target.path ? null : f))
       onDeleted(target.path, target.type)
     } catch (err) {
@@ -844,7 +847,7 @@ export function FileTree({
     if (readOnly) return
     const current = node.guestAccess ?? { view: false, edit: false }
     const nextView = !current.view
-    setGuestAccess(node.path, nextView, nextView ? current.edit : false)
+    setGuestAccess(node.path, nextView, nextView ? current.edit : false, project)
       .then(onGuestAccessChanged)
       .catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)))
   }
@@ -853,7 +856,7 @@ export function FileTree({
     if (readOnly) return
     const current = node.guestAccess ?? { view: false, edit: false }
     const nextEdit = !current.edit
-    setGuestAccess(node.path, nextEdit ? true : current.view, nextEdit)
+    setGuestAccess(node.path, nextEdit ? true : current.view, nextEdit, project)
       .then(onGuestAccessChanged)
       .catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)))
   }
@@ -888,7 +891,7 @@ export function FileTree({
       }
       setEditing({ ...current, busy: true, error: undefined })
       try {
-        const { hidden } = await renamePath(current.path, newPath)
+        const { hidden } = await renamePath(current.path, newPath, project)
         setEditing(null)
         // 바꾼 이름이 트리에 안 뜨는 종류면(확장자·숨김 목록) 사라진 것처럼 보인다 — 이유를 알린다
         if (hidden) onNotice(NOT_ALLOWED)
@@ -914,7 +917,7 @@ export function FileTree({
       }
       const relPath = current.parentPath ? `${current.parentPath}/${name}.md` : `${name}.md`
       try {
-        const { relPath: created, hidden } = await createNewDocument(relPath, name)
+        const { relPath: created, hidden } = await createNewDocument(relPath, name, project)
         setEditing(null)
         if (hidden) onNotice(NOT_ALLOWED)
         onFileCreated(created)
@@ -929,7 +932,7 @@ export function FileTree({
       }
       const relPath = current.parentPath ? `${current.parentPath}/${name}` : name
       try {
-        const { hidden } = await createFolder(relPath)
+        const { hidden } = await createFolder(relPath, project)
         setEditing(null)
         if (hidden) onNotice(NOT_ALLOWED)
         ensureOpenChain(relPath)
@@ -959,7 +962,7 @@ export function FileTree({
       return
     }
     try {
-      const { hidden } = await renamePath(srcPath, newPath)
+      const { hidden } = await renamePath(srcPath, newPath, project)
       if (hidden) onNotice(NOT_ALLOWED)
       onRenamed(srcPath, newPath, srcType)
     } catch (err) {
@@ -975,7 +978,7 @@ export function FileTree({
       return
     }
     try {
-      const { relPath, hidden } = await copyInto(srcPath, destDir)
+      const { relPath, hidden } = await copyInto(srcPath, destDir, project)
       if (hidden) onNotice(NOT_ALLOWED)
       if (srcType === 'file') onFileCreated(relPath)
       else onFolderCreated()
@@ -1036,7 +1039,7 @@ export function FileTree({
     let hiddenAny = false
     try {
       for (const file of files) {
-        const { hidden } = await uploadInto(file, dir)
+        const { hidden } = await uploadInto(file, dir, project)
         hiddenAny = hiddenAny || hidden === true
       }
     } catch (err) {
@@ -1171,8 +1174,8 @@ export function FileTree({
   }
 
   return (
-    <div className="flex h-full flex-col border-r border-edge bg-surface-deep">
-      <div className="flex items-center gap-1.5 border-b border-edge p-2">
+    <div className={compact ? 'bg-surface-deep' : 'flex h-full flex-col border-r border-edge bg-surface-deep'}>
+      {!compact && <div className="flex items-center gap-1.5 border-b border-edge p-2">
         <div className="relative min-w-0 flex-1" onMouseDown={keepFocusOnPress}>
           <input
             ref={searchInputRef}
@@ -1203,8 +1206,7 @@ export function FileTree({
         >
           {sortMode === 'name' ? '가나다' : '확장자'}
         </button>
-      </div>
-      {roots}
+      </div>}
       <div
         ref={listRef}
         tabIndex={-1}
@@ -1249,8 +1251,9 @@ export function FileTree({
           setDropDir(null)
           if (item) void moveInto(item.path, item.type, '')
         }}
-        className={`min-h-0 flex-1 overflow-y-auto py-2 outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
+        className={`${compact ? 'py-1' : 'min-h-0 flex-1 overflow-y-auto py-2'} outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
       >
+        {roots}
         {filteredPaths !== null ? (
           filteredPaths.length === 0 ? (
             <div className="px-3 py-2 text-xs text-ink-muted">결과 없음</div>

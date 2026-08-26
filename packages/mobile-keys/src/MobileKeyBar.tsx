@@ -53,7 +53,7 @@ export function MobileKeyBar({
   return (
     // z-20 — 전체 화면 오버레이(사이드바·채팅·에이전트·터미널)는 z-30이다. 같은 z-30으로 두면
     // DOM 순서상 에디터가 사이드바보다 뒤라 보조키가 사이드바 위에 떠 버린다
-    <div className="sticky bottom-0 z-20 flex shrink-0 items-center gap-0.5 overflow-x-auto border-t border-edge bg-surface-deep px-1.5 py-1">
+    <div className="fixed inset-x-0 bottom-0 z-20 flex h-8 items-center gap-0.5 overflow-x-auto border-t border-edge bg-surface-deep px-1.5 py-1 shadow-[0_-3px_12px_rgba(0,0,0,0.16)]">
       <KeyButton label="Esc" onClick={onEsc} />
       <KeyButton label="Tab" onClick={onTab} />
       <KeyButton label="Ctrl" active={ctrlActive} onClick={onToggleCtrl} />

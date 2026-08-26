@@ -15,8 +15,8 @@ export interface TreeNode {
   path: string
   type: 'file' | 'dir'
   children?: TreeNode[]
-  /** 루트 프로젝트 바로 아래에 있는 Git 저장소 폴더 */
-  gitRepo?: boolean
+  /** 루트 프로젝트 바로 아래에 있는 `.mew`를 가진 하위 프로젝트 폴더 */
+  project?: boolean
   guestAccess?: { view: boolean; edit: boolean }
 }
 
@@ -137,7 +137,7 @@ function walk(absDir: string, relDir: string, f: Filters, downloadOnly = false):
         path: relPath,
         type: 'dir',
         children,
-        gitRepo: relDir === '' && fs.existsSync(path.join(absPath, '.git')),
+        project: relDir === '' && fs.existsSync(path.join(absPath, '.mew')),
       })
     } else if (entry.isFile()) {
       if (fileVisible(entry.name, f, downloadOnly)) nodes.push({ name: entry.name, path: relPath, type: 'file' })
@@ -177,7 +177,7 @@ async function walkAsync(absDir: string, relDir: string, f: Filters, downloadOnl
         path: relPath,
         type: 'dir',
         children,
-        gitRepo: relDir === '' && fs.existsSync(path.join(absPath, '.git')),
+        project: relDir === '' && fs.existsSync(path.join(absPath, '.mew')),
       })
     } else if (entry.isFile()) {
       if (fileVisible(entry.name, f, downloadOnly)) nodes.push({ name: entry.name, path: relPath, type: 'file' })

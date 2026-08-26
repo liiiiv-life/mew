@@ -51,7 +51,6 @@ import {
 import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './MentionTextarea'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
 import { RuntimeSettingsButton } from './RuntimeSettingsModal'
-import { useSwipeGesture } from '@mew/mobile-keys'
 import { useGridDrag } from '../hooks/useGridDrag'
 import { sessionIdOf, withAutoLabel, withRename, withSessionId, type AgentTab } from '../utils/agentTabs'
 import {
@@ -1147,13 +1146,6 @@ export function AgentPanel({ project, tree, onOpenFile, onClose, nextTabSignal =
     // 이 signal이 바뀌는 순간에만 오른쪽 탭으로 한 칸 간다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextTabSignal])
-  const swipe = useSwipeGesture({
-    onTopLeft: () => switchTab('left'),
-    onTopRight: () => switchTab('right'),
-    // 화면 아래 20%에서 좌→우로 밀면 창이 닫힌다 — 오른쪽에 붙은 창을 밀어내는 손짓, 터미널과 같다
-    onBottomRight: onClose,
-  })
-
   const register = useCallback((id: string, send: ((payload: Record<string, unknown>) => void) | null) => {
     if (send) sendersRef.current.set(id, send)
     else sendersRef.current.delete(id)
@@ -1241,7 +1233,6 @@ export function AgentPanel({ project, tree, onOpenFile, onClose, nextTabSignal =
       className="flex h-full w-full flex-col bg-surface-deep"
       onMouseDown={dropOutsideFocus}
       onClick={dropInputFocusAfterPress}
-      {...swipe}
     >
       <AgentTabBar
         tabs={tabs}

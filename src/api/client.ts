@@ -540,8 +540,8 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
   }).then(json<{ ok: true }>)
 }
 
-export function fetchTree(): Promise<TreeNode[]> {
-  return fetch(`/api/tree?${projectQs()}`).then(json<TreeNode[]>)
+export function fetchTree(project?: string): Promise<TreeNode[]> {
+  return fetch(`/api/tree?${projectQs(project)}`).then(json<TreeNode[]>)
 }
 
 // 탭 상태를 다루는 호출(읽기·저장·규칙)은 프로젝트를 명시적으로 받는다 — 자동저장 디바운스처럼
@@ -670,11 +670,11 @@ export function replaceInProjectFile(
   }).then(json<{ ok: true; count: number; commit: CommitResult | null }>)
 }
 
-export function setGuestAccess(path: string, view: boolean, edit: boolean): Promise<{ ok: true }> {
+export function setGuestAccess(path: string, view: boolean, edit: boolean, project: string = currentProject): Promise<{ ok: true }> {
   return fetch('/api/guest-access', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, view, edit, project: currentProject }),
+    body: JSON.stringify({ path, view, edit, project }),
   }).then(json<{ ok: true }>)
 }
 
@@ -747,8 +747,8 @@ export function saveFile(
   }).then(json<{ ok: true; commit: CommitResult | null }>)
 }
 
-export function deleteFile(path: string): Promise<{ ok: true; commit: CommitResult | null }> {
-  return fetch(`/api/file?path=${encodeURIComponent(path)}&${projectQs()}`, { method: 'DELETE' }).then(
+export function deleteFile(path: string, project: string = currentProject): Promise<{ ok: true; commit: CommitResult | null }> {
+  return fetch(`/api/file?path=${encodeURIComponent(path)}&${projectQs(project)}`, { method: 'DELETE' }).then(
     json<{ ok: true; commit: CommitResult | null }>,
   )
 }
@@ -765,19 +765,19 @@ export interface FileOpResult {
   hidden?: boolean
 }
 
-export function renamePath(oldPath: string, newPath: string): Promise<FileOpResult> {
+export function renamePath(oldPath: string, newPath: string, project: string = currentProject): Promise<FileOpResult> {
   return fetch('/api/rename', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ oldPath, newPath, project: currentProject }),
+    body: JSON.stringify({ oldPath, newPath, project }),
   }).then(json<FileOpResult>)
 }
 
-export function createFolder(relPath: string): Promise<FileOpResult> {
+export function createFolder(relPath: string, project: string = currentProject): Promise<FileOpResult> {
   return fetch('/api/new-folder', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ relPath, project: currentProject }),
+    body: JSON.stringify({ relPath, project }),
   }).then(json<FileOpResult>)
 }
 
@@ -798,20 +798,20 @@ export function lintFile(path: string, content: string): Promise<{ diagnostics: 
   }).then(json<{ diagnostics: LintDiagnostic[] }>)
 }
 
-export function copyFile(path: string): Promise<FileOpResult> {
+export function copyFile(path: string, project: string = currentProject): Promise<FileOpResult> {
   return fetch('/api/copy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, project: currentProject }),
+    body: JSON.stringify({ path, project }),
   }).then(json<FileOpResult>)
 }
 
 /** 파일·폴더를 다른 폴더(destDir, ''=루트) 안으로 복사한다 — 붙여넣기(Ctrl+V, copy 모드) */
-export function copyInto(srcPath: string, destDir: string): Promise<FileOpResult> {
+export function copyInto(srcPath: string, destDir: string, project: string = currentProject): Promise<FileOpResult> {
   return fetch('/api/copy-into', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ srcPath, destDir, project: currentProject }),
+    body: JSON.stringify({ srcPath, destDir, project }),
   }).then(json<FileOpResult>)
 }
 
@@ -819,16 +819,16 @@ export function copyInto(srcPath: string, destDir: string): Promise<FileOpResult
  * 바깥에서 사이드바로 끌어다 놓은 파일을 프로젝트의 destDir(''=루트) 안에 그대로 저장한다.
  * uploadAsset(R2 링크)과 달리 바이트를 손대지 않는다 — 사용자가 놓은 그 파일이 그 자리에 생겨야 한다.
  */
-export function uploadInto(file: File, destDir: string): Promise<FileOpResult> {
+export function uploadInto(file: File, destDir: string, project: string = currentProject): Promise<FileOpResult> {
   const body = new FormData()
   body.append('file', file)
   body.append('destDir', destDir)
-  body.append('project', currentProject)
+  body.append('project', project)
   return fetch('/api/upload-into', { method: 'POST', body }).then(json<FileOpResult>)
 }
 
-export function downloadUrl(path: string): string {
-  return `/api/download?path=${encodeURIComponent(path)}&${projectQs()}`
+export function downloadUrl(path: string, project: string = currentProject): string {
+  return `/api/download?path=${encodeURIComponent(path)}&${projectQs(project)}`
 }
 
 /** 미디어 파일(이미지·오디오·비디오·PDF)을 인라인으로 스트리밍하는 URL */
@@ -847,11 +847,11 @@ export function fetchRules(path: string, project?: string): Promise<DocRules> {
   return fetch(`/api/rules?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<DocRules>)
 }
 
-export function createNewDocument(relPath: string, title: string): Promise<FileOpResult> {
+export function createNewDocument(relPath: string, title: string, project: string = currentProject): Promise<FileOpResult> {
   return fetch('/api/new-document', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ relPath, title, project: currentProject }),
+    body: JSON.stringify({ relPath, title, project }),
   }).then(json<FileOpResult>)
 }
 

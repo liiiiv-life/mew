@@ -14,7 +14,6 @@ import {
   type TreeNode,
 } from '../api/client'
 import { Editor, type CommentAnchor, type EditorHandle } from '@mew/editor'
-import { useSwipeGesture } from '@mew/mobile-keys'
 import { CodePane, type CodePaneHandle } from './CodePane'
 import { CommentComposer, CommentListPopover, CommentPopover, CommentThreadView } from './Comments'
 import { MediaViewer } from './MediaViewer'
@@ -118,7 +117,6 @@ export interface EditorPaneProps {
   /** 지금 포커스된 칸인지 — 커밋·단축키·터미널이 가리키는 칸이다 */
   focused: boolean
   isGuest: boolean
-  canUseTerminal: boolean
   /** 사이드바 여는 버튼을 이 칸이 맡는지 (사이드바 닫힘 + 맨 앞 칸) */
   showSidebarButton: boolean
   tocOpen: boolean
@@ -136,8 +134,6 @@ export interface EditorPaneProps {
   onChangeContent: (path: string, content: string) => void
   onOpenLink: (path: string) => void
   onOpenHistory: () => void
-  /** 모바일 하단 우→좌 스와이프 제스처의 에이전트 창 열기 — 버튼은 햄버거 메뉴(App)에 있다 */
-  onOpenAgent: () => void
   onSetTocOpen: (open: boolean) => void
   onOpenSidebar: () => void
   onTabDragMove: (paneId: string, path: string, x: number, y: number) => void
@@ -157,7 +153,6 @@ export function EditorPane({
   presence,
   focused,
   isGuest,
-  canUseTerminal,
   showSidebarButton,
   tocOpen,
   dropZone,
@@ -173,7 +168,6 @@ export function EditorPane({
   onChangeContent,
   onOpenLink,
   onOpenHistory,
-  onOpenAgent,
   onSetTocOpen,
   onOpenSidebar,
   onTabDragMove,
@@ -463,26 +457,6 @@ export function EditorPane({
     return stop
   }, [pane.activePath, project])
 
-  // 화면 위 40% 스와이프 = 탭 전환, 아래 20% = 창(사이드바·터미널) 전환, 가운데 40%는 제스처 없음
-  // 구역 안에서는 스크롤 위치를 따지지 않고 바로 전환한다 — 긴 줄을 가로로 끄는 손짓은 가운데
-  // 40%(제스처 없는 구역)의 몫이라, "맨 끝에 닿아야 통과" 규칙을 둘 이유가 없다.
-  const switchTab = (dir: 'left' | 'right') => {
-    if (pane.tabs.length < 2 || !pane.activePath) return
-    const idx = pane.tabs.findIndex((t) => t.path === pane.activePath)
-    if (idx < 0) return
-    const next = dir === 'left' ? (idx + 1) % pane.tabs.length : (idx - 1 + pane.tabs.length) % pane.tabs.length
-    onActivate(pane.tabs[next].path)
-  }
-
-  const swipe = useSwipeGesture({
-    onTopLeft: () => switchTab('left'),
-    onTopRight: () => switchTab('right'),
-    onBottomRight: onOpenSidebar,
-    onBottomLeft: () => {
-      if (canUseTerminal) onOpenAgent()
-    },
-  })
-
   const isMd = !!activeTab?.path.endsWith('.md') && !isExternalTabPath(activeTab.path)
   const isSvg = !!activeTab?.path.endsWith('.svg') && !isExternalTabPath(activeTab.path)
 
@@ -528,7 +502,7 @@ export function EditorPane({
                 archives/ 문서는 불변입니다 — 편집이 차단되었습니다
               </div>
             )}
-            <div className="relative flex min-w-0 flex-1 flex-col" {...swipe}>
+            <div className="relative flex min-w-0 flex-1 flex-col">
               {showSidebarButton && (
                 <div className="absolute left-3 top-3 z-20">
                   <SidebarOpenButton onClick={onOpenSidebar} />
@@ -733,7 +707,7 @@ export function EditorPane({
             )}
           </>
         ) : (
-          <div className="relative flex min-h-0 flex-1 items-center justify-center text-ink-secondary" {...swipe}>
+          <div className="relative flex min-h-0 flex-1 items-center justify-center text-ink-secondary">
             {/* 문서가 없어도 사이드바·터미널은 열 수 있어야 한다 — 도구 줄과 같은 자리 */}
             {showSidebarButton && (
               <div className="absolute left-3 top-3 z-20">

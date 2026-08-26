@@ -38,7 +38,6 @@ import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
-import { useSwipeGesture } from '@mew/mobile-keys'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
 import { mediaKind } from './utils/media'
@@ -131,8 +130,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 브라우저 사용자가 남긴 owner 전용 목록까지 물려받지는 않는다.
   const [openProjectPaths, setOpenProjectPaths] = useState<string[]>(() => (isOwner ? loadOpenProjectPaths() : []))
   const [openProjectDialog, setOpenProjectDialog] = useState(false)
+  const [tabBarsHidden, setTabBarsHidden] = useState(false)
+  const fullscreenGuardRef = useRef(false)
 
   const [tree, setTree] = useState<TreeNode[]>([])
+  // 사이드바는 활성 편집 스코프와 무관하게 Documents와 루트 내용을 함께 보여 준다.
+  const [rootTree, setRootTree] = useState<TreeNode[]>([])
+  const [docsTree, setDocsTree] = useState<TreeNode[]>([])
+  const [docsExpanded, setDocsExpanded] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   const [tmuxOpen, setTmuxOpen] = useState(() => canUseTerminal && loadTmuxOpen(getProject()))
   // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034).
@@ -185,7 +190,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 흐름을 끊지 않는 짧은 안내 — 사이드바 작업 결과가 내 트리에 안 뜨거나, 파일을 못 열었을 때
   const { toast, showToast } = useToast()
 
-  const refreshTree = useCallback(() => fetchTree().then(setTree).catch(console.error), [])
+  const refreshTree = useCallback(() => {
+    void fetchTree(WORKSPACE_PROJECT).then(setRootTree).catch(console.error)
+    void fetchTree(DEFAULT_PROJECT).then(setDocsTree).catch(console.error)
+    return fetchTree().then(setTree).catch(console.error)
+  }, [])
 
   const rememberProjectPath = useCallback((projectPath: string) => {
     setOpenProjectPaths((previous) => {
@@ -380,10 +389,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     invert: true,
   })
 
-  // 탭 전환·창 전환 스와이프는 편집 칸이 각자 처리한다 (EditorPane) — 칸마다 탭 줄이 따로다
-  const sidebarSwipe = useSwipeGesture({ onBottomLeft: () => setSidebarOpen(false) })
-  const tmuxSwipe = useSwipeGesture({ onBottomRight: () => setTmuxOpen(false) })
-
   // Esc·안드로이드 뒤로가기로 열린 것을 한 겹씩 닫는다 — 모달·팝업도 같은 스택에 등록돼 있어
   // (useOverlayDismiss) 그쪽이 떠 있으면 언제나 먼저 닫히고, 패널은 마지막에 닫힌다.
   // App이 직접 소유하는 보조 패널은 여기 한 번에 등록한다. 모달·드롭다운은 각 컴포넌트가 같은 전역
@@ -429,13 +434,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     if (chatOpen) lastPanelRef.current = 'chat'
   }, [chatOpen])
 
-  const switchProjectRight = useCallback(() => {
-    const destinations = [...new Set(rootProjectPath ? [...openProjectPaths, rootProjectPath] : openProjectPaths)]
-    if (destinations.length === 0) return
-    const index = rootProjectPath ? destinations.indexOf(rootProjectPath) : -1
-    void openRootProject(destinations[index < 0 ? 0 : (index + 1) % destinations.length])
-  }, [openProjectPaths, openRootProject, rootProjectPath])
-
   const switchCurrentWindowTabRight = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
     if (surface === 'agent' && !agentOpen) surface = tmuxOpen ? 'tmux' : 'editor'
@@ -454,6 +452,20 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     if (index < 0) return
     setActivePath(tabs[(index + 1) % tabs.length].path, focusedPaneId)
   }, [activePath, agentOpen, focusedPaneId, setActivePath, tabs, tmuxOpen])
+
+  const switchCurrentWindowTabLeft = useCallback(() => {
+    if (tabs.length < 2 || !activePath) return
+    const index = tabs.findIndex((tab) => tab.path === activePath)
+    if (index < 0) return
+    setActivePath(tabs[(index - 1 + tabs.length) % tabs.length].path, focusedPaneId)
+  }, [activePath, focusedPaneId, setActivePath, tabs])
+
+  const sendEditKey = useCallback((key: 'up' | 'right' | 'down' | 'left') => {
+    const code = `Arrow${key[0].toUpperCase()}${key.slice(1)}`
+    // CodeMirror·ProseMirror·xterm 모두 포커스된 실제 입력 요소가 기본 키 처리를 맡는다.
+    const target = document.activeElement as HTMLElement | null
+    target?.dispatchEvent(new KeyboardEvent('keydown', { key: code, code, bubbles: true, cancelable: true }))
+  }, [])
 
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
@@ -525,9 +537,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   useEffect(() => {
     let alive = true
     setTree([])
-    fetchTree()
-      .then((next) => {
-        if (alive) setTree(next)
+    Promise.all([fetchTree(), fetchTree(WORKSPACE_PROJECT), fetchTree(DEFAULT_PROJECT)])
+      .then(([activeTree, nextRootTree, nextDocsTree]) => {
+        if (!alive) return
+        setTree(activeTree)
+        setRootTree(nextRootTree)
+        setDocsTree(nextDocsTree)
       })
       .catch(console.error)
     return () => {
@@ -538,6 +553,26 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 옛 `/{프로젝트}` 주소로 들어왔으면 주소만 루트로 정리한다 — 프로젝트는 이미 그것으로 시작했다
   useEffect(() => {
     if (location.pathname !== '/') history.replaceState(null, '', '/')
+  }, [])
+
+  // 모바일 뒤로가기가 전체화면 종료로 해석되지 않게, 전체화면 진입 중에는 히스토리 한 칸을 지킨다.
+  // 브라우저가 OS 차원에서 fullscreen을 먼저 해제하는 경우는 다시 요청할 사용자 제스처가 없어 막을 수 없지만,
+  // SPA의 popstate·Android WebView 뒤로가기는 여기서 소비된다.
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      if (document.fullscreenElement && !fullscreenGuardRef.current) {
+        history.pushState({ ...(history.state ?? {}), mewFullscreen: true }, '')
+        fullscreenGuardRef.current = true
+      }
+      if (!document.fullscreenElement) fullscreenGuardRef.current = false
+    }
+    const onPopState = () => {
+      if (!document.fullscreenElement || !fullscreenGuardRef.current) return
+      history.pushState({ ...(history.state ?? {}), mewFullscreen: true }, '')
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    window.addEventListener('popstate', onPopState)
+    return () => { document.removeEventListener('fullscreenchange', onFullscreenChange); window.removeEventListener('popstate', onPopState) }
   }, [])
 
   useEffect(() => {
@@ -559,14 +594,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   useEffect(() => {
     localStorage.setItem(ANDROID_OPEN_KEY, androidOpen ? '1' : '0')
   }, [androidOpen])
-
-  const handleFileCreated = useCallback(
-    (relPath: string) => {
-      refreshTree()
-      openFile(relPath, { preview: false })
-    },
-    [refreshTree, openFile],
-  )
 
   const handleRenamed = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -785,7 +812,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           presence={tabPresence}
           focused={pane.id === focusedPaneId}
           isGuest={isGuest}
-          canUseTerminal={canUseTerminal}
           showSidebarButton={!sidebarOpen && pane.id === sidebarPaneId}
           tocOpen={tocOpen}
           dropZone={dropTarget?.paneId === pane.id ? dropTarget.zone : null}
@@ -807,7 +833,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           onChangeContent={updateTabContent}
           onOpenLink={(linkPath) => openFile(linkPath, { preview: false, forceNewTab: true, paneId: pane.id })}
           onOpenHistory={() => setHistoryOpen(true)}
-          onOpenAgent={() => setAgentOpen(true)}
           onSetTocOpen={setTocOpen}
           onOpenSidebar={() => setSidebarOpen(true)}
           onTabDragMove={handleTabDragMove}
@@ -1053,12 +1078,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       {/* 화면 전폭을 쓰는 줄은 이 헤더 하나뿐이다 — 프로젝트 탭 + 도구 버튼. 문서 탭 줄은 각
           편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
-        <header className="flex h-10 items-stretch border-b border-edge pr-2">
+        <header className={`flex h-10 items-stretch border-b border-edge pr-2 ${tabBarsHidden ? 'hidden' : ''}`}>
           <RootProjectTabs
             paths={rootProjectPath ? [...openProjectPaths, rootProjectPath] : openProjectPaths}
             activePath={rootProjectPath}
             fallbackLabel={projectLabel(rootProjectPath)}
             canOpen={isOwner}
+            canChangeIcon={isOwner}
             onActivate={(projectPath) => void openRootProject(projectPath)}
             onOpen={() => setOpenProjectDialog(true)}
           />
@@ -1086,7 +1112,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       >
         {sidebarOpen && (
           <div
-            {...sidebarSwipe}
             data-sidebar
             // 모바일은 프로젝트 헤더 아래의 작업 영역만 덮고, 문서 탭(h-9)도 눌러 전환할 수 있게 남긴다.
             // 홈에는 문서 탭이 없으므로 그때만 작업 영역 맨 위부터 채운다. 데스크톱은 기존 고정 칸이다.
@@ -1138,40 +1163,52 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               </div>
               <div className="min-h-0 flex-1">
                 <div className={sidebarView === 'files' ? 'h-full' : 'hidden'}>
-                  {/* key=project — 프로젝트를 옮기면 펼쳐둔 폴더·선택 상태를 옆 프로젝트로 끌고 가지 않는다 */}
+                  {/* 탐색기는 Documents와 루트 폴더를 한 흐름으로 보여 준다. 편집 탭의 프로젝트 전환은
+                      트리의 정체성을 바꾸지 않는다. */}
                   <FileTree
-                    key={project}
-                    tree={tree}
-                    project={project}
-                    selectedPath={activePath}
+                    key={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
+                    tree={isGuest ? docsTree : rootTree}
+                    project={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
+                    selectedPath={project === (isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? activePath : null}
                     readOnly={isGuest}
-                    canUseCommands={canUseTerminal && project === WORKSPACE_PROJECT}
+                    canUseCommands={canUseTerminal && !isGuest}
                     roots={
-                      <div className="border-b border-edge py-1">
+                      !isGuest && <div className="border-b border-edge py-1">
                         <button
                           type="button"
-                          onClick={() => switchProject(DEFAULT_PROJECT)}
+                          onClick={() => setDocsExpanded((expanded) => !expanded)}
                           onContextMenu={(event) => {
                             if (!isOwner) return
                             event.preventDefault()
                             setDocsSettingsOpen(true)
                           }}
-                          className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-medium hover:bg-surface-raised ${project === DEFAULT_PROJECT ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
+                          className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-medium hover:bg-surface-raised ${docsExpanded ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
                           title={isOwner ? 'Documents · 우클릭하여 폴더 설정' : 'Documents'}
                         >
-                          <span aria-hidden="true">{project === DEFAULT_PROJECT ? '▾' : '▸'}</span>
+                          <span aria-hidden="true">{docsExpanded ? '▾' : '▸'}</span>
                           <span>{t('project.documents')}</span>
                         </button>
-                        {!isGuest && (
-                          <button
-                            type="button"
-                            onClick={() => switchProject(WORKSPACE_PROJECT)}
-                            className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-semibold hover:bg-surface-raised ${project === WORKSPACE_PROJECT ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
-                            title={rootProjectPath ?? undefined}
-                          >
-                            <span aria-hidden="true">{project === WORKSPACE_PROJECT ? '▾' : '▸'}</span>
-                            <span className="truncate">{projectLabel(rootProjectPath)}</span>
-                          </button>
+                        {docsExpanded && (
+                          <FileTree
+                            tree={docsTree}
+                            project={DEFAULT_PROJECT}
+                            compact
+                            selectedPath={project === DEFAULT_PROJECT ? activePath : null}
+                            readOnly={isGuest}
+                            canUseCommands={false}
+                            searchFocusSignal={0}
+                            newFileSignal={{ n: 0, parentPath: null }}
+                            revealSignal={revealSignal}
+                            presence={project === DEFAULT_PROJECT ? tabPresence : {}}
+                            onSelect={(path) => openMentionedFile(DEFAULT_PROJECT, path, null)}
+                            onFileCreated={refreshTree}
+                            onFolderCreated={refreshTree}
+                            onRenamed={() => refreshTree()}
+                            onDeleted={() => refreshTree()}
+                            onGuestAccessChanged={refreshTree}
+                            onNotice={showToast}
+                            registerSearchCancel={() => {}}
+                          />
                         )}
                       </div>
                     }
@@ -1179,12 +1216,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     newFileSignal={newFileSignal}
                     revealSignal={revealSignal}
                     presence={tabPresence}
-                    onSelect={(path, opts) => {
-                      openFile(path, opts)
+                    onSelect={(path) => {
+                      // 루트 트리는 Documents 탭을 편집 중이어도 그대로 남아 있다. 선택한 파일의
+                      // 실제 스코프로 먼저 전환한 뒤 탭을 연다.
+                      openMentionedFile(WORKSPACE_PROJECT, path, null)
                       if (!isDesktop()) setSidebarOpen(false)
                     }}
                     onFileCreated={(relPath) => {
-                      handleFileCreated(relPath)
+                      refreshTree()
+                      openMentionedFile(WORKSPACE_PROJECT, relPath, null)
                       if (!isDesktop()) setSidebarOpen(false)
                     }}
                     onFolderCreated={refreshTree}
@@ -1261,7 +1301,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
         {tmuxOpen && canUseTerminal && (
           <div
-            {...tmuxSwipe}
             onPointerDownCapture={() => { activeTabbedSurfaceRef.current = 'tmux' }}
             className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
             style={{ width: isDesktop() ? tmuxWidth : undefined }}
@@ -1319,8 +1358,18 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
       <FabMenu
         onFullscreen={toggleFullscreen}
-        onNextProject={switchProjectRight}
         onNextWindowTab={switchCurrentWindowTabRight}
+        onPrevWindowTab={switchCurrentWindowTabLeft}
+        onToggleAgent={() => { if (canUseTerminal) setAgentOpen((open) => !open) }}
+        onToggleTerminal={() => { if (canUseTerminal) setTmuxOpen((open) => !open) }}
+        onToggleTabBars={() => setTabBarsHidden((hidden) => !hidden)}
+        onToggleChat={() => { if (!isGuest) setChatOpen((open) => !open) }}
+        onToggleAgentSet={() => { if (canUseTerminal) setAgentSetOpen((open) => !open) }}
+        onArrow={sendEditKey}
+        onHistoryBack={() => history.back()}
+        onHistoryForward={() => history.forward()}
+        onUndo={() => document.execCommand('undo')}
+        onRedo={() => document.execCommand('redo')}
       />
 
       {settingsOpen && (

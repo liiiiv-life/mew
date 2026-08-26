@@ -1,5 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useI18n } from '../i18n'
+import { IconPicker } from './IconPicker'
+import { ProjectIcon } from './ProjectIcon'
 
 function labelOf(projectPath: string): string {
   const parts = projectPath.replace(/[\\/]+$/, '').split(/[\\/]/)
@@ -11,6 +13,7 @@ export function RootProjectTabs({
   activePath,
   fallbackLabel,
   canOpen,
+  canChangeIcon,
   onActivate,
   onOpen,
 }: {
@@ -18,12 +21,34 @@ export function RootProjectTabs({
   activePath: string | null
   fallbackLabel: string
   canOpen: boolean
+  canChangeIcon: boolean
   onActivate: (path: string) => void
   onOpen: () => void
 }) {
   const { t } = useI18n()
   const unique = useMemo(() => [...new Set(paths)], [paths])
+  const [editingPath, setEditingPath] = useState<string | null>(null)
+  const [icons, setIcons] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('mew:root-project-icons') ?? '{}') as Record<string, string> } catch { return {} }
+  })
+  const pressTimer = useRef<number | null>(null)
+  const longPressed = useRef(false)
+
+  function clearPressTimer() {
+    if (pressTimer.current !== null) window.clearTimeout(pressTimer.current)
+    pressTimer.current = null
+  }
+  function saveIcon(path: string, icon: string) {
+    setIcons((previous) => {
+      const next = { ...previous }
+      if (icon) next[path] = icon
+      else delete next[path]
+      localStorage.setItem('mew:root-project-icons', JSON.stringify(next))
+      return next
+    })
+  }
   return (
+    <>
     <div data-project-tabs className="no-scrollbar flex h-full min-w-0 flex-1 items-stretch overflow-x-auto">
       {unique.length === 0 && (
         <div className="flex h-full shrink-0 items-center gap-1.5 border-r border-edge bg-surface-raised px-2.5 text-xs text-ink">
@@ -40,14 +65,37 @@ export function RootProjectTabs({
           <button
             key={projectPath}
             type="button"
-            onClick={() => onActivate(projectPath)}
+            onClick={() => {
+              if (longPressed.current) {
+                longPressed.current = false
+                return
+              }
+              onActivate(projectPath)
+            }}
+            onPointerDown={() => {
+              if (!canChangeIcon) return
+              clearPressTimer()
+              longPressed.current = false
+              pressTimer.current = window.setTimeout(() => {
+                longPressed.current = true
+                setEditingPath(projectPath)
+              }, 500)
+            }}
+            onPointerUp={clearPressTimer}
+            onPointerCancel={clearPressTimer}
+            onPointerLeave={clearPressTimer}
+            onContextMenu={(event) => {
+              if (!canChangeIcon) return
+              event.preventDefault()
+              setEditingPath(projectPath)
+            }}
             title={projectPath}
             className={`flex h-full shrink-0 items-center gap-1.5 border-r border-edge px-2.5 text-xs ${
               active ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
             }`}
           >
             <span className="flex h-5 w-5 items-center justify-center rounded bg-surface-deep font-semibold">
-              {label[0]?.toUpperCase() || '/'}
+              {icons[projectPath] ? <ProjectIcon icon={icons[projectPath]} size={15} /> : (label[0]?.toUpperCase() || '/')}
             </span>
             <span className={`max-w-[10rem] truncate ${active ? 'inline' : 'hidden md:inline'}`}>{label}</span>
           </button>
@@ -60,9 +108,19 @@ export function RootProjectTabs({
           className="flex h-full shrink-0 items-center border-r border-edge px-3 text-xs text-ink-secondary hover:bg-surface-raised hover:text-ink"
           title={`${t('project.open')} (Ctrl+O)`}
         >
-          {t('project.newTab')}
+          <span className="text-lg leading-none" aria-hidden="true">+</span>
+          <span className="sr-only">{t('project.newTab')}</span>
         </button>
       )}
     </div>
+    {editingPath && (
+      <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-4" onMouseDown={() => setEditingPath(null)}>
+        <div className="w-full max-w-md rounded-lg border border-edge-bright bg-surface-raised p-3 shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="mb-2 text-sm font-semibold text-ink">프로젝트 탭 아이콘</div>
+          <IconPicker value={icons[editingPath] ?? ''} onChange={(icon) => { saveIcon(editingPath, icon); setEditingPath(null) }} />
+        </div>
+      </div>
+    )}
+    </>
   )
 }

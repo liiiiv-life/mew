@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ConfirmDialog, keepFocusOnPress, useDragReorder, type DragItemProps } from '@mew/ui'
-import { useSwipeGesture } from '@mew/mobile-keys'
 import type { TmuxPanelApi, TmuxSession } from './types'
 import { TmuxTerminal } from './TmuxTerminal'
 import { clearInputDraft, renameInputDraft } from './inputDrafts'
@@ -258,11 +257,6 @@ export function TmuxTerminalPanel({
     switchSession('left')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextTabSignal])
-  const swipeSessions = useSwipeGesture({
-    onTopLeft: () => switchSession('left'),
-    onTopRight: () => switchSession('right'),
-  })
-
   function saveTabOrder(names: string[]) {
     setTabOrder(names)
     localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(names))
@@ -440,7 +434,7 @@ export function TmuxTerminalPanel({
         )}
       </div>
 
-      <div className="min-h-0 flex-1" {...swipeSessions}>
+      <div className="min-h-0 flex-1">
         {activeSession ? (
           <TmuxTerminal
             key={activeSession}

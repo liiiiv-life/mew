@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flattenFiles } from '@mew/editor'
-import { useSwipeGesture } from '@mew/mobile-keys'
 import {
   fetchChat,
   fetchMembers,
@@ -248,9 +247,6 @@ export function ChatPanel({
       })
   }
 
-  // 아래 20% 좌→우 스와이프로 닫기 — 오른쪽에 붙은 창을 밀어내는 손짓(터미널·에이전트와 같다)
-  const swipe = useSwipeGesture({ onBottomRight: onClose })
-
   const rail = (
     <div className="flex w-12 shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-edge py-2">
       <ConversationIcon
@@ -291,7 +287,7 @@ export function ChatPanel({
   const title = active === GROUP_CHAT ? '단체 대화방' : shortName(active)
 
   return (
-    <div className="flex h-full w-full bg-surface-deep" {...swipe}>
+    <div className="flex h-full w-full bg-surface-deep">
       {rail}
       <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-2">

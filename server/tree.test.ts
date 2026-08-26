@@ -163,11 +163,11 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
 // 루트 폴더 자신이 프로젝트다. 하위 폴더와 숨김 폴더도 그대로 보이되 Documents만
 // 사이드바의 가상 폴더와 중복되지 않게 실제 위치를 뺀다.
 
-test('루트 프로젝트 트리: Documents만 제외하고 Git 하위 프로젝트를 표시한다', () => {
+test('루트 프로젝트 트리: Documents만 제외하고 .mew 하위 프로젝트를 표시한다', () => {
   const original = WORKSPACE_ROOT
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-ws-')))
   fs.mkdirSync(path.join(root, 'some-project'))
-  fs.mkdirSync(path.join(root, 'some-project', '.git'))
+  fs.mkdirSync(path.join(root, 'some-project', '.mew'))
   fs.mkdirSync(path.join(root, 'docs'), { recursive: true })
   fs.mkdirSync(path.join(root, '.mew'), { recursive: true })
   fs.mkdirSync(path.join(root, '.agents', 'some-project'), { recursive: true })
@@ -181,8 +181,8 @@ test('루트 프로젝트 트리: Documents만 제외하고 Git 하위 프로젝
     setWorkspaceRoot(root)
     const tree = buildTree(WORKSPACE_PROJECT, { showAll: true })
     const all = paths(tree).sort()
-    assert.deepEqual(all, ['.agents', '.agents/some-project', '.agents/some-project/note.md', '.mew', '.mew/cmd-button.json', 'AGENTS.md', 'some-project', 'some-project/app.ts'].sort())
-    assert.equal(tree.find((node) => node.name === 'some-project')?.gitRepo, true)
+    assert.deepEqual(all, ['.agents', '.agents/some-project', '.agents/some-project/note.md', '.mew', '.mew/cmd-button.json', 'AGENTS.md', 'some-project', 'some-project/.mew', 'some-project/app.ts'].sort())
+    assert.equal(tree.find((node) => node.name === 'some-project')?.project, true)
     assert.equal(isPathVisible(WORKSPACE_PROJECT, 'some-project', { type: 'dir', showAll: true }), true)
     assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs', { type: 'dir', showAll: true }), false)
     // 깊은 곳의 같은 이름은 그냥 폴더다
