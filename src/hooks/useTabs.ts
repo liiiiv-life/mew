@@ -4,6 +4,7 @@ import { mediaKind } from '../utils/media'
 import { dropCachedFile, getCachedFile, putCachedFile } from '../utils/contentCache'
 import { leaf, normalizeLayout, removeLeaf, splitLeaf, type DropSide, type PaneNode } from '../utils/paneTree'
 import { externalAbsolutePath, externalTabPath, isExternalTabPath } from '../utils/externalFiles'
+import { markFileOpen, startFileOpen, type FileOpenTrace } from '../utils/fileOpenPerformance'
 
 export type Tab = {
   path: string
@@ -18,6 +19,8 @@ export type Tab = {
   editable: boolean // 서버가 /api/file에서 계산해 내려주는 값 — 게스트의 부분 편집 승인을 반영
   /** 세션 복원 때는 탭 껍데기만 먼저 세운다. 선택되는 순간 기존 파일 로드 경로로 본문을 받는다. */
   deferredLoad?: boolean
+  /** DevTools 성능 mark를 잇는 일시 id — 탭 복원 저장에는 넣지 않는다. */
+  openTrace?: FileOpenTrace
 }
 
 /** 화면 분할의 칸 하나 — 자기 탭 줄과 자기 활성 탭을 가진다 */
@@ -188,14 +191,18 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; deferLoad?: boolean; viewMode?: Tab['viewMode'] }) => {
       const preview = opts?.preview ?? true
       const existing = paneOf(p, paneId).tabs.find((t) => t.path === path)
+      let trace: FileOpenTrace | undefined
       if (existing) {
         // 복원 때 뒤로 미뤘던 탭은 사용자가 고르는 바로 그때만 기존 전체 본문 요청을 시작한다.
         // 캐시된 본문이 있으면 이미 즉시 보이고, fetch는 최신본 확인 역할만 한다.
         const loadDeferred = existing.deferredLoad === true && !opts?.deferLoad
+        if (loadDeferred) trace = startFileOpen()
         patchPane(p, paneId, (pane) => ({
           ...pane,
           tabs: pane.tabs.map((t) =>
-            t.path !== path ? t : { ...t, preview: !preview && t.preview ? false : t.preview, deferredLoad: loadDeferred ? false : t.deferredLoad },
+            t.path !== path
+              ? t
+              : { ...t, preview: !preview && t.preview ? false : t.preview, deferredLoad: loadDeferred ? false : t.deferredLoad, openTrace: trace ?? t.openTrace },
           ),
           activePath: path,
         }))
@@ -208,12 +215,15 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       // 최근 연 파일이면 캐시된 본문으로 탭을 즉시 채운다 — 아래 fetch가 백그라운드에서
       // 최신본으로 재조정하지만 그 사이 빈 화면·"처음부터 로딩" 깜빡임을 없앤다
       const cached = external ? undefined : getCachedFile(p, path)
+      if (!existing && !opts?.deferLoad) trace = startFileOpen()
+      markFileOpen(trace, 'cache-ready')
       const newTab: Tab = {
         ...blankTab(),
         path,
         preview,
         viewMode: opts?.viewMode ?? (previewFirst ? 'hotview' : 'plain'),
         deferredLoad: opts?.deferLoad === true,
+        openTrace: trace,
         ...(cached
           ? { content: cached.content, savedContent: cached.content, committedContent: cached.content, editable: cached.editable }
           : {}),
@@ -237,6 +247,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
       const fileRequest = external ? fetchExternalFile(externalAbsolutePath(path)) : fetchFile(path, p)
       fileRequest
         .then(({ content, editable }) => {
+          markFileOpen(trace, 'file-response')
           if (!external) putCachedFile(p, path, { content, editable })
           mapTabs(p, (t) => {
             if (t.path !== path) return t
@@ -250,6 +261,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
               committedContent: content,
               status: 'idle',
               editable,
+              openTrace: trace ?? t.openTrace,
             }
           })
         })

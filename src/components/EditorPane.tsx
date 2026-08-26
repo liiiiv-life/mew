@@ -27,6 +27,7 @@ import { useCollab } from '../hooks/useCollab'
 import type { Pane, Tab } from '../hooks/useTabs'
 import type { DropZone } from '../utils/paneTree'
 import { externalAbsolutePath, isExternalTabPath } from '../utils/externalFiles'
+import { markFileOpen } from '../utils/fileOpenPerformance'
 
 /** 상태줄용 바이트 표기 — 1KB 미만은 바이트 그대로, 그 위는 소수 한 자리 */
 function formatBytes(bytes: number): string {
@@ -463,6 +464,16 @@ export function EditorPane({
 
   const isMd = !!activeTab?.path.endsWith('.md') && !isExternalTabPath(activeTab.path)
   const isSvg = !!activeTab?.path.endsWith('.svg') && !isExternalTabPath(activeTab.path)
+
+  // 자식 편집기가 마운트된 뒤 첫 paint까지를 파일 열기 trace에 남긴다. 캐시 본문도 이 지점을
+  // 지나므로 캐시·콜드·복원 오픈을 같은 기준으로 비교할 수 있다.
+  useEffect(() => {
+    const trace = activeTab?.openTrace
+    if (!trace || mediaKind(activeTab.path)) return
+    markFileOpen(trace, 'editor-ready')
+    const raf = requestAnimationFrame(() => markFileOpen(trace, 'first-paint'))
+    return () => cancelAnimationFrame(raf)
+  }, [activeTab?.openTrace, activeTab?.path])
 
   return (
     <div onPointerDownCapture={onFocus} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
