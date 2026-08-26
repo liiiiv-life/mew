@@ -165,6 +165,14 @@ export function foldEvents(events: AgentEvent[]): Item[] {
       if (t) {
         t.done = true
         t.stopReason = event.stopReason
+        // 일부 ACP 어댑터는 마지막 tool_call_update를 흘리지 않는다. 턴이 끝난 뒤에도
+        // pending/in_progress를 그대로 두면 끝난 버블이 영구히 "작업 중"으로 보인다.
+        for (const child of t.children) {
+          if (child.kind !== 'tool_group') continue
+          for (const tool of child.tools) {
+            if (tool.status === 'pending' || tool.status === 'in_progress') tool.status = 'completed'
+          }
+        }
         // 서버가 새긴 걸린 시간. 옛 이벤트(필드 없음)면 startedAt으로 계산하고, 그것도 없으면 null
         if (event.durationMs != null) t.durationMs = event.durationMs
         else if (t.startedAt != null) t.durationMs = Date.now() - t.startedAt

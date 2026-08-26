@@ -5,7 +5,7 @@
 // 감독과 그 아래 ACP/CLI는 그대로 작업을 마친다(ADR 0048).
 import './config.ts'
 import crypto from 'node:crypto'
-import { execFileSync, spawn } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import net, { type Socket } from 'node:net'
 import path from 'node:path'
@@ -680,6 +680,29 @@ export function shutdownAgentHostsForWorkspace(cwd: string) {
       // 이미 끝난 감독의 메타는 다음 시작이 소켓과 함께 정리한다.
     }
   }
+}
+
+/**
+ * 워크스페이스 전환의 응답 경로는 기존 감독 수만큼 `ps`를 동기로 기다리지 않는다.
+ * pid 재사용 방지는 그대로 유지하되 확인과 SIGTERM을 다음 이벤트 루프로 넘긴다. 호출자는
+ * cwd 문자열을 미리 넘기므로 전환 뒤 라이브 WORKSPACE_ROOT가 바뀌어도 옛 감독만 정리한다.
+ */
+export function shutdownAgentHostsForWorkspaceSoon(cwd: string) {
+  fs.promises.readdir(HOST_DIR)
+    .then((names) => Promise.all(names.filter((name) => name.endsWith('.json')).map(async (name) => {
+      let meta: HostMeta
+      try {
+        meta = JSON.parse(await fs.promises.readFile(path.join(HOST_DIR, name), 'utf8')) as HostMeta
+      } catch {
+        return
+      }
+      if (meta.cwd !== cwd || !Number.isInteger(meta.pid) || meta.pid <= 1) return
+      execFile('ps', ['-p', String(meta.pid), '-o', 'args='], { encoding: 'utf8' }, (err, stdout) => {
+        if (err || !stdout.includes(HOST_FILE) || !stdout.includes(' --host ')) return
+        try { process.kill(meta.pid, 'SIGTERM') } catch { /* already gone */ }
+      })
+    })))
+    .catch(() => {})
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === HOST_FILE && process.argv[2] === '--host') {

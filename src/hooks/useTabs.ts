@@ -67,7 +67,18 @@ function loadStoredTabs(project: string): StoredTabs | null {
         : []
     if (panes.length === 0) return null
     return {
-      panes: panes.map((p) => ({ id: p.id, tabs: p.tabs, activePath: p.activePath ?? null })),
+      panes: panes.map((p) => {
+        // 중간 저장·옛 버전의 복원 경쟁으로 같은 경로가 여러 번 남아도, 한 칸에는 파일 하나만 둔다.
+        // React key 충돌과 "파일 탭이 세 개"로 보이는 복원을 여기서 같이 치운다.
+        const seen = new Set<string>()
+        const tabs = p.tabs.filter((tab): tab is StoredTab => {
+          if (!tab || typeof tab.path !== 'string' || !tab.path || seen.has(tab.path)) return false
+          seen.add(tab.path)
+          return tab.preview === true || tab.preview === false
+        })
+        const activePath = typeof p.activePath === 'string' && seen.has(p.activePath) ? p.activePath : tabs[0]?.path ?? null
+        return { id: p.id, tabs, activePath }
+      }),
       layout: normalizeLayout(parsed.layout, panes.map((p) => p.id)),
       focusedPaneId: panes.some((p) => p.id === parsed.focusedPaneId) ? parsed.focusedPaneId! : panes[0].id,
     }

@@ -805,7 +805,10 @@ export class AgentSession {
   }
 
   #resetConversation() {
-    this.cancel()
+    // session/load는 유휴 세션을 전환하는 정상 경로다. 여기서 무조건 ACP cancel을 보내면
+    // 일부 어댑터가 방금 불러온 대화까지 "사용자 인터럽트"로 기록한다. 실제로 돌고 있거나
+    // 승인/대기열이 있을 때만 먼저 정리한다.
+    if (this.busy || this.#pending.size > 0 || this.#queue.length > 0) this.cancel()
     this.#events = []
     this.#queue = []
     this.#turns = 0

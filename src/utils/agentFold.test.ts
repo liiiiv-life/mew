@@ -82,6 +82,20 @@ test('턴은 서버가 새긴 걸린 시간을 durationMs로 들고, 없으면 n
   assert.equal(legacyTurn.durationMs, null)
 })
 
+test('끝난 턴은 어댑터가 남긴 진행 중 도구도 완료로 닫는다', () => {
+  const items = foldEvents([
+    user('작업해'),
+    { type: 'turn_start' },
+    { type: 'update', update: { sessionUpdate: 'tool_call', toolCallId: 'tool-1', title: '파일 수정', status: 'in_progress' } },
+    { type: 'turn_end', stopReason: 'end_turn' },
+  ])
+  const turn = items[1]
+  assert.ok(turn.kind === 'turn')
+  const group = turn.children[0]
+  assert.ok(group.kind === 'tool_group')
+  assert.equal(group.tools[0]?.status, 'completed')
+})
+
 test('formatDuration은 0인 윗 단위를 떼고 초 단위로 끝낸다', () => {
   assert.equal(formatDuration(15_000), '15초')
   assert.equal(formatDuration(36 * 60_000 + 32_000), '36분 32초')
