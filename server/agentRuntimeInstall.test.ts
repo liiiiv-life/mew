@@ -38,10 +38,11 @@ test('등록된 9개 런타임 모두 요청값과 무관한 GUI 로그인 명�
     assert.deepEqual(RUNTIMES.gemini.spec().args, ['--acp'], 'Gemini의 정식 ACP 플래그를 쓴다')
     assert.equal(RUNTIMES.gemini.spec().env?.NO_BROWSER, 'true')
     assert.equal(RUNTIMES.cursor.spec().env?.NO_OPEN_BROWSER, '1')
-    // Prime Agent — 공식 인스톨러와 ACP 모드
+    // Prime Agent — 공식 인스톨러 + Mew 소유 RPC→ACP 어댑터
     const primeInstall = RUNTIMES.prime.install?.()
     assert.ok(primeInstall?.args[1]?.includes('prime-agent/install.sh'), '공식 인스톨러 URL을 쓴다')
-    assert.deepEqual(RUNTIMES.prime.spec().args, ['--mode', 'acp'], "Prime Agent의 ACP 진입은 --mode acp다")
+    assert.equal(RUNTIMES.prime.spec().cmd, process.execPath)
+    assert.ok(RUNTIMES.prime.spec().args[0]?.endsWith('/server/primeAdapter.ts'))
   } finally {
     for (const [key, value] of saved) {
       if (value === undefined) delete process.env[key]

@@ -10,6 +10,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_CLAUDE_ACP_CMD = path.resolve(here, '../node_modules/.bin/claude-agent-acp')
 const DEFAULT_CODEX_ACP_CMD = path.resolve(here, '../node_modules/.bin/codex-acp')
 const DEFAULT_CODEX_CLI_CMD = path.resolve(here, '../node_modules/.bin/codex')
+const PRIME_ADAPTER_CMD = path.resolve(here, 'primeAdapter.ts')
 
 /** ACP가 인증 전에 뜨지 못해도 브라우저 터미널에서 실행할 수 있는 공통 로그인 method id. */
 export const RUNTIME_LOGIN_METHOD_ID = 'mew-runtime-login'
@@ -141,9 +142,9 @@ function cursorSpawnSpec(): SpawnSpec {
 }
 
 function primeSpawnSpec(): SpawnSpec {
-  const cmd = process.env.MEW_AGENT_PRIME_CMD || 'prime-agent'
-  // --mode acp — JSON-RPC 2.0 on stdin/stdout. 연결당 세션 하나가 Prime Agent의 의도다.
-  return { cmd, args: splitArgs(process.env.MEW_AGENT_PRIME_ARGS, ['--mode', 'acp']) }
+  // Prime ACP에는 session/list·load·모델·mode 계약이 없으므로, mew가 공식 CLI의 RPC를 ACP로 번역한다.
+  // `MEW_AGENT_PRIME_CMD`는 예전 로컬 ACP 포크 설정이므로 의도적으로 읽지 않는다.
+  return { cmd: process.execPath, args: [PRIME_ADAPTER_CMD, ...splitArgs(process.env.MEW_AGENT_PRIME_ARGS)] }
 }
 
 const login = (
@@ -231,7 +232,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'sh', args: ['-lc', 'curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh'] }),
     auth: {
       // /login은 Prime Agent TUI의 슬래시 명령이다 — 터미널 팝업에서 대화형으로 공급자를 고른다.
-      login: () => login(primeSpawnSpec(), [], 'Prime Agent 로그인/설정', "TUI에서 /login을 입력해 공급자(Claude·ChatGPT·Copilot·API key)를 등록합니다. 설정 뒤 이 탭을 닫으면 ACP로 연결됩니다."),
+      login: () => login({ cmd: process.env.MEW_PRIME_AGENT_EXECUTABLE || 'prime-agent', args: [] }, [], 'Prime Agent 로그인/설정', "TUI에서 /login을 입력해 공급자(Claude·ChatGPT·Copilot·API key)를 등록합니다. 설정 뒤 이 탭을 닫으면 Mew 어댑터가 연결됩니다."),
       replaceMethodIds: ['login'],
     },
   },
@@ -259,7 +260,8 @@ function applySetting(base: SpawnSpec, runtime: string): SpawnSpec {
     const setting = readAgentSetting(runtime)
     if (!setting) return base
     return {
-      cmd: setting.cmd ?? base.cmd,
+      // Prime의 cmd override는 폐기된 로컬 ACP 포크 경로다. Prime은 항상 Mew 어댑터 → 공식 CLI를 탄다.
+      cmd: runtime === 'prime' ? base.cmd : setting.cmd ?? base.cmd,
       args: [...base.args, ...(setting.extraArgs ?? [])],
       env: { ...base.env, ...setting.env },
     }

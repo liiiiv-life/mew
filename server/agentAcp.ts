@@ -78,27 +78,6 @@ const FULL_ACCESS_MODES = [
 /** 재접속(모바일 화면 꺼짐 등) 때 되돌려 줄 이벤트 개수 상한 */
 const MAX_BUFFERED_EVENTS = 500
 
-const PRIME_META_NAMESPACE = 'ai.primeintellect.prime-agent'
-
-/** Prime Agent exposes its model picker through namespaced ACP metadata. */
-function primeModels(value: unknown): SessionModelState | null {
-  if (!value || typeof value !== 'object') return null
-  const meta = (value as { _meta?: unknown })._meta
-  if (!meta || typeof meta !== 'object') return null
-  const prime = (meta as Record<string, unknown>)[PRIME_META_NAMESPACE]
-  if (!prime || typeof prime !== 'object') return null
-  const modelsJson = (prime as { modelsJson?: unknown }).modelsJson
-  if (typeof modelsJson !== 'string') return null
-  let state: Partial<SessionModelState>
-  try {
-    state = JSON.parse(modelsJson) as Partial<SessionModelState>
-  } catch {
-    return null
-  }
-  if (typeof state.currentModelId !== 'string' || !Array.isArray(state.availableModels)) return null
-  return state as SessionModelState
-}
-
 /** 작업이 끝났고 붙어 있는 창도 없는 채로 이만큼 지나면 에이전트를 죽인다 */
 export const AGENT_IDLE_MS = 30 * 60_000
 
@@ -430,7 +409,7 @@ export class AgentSession {
 
   async #createSession() {
     const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
-    this.#adopt(created.sessionId, created.models ?? primeModels(created), created.modes ?? null)
+    this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null)
     this.#authRequired = false
     this.#authenticating = false
     this.#authError = null
@@ -785,7 +764,7 @@ export class AgentSession {
     this.#adopt(sessionId, null, null)
     await this.#pushMeta()
     for (const event of replay) this.#emit(event)
-    const models = loaded.models ?? primeModels(loaded)
+    const models = loaded.models ?? null
     if (models) this.#useModels(models)
     if (loaded.modes) {
       this.#modes = loaded.modes
