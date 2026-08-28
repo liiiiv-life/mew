@@ -56,6 +56,29 @@ type Cached = Parsed & { mtimeMs: number; size: number }
 /** 파일 경로 → 마지막으로 읽어 둔 값. 파일이 그대로면(mtime·size) 다시 읽지 않는다 */
 let cache = new Map<string, Cached>()
 
+/** 세션 기록의 cwd는 이전 OS·도구가 남긴 표기일 수 있으므로, 목록에서는 대소문자를 구분하지 않는다. */
+function sameCwd(left: string, right: string): boolean {
+  return left.toLocaleLowerCase() === right.toLocaleLowerCase()
+}
+
+/** 인코딩된 프로젝트 폴더도 대소문자만 다른 예전 표기를 함께 찾는다. */
+async function sessionDirs(cwd: string): Promise<string[]> {
+  const exact = sessionDirPath(cwd)
+  const parent = path.dirname(exact)
+  const target = path.basename(exact).toLocaleLowerCase()
+  try {
+    const entries = await fsp.readdir(parent, { withFileTypes: true })
+    return [...new Set([
+      exact,
+      ...entries
+        .filter((entry) => entry.isDirectory() && entry.name.toLocaleLowerCase() === target)
+        .map((entry) => path.join(parent, entry.name)),
+    ])]
+  } catch {
+    return [exact]
+  }
+}
+
 function titleOf(content: unknown): string | null {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return null
@@ -109,33 +132,36 @@ async function readHead(file: string, size: number): Promise<Parsed> {
  * 폴더가 없거나 읽을 수 없으면 빈 목록이다(목록은 있으면 좋은 것이지 창이 뜨는 조건이 아니다).
  */
 export async function listSessionsFromDisk(cwd: string): Promise<SessionInfo[]> {
-  const dir = sessionDirPath(cwd)
-  let files: string[]
-  try {
-    files = await fsp.readdir(dir)
-  } catch {
-    return []
-  }
+  const dirs = await sessionDirs(cwd)
   const next = new Map<string, Cached>()
-  const sessions: SessionInfo[] = []
-  for (const file of files) {
-    // agent-*.jsonl은 서브에이전트 기록이라 사람이 고를 대화가 아니다
-    if (!file.endsWith('.jsonl') || file.startsWith('agent-')) continue
-    const full = path.join(dir, file)
+  const sessions = new Map<string, SessionInfo>()
+  for (const dir of dirs) {
+    let files: string[]
     try {
-      const stat = await fsp.stat(full)
-      const hit = cache.get(full)
-      const parsed = hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size ? hit : await readHead(full, stat.size)
-      next.set(full, { ...parsed, mtimeMs: stat.mtimeMs, size: stat.size })
-      // 폴더 이름은 cwd를 뭉갠 값이라("/a-b"와 "/a/b"가 같은 폴더) 기록된 cwd로 한 번 더 거른다
-      if (parsed.cwd !== cwd) continue
-      sessions.push({ sessionId: file.slice(0, -'.jsonl'.length), cwd, title: parsed.title, updatedAt: stat.mtime.toISOString() })
+      files = await fsp.readdir(dir)
     } catch {
-      /* 지워졌거나 읽을 수 없는 파일 — 목록에서 빠질 뿐이다 */
+      continue
+    }
+    for (const file of files) {
+      // agent-*.jsonl은 서브에이전트 기록이라 사람이 고를 대화가 아니다
+      if (!file.endsWith('.jsonl') || file.startsWith('agent-')) continue
+      const full = path.join(dir, file)
+      try {
+        const stat = await fsp.stat(full)
+        const hit = cache.get(full)
+        const parsed = hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size ? hit : await readHead(full, stat.size)
+        next.set(full, { ...parsed, mtimeMs: stat.mtimeMs, size: stat.size })
+        // 폴더 이름은 cwd를 뭉갠 값이라("/a-b"와 "/a/b"가 같은 폴더) 기록된 cwd로 한 번 더 거른다.
+        if (!parsed.cwd || !sameCwd(parsed.cwd, cwd)) continue
+        const session = { sessionId: file.slice(0, -'.jsonl'.length), cwd, title: parsed.title, updatedAt: stat.mtime.toISOString() }
+        const previous = sessions.get(session.sessionId)
+        if (!previous || (previous.updatedAt ?? '') < session.updatedAt!) sessions.set(session.sessionId, session)
+      } catch {
+        /* 지워졌거나 읽을 수 없는 파일 — 목록에서 빠질 뿐이다 */
+      }
     }
   }
   // 지워진 파일은 캐시에서도 사라진다(이번에 본 것만 남긴다)
   cache = next
-  sessions.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
-  return sessions.slice(0, MAX_SESSIONS)
+  return [...sessions.values()].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')).slice(0, MAX_SESSIONS)
 }

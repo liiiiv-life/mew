@@ -7,6 +7,7 @@ import { isRuntime } from './agentRuntimes.ts'
 
 export interface AgentRuntimeDefault {
   modelId?: string
+  thinkingId?: string
   modeId?: string
 }
 
@@ -30,10 +31,12 @@ export function normalizeAgentDefault(input: unknown): AgentRuntimeDefault {
   }
   const rec = input as Record<string, unknown>
   const modelId = optionalId(rec.modelId, '모델')
+  const thinkingId = optionalId(rec.thinkingId, '추론 정도')
   const modeId = optionalId(rec.modeId, '권한 모드')
-  if (!modelId && !modeId) throw new AgentDefaultError('저장할 모델이나 권한 모드가 없습니다')
+  if (!modelId && !thinkingId && !modeId) throw new AgentDefaultError('저장할 모델·추론 정도·권한 모드가 없습니다')
   return {
     ...(modelId ? { modelId } : {}),
+    ...(thinkingId ? { thinkingId } : {}),
     ...(modeId ? { modeId } : {}),
   }
 }

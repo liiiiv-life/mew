@@ -60,6 +60,20 @@ test('세션 폴더가 없으면 빈 목록이다', async () => {
   assert.deepEqual(await listSessionsFromDisk('/tmp/mew-no-such-workspace'), [])
 })
 
+test('cwd와 인코딩된 세션 폴더의 대소문자가 달라도 같은 히스토리로 본다', async () => {
+  const actualCwd = '/tmp/MEW-Case-Session'
+  const storedCwd = actualCwd.toLowerCase()
+  const caseDir = path.join(config, 'projects', storedCwd.replace(/[^a-zA-Z0-9]/g, '-'))
+  await fsp.mkdir(caseDir, { recursive: true })
+  const file = path.join(caseDir, 'case.jsonl')
+  await fsp.writeFile(file, userLine('대소문자 경로 히스토리', storedCwd))
+  await fsp.utimes(file, new Date('2026-08-12T00:00:00Z'), new Date('2026-08-12T00:00:00Z'))
+
+  const session = (await listSessionsFromDisk(actualCwd)).find((item) => item.sessionId === 'case')
+  assert.equal(session?.title, '대소문자 경로 히스토리')
+  assert.equal(session?.cwd, actualCwd)
+})
+
 test('caveat 같은 메타뿐인 발화는 건너뛰고 진짜 프롬프트가 제목이 된다', async () => {
   await write('fff.jsonl', userLine(CAVEAT) + userLine('진짜 첫 질문'), new Date('2026-08-07T00:00:00Z'))
   assert.equal((await listSessionsFromDisk(cwd)).find((s) => s.sessionId === 'fff')?.title, '진짜 첫 질문')

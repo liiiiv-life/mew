@@ -29,6 +29,7 @@ type ClientMessage =
   | { type: 'auth_url_response'; id: string; action: 'accept' | 'decline' | 'cancel' }
   | { type: 'set_model'; modelId: string }
   | { type: 'set_mode'; modeId: string }
+  | { type: 'set_thinking'; configId: string; value: string }
   | { type: 'unqueue'; index: number }
   | { type: 'move_queued'; from: number; to: number }
   /** expect = 창이 보고 있던 원본 — 그 사이 큐가 당겨졌으면 서버가 무시한다 */
@@ -137,6 +138,7 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string, cwd
         })
       else if (msg.type === 'set_model') live.send({ type: 'set_model', modelId: msg.modelId })
       else if (msg.type === 'set_mode') live.send({ type: 'set_mode', modeId: msg.modeId })
+      else if (msg.type === 'set_thinking') live.send({ type: 'set_thinking', configId: msg.configId, value: msg.value })
       else if (msg.type === 'load_session') live.send({ type: 'load_session', sessionId: msg.sessionId })
       else if (msg.type === 'list_sessions')
         void live

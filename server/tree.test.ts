@@ -10,7 +10,7 @@ import path from 'node:path'
 import express from 'express'
 import { WORKSPACE_PROJECT, WORKSPACE_ROOT, setWorkspaceRoot } from './paths.ts'
 import type { Role } from './reqAuth.ts'
-import { buildTree, buildTreeAsync, isPathVisible, type TreeNode } from './tree.ts'
+import { buildTree, buildTreeAsync, isPathVisible, listTreeDirAsync, type TreeNode } from './tree.ts'
 import { createApiApp } from './api.ts'
 import { resetTreeWatchers } from './watcher.ts'
 
@@ -75,6 +75,15 @@ test('비동기 트리는 동기 트리와 같은 가시성·정렬 결과를 �
   assert.deepEqual(await buildTreeAsync(DOCS), buildTree(DOCS))
 })
 
+test('한 단계 트리는 요청한 폴더의 직접 자식만 돌려준다', async () => {
+  const root = await listTreeDirAsync(DOCS)
+  assert.ok(root.every((node) => !node.path.includes('/')))
+  const decisions = await listTreeDirAsync(DOCS, 'decisions')
+  assert.ok(decisions.length > 0)
+  assert.ok(decisions.every((node) => node.path.startsWith('decisions/') && node.path.split('/').length === 2))
+  assert.ok(decisions.every((node) => node.children === undefined), '자식 재귀 탐색은 하지 않는다')
+})
+
 // ── GET /tree 배선 ────────────────────────────────────────────────────────────
 // 임시 프로젝트 폴더를 실제로 만들고 라우터를 bare express에 마운트해(인증은 스텁) 역할별로 두드린다.
 // 여기서 보는 것은 "역할 → showAll" 배선 하나다. 규칙 자체는 위 isPathVisible 테스트가 본다.
@@ -120,6 +129,13 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
     return paths((await res.json()) as TreeNode[])
   }
 
+  const oneLevelFor = async (as: Role, relPath: string): Promise<TreeNode[]> => {
+    role = as
+    const res = await fetch(`${base}/api/tree?project=${project}&path=${encodeURIComponent(relPath)}`)
+    assert.equal(res.status, 200, `${as} 한 단계 트리 조회는 성공해야 한다`)
+    return (await res.json()) as TreeNode[]
+  }
+
   try {
     const previewRes = await fetch(`${base}/api/file?path=large.txt&project=${project}&anchorLine=1536&chunkLines=400`)
     assert.equal(previewRes.status, 200, '큰 파일 anchor preview 요청은 성공해야 한다')
@@ -138,6 +154,12 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
     assert.ok(member.includes('src/app.ts'), 'member도 소스 파일은 본다')
     assert.ok(!member.includes('archive.zip'), 'member에게 화이트리스트 밖 확장자는 안 보인다')
     assert.ok(!member.some((p) => p.startsWith('dist')), 'member에게 숨김 목록(dist)은 안 보인다')
+
+    const rootOnly = await oneLevelFor('member', '')
+    assert.ok(rootOnly.some((node) => node.path === 'src'), '루트 목록에는 직접 자식 폴더가 보인다')
+    assert.ok(rootOnly.every((node) => node.children === undefined), '루트 목록이 하위 트리를 함께 보내지 않는다')
+    const srcOnly = await oneLevelFor('member', 'src')
+    assert.deepEqual(srcOnly.map((node) => node.path), ['src/app.ts'], '폴더를 펼칠 때 그 직접 자식만 읽는다')
 
     for (const as of ['owner', 'manager'] as const) {
       const all = await treeFor(as)

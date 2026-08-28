@@ -14,6 +14,7 @@ import { attachDbWebSocket } from './db/socket.ts'
 import { attachAgentWebSocket } from './agentWs.ts'
 import { attachAgentSetWebSocket } from './agentSetWs.ts'
 import { reapOrphanAgents } from './agentAcp.ts'
+import { startAgentScheduledPrompts } from './agentScheduledPrompts.ts'
 import { watchDocsTree } from './watcher.ts'
 
 export function docsApiPlugin(): Plugin {
@@ -41,6 +42,7 @@ export function docsApiPlugin(): Plugin {
         attachAgentSetWebSocket(server.httpServer, { authorize: authorizeTmux })
         // 지난 실행이 SIGKILL로 끊겼다면 그때 남은 에이전트 자식이 아직 램을 물고 있다
         reapOrphanAgents()
+        startAgentScheduledPrompts()
         // AI가 터미널에서 직접 고친 파일을 열려 있는 협업 방에 'agent' 협업자로 실시간 주입한다
         attachCollabAgents()
         watchDocsTree()

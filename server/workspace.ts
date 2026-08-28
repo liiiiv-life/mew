@@ -21,8 +21,6 @@ import {
 } from './paths.ts'
 import { resetTreeWatchers, watchDocsTree } from './watcher.ts'
 import { closeAllRooms } from './collab.ts'
-import { disposeAllSessions } from './agentAcp.ts'
-import { shutdownAgentHostsForWorkspaceSoon } from './agentHost.ts'
 import { broadcast } from './presence.ts'
 
 export class WorkspaceError extends Error {}
@@ -96,11 +94,8 @@ export function switchWorkspace(target: string, initialProject?: string): Worksp
   // 옛 폴더에 매인 것부터 접는다 — 새 경로가 걸린 뒤에 접으면 엉뚱한 파일을 붙들고 있게 된다
   resetTreeWatchers()
   closeAllRooms()
-  // 에이전트는 뜰 때 cwd가 정해진다(child process) — 새 폴더에서 다시 떠야 한다
-  // 감독을 모두 확인할 때까지 HTTP 응답을 붙들면, 열어 둔 에이전트 탭 수만큼 프로젝트 전환이 느려진다.
-  // oldRoot를 값으로 넘겨 비동기 정리가 새 프로젝트의 감독을 건드리지 않게 한다.
-  shutdownAgentHostsForWorkspaceSoon(WORKSPACE_ROOT)
-  disposeAllSessions()
+  // 에이전트 감독·에이전트셋은 cwd를 이미 고정해 독립적으로 돈다. 프로젝트 전환은 화면의 활성
+  // 루트만 바꾸며, 이전 프로젝트의 작업을 끊지 않는다(ADR 0092).
 
   setWorkspaceRoot(abs)
   ensureDocsRoot()

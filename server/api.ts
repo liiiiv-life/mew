@@ -2,9 +2,10 @@ import express from 'express'
 import multer from 'multer'
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_PROJECT, isProtectedProject, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
+import { fileURLToPath } from 'node:url'
+import { DEFAULT_PROJECT, isDeniedSegment, isProtectedProject, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
 import { createProject, deleteProject, ProjectNameError, renameProject } from './projects.ts'
-import { buildTreeAsync, isPathVisible } from './tree.ts'
+import { buildTreeAsync, isPathVisible, listTreeDirAsync } from './tree.ts'
 import { flattenTextFiles, replaceInFile, searchInProject } from './search.ts'
 import { currentRagIndex, ragEnabled, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
@@ -55,6 +56,8 @@ import { resolveWorkspaceLink } from './workspaceLinks.ts'
 import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRuntimeInstall.ts'
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import { AgentCwdError, resolveAgentCwd, suggestAgentCwds } from './agentCwd.ts'
+import { AgentScheduledPromptError, scheduleAgentPrompt } from './agentScheduledPrompts.ts'
+import { readAgentTabs, readRootProjects, writeAgentTabs, writeRootProjects } from './userUiState.ts'
 import {
   AgentSettingError,
   deleteAgentSetting,
@@ -98,6 +101,12 @@ const AGENT_TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const ANCHOR_PREVIEW_MIN_BYTES = 512 * 1024
 const DEFAULT_ANCHOR_CHUNK_LINES = 400
 const MAX_ANCHOR_CHUNK_LINES = 2_000
+// 이 두 작업은 서버가 등록한 값만 실행한다. 브라우저가 명령 문자열을 보낼 수는 없다.
+const MEW_APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const MEW_ACTIONS = {
+  restart: { command: './mew restart', session: 'mewcmd-mew-restart' },
+  build: { command: 'npm run build', session: 'mewcmd-mew-build' },
+} as const
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
 
@@ -201,6 +210,38 @@ export function createApiApp() {
     )
   })
 
+  // 로그인 계정의 작업 맥락 — 브라우저 localStorage가 아니라 서버가 기준이라 다른 기기·시크릿 창도
+  // 같은 프로젝트·에이전트 탭을 복원한다(ADR 0093).
+  app.get('/user-ui/root-projects', requireRole('owner'), (req, res) => {
+    res.json({ state: readRootProjects(authOf(req).email!) })
+  })
+
+  app.put('/user-ui/root-projects', requireRole('owner'), (req, res) => {
+    try {
+      res.json({ state: writeRootProjects(authOf(req).email!, req.body) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.get('/user-ui/agent-tabs', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      const workspacePath = String(req.query.workspace ?? '')
+      res.json({ state: readAgentTabs(authOf(req).email!, workspacePath) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.put('/user-ui/agent-tabs', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      const workspacePath = typeof req.body?.workspacePath === 'string' ? req.body.workspacePath : ''
+      res.json({ state: writeAgentTabs(authOf(req).email!, workspacePath, req.body) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   // ── 프로젝트 폴더 생성·개명·삭제 (owner 전용) ──────────────────────────────
   // 삭제는 폴더를 통째로 지우는 되돌릴 수 없는 작업 — 클라이언트가 이름 타이핑 확인을 받고 호출한다.
   app.post('/project', requireRole('owner'), (req, res) => {
@@ -275,6 +316,27 @@ export function createApiApp() {
       // 명령이 끝나면 프로젝트 명령어 버튼과 똑같이 자기 숨김 세션을 정리한다.
       await tmuxManager.runCommand(runnable.session, oneShotCommand(runnable.command, runnable.session), WORKSPACE_ROOT)
       res.json({ ok: true, session: runnable.session })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 앱 자체 조작은 UI가 준 임의 셸이 아니라 이 등록표의 두 항목으로만 한정한다.
+  app.post('/mew-actions/:id/run', requireRole('manager', 'owner'), async (req, res) => {
+    try {
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+      const action = MEW_ACTIONS[id as keyof typeof MEW_ACTIONS]
+      if (!action) {
+        res.status(404).json({ error: '해당 mew 작업을 찾을 수 없습니다' })
+        return
+      }
+      const running = (await tmuxManager.list()).some((session) => session.name === action.session)
+      if (running) {
+        res.status(409).json({ error: '이미 실행 중입니다' })
+        return
+      }
+      await tmuxManager.runCommand(action.session, oneShotCommand(action.command, action.session), MEW_APP_ROOT)
+      res.json({ ok: true, session: action.session })
     } catch (err) {
       handleError(res, err)
     }
@@ -665,8 +727,13 @@ export function createApiApp() {
     try {
       const project = projectOf(req)
       const role = authOf(req).role
+      const requestedPath = typeof req.query.path === 'string' ? req.query.path : null
       // owner·manager는 걸러내지 않은 트리를 받는다 — 숨김 목록도 확장자 필터도 없다(seesEveryFile)
-      const tree = await buildTreeAsync(project, { showAll: seesEveryFile(role) })
+      // 로그인 사용자는 폴더별 한 단계 목록을 받아 사이드바를 지연 로딩한다. 게스트 트리는
+      // 후손의 공개 규칙을 보고 부모 경로를 남겨야 하므로 기존 전체 필터를 유지한다.
+      const tree = role === 'guest' || requestedPath === null
+        ? await buildTreeAsync(project, { showAll: seesEveryFile(role) })
+        : await listTreeDirAsync(project, requestedPath, { showAll: seesEveryFile(role) })
       // 이 프로젝트를 보는 세션이 있으니 트리 감시를 지연 등록한다 — 터미널·다른 세션이 만든 파일이
       // 사이드바에 바로 반영되도록(멱등). docs는 부팅 때부터 감시 중. 게스트는 감시를 유발하지 않는다.
       if (role !== 'guest') watchProjectTree(project)
@@ -998,11 +1065,41 @@ export function createApiApp() {
   // 파일·폴더를 다른 폴더 안으로 복사(붙여넣기) — 드래그 이동/잘라내기는 /rename(=이동)을 재사용하고,
   // 이 라우트는 "복사 후 붙여넣기"만 담당한다. destDir=''는 프로젝트 루트.
   app.post('/copy-into', requireAuthenticated, async (req, res) => {
-    const { srcPath, destDir } = req.body as { srcPath?: unknown; destDir?: unknown }
+    const { srcPath, destDir, sourceWorkspacePath } = req.body as { srcPath?: unknown; destDir?: unknown; sourceWorkspacePath?: unknown }
     const project = projectOf(req)
     try {
       if (typeof srcPath !== 'string' || !srcPath || typeof destDir !== 'string') {
         res.status(400).json({ error: 'srcPath와 destDir가 필요합니다' })
+        return
+      }
+      // 루트 프로젝트를 바꾸면 `.workspace`는 새 루트를 가리킨다. 이전 루트에서 복사한 항목은
+      // owner가 보낸 원래 루트 안에서만 해석해 복사한다. 임의 절대경로 접근 표면이므로 owner만 된다.
+      if (sourceWorkspacePath !== undefined) {
+        if (authOf(req).role !== 'owner' || typeof sourceWorkspacePath !== 'string' || !path.isAbsolute(sourceWorkspacePath)) {
+          res.status(403).json({ error: '다른 프로젝트에서 복사한 항목은 owner만 붙여넣을 수 있습니다' })
+          return
+        }
+        const sourceRoot = resolveExistingPath(sourceWorkspacePath)
+        if (!fs.statSync(sourceRoot).isDirectory()) {
+          res.status(400).json({ error: '원본 프로젝트 폴더가 아닙니다' })
+          return
+        }
+        const sourceAbs = path.resolve(sourceRoot, srcPath)
+        if (sourceAbs === sourceRoot || !sourceAbs.startsWith(sourceRoot + path.sep)
+          || path.relative(sourceRoot, sourceAbs).split(path.sep).some(isDeniedSegment)) {
+          res.status(400).json({ error: '원본 경로가 올바르지 않습니다' })
+          return
+        }
+        if (project === DEFAULT_PROJECT && isArchived(destDir)) {
+          res.status(403).json({ error: 'archives/ 문서는 복사할 수 없습니다' })
+          return
+        }
+        const destAbs = resolveProjectPath(project, destDir)
+        const copiedAbs = pasteExternalPath(sourceAbs, destAbs, 'copy')
+        const newRelPath = path.relative(projectRoot(project), copiedAbs).split(path.sep).join('/')
+        const commit = await commitFile(project, newRelPath, 'add', `${project}: copy ${srcPath} → ${newRelPath}`)
+        const type = fs.statSync(copiedAbs).isDirectory() ? 'dir' : 'file'
+        res.json({ ok: true, relPath: newRelPath, commit, hidden: hiddenFromTree(req, newRelPath, type) })
         return
       }
       if (project === DEFAULT_PROJECT && (isArchived(srcPath) || isArchived(destDir))) {
@@ -1608,6 +1705,17 @@ export function createApiApp() {
     }
   })
 
+  // 탭 대화에 한 번만 보내는 예약. cron 작업과 달리 원 ACP 세션을 이어서 쓴다.
+  app.post('/agent/scheduled-prompts', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      const body = req.body as Record<string, unknown>
+      const cwd = resolveAgentCwd(typeof body.cwd === 'string' ? body.cwd : '', WORKSPACE_ROOT)
+      res.json({ job: scheduleAgentPrompt({ ...body, cwd }) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   // 에이전트셋 정의 — 임의 프롬프트가 무인 실행되는 표면이라 예약 작업·터미널과 같은 게이트.
   // 돌아가는 상태(켜짐·큐·작업)는 여기 없다 — 그건 WS(/api/agentset/ws)가 흘린다.
   app.get('/agent-sets', requireRole('owner', 'manager'), (_req, res) => {
@@ -1798,7 +1906,7 @@ function handleError(res: express.Response, err: unknown) {
     res.status(400).json({ error: err.message })
     return
   }
-  if (err instanceof ScheduleError || err instanceof AgentSetError || err instanceof RuntimeInstallError || err instanceof AgentDefaultError || err instanceof AgentSettingError || err instanceof AgentCwdError) {
+  if (err instanceof ScheduleError || err instanceof AgentSetError || err instanceof RuntimeInstallError || err instanceof AgentDefaultError || err instanceof AgentSettingError || err instanceof AgentCwdError || err instanceof AgentScheduledPromptError) {
     res.status(400).json({ error: err.message })
     return
   }

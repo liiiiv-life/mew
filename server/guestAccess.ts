@@ -120,7 +120,9 @@ export function decorateTreeWithGuestAccess(project: string, nodes: TreeNode[]):
   return nodes.map((node) => {
     const rule = getGuestRule(project, node.path)
     const decorated: TreeNode = { ...node, guestAccess: { view: rule?.view ?? false, edit: rule?.edit ?? false } }
-    if (node.type === 'dir') decorated.children = decorateTreeWithGuestAccess(project, node.children ?? [])
+    // 한 단계 지연 트리에서 children이 없다는 것은 "비어 있음"이 아니라 "아직 요청하지 않음"이다.
+    // 이 경우 빈 배열을 덧씌우면 클라이언트가 더 불러올 폴더가 없다고 오해한다.
+    if (node.type === 'dir' && node.children !== undefined) decorated.children = decorateTreeWithGuestAccess(project, node.children)
     return decorated
   })
 }

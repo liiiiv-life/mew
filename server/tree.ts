@@ -7,6 +7,7 @@ import {
   isDeniedSegment,
   isSecretFile,
   projectRoot,
+  resolveProjectPath,
 } from './paths.ts'
 import { readIgnoreSet } from './ignoreList.ts'
 
@@ -201,6 +202,48 @@ export function buildTree(project: string = DEFAULT_PROJECT, opts: TreeOptions =
 /** HTTP 요청과 파일 감시 갱신에서는 이 버전을 써서 느린 디스크 I/O가 서버 전체를 막지 않게 한다. */
 export function buildTreeAsync(project: string = DEFAULT_PROJECT, opts: TreeOptions = {}): Promise<TreeNode[]> {
   return walkAsync(projectRoot(project), '', filtersFor(project, opts))
+}
+
+/**
+ * 사이드바가 폴더를 펼칠 때 쓰는 한 단계 목록. 전체 트리와 같은 가시성·정렬 규칙을 쓰되,
+ * 요청한 디렉터리의 직접 자식만 돌려 큰 프로젝트의 첫 화면을 막지 않는다.
+ */
+export async function listTreeDirAsync(project: string = DEFAULT_PROJECT, relDir = '', opts: TreeOptions = {}): Promise<TreeNode[]> {
+  const normalized = relDir.replace(/^\/+|\/+$/g, '')
+  const f = filtersFor(project, opts)
+  if (normalized && !isPathVisible(project, normalized, { ...opts, type: 'dir' })) return []
+  const absDir = resolveProjectPath(project, normalized)
+  const stat = await fs.promises.stat(absDir)
+  if (!stat.isDirectory()) return []
+
+  const downloadOnly = normalized.split('/').filter(Boolean).some((segment) => DOWNLOAD_ONLY_DIRS.has(segment))
+  const entries = await fs.promises.readdir(absDir, { withFileTypes: true })
+  const nodes: TreeNode[] = []
+  for (const entry of entries) {
+    if (f.ignore.has(entry.name) || isDeniedSegment(entry.name)) continue
+    if (!normalized && f.hideAtRoot.has(entry.name)) continue
+    const relPath = normalized ? `${normalized}/${entry.name}` : entry.name
+    if (entry.isDirectory()) {
+      if (!isPathVisible(project, relPath, { ...opts, type: 'dir' })) continue
+      nodes.push({
+        name: entry.name,
+        path: relPath,
+        type: 'dir',
+        project: !normalized && fs.existsSync(path.join(absDir, entry.name, '.mew')),
+      })
+    } else if (entry.isFile() && fileVisible(entry.name, f, downloadOnly)) {
+      nodes.push({ name: entry.name, path: relPath, type: 'file' })
+    }
+  }
+  nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+    if (f.docsOnly && !normalized && a.type === 'dir') {
+      const rankDiff = topLevelRank(a.name) - topLevelRank(b.name)
+      if (rankDiff !== 0) return rankDiff
+    }
+    return a.name.localeCompare(b.name)
+  })
+  return nodes
 }
 
 /**

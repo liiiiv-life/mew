@@ -38,6 +38,7 @@ export type AgentHostCommand =
   | { type: 'auth_url_response'; id: string; action: 'accept' | 'decline' | 'cancel' }
   | { type: 'set_model'; modelId: string }
   | { type: 'set_mode'; modeId: string }
+  | { type: 'set_thinking'; configId: string; value: string }
   | { type: 'unqueue'; index: number }
   | { type: 'move_queued'; from: number; to: number }
   | { type: 'edit_queued'; index: number; text: string; expect: string; promptText: string }
@@ -422,6 +423,7 @@ async function handleHostMessage(
     else if (command.type === 'auth_url_response') session.answerElicitation(String(command.id), command.action)
     else if (command.type === 'set_model') await session.setModel(String(command.modelId))
     else if (command.type === 'set_mode') await session.setMode(String(command.modeId))
+    else if (command.type === 'set_thinking') await session.setThinking(String(command.configId), String(command.value))
     else if (command.type === 'unqueue') session.unqueue(Number(command.index))
     else if (command.type === 'move_queued') session.moveQueued(Number(command.from), Number(command.to))
     else if (command.type === 'edit_queued')
