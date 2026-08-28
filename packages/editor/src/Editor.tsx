@@ -291,6 +291,10 @@ export const Editor = forwardRef<
     onChange(joinFrontmatter(next, body))
   }
   const containerRef = useRef<HTMLDivElement>(null)
+  // ProseMirror의 기본 scrollIntoView는 문서 스크롤만 대상으로 삼는다. Hotview는 이 컴포넌트
+  // 자체가 스크롤 컨테이너라서, Enter·자동 줄바꿈 뒤 캐럿이 아래로 밀려도 바깥 화면은 그대로일 수 있다.
+  // 입력 DOM이 반영된 다음 프레임에 이 컨테이너를 직접 맞춘다.
+  const caretScrollFrameRef = useRef<number | null>(null)
   const lineNumberOffsetRef = useRef(lineNumberOffset)
   lineNumberOffsetRef.current = lineNumberOffset
   const bodyRef = useRef(body)
@@ -357,6 +361,35 @@ export const Editor = forwardRef<
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchSeed, setSearchSeed] = useState<{ q?: string; n: number }>({ n: 0 })
   const mobileLayout = useMobileLayout()
+  const mobileLayoutRef = useRef(mobileLayout)
+  mobileLayoutRef.current = mobileLayout
+
+  const scheduleCaretVisibility = useCallback((ed: TiptapEditor) => {
+    if (caretScrollFrameRef.current !== null) cancelAnimationFrame(caretScrollFrameRef.current)
+    caretScrollFrameRef.current = requestAnimationFrame(() => {
+      caretScrollFrameRef.current = null
+      const scroller = containerRef.current
+      if (!scroller || !ed.isFocused) return
+      try {
+        const caret = ed.view.coordsAtPos(ed.state.selection.head)
+        const bounds = scroller.getBoundingClientRect()
+        const top = bounds.top + 12
+        // 모바일 보조키 바는 fixed라 스크롤 컨테이너의 높이에 포함되지 않는다.
+        const bottom = bounds.bottom - (mobileLayoutRef.current ? 44 : 12)
+        if (caret.top < top) scroller.scrollTop -= top - caret.top
+        else if (caret.bottom > bottom) scroller.scrollTop += caret.bottom - bottom
+      } catch {
+        // 에디터가 전환 중이거나 아직 렌더되지 않은 위치면 다음 입력에서 다시 맞춘다.
+      }
+    })
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (caretScrollFrameRef.current !== null) cancelAnimationFrame(caretScrollFrameRef.current)
+    },
+    [],
+  )
 
   // 외부(프로젝트 검색 등)에서도 찾기 바를 열 수 있게 하는 헬퍼 — imperative handle과 아래 keydown이 공유
   const openSearchBar = useCallback((seedQuery?: string) => {
@@ -645,6 +678,7 @@ export const Editor = forwardRef<
       updateMentionState(editor)
       updateSlashState(editor)
       updateSelectedChars(editor)
+      scheduleCaretVisibility(editor)
     },
     onFocus: () => setEditorFocused(true),
     onBlur: () => setEditorFocused(false),
@@ -652,6 +686,7 @@ export const Editor = forwardRef<
       updateMentionState(editor)
       updateSlashState(editor)
       updateSelectedChars(editor)
+      scheduleCaretVisibility(editor)
     },
     editorProps: {
       // 복사 text/plain의 md 직렬화 — tiptap-markdown의 것(플러그인 레벨)을 view 레벨에서 덮는다.
