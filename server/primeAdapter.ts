@@ -2,8 +2,10 @@
 // `prime-agent --mode rpc` JSONL을 ACP로 변환하는 mew 소유 경계다. Prime 소스나 설치본을 패치하지 않는다.
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Readable, Writable } from 'node:stream'
 import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 
@@ -14,6 +16,7 @@ type SavedSession = { sessionId: string; cwd: string; title: string | null; upda
 
 const PRIME_SESSION_DIR = process.env.MEW_PRIME_SESSION_DIR || path.join(os.homedir(), '.prime', 'agent', 'sessions')
 const PRIME_EXECUTABLE = process.env.MEW_PRIME_AGENT_EXECUTABLE || 'prime-agent'
+const PRIME_PERMISSION_EXTENSION = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'primePermissionGate.ts')
 
 function modelId(model: any): string {
   return `${String(model?.provider ?? '')}::${String(model?.id ?? '')}`
@@ -30,6 +33,21 @@ function parseModel(value: string) {
   const pivot = value.indexOf('::')
   if (pivot <= 0 || pivot === value.length - 2) throw new Error('Prime 모델 ID 형식이 올바르지 않습니다')
   return { provider: value.slice(0, pivot), modelId: value.slice(pivot + 2) }
+}
+
+const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+const PERMISSION_MODES = [
+  { id: 'ask', name: '매 도구 승인' },
+  { id: 'full-access', name: '전체 허용' },
+  { id: 'disabled', name: '도구 사용 안 함' },
+]
+
+function configOptions(state: any) {
+  return [{
+    id: 'thinking', name: '추론 정도', description: '모델이 답하기 전에 쓰는 추론량', category: 'thought_level', type: 'select' as const,
+    currentValue: state.thinkingLevel,
+    options: THINKING_LEVELS.map((value) => ({ value, name: value })),
+  }]
 }
 
 function textOf(content: any): string | null {
@@ -56,7 +74,7 @@ async function listSavedSessions(cwd: string): Promise<SavedSession[]> {
           if (!title && entry.type === 'user') title = textOf(entry.message?.content)
         } catch { /* incomplete trailing line */ }
       }
-      if (storedCwd !== cwd) return null
+      if (!storedCwd || storedCwd.toLocaleLowerCase() !== cwd.toLocaleLowerCase()) return null
       return { sessionId: name.slice(0, -'.jsonl'.length), cwd, title, updatedAt: stat.mtime.toISOString() }
     } catch { return null }
   }))
@@ -68,10 +86,17 @@ class PrimeRpc {
   #next = 1
   #pending = new Map<string, { resolve: (value: any) => void; reject: (reason: Error) => void }>()
   #buffer = ''
+  #permissionDir: string
+  #permissionFile: string
   onEvent: (event: any) => void = () => {}
 
   constructor() {
-    this.#child = spawn(PRIME_EXECUTABLE, ['--mode', 'rpc'], { cwd: process.cwd(), stdio: ['pipe', 'pipe', 'pipe'] })
+    this.#permissionDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'mew-prime-'))
+    this.#permissionFile = path.join(this.#permissionDir, 'permissions.json')
+    fsSync.writeFileSync(this.#permissionFile, '{"mode":"full-access"}\n', { mode: 0o600 })
+    this.#child = spawn(PRIME_EXECUTABLE, ['--mode', 'rpc', '--extension', PRIME_PERMISSION_EXTENSION], {
+      cwd: process.cwd(), stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, MEW_PRIME_PERMISSION_FILE: this.#permissionFile },
+    })
     this.#child.stdout?.on('data', (chunk: Buffer) => this.#read(chunk.toString()))
     this.#child.stderr?.on('data', (chunk: Buffer) => process.stderr.write(`[mew:prime] ${chunk}`))
     this.#child.on('error', (err) => this.#rejectAll(err))
@@ -86,6 +111,7 @@ class PrimeRpc {
       let message: RpcLine
       try { message = JSON.parse(line) as RpcLine } catch { continue }
       if (message.type === 'session_event') this.onEvent(message.event)
+      else if ((message as any).type === 'extension_ui_request') this.onEvent(message)
       else if (message.type === 'response' && message.id) {
         const request = this.#pending.get(message.id)
         if (!request) continue
@@ -108,7 +134,12 @@ class PrimeRpc {
     })
   }
 
-  close() { this.#child.kill('SIGTERM') }
+  notify(value: Record<string, unknown>) { this.#child.stdin?.write(`${JSON.stringify(value)}\n`) }
+  setPermissionMode(mode: string) { fsSync.writeFileSync(this.#permissionFile, `${JSON.stringify({ mode })}\n`, { mode: 0o600 }) }
+  close() {
+    this.#child.kill('SIGTERM')
+    fsSync.rmSync(this.#permissionDir, { recursive: true, force: true })
+  }
 }
 
 function updates(event: any): any[] {
@@ -127,10 +158,32 @@ class PrimeAdapter {
   sessionId = ''
   models: any[] = []
   client: any
+  permissionMode = 'full-access'
+  // Prime RPC의 prompt 응답은 실행 접수만 뜻한다. ACP turn은 실제 turn_end 이벤트까지 살아 있어야
+  // 스트리밍·도구 실행 중에 Mew가 대기열을 다음 프롬프트로 넘기지 않는다.
+  #turnDone: (() => void) | null = null
 
   constructor(client: any) {
     this.client = client
-    this.rpc.onEvent = (event) => { for (const update of updates(event)) void this.client.sessionUpdate({ sessionId: this.sessionId, update }) }
+    this.rpc.onEvent = (event) => { void this.#handleEvent(event) }
+  }
+
+  async #handleEvent(event: any) {
+    if (event?.type === 'extension_ui_request' && event.method === 'confirm' && typeof event.id === 'string') {
+      const response = await this.client.requestPermission({
+        sessionId: this.sessionId,
+        toolCall: { toolCallId: event.id, title: String(event.title ?? 'Prime 도구 실행'), kind: 'execute', status: 'pending', rawInput: event.message },
+        options: [{ optionId: 'allow', name: '허용', kind: 'allow_once' }, { optionId: 'deny', name: '거절', kind: 'reject_once' }],
+      }).catch(() => ({ outcome: { outcome: 'cancelled' } }))
+      this.rpc.notify({ type: 'extension_ui_response', id: event.id, confirmed: response.outcome.outcome === 'selected' && response.outcome.optionId === 'allow' })
+      return
+    }
+    for (const update of updates(event)) await this.client.sessionUpdate({ sessionId: this.sessionId, update })
+    if (event?.type === 'turn_end') {
+      const done = this.#turnDone
+      this.#turnDone = null
+      done?.()
+    }
   }
 
   async initialize() {
@@ -141,11 +194,14 @@ class PrimeAdapter {
     }
   }
 
+  // 공식 Prime 인증은 TUI `/login`이 소유한다. ACP 호스트의 필수 no-op 메서드만 제공한다.
+  async authenticate() { return {} }
+
   async newSession() {
     const state = await this.rpc.request('get_state')
     this.models = (await this.rpc.request('get_available_models')).models ?? []
     this.sessionId = state.sessionId
-    return { sessionId: this.sessionId, models: modelState(this.models, state.model), modes: { currentModeId: state.thinkingLevel, availableModes: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((id) => ({ id, name: id })) } }
+    return { sessionId: this.sessionId, models: modelState(this.models, state.model), configOptions: configOptions(state), modes: { currentModeId: this.permissionMode, availableModes: PERMISSION_MODES } }
   }
 
   async loadSession({ sessionId }: { sessionId: string }) {
@@ -160,13 +216,37 @@ class PrimeAdapter {
       const sessionUpdate = message.role === 'assistant' ? 'agent_message_chunk' : message.role === 'user' ? 'user_message_chunk' : null
       if (sessionUpdate) await this.client.sessionUpdate({ sessionId: this.sessionId, update: { sessionUpdate, content: { type: 'text', text } } })
     }
-    return { sessionId: this.sessionId, models: modelState(this.models, state.model), modes: { currentModeId: state.thinkingLevel, availableModes: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((id) => ({ id, name: id })) } }
+    return { sessionId: this.sessionId, models: modelState(this.models, state.model), configOptions: configOptions(state), modes: { currentModeId: this.permissionMode, availableModes: PERMISSION_MODES } }
   }
 
   async unstable_listSessions({ cwd }: { cwd: string }) { return { sessions: await listSavedSessions(cwd) } }
-  async prompt({ prompt }: { prompt: Array<{ text?: string }> }) { await this.rpc.request('prompt', { message: prompt.map((item) => item.text ?? '').join('') }); return { stopReason: 'end_turn' } }
+  async prompt({ prompt }: any) {
+    if (this.#turnDone) throw new Error('Prime Agent가 이미 프롬프트를 처리 중입니다')
+    let resolveTurn!: () => void
+    const turnDone = new Promise<void>((resolve) => { resolveTurn = resolve })
+    this.#turnDone = resolveTurn
+    try {
+      // 공식 RPC의 응답은 prompt admission일 뿐이다. 실제 답변·도구 이벤트는 이후 JSONL로 흐르고
+      // turn_end에서 끝난다.
+      await this.rpc.request('prompt', { message: prompt.map((item: any) => item.text ?? '').join('') })
+    } catch (error) {
+      this.#turnDone = null
+      throw error
+    }
+    await turnDone
+    return { stopReason: 'end_turn' as const }
+  }
   async cancel() { await this.rpc.request('abort') }
-  async setSessionMode({ modeId }: { modeId: string }) { await this.rpc.request('set_thinking_level', { level: modeId }) }
+  async setSessionMode({ modeId }: { modeId: string }) {
+    if (!PERMISSION_MODES.some((mode) => mode.id === modeId)) throw new Error('Prime 권한 모드가 올바르지 않습니다')
+    this.permissionMode = modeId
+    this.rpc.setPermissionMode(modeId)
+  }
+  async setSessionConfigOption({ configId, value }: { configId: string; value: unknown }) {
+    if (configId !== 'thinking' || !THINKING_LEVELS.includes(String(value))) throw new Error('Prime 추론 정도가 올바르지 않습니다')
+    await this.rpc.request('set_thinking_level', { level: value })
+    return { configOptions: configOptions({ thinkingLevel: value }) }
+  }
   async unstable_setSessionModel({ modelId: id }: { modelId: string }) { await this.rpc.request('set_model', parseModel(id)) }
 }
 
