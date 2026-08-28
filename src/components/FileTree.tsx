@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TreeNode } from '../api/client'
 import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, renamePath, setGuestAccess, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
@@ -7,6 +7,7 @@ import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { PresenceDots } from './PresenceDots'
 import { CommandButtonMenu } from './CommandButtonMenu'
 import { getTreeScroll, saveTreeScroll, setScrollSaveSuppressed } from '../utils/scrollMemory'
+import { readFileClipboard, writeFileClipboard, type FileClipboard } from '../utils/fileClipboard'
 
 type EditingState =
   | { mode: 'rename'; path: string; type: 'file' | 'dir'; value: string; error?: string; busy?: boolean }
@@ -17,9 +18,6 @@ type Focused = { path: string; type: 'file' | 'dir' } | null
 
 type PopoverState = { path: string; type: 'file' | 'dir'; x: number; y: number } | null
 
-// Ctrl+C(복사)/Ctrl+X(잘라내기)로 담아둔 항목 — Ctrl+V로 붙여넣기(cut=이동, copy=복사)
-type Clipboard = { path: string; type: 'file' | 'dir'; mode: 'copy' | 'cut' } | null
-
 interface NodeCtx {
   selectedPath: string | null
   focused: Focused
@@ -28,6 +26,9 @@ interface NodeCtx {
   readOnly: boolean
   canUseCommands: boolean
   presence: Record<string, string[]>
+  /** 지연 로드한 폴더별 직접 자식. 값이 빈 배열이면 "불러왔지만 비어 있음"이다. */
+  directoryChildren: Record<string, TreeNode[]>
+  loadingDirs: Set<string>
   /** 드롭 강조 중인 폴더 경로(''=루트). 이동 대상 미리보기 */
   dropDir: string | null
   onSelect: (path: string, opts?: { preview?: boolean }) => void
@@ -90,6 +91,19 @@ function MapIcon({ size = 13 }: { size?: number }) {
       <path d="M3 6 9 3l6 3 6-3v15l-6 3-6-3-6 3Z" />
       <path d="M9 3v15" />
       <path d="M15 6v15" />
+    </svg>
+  )
+}
+
+/** 일반 폴더의 펼침 상태는 삼각형 대신 폴더 모양으로 드러낸다. */
+function FolderIcon({ open, size = 14 }: { open: boolean; size?: number }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+      {open ? (
+        <path d="M3 7h5l2 3h11l-2 10H5L3 7Z" />
+      ) : (
+        <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+      )}
     </svg>
   )
 }
@@ -505,8 +519,9 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
   const isOpen = ctx.openDirs.has(node.path)
   const isDropTarget = ctx.dropDir === node.path
   // 이 폴더의 MOC는 파일 목록에서 빼고, 펼쳤을 때 맨 첫 줄에 따로 세운다
-  const moc = node.children?.find(isMocNode) ?? null
-  const children = moc ? node.children?.filter((c) => !isMocNode(c)) : node.children
+  const nodeChildren = node.children ?? ctx.directoryChildren[node.path]
+  const moc = nodeChildren?.find(isMocNode) ?? null
+  const children = moc ? nodeChildren?.filter((c) => !isMocNode(c)) : nodeChildren
   const createEditing =
     (ctx.editing?.mode === 'create-file' || ctx.editing?.mode === 'create-folder') && ctx.editing.parentPath === node.path
       ? ctx.editing
@@ -550,12 +565,13 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           onDragEnd={ctx.endDrag}
           onClick={handleClick}
           {...touchProps}
-          className={`block min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
             isFocused ? 'ring-1 ring-inset ring-accent' : ''
           } ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : ''}`}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
         >
-          {isOpen ? '▾' : '▸'} {node.name}
+          <FolderIcon open={isOpen} />
+          <span className="min-w-0 truncate">{node.name}</span>
           {node.project && (
             <span className="ml-1 rounded bg-accent/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">
               Project
@@ -589,6 +605,9 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
               paddingLeft={(depth + 1) * 14 + 8}
             />
           )}
+          {ctx.loadingDirs.has(node.path) && (
+            <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 8 }}>불러오는 중…</div>
+          )}
           {children?.map((child) => (
             <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />
           ))}
@@ -601,11 +620,15 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
 export function FileTree({
   tree,
   project,
+  workspacePath = null,
   selectedPath,
   readOnly,
   canUseCommands = false,
   compact = false,
   roots,
+  commands,
+  loadChildren,
+  prefetchRootChildren = false,
   searchFocusSignal,
   newFileSignal,
   revealSignal,
@@ -622,6 +645,8 @@ export function FileTree({
   tree: TreeNode[]
   /** 펼친 폴더·스크롤을 프로젝트별로 기억하는 열쇠 (이 컴포넌트는 key={project}로 갈아 끼워진다) */
   project: string
+  /** 다른 루트 프로젝트로 붙여넣을 때 원본을 다시 찾는 절대경로. */
+  workspacePath?: string | null
   selectedPath: string | null
   readOnly: boolean
   canUseCommands?: boolean
@@ -629,6 +654,12 @@ export function FileTree({
   compact?: boolean
   /** 검색창 아래에 서는 Documents/프로젝트 가상 폴더 */
   roots?: React.ReactNode
+  /** 파일 목록 흐름에 끼우는 루트 프로젝트 명령 등 추가 항목 */
+  commands?: React.ReactNode
+  /** 폴더를 펼칠 때 해당 폴더의 직접 자식만 불러온다. 없으면 기존 완전 트리처럼 동작한다. */
+  loadChildren?: (path: string) => Promise<TreeNode[]>
+  /** 첫 화면을 그린 뒤 최상위 폴더의 직접 자식만 천천히 미리 읽는다. 더 깊은 경로는 펼칠 때 읽는다. */
+  prefetchRootChildren?: boolean
   searchFocusSignal: number
   /** Alt+N — 새 파일 이름 입력 열기. parentPath가 null이면 트리의 선택 항목 기준 */
   newFileSignal: { n: number; parentPath: string | null }
@@ -651,17 +682,27 @@ export function FileTree({
   const [sortMode, setSortMode] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) === 'ext' ? 'ext' : 'name'))
   const [focused, setFocused] = useState<Focused>(null)
   const [openDirs, setOpenDirs] = useState<Set<string>>(() => loadOpenDirs(project) ?? new Set())
+  const [directoryChildren, setDirectoryChildren] = useState<Record<string, TreeNode[]>>({})
+  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set())
+  const directoryChildrenRef = useRef(directoryChildren)
+  directoryChildrenRef.current = directoryChildren
+  const loadingDirsRef = useRef(loadingDirs)
+  loadingDirsRef.current = loadingDirs
   // 저장된 펼침 상태가 있으면(전부 접어 둔 빈 목록이어도) 아래 "처음엔 최상위 폴더를 모두 편다"를 건너뛴다
   const [hadSavedOpenDirs] = useState(() => loadOpenDirs(project) !== null)
   const [editing, setEditing] = useState<EditingState>(null)
   const [popover, setPopover] = useState<PopoverState>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; type: 'file' | 'dir' } | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [clipboard, setClipboard] = useState<Clipboard>(null)
+  const [clipboard, setClipboardState] = useState<FileClipboard>(() => readFileClipboard())
   const [dropDir, setDropDir] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const queryRef = useRef(query)
   queryRef.current = query
+  const setClipboard = useCallback((value: FileClipboard) => {
+    writeFileClipboard(value)
+    setClipboardState(value)
+  }, [])
   const listRef = useRef<HTMLDivElement>(null)
   // 팝오버의 "업로드"는 파일 선택창을 띄워야 해서 클릭 시점의 대상 폴더를 잠깐 들고 있는다
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -722,6 +763,15 @@ export function FileTree({
     setOpenDirs(new Set(tree.filter((n) => n.type === 'dir').map((n) => n.path)))
   }, [tree, hadSavedOpenDirs])
 
+  // 루트 목록이 새로 왔다는 것은 파일 조작·watcher 갱신 또는 프로젝트 전환이다. 이미 펼쳐 둔
+  // 폴더의 오래된 자식은 버리고, 다음에 펼칠 때 최신 한 단계 목록을 읽는다.
+  useEffect(() => {
+    directoryChildrenRef.current = {}
+    loadingDirsRef.current = new Set()
+    setDirectoryChildren({})
+    setLoadingDirs(new Set())
+  }, [tree])
+
   useEffect(() => {
     localStorage.setItem(openDirsKey(project), JSON.stringify([...openDirs]))
   }, [openDirs, project])
@@ -756,14 +806,53 @@ export function FileTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPath, tree, revealSignal])
 
+  const loadDir = useCallback((path: string) => {
+    if (!loadChildren || directoryChildrenRef.current[path] !== undefined || loadingDirsRef.current.has(path)) return
+    loadingDirsRef.current = new Set(loadingDirsRef.current).add(path)
+    setLoadingDirs(loadingDirsRef.current)
+    void loadChildren(path)
+      .then((children) => {
+        directoryChildrenRef.current = { ...directoryChildrenRef.current, [path]: children }
+        setDirectoryChildren(directoryChildrenRef.current)
+      })
+      .catch((err: unknown) => onNotice(err instanceof Error ? err.message : String(err)))
+      .finally(() => {
+        const next = new Set(loadingDirsRef.current)
+        next.delete(path)
+        loadingDirsRef.current = next
+        setLoadingDirs(next)
+      })
+  }, [loadChildren, onNotice])
+
   function toggleDir(path: string) {
+    const opening = !openDirs.has(path)
     setOpenDirs((prev) => {
       const next = new Set(prev)
       if (next.has(path)) next.delete(path)
       else next.add(path)
       return next
     })
+    if (opening) loadDir(path)
   }
+
+  // 프로젝트 전환 뒤에는 루트 목록을 먼저 화면에 내보낸다. 그 다음 프레임부터 최상위 폴더만
+  // 하나씩 미리 읽어, 첫 화면을 전체 재귀 탐색으로 막지 않으면서 곧 펼칠 폴더는 빠르게 연다.
+  useEffect(() => {
+    if (!prefetchRootChildren || !loadChildren || tree.length === 0) return
+    const paths = tree.filter((node) => node.type === 'dir').map((node) => node.path)
+    let index = 0
+    let timer: number | null = null
+    const next = () => {
+      if (index >= paths.length) return
+      loadDir(paths[index++])
+      timer = window.setTimeout(next, 50)
+    }
+    const frame = requestAnimationFrame(() => { timer = window.setTimeout(next, 0) })
+    return () => {
+      cancelAnimationFrame(frame)
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }, [loadChildren, loadDir, prefetchRootChildren, tree])
 
   function ensureOpenChain(dirPath: string) {
     if (!dirPath) return
@@ -971,14 +1060,14 @@ export function FileTree({
   }
 
   // 복사 붙여넣기 — 내부적으로 terminal cp(=fs.cpSync, 폴더 재귀)인 /copy-into를 호출한다
-  async function copyIntoDir(srcPath: string, srcType: 'file' | 'dir', destDir: string) {
+  async function copyIntoDir(srcPath: string, srcType: 'file' | 'dir', destDir: string, sourceWorkspacePath: string | null) {
     if (readOnly) return
-    if (isSelfOrDescendant(srcPath, srcType, destDir)) {
+    if (sourceWorkspacePath === workspacePath && isSelfOrDescendant(srcPath, srcType, destDir)) {
       setErrorMsg('폴더를 자기 자신 안으로는 복사할 수 없습니다')
       return
     }
     try {
-      const { relPath, hidden } = await copyInto(srcPath, destDir, project)
+      const { relPath, hidden } = await copyInto(srcPath, destDir, project, sourceWorkspacePath === workspacePath ? null : sourceWorkspacePath)
       if (hidden) onNotice(NOT_ALLOWED)
       if (srcType === 'file') onFileCreated(relPath)
       else onFolderCreated()
@@ -992,10 +1081,14 @@ export function FileTree({
     const clip = clipboard
     if (!clip || readOnly) return
     if (clip.mode === 'cut') {
+      if (clip.workspacePath !== workspacePath) {
+        setErrorMsg('다른 프로젝트로는 잘라내기 대신 복사해 붙여넣으세요')
+        return
+      }
       await moveInto(clip.path, clip.type, destDir)
       setClipboard(null)
     } else {
-      await copyIntoDir(clip.path, clip.type, destDir)
+      await copyIntoDir(clip.path, clip.type, destDir, clip.workspacePath)
     }
     ensureOpenChain(destDir)
   }
@@ -1060,12 +1153,12 @@ export function FileTree({
       const k = e.key.toLowerCase()
       if (k === 'c') {
         e.preventDefault()
-        setClipboard({ path: focused.path, type: focused.type, mode: 'copy' })
+        setClipboard({ path: focused.path, type: focused.type, mode: 'copy', workspacePath })
         return
       }
       if (k === 'x') {
         e.preventDefault()
-        setClipboard({ path: focused.path, type: focused.type, mode: 'cut' })
+        setClipboard({ path: focused.path, type: focused.type, mode: 'cut', workspacePath })
         return
       }
       if (k === 'v') {
@@ -1152,6 +1245,8 @@ export function FileTree({
     readOnly,
     canUseCommands,
     presence,
+    directoryChildren,
+    loadingDirs,
     dropDir,
     onSelect,
     toggleDir,
@@ -1254,6 +1349,7 @@ export function FileTree({
         className={`${compact ? 'py-1' : 'min-h-0 flex-1 overflow-y-auto py-2'} outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
       >
         {roots}
+        {commands}
         {filteredPaths !== null ? (
           filteredPaths.length === 0 ? (
             <div className="px-3 py-2 text-xs text-ink-muted">결과 없음</div>
@@ -1326,7 +1422,7 @@ export function FileTree({
             popover.path === ''
               ? undefined
               : () => {
-                  setClipboard({ path: popover.path, type: popover.type, mode: 'copy' })
+                  setClipboard({ path: popover.path, type: popover.type, mode: 'copy', workspacePath })
                   setPopover(null)
                 }
           }
@@ -1334,7 +1430,7 @@ export function FileTree({
             popover.path === ''
               ? undefined
               : () => {
-                  setClipboard({ path: popover.path, type: popover.type, mode: 'cut' })
+                  setClipboard({ path: popover.path, type: popover.type, mode: 'cut', workspacePath })
                   setPopover(null)
                 }
           }

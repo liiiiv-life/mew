@@ -14,7 +14,9 @@ export function RootProjectTabs({
   fallbackLabel,
   canOpen,
   canChangeIcon,
+  icons,
   onActivate,
+  onIconChange,
   onOpen,
 }: {
   paths: string[]
@@ -22,15 +24,14 @@ export function RootProjectTabs({
   fallbackLabel: string
   canOpen: boolean
   canChangeIcon: boolean
+  icons: Record<string, string>
   onActivate: (path: string) => void
+  onIconChange: (path: string, icon: string) => void
   onOpen: () => void
 }) {
   const { t } = useI18n()
   const unique = useMemo(() => [...new Set(paths)], [paths])
   const [editingPath, setEditingPath] = useState<string | null>(null)
-  const [icons, setIcons] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('mew:root-project-icons') ?? '{}') as Record<string, string> } catch { return {} }
-  })
   const pressTimer = useRef<number | null>(null)
   const longPressed = useRef(false)
 
@@ -39,20 +40,14 @@ export function RootProjectTabs({
     pressTimer.current = null
   }
   function saveIcon(path: string, icon: string) {
-    setIcons((previous) => {
-      const next = { ...previous }
-      if (icon) next[path] = icon
-      else delete next[path]
-      localStorage.setItem('mew:root-project-icons', JSON.stringify(next))
-      return next
-    })
+    onIconChange(path, icon)
   }
   return (
     <>
     <div data-project-tabs className="no-scrollbar flex h-full min-w-0 flex-1 items-stretch overflow-x-auto">
       {unique.length === 0 && (
         <div className="flex h-full shrink-0 items-center gap-1.5 border-r border-edge bg-surface-raised px-2.5 text-xs text-ink">
-          <span className="flex h-5 w-5 items-center justify-center rounded bg-surface-deep font-semibold">
+          <span className="flex h-5 w-5 items-center justify-center font-semibold">
             {fallbackLabel[0]?.toUpperCase() || 'P'}
           </span>
           <span className="max-w-[10rem] truncate">{fallbackLabel}</span>
@@ -94,7 +89,7 @@ export function RootProjectTabs({
               active ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
             }`}
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded bg-surface-deep font-semibold">
+            <span className="flex h-5 w-5 items-center justify-center font-semibold">
               {icons[projectPath] ? <ProjectIcon icon={icons[projectPath]} size={15} /> : (label[0]?.toUpperCase() || '/')}
             </span>
             <span className={`max-w-[10rem] truncate ${active ? 'inline' : 'hidden md:inline'}`}>{label}</span>

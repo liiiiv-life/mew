@@ -7,7 +7,7 @@
 // 목록은 프로젝트 탭마다 뜨므로 project를 반드시 인자로 받는다 — 활성 프로젝트가 아닌 탭의
 // 메뉴도 열 수 있기 때문이다. 드롭다운은 프로젝트 탭 줄이 가로 스크롤 컨테이너라 그 안에
 // absolute로 두면 잘린다 — 그래서 body로 포털해 fixed로 띄운다.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@mew/ui'
 import { fetchCmdButtons, killTmuxSession, runCmdButton, saveCmdButtons, type CmdButtonState } from '../api/client'
@@ -19,8 +19,35 @@ const MENU_WIDTH = 288 // w-72
 /** 편집 중인 명령. index가 null이면 새로 추가하는 중 */
 type Editing = { index: number | null; name: string; command: string; oneShot: boolean }
 
-export function CommandButtonMenu({ project, title }: { project: string; title?: string }) {
-  const [open, setOpen] = useState(false)
+export function CommandButtonMenu({
+  project,
+  title,
+  open: controlledOpen,
+  onOpenChange,
+  inline = false,
+  hideTrigger = false,
+  alwaysOpen = false,
+  triggerRef,
+}: {
+  project: string
+  title?: string
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  inline?: boolean
+  hideTrigger?: boolean
+  /** 사이드바 명령 탭처럼 목록 자체가 화면일 때는 닫지 않고 계속 보인다. */
+  alwaysOpen?: boolean
+  /** 인라인 메뉴를 여는 외부 버튼도 바깥 클릭 판정에서는 메뉴 안으로 친다. */
+  triggerRef?: RefObject<HTMLElement | null>
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const open = alwaysOpen || (controlledOpen ?? uncontrolledOpen)
+  const setOpen = useCallback((next: boolean | ((current: boolean) => boolean)) => {
+    if (alwaysOpen) return
+    const value = typeof next === 'function' ? next(open) : next
+    if (controlledOpen === undefined) setUncontrolledOpen(value)
+    onOpenChange?.(value)
+  }, [alwaysOpen, controlledOpen, onOpenChange, open])
   const [buttons, setButtons] = useState<CmdButtonState[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   // 실행·종료 요청이 날아가 있는 동안의 명령 이름 — 그 줄의 버튼을 잠근다(button.running과 다르다)
@@ -31,9 +58,9 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  const closeMenu = useCallback(() => setOpen(false), [])
+  const closeMenu = useCallback(() => setOpen(false), [setOpen])
   // Esc·모바일 뒤로가기로 드롭다운을 닫는다. 세션 팝업·편집 창이 떠 있으면 그쪽이 스택 위라 먼저 닫힌다
-  useOverlayDismiss(open && closeMenu)
+  useOverlayDismiss(open && !inline && closeMenu)
 
   const refresh = useCallback(() => {
     fetchCmdButtons(project)
@@ -47,7 +74,9 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
       })
   }, [project])
 
-  // 드롭다운이 열려 있는 동안 목록·실행 상태를 불러오고 가볍게 폴링한다(실행 표시 갱신용)
+  // 메뉴가 열려 있는 동안 목록·실행 상태를 불러오고 가볍게 폴링한다(실행 표시 갱신용).
+  // 인라인 사이드바도 항상 열린 메뉴이므로 여기서 제외하면 첫 요청을 보내지 않아
+  // "불러오는 중…"에 영구히 남는다.
   useEffect(() => {
     if (!open) return
     refresh()
@@ -57,7 +86,7 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
 
   // 버튼 위치에 맞춰 드롭다운을 놓는다 — 탭 줄이 스크롤되거나 창이 바뀌면 다시 잰다
   useEffect(() => {
-    if (!open) return
+    if (!open || inline) return
     function place() {
       const rect = btnRef.current?.getBoundingClientRect()
       if (!rect) return
@@ -71,19 +100,19 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
       window.removeEventListener('resize', place)
       window.removeEventListener('scroll', place, true)
     }
-  }, [open])
+  }, [inline, open])
 
   // 바깥을 누르면 드롭다운을 닫는다 (드롭다운이 포털이라 DOM 상 부모가 아니어서 둘 다 확인한다)
   useEffect(() => {
     if (!open) return
     function onDown(e: PointerEvent) {
       const target = e.target as Node
-      if (btnRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      if (btnRef.current?.contains(target) || triggerRef?.current?.contains(target) || menuRef.current?.contains(target)) return
       setOpen(false)
     }
     document.addEventListener('pointerdown', onDown, true)
     return () => document.removeEventListener('pointerdown', onDown, true)
-  }, [open])
+  }, [open, setOpen, triggerRef])
 
   async function run(button: CmdButtonState) {
     if (busyName) return
@@ -121,9 +150,34 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
 
   const list = buttons ?? []
 
+  const menu = (
+    <div
+      ref={menuRef}
+      data-cmd-overlay={!inline || undefined}
+      style={inline ? undefined : { top: anchor?.top, left: anchor?.left, width: MENU_WIDTH }}
+      className={inline
+        ? 'border-b border-edge bg-surface-deep py-1'
+        : 'fixed z-[1050] max-h-[60vh] overflow-auto rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl'}
+    >
+      {!inline && <div className="px-3 pb-1 pt-0.5 text-[11px] text-ink-muted">{project}</div>}
+      {error && <div className="px-3 py-2 text-xs text-danger-strong">{error}</div>}
+      {buttons === null ? (
+        <div className="px-3 py-3 text-xs text-ink-muted">불러오는 중…</div>
+      ) : (
+        list.map((b, i) => (
+          <CmdRow key={`${b.name}-${i}`} button={b} busy={busyName === b.name} onRun={() => run(b)} onStop={() => stop(b)} onOpenSession={() => { setPopup(b); setOpen(false) }} onEdit={() => setEditing({ index: i, name: b.name, command: b.command, oneShot: b.oneShot })} />
+        ))
+      )}
+      {buttons !== null && list.length === 0 && !error && <div className="px-3 py-2 text-xs text-ink-muted">아직 명령이 없습니다.</div>}
+      <button type="button" onClick={() => setEditing({ index: null, name: '', command: '', oneShot: false })} className="mt-1 flex w-full items-center gap-1.5 border-t border-edge px-3 py-2 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink">
+        <span className="text-sm leading-none">＋</span> 명령 추가
+      </button>
+    </div>
+  )
+
   return (
     <>
-      <button
+      {!hideTrigger && <button
         ref={btnRef}
         type="button"
         onClick={(e) => {
@@ -138,50 +192,9 @@ export function CommandButtonMenu({ project, title }: { project: string; title?:
         aria-expanded={open}
       >
         <PlayGlyph />
-      </button>
+      </button>}
 
-      {open &&
-        anchor &&
-        createPortal(
-          <div
-            ref={menuRef}
-            data-cmd-overlay
-            style={{ top: anchor.top, left: anchor.left, width: MENU_WIDTH }}
-            className="fixed z-[1050] max-h-[60vh] overflow-auto rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
-          >
-            <div className="px-3 pb-1 pt-0.5 text-[11px] text-ink-muted">{project}</div>
-            {error && <div className="px-3 py-2 text-xs text-danger-strong">{error}</div>}
-            {buttons === null ? (
-              <div className="px-3 py-3 text-xs text-ink-muted">불러오는 중…</div>
-            ) : (
-              list.map((b, i) => (
-                <CmdRow
-                  key={`${b.name}-${i}`}
-                  button={b}
-                  busy={busyName === b.name}
-                  onRun={() => run(b)}
-                  onStop={() => stop(b)}
-                  onOpenSession={() => {
-                    setPopup(b)
-                    setOpen(false)
-                  }}
-                  onEdit={() => setEditing({ index: i, name: b.name, command: b.command, oneShot: b.oneShot })}
-                />
-              ))
-            )}
-            {buttons !== null && list.length === 0 && !error && (
-              <div className="px-3 py-2 text-xs text-ink-muted">아직 명령이 없습니다.</div>
-            )}
-            <button
-              type="button"
-              onClick={() => setEditing({ index: null, name: '', command: '', oneShot: false })}
-              className="mt-1 flex w-full items-center gap-1.5 border-t border-edge px-3 py-2 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink"
-            >
-              <span className="text-sm leading-none">＋</span> 명령 추가
-            </button>
-          </div>,
-          document.body,
-        )}
+      {open && (inline ? menu : anchor && createPortal(menu, document.body))}
 
       {editing && (
         <CmdButtonEditor
