@@ -1,0 +1,42 @@
+/** 모바일에서 작업 영역을 덮는 App 소유 보조창. DOM 순서와 초기 쌓임 순서도 이 목록을 따른다. */
+export const WORKSPACE_PANEL_IDS = [
+  'sidebar',
+  'chat',
+  'agent',
+  'agentSet',
+  'terminal',
+  'browser',
+  'android',
+] as const
+
+export type WorkspacePanelId = (typeof WORKSPACE_PANEL_IDS)[number]
+
+export type MobilePanelSelection<Panel extends string> = {
+  open: boolean
+  stack: Panel[]
+}
+
+/** 이미 열린 패널도 중복 없이 스택 맨 위로 옮긴다. */
+export function bringMobilePanelToFront<Panel extends string>(stack: readonly Panel[], target: Panel): Panel[] {
+  return [...stack.filter((panel) => panel !== target), target]
+}
+
+/** 어느 경로로 닫혀도 다음 패널이 자연스럽게 전면이 되도록 스택에서 제거한다. */
+export function closeMobilePanel<Panel extends string>(stack: readonly Panel[], target: Panel): Panel[] {
+  return stack.filter((panel) => panel !== target)
+}
+
+/**
+ * 모바일 보조창 선택 규칙.
+ * 닫힌 창은 열어 전면에, 뒤에 열린 창은 닫지 않고 전면에, 전면 창은 다시 선택할 때 닫는다.
+ */
+export function selectMobilePanel<Panel extends string>(
+  stack: readonly Panel[],
+  target: Panel,
+  targetOpen: boolean,
+): MobilePanelSelection<Panel> {
+  if (targetOpen && stack.at(-1) === target) {
+    return { open: false, stack: closeMobilePanel(stack, target) }
+  }
+  return { open: true, stack: bringMobilePanelToFront(stack, target) }
+}

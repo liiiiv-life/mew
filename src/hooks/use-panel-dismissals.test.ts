@@ -35,11 +35,13 @@ function Harness({ closed }: { closed: PanelId[] }) {
   const [open, setOpen] = useState<Record<PanelId, boolean>>(() =>
     Object.fromEntries(ids.map((id) => [id, true])) as Record<PanelId, boolean>,
   )
+  const [stack, setStack] = useState<PanelId[]>([...ids])
   const panel = (id: PanelId) => ({
     open: open[id],
     close: () => {
       closed.push(id)
       setOpen((current) => ({ ...current, [id]: false }))
+      setStack((current) => current.filter((panelId) => panelId !== id))
     },
   })
   useWorkspacePanelDismissals({
@@ -50,7 +52,7 @@ function Harness({ closed }: { closed: PanelId[] }) {
     terminal: { ...panel('terminal'), closeOnEscape: () => true },
     browser: panel('browser'),
     android: panel('android'),
-  })
+  }, stack.at(-1) ?? null)
   return null
 }
 
@@ -78,7 +80,7 @@ function SidebarSearchHarness({ closed }: { closed: string[] }) {
     terminal: { ...closedPanel, closeOnEscape: () => true },
     browser: closedPanel,
     android: closedPanel,
-  })
+  }, 'sidebar')
   return createElement('span', { 'data-query': query })
 }
 
