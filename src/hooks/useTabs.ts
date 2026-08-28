@@ -43,7 +43,11 @@ function newPaneId(): string {
 }
 
 // 탭 복원은 프로젝트별로 — docs는 예전 키를 그대로 써서 기존에 열려 있던 탭을 잃지 않는다
-export function openTabsKey(project: string): string {
+export function openTabsKey(project: string, workspaceScope?: string): string {
+  // `.workspace`와 `docs`는 서버 API 식별자가 모든 루트 프로젝트에서 같다. 화면 상태까지
+  // 같은 키를 쓰면 다른 루트의 README가 잠깐 보이거나 탭 목록을 덮어쓴다. scope가 없을 때는
+  // 기존 설치의 저장 키를 그대로 읽어 한 번의 호환 이관 기회를 남긴다.
+  if (workspaceScope) return `mew:open-tabs:${project}@${workspaceScope}`
   return project === 'docs' ? 'mew:open-tabs' : `mew:open-tabs:${project}`
 }
 
@@ -55,8 +59,8 @@ type StoredTabs = {
 }
 
 /** 저장분 읽기 — 분할 이전 형식(`{tabs, activePath}`)은 칸 하나짜리로 읽는다 */
-function loadStoredTabs(project: string): StoredTabs | null {
-  const raw = localStorage.getItem(openTabsKey(project))
+function loadStoredTabs(project: string, workspaceScope?: string): StoredTabs | null {
+  const raw = localStorage.getItem(openTabsKey(project, workspaceScope))
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw) as Partial<StoredTabs> & { tabs?: StoredTab[]; activePath?: string | null }
@@ -127,7 +131,7 @@ function prunePanes(s: ProjectTabs): ProjectTabs {
 // 넘기지 않는 액션은 지금 포커스된 칸에 대해 동작한다.
 // 예외는 자동저장·커밋으로, 이들은 예약된 시점의 프로젝트를 붙들고 있어야 전환 뒤에 엉뚱한
 // 프로젝트의 같은 이름 파일을 덮어쓰지 않는다.
-export function useTabs(project: string, onCommitted: () => void, onNotice: (message: string) => void) {
+export function useTabs(project: string, onCommitted: () => void, onNotice: (message: string) => void, workspaceScope?: string) {
   const [states, setStates] = useState<Record<string, ProjectTabs>>({})
   // 콜백 identity가 바뀌어도 openFileIn 등의 useCallback을 다시 만들지 않도록 ref로 든다
   const onNoticeRef = useRef(onNotice)
@@ -137,7 +141,8 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
   const saveTimerRef = useRef<{ timer: ReturnType<typeof setTimeout>; project: string; path: string } | null>(null)
   const projectRef = useRef(project)
   projectRef.current = project
-  const hydratedRef = useRef(new Set<string>())
+  const hydratedRef = useRef<string | null>(null)
+  const [hydratedSession, setHydratedSession] = useState<string | null>(null)
   // 탭 껍데기를 setState로 세운 직후에는 statesRef가 아직 옛 상태다. 활성 탭의 실제 로드는
   // 다음 렌더 effect로 넘겨야 existing 탭을 다시 만들지 않고 deferredLoad만 해제할 수 있다.
   const pendingRestoreLoadsRef = useRef(new Map<string, { paneId: string; path: string; preview: boolean; viewMode: Tab['viewMode'] }[]>())
@@ -355,14 +360,21 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
     [openFileIn],
   )
 
-  // 브라우저를 껐다 켜거나 F5로 새로고침해도 열려 있던 탭들과 분할 배치를 복원한다. 프로젝트를
-  // 처음 열 때(전환 포함) 한 번만 — StrictMode의 이펙트 2회 실행도 hydratedRef가 막는다.
+  // 브라우저를 껐다 켜거나 F5로 새로고침해도 열려 있던 탭들과 분할 배치를 복원한다. 루트 프로젝트별
+  // 현재 저장 scope마다 한 번만 — StrictMode의 이펙트 2회 실행도 hydratedRef가 막는다.
+  const sessionKey = `${project}\u0000${workspaceScope ?? ''}`
+
   useEffect(() => {
-    if (hydratedRef.current.has(project)) return
-    hydratedRef.current.add(project)
-    const stored = loadStoredTabs(project)
+    if (hydratedRef.current === sessionKey) return
+    hydratedRef.current = sessionKey
+    // 같은 API 프로젝트(`.workspace`, `docs`)라도 루트가 바뀌면 이전 루트의 열린 탭은
+    // 메모리에서도 즉시 버린다. 저장분은 workspaceScope별 키에 남아 다시 돌아올 때 복원된다.
+    setHydratedSession(null)
+    // 첫 도입 때만 기존 공용 키를 읽는다. 다음 저장부터는 루트별 키로 옮겨져 서로 덮지 않는다.
+    const stored = loadStoredTabs(project, workspaceScope) ?? (workspaceScope ? loadStoredTabs(project) : null)
     if (!stored) {
-      patch(project, (s) => s) // 빈 상태라도 만들어 둬야 이후 저장이 이 프로젝트를 기록한다
+      patch(project, () => EMPTY) // 빈 상태라도 만들어 둬야 이후 저장이 이 프로젝트를 기록한다
+      setHydratedSession(sessionKey)
       return
     }
     // 칸 뼈대를 먼저 세운다 — openFileIn이 그 칸을 찾아 탭을 붙인다
@@ -384,23 +396,28 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
         if (active) activeLoads.push({ paneId: pane.id, path: active.path, preview: active.preview, viewMode: active.viewMode })
       }
     }
-    pendingRestoreLoadsRef.current.set(project, activeLoads)
-  }, [project, openFileIn, patch, patchPane])
+    pendingRestoreLoadsRef.current.set(sessionKey, activeLoads)
+    setHydratedSession(sessionKey)
+  }, [project, sessionKey, workspaceScope, openFileIn, patch, patchPane])
 
   // 위 hydration effect가 만든 모든 탭이 상태에 붙은 뒤 활성 탭만 읽는다. statesRef 동기화 effect가
   // 선언 순서상 먼저 돌기 때문에 openFileIn은 deferred tab을 찾아 본문 요청만 시작한다.
   useEffect(() => {
-    const activeLoads = pendingRestoreLoadsRef.current.get(project)
+    if (hydratedSession !== sessionKey) return
+    const activeLoads = pendingRestoreLoadsRef.current.get(sessionKey)
     if (!activeLoads) return
-    pendingRestoreLoadsRef.current.delete(project)
+    pendingRestoreLoadsRef.current.delete(sessionKey)
     for (const load of activeLoads) {
       openFileIn(project, load.paneId, load.path, { preview: load.preview, viewMode: load.viewMode })
     }
-  }, [project, states, openFileIn])
+  }, [project, sessionKey, hydratedSession, states, openFileIn])
 
   // 복원이 끝난(=상태가 만들어진) 프로젝트만 저장한다 — 아직 열어보지 않은 프로젝트의 저장분을
   // 빈 목록으로 덮어쓰지 않는다.
   useEffect(() => {
+    // scope를 갈아끼운 첫 렌더에는 아직 옛 루트 상태가 남아 있다. 그 상태를 새 루트의
+    // 저장 키에 쓰지 않고 hydration 업데이트가 반영된 다음 렌더까지 기다린다.
+    if (hydratedSession !== sessionKey) return
     for (const [p, s] of Object.entries(states)) {
       const payload: StoredTabs = {
         panes: s.panes.map((pane) => ({
@@ -411,9 +428,9 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
         layout: s.layout,
         focusedPaneId: s.focusedPaneId,
       }
-      localStorage.setItem(openTabsKey(p), JSON.stringify(payload))
+      localStorage.setItem(openTabsKey(p, workspaceScope), JSON.stringify(payload))
     }
-  }, [states])
+  }, [states, sessionKey, hydratedSession, workspaceScope])
 
   const pinTab = useCallback(
     (path: string, paneId?: string) => {
@@ -721,7 +738,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
    * 목록은 그대로 두므로 다시 열면 열려 있던 문서들이 복원된다.
    */
   const forgetProject = useCallback((p: string) => {
-    hydratedRef.current.delete(p)
+    if (hydratedRef.current?.startsWith(`${p}\u0000`)) hydratedRef.current = null
     setStates((all) => {
       if (!(p in all)) return all
       const next = { ...all }
@@ -732,7 +749,7 @@ export function useTabs(project: string, onCommitted: () => void, onNotice: (mes
 
   return {
     /** 저장된 탭 복원이 끝났는지 — 복원 전의 잠깐 빈 상태를 진짜 빈 프로젝트로 오인하지 않게 한다 */
-    hydrated: hydratedRef.current.has(project),
+    hydrated: hydratedSession === sessionKey,
     panes,
     layout,
     focusedPaneId: focusedPane.id,

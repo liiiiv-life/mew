@@ -17,6 +17,7 @@ export function usePresence(
   focusedPath: string | null,
   authEmail: string | null,
   onTreeChange: () => void,
+  onWorkspaceChange?: (initialProject?: string) => void,
 ): Record<string, string[]> {
   const [participants, setParticipants] = useState<Record<string, string[]>>({})
   const wsRef = useRef<WebSocket | null>(null)
@@ -24,6 +25,8 @@ export function usePresence(
   // 연결 이펙트를 재실행하지 않고도 항상 최신 값을 쓰기 위한 ref들
   const onTreeChangeRef = useRef(onTreeChange)
   onTreeChangeRef.current = onTreeChange
+  const onWorkspaceChangeRef = useRef(onWorkspaceChange)
+  onWorkspaceChangeRef.current = onWorkspaceChange
   const colorRef = useRef(identityColor(authEmail))
   colorRef.current = identityColor(authEmail)
   // 프로젝트를 옮기면 접두어가 달라진다 — 소켓은 그대로 두고 보낼/거를 접두어만 바꾼다
@@ -71,11 +74,11 @@ export function usePresence(
           else if (msg.type === 'chat' || msg.type === 'comments') {
             window.dispatchEvent(new CustomEvent('mew:signal', { detail: { type: msg.type } }))
           }
-          // 워크스페이스가 통째로 바뀌었다 — 열린 탭·트리가 전부 남의 폴더 것이라 다시 띄우는 수밖에 없다
+          // 루트 프로젝트가 바뀌었다. App이 루트별 탭·본문 캐시를 갈아끼우고 트리만 다시 읽는다.
           else if (msg.type === 'workspace') {
             if (msg.project) localStorage.setItem('mew:project', msg.project)
             else forgetSavedProject()
-            location.reload()
+            onWorkspaceChangeRef.current?.(msg.project)
           }
         } catch {
           // 잘못된 메시지는 무시

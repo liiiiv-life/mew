@@ -25,7 +25,9 @@ export interface CachedFile {
 // 삽입 순서 = 최근 사용 순서(LRU). 접근할 때마다 지웠다 다시 넣어 맨 뒤로 보낸다.
 const cache = new Map<string, CachedFile>()
 
-let scope = `${PREFIX}guest:`
+let identity = 'guest'
+let workspace = ''
+let scope = `${PREFIX}${identity}:`
 // 처음 쓸 때 읽어 온다 — 모듈이 로드되는 시점에는 localStorage를 건드리지 않는다.
 // (로그인하지 않은 채로 계속 쓰는 경우 setContentIdentity가 한 번도 안 불리므로 여기서 채워야 한다)
 let order: string[] | null = null
@@ -80,13 +82,28 @@ export function clearPersistedContent(keepScope = false) {
  * 지금 로그인한 사람으로 캐시 칸을 바꾼다. **탭 복원보다 먼저** 불러야 한다(App).
  * 바뀌었으면 다른 칸의 본문은 디스크에서 지운다.
  */
-export function setContentIdentity(email: string | null) {
-  const next = `${PREFIX}${email ?? 'guest'}:`
+function setScope(dropOtherIdentities = false) {
+  // 루트를 아직 모르는 초기 로그인/기존 설치는 예전 키 형식을 유지한다. 실제 루트가 확인된
+  // 뒤에만 경로를 더해 프로젝트 간 `.workspace` 충돌을 막는다.
+  const next = workspace ? `${PREFIX}${identity}:${workspace}:` : `${PREFIX}${identity}:`
   if (next === scope) return
   scope = next
   cache.clear()
-  clearPersistedContent(true)
+  // 로그인 신원이 바뀔 때만 다른 신원의 본문을 지운다. 루트만 옮길 때 지우면 프로젝트별
+  // 캐시를 만들었어도 바로 이전 프로젝트 캐시를 잃어버린다.
+  if (dropOtherIdentities) clearPersistedContent(true)
   order = loadOrder()
+}
+
+export function setContentIdentity(email: string | null) {
+  identity = email ?? 'guest'
+  setScope(true)
+}
+
+/** 루트 프로젝트마다 `.workspace`라는 API 이름이 같으므로 본문 캐시도 절대 경로로 나눈다. */
+export function setContentWorkspace(path: string | null) {
+  workspace = path ?? ''
+  setScope()
 }
 
 function remember(k: string, file: CachedFile) {

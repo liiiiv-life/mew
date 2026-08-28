@@ -10,6 +10,7 @@ export type ModelState = { currentModelId: string; availableModels: ModelInfo[] 
 /** 권한 모드 — 기본은 bypassPermissions다(ADR 0037). 서버가 세션을 잡을 때마다 걸어 준다 */
 export type ModeInfo = { id: string; name: string; description?: string | null }
 export type ModeState = { currentModeId: string; availableModes: ModeInfo[] }
+export type ThinkingState = { configId: string; currentValue: string; options: ModeInfo[] }
 
 export type Usage = {
   input: number
@@ -70,6 +71,7 @@ export type AgentEvent =
   | { type: 'fatal'; message?: string }
   | { type: 'models'; models: ModelState }
   | { type: 'modes'; modes: ModeState }
+  | { type: 'thinking'; thinking: ThinkingState | null }
   | { type: 'meta'; meta: SessionMeta }
   | ({ type: 'auth' } & AgentAuthState)
   | ({ type: 'auth_url' } & AgentAuthUrl)

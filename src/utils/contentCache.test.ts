@@ -15,7 +15,7 @@ const store = new Map<string, string>()
   clear: () => store.clear(),
 }
 
-const { clearPersistedContent, dropCachedFile, getCachedFile, putCachedFile, setContentIdentity } = await import('./contentCache.ts')
+const { clearPersistedContent, dropCachedFile, getCachedFile, putCachedFile, setContentIdentity, setContentWorkspace } = await import('./contentCache.ts')
 
 const contentKeys = (prefix = 'mew:content:') => [...store.keys()].filter((k) => k.startsWith(prefix) && !k.endsWith('@order'))
 
@@ -60,4 +60,17 @@ test('탭에서 지운 파일은 디스크에서도 지운다', () => {
   dropCachedFile('docs', 'gone.md')
   assert.equal(getCachedFile('docs', 'gone.md'), undefined)
   assert.deepEqual(contentKeys(), [])
+})
+
+test('루트 프로젝트마다 같은 API 경로의 본문 캐시를 분리한다', () => {
+  clearPersistedContent()
+  setContentIdentity('roots@example.com')
+  setContentWorkspace('/projects/first')
+  putCachedFile('.workspace', 'README.md', { content: 'first', editable: true })
+  setContentWorkspace('/projects/second')
+  putCachedFile('.workspace', 'README.md', { content: 'second', editable: true })
+  assert.deepEqual(getCachedFile('.workspace', 'README.md'), { content: 'second', editable: true })
+  setContentWorkspace('/projects/first')
+  assert.deepEqual(getCachedFile('.workspace', 'README.md'), { content: 'first', editable: true })
+  setContentWorkspace(null)
 })
