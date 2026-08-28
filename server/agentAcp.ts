@@ -27,6 +27,7 @@ import {
   type SessionInfo,
   type SessionModelState,
   type SessionModeState,
+  type SessionConfigOption,
   type SessionNotification,
   type ToolCallUpdate,
 } from '@agentclientprotocol/sdk'
@@ -126,6 +127,7 @@ export type AgentEvent =
   | { type: 'error'; message: string }
   | { type: 'models'; models: SessionModelState }
   | { type: 'modes'; modes: SessionModeState }
+  | { type: 'thinking'; thinking: ThinkingState | null }
   | { type: 'meta'; meta: SessionMeta }
   | { type: 'auth'; methods: AgentAuthMethod[]; authenticating: boolean; error: string | null }
   | { type: 'auth_url'; id: string; url: string; message: string }
@@ -137,6 +139,21 @@ export type AgentEvent =
 export interface ModelInfo {
   modelId: string
   name: string
+}
+
+export type ThinkingState = {
+  configId: string
+  currentValue: string
+  options: { id: string; name: string; description?: string | null }[]
+}
+
+function thinkingFrom(configOptions: SessionConfigOption[] | null | undefined): ThinkingState | null {
+  const option = configOptions?.find((item) => item.category === 'thought_level' && item.type === 'select')
+  if (!option || typeof option.currentValue !== 'string' || !Array.isArray(option.options)) return null
+  const options = option.options.flatMap((item: any) => 'options' in item ? item.options : [item])
+    .filter((item: any) => typeof item?.value === 'string')
+    .map((item: any) => ({ id: item.value, name: typeof item.name === 'string' ? item.name : item.value, description: item.description ?? null }))
+  return options.length > 0 ? { configId: option.id, currentValue: option.currentValue, options } : null
 }
 
 /**
@@ -273,6 +290,7 @@ export class AgentSession {
   #disposed = false
   #models: SessionModelState | null = null
   #modes: SessionModeState | null = null
+  #thinking: ThinkingState | null = null
   #caps: AgentCapabilities = {}
   #authMethods: AuthMethodInternal[] = []
   #authRequired = false
@@ -394,6 +412,7 @@ export class AgentSession {
       clientCapabilities: {
         auth: { terminal: true },
         elicitation: { url: {} },
+        session: { configOptions: {} },
         _meta: { 'terminal-auth': true },
       } as never,
     })
@@ -409,7 +428,7 @@ export class AgentSession {
 
   async #createSession() {
     const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
-    this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null)
+    this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null, created.configOptions)
     this.#authRequired = false
     this.#authenticating = false
     this.#authError = null
@@ -447,7 +466,7 @@ export class AgentSession {
   }
 
   /** 새로 만들었거나 불러온 ACP 세션으로 갈아탄다 — 사용량 리더도 그 세션 파일을 보게 바꾼다 */
-  #adopt(sessionId: string, models: SessionModelState | null, modes: SessionModeState | null) {
+  #adopt(sessionId: string, models: SessionModelState | null, modes: SessionModeState | null, configOptions?: SessionConfigOption[] | null) {
     this.#sessionId = sessionId
     this.#reader = new UsageReader(this.cwd, sessionId)
     this.#usage = null
@@ -456,6 +475,7 @@ export class AgentSession {
       this.#modes = modes
       this.#emit({ type: 'modes', modes })
     }
+    this.#useThinking(thinkingFrom(configOptions))
   }
 
   /**
@@ -484,15 +504,25 @@ export class AgentSession {
     }
 
     const modes = this.#modes
-    if (!modes) return
-    // 환경변수는 운영자가 서버 전체에 강제한 값이라 UI 저장값보다 우선한다. 저장값이 없거나 런타임이
-    // 더는 그 id를 광고하지 않으면 ADR 0037의 전체 허용 후보 순서로 안전하게 폴백한다.
-    const wanted = MODE_OVERRIDE ? [MODE_OVERRIDE] : saved?.modeId ? [saved.modeId, ...FULL_ACCESS_MODES] : FULL_ACCESS_MODES
-    const pick = wanted.find((id) => modes.availableModes.some((mode) => mode.id === id))
-    if (!pick || pick === modes.currentModeId) return
-    await this.setMode(pick).catch((err: unknown) => {
-      console.error(`[mew:agent:${this.runtime}] 권한 모드 ${pick} 적용 실패:`, err)
-    })
+    if (modes) {
+      // 환경변수는 운영자가 서버 전체에 강제한 값이라 UI 저장값보다 우선한다. 저장값이 없거나 런타임이
+      // 더는 그 id를 광고하지 않으면 ADR 0037의 전체 허용 후보 순서로 안전하게 폴백한다.
+      const wanted = MODE_OVERRIDE ? [MODE_OVERRIDE] : saved?.modeId ? [saved.modeId, ...FULL_ACCESS_MODES] : FULL_ACCESS_MODES
+      const pick = wanted.find((id) => modes.availableModes.some((mode) => mode.id === id))
+      if (pick && pick !== modes.currentModeId) {
+        await this.setMode(pick).catch((err: unknown) => {
+          console.error(`[mew:agent:${this.runtime}] 권한 모드 ${pick} 적용 실패:`, err)
+        })
+      }
+    }
+
+    const thinking = this.#thinking
+    const thinkingId = saved?.thinkingId
+    if (thinking && thinkingId && thinking.options.some((option) => option.id === thinkingId) && thinkingId !== thinking.currentValue) {
+      await this.setThinking(thinking.configId, thinkingId).catch((err: unknown) => {
+        console.error(`[mew:agent:${this.runtime}] 추론 정도 ${thinkingId} 적용 실패:`, err)
+      })
+    }
   }
 
   #client(): Client {
@@ -502,6 +532,13 @@ export class AgentSession {
         if (params.update.sessionUpdate === 'current_mode_update' && this.#modes) {
           this.#modes = { ...this.#modes, currentModeId: params.update.currentModeId }
           this.#emit({ type: 'modes', modes: this.#modes })
+        }
+        if (params.update.sessionUpdate === 'config_option_update') {
+          const update = params.update as any
+          const thinking = this.#thinking
+          if (typeof update.configId === 'string' && typeof update.value === 'string' && thinking?.configId === update.configId) {
+            this.#useThinking({ ...thinking, currentValue: update.value } as ThinkingState)
+          }
         }
         // 불러온 히스토리의 사용자 발화에는 CLI 메타가 섞여 온다(어댑터가 기록을 그대로 되재생한다).
         // 창에서 방금 친 프롬프트는 #run이 직접 넣으므로 이 길로 오지 않는다 — 여기 필터는 히스토리만 탄다.
@@ -743,6 +780,7 @@ export class AgentSession {
     if (this.#loadingEvents) throw new Error('이미 다른 세션을 불러오는 중입니다')
     const previousModels = this.#models
     const previousModes = this.#modes
+    const previousThinking = this.#thinking
     this.#loadingEvents = []
     let loaded: Awaited<ReturnType<ClientSideConnection['loadSession']>>
     let replay: AgentEvent[]
@@ -753,6 +791,7 @@ export class AgentSession {
       // 일부 어댑터는 실패하기 전 update를 몇 개 흘리거나 모드를 바꾼다. 어느 쪽도 현재 세션에 남기지 않는다.
       this.#models = previousModels
       this.#modes = previousModes
+      this.#thinking = previousThinking
       throw err
     } finally {
       this.#loadingEvents = null
@@ -761,7 +800,7 @@ export class AgentSession {
     // ACP가 실제 기록을 확인한 뒤에만 이 탭의 기준 세션을 바꾼다. 실패한 ID를 먼저 저장하면 다음
     // 프롬프트까지 `session not found`로 이어지고 브라우저 복원 포인터에도 유령 ID가 남는다.
     this.#resetConversation()
-    this.#adopt(sessionId, null, null)
+    this.#adopt(sessionId, null, null, loaded.configOptions)
     await this.#pushMeta()
     for (const event of replay) this.#emit(event)
     const models = loaded.models ?? null
@@ -779,6 +818,12 @@ export class AgentSession {
     // claude는 디스크를 직접 훑는다 — 어댑터 호출은 세션 파일을 통째로 읽어(1초+) 탭 수만큼 곱해진다
     // (server/agentSessionList.ts). 기록 형식을 아는 런타임에서만 쓰는 지름길이다
     if (this.runtime === 'claude') return listSessionsFromDisk(this.cwd)
+    // Codex가 세션을 남길 당시의 cwd 표기와 현재 실제 경로의 대소문자가 달라도 같은 작업 폴더다.
+    // cwd를 비우면 Codex ACP가 전체 목록을 돌려주므로 여기서만 대소문자 무시로 가른다.
+    if (this.runtime === 'codex') {
+      const res = await this.#conn.unstable_listSessions({})
+      return res.sessions.filter((session) => session.cwd.toLocaleLowerCase() === this.cwd.toLocaleLowerCase())
+    }
     const res = await this.#conn.unstable_listSessions({ cwd: this.cwd })
     return res.sessions
   }
@@ -817,6 +862,11 @@ export class AgentSession {
     if (this.#models) this.#useModels({ ...this.#models, currentModelId: modelId })
   }
 
+  async setThinking(configId: string, value: string) {
+    const result = await this.#conn.setSessionConfigOption({ sessionId: this.#sessionId, configId, value })
+    this.#useThinking(thinkingFrom(result.configOptions) ?? (this.#thinking?.configId === configId ? { ...this.#thinking, currentValue: value } : null))
+  }
+
   /** 모델 상태를 갈아끼운다 — 창에 흘리는 김에 런타임별 후보 목록도 같이 채운다 */
   #useModels(models: SessionModelState) {
     this.#models = models
@@ -825,6 +875,12 @@ export class AgentSession {
       models.availableModels.map(({ modelId, name }) => ({ modelId, name })),
     )
     this.#emit({ type: 'models', models })
+  }
+
+  #useThinking(thinking: ThinkingState | null) {
+    if (thinking === null && this.#thinking === null) return
+    this.#thinking = thinking
+    this.#emit({ type: 'thinking', thinking })
   }
 
   /** 승인 대기 중인 요청은 취소 결과로 닫는다 — 스펙 요구사항(cancel 시 outcome: cancelled) */
