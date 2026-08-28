@@ -58,7 +58,9 @@ mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더�
   프로젝트 기준 상대경로를 받고, 에이전트 작업 경로 입력창과 같은 자동완성·서버 검증을 쓴다. 폴더 안으로
   들어간 뒤 Enter를 다시 누르거나 오른쪽 화살표를 누르면 그 폴더가 프로젝트 탭으로 열린다(owner 전용).
 - 탭을 누르면 그 루트 프로젝트로 전환한다. 현재 서버 호환층은 활성 루트를 프로세스 전체에서 하나만
-  유지하므로 트리 감시자·협업 방·에이전트를 정리한 뒤 모든 화면을 새로 띄운다. 내부 이름
+  유지하므로 트리 감시자·협업 방·에이전트를 정리한다. 브라우저는 새로고침하지 않고 새 루트의 트리를
+  읽어 화면을 교체하며, 열린 탭 목록과 작은 텍스트 본문 캐시는 루트 절대경로별로 분리해 다시 돌아올 때
+  복원한다. 내부 이름
   `WORKSPACE_ROOT`·`MEW_WORKSPACE`는 설정·경로 검증 호환용이며 사용자 개념이 아니다.
 - 탭을 길게 누르거나 우클릭하면 아이콘 선택기를 연다(owner 전용). 아이콘은 이 브라우저의 열린
   루트 경로별로 기억한다. `+ 탭`은 글자 없이 `+` 아이콘만 보인다.
@@ -72,21 +74,20 @@ mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더�
 
 ## 사이드바의 프로젝트 · 하위 프로젝트 · Documents
 
-사이드바 상단은 탐색기(폴더) · 전체 검색(돋보기) · **현재 루트 프로젝트 명령(▶)** 순서다. 명령 메뉴는
-루트의 `.mew/cmd-button.json`을 기존 툴팁·실행·세션 UI로 연다.
+사이드바 상단의 탐색기(폴더) · 전체 검색(돋보기) · **현재 루트 프로젝트 명령(▶)**은 서로 다른 세 개의
+사이드바 탭이다. 루트 명령 ▶를 누르면 파일 탐색기·Documents 없이 루트의 `.mew/cmd-button.json` 목록만
+보인다.
 
-파일 검색창 바로 아래에는 Documents와 Project가 차례로 선다. 둘은 같은 모양의 펼침 폴더이며,
-Project에는 루트 프로젝트 이름을 다시 쓰지 않는다.
+파일 검색창 바로 아래에는 Documents와 직계 하위 프로젝트가 큰 펼침 항목으로 선다. 그 뒤에는
+현재 루트의 나머지 파일·폴더가 별도 Project 폴더 없이 바로 이어진다.
 
 - **Documents** — 현재 프로젝트가 고른 docs 폴더. 펼치면 바로 아래에 내용이 보이고, owner가 우클릭하면 기존
   폴더 변경·가져오기·내보내기 설정 창이 열린다. 내부 식별자와 API는 계속 `docs`다.
-- **Project** — 현재 루트 폴더의 항목은 Project를 펼치면 바로 보인다. owner·manager는 숨김 폴더도 보되
-  `.git`·`node_modules`·`.data`는 기존 차단·성능 규칙에 따라 제외한다.
-
-루트 바로 아래 폴더에 `.mew`가 있으면 **하위 프로젝트**다. 일반 폴더와 달리 `Project` 표식을 붙이고,
-그 줄 오른쪽에 해당 폴더의 기존 명령 메뉴(`<폴더>/.mew/cmd-button.json`)를 둔다. 하위 프로젝트도
-파일시스템 관점에서는 폴더이므로 펼치면 같은 트리 안에 내용이 보인다. 하위 프로젝트 안의 중첩 `.mew` 폴더는
-아직 별도 프로젝트로 분류하지 않는다.
+루트 바로 아래 폴더에 `.mew`가 있으면 **하위 프로젝트**다. Documents 바로 뒤에서 각자 큰 펼침 항목으로
+보이고, 줄 오른쪽에 해당 폴더의 기존 명령 메뉴(`<폴더>/.mew/cmd-button.json`)를 둔다. 펼치면 자기 파일이
+바로 보인다. `.mew`가 없는 루트 파일·폴더는 이 항목들 뒤에 별도 컨테이너 없이 바로 나열한다. owner·manager는
+숨김 폴더도 보되 `.git`·`node_modules`·`.data`는 기존 차단·성능 규칙에 따라 제외한다. 하위 프로젝트 안의 중첩
+`.mew` 폴더는 아직 별도 프로젝트로 분류하지 않는다.
 
 워크스페이스 스코프 홈 고정 탭과 최상위 하위 폴더 전체를 나열하던 프로젝트 격자 진입점은 없다. 할 일·달력
 위젯을 다시 노출할 때는 워크스페이스 홈 탭을 되살리지 않고 프로젝트 스코프 배치를 별도로 결정한다.
@@ -101,7 +102,7 @@ Project에는 루트 프로젝트 이름을 다시 쓰지 않는다.
   자동저장할 수 있지만 협업·댓글·git 이력·프로젝트 규칙을 쓰지 않고, 새로고침 탭 복원에도 남지 않는다.
 - 우클릭 메뉴는 파일·폴더 이름 변경, 복사·잘라내기·폴더에 붙여넣기, 삭제를 제공한다. 파일은 다운로드할 수 있다.
 - 폴더의 **프로젝트로 열기**는 그 폴더 자체를 루트 프로젝트 탭에 추가하고 활성 프로젝트로 연다.
-  owner 전용이며 활성 루트 전환 계약에 따라 모든 화면을 다시 띄운다.
+  owner 전용이며 활성 루트 전환 계약에 따라 현재 화면을 새 루트로 교체한다.
 - 탐색·읽기·쓰기 API는 **manager·owner 전용**이다. 워크스페이스 경계나 `.git`·`node_modules` 차단 규칙을
   적용하지 않으며 셸과 동일한 OS 권한 범위다. 공개 서버의 권한 의미는 [SECURITY.md](SECURITY.md)를 따른다.
 
@@ -367,8 +368,8 @@ npm run db:down   # 중지
 
 ### 사이드바 프로젝트 ▶ 버튼 (.mew/cmd-button.json)
 
-사이드바 상단의 ▶는 루트 프로젝트, 하위 프로젝트 줄의 ▶는 그 하위 프로젝트의 명령어 버튼이다.
-각 프로젝트의 `.mew/cmd-button.json` 에
+사이드바 상단의 ▶는 루트 프로젝트 명령 탭을 열고, 하위 프로젝트 줄의 ▶는 그 하위 프로젝트의 명령어
+팝오버를 연다. 각 프로젝트의 `.mew/cmd-button.json` 에
 정의한 명령을 tmux에서 바로 실행한다 (owner/manager 전용 — tmux와 같은 보안 경계).
 하위 프로젝트를 별도 탭으로 옮기지 않고도 자기 목록을 실행할 수 있다.
 
@@ -400,7 +401,7 @@ npm run db:down   # 중지
 - 서버: `server/cmdButtons.ts`(파일 파싱·정규화·쓰기·세션 이름) + `GET/PUT/POST /api/cmd-buttons*`
   (owner/manager). 클라이언트: `src/components/CommandButtonMenu.tsx`·`SessionTerminalPopup.tsx`
   (세션 팝업은 예약 작업과 **같은 컴포넌트**를 쓴다 — 세션 이름·제목·실행 함수만 다르게 넘긴다).
-  드롭다운은 사이드바의 overflow에 잘리지 않도록 **body로 포털해 fixed로** 띄운다.
+  하위 프로젝트의 드롭다운은 사이드바의 overflow에 잘리지 않도록 **body로 포털해 fixed로** 띄운다.
 
 ### 터미널 버튼 (.data/term-button.json)
 
@@ -508,6 +509,9 @@ Claude Code 같은 TUI의 슬래시 명령(`/clear`·`/model`)도 버튼 한 번
   (`tree.ts`의 `DOWNLOAD_ONLY_DIRS`), 감시는 숨김 목록과 별개로 `build`에 내려가지 않는다.
 - **owner·manager의 트리에는 이 목록도 확장자 필터도 적용되지 않는다** — 있는 그대로 다 보인다.
   목록은 계속 살아서 member 이하의 트리와, 역할과 무관하게 **검색·트리 감시**에 적용된다.
+- 사이드바는 `GET /api/tree?path=<폴더>`로 해당 폴더의 **직접 자식만** 읽는다. 프로젝트 전환 때는
+  루트 목록을 먼저 그린 뒤 최상위 폴더들을 하나씩 백그라운드로 예열하며, 더 깊은 경로는 사용자가
+  펼칠 때 읽는다. `path` 없는 API 호출은 기존 서버 도구 호환을 위해 전체 재귀 트리를 유지한다.
   정책 기준본은 [SECURITY.md](SECURITY.md)이고,
   판정은 `server/tree.ts`의 `isPathVisible`과 `server/reqAuth.ts`의 `seesEveryFile` 둘뿐이다.
 - 서버: `server/ignoreList.ts` + `GET/PUT /api/ignore`(owner/manager).
@@ -589,8 +593,9 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 
 ## 에이전트 창 (ACP)
 
-헤더의 말풍선 버튼 — **워크스페이스**에 묶인 AI 에이전트와 대화하는 **채팅 창**이다(터미널이 아니다).
-어느 프로젝트를 보고 있든 같은 창이 뜨고(cwd는 워크스페이스 루트), 대화는 **탭마다** 하나씩 굴린다.
+헤더의 말풍선 버튼 — **현재 루트 프로젝트**에 묶인 AI 에이전트와 대화하는 **채팅 창**이다(터미널이 아니다).
+프로젝트마다 독립 탭 목록을 가지며, 프로젝트를 오가면 창은 그대로 둔 채 그 프로젝트의 탭으로 바뀐다.
+새 탭의 cwd는 현재 프로젝트 루트에서 시작하고, 대화는 **탭마다** 하나씩 굴린다.
 에이전트는 별도 프로세스로 뜨고 [ACP](https://agentclientprotocol.com)(stdio JSON-RPC)로만 말한다.
 mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이스다. 근거는
 [ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md)·[ADR 0043](../.mew/docs/decisions/0043-mew-agent-workspace-scope-and-runtimes.md),
@@ -647,10 +652,10 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   팝업을 닫아도 감시한다. `0`일 때만 자동으로 ACP를 새로 initialize해 CLI가 방금 쓴 자격증명을 다시
   읽으며, 실패·`Ctrl-C`·강제 종료는 터미널을 유지하고 재시작하지 않는다. 로그인하지 않으면 ACP 자체가
   뜨지 않는 CLI도 탭 감독은 fatal로 닫지 않고 같은 terminal auth를 내보내 같은 탭에서 복구한다.
-- 탭 목록·이름·런타임·cwd별 마지막 세션 ID는 브라우저에만 있다(`mew:agent-tabs`) — 서버는 **탭 id만**
-  알고 뜻은 모른다. 세션 ID는 탭을 닫을 때 함께 지워지고, 같은 탭에서 런타임이나 cwd를
+- 탭 목록·이름·런타임·cwd별 마지막 세션 ID는 브라우저에만 있고 **루트 프로젝트 절대 경로별로 분리**된다
+  (`mew:agent-tabs:<root-path>`) — 서버는 **탭 id만** 알고 뜻은 모른다. 세션 ID는 탭을 닫을 때 함께 지워지고, 같은 탭에서 런타임이나 cwd를
   갈아타면 각 조합의 대화 포인터를 따로 보존한다.
-  마지막으로 보던 탭도 남는다(`mew:agent-active-tab`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이
+  마지막으로 보던 탭도 같은 루트 경로별로 남는다(`mew:agent-active-tab:<root-path>`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이
   선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라).
   스와이프로 창·탭을 전환하거나 닫는 동작은 없다. 이 작업은 플로팅 핸들이 맡는다.
   이름은 그 대화의 첫 질문 한 줄에서 뽑고, 탭을 두 번 누르면 직접 고친다 — 한 번 고친 탭은
@@ -686,7 +691,8 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 - **`meta`·`sessions`·`reset`은 이벤트 버퍼에 쌓지 않는다.** `meta`는 상태 스냅샷이라 붙을 때·바뀔 때
   통째로 보내고(`sessionId`·`startedAt`·`turns`·`busy`·`queued`·`usage`·`canLoad`·`canList`),
   `sessions`는 **물어본 창에만, 물어봤을 때만** 답한다(claude 런타임은 세션이 뜨기를 기다리지 않고
-  디스크에서 바로 읽는다). `reset`을 받은 창은 지금까지 그린 대화를 버린다.
+  디스크에서 바로 읽는다). 세션 목록의 cwd 비교는 대소문자를 구분하지 않아, 이전 기록의 경로 표기가
+  현재 실제 경로와 달라도 같은 폴더 히스토리로 찾는다. `reset`을 받은 창은 지금까지 그린 대화를 버린다.
 - 서버는 소켓에 **30초마다 핑**을 보낸다 — 조용한 대화(에이전트가 긴 작업 중일 때)가 중간 장비의
   유휴 타임아웃에 끊기지 않게. 그래도 끊기면 창이 1초 뒤 다시 붙고 `replay`로 복구한다.
 - **진행 중에 온 `prompt`는 던지지 않고 줄을 세운다.** 턴이 끝나면 서버가 순서대로 이어 돌리고,
@@ -697,10 +703,8 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   세션만 갈아끼운다. 목록을 물어볼지는 `initialize`의 capability(`meta.canList`)로 정한다.
   제자리에서 대화만 비우는 `/clear`(`new_session`)는 **없다** — 새 탭이 곧 새 대화다(ADR 0046).
   `session/new` 자체는 핸드셰이크에서 그대로 쓴다.
-- Prime Agent의 모델 상태는 ACP 표준 필드가 사라진 버전과도 공존하도록
-  `_meta['ai.primeintellect.prime-agent'].modelsJson`을 읽는다. 모델 변경 wire method는 기존 클라이언트와
-  호환되는 `session/set_model`이다. 공식 0.8.0은 이 metadata와 `session/list`·`session/load`를 아직
-  광고하지 않으므로, 해당 기능은 이를 구현한 Prime ACP 빌드를 실행할 때만 나타난다.
+- Prime Agent는 공식 `prime-agent --mode rpc`를 Mew 내부 어댑터가 ACP로 변환한다. 따라서 Prime ACP의
+  구현 유무와 무관하게 세션 목록/불러오기, 모델, thinking mode를 Mew 창에서 제공한다.
 - **토큰 사용량만 ACP 밖에서 온다** — 어댑터가 사용량을 보내지 않아 `agentUsage.ts`가
   `<CLAUDE_CONFIG_DIR>/projects/<인코딩된 cwd>/<sessionId>.jsonl`을 읽는다. 읽기 전용·선택적이고,
   파일이 없으면 사용량 칸만 빈다([ADR 0036](../.mew/docs/decisions/0036-mew-agent-session-controls-and-usage.md)).
@@ -741,7 +745,7 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   | `openclaw` | `openclaw acp` | `openclaw onboard --tui` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
   | `opencode` | `opencode acp` | `opencode auth login` | `MEW_AGENT_OPENCODE_CMD` · `MEW_AGENT_OPENCODE_ARGS` |
   | `cursor` | `agent acp` | `agent login`(`NO_OPEN_BROWSER=1`) | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
-  | `prime` | `prime-agent --mode acp` — 공식 인스톨러로 설치(`curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh \| sh`) | TUI `/login`(공급자 선택) | `MEW_AGENT_PRIME_CMD` · `MEW_AGENT_PRIME_ARGS` |
+  | `prime` | Mew 내장 어댑터 → 공식 `prime-agent --mode rpc` — 공식 인스톨러로 설치(`curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh \| sh`) | TUI `/login`(공급자 선택) | `MEW_PRIME_AGENT_EXECUTABLE` · `MEW_AGENT_PRIME_ARGS` |
 
   공통은 `MEW_AGENT_MODE`(안 주면 위의 전체 허용 후보 순서). 진입점이 없거나 로그인 전 ACP를 말하지
   않으면 오류와 terminal auth를 함께 보여 준다 — 목록에서 감추거나 탭을 닫지 않는다. 로그인 완료 뒤에도
@@ -928,7 +932,8 @@ MEW_COLLAB_RUST=1 npm run serve
     입력칸에 `inputMode='none'`을 건다. 포커스는 살아 있어 붙여넣기·하드웨어 키보드·명령어 버튼은
     그대로 쓴다. 세션이 아니라 브라우저 설정이라 `localStorage: mew:tmux-keyboard-lock`에 남는다.
 - `@mew/mobile-keys` — 모바일 키보드 보조키 바(`MobileKeyBar`).
-  에디터·터미널이 공용으로 쓴다. **바는 `z-20`이다 — 전체 화면 오버레이(사이드바·채팅·에이전트·
+  에디터·터미널이 공용으로 쓴다. 에디터 바는 화면 하단 고정, **터미널 바는 자기 입력칸 아래의
+  레이아웃 공간을 차지**해 입력칸을 덮지 않는다. 고정 바는 `z-20`이다 — 전체 화면 오버레이(사이드바·채팅·에이전트·
   터미널)가 `z-30`이라 그 아래로 깔려야 한다.** 같은 `z-30`으로 두면 DOM 순서상 편집 칸이 사이드바보다
   뒤라 보조키가 열린 사이드바 위에 떠 버린다. `onComment`를 주면 댓글 아이콘이 붙는다(폰에는
   Alt+Shift+C가 없다) — 앵커는 호스트(`EditorPane.startComment`)가 만든다. `onCodeBlock`·`onTable`을
@@ -976,8 +981,12 @@ MEW_COLLAB_RUST=1 npm run serve
 뒤에 있는 터미널·사이드바가 닫히거나 페이지를 떠난다.
 
 - App이 상태를 소유하는 보조 패널(사이드바·채팅·에이전트·에이전트셋·터미널·브라우저·Android)은
-  `hooks/use-panel-dismissals.ts`의 등록표 한 곳에서 연결한다. 새 보조 패널을 추가하면 JSX만 세우지 말고
-  이 등록표에도 반드시 추가한다. 모달·팝업·드롭다운은 각 컴포넌트가 직접 등록한다.
+  `utils/mobile-panel-stack.ts`의 공통 스택 하나가 전면 순서와 닫기 순서를 함께 소유한다. 모바일에서
+  뒤에 열린 패널을 다시 선택하면 닫지 않고 전면으로 옮기며, 전면 패널을 다시 선택할 때만 닫는다.
+  `hooks/use-panel-dismissals.ts`도 이 전면 패널 하나만 오버레이로 등록하므로 Esc·뒤로가기와 z-index가
+  어긋나지 않는다. 새 보조 패널은 `WORKSPACE_PANEL_IDS`와 `App.tsx`의 open/setter 등록표에 추가하고
+  공통 open/close/toggle/layer 함수를 사용한다(빠진 등록은 타입 검사로 막힌다). 모달·팝업·드롭다운은
+  각 컴포넌트가 직접 등록한다.
 - 뒤로가기 대응은 History에 더미 항목(가드)을 하나 얹어 두는 방식이다. 겹쳐 있어도 가드는 하나뿐이고,
   한 겹 닫힐 때마다 다시 얹는다. UI로 닫혔을 땐 `history.back()`으로 걷어 스택을 맞춘다.
 - 오버레이마다 각자 keydown 리스너를 달면 안 된다 — capture 단계에서 `stopPropagation`을 해도
