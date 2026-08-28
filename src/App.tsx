@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   editorApi,
   fetchAuthStatus,
+  fetchRootProjectTabs,
+  fetchProjects,
   fetchWorkspace,
   fetchTree,
   getProject,
   isArchivedPath,
   revertFileToCommit,
+  runMewAction,
   setProject,
+  saveRootProjectTabs,
   switchWorkspace,
   tmuxApi,
   type AuthStatus,
@@ -27,6 +31,7 @@ import { SystemStatsModal } from './components/SystemStatsModal'
 import { ScheduleModal } from './components/ScheduleModal'
 import { FileTree } from './components/FileTree'
 import { CommandButtonMenu } from './components/CommandButtonMenu'
+import { ProjectIcon } from './components/ProjectIcon'
 import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
 import { TmuxTerminalPanel } from '@mew/tmux-term'
@@ -41,12 +46,19 @@ import { hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
 import { mediaKind } from './utils/media'
-import { setContentIdentity } from './utils/contentCache'
+import { setContentIdentity, setContentWorkspace } from './utils/contentCache'
 import { openTabsKey, useTabs } from './hooks/useTabs'
 import { dropZoneAt, paneIds, type DropSide, type DropZone, type PaneNode } from './utils/paneTree'
 import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
 import { outsideTerminal } from './utils/terminalFocus'
+import {
+  WORKSPACE_PANEL_IDS,
+  bringMobilePanelToFront,
+  closeMobilePanel,
+  selectMobilePanel,
+  type WorkspacePanelId,
+} from './utils/mobile-panel-stack'
 import { pickRefTarget, type RefPanel } from './utils/refTarget'
 import { WORKSPACE_PROJECT } from './utils/active-project'
 import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
@@ -71,6 +83,7 @@ const AGENT_SET_OPEN_KEY = 'mew:agent-set-open'
 const BROWSER_OPEN_KEY = 'mew:browser-open'
 const ANDROID_OPEN_KEY = 'mew:android-open'
 const OPEN_PROJECTS_KEY = 'mew:open-project-paths'
+const ROOT_PROJECT_ICONS_KEY = 'mew:root-project-icons'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
 function loadTheme(): Theme {
@@ -83,6 +96,15 @@ function loadOpenProjectPaths(): string[] {
     return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string' && value !== '') : []
   } catch {
     return []
+  }
+}
+
+function loadRootProjectIcons(): Record<string, string> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(ROOT_PROJECT_ICONS_KEY) ?? '{}')
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, string> : {}
+  } catch {
+    return {}
   }
 }
 
@@ -129,17 +151,21 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 절대경로 탭 목록은 owner UI에만 노출한다. manager는 셸 권한상 현재 경로를 볼 수 있지만 다른
   // 브라우저 사용자가 남긴 owner 전용 목록까지 물려받지는 않는다.
   const [openProjectPaths, setOpenProjectPaths] = useState<string[]>(() => (isOwner ? loadOpenProjectPaths() : []))
+  const [rootProjectIcons, setRootProjectIcons] = useState<Record<string, string>>(() => (isOwner ? loadRootProjectIcons() : {}))
+  const [rootProjectTabsSynced, setRootProjectTabsSynced] = useState(!isOwner)
   const [openProjectDialog, setOpenProjectDialog] = useState(false)
-  const [tabBarsHidden, setTabBarsHidden] = useState(false)
+  const [switchingRootProject, setSwitchingRootProject] = useState(false)
   const fullscreenGuardRef = useRef(false)
 
   const [tree, setTree] = useState<TreeNode[]>([])
   // 사이드바는 활성 편집 스코프와 무관하게 Documents와 루트 내용을 함께 보여 준다.
   const [rootTree, setRootTree] = useState<TreeNode[]>([])
+  const [subprojectIcons, setSubprojectIcons] = useState<Record<string, string>>({})
   const [docsTree, setDocsTree] = useState<TreeNode[]>([])
   const [docsExpanded, setDocsExpanded] = useState(false)
-  // Project는 처음부터 열어 두어 기존의 "Documents 아래에 루트 내용" 밀도를 유지한다.
-  const [rootExpanded, setRootExpanded] = useState(true)
+  const [expandedSubprojects, setExpandedSubprojects] = useState<Set<string>>(() => new Set())
+  const [subprojectTrees, setSubprojectTrees] = useState<Record<string, TreeNode[]>>({})
+  const [loadingSubprojects, setLoadingSubprojects] = useState<Set<string>>(new Set())
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   const [tmuxOpen, setTmuxOpen] = useState(() => canUseTerminal && loadTmuxOpen(getProject()))
   // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034).
@@ -153,11 +179,86 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [androidOpen, setAndroidOpen] = useState(() => canUseTerminal && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
   // 멤버 채팅 창(Alt+C) — 사람끼리 쓰는 창이라 로그인만 하면 열린다(게스트 제외)
   const [chatOpen, setChatOpen] = useState(false)
+  // 모바일 보조창은 종류별 예외 없이 이 스택 하나로 전면 순서와 뒤로가기 순서를 공유한다.
+  // 새 패널을 WORKSPACE_PANEL_IDS에 넣으면 아래 registry가 빠진 연결을 타입 오류로 알려 준다.
+  const [mobilePanelStack, setMobilePanelStack] = useState<WorkspacePanelId[]>(() =>
+    WORKSPACE_PANEL_IDS.filter((panel) => {
+      if (panel === 'sidebar') return sidebarOpen
+      if (panel === 'chat') return chatOpen
+      if (panel === 'agent') return agentOpen
+      if (panel === 'agentSet') return agentSetOpen
+      if (panel === 'terminal') return tmuxOpen
+      if (panel === 'browser') return browserOpen
+      return androidOpen
+    }),
+  )
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
   const [dbListOpen, setDbListOpen] = useState(false)
   const [sysStatsOpen, setSysStatsOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+
+  const workspacePanelOpen = useMemo(() => ({
+    sidebar: sidebarOpen,
+    chat: chatOpen,
+    agent: agentOpen,
+    agentSet: agentSetOpen,
+    terminal: tmuxOpen,
+    browser: browserOpen,
+    android: androidOpen,
+  } satisfies Record<WorkspacePanelId, boolean>), [
+    sidebarOpen, chatOpen, agentOpen, agentSetOpen, tmuxOpen, browserOpen, androidOpen,
+  ])
+  const workspacePanelSetters = useMemo(() => ({
+    sidebar: setSidebarOpen,
+    chat: setChatOpen,
+    agent: setAgentOpen,
+    agentSet: setAgentSetOpen,
+    terminal: setTmuxOpen,
+    browser: setBrowserOpen,
+    android: setAndroidOpen,
+  } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
+
+  const mobileForegroundPanel = mobilePanelStack.at(-1) ?? null
+
+  const openWorkspacePanel = useCallback((panel: WorkspacePanelId) => {
+    workspacePanelSetters[panel](true)
+    setMobilePanelStack((stack) => bringMobilePanelToFront(stack, panel))
+  }, [workspacePanelSetters])
+
+  const closeWorkspacePanel = useCallback((panel: WorkspacePanelId) => {
+    workspacePanelSetters[panel](false)
+    setMobilePanelStack((stack) => closeMobilePanel(stack, panel))
+  }, [workspacePanelSetters])
+
+  const toggleWorkspacePanel = useCallback((panel: WorkspacePanelId) => {
+    const open = workspacePanelOpen[panel]
+    if (isDesktop()) {
+      workspacePanelSetters[panel](!open)
+      setMobilePanelStack((stack) => open
+        ? closeMobilePanel(stack, panel)
+        : bringMobilePanelToFront(stack, panel))
+      return
+    }
+    const next = selectMobilePanel(mobilePanelStack, panel, open)
+    workspacePanelSetters[panel](next.open)
+    setMobilePanelStack(next.stack)
+  }, [mobilePanelStack, workspacePanelOpen, workspacePanelSetters])
+
+  const bringWorkspacePanelToFront = useCallback((panel: WorkspacePanelId) => {
+    if (!isDesktop() && mobileForegroundPanel !== panel) {
+      setMobilePanelStack((stack) => bringMobilePanelToFront(stack, panel))
+    }
+  }, [mobileForegroundPanel])
+
+  const closeAllWorkspacePanels = useCallback(() => {
+    for (const panel of WORKSPACE_PANEL_IDS) workspacePanelSetters[panel](false)
+    setMobilePanelStack([])
+  }, [workspacePanelSetters])
+
+  const mobilePanelLayer = useCallback((panel: WorkspacePanelId) => {
+    return mobileForegroundPanel === panel ? 'z-[31]' : 'z-30'
+  }, [mobileForegroundPanel])
   // docs 탭을 꾹 누르면 뜨는 폴더 가져오기/내보내기 창 — owner 전용
   const [docsSettingsOpen, setDocsSettingsOpen] = useState(false)
   // 채팅 멘션·에이전트 답변의 파일 링크 — 다른 프로젝트면 옮긴 다음 렌더에서 파일과 줄을 연다
@@ -169,7 +270,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [fontPreferences, setFontPreferences] = useState(loadFontPreferences)
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
   // 사이드바 뷰: 파일 탐색기 vs 프로젝트 전체 검색(Ctrl+Shift+F). projectSearchFocus는 검색창 포커스 신호
-  const [sidebarView, setSidebarView] = useState<'files' | 'search'>('files')
+  const [sidebarView, setSidebarView] = useState<'files' | 'search' | 'commands'>('files')
   const [projectSearchFocus, setProjectSearchFocus] = useState(0)
   // Alt+N 새 파일 신호 — parentPath가 있으면 그 폴더에(에디터 포커스였을 때 활성 문서 폴더),
   // null이면 FileTree가 자기 선택 항목 기준으로 이름 입력을 연다
@@ -192,19 +293,89 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 흐름을 끊지 않는 짧은 안내 — 사이드바 작업 결과가 내 트리에 안 뜨거나, 파일을 못 열었을 때
   const { toast, showToast } = useToast()
 
+  const loadWorkspaceTreeChildren = useCallback((path: string) => fetchTree(WORKSPACE_PROJECT, path), [])
+  const loadDocsTreeChildren = useCallback((path: string) => fetchTree(DEFAULT_PROJECT, path), [])
+
   const refreshTree = useCallback(() => {
-    void fetchTree(WORKSPACE_PROJECT).then(setRootTree).catch(console.error)
-    void fetchTree(DEFAULT_PROJECT).then(setDocsTree).catch(console.error)
-    return fetchTree().then(setTree).catch(console.error)
-  }, [])
+    const workspace = fetchTree(WORKSPACE_PROJECT)
+    const docs = fetchTree(DEFAULT_PROJECT)
+    void workspace.then(setRootTree).catch(console.error)
+    void docs.then(setDocsTree).catch(console.error)
+    if (project === WORKSPACE_PROJECT) return workspace.then(setTree).catch(console.error)
+    if (project === DEFAULT_PROJECT) return docs.then(setTree).catch(console.error)
+    return fetchTree(project).then(setTree).catch(console.error)
+  }, [project])
+
+  useEffect(() => {
+    void fetchProjects()
+      .then((projects) => setSubprojectIcons(Object.fromEntries(
+        projects.flatMap(({ name, icon }) => icon ? [[name, icon] as const] : []),
+      )))
+      .catch(console.error)
+  }, [rootProjectPath])
+
+  // 서버 상태가 비어 있을 때만 이 브라우저의 기존 localStorage를 최초 값으로 올린다. 시크릿 창의
+  // 빈 저장소가 이미 쓰고 있던 계정 상태를 덮어쓰지 않도록, 내려받기 전에는 저장하지 않는다.
+  useEffect(() => {
+    if (!isOwner) return
+    let alive = true
+    void fetchRootProjectTabs()
+      .then(({ state }) => {
+        if (!alive) return
+        if (state) {
+          setOpenProjectPaths(state.paths)
+          setRootProjectIcons(state.icons)
+        }
+        setRootProjectTabsSynced(true)
+      })
+      .catch(console.error)
+    return () => { alive = false }
+  }, [isOwner])
+
+  useEffect(() => {
+    if (!isOwner) return
+    localStorage.setItem(OPEN_PROJECTS_KEY, JSON.stringify(openProjectPaths))
+    localStorage.setItem(ROOT_PROJECT_ICONS_KEY, JSON.stringify(rootProjectIcons))
+    if (!rootProjectTabsSynced) return
+    void saveRootProjectTabs({ paths: openProjectPaths, icons: rootProjectIcons }).catch(console.error)
+  }, [isOwner, openProjectPaths, rootProjectIcons, rootProjectTabsSynced])
 
   const rememberProjectPath = useCallback((projectPath: string) => {
     setOpenProjectPaths((previous) => {
       const next = [...new Set([...previous, projectPath])]
-      localStorage.setItem(OPEN_PROJECTS_KEY, JSON.stringify(next))
       return next
     })
   }, [])
+
+  const changeRootProjectIcon = useCallback((projectPath: string, icon: string) => {
+    setRootProjectIcons((previous) => {
+      const next = { ...previous }
+      if (icon) next[projectPath] = icon
+      else delete next[projectPath]
+      return next
+    })
+  }, [])
+
+  const applyWorkspace = useCallback((info: { path: string }) => {
+    // 서버 API의 `.workspace`/`docs` 이름은 모든 루트에서 같으므로, 절대 경로를 클라이언트
+    // 탭·본문 캐시의 실제 경계로 사용한다.
+    setProject(WORKSPACE_PROJECT)
+    setContentWorkspace(info.path)
+    setActiveProject(WORKSPACE_PROJECT)
+    setRootProjectPath(info.path)
+    rememberProjectPath(info.path)
+    setTree([])
+    setRootTree([])
+    setDocsTree([])
+    setSubprojectTrees({})
+    setLoadingSubprojects(new Set())
+    setExpandedSubprojects(new Set())
+    setPendingOpen(null)
+  }, [rememberProjectPath])
+
+  const handleWorkspaceBroadcast = useCallback(() => {
+    void fetchWorkspace().then(applyWorkspace).catch(console.error)
+  }, [applyWorkspace])
 
   const openRootProject = useCallback(async (projectPath: string) => {
     rememberProjectPath(projectPath)
@@ -214,9 +385,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       setOpenProjectDialog(false)
       return
     }
-    await switchWorkspace(projectPath)
-    location.reload()
-  }, [rememberProjectPath, rootProjectPath])
+    setSwitchingRootProject(true)
+    try {
+      const info = await switchWorkspace(projectPath)
+      applyWorkspace(info)
+      setOpenProjectDialog(false)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSwitchingRootProject(false)
+    }
+  }, [applyWorkspace, rememberProjectPath, rootProjectPath, showToast])
 
   /**
    * 프로젝트 전환 — 페이지 이동이 아니다. client.ts의 모듈 값을 **먼저 동기로** 바꾼 뒤 리렌더를
@@ -251,14 +430,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     splitEmptyPane,
     remapPaths,
     removePaths,
-  } = useTabs(project, refreshTree, showToast)
+  } = useTabs(project, refreshTree, showToast, rootProjectPath ?? undefined)
 
   const hasOpenFiles = panes.some((pane) => pane.tabs.length > 0)
   useEffect(() => {
     // 복원 전에는 항상 빈 칸으로 한 번 렌더된다. 저장된 파일 탭이 실제로 복원된 뒤 판정해야
     // 파일이 있는 프로젝트에서 사이드바가 잘못 열리지 않는다.
-    if (tabsHydrated && !hasOpenFiles) setSidebarOpen(true)
-  }, [project, tabsHydrated, hasOpenFiles])
+    if (tabsHydrated && !hasOpenFiles) openWorkspacePanel('sidebar')
+  }, [project, tabsHydrated, hasOpenFiles, openWorkspacePanel])
 
   const registerPaneHandle = useCallback((id: string, handle: PaneHandle | null) => {
     if (handle) paneHandles.current.set(id, handle)
@@ -359,7 +538,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
   // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
-  const tabPresence = usePresence(project, activePath && !isExternalTabPath(activePath) ? activePath : null, authEmail, refreshTree)
+  const tabPresence = usePresence(
+    project,
+    activePath && !isExternalTabPath(activePath) ? activePath : null,
+    authEmail,
+    refreshTree,
+    handleWorkspaceBroadcast,
+  )
 
   const { width: sidebarWidth, startResize: startSidebarResize } = usePanelWidth('mew:sidebar-width', {
     min: 180,
@@ -398,17 +583,21 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   useWorkspacePanelDismissals({
     sidebar: {
       open: sidebarOpen,
-      close: () => setSidebarOpen(false),
+      close: () => closeWorkspacePanel('sidebar'),
       // 검색 중이면 첫 Esc는 FileTree가 소비한다. 검색이 비어 있을 때 다음 Esc가 패널을 닫는다.
       closeOnEscape: () => !(sidebarSearchCancelRef.current?.() ?? false),
     },
-    chat: { open: chatOpen, close: () => setChatOpen(false) },
-    agent: { open: agentOpen, close: () => setAgentOpen(false) },
-    agentSet: { open: agentSetOpen, close: () => setAgentSetOpen(false) },
-    terminal: { open: tmuxOpen, close: () => setTmuxOpen(false), closeOnEscape: outsideTerminal },
-    browser: { open: browserOpen, close: () => setBrowserOpen(false) },
-    android: { open: androidOpen, close: () => setAndroidOpen(false) },
-  })
+    chat: { open: chatOpen, close: () => closeWorkspacePanel('chat') },
+    agent: { open: agentOpen, close: () => closeWorkspacePanel('agent') },
+    agentSet: { open: agentSetOpen, close: () => closeWorkspacePanel('agentSet') },
+    terminal: {
+      open: tmuxOpen,
+      close: () => closeWorkspacePanel('terminal'),
+      closeOnEscape: outsideTerminal,
+    },
+    browser: { open: browserOpen, close: () => closeWorkspacePanel('browser') },
+    android: { open: androidOpen, close: () => closeWorkspacePanel('android') },
+  }, mobileForegroundPanel)
 
   const activeRelativePath = activeTab?.path ?? null
 
@@ -420,6 +609,18 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'tmux'>('editor')
   const [agentNextTabSignal, setAgentNextTabSignal] = useState(0)
   const [tmuxNextTabSignal, setTmuxNextTabSignal] = useState(0)
+  useEffect(() => {
+    if (isDesktop()) return
+    if (mobileForegroundPanel === 'agent') {
+      activeTabbedSurfaceRef.current = 'agent'
+      lastPanelRef.current = 'agent'
+    } else if (mobileForegroundPanel === 'terminal') {
+      activeTabbedSurfaceRef.current = 'tmux'
+      lastPanelRef.current = 'tmux'
+    } else if (mobileForegroundPanel === 'chat') {
+      lastPanelRef.current = 'chat'
+    }
+  }, [mobileForegroundPanel])
   useEffect(() => {
     if (agentOpen) {
       lastPanelRef.current = 'agent'
@@ -456,19 +657,23 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   }, [activePath, agentOpen, focusedPaneId, setActivePath, tabs, tmuxOpen])
 
   const switchCurrentWindowTabLeft = useCallback(() => {
+    let surface = activeTabbedSurfaceRef.current
+    if (surface === 'agent' && !agentOpen) surface = tmuxOpen ? 'tmux' : 'editor'
+    if (surface === 'tmux' && !tmuxOpen) surface = agentOpen ? 'agent' : 'editor'
+    activeTabbedSurfaceRef.current = surface
+    if (surface === 'agent') {
+      window.dispatchEvent(new CustomEvent('mew:agent-switch-tab', { detail: { direction: 'right' } }))
+      return
+    }
+    if (surface === 'tmux') {
+      window.dispatchEvent(new CustomEvent('mew:tmux-switch-tab', { detail: { direction: 'right' } }))
+      return
+    }
     if (tabs.length < 2 || !activePath) return
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index - 1 + tabs.length) % tabs.length].path, focusedPaneId)
-  }, [activePath, focusedPaneId, setActivePath, tabs])
-
-  const sendEditKey = useCallback((key: 'up' | 'right' | 'down' | 'left') => {
-    const code = `Arrow${key[0].toUpperCase()}${key.slice(1)}`
-    // CodeMirror·ProseMirror·xterm 모두 포커스된 실제 입력 요소가 기본 키 처리를 맡는다.
-    const target = document.activeElement as HTMLElement | null
-    target?.dispatchEvent(new KeyboardEvent('keydown', { key: code, code, bubbles: true, cancelable: true }))
-  }, [])
-
+  }, [activePath, agentOpen, focusedPaneId, setActivePath, tabs, tmuxOpen])
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
   // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
@@ -527,30 +732,29 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   useEffect(() => {
     if (!canUseTerminal) return
     fetchWorkspace()
-      .then((info) => {
-        setRootProjectPath(info.path)
-        rememberProjectPath(info.path)
-      })
+      .then(applyWorkspace)
       .catch(console.error)
-  }, [canUseTerminal, rememberProjectPath])
+  }, [canUseTerminal, applyWorkspace])
 
   // 프로젝트를 옮기면 사이드바 트리를 그 프로젝트 것으로 갈아끼운다. 옆 프로젝트의 트리가 잠깐
   // 남아 있지 않도록 먼저 비우고, 늦게 도착한 옛 응답이 새 트리를 덮지 않게 취소 플래그를 둔다.
   useEffect(() => {
     let alive = true
     setTree([])
-    Promise.all([fetchTree(), fetchTree(WORKSPACE_PROJECT), fetchTree(DEFAULT_PROJECT)])
-      .then(([activeTree, nextRootTree, nextDocsTree]) => {
-        if (!alive) return
-        setTree(activeTree)
-        setRootTree(nextRootTree)
-        setDocsTree(nextDocsTree)
-      })
-      .catch(console.error)
+    setSubprojectTrees({})
+    setLoadingSubprojects(new Set())
+    const workspace = fetchTree(WORKSPACE_PROJECT)
+    const docs = fetchTree(DEFAULT_PROJECT)
+    void workspace.then((next) => { if (alive) setRootTree(next) }).catch(console.error)
+    void docs.then((next) => { if (alive) setDocsTree(next) }).catch(console.error)
+    const active = project === WORKSPACE_PROJECT ? workspace : project === DEFAULT_PROJECT ? docs : fetchTree(project)
+    void active.then((next) => { if (alive) setTree(next) }).catch(console.error)
     return () => {
       alive = false
     }
-  }, [project])
+  // `.workspace`는 모든 루트에서 같은 API 식별자다. 따라서 루트 프로젝트를 바꿔도
+  // project 값은 그대로일 수 있으며, 실제 루트 경로도 로딩 경계에 포함해야 한다.
+  }, [project, rootProjectPath])
 
   // 옛 `/{프로젝트}` 주소로 들어왔으면 주소만 루트로 정리한다 — 프로젝트는 이미 그것으로 시작했다
   useEffect(() => {
@@ -626,12 +830,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       } else if (matchesShortcut(e, getBinding('quickOpen'))) {
         e.preventDefault()
         setSidebarView('files')
-        setSidebarOpen(true)
+        openWorkspacePanel('sidebar')
         setSearchFocusSignal((s) => s + 1)
       } else if (matchesShortcut(e, getBinding('projectSearch'))) {
         // VSCode Ctrl+Shift+F — 사이드바를 검색 뷰로 열고 검색창에 포커스
         e.preventDefault()
-        setSidebarOpen(true)
+        openWorkspacePanel('sidebar')
         setSidebarView('search')
         setProjectSearchFocus((s) => s + 1)
       } else if (matchesShortcut(e, getBinding('editorFind'))) {
@@ -671,11 +875,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       } else if (matchesShortcut(e, getBinding('toggleChat'))) {
         if (isGuest) return
         e.preventDefault()
-        setChatOpen((v) => !v)
+        toggleWorkspacePanel('chat')
       } else if (matchesShortcut(e, getBinding('toggleBrowser'))) {
         if (!canUseTerminal) return
         e.preventDefault()
-        setBrowserOpen((v) => !v)
+        toggleWorkspacePanel('browser')
       } else if (matchesShortcut(e, getBinding('addComment'))) {
         // 지금 포커스된 칸의 선택(없으면 커서) 자리에 댓글 작성 팝업 — 텍스트 편집기가 아니면 아무 일도 없다
         if (isGuest) return
@@ -685,12 +889,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         // VSCode처럼 어디에 포커스가 있어도 터미널을 토글한다 (Shift 조합 ~ 포함)
         if (!canUseTerminal) return
         e.preventDefault()
-        setTmuxOpen((v) => !v)
+        toggleWorkspacePanel('terminal')
       } else if (matchesShortcut(e, getBinding('toggleSidebar'))) {
         // 에디터의 Ctrl+B(굵게, defaultPrevented로 감지)와 터미널의 tmux prefix에는 양보한다
         if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.xterm'))) return
         e.preventDefault()
-        setSidebarOpen((v) => !v)
+        toggleWorkspacePanel('sidebar')
       } else if (matchesShortcut(e, getBinding('closeTab'))) {
         // Ctrl+W는 Chromium이 예약한 브라우저 단축키라 preventDefault로 막을 수 없어 기본값은 Alt+W다
         e.preventDefault()
@@ -703,7 +907,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         const inSidebar = e.target instanceof HTMLElement && !!e.target.closest('[data-sidebar]')
         const parentPath = !inSidebar && activeTab?.path ? activeTab.path.split('/').slice(0, -1).join('/') : null
         setSidebarView('files')
-        setSidebarOpen(true)
+        openWorkspacePanel('sidebar')
         setNewFileSignal((s) => ({ n: s.n + 1, parentPath }))
       } else if (matchesShortcut(e, getBinding('prevTab')) || matchesShortcut(e, getBinding('nextTab'))) {
         // Ctrl+Alt+←/→ 탭 이동 — 끝에 닿으면 반대편으로 감싼다. 터미널에 포커스가 있어도 동작한다
@@ -716,7 +920,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       } else if (matchesShortcut(e, getBinding('toggleTerminalAlt'))) {
         if (!canUseTerminal) return
         e.preventDefault()
-        setTmuxOpen((v) => !v)
+        toggleWorkspacePanel('terminal')
       } else if (matchesShortcut(e, getBinding('fullscreen'))) {
         e.preventDefault()
         toggleFullscreen()
@@ -725,7 +929,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
     // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다
-  }, [saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath, canUseTerminal, focusedEditor, isGuest, isOwner, project, agentOpen, tmuxOpen, chatOpen])
+  }, [
+    saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath,
+    canUseTerminal, focusedEditor, isGuest, isOwner, project, sidebarOpen, chatOpen, agentOpen,
+    agentSetOpen, tmuxOpen, browserOpen, androidOpen, mobilePanelStack, openWorkspacePanel,
+    toggleWorkspacePanel,
+  ])
 
   /** 채팅 멘션·에이전트 로컬 링크 — 같은 mew의 알맞은 프로젝트와 문서 탭으로 연다. */
   const openMentionedFile = useCallback(
@@ -752,9 +961,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       // 큰 파일은 검색 결과 줄 주변을 먼저 읽는다. Markdown은 줄 구조가 화면 구조와 달라 기존 Hotview
       // 검색 경로를 유지하며, plain만 preview가 안전하다.
       openFile(path, path.endsWith('.md') ? { preview: true } : { preview: true, viewMode: 'plain', anchorLine: match.line })
-      if (!isDesktop()) setSidebarOpen(false)
+      if (!isDesktop()) closeWorkspacePanel('sidebar')
     },
-    [openFile],
+    [closeWorkspacePanel, openFile],
   )
 
   // 대기 중인 점프 실행 — 대상 파일이 활성화되고 내용이 로드되면: 코드/plain은 해당 줄로 스크롤,
@@ -836,7 +1045,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           onOpenLink={(linkPath) => openFile(linkPath, { preview: false, forceNewTab: true, paneId: pane.id })}
           onOpenHistory={() => setHistoryOpen(true)}
           onSetTocOpen={setTocOpen}
-          onOpenSidebar={() => setSidebarOpen(true)}
+          onOpenSidebar={() => openWorkspacePanel('sidebar')}
           onTabDragMove={handleTabDragMove}
           onTabDrop={handleTabDrop}
         />
@@ -850,6 +1059,40 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         {node.kids.map((kid, i) => renderLayout(kid, `${key}.${i}`))}
       </div>
     )
+  }
+
+  const rootSubprojects = useMemo(() => rootTree.filter((node) => node.project), [rootTree])
+  const rootNodes = useMemo(() => rootTree.filter((node) => !node.project), [rootTree])
+  useEffect(() => {
+    if (project !== WORKSPACE_PROJECT || !activePath) return
+    const subproject = rootTree.find((node) => node.project && (activePath === node.path || activePath.startsWith(`${node.path}/`)))
+    if (!subproject) return
+    setExpandedSubprojects((previous) => {
+      if (previous.has(subproject.path)) return previous
+      return new Set(previous).add(subproject.path)
+    })
+  }, [activePath, project, rootTree])
+  const loadSubproject = useCallback((path: string) => {
+    if (subprojectTrees[path] !== undefined || loadingSubprojects.has(path)) return
+    setLoadingSubprojects((previous) => new Set(previous).add(path))
+    void fetchTree(WORKSPACE_PROJECT, path)
+      .then((children) => setSubprojectTrees((previous) => ({ ...previous, [path]: children })))
+      .catch((err: unknown) => showToast(err instanceof Error ? err.message : String(err)))
+      .finally(() => setLoadingSubprojects((previous) => {
+        const next = new Set(previous)
+        next.delete(path)
+        return next
+      }))
+  }, [loadingSubprojects, showToast, subprojectTrees])
+  const toggleSubproject = (path: string) => {
+    const opening = !expandedSubprojects.has(path)
+    setExpandedSubprojects((previous) => {
+      const next = new Set(previous)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+    if (opening) loadSubproject(path)
   }
 
   // 헤더 오른쪽 도구 목록 — 권한별로 보이는 것이 다르다. 그리는 건 HeaderMenu(햄버거) 하나뿐이다
@@ -912,10 +1155,35 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             ),
           },
           {
+            id: 'mew-build',
+            label: 'mew 빌드',
+            onSelect: () => {
+              void runMewAction('build').then(() => showToast('mew 빌드를 tmux에서 시작했습니다')).catch((err) => showToast(err instanceof Error ? err.message : String(err)))
+            },
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m4 7 8-4 8 4-8 4zM4 12l8 4 8-4M4 17l8 4 8-4" />
+              </svg>
+            ),
+          },
+          {
+            id: 'mew-restart',
+            label: 'mew 재시작',
+            onSelect: () => {
+              void runMewAction('restart').then(() => showToast('mew 재시작을 tmux에서 시작했습니다')).catch((err) => showToast(err instanceof Error ? err.message : String(err)))
+            },
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 11a8 8 0 1 0 1 4" />
+                <path d="M20 4v7h-7" />
+              </svg>
+            ),
+          },
+          {
             id: 'terminal',
             label: t('header.terminal'),
             hint: 'Ctrl+`',
-            onSelect: () => setTmuxOpen((v) => !v),
+            onSelect: () => toggleWorkspacePanel('terminal'),
             active: tmuxOpen,
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -942,7 +1210,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           {
             id: 'agent',
             label: t('header.agent'),
-            onSelect: () => setAgentOpen((open) => !open),
+            onSelect: () => toggleWorkspacePanel('agent'),
             active: agentOpen,
             // 말풍선 — 채팅 창이지 터미널이 아니다
             icon: (
@@ -954,7 +1222,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           {
             id: 'agent-sets',
             label: t('header.agentSets'),
-            onSelect: () => setAgentSetOpen((open) => !open),
+            onSelect: () => toggleWorkspacePanel('agentSet'),
             active: agentSetOpen,
             // 칸 넷 — 여러 셋이 한 판에 놓인 그리드
             icon: (
@@ -970,7 +1238,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             id: 'browser',
             label: t('header.browser'),
             hint: 'Alt+B',
-            onSelect: () => setBrowserOpen((open) => !open),
+            onSelect: () => toggleWorkspacePanel('browser'),
             active: browserOpen,
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -984,7 +1252,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           {
             id: 'android',
             label: 'Android',
-            onSelect: () => setAndroidOpen((open) => !open),
+            onSelect: () => toggleWorkspacePanel('android'),
             active: androidOpen,
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1005,7 +1273,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             id: 'chat',
             label: t('header.chat'),
             hint: 'Alt+C',
-            onSelect: () => setChatOpen((open) => !open),
+            onSelect: () => toggleWorkspacePanel('chat'),
             active: chatOpen,
             // 겹친 말풍선 둘 — 에이전트(말풍선 하나)·계정 관리(사람)와 구분된다
             icon: (
@@ -1080,19 +1348,22 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       {/* 화면 전폭을 쓰는 줄은 이 헤더 하나뿐이다 — 프로젝트 탭 + 도구 버튼. 문서 탭 줄은 각
           편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
-        <header className={`flex h-10 items-stretch border-b border-edge pr-2 ${tabBarsHidden ? 'hidden' : ''}`}>
+        <header className="flex h-10 items-stretch border-b border-edge pr-2">
           <RootProjectTabs
             paths={rootProjectPath ? [...openProjectPaths, rootProjectPath] : openProjectPaths}
             activePath={rootProjectPath}
             fallbackLabel={projectLabel(rootProjectPath)}
             canOpen={isOwner}
             canChangeIcon={isOwner}
+            icons={rootProjectIcons}
             onActivate={(projectPath) => void openRootProject(projectPath)}
+            onIconChange={changeRootProjectIcon}
             onOpen={() => setOpenProjectDialog(true)}
           />
           {/* 도구는 전부 햄버거 하나로 접는다 — 아이콘을 늘어놓으면 좁은 화면에서 프로젝트 탭이 밀린다.
               버튼이 아닌 것(게스트 표시·저장 실패 문구)만 헤더에 남는다 */}
           <div className="flex shrink-0 items-center gap-1.5 pl-2 text-sm">
+            {switchingRootProject && <span className="text-xs text-ink-secondary">프로젝트 여는 중…</span>}
             {isGuest && <span className="rounded bg-surface-raised px-2 py-0.5 text-xs text-ink-secondary">게스트</span>}
             {activeTab?.status === 'error' && (
               <span className="hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
@@ -1115,9 +1386,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         {sidebarOpen && (
           <div
             data-sidebar
-            // 모바일은 프로젝트 헤더 아래의 작업 영역만 덮고, 문서 탭(h-9)도 눌러 전환할 수 있게 남긴다.
-            // 홈에는 문서 탭이 없으므로 그때만 작업 영역 맨 위부터 채운다. 데스크톱은 기존 고정 칸이다.
-            className="absolute inset-x-0 top-9 bottom-0 z-30 flex bg-surface-deep md:static md:z-auto md:shrink-0"
+            onPointerDownCapture={() => bringWorkspacePanelToFront('sidebar')}
+            // 모바일은 프로젝트 탭 아래 작업 영역 전체를 덮는다. 파일 탭은 사이드바가 열린 동안 보이지 않는다.
+            // 데스크톱은 기존 고정 칸이다.
+            className={`absolute inset-x-0 top-0 bottom-0 flex bg-surface-deep md:static md:z-auto md:shrink-0 ${mobilePanelLayer('sidebar')}`}
             style={{ width: isDesktop() ? sidebarWidth : undefined }}
           >
             <div className="flex min-w-0 flex-1 flex-col">
@@ -1149,10 +1421,19 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     <path d="m21 21-4.3-4.3" />
                   </svg>
                 </button>
-                {canUseTerminal && <CommandButtonMenu project={WORKSPACE_PROJECT} title={`${projectLabel(rootProjectPath)} 명령어`} />}
+                {canUseTerminal && <button
+                  type="button"
+                  onClick={() => setSidebarView('commands')}
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink ${sidebarView === 'commands' ? 'bg-surface-raised text-ink' : ''}`}
+                  title={`${projectLabel(rootProjectPath)} 명령어`}
+                  aria-label={`${projectLabel(rootProjectPath)} 명령어 버튼`}
+                  aria-pressed={sidebarView === 'commands'}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                </button>}
                 <button
                   type="button"
-                  onClick={() => setSidebarOpen(false)}
+                  onClick={() => closeWorkspacePanel('sidebar')}
                   className="ml-auto rounded p-1 text-ink-muted hover:bg-surface-hover hover:text-ink"
                   title="사이드바 닫기 (Ctrl+B)"
                   aria-label="사이드바 닫기"
@@ -1165,17 +1446,19 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               </div>
               <div className="min-h-0 flex-1">
                 <div className={sidebarView === 'files' ? 'h-full' : 'hidden'}>
-                  {/* 탐색기는 Documents와 루트 폴더를 한 흐름으로 보여 준다. 편집 탭의 프로젝트 전환은
-                      트리의 정체성을 바꾸지 않는다. */}
+                  {/* Documents와 직계 하위 프로젝트만 큰 접기 단위다. 나머지 루트 내용은 실제 깊이대로 바로 보인다. */}
                   <FileTree
-                    key={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
-                    tree={isGuest ? docsTree : []}
+                    key={`${isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}:${rootProjectPath ?? ''}`}
+                    tree={isGuest ? docsTree : rootNodes}
                     project={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
+                    workspacePath={rootProjectPath}
                     selectedPath={project === (isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? activePath : null}
                     readOnly={isGuest}
                     canUseCommands={canUseTerminal && !isGuest}
-                    roots={
-                      !isGuest && <div className="border-b border-edge py-1">
+                    loadChildren={isGuest ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
+                    prefetchRootChildren
+                    roots={!isGuest && <>
+                      <div className="border-b border-edge py-1">
                         <button
                           type="button"
                           onClick={() => setDocsExpanded((expanded) => !expanded)}
@@ -1187,11 +1470,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                           className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-medium hover:bg-surface-raised ${docsExpanded ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
                           title={isOwner ? 'Documents · 우클릭하여 폴더 설정' : 'Documents'}
                         >
-                          <span aria-hidden="true">{docsExpanded ? '▾' : '▸'}</span>
+                          <ProjectIcon icon="i:notes" size={16} />
                           <span>{t('project.documents')}</span>
                         </button>
                         {docsExpanded && (
                           <FileTree
+                            key={`${DEFAULT_PROJECT}:${rootProjectPath ?? ''}`}
                             tree={docsTree}
                             project={DEFAULT_PROJECT}
                             compact
@@ -1210,48 +1494,68 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                             onGuestAccessChanged={refreshTree}
                             onNotice={showToast}
                             registerSearchCancel={() => {}}
-                          />
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setRootExpanded((expanded) => !expanded)}
-                          className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-semibold hover:bg-surface-raised ${rootExpanded ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
-                          title={rootProjectPath ?? undefined}
-                        >
-                          <span aria-hidden="true">{rootExpanded ? '▾' : '▸'}</span>
-                          <span>Project</span>
-                        </button>
-                        {rootExpanded && (
-                          <FileTree
-                            tree={rootTree}
-                            project={WORKSPACE_PROJECT}
-                            compact
-                            selectedPath={project === WORKSPACE_PROJECT ? activePath : null}
-                            readOnly={isGuest}
-                            canUseCommands={canUseTerminal}
-                            searchFocusSignal={searchFocusSignal}
-                            newFileSignal={newFileSignal}
-                            revealSignal={revealSignal}
-                            presence={project === WORKSPACE_PROJECT ? tabPresence : {}}
-                            onSelect={(path) => {
-                              openMentionedFile(WORKSPACE_PROJECT, path, null)
-                              if (!isDesktop()) setSidebarOpen(false)
-                            }}
-                            onFileCreated={(relPath) => {
-                              refreshTree()
-                              openMentionedFile(WORKSPACE_PROJECT, relPath, null)
-                              if (!isDesktop()) setSidebarOpen(false)
-                            }}
-                            onFolderCreated={refreshTree}
-                            onRenamed={handleRenamed}
-                            onDeleted={handleDeleted}
-                            onGuestAccessChanged={refreshTree}
-                            onNotice={showToast}
-                            registerSearchCancel={() => {}}
+                            loadChildren={loadDocsTreeChildren}
+                            prefetchRootChildren
                           />
                         )}
                       </div>
-                    }
+                      {rootSubprojects.map((subproject) => {
+                        const expanded = expandedSubprojects.has(subproject.path)
+                        return <div key={subproject.path} className="border-b border-edge py-1">
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => toggleSubproject(subproject.path)}
+                              className={`flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm font-semibold hover:bg-surface-raised ${expanded ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
+                              title={subproject.name}
+                            >
+                              <ProjectIcon icon={subprojectIcons[subproject.name] ?? 'i:folder'} size={16} />
+                              <span className="truncate">{subproject.name}</span>
+                            </button>
+                            {canUseTerminal && <CommandButtonMenu project={subproject.name} />}
+                          </div>
+                          {expanded && (
+                            <>
+                              {loadingSubprojects.has(subproject.path) && (
+                                <div className="px-2 py-1 text-xs text-ink-muted">불러오는 중…</div>
+                              )}
+                              <div className="bg-surface-raised">
+                                <FileTree
+                                  key={`${WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${subproject.path}`}
+                                  tree={subprojectTrees[subproject.path] ?? []}
+                                  project={WORKSPACE_PROJECT}
+                                  workspacePath={rootProjectPath}
+                                  compact
+                                  selectedPath={project === WORKSPACE_PROJECT ? activePath : null}
+                                  readOnly={false}
+                                  canUseCommands={canUseTerminal}
+                                  searchFocusSignal={0}
+                                  newFileSignal={{ n: 0, parentPath: null }}
+                                  revealSignal={revealSignal}
+                                  presence={project === WORKSPACE_PROJECT ? tabPresence : {}}
+                                  onSelect={(path) => {
+                                    openMentionedFile(WORKSPACE_PROJECT, path, null)
+                                    if (!isDesktop()) closeWorkspacePanel('sidebar')
+                                  }}
+                                  onFileCreated={(relPath) => {
+                                    refreshTree()
+                                    openMentionedFile(WORKSPACE_PROJECT, relPath, null)
+                                    if (!isDesktop()) closeWorkspacePanel('sidebar')
+                                  }}
+                                  onFolderCreated={refreshTree}
+                                  onRenamed={handleRenamed}
+                                  onDeleted={handleDeleted}
+                                  onGuestAccessChanged={refreshTree}
+                                  onNotice={showToast}
+                                  registerSearchCancel={() => {}}
+                                  loadChildren={loadWorkspaceTreeChildren}
+                                />
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      })}
+                    </>}
                     searchFocusSignal={searchFocusSignal}
                     newFileSignal={newFileSignal}
                     revealSignal={revealSignal}
@@ -1260,12 +1564,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                       // 루트 트리는 Documents 탭을 편집 중이어도 그대로 남아 있다. 선택한 파일의
                       // 실제 스코프로 먼저 전환한 뒤 탭을 연다.
                       openMentionedFile(WORKSPACE_PROJECT, path, null)
-                      if (!isDesktop()) setSidebarOpen(false)
+                      if (!isDesktop()) closeWorkspacePanel('sidebar')
                     }}
                     onFileCreated={(relPath) => {
                       refreshTree()
                       openMentionedFile(WORKSPACE_PROJECT, relPath, null)
-                      if (!isDesktop()) setSidebarOpen(false)
+                      if (!isDesktop()) closeWorkspacePanel('sidebar')
                     }}
                     onFolderCreated={refreshTree}
                     onRenamed={handleRenamed}
@@ -1284,6 +1588,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     onReplaced={refreshTree}
                   />
                 </div>
+                {canUseTerminal && sidebarView === 'commands' && (
+                  <div className="h-full overflow-y-auto">
+                    <CommandButtonMenu project={WORKSPACE_PROJECT} inline hideTrigger alwaysOpen />
+                  </div>
+                )}
               </div>
             </div>
             <div
@@ -1297,9 +1606,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         {/* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */}
         {renderLayout(layout, 'root')}
 
-        {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 좁은 화면에서는 전체를 덮는다 */}
+        {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 모바일에서도 프로젝트 탭 아래에서만 열린다. */}
         {chatOpen && !isGuest && (
-          <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[22rem] md:shrink-0">
+          <div
+            onPointerDownCapture={() => bringWorkspacePanelToFront('chat')}
+            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:w-[22rem] md:shrink-0 ${mobilePanelLayer('chat')}`}
+          >
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <ChatPanel
@@ -1307,7 +1619,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                 project={project}
                 tree={tree}
                 onOpenFile={openMentionedFile}
-                onClose={() => setChatOpen(false)}
+                onClose={() => closeWorkspacePanel('chat')}
               />
             </div>
           </div>
@@ -1315,8 +1627,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
         {agentOpen && canUseTerminal && (
           <div
-            onPointerDownCapture={() => { activeTabbedSurfaceRef.current = 'agent' }}
-            className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
+            onPointerDownCapture={() => {
+              activeTabbedSurfaceRef.current = 'agent'
+              bringWorkspacePanelToFront('agent')
+            }}
+            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:shrink-0 ${mobilePanelLayer('agent')}`}
             style={{ width: isDesktop() ? agentWidth : undefined }}
           >
             <div
@@ -1325,24 +1640,38 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               aria-hidden="true"
             />
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <AgentPanel project={project} tree={tree} onOpenFile={openMentionedFile} onClose={() => setAgentOpen(false)} nextTabSignal={agentNextTabSignal} />
+              <AgentPanel
+                key={rootProjectPath ?? 'pending-workspace'}
+                project={project}
+                workspacePath={rootProjectPath}
+                tree={tree}
+                onOpenFile={openMentionedFile}
+                onClose={() => closeWorkspacePanel('agent')}
+                nextTabSignal={agentNextTabSignal}
+              />
             </div>
           </div>
         )}
 
         {agentSetOpen && canUseTerminal && (
-          <div className="fixed inset-0 z-30 flex md:static md:z-auto md:w-[30rem] md:shrink-0">
+          <div
+            onPointerDownCapture={() => bringWorkspacePanelToFront('agentSet')}
+            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:w-[30rem] md:shrink-0 ${mobilePanelLayer('agentSet')}`}
+          >
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <AgentSetPanel onOpenFile={openMentionedFile} onClose={() => setAgentSetOpen(false)} />
+              <AgentSetPanel onOpenFile={openMentionedFile} onClose={() => closeWorkspacePanel('agentSet')} />
             </div>
           </div>
         )}
 
         {tmuxOpen && canUseTerminal && (
           <div
-            onPointerDownCapture={() => { activeTabbedSurfaceRef.current = 'tmux' }}
-            className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
+            onPointerDownCapture={() => {
+              activeTabbedSurfaceRef.current = 'tmux'
+              bringWorkspacePanelToFront('terminal')
+            }}
+            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:shrink-0 ${mobilePanelLayer('terminal')}`}
             style={{ width: isDesktop() ? tmuxWidth : undefined }}
           >
             <div
@@ -1353,7 +1682,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <TmuxTerminalPanel
                 api={tmuxApi}
-                onClose={() => setTmuxOpen(false)}
+                onClose={() => closeWorkspacePanel('terminal')}
                 activeFilePath={activeRelativePath}
                 getSelectedText={getSelectedText}
                 renderCommandButtons={renderTermButtons}
@@ -1365,7 +1694,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
         {browserOpen && canUseTerminal && (
           <div
-            className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
+            onPointerDownCapture={() => bringWorkspacePanelToFront('browser')}
+            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:shrink-0 ${mobilePanelLayer('browser')}`}
             style={{ width: isDesktop() ? browserWidth : undefined }}
           >
             <div
@@ -1374,14 +1704,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               aria-hidden="true"
             />
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <BrowserPanel onClose={() => setBrowserOpen(false)} />
+              <BrowserPanel onClose={() => closeWorkspacePanel('browser')} />
             </div>
           </div>
         )}
 
         {androidOpen && canUseTerminal && (
           <div
-            className="fixed inset-0 z-30 flex md:static md:z-auto md:shrink-0"
+            onPointerDownCapture={() => bringWorkspacePanelToFront('android')}
+            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:shrink-0 ${mobilePanelLayer('android')}`}
             style={{ width: isDesktop() ? androidWidth : undefined }}
           >
             <div
@@ -1390,7 +1721,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
               aria-hidden="true"
             />
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <AndroidPanel onClose={() => setAndroidOpen(false)} />
+              <AndroidPanel onClose={() => closeWorkspacePanel('android')} />
             </div>
           </div>
         )}
@@ -1400,16 +1731,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         onFullscreen={toggleFullscreen}
         onNextWindowTab={switchCurrentWindowTabRight}
         onPrevWindowTab={switchCurrentWindowTabLeft}
-        onToggleAgent={() => { if (canUseTerminal) setAgentOpen((open) => !open) }}
-        onToggleTerminal={() => { if (canUseTerminal) setTmuxOpen((open) => !open) }}
-        onToggleTabBars={() => setTabBarsHidden((hidden) => !hidden)}
-        onToggleChat={() => { if (!isGuest) setChatOpen((open) => !open) }}
-        onToggleAgentSet={() => { if (canUseTerminal) setAgentSetOpen((open) => !open) }}
-        onArrow={sendEditKey}
-        onHistoryBack={() => history.back()}
-        onHistoryForward={() => history.forward()}
-        onUndo={() => document.execCommand('undo')}
-        onRedo={() => document.execCommand('redo')}
+        onToggleAgent={() => { if (canUseTerminal) toggleWorkspacePanel('agent') }}
+        onToggleTerminal={() => { if (canUseTerminal) toggleWorkspacePanel('terminal') }}
+        onOpenEditor={closeAllWorkspacePanels}
+        onToggleSidebar={() => toggleWorkspacePanel('sidebar')}
+        onToggleAgentSet={() => { if (canUseTerminal) toggleWorkspacePanel('agentSet') }}
       />
 
       {settingsOpen && (

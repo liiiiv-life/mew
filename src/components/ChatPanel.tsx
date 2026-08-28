@@ -291,6 +291,8 @@ export function ChatPanel({
       {rail}
       <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-2">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-ink">{title}</span>
+        <span className="shrink-0 text-[10px] text-ink-muted">Alt+C</span>
         <button
           type="button"
           onClick={onClose}
@@ -302,8 +304,6 @@ export function ChatPanel({
             <path d="m6 6 12 12" />
           </svg>
         </button>
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-ink">{title}</span>
-        <span className="shrink-0 text-[10px] text-ink-muted">Alt+C</span>
       </div>
 
       <div

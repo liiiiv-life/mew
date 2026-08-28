@@ -52,6 +52,51 @@ export interface ProjectInfo {
   protected?: boolean
 }
 
+export interface RootProjectTabState {
+  paths: string[]
+  icons: Record<string, string>
+}
+
+export interface AgentTabState {
+  id: string
+  label: string
+  runtime?: string | null
+  cwd?: string | null
+  renamed?: boolean
+  sessionIds?: Record<string, string>
+}
+
+export interface AgentTabsState {
+  tabs: AgentTabState[]
+  activeId: string | null
+}
+
+/** 로그인 계정의 열린 루트 프로젝트와 아이콘(Owner 전용). */
+export function fetchRootProjectTabs(): Promise<{ state: RootProjectTabState | null }> {
+  return fetch('/api/user-ui/root-projects').then(json<{ state: RootProjectTabState | null }>)
+}
+
+export function saveRootProjectTabs(state: RootProjectTabState): Promise<{ state: RootProjectTabState }> {
+  return fetch('/api/user-ui/root-projects', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(state),
+  }).then(json<{ state: RootProjectTabState }>)
+}
+
+/** 로그인 계정의 루트 프로젝트별 에이전트 탭·ACP 세션 포인터. */
+export function fetchAgentTabs(workspacePath: string): Promise<{ state: AgentTabsState | null }> {
+  return fetch(`/api/user-ui/agent-tabs?workspace=${encodeURIComponent(workspacePath)}`).then(json<{ state: AgentTabsState | null }>)
+}
+
+export function saveAgentTabs(workspacePath: string, state: AgentTabsState): Promise<{ state: AgentTabsState }> {
+  return fetch('/api/user-ui/agent-tabs', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspacePath, ...state }),
+  }).then(json<{ state: AgentTabsState }>)
+}
+
 export function fetchProjects(): Promise<ProjectInfo[]> {
   return fetch('/api/projects').then(json<ProjectInfo[]>)
 }
@@ -82,6 +127,22 @@ export interface AgentCwdSuggestions {
 export function fetchAgentCwdSuggestions(input: string, base: string, entered = false): Promise<AgentCwdSuggestions> {
   const query = new URLSearchParams({ input, base, entered: String(entered) })
   return fetch(`/api/agent-cwd/suggestions?${query}`).then(json<AgentCwdSuggestions>)
+}
+
+export function scheduleAgentPrompt(input: {
+  runtime: string
+  tab: string
+  cwd: string
+  sessionId: string
+  text: string
+  skills: string[]
+  at: string
+}): Promise<{ job: { id: string; at: string } }> {
+  return fetch('/api/agent/scheduled-prompts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then(json<{ job: { id: string; at: string } }>)
 }
 
 /** 응답의 icon은 서버가 실제로 저장한 값 — 직접 넣은 SVG는 정리를 거치므로 보낸 값과 다를 수 있다 */
@@ -223,7 +284,7 @@ export function fetchWorkspace(): Promise<WorkspaceInfo> {
   return fetch('/api/workspace').then(json<WorkspaceInfo>)
 }
 
-/** 워크스페이스를 통째로 바꾼다 — owner 전용. 성공하면 **모든 화면을 새로고침해야 한다**(열린 탭이 남의 폴더 것이다) */
+/** 워크스페이스를 통째로 바꾼다 — owner 전용. 성공하면 클라이언트가 새 루트 상태로 교체한다. */
 export function switchWorkspace(path: string): Promise<WorkspaceInfo> {
   return fetch('/api/workspace', {
     method: 'POST',
@@ -305,6 +366,11 @@ export function runAndroidCommand(id: string): Promise<{ ok: true; session: stri
   return fetch(`/api/android/commands/${encodeURIComponent(id)}/run`, { method: 'POST' }).then(
     json<{ ok: true; session: string }>,
   )
+}
+
+/** 햄버거 메뉴의 서버 등록 mew 작업 — id 외의 셸 문자열은 절대 보내지 않는다. */
+export function runMewAction(id: 'restart' | 'build'): Promise<{ ok: true; session: string }> {
+  return fetch(`/api/mew-actions/${id}/run`, { method: 'POST' }).then(json<{ ok: true; session: string }>)
 }
 
 export interface SkillSummary {
@@ -404,6 +470,7 @@ export function fetchAgentAuthTerminalStatus(
 
 export interface AgentRuntimeDefault {
   modelId?: string
+  thinkingId?: string
   modeId?: string
 }
 
@@ -540,8 +607,9 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
   }).then(json<{ ok: true }>)
 }
 
-export function fetchTree(project?: string): Promise<TreeNode[]> {
-  return fetch(`/api/tree?${projectQs(project)}`).then(json<TreeNode[]>)
+/** 프로젝트 루트 또는 지정한 폴더의 직접 자식만 읽는다. */
+export function fetchTree(project?: string, path = ''): Promise<TreeNode[]> {
+  return fetch(`/api/tree?${projectQs(project)}&path=${encodeURIComponent(path)}`).then(json<TreeNode[]>)
 }
 
 // 탭 상태를 다루는 호출(읽기·저장·규칙)은 프로젝트를 명시적으로 받는다 — 자동저장 디바운스처럼
@@ -807,11 +875,16 @@ export function copyFile(path: string, project: string = currentProject): Promis
 }
 
 /** 파일·폴더를 다른 폴더(destDir, ''=루트) 안으로 복사한다 — 붙여넣기(Ctrl+V, copy 모드) */
-export function copyInto(srcPath: string, destDir: string, project: string = currentProject): Promise<FileOpResult> {
+export function copyInto(
+  srcPath: string,
+  destDir: string,
+  project: string = currentProject,
+  sourceWorkspacePath: string | null = null,
+): Promise<FileOpResult> {
   return fetch('/api/copy-into', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ srcPath, destDir, project }),
+    body: JSON.stringify({ srcPath, destDir, project, ...(sourceWorkspacePath ? { sourceWorkspacePath } : {}) }),
   }).then(json<FileOpResult>)
 }
 

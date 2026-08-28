@@ -1,0 +1,41 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-user-ui-state-'))
+process.env.MEW_DATA_DIR = dir
+
+const { readAgentTabs, readRootProjects, writeAgentTabs, writeRootProjects } = await import('./userUiState.ts')
+
+test('계정마다 루트 프로젝트 탭과 아이콘을 분리해 영속화한다', () => {
+  const saved = writeRootProjects('You@Example.com', {
+    paths: ['/work/liiiiv', '/work/ardt'],
+    icons: { '/work/liiiiv': 'i:notes', '/work/ardt': '🌱' },
+  })
+  assert.deepEqual(saved, {
+    paths: ['/work/liiiiv', '/work/ardt'],
+    icons: { '/work/liiiiv': 'i:notes', '/work/ardt': '🌱' },
+  })
+  assert.deepEqual(readRootProjects('you@example.com'), saved)
+  assert.equal(readRootProjects('other@example.com'), null)
+})
+
+test('루트별 에이전트 탭과 ACP 세션 포인터를 계정 상태로 복원한다', () => {
+  const saved = writeAgentTabs('you@example.com', '/work/liiiiv', {
+    activeId: 'alpha',
+    tabs: [{
+      id: 'alpha',
+      label: '현재 작업',
+      runtime: 'codex',
+      cwd: '/work/liiiiv',
+      sessionIds: { '["codex","/work/liiiiv"]': 'session-123' },
+    }],
+  })
+  assert.deepEqual(readAgentTabs('you@example.com', '/work/liiiiv'), saved)
+  assert.equal(readAgentTabs('you@example.com', '/work/ardt'), null)
+
+  const file = JSON.parse(fs.readFileSync(path.join(dir, 'user-ui-state.json'), 'utf8'))
+  assert.equal(file['you@example.com'].agentTabs['/work/liiiiv'].tabs[0].sessionIds['["codex","/work/liiiiv"]'], 'session-123')
+})
