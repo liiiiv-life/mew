@@ -753,10 +753,11 @@ export function TmuxTerminal({
           전송
         </button>
       </form>
-      {/* 모바일이면 키보드가 떠 있든 아니든 항상 둔다 — 키보드를 내린 채 방향키로 스크롤하고
-          Esc를 보내는 쓰임이 더 많다. 보조키는 포커스와 무관하게 PTY로 바로 나간다. */}
+      {/* 모바일이면 키보드가 떠 있든 아니든 항상 둔다. 터미널은 flow 배치로 두어 보조키가
+          입력칸을 덮지 않고, 키보드를 내린 채 방향키·Esc를 보내는 쓰임도 그대로 보장한다. */}
       {mobileLayout && (
         <MobileKeyBar
+          placement="flow"
           ctrlActive={ctrlActive}
           shiftActive={shiftActive}
           onToggleCtrl={() => setCtrlActive((v) => !v)}

@@ -373,16 +373,6 @@ export function TmuxTerminalPanel({
     // 내려가며 레이아웃이 커지고, 버튼이 손가락 밑에서 밀려나 첫 탭의 click이 사라진다
     <div className="flex h-full w-full flex-col bg-surface-deep" onMouseDown={keepFocusOnPress}>
       <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-            aria-label="터미널 닫기"
-          >
-            ×
-          </button>
-        )}
         <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto">
           {(orderedSessions ?? []).map((s, i) => {
             if (editing?.mode === 'rename' && editing.oldName === s.name) {
@@ -412,24 +402,34 @@ export function TmuxTerminalPanel({
               />
             )
           })}
+          {editing?.mode === 'create' ? (
+            <InlineTabInput
+              value={editing.value}
+              onChange={(v) => setEditing((e) => (e ? { ...e, value: v } : e))}
+              onCommit={commitEdit}
+              onCancel={() => setEditing(null)}
+              error={editError}
+              placeholder="세션 이름"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={startCreate}
+              title="새 tmux 세션"
+              className="flex h-full w-9 shrink-0 items-center justify-center border-r border-edge text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink"
+            >
+              +
+            </button>
+          )}
         </div>
-        {editing?.mode === 'create' ? (
-          <InlineTabInput
-            value={editing.value}
-            onChange={(v) => setEditing((e) => (e ? { ...e, value: v } : e))}
-            onCommit={commitEdit}
-            onCancel={() => setEditing(null)}
-            error={editError}
-            placeholder="세션 이름"
-          />
-        ) : (
+        {onClose && (
           <button
             type="button"
-            onClick={startCreate}
-            title="새 tmux 세션"
-            className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink"
+            onClick={onClose}
+            className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+            aria-label="터미널 닫기"
           >
-            +
+            ×
           </button>
         )}
       </div>
