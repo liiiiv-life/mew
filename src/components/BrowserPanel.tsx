@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { fetchBrowserFrameUrl } from '../api/client'
 
 type BrowserTab = {
@@ -47,6 +48,7 @@ function loadTabs(): BrowserTab[] {
 }
 
 export function BrowserPanel({ onClose }: { onClose: () => void }) {
+  const shortcutScopeRef = useRef<HTMLElement>(null)
   const [tabs, setTabs] = useState(loadTabs)
   const [activeId, setActiveId] = useState(() => localStorage.getItem(ACTIVE_KEY) || tabs[0]?.id || '')
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0]
@@ -127,8 +129,15 @@ export function BrowserPanel({ onClose }: { onClose: () => void }) {
     })
   }
 
+  // 마지막 탭이면 브라우저 자체의 Ctrl+W를 양보한다.
+  useFocusedShortcutScope(shortcutScopeRef, { closeTab: () => {
+    if (!activeTab || tabs.length <= 1) return false
+    closeTab(activeTab.id)
+    return true
+  } })
+
   return (
-    <section className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label="브라우저">
+    <section ref={shortcutScopeRef} className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label="브라우저">
       <div className="flex h-9 shrink-0 items-stretch border-b border-edge bg-surface">
         <div className="no-scrollbar flex min-w-0 flex-1 overflow-x-auto">
           {tabs.map((tab) => (

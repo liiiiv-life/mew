@@ -43,7 +43,7 @@ import { BrowserPanel } from './components/BrowserPanel'
 import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
-import { getBinding, matchesShortcut } from '@mew/shortcuts'
+import { dispatchFocusedShortcut, getBinding, matchesShortcut } from '@mew/shortcuts'
 import { ConfirmDialog, hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
@@ -1018,6 +1018,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         if (isGuest) return
         e.preventDefault()
         toggleWorkspacePanel('chat')
+      } else if (matchesShortcut(e, getBinding('toggleAgent'))) {
+        if (!canUseTerminal) return
+        e.preventDefault()
+        toggleWorkspacePanel('agent')
       } else if (matchesShortcut(e, getBinding('toggleBrowser'))) {
         if (!canUseTerminal) return
         e.preventDefault()
@@ -1038,9 +1042,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         e.preventDefault()
         toggleWorkspacePanel('sidebar')
       } else if (matchesShortcut(e, getBinding('closeTab'))) {
-        // Ctrl+W는 Chromium이 예약한 브라우저 단축키라 preventDefault로 막을 수 없어 기본값은 Alt+W다
-        e.preventDefault()
-        if (activePath) closeTab(activePath)
+        // Ctrl+W를 실제로 닫을 탭이 있을 때만 가로챈다. 포커스된 보조 창에 닫을 탭이 없으면
+        // 에디터로 새지 않고 브라우저 기본 탭 닫기를 양보한다.
+        const result = dispatchFocusedShortcut('closeTab', e)
+        if (result === 'handled') e.preventDefault()
+        else if (result === 'no-scope' && activePath) {
+          e.preventDefault()
+          closeTab(activePath)
+        }
       } else if (matchesShortcut(e, getBinding('newTab'))) {
         // Ctrl+N도 마찬가지로 브라우저 예약 단축키라 가로챌 수 없어 기본값은 Alt+N이다.
         // 빈 탭이 아니라 새 파일 흐름 — 사이드바에 포커스면 거기 선택된 항목 기준(FileTree가
@@ -1368,6 +1377,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           {
             id: 'agent',
             label: t('header.agent'),
+            hint: 'Alt+L',
             onSelect: () => toggleWorkspacePanel('agent'),
             active: agentOpen,
             // 말풍선 — 채팅 창이지 터미널이 아니다

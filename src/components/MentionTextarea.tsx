@@ -13,6 +13,8 @@ export interface MentionOption {
   hint?: string
   /** 골랐을 때 '@검색어' 자리에 들어갈 문자열 */
   insert: string
+  /** 같은 트리거 안에서 고정 우선순위로 정렬할 때 쓰는 낮은 숫자. */
+  sortPriority?: number
 }
 
 export interface TriggerOptionSet {
@@ -82,11 +84,19 @@ export function MentionTextarea({
   const shown = useMemo(() => {
     if (!mention) return []
     const activeOptions = optionSets.find((set) => set.trigger === mention.trigger)?.options ?? []
-    const query = mention.query.toLowerCase()
     return activeOptions
       .map((option) => ({ option, score: fuzzyScore(mention.query, option.label) }))
       .filter((x): x is { option: MentionOption; score: number } => x.score !== null)
       .sort((a, b) => {
+        // 유형 우선순위를 준 목록(@의 하위 프로젝트·폴더·파일 등)은 검색 점수보다
+        // 우선순위와 가나다순이 결과의 기준이다. 기존 채팅·댓글 멘션은 계속 fuzzy 정렬한다.
+        if (a.option.sortPriority !== undefined || b.option.sortPriority !== undefined) {
+          const aPriority = a.option.sortPriority ?? Number.MAX_SAFE_INTEGER
+          const bPriority = b.option.sortPriority ?? Number.MAX_SAFE_INTEGER
+          if (aPriority !== bPriority) return aPriority - bPriority
+          return a.option.label.localeCompare(b.option.label, 'ko-KR')
+        }
+        const query = mention.query.toLowerCase()
         const aStarts = a.option.label.toLowerCase().startsWith(query)
         const bStarts = b.option.label.toLowerCase().startsWith(query)
         if (aStarts !== bStarts) return aStarts ? -1 : 1

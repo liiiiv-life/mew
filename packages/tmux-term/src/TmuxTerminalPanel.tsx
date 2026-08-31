@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ConfirmDialog, keepFocusOnPress, useDragReorder, type DragItemProps } from '@mew/ui'
+import { useFocusedShortcutScope } from '@mew/shortcuts'
 import type { TmuxPanelApi, TmuxSession } from './types'
 import { TmuxTerminal } from './TmuxTerminal'
 import { clearInputDraft, renameInputDraft } from './inputDrafts'
@@ -230,6 +231,7 @@ export function TmuxTerminalPanel({
   nextTabSignal?: number
   previousTabSignal?: number
 }) {
+  const shortcutScopeRef = useRef<HTMLDivElement>(null)
   const [sessions, setSessions] = useState<TmuxSession[] | null>(null)
   const [activeSession, setActiveSession] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
@@ -377,10 +379,17 @@ export function TmuxTerminalPanel({
     }
   }
 
+  // 탭 닫기는 tmux 세션 종료이므로 기존 × 버튼과 같은 확인 흐름을 쓴다.
+  useFocusedShortcutScope(shortcutScopeRef, { closeTab: () => {
+    if (!activeSession) return false
+    setKillTarget(activeSession)
+    return true
+  } })
+
   return (
     // onMouseDown: 세션 탭·도구 버튼을 눌러도 포커스(=모바일 키보드)를 뺏지 않는다. 뺏기면 키보드가
     // 내려가며 레이아웃이 커지고, 버튼이 손가락 밑에서 밀려나 첫 탭의 click이 사라진다
-    <div className="flex h-full w-full flex-col bg-surface-deep" onMouseDown={keepFocusOnPress}>
+    <div ref={shortcutScopeRef} className="flex h-full w-full flex-col bg-surface-deep" onMouseDown={keepFocusOnPress}>
       <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
         <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto">
           {(orderedSessions ?? []).map((s, i) => {

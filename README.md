@@ -618,12 +618,15 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
   접근은 **owner/manager**(`authorizeTmux`와 같은 집합) —
   에이전트는 Bash를 쓸 수 있어 tmux와 같은 경계여야 한다. 권한 모드 기본값이 `bypassPermissions`라
   (승인 프롬프트 없음) **이 역할 게이트가 유일한 통제다** — tmux보다 낮추면 무인 셸을 여는 것이다.
-- 입력창은 `/`로 로컬 스킬을, `@`로 지금 프로젝트의 파일을, `#`으로 워크스페이스 프로젝트를 검색해 넣는다.
-  프로젝트 목록은 `GET /api/projects`가 역할에 맞게 돌려주는 목록이며, 고르면 `#프로젝트명`이 들어간다. 스킬 목록은
+- 입력창은 `/`로 로컬 스킬을, `@`로 하위 프로젝트·현재 프로젝트의 폴더·파일을 검색해 넣는다. `@` 결과는
+  **하위 프로젝트 → 폴더 → 파일** 순서이고 같은 종류 안에서는 가나다순이다. 프로젝트 목록은 `GET /api/projects`가
+  역할에 맞게 돌려주며, 고르면 기존처럼 `#프로젝트명`이 들어간다. 폴더·파일은 `[[프로젝트:경로]]` 토큰으로 들어간다.
+  스킬 목록은
   `GET /api/skills`가 `CODEX_HOME/skills`와 `<워크스페이스>/.agents/skills`의 `SKILL.md`를 읽어 만든다.
   `/스킬명`을 고르면 브라우저는 스킬 id만 WS에 싣고, 서버가 `server/agentRuntimes.ts`의 런타임 등록표로
   실제 프롬프트를 합성한다. 기본 합성기는 모든 ACP 런타임에 대해 선택된 `SKILL.md`를 먼저 읽고 따르라고
-  지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다. **채팅과 입력창 사이의 경계선
+  지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다. `Alt+L`은 어디에 포커스가 있든
+  에이전트 창을 열거나 닫는다. **채팅과 입력창 사이의 경계선
   전체**를 위아래로 끌어 입력창을 화면 높이의 80%까지 늘릴 수 있다(키보드는 경계선에서 ↑·↓).
 - `+`와 탭이 없을 때 가운데의 **새 탭** 버튼은 탭을 먼저 만들지 않고 **새 탭 선택기**를 연다. 선택기는
   맨 위 `런타임 | 에이전트셋` 토글로 시작한다. 런타임은 기존처럼 바로 선택하고,
@@ -763,8 +766,10 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 
 | 라우트 | 역할 | 하는 일 |
 |---|---|---|
-| `GET /api/agent-runtimes` | manager·owner | 등록 런타임의 실행 파일 존재·설치 가능·설치 중 상태 |
+| `GET /api/agent-runtimes` | manager·owner | 등록 런타임의 실행 파일 존재와 설치·안전 제거·로그아웃 가능 상태 |
 | `POST /api/agent-runtimes/:id/install` | manager·owner | id에 대응하는 등록표의 고정 설치 명령 실행. 임의 명령·인자는 받지 않음 |
+| `DELETE /api/agent-runtimes/:id/install` | manager·owner | 등록표가 선언한 고정 역설치 명령 실행. 안전한 제거 계약이 없으면 거부 |
+| `POST /api/agent-runtimes/:id/logout` | manager·owner | 등록표가 선언한 비대화형 CLI 로그아웃만 실행. 자격증명 값은 읽거나 전송하지 않음 |
 | `POST /api/agent-runtimes/:id/auth/:method/run` | manager·owner | ACP가 광고했거나 등록표에 박힌 terminal auth 고정 명령을 숨김 tmux에서 실행. body는 `{tab}`만 |
 | `GET /api/agent-runtimes/:id/auth/:method/status?tab=<id>` | manager·owner | terminal auth의 `running`·`succeeded`·`failed`·`interrupted`와 exit code. 비밀값은 기록하지 않음 |
 | `GET /api/agent-defaults/:id` | manager·owner | 런타임별로 저장된 모델·권한 기본값 |
@@ -773,11 +778,13 @@ mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이
 | `PUT /api/agent-runtimes/:id/settings` | manager·owner | 병합 저장 — 보낸 키만 갈아끼우고 없는 env 키는 기존 값을 유지(시크릿 원문을 브라우저가 모르므로) |
 | `DELETE /api/agent-runtimes/:id/settings` | manager·owner | 그 런타임의 사용자 설정을 지우고 등록표 기본값으로 돌아간다 |
 
-- **런타임 설정 팝업**(목록의 톱니 아이콘) — 실행 파일 경로·추가 인자·공급자 env(`ANTHROPIC_API_KEY`·
+- **런타임 설정 팝업**(목록의 톱니 아이콘) — 설치·삭제·로그인·로그아웃과 실행 파일 경로·추가 인자·공급자 env(`ANTHROPIC_API_KEY`·
   `PRIME_API_KEY` 같은 시크릿, 커스텀 엔드포인트)를 런타임별로 저장한다. 값은
   `<DATA_DIR>/agent-settings.json`에 남고 `resolvedSpec`이 등록표 spec에 얹어 **모든 spawn 경로**
   (에이전트 창·예약 작업·설치 판정)에 즉시 적용된다. 시크릿은 서버에만 있고 화면은
-  `****끝4자`만 본다 — 바꾸려면 전체 값을 새로 입력한다.
+  `****끝4자`만 본다 — 바꾸려면 전체 값을 새로 입력한다. 로그인은 그 런타임 새 탭을 열어 기존 ACP 인증
+  흐름으로 이어간다. 제거·로그아웃은 확인 뒤 등록표의 고정 명령만 실행한다. 공급자 설치 스크립트처럼
+  안전한 역설치/로그아웃 계약이 없는 런타임은 이유를 표시하고 임의 파일·인증 저장소를 지우지 않는다.
 - **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로,
   PATH에 시스템 `claude`가 있으면 자동으로 그걸 쓴다(`CLAUDE_CODE_EXECUTABLE`로 전달, 이미 지정돼
   있으면 존중). 시스템 설치본이 없으면 번들 CLI로 돌아간다.
@@ -983,3 +990,15 @@ MEW_COLLAB_RUST=1 npm run serve
 에디터의 멘션·슬래시 메뉴와 링크/표 툴팁은 **일부러 등록하지 않았다.** 타이핑·선택에 따라 수시로
 떴다 사라져서 그때마다 History를 밀고 당기면 브라우저 pushState 제한에 걸린다. 이들의 Esc는
 `Editor.tsx`의 ProseMirror `handleKeyDown`이 직접 처리한다.
+
+### 포커스 기반 탭 단축키
+
+`Ctrl+W`(기본 `closeTab`)는 App이 조합을 한 번만 판정한 뒤, `@mew/shortcuts`의
+`dispatchFocusedShortcut`으로 **포커스된 표면**에 전달한다. 에이전트·브라우저·터미널처럼 자기 탭을
+소유하는 창은 루트 ref와 `useFocusedShortcutScope(ref, { closeTab })`만 등록한다. 이 계약 덕분에
+새 탭 창을 추가해도 App의 단축키 조건문을 고치지 않는다.
+
+- 실제로 닫을 탭이 있을 때만 `preventDefault()`로 브라우저의 `Ctrl+W`보다 먼저 처리한다. 탭이 없거나
+  마지막 브라우저 탭처럼 닫을 수 없으면 브라우저 기본 탭 닫기를 양보하며, 다른 표면의 탭으로 새지 않는다.
+- 등록된 창이 없고 편집기의 초점 칸에 활성 문서가 있을 때만 그 문서 탭을 닫는다. 터미널의 탭 닫기는 세션
+  종료이므로 기존 `×` 버튼과 같이 확인 대화상자를 연다.
