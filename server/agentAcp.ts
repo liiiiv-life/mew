@@ -41,7 +41,9 @@ export {
   runtimeList,
   RUNTIMES,
   RUNTIME_LOGIN_METHOD_ID,
+  runtimeAccountUsageSpec,
   runtimeLoginSpec,
+  type RuntimeAccountUsageSpec,
   type SpawnSpec,
 } from './agentRuntimes.ts'
 import {

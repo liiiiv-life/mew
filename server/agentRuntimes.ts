@@ -34,6 +34,12 @@ export interface RuntimeLoginSpec extends SpawnSpec {
   label: string
 }
 
+/** 계정 한도 조회는 대화형 CLI 안의 슬래시 명령만 지원한다. API 키·토큰은 Mew가 받거나 저장하지 않는다. */
+export interface RuntimeAccountUsageSpec extends SpawnSpec {
+  slashCommand: string
+  label: string
+}
+
 export interface RuntimeAuthentication {
   /** ACP initialize 이전 실패까지 복구하는 런타임 고정 로그인/초기 설정 명령. */
   login: () => RuntimeLoginSpec
@@ -282,6 +288,29 @@ export function runtimeLoginSpec(runtime: string): RuntimeLoginSpec {
   const entry = RUNTIMES[runtime]
   if (!entry) throw new Error('지원하지 않는 에이전트 런타임입니다')
   return entry.auth.login()
+}
+
+/**
+ * 공급자가 CLI에서 직접 제공하는 구독 한도 화면만 연다. 비공개 세션 파일이나 인증 저장소를 읽어
+ * 추측하지 않고, 없는 런타임은 명시적으로 미지원으로 남긴다.
+ */
+export function runtimeAccountUsageSpec(runtime: string): RuntimeAccountUsageSpec | null {
+  if (runtime === 'codex') {
+    return {
+      cmd: DEFAULT_CODEX_CLI_CMD,
+      args: ['--no-alt-screen'],
+      env: codexSpawnSpec().env,
+      slashCommand: '/status',
+      label: 'Codex 계정 사용량',
+    }
+  }
+  if (runtime === 'claude') {
+    const spec = claudeSpawnSpec()
+    const cli = process.env.CLAUDE_CODE_EXECUTABLE || spec.env?.CLAUDE_CODE_EXECUTABLE || findExecutable('claude')
+    if (!cli) return null
+    return { cmd: cli, args: [], env: spec.env, slashCommand: '/usage', label: 'Claude Code 계정 사용량' }
+  }
+  return null
 }
 
 function defaultSkillPrompt(skills: RuntimeSkill[]): string {

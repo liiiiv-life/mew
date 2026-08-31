@@ -182,6 +182,28 @@ export function scheduleAgentPrompt(input: {
   }).then(json<{ job: { id: string; at: string } }>)
 }
 
+export interface AgentScheduledPrompt {
+  id: string
+  runtime: string
+  tab: string
+  cwd: string
+  text: string
+  at: string
+  createdAt: string
+}
+
+type AgentScheduledPromptScope = Pick<AgentScheduledPrompt, 'runtime' | 'tab' | 'cwd'>
+
+export function fetchAgentScheduledPrompts(scope: AgentScheduledPromptScope): Promise<{ jobs: AgentScheduledPrompt[] }> {
+  const params = new URLSearchParams(scope)
+  return fetch(`/api/agent/scheduled-prompts?${params.toString()}`).then(json<{ jobs: AgentScheduledPrompt[] }>)
+}
+
+export function cancelAgentScheduledPrompt(id: string, scope: AgentScheduledPromptScope): Promise<{ ok: true }> {
+  const params = new URLSearchParams(scope)
+  return fetch(`/api/agent/scheduled-prompts/${encodeURIComponent(id)}?${params.toString()}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+}
+
 /** 응답의 icon은 서버가 실제로 저장한 값 — 직접 넣은 SVG는 정리를 거치므로 보낸 값과 다를 수 있다 */
 export function setProjectIcon(project: string, icon: string | null): Promise<{ ok: true; icon: string | null }> {
   return fetch('/api/project-icon', {
@@ -436,6 +458,18 @@ export function installAgentRuntime(id: string): Promise<{ status: AgentRuntimeS
   return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/install`, { method: 'POST' }).then(
     json<{ status: AgentRuntimeStatus; output: string }>,
   )
+}
+
+/** CLI가 제공하는 연결 계정의 구독/API 한도 화면. 명령·자격증명은 브라우저에서 보내지 않는다. */
+export interface AgentAccountUsage {
+  label: string
+  command: string
+  output: string
+  fetchedAt: string
+}
+
+export function fetchAgentAccountUsage(id: string): Promise<{ usage: AgentAccountUsage }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/account-usage`).then(json<{ usage: AgentAccountUsage }>)
 }
 
 /** 런타임 설정 — env 값은 마스킹(마지막 4자)이라 원문을 되찾을 수 없다. 덮어쓸 때만 전송한다 */

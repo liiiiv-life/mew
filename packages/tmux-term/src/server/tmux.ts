@@ -46,6 +46,10 @@ export interface TmuxManager {
   rename: (oldName: string, newName: string) => Promise<void>
   /** 세션이 없으면 cwd에서 새로 띄운 뒤, 명령을 셸에 "타이핑하고 Enter"로 실행한다(재호출 = 재실행) */
   runCommand: (name: string, command: string, cwd: string) => Promise<void>
+  /** 고정된 제어 키 하나를 현재 pane에 보낸다. 사용자 입력을 이 경로로 전달하지 않는다. */
+  sendKey: (name: string, key: 'Escape') => Promise<void>
+  /** 화면에 보이는 최근 pane 내용을 텍스트로 회수한다. 서버가 만든 고정 진단 세션에서만 쓴다. */
+  capture: (name: string, lines?: number) => Promise<string>
 }
 
 async function listTmuxSessions(): Promise<TmuxSession[]> {
@@ -126,6 +130,18 @@ export function createTmuxManager({ cwd }: TmuxManagerOptions): TmuxManager {
       // 않는다. 제출용 Enter는 별도 send-keys로 보낸다(사용자가 직접 친 것과 동일).
       await run(['send-keys', '-t', name, '-l', command])
       await run(['send-keys', '-t', name, 'Enter'])
+    },
+
+    async sendKey(name, key) {
+      assertValidName(name)
+      await run(['send-keys', '-t', name, key])
+    },
+
+    async capture(name, lines = 200) {
+      assertValidName(name)
+      // 음수 시작 줄로 최근 출력만 제한한다. 호출자는 이 값을 사용자 입력으로 받지 않는다.
+      const start = -Math.min(Math.max(lines, 1), 500)
+      return run(['capture-pane', '-p', '-t', name, '-S', String(start)])
     },
   }
   return manager

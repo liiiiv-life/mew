@@ -14,6 +14,7 @@ const MAX_PROMPT = 100_000
 
 export type AgentScheduledPrompt = { id: string; runtime: string; tab: string; cwd: string; sessionId: string; text: string; skills: string[]; at: string; createdAt: string }
 export class AgentScheduledPromptError extends Error {}
+type AgentScheduledPromptScope = Pick<AgentScheduledPrompt, 'runtime' | 'tab' | 'cwd'>
 
 function read(): AgentScheduledPrompt[] {
   const saved = readJsonFile<unknown>(FILE)
@@ -41,6 +42,16 @@ function validate(input: unknown): Omit<AgentScheduledPrompt, 'id' | 'createdAt'
   if (!text || text.length > MAX_PROMPT) throw new AgentScheduledPromptError('예약할 메시지를 입력하세요')
   if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) throw new AgentScheduledPromptError('미래의 날짜와 시간을 고르세요')
   return { runtime, tab, cwd, sessionId, text, skills: [...new Set(skills)], at: when.toISOString() }
+}
+
+function validateScope(input: unknown): AgentScheduledPromptScope {
+  if (!input || typeof input !== 'object') throw new AgentScheduledPromptError('예약 메시지 범위가 올바르지 않습니다')
+  const value = input as Record<string, unknown>
+  const runtime = typeof value.runtime === 'string' ? value.runtime : ''
+  const tab = typeof value.tab === 'string' ? value.tab : ''
+  const cwd = typeof value.cwd === 'string' ? value.cwd : ''
+  if (!isRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)) throw new AgentScheduledPromptError('예약 메시지 범위가 올바르지 않습니다')
+  return { runtime, tab, cwd }
 }
 
 let timer: NodeJS.Timeout | null = null
@@ -83,5 +94,28 @@ async function runDue() {
 export function scheduleAgentPrompt(input: unknown): AgentScheduledPrompt {
   const job = { ...validate(input), id: crypto.randomUUID(), createdAt: new Date().toISOString() }
   const jobs = read(); jobs.push(job); write(jobs); arm(); return job
+}
+
+/** 현재 에이전트 탭의 아직 실행되지 않은 메시지만 시간순으로 돌려준다. */
+export function listAgentScheduledPrompts(input: unknown): AgentScheduledPrompt[] {
+  const scope = validateScope(input)
+  return read()
+    .filter((job) => job.runtime === scope.runtime && job.tab === scope.tab && job.cwd === scope.cwd)
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+}
+
+/** 같은 탭·런타임·작업 경로에 속한 예약만 취소할 수 있다. */
+export function cancelAgentScheduledPrompt(input: unknown): boolean {
+  if (!input || typeof input !== 'object') throw new AgentScheduledPromptError('예약 메시지를 찾을 수 없습니다')
+  const value = input as Record<string, unknown>
+  const id = typeof value.id === 'string' ? value.id : ''
+  if (!id) throw new AgentScheduledPromptError('예약 메시지를 찾을 수 없습니다')
+  const scope = validateScope(value)
+  const jobs = read()
+  const keep = jobs.filter((job) => !(job.id === id && job.runtime === scope.runtime && job.tab === scope.tab && job.cwd === scope.cwd))
+  if (keep.length === jobs.length) return false
+  write(keep)
+  arm()
+  return true
 }
 export function startAgentScheduledPrompts() { arm() }
