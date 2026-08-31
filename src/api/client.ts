@@ -448,6 +448,8 @@ export interface AgentRuntimeStatus {
   installed: boolean
   installing: boolean
   installable: boolean
+  uninstallable: boolean
+  logoutable: boolean
 }
 
 export function fetchAgentRuntimes(): Promise<{ runtimes: AgentRuntimeStatus[] }> {
@@ -460,11 +462,23 @@ export function installAgentRuntime(id: string): Promise<{ status: AgentRuntimeS
   )
 }
 
+export function uninstallAgentRuntime(id: string): Promise<{ status: AgentRuntimeStatus; output: string }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/install`, { method: 'DELETE' }).then(json<{ status: AgentRuntimeStatus; output: string }>)
+}
+
+export function logoutAgentRuntime(id: string): Promise<{ output: string }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/logout`, { method: 'POST' }).then(json<{ output: string }>)
+}
+
 /** CLI가 제공하는 연결 계정의 구독/API 한도 화면. 명령·자격증명은 브라우저에서 보내지 않는다. */
 export interface AgentAccountUsage {
   label: string
   command: string
   output: string
+  summary: {
+    limits: Array<{ label: string; percentLeft: number; resetsAt: string | null }>
+    refreshPending: boolean
+  }
   fetchedAt: string
 }
 

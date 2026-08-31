@@ -2,11 +2,17 @@
 // 시크릿은 서버에만 남고 브라우저로는 마지막 4자만 돌아오므로, 이 창에서 되찾을 방법은 없다 —
 // 덮어써야 바꿀 수 있다. 저장 즉시 다음 spawn부터 적용된다.
 import { useEffect, useState } from 'react'
+import { ConfirmDialog } from '@mew/ui'
 import {
   deleteAgentRuntimeSetting,
+  fetchAgentRuntimes,
   fetchAgentRuntimeSetting,
+  installAgentRuntime,
+  logoutAgentRuntime,
   saveAgentRuntimeSetting,
   type RuntimeSettingView,
+  type AgentRuntimeStatus,
+  uninstallAgentRuntime,
 } from '../api/client'
 
 const GEAR_GLYPH = (
@@ -48,6 +54,9 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedNote, setSavedNote] = useState(false)
+  const [runtime, setRuntime] = useState<AgentRuntimeStatus | null>(null)
+  const [lifecycleBusy, setLifecycleBusy] = useState(false)
+  const [confirm, setConfirm] = useState<'uninstall' | 'logout' | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -77,6 +86,10 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
     return () => {
       alive = false
     }
+  }, [runtimeId])
+
+  useEffect(() => {
+    void fetchAgentRuntimes().then(({ runtimes }) => setRuntime(runtimes.find((item) => item.id === runtimeId) ?? null)).catch(() => {})
   }, [runtimeId])
 
   const addRow = () => setRows((prev) => [...prev, { key: '', value: '', secret: false }])
@@ -133,6 +146,24 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
     }
   }
 
+  const refreshRuntime = async () => {
+    const { runtimes } = await fetchAgentRuntimes()
+    setRuntime(runtimes.find((item) => item.id === runtimeId) ?? null)
+  }
+
+  const install = async () => {
+    setLifecycleBusy(true); setError(null)
+    try { await installAgentRuntime(runtimeId); await refreshRuntime() } catch (err) { setError(err instanceof Error ? err.message : String(err)) } finally { setLifecycleBusy(false) }
+  }
+  const uninstall = async () => {
+    setConfirm(null); setLifecycleBusy(true); setError(null)
+    try { await uninstallAgentRuntime(runtimeId); await refreshRuntime() } catch (err) { setError(err instanceof Error ? err.message : String(err)) } finally { setLifecycleBusy(false) }
+  }
+  const logout = async () => {
+    setConfirm(null); setLifecycleBusy(true); setError(null)
+    try { await logoutAgentRuntime(runtimeId) } catch (err) { setError(err instanceof Error ? err.message : String(err)) } finally { setLifecycleBusy(false) }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onPointerDown={(e) => e.stopPropagation()}>
       <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised shadow-xl">
@@ -144,6 +175,18 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
           <div className="px-4 py-8 text-center text-xs text-ink-muted">불러오는 중…</div>
         ) : (
           <div className="space-y-4 px-4 py-3">
+            <section className="rounded border border-edge bg-surface p-3">
+              <div className="text-xs font-medium text-ink-secondary">런타임 · 계정</div>
+              <div className="mt-1 text-[11px] text-ink-muted">{runtime?.installed ? '설치됨' : '설치되지 않음'} · 로그인은 이 런타임으로 새 탭을 열어 이어갑니다.</div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {!runtime?.installed && runtime?.installable && <button type="button" disabled={lifecycleBusy} onClick={install} className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent disabled:opacity-40">설치</button>}
+                {runtime?.installed && <button type="button" disabled={lifecycleBusy} onClick={() => window.dispatchEvent(new CustomEvent('mew:open-agent-runtime', { detail: runtimeId }))} className="rounded border border-edge px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-40">로그인</button>}
+                {runtime?.installed && runtime.logoutable && <button type="button" disabled={lifecycleBusy} onClick={() => setConfirm('logout')} className="rounded border border-warning px-2.5 py-1 text-xs text-warning hover:bg-surface-hover disabled:opacity-40">로그아웃</button>}
+                {runtime?.installed && runtime.uninstallable && <button type="button" disabled={lifecycleBusy} onClick={() => setConfirm('uninstall')} className="rounded border border-danger px-2.5 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-40">런타임 삭제</button>}
+              </div>
+              {runtime?.installed && !runtime.uninstallable && <div className="mt-2 text-[11px] text-ink-faint">이 설치 방식에는 안전한 자동 제거 명령이 없어 파일을 추측해 지우지 않습니다.</div>}
+              {runtime?.installed && !runtime.logoutable && <div className="mt-1 text-[11px] text-ink-faint">이 CLI는 확인된 비대화형 로그아웃 명령이 없어 자동 로그아웃을 제공하지 않습니다.</div>}
+            </section>
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-secondary">실행 파일</label>
               <input
@@ -232,6 +275,8 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
           </div>
         </div>
       </div>
+      {confirm === 'uninstall' && <ConfirmDialog message={`${label} 런타임을 삭제할까요?`} detail="해당 CLI만 제거합니다. 공급자 계정과 API 키 설정은 별도로 유지될 수 있습니다." confirmLabel="삭제" danger onConfirm={uninstall} onCancel={() => setConfirm(null)} />}
+      {confirm === 'logout' && <ConfirmDialog message={`${label}에서 로그아웃할까요?`} detail="공급자 CLI가 저장한 해당 런타임의 인증 정보를 지웁니다." confirmLabel="로그아웃" danger onConfirm={logout} onCancel={() => setConfirm(null)} />}
     </div>
   )
 }

@@ -16,7 +16,8 @@ import {
   type ReactNode,
 } from 'react'
 import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
-import { flattenFiles, type TreeNode } from '@mew/editor'
+import { useFocusedShortcutScope } from '@mew/shortcuts'
+import { type TreeNode } from '@mew/editor'
 import {
   agentMarkdownHrefFromClick,
   copyTextFromAgentMarkdownClick,
@@ -60,6 +61,7 @@ import {
   type SkillSummary,
 } from '../api/client'
 import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './MentionTextarea'
+import { agentInputMentionOptions } from '../utils/agentInputMentions'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
 import { RuntimeSettingsButton } from './RuntimeSettingsModal'
 import { AgentSetPicker } from './AgentSetPicker'
@@ -301,6 +303,52 @@ function InfoRow({ label, value, title }: { label: string; value: string; title?
     <div className="flex items-baseline justify-between gap-3">
       <span className="shrink-0 text-ink-muted">{label}</span>
       <span className="truncate text-right text-ink-secondary" title={title ?? value}>{value}</span>
+    </div>
+  )
+}
+
+const CODEX_USAGE_DASHBOARD_URL = 'https://chatgpt.com/codex/settings/usage'
+
+function AccountUsageView({ usage }: { usage: AgentAccountUsage }) {
+  const { limits, refreshPending } = usage.summary
+  return (
+    <div className="mt-1 space-y-2">
+      {limits.length > 0 ? (
+        <div className="space-y-1.5">
+          {limits.map((limit) => (
+            <div key={limit.label}>
+              <div className="flex items-baseline justify-between gap-2 text-[11px]">
+                <span className="truncate text-ink-secondary">{limit.label}</span>
+                <span className="shrink-0 text-ink">{limit.percentLeft}% 남음</span>
+              </div>
+              <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-surface-raised" aria-label={`${limit.label}: ${limit.percentLeft}% 남음`}>
+                <div className="h-full rounded-full bg-accent-strong" style={{ width: `${limit.percentLeft}%` }} />
+              </div>
+              {limit.resetsAt && <p className="mt-0.5 text-[10px] text-ink-muted">재설정 {limit.resetsAt}</p>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[11px] text-ink-muted">
+          {refreshPending ? 'Codex가 한도를 갱신 중입니다. 잠시 뒤 다시 조회하세요.' : 'CLI가 읽을 수 있는 한도 수치를 아직 표시하지 않았습니다.'}
+        </p>
+      )}
+      {usage.label.startsWith('Codex') && (
+        <a
+          href={CODEX_USAGE_DASHBOARD_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-block text-[11px] text-accent hover:underline"
+        >
+          Codex Usage 대시보드 열기 ↗
+        </a>
+      )}
+      <details className="group">
+        <summary className="cursor-pointer text-[11px] text-ink-muted hover:text-ink-secondary">CLI 원문 보기</summary>
+        <pre className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2 font-mono text-[11px] leading-4 text-ink-secondary">
+          {usage.output}
+        </pre>
+      </details>
     </div>
   )
 }
@@ -1134,6 +1182,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
 }
 
 export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0 }: { project: string; workspacePath: string | null; tree: TreeNode[]; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
+  const shortcutScopeRef = useRef<HTMLDivElement>(null)
   const tabsKey = agentTabStorageKey(TABS_KEY, workspacePath)
   const activeTabKey = agentTabStorageKey(ACTIVE_TAB_KEY, workspacePath)
   const [tabs, setTabs] = useState<AgentTab[]>(() => loadTabs(workspacePath))
@@ -1220,6 +1269,17 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
     setPickerOpen(false)
   }
 
+  useEffect(() => {
+    const open = (event: Event) => {
+      const runtime = (event as CustomEvent<unknown>).detail
+      if (typeof runtime === 'string' && runtimeOf(runtime).id === runtime) addRuntimeTab(runtime)
+    }
+    window.addEventListener('mew:open-agent-runtime', open)
+    return () => window.removeEventListener('mew:open-agent-runtime', open)
+  // addRuntimeTab deliberately reads current defaultCwd and creates a fresh tab for each settings click.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultCwd])
+
   const selectRuntime = (id: string, runtime: string) => {
     localStorage.setItem(RUNTIME_KEY, runtime)
     setTabs((prev) => prev.map((tab) => (tab.id === id ? { ...tab, runtime, preset: undefined } : tab)))
@@ -1271,6 +1331,13 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
       setPickerOpen(nextActiveId === null)
     }
   }
+
+  // App은 키 조합만 판정하고, 실제 닫을 탭은 포커스된 표면이 맡는다.
+  useFocusedShortcutScope(shortcutScopeRef, { closeTab: () => {
+    if (!activeId) return false
+    closeTab(activeId)
+    return true
+  } })
 
   // 화면 위 40% 좌우 스와이프로 탭 전환 — 터미널·에디터와 같은 손짓 (우→좌면 오른쪽 탭, 좌→우면 왼쪽 탭)
   const switchTab = (dir: 'left' | 'right') => {
@@ -1339,6 +1406,7 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
 
   return (
     <div
+      ref={shortcutScopeRef}
       className="flex h-full w-full flex-col bg-surface-deep"
       onMouseDown={dropOutsideFocus}
       onClick={dropInputFocusAfterPress}
@@ -1987,8 +2055,8 @@ function AgentSessionView({
     }
   }, [])
 
-  // # 프로젝트 멘션은 현재 파일 트리가 아니라 워크스페이스의 프로젝트 목록을 쓴다.
-  // 목록은 서버가 역할에 맞게 거른다(/api/projects).
+  // @ 목록의 하위 프로젝트는 현재 파일 트리만으로는 빠질 수 있어, 역할별 워크스페이스
+  // 프로젝트 목록도 함께 쓴다(/api/projects).
   useEffect(() => {
     let alive = true
     fetchProjects()
@@ -2030,14 +2098,8 @@ function AgentSessionView({
   }
 
   const fileMentionOptions = useMemo<MentionOption[]>(
-    () =>
-      flattenFiles(tree).map((path) => ({
-        id: path,
-        label: path.split('/').pop() ?? path,
-        hint: path,
-        insert: `[[${project}:${path}]]`,
-      })),
-    [tree, project],
+    () => agentInputMentionOptions(tree, project, projects),
+    [tree, project, projects],
   )
   const slashTriggers = useMemo<TriggerOptionSet[]>(
     () => [
@@ -2054,19 +2116,8 @@ function AgentSessionView({
     [skills],
   )
   const mentionTriggers = useMemo<TriggerOptionSet[]>(
-    () => [
-      ...slashTriggers,
-      {
-        trigger: '#',
-        options: projects.map((item) => ({
-          id: item.name,
-          label: item.name,
-          hint: '프로젝트',
-          insert: `#${item.name}`,
-        })),
-      },
-    ],
-    [projects, slashTriggers],
+    () => slashTriggers,
+    [slashTriggers],
   )
 
   return (
@@ -2220,9 +2271,7 @@ function AgentSessionView({
                   <div className="mt-1 text-[11px] text-ink-muted">
                     {accountUsage.command} · {new Date(accountUsage.fetchedAt).toLocaleTimeString('ko-KR')}
                   </div>
-                  <pre className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2 font-mono text-[11px] leading-4 text-ink-secondary">
-                    {accountUsage.output}
-                  </pre>
+                  <AccountUsageView usage={accountUsage} />
                 </>
               )}
               {accountUsageError && <p className="mt-1 text-[11px] text-danger">{accountUsageError}</p>}
@@ -2553,7 +2602,7 @@ function AgentSessionView({
           triggers={mentionTriggers}
           onSubmit={submit}
           rows={2}
-          placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 — @파일 · #프로젝트 (Ctrl+Enter 전송)'}
+          placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 — @프로젝트·폴더·파일 (Ctrl+Enter 전송)'}
           className="block h-full w-full resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
           style={{ height: '100%' }}
           submitHint="Ctrl+Enter로 전송"

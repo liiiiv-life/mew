@@ -49,10 +49,11 @@ import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
 import { isRuntime, runtimeAccountUsageSpec, runtimeList } from './agentAcp.ts'
+import { summarizeAccountUsage, type AccountUsageSummary } from './agentAccountUsage.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
 import { prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
 import { resolveWorkspaceLink } from './workspaceLinks.ts'
-import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRuntimeInstall.ts'
+import { installRuntime, logoutRuntime, runtimeStatuses, RuntimeInstallError, uninstallRuntime } from './agentRuntimeInstall.ts'
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import { AgentCwdError, resolveAgentCwd, suggestAgentCwds } from './agentCwd.ts'
 import { AgentScheduledPromptError, cancelAgentScheduledPrompt, listAgentScheduledPrompts, scheduleAgentPrompt } from './agentScheduledPrompts.ts'
@@ -113,7 +114,7 @@ const ACCOUNT_USAGE_WAIT_FOR_RESULT_MS = 2_500
 const ACCOUNT_USAGE_MAX_CHARS = 12_000
 const accountUsageInFlight = new Map<string, Promise<AgentAccountUsage>>()
 
-type AgentAccountUsage = { label: string; command: string; output: string; fetchedAt: string }
+type AgentAccountUsage = { label: string; command: string; output: string; summary: AccountUsageSummary; fetchedAt: string }
 
 function shellArg(value: string): string {
   return `'${value.replaceAll("'", `"'"'"`)}'`
@@ -155,7 +156,7 @@ async function collectAgentAccountUsage(id: string): Promise<AgentAccountUsage> 
     await wait(ACCOUNT_USAGE_WAIT_FOR_RESULT_MS)
     const output = cleanTerminalOutput(await tmuxManager.capture(session))
     if (!output) throw new Error('CLI가 사용량 정보를 반환하지 않았습니다. 해당 CLI에서 로그인 상태를 확인하세요')
-    return { label: spec.label, command: spec.slashCommand, output, fetchedAt: new Date().toISOString() }
+    return { label: spec.label, command: spec.slashCommand, output, summary: summarizeAccountUsage(output), fetchedAt: new Date().toISOString() }
   } finally {
     await tmuxManager.kill(session).catch(() => {})
   }
@@ -1664,6 +1665,14 @@ export function createApiApp() {
     } catch (err) {
       handleError(res, err)
     }
+  })
+
+  app.delete('/agent-runtimes/:id/install', requireRole('owner', 'manager'), async (req, res) => {
+    try { res.json(await uninstallRuntime(String(req.params.id))) } catch (err) { handleError(res, err) }
+  })
+
+  app.post('/agent-runtimes/:id/logout', requireRole('owner', 'manager'), async (req, res) => {
+    try { res.json(await logoutRuntime(String(req.params.id))) } catch (err) { handleError(res, err) }
   })
 
   // terminal auth는 사용자가 브라우저 안 tmux에서 직접 조작한다. 요청은 런타임·탭·노출된 method id만

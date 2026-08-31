@@ -56,8 +56,12 @@ export interface AgentRuntime {
   spec: () => SpawnSpec
   /** UI 설치 버튼이 실행하는 고정 명령. 요청 값을 인자에 섞지 않는다. */
   install?: () => SpawnSpec
+  /** 설치를 되돌리는 고정 명령. 선언하지 않으면 UI가 임의 파일 삭제를 하지 않는다. */
+  uninstall?: () => SpawnSpec
   /** 설치와 별개인 인증 계약. 등록된 모든 런타임이 GUI 로그인 복구 경로를 가진다. */
   auth: RuntimeAuthentication
+  /** 공급자 CLI가 보장하는 비대화형 로그아웃 명령. */
+  logout?: () => SpawnSpec
   /** 런타임이 스킬을 해석하는 방법. 없으면 모든 ACP 에이전트가 읽을 수 있는 일반 지시문을 쓴다. */
   skillPrompt?: (skills: RuntimeSkill[]) => string
 }
@@ -165,6 +169,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
   claude: {
     id: 'claude', label: 'Claude Code', spec: claudeSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/claude-agent-acp@0.65.0'] }),
+    logout: () => ({ cmd: findExecutable('claude') ?? 'claude', args: ['auth', 'logout'] }),
     auth: {
       login: () => {
         const spec = claudeSpawnSpec()
@@ -175,6 +180,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
   codex: {
     id: 'codex', label: 'Codex', spec: codexSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/codex-acp@1.6.0'] }),
+    logout: () => ({ cmd: DEFAULT_CODEX_CLI_CMD, args: ['logout'] }),
     auth: {
       login: () => login(
         { cmd: DEFAULT_CODEX_CLI_CMD, args: [], env: codexSpawnSpec().env },
@@ -187,6 +193,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
   hermes: {
     id: 'hermes', label: 'Hermes', spec: hermesSpawnSpec,
     install: () => ({ cmd: 'uv', args: ['tool', 'install', '--force', 'hermes-agent[acp]'] }),
+    uninstall: () => ({ cmd: 'uv', args: ['tool', 'uninstall', 'hermes-agent'] }),
     auth: {
       login: () => login(hermesSpawnSpec(), ['acp', '--setup'], 'Hermes 로그인/설정', '모델 공급자와 자격증명을 설정합니다.'),
       replaceMethodIds: ['hermes-setup'],
@@ -195,6 +202,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
   kimi: {
     id: 'kimi', label: 'Kimi Code', spec: kimiSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '-g', '@moonshot-ai/kimi-code@latest'] }),
+    uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', '@moonshot-ai/kimi-code'] }),
     auth: {
       login: () => login(kimiSpawnSpec(), ['login'], 'Kimi Code 로그인', '기기 코드를 이용해 Kimi 계정으로 로그인합니다.'),
       replaceMethodIds: ['login'],
@@ -203,6 +211,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
   gemini: {
     id: 'gemini', label: 'Gemini CLI', spec: geminiSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '-g', '@google/gemini-cli@latest'] }),
+    uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', '@google/gemini-cli'] }),
     auth: {
       login: () => login(geminiSpawnSpec(), ['--skip-trust'], 'Gemini CLI 로그인/설정', 'Google 로그인 또는 인증 방식을 터미널에서 선택합니다.'),
       replaceMethodIds: ['oauth-personal', 'vertex-ai', 'gateway'],
@@ -213,6 +222,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
   openclaw: {
     id: 'openclaw', label: 'OpenClaw', spec: openclawSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '-g', 'openclaw@latest'] }),
+    uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', 'openclaw'] }),
     auth: {
       login: () => login(openclawSpawnSpec(), ['onboard', '--tui'], 'OpenClaw 로그인/설정', '공급자 인증과 게이트웨이를 대화형으로 설정합니다.'),
     },
@@ -220,6 +230,8 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
   opencode: {
     id: 'opencode', label: 'OpenCode', spec: opencodeSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '-g', 'opencode-ai@latest'] }),
+    uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', 'opencode-ai'] }),
+    logout: () => ({ cmd: 'opencode', args: ['auth', 'logout'] }),
     auth: {
       login: () => login(opencodeSpawnSpec(), ['auth', 'login'], 'OpenCode 로그인', '모델 공급자를 골라 로그인합니다.'),
     },
