@@ -6,12 +6,13 @@ import {
   EditPencil,
   Expand,
   Folder,
+  MessageText,
   Terminal,
 } from 'iconoir-react'
 
 type Action = { label: string; icon: ReactNode; run: () => void }
 type Offset = { right: number; bottom: number }
-const RADIUS = 72
+const RADIUS = 60
 const EDGE = 28
 // 중심 핸들과 8방향 버튼 사이의 제스처 유효 고리. 의도치 않은 작은 흔들림이나
 // 멀리 벗어난 스와이프가 명령으로 확정되는 것을 막는다.
@@ -39,18 +40,19 @@ function readPosition(): Offset {
 
 /** 빠른 방향 드래그는 버튼을 고르고, 350ms 정지 후 끌기는 화면 어디로든 위치 이동이다. */
 export function FabMenu({
-  onFullscreen, onToggleAgent, onNextWindowTab, onPrevWindowTab, onToggleTerminal, onOpenEditor, onToggleSidebar,
+  onFullscreen, onToggleAgent, onNextWindowTab, onPrevWindowTab, onToggleTerminal, onOpenEditor, onToggleSidebar, onToggleChat,
 }: {
   onFullscreen: () => void; onToggleAgent: () => void; onNextWindowTab: () => void; onPrevWindowTab: () => void
-  onToggleTerminal: () => void; onOpenEditor: () => void; onToggleSidebar: () => void
+  onToggleTerminal: () => void; onOpenEditor: () => void; onToggleSidebar: () => void; onToggleChat: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [pressed, setPressed] = useState(false)
+  const [moveReady, setMoveReady] = useState(false)
   const [dragDirection, setDragDirection] = useState<number | null>(null)
   const [position, setPosition] = useState<Offset>(readPosition)
   const [keyboardInset, setKeyboardInset] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
-  const pointerRef = useRef<{ id: number; startX: number; startY: number; moving: boolean; directional: boolean } | null>(null)
+  const pointerRef = useRef<{ id: number; startX: number; startY: number; moving: boolean; directional: boolean; wasOpen: boolean } | null>(null)
   const longPressTimer = useRef<number | null>(null)
   const longPressArmed = useRef(false)
   const actions: Action[] = [
@@ -58,6 +60,7 @@ export function FabMenu({
     { label: '오른쪽 탭', icon: icon(ArrowRight), run: onNextWindowTab }, { label: '터미널 창', icon: icon(Terminal), run: onToggleTerminal },
     { label: '에디터 화면', icon: icon(EditPencil), run: onOpenEditor }, { label: '사이드바', icon: icon(Folder), run: onToggleSidebar },
     { label: '왼쪽 탭', icon: icon(ArrowLeft), run: onPrevWindowTab },
+    { label: '채팅창', icon: icon(MessageText), run: onToggleChat },
   ]
   const clearLongPress = () => { if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current); longPressTimer.current = null }
   useEffect(() => () => { clearLongPress() }, [])
@@ -89,12 +92,16 @@ export function FabMenu({
   function pointerDown(event: React.PointerEvent<HTMLButtonElement>) {
     event.currentTarget.setPointerCapture(event.pointerId)
     longPressArmed.current = false
+    setMoveReady(false)
     setDragDirection(null)
     clearLongPress()
     // 처음 0.35초 동안 가만히 눌러야만 위치 이동으로 승격한다. 먼저 방향 드래그를 시작한
     // 제스처는 이후 아무리 오래 누르고 있어도 절대 핸들 이동으로 바뀌지 않는다.
-    longPressTimer.current = window.setTimeout(() => { longPressArmed.current = true }, 350)
-    pointerRef.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false, directional: false }
+    longPressTimer.current = window.setTimeout(() => {
+      longPressArmed.current = true
+      setMoveReady(true)
+    }, 350)
+    pointerRef.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false, directional: false, wasOpen: open }
     setPressed(true)
     setOpen(true)
   }
@@ -122,9 +129,11 @@ export function FabMenu({
   }
   function pointerUp(event: React.PointerEvent<HTMLButtonElement>) {
     const state = pointerRef.current
+    const wasMoveReady = longPressArmed.current
     pointerRef.current = null
     clearLongPress()
     setPressed(false)
+    setMoveReady(false)
     if (!state || state.id !== event.pointerId || state.moving) {
       setDragDirection(null)
       return
@@ -132,9 +141,10 @@ export function FabMenu({
     const dx = event.clientX - state.startX; const dy = event.clientY - state.startY
     const direction = directionFor(dx, dy)
     if (direction !== null) { run(direction); setOpen(false) }
+    else if (state.wasOpen && !wasMoveReady) setOpen(false)
     setDragDirection(null)
   }
-  const cancelPointer = () => { pointerRef.current = null; clearLongPress(); setPressed(false); setDragDirection(null) }
+  const cancelPointer = () => { pointerRef.current = null; clearLongPress(); setPressed(false); setMoveReady(false); setDragDirection(null) }
   return <div ref={rootRef} className="fixed z-40" style={{ right: position.right, bottom: position.bottom + keyboardInset }}>
     {actions.map((action, index) => {
       const angle = (-90 + index * 45) * Math.PI / 180
@@ -143,6 +153,6 @@ export function FabMenu({
       const transform = `translate(-50%, -50%) translate(${open ? Math.cos(angle) * RADIUS : 0}px, ${open ? Math.sin(angle) * RADIUS : 0}px) scale(${scale})`
       return <button key={action.label} type="button" onClick={() => { action.run(); setOpen(false) }} className={`absolute left-1/2 top-1/2 flex h-10 w-10 items-center justify-center rounded-full border border-edge-bright bg-surface-raised text-ink shadow-lg transition-all duration-150 ${focused ? 'z-10 border-accent bg-surface text-ink-bright ring-2 ring-accent' : ''} ${open ? (dragDirection === null || focused ? 'pointer-events-auto opacity-100' : 'pointer-events-auto opacity-80') : 'pointer-events-none opacity-0'}`} style={{ transform }} aria-label={action.label} title={action.label}>{action.icon}</button>
     })}
-    <button type="button" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelPointer} className={`relative flex h-12 w-12 touch-none select-none items-center justify-center rounded-full border border-edge-bright bg-surface-raised text-ink-bright shadow-xl transition-opacity ${pressed ? 'opacity-90' : 'opacity-50 hover:opacity-90'}`} aria-label="플로팅 핸들" title="플로팅 핸들">{dots}</button>
+    <button type="button" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={cancelPointer} className={`relative flex h-12 w-12 touch-none select-none items-center justify-center rounded-full border border-edge-bright bg-surface-raised text-ink-bright shadow-xl transition-opacity ${moveReady ? 'opacity-100' : pressed ? 'opacity-90' : 'opacity-50 hover:opacity-90'}`} aria-label="플로팅 핸들" title="플로팅 핸들">{dots}</button>
   </div>
 }

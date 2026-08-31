@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import { fuzzyScore } from '@mew/editor'
+import { useOverlayDismiss } from '@mew/ui'
 
 // '@' 멘션이 되는 textarea — 채팅 입력(파일 멘션)과 댓글 작성(사용자 멘션)이 같이 쓴다.
 // '@' 뒤에 이어 친 글자를 검색어로 목록을 띄우고, 고르면 '@검색어'가 insert 문자열로 바뀐다.
@@ -73,6 +74,11 @@ export function MentionTextarea({
   const [mention, setMention] = useState<{ trigger: string; from: number; query: string } | null>(null)
   const [selected, setSelected] = useState(0)
 
+  const closeMention = () => {
+    setMention(null)
+    setSelected(0)
+  }
+
   const shown = useMemo(() => {
     if (!mention) return []
     const activeOptions = optionSets.find((set) => set.trigger === mention.trigger)?.options ?? []
@@ -96,14 +102,17 @@ export function MentionTextarea({
     if (!found) setSelected(0)
   }
 
+  // 인라인 검색 메뉴도 모달·패널과 같은 Esc 스택에 올라간다. 기본 capture 단계가 툴팁을
+  // 먼저 닫고 이벤트를 소비하므로, 아래의 에이전트·채팅 같은 bubble 패널까지 닫히지 않는다.
+  useOverlayDismiss(mention && shown.length > 0 ? closeMention : false)
+
   const pick = (option: MentionOption) => {
     if (!mention) return
     const el = textareaRef.current
     const caret = el?.selectionStart ?? value.length
     const next = value.slice(0, mention.from) + option.insert + ' ' + value.slice(caret)
     onChange(next)
-    setMention(null)
-    setSelected(0)
+    closeMention()
     requestAnimationFrame(() => {
       const pos = mention.from + option.insert.length + 1
       el?.setSelectionRange(pos, pos)
@@ -156,13 +165,6 @@ export function MentionTextarea({
             if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) {
               e.preventDefault()
               pick(shown[selected] ?? shown[0])
-              return
-            }
-            if (e.key === 'Escape') {
-              // 패널·팝업까지 닫히지 않게 여기서 끊는다 — 멘션 목록만 닫는다
-              e.preventDefault()
-              e.stopPropagation()
-              setMention(null)
               return
             }
           }

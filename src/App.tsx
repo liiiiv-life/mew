@@ -715,7 +715,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 핸들을 누르면 DOM 포커스가 옮겨가므로 포커스 대신 포인터 사용 기록을 따로 둔다.
   const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'tmux'>('editor')
   const [agentNextTabSignal, setAgentNextTabSignal] = useState(0)
+  const [agentPreviousTabSignal, setAgentPreviousTabSignal] = useState(0)
   const [tmuxNextTabSignal, setTmuxNextTabSignal] = useState(0)
+  const [tmuxPreviousTabSignal, setTmuxPreviousTabSignal] = useState(0)
   useEffect(() => {
     if (isDesktop()) return
     if (mobileForegroundPanel === 'agent') {
@@ -769,11 +771,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     if (surface === 'tmux' && !tmuxOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'agent') {
-      window.dispatchEvent(new CustomEvent('mew:agent-switch-tab', { detail: { direction: 'right' } }))
+      setAgentPreviousTabSignal((value) => value + 1)
       return
     }
     if (surface === 'tmux') {
-      window.dispatchEvent(new CustomEvent('mew:tmux-switch-tab', { detail: { direction: 'right' } }))
+      setTmuxPreviousTabSignal((value) => value + 1)
       return
     }
     if (tabs.length < 2 || !activePath) return
@@ -1798,6 +1800,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                 onOpenFile={openMentionedFile}
                 onClose={() => closeWorkspacePanel('agent')}
                 nextTabSignal={agentNextTabSignal}
+                previousTabSignal={agentPreviousTabSignal}
               />
             </div>
           </div>
@@ -1825,6 +1828,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                 getSelectedText={getSelectedText}
                 renderCommandButtons={renderTermButtons}
                 nextTabSignal={tmuxNextTabSignal}
+                previousTabSignal={tmuxPreviousTabSignal}
               />
             </div>
           </div>
@@ -1873,6 +1877,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         onToggleTerminal={() => { if (canUseTerminal) toggleWorkspacePanel('terminal') }}
         onOpenEditor={closeAllWorkspacePanels}
         onToggleSidebar={() => toggleWorkspacePanel('sidebar')}
+        onToggleChat={() => toggleWorkspacePanel('chat')}
       />
 
       {settingsOpen && (

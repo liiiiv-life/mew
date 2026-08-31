@@ -111,6 +111,25 @@ test('capture 오버레이가 위에 있으면 bubble 패널은 Esc를 받지 �
   await settle()
 })
 
+test('인라인 툴팁도 capture 스택에 올라가면 Esc가 패널보다 먼저 닫는다', async () => {
+  reset()
+  const closed: string[] = []
+  const unregisterPanel = registerOverlay({ close: () => closed.push('agent'), closeOnEscape: () => true, escapePhase: 'bubble' })
+  // MentionTextarea처럼 문서 흐름 안에 뜨는 검색 메뉴도 독립 오버레이다.
+  const unregisterTooltip = registerOverlay({ close: () => closed.push('tooltip'), closeOnEscape: () => true, escapePhase: 'capture' })
+  await settle()
+
+  pressEscape()
+  assert.deepEqual(closed, ['tooltip'])
+
+  unregisterTooltip()
+  pressEscape()
+  assert.deepEqual(closed, ['tooltip', 'agent'])
+
+  unregisterPanel()
+  await settle()
+})
+
 test('뒤로가기 가드는 겹쳐도 한 개만 얹고, 한 겹 닫힐 때마다 다시 얹는다', async () => {
   reset()
   const closed: string[] = []

@@ -216,6 +216,7 @@ export function TmuxTerminalPanel({
   renderCommandButtons,
   wsPath,
   nextTabSignal = 0,
+  previousTabSignal = 0,
 }: {
   /** 호스트 앱의 서버 연동 — 렌더 간 identity가 안정적인 객체를 넘길 것 */
   api: TmuxPanelApi
@@ -227,6 +228,7 @@ export function TmuxTerminalPanel({
   wsPath?: string
   /** 값이 바뀌면 현재 세션의 오른쪽 탭으로 한 칸 이동한다. */
   nextTabSignal?: number
+  previousTabSignal?: number
 }) {
   const [sessions, setSessions] = useState<TmuxSession[] | null>(null)
   const [activeSession, setActiveSession] = useState<string | null>(null)
@@ -257,6 +259,13 @@ export function TmuxTerminalPanel({
     switchSession('left')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextTabSignal])
+  const seenPreviousTabSignal = useRef(previousTabSignal)
+  useEffect(() => {
+    if (seenPreviousTabSignal.current === previousTabSignal) return
+    seenPreviousTabSignal.current = previousTabSignal
+    switchSession('right')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previousTabSignal])
   function saveTabOrder(names: string[]) {
     setTabOrder(names)
     localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(names))
