@@ -13,7 +13,7 @@ import {
 type Action = { label: string; icon: ReactNode; run: () => void }
 type Offset = { right: number; bottom: number }
 const RADIUS = 60
-const EDGE = 28
+const HANDLE_RADIUS = 24
 // 중심 핸들과 8방향 버튼 사이의 제스처 유효 고리. 의도치 않은 작은 흔들림이나
 // 멀리 벗어난 스와이프가 명령으로 확정되는 것을 막는다.
 const DIRECTION_MIN_DISTANCE = 36
@@ -80,7 +80,14 @@ export function FabMenu({
   }
   const moveTo = (x: number, y: number) => {
     const v = viewport()
-    const next = { right: Math.max(EDGE, Math.min(v.width - EDGE, v.width - x)), bottom: Math.max(EDGE, Math.min(v.height - EDGE, v.height + v.offsetTop - y)) }
+    // fixed 컨테이너의 right/bottom은 핸들 **바깥 모서리** 기준이다. 반지름을 빼지 않으면
+    // 중심이 포인터보다 24px 왼쪽 위로 가서, 길게 누른 뒤 위치가 뚝 끊겨 보인다.
+    const centerX = Math.max(HANDLE_RADIUS, Math.min(v.width - HANDLE_RADIUS, x))
+    const centerY = Math.max(HANDLE_RADIUS, Math.min(v.height - HANDLE_RADIUS, y))
+    const next = {
+      right: v.width - centerX - HANDLE_RADIUS,
+      bottom: v.height + v.offsetTop - centerY - HANDLE_RADIUS,
+    }
     setPosition(next)
     localStorage.setItem(POSITION_KEY, JSON.stringify(next))
   }
