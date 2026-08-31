@@ -64,12 +64,25 @@ export interface AgentTabState {
   cwd?: string | null
   renamed?: boolean
   sessionIds?: Record<string, string>
+  preset?: { id: string; name: string; modelId: string; role: string }
 }
 
 export interface AgentTabsState {
   tabs: AgentTabState[]
   activeId: string | null
 }
+
+/** 새 에이전트 탭을 시작할 때 고르는 런타임·모델·역할 프리셋. */
+export interface AgentSet {
+  id: string
+  name: string
+  role: string
+  runtime: string
+  modelId: string
+}
+
+/** 계정별·루트별 작업 화면 상태. 각 필드는 독립적으로 확장 가능한 JSON 값이다. */
+export type WorkspaceUiState = Record<string, unknown>
 
 /** 로그인 계정의 열린 루트 프로젝트와 아이콘(Owner 전용). */
 export function fetchRootProjectTabs(): Promise<{ state: RootProjectTabState | null }> {
@@ -97,8 +110,32 @@ export function saveAgentTabs(workspacePath: string, state: AgentTabsState): Pro
   }).then(json<{ state: AgentTabsState }>)
 }
 
+export function fetchWorkspaceUi(workspacePath: string): Promise<{ state: WorkspaceUiState | null }> {
+  return fetch(`/api/user-ui/workspace?workspace=${encodeURIComponent(workspacePath)}`).then(json<{ state: WorkspaceUiState | null }>)
+}
+
+export function saveWorkspaceUi(workspacePath: string, state: WorkspaceUiState): Promise<{ state: WorkspaceUiState }> {
+  return fetch('/api/user-ui/workspace', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspacePath, state }),
+  }).then(json<{ state: WorkspaceUiState }>)
+}
+
 export function fetchProjects(): Promise<ProjectInfo[]> {
   return fetch('/api/projects').then(json<ProjectInfo[]>)
+}
+
+export function fetchAgentSets(): Promise<{ sets: AgentSet[] }> {
+  return fetch('/api/agent-sets').then(json<{ sets: AgentSet[] }>)
+}
+
+export function saveAgentSets(sets: AgentSet[]): Promise<{ sets: AgentSet[] }> {
+  return fetch('/api/agent-sets', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sets }),
+  }).then(json<{ sets: AgentSet[] }>)
 }
 
 export interface WorkspaceFileLink {

@@ -18,6 +18,8 @@ type Focused = { path: string; type: 'file' | 'dir' } | null
 
 type PopoverState = { path: string; type: 'file' | 'dir'; x: number; y: number } | null
 
+export type TreePersistenceState = { openDirs: string[]; scrollTop: number }
+
 interface NodeCtx {
   selectedPath: string | null
   focused: Focused
@@ -620,6 +622,9 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
 export function FileTree({
   tree,
   project,
+  stateKey,
+  accountState,
+  onAccountStateChange,
   workspacePath = null,
   selectedPath,
   readOnly,
@@ -645,6 +650,11 @@ export function FileTree({
   tree: TreeNode[]
   /** 펼친 폴더·스크롤을 프로젝트별로 기억하는 열쇠 (이 컴포넌트는 key={project}로 갈아 끼워진다) */
   project: string
+  /** API 프로젝트명과 별개로, 트리 UI 상태를 구분하는 열쇠. */
+  stateKey?: string
+  /** 로그인 계정에서 복원한 폴더·스크롤 상태. 없으면 기존 브라우저 저장값을 최초 이관 원본으로 쓴다. */
+  accountState?: TreePersistenceState
+  onAccountStateChange?: (state: TreePersistenceState) => void
   /** 다른 루트 프로젝트로 붙여넣을 때 원본을 다시 찾는 절대경로. */
   workspacePath?: string | null
   selectedPath: string | null
@@ -678,10 +688,11 @@ export function FileTree({
   /** 검색창 밖에 포커스가 있어도 사이드바의 첫 Esc가 검색부터 취소할 수 있게 App에 등록한다 */
   registerSearchCancel: (cancel: (() => boolean) | null) => void
 }) {
+  const persistedProject = stateKey ?? project
   const [query, setQuery] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) === 'ext' ? 'ext' : 'name'))
   const [focused, setFocused] = useState<Focused>(null)
-  const [openDirs, setOpenDirs] = useState<Set<string>>(() => loadOpenDirs(project) ?? new Set())
+  const [openDirs, setOpenDirs] = useState<Set<string>>(() => new Set(accountState?.openDirs ?? loadOpenDirs(persistedProject) ?? []))
   const [directoryChildren, setDirectoryChildren] = useState<Record<string, TreeNode[]>>({})
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set())
   const directoryChildrenRef = useRef(directoryChildren)
@@ -689,7 +700,7 @@ export function FileTree({
   const loadingDirsRef = useRef(loadingDirs)
   loadingDirsRef.current = loadingDirs
   // 저장된 펼침 상태가 있으면(전부 접어 둔 빈 목록이어도) 아래 "처음엔 최상위 폴더를 모두 편다"를 건너뛴다
-  const [hadSavedOpenDirs] = useState(() => loadOpenDirs(project) !== null)
+  const [hadSavedOpenDirs] = useState(() => accountState !== undefined || loadOpenDirs(persistedProject) !== null)
   const [editing, setEditing] = useState<EditingState>(null)
   const [popover, setPopover] = useState<PopoverState>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; type: 'file' | 'dir' } | null>(null)
@@ -704,6 +715,7 @@ export function FileTree({
     setClipboardState(value)
   }, [])
   const listRef = useRef<HTMLDivElement>(null)
+  const treeScrollRef = useRef(accountState?.scrollTop ?? getTreeScroll(persistedProject) ?? 0)
   // 팝오버의 "업로드"는 파일 선택창을 띄워야 해서 클릭 시점의 대상 폴더를 잠깐 들고 있는다
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const uploadDirRef = useRef('')
@@ -773,8 +785,9 @@ export function FileTree({
   }, [tree])
 
   useEffect(() => {
-    localStorage.setItem(openDirsKey(project), JSON.stringify([...openDirs]))
-  }, [openDirs, project])
+    localStorage.setItem(openDirsKey(persistedProject), JSON.stringify([...openDirs]))
+    onAccountStateChange?.({ openDirs: [...openDirs], scrollTop: treeScrollRef.current })
+  }, [openDirs, persistedProject, onAccountStateChange])
 
   // 사이드바 스크롤 복원 — 트리가 처음 들어온 프레임에 한 번만. 그 뒤로는 사용자가 굴린 대로 두고,
   // 활성 파일 드러내기(위 이펙트)는 이미 보이면 아무것도 하지 않으므로 복원 위치를 뺏지 않는다
@@ -782,13 +795,13 @@ export function FileTree({
   useEffect(() => {
     if (restoredScroll.current || tree.length === 0) return
     restoredScroll.current = true
-    const top = getTreeScroll(project)
+    const top = accountState?.scrollTop ?? getTreeScroll(persistedProject)
     if (top === null) return
     const raf = requestAnimationFrame(() => {
       if (listRef.current) listRef.current.scrollTop = top
     })
     return () => cancelAnimationFrame(raf)
-  }, [tree, project])
+  }, [tree, persistedProject, accountState])
 
   // 활성 탭이 바뀌면 사이드바에서도 해당 파일이 보이게 부모 폴더 체인을 열고 스크롤한다.
   // 사이드바가 닫혀 있으면 이 컴포넌트는 언마운트 상태 — 다시 열릴 때 이 이펙트가 반영한다.
@@ -1306,7 +1319,12 @@ export function FileTree({
         ref={listRef}
         tabIndex={-1}
         // 스크롤 위치도 기억한다 — 저장은 문서 스크롤과 같은 저장소가 모아서 쓴다(utils/scrollMemory.ts)
-        onScroll={(e) => saveTreeScroll(project, e.currentTarget.scrollTop)}
+        onScroll={(e) => {
+          const scrollTop = e.currentTarget.scrollTop
+          treeScrollRef.current = scrollTop
+          saveTreeScroll(persistedProject, scrollTop)
+          onAccountStateChange?.({ openDirs: [...openDirs], scrollTop })
+        }}
         onKeyDown={handleTreeKeyDown}
         onContextMenu={(e) => {
           // 노드 위 우클릭은 Node.handleContextMenu가 먼저 처리하고 버블링되어 여기 닿는다 —

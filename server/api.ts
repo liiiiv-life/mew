@@ -48,7 +48,6 @@ import { listSkills } from './skills.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
-import { reloadSets } from './agentSetRunner.ts'
 import { isRuntime, runtimeList } from './agentAcp.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
 import { prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
@@ -57,7 +56,7 @@ import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRun
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import { AgentCwdError, resolveAgentCwd, suggestAgentCwds } from './agentCwd.ts'
 import { AgentScheduledPromptError, scheduleAgentPrompt } from './agentScheduledPrompts.ts'
-import { readAgentTabs, readRootProjects, writeAgentTabs, writeRootProjects } from './userUiState.ts'
+import { readAgentTabs, readRootProjects, readWorkspaceUi, writeAgentTabs, writeRootProjects, writeWorkspaceUi } from './userUiState.ts'
 import {
   AgentSettingError,
   deleteAgentSetting,
@@ -237,6 +236,24 @@ export function createApiApp() {
     try {
       const workspacePath = typeof req.body?.workspacePath === 'string' ? req.body.workspacePath : ''
       res.json({ state: writeAgentTabs(authOf(req).email!, workspacePath, req.body) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 로그인한 계정의 작업 화면 — 탭·사이드바·스크롤·패널 상태를 루트 경로별로 한 원장에 둔다.
+  app.get('/user-ui/workspace', requireAuthenticated, (req, res) => {
+    try {
+      res.json({ state: readWorkspaceUi(authOf(req).email!, String(req.query.workspace ?? '')) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.put('/user-ui/workspace', requireAuthenticated, (req, res) => {
+    try {
+      const workspacePath = typeof req.body?.workspacePath === 'string' ? req.body.workspacePath : ''
+      res.json({ state: writeWorkspaceUi(authOf(req).email!, workspacePath, req.body?.state) })
     } catch (err) {
       handleError(res, err)
     }
@@ -1716,8 +1733,7 @@ export function createApiApp() {
     }
   })
 
-  // 에이전트셋 정의 — 임의 프롬프트가 무인 실행되는 표면이라 예약 작업·터미널과 같은 게이트.
-  // 돌아가는 상태(켜짐·큐·작업)는 여기 없다 — 그건 WS(/api/agentset/ws)가 흘린다.
+  // 에이전트셋 정의 — 새 에이전트 탭을 시작할 때 고르는 프리셋이다.
   app.get('/agent-sets', requireRole('owner', 'manager'), (_req, res) => {
     try {
       res.json({ sets: readSets(), runtimes: runtimeList() })
@@ -1730,8 +1746,6 @@ export function createApiApp() {
     try {
       const { sets } = req.body as { sets?: unknown }
       const saved = writeSets(sets)
-      // 러너를 새 정의에 맞춘다 — 지워진 셋은 접히고, 런타임·모델·역할이 바뀐 셋은 다음 작업에 새로 뜬다
-      reloadSets()
       res.json({ sets: saved })
     } catch (err) {
       handleError(res, err)

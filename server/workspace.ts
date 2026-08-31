@@ -94,7 +94,7 @@ export function switchWorkspace(target: string, initialProject?: string): Worksp
   // 옛 폴더에 매인 것부터 접는다 — 새 경로가 걸린 뒤에 접으면 엉뚱한 파일을 붙들고 있게 된다
   resetTreeWatchers()
   closeAllRooms()
-  // 에이전트 감독·에이전트셋은 cwd를 이미 고정해 독립적으로 돈다. 프로젝트 전환은 화면의 활성
+  // 에이전트 감독은 cwd를 이미 고정해 독립적으로 돈다. 프로젝트 전환은 화면의 활성
   // 루트만 바꾸며, 이전 프로젝트의 작업을 끊지 않는다(ADR 0092).
 
   setWorkspaceRoot(abs)

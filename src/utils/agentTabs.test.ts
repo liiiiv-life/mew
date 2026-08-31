@@ -16,6 +16,12 @@ test('사람이 붙인 이름은 대화에서 뽑은 이름이 덮지 않는다'
   assert.equal(withAutoLabel(tabs, 'none', '아무거나'), tabs, '없는 탭이면 그대로 둔다')
 })
 
+test('선택한 런타임 이름은 빈 대화 이벤트로 바뀌지 않는다', () => {
+  const tabs = [{ id: 'a', label: 'Codex', renamed: true }]
+  assert.equal(withAutoLabel(tabs, 'a', ''), tabs)
+  assert.equal(withAutoLabel(tabs, 'a', '첫 질문'), tabs)
+})
+
 test('탭은 런타임·cwd별 마지막 ACP 세션을 기억한다', () => {
   const tabs = [{ id: 'a', label: '배포 작업' }]
   const claude = withSessionId(tabs, 'a', 'claude', '/work', 'claude-session')

@@ -18,14 +18,18 @@ export type StoredAgentTab = {
   cwd?: string | null
   renamed?: boolean
   sessionIds?: Record<string, string>
+  preset?: { id: string; name: string; modelId: string; role: string }
 }
 
 export type StoredAgentTabs = { tabs: StoredAgentTab[]; activeId: string | null }
 export type StoredRootProjects = { paths: string[]; icons: Record<string, string> }
+/** 계정에 귀속하는 작업 화면 상태. 브라우저별 폭·글꼴·작성 중 초안은 넣지 않는다. */
+export type StoredWorkspaceUi = Record<string, unknown>
 
 type UserUiState = {
   rootProjects?: StoredRootProjects
   agentTabs?: Record<string, StoredAgentTabs>
+  workspaceUi?: Record<string, StoredWorkspaceUi>
 }
 
 function readAll(): Record<string, UserUiState> {
@@ -90,6 +94,18 @@ export function normalizeAgentTabs(input: unknown): StoredAgentTabs {
       ...(tab.cwd === null || validPath(tab.cwd) ? { cwd: tab.cwd as string | null } : {}),
       ...(tab.renamed === true ? { renamed: true } : {}),
       ...(Object.keys(sessionIds).length > 0 ? { sessionIds } : {}),
+      ...(tab.preset && typeof tab.preset === 'object' && !Array.isArray(tab.preset)
+        && optionalText((tab.preset as Record<string, unknown>).id, 100)
+        && optionalText((tab.preset as Record<string, unknown>).name, 200)
+        && optionalText((tab.preset as Record<string, unknown>).modelId, 120) !== undefined
+        && optionalText((tab.preset as Record<string, unknown>).role, 4_000)
+        ? { preset: {
+            id: (tab.preset as Record<string, unknown>).id as string,
+            name: (tab.preset as Record<string, unknown>).name as string,
+            modelId: (tab.preset as Record<string, unknown>).modelId as string,
+            role: (tab.preset as Record<string, unknown>).role as string,
+          } }
+        : {}),
     })
   }
   const activeId = typeof record.activeId === 'string' && ids.has(record.activeId) ? record.activeId : null
@@ -120,6 +136,29 @@ export function writeAgentTabs(email: string, workspacePath: string, input: unkn
   const key = normalizeEmail(email)
   const previous = userState(all, key)
   all[key] = { ...previous, agentTabs: { ...previous.agentTabs, [workspacePath]: value } }
+  writeAll(all)
+  return value
+}
+
+function normalizeWorkspaceUi(input: unknown): StoredWorkspaceUi {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('작업 화면 상태 형식이 올바르지 않습니다')
+  const serialized = JSON.stringify(input)
+  if (serialized.length > 512 * 1024) throw new Error('작업 화면 상태가 너무 큽니다')
+  return JSON.parse(serialized) as StoredWorkspaceUi
+}
+
+export function readWorkspaceUi(email: string, workspacePath: string): StoredWorkspaceUi | null {
+  if (!validPath(workspacePath)) throw new Error('작업 폴더 경로가 올바르지 않습니다')
+  return userState(readAll(), email).workspaceUi?.[workspacePath] ?? null
+}
+
+export function writeWorkspaceUi(email: string, workspacePath: string, input: unknown): StoredWorkspaceUi {
+  if (!validPath(workspacePath)) throw new Error('작업 폴더 경로가 올바르지 않습니다')
+  const value = normalizeWorkspaceUi(input)
+  const all = readAll()
+  const key = normalizeEmail(email)
+  const previous = userState(all, key)
+  all[key] = { ...previous, workspaceUi: { ...previous.workspaceUi, [workspacePath]: value } }
   writeAll(all)
   return value
 }

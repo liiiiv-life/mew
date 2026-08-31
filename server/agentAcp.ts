@@ -380,7 +380,7 @@ export class AgentSession {
     return session
   }
 
-  /** 이 세션이 이미 접혔는지 — 죽은 세션에 매달린 작업을 닫는 쪽(agentSetRunner)이 본다 */
+  /** 이 세션이 이미 접혔는지 — 종료 뒤 중복 호출을 막는다 */
   get disposed(): boolean {
     return this.#disposed
   }

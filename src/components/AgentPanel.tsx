@@ -37,7 +37,7 @@ import {
   fetchAgentAuthTerminalStatus,
   fetchAgentTabs,
   fetchAgentCwdSuggestions,
-  fetchAgentRuntimes,
+  fetchProjects,
   fetchSkills,
   installAgentRuntime,
   killTmuxSession,
@@ -50,11 +50,15 @@ import {
   type AgentRuntimeDefault,
   type AgentRuntimeStatus,
   type AgentCwdSuggestions,
+  type ProjectInfo,
+  type AgentSet,
   type SkillSummary,
 } from '../api/client'
 import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './MentionTextarea'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
 import { RuntimeSettingsButton } from './RuntimeSettingsModal'
+import { AgentSetPicker } from './AgentSetPicker'
+import { cachedAgentRuntimes, refreshAgentRuntimes, subscribeAgentRuntimes, updateAgentRuntimesCache } from '../utils/agentPickerCache'
 import { useGridDrag } from '../hooks/useGridDrag'
 import { sessionIdOf, withAutoLabel, withRename, withSessionId, type AgentTab } from '../utils/agentTabs'
 import { agentTabStorageKey } from '../utils/agentTabStorage'
@@ -95,13 +99,21 @@ const TABS_KEY = 'mew:agent-tabs'
 /** 마지막으로 보던 탭 — 창을 다시 열거나 브라우저를 껐다 켜도 그 대화로 돌아온다 */
 const ACTIVE_TAB_KEY = 'mew:agent-active-tab'
 
-/** 아직 아무 말도 오가지 않은 탭의 이름 — 이 상태의 탭은 화면에 지난 세션 목록을 대신 그린다 */
-const NEW_TAB_LABEL = '새 대화'
+/** 0062 시절의 미선택 탭을 복원할 때만 쓰는 이전 이름. 새 UI에서는 만들지 않는다. */
+const LEGACY_PENDING_TAB_LABEL = '새 대화'
 
 /** 탭 줄이 그리는 살아 있는 값 — 대화가 아니라 상태라 localStorage에 남기지 않는다 */
 type TabInfo = { busy: boolean; sessionId: string }
 
-const newTab = (cwd: string | null = null): AgentTab => ({ id: Math.random().toString(36).slice(2, 10), label: NEW_TAB_LABEL, runtime: null, cwd })
+const newTab = (runtime: string, label: string, cwd: string | null, preset?: AgentTab['preset']): AgentTab => ({
+  id: Math.random().toString(36).slice(2, 10),
+  label,
+  runtime,
+  cwd,
+  // 선택한 런타임/셋 이름이 탭의 이름이다. 첫 프롬프트가 이를 덮지 않는다.
+  renamed: true,
+  ...(preset ? { preset } : {}),
+})
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
 
@@ -170,12 +182,18 @@ function loadTabs(workspacePath: string | null): AgentTab[] {
         // 기존 runtime+tab 세션 키와 히스토리를 보전한다. 새 탭은 여전히 미선택으로 만든다.
         const legacyRuntime = localStorage.getItem(RUNTIME_KEY)
         const migratedRuntime = RUNTIMES.some((runtime) => runtime.id === legacyRuntime) ? legacyRuntime! : RUNTIMES[0].id
-        const normalizedTabs = tabs.map((tab) => {
+        const normalizedTabs = tabs.flatMap((tab) => {
+          // 예전의 미선택 "새 대화" 탭은 이제 선택기 자체로 바뀌었으므로 복원하지 않는다.
+          if (tab.runtime === null && tab.label === LEGACY_PENDING_TAB_LABEL) return []
           const sessionIds = tab.sessionIds && typeof tab.sessionIds === 'object'
             ? Object.fromEntries(Object.entries(tab.sessionIds).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
             : undefined
           const normalized = sessionIds && Object.keys(sessionIds).length > 0 ? { ...tab, sessionIds } : { ...tab, sessionIds: undefined }
-          return normalized.runtime === undefined ? { ...normalized, runtime: migratedRuntime } : normalized
+          const upgraded = normalized.runtime === undefined ? { ...normalized, runtime: migratedRuntime } : normalized
+          // 선택만 하고 입력하지 않았던 이전 탭도 새 이름 규칙으로 한 번 승격한다.
+          return upgraded.label === LEGACY_PENDING_TAB_LABEL && upgraded.runtime
+            ? [{ ...upgraded, label: runtimeOf(upgraded.runtime).label, renamed: true }]
+            : [upgraded]
         })
         if (legacy !== null) {
           localStorage.setItem(key, JSON.stringify(normalizedTabs))
@@ -202,12 +220,12 @@ function loadActiveTabId(tabs: AgentTab[], workspacePath: string | null): string
   return activeId && tabs.some((tab) => tab.id === activeId) ? activeId : (tabs[0]?.id ?? null)
 }
 
-/** 탭 이름 — 그 대화의 첫 질문 한 줄. 아직 없으면 '새 대화'(= 지난 세션을 고를 수 있는 상태) */
+/** 탭 이름 — 대화에서 첫 질문 한 줄을 뽑는다. 선택 이름을 고정한 새 탭에는 적용되지 않는다. */
 function labelOf(items: Item[]): string {
   const first = items.find((item) => item.kind === 'user')
-  if (!first || first.kind !== 'user') return NEW_TAB_LABEL
+  if (!first || first.kind !== 'user') return ''
   const line = first.text.trim().split('\n')[0]
-  if (!line) return NEW_TAB_LABEL
+  if (!line) return ''
   return line.length > 24 ? `${line.slice(0, 24)}…` : line
 }
 
@@ -520,7 +538,7 @@ function SessionPicker({
   )
 }
 
-/** 탭 줄 — `+`는 런타임을 아직 고르지 않은 새 탭을 연다. */
+/** 탭 줄 — `+`는 탭을 만들기 전에 런타임 또는 에이전트셋 선택기를 연다. */
 function AgentTabBar({
   tabs,
   activeId,
@@ -616,7 +634,7 @@ function AgentTabBar({
           onClick={onAdd}
           className="flex h-full w-9 shrink-0 items-center justify-center border-r border-edge text-ink-secondary hover:bg-surface-raised hover:text-ink"
           aria-label="새 탭"
-          title="새 탭 (지난 세션 고르기)"
+          title="새 탭"
         >
           <PlusGlyph />
         </button>
@@ -860,7 +878,7 @@ function AgentPathBar({
  */
 function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (runtime: string) => void }) {
   const [open, setOpen] = useState(false)
-  const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(null)
+  const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(cachedAgentRuntimes)
   const [installing, setInstalling] = useState<string | null>(null)
   const [error, setError] = useState<{ id: string; message: string } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -881,8 +899,8 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
   useEffect(() => {
     if (!open) return
     let alive = true
-    fetchAgentRuntimes()
-      .then(({ runtimes }) => {
+    refreshAgentRuntimes()
+      .then((runtimes) => {
         if (alive) setStatuses(runtimes)
       })
       .catch((err: unknown) => {
@@ -892,6 +910,7 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
       alive = false
     }
   }, [open])
+  useEffect(() => subscribeAgentRuntimes(setStatuses), [])
 
   const install = (id: string) => {
     setInstalling(id)
@@ -899,13 +918,14 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
     void installAgentRuntime(id)
       .then(({ status }) => {
         if (!status.installed) throw new Error('설치 후에도 실행 파일을 찾지 못했습니다')
-        setStatuses((prev) => prev?.map((item) => (item.id === id ? status : item)) ?? [status])
+        const next = statuses?.map((item) => (item.id === id ? status : item)) ?? [status]
+        updateAgentRuntimesCache(next)
         onSelect(id)
         setOpen(false)
       })
       .catch((err: unknown) => {
         setError({ id, message: err instanceof Error ? err.message : String(err) })
-        return fetchAgentRuntimes().then(({ runtimes }) => setStatuses(runtimes))
+        return refreshAgentRuntimes().then(setStatuses)
       })
       .finally(() => setInstalling(null))
   }
@@ -979,18 +999,25 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
   )
 }
 
-function RuntimePicker({ onSelect }: { onSelect: (runtime: string) => void }) {
-  const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(null)
+function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) => void; onSelectSet: (set: AgentSet) => void }) {
+  const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(cachedAgentRuntimes)
   const [installing, setInstalling] = useState<string | null>(null)
   const [error, setError] = useState<{ id: string; message: string } | null>(null)
+  const [view, setView] = useState<'runtime' | 'set'>(() => localStorage.getItem('mew:agent-picker-view') === 'set' ? 'set' : 'runtime')
 
   const refresh = useCallback(() => {
-    void fetchAgentRuntimes()
-      .then(({ runtimes }) => setStatuses(runtimes))
+    void refreshAgentRuntimes()
+      .then(setStatuses)
       .catch((err: unknown) => setError({ id: '', message: err instanceof Error ? err.message : String(err) }))
   }, [])
 
   useEffect(refresh, [refresh])
+  useEffect(() => subscribeAgentRuntimes(setStatuses), [])
+
+  const chooseView = (next: 'runtime' | 'set') => {
+    setView(next)
+    localStorage.setItem('mew:agent-picker-view', next)
+  }
 
   const install = (id: string) => {
     setInstalling(id)
@@ -998,6 +1025,8 @@ function RuntimePicker({ onSelect }: { onSelect: (runtime: string) => void }) {
     void installAgentRuntime(id)
       .then(({ status }) => {
         if (!status.installed) throw new Error('설치 후에도 실행 파일을 찾지 못했습니다')
+        const next = statuses?.map((item) => (item.id === id ? status : item)) ?? [status]
+        updateAgentRuntimesCache(next)
         onSelect(id)
       })
       .catch((err: unknown) => {
@@ -1012,7 +1041,11 @@ function RuntimePicker({ onSelect }: { onSelect: (runtime: string) => void }) {
       <div className="w-full max-w-xl">
         <h2 className="mb-1 text-center text-sm font-medium text-ink">에이전트 선택</h2>
         <p className="mb-4 text-center text-xs text-ink-muted">선택한 뒤에 히스토리와 입력창이 열립니다.</p>
-        {statuses === null ? (
+        <div className="mb-4 flex rounded-md bg-surface p-0.5 text-xs">
+          <button type="button" onClick={() => chooseView('runtime')} className={`flex-1 rounded px-3 py-1.5 ${view === 'runtime' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink-secondary'}`}>런타임</button>
+          <button type="button" onClick={() => chooseView('set')} className={`flex-1 rounded px-3 py-1.5 ${view === 'set' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink-secondary'}`}>에이전트셋</button>
+        </div>
+        {view === 'set' ? <AgentSetPicker onSelect={onSelectSet} /> : statuses === null ? (
           <div className="py-8 text-center text-xs text-ink-muted">런타임 확인 중…</div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -1063,6 +1096,7 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
   const tabsKey = agentTabStorageKey(TABS_KEY, workspacePath)
   const activeTabKey = agentTabStorageKey(ACTIVE_TAB_KEY, workspacePath)
   const [tabs, setTabs] = useState<AgentTab[]>(() => loadTabs(workspacePath))
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [tabsSynced, setTabsSynced] = useState(false)
   const [defaultCwd, setDefaultCwd] = useState<string | null>(null)
   const [pathSaving, setPathSaving] = useState(false)
@@ -1118,10 +1152,15 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
     void fetchAgentTabs(workspacePath)
       .then(({ state }) => {
         if (!alive || !state) return
-        const restoredActiveId = state.activeId && state.tabs.some((tab) => tab.id === state.activeId)
+        const restoredTabs = state.tabs
+          .filter((tab) => !(tab.runtime === null && tab.label === LEGACY_PENDING_TAB_LABEL))
+          .map((tab) => tab.label === LEGACY_PENDING_TAB_LABEL && tab.runtime
+            ? { ...tab, label: runtimeOf(tab.runtime).label, renamed: true }
+            : tab)
+        const restoredActiveId = state.activeId && restoredTabs.some((tab) => tab.id === state.activeId)
           ? state.activeId
-          : (state.tabs[0]?.id ?? null)
-        setTabs(state.tabs)
+          : (restoredTabs[0]?.id ?? null)
+        setTabs(restoredTabs)
         setActiveId(restoredActiveId)
         setOpened(new Set(restoredActiveId ? [restoredActiveId] : []))
       })
@@ -1132,20 +1171,34 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
 
   const activate = (id: string) => {
     setPathError(null)
+    setPickerOpen(false)
     setActiveId(id)
     setOpened((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
   }
 
-  const addTab = () => {
-    const tab = newTab(defaultCwd)
+  const addTab = () => setPickerOpen(true)
+
+  const addRuntimeTab = (runtime: string) => {
+    const tab = newTab(runtime, runtimeOf(runtime).label, defaultCwd)
     setTabs((prev) => [...prev, tab])
     setActiveId(tab.id)
+    setOpened((prev) => new Set(prev).add(tab.id))
+    setPickerOpen(false)
   }
 
   const selectRuntime = (id: string, runtime: string) => {
     localStorage.setItem(RUNTIME_KEY, runtime)
-    setTabs((prev) => prev.map((tab) => (tab.id === id ? { ...tab, runtime } : tab)))
+    setTabs((prev) => prev.map((tab) => (tab.id === id ? { ...tab, runtime, preset: undefined } : tab)))
     setOpened((prev) => new Set(prev).add(id))
+  }
+
+  const addSetTab = (set: AgentSet) => {
+    const tab = newTab(set.runtime, set.name, defaultCwd, { id: set.id, name: set.name, modelId: set.modelId, role: set.role })
+    localStorage.setItem(RUNTIME_KEY, set.runtime)
+    setTabs((prev) => [...prev, tab])
+    setActiveId(tab.id)
+    setOpened((prev) => new Set(prev).add(tab.id))
+    setPickerOpen(false)
   }
 
   const closeTab = (id: string) => {
@@ -1272,7 +1325,7 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
           return keep
         })
         setTabs((prev) => prev.map((tab) => tab.id === activeTab.id
-          ? { ...tab, cwd, ...(tab.renamed ? {} : { label: NEW_TAB_LABEL }) }
+          ? { ...tab, cwd, ...(tab.renamed ? {} : { label: runtimeOf(tab.runtime ?? RUNTIMES[0].id).label }) }
           : tab))
         if (oldRuntime && oldCwd) {
           window.setTimeout(() => clearAgentEventCache(oldRuntime, activeTab.id, oldCwd), 0)
@@ -1299,7 +1352,7 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
         onCloseTab={closeTab}
         onClosePanel={onClose}
       />
-      {activeTab && (
+      {!pickerOpen && activeTab && (
         <AgentPathBar
           cwd={activeTab.cwd ?? defaultCwd}
           workspaceCwd={defaultCwd}
@@ -1313,7 +1366,7 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
           onCommit={changeCwd}
         />
       )}
-      {tabs.length === 0 && (
+      {tabs.length === 0 && !pickerOpen && (
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <button
             type="button"
@@ -1325,7 +1378,7 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
         </div>
       )}
       {/* 안 보이는 탭도 붙어 있는 채로 둔다 — 돌고 있는 대화가 탭을 바꿨다고 멎으면 안 된다 */}
-      {tabs
+      {!pickerOpen && tabs
         .filter((tab) => tab.runtime && tab.cwd && opened.has(tab.id))
         .map((tab) => {
           const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!)
@@ -1338,6 +1391,7 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
               active={tab.id === activeId}
               runtime={tab.runtime!}
               cwd={tab.cwd!}
+              preset={tab.preset}
               resumeSessionId={resumeSessionId}
               project={project}
               tree={tree}
@@ -1354,11 +1408,7 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
           </div>
           )
         })}
-      {tabs.map((tab) =>
-        tab.id === activeId && !tab.runtime ? (
-          <RuntimePicker key={tab.id} onSelect={(runtime) => selectRuntime(tab.id, runtime)} />
-        ) : null,
-      )}
+      {pickerOpen && <RuntimePicker onSelect={addRuntimeTab} onSelectSet={addSetTab} />}
     </div>
   )
 }
@@ -1369,6 +1419,7 @@ function AgentSessionView({
   active,
   runtime,
   cwd,
+  preset,
   resumeSessionId,
   project,
   tree,
@@ -1387,6 +1438,7 @@ function AgentSessionView({
   active: boolean
   runtime: string
   cwd: string
+  preset?: { id: string; name: string; modelId: string; role: string }
   resumeSessionId: string | null
   project: string
   tree: TreeNode[]
@@ -1410,6 +1462,7 @@ function AgentSessionView({
   const [modes, setModes] = useState<ModeState | null>(null)
   const [thinking, setThinking] = useState<ThinkingState | null>(null)
   const [skills, setSkills] = useState<SkillSummary[]>([])
+  const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [meta, setMeta] = useState<SessionMeta | null>(null)
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
   const [auth, setAuth] = useState<AgentAuthState | null>(null)
@@ -1585,6 +1638,8 @@ function AgentSessionView({
         tab: tabId,
         cwd,
         ...(resumeSessionIdRef.current ? { resume: resumeSessionIdRef.current } : {}),
+        ...(preset?.modelId ? { model: preset.modelId } : {}),
+        ...(preset?.role ? { role: preset.role } : {}),
       }).toString()
       ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?${query}`)
       wsRef.current = ws
@@ -1685,7 +1740,7 @@ function AgentSessionView({
     }
     // 런타임을 바꾸면 저쪽 세션으로 갈아탄다 — 이쪽 세션은 서버에 그대로 남아 돌아오면 이어진다
     // (queueEvent는 값이 바뀌지 않는 useCallback이라 여기 있어도 재접속을 부르지 않는다)
-  }, [runtime, tabId, cwd, queueEvent])
+  }, [runtime, tabId, cwd, preset?.modelId, preset?.role, queueEvent])
 
   // 경과 시간만 흐르게 한다 — 나머지 값은 서버 meta가 밀어 준다
   useEffect(() => {
@@ -1923,6 +1978,22 @@ function AgentSessionView({
     }
   }, [])
 
+  // # 프로젝트 멘션은 현재 파일 트리가 아니라 워크스페이스의 프로젝트 목록을 쓴다.
+  // 목록은 서버가 역할에 맞게 거른다(/api/projects).
+  useEffect(() => {
+    let alive = true
+    fetchProjects()
+      .then((items) => {
+        if (alive) setProjects(items)
+      })
+      .catch(() => {
+        if (alive) setProjects([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   useEffect(() => {
     let alive = true
     fetchAgentDefault(runtime)
@@ -1972,6 +2043,21 @@ function AgentSessionView({
       },
     ],
     [skills],
+  )
+  const mentionTriggers = useMemo<TriggerOptionSet[]>(
+    () => [
+      ...slashTriggers,
+      {
+        trigger: '#',
+        options: projects.map((item) => ({
+          id: item.name,
+          label: item.name,
+          hint: '프로젝트',
+          insert: `#${item.name}`,
+        })),
+      },
+    ],
+    [projects, slashTriggers],
   )
 
   return (
@@ -2408,10 +2494,10 @@ function AgentSessionView({
           value={draft}
           onChange={setDraft}
           options={fileMentionOptions}
-          triggers={slashTriggers}
+          triggers={mentionTriggers}
           onSubmit={submit}
           rows={2}
-          placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 (Ctrl+Enter 전송)'}
+          placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 — @파일 · #프로젝트 (Ctrl+Enter 전송)'}
           className="block h-full w-full resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
           style={{ height: '100%' }}
           submitHint="Ctrl+Enter로 전송"

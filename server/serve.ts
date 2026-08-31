@@ -17,7 +17,6 @@ import { attachCollabWebSocket } from './collab.ts'
 import { attachCollabAgents } from './collabAgent.ts'
 import { attachDbWebSocket } from './db/socket.ts'
 import { attachAgentWebSocket, AGENT_WS_PATH } from './agentWs.ts'
-import { attachAgentSetWebSocket, AGENT_SET_WS_PATH } from './agentSetWs.ts'
 import { disposeAllSessions, reapOrphanAgents } from './agentAcp.ts'
 import { startAgentScheduledPrompts } from './agentScheduledPrompts.ts'
 import { watchDocsTree } from './watcher.ts'
@@ -38,7 +37,7 @@ process.on('uncaughtException', (err) => {
   console.error('[mew] uncaughtException (무시하고 계속):', err)
 })
 
-// 이 프로세스가 직접 소유한 일회성/에이전트셋 세션만 정리한다. 에이전트 탭은 별도 감독 프로세스가
+// 이 프로세스가 직접 소유한 일회성 세션만 정리한다. 에이전트 탭은 별도 감독 프로세스가
 // 소유하므로 mew 종료·재시작과 함께 접지 않는다. 신호 처리 뒤에는 직접 나가야 한다.
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.once(signal, () => {
@@ -103,15 +102,12 @@ attachCollabWebSocket(server, { authorize: authorizeCollab })
 attachDbWebSocket(server, { authorize: authorizeCollab })
 // 에이전트는 셸을 쓸 수 있다 — 게이트가 tmux와 같은 집합(owner/manager)이어야 한다
 attachAgentWebSocket(server, { authorize: authorizeTmux })
-// 에이전트셋도 결국 에이전트다 — 같은 게이트
-attachAgentSetWebSocket(server, { authorize: authorizeTmux })
 destroyUnknownUpgrades(server, [
   '/api/tmux/ws',
   '/api/presence',
   '/api/collab',
   '/api/db/ws',
   AGENT_WS_PATH,
-  AGENT_SET_WS_PATH,
 ])
 
 // 지난 실행이 SIGKILL로 끊겼다면 그때 남은 에이전트 자식이 아직 램을 물고 있다

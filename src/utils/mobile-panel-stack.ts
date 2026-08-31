@@ -3,7 +3,6 @@ export const WORKSPACE_PANEL_IDS = [
   'sidebar',
   'chat',
   'agent',
-  'agentSet',
   'terminal',
   'browser',
   'android',

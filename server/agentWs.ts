@@ -75,7 +75,14 @@ function promptForRuntime(runtime: string, text: string, skillNames: string[] | 
   return composeRuntimePrompt(runtime, text, skills)
 }
 
-async function handleConnection(ws: WebSocket, runtime: string, tab: string, cwd: string, resumeSessionId: string | null) {
+async function handleConnection(
+  ws: WebSocket,
+  runtime: string,
+  tab: string,
+  cwd: string,
+  resumeSessionId: string | null,
+  preset: { modelId: string; role: string },
+) {
   const fail = (err: unknown) => send(ws, { type: 'error', message: describeError(err) })
 
   // 에이전트가 뜨는 데는 1초가 넘게 걸린다(spawn + initialize + newSession). 그동안 창을 세워 두지 않는다:
@@ -102,6 +109,7 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string, cwd
   // 세션이 준비되기 전에 온 말은 버리지 않고 줄을 세운다 — 예전에는 조용히 사라졌다
   // (뜨는 데 몇 초가 걸리므로 그 사이에 보낸 첫 질문이 실제로 없어졌다)
   let session: AgentHostClient | null = null
+  let rolePending = !resumeSessionId && preset.role.length > 0
   const early: ClientMessage[] = []
   let detach = () => {}
 
@@ -119,7 +127,11 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string, cwd
     }
     const live = session
     try {
-      if (msg.type === 'prompt') live.send({ type: 'prompt', text: msg.text, promptText: promptForRuntime(runtime, msg.text, msg.skills) })
+      if (msg.type === 'prompt') {
+        const prompt = rolePending ? `${preset.role}\n\n---\n\n${msg.text}` : msg.text
+        rolePending = false
+        live.send({ type: 'prompt', text: msg.text, promptText: promptForRuntime(runtime, prompt, msg.skills) })
+      }
       else if (msg.type === 'cancel') live.send({ type: 'cancel' })
       else if (msg.type === 'permission') live.send({ type: 'permission', id: msg.id, optionId: msg.optionId })
       // 인증 실패는 대화 오류가 아니라 auth 상태의 error로 돌아간다. 여기서 error 이벤트를 하나 더 보내지 않는다.
@@ -186,6 +198,10 @@ async function handleConnection(ws: WebSocket, runtime: string, tab: string, cwd
     return
   }
   session = started
+  if (preset.modelId) {
+    // 이 탭이 큐에 넣은 첫 프롬프트보다 앞에서 적용한다. 없는 모델은 런타임 기본값으로 조용히 계속한다.
+    started.send({ type: 'set_model', modelId: preset.modelId })
+  }
   // 준비 중 받은 프롬프트는 창이 그 사이 닫혔어도 감독에 먼저 인계한다. 프론트 종료가 이미 수락한
   // 작업을 취소하는 신호가 되어서는 안 된다.
   for (const msg of early.splice(0)) handle(msg)
@@ -214,6 +230,8 @@ export function attachAgentWebSocket(
     const runtime = url.searchParams.get('runtime') || DEFAULT_RUNTIME
     const tab = url.searchParams.get('tab') || 'default'
     const resumeSessionId = url.searchParams.get('resume')
+    const modelId = url.searchParams.get('model') ?? ''
+    const role = url.searchParams.get('role') ?? ''
     let cwd: string
     try {
       cwd = resolveAgentCwd(url.searchParams.get('cwd') ?? '', WORKSPACE_ROOT)
@@ -223,13 +241,14 @@ export function attachAgentWebSocket(
       return
     }
     if (!isRuntime(runtime) || !TAB_ID.test(tab)
-      || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))) {
+      || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))
+      || modelId.length > 120 || role.length > 4_000) {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      void handleConnection(ws, runtime, tab, cwd, resumeSessionId)
+      void handleConnection(ws, runtime, tab, cwd, resumeSessionId, { modelId, role })
     })
   })
 }

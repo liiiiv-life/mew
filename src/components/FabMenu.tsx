@@ -6,7 +6,6 @@ import {
   EditPencil,
   Expand,
   Folder,
-  Group,
   Terminal,
 } from 'iconoir-react'
 
@@ -40,10 +39,10 @@ function readPosition(): Offset {
 
 /** 빠른 방향 드래그는 버튼을 고르고, 350ms 정지 후 끌기는 화면 어디로든 위치 이동이다. */
 export function FabMenu({
-  onFullscreen, onToggleAgent, onNextWindowTab, onPrevWindowTab, onToggleTerminal, onOpenEditor, onToggleSidebar, onToggleAgentSet,
+  onFullscreen, onToggleAgent, onNextWindowTab, onPrevWindowTab, onToggleTerminal, onOpenEditor, onToggleSidebar,
 }: {
   onFullscreen: () => void; onToggleAgent: () => void; onNextWindowTab: () => void; onPrevWindowTab: () => void
-  onToggleTerminal: () => void; onOpenEditor: () => void; onToggleSidebar: () => void; onToggleAgentSet: () => void
+  onToggleTerminal: () => void; onOpenEditor: () => void; onToggleSidebar: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [pressed, setPressed] = useState(false)
@@ -58,7 +57,7 @@ export function FabMenu({
     { label: '전체화면', icon: icon(Expand), run: onFullscreen }, { label: '에이전트 창', icon: icon(Brain), run: onToggleAgent },
     { label: '오른쪽 탭', icon: icon(ArrowRight), run: onNextWindowTab }, { label: '터미널 창', icon: icon(Terminal), run: onToggleTerminal },
     { label: '에디터 화면', icon: icon(EditPencil), run: onOpenEditor }, { label: '사이드바', icon: icon(Folder), run: onToggleSidebar },
-    { label: '왼쪽 탭', icon: icon(ArrowLeft), run: onPrevWindowTab }, { label: '에이전트셋', icon: icon(Group), run: onToggleAgentSet },
+    { label: '왼쪽 탭', icon: icon(ArrowLeft), run: onPrevWindowTab },
   ]
   const clearLongPress = () => { if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current); longPressTimer.current = null }
   useEffect(() => () => { clearLongPress() }, [])

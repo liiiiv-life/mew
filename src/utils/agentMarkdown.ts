@@ -4,7 +4,7 @@ import MarkdownIt from 'markdown-it'
  * 에이전트 답변을 그릴 마크다운 — 모델이 만든 글이므로 raw HTML은 끈다(html:false).
  * 그러면 `<script>` 같은 건 태그가 아니라 글자로 이스케이프돼 들어간다.
  * breaks:true — 채팅에서는 줄바꿈 하나가 그대로 줄바꿈이어야 말이 된다.
- * 에이전트 창과 에이전트셋 창이 같은 규칙으로 그려야 해서 여기 한 곳에 둔다.
+ * 에이전트 창의 답변을 한 규칙으로 그린다.
  */
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 const fence = md.renderer.rules.fence

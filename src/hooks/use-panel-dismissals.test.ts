@@ -28,7 +28,7 @@ const [{ createElement, useState, act }, { createRoot }, { useWorkspacePanelDism
   import('./use-panel-dismissals.ts'),
 ])
 
-const ids = ['sidebar', 'chat', 'agent', 'agentSet', 'terminal', 'browser', 'android'] as const
+const ids = ['sidebar', 'chat', 'agent', 'terminal', 'browser', 'android'] as const
 type PanelId = (typeof ids)[number]
 
 function Harness({ closed }: { closed: PanelId[] }) {
@@ -48,7 +48,6 @@ function Harness({ closed }: { closed: PanelId[] }) {
     sidebar: panel('sidebar'),
     chat: panel('chat'),
     agent: panel('agent'),
-    agentSet: panel('agentSet'),
     terminal: { ...panel('terminal'), closeOnEscape: () => true },
     browser: panel('browser'),
     android: panel('android'),
@@ -76,7 +75,6 @@ function SidebarSearchHarness({ closed }: { closed: string[] }) {
     },
     chat: closedPanel,
     agent: closedPanel,
-    agentSet: closedPanel,
     terminal: { ...closedPanel, closeOnEscape: () => true },
     browser: closedPanel,
     android: closedPanel,
@@ -103,7 +101,7 @@ test('App 보조 패널은 뒤로가기·Esc로 시각적 맨 위부터 하나�
   })
   assert.deepEqual(closed, ['android'], '모바일 뒤로가기는 맨 위 Android 패널 하나만 닫는다')
 
-  for (const expected of ['browser', 'terminal', 'agentSet', 'agent', 'chat', 'sidebar'] as PanelId[]) {
+  for (const expected of ['browser', 'terminal', 'agent', 'chat', 'sidebar'] as PanelId[]) {
     await act(async () => {
       document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
       await settle()
@@ -111,7 +109,7 @@ test('App 보조 패널은 뒤로가기·Esc로 시각적 맨 위부터 하나�
     assert.equal(closed.at(-1), expected)
   }
 
-  assert.deepEqual(closed, ['android', 'browser', 'terminal', 'agentSet', 'agent', 'chat', 'sidebar'])
+  assert.deepEqual(closed, ['android', 'browser', 'terminal', 'agent', 'chat', 'sidebar'])
   await act(async () => {
     root.unmount()
     await settle()

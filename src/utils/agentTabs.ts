@@ -13,6 +13,8 @@ export type AgentTab = {
   renamed?: boolean
   /** 같은 탭이 런타임·cwd를 갈아타도 각 대화로 돌아가기 위한 ACP 세션 포인터 */
   sessionIds?: Record<string, string>
+  /** 에이전트셋으로 연 탭의 시작 설정. 런타임만 다시 고르면 사라진다. */
+  preset?: { id: string; name: string; modelId: string; role: string }
 }
 
 function sessionSlot(runtime: string, cwd: string): string {
@@ -48,7 +50,7 @@ export function withSessionId(
 /** 대화에서 뽑은 이름을 얹는다 — 사람이 직접 붙인 탭은 그대로 둔다 */
 export function withAutoLabel(tabs: AgentTab[], id: string, label: string): AgentTab[] {
   const tab = tabs.find((t) => t.id === id)
-  if (!tab || tab.renamed || tab.label === label) return tabs
+  if (!tab || !label || tab.renamed || tab.label === label) return tabs
   return tabs.map((t) => (t.id === id ? { ...t, label } : t))
 }
 

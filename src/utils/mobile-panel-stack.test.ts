@@ -23,7 +23,7 @@ test('뒤에 열린 패널은 종류와 관계없이 닫지 않고 전면으로 
 })
 
 test('전면 패널을 다시 선택할 때만 닫고 바로 아래 패널을 드러낸다', () => {
-  const selected = selectMobilePanel<WorkspacePanelId>(['sidebar', 'browser', 'agentSet'], 'agentSet', true)
+  const selected = selectMobilePanel<WorkspacePanelId>(['sidebar', 'browser', 'agent'], 'agent', true)
   assert.deepEqual(selected, { open: false, stack: ['sidebar', 'browser'] })
 })
 

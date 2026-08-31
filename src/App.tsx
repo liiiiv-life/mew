@@ -3,6 +3,7 @@ import {
   editorApi,
   fetchAuthStatus,
   fetchRootProjectTabs,
+  fetchWorkspaceUi,
   fetchProjects,
   fetchWorkspace,
   fetchTree,
@@ -12,10 +13,12 @@ import {
   runMewAction,
   setProject,
   saveRootProjectTabs,
+  saveWorkspaceUi,
   switchWorkspace,
   tmuxApi,
   type AuthStatus,
   type TreeNode,
+  type WorkspaceUiState,
 } from './api/client'
 import { RootProjectTabs } from './components/RootProjectTabs'
 import { OpenProjectDialog } from './components/OpenProjectDialog'
@@ -36,18 +39,17 @@ import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
 import { TmuxTerminalPanel } from '@mew/tmux-term'
 import { AgentPanel } from './components/AgentPanel'
-import { AgentSetPanel } from './components/AgentSetPanel'
 import { BrowserPanel } from './components/BrowserPanel'
 import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
-import { hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
+import { ConfirmDialog, hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
 import { mediaKind } from './utils/media'
 import { setContentIdentity, setContentWorkspace } from './utils/contentCache'
-import { openTabsKey, useTabs } from './hooks/useTabs'
+import { openTabsKey, useTabs, type StoredTabs } from './hooks/useTabs'
 import { dropZoneAt, paneIds, type DropSide, type DropZone, type PaneNode } from './utils/paneTree'
 import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
@@ -65,6 +67,7 @@ import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
 import { useI18n } from './i18n'
 import { applyFontPreferences, loadFontPreferences, normalizeFontPreferences, saveFontPreferences } from './utils/fontPreferences'
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
+import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
@@ -79,13 +82,38 @@ const TOC_KEY = 'mew:toc-open'
 const TMUX_OPEN_KEY = 'mew:tmux-open'
 /** 에이전트 창이 열려 있었는지 — 터미널과 같이 프로젝트와 무관한 화면 상태다(세션 스코프가 워크스페이스다) */
 const AGENT_OPEN_KEY = 'mew:agent-open'
-const AGENT_SET_OPEN_KEY = 'mew:agent-set-open'
 const BROWSER_OPEN_KEY = 'mew:browser-open'
 const ANDROID_OPEN_KEY = 'mew:android-open'
 const OPEN_PROJECTS_KEY = 'mew:open-project-paths'
 const ROOT_PROJECT_ICONS_KEY = 'mew:root-project-icons'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
+type AccountSidebarState = { docsExpanded: boolean; expandedSubprojects: string[] }
+type AccountTreeStates = Record<string, { openDirs: string[]; scrollTop: number }>
+
+function accountSidebar(value: unknown): AccountSidebarState | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const state = value as Partial<AccountSidebarState>
+  if (typeof state.docsExpanded !== 'boolean' || !Array.isArray(state.expandedSubprojects)) return null
+  return { docsExpanded: state.docsExpanded, expandedSubprojects: state.expandedSubprojects.filter((path): path is string => typeof path === 'string') }
+}
+
+function accountTrees(value: unknown): AccountTreeStates {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const result: AccountTreeStates = {}
+  for (const [key, raw] of Object.entries(value)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+    const state = raw as { openDirs?: unknown; scrollTop?: unknown }
+    if (!Array.isArray(state.openDirs) || typeof state.scrollTop !== 'number') continue
+    result[key] = { openDirs: state.openDirs.filter((path): path is string => typeof path === 'string'), scrollTop: Math.max(0, state.scrollTop) }
+  }
+  return result
+}
+
+function accountTabs(value: unknown): Record<string, StoredTabs> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).filter(([, state]) => state && typeof state === 'object' && !Array.isArray(state))) as Record<string, StoredTabs>
+}
 function loadTheme(): Theme {
   return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
 }
@@ -148,12 +176,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     return initial
   })
   const [rootProjectPath, setRootProjectPath] = useState<string | null>(null)
+  const [workspaceUi, setWorkspaceUi] = useState<WorkspaceUiState>({})
+  const [workspaceUiLoaded, setWorkspaceUiLoaded] = useState(false)
+  const [workspaceUiRevision, setWorkspaceUiRevision] = useState(0)
   // 절대경로 탭 목록은 owner UI에만 노출한다. manager는 셸 권한상 현재 경로를 볼 수 있지만 다른
   // 브라우저 사용자가 남긴 owner 전용 목록까지 물려받지는 않는다.
   const [openProjectPaths, setOpenProjectPaths] = useState<string[]>(() => (isOwner ? loadOpenProjectPaths() : []))
   const [rootProjectIcons, setRootProjectIcons] = useState<Record<string, string>>(() => (isOwner ? loadRootProjectIcons() : {}))
   const [rootProjectTabsSynced, setRootProjectTabsSynced] = useState(!isOwner)
   const [openProjectDialog, setOpenProjectDialog] = useState(false)
+  const [closeProjectPath, setCloseProjectPath] = useState<string | null>(null)
   const [switchingRootProject, setSwitchingRootProject] = useState(false)
   const fullscreenGuardRef = useRef(false)
 
@@ -164,6 +196,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const [docsTree, setDocsTree] = useState<TreeNode[]>([])
   const [docsExpanded, setDocsExpanded] = useState(false)
   const [expandedSubprojects, setExpandedSubprojects] = useState<Set<string>>(() => new Set())
+  // 루트가 바뀌는 렌더에서는 이전 프로젝트 상태를 새 키에 쓰지 않도록, 복원 한 프레임을 건너뛴다.
+  const sidebarStateRestorePendingRef = useRef<string | null>(null)
+  const sidebarStateLoadedRootRef = useRef<string | null>(null)
+  const chromeStateLoadedRootRef = useRef<string | null>(null)
+  const chromeStateRestorePendingRef = useRef<string | null>(null)
   const [subprojectTrees, setSubprojectTrees] = useState<Record<string, TreeNode[]>>({})
   const [loadingSubprojects, setLoadingSubprojects] = useState<Set<string>>(new Set())
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
@@ -171,8 +208,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034).
   // 열려 있었는지도 터미널과 같이 기억한다 — 열린 채로 껐으면 다시 켤 때 그 탭에서 이어 한다
   const [agentOpen, setAgentOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_OPEN_KEY) === '1')
-  // 에이전트셋 창 — 에이전트 창과 별개다(여러 셋에게 시켜 두고 구경하는 자리). 같은 게이트를 쓴다
-  const [agentSetOpen, setAgentSetOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_SET_OPEN_KEY) === '1')
   // 브라우저 창 — 서버 localhost를 프록시로 보는 도구라 터미널과 같은 게이트(owner/manager)를 쓴다
   const [browserOpen, setBrowserOpen] = useState(() => canUseTerminal && localStorage.getItem(BROWSER_OPEN_KEY) === '1')
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
@@ -186,7 +221,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       if (panel === 'sidebar') return sidebarOpen
       if (panel === 'chat') return chatOpen
       if (panel === 'agent') return agentOpen
-      if (panel === 'agentSet') return agentSetOpen
       if (panel === 'terminal') return tmuxOpen
       if (panel === 'browser') return browserOpen
       return androidOpen
@@ -202,18 +236,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     sidebar: sidebarOpen,
     chat: chatOpen,
     agent: agentOpen,
-    agentSet: agentSetOpen,
     terminal: tmuxOpen,
     browser: browserOpen,
     android: androidOpen,
   } satisfies Record<WorkspacePanelId, boolean>), [
-    sidebarOpen, chatOpen, agentOpen, agentSetOpen, tmuxOpen, browserOpen, androidOpen,
+    sidebarOpen, chatOpen, agentOpen, tmuxOpen, browserOpen, androidOpen,
   ])
   const workspacePanelSetters = useMemo(() => ({
     sidebar: setSidebarOpen,
     chat: setChatOpen,
     agent: setAgentOpen,
-    agentSet: setAgentSetOpen,
     terminal: setTmuxOpen,
     browser: setBrowserOpen,
     android: setAndroidOpen,
@@ -295,6 +327,55 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   const loadWorkspaceTreeChildren = useCallback((path: string) => fetchTree(WORKSPACE_PROJECT, path), [])
   const loadDocsTreeChildren = useCallback((path: string) => fetchTree(DEFAULT_PROJECT, path), [])
+
+  useEffect(() => {
+    if (!rootProjectPath || isGuest) {
+      setWorkspaceUi({})
+      setWorkspaceUiLoaded(isGuest)
+      return
+    }
+    let alive = true
+    setWorkspaceUiLoaded(false)
+    void fetchWorkspaceUi(rootProjectPath)
+      .then(({ state }) => {
+        if (!alive) return
+        setWorkspaceUi(state ?? {})
+        setWorkspaceUiRevision((revision) => revision + 1)
+        setWorkspaceUiLoaded(true)
+      })
+      .catch(console.error)
+    return () => { alive = false }
+  }, [isGuest, rootProjectPath])
+
+  useEffect(() => {
+    if (!rootProjectPath || isGuest || !workspaceUiLoaded) return
+    const timer = window.setTimeout(() => {
+      void saveWorkspaceUi(rootProjectPath, workspaceUi).catch(console.error)
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [isGuest, rootProjectPath, workspaceUi, workspaceUiLoaded])
+
+  useEffect(() => {
+    if (!workspaceUiLoaded) return
+    if (sidebarStateLoadedRootRef.current === rootProjectPath) return
+    const saved = accountSidebar(workspaceUi.sidebar)
+    const state = saved ?? loadSidebarState(rootProjectPath)
+    if (!saved && rootProjectPath && !isGuest) setWorkspaceUi((previous) => ({ ...previous, sidebar: state }))
+    sidebarStateLoadedRootRef.current = rootProjectPath
+    sidebarStateRestorePendingRef.current = rootProjectPath
+    setDocsExpanded(state.docsExpanded)
+    setExpandedSubprojects(new Set(state.expandedSubprojects))
+  }, [isGuest, rootProjectPath, workspaceUi.sidebar, workspaceUiLoaded])
+
+  useEffect(() => {
+    if (!rootProjectPath) return
+    if (sidebarStateRestorePendingRef.current === rootProjectPath) {
+      sidebarStateRestorePendingRef.current = null
+      return
+    }
+    saveSidebarState(rootProjectPath, { docsExpanded, expandedSubprojects: [...expandedSubprojects] })
+    if (!isGuest) setWorkspaceUi((previous) => ({ ...previous, sidebar: { docsExpanded, expandedSubprojects: [...expandedSubprojects] } }))
+  }, [docsExpanded, expandedSubprojects, isGuest, rootProjectPath])
 
   const refreshTree = useCallback(() => {
     const workspace = fetchTree(WORKSPACE_PROJECT)
@@ -397,6 +478,19 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     }
   }, [applyWorkspace, rememberProjectPath, rootProjectPath, showToast])
 
+  const closeRootProject = useCallback(async (projectPath: string) => {
+    const paths = [...new Set(openProjectPaths)].filter((path) => path !== projectPath)
+    if (paths.length === 0) return
+    setCloseProjectPath(null)
+    setOpenProjectPaths(paths)
+    setRootProjectIcons((previous) => {
+      const next = { ...previous }
+      delete next[projectPath]
+      return next
+    })
+    if (projectPath === rootProjectPath) await openRootProject(paths.at(-1)!)
+  }, [openProjectPaths, openRootProject, rootProjectPath])
+
   /**
    * 프로젝트 전환 — 페이지 이동이 아니다. client.ts의 모듈 값을 **먼저 동기로** 바꾼 뒤 리렌더를
    * 걸어야, 이번 렌더에서 나가는 요청들이 전부 새 프로젝트로 간다.
@@ -405,6 +499,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     setProject(name)
     setActiveProject(name)
   }, [])
+
+  const syncedAccountTabs = useMemo(() => accountTabs(workspaceUi.tabs), [workspaceUi.tabs])
+  const saveAccountTabs = useCallback((tabProject: string, state: StoredTabs) => {
+    if (isGuest) return
+    setWorkspaceUi((previous) => ({ ...previous, tabs: { ...accountTabs(previous.tabs), [tabProject]: state } }))
+  }, [isGuest])
 
   const {
     hydrated: tabsHydrated,
@@ -430,7 +530,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     splitEmptyPane,
     remapPaths,
     removePaths,
-  } = useTabs(project, refreshTree, showToast, rootProjectPath ?? undefined)
+  } = useTabs(
+    project,
+    refreshTree,
+    showToast,
+    rootProjectPath ?? undefined,
+    syncedAccountTabs,
+    saveAccountTabs,
+    workspaceUiLoaded,
+  )
 
   const hasOpenFiles = panes.some((pane) => pane.tabs.length > 0)
   useEffect(() => {
@@ -589,7 +697,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     },
     chat: { open: chatOpen, close: () => closeWorkspacePanel('chat') },
     agent: { open: agentOpen, close: () => closeWorkspacePanel('agent') },
-    agentSet: { open: agentSetOpen, close: () => closeWorkspacePanel('agentSet') },
     terminal: {
       open: tmuxOpen,
       close: () => closeWorkspacePanel('terminal'),
@@ -710,6 +817,31 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   }, [fontPreferences])
 
   useEffect(() => {
+    if (!workspaceUiLoaded || chromeStateLoadedRootRef.current === rootProjectPath) return
+    const value = workspaceUi.chrome
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const chrome = value as Record<string, unknown>
+      if (typeof chrome.tocOpen === 'boolean') setTocOpen(chrome.tocOpen)
+      if (typeof chrome.sidebarOpen === 'boolean') setSidebarOpen(chrome.sidebarOpen)
+      if (chrome.sidebarView === 'files' || chrome.sidebarView === 'search' || chrome.sidebarView === 'commands') setSidebarView(chrome.sidebarView)
+      if (canUseTerminal) {
+        if (typeof chrome.tmuxOpen === 'boolean') setTmuxOpen(chrome.tmuxOpen)
+        if (typeof chrome.agentOpen === 'boolean') setAgentOpen(chrome.agentOpen)
+        if (typeof chrome.browserOpen === 'boolean') setBrowserOpen(chrome.browserOpen)
+        if (typeof chrome.androidOpen === 'boolean') setAndroidOpen(chrome.androidOpen)
+      }
+    } else if (rootProjectPath && !isGuest) {
+      // 계정 원장이 처음 비어 있을 때만 이 기기의 기존 화면 상태를 이관한다.
+      setWorkspaceUi((previous) => ({
+        ...previous,
+        chrome: { tocOpen, sidebarOpen, sidebarView, tmuxOpen, agentOpen, browserOpen, androidOpen },
+      }))
+    }
+    chromeStateLoadedRootRef.current = rootProjectPath
+    chromeStateRestorePendingRef.current = rootProjectPath
+  }, [agentOpen, androidOpen, browserOpen, canUseTerminal, isGuest, rootProjectPath, sidebarOpen, sidebarView, tmuxOpen, tocOpen, workspaceUi.chrome, workspaceUiLoaded])
+
+  useEffect(() => {
     localStorage.setItem(TOC_KEY, tocOpen ? '1' : '0')
   }, [tocOpen])
 
@@ -790,16 +922,24 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   }, [agentOpen])
 
   useEffect(() => {
-    localStorage.setItem(AGENT_SET_OPEN_KEY, agentSetOpen ? '1' : '0')
-  }, [agentSetOpen])
-
-  useEffect(() => {
     localStorage.setItem(BROWSER_OPEN_KEY, browserOpen ? '1' : '0')
   }, [browserOpen])
 
   useEffect(() => {
     localStorage.setItem(ANDROID_OPEN_KEY, androidOpen ? '1' : '0')
   }, [androidOpen])
+
+  useEffect(() => {
+    if (!rootProjectPath || isGuest || !workspaceUiLoaded) return
+    if (chromeStateRestorePendingRef.current === rootProjectPath) {
+      chromeStateRestorePendingRef.current = null
+      return
+    }
+    setWorkspaceUi((previous) => ({
+      ...previous,
+      chrome: { tocOpen, sidebarOpen, sidebarView, tmuxOpen, agentOpen, browserOpen, androidOpen },
+    }))
+  }, [agentOpen, androidOpen, browserOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tmuxOpen, tocOpen, workspaceUiLoaded])
 
   const handleRenamed = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -932,7 +1072,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   }, [
     saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath,
     canUseTerminal, focusedEditor, isGuest, isOwner, project, sidebarOpen, chatOpen, agentOpen,
-    agentSetOpen, tmuxOpen, browserOpen, androidOpen, mobilePanelStack, openWorkspacePanel,
+    tmuxOpen, browserOpen, androidOpen, mobilePanelStack, openWorkspacePanel,
     toggleWorkspacePanel,
   ])
 
@@ -1063,6 +1203,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
 
   const rootSubprojects = useMemo(() => rootTree.filter((node) => node.project), [rootTree])
   const rootNodes = useMemo(() => rootTree.filter((node) => !node.project), [rootTree])
+  const accountTreeStates = useMemo(() => accountTrees(workspaceUi.trees), [workspaceUi.trees])
+  const saveAccountTreeState = useCallback((key: string, value: { openDirs: string[]; scrollTop: number }) => {
+    if (isGuest) return
+    setWorkspaceUi((previous) => {
+      const trees = accountTrees(previous.trees)
+      const existing = trees[key]
+      if (existing?.scrollTop === value.scrollTop && existing.openDirs.length === value.openDirs.length && existing.openDirs.every((path, index) => path === value.openDirs[index])) return previous
+      return { ...previous, trees: { ...trees, [key]: value } }
+    })
+  }, [isGuest])
   useEffect(() => {
     if (project !== WORKSPACE_PROJECT || !activePath) return
     const subproject = rootTree.find((node) => node.project && (activePath === node.path || activePath.startsWith(`${node.path}/`)))
@@ -1084,6 +1234,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         return next
       }))
   }, [loadingSubprojects, showToast, subprojectTrees])
+  // 복원한 하위 프로젝트도 다시 접히지 않게, 루트 목록이 들어온 뒤 펼쳐 둔 항목의 한 단계 내용을 읽는다.
+  useEffect(() => {
+    for (const path of expandedSubprojects) {
+      if (rootSubprojects.some((subproject) => subproject.path === path)) loadSubproject(path)
+    }
+  }, [expandedSubprojects, loadSubproject, rootSubprojects])
   const toggleSubproject = (path: string) => {
     const opening = !expandedSubprojects.has(path)
     setExpandedSubprojects((previous) => {
@@ -1220,21 +1376,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             ),
           },
           {
-            id: 'agent-sets',
-            label: t('header.agentSets'),
-            onSelect: () => toggleWorkspacePanel('agentSet'),
-            active: agentSetOpen,
-            // 칸 넷 — 여러 셋이 한 판에 놓인 그리드
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
-                <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
-                <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
-                <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
-              </svg>
-            ),
-          },
-          {
             id: 'browser',
             label: t('header.browser'),
             hint: 'Alt+B',
@@ -1357,6 +1498,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             canChangeIcon={isOwner}
             icons={rootProjectIcons}
             onActivate={(projectPath) => void openRootProject(projectPath)}
+            onClose={setCloseProjectPath}
             onIconChange={changeRootProjectIcon}
             onOpen={() => setOpenProjectDialog(true)}
           />
@@ -1394,7 +1536,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           >
             <div className="flex min-w-0 flex-1 flex-col">
               {/* 탐색기 ↔ 검색(Ctrl+Shift+F) 전환 — 프로젝트 전환 버튼은 헤더 맨 왼쪽에 있다 */}
-              <div className="flex items-center gap-1 border-b border-edge px-2 py-1">
+              <div className="flex h-9 shrink-0 items-center gap-1 border-b border-edge px-2">
                 <button
                   type="button"
                   onClick={() => setSidebarView('files')}
@@ -1434,13 +1576,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                 <button
                   type="button"
                   onClick={() => closeWorkspacePanel('sidebar')}
-                  className="ml-auto rounded p-1 text-ink-muted hover:bg-surface-hover hover:text-ink"
+                  className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
                   title="사이드바 닫기 (Ctrl+B)"
                   aria-label="사이드바 닫기"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 6 6 18" />
-                    <path d="m6 6 12 12" />
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6 6 18" />
                   </svg>
                 </button>
               </div>
@@ -1448,9 +1589,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                 <div className={sidebarView === 'files' ? 'h-full' : 'hidden'}>
                   {/* Documents와 직계 하위 프로젝트만 큰 접기 단위다. 나머지 루트 내용은 실제 깊이대로 바로 보인다. */}
                   <FileTree
-                    key={`${isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}:${rootProjectPath ?? ''}`}
+                    key={`${isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${workspaceUiRevision}`}
                     tree={isGuest ? docsTree : rootNodes}
                     project={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
+                    stateKey={rootProjectPath ? `sidebar-tree:${isGuest ? 'docs' : 'root'}:${rootProjectPath}` : undefined}
+                    accountState={rootProjectPath ? accountTreeStates[`sidebar-tree:${isGuest ? 'docs' : 'root'}:${rootProjectPath}`] : undefined}
+                    onAccountStateChange={rootProjectPath ? (state) => saveAccountTreeState(`sidebar-tree:${isGuest ? 'docs' : 'root'}:${rootProjectPath}`, state) : undefined}
                     workspacePath={rootProjectPath}
                     selectedPath={project === (isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? activePath : null}
                     readOnly={isGuest}
@@ -1475,9 +1619,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                         </button>
                         {docsExpanded && (
                           <FileTree
-                            key={`${DEFAULT_PROJECT}:${rootProjectPath ?? ''}`}
+                            key={`${DEFAULT_PROJECT}:${rootProjectPath ?? ''}:${workspaceUiRevision}`}
                             tree={docsTree}
                             project={DEFAULT_PROJECT}
+                            stateKey={rootProjectPath ? `sidebar-tree:docs:${rootProjectPath}` : undefined}
+                            accountState={rootProjectPath ? accountTreeStates[`sidebar-tree:docs:${rootProjectPath}`] : undefined}
+                            onAccountStateChange={rootProjectPath ? (state) => saveAccountTreeState(`sidebar-tree:docs:${rootProjectPath}`, state) : undefined}
                             compact
                             selectedPath={project === DEFAULT_PROJECT ? activePath : null}
                             readOnly={isGuest}
@@ -1521,9 +1668,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                               )}
                               <div className="bg-surface-raised">
                                 <FileTree
-                                  key={`${WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${subproject.path}`}
+                                  key={`${WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${subproject.path}:${workspaceUiRevision}`}
                                   tree={subprojectTrees[subproject.path] ?? []}
                                   project={WORKSPACE_PROJECT}
+                                  stateKey={rootProjectPath ? `sidebar-tree:subproject:${rootProjectPath}:${subproject.path}` : undefined}
+                                  accountState={rootProjectPath ? accountTreeStates[`sidebar-tree:subproject:${rootProjectPath}:${subproject.path}`] : undefined}
+                                  onAccountStateChange={rootProjectPath ? (state) => saveAccountTreeState(`sidebar-tree:subproject:${rootProjectPath}:${subproject.path}`, state) : undefined}
                                   workspacePath={rootProjectPath}
                                   compact
                                   selectedPath={project === WORKSPACE_PROJECT ? activePath : null}
@@ -1653,18 +1803,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           </div>
         )}
 
-        {agentSetOpen && canUseTerminal && (
-          <div
-            onPointerDownCapture={() => bringWorkspacePanelToFront('agentSet')}
-            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:w-[30rem] md:shrink-0 ${mobilePanelLayer('agentSet')}`}
-          >
-            <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <AgentSetPanel onOpenFile={openMentionedFile} onClose={() => closeWorkspacePanel('agentSet')} />
-            </div>
-          </div>
-        )}
-
         {tmuxOpen && canUseTerminal && (
           <div
             onPointerDownCapture={() => {
@@ -1735,7 +1873,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         onToggleTerminal={() => { if (canUseTerminal) toggleWorkspacePanel('terminal') }}
         onOpenEditor={closeAllWorkspacePanels}
         onToggleSidebar={() => toggleWorkspacePanel('sidebar')}
-        onToggleAgentSet={() => { if (canUseTerminal) toggleWorkspacePanel('agentSet') }}
       />
 
       {settingsOpen && (
@@ -1772,6 +1909,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           basePath={rootProjectPath ?? ''}
           onOpen={openRootProject}
           onClose={() => setOpenProjectDialog(false)}
+        />
+      )}
+
+      {closeProjectPath && (
+        <ConfirmDialog
+          message={`프로젝트 "${projectLabel(closeProjectPath)}" 탭을 닫을까요?`}
+          detail="프로젝트 파일은 삭제되지 않으며, 나중에 + 탭에서 다시 열 수 있습니다."
+          confirmLabel="닫기"
+          onConfirm={() => void closeRootProject(closeProjectPath)}
+          onCancel={() => setCloseProjectPath(null)}
         />
       )}
 

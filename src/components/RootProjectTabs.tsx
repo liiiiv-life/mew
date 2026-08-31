@@ -16,6 +16,7 @@ export function RootProjectTabs({
   canChangeIcon,
   icons,
   onActivate,
+  onClose,
   onIconChange,
   onOpen,
 }: {
@@ -26,6 +27,7 @@ export function RootProjectTabs({
   canChangeIcon: boolean
   icons: Record<string, string>
   onActivate: (path: string) => void
+  onClose: (path: string) => void
   onIconChange: (path: string, icon: string) => void
   onOpen: () => void
 }) {
@@ -56,11 +58,17 @@ export function RootProjectTabs({
       {unique.map((projectPath) => {
         const active = projectPath === activePath
         const label = labelOf(projectPath)
+        const labelVisible = active ? 'inline' : 'hidden md:inline'
         return (
-          <button
+          <div
             key={projectPath}
-            type="button"
-            onClick={() => {
+            className={`flex h-full shrink-0 items-stretch border-r border-edge text-xs ${
+              active ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => {
               if (longPressed.current) {
                 longPressed.current = false
                 return
@@ -85,15 +93,26 @@ export function RootProjectTabs({
               setEditingPath(projectPath)
             }}
             title={projectPath}
-            className={`flex h-full shrink-0 items-center gap-1.5 border-r border-edge px-2.5 text-xs ${
-              active ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
-            }`}
-          >
-            <span className="flex h-5 w-5 items-center justify-center font-semibold">
-              {icons[projectPath] ? <ProjectIcon icon={icons[projectPath]} size={15} /> : (label[0]?.toUpperCase() || '/')}
-            </span>
-            <span className={`max-w-[10rem] truncate ${active ? 'inline' : 'hidden md:inline'}`}>{label}</span>
-          </button>
+              className="flex h-full min-w-0 items-center gap-1.5 px-2.5"
+            >
+              <span className="flex h-5 w-5 items-center justify-center font-semibold">
+                {icons[projectPath] ? <ProjectIcon icon={icons[projectPath]} size={15} /> : (label[0]?.toUpperCase() || '/')}
+              </span>
+              <span className={`max-w-[10rem] truncate ${labelVisible}`}>{label}</span>
+            </button>
+            {/* 이름이 보이는 화면에서만 닫기 버튼도 보인다. 마지막 탭은 열어 둘 프로젝트가 없어 닫지 않는다. */}
+            {unique.length > 1 && (
+              <button
+                type="button"
+                onClick={() => onClose(projectPath)}
+                className={`mr-1 flex h-full w-5 shrink-0 items-center justify-center text-sm text-ink-muted hover:text-ink ${labelVisible}`}
+                title={`${label} 닫기`}
+                aria-label={`${label} 프로젝트 닫기`}
+              >
+                ×
+              </button>
+            )}
+          </div>
         )
       })}
       {canOpen && (

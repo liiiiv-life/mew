@@ -415,10 +415,11 @@ export function TmuxTerminalPanel({
             <button
               type="button"
               onClick={startCreate}
-              title="새 tmux 세션"
-              className="flex h-full w-9 shrink-0 items-center justify-center border-r border-edge text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink"
+              title="새 탭"
+              aria-label="새 탭"
+              className="flex h-full w-9 shrink-0 items-center justify-center border-r border-edge text-ink-secondary hover:bg-surface-raised hover:text-ink"
             >
-              +
+              <PlusGlyph />
             </button>
           )}
         </div>
@@ -429,7 +430,9 @@ export function TmuxTerminalPanel({
             className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
             aria-label="터미널 닫기"
           >
-            ×
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
           </button>
         )}
       </div>
@@ -475,5 +478,14 @@ export function TmuxTerminalPanel({
       )}
       {errorMsg !== null && <ConfirmDialog message={errorMsg} onConfirm={() => setErrorMsg(null)} />}
     </div>
+  )
+}
+
+/** 에이전트 창의 새 탭 버튼과 같은 아이콘·획 규격. */
+function PlusGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
   )
 }

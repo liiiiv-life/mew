@@ -1,4 +1,4 @@
-// 에이전트 런타임 등록표 — 창, 에이전트셋, 예약 작업이 모두 이 표를 본다.
+// 에이전트 런타임 등록표 — 창과 예약 작업이 모두 이 표를 본다.
 // ACP가 공통 인터페이스다. 런타임 추가는 여기 한 줄 + 클라이언트 아이콘 한 줄이면 된다.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -46,7 +46,7 @@ export interface RuntimeAuthentication {
 export interface AgentRuntime {
   id: string
   label: string
-  /** ACP stdio 서버. 에이전트 창, 에이전트셋, 예약 작업이 공통으로 쓴다. */
+  /** ACP stdio 서버. 에이전트 창과 예약 작업이 공통으로 쓴다. */
   spec: () => SpawnSpec
   /** UI 설치 버튼이 실행하는 고정 명령. 요청 값을 인자에 섞지 않는다. */
   install?: () => SpawnSpec
@@ -249,7 +249,7 @@ export function runtimeList(): { id: string; label: string }[] {
 }
 
 /**
- * 저장된 런타임 설정(agentSettings.ts)을 등록표 spec에 얹는다. 모든 spawn 경로(창·셋·예약 작업·
+ * 저장된 런타임 설정(agentSettings.ts)을 등록표 spec에 얹는다. 모든 spawn 경로(창·예약 작업·
  * 설치 판정)가 spec() 값을 쓰므로, 설정 화면에서 바꾼 실행 파일·env가 다음 세션부터 곧바로 적용된다.
  * 파일을 못 읽어도 등록표 기본값으로 에이전트는 띄울 수 있어야 하므로 실패는 조용히 무시한다.
  */
