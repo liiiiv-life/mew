@@ -13,6 +13,9 @@ import {
   registerLoginFailure,
   SESSION_TTL_MS,
   upsertUser,
+  userProfile,
+  validateAvatarDataUrl,
+  validateDisplayName,
   validateNewPassword,
   verifyAgainstDummy,
   verifyPassword,
@@ -112,7 +115,8 @@ export function checkOrigin(req: express.Request, res: express.Response, next: e
 
 export function createAuthRouter() {
   const router = express.Router()
-  router.use(express.json({ limit: '10kb' }))
+  // 프로필 사진은 data URL로 계정 레코드에 저장한다. 512KiB 원본 + base64 여유만 허용한다.
+  router.use(express.json({ limit: '750kb' }))
 
   router.post('/login', (req, res) => {
     const { email: rawEmail, password } = (req.body ?? {}) as { email?: unknown; password?: unknown }
@@ -152,12 +156,43 @@ export function createAuthRouter() {
 
   router.get('/me', (req, res) => {
     const session = sessionFromRequest(req)
+    const profile = session ? userProfile(session.email, session.user) : null
     res.json({
       authenticated: session !== null,
       email: session?.email ?? null,
       role: session ? session.user.role : 'guest',
       mustChangePassword: session?.user.mustChangePassword ?? false,
+      displayName: profile?.displayName ?? null,
+      avatarDataUrl: profile?.avatarDataUrl ?? null,
     })
+  })
+
+  router.put('/profile', (req, res) => {
+    const session = sessionFromRequest(req)
+    if (!session) {
+      res.status(401).json({ error: '로그인이 필요합니다' })
+      return
+    }
+    if (session.user.mustChangePassword) {
+      res.status(403).json({ error: '임시 비밀번호를 먼저 변경해야 합니다', code: 'must-change-password' })
+      return
+    }
+    const { displayName, avatarDataUrl } = (req.body ?? {}) as { displayName?: unknown; avatarDataUrl?: unknown }
+    const name = validateDisplayName(displayName)
+    const avatar = validateAvatarDataUrl(avatarDataUrl)
+    if (!name) {
+      res.status(400).json({ error: '표시 이름은 1~50자로 입력하세요' })
+      return
+    }
+    if (avatar === undefined) {
+      res.status(400).json({ error: '프로필 사진은 512KB 이하의 JPG, PNG, WebP 또는 GIF만 사용할 수 있습니다' })
+      return
+    }
+    const next = { ...session.user, displayName: name }
+    if (avatar === null) delete next.avatarDataUrl
+    else next.avatarDataUrl = avatar
+    upsertUser(session.email, next)
+    res.json({ ok: true, profile: userProfile(session.email, next) })
   })
 
   router.post('/change-password', (req, res) => {

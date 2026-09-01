@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
-import { changePassword, fetchIgnoreList, logout, saveIgnoreList } from '../api/client'
+import { changePassword, fetchIgnoreList, logout, saveIgnoreList, updateProfile } from '../api/client'
 import { DEFAULT_SHORTCUTS, formatKeyCombo, resetAllBindings, resetBinding, setBinding, useShortcutBindings } from '@mew/shortcuts'
 import { LOCALES, LOCALE_NAMES, localizeShortcut, useI18n, type Locale, type TranslationKey } from '../i18n'
 import { DEFAULT_FONT_PREFERENCES, type FontPreferences } from '../utils/fontPreferences'
@@ -13,6 +13,8 @@ type Theme = 'dark' | 'light'
 interface SettingsModalProps {
   /** 로그인한 사용자의 이메일 — 게스트면 null이라 계정 탭을 숨긴다 */
   email: string | null
+  displayName: string | null
+  avatarDataUrl: string | null
   /** owner·manager만 숨김 목록 탭을 본다 — 모두의 트리를 바꾸는 전역 설정이라 */
   canEditIgnore: boolean
   theme: Theme
@@ -21,6 +23,7 @@ interface SettingsModalProps {
   onFontPreferencesChange: (fonts: FontPreferences) => void
   onClose: () => void
   onLoggedOut: () => void
+  onProfileChanged: (profile: { displayName: string; avatarDataUrl: string | null }) => void
 }
 
 const SECTION_LABEL: Record<Section, TranslationKey> = {
@@ -31,8 +34,10 @@ const SECTION_LABEL: Record<Section, TranslationKey> = {
 }
 
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
-export function SettingsModal({ email, canEditIgnore, theme, fontPreferences, onToggleTheme, onFontPreferencesChange, onClose, onLoggedOut }: SettingsModalProps) {
+export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, onToggleTheme, onFontPreferencesChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
   const [section, setSection] = useState<Section>(email ? 'account' : 'appearance')
+  // Mobile begins with the category list; the selected panel is a second screen.
+  const [mobileSection, setMobileSection] = useState<Section | null>(null)
   const { t } = useI18n()
 
   // Esc·모바일 뒤로가기로 이 창만 닫는다 (뒤의 사이드바·터미널은 그대로)
@@ -46,19 +51,32 @@ export function SettingsModal({ email, canEditIgnore, theme, fontPreferences, on
   ]
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 max-md:px-0 md:px-4" onClick={onClose}>
       <div
-        className="flex max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-lg border border-edge bg-surface-deep"
+        className="flex max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-lg border border-edge bg-surface-deep max-md:h-full max-md:max-h-none max-md:rounded-none"
         onClick={(e) => e.stopPropagation()}
       >
-        <nav className="flex w-28 shrink-0 flex-col gap-1 border-r border-edge p-3 sm:w-40">
-          <div className="mb-2 px-2 text-sm font-semibold text-ink-bright">{t('settings.title')}</div>
+        <nav className={`${mobileSection ? 'hidden md:flex' : 'flex'} w-28 shrink-0 flex-col gap-1 border-r border-edge p-3 sm:w-40 max-md:w-full max-md:border-r-0 max-md:p-4`}>
+          <div className="mb-2 flex items-center justify-between gap-2 px-2 text-sm font-semibold text-ink-bright">
+            {t('settings.title')}
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink md:hidden"
+              aria-label={t('settings.close')}
+            >
+              ×
+            </button>
+          </div>
           {sections.map((id) => (
             <button
               key={id}
               type="button"
-              onClick={() => setSection(id)}
-              className={`rounded px-2 py-1.5 text-left text-sm ${
+              onClick={() => {
+                setSection(id)
+                setMobileSection(id)
+              }}
+              className={`rounded px-2 py-1.5 text-left text-sm max-md:px-3 max-md:py-3 max-md:text-base ${
                 section === id ? 'bg-surface-raised font-medium text-ink' : 'text-ink-secondary hover:bg-surface-raised hover:text-ink'
               }`}
             >
@@ -67,9 +85,19 @@ export function SettingsModal({ email, canEditIgnore, theme, fontPreferences, on
           ))}
         </nav>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className={`${mobileSection ? 'flex' : 'hidden md:flex'} min-h-0 min-w-0 flex-1 flex-col`}>
           <div className="flex items-center justify-between gap-2 border-b border-edge px-4 py-3">
-            <div className="text-sm font-semibold text-ink-bright">{t(SECTION_LABEL[section])}</div>
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMobileSection(null)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-lg text-ink-secondary hover:bg-surface-raised hover:text-ink md:hidden"
+                aria-label={t('settings.back')}
+              >
+                ←
+              </button>
+              <div className="truncate text-sm font-semibold text-ink-bright">{t(SECTION_LABEL[section])}</div>
+            </div>
             <button
               type="button"
               onClick={onClose}
@@ -80,7 +108,7 @@ export function SettingsModal({ email, canEditIgnore, theme, fontPreferences, on
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {section === 'account' && email && <AccountPanel email={email} onLoggedOut={onLoggedOut} />}
+            {section === 'account' && email && <AccountPanel email={email} displayName={displayName} avatarDataUrl={avatarDataUrl} onLoggedOut={onLoggedOut} onProfileChanged={onProfileChanged} />}
             {section === 'appearance' && (
               <AppearancePanel
                 theme={theme}
@@ -99,7 +127,19 @@ export function SettingsModal({ email, canEditIgnore, theme, fontPreferences, on
 }
 
 // ── 계정: 비밀번호 변경 + 로그아웃 ───────────────────────────────────────────
-function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () => void }) {
+function AccountPanel({
+  email,
+  displayName,
+  avatarDataUrl,
+  onLoggedOut,
+  onProfileChanged,
+}: {
+  email: string
+  displayName: string | null
+  avatarDataUrl: string | null
+  onLoggedOut: () => void
+  onProfileChanged: (profile: { displayName: string; avatarDataUrl: string | null }) => void
+}) {
   const { t } = useI18n()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -107,6 +147,11 @@ function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () =
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [name, setName] = useState(displayName ?? email.split('@')[0] ?? email)
+  const [avatar, setAvatar] = useState<string | null>(avatarDataUrl)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [profileBusy, setProfileBusy] = useState(false)
 
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault()
@@ -143,6 +188,40 @@ function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () =
     onLoggedOut()
   }
 
+  async function handleAvatarChange(file: File | undefined) {
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type) || file.size > 512 * 1024) {
+      setProfileError('프로필 사진은 512KB 이하의 JPG, PNG, WebP 또는 GIF만 사용할 수 있습니다')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      setAvatar(typeof reader.result === 'string' ? reader.result : null)
+      setProfileError(null)
+      setProfileSaved(false)
+    }
+    reader.onerror = () => setProfileError('사진을 읽지 못했습니다')
+    reader.readAsDataURL(file)
+  }
+
+  async function handleSaveProfile(e: React.FormEvent) {
+    e.preventDefault()
+    setProfileError(null)
+    setProfileSaved(false)
+    setProfileBusy(true)
+    try {
+      const result = await updateProfile(name, avatar)
+      setName(result.profile.displayName)
+      setAvatar(result.profile.avatarDataUrl)
+      onProfileChanged(result.profile)
+      setProfileSaved(true)
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : '프로필 저장에 실패했습니다')
+    } finally {
+      setProfileBusy(false)
+    }
+  }
+
   const inputClass =
     'w-full rounded border border-edge-strong bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright'
 
@@ -152,6 +231,33 @@ function AccountPanel({ email, onLoggedOut }: { email: string; onLoggedOut: () =
         <div className="text-sm font-semibold text-ink-bright">{t('settings.myAccount')}</div>
         <div className="text-sm text-ink-secondary">{email}</div>
       </div>
+
+      <form onSubmit={handleSaveProfile} className="mb-4 flex flex-col gap-3 border-t border-edge pt-4">
+        <div className="text-sm font-medium">프로필</div>
+        <div className="flex items-center gap-3">
+          {avatar ? (
+            <img src={avatar} alt="프로필 사진 미리보기" className="h-14 w-14 rounded-full border border-edge-strong object-cover" />
+          ) : (
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-raised text-lg font-semibold text-ink-secondary">
+              {(name.trim()[0] ?? email[0] ?? '?').toUpperCase()}
+            </div>
+          )}
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(e) => void handleAvatarChange(e.target.files?.[0])} className="block w-full text-xs text-ink-secondary file:mr-2 file:rounded file:border-0 file:bg-surface-raised file:px-2 file:py-1 file:text-xs file:text-ink hover:file:bg-surface-hover" />
+            {avatar && <button type="button" onClick={() => { setAvatar(null); setProfileSaved(false) }} className="w-max text-xs text-ink-muted hover:text-danger">사진 제거</button>}
+          </div>
+        </div>
+        <label className="text-sm text-ink-secondary">
+          표시 이름
+          <input value={name} onChange={(e) => { setName(e.target.value); setProfileSaved(false) }} maxLength={50} required className={`${inputClass} mt-1`} />
+        </label>
+        <div className="text-xs text-ink-muted">사진은 512KB 이하의 JPG, PNG, WebP 또는 GIF만 사용할 수 있습니다.</div>
+        {profileError && <div className="text-sm text-danger">{profileError}</div>}
+        {profileSaved && <div className="text-sm text-success">프로필을 저장했습니다</div>}
+        <button type="submit" disabled={profileBusy || !name.trim()} className="rounded bg-accent py-2 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">
+          {profileBusy ? '저장 중…' : '프로필 저장'}
+        </button>
+      </form>
 
       <form onSubmit={handleChangePassword} className="flex flex-col gap-3 border-t border-edge pt-4">
         <div className="text-sm font-medium">{t('settings.changePassword')}</div>

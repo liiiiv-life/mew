@@ -58,7 +58,9 @@ import {
   WORKSPACE_PANEL_IDS,
   bringMobilePanelToFront,
   closeMobilePanel,
+  restoreMobilePanelStack,
   selectMobilePanel,
+  type MobileForeground,
   type WorkspacePanelId,
 } from './utils/mobile-panel-stack'
 import { pickRefTarget, type RefPanel } from './utils/refTarget'
@@ -75,6 +77,20 @@ function toggleFullscreen() {
 }
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
+
+function mobileForegroundPanelKey(rootProjectPath: string): string {
+  return `mew:mobile-foreground-panel:${rootProjectPath}`
+}
+
+function loadMobileForegroundPanel(rootProjectPath: string): MobileForeground | null {
+  const value = localStorage.getItem(mobileForegroundPanelKey(rootProjectPath))
+  if (value === 'editor') return value
+  return WORKSPACE_PANEL_IDS.includes(value as WorkspacePanelId) ? value as WorkspacePanelId : null
+}
+
+function saveMobileForegroundPanel(rootProjectPath: string | null, foreground: MobileForeground): void {
+  if (rootProjectPath) localStorage.setItem(mobileForegroundPanelKey(rootProjectPath), foreground)
+}
 
 type Theme = 'dark' | 'light'
 const THEME_KEY = 'mew:theme'
@@ -159,9 +175,10 @@ interface EditorAppProps {
   auth: AuthStatus
   onLoggedOut: () => void
   onRequestLogin: () => void
+  onProfileChanged: (profile: { displayName: string; avatarDataUrl: string | null }) => void
 }
 
-function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
+function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: EditorAppProps) {
   const { t } = useI18n()
   const { role, email: authEmail } = auth
   const isGuest = role === 'guest'
@@ -201,6 +218,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const sidebarStateLoadedRootRef = useRef<string | null>(null)
   const chromeStateLoadedRootRef = useRef<string | null>(null)
   const chromeStateRestorePendingRef = useRef<string | null>(null)
+  // 모바일 전면 창은 화면 크기 의존 상태라 계정 원장이 아니라 이 기기에만 남긴다.
+  const mobilePanelStackRestorePendingRef = useRef<string | null>(null)
+  const mobilePanelStackRestoredRootRef = useRef<string | null>(null)
   const [subprojectTrees, setSubprojectTrees] = useState<Record<string, TreeNode[]>>({})
   const [loadingSubprojects, setLoadingSubprojects] = useState<Set<string>>(new Set())
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
@@ -256,12 +276,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   const openWorkspacePanel = useCallback((panel: WorkspacePanelId) => {
     workspacePanelSetters[panel](true)
     setMobilePanelStack((stack) => bringMobilePanelToFront(stack, panel))
-  }, [workspacePanelSetters])
+    if (!isDesktop()) saveMobileForegroundPanel(rootProjectPath, panel)
+  }, [rootProjectPath, workspacePanelSetters])
 
   const closeWorkspacePanel = useCallback((panel: WorkspacePanelId) => {
     workspacePanelSetters[panel](false)
-    setMobilePanelStack((stack) => closeMobilePanel(stack, panel))
-  }, [workspacePanelSetters])
+    setMobilePanelStack((stack) => {
+      const next = closeMobilePanel(stack, panel)
+      if (!isDesktop()) saveMobileForegroundPanel(rootProjectPath, next.at(-1) ?? 'editor')
+      return next
+    })
+  }, [rootProjectPath, workspacePanelSetters])
 
   const toggleWorkspacePanel = useCallback((panel: WorkspacePanelId) => {
     const open = workspacePanelOpen[panel]
@@ -275,21 +300,35 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     const next = selectMobilePanel(mobilePanelStack, panel, open)
     workspacePanelSetters[panel](next.open)
     setMobilePanelStack(next.stack)
-  }, [mobilePanelStack, workspacePanelOpen, workspacePanelSetters])
+    saveMobileForegroundPanel(rootProjectPath, next.stack.at(-1) ?? 'editor')
+  }, [mobilePanelStack, rootProjectPath, workspacePanelOpen, workspacePanelSetters])
 
   const bringWorkspacePanelToFront = useCallback((panel: WorkspacePanelId) => {
     if (!isDesktop() && mobileForegroundPanel !== panel) {
       setMobilePanelStack((stack) => bringMobilePanelToFront(stack, panel))
+      saveMobileForegroundPanel(rootProjectPath, panel)
     }
-  }, [mobileForegroundPanel])
+  }, [mobileForegroundPanel, rootProjectPath])
 
   const closeAllWorkspacePanels = useCallback(() => {
     for (const panel of WORKSPACE_PANEL_IDS) workspacePanelSetters[panel](false)
     setMobilePanelStack([])
-  }, [workspacePanelSetters])
+    if (!isDesktop()) saveMobileForegroundPanel(rootProjectPath, 'editor')
+  }, [rootProjectPath, workspacePanelSetters])
+
+  // 모바일에서 파일을 열 때는 패널의 열림 상태를 바꾸지 않는다. 그래야 화면을 데스크톱으로
+  // 넓혔을 때 열린 패널들이 그대로 남는다. 보조 패널 스택만 비워 에디터를 전면에 둔다.
+  const showMobileEditor = useCallback(() => {
+    if (!isDesktop()) {
+      setMobilePanelStack([])
+      saveMobileForegroundPanel(rootProjectPath, 'editor')
+    }
+  }, [rootProjectPath])
 
   const mobilePanelLayer = useCallback((panel: WorkspacePanelId) => {
-    return mobileForegroundPanel === panel ? 'z-[31]' : 'z-30'
+    // 스택에 전면 패널이 없으면 에디터를 보여 준다. 패널은 열려 있는 채라 데스크톱으로
+    // 전환하면 다시 보이며, 모바일에서 해당 도구 버튼을 누르면 즉시 다시 전면으로 온다.
+    return mobileForegroundPanel === panel ? 'z-[31]' : 'max-md:hidden z-30'
   }, [mobileForegroundPanel])
   // docs 탭을 꾹 누르면 뜨는 폴더 가져오기/내보내기 창 — owner 전용
   const [docsSettingsOpen, setDocsSettingsOpen] = useState(false)
@@ -444,6 +483,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     setContentWorkspace(info.path)
     setActiveProject(WORKSPACE_PROJECT)
     setRootProjectPath(info.path)
+    // 계정 UI·탭 복원을 기다리지 않고, 워크스페이스를 받은 첫 렌더부터 직전 모바일
+    // 전면 화면을 올린다. 그렇지 않으면 빈 에디터의 자동 사이드바가 잠깐 보인다.
+    if (!isDesktop()) {
+      const foreground = loadMobileForegroundPanel(info.path)
+      setMobilePanelStack(foreground && foreground !== 'editor' ? [foreground] : [])
+      if (foreground && foreground !== 'editor') workspacePanelSetters[foreground](true)
+    }
     rememberProjectPath(info.path)
     setTree([])
     setRootTree([])
@@ -452,7 +498,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     setLoadingSubprojects(new Set())
     setExpandedSubprojects(new Set())
     setPendingOpen(null)
-  }, [rememberProjectPath])
+  }, [rememberProjectPath, workspacePanelSetters])
 
   const handleWorkspaceBroadcast = useCallback(() => {
     void fetchWorkspace().then(applyWorkspace).catch(console.error)
@@ -544,8 +590,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   useEffect(() => {
     // 복원 전에는 항상 빈 칸으로 한 번 렌더된다. 저장된 파일 탭이 실제로 복원된 뒤 판정해야
     // 파일이 있는 프로젝트에서 사이드바가 잘못 열리지 않는다.
-    if (tabsHydrated && !hasOpenFiles) openWorkspacePanel('sidebar')
-  }, [project, tabsHydrated, hasOpenFiles, openWorkspacePanel])
+    // 첫 렌더에는 아직 어느 루트 프로젝트의 상태를 읽을지 모른다. 이때 사이드바를
+    // 기본으로 열면 저장된 전면 패널이 도착하기 전 잠깐 번쩍인다.
+    if (!tabsHydrated || hasOpenFiles || !rootProjectPath) return
+    // 빈 에디터의 첫 진입점은 사이드바지만, 모바일에서 직전 전면 상태를 따로 기억한
+    // 경우에는 그 상태를 덮지 않는다. `editor`도 명시 상태라 빈 스택과 구별한다.
+    if (!isDesktop() && loadMobileForegroundPanel(rootProjectPath) !== null) return
+    openWorkspacePanel('sidebar')
+  }, [project, tabsHydrated, hasOpenFiles, openWorkspacePanel, rootProjectPath])
 
   const registerPaneHandle = useCallback((id: string, handle: PaneHandle | null) => {
     if (handle) paneHandles.current.set(id, handle)
@@ -821,16 +873,48 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   useEffect(() => {
     if (!workspaceUiLoaded || chromeStateLoadedRootRef.current === rootProjectPath) return
     const value = workspaceUi.chrome
+    // 계정 원장은 debounce 저장이라 새로고침 직전의 마지막 패널 조작보다 늦을 수 있다.
+    // 모바일 전면 패널은 조작 순간 로컬에 동기 저장하므로, 그 패널만큼은 원장보다 우선해
+    // 열림 상태까지 함께 복원한다.
+    const savedMobileForeground = rootProjectPath && !isDesktop()
+      ? loadMobileForegroundPanel(rootProjectPath)
+      : null
+    const restoredOpen: Record<WorkspacePanelId, boolean> = {
+      sidebar: sidebarOpen,
+      chat: chatOpen,
+      agent: agentOpen,
+      terminal: tmuxOpen,
+      browser: browserOpen,
+      android: androidOpen,
+    }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const chrome = value as Record<string, unknown>
       if (typeof chrome.tocOpen === 'boolean') setTocOpen(chrome.tocOpen)
-      if (typeof chrome.sidebarOpen === 'boolean') setSidebarOpen(chrome.sidebarOpen)
+      if (typeof chrome.sidebarOpen === 'boolean') {
+        setSidebarOpen(chrome.sidebarOpen)
+        restoredOpen.sidebar = chrome.sidebarOpen
+      }
       if (chrome.sidebarView === 'files' || chrome.sidebarView === 'search' || chrome.sidebarView === 'commands') setSidebarView(chrome.sidebarView)
-      if (canUseTerminal) {
-        if (typeof chrome.tmuxOpen === 'boolean') setTmuxOpen(chrome.tmuxOpen)
-        if (typeof chrome.agentOpen === 'boolean') setAgentOpen(chrome.agentOpen)
-        if (typeof chrome.browserOpen === 'boolean') setBrowserOpen(chrome.browserOpen)
-        if (typeof chrome.androidOpen === 'boolean') setAndroidOpen(chrome.androidOpen)
+      // 보조 패널은 모바일에서 화면 전체를 덮는 기기별 상태다. 계정 원장의 이전 값으로
+      // 로컬의 방금 연 에이전트를 닫아 버리면 전면 순서를 복원할 수 없으므로, 서버 원장은
+      // 데스크톱 배치에만 적용한다. 모바일은 각 패널의 로컬 열림 상태로 시작한다.
+      if (canUseTerminal && isDesktop()) {
+        if (typeof chrome.tmuxOpen === 'boolean') {
+          setTmuxOpen(chrome.tmuxOpen)
+          restoredOpen.terminal = chrome.tmuxOpen
+        }
+        if (typeof chrome.agentOpen === 'boolean') {
+          setAgentOpen(chrome.agentOpen)
+          restoredOpen.agent = chrome.agentOpen
+        }
+        if (typeof chrome.browserOpen === 'boolean') {
+          setBrowserOpen(chrome.browserOpen)
+          restoredOpen.browser = chrome.browserOpen
+        }
+        if (typeof chrome.androidOpen === 'boolean') {
+          setAndroidOpen(chrome.androidOpen)
+          restoredOpen.android = chrome.androidOpen
+        }
       }
     } else if (rootProjectPath && !isGuest) {
       // 계정 원장이 처음 비어 있을 때만 이 기기의 기존 화면 상태를 이관한다.
@@ -839,9 +923,30 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
         chrome: { tocOpen, sidebarOpen, sidebarView, tmuxOpen, agentOpen, browserOpen, androidOpen },
       }))
     }
+    if (savedMobileForeground && savedMobileForeground !== 'editor') {
+      restoredOpen[savedMobileForeground] = true
+      workspacePanelSetters[savedMobileForeground](true)
+    }
+    if (rootProjectPath && !isDesktop()) {
+      setMobilePanelStack(restoreMobilePanelStack(restoredOpen, savedMobileForeground))
+      // 다음 렌더에서 복원한 스택을 저장한다. 지금의 초기 스택으로 기존 기억을 덮지 않는다.
+      mobilePanelStackRestorePendingRef.current = rootProjectPath
+    }
     chromeStateLoadedRootRef.current = rootProjectPath
     chromeStateRestorePendingRef.current = rootProjectPath
-  }, [agentOpen, androidOpen, browserOpen, canUseTerminal, isGuest, rootProjectPath, sidebarOpen, sidebarView, tmuxOpen, tocOpen, workspaceUi.chrome, workspaceUiLoaded])
+  }, [agentOpen, androidOpen, browserOpen, canUseTerminal, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tmuxOpen, tocOpen, workspaceUi.chrome, workspaceUiLoaded])
+
+  useEffect(() => {
+    if (!rootProjectPath || !workspaceUiLoaded || isDesktop()) return
+    if (mobilePanelStackRestorePendingRef.current === rootProjectPath) {
+      mobilePanelStackRestorePendingRef.current = null
+      mobilePanelStackRestoredRootRef.current = rootProjectPath
+      return
+    }
+    if (mobilePanelStackRestoredRootRef.current !== rootProjectPath) return
+    const foreground = mobilePanelStack.at(-1)
+    saveMobileForegroundPanel(rootProjectPath, foreground ?? 'editor')
+  }, [mobilePanelStack, rootProjectPath, workspaceUiLoaded])
 
   useEffect(() => {
     localStorage.setItem(TOC_KEY, tocOpen ? '1' : '0')
@@ -1090,10 +1195,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   /** 채팅 멘션·에이전트 로컬 링크 — 같은 mew의 알맞은 프로젝트와 문서 탭으로 연다. */
   const openMentionedFile = useCallback(
     (target: string, path: string, line: number | null = null) => {
+      // 에디터는 모바일 보조창 스택의 한 항목이 아니다. 파일을 여는 순간에는 패널을 닫지
+      // 않고 전면 스택만 비워야, 뒤의 사이드바가 올라오지 않으면서 데스크톱 열림 상태도 남는다.
+      showMobileEditor()
       setPendingOpen({ project: target, path, line })
       if (target !== project) switchProject(target)
     },
-    [project, switchProject],
+    [project, showMobileEditor, switchProject],
   )
 
   useEffect(() => {
@@ -1112,9 +1220,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       // 큰 파일은 검색 결과 줄 주변을 먼저 읽는다. Markdown은 줄 구조가 화면 구조와 달라 기존 Hotview
       // 검색 경로를 유지하며, plain만 preview가 안전하다.
       openFile(path, path.endsWith('.md') ? { preview: true } : { preview: true, viewMode: 'plain', anchorLine: match.line })
-      if (!isDesktop()) closeWorkspacePanel('sidebar')
+      showMobileEditor()
     },
-    [closeWorkspacePanel, openFile],
+    [openFile, showMobileEditor],
   )
 
   // 대기 중인 점프 실행 — 대상 파일이 활성화되고 내용이 로드되면: 코드/plain은 해당 줄로 스크롤,
@@ -1469,7 +1577,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
     {
       id: 'settings',
       // 로그인해 있으면 이 항목이 곧 계정 자리다 — 누구 계정인지 이름을 붙여 준다
-      label: isGuest ? t('settings.title') : (authEmail ?? t('settings.title')),
+      label: isGuest ? t('settings.title') : (auth.displayName ?? authEmail ?? t('settings.title')),
       onSelect: () => setSettingsOpen(true),
       icon: (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1614,7 +1722,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                     loadChildren={isGuest ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
                     prefetchRootChildren
                     roots={!isGuest && <>
-                      <div className="border-b border-edge py-1">
+                      <div className="border-b border-edge pb-1">
                         <button
                           type="button"
                           onClick={() => setDocsExpanded((expanded) => !expanded)}
@@ -1623,7 +1731,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                             event.preventDefault()
                             setDocsSettingsOpen(true)
                           }}
-                          className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-medium hover:bg-surface-raised ${docsExpanded ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
+                          className={`sticky top-0 z-10 flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-medium hover:bg-surface-raised ${docsExpanded ? 'bg-surface-raised text-ink' : 'bg-surface-deep text-ink-secondary'}`}
                           title={isOwner ? 'Documents · 우클릭하여 폴더 설정' : 'Documents'}
                         >
                           <ProjectIcon icon="i:notes" size={16} />
@@ -1660,8 +1768,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                       </div>
                       {rootSubprojects.map((subproject) => {
                         const expanded = expandedSubprojects.has(subproject.path)
-                        return <div key={subproject.path} className="border-b border-edge py-1">
-                          <div className="flex items-center gap-0.5">
+                        return <div key={subproject.path} className="border-b border-edge pb-1">
+                          <div className="sticky top-0 z-10 flex items-center gap-0.5 bg-surface-deep">
                             <button
                               type="button"
                               onClick={() => toggleSubproject(subproject.path)}
@@ -1697,12 +1805,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                                   presence={project === WORKSPACE_PROJECT ? tabPresence : {}}
                                   onSelect={(path) => {
                                     openMentionedFile(WORKSPACE_PROJECT, path, null)
-                                    if (!isDesktop()) closeWorkspacePanel('sidebar')
                                   }}
                                   onFileCreated={(relPath) => {
                                     refreshTree()
                                     openMentionedFile(WORKSPACE_PROJECT, relPath, null)
-                                    if (!isDesktop()) closeWorkspacePanel('sidebar')
                                   }}
                                   onFolderCreated={refreshTree}
                                   onRenamed={handleRenamed}
@@ -1726,12 +1832,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
                       // 루트 트리는 Documents 탭을 편집 중이어도 그대로 남아 있다. 선택한 파일의
                       // 실제 스코프로 먼저 전환한 뒤 탭을 연다.
                       openMentionedFile(WORKSPACE_PROJECT, path, null)
-                      if (!isDesktop()) closeWorkspacePanel('sidebar')
                     }}
                     onFileCreated={(relPath) => {
                       refreshTree()
                       openMentionedFile(WORKSPACE_PROJECT, relPath, null)
-                      if (!isDesktop()) closeWorkspacePanel('sidebar')
                     }}
                     onFolderCreated={refreshTree}
                     onRenamed={handleRenamed}
@@ -1776,8 +1880,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
           >
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <ChatPanel
-                authEmail={authEmail}
+                <ChatPanel
+                  authEmail={authEmail}
+                  authDisplayName={auth.displayName}
                 project={project}
                 tree={tree}
                 onOpenFile={openMentionedFile}
@@ -1893,6 +1998,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
       {settingsOpen && (
         <SettingsModal
           email={authEmail}
+          displayName={auth.displayName}
+          avatarDataUrl={auth.avatarDataUrl}
           canEditIgnore={canUseTerminal}
           theme={theme}
           fontPreferences={fontPreferences}
@@ -1903,6 +2010,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
             setSettingsOpen(false)
           }}
           onLoggedOut={onLoggedOut}
+          onProfileChanged={onProfileChanged}
         />
       )}
 
@@ -1970,7 +2078,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin }: EditorAppProps) {
   )
 }
 
-const GUEST_AUTH: AuthStatus = { authenticated: false, email: null, role: 'guest', mustChangePassword: false }
+const GUEST_AUTH: AuthStatus = { authenticated: false, email: null, role: 'guest', mustChangePassword: false, displayName: null, avatarDataUrl: null }
 
 /** 인증은 선택 사항 — 로그인하지 않으면 게스트로 EditorApp이 바로 뜬다. 로그인 버튼은 EditorApp 안에서 이 모달을 연다. */
 function App() {
@@ -2013,6 +2121,7 @@ function App() {
         auth={auth}
         onLoggedOut={() => applyAuth(GUEST_AUTH)}
         onRequestLogin={() => setLoginOpen(true)}
+        onProfileChanged={(profile) => setAuth((current) => (current ? { ...current, ...profile } : current))}
       />
       {loginOpen && (
         <LoginPage

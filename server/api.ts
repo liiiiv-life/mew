@@ -48,8 +48,7 @@ import { listSkills } from './skills.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
-import { isRuntime, runtimeAccountUsageSpec, runtimeList } from './agentAcp.ts'
-import { summarizeAccountUsage, type AccountUsageSummary } from './agentAccountUsage.ts'
+import { isRuntime, runtimeList } from './agentAcp.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
 import { prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
 import { resolveWorkspaceLink } from './workspaceLinks.ts'
@@ -92,6 +91,7 @@ import {
   listUsers,
   normalizeEmail,
   upsertUser,
+  userProfile,
 } from './auth.ts'
 
 /** tmux 세션은 워크스페이스 루트에서 시작한다 */
@@ -107,60 +107,6 @@ const MEW_ACTIONS = {
   restart: { command: './mew restart', session: 'mewcmd-mew-restart' },
   build: { command: 'npm run build', session: 'mewcmd-mew-build' },
 } as const
-
-const ACCOUNT_USAGE_WAIT_FOR_CLI_MS = 1_200
-const ACCOUNT_USAGE_WAIT_AFTER_DISMISS_MS = 200
-const ACCOUNT_USAGE_WAIT_FOR_RESULT_MS = 2_500
-const ACCOUNT_USAGE_MAX_CHARS = 12_000
-const accountUsageInFlight = new Map<string, Promise<AgentAccountUsage>>()
-
-type AgentAccountUsage = { label: string; command: string; output: string; summary: AccountUsageSummary; fetchedAt: string }
-
-function shellArg(value: string): string {
-  return `'${value.replaceAll("'", `"'"'"`)}'`
-}
-
-function usageCliCommand(spec: { cmd: string; args: string[]; env?: Record<string, string | undefined> }): string {
-  const env = Object.entries(spec.env ?? {})
-    .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .map(([key, value]) => `${key}=${shellArg(value)}`)
-  return [...env, shellArg(spec.cmd), ...spec.args.map(shellArg)].join(' ')
-}
-
-function cleanTerminalOutput(output: string): string {
-  const plain = output
-    // eslint-disable-next-line no-control-regex -- terminal color·OSC escape sequences are control codes by definition.
-    .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\\\))/g, '')
-    // eslint-disable-next-line no-control-regex -- keep only printable text before it reaches the browser.
-    .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '')
-    .trim()
-  return plain.length > ACCOUNT_USAGE_MAX_CHARS ? `${plain.slice(-ACCOUNT_USAGE_MAX_CHARS)}\n…(최근 출력만 표시)` : plain
-}
-
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-
-async function collectAgentAccountUsage(id: string): Promise<AgentAccountUsage> {
-  const spec = runtimeAccountUsageSpec(id)
-  if (!spec) throw new Error('이 런타임은 계정 사용량 조회를 아직 지원하지 않습니다')
-  const session = commandSessionName('agent-account-usage', id)
-  try {
-    const running = (await tmuxManager.list()).some((item) => item.name === session)
-    if (running) await tmuxManager.kill(session)
-    await tmuxManager.runCommand(session, usageCliCommand(spec), WORKSPACE_ROOT)
-    await wait(ACCOUNT_USAGE_WAIT_FOR_CLI_MS)
-    // Codex·Claude Code가 시작 화면에 업데이트 안내를 띄우면 다음 슬래시 명령이 안내에 먹힌다.
-    // 계정 사용량을 읽는 짧은 진단 세션에서만 Esc로 닫는다. 평소 에이전트 세션의 업데이트 정책은 바꾸지 않는다.
-    await tmuxManager.sendKey(session, 'Escape')
-    await wait(ACCOUNT_USAGE_WAIT_AFTER_DISMISS_MS)
-    await tmuxManager.runCommand(session, spec.slashCommand, WORKSPACE_ROOT)
-    await wait(ACCOUNT_USAGE_WAIT_FOR_RESULT_MS)
-    const output = cleanTerminalOutput(await tmuxManager.capture(session))
-    if (!output) throw new Error('CLI가 사용량 정보를 반환하지 않았습니다. 해당 CLI에서 로그인 상태를 확인하세요')
-    return { label: spec.label, command: spec.slashCommand, output, summary: summarizeAccountUsage(output), fetchedAt: new Date().toISOString() }
-  } finally {
-    await tmuxManager.kill(session).catch(() => {})
-  }
-}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
 
@@ -1375,6 +1321,11 @@ export function createApiApp() {
     res.json({ members: listUsers().map(({ email }) => email) })
   })
 
+  // 채팅 등 협업 UI용 공개 프로필. 계정 역할·비밀번호 상태는 내보내지 않는다.
+  app.get('/member-profiles', requireAuthenticated, (_req, res) => {
+    res.json({ members: listUsers().map(({ email, record }) => userProfile(email, record)) })
+  })
+
   app.get('/comments', requireAuthenticated, (req, res) => {
     const relPath = String(req.query.path ?? '')
     const project = projectOf(req)
@@ -1636,27 +1587,6 @@ export function createApiApp() {
   // 에이전트 런타임 설치는 서버 머신에 실행 파일을 쓰는 작업 — 터미널과 같은 역할만.
   app.get('/agent-runtimes', requireRole('owner', 'manager'), (_req, res) => {
     res.json({ runtimes: runtimeStatuses() })
-  })
-
-  // CLI가 이미 로그인해 둔 계정에서만 고정 슬래시 명령을 실행한다. 브라우저는 명령·인자·자격증명을
-  // 보낼 수 없고, 같은 런타임의 중복 요청은 하나의 짧은 임시 tmux 세션을 공유한다.
-  app.get('/agent-runtimes/:id/account-usage', requireRole('owner', 'manager'), async (req, res) => {
-    try {
-      const id = String(req.params.id)
-      if (!isRuntime(id)) {
-        res.status(404).json({ error: '지원하지 않는 에이전트 런타임입니다' })
-        return
-      }
-      let request = accountUsageInFlight.get(id)
-      if (!request) {
-        request = collectAgentAccountUsage(id)
-        accountUsageInFlight.set(id, request)
-        void request.finally(() => accountUsageInFlight.delete(id))
-      }
-      res.json({ usage: await request })
-    } catch (err) {
-      handleError(res, err)
-    }
   })
 
   app.post('/agent-runtimes/:id/install', requireRole('owner', 'manager'), async (req, res) => {

@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flattenFiles } from '@mew/editor'
 import {
   fetchChat,
-  fetchMembers,
+  fetchMemberProfiles,
   markChatRead,
   postChat,
   GROUP_CHAT,
   type ChatMessage,
   type ChatView,
+  type MemberProfile,
   type TreeNode,
 } from '../api/client'
 import { identityColor } from '../utils/collabColor'
@@ -143,19 +144,21 @@ function GroupGlyph() {
 
 export function ChatPanel({
   authEmail,
+  authDisplayName,
   project,
   tree,
   onOpenFile,
   onClose,
 }: {
   authEmail: string | null
+  authDisplayName: string | null
   project: string
   tree: TreeNode[]
   onOpenFile: (project: string, path: string) => void
   onClose: () => void
 }) {
   const [view, setView] = useState<ChatView>({ messages: [], unread: {}, dmSupported: true })
-  const [members, setMembers] = useState<string[]>([])
+  const [members, setMembers] = useState<MemberProfile[]>([])
   /** 지금 보고 있는 대화 — GROUP_CHAT이거나 상대 이메일 */
   const [active, setActive] = useState<string>(GROUP_CHAT)
   const [draft, setDraft] = useState('')
@@ -175,8 +178,8 @@ export function ChatPanel({
   // 대화 상대 목록 — 나는 뺀다. 자주 바뀌지 않아 창이 뜰 때 한 번만 읽는다
   useEffect(() => {
     if (!view.dmSupported) return
-    fetchMembers()
-      .then((list) => setMembers(list.filter((email) => email !== authEmail)))
+    fetchMemberProfiles()
+      .then((list) => setMembers(list.filter((member) => member.email !== authEmail)))
       .catch(() => {})
   }, [authEmail, view.dmSupported])
 
@@ -189,6 +192,8 @@ export function ChatPanel({
     () => view.messages.filter((message) => inConversation(message, authEmail, active)),
     [view.messages, authEmail, active],
   )
+  const profileByEmail = useMemo(() => new Map(members.map((member) => [member.email, member])), [members])
+  const nameOf = (email: string) => (email === authEmail ? authDisplayName : null) ?? profileByEmail.get(email)?.displayName ?? shortName(email)
 
   // 보고 있는 대화는 읽은 것으로 표시한다 — 서버가 새로 읽은 게 없으면 방송하지 않으므로 여기서 멈춘다
   useEffect(() => {
@@ -270,21 +275,23 @@ export function ChatPanel({
           필요
         </span>
       )}
-      {members.map((email) => (
+      {members.map((member) => (
         <ConversationIcon
-          key={email}
-          label={shortName(email).slice(0, 2).toUpperCase()}
-          title={`${shortName(email)} · ${email}`}
-          color={identityColor(email)}
-          active={active === email}
-          unread={view.unread[email] ?? 0}
-          onClick={() => setActive(email)}
-        />
+          key={member.email}
+          label={member.displayName.slice(0, 2).toUpperCase()}
+          title={`${member.displayName} · ${member.email}`}
+          color={identityColor(member.email)}
+          active={active === member.email}
+          unread={view.unread[member.email] ?? 0}
+          onClick={() => setActive(member.email)}
+        >
+          {member.avatarDataUrl ? <img src={member.avatarDataUrl} alt="" className="h-9 w-9 rounded-full object-cover" /> : member.displayName.slice(0, 2).toUpperCase()}
+        </ConversationIcon>
       ))}
     </div>
   )
 
-  const title = active === GROUP_CHAT ? '단체 대화방' : shortName(active)
+  const title = active === GROUP_CHAT ? '단체 대화방' : nameOf(active)
 
   return (
     <div className="flex h-full w-full bg-surface-deep">
@@ -316,7 +323,7 @@ export function ChatPanel({
       >
         {messages.length === 0 && !error && (
           <div className="py-8 text-center text-xs text-ink-muted">
-            {active === GROUP_CHAT ? '아직 메시지가 없습니다' : `${shortName(active)}님과 나눈 대화가 없습니다`} — @로 파일을 멘션할 수 있습니다
+            {active === GROUP_CHAT ? '아직 메시지가 없습니다' : `${nameOf(active)}님과 나눈 대화가 없습니다`} — @로 파일을 멘션할 수 있습니다
           </div>
         )}
         {messages.map((message, i) => {
@@ -329,7 +336,7 @@ export function ChatPanel({
                 <div className="mb-0.5 flex items-baseline gap-1.5">
                   <span className="h-2 w-2 shrink-0 self-center rounded-full" style={{ backgroundColor: identityColor(message.author) }} />
                   <span className={`truncate text-xs font-medium ${message.author === authEmail ? 'text-ink' : 'text-ink-secondary'}`}>
-                    {message.author.split('@')[0] || message.author}
+                    {nameOf(message.author)}
                   </span>
                   <span className="shrink-0 text-[10px] text-ink-faint">{formatTime(message.time)}</span>
                 </div>
@@ -362,7 +369,7 @@ export function ChatPanel({
           options={mentionOptions}
           onSubmit={send}
           rows={2}
-          placeholder={active === GROUP_CHAT ? '메시지 입력 — @파일 멘션 · Ctrl+L 현재 위치' : `${shortName(active)}님에게 — @파일 멘션`}
+          placeholder={active === GROUP_CHAT ? '메시지 입력 — @파일 멘션 · Ctrl+L 현재 위치' : `${nameOf(active)}님에게 — @파일 멘션`}
           submitHint="Enter로 전송"
         />
         <button

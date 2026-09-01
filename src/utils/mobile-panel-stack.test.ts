@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   bringMobilePanelToFront,
   closeMobilePanel,
+  restoreMobilePanelStack,
   selectMobilePanel,
   type WorkspacePanelId,
 } from './mobile-panel-stack.ts'
@@ -31,4 +32,22 @@ test('새 패널도 공통 함수만으로 전면 이동과 외부 닫기를 처
   const withFuturePanel = bringMobilePanelToFront(['sidebar', 'future-panel'], 'sidebar')
   assert.deepEqual(withFuturePanel, ['future-panel', 'sidebar'])
   assert.deepEqual(closeMobilePanel(withFuturePanel, 'sidebar'), ['future-panel'])
+})
+
+test('복원 때 마지막 전면 창을 열린 창들보다 앞에 둔다', () => {
+  assert.deepEqual(
+    restoreMobilePanelStack({ sidebar: true, chat: false, agent: true, terminal: false, browser: true, android: false }, 'agent'),
+    ['sidebar', 'browser', 'agent'],
+  )
+  assert.deepEqual(
+    restoreMobilePanelStack({ sidebar: true, chat: false, agent: false, terminal: false, browser: false, android: false }, 'agent'),
+    ['sidebar'],
+  )
+})
+
+test('에디터가 전면이었던 상태는 열린 보조 패널이 있어도 빈 스택으로 복원한다', () => {
+  assert.deepEqual(
+    restoreMobilePanelStack({ sidebar: true, chat: false, agent: true, terminal: false, browser: false, android: false }, 'editor'),
+    [],
+  )
 })

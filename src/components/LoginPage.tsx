@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
-import { changePassword, login, type AuthStatus, type Role } from '../api/client'
+import { changePassword, fetchAuthStatus, login, type AuthStatus } from '../api/client'
 
 const PASSWORD_MIN_LENGTH = 10
 
@@ -17,7 +17,6 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
   const [step, setStep] = useState<'credentials' | 'change'>('credentials')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<Role>('member')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -31,11 +30,10 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
     setBusy(true)
     try {
       const result = await login(email, password)
-      setRole(result.role)
       if (result.mustChangePassword) {
         setStep('change')
       } else {
-        onSuccess({ authenticated: true, email: result.email, role: result.role, mustChangePassword: false })
+        onSuccess(await fetchAuthStatus())
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '로그인에 실패했습니다')
@@ -58,7 +56,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
     setBusy(true)
     try {
       await changePassword(password, newPassword)
-      onSuccess({ authenticated: true, email: email.trim().toLowerCase(), role, mustChangePassword: false })
+      onSuccess(await fetchAuthStatus())
     } catch (err) {
       setError(err instanceof Error ? err.message : '비밀번호 변경에 실패했습니다')
     } finally {

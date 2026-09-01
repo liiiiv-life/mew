@@ -470,22 +470,6 @@ export function logoutAgentRuntime(id: string): Promise<{ output: string }> {
   return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/logout`, { method: 'POST' }).then(json<{ output: string }>)
 }
 
-/** CLI가 제공하는 연결 계정의 구독/API 한도 화면. 명령·자격증명은 브라우저에서 보내지 않는다. */
-export interface AgentAccountUsage {
-  label: string
-  command: string
-  output: string
-  summary: {
-    limits: Array<{ label: string; percentLeft: number; resetsAt: string | null }>
-    refreshPending: boolean
-  }
-  fetchedAt: string
-}
-
-export function fetchAgentAccountUsage(id: string): Promise<{ usage: AgentAccountUsage }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/account-usage`).then(json<{ usage: AgentAccountUsage }>)
-}
-
 /** 런타임 설정 — env 값은 마스킹(마지막 4자)이라 원문을 되찾을 수 없다. 덮어쓸 때만 전송한다 */
 export function fetchAgentRuntimeSetting(id: string): Promise<{ settings: RuntimeSettingView | null }> {
   return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`).then(json<{ settings: RuntimeSettingView | null }>)
@@ -663,6 +647,8 @@ export interface AuthStatus {
   email: string | null
   role: Role
   mustChangePassword: boolean
+  displayName: string | null
+  avatarDataUrl: string | null
 }
 
 export function fetchAuthStatus(): Promise<AuthStatus> {
@@ -690,6 +676,20 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ currentPassword, newPassword }),
   }).then(json<{ ok: true }>)
+}
+
+export interface MemberProfile {
+  email: string
+  displayName: string
+  avatarDataUrl: string | null
+}
+
+export function updateProfile(displayName: string, avatarDataUrl: string | null): Promise<{ ok: true; profile: MemberProfile }> {
+  return fetch('/api/auth/profile', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName, avatarDataUrl }),
+  }).then(json<{ ok: true; profile: MemberProfile }>)
 }
 
 /** 프로젝트 루트 또는 지정한 폴더의 직접 자식만 읽는다. */
@@ -1092,6 +1092,12 @@ export function markChatRead(conversation: string): Promise<void> {
 export function fetchMembers(): Promise<string[]> {
   return fetch('/api/members')
     .then(json<{ members: string[] }>)
+    .then((r) => r.members)
+}
+
+export function fetchMemberProfiles(): Promise<MemberProfile[]> {
+  return fetch('/api/member-profiles')
+    .then(json<{ members: MemberProfile[] }>)
     .then((r) => r.members)
 }
 

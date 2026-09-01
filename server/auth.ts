@@ -37,6 +37,16 @@ export interface UserRecord {
   createdAt: number
   /** 이 시각 이전에 만든 세션은 전부 무효 — CLI reset·비밀번호 변경의 크로스 프로세스 세션 폐기 수단 */
   passwordChangedAt: number
+  /** 화면에 쓰는 이름. 없으면 이메일의 @ 앞부분을 쓴다(기존 계정 호환). */
+  displayName?: string
+  /** 설정 화면에서 검증한 안전한 래스터 이미지 data URL. */
+  avatarDataUrl?: string
+}
+
+export interface UserProfile {
+  email: string
+  displayName: string
+  avatarDataUrl: string | null
 }
 
 /** role 필드가 없는 구버전 레코드(마이그레이션 이전 users.json)는 member로 취급한다 */
@@ -155,6 +165,46 @@ function saveUsers(data: UsersFile) {
 export function getUser(email: string): UserRecord | null {
   const record = loadUsers().users[normalizeEmail(email)]
   return record ? normalizeRecord(record) : null
+}
+
+function fallbackDisplayName(email: string): string {
+  return email.split('@')[0] || email
+}
+
+/** 비밀번호 해시·역할을 빼고 협업 화면에 내보내도 되는 사용자 정보만 만든다. */
+export function userProfile(email: string, record: UserRecord): UserProfile {
+  return {
+    email,
+    displayName: record.displayName?.trim() || fallbackDisplayName(email),
+    avatarDataUrl: record.avatarDataUrl ?? null,
+  }
+}
+
+export function validateDisplayName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const name = value.trim()
+  const hasControl = Array.from(name).some((char) => {
+    const code = char.codePointAt(0) ?? 0
+    return code <= 0x1f || code === 0x7f
+  })
+  if (!name || name.length > 50 || hasControl) return null
+  return name
+}
+
+const AVATAR_DATA_URL = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/
+const MAX_AVATAR_BYTES = 512 * 1024
+
+/** SVG는 data URL 안에서도 스크립트 표면이 되므로 정지 래스터 포맷만 받는다. */
+export function validateAvatarDataUrl(value: unknown): string | null | undefined {
+  if (value === null) return null
+  if (typeof value !== 'string') return undefined
+  const matched = AVATAR_DATA_URL.exec(value)
+  if (!matched) return undefined
+  try {
+    return Buffer.from(matched[2], 'base64').length <= MAX_AVATAR_BYTES ? value : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export function listUsers(): { email: string; record: UserRecord }[] {
