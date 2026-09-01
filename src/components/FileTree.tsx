@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TreeNode } from '../api/client'
 import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, renamePath, setGuestAccess, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
@@ -6,6 +6,7 @@ import { ConfirmDialog, keepFocusOnPress, setPathDragData } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { PresenceDots } from './PresenceDots'
 import { CommandButtonMenu } from './CommandButtonMenu'
+import { DownloadLink } from './DownloadLink'
 import { getTreeScroll, saveTreeScroll, setScrollSaveSuppressed } from '../utils/scrollMemory'
 import { readFileClipboard, writeFileClipboard, type FileClipboard } from '../utils/fileClipboard'
 
@@ -281,7 +282,7 @@ function ActionPopover({
   onCutClip?: () => void
   /** 클립보드에 담긴 항목이 있을 때만 제공 — 없으면 undefined로 숨긴다 */
   onPasteClip?: () => void
-  onDownload?: () => void
+  onDownload?: ReactNode
   onDelete?: () => void
   onNewFile: () => void
   onNewFolder: () => void
@@ -350,11 +351,7 @@ function ActionPopover({
           📋 붙여넣기 (Ctrl+V)
         </button>
       )}
-      {onDownload && (
-        <button type="button" onClick={onDownload} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-          ⬇ 다운로드
-        </button>
-      )}
+      {onDownload}
       <button type="button" onClick={onNewFile} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
         ＋ 새 파일
       </button>
@@ -433,14 +430,26 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
     }
   }
 
-  function onTouchStart(e: React.TouchEvent) {
+  function onTouchStart() {
     if (ctx.readOnly) return
-    const touch = e.touches[0]
     longPressFired.current = false
     longPressTimer.current = window.setTimeout(() => {
       longPressFired.current = true
-      ctx.openPopover(node.path, node.type, touch.clientX, touch.clientY)
     }, 500)
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    clearLongPress()
+    if (!longPressFired.current) return
+    const touch = e.changedTouches[0]
+    ctx.focusNode(node.path, node.type)
+    ctx.openPopover(node.path, node.type, touch.clientX, touch.clientY)
+  }
+
+  function cancelLongPress() {
+    clearLongPress()
+    // 길게 누른 뒤 이동을 시작하면 파일 이동 제스처가 메뉴로 끝나면 안 된다.
+    longPressFired.current = false
   }
 
   function handleClick() {
@@ -467,9 +476,9 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
   const isFocused = ctx.focused?.path === node.path
   const touchProps = {
     onTouchStart,
-    onTouchEnd: clearLongPress,
-    onTouchMove: clearLongPress,
-    onTouchCancel: clearLongPress,
+    onTouchEnd,
+    onTouchMove: cancelLongPress,
+    onTouchCancel: cancelLongPress,
     onContextMenu: handleContextMenu,
   }
 
@@ -911,15 +920,6 @@ export function FileTree({
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err))
     }
-  }
-
-  function requestDownload(path: string) {
-    const a = document.createElement('a')
-    a.href = downloadUrl(path, project)
-    a.download = path.split('/').pop() ?? path
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
   }
 
   function requestDelete(path: string, type: 'file' | 'dir') {
@@ -1364,7 +1364,7 @@ export function FileTree({
           setDropDir(null)
           if (item) void moveInto(item.path, item.type, '')
         }}
-        className={`${compact ? 'py-1' : 'min-h-0 flex-1 overflow-y-auto py-2'} outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
+        className={`${compact ? 'py-1' : 'min-h-0 flex-1 overflow-y-auto pb-2'} outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
       >
         {roots}
         {commands}
@@ -1462,10 +1462,7 @@ export function FileTree({
           }
           onDownload={
             popover.type === 'file'
-              ? () => {
-                  requestDownload(popover.path)
-                  setPopover(null)
-                }
+              ? <DownloadLink href={downloadUrl(popover.path, project)} name={popover.path.split('/').pop() ?? popover.path} onStarted={() => setPopover(null)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">⬇ 다운로드</DownloadLink>
               : undefined
           }
           onDelete={

@@ -12,6 +12,7 @@ import {
   type ExternalEntriesResult,
   type ExternalEntry,
 } from '../api/client'
+import { DownloadLink } from './DownloadLink'
 import { useI18n } from '../i18n'
 
 type Clipboard = { path: string; mode: 'copy' | 'cut' } | null
@@ -278,7 +279,7 @@ export function ServerFileExplorer({
           <button type="button" onClick={() => setClipboard({ path: menu.entry.path, mode: 'copy' })} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.copy')}</button>
           <button type="button" onClick={() => setClipboard({ path: menu.entry.path, mode: 'cut' })} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.cut')}</button>
           {menu.entry.type === 'dir' && clipboard && <button type="button" onClick={() => paste(menu.entry.path)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.paste')}</button>}
-          {menu.entry.type === 'file' && <a href={externalDownloadUrl(menu.entry.path)} download={menu.entry.name} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.download')}</a>}
+          {menu.entry.type === 'file' && <DownloadLink href={externalDownloadUrl(menu.entry.path)} name={menu.entry.name} onStarted={() => setMenu(null)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.download')}</DownloadLink>}
           {menu.entry.type === 'dir' && isOwner && <button type="button" onClick={() => openProject(menu.entry.path)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.openProject')}</button>}
           <button type="button" onClick={() => remove(menu.entry)} className="block w-full px-3 py-2 text-left text-danger hover:bg-surface-hover">{t('fileExplorer.delete')}</button>
         </div>
