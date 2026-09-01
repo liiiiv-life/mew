@@ -42,6 +42,7 @@ export type AgentHostCommand =
   | { type: 'unqueue'; index: number }
   | { type: 'move_queued'; from: number; to: number }
   | { type: 'edit_queued'; index: number; text: string; expect: string; promptText: string }
+  | { type: 'clear_session' }
   | { type: 'load_session'; sessionId: string }
   | { type: 'close_session' }
 
@@ -428,6 +429,7 @@ async function handleHostMessage(
     else if (command.type === 'move_queued') session.moveQueued(Number(command.from), Number(command.to))
     else if (command.type === 'edit_queued')
       session.editQueued(Number(command.index), String(command.text), String(command.expect), String(command.promptText))
+    else if (command.type === 'clear_session') session.clearAfterQueue()
     else if (command.type === 'load_session') await session.loadSession(String(command.sessionId))
     else if (command.type === 'close_session') stop()
   } catch (err) {

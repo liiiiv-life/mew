@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRuntimeInstall.ts'
-import { RUNTIMES, RUNTIME_LOGIN_METHOD_ID, runtimeAccountUsageSpec, runtimeLoginSpec } from './agentRuntimes.ts'
+import { RUNTIMES, RUNTIME_LOGIN_METHOD_ID, runtimeLoginSpec } from './agentRuntimes.ts'
 
 test('런타임 상태는 서버 등록표 전체를 설치 여부와 함께 내려준다', () => {
   const statuses = runtimeStatuses()
@@ -49,13 +49,4 @@ test('등록된 9개 런타임 모두 요청값과 무관한 GUI 로그인 명�
       else process.env[key] = value
     }
   }
-})
-
-test('계정 사용량은 등록된 Codex CLI 상태 명령만 사용하고, 다른 런타임은 추측하지 않는다', () => {
-  const codex = runtimeAccountUsageSpec('codex')
-  assert.ok(codex)
-  assert.equal(codex.slashCommand, '/status')
-  assert.ok(codex.cmd.endsWith('/node_modules/.bin/codex'))
-  assert.equal(runtimeAccountUsageSpec('gemini'), null)
-  assert.equal(runtimeAccountUsageSpec('not-a-runtime'), null)
 })

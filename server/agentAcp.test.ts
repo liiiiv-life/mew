@@ -180,6 +180,32 @@ new AgentSideConnection(
 )
 `
 
+// `/clear`가 작업을 끊지 않고 큐 경계에서 새 세션을 연 뒤 다음 프롬프트를 보내는지 보는 스텁
+const clearQueueStubSource = `
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
+import { Readable, Writable } from 'node:stream'
+
+class ClearQueueAgent {
+  constructor(conn) { this.conn = conn; this.count = 0 }
+  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} } }
+  async newSession() { this.count += 1; return { sessionId: 'clear-' + this.count } }
+  async authenticate() { return {} }
+  async cancel() {}
+  async prompt({ sessionId, prompt }) {
+    if (prompt[0].text === '먼저') await new Promise((resolve) => setTimeout(resolve, 30))
+    await this.conn.sessionUpdate({ sessionId, update: {
+      sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: sessionId + ':' + prompt[0].text },
+    } })
+    return { stopReason: 'end_turn' }
+  }
+}
+
+new AgentSideConnection(
+  (conn) => new ClearQueueAgent(conn),
+  ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
+)
+`
+
 // 인증 전에는 session/new가 auth_required를 내고, ACP URL elicitation 뒤 같은 연결에서 세션을 여는 스텁
 const authStubSource = `
 import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError } from ${JSON.stringify(sdkUrl)}
@@ -690,6 +716,33 @@ test('진행 중에 보낸 메시지는 줄을 섰다가 이어서 돈다', asyn
   await done
 
   assert.deepEqual(prompts, ['첫째', '둘째'], '첫 턴이 끝나면 대기 메시지가 이어서 돈다')
+})
+
+test('큐의 /clear 뒤 메시지는 새 세션에서 실행한다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-clear-queue-'))
+  const stubPath = path.join(dir, 'clear-queue-stub.mjs')
+  fs.writeFileSync(stubPath, clearQueueStubSource)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+  const events: AgentEvent[] = []
+  const done = new Promise<void>((resolve) => {
+    session.attach((event) => {
+      events.push(event)
+      if (event.type === 'turn_end' && events.some((item) => item.type === 'reset')) resolve()
+    })
+  })
+
+  session.prompt('먼저')
+  session.clearAfterQueue()
+  session.prompt('새로')
+  await done
+
+  assert.ok(events.some((event) => event.type === 'reset'), '앞선 턴이 끝난 뒤 대화가 한 번 비워진다')
+  assert.match(textOf(session.snapshot()), /clear-2:새로/, 'clear 뒤 프롬프트는 새 ACP 세션에 전달한다')
+  assert.doesNotMatch(textOf(session.snapshot()), /clear-1:먼저/, '새 세션 전사는 이전 대화를 남기지 않는다')
 })
 
 test('창이 끊겨도 진행 중인 턴은 죽이지 않고, 완료된 뒤부터 유휴 시간을 센다', async (t) => {

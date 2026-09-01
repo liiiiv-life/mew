@@ -41,9 +41,7 @@ export {
   runtimeList,
   RUNTIMES,
   RUNTIME_LOGIN_METHOD_ID,
-  runtimeAccountUsageSpec,
   runtimeLoginSpec,
-  type RuntimeAccountUsageSpec,
   type SpawnSpec,
 } from './agentRuntimes.ts'
 import {
@@ -88,11 +86,16 @@ export const AGENT_IDLE_MS = 30 * 60_000
 const HANDSHAKE_TIMEOUT_MS = 30_000
 
 type QueuedPrompt = {
+  kind: 'prompt'
   /** 창에 보여 줄 원문 */
   text: string
   /** ACP 런타임에 실제로 보낼 프롬프트 */
   promptText: string
 }
+
+/** 큐 안의 세션 경계. 뒤의 프롬프트는 새 ACP 세션에 전달한다. */
+type QueuedClear = { kind: 'clear'; text: '/clear' }
+type QueuedItem = QueuedPrompt | QueuedClear
 
 /** 창 상단 정보줄이 그리는 값 — 이벤트 버퍼에 쌓지 않고 바뀔 때마다 현재 값을 통째로 보낸다 */
 export type SessionMeta = {
@@ -302,7 +305,7 @@ export class AgentSession {
   #authUrls = new Map<string, Extract<AgentEvent, { type: 'auth_url' }>>()
   #startedAt = new Date().toISOString()
   #turns = 0
-  #queue: QueuedPrompt[] = []
+  #queue: QueuedItem[] = []
   #reader: UsageReader | null = null
   #usage: Usage | null = null
   busy = false
@@ -684,11 +687,22 @@ export class AgentSession {
   prompt(text: string, promptText = text) {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
     if (this.busy) {
-      this.#queue.push({ text, promptText })
+      this.#queue.push({ kind: 'prompt', text, promptText })
       this.#broadcast(this.#metaEvent())
       return
     }
     this.#run(text, promptText)
+  }
+
+  /** `/clear`는 앞선 작업을 끊지 않고, 이 큐 지점에서 새 ACP 세션을 연다. */
+  clearAfterQueue() {
+    if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
+    if (this.busy) {
+      this.#queue.push({ kind: 'clear', text: '/clear' })
+      this.#broadcast(this.#metaEvent())
+      return
+    }
+    void this.#clearSession().then(() => this.#drainQueue())
   }
 
   /** 예약 작업처럼 창 없이 한 턴만 돌리는 경로. 진행 중인 세션에는 쓰지 않는다. */
@@ -722,7 +736,9 @@ export class AgentSession {
     if (this.#queue[index].text !== expect) return
     const next = text.trim()
     if (!next) return
-    this.#queue[index] = { text: next, promptText }
+    // `/clear`는 다른 작업으로 편집할 수 없는 세션 경계다.
+    if (this.#queue[index].kind !== 'prompt') return
+    this.#queue[index] = { kind: 'prompt', text: next, promptText }
     this.#broadcast(this.#metaEvent())
   }
 
@@ -768,13 +784,42 @@ export class AgentSession {
           this.#armIdleTimer()
           return
         }
-        const next = this.#queue.shift()
-        if (next === undefined) {
-          void this.#pushMeta()
-          this.#armIdleTimer()
-        }
-        else this.#run(next.text, next.promptText)
+        this.#drainQueue()
       })
+  }
+
+  /** 큐의 다음 항목 하나만 시작한다. clear 뒤의 프롬프트는 새 세션에서 시작한다. */
+  #drainQueue() {
+    const next = this.#queue.shift()
+    if (next === undefined) {
+      void this.#pushMeta()
+      this.#armIdleTimer()
+      return
+    }
+    if (next.kind === 'clear') {
+      void this.#clearSession().then(() => this.#drainQueue())
+      return
+    }
+    this.#run(next.text, next.promptText)
+  }
+
+  /** 연결과 프로세스는 유지한 채 ACP session/new로 새 대화를 연다. */
+  async #clearSession() {
+    this.busy = true
+    try {
+      const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
+      this.#events = []
+      this.#turns = 0
+      this.#startedAt = new Date().toISOString()
+      this.#broadcast({ type: 'reset' })
+      this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null, created.configOptions)
+      await this.#applyDefaults()
+    } catch (err) {
+      this.#emit({ type: 'error', message: describeError(err) })
+    } finally {
+      this.busy = false
+      await this.#pushMeta()
+    }
   }
 
   /** 지난 세션을 불러온다 — 에이전트가 히스토리를 session/update로 다시 흘려준다(`/resume`) */

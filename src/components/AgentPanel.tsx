@@ -36,7 +36,6 @@ import { RUNTIMES, runtimeOf } from './agentRuntimes'
 import {
   cancelAgentScheduledPrompt,
   fetchAgentDefault,
-  fetchAgentAccountUsage,
   fetchAgentAuthTerminalStatus,
   fetchAgentScheduledPrompts,
   fetchAgentTabs,
@@ -53,7 +52,6 @@ import {
   scheduleAgentPrompt,
   type AgentScheduledPrompt,
   type AgentRuntimeDefault,
-  type AgentAccountUsage,
   type AgentRuntimeStatus,
   type AgentCwdSuggestions,
   type ProjectInfo,
@@ -308,50 +306,6 @@ function InfoRow({ label, value, title }: { label: string; value: string; title?
 }
 
 const CODEX_USAGE_DASHBOARD_URL = 'https://chatgpt.com/codex/settings/usage'
-
-function AccountUsageView({ usage }: { usage: AgentAccountUsage }) {
-  const { limits, refreshPending } = usage.summary
-  return (
-    <div className="mt-1 space-y-2">
-      {limits.length > 0 ? (
-        <div className="space-y-1.5">
-          {limits.map((limit) => (
-            <div key={limit.label}>
-              <div className="flex items-baseline justify-between gap-2 text-[11px]">
-                <span className="truncate text-ink-secondary">{limit.label}</span>
-                <span className="shrink-0 text-ink">{limit.percentLeft}% 남음</span>
-              </div>
-              <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-surface-raised" aria-label={`${limit.label}: ${limit.percentLeft}% 남음`}>
-                <div className="h-full rounded-full bg-accent-strong" style={{ width: `${limit.percentLeft}%` }} />
-              </div>
-              {limit.resetsAt && <p className="mt-0.5 text-[10px] text-ink-muted">재설정 {limit.resetsAt}</p>}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-[11px] text-ink-muted">
-          {refreshPending ? 'Codex가 한도를 갱신 중입니다. 잠시 뒤 다시 조회하세요.' : 'CLI가 읽을 수 있는 한도 수치를 아직 표시하지 않았습니다.'}
-        </p>
-      )}
-      {usage.label.startsWith('Codex') && (
-        <a
-          href={CODEX_USAGE_DASHBOARD_URL}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-block text-[11px] text-accent hover:underline"
-        >
-          Codex Usage 대시보드 열기 ↗
-        </a>
-      )}
-      <details className="group">
-        <summary className="cursor-pointer text-[11px] text-ink-muted hover:text-ink-secondary">CLI 원문 보기</summary>
-        <pre className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2 font-mono text-[11px] leading-4 text-ink-secondary">
-          {usage.output}
-        </pre>
-      </details>
-    </div>
-  )
-}
 
 type OpenWorkspaceFile = (project: string, path: string, line: number | null) => void
 
@@ -1535,9 +1489,6 @@ function AgentSessionView({
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [savedDefault, setSavedDefault] = useState<AgentRuntimeDefault | null>(null)
   const [savingDefault, setSavingDefault] = useState(false)
-  const [accountUsage, setAccountUsage] = useState<AgentAccountUsage | null>(null)
-  const [loadingAccountUsage, setLoadingAccountUsage] = useState(false)
-  const [accountUsageError, setAccountUsageError] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const wsRef = useRef<WebSocket | null>(null)
   const infoOverlayRef = useRef<HTMLDivElement>(null)
@@ -1810,15 +1761,6 @@ function AgentSessionView({
     return () => clearInterval(timer)
   }, [showInfo])
 
-  const refreshAccountUsage = useCallback(() => {
-    setLoadingAccountUsage(true)
-    setAccountUsageError(null)
-    void fetchAgentAccountUsage(runtime)
-      .then(({ usage }) => setAccountUsage(usage))
-      .catch((err: unknown) => setAccountUsageError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setLoadingAccountUsage(false))
-  }, [runtime])
-
   const closeInfo = useCallback(() => {
     if (showInfo) onToggleInfo()
   }, [onToggleInfo, showInfo])
@@ -1978,9 +1920,9 @@ function AgentSessionView({
     const text = draft.trim()
     if (!text || !connected) return
     // CLI 슬래시 명령으로 넘기면 런타임은 세션을 비워도 Mew가 전사·캐시를 새 세션으로 바꿨다는
-    // 사실을 알 수 없다. 창의 "새 대화"와 정확히 같은 경로로 처리해야 이전 대화는 히스토리에만 남는다.
+    // 사실을 알 수 없다. 서버 큐의 세션 경계로 처리해 뒤 메시지는 새 대화에서 실행한다.
     if (text === '/clear') {
-      clearSession()
+      send({ type: 'clear_session' })
       setDraft('')
       return
     }
@@ -2175,9 +2117,19 @@ function AgentSessionView({
         </div>
       </div>
 
-      {/* 히스토리와 세션 정보는 대화 영역을 밀지 않는 헤더 아래 왼쪽 팝업이다. */}
+      {/* 대화 비우기·히스토리·세션 정보는 대화 영역을 밀지 않는 헤더 아래 왼쪽 팝업이다. */}
       <div ref={infoOverlayRef} className="absolute top-12 left-3 z-20">
         <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => send({ type: 'clear_session' })}
+            disabled={!connected}
+            className="flex h-6 w-6 items-center justify-center rounded-full border border-edge-bright bg-surface-raised text-ink-secondary shadow-lg hover:bg-surface-hover hover:text-ink disabled:opacity-40"
+            aria-label="대화 비우기"
+            title="대화 비우기 (/clear)"
+          >
+            <ClearGlyph />
+          </button>
           <SessionPicker
             sessions={sessions}
             takenIds={takenIds}
@@ -2252,32 +2204,21 @@ function AgentSessionView({
           ) : (
             <InfoRow label="토큰" value="기록 없음" />
           )}
-          {(runtime === 'codex' || runtime === 'claude') && (
+          {runtime === 'codex' && (
             <div className="mt-2 border-t border-edge pt-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-ink-secondary">계정 사용량</span>
-                <button
-                  type="button"
-                  onClick={refreshAccountUsage}
-                  disabled={loadingAccountUsage}
+                <a
+                  href={CODEX_USAGE_DASHBOARD_URL}
+                  target="_blank"
+                  rel="noreferrer"
                   className="rounded border border-edge-bright px-2 py-0.5 text-[11px] text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
-                  title="연결된 CLI 계정의 현재 구독/API 한도를 조회합니다"
+                  title="Codex Usage 대시보드를 새 탭으로 엽니다"
                 >
-                  {loadingAccountUsage ? '조회 중…' : accountUsage ? '새로고침' : '조회'}
-                </button>
+                  조회 ↗
+                </a>
               </div>
-              {accountUsage && (
-                <>
-                  <div className="mt-1 text-[11px] text-ink-muted">
-                    {accountUsage.command} · {new Date(accountUsage.fetchedAt).toLocaleTimeString('ko-KR')}
-                  </div>
-                  <AccountUsageView usage={accountUsage} />
-                </>
-              )}
-              {accountUsageError && <p className="mt-1 text-[11px] text-danger">{accountUsageError}</p>}
-              {!accountUsage && !accountUsageError && !loadingAccountUsage && (
-                <p className="mt-1 text-[11px] text-ink-muted">연결된 계정의 한도·크레딧을 CLI에서 읽습니다.</p>
-              )}
+              <p className="mt-1 text-[11px] text-ink-muted">Codex 계정의 한도·크레딧은 공식 대시보드에서 확인합니다.</p>
             </div>
           )}
           </div>
@@ -2497,6 +2438,7 @@ function AgentSessionView({
         <div className="space-y-1 border-t border-edge bg-surface px-3 py-1.5 text-xs">
           <div className="text-ink-muted">대기 {queued.length}건 — 지금 턴이 끝나면 순서대로 보냅니다</div>
           {queued.map((text, index) => {
+            const isClearBoundary = text === '/clear'
             const drag = queueDrag.drag
             const lifted = drag !== null && drag.slot === index
             const editing = editingQueued?.index === index ? editingQueued : null
@@ -2547,8 +2489,10 @@ function AgentSessionView({
                       if (queueDrag.consumeClick()) return
                       setOpenQueued(openQueued === index ? null : index)
                     }}
-                    onDoubleClick={() => setEditingQueued({ index, text, original: text })}
-                    title="한 번 눌러 전문 보기 · 두 번 눌러 고치기"
+                    onDoubleClick={() => {
+                      if (!isClearBoundary) setEditingQueued({ index, text, original: text })
+                    }}
+                    title={isClearBoundary ? '이 지점에서 새 대화로 전환합니다' : '한 번 눌러 전문 보기 · 두 번 눌러 고치기'}
                     className={`min-w-0 flex-1 cursor-pointer text-ink-secondary ${
                       openQueued === index ? 'whitespace-pre-wrap break-words' : 'truncate'
                     }`}
@@ -3080,6 +3024,15 @@ function HistoryGlyph() {
       <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
       <path d="M3 3v5h5" />
       <path d="M12 7v5l3 2" />
+    </svg>
+  )
+}
+
+function ClearGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
     </svg>
   )
 }

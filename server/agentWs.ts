@@ -34,6 +34,8 @@ type ClientMessage =
   | { type: 'move_queued'; from: number; to: number }
   /** expect = 창이 보고 있던 원본 — 그 사이 큐가 당겨졌으면 서버가 무시한다 */
   | { type: 'edit_queued'; index: number; text: string; expect: string; skills?: string[] }
+  /** `/clear`: 앞선 작업 뒤 새 ACP 세션을 여는 큐 경계 */
+  | { type: 'clear_session' }
   | { type: 'list_sessions' }
   | { type: 'load_session'; sessionId: string }
   /** 탭을 닫았다 — 창만 닫은 것과 달리 세션도 여기서 끝난다 */
@@ -148,6 +150,7 @@ async function handleConnection(
           expect: msg.expect,
           promptText: promptForRuntime(runtime, msg.text, msg.skills),
         })
+      else if (msg.type === 'clear_session') live.send({ type: 'clear_session' })
       else if (msg.type === 'set_model') live.send({ type: 'set_model', modelId: msg.modelId })
       else if (msg.type === 'set_mode') live.send({ type: 'set_mode', modeId: msg.modeId })
       else if (msg.type === 'set_thinking') live.send({ type: 'set_thinking', configId: msg.configId, value: msg.value })
