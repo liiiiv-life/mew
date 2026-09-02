@@ -50,3 +50,8 @@ export function fuzzyScore(query: string, target: string): number | null {
   }
   return (ti - start) * 1000 + start
 }
+
+/** 자동완성용 대소문자 무시 접두어 일치. 전문·파일 검색의 fuzzyScore와 구분한다. */
+export function prefixMatch(query: string, target: string): boolean {
+  return target.toLowerCase().startsWith(query.toLowerCase())
+}

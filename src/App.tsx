@@ -6,7 +6,7 @@ import {
   fetchWorkspaceUi,
   fetchProjects,
   fetchWorkspace,
-  fetchTree,
+  fetchTreeV1,
   getProject,
   isArchivedPath,
   revertFileToCommit,
@@ -25,6 +25,7 @@ import { OpenProjectDialog } from './components/OpenProjectDialog'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
 import { FabMenu } from './components/FabMenu'
+import { Mewcat } from './components/Mewcat'
 import { ServerFileExplorer } from './components/ServerFileExplorer'
 import { LoginPage } from './components/LoginPage'
 import { SettingsModal } from './components/SettingsModal'
@@ -68,6 +69,7 @@ import { WORKSPACE_PROJECT } from './utils/active-project'
 import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
 import { useI18n } from './i18n'
 import { applyFontPreferences, loadFontPreferences, normalizeFontPreferences, saveFontPreferences } from './utils/fontPreferences'
+import { loadAccentColor, applyAccentColor, saveAccentColor, type AccentColor } from './utils/accentColor'
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 
@@ -77,6 +79,8 @@ function toggleFullscreen() {
 }
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
+
+const fetchTreeEntries = (project?: string, path = '') => fetchTreeV1(project, path).then((response) => response.entries)
 
 function mobileForegroundPanelKey(rootProjectPath: string): string {
   return `mew:mobile-foreground-panel:${rootProjectPath}`
@@ -223,6 +227,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const mobilePanelStackRestoredRootRef = useRef<string | null>(null)
   const [subprojectTrees, setSubprojectTrees] = useState<Record<string, TreeNode[]>>({})
   const [loadingSubprojects, setLoadingSubprojects] = useState<Set<string>>(new Set())
+  const [treeInvalidation, setTreeInvalidation] = useState<{ n: number; project: string; version: number; parents: string[] }>({ n: 0, project: '', version: 0, parents: [] })
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   const [tmuxOpen, setTmuxOpen] = useState(() => canUseTerminal && loadTmuxOpen(getProject()))
   // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034).
@@ -339,9 +344,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [historyOpen, setHistoryOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [fontPreferences, setFontPreferences] = useState(loadFontPreferences)
-  const [searchFocusSignal, setSearchFocusSignal] = useState(0)
-  // 사이드바 뷰: 파일 탐색기 vs 프로젝트 전체 검색(Ctrl+Shift+F). projectSearchFocus는 검색창 포커스 신호
-  const [sidebarView, setSidebarView] = useState<'files' | 'search' | 'commands'>('files')
+  const [accentColor, setAccentColor] = useState<AccentColor>(loadAccentColor)
+  const [searchFocusSignal] = useState(0)
+  // 사이드바 뷰: 탐색기 · 파일명 검색(Ctrl+P) · 파일 내용 검색(Ctrl+Shift+F) · 명령
+  const [sidebarView, setSidebarView] = useState<'files' | 'search' | 'content-search' | 'commands'>('files')
   const [projectSearchFocus, setProjectSearchFocus] = useState(0)
   // Alt+N 새 파일 신호 — parentPath가 있으면 그 폴더에(에디터 포커스였을 때 활성 문서 폴더),
   // null이면 FileTree가 자기 선택 항목 기준으로 이름 입력을 연다
@@ -364,8 +370,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   // 흐름을 끊지 않는 짧은 안내 — 사이드바 작업 결과가 내 트리에 안 뜨거나, 파일을 못 열었을 때
   const { toast, showToast } = useToast()
 
-  const loadWorkspaceTreeChildren = useCallback((path: string) => fetchTree(WORKSPACE_PROJECT, path), [])
-  const loadDocsTreeChildren = useCallback((path: string) => fetchTree(DEFAULT_PROJECT, path), [])
+  const loadWorkspaceTreeChildren = useCallback((path: string) => fetchTreeEntries(WORKSPACE_PROJECT, path), [])
+  const loadDocsTreeChildren = useCallback((path: string) => fetchTreeEntries(DEFAULT_PROJECT, path), [])
 
   useEffect(() => {
     if (!rootProjectPath || isGuest) {
@@ -416,15 +422,46 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     if (!isGuest) setWorkspaceUi((previous) => ({ ...previous, sidebar: { docsExpanded, expandedSubprojects: [...expandedSubprojects] } }))
   }, [docsExpanded, expandedSubprojects, isGuest, rootProjectPath])
 
-  const refreshTree = useCallback(() => {
-    const workspace = fetchTree(WORKSPACE_PROJECT)
-    const docs = fetchTree(DEFAULT_PROJECT)
+  const refreshTree = useCallback((signal?: { project?: string; version?: number; parents?: string[] }) => {
+    if (signal?.project && signal.parents) {
+      setTreeInvalidation((previous) => ({
+        n: previous.n + 1,
+        project: signal.project!,
+        version: signal.version ?? previous.version,
+        parents: signal.parents!,
+      }))
+      const jobs: Promise<unknown>[] = []
+      if (signal.parents.includes('')) {
+        if (signal.project === WORKSPACE_PROJECT) {
+          const request = fetchTreeEntries(WORKSPACE_PROJECT)
+          jobs.push(request.then(setRootTree))
+          if (project === WORKSPACE_PROJECT) jobs.push(request.then(setTree))
+        } else if (signal.project === DEFAULT_PROJECT) {
+          const request = fetchTreeEntries(DEFAULT_PROJECT)
+          jobs.push(request.then(setDocsTree))
+          if (project === DEFAULT_PROJECT) jobs.push(request.then(setTree))
+        } else if (project === signal.project) {
+          jobs.push(fetchTreeEntries(signal.project).then(setTree))
+        }
+      }
+      if (signal.project === WORKSPACE_PROJECT) {
+        for (const parent of signal.parents) {
+          if (subprojectTrees[parent] === undefined) continue
+          jobs.push(fetchTreeEntries(WORKSPACE_PROJECT, parent).then((entries) => {
+            setSubprojectTrees((previous) => ({ ...previous, [parent]: entries }))
+          }))
+        }
+      }
+      return Promise.all(jobs).then(() => undefined).catch(console.error)
+    }
+    const workspace = fetchTreeEntries(WORKSPACE_PROJECT)
+    const docs = fetchTreeEntries(DEFAULT_PROJECT)
     void workspace.then(setRootTree).catch(console.error)
     void docs.then(setDocsTree).catch(console.error)
     if (project === WORKSPACE_PROJECT) return workspace.then(setTree).catch(console.error)
     if (project === DEFAULT_PROJECT) return docs.then(setTree).catch(console.error)
-    return fetchTree(project).then(setTree).catch(console.error)
-  }, [project])
+    return fetchTreeEntries(project).then(setTree).catch(console.error)
+  }, [project, subprojectTrees])
 
   useEffect(() => {
     void fetchProjects()
@@ -765,7 +802,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const lastPanelRef = useRef<RefPanel | null>(null)
   // 플로팅 핸들의 "현재 창 탭" 명령이 가리키는 마지막 탭형 창.
   // 핸들을 누르면 DOM 포커스가 옮겨가므로 포커스 대신 포인터 사용 기록을 따로 둔다.
-  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'tmux'>('editor')
+  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'tmux' | 'sidebar'>('editor')
   const [agentNextTabSignal, setAgentNextTabSignal] = useState(0)
   const [agentPreviousTabSignal, setAgentPreviousTabSignal] = useState(0)
   const [tmuxNextTabSignal, setTmuxNextTabSignal] = useState(0)
@@ -778,6 +815,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     } else if (mobileForegroundPanel === 'terminal') {
       activeTabbedSurfaceRef.current = 'tmux'
       lastPanelRef.current = 'tmux'
+    } else if (mobileForegroundPanel === 'sidebar') {
+      activeTabbedSurfaceRef.current = 'sidebar'
     } else if (mobileForegroundPanel === 'chat') {
       lastPanelRef.current = 'chat'
     }
@@ -795,13 +834,30 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
   }, [tmuxOpen])
   useEffect(() => {
+    if (sidebarOpen) activeTabbedSurfaceRef.current = 'sidebar'
+  }, [sidebarOpen])
+  useEffect(() => {
     if (chatOpen) lastPanelRef.current = 'chat'
   }, [chatOpen])
+
+  const switchSidebarTab = useCallback((direction: 'next' | 'previous') => {
+    const views: typeof sidebarView[] = canUseTerminal
+      ? ['files', 'search', 'content-search', 'commands']
+      : ['files', 'search', 'content-search']
+    const index = views.indexOf(sidebarView)
+    const nextIndex = direction === 'next'
+      ? (index + 1) % views.length
+      : (index - 1 + views.length) % views.length
+    const nextView = views[nextIndex]
+    setSidebarView(nextView)
+    if (nextView === 'search' || nextView === 'content-search') setProjectSearchFocus((value) => value + 1)
+  }, [canUseTerminal, sidebarView])
 
   const switchCurrentWindowTabRight = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
     if (surface === 'agent' && !agentOpen) surface = tmuxOpen ? 'tmux' : 'editor'
     if (surface === 'tmux' && !tmuxOpen) surface = agentOpen ? 'agent' : 'editor'
+    if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : tmuxOpen ? 'tmux' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'agent') {
       setAgentNextTabSignal((value) => value + 1)
@@ -811,16 +867,21 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       setTmuxNextTabSignal((value) => value + 1)
       return
     }
+    if (surface === 'sidebar') {
+      switchSidebarTab('next')
+      return
+    }
     if (tabs.length < 2 || !activePath) return
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index + 1) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, focusedPaneId, setActivePath, tabs, tmuxOpen])
+  }, [activePath, agentOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs, tmuxOpen])
 
   const switchCurrentWindowTabLeft = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
     if (surface === 'agent' && !agentOpen) surface = tmuxOpen ? 'tmux' : 'editor'
     if (surface === 'tmux' && !tmuxOpen) surface = agentOpen ? 'agent' : 'editor'
+    if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : tmuxOpen ? 'tmux' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'agent') {
       setAgentPreviousTabSignal((value) => value + 1)
@@ -830,11 +891,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       setTmuxPreviousTabSignal((value) => value + 1)
       return
     }
+    if (surface === 'sidebar') {
+      switchSidebarTab('previous')
+      return
+    }
     if (tabs.length < 2 || !activePath) return
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index - 1 + tabs.length) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, focusedPaneId, setActivePath, tabs, tmuxOpen])
+  }, [activePath, agentOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs, tmuxOpen])
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
   // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
@@ -871,6 +936,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [fontPreferences])
 
   useEffect(() => {
+    applyAccentColor(accentColor)
+    saveAccentColor(accentColor)
+  }, [accentColor])
+
+  useEffect(() => {
     if (!workspaceUiLoaded || chromeStateLoadedRootRef.current === rootProjectPath) return
     const value = workspaceUi.chrome
     // 계정 원장은 debounce 저장이라 새로고침 직전의 마지막 패널 조작보다 늦을 수 있다.
@@ -894,7 +964,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         setSidebarOpen(chrome.sidebarOpen)
         restoredOpen.sidebar = chrome.sidebarOpen
       }
-      if (chrome.sidebarView === 'files' || chrome.sidebarView === 'search' || chrome.sidebarView === 'commands') setSidebarView(chrome.sidebarView)
+      if (chrome.sidebarView === 'files' || chrome.sidebarView === 'search' || chrome.sidebarView === 'content-search' || chrome.sidebarView === 'commands') setSidebarView(chrome.sidebarView)
       // 보조 패널은 모바일에서 화면 전체를 덮는 기기별 상태다. 계정 원장의 이전 값으로
       // 로컬의 방금 연 에이전트를 닫아 버리면 전면 순서를 복원할 수 없으므로, 서버 원장은
       // 데스크톱 배치에만 적용한다. 모바일은 각 패널의 로컬 열림 상태로 시작한다.
@@ -982,11 +1052,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     setTree([])
     setSubprojectTrees({})
     setLoadingSubprojects(new Set())
-    const workspace = fetchTree(WORKSPACE_PROJECT)
-    const docs = fetchTree(DEFAULT_PROJECT)
+    const workspace = fetchTreeEntries(WORKSPACE_PROJECT)
+    const docs = fetchTreeEntries(DEFAULT_PROJECT)
     void workspace.then((next) => { if (alive) setRootTree(next) }).catch(console.error)
     void docs.then((next) => { if (alive) setDocsTree(next) }).catch(console.error)
-    const active = project === WORKSPACE_PROJECT ? workspace : project === DEFAULT_PROJECT ? docs : fetchTree(project)
+    const active = project === WORKSPACE_PROJECT ? workspace : project === DEFAULT_PROJECT ? docs : fetchTreeEntries(project)
     void active.then((next) => { if (alive) setTree(next) }).catch(console.error)
     return () => {
       alive = false
@@ -1076,14 +1146,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         saveCurrentTab(true)
       } else if (matchesShortcut(e, getBinding('quickOpen'))) {
         e.preventDefault()
-        setSidebarView('files')
+        setSidebarView('search')
         openWorkspacePanel('sidebar')
-        setSearchFocusSignal((s) => s + 1)
+        setProjectSearchFocus((s) => s + 1)
       } else if (matchesShortcut(e, getBinding('projectSearch'))) {
         // VSCode Ctrl+Shift+F — 사이드바를 검색 뷰로 열고 검색창에 포커스
         e.preventDefault()
         openWorkspacePanel('sidebar')
-        setSidebarView('search')
+        setSidebarView('content-search')
         setProjectSearchFocus((s) => s + 1)
       } else if (matchesShortcut(e, getBinding('editorFind'))) {
         // 에디터에 포커스가 있으면 에디터가 먼저 처리한다 — tiptap은 stopPropagation(여기 안 옴),
@@ -1205,24 +1275,33 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   )
 
   useEffect(() => {
-    if (!pendingOpen || pendingOpen.project !== project) return
+    // 프로젝트를 바꾸며 열린 파일은 useTabs의 해당 프로젝트 탭 복원이 끝난 뒤에 붙인다.
+    // 그렇지 않으면 첫 클릭이 만든 탭을 같은 렌더의 복원 초기화가 덮어, 에디터만 비고
+    // 두 번째 클릭에서야 파일이 보이는 경합이 생긴다.
+    if (!tabsHydrated || !pendingOpen || pendingOpen.project !== project) return
     if (pendingOpen.line !== null) setPendingReveal({ path: pendingOpen.path, line: pendingOpen.line })
     openFile(pendingOpen.path, { preview: false })
     // Hotview는 원본 줄과 렌더 블록 위치가 일대일이 아니다. 줄 링크는 Plain으로 열어 정확히 이동한다.
     if (pendingOpen.line !== null && pendingOpen.path.endsWith('.md')) setTabViewMode(pendingOpen.path, 'plain')
     setPendingOpen(null)
-  }, [pendingOpen, project, openFile, setTabViewMode])
+  }, [pendingOpen, project, tabsHydrated, openFile, setTabViewMode])
 
   // 프로젝트 검색 결과 클릭 — 파일을 열고, 위치 점프 정보를 대기시킨다 (내용 로드 후 아래 effect가 처리)
   const openSearchResult = useCallback(
-    (path: string, match: SearchMatch, query: string) => {
+    (path: string, match: SearchMatch, query: string, _opts?: unknown, resultProject?: string) => {
+      if (resultProject && resultProject !== project) {
+        setPendingOpen({ project: resultProject, path, line: match.line })
+        switchProject(resultProject)
+        showMobileEditor()
+        return
+      }
       setPendingReveal({ path, line: match.line, query })
       // 큰 파일은 검색 결과 줄 주변을 먼저 읽는다. Markdown은 줄 구조가 화면 구조와 달라 기존 Hotview
       // 검색 경로를 유지하며, plain만 preview가 안전하다.
       openFile(path, path.endsWith('.md') ? { preview: true } : { preview: true, viewMode: 'plain', anchorLine: match.line })
       showMobileEditor()
     },
-    [openFile, showMobileEditor],
+    [openFile, project, showMobileEditor, switchProject],
   )
 
   // 대기 중인 점프 실행 — 대상 파일이 활성화되고 내용이 로드되면: 코드/plain은 해당 줄로 스크롤,
@@ -1344,7 +1423,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const loadSubproject = useCallback((path: string) => {
     if (subprojectTrees[path] !== undefined || loadingSubprojects.has(path)) return
     setLoadingSubprojects((previous) => new Set(previous).add(path))
-    void fetchTree(WORKSPACE_PROJECT, path)
+    void fetchTreeEntries(WORKSPACE_PROJECT, path)
       .then((children) => setSubprojectTrees((previous) => ({ ...previous, [path]: children })))
       .catch((err: unknown) => showToast(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoadingSubprojects((previous) => {
@@ -1577,7 +1656,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     {
       id: 'settings',
       // 로그인해 있으면 이 항목이 곧 계정 자리다 — 누구 계정인지 이름을 붙여 준다
-      label: isGuest ? t('settings.title') : (auth.displayName ?? authEmail ?? t('settings.title')),
+      label: t('settings.title'),
       onSelect: () => setSettingsOpen(true),
       icon: (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1648,7 +1727,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         {sidebarOpen && (
           <div
             data-sidebar
-            onPointerDownCapture={() => bringWorkspacePanelToFront('sidebar')}
+            onPointerDownCapture={() => {
+              activeTabbedSurfaceRef.current = 'sidebar'
+              bringWorkspacePanelToFront('sidebar')
+            }}
             // 모바일은 프로젝트 탭 아래 작업 영역 전체를 덮는다. 파일 탭은 사이드바가 열린 동안 보이지 않는다.
             // 데스크톱은 기존 고정 칸이다.
             className={`absolute inset-x-0 top-0 bottom-0 flex bg-surface-deep md:static md:z-auto md:shrink-0 ${mobilePanelLayer('sidebar')}`}
@@ -1675,12 +1757,29 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     setProjectSearchFocus((s) => s + 1)
                   }}
                   className={`rounded p-1 ${sidebarView === 'search' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:bg-surface-hover'}`}
-                  title="프로젝트 전체 검색 (Ctrl+Shift+F)"
-                  aria-label="검색"
+                  title="파일명 검색 (Ctrl+P)"
+                  aria-label="파일명 검색"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="11" cy="11" r="7" />
                     <path d="m21 21-4.3-4.3" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSidebarView('content-search')
+                    setProjectSearchFocus((s) => s + 1)
+                  }}
+                  className={`rounded p-1 ${sidebarView === 'content-search' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:bg-surface-hover'}`}
+                  title="파일 내용 검색 (Ctrl+Shift+F)"
+                  aria-label="파일 내용 검색"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 2v6h6M8 13h8M8 17h5" />
+                    <circle cx="17.5" cy="17.5" r="2.5" />
+                    <path d="m19.4 19.4 1.6 1.6" />
                   </svg>
                 </button>
                 {canUseTerminal && <button
@@ -1721,6 +1820,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     canUseCommands={canUseTerminal && !isGuest}
                     loadChildren={isGuest ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
                     prefetchRootChildren
+                    treeInvalidation={treeInvalidation}
                     roots={!isGuest && <>
                       <div className="border-b border-edge pb-1">
                         <button
@@ -1754,7 +1854,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                             revealSignal={revealSignal}
                             presence={project === DEFAULT_PROJECT ? tabPresence : {}}
                             onSelect={(path) => openMentionedFile(DEFAULT_PROJECT, path, null)}
-                            onFileCreated={refreshTree}
+                            onFileCreated={() => { void refreshTree() }}
                             onFolderCreated={refreshTree}
                             onRenamed={() => refreshTree()}
                             onDeleted={() => refreshTree()}
@@ -1763,6 +1863,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                             registerSearchCancel={() => {}}
                             loadChildren={loadDocsTreeChildren}
                             prefetchRootChildren
+                            treeInvalidation={treeInvalidation}
                           />
                         )}
                       </div>
@@ -1817,6 +1918,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                                   onNotice={showToast}
                                   registerSearchCancel={() => {}}
                                   loadChildren={loadWorkspaceTreeChildren}
+                                  treeInvalidation={treeInvalidation}
                                 />
                               </div>
                             </>
@@ -1845,11 +1947,18 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     registerSearchCancel={registerSidebarSearchCancel}
                   />
                 </div>
-                <div className={sidebarView === 'search' ? 'h-full' : 'hidden'}>
+                <div className={(sidebarView === 'search' || sidebarView === 'content-search') ? 'h-full' : 'hidden'}>
                   <SearchPanel
-                    key={project}
+                    key={`${rootProjectPath}:${sidebarView}`}
                     focusSignal={projectSearchFocus}
                     readOnly={isGuest}
+                    project={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
+                    scopes={!isGuest ? [
+                      { id: 'docs', label: t('project.documents'), icon: 'i:notes' },
+                      ...rootSubprojects.map((subproject) => ({ id: `subproject:${subproject.path}`, label: subproject.name, icon: subprojectIcons[subproject.name] ?? 'i:folder' })),
+                    ] : []}
+                    mode={sidebarView === 'search' ? 'files' : 'content'}
+                    onOpenFileNameResult={!isGuest ? (result) => openMentionedFile(result.project, result.path, null) : undefined}
                     onOpenResult={openSearchResult}
                     onReplaced={refreshTree}
                   />
@@ -1912,6 +2021,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                 project={project}
                 workspacePath={rootProjectPath}
                 tree={tree}
+                focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeTab.path : null}
                 onOpenFile={openMentionedFile}
                 onClose={() => closeWorkspacePanel('agent')}
                 nextTabSignal={agentNextTabSignal}
@@ -1984,6 +2094,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         )}
       </div>
 
+      <Mewcat />
+
       <FabMenu
         onFullscreen={toggleFullscreen}
         onNextWindowTab={switchCurrentWindowTabRight}
@@ -2003,8 +2115,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           canEditIgnore={canUseTerminal}
           theme={theme}
           fontPreferences={fontPreferences}
+          accentColor={accentColor}
           onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
           onFontPreferencesChange={setFontPreferences}
+          onAccentColorChange={setAccentColor}
           onClose={() => {
             setFontPreferences((fonts) => normalizeFontPreferences(fonts))
             setSettingsOpen(false)

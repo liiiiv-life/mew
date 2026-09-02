@@ -30,7 +30,7 @@ import { ResizableImage } from './ResizableImage'
 import { AudioNode, VideoNode, Youtube, YOUTUBE_URL_RE } from './MediaNodes'
 import { Database } from './database/Database'
 import { DbReferencePicker } from './database/DbReferencePicker'
-import { flattenFiles, fuzzyScore, isExternalHref, relativeLinkPath, resolveRelativePath } from './utils/fuzzy'
+import { flattenFiles, prefixMatch, isExternalHref, relativeLinkPath, resolveRelativePath } from './utils/fuzzy'
 import { splitFrontmatter, joinFrontmatter, todayDate, type FrontmatterData } from './utils/frontmatter'
 import { sourceLineOfPos } from './utils/sourceLine'
 import { unwrapOpenListWrappers } from './utils/clipboardList'
@@ -1436,11 +1436,12 @@ export const Editor = forwardRef<
   const mentionResults = useMemo<MentionResult[]>(() => {
     if (!mention) return []
     return flattenFiles(tree)
-      .map((p) => ({ path: p, score: fuzzyScore(mention.query, p) }))
-      .filter((r): r is { path: string; score: number } => r.score !== null)
-      .sort((a, b) => a.score - b.score)
+      // 목록에 보이는 파일명 기준의 접두어 자동완성이다. 프로젝트 전체를 찾는 파일 트리 검색은
+      // 별도로 fuzzyScore를 써서 부분 일치를 계속 지원한다.
+      .filter((p) => prefixMatch(mention.query, p.split('/').pop() ?? p))
+      .sort((a, b) => a.localeCompare(b, 'ko-KR'))
       .slice(0, 8)
-      .map((r) => ({ path: r.path, label: r.path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? r.path }))
+      .map((p) => ({ path: p, label: p.split('/').pop()?.replace(/\.[^.]+$/, '') ?? p }))
   }, [tree, mention])
 
   const selectMention = useCallback(
@@ -1496,21 +1497,14 @@ export const Editor = forwardRef<
     { id: 'upload', title: '파일 업로드', description: '파일을 올리고 링크 삽입 (R2)', keywords: ['upload', '업로드', 'file', '파일', '첨부', 'attach'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); openUploadPicker(r.from) } },
   ]
 
-  // query를 title·keywords에 퍼지 매칭해 실시간 필터 (빈 query면 전체) — 목록이 작아 매 렌더 계산해도 무방
+  // query로 시작하는 title·keywords만 보여 주는 인라인 자동완성 (빈 query면 전체).
   const slashResults: SlashCommand[] = !slash
     ? []
     : !slash.query
       ? slashCommands
       : slashCommands
-          .map((cmd) => {
-            const scores = [cmd.title, ...cmd.keywords]
-              .map((k) => fuzzyScore(slash.query, k))
-              .filter((s): s is number => s !== null)
-            return scores.length ? { cmd, score: Math.min(...scores) } : null
-          })
-          .filter((x): x is { cmd: SlashCommand; score: number } => x !== null)
-          .sort((a, b) => a.score - b.score)
-          .map((x) => x.cmd)
+          .filter((cmd) => [cmd.title, ...cmd.keywords].some((keyword) => prefixMatch(slash.query, keyword)))
+          .sort((a, b) => a.title.localeCompare(b.title, 'ko-KR'))
 
   const runSlashCommand = useCallback(
     (command: SlashCommand) => {
