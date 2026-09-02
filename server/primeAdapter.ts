@@ -11,12 +11,26 @@ import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from '@agentclien
 
 type RpcResponse = { id?: string; type: 'response'; command: string; success: boolean; data?: any; error?: string }
 type RpcEvent = { type: 'session_event'; event: any }
-type RpcLine = RpcResponse | RpcEvent
+type RawRpcEvent = { type: string; [key: string]: any }
+type RpcLine = RpcResponse | RpcEvent | RawRpcEvent
 type SavedSession = { sessionId: string; cwd: string; title: string | null; updatedAt: string }
 
 const PRIME_SESSION_DIR = process.env.MEW_PRIME_SESSION_DIR || path.join(os.homedir(), '.prime', 'agent', 'sessions')
 const PRIME_EXECUTABLE = process.env.MEW_PRIME_AGENT_EXECUTABLE || 'prime-agent'
 const PRIME_PERMISSION_EXTENSION = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'primePermissionGate.ts')
+
+// Prime 0.8은 이벤트를 `session_event` 래퍼 없이 JSONL 최상위에 낸다. 초기 RPC 구현의
+// 래퍼 형식도 계속 받아 이전 설치본과의 호환성을 유지한다.
+const RAW_EVENT_TYPES = new Set([
+  'agent_start', 'agent_end', 'turn_start', 'turn_end',
+  'message_start', 'message_update', 'message_end',
+  'tool_execution_start', 'tool_execution_end',
+  'extension_ui_request',
+])
+
+function rawEvent(message: RpcLine): RawRpcEvent | null {
+  return message.type !== 'response' && message.type !== 'session_event' && RAW_EVENT_TYPES.has(message.type) ? message : null
+}
 
 function modelId(model: any): string {
   return `${String(model?.provider ?? '')}::${String(model?.id ?? '')}`
@@ -111,13 +125,12 @@ class PrimeRpc {
       let message: RpcLine
       try { message = JSON.parse(line) as RpcLine } catch { continue }
       if (message.type === 'session_event') this.onEvent(message.event)
-      else if ((message as any).type === 'extension_ui_request') this.onEvent(message)
       else if (message.type === 'response' && message.id) {
         const request = this.#pending.get(message.id)
         if (!request) continue
         this.#pending.delete(message.id)
         message.success ? request.resolve(message.data) : request.reject(new Error(message.error || `Prime ${message.command} 실패`))
-      }
+      } else if (rawEvent(message)) this.onEvent(message)
     }
   }
 
@@ -233,7 +246,20 @@ class PrimeAdapter {
       this.#turnDone = null
       throw error
     }
-    await turnDone
+    // turn_end가 오지 않으면 영원히 대기하므로 5분 타임아웃을 둔다.
+    // Prime이 비정상 종료돼도 rpc.request가 reject하므로 여기까지 오지 않지만,
+    // turn_end만 누락되는 케이스를 방어한다.
+    try {
+      await Promise.race([
+        turnDone,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Prime Agent turn_end 타임아웃 (5분)')), 5 * 60_000)
+        ),
+      ])
+    } catch (error) {
+      this.#turnDone = null
+      throw error
+    }
     return { stopReason: 'end_turn' as const }
   }
   async cancel() { await this.rpc.request('abort') }
