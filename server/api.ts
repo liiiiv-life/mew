@@ -5,8 +5,19 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_PROJECT, isDeniedSegment, isProtectedProject, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
 import { createProject, deleteProject, ProjectNameError, renameProject } from './projects.ts'
-import { buildTreeAsync, isPathVisible, listTreeDirAsync } from './tree.ts'
-import { flattenTextFiles, replaceInFile, searchInProject } from './search.ts'
+import { buildTreeAsync, isPathVisible } from './tree.ts'
+import { flattenTextFiles, replaceInFile, searchInProject, searchInProjectProgressively } from './search.ts'
+import {
+  catalogParentOf,
+  fileCatalogStatus,
+  listCatalogChildren,
+  listCatalogFiles,
+  noteFileContentChanged,
+  refreshFileCatalogParent,
+  warmFileCatalog,
+} from './fileCatalog.ts'
+import { searchFileNames } from './fileNameSearch.ts'
+import { ensureSearchIndex, exactSearchCandidates, type SearchIndexState } from './searchCatalog.ts'
 import { currentRagIndex, ragEnabled, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
 import { evaluateRules, isArchived } from './rules.ts'
@@ -71,8 +82,9 @@ import {
   readIgnoreList,
   writeIgnoreList,
 } from './ignoreList.ts'
-import { broadcast } from './presence.ts'
+import { broadcast, broadcastTree } from './presence.ts'
 import { resetTreeWatchers, watchProjectTree } from './watcher.ts'
+import { measure, measureSync } from './perfMarks.ts'
 import { authOf, requireAuthenticated, requireRole, seesEveryFile } from './reqAuth.ts'
 import {
   decorateTreeWithGuestAccess,
@@ -160,6 +172,102 @@ function projectOf(req: express.Request): string {
   const fromBody = (req.body as { project?: unknown } | null | undefined)?.project
   if (typeof fromBody === 'string' && fromBody) return fromBody
   return DEFAULT_PROJECT
+}
+
+type ScopedSearchFiles = {
+  project: string
+  all: string[]
+  allowed: string[]
+  owner: { id: string; label: string; kind: 'root' | 'docs' | 'subproject' } | null
+  subprojects?: import('./tree.ts').TreeNode[]
+}
+
+async function catalogTextPaths(project: string): Promise<string[]> {
+  return flattenTextFiles(await listCatalogFiles(project))
+}
+
+async function scopedSearchFiles(req: express.Request): Promise<ScopedSearchFiles[]> {
+  const project = projectOf(req)
+  const role = authOf(req).role
+  if (project !== WORKSPACE_PROJECT) {
+    const all = await catalogTextPaths(project)
+    const allowed = role === 'guest' ? all.filter((relPath) => isGuestViewable(project, relPath)) : all
+    return [{ project, all, allowed, owner: null }]
+  }
+
+  const [workspaceAll, docsAll, root] = await Promise.all([
+    catalogTextPaths(WORKSPACE_PROJECT),
+    catalogTextPaths(DEFAULT_PROJECT),
+    listCatalogChildren(WORKSPACE_PROJECT),
+  ])
+  const requested = new Set(String(req.query.scopes ?? '').split(',').filter(Boolean))
+  const subprojects = root.entries.filter((node) => node.type === 'dir' && node.project)
+  const selectedSubs = subprojects.filter((node) => requested.has(`subproject:${node.path}`))
+  const workspaceAllowed = workspaceAll.filter((relPath) => {
+    if (role === 'guest' && !isGuestViewable(WORKSPACE_PROJECT, relPath)) return false
+    if (requested.size === 0) return true
+    return selectedSubs.some((node) => relPath.startsWith(`${node.path}/`))
+  })
+  const includeDocs = requested.size === 0 || requested.has('docs')
+  const docsAllowed = includeDocs
+    ? docsAll.filter((relPath) => role !== 'guest' || isGuestViewable(DEFAULT_PROJECT, relPath))
+    : []
+  return [
+    {
+      project: WORKSPACE_PROJECT,
+      all: workspaceAll,
+      allowed: workspaceAllowed,
+      owner: { id: WORKSPACE_PROJECT, label: path.basename(projectRoot(WORKSPACE_PROJECT)), kind: 'root' },
+      subprojects,
+    },
+    {
+      project: DEFAULT_PROJECT,
+      all: docsAll,
+      allowed: docsAllowed,
+      owner: { id: DEFAULT_PROJECT, label: 'Documents', kind: 'docs' },
+    },
+  ]
+}
+
+function indexedSearchPaths(
+  scope: ScopedSearchFiles,
+  query: string,
+  opts: { regex: boolean; caseSensitive: boolean },
+): { paths: string[]; state: SearchIndexState; version: number; scannedDirtyFiles: number } {
+  const initial = ensureSearchIndex(scope.project, scope.all)
+  const version = fileCatalogStatus(scope.project).version
+  if (opts.regex || query.length < 3) return { paths: scope.allowed, state: initial, version, scannedDirtyFiles: 0 }
+  const allowed = new Set(scope.allowed)
+  const indexed = exactSearchCandidates(scope.project, query, allowed)
+  if (!indexed.paths) return { paths: scope.allowed, state: indexed.state, version, scannedDirtyFiles: 0 }
+  const selected = new Set(indexed.paths)
+  let dirty = 0
+  for (const relPath of indexed.dirtyPaths) {
+    if (allowed.has(relPath)) { selected.add(relPath); dirty++ }
+  }
+  return { paths: scope.allowed.filter((relPath) => selected.has(relPath)), state: indexed.state, version, scannedDirtyFiles: dirty }
+}
+
+async function refreshCatalogPaths(project: string, relPaths: string[]): Promise<void> {
+  const parents = [...new Set(relPaths.map(catalogParentOf))]
+  const changed: string[] = []
+  for (const parent of parents) {
+    if (await refreshFileCatalogParent(project, parent)) changed.push(parent)
+  }
+  if (!changed.length) return
+  const status = fileCatalogStatus(project)
+  broadcastTree({ type: 'tree', project, version: status.version, parents: changed })
+}
+
+function taggedSearchResult(scope: ScopedSearchFiles, result: import('./search.ts').SearchFileResult) {
+  if (!scope.owner) return result
+  const subproject = scope.subprojects?.find((node) => result.path.startsWith(`${node.path}/`))
+  return {
+    ...result,
+    project: subproject
+      ? { id: scope.project, label: subproject.name, kind: 'subproject' as const }
+      : scope.owner,
+  }
 }
 
 /**
@@ -749,13 +857,24 @@ export function createApiApp() {
       // owner·manager는 걸러내지 않은 트리를 받는다 — 숨김 목록도 확장자 필터도 없다(seesEveryFile)
       // 로그인 사용자는 폴더별 한 단계 목록을 받아 사이드바를 지연 로딩한다. 게스트 트리는
       // 후손의 공개 규칙을 보고 부모 경로를 남겨야 하므로 기존 전체 필터를 유지한다.
-      const tree = role === 'guest' || requestedPath === null
-        ? await buildTreeAsync(project, { showAll: seesEveryFile(role) })
-        : await listTreeDirAsync(project, requestedPath, { showAll: seesEveryFile(role) })
+      let tree: import('./tree.ts').TreeNode[]
+      let catalogState: 'ready' | 'building' | 'stale' = 'ready'
+      let catalogVersion = 0
+      if (role === 'guest' || requestedPath === null) {
+        tree = await buildTreeAsync(project, { showAll: seesEveryFile(role) })
+        warmFileCatalog(project)
+      } else {
+        const listed = await listCatalogChildren(project, requestedPath, { showAll: seesEveryFile(role) })
+        tree = listed.entries
+        catalogState = listed.state
+        catalogVersion = listed.version
+      }
       // 이 프로젝트를 보는 세션이 있으니 트리 감시를 지연 등록한다 — 터미널·다른 세션이 만든 파일이
       // 사이드바에 바로 반영되도록(멱등). docs는 부팅 때부터 감시 중. 게스트는 감시를 유발하지 않는다.
       if (role !== 'guest') watchProjectTree(project)
-      res.json(role === 'guest' ? filterTreeForGuest(project, tree) : decorateTreeWithGuestAccess(project, tree))
+      const entries = role === 'guest' ? filterTreeForGuest(project, tree) : decorateTreeWithGuestAccess(project, tree)
+      if (req.query.v === '1') res.json({ version: catalogVersion, state: catalogState, entries })
+      else res.json(entries)
     } catch (err) {
       handleError(res, err)
     }
@@ -830,6 +949,8 @@ export function createApiApp() {
     fs.writeFileSync(absPath, content, 'utf-8')
     // 협업 브리지가 이 쓰기를 "우리 메아리"로 걸러내게 기록 (외부 AI 변경만 방에 주입되도록)
     noteAppWrite(absPath, content)
+    noteFileContentChanged(project, relPath)
+    if (action === 'add') await refreshCatalogPaths(project, [relPath])
 
     // "내부 링크 라벨 = 대상 문서 title" 정책(docs 전용): 커밋 시점에만 title 변경을 감지해
     // 참조 문서들의 라벨을 전파한다 — 자동저장마다 하면 타이핑 중인 미완성 title이 퍼지므로,
@@ -842,6 +963,7 @@ export function createApiApp() {
       if (oldTitle && newTitle && oldTitle !== newTitle) {
         try {
           linkUpdates = updateLinkLabelsFor(relPath, newTitle)
+          for (const updatedPath of linkUpdates) noteFileContentChanged(project, updatedPath)
         } catch (err) {
           console.error('link label sync failed:', err)
         }
@@ -872,6 +994,8 @@ export function createApiApp() {
         fs.writeFileSync(absPath, content, 'utf-8')
         // 자동저장(비커밋) 경로 — 협업 브리지가 메아리로 무시하도록 기록
         noteAppWrite(absPath, content)
+        noteFileContentChanged(project, relPath)
+        if (isNew) await refreshCatalogPaths(project, [relPath])
         res.json({ ok: true, commit: null })
       }
     } catch (err) {
@@ -915,6 +1039,8 @@ export function createApiApp() {
         return
       }
       deletePath(project, relPath)
+      noteFileContentChanged(project, relPath)
+      await refreshCatalogPaths(project, [relPath])
       // 빈 디렉터리처럼 git이 전혀 알지 못하는 경로는 git add가 pathspec 오류를 던진다 —
       // 디스크 삭제 자체는 이미 끝났으므로 커밋 실패로 전체 요청을 실패시키지 않는다.
       let commit = null
@@ -950,20 +1076,51 @@ export function createApiApp() {
     }
   })
 
+  app.get('/search/files', requireAuthenticated, async (req, res) => {
+    const query = String(req.query.q ?? '')
+    if (!query) { res.json({ state: 'ready', version: 0, results: [] }); return }
+    if (query.length > 2_000) { res.status(400).json({ error: '검색어가 너무 깁니다' }); return }
+    try {
+      res.json(await searchFileNames(query, {
+        regex: req.query.regex === '1',
+        caseSensitive: req.query.case === '1',
+        scopes: String(req.query.scopes ?? '').split(',').filter(Boolean),
+        showAll: seesEveryFile(authOf(req).role),
+      }))
+    } catch (err) {
+      if (err instanceof SyntaxError) { res.status(400).json({ error: '잘못된 정규식입니다' }); return }
+      handleError(res, err)
+    }
+  })
+
   // 프로젝트 전체 파일 내용 검색(Ctrl+Shift+F) — 트리 가시성·게스트 필터를 그대로 거친 파일만 훑는다
   app.get('/search', async (req, res) => {
-    const project = projectOf(req)
     const query = String(req.query.q ?? '')
     const opts = { regex: req.query.regex === '1', caseSensitive: req.query.case === '1' }
     try {
+      if (query.length > 2_000) { res.status(400).json({ error: '검색어가 너무 깁니다' }); return }
       if (!query) {
-        res.json({ results: [], truncated: false })
+        res.json({ results: [], truncated: false, state: 'ready', version: 0, scannedDirtyFiles: 0 })
         return
       }
-      const tree = await buildTreeAsync(project)
-      const visible = authOf(req).role === 'guest' ? filterTreeForGuest(project, tree) : tree
-      const files = flattenTextFiles(visible)
-      res.json(searchInProject(project, files, query, opts))
+      const scopes = await scopedSearchFiles(req)
+      const results: ReturnType<typeof taggedSearchResult>[] = []
+      let truncated = false
+      let indexState: SearchIndexState = 'ready'
+      let catalogVersion = 0
+      let scannedDirtyFiles = 0
+      for (const scope of scopes) {
+        const selected = indexedSearchPaths(scope, query, opts)
+        const searched = measureSync('search.scan', { files: selected.paths.length }, () => (
+          searchInProject(scope.project, selected.paths, query, opts)
+        ))
+        results.push(...searched.results.map((result) => taggedSearchResult(scope, result)))
+        truncated ||= searched.truncated
+        catalogVersion = Math.max(catalogVersion, selected.version)
+        scannedDirtyFiles += selected.scannedDirtyFiles
+        if (selected.state !== 'ready') indexState = selected.state
+      }
+      res.json({ results, truncated, state: indexState, version: catalogVersion, scannedDirtyFiles })
     } catch (err) {
       if (err instanceof SyntaxError) {
         res.status(400).json({ error: '잘못된 정규식입니다' })
@@ -971,6 +1128,67 @@ export function createApiApp() {
       }
       handleError(res, err)
     }
+  })
+
+  // 내용 검색의 SSE 버전. 파일 하나를 찾는 즉시 보내므로 큰 프로젝트에서 끝까지 기다릴 필요가 없다.
+  app.get('/search/stream', async (req, res) => {
+    const query = String(req.query.q ?? '')
+    const opts = { regex: req.query.regex === '1', caseSensitive: req.query.case === '1' }
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders()
+    const emit = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    let closed = false
+    req.on('close', () => { closed = true })
+    let batch: unknown[] = []
+    let batchTimer: NodeJS.Timeout | null = null
+    const flush = () => {
+      if (batchTimer) clearTimeout(batchTimer)
+      batchTimer = null
+      if (!batch.length || closed) { batch = []; return }
+      for (const result of batch) emit('result', result)
+      batch = []
+    }
+    const queueResult = (result: unknown) => {
+      if (closed) return
+      batch.push(result)
+      if (batch.length >= 20) flush()
+      else if (!batchTimer) batchTimer = setTimeout(flush, 50)
+    }
+    try {
+      if (query.length > 2_000) { emit('error', { error: '검색어가 너무 깁니다' }); res.end(); return }
+      if (!query) { emit('done', { truncated: false, state: 'ready', version: 0, scannedDirtyFiles: 0 }); res.end(); return }
+      const scopes = await scopedSearchFiles(req)
+      let truncated = false
+      let indexState: SearchIndexState = 'ready'
+      let catalogVersion = 0
+      let scannedDirtyFiles = 0
+      for (const scope of scopes) {
+        if (closed) break
+        const selected = indexedSearchPaths(scope, query, opts)
+        const result = await measure('search.scan', { files: selected.paths.length }, () => (
+          searchInProjectProgressively(
+            scope.project,
+            selected.paths,
+            query,
+            opts,
+            (file) => queueResult(taggedSearchResult(scope, file)),
+            () => closed,
+          )
+        ))
+        truncated ||= result.truncated
+        catalogVersion = Math.max(catalogVersion, selected.version)
+        scannedDirtyFiles += selected.scannedDirtyFiles
+        if (selected.state !== 'ready') indexState = selected.state
+      }
+      flush()
+      if (!closed) emit('done', { truncated, state: indexState, version: catalogVersion, scannedDirtyFiles })
+    } catch (err) {
+      if (!closed) emit('error', { error: err instanceof SyntaxError ? '잘못된 정규식입니다' : err instanceof Error ? err.message : '검색 실패' })
+    }
+    if (batchTimer) clearTimeout(batchTimer)
+    if (!closed) res.end()
   })
 
   // 의미 검색(RAG retrieval) — 인덱스는 권한 경계가 아니라 파생 캐시다. 로그인 사용자만 허용하고,
@@ -1115,6 +1333,7 @@ export function createApiApp() {
         const destAbs = resolveProjectPath(project, destDir)
         const copiedAbs = pasteExternalPath(sourceAbs, destAbs, 'copy')
         const newRelPath = path.relative(projectRoot(project), copiedAbs).split(path.sep).join('/')
+        await refreshCatalogPaths(project, [newRelPath])
         const commit = await commitFile(project, newRelPath, 'add', `${project}: copy ${srcPath} → ${newRelPath}`)
         const type = fs.statSync(copiedAbs).isDirectory() ? 'dir' : 'file'
         res.json({ ok: true, relPath: newRelPath, commit, hidden: hiddenFromTree(req, newRelPath, type) })
@@ -1125,6 +1344,7 @@ export function createApiApp() {
         return
       }
       const newRelPath = copyPathInto(project, srcPath, destDir)
+      await refreshCatalogPaths(project, [newRelPath])
       const commit = await commitFile(project, newRelPath, 'add', `${project}: copy ${srcPath} → ${newRelPath}`)
       const type = fs.statSync(resolveProjectPath(project, newRelPath)).isDirectory() ? 'dir' : 'file'
       res.json({ ok: true, relPath: newRelPath, commit, hidden: hiddenFromTree(req, newRelPath, type) })
@@ -1185,6 +1405,9 @@ export function createApiApp() {
         }
       }
       renamePath(project, oldPath, newPath)
+      noteFileContentChanged(project, oldPath)
+      noteFileContentChanged(project, newPath)
+      await refreshCatalogPaths(project, [oldPath, newPath])
       const commit = await commitFile(project, [oldPath, newPath], 'rename', `${project}: rename ${oldPath} → ${newPath}`)
       const type = fs.statSync(resolveProjectPath(project, newPath)).isDirectory() ? 'dir' : 'file'
       res.json({ ok: true, relPath: newPath, commit, hidden: hiddenFromTree(req, newPath, type) })
@@ -1193,7 +1416,7 @@ export function createApiApp() {
     }
   })
 
-  app.post('/new-folder', requireAuthenticated, (req, res) => {
+  app.post('/new-folder', requireAuthenticated, async (req, res) => {
     const { relPath } = req.body as { relPath: string }
     const project = projectOf(req)
     try {
@@ -1202,6 +1425,7 @@ export function createApiApp() {
         return
       }
       createFolder(project, relPath)
+      await refreshCatalogPaths(project, [relPath])
       res.json({ ok: true, relPath, hidden: hiddenFromTree(req, relPath, 'dir') })
     } catch (err) {
       handleError(res, err)
@@ -1478,6 +1702,8 @@ export function createApiApp() {
         return
       }
       const relPath = writeFileInto(project, destDir, file.originalname, file.buffer)
+      noteFileContentChanged(project, relPath)
+      await refreshCatalogPaths(project, [relPath])
       const commit = await commitFile(project, relPath, 'add', `${project}: upload ${relPath}`)
       res.json({ ok: true, relPath, commit, hidden: hiddenFromTree(req, relPath) })
     } catch (err) {
@@ -1502,6 +1728,8 @@ export function createApiApp() {
         return
       }
       createDocument(project, relPath, title)
+      noteFileContentChanged(project, relPath)
+      await refreshCatalogPaths(project, [relPath])
       const commit = await commitFile(project, relPath, 'add')
       res.json({ ok: true, relPath, commit, hidden: hiddenFromTree(req, relPath) })
     } catch (err) {

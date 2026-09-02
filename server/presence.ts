@@ -46,6 +46,27 @@ export function broadcast(msg: object) {
   }
 }
 
+/**
+ * 부분 tree invalidation은 부모 경로를 담는다. 로그인 역할에는 성능을 위해 범위를 보내되,
+ * guest에게는 승인 밖 이름이 새지 않도록 기존의 내용 없는 전체 갱신 신호만 보낸다.
+ */
+export function treeSignalFor(
+  auth: RequestAuth,
+  msg: { type: 'tree'; project: string; version: number; parents: string[] },
+): object {
+  return auth.role === 'guest' ? { type: 'tree' } : msg
+}
+
+export function broadcastTree(msg: { type: 'tree'; project: string; version: number; parents: string[] }) {
+  const scoped = JSON.stringify(msg)
+  const guest = JSON.stringify({ type: 'tree' })
+  for (const client of wss.clients) {
+    if (client.readyState !== WebSocket.OPEN) continue
+    const auth = clientState.get(client)?.auth
+    client.send(auth && treeSignalFor(auth, msg) === msg ? scoped : guest)
+  }
+}
+
 function sendParticipantsTo(ws: WebSocket, auth: RequestAuth) {
   if (ws.readyState !== WebSocket.OPEN) return
   ws.send(JSON.stringify({ type: 'participants', participants: computeParticipants(auth) }))

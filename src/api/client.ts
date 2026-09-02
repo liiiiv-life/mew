@@ -697,6 +697,17 @@ export function fetchTree(project?: string, path = ''): Promise<TreeNode[]> {
   return fetch(`/api/tree?${projectQs(project)}&path=${encodeURIComponent(path)}`).then(json<TreeNode[]>)
 }
 
+export type TreeResponseV1 = { version: number; state: 'ready' | 'building' | 'stale'; entries: TreeNode[] }
+
+export function fetchTreeV1(project?: string, path = ''): Promise<TreeResponseV1> {
+  return fetch(`/api/tree?${projectQs(project)}&path=${encodeURIComponent(path)}&v=1`).then(json<TreeResponseV1>)
+}
+
+/** Ctrl+P처럼 전체 후보가 필요한 자리만 쓰는 완전 트리. 평상시 탐색기는 한 단계 지연 로드를 쓴다. */
+export function fetchFullTree(project?: string): Promise<TreeNode[]> {
+  return fetch(`/api/tree?${projectQs(project)}`).then(json<TreeNode[]>)
+}
+
 // 탭 상태를 다루는 호출(읽기·저장·규칙)은 프로젝트를 명시적으로 받는다 — 자동저장 디바운스처럼
 // 프로젝트 전환보다 오래 사는 작업이 엉뚱한 프로젝트에 쓰지 않도록.
 export function fetchFile(path: string, project?: string): Promise<{ path: string; content: string; editable: boolean }> {
@@ -742,21 +753,87 @@ export interface SearchMatch {
 export interface SearchFileResult {
   path: string
   matches: SearchMatch[]
+  /** 통합 검색에서는 이 파일이 속한 Documents·루트·하위 프로젝트를 함께 돌려준다. */
+  project?: { id: string; label: string; kind: 'docs' | 'root' | 'subproject' }
 }
 export interface SearchOptions {
   regex: boolean
   caseSensitive: boolean
+  scopes?: string[]
+}
+
+export interface FileNameSearchResult {
+  path: string
+  project: string
+  scope: { id: string; label: string; icon: string }
+}
+
+export interface FileNameSearchResponse {
+  version: number
+  state: 'ready' | 'building' | 'stale'
+  results: FileNameSearchResult[]
+}
+
+export function searchFileNames(query: string, opts: SearchOptions, signal?: AbortSignal): Promise<FileNameSearchResponse> {
+  const params = new URLSearchParams({ q: query, regex: opts.regex ? '1' : '0', case: opts.caseSensitive ? '1' : '0' })
+  if (opts.scopes?.length) params.set('scopes', opts.scopes.join(','))
+  return fetch(`/api/search/files?${params.toString()}`, { signal }).then(json<FileNameSearchResponse>)
 }
 
 /** 프로젝트 전체 파일 내용 검색(Ctrl+Shift+F) */
-export function searchProject(query: string, opts: SearchOptions): Promise<{ results: SearchFileResult[]; truncated: boolean }> {
+export function searchProject(query: string, opts: SearchOptions, project: string = currentProject): Promise<{ results: SearchFileResult[]; truncated: boolean }> {
   const params = new URLSearchParams({
     q: query,
-    project: currentProject,
+    project,
     regex: opts.regex ? '1' : '0',
     case: opts.caseSensitive ? '1' : '0',
   })
+  if (opts.scopes?.length) params.set('scopes', opts.scopes.join(','))
   return fetch(`/api/search?${params.toString()}`).then(json<{ results: SearchFileResult[]; truncated: boolean }>)
+}
+
+/** 서버가 찾은 파일을 SSE로 즉시 보낸다. 완료 전에도 onResult가 여러 번 호출된다. */
+export async function searchProjectStream(
+  query: string,
+  opts: SearchOptions,
+  project: string,
+  onResult: (result: SearchFileResult) => void,
+  signal?: AbortSignal,
+): Promise<{ truncated: boolean; state: 'ready' | 'building' | 'stale' | 'disabled'; version: number; scannedDirtyFiles: number }> {
+  const params = new URLSearchParams({ q: query, project, regex: opts.regex ? '1' : '0', case: opts.caseSensitive ? '1' : '0' })
+  if (opts.scopes?.length) params.set('scopes', opts.scopes.join(','))
+  const response = await fetch(`/api/search/stream?${params}`, { signal })
+  if (!response.ok || !response.body) throw new Error('검색 스트림을 열 수 없습니다')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let pending = ''
+  let truncated = false
+  let state: 'ready' | 'building' | 'stale' | 'disabled' = 'ready'
+  let version = 0
+  let scannedDirtyFiles = 0
+  while (true) {
+    const { value, done } = await reader.read()
+    pending += decoder.decode(value, { stream: !done })
+    const events = pending.split('\n\n')
+    pending = events.pop() ?? ''
+    for (const event of events) {
+      const name = event.match(/^event: (.+)$/m)?.[1]
+      const data = event.match(/^data: (.+)$/m)?.[1]
+      if (!name || !data) continue
+      const payload = JSON.parse(data) as SearchFileResult | { truncated: boolean; state?: typeof state; version?: number; scannedDirtyFiles?: number } | { error: string }
+      if (name === 'result') onResult(payload as SearchFileResult)
+      else if (name === 'done') {
+        const donePayload = payload as { truncated: boolean; state?: typeof state; version?: number; scannedDirtyFiles?: number }
+        truncated = donePayload.truncated
+        state = donePayload.state ?? 'ready'
+        version = donePayload.version ?? 0
+        scannedDirtyFiles = donePayload.scannedDirtyFiles ?? 0
+      }
+      else if (name === 'error') throw new Error((payload as { error: string }).error)
+    }
+    if (done) break
+  }
+  return { truncated, state, version, scannedDirtyFiles }
 }
 
 export interface SemanticSearchResult {
@@ -815,11 +892,12 @@ export function replaceInProjectFile(
   query: string,
   replace: string,
   opts: SearchOptions,
+  project: string = currentProject,
 ): Promise<{ ok: true; count: number; commit: CommitResult | null }> {
   return fetch('/api/search/replace', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, query, replace, regex: opts.regex, caseSensitive: opts.caseSensitive, project: currentProject }),
+    body: JSON.stringify({ path, query, replace, regex: opts.regex, caseSensitive: opts.caseSensitive, project }),
   }).then(json<{ ok: true; count: number; commit: CommitResult | null }>)
 }
 
@@ -990,8 +1068,8 @@ export function downloadUrl(path: string, project: string = currentProject): str
 }
 
 /** 미디어 파일(이미지·오디오·비디오·PDF)을 인라인으로 스트리밍하는 URL */
-export function rawUrl(path: string): string {
-  return `/api/raw?path=${encodeURIComponent(path)}&${projectQs()}`
+export function rawUrl(path: string, project: string = currentProject): string {
+  return `/api/raw?path=${encodeURIComponent(path)}&${projectQs(project)}`
 }
 
 export interface DocRules {

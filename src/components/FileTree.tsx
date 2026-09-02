@@ -2,13 +2,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { TreeNode } from '../api/client'
 import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, renamePath, setGuestAccess, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
-import { ConfirmDialog, keepFocusOnPress, setPathDragData } from '@mew/ui'
+import { ConfirmDialog, setPathDragData } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { PresenceDots } from './PresenceDots'
 import { CommandButtonMenu } from './CommandButtonMenu'
 import { DownloadLink } from './DownloadLink'
 import { getTreeScroll, saveTreeScroll, setScrollSaveSuppressed } from '../utils/scrollMemory'
 import { readFileClipboard, writeFileClipboard, type FileClipboard } from '../utils/fileClipboard'
+import { ProjectIcon } from './ProjectIcon'
 
 type EditingState =
   | { mode: 'rename'; path: string; type: 'file' | 'dir'; value: string; error?: string; busy?: boolean }
@@ -20,6 +21,8 @@ type Focused = { path: string; type: 'file' | 'dir' } | null
 type PopoverState = { path: string; type: 'file' | 'dir'; x: number; y: number } | null
 
 export type TreePersistenceState = { openDirs: string[]; scrollTop: number }
+export type FileSearchScope = { id: string; label: string; icon: string }
+export type FileSearchResult = { path: string; project: string; scope: FileSearchScope }
 
 interface NodeCtx {
   selectedPath: string | null
@@ -145,9 +148,6 @@ function MocItem({
   )
 }
 
-type SortMode = 'name' | 'ext'
-const SORT_KEY = 'mew:tree-sort'
-
 /** 펼쳐 둔 폴더는 프로젝트마다 따로 기억한다 — 브라우저를 껐다 켜도 보던 모양 그대로 뜬다 */
 const openDirsKey = (project: string) => `mew:tree-open:${project}`
 
@@ -167,22 +167,6 @@ function loadOpenDirs(project: string): Set<string> | null {
 // 조용히 아무 일도 없었던 것처럼 보이는 게 제일 나쁘다 — 파일은 디스크에 실제로 있다.
 // owner·manager는 필터가 없어 이 안내를 볼 일이 없다 (server/reqAuth.ts의 seesEveryFile).
 const NOT_ALLOWED = '권한이 없습니다'
-
-function extOf(name: string): string {
-  const dot = name.lastIndexOf('.')
-  return dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
-}
-
-// 확장자순: 폴더는 서버 순서(docs 최상위 랭킹 포함)를 그대로 두고, 파일만 확장자별로 묶는다
-// (a.png a.svg b.png b.svg → a.png b.png a.svg b.svg) — sort는 stable이라 0 반환 = 순서 유지
-function sortTreeByExt(nodes: TreeNode[]): TreeNode[] {
-  const sorted = [...nodes].sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
-    if (a.type === 'dir') return 0
-    return extOf(a.name).localeCompare(extOf(b.name)) || a.name.localeCompare(b.name)
-  })
-  return sorted.map((n) => (n.type === 'dir' && n.children ? { ...n, children: sortTreeByExt(n.children) } : n))
-}
 
 function sanitizeSegment(input: string): string {
   return input.trim().replace(/[\\/]+/g, '-')
@@ -422,6 +406,10 @@ function GuestAccessIcons({
 function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCtx }) {
   const longPressTimer = useRef<number | null>(null)
   const longPressFired = useRef(false)
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
+
+  // 손가락은 가만히 눌러도 몇 px 흔들린다. 이 안쪽의 움직임은 길게 누르기로 취급한다.
+  const LONG_PRESS_MOVE_TOLERANCE_PX = 12
 
   function clearLongPress() {
     if (longPressTimer.current !== null) {
@@ -430,8 +418,11 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
     }
   }
 
-  function onTouchStart() {
+  function onTouchStart(e: React.TouchEvent) {
     if (ctx.readOnly) return
+    clearLongPress()
+    const touch = e.touches[0]
+    touchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null
     longPressFired.current = false
     longPressTimer.current = window.setTimeout(() => {
       longPressFired.current = true
@@ -440,15 +431,34 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
 
   function onTouchEnd(e: React.TouchEvent) {
     clearLongPress()
-    if (!longPressFired.current) return
     const touch = e.changedTouches[0]
+    touchStart.current = null
+    if (!longPressFired.current) return
+    // 길게 누르기를 연 뒤 생성되는 click이 파일 열기까지 이어지면(특히 미리보기를
+    // 지원하지 않는 파일에서) 메뉴 대신 오류 화면이 열릴 수 있다.
+    e.preventDefault()
+    e.stopPropagation()
     ctx.focusNode(node.path, node.type)
     ctx.openPopover(node.path, node.type, touch.clientX, touch.clientY)
   }
 
-  function cancelLongPress() {
+  function cancelLongPress(e: React.TouchEvent) {
+    const touch = e.touches[0]
+    const start = touchStart.current
+    if (touch && start) {
+      const dx = touch.clientX - start.x
+      const dy = touch.clientY - start.y
+      if (dx * dx + dy * dy < LONG_PRESS_MOVE_TOLERANCE_PX * LONG_PRESS_MOVE_TOLERANCE_PX) return
+    }
     clearLongPress()
-    // 길게 누른 뒤 이동을 시작하면 파일 이동 제스처가 메뉴로 끝나면 안 된다.
+    touchStart.current = null
+    // 허용 오차보다 멀리 끌면 파일 이동 제스처가 메뉴로 끝나면 안 된다.
+    longPressFired.current = false
+  }
+
+  function cancelLongPressImmediately() {
+    clearLongPress()
+    touchStart.current = null
     longPressFired.current = false
   }
 
@@ -478,7 +488,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
     onTouchStart,
     onTouchEnd,
     onTouchMove: cancelLongPress,
-    onTouchCancel: cancelLongPress,
+    onTouchCancel: cancelLongPressImmediately,
     onContextMenu: handleContextMenu,
   }
 
@@ -643,6 +653,7 @@ export function FileTree({
   commands,
   loadChildren,
   prefetchRootChildren = false,
+  treeInvalidation,
   searchFocusSignal,
   newFileSignal,
   revealSignal,
@@ -679,6 +690,8 @@ export function FileTree({
   loadChildren?: (path: string) => Promise<TreeNode[]>
   /** 첫 화면을 그린 뒤 최상위 폴더의 직접 자식만 천천히 미리 읽는다. 더 깊은 경로는 펼칠 때 읽는다. */
   prefetchRootChildren?: boolean
+  /** watcher가 알려 준 영향 부모만 자식 캐시를 다시 읽는다. */
+  treeInvalidation?: { n: number; project: string; version: number; parents: string[] }
   searchFocusSignal: number
   /** Alt+N — 새 파일 이름 입력 열기. parentPath가 null이면 트리의 선택 항목 기준 */
   newFileSignal: { n: number; parentPath: string | null }
@@ -699,7 +712,6 @@ export function FileTree({
 }) {
   const persistedProject = stateKey ?? project
   const [query, setQuery] = useState('')
-  const [sortMode, setSortMode] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) === 'ext' ? 'ext' : 'name'))
   const [focused, setFocused] = useState<Focused>(null)
   const [openDirs, setOpenDirs] = useState<Set<string>>(() => new Set(accountState?.openDirs ?? loadOpenDirs(persistedProject) ?? []))
   const [directoryChildren, setDirectoryChildren] = useState<Record<string, TreeNode[]>>({})
@@ -743,6 +755,7 @@ export function FileTree({
   // 드래그 중인 항목 — dragover가 초당 여러 번 발화하므로 상태 대신 ref로 들고 다닌다
   const draggingRef = useRef<{ path: string; type: 'file' | 'dir' } | null>(null)
   const initializedOpenDirs = useRef(false)
+  const lastTreeInvalidationRef = useRef(0)
   // 마운트 시점 값으로 초기화 — "처음 한 번은 건너뛰기" 식 불리언 가드는 StrictMode가
   // 마운트 이펙트를 두 번 실행할 때(두 번째 호출에서 가드가 이미 소진됨) 무력화돼 사이드바를
   // 열기만 해도 검색창에 포커스가 가는(모바일 키보드가 뜨는) 버그가 있었다. 값 비교면
@@ -792,6 +805,28 @@ export function FileTree({
     setDirectoryChildren({})
     setLoadingDirs(new Set())
   }, [tree])
+
+  useEffect(() => {
+    if (!treeInvalidation?.n || treeInvalidation.project !== project || !loadChildren) return
+    if (treeInvalidation.n === lastTreeInvalidationRef.current) return
+    lastTreeInvalidationRef.current = treeInvalidation.n
+    const parents = treeInvalidation.parents.filter(Boolean)
+    if (!parents.length) return
+    const stale = new Set(parents)
+    directoryChildrenRef.current = Object.fromEntries(
+      Object.entries(directoryChildrenRef.current).filter(([key]) => !stale.has(key)),
+    )
+    setDirectoryChildren(directoryChildrenRef.current)
+    for (const parent of parents) {
+      if (!openDirs.has(parent)) continue
+      void loadChildren(parent)
+        .then((children) => {
+          directoryChildrenRef.current = { ...directoryChildrenRef.current, [parent]: children }
+          setDirectoryChildren(directoryChildrenRef.current)
+        })
+        .catch((err: unknown) => onNotice(err instanceof Error ? err.message : String(err)))
+    }
+  }, [treeInvalidation, project, loadChildren, onNotice, openDirs])
 
   useEffect(() => {
     localStorage.setItem(openDirsKey(persistedProject), JSON.stringify([...openDirs]))
@@ -1207,45 +1242,24 @@ export function FileTree({
     }
   }
 
-  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Escape') {
-      // 검색어가 있으면 그것만 지우고 멈춘다 — 흘려보내면 오버레이 스택이 사이드바까지 닫는다.
-      // 이미 비어 있으면 그대로 흘려보내 사이드바가 닫히게 둔다 (Esc 두 번 = 검색 취소 → 닫기)
-      if (!query) return
-      e.preventDefault()
-      e.stopPropagation()
-      setQuery('')
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      if (filteredPaths && filteredPaths.length > 0) onSelect(filteredPaths[0])
-    }
-  }
-
-  const sortedTree = useMemo(() => (sortMode === 'ext' ? sortTreeByExt(tree) : tree), [tree, sortMode])
-
   // 최상위 MOC는 담을 폴더가 없으니 여기서 직접 세운다 — 프로젝트 전체의 입구라서 어떤 폴더보다 위에.
   // 하위 폴더의 MOC는 각 Node가 자기 첫 줄에 같은 모양으로 세운다.
-  const rootMoc = useMemo(() => sortedTree.find(isMocNode) ?? null, [sortedTree])
-  const rootNodes = useMemo(() => (rootMoc ? sortedTree.filter((n) => !isMocNode(n)) : sortedTree), [sortedTree, rootMoc])
+  const rootMoc = useMemo(() => tree.find(isMocNode) ?? null, [tree])
+  const rootNodes = useMemo(() => (rootMoc ? tree.filter((n) => !isMocNode(n)) : tree), [tree, rootMoc])
 
-  function toggleSortMode() {
-    setSortMode((prev) => {
-      const next = prev === 'name' ? 'ext' : 'name'
-      localStorage.setItem(SORT_KEY, next)
-      return next
-    })
-  }
-
-  const filteredPaths = useMemo(() => {
+  const filteredPaths = useMemo((): FileSearchResult[] | null => {
     if (!query.trim()) return null
-    const files = flattenFiles(tree)
+    const files = flattenFiles(tree).map((path) => ({ path, project, scope: { id: 'root', label: '', icon: 'i:folder' } }))
     return files
-      .map((p) => ({ path: p, score: fuzzyScore(query, p) }))
-      .filter((r): r is { path: string; score: number } => r.score !== null)
+      .map((file) => ({ ...file, score: fuzzyScore(query, file.path) }))
+      .filter((r): r is FileSearchResult & { score: number } => r.score !== null)
       .sort((a, b) => a.score - b.score)
       .slice(0, 50)
-      .map((r) => r.path)
-  }, [tree, query])
+  }, [tree, query, project])
+
+  function selectSearchResult(result: FileSearchResult) {
+    onSelect(result.path)
+  }
 
   const rootCreateEditing =
     (editing?.mode === 'create-file' || editing?.mode === 'create-folder') && editing.parentPath === '' ? editing : null
@@ -1283,38 +1297,6 @@ export function FileTree({
 
   return (
     <div className={compact ? 'bg-surface-deep' : 'flex h-full flex-col border-r border-edge bg-surface-deep'}>
-      {!compact && <div className="flex items-center gap-1.5 border-b border-edge p-2">
-        <div className="relative min-w-0 flex-1" onMouseDown={keepFocusOnPress}>
-          <input
-            ref={searchInputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleSearchKeyDown}
-            placeholder="문서 검색… (Ctrl+P)"
-            className="w-full rounded border border-edge-strong bg-surface py-1 pr-7 pl-2 text-xs text-ink outline-none focus:border-accent"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              className="absolute top-1/2 right-1 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-sm leading-none text-ink-muted hover:bg-surface-raised hover:text-ink"
-              title="검색 취소"
-              aria-label="파일 검색 지우기"
-            >
-              ×
-            </button>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={toggleSortMode}
-          className="shrink-0 rounded border border-edge-strong px-1.5 py-1 text-xs text-ink-secondary hover:bg-surface-raised hover:text-ink"
-          title={sortMode === 'name' ? '정렬: 이름순 (클릭 → 확장자순)' : '정렬: 확장자순 (클릭 → 이름순)'}
-          aria-label="정렬 방식 전환"
-        >
-          {sortMode === 'name' ? '가나다' : '확장자'}
-        </button>
-      </div>}
       <div
         ref={listRef}
         tabIndex={-1}
@@ -1372,19 +1354,21 @@ export function FileTree({
           filteredPaths.length === 0 ? (
             <div className="px-3 py-2 text-xs text-ink-muted">결과 없음</div>
           ) : (
-            filteredPaths.map((path) => (
+            filteredPaths.map((result) => (
               <button
-                key={path}
+                key={`${result.project}:${result.path}`}
                 type="button"
-                onClick={() => onSelect(path)}
-                title={path}
-                className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-ink hover:bg-surface-raised"
+                onClick={() => selectSearchResult(result)}
+                title={result.path}
+                className="group relative flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-ink hover:bg-surface-raised"
               >
+                {result.scope.label && <ProjectIcon icon={result.scope.icon} size={13} />}
                 {/* direction:rtl + text-align:left → 넘칠 때 ...이 왼쪽에 붙어 오른쪽(파일명)이 보인다 */}
                 <span style={{ direction: 'rtl', textAlign: 'left' }} className="min-w-0 flex-1 truncate">
-                  {abbreviatePath(path)}
+                  {abbreviatePath(result.path)}
                 </span>
-                <PresenceDots colors={presence[path] ?? []} />
+                <PresenceDots colors={presence[result.path] ?? []} />
+                {result.scope.label && <FileSearchPathTooltip result={result} />}
               </button>
             ))
           )
@@ -1513,4 +1497,13 @@ export function FileTree({
       {errorMsg !== null && <ConfirmDialog message={errorMsg} onConfirm={() => setErrorMsg(null)} />}
     </div>
   )
+}
+
+function FileSearchPathTooltip({ result }: { result: FileSearchResult }) {
+  const parts = result.path.split('/').filter(Boolean)
+  const relative = result.scope.id.startsWith('subproject:') ? parts.slice(1) : parts
+  return <div className="pointer-events-none absolute left-2 top-full z-40 hidden min-w-[15rem] max-w-[22rem] rounded border border-edge-bright bg-surface-deep p-3 text-xs shadow-xl group-hover:block">
+    <div className="mb-2 flex items-center gap-2 font-medium text-ink"><ProjectIcon icon={result.scope.icon} size={16} /><span>{result.scope.label}</span></div>
+    <div className="space-y-1 text-ink-secondary">{relative.map((part, index) => <div key={`${part}:${index}`} className="flex items-center gap-1" style={{ paddingLeft: `${index * 12}px` }}><span className="text-ink-faint">ㄴ</span><span className={index === relative.length - 1 ? 'text-ink' : ''}>{part}</span></div>)}</div>
+  </div>
 }

@@ -13,6 +13,7 @@ import type { Role } from './reqAuth.ts'
 import { buildTree, buildTreeAsync, isPathVisible, listTreeDirAsync, type TreeNode } from './tree.ts'
 import { createApiApp } from './api.ts'
 import { resetTreeWatchers } from './watcher.ts'
+import { readyFileCatalog } from './fileCatalog.ts'
 
 const DOCS = 'docs'
 const CODE = 'some-code-project' // docs가 아닌 아무 프로젝트 (판정은 이름 규칙만 본다)
@@ -160,6 +161,12 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
     assert.ok(rootOnly.every((node) => node.children === undefined), '루트 목록이 하위 트리를 함께 보내지 않는다')
     const srcOnly = await oneLevelFor('member', 'src')
     assert.deepEqual(srcOnly.map((node) => node.path), ['src/app.ts'], '폴더를 펼칠 때 그 직접 자식만 읽는다')
+    await readyFileCatalog(project)
+    const v1Response = await fetch(`${base}/api/tree?project=${project}&path=src&v=1`)
+    const v1 = await v1Response.json() as { version: number; state: string; entries: TreeNode[] }
+    assert.ok(v1.version >= 1)
+    assert.equal(v1.state, 'ready')
+    assert.deepEqual(v1.entries.map((node) => node.path), ['src/app.ts'])
 
     for (const as of ['owner', 'manager'] as const) {
       const all = await treeFor(as)

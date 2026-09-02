@@ -16,7 +16,7 @@ export function usePresence(
   project: string,
   focusedPath: string | null,
   authEmail: string | null,
-  onTreeChange: () => void,
+  onTreeChange: (signal?: { project?: string; version?: number; parents?: string[] }) => void,
   onWorkspaceChange?: (initialProject?: string) => void,
 ): Record<string, string[]> {
   const [participants, setParticipants] = useState<Record<string, string[]>>({})
@@ -59,7 +59,7 @@ export function usePresence(
       ws.onmessage = (event) => {
         if (typeof event.data !== 'string') return
         try {
-          const msg = JSON.parse(event.data) as { type?: string; participants?: Record<string, string[]>; project?: string }
+          const msg = JSON.parse(event.data) as { type?: string; participants?: Record<string, string[]>; project?: string; version?: number; parents?: string[] }
           if (msg.type === 'participants' && msg.participants) {
             // 내 프로젝트 것만 남기고 접두어를 벗겨 UI가 기존처럼 rel 경로로 쓰게 한다
             const prefix = `${projectRef.current}:`
@@ -68,7 +68,7 @@ export function usePresence(
               if (key.startsWith(prefix)) mine[key.slice(prefix.length)] = colors
             }
             setParticipants(mine)
-          } else if (msg.type === 'tree') onTreeChangeRef.current()
+          } else if (msg.type === 'tree') onTreeChangeRef.current({ project: msg.project, version: msg.version, parents: msg.parents })
           // 채팅·댓글이 바뀌었다는 **내용 없는 신호** — 받은 쪽이 REST로 다시 읽는다(신호는 게스트에게도
           // 가므로 경로·본문을 싣지 않는다). 창은 소켓을 따로 열지 않고 window 이벤트로 받는다
           else if (msg.type === 'chat' || msg.type === 'comments') {

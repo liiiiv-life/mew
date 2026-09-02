@@ -67,7 +67,7 @@ export function searchInProject(
   const regex = buildRegex(query, opts)
   const results: SearchFileResult[] = []
   let total = 0
-  let truncated = false
+  let truncated = relPaths.length > MAX_FILES
 
   for (const rel of relPaths.slice(0, MAX_FILES)) {
     if (total >= MAX_TOTAL_MATCHES) {
@@ -112,6 +112,44 @@ export function searchInProject(
     if (matches.length) results.push({ path: rel, matches })
   }
   return { results, truncated }
+}
+
+/** 파일 하나씩 비동기로 읽고 매치 파일을 즉시 내보낸다 — SSE 검색 응답용. */
+export async function searchInProjectProgressively(
+  project: string,
+  relPaths: string[],
+  query: string,
+  opts: SearchOptions,
+  onResult: (result: SearchFileResult) => void,
+  shouldStop: () => boolean = () => false,
+): Promise<{ truncated: boolean }> {
+  const regex = buildRegex(query, opts)
+  let total = 0
+  let truncated = relPaths.length > MAX_FILES
+  for (const [index, rel] of relPaths.slice(0, MAX_FILES).entries()) {
+    if (shouldStop()) break
+    if (total >= MAX_TOTAL_MATCHES) { truncated = true; break }
+    let content: string
+    try { content = await fs.promises.readFile(resolveProjectPath(project, rel), 'utf-8') } catch { continue }
+    if (content.includes('\u0000')) continue
+    const matches: SearchMatch[] = []
+    for (const [lineIndex, line] of content.split('\n').entries()) {
+      if (matches.length >= MAX_MATCHES_PER_FILE) break
+      regex.lastIndex = 0
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(line)) !== null) {
+        if (!match[0].length) { regex.lastIndex++; continue }
+        matches.push({ line: lineIndex + 1, column: match.index, text: line.length > MAX_LINE_LEN ? `${line.slice(0, MAX_LINE_LEN)}…` : line, matchStart: match.index, matchEnd: match.index + match[0].length })
+        total++
+        if (matches.length >= MAX_MATCHES_PER_FILE || total >= MAX_TOTAL_MATCHES) break
+      }
+      if (total >= MAX_TOTAL_MATCHES) { truncated = true; break }
+    }
+    if (matches.length) onResult({ path: rel, matches })
+    // 수천 파일 탐색 중에도 다른 요청·SSE flush가 끼어들 수 있게 양보한다.
+    if (index % 12 === 11) await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+  return { truncated }
 }
 
 /** 한 파일 안의 모든 매치를 치환한 새 내용과 치환 건수를 돌려준다 (디스크 쓰기는 호출자가 담당).
