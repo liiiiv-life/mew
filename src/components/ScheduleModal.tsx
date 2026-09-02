@@ -233,7 +233,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                       </span>
                     </button>
                     <span className="hidden shrink-0 text-[10px] text-ink-faint sm:inline">{lastRunLabel(job.lastRun)}</span>
-                    {job.running && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-strong" title="실행 세션 있음" />}
+                    {job.running && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" title="실행 세션 있음" />}
                     {job.session && (
                       <button
                         type="button"

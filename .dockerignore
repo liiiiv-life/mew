@@ -1,9 +1,0 @@
-# Keep secrets and accounts out of the image — the build copies the whole folder.
-.git
-.env
-.env.*
-!.env.example
-.data
-node_modules
-**/node_modules
-dist

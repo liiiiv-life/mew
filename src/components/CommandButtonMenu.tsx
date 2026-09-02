@@ -300,7 +300,7 @@ function CmdRow({
       >
         {button.name}
       </button>
-      {button.running && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-strong" title="실행 세션 있음" />}
+      {button.running && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" title="실행 세션 있음" />}
       {/* 실행 중이면 같은 자리가 정지 버튼이 된다 — 누르면 이 명령의 세션이 죽는다 */}
       <button
         type="button"

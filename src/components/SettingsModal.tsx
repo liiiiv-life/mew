@@ -144,7 +144,7 @@ function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: 
     <div>
       <div className="text-sm font-medium text-ink">{t('settings.mewcat')}</div>
       <p className="mt-1 text-xs text-ink-muted">{t('settings.mewcatDescription')}</p>
-      <div className="mt-4 grid grid-cols-2 gap-3">
+      <div className="mt-4 grid w-2/3 grid-cols-2 gap-2">
         {options.map((option) => {
           const selected = skin === option.id
           return (
@@ -152,13 +152,13 @@ function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: 
               key={option.id ?? 'none'}
               type="button"
               onClick={() => onChange(option.id)}
-              className={`overflow-hidden rounded-lg border p-3 text-left transition-colors ${selected ? 'border-accent bg-accent/10 text-ink' : 'border-edge-strong bg-surface hover:bg-surface-raised text-ink-secondary'}`}
+              className={`overflow-hidden rounded-lg border p-2 text-left transition-colors ${selected ? 'border-accent bg-accent/10 text-ink' : 'border-edge-strong bg-surface hover:bg-surface-raised text-ink-secondary'}`}
               aria-pressed={selected}
             >
-              <span className="flex h-24 items-center justify-center rounded bg-surface-deep">
+              <span className="flex h-16 items-center justify-center rounded bg-surface-deep">
                 {option.id === 'oreo' ? <MewcatRunFrame /> : <span className="text-sm text-ink-muted">—</span>}
               </span>
-              <span className="mt-2 block text-sm font-medium">{option.name}</span>
+              <span className="mt-1.5 block text-sm font-medium">{option.name}</span>
             </button>
           )
         })}
@@ -169,7 +169,7 @@ function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: 
 
 /** 기본 Oreo Cat 스킨의 RUN 네 프레임 중 가운데(두 번째) 프레임. */
 function MewcatRunFrame() {
-  return <span aria-label="기본 스킨 RUN 미리보기" className="block h-12 w-[49.5px]" style={{ backgroundImage: "url('/oreo-cat-aichan-owo.png')", backgroundPosition: '-49.5px -432px', backgroundSize: '693px 1149px', backgroundRepeat: 'no-repeat' }} />
+  return <span aria-label="기본 스킨 RUN 미리보기" className="block h-8 w-[33px]" style={{ backgroundImage: "url('/oreo-cat-aichan-owo.png')", backgroundPosition: '-33px -288px', backgroundSize: '462px 766px', backgroundRepeat: 'no-repeat' }} />
 }
 
 // ── 계정: 비밀번호 변경 + 로그아웃 ───────────────────────────────────────────
