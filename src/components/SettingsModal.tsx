@@ -4,6 +4,7 @@ import { changePassword, fetchIgnoreList, logout, saveIgnoreList, updateProfile 
 import { DEFAULT_SHORTCUTS, formatKeyCombo, resetAllBindings, resetBinding, setBinding, useShortcutBindings } from '@mew/shortcuts'
 import { LOCALES, LOCALE_NAMES, localizeShortcut, useI18n, type Locale, type TranslationKey } from '../i18n'
 import { DEFAULT_FONT_PREFERENCES, type FontPreferences } from '../utils/fontPreferences'
+import { DEFAULT_ACCENT_COLOR, type AccentColor } from '../utils/accentColor'
 
 const PASSWORD_MIN_LENGTH = 10
 
@@ -19,8 +20,10 @@ interface SettingsModalProps {
   canEditIgnore: boolean
   theme: Theme
   fontPreferences: FontPreferences
+  accentColor: AccentColor
   onToggleTheme: () => void
   onFontPreferencesChange: (fonts: FontPreferences) => void
+  onAccentColorChange: (colors: AccentColor) => void
   onClose: () => void
   onLoggedOut: () => void
   onProfileChanged: (profile: { displayName: string; avatarDataUrl: string | null }) => void
@@ -34,7 +37,7 @@ const SECTION_LABEL: Record<Section, TranslationKey> = {
 }
 
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
-export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, onToggleTheme, onFontPreferencesChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
+export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, accentColor, onToggleTheme, onFontPreferencesChange, onAccentColorChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
   const [section, setSection] = useState<Section>(email ? 'account' : 'appearance')
   // Mobile begins with the category list; the selected panel is a second screen.
   const [mobileSection, setMobileSection] = useState<Section | null>(null)
@@ -113,8 +116,10 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
               <AppearancePanel
                 theme={theme}
                 fonts={fontPreferences}
+                accentColor={accentColor}
                 onToggleTheme={onToggleTheme}
                 onFontsChange={onFontPreferencesChange}
+                onAccentColorChange={onAccentColorChange}
               />
             )}
             {section === 'shortcuts' && <ShortcutsPanel />}
@@ -320,13 +325,17 @@ const FONT_SUGGESTIONS = ['Noto Serif KR', 'IBM Plex Sans KR', 'IBM Plex Mono', 
 function AppearancePanel({
   theme,
   fonts,
+  accentColor,
   onToggleTheme,
   onFontsChange,
+  onAccentColorChange,
 }: {
   theme: Theme
   fonts: FontPreferences
+  accentColor: AccentColor
   onToggleTheme: () => void
   onFontsChange: (fonts: FontPreferences) => void
+  onAccentColorChange: (colors: AccentColor) => void
 }) {
   const { locale, setLocale, t } = useI18n()
   function select(next: Theme) {
@@ -334,6 +343,10 @@ function AppearancePanel({
   }
   const optionClass = (active: boolean) =>
     `flex items-center gap-1.5 px-3 py-1.5 ${active ? 'bg-accent text-ink-on-accent' : 'bg-surface-raised text-ink-secondary hover:bg-surface-hover'}`
+
+  function handleAccentChange(color: string, property: keyof AccentColor) {
+    onAccentColorChange({ ...accentColor, [property]: color })
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -371,6 +384,42 @@ function AppearancePanel({
           ))}
         </select>
         <div className="mt-1.5 text-xs text-ink-muted">{t('settings.languageDescription')}</div>
+      </div>
+      <div className="mt-2 border-t border-edge pt-3">
+        <div className="text-sm font-medium">{t('settings.accentColor')}</div>
+        <div className="mt-1 text-xs text-ink-muted">{t('settings.accentColorDescription')}</div>
+        <div className="mt-3 flex flex-col gap-3">
+          {(['accent', 'accentStrong', 'link'] as const).map((prop) => (
+            <label key={prop} className="block">
+              <span className="text-xs font-medium text-ink-secondary">{prop === 'accent' ? '액센트' : prop === 'accentStrong' ? '액센트(진함)' : '링크'}</span>
+              <div className="mt-1 flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={accentColor[prop]}
+                  onChange={(event) => handleAccentChange(event.target.value, prop)}
+                  className="h-8 w-8 rounded border border-edge-strong bg-surface cursor-pointer"
+                  title={prop === 'accent' ? '메인 액센트 색상' : prop === 'accentStrong' ? '더 진한 액센트(호버 등)' : '링크 색상'}
+                />
+                <input
+                  type="text"
+                  value={accentColor[prop]}
+                  onChange={(event) => handleAccentChange(event.target.value, prop)}
+                  className="flex-1 rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-edge-bright font-mono"
+                  placeholder="#RRGGBB"
+                  maxLength={7}
+                />
+                <button
+                  type="button"
+                  onClick={() => onAccentColorChange({ ...accentColor, [prop]: DEFAULT_ACCENT_COLOR[prop] })}
+                  disabled={accentColor[prop] === DEFAULT_ACCENT_COLOR[prop]}
+                  className="shrink-0 rounded border border-edge-strong px-2 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-40"
+                >
+                  {t('common.reset')}
+                </button>
+              </div>
+            </label>
+          ))}
+        </div>
       </div>
       <div className="mt-2 border-t border-edge pt-3">
         <div className="text-sm font-medium">{t('settings.fonts')}</div>

@@ -35,9 +35,9 @@
   --color-ink-on-accent: #ffffff; /* 컬러 솔리드 배경 위 텍스트 */
 
   /* 액센트 */
-  --color-accent: #3b82f6;
-  --color-accent-strong: #2563eb;
-  --color-link: #60a5fa;
+  --color-accent: #4432a8;
+  --color-accent-strong: #37268a;
+  --color-link: #7c5ce6;
 
   /* 상태 */
   --color-warning: #f59e0b;
@@ -90,9 +90,9 @@
   --color-ink-inverse: #fafafa;
   --color-ink-on-accent: #ffffff;
 
-  --color-accent: #2563eb;
-  --color-accent-strong: #1d4ed8;
-  --color-link: #2563eb;
+  --color-accent: #4432a8;
+  --color-accent-strong: #37268a;
+  --color-link: #7c5ce6;
 
   --color-warning: #f59e0b;
   --color-warning-surface: #fef3c7;
@@ -132,6 +132,27 @@ body {
   font-weight: 300;
 }
 
+/* Mewcat은 원본 Oreo Cat 시트를 수정 없이, 33×32 프레임을 화면에서 1.5배로 표시한다. */
+.mewcat {
+  position: fixed;
+  /* 앱 안의 패널·모달·팝업은 물론, 포털로 렌더한 레이어보다도 위에 둔다. */
+  z-index: 2147483647;
+  left: 0;
+  top: 0;
+  width: 49.5px;
+  height: 48px;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  will-change: transform;
+}
+.mewcat-sprite {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: url('/oreo-cat-aichan-owo.png') 0 0 / 693px 1149px no-repeat;
+  pointer-events: none;
+}
 /* 앱 전역 스크롤바 — OS 기본 대신 테마 색의 얇은 바 하나로 통일한다(에디터·목차·사이드바·터미널·표 전부).
    Chromium은 ::-webkit-scrollbar, 그걸 모르는 엔진(Firefox)만 표준 속성으로 폴백 —
    Chromium에 scrollbar-color를 같이 주면 webkit 커스텀이 통째로 무시되므로 @supports로 가른다. */
