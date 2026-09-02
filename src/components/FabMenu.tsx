@@ -19,6 +19,8 @@ const HANDLE_RADIUS = 24
 const DIRECTION_MIN_DISTANCE = 36
 const DIRECTION_MAX_DISTANCE = (RADIUS + 30) * 2.5
 const POSITION_KEY = 'mew:floating-handle-position'
+// 키보드와 맞닿지 않도록 확보할 여백. 핸들이 이 영역에 걸칠 때만 옮긴다.
+const KEYBOARD_CLEARANCE = 32
 const dots = <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="3" r="1.5" /><circle cx="18.4" cy="5.6" r="1.5" /><circle cx="21" cy="12" r="1.5" /><circle cx="18.4" cy="18.4" r="1.5" /><circle cx="12" cy="21" r="1.5" /><circle cx="5.6" cy="18.4" r="1.5" /><circle cx="3" cy="12" r="1.5" /><circle cx="5.6" cy="5.6" r="1.5" /><circle cx="12" cy="12" r="2" /></svg>
 const icon = (Icon: typeof ArrowLeft) => <Icon width={20} height={20} strokeWidth={1.8} aria-hidden="true" />
 
@@ -27,7 +29,7 @@ function viewport() {
   return { width: v?.width ?? window.innerWidth, height: v?.height ?? window.innerHeight, offsetTop: v?.offsetTop ?? 0 }
 }
 
-/** 위치는 우하단에서 잰다. 키보드로 visual viewport가 줄면 같은 bottom이 키보드 위로 올라간다. */
+/** 위치는 레이아웃 뷰포트의 우하단에서 잰다. */
 function readPosition(): Offset {
   try {
     const value = JSON.parse(localStorage.getItem(POSITION_KEY) ?? '') as Partial<Offset> & { x?: unknown; y?: unknown }
@@ -50,9 +52,12 @@ export function FabMenu({
   const [moveReady, setMoveReady] = useState(false)
   const [dragDirection, setDragDirection] = useState<number | null>(null)
   const [position, setPosition] = useState<Offset>(readPosition)
-  const [keyboardInset, setKeyboardInset] = useState(0)
+  const [keyboard, setKeyboard] = useState({ inset: 0, fixedToVisualViewport: false })
   const rootRef = useRef<HTMLDivElement>(null)
-  const pointerRef = useRef<{ id: number; startX: number; startY: number; moving: boolean; directional: boolean; wasOpen: boolean } | null>(null)
+  // Android처럼 키보드가 레이아웃 뷰포트까지 줄이는 브라우저에서는 innerHeight도 함께
+  // 작아진다. 키보드 전의 가장 큰 뷰포트를 기억해야 실제 키보드 높이를 잴 수 있다.
+  const unobscuredViewportBottomRef = useRef(0)
+  const pointerRef = useRef<{ id: number; startX: number; startY: number; originX: number | null; originY: number | null; moving: boolean; directional: boolean; wasOpen: boolean } | null>(null)
   const longPressTimer = useRef<number | null>(null)
   const longPressArmed = useRef(false)
   const actions: Action[] = [
@@ -65,12 +70,20 @@ export function FabMenu({
   const clearLongPress = () => { if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current); longPressTimer.current = null }
   useEffect(() => () => { clearLongPress() }, [])
   useEffect(() => {
-    const updateInset = () => { const v = viewport(); setKeyboardInset(Math.max(0, window.innerHeight - v.height - v.offsetTop)) }
-    updateInset()
-    window.visualViewport?.addEventListener('resize', updateInset)
-    window.visualViewport?.addEventListener('scroll', updateInset)
-    window.addEventListener('resize', updateInset)
-    return () => { window.visualViewport?.removeEventListener('resize', updateInset); window.visualViewport?.removeEventListener('scroll', updateInset); window.removeEventListener('resize', updateInset) }
+    const updateKeyboard = () => {
+      const v = viewport()
+      const visibleBottom = v.height + v.offsetTop
+      unobscuredViewportBottomRef.current = Math.max(unobscuredViewportBottomRef.current, visibleBottom, window.innerHeight)
+      const inset = Math.max(0, unobscuredViewportBottomRef.current - visibleBottom)
+      // innerHeight와 visualViewport 높이가 같으면 키보드가 fixed의 기준 자체를 줄인 상태다.
+      const fixedToVisualViewport = Math.abs(window.innerHeight - v.height) < 1
+      setKeyboard({ inset, fixedToVisualViewport })
+    }
+    updateKeyboard()
+    window.visualViewport?.addEventListener('resize', updateKeyboard)
+    window.visualViewport?.addEventListener('scroll', updateKeyboard)
+    window.addEventListener('resize', updateKeyboard)
+    return () => { window.visualViewport?.removeEventListener('resize', updateKeyboard); window.visualViewport?.removeEventListener('scroll', updateKeyboard); window.removeEventListener('resize', updateKeyboard) }
   }, [])
   useEffect(() => { const close = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }; document.addEventListener('pointerdown', close, true); return () => document.removeEventListener('pointerdown', close, true) }, [])
   const directionAt = (dx: number, dy: number) => Math.round(((Math.atan2(dy, dx) * 180 / Math.PI + 450) % 360) / 45) % 8
@@ -79,14 +92,11 @@ export function FabMenu({
     return distance >= DIRECTION_MIN_DISTANCE && distance <= DIRECTION_MAX_DISTANCE ? directionAt(dx, dy) : null
   }
   const moveTo = (x: number, y: number) => {
-    const v = viewport()
-    // fixed 컨테이너의 right/bottom은 핸들 **바깥 모서리** 기준이다. 반지름을 빼지 않으면
-    // 중심이 포인터보다 24px 왼쪽 위로 가서, 길게 누른 뒤 위치가 뚝 끊겨 보인다.
-    const centerX = Math.max(HANDLE_RADIUS, Math.min(v.width - HANDLE_RADIUS, x))
-    const centerY = Math.max(HANDLE_RADIUS, Math.min(v.height - HANDLE_RADIUS, y))
+    const centerX = Math.max(HANDLE_RADIUS, Math.min(window.innerWidth - HANDLE_RADIUS, x))
+    const centerY = Math.max(HANDLE_RADIUS, Math.min(window.innerHeight - HANDLE_RADIUS, y))
     const next = {
-      right: v.width - centerX - HANDLE_RADIUS,
-      bottom: v.height + v.offsetTop - centerY - HANDLE_RADIUS,
+      right: window.innerWidth - centerX - HANDLE_RADIUS,
+      bottom: window.innerHeight - centerY - HANDLE_RADIUS,
     }
     setPosition(next)
     localStorage.setItem(POSITION_KEY, JSON.stringify(next))
@@ -108,7 +118,18 @@ export function FabMenu({
       longPressArmed.current = true
       setMoveReady(true)
     }, 350)
-    pointerRef.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false, directional: false, wasOpen: open }
+    pointerRef.current = {
+      id: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      // 키보드가 닫히면서 핸들이 재배치될 수 있으므로, 실제 움직임이 시작된 시점의
+      // 화면 중심을 기준점으로 잡는다.
+      originX: null,
+      originY: null,
+      moving: false,
+      directional: false,
+      wasOpen: open,
+    }
     setPressed(true)
     setOpen(true)
   }
@@ -131,8 +152,15 @@ export function FabMenu({
       return
     }
     if (state.directional) return
+    if (state.originX === null || state.originY === null) {
+      // 키보드가 닫힌 뒤의 실제 렌더 위치를 읽는다. 따라서 그 뒤부터는 포인터가
+      // 움직인 거리만큼만 핸들이 움직이고, 키보드 전 위치로 되돌아가지 않는다.
+      const rect = rootRef.current?.getBoundingClientRect()
+      state.originX = rect ? rect.left + rect.width / 2 : window.innerWidth - position.right - HANDLE_RADIUS
+      state.originY = rect ? rect.top + rect.height / 2 : window.innerHeight - position.bottom - HANDLE_RADIUS
+    }
     state.moving = true
-    moveTo(event.clientX, event.clientY)
+    moveTo(state.originX + dx, state.originY + dy)
   }
   function pointerUp(event: React.PointerEvent<HTMLButtonElement>) {
     const state = pointerRef.current
@@ -152,7 +180,14 @@ export function FabMenu({
     setDragDirection(null)
   }
   const cancelPointer = () => { pointerRef.current = null; clearLongPress(); setPressed(false); setMoveReady(false); setDragDirection(null) }
-  return <div ref={rootRef} className="fixed z-40" style={{ right: position.right, bottom: position.bottom + keyboardInset }}>
+  // 키보드에 가리지 않으면 닫혀 있을 때의 화면 좌표를 보존한다. 키보드가 fixed의
+  // 기준 뷰포트까지 줄인 브라우저에서는 그 자동 상승분(inset)을 bottom에서 빼야 한다.
+  // 가리면 브라우저별 기준에 맞춰 실제 키보드 상단 + 여백으로 고정한다.
+  const coveredByKeyboard = keyboard.inset > 0 && position.bottom <= keyboard.inset + KEYBOARD_CLEARANCE
+  const bottom = coveredByKeyboard
+    ? (keyboard.fixedToVisualViewport ? KEYBOARD_CLEARANCE : keyboard.inset + KEYBOARD_CLEARANCE)
+    : (keyboard.fixedToVisualViewport ? Math.max(0, position.bottom - keyboard.inset) : position.bottom)
+  return <div ref={rootRef} className="fixed z-40" style={{ right: position.right, bottom }}>
     {actions.map((action, index) => {
       const angle = (-90 + index * 45) * Math.PI / 180
       const focused = dragDirection === index
