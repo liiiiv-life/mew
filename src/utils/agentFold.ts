@@ -61,6 +61,7 @@ export type SessionUpdate =
 
 export type AgentEvent =
   | { type: 'update'; update: SessionUpdate }
+  | { type: 'user_images'; images: { path: string; mimeType: string }[] }
   | { type: 'permission'; id: string; toolCall: { title?: string | null }; options: PermissionOption[] }
   | { type: 'permission_done'; id: string }
   // startedAt·durationMs — 서버(agentAcp.ts)가 턴 시작·끝에 새겨 보낸다. 옛 서버 이벤트에는 없을 수 있다
@@ -91,7 +92,7 @@ export type InnerItem =
   | { key: string; kind: 'error'; text: string }
 
 export type Item =
-  | { key: string; kind: 'user'; text: string }
+  | { key: string; kind: 'user'; text: string; images: { path: string; mimeType: string }[] }
   // stopReason — 턴이 어떻게 끝났나('end_turn'·'cancelled'·'error' 등, ACP 값 그대로).
   // 되받은 히스토리에는 turn_end가 없어 null로 남는다
   // startedAt(에포크 ms)·durationMs — 작업 버블의 걸린 시간 표시용. 옛 히스토리는 null이다
@@ -162,6 +163,11 @@ export function foldEvents(events: AgentEvent[]): Item[] {
       if (event.startedAt != null) turn.startedAt = event.startedAt
       continue
     }
+    if (event.type === 'user_images') {
+      const last = items.at(-1)
+      if (last?.kind === 'user') last.images.push(...event.images)
+      continue
+    }
     if (event.type === 'turn_end') {
       const t = currentTurn()
       if (t) {
@@ -217,7 +223,7 @@ export function foldEvents(events: AgentEvent[]): Item[] {
       const last = items.at(-1)
       // 청크 스트림에는 메시지 경계가 없어 연속 사용자 발화는 한 말풍선이 된다 — 줄바꿈으로만 가른다
       if (last && last.kind === 'user') last.text += (last.text ? '\n' : '') + text
-      else items.push({ key: `m${i}`, kind: 'user', text })
+      else items.push({ key: `m${i}`, kind: 'user', text, images: [] })
       // 새 질문은 앞 턴을 닫는다 — 불러온 히스토리에는 turn_end가 없어서 여기서 끊지 않으면
       // 지난 대화 전체가 턴 하나로 뭉친다
       const open = currentTurn()

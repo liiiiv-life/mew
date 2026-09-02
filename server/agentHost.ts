@@ -16,6 +16,7 @@ import {
   isRuntime,
   runtimeLoginAuthEvent,
   type AgentEvent,
+  type AgentImageRef,
   type TerminalAuthSpec,
 } from './agentAcp.ts'
 import { RUNTIME_LOGIN_METHOD_ID, runtimeLoginSpec } from './agentRuntimes.ts'
@@ -30,7 +31,7 @@ const REQUEST_TIMEOUT_MS = 30_000
 const MAX_LINE_BYTES = 64 * 1024 * 1024
 
 export type AgentHostCommand =
-  | { type: 'prompt'; text: string; promptText: string }
+  | { type: 'prompt'; text: string; promptText: string; images?: AgentImage[]; imageRefs?: AgentImageRef[] }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'authenticate'; methodId: string; secret?: string }
@@ -45,6 +46,8 @@ export type AgentHostCommand =
   | { type: 'clear_session' }
   | { type: 'load_session'; sessionId: string }
   | { type: 'close_session' }
+
+type AgentImage = { data: string; mimeType: string }
 
 type AgentHostRequest =
   | { type: 'list_sessions' }
@@ -416,7 +419,7 @@ async function handleHostMessage(
   const command = message.command
   if (!command || typeof command !== 'object' || typeof command.type !== 'string') return
   try {
-    if (command.type === 'prompt') session.prompt(String(command.text), String(command.promptText))
+    if (command.type === 'prompt') session.prompt(String(command.text), String(command.promptText), command.images, command.imageRefs)
     else if (command.type === 'cancel') session.cancel()
     else if (command.type === 'permission') session.answerPermission(String(command.id), command.optionId ?? null)
     else if (command.type === 'authenticate') void session.authenticate(String(command.methodId), command.secret).catch(() => {})

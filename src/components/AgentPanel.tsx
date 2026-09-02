@@ -46,10 +46,12 @@ import {
   killTmuxSession,
   resolveAgentCwd,
   resolveAgentFileLink,
+  rawUrl,
   runAgentAuthTerminal,
   saveAgentDefault,
   saveAgentTabs,
   scheduleAgentPrompt,
+  uploadInto,
   type AgentScheduledPrompt,
   type AgentRuntimeDefault,
   type AgentRuntimeStatus,
@@ -126,8 +128,8 @@ const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
 /** 소프트 키보드를 띄우는 요소 — 여기 포커스가 남아 있으면 엉뚱한 탭에도 키보드가 딸려 온다 */
 const KEYBOARD_OWNER = 'textarea, input, [contenteditable="true"]'
 
-/** 입력칸 오른쪽의 예약 전송(24px)·전송(32px) 버튼·간격과 컨테이너 상하 여백을 모두 담는 최소 높이. */
-const MIN_AGENT_INPUT_HEIGHT = 24 + 32 + 4 + 16
+/** 첨부 태그(24px), 오른쪽의 첨부·예약(각 24px)·전송(32px), 간격·상하 여백을 담는 최소 높이. */
+const MIN_AGENT_INPUT_HEIGHT = 24 + 24 + 24 + 32 + 8 + 16
 const agentInputMaxHeight = () =>
   Math.max(MIN_AGENT_INPUT_HEIGHT, Math.floor((window.visualViewport?.height ?? window.innerHeight) * 0.8))
 
@@ -167,6 +169,49 @@ function dropInputFocusAfterPress(e: MouseEvent<HTMLDivElement>) {
  */
 function hasSelection(): boolean {
   return (window.getSelection()?.toString().length ?? 0) > 0
+}
+
+type AgentAttachment = {
+  /** 서버가 충돌을 피해 결정한 실제 경로 — 프롬프트에는 이 값만 보낸다. */
+  relPath: string
+  /** 태그에는 경로·파일명 대신 확장자만 보여 준다. */
+  extension: string
+  /** 사진 태그는 전송 전에도 원본을 크게 확인할 수 있다. */
+  isImage: boolean
+  /** Codex가 볼 수 있는 사진은 파일 경로와 함께 바이트도 ACP로 보낸다. */
+  image?: { data: string; mimeType: string }
+}
+
+const AGENT_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const MAX_AGENT_IMAGE_BYTES = 10 * 1024 * 1024
+
+function attachmentExtension(path: string): string {
+  const name = path.split('/').pop() ?? path
+  const dot = name.lastIndexOf('.')
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : '파일'
+}
+
+/** 캡처 프로그램은 Clipboard File의 이름을 빈 문자열이나 `blob`으로 주기도 한다. */
+function namedAttachment(file: File): File {
+  if (file.name && /\.[^./]+$/.test(file.name)) return file
+  const extension = file.type === 'image/jpeg' ? 'jpg'
+    : file.type === 'image/png' ? 'png'
+      : file.type === 'image/webp' ? 'webp'
+        : file.type === 'image/gif' ? 'gif'
+          : 'bin'
+  return new File([file], `clipboard-${Date.now()}.${extension}`, { type: file.type, lastModified: file.lastModified })
+}
+
+async function imageForAgent(file: File): Promise<AgentAttachment['image']> {
+  if (!AGENT_IMAGE_TYPES.has(file.type)) return undefined
+  if (file.size > MAX_AGENT_IMAGE_BYTES) throw new Error(`사진은 에이전트에 최대 10MB까지 첨부할 수 있습니다: ${file.name || '이름 없는 이미지'}`)
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error(`사진을 읽지 못했습니다: ${file.name || '이름 없는 이미지'}`))
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('사진 데이터를 읽지 못했습니다'))
+    reader.readAsDataURL(file)
+  })
+  return { data: dataUrl.slice(dataUrl.indexOf(',') + 1), mimeType: file.type }
 }
 
 function loadTabs(workspacePath: string | null): AgentTab[] {
@@ -1135,7 +1180,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0 }: { project: string; workspacePath: string | null; tree: TreeNode[]; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
+export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0 }: { project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
   const shortcutScopeRef = useRef<HTMLDivElement>(null)
   const tabsKey = agentTabStorageKey(TABS_KEY, workspacePath)
   const activeTabKey = agentTabStorageKey(ACTIVE_TAB_KEY, workspacePath)
@@ -1406,6 +1451,7 @@ export function AgentPanel({ project, workspacePath, tree, onOpenFile, onClose, 
               resumeSessionId={resumeSessionId}
               project={project}
               tree={tree}
+              focusedFilePath={focusedFilePath}
               infos={infos}
               onLabel={setTabLabel}
               onInfo={setTabInfo}
@@ -1434,6 +1480,7 @@ function AgentSessionView({
   resumeSessionId,
   project,
   tree,
+  focusedFilePath,
   infos,
   onLabel,
   onInfo,
@@ -1453,6 +1500,7 @@ function AgentSessionView({
   resumeSessionId: string | null
   project: string
   tree: TreeNode[]
+  focusedFilePath: string | null
   infos: Record<string, TabInfo>
   onLabel: (tabId: string, label: string) => void
   onInfo: (tabId: string, runtime: string, cwd: string, info: TabInfo) => void
@@ -1469,6 +1517,9 @@ function AgentSessionView({
   const [events, setEvents] = useState<AgentEvent[]>(() => initialCache?.events ?? [])
   const [connected, setConnected] = useState(false)
   const [draft, setDraft] = useState(() => readAgentInputDraft(tabId))
+  const [attaching, setAttaching] = useState(false)
+  const [attachments, setAttachments] = useState<AgentAttachment[]>([])
+  const [previewAttachment, setPreviewAttachment] = useState<AgentAttachment | null>(null)
   const [models, setModels] = useState<ModelState | null>(null)
   const [modes, setModes] = useState<ModeState | null>(null)
   const [thinking, setThinking] = useState<ThinkingState | null>(null)
@@ -1491,6 +1542,7 @@ function AgentSessionView({
   const [savingDefault, setSavingDefault] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const wsRef = useRef<WebSocket | null>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
   const infoOverlayRef = useRef<HTMLDivElement>(null)
   const cacheSessionIdRef = useRef<string | null>(initialCache?.sessionId ?? null)
   const resumeSessionIdRef = useRef<string | null>(resumeSessionId)
@@ -1917,21 +1969,48 @@ function AgentSessionView({
   }, [cwd, onForgetSession, runtime, send, tabId])
 
   const submit = () => {
-    const text = draft.trim()
-    if (!text || !connected) return
+    const written = draft.trim()
+    const refs = attachments.map((attachment) => `[[${project}:${attachment.relPath}]]`)
+    const images = attachments.flatMap((attachment) => attachment.image ? [attachment.image] : [])
+    const imageRefs = attachments.flatMap((attachment) => attachment.image
+      ? [{ path: attachment.relPath, mimeType: attachment.image.mimeType }]
+      : [])
+    const text = [written, ...refs].filter(Boolean).join('\n')
+    if (!text || !connected || attaching) return
     // CLI 슬래시 명령으로 넘기면 런타임은 세션을 비워도 Mew가 전사·캐시를 새 세션으로 바꿨다는
     // 사실을 알 수 없다. 서버 큐의 세션 경계로 처리해 뒤 메시지는 새 대화에서 실행한다.
-    if (text === '/clear') {
+    if (written === '/clear' && refs.length === 0) {
       send({ type: 'clear_session' })
       setDraft('')
       return
     }
     // 진행 중이어도 막지 않는다 — 서버가 줄을 세웠다가 턴이 끝나면 이어서 돈다
-    send({ type: 'prompt', text, skills: selectedSkillNames(text, skills) })
+    send({ type: 'prompt', text, displayText: written, images, imageRefs, skills: selectedSkillNames(text, skills) })
     setDraft('')
+    setAttachments([])
     // 내가 말을 걸었으면 답을 보겠다는 뜻이다 — 다시 바닥에 붙인다
     stickRef.current = true
   }
+
+  const attachFiles = useCallback(async (files: File[]) => {
+    if (!connected || attaching || files.length === 0) return
+    setAttaching(true)
+    try {
+      const saved: AgentAttachment[] = []
+      // 서버가 이름 충돌을 순서대로 피하므로 동시에 올리지 않는다.
+      for (const file of files) {
+        const named = namedAttachment(file)
+        const image = await imageForAgent(named)
+        const { relPath } = await uploadInto(named, '.mew/files', project)
+        saved.push({ relPath, extension: attachmentExtension(relPath), isImage: named.type.startsWith('image/'), image })
+      }
+      setAttachments((current) => [...current, ...saved])
+    } catch (err) {
+      setErrorDetail({ title: '파일 첨부 실패', detail: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setAttaching(false)
+    }
+  }, [attaching, connected, project])
 
   const schedule = async (text: string, at: string) => {
     const message = text.trim()
@@ -2040,8 +2119,8 @@ function AgentSessionView({
   }
 
   const fileMentionOptions = useMemo<MentionOption[]>(
-    () => agentInputMentionOptions(tree, project, projects),
-    [tree, project, projects],
+    () => agentInputMentionOptions(tree, project, projects, focusedFilePath),
+    [tree, project, projects, focusedFilePath],
   )
   const slashTriggers = useMemo<TriggerOptionSet[]>(
     () => [
@@ -2256,19 +2335,43 @@ function AgentSessionView({
             // 내가 쓴 말이라 이미 아는 내용이다 — 턴 버블과 같게 접어 두고, 눌러야 다 보인다
             const open = expanded.has(item.key)
             return (
-              <div key={item.key} className="ml-6 flex items-start rounded-lg bg-surface-raised">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (hasSelection()) return
-                    toggle(item.key)
-                  }}
-                  className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left text-ink"
-                >
-                  <span className="shrink-0 pt-1 text-ink-secondary"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
-                  <span className={`min-w-0 flex-1 select-text ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
-                </button>
-                <CopyButton text={item.text} label="이 질문 복사" />
+              <div key={item.key} className="ml-6 space-y-2">
+                {item.images.length > 0 && (
+                  <div className="flex flex-col items-end gap-2" aria-label={`첨부 사진 ${item.images.length}장`}>
+                    {item.images.map((image, index) => (
+                      <a
+                        key={`${image.path}-${index}`}
+                        href={rawUrl(image.path, project)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block overflow-hidden rounded-lg bg-surface-raised"
+                        title="사진 크게 보기"
+                      >
+                        <img
+                          src={rawUrl(image.path, project)}
+                          alt="첨부한 사진"
+                          className="max-h-64 max-w-56 object-contain"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {item.text && (
+                  <div className="flex items-start rounded-lg bg-surface-raised">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (hasSelection()) return
+                        toggle(item.key)
+                      }}
+                      className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left text-ink"
+                    >
+                      <span className="shrink-0 pt-1 text-ink-secondary"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
+                      <span className={`min-w-0 flex-1 select-text ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
+                    </button>
+                    <CopyButton text={item.text} label="이 질문 복사" />
+                  </div>
+                )}
               </div>
             )
           }
@@ -2539,20 +2642,81 @@ function AgentSessionView({
         >
           <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent" />
         </div>
-        <MentionTextarea
-          value={draft}
-          onChange={setDraft}
-          options={fileMentionOptions}
-          triggers={mentionTriggers}
-          onSubmit={submit}
-          rows={2}
-          placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 — @프로젝트·폴더·파일 (Ctrl+Enter 전송)'}
-          className="block h-full w-full resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
-          style={{ height: '100%' }}
-          submitHint="Ctrl+Enter로 전송"
-          submitShortcut="mod-enter"
-        />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          {(attachments.length > 0 || attaching) && (
+            <div className="flex h-6 shrink-0 items-center gap-1 overflow-x-auto" aria-label={`첨부 파일 ${attachments.length}개`}>
+              {attaching && (
+                <span className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-surface-raised pl-2 pr-1.5 text-xs text-ink-muted" role="status">
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-ink-muted/30 border-t-accent" aria-hidden="true" />
+                  첨부 중…
+                </span>
+              )}
+              {attachments.map((attachment) => (
+                <span key={attachment.relPath} className="flex h-6 min-w-20 shrink-0 items-center gap-0.5 rounded-md bg-surface-raised pl-2 pr-0 text-xs text-ink-secondary">
+                  {attachment.isImage ? (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewAttachment(attachment)}
+                      className="min-w-0 truncate rounded px-0.5 text-left hover:text-ink hover:underline"
+                      title="사진 미리보기"
+                    >
+                      {attachment.extension}
+                    </button>
+                  ) : <span className="min-w-0 flex-1 truncate">{attachment.extension}</span>}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachments((current) => current.filter((item) => item.relPath !== attachment.relPath))
+                      setPreviewAttachment((current) => current?.relPath === attachment.relPath ? null : current)
+                    }}
+                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
+                    aria-label={`${attachment.extension} 첨부 제거`}
+                    title="첨부 제거"
+                  >
+                    <XGlyph small />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <MentionTextarea
+            value={draft}
+            onChange={setDraft}
+            options={fileMentionOptions}
+            triggers={mentionTriggers}
+            onSubmit={submit}
+            rows={2}
+            placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 — @프로젝트·폴더·파일 (Ctrl+Enter 전송)'}
+            className="block min-h-0 w-full flex-1 resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
+            style={{ height: '100%' }}
+            submitHint="Ctrl+Enter로 전송"
+            submitShortcut="mod-enter"
+            onFilesDropped={(files) => { void attachFiles(files) }}
+            onImagesPasted={(files) => { void attachFiles(files) }}
+          />
+        </div>
         <div className="flex shrink-0 flex-col justify-end gap-1">
+          <input
+            ref={attachmentInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? [])
+              event.target.value = ''
+              void attachFiles(files)
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => attachmentInputRef.current?.click()}
+            disabled={!connected || attaching}
+            className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40"
+            aria-label="파일 첨부"
+            title="파일 첨부 (.mew/files에 저장)"
+          >
+            <PaperclipGlyph />
+          </button>
           <button
             type="button"
             onClick={() => setScheduleOpen(true)}
@@ -2566,7 +2730,7 @@ function AgentSessionView({
           <button
             type="button"
             onClick={submit}
-            disabled={!connected || !draft.trim()}
+            disabled={!connected || attaching || (!draft.trim() && attachments.length === 0)}
             className="flex h-8 w-8 items-center justify-center rounded bg-accent text-ink disabled:opacity-40"
             aria-label="전송"
             title="전송 (Ctrl+Enter)"
@@ -2582,6 +2746,13 @@ function AgentSessionView({
           cwd={cwd}
           onClose={() => setScheduleOpen(false)}
           onConfirm={schedule}
+        />
+      )}
+      {previewAttachment && (
+        <AgentImagePreviewDialog
+          src={rawUrl(previewAttachment.relPath, project)}
+          name={previewAttachment.extension}
+          onClose={() => setPreviewAttachment(null)}
         />
       )}
         </>
@@ -2775,6 +2946,39 @@ function AgentErrorButton({
     >
       {title}
     </button>
+  )
+}
+
+function AgentImagePreviewDialog({ src, name, onClose }: { src: string; name: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${name} 사진 미리보기`}
+        className="relative flex max-h-full max-w-full items-center justify-center"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <img src={src} alt={name} className="max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] rounded object-contain shadow-2xl" />
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white hover:bg-black/80"
+          aria-label="사진 미리보기 닫기"
+          title="닫기"
+        >
+          <XGlyph />
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -3080,4 +3284,8 @@ function ClockGlyph() {
       <path d="M12 7v5l3 2" />
     </svg>
   )
+}
+
+function PaperclipGlyph() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m20.5 11.5-8.2 8.2a5 5 0 0 1-7.1-7.1l8.2-8.2a3.5 3.5 0 1 1 5 5l-8.2 8.2a2 2 0 1 1-2.8-2.8l7.5-7.5" /></svg>
 }

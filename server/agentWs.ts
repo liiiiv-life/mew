@@ -6,7 +6,7 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { DEFAULT_RUNTIME, isRuntime, type AgentEvent } from './agentAcp.ts'
+import { DEFAULT_RUNTIME, isRuntime, type AgentEvent, type AgentImageRef } from './agentAcp.ts'
 import { connectAgentHost, type AgentHostClient } from './agentHost.ts'
 import { composeRuntimePrompt } from './agentRuntimes.ts'
 import { listSessionsFromDisk } from './agentSessionList.ts'
@@ -21,7 +21,7 @@ const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 
 type ClientMessage =
-  | { type: 'prompt'; text: string; skills?: string[] }
+  | { type: 'prompt'; text: string; displayText?: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; skills?: string[] }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'authenticate'; methodId: string; secret?: string }
@@ -40,6 +40,33 @@ type ClientMessage =
   | { type: 'load_session'; sessionId: string }
   /** 탭을 닫았다 — 창만 닫은 것과 달리 세션도 여기서 끝난다 */
   | { type: 'close_session' }
+
+type AgentImage = { data: string; mimeType: string }
+
+const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const MAX_AGENT_IMAGE_DATA_CHARS = Math.ceil(10 * 1024 * 1024 * 4 / 3)
+const MAX_AGENT_IMAGE_TOTAL_CHARS = Math.ceil(20 * 1024 * 1024 * 4 / 3)
+
+function validImages(value: unknown): AgentImage[] {
+  if (!Array.isArray(value)) return []
+  const images = value.filter((image): image is AgentImage =>
+    typeof image?.data === 'string'
+    && image.data.length <= MAX_AGENT_IMAGE_DATA_CHARS
+    && typeof image?.mimeType === 'string'
+    && IMAGE_MIME_TYPES.has(image.mimeType),
+  )
+  return images.reduce((total, image) => total + image.data.length, 0) <= MAX_AGENT_IMAGE_TOTAL_CHARS ? images : []
+}
+
+function validImageRefs(value: unknown): AgentImageRef[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((image): image is AgentImageRef =>
+    typeof image?.path === 'string'
+    && image.path.startsWith('.mew/files/')
+    && typeof image?.mimeType === 'string'
+    && IMAGE_MIME_TYPES.has(image.mimeType),
+  )
+}
 
 type ServerMessage =
   | AgentEvent
@@ -132,7 +159,12 @@ async function handleConnection(
       if (msg.type === 'prompt') {
         const prompt = rolePending ? `${preset.role}\n\n---\n\n${msg.text}` : msg.text
         rolePending = false
-        live.send({ type: 'prompt', text: msg.text, promptText: promptForRuntime(runtime, prompt, msg.skills) })
+        // Codex ACP는 이미지 블록을 지원한다. 다른 런타임에는 파일 경로 참조만 보낸다.
+        const images = runtime === 'codex' ? validImages(msg.images) : []
+        const imageRefs = validImageRefs(msg.imageRefs)
+        // 첨부 경로는 에이전트가 읽게 하되, 대화 창에는 사용자가 쓴 프롬프트만 남긴다.
+        const displayText = typeof msg.displayText === 'string' ? msg.displayText : msg.text
+        live.send({ type: 'prompt', text: displayText, promptText: promptForRuntime(runtime, prompt, msg.skills), images, imageRefs })
       }
       else if (msg.type === 'cancel') live.send({ type: 'cancel' })
       else if (msg.type === 'permission') live.send({ type: 'permission', id: msg.id, optionId: msg.optionId })

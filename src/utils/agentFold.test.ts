@@ -68,6 +68,17 @@ test('잇따른 사용자 발화는 한 말풍선에 줄바꿈으로 갈려 들�
   assert.deepEqual(items.map((i) => (i.kind === 'user' ? i.text : i.kind)), ['첫 질문\n둘째 질문', 'turn'])
 })
 
+test('첨부 사진은 바로 앞 사용자 메시지에 붙어 별도 버블로 그릴 수 있다', () => {
+  const items = foldEvents([
+    user('이 사진을 봐줘'),
+    { type: 'user_images', images: [{ path: '.mew/files/photo.png', mimeType: 'image/png' }] },
+    { type: 'turn_start' },
+  ])
+  const message = items[0]
+  assert.ok(message.kind === 'user')
+  assert.deepEqual(message.images, [{ path: '.mew/files/photo.png', mimeType: 'image/png' }])
+})
+
 test('턴은 서버가 새긴 걸린 시간을 durationMs로 들고, 없으면 null이다', () => {
   const items = foldEvents([user('안녕'), { type: 'turn_start', startedAt: 1000 }, { type: 'turn_end', stopReason: 'end_turn', durationMs: 3632000 }])
   const turn = items[1]

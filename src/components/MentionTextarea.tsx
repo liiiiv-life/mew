@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type CSSProperties } from 'react'
-import { fuzzyScore } from '@mew/editor'
+import { useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties } from 'react'
+import { prefixMatch } from '@mew/editor'
 import { useOverlayDismiss } from '@mew/ui'
 
 // '@' 멘션이 되는 textarea — 채팅 입력(파일 멘션)과 댓글 작성(사용자 멘션)이 같이 쓴다.
@@ -53,6 +53,8 @@ export function MentionTextarea({
   submitHint,
   triggers,
   submitShortcut = 'enter',
+  onFilesDropped,
+  onImagesPasted,
 }: {
   value: string
   onChange: (value: string) => void
@@ -69,12 +71,17 @@ export function MentionTextarea({
   /** 기본 '@' 외에 '/' 같은 트리거를 추가한다. */
   triggers?: TriggerOptionSet[]
   submitShortcut?: 'enter' | 'mod-enter'
+  /** 운영체제 파일을 입력칸에 놓았을 때 받는다. 텍스트 드래그는 기존처럼 무시한다. */
+  onFilesDropped?: (files: File[]) => void
+  /** 이미지 클립보드를 붙여넣었을 때 받는다. 일반 텍스트 붙여넣기는 그대로 textarea가 처리한다. */
+  onImagesPasted?: (files: File[]) => void
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const optionSets = useMemo<TriggerOptionSet[]>(() => [{ trigger: '@', options }, ...(triggers ?? [])], [options, triggers])
   const triggerChars = useMemo(() => optionSets.map((set) => set.trigger), [optionSets])
   const [mention, setMention] = useState<{ trigger: string; from: number; query: string } | null>(null)
   const [selected, setSelected] = useState(0)
+  const [fileDragOver, setFileDragOver] = useState(false)
 
   const closeMention = () => {
     setMention(null)
@@ -85,31 +92,39 @@ export function MentionTextarea({
     if (!mention) return []
     const activeOptions = optionSets.find((set) => set.trigger === mention.trigger)?.options ?? []
     return activeOptions
-      .map((option) => ({ option, score: fuzzyScore(mention.query, option.label) }))
-      .filter((x): x is { option: MentionOption; score: number } => x.score !== null)
+      .filter((option) => prefixMatch(mention.query, option.label))
       .sort((a, b) => {
-        // 유형 우선순위를 준 목록(@의 하위 프로젝트·폴더·파일 등)은 검색 점수보다
-        // 우선순위와 가나다순이 결과의 기준이다. 기존 채팅·댓글 멘션은 계속 fuzzy 정렬한다.
-        if (a.option.sortPriority !== undefined || b.option.sortPriority !== undefined) {
-          const aPriority = a.option.sortPriority ?? Number.MAX_SAFE_INTEGER
-          const bPriority = b.option.sortPriority ?? Number.MAX_SAFE_INTEGER
+        // 인라인 자동완성은 입력으로 시작하는 후보만 보인다. 유형 우선순위가 있는 @ 목록은
+        // 프로젝트 → 폴더 → 파일을 유지하고, 같은 종류 및 일반 멘션은 가나다순으로 정렬한다.
+        if (a.sortPriority !== undefined || b.sortPriority !== undefined) {
+          const aPriority = a.sortPriority ?? Number.MAX_SAFE_INTEGER
+          const bPriority = b.sortPriority ?? Number.MAX_SAFE_INTEGER
           if (aPriority !== bPriority) return aPriority - bPriority
-          return a.option.label.localeCompare(b.option.label, 'ko-KR')
         }
-        const query = mention.query.toLowerCase()
-        const aStarts = a.option.label.toLowerCase().startsWith(query)
-        const bStarts = b.option.label.toLowerCase().startsWith(query)
-        if (aStarts !== bStarts) return aStarts ? -1 : 1
-        return b.score - a.score
+        return a.label.localeCompare(b.label, 'ko-KR') || a.id.localeCompare(b.id, 'ko-KR')
       })
       .slice(0, 8)
-      .map((x) => x.option)
   }, [mention, optionSets])
 
   const syncMention = (next: string, caret: number) => {
     const found = mentionQueryAt(next, caret, triggerChars)
     setMention(found)
     if (!found) setSelected(0)
+  }
+
+  const pasteImages = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    if (!onImagesPasted) return
+    const direct = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
+    // 브라우저에 따라 clipboardData.files가 비어 있어 item에서만 꺼낼 수 있다.
+    const files = direct.length > 0
+      ? direct
+      : Array.from(event.clipboardData.items)
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null)
+    if (files.length === 0) return
+    event.preventDefault()
+    onImagesPasted(files)
   }
 
   // 인라인 검색 메뉴도 모달·패널과 같은 Esc 스택에 올라간다. 기본 capture 단계가 툴팁을
@@ -131,7 +146,28 @@ export function MentionTextarea({
   }
 
   return (
-    <div className="relative min-w-0 flex-1">
+    <div
+      className={`relative min-w-0 flex-1 ${fileDragOver ? 'rounded-lg ring-1 ring-accent' : ''}`}
+      onDragEnter={(event) => {
+        if (!onFilesDropped || !event.dataTransfer.types.includes('Files')) return
+        setFileDragOver(true)
+      }}
+      onDragOver={(event) => {
+        if (!onFilesDropped || !event.dataTransfer.types.includes('Files')) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node)) return
+        setFileDragOver(false)
+      }}
+      onDrop={(event) => {
+        if (!onFilesDropped || !event.dataTransfer.files.length) return
+        event.preventDefault()
+        setFileDragOver(false)
+        onFilesDropped(Array.from(event.dataTransfer.files))
+      }}
+    >
       {mention && shown.length > 0 && (
         <div className="absolute bottom-full left-0 z-40 mb-1 max-h-56 min-w-[14rem] max-w-full overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl">
           {shown.map((option, i) => (
@@ -165,6 +201,7 @@ export function MentionTextarea({
           syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
         }}
         onClick={(e) => syncMention(value, (e.target as HTMLTextAreaElement).selectionStart ?? 0)}
+        onPaste={pasteImages}
         onKeyDown={(e) => {
           if (mention && shown.length > 0) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

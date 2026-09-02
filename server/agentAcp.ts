@@ -18,6 +18,7 @@ import {
   ndJsonStream,
   PROTOCOL_VERSION,
   type AgentCapabilities,
+  type ContentBlock,
   type AuthMethod,
   type AuthenticateRequest,
   type Client,
@@ -91,7 +92,13 @@ type QueuedPrompt = {
   text: string
   /** ACP 런타임에 실제로 보낼 프롬프트 */
   promptText: string
+  images: AgentImage[]
+  imageRefs: AgentImageRef[]
 }
+
+type AgentImage = { data: string; mimeType: string }
+/** 대화 전사에는 바이트 대신 프로젝트 안의 업로드 경로만 남긴다. */
+export type AgentImageRef = { path: string; mimeType: string }
 
 /** 큐 안의 세션 경계. 뒤의 프롬프트는 새 ACP 세션에 전달한다. */
 type QueuedClear = { kind: 'clear'; text: '/clear' }
@@ -125,6 +132,7 @@ type AuthMethodInternal = AgentAuthMethod & { terminal?: TerminalAuthSpec }
 
 export type AgentEvent =
   | { type: 'update'; update: SessionNotification['update'] }
+  | { type: 'user_images'; images: AgentImageRef[] }
   | { type: 'permission'; id: string; toolCall: ToolCallUpdate; options: PermissionOption[] }
   | { type: 'permission_done'; id: string }
   | { type: 'turn_start'; startedAt: number }
@@ -684,14 +692,14 @@ export class AgentSession {
   }
 
   /** 진행 중인 턴이 있으면 줄을 세운다 — 끝나는 대로 순서대로 이어 돈다 */
-  prompt(text: string, promptText = text) {
+  prompt(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = []) {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
     if (this.busy) {
-      this.#queue.push({ kind: 'prompt', text, promptText })
+      this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs })
       this.#broadcast(this.#metaEvent())
       return
     }
-    this.#run(text, promptText)
+    this.#run(text, promptText, images, imageRefs)
   }
 
   /** `/clear`는 앞선 작업을 끊지 않고, 이 큐 지점에서 새 ACP 세션을 연다. */
@@ -738,7 +746,7 @@ export class AgentSession {
     if (!next) return
     // `/clear`는 다른 작업으로 편집할 수 없는 세션 경계다.
     if (this.#queue[index].kind !== 'prompt') return
-    this.#queue[index] = { kind: 'prompt', text: next, promptText }
+    this.#queue[index] = { kind: 'prompt', text: next, promptText, images: this.#queue[index].images, imageRefs: this.#queue[index].imageRefs }
     this.#broadcast(this.#metaEvent())
   }
 
@@ -752,7 +760,7 @@ export class AgentSession {
     this.#broadcast(this.#metaEvent())
   }
 
-  #run(text: string, promptText = text) {
+  #run(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = []) {
     if (this.#idleTimer) {
       clearTimeout(this.#idleTimer)
       this.#idleTimer = null
@@ -762,11 +770,17 @@ export class AgentSession {
     const turnStartedAt = Date.now()
     // 사용자 발화도 이벤트 버퍼에 남긴다 — 재접속한 창이 대화를 그대로 복원하려면 여기 있어야 한다
     this.#emit({ type: 'update', update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text } } })
+    // 사진은 파일 참조 텍스트와 분리해 전사에 남긴다. 그래야 대화 복원 뒤에도 사진 버블을 다시 그릴 수 있다.
+    if (imageRefs.length > 0) this.#emit({ type: 'user_images', images: imageRefs })
     // startedAt·durationMs는 이벤트에 새겨 나간다 — 되받은 히스토리에서도 턴 걸린 시간을 그대로 본다
     this.#emit({ type: 'turn_start', startedAt: turnStartedAt })
     this.#broadcast(this.#metaEvent())
+    const prompt: ContentBlock[] = [
+      { type: 'text', text: promptText },
+      ...images.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType })),
+    ]
     this.#conn
-      .prompt({ sessionId: this.#sessionId, prompt: [{ type: 'text', text: promptText }] })
+      .prompt({ sessionId: this.#sessionId, prompt })
       .then((res) => this.#emit({ type: 'turn_end', stopReason: res.stopReason, durationMs: Date.now() - turnStartedAt }))
       .catch((err: unknown) => {
         if (isAuthRequiredError(err) && this.#authMethods.length > 0) {
@@ -800,7 +814,7 @@ export class AgentSession {
       void this.#clearSession().then(() => this.#drainQueue())
       return
     }
-    this.#run(next.text, next.promptText)
+    this.#run(next.text, next.promptText, next.images, next.imageRefs)
   }
 
   /** 연결과 프로세스는 유지한 채 ACP session/new로 새 대화를 연다. */

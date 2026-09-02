@@ -27,3 +27,25 @@ test('@ 멘션은 하위 프로젝트, 폴더, 파일 순으로 가나다 정렬
     ['나.md', '[[mew:나.md]]'],
   ])
 })
+
+test('@ 멘션은 마지막 포커스 파일을 하위 프로젝트보다 먼저 보인다', () => {
+  const options = agentInputMentionOptions(
+    [
+      { name: 'med-app', path: 'med-app', type: 'dir', project: true },
+      { name: 'notes.md', path: 'notes.md', type: 'file' },
+    ],
+    'mew',
+    [{ name: 'alaaaarm' }],
+    'notes.md',
+  )
+
+  const shown = options
+    .sort((a, b) => (a.sortPriority! - b.sortPriority!) || a.label.localeCompare(b.label, 'ko-KR'))
+    .map((option) => [option.label, option.hint, option.insert])
+
+  assert.deepEqual(shown, [
+    ['notes.md', 'notes.md', '[[mew:notes.md]]'],
+    ['alaaaarm', '하위 프로젝트', '#alaaaarm'],
+    ['med-app', '하위 프로젝트', '[[mew:med-app]]'],
+  ])
+})
