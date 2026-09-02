@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { sessionIdOf, withAutoLabel, withRename, withSessionId } from './agentTabs.ts'
+import { sessionIdOf, withAutoLabel, withProjectLabel, withRename, withSessionId } from './agentTabs.ts'
 
 test('사람이 붙인 이름은 대화에서 뽑은 이름이 덮지 않는다', () => {
   const tabs = [{ id: 'a', label: '새 대화' }]
@@ -20,6 +20,20 @@ test('선택한 런타임 이름은 빈 대화 이벤트로 바뀌지 않는다'
   const tabs = [{ id: 'a', label: 'Codex', renamed: true }]
   assert.equal(withAutoLabel(tabs, 'a', ''), tabs)
   assert.equal(withAutoLabel(tabs, 'a', '첫 질문'), tabs)
+})
+
+test('프로젝트 멘션은 탭 이름에 대괄호와 중복 번호를 붙인다', () => {
+  const tabs = [
+    { id: 'a', label: 'Codex', renamed: true },
+    { id: 'b', label: '[med-app]', renamed: true },
+    { id: 'c', label: '[med-app] (1)', renamed: true },
+  ]
+
+  assert.deepEqual(withProjectLabel(tabs, 'a', 'med-app'), [
+    { id: 'a', label: '[med-app] (2)', renamed: true },
+    tabs[1],
+    tabs[2],
+  ])
 })
 
 test('탭은 런타임·cwd별 마지막 ACP 세션을 기억한다', () => {

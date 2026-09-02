@@ -60,3 +60,15 @@ export function withRename(tabs: AgentTab[], id: string, label: string): AgentTa
   if (!next) return tabs
   return tabs.map((t) => (t.id === id ? { ...t, label: next, renamed: true } : t))
 }
+
+/** 프로젝트 멘션은 탭의 작업 대상을 드러내는 이름으로 쓴다. 같은 이름은 뒤에 번호를 붙인다. */
+export function withProjectLabel(tabs: AgentTab[], id: string, project: string): AgentTab[] {
+  const tab = tabs.find((item) => item.id === id)
+  const name = project.trim()
+  if (!tab || !name) return tabs
+  const base = `[${name}]`
+  const used = new Set(tabs.filter((item) => item.id !== id).map((item) => item.label))
+  let label = base
+  for (let number = 1; used.has(label); number += 1) label = `${base} (${number})`
+  return tabs.map((item) => (item.id === id ? { ...item, label, renamed: true } : item))
+}

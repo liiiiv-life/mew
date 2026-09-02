@@ -52,12 +52,12 @@ import {
   saveAgentTabs,
   scheduleAgentPrompt,
   uploadInto,
-  type AgentScheduledPrompt,
   type AgentRuntimeDefault,
   type AgentRuntimeStatus,
   type AgentCwdSuggestions,
   type ProjectInfo,
   type AgentSet,
+  type AgentScheduledPrompt,
   type SkillSummary,
 } from '../api/client'
 import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './MentionTextarea'
@@ -68,7 +68,7 @@ import { AgentSetPicker } from './AgentSetPicker'
 import { ScrollDateTimePicker } from './ScrollDateTimePicker'
 import { cachedAgentRuntimes, refreshAgentRuntimes, subscribeAgentRuntimes, updateAgentRuntimesCache } from '../utils/agentPickerCache'
 import { useGridDrag } from '../hooks/useGridDrag'
-import { sessionIdOf, withAutoLabel, withRename, withSessionId, type AgentTab } from '../utils/agentTabs'
+import { sessionIdOf, withAutoLabel, withProjectLabel, withRename, withSessionId, type AgentTab } from '../utils/agentTabs'
 import { agentTabStorageKey } from '../utils/agentTabStorage'
 import {
   foldEvents,
@@ -290,7 +290,7 @@ const STATUS_LABEL: Record<string, string> = {
 /** 버블 상태 — 색은 한 곳에서만 정한다(턴 버블·작업 묶음·작업 한 줄이 같은 뜻이면 같은 색이어야 한다) */
 type BubbleState = 'running' | 'failed' | 'cancelled' | 'done'
 const BUBBLE_DOT: Record<BubbleState, string> = {
-  running: 'bg-accent',
+  running: 'bg-blue-500',
   failed: 'bg-danger',
   cancelled: 'bg-ink-muted',
   done: 'bg-success',
@@ -1044,14 +1044,9 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
               const status = statuses?.find((item) => item.id === rt.id)
               const busy = installing === rt.id || status?.installing === true
               return (
-                <div key={rt.id} className="flex items-center gap-2 px-2.5 py-1.5">
+                <div key={rt.id} className="flex items-center gap-2 px-2.5 py-1">
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center text-ink-secondary"><rt.Glyph /></span>
-                  <div className="min-w-0 flex-1">
-                    <div className={`truncate text-xs ${rt.id === current ? 'text-ink' : 'text-ink-secondary'}`}>{rt.label}</div>
-                    <div className="text-[10px] leading-tight text-ink-muted">
-                      {rt.id === current ? '사용 중' : status?.installed ? '설치됨' : '설치 필요'}
-                    </div>
-                  </div>
+                  <div className={`min-w-0 flex-1 truncate text-xs ${rt.id === current ? 'text-ink' : 'text-ink-secondary'}`}>{rt.label}</div>
                   <RuntimeSettingsButton runtimeId={rt.id} label={rt.label} />
                   {rt.id !== current &&
                     (status?.installed ? (
@@ -1141,12 +1136,9 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
               const status = statuses.find((item) => item.id === runtime.id)
               const busy = installing === runtime.id || status?.installing === true
               return (
-                <div key={runtime.id} className="flex min-h-14 flex-wrap items-center gap-3 rounded-md border border-edge bg-surface px-3 py-2">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center text-ink-secondary"><runtime.Glyph /></span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-ink">{runtime.label}</div>
-                    <div className="text-xs text-ink-muted">{status?.installed ? '설치됨' : '설치 필요'}</div>
-                  </div>
+                <div key={runtime.id} className="flex min-h-10 flex-wrap items-center gap-2 rounded-md border border-edge bg-surface px-2.5 py-1.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center text-ink-secondary"><runtime.Glyph /></span>
+                  <div className="min-w-0 flex-1 truncate text-sm text-ink">{runtime.label}</div>
                   <RuntimeSettingsButton runtimeId={runtime.id} label={runtime.label} />
                   {status?.installed ? (
                     <button
@@ -1384,6 +1376,10 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
     setTabs((prev) => withRename(prev, id, label))
   }, [])
 
+  const labelProjectTab = useCallback((id: string, name: string) => {
+    setTabs((prev) => withProjectLabel(prev, id, name))
+  }, [])
+
   const reorderTabs = useCallback((from: number, to: number) => {
     setTabs((prev) => {
       const next = [...prev]
@@ -1454,6 +1450,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
               focusedFilePath={focusedFilePath}
               infos={infos}
               onLabel={setTabLabel}
+              onProjectMention={labelProjectTab}
               onInfo={setTabInfo}
               onForgetSession={forgetTabSession}
               onRegister={register}
@@ -1483,6 +1480,7 @@ function AgentSessionView({
   focusedFilePath,
   infos,
   onLabel,
+  onProjectMention,
   onInfo,
   onForgetSession,
   onRegister,
@@ -1503,6 +1501,7 @@ function AgentSessionView({
   focusedFilePath: string | null
   infos: Record<string, TabInfo>
   onLabel: (tabId: string, label: string) => void
+  onProjectMention: (tabId: string, name: string) => void
   onInfo: (tabId: string, runtime: string, cwd: string, info: TabInfo) => void
   onForgetSession: (tabId: string, runtime: string, cwd: string) => void
   onRegister: (tabId: string, send: ((payload: Record<string, unknown>) => void) | null) => void
@@ -1940,12 +1939,26 @@ function AgentSessionView({
   const [editingQueued, setEditingQueued] = useState<{ index: number; text: string; original: string } | null>(null)
   const [errorDetail, setErrorDetail] = useState<{ title: string; detail: string } | null>(null)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [scheduled, setScheduled] = useState<AgentScheduledPrompt[]>([])
   const commitQueuedEdit = (edit: { index: number; text: string; original: string }) => {
     const text = edit.text.trim()
     if (text && text !== edit.original)
       send({ type: 'edit_queued', index: edit.index, text, expect: edit.original, skills: selectedSkillNames(text, skills) })
     setEditingQueued(null)
   }
+
+  const refreshScheduled = useCallback(async () => {
+    const { jobs } = await fetchAgentScheduledPrompts({ runtime, tab: tabId, cwd })
+    setScheduled(jobs)
+  }, [cwd, runtime, tabId])
+
+  useEffect(() => {
+    let disposed = false
+    void fetchAgentScheduledPrompts({ runtime, tab: tabId, cwd })
+      .then(({ jobs }) => { if (!disposed) setScheduled(jobs) })
+      .catch(() => { if (!disposed) setScheduled([]) })
+    return () => { disposed = true }
+  }, [cwd, runtime, tabId])
 
   /**
    * 이 탭의 세션을 끝내고 새로 잡는다 — 탭은 그대로 두고 대화만 새 탭처럼 비운다.
@@ -2012,8 +2025,9 @@ function AgentSessionView({
     }
   }, [attaching, connected, project])
 
-  const schedule = async (text: string, at: string) => {
-    const message = text.trim()
+  const schedule = async (at: string) => {
+    const refs = attachments.map((attachment) => `[[${project}:${attachment.relPath}]]`)
+    const message = [draft.trim(), ...refs].filter(Boolean).join('\n')
     if (!message || !meta?.sessionId) throw new Error('세션을 준비한 뒤 예약하세요')
     await scheduleAgentPrompt({
       runtime,
@@ -2024,6 +2038,18 @@ function AgentSessionView({
       skills: selectedSkillNames(message, skills),
       at: new Date(at).toISOString(),
     })
+    setDraft('')
+    setAttachments([])
+    await refreshScheduled()
+  }
+
+  const cancelScheduled = async (id: string) => {
+    try {
+      await cancelAgentScheduledPrompt(id, { runtime, tab: tabId, cwd })
+      await refreshScheduled()
+    } catch (err) {
+      setErrorDetail({ title: '예약 메시지 취소 실패', detail: err instanceof Error ? err.message : String(err) })
+    }
   }
 
   const pending = items.some((item) => item.kind === 'turn' && item.children.some((c) => c.kind === 'permission' && !c.answered))
@@ -2537,9 +2563,8 @@ function AgentSessionView({
 
       {errorDetail && <AgentErrorDialog title={errorDetail.title} detail={errorDetail.detail} onClose={() => setErrorDetail(null)} />}
 
-      {queued.length > 0 && (
+      {(queued.length > 0 || scheduled.length > 0) && (
         <div className="space-y-1 border-t border-edge bg-surface px-3 py-1.5 text-xs">
-          <div className="text-ink-muted">대기 {queued.length}건 — 지금 턴이 끝나면 순서대로 보냅니다</div>
           {queued.map((text, index) => {
             const isClearBoundary = text === '/clear'
             const drag = queueDrag.drag
@@ -2617,7 +2642,34 @@ function AgentSessionView({
               </div>
             )
           })}
+          {scheduled.length > 0 && (
+            <div className={queued.length > 0 ? 'border-t border-edge pt-1.5' : ''} aria-label="예약된 메시지">
+              {scheduled.map((job) => (
+                <div key={job.id} className="flex items-center gap-2 py-0.5">
+                  <span className="min-w-0 flex-1 truncate text-ink-secondary" title={job.text}>{job.text}</span>
+                  <time className="shrink-0 text-ink-muted" dateTime={job.at}>{formatTime(job.at)}</time>
+                  <button
+                    type="button"
+                    onClick={() => { void cancelScheduled(job.id) }}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink"
+                    aria-label="예약 메시지 취소"
+                    title="예약 메시지 취소"
+                  >
+                    <XGlyph small />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+      )}
+
+      {scheduleOpen && meta?.sessionId && (
+        <SchedulePromptInline
+          onClose={() => setScheduleOpen(false)}
+          onConfirm={schedule}
+          disabled={!draft.trim() && attachments.length === 0}
+        />
       )}
 
       {/* 키보드를 쥐어도 되는 유일한 자리 — 전송 버튼을 눌러도 이어 쓰도록 포커스를 뺏지 않는다 */}
@@ -2693,6 +2745,9 @@ function AgentSessionView({
             submitShortcut="mod-enter"
             onFilesDropped={(files) => { void attachFiles(files) }}
             onImagesPasted={(files) => { void attachFiles(files) }}
+            onOptionSelect={(option) => {
+              if (option.id.startsWith('project:')) onProjectMention(tabId, option.label)
+            }}
           />
         </div>
         <div className="flex shrink-0 flex-col justify-end gap-1">
@@ -2739,15 +2794,6 @@ function AgentSessionView({
           </button>
         </div>
       </div>
-      {scheduleOpen && meta?.sessionId && (
-        <SchedulePromptDialog
-          runtime={runtime}
-          tabId={tabId}
-          cwd={cwd}
-          onClose={() => setScheduleOpen(false)}
-          onConfirm={schedule}
-        />
-      )}
       {previewAttachment && (
         <AgentImagePreviewDialog
           src={rawUrl(previewAttachment.relPath, project)}
@@ -3023,45 +3069,25 @@ function localDateTimeValue(date: Date) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
-function SchedulePromptDialog({
-  runtime,
-  tabId,
-  cwd,
+function SchedulePromptInline({
   onClose,
   onConfirm,
+  disabled,
 }: {
-  runtime: string
-  tabId: string
-  cwd: string
   onClose: () => void
-  onConfirm: (text: string, at: string) => Promise<void>
+  onConfirm: (at: string) => Promise<void>
+  disabled: boolean
 }) {
   const [at, setAt] = useState(() => localDateTimeValue(new Date(Date.now() + 60 * 60_000)))
-  const [text, setText] = useState('')
-  const [jobs, setJobs] = useState<AgentScheduledPrompt[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [cancellingId, setCancellingId] = useState<string | null>(null)
-  useOverlayDismiss(onClose)
-
-  const scope = useMemo(() => ({ runtime, tab: tabId, cwd }), [cwd, runtime, tabId])
-  const refresh = useCallback(() => {
-    setError(null)
-    return fetchAgentScheduledPrompts(scope)
-      .then(({ jobs }) => setJobs(jobs))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-  }, [scope])
-  useEffect(() => { void refresh() }, [refresh])
-
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!text.trim()) return setError('예약할 메시지를 입력하세요')
     if (new Date(at).getTime() <= Date.now()) return setError('미래의 날짜와 시간을 고르세요')
     setSaving(true); setError(null)
     try {
-      await onConfirm(text, at)
-      setText('')
-      await refresh()
+      await onConfirm(at)
+      onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -3069,83 +3095,17 @@ function SchedulePromptDialog({
     }
   }
 
-  const cancel = async (id: string) => {
-    setCancellingId(id); setError(null)
-    try {
-      await cancelAgentScheduledPrompt(id, scope)
-      await refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setCancellingId(null)
-    }
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" onMouseDown={onClose}>
-      <form
-        role="dialog"
-        aria-modal="true"
-        aria-label="예약 전송"
-        onSubmit={submit}
-        onMouseDown={(event) => event.stopPropagation()}
-        className="w-full max-w-sm rounded-lg border border-edge-bright bg-surface p-4 shadow-xl"
-      >
-        <div className="mb-3 flex items-center gap-2">
-          <ClockGlyph />
-          <h2 className="flex-1 text-sm font-medium text-ink">예약 메시지</h2>
-          <button type="button" onClick={onClose} className="rounded p-1 text-ink-muted hover:bg-surface-raised hover:text-ink" aria-label="닫기"><XGlyph /></button>
-        </div>
-        <label className="block text-xs text-ink-secondary">
-          메시지
-          <textarea
-            autoFocus
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            rows={4}
-            placeholder="예약할 메시지"
-            className="mt-1.5 block w-full resize-y rounded border border-edge-strong bg-surface-deep px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
-          />
-        </label>
-        <div className="mt-3 text-xs text-ink-secondary">
-          <div>보낼 날짜와 시간</div>
+    <form aria-label="예약 전송" onSubmit={submit} className="flex shrink-0 items-end gap-2 border-t border-edge bg-surface px-3 py-1.5">
+      <div className="min-w-0 flex-1">
           <ScrollDateTimePicker value={at} onChange={setAt} />
-        </div>
-        <p className="mt-2 text-xs text-ink-muted">그때 작업 중이면 이 메시지는 해당 세션의 대기열 끝에 들어갑니다.</p>
-        {error && <p className="mt-2 text-xs text-danger">{error}</p>}
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-raised">취소</button>
-          <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-ink-on-accent disabled:opacity-50">{saving ? '등록 중…' : '예약'}</button>
-        </div>
-        <section className="mt-5 border-t border-edge pt-3" aria-label="예약된 메시지">
-          <div className="mb-2 text-xs font-medium text-ink">이 탭의 예약 메시지</div>
-          {jobs === null ? (
-            <p className="text-xs text-ink-muted">불러오는 중…</p>
-          ) : jobs.length === 0 ? (
-            <p className="text-xs text-ink-muted">예약된 메시지가 없습니다.</p>
-          ) : (
-            <ul className="max-h-44 space-y-1 overflow-y-auto">
-              {jobs.map((job) => (
-                <li key={job.id} className="flex items-start gap-2 rounded bg-surface-deep px-2 py-1.5 text-xs">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-ink" title={job.text}>{job.text}</div>
-                    <div className="mt-0.5 text-ink-muted">{new Date(job.at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void cancel(job.id)}
-                    disabled={cancellingId !== null}
-                    className="shrink-0 rounded px-1.5 py-0.5 text-ink-muted hover:bg-surface-raised hover:text-ink disabled:opacity-40"
-                  >
-                    {cancellingId === job.id ? '취소 중…' : '취소'}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </form>
-    </div>
+        {error && <p className="mt-0.5 text-[11px] text-danger">{error}</p>}
+      </div>
+      <div className="flex shrink-0 gap-1 pb-0.5">
+        <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-raised">취소</button>
+        <button type="submit" disabled={saving || disabled} className="rounded bg-accent px-2 py-1 text-xs font-medium text-ink-on-accent disabled:opacity-50">{saving ? '등록 중…' : '예약'}</button>
+      </div>
+    </form>
   )
 }
 

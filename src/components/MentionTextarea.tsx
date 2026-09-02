@@ -55,6 +55,7 @@ export function MentionTextarea({
   submitShortcut = 'enter',
   onFilesDropped,
   onImagesPasted,
+  onOptionSelect,
 }: {
   value: string
   onChange: (value: string) => void
@@ -75,6 +76,8 @@ export function MentionTextarea({
   onFilesDropped?: (files: File[]) => void
   /** 이미지 클립보드를 붙여넣었을 때 받는다. 일반 텍스트 붙여넣기는 그대로 textarea가 처리한다. */
   onImagesPasted?: (files: File[]) => void
+  /** 선택된 멘션의 부수 동작(예: 에이전트 탭 이름)을 호출한다. */
+  onOptionSelect?: (option: MentionOption) => void
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const optionSets = useMemo<TriggerOptionSet[]>(() => [{ trigger: '@', options }, ...(triggers ?? [])], [options, triggers])
@@ -137,6 +140,7 @@ export function MentionTextarea({
     const caret = el?.selectionStart ?? value.length
     const next = value.slice(0, mention.from) + option.insert + ' ' + value.slice(caret)
     onChange(next)
+    onOptionSelect?.(option)
     closeMention()
     requestAnimationFrame(() => {
       const pos = mention.from + option.insert.length + 1

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
 
 type DateTimeParts = { date: Date; hour: number; minute: number }
 
@@ -18,180 +18,155 @@ function formatLocalDateTime(date: Date, hour: number, minute: number) {
   return `${year}-${month}-${day}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
-function dateNumber(date: Date) {
-  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
+function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)) }
+function pad(value: number, length = 2) { return String(value).padStart(length, '0') }
+function daysInMonth(year: number, month: number) { return new Date(year, month + 1, 0).getDate() }
+function shiftedDate(date: Date, amount: number) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + amount)
+  return next
 }
 
-function fromDateNumber(value: string) {
-  if (!/^\d{8}$/.test(value)) return null
-  const year = Number(value.slice(0, 4))
-  const month = Number(value.slice(4, 6))
-  const day = Number(value.slice(6, 8))
-  const date = new Date(year, month - 1, day)
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null
-}
-
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
-}
-
-function sameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value))
-}
-
-type PickerColumnProps = {
+type PickerFieldProps = {
   label: string
   value: string
-  options: { value: string; label: string }[]
-  onPick: (value: string) => void
+  previous: string
+  next: string
   onInput: (value: string) => void
   onBlur: () => void
-  min?: number
-  max?: number
   inputLabel: string
+  onAdjust: (amount: number) => void
 }
 
-function PickerColumn({ label, value, options, onPick, onInput, onBlur, min, max, inputLabel }: PickerColumnProps) {
-  const selectedRef = useRef<HTMLButtonElement | null>(null)
-
-  useEffect(() => {
-    selectedRef.current?.scrollIntoView({ block: 'center' })
-  }, [value])
-
-  const move = (direction: -1 | 1) => {
-    const index = options.findIndex((option) => option.value === value)
-    const next = options[clamp(index < 0 ? 0 : index + direction, 0, options.length - 1)]
-    if (next) onPick(next.value)
+/** 가운데 숫자는 직접 고치고, 같은 자리에서 휠·세로 드래그로 바로 돌린다. */
+function PickerField({ label, value, previous, next, onInput, onBlur, inputLabel, onAdjust }: PickerFieldProps) {
+  const drag = useRef<{ pointerId: number; startY: number; amount: number } | null>(null)
+  const wheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY === 0) return
+    event.preventDefault()
+    onAdjust(event.deltaY > 0 ? 1 : -1)
+  }
+  const pointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    drag.current = { pointerId: event.pointerId, startY: event.clientY, amount: 0 }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  const pointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const active = drag.current
+    if (!active || active.pointerId !== event.pointerId) return
+    const amount = Math.trunc((active.startY - event.clientY) / 22)
+    const delta = amount - active.amount
+    if (delta === 0) return
+    event.preventDefault()
+    active.amount = amount
+    onAdjust(delta)
+  }
+  const pointerEnd = (event: PointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return
+    drag.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
 
   return (
     <div className="min-w-0 flex-1">
-      <label className="block text-center text-[11px] text-ink-muted" htmlFor={`schedule-${label}`}>{label}</label>
-      <input
-        id={`schedule-${label}`}
-        type="number"
-        inputMode="numeric"
-        value={value}
-        min={min}
-        max={max}
-        aria-label={inputLabel}
-        onChange={(event) => onInput(event.target.value)}
-        onBlur={onBlur}
-        className="mt-1 block w-full rounded border border-edge-strong bg-surface-deep px-1 py-1 text-center text-sm text-ink outline-none focus:border-accent"
-      />
+      <label className="block text-center text-[10px] text-ink-muted" htmlFor={`schedule-${label}`}>{label}</label>
       <div
-        className="mt-1 h-28 snap-y snap-mandatory overflow-y-auto rounded border border-edge bg-surface-deep py-10 [scrollbar-width:thin]"
-        aria-label={`${label} 목록`}
-        onWheel={(event) => {
-          event.preventDefault()
-          move(event.deltaY > 0 ? 1 : -1)
-        }}
+        className="mt-0.5 h-[3.75rem] touch-none select-none overflow-hidden text-center tabular-nums"
+        onWheel={wheel}
+        onPointerDown={pointerDown}
+        onPointerMove={pointerMove}
+        onPointerUp={pointerEnd}
+        onPointerCancel={pointerEnd}
       >
-        {options.map((option) => {
-          const selected = option.value === value
-          return (
-            <button
-              key={option.value}
-              ref={selected ? selectedRef : null}
-              type="button"
-              onClick={() => onPick(option.value)}
-              className={`block h-7 w-full snap-center text-center text-sm tabular-nums ${selected ? 'bg-accent text-ink-on-accent' : 'text-ink-secondary hover:bg-surface-raised'}`}
-              aria-pressed={selected}
-            >
-              {option.label}
-            </button>
-          )
-        })}
+        <div className="h-[1.125rem] text-[11px] leading-[1.125rem] text-ink-muted/60">{previous}</div>
+        <input
+          id={`schedule-${label}`}
+          type="text"
+          inputMode="numeric"
+          value={value}
+          aria-label={inputLabel}
+          onChange={(event) => onInput(event.target.value)}
+          onBlur={onBlur}
+          className="block h-6 w-full bg-transparent px-1 text-center text-sm font-medium leading-6 text-ink outline-none"
+        />
+        <div className="h-[1.125rem] text-[11px] leading-[1.125rem] text-ink-muted/60">{next}</div>
       </div>
     </div>
   )
 }
 
-/** 날짜·시·분을 세로 휠 또는 숫자 입력으로 고르는 로컬 시간 선택기. */
+/** 연·월·일·시·분 숫자를 직접 입력하거나, 그 숫자 위에서 휠·드래그로 바꾸는 로컬 시간 선택기. */
 export function ScrollDateTimePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const parsed = useMemo(() => parseLocalDateTime(value) ?? parseLocalDateTime(formatLocalDateTime(new Date(), 0, 0))!, [value])
-  const [dateInput, setDateInput] = useState(() => dateNumber(parsed.date))
-  const [hourInput, setHourInput] = useState(() => String(parsed.hour).padStart(2, '0'))
-  const [minuteInput, setMinuteInput] = useState(() => String(parsed.minute).padStart(2, '0'))
+  const [yearInput, setYearInput] = useState(() => pad(parsed.date.getFullYear(), 4))
+  const [monthInput, setMonthInput] = useState(() => pad(parsed.date.getMonth() + 1))
+  const [dayInput, setDayInput] = useState(() => pad(parsed.date.getDate()))
+  const [hourInput, setHourInput] = useState(() => pad(parsed.hour))
+  const [minuteInput, setMinuteInput] = useState(() => pad(parsed.minute))
 
   useEffect(() => {
-    setDateInput(dateNumber(parsed.date))
-    setHourInput(String(parsed.hour).padStart(2, '0'))
-    setMinuteInput(String(parsed.minute).padStart(2, '0'))
-  }, [parsed]) // 외부 기본값/선택 변경만 입력 필드에 반영한다.
-
-  const dates = useMemo(() => {
-    const first = startOfDay(new Date())
-    return Array.from({ length: 366 }, (_, index) => {
-      const date = new Date(first)
-      date.setDate(first.getDate() + index)
-      return { value: dateNumber(date), label: `${date.getMonth() + 1}/${date.getDate()}` }
-    })
-  }, [])
-  const hours = useMemo(() => Array.from({ length: 24 }, (_, value) => ({ value: String(value).padStart(2, '0'), label: String(value).padStart(2, '0') })), [])
-  const minutes = useMemo(() => Array.from({ length: 60 }, (_, value) => ({ value: String(value).padStart(2, '0'), label: String(value).padStart(2, '0') })), [])
+    setYearInput(pad(parsed.date.getFullYear(), 4))
+    setMonthInput(pad(parsed.date.getMonth() + 1))
+    setDayInput(pad(parsed.date.getDate()))
+    setHourInput(pad(parsed.hour))
+    setMinuteInput(pad(parsed.minute))
+  }, [parsed])
 
   const setParts = (date = parsed.date, hour = parsed.hour, minute = parsed.minute) => onChange(formatLocalDateTime(date, hour, minute))
-  const pickDate = (next: string) => {
-    const date = fromDateNumber(next)
-    if (date) setParts(date)
+  const setCalendar = (year: number, month: number, day: number) => {
+    const normalized = new Date(year, month, 1)
+    const date = new Date(normalized.getFullYear(), normalized.getMonth(), clamp(day, 1, daysInMonth(normalized.getFullYear(), normalized.getMonth())))
+    setParts(date)
   }
-  const pickHour = (next: string) => setParts(undefined, Number(next))
-  const pickMinute = (next: string) => setParts(undefined, undefined, Number(next))
+  const moveDate = (amount: number) => setParts(shiftedDate(parsed.date, amount))
+  const moveMonth = (amount: number) => setCalendar(parsed.date.getFullYear(), parsed.date.getMonth() + amount, parsed.date.getDate())
+  const moveHour = (amount: number) => setParts(undefined, (parsed.hour + amount + 240) % 24)
+  const moveMinute = (amount: number) => setParts(undefined, undefined, (parsed.minute + amount + 600) % 60)
+  const previousDay = shiftedDate(parsed.date, -1)
+  const nextDay = shiftedDate(parsed.date, 1)
+  const previousMonth = new Date(parsed.date.getFullYear(), parsed.date.getMonth() - 1, 1)
+  const nextMonth = new Date(parsed.date.getFullYear(), parsed.date.getMonth() + 1, 1)
 
   return (
-    <div className="mt-1.5 grid grid-cols-3 gap-2" aria-label="보낼 날짜와 시간">
-      <PickerColumn
-        label="날짜"
-        value={dateInput}
-        options={dates}
-        min={Number(dates[0].value)}
-        max={Number(dates[dates.length - 1].value)}
-        inputLabel="날짜 (YYYYMMDD)"
-        onPick={pickDate}
-        onInput={setDateInput}
+    <div className="mt-1.5 grid grid-cols-5 gap-1" aria-label="보낼 날짜와 시간">
+      <PickerField label="년" value={yearInput} previous={pad(parsed.date.getFullYear() - 1, 4)} next={pad(parsed.date.getFullYear() + 1, 4)} inputLabel="년"
+        onInput={setYearInput} onAdjust={(amount) => setCalendar(parsed.date.getFullYear() + amount, parsed.date.getMonth(), parsed.date.getDate())}
         onBlur={() => {
-          const date = fromDateNumber(dateInput)
-          if (date && !sameDay(date, parsed.date)) setParts(date)
-          else setDateInput(dateNumber(parsed.date))
+          const year = Number(yearInput)
+          if (/^\d{4}$/.test(yearInput) && year >= 1 && year <= 9999) setCalendar(year, parsed.date.getMonth(), parsed.date.getDate())
+          else setYearInput(pad(parsed.date.getFullYear(), 4))
         }}
       />
-      <PickerColumn
-        label="시"
-        value={hourInput}
-        options={hours}
-        min={0}
-        max={23}
-        inputLabel="시간"
-        onPick={pickHour}
-        onInput={setHourInput}
+      <PickerField label="월" value={monthInput} previous={pad(previousMonth.getMonth() + 1)} next={pad(nextMonth.getMonth() + 1)} inputLabel="월"
+        onInput={setMonthInput} onAdjust={moveMonth}
+        onBlur={() => {
+          const month = Number(monthInput)
+          if (Number.isInteger(month) && month >= 1 && month <= 12) setCalendar(parsed.date.getFullYear(), month - 1, parsed.date.getDate())
+          else setMonthInput(pad(parsed.date.getMonth() + 1))
+        }}
+      />
+      <PickerField label="일" value={dayInput} previous={pad(previousDay.getDate())} next={pad(nextDay.getDate())} inputLabel="일"
+        onInput={setDayInput} onAdjust={moveDate}
+        onBlur={() => {
+          const day = Number(dayInput)
+          if (Number.isInteger(day) && day >= 1 && day <= daysInMonth(parsed.date.getFullYear(), parsed.date.getMonth())) setCalendar(parsed.date.getFullYear(), parsed.date.getMonth(), day)
+          else setDayInput(pad(parsed.date.getDate()))
+        }}
+      />
+      <PickerField label="시" value={hourInput} previous={pad((parsed.hour + 23) % 24)} next={pad((parsed.hour + 1) % 24)} inputLabel="시간"
+        onInput={setHourInput} onAdjust={moveHour}
         onBlur={() => {
           const hour = Number(hourInput)
-          if (Number.isInteger(hour) && hour >= 0 && hour <= 23) {
-            setHourInput(String(hour).padStart(2, '0'))
-            if (hour !== parsed.hour) setParts(undefined, hour)
-          } else setHourInput(String(parsed.hour).padStart(2, '0'))
+          if (Number.isInteger(hour) && hour >= 0 && hour <= 23) setParts(undefined, hour)
+          else setHourInput(pad(parsed.hour))
         }}
       />
-      <PickerColumn
-        label="분"
-        value={minuteInput}
-        options={minutes}
-        min={0}
-        max={59}
-        inputLabel="분"
-        onPick={pickMinute}
-        onInput={setMinuteInput}
+      <PickerField label="분" value={minuteInput} previous={pad((parsed.minute + 59) % 60)} next={pad((parsed.minute + 1) % 60)} inputLabel="분"
+        onInput={setMinuteInput} onAdjust={moveMinute}
         onBlur={() => {
           const minute = Number(minuteInput)
-          if (Number.isInteger(minute) && minute >= 0 && minute <= 59) {
-            setMinuteInput(String(minute).padStart(2, '0'))
-            if (minute !== parsed.minute) setParts(undefined, undefined, minute)
-          } else setMinuteInput(String(parsed.minute).padStart(2, '0'))
+          if (Number.isInteger(minute) && minute >= 0 && minute <= 59) setParts(undefined, undefined, minute)
+          else setMinuteInput(pad(parsed.minute))
         }}
       />
     </div>
