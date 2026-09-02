@@ -70,6 +70,7 @@ import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
 import { useI18n } from './i18n'
 import { applyFontPreferences, loadFontPreferences, normalizeFontPreferences, saveFontPreferences } from './utils/fontPreferences'
 import { loadAccentColor, applyAccentColor, saveAccentColor, type AccentColor } from './utils/accentColor'
+import { loadMewcatSkin, saveMewcatSkin, type MewcatSkinSelection } from './utils/mewcatSkin'
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 
@@ -345,6 +346,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [fontPreferences, setFontPreferences] = useState(loadFontPreferences)
   const [accentColor, setAccentColor] = useState<AccentColor>(loadAccentColor)
+  const [mewcatSkin, setMewcatSkin] = useState<MewcatSkinSelection>(loadMewcatSkin)
   const [searchFocusSignal] = useState(0)
   // 사이드바 뷰: 탐색기 · 파일명 검색(Ctrl+P) · 파일 내용 검색(Ctrl+Shift+F) · 명령
   const [sidebarView, setSidebarView] = useState<'files' | 'search' | 'content-search' | 'commands'>('files')
@@ -939,6 +941,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     applyAccentColor(accentColor)
     saveAccentColor(accentColor)
   }, [accentColor])
+
+  useEffect(() => {
+    saveMewcatSkin(mewcatSkin)
+  }, [mewcatSkin])
 
   useEffect(() => {
     if (!workspaceUiLoaded || chromeStateLoadedRootRef.current === rootProjectPath) return
@@ -2094,7 +2100,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         )}
       </div>
 
-      <Mewcat />
+      <Mewcat skin={mewcatSkin} />
 
       <FabMenu
         onFullscreen={toggleFullscreen}
@@ -2116,9 +2122,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           theme={theme}
           fontPreferences={fontPreferences}
           accentColor={accentColor}
+          mewcatSkin={mewcatSkin}
           onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
           onFontPreferencesChange={setFontPreferences}
           onAccentColorChange={setAccentColor}
+          onMewcatSkinChange={setMewcatSkin}
           onClose={() => {
             setFontPreferences((fonts) => normalizeFontPreferences(fonts))
             setSettingsOpen(false)

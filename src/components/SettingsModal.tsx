@@ -5,10 +5,11 @@ import { DEFAULT_SHORTCUTS, formatKeyCombo, resetAllBindings, resetBinding, setB
 import { LOCALES, LOCALE_NAMES, localizeShortcut, useI18n, type Locale, type TranslationKey } from '../i18n'
 import { DEFAULT_FONT_PREFERENCES, type FontPreferences } from '../utils/fontPreferences'
 import { DEFAULT_ACCENT_COLOR, type AccentColor } from '../utils/accentColor'
+import { MEWCAT_SKINS, type MewcatSkinSelection } from '../utils/mewcatSkin'
 
 const PASSWORD_MIN_LENGTH = 10
 
-type Section = 'account' | 'appearance' | 'shortcuts' | 'ignore'
+type Section = 'account' | 'appearance' | 'mewcat' | 'shortcuts' | 'ignore'
 type Theme = 'dark' | 'light'
 
 interface SettingsModalProps {
@@ -21,9 +22,11 @@ interface SettingsModalProps {
   theme: Theme
   fontPreferences: FontPreferences
   accentColor: AccentColor
+  mewcatSkin: MewcatSkinSelection
   onToggleTheme: () => void
   onFontPreferencesChange: (fonts: FontPreferences) => void
   onAccentColorChange: (colors: AccentColor) => void
+  onMewcatSkinChange: (skin: MewcatSkinSelection) => void
   onClose: () => void
   onLoggedOut: () => void
   onProfileChanged: (profile: { displayName: string; avatarDataUrl: string | null }) => void
@@ -32,12 +35,13 @@ interface SettingsModalProps {
 const SECTION_LABEL: Record<Section, TranslationKey> = {
   account: 'settings.account',
   appearance: 'settings.appearance',
+  mewcat: 'settings.mewcat',
   shortcuts: 'settings.shortcuts',
   ignore: 'settings.ignoreList',
 }
 
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
-export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, accentColor, onToggleTheme, onFontPreferencesChange, onAccentColorChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
+export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, accentColor, mewcatSkin, onToggleTheme, onFontPreferencesChange, onAccentColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
   const [section, setSection] = useState<Section>(email ? 'account' : 'appearance')
   // Mobile begins with the category list; the selected panel is a second screen.
   const [mobileSection, setMobileSection] = useState<Section | null>(null)
@@ -49,6 +53,7 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
   const sections: Section[] = [
     ...(email ? (['account'] as Section[]) : []),
     'appearance',
+    'mewcat',
     'shortcuts',
     ...(canEditIgnore ? (['ignore'] as Section[]) : []),
   ]
@@ -122,6 +127,7 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
                 onAccentColorChange={onAccentColorChange}
               />
             )}
+            {section === 'mewcat' && <MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} />}
             {section === 'shortcuts' && <ShortcutsPanel />}
             {section === 'ignore' && <IgnorePanel />}
           </div>
@@ -129,6 +135,41 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
       </div>
     </div>
   )
+}
+
+function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: (skin: MewcatSkinSelection) => void }) {
+  const { t } = useI18n()
+  const options = [{ id: null, name: t('settings.mewcatNone') }, ...MEWCAT_SKINS]
+  return (
+    <div>
+      <div className="text-sm font-medium text-ink">{t('settings.mewcat')}</div>
+      <p className="mt-1 text-xs text-ink-muted">{t('settings.mewcatDescription')}</p>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        {options.map((option) => {
+          const selected = skin === option.id
+          return (
+            <button
+              key={option.id ?? 'none'}
+              type="button"
+              onClick={() => onChange(option.id)}
+              className={`overflow-hidden rounded-lg border p-3 text-left transition-colors ${selected ? 'border-accent bg-accent/10 text-ink' : 'border-edge-strong bg-surface hover:bg-surface-raised text-ink-secondary'}`}
+              aria-pressed={selected}
+            >
+              <span className="flex h-24 items-center justify-center rounded bg-surface-deep">
+                {option.id === 'oreo' ? <MewcatRunFrame /> : <span className="text-sm text-ink-muted">—</span>}
+              </span>
+              <span className="mt-2 block text-sm font-medium">{option.name}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/** 기본 Oreo Cat 스킨의 RUN 네 프레임 중 가운데(두 번째) 프레임. */
+function MewcatRunFrame() {
+  return <span aria-label="기본 스킨 RUN 미리보기" className="block h-12 w-[49.5px]" style={{ backgroundImage: "url('/oreo-cat-aichan-owo.png')", backgroundPosition: '-49.5px -432px', backgroundSize: '693px 1149px', backgroundRepeat: 'no-repeat' }} />
 }
 
 // ── 계정: 비밀번호 변경 + 로그아웃 ───────────────────────────────────────────

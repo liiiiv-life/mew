@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import type { MewcatSkin } from '../utils/mewcatSkin'
 
 // 원본 33×32 프레임을 화면에서 1.5배로 표시한다.
 const CAT_WIDTH = 49.5
@@ -19,7 +20,12 @@ function floor() {
 function nextActivity(): Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'> { const options: Array<Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'>> = ['idle', 'walk', 'run']; return options[Math.floor(Math.random() * options.length)] }
 
 /** 화면 맨 아래를 자유롭게 오가며, 눌러서 잠깐 놀아 줄 수 있는 Mew의 고양이. */
-export function Mewcat() {
+export function Mewcat({ skin }: { skin: MewcatSkin | null }) {
+  if (skin === null) return null
+  return <MewcatActive />
+}
+
+function MewcatActive() {
   const catRef = useRef<HTMLDivElement>(null)
   const spriteRef = useRef<HTMLSpanElement>(null)
   useEffect(() => {
