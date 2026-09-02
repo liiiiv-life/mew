@@ -53,7 +53,12 @@ export type AgentAuthState = {
 export type AgentAuthUrl = { id: string; url: string; message: string }
 
 export type SessionUpdate =
-  | { sessionUpdate: 'user_message_chunk' | 'agent_message_chunk' | 'agent_thought_chunk'; content: { type: string; text?: string } }
+  | {
+    sessionUpdate: 'user_message_chunk' | 'agent_message_chunk' | 'agent_thought_chunk'
+    /** 저장 전사를 다시 흘리는 ACP 런타임이 주는 원래 메시지 경계. */
+    messageId?: string
+    content: { type: string; text?: string }
+  }
   | { sessionUpdate: 'tool_call'; toolCallId: string; title: string; status?: string; kind?: string }
   | { sessionUpdate: 'tool_call_update'; toolCallId: string; title?: string | null; status?: string | null }
   // 그리지 않는 나머지(plan·available_commands_update·current_mode_update 등)는 아래 분기에서 그냥 흘려보낸다
@@ -86,13 +91,13 @@ export type AgentEvent =
 export type ToolEntry = { id: string; title: string; status: string }
 
 export type InnerItem =
-  | { key: string; kind: 'agent' | 'thought'; text: string }
+  | { key: string; kind: 'agent' | 'thought'; text: string; messageId?: string }
   | { key: string; kind: 'tool_group'; tools: ToolEntry[] }
   | { key: string; kind: 'permission'; id: string; title: string; options: PermissionOption[]; answered: boolean }
   | { key: string; kind: 'error'; text: string }
 
 export type Item =
-  | { key: string; kind: 'user'; text: string; images: { path: string; mimeType: string }[] }
+  | { key: string; kind: 'user'; text: string; images: { path: string; mimeType: string }[]; messageId?: string }
   // stopReason — 턴이 어떻게 끝났나('end_turn'·'cancelled'·'error' 등, ACP 값 그대로).
   // 되받은 히스토리에는 turn_end가 없어 null로 남는다
   // startedAt(에포크 ms)·durationMs — 작업 버블의 걸린 시간 표시용. 옛 히스토리는 null이다
@@ -221,9 +226,12 @@ export function foldEvents(events: AgentEvent[]): Item[] {
     if (update.sessionUpdate === 'user_message_chunk') {
       const text = update.content?.type === 'text' ? (update.content.text ?? '') : `[${update.content?.type}]`
       const last = items.at(-1)
-      // 청크 스트림에는 메시지 경계가 없어 연속 사용자 발화는 한 말풍선이 된다 — 줄바꿈으로만 가른다
-      if (last && last.kind === 'user') last.text += (last.text ? '\n' : '') + text
-      else items.push({ key: `m${i}`, kind: 'user', text, images: [] })
+      // 실시간 스트림에는 메시지 경계가 없다. 반면 저장 전사를 복원하는 런타임은 messageId를 준다.
+      // ID가 바뀌면 연속 프레임이어도 반드시 새 질문 버블로 나눈다.
+      const sameMessage = last?.kind === 'user'
+        && (!update.messageId || update.messageId === last.messageId)
+      if (last && last.kind === 'user' && sameMessage) last.text += (last.text ? '\n' : '') + text
+      else items.push({ key: `m${i}`, kind: 'user', text, images: [], ...(update.messageId ? { messageId: update.messageId } : {}) })
       // 새 질문은 앞 턴을 닫는다 — 불러온 히스토리에는 turn_end가 없어서 여기서 끊지 않으면
       // 지난 대화 전체가 턴 하나로 뭉친다
       const open = currentTurn()
@@ -236,8 +244,11 @@ export function foldEvents(events: AgentEvent[]): Item[] {
       const text = update.content?.type === 'text' ? (update.content.text ?? '') : `[${update.content?.type}]`
       const turn = ensureTurn(i)
       const last = turn.children.at(-1)
-      if (last && last.kind === kind) last.text += text
-      else turn.children.push({ key: `m${i}`, kind, text })
+      // 같은 답변의 청크만 합친다. 히스토리 속 별도 답변을 마지막 답변 버블에 합치지 않는다.
+      const sameMessage = last?.kind === kind
+        && (!update.messageId || update.messageId === last.messageId)
+      if (last && last.kind === kind && sameMessage) last.text += text
+      else turn.children.push({ key: `m${i}`, kind, text, ...(update.messageId ? { messageId: update.messageId } : {}) })
       continue
     }
     if (update.sessionUpdate === 'tool_call') {

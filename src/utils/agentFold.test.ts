@@ -68,6 +68,21 @@ test('잇따른 사용자 발화는 한 말풍선에 줄바꿈으로 갈려 들�
   assert.deepEqual(items.map((i) => (i.kind === 'user' ? i.text : i.kind)), ['첫 질문\n둘째 질문', 'turn'])
 })
 
+test('복원 전사의 서로 다른 messageId는 연속 청크여도 각각의 버블로 남는다', () => {
+  const history: AgentEvent[] = [
+    { type: 'update', update: { sessionUpdate: 'user_message_chunk', messageId: 'user-1', content: { type: 'text', text: '첫 질문' } } },
+    { type: 'update', update: { sessionUpdate: 'agent_message_chunk', messageId: 'assistant-1', content: { type: 'text', text: '첫 답' } } },
+    { type: 'update', update: { sessionUpdate: 'user_message_chunk', messageId: 'user-2', content: { type: 'text', text: '둘째 질문' } } },
+    { type: 'update', update: { sessionUpdate: 'agent_message_chunk', messageId: 'assistant-2', content: { type: 'text', text: '둘째 답' } } },
+  ]
+  const items = foldEvents(history)
+  assert.deepEqual(items.map((item) => item.kind), ['user', 'turn', 'user', 'turn'])
+  assert.equal(items[0]?.kind === 'user' && items[0].text, '첫 질문')
+  assert.equal(items[1]?.kind === 'turn' && items[1].children[0]?.kind === 'agent' && items[1].children[0].text, '첫 답')
+  assert.equal(items[2]?.kind === 'user' && items[2].text, '둘째 질문')
+  assert.equal(items[3]?.kind === 'turn' && items[3].children[0]?.kind === 'agent' && items[3].children[0].text, '둘째 답')
+})
+
 test('첨부 사진은 바로 앞 사용자 메시지에 붙어 별도 버블로 그릴 수 있다', () => {
   const items = foldEvents([
     user('이 사진을 봐줘'),
