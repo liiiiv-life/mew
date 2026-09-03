@@ -41,10 +41,30 @@ type PickerFieldProps = {
 /** 가운데 숫자는 직접 고치고, 같은 자리에서 휠·세로 드래그로 바로 돌린다. */
 function PickerField({ label, value, previous, next, onInput, onBlur, inputLabel, onAdjust }: PickerFieldProps) {
   const drag = useRef<{ pointerId: number; startY: number; amount: number } | null>(null)
+  const frame = useRef<number | null>(null)
+  const [reelOffset, setReelOffset] = useState(0)
+  const [spinning, setSpinning] = useState(false)
+  const adjust = (amount: number) => {
+    if (!amount) return
+    // 다음 값의 위·아래 칸을 먼저 가운데에 놓고 제자리로 미끄러뜨린다.
+    // 드래그 중에도 실제 릴을 돌리는 듯 이전 숫자가 자연스럽게 지나간다.
+    if (frame.current !== null) cancelAnimationFrame(frame.current)
+    // 시작 위치는 즉시 옮기고, 다음 프레임에서만 transition을 켠다.
+    // 그렇지 않으면 숫자가 먼저 반대쪽으로 튀었다가 돌아온다.
+    setSpinning(false)
+    setReelOffset(amount > 0 ? 18 : -18)
+    onAdjust(amount)
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null
+      setSpinning(true)
+      setReelOffset(0)
+    })
+  }
+  useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current) }, [])
   const wheel = (event: WheelEvent<HTMLDivElement>) => {
     if (event.deltaY === 0) return
     event.preventDefault()
-    onAdjust(event.deltaY > 0 ? 1 : -1)
+    adjust(event.deltaY > 0 ? 1 : -1)
   }
   const pointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return
@@ -59,7 +79,7 @@ function PickerField({ label, value, previous, next, onInput, onBlur, inputLabel
     if (delta === 0) return
     event.preventDefault()
     active.amount = amount
-    onAdjust(delta)
+    adjust(delta)
   }
   const pointerEnd = (event: PointerEvent<HTMLDivElement>) => {
     if (drag.current?.pointerId !== event.pointerId) return
@@ -78,18 +98,24 @@ function PickerField({ label, value, previous, next, onInput, onBlur, inputLabel
         onPointerUp={pointerEnd}
         onPointerCancel={pointerEnd}
       >
-        <div className="h-[1.125rem] text-[11px] leading-[1.125rem] text-ink-muted/60">{previous}</div>
-        <input
-          id={`schedule-${label}`}
-          type="text"
-          inputMode="numeric"
-          value={value}
-          aria-label={inputLabel}
-          onChange={(event) => onInput(event.target.value)}
-          onBlur={onBlur}
-          className="block h-6 w-full bg-transparent px-1 text-center text-sm font-medium leading-6 text-ink outline-none"
-        />
-        <div className="h-[1.125rem] text-[11px] leading-[1.125rem] text-ink-muted/60">{next}</div>
+        <div
+          className="will-change-transform"
+          style={{ transform: `translateY(${reelOffset}px)`, transition: spinning ? 'transform 150ms cubic-bezier(0.22, 1, 0.36, 1)' : undefined }}
+          onTransitionEnd={() => setSpinning(false)}
+        >
+          <div className="h-[1.125rem] text-[11px] leading-[1.125rem] text-ink-muted/60">{previous}</div>
+          <input
+            id={`schedule-${label}`}
+            type="text"
+            inputMode="numeric"
+            value={value}
+            aria-label={inputLabel}
+            onChange={(event) => onInput(event.target.value)}
+            onBlur={onBlur}
+            className="block h-6 w-full bg-transparent px-1 text-center text-sm font-medium leading-6 text-ink outline-none"
+          />
+          <div className="h-[1.125rem] text-[11px] leading-[1.125rem] text-ink-muted/60">{next}</div>
+        </div>
       </div>
     </div>
   )

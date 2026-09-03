@@ -67,7 +67,7 @@ export function AgentSetPicker({ onSelect }: { onSelect: (set: AgentSet) => void
           >
             + 새 에이전트셋 추가
           </button>
-          {sets.length === 0 && <p className="text-center text-xs text-ink-muted">셋을 만들면 런타임·모델·역할을 한 번에 골라 새 탭을 열 수 있습니다.</p>}
+          {sets.length === 0 && <div className="py-2 text-center text-xs text-ink-muted">에이전트셋 없음</div>}
         </div>
       )}
       {error && <div className="mt-3 whitespace-pre-wrap text-xs text-danger">{error}</div>}

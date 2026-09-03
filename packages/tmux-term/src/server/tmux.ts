@@ -141,7 +141,9 @@ export function createTmuxManager({ cwd }: TmuxManagerOptions): TmuxManager {
       assertValidName(name)
       // 음수 시작 줄로 최근 출력만 제한한다. 호출자는 이 값을 사용자 입력으로 받지 않는다.
       const start = -Math.min(Math.max(lines, 1), 500)
-      return run(['capture-pane', '-p', '-t', name, '-S', String(start)])
+      // -J로 pane 폭 때문에 접힌 만 줄을 다시 이어 붙인다. 긴 OAuth URL이 중간에서
+      // 끊기면 호스트 allowlist 검사를 통과해도 브라우저가 열 수 없다.
+      return run(['capture-pane', '-p', '-J', '-t', name, '-S', String(start)])
     },
   }
   return manager

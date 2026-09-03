@@ -20,6 +20,8 @@ export function SessionTerminalPopup({
   idleNote,
   statusNote,
   statusTone = 'muted',
+  browserLoginUrl,
+  onOpenBrowserLogin,
   onRun,
   onClose,
   onChanged,
@@ -36,6 +38,9 @@ export function SessionTerminalPopup({
   /** 실행 중인 전용 작업의 외부 상태 — 로그인 exit code처럼 터미널 연결과 별개인 값 */
   statusNote?: string
   statusTone?: 'muted' | 'success' | 'danger'
+  /** device-code 흐름에서 등록표가 검증한 사용자 브라우저 인증 URL */
+  browserLoginUrl?: string | null
+  onOpenBrowserLogin?: () => void
   /** 실행(=세션 생성) 요청 */
   onRun: () => Promise<unknown>
   /** 세션은 유지한 채 팝업만 닫는다 */
@@ -136,6 +141,15 @@ export function SessionTerminalPopup({
                 : statusTone === 'success' ? 'text-success' : 'text-ink-muted'
             }`}>{statusNote}</span>
           ) : null}
+          {browserLoginUrl && onOpenBrowserLogin && (
+            <button
+              type="button"
+              onClick={onOpenBrowserLogin}
+              className="shrink-0 rounded bg-accent px-3 py-1 text-sm text-ink-on-accent"
+            >
+              브라우저에서 계속 ↗
+            </button>
+          )}
           <button
             type="button"
             onClick={kill}

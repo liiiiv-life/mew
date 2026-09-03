@@ -204,6 +204,14 @@ export function cancelAgentScheduledPrompt(id: string, scope: AgentScheduledProm
   return fetch(`/api/agent/scheduled-prompts/${encodeURIComponent(id)}?${params.toString()}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
+export function updateAgentScheduledPrompt(id: string, input: AgentScheduledPromptScope & { text: string; skills: string[]; at: string }): Promise<{ job: AgentScheduledPrompt }> {
+  return fetch(`/api/agent/scheduled-prompts/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then(json<{ job: AgentScheduledPrompt }>)
+}
+
 /** 응답의 icon은 서버가 실제로 저장한 값 — 직접 넣은 SVG는 정리를 거치므로 보낸 값과 다를 수 있다 */
 export function setProjectIcon(project: string, icon: string | null): Promise<{ ok: true; icon: string | null }> {
   return fetch('/api/project-icon', {
@@ -514,6 +522,9 @@ export type AgentAuthTerminalState = 'running' | 'succeeded' | 'failed' | 'inter
 export interface AgentAuthTerminalStatus {
   state: AgentAuthTerminalState
   exitCode: number | null
+  verificationUrl: string | null
+  verificationCode: string | null
+  errorMessage: string | null
 }
 
 export function runAgentAuthTerminal(runtime: string, tab: string, cwd: string, methodId: string): Promise<AgentAuthTerminal> {

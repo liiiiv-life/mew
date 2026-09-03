@@ -10,7 +10,6 @@ import {
   getProject,
   isArchivedPath,
   revertFileToCommit,
-  runMewAction,
   setProject,
   saveRootProjectTabs,
   saveWorkspaceUi,
@@ -41,6 +40,7 @@ import type { SearchMatch } from './api/client'
 import { TmuxTerminalPanel } from '@mew/tmux-term'
 import { AgentPanel } from './components/AgentPanel'
 import { BrowserPanel } from './components/BrowserPanel'
+import { FloatingBrowserWindow } from './components/FloatingBrowserWindow'
 import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
@@ -760,12 +760,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     min: 320,
     max: 1000,
     initial: 416,
-    invert: true,
-  })
-  const { width: browserWidth, startResize: startBrowserResize } = usePanelWidth('mew:browser-panel-width', {
-    min: 360,
-    max: 1200,
-    initial: 720,
     invert: true,
   })
   const { width: androidWidth, startResize: startAndroidResize } = usePanelWidth('mew:android-panel-width', {
@@ -1515,31 +1509,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             ),
           },
           {
-            id: 'mew-build',
-            label: 'mew 빌드',
-            onSelect: () => {
-              void runMewAction('build').then(() => showToast('mew 빌드를 tmux에서 시작했습니다')).catch((err) => showToast(err instanceof Error ? err.message : String(err)))
-            },
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m4 7 8-4 8 4-8 4zM4 12l8 4 8-4M4 17l8 4 8-4" />
-              </svg>
-            ),
-          },
-          {
-            id: 'mew-restart',
-            label: 'mew 재시작',
-            onSelect: () => {
-              void runMewAction('restart').then(() => showToast('mew 재시작을 tmux에서 시작했습니다')).catch((err) => showToast(err instanceof Error ? err.message : String(err)))
-            },
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 11a8 8 0 1 0 1 4" />
-                <path d="M20 4v7h-7" />
-              </svg>
-            ),
-          },
-          {
             id: 'terminal',
             label: t('header.terminal'),
             hint: 'Ctrl+`',
@@ -1598,14 +1567,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           {
             id: 'browser-popup',
             label: t('header.browserPopup'),
-            onSelect: () => {
-              const popup = window.open('/browser', 'mew-browser', 'popup=yes,width=1280,height=860,resizable=yes,scrollbars=no')
-              if (popup) {
-                popup.focus()
-                closeWorkspacePanel('browser')
-              }
-              else showToast('팝업이 차단되었습니다. 이 사이트의 팝업을 허용해 주세요.')
-            },
+            onSelect: () => toggleWorkspacePanel('browser'),
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 4h6v6" />
@@ -2084,23 +2046,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           </div>
         )}
 
-        {browserOpen && canUseTerminal && (
-          <div
-            onPointerDownCapture={() => bringWorkspacePanelToFront('browser')}
-            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:shrink-0 ${mobilePanelLayer('browser')}`}
-            style={{ width: isDesktop() ? browserWidth : undefined }}
-          >
-            <div
-              onPointerDown={startBrowserResize}
-              className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
-              aria-hidden="true"
-            />
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <BrowserPanel onClose={() => closeWorkspacePanel('browser')} />
-            </div>
-          </div>
-        )}
-
         {androidOpen && canUseTerminal && (
           <div
             onPointerDownCapture={() => bringWorkspacePanelToFront('android')}
@@ -2129,8 +2074,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         onToggleTerminal={() => { if (canUseTerminal) toggleWorkspacePanel('terminal') }}
         onOpenEditor={closeAllWorkspacePanels}
         onToggleSidebar={() => toggleWorkspacePanel('sidebar')}
-        onToggleChat={() => toggleWorkspacePanel('chat')}
+        onToggleBrowser={() => { if (canUseTerminal) toggleWorkspacePanel('browser') }}
       />
+
+      {browserOpen && canUseTerminal && (
+        <FloatingBrowserWindow onClose={() => closeWorkspacePanel('browser')}>
+          <BrowserPanel onClose={() => closeWorkspacePanel('browser')} />
+        </FloatingBrowserWindow>
+      )}
 
       {settingsOpen && (
         <SettingsModal

@@ -323,7 +323,7 @@ export function ChatPanel({
       >
         {messages.length === 0 && !error && (
           <div className="py-8 text-center text-xs text-ink-muted">
-            {active === GROUP_CHAT ? '아직 메시지가 없습니다' : `${nameOf(active)}님과 나눈 대화가 없습니다`} — @로 파일을 멘션할 수 있습니다
+            {active === GROUP_CHAT ? '아직 메시지가 없습니다' : `${nameOf(active)}님과 나눈 대화가 없습니다`}
           </div>
         )}
         {messages.map((message, i) => {

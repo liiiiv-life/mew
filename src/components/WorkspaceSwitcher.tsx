@@ -74,7 +74,7 @@ function ConfirmSwitch({ target, onBack, onClose }: { target: string; onBack: ()
           ) : projects === null ? (
             <div className="text-xs text-ink-muted">읽는 중…</div>
           ) : projects.length === 0 ? (
-            <div className="text-xs text-ink-muted">아직 프로젝트가 없습니다 — docs만 있는 빈 워크스페이스로 시작합니다</div>
+            <div className="text-xs text-ink-muted">아직 프로젝트가 없습니다</div>
           ) : (
             <>
               <div className="pb-1 text-xs text-ink-muted">프로젝트 {projects.length}개</div>

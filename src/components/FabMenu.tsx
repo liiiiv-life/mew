@@ -6,7 +6,6 @@ import {
   EditPencil,
   Expand,
   Folder,
-  MessageText,
   Terminal,
 } from 'iconoir-react'
 
@@ -42,10 +41,10 @@ function readPosition(): Offset {
 
 /** 빠른 방향 드래그는 버튼을 고르고, 350ms 정지 후 끌기는 화면 어디로든 위치 이동이다. */
 export function FabMenu({
-  onFullscreen, onToggleAgent, onNextWindowTab, onPrevWindowTab, onToggleTerminal, onOpenEditor, onToggleSidebar, onToggleChat,
+  onFullscreen, onToggleAgent, onNextWindowTab, onPrevWindowTab, onToggleTerminal, onOpenEditor, onToggleSidebar, onToggleBrowser,
 }: {
   onFullscreen: () => void; onToggleAgent: () => void; onNextWindowTab: () => void; onPrevWindowTab: () => void
-  onToggleTerminal: () => void; onOpenEditor: () => void; onToggleSidebar: () => void; onToggleChat: () => void
+  onToggleTerminal: () => void; onOpenEditor: () => void; onToggleSidebar: () => void; onToggleBrowser: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [pressed, setPressed] = useState(false)
@@ -65,7 +64,11 @@ export function FabMenu({
     { label: '오른쪽 탭', icon: icon(ArrowRight), run: onNextWindowTab }, { label: '터미널 창', icon: icon(Terminal), run: onToggleTerminal },
     { label: '에디터 화면', icon: icon(EditPencil), run: onOpenEditor }, { label: '사이드바', icon: icon(Folder), run: onToggleSidebar },
     { label: '왼쪽 탭', icon: icon(ArrowLeft), run: onPrevWindowTab },
-    { label: '채팅창', icon: icon(MessageText), run: onToggleChat },
+    {
+      label: '브라우저 팝업',
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 4h6v6" /><path d="m20 4-9 9" /><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" /></svg>,
+      run: onToggleBrowser,
+    },
   ]
   const clearLongPress = () => { if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current); longPressTimer.current = null }
   useEffect(() => () => { clearLongPress() }, [])
@@ -176,7 +179,9 @@ export function FabMenu({
     const dx = event.clientX - state.startX; const dy = event.clientY - state.startY
     const direction = directionFor(dx, dy)
     if (direction !== null) { run(direction); setOpen(false) }
-    else if (state.wasOpen && !wasMoveReady) setOpen(false)
+    // 방향을 고르려다 중심으로 돌아오면 선택을 취소하고 펼친 팔도 접는다.
+    // 처음 닫힌 상태에서 시작한 제스처도 포함해야 메뉴가 화면에 남지 않는다.
+    else if (state.directional || (state.wasOpen && !wasMoveReady)) setOpen(false)
     setDragDirection(null)
   }
   const cancelPointer = () => { pointerRef.current = null; clearLongPress(); setPressed(false); setMoveReady(false); setDragDirection(null) }
