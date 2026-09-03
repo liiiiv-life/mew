@@ -60,13 +60,14 @@ import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
 import { isRuntime, runtimeList } from './agentAcp.ts'
+import { isRuntimeLoginMethod, runtimeLoginSpec } from './agentRuntimes.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
-import { prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
+import { authFailureMessageFromOutput, browserLoginDetailsFromOutput, prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
 import { resolveWorkspaceLink } from './workspaceLinks.ts'
 import { installRuntime, logoutRuntime, runtimeStatuses, RuntimeInstallError, uninstallRuntime } from './agentRuntimeInstall.ts'
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import { AgentCwdError, resolveAgentCwd, suggestAgentCwds } from './agentCwd.ts'
-import { AgentScheduledPromptError, cancelAgentScheduledPrompt, listAgentScheduledPrompts, scheduleAgentPrompt } from './agentScheduledPrompts.ts'
+import { AgentScheduledPromptError, cancelAgentScheduledPrompt, listAgentScheduledPrompts, scheduleAgentPrompt, updateAgentScheduledPrompt } from './agentScheduledPrompts.ts'
 import { readAgentTabs, readRootProjects, readWorkspaceUi, writeAgentTabs, writeRootProjects, writeWorkspaceUi } from './userUiState.ts'
 import {
   AgentSettingError,
@@ -414,7 +415,7 @@ export function createApiApp() {
         res.status(400).json({ error: '주소가 없습니다' })
         return
       }
-      res.json({ url: browserProxyFrameUrl(target) })
+      res.json({ url: browserProxyFrameUrl(target, authOf(req).email ?? '') })
     } catch (err) {
       handleError(res, err)
     }
@@ -1847,13 +1848,18 @@ export function createApiApp() {
       }
       const spec = await terminalAuthFromHost(id, tab, cwd, methodId)
       const session = commandSessionName('agent-auth', `${id}:${tab}:${methodId}`)
-      const running = (await tmuxManager.list()).some((item) => item.name === session)
-      if (!running) {
+      let running = (await tmuxManager.list()).some((item) => item.name === session)
+      const previous = readAgentAuthTerminalStatus(id, tab, methodId, running)
+      if (!running || previous.state !== 'running') {
+        // 끝난 로그인 셸을 재사용하면 capture-pane에 남은 만료 URL을 새 로그인 주소로 오인한다.
+        // 실패·성공한 세션은 새로 만들어 상태 파일과 화면 출력을 함께 초기화한다.
+        if (running) await tmuxManager.kill(session)
         const command = prepareAgentAuthTerminal(id, tab, methodId, spec)
         await tmuxManager.runCommand(session, command, WORKSPACE_ROOT)
+        running = true
       }
-      const status = readAgentAuthTerminalStatus(id, tab, methodId, true)
-      res.json({ ok: true, session, label: spec.label, running: true, ...status })
+      const status = readAgentAuthTerminalStatus(id, tab, methodId, running)
+      res.json({ ok: true, session, label: spec.label, running, ...status })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       res.status(400).json({ error: message })
@@ -1871,7 +1877,14 @@ export function createApiApp() {
       }
       const session = commandSessionName('agent-auth', `${id}:${tab}:${methodId}`)
       const running = (await tmuxManager.list()).some((item) => item.name === session)
-      res.json(readAgentAuthTerminalStatus(id, tab, methodId, running))
+      const status = readAgentAuthTerminalStatus(id, tab, methodId, running)
+      const registered = isRuntimeLoginMethod(id, methodId) ? runtimeLoginSpec(id, methodId) : null
+      const output = running ? await tmuxManager.capture(session, 120) : ''
+      const details = registered?.surface === 'browser' && registered.verificationHosts
+        ? browserLoginDetailsFromOutput(output, registered.verificationHosts)
+        : { verificationUrl: null, verificationCode: null }
+      const errorMessage = status.state === 'failed' ? authFailureMessageFromOutput(output) : null
+      res.json({ ...status, ...details, errorMessage })
     } catch (err) {
       handleError(res, err)
     }
@@ -1990,6 +2003,16 @@ export function createApiApp() {
       const cancelled = cancelAgentScheduledPrompt({ id: req.params.id, runtime: req.query.runtime, tab: req.query.tab, cwd })
       if (!cancelled) return res.status(404).json({ error: '예약 메시지를 찾을 수 없습니다' })
       res.json({ ok: true })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.put('/agent/scheduled-prompts/:id', requireRole('owner', 'manager'), (req, res) => {
+    try {
+      const body = req.body as Record<string, unknown>
+      const cwd = resolveAgentCwd(typeof body.cwd === 'string' ? body.cwd : '', WORKSPACE_ROOT)
+      res.json({ job: updateAgentScheduledPrompt({ ...body, id: req.params.id, cwd }) })
     } catch (err) {
       handleError(res, err)
     }

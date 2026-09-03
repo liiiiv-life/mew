@@ -11,11 +11,21 @@ import { spawn } from 'node:child_process'
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-ws-'))
 process.env.MEW_WORKSPACE = workspace
 process.env.MEW_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-data-'))
-const { AgentSession, disposeSession, modelsByRuntime, probeModels, reapOrphanAgents, sessionFor } = await import(
+const { AgentSession, disposeSession, modelsByRuntime, probeModels, reapOrphanAgents, runtimeLoginAuthEvent, sessionFor } = await import(
   './agentAcp.ts'
 )
 const { writeAgentDefault } = await import('./agentDefaults.ts')
 type AgentEvent = import('./agentAcp.ts').AgentEvent
+
+test('인증 전에 ACP가 종료되어도 등록표의 모든 로그인 방법과 표면을 내보낸다', () => {
+  const event = runtimeLoginAuthEvent('kimi', 'not logged in')
+  assert.equal(event.type, 'auth')
+  if (event.type !== 'auth') return
+  assert.deepEqual(event.methods.map(({ id, surface }) => ({ id, surface })), [
+    { id: 'mew-runtime-login', surface: 'browser' },
+    { id: 'mew-kimi-global-login', surface: 'browser' },
+  ])
+})
 
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
 

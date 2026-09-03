@@ -19,7 +19,7 @@ import {
   type AgentImageRef,
   type TerminalAuthSpec,
 } from './agentAcp.ts'
-import { RUNTIME_LOGIN_METHOD_ID, runtimeLoginSpec } from './agentRuntimes.ts'
+import { isRuntimeLoginMethod, runtimeLoginSpec } from './agentRuntimes.ts'
 import { DATA_DIR } from './dataDir.ts'
 
 const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
@@ -189,8 +189,8 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
   // 유휴 종료 후 새 감독이 뜨는 첫 한 번만 탭의 마지막 ACP 세션을 이어받는다.
   let initialResumeSessionId = resumeSessionId
 
-  const fallbackTerminalSpec = (): TerminalAuthSpec => {
-    const { cmd, args, env, label } = runtimeLoginSpec(runtime)
+  const fallbackTerminalSpec = (methodId: string): TerminalAuthSpec => {
+    const { cmd, args, env, label } = runtimeLoginSpec(runtime, methodId)
     return { cmd, args, env, label }
   }
 
@@ -236,8 +236,8 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
       if (!session) {
         if (message.type === 'request') {
           if (message.request.type === 'terminal_auth'
-            && String(message.request.methodId) === RUNTIME_LOGIN_METHOD_ID) {
-            sendLine(socket, { type: 'response', id: String(message.id), ok: true, value: fallbackTerminalSpec() })
+            && isRuntimeLoginMethod(runtime, String(message.request.methodId))) {
+            sendLine(socket, { type: 'response', id: String(message.id), ok: true, value: fallbackTerminalSpec(String(message.request.methodId)) })
           } else if (sessionStarting && !startupError) {
             early.push({ peer, message })
           } else {

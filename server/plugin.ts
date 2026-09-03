@@ -2,7 +2,7 @@ import './config.ts' // 반드시 첫 줄 — 설정 파일을 다른 모듈보�
 import type { Plugin } from 'vite'
 import express from 'express'
 import { createApiApp } from './api.ts'
-import { createBrowserPortProxyMiddleware, createBrowserProxyApp } from './browserProxy.ts'
+import { attachBrowserProxyWebSocket, createBrowserPortProxyMiddleware, createBrowserProxyApp } from './browserProxy.ts'
 import { createAuthRouter, checkOrigin } from './authRoutes.ts'
 import { attachAuthContext, resolveAuth, authorizeTmux, authorizeCollab } from './reqAuth.ts'
 import { attachTmuxWebSocket } from '@mew/tmux-term/server'
@@ -12,7 +12,6 @@ import { attachCollabWebSocket } from './collab.ts'
 import { attachCollabAgents } from './collabAgent.ts'
 import { attachDbWebSocket } from './db/socket.ts'
 import { attachAgentWebSocket } from './agentWs.ts'
-import { attachBrowserWebSocket } from './browserWs.ts'
 import { reapOrphanAgents } from './agentAcp.ts'
 import { startAgentScheduledPrompts } from './agentScheduledPrompts.ts'
 import { watchDocsTree } from './watcher.ts'
@@ -25,9 +24,9 @@ export function docsApiPlugin(): Plugin {
       // checkOrigin·attachAuthContext는 Express Response 확장(res.status 등)에 의존하므로 connect
       // 미들웨어로 낱개 등록하지 않고 하나의 Express 앱으로 묶어 mount한다.
       const app = express()
-      app.use(checkOrigin)
       app.use(createBrowserPortProxyMiddleware())
       app.use('/__mew_browser', attachAuthContext, createBrowserProxyApp())
+      app.use(checkOrigin)
       app.use('/api/auth', createAuthRouter())
       app.use('/api', attachAuthContext, createApiApp())
       server.middlewares.use(app)
@@ -39,7 +38,7 @@ export function docsApiPlugin(): Plugin {
         attachCollabWebSocket(server.httpServer, { authorize: authorizeCollab })
         attachDbWebSocket(server.httpServer, { authorize: authorizeCollab })
         attachAgentWebSocket(server.httpServer, { authorize: authorizeTmux })
-        attachBrowserWebSocket(server.httpServer, {
+        attachBrowserProxyWebSocket(server.httpServer, {
           account: (req) => {
             const auth = resolveAuth(req)
             return !auth.mustChangePassword && (auth.role === 'owner' || auth.role === 'manager') ? auth.email : null

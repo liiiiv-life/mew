@@ -13,6 +13,65 @@ export type AgentAuthTerminalStatus = {
   exitCode: number | null
 }
 
+export type BrowserLoginDetails = {
+  verificationUrl: string | null
+  verificationCode: string | null
+}
+
+const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}(?:[@-_][0-?]*[ -/]*[@-~]|\\][^\\x07]*(?:\\x07|${String.fromCharCode(27)}\\\\))`, 'g')
+
+function plainOutput(output: string): string {
+  // tmux pane에 남은 ANSI 제어 문자가 URL·오류 파싱에 끼지 않게 한다.
+  return output.replaceAll(ANSI_ESCAPE, '')
+}
+
+/** 고정된 공급자 CLI 출력에서만, 등록표가 허용한 HTTPS 인증 주소와 일회용 코드를 넘긴다. */
+export function browserLoginDetailsFromOutput(output: string, verificationHosts: readonly string[]): BrowserLoginDetails {
+  const allowed = new Set(verificationHosts.map((host) => host.toLowerCase()))
+  const plain = plainOutput(output)
+  let verificationUrl: string | null = null
+  // tmux capture-pane는 폭에서 줄을 강제로 접는다. Kimi의 기기 인증 URL은 user_code가
+  // 고정된 `AAAA-BBBB` 꼴이라, 모든 공백을 잠시 뺀 뒤 이 완전한 주소까지만 안전하게 복원할 수 있다.
+  // global 로그인은 kimi.ai, mainland-cn 로그인은 kimi.com을 쓴다.
+  const compact = plain.replaceAll(/\s+/g, '')
+  const kimiDeviceUrl = compact.match(/https:\/\/(?:www\.)?kimi\.(?:ai|com)\/code\/authorize_device\?user_code=[A-Z0-9]{4}-[A-Z0-9]{4}/)?.[0]
+  if (kimiDeviceUrl) {
+    const url = new URL(kimiDeviceUrl)
+    if (allowed.has(url.hostname.toLowerCase())) verificationUrl = url.toString()
+  }
+  for (const raw of plain.match(/https:\/\/[^\s<>"']+/g) ?? []) {
+    if (verificationUrl) break
+    try {
+      const url = new URL(raw.replace(/[),.;\]]+$/, ''))
+      if (allowed.has(url.hostname.toLowerCase())) verificationUrl = url.toString()
+    } catch { /* 다음 URL 후보 */ }
+  }
+  let verificationCode: string | null = null
+  if (verificationUrl) {
+    try { verificationCode = new URL(verificationUrl).searchParams.get('user_code') } catch { /* 이미 URL 검증을 통과했다 */ }
+  }
+  verificationCode ??= plain.match(/(?:one[- ]time|device|verification|user)\s+code(?:\s+is)?\s*[:\n]\s*([A-Z0-9]{4}(?:-[A-Z0-9]{4})?)/i)?.[1]?.toUpperCase() ?? null
+  return { verificationUrl, verificationCode }
+}
+
+export function browserLoginUrlFromOutput(output: string, verificationHosts: readonly string[]): string | null {
+  return browserLoginDetailsFromOutput(output, verificationHosts).verificationUrl
+}
+
+/** 브라우저형 인증에서 터미널을 안 열어도 알 수 있게, 비밀값을 제거한 실패 한 줄만 돌려준다. */
+export function authFailureMessageFromOutput(output: string): string | null {
+  const lines = plainOutput(output).split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const candidate = lines.reverse().find((line) => /\b(?:error|failed|failure|denied|expired|cancelled|canceled|timed? out)\b/i.test(line))
+  if (!candidate) return null
+  return candidate
+    .replaceAll(/https:\/\/[^\s<>"']+/g, '[인증 URL]')
+    .replaceAll(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [비밀값]')
+    .replaceAll(/((?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|token|secret|code)\s*["']?\s*[:=]\s*["']?)[^\s,"';}]+/gi, '$1[비밀값]')
+    .replaceAll(/\b(?:sk|key|token|secret|code)[-_A-Za-z0-9]{8,}\b/gi, '[비밀값]')
+    .replaceAll(/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/g, '[일회용 코드]')
+    .slice(0, 300)
+}
+
 const STATUS_DIR = path.join(DATA_DIR, 'agent-auth')
 
 function shellArg(value: string): string {

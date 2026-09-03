@@ -39,6 +39,7 @@ import { readAgentDefault, type AgentRuntimeDefault } from './agentDefaults.ts'
 export {
   DEFAULT_RUNTIME,
   isRuntime,
+  isRuntimeLoginMethod,
   runtimeList,
   RUNTIMES,
   RUNTIME_LOGIN_METHOD_ID,
@@ -48,7 +49,7 @@ export {
 import {
   resolvedSpec,
   RUNTIMES,
-  RUNTIME_LOGIN_METHOD_ID,
+  isRuntimeLoginMethod,
   runtimeLoginSpec,
   type SpawnSpec,
 } from './agentRuntimes.ts'
@@ -124,6 +125,7 @@ export type AgentAuthMethod = {
   name: string
   description?: string | null
   kind: 'agent' | 'api-key' | 'terminal'
+  surface?: 'browser' | 'terminal'
 }
 
 export type TerminalAuthSpec = SpawnSpec & { label: string }
@@ -204,21 +206,23 @@ function recordOf(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
 
-function runtimeLoginMethod(runtime: string): AuthMethodInternal {
-  const { cmd, args, env, label, name, description } = runtimeLoginSpec(runtime)
-  return {
-    id: RUNTIME_LOGIN_METHOD_ID,
+function runtimeLoginMethods(runtime: string): AuthMethodInternal[] {
+  const entry = RUNTIMES[runtime]
+  if (!entry) return []
+  return entry.auth.methods().map(({ id, cmd, args, env, label, name, description, surface }) => ({
+    id,
     name,
     description,
-    kind: 'terminal',
+    kind: 'terminal' as const,
+    surface,
     terminal: { cmd, args, env, label },
-  }
+  }))
 }
 
 /** initialize 전에 ACP가 죽은 탭도 같은 로그인 UI를 그릴 수 있는 공개 상태. */
 export function runtimeLoginAuthEvent(runtime: string, error: string | null, authenticating = false): AgentEvent {
-  const { id, name, description, kind } = runtimeLoginMethod(runtime)
-  return { type: 'auth', methods: [{ id, name, description, kind }], authenticating, error }
+  const methods = runtimeLoginMethods(runtime).map(({ id, name, description, kind, surface }) => ({ id, name, description, kind, surface }))
+  return { type: 'auth', methods, authenticating, error }
 }
 
 /**
@@ -260,7 +264,7 @@ function normalizeAuthMethods(runtime: string, methods: AuthMethod[]): AuthMetho
   // terminal type/args가 SDK 0.14에서 사라지는 런타임과 initialize 자체가 실패하는 런타임 모두가
   // 같은 GUI 경로를 쓴다. 어댑터가 이미 더 구체적인 terminal 방법을 주면 중복 카드는 만들지 않는다.
   if (runtimeAuth && !normalized.some((method) => method.kind === 'terminal')) {
-    normalized.push(runtimeLoginMethod(runtime))
+    normalized.push(...runtimeLoginMethods(runtime))
   }
   return normalized
 }
@@ -466,7 +470,7 @@ export class AgentSession {
   }
 
   #publicAuthMethods(): AgentAuthMethod[] {
-    return this.#authMethods.map(({ id, name, description, kind }) => ({ id, name, description, kind }))
+    return this.#authMethods.map(({ id, name, description, kind, surface }) => ({ id, name, description, kind, surface }))
   }
 
   #authEvent(): AgentEvent {
@@ -686,6 +690,10 @@ export class AgentSession {
   }
 
   terminalAuthSpec(methodId: string): TerminalAuthSpec {
+    if (isRuntimeLoginMethod(this.runtime, methodId)) {
+      const { cmd, args, env, label } = runtimeLoginSpec(this.runtime, methodId)
+      return { cmd, args, env, label }
+    }
     const method = this.#authMethods.find((item) => item.id === methodId)
     if (!method?.terminal) throw new Error('터미널 로그인 방법을 찾을 수 없습니다')
     return method.terminal

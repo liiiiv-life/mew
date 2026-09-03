@@ -14,6 +14,8 @@ const PRIME_ADAPTER_CMD = path.resolve(here, 'primeAdapter.ts')
 
 /** ACP가 인증 전에 뜨지 못해도 브라우저 터미널에서 실행할 수 있는 공통 로그인 method id. */
 export const RUNTIME_LOGIN_METHOD_ID = 'mew-runtime-login'
+/** Kimi Code의 글로벌(.ai) OAuth는 기본 mainland-cn(.com) 로그인과 별도 리전으로 실행한다. */
+export const KIMI_GLOBAL_LOGIN_METHOD_ID = 'mew-kimi-global-login'
 
 export interface SpawnSpec {
   cmd: string
@@ -27,16 +29,19 @@ export interface RuntimeSkill {
   path: string
 }
 
-/** 브라우저에는 name/description만 보내고 실행 spec은 owner/manager 전용 서버 경계 안에 둔다. */
+/** 브라우저에는 id/name/description/surface만 보내고 실행 spec은 owner/manager 전용 서버 경계 안에 둔다. */
 export interface RuntimeLoginSpec extends SpawnSpec {
+  id: string
   name: string
   description: string
   label: string
+  surface: 'browser' | 'terminal'
+  verificationHosts?: string[]
 }
 
 export interface RuntimeAuthentication {
   /** ACP initialize 이전 실패까지 복구하는 런타임 고정 로그인/초기 설정 명령. */
-  login: () => RuntimeLoginSpec
+  methods: () => RuntimeLoginSpec[]
   /** 구형 SDK가 terminal `type`/`args`를 지우는 method는 이 GUI 터미널 하나로 치환한다. */
   replaceMethodIds?: string[]
   /** 공급자마다 다른 ACP API-key `_meta` wire shape. */
@@ -152,12 +157,15 @@ function primeSpawnSpec(): SpawnSpec {
 }
 
 const login = (
+  id: string,
   spec: SpawnSpec,
   args: string[],
   name: string,
   description: string,
   label = name,
-): RuntimeLoginSpec => ({ cmd: spec.cmd, args, env: spec.env, name, description, label })
+  surface: RuntimeLoginSpec['surface'] = 'terminal',
+  verificationHosts?: string[],
+): RuntimeLoginSpec => ({ id, cmd: spec.cmd, args, env: spec.env, name, description, label, surface, verificationHosts })
 
 export const RUNTIMES: Record<string, AgentRuntime> = {
   claude: {
@@ -165,9 +173,9 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/claude-agent-acp@0.65.0'] }),
     logout: () => ({ cmd: findExecutable('claude') ?? 'claude', args: ['auth', 'logout'] }),
     auth: {
-      login: () => {
+      methods: () => {
         const spec = claudeSpawnSpec()
-        return login(spec, [...spec.args, '--cli'], 'Claude Code 로그인', 'Claude Code 로그인 화면을 터미널에서 엽니다.')
+        return [login(RUNTIME_LOGIN_METHOD_ID, spec, [...spec.args, '--cli'], 'Claude Code 로그인', '서버 터미널에서 Claude Code 로그인을 진행합니다. 브라우저가 필요하면 휴대폰의 일반 브라우저에서 URL을 엽니다.')]
       },
     },
   },
@@ -176,12 +184,18 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/codex-acp@1.6.0'] }),
     logout: () => ({ cmd: DEFAULT_CODEX_CLI_CMD, args: ['logout'] }),
     auth: {
-      login: () => login(
+      methods: () => [login(
+        RUNTIME_LOGIN_METHOD_ID,
         { cmd: DEFAULT_CODEX_CLI_CMD, args: [], env: codexSpawnSpec().env },
         ['login', '--device-auth'],
         'Codex 로그인',
-        '기기 코드를 이용해 ChatGPT 계정으로 로그인합니다.',
-      ),
+        '기기 코드를 표시합니다. URL은 휴대폰의 일반 브라우저에서 여세요.',
+        undefined,
+        'browser',
+        ['auth.openai.com'],
+      )],
+      // 같은 device-code를 ACP 안과 별도 CLI 두 곳에서 보이지 않게 공통 작업으로 치환한다.
+      replaceMethodIds: ['chat-gpt-device-code'],
     },
   },
   hermes: {
@@ -189,7 +203,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'uv', args: ['tool', 'install', '--force', 'hermes-agent[acp]'] }),
     uninstall: () => ({ cmd: 'uv', args: ['tool', 'uninstall', 'hermes-agent'] }),
     auth: {
-      login: () => login(hermesSpawnSpec(), ['acp', '--setup'], 'Hermes 로그인/설정', '모델 공급자와 자격증명을 설정합니다.'),
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, hermesSpawnSpec(), ['acp', '--setup'], 'Hermes 로그인/설정', '모델 공급자와 자격증명을 설정합니다.')],
       replaceMethodIds: ['hermes-setup'],
     },
   },
@@ -198,7 +212,28 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'npm', args: ['install', '-g', '@moonshot-ai/kimi-code@latest'] }),
     uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', '@moonshot-ai/kimi-code'] }),
     auth: {
-      login: () => login(kimiSpawnSpec(), ['login'], 'Kimi Code 로그인', '기기 코드를 이용해 Kimi 계정으로 로그인합니다.'),
+      methods: () => [
+        login(
+          RUNTIME_LOGIN_METHOD_ID,
+          kimiSpawnSpec(),
+          ['login'],
+          'Kimi Code 로그인 (.com)',
+          'Kimi.com 계정으로 기기 코드 로그인을 진행합니다.',
+          undefined,
+          'browser',
+          ['auth.kimi.com', 'kimi.com', 'www.kimi.com'],
+        ),
+        login(
+          KIMI_GLOBAL_LOGIN_METHOD_ID,
+          kimiSpawnSpec(),
+          ['login', '--region', 'global'],
+          'Kimi Code 로그인 (.ai)',
+          'Kimi.ai 글로벌 계정으로 기기 코드 로그인을 진행합니다.',
+          undefined,
+          'browser',
+          ['auth.kimi.ai', 'kimi.ai', 'www.kimi.ai'],
+        ),
+      ],
       replaceMethodIds: ['login'],
     },
   },
@@ -207,7 +242,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'npm', args: ['install', '-g', '@google/gemini-cli@latest'] }),
     uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', '@google/gemini-cli'] }),
     auth: {
-      login: () => login(geminiSpawnSpec(), ['--skip-trust'], 'Gemini CLI 로그인/설정', 'Google 로그인 또는 인증 방식을 터미널에서 선택합니다.'),
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, geminiSpawnSpec(), ['--skip-trust'], 'Gemini CLI 로그인/설정', 'Google 로그인 또는 인증 방식을 고릅니다. URL과 코드는 휴대폰의 일반 브라우저에서 승인하세요.')],
       replaceMethodIds: ['oauth-personal', 'vertex-ai', 'gateway'],
       // Gemini ACP는 객체가 아니라 문자열을 요구한다. Codex 호환 shape를 공통 적용하면 로그인이 실패한다.
       apiKeyMeta: (secret) => ({ 'api-key': secret }),
@@ -218,7 +253,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'npm', args: ['install', '-g', 'openclaw@latest'] }),
     uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', 'openclaw'] }),
     auth: {
-      login: () => login(openclawSpawnSpec(), ['onboard', '--tui'], 'OpenClaw 로그인/설정', '공급자 인증과 게이트웨이를 대화형으로 설정합니다.'),
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, openclawSpawnSpec(), ['onboard', '--tui'], 'OpenClaw 로그인/설정', '공급자 인증과 게이트웨이를 대화형으로 설정합니다.')],
     },
   },
   opencode: {
@@ -227,14 +262,23 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', 'opencode-ai'] }),
     logout: () => ({ cmd: 'opencode', args: ['auth', 'logout'] }),
     auth: {
-      login: () => login(opencodeSpawnSpec(), ['auth', 'login'], 'OpenCode 로그인', '모델 공급자를 골라 로그인합니다.'),
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, opencodeSpawnSpec(), ['auth', 'login'], 'OpenCode 로그인', '모델 공급자를 골라 로그인합니다.')],
     },
   },
   cursor: {
     id: 'cursor', label: 'Cursor CLI', spec: cursorSpawnSpec,
     install: () => ({ cmd: 'bash', args: ['-lc', 'curl https://cursor.com/install -fsS | bash'] }),
     auth: {
-      login: () => login(cursorSpawnSpec(), ['login'], 'Cursor CLI 로그인', 'Cursor 계정으로 로그인합니다.'),
+      methods: () => [login(
+        RUNTIME_LOGIN_METHOD_ID,
+        cursorSpawnSpec(),
+        ['login'],
+        'Cursor CLI 로그인',
+        'Cursor 계정으로 로그인합니다.',
+        undefined,
+        'browser',
+        ['cursor.com', 'www.cursor.com'],
+      )],
       replaceMethodIds: ['cursor_login'],
     },
   },
@@ -244,7 +288,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'sh', args: ['-lc', 'curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh'] }),
     auth: {
       // /login은 Prime Agent TUI의 슬래시 명령이다 — 터미널 팝업에서 대화형으로 공급자를 고른다.
-      login: () => login({ cmd: process.env.MEW_PRIME_AGENT_EXECUTABLE || 'prime-agent', args: [] }, [], 'Prime Agent 로그인/설정', "TUI에서 /login을 입력해 공급자(Claude·ChatGPT·Copilot·API key)를 등록합니다. 설정 뒤 이 탭을 닫으면 Mew 어댑터가 연결됩니다."),
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, { cmd: process.env.MEW_PRIME_AGENT_EXECUTABLE || 'prime-agent', args: [] }, [], 'Prime Agent 로그인/설정', "TUI에서 /login을 입력해 공급자(Claude·ChatGPT·Copilot·API key)를 등록합니다. 설정 뒤 이 탭을 닫으면 Mew 어댑터가 연결됩니다.")],
       replaceMethodIds: ['login'],
     },
   },
@@ -290,10 +334,16 @@ export function resolvedSpec(id: string): SpawnSpec | null {
 }
 
 /** 요청값으로 명령을 만들지 않는다. 등록표에 박힌 로그인 spec만 돌려준다. */
-export function runtimeLoginSpec(runtime: string): RuntimeLoginSpec {
+export function runtimeLoginSpec(runtime: string, methodId = RUNTIME_LOGIN_METHOD_ID): RuntimeLoginSpec {
   const entry = RUNTIMES[runtime]
   if (!entry) throw new Error('지원하지 않는 에이전트 런타임입니다')
-  return entry.auth.login()
+  const method = entry.auth.methods().find((item) => item.id === methodId)
+  if (!method) throw new Error('지원하지 않는 런타임 로그인 방법입니다')
+  return method
+}
+
+export function isRuntimeLoginMethod(runtime: string, methodId: string): boolean {
+  return RUNTIMES[runtime]?.auth.methods().some((item) => item.id === methodId) ?? false
 }
 
 function defaultSkillPrompt(skills: RuntimeSkill[]): string {

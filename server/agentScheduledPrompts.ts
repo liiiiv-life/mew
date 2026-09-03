@@ -118,4 +118,25 @@ export function cancelAgentScheduledPrompt(input: unknown): boolean {
   arm()
   return true
 }
+
+/** 아직 실행되지 않은 같은 탭의 예약 메시지 내용과 시각을 바꾼다. */
+export function updateAgentScheduledPrompt(input: unknown): AgentScheduledPrompt {
+  if (!input || typeof input !== 'object') throw new AgentScheduledPromptError('예약 메시지를 찾을 수 없습니다')
+  const value = input as Record<string, unknown>
+  const id = typeof value.id === 'string' ? value.id : ''
+  const text = typeof value.text === 'string' ? value.text.trim() : ''
+  const at = new Date(typeof value.at === 'string' ? value.at : '')
+  const skills = Array.isArray(value.skills) ? value.skills.filter((name): name is string => typeof name === 'string') : []
+  if (!id || !text || text.length > MAX_PROMPT) throw new AgentScheduledPromptError('예약할 메시지를 입력하세요')
+  if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) throw new AgentScheduledPromptError('미래의 날짜와 시간을 고르세요')
+  const scope = validateScope(value)
+  const jobs = read()
+  const index = jobs.findIndex((job) => job.id === id && job.runtime === scope.runtime && job.tab === scope.tab && job.cwd === scope.cwd)
+  if (index < 0) throw new AgentScheduledPromptError('예약 메시지를 찾을 수 없습니다')
+  const job = { ...jobs[index], text, skills: [...new Set(skills)], at: at.toISOString() }
+  jobs[index] = job
+  write(jobs)
+  arm()
+  return job
+}
 export function startAgentScheduledPrompts() { arm() }
