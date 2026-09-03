@@ -13,6 +13,8 @@ export interface MentionOption {
   hint?: string
   /** 골랐을 때 '@검색어' 자리에 들어갈 문자열 */
   insert: string
+  /** 삽입 뒤에 붙일 구분자. 기본은 다음 말을 이어 쓸 공백 하나다. */
+  insertSuffix?: string
   /** 같은 트리거 안에서 고정 우선순위로 정렬할 때 쓰는 낮은 숫자. */
   sortPriority?: number
 }
@@ -138,12 +140,13 @@ export function MentionTextarea({
     if (!mention) return
     const el = textareaRef.current
     const caret = el?.selectionStart ?? value.length
-    const next = value.slice(0, mention.from) + option.insert + ' ' + value.slice(caret)
+    const suffix = option.insertSuffix ?? ' '
+    const next = value.slice(0, mention.from) + option.insert + suffix + value.slice(caret)
     onChange(next)
     onOptionSelect?.(option)
     closeMention()
     requestAnimationFrame(() => {
-      const pos = mention.from + option.insert.length + 1
+      const pos = mention.from + option.insert.length + suffix.length
       el?.setSelectionRange(pos, pos)
       el?.focus()
     })

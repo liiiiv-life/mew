@@ -16,15 +16,15 @@ test('@ 멘션은 하위 프로젝트, 폴더, 파일 순으로 가나다 정렬
 
   const shown = options
     .sort((a, b) => (a.sortPriority! - b.sortPriority!) || a.label.localeCompare(b.label, 'ko-KR'))
-    .map((option) => [option.label, option.insert])
+    .map((option) => [option.label, option.insert, option.insertSuffix])
 
   assert.deepEqual(shown, [
-    ['가방', '[가방]'],
-    ['나무', '[나무]'],
-    ['하위', '[하위]'],
-    ['가이드', '[[mew:가이드]]'],
-    ['가.md', '[[mew:가.md]]'],
-    ['나.md', '[[mew:나.md]]'],
+    ['가방', '[가방]', '\n'],
+    ['나무', '[나무]', '\n'],
+    ['하위', '[하위]', '\n'],
+    ['가이드', '[[mew:가이드]]', undefined],
+    ['가.md', '[[mew:가.md]]', undefined],
+    ['나.md', '[[mew:나.md]]', undefined],
   ])
 })
 
@@ -41,11 +41,11 @@ test('@ 멘션은 마지막 포커스 파일을 하위 프로젝트보다 먼저
 
   const shown = options
     .sort((a, b) => (a.sortPriority! - b.sortPriority!) || a.label.localeCompare(b.label, 'ko-KR'))
-    .map((option) => [option.label, option.hint, option.insert])
+    .map((option) => [option.label, option.hint, option.insert, option.insertSuffix])
 
   assert.deepEqual(shown, [
-    ['notes.md', 'notes.md', '[[mew:notes.md]]'],
-    ['alaaaarm', '하위 프로젝트', '[alaaaarm]'],
-    ['med-app', '하위 프로젝트', '[med-app]'],
+    ['notes.md', 'notes.md', '[[mew:notes.md]]', undefined],
+    ['alaaaarm', '하위 프로젝트', '[alaaaarm]', '\n'],
+    ['med-app', '하위 프로젝트', '[med-app]', '\n'],
   ])
 })

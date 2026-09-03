@@ -22,15 +22,15 @@ test('선택한 런타임 이름은 빈 대화 이벤트로 바뀌지 않는다'
   assert.equal(withAutoLabel(tabs, 'a', '첫 질문'), tabs)
 })
 
-test('프로젝트 멘션은 탭 이름에 대괄호와 중복 번호를 붙인다', () => {
+test('프로젝트 멘션은 탭 이름에 프로젝트명과 중복 번호를 붙인다', () => {
   const tabs = [
     { id: 'a', label: 'Codex', renamed: true },
-    { id: 'b', label: '[med-app]', renamed: true },
-    { id: 'c', label: '[med-app] (1)', renamed: true },
+    { id: 'b', label: 'med-app', renamed: true },
+    { id: 'c', label: 'med-app (1)', renamed: true },
   ]
 
   assert.deepEqual(withProjectLabel(tabs, 'a', 'med-app'), [
-    { id: 'a', label: '[med-app] (2)', renamed: true },
+    { id: 'a', label: 'med-app (2)', renamed: true },
     tabs[1],
     tabs[2],
   ])

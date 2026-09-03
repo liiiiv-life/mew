@@ -66,7 +66,7 @@ export function withProjectLabel(tabs: AgentTab[], id: string, project: string):
   const tab = tabs.find((item) => item.id === id)
   const name = project.trim()
   if (!tab || !name) return tabs
-  const base = `[${name}]`
+  const base = name
   const used = new Set(tabs.filter((item) => item.id !== id).map((item) => item.label))
   let label = base
   for (let number = 1; used.has(label); number += 1) label = `${base} (${number})`

@@ -9,7 +9,7 @@ const FOLDER = 1
 const FILE = 2
 
 /**
- * 에이전트 입력의 @ 목록. 워크스페이스 프로젝트는 대괄호 토큰을 넣고,
+ * 에이전트 입력의 @ 목록. 워크스페이스 프로젝트는 대괄호 토큰을 한 줄로 넣고,
  * 현재 프로젝트 트리의 폴더·파일은 기존 파일 참조 토큰을 쓴다.
  */
 export function agentInputMentionOptions(tree: TreeNode[], project: string, projects: Project[], focusedFilePath: string | null = null): MentionOption[] {
@@ -33,6 +33,7 @@ export function agentInputMentionOptions(tree: TreeNode[], project: string, proj
       label: item.name,
       hint: '하위 프로젝트',
       insert: `[${item.name}]`,
+      insertSuffix: '\n',
       sortPriority: SUBPROJECT,
     })
   }
@@ -48,6 +49,7 @@ export function agentInputMentionOptions(tree: TreeNode[], project: string, proj
             label: node.name,
             hint: '하위 프로젝트',
             insert: `[${node.name}]`,
+            insertSuffix: '\n',
             sortPriority: SUBPROJECT,
           })
         }
