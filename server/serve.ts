@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { createApiApp } from './api.ts'
-import { createBrowserPortProxyMiddleware, createBrowserProxyApp } from './browserProxy.ts'
+import { BROWSER_PROXY_WS_PREFIX, attachBrowserProxyWebSocket, createBrowserPortProxyMiddleware, createBrowserProxyApp } from './browserProxy.ts'
 import { createAuthRouter, checkOrigin } from './authRoutes.ts'
 import { attachAuthContext, resolveAuth, authorizeTmux, authorizeCollab } from './reqAuth.ts'
 import { attachTmuxWebSocket } from '@mew/tmux-term/server'
@@ -17,8 +17,6 @@ import { attachCollabWebSocket } from './collab.ts'
 import { attachCollabAgents } from './collabAgent.ts'
 import { attachDbWebSocket } from './db/socket.ts'
 import { attachAgentWebSocket, AGENT_WS_PATH } from './agentWs.ts'
-import { attachBrowserWebSocket, BROWSER_WS_PATH } from './browserWs.ts'
-import { disposeAllBrowserRuntimes } from './browserRuntime.ts'
 import { disposeAllSessions, reapOrphanAgents } from './agentAcp.ts'
 import { startAgentScheduledPrompts } from './agentScheduledPrompts.ts'
 import { watchDocsTree } from './watcher.ts'
@@ -44,7 +42,6 @@ process.on('uncaughtException', (err) => {
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.once(signal, () => {
     disposeAllSessions()
-    disposeAllBrowserRuntimes()
     process.exit(0)
   })
 }
@@ -84,16 +81,16 @@ function addStaticAndSpaFallback(app: express.Express) {
 function destroyUnknownUpgrades(server: http.Server, knownPaths: string[]) {
   server.on('upgrade', (req: IncomingMessage, socket: Duplex) => {
     const url = new URL(req.url ?? '', 'http://localhost')
-    if (!knownPaths.includes(url.pathname)) socket.destroy()
+    if (!knownPaths.some((path) => path.endsWith('/') ? url.pathname.startsWith(path) : url.pathname === path)) socket.destroy()
   })
 }
 
 const app = express()
 app.disable('x-powered-by')
 app.use(securityHeaders)
-app.use(checkOrigin)
 app.use(createBrowserPortProxyMiddleware())
 app.use('/__mew_browser', attachAuthContext, createBrowserProxyApp())
+app.use(checkOrigin)
 app.use('/api/auth', createAuthRouter())
 app.use('/api', attachAuthContext, createApiApp())
 addStaticAndSpaFallback(app)
@@ -105,7 +102,7 @@ attachCollabWebSocket(server, { authorize: authorizeCollab })
 attachDbWebSocket(server, { authorize: authorizeCollab })
 // 에이전트는 셸을 쓸 수 있다 — 게이트가 tmux와 같은 집합(owner/manager)이어야 한다
 attachAgentWebSocket(server, { authorize: authorizeTmux })
-attachBrowserWebSocket(server, {
+attachBrowserProxyWebSocket(server, {
   account: (req) => {
     const auth = resolveAuth(req)
     return !auth.mustChangePassword && (auth.role === 'owner' || auth.role === 'manager') ? auth.email : null
@@ -117,7 +114,7 @@ destroyUnknownUpgrades(server, [
   '/api/collab',
   '/api/db/ws',
   AGENT_WS_PATH,
-  BROWSER_WS_PATH,
+  `${BROWSER_PROXY_WS_PREFIX}/`,
 ])
 
 // 지난 실행이 SIGKILL로 끊겼다면 그때 남은 에이전트 자식이 아직 램을 물고 있다
