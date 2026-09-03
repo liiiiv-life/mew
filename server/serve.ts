@@ -17,6 +17,8 @@ import { attachCollabWebSocket } from './collab.ts'
 import { attachCollabAgents } from './collabAgent.ts'
 import { attachDbWebSocket } from './db/socket.ts'
 import { attachAgentWebSocket, AGENT_WS_PATH } from './agentWs.ts'
+import { attachBrowserWebSocket, BROWSER_WS_PATH } from './browserWs.ts'
+import { disposeAllBrowserRuntimes } from './browserRuntime.ts'
 import { disposeAllSessions, reapOrphanAgents } from './agentAcp.ts'
 import { startAgentScheduledPrompts } from './agentScheduledPrompts.ts'
 import { watchDocsTree } from './watcher.ts'
@@ -42,6 +44,7 @@ process.on('uncaughtException', (err) => {
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.once(signal, () => {
     disposeAllSessions()
+    disposeAllBrowserRuntimes()
     process.exit(0)
   })
 }
@@ -102,12 +105,19 @@ attachCollabWebSocket(server, { authorize: authorizeCollab })
 attachDbWebSocket(server, { authorize: authorizeCollab })
 // 에이전트는 셸을 쓸 수 있다 — 게이트가 tmux와 같은 집합(owner/manager)이어야 한다
 attachAgentWebSocket(server, { authorize: authorizeTmux })
+attachBrowserWebSocket(server, {
+  account: (req) => {
+    const auth = resolveAuth(req)
+    return !auth.mustChangePassword && (auth.role === 'owner' || auth.role === 'manager') ? auth.email : null
+  },
+})
 destroyUnknownUpgrades(server, [
   '/api/tmux/ws',
   '/api/presence',
   '/api/collab',
   '/api/db/ws',
   AGENT_WS_PATH,
+  BROWSER_WS_PATH,
 ])
 
 // 지난 실행이 SIGKILL로 끊겼다면 그때 남은 에이전트 자식이 아직 램을 물고 있다

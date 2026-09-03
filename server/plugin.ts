@@ -12,6 +12,7 @@ import { attachCollabWebSocket } from './collab.ts'
 import { attachCollabAgents } from './collabAgent.ts'
 import { attachDbWebSocket } from './db/socket.ts'
 import { attachAgentWebSocket } from './agentWs.ts'
+import { attachBrowserWebSocket } from './browserWs.ts'
 import { reapOrphanAgents } from './agentAcp.ts'
 import { startAgentScheduledPrompts } from './agentScheduledPrompts.ts'
 import { watchDocsTree } from './watcher.ts'
@@ -38,6 +39,12 @@ export function docsApiPlugin(): Plugin {
         attachCollabWebSocket(server.httpServer, { authorize: authorizeCollab })
         attachDbWebSocket(server.httpServer, { authorize: authorizeCollab })
         attachAgentWebSocket(server.httpServer, { authorize: authorizeTmux })
+        attachBrowserWebSocket(server.httpServer, {
+          account: (req) => {
+            const auth = resolveAuth(req)
+            return !auth.mustChangePassword && (auth.role === 'owner' || auth.role === 'manager') ? auth.email : null
+          },
+        })
         // 지난 실행이 SIGKILL로 끊겼다면 그때 남은 에이전트 자식이 아직 램을 물고 있다
         reapOrphanAgents()
         startAgentScheduledPrompts()

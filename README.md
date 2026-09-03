@@ -77,18 +77,24 @@ mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더�
 
 ## 브라우저 창
 
-Alt+B 또는 헤더 메뉴의 브라우저 버튼으로 오른쪽 끝에 여는 보조창(`components/BrowserPanel.tsx`). 탭은 여러 개이고, 탭 바로 아래 주소창에 `localhost:3100` 같은 주소를 넣으면 `http://localhost:3100/`로 정규화해 연다. 상태는 브라우저 localStorage(`mew:browser-*`)에만 남는다. 보조창 없이 전체 페이지로 열고 싶으면 `/3100`처럼 포트 번호를 첫 경로로 연다.
+Alt+B 또는 헤더 메뉴의 **브라우저**는 오른쪽 보조창으로 열고, **브라우저 팝업**은 독립 브라우저 창(`/browser`)으로 바로 연다. 보조창 탭 줄의 팝업 아이콘으로 보고 있던 탭을 독립 창에 이어 열 수도 있다. 탭·주소 상태는 같은 origin의 localStorage(`mew:browser-*`)를 공유한다.
 
-중요한 점: 이 창의 `localhost`는 **방문자 기기의 localhost가 아니라 mew 서버가 도는 기계의 loopback**이다. 원격에서 mew에 접속해도 WSL 안에서 떠 있는 `med-app` 같은 로컬 개발 서버를 볼 수 있게 하려고 `/__mew_browser/<origin-token>/...` 프록시를 탄다(`server/browserProxy.ts`).
+이 화면은 iframe 프록시가 아니라 **mew 서버에서 실제로 실행되는 Chromium**이다(`server/browserRuntime.ts`). 서버 Chromium이 URL을 요청하고 쿠키·localStorage·JavaScript를 처리한 뒤, Mew는 CDP screencast 화면과 마우스·터치·키보드 입력만 `/api/browser/ws`로 중계한다. 따라서 폰에서 `localhost:3100`을 넣어도 WSL의 loopback을 열고, `google.com`을 넣으면 Google에는 폰이 아니라 mew 서버의 네트워크 주소와 Chromium으로 접속한 것으로 보인다.
 
-- 권한은 터미널과 같다 — **manager·owner만** 연다. 로컬 개발 서버에는 시크릿과 관리자 화면이 있을 수 있고, 프록시는 SSRF 표면이기 때문이다.
-- 대상은 `http(s)://localhost`, `127.0.0.0/8`, `::1`만 허용한다. tailnet·사설망·공개 인터넷 URL은 거부한다.
-- mew 세션 쿠키·Authorization 헤더는 대상 서버로 넘기지 않고, 대상의 `Set-Cookie`도 브라우저에 전달하지 않는다.
-- 보조창 iframe과 `/3100` 전체 페이지 모두 sandbox로 뜨며 `allow-same-origin`을 주지 않는다. 대상 앱이 mew와 같은 origin 권한을 얻지 못하게 하는 경계다. 이 대가로 일부 앱의 localStorage·HMR WebSocket은 제한될 수 있다.
+- 첫 사용 전 서버에서 `./mew browser install`을 한 번 실행한다. Chrome for Testing 안정 버전을 `<MEW_DATA_DIR>/browser/runtime/`에 설치하며 `./mew browser status`로 확인한다. 시스템 Chrome/Chromium 또는 `MEW_BROWSER_EXECUTABLE=/absolute/path`도 쓸 수 있다.
+- 권한은 터미널과 같다 — **manager·owner만** 연다. HTTP(S) 공개 주소·loopback·사설망 모두 서버에서 열 수 있다. 이 역할은 이미 같은 서버 범위를 셸로 읽을 수 있다는 보안 경계에 맞춘 것이다.
+- Chromium 프로세스와 프로필은 로그인 계정별로 분리한다. 프로필은 `<MEW_DATA_DIR>/browser/profiles/<account-hash>/`에 남아 사이트 로그인과 쿠키가 이어지며, 다른 Mew 계정과 섞이지 않는다.
+- 페이지 코드는 Mew origin에서 실행되지 않고 픽셀만 전달된다. Mew 세션 쿠키·DOM·API는 대상 사이트에 노출되지 않는다.
+- Chromium은 첫 탭 연결 때만 시작한다. 화면 변화가 있을 때 최대 10fps의 binary JPEG로 보내고, 연결된 화면이 하나도 없는 채 10분이면 종료한다. 다음 접속에서는 저장된 프로필로 다시 시작한다.
+- 현재 중계 범위는 화면·마우스·터치·키보드·탐색·JS 대화상자다. 서버 오디오와 파일 업로드는 전달하지 않고, 다운로드는 서버 디스크에 몰래 쌓이지 않도록 차단한다. 헤드리스 Chromium을 구분하는 사이트는 CAPTCHA나 추가 로그인을 요구할 수 있다.
+
+`server/browserProxy.ts`의 기존 loopback HTTP 프록시는 Android gateway와 `/<port>` 호환 경로에만 남는다. `/3100`처럼 포트를 첫 경로로 연 전체 페이지는 여전히 loopback 전용 sandbox 프록시이며, 임의 외부 URL은 위 서버 브라우저 창에서 연다.
 
 | 라우트 | 역할 | 하는 일 |
 | --- | --- | --- |
-| `ANY /__mew_browser/<origin-token>/...` | **manager·owner** | 허용된 loopback origin으로 HTTP 프록시. root-relative URL 일부를 프록시 경로로 재작성 |
+| `WS /api/browser/ws` | **manager·owner** | 계정별 서버 Chromium 탭 화면·상태·검증된 입력 이벤트 중계 |
+| `GET /browser` | 페이지 셸은 공개, 연결은 **manager·owner** | 권한 확인 뒤 같은 브라우저 UI를 독립 팝업 창으로 표시 |
+| `ANY /__mew_browser/<origin-token>/...` | **manager·owner** | Android 및 호환 경로용 loopback HTTP 프록시 |
 | `ANY /<port>` · `/<port>/...` | **manager·owner** | 같은 프록시를 전체 페이지로 연다. 첫 요청에서 짧은 토큰 경로로 리다이렉트 |
 
 ## Android 창
@@ -178,6 +184,7 @@ npx tsc -b      # 타입만 (빌드 없이)
 | `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더. `server/paths.ts`의 `WORKSPACE_ROOT`를 고정 경로로 되돌리지 않는다 — 앱과 워크스페이스를 뗄 수 있어야 컨테이너·다른 폴더 배포가 성립한다 |
 | `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·게스트 규칙·아이콘·RAG 인덱스/모델 캐시 |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
+| `MEW_BROWSER_EXECUTABLE` | 관리형 또는 시스템 Chromium 자동 탐색 | 서버 브라우저로 실행할 Chrome/Chromium 절대경로 |
 | `MEW_COLLAB_RUST` | 없음(=JS Yjs) | `1`이면 협업 방 상태를 Rust(yrs)로 — 먼저 `npm run build:native` (아래 §협업 방) |
 | `DATABASE_URL` | 없음 | `/db`용 Postgres. 없거나 접속 불가면 `/db` API만 503 |
 | `R2_*` | 없음 | 미디어 업로드(S3 호환). 없으면 업로드 기능만 꺼진다 |

@@ -128,19 +128,29 @@ API·셸·협업이 차단된다.**
 
 ## 브라우저 창
 
-오른쪽 보조창 또는 `/<port>` 전체 페이지에서 mew 서버 기계의 `localhost` 개발 서버를 보는 기능이다.
-원격 브라우저의 `localhost`가 아니라 서버 쪽 loopback을 보기 위해 `server/browserProxy.ts`의 프록시를 탄다.
+오른쪽 보조창과 독립 `/browser` 팝업은 서버 기계에서 계정별 headless Chromium을 실행하고 화면·입력만
+WebSocket으로 중계한다(`server/browserRuntime.ts`, `server/browserWs.ts`). `localhost`뿐 아니라 임의 HTTP(S)
+주소를 **서버 네트워크에서** 연다.
 
-- **접근은 manager·owner뿐** — 로컬 개발 서버는 로그인 우회 관리자 화면, 시크릿이 들어간 HTML, 내부 API를
-  그대로 노출할 수 있다. 이 표면은 터미널보다 좁지만 member에게 열 수 있는 읽기 기능은 아니다.
-- 프록시 대상은 `http(s)://localhost`, `127.0.0.0/8`, `::1`만 허용한다. 이름을 모르는 내부망 탐색이나
-  공개 URL 프록시로 쓰지 못하게 하기 위한 고정 경계다.
-- mew 세션 쿠키·Authorization·CSRF류 헤더는 대상 서버로 전달하지 않는다. 대상 서버의 `Set-Cookie`와
-  frame/CSP 헤더도 응답에서 제거한다.
-- iframe과 `/<port>` 전체 페이지 모두 sandbox로 띄우고 `allow-same-origin`은 주지 않는다. 대상 앱이 mew
-  origin의 localStorage나 인증 쿠키를 읽고 mew API를 호출하는 일을 막기 위해서다. 대신 프록시가 CORS
-  `Origin: null` 응답과 root-relative URL 재작성을 제공한다. 일부 앱의 localStorage·HMR WebSocket은 이
-  경계 때문에 깨질 수 있다.
+- **접근은 manager·owner뿐**이고 WS handshake는 유효한 로그인 계정과 same-origin `Origin`을 모두 확인한다.
+  이 기능은 loopback·사설망·공개 인터넷에 닿는 브라우저이므로 member용 읽기 기능이 아니다. manager·owner는
+  이미 같은 범위를 셸과 `curl`로 열 수 있다.
+- 대상 페이지에는 Mew 요청을 프록시하지 않는다. 별도 Chromium 프로세스가 직접 요청하고 Mew에는 JPEG 픽셀과
+  검증된 입력 이벤트만 돌아오므로, 페이지 JS는 Mew origin·세션 쿠키·DOM·API에 접근하지 못한다.
+- Chromium 디버그 포트는 임의 포트의 `127.0.0.1`에만 바인딩하며 외부로 노출하지 않는다. 클라이언트가 보낸
+  URL은 HTTP(S)만, 탭 ID·뷰포트·좌표·키·문자열은 길이와 범위를 검증한 뒤 CDP에 전달한다.
+- 프로필은 Mew 계정 이메일의 해시별 `<MEW_DATA_DIR>/browser/profiles/`에 0700으로 저장한다. 사이트 쿠키와
+  저장소가 포함되므로 계정·세션 파일과 같은 민감도로 백업한다. manager·owner는 서버 셸로 다른 프로필까지
+  읽을 수 있으므로 서로 불신하는 사용자를 격리하는 경계는 아니다.
+- `./mew browser install`이 받는 Chrome for Testing과 `MEW_BROWSER_EXECUTABLE`로 지정한 실행 파일은 Mew 서버
+  사용자 권한으로 실행된다. 관리형 브라우저를 주기적으로 다시 설치해 안정 버전을 갱신하고, 신뢰하지 않는
+  실행 파일 경로를 설정하지 않는다. 브라우저 자체 sandbox는 유지하며 서버가 root일 때만 Chromium 기동을 위해
+  `--no-sandbox`를 사용한다.
+- 원격 다운로드는 차단한다. 향후 다운로드 중계를 추가할 때는 서버 임시파일 수명·크기 제한·사용자별 소유권을
+  별도 보안 결정으로 먼저 정해야 한다.
+
+`/<port>`와 Android gateway는 호환용 `server/browserProxy.ts`를 계속 쓴다. 이 경로만 종전처럼 loopback 제한,
+민감 헤더 제거, sandbox와 짧은 서명 토큰 경계를 유지한다.
 
 ## Android 창
 
