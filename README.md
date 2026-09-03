@@ -77,24 +77,22 @@ mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더�
 
 ## 브라우저 창
 
-Alt+B 또는 헤더 메뉴의 **브라우저**는 오른쪽 보조창으로 열고, **브라우저 팝업**은 독립 브라우저 창(`/browser`)으로 바로 연다. 보조창 탭 줄의 팝업 아이콘으로 보고 있던 탭을 독립 창에 이어 열 수도 있다. 탭·주소 상태는 같은 origin의 localStorage(`mew:browser-*`)를 공유한다.
+Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**는 Mew 화면 위의 독립 플로팅 팝업으로 연다. 상단 바를 끌어 옮기고 창의 네 변·모서리로 크기를 조절할 수 있다. 탭·주소 상태는 같은 origin의 localStorage(`mew:browser-*`)를 공유한다.
 
-이 화면은 iframe 프록시가 아니라 **mew 서버에서 실제로 실행되는 Chromium**이다(`server/browserRuntime.ts`). 서버 Chromium이 URL을 요청하고 쿠키·localStorage·JavaScript를 처리한 뒤, Mew는 CDP screencast 화면과 마우스·터치·키보드 입력만 `/api/browser/ws`로 중계한다. 따라서 폰에서 `localhost:3100`을 넣어도 WSL의 loopback을 열고, `google.com`을 넣으면 Google에는 폰이 아니라 mew 서버의 네트워크 주소와 Chromium으로 접속한 것으로 보인다.
+이 화면은 `server/browserProxy.ts`의 **서버 loopback 개발 서버 뷰어**다. 폰에서 `localhost:3100`을 넣으면 Mew가 실행되는 WSL/서버의 `localhost:3100`을 열어, 응답을 sandbox iframe에서 렌더링한다. HTTP(S)·WebSocket·redirect·탭별 cookie/storage를 중계하므로 개발 중인 SPA도 확인할 수 있다.
 
-- 첫 사용 전 서버에서 `./mew browser install`을 한 번 실행한다. Chrome for Testing 안정 버전을 `<MEW_DATA_DIR>/browser/runtime/`에 설치하며 `./mew browser status`로 확인한다. 시스템 Chrome/Chromium 또는 `MEW_BROWSER_EXECUTABLE=/absolute/path`도 쓸 수 있다.
-- 권한은 터미널과 같다 — **manager·owner만** 연다. HTTP(S) 공개 주소·loopback·사설망 모두 서버에서 열 수 있다. 이 역할은 이미 같은 서버 범위를 셸로 읽을 수 있다는 보안 경계에 맞춘 것이다.
-- Chromium 프로세스와 프로필은 로그인 계정별로 분리한다. 프로필은 `<MEW_DATA_DIR>/browser/profiles/<account-hash>/`에 남아 사이트 로그인과 쿠키가 이어지며, 다른 Mew 계정과 섞이지 않는다.
-- 페이지 코드는 Mew origin에서 실행되지 않고 픽셀만 전달된다. Mew 세션 쿠키·DOM·API는 대상 사이트에 노출되지 않는다.
-- Chromium은 첫 탭 연결 때만 시작한다. 화면 변화가 있을 때 최대 10fps의 binary JPEG로 보내고, 연결된 화면이 하나도 없는 채 10분이면 종료한다. 다음 접속에서는 저장된 프로필로 다시 시작한다.
-- 현재 중계 범위는 화면·마우스·터치·키보드·탐색·JS 대화상자다. 서버 오디오와 파일 업로드는 전달하지 않고, 다운로드는 서버 디스크에 몰래 쌓이지 않도록 차단한다. 헤드리스 Chromium을 구분하는 사이트는 CAPTCHA나 추가 로그인을 요구할 수 있다.
+- 대상은 이 서버의 `localhost`, `127.0.0.0/8`, `::1`만 허용한다. 공개 인터넷·사설망·임의 URL은 열 수 없다. 권한은 터미널과 같은 **manager·owner**다.
+- 이것은 OAuth나 범용 웹 탐색용 브라우저가 아니다. 에이전트 로그인은 에이전트 창의 **인증 센터**에서 진행한다. 고정 CLI가 URL을 출력하는 Codex·Kimi·Cursor는 현재 기기의 일반 새 탭으로 연결하고, 공급자·키·모델 선택이 필요한 런타임은 Mew 터미널을 연다. 근거와 경계는 [ADR 0109](../.mew/docs/decisions/0109-mew-agent-authentication-and-loopback-browser.md)·[ADR 0110](../.mew/docs/decisions/0110-mew-declarative-agent-authentication-jobs.md)에 둔다.
+- Mew session cookie는 대상에 보내지 않으며 대상 문서는 `allow-same-origin` 없는 iframe에서 돌아 Mew UI DOM·localStorage에 직접 접근하지 못한다. Mew 서버 재시작·세션 만료·창을 새로 열면 사이트 세션은 사라진다.
 
-`server/browserProxy.ts`의 기존 loopback HTTP 프록시는 Android gateway와 `/<port>` 호환 경로에만 남는다. `/3100`처럼 포트를 첫 경로로 연 전체 페이지는 여전히 loopback 전용 sandbox 프록시이며, 임의 외부 URL은 위 서버 브라우저 창에서 연다.
+`/3100`처럼 포트를 첫 경로로 연 전체 페이지도 같은 구현을 쓰되, 이 호환 진입점의 대상은 계속 해당 서버의 loopback 포트로 고정한다.
 
 | 라우트 | 역할 | 하는 일 |
 | --- | --- | --- |
-| `WS /api/browser/ws` | **manager·owner** | 계정별 서버 Chromium 탭 화면·상태·검증된 입력 이벤트 중계 |
+| `GET /api/browser-url?url=` | **manager·owner** | 서버 loopback 대상의 탭별 프록시 세션과 짧은 서명 URL 발급 |
 | `GET /browser` | 페이지 셸은 공개, 연결은 **manager·owner** | 권한 확인 뒤 같은 브라우저 UI를 독립 팝업 창으로 표시 |
-| `ANY /__mew_browser/<origin-token>/...` | **manager·owner** | Android 및 호환 경로용 loopback HTTP 프록시 |
+| `ANY /__mew_browser/<origin-token>/<session-token>/...` | 서명 세션 | loopback HTTP(S)를 서버에서 요청하고 텍스트 응답 URL·cookie·storage 문맥 중계 |
+| `WS /__mew_browser_ws/<origin-token>/<session-token>/...` | 서명 세션 | loopback WebSocket을 서버에서 연결해 frame 양방향 중계 |
 | `ANY /<port>` · `/<port>/...` | **manager·owner** | 같은 프록시를 전체 페이지로 연다. 첫 요청에서 짧은 토큰 경로로 리다이렉트 |
 
 ## Android 창
@@ -184,7 +182,6 @@ npx tsc -b      # 타입만 (빌드 없이)
 | `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더. `server/paths.ts`의 `WORKSPACE_ROOT`를 고정 경로로 되돌리지 않는다 — 앱과 워크스페이스를 뗄 수 있어야 컨테이너·다른 폴더 배포가 성립한다 |
 | `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·게스트 규칙·아이콘·RAG 인덱스/모델 캐시 |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
-| `MEW_BROWSER_EXECUTABLE` | 관리형 또는 시스템 Chromium 자동 탐색 | 서버 브라우저로 실행할 Chrome/Chromium 절대경로 |
 | `MEW_COLLAB_RUST` | 없음(=JS Yjs) | `1`이면 협업 방 상태를 Rust(yrs)로 — 먼저 `npm run build:native` (아래 §협업 방) |
 | `DATABASE_URL` | 없음 | `/db`용 Postgres. 없거나 접속 불가면 `/db` API만 503 |
 | `R2_*` | 없음 | 미디어 업로드(S3 호환). 없으면 업로드 기능만 꺼진다 |
@@ -407,7 +404,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 - 답변의 **현재 워크스페이스 파일 링크**를 누르면 브라우저 새 탭이 아니라 같은 mew에서 해당 프로젝트와 문서 탭을 연다. `:줄`·`#L줄`이 붙으면 그 줄로 이동하며, Markdown도 정확한 원본 줄을 보여 주기 위해 이 경우 Plain으로 연다. `GET /api/agent-file-link?href=`가 서버 절대경로를 노출하지 않고 `{project,path,line}`으로 검증·변환한다(owner/manager). 웹 링크는 계속 새 브라우저 탭으로 연다.
 - 탭의 \*\*작업 경로(cwd)\*\*는 새 탭을 열 때 현재 워크스페이스 루트로 정해지며 화면에서 바꾸지 않는다. 경로는 ACP 세션·히스토리의 기준으로 계속 저장하지만, 주소창 형태의 입력줄은 없다 ([ADR 0097](../.mew/docs/decisions/0097-mew-agent-panel-removes-cwd-bar.md)).
 - 채널: `/api/agent/ws?runtime=<id>&tab=<id>&cwd=<absolute-path>&resume=<session-id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은 `런타임+탭+cwd`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`, `[A-Za-z0-9_-]{1,64}`이 아니면 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 — 고른 값은 브라우저에만 남는다(`mew:agent-runtime`). 창을 닫아도 세션은 남고, 다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다. 각 탭의 감독은 mew와 다른 프로세스 그룹에서 `<DATA_DIR>/agent/*.sock`으로 중계되므로 **브라우저 종료·mew 종료/재시작에도 진행 중인 턴은 끊기지 않는다**. 모든 턴과 대기열이 끝난 뒤 붙은 창 없이 30분이 지나야 감독과 ACP/CLI가 종료된다 ([ADR 0048](../.mew/docs/decisions/0048-mew-agent-supervisor-process.md)). 감독이 종료된 뒤에도 탭은 런타임·cwd별 마지막 ACP 세션 ID를 기억한다. 다시 열면 새 감독이 그 ID를 `session/load`해 전사를 재생하므로, 30분 유휴 종료는 프로세스만 정리하고 탭의 대화를 새 대화로 바꾸지 않는다 ([ADR 0079](../.mew/docs/decisions/0079-mew-agent-tabs-resume-after-idle.md)).
-- **설치와 로그인은 별개다**([ADR 0072](../.mew/docs/decisions/0072-mew-agent-gui-authentication.md)). `session/new`가 인증 필요를 돌려주면 프로세스를 닫지 않고 로그인 화면으로 전환한다. ACP 일반 로그인은 사용자가 주소를 확인하고 **로그인 페이지 열기**를 눌러 현재 브라우저의 새 탭에서 진행한다. API 키는 한 번만 ACP 요청으로 보내고 저장·이벤트 기록하지 않는다. terminal auth는 어댑터가 광고했거나 런타임 등록표에 박힌 고정 명령만 Mew tmux 팝업에서 실행한다. 서버가 실제 명령의 exit code만 기록하고 GUI가 팝업을 닫아도 감시한다. `0`일 때만 자동으로 ACP를 새로 initialize해 CLI가 방금 쓴 자격증명을 다시 읽으며, 실패·`Ctrl-C`·강제 종료는 터미널을 유지하고 재시작하지 않는다. 로그인하지 않으면 ACP 자체가 뜨지 않는 CLI도 탭 감독은 fatal로 닫지 않고 같은 terminal auth를 내보내 같은 탭에서 복구한다.
+- **설치와 로그인은 별개다**([ADR 0072](../.mew/docs/decisions/0072-mew-agent-gui-authentication.md), [ADR 0110](../.mew/docs/decisions/0110-mew-declarative-agent-authentication-jobs.md)). `session/new`가 인증 필요를 돌려주면 프로세스를 닫지 않고 로그인 화면으로 전환한다. ACP 일반 로그인은 사용자가 주소를 확인하고 **로그인 페이지 열기**를 눌러 현재 브라우저의 새 탭에서 진행한다. API 키는 한 번만 ACP 요청으로 보내고 저장·이벤트 기록하지 않는다. 등록표의 고정 인증 명령은 `browser | terminal` 표면을 선언한다. browser는 클릭 즉시 빈 탭을 예약하고 allowlist를 통과한 CLI URL이 나오면 이동하며, 별도 일회용 코드를 같이 보여 준다. terminal은 Mew tmux 팝업에서 공급자 선택·비밀 입력을 보존한다. GUI가 팝업을 닫아도 exit code를 감시하고, `0`일 때만 ACP를 재초기화한다. 실패하면 URL·token·code를 지운 CLI 오류 한 줄을 보여 주며 자동 재시작하지 않는다. ACP 자체가 인증 전에 종료되어도 탭 감독은 등록표의 모든 인증 방법을 복구 경로로 보여 준다.
 - 탭 목록·이름·런타임·cwd별 마지막 세션 ID는 브라우저에만 있고 **루트 프로젝트 절대 경로별로 분리**된다 (`mew:agent-tabs:<root-path>`) — 서버는 **탭 id만** 알고 뜻은 모른다. 세션 ID는 탭을 닫을 때 함께 지워지고, 같은 탭에서 런타임이나 cwd를 갈아타면 각 조합의 대화 포인터를 따로 보존한다. 마지막으로 보던 탭도 같은 루트 경로별로 남는다(`mew:agent-active-tab:<root-path>`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이 선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라). 스와이프로 창·탭을 전환하거나 닫는 동작은 없다. 이 작업은 플로팅 핸들이 맡는다. 탭 이름은 선택한 런타임 또는 에이전트셋 이름으로 시작하고, 탭을 두 번 누르면 직접 고친다 ([ADR 0096](../.mew/docs/decisions/0096-mew-agent-tabs-created-after-selection.md)).
   - 새 탭은 선택 후에만 생기므로, 선택 전 히스토리 조회·세션 입력을 위한 빈 탭은 없다. 새 세션은 선택 직후부터 해당 탭에서 시작하며, 지난 세션을 고르는 기능은 탭에서 계속 제공한다
   - 같은 세션을 두 탭에서 열지 않는다(목록에서 잠근다) — 한 전사를 두 프로세스가 붙들면 기록이 엉킨다
@@ -448,16 +445,16 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 
 - 백엔드 교체는 **spawn 대상 교체**다. 고를 수 있는 것은 `server/agentRuntimes.ts`의 `RUNTIMES` 등록표에 있는 것뿐이고, 클라이언트에 같은 목록이 또 있는 이유는 **아이콘**뿐이다(판정은 서버가 한다):
 
-  | 런타임 | ACP 명령 | GUI terminal auth | 환경변수 |
+  | 런타임 | ACP 명령 | GUI 인증 작업 | 환경변수 |
   | --- | --- | --- | --- |
   | `claude` | `node_modules/.bin/claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`, 버전 고정) | 어댑터 `--cli`(광고된 `claude auth login` 변형 우선) | `MEW_AGENT_CMD` · `MEW_AGENT_ARGS` · `MEW_AGENT_CLAUDE_CMD` · `MEW_AGENT_CLAUDE_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) |
-  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | 번들 `codex login --device-auth` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `NO_BROWSER`(기본 `1`) |
+  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | browser · 번들 `codex login --device-auth` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `NO_BROWSER`(기본 `1`) |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `hermes acp --setup` | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
-  | `kimi` | `kimi acp` | `kimi login` | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
+  | `kimi` | `kimi acp` | browser · `kimi login`(.com) / `kimi login --region global`(.ai) | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
   | `gemini` | `gemini --acp` | `gemini --skip-trust`(`NO_BROWSER=true`) | `MEW_AGENT_GEMINI_CMD` · `MEW_AGENT_GEMINI_ARGS` |
   | `openclaw` | `openclaw acp` | `openclaw onboard --tui` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
   | `opencode` | `opencode acp` | `opencode auth login` | `MEW_AGENT_OPENCODE_CMD` · `MEW_AGENT_OPENCODE_ARGS` |
-  | `cursor` | `agent acp` | `agent login`(`NO_OPEN_BROWSER=1`) | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
+  | `cursor` | `agent acp` | browser · `agent login`(`NO_OPEN_BROWSER=1`) | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
   | `prime` | Mew 내장 어댑터 → 공식 `prime-agent --mode rpc` — 공식 인스톨러로 설치(`curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh`) | TUI `/login`(공급자 선택) | `MEW_PRIME_AGENT_EXECUTABLE` · `MEW_AGENT_PRIME_ARGS` |
 
   공통은 `MEW_AGENT_MODE`(안 주면 위의 전체 허용 후보 순서). 진입점이 없거나 로그인 전 ACP를 말하지 않으면 오류와 terminal auth를 함께 보여 준다 — 목록에서 감추거나 탭을 닫지 않는다. 로그인 완료 뒤에도 실패하면 같은 화면에 최신 시작 오류를 남긴다. Prime Agent는 연결당 세션 하나라 mew의 탭 하나가 곧 하나의 Prime 세션이 된다(둘째 탭은 프로세스를 하나 더 띄운다).
@@ -469,7 +466,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 | `DELETE /api/agent-runtimes/:id/install` | manager·owner | 등록표가 선언한 고정 역설치 명령 실행. 안전한 제거 계약이 없으면 거부 |
 | `POST /api/agent-runtimes/:id/logout` | manager·owner | 등록표가 선언한 비대화형 CLI 로그아웃만 실행. 자격증명 값은 읽거나 전송하지 않음 |
 | `POST /api/agent-runtimes/:id/auth/:method/run` | manager·owner | ACP가 광고했거나 등록표에 박힌 terminal auth 고정 명령을 숨김 tmux에서 실행. body는 `{tab}`만 |
-| `GET /api/agent-runtimes/:id/auth/:method/status?tab=<id>` | manager·owner | terminal auth의 `running`·`succeeded`·`failed`·`interrupted`와 exit code. 비밀값은 기록하지 않음 |
+| `GET /api/agent-runtimes/:id/auth/:method/status?tab=<id>` | manager·owner | 인증 작업 상태·exit code, browser 표면의 allowlist URL·일회용 코드, 필터된 실패 이유. 출력·비밀값은 기록하지 않음 |
 | `GET /api/agent-defaults/:id` | manager·owner | 런타임별로 저장된 모델·권한 기본값 |
 | `PUT /api/agent-defaults/:id` | manager·owner | 현재 모델·권한을 그 런타임의 기본값으로 원자적 저장 |
 | `GET /api/agent-runtimes/:id/settings` | manager·owner | 런타임 설정(실행 파일·추가 인자·env). **env 값은 마지막 4자만 마스킹해서** 돌려준다 |

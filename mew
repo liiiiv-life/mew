@@ -236,7 +236,6 @@ cmd_setup() {
   create_first_owner
   say ""
   say "Next: open the URL above, log in, and change the temporary password."
-  say "Optional server browser: ./mew browser install"
 }
 
 cmd_update() {
@@ -276,7 +275,6 @@ mew — a browser workspace for a folder on your machine
   ./mew status          what is running, and where things live
   ./mew logs            follow the log (ctrl-c to stop)
   ./mew users <args>    accounts: add <email> [owner|manager|member] | list | role | reset | remove
-  ./mew browser <args>  server browser: install | status
 EOF
 }
 
@@ -289,7 +287,6 @@ case "${1:-setup}" in
   restart) load_config; stop_server; start_server; say "$(url)" ;;
   logs) mkdir -p "$STATE_DIR"; touch "$LOG"; tail -f -n 100 "$LOG" ;;
   users) shift; load_config; node server/usersCli.ts "$@" ;;
-  browser) shift; load_config; node server/browserInstall.ts "$@" ;;
   help | -h | --help) usage ;;
   *) usage; exit 1 ;;
 esac

@@ -35,7 +35,7 @@ API·셸·협업이 차단된다.**
 | 홈 탭 — 워크스페이스 전체 할 일 목록·체크 | ❌ | ✅ | ✅ | ✅ |
 | **터미널(tmux)** | ❌ | ❌ | ✅ | ✅ |
 | **에이전트 창(ACP)** | ❌ | ❌ | ✅ | ✅ |
-| **브라우저 창(localhost 프록시)** | ❌ | ❌ | ✅ | ✅ |
+| **브라우저 창(서버 loopback 프록시)** | ❌ | ❌ | ✅ | ✅ |
 | **Android 창(localhost gateway + SDK 상태)** | ❌ | ❌ | ✅ | ✅ |
 | **서버 파일 탐색기(전체 OS 경로 읽기·쓰기·삭제)** | ❌ | ❌ | ✅ | ✅ |
 | 명령어 버튼 실행 | ❌ | ❌ | ✅ | ✅ |
@@ -128,29 +128,28 @@ API·셸·협업이 차단된다.**
 
 ## 브라우저 창
 
-오른쪽 보조창과 독립 `/browser` 팝업은 서버 기계에서 계정별 headless Chromium을 실행하고 화면·입력만
-WebSocket으로 중계한다(`server/browserRuntime.ts`, `server/browserWs.ts`). `localhost`뿐 아니라 임의 HTTP(S)
-주소를 **서버 네트워크에서** 연다.
+오른쪽 보조창과 독립 `/browser` 팝업은 `server/browserProxy.ts`가 **이 서버의 loopback** HTTP(S)·WebSocket만
+연결하고, 재작성한 응답은 접속 기기의 sandbox iframe이 렌더링한다. 허용 주소는 `localhost`·`127.0.0.0/8`·`::1`뿐이다.
 
-- **접근은 manager·owner뿐**이고 WS handshake는 유효한 로그인 계정과 same-origin `Origin`을 모두 확인한다.
-  이 기능은 loopback·사설망·공개 인터넷에 닿는 브라우저이므로 member용 읽기 기능이 아니다. manager·owner는
-  이미 같은 범위를 셸과 `curl`로 열 수 있다.
-- 대상 페이지에는 Mew 요청을 프록시하지 않는다. 별도 Chromium 프로세스가 직접 요청하고 Mew에는 JPEG 픽셀과
-  검증된 입력 이벤트만 돌아오므로, 페이지 JS는 Mew origin·세션 쿠키·DOM·API에 접근하지 못한다.
-- Chromium 디버그 포트는 임의 포트의 `127.0.0.1`에만 바인딩하며 외부로 노출하지 않는다. 클라이언트가 보낸
-  URL은 HTTP(S)만, 탭 ID·뷰포트·좌표·키·문자열은 길이와 범위를 검증한 뒤 CDP에 전달한다.
-- 프로필은 Mew 계정 이메일의 해시별 `<MEW_DATA_DIR>/browser/profiles/`에 0700으로 저장한다. 사이트 쿠키와
-  저장소가 포함되므로 계정·세션 파일과 같은 민감도로 백업한다. manager·owner는 서버 셸로 다른 프로필까지
-  읽을 수 있으므로 서로 불신하는 사용자를 격리하는 경계는 아니다.
-- `./mew browser install`이 받는 Chrome for Testing과 `MEW_BROWSER_EXECUTABLE`로 지정한 실행 파일은 Mew 서버
-  사용자 권한으로 실행된다. 관리형 브라우저를 주기적으로 다시 설치해 안정 버전을 갱신하고, 신뢰하지 않는
-  실행 파일 경로를 설정하지 않는다. 브라우저 자체 sandbox는 유지하며 서버가 root일 때만 Chromium 기동을 위해
-  `--no-sandbox`를 사용한다.
-- 원격 다운로드는 차단한다. 향후 다운로드 중계를 추가할 때는 서버 임시파일 수명·크기 제한·사용자별 소유권을
-  별도 보안 결정으로 먼저 정해야 한다.
+- **세션 발급은 manager·owner뿐**이다. 대상이 loopback으로 고정되어 공개·사설망으로 나가는 범용 SSRF 프록시는 아니다.
+  member·guest로 낮추지 않는다.
+- 프록시 URL은 HMAC 서명한 탭별 2시간 토큰이다. 서버 메모리의 CookieJar와 origin별 storage 모사는 탭 세션마다
+  분리하며 디스크에 저장하지 않는다. URL을 로그·채팅·외부 링크에 복사하지 않는다. 대상 페이지는 기능상 토큰을
+  볼 수 있으므로 신뢰하지 않는 페이지가 그 세션 수명 동안 서버 네트워크 요청을 만들 수 있다는 점은 남는다.
+- 목적지 요청에서 Mew session cookie와 `Forwarded`·`X-Forwarded-For`·`CF-Connecting-IP` 등 방문자 IP 헤더를
+  제거한다. 이 도구는 로컬 개발 서버 확인용이며, 공개 사이트 OAuth·anti-bot을 통과시키는 수단이 아니다.
+- 대상 문서는 `allow-same-origin` 없는 iframe과 응답 CSP sandbox에서 실행한다. URL attribute와 동적 네트워크
+  API를 서명 경로로 바꾸고 Mew UI DOM·localStorage와 대상 cookie jar를 분리한다. 동적 요청에는 가상 페이지
+  Origin을 보내고 대상 응답의 CORS 허용을 다시 적용한다. 이 격리는 완전한 브라우저 origin 가상화가 아니므로
+  보안 경계가 필요한 서로 불신하는 웹 앱을 한 세션에 섞지 않는다. 에이전트 공급자 로그인은 에이전트 인증 센터가
+  휴대폰의 top-level 브라우저·device code·서버 토큰으로 처리한다([ADR 0109](../.mew/docs/decisions/0109-mew-agent-authentication-and-loopback-browser.md)).
+- cross-origin redirect는 새 page-origin 토큰으로 감싸고 jar를 유지한다. OAuth의 localhost callback은 서버로
+  돌아오지만, 제공자가 embedded user agent나 proxy 자체를 금지하면 로그인 성공까지 보장하지 않는다.
+- 다운로드 응답은 서버 디스크에 저장하지 않고 그대로 접속 기기에 전달한다. 업로드 body도 서버가 대상에
+  스트리밍한다. 큰 전송은 Mew 서버 대역폭을 그대로 사용한다.
 
-`/<port>`와 Android gateway는 호환용 `server/browserProxy.ts`를 계속 쓴다. 이 경로만 종전처럼 loopback 제한,
-민감 헤더 제거, sandbox와 짧은 서명 토큰 경계를 유지한다.
+`/<port>` 호환 진입점은 종전처럼 대상 origin을 해당 서버의 loopback 포트로 고정한다. Android gateway 입력은
+같은 프록시 세션 발급 API를 쓰며 용도상 실행 중인 loopback gateway 주소만 넣는다.
 
 ## Android 창
 
