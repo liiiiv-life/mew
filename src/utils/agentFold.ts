@@ -11,6 +11,7 @@ export type ModelState = { currentModelId: string; availableModels: ModelInfo[] 
 export type ModeInfo = { id: string; name: string; description?: string | null }
 export type ModeState = { currentModeId: string; availableModes: ModeInfo[] }
 export type ThinkingState = { configId: string; currentValue: string; options: ModeInfo[] }
+export type AgentMessageSettings = { model: string; thinking: string; permission: string }
 
 export type Usage = {
   input: number
@@ -66,7 +67,7 @@ export type SessionUpdate =
   | { sessionUpdate: 'plan' | 'available_commands_update' | 'current_mode_update' }
 
 export type AgentEvent =
-  | { type: 'update'; update: SessionUpdate }
+  | { type: 'update'; update: SessionUpdate; settings?: AgentMessageSettings }
   | { type: 'user_images'; images: { path: string; mimeType: string }[] }
   | { type: 'permission'; id: string; toolCall: { title?: string | null }; options: PermissionOption[] }
   | { type: 'permission_done'; id: string }
@@ -87,7 +88,7 @@ export type AgentEvent =
   | { type: 'reset' }
   | { type: 'sessions'; sessions: SessionInfo[] }
   // 재접속했을 때 지나간 대화를 한 덩어리로 받는다 — 창은 그린 대화를 이걸로 통째로 갈아끼운다
-  | { type: 'replay'; events: AgentEvent[]; restored?: boolean }
+  | { type: 'replay'; events: AgentEvent[]; restored?: boolean; restoreFailure?: { sessionId: string; message: string } }
 
 export type ToolEntry = { id: string; title: string; status: string }
 
@@ -98,7 +99,7 @@ export type InnerItem =
   | { key: string; kind: 'error'; text: string }
 
 export type Item =
-  | { key: string; kind: 'user'; text: string; images: { path: string; mimeType: string }[]; messageId?: string }
+  | { key: string; kind: 'user'; text: string; images: { path: string; mimeType: string }[]; settings?: AgentMessageSettings; messageId?: string }
   // stopReason — 턴이 어떻게 끝났나('end_turn'·'cancelled'·'error' 등, ACP 값 그대로).
   // 되받은 히스토리에는 turn_end가 없어 null로 남는다
   // startedAt(에포크 ms)·durationMs — 작업 버블의 걸린 시간 표시용. 옛 히스토리는 null이다
@@ -116,6 +117,14 @@ export function formatDuration(ms: number): string {
   if (minutes) parts.push(`${minutes}분`)
   if (seconds || parts.length === 0) parts.push(`${seconds}초`)
   return parts.join(' ')
+}
+
+/**
+ * ACP의 session/load 전사는 과거의 turn_end를 다시 보내지 않는다. 마지막 응답은 열린 turn처럼
+ * 접히지만, 현재 세션 meta가 유휴면 이미 끝난 작업이다. meta가 아직 없을 때는 파란 진행 상태를 유지한다.
+ */
+export function isTurnComplete(item: Pick<Extract<Item, { kind: 'turn' }>, 'done'>, busy: boolean | null): boolean {
+  return item.done || busy === false
 }
 
 /** 이벤트 목록을 화면에 그릴 항목으로 접는다 — 질문·턴(답변+작업 묶음)·에러의 세 종류로 나뉜다 */
@@ -232,7 +241,7 @@ export function foldEvents(events: AgentEvent[]): Item[] {
       const sameMessage = last?.kind === 'user'
         && (!update.messageId || update.messageId === last.messageId)
       if (last && last.kind === 'user' && sameMessage) last.text += (last.text ? '\n' : '') + text
-      else items.push({ key: `m${i}`, kind: 'user', text, images: [], ...(update.messageId ? { messageId: update.messageId } : {}) })
+      else items.push({ key: `m${i}`, kind: 'user', text, images: [], ...(event.settings ? { settings: event.settings } : {}), ...(update.messageId ? { messageId: update.messageId } : {}) })
       // 새 질문은 앞 턴을 닫는다 — 불러온 히스토리에는 turn_end가 없어서 여기서 끊지 않으면
       // 지난 대화 전체가 턴 하나로 뭉친다
       const open = currentTurn()

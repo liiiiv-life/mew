@@ -1,6 +1,6 @@
 import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { clearAgentInputDraft, readAgentInputDraft, writeAgentInputDraft } from './agentInputDrafts.ts'
+import { clearAgentInputDraft, readAgentInputDraft, readAgentInputHistory, recordAgentInputHistory, writeAgentInputDraft } from './agentInputDrafts.ts'
 
 class MemoryStorage {
   private store = new Map<string, string>()
@@ -53,6 +53,18 @@ test('clearAgentInputDraft는 해당 탭만 지운다', () => {
 
   assert.equal(readAgentInputDraft('tab-a'), '')
   assert.equal(readAgentInputDraft('tab-b'), 'bbb')
+})
+
+test('에이전트 탭별 입력 히스토리는 연속 중복 없이 남는다', () => {
+  recordAgentInputHistory('tab-a', '첫 질문')
+  recordAgentInputHistory('tab-a', '둘째 질문')
+  recordAgentInputHistory('tab-a', '둘째 질문')
+  recordAgentInputHistory('tab-b', '다른 탭 질문')
+
+  assert.deepEqual(readAgentInputHistory('tab-a'), ['첫 질문', '둘째 질문'])
+  assert.deepEqual(readAgentInputHistory('tab-b'), ['다른 탭 질문'])
+  clearAgentInputDraft('tab-a')
+  assert.deepEqual(readAgentInputHistory('tab-a'), [])
 })
 
 test('저장값이 손상되면 빈 문자열로 폴백한다', () => {

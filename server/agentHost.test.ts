@@ -26,6 +26,9 @@ class SlowAgent {
   async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: { loadSession: true } } }
   async newSession() { return { sessionId: 'host-session' } }
   async loadSession({ sessionId }) {
+    if (sessionId === 'busy-thread') {
+      throw { code: -32603, message: 'Internal error', data: { details: 'thread busy-thread already has an active writer' } }
+    }
     await this.conn.sessionUpdate({ sessionId, update: {
       sessionUpdate: 'user_message_chunk', content: { type: 'text', text: '이전 질문' },
     } })
@@ -67,6 +70,30 @@ test('ACP의 plain object 오류에서 메시지와 상세 원인을 보존한�
   assert.match(message, /Internal error/)
   assert.match(message, /no rollout found/)
   assert.doesNotMatch(message, /\[object Object\]/)
+})
+
+test('자동 복원 실패가 fallback 세션으로 원래 thread 포인터를 덮지 않게 알린다', async (t) => {
+  t.after(async () => {
+    shutdownAgentHostsForWorkspace(workspace)
+    await new Promise((resolve) => setTimeout(resolve, 80))
+  })
+
+  let failure: { sessionId: string; message: string } | null = null
+  let replayed!: () => void
+  const replayReady = new Promise<void>((resolve) => { replayed = resolve })
+  const client = await connectAgentHost('claude', 'restore-failure-tab', workspace, {
+    onReplay: (_events, _restored, restoreFailure) => {
+      failure = restoreFailure
+      replayed()
+    },
+  }, 'busy-thread')
+  t.after(() => client.close())
+
+  await replayReady
+  const received = failure as { sessionId: string; message: string } | null
+  assert.ok(received)
+  assert.equal(received.sessionId, 'busy-thread')
+  assert.match(received.message, /Internal error/)
 })
 
 function alive(pid: number): boolean {

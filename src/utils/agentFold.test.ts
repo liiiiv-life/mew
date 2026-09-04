@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { foldEvents, formatDuration, type AgentEvent } from './agentFold.ts'
+import { foldEvents, formatDuration, isTurnComplete, type AgentEvent } from './agentFold.ts'
 
 const user = (text: string): AgentEvent => ({
   type: 'update',
@@ -16,6 +16,19 @@ test('한 턴은 질문 하나와 답변 묶음 하나로 접힌다', () => {
   assert.deepEqual(items.map((i) => i.kind), ['user', 'turn'])
   const turn = items[1]
   assert.equal(turn.kind === 'turn' && turn.done, true)
+})
+
+test('사용자 메시지는 전송 때의 모델·추론·권한 설정을 함께 보존한다', () => {
+  const settings = { model: 'gpt-5.6-sol', thinking: 'high', permission: '전체 허용' }
+  const event: AgentEvent = {
+    type: 'update',
+    update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: '첫 질문' } },
+    settings,
+  }
+  const items = foldEvents([event])
+  assert.equal(items[0]?.kind === 'user' && items[0].settings?.model, 'gpt-5.6-sol')
+  assert.equal(items[0]?.kind === 'user' && items[0].settings?.thinking, 'high')
+  assert.equal(items[0]?.kind === 'user' && items[0].settings?.permission, '전체 허용')
 })
 
 test('턴은 어떻게 끝났는지를 들고 있다 — 색으로 중단·에러를 갈라 그린다', () => {
@@ -34,6 +47,15 @@ test('불러온 히스토리에는 turn_end가 없어도 질문마다 턴이 끊
   assert.deepEqual(items.map((i) => i.kind), ['user', 'turn', 'user', 'turn'])
   const first = items[1]
   assert.equal(first.kind === 'turn' && first.children.length, 1, '첫 답이 첫 턴에만 들어간다')
+})
+
+test('복원 전사의 마지막 턴은 현재 세션이 유휴면 완료로 그린다', () => {
+  const [turn] = foldEvents([agent('복원한 마지막 답변')])
+  assert.ok(turn?.kind === 'turn')
+  assert.equal(turn.done, false, 'ACP 히스토리에는 turn_end가 없다')
+  assert.equal(isTurnComplete(turn, false), true, '유휴 meta는 완료된 마지막 턴을 뜻한다')
+  assert.equal(isTurnComplete(turn, true), false, '현재 작업 중이면 계속 진행 상태다')
+  assert.equal(isTurnComplete(turn, null), false, 'meta 전에는 성급히 완료로 바꾸지 않는다')
 })
 
 test('도구 호출은 묶여서 상태 갱신을 받는다', () => {

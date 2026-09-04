@@ -6,7 +6,7 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { DEFAULT_RUNTIME, isRuntime, type AgentEvent, type AgentImageRef } from './agentAcp.ts'
+import { DEFAULT_RUNTIME, isRuntime, type AgentEvent, type AgentImageRef, type AgentMessageSettings } from './agentAcp.ts'
 import { connectAgentHost, type AgentHostClient } from './agentHost.ts'
 import { composeRuntimePrompt } from './agentRuntimes.ts'
 import { listSessionsFromDisk } from './agentSessionList.ts'
@@ -21,7 +21,7 @@ const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 
 type ClientMessage =
-  | { type: 'prompt'; text: string; displayText?: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; skills?: string[] }
+  | { type: 'prompt'; text: string; displayText?: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; skills?: string[]; settings?: AgentMessageSettings }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'authenticate'; methodId: string; secret?: string }
@@ -68,6 +68,14 @@ function validImageRefs(value: unknown): AgentImageRef[] {
   )
 }
 
+function validSettings(value: unknown): AgentMessageSettings | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const { model, thinking, permission } = value as Partial<AgentMessageSettings>
+  if (typeof model !== 'string' || typeof thinking !== 'string' || typeof permission !== 'string') return undefined
+  if (model.length > 160 || thinking.length > 160 || permission.length > 160) return undefined
+  return { model, thinking, permission }
+}
+
 type ServerMessage =
   | AgentEvent
   | { type: 'ready'; cwd: string }
@@ -75,7 +83,7 @@ type ServerMessage =
   // 목록은 물어본 창에만 답한다 — 상태가 아니라 조회 결과라 이벤트 버퍼에 넣지 않는다
   | { type: 'sessions'; sessions: { sessionId: string; title?: string | null; updatedAt?: string | null }[] }
   // 지나간 대화는 한 덩어리로 간다 — 창은 이걸 받아 지금 그린 대화를 통째로 갈아끼운다
-  | { type: 'replay'; events: AgentEvent[]; restored?: boolean }
+  | { type: 'replay'; events: AgentEvent[]; restored?: boolean; restoreFailure?: { sessionId: string; message: string } }
 
 function send(ws: WebSocket, payload: ServerMessage) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload))
@@ -164,7 +172,7 @@ async function handleConnection(
         const imageRefs = validImageRefs(msg.imageRefs)
         // 첨부 경로는 에이전트가 읽게 하되, 대화 창에는 사용자가 쓴 프롬프트만 남긴다.
         const displayText = typeof msg.displayText === 'string' ? msg.displayText : msg.text
-        live.send({ type: 'prompt', text: displayText, promptText: promptForRuntime(runtime, prompt, msg.skills), images, imageRefs })
+        live.send({ type: 'prompt', text: displayText, promptText: promptForRuntime(runtime, prompt, msg.skills), images, imageRefs, settings: validSettings(msg.settings) })
       }
       else if (msg.type === 'cancel') live.send({ type: 'cancel' })
       else if (msg.type === 'permission') live.send({ type: 'permission', id: msg.id, optionId: msg.optionId })
@@ -215,7 +223,12 @@ async function handleConnection(
   let started: AgentHostClient
   try {
     started = await connectAgentHost(runtime, tab, cwd, {
-      onReplay: (events, restored) => send(ws, { type: 'replay', events, ...(restored ? { restored: true } : {}) }),
+      onReplay: (events, restored, restoreFailure) => send(ws, {
+        type: 'replay',
+        events,
+        ...(restored ? { restored: true } : {}),
+        ...(restoreFailure ? { restoreFailure } : {}),
+      }),
       onEvent: (event) => send(ws, event),
       onFatal: (message) => {
         send(ws, { type: 'fatal', message })

@@ -1,11 +1,15 @@
 // 런타임 설정 저장 — 병합 저장(보낸 키만 갈아끼움)과 마스킹 검증
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import test from 'node:test'
 import {
   describeAgentSetting,
   normalizeAgentSetting,
   writeAgentSetting,
   deleteAgentSetting,
+  purgeForbiddenAgentEnv,
+  readAgentSetting,
 } from './agentSettings.ts'
 
 test('normalize는 빈 값을 걷어내고 형식을 지킨다', () => {
@@ -16,6 +20,20 @@ test('normalize는 빈 값을 걷어내고 형식을 지킨다', () => {
 test('env 키 이름은 식별자만 허용한다', () => {
   assert.throws(() => normalizeAgentSetting({ env: { 'BAD KEY': 'v' } }))
   assert.doesNotThrow(() => normalizeAgentSetting({ env: { ANTHROPIC_API_KEY: 'sk' } }))
+  assert.throws(() => normalizeAgentSetting({ env: { CLAUDE_CODE_OAUTH_TOKEN: 'oauth' } }))
+})
+
+test('기존 Claude OAuth token은 서버 시작 전 정리해 spawn에 쓰이지 않게 한다', () => {
+  writeAgentSetting('claude', { env: { ANTHROPIC_API_KEY: 'sk-secret' } })
+  // 이전 버전이 남긴 파일을 직접 흉내 낸다. 정상 API로는 이 키를 다시 저장할 수 없다.
+  const dataDir = process.env.MEW_DATA_DIR!
+  const file = path.join(dataDir, 'agent-settings.json')
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, { env?: Record<string, string> }>
+  stored.claude.env!.CLAUDE_CODE_OAUTH_TOKEN = 'legacy-oauth'
+  fs.writeFileSync(file, JSON.stringify(stored))
+  assert.equal(purgeForbiddenAgentEnv(), true)
+  assert.equal(readAgentSetting('claude')?.env?.CLAUDE_CODE_OAUTH_TOKEN, undefined)
+  assert.equal(readAgentSetting('claude')?.env?.ANTHROPIC_API_KEY, 'sk-secret')
 })
 
 test('저장은 병합이다 — 보낸 키만 바뀌고 나머지 env는 유지된다', () => {

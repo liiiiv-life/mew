@@ -22,6 +22,8 @@ const MAX_CMD_LEN = 500
 const MAX_ARGS = 100
 const MAX_ENV_ENTRIES = 20
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+/** 공급자 OAuth bearer token은 Mew가 수집·보관·중계하지 않는다. */
+export const FORBIDDEN_AGENT_ENV_KEYS = new Set(['CLAUDE_CODE_OAUTH_TOKEN'])
 
 export function maskSecret(value: string): string {
   if (value.length <= 4) return '****'
@@ -59,6 +61,9 @@ function cleanEnv(value: unknown): Record<string, string> | undefined {
   const env: Record<string, string> = {}
   for (const [key, raw] of entries) {
     if (!ENV_KEY_RE.test(key)) throw new AgentSettingError(`환경 변수 이름이 올바르지 않습니다: ${key}`)
+    if (FORBIDDEN_AGENT_ENV_KEYS.has(key)) {
+      throw new AgentSettingError(`${key}은(는) Mew에 저장할 수 없습니다 — 공급자 로그인 흐름을 사용하세요`)
+    }
     if (typeof raw !== 'string') throw new AgentSettingError(`${key} 값은 문자열이어야 합니다`)
     const trimmed = raw.trim()
     if (!trimmed) continue
@@ -66,6 +71,26 @@ function cleanEnv(value: unknown): Record<string, string> | undefined {
     env[key] = trimmed
   }
   return Object.keys(env).length > 0 ? env : undefined
+}
+
+/** 공개 경계 전환 전에 저장된 OAuth bearer token을 보존하지 않는다. */
+export function purgeForbiddenAgentEnv(): boolean {
+  const parsed = readJsonRecord<unknown>(SETTINGS_FILE)
+  if (parsed === null) return false
+  let changed = false
+  for (const value of Object.values(parsed)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const env = (value as { env?: unknown }).env
+    if (!env || typeof env !== 'object' || Array.isArray(env)) continue
+    for (const key of FORBIDDEN_AGENT_ENV_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(env, key)) {
+        delete (env as Record<string, unknown>)[key]
+        changed = true
+      }
+    }
+  }
+  if (changed) writeFileAtomic(SETTINGS_FILE, `${JSON.stringify(parsed, null, 2)}\n`)
+  return changed
 }
 
 export function normalizeAgentSetting(input: unknown): AgentRuntimeSetting {

@@ -25,6 +25,16 @@ export function sessionIdOf(tab: AgentTab, runtime: string, cwd: string): string
   return tab.sessionIds?.[sessionSlot(runtime, cwd)] ?? null
 }
 
+/** 화면에 아직 mount되지 않은 탭까지 포함해, 다른 탭이 기억하는 모든 세션을 점유로 본다. */
+export function sessionIdsExcept(tabs: AgentTab[], tabId: string): string[] {
+  const ids = new Set<string>()
+  for (const tab of tabs) {
+    if (tab.id === tabId) continue
+    for (const sessionId of Object.values(tab.sessionIds ?? {})) ids.add(sessionId)
+  }
+  return [...ids]
+}
+
 /** 탭을 닫지 않은 채 감독이 유휴 종료된 뒤에도 같은 ACP 세션을 resume한다. */
 export function withSessionId(
   tabs: AgentTab[],

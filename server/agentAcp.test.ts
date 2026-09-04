@@ -174,8 +174,9 @@ import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.strin
 import { Readable, Writable } from 'node:stream'
 
 class SlowAgent {
-  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} } }
+  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: { loadSession: true } } }
   async newSession() { return { sessionId: 'stub-slow' } }
+  async loadSession() { return {} }
   async authenticate() { return {} }
   async cancel() {}
   async prompt() {
@@ -775,6 +776,21 @@ test('창이 끊겨도 진행 중인 턴은 죽이지 않고, 완료된 뒤부�
 
   for (let i = 0; i < 30 && !session.disposed; i++) await new Promise((resolve) => setTimeout(resolve, 20))
   assert.equal(session.disposed, true, '턴 완료 뒤 새로 센 유휴 시간이 지나면 정리된다')
+})
+
+test('진행 중인 턴과 히스토리 불러오기를 같은 ACP 연결에서 겹치지 않는다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-busy-load-'))
+  const stubPath = path.join(dir, 'slow-stub.mjs')
+  fs.writeFileSync(stubPath, slowStubSource)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+  session.prompt('진행 중')
+
+  await assert.rejects(session.loadSession('other-session'), /진행 중인 작업/)
+  assert.equal(session.busy, true, '기존 턴은 취소하거나 다른 thread로 바꾸지 않는다')
 })
 
 test('세션을 접으면 어댑터가 밑에 둔 프로세스까지 같이 죽는다', async (t) => {

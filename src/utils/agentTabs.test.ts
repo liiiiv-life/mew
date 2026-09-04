@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { sessionIdOf, withAutoLabel, withProjectLabel, withRename, withSessionId } from './agentTabs.ts'
+import { sessionIdOf, sessionIdsExcept, withAutoLabel, withProjectLabel, withRename, withSessionId } from './agentTabs.ts'
 
 test('사람이 붙인 이름은 대화에서 뽑은 이름이 덮지 않는다', () => {
   const tabs = [{ id: 'a', label: '새 대화' }]
@@ -48,4 +48,14 @@ test('탭은 런타임·cwd별 마지막 ACP 세션을 기억한다', () => {
   const cleared = withSessionId(codex, 'a', 'claude', '/work', null)
   assert.equal(sessionIdOf(cleared[0], 'claude', '/work'), null)
   assert.equal(sessionIdOf(cleared[0], 'codex', '/work'), 'codex-session')
+})
+
+test('아직 열지 않은 탭의 세션도 다른 탭에서는 점유 중이다', () => {
+  const tabs = [
+    { id: 'visible', label: 'A', sessionIds: { codex: 'session-a' } },
+    { id: 'hidden', label: 'B', sessionIds: { codex: 'session-b', claude: 'session-c' } },
+  ]
+
+  assert.deepEqual(sessionIdsExcept(tabs, 'visible').sort(), ['session-b', 'session-c'])
+  assert.deepEqual(sessionIdsExcept(tabs, 'hidden'), ['session-a'])
 })

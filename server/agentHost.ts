@@ -17,6 +17,7 @@ import {
   runtimeLoginAuthEvent,
   type AgentEvent,
   type AgentImageRef,
+  type AgentMessageSettings,
   type TerminalAuthSpec,
 } from './agentAcp.ts'
 import { isRuntimeLoginMethod, runtimeLoginSpec } from './agentRuntimes.ts'
@@ -31,7 +32,7 @@ const REQUEST_TIMEOUT_MS = 30_000
 const MAX_LINE_BYTES = 64 * 1024 * 1024
 
 export type AgentHostCommand =
-  | { type: 'prompt'; text: string; promptText: string; images?: AgentImage[]; imageRefs?: AgentImageRef[] }
+  | { type: 'prompt'; text: string; promptText: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; settings?: AgentMessageSettings }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'authenticate'; methodId: string; secret?: string }
@@ -59,7 +60,7 @@ type HostInbound =
 
 type HostOutbound =
   | { type: 'hello'; runtime: string; tab: string; cwd: string }
-  | { type: 'replay'; events: AgentEvent[]; restored?: boolean }
+  | { type: 'replay'; events: AgentEvent[]; restored?: boolean; restoreFailure?: { sessionId: string; message: string } }
   | { type: 'event'; event: AgentEvent }
   | { type: 'response'; id: string; ok: true; value: unknown }
   | { type: 'response'; id: string; ok: false; error: string }
@@ -188,6 +189,8 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
   let ownsFiles = false
   // 유휴 종료 후 새 감독이 뜨는 첫 한 번만 탭의 마지막 ACP 세션을 이어받는다.
   let initialResumeSessionId = resumeSessionId
+  // 복원 실패 뒤 만든 빈 세션이 원래 탭 포인터를 덮지 않도록 브라우저에 실패한 ID를 함께 알린다.
+  let restoreFailure: { sessionId: string; message: string } | null = null
 
   const fallbackTerminalSpec = (methodId: string): TerminalAuthSpec => {
     const { cmd, args, env, label } = runtimeLoginSpec(runtime, methodId)
@@ -218,7 +221,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     const attach = () => {
       if (!session || socket.destroyed) return
       // snapshot과 attach 사이에는 await가 없어야 그 틈의 스트리밍 이벤트가 빠지지 않는다.
-      sendLine(socket, { type: 'replay', events: session.snapshot() })
+      sendLine(socket, { type: 'replay', events: session.snapshot(), ...(restoreFailure ? { restoreFailure } : {}) })
       peer.detach = session.attach((event) => sendLine(socket, { type: 'event', event }))
     }
     if (session) attach()
@@ -274,7 +277,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         void restartSession()
         return
       }
-      void handleHostMessage(session, peer, message, stop)
+      void handleHostMessage(session, peer, message, stop, () => { restoreFailure = null })
     }
     installLineReader(socket, receive, () => socket.destroy())
     socket.on('close', () => {
@@ -332,6 +335,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         } catch (err) {
           // 삭제·손상된 백엔드 기록 하나가 탭 전체를 못 열게 하지 않는다.
           console.error(`[mew:agent-host:${runtime}] 세션 ${wantedSessionId} 자동 복원 실패:`, err)
+          restoreFailure = { sessionId: wantedSessionId, message: describeError(err) }
           started.dispose()
           started = await AgentSession.start(runtime, undefined, cwd)
         }
@@ -350,10 +354,15 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         if (peer.socket.destroyed) continue
         // ACP session/load 전사는 살아 있던 감독의 이벤트 replay와 형식이 다르다.
         // 첫 접속이 브라우저 캐시와 합치지 않고 교체하도록 복원 표식을 내려보낸다.
-        sendLine(peer.socket, { type: 'replay', events: started.snapshot(), ...(restored ? { restored: true } : {}) })
+        sendLine(peer.socket, {
+          type: 'replay',
+          events: started.snapshot(),
+          ...(restored ? { restored: true } : {}),
+          ...(restoreFailure ? { restoreFailure } : {}),
+        })
         peer.detach = started.attach((event) => sendLine(peer.socket, { type: 'event', event }))
       }
-      for (const item of early.splice(0)) void handleHostMessage(started, item.peer, item.message, stop)
+      for (const item of early.splice(0)) void handleHostMessage(started, item.peer, item.message, stop, () => { restoreFailure = null })
     } catch (err) {
       startupError = describeError(err)
       broadcastEvent(runtimeLoginAuthEvent(runtime, startupError))
@@ -403,6 +412,7 @@ async function handleHostMessage(
   peer: Peer,
   message: HostInbound,
   stop: (code?: number) => void,
+  chooseFallback: () => void,
 ) {
   if (message.type === 'request') {
     try {
@@ -419,7 +429,10 @@ async function handleHostMessage(
   const command = message.command
   if (!command || typeof command !== 'object' || typeof command.type !== 'string') return
   try {
-    if (command.type === 'prompt') session.prompt(String(command.text), String(command.promptText), command.images, command.imageRefs)
+    if (command.type === 'prompt') {
+      chooseFallback()
+      session.prompt(String(command.text), String(command.promptText), command.images, command.imageRefs, command.settings)
+    }
     else if (command.type === 'cancel') session.cancel()
     else if (command.type === 'permission') session.answerPermission(String(command.id), command.optionId ?? null)
     else if (command.type === 'authenticate') void session.authenticate(String(command.methodId), command.secret).catch(() => {})
@@ -432,8 +445,14 @@ async function handleHostMessage(
     else if (command.type === 'move_queued') session.moveQueued(Number(command.from), Number(command.to))
     else if (command.type === 'edit_queued')
       session.editQueued(Number(command.index), String(command.text), String(command.expect), String(command.promptText))
-    else if (command.type === 'clear_session') session.clearAfterQueue()
-    else if (command.type === 'load_session') await session.loadSession(String(command.sessionId))
+    else if (command.type === 'clear_session') {
+      chooseFallback()
+      session.clearAfterQueue()
+    }
+    else if (command.type === 'load_session') {
+      await session.loadSession(String(command.sessionId))
+      chooseFallback()
+    }
     else if (command.type === 'close_session') stop()
   } catch (err) {
     // 인증 실패는 AgentSession의 auth 상태로 이미 방송된다. 나머지만 요청한 화면에 오류로 돌린다.
@@ -444,7 +463,7 @@ async function handleHostMessage(
 }
 
 export type AgentHostCallbacks = {
-  onReplay?: (events: AgentEvent[], restored: boolean) => void
+  onReplay?: (events: AgentEvent[], restored: boolean, restoreFailure: { sessionId: string; message: string } | null) => void
   onEvent?: (event: AgentEvent) => void
   onFatal?: (message: string) => void
   onClose?: () => void
@@ -483,7 +502,7 @@ export class AgentHostClient {
   receive(raw: unknown) {
     if (!raw || typeof raw !== 'object') return
     const message = raw as HostOutbound
-    if (message.type === 'replay') this.#callbacks.onReplay?.(message.events, message.restored === true)
+    if (message.type === 'replay') this.#callbacks.onReplay?.(message.events, message.restored === true, message.restoreFailure ?? null)
     else if (message.type === 'event') this.#callbacks.onEvent?.(message.event)
     else if (message.type === 'fatal') this.#callbacks.onFatal?.(message.message)
     else if (message.type === 'response') {
