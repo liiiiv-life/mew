@@ -1,6 +1,26 @@
 # mew
 
-내 컴퓨터의 **폴더 하나를 브라우저 프로젝트로** 여는 편집기. 다른 경로도 프로젝트 탭으로 열 수 있고, 루트 바로 아래에서 `.mew` 폴더를 가진 폴더는 사이드바의 하위 프로젝트로 구분한다. 마크다운·코드 편집, 파일 트리, 전문 검색, git 커밋, 실시간 협업, 터미널(tmux), 계정 없는 사람에게 주는 열람 링크가 한 화면에 있다. 모바일에서도 쓰도록 만들어져 있다.
+내 컴퓨터 또는 내가 관리하는 서버의 **폴더 하나를 브라우저 프로젝트로** 여는 편집기다. 마크다운·코드 편집, 파일 트리, 정확/의미 검색, git 커밋, 실시간 협업, 터미널(tmux), 에이전트와 게스트 열람 링크를 한 화면에 둔다. 다른 경로도 프로젝트 탭으로 열 수 있고, 루트 바로 아래에서 `.mew` 폴더를 가진 폴더는 사이드바의 하위 프로젝트로 구분한다. 모바일도 지원한다.
+
+> [!WARNING]
+> mew는 일반적인 공개 문서 서비스가 아니다. `manager`·`owner`는 서버의 터미널과 에이전트를 쓸 수 있어 사실상 **서버 셸 권한**을 받는다. 공개 배포 전에는 반드시 [SECURITY.md](SECURITY.md)를 읽고, 신뢰하는 소수의 사람만 계정으로 초대한다.
+
+## 배포 경로와 전제
+
+현재 지원하는 배포 경로는 **Linux 또는 macOS에서의 네이티브 설치**다. 개인 컴퓨터에서는 `./mew setup`만으로 충분하고, 서버에서는 아래의 "서버 배포" 절처럼 전용 OS 사용자·로컬 바인딩·HTTPS 프록시(또는 터널)·프로세스 관리자를 함께 둔다.
+
+| 상황 | 권장 경로 |
+| --- | --- |
+| 내 컴퓨터에서 혼자 사용 | 네이티브 설치 후 `./mew setup` |
+| 휴대폰을 포함한 내 기기에서 접속 | 네이티브 설치 + VPN 또는 HTTPS 터널 |
+| 신뢰하는 소규모 팀용 서버 | 네이티브 설치 + `127.0.0.1` 바인딩 + HTTPS 리버스 프록시 + systemd |
+| 불특정 다수·다중 테넌트 서비스 | 지원 대상 아님 — 권한 모델과 터미널 기능이 맞지 않음 |
+
+앱은 **별도 호스트명의 루트 경로(`/`)** 에 올리는 것을 전제로 한다. 클라이언트가 `/api`와 WebSocket 경로를 절대 경로로 사용하므로 `/mew` 같은 하위 경로 배포는 지원하지 않는다.
+
+> **컨테이너 앱 배포는 현재 지원하지 않는다.** 이 레포에서는 Dockerfile이 제거되어 `docker compose --profile app up -d --build`가 성공하지 않는다. `docker-compose.yml`은 현재 `/db` 기능용 Postgres를 띄우는 용도로만 쓴다. 컨테이너 앱 경로를 다시 제공하려면 Dockerfile·운영 계약·보안 검토를 함께 복구해야 한다.
+
+## 빠른 시작
 
 ```bash
 git clone <이 레포> mew && cd mew
@@ -22,7 +42,7 @@ xcode-select --install
 brew install tmux python
 ```
 
-**이 폴더에는 아무것도 저장되지 않는다.** 설정은 `~/.config/mew/config.env`, 계정·세션은 `~/.local/share/mew/`, 로그는 `~/.local/state/mew/`에 산다(`server/config.ts`). 클론을 지워도 데이터는 남고, `git pull`이 곧 업데이트다.
+**이 폴더에는 아무것도 저장되지 않는다.** 설정은 `~/.config/mew/config.env`, 계정·세션과 완료된 에이전트 턴 전사는 `~/.local/share/mew/`, 로그는 `~/.local/state/mew/`에 산다(`server/config.ts`). 클론을 지워도 데이터는 남고, `git pull`이 곧 업데이트다.
 
 ```bash
 ./mew start | stop | restart   # 서버
@@ -32,13 +52,139 @@ brew install tmux python
 ./mew users add you@x.com owner
 ```
 
+## 서버 배포 (네이티브)
+
+아래는 Linux 서버에서 `mew`라는 전용 비관리자 계정으로 운영하는 예시다. 계정명·경로·도메인은 환경에 맞게 바꾼다. **`config.env` 안의 경로는 `~`·`$HOME`이 아닌 절대 경로로 쓴다.** 설정 파일은 셸 스크립트가 아니므로 경로를 확장하지 않는다.
+
+### 1. 서버와 파일 경로 준비
+
+Node는 24를 권장한다(최소 Node 22.18). `git`, C/C++ 빌드 도구, `python3`, `tmux`가 필요하다. `node-pty`를 로컬에서 빌드하고 tmux가 터미널 기능을 담당하기 때문이다.
+
+```bash
+# Debian/Ubuntu 예시 — root가 아닌 mew 사용자로 서비스를 운영한다.
+sudo apt install git build-essential python3 tmux
+sudo adduser --disabled-password --gecos "" mew   # 아직 없다면 한 번만
+
+sudo -iu mew
+git clone <이 레포 URL> ~/apps/mew
+install -d -m 700 ~/workspace ~/.config/mew ~/.local/share/mew
+
+cat > ~/.config/mew/config.env <<'EOF'
+MEW_WORKSPACE=/home/mew/workspace
+MEW_DATA_DIR=/home/mew/.local/share/mew
+MEW_TEAM_PORT=5000
+MEW_BIND=127.0.0.1
+EOF
+chmod 600 ~/.config/mew/config.env
+
+cd ~/apps/mew
+./mew setup
+```
+
+설정 파일이 이미 있으면 `setup`은 작업 폴더와 포트를 다시 묻지 않는다. 의존성을 설치·빌드하고 서버를 시작한 뒤 첫 owner 계정의 이메일만 받는다. 출력한 임시 비밀번호로 로그인한 즉시 비밀번호를 바꾼다.
+
+`MEW_WORKSPACE`에는 mew가 읽고 쓸 프로젝트만 둔다. 홈 디렉터리 전체, 서버 설정, 다른 서비스의 데이터처럼 mew 사용자에게도 열어서는 안 되는 경로를 넣지 않는다. 설정 파일과 데이터 폴더의 소유자는 반드시 mew를 실행하는 OS 사용자여야 한다.
+
+### 2. HTTPS 프록시 또는 터널 연결
+
+서비스 포트는 외부에 직접 열지 않고 `MEW_BIND=127.0.0.1`로 둔다. 그 앞에 HTTPS를 종료하는 리버스 프록시나 터널을 둔다. 프록시 설정에는 다음이 모두 필요하다.
+
+- 공개 도메인의 요청을 `http://127.0.0.1:5000`으로 전달한다. 경로를 덧붙이거나 지우지 않는다.
+- 원래 `Host` 헤더를 보존하고 HTTPS 요청에는 `X-Forwarded-Proto: https`를 보낸다. 로그인 쿠키가 `Secure`로 발급되고 CSRF Origin 검사가 정상 동작하려면 필요하다.
+- WebSocket 업그레이드를 모든 경로에서 통과시킨다. 협업·presence·터미널·에이전트·데이터베이스와 loopback 브라우저가 모두 WebSocket을 쓴다.
+- `index.html`이나 `/api` 응답을 프록시에서 장기 캐시하지 않는다. 정적 `/assets` 캐시는 앱이 직접 관리한다.
+
+프록시 또는 터널을 연결한 뒤, 실제 도메인에서 아래 순서로 확인한다.
+
+1. `https://<도메인>/api/auth/me`가 JSON 응답을 돌려준다.
+2. 브라우저에서 로그인한 뒤 임시 비밀번호 변경 화면이 먼저 보인다.
+3. 문서를 다른 브라우저 창에서 함께 열어 협업 연결과 자동 저장이 되는지 확인한다.
+4. manager 또는 owner 계정에서 터미널을 열 수 있는지 확인한다. 이 검사는 실제 셸 권한을 주는 일이므로 테스트 계정으로만 한다.
+
+개발 서버 `npm run dev`(4999)는 HMR과 소스맵을 노출하므로 터널·프록시·방화벽 어느 쪽으로도 공개하지 않는다.
+
+### 3. 재부팅 뒤에도 실행하기 (systemd)
+
+`./mew start`는 `nohup`으로 프로세스를 띄우는 간단한 개인용 경로라 재부팅 후 자동 시작하지 않는다. 서버에서는 하나의 process manager만 사용한다. 아래처럼 systemd를 쓴다면 `./mew start|stop|restart|update`와 섞지 말고 `systemctl`로만 시작·중지·재시작한다.
+
+먼저 `./mew setup`이 띄운 프로세스를 멈춘 다음, 실제 사용자·경로·Node 경로를 반영한 unit을 만든다. `command -v node`로 Node 절대 경로를 확인한다.
+
+```ini
+# /etc/systemd/system/mew.service
+[Unit]
+Description=mew workspace editor
+After=network.target
+
+[Service]
+Type=simple
+User=mew
+Group=mew
+WorkingDirectory=/home/mew/apps/mew
+Environment=HOME=/home/mew
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+UMask=0077
+ExecStart=/usr/bin/node server/serve.ts
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# mew 사용자에서: setup이 띄운 nohup 프로세스를 먼저 정리
+cd ~/apps/mew && ./mew stop
+exit
+
+# 관리자로 돌아와 unit 반영과 시작
+sudo systemctl daemon-reload
+sudo systemctl enable --now mew
+sudo systemctl status mew
+journalctl -u mew -f
+```
+
+Node 또는 에이전트 CLI를 `nvm`, `mise` 같은 사용자 전용 경로에 설치했다면 systemd의 `PATH`에도 그 절대 경로를 넣는다. systemd는 로그인 셸의 초기화 파일을 읽지 않는다.
+
+### 4. 업데이트·백업·장애 확인
+
+배포 전에는 항상 현재 커밋과 데이터 백업 위치를 기록한다. 앱 클론을 지워도 다음 상태는 남고, 반대로 이 상태를 잃으면 계정·세션·게스트 규칙·UI 원장이 사라진다.
+
+| 대상 | 기본 위치 | 백업 이유 |
+| --- | --- | --- |
+| 설정·외부 서비스 자격증명 | `~/.config/mew/config.env` | 워크스페이스, 포트, R2·DB 연결 등 복구 |
+| mew 앱 데이터 | `~/.local/share/mew/` 또는 `MEW_DATA_DIR` | 계정, 세션, 게스트 규칙, 채팅, RAG 캐시·인덱스 |
+| 작업물 | `MEW_WORKSPACE` | mew가 편집하는 실제 파일 — Git만으로 충분한지 별도 판단 |
+| `/db` 데이터 | `DATABASE_URL`이 가리키는 Postgres | 앱 데이터 폴더에 포함되지 않음 |
+
+설정 파일과 앱 데이터는 비밀값·비밀번호 해시를 포함하므로 암호화된 백업에만 넣고, Git이나 공유 폴더에 복사하지 않는다. RAG 캐시와 인덱스는 지워도 다시 만들 수 있지만 계정·세션·게스트 규칙은 그렇지 않다.
+
+systemd 운영에서는 다음처럼 업데이트한다. 빌드가 `dist/`를 바로 바꾸므로, 사용자가 접속 중인 서버에서는 짧은 반영 구간을 공지하고 한 번에 진행한다.
+
+```bash
+# mew 사용자에서 빌드한다.
+sudo -iu mew
+cd ~/apps/mew
+git status                 # 작업 트리가 깨끗한지 먼저 확인
+git pull --ff-only
+npm ci --no-audit --no-fund
+npm test                   # 권장: 새 버전 검증
+npm run build
+exit
+
+# 관리자로 돌아와 새 빌드를 재시작한다.
+sudo systemctl restart mew
+sudo systemctl status mew
+```
+
+문제가 나면 `journalctl -u mew -n 100 --no-pager`로 서버 로그를 먼저 확인한다. 개인용 `./mew` 실행 경로에서는 `./mew status`와 `./mew logs`를 쓴다. 롤백은 마지막 정상 커밋으로 앱 클론을 되돌린 뒤 같은 의존성 설치·빌드·재시작 절차를 수행한다. 워크스페이스와 `MEW_DATA_DIR`를 지우거나 덮어쓰는 방식으로 롤백하지 않는다.
+
 **MOC는 파일명으로 목록에 섞이지 않는다** — `MOC.md`·`_MOC.md`(둘은 같은 것)는 파일 목록에서 빠지고, 대신 **자기 폴더를 펼쳤을 때 맨 첫 줄**에 지도 아이콘 + `Map Of Contents`로 고정된다. 프로젝트 루트의 MOC는 담을 폴더가 없으니 트리 전체의 맨 위, 어떤 폴더보다 앞에 같은 모양으로 선다. 판별은 파일명뿐이라 프로젝트를 가리지 않는다.
 
 ## 프로젝트 탭
 
 mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더도 워크스페이스가 아니라 처음 열린 프로젝트일 뿐이다. 화면 주소는 항상 `/`이고, 헤더에는 이 브라우저에서 열어 본 루트 프로젝트 경로가 탭으로 선다. 열린 경로 목록은 `localStorage`의 `mew:open-project-paths`에 남는다.
 
-- 헤더의 `+ 탭` 또는 `Ctrl+O`는 화면 가운데 프로젝트 경로 입력창을 연다. 절대경로·`~`·현재 프로젝트 기준 상대경로를 받고, 에이전트 작업 경로 입력창과 같은 자동완성·서버 검증을 쓴다. 폴더 안으로 들어간 뒤 Enter를 다시 누르거나 오른쪽 화살표를 누르면 그 폴더가 프로젝트 탭으로 열린다(owner 전용).
+- 헤더의 `+ 탭` 또는 `Ctrl+O`는 화면 가운데 서버 폴더 브라우저를 연다. 절대경로·`~`를 주소창에 직접 넣거나 하위 폴더를 눌러 이동하고, **현재 폴더 열기**로 그 폴더를 프로젝트 탭에 추가한다(owner 전용). 우상단 `+` 메뉴는 현재 폴더 안에 새 폴더 만들기, 원격 Git 저장소 clone, 현재 폴더 `git init`을 제공한다. clone은 완료될 때까지 창에 처리 중 상태로 남고 성공하면 목록을 다시 읽는다.
 - 탭을 누르면 그 루트 프로젝트로 전환한다. 현재 서버 호환층은 활성 루트를 프로세스 전체에서 하나만 유지하므로 트리 감시자·협업 방·에이전트를 정리한다. 브라우저는 새로고침하지 않고 새 루트의 트리를 읽어 화면을 교체하며, 열린 탭 목록과 작은 텍스트 본문 캐시는 루트 절대경로별로 분리해 다시 돌아올 때 복원한다. 내부 이름 `WORKSPACE_ROOT`·`MEW_WORKSPACE`는 설정·경로 검증 호환용이며 사용자 개념이 아니다.
 - 탭을 길게 누르거나 우클릭하면 아이콘 선택기를 연다(owner 전용). 아이콘은 이 브라우저의 열린 루트 경로별로 기억한다. `+ 탭`은 글자 없이 `+` 아이콘만 보인다.
 - 프로젝트 이름이 보이는 탭에는 `×`가 보인다. 누르면 확인 뒤 탭 목록에서만 닫으며, 파일·폴더는 지우지 않는다. 마지막 루트 프로젝트 탭은 닫을 수 없다.
@@ -49,12 +195,33 @@ mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더�
 
 ## 사이드바의 프로젝트 · 하위 프로젝트 · Documents
 
-사이드바 상단의 탐색기(폴더) · 전체 검색(돋보기) · \*\*현재 루트 프로젝트 명령(▶)\*\*은 서로 다른 세 개의 사이드바 탭이다. 루트 명령 ▶를 누르면 파일 탐색기·Documents 없이 루트의 `.mew/cmd-button.json` 목록만 보인다.
+사이드바 상단의 탐색기(폴더) · 전체 검색(돋보기) · **현재 루트 프로젝트 명령(▶)**은 서로 다른 세 개의 사이드바 탭이다. 루트 명령 ▶를 누르면 파일 탐색기·Documents 없이 루트의 `.mew/cmd-button.json` 목록만 보인다. Git은 사이드바에 버튼을 두지 않고 헤더 햄버거 메뉴 또는 `Alt+G`로 연다.
 
 파일 검색창 바로 아래에는 Documents와 직계 하위 프로젝트가 큰 펼침 항목으로 선다. 그 뒤에는 현재 루트의 나머지 파일·폴더가 별도 Project 폴더 없이 바로 이어진다.
 
 - **Documents** — 현재 프로젝트가 고른 docs 폴더. 펼치면 바로 아래에 내용이 보이고, owner가 우클릭하면 기존 폴더 변경·가져오기·내보내기 설정 창이 열린다. 내부 식별자와 API는 계속 `docs`다.
-- 모바일에서는 사이드바의 파일·폴더를 **0.5초 이상 누른 뒤 이동 없이 손을 떼면** 데스크톱 우클릭과 같은 항목 메뉴가 열린다. 누른 채 움직이면 이 메뉴를 열지 않아 기존 끌어놓기 이동을 계속할 수 있다. 루트 바로 아래 폴더에 `.mew`가 있으면 **하위 프로젝트**다. Documents 바로 뒤에서 각자 큰 펼침 항목으로 보이고, 줄 오른쪽에 해당 폴더의 기존 명령 메뉴(`<폴더>/.mew/cmd-button.json`)를 둔다. 펼치면 자기 파일이 바로 보인다. `.mew`가 없는 루트 파일·폴더는 이 항목들 뒤에 별도 컨테이너 없이 바로 나열한다. owner·manager는 숨김 폴더도 보되 `.git`·`node_modules`·`.data`는 기존 차단·성능 규칙에 따라 제외한다. 하위 프로젝트 안의 중첩 `.mew` 폴더는 아직 별도 프로젝트로 분류하지 않는다.
+- 모바일에서는 사이드바의 파일·폴더를 **0.5초 이상 누른 뒤 이동 없이 손을 떼면** 데스크톱 우클릭과 같은 항목 메뉴가 열린다. 폴더 메뉴의 **Git 저장소로 만들기**는 선택한 폴더 자체에서 `git init`한다(owner·manager). 누른 채 움직이면 이 메뉴를 열지 않아 기존 끌어놓기 이동을 계속할 수 있다. 루트 바로 아래 폴더에 `.mew`가 있으면 **하위 프로젝트**다. Documents 바로 뒤에서 각자 큰 펼침 항목으로 보이고, 줄 오른쪽에는 기존 명령 메뉴(`<폴더>/.mew/cmd-button.json`)만 둔다. 펼치면 자기 파일이 바로 보인다. `.mew`가 없는 루트 파일·폴더는 이 항목들 뒤에 별도 컨테이너 없이 바로 나열한다. owner·manager는 숨김 폴더도 보되 `.git`·`node_modules`·`.data`는 기존 차단·성능 규칙에 따라 제외한다. 하위 프로젝트 안의 중첩 `.mew` 폴더는 아직 별도 프로젝트로 분류하지 않는다.
+
+## Git 워크벤치 팝업
+
+헤더 햄버거 메뉴의 **Git** 또는 `Alt+G`는 편집 탭을 바꾸지 않는 독립 팝업을 연다. 처음에는 루트 프로젝트·Documents·그 안의 모든 Git 저장소 목록을 보이고, 하나를 고르면 그 저장소의 이력으로 들어간다. 그래프 화면의 왼쪽 위 뒤로가기는 이 목록으로 돌아간다. 바깥 클릭·닫기 버튼·Esc로 닫으며, 파일 탭·분할 칸 이동·계정별 탭 복원 대상이 아니다. 기존 `mew:git:` 가상 탭 저장분은 다음 복원 때 제거한다.
+
+- 첫 화면은 모든 ref의 최근 커밋 최대 300개를 topo-order로 표시한다. 맨 위 첫 항목은 항상 **커밋되지 않은 변경사항**이고, 그 아래에 그래프 레인과 커밋 제목·ref·작성자·시간·짧은 해시가 선다.
+- 팝업 안 화면은 `그래프 → 커밋 또는 작업트리 상세 → 파일 diff`의 세 단계다. 상세·diff 화면 왼쪽 위의 뒤로가기로 바로 전 단계에 돌아가며 오른쪽 위 `×`는 어느 단계에서든 팝업을 닫는다.
+- 커밋 상세는 본문과 변경 파일을 표시한다. 작업트리 상세는 수정·추가·삭제·미추적 파일 전체를 먼저 표시하고, 팝업 맨 아래 고정 작성 영역에서 커밋 제목·선택 설명을 입력한다. `커밋`은 이 변경을 모두 stage해 한 커밋으로 만들며, 그 옆 `AI Commit`은 에이전트 연결 전에는 안내만 표시한다.
+- 상세의 변경 파일을 누르면 같은 팝업이 파일 diff 화면으로 바뀌고 이전·이후 줄 번호와 추가·삭제 줄을 표시한다. 파일을 누를 때만 patch를 읽으므로 전체 diff가 첫 응답을 막지 않는다.
+- 커밋 우클릭은 해시 복사, branch/tag 생성, detached checkout, cherry-pick, revert를 제공한다. checkout·cherry-pick·revert는 확인 뒤 실행하며 강제 checkout·reset·clean은 제공하지 않는다. 작업 트리 변경이나 충돌 때문에 Git이 거부하면 오류를 그대로 표시한다.
+- API는 저장소 상대경로와 구조화된 작업 인자만 받으며 임의 셸 문자열을 받지 않는다. 지정한 폴더 자체에 `.git`이 있어야 하고 상위 저장소를 암묵적으로 찾아가지 않는다.
+
+| 라우트 | 역할 | 하는 일 |
+| --- | --- | --- |
+| `GET /api/git/repository` · `GET /api/git/log` | manager·owner | 저장소 상태와 커밋 그래프 원본 |
+| `GET /api/git/repositories` | manager·owner | 루트·Documents·중첩 Git 저장소 선택 목록 |
+| `GET /api/git/commit` · `GET /api/git/diff` | manager·owner | 과거 커밋 메타데이터·변경 파일과 선택 파일 patch |
+| `GET /api/git/working-tree` · `GET /api/git/working-tree/diff` | manager·owner | 현재 작업트리 변경 파일과 선택 파일 patch |
+| `POST /api/git/commit` · `POST /api/git/action` | manager·owner | 작업트리 전체 커밋과 과거 커밋 대상 허용 작업 |
+| `POST /api/git/init` | manager·owner | 프로젝트 안 폴더 Git 초기화 |
+| `POST /api/fs/folder` · `POST /api/fs/git/init` · `POST /api/fs/git/clone` | owner | 프로젝트 브라우저의 임의 OS 경로 생성·초기화·clone |
 
 워크스페이스 스코프 홈 고정 탭과 최상위 하위 폴더 전체를 나열하던 프로젝트 격자 진입점은 없다. 할 일·달력 위젯을 다시 노출할 때는 워크스페이스 홈 탭을 되살리지 않고 프로젝트 스코프 배치를 별도로 결정한다.
 
@@ -74,6 +241,7 @@ mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더�
 | `POST /api/fs/rename` · `DELETE /api/fs/path` · `POST /api/fs/paste` | manager·owner | 이름 변경·재귀 삭제·복사/이동 |
 | `GET /api/fs/raw` · `GET /api/fs/download` | manager·owner | 외부 미디어 스트리밍·파일 다운로드 |
 | `POST /api/fs/open-project` | owner | 선택 폴더 자체를 루트 프로젝트로 열고 활성화 |
+| `POST /api/fs/folder` · `POST /api/fs/git/init` · `POST /api/fs/git/clone` | owner | 현재 폴더 안 생성·Git 초기화·저장소 clone |
 
 ## 브라우저 창
 
@@ -179,9 +347,10 @@ npx tsc -b      # 타입만 (빌드 없이)
 
 | 변수 | 기본값 | 무엇 |
 | --- | --- | --- |
-| `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더. `server/paths.ts`의 `WORKSPACE_ROOT`를 고정 경로로 되돌리지 않는다 — 앱과 워크스페이스를 뗄 수 있어야 컨테이너·다른 폴더 배포가 성립한다 |
+| `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더. `server/paths.ts`의 `WORKSPACE_ROOT`를 고정 경로로 되돌리지 않는다 — 앱과 워크스페이스를 분리해야 다른 폴더·다른 서버에 안전하게 배포할 수 있다 |
 | `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·게스트 규칙·아이콘·RAG 인덱스/모델 캐시 |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
+| `MEW_BIND` | `127.0.0.1` | 서버가 들을 주소. 공개 기본값은 loopback이며, LAN 직접 접속이 꼭 필요할 때만 노출 주소를 명시한다. 서버 배포는 HTTPS 프록시·터널 뒤 `127.0.0.1`로 유지한다 |
 | `MEW_COLLAB_RUST` | 없음(=JS Yjs) | `1`이면 협업 방 상태를 Rust(yrs)로 — 먼저 `npm run build:native` (아래 §협업 방) |
 | `DATABASE_URL` | 없음 | `/db`용 Postgres. 없거나 접속 불가면 `/db` API만 503 |
 | `R2_*` | 없음 | 미디어 업로드(S3 호환). 없으면 업로드 기능만 꺼진다 |
@@ -201,15 +370,16 @@ npx tsc -b      # 타입만 (빌드 없이)
 - 모델 다운로드·초기 인덱싱이 실패하면 `GET /api/search/semantic`만 503이다. 기존 정확/정규식 검색은 영향 없다.
 - API: `GET /api/search/semantic?q=&project=&history=0|1`, `GET /api/rag/status`, `POST /api/rag/reindex`(manager/owner). 결과는 파일 경로·시작/끝 줄·heading·점수·인용 문맥을 포함한다.
 
-### 컨테이너로 띄우기 (선택)
+### Postgres만 Docker Compose로 띄우기 (선택)
 
-서버·VPS용 경로다. 자기 컴퓨터에서는 `./mew setup`(네이티브)이 낫다 — **컨테이너 안 터미널에는 당신의 개발 도구가 없다.**
+현재 Docker Compose는 `/db` 기능의 Postgres만 보조한다. 앱 컨테이너에는 Dockerfile이 없으므로 `--profile app`은 실행하지 않는다. 네이티브 mew 서버에서 `/db`를 쓸 때만 다음을 사용한다.
 
 ```bash
-docker compose --profile app up -d --build   # 앱 + Postgres
+npm run db:up     # Postgres만 127.0.0.1:55432에 기동
+npm run db:down   # Postgres 중지
 ```
 
-`MEW_WORKSPACE_HOST`(기본: 이 레포의 부모) · `MEW_PORT` · `MEW_BIND` · `MEW_UID`/`MEW_GID`를 `.env`로 준다. `npm run db:up`은 같은 파일에서 Postgres만 띄우는 것이라 서로 간섭하지 않는다.
+`DATABASE_URL`과 `MEW_PG_PASSWORD`는 레포에 커밋하지 않는 설정 파일에 둔다. 기본 연결 예시는 [.env.example](.env.example)에 있다.
 
 ### 사용자 관리 (호스트에서)
 
@@ -400,24 +570,28 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 
 - 서버: `server/agentRuntimes.ts`(공통 런타임 등록표) + `server/agentDefaults.ts`(런타임별 모델·권한 기본값) + `server/agentAcp.ts`(세션·파일 스코프) + `server/agentHost.ts`(탭별 독립 감독 프로세스·유닉스 소켓) + `server/agentWs.ts`(WS↔감독 릴레이) + `server/agentUsage.ts`(토큰 사용량). 클라이언트: `src/components/AgentPanel.tsx` + `src/utils/agentFold.ts`(이벤트→화면 항목) + `src/components/agentRuntimes.tsx`(런타임 목록·아이콘, 예약 작업 창과 공용) + `src/utils/agentMarkdown.ts`(답변 마크다운). 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) — 에이전트는 Bash를 쓸 수 있어 tmux와 같은 경계여야 한다. 권한 모드 기본값이 `bypassPermissions`라 (승인 프롬프트 없음) **이 역할 게이트가 유일한 통제다** — tmux보다 낮추면 무인 셸을 여는 것이다.
 - 입력창은 `/`로 로컬 스킬을, `@`로 하위 프로젝트·현재 프로젝트의 폴더·파일을 검색해 넣는다. `@` 결과는 **하위 프로젝트 → 폴더 → 파일** 순서이고 같은 종류 안에서는 가나다순이다. 프로젝트 목록은 `GET /api/projects`가 역할에 맞게 돌려주며, 고르면 기존처럼 `#프로젝트명`이 들어간다. 폴더·파일은 `[[프로젝트:경로]]` 토큰으로 들어간다. 스킬 목록은 `GET /api/skills`가 `CODEX_HOME/skills`와 `<워크스페이스>/.agents/skills`의 `SKILL.md`를 읽어 만든다. `/스킬명`을 고르면 브라우저는 스킬 id만 WS에 싣고, 서버가 `server/agentRuntimes.ts`의 런타임 등록표로 실제 프롬프트를 합성한다. 기본 합성기는 모든 ACP 런타임에 대해 선택된 `SKILL.md`를 먼저 읽고 따르라고 지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다. `Alt+L`은 어디에 포커스가 있든 에이전트 창을 열거나 닫는다. **채팅과 입력창 사이의 경계선 전체**를 위아래로 끌어 입력창을 화면 높이의 80%까지 늘릴 수 있다(키보드는 경계선에서 ↑·↓).
+- 질문 위에는 전송 시점의 **모델 · 추론 정도 · 권한**을 양쪽 선과 함께 남긴다. 첫 질문도 표시하며, 이전 질문과 셋 중 하나라도 달라질 때만 다시 표시한다. 이 값은 ACP 이벤트 전사에 같이 저장돼 재접속·세션 복원 뒤에도 당시 설정을 보인다.
 - `+`와 탭이 없을 때 가운데의 **새 탭** 버튼은 탭을 먼저 만들지 않고 **새 탭 선택기**를 연다. 선택기는 맨 위 `런타임 | 에이전트셋` 토글로 시작한다. 런타임은 기존처럼 바로 선택하고, 에이전트셋은 저장된 `런타임 + 모델 + 역할` 프리셋을 리스트로 보인다. 목록 마지막의 `+ 새 에이전트셋 추가`에서 프리셋을 만들 수 있다. 런타임을 고르면 그 런타임 이름으로, 셋을 고르면 그 셋 이름으로 같은 ACP 채팅 탭이 열린다. 선택 전에는 탭·WS·ACP 세션이 없고, `새 대화`라는 임시 탭도 없다. 탭 이름은 첫 프롬프트로 자동 교체하지 않으며 직접 바꿀 수 있다. 셋의 모델은 탭 시작에 적용하고 역할은 그 세션 첫 프롬프트에 시스템 지시로 한 번 붙인다. 마지막으로 고른 토글은 브라우저에 저장되어 다음 새 탭의 기본 보기로 복원된다. 런타임 상태와 에이전트셋 목록은 페이지 내 공용 캐시를 먼저 보이고, 각 선택기가 여는 비동기 재조회 결과로 갱신한다. 정의는 `GET`·`PUT /api/agent-sets`(owner/manager)로 `<DATA_DIR>/agent-sets.json`에 저장된다 ([ADR 0095](../.mew/docs/decisions/0095-mew-agent-sets-as-tab-presets.md)).
 - 답변의 **현재 워크스페이스 파일 링크**를 누르면 브라우저 새 탭이 아니라 같은 mew에서 해당 프로젝트와 문서 탭을 연다. `:줄`·`#L줄`이 붙으면 그 줄로 이동하며, Markdown도 정확한 원본 줄을 보여 주기 위해 이 경우 Plain으로 연다. `GET /api/agent-file-link?href=`가 서버 절대경로를 노출하지 않고 `{project,path,line}`으로 검증·변환한다(owner/manager). 웹 링크는 계속 새 브라우저 탭으로 연다.
 - 탭의 \*\*작업 경로(cwd)\*\*는 새 탭을 열 때 현재 워크스페이스 루트로 정해지며 화면에서 바꾸지 않는다. 경로는 ACP 세션·히스토리의 기준으로 계속 저장하지만, 주소창 형태의 입력줄은 없다 ([ADR 0097](../.mew/docs/decisions/0097-mew-agent-panel-removes-cwd-bar.md)).
 - 채널: `/api/agent/ws?runtime=<id>&tab=<id>&cwd=<absolute-path>&resume=<session-id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은 `런타임+탭+cwd`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`, `[A-Za-z0-9_-]{1,64}`이 아니면 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 — 고른 값은 브라우저에만 남는다(`mew:agent-runtime`). 창을 닫아도 세션은 남고, 다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다. 각 탭의 감독은 mew와 다른 프로세스 그룹에서 `<DATA_DIR>/agent/*.sock`으로 중계되므로 **브라우저 종료·mew 종료/재시작에도 진행 중인 턴은 끊기지 않는다**. 모든 턴과 대기열이 끝난 뒤 붙은 창 없이 30분이 지나야 감독과 ACP/CLI가 종료된다 ([ADR 0048](../.mew/docs/decisions/0048-mew-agent-supervisor-process.md)). 감독이 종료된 뒤에도 탭은 런타임·cwd별 마지막 ACP 세션 ID를 기억한다. 다시 열면 새 감독이 그 ID를 `session/load`해 전사를 재생하므로, 30분 유휴 종료는 프로세스만 정리하고 탭의 대화를 새 대화로 바꾸지 않는다 ([ADR 0079](../.mew/docs/decisions/0079-mew-agent-tabs-resume-after-idle.md)).
 - **설치와 로그인은 별개다**([ADR 0072](../.mew/docs/decisions/0072-mew-agent-gui-authentication.md), [ADR 0110](../.mew/docs/decisions/0110-mew-declarative-agent-authentication-jobs.md)). `session/new`가 인증 필요를 돌려주면 프로세스를 닫지 않고 로그인 화면으로 전환한다. ACP 일반 로그인은 사용자가 주소를 확인하고 **로그인 페이지 열기**를 눌러 현재 브라우저의 새 탭에서 진행한다. API 키는 한 번만 ACP 요청으로 보내고 저장·이벤트 기록하지 않는다. 등록표의 고정 인증 명령은 `browser | terminal` 표면을 선언한다. browser는 클릭 즉시 빈 탭을 예약하고 allowlist를 통과한 CLI URL이 나오면 이동하며, 별도 일회용 코드를 같이 보여 준다. terminal은 Mew tmux 팝업에서 공급자 선택·비밀 입력을 보존한다. GUI가 팝업을 닫아도 exit code를 감시하고, `0`일 때만 ACP를 재초기화한다. 실패하면 URL·token·code를 지운 CLI 오류 한 줄을 보여 주며 자동 재시작하지 않는다. ACP 자체가 인증 전에 종료되어도 탭 감독은 등록표의 모든 인증 방법을 복구 경로로 보여 준다.
-- 탭 목록·이름·런타임·cwd별 마지막 세션 ID는 브라우저에만 있고 **루트 프로젝트 절대 경로별로 분리**된다 (`mew:agent-tabs:<root-path>`) — 서버는 **탭 id만** 알고 뜻은 모른다. 세션 ID는 탭을 닫을 때 함께 지워지고, 같은 탭에서 런타임이나 cwd를 갈아타면 각 조합의 대화 포인터를 따로 보존한다. 마지막으로 보던 탭도 같은 루트 경로별로 남는다(`mew:agent-active-tab:<root-path>`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이 선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라). 스와이프로 창·탭을 전환하거나 닫는 동작은 없다. 이 작업은 플로팅 핸들이 맡는다. 탭 이름은 선택한 런타임 또는 에이전트셋 이름으로 시작하고, 탭을 두 번 누르면 직접 고친다 ([ADR 0096](../.mew/docs/decisions/0096-mew-agent-tabs-created-after-selection.md)).
+- 탭 목록·이름·런타임·cwd별 마지막 세션 ID는 **계정에 저장**하고 루트 프로젝트 절대 경로별로 분리한다. 브라우저의 `mew:agent-tabs:<root-path>`는 서버 응답 전 연결에 쓰지 않는 로컬 fallback뿐이다. 저장 PUT은 화면마다 한 번씩 직렬화하며, 전송 중 갱신이 여럿 생기면 마지막 스냅샷만 이어 보내 오래된 응답이 최신 thread 포인터를 되돌리지 못하게 한다. 서버 복원이 끝난 뒤에만 활성 탭의 WS를 붙이므로 localStorage의 낡은 세션으로 먼저 연결하지 않는다. 세션 ID는 탭을 닫을 때 함께 지워지고, 같은 탭에서 런타임이나 cwd를 갈아타면 각 조합의 대화 포인터를 따로 보존한다. 마지막으로 보던 탭도 같은 루트 경로별로 남는다(`mew:agent-active-tab:<root-path>`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이 선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라). 스와이프로 창·탭을 전환하거나 닫는 동작은 없다. 이 작업은 플로팅 핸들이 맡는다. 탭 이름은 선택한 런타임 또는 에이전트셋 이름으로 시작하고, 탭을 두 번 누르면 직접 고친다 ([ADR 0093](../.mew/docs/decisions/0093-mew-account-synced-project-and-agent-tabs.md)·[ADR 0096](../.mew/docs/decisions/0096-mew-agent-tabs-created-after-selection.md)).
   - 새 탭은 선택 후에만 생기므로, 선택 전 히스토리 조회·세션 입력을 위한 빈 탭은 없다. 새 세션은 선택 직후부터 해당 탭에서 시작하며, 지난 세션을 고르는 기능은 탭에서 계속 제공한다
-  - 같은 세션을 두 탭에서 열지 않는다(목록에서 잠근다) — 한 전사를 두 프로세스가 붙들면 기록이 엉킨다
+  - 같은 세션을 두 탭에서 열지 않는다(목록에서 잠근다) — 현재 mount된 탭뿐 아니라 같은 계정에 저장된 다른 루트 프로젝트의 숨은 탭까지 한 번의 탭 상태 응답에 포함해 판정한다. 한 전사를 두 프로세스가 붙들면 기록이 엉킨다
   - **대화가 자라도 바닥에 붙어 있을 때만 따라 내려간다**(바닥 판정 여유 48px). 위로 올려 읽는 중이면 자리를 지키고 \*\*\[새 메시지\]\*\*만 띄운다 — 누르면 바닥으로, 스스로 바닥까지 내려가도 사라진다. 내가 프롬프트를 보냈을 때와 세션을 새로 불러왔을 때(`reset`)는 다시 바닥에 붙인다
   - **탭을 닫는 것만 세션을 끝낸다**(`close_session`). 창을 닫는 것과 다르다. 안 보고 있는 탭도 WS는 붙어 있고(돌던 대화가 멎으면 안 된다), 한 번이라도 연 탭만 붙인다(복원된 탭을 한꺼번에 띄우지 않는다)
-  - **턴 버블 오른쪽에 걸린 시간이 선다** — "15초"·"36분 32초"·"2시간 5분 4초" 꼴. 서버가 `turn_start`에 `startedAt`, `turn_end`에 `durationMs`를 새기므로 되받은 히스토리에서도 그대로 보인다. 돌고 있는 턴은 startedAt부터 지금까지를 1초마다 다시 세고, 시간 정보가 없는 옛 히스토리는 감춘다
+  - **턴 버블 오른쪽에 걸린 시간이 선다** — "15초"·"36분 32초"·"2시간 5분 4초" 꼴. 서버가 `turn_start`에 `startedAt`, `turn_end`에 `durationMs`를 새기므로 되받은 히스토리에서도 그대로 보인다. 돌고 있는 턴은 startedAt부터 지금까지를 1초마다 다시 세고, 시간 정보가 없는 옛 히스토리는 감춘다. 감독이 유휴 종료된 뒤에도 완료 시점에 남긴 최근 500개 이벤트 전사를 다시 써서, 이전 작업의 소요 시간도 보존한다.
+  - ACP가 히스토리를 다시 흘릴 때 마지막 `turn_end`를 보내지 않아도, 현재 세션 `meta.busy`가 false면 마지막 턴은 **완료(초록)**로 그린다. meta를 받기 전이나 아직 작업 중이면 **진행 중(파랑)**을 유지한다.
 
 | 방향 | 메시지 |
 | --- | --- |
-| 클라이언트 → 서버 | `{type:'prompt', text}` · `{type:'cancel'}` · `{type:'permission', id, optionId|null}` · `{type:'authenticate', methodId, secret?}` · `{type:'retry_auth'}` · `{type:'auth_url_response', id, action}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'move_queued', from, to}` · `{type:'edit_queued', index, text, expect}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` · `{type:'close_session'}` |
-| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events}` · `{type:'update', update}`(ACP `session/update` 원본) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · `{type:'error'|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'auth', methods, authenticating, error}` · `{type:'auth_url', id, url, message}` · `{type:'auth_url_done', id}` · `{type:'auth_complete'}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
+| 클라이언트 → 서버 | `{type:'prompt', text, settings?: {model, thinking, permission}}` · `{type:'cancel'}` · `{type:'permission', id, optionId|null}` · `{type:'authenticate', methodId, secret?}` · `{type:'retry_auth'}` · `{type:'auth_url_response', id, action}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'move_queued', from, to}` · `{type:'edit_queued', index, text, expect}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` · `{type:'close_session'}` |
+| 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events, restored?, restoreFailure?}` · `{type:'update', update, settings?}`(ACP `session/update` 원본 + 사용자 발화 설정) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · `{type:'error'|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'auth', methods, authenticating, error}` · `{type:'auth_url', id, url, message}` · `{type:'auth_url_done', id}` · `{type:'auth_complete'}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
 
 - **되감기는 한 프레임이다(**`replay`**).** 붙는 순간 서버가 쌓아 둔 대화(`snapshot()`, 최대 500개)를 통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 마지막으로 본 전사를 탭·런타임·cwd별 `localStorage`(`mew:agent-events:*`)에 캐시해 브라우저 재진입 첫 프레임부터 그린다. 같은 세션의 `replay`는 캐시와 겹치는 꼬리를 제거한 뒤 최신분만 이어 붙인다 — 서버의 500개 상한 때문에 이미 본 앞쪽 프롬프트·답변이 사라지지 않는다. 다른 세션이면 `replay`로 갈아끼운다. 창은 소켓이 끊겨도 대화를 지우지 않는다. 예전에는 이벤트를 500개까지 **한 개씩** 되돌려 보냈고, 창은 그때마다 다시 그리느라(이벤트당 `foldEvents` 한 번 + 목록 전체) 눈에 띄게 굳었다.
+
+- **히스토리를 열 때마다** 계정의 모든 루트 프로젝트 탭이 주장한 ACP 세션을 다시 읽는다. 현재 탭 또는 다른 탭이 이미 연 세션은 목록에서 잠가 두므로, 이미 붙은 writer를 다시 `session/load`해 ACP의 `Internal error`가 나는 경로가 없다.
 
 - **창은 들어오는 이벤트를 한 프레임에 모아 한 번만 그린다**(`requestAnimationFrame`). 스트리밍 청크는 초당 수십 개다. `reset`도 그 줄에서 순서대로 처리돼 "비우기"와 "새 대화"가 같은 프레임에 들어간다.
 
@@ -427,7 +601,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 
 - **진행 중에 온** `prompt`**는 던지지 않고 줄을 세운다.** 턴이 끝나면 서버가 순서대로 이어 돌리고, `cancel`은 대기열도 함께 비운다. 대기 항목은 창에서 자리를 옮기고(`move_queued`) 내용도 고칠 수 있다(`edit_queued`) — 고치는 사이 앞 턴이 끝나 큐가 당겨질 수 있으므로 `expect`(창이 보고 있던 원본)가 지금 그 자리의 값과 다르면 서버가 무시한다.
 
-- 불러오기(`/resume`)는 **ACP 메서드**(`session/list`·`session/load`)다. 자식 프로세스는 그대로 두고 세션만 갈아끼운다. 목록을 물어볼지는 `initialize`의 capability(`meta.canList`)로 정한다. 정확한 `/clear`는 CLI에 프롬프트로 넘기지 않는다. 작업 중이면 서버 큐의 **세션 경계**로 들어가 앞선 작업을 마친 뒤 ACP 새 세션을 열고, 그 뒤 큐에 넣은 메시지는 새 대화에서 실행한다. 이전 대화는 히스토리에만 남는다.
+- 불러오기(`/resume`)는 **ACP 메서드**(`session/list`·`session/load`)다. 자식 프로세스는 그대로 두고 세션만 갈아끼우되, 진행 중인 턴·승인·대기열과는 겹치지 않는다. 자동 복원 실패 시 `replay.restoreFailure`로 실패한 ID를 내려 원래 탭 포인터와 브라우저 전사를 보존한다. 사용자가 다른 히스토리를 고르거나 새 메시지를 보낼 때만 fallback 새 세션을 채택한다. 목록을 물어볼지는 `initialize`의 capability(`meta.canList`)로 정한다. 정확한 `/clear`는 CLI에 프롬프트로 넘기지 않는다. 작업 중이면 서버 큐의 **세션 경계**로 들어가 앞선 작업을 마친 뒤 ACP 새 세션을 열고, 그 뒤 큐에 넣은 메시지는 새 대화에서 실행한다. 이전 대화는 히스토리에만 남는다.
 
 - Prime Agent는 공식 `prime-agent --mode rpc`를 Mew 내부 어댑터가 ACP로 변환한다. 따라서 Prime ACP의 구현 유무와 무관하게 세션 목록/불러오기, 모델, thinking mode를 Mew 창에서 제공한다.
 
@@ -543,6 +717,8 @@ MEW_COLLAB_RUST=1 npm run serve
 - `@mew/tmux-term` — 터미널. 클라이언트(`TmuxTerminalPanel`, xterm.js)와 서버 (`@mew/tmux-term/server`: `createTmuxManager`·`createTmuxRouter`·`attachTmuxWebSocket`, cwd 파라미터) 양쪽 제공. 버튼 줄 오른쪽 도구는 **전부 아이콘 하나**다(맨 아래 · 키보드 잠금 · 선택 모드 · 복사) — 좁은 화면에서 왼쪽 명령어 버튼 자리를 뺏지 않게. 무엇인지는 `data-tip`·`aria-label`이 말한다. 에디터에서 누른 Ctrl+L의 `경로:줄` 참조는 호스트 앱(App)이 `mew:insert-ref` window 이벤트로 보내고, `detail.target`**이 자기 것인 창 하나만** 받아 적는다(아래 "Ctrl+L 참조"). 버튼 줄 전체는 `HoverTipLayer`(`@mew/ui`)로 감싸 **마우스를 올리면 기다림 없이** 이름표가 뜬다 — `data-tip="이름"`이 붙은 요소면 무엇이든 대상이라 버튼마다 배선하지 않는다(명령어 버튼도 같이 따라온다). 이 줄의 버튼에는 `title`을 걸지 않는다: 이름표가 뜬 뒤에 브라우저 기본 툴팁이 겹쳐 뜬다.
   - \*\*\[맨 아래\]\*\*는 올라간 스크롤을 **누가 들고 있는지**에 따라 셋을 다 한다: ① xterm 자체 스크롤백이면 `scrollToBottom` ② tmux copy-mode(마우스를 안 쓰는 프로그램)면 WebSocket `exitCopyMode` → 서버가 `tmux copy-mode -q`(멱등. PTY에 `q`·Esc를 쏘면 모드가 아닐 때 TUI에 오입력된다) ③ **앱이 직접 스크롤하는 경우**(Claude Code처럼 마우스를 잡는 TUI) — tmux는 휠을 앱에 넘겼을 뿐이라 ①②가 통하지 않는다. 이때는 SGR 휠 아래를 한 번에 몰아 보내 앱 스스로 최신까지 내려가게 한다.
   - **\[키보드 잠금\]**(자물쇠)은 모바일 소프트 키보드가 뜨지 않게 한다 — 터미널의 보조 textarea와 하단 입력칸에 `inputMode='none'`을 건다. 포커스는 살아 있어 붙여넣기·하드웨어 키보드·명령어 버튼은 그대로 쓴다. 세션이 아니라 브라우저 설정이라 `localStorage: mew:tmux-keyboard-lock`에 남는다.
+  - 터미널 세션·에이전트 탭의 전송 성공 입력은 각각 브라우저에 최근 100개까지 보관한다. 입력칸의 첫 줄에서 `↑`, 마지막 줄에서 `↓`를 누르면 셸처럼 이전·다음 항목을 불러오며, 여러 줄 안에서는 본래 커서 이동을 유지한다.
+  - 하단 입력칸은 내용에 따라 자동으로 늘어나되 32~160px 범위를 지킨다. 숨겨진 패널에서 `scrollHeight`가 0으로 측정돼도 32px 아래로 줄이지 않는다.
 - `@mew/mobile-keys` — 모바일 키보드 보조키 바(`MobileKeyBar`). 에디터·터미널이 공용으로 쓴다. 에디터 바는 화면 하단 고정, **터미널 바는 자기 입력칸 아래의 레이아웃 공간을 차지**해 입력칸을 덮지 않는다. 고정 바는 `z-20`이다 — 전체 화면 오버레이(사이드바·채팅·에이전트· 터미널)가 `z-30`이라 그 아래로 깔려야 한다.\*\* 같은 `z-30`으로 두면 DOM 순서상 편집 칸이 사이드바보다 뒤라 보조키가 열린 사이드바 위에 떠 버린다. `onComment`를 주면 댓글 아이콘이 붙는다(폰에는 Alt+Shift+C가 없다) — 앵커는 호스트(`EditorPane.startComment`)가 만든다. `onCodeBlock`·`onTable`을 주면 코드블럭·표 아이콘이 붙는다 — 에디터만 넘기고(터미널은 대상이 없다) 코드블럭은 커서 문단 toggle, 표는 슬래시 메뉴 '표'와 같은 3×3 삽입이다. `onUndo`·`onRedo`는 되돌리기·다시 실행 아이콘이다 — Ctrl+Z/Y 단축키와 같은 경로(`runUndoRedoKeepingView`)라 커서가 바뀐 자리로 옮겨진다. 읽기 전용일 때는 에디터가 이 넷을 모두 감춘다. 보조키 바는 문서가 짧아도 화면 맨 아래에 고정되고, 모바일 키보드가 열린 때는 그 바로 위에 붙는다. 스와이프 전환은 제공하지 않는다.
 - `@mew/ui` — 의존성 없는 공용 조각: `ConfirmDialog`(네이티브 confirm 대체 — 전체화면이 풀리지 않게), `useToast`(답을 받을 필요가 없는 짧은 안내 — 화면 아래 알약 하나, 2.6초 뒤 저절로 사라지고 `pointer-events-none`이라 아무것도 가로채지 않는다. **오버레이 스택에 등록하지 않는다** — 등록하면 안드로이드 뒤로가기가 토스트를 닫는 데 쓰인다), `pathDrag`(위 §사이드바 항목 끌어놓기), `useDragReorder`(줄 안 재정렬 + 줄 **바깥**에 놓을 때를 알리는 `onDragMove`/`onDrop` — 문서 탭 끌어서 화면 분할이 이걸 쓴다. **꾹 누른 뒤**에만 집힌다 — 모바일 0.35초·마우스 0.5초. 그전에 끌면 탭 줄이 좌우로 굴러갈 뿐이다: 터치는 브라우저 기본 스크롤, 마우스는 훅이 `scrollLeft`를 민다), `useOverlayDismiss`(아래).
 

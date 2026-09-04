@@ -37,3 +37,6 @@ dist-ssr
 # Rust 협업 백엔드 빌드 산물 (ADR 0035) — 플랫폼별이라 커밋하지 않는다. `npm run build:native`로 만든다
 native/collab/target/
 native/collab/*.node
+
+# 재배포할 수 없는 원본 아트팩 — 공개 트리에 추가하지 않는다
+Oreo Cat - Aichan_owo.zip
