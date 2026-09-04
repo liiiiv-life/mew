@@ -6,6 +6,11 @@ import { DEFAULT_PROJECT, projectRoot } from './paths.ts'
 // 프로젝트마다 자기 레포에서 커밋한다 — git 레포가 아닌 폴더는 커밋 없이 저장만 된다
 const gitByProject = new Map<string, SimpleGit | null>()
 
+/** Git init 직후에는 이전의 "비레포" 캐시를 버려 다음 저장부터 커밋 경로를 다시 잡는다. */
+export function invalidateGit(project: string): void {
+  gitByProject.delete(project)
+}
+
 function gitFor(project: string): SimpleGit | null {
   let git = gitByProject.get(project)
   if (git === undefined) {

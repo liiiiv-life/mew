@@ -98,8 +98,10 @@ export function saveRootProjectTabs(state: RootProjectTabState): Promise<{ state
 }
 
 /** 로그인 계정의 루트 프로젝트별 에이전트 탭·ACP 세션 포인터. */
-export function fetchAgentTabs(workspacePath: string): Promise<{ state: AgentTabsState | null }> {
-  return fetch(`/api/user-ui/agent-tabs?workspace=${encodeURIComponent(workspacePath)}`).then(json<{ state: AgentTabsState | null }>)
+export type AgentSessionClaim = { workspacePath: string; tabId: string; sessionId: string }
+
+export function fetchAgentTabs(workspacePath: string): Promise<{ state: AgentTabsState | null; claims: AgentSessionClaim[] }> {
+  return fetch(`/api/user-ui/agent-tabs?workspace=${encodeURIComponent(workspacePath)}`).then(json<{ state: AgentTabsState | null; claims: AgentSessionClaim[] }>)
 }
 
 export function saveAgentTabs(workspacePath: string, state: AgentTabsState): Promise<{ state: AgentTabsState }> {
@@ -270,6 +272,7 @@ export interface ExternalEntry {
   path: string
   type: 'file' | 'dir'
   size: number | null
+  git?: boolean
 }
 
 export interface ExternalEntriesResult {
@@ -318,6 +321,111 @@ export function pasteExternalPath(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source, destination, mode }),
   }).then(json<{ ok: true; path: string }>)
+}
+
+export function createExternalFolder(parent: string, name: string): Promise<{ ok: true; path: string }> {
+  return fetch('/api/fs/folder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent, name }),
+  }).then(json<{ ok: true; path: string }>)
+}
+
+export function initializeExternalGit(path: string): Promise<{ ok: true; path: string }> {
+  return fetch('/api/fs/git/init', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(json<{ ok: true; path: string }>)
+}
+
+export function cloneExternalGit(parent: string, url: string, name?: string): Promise<{ ok: true; path: string }> {
+  return fetch('/api/fs/git/clone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent, url, name }),
+  }).then(json<{ ok: true; path: string }>)
+}
+
+export interface GitRepositoryInfo {
+  repository: boolean
+  path: string
+  branch: string | null
+  detached: boolean
+  dirty: boolean
+  ahead: number
+  behind: number
+  remotes: string[]
+}
+
+export interface GitRepositoryEntry { path: string }
+
+export interface GitLogEntry {
+  hash: string
+  parents: string[]
+  refs: string[]
+  subject: string
+  author: string
+  email: string
+  date: string
+}
+
+export interface GitChangedFile { status: string; path: string; previousPath?: string }
+export interface GitCommitDetail extends GitLogEntry { body: string; files: GitChangedFile[] }
+export interface GitWorkingTreeDetail { files: GitChangedFile[] }
+export interface GitWorkingTreeCommitResult { info: GitRepositoryInfo; hash: string }
+export type GitCommitAction = 'branch' | 'tag' | 'checkout' | 'cherry-pick' | 'revert'
+
+export function fetchGitRepository(path = '', project = currentProject): Promise<GitRepositoryInfo> {
+  return fetch(`/api/git/repository?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<GitRepositoryInfo>)
+}
+
+export function initializeGitRepository(path = '', project = currentProject): Promise<GitRepositoryInfo> {
+  return fetch(`/api/git/init?${projectQs(project)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(json<GitRepositoryInfo>)
+}
+
+export function fetchGitLog(path = '', project = currentProject, limit = 300): Promise<{ commits: GitLogEntry[] }> {
+  return fetch(`/api/git/log?path=${encodeURIComponent(path)}&limit=${limit}&${projectQs(project)}`).then(json<{ commits: GitLogEntry[] }>)
+}
+
+export function fetchGitRepositories(project = currentProject): Promise<{ repositories: GitRepositoryEntry[] }> {
+  return fetch(`/api/git/repositories?${projectQs(project)}`).then(json<{ repositories: GitRepositoryEntry[] }>)
+}
+
+export function fetchGitCommit(path: string, hash: string, project = currentProject): Promise<GitCommitDetail> {
+  return fetch(`/api/git/commit?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&${projectQs(project)}`).then(json<GitCommitDetail>)
+}
+
+export function fetchGitDiff(path: string, hash: string, file: string, project = currentProject): Promise<{ diff: string }> {
+  return fetch(`/api/git/diff?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&file=${encodeURIComponent(file)}&${projectQs(project)}`).then(json<{ diff: string }>)
+}
+
+export function fetchGitWorkingTree(path = '', project = currentProject): Promise<GitWorkingTreeDetail> {
+  return fetch(`/api/git/working-tree?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<GitWorkingTreeDetail>)
+}
+
+export function fetchGitWorkingTreeDiff(path: string, file: string, project = currentProject): Promise<{ diff: string }> {
+  return fetch(`/api/git/working-tree/diff?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}&${projectQs(project)}`).then(json<{ diff: string }>)
+}
+
+export function commitGitWorkingTree(path: string, title: string, description: string, project = currentProject): Promise<GitWorkingTreeCommitResult> {
+  return fetch(`/api/git/commit?${projectQs(project)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, title, description }),
+  }).then(json<GitWorkingTreeCommitResult>)
+}
+
+export function runGitCommitAction(path: string, action: GitCommitAction, hash: string, name?: string, project = currentProject): Promise<GitRepositoryInfo> {
+  return fetch(`/api/git/action?${projectQs(project)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, action, hash, name }),
+  }).then(json<GitRepositoryInfo>)
 }
 
 export function externalRawUrl(path: string): string {

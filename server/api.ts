@@ -1,5 +1,6 @@
 import express from 'express'
 import multer from 'multer'
+import { GitError } from 'simple-git'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,13 +21,15 @@ import { searchFileNames } from './fileNameSearch.ts'
 import { ensureSearchIndex, exactSearchCandidates, type SearchIndexState } from './searchCatalog.ts'
 import { currentRagIndex, ragEnabled, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
+import { cloneExternalRepository, commitDetail, commitFileDiff, commitWorkingTree, GitWorkbenchError, initializeExternalRepository, initializeRepository, listRepositories, repositoryInfo, repositoryLog, runCommitAction, workingTreeDetail, workingTreeFileDiff } from './gitWorkbench.ts'
 import { evaluateRules, isArchived } from './rules.ts'
-import { copyFile, copyPathInto, createDocument, createFolder, renamePath, deletePath, writeFileInto, ConflictError } from './documents.ts'
+import { copyFile, copyPathInto, createDocument, createFolder, renamePath, deletePath, moveFileInto, ConflictError } from './documents.ts'
 import { lintContent } from './lint.ts'
 import { parseTitle } from './frontmatter.ts'
 import { noteAppWrite } from './appWrites.ts'
 import { updateLinkLabelsFor } from './links.ts'
 import { uploadAsset, R2NotConfiguredError } from './r2.ts'
+import { DATA_DIR } from './dataDir.ts'
 import { createTmuxManager, createTmuxRouter } from '@mew/tmux-term/server'
 import { CmdButtonError, commandSessionName, normalizeCmdButtons, oneShotCommand, readCmdButtons, writeCmdButtons } from './cmdButtons.ts'
 import { normalizeTermButtons, readTermButtons, TermButtonError, writeTermButtons } from './termButtons.ts'
@@ -40,6 +43,7 @@ import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { DocsRepoError, exportDocs, importDocs } from './docsRepo.ts'
 import {
   BrowseError,
+  createExternalFolder,
   deleteExternalPath,
   listDirs,
   listEntries,
@@ -68,7 +72,7 @@ import { installRuntime, logoutRuntime, runtimeStatuses, RuntimeInstallError, un
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import { AgentCwdError, resolveAgentCwd, suggestAgentCwds } from './agentCwd.ts'
 import { AgentScheduledPromptError, cancelAgentScheduledPrompt, listAgentScheduledPrompts, scheduleAgentPrompt, updateAgentScheduledPrompt } from './agentScheduledPrompts.ts'
-import { readAgentTabs, readRootProjects, readWorkspaceUi, writeAgentTabs, writeRootProjects, writeWorkspaceUi } from './userUiState.ts'
+import { readAgentSessionClaims, readAgentTabs, readRootProjects, readWorkspaceUi, writeAgentTabs, writeRootProjects, writeWorkspaceUi } from './userUiState.ts'
 import {
   AgentSettingError,
   deleteAgentSetting,
@@ -121,7 +125,32 @@ const MEW_ACTIONS = {
   build: { command: 'npm run build', session: 'mewcmd-mew-build' },
 } as const
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } })
+const UPLOAD_TEMP_DIR = path.join(DATA_DIR, 'uploads')
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, done) => fs.mkdir(UPLOAD_TEMP_DIR, { recursive: true, mode: 0o700 }, (err) => done(err, UPLOAD_TEMP_DIR)),
+  }),
+  limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 10, parts: 12 },
+})
+const UPLOAD_WINDOW_MS = 15 * 60 * 1000
+const MAX_UPLOADS_PER_WINDOW = 20
+const uploadAttempts = new Map<string, number[]>()
+
+/** 업로드 본문을 받기 전에 계정별 횟수를 제한해 디스크 고갈을 막는다. */
+function limitUploads(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const key = authOf(req).email
+  if (!key) return res.status(403).json({ error: '로그인이 필요합니다' })
+  const now = Date.now()
+  const recent = (uploadAttempts.get(key) ?? []).filter((at) => now - at < UPLOAD_WINDOW_MS)
+  if (recent.length >= MAX_UPLOADS_PER_WINDOW) return res.status(429).json({ error: '업로드가 너무 많습니다 — 잠시 후 다시 시도하세요' })
+  recent.push(now)
+  uploadAttempts.set(key, recent)
+  next()
+}
+
+function removeUploadTemp(file: Express.Multer.File | undefined) {
+  if (file?.path) fs.rmSync(file.path, { force: true })
+}
 
 type StableTextFile = { content: string; size: number; mtimeMs: number }
 
@@ -336,7 +365,8 @@ export function createApiApp() {
   app.get('/user-ui/agent-tabs', requireRole('owner', 'manager'), (req, res) => {
     try {
       const workspacePath = String(req.query.workspace ?? '')
-      res.json({ state: readAgentTabs(authOf(req).email!, workspacePath) })
+      const email = authOf(req).email!
+      res.json({ state: readAgentTabs(email, workspacePath), claims: readAgentSessionClaims(email) })
     } catch (err) {
       handleError(res, err)
     }
@@ -640,6 +670,30 @@ export function createApiApp() {
     }
   })
 
+  app.post('/fs/folder', requireRole('owner'), (req, res) => {
+    try {
+      res.json({ ok: true, path: createExternalFolder(req.body?.parent, req.body?.name) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/fs/git/init', requireRole('owner'), async (req, res) => {
+    try {
+      res.json({ ok: true, path: await initializeExternalRepository(req.body?.path) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.post('/fs/git/clone', requireRole('owner'), async (req, res) => {
+    try {
+      res.json({ ok: true, path: await cloneExternalRepository(req.body?.parent, req.body?.url, req.body?.name) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   app.get('/fs/raw', requireRole('manager', 'owner'), (req, res) => {
     try {
       const abs = resolveExistingPath(req.query.path)
@@ -673,6 +727,54 @@ export function createApiApp() {
     } catch (err) {
       handleError(res, err)
     }
+  })
+
+  // Git 워크벤치 — 경로는 현재 루트 프로젝트 안으로 제한하고, 폴더 자체가 저장소일 때만 조작한다.
+  app.get('/git/repository', requireRole('manager', 'owner'), async (req, res) => {
+    try { res.json(await repositoryInfo(projectOf(req), String(req.query.path ?? ''))) } catch (err) { handleError(res, err) }
+  })
+
+  app.post('/git/init', requireRole('manager', 'owner'), async (req, res) => {
+    try {
+      const relPath = typeof req.body?.path === 'string' ? req.body.path : ''
+      const info = await initializeRepository(projectOf(req), relPath)
+      res.json(info)
+    } catch (err) { handleError(res, err) }
+  })
+
+  app.get('/git/log', requireRole('manager', 'owner'), async (req, res) => {
+    try { res.json({ commits: await repositoryLog(projectOf(req), String(req.query.path ?? ''), Number(req.query.limit ?? 300)) }) } catch (err) { handleError(res, err) }
+  })
+
+  app.get('/git/repositories', requireRole('manager', 'owner'), async (req, res) => {
+    try { res.json({ repositories: await listRepositories(projectOf(req)) }) } catch (err) { handleError(res, err) }
+  })
+
+  app.get('/git/commit', requireRole('manager', 'owner'), async (req, res) => {
+    try { res.json(await commitDetail(projectOf(req), String(req.query.path ?? ''), req.query.hash)) } catch (err) { handleError(res, err) }
+  })
+
+  app.get('/git/diff', requireRole('manager', 'owner'), async (req, res) => {
+    try { res.json({ diff: await commitFileDiff(projectOf(req), String(req.query.path ?? ''), req.query.hash, req.query.file) }) } catch (err) { handleError(res, err) }
+  })
+
+  app.get('/git/working-tree', requireRole('manager', 'owner'), async (req, res) => {
+    try { res.json(await workingTreeDetail(projectOf(req), String(req.query.path ?? ''))) } catch (err) { handleError(res, err) }
+  })
+
+  app.get('/git/working-tree/diff', requireRole('manager', 'owner'), async (req, res) => {
+    try { res.json({ diff: await workingTreeFileDiff(projectOf(req), String(req.query.path ?? ''), req.query.file) }) } catch (err) { handleError(res, err) }
+  })
+
+  app.post('/git/commit', requireRole('manager', 'owner'), async (req, res) => {
+    try { res.json(await commitWorkingTree(projectOf(req), String(req.body?.path ?? ''), req.body?.title, req.body?.description)) } catch (err) { handleError(res, err) }
+  })
+
+  app.post('/git/action', requireRole('manager', 'owner'), async (req, res) => {
+    try {
+      const info = await runCommitAction(projectOf(req), String(req.body?.path ?? ''), req.body?.action, req.body?.hash, req.body?.name)
+      res.json(info)
+    } catch (err) { handleError(res, err) }
   })
 
   // docs로 쓸 폴더 바꾸기 — 워크스페이스 **안**의 폴더만 받는다(workspace.ts가 경계를 검사한다)
@@ -1004,7 +1106,7 @@ export function createApiApp() {
     }
   })
 
-  app.post('/file-revert', async (req, res) => {
+  app.post('/file-revert', requireAuthenticated, async (req, res) => {
     const { path: relPath, hash } = req.body as { path?: unknown; hash?: unknown }
     const project = projectOf(req)
     try {
@@ -1647,49 +1749,30 @@ export function createApiApp() {
     }
   })
 
-  // 외부 링크 미리보기(제목·설명) — 브라우저 CORS를 피해 서버가 대신 가져온다.
-  app.get('/link-preview', requireAuthenticated, async (req, res) => {
-    const url = String(req.query.url ?? '')
-    if (!/^https?:\/\//i.test(url)) {
-      res.status(400).json({ error: '올바른 http(s) URL이 아닙니다' })
-      return
-    }
-    try {
-      const resp = await fetch(url, {
-        signal: AbortSignal.timeout(5000),
-        headers: { 'user-agent': 'Mozilla/5.0 (compatible; mew-link-preview)' },
-      })
-      const html = (await resp.text()).slice(0, 200_000)
-      const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.trim() || null
-      const metaTag = /<meta[^>]+(?:name|property)=["'](?:og:description|description)["'][^>]*>/i.exec(html)?.[0] ?? null
-      const description = metaTag ? /content=["']([^"']*)["']/i.exec(metaTag)?.[1] || null : null
-      res.json({
-        title: title ? decodeEntities(title) : null,
-        description: description ? decodeEntities(description) : null,
-      })
-    } catch {
-      // 타임아웃·네트워크 실패 등 — 미리보기 없음으로 응답 (클라이언트는 URL만 표시)
-      res.json({ title: null, description: null })
-    }
+  // 서버가 사용자가 준 URL로 외부·내부망을 요청하지 않는다. 링크는 URL만 표시한다.
+  app.get('/link-preview', requireAuthenticated, (_req, res) => {
+    res.json({ title: null, description: null })
   })
 
-  app.post('/upload', requireAuthenticated, upload.single('file'), async (req, res) => {
+  app.post('/upload', requireAuthenticated, limitUploads, upload.single('file'), async (req, res) => {
     const file = req.file
     if (!file) {
       res.status(400).json({ error: '파일이 없습니다' })
       return
     }
     try {
-      const url = await uploadAsset(file.buffer, file.originalname, file.mimetype)
+      const url = await uploadAsset(fs.createReadStream(file.path), file.originalname, file.mimetype)
       res.json({ url, name: file.originalname, mimetype: file.mimetype })
     } catch (err) {
       handleError(res, err)
+    } finally {
+      removeUploadTemp(file)
     }
   })
 
   // 바깥에서 사이드바(파일 트리)로 끌어다 놓은 파일 — R2가 아니라 프로젝트 폴더의 그 자리에 그대로 저장한다.
   // multer가 먼저 돌아 destDir·project 같은 텍스트 필드도 req.body에 채워 준다.
-  app.post('/upload-into', requireAuthenticated, upload.single('file'), async (req, res) => {
+  app.post('/upload-into', requireAuthenticated, limitUploads, upload.single('file'), async (req, res) => {
     const file = req.file
     const destDir = String((req.body as { destDir?: unknown }).destDir ?? '')
     const project = projectOf(req)
@@ -1702,13 +1785,15 @@ export function createApiApp() {
         res.status(403).json({ error: 'archives/ 밑에는 파일을 올릴 수 없습니다' })
         return
       }
-      const relPath = writeFileInto(project, destDir, file.originalname, file.buffer)
+      const relPath = moveFileInto(project, destDir, file.originalname, file.path)
       noteFileContentChanged(project, relPath)
       await refreshCatalogPaths(project, [relPath])
       const commit = await commitFile(project, relPath, 'add', `${project}: upload ${relPath}`)
       res.json({ ok: true, relPath, commit, hidden: hiddenFromTree(req, relPath) })
     } catch (err) {
       handleError(res, err)
+    } finally {
+      removeUploadTemp(file)
     }
   })
 
@@ -2178,16 +2263,6 @@ export function createApiApp() {
   return app
 }
 
-function decodeEntities(s: string): string {
-  return s
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-}
-
 function handleError(res: express.Response, err: unknown) {
   if (err instanceof UnsafePathError) {
     res.status(400).json({ error: err.message })
@@ -2215,6 +2290,15 @@ function handleError(res: express.Response, err: unknown) {
   }
   if (err instanceof DocsRepoError || err instanceof BrowseError) {
     res.status(400).json({ error: err.message })
+    return
+  }
+  if (err instanceof GitWorkbenchError) {
+    res.status(400).json({ error: err.message })
+    return
+  }
+  if (err instanceof GitError) {
+    // manager·owner가 직접 요청한 Git 작업의 충돌/dirty working tree 이유는 GUI에서 해결 판단에 필요하다.
+    res.status(409).json({ error: err.message })
     return
   }
   if (err instanceof R2NotConfiguredError) {
