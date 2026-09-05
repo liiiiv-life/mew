@@ -13,6 +13,7 @@
   { "id": "toggleChat", "category": "협업", "label": "채팅 열기/닫기", "keys": "Alt+C", "editable": true },
   { "id": "toggleAgent", "category": "터미널·에이전트", "label": "에이전트 열기/닫기", "keys": "Alt+L", "editable": true },
   { "id": "toggleBrowser", "category": "전역", "label": "브라우저 열기/닫기", "keys": "Alt+B", "editable": true },
+  { "id": "openGit", "category": "전역", "label": "Git 열기", "keys": "Alt+G", "editable": true },
   { "id": "addComment", "category": "협업", "label": "선택한 곳에 댓글 달기", "keys": "Alt+Shift+C", "editable": true },
   { "id": "treeRename", "category": "파일 트리", "label": "이름 변경", "keys": "F2", "editable": true },
   { "id": "treeDelete", "category": "파일 트리", "label": "삭제", "keys": "Delete", "editable": true },

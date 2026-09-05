@@ -3,8 +3,11 @@
 // 새로 마운트돼 state가 초기화되기 때문. 서버(tmux)엔 초안 개념이 없으므로 탭 순서(TAB_ORDER_KEY)와
 // 마찬가지로 localStorage에만 둔다.
 const DRAFTS_KEY = 'mew:tmux-input-drafts'
+const HISTORIES_KEY = 'mew:tmux-input-histories'
+const MAX_HISTORY_ITEMS = 100
 
 type DraftMap = Record<string, string>
+type HistoryMap = Record<string, string[]>
 
 function readAll(): DraftMap {
   try {
@@ -29,6 +32,27 @@ function writeAll(map: DraftMap): void {
   }
 }
 
+function readHistories(): HistoryMap {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(HISTORIES_KEY) ?? '{}')
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: HistoryMap = {}
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(value)) out[key] = value.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function writeHistories(map: HistoryMap): void {
+  try {
+    if (Object.keys(map).length === 0) localStorage.removeItem(HISTORIES_KEY)
+    else localStorage.setItem(HISTORIES_KEY, JSON.stringify(map))
+  } catch { /* 히스토리는 편의 기능이다. */ }
+}
+
 export function readInputDraft(session: string): string {
   return readAll()[session] ?? ''
 }
@@ -44,13 +68,38 @@ export function writeInputDraft(session: string, text: string): void {
 /** 세션 종료 시 남은 초안을 정리한다 — 같은 이름으로 새 세션을 만들 때 옛 초안이 되살아나지 않도록 */
 export function clearInputDraft(session: string): void {
   writeInputDraft(session, '')
+  const histories = readHistories()
+  delete histories[session]
+  writeHistories(histories)
 }
 
 /** 세션 이름을 바꾸면 초안도 새 이름을 따라가게 한다 */
 export function renameInputDraft(oldName: string, newName: string): void {
   const map = readAll()
-  if (!(oldName in map)) return
-  map[newName] = map[oldName]
-  delete map[oldName]
-  writeAll(map)
+  if (oldName in map) {
+    map[newName] = map[oldName]
+    delete map[oldName]
+    writeAll(map)
+  }
+  const histories = readHistories()
+  if (oldName in histories) {
+    histories[newName] = histories[oldName]
+    delete histories[oldName]
+    writeHistories(histories)
+  }
+}
+
+export function readInputHistory(session: string): string[] {
+  return readHistories()[session] ?? []
+}
+
+/** 전송에 성공한 입력만 최근 100개까지 세션별로 보관한다. */
+export function recordInputHistory(session: string, text: string): void {
+  if (!text.trim()) return
+  const histories = readHistories()
+  const previous = histories[session] ?? []
+  histories[session] = previous[previous.length - 1] === text
+    ? previous
+    : [...previous, text].slice(-MAX_HISTORY_ITEMS)
+  writeHistories(histories)
 }

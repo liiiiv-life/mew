@@ -9,6 +9,8 @@ export interface TreeNode {
   children?: TreeNode[]
   /** 프로젝트 루트 바로 아래에서 발견한 `.mew`를 가진 하위 프로젝트 폴더 */
   project?: boolean
+  /** 폴더 자체가 Git 저장소 루트인지 */
+  git?: boolean
   guestAccess?: { view: boolean; edit: boolean }
 }
 

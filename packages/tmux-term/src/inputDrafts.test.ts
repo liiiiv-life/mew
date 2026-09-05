@@ -2,7 +2,7 @@
 // (모듈은 함수 안에서만 localStorage를 참조하므로 스텁을 붙인 뒤 호출하면 브라우저 없이도 돈다.)
 import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { clearInputDraft, readInputDraft, renameInputDraft, writeInputDraft } from './inputDrafts.ts'
+import { clearInputDraft, readInputDraft, readInputHistory, recordInputHistory, renameInputDraft, writeInputDraft } from './inputDrafts.ts'
 
 class MemoryStorage {
   private store = new Map<string, string>()
@@ -63,6 +63,19 @@ test('renameInputDraft는 옛 이름에 초안이 없으면 아무것도 하지 
   writeInputDraft('new', 'keep me')
   renameInputDraft('missing', 'new')
   assert.equal(readInputDraft('new'), 'keep me')
+})
+
+test('입력 히스토리는 세션별로 최근 전송만 보관하고 이름 변경을 따라간다', () => {
+  recordInputHistory('old', 'git status')
+  recordInputHistory('old', 'npm test')
+  recordInputHistory('old', 'npm test')
+  recordInputHistory('other', 'pwd')
+
+  assert.deepEqual(readInputHistory('old'), ['git status', 'npm test'])
+  assert.deepEqual(readInputHistory('other'), ['pwd'])
+  renameInputDraft('old', 'new')
+  assert.deepEqual(readInputHistory('old'), [])
+  assert.deepEqual(readInputHistory('new'), ['git status', 'npm test'])
 })
 
 test('저장값이 손상되면 빈 문자열로 안전하게 폴백한다', () => {

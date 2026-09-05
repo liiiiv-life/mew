@@ -6,7 +6,7 @@ import { Check, Copy, FastArrowDown, FrameSelect, Lock, Xmark } from 'iconoir-re
 import { HoverTipLayer, hasPathDrag, keepFocusOnPress, pathFromDrag } from '@mew/ui'
 import { MobileKeyBar, useMobileLayout } from '@mew/mobile-keys'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
-import { readInputDraft, writeInputDraft } from './inputDrafts'
+import { readInputDraft, readInputHistory, recordInputHistory, writeInputDraft } from './inputDrafts'
 import { readKeyboardLock, writeKeyboardLock } from './keyboardLock'
 
 function arrowSequence(dir: 'up' | 'down' | 'left' | 'right', ctrl: boolean, shift: boolean): string {
@@ -83,6 +83,14 @@ function sgrWheel(direction: 'up' | 'down', col: number, row: number): string {
 const JUMP_WHEEL_TICKS_PER_BURST = 12
 const JUMP_WHEEL_BURSTS = 20
 const JUMP_WHEEL_BURST_MS = 40
+const MIN_COMMAND_INPUT_HEIGHT_PX = 32
+const MAX_COMMAND_INPUT_HEIGHT_PX = 160
+
+/** 숨겨진 패널에서는 scrollHeight가 0일 수 있으므로 한 줄 높이 아래로 고정하지 않는다. */
+function resizeCommandInput(input: HTMLTextAreaElement) {
+  input.style.height = 'auto'
+  input.style.height = `${Math.max(MIN_COMMAND_INPUT_HEIGHT_PX, Math.min(input.scrollHeight, MAX_COMMAND_INPUT_HEIGHT_PX))}px`
+}
 
 // 버튼 줄 오른쪽 도구 버튼(아이콘 하나) — 켜고 끄는 버튼은 켜졌을 때 강조색으로 바뀐다
 const TOOL_BUTTON_CLASS =
@@ -122,6 +130,8 @@ export function TmuxTerminal({
   // 하단 입력칸은 세션별 초안을 브라우저에 저장한다 — 탭을 옮기거나(이 컴포넌트는 key={session}으로
   // 세션마다 새로 마운트된다) 닫았다 열어도, 새로고침해도 쓰던 내용이 남는다.
   const [command, setCommand] = useState(() => readInputDraft(sessionName))
+  const historyIndexRef = useRef<number | null>(null)
+  const historyDraftRef = useRef('')
   const [selectMode, setSelectMode] = useState(false)
   // 모바일 소프트 키보드 잠금 — 기기 설정에 가까워 세션이 아니라 브라우저에 남는다(keyboardLock.ts)
   const [keyboardLocked, setKeyboardLocked] = useState(readKeyboardLock)
@@ -177,8 +187,7 @@ export function TmuxTerminal({
   useEffect(() => {
     const ta = inputRef.current
     if (!ta) return
-    ta.style.height = 'auto'
-    ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`
+    resizeCommandInput(ta)
   }, [sessionName])
 
   // 하단 입력칸에 포커스가 있을 때도 보조키 바의 Ctrl을 쓸 수 있게 한다. Ctrl이 켜진 상태에서 글자를
@@ -246,16 +255,60 @@ export function TmuxTerminal({
       if (!el) return
       el.focus()
       el.setSelectionRange(caret, caret)
-      el.style.height = 'auto'
-      el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+      resizeCommandInput(el)
     })
+  }
+
+  /** 첫/마지막 줄에서만 셸처럼 과거·다음 입력을 순회한다. 여러 줄 안에서는 본래 커서 이동을 남긴다. */
+  function navigateCommandHistory(direction: 'up' | 'down'): boolean {
+    const ta = inputRef.current
+    if (!ta || ta.selectionStart !== ta.selectionEnd) return false
+    const caret = ta.selectionStart ?? 0
+    const atFirstLine = !command.slice(0, caret).includes('\n')
+    const atLastLine = !command.slice(caret).includes('\n')
+    if ((direction === 'up' && !atFirstLine) || (direction === 'down' && !atLastLine)) return false
+    const history = readInputHistory(sessionName)
+    if (history.length === 0) return false
+
+    let index = historyIndexRef.current
+    let next: string
+    if (direction === 'up') {
+      if (index === null) {
+        historyDraftRef.current = command
+        index = history.length
+      }
+      index = Math.max(0, index - 1)
+      next = history[index]
+    } else {
+      if (index === null) return false
+      index += 1
+      if (index >= history.length) {
+        historyIndexRef.current = null
+        next = historyDraftRef.current
+      } else {
+        historyIndexRef.current = index
+        next = history[index]
+      }
+    }
+    if (direction === 'up') historyIndexRef.current = index
+    setCommand(next)
+    requestAnimationFrame(() => {
+      const input = inputRef.current
+      if (!input) return
+      input.setSelectionRange(next.length, next.length)
+      resizeCommandInput(input)
+    })
+    return true
   }
 
   function submitCommand() {
     if (!sendAsTyped(command)) return // 재연결 중 — 입력칸을 그대로 두고 다시 누를 수 있게 한다
+    recordInputHistory(sessionName, command)
+    historyIndexRef.current = null
+    historyDraftRef.current = ''
     setCommand('')
     const ta = inputRef.current
-    if (ta) ta.style.height = 'auto' // 자동 늘어난 높이를 한 줄로 되돌린다
+    if (ta) ta.style.height = `${MIN_COMMAND_INPUT_HEIGHT_PX}px` // 자동 늘어난 높이를 한 줄로 되돌린다
     // 여기서 ta.focus()를 그냥 부르면 키보드를 내려둔 채 전송할 때 키보드가 도로 올라온다 —
     // 뺏겼을 때만 되돌리는 refocusActive에 맡긴다
     refocusActive()
@@ -706,14 +759,22 @@ export function TmuxTerminal({
           rows={1}
           onFocus={() => setInputFocused(true)}
           onBlur={() => setInputFocused(false)}
-          onChange={(e) => setCommand(e.target.value)}
+          onChange={(e) => {
+            historyIndexRef.current = null
+            historyDraftRef.current = ''
+            setCommand(e.target.value)
+          }}
           onInput={(e) => {
             // 내용에 맞춰 높이를 자동으로 늘린다 (최대 160px, 넘으면 자체 스크롤)
-            const ta = e.currentTarget
-            ta.style.height = 'auto'
-            ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`
+            resizeCommandInput(e.currentTarget)
           }}
           onKeyDown={(e) => {
+            if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+              if (navigateCommandHistory(e.key === 'ArrowUp' ? 'up' : 'down')) {
+                e.preventDefault()
+                return
+              }
+            }
             // Ctrl+Enter(맥은 Cmd+Enter)로 전송, 그냥 Enter는 줄바꿈 — 여러 줄 입력용
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
@@ -743,7 +804,7 @@ export function TmuxTerminal({
           autoCorrect="off"
           autoComplete="off"
           spellCheck={false}
-          className="min-w-0 flex-1 resize-none rounded border border-edge bg-surface-deep px-2 py-1 font-mono text-sm text-ink outline-none focus:border-accent"
+          className="min-h-8 min-w-0 flex-1 resize-none rounded border border-edge bg-surface-deep px-2 py-1 font-mono text-sm text-ink outline-none focus:border-accent"
         />
         <button
           type="submit"
@@ -772,6 +833,7 @@ export function TmuxTerminal({
             refocusActive()
           }}
           onArrow={(dir) => {
+            if (!ctrlActive && !shiftActive && (dir === 'up' || dir === 'down') && inputFocused && navigateCommandHistory(dir)) return
             send(arrowSequence(dir, ctrlActive, shiftActive))
             setCtrlActive(false)
             setShiftActive(false)

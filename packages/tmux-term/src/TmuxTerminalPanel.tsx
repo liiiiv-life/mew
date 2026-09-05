@@ -391,7 +391,7 @@ export function TmuxTerminalPanel({
     // 내려가며 레이아웃이 커지고, 버튼이 손가락 밑에서 밀려나 첫 탭의 click이 사라진다
     <div ref={shortcutScopeRef} className="flex h-full w-full flex-col bg-surface-deep" onMouseDown={keepFocusOnPress}>
       <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
-        <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto">
+        <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
           {(orderedSessions ?? []).map((s, i) => {
             if (editing?.mode === 'rename' && editing.oldName === s.name) {
               return (

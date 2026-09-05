@@ -48,6 +48,8 @@ export interface TmuxManager {
   runCommand: (name: string, command: string, cwd: string) => Promise<void>
   /** 고정된 제어 키 하나를 현재 pane에 보낸다. 사용자 입력을 이 경로로 전달하지 않는다. */
   sendKey: (name: string, key: 'Escape') => Promise<void>
+  /** 인증 코드처럼 서버가 별도로 검증한 한 줄을 현재 pane에 리터럴로 입력하고 제출한다. */
+  sendInput: (name: string, input: string) => Promise<void>
   /** 화면에 보이는 최근 pane 내용을 텍스트로 회수한다. 서버가 만든 고정 진단 세션에서만 쓴다. */
   capture: (name: string, lines?: number) => Promise<string>
 }
@@ -135,6 +137,12 @@ export function createTmuxManager({ cwd }: TmuxManagerOptions): TmuxManager {
     async sendKey(name, key) {
       assertValidName(name)
       await run(['send-keys', '-t', name, key])
+    },
+
+    async sendInput(name, input) {
+      assertValidName(name)
+      await run(['send-keys', '-t', name, '-l', input])
+      await run(['send-keys', '-t', name, 'Enter'])
     },
 
     async capture(name, lines = 200) {
