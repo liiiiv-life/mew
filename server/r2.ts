@@ -1,6 +1,7 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import crypto from 'node:crypto'
 import path from 'node:path'
+import type { Readable } from 'node:stream'
 
 export class R2NotConfiguredError extends Error {}
 
@@ -25,14 +26,14 @@ function client(): S3Client {
 }
 
 /** Uploads a buffer to the docs-media R2 bucket under a random key and returns its public URL. */
-export async function uploadAsset(buffer: Buffer, originalName: string, contentType: string): Promise<string> {
+export async function uploadAsset(body: Buffer | Readable, originalName: string, contentType: string): Promise<string> {
   assertConfigured()
   const key = `${crypto.randomUUID()}${path.extname(originalName)}`
   await client().send(
     new PutObjectCommand({
       Bucket: process.env.R2_BUCKET,
       Key: key,
-      Body: buffer,
+      Body: body,
       ContentType: contentType,
     }),
   )

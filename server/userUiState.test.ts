@@ -7,7 +7,7 @@ import path from 'node:path'
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-user-ui-state-'))
 process.env.MEW_DATA_DIR = dir
 
-const { readAgentTabs, readRootProjects, readWorkspaceUi, writeAgentTabs, writeRootProjects, writeWorkspaceUi } = await import('./userUiState.ts')
+const { readAgentSessionClaims, readAgentTabs, readRootProjects, readWorkspaceUi, writeAgentTabs, writeRootProjects, writeWorkspaceUi } = await import('./userUiState.ts')
 
 test('계정마다 루트 프로젝트 탭과 아이콘을 분리해 영속화한다', () => {
   const saved = writeRootProjects('You@Example.com', {
@@ -40,6 +40,22 @@ test('루트별 에이전트 탭과 ACP 세션 포인터를 계정 상태로 복
   const file = JSON.parse(fs.readFileSync(path.join(dir, 'user-ui-state.json'), 'utf8'))
   assert.equal(file['you@example.com'].agentTabs['/work/liiiiv'].tabs[0].sessionIds['["codex","/work/liiiiv"]'], 'session-123')
   assert.equal(file['you@example.com'].agentTabs['/work/liiiiv'].tabs[0].preset.name, '코드 작업')
+})
+
+test('다른 워크스페이스 화면의 숨은 탭까지 세션 점유로 조회한다', () => {
+  writeAgentTabs('claims@example.com', '/work/one', {
+    tabs: [{ id: 'one', label: 'One', sessionIds: { codex: 'session-one' } }],
+    activeId: 'one',
+  })
+  writeAgentTabs('claims@example.com', '/work/two', {
+    tabs: [{ id: 'two', label: 'Two', sessionIds: { codex: 'session-two' } }],
+    activeId: 'two',
+  })
+
+  assert.deepEqual(readAgentSessionClaims('claims@example.com'), [
+    { workspacePath: '/work/one', tabId: 'one', sessionId: 'session-one' },
+    { workspacePath: '/work/two', tabId: 'two', sessionId: 'session-two' },
+  ])
 })
 
 test('작업 화면 상태는 계정·루트 경로별로 분리한다', () => {

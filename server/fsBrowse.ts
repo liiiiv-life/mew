@@ -16,7 +16,7 @@ export function resolveBrowsePath(input: string): string {
 
 export type BrowseDir = { name: string; path: string }
 export type BrowseResult = { path: string; parent: string | null; dirs: BrowseDir[] }
-export type BrowseEntry = { name: string; path: string; type: 'file' | 'dir'; size: number | null }
+export type BrowseEntry = { name: string; path: string; type: 'file' | 'dir'; size: number | null; git?: boolean }
 export type BrowseEntriesResult = { path: string; parent: string | null; entries: BrowseEntry[] }
 
 function isDir(abs: string): boolean {
@@ -74,7 +74,7 @@ export async function listEntries(input: string): Promise<BrowseEntriesResult> {
     } else if (type === 'file') {
       try { size = (await fs.promises.stat(abs)).size } catch { size = null }
     }
-    if (type) result.push({ name: entry.name, path: abs, type, size })
+    if (type) result.push({ name: entry.name, path: abs, type, size, ...(type === 'dir' ? { git: fs.existsSync(path.join(abs, '.git')) } : {}) })
   }
   result.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
   const parent = path.dirname(dir)
@@ -86,6 +86,23 @@ export function resolveExistingPath(input: unknown): string {
   const abs = resolveBrowsePath(input)
   if (!fs.existsSync(abs)) throw new BrowseError(`경로를 찾을 수 없습니다: ${abs}`)
   return abs
+}
+
+function validChildName(input: unknown): string {
+  if (typeof input !== 'string' || !input.trim() || input === '.' || input === '..' || input.includes('/') || input.includes('\\')) {
+    throw new BrowseError('폴더 이름이 올바르지 않습니다')
+  }
+  return input.trim()
+}
+
+/** 외부 프로젝트 브라우저의 현재 디렉터리에 빈 폴더를 만든다. */
+export function createExternalFolder(parentInput: unknown, nameInput: unknown): string {
+  const parent = resolveExistingPath(parentInput)
+  if (!fs.statSync(parent).isDirectory()) throw new BrowseError(`폴더가 아닙니다: ${parent}`)
+  const target = path.join(parent, validChildName(nameInput))
+  if (fs.existsSync(target)) throw new BrowseError(`이미 존재하는 경로입니다: ${target}`)
+  fs.mkdirSync(target)
+  return target
 }
 
 export function readExternalFile(input: unknown): { path: string; content: string } {

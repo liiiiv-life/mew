@@ -129,6 +129,20 @@ export function readAgentTabs(email: string, workspacePath: string): StoredAgent
   return userState(readAll(), email).agentTabs?.[workspacePath] ?? null
 }
 
+/** 같은 계정의 다른 루트 화면에 숨은 탭도 동일 ACP thread의 소유자다. */
+export function readAgentSessionClaims(email: string): Array<{ workspacePath: string; tabId: string; sessionId: string }> {
+  const claims: Array<{ workspacePath: string; tabId: string; sessionId: string }> = []
+  const workspaces = userState(readAll(), email).agentTabs ?? {}
+  for (const [workspacePath, state] of Object.entries(workspaces)) {
+    for (const tab of state.tabs) {
+      for (const sessionId of Object.values(tab.sessionIds ?? {})) {
+        claims.push({ workspacePath, tabId: tab.id, sessionId })
+      }
+    }
+  }
+  return claims
+}
+
 export function writeAgentTabs(email: string, workspacePath: string, input: unknown): StoredAgentTabs {
   if (!validPath(workspacePath)) throw new Error('작업 폴더 경로가 올바르지 않습니다')
   const value = normalizeAgentTabs(input)

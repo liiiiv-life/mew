@@ -147,3 +147,23 @@ export function writeFileInto(project: string, destDir: string, fileName: string
   fs.writeFileSync(resolveProjectPath(project, relPath), data)
   return relPath
 }
+
+/** multer 임시 파일을 프로젝트에 옮긴다. 다른 파일시스템이면 메모리 대신 copy+unlink로 폴백한다. */
+export function moveFileInto(project: string, destDir: string, fileName: string, tempPath: string): string {
+  const destDirAbs = resolveProjectPath(project, destDir)
+  if (fs.existsSync(destDirAbs) && !fs.statSync(destDirAbs).isDirectory()) throw new ConflictError(`폴더가 아닙니다: ${destDir}`)
+  const name = path.basename(fileName.replace(/\\/g, '/')).trim()
+  if (!name || name === '.' || name === '..') throw new ConflictError(`올바른 파일 이름이 아닙니다: ${fileName}`)
+  const ext = path.extname(name)
+  const relPath = availableRelPath(project, destDir, path.basename(name, ext), ext)
+  const destination = resolveProjectPath(project, relPath)
+  fs.mkdirSync(destDirAbs, { recursive: true })
+  try {
+    fs.renameSync(tempPath, destination)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err
+    fs.copyFileSync(tempPath, destination)
+    fs.unlinkSync(tempPath)
+  }
+  return relPath
+}

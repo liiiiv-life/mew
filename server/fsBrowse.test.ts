@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   deleteExternalPath,
+  createExternalFolder,
   listEntries,
   pasteExternalPath,
   readExternalFile,
@@ -53,6 +54,20 @@ test('외부 파일 읽기·저장·개명·복사·이동·삭제가 절대경�
     assert.equal(fs.readFileSync(moved, 'utf8'), 'changed')
     deleteExternalPath(moved)
     assert.equal(fs.existsSync(moved), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('프로젝트 브라우저는 새 폴더를 만들고 Git 저장소를 표시한다', async () => {
+  const root = fixture()
+  try {
+    const created = createExternalFolder(root, 'new-project')
+    assert.equal(created, path.join(root, 'new-project'))
+    fs.mkdirSync(path.join(created, '.git'))
+    const result = await listEntries(root)
+    assert.equal(result.entries.find((entry) => entry.name === 'new-project')?.git, true)
+    assert.throws(() => createExternalFolder(root, '../escape'))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
