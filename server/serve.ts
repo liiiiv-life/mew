@@ -19,6 +19,7 @@ import { attachDbWebSocket } from './db/socket.ts'
 import { attachAgentWebSocket, AGENT_WS_PATH } from './agentWs.ts'
 import { disposeAllSessions, reapOrphanAgents } from './agentAcp.ts'
 import { startAgentScheduledPrompts } from './agentScheduledPrompts.ts'
+import { purgeForbiddenAgentEnv } from './agentSettings.ts'
 import { watchDocsTree } from './watcher.ts'
 
 // 프로덕션 서버 — `npm run build` 후 `npm run serve`.
@@ -56,10 +57,15 @@ if (!fs.existsSync(INDEX_HTML)) {
 
 const PORT = Number(process.env.MEW_TEAM_PORT ?? 5000)
 
-function securityHeaders(_req: express.Request, res: express.Response, next: express.NextFunction) {
+function securityHeaders(req: express.Request, res: express.Response, next: express.NextFunction) {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('X-Frame-Options', 'DENY')
   res.setHeader('Referrer-Policy', 'same-origin')
+  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=()')
+  res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self' ws: wss:; font-src 'self' data:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:")
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  }
   next()
 }
 
@@ -117,6 +123,9 @@ destroyUnknownUpgrades(server, [
   `${BROWSER_PROXY_WS_PREFIX}/`,
 ])
 
+// 공개 경계 전환 전의 OAuth bearer token은 다음 spawn에 절대 넘기지 않고 파일에서도 지운다.
+if (purgeForbiddenAgentEnv()) console.warn('[mew] 저장된 공급자 OAuth token을 제거했습니다')
+
 // 지난 실행이 SIGKILL로 끊겼다면 그때 남은 에이전트 자식이 아직 램을 물고 있다
 reapOrphanAgents()
 startAgentScheduledPrompts()
@@ -125,9 +134,8 @@ startAgentScheduledPrompts()
 attachCollabAgents()
 watchDocsTree()
 
-// 기본은 모든 인터페이스 — 터널·다른 기기에서 붙는 것이 정상 사용이다.
-// 이 컴퓨터에서만 쓰려면 MEW_BIND=127.0.0.1 (SECURITY.md §노출).
-const BIND = process.env.MEW_BIND || '0.0.0.0'
+// 공개 기본값은 loopback이다. LAN 직접 공개가 정말 필요할 때만 MEW_BIND를 명시한다.
+const BIND = process.env.MEW_BIND || '127.0.0.1'
 
 server.listen(PORT, BIND, () => {
   console.log(`[mew] 서버: http://${BIND}:${PORT} (미로그인 = 게스트)`)

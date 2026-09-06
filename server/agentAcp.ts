@@ -130,9 +130,10 @@ export type AgentAuthMethod = {
   description?: string | null
   kind: 'agent' | 'api-key' | 'terminal'
   surface?: 'browser' | 'terminal'
+  browserInput?: 'authorization-code'
 }
 
-export type TerminalAuthSpec = SpawnSpec & { label: string }
+export type TerminalAuthSpec = SpawnSpec & { label: string; completionFile?: string }
 
 type AuthMethodInternal = AgentAuthMethod & { terminal?: TerminalAuthSpec }
 
@@ -213,19 +214,20 @@ function recordOf(value: unknown): Record<string, unknown> | null {
 function runtimeLoginMethods(runtime: string): AuthMethodInternal[] {
   const entry = RUNTIMES[runtime]
   if (!entry) return []
-  return entry.auth.methods().map(({ id, cmd, args, env, label, name, description, surface }) => ({
+  return entry.auth.methods().map(({ id, cmd, args, env, label, name, description, surface, browserInput, completionFile }) => ({
     id,
     name,
     description,
     kind: 'terminal' as const,
     surface,
-    terminal: { cmd, args, env, label },
+    browserInput,
+    terminal: { cmd, args, env, label, completionFile },
   }))
 }
 
 /** initialize 전에 ACP가 죽은 탭도 같은 로그인 UI를 그릴 수 있는 공개 상태. */
 export function runtimeLoginAuthEvent(runtime: string, error: string | null, authenticating = false): AgentEvent {
-  const methods = runtimeLoginMethods(runtime).map(({ id, name, description, kind, surface }) => ({ id, name, description, kind, surface }))
+  const methods = runtimeLoginMethods(runtime).map(({ id, name, description, kind, surface, browserInput }) => ({ id, name, description, kind, surface, browserInput }))
   return { type: 'auth', methods, authenticating, error }
 }
 
@@ -474,7 +476,7 @@ export class AgentSession {
   }
 
   #publicAuthMethods(): AgentAuthMethod[] {
-    return this.#authMethods.map(({ id, name, description, kind, surface }) => ({ id, name, description, kind, surface }))
+    return this.#authMethods.map(({ id, name, description, kind, surface, browserInput }) => ({ id, name, description, kind, surface, browserInput }))
   }
 
   #authEvent(): AgentEvent {
@@ -667,13 +669,14 @@ export class AgentSession {
     }
   }
 
-  /** terminal auth가 다른 프로세스에서 자격증명을 쓴 뒤 같은 ACP 연결로 세션 생성을 다시 시도한다. */
-  async retryAuthentication() {
+  /** 외부 CLI가 자격증명을 쓴 뒤 필요하면 ACP 인증 방식을 확정하고 세션 생성을 다시 시도한다. */
+  async retryAuthentication(acpMethodId?: string) {
     if (!this.#authRequired || this.#authenticating) return
     this.#authenticating = true
     this.#authError = null
     this.#broadcast(this.#authEvent())
     try {
+      if (acpMethodId) await this.#conn.authenticate({ methodId: acpMethodId })
       await this.#createSession()
       this.#broadcast({ type: 'auth_complete' })
       await this.#pushMeta()
@@ -695,8 +698,8 @@ export class AgentSession {
 
   terminalAuthSpec(methodId: string): TerminalAuthSpec {
     if (isRuntimeLoginMethod(this.runtime, methodId)) {
-      const { cmd, args, env, label } = runtimeLoginSpec(this.runtime, methodId)
-      return { cmd, args, env, label }
+      const { cmd, args, env, label, completionFile } = runtimeLoginSpec(this.runtime, methodId)
+      return { cmd, args, env, label, completionFile }
     }
     const method = this.#authMethods.find((item) => item.id === methodId)
     if (!method?.terminal) throw new Error('터미널 로그인 방법을 찾을 수 없습니다')

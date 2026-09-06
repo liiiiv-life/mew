@@ -1,6 +1,7 @@
 // 에이전트 런타임 등록표 — 창과 예약 작업이 모두 이 표를 본다.
 // ACP가 공통 인터페이스다. 런타임 추가는 여기 한 줄 + 클라이언트 아이콘 한 줄이면 된다.
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -11,11 +12,14 @@ const DEFAULT_CLAUDE_ACP_CMD = path.resolve(here, '../node_modules/.bin/claude-a
 const DEFAULT_CODEX_ACP_CMD = path.resolve(here, '../node_modules/.bin/codex-acp')
 const DEFAULT_CODEX_CLI_CMD = path.resolve(here, '../node_modules/.bin/codex')
 const PRIME_ADAPTER_CMD = path.resolve(here, 'primeAdapter.ts')
+const GEMINI_OAUTH_SETTINGS_PATH = path.resolve(here, 'gemini-oauth-settings.json')
 
 /** ACP가 인증 전에 뜨지 못해도 브라우저 터미널에서 실행할 수 있는 공통 로그인 method id. */
 export const RUNTIME_LOGIN_METHOD_ID = 'mew-runtime-login'
 /** Kimi Code의 글로벌(.ai) OAuth는 기본 mainland-cn(.com) 로그인과 별도 리전으로 실행한다. */
 export const KIMI_GLOBAL_LOGIN_METHOD_ID = 'mew-kimi-global-login'
+/** Claude Console OAuth는 기본 Claude 구독 로그인과 별도 과금 계정으로 실행한다. */
+export const CLAUDE_CONSOLE_LOGIN_METHOD_ID = 'mew-claude-console-login'
 
 export interface SpawnSpec {
   cmd: string
@@ -37,6 +41,12 @@ export interface RuntimeLoginSpec extends SpawnSpec {
   label: string
   surface: 'browser' | 'terminal'
   verificationHosts?: string[]
+  /** 브라우저 승인 뒤 CLI가 돌려받아야 하는 짧은 일회용 입력. */
+  browserInput?: 'authorization-code'
+  /** 명령이 TUI로 남아도 이 파일이 바뀌면 인증 완료로 본다. 경로는 브라우저에 보내지 않는다. */
+  completionFile?: string
+  /** 외부 CLI가 자격증명을 쓴 뒤 살아 있는 ACP에 호출해 선택한 인증 방식까지 저장한다. */
+  acpMethodId?: string
 }
 
 export interface RuntimeAuthentication {
@@ -165,7 +175,10 @@ const login = (
   label = name,
   surface: RuntimeLoginSpec['surface'] = 'terminal',
   verificationHosts?: string[],
-): RuntimeLoginSpec => ({ id, cmd: spec.cmd, args, env: spec.env, name, description, label, surface, verificationHosts })
+  browserInput?: RuntimeLoginSpec['browserInput'],
+  completionFile?: string,
+  acpMethodId?: string,
+): RuntimeLoginSpec => ({ id, cmd: spec.cmd, args, env: spec.env, name, description, label, surface, verificationHosts, browserInput, completionFile, acpMethodId })
 
 export const RUNTIMES: Record<string, AgentRuntime> = {
   claude: {
@@ -175,8 +188,33 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     auth: {
       methods: () => {
         const spec = claudeSpawnSpec()
-        return [login(RUNTIME_LOGIN_METHOD_ID, spec, [...spec.args, '--cli'], 'Claude Code 로그인', '서버 터미널에서 Claude Code 로그인을 진행합니다. 브라우저가 필요하면 휴대폰의 일반 브라우저에서 URL을 엽니다.')]
+        const authSpec = { ...spec, env: { ...spec.env, NO_BROWSER: process.env.NO_BROWSER ?? '1' } }
+        return [
+          login(
+            RUNTIME_LOGIN_METHOD_ID,
+            authSpec,
+            [...spec.args, '--cli', 'auth', 'login', '--claudeai'],
+            'Claude 구독 로그인',
+            'Claude Pro·Max·Team·Enterprise 구독 계정으로 로그인합니다.',
+            undefined,
+            'browser',
+            ['claude.com'],
+            'authorization-code',
+          ),
+          login(
+            CLAUDE_CONSOLE_LOGIN_METHOD_ID,
+            authSpec,
+            [...spec.args, '--cli', 'auth', 'login', '--console'],
+            'Anthropic Console 로그인',
+            'API 사용량이 청구되는 Anthropic Console 계정으로 로그인합니다.',
+            undefined,
+            'browser',
+            ['platform.claude.com'],
+            'authorization-code',
+          ),
+        ]
       },
+      replaceMethodIds: ['claude-login', 'claude-ai-login', 'console-login'],
     },
   },
   codex: {
@@ -242,7 +280,23 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'npm', args: ['install', '-g', '@google/gemini-cli@latest'] }),
     uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', '@google/gemini-cli'] }),
     auth: {
-      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, geminiSpawnSpec(), ['--skip-trust'], 'Gemini CLI 로그인/설정', 'Google 로그인 또는 인증 방식을 고릅니다. URL과 코드는 휴대폰의 일반 브라우저에서 승인하세요.')],
+      methods: () => {
+        const spec = geminiSpawnSpec()
+        const geminiHome = process.env.GEMINI_CLI_HOME || path.join(os.homedir(), '.gemini')
+        return [login(
+          RUNTIME_LOGIN_METHOD_ID,
+          { ...spec, env: { ...spec.env, GEMINI_CLI_SYSTEM_SETTINGS_PATH: process.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH ?? GEMINI_OAUTH_SETTINGS_PATH } },
+          ['--skip-trust'],
+          'Gemini Google 로그인',
+          'Google 계정에서 승인한 뒤 표시되는 인증 코드를 입력합니다.',
+          undefined,
+          'browser',
+          ['accounts.google.com'],
+          'authorization-code',
+          path.join(geminiHome, 'oauth_creds.json'),
+          'oauth-personal',
+        )]
+      },
       replaceMethodIds: ['oauth-personal', 'vertex-ai', 'gateway'],
       // Gemini ACP는 객체가 아니라 문자열을 요구한다. Codex 호환 shape를 공통 적용하면 로그인이 실패한다.
       apiKeyMeta: (secret) => ({ 'api-key': secret }),

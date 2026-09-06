@@ -1934,7 +1934,7 @@ export function createApiApp() {
       const spec = await terminalAuthFromHost(id, tab, cwd, methodId)
       const session = commandSessionName('agent-auth', `${id}:${tab}:${methodId}`)
       let running = (await tmuxManager.list()).some((item) => item.name === session)
-      const previous = readAgentAuthTerminalStatus(id, tab, methodId, running)
+      const previous = readAgentAuthTerminalStatus(id, tab, methodId, running, spec.completionFile)
       if (!running || previous.state !== 'running') {
         // 끝난 로그인 셸을 재사용하면 capture-pane에 남은 만료 URL을 새 로그인 주소로 오인한다.
         // 실패·성공한 세션은 새로 만들어 상태 파일과 화면 출력을 함께 초기화한다.
@@ -1943,7 +1943,7 @@ export function createApiApp() {
         await tmuxManager.runCommand(session, command, WORKSPACE_ROOT)
         running = true
       }
-      const status = readAgentAuthTerminalStatus(id, tab, methodId, running)
+      const status = readAgentAuthTerminalStatus(id, tab, methodId, running, spec.completionFile)
       res.json({ ok: true, session, label: spec.label, running, ...status })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -1962,14 +1962,53 @@ export function createApiApp() {
       }
       const session = commandSessionName('agent-auth', `${id}:${tab}:${methodId}`)
       const running = (await tmuxManager.list()).some((item) => item.name === session)
-      const status = readAgentAuthTerminalStatus(id, tab, methodId, running)
       const registered = isRuntimeLoginMethod(id, methodId) ? runtimeLoginSpec(id, methodId) : null
+      const status = readAgentAuthTerminalStatus(id, tab, methodId, running, registered?.completionFile)
       const output = running ? await tmuxManager.capture(session, 120) : ''
       const details = registered?.surface === 'browser' && registered.verificationHosts
         ? browserLoginDetailsFromOutput(output, registered.verificationHosts)
         : { verificationUrl: null, verificationCode: null }
-      const errorMessage = status.state === 'failed' ? authFailureMessageFromOutput(output) : null
+      // 수동 승인 코드는 pane에 echo될 수 있다. 그 작업은 원문에서 실패 한 줄도 브라우저로 돌려주지 않는다.
+      const errorMessage = status.state === 'failed' && !registered?.browserInput ? authFailureMessageFromOutput(output) : null
       res.json({ ...status, ...details, errorMessage })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 브라우저 OAuth가 돌려준 일회용 코드를 해당 고정 로그인 작업의 TTY에만 전달한다.
+  // 값은 상태 파일·로그·이벤트·전사 어느 곳에도 저장하지 않는다.
+  app.post('/agent-runtimes/:id/auth/:method/input', requireRole('owner', 'manager'), async (req, res) => {
+    try {
+      const id = String(req.params.id)
+      const methodId = String(req.params.method)
+      const tab = typeof req.body?.tab === 'string' ? req.body.tab : ''
+      const input = typeof req.body?.input === 'string' ? req.body.input.trim() : ''
+      if (!isRuntime(id) || !AGENT_TAB_ID.test(tab) || !methodId || methodId.length > 100) {
+        res.status(400).json({ error: '로그인 입력 요청이 올바르지 않습니다' })
+        return
+      }
+      const registered = isRuntimeLoginMethod(id, methodId) ? runtimeLoginSpec(id, methodId) : null
+      if (registered?.surface !== 'browser' || registered.browserInput !== 'authorization-code') {
+        res.status(400).json({ error: '이 로그인 방법은 브라우저 입력을 받지 않습니다' })
+        return
+      }
+      const hasControlCharacter = [...input].some((character) => {
+        const code = character.charCodeAt(0)
+        return code < 32 || code === 127
+      })
+      if (!input || input.length > 4096 || hasControlCharacter) {
+        res.status(400).json({ error: '올바른 인증 코드를 입력하세요' })
+        return
+      }
+      const session = commandSessionName('agent-auth', `${id}:${tab}:${methodId}`)
+      const running = (await tmuxManager.list()).some((item) => item.name === session)
+      if (!running) {
+        res.status(409).json({ error: '진행 중인 로그인 작업이 없습니다' })
+        return
+      }
+      await tmuxManager.sendInput(session, input)
+      res.json({ ok: true })
     } catch (err) {
       handleError(res, err)
     }

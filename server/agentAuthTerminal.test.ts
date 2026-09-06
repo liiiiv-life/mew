@@ -49,6 +49,22 @@ test('결과 없이 tmux가 사라지면 중단으로 구분한다', () => {
   })
 })
 
+test('로그인 중 자격증명 파일이 바뀌면 TUI가 남아 있어도 성공으로 본다', () => {
+  const credential = path.join(dataDir, 'gemini-oauth.json')
+  fs.writeFileSync(credential, 'old')
+  const command = prepareAgentAuthTerminal('gemini', 'browser-tab', 'login', {
+    cmd: process.execPath,
+    args: ['-e', 'setTimeout(() => {}, 1000)'],
+    label: 'Gemini login',
+    completionFile: credential,
+  })
+  assert.ok(command)
+  fs.writeFileSync(credential, 'new credentials')
+  assert.deepEqual(readAgentAuthTerminalStatus('gemini', 'browser-tab', 'login', true, credential), {
+    state: 'succeeded', exitCode: 0,
+  })
+})
+
 test('허용한 Kimi OAuth URL만 브라우저 로그인으로 추출한다', () => {
   const output = 'Visit https://auth.kimi.com/device?code=abc&state=xyz to continue'
   assert.equal(browserLoginUrlFromOutput(output, ['auth.kimi.com']), 'https://auth.kimi.com/device?code=abc&state=xyz')
@@ -79,6 +95,20 @@ test('Codex device URL과 일회용 코드를 같이 추출한다', () => {
     ),
     { verificationUrl: 'https://auth.openai.com/codex/device', verificationCode: 'ABCD-EFGH' },
   )
+})
+
+test('Gemini와 Claude의 수동 OAuth URL은 등록한 공식 host에서만 전달한다', () => {
+  const gemini = 'Visit https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=xyz then paste the code'
+  assert.equal(
+    browserLoginUrlFromOutput(gemini, ['accounts.google.com']),
+    'https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=xyz',
+  )
+  const claude = 'If the browser did not open, visit: https://claude.com/cai/oauth/authorize?code=true&state=xyz'
+  assert.equal(
+    browserLoginUrlFromOutput(claude, ['claude.com']),
+    'https://claude.com/cai/oauth/authorize?code=true&state=xyz',
+  )
+  assert.equal(browserLoginUrlFromOutput(claude, ['accounts.google.com']), null)
 })
 
 test('Cursor challenge URL은 등록한 host에서만 전달한다', () => {

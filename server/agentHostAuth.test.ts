@@ -92,8 +92,9 @@ test('pre-ACP 인증 실패 → GUI 로그인 spec → ACP 재시작으로 같�
     })
   })
   assert.equal(auth.type, 'auth')
-  assert.deepEqual(auth.methods.map(({ id, kind }) => ({ id, kind })), [
-    { id: RUNTIME_LOGIN_METHOD_ID, kind: 'terminal' },
+  assert.deepEqual(auth.methods.map(({ id, kind, surface }) => ({ id, kind, surface })), [
+    { id: RUNTIME_LOGIN_METHOD_ID, kind: 'terminal', surface: 'browser' },
+    { id: 'mew-claude-console-login', kind: 'terminal', surface: 'browser' },
   ])
   assert.equal(fatals.length, 0, 'ACP 시작 실패가 탭을 fatal로 닫지 않는다')
 
@@ -102,7 +103,7 @@ test('pre-ACP 인증 실패 → GUI 로그인 spec → ACP 재시작으로 같�
     methodId: RUNTIME_LOGIN_METHOD_ID,
   })
   assert.equal(spec.cmd, process.execPath)
-  assert.deepEqual(spec.args, [stubPath, credentialFile, '--cli'])
+  assert.deepEqual(spec.args, [stubPath, credentialFile, '--cli', 'auth', 'login', '--claudeai'])
   execFileSync(spec.cmd, spec.args, { cwd: workspace, env: { ...process.env, ...spec.env } })
   assert.equal(fs.readFileSync(credentialFile, 'utf8'), 'logged-in')
 

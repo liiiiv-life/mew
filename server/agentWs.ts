@@ -25,7 +25,7 @@ type ClientMessage =
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'authenticate'; methodId: string; secret?: string }
-  | { type: 'retry_auth' }
+  | { type: 'retry_auth'; methodId?: string }
   | { type: 'auth_url_response'; id: string; action: 'accept' | 'decline' | 'cancel' }
   | { type: 'set_model'; modelId: string }
   | { type: 'set_mode'; modeId: string }
@@ -178,7 +178,7 @@ async function handleConnection(
       else if (msg.type === 'permission') live.send({ type: 'permission', id: msg.id, optionId: msg.optionId })
       // 인증 실패는 대화 오류가 아니라 auth 상태의 error로 돌아간다. 여기서 error 이벤트를 하나 더 보내지 않는다.
       else if (msg.type === 'authenticate') live.send({ type: 'authenticate', methodId: msg.methodId, secret: msg.secret })
-      else if (msg.type === 'retry_auth') live.send({ type: 'retry_auth' })
+      else if (msg.type === 'retry_auth') live.send({ type: 'retry_auth', methodId: msg.methodId })
       else if (msg.type === 'auth_url_response') live.send({ type: 'auth_url_response', id: msg.id, action: msg.action })
       else if (msg.type === 'unqueue') live.send({ type: 'unqueue', index: msg.index })
       else if (msg.type === 'move_queued') live.send({ type: 'move_queued', from: msg.from, to: msg.to })

@@ -36,7 +36,7 @@ export type AgentHostCommand =
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'authenticate'; methodId: string; secret?: string }
-  | { type: 'retry_auth' }
+  | { type: 'retry_auth'; methodId?: string }
   | { type: 'auth_url_response'; id: string; action: 'accept' | 'decline' | 'cancel' }
   | { type: 'set_model'; modelId: string }
   | { type: 'set_mode'; modeId: string }
@@ -193,9 +193,13 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
   let restoreFailure: { sessionId: string; message: string } | null = null
 
   const fallbackTerminalSpec = (methodId: string): TerminalAuthSpec => {
-    const { cmd, args, env, label } = runtimeLoginSpec(runtime, methodId)
-    return { cmd, args, env, label }
+    const { cmd, args, env, label, completionFile } = runtimeLoginSpec(runtime, methodId)
+    return { cmd, args, env, label, completionFile }
   }
+
+  const registeredAcpMethodId = (methodId: string): string | undefined => (
+    isRuntimeLoginMethod(runtime, methodId) ? runtimeLoginSpec(runtime, methodId).acpMethodId : undefined
+  )
 
   const broadcastEvent = (event: AgentEvent) => {
     for (const peer of peers) sendLine(peer.socket, { type: 'event', event })
@@ -207,7 +211,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     startupIdleTimer = null
   }
 
-  let startSession: () => Promise<void>
+  let startSession: (acpMethodId?: string) => Promise<void>
   let restartSession: () => Promise<void>
   let armStartupIdle: () => void
   let stop: (code?: number) => void
@@ -258,7 +262,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         if (command.type === 'close_session') {
           stop()
         } else if (command.type === 'retry_auth') {
-          void startSession()
+          void startSession(registeredAcpMethodId(String(command.methodId ?? '')))
         } else if (sessionStarting && !startupError) {
           // 프론트와 mew가 이 직후 모두 사라져도 시작 전에 받은 프롬프트는 인증 뒤까지 보존한다.
           // 비밀값은 실패 상태에서 쌓지 않는다. authenticate는 ACP가 뜬 경우에만 도달한다.
@@ -271,10 +275,13 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         }
         return
       }
-      // terminal auth는 별도 프로세스가 자격증명을 쓴 뒤 ACP를 다시 initialize하는 것이 표준 계약이다.
-      // 살아 있는 어댑터가 설정을 캐시해도 새 프로세스가 반드시 새 자격증명을 읽게 한다.
+      // 별도 CLI가 자격증명만 쓴 경우에는 ACP를 다시 initialize한다. Gemini처럼 ACP authenticate가
+      // 선택한 방식까지 설정에 저장하는 런타임은 살아 있는 연결에서 그 마지막 단계도 마친다.
       if (message.type === 'command' && message.command.type === 'retry_auth') {
-        void restartSession()
+        const methodId = String(message.command.methodId ?? '')
+        const acpMethodId = registeredAcpMethodId(methodId)
+        if (acpMethodId) void session.retryAuthentication(acpMethodId).catch(() => {})
+        else void restartSession()
         return
       }
       void handleHostMessage(session, peer, message, stop, () => { restoreFailure = null })
@@ -317,7 +324,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     startupIdleTimer.unref?.()
   }
 
-  startSession = async () => {
+  startSession = async (acpMethodId) => {
     if (session || sessionStarting || stopping) return
     const recovering = startupError !== null
     sessionStarting = true
@@ -325,6 +332,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     if (recovering) broadcastEvent(runtimeLoginAuthEvent(runtime, null, true))
     try {
       let started = await AgentSession.start(runtime, undefined, cwd)
+      if (acpMethodId) await started.retryAuthentication(acpMethodId)
       const wantedSessionId = initialResumeSessionId
       initialResumeSessionId = null
       let restored = false
@@ -436,7 +444,13 @@ async function handleHostMessage(
     else if (command.type === 'cancel') session.cancel()
     else if (command.type === 'permission') session.answerPermission(String(command.id), command.optionId ?? null)
     else if (command.type === 'authenticate') void session.authenticate(String(command.methodId), command.secret).catch(() => {})
-    else if (command.type === 'retry_auth') void session.retryAuthentication().catch(() => {})
+    else if (command.type === 'retry_auth') {
+      const methodId = String(command.methodId ?? '')
+      const acpMethodId = isRuntimeLoginMethod(session.runtime, methodId)
+        ? runtimeLoginSpec(session.runtime, methodId).acpMethodId
+        : undefined
+      void session.retryAuthentication(acpMethodId).catch(() => {})
+    }
     else if (command.type === 'auth_url_response') session.answerElicitation(String(command.id), command.action)
     else if (command.type === 'set_model') await session.setModel(String(command.modelId))
     else if (command.type === 'set_mode') await session.setMode(String(command.modeId))

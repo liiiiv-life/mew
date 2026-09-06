@@ -18,6 +18,8 @@ export interface TreeNode {
   children?: TreeNode[]
   /** 루트 프로젝트 바로 아래에 있는 `.mew`를 가진 하위 프로젝트 폴더 */
   project?: boolean
+  /** 폴더 자체가 Git 저장소 루트인지 (`.git` 파일 또는 폴더 존재) */
+  git?: boolean
   guestAccess?: { view: boolean; edit: boolean }
 }
 
@@ -139,6 +141,7 @@ function walk(absDir: string, relDir: string, f: Filters, downloadOnly = false):
         type: 'dir',
         children,
         project: relDir === '' && fs.existsSync(path.join(absPath, '.mew')),
+        git: fs.existsSync(path.join(absPath, '.git')),
       })
     } else if (entry.isFile()) {
       if (fileVisible(entry.name, f, downloadOnly)) nodes.push({ name: entry.name, path: relPath, type: 'file' })
@@ -179,6 +182,7 @@ async function walkAsync(absDir: string, relDir: string, f: Filters, downloadOnl
         type: 'dir',
         children,
         project: relDir === '' && fs.existsSync(path.join(absPath, '.mew')),
+        git: fs.existsSync(path.join(absPath, '.git')),
       })
     } else if (entry.isFile()) {
       if (fileVisible(entry.name, f, downloadOnly)) nodes.push({ name: entry.name, path: relPath, type: 'file' })
@@ -230,6 +234,7 @@ export async function listTreeDirAsync(project: string = DEFAULT_PROJECT, relDir
         path: relPath,
         type: 'dir',
         project: !normalized && fs.existsSync(path.join(absDir, entry.name, '.mew')),
+        git: fs.existsSync(path.join(absDir, entry.name, '.git')),
       })
     } else if (entry.isFile() && fileVisible(entry.name, f, downloadOnly)) {
       nodes.push({ name: entry.name, path: relPath, type: 'file' })

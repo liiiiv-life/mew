@@ -88,7 +88,19 @@ function spawnSpecCommand(spec: TerminalAuthSpec): string {
 function filesFor(runtime: string, tab: string, methodId: string) {
   const digest = crypto.createHash('sha256').update(`${runtime}\0${tab}\0${methodId}`).digest('hex').slice(0, 32)
   const status = path.join(STATUS_DIR, `${digest}.status`)
-  return { status, temporary: `${status}.tmp` }
+  const completionBaseline = path.join(STATUS_DIR, `${digest}.completion`)
+  return { status, temporary: `${status}.tmp`, completionBaseline }
+}
+
+type CompletionStamp = { mtimeMs: number; ctimeMs: number; size: number } | null
+
+function completionStamp(file: string): CompletionStamp {
+  try {
+    const stat = fs.statSync(file)
+    return { mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, size: stat.size }
+  } catch {
+    return null
+  }
 }
 
 /** 새 terminal auth를 시작하며 지난 결과를 지우고 exit code 기록까지 포함한 고정 셸 명령을 만든다. */
@@ -103,6 +115,10 @@ export function prepareAgentAuthTerminal(
   const files = filesFor(runtime, tab, methodId)
   fs.rmSync(files.status, { force: true })
   fs.rmSync(files.temporary, { force: true })
+  fs.rmSync(files.completionBaseline, { force: true })
+  if (spec.completionFile) {
+    fs.writeFileSync(files.completionBaseline, JSON.stringify(completionStamp(spec.completionFile)), { mode: 0o600 })
+  }
   // 로그인 명령은 TTY를 그대로 물려받은 subshell에서 돈다. Ctrl-C/실패도 부모 셸이 exit code를 기록한다.
   return [
     `(${spawnSpecCommand(spec)})`,
@@ -119,12 +135,24 @@ export function readAgentAuthTerminalStatus(
   tab: string,
   methodId: string,
   tmuxRunning: boolean,
+  completionFile?: string,
 ): AgentAuthTerminalStatus {
-  const { status } = filesFor(runtime, tab, methodId)
+  const { status, completionBaseline } = filesFor(runtime, tab, methodId)
   let raw: string
   try {
     raw = fs.readFileSync(status, 'utf8').trim()
   } catch {
+    if (completionFile) {
+      try {
+        const baseline = JSON.parse(fs.readFileSync(completionBaseline, 'utf8')) as CompletionStamp
+        const current = completionStamp(completionFile)
+        if (current && JSON.stringify(current) !== JSON.stringify(baseline)) {
+          return { state: 'succeeded', exitCode: 0 }
+        }
+      } catch {
+        // 시작 기준을 읽을 수 없으면 파일 존재만으로 성공 처리하지 않는다.
+      }
+    }
     return { state: tmuxRunning ? 'running' : 'interrupted', exitCode: null }
   }
   if (!/^\d{1,3}$/.test(raw)) return { state: 'failed', exitCode: null }

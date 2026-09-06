@@ -295,6 +295,10 @@ class GeminiAuthAgent {
     return { sessionId: 'stub-gemini-auth' }
   }
   async authenticate(params) {
+    if (params.methodId === 'oauth-personal') {
+      this.authenticated = true
+      return {}
+    }
     if (params.methodId !== 'gemini-api-key' || params._meta?.['api-key'] !== 'gemini-secret') {
       throw new Error('bad Gemini API key shape')
     }
@@ -508,6 +512,23 @@ test('Gemini API 키 형식과 terminal 대체 방법을 런타임 계약대로 
   await session.authenticate('gemini-api-key', 'gemini-secret')
   assert.doesNotMatch(JSON.stringify(events), /gemini-secret/)
   assert.ok(events.some((event) => event.type === 'auth_complete'))
+})
+
+test('Gemini 브라우저 OAuth 뒤 ACP 인증 방식을 확정하고 세션을 만든다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-gemini-oauth-retry-'))
+  const stubPath = path.join(dir, 'gemini-auth-stub.mjs')
+  fs.writeFileSync(stubPath, geminiAuthStubSource)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const session = await AgentSession.start('gemini', { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+  const events: AgentEvent[] = []
+  session.attach((event) => events.push(event))
+
+  await session.retryAuthentication('oauth-personal')
+  assert.ok(events.some((event) => event.type === 'auth_complete'))
+  assert.ok(events.some((event) => event.type === 'meta' && event.meta.sessionId === 'stub-gemini-auth'))
 })
 
 test('되재생된 사용자 발화에서 CLI 메타만 걷어낸다 — 창에서 친 프롬프트는 그대로 남는다', async (t) => {
