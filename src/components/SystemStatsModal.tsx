@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import { fetchSystemStats, type ProcStat, type SystemStats } from '../api/client'
+import { useI18n } from '../i18n'
 
 const POLL_MS = 2000
 /** 표본 보관 개수 — 2분치 */
@@ -20,11 +21,15 @@ const pct = (v: number | null) => (v === null ? '—' : `${v.toFixed(0)}%`)
 const temp = (v: number | null) => (v === null ? '—' : `${v.toFixed(0)}℃`)
 const mb = (v: number) => (v >= 1024 ? `${(v / 1024).toFixed(1)}GB` : `${v.toFixed(0)}MB`)
 
-function uptimeText(seconds: number) {
+type Translate = ReturnType<typeof useI18n>['t']
+
+function uptimeText(seconds: number, t: Translate) {
   const d = Math.floor(seconds / 86400)
   const h = Math.floor((seconds % 86400) / 3600)
   const m = Math.floor((seconds % 3600) / 60)
-  return d > 0 ? `${d}일 ${h}시간` : h > 0 ? `${h}시간 ${m}분` : `${m}분`
+  if (d > 0) return t('system.uptimeDaysHours', { days: d, hours: h })
+  if (h > 0) return t('system.uptimeHoursMinutes', { hours: h, minutes: m })
+  return t('system.uptimeMinutes', { minutes: m })
 }
 
 /** 사용률 막대 — 값이 없으면(null) 빈 막대만 그린다 */
@@ -124,10 +129,10 @@ function Chart({ series, max, span }: { series: Series[]; max: number; span: str
 const axisMax = (values: number[], floor: number) =>
   Math.max(floor, Math.ceil(Math.max(0, ...values) * 1.2) || floor)
 
-const spanText = (history: Sample[]) => {
-  if (history.length < 2) return '표본 모으는 중…'
+const spanText = (history: Sample[], t: Translate) => {
+  if (history.length < 2) return t('system.collectingSamples')
   const seconds = Math.round((history[history.length - 1].t - history[0].t) / 1000)
-  return `지난 ${seconds}초`
+  return t('system.elapsedSeconds', { seconds })
 }
 
 type SortKey = 'cpu' | 'memMb' | 'gpuMemMb'
@@ -142,6 +147,7 @@ function ProcessDetailModal({
   history: Sample[]
   onClose: () => void
 }) {
+  const { t } = useI18n()
   useOverlayDismiss(onClose)
 
   const rows = history.map((s) => s.stats.processes.find((p) => p.pid === pid) ?? null)
@@ -150,7 +156,7 @@ function ProcessDetailModal({
   const memPoints = rows.map((p) => (p ? p.memMb : null))
   const gpuPoints = rows.map((p) => (p ? p.gpuMemMb : null))
   const hasGpu = gpuPoints.some((v) => v !== null && v > 0)
-  const span = spanText(history)
+  const span = spanText(history, t)
 
   return (
     <div
@@ -163,14 +169,14 @@ function ProcessDetailModal({
       >
         <div className="mb-1 flex items-baseline justify-between gap-2">
           <span className="min-w-0 truncate text-sm font-semibold text-ink">
-            {latest?.name ?? '알 수 없음'}
+            {latest?.name ?? t('system.unknownProcess')}
           </span>
           <span className="shrink-0 text-[11px] tabular-nums text-ink-muted">pid {pid}</span>
         </div>
         <div className="mb-3 break-all text-[11px] text-ink-faint">{latest?.cmd || '—'}</div>
 
         {rows[rows.length - 1] === null && (
-          <div className="mb-3 text-[11px] text-warning">이 프로세스는 종료됐습니다</div>
+          <div className="mb-3 text-[11px] text-warning">{t('system.processEnded')}</div>
         )}
 
         <div className="space-y-3">
@@ -190,7 +196,7 @@ function ProcessDetailModal({
           <Chart
             series={[
               {
-                label: '메모리',
+                label: t('system.memory'),
                 stroke: 'stroke-success-ink',
                 text: 'text-success-ink',
                 points: memPoints,
@@ -199,7 +205,7 @@ function ProcessDetailModal({
               ...(hasGpu
                 ? [
                     {
-                      label: 'GPU 메모리',
+                      label: t('system.gpuMemory'),
                       stroke: 'stroke-warning-ink',
                       text: 'text-warning-ink',
                       points: gpuPoints,
@@ -221,6 +227,7 @@ function ProcessDetailModal({
 }
 
 export function SystemStatsModal({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n()
   const [history, setHistory] = useState<Sample[]>([])
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -237,7 +244,7 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
           setError(null)
         })
         .catch((e) => {
-          if (!cancelled) setError(e instanceof Error ? e.message : '자원 현황을 불러오지 못했습니다')
+          if (!cancelled) setError(e instanceof Error ? e.message : t('system.resourceLoadFailed'))
         })
     load()
     const timer = setInterval(load, POLL_MS)
@@ -245,7 +252,7 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
       cancelled = true
       clearInterval(timer)
     }
-  }, [])
+  }, [t])
 
   useOverlayDismiss(onClose)
 
@@ -266,7 +273,7 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
     return [...matched].sort((a, b) => b[sort] - a[sort])
   }, [stats, query, sort])
 
-  const span = spanText(history)
+  const span = spanText(history, t)
 
   return (
     <>
@@ -279,16 +286,16 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="mb-3 flex items-baseline justify-between gap-2">
-            <span className="text-sm font-semibold text-ink">시스템 자원</span>
+            <span className="text-sm font-semibold text-ink">{t('system.title')}</span>
             <span className="min-w-0 truncate text-[11px] text-ink-muted">
-              {stats ? `${stats.hostname} · 가동 ${uptimeText(stats.uptime)}` : ''}
+              {stats ? `${stats.hostname} · ${t('system.running', { uptime: uptimeText(stats.uptime, t) })}` : ''}
             </span>
           </div>
 
           {error ? (
             <div className="py-6 text-center text-xs text-danger-strong">{error}</div>
           ) : !stats ? (
-            <div className="py-6 text-center text-xs text-ink-muted">불러오는 중…</div>
+            <div className="py-6 text-center text-xs text-ink-muted">{t('system.loading')}</div>
           ) : (
             <div className="space-y-4">
               <Chart
@@ -301,7 +308,7 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
                     format: (v) => `${v.toFixed(0)}%`,
                   },
                   {
-                    label: '메모리',
+                    label: t('system.memory'),
                     stroke: 'stroke-success-ink',
                     text: 'text-success-ink',
                     points: history.map((s) => (s.stats.memory.used / s.stats.memory.total) * 100),
@@ -325,27 +332,27 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
 
               <div className="space-y-1.5">
                 <Row
-                  label={`CPU · ${stats.cpu.cores}코어`}
+                  label={t('system.cpuCores', { count: stats.cpu.cores })}
                   right={`${pct(stats.cpu.usage)} · ${temp(stats.cpu.temperature)}`}
                   value={stats.cpu.usage}
                 />
                 <div className="truncate text-[11px] text-ink-muted">{stats.cpu.model}</div>
                 <div className="text-[11px] text-ink-faint">
-                  부하 {stats.cpu.loadavg.map((l) => l.toFixed(2)).join(' · ')}
+                  {t('system.loadAverage', { value: stats.cpu.loadavg.map((l) => l.toFixed(2)).join(' · ') })}
                 </div>
               </div>
 
               <div className="space-y-1.5">
                 <Row
-                  label="메모리"
+                  label={t('system.memory')}
                   right={`${gb(stats.memory.used)} / ${gb(stats.memory.total)} GB`}
                   value={memPct}
                 />
-                <div className="text-[11px] text-ink-faint">여유 {gb(stats.memory.available)} GB</div>
+                <div className="text-[11px] text-ink-faint">{t('system.availableMemory', { value: gb(stats.memory.available) })}</div>
               </div>
 
               {stats.gpus.length === 0 ? (
-                <div className="text-[11px] text-ink-faint">GPU 정보 없음 (nvidia-smi 사용 불가)</div>
+                <div className="text-[11px] text-ink-faint">{t('system.noGpu')}</div>
               ) : (
                 stats.gpus.map((g, i) => (
                   <div key={`${g.name}-${i}`} className="space-y-1.5">
@@ -356,7 +363,7 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
                     />
                     {g.memoryTotalMb !== null && g.memoryUsedMb !== null && (
                       <Row
-                        label="GPU 메모리"
+                        label={t('system.gpuMemory')}
                         right={`${g.memoryUsedMb} / ${g.memoryTotalMb} MB`}
                         value={(g.memoryUsedMb / g.memoryTotalMb) * 100}
                       />
@@ -367,7 +374,7 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
 
               {stats.cpu.temperature === null && (
                 <div className="text-[11px] text-ink-faint">
-                  CPU 온도 센서가 이 환경에 노출되지 않습니다
+                  {t('system.cpuTemperatureUnavailable')}
                 </div>
               )}
 
@@ -410,6 +417,7 @@ function ProcessTable({
   onSort: (k: SortKey) => void
   onPick: (pid: number) => void
 }) {
+  const { t } = useI18n()
   const head = (key: SortKey, label: string) => (
     <button
       type="button"
@@ -424,7 +432,7 @@ function ProcessTable({
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs text-ink-secondary">프로세스</span>
+        <span className="text-xs text-ink-secondary">{t('system.processes')}</span>
         <span className="text-[11px] tabular-nums text-ink-faint">
           {rows.length}/{total}
         </span>
@@ -433,12 +441,12 @@ function ProcessTable({
       <input
         value={query}
         onChange={(e) => onQuery(e.target.value)}
-        placeholder="이름 · 명령줄 · pid 검색"
+        placeholder={t('system.processSearch')}
         className="w-full rounded bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint focus:outline-none"
       />
 
       <div className="flex gap-2 px-1 text-[11px] text-ink-faint">
-        <span className="min-w-0 flex-1">이름</span>
+        <span className="min-w-0 flex-1">{t('system.name')}</span>
         {head('cpu', 'CPU')}
         {head('memMb', 'RAM')}
         {head('gpuMemMb', 'GPU')}
@@ -447,7 +455,7 @@ function ProcessTable({
       {/* 여기만 스크롤한다 — 팝업 전체 높이는 프로세스 수와 무관하다 */}
       <div className="max-h-52 overflow-y-auto rounded bg-surface">
         {rows.length === 0 ? (
-          <div className="py-4 text-center text-[11px] text-ink-faint">일치하는 프로세스 없음</div>
+          <div className="py-4 text-center text-[11px] text-ink-faint">{t('system.noMatchingProcesses')}</div>
         ) : (
           rows.map((p) => (
             <button

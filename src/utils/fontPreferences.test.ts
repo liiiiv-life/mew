@@ -9,6 +9,14 @@ import {
   saveFontPreferences,
 } from './fontPreferences.ts'
 
+test('기본 UI와 마크다운 글꼴은 IBM Plex Sans KR이다', () => {
+  assert.deepEqual(DEFAULT_FONT_PREFERENCES, {
+    ui: 'IBM Plex Sans KR',
+    markdown: 'IBM Plex Sans KR',
+    mono: 'IBM Plex Mono',
+  })
+})
+
 test('저장된 세 글꼴을 복원하고 빠진 값은 기본값으로 채운다', () => {
   const storage = {
     getItem: (key: string) => key === FONT_PREFERENCES_KEY ? JSON.stringify({ ui: 'Pretendard', mono: 'Menlo' }) : null,
@@ -31,8 +39,8 @@ test('CSS 변수는 글꼴별 폴백과 함께 독립 적용된다', () => {
     { ui: 'Pretendard', markdown: 'Georgia', mono: 'ui-monospace' },
     { setProperty: (name, value) => { values.set(name, value) } },
   )
-  assert.equal(values.get('--mew-font-ui'), '"Pretendard", ui-serif, Georgia, serif')
-  assert.equal(values.get('--mew-font-markdown'), '"Georgia", ui-serif, Georgia, serif')
+  assert.equal(values.get('--mew-font-ui'), '"Pretendard", ui-sans-serif, system-ui, sans-serif')
+  assert.equal(values.get('--mew-font-markdown'), '"Georgia", ui-sans-serif, system-ui, sans-serif')
   assert.equal(values.get('--mew-font-mono'), 'ui-monospace, "IBM Plex Sans KR", ui-monospace, monospace')
 })
 

@@ -3,6 +3,7 @@ import { Editor, type EditorApi, type TreeNode } from '@mew/editor'
 import { useOverlayDismiss } from '@mew/ui'
 import { SvgPreview } from './SvgPreview'
 import { fetchFileAtCommit, fetchFileHistory, type FileHistoryEntry } from '../api/client'
+import { useI18n } from '../i18n'
 
 interface FileHistoryModalProps {
   path: string
@@ -16,6 +17,7 @@ interface FileHistoryModalProps {
 /** Hotview/Plain 토글 왼쪽의 히스토리 버튼으로 여는 팝업 — 목록에서 커밋을 고르면 그 시점의
  * 내용을 에디터와 같은 뷰어(읽기 전용)로 보여주고, 필요하면 그 버전으로 되돌릴 수 있다 */
 export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, onClose }: FileHistoryModalProps) {
+  const { formatDate, t } = useI18n()
   const [entries, setEntries] = useState<FileHistoryEntry[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const [selected, setSelected] = useState<FileHistoryEntry | null>(null)
@@ -33,12 +35,12 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
         if (!cancelled) setEntries(history)
       })
       .catch((err) => {
-        if (!cancelled) setListError(err instanceof Error ? err.message : '이력을 불러오지 못했습니다')
+        if (!cancelled) setListError(err instanceof Error ? err.message : t('history.loadFailed'))
       })
     return () => {
       cancelled = true
     }
-  }, [path])
+  }, [path, t])
 
   useEffect(() => {
     if (!selected) return
@@ -49,16 +51,16 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
     fetchFileAtCommit(path, selected.hash)
       .then(({ content }) => {
         if (cancelled) return
-        if (content === null) setDetailError('이 커밋에서 파일을 찾을 수 없습니다')
+        if (content === null) setDetailError(t('history.fileMissing'))
         else setDetailContent(content)
       })
       .catch((err) => {
-        if (!cancelled) setDetailError(err instanceof Error ? err.message : '내용을 불러오지 못했습니다')
+        if (!cancelled) setDetailError(err instanceof Error ? err.message : t('history.contentLoadFailed'))
       })
     return () => {
       cancelled = true
     }
-  }, [path, selected])
+  }, [path, selected, t])
 
   async function handleRevert() {
     if (!selected) return
@@ -68,7 +70,7 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
       await onRevert(selected.hash)
       onClose()
     } catch (err) {
-      setRevertError(err instanceof Error ? err.message : '되돌리기에 실패했습니다')
+      setRevertError(err instanceof Error ? err.message : t('history.revertFailed'))
       setReverting(false)
     }
   }
@@ -91,7 +93,7 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
-              목록
+              {t('history.list')}
             </button>
           ) : (
             <div className="truncate text-sm font-semibold text-ink-bright" title={path}>
@@ -104,17 +106,17 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
                 type="button"
                 onClick={handleRevert}
                 disabled={!canRevert || reverting || detailContent === null}
-                title={canRevert ? undefined : '다른 사람이 편집 중일 때는 되돌릴 수 없습니다'}
+                title={canRevert ? undefined : t('history.revertUnavailable')}
                 className="rounded border border-edge-strong px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-40"
               >
-                {reverting ? '되돌리는 중…' : '이 버전으로 되돌리기'}
+                {reverting ? t('history.reverting') : t('history.revertVersion')}
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-              aria-label="닫기"
+              aria-label={t('common.close')}
             >
               ×
             </button>
@@ -125,8 +127,8 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
           {!selected && (
             <>
               {listError && <div className="text-sm text-danger">{listError}</div>}
-              {!listError && entries === null && <div className="text-sm text-ink-muted">불러오는 중…</div>}
-              {!listError && entries?.length === 0 && <div className="text-sm text-ink-muted">커밋 이력이 없습니다</div>}
+              {!listError && entries === null && <div className="text-sm text-ink-muted">{t('common.loading')}</div>}
+              {!listError && entries?.length === 0 && <div className="text-sm text-ink-muted">{t('history.none')}</div>}
               {!listError && entries && entries.length > 0 && (
                 <ul className="flex flex-col gap-2">
                   {entries.map((entry) => (
@@ -140,7 +142,7 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
                           <span className="truncate text-ink">{entry.message}</span>
                           <span className="shrink-0 font-mono text-xs text-ink-faint">{entry.hash.slice(0, 7)}</span>
                         </div>
-                        <div className="text-xs text-ink-muted">{new Date(entry.date).toLocaleString()}</div>
+                        <div className="text-xs text-ink-muted">{formatDate(entry.date, { dateStyle: 'medium', timeStyle: 'short' })}</div>
                       </button>
                     </li>
                   ))}
@@ -154,10 +156,10 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
               {revertError && <div className="mb-2 text-sm text-danger">{revertError}</div>}
               <div className="mb-3 rounded border border-edge bg-surface px-3 py-2 text-sm text-ink">
                 {selected.message}
-                <div className="text-xs text-ink-muted">{new Date(selected.date).toLocaleString()}</div>
+                <div className="text-xs text-ink-muted">{formatDate(selected.date, { dateStyle: 'medium', timeStyle: 'short' })}</div>
               </div>
               {detailError && <div className="text-sm text-danger">{detailError}</div>}
-              {!detailError && detailContent === null && <div className="text-sm text-ink-muted">불러오는 중…</div>}
+              {!detailError && detailContent === null && <div className="text-sm text-ink-muted">{t('common.loading')}</div>}
               {!detailError &&
                 detailContent !== null &&
                 (path.endsWith('.svg') ? (

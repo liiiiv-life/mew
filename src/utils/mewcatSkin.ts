@@ -2,7 +2,7 @@
 export const MEWCAT_SKIN_KEY = 'mew:mewcat-skin'
 
 export const MEWCAT_SKINS = [
-  { id: 'oreo', name: '기본' },
+  { id: 'mew', name: '기본' },
 ] as const
 
 export type MewcatSkin = (typeof MEWCAT_SKINS)[number]['id']
@@ -12,13 +12,13 @@ export function normalizeMewcatSkin(value: unknown): MewcatSkinSelection {
   return MEWCAT_SKINS.some((skin) => skin.id === value) ? value as MewcatSkin : null
 }
 
-/** 기존 설치에서도 계속 보이도록 저장값이 없으면 기본 스킨을 쓴다. */
+/** 저장값이 없으면 기본 스킨을 쓴다. 재배포 불가했던 oreo 값은 자체 기본 스킨으로 이관한다. */
 export function loadMewcatSkin(storage: Pick<Storage, 'getItem'> = localStorage): MewcatSkinSelection {
   try {
     const value = storage.getItem(MEWCAT_SKIN_KEY)
-    return value === null ? 'oreo' : normalizeMewcatSkin(value)
+    return value === null || value === 'oreo' ? 'mew' : normalizeMewcatSkin(value)
   } catch {
-    return 'oreo'
+    return 'mew'
   }
 }
 

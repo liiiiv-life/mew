@@ -3,9 +3,11 @@ import { SheetViewer } from './SheetViewer'
 import { DownloadLink } from './DownloadLink'
 import type { MediaKind } from '../utils/media'
 import { externalAbsolutePath, externalFileName, isExternalTabPath } from '../utils/externalFiles'
+import { useI18n } from '../i18n'
 
 /** 바이너리 미디어 탭 본문 — 내용은 /api/raw에서 브라우저가 직접 스트리밍한다 */
 export function MediaViewer({ path, kind }: { path: string; kind: MediaKind }) {
+  const { t } = useI18n()
   const external = isExternalTabPath(path)
   const absolute = externalAbsolutePath(path)
   const src = external ? externalRawUrl(absolute) : rawUrl(path)
@@ -18,9 +20,9 @@ export function MediaViewer({ path, kind }: { path: string; kind: MediaKind }) {
       <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-surface p-6 text-center">
         <span className="max-w-md truncate text-sm text-ink-muted">{name}</span>
         <DownloadLink href={download} name={name} className="rounded-md bg-accent px-4 py-2 text-sm text-white hover:opacity-90">
-          다운로드
+          {t('media.download')}
         </DownloadLink>
-        <span className="text-xs text-ink-muted">미리보기 없이 내려받는 파일</span>
+        <span className="text-xs text-ink-muted">{t('media.downloadOnly')}</span>
       </div>
     )
   }
@@ -48,7 +50,7 @@ export function MediaViewer({ path, kind }: { path: string; kind: MediaKind }) {
         <span className="max-w-md truncate">{name}</span>
         {/* /download는 게스트에게 requireGuestView로만 열려 있다 — 같은 오리진 download 속성이면 /raw로도 저장된다 */}
         <DownloadLink href={src} name={name} className="text-accent hover:underline">
-          다운로드
+          {t('media.download')}
         </DownloadLink>
       </div>
     </div>

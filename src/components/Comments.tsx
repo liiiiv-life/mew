@@ -3,14 +3,10 @@ import { useOverlayDismiss } from '@mew/ui'
 import type { CommentEntry, CommentThread } from '../api/client'
 import { identityColor } from '../utils/collabColor'
 import { MentionTextarea, memberMentionOptions } from './MentionTextarea'
+import { useI18n } from '../i18n'
 
 // 파일 댓글 팝업들 — 작성(Alt+Shift+C)·스레드 보기(하이라이트 클릭)·목록(도구 줄 버튼).
 // 전부 EditorPane이 띄우고, 저장·삭제는 EditorPane이 서버로 보낸다(여기는 화면만).
-
-function formatTime(time: number): string {
-  const d = new Date(time)
-  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
 
 /** 화면 좌표 (x, y) 아래에 뜨는 카드 — 화면 밖으로 나가지 않게 뜬 뒤 자리를 다듬는다 */
 export function CommentPopover({ x, y, onClose, children }: { x: number; y: number; onClose: () => void; children: ReactNode }) {
@@ -52,6 +48,7 @@ export function CommentComposer({
   onSubmit: (text: string) => void
   onClose: () => void
 }) {
+  const { t } = useI18n()
   const [text, setText] = useState('')
   const submit = () => {
     if (!text.trim()) return
@@ -69,12 +66,12 @@ export function CommentComposer({
         onSubmit={submit}
         rows={2}
         autoFocus
-        placeholder="댓글 입력 — @로 멤버 멘션"
-        submitHint="Enter로 등록"
+        placeholder={t('comment.inputPlaceholder')}
+        submitHint={t('comment.submitHint')}
       />
       <div className="flex justify-end gap-1.5">
         <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xs text-ink-muted hover:bg-surface-hover">
-          취소
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -82,7 +79,7 @@ export function CommentComposer({
           disabled={!text.trim()}
           className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent disabled:opacity-40"
         >
-          댓글 달기
+          {t('comment.add')}
         </button>
       </div>
     </div>
@@ -100,6 +97,7 @@ function CommentRow({
   onEdit: (text: string) => void
   onDelete: () => void
 }) {
+  const { formatDate, t } = useI18n()
   const [editing, setEditing] = useState<string | null>(null)
   return (
     <div className="group px-2.5 py-1.5">
@@ -107,8 +105,8 @@ function CommentRow({
         <span className="h-2 w-2 shrink-0 self-center rounded-full" style={{ backgroundColor: identityColor(comment.author) }} />
         <span className="truncate text-xs font-medium text-ink-secondary">{comment.author.split('@')[0] || comment.author}</span>
         <span className="shrink-0 text-[10px] text-ink-faint">
-          {formatTime(comment.time)}
-          {comment.edited ? ' · 수정됨' : ''}
+          {formatDate(comment.time, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          {comment.edited ? ` · ${t('comment.edited')}` : ''}
         </span>
         {canEdit && editing === null && (
           // 터치 화면에는 hover가 없다 — 손가락으로는 영영 안 뜨므로 coarse 포인터에선 항상 보인다
@@ -117,7 +115,7 @@ function CommentRow({
               type="button"
               onClick={() => setEditing(comment.text)}
               className="rounded p-0.5 text-ink-muted hover:bg-surface-hover hover:text-ink"
-              aria-label="댓글 수정"
+              aria-label={t('comment.edit')}
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
@@ -127,7 +125,7 @@ function CommentRow({
               type="button"
               onClick={onDelete}
               className="rounded p-0.5 text-ink-muted hover:bg-surface-hover hover:text-danger"
-              aria-label="댓글 삭제"
+              aria-label={t('comment.delete')}
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 6h18" />
@@ -159,7 +157,7 @@ function CommentRow({
             }}
             rows={2}
             className="w-full resize-none rounded border border-edge bg-surface px-2 py-1 text-sm text-ink outline-none"
-            aria-label="댓글 수정 입력"
+            aria-label={t('comment.editInput')}
           />
           {/* Enter·Esc만으로는 폰에서 저장도 취소도 할 수 없다 */}
           <div className="flex justify-end gap-1.5">
@@ -168,7 +166,7 @@ function CommentRow({
               onClick={() => setEditing(null)}
               className="rounded px-2 py-1 text-xs text-ink-muted hover:bg-surface-hover"
             >
-              취소
+              {t('common.cancel')}
             </button>
             <button
               type="button"
@@ -179,7 +177,7 @@ function CommentRow({
               disabled={!editing.trim()}
               className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent disabled:opacity-40"
             >
-              저장
+              {t('common.save')}
             </button>
           </div>
         </div>
@@ -211,6 +209,7 @@ export function CommentThreadView({
   onDelete: (commentId: string) => void
   onClose: () => void
 }) {
+  const { t } = useI18n()
   const [reply, setReply] = useState('')
   const submit = () => {
     if (!reply.trim()) return
@@ -230,7 +229,7 @@ export function CommentThreadView({
           type="button"
           onClick={onClose}
           className="-mr-1 shrink-0 rounded p-1 text-ink-muted hover:bg-surface-hover hover:text-ink"
-          aria-label="댓글 닫기"
+          aria-label={t('comment.close')}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <path d="M18 6 6 18M6 6l12 12" />
@@ -257,8 +256,8 @@ export function CommentThreadView({
           options={memberMentionOptions(members)}
           onSubmit={submit}
           rows={1}
-          placeholder="답글 — @로 멤버 멘션"
-          submitHint="Enter로 등록"
+          placeholder={t('comment.replyPlaceholder')}
+          submitHint={t('comment.submitHint')}
         />
         <button
           type="button"
@@ -266,7 +265,7 @@ export function CommentThreadView({
           disabled={!reply.trim()}
           className="self-end rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent disabled:opacity-40"
         >
-          답글 달기
+          {t('comment.reply')}
         </button>
       </div>
     </div>
@@ -284,13 +283,14 @@ export function CommentListPopover({
   onPick: (thread: CommentThread, at: { x: number; y: number }) => void
   onClose: () => void
 }) {
+  const { formatDate, t } = useI18n()
   useOverlayDismiss(onClose)
   return (
     <div
       className="absolute right-0 top-full z-40 mt-1 flex max-h-[22rem] w-[19rem] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {threads.length === 0 && <div className="px-3 py-4 text-center text-xs text-ink-muted">이 파일에는 댓글이 없습니다</div>}
+      {threads.length === 0 && <div className="px-3 py-4 text-center text-xs text-ink-muted">{t('comment.none')}</div>}
       {threads.map((thread) => {
         const first = thread.comments[0]
         if (!first) return null
@@ -304,9 +304,9 @@ export function CommentListPopover({
             <span className="flex w-full items-baseline gap-1.5">
               <span className="h-2 w-2 shrink-0 self-center rounded-full" style={{ backgroundColor: identityColor(first.author) }} />
               <span className="truncate text-xs font-medium text-ink-secondary">{first.author.split('@')[0] || first.author}</span>
-              <span className="shrink-0 text-[10px] text-ink-faint">{formatTime(first.time)}</span>
+              <span className="shrink-0 text-[10px] text-ink-faint">{formatDate(first.time, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
               {thread.comments.length > 1 && (
-                <span className="ml-auto shrink-0 text-[10px] text-ink-muted">답글 {thread.comments.length - 1}</span>
+                <span className="ml-auto shrink-0 text-[10px] text-ink-muted">{t('comment.replyCount', { count: thread.comments.length - 1 })}</span>
               )}
             </span>
             {thread.anchor.text && <span className="w-full truncate pl-3.5 text-[11px] text-ink-muted">“{thread.anchor.text.slice(0, 60)}”</span>}

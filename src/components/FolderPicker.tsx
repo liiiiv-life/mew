@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import { browseDirs, type BrowseResult } from '../api/client'
+import { useI18n } from '../i18n'
 
 export function FolderPicker({
   title,
@@ -25,6 +26,7 @@ export function FolderPicker({
   onPick: (path: string) => void
   onClose: () => void
 }) {
+  const { t } = useI18n()
   const [path, setPath] = useState(initialPath ?? '')
   const [draft, setDraft] = useState('')
   const [result, setResult] = useState<BrowseResult | null>(null)
@@ -40,12 +42,12 @@ export function FolderPicker({
         setDraft(r.path)
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : '폴더를 열지 못했습니다')
+        if (!cancelled) setError(e instanceof Error ? e.message : t('folder.openFailed'))
       })
     return () => {
       cancelled = true
     }
-  }, [path])
+  }, [path, t])
 
   useOverlayDismiss(onClose)
 
@@ -76,7 +78,7 @@ export function FolderPicker({
             placeholder="/home/…"
           />
           <button type="submit" className="shrink-0 rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover">
-            이동
+            {t('folder.go')}
           </button>
         </form>
 
@@ -93,9 +95,9 @@ export function FolderPicker({
           {error ? (
             <div className="px-3 py-4 text-center text-xs text-danger-strong">{error}</div>
           ) : !result ? (
-            <div className="px-3 py-4 text-center text-xs text-ink-muted">불러오는 중…</div>
+            <div className="px-3 py-4 text-center text-xs text-ink-muted">{t('common.loading')}</div>
           ) : result.dirs.length === 0 ? (
-            <div className="px-3 py-4 text-center text-xs text-ink-muted">하위 폴더가 없습니다</div>
+            <div className="px-3 py-4 text-center text-xs text-ink-muted">{t('folder.empty')}</div>
           ) : (
             result.dirs.map((d) => (
               <button
@@ -116,7 +118,7 @@ export function FolderPicker({
             {current}
           </span>
           <button type="button" onClick={onClose} className="shrink-0 rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover">
-            취소
+            {t('common.cancel')}
           </button>
           <button
             type="button"

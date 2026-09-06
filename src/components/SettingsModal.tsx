@@ -6,6 +6,7 @@ import { LOCALES, LOCALE_NAMES, localizeShortcut, useI18n, type Locale, type Tra
 import { DEFAULT_FONT_PREFERENCES, type FontPreferences } from '../utils/fontPreferences'
 import { DEFAULT_ACCENT_COLOR, type AccentColor } from '../utils/accentColor'
 import { MEWCAT_SKINS, type MewcatSkinSelection } from '../utils/mewcatSkin'
+import { MewcatMark } from './Mewcat'
 
 const PASSWORD_MIN_LENGTH = 10
 
@@ -155,7 +156,7 @@ function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: 
               aria-pressed={selected}
             >
               <span className="flex h-16 items-center justify-center rounded bg-surface-deep">
-                {option.id === 'oreo' ? <MewcatRunFrame /> : <span className="text-sm text-ink-muted">—</span>}
+                {option.id === 'mew' ? <MewcatMark className="h-8 w-8 text-accent" /> : <span className="text-sm text-ink-muted">—</span>}
               </span>
               <span className="mt-1.5 block text-sm font-medium">{option.name}</span>
             </button>
@@ -164,11 +165,6 @@ function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: 
       </div>
     </div>
   )
-}
-
-/** 기본 Oreo Cat 스킨의 RUN 네 프레임 중 가운데(두 번째) 프레임. */
-function MewcatRunFrame() {
-  return <span aria-label="기본 스킨 RUN 미리보기" className="block h-8 w-[33px]" style={{ backgroundImage: "url('/oreo-cat-aichan-owo.png')", backgroundPosition: '-33px -288px', backgroundSize: '462px 766px', backgroundRepeat: 'no-repeat' }} />
 }
 
 // ── 계정: 비밀번호 변경 + 로그아웃 ───────────────────────────────────────────

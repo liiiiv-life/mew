@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties } from 'react'
+import { useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type RefObject } from 'react'
 import { prefixMatch } from '@mew/editor'
 import { useOverlayDismiss } from '@mew/ui'
 
@@ -58,6 +58,8 @@ export function MentionTextarea({
   onFilesDropped,
   onImagesPasted,
   onOptionSelect,
+  inputRef,
+  onHistoryNavigate,
 }: {
   value: string
   onChange: (value: string) => void
@@ -80,8 +82,13 @@ export function MentionTextarea({
   onImagesPasted?: (files: File[]) => void
   /** 선택된 멘션의 부수 동작(예: 에이전트 탭 이름)을 호출한다. */
   onOptionSelect?: (option: MentionOption) => void
+  /** 호스트가 모바일 보조키 등으로 입력 커서를 조작할 때 쓴다. */
+  inputRef?: RefObject<HTMLTextAreaElement | null>
+  /** 첫·마지막 줄에서만 호출해 입력 히스토리를 탐색한다. 처리했으면 true를 돌린다. */
+  onHistoryNavigate?: (direction: 'up' | 'down') => boolean
 }) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const ownTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const textareaRef = inputRef ?? ownTextareaRef
   const optionSets = useMemo<TriggerOptionSet[]>(() => [{ trigger: '@', options }, ...(triggers ?? [])], [options, triggers])
   const triggerChars = useMemo(() => optionSets.map((set) => set.trigger), [optionSets])
   const [mention, setMention] = useState<{ trigger: string; from: number; query: string } | null>(null)
@@ -219,6 +226,12 @@ export function MentionTextarea({
             if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) {
               e.preventDefault()
               pick(shown[selected] ?? shown[0])
+              return
+            }
+          }
+          if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+            if (onHistoryNavigate?.(e.key === 'ArrowUp' ? 'up' : 'down')) {
+              e.preventDefault()
               return
             }
           }

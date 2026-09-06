@@ -12,6 +12,7 @@ import {
   type TreeNode,
 } from '../api/client'
 import { identityColor } from '../utils/collabColor'
+import { useI18n } from '../i18n'
 import { MentionTextarea, type MentionOption } from './MentionTextarea'
 
 // 멤버 간 채팅 창 (Alt+C) — 단체방 하나 + 사람마다 1:1 DM. 저장·전달은 서버(REST)가 하고,
@@ -49,13 +50,6 @@ function fileTitle(path: string): string {
   const name = path.split('/').pop() ?? path
   const dot = name.lastIndexOf('.')
   return dot > 0 ? name.slice(0, dot) : name
-}
-
-function formatTime(time: number): string {
-  const d = new Date(time)
-  const today = new Date().toDateString() === d.toDateString()
-  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  return today ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`
 }
 
 /** 본문을 파일 멘션 칩과 일반 텍스트로 나눠 그린다 */
@@ -157,6 +151,7 @@ export function ChatPanel({
   onOpenFile: (project: string, path: string) => void
   onClose: () => void
 }) {
+  const { formatDate, t } = useI18n()
   const [view, setView] = useState<ChatView>({ messages: [], unread: {}, dmSupported: true })
   const [members, setMembers] = useState<MemberProfile[]>([])
   /** 지금 보고 있는 대화 — GROUP_CHAT이거나 상대 이메일 */
@@ -172,8 +167,8 @@ export function ChatPanel({
         setView(next)
         setError(null)
       })
-      .catch((err) => setError(err instanceof Error ? err.message : '채팅을 불러오지 못했습니다'))
-  }, [])
+      .catch((err) => setError(err instanceof Error ? err.message : t('chat.loadFailed')))
+  }, [t])
 
   // 대화 상대 목록 — 나는 뺀다. 자주 바뀌지 않아 창이 뜰 때 한 번만 읽는다
   useEffect(() => {
@@ -248,15 +243,15 @@ export function ChatPanel({
       .then(refresh)
       .catch((err) => {
         setDraft(text) // 실패한 입력을 버리지 않는다
-        setError(err instanceof Error ? err.message : '전송하지 못했습니다')
+        setError(err instanceof Error ? err.message : t('chat.sendFailed'))
       })
   }
 
   const rail = (
     <div className="flex w-12 shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-edge py-2">
       <ConversationIcon
-        label="전체"
-        title="단체 대화방"
+        label={t('chat.groupConversation')}
+        title={t('chat.groupConversation')}
         active={active === GROUP_CHAT}
         unread={view.unread[GROUP_CHAT] ?? 0}
         onClick={() => setActive(GROUP_CHAT)}
@@ -267,12 +262,8 @@ export function ChatPanel({
       </ConversationIcon>
       <div className="h-px w-6 shrink-0 bg-edge" aria-hidden="true" />
       {!view.dmSupported && (
-        <span className="px-1 text-center text-[9px] leading-tight text-ink-faint" title="서버를 다시 띄우면 개인 대화가 열린다">
-          서버
-          <br />
-          재시작
-          <br />
-          필요
+        <span className="px-1 text-center text-[9px] leading-tight text-ink-faint" title={t('chat.directMessagesRequireRestart')}>
+          {t('chat.serverRestartRequired')}
         </span>
       )}
       {members.map((member) => (
@@ -291,7 +282,14 @@ export function ChatPanel({
     </div>
   )
 
-  const title = active === GROUP_CHAT ? '단체 대화방' : nameOf(active)
+  const title = active === GROUP_CHAT ? t('chat.groupConversation') : nameOf(active)
+  const formatTime = (time: number) => {
+    const date = new Date(time)
+    const today = new Date().toDateString() === date.toDateString()
+    return formatDate(date, today
+      ? { hour: '2-digit', minute: '2-digit' }
+      : { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
 
   return (
     <div className="flex h-full w-full bg-surface-deep">
@@ -304,7 +302,7 @@ export function ChatPanel({
           type="button"
           onClick={onClose}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-          aria-label="채팅 닫기"
+          aria-label={t('chat.close')}
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M18 6 6 18" />
@@ -323,7 +321,9 @@ export function ChatPanel({
       >
         {messages.length === 0 && !error && (
           <div className="py-8 text-center text-xs text-ink-muted">
-            {active === GROUP_CHAT ? '아직 메시지가 없습니다' : `${nameOf(active)}님과 나눈 대화가 없습니다`}
+            {active === GROUP_CHAT
+              ? t('chat.emptyGroup')
+              : t('chat.emptyDirect', { name: nameOf(active) })}
           </div>
         )}
         {messages.map((message, i) => {
@@ -349,7 +349,7 @@ export function ChatPanel({
                 {message.unread > 0 && (
                   <span
                     className="shrink-0 pt-0.5 text-[10px] font-medium text-accent"
-                    title={`${message.unread}명이 아직 안 읽음`}
+                    title={t('chat.unreadCount', { count: message.unread })}
                   >
                     {message.unread}
                   </span>
@@ -369,15 +369,17 @@ export function ChatPanel({
           options={mentionOptions}
           onSubmit={send}
           rows={2}
-          placeholder={active === GROUP_CHAT ? '메시지 입력 — @파일 멘션 · Ctrl+L 현재 위치' : `${nameOf(active)}님에게 — @파일 멘션`}
-          submitHint="Enter로 전송"
+          placeholder={active === GROUP_CHAT
+            ? t('chat.groupPlaceholder')
+            : t('chat.directPlaceholder', { name: nameOf(active) })}
+          submitHint={t('chat.sendHint')}
         />
         <button
           type="button"
           onClick={send}
           disabled={!draft.trim()}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-ink-on-accent disabled:opacity-40"
-          aria-label="전송"
+          aria-label={t('chat.send')}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m22 2-7 20-4-9-9-4z" />

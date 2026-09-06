@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
+import { useI18n } from '../i18n'
 
 type DateTimeParts = { date: Date; hour: number; minute: number }
 
@@ -123,6 +124,7 @@ function PickerField({ label, value, previous, next, onInput, onBlur, inputLabel
 
 /** 연·월·일·시·분 숫자를 직접 입력하거나, 그 숫자 위에서 휠·드래그로 바꾸는 로컬 시간 선택기. */
 export function ScrollDateTimePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { t } = useI18n()
   const parsed = useMemo(() => parseLocalDateTime(value) ?? parseLocalDateTime(formatLocalDateTime(new Date(), 0, 0))!, [value])
   const [yearInput, setYearInput] = useState(() => pad(parsed.date.getFullYear(), 4))
   const [monthInput, setMonthInput] = useState(() => pad(parsed.date.getMonth() + 1))
@@ -154,8 +156,8 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
   const nextMonth = new Date(parsed.date.getFullYear(), parsed.date.getMonth() + 1, 1)
 
   return (
-    <div className="mt-1.5 grid grid-cols-5 gap-1" aria-label="보낼 날짜와 시간">
-      <PickerField label="년" value={yearInput} previous={pad(parsed.date.getFullYear() - 1, 4)} next={pad(parsed.date.getFullYear() + 1, 4)} inputLabel="년"
+    <div className="mt-1.5 grid grid-cols-5 gap-1" aria-label={t('dateTime.label')}>
+      <PickerField label={t('dateTime.year')} value={yearInput} previous={pad(parsed.date.getFullYear() - 1, 4)} next={pad(parsed.date.getFullYear() + 1, 4)} inputLabel={t('dateTime.year')}
         onInput={setYearInput} onAdjust={(amount) => setCalendar(parsed.date.getFullYear() + amount, parsed.date.getMonth(), parsed.date.getDate())}
         onBlur={() => {
           const year = Number(yearInput)
@@ -163,7 +165,7 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
           else setYearInput(pad(parsed.date.getFullYear(), 4))
         }}
       />
-      <PickerField label="월" value={monthInput} previous={pad(previousMonth.getMonth() + 1)} next={pad(nextMonth.getMonth() + 1)} inputLabel="월"
+      <PickerField label={t('dateTime.month')} value={monthInput} previous={pad(previousMonth.getMonth() + 1)} next={pad(nextMonth.getMonth() + 1)} inputLabel={t('dateTime.month')}
         onInput={setMonthInput} onAdjust={moveMonth}
         onBlur={() => {
           const month = Number(monthInput)
@@ -171,7 +173,7 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
           else setMonthInput(pad(parsed.date.getMonth() + 1))
         }}
       />
-      <PickerField label="일" value={dayInput} previous={pad(previousDay.getDate())} next={pad(nextDay.getDate())} inputLabel="일"
+      <PickerField label={t('dateTime.day')} value={dayInput} previous={pad(previousDay.getDate())} next={pad(nextDay.getDate())} inputLabel={t('dateTime.day')}
         onInput={setDayInput} onAdjust={moveDate}
         onBlur={() => {
           const day = Number(dayInput)
@@ -179,7 +181,7 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
           else setDayInput(pad(parsed.date.getDate()))
         }}
       />
-      <PickerField label="시" value={hourInput} previous={pad((parsed.hour + 23) % 24)} next={pad((parsed.hour + 1) % 24)} inputLabel="시간"
+      <PickerField label={t('dateTime.hour')} value={hourInput} previous={pad((parsed.hour + 23) % 24)} next={pad((parsed.hour + 1) % 24)} inputLabel={t('dateTime.hourInput')}
         onInput={setHourInput} onAdjust={moveHour}
         onBlur={() => {
           const hour = Number(hourInput)
@@ -187,7 +189,7 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
           else setHourInput(pad(parsed.hour))
         }}
       />
-      <PickerField label="분" value={minuteInput} previous={pad((parsed.minute + 59) % 60)} next={pad((parsed.minute + 1) % 60)} inputLabel="분"
+      <PickerField label={t('dateTime.minute')} value={minuteInput} previous={pad((parsed.minute + 59) % 60)} next={pad((parsed.minute + 1) % 60)} inputLabel={t('dateTime.minute')}
         onInput={setMinuteInput} onAdjust={moveMinute}
         onBlur={() => {
           const minute = Number(minuteInput)

@@ -6,6 +6,7 @@
 // - 누르면: 홈 화면을 연다(편집 칸 대신 HomePanel이 뜬다)
 // - 우클릭(모바일에선 꾹): 워크스페이스 바꾸기 — owner 전용
 import { useLongPress } from '../hooks/useLongPress'
+import { useI18n } from '../i18n'
 
 export function HomeTab({
   active,
@@ -19,6 +20,7 @@ export function HomeTab({
   onActivate: () => void
   onOpenSwitcher: () => void
 }) {
+  const { t } = useI18n()
   const { pressProps, consumeClick } = useLongPress(() => {
     if (canSwitchWorkspace) onOpenSwitcher()
   })
@@ -36,8 +38,8 @@ export function HomeTab({
         active ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
       }`}
       style={{ touchAction: 'manipulation' }}
-      title={canSwitchWorkspace ? '홈 — 꾹 누르거나 우클릭하면 워크스페이스 바꾸기' : '홈'}
-      aria-label="홈"
+      title={canSwitchWorkspace ? t('home.switchWorkspaceHint') : t('home.tab')}
+      aria-label={t('home.tab')}
     >
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="m3 10.5 9-7 9 7V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />

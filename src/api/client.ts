@@ -656,6 +656,14 @@ export function fetchAgentAuthTerminalStatus(
   ).then(json<AgentAuthTerminalStatus>)
 }
 
+export function submitAgentAuthBrowserInput(runtime: string, tab: string, methodId: string, input: string): Promise<{ ok: true }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/input`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tab, input }),
+  }).then(json<{ ok: true }>)
+}
+
 export interface AgentRuntimeDefault {
   modelId?: string
   thinkingId?: string

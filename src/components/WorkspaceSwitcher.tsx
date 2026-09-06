@@ -7,8 +7,10 @@ import { useEffect, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import { browseDirs, fetchWorkspace, forgetSavedProject, switchWorkspace } from '../api/client'
 import { FolderPicker } from './FolderPicker'
+import { useI18n } from '../i18n'
 
 export function WorkspaceSwitcher({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n()
   const [current, setCurrent] = useState<string | null>(null)
   const [picked, setPicked] = useState<string | null>(null)
 
@@ -22,9 +24,9 @@ export function WorkspaceSwitcher({ onClose }: { onClose: () => void }) {
 
   return (
     <FolderPicker
-      title="워크스페이스 바꾸기"
-      hint={current ? `지금: ${current}` : undefined}
-      confirmLabel="이 폴더 열기"
+      title={t('workspace.switchTitle')}
+      hint={current ? t('workspace.current', { path: current }) : undefined}
+      confirmLabel={t('workspace.openFolder')}
       onPick={setPicked}
       onClose={onClose}
     />
@@ -32,6 +34,7 @@ export function WorkspaceSwitcher({ onClose }: { onClose: () => void }) {
 }
 
 function ConfirmSwitch({ target, onBack, onClose }: { target: string; onBack: () => void; onClose: () => void }) {
+  const { t } = useI18n()
   const [projects, setProjects] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -41,8 +44,8 @@ function ConfirmSwitch({ target, onBack, onClose }: { target: string; onBack: ()
   useEffect(() => {
     browseDirs(target)
       .then((r) => setProjects(r.dirs.map((d) => d.name)))
-      .catch((e) => setError(e instanceof Error ? e.message : '폴더를 읽지 못했습니다'))
-  }, [target])
+      .catch((e) => setError(e instanceof Error ? e.message : t('workspace.readFolderFailed')))
+  }, [target, t])
 
   const apply = () => {
     setBusy(true)
@@ -54,7 +57,7 @@ function ConfirmSwitch({ target, onBack, onClose }: { target: string; onBack: ()
         location.reload()
       })
       .catch((e) => {
-        setError(e instanceof Error ? e.message : '워크스페이스를 바꾸지 못했습니다')
+        setError(e instanceof Error ? e.message : t('workspace.switchFailed'))
         setBusy(false)
       })
   }
@@ -65,19 +68,19 @@ function ConfirmSwitch({ target, onBack, onClose }: { target: string; onBack: ()
         className="flex max-h-[70vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface-raised shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="px-3 py-2.5 text-sm font-semibold text-ink">이 폴더를 워크스페이스로 열까요?</div>
+        <div className="px-3 py-2.5 text-sm font-semibold text-ink">{t('workspace.confirmTitle')}</div>
         <div className="border-t border-edge px-3 py-2 font-mono text-[11px] text-ink-secondary">{target}</div>
 
         <div className="min-h-0 flex-1 overflow-y-auto border-t border-edge px-3 py-2">
           {error ? (
             <div className="text-xs text-danger-strong">{error}</div>
           ) : projects === null ? (
-            <div className="text-xs text-ink-muted">읽는 중…</div>
+            <div className="text-xs text-ink-muted">{t('workspace.reading')}</div>
           ) : projects.length === 0 ? (
-            <div className="text-xs text-ink-muted">아직 프로젝트가 없습니다</div>
+            <div className="text-xs text-ink-muted">{t('workspace.noProjects')}</div>
           ) : (
             <>
-              <div className="pb-1 text-xs text-ink-muted">프로젝트 {projects.length}개</div>
+              <div className="pb-1 text-xs text-ink-muted">{t('workspace.projectCount', { count: projects.length })}</div>
               <div className="flex flex-wrap gap-1">
                 {projects.map((name) => (
                   <span key={name} className="rounded bg-surface px-1.5 py-0.5 text-xs text-ink-secondary">
@@ -90,12 +93,12 @@ function ConfirmSwitch({ target, onBack, onClose }: { target: string; onBack: ()
         </div>
 
         <div className="border-t border-edge bg-warning-surface px-3 py-2 text-xs text-warning-ink">
-          바꾸면 열려 있는 모든 화면이 새로 뜹니다. 터미널 세션은 이미 열려 있던 폴더에 그대로 남습니다.
+          {t('workspace.switchWarning')}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-edge px-3 py-2">
           <button type="button" onClick={onBack} className="rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover">
-            뒤로
+            {t('settings.back')}
           </button>
           <button
             type="button"
@@ -103,7 +106,7 @@ function ConfirmSwitch({ target, onBack, onClose }: { target: string; onBack: ()
             onClick={apply}
             className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
           >
-            {busy ? '바꾸는 중…' : '워크스페이스 바꾸기'}
+            {busy ? t('workspace.switching') : t('workspace.switchTitle')}
           </button>
         </div>
       </div>

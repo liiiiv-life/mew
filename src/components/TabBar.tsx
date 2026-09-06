@@ -38,10 +38,12 @@ export function TabBar({
 
   return (
     <div className="flex h-9 items-center border-b border-edge bg-surface-deep">
-      <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto">
+      <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
         {tabs.map((tab, i) => {
           const isActive = tab.path === activePath
-          const fileName = isExternalTabPath(tab.path) ? externalFileName(tab.path) : tab.path.split('/').pop() ?? tab.path
+          const fileName = isExternalTabPath(tab.path)
+              ? externalFileName(tab.path)
+              : tab.path.split('/').pop() ?? tab.path
           return (
             <div
               key={tab.path}
@@ -59,7 +61,7 @@ export function TabBar({
                 if (drag.dragIndex !== null) e.preventDefault()
               }}
             >
-              <span title={isExternalTabPath(tab.path) ? tab.path.slice(4) : tab.path} className={`max-w-[150px] truncate ${tab.preview ? 'italic' : ''}`}>{fileName}</span>
+              <span title={fileName} className={`max-w-[150px] truncate ${tab.preview ? 'italic' : ''}`}>{fileName}</span>
               <PresenceDots colors={presence[tab.path] ?? []} />
               <button
                 type="button"

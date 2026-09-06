@@ -73,6 +73,7 @@ import { loadAccentColor, applyAccentColor, saveAccentColor, type AccentColor } 
 import { loadMewcatSkin, saveMewcatSkin, type MewcatSkinSelection } from './utils/mewcatSkin'
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
+import { GitWorkbenchModal } from './components/GitWorkbenchModal'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
@@ -343,6 +344,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [serverFileExplorerOpen, setServerFileExplorerOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [gitWorkbenchOpen, setGitWorkbenchOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [fontPreferences, setFontPreferences] = useState(loadFontPreferences)
   const [accentColor, setAccentColor] = useState<AccentColor>(loadAccentColor)
@@ -1201,6 +1203,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         if (!canUseTerminal) return
         e.preventDefault()
         toggleWorkspacePanel('browser')
+      } else if (matchesShortcut(e, getBinding('openGit'))) {
+        if (!canUseTerminal) return
+        e.preventDefault()
+        setGitWorkbenchOpen(true)
       } else if (matchesShortcut(e, getBinding('addComment'))) {
         // 지금 포커스된 칸의 선택(없으면 커서) 자리에 댓글 작성 팝업 — 텍스트 편집기가 아니면 아무 일도 없다
         if (isGuest) return
@@ -1486,6 +1492,18 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       : []),
     ...(canUseTerminal
       ? [
+          {
+            id: 'git',
+            label: 'Git',
+            hint: 'Alt+G',
+            onSelect: () => setGitWorkbenchOpen(true),
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6" cy="5" r="2" /><circle cx="18" cy="7" r="2" /><circle cx="7" cy="19" r="2" />
+                <path d="M6 7v10M8 8.5c3.5 0 4.5-1.5 8-1.5" />
+              </svg>
+            ),
+          },
           {
             id: 'file-explorer',
             label: t('header.fileExplorer'),
@@ -2162,6 +2180,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           tree={tree}
           onRevert={handleRevertFile}
           onClose={() => setHistoryOpen(false)}
+        />
+      )}
+
+      {gitWorkbenchOpen && canUseTerminal && (
+        <GitWorkbenchModal
+          onNotice={showToast}
+          onClose={() => setGitWorkbenchOpen(false)}
         />
       )}
 

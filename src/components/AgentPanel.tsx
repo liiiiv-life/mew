@@ -6,6 +6,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -26,7 +27,7 @@ import {
   markAgentMarkdownCopied,
   renderMarkdown,
 } from '../utils/agentMarkdown'
-import { clearAgentInputDraft, readAgentInputDraft, writeAgentInputDraft } from '../utils/agentInputDrafts'
+import { clearAgentInputDraft, readAgentInputDraft, readAgentInputHistory, recordAgentInputHistory, writeAgentInputDraft } from '../utils/agentInputDrafts'
 import {
   clearAgentEventCache,
   mergeAgentReplay,
@@ -49,14 +50,15 @@ import {
   resolveAgentFileLink,
   rawUrl,
   runAgentAuthTerminal,
+  submitAgentAuthBrowserInput,
   saveAgentDefault,
-  saveAgentRuntimeSetting,
   saveAgentTabs,
   scheduleAgentPrompt,
   updateAgentScheduledPrompt,
   uploadInto,
   type AgentRuntimeDefault,
   type AgentRuntimeStatus,
+  type AgentSessionClaim,
   type AgentCwdSuggestions,
   type ProjectInfo,
   type AgentSet,
@@ -71,13 +73,15 @@ import { AgentSetPicker } from './AgentSetPicker'
 import { ScrollDateTimePicker } from './ScrollDateTimePicker'
 import { cachedAgentRuntimes, refreshAgentRuntimes, subscribeAgentRuntimes, updateAgentRuntimesCache } from '../utils/agentPickerCache'
 import { useGridDrag } from '../hooks/useGridDrag'
-import { sessionIdOf, withAutoLabel, withProjectLabel, withRename, withSessionId, type AgentTab } from '../utils/agentTabs'
+import { sessionIdOf, sessionIdsExcept, withAutoLabel, withProjectLabel, withRename, withSessionId, type AgentTab } from '../utils/agentTabs'
 import { agentTabStorageKey } from '../utils/agentTabStorage'
 import {
   foldEvents,
   formatDuration,
+  isTurnComplete,
   type AgentAuthState,
   type AgentAuthUrl,
+  type AgentMessageSettings,
   type AgentEvent,
   type Item,
   type ModelState,
@@ -131,13 +135,16 @@ const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
 /** 소프트 키보드를 띄우는 요소 — 여기 포커스가 남아 있으면 엉뚱한 탭에도 키보드가 딸려 온다 */
 const KEYBOARD_OWNER = 'textarea, input, [contenteditable="true"]'
 
-/** 첨부 태그(24px), 오른쪽의 첨부·예약(각 24px)·전송(32px), 간격·상하 여백을 담는 최소 높이. */
-const MIN_AGENT_INPUT_HEIGHT = 24 + 24 + 24 + 32 + 8 + 16
+/** 저장(24px) + 첨부·예약·전송(24+6+24+6+32px) + 컨테이너 상하 여백(16px). */
+const MIN_AGENT_INPUT_HEIGHT = 24 + 24 + 6 + 24 + 6 + 32 + 16
 /** 최소 높이는 좁은 화면의 하한일 뿐, 평소 작성을 위한 기본 높이는 따로 둔다. */
 const DEFAULT_AGENT_INPUT_HEIGHT = 180
 const AGENT_INPUT_HEIGHT_KEY = 'mew:agent-input-height'
-const agentInputMaxHeight = () =>
-  Math.max(MIN_AGENT_INPUT_HEIGHT, Math.floor((window.visualViewport?.height ?? window.innerHeight) * 0.8))
+/** 모바일 visualViewport 경계의 반올림·키보드 액세서리 영역을 피하는 하단 안전 간격. */
+const MOBILE_AGENT_INPUT_BOTTOM_GUARD_PX = 8
+function agentInputMaxHeight(panelHeight = window.innerHeight, viewportBottomInset = 0) {
+  return Math.max(MIN_AGENT_INPUT_HEIGHT, Math.floor(panelHeight * 0.9 - viewportBottomInset))
+}
 
 function initialAgentInputHeight() {
   try {
@@ -318,8 +325,8 @@ const BUBBLE_LABEL: Record<BubbleState, string> = {
   done: '완료',
 }
 
-function turnState(item: Extract<Item, { kind: 'turn' }>): BubbleState {
-  if (!item.done) return 'running'
+function turnState(item: Extract<Item, { kind: 'turn' }>, busy: boolean | null): BubbleState {
+  if (!isTurnComplete(item, busy)) return 'running'
   if (item.stopReason === 'error' || item.children.some((c) => c.kind === 'error')) return 'failed'
   if (item.stopReason === 'cancelled') return 'cancelled'
   return 'done'
@@ -434,6 +441,8 @@ function HeaderSelect({
   trigger,
   searchable,
   disabled,
+  className,
+  caretEnd = false,
 }: {
   value: string
   options: { id: string; label: string }[]
@@ -444,6 +453,9 @@ function HeaderSelect({
   /** 목록이 길 때(모델) — 열리면 검색 입력이 먼저 뜬다 */
   searchable?: boolean
   disabled?: boolean
+  className?: string
+  /** 넓게 채우는 선택기(모델)는 화살표를 버튼 끝에 붙인다. */
+  caretEnd?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -496,7 +508,7 @@ function HeaderSelect({
   const q = query.trim().toLowerCase()
   const shown = q ? options.filter((o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q)) : options
   return (
-    <div ref={ref} className={`relative min-w-0 ${open ? 'z-50' : ''}`}>
+    <div ref={ref} className={`relative min-w-0 ${className ?? ''} ${open ? 'z-50' : ''}`}>
       <button
         ref={buttonRef}
         type="button"
@@ -508,19 +520,19 @@ function HeaderSelect({
         title={title}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`flex min-w-0 max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-surface-raised hover:text-ink ${
+        className={`flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-surface-raised hover:text-ink ${
           open ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary disabled:cursor-default disabled:opacity-70'
         }`}
       >
-        {trigger ?? <span className="truncate">{current?.label ?? value}</span>}
-        <CaretGlyph dir={open ? 'up' : 'down'} />
+        {trigger ?? <span className={caretEnd ? 'min-w-0 flex-1 truncate' : 'truncate'}>{current?.label ?? value}</span>}
+        <span className={caretEnd ? 'ml-auto shrink-0' : 'shrink-0'}><CaretGlyph dir={open ? 'down' : 'up'} /></span>
       </button>
       {open && menuPosition && createPortal(
         <div
           ref={menuRef}
           role="listbox"
           aria-label={title}
-          className="fixed z-[1000] flex flex-col overflow-hidden whitespace-nowrap rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
+          className="fixed z-[1201] flex flex-col overflow-hidden whitespace-nowrap rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
           style={{ left: `${menuPosition.left}px`, bottom: `${menuPosition.bottom}px`, minWidth: `${menuPosition.width}px`, maxHeight: `${menuPosition.maxHeight}px` }}
         >
           {/* 모델 수가 많아도 화면에 맞춰 목록 자체만 스크롤한다. */}
@@ -574,6 +586,7 @@ function HeaderSelect({
 function SessionPicker({
   sessions,
   takenIds,
+  currentSessionId,
   loadingSession,
   hasConversation,
   disabled = false,
@@ -584,11 +597,12 @@ function SessionPicker({
   sessions: SessionInfo[] | null
   /** 다른 탭이 이미 열어 둔 세션 — 같은 세션을 두 프로세스가 붙들면 전사가 엉킨다 */
   takenIds: string[]
+  currentSessionId: string | null
   loadingSession: string | null
   hasConversation: boolean
   disabled?: boolean
   /** 드롭다운을 열었다 — 여기서 목록을 받아 온다 */
-  onOpen: () => void
+  onOpen: () => void | Promise<void>
   onPick: (session: SessionInfo) => void
   onNewConversation: () => void
 }) {
@@ -613,18 +627,19 @@ function SessionPicker({
         type="button"
         disabled={disabled}
         onClick={() => {
-          if (!open) onOpen()
+          if (!open) void onOpen()
           setOpen((v) => !v)
         }}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label="히스토리"
         title="히스토리"
-        className={`flex h-6 w-6 items-center justify-center rounded hover:bg-surface-hover disabled:opacity-40 ${
+        className={`flex h-6 items-center gap-1 rounded px-1.5 hover:bg-surface-hover disabled:opacity-40 ${
           open ? 'bg-surface-hover text-ink' : 'text-ink-secondary hover:text-ink'
         }`}
       >
         <HistoryGlyph />
+        <span>히스토리</span>
       </button>
       {open && (
         <div
@@ -656,6 +671,7 @@ function SessionPicker({
             )}
             {sessions?.map((session) => {
               const taken = takenIds.includes(session.sessionId)
+              const current = session.sessionId === currentSessionId
               return (
                 <button
                   key={session.sessionId}
@@ -666,15 +682,17 @@ function SessionPicker({
                     onPick(session)
                     setOpen(false)
                   }}
-                  disabled={taken || loadingSession !== null}
+                  disabled={current || taken || loadingSession !== null}
                   className="flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left hover:bg-surface-hover disabled:opacity-40"
                 >
                   <span className="w-full truncate text-ink">{session.title || session.sessionId.slice(0, 8)}</span>
                   <span className="text-ink-muted">
                     {session.sessionId === loadingSession
                       ? '불러오는 중…'
-                      : taken
-                        ? '다른 탭에서 열림'
+                      : current
+                        ? '현재 탭에서 열림'
+                        : taken
+                          ? '다른 탭에서 열림'
                         : formatTime(session.updatedAt ?? null)}
                   </span>
                 </button>
@@ -718,7 +736,7 @@ function AgentTabBar({
   const drag = useDragReorder({ onReorder })
   return (
     <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
-      <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto">
+      <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
         {tabs.map((tab, i) => {
           // 새 탭 선택기가 열려 있으면 `+`가 가상 활성 탭이다. 직전 대화 탭을 함께 활성으로 보이지 않는다.
           const isActive = !pickerOpen && tab.id === activeId
@@ -1258,6 +1276,10 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
   const [tabs, setTabs] = useState<AgentTab[]>(() => loadTabs(workspacePath))
   const [pickerOpen, setPickerOpen] = useState(false)
   const [tabsSynced, setTabsSynced] = useState(false)
+  // 다른 기기·다른 루트 화면의 탭도 같은 ACP thread를 잡을 수 있다. 히스토리를 열 때 다시 읽어
+  // 마지막 저장 이후 생긴 점유까지 반영한다. 정적 첫 조회만 믿으면 이미 열린 thread를 또 load해
+  // Codex가 "active writer" internal error로 거절한다.
+  const [sessionClaims, setSessionClaims] = useState<AgentSessionClaim[]>([])
   const [defaultCwd, setDefaultCwd] = useState<string | null>(null)
   // 브라우저를 껐다 켜도 보던 탭에서 이어 하도록 마지막으로 본 탭을 기억한다.
   // 그 탭이 목록에서 사라졌으면(다른 창에서 닫았거나 저장분이 깨졌으면) 첫 탭으로 돌아간다
@@ -1266,6 +1288,10 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
   const [opened, setOpened] = useState<Set<string>>(() => new Set(activeId ? [activeId] : []))
   const [infos, setInfos] = useState<Record<string, TabInfo>>({})
   const [infoTabs, setInfoTabs] = useState<Set<string>>(() => new Set())
+  // 탭 상태 저장은 한 번에 하나만 보낸다. 빠른 이름·세션 갱신의 오래된 PUT이 늦게 도착해
+  // 최신 thread 포인터를 되돌리는 경합을 막고, 대기 중에는 마지막 스냅샷만 남긴다.
+  const pendingSaveRef = useRef<{ workspacePath: string; tabs: AgentTab[]; activeId: string | null } | null>(null)
+  const saveRunningRef = useRef(false)
   // 탭을 닫을 때 그 탭의 WS로 close_session을 보내야 한다 — 창을 닫는 것과 달리 세션을 끝내는 뜻이다
   const sendersRef = useRef(new Map<string, (payload: Record<string, unknown>) => void>())
 
@@ -1274,7 +1300,22 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
   useEffect(() => {
     localStorage.setItem(tabsKey, JSON.stringify(tabs))
     if (!tabsSynced || !workspacePath) return
-    void saveAgentTabs(workspacePath, { tabs, activeId }).catch(console.error)
+    pendingSaveRef.current = { workspacePath, tabs, activeId }
+    if (saveRunningRef.current) return
+    saveRunningRef.current = true
+    const drain = async () => {
+      while (pendingSaveRef.current) {
+        const next = pendingSaveRef.current
+        pendingSaveRef.current = null
+        try {
+          await saveAgentTabs(next.workspacePath, next)
+        } catch (err) {
+          console.error(err)
+        }
+      }
+      saveRunningRef.current = false
+    }
+    void drain()
   }, [activeId, tabs, tabsKey, tabsSynced, workspacePath])
 
   useEffect(() => {
@@ -1298,13 +1339,17 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
   // 계정 저장소의 첫 값이 된다. 따라서 빈 시크릿 창이 다른 기기의 탭을 지우지 않는다.
   useEffect(() => {
     if (!workspacePath) {
+      setSessionClaims([])
       setTabsSynced(true)
       return
     }
     let alive = true
     setTabsSynced(false)
     void fetchAgentTabs(workspacePath)
-      .then(({ state }) => {
+      .then(({ state, claims }) => {
+        if (alive) {
+          setSessionClaims(claims)
+        }
         if (!alive || !state) return
         const restoredTabs = state.tabs
           .filter((tab) => !(tab.runtime === null && tab.label === LEGACY_PENDING_TAB_LABEL))
@@ -1321,6 +1366,17 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
       .catch(console.error)
       .finally(() => { if (alive) setTabsSynced(true) })
     return () => { alive = false }
+  }, [workspacePath])
+
+  const refreshSessionClaims = useCallback(async () => {
+    if (!workspacePath) return
+    try {
+      const { claims } = await fetchAgentTabs(workspacePath)
+      setSessionClaims(claims)
+    } catch (err) {
+      // 점유 새로고침이 잠깐 실패해도 히스토리 목록 자체는 기존 상태로 열어 둔다.
+      console.error(err)
+    }
   }, [workspacePath])
 
   const activate = (id: string) => {
@@ -1491,7 +1547,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
         onCloseTab={closeTab}
         onClosePanel={onClose}
       />
-      {tabs.length === 0 && !pickerOpen && (
+      {tabsSynced && tabs.length === 0 && !pickerOpen && (
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <button
             type="button"
@@ -1503,7 +1559,8 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
         </div>
       )}
       {/* 안 보이는 탭도 붙어 있는 채로 둔다 — 돌고 있는 대화가 탭을 바꿨다고 멎으면 안 된다 */}
-      {!pickerOpen && tabs
+      {/* 서버 탭 상태를 확인하기 전에는 localStorage의 낡은 thread로 연결하지 않는다. */}
+      {!pickerOpen && tabsSynced && tabs
         .filter((tab) => tab.runtime && tab.cwd && opened.has(tab.id))
         .map((tab) => {
           const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!)
@@ -1522,6 +1579,13 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
               tree={tree}
               focusedFilePath={focusedFilePath}
               infos={infos}
+              takenSessionIds={[
+                ...sessionClaims
+                  .filter((claim) => claim.workspacePath !== workspacePath || claim.tabId !== tab.id)
+                  .map((claim) => claim.sessionId),
+                ...sessionIdsExcept(tabs, tab.id),
+              ]}
+              onRefreshSessionClaims={refreshSessionClaims}
               onLabel={setTabLabel}
               onProjectMention={labelProjectTab}
               onInfo={setTabInfo}
@@ -1552,6 +1616,8 @@ function AgentSessionView({
   tree,
   focusedFilePath,
   infos,
+  takenSessionIds,
+  onRefreshSessionClaims,
   onLabel,
   onProjectMention,
   onInfo,
@@ -1573,6 +1639,9 @@ function AgentSessionView({
   tree: TreeNode[]
   focusedFilePath: string | null
   infos: Record<string, TabInfo>
+  /** mount 여부와 관계없이 다른 저장 탭이 기억하는 세션 */
+  takenSessionIds: string[]
+  onRefreshSessionClaims: () => Promise<void>
   onLabel: (tabId: string, label: string) => void
   onProjectMention: (tabId: string, name: string) => void
   onInfo: (tabId: string, runtime: string, cwd: string, info: TabInfo) => void
@@ -1626,11 +1695,19 @@ function AgentSessionView({
     browserLoginWindowRef.current = null
   }, [])
   const attachmentInputRef = useRef<HTMLInputElement>(null)
+  const agentInputRef = useRef<HTMLTextAreaElement>(null)
+  const historyIndexRef = useRef<number | null>(null)
+  const historyDraftRef = useRef('')
   const infoOverlayRef = useRef<HTMLDivElement>(null)
   const cacheSessionIdRef = useRef<string | null>(initialCache?.sessionId ?? null)
   const resumeSessionIdRef = useRef<string | null>(resumeSessionId)
   const eventsRef = useRef(events)
-  const replayRef = useRef<{ events: AgentEvent[]; restored: boolean } | null>(null)
+  const replayRef = useRef<{
+    events: AgentEvent[]
+    restored: boolean
+    restoreFailure: { sessionId: string; message: string } | null
+  } | null>(null)
+  const restoreFailureRef = useRef<{ sessionId: string; message: string } | null>(null)
   const adoptModels = useCallback((next: ModelState) => {
     setModels(next)
     writeAgentControlCache(runtime, tabId, cwd, { models: next })
@@ -1686,12 +1763,55 @@ function AgentSessionView({
     writeAgentInputDraft(tabId, draft)
   }, [draft, tabId])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const sessionRef = useRef<HTMLDivElement>(null)
   // 탭을 바꾸거나 세션 뷰가 다시 붙어도 작성 영역이 최소 높이로 되돌아가지 않는다.
   const [inputHeight, setInputHeight] = useState(initialAgentInputHeight)
   const inputResizeCleanupRef = useRef<(() => void) | null>(null)
   // 지금 대화 바닥에 붙어 있는지 — 붙어 있을 때만 새 내용을 따라 내려간다
   const stickRef = useRef(true)
   const [unread, setUnread] = useState(false)
+  const [viewportMetrics, setViewportMetrics] = useState(() => ({ panelHeight: window.innerHeight, bottomInset: 0 }))
+  const maxInputHeight = agentInputMaxHeight(viewportMetrics.panelHeight, viewportMetrics.bottomInset)
+  // 키보드가 닫히면 사용자가 정한 높이로 돌아가고, 열린 동안만 보이는 높이를 상한 안에 둔다.
+  const visibleInputHeight = Math.min(inputHeight, maxInputHeight)
+
+  // 키보드가 overlay로 뜨는 모바일에서는 session 높이가 바뀌지 않으므로, visual viewport에
+  // 가려진 panel 하단을 직접 재서 composer 아래 여백으로 확보한다.
+  useEffect(() => {
+    if (!active) return
+    let frame = 0
+    const measure = () => {
+      const bounds = sessionRef.current?.getBoundingClientRect()
+      const panelHeight = Math.round(bounds?.height || window.innerHeight)
+      const visualViewport = window.visualViewport
+      const visibleBottom = visualViewport
+        ? visualViewport.offsetTop + visualViewport.height
+        : window.innerHeight
+      const bottomGuard = isDesktop() ? 0 : MOBILE_AGENT_INPUT_BOTTOM_GUARD_PX
+      const coveredBottom = bounds ? Math.max(0, bounds.bottom - visibleBottom + bottomGuard) : bottomGuard
+      const bottomInset = Math.ceil(Math.min(Math.max(0, panelHeight - MIN_AGENT_INPUT_HEIGHT), coveredBottom))
+      setViewportMetrics((current) => current.panelHeight === panelHeight && current.bottomInset === bottomInset
+        ? current
+        : { panelHeight, bottomInset })
+    }
+    const scheduleMeasure = () => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(measure)
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure)
+    if (sessionRef.current) observer?.observe(sessionRef.current)
+    window.addEventListener('resize', scheduleMeasure)
+    window.visualViewport?.addEventListener('resize', scheduleMeasure)
+    window.visualViewport?.addEventListener('scroll', scheduleMeasure)
+    measure()
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer?.disconnect()
+      window.removeEventListener('resize', scheduleMeasure)
+      window.visualViewport?.removeEventListener('resize', scheduleMeasure)
+      window.visualViewport?.removeEventListener('scroll', scheduleMeasure)
+    }
+  }, [active])
 
   const startInputResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
@@ -1712,7 +1832,7 @@ function AgentSessionView({
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return
       const next = startHeight + startY - event.clientY
-      setInputHeight(Math.min(agentInputMaxHeight(), Math.max(MIN_AGENT_INPUT_HEIGHT, next)))
+      setInputHeight(Math.min(maxInputHeight, Math.max(MIN_AGENT_INPUT_HEIGHT, next)))
     }
     const cleanup = () => {
       window.removeEventListener('pointermove', onMove)
@@ -1729,14 +1849,56 @@ function AgentSessionView({
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onEnd)
     window.addEventListener('pointercancel', onEnd)
-  }, [inputHeight])
+  }, [inputHeight, maxInputHeight])
 
   const resizeInputWithKeyboard = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
     e.preventDefault()
     const delta = e.key === 'ArrowUp' ? 12 : -12
-    setInputHeight((height) => Math.min(agentInputMaxHeight(), Math.max(MIN_AGENT_INPUT_HEIGHT, height + delta)))
-  }, [])
+    setInputHeight((height) => Math.min(maxInputHeight, Math.max(MIN_AGENT_INPUT_HEIGHT, height + delta)))
+  }, [maxInputHeight])
+
+  /** 첫·마지막 줄에서만 터미널처럼 이전·다음 전송을 순회한다. */
+  const navigateAgentHistory = useCallback((direction: 'up' | 'down'): boolean => {
+    const input = agentInputRef.current
+    if (!input || input.selectionStart !== input.selectionEnd) return false
+    const caret = input.selectionStart ?? 0
+    const atFirstLine = !draft.slice(0, caret).includes('\n')
+    const atLastLine = !draft.slice(caret).includes('\n')
+    if ((direction === 'up' && !atFirstLine) || (direction === 'down' && !atLastLine)) return false
+    const history = readAgentInputHistory(tabId)
+    if (history.length === 0) return false
+
+    let index = historyIndexRef.current
+    let next: string
+    if (direction === 'up') {
+      if (index === null) {
+        historyDraftRef.current = draft
+        index = history.length
+      }
+      index = Math.max(0, index - 1)
+      next = history[index]
+    } else {
+      if (index === null) return false
+      index += 1
+      if (index >= history.length) {
+        historyIndexRef.current = null
+        next = historyDraftRef.current
+      } else {
+        historyIndexRef.current = index
+        next = history[index]
+      }
+    }
+    if (direction === 'up') historyIndexRef.current = index
+    setDraft(next)
+    requestAnimationFrame(() => {
+      const textarea = agentInputRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(next.length, next.length)
+    })
+    return true
+  }, [draft, tabId])
 
   useEffect(() => {
     try { localStorage.setItem(AGENT_INPUT_HEIGHT_KEY, String(Math.round(inputHeight))) } catch { /* 저장 실패는 UI 동작에 영향 없다 */ }
@@ -1824,6 +1986,16 @@ function AgentSessionView({
           const replayed = replayRef.current
           if (replayed) {
             replayRef.current = null
+            if (replayed.restoreFailure) {
+              // 자동 복원이 실패한 빈 fallback 세션은 원래 탭 포인터와 캐시를 대체하지 않는다.
+              // 사용자가 새 메시지를 보내거나 다른 히스토리를 고를 때만 fallback을 채택한다.
+              restoreFailureRef.current = replayed.restoreFailure
+              const message = `이전 대화를 자동으로 불러오지 못했습니다. 다시 선택하거나 새 메시지로 시작하세요.\n${replayed.restoreFailure.message}`
+              setEvents((cached) => cached.some((item) => item.type === 'error' && item.message === message)
+                ? cached
+                : [...cached, { type: 'error', message }])
+              return setMeta(event.meta)
+            }
             const sameSession = cacheSessionIdRef.current === event.meta.sessionId
             setEvents((cached) => mergeAgentReplay(cached, replayed.events, sameSession, replayed.restored))
           } else if (cacheSessionIdRef.current && cacheSessionIdRef.current !== event.meta.sessionId) {
@@ -1874,12 +2046,17 @@ function AgentSessionView({
           pendingRef.current = []
           swapRef.current = false
           // 바로 뒤따르는 meta의 sessionId를 보고 같은 세션인지 판정한 뒤 캐시와 합친다.
-          replayRef.current = { events: event.events, restored: event.restored === true }
+          replayRef.current = {
+            events: event.events,
+            restored: event.restored === true,
+            restoreFailure: event.restoreFailure ?? null,
+          }
           return
         }
         // 히스토리 불러오기 — 지금까지 그린 대화를 버린다. 새 대화는 바닥에서 시작한다.
         // 비우는 것 자체는 아래 줄 세우기가 순서대로 처리한다(뒤따라 오는 히스토리와 같은 프레임에 그려진다)
         if (event.type === 'reset') {
+          restoreFailureRef.current = null
           setLoadingSession(null)
           stickRef.current = true
         }
@@ -1962,7 +2139,7 @@ function AgentSessionView({
 
   const send = useCallback((payload: Record<string, unknown>) => wsRef.current?.send(JSON.stringify(payload)), [])
 
-  // terminal auth 명령의 실제 exit code를 본다. 성공했을 때만 tmux를 닫고 ACP를 새로 initialize한다.
+  // 인증 명령의 exit code나 등록된 완료 파일 변경을 본다. 성공했을 때만 tmux를 닫고 ACP를 복구한다.
   // 팝업을 닫아도 로그인 명령과 감시는 계속된다 — 외부 브라우저 인증 중 화면을 오갈 수 있어야 한다.
   useEffect(() => {
     if (!authTerminal || authTerminal.state === 'failed' || authTerminal.state === 'interrupted') return
@@ -1976,7 +2153,7 @@ function AgentSessionView({
       if (cancelled) return
       setAuthTerminalOpen(false)
       setAuthTerminal(null)
-      send({ type: 'retry_auth' })
+      send({ type: 'retry_auth', methodId: terminal.methodId })
     }
     const poll = async () => {
       try {
@@ -2033,16 +2210,20 @@ function AgentSessionView({
   }, [items, onLabel, tabId])
 
   useEffect(() => {
+    if (restoreFailureRef.current) return
     onInfo(tabId, runtime, cwd, { busy: meta?.busy ?? false, sessionId: meta?.sessionId ?? '' })
   }, [cwd, meta?.busy, meta?.sessionId, onInfo, runtime, tabId])
 
   /** 다른 탭이 붙들고 있는 세션 — 이 탭에서 또 열지 못하게 막는다 */
   const takenIds = useMemo(
-    () =>
-      Object.entries(infos)
+    () => [...new Set([
+      ...takenSessionIds,
+      ...Object.entries(infos)
         .filter(([id]) => id !== tabId)
-        .map(([, info]) => info.sessionId),
-    [infos, tabId],
+        .map(([, info]) => info.sessionId)
+        .filter(Boolean),
+    ])],
+    [infos, tabId, takenSessionIds],
   )
 
   const busy = meta?.busy ?? false
@@ -2093,6 +2274,7 @@ function AgentSessionView({
    * 끝난 세션은 사라지지 않는다 — 그 드롭다운에서 다시 불러올 수 있다.
    */
   const clearSession = useCallback(() => {
+    restoreFailureRef.current = null
     send({ type: 'close_session' })
     clearAgentEventCache(runtime, tabId, cwd)
     resumeSessionIdRef.current = null
@@ -2120,11 +2302,28 @@ function AgentSessionView({
     // 사실을 알 수 없다. 서버 큐의 세션 경계로 처리해 뒤 메시지는 새 대화에서 실행한다.
     if (written === '/clear' && refs.length === 0) {
       send({ type: 'clear_session' })
+      recordAgentInputHistory(tabId, written)
+      historyIndexRef.current = null
+      historyDraftRef.current = ''
       setDraft('')
       return
     }
+    if (restoreFailureRef.current && meta?.sessionId) {
+      // 복원 실패 후 사용자가 새 메시지를 보낸 것은 fallback 새 대화를 채택한다는 명시적 행동이다.
+      restoreFailureRef.current = null
+      resumeSessionIdRef.current = meta.sessionId
+      cacheSessionIdRef.current = meta.sessionId
+      clearAgentEventCache(runtime, tabId, cwd)
+      eventsRef.current = []
+      pendingRef.current = []
+      setEvents([])
+      onInfo(tabId, runtime, cwd, { busy: meta.busy, sessionId: meta.sessionId })
+    }
     // 진행 중이어도 막지 않는다 — 서버가 줄을 세웠다가 턴이 끝나면 이어서 돈다
-    send({ type: 'prompt', text, displayText: written, images, imageRefs, skills: selectedSkillNames(text, skills) })
+    send({ type: 'prompt', text, displayText: written, images, imageRefs, skills: selectedSkillNames(text, skills), settings: messageSettings })
+    recordAgentInputHistory(tabId, written)
+    historyIndexRef.current = null
+    historyDraftRef.current = ''
     setDraft('')
     setAttachments([])
     // 내가 말을 걸었으면 답을 보겠다는 뜻이다 — 다시 바닥에 붙인다
@@ -2164,6 +2363,9 @@ function AgentSessionView({
       skills: selectedSkillNames(message, skills),
       at: new Date(at).toISOString(),
     })
+    recordAgentInputHistory(tabId, draft.trim())
+    historyIndexRef.current = null
+    historyDraftRef.current = ''
     setDraft('')
     setAttachments([])
     await refreshScheduled()
@@ -2216,6 +2418,11 @@ function AgentSessionView({
   const modelOptions = models?.availableModels.map((m) => ({ id: m.modelId, label: m.name })) ?? [{ id: '', label: '모델' }]
   const thinkingOptions = thinking?.options.map((option) => ({ id: option.id, label: option.name })) ?? [{ id: '', label: '사고' }]
   const modeOptions = modes?.availableModes.map((mode) => ({ id: mode.id, label: MODE_LABEL[mode.id] ?? mode.name })) ?? [{ id: '', label: '권한' }]
+  const messageSettings = useMemo<AgentMessageSettings>(() => ({
+    model: currentModel ?? models?.currentModelId ?? '—',
+    thinking: thinking?.options.find((option) => option.id === thinking.currentValue)?.name ?? thinking?.currentValue ?? '—',
+    permission: modes ? (MODE_LABEL[modes.currentModeId] ?? modes.currentModeId) : '—',
+  }), [currentModel, models?.currentModelId, modes, thinking])
   const currentDefault = useMemo<AgentRuntimeDefault | null>(() => {
     const modelId = models?.currentModelId
     const modeId = modes?.currentModeId
@@ -2321,9 +2528,30 @@ function AgentSessionView({
   )
 
   return (
-    <div className="relative flex h-full w-full flex-col bg-surface-deep">
+    <div ref={sessionRef} className="relative flex h-full w-full flex-col bg-surface-deep">
       {/* 탭바 바로 아래의 세션 도구 바. 히스토리·정보 팝업만 이 바에서 펼친다. */}
-      <div ref={infoOverlayRef} className="relative z-20 flex h-8 shrink-0 items-center gap-1 border-b border-edge bg-surface px-3">
+      <div ref={infoOverlayRef} className="relative z-20 flex h-8 shrink-0 items-center justify-between border-b border-edge bg-surface px-3">
+        <SessionPicker
+          sessions={sessions}
+          takenIds={takenIds}
+          currentSessionId={meta?.sessionId ?? null}
+          loadingSession={loadingSession}
+          hasConversation={items.length > 0}
+          disabled={!connected}
+          onOpen={async () => {
+            // 열 때마다 새로 물어본다 — 그 사이 다른 탭에서 돈 대화가 목록에 있어야 한다.
+            setSessions(null)
+            await onRefreshSessionClaims()
+            send({ type: 'list_sessions' })
+          }}
+          onPick={(session) => {
+            setLoadingSession(session.sessionId)
+            onLabel(tabId, session.title || session.sessionId.slice(0, 8))
+            send({ type: 'load_session', sessionId: session.sessionId })
+          }}
+          // 새 대화는 작업·큐 상태와 관계없이 현재 세션을 바로 닫는다.
+          onNewConversation={clearSession}
+        />
         <div className="flex gap-1">
           <button
             type="button"
@@ -2335,25 +2563,6 @@ function AgentSessionView({
           >
             <ClearGlyph />
           </button>
-          <SessionPicker
-            sessions={sessions}
-            takenIds={takenIds}
-            loadingSession={loadingSession}
-            hasConversation={items.length > 0}
-            disabled={!connected}
-            onOpen={() => {
-              // 열 때마다 새로 물어본다 — 그 사이 다른 탭에서 돈 대화가 목록에 있어야 한다.
-              setSessions(null)
-              send({ type: 'list_sessions' })
-            }}
-            onPick={(session) => {
-              setLoadingSession(session.sessionId)
-              onLabel(tabId, session.title || session.sessionId.slice(0, 8))
-              send({ type: 'load_session', sessionId: session.sessionId })
-            }}
-            // 새 대화는 작업·큐 상태와 관계없이 현재 세션을 바로 닫는다.
-            onNewConversation={clearSession}
-          />
           <button
             type="button"
             onClick={onToggleInfo}
@@ -2369,7 +2578,7 @@ function AgentSessionView({
         </div>
 
         {showInfo && (
-          <div className="absolute left-3 top-full mt-1 w-[min(23rem,calc(100vw-2rem))] space-y-1 rounded-lg border border-edge-bright bg-surface p-3 text-xs shadow-xl">
+          <div className="absolute right-3 top-full mt-1 w-[min(23rem,calc(100vw-2rem))] space-y-1 rounded-lg border border-edge-bright bg-surface p-3 text-xs shadow-xl">
           <InfoRow label="세션 ID" value={meta ? meta.sessionId.slice(0, 8) : '—'} title={meta?.sessionId} />
           <InfoRow
             label="시작"
@@ -2432,7 +2641,6 @@ function AgentSessionView({
 
       {auth ? (
         <AgentAuthPanel
-          runtimeId={runtime}
           runtime={currentRuntime.label}
           state={auth}
           urlRequest={authUrl}
@@ -2448,6 +2656,7 @@ function AgentSessionView({
           }}
           browserLoginUrl={authTerminal?.verificationUrl ?? null}
           browserLoginCode={authTerminal?.verificationCode ?? null}
+          browserLoginInput={auth.methods.find((method) => method.id === authTerminal?.methodId)?.browserInput ?? null}
           browserLoginPreparing={authTerminal?.surface === 'browser' && authTerminal.state === 'running' && !authTerminal.verificationUrl}
           browserLoginError={authTerminal?.surface === 'browser' && authTerminal.state === 'failed'
             ? authTerminal.errorMessage ?? `로그인 명령이 실패했습니다${authTerminal.exitCode === null ? '' : ` (exit ${authTerminal.exitCode})`}. 다시 시도하세요.`
@@ -2458,7 +2667,10 @@ function AgentSessionView({
             const url = authTerminal?.verificationUrl
             if (url) window.open(url, '_blank', 'noopener,noreferrer')
           }}
-          onSavedServerToken={() => send({ type: 'retry_auth' })}
+          onSubmitBrowserLoginInput={(input) => {
+            if (!authTerminal) return Promise.reject(new Error('진행 중인 로그인 작업이 없습니다'))
+            return submitAgentAuthBrowserInput(runtime, tabId, authTerminal.methodId, input).then(() => undefined)
+          }}
           onOpenTerminal={(methodId) => {
             void runAgentAuthTerminal(runtime, tabId, cwd, methodId)
               .then(({ session, label, state, exitCode }) => {
@@ -2497,12 +2709,28 @@ function AgentSessionView({
       ) : (
         <>
       <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
-        {items.map((item) => {
+        {items.map((item, index) => {
           if (item.kind === 'user') {
             // 내가 쓴 말이라 이미 아는 내용이다 — 턴 버블과 같게 접어 두고, 눌러야 다 보인다
             const open = expanded.has(item.key)
             return (
-              <div key={item.key} className="ml-6 space-y-2">
+              <div key={item.key} className="space-y-2">
+                {item.settings && (() => {
+                  const previous = items.slice(0, index).reverse().find((candidate) => candidate.kind === 'user')
+                  const changed = previous?.kind !== 'user'
+                    || previous.settings?.model !== item.settings.model
+                    || previous.settings?.thinking !== item.settings.thinking
+                    || previous.settings?.permission !== item.settings.permission
+                  return changed ? (
+                    <div className="flex items-center gap-2 py-0.5 text-[11px] text-ink-muted" aria-label={`실행 설정: ${item.settings.model} · ${item.settings.thinking} · ${item.settings.permission}`}>
+                      <span className="h-px flex-1 bg-edge" />
+                      <span className="shrink-0">{item.settings.model} · {item.settings.thinking} · {item.settings.permission}</span>
+                      <span className="h-px flex-1 bg-edge" />
+                    </div>
+                  ) : null
+                })()}
+                {/* 설정줄은 작업 버블과 같은 전체 폭, 사용자 발화만 오른쪽으로 들여쓴다. */}
+                <div className="ml-6 space-y-2">
                 {item.images.length > 0 && (
                   <div className="flex flex-col items-end gap-2" aria-label={`첨부 사진 ${item.images.length}장`}>
                     {item.images.map((image, index) => (
@@ -2539,17 +2767,30 @@ function AgentSessionView({
                     <CopyButton text={item.text} label="이 질문 복사" />
                   </div>
                 )}
+                </div>
               </div>
             )
           }
           if (item.kind === 'turn') {
             const open = expanded.has(item.key)
+            const state = turnState(item, meta?.busy ?? null)
             // 턴 요약: 마지막 agent 텍스트의 첫 줄
             const lastAgent = [...item.children].reverse().find((c) => c.kind === 'agent')
             const summary = lastAgent && lastAgent.kind === 'agent'
               ? (lastAgent.text.length > 80 ? lastAgent.text.slice(0, 80) + '…' : lastAgent.text)
-              : '작업 중…'
-            const state = turnState(item)
+              : state === 'cancelled'
+                ? '중단됨'
+                : state === 'failed'
+                  ? '실패함'
+                  : state === 'done'
+                    ? '완료'
+                    : '작업 중…'
+            // 취소된 작업처럼 답변이 없으면 CopyButton도 없다. 그때 시간만 오른쪽 모서리에 붙지 않게
+            // 아래 시간 칸에 여백을 따로 둔다.
+            const answerText = item.children
+              .filter((c) => c.kind === 'agent')
+              .map((c) => (c.kind === 'agent' ? c.text : ''))
+              .join('\n\n')
             // 걸린 시간 — 끝난 턴은 서버가 새긴 durationMs, 돌고 있는 턴은 startedAt부터 지금까지(now가 1초마다 흘러 갱신)
             const durationMs = item.done
               ? item.durationMs
@@ -2577,14 +2818,11 @@ function AgentSessionView({
                   </button>
                   {/* 걸린 시간 — "15초"·"36분 32초" 꼴. 옛 히스토리(시간 정보 없음)는 감춘다 */}
                   {durationMs != null && (
-                    <span className="shrink-0 pt-2 text-xs tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>
+                    <span className={`shrink-0 pt-2 text-xs tabular-nums text-ink-muted ${answerText.trim() ? '' : 'mr-3'}`}>{formatDuration(durationMs)}</span>
                   )}
                   {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
                   <CopyButton
-                    text={item.children
-                      .filter((c) => c.kind === 'agent')
-                      .map((c) => (c.kind === 'agent' ? c.text : ''))
-                      .join('\n\n')}
+                    text={answerText}
                     label="이 답변 복사"
                   />
                   {/* 돌고 있는 턴만 중단할 수 있다 — 지난 턴에는 버튼이 없다 */}
@@ -2852,8 +3090,8 @@ function AgentSessionView({
 
       {/* 키보드를 쥐어도 되는 유일한 자리 — 전송 버튼을 눌러도 이어 쓰도록 포커스를 뺏지 않는다 */}
       <div
-        className="relative flex shrink-0 flex-col border-t border-edge p-2"
-        style={{ height: `${inputHeight}px` }}
+        className="relative flex shrink-0 flex-col gap-0.5 border-t border-edge p-2"
+        style={{ height: `${visibleInputHeight}px`, marginBottom: `${viewportMetrics.bottomInset}px` }}
         data-keep-keyboard
       >
         {/* 채팅과 입력창 사이의 선 전체가 손잡이다. 투명한 hit area를 넓혀 선을 정확히 누르지 않아도 잡힌다. */}
@@ -2862,8 +3100,8 @@ function AgentSessionView({
           aria-label="입력창 높이 조절"
           aria-orientation="horizontal"
           aria-valuemin={MIN_AGENT_INPUT_HEIGHT}
-          aria-valuemax={agentInputMaxHeight()}
-          aria-valuenow={Math.round(inputHeight)}
+          aria-valuemax={maxInputHeight}
+          aria-valuenow={Math.round(visibleInputHeight)}
           tabIndex={0}
           onPointerDown={startInputResize}
           onKeyDown={resizeInputWithKeyboard}
@@ -2872,18 +3110,16 @@ function AgentSessionView({
         >
           <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent" />
         </div>
-        {/* 실행 설정은 textarea만이 아니라 전송 버튼까지 포함한 입력 행 전체의 공통 줄이다. */}
+        <div className="flex min-h-0 flex-1 items-stretch gap-2">
+        {/* 왼쪽 열은 실행 설정과 작성칸을 공유한다. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-visible">
-          <HeaderSelect value={models?.currentModelId ?? ''} options={modelOptions} onPick={(modelId) => send({ type: 'set_model', modelId })} title="모델" searchable disabled={!models || models.availableModels.length < 2} />
-          <HeaderSelect value={thinking?.currentValue ?? ''} options={thinkingOptions} onPick={(value) => { if (thinking) send({ type: 'set_thinking', configId: thinking.configId, value }) }} title="사고" disabled={!thinking || thinking.options.length < 2} />
-          <HeaderSelect value={modes?.currentModeId ?? ''} options={modeOptions} onPick={(modeId) => send({ type: 'set_mode', modeId })} title="권한" disabled={!modes || modes.availableModes.length < 2} />
-          <button type="button" onClick={saveCurrentDefault} disabled={!currentDefault || savingDefault} className={`flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${defaultIsSaved ? 'text-accent' : 'text-ink-secondary'}`} aria-label="현재 모델·추론 정도·권한을 기본값으로 저장" title={savingDefault ? '기본값 저장 중…' : defaultIsSaved ? `${currentRuntime.label}의 저장된 기본값입니다` : `현재 모델·추론 정도·권한을 ${currentRuntime.label} 기본값으로 저장`}><SaveGlyph /></button>
-          <div className="flex shrink-0 items-center gap-0">
-            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={!connected || attaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label="파일 첨부" title="파일 첨부 (.mew/files에 저장)"><PaperclipGlyph /></button>
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <HeaderSelect className="flex-1" caretEnd value={models?.currentModelId ?? ''} options={modelOptions} onPick={(modelId) => send({ type: 'set_model', modelId })} title="모델" searchable disabled={!models || models.availableModels.length < 2} />
+            <HeaderSelect value={thinking?.currentValue ?? ''} options={thinkingOptions} onPick={(value) => { if (thinking) send({ type: 'set_thinking', configId: thinking.configId, value }) }} title="사고" disabled={!thinking || thinking.options.length < 2} />
+            <HeaderSelect value={modes?.currentModeId ?? ''} options={modeOptions} onPick={(modeId) => send({ type: 'set_mode', modeId })} title="권한" disabled={!modes || modes.availableModes.length < 2} />
           </div>
         </div>
-        <div className="flex min-h-0 flex-1 items-stretch gap-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
           {(attachments.length > 0 || attaching) && (
             <div className="flex h-6 shrink-0 items-center gap-1 overflow-x-auto" aria-label={`첨부 파일 ${attachments.length}개`}>
               {attaching && (
@@ -2922,7 +3158,11 @@ function AgentSessionView({
           )}
           <MentionTextarea
             value={draft}
-            onChange={setDraft}
+            onChange={(next) => {
+              historyIndexRef.current = null
+              historyDraftRef.current = ''
+              setDraft(next)
+            }}
             options={fileMentionOptions}
             triggers={mentionTriggers}
             onSubmit={submit}
@@ -2934,12 +3174,14 @@ function AgentSessionView({
             submitShortcut="mod-enter"
             onFilesDropped={(files) => { void attachFiles(files) }}
             onImagesPasted={(files) => { void attachFiles(files) }}
+            inputRef={agentInputRef}
+            onHistoryNavigate={navigateAgentHistory}
             onOptionSelect={(option) => {
               if (option.id.startsWith('project:')) onProjectMention(tabId, option.label)
             }}
           />
         </div>
-        <div className="flex shrink-0 flex-col justify-end gap-1">
+        <div className="flex shrink-0 flex-col justify-between">
           <input
             ref={attachmentInputRef}
             type="file"
@@ -2951,26 +3193,30 @@ function AgentSessionView({
               void attachFiles(files)
             }}
           />
-          <button
-            type="button"
-            onClick={() => setScheduleOpen(true)}
-            disabled={!connected || !meta?.sessionId}
-            className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40"
-            aria-label="예약 메시지"
-            title="예약 메시지"
-          >
-            <ClockGlyph />
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!connected || attaching || (!draft.trim() && attachments.length === 0)}
-            className="flex h-8 w-8 items-center justify-center rounded bg-accent text-ink disabled:opacity-40"
-            aria-label="전송"
-            title="전송 (Ctrl+Enter)"
-          >
-            <SendGlyph />
-          </button>
+          <button type="button" onClick={saveCurrentDefault} disabled={!currentDefault || savingDefault} className={`-mt-0.5 flex h-6 w-8 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${defaultIsSaved ? 'text-accent' : 'text-ink-secondary'}`} aria-label="현재 모델·추론 정도·권한을 기본값으로 저장" title={savingDefault ? '기본값 저장 중…' : defaultIsSaved ? `${currentRuntime.label}의 저장된 기본값입니다` : `현재 모델·추론 정도·권한을 ${currentRuntime.label} 기본값으로 저장`}><SaveGlyph /></button>
+          <div className="flex flex-col gap-1.5">
+            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={!connected || attaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label="파일 첨부" title="파일 첨부 (.mew/files에 저장)"><PaperclipGlyph /></button>
+            <button
+              type="button"
+              onClick={() => setScheduleOpen(true)}
+              disabled={!connected || !meta?.sessionId}
+              className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40"
+              aria-label="예약 메시지"
+              title="예약 메시지"
+            >
+              <ClockGlyph />
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!connected || attaching || (!draft.trim() && attachments.length === 0)}
+              className="flex h-8 w-8 items-center justify-center rounded bg-accent text-ink disabled:opacity-40"
+              aria-label="전송"
+              title="전송 (Ctrl+Enter)"
+            >
+              <SendGlyph />
+            </button>
+          </div>
         </div>
         </div>
       </div>
@@ -3012,7 +3258,6 @@ function AgentSessionView({
 }
 
 function AgentAuthPanel({
-  runtimeId,
   runtime,
   state,
   urlRequest,
@@ -3022,14 +3267,14 @@ function AgentAuthPanel({
   onBackToPicker,
   browserLoginUrl,
   browserLoginCode,
+  browserLoginInput,
   browserLoginPreparing,
   browserLoginError,
   onOpenBrowserLogin,
-  onSavedServerToken,
+  onSubmitBrowserLoginInput,
   onOpenTerminal,
   onStartBrowserLogin,
 }: {
-  runtimeId: string
   runtime: string
   state: AgentAuthState
   urlRequest: AgentAuthUrl | null
@@ -3039,42 +3284,24 @@ function AgentAuthPanel({
   onBackToPicker: () => void
   browserLoginUrl: string | null
   browserLoginCode: string | null
+  browserLoginInput: 'authorization-code' | null
   browserLoginPreparing: boolean
   browserLoginError: string | null
   onOpenBrowserLogin: () => void
-  onSavedServerToken: () => void
+  onSubmitBrowserLoginInput: (input: string) => Promise<void>
   onOpenTerminal: (methodId: string) => void
   onStartBrowserLogin: (methodId: string) => void
 }) {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
-  const [claudeToken, setClaudeToken] = useState('')
-  const [savingClaudeToken, setSavingClaudeToken] = useState(false)
-  const [claudeTokenError, setClaudeTokenError] = useState<string | null>(null)
-  const [claudeTokenSaved, setClaudeTokenSaved] = useState(false)
+  const [browserInputValue, setBrowserInputValue] = useState('')
+  const [browserInputSubmitting, setBrowserInputSubmitting] = useState(false)
+  const [browserInputError, setBrowserInputError] = useState<string | null>(null)
+  const browserInputId = useId()
   const commandMethods = state.methods.filter((method) => method.kind === 'terminal')
   const backToPicker = () => {
     // URL 인증 요청을 열린 채로 두면 ACP 쪽이 사용자 응답을 계속 기다린다.
     if (urlRequest) onCancelUrl(urlRequest.id)
     onBackToPicker()
-  }
-
-  const saveClaudeToken = async () => {
-    const token = claudeToken.trim()
-    if (!token) return
-    setSavingClaudeToken(true)
-    setClaudeTokenError(null)
-    try {
-      // 설정 API는 값을 마스킹해서만 돌려주고, 다음 ACP spawn에만 주입한다.
-      // 토큰을 event/agent transcript에 싣지 않는다.
-      await saveAgentRuntimeSetting('claude', { env: { CLAUDE_CODE_OAUTH_TOKEN: token } })
-      setClaudeToken('')
-      setClaudeTokenSaved(true)
-      onSavedServerToken()
-    } catch (error) {
-      setClaudeTokenError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setSavingClaudeToken(false)
-    }
   }
 
   if (urlRequest) {
@@ -3123,30 +3350,6 @@ function AgentAuthPanel({
             <div className="font-medium text-ink">외부 브라우저 로그인</div>
             <p className="mt-1 text-ink-muted">로그인을 시작하면 이 기기의 일반 브라우저에 공급자 인증 페이지를 엽니다. 자격증명은 공급자 CLI가 저장하고 Mew는 완료 여부만 확인합니다.</p>
           </div>
-        )}
-        {runtimeId === 'claude' && (
-          <section className="mb-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5">
-            <div className="text-xs font-medium text-ink">Claude 서버 토큰</div>
-            <p className="mt-1 text-xs text-ink-muted">Claude Code의 <code>setup-token</code>으로 만든 서버용 OAuth 토큰이 있다면 여기 저장하세요. 값은 Mew 서버에만 남고 다음 Claude 세션부터 적용됩니다.</p>
-            <form
-              className="mt-2 flex gap-2"
-              onSubmit={(event) => { event.preventDefault(); void saveClaudeToken() }}
-            >
-              <input
-                type="password"
-                value={claudeToken}
-                onChange={(event) => { setClaudeToken(event.target.value); setClaudeTokenSaved(false) }}
-                autoComplete="off"
-                placeholder="CLAUDE_CODE_OAUTH_TOKEN"
-                className="min-w-0 flex-1 rounded bg-surface-deep px-2 py-1.5 font-mono text-xs text-ink outline-none"
-              />
-              <button type="submit" disabled={savingClaudeToken || !claudeToken.trim()} className="rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent disabled:opacity-40">
-                {savingClaudeToken ? '저장 중…' : '서버에 연결'}
-              </button>
-            </form>
-            {claudeTokenSaved && <p className="mt-1.5 text-xs text-accent">저장했고, 새 서버 세션으로 다시 연결 중입니다.</p>}
-            {claudeTokenError && <p className="mt-1.5 whitespace-pre-wrap text-xs text-danger">{claudeTokenError}</p>}
-          </section>
         )}
         <div className="space-y-2">
           {state.methods.map((method) => (
@@ -3229,6 +3432,44 @@ function AgentAuthPanel({
             </div>
             <button type="button" onClick={onOpenBrowserLogin} className="shrink-0 rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent">브라우저에서 계속 ↗</button>
           </div>
+        )}
+        {browserLoginUrl && browserLoginInput === 'authorization-code' && (
+          <form
+            className="mt-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const input = browserInputValue.trim()
+              if (!input || browserInputSubmitting) return
+              setBrowserInputSubmitting(true)
+              setBrowserInputError(null)
+              void onSubmitBrowserLoginInput(input)
+                .then(() => setBrowserInputValue(''))
+                .catch((err: unknown) => setBrowserInputError(err instanceof Error ? err.message : String(err)))
+                .finally(() => setBrowserInputSubmitting(false))
+            }}
+          >
+            <label className="text-xs text-ink-secondary" htmlFor={browserInputId}>브라우저에 표시된 인증 코드</label>
+            <div className="mt-1.5 flex gap-2">
+              <input
+                id={browserInputId}
+                type="password"
+                value={browserInputValue}
+                onChange={(event) => setBrowserInputValue(event.target.value)}
+                autoComplete="off"
+                placeholder="인증 코드 붙여넣기"
+                className="min-w-0 flex-1 rounded bg-surface-deep px-2 py-1.5 text-xs text-ink outline-none"
+              />
+              <button
+                type="submit"
+                disabled={!browserInputValue.trim() || browserInputSubmitting}
+                className="rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent disabled:opacity-40"
+              >
+                {browserInputSubmitting ? '전송 중…' : '코드 전송'}
+              </button>
+            </div>
+            <p className="mt-1.5 text-[11px] text-ink-muted">코드는 실행 중인 공급자 CLI에 한 번만 전달되며 Mew에 저장되지 않습니다.</p>
+            {browserInputError && <p className="mt-1 text-xs text-danger">{browserInputError}</p>}
+          </form>
         )}
         {browserLoginError && (
           <div className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-center text-xs text-danger">{browserLoginError}</div>
@@ -3390,7 +3631,7 @@ function SchedulePromptInline({
   }
 
   return (
-    <form aria-label="예약 전송" onSubmit={submit} className="relative flex shrink-0 items-end gap-2 border-t border-edge bg-surface px-3 py-1.5">
+    <form aria-label="예약 전송" onSubmit={submit} className="relative flex shrink-0 flex-col items-center border-t border-edge bg-surface px-3 py-1.5">
       <button
         type="button"
         onClick={onClose}
@@ -3400,12 +3641,15 @@ function SchedulePromptInline({
       >
         <XGlyph small />
       </button>
-      <div className="min-w-0 flex-1">
-        <div className="pr-7"><ScrollDateTimePicker value={at} onChange={setAt} /></div>
-        {error && <p className="mt-0.5 text-[11px] text-danger">{error}</p>}
-        {!error && <p className="mt-1 text-xs text-ink-muted" aria-live="polite">{remaining}</p>}
+      <div className="w-full max-w-72">
+        <ScrollDateTimePicker value={at} onChange={setAt} />
       </div>
-      <button type="submit" disabled={saving || disabled} className="mb-0.5 shrink-0 rounded bg-accent px-2 py-1 text-xs font-medium text-ink-on-accent disabled:opacity-50">{saving ? '등록 중…' : '예약'}</button>
+      <div className="mt-1 flex items-center justify-center gap-2">
+        {error
+          ? <p className="text-[11px] text-danger">{error}</p>
+          : <p className="text-xs text-ink-muted" aria-live="polite">{remaining}</p>}
+        <button type="submit" disabled={saving || disabled} className="shrink-0 rounded bg-accent px-2 py-1 text-xs font-medium text-ink-on-accent disabled:opacity-50">{saving ? '등록 중…' : '예약'}</button>
+      </div>
     </form>
   )
 }

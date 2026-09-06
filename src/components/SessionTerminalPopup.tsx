@@ -11,6 +11,7 @@ import { TmuxTerminal } from '@mew/tmux-term'
 import { useOverlayDismiss } from '@mew/ui'
 import { killTmuxSession } from '../api/client'
 import { outsideTerminal } from '../utils/terminalFocus'
+import { useI18n } from '../i18n'
 
 export function SessionTerminalPopup({
   title,
@@ -48,6 +49,7 @@ export function SessionTerminalPopup({
   /** 실행/종료로 세션 상태가 바뀌었을 때 — 부모가 목록을 새로고침한다 */
   onChanged: () => void
 }) {
+  const { t } = useI18n()
   const [started, setStarted] = useState(running)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,7 +66,7 @@ export function SessionTerminalPopup({
       setStarted(true)
       onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '실행 실패')
+      setError(err instanceof Error ? err.message : t('terminal.runFailed'))
     } finally {
       setBusy(false)
     }
@@ -79,7 +81,7 @@ export function SessionTerminalPopup({
       onChanged()
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '종료 실패')
+      setError(err instanceof Error ? err.message : t('terminal.stopFailed'))
       setBusy(false)
     }
   }
@@ -104,7 +106,7 @@ export function SessionTerminalPopup({
               </div>
             )}
           </div>
-          {started && <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] text-ink-secondary">실행 세션</span>}
+          {started && <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] text-ink-secondary">{t('terminal.runningSession')}</span>}
         </div>
 
         <div className="relative min-h-0 flex-1 bg-surface-deep">
@@ -114,7 +116,7 @@ export function SessionTerminalPopup({
             </div>
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-              <div className="text-sm text-ink-muted">아직 실행되지 않았습니다.</div>
+              <div className="text-sm text-ink-muted">{t('terminal.notStarted')}</div>
               {idleNote && (
                 <code className="max-w-full truncate rounded bg-surface px-2 py-1 font-mono text-xs text-ink-secondary">{idleNote}</code>
               )}
@@ -125,7 +127,7 @@ export function SessionTerminalPopup({
                 className="flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-sm text-ink-on-accent disabled:opacity-50"
               >
                 <PlayGlyph className="h-3.5 w-3.5" />
-                실행
+                {t('terminal.run')}
               </button>
             </div>
           )}
@@ -147,7 +149,7 @@ export function SessionTerminalPopup({
               onClick={onOpenBrowserLogin}
               className="shrink-0 rounded bg-accent px-3 py-1 text-sm text-ink-on-accent"
             >
-              브라우저에서 계속 ↗
+              {t('terminal.continueInBrowser')}
             </button>
           )}
           <button
@@ -155,17 +157,17 @@ export function SessionTerminalPopup({
             onClick={kill}
             disabled={busy}
             className="ml-auto rounded border border-danger px-3 py-1 text-sm text-danger hover:bg-danger/10 disabled:opacity-50"
-            title="tmux 세션을 종료하고 팝업을 닫습니다"
+            title={t('terminal.stopTitle')}
           >
-            종료
+            {t('terminal.stop')}
           </button>
           <button
             type="button"
             onClick={onClose}
             className="rounded border border-edge-strong px-3 py-1 text-sm text-ink-secondary hover:bg-surface-hover"
-            title="세션은 유지하고 팝업만 닫습니다"
+            title={t('terminal.closeTitle')}
           >
-            닫기
+            {t('common.close')}
           </button>
         </div>
       </div>

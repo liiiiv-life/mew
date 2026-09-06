@@ -9,7 +9,7 @@
  * - 여기 있는 값은 다크 테마(기본값). 라이트 테마 오버라이드는 아래 `:root:not(.dark)` 참고.
  */
 @theme {
-  --font-sans: var(--mew-font-ui, 'Noto Serif KR', ui-serif, Georgia, serif);
+  --font-sans: var(--mew-font-ui, 'IBM Plex Sans KR', ui-sans-serif, system-ui, sans-serif);
   --font-mono: var(--mew-font-mono, 'IBM Plex Mono', 'IBM Plex Sans KR', ui-monospace, monospace);
 
   /* 배경 */
@@ -132,7 +132,7 @@ body {
   font-weight: 300;
 }
 
-/* Mewcat은 원본 Oreo Cat 시트를 수정 없이, 33×32 프레임을 화면에서 1.5배로 표시한다. */
+/* Mewcat은 레포 안 벡터 마크만 쓴다. */
 .mewcat {
   position: fixed;
   /* 앱 안의 패널·모달·팝업은 물론, 포털로 렌더한 레이어보다도 위에 둔다. */
@@ -146,13 +146,30 @@ body {
   user-select: none;
   will-change: transform;
 }
-.mewcat-sprite {
+.mewcat-mark {
   width: 100%;
   height: 100%;
   display: block;
-  background: url('/oreo-cat-aichan-owo.png') 0 0 / 693px 1149px no-repeat;
   pointer-events: none;
+  transform-origin: center bottom;
 }
+.mewcat[data-activity="walk"] .mewcat-mark {
+  animation: mewcat-walk 420ms steps(2, end) infinite;
+}
+.mewcat[data-activity="run"] .mewcat-mark,
+.mewcat[data-activity="fall"] .mewcat-mark {
+  animation: mewcat-run 180ms ease-in-out infinite alternate;
+}
+.mewcat[data-activity="love"] .mewcat-mark {
+  animation: mewcat-love 360ms ease-in-out;
+}
+.mewcat[data-activity="struggle"] .mewcat-mark {
+  animation: mewcat-struggle 120ms linear infinite alternate;
+}
+@keyframes mewcat-walk { to { transform: translateY(-2px) } }
+@keyframes mewcat-run { to { transform: translateY(-4px) scaleY(.94) } }
+@keyframes mewcat-love { 50% { transform: scale(1.18) } }
+@keyframes mewcat-struggle { to { transform: rotate(8deg) } }
 /* 앱 전역 스크롤바 — OS 기본 대신 테마 색의 얇은 바 하나로 통일한다(에디터·목차·사이드바·터미널·표 전부).
    Chromium은 ::-webkit-scrollbar, 그걸 모르는 엔진(Firefox)만 표준 속성으로 폴백 —
    Chromium에 scrollbar-color를 같이 주면 webkit 커스텀이 통째로 무시되므로 @supports로 가른다. */

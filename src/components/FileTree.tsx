@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TreeNode } from '../api/client'
-import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, renamePath, setGuestAccess, uploadInto } from '../api/client'
+import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, initializeGitRepository, renamePath, setGuestAccess, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
 import { ConfirmDialog, setPathDragData } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
@@ -10,6 +10,7 @@ import { DownloadLink } from './DownloadLink'
 import { getTreeScroll, saveTreeScroll, setScrollSaveSuppressed } from '../utils/scrollMemory'
 import { readFileClipboard, writeFileClipboard, type FileClipboard } from '../utils/fileClipboard'
 import { ProjectIcon } from './ProjectIcon'
+import { GitButton } from './GitButton'
 
 type EditingState =
   | { mode: 'rename'; path: string; type: 'file' | 'dir'; value: string; error?: string; busy?: boolean }
@@ -57,6 +58,7 @@ interface NodeCtx {
   onDropDir: (dir: string) => void
   /** 바깥(파일 탐색기)에서 끌어온 파일을 그 폴더에 업로드 */
   onDropFiles: (dir: string, files: FileList) => void
+  openGit?: (path: string) => void
 }
 
 /**
@@ -254,6 +256,7 @@ function ActionPopover({
   onNewFile,
   onNewFolder,
   onUpload,
+  onInitGit,
   onClose,
 }: {
   x: number
@@ -271,6 +274,7 @@ function ActionPopover({
   onNewFile: () => void
   onNewFolder: () => void
   onUpload: () => void
+  onInitGit?: () => void
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -345,6 +349,11 @@ function ActionPopover({
       <button type="button" onClick={onUpload} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
         ⬆ 업로드
       </button>
+      {onInitGit && (
+        <button type="button" onClick={onInitGit} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+          Git 저장소로 만들기
+        </button>
+      )}
       {onDelete && (
         <button type="button" onClick={onDelete} className="block w-full px-3 py-2 text-left text-danger hover:bg-surface-hover">
           🗑 삭제
@@ -599,6 +608,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
             </span>
           )}
         </button>
+        {node.git && ctx.openGit && <GitButton onClick={() => ctx.openGit?.(node.path)} title={`${node.name} Git 열기`} />}
         {node.project && ctx.canUseCommands && <CommandButtonMenu project={node.name} />}
         {!ctx.readOnly && (
           <GuestAccessIcons node={node} onToggleView={ctx.onToggleGuestView} onToggleEdit={ctx.onToggleGuestEdit} />
@@ -665,6 +675,7 @@ export function FileTree({
   onDeleted,
   onGuestAccessChanged,
   onNotice,
+  onOpenGit,
   registerSearchCancel,
 }: {
   tree: TreeNode[]
@@ -707,6 +718,8 @@ export function FileTree({
   onGuestAccessChanged: () => void
   /** 흐름을 끊지 않는 짧은 안내(토스트) — 실패는 아니지만 말해줘야 하는 것들 */
   onNotice: (message: string) => void
+  /** 저장소 폴더의 Git 워크벤치 가상 탭을 연다. */
+  onOpenGit?: (path: string) => void
   /** 검색창 밖에 포커스가 있어도 사이드바의 첫 Esc가 검색부터 취소할 수 있게 App에 등록한다 */
   registerSearchCancel: (cancel: (() => boolean) | null) => void
 }) {
@@ -715,6 +728,16 @@ export function FileTree({
   const [focused, setFocused] = useState<Focused>(null)
   const [openDirs, setOpenDirs] = useState<Set<string>>(() => new Set(accountState?.openDirs ?? loadOpenDirs(persistedProject) ?? []))
   const [directoryChildren, setDirectoryChildren] = useState<Record<string, TreeNode[]>>({})
+  const gitPaths = useMemo(() => {
+    const result = new Set<string>()
+    const visit = (nodes: TreeNode[]) => nodes.forEach((node) => {
+      if (node.git) result.add(node.path)
+      if (node.children) visit(node.children)
+    })
+    visit(tree)
+    Object.values(directoryChildren).forEach(visit)
+    return result
+  }, [directoryChildren, tree])
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set())
   const directoryChildrenRef = useRef(directoryChildren)
   directoryChildrenRef.current = directoryChildren
@@ -743,6 +766,16 @@ export function FileTree({
   function triggerUpload(dir: string) {
     uploadDirRef.current = dir
     uploadInputRef.current?.click()
+  }
+  function initGit(dir: string) {
+    const shown = dir || '프로젝트 루트'
+    if (!window.confirm(`이 폴더를 Git 저장소로 초기화할까요?\n\n${shown}`)) return
+    void initializeGitRepository(dir, project)
+      .then(() => {
+        onNotice(`${shown}: Git 저장소를 만들었습니다`)
+        onFolderCreated()
+      })
+      .catch((err: unknown) => onNotice(err instanceof Error ? err.message : String(err)))
   }
   // 빈 영역 롱프레스(모바일) — Node의 onTouchStart와 같은 500ms 타이머 패턴
   const rootLongPressTimer = useRef<number | null>(null)
@@ -1293,6 +1326,7 @@ export function FileTree({
     onDragOverDir,
     onDropDir,
     onDropFiles: (dir, files) => void uploadFilesInto(dir, files),
+    openGit: onOpenGit,
   }
 
   return (
@@ -1469,6 +1503,14 @@ export function FileTree({
             triggerUpload(popover.type === 'dir' ? popover.path : parentOf(popover.path))
             setPopover(null)
           }}
+          onInitGit={
+            canUseCommands && popover.type === 'dir' && popover.path !== '' && !gitPaths.has(popover.path)
+              ? () => {
+                  initGit(popover.path)
+                  setPopover(null)
+                }
+              : undefined
+          }
           onClose={() => setPopover(null)}
         />
       )}

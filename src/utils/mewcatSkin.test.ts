@@ -2,8 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { MEWCAT_SKIN_KEY, loadMewcatSkin, normalizeMewcatSkin, saveMewcatSkin } from './mewcatSkin.ts'
 
-test('Mewcat은 저장값이 없으면 기존 기본 스킨을 유지한다', () => {
-  assert.equal(loadMewcatSkin({ getItem: () => null }), 'oreo')
+test('Mewcat은 저장값이 없으면 자체 기본 스킨을 쓰고, 옛 oreo 값은 이관한다', () => {
+  assert.equal(loadMewcatSkin({ getItem: () => null }), 'mew')
+  assert.equal(loadMewcatSkin({ getItem: () => 'oreo' }), 'mew')
 })
 
 test('Mewcat 스킨 선택은 허용 목록만 저장하고 없음은 명시적으로 남긴다', () => {

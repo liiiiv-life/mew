@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import { ICON_GROUPS, ICON_PREFIX, iconValue, splitSvgIcon, svgIconValue } from '../utils/projectIcons'
 import { ProjectIcon } from './ProjectIcon'
+import { useI18n } from '../i18n'
 
 export function IconPicker({
   value,
@@ -19,6 +20,7 @@ export function IconPicker({
   /** 고른 값을 넘긴다 — 빈 문자열이면 "없음" */
   onChange: (icon: string) => void
 }) {
+  const { t } = useI18n()
   const [query, setQuery] = useState('')
   // 이모지·SVG 칸은 지금 값에서 꺼내 시작한다 — 넣어둔 것을 고쳐서 다시 저장할 수 있게
   const [emojiDraft, setEmojiDraft] = useState(() =>
@@ -44,7 +46,7 @@ export function IconPicker({
     try {
       setSvgDraft(await file.text())
     } catch {
-      setFileError('파일을 읽지 못했습니다')
+      setFileError(t('icon.fileReadFailed'))
     }
   }
 
@@ -54,7 +56,7 @@ export function IconPicker({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="아이콘 찾기 (영문)"
+          placeholder={t('icon.searchPlaceholder')}
           className="min-w-0 flex-1 rounded border border-edge-strong bg-surface px-2 py-1 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
         />
         <button
@@ -65,7 +67,7 @@ export function IconPicker({
             value === '' ? 'border-accent bg-surface text-ink' : 'border-edge-strong text-ink-secondary hover:bg-surface-raised'
           }`}
         >
-          없음
+          {t('icon.none')}
         </button>
       </div>
 
@@ -93,7 +95,7 @@ export function IconPicker({
           </div>
         ))}
         {shownGroups.length === 0 && (
-          <div className="py-4 text-center text-[11px] text-ink-muted">일치하는 아이콘이 없습니다</div>
+          <div className="py-4 text-center text-[11px] text-ink-muted">{t('icon.noMatches')}</div>
         )}
       </div>
 
@@ -101,7 +103,7 @@ export function IconPicker({
         <input
           value={emojiDraft}
           onChange={(e) => setEmojiDraft(e.target.value)}
-          placeholder="이모지 직접 입력"
+          placeholder={t('icon.emojiPlaceholder')}
           maxLength={16}
           className="min-w-0 flex-1 rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
         />
@@ -111,7 +113,7 @@ export function IconPicker({
           disabled={disabled || !emojiDraft.trim()}
           className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
         >
-          적용
+          {t('icon.apply')}
         </button>
       </div>
 
@@ -119,9 +121,9 @@ export function IconPicker({
           색은 저장하되 그리지 않는다: 모양만 떠서 다른 아이콘과 같은 테마 색으로 칠한다(ProjectIcon.tsx) */}
       <div className="mt-3 border-t border-edge pt-3">
         <div className="mb-1 flex items-center justify-between">
-          <div className="text-[11px] text-ink-muted">SVG 직접 넣기</div>
+          <div className="text-[11px] text-ink-muted">{t('icon.pasteSvg')}</div>
           <label className="cursor-pointer rounded border border-edge-strong px-2 py-0.5 text-[11px] text-ink-secondary hover:bg-surface-raised">
-            파일 선택
+            {t('icon.chooseFile')}
             <input type="file" accept=".svg,image/svg+xml" className="hidden" onChange={handleSvgFile} />
           </label>
         </div>
@@ -130,21 +132,21 @@ export function IconPicker({
           onChange={(e) => setSvgDraft(e.target.value)}
           rows={3}
           spellCheck={false}
-          placeholder={'<svg viewBox="0 0 24 24">…</svg> 붙여넣기'}
+          placeholder={t('icon.svgPlaceholder')}
           className="w-full resize-y rounded border border-edge-strong bg-surface px-2 py-1.5 font-mono text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
         />
         <div className="mt-2 flex items-center gap-2">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-edge text-ink">
             {svgDraft.trim().startsWith('<svg') && <ProjectIcon icon={svgIconValue(svgDraft.trim())} size={26} />}
           </span>
-          <span className="min-w-0 text-[11px] text-ink-muted">모양만 쓰고 색은 다른 아이콘과 같게 맞춥니다</span>
+          <span className="min-w-0 text-[11px] text-ink-muted">{t('icon.svgColorNote')}</span>
           <button
             type="button"
             onClick={() => onChange(svgIconValue(svgDraft.trim()))}
             disabled={disabled || !svgDraft.trim()}
             className="ml-auto shrink-0 rounded bg-accent px-3 py-1.5 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
           >
-            적용
+            {t('icon.apply')}
           </button>
         </div>
         {fileError && <div className="mt-1 text-[11px] text-danger">{fileError}</div>}

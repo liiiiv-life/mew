@@ -3,9 +3,11 @@ import { downloadUrl, rawUrl } from '../api/client'
 import { parseCsv } from '../utils/csv'
 import { parseXlsx, type SheetData } from '../utils/xlsx'
 import { DownloadLink } from './DownloadLink'
+import { useI18n } from '../i18n'
 
 /** 표 탭 본문(xlsx·csv·tsv) — 바이트는 /api/raw에서 받아 브라우저에서 직접 푼다. 읽기 전용이다(편집·수식·서식 없음) */
 export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSrc?: string; downloadSrc?: string }) {
+  const { t } = useI18n()
   const [sheets, setSheets] = useState<SheetData[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [active, setActive] = useState(0)
@@ -17,19 +19,21 @@ export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSr
     setError(null)
     setActive(0)
     fetch(rawSrc ?? rawUrl(path))
-      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`파일을 불러오지 못했습니다 (${res.status})`))))
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`HTTP ${res.status}`))))
       // xlsx는 ZIP이라 풀어야 하고(비동기), csv·tsv는 글자라 그 자리에서 갈라 놓는다
       .then((buf) => (path.toLowerCase().endsWith('.xlsx') ? parseXlsx(buf) : parseCsv(buf, path)))
       .then((parsed) => {
         if (alive) setSheets(parsed)
       })
       .catch((err: Error) => {
-        if (alive) setError(err.message)
+        if (!alive) return
+        const status = /^HTTP (\d+)$/.exec(err.message)?.[1]
+        setError(status ? t('sheet.loadFailed', { status }) : err.message)
       })
     return () => {
       alive = false
     }
-  }, [path, rawSrc])
+  }, [path, rawSrc, t])
 
   if (error) {
     return (
@@ -37,14 +41,14 @@ export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSr
         <span className="max-w-md truncate text-sm text-ink-muted">{name}</span>
         <span className="text-sm text-danger">{error}</span>
         <DownloadLink href={downloadSrc ?? downloadUrl(path)} name={name} className="text-xs text-accent hover:underline">
-          다운로드
+          {t('media.download')}
         </DownloadLink>
       </div>
     )
   }
 
   if (!sheets) {
-    return <div className="flex h-full w-full items-center justify-center bg-surface text-sm text-ink-muted">여는 중…</div>
+    return <div className="flex h-full w-full items-center justify-center bg-surface text-sm text-ink-muted">{t('sheet.opening')}</div>
   }
 
   const sheet = sheets[active]
@@ -52,7 +56,7 @@ export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSr
 
   return (
     <div className="flex h-full w-full flex-col bg-surface">
-      <div className="flex shrink-0 items-center gap-2 overflow-x-auto px-3 py-1.5 text-xs">
+      <div className="no-scrollbar flex shrink-0 items-center gap-2 overflow-x-auto px-3 py-1.5 text-xs">
         {sheets.map((s, i) => (
           <button
             key={s.name}
@@ -64,7 +68,7 @@ export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSr
           </button>
         ))}
         <DownloadLink href={downloadSrc ?? downloadUrl(path)} name={name} className="ml-auto shrink-0 text-accent hover:underline">
-          다운로드
+          {t('media.download')}
         </DownloadLink>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
@@ -93,7 +97,7 @@ export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSr
             </tbody>
           </table>
         ) : (
-          <div className="p-6 text-sm text-ink-muted">빈 시트</div>
+          <div className="p-6 text-sm text-ink-muted">{t('sheet.empty')}</div>
         )}
       </div>
     </div>

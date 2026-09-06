@@ -7,8 +7,8 @@ export type FontPreferences = {
 export const FONT_PREFERENCES_KEY = 'mew:fonts'
 
 export const DEFAULT_FONT_PREFERENCES: FontPreferences = {
-  ui: 'Noto Serif KR',
-  markdown: 'Noto Serif KR',
+  ui: 'IBM Plex Sans KR',
+  markdown: 'IBM Plex Sans KR',
   mono: 'IBM Plex Mono',
 }
 
@@ -60,8 +60,8 @@ export function applyFontPreferences(
   root: Pick<CSSStyleDeclaration, 'setProperty'> = document.documentElement.style,
 ): FontPreferences {
   const fonts = normalizeFontPreferences(value)
-  root.setProperty('--mew-font-ui', fontStack(fonts.ui, 'ui-serif, Georgia, serif'))
-  root.setProperty('--mew-font-markdown', fontStack(fonts.markdown, 'ui-serif, Georgia, serif'))
+  root.setProperty('--mew-font-ui', fontStack(fonts.ui, 'ui-sans-serif, system-ui, sans-serif'))
+  root.setProperty('--mew-font-markdown', fontStack(fonts.markdown, 'ui-sans-serif, system-ui, sans-serif'))
   root.setProperty('--mew-font-mono', fontStack(fonts.mono, '"IBM Plex Sans KR", ui-monospace, monospace'))
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('mew:fonts-changed'))
   return fonts

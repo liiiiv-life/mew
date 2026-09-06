@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import { changePassword, fetchAuthStatus, login, type AuthStatus } from '../api/client'
+import { useI18n } from '../i18n'
 
 const PASSWORD_MIN_LENGTH = 10
 
@@ -14,6 +15,7 @@ interface LoginPageProps {
  * 돌려주고, 이때는 비밀번호 변경까지 마쳐야 입장할 수 있다.
  */
 export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
+  const { t } = useI18n()
   const [step, setStep] = useState<'credentials' | 'change'>('credentials')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -36,7 +38,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
         onSuccess(await fetchAuthStatus())
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '로그인에 실패했습니다')
+      setError(err instanceof Error ? err.message : t('auth.loginFailed'))
     } finally {
       setBusy(false)
     }
@@ -46,11 +48,11 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
     e.preventDefault()
     setError(null)
     if (newPassword.length < PASSWORD_MIN_LENGTH) {
-      setError(`비밀번호는 ${PASSWORD_MIN_LENGTH}자 이상이어야 합니다`)
+      setError(t('auth.passwordTooShort', { length: PASSWORD_MIN_LENGTH }))
       return
     }
     if (newPassword !== confirmPassword) {
-      setError('새 비밀번호가 서로 다릅니다')
+      setError(t('auth.passwordMismatch'))
       return
     }
     setBusy(true)
@@ -58,7 +60,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
       await changePassword(password, newPassword)
       onSuccess(await fetchAuthStatus())
     } catch (err) {
-      setError(err instanceof Error ? err.message : '비밀번호 변경에 실패했습니다')
+      setError(err instanceof Error ? err.message : t('auth.passwordChangeFailed'))
     } finally {
       setBusy(false)
     }
@@ -76,20 +78,20 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
             type="button"
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-            aria-label="닫기"
+            aria-label={t('common.close')}
           >
             ×
           </button>
         </div>
         {step === 'credentials' ? (
           <>
-            <p className="mb-5 text-sm text-ink-muted">승인된 계정만 접근할 수 있습니다</p>
+            <p className="mb-5 text-sm text-ink-muted">{t('auth.approvedAccountsOnly')}</p>
             <form onSubmit={handleLogin} className="flex flex-col gap-3">
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="이메일"
+                placeholder={t('auth.email')}
                 autoComplete="username"
                 autoFocus
                 required
@@ -99,7 +101,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="비밀번호"
+                placeholder={t('auth.password')}
                 autoComplete="current-password"
                 required
                 className={inputClass}
@@ -110,21 +112,21 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
                 disabled={busy || !email || !password}
                 className="mt-1 rounded bg-accent py-2 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
               >
-                {busy ? '확인 중…' : '로그인'}
+                {busy ? t('auth.checking') : t('common.login')}
               </button>
             </form>
           </>
         ) : (
           <>
             <p className="mb-5 text-sm text-ink-muted">
-              임시 비밀번호로 로그인했습니다 — 사용할 비밀번호를 새로 정해주세요 ({PASSWORD_MIN_LENGTH}자 이상)
+              {t('auth.temporaryPasswordNotice', { length: PASSWORD_MIN_LENGTH })}
             </p>
             <form onSubmit={handleChangePassword} className="flex flex-col gap-3">
               <input
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="새 비밀번호"
+                placeholder={t('settings.newPassword')}
                 autoComplete="new-password"
                 autoFocus
                 required
@@ -134,7 +136,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="새 비밀번호 확인"
+                placeholder={t('settings.confirmPassword')}
                 autoComplete="new-password"
                 required
                 className={inputClass}
@@ -145,7 +147,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
                 disabled={busy || !newPassword || !confirmPassword}
                 className="mt-1 rounded bg-accent py-2 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
               >
-                {busy ? '변경 중…' : '비밀번호 변경하고 시작하기'}
+                {busy ? t('settings.changing') : t('auth.finishPasswordChange')}
               </button>
             </form>
           </>

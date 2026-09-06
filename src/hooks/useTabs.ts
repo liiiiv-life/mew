@@ -5,6 +5,7 @@ import { dropCachedFile, getCachedFile, putCachedFile } from '../utils/contentCa
 import { leaf, normalizeLayout, removeLeaf, splitLeaf, type DropSide, type PaneNode } from '../utils/paneTree'
 import { externalAbsolutePath, externalTabPath, isExternalTabPath } from '../utils/externalFiles'
 import { afterFirstPaint, markFileOpen, startFileOpen, type FileOpenTrace } from '../utils/fileOpenPerformance'
+import { isGitTabPath } from '../utils/gitTabs'
 
 export type Tab = {
   path: string
@@ -76,7 +77,8 @@ function loadStoredTabs(project: string, workspaceScope?: string): StoredTabs | 
         // React key 충돌과 "파일 탭이 세 개"로 보이는 복원을 여기서 같이 치운다.
         const seen = new Set<string>()
         const tabs = p.tabs.filter((tab): tab is StoredTab => {
-          if (!tab || typeof tab.path !== 'string' || !tab.path || seen.has(tab.path)) return false
+          // Git 워크벤치가 팝업으로 바뀌면서 옛 가상 탭은 복원하지 않는다.
+          if (!tab || typeof tab.path !== 'string' || !tab.path || isGitTabPath(tab.path) || seen.has(tab.path)) return false
           seen.add(tab.path)
           return tab.preview === true || tab.preview === false
         })
@@ -432,8 +434,8 @@ export function useTabs(
       const payload: StoredTabs = {
         panes: s.panes.map((pane) => ({
           id: pane.id,
-          tabs: pane.tabs.filter((t) => !isExternalTabPath(t.path)).map((t) => ({ path: t.path, preview: t.preview, viewMode: t.viewMode })),
-          activePath: pane.activePath && !isExternalTabPath(pane.activePath) ? pane.activePath : null,
+          tabs: pane.tabs.filter((t) => !isExternalTabPath(t.path) && !isGitTabPath(t.path)).map((t) => ({ path: t.path, preview: t.preview, viewMode: t.viewMode })),
+          activePath: pane.activePath && !isExternalTabPath(pane.activePath) && !isGitTabPath(pane.activePath) ? pane.activePath : null,
         })),
         layout: s.layout,
         focusedPaneId: s.focusedPaneId,

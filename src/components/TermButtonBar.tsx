@@ -10,6 +10,7 @@ import { useOverlayDismiss } from '@mew/ui'
 import { fetchTermButtons, saveTermButtons, type TermButton } from '../api/client'
 import { IconPicker } from './IconPicker'
 import { ProjectIcon } from './ProjectIcon'
+import { useI18n } from '../i18n'
 
 const LONG_PRESS_MS = 500
 
@@ -21,6 +22,7 @@ let cachedButtons: TermButton[] | null = null
 type Editing = { index: number | null; name: string; command: string; icon: string; iconOnly: boolean }
 
 export function TermButtonBar({ run }: { run: (command: string) => void }) {
+  const { t } = useI18n()
   const [buttons, setButtons] = useState<TermButton[] | null>(cachedButtons)
   const [editing, setEditing] = useState<Editing | null>(null)
 
@@ -52,8 +54,8 @@ export function TermButtonBar({ run }: { run: (command: string) => void }) {
       <button
         type="button"
         onClick={() => setEditing({ index: null, name: '', command: '', icon: '', iconOnly: false })}
-        data-tip="명령어 버튼 추가"
-        aria-label="명령어 버튼 추가"
+        data-tip={t('term.addButton')}
+        aria-label={t('term.addButton')}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-dashed border-edge text-sm leading-none text-ink-muted hover:border-edge-strong hover:bg-surface-raised hover:text-ink"
       >
         +
@@ -165,6 +167,7 @@ function TermButtonEditor({
   onCancel: () => void
   onDelete?: () => Promise<void>
 }) {
+  const { t } = useI18n()
   const [draft, setDraft] = useState(editing)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -185,7 +188,7 @@ function TermButtonEditor({
     try {
       await action()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장 실패')
+      setError(err instanceof Error ? err.message : t('term.saveFailed'))
     } finally {
       setBusy(false)
     }
@@ -199,18 +202,18 @@ function TermButtonEditor({
       }}
     >
       <div className="w-full max-w-sm rounded-lg border border-edge-bright bg-surface-raised p-4 shadow-xl">
-        <div className="mb-3 text-sm font-medium text-ink">{editing.index === null ? '명령어 버튼 추가' : '명령어 버튼 편집'}</div>
+        <div className="mb-3 text-sm font-medium text-ink">{editing.index === null ? t('term.addTitle') : t('term.editTitle')}</div>
 
-        <label className="mb-1 block text-[11px] text-ink-muted">이름</label>
+        <label className="mb-1 block text-[11px] text-ink-muted">{t('term.name')}</label>
         <input
           ref={nameRef}
           value={draft.name}
           onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-          placeholder="정리"
+          placeholder={t('term.namePlaceholder')}
           className="mb-3 w-full rounded border border-edge-strong bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
         />
 
-        <label className="mb-1 block text-[11px] text-ink-muted">명령어 (전송 시 Enter까지 자동으로 눌립니다)</label>
+        <label className="mb-1 block text-[11px] text-ink-muted">{t('term.commandDescription')}</label>
         <textarea
           value={draft.command}
           onChange={(e) => setDraft({ ...draft, command: e.target.value })}
@@ -222,7 +225,7 @@ function TermButtonEditor({
           className="mb-3 w-full resize-none rounded border border-edge-strong bg-surface px-2 py-1.5 font-mono text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
         />
 
-        <div className="mb-1 text-[11px] text-ink-muted">아이콘</div>
+        <div className="mb-1 text-[11px] text-ink-muted">{t('term.icon')}</div>
         {/* 프로젝트 아이콘과 **같은 고르는 칸** — 목록도 SVG 직접 넣기도 그대로 쓴다 */}
         <div className="mb-2">
           <IconPicker value={draft.icon} onChange={(icon) => setDraft({ ...draft, icon })} />
@@ -237,7 +240,7 @@ function TermButtonEditor({
             disabled={!draft.icon}
             onChange={(e) => setDraft({ ...draft, iconOnly: e.target.checked })}
           />
-          이름 숨기고 아이콘만 보이기
+          {t('term.iconOnly')}
         </label>
 
         {error && <div className="mb-2 text-xs text-danger-strong">{error}</div>}
@@ -250,7 +253,7 @@ function TermButtonEditor({
               onClick={() => withBusy(onDelete)}
               className="mr-auto rounded border border-edge-strong px-3 py-1.5 text-sm text-danger-strong hover:bg-surface disabled:opacity-40"
             >
-              삭제
+              {t('common.delete')}
             </button>
           )}
           <button
@@ -258,7 +261,7 @@ function TermButtonEditor({
             onClick={onCancel}
             className="rounded border border-edge-strong px-3 py-1.5 text-sm text-ink hover:bg-surface"
           >
-            취소
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -266,7 +269,7 @@ function TermButtonEditor({
             onClick={() => withBusy(() => onSave(draft))}
             className="rounded bg-accent px-3 py-1.5 text-sm text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
           >
-            저장
+            {t('common.save')}
           </button>
         </div>
       </div>

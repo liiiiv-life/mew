@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { fetchBrowserFrameUrl } from '../api/client'
+import { useI18n } from '../i18n'
 
 type BrowserTab = { id: string; url: string; title: string }
 type BrowserFrame = { src: string; loading: boolean; error: string | null; historyLength: number; loadId: number }
@@ -11,6 +12,8 @@ const TABS_KEY = 'mew:browser-tabs'
 const ACTIVE_KEY = 'mew:browser-active-tab'
 const DEFAULT_URL = 'http://localhost:3100/'
 const TAB_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+const BROWSER_ERROR_HTTP_ONLY = 'mew:browser-http-only'
+const BROWSER_ERROR_LOOPBACK_ONLY = 'mew:browser-loopback-only'
 
 function newTab(url = DEFAULT_URL): BrowserTab {
   const id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).slice(2, 10)
@@ -21,24 +24,24 @@ function normalizeUrl(raw: string): URL {
   const trimmed = raw.trim()
   const hostWithPort = /^[^/?#]+:\d+(?:[/?#]|$)/.test(trimmed)
   const scheme = hostWithPort ? undefined : /^([a-z][a-z0-9+.-]*):/i.exec(trimmed)?.[1]?.toLowerCase()
-  if (scheme && scheme !== 'http' && scheme !== 'https') throw new Error('http 또는 https 주소만 열 수 있습니다')
+  if (scheme && scheme !== 'http' && scheme !== 'https') throw new Error(BROWSER_ERROR_HTTP_ONLY)
   const url = new URL(scheme ? trimmed : `http://${trimmed}`)
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('http 또는 https 주소만 열 수 있습니다')
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(BROWSER_ERROR_HTTP_ONLY)
   const host = url.hostname.toLowerCase()
   const parts = host.split('.')
   const loopbackIpv4 = parts.length === 4 && parts[0] === '127' && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
   if (host !== 'localhost' && host !== '[::1]' && !loopbackIpv4) {
-    throw new Error('이 브라우저는 Mew 서버의 localhost/loopback 주소만 열 수 있습니다')
+    throw new Error(BROWSER_ERROR_LOOPBACK_ONLY)
   }
   return url
 }
 
-function labelForUrl(raw: string): string {
+function labelForUrl(raw: string, fallback = ''): string {
   try {
     const url = normalizeUrl(raw)
     return `${url.hostname}${url.port ? `:${url.port}` : ''}`
   } catch {
-    return raw.trim() || '새 탭'
+    return raw.trim() || fallback
   }
 }
 
@@ -88,6 +91,7 @@ function messageState(value: unknown): BrowserStateMessage | null {
 }
 
 export function BrowserPanel({ onClose, standalone = false }: { onClose: () => void; standalone?: boolean }) {
+  const { t } = useI18n()
   const shortcutScopeRef = useRef<HTMLElement>(null)
   const addressRef = useRef<HTMLInputElement>(null)
   const iframeRefs = useRef(new Map<string, HTMLIFrameElement>())
@@ -150,13 +154,13 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
         return frame ? { ...current, [tabId]: { ...frame, loading: false, error: null, historyLength: message.historyLength ?? 1 } } : current
       })
       setTabs((current) => current.map((tab) => tab.id === tabId
-        ? { ...tab, url: message.url, title: message.title?.trim() || labelForUrl(message.url) }
+        ? { ...tab, url: message.url, title: message.title?.trim() || labelForUrl(message.url, t('browser.newTab')) }
         : tab))
       if (tabId === activeId && document.activeElement !== addressRef.current) setDraft(message.url)
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
-  }, [activeId])
+  }, [activeId, t])
 
   function addTab(url = DEFAULT_URL) {
     const tab = newTab(url)
@@ -204,7 +208,9 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
       setLocalError(null)
       addressRef.current?.blur()
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : '주소가 올바르지 않습니다')
+      if (error instanceof Error && error.message === BROWSER_ERROR_HTTP_ONLY) setLocalError(t('browser.httpOnly'))
+      else if (error instanceof Error && error.message === BROWSER_ERROR_LOOPBACK_ONLY) setLocalError(t('browser.loopbackOnly'))
+      else setLocalError(t('browser.invalidAddress'))
     }
   }
 
@@ -236,7 +242,7 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
   const canNavigateHistory = Boolean(activeFrame && activeFrame.historyLength > 1)
 
   return (
-    <section ref={shortcutScopeRef} className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label="브라우저">
+    <section ref={shortcutScopeRef} className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label={t('browser.title')}>
       <div className="flex h-9 shrink-0 items-stretch border-b border-edge bg-surface">
         <div className="no-scrollbar flex min-w-0 flex-1 overflow-x-auto">
           {tabs.map((tab) => (
@@ -244,25 +250,25 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
               className={`group flex min-w-[7rem] max-w-[14rem] items-center gap-1 border-r border-edge px-2 text-left text-xs ${tab.id === activeTab?.id ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-hover hover:text-ink'}`}
               title={tab.url}>
               <span className="truncate">{tab.title}</span>
-              {tabs.length > 1 && <span role="button" tabIndex={-1} onClick={(event) => { event.stopPropagation(); closeTab(tab.id) }} className="ml-auto rounded px-1 text-ink-muted opacity-70 hover:bg-surface hover:text-ink group-hover:opacity-100" aria-label="탭 닫기">×</span>}
+              {tabs.length > 1 && <span role="button" tabIndex={-1} onClick={(event) => { event.stopPropagation(); closeTab(tab.id) }} className="ml-auto rounded px-1 text-ink-muted opacity-70 hover:bg-surface hover:text-ink group-hover:opacity-100" aria-label={t('browser.closeTab')}>×</span>}
             </button>
           ))}
         </div>
-        <IconButton label="새 탭" onClick={() => addTab()}><span className="text-lg leading-none">+</span></IconButton>
-        <IconButton label={standalone ? '팝업 닫기' : '브라우저 닫기'} onClick={onClose}><span className="text-lg leading-none">×</span></IconButton>
+        <IconButton label={t('browser.newTab')} onClick={() => addTab()}><span className="text-lg leading-none">+</span></IconButton>
+        <IconButton label={standalone ? t('browser.closePopup') : t('browser.close')} onClick={onClose}><span className="text-lg leading-none">×</span></IconButton>
       </div>
 
       <form className="flex shrink-0 items-center gap-1 border-b border-edge bg-surface px-2 py-1" onSubmit={(event) => { event.preventDefault(); navigate() }}>
-        <IconButton label="뒤로" disabled={!canNavigateHistory} onClick={() => navigateHistory('back')}><NavGlyph path="m15 18-6-6 6-6" /></IconButton>
-        <IconButton label="앞으로" disabled={!canNavigateHistory} onClick={() => navigateHistory('forward')}><NavGlyph path="m9 18 6-6-6-6" /></IconButton>
-        <IconButton label={activeFrame?.loading ? '불러오기 중지' : '새로고침'} onClick={reloadOrStop}>
+        <IconButton label={t('browser.back')} disabled={!canNavigateHistory} onClick={() => navigateHistory('back')}><NavGlyph path="m15 18-6-6 6-6" /></IconButton>
+        <IconButton label={t('browser.forward')} disabled={!canNavigateHistory} onClick={() => navigateHistory('forward')}><NavGlyph path="m9 18 6-6-6-6" /></IconButton>
+        <IconButton label={activeFrame?.loading ? t('browser.stopLoading') : t('common.refresh')} onClick={reloadOrStop}>
           {activeFrame?.loading ? <StopGlyph /> : <ReloadGlyph />}
         </IconButton>
         <div className="mx-1 flex min-w-0 flex-1 items-center rounded-md border border-edge-strong bg-surface-deep focus-within:border-accent">
-          <span className={`ml-2 h-1.5 w-1.5 shrink-0 rounded-full ${error ? 'bg-danger' : activeFrame?.loading ? 'animate-pulse bg-warning' : 'bg-success'}`} title="Mew 서버 loopback 상태" />
-          <input ref={addressRef} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 bg-transparent px-2 py-1 font-mono text-xs text-ink outline-none" spellCheck={false} inputMode="url" aria-label="서버 localhost 주소" placeholder="localhost:3100" />
+          <span className={`ml-2 h-1.5 w-1.5 shrink-0 rounded-full ${error ? 'bg-danger' : activeFrame?.loading ? 'animate-pulse bg-warning' : 'bg-success'}`} title={t('browser.loopbackStatus')} />
+          <input ref={addressRef} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 bg-transparent px-2 py-1 font-mono text-xs text-ink outline-none" spellCheck={false} inputMode="url" aria-label={t('browser.address')} placeholder="localhost:3100" />
         </div>
-        <button type="submit" className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent hover:opacity-90">이동</button>
+        <button type="submit" className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent hover:opacity-90">{t('browser.go')}</button>
       </form>
 
       {error && <div className="shrink-0 border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{error}</div>}
@@ -273,7 +279,7 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
             key={`${tabId}:${frame.loadId}`}
             ref={(element) => { if (element) iframeRefs.current.set(tabId, element); else iframeRefs.current.delete(tabId) }}
             src={frame.src}
-            title={tabs.find((tab) => tab.id === tabId)?.title ?? '브라우저'}
+            title={tabs.find((tab) => tab.id === tabId)?.title ?? t('browser.title')}
             className={`absolute inset-0 h-full w-full border-0 bg-white ${tabId === activeTab?.id ? 'block' : 'hidden'}`}
             sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-scripts"
             referrerPolicy="no-referrer"
@@ -283,13 +289,13 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
           />
         ))}
         {activeFrame?.loading && (
-          <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-surface/85 p-2 shadow-lg" aria-label="페이지 불러오는 중">
+          <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-surface/85 p-2 shadow-lg" aria-label={t('browser.pageLoading')}>
             <span className="block h-4 w-4 animate-spin rounded-full border-2 border-edge-strong border-t-accent" />
           </div>
         )}
       </div>
       <div className="flex h-6 shrink-0 items-center border-t border-edge bg-surface px-2 text-[10px] text-ink-muted">
-        <span className="truncate">Mew 서버의 localhost 개발 서버만 열 수 있습니다.</span>
+        <span className="truncate">{t('browser.loopbackHint')}</span>
         <span className="ml-auto shrink-0 pl-2">SERVER LOOPBACK</span>
       </div>
     </section>

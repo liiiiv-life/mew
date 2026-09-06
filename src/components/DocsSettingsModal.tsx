@@ -5,8 +5,10 @@ import { useEffect, useState } from 'react'
 import { ConfirmDialog, useOverlayDismiss } from '@mew/ui'
 import { exportDocs, fetchWorkspace, importDocs, setDocsRoot, type WorkspaceInfo } from '../api/client'
 import { FolderPicker } from './FolderPicker'
+import { useI18n } from '../i18n'
 
 export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: string) => void; onClose: () => void }) {
+  const { t } = useI18n()
   const [picking, setPicking] = useState<'root' | 'import' | 'export' | null>(null)
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null)
   // 가져오기는 기존 docs를 지운다 — 폴더를 고른 뒤 한 번 더 확인을 받는다
@@ -29,7 +31,7 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
       onDone(await action())
       onClose()
     } catch (e) {
-      setError(e instanceof Error ? e.message : '실패했습니다')
+      setError(e instanceof Error ? e.message : t('docs.operationFailed'))
     } finally {
       setBusy(false)
     }
@@ -38,16 +40,16 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
   if (confirming !== null) {
     return (
       <ConfirmDialog
-        message="지금 docs에 있는 내용은 모두 삭제됩니다."
-        detail={`${confirming} 의 내용으로 docs를 덮어씁니다. 되돌릴 수 없습니다.`}
-        confirmLabel="가져오기"
+        message={t('docs.importConfirm')}
+        detail={t('docs.importConfirmDetail', { path: confirming })}
+        confirmLabel={t('docs.import')}
         danger
         onConfirm={() => {
           const from = confirming
           setConfirming(null)
           void run(async () => {
             await importDocs(from)
-            return 'docs를 가져왔습니다'
+            return t('docs.importDone')
           })
         }}
         onCancel={() => setConfirming(null)}
@@ -58,9 +60,9 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
   if (picking === 'root') {
     return (
       <FolderPicker
-        title="docs 폴더 고르기"
-        hint="워크스페이스 안의 폴더만 고를 수 있습니다. 바꾸면 화면이 새로 뜹니다."
-        confirmLabel="이 폴더를 docs로"
+        title={t('docs.pickRootTitle')}
+        hint={t('docs.pickRootHint')}
+        confirmLabel={t('docs.useAsRoot')}
         busy={busy}
         initialPath={workspace?.path}
         onPick={(path) =>
@@ -79,9 +81,9 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
   if (picking === 'import') {
     return (
       <FolderPicker
-        title="docs 가져오기 — 불러올 폴더"
-        hint="고른 폴더의 내용이 docs가 됩니다. 지금 docs에 있는 내용은 모두 삭제됩니다."
-        confirmLabel="이 폴더에서 가져오기"
+        title={t('docs.pickImportTitle')}
+        hint={t('docs.pickImportHint')}
+        confirmLabel={t('docs.importFromFolder')}
         busy={busy}
         onPick={(path) => setConfirming(path)}
         onClose={() => setPicking(null)}
@@ -92,14 +94,14 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
   if (picking === 'export') {
     return (
       <FolderPicker
-        title="docs 내보내기 — 복사할 위치"
-        hint="고른 폴더 안에 docs 폴더가 그대로 복사됩니다."
-        confirmLabel="여기로 내보내기"
+        title={t('docs.pickExportTitle')}
+        hint={t('docs.pickExportHint')}
+        confirmLabel={t('docs.exportToFolder')}
         busy={busy}
         onPick={(path) =>
           void run(async () => {
             const { path: dest } = await exportDocs(path)
-            return `${dest}(으)로 내보냈습니다`
+            return t('docs.exportDone', { path: dest })
           })
         }
         onClose={() => setPicking(null)}
@@ -124,8 +126,8 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
           onClick={() => setPicking('root')}
           className="flex w-full flex-col gap-0.5 border-t border-edge px-3 py-2.5 text-left hover:bg-surface-hover disabled:opacity-40"
         >
-          <span className="text-xs text-ink">폴더 바꾸기</span>
-          <span className="text-[11px] text-ink-muted">워크스페이스 안의 다른 폴더를 docs로 씁니다</span>
+          <span className="text-xs text-ink">{t('docs.changeFolder')}</span>
+          <span className="text-[11px] text-ink-muted">{t('docs.changeFolderDescription')}</span>
         </button>
         <button
           type="button"
@@ -133,8 +135,8 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
           onClick={() => setPicking('import')}
           className="flex w-full flex-col gap-0.5 border-t border-edge px-3 py-2.5 text-left hover:bg-surface-hover disabled:opacity-40"
         >
-          <span className="text-xs text-ink">가져오기</span>
-          <span className="text-[11px] text-ink-muted">외부 폴더의 내용으로 docs를 덮어씁니다</span>
+          <span className="text-xs text-ink">{t('docs.import')}</span>
+          <span className="text-[11px] text-ink-muted">{t('docs.importDescription')}</span>
         </button>
         <button
           type="button"
@@ -142,8 +144,8 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
           onClick={() => setPicking('export')}
           className="flex w-full flex-col gap-0.5 border-t border-edge px-3 py-2.5 text-left hover:bg-surface-hover disabled:opacity-40"
         >
-          <span className="text-xs text-ink">내보내기</span>
-          <span className="text-[11px] text-ink-muted">docs 폴더를 고른 위치로 복사합니다</span>
+          <span className="text-xs text-ink">{t('docs.export')}</span>
+          <span className="text-[11px] text-ink-muted">{t('docs.exportDescription')}</span>
         </button>
       </div>
     </div>
