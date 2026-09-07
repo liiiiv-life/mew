@@ -1,5 +1,5 @@
 // Postgres 연결 풀 — /db 데이터베이스 뷰의 유일한 저장소.
-// DATABASE_URL이 없으면 명확한 에러를 던져 "docker/env 설정을 하라"고 안내한다 (r2.ts의 R2NotConfiguredError 패턴).
+// DATABASE_URL이 없으면 명확한 에러를 던져 "docker/env 설정을 하라"고 안내한다.
 import pgpkg from 'pg'
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 

@@ -28,7 +28,7 @@ import { lintContent } from './lint.ts'
 import { parseTitle } from './frontmatter.ts'
 import { noteAppWrite } from './appWrites.ts'
 import { updateLinkLabelsFor } from './links.ts'
-import { uploadAsset, R2NotConfiguredError } from './r2.ts'
+import { isLocalAssetPath, moveAssetIntoProject } from './localAssets.ts'
 import { DATA_DIR } from './dataDir.ts'
 import { createTmuxManager, createTmuxRouter } from '@mew/tmux-term/server'
 import { CmdButtonError, commandSessionName, normalizeCmdButtons, oneShotCommand, readCmdButtons, writeCmdButtons } from './cmdButtons.ts'
@@ -1757,13 +1757,17 @@ export function createApiApp() {
 
   app.post('/upload', requireAuthenticated, limitUploads, upload.single('file'), async (req, res) => {
     const file = req.file
+    const project = projectOf(req)
     if (!file) {
       res.status(400).json({ error: '파일이 없습니다' })
       return
     }
     try {
-      const url = await uploadAsset(fs.createReadStream(file.path), file.originalname, file.mimetype)
-      res.json({ url, name: file.originalname, mimetype: file.mimetype })
+      const relPath = moveAssetIntoProject(project, file.path, file.originalname, file.mimetype)
+      noteFileContentChanged(project, relPath)
+      await refreshCatalogPaths(project, [relPath])
+      await commitFile(project, relPath, 'add', `${project}: upload ${relPath}`)
+      res.json({ path: relPath, name: file.originalname, mimetype: file.mimetype })
     } catch (err) {
       handleError(res, err)
     } finally {
@@ -1771,7 +1775,26 @@ export function createApiApp() {
     }
   })
 
-  // 바깥에서 사이드바(파일 트리)로 끌어다 놓은 파일 — R2가 아니라 프로젝트 폴더의 그 자리에 그대로 저장한다.
+  // 본문에 저장되는 UUID URL은 R2 공개 URL과 같은 bearer-link 경계다. 경로를 아는 사람은 볼 수 있지만
+  // `.mew/assets` 밖이나 사람이 고른 파일명은 절대 이 라우트로 열 수 없다.
+  app.get('/asset', (req, res) => {
+    const relPath = String(req.query.path ?? '')
+    if (!isLocalAssetPath(relPath)) {
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
+    try {
+      const absPath = resolveProjectPath(projectOf(req), relPath)
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      res.sendFile(absPath, { dotfiles: 'allow' }, (err) => {
+        if (err && !res.headersSent) handleError(res, err)
+      })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 바깥에서 사이드바(파일 트리)로 끌어다 놓은 파일 — 에디터 asset과 달리 프로젝트 폴더의 그 자리에 그대로 저장한다.
   // multer가 먼저 돌아 destDir·project 같은 텍스트 필드도 req.body에 채워 준다.
   app.post('/upload-into', requireAuthenticated, limitUploads, upload.single('file'), async (req, res) => {
     const file = req.file
@@ -2359,10 +2382,6 @@ function handleError(res: express.Response, err: unknown) {
   if (err instanceof GitError) {
     // manager·owner가 직접 요청한 Git 작업의 충돌/dirty working tree 이유는 GUI에서 해결 판단에 필요하다.
     res.status(409).json({ error: err.message })
-    return
-  }
-  if (err instanceof R2NotConfiguredError) {
-    res.status(503).json({ error: err.message })
     return
   }
   if (err instanceof RagDisabledError || err instanceof RagUnavailableError) {

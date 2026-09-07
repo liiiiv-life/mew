@@ -211,13 +211,6 @@ cmd_setup() {
     set_config MEW_WORKSPACE "$ws"
     set_config MEW_TEAM_PORT "$port"
 
-    if [ -t 0 ] && yes_no "Set up media uploads now? (S3-compatible bucket; you can do it later)" n; then
-      set_config R2_ACCOUNT_ID "$(ask 'account id' '')"
-      set_config R2_ACCESS_KEY_ID "$(ask 'access key id' '')"
-      set_config R2_SECRET_ACCESS_KEY "$(ask 'secret access key' '')"
-      set_config R2_BUCKET "$(ask 'bucket' '')"
-      set_config R2_PUBLIC_URL_BASE "$(ask 'public url base' '')"
-    fi
     if [ -t 0 ] && yes_no "Connect a Postgres for the /db table view? (you can do it later)" n; then
       set_config DATABASE_URL "$(ask 'DATABASE_URL' 'postgres://mew:mew@127.0.0.1:5432/mew')"
     fi

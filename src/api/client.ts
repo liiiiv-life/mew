@@ -1195,7 +1195,7 @@ export function copyInto(
 
 /**
  * 바깥에서 사이드바로 끌어다 놓은 파일을 프로젝트의 destDir(''=루트) 안에 그대로 저장한다.
- * uploadAsset(R2 링크)과 달리 바이트를 손대지 않는다 — 사용자가 놓은 그 파일이 그 자리에 생겨야 한다.
+ * uploadAsset(.mew/assets 링크)과 달리 바이트를 손대지 않는다 — 사용자가 놓은 그 파일이 그 자리에 생겨야 한다.
  */
 export function uploadInto(file: File, destDir: string, project: string = currentProject): Promise<FileOpResult> {
   const body = new FormData()
@@ -1392,11 +1392,19 @@ export function fetchLinkPreview(url: string): Promise<{ title: string | null; d
 }
 
 export async function uploadAsset(file: File): Promise<{ url: string; name: string; mimetype: string }> {
-  // 큰 사진은 여기서 한 번 줄여 올린다 — 서버·R2는 받은 바이트를 그대로 보관하므로 줄일 수 있는
+  // 큰 사진은 여기서 한 번 줄여 올린다 — 서버는 받은 바이트를 그대로 보관하므로 줄일 수 있는
   // 유일한 자리다. 대상이 아니거나 실패하면 원본이 그대로 넘어온다(compressImage는 던지지 않는다).
+  const project = currentProject
   const body = new FormData()
   body.append('file', await compressImage(file))
-  return fetch('/api/upload', { method: 'POST', body }).then(json<{ url: string; name: string; mimetype: string }>)
+  body.append('project', project)
+  return fetch('/api/upload', { method: 'POST', body })
+    .then(json<{ path: string; name: string; mimetype: string }>)
+    .then(({ path, name, mimetype }) => ({
+      url: `/api/asset?path=${encodeURIComponent(path)}&${projectQs(project)}`,
+      name,
+      mimetype,
+    }))
 }
 
 export function fetchTmuxSessions(): Promise<TmuxSession[]> {

@@ -1,5 +1,5 @@
-// 업로드 전 이미지 축소·재압축. 폰 카메라 사진이 8~12MB 그대로 R2에 올라가고 문서를 볼 때마다 그대로
-// 다시 내려오던 것을 줄인다(server/r2.ts는 받은 바이트를 손대지 않고 PUT한다). 브라우저 기본 기능만
+// 업로드 전 이미지 축소·재압축. 폰 카메라 사진이 8~12MB 그대로 프로젝트에 저장되고 문서를 볼 때마다
+// 다시 내려오는 것을 줄인다. 서버는 받은 바이트를 손대지 않으므로 브라우저 기본 기능만
 // 쓴다 — createImageBitmap으로 디코드, OffscreenCanvas로 리샘플·재인코딩. 라이브러리 없음.
 //
 // 안 건드리는 것: GIF(캔버스를 거치면 첫 프레임만 남아 애니메이션이 죽는다) · SVG(벡터라 래스터화하면
@@ -24,7 +24,7 @@ export function targetType(sourceType: string): string {
   return sourceType === 'image/jpeg' ? 'image/jpeg' : 'image/webp'
 }
 
-/** 확장자를 결과 포맷에 맞춘다 — 서버가 확장자로 R2 키를 만들고 클라이언트가 확장자로 미디어 종류를
+/** 확장자를 결과 포맷에 맞춘다 — 서버가 확장자로 asset 파일명을 만들고 클라이언트가 확장자로 미디어 종류를
  * 판정하므로(utils/media.ts), webp 바이트에 .png가 붙어 있으면 안 된다 */
 export function renameForType(name: string, type: string): string {
   const ext = type === 'image/jpeg' ? 'jpg' : 'webp'

@@ -1494,7 +1494,7 @@ export const Editor = forwardRef<
     { id: 'db', title: '데이터베이스', description: '노션식 표 데이터베이스 (실시간 협업)', keywords: ['db', 'database', '데이터베이스', 'notion', '노션'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); insertDatabase(r.from) } },
     { id: 'db-ref', title: '데이터베이스 참조', description: '기존 데이터베이스를 읽기 전용 뷰로 삽입', keywords: ['ref', 'reference', '참조', 'link', 'linked', 'db참조', 'db-ref', 'database', '데이터베이스'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); setDbPicker({ pos: r.from }) } },
     { id: 'table', title: '표', description: '3×3 표 삽입', keywords: ['table', '표', '테이블'], run: (e, r) => e.chain().focus().deleteRange(r).insertTable({ rows: 3, cols: 3 }).run() },
-    { id: 'upload', title: '파일 업로드', description: '파일을 올리고 링크 삽입 (R2)', keywords: ['upload', '업로드', 'file', '파일', '첨부', 'attach'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); openUploadPicker(r.from) } },
+    { id: 'upload', title: '파일 업로드', description: '프로젝트에 파일을 저장하고 링크 삽입', keywords: ['upload', '업로드', 'file', '파일', '첨부', 'attach'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); openUploadPicker(r.from) } },
   ]
 
   // query로 시작하는 title·keywords만 보여 주는 인라인 자동완성 (빈 query면 전체).
