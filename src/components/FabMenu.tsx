@@ -56,7 +56,7 @@ export function FabMenu({
   // Android처럼 키보드가 레이아웃 뷰포트까지 줄이는 브라우저에서는 innerHeight도 함께
   // 작아진다. 키보드 전의 가장 큰 뷰포트를 기억해야 실제 키보드 높이를 잴 수 있다.
   const unobscuredViewportBottomRef = useRef(0)
-  const pointerRef = useRef<{ id: number; startX: number; startY: number; originX: number | null; originY: number | null; moving: boolean; directional: boolean; wasOpen: boolean } | null>(null)
+  const pointerRef = useRef<{ id: number; startX: number; startY: number; moving: boolean; directional: boolean; wasOpen: boolean } | null>(null)
   const longPressTimer = useRef<number | null>(null)
   const longPressArmed = useRef(false)
   const actions: Action[] = [
@@ -121,18 +121,7 @@ export function FabMenu({
       longPressArmed.current = true
       setMoveReady(true)
     }, 350)
-    pointerRef.current = {
-      id: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      // 키보드가 닫히면서 핸들이 재배치될 수 있으므로, 실제 움직임이 시작된 시점의
-      // 화면 중심을 기준점으로 잡는다.
-      originX: null,
-      originY: null,
-      moving: false,
-      directional: false,
-      wasOpen: open,
-    }
+    pointerRef.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, moving: false, directional: false, wasOpen: open }
     setPressed(true)
     setOpen(true)
   }
@@ -155,15 +144,10 @@ export function FabMenu({
       return
     }
     if (state.directional) return
-    if (state.originX === null || state.originY === null) {
-      // 키보드가 닫힌 뒤의 실제 렌더 위치를 읽는다. 따라서 그 뒤부터는 포인터가
-      // 움직인 거리만큼만 핸들이 움직이고, 키보드 전 위치로 되돌아가지 않는다.
-      const rect = rootRef.current?.getBoundingClientRect()
-      state.originX = rect ? rect.left + rect.width / 2 : window.innerWidth - position.right - HANDLE_RADIUS
-      state.originY = rect ? rect.top + rect.height / 2 : window.innerHeight - position.bottom - HANDLE_RADIUS
-    }
     state.moving = true
-    moveTo(state.originX + dx, state.originY + dy)
+    // 위치 이동으로 승격된 뒤에는 누른 지점의 오프셋을 유지하지 않고 핸들 중심을
+    // 현재 포인터에 맞춘다. 핸들 가장자리를 잡아도 포인터 아래로 처져 따라오지 않는다.
+    moveTo(event.clientX, event.clientY)
   }
   function pointerUp(event: React.PointerEvent<HTMLButtonElement>) {
     const state = pointerRef.current
