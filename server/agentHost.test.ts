@@ -10,6 +10,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-host-data-'))
 const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-host-stub-'))
 const stubPath = path.join(stubDir, 'stub.mjs')
 const finishedFile = path.join(stubDir, 'finished')
+const writerLockFile = path.join(stubDir, 'writer-lock')
 process.env.MEW_WORKSPACE = workspace
 process.env.MEW_DATA_DIR = dataDir
 
@@ -22,12 +23,31 @@ import fs from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 
 class SlowAgent {
-  constructor(conn) { this.conn = conn }
+  constructor(conn) { this.conn = conn; this.sessionCount = 0 }
   async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: { loadSession: true } } }
-  async newSession() { return { sessionId: 'host-session' } }
+  async newSession() {
+    this.sessionCount += 1
+    if (this.sessionCount === 1) {
+      let holderAlive = false
+      try { process.kill(Number(fs.readFileSync(process.argv[3], 'utf8')), 0); holderAlive = true } catch {}
+      if (!holderAlive) fs.writeFileSync(process.argv[3], String(process.pid))
+    }
+    return { sessionId: this.sessionCount === 1 ? 'host-session' : 'cleared-session' }
+  }
   async loadSession({ sessionId }) {
     if (sessionId === 'busy-thread') {
       throw { code: -32603, message: 'Internal error', data: { details: 'thread busy-thread already has an active writer' } }
+    }
+    if (sessionId === 'host-session' && this.sessionCount > 1) {
+      throw { code: -32603, message: 'Internal error', data: { details: 'thread host-session already has an active writer' } }
+    }
+    if (sessionId === 'host-session') {
+      const holder = Number(fs.readFileSync(process.argv[3], 'utf8'))
+      let holderAlive = false
+      try { process.kill(holder, 0); holderAlive = true } catch {}
+      if (holderAlive && holder !== process.pid) {
+        throw { code: -32603, message: 'Internal error', data: { details: 'thread host-session already has an active writer' } }
+      }
     }
     await this.conn.sessionUpdate({ sessionId, update: {
       sessionUpdate: 'user_message_chunk', content: { type: 'text', text: '이전 질문' },
@@ -49,6 +69,8 @@ class SlowAgent {
   }
 }
 
+process.on('SIGTERM', () => setTimeout(() => process.exit(0), 40))
+
 new AgentSideConnection(
   (conn) => new SlowAgent(conn),
   ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
@@ -56,7 +78,9 @@ new AgentSideConnection(
 `,
 )
 process.env.MEW_AGENT_CMD = process.execPath
-process.env.MEW_AGENT_ARGS = `${stubPath} ${finishedFile}`
+process.env.MEW_AGENT_ARGS = `${stubPath} ${finishedFile} ${writerLockFile}`
+process.env.MEW_AGENT_CODEX_CMD = process.execPath
+process.env.MEW_AGENT_CODEX_ARGS = `${stubPath} ${finishedFile} ${writerLockFile}`
 
 const { connectAgentHost, describeError, shutdownAgentHostsForWorkspace } = await import('./agentHost.ts')
 type AgentEvent = import('./agentAcp.ts').AgentEvent
@@ -70,6 +94,35 @@ test('ACP의 plain object 오류에서 메시지와 상세 원인을 보존한�
   assert.match(message, /Internal error/)
   assert.match(message, /no rollout found/)
   assert.doesNotMatch(message, /\[object Object\]/)
+})
+
+test('/clear 뒤 같은 탭의 이전 Codex thread를 새 writer로 복원한다', async (t) => {
+  fs.rmSync(writerLockFile, { force: true })
+  t.after(async () => {
+    shutdownAgentHostsForWorkspace(workspace)
+    await new Promise((resolve) => setTimeout(resolve, 80))
+  })
+
+  let currentSessionId = ''
+  let resolveSession!: (sessionId: string) => void
+  let nextSession = new Promise<string>((resolve) => { resolveSession = resolve })
+  const client = await connectAgentHost('codex', 'clear-resume-tab', workspace, {
+    onEvent: (event) => {
+      if (event.type !== 'meta' || event.meta.sessionId === currentSessionId) return
+      currentSessionId = event.meta.sessionId
+      resolveSession(currentSessionId)
+    },
+  })
+  t.after(() => client.close())
+
+  assert.equal(await nextSession, 'host-session')
+  nextSession = new Promise<string>((resolve) => { resolveSession = resolve })
+  client.send({ type: 'clear_session' })
+  assert.equal(await nextSession, 'cleared-session')
+
+  nextSession = new Promise<string>((resolve) => { resolveSession = resolve })
+  client.send({ type: 'load_session', sessionId: 'host-session' })
+  assert.equal(await nextSession, 'host-session')
 })
 
 test('자동 복원 실패가 fallback 세션으로 원래 thread 포인터를 덮지 않게 알린다', async (t) => {

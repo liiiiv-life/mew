@@ -418,6 +418,18 @@ export class AgentSession {
     return this.#caps.loadSession === true
   }
 
+  /** 히스토리 전환 전에 현재 writer가 안전하게 내려갈 수 있는 상태인지 확인한다. */
+  assertCanLoadSession() {
+    if (this.busy || this.#pending.size > 0 || this.#queue.length > 0) {
+      throw new Error('진행 중인 작업과 대기 메시지가 끝난 뒤 세션을 불러오세요')
+    }
+    if (this.#loadingEvents) throw new Error('이미 다른 세션을 불러오는 중입니다')
+  }
+
+  get sessionId(): string {
+    return this.#sessionId
+  }
+
   /** 감독 프로세스가 세션의 유휴 종료를 자기 수명 종료로 이어 붙이는 손잡이. */
   onDispose(listener: () => void): () => void {
     if (this.#disposed) {
@@ -910,10 +922,7 @@ export class AgentSession {
   async loadSession(sessionId: string) {
     // 같은 ACP 연결에서 prompt와 session/load를 겹치면 Codex는 동일 thread의 두 writer로 보고
     // 거절할 수 있다. 현재 턴을 보존하고 사용자가 끝난 뒤 다시 고르게 한다.
-    if (this.busy || this.#pending.size > 0 || this.#queue.length > 0) {
-      throw new Error('진행 중인 작업과 대기 메시지가 끝난 뒤 세션을 불러오세요')
-    }
-    if (this.#loadingEvents) throw new Error('이미 다른 세션을 불러오는 중입니다')
+    this.assertCanLoadSession()
     const previousModels = this.#models
     const previousModes = this.#modes
     const previousThinking = this.#thinking
@@ -1126,15 +1135,33 @@ export class AgentSession {
     this.#disposeListeners.clear()
   }
 
+  /** writer 소유권을 다음 어댑터에 넘기기 전에 자식 프로세스가 실제로 끝날 때까지 기다린다. */
+  async disposeAndWait() {
+    const child = this.#child
+    if (child.exitCode !== null || child.signalCode !== null) {
+      this.dispose()
+      return
+    }
+    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
+    this.dispose()
+    const stopped = await Promise.race([
+      exited.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 2_000)),
+    ])
+    if (stopped) return
+    this.#killTree('SIGKILL')
+    await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 500))])
+  }
+
   /** 어댑터가 밑에 둔 CLI까지 같이 보낸다 — 그룹 리더로 띄웠으므로 음수 pid가 그룹 전체다.
    *  프로세스 종료 경로(process.on('exit'))에서도 불리므로 동기여야 한다 */
-  #killTree() {
+  #killTree(signal: NodeJS.Signals = 'SIGTERM') {
     const pid = this.#child.pid
     if (pid === undefined) return
     try {
-      process.kill(-pid, 'SIGTERM')
+      process.kill(-pid, signal)
     } catch {
-      this.#child.kill()
+      this.#child.kill(signal)
     }
   }
 }

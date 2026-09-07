@@ -216,6 +216,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
 
   let startSession: (acpMethodId?: string) => Promise<void>
   let restartSession: () => Promise<void>
+  let switchSession: (sessionId: string, peer: Peer) => Promise<void>
   let armStartupIdle: () => void
   let stop: (code?: number) => void
 
@@ -287,7 +288,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         else void restartSession()
         return
       }
-      void handleHostMessage(session, peer, message, stop, () => { restoreFailure = null })
+      void handleHostMessage(session, peer, message, stop, () => { restoreFailure = null }, switchSession)
     }
     installLineReader(socket, receive, () => socket.destroy())
     socket.on('close', () => {
@@ -374,7 +375,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         })
         peer.detach = started.attach((event) => sendLine(peer.socket, { type: 'event', event }))
       }
-      for (const item of early.splice(0)) void handleHostMessage(started, item.peer, item.message, stop, () => { restoreFailure = null })
+      for (const item of early.splice(0)) void handleHostMessage(started, item.peer, item.message, stop, () => { restoreFailure = null }, switchSession)
     } catch (err) {
       startupError = describeError(err)
       broadcastEvent(runtimeLoginAuthEvent(runtime, startupError))
@@ -394,8 +395,79 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
       peer.detach = null
     }
     // onDispose는 `session === previous`일 때만 감독을 닫으므로 의도적인 재시작은 감독을 살린다.
-    previous.dispose()
+    await previous.disposeAndWait()
     await startSession()
+  }
+
+  switchSession = async (sessionId, peer) => {
+    if (!session || sessionStarting || stopping) return
+    // Codex app-server는 session/new 뒤에도 이 어댑터가 열었던 thread의 writer를
+    // 붙든다. 같은 프로세스에서 그 thread를 다시 load하면 자기 writer와 충돌하므로,
+    // 히스토리를 갈아탈 때 프로세스를 내려 writer를 반납한 뒤 새 프로세스에서 load한다.
+    session.assertCanLoadSession()
+    const previous = session
+    const previousSessionId = previous.sessionId
+    session = null
+    sessionStarting = true
+    clearStartupIdle()
+    for (const attached of peers) {
+      attached.detach?.()
+      attached.detach = null
+    }
+    previous.dispose()
+
+    try {
+      try {
+        let started = await AgentSession.start(runtime, undefined, cwd)
+        let loadError: string | null = null
+        try {
+          await started.loadSession(sessionId)
+        } catch (err) {
+          started.dispose()
+          loadError = describeError(err)
+          // 선택한 기록이 다른 창에 점유됐거나 손상됐으면, 방금 보던 대화를 새
+          // writer로 다시 잡는다. 복구까지 실패해도 탭을 종료하지 않고 빈 세션을 남긴다.
+          started = await AgentSession.start(runtime, undefined, cwd)
+          try {
+            await started.loadSession(previousSessionId)
+          } catch (recoveryError) {
+            console.error(`[mew:agent-host:${runtime}] 세션 ${previousSessionId} 복구 실패:`, recoveryError)
+          }
+        }
+
+        if (stopping) {
+          started.dispose()
+          return
+        }
+        session = started
+        startupError = null
+        restoreFailure = null
+        started.onDispose(() => {
+          if (session === started) stop()
+        })
+        for (const attached of peers) {
+          if (attached.socket.destroyed) continue
+          sendLine(attached.socket, { type: 'replay', events: started.snapshot(), restored: true })
+          attached.detach = started.attach((event) => sendLine(attached.socket, { type: 'event', event }))
+        }
+        if (loadError && !peer.socket.destroyed) {
+          sendLine(peer.socket, { type: 'event', event: { type: 'error', message: loadError } })
+        }
+      } catch (err) {
+        startupError = describeError(err)
+        if (!peer.socket.destroyed) {
+          sendLine(peer.socket, { type: 'event', event: { type: 'error', message: startupError } })
+        }
+      }
+    } finally {
+      sessionStarting = false
+      if (session) {
+        for (const item of early.splice(0)) {
+          void handleHostMessage(session, item.peer, item.message, stop, () => { restoreFailure = null }, switchSession)
+        }
+      }
+      armStartupIdle()
+    }
   }
 
   try {
@@ -425,6 +497,7 @@ async function handleHostMessage(
   message: HostInbound,
   stop: (code?: number) => void,
   chooseFallback: () => void,
+  switchSession: (sessionId: string, peer: Peer) => Promise<void>,
 ) {
   if (message.type === 'request') {
     try {
@@ -472,7 +545,8 @@ async function handleHostMessage(
       session.clearAfterQueue()
     }
     else if (command.type === 'load_session') {
-      await session.loadSession(String(command.sessionId))
+      if (session.runtime === 'codex') await switchSession(String(command.sessionId), peer)
+      else await session.loadSession(String(command.sessionId))
       chooseFallback()
     }
     else if (command.type === 'close_session') stop()
