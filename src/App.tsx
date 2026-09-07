@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   editorApi,
   fetchAuthStatus,
+  fetchMewUpdateStatus,
   fetchRootProjectTabs,
   fetchWorkspaceUi,
   fetchProjects,
@@ -10,11 +11,13 @@ import {
   getProject,
   isArchivedPath,
   revertFileToCommit,
+  runMewAction,
   setProject,
   saveRootProjectTabs,
   saveWorkspaceUi,
   switchWorkspace,
   type AuthStatus,
+  type MewUpdateStatus,
   type TreeNode,
   type WorkspaceUiState,
 } from './api/client'
@@ -31,7 +34,7 @@ import { AdminSettingsModal } from './components/AdminSettingsModal'
 import { DatabaseListModal } from './components/DatabaseListModal'
 import { SystemStatsModal } from './components/SystemStatsModal'
 import { ScheduleModal } from './components/ScheduleModal'
-import { FileTree } from './components/FileTree'
+import { FileTree, type TreePersistenceState } from './components/FileTree'
 import { CommandButtonMenu } from './components/CommandButtonMenu'
 import { ProjectIcon } from './components/ProjectIcon'
 import { SearchPanel } from './components/SearchPanel'
@@ -72,6 +75,7 @@ import { loadMewcatSkin, saveMewcatSkin, type MewcatSkinSelection } from './util
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 import { GitWorkbenchModal } from './components/GitWorkbenchModal'
+import { normalizeDirectoryChildren } from './utils/treePersistence'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
@@ -109,7 +113,7 @@ const ROOT_PROJECT_ICONS_KEY = 'mew:root-project-icons'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
 type AccountSidebarState = { docsExpanded: boolean; expandedSubprojects: string[] }
-type AccountTreeStates = Record<string, { openDirs: string[]; scrollTop: number }>
+type AccountTreeStates = Record<string, TreePersistenceState>
 
 function accountSidebar(value: unknown): AccountSidebarState | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -123,9 +127,13 @@ function accountTrees(value: unknown): AccountTreeStates {
   const result: AccountTreeStates = {}
   for (const [key, raw] of Object.entries(value)) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
-    const state = raw as { openDirs?: unknown; scrollTop?: unknown }
+    const state = raw as { openDirs?: unknown; scrollTop?: unknown; directoryChildren?: unknown }
     if (!Array.isArray(state.openDirs) || typeof state.scrollTop !== 'number') continue
-    result[key] = { openDirs: state.openDirs.filter((path): path is string => typeof path === 'string'), scrollTop: Math.max(0, state.scrollTop) }
+    result[key] = {
+      openDirs: state.openDirs.filter((path): path is string => typeof path === 'string'),
+      scrollTop: Math.max(0, state.scrollTop),
+      directoryChildren: normalizeDirectoryChildren(state.directoryChildren),
+    }
   }
   return result
 }
@@ -253,6 +261,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [dbListOpen, setDbListOpen] = useState(false)
   const [sysStatsOpen, setSysStatsOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [mewUpdate, setMewUpdate] = useState<MewUpdateStatus | null>(null)
+  const [mewUpdating, setMewUpdating] = useState(false)
 
   const workspacePanelOpen = useMemo(() => ({
     sidebar: sidebarOpen,
@@ -366,6 +376,72 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   // 흐름을 끊지 않는 짧은 안내 — 사이드바 작업 결과가 내 트리에 안 뜨거나, 파일을 못 열었을 때
   const { toast, showToast } = useToast()
+
+  const refreshMewUpdate = useCallback(async (announce = false) => {
+    try {
+      const status = await fetchMewUpdateStatus(true)
+      setMewUpdate(status)
+      if (!announce) return
+      if (status.error) showToast(`업데이트를 확인하지 못했습니다: ${status.error}`)
+      else if (status.available && !status.canUpdate) showToast('새 버전이 있지만 이 서버는 외부 supervisor가 관리 중이라 터미널에서 업데이트해야 합니다')
+      else if (status.available) showToast(`origin/main에 새 커밋 ${status.behind}개가 있습니다`)
+      else showToast('Mew가 최신 버전입니다')
+    } catch (err) {
+      if (announce) showToast(err instanceof Error ? err.message : String(err))
+    }
+  }, [showToast])
+
+  useEffect(() => {
+    if (canUseTerminal) void refreshMewUpdate()
+  }, [canUseTerminal, refreshMewUpdate])
+
+  const startMewUpdate = useCallback(async () => {
+    if (!mewUpdate?.available) {
+      await refreshMewUpdate(true)
+      return
+    }
+    if (!mewUpdate.canUpdate) {
+      showToast(mewUpdate.error ?? '외부 supervisor가 관리하는 서버는 터미널에서 업데이트해야 합니다')
+      return
+    }
+    setMewUpdating(true)
+    try {
+      await runMewAction('update')
+      showToast('Mew 업데이트를 시작했습니다. 완료되면 자동으로 새로고침합니다')
+    } catch (err) {
+      setMewUpdating(false)
+      showToast(err instanceof Error ? err.message : String(err))
+    }
+  }, [mewUpdate, refreshMewUpdate, showToast])
+
+  useEffect(() => {
+    if (!mewUpdating) return
+    let alive = true
+    const poll = async () => {
+      try {
+        const status = await fetchMewUpdateStatus(false)
+        if (!alive) return
+        setMewUpdate(status)
+        if (status.running || status.job?.state === 'queued' || status.job?.state === 'running') return
+        if (status.job?.state === 'succeeded') {
+          location.reload()
+          return
+        }
+        if (status.job?.state === 'failed') {
+          setMewUpdating(false)
+          showToast(status.job.message ?? '업데이트에 실패했습니다. 작업 트리와 tmux 출력을 확인하세요')
+        }
+      } catch {
+        // 업데이트 중에는 서버가 한 번 재시작된다. 새 서버가 뜰 때까지 계속 확인한다.
+      }
+    }
+    void poll()
+    const timer = window.setInterval(poll, 1_000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [mewUpdating, showToast])
 
   const loadWorkspaceTreeChildren = useCallback((path: string) => fetchTreeEntries(WORKSPACE_PROJECT, path), [])
   const loadDocsTreeChildren = useCallback((path: string) => fetchTreeEntries(DEFAULT_PROJECT, path), [])
@@ -1363,12 +1439,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const rootSubprojects = useMemo(() => rootTree.filter((node) => node.project), [rootTree])
   const rootNodes = useMemo(() => rootTree.filter((node) => !node.project), [rootTree])
   const accountTreeStates = useMemo(() => accountTrees(workspaceUi.trees), [workspaceUi.trees])
-  const saveAccountTreeState = useCallback((key: string, value: { openDirs: string[]; scrollTop: number }) => {
+  const saveAccountTreeState = useCallback((key: string, value: TreePersistenceState) => {
     if (isGuest) return
     setWorkspaceUi((previous) => {
       const trees = accountTrees(previous.trees)
       const existing = trees[key]
-      if (existing?.scrollTop === value.scrollTop && existing.openDirs.length === value.openDirs.length && existing.openDirs.every((path, index) => path === value.openDirs[index])) return previous
+      if (
+        existing?.scrollTop === value.scrollTop
+        && existing.openDirs.length === value.openDirs.length
+        && existing.openDirs.every((path, index) => path === value.openDirs[index])
+        && JSON.stringify(existing.directoryChildren) === JSON.stringify(value.directoryChildren)
+      ) return previous
       return { ...previous, trees: { ...trees, [key]: value } }
     })
   }, [isGuest])
@@ -1496,6 +1577,24 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             ),
           },
           {
+            id: 'mew-update',
+            label: mewUpdating
+              ? 'Mew 업데이트 중…'
+              : mewUpdate?.available
+                ? (mewUpdate.canUpdate ? 'Mew 업데이트' : 'Mew 수동 업데이트 필요')
+                : 'Mew 업데이트 확인',
+            hint: mewUpdate?.available ? `${mewUpdate.behind}개` : undefined,
+            onSelect: () => void startMewUpdate(),
+            disabled: mewUpdating || mewUpdate === null,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v12" />
+                <path d="m7 10 5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+            ),
+          },
+          {
             id: 'agent',
             label: t('header.agent'),
             hint: 'Alt+L · Ctrl+`',
@@ -1611,22 +1710,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         </svg>
       ),
     },
-    ...(isGuest
-      ? [
-          {
-            id: 'login',
-            label: t('common.login'),
-            onSelect: onRequestLogin,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-                <path d="M10 17l5-5-5-5" />
-                <path d="M15 12H3" />
-              </svg>
-            ),
-          },
-        ]
-      : []),
   ]
 
   return (
@@ -1647,11 +1730,18 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             onIconChange={changeRootProjectIcon}
             onOpen={() => setOpenProjectDialog(true)}
           />
-          {/* 도구는 전부 햄버거 하나로 접는다 — 아이콘을 늘어놓으면 좁은 화면에서 프로젝트 탭이 밀린다.
-              버튼이 아닌 것(게스트 표시·저장 실패 문구)만 헤더에 남는다 */}
+          {/* 도구는 햄버거 하나로 접고, 게스트의 로그인 진입점만 바로 옆에 둔다. */}
           <div className="flex shrink-0 items-center gap-1.5 pl-2 text-sm">
             {switchingRootProject && <span className="text-xs text-ink-secondary">프로젝트 여는 중…</span>}
-            {isGuest && <span className="rounded bg-surface-raised px-2 py-0.5 text-xs text-ink-secondary">게스트</span>}
+            {isGuest && (
+              <button
+                type="button"
+                onClick={onRequestLogin}
+                className="rounded bg-accent px-2.5 py-1 text-xs font-medium text-ink-on-accent hover:bg-accent-strong"
+              >
+                {t('common.login')}
+              </button>
+            )}
             {activeTab?.status === 'error' && (
               <span className="hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
             )}

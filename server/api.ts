@@ -3,7 +3,6 @@ import multer from 'multer'
 import { GitError } from 'simple-git'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { DEFAULT_PROJECT, isDeniedSegment, isProtectedProject, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
 import { createProject, deleteProject, ProjectNameError, renameProject } from './projects.ts'
 import { buildTreeAsync, isPathVisible } from './tree.ts'
@@ -58,6 +57,7 @@ import { browserProxyFrameUrl } from './browserProxy.ts'
 import { createTodo, deleteTodo, listTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
 import { currentWorkspace, switchDocsRoot, switchWorkspace, WorkspaceError } from './workspace.ts'
 import { collectSystemStats } from './sysStats.ts'
+import { MEW_APP_ROOT, MEW_UPDATE_SESSION, mewUpdateStatus, writeMewUpdateJob } from './mewUpdate.ts'
 import { androidCommandById, collectAndroidEnvStatus } from './androidEnv.ts'
 import { listSkills } from './skills.ts'
 import { readCrontab } from './crontab.ts'
@@ -119,11 +119,11 @@ const AGENT_TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const ANCHOR_PREVIEW_MIN_BYTES = 512 * 1024
 const DEFAULT_ANCHOR_CHUNK_LINES = 400
 const MAX_ANCHOR_CHUNK_LINES = 2_000
-// 이 두 작업은 서버가 등록한 값만 실행한다. 브라우저가 명령 문자열을 보낼 수는 없다.
-const MEW_APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+// 앱 자체 작업은 서버가 등록한 값만 실행한다. 브라우저가 명령 문자열을 보낼 수는 없다.
 const MEW_ACTIONS = {
   restart: { command: './mew restart', session: 'mewcmd-mew-restart' },
   build: { command: 'npm run build', session: 'mewcmd-mew-build' },
+  update: { command: 'node server/runMewUpdate.ts', session: MEW_UPDATE_SESSION },
 } as const
 
 const UPLOAD_TEMP_DIR = path.join(DATA_DIR, 'uploads')
@@ -479,7 +479,16 @@ export function createApiApp() {
     }
   })
 
-  // 앱 자체 조작은 UI가 준 임의 셸이 아니라 이 등록표의 두 항목으로만 한정한다.
+  app.get('/mew-update/status', requireRole('manager', 'owner'), async (req, res) => {
+    try {
+      const running = (await tmuxManager.list()).some((session) => session.name === MEW_UPDATE_SESSION)
+      res.json(await mewUpdateStatus(req.query.refresh === '1', running))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 앱 자체 조작은 UI가 준 임의 셸이 아니라 이 등록표의 항목으로만 한정한다.
   app.post('/mew-actions/:id/run', requireRole('manager', 'owner'), async (req, res) => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
@@ -492,6 +501,22 @@ export function createApiApp() {
       if (running) {
         res.status(409).json({ error: '이미 실행 중입니다' })
         return
+      }
+      if (id === 'update') {
+        const status = await mewUpdateStatus(true, false)
+        if (status.error) {
+          res.status(409).json({ error: status.error })
+          return
+        }
+        if (!status.canUpdate) {
+          res.status(409).json({ error: '이 서버는 외부 supervisor가 관리 중이라 화면에서 재시작할 수 없습니다' })
+          return
+        }
+        if (!status.available) {
+          res.status(409).json({ error: '이미 최신 버전입니다' })
+          return
+        }
+        writeMewUpdateJob({ state: 'queued', startedAt: Date.now(), finishedAt: null, message: null })
       }
       await tmuxManager.runCommand(action.session, oneShotCommand(action.command, action.session), MEW_APP_ROOT)
       res.json({ ok: true, session: action.session })

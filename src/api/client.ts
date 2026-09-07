@@ -544,7 +544,27 @@ export function runAndroidCommand(id: string): Promise<{ ok: true; session: stri
 }
 
 /** 햄버거 메뉴의 서버 등록 mew 작업 — id 외의 셸 문자열은 절대 보내지 않는다. */
-export function runMewAction(id: 'restart' | 'build'): Promise<{ ok: true; session: string }> {
+export interface MewUpdateStatus {
+  supported: boolean
+  canUpdate: boolean
+  branch: string | null
+  localHash: string | null
+  remoteHash: string | null
+  ahead: number
+  behind: number
+  available: boolean
+  dirty: boolean
+  running: boolean
+  managedByMew: boolean
+  error: string | null
+  job: { state: 'queued' | 'running' | 'succeeded' | 'failed'; startedAt: number; finishedAt: number | null; message: string | null } | null
+}
+
+export function fetchMewUpdateStatus(refreshRemote = false): Promise<MewUpdateStatus> {
+  return fetch(`/api/mew-update/status${refreshRemote ? '?refresh=1' : ''}`).then(json<MewUpdateStatus>)
+}
+
+export function runMewAction(id: 'restart' | 'build' | 'update'): Promise<{ ok: true; session: string }> {
   return fetch(`/api/mew-actions/${id}/run`, { method: 'POST' }).then(json<{ ok: true; session: string }>)
 }
 
