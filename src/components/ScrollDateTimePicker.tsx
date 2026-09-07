@@ -37,16 +37,19 @@ type PickerFieldProps = {
   onBlur: () => void
   inputLabel: string
   onAdjust: (amount: number) => void
+  canDecrease?: boolean
+  canIncrease?: boolean
 }
 
 /** 가운데 숫자는 직접 고치고, 같은 자리에서 휠·세로 드래그로 바로 돌린다. */
-function PickerField({ label, value, previous, next, onInput, onBlur, inputLabel, onAdjust }: PickerFieldProps) {
+function PickerField({ label, value, previous, next, onInput, onBlur, inputLabel, onAdjust, canDecrease = true, canIncrease = true }: PickerFieldProps) {
   const drag = useRef<{ pointerId: number; startY: number; amount: number } | null>(null)
   const frame = useRef<number | null>(null)
   const [reelOffset, setReelOffset] = useState(0)
   const [spinning, setSpinning] = useState(false)
   const adjust = (amount: number) => {
     if (!amount) return
+    if ((amount < 0 && !canDecrease) || (amount > 0 && !canIncrease)) return
     // 다음 값의 위·아래 칸을 먼저 가운데에 놓고 제자리로 미끄러뜨린다.
     // 드래그 중에도 실제 릴을 돌리는 듯 이전 숫자가 자연스럽게 지나간다.
     if (frame.current !== null) cancelAnimationFrame(frame.current)
@@ -123,9 +126,11 @@ function PickerField({ label, value, previous, next, onInput, onBlur, inputLabel
 }
 
 /** 연·월·일·시·분 숫자를 직접 입력하거나, 그 숫자 위에서 휠·드래그로 바꾸는 로컬 시간 선택기. */
-export function ScrollDateTimePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+/** min보다 앞선 연·월·일·시·분은 릴의 이웃 숫자에도 그리지 않고 그 방향 입력도 막는다. */
+export function ScrollDateTimePicker({ value, onChange, min }: { value: string; onChange: (value: string) => void; min?: string }) {
   const { t } = useI18n()
   const parsed = useMemo(() => parseLocalDateTime(value) ?? parseLocalDateTime(formatLocalDateTime(new Date(), 0, 0))!, [value])
+  const minimum = useMemo(() => min ? parseLocalDateTime(min) : null, [min])
   const [yearInput, setYearInput] = useState(() => pad(parsed.date.getFullYear(), 4))
   const [monthInput, setMonthInput] = useState(() => pad(parsed.date.getMonth() + 1))
   const [dayInput, setDayInput] = useState(() => pad(parsed.date.getDate()))
@@ -140,7 +145,12 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
     setMinuteInput(pad(parsed.minute))
   }, [parsed])
 
-  const setParts = (date = parsed.date, hour = parsed.hour, minute = parsed.minute) => onChange(formatLocalDateTime(date, hour, minute))
+  const timestamp = (date: Date, hour: number, minute: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute).getTime()
+  const allowed = (date: Date, hour = parsed.hour, minute = parsed.minute) => !minimum || timestamp(date, hour, minute) >= timestamp(minimum.date, minimum.hour, minimum.minute)
+  const setParts = (date = parsed.date, hour = parsed.hour, minute = parsed.minute) => {
+    if (minimum && !allowed(date, hour, minute)) return onChange(formatLocalDateTime(minimum.date, minimum.hour, minimum.minute))
+    onChange(formatLocalDateTime(date, hour, minute))
+  }
   const setCalendar = (year: number, month: number, day: number) => {
     const normalized = new Date(year, month, 1)
     const date = new Date(normalized.getFullYear(), normalized.getMonth(), clamp(day, 1, daysInMonth(normalized.getFullYear(), normalized.getMonth())))
@@ -148,16 +158,45 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
   }
   const moveDate = (amount: number) => setParts(shiftedDate(parsed.date, amount))
   const moveMonth = (amount: number) => setCalendar(parsed.date.getFullYear(), parsed.date.getMonth() + amount, parsed.date.getDate())
-  const moveHour = (amount: number) => setParts(undefined, (parsed.hour + amount + 240) % 24)
-  const moveMinute = (amount: number) => setParts(undefined, undefined, (parsed.minute + amount + 600) % 60)
+  const moveHour = (amount: number) => setParts(undefined, clamp(parsed.hour + amount, 0, 23))
+  const moveMinute = (amount: number) => setParts(undefined, undefined, clamp(parsed.minute + amount, 0, 59))
   const previousDay = shiftedDate(parsed.date, -1)
   const nextDay = shiftedDate(parsed.date, 1)
   const previousMonth = new Date(parsed.date.getFullYear(), parsed.date.getMonth() - 1, 1)
   const nextMonth = new Date(parsed.date.getFullYear(), parsed.date.getMonth() + 1, 1)
+  const calendarDate = (year: number, month: number, day: number) => {
+    const normalized = new Date(year, month, 1)
+    return new Date(normalized.getFullYear(), normalized.getMonth(), clamp(day, 1, daysInMonth(normalized.getFullYear(), normalized.getMonth())))
+  }
+  const previousYearDate = calendarDate(parsed.date.getFullYear() - 1, parsed.date.getMonth(), parsed.date.getDate())
+  const nextYearDate = calendarDate(parsed.date.getFullYear() + 1, parsed.date.getMonth(), parsed.date.getDate())
+  const previousMonthDate = calendarDate(parsed.date.getFullYear(), parsed.date.getMonth() - 1, parsed.date.getDate())
+  const nextMonthDate = calendarDate(parsed.date.getFullYear(), parsed.date.getMonth() + 1, parsed.date.getDate())
+  const previousHour = parsed.hour - 1
+  const nextHour = parsed.hour + 1
+  const previousMinute = parsed.minute - 1
+  const nextMinute = parsed.minute + 1
+  const minimumYear = minimum?.date.getFullYear() ?? 1
+  const minimumMonth = minimum?.date.getMonth() ?? 0
+  const minimumDayTime = minimum ? new Date(minimumYear, minimumMonth, minimum.date.getDate()).getTime() : Number.NEGATIVE_INFINITY
+  const yearMonth = (date: Date) => date.getFullYear() * 12 + date.getMonth()
+  const minimumYearMonth = minimum ? yearMonth(minimum.date) : Number.NEGATIVE_INFINITY
+  const canDecreaseYear = previousYearDate.getFullYear() >= minimumYear
+  const canIncreaseYear = parsed.date.getFullYear() < 9999 && nextYearDate.getFullYear() <= 9999
+  const canDecreaseMonth = yearMonth(previousMonthDate) >= minimumYearMonth
+  const canIncreaseMonth = nextMonthDate.getFullYear() <= 9999
+  const canDecreaseDay = new Date(previousDay.getFullYear(), previousDay.getMonth(), previousDay.getDate()).getTime() >= minimumDayTime
+  const canDecreaseHour = parsed.hour > 0 && (!minimum
+    || timestamp(parsed.date, previousHour, 0) >= timestamp(minimum.date, minimum.hour, 0)
+  )
+  const canIncreaseHour = parsed.hour < 23
+  const canDecreaseMinute = parsed.minute > 0 && allowed(parsed.date, parsed.hour, previousMinute)
+  const canIncreaseMinute = parsed.minute < 59
 
   return (
     <div className="mt-1.5 grid grid-cols-5 gap-1" aria-label={t('dateTime.label')}>
-      <PickerField label={t('dateTime.year')} value={yearInput} previous={pad(parsed.date.getFullYear() - 1, 4)} next={pad(parsed.date.getFullYear() + 1, 4)} inputLabel={t('dateTime.year')}
+      <PickerField label={t('dateTime.year')} value={yearInput} previous={canDecreaseYear ? pad(parsed.date.getFullYear() - 1, 4) : ''} next={canIncreaseYear ? pad(parsed.date.getFullYear() + 1, 4) : ''} inputLabel={t('dateTime.year')}
+        canDecrease={canDecreaseYear} canIncrease={canIncreaseYear}
         onInput={setYearInput} onAdjust={(amount) => setCalendar(parsed.date.getFullYear() + amount, parsed.date.getMonth(), parsed.date.getDate())}
         onBlur={() => {
           const year = Number(yearInput)
@@ -165,7 +204,8 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
           else setYearInput(pad(parsed.date.getFullYear(), 4))
         }}
       />
-      <PickerField label={t('dateTime.month')} value={monthInput} previous={pad(previousMonth.getMonth() + 1)} next={pad(nextMonth.getMonth() + 1)} inputLabel={t('dateTime.month')}
+      <PickerField label={t('dateTime.month')} value={monthInput} previous={canDecreaseMonth ? pad(previousMonth.getMonth() + 1) : ''} next={canIncreaseMonth ? pad(nextMonth.getMonth() + 1) : ''} inputLabel={t('dateTime.month')}
+        canDecrease={canDecreaseMonth} canIncrease={canIncreaseMonth}
         onInput={setMonthInput} onAdjust={moveMonth}
         onBlur={() => {
           const month = Number(monthInput)
@@ -173,7 +213,8 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
           else setMonthInput(pad(parsed.date.getMonth() + 1))
         }}
       />
-      <PickerField label={t('dateTime.day')} value={dayInput} previous={pad(previousDay.getDate())} next={pad(nextDay.getDate())} inputLabel={t('dateTime.day')}
+      <PickerField label={t('dateTime.day')} value={dayInput} previous={canDecreaseDay ? pad(previousDay.getDate()) : ''} next={pad(nextDay.getDate())} inputLabel={t('dateTime.day')}
+        canDecrease={canDecreaseDay}
         onInput={setDayInput} onAdjust={moveDate}
         onBlur={() => {
           const day = Number(dayInput)
@@ -181,7 +222,8 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
           else setDayInput(pad(parsed.date.getDate()))
         }}
       />
-      <PickerField label={t('dateTime.hour')} value={hourInput} previous={pad((parsed.hour + 23) % 24)} next={pad((parsed.hour + 1) % 24)} inputLabel={t('dateTime.hourInput')}
+      <PickerField label={t('dateTime.hour')} value={hourInput} previous={canDecreaseHour ? pad(previousHour) : ''} next={canIncreaseHour ? pad(nextHour) : ''} inputLabel={t('dateTime.hourInput')}
+        canDecrease={canDecreaseHour} canIncrease={canIncreaseHour}
         onInput={setHourInput} onAdjust={moveHour}
         onBlur={() => {
           const hour = Number(hourInput)
@@ -189,7 +231,8 @@ export function ScrollDateTimePicker({ value, onChange }: { value: string; onCha
           else setHourInput(pad(parsed.hour))
         }}
       />
-      <PickerField label={t('dateTime.minute')} value={minuteInput} previous={pad((parsed.minute + 59) % 60)} next={pad((parsed.minute + 1) % 60)} inputLabel={t('dateTime.minute')}
+      <PickerField label={t('dateTime.minute')} value={minuteInput} previous={canDecreaseMinute ? pad(previousMinute) : ''} next={canIncreaseMinute ? pad(nextMinute) : ''} inputLabel={t('dateTime.minute')}
+        canDecrease={canDecreaseMinute} canIncrease={canIncreaseMinute}
         onInput={setMinuteInput} onAdjust={moveMinute}
         onBlur={() => {
           const minute = Number(minuteInput)
