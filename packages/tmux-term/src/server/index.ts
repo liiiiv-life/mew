@@ -8,4 +8,4 @@ export {
 } from './tmux.ts'
 export { attachTmuxWebSocket } from './tmuxWs.ts'
 export { createTmuxRouter } from './router.ts'
-export { COMMAND_SESSION_PREFIX, isCommandSession } from '../commandSession.ts'
+export { AGENT_TERMINAL_SESSION_PREFIX, COMMAND_SESSION_PREFIX, isAgentTerminalSession, isCommandSession, isHiddenTmuxSession } from '../commandSession.ts'

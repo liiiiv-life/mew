@@ -1,6 +1,6 @@
 import type { EditorApi, EditorDbApi, DbColumn, DbColumnType, DbRow, DbSummary, DbView, TableWidths } from '@mew/editor'
 import type { TmuxPanelApi, TmuxSession } from '@mew/tmux-term'
-import { isCommandSession } from '@mew/tmux-term'
+import { isHiddenTmuxSession } from '@mew/tmux-term'
 import { subscribeDb } from './dbSocket'
 import { compressImage } from '../utils/compressImage'
 import { detectInitialProject } from '../utils/active-project'
@@ -561,6 +561,7 @@ export function fetchSkills(): Promise<{ skills: SkillSummary[] }> {
 export interface AgentRuntimeStatus {
   id: string
   label: string
+  surface: 'acp' | 'terminal'
   installed: boolean
   installing: boolean
   installable: boolean
@@ -570,6 +571,20 @@ export interface AgentRuntimeStatus {
 
 export function fetchAgentRuntimes(): Promise<{ runtimes: AgentRuntimeStatus[] }> {
   return fetch('/api/agent-runtimes').then(json<{ runtimes: AgentRuntimeStatus[] }>)
+}
+
+export function startAgentTerminal(runtime: string, tab: string, cwd: string): Promise<{ ok: true; session: string }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/terminal/${encodeURIComponent(tab)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cwd }),
+  }).then(json<{ ok: true; session: string }>)
+}
+
+export function stopAgentTerminal(runtime: string, tab: string): Promise<{ ok: true }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/terminal/${encodeURIComponent(tab)}`, {
+    method: 'DELETE',
+  }).then(json<{ ok: true }>)
 }
 
 export function installAgentRuntime(id: string): Promise<{ status: AgentRuntimeStatus; output: string }> {
@@ -1388,7 +1403,7 @@ export function fetchTmuxSessions(): Promise<TmuxSession[]> {
   // 명령어 버튼이 띄운 세션(mewcmd-*)은 터미널 탭 목록에서 감춘다 — 팝업으로만 본다
   return fetch('/api/tmux/sessions')
     .then(json<TmuxSession[]>)
-    .then((sessions) => sessions.filter((s) => !isCommandSession(s.name)))
+    .then((sessions) => sessions.filter((s) => !isHiddenTmuxSession(s.name)))
 }
 
 // ---- 호스트 자원 현황(프로파일링 팝업) ----

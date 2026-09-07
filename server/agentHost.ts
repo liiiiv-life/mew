@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import {
   AGENT_IDLE_MS,
   AgentSession,
-  isRuntime,
+  isAcpRuntime,
   runtimeLoginAuthEvent,
   type AgentEvent,
   type AgentImageRef,
@@ -174,7 +174,7 @@ async function listenOnSocket(server: net.Server, socketPath: string): Promise<v
 }
 
 async function runHost(runtime: string, tab: string, cwd: string, resumeSessionId: string | null = null) {
-  if (!isRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)
+  if (!isAcpRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)
     || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))) {
     throw new Error('올바르지 않은 에이전트 감독 인자입니다')
   }
@@ -275,7 +275,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         }
         return
       }
-      // 별도 CLI가 자격증명만 쓴 경우에는 ACP를 다시 initialize한다. Gemini처럼 ACP authenticate가
+      // 별도 CLI가 자격증명만 쓴 경우에는 ACP를 다시 initialize한다. 일부 런타임처럼 ACP authenticate가
       // 선택한 방식까지 설정에 저장하는 런타임은 살아 있는 연결에서 그 마지막 단계도 마친다.
       if (message.type === 'command' && message.command.type === 'retry_auth') {
         const methodId = String(message.command.methodId ?? '')
@@ -658,7 +658,7 @@ export async function connectAgentHost(
   callbacks: AgentHostCallbacks = {},
   resumeSessionId: string | null = null,
 ): Promise<AgentHostClient> {
-  if (!isRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)
+  if (!isAcpRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)
     || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))) {
     throw new Error('올바르지 않은 에이전트 탭입니다')
   }

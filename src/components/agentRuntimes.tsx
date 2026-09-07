@@ -5,10 +5,10 @@
  * 실제 제품 SVG 렌더링은 agentRuntimeIcons.tsx 한 곳에 있다.
  */
 import {
+  AntigravityGlyph,
   ClaudeCodeGlyph,
   CodexGlyph,
   CursorGlyph,
-  GeminiCliGlyph,
   HermesAgentGlyph,
   KimiGlyph,
   OpenClawGlyph,
@@ -17,15 +17,15 @@ import {
 } from './agentRuntimeIcons'
 
 export const RUNTIMES = [
-  { id: 'claude', label: 'Claude Code', Glyph: ClaudeCodeGlyph },
-  { id: 'codex', label: 'Codex', Glyph: CodexGlyph },
-  { id: 'hermes', label: 'Hermes', Glyph: HermesAgentGlyph },
-  { id: 'kimi', label: 'Kimi Code', Glyph: KimiGlyph },
-  { id: 'gemini', label: 'Gemini CLI', Glyph: GeminiCliGlyph },
-  { id: 'openclaw', label: 'OpenClaw', Glyph: OpenClawGlyph },
-  { id: 'opencode', label: 'OpenCode', Glyph: OpenCodeGlyph },
-  { id: 'cursor', label: 'Cursor CLI', Glyph: CursorGlyph },
-  { id: 'prime', label: 'Prime Agent', Glyph: PrimeAgentGlyph },
+  { id: 'claude', label: 'Claude Code', surface: 'terminal' as const, Glyph: ClaudeCodeGlyph },
+  { id: 'antigravity', label: 'Antigravity CLI', surface: 'terminal' as const, Glyph: AntigravityGlyph },
+  { id: 'codex', label: 'Codex', surface: 'acp' as const, Glyph: CodexGlyph },
+  { id: 'hermes', label: 'Hermes', surface: 'acp' as const, Glyph: HermesAgentGlyph },
+  { id: 'kimi', label: 'Kimi Code', surface: 'acp' as const, Glyph: KimiGlyph },
+  { id: 'openclaw', label: 'OpenClaw', surface: 'acp' as const, Glyph: OpenClawGlyph },
+  { id: 'opencode', label: 'OpenCode', surface: 'acp' as const, Glyph: OpenCodeGlyph },
+  { id: 'cursor', label: 'Cursor CLI', surface: 'acp' as const, Glyph: CursorGlyph },
+  { id: 'prime', label: 'Prime Agent', surface: 'acp' as const, Glyph: PrimeAgentGlyph },
 ]
 
 export const runtimeOf = (id: string) => RUNTIMES.find((runtime) => runtime.id === id) ?? RUNTIMES[0]

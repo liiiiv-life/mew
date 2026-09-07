@@ -3,8 +3,7 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
 import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
-import { isRuntime } from './agentAcp.ts'
-import { composeRuntimePrompt } from './agentRuntimes.ts'
+import { composeRuntimePrompt, RUNTIMES } from './agentRuntimes.ts'
 import { listSkills } from './skills.ts'
 
 const FILE = path.join(DATA_DIR, 'agent-scheduled-prompts.json')
@@ -38,7 +37,7 @@ function validate(input: unknown): Omit<AgentScheduledPrompt, 'id' | 'createdAt'
   const text = typeof value.text === 'string' ? value.text.trim() : ''
   const when = new Date(typeof value.at === 'string' ? value.at : '')
   const skills = Array.isArray(value.skills) ? value.skills.filter((name): name is string => typeof name === 'string') : []
-  if (!isRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd) || !SESSION_ID.test(sessionId)) throw new AgentScheduledPromptError('예약할 에이전트 세션이 올바르지 않습니다')
+  if (RUNTIMES[runtime]?.surface !== 'acp' || !TAB_ID.test(tab) || !path.isAbsolute(cwd) || !SESSION_ID.test(sessionId)) throw new AgentScheduledPromptError('예약할 에이전트 세션이 올바르지 않습니다')
   if (!text || text.length > MAX_PROMPT) throw new AgentScheduledPromptError('예약할 메시지를 입력하세요')
   if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) throw new AgentScheduledPromptError('미래의 날짜와 시간을 고르세요')
   return { runtime, tab, cwd, sessionId, text, skills: [...new Set(skills)], at: when.toISOString() }
@@ -50,7 +49,7 @@ function validateScope(input: unknown): AgentScheduledPromptScope {
   const runtime = typeof value.runtime === 'string' ? value.runtime : ''
   const tab = typeof value.tab === 'string' ? value.tab : ''
   const cwd = typeof value.cwd === 'string' ? value.cwd : ''
-  if (!isRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)) throw new AgentScheduledPromptError('예약 메시지 범위가 올바르지 않습니다')
+  if (RUNTIMES[runtime]?.surface !== 'acp' || !TAB_ID.test(tab) || !path.isAbsolute(cwd)) throw new AgentScheduledPromptError('예약 메시지 범위가 올바르지 않습니다')
   return { runtime, tab, cwd }
 }
 

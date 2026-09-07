@@ -15,7 +15,7 @@ import { COMMAND_SESSION_PREFIX } from '@mew/tmux-term/server'
 import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
 import { WORKSPACE_ROOT, projectRoot } from './paths.ts'
 import { readCrontab, writeCrontab } from './crontab.ts'
-import { isRuntime } from './agentRuntimes.ts'
+import { isAcpRuntime } from './agentRuntimes.ts'
 
 export type AgentKind = string
 
@@ -168,7 +168,7 @@ export function normalizeJobs(input: unknown): AgentJob[] {
     }
 
     const agent = typeof rec.agent === 'string' ? rec.agent : ''
-    if (!isRuntime(agent)) throw new ScheduleError('에이전트를 고르세요')
+    if (!isAcpRuntime(agent)) throw new ScheduleError('예약 실행을 지원하는 에이전트를 고르세요')
 
     const project = typeof rec.project === 'string' ? rec.project : ''
     if (project !== '') projectRoot(project) // 없는 프로젝트면 여기서 던진다

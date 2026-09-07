@@ -271,50 +271,6 @@ new AgentSideConnection(
 )
 `
 
-// Gemini ACP의 API key wire shape는 Codex와 다르다: `_meta["api-key"]` 자체가 문자열이다.
-const geminiAuthStubSource = `
-import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError } from ${JSON.stringify(sdkUrl)}
-import { Readable, Writable } from 'node:stream'
-
-class GeminiAuthAgent {
-  constructor() { this.authenticated = false }
-  async initialize() {
-    return {
-      protocolVersion: PROTOCOL_VERSION,
-      agentCapabilities: {},
-      authMethods: [
-        { id: 'oauth-personal', name: 'Sign in with Google' },
-        { id: 'gemini-api-key', name: 'Gemini API Key' },
-        { id: 'vertex-ai', name: 'Vertex AI' },
-        { id: 'gateway', name: 'Gateway' },
-      ],
-    }
-  }
-  async newSession() {
-    if (!this.authenticated) throw RequestError.authRequired()
-    return { sessionId: 'stub-gemini-auth' }
-  }
-  async authenticate(params) {
-    if (params.methodId === 'oauth-personal') {
-      this.authenticated = true
-      return {}
-    }
-    if (params.methodId !== 'gemini-api-key' || params._meta?.['api-key'] !== 'gemini-secret') {
-      throw new Error('bad Gemini API key shape')
-    }
-    this.authenticated = true
-    return {}
-  }
-  async cancel() {}
-  async prompt() { return { stopReason: 'end_turn' } }
-}
-
-new AgentSideConnection(
-  () => new GeminiAuthAgent(),
-  ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
-)
-`
-
 // 어댑터가 세션마다 CLI를 하나씩 밑에 두는 것을 흉내 낸다 — 그 손자까지 죽는지 보려는 스텁
 // 모델을 광고하는 가짜 에이전트 — 자기 pid를 적어 둬서 목록만 받고 접혔는지 볼 수 있게 한다
 const modelStubSource = `
@@ -488,47 +444,6 @@ test('API 키는 이벤트에 남기지 않고 authenticate 요청에만 싣는�
   await session.authenticate('api-key', 'secret-value')
   assert.doesNotMatch(JSON.stringify(events), /secret-value/)
   assert.ok(events.some((event) => event.type === 'auth_complete'))
-})
-
-test('Gemini API 키 형식과 terminal 대체 방법을 런타임 계약대로 적용한다', async (t) => {
-  fs.mkdirSync(workspace, { recursive: true })
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-gemini-auth-key-'))
-  const stubPath = path.join(dir, 'gemini-auth-stub.mjs')
-  fs.writeFileSync(stubPath, geminiAuthStubSource)
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
-
-  const session = await AgentSession.start('gemini', { cmd: process.execPath, args: [stubPath] })
-  t.after(() => session.dispose())
-  const events: AgentEvent[] = []
-  session.attach((event) => events.push(event))
-
-  const auth = events.find((event) => event.type === 'auth')
-  assert.ok(auth && auth.type === 'auth')
-  assert.deepEqual(auth.methods.map(({ id, kind }) => ({ id, kind })), [
-    { id: 'gemini-api-key', kind: 'api-key' },
-    { id: 'mew-runtime-login', kind: 'terminal' },
-  ])
-
-  await session.authenticate('gemini-api-key', 'gemini-secret')
-  assert.doesNotMatch(JSON.stringify(events), /gemini-secret/)
-  assert.ok(events.some((event) => event.type === 'auth_complete'))
-})
-
-test('Gemini 브라우저 OAuth 뒤 ACP 인증 방식을 확정하고 세션을 만든다', async (t) => {
-  fs.mkdirSync(workspace, { recursive: true })
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-gemini-oauth-retry-'))
-  const stubPath = path.join(dir, 'gemini-auth-stub.mjs')
-  fs.writeFileSync(stubPath, geminiAuthStubSource)
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
-
-  const session = await AgentSession.start('gemini', { cmd: process.execPath, args: [stubPath] })
-  t.after(() => session.dispose())
-  const events: AgentEvent[] = []
-  session.attach((event) => events.push(event))
-
-  await session.retryAuthentication('oauth-personal')
-  assert.ok(events.some((event) => event.type === 'auth_complete'))
-  assert.ok(events.some((event) => event.type === 'meta' && event.meta.sessionId === 'stub-gemini-auth'))
 })
 
 test('되재생된 사용자 발화에서 CLI 메타만 걷어낸다 — 창에서 친 프롬프트는 그대로 남는다', async (t) => {

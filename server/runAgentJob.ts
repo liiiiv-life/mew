@@ -1,7 +1,7 @@
 // 예약 작업용 일회성 ACP runner. crontab/tmux는 이 파일만 실행하고, 실제 런타임 선택은 agentRuntimes.ts가 한다.
 import fs from 'node:fs'
 import path from 'node:path'
-import { AgentSession, type AgentEvent, isRuntime } from './agentAcp.ts'
+import { AgentSession, type AgentEvent, isAcpRuntime } from './agentAcp.ts'
 
 function arg(name: string): string {
   const flag = `--${name}`
@@ -31,7 +31,7 @@ function lineFromEvent(event: AgentEvent): string | null {
 
 async function main() {
   const runtime = arg('runtime')
-  if (!isRuntime(runtime)) throw new Error(`알 수 없는 에이전트 런타임입니다: ${runtime}`)
+  if (!isAcpRuntime(runtime)) throw new Error(`예약 실행을 지원하지 않는 에이전트 런타임입니다: ${runtime}`)
   const promptFile = arg('prompt-file')
   const logFile = arg('log-file')
   const cwd = arg('cwd')

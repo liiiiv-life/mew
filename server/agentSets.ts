@@ -3,7 +3,7 @@
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
-import { isRuntime } from './agentAcp.ts'
+import { RUNTIMES } from './agentRuntimes.ts'
 
 export interface AgentSet {
   id: string
@@ -37,7 +37,7 @@ function normalizeSet(input: unknown): AgentSet {
   if (name.length > MAX_NAME_LEN) throw new AgentSetError(`이름은 ${MAX_NAME_LEN}자 이하여야 합니다`)
 
   const runtime = typeof rec.runtime === 'string' ? rec.runtime : ''
-  if (!isRuntime(runtime)) throw new AgentSetError('에이전트를 고르세요')
+  if (RUNTIMES[runtime]?.surface !== 'acp') throw new AgentSetError('에이전트셋을 지원하는 에이전트를 고르세요')
 
   const modelId = typeof rec.modelId === 'string' ? rec.modelId.trim() : ''
   if (modelId.length > MAX_MODEL_LEN) throw new AgentSetError('모델 id가 너무 깁니다')

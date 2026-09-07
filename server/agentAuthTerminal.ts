@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DATA_DIR } from './dataDir.ts'
 import type { TerminalAuthSpec } from './agentAcp.ts'
+import { spawnSpecCommand } from './spawnSpecCommand.ts'
 
 export type AgentAuthTerminalState = 'running' | 'succeeded' | 'failed' | 'interrupted'
 
@@ -76,13 +77,6 @@ const STATUS_DIR = path.join(DATA_DIR, 'agent-auth')
 
 function shellArg(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`
-}
-
-function spawnSpecCommand(spec: TerminalAuthSpec): string {
-  const env = Object.entries(spec.env ?? {})
-    .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .map(([key, value]) => `${key}=${shellArg(value)}`)
-  return [...env, shellArg(spec.cmd), ...spec.args.map(shellArg)].join(' ')
 }
 
 function filesFor(runtime: string, tab: string, methodId: string) {

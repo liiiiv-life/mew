@@ -252,7 +252,7 @@ Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**는 Mew 화면 위의 
 이 화면은 `server/browserProxy.ts`의 **서버 loopback 개발 서버 뷰어**다. 폰에서 `localhost:3100`을 넣으면 Mew가 실행되는 WSL/서버의 `localhost:3100`을 열어, 응답을 sandbox iframe에서 렌더링한다. HTTP(S)·WebSocket·redirect·탭별 cookie/storage를 중계하므로 개발 중인 SPA도 확인할 수 있다.
 
 - 대상은 이 서버의 `localhost`, `127.0.0.0/8`, `::1`만 허용한다. 공개 인터넷·사설망·임의 URL은 열 수 없다. 권한은 터미널과 같은 **manager·owner**다.
-- 이것은 OAuth나 범용 웹 탐색용 브라우저가 아니다. 에이전트 로그인은 에이전트 창의 **인증 센터**에서 진행한다. Claude 구독·Anthropic Console·Codex·Gemini Google·Kimi·Cursor OAuth는 현재 기기의 일반 새 탭으로 연결한다. 공급자가 승인 코드를 보여 주면 인증 센터 입력란으로 실행 중인 CLI에 한 번만 전달하며 저장하지 않는다. 공급자·키·모델 선택이 먼저 필요한 Hermes·OpenClaw·OpenCode·Prime은 Mew 터미널을 연다. 근거와 경계는 [ADR 0109](../.mew/docs/decisions/0109-mew-agent-authentication-and-loopback-browser.md)·[ADR 0110](../.mew/docs/decisions/0110-mew-declarative-agent-authentication-jobs.md)·[ADR 0116](../.mew/docs/decisions/0116-mew-oauth-agent-logins-use-external-browser.md)에 둔다.
+- 이것은 OAuth나 범용 웹 탐색용 브라우저가 아니다. ACP 런타임의 인증 센터에서 Codex·Kimi·Cursor OAuth는 현재 기기의 일반 새 탭으로 연결한다. 공급자·키·모델 선택이 먼저 필요한 Hermes·OpenClaw·OpenCode·Prime은 Mew 터미널을 연다. Claude Code·Antigravity는 에이전트 탭 자체가 공식 CLI의 tmux 터미널이므로 로그인도 그 TUI에서 진행한다. 근거와 경계는 [ADR 0109](../.mew/docs/decisions/0109-mew-agent-authentication-and-loopback-browser.md)·[ADR 0110](../.mew/docs/decisions/0110-mew-declarative-agent-authentication-jobs.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md)에 둔다.
 - Mew session cookie는 대상에 보내지 않으며 대상 문서는 `allow-same-origin` 없는 iframe에서 돌아 Mew UI DOM·localStorage에 직접 접근하지 못한다. Mew 서버 재시작·세션 만료·창을 새로 열면 사이트 세션은 사라진다.
 
 `/3100`처럼 포트를 첫 경로로 연 전체 페이지도 같은 구현을 쓰되, 이 호환 진입점의 대상은 계속 해당 서버의 loopback 포트로 고정한다.
@@ -564,20 +564,20 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 - **클라이언트(**`Editor.tsx`**)와 서버(**`serverExtensions.ts`**)가 같은** `IndentableListItem`**을 써야 한다**.한쪽만 바꾸면 협업 병합에서 문서가 갈라진다. 그래서 정의는 한 모듈에만 둔다.
 - 부모 마커 없는 `- b`로는 저장할 수 없다 — 마크다운 규칙상 다시 읽으면 최상위 항목이 된다.
 
-## 에이전트 창 (ACP)
+## 에이전트 창 (ACP 채팅 · tmux TUI)
 
-헤더의 말풍선 버튼 — **현재 루트 프로젝트**에 묶인 AI 에이전트와 대화하는 **채팅 창**이다(터미널이 아니다). 프로젝트마다 독립 탭 목록을 가지며, 프로젝트를 오가면 창은 그대로 둔 채 그 프로젝트의 탭으로 바뀐다. 새 탭의 cwd는 현재 프로젝트 루트에서 시작하고, 대화는 **탭마다** 하나씩 굴린다. 에이전트는 별도 프로세스로 뜨고 [ACP](https://agentclientprotocol.com)(stdio JSON-RPC)로만 말한다. mew 쪽에는 자체 어댑터 인터페이스가 없다 — ACP가 인터페이스다. 근거는 [ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md)·[ADR 0043](../.mew/docs/decisions/0043-mew-agent-workspace-scope-and-runtimes.md), 권한 경계는 [SECURITY.md](SECURITY.md). 데스크톱에서는 창 왼쪽 경계선 전체를 좌우로 끌어 폭을 조절하며, 조절한 폭은 브라우저에 남는다.
+헤더의 말풍선 버튼 — **현재 루트 프로젝트**에 묶인 AI 에이전트 탭을 연다. 프로젝트마다 독립 탭 목록을 가지며, 프로젝트를 오가면 창은 그대로 둔 채 그 프로젝트의 탭으로 바뀐다. 새 탭의 cwd는 현재 프로젝트 루트에서 시작하고, 작업은 **탭마다** 하나씩 굴린다. Codex·Hermes·Kimi·OpenClaw·OpenCode·Cursor·Prime은 [ACP](https://agentclientprotocol.com) 채팅 UI를 쓰고, Claude Code·Antigravity는 공식 CLI를 탭별 tmux에서 직접 실행해 **일반 터미널 탭과 같은 화면·입력·모바일 키·스크롤**을 쓴다. 근거는 [ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md)·[ADR 0043](../.mew/docs/decisions/0043-mew-agent-workspace-scope-and-runtimes.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md), 권한 경계는 [SECURITY.md](SECURITY.md). 데스크톱에서는 창 왼쪽 경계선 전체를 좌우로 끌어 폭을 조절하며, 조절한 폭은 브라우저에 남는다.
 
-⚠️ `serve.ts` **요청 핸들러 안에서 에이전트를 직접 돌리지 않는다.** 2026-07-25에 지운 옛 에이전트 창은 Claude Code를 `-p --output-format json`으로, 즉 블로킹·비스트리밍으로 불러 첫 응답이 \~20초 멎었다. 지금 구현(child process + ACP 스트리밍, `server/agentAcp.ts`)이 그 문제를 푼 구조라 되돌리지 않는다.
+⚠️ ACP 채팅 런타임을 `serve.ts` 요청 핸들러 안에서 블로킹 실행하지 않는다. terminal 런타임의 시작 요청은 등록표의 고정 CLI를 tmux에 타이핑한 뒤 즉시 끝나며, 실제 TUI 수명과 스트리밍은 tmux가 소유한다.
 
-- 서버: `server/agentRuntimes.ts`(공통 런타임 등록표) + `server/agentDefaults.ts`(런타임별 모델·권한 기본값) + `server/agentAcp.ts`(세션·파일 스코프) + `server/agentHost.ts`(탭별 독립 감독 프로세스·유닉스 소켓) + `server/agentWs.ts`(WS↔감독 릴레이) + `server/agentUsage.ts`(토큰 사용량). 클라이언트: `src/components/AgentPanel.tsx` + `src/utils/agentFold.ts`(이벤트→화면 항목) + `src/components/agentRuntimes.tsx`(런타임 목록·아이콘, 예약 작업 창과 공용) + `src/utils/agentMarkdown.ts`(답변 마크다운). 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) — 에이전트는 Bash를 쓸 수 있어 tmux와 같은 경계여야 한다. 권한 모드 기본값이 `bypassPermissions`라 (승인 프롬프트 없음) **이 역할 게이트가 유일한 통제다** — tmux보다 낮추면 무인 셸을 여는 것이다.
+- 서버: `server/agentRuntimes.ts`(공통 런타임·표면 등록표) + `server/agentTerminal.ts`(terminal 탭의 tmux 수명) + `server/agentDefaults.ts`(ACP 런타임별 모델·권한 기본값) + `server/agentAcp.ts`(ACP 세션) + `server/agentHost.ts`(ACP 탭별 독립 감독) + `server/agentWs.ts`(WS↔감독 릴레이). 클라이언트: `src/components/AgentPanel.tsx`가 ACP 채팅과 `@mew/tmux-term` 터미널 본문을 표면별로 고른다. 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) — 어느 표면이든 셸을 쓸 수 있어 tmux와 같은 경계여야 한다.
 - 입력창은 `/`로 로컬 스킬을, `@`로 하위 프로젝트·현재 프로젝트의 폴더·파일을 검색해 넣는다. `@` 결과는 **하위 프로젝트 → 폴더 → 파일** 순서이고 같은 종류 안에서는 가나다순이다. 프로젝트 목록은 `GET /api/projects`가 역할에 맞게 돌려주며, 고르면 기존처럼 `#프로젝트명`이 들어간다. 폴더·파일은 `[[프로젝트:경로]]` 토큰으로 들어간다. 스킬 목록은 `GET /api/skills`가 `CODEX_HOME/skills`와 `<워크스페이스>/.agents/skills`의 `SKILL.md`를 읽어 만든다. `/스킬명`을 고르면 브라우저는 스킬 id만 WS에 싣고, 서버가 `server/agentRuntimes.ts`의 런타임 등록표로 실제 프롬프트를 합성한다. 기본 합성기는 모든 ACP 런타임에 대해 선택된 `SKILL.md`를 먼저 읽고 따르라고 지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다. `Alt+L`은 어디에 포커스가 있든 에이전트 창을 열거나 닫는다. **채팅과 입력창 사이의 경계선 전체**를 위아래로 끌어 입력창을 화면 높이의 80%까지 늘릴 수 있다(키보드는 경계선에서 ↑·↓).
 - 질문 위에는 전송 시점의 **모델 · 추론 정도 · 권한**을 양쪽 선과 함께 남긴다. 첫 질문도 표시하며, 이전 질문과 셋 중 하나라도 달라질 때만 다시 표시한다. 이 값은 ACP 이벤트 전사에 같이 저장돼 재접속·세션 복원 뒤에도 당시 설정을 보인다.
-- `+`와 탭이 없을 때 가운데의 **새 탭** 버튼은 탭을 먼저 만들지 않고 **새 탭 선택기**를 연다. 선택기는 맨 위 `런타임 | 에이전트셋` 토글로 시작한다. 런타임은 기존처럼 바로 선택하고, 에이전트셋은 저장된 `런타임 + 모델 + 역할` 프리셋을 리스트로 보인다. 목록 마지막의 `+ 새 에이전트셋 추가`에서 프리셋을 만들 수 있다. 런타임을 고르면 그 런타임 이름으로, 셋을 고르면 그 셋 이름으로 같은 ACP 채팅 탭이 열린다. 선택 전에는 탭·WS·ACP 세션이 없고, `새 대화`라는 임시 탭도 없다. 탭 이름은 첫 프롬프트로 자동 교체하지 않으며 직접 바꿀 수 있다. 셋의 모델은 탭 시작에 적용하고 역할은 그 세션 첫 프롬프트에 시스템 지시로 한 번 붙인다. 마지막으로 고른 토글은 브라우저에 저장되어 다음 새 탭의 기본 보기로 복원된다. 런타임 상태와 에이전트셋 목록은 페이지 내 공용 캐시를 먼저 보이고, 각 선택기가 여는 비동기 재조회 결과로 갱신한다. 정의는 `GET`·`PUT /api/agent-sets`(owner/manager)로 `<DATA_DIR>/agent-sets.json`에 저장된다 ([ADR 0095](../.mew/docs/decisions/0095-mew-agent-sets-as-tab-presets.md)).
+- `+`와 탭이 없을 때 가운데의 **새 탭** 버튼은 탭을 먼저 만들지 않고 **새 탭 선택기**를 연다. 런타임을 고르면 그 이름의 탭이 열리고, ACP 런타임은 채팅 세션을, Claude·Antigravity는 전용 tmux TUI를 시작한다. 에이전트셋은 모델·역할을 주입할 수 있는 ACP 채팅 런타임만 대상으로 한다. 선택 전에는 탭·WS·프로세스가 없고, 탭 이름은 직접 바꿀 수 있다. 정의는 `GET`·`PUT /api/agent-sets`(owner/manager)로 `<DATA_DIR>/agent-sets.json`에 저장된다 ([ADR 0095](../.mew/docs/decisions/0095-mew-agent-sets-as-tab-presets.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md)).
 - 답변의 **현재 워크스페이스 파일 링크**를 누르면 브라우저 새 탭이 아니라 같은 mew에서 해당 프로젝트와 문서 탭을 연다. `:줄`·`#L줄`이 붙으면 그 줄로 이동하며, Markdown도 정확한 원본 줄을 보여 주기 위해 이 경우 Plain으로 연다. `GET /api/agent-file-link?href=`가 서버 절대경로를 노출하지 않고 `{project,path,line}`으로 검증·변환한다(owner/manager). 웹 링크는 계속 새 브라우저 탭으로 연다.
 - 탭의 \*\*작업 경로(cwd)\*\*는 새 탭을 열 때 현재 워크스페이스 루트로 정해지며 화면에서 바꾸지 않는다. 경로는 ACP 세션·히스토리의 기준으로 계속 저장하지만, 주소창 형태의 입력줄은 없다 ([ADR 0097](../.mew/docs/decisions/0097-mew-agent-panel-removes-cwd-bar.md)).
-- 채널: `/api/agent/ws?runtime=<id>&tab=<id>&cwd=<absolute-path>&resume=<session-id>` — **탭 하나가 세션 하나**이고 살아 있는 세션은 `런타임+탭+cwd`당 하나다(런타임을 생략하면 `claude`, 등록표에 없는 id는 400. 탭을 생략하면 `default`, `[A-Za-z0-9_-]{1,64}`이 아니면 400). 창 왼쪽 위 아이콘이 지금 붙어 있는 런타임이고, 눌러서 갈아탄다 — 고른 값은 브라우저에만 남는다(`mew:agent-runtime`). 창을 닫아도 세션은 남고, 다시 열면 **지나간 이벤트를 처음부터 되받아** 대화가 복원된다. 각 탭의 감독은 mew와 다른 프로세스 그룹에서 `<DATA_DIR>/agent/*.sock`으로 중계되므로 **브라우저 종료·mew 종료/재시작에도 진행 중인 턴은 끊기지 않는다**. 모든 턴과 대기열이 끝난 뒤 붙은 창 없이 30분이 지나야 감독과 ACP/CLI가 종료된다 ([ADR 0048](../.mew/docs/decisions/0048-mew-agent-supervisor-process.md)). 감독이 종료된 뒤에도 탭은 런타임·cwd별 마지막 ACP 세션 ID를 기억한다. 다시 열면 새 감독이 그 ID를 `session/load`해 전사를 재생하므로, 30분 유휴 종료는 프로세스만 정리하고 탭의 대화를 새 대화로 바꾸지 않는다 ([ADR 0079](../.mew/docs/decisions/0079-mew-agent-tabs-resume-after-idle.md)).
-- **설치와 로그인은 별개다**([ADR 0072](../.mew/docs/decisions/0072-mew-agent-gui-authentication.md), [ADR 0110](../.mew/docs/decisions/0110-mew-declarative-agent-authentication-jobs.md)). `session/new`가 인증 필요를 돌려주면 프로세스를 닫지 않고 로그인 화면으로 전환한다. ACP 일반 로그인은 사용자가 주소를 확인하고 **로그인 페이지 열기**를 눌러 현재 브라우저의 새 탭에서 진행한다. API 키는 한 번만 ACP 요청으로 보내고 저장·이벤트 기록하지 않는다. 등록표의 고정 인증 명령은 `browser | terminal` 표면을 선언한다. browser는 클릭 즉시 빈 탭을 예약하고 allowlist를 통과한 CLI URL이 나오면 이동하며, 별도 일회용 코드를 같이 보여 준다. terminal은 Mew tmux 팝업에서 공급자 선택·비밀 입력을 보존한다. GUI가 팝업을 닫아도 exit code를 감시하고, `0`이거나 등록된 비밀 파일 변경이 확인됐을 때만 인증 작업을 닫고 ACP를 복구한다. Gemini는 살아 있는 ACP의 `oauth-personal` authenticate까지 호출해 다음 세션의 선택 방식도 기록한다. 실패하면 URL·token·code를 지운 CLI 오류 한 줄을 보여 주며 자동 재시작하지 않는다. ACP 자체가 인증 전에 종료되어도 탭 감독은 등록표의 모든 인증 방법을 복구 경로로 보여 준다.
+- ACP 채널은 `/api/agent/ws?runtime=<id>&tab=<id>&cwd=<absolute-path>&resume=<session-id>`이고 terminal 표면은 `POST /api/agent-runtimes/:id/terminal/:tab`으로 전용 tmux를 준비한 뒤 기존 `/api/tmux/ws?session=<server-name>`에 붙는다. 어느 쪽이든 **탭 하나가 세션 하나**다. 에이전트 패널·브라우저를 닫아도 세션은 남으며, 탭의 `×`만 ACP 감독 또는 terminal tmux를 종료한다. terminal tmux 이름은 `mewagent-*`로 서버가 만들고 일반 터미널 탭 목록에서는 숨긴다.
+- **설치와 로그인은 별개다**. ACP 런타임은 인증 센터의 등록된 browser/terminal 작업을 쓰고, Claude·Antigravity는 탭에 열린 공식 TUI의 로그인 흐름을 그대로 쓴다. Mew는 두 terminal 런타임의 OAuth 토큰이나 승인 코드를 별도 API로 받거나 저장하지 않는다.
 - 탭 목록·이름·런타임·cwd별 마지막 세션 ID는 **계정에 저장**하고 루트 프로젝트 절대 경로별로 분리한다. 브라우저의 `mew:agent-tabs:<root-path>`는 서버 응답 전 연결에 쓰지 않는 로컬 fallback뿐이다. 저장 PUT은 화면마다 한 번씩 직렬화하며, 전송 중 갱신이 여럿 생기면 마지막 스냅샷만 이어 보내 오래된 응답이 최신 thread 포인터를 되돌리지 못하게 한다. 서버 복원이 끝난 뒤에만 활성 탭의 WS를 붙이므로 localStorage의 낡은 세션으로 먼저 연결하지 않는다. 세션 ID는 탭을 닫을 때 함께 지워지고, 같은 탭에서 런타임이나 cwd를 갈아타면 각 조합의 대화 포인터를 따로 보존한다. 마지막으로 보던 탭도 같은 루트 경로별로 남는다(`mew:agent-active-tab:<root-path>`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이 선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라). 스와이프로 창·탭을 전환하거나 닫는 동작은 없다. 이 작업은 플로팅 핸들이 맡는다. 탭 이름은 선택한 런타임 또는 에이전트셋 이름으로 시작하고, 탭을 두 번 누르면 직접 고친다 ([ADR 0093](../.mew/docs/decisions/0093-mew-account-synced-project-and-agent-tabs.md)·[ADR 0096](../.mew/docs/decisions/0096-mew-agent-tabs-created-after-selection.md)).
   - 새 탭은 선택 후에만 생기므로, 선택 전 히스토리 조회·세션 입력을 위한 빈 탭은 없다. 새 세션은 선택 직후부터 해당 탭에서 시작하며, 지난 세션을 고르는 기능은 탭에서 계속 제공한다
   - 같은 세션을 두 탭에서 열지 않는다(목록에서 잠근다) — 현재 mount된 탭뿐 아니라 같은 계정에 저장된 다른 루트 프로젝트의 숨은 탭까지 한 번의 탭 상태 응답에 포함해 판정한다. 한 전사를 두 프로세스가 붙들면 기록이 엉킨다
@@ -619,15 +619,15 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 
 - **세션 창의 헤더 아이콘은 런타임 드롭다운이다**([ADR 0074](../.mew/docs/decisions/0074-mew-agent-header-runtime-switch.md) — 0062의 탭 안 전환 금지를 해제). 누르면 새 탭의 목록과 같은 등록표(아이콘·설치 상태·사용/설치)가 펼쳐지고, 다른 에이전트를 고르면 **그 탭의 세션이 갈아탄다** — 새 탭을 만들지 않는다. WS 연결 effect가 `runtime` 의존이라 재접속하며 새 세션을 붙이고, 옛 세션은 서버 감독에 그대로 남는다. 설치도 드롭다운 안에서 같은 고정 명령 경로로 한다.
 
-- 백엔드 교체는 **spawn 대상 교체**다. 고를 수 있는 것은 `server/agentRuntimes.ts`의 `RUNTIMES` 등록표에 있는 것뿐이고, 클라이언트에 같은 목록이 또 있는 이유는 **아이콘**뿐이다(판정은 서버가 한다):
+- 실행 표면과 명령은 `server/agentRuntimes.ts`의 `RUNTIMES` 등록표가 정한다. 클라이언트에 같은 목록이 또 있는 이유는 **아이콘**뿐이고 판정은 서버가 한다:
 
-  | 런타임 | ACP 명령 | GUI 인증 작업 | 환경변수 |
+  | 런타임 | 에이전트 탭 표면·명령 | 인증 | 환경변수 |
   | --- | --- | --- | --- |
-  | `claude` | `node_modules/.bin/claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`, 버전 고정) | 어댑터 `--cli`(광고된 `claude auth login` 변형 우선) | `MEW_AGENT_CMD` · `MEW_AGENT_ARGS` · `MEW_AGENT_CLAUDE_CMD` · `MEW_AGENT_CLAUDE_ARGS` · `MEW_AGENT_CONFIG_DIR`(→ 자식의 `CLAUDE_CONFIG_DIR`) |
+  | `claude` | terminal · `claude` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_CLAUDE_CLI_CMD` · `MEW_AGENT_CLAUDE_CLI_ARGS`; 예약 ACP는 기존 `MEW_AGENT_CMD` · `MEW_AGENT_CLAUDE_CMD` 계약 유지 |
+  | `antigravity` | terminal · `agy` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_ANTIGRAVITY_CMD` · `MEW_AGENT_ANTIGRAVITY_ARGS` |
   | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | browser · 번들 `codex login --device-auth` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `NO_BROWSER`(기본 `1`) |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `hermes acp --setup` | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
   | `kimi` | `kimi acp` | browser · `kimi login`(.com) / `kimi login --region global`(.ai) | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
-  | `gemini` | `gemini --acp` | `gemini --skip-trust`(`NO_BROWSER=true`) | `MEW_AGENT_GEMINI_CMD` · `MEW_AGENT_GEMINI_ARGS` |
   | `openclaw` | `openclaw acp` | `openclaw onboard --tui` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
   | `opencode` | `opencode acp` | `opencode auth login` | `MEW_AGENT_OPENCODE_CMD` · `MEW_AGENT_OPENCODE_ARGS` |
   | `cursor` | `agent acp` | browser · `agent login`(`NO_OPEN_BROWSER=1`) | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
@@ -638,6 +638,8 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 | 라우트 | 역할 | 하는 일 |
 | --- | --- | --- |
 | `GET /api/agent-runtimes` | manager·owner | 등록 런타임의 실행 파일 존재와 설치·안전 제거·로그아웃 가능 상태 |
+| `POST /api/agent-runtimes/:id/terminal/:tab` | manager·owner | terminal 런타임의 탭별 전용 tmux를 검증된 cwd에서 만들고 등록표의 공식 CLI 실행 |
+| `DELETE /api/agent-runtimes/:id/terminal/:tab` | manager·owner | 탭이 소유한 전용 tmux와 CLI 종료 |
 | `POST /api/agent-runtimes/:id/install` | manager·owner | id에 대응하는 등록표의 고정 설치 명령 실행. 임의 명령·인자는 받지 않음 |
 | `DELETE /api/agent-runtimes/:id/install` | manager·owner | 등록표가 선언한 고정 역설치 명령 실행. 안전한 제거 계약이 없으면 거부 |
 | `POST /api/agent-runtimes/:id/logout` | manager·owner | 등록표가 선언한 비대화형 CLI 로그아웃만 실행. 자격증명 값은 읽거나 전송하지 않음 |
@@ -649,8 +651,8 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 | `PUT /api/agent-runtimes/:id/settings` | manager·owner | 병합 저장 — 보낸 키만 갈아끼우고 없는 env 키는 기존 값을 유지(시크릿 원문을 브라우저가 모르므로) |
 | `DELETE /api/agent-runtimes/:id/settings` | manager·owner | 그 런타임의 사용자 설정을 지우고 등록표 기본값으로 돌아간다 |
 
-- **런타임 설정 팝업**(목록의 톱니 아이콘) — 설치·삭제·로그인·로그아웃과 실행 파일 경로·추가 인자·공급자 env(`ANTHROPIC_API_KEY`· `PRIME_API_KEY` 같은 시크릿, 커스텀 엔드포인트)를 런타임별로 저장한다. 값은 `<DATA_DIR>/agent-settings.json`에 남고 `resolvedSpec`이 등록표 spec에 얹어 **모든 spawn 경로**(에이전트 창·예약 작업·설치 판정)에 즉시 적용된다. 시크릿은 서버에만 있고 화면은 `****끝4자`만 본다 — 바꾸려면 전체 값을 새로 입력한다. 로그인은 그 런타임 새 탭을 열어 기존 ACP 인증 흐름으로 이어간다. 제거·로그아웃은 확인 뒤 등록표의 고정 명령만 실행한다. 공급자 설치 스크립트처럼 안전한 역설치/로그아웃 계약이 없는 런타임은 이유를 표시하고 임의 파일·인증 저장소를 지우지 않는다.
-- **모델 목록은 CLI가 광고하는 것을 그대로 쓴다.** 어댑터가 번들한 CLI는 버전 핀에 묶여 목록이 낡으므로, PATH에 시스템 `claude`가 있으면 자동으로 그걸 쓴다(`CLAUDE_CODE_EXECUTABLE`로 전달, 이미 지정돼 있으면 존중). 시스템 설치본이 없으면 번들 CLI로 돌아간다. `codex`는 모델 선택기가 빌 수 있다 — 어댑터 내장 코어가 서버 모델 응답의 새 필드를 모르면 목록 갱신만 실패한다(stderr에 ERROR 로그). 기본 모델로 대화는 정상이고, 어댑터를 올리면 돌아온다.
+- **런타임 설정 팝업**(목록의 톱니 아이콘) — 설치·삭제·로그인·로그아웃과 실행 파일 경로·추가 인자·공급자 env를 런타임별로 저장한다. ACP 런타임은 `resolvedSpec`, terminal 런타임은 `resolvedTerminalSpec`이 다음 탭 시작과 설치 판정에 적용한다. Claude 예약 작업용 ACP 어댑터는 대화형 CLI 설정과 분리된 고정 계약을 유지한다. 시크릿은 서버에만 있고 화면은 `****끝4자`만 본다. 제거·로그아웃은 확인 뒤 등록표의 고정 명령만 실행하며, 안전한 역설치 계약이 없는 Antigravity는 임의 파일을 지우지 않는다.
+- ACP 런타임의 **모델 목록은 ACP가 광고하는 것을 그대로 쓴다.** Claude·Antigravity의 모델·권한·히스토리는 Mew 선택기로 복제하지 않고 공식 TUI 안에서 조작한다.
 - 클라이언트 capability는 **인증에 필요한** `auth.terminal`**·**`elicitation.url`**만 광고하고** `fs`**는 광고하지 않는다** — `fs`를 켜면 어댑터가 CLI의 `Read`·`Write`·`Edit`를 끄고 `mcp__acp__*`로 갈아끼워서, 터미널에서 만든 대화를 창에서 불러올 때 전사 속 `Edit` 참조가 API 400으로 거부된다. 도구 이름을 CLI와 맞춰 두는 것이 계약이다 ([ADR 0044](../.mew/docs/decisions/0044-mew-agent-cli-tool-parity.md)) — 경로 스코프는 없다.
 - 워크스페이스를 갈아끼우면 **떠 있던 세션을 전부 접는다**(`disposeAllSessions`) — 자식 프로세스의 cwd는 뜰 때 정해져 옛 폴더에 매여 있다.
 - 자식 환경에서 `CLAUDECODE`**를 지운다.** 남아 있으면 Claude Code가 중첩 세션으로 보고 실행을 거부해 세션 생성이 통째로 실패한다(mew 서버를 Claude Code 터미널에서 띄우면 상속된다).

@@ -60,7 +60,7 @@ test('cmd·extraArgs는 명시하면 교체하고 안 하면 유지한다', () =
 })
 
 test('삭제하면 항목이 사라진다', () => {
-  writeAgentSetting('gemini', { env: { GEMINI_API_KEY: 'g-key' } })
-  deleteAgentSetting('gemini')
-  assert.equal(describeAgentSetting('gemini'), null)
+  writeAgentSetting('antigravity', { env: { GOOGLE_CLOUD_PROJECT: 'project' } })
+  deleteAgentSetting('antigravity')
+  assert.equal(describeAgentSetting('antigravity'), null)
 })

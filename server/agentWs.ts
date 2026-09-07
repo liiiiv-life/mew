@@ -6,7 +6,7 @@ import type { Server as HttpServer, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { DEFAULT_RUNTIME, isRuntime, type AgentEvent, type AgentImageRef, type AgentMessageSettings } from './agentAcp.ts'
+import { DEFAULT_RUNTIME, isAcpRuntime, type AgentEvent, type AgentImageRef, type AgentMessageSettings } from './agentAcp.ts'
 import { connectAgentHost, type AgentHostClient } from './agentHost.ts'
 import { composeRuntimePrompt } from './agentRuntimes.ts'
 import { listSessionsFromDisk } from './agentSessionList.ts'
@@ -288,7 +288,7 @@ export function attachAgentWebSocket(
       socket.destroy()
       return
     }
-    if (!isRuntime(runtime) || !TAB_ID.test(tab)
+    if (!isAcpRuntime(runtime) || !TAB_ID.test(tab)
       || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))
       || modelId.length > 120 || role.length > 4_000) {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')

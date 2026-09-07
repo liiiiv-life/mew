@@ -10,6 +10,7 @@ const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-host-auth-ws-
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-host-auth-data-'))
 const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-host-auth-stub-'))
 const stubPath = path.join(stubDir, 'auth-gated-agent.mjs')
+const wrapperPath = path.join(stubDir, 'kimi-stub')
 const credentialFile = path.join(stubDir, 'credential')
 process.env.MEW_WORKSPACE = workspace
 process.env.MEW_DATA_DIR = dataDir
@@ -23,7 +24,7 @@ import fs from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 
 const credentialFile = process.argv[2]
-if (process.argv.includes('--cli')) {
+if (process.argv.includes('login')) {
   fs.writeFileSync(credentialFile, 'logged-in')
   process.exit(0)
 }
@@ -43,8 +44,9 @@ new AgentSideConnection(
 )
 `,
 )
-process.env.MEW_AGENT_CMD = process.execPath
-process.env.MEW_AGENT_ARGS = `${stubPath} ${credentialFile}`
+fs.writeFileSync(wrapperPath, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(stubPath)} ${JSON.stringify(credentialFile)} "$@"\n`)
+fs.chmodSync(wrapperPath, 0o700)
+process.env.MEW_AGENT_KIMI_CMD = wrapperPath
 
 const { connectAgentHost, shutdownAgentHostsForWorkspace } = await import('./agentHost.ts')
 const { RUNTIME_LOGIN_METHOD_ID } = await import('./agentRuntimes.ts')
@@ -67,7 +69,7 @@ test('pre-ACP 인증 실패 → GUI 로그인 spec → ACP 재시작으로 같�
   const events: AgentEvent[] = []
   const waiters = new Set<(event: AgentEvent) => void>()
   const fatals: string[] = []
-  const client = await connectAgentHost('claude', 'pre-acp-auth-tab', workspace, {
+  const client = await connectAgentHost('kimi', 'pre-acp-auth-tab', workspace, {
     onEvent: (event) => {
       events.push(event)
       for (const waiter of [...waiters]) waiter(event)
@@ -94,7 +96,7 @@ test('pre-ACP 인증 실패 → GUI 로그인 spec → ACP 재시작으로 같�
   assert.equal(auth.type, 'auth')
   assert.deepEqual(auth.methods.map(({ id, kind, surface }) => ({ id, kind, surface })), [
     { id: RUNTIME_LOGIN_METHOD_ID, kind: 'terminal', surface: 'browser' },
-    { id: 'mew-claude-console-login', kind: 'terminal', surface: 'browser' },
+    { id: 'mew-kimi-global-login', kind: 'terminal', surface: 'browser' },
   ])
   assert.equal(fatals.length, 0, 'ACP 시작 실패가 탭을 fatal로 닫지 않는다')
 
@@ -102,8 +104,8 @@ test('pre-ACP 인증 실패 → GUI 로그인 spec → ACP 재시작으로 같�
     type: 'terminal_auth',
     methodId: RUNTIME_LOGIN_METHOD_ID,
   })
-  assert.equal(spec.cmd, process.execPath)
-  assert.deepEqual(spec.args, [stubPath, credentialFile, '--cli', 'auth', 'login', '--claudeai'])
+  assert.equal(spec.cmd, wrapperPath)
+  assert.deepEqual(spec.args, ['login'])
   execFileSync(spec.cmd, spec.args, { cwd: workspace, env: { ...process.env, ...spec.env } })
   assert.equal(fs.readFileSync(credentialFile, 'utf8'), 'logged-in')
 

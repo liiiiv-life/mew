@@ -5,6 +5,8 @@ import { RUNTIMES, runtimeOf } from './agentRuntimes'
 import { cachedAgentSets, refreshAgentSets, subscribeAgentSets, updateAgentSetsCache } from '../utils/agentPickerCache'
 import { useI18n } from '../i18n'
 
+const AGENT_SET_RUNTIMES = RUNTIMES.filter((runtime) => runtime.surface === 'acp')
+
 /** 새 탭 선택기의 에이전트셋 목록. 셋은 별도 작업자가 아니라 탭 시작 프리셋이다. */
 export function AgentSetPicker({ onSelect }: { onSelect: (set: AgentSet) => void }) {
   const { t } = useI18n()
@@ -64,7 +66,7 @@ export function AgentSetPicker({ onSelect }: { onSelect: (set: AgentSet) => void
           })}
           <button
             type="button"
-            onClick={() => setEditing({ id: crypto.randomUUID(), name: '', role: '', runtime: RUNTIMES[0].id, modelId: '' })}
+            onClick={() => setEditing({ id: crypto.randomUUID(), name: '', role: '', runtime: AGENT_SET_RUNTIMES[0].id, modelId: '' })}
             className="flex min-h-14 items-center rounded-md border border-dashed border-edge px-3 text-left text-sm text-ink-secondary hover:bg-surface hover:text-ink"
           >
             {t('agentSet.add')}
@@ -88,7 +90,7 @@ function AgentSetEditor({ set, isNew, onSave, onDelete, onClose }: { set: AgentS
         <div className="mb-3 text-sm text-ink">{isNew ? t('agentSet.new') : t('agentSet.editTitle')}</div>
         <div className="space-y-3">
           <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.name')}</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1 w-full rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none" /></label>
-          <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.agent')}</span><select value={form.runtime} onChange={(e) => setForm({ ...form, runtime: e.target.value })} className="mt-1 w-full rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none">{RUNTIMES.map((runtime) => <option key={runtime.id} value={runtime.id}>{runtime.label}</option>)}</select></label>
+          <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.agent')}</span><select value={form.runtime} onChange={(e) => setForm({ ...form, runtime: e.target.value })} className="mt-1 w-full rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none">{AGENT_SET_RUNTIMES.map((runtime) => <option key={runtime.id} value={runtime.id}>{runtime.label}</option>)}</select></label>
           <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.model')}</span><input value={form.modelId} onChange={(e) => setForm({ ...form, modelId: e.target.value })} placeholder="e.g. gpt-5.4" className="mt-1 w-full rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted" /></label>
           <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.role')}</span><textarea value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} rows={5} className="mt-1 w-full resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none" /></label>
         </div>

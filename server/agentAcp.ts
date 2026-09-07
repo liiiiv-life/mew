@@ -38,10 +38,12 @@ import { readAgentTranscript, writeAgentTranscript } from './agentTranscript.ts'
 import { listSessionsFromDisk, stripLocalCommandMeta } from './agentSessionList.ts'
 import { readAgentDefault, type AgentRuntimeDefault } from './agentDefaults.ts'
 export {
+  acpRuntimeList,
+  agentSetRuntimeList,
   DEFAULT_RUNTIME,
+  isAcpRuntime,
   isRuntime,
   isRuntimeLoginMethod,
-  runtimeList,
   RUNTIMES,
   RUNTIME_LOGIN_METHOD_ID,
   runtimeLoginSpec,
@@ -251,7 +253,7 @@ function normalizeAuthMethods(runtime: string, methods: AuthMethod[]): AuthMetho
       ? {
           cmd: command,
           args,
-          env: RUNTIMES[runtime]?.spec().env,
+          env: RUNTIMES[runtime]?.spec?.().env,
           label: typeof terminalMeta?.label === 'string' ? terminalMeta.label : method.name,
         }
       : undefined
@@ -371,10 +373,11 @@ export class AgentSession {
 
   static async start(
     runtime: string,
-    spec: SpawnSpec = resolvedSpec(runtime) ?? RUNTIMES[runtime].spec(),
+    spec: SpawnSpec | undefined = resolvedSpec(runtime) ?? undefined,
     cwd = WORKSPACE_ROOT,
     idleKillMs = AGENT_IDLE_MS,
   ): Promise<AgentSession> {
+    if (!spec) throw new Error(`ACP를 지원하지 않는 에이전트 런타임입니다: ${runtime}`)
     const session = new AgentSession(runtime, spec, cwd, idleKillMs)
     let handshakeTimer: NodeJS.Timeout | null = null
     try {
@@ -1130,7 +1133,7 @@ export function probeModels(runtime: string, spec?: SpawnSpec): Promise<ModelInf
   if (known) return Promise.resolve(known)
   const running = probing.get(runtime)
   if (running) return running
-  const started = AgentSession.start(runtime, spec ?? resolvedSpec(runtime) ?? RUNTIMES[runtime].spec()).then((session) => {
+  const started = AgentSession.start(runtime, spec ?? resolvedSpec(runtime) ?? undefined).then((session) => {
     // 핸드셰이크의 #useModels가 이미 담았다 — 세션 자체는 쓸 데가 없다
     session.dispose()
     return knownModels.get(runtime) ?? []
@@ -1209,7 +1212,7 @@ function ownerOf(pid: number): number | null {
  * 지금 이 서버가 들어 있을 수도 있다. 스냅샷에서 자손을 직접 훑어 하나씩 보낸다.
  */
 export function reapOrphanAgents() {
-  const targets = Object.values(RUNTIMES).map((runtime) => runtime.spec().cmd)
+  const targets = Object.values(RUNTIMES).flatMap((runtime) => runtime.spec ? [runtime.spec().cmd] : [])
   let snapshot: string
   try {
     snapshot = execFileSync('ps', ['-eo', 'pid=,ppid=,args='], { encoding: 'utf8' })

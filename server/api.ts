@@ -63,7 +63,7 @@ import { listSkills } from './skills.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
-import { isRuntime, runtimeList } from './agentAcp.ts'
+import { acpRuntimeList, agentSetRuntimeList, isRuntime } from './agentAcp.ts'
 import { isRuntimeLoginMethod, runtimeLoginSpec } from './agentRuntimes.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
 import { authFailureMessageFromOutput, browserLoginDetailsFromOutput, prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
@@ -72,6 +72,7 @@ import { installRuntime, logoutRuntime, runtimeStatuses, RuntimeInstallError, un
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import { AgentCwdError, resolveAgentCwd, suggestAgentCwds } from './agentCwd.ts'
 import { AgentScheduledPromptError, cancelAgentScheduledPrompt, listAgentScheduledPrompts, scheduleAgentPrompt, updateAgentScheduledPrompt } from './agentScheduledPrompts.ts'
+import { AgentTerminalError, startAgentTerminal, stopAgentTerminal } from './agentTerminal.ts'
 import { readAgentSessionClaims, readAgentTabs, readRootProjects, readWorkspaceUi, writeAgentTabs, writeRootProjects, writeWorkspaceUi } from './userUiState.ts'
 import {
   AgentSettingError,
@@ -1903,6 +1904,26 @@ export function createApiApp() {
     res.json({ runtimes: runtimeStatuses() })
   })
 
+  // terminal형 런타임은 에이전트 탭별 전용 tmux에서 공식 TUI를 그대로 실행한다. 브라우저는
+  // runtime·tab·cwd만 보내며 명령과 실제 tmux 이름은 서버 등록표가 정한다(ADR 0117).
+  app.post('/agent-runtimes/:id/terminal/:tab', requireRole('owner', 'manager'), async (req, res) => {
+    try {
+      const cwd = resolveAgentCwd(typeof req.body?.cwd === 'string' ? req.body.cwd : '', WORKSPACE_ROOT)
+      res.json({ ok: true, ...await startAgentTerminal(tmuxManager, String(req.params.id), String(req.params.tab), cwd) })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.delete('/agent-runtimes/:id/terminal/:tab', requireRole('owner', 'manager'), async (req, res) => {
+    try {
+      await stopAgentTerminal(tmuxManager, String(req.params.id), String(req.params.tab))
+      res.json({ ok: true })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
   app.post('/agent-runtimes/:id/install', requireRole('owner', 'manager'), async (req, res) => {
     try {
       res.json(await installRuntime(String(req.params.id)))
@@ -2071,7 +2092,7 @@ export function createApiApp() {
       res.json({
         jobs: jobViews(readJobs(), await liveSessions()),
         otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== ''),
-        runtimes: runtimeList(),
+        runtimes: acpRuntimeList(),
       })
     } catch (err) {
       handleError(res, err)
@@ -2094,7 +2115,7 @@ export function createApiApp() {
       res.json({
         jobs: jobViews(saved, await liveSessions()),
         otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== ''),
-        runtimes: runtimeList(),
+        runtimes: acpRuntimeList(),
       })
     } catch (err) {
       handleError(res, err)
@@ -2145,7 +2166,7 @@ export function createApiApp() {
   // 에이전트셋 정의 — 새 에이전트 탭을 시작할 때 고르는 프리셋이다.
   app.get('/agent-sets', requireRole('owner', 'manager'), (_req, res) => {
     try {
-      res.json({ sets: readSets(), runtimes: runtimeList() })
+      res.json({ sets: readSets(), runtimes: agentSetRuntimeList() })
     } catch (err) {
       handleError(res, err)
     }
@@ -2319,7 +2340,7 @@ function handleError(res: express.Response, err: unknown) {
     res.status(400).json({ error: err.message })
     return
   }
-  if (err instanceof ScheduleError || err instanceof AgentSetError || err instanceof RuntimeInstallError || err instanceof AgentDefaultError || err instanceof AgentSettingError || err instanceof AgentCwdError || err instanceof AgentScheduledPromptError) {
+  if (err instanceof ScheduleError || err instanceof AgentSetError || err instanceof RuntimeInstallError || err instanceof AgentDefaultError || err instanceof AgentSettingError || err instanceof AgentCwdError || err instanceof AgentScheduledPromptError || err instanceof AgentTerminalError) {
     res.status(400).json({ error: err.message })
     return
   }

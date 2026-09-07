@@ -19,6 +19,7 @@ import {
 import { createPortal } from 'react-dom'
 import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
+import { TmuxTerminal } from '@mew/tmux-term'
 import { type TreeNode } from '@mew/editor'
 import {
   agentMarkdownHrefFromClick,
@@ -54,6 +55,8 @@ import {
   saveAgentDefault,
   saveAgentTabs,
   scheduleAgentPrompt,
+  startAgentTerminal,
+  stopAgentTerminal,
   updateAgentScheduledPrompt,
   uploadInto,
   type AgentRuntimeDefault,
@@ -264,6 +267,9 @@ function loadTabs(workspacePath: string | null): AgentTab[] {
             : undefined
           const normalized = sessionIds && Object.keys(sessionIds).length > 0 ? { ...tab, sessionIds } : { ...tab, sessionIds: undefined }
           const upgraded = normalized.runtime === undefined ? { ...normalized, runtime: migratedRuntime } : normalized
+          // Gemini 개인 계정 경로는 종료되어 런타임과 함께 제거됐다. 알 수 없는 옛 런타임도
+          // fallback Claude 탭으로 바꾸지 않고 버린다 — 다른 CLI를 뜻없이 실행하면 안 된다.
+          if (upgraded.runtime && !RUNTIMES.some((runtime) => runtime.id === upgraded.runtime)) return []
           // 선택만 하고 입력하지 않았던 이전 탭도 새 이름 규칙으로 한 번 승격한다.
           return upgraded.label === LEGACY_PENDING_TAB_LABEL && upgraded.runtime
             ? [{ ...upgraded, label: runtimeOf(upgraded.runtime).label, renamed: true }]
@@ -753,8 +759,8 @@ function AgentTabBar({
                 // 터치 길게누르기가 드래그로 예약된 동안 Android 네이티브 메뉴가 끼어들지 않게
                 if (drag.dragIndex !== null) e.preventDefault()
               }}
-              className={`group flex h-full shrink-0 cursor-pointer items-center gap-1.5 border-r border-edge px-3 text-xs select-none [-webkit-touch-callout:none] ${
-                isActive ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
+              className={`group flex h-full shrink-0 cursor-pointer items-center gap-1.5 border-r border-edge px-2.5 text-xs select-none [-webkit-touch-callout:none] ${
+                isActive ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-raised'
               } ${drag.dragIndex === i ? 'opacity-70 ring-1 ring-inset ring-accent' : ''}`}
             >
               {/* 안 보고 있는 탭이 돌고 있는지 — 탭 줄에서 바로 보이는 유일한 신호다 */}
@@ -796,7 +802,7 @@ function AgentTabBar({
                   e.stopPropagation()
                   onCloseTab(tab.id)
                 }}
-                className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
                 aria-label="탭 닫기"
               >
                 ×
@@ -1353,6 +1359,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
         if (!alive || !state) return
         const restoredTabs = state.tabs
           .filter((tab) => !(tab.runtime === null && tab.label === LEGACY_PENDING_TAB_LABEL))
+          .filter((tab) => tab.runtime === null || tab.runtime === undefined || RUNTIMES.some((runtime) => runtime.id === tab.runtime))
           .map((tab) => tab.label === LEGACY_PENDING_TAB_LABEL && tab.runtime
             ? { ...tab, label: runtimeOf(tab.runtime).label, renamed: true }
             : tab)
@@ -1417,7 +1424,11 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
 
   const closeTab = (id: string) => {
     const closing = tabs.find((tab) => tab.id === id)
-    sendersRef.current.get(id)?.({ type: 'close_session' })
+    if (closing?.runtime && runtimeOf(closing.runtime).surface === 'terminal') {
+      void stopAgentTerminal(closing.runtime, closing.id).catch(console.error)
+    } else {
+      sendersRef.current.get(id)?.({ type: 'close_session' })
+    }
     clearAgentInputDraft(id)
     if (closing?.runtime && closing.cwd) {
       const { runtime, cwd } = closing
@@ -1568,7 +1579,14 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
             ?? null
           return (
           <div key={`${tab.id}:${tab.runtime}:${tab.cwd}`} className={tab.id === activeId ? 'min-h-0 flex-1' : 'hidden'}>
-            <AgentSessionView
+            {runtimeOf(tab.runtime!).surface === 'terminal' ? (
+              <AgentTerminalView
+                runtime={tab.runtime!}
+                tabId={tab.id}
+                cwd={tab.cwd!}
+                activeFilePath={focusedFilePath}
+              />
+            ) : <AgentSessionView
               tabId={tab.id}
               active={tab.id === activeId}
               runtime={tab.runtime!}
@@ -1595,11 +1613,50 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
               onBackToPicker={() => setPickerOpen(true)}
               showInfo={infoTabs.has(tab.id)}
               onToggleInfo={() => toggleInfo(tab.id)}
-            />
+            />}
           </div>
           )
         })}
       {pickerOpen && <RuntimePicker onSelect={addRuntimeTab} onSelectSet={addSetTab} />}
+    </div>
+  )
+}
+
+/** 공식 CLI TUI를 탭별 tmux에 직접 붙인다. 본문·입력·모바일 키는 일반 터미널과 같은 구현이다. */
+function AgentTerminalView({
+  runtime,
+  tabId,
+  cwd,
+  activeFilePath,
+}: {
+  runtime: string
+  tabId: string
+  cwd: string
+  activeFilePath: string | null
+}) {
+  const [session, setSession] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
+
+  useEffect(() => {
+    let alive = true
+    setSession(null)
+    setError(null)
+    void startAgentTerminal(runtime, tabId, cwd)
+      .then((result) => { if (alive) setSession(result.session) })
+      .catch((err: unknown) => { if (alive) setError(err instanceof Error ? err.message : String(err)) })
+    return () => { alive = false }
+  }, [cwd, retry, runtime, tabId])
+
+  if (session) return <TmuxTerminal sessionName={session} activeFilePath={activeFilePath} />
+  return (
+    <div className="flex h-full items-center justify-center bg-surface-deep p-4 text-center">
+      {error ? (
+        <div className="space-y-3">
+          <div className="max-w-md whitespace-pre-wrap text-sm text-danger">{error}</div>
+          <button type="button" onClick={() => setRetry((value) => value + 1)} className="rounded border border-edge-bright px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-raised">다시 연결</button>
+        </div>
+      ) : <div className="text-sm text-ink-muted">터미널 여는 중…</div>}
     </div>
   )
 }
