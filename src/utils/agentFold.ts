@@ -45,6 +45,7 @@ export type AgentAuthMethod = {
   kind: 'agent' | 'api-key' | 'terminal'
   surface?: 'browser' | 'terminal'
   browserInput?: 'authorization-code'
+  serverBrowser?: boolean
 }
 
 export type AgentAuthState = {

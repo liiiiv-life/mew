@@ -8,7 +8,8 @@ test('런타임 상태는 서버 등록표 전체를 설치 여부와 함께 내
   const statuses = runtimeStatuses()
   assert.deepEqual(statuses.map((item) => item.id), Object.keys(RUNTIMES))
   assert.ok(statuses.every((item) => typeof item.installed === 'boolean'))
-  assert.ok(statuses.every((item) => item.installable))
+  assert.ok(statuses.filter((item) => item.id !== 'tmux').every((item) => item.installable))
+  assert.equal(statuses.find((item) => item.id === 'tmux')?.installable, false)
 })
 
 test('등록표에 없는 id로는 설치 명령을 만들 수 없다', async () => {
@@ -26,7 +27,7 @@ test('등록된 런타임은 표면별로 공식 CLI 또는 고정 ACP 인증 �
   try {
     assert.equal(RUNTIME_LOGIN_METHOD_ID, 'mew-runtime-login')
     assert.deepEqual(Object.keys(RUNTIMES), [
-      'claude', 'codex', 'hermes', 'kimi', 'antigravity', 'openclaw', 'opencode', 'cursor', 'prime',
+      'claude', 'codex', 'hermes', 'kimi', 'antigravity', 'tmux', 'openclaw', 'opencode', 'cursor', 'prime',
     ])
     assert.equal(RUNTIMES.claude.surface, 'terminal')
     assert.equal(resolvedTerminalSpec('claude')?.cmd.endsWith('/claude') || resolvedTerminalSpec('claude')?.cmd === 'claude', true)
@@ -34,7 +35,11 @@ test('등록된 런타임은 표면별로 공식 CLI 또는 고정 ACP 인증 �
     assert.equal(RUNTIMES.antigravity.surface, 'terminal')
     assert.equal(path.basename(resolvedTerminalSpec('antigravity')?.cmd ?? ''), 'agy')
     assert.ok(RUNTIMES.antigravity.install?.().args[1]?.includes('antigravity.google/cli/install.sh'))
-    assert.deepEqual(runtimeLoginSpec('codex').args, ['login', '--device-auth'])
+    assert.equal(RUNTIMES.tmux.surface, 'terminal')
+    assert.equal(RUNTIMES.tmux.terminalLaunch, 'shell')
+    assert.equal(path.basename(resolvedTerminalSpec('tmux')?.cmd ?? ''), 'tmux')
+    assert.deepEqual(runtimeLoginSpec('codex').args, ['login'])
+    assert.equal(runtimeLoginSpec('codex').serverBrowser, true)
     assert.equal(runtimeLoginSpec('codex').surface, 'browser')
     assert.deepEqual(runtimeLoginSpec('codex').verificationHosts, ['auth.openai.com'])
     assert.deepEqual(runtimeLoginSpec('hermes').args, ['acp', '--setup'])

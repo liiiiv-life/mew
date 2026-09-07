@@ -81,9 +81,6 @@ const FULL_ACCESS_MODES = [
   'dontAsk',
 ]
 
-/** 재접속(모바일 화면 꺼짐 등) 때 되돌려 줄 이벤트 개수 상한 */
-const MAX_BUFFERED_EVENTS = 500
-
 /** 작업이 끝났고 붙어 있는 창도 없는 채로 이만큼 지나면 에이전트를 죽인다 */
 export const AGENT_IDLE_MS = 30 * 60_000
 
@@ -109,7 +106,10 @@ export type AgentMessageSettings = { model: string; thinking: string; permission
 
 /** 큐 안의 세션 경계. 뒤의 프롬프트는 새 ACP 세션에 전달한다. */
 type QueuedClear = { kind: 'clear'; text: '/clear' }
-type QueuedItem = QueuedPrompt | QueuedClear
+type QueuedItem = (QueuedPrompt | QueuedClear) & {
+  /** 이 연결에서 내용을 고치는 동안 큐 실행을 멈추는 소유자 표식. */
+  editOwner?: string
+}
 
 /** 창 상단 정보줄이 그리는 값 — 이벤트 버퍼에 쌓지 않고 바뀔 때마다 현재 값을 통째로 보낸다 */
 export type SessionMeta = {
@@ -133,6 +133,7 @@ export type AgentAuthMethod = {
   kind: 'agent' | 'api-key' | 'terminal'
   surface?: 'browser' | 'terminal'
   browserInput?: 'authorization-code'
+  serverBrowser?: boolean
 }
 
 export type TerminalAuthSpec = SpawnSpec & { label: string; completionFile?: string }
@@ -216,20 +217,21 @@ function recordOf(value: unknown): Record<string, unknown> | null {
 function runtimeLoginMethods(runtime: string): AuthMethodInternal[] {
   const entry = RUNTIMES[runtime]
   if (!entry) return []
-  return entry.auth.methods().map(({ id, cmd, args, env, label, name, description, surface, browserInput, completionFile }) => ({
+  return entry.auth.methods().map(({ id, cmd, args, env, label, name, description, surface, browserInput, serverBrowser, completionFile }) => ({
     id,
     name,
     description,
     kind: 'terminal' as const,
     surface,
     browserInput,
+    serverBrowser,
     terminal: { cmd, args, env, label, completionFile },
   }))
 }
 
 /** initialize 전에 ACP가 죽은 탭도 같은 로그인 UI를 그릴 수 있는 공개 상태. */
 export function runtimeLoginAuthEvent(runtime: string, error: string | null, authenticating = false): AgentEvent {
-  const methods = runtimeLoginMethods(runtime).map(({ id, name, description, kind, surface, browserInput }) => ({ id, name, description, kind, surface, browserInput }))
+  const methods = runtimeLoginMethods(runtime).map(({ id, name, description, kind, surface, browserInput, serverBrowser }) => ({ id, name, description, kind, surface, browserInput, serverBrowser }))
   return { type: 'auth', methods, authenticating, error }
 }
 
@@ -479,7 +481,7 @@ export class AgentSession {
   }
 
   #publicAuthMethods(): AgentAuthMethod[] {
-    return this.#authMethods.map(({ id, name, description, kind, surface, browserInput }) => ({ id, name, description, kind, surface, browserInput }))
+    return this.#authMethods.map(({ id, name, description, kind, surface, browserInput, serverBrowser }) => ({ id, name, description, kind, surface, browserInput, serverBrowser }))
   }
 
   #authEvent(): AgentEvent {
@@ -615,7 +617,7 @@ export class AgentSession {
 
   /**
    * 지금까지 쌓인 대화 이벤트 — 재접속한 창이 **한 덩어리로**(`replay`) 받아 통째로 갈아끼운다.
-   * 예전에는 attach가 이걸 한 개씩 흘려보냈는데, 창은 이벤트마다 다시 그리느라 500개짜리 되감기에서
+   * 예전에는 attach가 이걸 한 개씩 흘려보냈는데, 창은 이벤트마다 다시 그리느라 긴 되감기에서
    * 눈에 띄게 굳었고 그 사이 대화가 빈 것으로 보였다(빈 탭 화면이 잠깐 뜨는 원인).
    */
   snapshot(): AgentEvent[] {
@@ -712,7 +714,7 @@ export class AgentSession {
   /** 진행 중인 턴이 있으면 줄을 세운다 — 끝나는 대로 순서대로 이어 돈다 */
   prompt(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings) {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
-    if (this.busy) {
+    if (this.busy || this.#queue.length > 0) {
       this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings })
       this.#broadcast(this.#metaEvent())
       return
@@ -723,7 +725,7 @@ export class AgentSession {
   /** `/clear`는 앞선 작업을 끊지 않고, 이 큐 지점에서 새 ACP 세션을 연다. */
   clearAfterQueue() {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
-    if (this.busy) {
+    if (this.busy || this.#queue.length > 0) {
       this.#queue.push({ kind: 'clear', text: '/clear' })
       this.#broadcast(this.#metaEvent())
       return
@@ -752,20 +754,62 @@ export class AgentSession {
   unqueue(index: number) {
     if (index < 0 || index >= this.#queue.length) return
     this.#queue.splice(index, 1)
+    if (this.busy) this.#broadcast(this.#metaEvent())
+    else this.#drainQueue()
+  }
+
+  /** 원문이 그대로인 대기 메시지를 편집하는 동안 큐 앞에서 실행되지 않게 잠근다. */
+  beginQueuedEdit(index: number, expect: string, owner = 'local') {
+    if (!Number.isInteger(index) || index < 0 || index >= this.#queue.length) return
+    const item = this.#queue[index]
+    if (item.kind !== 'prompt' || item.text !== expect) return
+    if (item.editOwner && item.editOwner !== owner) return
+    item.editOwner = owner
     this.#broadcast(this.#metaEvent())
   }
 
-  /** 대기 중인 메시지의 내용을 고친다 — 창의 더블클릭 편집(진행 중인 턴은 건드리지 않는다) */
-  editQueued(index: number, text: string, expect: string, promptText = text) {
-    if (!Number.isInteger(index) || index < 0 || index >= this.#queue.length) return
-    // 고치는 사이 앞 턴이 끝나 큐가 당겨졌으면 같은 번호가 다른 메시지를 가리킨다 — 원본이 그대로일 때만 덮어쓴다
-    if (this.#queue[index].text !== expect) return
+  /** 대기 중인 메시지의 내용을 저장하고 편집 잠금을 푼다. */
+  editQueued(index: number, text: string, expect: string, promptText = text, owner = 'local') {
+    if (!Number.isInteger(index)) return
+    // 다른 창의 조작으로 자리가 바뀌어도 이 연결이 잠근 원문만 찾는다.
+    const actualIndex = this.#queue[index]?.text === expect
+      && (!this.#queue[index]?.editOwner || this.#queue[index]?.editOwner === owner)
+      ? index
+      : this.#queue.findIndex((item) => item.text === expect && item.editOwner === owner)
+    if (actualIndex < 0) return
+    const item = this.#queue[actualIndex]
     const next = text.trim()
     if (!next) return
     // `/clear`는 다른 작업으로 편집할 수 없는 세션 경계다.
-    if (this.#queue[index].kind !== 'prompt') return
-    this.#queue[index] = { kind: 'prompt', text: next, promptText, images: this.#queue[index].images, imageRefs: this.#queue[index].imageRefs, settings: this.#queue[index].settings }
-    this.#broadcast(this.#metaEvent())
+    if (item.kind !== 'prompt') return
+    this.#queue[actualIndex] = { kind: 'prompt', text: next, promptText, images: item.images, imageRefs: item.imageRefs, settings: item.settings }
+    if (this.busy) this.#broadcast(this.#metaEvent())
+    else this.#drainQueue()
+  }
+
+  /** 수정을 버리고 원문을 유지한 채 편집 잠금만 푼다. */
+  cancelQueuedEdit(index: number, expect: string, owner = 'local') {
+    if (!Number.isInteger(index)) return
+    const item = this.#queue[index]?.text === expect && this.#queue[index]?.editOwner === owner
+      ? this.#queue[index]
+      : this.#queue.find((candidate) => candidate.text === expect && candidate.editOwner === owner)
+    if (!item) return
+    delete item.editOwner
+    if (this.busy) this.#broadcast(this.#metaEvent())
+    else this.#drainQueue()
+  }
+
+  /** 편집하던 창이 끊기면 그 연결의 잠금을 모두 풀어 큐가 영구 정지하지 않게 한다. */
+  releaseQueuedEdits(owner: string) {
+    let released = false
+    for (const item of this.#queue) {
+      if (item.editOwner !== owner) continue
+      delete item.editOwner
+      released = true
+    }
+    if (!released) return
+    if (this.busy) this.#broadcast(this.#metaEvent())
+    else this.#drainQueue()
   }
 
   /** 대기 중인 메시지의 자리를 옮긴다 — 창의 드래그 재정렬(진행 중인 턴은 건드리지 않는다) */
@@ -775,7 +819,8 @@ export class AgentSession {
     if (from < 0 || from >= this.#queue.length || to < 0 || to >= this.#queue.length) return
     const [moved] = this.#queue.splice(from, 1)
     this.#queue.splice(to, 0, moved)
-    this.#broadcast(this.#metaEvent())
+    if (this.busy) this.#broadcast(this.#metaEvent())
+    else this.#drainQueue()
   }
 
   #run(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings) {
@@ -822,12 +867,19 @@ export class AgentSession {
 
   /** 큐의 다음 항목 하나만 시작한다. clear 뒤의 프롬프트는 새 세션에서 시작한다. */
   #drainQueue() {
-    const next = this.#queue.shift()
+    const next = this.#queue[0]
     if (next === undefined) {
       void this.#pushMeta()
       this.#armIdleTimer()
       return
     }
+    // 편집 중에는 앞 항목도 실행하지 않는다. 큐 인덱스를 그대로 지켜 완료가 다른 메시지를
+    // 덮어쓰는 경합을 막고, 완료·취소 뒤 원래 순서에서 다시 시작한다.
+    if (this.#queue.some((item) => item.editOwner)) {
+      this.#broadcast(this.#metaEvent())
+      return
+    }
+    this.#queue.shift()
     if (next.kind === 'clear') {
       void this.#clearSession().then(() => this.#drainQueue())
       return
@@ -993,7 +1045,6 @@ export class AgentSession {
       return
     }
     this.#events.push(event)
-    if (this.#events.length > MAX_BUFFERED_EVENTS) this.#events.splice(0, this.#events.length - MAX_BUFFERED_EVENTS)
     // ACP 히스토리는 turn_end를 재생하지 않아 감독의 유휴 종료 뒤에는 소요 시간이 사라진다.
     // 턴이 끝나는 순간의 전사만 남기면 스트리밍 중 디스크 쓰기는 피하면서 완료 상태를 복원할 수 있다.
     if (event.type === 'turn_end') writeAgentTranscript(this.runtime, this.cwd, this.#sessionId, this.#events)

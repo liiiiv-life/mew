@@ -15,12 +15,12 @@ test('뒤에 열린 패널은 종류와 관계없이 닫지 않고 전면으로 
   stack = selected.stack
   assert.deepEqual(selected, { open: true, stack: ['agent'] })
 
-  selected = selectMobilePanel(stack, 'terminal', false)
+  selected = selectMobilePanel(stack, 'browser', false)
   stack = selected.stack
-  assert.deepEqual(selected, { open: true, stack: ['agent', 'terminal'] })
+  assert.deepEqual(selected, { open: true, stack: ['agent', 'browser'] })
 
   selected = selectMobilePanel(stack, 'agent', true)
-  assert.deepEqual(selected, { open: true, stack: ['terminal', 'agent'] })
+  assert.deepEqual(selected, { open: true, stack: ['browser', 'agent'] })
 })
 
 test('전면 패널을 다시 선택할 때만 닫고 바로 아래 패널을 드러낸다', () => {
@@ -36,18 +36,18 @@ test('새 패널도 공통 함수만으로 전면 이동과 외부 닫기를 처
 
 test('복원 때 마지막 전면 창을 열린 창들보다 앞에 둔다', () => {
   assert.deepEqual(
-    restoreMobilePanelStack({ sidebar: true, chat: false, agent: true, terminal: false, browser: true, android: false }, 'agent'),
+    restoreMobilePanelStack({ sidebar: true, chat: false, agent: true, browser: true, android: false }, 'agent'),
     ['sidebar', 'browser', 'agent'],
   )
   assert.deepEqual(
-    restoreMobilePanelStack({ sidebar: true, chat: false, agent: false, terminal: false, browser: false, android: false }, 'agent'),
+    restoreMobilePanelStack({ sidebar: true, chat: false, agent: false, browser: false, android: false }, 'agent'),
     ['sidebar'],
   )
 })
 
 test('에디터가 전면이었던 상태는 열린 보조 패널이 있어도 빈 스택으로 복원한다', () => {
   assert.deepEqual(
-    restoreMobilePanelStack({ sidebar: true, chat: false, agent: true, terminal: false, browser: false, android: false }, 'editor'),
+    restoreMobilePanelStack({ sidebar: true, chat: false, agent: true, browser: false, android: false }, 'editor'),
     [],
   )
 })

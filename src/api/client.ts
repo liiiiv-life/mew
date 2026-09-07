@@ -671,6 +671,18 @@ export function fetchAgentAuthTerminalStatus(
   ).then(json<AgentAuthTerminalStatus>)
 }
 
+export function openAgentAuthServerBrowser(
+  runtime: string,
+  tab: string,
+  methodId: string,
+): Promise<{ url: string; frameUrl: string }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/browser`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tab }),
+  }).then(json<{ url: string; frameUrl: string }>)
+}
+
 export function submitAgentAuthBrowserInput(runtime: string, tab: string, methodId: string, input: string): Promise<{ ok: true }> {
   return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/input`, {
     method: 'POST',

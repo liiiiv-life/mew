@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { Check, Copy, FastArrowDown, FrameSelect, Lock, Xmark } from 'iconoir-react'
-import { HoverTipLayer, hasPathDrag, keepFocusOnPress, pathFromDrag } from '@mew/ui'
+import { HoverTipLayer, hasPathDrag, isTextareaCaretOnVisualBoundary, keepFocusOnPress, pathFromDrag } from '@mew/ui'
 import { MobileKeyBar, useMobileLayout } from '@mew/mobile-keys'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { readInputDraft, readInputHistory, recordInputHistory, writeInputDraft } from './inputDrafts'
@@ -103,6 +103,7 @@ export function TmuxTerminal({
   activeFilePath,
   getSelectedText,
   renderCommandButtons,
+  insertRefTarget = 'tmux',
   wsPath = '/api/tmux/ws',
 }: {
   sessionName: string
@@ -115,11 +116,14 @@ export function TmuxTerminal({
    * Claude Code 같은 TUI에서도 그대로 제출된다.
    */
   renderCommandButtons?: (run: (command: string) => void) => ReactNode
+  /** 호스트의 Ctrl+L 참조 이벤트 중 이 터미널이 받을 패널 target. */
+  insertRefTarget?: 'tmux' | 'agent'
   wsPath?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const activeFilePathRef = useRef(activeFilePath)
   const getSelectedTextRef = useRef(getSelectedText)
+  const insertRefTargetRef = useRef(insertRefTarget)
   const wsRef = useRef<WebSocket | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const ctrlActiveRef = useRef(false)
@@ -153,6 +157,10 @@ export function TmuxTerminal({
   useEffect(() => {
     getSelectedTextRef.current = getSelectedText
   }, [getSelectedText])
+
+  useEffect(() => {
+    insertRefTargetRef.current = insertRefTarget
+  }, [insertRefTarget])
 
   useEffect(() => {
     ctrlActiveRef.current = ctrlActive
@@ -259,14 +267,11 @@ export function TmuxTerminal({
     })
   }
 
-  /** 첫/마지막 줄에서만 셸처럼 과거·다음 입력을 순회한다. 여러 줄 안에서는 본래 커서 이동을 남긴다. */
+  /** 첫/마지막 시각적 줄에서만 셸처럼 과거·다음 입력을 순회한다. 접힌 줄 안에서는 본래 커서 이동을 남긴다. */
   function navigateCommandHistory(direction: 'up' | 'down'): boolean {
     const ta = inputRef.current
     if (!ta || ta.selectionStart !== ta.selectionEnd) return false
-    const caret = ta.selectionStart ?? 0
-    const atFirstLine = !command.slice(0, caret).includes('\n')
-    const atLastLine = !command.slice(caret).includes('\n')
-    if ((direction === 'up' && !atFirstLine) || (direction === 'down' && !atLastLine)) return false
+    if (!isTextareaCaretOnVisualBoundary(ta, direction)) return false
     const history = readInputHistory(sessionName)
     if (history.length === 0) return false
 
@@ -448,6 +453,10 @@ export function TmuxTerminal({
     // 프로젝트 상대경로를 셸 입력에 그대로 꽂아준다 (둘 다 없으면 원래 동작인 화면 지우기로 통과)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
+      // Esc는 tmux 안의 shell·TUI가 가져간다. xterm이 PTY 입력으로 처리하게 두되,
+      // 같은 키가 window bubble 리스너의 패널 닫기까지 흐르지 않게 전파만 막는다.
+      // capture 단계의 모달은 이보다 먼저 Esc를 받으므로 기존 오버레이 우선순위는 그대로다.
+      if (event.key === 'Escape') event.stopPropagation()
       // 탭 이동은 호스트 앱의 전역 단축키다 — PTY로 흘려보내면 셸에 화살표 이스케이프가 찍히므로
       // 여기서 삼키고(preventDefault 없이) window까지 버블링만 시킨다
       if (matchesShortcut(event, getBinding('prevTab')) || matchesShortcut(event, getBinding('nextTab'))) return false
@@ -463,7 +472,7 @@ export function TmuxTerminal({
     // 실어 보낸다. 터미널 차례일 때만 셸 입력으로 받아 적는다(에이전트·채팅 창이 같은 이벤트를 나눠 쓴다)
     const onInsertRef = (e: Event) => {
       const detail = (e as CustomEvent<{ target?: string; text: string }>).detail
-      if (detail.target !== 'tmux') return
+      if (detail.target !== insertRefTargetRef.current) return
       sendRaw({ type: 'input', data: detail.text })
     }
     window.addEventListener('mew:insert-ref', onInsertRef)

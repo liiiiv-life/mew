@@ -3,5 +3,7 @@
  * 오버레이가 가로채면 안 된다 — useOverlayDismiss의 closeOnEscape로 넘겨 쓴다.
  */
 export function outsideTerminal(event: KeyboardEvent): boolean {
-  return !(event.target instanceof HTMLElement && event.target.closest('.xterm'))
+  const eventTarget = event.target instanceof HTMLElement ? event.target : null
+  const activeTarget = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  return !eventTarget?.closest('.xterm') && !activeTarget?.closest('.xterm')
 }

@@ -27,6 +27,13 @@ test('인증 전에 ACP가 종료되어도 등록표의 모든 로그인 방법�
   ])
 })
 
+test('Codex 기본 OAuth는 서버 브라우저 표면을 공개한다', () => {
+  const event = runtimeLoginAuthEvent('codex', 'not logged in')
+  assert.equal(event.type, 'auth')
+  if (event.type !== 'auth') return
+  assert.equal(event.methods[0]?.serverBrowser, true)
+})
+
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
 
 // 세션은 워크스페이스에 묶인다 — 스텁이 쓰는 상대 경로도 전부 여기 기준이다(ADR 0043)
@@ -187,6 +194,34 @@ class SlowAgent {
 
 new AgentSideConnection(
   () => new SlowAgent(),
+  ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
+)
+`
+
+// 한 턴이 옛 재접속 버퍼 상한(500개)을 넘어도 질문과 답변 앞부분까지 복원하는지 보는 스텁.
+const longTranscriptStubSource = `
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
+import { Readable, Writable } from 'node:stream'
+
+class LongTranscriptAgent {
+  constructor(conn) { this.conn = conn }
+  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: { loadSession: true } } }
+  async newSession() { return { sessionId: 'stub-long-transcript' } }
+  async loadSession() { return {} }
+  async authenticate() { return {} }
+  async cancel() {}
+  async prompt({ sessionId }) {
+    for (let i = 0; i < 620; i += 1) {
+      await this.conn.sessionUpdate({ sessionId, update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'chunk-' + i },
+      } })
+    }
+    return { stopReason: 'end_turn' }
+  }
+}
+
+new AgentSideConnection(
+  (conn) => new LongTranscriptAgent(conn),
   ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)),
 )
 `
@@ -383,6 +418,36 @@ test('ACP 한 턴: 스트리밍·승인 왕복·CLI 기본 파일 도구 유지'
   assert.ok(last?.type === 'turn_end')
   assert.equal(last.stopReason, 'end_turn')
   assert.equal(typeof last.durationMs, 'number')
+})
+
+test('500개가 넘는 완료 턴도 질문과 답변 전체를 디스크 복원한다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-long-transcript-'))
+  const stubPath = path.join(dir, 'long-transcript-stub.mjs')
+  fs.writeFileSync(stubPath, longTranscriptStubSource)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  const original = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => original.dispose())
+  const done = new Promise<void>((resolve) => {
+    original.attach((event) => { if (event.type === 'turn_end') resolve() })
+  })
+  original.prompt('A')
+  await done
+
+  const restored = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => restored.dispose())
+  await restored.loadSession('stub-long-transcript')
+  const replay = restored.snapshot()
+  const user = replay.find((event) => event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk')
+  const answer = textOf(replay)
+
+  assert.ok(replay.length > 500, '긴 턴을 최근 500개로 자르지 않는다')
+  assert.ok(user?.type === 'update' && user.update.sessionUpdate === 'user_message_chunk')
+  assert.equal(user.update.content.type === 'text' ? user.update.content.text : null, 'A')
+  assert.match(answer, /^chunk-0\|/)
+  assert.match(answer, /\|chunk-619$/)
+  assert.equal(replay.at(-1)?.type, 'turn_end')
 })
 
 test('인증 필요 상태를 유지하고 URL 로그인 뒤 같은 연결에서 세션을 시작한다', async (t) => {
@@ -824,6 +889,72 @@ test('대기 중인 메시지를 고치면 고친 내용으로 돈다 — 원본
   await done
 
   assert.deepEqual(prompts, ['첫째', '고친 둘째'], '고친 내용이 대기 순서 그대로 돈다')
+})
+
+test('대기 메시지를 편집하는 동안 앞 턴이 끝나도 실행하지 않고 완료 뒤 고친 내용으로 돈다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
+  fs.writeFileSync(stubPath, stubSource)
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
+
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+
+  const prompts: string[] = []
+  let firstDone!: () => void
+  let editedDone!: () => void
+  const firstFinished = new Promise<void>((resolve) => { firstDone = resolve })
+  const editedFinished = new Promise<void>((resolve) => { editedDone = resolve })
+  session.attach((event) => {
+    if (event.type === 'permission') session.answerPermission(event.id, 'allow')
+    if (event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk') {
+      const content = event.update.content
+      if (!Array.isArray(content) && content?.type === 'text') prompts.push(content.text)
+    }
+    if (event.type === 'turn_end' && prompts.length === 1) firstDone()
+    if (event.type === 'turn_end' && prompts.length === 2) editedDone()
+  })
+
+  session.prompt('첫째')
+  session.prompt('둘째')
+  session.beginQueuedEdit(0, '둘째')
+  await firstFinished
+  await new Promise((resolve) => setTimeout(resolve, 30))
+
+  assert.deepEqual(prompts, ['첫째'], '편집 잠금 중에는 원문을 실행하지 않는다')
+  session.editQueued(0, '고친 둘째', '둘째')
+  await editedFinished
+  assert.deepEqual(prompts, ['첫째', '고친 둘째'])
+})
+
+test('대기 메시지 편집을 취소하면 원문을 유지하고 큐 실행을 재개한다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
+  fs.writeFileSync(stubPath, stubSource)
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }))
+
+  const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stubPath] })
+  t.after(() => session.dispose())
+
+  const prompts: string[] = []
+  const done = new Promise<void>((resolve) => {
+    session.attach((event) => {
+      if (event.type === 'permission') session.answerPermission(event.id, 'allow')
+      if (event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk') {
+        const content = event.update.content
+        if (!Array.isArray(content) && content?.type === 'text') prompts.push(content.text)
+      }
+      if (event.type === 'turn_end' && prompts.length === 2) resolve()
+    })
+  })
+
+  session.prompt('첫째')
+  session.prompt('둘째')
+  session.beginQueuedEdit(0, '둘째')
+  session.cancelQueuedEdit(0, '둘째')
+  await done
+
+  assert.deepEqual(prompts, ['첫째', '둘째'])
 })
 
 test('중단하면 대기 중인 메시지도 같이 버린다', async (t) => {

@@ -12,14 +12,7 @@ interface PanelDismissal {
   closeOnEscape?: (event: KeyboardEvent) => boolean
 }
 
-interface TerminalDismissal extends PanelDismissal {
-  /** 터미널 안의 vim 등이 Esc를 쓸 때는 패널을 닫지 않는다. 뒤로가기는 언제나 닫는다. */
-  closeOnEscape: (event: KeyboardEvent) => boolean
-}
-
-export type WorkspacePanelDismissals = Record<WorkspacePanelId, PanelDismissal> & {
-  terminal: TerminalDismissal
-}
+export type WorkspacePanelDismissals = Record<WorkspacePanelId, PanelDismissal>
 
 const BUBBLE = { escapePhase: 'bubble' as const }
 

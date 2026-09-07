@@ -1,4 +1,4 @@
-// 에이전트 창 — ACP 세션과 대화하는 채팅 패널(터미널이 아니다). 서버 쪽은 server/agentAcp.ts.
+// 터미널•에이전트패널 — ACP 채팅과 탭별 tmux TUI·셸을 한 탭 체계에서 연다.
 // **탭 하나가 세션 하나**다: 탭마다 자기 WS·자기 대화·서버 쪽 자식 프로세스를 하나씩 가진다.
 // 대화 화면은 서버 이벤트에서 파생한다(접는 규칙은 utils/agentFold.ts). 브라우저 재진입 첫 화면은
 // 탭별 이벤트 캐시가 그리고, 서버 replay가 오면 같은 세션의 최신 꼬리를 중복 없이 합친다.
@@ -17,7 +17,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
+import { copyText, isTextareaCaretOnVisualBoundary, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { TmuxTerminal } from '@mew/tmux-term'
 import { type TreeNode } from '@mew/editor'
@@ -35,7 +35,7 @@ import {
   readAgentEventCache,
   writeAgentEventCache,
 } from '../utils/agentEventCache'
-import { RUNTIMES, runtimeOf } from './agentRuntimes'
+import { DEFAULT_RUNTIME_ID, RUNTIMES, runtimeOf } from './agentRuntimes'
 import {
   cancelAgentScheduledPrompt,
   fetchAgentDefault,
@@ -51,6 +51,7 @@ import {
   resolveAgentFileLink,
   rawUrl,
   runAgentAuthTerminal,
+  openAgentAuthServerBrowser,
   submitAgentAuthBrowserInput,
   saveAgentDefault,
   saveAgentTabs,
@@ -78,6 +79,8 @@ import { cachedAgentRuntimes, refreshAgentRuntimes, subscribeAgentRuntimes, upda
 import { useGridDrag } from '../hooks/useGridDrag'
 import { sessionIdOf, sessionIdsExcept, withAutoLabel, withProjectLabel, withRename, withSessionId, type AgentTab } from '../utils/agentTabs'
 import { agentTabStorageKey } from '../utils/agentTabStorage'
+import { MIN_AGENT_INPUT_HEIGHT, agentInputMaxHeight } from '../utils/agentInputLayout'
+import { outsideTerminal } from '../utils/terminalFocus'
 import {
   foldEvents,
   formatDuration,
@@ -138,25 +141,19 @@ const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
 /** 소프트 키보드를 띄우는 요소 — 여기 포커스가 남아 있으면 엉뚱한 탭에도 키보드가 딸려 온다 */
 const KEYBOARD_OWNER = 'textarea, input, [contenteditable="true"]'
 
-/** 저장(24px) + 첨부·예약·전송(24+6+24+6+32px) + 컨테이너 상하 여백(16px). */
-const MIN_AGENT_INPUT_HEIGHT = 24 + 24 + 6 + 24 + 6 + 32 + 16
 /** 최소 높이는 좁은 화면의 하한일 뿐, 평소 작성을 위한 기본 높이는 따로 둔다. */
 const DEFAULT_AGENT_INPUT_HEIGHT = 180
 const AGENT_INPUT_HEIGHT_KEY = 'mew:agent-input-height'
 /** 모바일 visualViewport 경계의 반올림·키보드 액세서리 영역을 피하는 하단 안전 간격. */
 const MOBILE_AGENT_INPUT_BOTTOM_GUARD_PX = 8
-function agentInputMaxHeight(panelHeight = window.innerHeight, viewportBottomInset = 0) {
-  return Math.max(MIN_AGENT_INPUT_HEIGHT, Math.floor(panelHeight * 0.9 - viewportBottomInset))
-}
-
 function initialAgentInputHeight() {
   try {
     const saved = Number(localStorage.getItem(AGENT_INPUT_HEIGHT_KEY))
     if (Number.isFinite(saved) && saved >= MIN_AGENT_INPUT_HEIGHT) {
-      return Math.min(agentInputMaxHeight(), saved)
+      return Math.min(agentInputMaxHeight(window.innerHeight), saved)
     }
   } catch { /* localStorage를 쓸 수 없어도 기본 높이로 연다 */ }
-  return Math.min(agentInputMaxHeight(), DEFAULT_AGENT_INPUT_HEIGHT)
+  return Math.min(agentInputMaxHeight(window.innerHeight), DEFAULT_AGENT_INPUT_HEIGHT)
 }
 
 /**
@@ -258,7 +255,7 @@ function loadTabs(workspacePath: string | null): AgentTab[] {
         // ADR 0062 이전 탭에는 runtime이 없다. 마지막으로 쓴 런타임을 한 번만 승격해
         // 기존 runtime+tab 세션 키와 히스토리를 보전한다. 새 탭은 여전히 미선택으로 만든다.
         const legacyRuntime = localStorage.getItem(RUNTIME_KEY)
-        const migratedRuntime = RUNTIMES.some((runtime) => runtime.id === legacyRuntime) ? legacyRuntime! : RUNTIMES[0].id
+        const migratedRuntime = RUNTIMES.some((runtime) => runtime.id === legacyRuntime) ? legacyRuntime! : DEFAULT_RUNTIME_ID
         const normalizedTabs = tabs.flatMap((tab) => {
           // 예전의 미선택 "새 대화" 탭은 이제 선택기 자체로 바뀌었으므로 복원하지 않는다.
           if (tab.runtime === null && tab.label === LEGACY_PENDING_TAB_LABEL) return []
@@ -746,7 +743,7 @@ function AgentTabBar({
         {tabs.map((tab, i) => {
           // 새 탭 선택기가 열려 있으면 `+`가 가상 활성 탭이다. 직전 대화 탭을 함께 활성으로 보이지 않는다.
           const isActive = !pickerOpen && tab.id === activeId
-          const runtime = runtimeOf(tab.runtime ?? RUNTIMES[0].id)
+          const runtime = runtimeOf(tab.runtime ?? DEFAULT_RUNTIME_ID)
           return (
             <div
               key={tab.id}
@@ -828,7 +825,7 @@ function AgentTabBar({
         type="button"
         onClick={onClosePanel}
         className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-        aria-label="에이전트 창 닫기"
+        aria-label="터미널•에이전트패널 닫기"
       >
         <XGlyph />
       </button>
@@ -1145,10 +1142,10 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
               const status = statuses?.find((item) => item.id === rt.id)
               const busy = installing === rt.id || status?.installing === true
               return (
-                <div key={rt.id} className="flex items-center gap-2 px-2.5 py-1">
+                <div key={rt.id} className={`flex items-center gap-2 px-2.5 py-1 ${rt.id === 'tmux' ? 'mb-1' : ''}`}>
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center text-ink-secondary"><rt.Glyph /></span>
                   <div className={`min-w-0 flex-1 truncate text-xs ${rt.id === current ? 'text-ink' : 'text-ink-secondary'}`}>{rt.label}</div>
-                  <RuntimeSettingsButton runtimeId={rt.id} label={rt.label} />
+                  {rt.id !== 'tmux' && <RuntimeSettingsButton runtimeId={rt.id} label={rt.label} />}
                   {rt.id !== current &&
                     (status?.installed ? (
                       <button
@@ -1226,7 +1223,6 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
         <div className="w-full max-w-xl">
-          <h2 className="mb-1 text-center text-sm font-medium text-ink">에이전트 선택</h2>
         <div className="mb-4 mt-4 flex rounded-md bg-surface p-0.5 text-xs">
           <button type="button" onClick={() => chooseView('runtime')} className={`flex-1 rounded px-3 py-1.5 ${view === 'runtime' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink-secondary'}`}>런타임</button>
           <button type="button" onClick={() => chooseView('set')} className={`flex-1 rounded px-3 py-1.5 ${view === 'set' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink-secondary'}`}>에이전트셋</button>
@@ -1239,10 +1235,10 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
               const status = statuses.find((item) => item.id === runtime.id)
               const busy = installing === runtime.id || status?.installing === true
               return (
-                <div key={runtime.id} className="flex min-h-10 flex-wrap items-center gap-2 rounded-md border border-edge bg-surface px-2.5 py-1.5">
+                <div key={runtime.id} className={`flex min-h-10 flex-wrap items-center gap-2 rounded-md border border-edge bg-surface px-2.5 py-1.5 ${runtime.id === 'tmux' ? 'mb-1' : ''}`}>
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center text-ink-secondary"><runtime.Glyph /></span>
                   <div className="min-w-0 flex-1 truncate text-sm text-ink">{runtime.label}</div>
-                  <RuntimeSettingsButton runtimeId={runtime.id} label={runtime.label} />
+                  {runtime.id !== 'tmux' && <RuntimeSettingsButton runtimeId={runtime.id} label={runtime.label} />}
                   {status?.installed ? (
                     <button
                       type="button"
@@ -1275,7 +1271,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0 }: { project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
+export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0 }: { project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
   const shortcutScopeRef = useRef<HTMLDivElement>(null)
   const tabsKey = agentTabStorageKey(TABS_KEY, workspacePath)
   const activeTabKey = agentTabStorageKey(ACTIVE_TAB_KEY, workspacePath)
@@ -1301,7 +1297,8 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
   // 탭을 닫을 때 그 탭의 WS로 close_session을 보내야 한다 — 창을 닫는 것과 달리 세션을 끝내는 뜻이다
   const sendersRef = useRef(new Map<string, (payload: Record<string, unknown>) => void>())
 
-  useOverlayDismiss(onClose)
+  // 셸/TUI 안의 Esc는 프로그램 입력이다. 터미널 밖에 포커스가 있을 때만 패널 닫기로 쓴다.
+  useOverlayDismiss(onClose, { escapePhase: 'bubble', closeOnEscape: outsideTerminal })
 
   useEffect(() => {
     localStorage.setItem(tabsKey, JSON.stringify(tabs))
@@ -1585,6 +1582,8 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, onOp
                 tabId={tab.id}
                 cwd={tab.cwd!}
                 activeFilePath={focusedFilePath}
+                getSelectedText={getSelectedText}
+                renderCommandButtons={tab.runtime === 'tmux' ? renderCommandButtons : undefined}
               />
             ) : <AgentSessionView
               tabId={tab.id}
@@ -1628,11 +1627,15 @@ function AgentTerminalView({
   tabId,
   cwd,
   activeFilePath,
+  getSelectedText,
+  renderCommandButtons,
 }: {
   runtime: string
   tabId: string
   cwd: string
   activeFilePath: string | null
+  getSelectedText?: () => string | null
+  renderCommandButtons?: (run: (command: string) => void) => ReactNode
 }) {
   const [session, setSession] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -1648,7 +1651,7 @@ function AgentTerminalView({
     return () => { alive = false }
   }, [cwd, retry, runtime, tabId])
 
-  if (session) return <TmuxTerminal sessionName={session} activeFilePath={activeFilePath} />
+  if (session) return <TmuxTerminal sessionName={session} activeFilePath={activeFilePath} getSelectedText={getSelectedText} renderCommandButtons={renderCommandButtons} insertRefTarget="agent" />
   return (
     <div className="flex h-full items-center justify-center bg-surface-deep p-4 text-center">
       {error ? (
@@ -1732,12 +1735,16 @@ function AgentSessionView({
     label: string
     methodId: string
     surface: 'browser' | 'terminal'
+    serverBrowser: boolean
     verificationUrl: string | null
     verificationCode: string | null
     errorMessage: string | null
     state: 'running' | 'succeeded' | 'failed' | 'interrupted'
     exitCode: number | null
   } | null>(null)
+  const [authBrowser, setAuthBrowser] = useState<{ methodId: string; url: string; frameUrl: string } | null>(null)
+  const authBrowserRef = useRef<typeof authBrowser>(null)
+  const authBrowserOpeningRef = useRef(false)
   const [authTerminalOpen, setAuthTerminalOpen] = useState(false)
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [savedDefault, setSavedDefault] = useState<AgentRuntimeDefault | null>(null)
@@ -1750,6 +1757,11 @@ function AgentSessionView({
     const loginWindow = browserLoginWindowRef.current
     if (loginWindow && !loginWindow.closed) loginWindow.close()
     browserLoginWindowRef.current = null
+  }, [])
+  const closeAuthBrowser = useCallback(() => {
+    authBrowserOpeningRef.current = false
+    authBrowserRef.current = null
+    setAuthBrowser(null)
   }, [])
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const agentInputRef = useRef<HTMLTextAreaElement>(null)
@@ -1821,14 +1833,18 @@ function AgentSessionView({
   }, [draft, tabId])
   const scrollRef = useRef<HTMLDivElement>(null)
   const sessionRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
   // 탭을 바꾸거나 세션 뷰가 다시 붙어도 작성 영역이 최소 높이로 되돌아가지 않는다.
   const [inputHeight, setInputHeight] = useState(initialAgentInputHeight)
   const inputResizeCleanupRef = useRef<(() => void) | null>(null)
   // 지금 대화 바닥에 붙어 있는지 — 붙어 있을 때만 새 내용을 따라 내려간다
   const stickRef = useRef(true)
   const [unread, setUnread] = useState(false)
-  const [viewportMetrics, setViewportMetrics] = useState(() => ({ panelHeight: window.innerHeight, bottomInset: 0 }))
-  const maxInputHeight = agentInputMaxHeight(viewportMetrics.panelHeight, viewportMetrics.bottomInset)
+  const [viewportMetrics, setViewportMetrics] = useState(() => ({
+    bottomInset: 0,
+    maxInputHeight: agentInputMaxHeight(window.innerHeight),
+  }))
+  const maxInputHeight = viewportMetrics.maxInputHeight
   // 키보드가 닫히면 사용자가 정한 높이로 돌아가고, 열린 동안만 보이는 높이를 상한 안에 둔다.
   const visibleInputHeight = Math.min(inputHeight, maxInputHeight)
 
@@ -1845,11 +1861,22 @@ function AgentSessionView({
         ? visualViewport.offsetTop + visualViewport.height
         : window.innerHeight
       const bottomGuard = isDesktop() ? 0 : MOBILE_AGENT_INPUT_BOTTOM_GUARD_PX
-      const coveredBottom = bounds ? Math.max(0, bounds.bottom - visibleBottom + bottomGuard) : bottomGuard
+      const viewportOverlap = bounds ? Math.max(0, bounds.bottom - visibleBottom) : 0
+      // 평상시에는 p-2만 남겨 네 방향 여백을 같게 한다. 안전 간격은 소프트 키보드가
+      // 실제로 패널 아래를 덮을 때만 더한다.
+      const coveredBottom = viewportOverlap > 0 ? viewportOverlap + bottomGuard : 0
       const bottomInset = Math.ceil(Math.min(Math.max(0, panelHeight - MIN_AGENT_INPUT_HEIGHT), coveredBottom))
-      setViewportMetrics((current) => current.panelHeight === panelHeight && current.bottomInset === bottomInset
+      const scrollBounds = scrollRef.current?.getBoundingClientRect()
+      const composerBounds = composerRef.current?.getBoundingClientRect()
+      // 입력칸 앞의 실제 고정 영역을 잰다. 도구줄뿐 아니라 대기·예약 메시지가 생겨도
+      // 그 높이를 입력칸 최대치에서 빼므로 composer가 panel 아래로 밀려나지 않는다.
+      const fixedContentHeight = bounds && scrollBounds && composerBounds
+        ? Math.max(0, composerBounds.top - bounds.top - scrollBounds.height)
+        : 32
+      const maxInputHeight = agentInputMaxHeight(panelHeight, bottomInset, fixedContentHeight)
+      setViewportMetrics((current) => current.maxInputHeight === maxInputHeight && current.bottomInset === bottomInset
         ? current
-        : { panelHeight, bottomInset })
+        : { maxInputHeight, bottomInset })
     }
     const scheduleMeasure = () => {
       window.cancelAnimationFrame(frame)
@@ -1857,6 +1884,8 @@ function AgentSessionView({
     }
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure)
     if (sessionRef.current) observer?.observe(sessionRef.current)
+    if (scrollRef.current) observer?.observe(scrollRef.current)
+    if (composerRef.current) observer?.observe(composerRef.current)
     window.addEventListener('resize', scheduleMeasure)
     window.visualViewport?.addEventListener('resize', scheduleMeasure)
     window.visualViewport?.addEventListener('scroll', scheduleMeasure)
@@ -1868,7 +1897,8 @@ function AgentSessionView({
       window.visualViewport?.removeEventListener('resize', scheduleMeasure)
       window.visualViewport?.removeEventListener('scroll', scheduleMeasure)
     }
-  }, [active])
+  // 인증 화면이 composer를 잠시 떼었다 다시 붙일 수 있어, 그 경계에서도 관찰 대상을 새로 잡는다.
+  }, [active, auth])
 
   const startInputResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
@@ -1915,14 +1945,11 @@ function AgentSessionView({
     setInputHeight((height) => Math.min(maxInputHeight, Math.max(MIN_AGENT_INPUT_HEIGHT, height + delta)))
   }, [maxInputHeight])
 
-  /** 첫·마지막 줄에서만 터미널처럼 이전·다음 전송을 순회한다. */
+  /** 첫·마지막 시각적 줄에서만 터미널처럼 이전·다음 전송을 순회한다. */
   const navigateAgentHistory = useCallback((direction: 'up' | 'down'): boolean => {
     const input = agentInputRef.current
     if (!input || input.selectionStart !== input.selectionEnd) return false
-    const caret = input.selectionStart ?? 0
-    const atFirstLine = !draft.slice(0, caret).includes('\n')
-    const atLastLine = !draft.slice(caret).includes('\n')
-    if ((direction === 'up' && !atFirstLine) || (direction === 'down' && !atLastLine)) return false
+    if (!isTextareaCaretOnVisualBoundary(input, direction)) return false
     const history = readAgentInputHistory(tabId)
     if (history.length === 0) return false
 
@@ -2206,6 +2233,7 @@ function AgentSessionView({
     const finish = async () => {
       // 이미 인증돼 CLI가 URL 없이 바로 끝나는 경우, 클릭 때 미리 연 준비 탭을 남기지 않는다.
       closePendingBrowserLoginWindow()
+      closeAuthBrowser()
       await killTmuxSession(terminal.session).catch(() => {})
       if (cancelled) return
       setAuthTerminalOpen(false)
@@ -2217,15 +2245,35 @@ function AgentSessionView({
         const status = await fetchAgentAuthTerminalStatus(runtime, tabId, terminal.methodId)
         if (cancelled) return
         if (terminal.surface === 'browser' && status.verificationUrl) {
-          const loginWindow = browserLoginWindowRef.current
-          if (loginWindow && !loginWindow.closed) {
-            try {
-              loginWindow.location.replace(status.verificationUrl)
-            } catch {
-              // 브라우저가 opener 탐색을 막으면 빈 준비 탭은 닫고, 인증 화면의 수동 열기 버튼을 쓴다.
-              loginWindow.close()
-            } finally {
-              browserLoginWindowRef.current = null
+          if (terminal.serverBrowser) {
+            if (!authBrowserRef.current && !authBrowserOpeningRef.current && !terminal.errorMessage) {
+              authBrowserOpeningRef.current = true
+              try {
+                const page = await openAgentAuthServerBrowser(runtime, tabId, terminal.methodId)
+                if (cancelled) return
+                const next = { methodId: terminal.methodId, ...page }
+                authBrowserRef.current = next
+                setAuthBrowser(next)
+              } catch (error) {
+                if (cancelled) return
+                setAuthTerminal((current) => current?.session === terminal.session
+                  ? { ...current, errorMessage: error instanceof Error ? error.message : String(error) }
+                  : current)
+              } finally {
+                authBrowserOpeningRef.current = false
+              }
+            }
+          } else {
+            const loginWindow = browserLoginWindowRef.current
+            if (loginWindow && !loginWindow.closed) {
+              try {
+                loginWindow.location.replace(status.verificationUrl)
+              } catch {
+                // 브라우저가 opener 탐색을 막으면 빈 준비 탭은 닫고, 인증 화면의 수동 열기 버튼을 쓴다.
+                loginWindow.close()
+              } finally {
+                browserLoginWindowRef.current = null
+              }
             }
           }
         }
@@ -2235,6 +2283,7 @@ function AgentSessionView({
         }
         if (status.state === 'failed' || status.state === 'interrupted') {
           closePendingBrowserLoginWindow()
+          closeAuthBrowser()
           setAuthTerminal((current) => current?.session === terminal.session ? { ...current, ...status } : current)
           return
         }
@@ -2250,7 +2299,7 @@ function AgentSessionView({
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [authTerminal, closePendingBrowserLoginWindow, runtime, send, tabId])
+  }, [authTerminal, closeAuthBrowser, closePendingBrowserLoginWindow, runtime, send, tabId])
 
   // 런타임·탭 전환으로 인증 화면이 사라져도 준비용 빈 탭만 남기지 않는다.
   useEffect(() => closePendingBrowserLoginWindow, [closePendingBrowserLoginWindow])
@@ -2287,27 +2336,32 @@ function AgentSessionView({
   const queued = meta?.queued ?? []
   const usage = meta?.usage ?? null
 
-  // 대기 큐 재정렬 — 꾹(마우스 0.5초·터치 길게) 눌러 집은 항목을 다른 항목 위에 놓으면 서버 큐에서 자리를 옮긴다
+  // original = 고치기 시작할 때 보고 있던 원본. 서버가 이 항목을 잠가 앞 턴이 끝나도 큐를 당기지 않는다.
+  const [editingQueued, setEditingQueued] = useState<{ index: number; text: string; original: string } | null>(null)
+  // 대기 큐 재정렬 — 편집 중에는 인덱스를 그대로 지켜야 하므로 큐 전체의 드래그를 잠시 막는다.
   const queueDrag = useGridDrag({
-    enabled: queued.length > 1,
+    enabled: queued.length > 1 && editingQueued === null,
     mouseHoldMs: 500,
     onMove: (from, to) => send({ type: 'move_queued', from, to }),
   })
-
-  // 한 줄로 잘린 대기 메시지를 한 번 누르면 전문을 펴고, 두 번 누르면 그 자리에서 고친다
-  const [openQueued, setOpenQueued] = useState<number | null>(null)
-  // original = 고치기 시작할 때 보고 있던 원본. 그 사이 앞 턴이 끝나 큐가 당겨졌으면 서버가 이걸 보고 거른다
-  const [editingQueued, setEditingQueued] = useState<{ index: number; text: string; original: string } | null>(null)
   const [errorDetail, setErrorDetail] = useState<{ title: string; detail: string } | null>(null)
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [scheduled, setScheduled] = useState<AgentScheduledPrompt[]>([])
-  const [openScheduled, setOpenScheduled] = useState<string | null>(null)
   const [editingScheduled, setEditingScheduled] = useState<{ id: string; text: string; original: string } | null>(null)
   const [rescheduling, setRescheduling] = useState<AgentScheduledPrompt | null>(null)
+  const startQueuedEdit = (index: number, text: string) => {
+    if (editingQueued || text === '/clear') return
+    send({ type: 'begin_edit_queued', index, expect: text })
+    setEditingQueued({ index, text, original: text })
+  }
   const commitQueuedEdit = (edit: { index: number; text: string; original: string }) => {
     const text = edit.text.trim()
-    if (text && text !== edit.original)
-      send({ type: 'edit_queued', index: edit.index, text, expect: edit.original, skills: selectedSkillNames(text, skills) })
+    if (!text) return
+    send({ type: 'edit_queued', index: edit.index, text, expect: edit.original, skills: selectedSkillNames(text, skills) })
+    setEditingQueued(null)
+  }
+  const cancelQueuedEdit = (edit: { index: number; original: string }) => {
+    send({ type: 'cancel_edit_queued', index: edit.index, expect: edit.original })
     setEditingQueued(null)
   }
 
@@ -2470,7 +2524,7 @@ function AgentSessionView({
     return next
   }), [])
 
-  const currentRuntime = RUNTIMES.find((r) => r.id === runtime) ?? RUNTIMES[0]
+  const currentRuntime = runtimeOf(runtime)
   const currentModel = models?.availableModels.find((m) => m.modelId === models.currentModelId)?.name
   const modelOptions = models?.availableModels.map((m) => ({ id: m.modelId, label: m.name })) ?? [{ id: '', label: '모델' }]
   const thinkingOptions = thinking?.options.map((option) => ({ id: option.id, label: option.name })) ?? [{ id: '', label: '사고' }]
@@ -2585,7 +2639,7 @@ function AgentSessionView({
   )
 
   return (
-    <div ref={sessionRef} className="relative flex h-full w-full flex-col bg-surface-deep">
+    <div ref={sessionRef} className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface-deep">
       {/* 탭바 바로 아래의 세션 도구 바. 히스토리·정보 팝업만 이 바에서 펼친다. */}
       <div ref={infoOverlayRef} className="relative z-20 flex h-8 shrink-0 items-center justify-between border-b border-edge bg-surface px-3">
         <SessionPicker
@@ -2696,7 +2750,13 @@ function AgentSessionView({
         )}
       </div>
 
-      {auth ? (
+      {auth ? authBrowser ? (
+        <AgentAuthServerBrowser
+          runtime={currentRuntime.label}
+          page={authBrowser}
+          onClose={closeAuthBrowser}
+        />
+      ) : (
         <AgentAuthPanel
           runtime={currentRuntime.label}
           state={auth}
@@ -2709,6 +2769,7 @@ function AgentSessionView({
           onCancelUrl={(id) => send({ type: 'auth_url_response', id, action: 'cancel' })}
           onBackToPicker={() => {
             closePendingBrowserLoginWindow()
+            closeAuthBrowser()
             onBackToPicker()
           }}
           browserLoginUrl={authTerminal?.verificationUrl ?? null}
@@ -2719,10 +2780,26 @@ function AgentSessionView({
             ? authTerminal.errorMessage ?? `로그인 명령이 실패했습니다${authTerminal.exitCode === null ? '' : ` (exit ${authTerminal.exitCode})`}. 다시 시도하세요.`
             : authTerminal?.surface === 'browser' && authTerminal.state === 'interrupted'
               ? '로그인 명령이 완료 전에 종료됐습니다. 다시 시도하세요.'
-              : null}
+              : authTerminal?.surface === 'browser' ? authTerminal.errorMessage : null}
           onOpenBrowserLogin={() => {
             const url = authTerminal?.verificationUrl
-            if (url) window.open(url, '_blank', 'noopener,noreferrer')
+            if (!url || !authTerminal) return
+            if (!authTerminal.serverBrowser) {
+              window.open(url, '_blank', 'noopener,noreferrer')
+              return
+            }
+            authBrowserOpeningRef.current = true
+            void openAgentAuthServerBrowser(runtime, tabId, authTerminal.methodId)
+              .then((page) => {
+                const next = { methodId: authTerminal.methodId, ...page }
+                authBrowserRef.current = next
+                setAuthBrowser(next)
+                setAuthTerminal((current) => current ? { ...current, errorMessage: null } : current)
+              })
+              .catch((error: unknown) => setAuthTerminal((current) => current
+                ? { ...current, errorMessage: error instanceof Error ? error.message : String(error) }
+                : current))
+              .finally(() => { authBrowserOpeningRef.current = false })
           }}
           onSubmitBrowserLoginInput={(input) => {
             if (!authTerminal) return Promise.reject(new Error('진행 중인 로그인 작업이 없습니다'))
@@ -2731,7 +2808,7 @@ function AgentSessionView({
           onOpenTerminal={(methodId) => {
             void runAgentAuthTerminal(runtime, tabId, cwd, methodId)
               .then(({ session, label, state, exitCode }) => {
-                setAuthTerminal({ session, label, methodId, surface: 'terminal', verificationUrl: null, verificationCode: null, errorMessage: null, state, exitCode })
+                setAuthTerminal({ session, label, methodId, surface: 'terminal', serverBrowser: false, verificationUrl: null, verificationCode: null, errorMessage: null, state, exitCode })
                 setAuthTerminalOpen(true)
               })
               .catch((err: unknown) => setErrorDetail({
@@ -2740,19 +2817,23 @@ function AgentSessionView({
               }))
           }}
           onStartBrowserLogin={(methodId) => {
-            const loginWindow = window.open('about:blank', '_blank')
-            if (loginWindow) {
-              loginWindow.document.title = `${currentRuntime.label} 로그인 준비 중`
-              loginWindow.document.body.textContent = '로그인 링크를 준비하고 있습니다…'
-              // 준비 탭을 나중에 외부 OAuth origin으로 이동해도 Mew 창에 접근할 수 없게 한다.
-              loginWindow.opener = null
-              browserLoginWindowRef.current = loginWindow
+            closeAuthBrowser()
+            const serverBrowser = auth.methods.find((method) => method.id === methodId)?.serverBrowser === true
+            if (!serverBrowser) {
+              const loginWindow = window.open('about:blank', '_blank')
+              if (loginWindow) {
+                loginWindow.document.title = `${currentRuntime.label} 로그인 준비 중`
+                loginWindow.document.body.textContent = '로그인 링크를 준비하고 있습니다…'
+                // 준비 탭을 나중에 외부 OAuth origin으로 이동해도 Mew 창에 접근할 수 없게 한다.
+                loginWindow.opener = null
+                browserLoginWindowRef.current = loginWindow
+              }
             }
             void runAgentAuthTerminal(runtime, tabId, cwd, methodId)
               .then(({ session, label }) => {
                 // 명령이 즉시 실패해 POST 응답이 이미 failed여도 상태 endpoint를 한 번 읽어야
                 // 터미널을 숨긴 브라우저형 로그인에서 공급자의 안전한 실패 이유를 보여 줄 수 있다.
-                setAuthTerminal({ session, label, methodId, surface: 'browser', verificationUrl: null, verificationCode: null, errorMessage: null, state: 'running', exitCode: null })
+                setAuthTerminal({ session, label, methodId, surface: 'browser', serverBrowser, verificationUrl: null, verificationCode: null, errorMessage: null, state: 'running', exitCode: null })
               })
               .catch((err: unknown) => {
                 closePendingBrowserLoginWindow()
@@ -3028,53 +3109,65 @@ function AgentSessionView({
                       value={editing.text}
                       onChange={(e) => setEditingQueued({ ...editing, text: e.target.value })}
                       onKeyDown={(e) => {
-                        if (e.key === 'Escape') return setEditingQueued(null)
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          cancelQueuedEdit(editing)
+                          return
+                        }
                         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
                           e.preventDefault()
                           commitQueuedEdit(editing)
                         }
                       }}
-                      onBlur={() => commitQueuedEdit(editing)}
                       rows={3}
                       className="min-w-0 flex-1 resize-none rounded bg-surface-raised px-2 py-1 text-xs text-ink outline-none"
                     />
-                    <button
-                      type="button"
-                      onPointerDown={keepFocusOnPress}
-                      onClick={() => commitQueuedEdit(editing)}
-                      className="shrink-0 rounded bg-accent px-2 py-1 text-xs font-medium text-accent-ink hover:bg-accent-strong"
-                    >
-                      완료
-                    </button>
+                    <div className="flex shrink-0 flex-col gap-1">
+                      <button
+                        type="button"
+                        onPointerDown={keepFocusOnPress}
+                        onClick={() => commitQueuedEdit(editing)}
+                        disabled={!editing.text.trim()}
+                        className="rounded bg-accent px-2 py-1 text-xs font-medium text-accent-ink hover:bg-accent-strong disabled:opacity-40"
+                      >
+                        완료
+                      </button>
+                      <button
+                        type="button"
+                        onPointerDown={keepFocusOnPress}
+                        onClick={() => cancelQueuedEdit(editing)}
+                        className="rounded border border-edge-strong px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink"
+                      >
+                        취소
+                      </button>
+                    </div>
                   </>
                 ) : (
-                  <span
+                  <button
+                    type="button"
                     onClick={() => {
                       if (queueDrag.consumeClick()) return
-                      setOpenQueued(openQueued === index ? null : index)
+                      startQueuedEdit(index, text)
                     }}
-                    onDoubleClick={() => {
-                      if (!isClearBoundary) setEditingQueued({ index, text, original: text })
-                    }}
-                    title={isClearBoundary ? '이 지점에서 새 대화로 전환합니다' : '한 번 눌러 전문 보기 · 두 번 눌러 고치기'}
-                    className={`min-w-0 flex-1 cursor-pointer text-ink-secondary ${
-                      openQueued === index ? 'whitespace-pre-wrap break-words' : 'truncate'
-                    }`}
+                    disabled={editingQueued !== null || isClearBoundary}
+                    title={isClearBoundary ? '이 지점에서 새 대화로 전환합니다' : '눌러서 수정'}
+                    className="min-w-0 flex-1 truncate text-left text-ink-secondary disabled:cursor-default"
                   >
                     {text}
-                  </span>
+                  </button>
                 )}
-                <button
+                {!editing && <button
                   type="button"
                   onClick={() => {
                     if (queueDrag.consumeClick()) return
                     send({ type: 'unqueue', index })
                   }}
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink"
+                  disabled={editingQueued !== null}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink disabled:opacity-40"
                   aria-label="대기 메시지 취소"
                 >
                   <XGlyph small />
-                </button>
+                </button>}
               </div>
             )
           })}
@@ -3090,25 +3183,32 @@ function AgentSessionView({
                         value={editing.text}
                         onChange={(event) => setEditingScheduled({ ...editing, text: event.target.value })}
                         onKeyDown={(event) => {
-                          if (event.key === 'Escape') setEditingScheduled(null)
+                          if (event.key === 'Escape') {
+                            event.preventDefault()
+                            setEditingScheduled(null)
+                            return
+                          }
                           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) {
                             event.preventDefault()
                             commitScheduledEdit(editing)
                           }
                         }}
-                        onBlur={() => commitScheduledEdit(editing)}
                         rows={3}
                         className="min-w-0 flex-1 resize-none rounded bg-surface-raised px-2 py-1 text-xs text-ink outline-none"
                       />
-                      <button type="button" onPointerDown={keepFocusOnPress} onClick={() => commitScheduledEdit(editing)} className="shrink-0 rounded bg-accent px-2 py-1 text-xs font-medium text-accent-ink hover:bg-accent-strong">완료</button>
+                      <div className="flex shrink-0 flex-col gap-1">
+                        <button type="button" onPointerDown={keepFocusOnPress} onClick={() => commitScheduledEdit(editing)} disabled={!editing.text.trim()} className="rounded bg-accent px-2 py-1 text-xs font-medium text-accent-ink hover:bg-accent-strong disabled:opacity-40">완료</button>
+                        <button type="button" onPointerDown={keepFocusOnPress} onClick={() => setEditingScheduled(null)} className="rounded border border-edge-strong px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink">취소</button>
+                      </div>
                     </>
                   ) : <>
-                    <span
-                      onClick={() => setOpenScheduled(openScheduled === job.id ? null : job.id)}
-                      onDoubleClick={() => setEditingScheduled({ id: job.id, text: job.text, original: job.text })}
-                      title="한 번 눌러 전문 보기 · 두 번 눌러 고치기"
-                      className={`min-w-0 flex-1 cursor-pointer text-ink-secondary ${openScheduled === job.id ? 'whitespace-pre-wrap break-words' : 'truncate'}`}
-                    >{job.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => setEditingScheduled({ id: job.id, text: job.text, original: job.text })}
+                      disabled={editingScheduled !== null}
+                      title="눌러서 수정"
+                      className="min-w-0 flex-1 truncate text-left text-ink-secondary disabled:cursor-default"
+                    >{job.text}</button>
                     <button
                       type="button"
                       onClick={() => { setRescheduling(job); setScheduleOpen(true) }}
@@ -3117,7 +3217,7 @@ function AgentSessionView({
                       title="예약 시간 수정"
                     ><time dateTime={job.at}>{formatTime(job.at)}</time></button>
                   </>}
-                  <button
+                  {!editing && <button
                     type="button"
                     onClick={() => { void cancelScheduled(job.id) }}
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink"
@@ -3125,7 +3225,7 @@ function AgentSessionView({
                     title="예약 메시지 취소"
                   >
                     <XGlyph small />
-                  </button>
+                  </button>}
                 </div>
               })}
             </div>
@@ -3147,6 +3247,7 @@ function AgentSessionView({
 
       {/* 키보드를 쥐어도 되는 유일한 자리 — 전송 버튼을 눌러도 이어 쓰도록 포커스를 뺏지 않는다 */}
       <div
+        ref={composerRef}
         className="relative flex shrink-0 flex-col gap-0.5 border-t border-edge p-2"
         style={{ height: `${visibleInputHeight}px`, marginBottom: `${viewportMetrics.bottomInset}px` }}
         data-keep-keyboard
@@ -3311,6 +3412,47 @@ function AgentSessionView({
         />
       )}
     </div>
+  )
+}
+
+function AgentAuthServerBrowser({
+  runtime,
+  page,
+  onClose,
+}: {
+  runtime: string
+  page: { methodId: string; url: string; frameUrl: string }
+  onClose: () => void
+}) {
+  let host = '인증 서버'
+  try { host = new URL(page.url).hostname } catch { /* 서버가 이미 검증한 URL */ }
+  return (
+    <section className="flex min-h-0 flex-1 flex-col bg-surface-deep" aria-label={`${runtime} 로그인 브라우저`}>
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge bg-surface px-2">
+        <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-secondary">{host}</span>
+        <span className="shrink-0 text-[10px] text-ink-muted">SERVER OAUTH</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-6 w-6 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+          aria-label="로그인 브라우저 닫기"
+          title="로그인 화면으로 돌아가기"
+        >
+          ×
+        </button>
+      </div>
+      <iframe
+        src={page.frameUrl}
+        title={`${runtime} OAuth`}
+        className="min-h-0 flex-1 border-0 bg-white"
+        sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-scripts"
+        referrerPolicy="no-referrer"
+      />
+      <div className="flex h-6 shrink-0 items-center border-t border-edge bg-surface px-2 text-[10px] text-ink-muted">
+        <span className="truncate">서버에서 로그인 중 · 완료되면 자동으로 채팅으로 돌아갑니다</span>
+      </div>
+    </section>
   )
 }
 

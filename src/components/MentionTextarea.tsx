@@ -84,7 +84,7 @@ export function MentionTextarea({
   onOptionSelect?: (option: MentionOption) => void
   /** 호스트가 모바일 보조키 등으로 입력 커서를 조작할 때 쓴다. */
   inputRef?: RefObject<HTMLTextAreaElement | null>
-  /** 첫·마지막 줄에서만 호출해 입력 히스토리를 탐색한다. 처리했으면 true를 돌린다. */
+  /** 호스트가 첫·마지막 시각적 줄인지 확인해 입력 히스토리를 탐색한다. 처리했으면 true를 돌린다. */
   onHistoryNavigate?: (direction: 'up' | 'down') => boolean
 }) {
   const ownTextareaRef = useRef<HTMLTextAreaElement>(null)

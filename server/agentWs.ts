@@ -32,6 +32,8 @@ type ClientMessage =
   | { type: 'set_thinking'; configId: string; value: string }
   | { type: 'unqueue'; index: number }
   | { type: 'move_queued'; from: number; to: number }
+  | { type: 'begin_edit_queued'; index: number; expect: string }
+  | { type: 'cancel_edit_queued'; index: number; expect: string }
   /** expect = 창이 보고 있던 원본 — 그 사이 큐가 당겨졌으면 서버가 무시한다 */
   | { type: 'edit_queued'; index: number; text: string; expect: string; skills?: string[] }
   /** `/clear`: 앞선 작업 뒤 새 ACP 세션을 여는 큐 경계 */
@@ -182,6 +184,8 @@ async function handleConnection(
       else if (msg.type === 'auth_url_response') live.send({ type: 'auth_url_response', id: msg.id, action: msg.action })
       else if (msg.type === 'unqueue') live.send({ type: 'unqueue', index: msg.index })
       else if (msg.type === 'move_queued') live.send({ type: 'move_queued', from: msg.from, to: msg.to })
+      else if (msg.type === 'begin_edit_queued') live.send({ type: 'begin_edit_queued', index: msg.index, expect: msg.expect })
+      else if (msg.type === 'cancel_edit_queued') live.send({ type: 'cancel_edit_queued', index: msg.index, expect: msg.expect })
       else if (msg.type === 'edit_queued')
         live.send({
           type: 'edit_queued',

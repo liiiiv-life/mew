@@ -108,6 +108,8 @@ type StorageArea = Record<string, string>
 type BrowserSession = {
   accountHash: string
   expiresAt: number
+  /** 일반 브라우저는 빈 목록. 인증 작업이 발급한 세션만 제한된 외부 HTTPS를 연다. */
+  httpsHosts: string[]
   jar: CookieJar
   localStorage: Map<string, StorageArea>
   sessionStorage: Map<string, StorageArea>
@@ -140,11 +142,12 @@ function signTokenPayload(encoded: string): string {
   return crypto.createHmac('sha256', TOKEN_SECRET).update(encoded).digest('base64url')
 }
 
-function createSession(account: string): { id: string; session: BrowserSession } {
+function createSession(account: string, httpsHosts: readonly string[] = []): { id: string; session: BrowserSession } {
   const id = crypto.randomBytes(24).toString('base64url')
   const session: BrowserSession = {
     accountHash: accountHash(account),
     expiresAt: Date.now() + TOKEN_TTL_MS,
+    httpsHosts: [...new Set(httpsHosts.map((host) => host.trim().toLowerCase()).filter(Boolean))],
     jar: new CookieJar(),
     localStorage: new Map(),
     sessionStorage: new Map(),
@@ -222,12 +225,24 @@ function assertLoopbackTarget(url: URL): void {
   throw new BrowserProxyError('Mew 브라우저는 이 서버의 localhost/loopback 주소만 열 수 있습니다', 403)
 }
 
-function assertLoopbackWebSocketTarget(url: URL): void {
-  if (url.protocol !== 'ws:' && url.protocol !== 'wss:') throw new BrowserProxyError('ws 또는 wss 주소만 열 수 있습니다')
-  if (url.username || url.password) throw new BrowserProxyError('주소에 사용자 이름이나 비밀번호를 넣을 수 없습니다')
+function matchesHttpsHost(hostname: string, pattern: string): boolean {
+  if (pattern.startsWith('*.')) {
+    const suffix = pattern.slice(1)
+    return hostname.endsWith(suffix) && hostname.length > suffix.length
+  }
+  return hostname === pattern
+}
+
+function assertTargetForHosts(url: URL, httpsHosts: readonly string[]): void {
+  assertHttpTarget(url)
   const host = url.hostname.toLowerCase()
   if (isLoopbackHostname(host)) return
-  throw new BrowserProxyError('Mew 브라우저는 이 서버의 localhost/loopback 주소만 열 수 있습니다', 403)
+  if (url.protocol === 'https:' && httpsHosts.some((pattern) => matchesHttpsHost(host, pattern))) return
+  throw new BrowserProxyError('이 브라우저 세션에 허용되지 않은 주소입니다', 403)
+}
+
+function assertSessionTarget(url: URL, session: BrowserSession): void {
+  assertTargetForHosts(url, session.httpsHosts)
 }
 
 function parseProxyPath(
@@ -581,7 +596,7 @@ async function proxyRequest(
   const location = upstream.headers.get('location')
   if (location && upstream.status >= 300 && upstream.status < 400) {
     const next = new URL(location, target)
-    assertLoopbackTarget(next)
+    assertSessionTarget(next, verified.session)
     const nextToken = navigation ? tokenForPage(verified, next.origin) : tokenForPage(verified, verified.payload.pageOrigin)
     res.setHeader('Location', proxyPath(next, nextToken))
   }
@@ -649,7 +664,7 @@ async function browserControl(req: express.Request, res: express.Response): Prom
   const value = message as Record<string, unknown>
   try {
     const target = new URL(String(value.url ?? ''))
-    assertLoopbackTarget(target)
+    assertSessionTarget(target, verified.session)
     if (target.origin !== verified.payload.pageOrigin) throw new BrowserProxyError('다른 origin의 저장소를 바꿀 수 없습니다', 403)
     if (value.kind === 'cookie' && typeof value.cookie === 'string' && value.cookie.length <= 4096) {
       await verified.session.jar.setCookie(value.cookie, target.toString(), { ignoreError: true })
@@ -677,11 +692,16 @@ async function browserControl(req: express.Request, res: express.Response): Prom
   }
 }
 
-export function browserProxyFrameUrl(rawUrl: string, account: string): string {
+export function browserProxyFrameUrl(
+  rawUrl: string,
+  account: string,
+  options: { httpsHosts?: readonly string[] } = {},
+): string {
   const url = new URL(rawUrl)
-  assertLoopbackTarget(url)
   if (!account.trim()) throw new BrowserProxyError('브라우저 계정이 없습니다', 403)
-  const created = createSession(account)
+  if (!options.httpsHosts?.length) assertLoopbackTarget(url)
+  else assertTargetForHosts(url, options.httpsHosts)
+  const created = createSession(account, options.httpsHosts)
   const token = createBrowserToken(created.id, url.origin, created.session.expiresAt)
   return proxyPath(url, token)
 }
@@ -737,12 +757,12 @@ export function createBrowserProxyApp(): express.Express {
   app.use(async (req, res) => {
     try {
       const parsed = parseProxyPath(`${BROWSER_PROXY_PREFIX}${req.url}`, BROWSER_PROXY_PREFIX, new Set(['http:', 'https:']))
-      assertLoopbackTarget(parsed.target)
       const verified = verifyBrowserToken(parsed.browserToken)
       if (!verified || !tokenMatchesAuthenticatedAccount(req, verified)) {
         res.status(403).type('text/plain').send('브라우저 토큰이 없거나 만료되었습니다')
         return
       }
+      assertSessionTarget(parsed.target, verified.session)
       if (isNavigation(req) && parsed.target.origin !== verified.payload.pageOrigin) {
         const token = tokenForPage(verified, parsed.target.origin)
         res.redirect(req.method === 'GET' || req.method === 'HEAD' ? 302 : 307, proxyPath(parsed.target, token))
@@ -782,7 +802,6 @@ export function attachBrowserProxyWebSocket(
     let parsed: ReturnType<typeof parseProxyPath>
     try {
       parsed = parseProxyPath(req.url ?? '', BROWSER_PROXY_WS_PREFIX, new Set(['ws:', 'wss:']))
-      assertLoopbackWebSocketTarget(parsed.target)
     } catch {
       rejectUpgrade(socket, 400, 'Bad Request')
       return
@@ -792,6 +811,14 @@ export function attachBrowserProxyWebSocket(
     // HTTP resource proxy와 같은 이유로 Mew cookie가 없는 sandbox WebSocket도
     // 서명 URL capability로 이어 준다. 다른 로그인 계정이 보이면 차단한다.
     if (!verified || (account && accountHash(account) !== verified.session.accountHash)) {
+      rejectUpgrade(socket, 403, 'Forbidden')
+      return
+    }
+    try {
+      const httpTarget = new URL(parsed.target)
+      httpTarget.protocol = parsed.target.protocol === 'wss:' ? 'https:' : 'http:'
+      assertSessionTarget(httpTarget, verified.session)
+    } catch {
       rejectUpgrade(socket, 403, 'Forbidden')
       return
     }

@@ -6,11 +6,15 @@ import { agentTerminalSessionName, startAgentTerminal, stopAgentTerminal } from 
 function fakeTmux() {
   const sessions: TmuxSession[] = []
   const runs: Array<{ name: string; command: string; cwd: string }> = []
+  const creates: Array<{ name: string; cwd?: string }> = []
   const kills: string[] = []
   const manager: TmuxManager = {
     cwd: '/workspace',
     list: async () => sessions,
-    create: async () => {},
+    create: async (name, cwd) => {
+      creates.push({ name, cwd })
+      sessions.push({ name, createdAt: 1, attached: false, windows: 1 })
+    },
     rename: async () => {},
     sendKey: async () => {},
     sendInput: async () => {},
@@ -25,7 +29,7 @@ function fakeTmux() {
       if (index >= 0) sessions.splice(index, 1)
     },
   }
-  return { manager, sessions, runs, kills }
+  return { manager, sessions, runs, creates, kills }
 }
 
 test('terminal 런타임은 탭별 숨김 tmux에서 공식 CLI를 한 번만 실행한다', async () => {
@@ -50,6 +54,14 @@ test('terminal 런타임은 탭별 숨김 tmux에서 공식 CLI를 한 번만 �
     if (previousArgs === undefined) delete process.env.MEW_AGENT_ANTIGRAVITY_ARGS
     else process.env.MEW_AGENT_ANTIGRAVITY_ARGS = previousArgs
   }
+})
+
+test('tmux 터미널 런타임은 탭 작업 폴더에서 기본 셸 세션만 만든다', async () => {
+  const fake = fakeTmux()
+  const first = await startAgentTerminal(fake.manager, 'tmux', 'shell-tab', '/workspace/project')
+  await startAgentTerminal(fake.manager, 'tmux', 'shell-tab', '/workspace/project')
+  assert.deepEqual(fake.creates, [{ name: first.session, cwd: '/workspace/project' }])
+  assert.deepEqual(fake.runs, [])
 })
 
 test('탭을 닫으면 해당 terminal 세션만 종료하고 ACP 런타임은 거부한다', async () => {

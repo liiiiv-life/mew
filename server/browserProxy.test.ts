@@ -89,6 +89,35 @@ test('서버 loopback HTTP(S)만 허용하고 공개 주소·다른 프로토콜
   assert.throws(() => browserProxyFrameUrl('file:///etc/passwd', 'owner@example.com'), /http 또는 https/)
 })
 
+test('인증 세션은 등록된 HTTPS host와 서버 loopback만 이어 준다', async () => {
+  const frame = browserProxyFrameUrl('https://auth.example.com/oauth/start', 'owner@example.com', {
+    httpsHosts: ['auth.example.com', '*.assets.example.com'],
+  })
+  assert.match(frame, /^\/__mew_browser\//)
+  assert.match(browserProxyFrameUrl('https://static.assets.example.com/app.js', 'owner@example.com', {
+    httpsHosts: ['*.assets.example.com'],
+  }), /^\/__mew_browser\//)
+  assert.throws(() => browserProxyFrameUrl('https://example.com/', 'owner@example.com', {
+    httpsHosts: ['auth.example.com'],
+  }), /허용되지 않은/)
+
+  const callback = express()
+  callback.get('/auth/callback', (_req, res) => res.send('oauth complete'))
+  const callbackOrigin = await listen(callback)
+  const parts = new URL(frame, 'http://mew.invalid').pathname.split('/')
+  const callbackOriginToken = Buffer.from(callbackOrigin, 'utf8').toString('base64url')
+  const callbackPath = `/__mew_browser/${callbackOriginToken}/${parts[3]}/auth/callback?code=redacted`
+  const mewOrigin = await listen(mewProxyApp())
+
+  const response = await fetch(`${mewOrigin}${callbackPath}`, { headers: { 'sec-fetch-mode': 'navigate' }, redirect: 'manual' })
+  assert.equal(response.status, 200)
+  assert.match(await response.text(), /oauth complete/)
+
+  const deniedOrigin = Buffer.from('https://denied.example.com', 'utf8').toString('base64url')
+  const denied = await fetch(`${mewOrigin}/__mew_browser/${deniedOrigin}/${parts[3]}/secret`)
+  assert.equal(denied.status, 403)
+})
+
 test('서명 URL만 복사해도 다른 Mew 계정에서는 사용할 수 없다', async () => {
   const target = express()
   target.get('/', (_req, res) => res.send('secret'))

@@ -15,8 +15,10 @@ import {
   OpenCodeGlyph,
   PrimeAgentGlyph,
 } from './agentRuntimeIcons'
+import { Terminal } from 'iconoir-react'
 
 export const RUNTIMES = [
+  { id: 'tmux', label: 'tmux 터미널', surface: 'terminal' as const, Glyph: Terminal },
   { id: 'claude', label: 'Claude Code', surface: 'terminal' as const, Glyph: ClaudeCodeGlyph },
   { id: 'antigravity', label: 'Antigravity CLI', surface: 'terminal' as const, Glyph: AntigravityGlyph },
   { id: 'codex', label: 'Codex', surface: 'acp' as const, Glyph: CodexGlyph },
@@ -28,4 +30,7 @@ export const RUNTIMES = [
   { id: 'prime', label: 'Prime Agent', surface: 'acp' as const, Glyph: PrimeAgentGlyph },
 ]
 
-export const runtimeOf = (id: string) => RUNTIMES.find((runtime) => runtime.id === id) ?? RUNTIMES[0]
+/** 표시 순서와 무관한 기존 탭의 안전한 기본 런타임. */
+export const DEFAULT_RUNTIME_ID = 'claude'
+export const runtimeOf = (id: string) => RUNTIMES.find((runtime) => runtime.id === id)
+  ?? RUNTIMES.find((runtime) => runtime.id === DEFAULT_RUNTIME_ID)!

@@ -7,8 +7,9 @@ import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
 import type { AgentEvent } from './agentAcp.ts'
 
 const TRANSCRIPT_DIR = path.join(DATA_DIR, 'agent-transcripts')
-const VERSION = 1
-const MAX_EVENTS = 500
+// v1은 최근 500개만 저장해 긴 턴의 질문과 답변 앞부분을 잃었다. 그 파일을 기준본으로
+// 쓰지 않고 ACP 원본 히스토리로 폴백하도록 완전 전사부터 새 버전으로 구분한다.
+const VERSION = 2
 
 type StoredTranscript = {
   version: typeof VERSION
@@ -26,7 +27,7 @@ function transcriptFile(runtime: string, cwd: string, sessionId: string): string
 /** 완료된 턴만 동기 저장한다 — 스트리밍 청크마다 디스크를 쓰지 않는다. */
 export function writeAgentTranscript(runtime: string, cwd: string, sessionId: string, events: AgentEvent[]): void {
   if (!sessionId) return
-  const value: StoredTranscript = { version: VERSION, runtime, cwd, sessionId, events: events.slice(-MAX_EVENTS) }
+  const value: StoredTranscript = { version: VERSION, runtime, cwd, sessionId, events }
   try {
     fs.mkdirSync(TRANSCRIPT_DIR, { recursive: true, mode: 0o700 })
     writeFileAtomic(transcriptFile(runtime, cwd, sessionId), `${JSON.stringify(value)}\n`)

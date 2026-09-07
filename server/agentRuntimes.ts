@@ -37,6 +37,10 @@ export interface RuntimeLoginSpec extends SpawnSpec {
   label: string
   surface: 'browser' | 'terminal'
   verificationHosts?: string[]
+  /** 일반 Browser 패널과 분리된 일회성 서버 브라우저로 OAuth를 열 런타임. */
+  serverBrowser?: boolean
+  /** 일회성 서버 브라우저가 접속할 수 있는 외부 HTTPS host. `*.` suffix pattern을 허용한다. */
+  browserHosts?: string[]
   /** 브라우저 승인 뒤 CLI가 돌려받아야 하는 짧은 일회용 입력. */
   browserInput?: 'authorization-code'
   /** 명령이 TUI로 남아도 이 파일이 바뀌면 인증 완료로 본다. 경로는 브라우저에 보내지 않는다. */
@@ -63,6 +67,8 @@ export interface AgentRuntime {
   spec?: () => SpawnSpec
   /** terminal 표면이 탭별 tmux에서 실행할 공식 CLI. */
   terminal?: () => SpawnSpec
+  /** 명령을 입력하지 않고 tmux의 기본 셸 자체를 탭 표면으로 쓴다. */
+  terminalLaunch?: 'shell'
   /** UI 설치 버튼이 실행하는 고정 명령. 요청 값을 인자에 섞지 않는다. */
   install?: () => SpawnSpec
   /** 설치를 되돌리는 고정 명령. 선언하지 않으면 UI가 임의 파일 삭제를 하지 않는다. */
@@ -123,6 +129,11 @@ function antigravityTerminalSpec(): SpawnSpec {
     cmd: process.env.MEW_AGENT_ANTIGRAVITY_CMD || findExecutable('agy') || 'agy',
     args: splitArgs(process.env.MEW_AGENT_ANTIGRAVITY_ARGS),
   }
+}
+
+function tmuxShellSpec(): SpawnSpec {
+  // 셸 자체는 tmux의 default-shell 계약으로 고른다. 이 spec은 설치 여부 판정에만 쓴다.
+  return { cmd: findExecutable('tmux') || 'tmux', args: [] }
 }
 
 /** Codex — 버전 고정된 로컬 어댑터(@agentclientprotocol/codex-acp). */
@@ -199,17 +210,31 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/codex-acp@1.6.0'] }),
     logout: () => ({ cmd: DEFAULT_CODEX_CLI_CMD, args: ['logout'] }),
     auth: {
-      methods: () => [login(
+      methods: () => [{ ...login(
         RUNTIME_LOGIN_METHOD_ID,
         { cmd: DEFAULT_CODEX_CLI_CMD, args: [], env: codexSpawnSpec().env },
-        ['login', '--device-auth'],
+        ['login'],
         'Codex 로그인',
-        '기기 코드를 표시합니다. URL은 휴대폰의 일반 브라우저에서 여세요.',
+        '내장 브라우저에서 ChatGPT OAuth를 완료합니다.',
         undefined,
         'browser',
         ['auth.openai.com'],
-      )],
-      // 같은 device-code를 ACP 안과 별도 CLI 두 곳에서 보이지 않게 공통 작업으로 치환한다.
+      ),
+        serverBrowser: true,
+        // OAuth 이동·정적 자원은 이 목록과 서버 loopback으로만 한정한다.
+        browserHosts: [
+          'auth.openai.com',
+          'chatgpt.com',
+          '*.chatgpt.com',
+          'cdn.openai.com',
+          '*.oaistatic.com',
+          'accounts.google.com',
+          '*.gstatic.com',
+          'appleid.apple.com',
+          'login.microsoftonline.com',
+        ],
+      }],
+      // ACP의 device-code 항목은 기본 OAuth 작업 하나로 치환한다.
       replaceMethodIds: ['chat-gpt-device-code'],
     },
   },
@@ -255,6 +280,10 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
   antigravity: {
     id: 'antigravity', label: 'Antigravity CLI', surface: 'terminal', terminal: antigravityTerminalSpec,
     install: () => ({ cmd: 'sh', args: ['-lc', 'curl -fsSL https://antigravity.google/cli/install.sh | bash'] }),
+    auth: { methods: () => [] },
+  },
+  tmux: {
+    id: 'tmux', label: 'tmux 터미널', surface: 'terminal', terminal: tmuxShellSpec, terminalLaunch: 'shell',
     auth: { methods: () => [] },
   },
   openclaw: {

@@ -26,7 +26,10 @@ export async function startAgentTerminal(
   if (entry?.surface !== 'terminal' || !spec) throw new AgentTerminalError('터미널형 에이전트 런타임이 아닙니다')
   const session = agentTerminalSessionName(runtime, tab)
   const running = (await manager.list()).some((item) => item.name === session)
-  if (!running) await manager.runCommand(session, spawnSpecCommand(spec), cwd)
+  if (!running) {
+    if (entry.terminalLaunch === 'shell') await manager.create(session, cwd)
+    else await manager.runCommand(session, spawnSpecCommand(spec), cwd)
+  }
   return { session }
 }
 

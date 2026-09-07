@@ -43,6 +43,8 @@ export type AgentHostCommand =
   | { type: 'set_thinking'; configId: string; value: string }
   | { type: 'unqueue'; index: number }
   | { type: 'move_queued'; from: number; to: number }
+  | { type: 'begin_edit_queued'; index: number; expect: string }
+  | { type: 'cancel_edit_queued'; index: number; expect: string }
   | { type: 'edit_queued'; index: number; text: string; expect: string; promptText: string }
   | { type: 'clear_session' }
   | { type: 'load_session'; sessionId: string }
@@ -76,6 +78,7 @@ type HostMeta = {
 }
 
 type Peer = {
+  id: string
   socket: Socket
   detach: (() => void) | null
 }
@@ -217,7 +220,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
   let stop: (code?: number) => void
 
   const server = net.createServer((socket) => {
-    const peer: Peer = { socket, detach: null }
+    const peer: Peer = { id: crypto.randomUUID(), socket, detach: null }
     peers.add(peer)
     clearStartupIdle()
     sendLine(socket, { type: 'hello', runtime, tab, cwd })
@@ -290,6 +293,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     socket.on('close', () => {
       peer.detach?.()
       peer.detach = null
+      session?.releaseQueuedEdits(peer.id)
       peers.delete(peer)
       armStartupIdle()
     })
@@ -457,8 +461,12 @@ async function handleHostMessage(
     else if (command.type === 'set_thinking') await session.setThinking(String(command.configId), String(command.value))
     else if (command.type === 'unqueue') session.unqueue(Number(command.index))
     else if (command.type === 'move_queued') session.moveQueued(Number(command.from), Number(command.to))
+    else if (command.type === 'begin_edit_queued')
+      session.beginQueuedEdit(Number(command.index), String(command.expect), peer.id)
+    else if (command.type === 'cancel_edit_queued')
+      session.cancelQueuedEdit(Number(command.index), String(command.expect), peer.id)
     else if (command.type === 'edit_queued')
-      session.editQueued(Number(command.index), String(command.text), String(command.expect), String(command.promptText))
+      session.editQueued(Number(command.index), String(command.text), String(command.expect), String(command.promptText), peer.id)
     else if (command.type === 'clear_session') {
       chooseFallback()
       session.clearAfterQueue()

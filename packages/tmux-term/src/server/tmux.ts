@@ -41,7 +41,7 @@ export interface TmuxManagerOptions {
 export interface TmuxManager {
   cwd: string
   list: () => Promise<TmuxSession[]>
-  create: (name: string) => Promise<void>
+  create: (name: string, cwd?: string) => Promise<void>
   kill: (name: string) => Promise<void>
   rename: (oldName: string, newName: string) => Promise<void>
   /** 세션이 없으면 cwd에서 새로 띄운 뒤, 명령을 셸에 "타이핑하고 Enter"로 실행한다(재호출 = 재실행) */
@@ -84,12 +84,12 @@ export function createTmuxManager({ cwd }: TmuxManagerOptions): TmuxManager {
 
     list: listTmuxSessions,
 
-    async create(name) {
+    async create(name, sessionCwd) {
       assertValidName(name)
       if (await sessionExists(name)) {
         throw new TmuxError(`이미 존재하는 세션입니다: ${name}`)
       }
-      await run(['new-session', '-d', '-s', name, '-c', manager.cwd])
+      await run(['new-session', '-d', '-s', name, '-c', sessionCwd ?? manager.cwd])
     },
 
     async kill(name) {

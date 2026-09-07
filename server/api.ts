@@ -1927,8 +1927,8 @@ export function createApiApp() {
     res.json({ runtimes: runtimeStatuses() })
   })
 
-  // terminal형 런타임은 에이전트 탭별 전용 tmux에서 공식 TUI를 그대로 실행한다. 브라우저는
-  // runtime·tab·cwd만 보내며 명령과 실제 tmux 이름은 서버 등록표가 정한다(ADR 0117).
+  // terminal형 런타임은 통합 패널의 탭별 전용 tmux에서 공식 TUI 또는 기본 셸을 실행한다. 브라우저는
+  // runtime·tab·cwd만 보내며 실행 방식과 실제 tmux 이름은 서버 등록표가 정한다(ADR 0117·0119).
   app.post('/agent-runtimes/:id/terminal/:tab', requireRole('owner', 'manager'), async (req, res) => {
     try {
       const cwd = resolveAgentCwd(typeof req.body?.cwd === 'string' ? req.body.cwd : '', WORKSPACE_ROOT)
@@ -2015,6 +2015,45 @@ export function createApiApp() {
       // 수동 승인 코드는 pane에 echo될 수 있다. 그 작업은 원문에서 실패 한 줄도 브라우저로 돌려주지 않는다.
       const errorMessage = status.state === 'failed' && !registered?.browserInput ? authFailureMessageFromOutput(output) : null
       res.json({ ...status, ...details, errorMessage })
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  // 등록된 OAuth 작업이 출력한 URL만 일회성 서버 브라우저로 연다. 클라이언트가
+  // 외부 URL이나 allowlist를 보내지 않아 범용 프록시 발급 API가 되지 않게 한다.
+  app.post('/agent-runtimes/:id/auth/:method/browser', requireRole('owner', 'manager'), async (req, res) => {
+    try {
+      const id = String(req.params.id)
+      const methodId = String(req.params.method)
+      const tab = typeof req.body?.tab === 'string' ? req.body.tab : ''
+      if (!isRuntime(id) || !AGENT_TAB_ID.test(tab) || !methodId || methodId.length > 100) {
+        res.status(400).json({ error: '로그인 브라우저 요청이 올바르지 않습니다' })
+        return
+      }
+      const registered = isRuntimeLoginMethod(id, methodId) ? runtimeLoginSpec(id, methodId) : null
+      if (!registered?.serverBrowser || !registered.verificationHosts || !registered.browserHosts) {
+        res.status(400).json({ error: '이 로그인 방법은 내장 브라우저를 사용하지 않습니다' })
+        return
+      }
+      const session = commandSessionName('agent-auth', `${id}:${tab}:${methodId}`)
+      const running = (await tmuxManager.list()).some((item) => item.name === session)
+      if (!running) {
+        res.status(409).json({ error: '진행 중인 로그인 작업이 없습니다' })
+        return
+      }
+      const output = await tmuxManager.capture(session, 120)
+      const details = browserLoginDetailsFromOutput(output, registered.verificationHosts)
+      if (!details.verificationUrl) {
+        res.status(409).json({ error: '로그인 링크가 아직 준비되지 않았습니다' })
+        return
+      }
+      res.json({
+        url: details.verificationUrl,
+        frameUrl: browserProxyFrameUrl(details.verificationUrl, authOf(req).email ?? '', {
+          httpsHosts: registered.browserHosts,
+        }),
+      })
     } catch (err) {
       handleError(res, err)
     }

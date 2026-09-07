@@ -14,7 +14,6 @@ import {
   saveRootProjectTabs,
   saveWorkspaceUi,
   switchWorkspace,
-  tmuxApi,
   type AuthStatus,
   type TreeNode,
   type WorkspaceUiState,
@@ -37,7 +36,6 @@ import { CommandButtonMenu } from './components/CommandButtonMenu'
 import { ProjectIcon } from './components/ProjectIcon'
 import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
-import { TmuxTerminalPanel } from '@mew/tmux-term'
 import { AgentPanel } from './components/AgentPanel'
 import { BrowserPanel } from './components/BrowserPanel'
 import { FloatingBrowserWindow } from './components/FloatingBrowserWindow'
@@ -101,7 +99,7 @@ function saveMobileForegroundPanel(rootProjectPath: string | null, foreground: M
 type Theme = 'dark' | 'light'
 const THEME_KEY = 'mew:theme'
 const TOC_KEY = 'mew:toc-open'
-const TMUX_OPEN_KEY = 'mew:tmux-open'
+const LEGACY_TMUX_OPEN_KEY = 'mew:tmux-open'
 /** 에이전트 창이 열려 있었는지 — 터미널과 같이 프로젝트와 무관한 화면 상태다(세션 스코프가 워크스페이스다) */
 const AGENT_OPEN_KEY = 'mew:agent-open'
 const BROWSER_OPEN_KEY = 'mew:browser-open'
@@ -165,9 +163,8 @@ function projectLabel(projectPath: string | null): string {
 
 // 터미널이 열려 있었는지는 프로젝트와 무관한 화면 상태다(tmux 세션은 워크스페이스 하나뿐).
 // 예전에는 프로젝트별 탭 저장분 안에 함께 들어 있었으므로 그쪽도 한 번 봐준다.
-function loadTmuxOpen(project: string): boolean {
-  const own = localStorage.getItem(TMUX_OPEN_KEY)
-  if (own !== null) return own === '1'
+function loadUnifiedPanelOpen(project: string): boolean {
+  if (localStorage.getItem(AGENT_OPEN_KEY) === '1' || localStorage.getItem(LEGACY_TMUX_OPEN_KEY) === '1') return true
   try {
     const raw = localStorage.getItem(openTabsKey(project))
     return raw ? (JSON.parse(raw) as { tmuxOpen?: boolean }).tmuxOpen === true : false
@@ -231,10 +228,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [loadingSubprojects, setLoadingSubprojects] = useState<Set<string>>(new Set())
   const [treeInvalidation, setTreeInvalidation] = useState<{ n: number; project: string; version: number; parents: string[] }>({ n: 0, project: '', version: 0, parents: [] })
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
-  const [tmuxOpen, setTmuxOpen] = useState(() => canUseTerminal && loadTmuxOpen(getProject()))
-  // 에이전트 창은 터미널과 같은 게이트(owner/manager) — 셸을 쓸 수 있기 때문(ADR 0034).
-  // 열려 있었는지도 터미널과 같이 기억한다 — 열린 채로 껐으면 다시 켤 때 그 탭에서 이어 한다
-  const [agentOpen, setAgentOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_OPEN_KEY) === '1')
+  // 터미널•에이전트패널은 셸 권한 때문에 owner/manager만 연다. 분리 패널 시절의 터미널 열림
+  // 저장값도 통합 패널 열림으로 한 번 호환해, 업그레이드 뒤 창이 사라진 것처럼 보이지 않게 한다.
+  const [agentOpen, setAgentOpen] = useState(() => canUseTerminal && loadUnifiedPanelOpen(getProject()))
   // 브라우저 창 — 서버 localhost를 프록시로 보는 도구라 터미널과 같은 게이트(owner/manager)를 쓴다
   const [browserOpen, setBrowserOpen] = useState(() => canUseTerminal && localStorage.getItem(BROWSER_OPEN_KEY) === '1')
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
@@ -248,7 +244,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       if (panel === 'sidebar') return sidebarOpen
       if (panel === 'chat') return chatOpen
       if (panel === 'agent') return agentOpen
-      if (panel === 'terminal') return tmuxOpen
       if (panel === 'browser') return browserOpen
       return androidOpen
     }),
@@ -263,17 +258,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     sidebar: sidebarOpen,
     chat: chatOpen,
     agent: agentOpen,
-    terminal: tmuxOpen,
     browser: browserOpen,
     android: androidOpen,
   } satisfies Record<WorkspacePanelId, boolean>), [
-    sidebarOpen, chatOpen, agentOpen, tmuxOpen, browserOpen, androidOpen,
+    sidebarOpen, chatOpen, agentOpen, browserOpen, androidOpen,
   ])
   const workspacePanelSetters = useMemo(() => ({
     sidebar: setSidebarOpen,
     chat: setChatOpen,
     agent: setAgentOpen,
-    terminal: setTmuxOpen,
     browser: setBrowserOpen,
     android: setAndroidOpen,
   } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
@@ -752,12 +745,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     max: 480,
     initial: 256,
   })
-  const { width: tmuxWidth, startResize: startTmuxResize } = usePanelWidth('mew:tmux-panel-width', {
-    min: 320,
-    max: 1000,
-    initial: 640,
-    invert: true, // 패널이 화면 오른쪽에 붙어 있으므로 왼쪽으로 끌수록 넓어진다
-  })
   const { width: agentWidth, startResize: startAgentResize } = usePanelWidth('mew:agent-panel-width', {
     min: 320,
     max: 1000,
@@ -783,12 +770,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       closeOnEscape: () => !(sidebarSearchCancelRef.current?.() ?? false),
     },
     chat: { open: chatOpen, close: () => closeWorkspacePanel('chat') },
-    agent: { open: agentOpen, close: () => closeWorkspacePanel('agent') },
-    terminal: {
-      open: tmuxOpen,
-      close: () => closeWorkspacePanel('terminal'),
-      closeOnEscape: outsideTerminal,
-    },
+    agent: { open: agentOpen, close: () => closeWorkspacePanel('agent'), closeOnEscape: outsideTerminal },
     browser: { open: browserOpen, close: () => closeWorkspacePanel('browser') },
     android: { open: androidOpen, close: () => closeWorkspacePanel('android') },
   }, mobileForegroundPanel)
@@ -800,19 +782,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const lastPanelRef = useRef<RefPanel | null>(null)
   // 플로팅 핸들의 "현재 창 탭" 명령이 가리키는 마지막 탭형 창.
   // 핸들을 누르면 DOM 포커스가 옮겨가므로 포커스 대신 포인터 사용 기록을 따로 둔다.
-  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'tmux' | 'sidebar'>('editor')
+  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'sidebar'>('editor')
   const [agentNextTabSignal, setAgentNextTabSignal] = useState(0)
   const [agentPreviousTabSignal, setAgentPreviousTabSignal] = useState(0)
-  const [tmuxNextTabSignal, setTmuxNextTabSignal] = useState(0)
-  const [tmuxPreviousTabSignal, setTmuxPreviousTabSignal] = useState(0)
   useEffect(() => {
     if (isDesktop()) return
     if (mobileForegroundPanel === 'agent') {
       activeTabbedSurfaceRef.current = 'agent'
       lastPanelRef.current = 'agent'
-    } else if (mobileForegroundPanel === 'terminal') {
-      activeTabbedSurfaceRef.current = 'tmux'
-      lastPanelRef.current = 'tmux'
     } else if (mobileForegroundPanel === 'sidebar') {
       activeTabbedSurfaceRef.current = 'sidebar'
     } else if (mobileForegroundPanel === 'chat') {
@@ -825,12 +802,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       activeTabbedSurfaceRef.current = 'agent'
     }
   }, [agentOpen])
-  useEffect(() => {
-    if (tmuxOpen) {
-      lastPanelRef.current = 'tmux'
-      activeTabbedSurfaceRef.current = 'tmux'
-    }
-  }, [tmuxOpen])
   useEffect(() => {
     if (sidebarOpen) activeTabbedSurfaceRef.current = 'sidebar'
   }, [sidebarOpen])
@@ -853,16 +824,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   const switchCurrentWindowTabRight = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
-    if (surface === 'agent' && !agentOpen) surface = tmuxOpen ? 'tmux' : 'editor'
-    if (surface === 'tmux' && !tmuxOpen) surface = agentOpen ? 'agent' : 'editor'
-    if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : tmuxOpen ? 'tmux' : 'editor'
+    if (surface === 'agent' && !agentOpen) surface = 'editor'
+    if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'agent') {
       setAgentNextTabSignal((value) => value + 1)
-      return
-    }
-    if (surface === 'tmux') {
-      setTmuxNextTabSignal((value) => value + 1)
       return
     }
     if (surface === 'sidebar') {
@@ -873,20 +839,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index + 1) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs, tmuxOpen])
+  }, [activePath, agentOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
 
   const switchCurrentWindowTabLeft = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
-    if (surface === 'agent' && !agentOpen) surface = tmuxOpen ? 'tmux' : 'editor'
-    if (surface === 'tmux' && !tmuxOpen) surface = agentOpen ? 'agent' : 'editor'
-    if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : tmuxOpen ? 'tmux' : 'editor'
+    if (surface === 'agent' && !agentOpen) surface = 'editor'
+    if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'agent') {
       setAgentPreviousTabSignal((value) => value + 1)
-      return
-    }
-    if (surface === 'tmux') {
-      setTmuxPreviousTabSignal((value) => value + 1)
       return
     }
     if (surface === 'sidebar') {
@@ -897,7 +858,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index - 1 + tabs.length) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs, tmuxOpen])
+  }, [activePath, agentOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
   // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
@@ -955,7 +916,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       sidebar: sidebarOpen,
       chat: chatOpen,
       agent: agentOpen,
-      terminal: tmuxOpen,
       browser: browserOpen,
       android: androidOpen,
     }
@@ -971,13 +931,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       // 로컬의 방금 연 에이전트를 닫아 버리면 전면 순서를 복원할 수 없으므로, 서버 원장은
       // 데스크톱 배치에만 적용한다. 모바일은 각 패널의 로컬 열림 상태로 시작한다.
       if (canUseTerminal && isDesktop()) {
-        if (typeof chrome.tmuxOpen === 'boolean') {
-          setTmuxOpen(chrome.tmuxOpen)
-          restoredOpen.terminal = chrome.tmuxOpen
-        }
-        if (typeof chrome.agentOpen === 'boolean') {
-          setAgentOpen(chrome.agentOpen)
-          restoredOpen.agent = chrome.agentOpen
+        // 분리 패널 원장의 tmuxOpen=true도 통합 패널 열림으로 승격한다. false는 새 agentOpen을
+        // 덮지 않는다 — 둘 중 하나라도 열려 있었으면 통합 뒤에도 열려 있어야 한다.
+        if (typeof chrome.agentOpen === 'boolean' || typeof chrome.tmuxOpen === 'boolean') {
+          const unifiedOpen = chrome.agentOpen === true || chrome.tmuxOpen === true
+          setAgentOpen(unifiedOpen)
+          restoredOpen.agent = unifiedOpen
         }
         if (typeof chrome.browserOpen === 'boolean') {
           setBrowserOpen(chrome.browserOpen)
@@ -992,7 +951,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       // 계정 원장이 처음 비어 있을 때만 이 기기의 기존 화면 상태를 이관한다.
       setWorkspaceUi((previous) => ({
         ...previous,
-        chrome: { tocOpen, sidebarOpen, sidebarView, tmuxOpen, agentOpen, browserOpen, androidOpen },
+        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, browserOpen, androidOpen },
       }))
     }
     if (savedMobileForeground && savedMobileForeground !== 'editor') {
@@ -1006,7 +965,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
     chromeStateLoadedRootRef.current = rootProjectPath
     chromeStateRestorePendingRef.current = rootProjectPath
-  }, [agentOpen, androidOpen, browserOpen, canUseTerminal, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tmuxOpen, tocOpen, workspaceUi.chrome, workspaceUiLoaded])
+  }, [agentOpen, androidOpen, browserOpen, canUseTerminal, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded])
 
   useEffect(() => {
     if (!rootProjectPath || !workspaceUiLoaded || isDesktop()) return
@@ -1093,10 +1052,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [])
 
   useEffect(() => {
-    localStorage.setItem(TMUX_OPEN_KEY, tmuxOpen ? '1' : '0')
-  }, [tmuxOpen])
-
-  useEffect(() => {
     localStorage.setItem(AGENT_OPEN_KEY, agentOpen ? '1' : '0')
   }, [agentOpen])
 
@@ -1116,9 +1071,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
     setWorkspaceUi((previous) => ({
       ...previous,
-      chrome: { tocOpen, sidebarOpen, sidebarView, tmuxOpen, agentOpen, browserOpen, androidOpen },
+      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, browserOpen, androidOpen },
     }))
-  }, [agentOpen, androidOpen, browserOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tmuxOpen, tocOpen, workspaceUiLoaded])
+  }, [agentOpen, androidOpen, browserOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
 
   const handleRenamed = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -1181,7 +1136,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         // 받을 창이 없어도 여기서 삼킨다 — 안 그러면 브라우저 기본 Ctrl+L(주소창)로 샌다
         e.preventDefault()
         // 열려 있는 보조창이 하나도 없으면 쓸 곳이 없으니 그대로 끝낸다
-        const target = pickRefTarget(lastPanelRef.current, { agent: agentOpen, tmux: tmuxOpen, chat: chatOpen })
+        const target = pickRefTarget(lastPanelRef.current, { agent: agentOpen, chat: chatOpen })
         if (!target) return
         const lines = range.start === range.end ? `${range.start}` : `${range.start}-${range.end}`
         // 화면에 쓸 글자(text)와 구조(project·path)를 함께 싣는다 — 터미널·에이전트는 text를 그대로
@@ -1213,10 +1168,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         e.preventDefault()
         focusedEditor()?.startComment()
       } else if (matchesShortcut(e, getBinding('toggleTerminal'))) {
-        // VSCode처럼 어디에 포커스가 있어도 터미널을 토글한다 (Shift 조합 ~ 포함)
+        // 기존 터미널 단축키도 통합된 터미널•에이전트패널을 토글한다.
         if (!canUseTerminal) return
         e.preventDefault()
-        toggleWorkspacePanel('terminal')
+        toggleWorkspacePanel('agent')
       } else if (matchesShortcut(e, getBinding('toggleSidebar'))) {
         // 에디터의 Ctrl+B(굵게, defaultPrevented로 감지)와 터미널의 tmux prefix에는 양보한다
         if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.xterm'))) return
@@ -1252,7 +1207,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       } else if (matchesShortcut(e, getBinding('toggleTerminalAlt'))) {
         if (!canUseTerminal) return
         e.preventDefault()
-        toggleWorkspacePanel('terminal')
+        toggleWorkspacePanel('agent')
       } else if (matchesShortcut(e, getBinding('fullscreen'))) {
         e.preventDefault()
         toggleFullscreen()
@@ -1264,7 +1219,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [
     saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath,
     canUseTerminal, focusedEditor, isGuest, isOwner, project, sidebarOpen, chatOpen, agentOpen,
-    tmuxOpen, browserOpen, androidOpen, mobilePanelStack, openWorkspacePanel,
+    browserOpen, androidOpen, mobilePanelStack, openWorkspacePanel,
     toggleWorkspacePanel,
   ])
 
@@ -1527,20 +1482,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             ),
           },
           {
-            id: 'terminal',
-            label: t('header.terminal'),
-            hint: 'Ctrl+`',
-            onSelect: () => toggleWorkspacePanel('terminal'),
-            active: tmuxOpen,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="16" rx="2" />
-                <path d="m7 9 3 3-3 3" />
-                <line x1="13" y1="15" x2="17" y2="15" />
-              </svg>
-            ),
-          },
-          {
             id: 'sysstats',
             label: t('header.systemResources'),
             onSelect: () => setSysStatsOpen(true),
@@ -1557,10 +1498,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           {
             id: 'agent',
             label: t('header.agent'),
-            hint: 'Alt+L',
+            hint: 'Alt+L · Ctrl+`',
             onSelect: () => toggleWorkspacePanel('agent'),
             active: agentOpen,
-            // 말풍선 — 채팅 창이지 터미널이 아니다
+            // 같은 탭 줄에서 셸과 에이전트를 함께 고르는 통합 패널.
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
@@ -2027,38 +1968,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                 workspacePath={rootProjectPath}
                 tree={tree}
                 focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeTab.path : null}
+                getSelectedText={getSelectedText}
+                renderCommandButtons={renderTermButtons}
                 onOpenFile={openMentionedFile}
                 onClose={() => closeWorkspacePanel('agent')}
                 nextTabSignal={agentNextTabSignal}
                 previousTabSignal={agentPreviousTabSignal}
-              />
-            </div>
-          </div>
-        )}
-
-        {tmuxOpen && canUseTerminal && (
-          <div
-            onPointerDownCapture={() => {
-              activeTabbedSurfaceRef.current = 'tmux'
-              bringWorkspacePanelToFront('terminal')
-            }}
-            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:shrink-0 ${mobilePanelLayer('terminal')}`}
-            style={{ width: isDesktop() ? tmuxWidth : undefined }}
-          >
-            <div
-              onPointerDown={startTmuxResize}
-              className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
-              aria-hidden="true"
-            />
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <TmuxTerminalPanel
-                api={tmuxApi}
-                onClose={() => closeWorkspacePanel('terminal')}
-                activeFilePath={activeRelativePath}
-                getSelectedText={getSelectedText}
-                renderCommandButtons={renderTermButtons}
-                nextTabSignal={tmuxNextTabSignal}
-                previousTabSignal={tmuxPreviousTabSignal}
               />
             </div>
           </div>
@@ -2089,7 +2004,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         onNextWindowTab={switchCurrentWindowTabRight}
         onPrevWindowTab={switchCurrentWindowTabLeft}
         onToggleAgent={() => { if (canUseTerminal) toggleWorkspacePanel('agent') }}
-        onToggleTerminal={() => { if (canUseTerminal) toggleWorkspacePanel('terminal') }}
         onOpenEditor={closeAllWorkspacePanels}
         onToggleSidebar={() => toggleWorkspacePanel('sidebar')}
         onToggleBrowser={() => { if (canUseTerminal) toggleWorkspacePanel('browser') }}
