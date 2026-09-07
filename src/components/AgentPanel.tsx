@@ -79,8 +79,16 @@ import { cachedAgentRuntimes, refreshAgentRuntimes, subscribeAgentRuntimes, upda
 import { useGridDrag } from '../hooks/useGridDrag'
 import { sessionIdOf, sessionIdsExcept, withAutoLabel, withProjectLabel, withRename, withSessionId, type AgentTab } from '../utils/agentTabs'
 import { agentTabStorageKey } from '../utils/agentTabStorage'
-import { MIN_AGENT_INPUT_HEIGHT, agentInputMaxHeight } from '../utils/agentInputLayout'
+import {
+  DEFAULT_AGENT_QUEUE_EDIT_HEIGHT,
+  MIN_AGENT_INPUT_HEIGHT,
+  MIN_AGENT_QUEUE_EDIT_HEIGHT,
+  agentInputMaxHeight,
+  agentQueueEditMaxHeight,
+  resizedHeightFromTop,
+} from '../utils/agentInputLayout'
 import { outsideTerminal } from '../utils/terminalFocus'
+import { nextLocalMinuteValue } from '../utils/scheduleTime'
 import {
   foldEvents,
   formatDuration,
@@ -154,6 +162,103 @@ function initialAgentInputHeight() {
     }
   } catch { /* localStorage를 쓸 수 없어도 기본 높이로 연다 */ }
   return Math.min(agentInputMaxHeight(window.innerHeight), DEFAULT_AGENT_INPUT_HEIGHT)
+}
+
+function ResizableQueueTextarea({
+  value,
+  onChange,
+  onKeyDown,
+  label,
+}: {
+  value: string
+  onChange: (value: string) => void
+  onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
+  label: string
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState(DEFAULT_AGENT_QUEUE_EDIT_HEIGHT)
+  const resizeCleanupRef = useRef<(() => void) | null>(null)
+
+  const maxHeight = () => {
+    const sessionHeight = containerRef.current
+      ?.closest<HTMLElement>('[data-agent-session]')
+      ?.getBoundingClientRect().height
+      ?? window.visualViewport?.height
+      ?? window.innerHeight
+    return agentQueueEditMaxHeight(sessionHeight)
+  }
+
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    resizeCleanupRef.current?.()
+
+    const pointerId = event.pointerId
+    const startY = event.clientY
+    const startHeight = containerRef.current?.getBoundingClientRect().height ?? height
+    const limit = maxHeight()
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return
+      setHeight(resizedHeightFromTop(startHeight, startY, moveEvent.clientY, MIN_AGENT_QUEUE_EDIT_HEIGHT, limit))
+    }
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onEnd)
+      window.removeEventListener('pointercancel', onEnd)
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      if (resizeCleanupRef.current === cleanup) resizeCleanupRef.current = null
+    }
+    const onEnd = (endEvent: PointerEvent) => {
+      if (endEvent.pointerId === pointerId) cleanup()
+    }
+    resizeCleanupRef.current = cleanup
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onEnd)
+    window.addEventListener('pointercancel', onEnd)
+  }
+
+  const resizeWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    event.preventDefault()
+    const delta = event.key === 'ArrowUp' ? 12 : -12
+    setHeight((current) => Math.min(maxHeight(), Math.max(MIN_AGENT_QUEUE_EDIT_HEIGHT, current + delta)))
+  }
+
+  useEffect(() => () => resizeCleanupRef.current?.(), [])
+
+  return (
+    <div ref={containerRef} className="relative min-w-0 flex-1" style={{ height: `${height}px` }}>
+      <div
+        role="separator"
+        aria-label={`${label} 높이 조절`}
+        aria-orientation="horizontal"
+        aria-valuemin={MIN_AGENT_QUEUE_EDIT_HEIGHT}
+        aria-valuemax={maxHeight()}
+        aria-valuenow={Math.round(height)}
+        tabIndex={0}
+        onPointerDown={startResize}
+        onKeyDown={resizeWithKeyboard}
+        className="group absolute inset-x-0 -top-1.5 z-20 h-3 cursor-row-resize touch-none outline-none"
+        title="끌어서 편집칸 높이 조절"
+      >
+        <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent" />
+      </div>
+      <textarea
+        autoFocus
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
+        className="h-full w-full resize-none rounded bg-surface-raised px-2 py-1 text-xs text-ink outline-none"
+      />
+    </div>
+  )
 }
 
 /**
@@ -523,7 +628,7 @@ function HeaderSelect({
         title={title}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-surface-raised hover:text-ink ${
+        className={`flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-left text-xs hover:bg-surface-raised hover:text-ink ${
           open ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary disabled:cursor-default disabled:opacity-70'
         }`}
       >
@@ -1235,7 +1340,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
               const status = statuses.find((item) => item.id === runtime.id)
               const busy = installing === runtime.id || status?.installing === true
               return (
-                <div key={runtime.id} className={`flex min-h-10 flex-wrap items-center gap-2 rounded-md border border-edge bg-surface px-2.5 py-1.5 ${runtime.id === 'tmux' ? 'mb-1' : ''}`}>
+                <div key={runtime.id} className={`flex min-h-8 flex-wrap items-center gap-2 rounded-md border border-edge bg-surface px-2 py-0.5 sm:min-h-10 sm:px-2.5 sm:py-1.5 ${runtime.id === 'tmux' ? 'mb-1' : ''}`}>
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center text-ink-secondary"><runtime.Glyph /></span>
                   <div className="min-w-0 flex-1 truncate text-sm text-ink">{runtime.label}</div>
                   {runtime.id !== 'tmux' && <RuntimeSettingsButton runtimeId={runtime.id} label={runtime.label} />}
@@ -1568,14 +1673,14 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
       )}
       {/* 안 보이는 탭도 붙어 있는 채로 둔다 — 돌고 있는 대화가 탭을 바꿨다고 멎으면 안 된다 */}
       {/* 서버 탭 상태를 확인하기 전에는 localStorage의 낡은 thread로 연결하지 않는다. */}
-      {!pickerOpen && tabsSynced && tabs
+      {tabsSynced && tabs
         .filter((tab) => tab.runtime && tab.cwd && opened.has(tab.id))
         .map((tab) => {
           const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!)
             ?? readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)?.sessionId
             ?? null
           return (
-          <div key={`${tab.id}:${tab.runtime}:${tab.cwd}`} className={tab.id === activeId ? 'min-h-0 flex-1' : 'hidden'}>
+          <div key={`${tab.id}:${tab.runtime}:${tab.cwd}`} className={!pickerOpen && tab.id === activeId ? 'min-h-0 flex-1' : 'hidden'}>
             {runtimeOf(tab.runtime!).surface === 'terminal' ? (
               <AgentTerminalView
                 runtime={tab.runtime!}
@@ -1587,7 +1692,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
               />
             ) : <AgentSessionView
               tabId={tab.id}
-              active={tab.id === activeId}
+              active={!pickerOpen && tab.id === activeId}
               runtime={tab.runtime!}
               cwd={tab.cwd!}
               preset={tab.preset}
@@ -1918,8 +2023,7 @@ function AgentSessionView({
 
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return
-      const next = startHeight + startY - event.clientY
-      setInputHeight(Math.min(maxInputHeight, Math.max(MIN_AGENT_INPUT_HEIGHT, next)))
+      setInputHeight(resizedHeightFromTop(startHeight, startY, event.clientY, MIN_AGENT_INPUT_HEIGHT, maxInputHeight))
     }
     const cleanup = () => {
       window.removeEventListener('pointermove', onMove)
@@ -2107,6 +2211,9 @@ function AgentSessionView({
         if (event.type === 'sessions') return setSessions(event.sessions)
         // 재접속 되감기 — 지나간 대화가 한 덩어리로 온다. 그린 것을 통째로 갈아끼우므로 중간에 비지 않는다
         if (event.type === 'replay') {
+          // Codex 히스토리 전환은 writer를 반납하려 어댑터를 교체하므로 reset이
+          // 실시간 이벤트가 아니라 replay 안에 들어온다. replay 수신이 로딩의 종료다.
+          setLoadingSession(null)
           // 모델·모드는 세션이 처음 뜨는 동안 이미 온다. 그 뒤 창이 붙으면 실시간 이벤트가
           // 아니라 replay 안에만 있으므로, 마지막 스냅샷을 상태로도 복원해야 상단 선택기가 산다.
           let foundModels = false
@@ -2639,7 +2746,7 @@ function AgentSessionView({
   )
 
   return (
-    <div ref={sessionRef} className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface-deep">
+    <div ref={sessionRef} data-agent-session className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface-deep">
       {/* 탭바 바로 아래의 세션 도구 바. 히스토리·정보 팝업만 이 바에서 펼친다. */}
       <div ref={infoOverlayRef} className="relative z-20 flex h-8 shrink-0 items-center justify-between border-b border-edge bg-surface px-3">
         <SessionPicker
@@ -3104,10 +3211,10 @@ function AgentSessionView({
               >
                 {editing ? (
                   <>
-                    <textarea
-                      autoFocus
+                    <ResizableQueueTextarea
+                      label="대기 메시지 수정칸"
                       value={editing.text}
-                      onChange={(e) => setEditingQueued({ ...editing, text: e.target.value })}
+                      onChange={(text) => setEditingQueued({ ...editing, text })}
                       onKeyDown={(e) => {
                         if (e.key === 'Escape') {
                           e.preventDefault()
@@ -3119,8 +3226,6 @@ function AgentSessionView({
                           commitQueuedEdit(editing)
                         }
                       }}
-                      rows={3}
-                      className="min-w-0 flex-1 resize-none rounded bg-surface-raised px-2 py-1 text-xs text-ink outline-none"
                     />
                     <div className="flex shrink-0 flex-col gap-1">
                       <button
@@ -3178,10 +3283,10 @@ function AgentSessionView({
                 return <div key={job.id} className="flex items-center gap-2 py-0.5">
                   {editing ? (
                     <>
-                      <textarea
-                        autoFocus
+                      <ResizableQueueTextarea
+                        label="예약 메시지 수정칸"
                         value={editing.text}
-                        onChange={(event) => setEditingScheduled({ ...editing, text: event.target.value })}
+                        onChange={(text) => setEditingScheduled({ ...editing, text })}
                         onKeyDown={(event) => {
                           if (event.key === 'Escape') {
                             event.preventDefault()
@@ -3193,8 +3298,6 @@ function AgentSessionView({
                             commitScheduledEdit(editing)
                           }
                         }}
-                        rows={3}
-                        className="min-w-0 flex-1 resize-none rounded bg-surface-raised px-2 py-1 text-xs text-ink outline-none"
                       />
                       <div className="flex shrink-0 flex-col gap-1">
                         <button type="button" onPointerDown={keepFocusOnPress} onClick={() => commitScheduledEdit(editing)} disabled={!editing.text.trim()} className="rounded bg-accent px-2 py-1 text-xs font-medium text-accent-ink hover:bg-accent-strong disabled:opacity-40">완료</button>
@@ -3806,14 +3909,22 @@ function SchedulePromptInline({
   disabled: boolean
   initialAt?: string
 }) {
-  const [at, setAt] = useState(() => initialAt ? localDateTimeValue(new Date(initialAt)) : localDateTimeValue(new Date(Date.now() + 60 * 60_000)))
+  const [now, setNow] = useState(Date.now())
+  const [at, setAt] = useState(() => {
+    const minimum = nextLocalMinuteValue(Date.now())
+    const initial = initialAt ? localDateTimeValue(new Date(initialAt)) : localDateTimeValue(new Date(Date.now() + 60 * 60_000))
+    return initial < minimum ? minimum : initial
+  })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [now, setNow] = useState(Date.now())
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000)
     return () => clearInterval(timer)
   }, [])
+  const minimumAt = nextLocalMinuteValue(now)
+  useEffect(() => {
+    setAt((current) => current < minimumAt ? minimumAt : current)
+  }, [minimumAt])
   const remaining = formatScheduleRemaining(new Date(at).getTime() - now)
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -3841,7 +3952,7 @@ function SchedulePromptInline({
         <XGlyph small />
       </button>
       <div className="w-full max-w-72">
-        <ScrollDateTimePicker value={at} onChange={setAt} />
+        <ScrollDateTimePicker value={at} onChange={setAt} min={minimumAt} />
       </div>
       <div className="mt-1 flex items-center justify-center gap-2">
         {error

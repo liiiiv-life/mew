@@ -233,7 +233,7 @@ cmd_setup() {
 
 cmd_update() {
   load_config
-  git pull --ff-only || die "git pull failed — commit or stash your local changes first"
+  git pull --ff-only origin main || die "git pull failed — commit or stash your local changes first"
   npm ci --no-audit --no-fund
   npm run build
   stop_server
@@ -264,7 +264,7 @@ mew — a browser workspace for a folder on your machine
   ./mew setup           install, configure and start (safe to re-run)
   ./mew start | stop    start / stop the server
   ./mew restart         restart it
-  ./mew update          git pull, rebuild, restart
+  ./mew update          fast-forward origin/main, rebuild, restart
   ./mew status          what is running, and where things live
   ./mew logs            follow the log (ctrl-c to stop)
   ./mew users <args>    accounts: add <email> [owner|manager|member] | list | role | reset | remove
