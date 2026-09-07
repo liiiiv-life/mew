@@ -255,7 +255,15 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
           ))}
         </div>
         <IconButton label={t('browser.newTab')} onClick={() => addTab()}><span className="text-lg leading-none">+</span></IconButton>
-        <IconButton label={standalone ? t('browser.closePopup') : t('browser.close')} onClick={onClose}><span className="text-lg leading-none">×</span></IconButton>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mx-1 flex h-6 w-6 shrink-0 self-center items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+          title={standalone ? t('browser.closePopup') : t('browser.close')}
+          aria-label={standalone ? t('browser.closePopup') : t('browser.close')}
+        >
+          <WindowCloseGlyph />
+        </button>
       </div>
 
       <form className="flex shrink-0 items-center gap-1 border-b border-edge bg-surface px-2 py-1" onSubmit={(event) => { event.preventDefault(); navigate() }}>
@@ -308,6 +316,9 @@ function IconButton({ label, onClick, disabled = false, children }: { label: str
 
 function NavGlyph({ path }: { path: string }) {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path} /></svg>
+}
+function WindowCloseGlyph() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
 }
 function StopGlyph() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg> }
 function ReloadGlyph() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M20 6v5h-5" /><path d="M19 11a8 8 0 1 0 .2 4" /></svg> }

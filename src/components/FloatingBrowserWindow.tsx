@@ -93,7 +93,11 @@ export function FloatingBrowserWindow({ children, onClose }: { children: ReactNo
         >
           <span className="font-medium text-ink">브라우저</span>
           <span className="ml-2 truncate text-[10px] text-ink-muted">Mew 서버 loopback</span>
-          <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={onClose} className="ml-auto flex h-6 w-6 items-center justify-center rounded text-base text-ink-muted hover:bg-surface-hover hover:text-ink" aria-label="브라우저 닫기">×</button>
+          <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={onClose} className="ml-auto flex h-6 w-6 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" aria-label="브라우저 닫기">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
         </header>
         <div className="min-h-0 min-w-0 flex-1">{children}</div>
         {(['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw'] as ResizeEdge[]).map((edge) => (

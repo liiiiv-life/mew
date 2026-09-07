@@ -98,7 +98,7 @@ export function RootProjectTabs({
               <span className="flex h-5 w-5 items-center justify-center font-semibold">
                 {icons[projectPath] ? <ProjectIcon icon={icons[projectPath]} size={15} /> : (label[0]?.toUpperCase() || '/')}
               </span>
-              <span className={`max-w-[10rem] truncate pr-1.5 ${labelVisible}`}>{label}</span>
+              <span className={`max-w-[10rem] truncate ${labelVisible}`}>{label}</span>
             </button>
             {/* 이름이 보이는 화면에서만 닫기 버튼도 보인다. 마지막 탭은 열어 둘 프로젝트가 없어 닫지 않는다. */}
             {unique.length > 1 && (

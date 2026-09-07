@@ -108,9 +108,12 @@ function FolderIcon({ open, size = 14 }: { open: boolean; size?: number }) {
   return (
     <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
       {open ? (
-        <path d="M3 7h5l2 3h11l-2 10H5L3 7Z" />
+        <>
+          <path d="M3 10V6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5V10" />
+          <path d="M3.4 10h17.3a1 1 0 0 1 .96 1.28l-2 7a1 1 0 0 1-.96.72H4.3a1 1 0 0 1-.96-.72l-1.9-7A1 1 0 0 1 2.4 10Z" />
+        </>
       ) : (
-        <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+        <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5Z" />
       )}
     </svg>
   )
