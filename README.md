@@ -29,7 +29,7 @@ git clone <이 레포> mew && cd mew
 
 `setup`은 필요한 것(Node·빌드 도구·tmux)을 확인하고, 편집할 폴더와 포트를 물어보고, 빌드한 뒤 첫 계정을 만들어 임시 비밀번호를 알려준다. 다시 돌려도 안전하다. 권한 모델과 노출 시 주의는 [**SECURITY.md**](SECURITY.md) — 계정 하나를 주는 것이 어디까지를 주는 것인지 먼저 읽는다.
 
-지원 대상은 Linux와 macOS다. 터미널 패널은 `node-pty`를 로컬에서 빌드하고 `tmux`에 붙으므로 OS별 기본 도구가 필요하다.
+지원 대상은 Linux와 macOS다. 터미널•에이전트패널의 terminal 런타임은 `node-pty`를 로컬에서 빌드하고 `tmux`에 붙으므로 OS별 기본 도구가 필요하다.
 
 > **에이전트 실행 불변식:** 에이전트는 `mew`**를 실행하지 않는다.** 빌드·배포·서버 재시작은 사용자가 직접 맡는다. `npm run build`, `npm start`, `./mew start|stop|restart|update`, 프로세스 직접 종료·백그라운드 실행처럼 현재 화면이나 서버를 바꾸는 명령도 실행하지 않는다. 에이전트는 코드 변경 후 `npm test`, `npm run lint`, `npx tsc -b`처럼 실행 중인 서버를 건드리지 않는 검증까지만 하고, 반영이 필요하다고 사용자에게 알린다.
 
@@ -151,7 +151,7 @@ Node 또는 에이전트 CLI를 `nvm`, `mise` 같은 사용자 전용 경로에 
 
 | 대상 | 기본 위치 | 백업 이유 |
 | --- | --- | --- |
-| 설정·외부 서비스 자격증명 | `~/.config/mew/config.env` | 워크스페이스, 포트, R2·DB 연결 등 복구 |
+| 설정·외부 서비스 자격증명 | `~/.config/mew/config.env` | 워크스페이스, 포트, DB 연결 등 복구 |
 | mew 앱 데이터 | `~/.local/share/mew/` 또는 `MEW_DATA_DIR` | 계정, 세션, 게스트 규칙, 채팅, RAG 캐시·인덱스 |
 | 작업물 | `MEW_WORKSPACE` | mew가 편집하는 실제 파일 — Git만으로 충분한지 별도 판단 |
 | `/db` 데이터 | `DATABASE_URL`이 가리키는 Postgres | 앱 데이터 폴더에 포함되지 않음 |
@@ -193,7 +193,7 @@ mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더�
 
 작업 화면 상태(문서 탭·칸 배치·스크롤·트리 펼침·보조 패널)는 로그인 계정별 서버 원장에 남아 다른 기기·시크릿 창에서도 복원한다. 기존 `localStorage` 값은 계정 원장이 처음 비어 있을 때만 이관 원본으로 쓰며, 루트 프로젝트와 Documents의 내부 API 식별자 `.workspace`·`docs`는 호환을 위해 유지한다. 화면 폭·테마·언어·글꼴·작성 중 초안처럼 기기 특성이 강한 값은 브라우저에 남는다.
 
-프로젝트·문서·에이전트·터미널·브라우저·시트 탭 줄은 항목이 폭을 넘겨도 가로 스크롤바를 표시하지 않는다. 손가락·트랙패드·Shift+휠을 통한 가로 이동은 그대로 유지한다.
+프로젝트·문서·터미널•에이전트·브라우저·시트 탭 줄은 항목이 폭을 넘겨도 가로 스크롤바를 표시하지 않는다. 손가락·트랙패드·Shift+휠을 통한 가로 이동은 그대로 유지한다.
 
 ## 사이드바의 프로젝트 · 하위 프로젝트 · Documents
 
@@ -252,7 +252,7 @@ Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**는 Mew 화면 위의 
 이 화면은 `server/browserProxy.ts`의 **서버 loopback 개발 서버 뷰어**다. 폰에서 `localhost:3100`을 넣으면 Mew가 실행되는 WSL/서버의 `localhost:3100`을 열어, 응답을 sandbox iframe에서 렌더링한다. HTTP(S)·WebSocket·redirect·탭별 cookie/storage를 중계하므로 개발 중인 SPA도 확인할 수 있다.
 
 - 대상은 이 서버의 `localhost`, `127.0.0.0/8`, `::1`만 허용한다. 공개 인터넷·사설망·임의 URL은 열 수 없다. 권한은 터미널과 같은 **manager·owner**다.
-- 이것은 OAuth나 범용 웹 탐색용 브라우저가 아니다. ACP 런타임의 인증 센터에서 Codex·Kimi·Cursor OAuth는 현재 기기의 일반 새 탭으로 연결한다. 공급자·키·모델 선택이 먼저 필요한 Hermes·OpenClaw·OpenCode·Prime은 Mew 터미널을 연다. Claude Code·Antigravity는 에이전트 탭 자체가 공식 CLI의 tmux 터미널이므로 로그인도 그 TUI에서 진행한다. 근거와 경계는 [ADR 0109](../.mew/docs/decisions/0109-mew-agent-authentication-and-loopback-browser.md)·[ADR 0110](../.mew/docs/decisions/0110-mew-declarative-agent-authentication-jobs.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md)에 둔다.
+- 일반 Browser 패널은 OAuth나 범용 웹 탐색용이 아니다. 다만 Codex의 `codex login` 작업은 등록된 인증 호스트와 서버 loopback만 여는 일회성 내장 브라우저를 에이전트 화면 안에서 쓴다. Kimi·Cursor OAuth는 현재 기기의 일반 새 탭으로 연결한다. 공급자·키·모델 선택이 먼저 필요한 Hermes·OpenClaw·OpenCode·Prime은 Mew 터미널을 연다. Claude Code·Antigravity는 에이전트 탭 자체가 공식 CLI의 tmux 터미널이므로 로그인도 그 TUI에서 진행한다. 근거와 경계는 [ADR 0109](../.mew/docs/decisions/0109-mew-agent-authentication-and-loopback-browser.md)·[ADR 0110](../.mew/docs/decisions/0110-mew-declarative-agent-authentication-jobs.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md)·[ADR 0121](../.mew/docs/decisions/0121-mew-codex-oauth-through-scoped-server-browser.md)에 둔다.
 - Mew session cookie는 대상에 보내지 않으며 대상 문서는 `allow-same-origin` 없는 iframe에서 돌아 Mew UI DOM·localStorage에 직접 접근하지 못한다. Mew 서버 재시작·세션 만료·창을 새로 열면 사이트 세션은 사라진다.
 
 `/3100`처럼 포트를 첫 경로로 연 전체 페이지도 같은 구현을 쓰되, 이 호환 진입점의 대상은 계속 해당 서버의 loopback 포트로 고정한다.
@@ -313,7 +313,7 @@ type PaneNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 'row' | '
 - 칸이 비면(마지막 탭을 닫으면) **저절로 접히고** 나무도 같이 줄어든다(`removeLeaf`·`prunePanes`). 마지막 한 칸은 비어도 남아 안내문을 띄운다.
 - \*\*초점 칸(focused pane)\*\*이 키보드 단축키·검색·기록 되돌리기·터미널 선택 붙여넣기의 대상이다. 칸 아무 데나 누르면(`onPointerDownCapture`) 초점이 옮겨 가고, 초점 없는 칸의 탭 줄은 흐려진다. `useTabs`가 내주는 `tabs`/`activePath`/`activeTab`은 **초점 칸의 것**이다.
 - **내용 캐시·자동저장은 칸이 아니라 경로 기준**이다. 같은 파일을 두 칸에 열면 같은 내용을 본다.
-- 터미널·시스템 자원 버튼은 칸이 아니라 **헤더 햄버거 메뉴**(`HeaderMenu`, 에이전트 버튼 옆)에 있다 — 칸 도구 줄에 달면 같은 버튼이 여러 개 선다.
+- 터미널•에이전트패널·시스템 자원 버튼은 칸이 아니라 **헤더 햄버거 메뉴**(`HeaderMenu`)에 있다 — 칸 도구 줄에 달면 같은 버튼이 여러 개 선다.
 - 협업 참여자 표시(presence)가 서버에 알리는 파일은 **초점 칸의 것 하나**다 — 다른 칸에 열어둔 문서는 남에게 "보고 있는 중"으로 보이지 않는다.
 
 ### Ctrl+L 참조 (`경로:줄`)
@@ -321,8 +321,8 @@ type PaneNode = { kind: 'leaf'; pane: string } | { kind: 'split'; dir: 'row' | '
 편집기 안에서 Ctrl+L(`insertPathOrSelection`)을 누르면 지금 보고 있는 자리를 `programs/modoo-2026/사업계획서-0811.md:3` 꼴로 만들어 **보조창 입력칸 하나**에 써 준다. 선택이 있으면 `…:3-15`, 없으면 커서가 있는 줄 하나다. 뒤에 공백 한 칸이 붙어 바로 이어 칠 수 있다.
 
 - **파일 종류를 가리지 않는다** — md 핫뷰(ProseMirror)든 코드·텍스트(CodeMirror)든 편집기가 붙으면 대상이다 (`.ProseMirror, .cm-editor` 안에서 눌렀을 때만). 줄 번호는 각 편집기의 `getSelectedLineRange`가 내고, 핫뷰는 화면상의 블록이 아니라 **md 원본 줄**로 환산한다(frontmatter 줄 수까지 더한다).
-- **받는 창은 마지막으로 연 보조창 하나**다(에이전트 · 터미널 · 채팅). 그 창이 닫혀 있으면 지금 열려 있는 창으로 넘어가고, 하나도 안 열려 있으면 아무 일도 하지 않는다 (`utils/refTarget.ts`, 테스트 있음). App이 `mew:insert-ref`에 `detail.target`을 실어 보내고 **자기 이름이 아닌 창은 무시**한다 — 예전에는 열려 있는 창이 전부 받아 적어 쓰지도 않을 창에 찌꺼기가 남았다.
-- 에이전트 창은 탭이 여럿이어도 **보이는 탭**만 받는다(안 보이는 탭도 마운트된 채로 살아 있다). 채팅 창만 글자 대신 파일 멘션 토큰(`[[프로젝트:경로]]`)으로 받는다 — 같은 이벤트의 `project`·`path`를 쓴다.
+- **받는 창은 마지막으로 연 보조창 하나**다(터미널•에이전트패널 · 채팅). 그 창이 닫혀 있으면 지금 열려 있는 창으로 넘어가고, 하나도 안 열려 있으면 아무 일도 하지 않는다 (`utils/refTarget.ts`, 테스트 있음). App이 `mew:insert-ref`에 `detail.target`을 실어 보내고 **자기 이름이 아닌 창은 무시**한다 — 예전에는 열려 있는 창이 전부 받아 적어 쓰지도 않을 창에 찌꺼기가 남았다.
+- 터미널•에이전트패널은 탭이 여럿이어도 **보이는 탭**만 받는다(안 보이는 탭도 마운트된 채로 살아 있다). 채팅 창만 글자 대신 파일 멘션 토큰(`[[프로젝트:경로]]`)으로 받는다 — 같은 이벤트의 `project`·`path`를 쓴다.
 - 터미널 **안에서** 누른 Ctrl+L은 이 경로가 아니다 — `TmuxTerminal`이 직접 처리해 편집기 선택 글자(없으면 활성 파일 경로)를 셸에 찍는다.
 
 ## 실행
@@ -355,7 +355,6 @@ npx tsc -b      # 타입만 (빌드 없이)
 | `MEW_BIND` | `127.0.0.1` | 서버가 들을 주소. 공개 기본값은 loopback이며, LAN 직접 접속이 꼭 필요할 때만 노출 주소를 명시한다. 서버 배포는 HTTPS 프록시·터널 뒤 `127.0.0.1`로 유지한다 |
 | `MEW_COLLAB_RUST` | 없음(=JS Yjs) | `1`이면 협업 방 상태를 Rust(yrs)로 — 먼저 `npm run build:native` (아래 §협업 방) |
 | `DATABASE_URL` | 없음 | `/db`용 Postgres. 없거나 접속 불가면 `/db` API만 503 |
-| `R2_*` | 없음 | 미디어 업로드(S3 호환). 없으면 업로드 기능만 꺼진다 |
 | `MEW_RAG_ENABLED` | `1` | `0`이면 로컬 의미 검색만 끈다. 정확 검색은 항상 유지 |
 | `MEW_RAG_MODEL` | `Xenova/multilingual-e5-small` | Transformers.js feature-extraction 모델(기본 384차원 계약) |
 | `MEW_RAG_MAX_FILE_BYTES` | `1000000` | 이 크기를 넘는 단일 텍스트 파일은 의미 인덱스에서 제외 |
@@ -457,7 +456,7 @@ npm run db:down   # 중지
 
 ### 터미널 버튼 (.data/term-button.json)
 
-터미널 패널 버튼 줄(선택 모드 버튼과 같은 줄) 왼쪽에 뜬다. 누르면 **지금 보고 있는 tmux 세션**에 하단 입력칸 전송과 똑같은 경로로 들어간다 — 명령을 타이핑한 뒤 조금 늦게 별도 Enter를 보내므로 Claude Code 같은 TUI의 슬래시 명령(`/clear`·`/model`)도 버튼 한 번으로 제출된다.
+터미널•에이전트패널의 **tmux 터미널 탭** 버튼 줄(선택 모드 버튼과 같은 줄) 왼쪽에 뜬다. 누르면 지금 보고 있는 셸 세션에 하단 입력칸 전송과 똑같은 경로로 들어간다. 에이전트 TUI 탭에는 이 셸 명령 버튼을 표시하지 않는다.
 
 ```json
 {
@@ -473,7 +472,7 @@ npm run db:down   # 중지
 - `icon`은 **프로젝트 아이콘과 같은 표기**다 — `i:{키}` · 이모지 · `svg:{마크업}`. 고르는 칸도 같은 `IconPicker`라 SVG 직접 넣기까지 그대로 된다(검사는 `normalizeIconValue` 하나).
 - `iconOnly: true`면 그 버튼은 **이름을 감추고 아이콘만** 그린다(버튼마다 따로 정한다 — 편집 창의 `이름 숨기고 아이콘만 보이기`). 아이콘이 없으면 빈 칸이 되므로 무시하고 이름을 그대로 둔다.
 - 실행은 서버가 하지 않는다. 클라이언트가 이미 열려 있는 터미널 WebSocket으로 직접 보내므로 세션·cwd가 화면과 항상 일치한다. 그 소켓 자체가 owner/manager 경계라 별도 게이팅이 없다.
-- 서버: `server/termButtons.ts` + `GET/PUT /api/term-buttons`(owner/manager, 목록 읽기·쓰기만). 클라이언트: `src/components/TermButtonBar.tsx` — `TmuxTerminalPanel`의 `renderCommandButtons`렌더 프롭으로 주입된다(터미널 패키지는 이 기능의 API를 모른다).
+- 서버: `server/termButtons.ts` + `GET/PUT /api/term-buttons`(owner/manager, 목록 읽기·쓰기만). 클라이언트: `src/components/TermButtonBar.tsx` — `AgentPanel`이 tmux 터미널 탭의 `TmuxTerminal`에 `renderCommandButtons` 렌더 프롭으로 주입한다(터미널 패키지는 이 기능의 API를 모른다).
 
 ### 시스템 자원 팝업
 
@@ -533,9 +532,9 @@ npm run db:down   # 중지
 
 - `dragover`**에서는** `getData()`**가 언제나 빈 문자열이다**(DataTransfer 보호 모드). 받는 쪽 판정은 `hasPathDrag`(=`types` 검사)로 하고, 값 읽기(`pathFromDrag`)는 `drop`에서만 한다. 여기서 헷갈리면 `preventDefault`를 못 해 드롭 자체가 발생하지 않는다.
 - `effectAllowed`는 `copyMove`다 — `move`만 허용하면 `dropEffect='copy'`로 받는 에디터·터미널에서 드롭이 통째로 거부된다. 트리 안 폴더는 자기 `dragover`에서 `move`를 명시해 원래 뜻을 지킨다.
-- 에디터는 **전용 MIME이 있을 때만** 가로챈다. 바깥에서 끌어온 이미지·텍스트는 종전대로 업로드·삽입된다.
+- 에디터는 **전용 MIME이 있을 때만** 가로챈다. 바깥에서 끌어온 이미지·텍스트는 프로젝트의 `.mew/assets/`에 업로드되고 본문에 링크로 삽입된다. UUID 파일명과 프로젝트 id를 담은 `/api/asset` 링크는 종전 R2 공개 URL처럼 링크를 아는 사람이 볼 수 있다. Git이 무시하지 않는 새 asset은 프로젝트 저장소에 자동 커밋되며, 기존 R2 링크 22개는 `.mew/assets/`로 이관 완료했다.
 
-**바깥(파일 탐색기)에서 사이드바로 끌어놓기**는 반대 방향이다 — 놓은 폴더(빈 곳 = 프로젝트 루트)에 그 파일이 **그대로 저장된다**(`POST /api/upload-into`, multipart `file`·`destDir`). 판정은 `dataTransfer.types`에 `'Files'`가 있는지로 하고, 그때만 `dropEffect='copy'`가 된다. 이름이 겹치면 서버가 `이름 copy`로 비켜 쓰고, 여러 개를 놓으면 **순서대로** 올린다(동시에 보내면 같은 빈 이름을 함께 집는다). 에디터 본문 드롭이 R2 링크를 만드는 것과 달리 여기는 R2를 거치지 않는다 — 바이트를 프로젝트 폴더에 그대로 쓰고 git에 커밋한다.
+**바깥(파일 탐색기)에서 사이드바로 끌어놓기**는 놓은 폴더(빈 곳 = 프로젝트 루트)에 그 파일을 **그대로 저장**한다(`POST /api/upload-into`, multipart `file`·`destDir`). 판정은 `dataTransfer.types`에 `'Files'`가 있는지로 하고, 그때만 `dropEffect='copy'`가 된다. 이름이 겹치면 서버가 `이름 copy`로 비켜 쓰고, 여러 개를 놓으면 **순서대로** 올린다(동시에 보내면 같은 빈 이름을 함께 집는다). 에디터 본문 드롭은 `.mew/assets/`에 UUID 이름으로 저장하는 반면, 사이드바 드롭은 바이트와 원래 이름을 놓은 폴더에 보존하고 Git에 커밋한다.
 
 ### 표 열 너비 (.mew/table-layout.json)
 
@@ -564,26 +563,26 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 - **클라이언트(**`Editor.tsx`**)와 서버(**`serverExtensions.ts`**)가 같은** `IndentableListItem`**을 써야 한다**.한쪽만 바꾸면 협업 병합에서 문서가 갈라진다. 그래서 정의는 한 모듈에만 둔다.
 - 부모 마커 없는 `- b`로는 저장할 수 없다 — 마크다운 규칙상 다시 읽으면 최상위 항목이 된다.
 
-## 에이전트 창 (ACP 채팅 · tmux TUI)
+## 터미널•에이전트패널 (ACP 채팅 · tmux TUI · 셸)
 
-헤더의 말풍선 버튼 — **현재 루트 프로젝트**에 묶인 AI 에이전트 탭을 연다. 프로젝트마다 독립 탭 목록을 가지며, 프로젝트를 오가면 창은 그대로 둔 채 그 프로젝트의 탭으로 바뀐다. 새 탭의 cwd는 현재 프로젝트 루트에서 시작하고, 작업은 **탭마다** 하나씩 굴린다. Codex·Hermes·Kimi·OpenClaw·OpenCode·Cursor·Prime은 [ACP](https://agentclientprotocol.com) 채팅 UI를 쓰고, Claude Code·Antigravity는 공식 CLI를 탭별 tmux에서 직접 실행해 **일반 터미널 탭과 같은 화면·입력·모바일 키·스크롤**을 쓴다. 근거는 [ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md)·[ADR 0043](../.mew/docs/decisions/0043-mew-agent-workspace-scope-and-runtimes.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md), 권한 경계는 [SECURITY.md](SECURITY.md). 데스크톱에서는 창 왼쪽 경계선 전체를 좌우로 끌어 폭을 조절하며, 조절한 폭은 브라우저에 남는다.
+헤더의 통합 버튼은 **현재 루트 프로젝트**에 묶인 터미널·AI 에이전트 탭을 연다. 기존의 별도 터미널 보조패널은 없으며 `Ctrl+\``·`Alt+T`·`Alt+L`은 모두 이 패널을 토글한다. 프로젝트마다 독립 탭 목록을 가지며, 프로젝트를 오가면 창은 그대로 둔 채 그 프로젝트의 탭으로 바뀐다. 새 탭의 cwd는 현재 프로젝트 루트다. `tmux 터미널`은 탭별 기본 셸, Claude Code·Antigravity는 탭별 공식 CLI TUI, Codex·Hermes·Kimi·OpenClaw·OpenCode·Cursor·Prime은 [ACP](https://agentclientprotocol.com) 채팅 UI를 쓴다. 근거는 [ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md)·[ADR 0119](../.mew/docs/decisions/0119-mew-unified-terminal-agent-panel.md), 권한 경계는 [SECURITY.md](SECURITY.md). 데스크톱에서는 창 왼쪽 경계선 전체를 좌우로 끌어 폭을 조절하며, 조절한 폭은 브라우저에 남는다.
 
 ⚠️ ACP 채팅 런타임을 `serve.ts` 요청 핸들러 안에서 블로킹 실행하지 않는다. terminal 런타임의 시작 요청은 등록표의 고정 CLI를 tmux에 타이핑한 뒤 즉시 끝나며, 실제 TUI 수명과 스트리밍은 tmux가 소유한다.
 
 - 서버: `server/agentRuntimes.ts`(공통 런타임·표면 등록표) + `server/agentTerminal.ts`(terminal 탭의 tmux 수명) + `server/agentDefaults.ts`(ACP 런타임별 모델·권한 기본값) + `server/agentAcp.ts`(ACP 세션) + `server/agentHost.ts`(ACP 탭별 독립 감독) + `server/agentWs.ts`(WS↔감독 릴레이). 클라이언트: `src/components/AgentPanel.tsx`가 ACP 채팅과 `@mew/tmux-term` 터미널 본문을 표면별로 고른다. 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) — 어느 표면이든 셸을 쓸 수 있어 tmux와 같은 경계여야 한다.
-- 입력창은 `/`로 로컬 스킬을, `@`로 하위 프로젝트·현재 프로젝트의 폴더·파일을 검색해 넣는다. `@` 결과는 **하위 프로젝트 → 폴더 → 파일** 순서이고 같은 종류 안에서는 가나다순이다. 프로젝트 목록은 `GET /api/projects`가 역할에 맞게 돌려주며, 고르면 기존처럼 `#프로젝트명`이 들어간다. 폴더·파일은 `[[프로젝트:경로]]` 토큰으로 들어간다. 스킬 목록은 `GET /api/skills`가 `CODEX_HOME/skills`와 `<워크스페이스>/.agents/skills`의 `SKILL.md`를 읽어 만든다. `/스킬명`을 고르면 브라우저는 스킬 id만 WS에 싣고, 서버가 `server/agentRuntimes.ts`의 런타임 등록표로 실제 프롬프트를 합성한다. 기본 합성기는 모든 ACP 런타임에 대해 선택된 `SKILL.md`를 먼저 읽고 따르라고 지시한다. `@파일`은 채팅과 같은 `[[프로젝트:경로]]` 토큰으로 들어간다. `Alt+L`은 어디에 포커스가 있든 에이전트 창을 열거나 닫는다. **채팅과 입력창 사이의 경계선 전체**를 위아래로 끌어 입력창을 화면 높이의 80%까지 늘릴 수 있다(키보드는 경계선에서 ↑·↓).
+- ACP 채팅 입력창은 `/`로 로컬 스킬을, `@`로 하위 프로젝트·현재 프로젝트의 폴더·파일을 검색해 넣는다. `@` 결과는 **하위 프로젝트 → 폴더 → 파일** 순서이고 같은 종류 안에서는 가나다순이다. 프로젝트 목록은 `GET /api/projects`가 역할에 맞게 돌려주며, 고르면 기존처럼 `#프로젝트명`이 들어간다. 폴더·파일은 `[[프로젝트:경로]]` 토큰으로 들어간다. 스킬 목록은 `GET /api/skills`가 `CODEX_HOME/skills`와 `<워크스페이스>/.agents/skills`의 `SKILL.md`를 읽어 만든다. `/스킬명`을 고르면 브라우저는 스킬 id만 WS에 싣고, 서버가 `server/agentRuntimes.ts`의 런타임 등록표로 실제 프롬프트를 합성한다. **채팅과 입력창 사이의 경계선 전체**를 위아래로 끌어 입력창을 화면 높이의 80%까지 늘릴 수 있다(키보드는 경계선에서 ↑·↓).
 - 질문 위에는 전송 시점의 **모델 · 추론 정도 · 권한**을 양쪽 선과 함께 남긴다. 첫 질문도 표시하며, 이전 질문과 셋 중 하나라도 달라질 때만 다시 표시한다. 이 값은 ACP 이벤트 전사에 같이 저장돼 재접속·세션 복원 뒤에도 당시 설정을 보인다.
-- `+`와 탭이 없을 때 가운데의 **새 탭** 버튼은 탭을 먼저 만들지 않고 **새 탭 선택기**를 연다. 런타임을 고르면 그 이름의 탭이 열리고, ACP 런타임은 채팅 세션을, Claude·Antigravity는 전용 tmux TUI를 시작한다. 에이전트셋은 모델·역할을 주입할 수 있는 ACP 채팅 런타임만 대상으로 한다. 선택 전에는 탭·WS·프로세스가 없고, 탭 이름은 직접 바꿀 수 있다. 정의는 `GET`·`PUT /api/agent-sets`(owner/manager)로 `<DATA_DIR>/agent-sets.json`에 저장된다 ([ADR 0095](../.mew/docs/decisions/0095-mew-agent-sets-as-tab-presets.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md)).
+- `+`와 탭이 없을 때 가운데의 **새 탭** 버튼은 탭을 먼저 만들지 않고 **새 탭 선택기**를 연다. 런타임을 고르면 그 이름의 탭이 열리고, `tmux 터미널`은 전용 셸 세션을, Claude·Antigravity는 전용 tmux TUI를, ACP 런타임은 채팅 세션을 시작한다. 에이전트셋은 모델·역할을 주입할 수 있는 ACP 채팅 런타임만 대상으로 한다. 선택 전에는 탭·WS·프로세스가 없고, 탭 이름은 직접 바꿀 수 있다. 정의는 `GET`·`PUT /api/agent-sets`(owner/manager)로 `<DATA_DIR>/agent-sets.json`에 저장된다 ([ADR 0095](../.mew/docs/decisions/0095-mew-agent-sets-as-tab-presets.md)·[ADR 0119](../.mew/docs/decisions/0119-mew-unified-terminal-agent-panel.md)).
 - 답변의 **현재 워크스페이스 파일 링크**를 누르면 브라우저 새 탭이 아니라 같은 mew에서 해당 프로젝트와 문서 탭을 연다. `:줄`·`#L줄`이 붙으면 그 줄로 이동하며, Markdown도 정확한 원본 줄을 보여 주기 위해 이 경우 Plain으로 연다. `GET /api/agent-file-link?href=`가 서버 절대경로를 노출하지 않고 `{project,path,line}`으로 검증·변환한다(owner/manager). 웹 링크는 계속 새 브라우저 탭으로 연다.
 - 탭의 \*\*작업 경로(cwd)\*\*는 새 탭을 열 때 현재 워크스페이스 루트로 정해지며 화면에서 바꾸지 않는다. 경로는 ACP 세션·히스토리의 기준으로 계속 저장하지만, 주소창 형태의 입력줄은 없다 ([ADR 0097](../.mew/docs/decisions/0097-mew-agent-panel-removes-cwd-bar.md)).
-- ACP 채널은 `/api/agent/ws?runtime=<id>&tab=<id>&cwd=<absolute-path>&resume=<session-id>`이고 terminal 표면은 `POST /api/agent-runtimes/:id/terminal/:tab`으로 전용 tmux를 준비한 뒤 기존 `/api/tmux/ws?session=<server-name>`에 붙는다. 어느 쪽이든 **탭 하나가 세션 하나**다. 에이전트 패널·브라우저를 닫아도 세션은 남으며, 탭의 `×`만 ACP 감독 또는 terminal tmux를 종료한다. terminal tmux 이름은 `mewagent-*`로 서버가 만들고 일반 터미널 탭 목록에서는 숨긴다.
+- ACP 채널은 `/api/agent/ws?runtime=<id>&tab=<id>&cwd=<absolute-path>&resume=<session-id>`이고 terminal 표면은 `POST /api/agent-runtimes/:id/terminal/:tab`으로 전용 tmux를 준비한 뒤 기존 `/api/tmux/ws?session=<server-name>`에 붙는다. 어느 쪽이든 **탭 하나가 세션 하나**다. 패널·브라우저를 닫아도 세션은 남으며, 탭의 `×`만 ACP 감독 또는 terminal tmux를 종료한다. terminal tmux 이름은 `mewagent-*`로 서버가 만들고 사용자 세션 목록에서는 숨긴다.
 - **설치와 로그인은 별개다**. ACP 런타임은 인증 센터의 등록된 browser/terminal 작업을 쓰고, Claude·Antigravity는 탭에 열린 공식 TUI의 로그인 흐름을 그대로 쓴다. Mew는 두 terminal 런타임의 OAuth 토큰이나 승인 코드를 별도 API로 받거나 저장하지 않는다.
 - 탭 목록·이름·런타임·cwd별 마지막 세션 ID는 **계정에 저장**하고 루트 프로젝트 절대 경로별로 분리한다. 브라우저의 `mew:agent-tabs:<root-path>`는 서버 응답 전 연결에 쓰지 않는 로컬 fallback뿐이다. 저장 PUT은 화면마다 한 번씩 직렬화하며, 전송 중 갱신이 여럿 생기면 마지막 스냅샷만 이어 보내 오래된 응답이 최신 thread 포인터를 되돌리지 못하게 한다. 서버 복원이 끝난 뒤에만 활성 탭의 WS를 붙이므로 localStorage의 낡은 세션으로 먼저 연결하지 않는다. 세션 ID는 탭을 닫을 때 함께 지워지고, 같은 탭에서 런타임이나 cwd를 갈아타면 각 조합의 대화 포인터를 따로 보존한다. 마지막으로 보던 탭도 같은 루트 경로별로 남는다(`mew:agent-active-tab:<root-path>`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이 선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라). 스와이프로 창·탭을 전환하거나 닫는 동작은 없다. 이 작업은 플로팅 핸들이 맡는다. 탭 이름은 선택한 런타임 또는 에이전트셋 이름으로 시작하고, 탭을 두 번 누르면 직접 고친다 ([ADR 0093](../.mew/docs/decisions/0093-mew-account-synced-project-and-agent-tabs.md)·[ADR 0096](../.mew/docs/decisions/0096-mew-agent-tabs-created-after-selection.md)).
   - 새 탭은 선택 후에만 생기므로, 선택 전 히스토리 조회·세션 입력을 위한 빈 탭은 없다. 새 세션은 선택 직후부터 해당 탭에서 시작하며, 지난 세션을 고르는 기능은 탭에서 계속 제공한다
   - 같은 세션을 두 탭에서 열지 않는다(목록에서 잠근다) — 현재 mount된 탭뿐 아니라 같은 계정에 저장된 다른 루트 프로젝트의 숨은 탭까지 한 번의 탭 상태 응답에 포함해 판정한다. 한 전사를 두 프로세스가 붙들면 기록이 엉킨다
   - **대화가 자라도 바닥에 붙어 있을 때만 따라 내려간다**(바닥 판정 여유 48px). 위로 올려 읽는 중이면 자리를 지키고 \*\*\[새 메시지\]\*\*만 띄운다 — 누르면 바닥으로, 스스로 바닥까지 내려가도 사라진다. 내가 프롬프트를 보냈을 때와 세션을 새로 불러왔을 때(`reset`)는 다시 바닥에 붙인다
   - **탭을 닫는 것만 세션을 끝낸다**(`close_session`). 창을 닫는 것과 다르다. 안 보고 있는 탭도 WS는 붙어 있고(돌던 대화가 멎으면 안 된다), 한 번이라도 연 탭만 붙인다(복원된 탭을 한꺼번에 띄우지 않는다)
-  - **턴 버블 오른쪽에 걸린 시간이 선다** — "15초"·"36분 32초"·"2시간 5분 4초" 꼴. 서버가 `turn_start`에 `startedAt`, `turn_end`에 `durationMs`를 새기므로 되받은 히스토리에서도 그대로 보인다. 돌고 있는 턴은 startedAt부터 지금까지를 1초마다 다시 세고, 시간 정보가 없는 옛 히스토리는 감춘다. 감독이 유휴 종료된 뒤에도 완료 시점에 남긴 최근 500개 이벤트 전사를 다시 써서, 이전 작업의 소요 시간도 보존한다.
+  - **턴 버블 오른쪽에 걸린 시간이 선다** — "15초"·"36분 32초"·"2시간 5분 4초" 꼴. 서버가 `turn_start`에 `startedAt`, `turn_end`에 `durationMs`를 새기므로 되받은 히스토리에서도 그대로 보인다. 돌고 있는 턴은 startedAt부터 지금까지를 1초마다 다시 세고, 시간 정보가 없는 옛 히스토리는 감춘다. 감독이 유휴 종료된 뒤에도 완료 시점에 남긴 전체 이벤트 전사를 다시 써서, 질문·답변·작업 내역과 소요 시간을 보존한다.
   - ACP가 히스토리를 다시 흘릴 때 마지막 `turn_end`를 보내지 않아도, 현재 세션 `meta.busy`가 false면 마지막 턴은 **완료(초록)**로 그린다. meta를 받기 전이나 아직 작업 중이면 **진행 중(파랑)**을 유지한다.
 
 | 방향 | 메시지 |
@@ -591,7 +590,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 | 클라이언트 → 서버 | `{type:'prompt', text, settings?: {model, thinking, permission}}` · `{type:'cancel'}` · `{type:'permission', id, optionId|null}` · `{type:'authenticate', methodId, secret?}` · `{type:'retry_auth'}` · `{type:'auth_url_response', id, action}` · `{type:'set_model', modelId}` · `{type:'set_mode', modeId}` · `{type:'unqueue', index}` · `{type:'move_queued', from, to}` · `{type:'edit_queued', index, text, expect}` · `{type:'list_sessions'}` · `{type:'load_session', sessionId}` · `{type:'close_session'}` |
 | 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events, restored?, restoreFailure?}` · `{type:'update', update, settings?}`(ACP `session/update` 원본 + 사용자 발화 설정) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · `{type:'error'|'fatal', message}` · `{type:'models', models}` · `{type:'modes', modes}` · `{type:'meta', meta}` · `{type:'auth', methods, authenticating, error}` · `{type:'auth_url', id, url, message}` · `{type:'auth_url_done', id}` · `{type:'auth_complete'}` · `{type:'reset'}` · `{type:'sessions', sessions}` |
 
-- **되감기는 한 프레임이다(**`replay`**).** 붙는 순간 서버가 쌓아 둔 대화(`snapshot()`, 최대 500개)를 통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 마지막으로 본 전사를 탭·런타임·cwd별 `localStorage`(`mew:agent-events:*`)에 캐시해 브라우저 재진입 첫 프레임부터 그린다. 같은 세션의 `replay`는 캐시와 겹치는 꼬리를 제거한 뒤 최신분만 이어 붙인다 — 서버의 500개 상한 때문에 이미 본 앞쪽 프롬프트·답변이 사라지지 않는다. 다른 세션이면 `replay`로 갈아끼운다. 창은 소켓이 끊겨도 대화를 지우지 않는다. 예전에는 이벤트를 500개까지 **한 개씩** 되돌려 보냈고, 창은 그때마다 다시 그리느라(이벤트당 `foldEvents` 한 번 + 목록 전체) 눈에 띄게 굳었다.
+- **되감기는 한 프레임이다(**`replay`**).** 붙는 순간 서버가 쌓아 둔 대화(`snapshot()`)를 통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 마지막으로 본 전사를 탭·런타임·cwd별 `localStorage`(`mew:agent-events:*`)에 캐시해 브라우저 재진입 첫 프레임부터 그린다. 같은 세션의 `replay`는 캐시와 겹치는 꼬리를 제거한 뒤 최신분만 이어 붙이고, 다른 세션이면 `replay`로 갈아끼운다. 창은 소켓이 끊겨도 대화를 지우지 않는다. 예전에는 되감기 이벤트를 **한 개씩** 보냈고, 창은 그때마다 다시 그리느라(이벤트당 `foldEvents` 한 번 + 목록 전체) 눈에 띄게 굳었다. 지금은 긴 전사도 한 덩어리로 보내므로 이벤트 수를 이유로 질문이나 답변 앞부분을 자르지 않는다.
 
 - **히스토리를 열 때마다** 계정의 모든 루트 프로젝트 탭이 주장한 ACP 세션을 다시 읽는다. 현재 탭 또는 다른 탭이 이미 연 세션은 목록에서 잠가 두므로, 이미 붙은 writer를 다시 `session/load`해 ACP의 `Internal error`가 나는 경로가 없다.
 
@@ -625,7 +624,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
   | --- | --- | --- | --- |
   | `claude` | terminal · `claude` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_CLAUDE_CLI_CMD` · `MEW_AGENT_CLAUDE_CLI_ARGS`; 예약 ACP는 기존 `MEW_AGENT_CMD` · `MEW_AGENT_CLAUDE_CMD` 계약 유지 |
   | `antigravity` | terminal · `agy` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_ANTIGRAVITY_CMD` · `MEW_AGENT_ANTIGRAVITY_ARGS` |
-  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | browser · 번들 `codex login --device-auth` | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `NO_BROWSER`(기본 `1`) |
+  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | server browser · 번들 `codex login` · 제한된 OAuth host→loopback callback | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `NO_BROWSER`(기본 `1`) |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `hermes acp --setup` | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
   | `kimi` | `kimi acp` | browser · `kimi login`(.com) / `kimi login --region global`(.ai) | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
   | `openclaw` | `openclaw acp` | `openclaw onboard --tui` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
@@ -718,7 +717,7 @@ MEW_COLLAB_RUST=1 npm run serve
   - **왼쪽 거터의 줄 번호가 드래그 핸들을 대신한다.** 번호는 호버와 상관없이 늘 떠 있고(`editor.css`의 `counter`), 핸들 엘리먼트는 그 숫자 위에 포개지는 **투명한 손잡이**다(클릭=블록 선택). 블록 이동은 **0.7초 동안 움직이지 않고 누른 뒤**에만 시작한다. 그 전에 드래그를 시작하면 이동으로 승격되지 않고 기존 드래그/스크롤 제스처로 끝까지 처리한다. 밝기 3단: 평소 → 지금 잡히는 줄(`mew-line--hover`, DragHandle의 `onNodeChange`가 붙임) → 커서가 있는 줄(`mew-line--focus`, `editor/lineFocus.ts`의 장식).
   - 세는 단위는 핸들이 잡는 단위와 같아야 한다 — **최상위 블록 하나가 한 줄, 리스트는 항목이 한 줄**이고 `ul`/`ol` 자체는 줄이 아니다. 리스트 들여쓰기 되돌림(한 단 24px)은 CSS의 `li::before`와 JS의 `listLevel`이 **같은 값**을 써야 손잡이가 숫자 위에 남는다 — 한쪽만 고치지 말 것.
 - `@mew/shortcuts` — 단축키 바인딩.
-- `@mew/tmux-term` — 터미널. 클라이언트(`TmuxTerminalPanel`, xterm.js)와 서버 (`@mew/tmux-term/server`: `createTmuxManager`·`createTmuxRouter`·`attachTmuxWebSocket`, cwd 파라미터) 양쪽 제공. 버튼 줄 오른쪽 도구는 **전부 아이콘 하나**다(맨 아래 · 키보드 잠금 · 선택 모드 · 복사) — 좁은 화면에서 왼쪽 명령어 버튼 자리를 뺏지 않게. 무엇인지는 `data-tip`·`aria-label`이 말한다. 에디터에서 누른 Ctrl+L의 `경로:줄` 참조는 호스트 앱(App)이 `mew:insert-ref` window 이벤트로 보내고, `detail.target`**이 자기 것인 창 하나만** 받아 적는다(아래 "Ctrl+L 참조"). 버튼 줄 전체는 `HoverTipLayer`(`@mew/ui`)로 감싸 **마우스를 올리면 기다림 없이** 이름표가 뜬다 — `data-tip="이름"`이 붙은 요소면 무엇이든 대상이라 버튼마다 배선하지 않는다(명령어 버튼도 같이 따라온다). 이 줄의 버튼에는 `title`을 걸지 않는다: 이름표가 뜬 뒤에 브라우저 기본 툴팁이 겹쳐 뜬다.
+- `@mew/tmux-term` — 터미널 본문(xterm.js)과 서버 (`@mew/tmux-term/server`: `createTmuxManager`·`createTmuxRouter`·`attachTmuxWebSocket`, cwd 파라미터)을 제공한다. Mew의 주 UI는 `AgentPanel` 안의 `TmuxTerminal`이며 패키지의 범용 `TmuxTerminalPanel`은 현재 보조패널로 마운트하지 않는다. 버튼 줄 오른쪽 도구는 **전부 아이콘 하나**다(맨 아래 · 키보드 잠금 · 선택 모드 · 복사). 에디터에서 누른 Ctrl+L의 `경로:줄` 참조는 호스트 앱이 `mew:insert-ref`로 보내며 활성 통합 패널만 받는다.
   - \*\*\[맨 아래\]\*\*는 올라간 스크롤을 **누가 들고 있는지**에 따라 셋을 다 한다: ① xterm 자체 스크롤백이면 `scrollToBottom` ② tmux copy-mode(마우스를 안 쓰는 프로그램)면 WebSocket `exitCopyMode` → 서버가 `tmux copy-mode -q`(멱등. PTY에 `q`·Esc를 쏘면 모드가 아닐 때 TUI에 오입력된다) ③ **앱이 직접 스크롤하는 경우**(Claude Code처럼 마우스를 잡는 TUI) — tmux는 휠을 앱에 넘겼을 뿐이라 ①②가 통하지 않는다. 이때는 SGR 휠 아래를 한 번에 몰아 보내 앱 스스로 최신까지 내려가게 한다.
   - **\[키보드 잠금\]**(자물쇠)은 모바일 소프트 키보드가 뜨지 않게 한다 — 터미널의 보조 textarea와 하단 입력칸에 `inputMode='none'`을 건다. 포커스는 살아 있어 붙여넣기·하드웨어 키보드·명령어 버튼은 그대로 쓴다. 세션이 아니라 브라우저 설정이라 `localStorage: mew:tmux-keyboard-lock`에 남는다.
   - 터미널 세션·에이전트 탭의 전송 성공 입력은 각각 브라우저에 최근 100개까지 보관한다. 입력칸의 첫 줄에서 `↑`, 마지막 줄에서 `↓`를 누르면 셸처럼 이전·다음 항목을 불러오며, 여러 줄 안에서는 본래 커서 이동을 유지한다.
@@ -743,8 +742,8 @@ MEW_COLLAB_RUST=1 npm run serve
 
 **팝업·모달·드롭다운을 새로 만들면 반드시** `useOverlayDismiss(onClose)`**를 부른다.** 열려 있는 오버레이를 앱 전체에서 하나의 스택으로 모아, Esc와 **안드로이드 하드웨어 뒤로가기**가 언제나 *가장 나중에 열린 것 하나만* 닫게 한다. 등록하지 않은 팝업 위에서 뒤로가기를 누르면 그 팝업 대신 뒤에 있는 터미널·사이드바가 닫히거나 페이지를 떠난다.
 
-- App이 상태를 소유하는 보조 패널(사이드바·채팅·에이전트·터미널·브라우저·Android)은 `utils/mobile-panel-stack.ts`의 공통 스택 하나가 전면 순서와 닫기 순서를 함께 소유한다. 모바일에서 뒤에 열린 패널을 다시 선택하면 닫지 않고 전면으로 옮기며, 전면 패널을 다시 선택할 때만 닫는다. `hooks/use-panel-dismissals.ts`도 이 전면 패널 하나만 오버레이로 등록하므로 Esc·뒤로가기와 z-index가 어긋나지 않는다. 새 보조 패널은 `WORKSPACE_PANEL_IDS`와 `App.tsx`의 open/setter 등록표에 추가하고 공통 open/close/toggle/layer 함수를 사용한다(빠진 등록은 타입 검사로 막힌다). 모달·팝업·드롭다운은 각 컴포넌트가 직접 등록한다. 모바일은 루트 프로젝트별로 **마지막 전면 창**도 이 기기 브라우저에 기억하므로, 새로고침·재시작 뒤에도 열린 창 중 마지막으로 보던 창이 다시 전면에 온다.
-- 모바일에서 사이드바·채팅·에이전트 창에서 파일을 열면, 그 창을 닫고 선택한 파일의 편집 칸을 바로 드러낸다. 데스크톱의 나란한 패널 배치는 유지한다.
+- App이 상태를 소유하는 보조 패널(사이드바·채팅·터미널•에이전트패널·브라우저·Android)은 `utils/mobile-panel-stack.ts`의 공통 스택 하나가 전면 순서와 닫기 순서를 함께 소유한다. 모바일에서 뒤에 열린 패널을 다시 선택하면 닫지 않고 전면으로 옮기며, 전면 패널을 다시 선택할 때만 닫는다. `hooks/use-panel-dismissals.ts`도 이 전면 패널 하나만 오버레이로 등록하므로 Esc·뒤로가기와 z-index가 어긋나지 않는다. 새 보조 패널은 `WORKSPACE_PANEL_IDS`와 `App.tsx`의 open/setter 등록표에 추가하고 공통 open/close/toggle/layer 함수를 사용한다(빠진 등록은 타입 검사로 막힌다). 모달·팝업·드롭다운은 각 컴포넌트가 직접 등록한다. 모바일은 루트 프로젝트별로 **마지막 전면 창**도 이 기기 브라우저에 기억하므로, 새로고침·재시작 뒤에도 열린 창 중 마지막으로 보던 창이 다시 전면에 온다.
+- 모바일에서 사이드바·채팅·터미널•에이전트패널에서 파일을 열면, 그 창을 닫고 선택한 파일의 편집 칸을 바로 드러낸다. 데스크톱의 나란한 패널 배치는 유지한다.
 - 뒤로가기 대응은 History에 더미 항목(가드)을 하나 얹어 두는 방식이다. 겹쳐 있어도 가드는 하나뿐이고, 한 겹 닫힐 때마다 다시 얹는다. UI로 닫혔을 땐 `history.back()`으로 걷어 스택을 맞춘다.
 - 오버레이마다 각자 keydown 리스너를 달면 안 된다 — capture 단계에서 `stopPropagation`을 해도 같은 노드(window)에 붙은 다른 리스너는 그대로 실행돼, 겹친 팝업이 Esc 한 번에 전부 닫힌다.
 - `escapePhase: 'bubble'`은 사이드바·터미널 패널처럼 **콘텐츠를 감싸고만 있는** 오버레이용이다. 안쪽(에디터 슬래시 메뉴, 파일 이름 바꾸기)이 Esc를 먼저 쓰고 `stopPropagation` 하면 패널은 닫히지 않는다. 기본값 `'capture'`는 다이얼로그용 — 아래 에디터·터미널이 손대기 전에 가로챈다.
@@ -755,7 +754,7 @@ MEW_COLLAB_RUST=1 npm run serve
 
 ### 포커스 기반 탭 단축키
 
-`Ctrl+W`(기본 `closeTab`)는 App이 조합을 한 번만 판정한 뒤, `@mew/shortcuts`의 `dispatchFocusedShortcut`으로 **포커스된 표면**에 전달한다. 에이전트·브라우저·터미널처럼 자기 탭을 소유하는 창은 루트 ref와 `useFocusedShortcutScope(ref, { closeTab })`만 등록한다. 이 계약 덕분에 새 탭 창을 추가해도 App의 단축키 조건문을 고치지 않는다.
+`Ctrl+W`(기본 `closeTab`)는 App이 조합을 한 번만 판정한 뒤, `@mew/shortcuts`의 `dispatchFocusedShortcut`으로 **포커스된 표면**에 전달한다. 터미널•에이전트패널·브라우저처럼 자기 탭을 소유하는 창은 루트 ref와 `useFocusedShortcutScope(ref, { closeTab })`만 등록한다. 이 계약 덕분에 새 탭 창을 추가해도 App의 단축키 조건문을 고치지 않는다.
 
 - 실제로 닫을 탭이 있을 때만 `preventDefault()`로 브라우저의 `Ctrl+W`보다 먼저 처리한다. 탭이 없거나 마지막 브라우저 탭처럼 닫을 수 없으면 브라우저 기본 탭 닫기를 양보하며, 다른 표면의 탭으로 새지 않는다.
 - 등록된 창이 없고 편집기의 초점 칸에 활성 문서가 있을 때만 그 문서 탭을 닫는다. 터미널의 탭 닫기는 세션 종료이므로 기존 `×` 버튼과 같이 확인 대화상자를 연다.
