@@ -15,6 +15,7 @@ const { AgentSession, disposeSession, modelsByRuntime, probeModels, reapOrphanAg
   './agentAcp.ts'
 )
 const { writeAgentDefault } = await import('./agentDefaults.ts')
+const { RUNTIMES } = await import('./agentRuntimes.ts')
 type AgentEvent = import('./agentAcp.ts').AgentEvent
 
 test('인증 전에 ACP가 종료되어도 등록표의 모든 로그인 방법과 표면을 내보낸다', () => {
@@ -477,7 +478,7 @@ test('인증 필요 상태를 유지하고 URL 로그인 뒤 같은 연결에서
   assert.deepEqual(session.terminalAuthSpec('terminal'), {
     cmd: process.execPath,
     args: ['-e', 'process.exit(0)'],
-    env: { NO_BROWSER: '1' },
+    env: RUNTIMES.codex.spec?.().env,
     label: 'Test Login',
   })
 

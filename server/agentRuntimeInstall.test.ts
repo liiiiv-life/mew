@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRuntimeInstall.ts'
@@ -19,6 +20,7 @@ test('등록표에 없는 id로는 설치 명령을 만들 수 없다', async ()
 test('등록된 런타임은 표면별로 공식 CLI 또는 고정 ACP 인증 명령을 가진다', () => {
   const keys = [
     'MEW_AGENT_ARGS', 'MEW_AGENT_CLAUDE_ARGS', 'MEW_AGENT_CODEX_ARGS', 'MEW_AGENT_HERMES_ARGS',
+    'MEW_AGENT_CODEX_CLI_CMD', 'CODEX_PATH',
     'MEW_AGENT_KIMI_ARGS', 'MEW_AGENT_ANTIGRAVITY_ARGS', 'MEW_AGENT_OPENCLAW_ARGS',
     'MEW_AGENT_OPENCODE_ARGS', 'MEW_AGENT_CURSOR_ARGS', 'MEW_AGENT_PRIME_ARGS', 'NO_BROWSER', 'NO_OPEN_BROWSER',
   ]
@@ -39,6 +41,11 @@ test('등록된 런타임은 표면별로 공식 CLI 또는 고정 ACP 인증 �
     assert.equal(RUNTIMES.tmux.terminalLaunch, 'shell')
     assert.equal(path.basename(resolvedTerminalSpec('tmux')?.cmd ?? ''), 'tmux')
     assert.deepEqual(runtimeLoginSpec('codex').args, ['login'])
+    const codexCli = RUNTIMES.codex.spec?.().env?.CODEX_PATH
+    assert.ok(codexCli && path.isAbsolute(codexCli))
+    assert.equal(codexCli.includes('/mew/node_modules/'), false)
+    assert.equal(runtimeLoginSpec('codex').cmd, codexCli)
+    assert.equal(RUNTIMES.codex.logout?.().cmd, codexCli)
     assert.equal(runtimeLoginSpec('codex').serverBrowser, true)
     assert.equal(runtimeLoginSpec('codex').surface, 'browser')
     assert.deepEqual(runtimeLoginSpec('codex').verificationHosts, ['auth.openai.com'])
@@ -62,6 +69,40 @@ test('등록된 런타임은 표면별로 공식 CLI 또는 고정 ACP 인증 �
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
     }
+  }
+})
+
+test('Codex ACP 엔진과 인증은 같은 호스트 CLI override를 쓴다', () => {
+  const previous = process.env.MEW_AGENT_CODEX_CLI_CMD
+  process.env.MEW_AGENT_CODEX_CLI_CMD = '/opt/codex/bin/codex'
+  try {
+    assert.equal(RUNTIMES.codex.spec?.().env?.CODEX_PATH, '/opt/codex/bin/codex')
+    assert.equal(runtimeLoginSpec('codex').cmd, '/opt/codex/bin/codex')
+    assert.equal(RUNTIMES.codex.logout?.().cmd, '/opt/codex/bin/codex')
+  } finally {
+    if (previous === undefined) delete process.env.MEW_AGENT_CODEX_CLI_CMD
+    else process.env.MEW_AGENT_CODEX_CLI_CMD = previous
+  }
+})
+
+test('Codex 호스트 탐색은 Mew node_modules의 번들 CLI로 후퇴하지 않는다', () => {
+  const previous = {
+    PATH: process.env.PATH,
+    cli: process.env.MEW_AGENT_CODEX_CLI_CMD,
+    codexPath: process.env.CODEX_PATH,
+  }
+  process.env.PATH = path.resolve(import.meta.dirname, '../node_modules/.bin')
+  delete process.env.MEW_AGENT_CODEX_CLI_CMD
+  delete process.env.CODEX_PATH
+  try {
+    assert.equal(RUNTIMES.codex.spec?.().env?.CODEX_PATH, path.join(os.homedir(), '.local/bin/codex'))
+  } finally {
+    if (previous.PATH === undefined) delete process.env.PATH
+    else process.env.PATH = previous.PATH
+    if (previous.cli === undefined) delete process.env.MEW_AGENT_CODEX_CLI_CMD
+    else process.env.MEW_AGENT_CODEX_CLI_CMD = previous.cli
+    if (previous.codexPath === undefined) delete process.env.CODEX_PATH
+    else process.env.CODEX_PATH = previous.codexPath
   }
 })
 

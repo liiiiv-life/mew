@@ -636,7 +636,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
   | --- | --- | --- | --- |
   | `claude` | terminal · `claude` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_CLAUDE_CLI_CMD` · `MEW_AGENT_CLAUDE_CLI_ARGS`; 예약 ACP는 기존 `MEW_AGENT_CMD` · `MEW_AGENT_CLAUDE_CMD` 계약 유지 |
   | `antigravity` | terminal · `agy` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_ANTIGRAVITY_CMD` · `MEW_AGENT_ANTIGRAVITY_ARGS` |
-  | `codex` | `node_modules/.bin/codex-acp`(버전 고정) — 어댑터가 곧 에이전트, 자격증명은 `~/.codex` | server browser · 번들 `codex login` · 제한된 OAuth host→loopback callback | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `NO_BROWSER`(기본 `1`) |
+  | `codex` | 로컬 `node_modules/.bin/codex-acp`(버전 고정) → 컴퓨터에 설치된 `codex` 엔진, 자격증명은 `~/.codex` | server browser · 호스트 `codex login` · 제한된 OAuth host→loopback callback | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `MEW_AGENT_CODEX_CLI_CMD` · `CODEX_PATH` · `NO_BROWSER`(기본 `1`) |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `hermes acp --setup` | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
   | `kimi` | `kimi acp` | browser · `kimi login`(.com) / `kimi login --region global`(.ai) | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
   | `openclaw` | `openclaw acp` | `openclaw onboard --tui` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |

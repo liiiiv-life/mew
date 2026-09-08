@@ -1,6 +1,7 @@
 // 에이전트 런타임 등록표 — 대화형 탭과 예약 작업이 모두 이 표를 본다.
 // 탭 표면은 ACP 채팅 또는 공식 CLI의 tmux TUI이며, 실행 명령은 서버에만 둔다.
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -9,7 +10,8 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 /** 기본 Claude Code ACP 백엔드 — 버전 고정된 로컬 설치본. `npx @latest`로 띄우지 않는다(ADR 0034). */
 const DEFAULT_CLAUDE_ACP_CMD = path.resolve(here, '../node_modules/.bin/claude-agent-acp')
 const DEFAULT_CODEX_ACP_CMD = path.resolve(here, '../node_modules/.bin/codex-acp')
-const DEFAULT_CODEX_CLI_CMD = path.resolve(here, '../node_modules/.bin/codex')
+const LOCAL_NODE_MODULES = path.resolve(here, '../node_modules')
+const DEFAULT_HOST_CODEX_CLI_CMD = path.join(os.homedir(), '.local/bin/codex')
 const PRIME_ADAPTER_CMD = path.resolve(here, 'primeAdapter.ts')
 
 /** ACP가 인증 전에 뜨지 못해도 브라우저 터미널에서 실행할 수 있는 공통 로그인 method id. */
@@ -100,6 +102,36 @@ export function findExecutable(name: string): string | null {
   return null
 }
 
+function isInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
+/** Mew의 npm 의존성에 딸려 온 CLI를 제외하고 호스트에 설치된 실행 파일만 찾는다. */
+function findHostExecutable(name: string): string | null {
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+    if (!dir) continue
+    const candidate = path.resolve(dir, name)
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK)
+      const realCandidate = fs.realpathSync(candidate)
+      if (isInside(LOCAL_NODE_MODULES, candidate) || isInside(LOCAL_NODE_MODULES, realCandidate)) continue
+      return candidate
+    } catch {
+      /* 다음 디렉터리 */
+    }
+  }
+  return null
+}
+
+/** ACP 엔진과 인증 명령이 함께 쓰는 호스트 Codex. 번들된 transitive CLI로 후퇴하지 않는다. */
+function hostCodexCliCommand(): string {
+  return process.env.MEW_AGENT_CODEX_CLI_CMD
+    || process.env.CODEX_PATH
+    || findHostExecutable('codex')
+    || DEFAULT_HOST_CODEX_CLI_CMD
+}
+
 function claudeSpawnSpec(): SpawnSpec {
   const cmd = process.env.MEW_AGENT_CMD || process.env.MEW_AGENT_CLAUDE_CMD || DEFAULT_CLAUDE_ACP_CMD
   const args = splitArgs(process.env.MEW_AGENT_ARGS ?? process.env.MEW_AGENT_CLAUDE_ARGS)
@@ -144,7 +176,10 @@ function codexSpawnSpec(): SpawnSpec {
   return {
     cmd,
     args: splitArgs(process.env.MEW_AGENT_CODEX_ARGS),
-    env: { NO_BROWSER: process.env.NO_BROWSER ?? '1' },
+    env: {
+      NO_BROWSER: process.env.NO_BROWSER ?? '1',
+      CODEX_PATH: hostCodexCliCommand(),
+    },
   }
 }
 
@@ -208,11 +243,11 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
   codex: {
     id: 'codex', label: 'Codex', surface: 'acp', spec: codexSpawnSpec,
     install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/codex-acp@1.6.0'] }),
-    logout: () => ({ cmd: DEFAULT_CODEX_CLI_CMD, args: ['logout'] }),
+    logout: () => ({ cmd: hostCodexCliCommand(), args: ['logout'] }),
     auth: {
       methods: () => [{ ...login(
         RUNTIME_LOGIN_METHOD_ID,
-        { cmd: DEFAULT_CODEX_CLI_CMD, args: [], env: codexSpawnSpec().env },
+        { cmd: hostCodexCliCommand(), args: [], env: codexSpawnSpec().env },
         ['login'],
         'Codex 로그인',
         '내장 브라우저에서 ChatGPT OAuth를 완료합니다.',
