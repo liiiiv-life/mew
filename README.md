@@ -577,6 +577,8 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 
 ## 터미널•에이전트패널 (ACP 채팅 · tmux TUI · 셸)
 
+런타임의 `사용`을 누르면 서버가 현재 프로젝트 루트 cwd를 확인한 뒤에만 탭을 만든다. 확인 중에는 선택기를 닫지 않고 진행 상태를 표시하므로 cwd 없는 빈 탭은 만들지 않는다.
+
 헤더의 통합 버튼은 **현재 루트 프로젝트**에 묶인 터미널·AI 에이전트 탭을 연다. 기존의 별도 터미널 보조패널은 없으며 ``` Ctrl+\``· ```Alt+T`·`Alt+L`은 모두 이 패널을 토글한다. 프로젝트마다 독립 탭 목록을 가지며, 프로젝트를 오가면 창은 그대로 둔 채 그 프로젝트의 탭으로 바뀐다. 새 탭의 cwd는 현재 프로젝트 루트다. `tmux 터미널\`은 탭별 기본 셸, Claude Code·Antigravity는 탭별 공식 CLI TUI, Codex·Hermes·Kimi·OpenClaw·OpenCode·Cursor·Prime은 [ACP](https://agentclientprotocol.com) 채팅 UI를 쓴다. 근거는 [ADR 0034](../.mew/docs/decisions/0034-mew-agent-panel-acp-reintroduction.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md)·[ADR 0119](../.mew/docs/decisions/0119-mew-unified-terminal-agent-panel.md), 권한 경계는 [SECURITY.md](SECURITY.md). 데스크톱에서는 창 왼쪽 경계선 전체를 좌우로 끌어 폭을 조절하며, 조절한 폭은 브라우저에 남는다.
 
 ⚠️ ACP 채팅 런타임을 `serve.ts` 요청 핸들러 안에서 블로킹 실행하지 않는다. terminal 런타임의 시작 요청은 등록표의 고정 CLI를 tmux에 타이핑한 뒤 즉시 끝나며, 실제 TUI 수명과 스트리밍은 tmux가 소유한다.
@@ -603,6 +605,8 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 | 서버 → 클라이언트 | `{type:'ready'}` · `{type:'replay', events, restored?, restoreFailure?}` · `{type:'update', update, settings?}`(ACP `session/update` 원본 + 사용자 발화 설정) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · \`{type:'error' |
 
 - **되감기는 한 프레임이다(**`replay`**).** 붙는 순간 서버가 쌓아 둔 대화(`snapshot()`)를 통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 마지막으로 본 전사를 탭·런타임·cwd별 `localStorage`(`mew:agent-events:*`)에 캐시해 브라우저 재진입 첫 프레임부터 그린다. 같은 세션의 `replay`는 캐시와 겹치는 꼬리를 제거한 뒤 최신분만 이어 붙이고, 다른 세션이면 `replay`로 갈아끼운다. 창은 소켓이 끊겨도 대화를 지우지 않는다. 예전에는 되감기 이벤트를 **한 개씩** 보냈고, 창은 그때마다 다시 그리느라(이벤트당 `foldEvents` 한 번 + 목록 전체) 눈에 띄게 굳었다. 지금은 긴 전사도 한 덩어리로 보내므로 이벤트 수를 이유로 질문이나 답변 앞부분을 자르지 않는다.
+
+- 로컬 전사 캐시는 탭당 1MiB·전체 4MiB가 상한이다. 긴 대화는 상한 안에 들어가는 최근 이벤트 꼬리만 원형 그대로 저장하고, 서버의 전체 `replay`가 오면 앞부분을 복원한다. 서버 탭 원장 조회 중에는 활성 ACP 탭의 최근 텍스트를 읽기 전용으로 먼저 표시하며, 실제 세션 연결은 원장 확인 뒤에만 시작한다. 저장 전 오래된 캐시를 정리해 공간을 확보하고 quota 실패 시 전사 캐시만 비워 한 번 재시도한다. 계정 탭 원장에 없는 탭의 `mew:agent-events:*`·`mew:agent-controls:*` 캐시는 탭 동기화 때 지운다.
 
 - **히스토리를 열 때마다** 계정의 모든 루트 프로젝트 탭이 주장한 ACP 세션을 다시 읽는다. 현재 탭 또는 다른 탭이 이미 연 세션은 목록에서 잠가 두므로, 이미 붙은 writer를 다시 `session/load`해 ACP의 `Internal error`가 나는 경로가 없다.
 

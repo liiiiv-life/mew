@@ -1,7 +1,11 @@
 import type { AgentEvent } from './agentFold'
 
 const CACHE_PREFIX = 'mew:agent-events:'
+const CONTROL_CACHE_PREFIX = 'mew:agent-controls:'
 const CACHE_VERSION = 1
+/** localStorage는 origin 전체가 약 10MiB다. 전사는 서버에도 있으므로 한 탭 캐시가 이를 독점하지 않는다. */
+export const AGENT_EVENT_CACHE_MAX_BYTES = 1024 * 1024
+export const AGENT_EVENT_CACHE_TOTAL_MAX_BYTES = 4 * 1024 * 1024
 
 export type AgentEventCache = {
   sessionId: string | null
@@ -10,6 +14,7 @@ export type AgentEventCache = {
 
 type PersistedAgentEventCache = AgentEventCache & {
   version: typeof CACHE_VERSION
+  savedAt?: number
 }
 
 function storageKey(runtime: string, tabId: string, cwd: string): string {
@@ -18,6 +23,75 @@ function storageKey(runtime: string, tabId: string, cwd: string): string {
 
 function isAgentEvent(value: unknown): value is AgentEvent {
   return Boolean(value && typeof value === 'object' && typeof (value as { type?: unknown }).type === 'string')
+}
+
+const storageBytes = (key: string, value: string) => (key.length + value.length) * 2
+
+function eventCacheTabId(key: string): string | null {
+  if (!key.startsWith(CACHE_PREFIX)) return null
+  try {
+    const tuple: unknown = JSON.parse(key.slice(CACHE_PREFIX.length))
+    return Array.isArray(tuple) && typeof tuple[1] === 'string' ? tuple[1] : null
+  } catch {
+    return null
+  }
+}
+
+function controlCacheTabId(key: string): string | null {
+  if (!key.startsWith(CONTROL_CACHE_PREFIX)) return null
+  const remainder = key.slice(CONTROL_CACHE_PREFIX.length)
+  const separator = remainder.indexOf(':')
+  if (separator < 0) return null
+  const afterRuntime = remainder.slice(separator + 1)
+  const tabEnd = afterRuntime.indexOf(':')
+  return tabEnd < 0 ? null : afterRuntime.slice(0, tabEnd)
+}
+
+/**
+ * 서버 계정 원장에 없는 탭의 로컬 전사·컨트롤 캐시를 지우고, 살아 있는 전사 캐시도 origin quota를
+ * 독점하지 않게 제한한다. 원본 전사는 ACP 히스토리와 서버 transcript에 있으므로 이는 캐시 정리다.
+ */
+export function pruneAgentLocalCaches(liveTabIds?: ReadonlySet<string>, reservedBytes = 0): void {
+  try {
+    const keys: string[] = []
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index)
+      if (key) keys.push(key)
+    }
+
+    const eventCaches: Array<{ key: string; bytes: number; savedAt: number }> = []
+    for (const key of keys) {
+      const eventTabId = eventCacheTabId(key)
+      const controlTabId = controlCacheTabId(key)
+      if (liveTabIds && ((eventTabId && !liveTabIds.has(eventTabId)) || (controlTabId && !liveTabIds.has(controlTabId)))) {
+        localStorage.removeItem(key)
+        continue
+      }
+      if (!eventTabId) continue
+      const value = localStorage.getItem(key)
+      if (value === null) continue
+      const bytes = storageBytes(key, value)
+      if (bytes > AGENT_EVENT_CACHE_MAX_BYTES) {
+        localStorage.removeItem(key)
+        continue
+      }
+      let savedAt = 0
+      try {
+        const parsed = JSON.parse(value) as { savedAt?: unknown }
+        if (typeof parsed.savedAt === 'number' && Number.isFinite(parsed.savedAt)) savedAt = parsed.savedAt
+      } catch { /* readAgentEventCache가 깨진 값은 무시한다 */ }
+      eventCaches.push({ key, bytes, savedAt })
+    }
+
+    eventCaches.sort((left, right) => right.savedAt - left.savedAt)
+    let keptBytes = reservedBytes
+    for (const cache of eventCaches) {
+      keptBytes += cache.bytes
+      if (keptBytes > AGENT_EVENT_CACHE_TOTAL_MAX_BYTES) localStorage.removeItem(cache.key)
+    }
+  } catch {
+    /* 사생활 모드·비활성 저장소에서는 캐시 없이 동작한다 */
+  }
 }
 
 /** 탭을 다시 그리는 첫 프레임에 쓸 브라우저 전사. 깨졌거나 옛 형식이면 조용히 버린다. */
@@ -39,10 +113,33 @@ export function writeAgentEventCache(
   cache: AgentEventCache,
 ): void {
   try {
-    const value: PersistedAgentEventCache = { version: CACHE_VERSION, ...cache }
-    localStorage.setItem(storageKey(runtime, tabId, cwd), JSON.stringify(value))
+    const key = storageKey(runtime, tabId, cwd)
+    // 뒤에서부터 직렬화해 오래된 거대 전사 전체를 매번 stringify하지 않는다.
+    // 이벤트는 변형하지 않아 서버 replay와 정확히 겹침을 비교할 수 있다.
+    const header = JSON.stringify({ version: CACHE_VERSION, savedAt: Date.now(), sessionId: cache.sessionId })
+    const parts: string[] = []
+    let bytes = storageBytes(key, header) + 32
+    for (let index = cache.events.length - 1; index >= 0; index -= 1) {
+      const part = JSON.stringify(cache.events[index])
+      const nextBytes = (part.length + 1) * 2
+      if (bytes + nextBytes > AGENT_EVENT_CACHE_MAX_BYTES) break
+      parts.push(part)
+      bytes += nextBytes
+    }
+    const serialized = `${header.slice(0, -1)},"events":[${parts.reverse().join(',')}]}`
+    // 먼저 공간을 확보해야 기존 캐시 때문에 새 활성 탭의 저장이 실패하지 않는다.
+    localStorage.removeItem(key)
+    pruneAgentLocalCaches(undefined, storageBytes(key, serialized))
+    try {
+      localStorage.setItem(key, serialized)
+    } catch {
+      // 다른 기능이 origin quota를 쓰는 경우 전사 캐시만 비우고 한 번 재시도한다.
+      pruneAgentLocalCaches(undefined, AGENT_EVENT_CACHE_TOTAL_MAX_BYTES)
+      localStorage.setItem(key, serialized)
+    }
   } catch {
     // 사생활 모드·용량 제한에서는 실시간 대화가 계속 동작해야 한다. 캐시는 best effort다.
+    pruneAgentLocalCaches()
   }
 }
 
@@ -69,6 +166,15 @@ export function mergeAgentReplay(
   // 같은 대화여도 바이트 겹침을 찾을 수 없으므로 캐시에 덧붙이지 않고 교체한다.
   if (restored) return replayed
   if (!sameSession || replayed.length === 0) return replayed
+
+  // 제한된 로컬 꼬리보다 서버 snapshot이 더 길면 서버가 가진 앞부분도 되살린다.
+  if (cached.length > 0 && replayed.length >= cached.length) {
+    const local = cached.map((event) => JSON.stringify(event))
+    const remote = replayed.map((event) => JSON.stringify(event))
+    for (let start = remote.length - local.length; start >= 0; start -= 1) {
+      if (remote[start] === local[0] && local.every((value, index) => value === remote[start + index])) return replayed
+    }
+  }
 
   const maxOverlap = Math.min(cached.length, replayed.length)
   const cachedTail = cached.slice(cached.length - maxOverlap).map((event) => JSON.stringify(event))

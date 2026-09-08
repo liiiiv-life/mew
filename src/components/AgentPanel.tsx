@@ -32,6 +32,7 @@ import { clearAgentInputDraft, readAgentInputDraft, readAgentInputHistory, recor
 import {
   clearAgentEventCache,
   mergeAgentReplay,
+  pruneAgentLocalCaches,
   readAgentEventCache,
   writeAgentEventCache,
 } from '../utils/agentEventCache'
@@ -134,7 +135,9 @@ const LEGACY_PENDING_TAB_LABEL = '새 대화'
 /** 탭 줄이 그리는 살아 있는 값 — 대화가 아니라 상태라 localStorage에 남기지 않는다 */
 type TabInfo = { busy: boolean; sessionId: string }
 
-const newTab = (runtime: string, label: string, cwd: string | null, preset?: AgentTab['preset']): AgentTab => ({
+// 새 탭은 반드시 서버에서 확인한 cwd가 있어야 한다. 복원 데이터 호환 때문에 AgentTab.cwd 자체는
+// null을 허용하지만, 새 탭 생성 경로까지 허용하면 렌더 필터에서 빠져 빈 화면만 남는다.
+const newTab = (runtime: string, label: string, cwd: string, preset?: AgentTab['preset']): AgentTab => ({
   id: Math.random().toString(36).slice(2, 10),
   label,
   runtime,
@@ -1305,7 +1308,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
 
   const chooseView = (next: 'runtime' | 'set') => {
     setView(next)
-    localStorage.setItem('mew:agent-picker-view', next)
+    try { localStorage.setItem('mew:agent-picker-view', next) } catch { /* 보기 기억 실패는 선택기를 막지 않는다 */ }
   }
 
   const install = (id: string) => {
@@ -1387,7 +1390,11 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   // 마지막 저장 이후 생긴 점유까지 반영한다. 정적 첫 조회만 믿으면 이미 열린 thread를 또 load해
   // Codex가 "active writer" internal error로 거절한다.
   const [sessionClaims, setSessionClaims] = useState<AgentSessionClaim[]>([])
-  const [defaultCwd, setDefaultCwd] = useState<string | null>(null)
+  // 새 탭 cwd는 이미 App이 정한 현재 루트 워크스페이스다. 별도 API 확인이 끝날 때까지 null로
+  // 두면 사용자가 먼저 런타임을 고른 순간 렌더 대상에서 빠진 빈 탭이 생긴다.
+  const [defaultCwd, setDefaultCwd] = useState<string | null>(workspacePath)
+  const [openingRuntime, setOpeningRuntime] = useState<string | null>(null)
+  const [openRuntimeError, setOpenRuntimeError] = useState<string | null>(null)
   // 브라우저를 껐다 켜도 보던 탭에서 이어 하도록 마지막으로 본 탭을 기억한다.
   // 그 탭이 목록에서 사라졌으면(다른 창에서 닫았거나 저장분이 깨졌으면) 첫 탭으로 돌아간다
   const [activeId, setActiveId] = useState(() => loadActiveTabId(tabs, workspacePath))
@@ -1406,7 +1413,9 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   useOverlayDismiss(onClose, { escapePhase: 'bubble', closeOnEscape: outsideTerminal })
 
   useEffect(() => {
-    localStorage.setItem(tabsKey, JSON.stringify(tabs))
+    // 계정 원장이 SSoT이고 localStorage는 첫 화면용 fallback뿐이다. 전사·본문 캐시가 브라우저
+    // quota를 채워도 이 보조 저장 실패가 서버 저장까지 막거나 React 루트를 내리면 안 된다.
+    try { localStorage.setItem(tabsKey, JSON.stringify(tabs)) } catch { /* 서버 원장 저장은 아래에서 계속한다 */ }
     if (!tabsSynced || !workspacePath) return
     pendingSaveRef.current = { workspacePath, tabs, activeId }
     if (saveRunningRef.current) return
@@ -1428,19 +1437,24 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
 
   useEffect(() => {
     let alive = true
-    void resolveAgentCwd('')
+    void resolveAgentCwd(workspacePath ?? '')
       .then(({ cwd }) => {
         if (!alive) return
         setDefaultCwd(cwd)
         setTabs((prev) => prev.map((tab) => tab.cwd == null ? { ...tab, cwd } : tab))
       })
-      .catch(console.error)
+      .catch((err: unknown) => {
+        if (!alive) return
+        setOpenRuntimeError(err instanceof Error ? err.message : String(err))
+      })
     return () => { alive = false }
-  }, [])
+  }, [workspacePath])
 
   useEffect(() => {
-    if (activeId) localStorage.setItem(activeTabKey, activeId)
-    else localStorage.removeItem(activeTabKey)
+    try {
+      if (activeId) localStorage.setItem(activeTabKey, activeId)
+      else localStorage.removeItem(activeTabKey)
+    } catch { /* 마지막 활성 탭도 계정 탭 상태에서 복원할 수 있다 */ }
   }, [activeId, activeTabKey])
 
   // 서버 저장값이 있으면 먼저 그것을 복원한다. 없을 때만 기존 localStorage 값이 위 effect를 통해
@@ -1468,6 +1482,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
         const restoredActiveId = state.activeId && restoredTabs.some((tab) => tab.id === state.activeId)
           ? state.activeId
           : (restoredTabs[0]?.id ?? null)
+        pruneAgentLocalCaches(new Set([...claims.map((claim) => claim.tabId), ...restoredTabs.map((tab) => tab.id)]))
         setTabs(restoredTabs)
         setActiveId(restoredActiveId)
         setOpened(new Set(restoredActiveId ? [restoredActiveId] : []))
@@ -1496,12 +1511,23 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
 
   const addTab = () => setPickerOpen(true)
 
-  const addRuntimeTab = (runtime: string) => {
-    const tab = newTab(runtime, runtimeOf(runtime).label, defaultCwd)
-    setTabs((prev) => [...prev, tab])
-    setActiveId(tab.id)
-    setOpened((prev) => new Set(prev).add(tab.id))
-    setPickerOpen(false)
+  const addRuntimeTab = (runtime: string, preset?: AgentTab['preset']) => {
+    if (openingRuntime) return
+    setOpeningRuntime(runtime)
+    setOpenRuntimeError(null)
+    // workspacePath는 즉시 쓸 수 있지만 서버에서 실제 디렉터리인지 다시 확인한다. 최초 확인이
+    // 일시적으로 실패했어도 "사용"을 다시 누르면 복구되며, null cwd 탭은 절대 만들지 않는다.
+    void resolveAgentCwd(workspacePath ?? defaultCwd ?? '')
+      .then(({ cwd }) => {
+        const tab = newTab(runtime, preset?.name ?? runtimeOf(runtime).label, cwd, preset)
+        setDefaultCwd(cwd)
+        setTabs((prev) => [...prev, tab])
+        setActiveId(tab.id)
+        setOpened((prev) => new Set(prev).add(tab.id))
+        setPickerOpen(false)
+      })
+      .catch((err: unknown) => setOpenRuntimeError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setOpeningRuntime(null))
   }
 
   useEffect(() => {
@@ -1516,12 +1542,8 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   }, [defaultCwd])
 
   const addSetTab = (set: AgentSet) => {
-    const tab = newTab(set.runtime, set.name, defaultCwd, { id: set.id, name: set.name, modelId: set.modelId, role: set.role })
-    localStorage.setItem(RUNTIME_KEY, set.runtime)
-    setTabs((prev) => [...prev, tab])
-    setActiveId(tab.id)
-    setOpened((prev) => new Set(prev).add(tab.id))
-    setPickerOpen(false)
+    try { localStorage.setItem(RUNTIME_KEY, set.runtime) } catch { /* 최근 런타임 기억은 선택을 막지 않는다 */ }
+    addRuntimeTab(set.runtime, { id: set.id, name: set.name, modelId: set.modelId, role: set.role })
   }
 
   const closeTab = (id: string) => {
@@ -1660,6 +1682,12 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
         onCloseTab={closeTab}
         onClosePanel={onClose}
       />
+      {!tabsSynced && !pickerOpen && (() => {
+        const tab = tabs.find((candidate) => candidate.id === activeId)
+        return tab?.runtime && tab.cwd && runtimeOf(tab.runtime).surface !== 'terminal'
+          ? <AgentCachedPreview tab={tab} />
+          : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">서버 상태 확인 중…</div>
+      })()}
       {tabsSynced && tabs.length === 0 && !pickerOpen && (
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <button
@@ -1721,7 +1749,13 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
           </div>
           )
         })}
-      {pickerOpen && <RuntimePicker onSelect={addRuntimeTab} onSelectSet={addSetTab} />}
+      {pickerOpen && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {openRuntimeError && <div className="shrink-0 px-4 pt-3 text-center text-xs text-danger">{openRuntimeError}</div>}
+          {openingRuntime && <div className="shrink-0 px-4 pt-3 text-center text-xs text-ink-muted">{runtimeOf(openingRuntime).label} 여는 중…</div>}
+          <RuntimePicker onSelect={addRuntimeTab} onSelectSet={addSetTab} />
+        </div>
+      )}
     </div>
   )
 }
@@ -1767,6 +1801,26 @@ function AgentTerminalView({
       ) : <div className="text-sm text-ink-muted">터미널 여는 중…</div>}
     </div>
   )
+}
+
+/** 서버 원장 확인 전에는 읽기 전용 미리보기만 그린다. 세션 연결·저장은 하지 않는다. */
+function AgentCachedPreview({ tab }: { tab: AgentTab }) {
+  const items = useMemo(() => {
+    const cache = readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)
+    const expectedSession = sessionIdOf(tab, tab.runtime!, tab.cwd!)
+    if (!cache || (expectedSession && cache.sessionId !== expectedSession)) return []
+    return foldEvents(cache.events).flatMap((item) => {
+      if (item.kind === 'user') return [item.text]
+      if (item.kind === 'turn') return item.children.flatMap((child) => child.kind === 'agent' ? [child.text] : [])
+      return []
+    }).slice(-6)
+  }, [tab])
+  return <div className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-busy="true">
+    <div className="shrink-0 px-4 py-2 text-xs text-ink-muted">최근 대화 · 서버 상태 확인 중…</div>
+    <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden px-4 pb-4">
+      {items.map((text, index) => <div key={index} className="mt-3 shrink-0 whitespace-pre-wrap break-words text-sm text-ink-secondary">{text.slice(-4000)}</div>)}
+    </div>
+  </div>
 }
 
 /** 탭 하나 — WS 하나, 세션 하나. 대화 상태는 전부 여기 안에 있다 */
