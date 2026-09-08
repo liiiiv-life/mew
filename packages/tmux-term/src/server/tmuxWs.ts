@@ -70,13 +70,26 @@ function handleConnection(ws: WebSocket, session: string, cols: number, rows: nu
     cwd,
     env: process.env as Record<string, string>,
   })
+  let ptyAlive = true
+  const markPtyDead = () => {
+    ptyAlive = false
+    if (ws.readyState === WebSocket.OPEN) ws.close()
+  }
+  const writePty = (data: string) => {
+    if (!ptyAlive) return
+    try { ptyProcess.write(data) } catch { markPtyDead() }
+  }
+  const resizePty = (nextCols: number, nextRows: number) => {
+    if (!ptyAlive) return
+    try { ptyProcess.resize(nextCols, nextRows) } catch { markPtyDead() }
+  }
 
   ptyProcess.onData((data) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(data)
   })
 
   ptyProcess.onExit(() => {
-    if (ws.readyState === WebSocket.OPEN) ws.close()
+    markPtyDead()
   })
 
   // 진행 중인 tmux copy-mode 탈출 — 끝날 때까지 들어온 입력을 뒤로 미룬다 (아래 'input' 처리 참고)
@@ -94,12 +107,14 @@ function handleConnection(ws: WebSocket, session: string, cols: number, rows: nu
       // 먹힌다(전송한 글이 통째로 사라짐). 탈출이 끝날 때까지 입력을 붙잡아 순서를 지킨다.
       if (pendingExitCopyMode) {
         const data = msg.data
-        void pendingExitCopyMode.then(() => ptyProcess.write(data))
-      } else {
-        ptyProcess.write(msg.data)
+        void pendingExitCopyMode.then(() => {
+          writePty(data)
+        })
+      } else if (ptyAlive) {
+        writePty(msg.data)
       }
     } else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
-      ptyProcess.resize(clamp(msg.cols, MIN_COLS, MAX_COLS, cols), clamp(msg.rows, MIN_ROWS, MAX_ROWS, rows))
+      resizePty(clamp(msg.cols, MIN_COLS, MAX_COLS, cols), clamp(msg.rows, MIN_ROWS, MAX_ROWS, rows))
     } else if (msg.type === 'exitCopyMode') {
       // 클라이언트의 "맨 아래" 버튼 — 위로 스크롤하면 tmux가 copy-mode로 들어가 라이브 출력이
       // 멈춘 것처럼 보인다. copy-mode -q는 모드에 있을 때만 취소하고 아니면 아무 일도 하지 않으므로
@@ -117,6 +132,6 @@ function handleConnection(ws: WebSocket, session: string, cols: number, rows: nu
   // 연결이 끊기면 pty 프로세스(tmux attach 클라이언트)만 종료한다 — tmux는 attach 클라이언트가
   // SIGHUP으로 죽으면 detach만 하고 세션 자체는 살려두는 게 기본 동작이라 안전하다.
   ws.on('close', () => {
-    ptyProcess.kill()
+    if (ptyAlive) ptyProcess.kill()
   })
 }
