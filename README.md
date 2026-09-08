@@ -525,7 +525,7 @@ npm run db:down   # 중지
 - 저장하면 서버가 감시자를 전부 접고(`resetTreeWatchers`) `tree` 신호를 보낸다. 살아 있는 감시자는 옛 규칙으로 만든 트리 서명을 들고 있어 새 규칙을 "변화 없음"으로 흘려버리기 때문 — 접어두면 클라이언트가 새 트리를 받아 갈 때(`GET /api/tree`) 새 규칙으로 다시 등록된다.
 - `build/`는 기본 숨김이 **아니다**. 트리는 안의 APK/AAB만 노출하고 나머지·빈 폴더는 접으며 (`tree.ts`의 `DOWNLOAD_ONLY_DIRS`), 감시는 숨김 목록과 별개로 `build`에 내려가지 않는다.
 - **owner·manager의 트리에는 이 목록도 확장자 필터도 적용되지 않는다** — 있는 그대로 다 보인다. 목록은 계속 살아서 member 이하의 트리와, 역할과 무관하게 **검색·트리 감시**에 적용된다.
-- 사이드바는 `GET /api/tree?path=<폴더>`로 해당 폴더의 **직접 자식만** 읽는다. 프로젝트 전환 때는 루트 목록을 먼저 그린 뒤 최상위 폴더들을 하나씩 백그라운드로 예열하며, 더 깊은 경로는 사용자가 펼칠 때 읽는다. `path` 없는 API 호출은 기존 서버 도구 호환을 위해 전체 재귀 트리를 유지한다. 정책 기준본은 [SECURITY.md](SECURITY.md)이고, 판정은 `server/tree.ts`의 `isPathVisible`과 `server/reqAuth.ts`의 `seesEveryFile` 둘뿐이다.
+- 사이드바는 `GET /api/tree?path=<폴더>`로 해당 폴더의 **직접 자식만** 읽는다. 프로젝트 전환 때는 계정에서 복원한 펼침 상태와 자식 스냅샷을 먼저 그리고 열린 경로의 직접 자식만 갱신한다. 접힌 조상 아래와 닫힌 최상위 폴더는 펼칠 때 읽고, 받은 목록·진행 중 요청은 재사용한다. Docs·하위 프로젝트를 포함한 사이드바 스크롤은 계정에 중앙 항목의 트리 식별자·경로·항목 내 비율로 저장하며, 지연 로딩 중에도 같은 항목을 중앙에 복원한다. 사용자가 조작하면 초기 보정을 끝낸다([ADR 0125](../.mew/docs/decisions/0125-mew-sidebar-center-anchor-and-visible-loading.md)). `path` 없는 API 호출은 기존 서버 도구 호환을 위해 전체 재귀 트리를 유지한다. 정책 기준본은 [SECURITY.md](SECURITY.md)이고, 판정은 `server/tree.ts`의 `isPathVisible`과 `server/reqAuth.ts`의 `seesEveryFile` 둘뿐이다.
 - 서버: `server/ignoreList.ts` + `GET/PUT /api/ignore`(owner/manager). 클라이언트: `src/components/SettingsModal.tsx`의 `IgnorePanel`.
 
 ### 사이드바 항목 끌어놓기

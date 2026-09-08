@@ -13,6 +13,9 @@ import { ProjectIcon } from './ProjectIcon'
 import { GitButton } from './GitButton'
 import {
   childrenForOpenDirs,
+  visibleOpenDirectories,
+  readTreeCenter,
+  restoreTreeCenter,
   loadDirectoryChildren,
   saveDirectoryChildren,
   type DirectoryChildren,
@@ -598,6 +601,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
       <div className="flex w-full items-center gap-0.5">
         <button
           type="button"
+          data-path={node.path}
           draggable={!ctx.readOnly}
           onDragStart={(e) => {
             setPathDragData(e.dataTransfer, node.path, 'dir')
@@ -673,7 +677,6 @@ export function FileTree({
   roots,
   commands,
   loadChildren,
-  prefetchRootChildren = false,
   treeInvalidation,
   searchFocusSignal,
   newFileSignal,
@@ -710,8 +713,6 @@ export function FileTree({
   commands?: React.ReactNode
   /** 폴더를 펼칠 때 해당 폴더의 직접 자식만 불러온다. 없으면 기존 완전 트리처럼 동작한다. */
   loadChildren?: (path: string) => Promise<TreeNode[]>
-  /** 첫 화면을 그린 뒤 최상위 폴더의 직접 자식만 천천히 미리 읽는다. 더 깊은 경로는 펼칠 때 읽는다. */
-  prefetchRootChildren?: boolean
   /** watcher가 알려 준 영향 부모만 자식 캐시를 다시 읽는다. */
   treeInvalidation?: { n: number; project: string; version: number; parents: string[] }
   searchFocusSignal: number
@@ -761,7 +762,7 @@ export function FileTree({
   directoryChildrenRef.current = directoryChildren
   const loadingDirsRef = useRef(loadingDirs)
   loadingDirsRef.current = loadingDirs
-  // 저장된 펼침 상태가 있으면(전부 접어 둔 빈 목록이어도) 아래 "처음엔 최상위 폴더를 모두 편다"를 건너뛴다
+  // 빈 펼침 목록도 복원 상태다. 처음 표시할 때 활성 문서로 덮어쓰지 않는다.
   const [hadSavedOpenDirs] = useState(() => accountState !== undefined || loadOpenDirs(persistedProject) !== null)
   const [editing, setEditing] = useState<EditingState>(null)
   const [popover, setPopover] = useState<PopoverState>(null)
@@ -778,6 +779,21 @@ export function FileTree({
   }, [])
   const listRef = useRef<HTMLDivElement>(null)
   const treeScrollRef = useRef(accountState?.scrollTop ?? getTreeScroll(persistedProject) ?? 0)
+  const centerAnchorRef = useRef(accountState?.centerAnchor)
+  const restoringScrollRef = useRef(!compact)
+  const initialRevealRef = useRef({ selectedPath, revealSignal })
+  const recordScrollRef = useRef(() => {})
+  recordScrollRef.current = () => {
+    const list = listRef.current
+    if (compact || !list || !list.clientHeight || restoringScrollRef.current) return
+    treeScrollRef.current = list.scrollTop
+    centerAnchorRef.current = readTreeCenter(list)
+    saveTreeScroll(persistedProject, list.scrollTop)
+    onAccountStateChangeRef.current?.({
+      openDirs: [...openDirs], scrollTop: list.scrollTop, centerAnchor: centerAnchorRef.current,
+      directoryChildren: childrenForOpenDirs(openDirs, directoryChildrenRef.current),
+    })
+  }
   // 팝오버의 "업로드"는 파일 선택창을 띄워야 해서 클릭 시점의 대상 폴더를 잠깐 들고 있는다
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const uploadDirRef = useRef('')
@@ -805,9 +821,8 @@ export function FileTree({
   }
   // 드래그 중인 항목 — dragover가 초당 여러 번 발화하므로 상태 대신 ref로 들고 다닌다
   const draggingRef = useRef<{ path: string; type: 'file' | 'dir' } | null>(null)
-  const initializedOpenDirs = useRef(false)
   const receivedInitialTreeRef = useRef(false)
-  const revalidatedRestoredChildrenRef = useRef(false)
+  const revalidatedRestoredChildrenRef = useRef(new Set<string>())
   const lastTreeInvalidationRef = useRef(0)
   // 마운트 시점 값으로 초기화 — "처음 한 번은 건너뛰기" 식 불리언 가드는 StrictMode가
   // 마운트 이펙트를 두 번 실행할 때(두 번째 호출에서 가드가 이미 소진됨) 무력화돼 사이드바를
@@ -843,13 +858,6 @@ export function FileTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 신호가 오를 때만 실행하는 이벤트성 이펙트
   }, [newFileSignal])
 
-  // 처음 여는 프로젝트만 최상위 폴더를 모두 펴 준다 — 기억해 둔 모양이 있으면 그대로 둔다
-  useEffect(() => {
-    if (hadSavedOpenDirs || initializedOpenDirs.current || tree.length === 0) return
-    initializedOpenDirs.current = true
-    setOpenDirs(new Set(tree.filter((n) => n.type === 'dir').map((n) => n.path)))
-  }, [tree, hadSavedOpenDirs])
-
   // 첫 루트 응답은 저장된 자식 스냅샷 위에 얹어 즉시 보이게 한다. 그 뒤 루트 목록이 다시 오면
   // 파일 조작·watcher 갱신이므로 기존 계약대로 자식 캐시를 버리고 열린 폴더부터 다시 읽는다.
   useEffect(() => {
@@ -875,8 +883,9 @@ export function FileTree({
       Object.entries(directoryChildrenRef.current).filter(([key]) => !stale.has(key)),
     )
     setDirectoryChildren(directoryChildrenRef.current)
+    const visible = new Set(visibleOpenDirectories(tree, openDirs, directoryChildrenRef.current))
     for (const parent of parents) {
-      if (!openDirs.has(parent)) continue
+      if (!visible.has(parent)) continue
       loadingDirsRef.current = new Set(loadingDirsRef.current).add(parent)
       setLoadingDirs(loadingDirsRef.current)
       void loadChildren(parent)
@@ -892,34 +901,51 @@ export function FileTree({
           setLoadingDirs(next)
         })
     }
-  }, [treeInvalidation, project, loadChildren, onNotice, openDirs])
+  }, [treeInvalidation, project, loadChildren, onNotice, openDirs, tree])
 
   useEffect(() => {
     const savedChildren = childrenForOpenDirs(openDirs, directoryChildren)
     localStorage.setItem(openDirsKey(persistedProject), JSON.stringify([...openDirs]))
     if (persistsDirectoryChildren) saveDirectoryChildren(persistedProject, savedChildren)
-    onAccountStateChangeRef.current?.({ openDirs: [...openDirs], scrollTop: treeScrollRef.current, directoryChildren: savedChildren })
+    onAccountStateChangeRef.current?.({ openDirs: [...openDirs], scrollTop: treeScrollRef.current, centerAnchor: centerAnchorRef.current, directoryChildren: savedChildren })
   }, [directoryChildren, openDirs, persistedProject, persistsDirectoryChildren])
 
-  // 사이드바 스크롤 복원 — 트리가 처음 들어온 프레임에 한 번만. 그 뒤로는 사용자가 굴린 대로 두고,
-  // 활성 파일 드러내기(위 이펙트)는 이미 보이면 아무것도 하지 않으므로 복원 위치를 뺏지 않는다
-  const restoredScroll = useRef(false)
-  useEffect(() => {
-    if (restoredScroll.current || tree.length === 0) return
-    restoredScroll.current = true
-    const top = accountState?.scrollTop ?? getTreeScroll(persistedProject)
-    if (top === null) return
-    const raf = requestAnimationFrame(() => {
-      if (listRef.current) listRef.current.scrollTop = top
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [tree, persistedProject, accountState])
+  // Nested Docs/project trees share this scroll surface. Keep the center stable while
+  // their asynchronous rows arrive, but yield immediately to user navigation.
+  useLayoutEffect(() => {
+    const list = listRef.current
+    if (compact || !list) return
+    let frame = 0
+    const restore = () => {
+      if (!restoringScrollRef.current) { recordScrollRef.current(); return }
+      if (!centerAnchorRef.current || !restoreTreeCenter(list, centerAnchorRef.current)) {
+        list.scrollTop = treeScrollRef.current
+      }
+    }
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(restore) }
+    const stop = () => { restoringScrollRef.current = false }
+    const mutations = new MutationObserver(schedule)
+    mutations.observe(list, { childList: true, subtree: true })
+    const resize = new ResizeObserver(schedule)
+    resize.observe(list)
+    for (const event of ['wheel', 'pointerdown', 'touchstart', 'keydown']) list.addEventListener(event, stop, { passive: true })
+    restore()
+    return () => {
+      cancelAnimationFrame(frame)
+      mutations.disconnect()
+      resize.disconnect()
+      for (const event of ['wheel', 'pointerdown', 'touchstart', 'keydown']) list.removeEventListener(event, stop)
+    }
+  }, [compact])
 
   // 활성 탭이 바뀌면 사이드바에서도 해당 파일이 보이게 부모 폴더 체인을 열고 스크롤한다.
   // 사이드바가 닫혀 있으면 이 컴포넌트는 언마운트 상태 — 다시 열릴 때 이 이펙트가 반영한다.
   // revealSignal도 함께 본다 — **이미 열린 탭을 다시 눌렀을 때**는 경로가 그대로라 그 신호만이 유일한 단서다.
   useEffect(() => {
     if (!selectedPath || tree.length === 0) return
+    if (hadSavedOpenDirs && initialRevealRef.current.selectedPath === selectedPath
+      && initialRevealRef.current.revealSignal === revealSignal) return
+    restoringScrollRef.current = false
     ensureOpenChain(parentOf(selectedPath))
     // openDirs 반영으로 노드가 DOM에 나타난 다음 프레임에 스크롤
     const raf = requestAnimationFrame(() => {
@@ -951,53 +977,18 @@ export function FileTree({
 
   const loadDir = useCallback((path: string) => requestDir(path), [requestDir])
 
-  // 펼침 경로만 저장돼 있던 옛 상태도 복구한다. 부모 API와 무관하게 각 경로를 직접 읽을 수 있으므로
-  // 깊이순으로 비동기 요청해, 루트 첫 표시를 막지 않으면서 열린 트리를 완성한다.
+  // Only request directories reachable through expanded ancestors. Cached rows render
+  // immediately; each restored directory is refreshed once, without a timed waterfall.
   useEffect(() => {
     if (!loadChildren || tree.length === 0) return
-    const missing = [...openDirs]
-      .filter((path) => directoryChildren[path] === undefined && !loadingDirsRef.current.has(path))
-      .sort((a, b) => a.split('/').length - b.split('/').length)
-    if (missing.length === 0) return
-    let cancelled = false
-    const timers: number[] = []
-    const frame = requestAnimationFrame(() => {
-      missing.forEach((path, index) => {
-        timers.push(window.setTimeout(() => {
-          if (!cancelled) loadDir(path)
-        }, index * 25))
-      })
-    })
-    return () => {
-      cancelled = true
-      cancelAnimationFrame(frame)
-      timers.forEach((timer) => window.clearTimeout(timer))
+    for (const path of visibleOpenDirectories(tree, openDirs, directoryChildren)) {
+      if (loadingDirsRef.current.has(path)) continue
+      const cached = directoryChildren[path] !== undefined
+      if (cached && revalidatedRestoredChildrenRef.current.has(path)) continue
+      revalidatedRestoredChildrenRef.current.add(path)
+      requestDir(path, cached)
     }
-  }, [directoryChildren, loadChildren, loadDir, openDirs, tree])
-
-  // 저장된 스냅샷은 먼저 그리되 원본은 디스크이므로, 첫 화면 다음 프레임부터 열린 폴더를
-  // stale-while-revalidate 방식으로 갱신한다.
-  useEffect(() => {
-    if (revalidatedRestoredChildrenRef.current || !loadChildren || tree.length === 0) return
-    revalidatedRestoredChildrenRef.current = true
-    const restored = [...openDirs]
-      .filter((path) => directoryChildrenRef.current[path] !== undefined)
-      .sort((a, b) => a.split('/').length - b.split('/').length)
-    let cancelled = false
-    const timers: number[] = []
-    const frame = requestAnimationFrame(() => {
-      restored.forEach((path, index) => {
-        timers.push(window.setTimeout(() => {
-          if (!cancelled) requestDir(path, true)
-        }, index * 25))
-      })
-    })
-    return () => {
-      cancelled = true
-      cancelAnimationFrame(frame)
-      timers.forEach((timer) => window.clearTimeout(timer))
-    }
-  }, [loadChildren, openDirs, requestDir, tree])
+  }, [directoryChildren, loadChildren, openDirs, requestDir, tree])
 
   function toggleDir(path: string) {
     const opening = !openDirs.has(path)
@@ -1009,25 +1000,6 @@ export function FileTree({
     })
     if (opening) loadDir(path)
   }
-
-  // 프로젝트 전환 뒤에는 루트 목록을 먼저 화면에 내보낸다. 그 다음 프레임부터 최상위 폴더만
-  // 하나씩 미리 읽어, 첫 화면을 전체 재귀 탐색으로 막지 않으면서 곧 펼칠 폴더는 빠르게 연다.
-  useEffect(() => {
-    if (!prefetchRootChildren || !loadChildren || tree.length === 0) return
-    const paths = tree.filter((node) => node.type === 'dir').map((node) => node.path)
-    let index = 0
-    let timer: number | null = null
-    const next = () => {
-      if (index >= paths.length) return
-      loadDir(paths[index++])
-      timer = window.setTimeout(next, 50)
-    }
-    const frame = requestAnimationFrame(() => { timer = window.setTimeout(next, 0) })
-    return () => {
-      cancelAnimationFrame(frame)
-      if (timer !== null) window.clearTimeout(timer)
-    }
-  }, [loadChildren, loadDir, prefetchRootChildren, tree])
 
   function ensureOpenChain(dirPath: string) {
     if (!dirPath) return
@@ -1415,20 +1387,13 @@ export function FileTree({
   }
 
   return (
-    <div className={compact ? 'bg-surface-deep' : 'flex h-full flex-col border-r border-edge bg-surface-deep'}>
+    <div data-tree-key={persistedProject} className={compact ? 'bg-surface-deep' : 'flex h-full flex-col border-r border-edge bg-surface-deep'}>
       <div
         ref={listRef}
         tabIndex={-1}
         // 스크롤 위치도 기억한다 — 저장은 문서 스크롤과 같은 저장소가 모아서 쓴다(utils/scrollMemory.ts)
         onScroll={(e) => {
-          const scrollTop = e.currentTarget.scrollTop
-          treeScrollRef.current = scrollTop
-          saveTreeScroll(persistedProject, scrollTop)
-          onAccountStateChange?.({
-            openDirs: [...openDirs],
-            scrollTop,
-            directoryChildren: childrenForOpenDirs(openDirs, directoryChildrenRef.current),
-          })
+          if (e.target === e.currentTarget) recordScrollRef.current()
         }}
         onKeyDown={handleTreeKeyDown}
         onContextMenu={(e) => {

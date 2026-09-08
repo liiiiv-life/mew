@@ -59,7 +59,11 @@ test('다른 워크스페이스 화면의 숨은 탭까지 세션 점유로 조�
 })
 
 test('작업 화면 상태는 계정·루트 경로별로 분리한다', () => {
-  const saved = writeWorkspaceUi('you@example.com', '/work/liiiiv', { sidebar: { docsExpanded: true }, tocOpen: false })
+  const saved = writeWorkspaceUi('you@example.com', '/work/liiiiv', {
+    sidebar: { docsExpanded: true, expandedSubprojects: ['mew'] },
+    trees: { root: { openDirs: ['src'], scrollTop: 420, centerAnchor: { tree: 'docs', path: 'guide.md', fraction: 0.5 }, directoryChildren: {} } },
+    tocOpen: false,
+  })
   assert.deepEqual(readWorkspaceUi('you@example.com', '/work/liiiiv'), saved)
   assert.equal(readWorkspaceUi('you@example.com', '/work/other'), null)
   assert.equal(readWorkspaceUi('other@example.com', '/work/liiiiv'), null)

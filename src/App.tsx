@@ -75,7 +75,7 @@ import { loadMewcatSkin, saveMewcatSkin, type MewcatSkinSelection } from './util
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 import { GitWorkbenchModal } from './components/GitWorkbenchModal'
-import { normalizeDirectoryChildren } from './utils/treePersistence'
+import { normalizeDirectoryChildren, normalizeTreeCenterAnchor } from './utils/treePersistence'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
@@ -127,12 +127,13 @@ function accountTrees(value: unknown): AccountTreeStates {
   const result: AccountTreeStates = {}
   for (const [key, raw] of Object.entries(value)) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
-    const state = raw as { openDirs?: unknown; scrollTop?: unknown; directoryChildren?: unknown }
+    const state = raw as { openDirs?: unknown; scrollTop?: unknown; centerAnchor?: unknown; directoryChildren?: unknown }
     if (!Array.isArray(state.openDirs) || typeof state.scrollTop !== 'number') continue
     result[key] = {
       openDirs: state.openDirs.filter((path): path is string => typeof path === 'string'),
       scrollTop: Math.max(0, state.scrollTop),
       directoryChildren: normalizeDirectoryChildren(state.directoryChildren),
+      centerAnchor: normalizeTreeCenterAnchor(state.centerAnchor),
     }
   }
   return result
@@ -486,14 +487,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [isGuest, rootProjectPath, workspaceUi.sidebar, workspaceUiLoaded])
 
   useEffect(() => {
-    if (!rootProjectPath) return
+    if (!rootProjectPath || !workspaceUiLoaded || sidebarStateLoadedRootRef.current !== rootProjectPath) return
     if (sidebarStateRestorePendingRef.current === rootProjectPath) {
       sidebarStateRestorePendingRef.current = null
       return
     }
     saveSidebarState(rootProjectPath, { docsExpanded, expandedSubprojects: [...expandedSubprojects] })
     if (!isGuest) setWorkspaceUi((previous) => ({ ...previous, sidebar: { docsExpanded, expandedSubprojects: [...expandedSubprojects] } }))
-  }, [docsExpanded, expandedSubprojects, isGuest, rootProjectPath])
+  }, [docsExpanded, expandedSubprojects, isGuest, rootProjectPath, workspaceUiLoaded])
 
   const refreshTree = useCallback((signal?: { project?: string; version?: number; parents?: string[] }) => {
     if (signal?.project && signal.parents) {
@@ -1446,6 +1447,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       const existing = trees[key]
       if (
         existing?.scrollTop === value.scrollTop
+        && JSON.stringify(existing.centerAnchor) === JSON.stringify(value.centerAnchor)
         && existing.openDirs.length === value.openDirs.length
         && existing.openDirs.every((path, index) => path === value.openDirs[index])
         && JSON.stringify(existing.directoryChildren) === JSON.stringify(value.directoryChildren)
@@ -1453,15 +1455,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       return { ...previous, trees: { ...trees, [key]: value } }
     })
   }, [isGuest])
+  const lastSidebarRevealRef = useRef({ rootProjectPath, activePath, project, revealSignal })
   useEffect(() => {
+    const previous = lastSidebarRevealRef.current
+    lastSidebarRevealRef.current = { rootProjectPath, activePath, project, revealSignal }
+    if (previous.rootProjectPath !== rootProjectPath || !workspaceUiLoaded) return
+    if (previous.activePath === activePath && previous.project === project && previous.revealSignal === revealSignal) return
     if (project !== WORKSPACE_PROJECT || !activePath) return
-    const subproject = rootTree.find((node) => node.project && (activePath === node.path || activePath.startsWith(`${node.path}/`)))
-    if (!subproject) return
-    setExpandedSubprojects((previous) => {
-      if (previous.has(subproject.path)) return previous
-      return new Set(previous).add(subproject.path)
-    })
-  }, [activePath, project, rootTree])
+    const subproject = rootTree.find((node) => node.project && activePath.startsWith(`${node.path}/`))
+    if (subproject) setExpandedSubprojects((current) => current.has(subproject.path) ? current : new Set(current).add(subproject.path))
+  }, [activePath, project, revealSignal, rootProjectPath, rootTree, workspaceUiLoaded])
   const loadSubproject = useCallback((path: string) => {
     if (subprojectTrees[path] !== undefined || loadingSubprojects.has(path)) return
     setLoadingSubprojects((previous) => new Set(previous).add(path))
@@ -1843,7 +1846,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
               <div className="min-h-0 flex-1">
                 <div className={sidebarView === 'files' ? 'h-full' : 'hidden'}>
                   {/* Documents와 직계 하위 프로젝트만 큰 접기 단위다. 나머지 루트 내용은 실제 깊이대로 바로 보인다. */}
-                  <FileTree
+                  {(isGuest || (workspaceUiLoaded && sidebarStateLoadedRootRef.current === rootProjectPath)) && <FileTree
                     key={`${isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${workspaceUiRevision}`}
                     tree={isGuest ? docsTree : rootNodes}
                     project={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
@@ -1855,12 +1858,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     readOnly={isGuest}
                     canUseCommands={canUseTerminal && !isGuest}
                     loadChildren={isGuest ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
-                    prefetchRootChildren
                     treeInvalidation={treeInvalidation}
                     roots={!isGuest && <>
                       <div className="border-b border-edge pb-1">
                         <button
                           type="button"
+                          data-path="@docs"
                           onClick={() => setDocsExpanded((expanded) => !expanded)}
                           onContextMenu={(event) => {
                             if (!isOwner) return
@@ -1898,7 +1901,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                             onNotice={showToast}
                             registerSearchCancel={() => {}}
                             loadChildren={loadDocsTreeChildren}
-                            prefetchRootChildren
                             treeInvalidation={treeInvalidation}
                           />
                         )}
@@ -1909,6 +1911,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                           <div className="sticky top-0 z-10 flex items-center gap-0.5 bg-surface-deep">
                             <button
                               type="button"
+                              data-path={`@subproject:${subproject.path}`}
                               onClick={() => toggleSubproject(subproject.path)}
                               className={`flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm font-semibold hover:bg-surface-raised ${expanded ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
                               title={subproject.name}
@@ -1981,7 +1984,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     onGuestAccessChanged={refreshTree}
                     onNotice={showToast}
                     registerSearchCancel={registerSidebarSearchCancel}
-                  />
+                  />}
                 </div>
                 <div className={(sidebarView === 'search' || sidebarView === 'content-search') ? 'h-full' : 'hidden'}>
                   <SearchPanel

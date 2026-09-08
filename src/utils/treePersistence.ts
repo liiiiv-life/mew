@@ -5,6 +5,7 @@ export type DirectoryChildren = Record<string, TreeNode[]>
 export type TreePersistenceState = {
   openDirs: string[]
   scrollTop: number
+  centerAnchor?: TreeCenterAnchor
   directoryChildren: DirectoryChildren
 }
 
@@ -65,4 +66,56 @@ export function saveDirectoryChildren(project: string, value: DirectoryChildren)
   } catch {
     // localStorage quota·사생활 보호 모드에서는 메모리 캐시만 유지한다.
   }
+}
+
+export type TreeCenterAnchor = { tree: string; path: string; fraction: number }
+
+export function normalizeTreeCenterAnchor(value: unknown): TreeCenterAnchor | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const anchor = value as Partial<TreeCenterAnchor>
+  if (typeof anchor.tree !== 'string' || typeof anchor.path !== 'string'
+    || typeof anchor.fraction !== 'number' || !Number.isFinite(anchor.fraction)) return undefined
+  return { tree: anchor.tree, path: anchor.path, fraction: Math.max(0, Math.min(1, anchor.fraction)) }
+}
+
+/** Only descend through expanded ancestors; remembered descendants of a closed folder stay lazy. */
+export function visibleOpenDirectories(tree: TreeNode[], open: Set<string>, cache: DirectoryChildren): string[] {
+  const result: string[] = []
+  const visit = (nodes: TreeNode[]) => {
+    for (const node of nodes) {
+      if (node.type !== 'dir' || !open.has(node.path)) continue
+      result.push(node.path)
+      visit(node.children ?? cache[node.path] ?? [])
+    }
+  }
+  visit(tree)
+  return result
+}
+
+export function readTreeCenter(list: HTMLElement): TreeCenterAnchor | undefined {
+  const middle = list.getBoundingClientRect().top + list.clientHeight / 2
+  let best: { row: HTMLElement; distance: number } | undefined
+  for (const row of list.querySelectorAll<HTMLElement>('[data-path]')) {
+    const rect = row.getBoundingClientRect()
+    if (!rect.height) continue
+    const distance = Math.max(rect.top - middle, middle - rect.bottom, 0)
+    if (!best || distance < best.distance) best = { row, distance }
+  }
+  if (!best) return undefined
+  const rect = best.row.getBoundingClientRect()
+  return {
+    tree: best.row.closest<HTMLElement>('[data-tree-key]')?.dataset.treeKey ?? '',
+    path: best.row.dataset.path!,
+    fraction: Math.max(0, Math.min(1, (middle - rect.top) / rect.height)),
+  }
+}
+
+export function restoreTreeCenter(list: HTMLElement, anchor: TreeCenterAnchor): boolean {
+  const row = [...list.querySelectorAll<HTMLElement>('[data-path]')].find((item) => (
+    item.dataset.path === anchor.path && item.closest<HTMLElement>('[data-tree-key]')?.dataset.treeKey === anchor.tree
+  ))
+  if (!row || !row.getBoundingClientRect().height || !list.clientHeight) return false
+  const rect = row.getBoundingClientRect()
+  list.scrollTop += rect.top + rect.height * anchor.fraction - list.getBoundingClientRect().top - list.clientHeight / 2
+  return true
 }
