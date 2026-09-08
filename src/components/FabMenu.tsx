@@ -6,6 +6,7 @@ import {
   EditPencil,
   Expand,
   Folder,
+  Xmark,
 } from 'iconoir-react'
 
 type Action = { label: string; icon: ReactNode; run: () => void }
@@ -40,9 +41,9 @@ function readPosition(): Offset {
 
 /** 빠른 방향 드래그는 버튼을 고르고, 350ms 정지 후 끌기는 화면 어디로든 위치 이동이다. */
 export function FabMenu({
-  onFullscreen, onToggleAgent, onNextWindowTab, onPrevWindowTab, onOpenEditor, onToggleSidebar, onToggleBrowser,
+  onFullscreen, onToggleAgent, onNextWindowTab, onCloseWindowTab, onPrevWindowTab, onOpenEditor, onToggleSidebar, onToggleBrowser,
 }: {
-  onFullscreen: () => void; onToggleAgent: () => void; onNextWindowTab: () => void; onPrevWindowTab: () => void
+  onFullscreen: () => void; onToggleAgent: () => void; onNextWindowTab: () => void; onCloseWindowTab: () => void; onPrevWindowTab: () => void
   onOpenEditor: () => void; onToggleSidebar: () => void; onToggleBrowser: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -55,12 +56,14 @@ export function FabMenu({
   // Android처럼 키보드가 레이아웃 뷰포트까지 줄이는 브라우저에서는 innerHeight도 함께
   // 작아진다. 키보드 전의 가장 큰 뷰포트를 기억해야 실제 키보드 높이를 잴 수 있다.
   const unobscuredViewportBottomRef = useRef(0)
+  const viewportWidthRef = useRef(0)
   const pointerRef = useRef<{ id: number; startX: number; startY: number; moving: boolean; directional: boolean; wasOpen: boolean } | null>(null)
   const longPressTimer = useRef<number | null>(null)
   const longPressArmed = useRef(false)
   const actions: Action[] = [
     { label: '전체화면', icon: icon(Expand), run: onFullscreen }, { label: '터미널•에이전트패널', icon: icon(Brain), run: onToggleAgent },
     { label: '오른쪽 탭', icon: icon(ArrowRight), run: onNextWindowTab },
+    { label: '탭 닫기', icon: icon(Xmark), run: onCloseWindowTab },
     { label: '에디터 화면', icon: icon(EditPencil), run: onOpenEditor }, { label: '사이드바', icon: icon(Folder), run: onToggleSidebar },
     { label: '왼쪽 탭', icon: icon(ArrowLeft), run: onPrevWindowTab },
     {
@@ -75,8 +78,18 @@ export function FabMenu({
     const updateKeyboard = () => {
       const v = viewport()
       const visibleBottom = v.height + v.offsetTop
+      const active = document.activeElement
+      const editing = active instanceof HTMLElement && (
+        active.isContentEditable || active.matches('textarea, input:not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"])')
+      )
+      // 배율·창 크기 변경을 키보드로 오인하지 않는다. 키보드는 입력 중에만
+      // 감지하고, 가로 크기가 바뀌면 이전 배율에서 기억한 높이를 버린다.
+      if (!editing || viewportWidthRef.current !== window.innerWidth) {
+        unobscuredViewportBottomRef.current = visibleBottom
+      }
+      viewportWidthRef.current = window.innerWidth
       unobscuredViewportBottomRef.current = Math.max(unobscuredViewportBottomRef.current, visibleBottom, window.innerHeight)
-      const inset = Math.max(0, unobscuredViewportBottomRef.current - visibleBottom)
+      const inset = editing ? Math.max(0, unobscuredViewportBottomRef.current - visibleBottom) : 0
       // innerHeight와 visualViewport 높이가 같으면 키보드가 fixed의 기준 자체를 줄인 상태다.
       const fixedToVisualViewport = Math.abs(window.innerHeight - v.height) < 1
       setKeyboard({ inset, fixedToVisualViewport })
@@ -98,7 +111,9 @@ export function FabMenu({
     const centerY = Math.max(HANDLE_RADIUS, Math.min(window.innerHeight - HANDLE_RADIUS, y))
     const next = {
       right: window.innerWidth - centerX - HANDLE_RADIUS,
-      bottom: window.innerHeight - centerY - HANDLE_RADIUS,
+      // 저장 좌표는 키보드가 닫힌 레이아웃 기준이므로 렌더링 때 빠지는
+      // 자동 상승분을 되돌려 넣는다.
+      bottom: window.innerHeight - centerY - HANDLE_RADIUS + (keyboard.fixedToVisualViewport ? keyboard.inset : 0),
     }
     setPosition(next)
     localStorage.setItem(POSITION_KEY, JSON.stringify(next))
@@ -132,7 +147,7 @@ export function FabMenu({
     const distance = Math.hypot(dx, dy)
     // 이미 방향 제스처를 시작했다면 중심으로 되돌아온 경우도 이전 포커스를
     // 유지하면 안 된다. 유효 고리 밖에서는 항상 포커스를 비운다.
-    if (distance < 8) {
+    if (!state.moving && distance < 8) {
       if (state.directional) setDragDirection(null)
       return
     }

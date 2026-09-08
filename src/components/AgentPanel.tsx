@@ -1379,7 +1379,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0 }: { project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
+export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0 }: { project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
   const shortcutScopeRef = useRef<HTMLDivElement>(null)
   const tabsKey = agentTabStorageKey(TABS_KEY, workspacePath)
   const activeTabKey = agentTabStorageKey(ACTIVE_TAB_KEY, workspacePath)
@@ -1610,6 +1610,15 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
     // 이 signal이 바뀌는 순간에만 오른쪽 탭으로 한 칸 간다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextTabSignal])
+
+  const seenCloseTabSignal = useRef(closeTabSignal)
+  useEffect(() => {
+    if (seenCloseTabSignal.current === closeTabSignal) return
+    seenCloseTabSignal.current = closeTabSignal
+    if (activeId) closeTab(activeId)
+    // 이 signal이 바뀌는 순간의 활성 탭 하나만 닫는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeTabSignal])
   const seenPreviousTabSignal = useRef(previousTabSignal)
   useEffect(() => {
     if (seenPreviousTabSignal.current === previousTabSignal) return

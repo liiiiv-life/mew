@@ -862,6 +862,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'sidebar'>('editor')
   const [agentNextTabSignal, setAgentNextTabSignal] = useState(0)
   const [agentPreviousTabSignal, setAgentPreviousTabSignal] = useState(0)
+  const [agentCloseTabSignal, setAgentCloseTabSignal] = useState(0)
   useEffect(() => {
     if (isDesktop()) return
     if (mobileForegroundPanel === 'agent') {
@@ -936,6 +937,20 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     if (index < 0) return
     setActivePath(tabs[(index - 1 + tabs.length) % tabs.length].path, focusedPaneId)
   }, [activePath, agentOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
+
+  const closeCurrentWindowTab = useCallback(() => {
+    let surface = activeTabbedSurfaceRef.current
+    if (surface === 'agent' && !agentOpen) surface = 'editor'
+    if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
+    activeTabbedSurfaceRef.current = surface
+    if (surface === 'agent') {
+      setAgentCloseTabSignal((value) => value + 1)
+      return
+    }
+    // 사이드바의 탐색기·검색은 닫히는 탭이 아니다. 이 경우 Ctrl+W와 똑같이
+    // 현재 편집 칸의 문서 탭을 닫는다.
+    if (activePath) closeTab(activePath, focusedPaneId)
+  }, [activePath, agentOpen, closeTab, focusedPaneId, sidebarOpen])
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
   // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
@@ -1626,18 +1641,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             ),
           },
           {
-            id: 'browser-popup',
-            label: t('header.browserPopup'),
-            onSelect: () => toggleWorkspacePanel('browser'),
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 4h6v6" />
-                <path d="m20 4-9 9" />
-                <path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />
-              </svg>
-            ),
-          },
-          {
             id: 'android',
             label: 'Android',
             onSelect: () => toggleWorkspacePanel('android'),
@@ -2067,6 +2070,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                 onClose={() => closeWorkspacePanel('agent')}
                 nextTabSignal={agentNextTabSignal}
                 previousTabSignal={agentPreviousTabSignal}
+                closeTabSignal={agentCloseTabSignal}
               />
             </div>
           </div>
@@ -2095,6 +2099,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       <FabMenu
         onFullscreen={toggleFullscreen}
         onNextWindowTab={switchCurrentWindowTabRight}
+        onCloseWindowTab={closeCurrentWindowTab}
         onPrevWindowTab={switchCurrentWindowTabLeft}
         onToggleAgent={() => { if (canUseTerminal) toggleWorkspacePanel('agent') }}
         onOpenEditor={closeAllWorkspacePanels}
