@@ -5,6 +5,7 @@ import type { IncomingMessage, Server as HttpServer } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
 import { isValidSessionName } from './tmux.ts'
+import { preparePtyHelper } from './pty-helper.ts'
 
 const DEFAULT_WS_PATH = '/api/tmux/ws'
 const MIN_COLS = 10
@@ -63,13 +64,22 @@ function handleConnection(ws: WebSocket, session: string, cols: number, rows: nu
   // 통과시킨다 — 클라이언트의 OSC 52 핸들러가 브라우저 클립보드로 옮긴다. 멱등이라 attach마다 실행해도 안전.
   execFile('tmux', ['set-option', '-s', 'set-clipboard', 'on'], () => {})
 
-  const ptyProcess = pty.spawn('tmux', ['attach-session', '-t', session], {
-    name: 'xterm-256color',
-    cols,
-    rows,
-    cwd,
-    env: process.env as Record<string, string>,
-  })
+  let ptyProcess: pty.IPty
+  try {
+    preparePtyHelper()
+    ptyProcess = pty.spawn('tmux', ['attach-session', '-t', session], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd,
+      env: process.env as Record<string, string>,
+    })
+  } catch (err) {
+    console.error('[mew:tmux] PTY startup failed:', err)
+    ws.send('\r\n[mew] Terminal failed to start. Check the server log for node-pty/tmux errors.\r\n')
+    ws.close(1011, 'PTY startup failed')
+    return
+  }
   let ptyAlive = true
   const markPtyDead = () => {
     ptyAlive = false

@@ -52,6 +52,10 @@ xcode-select --install
 brew install tmux python
 ```
 
+macOS에서는 `node-pty 1.1.0` 배포본의 `spawn-helper` 실행 권한 누락을 PTY 연결 전에 보정한다.
+현재 로드된 네이티브 모듈 옆의 보조 파일에 소유자 실행 권한만 추가하며, 실패하면 터미널에
+시작 오류를 표시하고 서버 로그에 원인을 남긴다. 빈 화면이면 로그의 `[mew:tmux]` 오류를 먼저 확인한다.
+
 **이 폴더에는 아무것도 저장되지 않는다.** 설정은 `~/.config/mew/config.env`, 계정·세션과 완료된 에이전트 턴 전사는 `~/.local/share/mew/`, 로그는 `~/.local/state/mew/`에 산다(`server/config.ts`). 클론을 지워도 데이터는 남고, `git pull`이 곧 업데이트다.
 
 ```bash
