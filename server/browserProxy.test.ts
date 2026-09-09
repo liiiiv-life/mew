@@ -284,3 +284,58 @@ test('Next 클라이언트 라우트는 내부 프록시 prefix가 아니라 대
   window.history.replaceState({}, '', new URL(frame, mewOrigin).pathname)
   assert.equal(window.location.pathname, '/')
 })
+
+test('새 창 링크와 window.open은 프록시의 현재 프레임에서 이동한다', async () => {
+  const target = express()
+  target.get('/', (_req, res) => res.type('html').send('<!doctype html><html><head><title>Links</title></head><body></body></html>'))
+  const targetOrigin = await listen(target)
+  const mewOrigin = await listen(mewProxyApp())
+  const frame = browserProxyFrameUrl(`${targetOrigin}/`, 'owner@example.com')
+  const response = await fetch(`${mewOrigin}${frame}`, { headers: { 'sec-fetch-mode': 'navigate' } })
+  assert(!response.headers.get('content-security-policy')?.includes('allow-popups'))
+  const scripts = [...(await response.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1])
+  const window = new Window({ url: `${mewOrigin}${frame}` })
+  let popups = 0
+  window.open = () => { popups++; return null }
+  const navigation = { href: '', protocol: 'http:', host: new URL(mewOrigin).host }
+  Object.assign(window, { testNavigation: navigation })
+  window.eval(`(function(location){${scripts[2]}})(testNavigation)`)
+  const next = frame.replace(/\/$/, '/next')
+  try {
+    for (const href of [next, '/next', '#section']) {
+      for (const event of [
+        new window.MouseEvent('click', { bubbles: true, cancelable: true }),
+        new window.MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }),
+        new window.MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }),
+        new window.MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }),
+      ]) {
+        navigation.href = ''
+        const link = window.document.createElement('a')
+        link.setAttribute('href', href)
+        link.target = '_blank'
+        const child = window.document.createElement('span')
+        link.append(child)
+        window.document.body.append(link)
+        child.dispatchEvent(event)
+        assert.equal(event.defaultPrevented, true)
+        assert.equal(link.target, '_self')
+        assert.equal(navigation.href, href === '#section' ? href : next)
+        link.remove()
+      }
+    }
+    window.open('/next', '_blank')
+    assert.equal(navigation.href, next)
+    assert.equal(popups, 0)
+    const form = window.document.createElement('form')
+    form.target = '_blank'
+    const button = window.document.createElement('button')
+    button.formTarget = '_blank'
+    form.append(button)
+    window.document.body.append(form)
+    form.dispatchEvent(new window.SubmitEvent('submit', { bubbles: true, cancelable: true, submitter: button }))
+    assert.equal(form.target, '_self')
+    assert.equal(button.formTarget, '_self')
+  } finally {
+    await window.happyDOM.close()
+  }
+})
