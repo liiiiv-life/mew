@@ -2,6 +2,7 @@
 (() => {
   window.__mewDomRecordedDocument = document;
   const documentId = `${Date.now()}-${Math.random()}`;
+  const recordedDocument = document;
   const start = () => {
     window.__mewDomStop?.();
     window.__mewDomStop = window.rrwebRecord.record({
@@ -22,6 +23,12 @@
   window.__mewDomSnapshot = () => window.rrwebRecord.record.takeFullSnapshot();
   // Resolve IDs on the server; the client never supplies selectors or JavaScript.
   window.__mewDomNode = (id) => window.rrwebRecord.record.mirror.getNode(id);
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
-  else start();
+  // rrweb briefly creates blank iframes to obtain native DOM prototypes. Starting
+  // another recorder synchronously inside those frames recursively creates more.
+  // Let frame construction/document.write finish; removed utility frames never run.
+  const schedule = () => setTimeout(() => {
+    if (document === recordedDocument) start();
+  }, 0);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', schedule, { once: true });
+  else schedule();
 })();

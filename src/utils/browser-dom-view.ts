@@ -74,7 +74,8 @@ export function mountDomBrowser(root: HTMLElement, streamUrl: string, status: (v
       if (packet.type === 'dialog') { report({ state: 'ready', dialog: packet }); return }
       if (packet.type === 'page') {
         pageState = { url: packet.url, title: packet.title, host: packet.host, canGoBack: packet.canGoBack, canGoForward: packet.canGoForward }
-        report({ state: packet.loading || !surfaces.get('main')?.renderer ? 'connecting' : 'ready', message: notice }); return
+        notice = packet.message
+        report({ state: packet.message ? 'error' : packet.loading || !surfaces.get('main')?.renderer ? 'connecting' : 'ready', message: notice }); return
       }
       if (packet.type === 'frame-closed') { destroy(packet.frame); return }
       if (packet.type !== 'event') return

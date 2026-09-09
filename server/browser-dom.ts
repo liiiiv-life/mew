@@ -6,7 +6,7 @@ import type { Server, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import express from 'express'
 import multer from 'multer'
-import { chromium, type Browser, type BrowserContext, type Page, type ElementHandle, type CDPSession, type Dialog, type Frame, type FileChooser, type Download } from 'playwright-core'
+import { chromium, type Browser, type BrowserContext, type Page, type ElementHandle, type CDPSession, type Dialog, type Frame, type FileChooser, type Download, type Request } from 'playwright-core'
 import { WebSocket, WebSocketServer } from 'ws'
 import { authOf, requireRole, resolveAuth, type RequestAuth } from './reqAuth.ts'
 import { acquireBrowserProfile } from './browser-dom-profile.ts'
@@ -15,7 +15,7 @@ import { createDomNetworkGate } from './browser-dom-network.ts'
 export const DOM_BROWSER_WS = '/api/browser-dom/ws'
 const sessions = new Map<string, DomBrowserSession>()
 const require = createRequire(import.meta.url)
-const recorder = 'if (globalThis.__mewDomRecordedDocument !== globalThis.document) {\n' + fs.readFileSync(path.join(path.dirname(require.resolve('@rrweb/record')), 'record.umd.cjs'), 'utf8')
+const recorder = 'if (["http:", "https:", "about:"].includes(location.protocol) && globalThis.__mewDomRecordedDocument !== globalThis.document) {\n' + fs.readFileSync(path.join(path.dirname(require.resolve('@rrweb/record')), 'record.umd.cjs'), 'utf8')
   + '\n;\n' + fs.readFileSync(new URL('./browser-dom-recorder.js', import.meta.url), 'utf8') + '\n}'
 const TTL = 20 * 60_000
 const MAX_RESOURCE = 5 * 1024 * 1024
@@ -69,6 +69,9 @@ export class DomBrowserSession {
   private stateTimer?: ReturnType<typeof setInterval>
   private lastState = ''
   private loading = false
+  private navigationMessage?: string
+  private navigationRequest?: Request
+  private navigationAttempt = 0
   browser?: Browser
   context?: BrowserContext
   page?: Page
@@ -172,6 +175,7 @@ export class DomBrowserSession {
   }
 
   private async launch(): Promise<void> {
+    const adoptedPage = !!this.page
     const executablePath = domBrowserExecutable()
     if (!executablePath) throw new Error('서버 Chromium이 없습니다. mew 폴더에서 npx playwright-core install chromium을 실행해 주세요.')
     if (this.general) {
@@ -226,12 +230,20 @@ export class DomBrowserSession {
     })
     page.on('framenavigated', (frame) => {
       // srcdoc/document replacements can reuse a Window without rerunning init scripts.
-      void frame.evaluate(recorder).catch(() => {})
+      if (/^(https?:|about:)/.test(frame.url())) void frame.evaluate(recorder).catch(() => {})
       if (frame !== page.mainFrame()) return
       void this.publishState()
     })
-    page.on('request', (request) => { if (request.isNavigationRequest() && request.frame() === page.mainFrame()) void this.publishState(true, true) })
-    page.on('requestfailed', (request) => { if (request.isNavigationRequest() && request.frame() === page.mainFrame()) void this.publishState(false) })
+    page.on('request', (request) => {
+      if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) return
+      this.navigationRequest = request
+      this.navigationMessage = undefined
+      void this.publishState(true, true)
+    })
+    page.on('requestfailed', (request) => {
+      if (request !== this.navigationRequest || request.failure()?.errorText === 'net::ERR_ABORTED') return
+      this.navigationFailed(request.failure()?.errorText ?? '', request.url())
+    })
     page.on('domcontentloaded', () => { void this.publishState(false) })
     this.stateTimer = setInterval(() => { if (this.socket) void this.publishState() }, 1000)
     this.stateTimer.unref()
@@ -283,7 +295,10 @@ export class DomBrowserSession {
       this.send({ type: 'event', frame: state.id, parent, parentNode, generation: state.generation, event: this.sanitize(event, frame.url()) })
     })
     await page.addInitScript({ content: recorder })
-    if (page.url() === 'about:blank') await page.goto(this.url, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => this.notice('페이지를 열지 못했습니다. 주소를 확인하고 다시 시도해 주세요.'))
+    // A popup may be a blank window whose opener will write or navigate it later.
+    // Never navigate an adopted Page, even when its current URL is about:blank.
+    // Initial network loading must not block address changes or popup attachment.
+    if (!adoptedPage) void this.navigate(() => page.goto(this.url, { waitUntil: 'domcontentloaded', timeout: 30_000 }), this.url)
     else await Promise.all(page.frames().map((frame) => frame.evaluate(recorder).catch(() => {})))
     await this.publishState()
   }
@@ -305,6 +320,10 @@ export class DomBrowserSession {
       let input: DomInput
       try { input = JSON.parse(raw.toString()) } catch { socket.close(1008); return }
       if (input.kind === 'dialog' || input.kind === 'stop') { void this.input(input).catch(() => {}); return }
+      if (['navigate', 'back', 'forward', 'reload'].includes(input.kind)) {
+        void this.start().then(() => this.input(input)).catch(() => this.notice('주소를 확인하고 다시 시도해 주세요.'))
+        return
+      }
       this.queued++
       this.inputQueue = this.inputQueue.then(async () => { await this.start(); await this.input(input) })
         .catch(() => { this.send({ type: 'notice', message: '조작을 반영하지 못했습니다. 화면이 바뀌었다면 다시 시도해 주세요.' }) })
@@ -313,7 +332,7 @@ export class DomBrowserSession {
     try {
       const existing = !!this.startPromise
       await this.start()
-      await this.publishState(false, true)
+      await this.publishState(this.loading, true)
       if (this.dialog) this.send({ type: 'dialog', dialogType: this.dialog.type(), message: this.dialog.message(), defaultValue: this.dialog.defaultValue() })
       if (existing) await this.input({ kind: 'snapshot' })
     } catch (error) {
@@ -340,15 +359,41 @@ export class DomBrowserSession {
     try { const target = new URL(url); return ['http:', 'https:'].includes(target.protocol) && !target.username && !target.password } catch { return false }
   }
 
-  info() { return { id: this.job, url: this.page?.url() || this.url, title: '', streamUrl: `${DOM_BROWSER_WS}?session=${this.id}` } }
+  info() {
+    const current = this.page?.url()
+    const url = (this.loading ? this.navigationRequest?.url() : undefined)
+      || (current && /^https?:/.test(current) ? current : this.navigationRequest?.url() || this.url)
+    return { id: this.job, url, title: '', streamUrl: `${DOM_BROWSER_WS}?session=${this.id}` }
+  }
+
+  private navigationFailed(error: string, rawUrl: string): void {
+    const host = new URL(rawUrl).host
+    const reason = /ERR_CONNECTION_REFUSED/.test(error) ? '연결이 거부되었습니다. 대상 서버가 실행 중인지 확인해 주세요.'
+      : /ERR_NAME_NOT_RESOLVED/.test(error) ? '주소를 찾을 수 없습니다.'
+      : /ERR_.*TIMED_OUT|Timeout/.test(error) ? '응답 시간이 초과되었습니다. 대상 서버와 네트워크를 확인해 주세요.'
+      : '페이지를 열지 못했습니다. 주소와 네트워크를 확인해 주세요.'
+    this.navigationMessage = `서버에서 ${host}: ${reason}`
+    void this.publishState(false, true)
+  }
+
+  private async navigate(action: () => Promise<unknown>, url: string): Promise<void> {
+    const attempt = ++this.navigationAttempt
+    this.navigationMessage = undefined
+    await this.publishState(true, true)
+    try { await action() }
+    catch (error) {
+      if (attempt === this.navigationAttempt && !String(error).includes('ERR_ABORTED')) this.navigationFailed(String(error), url)
+    }
+    finally { if (attempt === this.navigationAttempt) await this.publishState(false) }
+  }
 
   private async publishState(loading = this.loading, force = false): Promise<void> {
     if (!this.page || this.closed) return
     this.loading = loading
     try {
       const history = await this.cdp?.send('Page.getNavigationHistory')
-      const url = this.page.url()
-      const state = { type: 'page', ...this.info(), title: await this.page.title(), host: new URL(url).host, loading,
+      const url = this.info().url
+      const state = { type: 'page', ...this.info(), title: await this.page.title(), host: new URL(url).host, loading, message: this.navigationMessage,
         canGoBack: !!history && history.currentIndex > 0, canGoForward: !!history && history.currentIndex < history.entries.length - 1 }
       const encoded = JSON.stringify(state)
       if (force || encoded !== this.lastState) { this.lastState = encoded; this.send(state) }
@@ -366,15 +411,20 @@ export class DomBrowserSession {
       else await dialog?.dismiss()
       return
     }
-    if (input.kind === 'stop') { await this.cdp?.send('Page.stopLoading'); await this.publishState(false); return }
+    if (input.kind === 'stop') { this.navigationAttempt++; await this.cdp?.send('Page.stopLoading'); await this.publishState(false); return }
     if (['navigate', 'back', 'forward', 'reload'].includes(input.kind)) {
       if (!this.general) return
       if (input.kind === 'navigate') {
         if (typeof input.url !== 'string' || input.url.length > 8192 || !this.allowed(input.url)) throw new Error('HTTP(S) 주소가 필요합니다')
-        await page.goto(input.url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-      } else if (input.kind === 'back') await page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 })
-      else if (input.kind === 'forward') await page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 })
-      else await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 })
+        await this.navigate(() => page.goto(input.url!, { waitUntil: 'domcontentloaded', timeout: 30_000 }), input.url)
+      } else if (input.kind === 'back') await this.navigate(() => page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 }), page.url())
+      else if (input.kind === 'forward') await this.navigate(() => page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 }), page.url())
+      else {
+        const url = this.info().url
+        await this.navigate(() => page.url().startsWith('chrome-error:')
+          ? page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+          : page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 }), url)
+      }
       await this.publishState(); return
     }
     if (input.kind === 'resize') {

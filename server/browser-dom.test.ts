@@ -212,18 +212,20 @@ test('general browser shares persistent server state, preserves popups/history, 
   await new Promise<void>((resolve) => childServer.listen(0, '127.0.0.1', resolve))
   const childOrigin = `http://127.0.0.1:${(childServer.address() as { port: number }).port}`
   app.get('/site', (_req, res) => res.type('html').send(`<!doctype html><html><head><title>Server site</title></head><body>
-    <h1>General server browser</h1><a id="next" href="/next">Next</a><button id="popup" onclick="window.open('/popup')">Popup</button>
-    <button id="dialog" onclick="document.querySelector('#answer').textContent=prompt('Your answer','initial')">Prompt</button><output id="answer"></output>
+    <h1>General server browser</h1><button id="blank-frame" onclick="const f=document.createElement('iframe');f.id='blank-document';document.body.append(f);f.contentDocument.open();f.contentDocument.write('<html><body>Written blank frame</body></html>');f.contentDocument.close()">Blank frame</button><a id="next" href="/next">Next</a><button id="popup" onclick="window.open('/popup')">Popup</button>
+    <button id="blank-popup">Blank popup</button><button id="dialog" onclick="document.querySelector('#answer').textContent=prompt('Your answer','initial')">Prompt</button><output id="answer"></output>
     <input id="file" type="file" onchange="document.querySelector('#filename').textContent=this.files[0].name"><output id="filename"></output>
     <a href="/file" download>Download fixture</a>
     <iframe id="child" src="${childOrigin}" style="width:500px;height:180px;border:0"></iframe>
     <output id="socket"></output><output id="worker"></output>
     <script>
+      document.querySelector('#blank-popup').onclick=()=>{const popup=window.open('','sso');popup.document.write('<html><body><h1>Waiting for sign-in</h1></body></html>');popup.document.close()};
       window.siteScriptExecuted=true; document.cookie='persistent_site=kept; Max-Age=3600';localStorage.setItem('server-local','kept');
       new WebSocket(location.origin.replace('http:','ws:')+'/site-ws').onmessage=e=>document.querySelector('#socket').textContent=e.data;
       navigator.serviceWorker.register('/sw.js').then(()=>navigator.serviceWorker.ready).then(()=>document.querySelector('#worker').textContent='Worker ready');
     </script></body></html>`))
   app.get('/sw.js', (_req, res) => res.type('js').send("self.addEventListener('install',()=>self.skipWaiting()); self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));"))
+  app.get('/stall', () => { /* Deliberately leave the initial document pending. */ })
   app.get('/next', (_req, res) => res.type('html').send('<html><head><title>Next page</title></head><body><h1>Next page</h1></body></html>'))
   app.get('/popup', (_req, res) => res.type('html').send('<html><head><title>Popup page</title></head><body><h1>Popup page</h1><script>window.opener.document.querySelector(\'h1\').textContent=\'Opener preserved\'</script></body></html>'))
   app.get('/file', (_req, res) => { res.setHeader('Content-Disposition', 'attachment; filename="fixture.txt"'); res.send('server download') })
@@ -252,6 +254,11 @@ test('general browser shares persistent server state, preserves popups/history, 
     await view.getByText('General server browser').waitFor({ timeout: 15_000 })
     await view.getByText('Server WebSocket connected').waitFor()
     await view.getByText('Worker ready').waitFor()
+    const sourceErrors: string[] = []
+    session.page!.on('pageerror', (error) => sourceErrors.push(error.message))
+    await view.locator('#blank-frame').click()
+    await view.frameLocator('#blank-document iframe').getByText('Written blank frame').waitFor({ timeout: 5000 })
+    assert.deepEqual(sourceErrors, [])
     // Late same-origin iframes (including hidden SDK frames) must never replace
     // the parent replay document with their own rrweb Document mutation.
     await session.page!.evaluate(() => {
@@ -315,14 +322,18 @@ test('general browser shares persistent server state, preserves popups/history, 
     await viewer.goto(origin + '/panel')
     await viewer.getByRole('textbox').waitFor()
     const address = viewer.getByRole('textbox')
-    await address.fill(origin + '/next')
+    const localAddress = `localhost:${(server.address() as { port: number }).port}/next`
+    await address.fill(localAddress)
     await address.press('Enter')
     await viewer.frameLocator('.mew-dom-browser iframe').first().getByText('Next page').waitFor({ timeout: 10_000 })
-    assert.equal(await address.inputValue(), origin + '/next')
+    assert.equal(await address.inputValue(), 'http://' + localAddress)
+    await session.page!.waitForURL('http://' + localAddress)
     await viewer.close()
     await closeDomBrowsers()
     const reopened = openDomBrowserTab(account, 'reopened', origin + '/next')
     await reopened.start()
+    await reopened.page!.waitForURL(origin + '/next')
+    await reopened.page!.waitForLoadState('domcontentloaded')
     assert((await reopened.context!.cookies(origin)).some((cookie) => cookie.name === 'persistent_site' && cookie.value === 'kept'))
     assert.equal(await reopened.page!.evaluate('localStorage.getItem("server-local")'), 'kept')
     // Device-code OAuth has no redirect_uri and shares normal server login state.
@@ -332,7 +343,12 @@ test('general browser shares persistent server state, preserves popups/history, 
     await authViewer.goto(origin + '/panel?auth=' + encodeURIComponent(authStream))
     const authMain = authViewer.frameLocator('.mew-dom-browser iframe').first()
     await authMain.getByText('General server browser').waitFor({ timeout: 10_000 })
-    await authMain.locator('#popup').click()
+    await authMain.locator('#blank-popup').click()
+    await authViewer.frameLocator('.mew-dom-browser iframe').last().getByText('Waiting for sign-in').waitFor({ timeout: 5000 })
+    // Navigate the same real popup, as an asynchronous SSO SDK would.
+    const ssoPopup = (await Promise.all(reopened.context!.pages().map(async (page) => ({ page, opener: await page.opener() })))).find((item) => item.opener)?.page
+    assert(ssoPopup)
+    await ssoPopup.goto(origin + '/popup')
     await authViewer.getByRole('tab', { name: 'Popup page' }).waitFor()
     await authViewer.frameLocator('.mew-dom-browser iframe').last().getByText('Popup page').waitFor()
     // OAuth tabs and popups are absent from the general BrowserPanel list.
@@ -346,6 +362,39 @@ test('general browser shares persistent server state, preserves popups/history, 
     assert.equal(reopened.page!.isClosed(), false)
     await authViewer.close()
     await reopened.close()
+
+    // A stalled first address must not hold subsequent address/stop commands.
+    const stalled = openDomBrowserTab(account, 'stalled', origin + '/stall')
+    streamUrl = stalled.info().streamUrl
+    const recovery = await browser.newPage()
+    await recovery.goto(origin + '/viewer')
+    await recovery.waitForFunction('window.packets.some(p=>p.state==="connecting")')
+    await recovery.evaluate(`window.controller.command('navigate',{url:${JSON.stringify(origin + '/next')}})`)
+    await recovery.frameLocator('#root iframe').getByText('Next page').waitFor({ timeout: 5000 })
+    const unused = http.createServer()
+    await new Promise<void>((resolve) => unused.listen(0, '127.0.0.1', resolve))
+    const refused = `http://127.0.0.1:${(unused.address() as { port: number }).port}/`
+    await new Promise<void>((resolve) => unused.close(() => resolve()))
+    const crashes: string[] = []
+    stalled.page!.on('crash', () => crashes.push('crashed'))
+    await recovery.evaluate(`window.controller.command('navigate',{url:${JSON.stringify(refused)}})`)
+    await recovery.waitForFunction('window.packets.some(p=>p.state==="error" && p.message?.includes("연결이 거부"))')
+    assert.equal(stalled.info().url, refused)
+    unused.on('request', (_req, res) => res.end('<html><body><h1>Server available again</h1></body></html>'))
+    await new Promise<void>((resolve) => unused.listen(Number(new URL(refused).port), '127.0.0.1', resolve))
+    try {
+      await recovery.evaluate('window.controller.command("reload")')
+      await recovery.frameLocator('#root iframe').getByText('Server available again').waitFor({ timeout: 5000 })
+    } finally {
+      unused.closeAllConnections()
+      await new Promise<void>((resolve) => unused.close(() => resolve()))
+    }
+    await recovery.evaluate(`window.controller.command('navigate',{url:${JSON.stringify(origin + '/next')}})`)
+    await recovery.waitForFunction('JSON.parse(document.querySelector("#status").textContent).state==="ready" && !JSON.parse(document.querySelector("#status").textContent).message', undefined, { timeout: 5000 })
+    assert.deepEqual(crashes, [])
+    await recovery.frameLocator('#root iframe').getByText('Next page').waitFor()
+    await recovery.close()
+    await stalled.close()
   } finally {
     await browser.close()
     await closeDomBrowsers()
