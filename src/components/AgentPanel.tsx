@@ -3612,7 +3612,11 @@ function AgentAuthServerBrowser({
           ×
         </button>
       </div>
-      {verificationCode && <div className="shrink-0 border-b border-edge bg-surface px-3 py-2 text-sm text-ink">승인 코드: <code className="select-all font-mono">{verificationCode}</code></div>}
+      {verificationCode && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-surface px-3 py-2 text-sm text-ink">
+        <span className="shrink-0">승인 코드:</span>
+        <code className="min-w-0 select-all break-all font-mono">{verificationCode}</code>
+        <CopyButton key={verificationCode} text={verificationCode} label="승인 코드 복사" />
+      </div>}
       <ServerDomBrowserTabs key={page.streamUrl} streamUrl={page.streamUrl} reopen={reopen} onPopup={onPopup} onReady={onReady} />
       <div className="flex h-6 shrink-0 items-center border-t border-edge bg-surface px-2 text-[10px] text-ink-muted">
         <span className="truncate">서버에서 로그인 중 · 완료되면 자동으로 채팅으로 돌아갑니다</span>
