@@ -105,7 +105,7 @@ cd ~/apps/mew
 
 - 공개 도메인의 요청을 `http://127.0.0.1:5000`으로 전달한다. 경로를 덧붙이거나 지우지 않는다.
 - 원래 `Host` 헤더를 보존하고 HTTPS 요청에는 `X-Forwarded-Proto: https`를 보낸다. 로그인 쿠키가 `Secure`로 발급되고 CSRF Origin 검사가 정상 동작하려면 필요하다.
-- WebSocket 업그레이드를 모든 경로에서 통과시킨다. 협업·presence·터미널·에이전트·데이터베이스와 loopback 브라우저가 모두 WebSocket을 쓴다.
+- WebSocket 업그레이드를 모든 경로에서 통과시킨다. 협업·presence·터미널·에이전트·데이터베이스와 서버 브라우저가 모두 WebSocket을 쓴다.
 - `index.html`이나 `/api` 응답을 프록시에서 장기 캐시하지 않는다. 정적 `/assets` 캐시는 앱이 직접 관리한다.
 
 프록시 또는 터널을 연결한 뒤, 실제 도메인에서 아래 순서로 확인한다.
@@ -263,23 +263,56 @@ mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더�
 
 ## 브라우저 창
 
-Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**는 Mew 화면 위의 독립 플로팅 팝업으로 연다. 상단 바를 끌어 옮기고 창의 네 변·모서리로 크기를 조절할 수 있다. 탭·주소 상태는 같은 origin의 localStorage(`mew:browser-*`)를 공유한다.
+Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**와 독립 `/browser` 화면은 실제 서버 Chromium을 조작한다.
+폰에서 `localhost:3100`을 넣으면 Mew 서버의 localhost를 열고, 공개 HTTP(S) 사이트와 서버에서 접근 가능한 사설망도 연다.
+사이트의 JavaScript·TLS·네트워크·쿠키·storage·WebSocket·Service Worker는 서버에서 동작한다.
+`@rrweb/record`·`@rrweb/replay`로 DOM 변경과 사용자 입력만 연결하며 화면 캡처·영상 전송은 사용하지 않는다.
+결정과 지원 경계는 [ADR 0127](../.mew/docs/decisions/0127-mew-browser-server-dom-runtime.md)에 둔다.
 
-이 화면은 `server/browserProxy.ts`의 **서버 loopback 개발 서버 뷰어**다. 폰에서 `localhost:3100`을 넣으면 Mew가 실행되는 WSL/서버의 `localhost:3100`을 열어, 응답을 sandbox iframe에서 렌더링한다. HTTP(S)·WebSocket·redirect·탭별 cookie/storage를 중계하므로 개발 중인 SPA도 확인할 수 있다.
-
-- 대상은 이 서버의 `localhost`, `127.0.0.0/8`, `::1`만 허용한다. 공개 인터넷·사설망·임의 URL은 열 수 없다. 권한은 터미널과 같은 **manager·owner**다.
-- 일반 Browser 패널은 OAuth나 범용 웹 탐색용이 아니다. 다만 Codex의 `codex login` 작업은 등록된 인증 호스트와 서버 loopback만 여는 일회성 내장 브라우저를 에이전트 화면 안에서 쓴다. Kimi·Cursor OAuth는 현재 기기의 일반 새 탭으로 연결한다. 공급자·키·모델 선택이 먼저 필요한 Hermes·OpenClaw·OpenCode·Prime은 Mew 터미널을 연다. Claude Code·Antigravity는 에이전트 탭 자체가 공식 CLI의 tmux 터미널이므로 로그인도 그 TUI에서 진행한다. 근거와 경계는 [ADR 0109](../.mew/docs/decisions/0109-mew-agent-authentication-and-loopback-browser.md)·[ADR 0110](../.mew/docs/decisions/0110-mew-declarative-agent-authentication-jobs.md)·[ADR 0117](../.mew/docs/decisions/0117-mew-terminal-agent-tabs-for-claude-and-antigravity.md)·[ADR 0121](../.mew/docs/decisions/0121-mew-codex-oauth-through-scoped-server-browser.md)에 둔다.
-- Mew session cookie는 대상에 보내지 않으며 대상 문서는 `allow-same-origin` 없는 iframe에서 돌아 Mew UI DOM·localStorage에 직접 접근하지 못한다. Mew 서버 재시작·세션 만료·창을 새로 열면 사이트 세션은 사라진다.
-
-`/3100`처럼 포트를 첫 경로로 연 전체 페이지도 같은 구현을 쓰되, 이 호환 진입점의 대상은 계속 해당 서버의 loopback 포트로 고정한다.
+- 준비: `npx playwright-core install chromium`. 시스템 Chrome/Chromium도 탐색하며 다른 설치 위치는
+  `MEW_BROWSER_EXECUTABLE` 절대 경로로 지정한다. Chromium OS sandbox는 끄지 않는다.
+- 계정별 전용 프로필은 `MEW_DATA_DIR/browser/profiles/<account-hash>`에 둔다. 일반 탭은 쿠키·localStorage·IndexedDB를
+  공유하고 마지막 탭 종료 때 프로필을 닫아 디스크에 유지한다. 개인 Chrome 프로필이나 기기의 Mew 쿠키를 가져오지 않는다.
+- 열린 탭 목록은 서버의 계정별 메모리 상태다. 패널 재열기·기기 새로고침은 같은 탭에 재연결한다. 서버 재시작 또는
+  연결이 끊긴 뒤 10분이 지나면 탭과 방문 기록은 정리되며, 사이트의 영속 로그인 상태는 프로필에 남는다. 계정당 최대 20개 탭이다.
+- 주소 입력·뒤로/앞으로·새로고침·중지는 실제 Page를 조작한다. 사이트 팝업은 원래 opener 관계를 유지한 Mew 탭으로 열린다.
+  하위 프레임은 각각 비실행 DOM 재생 화면을 가지며, 입력은 frame ID·문서 세대·노드 ID로 서버 요소에 적용한다.
+  부모 스트림의 iframe Document 부착 이벤트는 재생하지 않는다. 숨김·표시 스타일과 증분 attributes 배열을 보존하고,
+  뒤늦게 생긴 iframe·srcdoc 문서에도 기록기를 문서당 한 번 설치한다. 부모 mutation 재생 후 대기 중인 하위 화면을 연결한다.
+- 클릭·hover·폼 입력·Enter·스크롤, alert/confirm/prompt 응답과 파일 선택을 연결한다. 업로드는 파일당 8 MiB·최대 4개,
+  다운로드는 탭당 최대 20개이며 서버 Chromium의 임시 파일을 같은 계정에 제공한다. 탭 종료 후에는 받을 수 없다.
+- DOM 재생 iframe에는 `allow-scripts`를 주지 않는다. 이미지·폰트·CSS는 Chromium이 받은 자원만 계정 인증 경로로 제공한다.
+  자원 캐시는 탭당 32 MiB·256개, 자원당 5 MiB로 제한한다. 임의 URL fetch·JavaScript/CDP 실행 API는 노출하지 않는다.
+- Canvas/WebGL·영상/음성·DRM·장치/OS 인증창은 DOM만으로 동일하게 재현하지 못한다. 미지원 표면을 표시하며 영상으로 대체하지 않는다.
+  브라우저 자동화를 거부하는 사이트의 로그인 성공도 보장하지 않는다. 실제 OpenAI 계정 로그인 완료는 아직 검증하지 않았다.
 
 | 라우트 | 역할 | 하는 일 |
 | --- | --- | --- |
-| `GET /api/browser-url?url=` | **manager·owner** | 서버 loopback 대상의 탭별 프록시 세션과 짧은 서명 URL 발급 |
-| `GET /browser` | 페이지 셸은 공개, 연결은 **manager·owner** | 권한 확인 뒤 같은 브라우저 UI를 독립 팝업 창으로 표시 |
-| `ANY /__mew_browser/<origin-token>/<session-token>/...` | 서명 세션 | loopback HTTP(S)를 서버에서 요청하고 텍스트 응답 URL·cookie·storage 문맥 중계 |
-| `WS /__mew_browser_ws/<origin-token>/<session-token>/...` | 서명 세션 | loopback WebSocket을 서버에서 연결해 frame 양방향 중계 |
-| `ANY /<port>` · `/<port>/...` | **manager·owner** | 같은 프록시를 전체 페이지로 연다. 첫 요청에서 짧은 토큰 경로로 리다이렉트 |
+| `GET/POST /api/browser-dom/tabs` | manager·owner | 계정의 실제 서버 탭 조회·생성/재연결 |
+| `DELETE /api/browser-dom/tabs/:tabId` | 같은 계정 | 서버 탭 종료 |
+| `WS /api/browser-dom/ws?session=<id>` | 같은 계정·정확한 Mew origin | 페이지 상태·DOM·탭/대화상자 이벤트와 제한된 입력 중계 |
+| `GET /api/browser-dom/:id/asset/:hash` | 같은 계정 | 이미 받은 이미지·폰트·CSS |
+| `POST /api/browser-dom/:id/upload/:chooser` | 같은 계정 | 활성 파일 선택창에 multipart `files` 전달 |
+| `GET /api/browser-dom/:id/download/:download` | 같은 계정 | 서버 탭의 다운로드 파일 |
+| `GET /browser` | 페이지 셸은 공개, 연결은 manager·owner | 같은 브라우저 UI를 독립 팝업으로 표시 |
+
+브라우저형 OAuth(Codex·Kimi `.com`/`.ai`·Cursor)는 모두 같은 서버 프로필과 DOM 브라우저를 사용한다.
+등록표의 `browser` 방법은 공통으로 `serverBrowser: true`가 되며 별도 외부 탭을 예약하지 않는다.
+`POST /api/agent-runtimes/:id/auth/:method/browser`는 실행 중인 CLI 출력의 최초 URL을 등록된 HTTPS 호스트로 검증한 뒤
+`url`·`streamUrl`을 반환한다. 기기 코드 URL에는 `redirect_uri`가 없어도 된다. 이후 SSO·자원·callback은 일반 서버
+브라우저의 HTTP(S) 접근 범위를 따른다([ADR 0128](../.mew/docs/decisions/0128-mew-browser-oauth-uses-internal-browser.md)).
+인증 탭과 팝업은 일반 Browser 탭 목록에서 제외하며 작업당 20분·계정당 3개 작업으로 제한한다. CLI 작업 완료/실패/중단 시
+같은 작업의 팝업까지 닫고, 사이트의 영속 상태는 계정 프로필에 남긴다. 인증 화면은 기기 승인 코드와 팝업 탭을 함께 표시한다.
+ACP의 URL 인증 요청도 공통 내부 브라우저로 열고 DOM 화면이 준비된 뒤에만 `auth_url_response: accept`를 보낸다.
+ACP 인증 완료 또는 에이전트 화면 종료 때 해당 서버 탭들을 정리한다. terminal·API key 인증은 기존 계약을 유지한다.
+
+기존 `/<port>`·Android gateway만 `server/browserProxy.ts`의 loopback HTML 프록시를 계속 쓴다.
+`GET /api/browser-url?url=`·`/__mew_browser/...`·`/__mew_browser_ws/...`는 이 호환 경로에 남으며 일반 Browser 패널은 사용하지 않는다.
+호환 프록시는 localhost·127.0.0.0/8·::1만 허용하고 링크·새 창 target·`window.open`은 같은 프레임으로 제한한다.
+
+검증: `node --test server/browser-dom.test.ts`. 실제 Chromium으로 폼·서버 쿠키·callback·재연결·모바일 폭·프레임 클릭·
+WebSocket·Service Worker·팝업/opener·방문 기록·SPA·대화상자·파일 전송·영속 프로필·계정 격리·인증 호스트 차단을 검사한다.
+Chromium이 없으면 실제 브라우저 테스트만 skip한다.
 
 ## Android 창
 
@@ -287,7 +320,7 @@ Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**는 Mew 화면 위의 
 
 - Linux·WSL에서는 `/dev/kvm`, macOS에서는 Emulator의 Hypervisor.Framework 가속 상태를 확인하고, Android SDK 도구(`sdkmanager`·`adb`·`emulator`·`avdmanager`), API 36 system image, AVD 존재 여부를 보여준다. Apple Silicon은 `arm64-v8a`, Intel/AMD는 `x86_64` image를 고르고, image가 없으면 설치 명령만 제시한 뒤 새로고침 후에 AVD 생성 명령을 제시한다.
 - 안내 명령의 복사 아이콘 옆 \*\*▶\*\*는 서버가 정한 명령 ID를 전용 숨김 tmux 세션(`mewcmd-*`)에서 실행한다. 옆 터미널 아이콘은 `SessionTerminalPopup`으로 진행 화면과 대화형 입력을 열고, 명령이 끝나면 프로젝트 one-shot 명령어 버튼과 같은 경로로 자기 세션을 자동 종료한다. 브라우저가 보낸 임의 명령 문자열은 실행하지 않는다.
-- 이미 떠 있는 Android WebRTC/gateway 주소를 입력하면 브라우저 창과 같은 loopback 프록시로 iframe에 연다.
+- 이미 떠 있는 Android WebRTC/gateway 주소를 입력하면 기존 loopback 호환 프록시로 iframe에 연다.
 
 권한은 브라우저 창·터미널과 같다 — **manager·owner만** 연다. 상태 점검 API는 emulator를 실행하지 않고, 프로세스 시작·설치·system image 다운로드도 하지 않는다. 따라서 Android 창을 열지 않으면 mew 기본 실행 경로에 붙는 무게는 패널 코드와 API 라우트뿐이다.
 
@@ -594,7 +627,7 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
 - 답변의 **현재 워크스페이스 파일 링크**를 누르면 브라우저 새 탭이 아니라 같은 mew에서 해당 프로젝트와 문서 탭을 연다. `:줄`·`#L줄`이 붙으면 그 줄로 이동하며, Markdown도 정확한 원본 줄을 보여 주기 위해 이 경우 Plain으로 연다. `GET /api/agent-file-link?href=`가 서버 절대경로를 노출하지 않고 `{project,path,line}`으로 검증·변환한다(owner/manager). 웹 링크는 계속 새 브라우저 탭으로 연다.
 - 탭의 \*\*작업 경로(cwd)\*\*는 새 탭을 열 때 현재 워크스페이스 루트로 정해지며 화면에서 바꾸지 않는다. 경로는 ACP 세션·히스토리의 기준으로 계속 저장하지만, 주소창 형태의 입력줄은 없다 ([ADR 0097](../.mew/docs/decisions/0097-mew-agent-panel-removes-cwd-bar.md)).
 - ACP 채널은 `/api/agent/ws?runtime=<id>&tab=<id>&cwd=<absolute-path>&resume=<session-id>`이고 terminal 표면은 `POST /api/agent-runtimes/:id/terminal/:tab`으로 전용 tmux를 준비한 뒤 기존 `/api/tmux/ws?session=<server-name>`에 붙는다. 어느 쪽이든 **탭 하나가 세션 하나**다. 패널·브라우저를 닫아도 세션은 남으며, 탭의 `×`만 ACP 감독 또는 terminal tmux를 종료한다. terminal tmux 이름은 `mewagent-*`로 서버가 만들고 사용자 세션 목록에서는 숨긴다.
-- **설치와 로그인은 별개다**. ACP 런타임은 인증 센터의 등록된 browser/terminal 작업을 쓰고, Claude·Antigravity는 탭에 열린 공식 TUI의 로그인 흐름을 그대로 쓴다. Mew는 두 terminal 런타임의 OAuth 토큰이나 승인 코드를 별도 API로 받거나 저장하지 않는다.
+- **설치와 로그인은 별개다**. ACP 런타임은 인증 센터의 등록된 browser(내부 서버 브라우저)/terminal 작업을 쓰고, Claude·Antigravity는 탭에 열린 공식 TUI의 로그인 흐름을 그대로 쓴다. Mew는 두 terminal 런타임의 OAuth 토큰이나 승인 코드를 별도 API로 받거나 저장하지 않는다.
 - 탭 목록·이름·런타임·cwd별 마지막 세션 ID는 **계정에 저장**하고 루트 프로젝트 절대 경로별로 분리한다. 브라우저의 `mew:agent-tabs:<root-path>`는 서버 응답 전 연결에 쓰지 않는 로컬 fallback뿐이다. 저장 PUT은 화면마다 한 번씩 직렬화하며, 전송 중 갱신이 여럿 생기면 마지막 스냅샷만 이어 보내 오래된 응답이 최신 thread 포인터를 되돌리지 못하게 한다. 서버 복원이 끝난 뒤에만 활성 탭의 WS를 붙이므로 localStorage의 낡은 세션으로 먼저 연결하지 않는다. 세션 ID는 탭을 닫을 때 함께 지워지고, 같은 탭에서 런타임이나 cwd를 갈아타면 각 조합의 대화 포인터를 따로 보존한다. 마지막으로 보던 탭도 같은 루트 경로별로 남는다(`mew:agent-active-tab:<root-path>`) — 창을 다시 열거나 브라우저를 껐다 켜면 그 탭이 선다. **붙는 탭은 그 하나뿐이다**(복원된 나머지 탭은 눌러서 열 때 붙는다 — 탭마다 프로세스 하나라). 스와이프로 창·탭을 전환하거나 닫는 동작은 없다. 이 작업은 플로팅 핸들이 맡는다. 탭 이름은 선택한 런타임 또는 에이전트셋 이름으로 시작하고, 탭을 두 번 누르면 직접 고친다 ([ADR 0093](../.mew/docs/decisions/0093-mew-account-synced-project-and-agent-tabs.md)·[ADR 0096](../.mew/docs/decisions/0096-mew-agent-tabs-created-after-selection.md)).
   - 새 탭은 선택 후에만 생기므로, 선택 전 히스토리 조회·세션 입력을 위한 빈 탭은 없다. 새 세션은 선택 직후부터 해당 탭에서 시작하며, 지난 세션을 고르는 기능은 탭에서 계속 제공한다
   - 플로팅 핸들의 `오른쪽 탭` 다음 `탭 닫기`는 현재 전면 표면의 활성 탭을 닫는다
@@ -645,12 +678,12 @@ Tab은 리스트 항목을 한 단계 들여쓴다. 기본 `sinkListItem`은 **�
   | --- | --- | --- | --- |
   | `claude` | terminal · `claude` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_CLAUDE_CLI_CMD` · `MEW_AGENT_CLAUDE_CLI_ARGS`; 예약 ACP는 기존 `MEW_AGENT_CMD` · `MEW_AGENT_CLAUDE_CMD` 계약 유지 |
   | `antigravity` | terminal · `agy` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_ANTIGRAVITY_CMD` · `MEW_AGENT_ANTIGRAVITY_ARGS` |
-  | `codex` | 로컬 `node_modules/.bin/codex-acp`(버전 고정) → 컴퓨터에 설치된 `codex` 엔진, 자격증명은 `~/.codex` | server browser · 호스트 `codex login` · 제한된 OAuth host→loopback callback | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `MEW_AGENT_CODEX_CLI_CMD` · `CODEX_PATH` · `NO_BROWSER`(기본 `1`) |
+  | `codex` | 로컬 `node_modules/.bin/codex-acp`(버전 고정) → 컴퓨터에 설치된 `codex` 엔진, 자격증명은 `~/.codex` | 내부 서버 브라우저 · 호스트 `codex login` · 서버 loopback callback | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `MEW_AGENT_CODEX_CLI_CMD` · `CODEX_PATH` · `NO_BROWSER`(기본 `1`) |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `hermes acp --setup` | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
-  | `kimi` | `kimi acp` | browser · `kimi login`(.com) / `kimi login --region global`(.ai) | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
+  | `kimi` | `kimi acp` | 내부 서버 브라우저 · `kimi login`(.com) / `kimi login --region global`(.ai) | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
   | `openclaw` | `openclaw acp` | `openclaw onboard --tui` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
   | `opencode` | `opencode acp` | `opencode auth login` | `MEW_AGENT_OPENCODE_CMD` · `MEW_AGENT_OPENCODE_ARGS` |
-  | `cursor` | `agent acp` | browser · `agent login`(`NO_OPEN_BROWSER=1`) | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
+  | `cursor` | `agent acp` | 내부 서버 브라우저 · `agent login`(`NO_OPEN_BROWSER=1`) | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
   | `prime` | Mew 내장 어댑터 → 공식 `prime-agent --mode rpc` — 공식 인스톨러로 설치(\`curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh\`) | TUI `/login`(공급자 선택) |
 
   공통은 `MEW_AGENT_MODE`(안 주면 위의 전체 허용 후보 순서). 진입점이 없거나 로그인 전 ACP를 말하지 않으면 오류와 terminal auth를 함께 보여 준다 — 목록에서 감추거나 탭을 닫지 않는다. 로그인 완료 뒤에도 실패하면 같은 화면에 최신 시작 오류를 남긴다. Prime Agent는 연결당 세션 하나라 mew의 탭 하나가 곧 하나의 Prime 세션이 된다(둘째 탭은 프로세스를 하나 더 띄운다).

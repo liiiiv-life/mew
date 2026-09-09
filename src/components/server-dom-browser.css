@@ -1,0 +1,3 @@
+.mew-dom-browser > .replayer-wrapper { position: relative; width: 100%; height: 100%; }
+.mew-dom-browser .replayer-wrapper > iframe { display: block; border: 0; }
+.mew-dom-browser .replayer-mouse, .mew-dom-browser .replayer-mouse-tail { display: none; }

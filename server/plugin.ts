@@ -1,4 +1,5 @@
 import './config.ts' // 반드시 첫 줄 — 설정 파일을 다른 모듈보다 먼저 읽는다
+import { attachDomBrowserWebSocket } from './browser-dom.ts'
 import type { Plugin } from 'vite'
 import express from 'express'
 import { createApiApp } from './api.ts'
@@ -38,6 +39,7 @@ export function docsApiPlugin(): Plugin {
         attachCollabWebSocket(server.httpServer, { authorize: authorizeCollab })
         attachDbWebSocket(server.httpServer, { authorize: authorizeCollab })
         attachAgentWebSocket(server.httpServer, { authorize: authorizeTmux })
+        attachDomBrowserWebSocket(server.httpServer)
         attachBrowserProxyWebSocket(server.httpServer, {
           account: (req) => {
             const auth = resolveAuth(req)

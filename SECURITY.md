@@ -135,37 +135,47 @@ API·셸·협업이 차단된다.**
 
 ## 브라우저 창
 
-오른쪽 보조창과 독립 `/browser` 팝업은 `server/browserProxy.ts`가 **이 서버의 loopback** HTTP(S)·WebSocket만
-연결하고, 재작성한 응답은 접속 기기의 sandbox iframe이 렌더링한다. 허용 주소는 `localhost`·`127.0.0.0/8`·`::1`뿐이다.
+일반 Browser 패널과 독립 `/browser` 화면은 `server/browser-dom.ts`의 실제 서버 Chromium을 쓴다.
+manager·owner만 탭을 만들고 같은 계정만 DOM·자원·다운로드를 받거나 입력을 보낼 수 있다.
+WebSocket은 정확한 Mew origin을 확인하고 연결 중에도 계정 권한을 재검사한다. 공개 HTTP(S)·loopback·사설망에
+접속하므로 서버 셸과 같은 네트워크 권한 범위이며 member·guest에 허용하지 않는다.
 
-- **세션 발급은 manager·owner뿐**이다. 대상이 loopback으로 고정되어 공개·사설망으로 나가는 범용 SSRF 프록시는 아니다.
-  member·guest로 낮추지 않는다.
-- 프록시 URL은 HMAC 서명한 탭별 2시간 토큰이다. 서버 메모리의 CookieJar와 origin별 storage 모사는 탭 세션마다
-  분리하며 디스크에 저장하지 않는다. URL을 로그·채팅·외부 링크에 복사하지 않는다. 대상 페이지는 기능상 토큰을
-  볼 수 있으므로 신뢰하지 않는 페이지가 그 세션 수명 동안 서버 네트워크 요청을 만들 수 있다는 점은 남는다.
-- 목적지 요청에서 Mew session cookie와 `Forwarded`·`X-Forwarded-For`·`CF-Connecting-IP` 등 방문자 IP 헤더를
-  제거한다. 이 도구는 로컬 개발 서버 확인용이며, 공개 사이트 OAuth·anti-bot을 통과시키는 수단이 아니다.
-- 대상 문서는 `allow-same-origin` 없는 iframe과 응답 CSP sandbox에서 실행한다. URL attribute와 동적 네트워크
-  API를 서명 경로로 바꾸고 Mew UI DOM·localStorage와 대상 cookie jar를 분리한다. 동적 요청에는 가상 페이지
-  Origin을 보내고 대상 응답의 CORS 허용을 다시 적용한다. 이 격리는 완전한 브라우저 origin 가상화가 아니므로
-  보안 경계가 필요한 서로 불신하는 웹 앱을 한 세션에 섞지 않는다. 에이전트 공급자 로그인은 에이전트 인증 센터가
-  휴대폰의 top-level 브라우저·device code·서버 토큰으로 처리한다([ADR 0109](../.mew/docs/decisions/0109-mew-agent-authentication-and-loopback-browser.md)).
-- cross-origin redirect는 새 page-origin 토큰으로 감싸고 jar를 유지한다. OAuth의 localhost callback은 서버로
-  돌아오지만, 제공자가 embedded user agent나 proxy 자체를 금지하면 로그인 성공까지 보장하지 않는다.
-- 다운로드 응답은 서버 디스크에 저장하지 않고 그대로 접속 기기에 전달한다. 업로드 body도 서버가 대상에
-  스트리밍한다. 큰 전송은 Mew 서버 대역폭을 그대로 사용한다.
+원본 사이트 코드·네트워크·WebSocket·Service Worker는 서버에서 실행한다. 재생 iframe에는 `allow-scripts`를 주지 않고
+DOM에서 실행 요소·문서 URL을 제거한다. 이미지·폰트·CSS는 이미 Chromium이 받은 자원만 인증 경로로 제공한다.
+원본 페이지는 기기의 Mew DOM·쿠키·storage를 받지 않는다. 입력과 DOM 전사는 디스크/로그에 저장하지 않는다.
+일반 브라우저의 사이트 쿠키·localStorage·IndexedDB는 **계정별 전용 Chromium 프로필에 영속 저장**한다.
+프로필은 Mew 데이터 폴더의 비공개 상태이며 시크릿과 같은 수준으로 취급한다. 기존 개인 Chrome 프로필은 쓰지 않는다.
+이 분리는 Mew 계정 간 앱 수준 경계이며 서버 셸을 사용할 수 있는 OS 사용자 사이의 보안 경계는 아니다.
 
-`/<port>` 호환 진입점은 종전처럼 대상 origin을 해당 서버의 loopback 포트로 고정한다. Android gateway 입력은
-같은 프록시 세션 발급 API를 쓰며 용도상 실행 중인 loopback gateway 주소만 넣는다.
+파일 업로드는 해당 탭의 활성 파일 선택창 토큰에만 적용하며 메모리에서 파일당 8 MiB·최대 4개로 제한한다.
+다운로드는 실제 Chromium이 받은 임시 파일을 같은 계정만 읽는다. 사용자가 보낸 서버 파일 경로는 받지 않는다.
+DOM WebSocket 입력은 32 KiB, 출력 버퍼 12 MiB, 탭별 자원 캐시는 32 MiB로 제한한다.
+
+Codex·Kimi·Cursor의 browser 인증은 일반 계정 프로필을 공유한다. 최초 승인 URL은 실행 중인 등록 CLI의 출력과
+해당 방법의 HTTPS host allowlist로 검증한다. 이후 SSO·리다이렉트·팝업·callback은 일반 서버 브라우저의 네트워크 경계를
+따르며 Codex만 별도 호스트 제한 문맥으로 격리하지 않는다. 계정별 사이트 로그인 상태는 일반 브라우저와 공유·영속 저장된다.
+인증 작업의 탭과 팝업은 일반 탭 목록에서 분리하고 완료·실패·중단·최대 20분 수명 종료에 정리한다.
+ACP가 요청한 인증 URL도 owner·manager의 사용자 열기 동작으로 내부 브라우저에 연결한다. DOM 준비 전에는 ACP 요청을
+승인하지 않고, 인증 완료 또는 에이전트 화면 종료 때 관련 탭을 닫는다. 결정은 [ADR 0128](../.mew/docs/decisions/0128-mew-browser-oauth-uses-internal-browser.md)을 따른다.
+
+실행 계약과 지원 한계는 [README](README.md)의 브라우저 창 절, 결정은
+[ADR 0127](../.mew/docs/decisions/0127-mew-browser-server-dom-runtime.md)에 둔다.
+자동화를 거부하는 사이트·OS 인증창·Canvas/WebGL·미디어는 일반 데스크톱 브라우저와 같은 사용 경험을 보장하지 않는다.
+
+`/<port>` 및 Android gateway는 기존 `server/browserProxy.ts` loopback 호환 프록시를 유지한다.
+대상은 localhost·127.0.0.0/8·::1, 세션 발급은 manager·owner이며 HMAC 서명 URL은 2시간 유지된다.
+탭별 메모리 CookieJar·origin별 storage는 재시작 시 사라진다. 기기의 Mew session cookie와 방문자 IP 헤더는
+대상에 보내지 않고, 재작성 문서는 `allow-same-origin` 없는 sandbox iframe에서 실행한다.
+이 호환 프록시는 완전한 origin 가상화가 아니므로 서로 불신하는 앱을 한 세션에 섞지 않는다.
 
 ## Android 창
 
-Android 창은 브라우저 창과 같은 loopback 프록시 경계를 쓴다. 패널 자체는 Android Emulator를 실행하지 않고,
+Android 창은 기존 loopback 호환 프록시 경계를 쓴다. 패널 자체는 Android Emulator를 실행하지 않고,
 Linux·WSL 서버의 `/dev/kvm` 또는 macOS 서버의 Emulator 가속 상태와 Android SDK 도구 존재 여부만 읽는다.
 
 - **접근은 manager·owner뿐** — gateway가 실제 Android 세션 화면과 입력을 열 수 있고, 로컬 개발 서버와 같은
   민감도를 가진다.
-- 입력한 gateway 주소는 브라우저 창과 같은 `server/browserProxy.ts` 검사를 탄다. `localhost`·`127.0.0.0/8`·`::1`
+- 입력한 gateway 주소는 `server/browserProxy.ts` 검사를 탄다. `localhost`·`127.0.0.0/8`·`::1`
   외부는 열리지 않는다.
 - 상태 점검은 `/dev/kvm` 권한 또는 macOS 가속 상태와 SDK 경로를 노출한다. 이 정보도 서버 기계 운영 정보라
   member에게 열지 않는다.

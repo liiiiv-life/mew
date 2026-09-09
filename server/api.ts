@@ -54,6 +54,7 @@ import {
   writeExternalFile,
 } from './fsBrowse.ts'
 import { browserProxyFrameUrl } from './browserProxy.ts'
+import { createDomBrowserAuthSession, createDomBrowserRoutes, closeDomBrowserJob } from './browser-dom.ts'
 import { createTodo, deleteTodo, listTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
 import { currentWorkspace, switchDocsRoot, switchWorkspace, WorkspaceError } from './workspace.ts'
 import { collectSystemStats } from './sysStats.ts'
@@ -438,7 +439,9 @@ export function createApiApp() {
     }
   })
 
-  // ── 브라우저 창: sandbox iframe용 짧은 프록시 URL 발급 ─────────────────────
+  // ── 서버 DOM 브라우저와 loopback 호환 프록시 ─────────────────────
+  app.use('/browser-dom', createDomBrowserRoutes())
+
   app.get('/browser-url', requireRole('manager', 'owner'), (req, res) => {
     try {
       const target = String(req.query.url ?? '')
@@ -2033,6 +2036,9 @@ export function createApiApp() {
       const running = (await tmuxManager.list()).some((item) => item.name === session)
       const registered = isRuntimeLoginMethod(id, methodId) ? runtimeLoginSpec(id, methodId) : null
       const status = readAgentAuthTerminalStatus(id, tab, methodId, running, registered?.completionFile)
+      if (registered?.surface === 'browser' && ['succeeded', 'failed', 'interrupted'].includes(status.state)) {
+        await closeDomBrowserJob(authOf(req).email ?? '', session)
+      }
       const output = running ? await tmuxManager.capture(session, 120) : ''
       const details = registered?.surface === 'browser' && registered.verificationHosts
         ? browserLoginDetailsFromOutput(output, registered.verificationHosts)
@@ -2046,7 +2052,7 @@ export function createApiApp() {
   })
 
   // 등록된 OAuth 작업이 출력한 URL만 일회성 서버 브라우저로 연다. 클라이언트가
-  // 외부 URL이나 allowlist를 보내지 않아 범용 프록시 발급 API가 되지 않게 한다.
+  // 임의 URL을 보내지 않고, 이후 탐색은 일반 내부 브라우저와 같은 프로필에서 실행한다.
   app.post('/agent-runtimes/:id/auth/:method/browser', requireRole('owner', 'manager'), async (req, res) => {
     try {
       const id = String(req.params.id)
@@ -2057,7 +2063,7 @@ export function createApiApp() {
         return
       }
       const registered = isRuntimeLoginMethod(id, methodId) ? runtimeLoginSpec(id, methodId) : null
-      if (!registered?.serverBrowser || !registered.verificationHosts || !registered.browserHosts) {
+      if (registered?.surface !== 'browser' || !registered.verificationHosts) {
         res.status(400).json({ error: '이 로그인 방법은 내장 브라우저를 사용하지 않습니다' })
         return
       }
@@ -2075,9 +2081,7 @@ export function createApiApp() {
       }
       res.json({
         url: details.verificationUrl,
-        frameUrl: browserProxyFrameUrl(details.verificationUrl, authOf(req).email ?? '', {
-          httpsHosts: registered.browserHosts,
-        }),
+        streamUrl: await createDomBrowserAuthSession(authOf(req).email ?? '', session, details.verificationUrl),
       })
     } catch (err) {
       handleError(res, err)

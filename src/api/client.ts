@@ -508,6 +508,17 @@ export function fetchBrowserFrameUrl(url: string): Promise<{ url: string }> {
   return fetch(`/api/browser-url?url=${encodeURIComponent(url)}`).then(json<{ url: string }>)
 }
 
+export type ServerBrowserTab = { id: string; url: string; title: string; streamUrl: string }
+export function listServerBrowserTabs(): Promise<ServerBrowserTab[]> {
+  return fetch('/api/browser-dom/tabs').then(json<ServerBrowserTab[]>)
+}
+export function openServerBrowserTab(id: string, url: string): Promise<ServerBrowserTab> {
+  return fetch('/api/browser-dom/tabs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, url }) }).then(json<ServerBrowserTab>)
+}
+export function closeServerBrowserTab(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/browser-dom/tabs/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+}
+
 export interface AndroidEnvCheck {
   id: string
   label: string
@@ -695,12 +706,12 @@ export function openAgentAuthServerBrowser(
   runtime: string,
   tab: string,
   methodId: string,
-): Promise<{ url: string; frameUrl: string }> {
+): Promise<{ url: string; streamUrl: string }> {
   return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/browser`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tab }),
-  }).then(json<{ url: string; frameUrl: string }>)
+  }).then(json<{ url: string; streamUrl: string }>)
 }
 
 export function submitAgentAuthBrowserInput(runtime: string, tab: string, methodId: string, input: string): Promise<{ ok: true }> {

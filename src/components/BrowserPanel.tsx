@@ -1,245 +1,100 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
-import { fetchBrowserFrameUrl } from '../api/client'
+import { listServerBrowserTabs, openServerBrowserTab, closeServerBrowserTab, type ServerBrowserTab } from '../api/client'
 import { useI18n } from '../i18n'
+import { ServerDomBrowser } from './server-dom-browser'
+import type { DomBrowserController, DomBrowserStatus } from '../utils/browser-dom-view'
 
-type BrowserTab = { id: string; url: string; title: string }
-type BrowserFrame = { src: string; loading: boolean; error: string | null; historyLength: number; loadId: number }
-type BrowserStateMessage = { type: 'mew-browser-state'; url: string; title?: string; historyLength?: number }
-type BrowserCommand = 'back' | 'forward' | 'reload' | 'stop'
-
-const TABS_KEY = 'mew:browser-tabs'
-const ACTIVE_KEY = 'mew:browser-active-tab'
 const DEFAULT_URL = 'http://localhost:3100/'
-const TAB_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
-const BROWSER_ERROR_HTTP_ONLY = 'mew:browser-http-only'
-const BROWSER_ERROR_LOOPBACK_ONLY = 'mew:browser-loopback-only'
-
-function newTab(url = DEFAULT_URL): BrowserTab {
-  const id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).slice(2, 10)
-  return { id, url, title: labelForUrl(url) }
+function normalizeUrl(raw: string): string {
+  const value = raw.trim()
+  const local = /^(localhost|127\.[\d.]+|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(value)
+  const hostWithPort = /^[^/?#]+:\d+(?:[/?#]|$)/.test(value)
+  const hasScheme = !hostWithPort && /^[a-z][a-z0-9+.-]*:/i.test(value)
+  const url = new URL(hasScheme ? value : `${local || hostWithPort ? 'http' : 'https'}://${value}`)
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('http-only')
+  return url.href
 }
-
-function normalizeUrl(raw: string): URL {
-  const trimmed = raw.trim()
-  const hostWithPort = /^[^/?#]+:\d+(?:[/?#]|$)/.test(trimmed)
-  const scheme = hostWithPort ? undefined : /^([a-z][a-z0-9+.-]*):/i.exec(trimmed)?.[1]?.toLowerCase()
-  if (scheme && scheme !== 'http' && scheme !== 'https') throw new Error(BROWSER_ERROR_HTTP_ONLY)
-  const url = new URL(scheme ? trimmed : `http://${trimmed}`)
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(BROWSER_ERROR_HTTP_ONLY)
-  const host = url.hostname.toLowerCase()
-  const parts = host.split('.')
-  const loopbackIpv4 = parts.length === 4 && parts[0] === '127' && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
-  if (host !== 'localhost' && host !== '[::1]' && !loopbackIpv4) {
-    throw new Error(BROWSER_ERROR_LOOPBACK_ONLY)
-  }
-  return url
-}
-
-function labelForUrl(raw: string, fallback = ''): string {
-  try {
-    const url = normalizeUrl(raw)
-    return `${url.hostname}${url.port ? `:${url.port}` : ''}`
-  } catch {
-    return raw.trim() || fallback
-  }
-}
-
-function continuationUrl(frameSrc: string, target: URL): string | null {
-  try {
-    const frame = new URL(frameSrc, location.origin)
-    const parts = frame.pathname.split('/')
-    if (parts[1] !== '__mew_browser' || !parts[3]) return null
-    const origin = btoa(target.origin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-    return `/__mew_browser/${origin}/${parts[3]}${target.pathname}${target.search}${target.hash}`
-  } catch {
-    return null
-  }
-}
-
-function loadTabs(): BrowserTab[] {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(TABS_KEY) ?? '[]')
-    if (Array.isArray(parsed)) {
-      const tabs = parsed.filter((entry): entry is BrowserTab => {
-        const tab = entry as BrowserTab | null
-        return typeof tab?.id === 'string' && TAB_ID_RE.test(tab.id) && typeof tab.url === 'string' && typeof tab.title === 'string'
-      })
-      if (tabs.length > 0) return tabs
-    }
-  } catch {
-    /* 깨진 로컬 상태는 기본 탭으로 복구한다 */
-  }
-  return [newTab()]
-}
-
-function messageState(value: unknown): BrowserStateMessage | null {
-  if (!value || typeof value !== 'object') return null
-  const message = value as Partial<BrowserStateMessage>
-  if (message.type !== 'mew-browser-state' || typeof message.url !== 'string' || message.url.length > 8192) return null
-  try {
-    normalizeUrl(message.url)
-  } catch {
-    return null
-  }
-  return {
-    type: 'mew-browser-state',
-    url: message.url,
-    title: typeof message.title === 'string' ? message.title.slice(0, 256) : '',
-    historyLength: typeof message.historyLength === 'number' ? Math.max(1, Math.floor(message.historyLength)) : 1,
-  }
-}
+function labelForUrl(url: string): string { try { return new URL(url).host || url } catch { return url } }
 
 export function BrowserPanel({ onClose, standalone = false }: { onClose: () => void; standalone?: boolean }) {
   const { t } = useI18n()
   const shortcutScopeRef = useRef<HTMLElement>(null)
   const addressRef = useRef<HTMLInputElement>(null)
-  const iframeRefs = useRef(new Map<string, HTMLIFrameElement>())
-  const tabsRef = useRef<BrowserTab[]>([])
-  const [tabs, setTabs] = useState(loadTabs)
-  const [activeId, setActiveId] = useState(() => {
-    const saved = localStorage.getItem(ACTIVE_KEY)
-    return saved && tabs.some((tab) => tab.id === saved) ? saved : tabs[0]?.id ?? ''
-  })
-  const [frames, setFrames] = useState<Record<string, BrowserFrame>>({})
+  const controllers = useRef(new Map<string, DomBrowserController>())
+  const [tabs, setTabs] = useState<ServerBrowserTab[]>([])
+  const [activeId, setActiveId] = useState('')
+  const [frames, setFrames] = useState<Record<string, DomBrowserStatus & { loading: boolean }>>({})
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0]
   const activeFrame = activeTab ? frames[activeTab.id] : undefined
-  const [draft, setDraft] = useState(activeTab?.url ?? DEFAULT_URL)
+  const [draft, setDraft] = useState(DEFAULT_URL)
   const [localError, setLocalError] = useState<string | null>(null)
+  const initialId = useRef(crypto.randomUUID())
+  const tabsRef = useRef(tabs)
   tabsRef.current = tabs
 
-  const openFrame = useCallback((tabId: string, url: string) => {
-    setFrames((current) => ({
-      ...current,
-      [tabId]: { src: current[tabId]?.src ?? 'about:blank', loading: true, error: null, historyLength: current[tabId]?.historyLength ?? 1, loadId: current[tabId]?.loadId ?? 0 },
-    }))
-    fetchBrowserFrameUrl(url)
-      .then(({ url: src }) => {
-        setFrames((current) => ({ ...current, [tabId]: { src, loading: true, error: null, historyLength: 1, loadId: (current[tabId]?.loadId ?? 0) + 1 } }))
-      })
-      .catch((error) => {
-        setFrames((current) => ({
-          ...current,
-          [tabId]: {
-            src: 'about:blank',
-            loading: false,
-            error: error instanceof Error ? error.message : String(error),
-            historyLength: 1,
-            loadId: (current[tabId]?.loadId ?? 0) + 1,
-          },
-        }))
-      })
+  useEffect(() => {
+    let cancelled = false
+    void listServerBrowserTabs().then(async (existing) => {
+      const restored = existing.length ? existing : [await openServerBrowserTab(initialId.current, DEFAULT_URL)]
+      if (cancelled) return
+      setTabs(restored.map((tab) => ({ ...tab, title: tab.title || labelForUrl(tab.url) })))
+      setActiveId(restored[0].id)
+    }).catch((error: unknown) => { if (!cancelled) setLocalError(error instanceof Error ? error.message : String(error)) })
+    return () => { cancelled = true }
   }, [])
-
-  useEffect(() => { localStorage.setItem(TABS_KEY, JSON.stringify(tabs)) }, [tabs])
-  useEffect(() => { localStorage.setItem(ACTIVE_KEY, activeId) }, [activeId])
   useEffect(() => {
     const tab = tabsRef.current.find((item) => item.id === activeId)
-    if (!tab) return
-    setDraft(tab.url)
+    if (tab) setDraft(tab.url)
     setLocalError(null)
-    if (!frames[tab.id]) openFrame(tab.id, tab.url)
-    // 탭 안에서 URL이 바뀌어도 iframe 세션을 다시 만들지 않는다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, openFrame])
+  }, [activeId])
 
-  useEffect(() => {
-    const receive = (event: MessageEvent) => {
-      const message = messageState(event.data)
-      if (!message) return
-      const tabId = [...iframeRefs.current].find(([, iframe]) => iframe.contentWindow === event.source)?.[0]
-      if (!tabId) return
-      setFrames((current) => {
-        const frame = current[tabId]
-        return frame ? { ...current, [tabId]: { ...frame, loading: false, error: null, historyLength: message.historyLength ?? 1 } } : current
-      })
-      setTabs((current) => current.map((tab) => tab.id === tabId
-        ? { ...tab, url: message.url, title: message.title?.trim() || labelForUrl(message.url, t('browser.newTab')) }
-        : tab))
-      if (tabId === activeId && document.activeElement !== addressRef.current) setDraft(message.url)
+  function updateStatus(id: string, status: DomBrowserStatus) {
+    if (status.popup) {
+      const popup = status.popup
+      setTabs((current) => current.some((tab) => tab.id === popup.id) ? current : [...current, { ...popup, title: popup.title || labelForUrl(popup.url) }])
+      setActiveId(popup.id)
     }
-    window.addEventListener('message', receive)
-    return () => window.removeEventListener('message', receive)
-  }, [activeId, t])
-
-  function addTab(url = DEFAULT_URL) {
-    const tab = newTab(url)
-    setTabs((current) => [...current, tab])
-    setActiveId(tab.id)
+    if (status.closed) { removeTab(id); return }
+    setFrames((current) => ({ ...current, [id]: { ...status, loading: status.state === 'connecting' } }))
+    if (status.url) {
+      setTabs((current) => current.map((tab) => tab.id === id ? { ...tab, url: status.url!, title: status.title || labelForUrl(status.url!) } : tab))
+      if (id === activeId && document.activeElement !== addressRef.current) setDraft(status.url)
+    }
   }
-
+  function addTab(url = DEFAULT_URL) {
+    void openServerBrowserTab(crypto.randomUUID(), url).then((tab) => {
+      setTabs((current) => [...current, { ...tab, title: labelForUrl(tab.url) }]); setActiveId(tab.id)
+    }).catch((error: unknown) => setLocalError(error instanceof Error ? error.message : String(error)))
+  }
+  function removeTab(id: string) {
+    controllers.current.delete(id)
+    setFrames((current) => { const next = { ...current }; delete next[id]; return next })
+    setTabs((current) => {
+      const next = current.filter((tab) => tab.id !== id)
+      if (id === activeId) setActiveId(next[0]?.id ?? '')
+      return next
+    })
+  }
   function closeTab(id: string) {
     if (tabs.length <= 1) return
-    iframeRefs.current.delete(id)
-    setFrames((current) => {
-      const { [id]: _removed, ...next } = current
-      return next
-    })
-    setTabs((current) => {
-      const index = current.findIndex((tab) => tab.id === id)
-      const next = current.filter((tab) => tab.id !== id)
-      if (id === activeId) setActiveId(next[Math.max(0, index - 1)]?.id ?? next[0]?.id ?? '')
-      return next
-    })
+    void closeServerBrowserTab(id).then(() => removeTab(id)).catch((error: unknown) => setLocalError(String(error)))
   }
-
-  function command(tabId: string, name: BrowserCommand): boolean {
-    const frame = iframeRefs.current.get(tabId)
-    if (!frame?.contentWindow || !frames[tabId] || frames[tabId].src === 'about:blank') return false
-    frame.contentWindow.postMessage({ type: 'mew-browser-command', command: name }, '*')
-    return true
-  }
-
   function navigate() {
-    if (!activeTab) return
     try {
-      const url = normalizeUrl(draft).toString()
-      setTabs((current) => current.map((tab) => tab.id === activeTab.id ? { ...tab, url, title: labelForUrl(url) } : tab))
-      const nextSrc = activeFrame ? continuationUrl(activeFrame.src, new URL(url)) : null
-      if (nextSrc) {
-        setFrames((current) => ({
-          ...current,
-          [activeTab.id]: { ...current[activeTab.id], src: nextSrc, loading: true, error: null, loadId: (current[activeTab.id]?.loadId ?? 0) + 1 },
-        }))
-      } else {
-        openFrame(activeTab.id, url)
-      }
-      setDraft(url)
-      setLocalError(null)
-      addressRef.current?.blur()
-    } catch (error) {
-      if (error instanceof Error && error.message === BROWSER_ERROR_HTTP_ONLY) setLocalError(t('browser.httpOnly'))
-      else if (error instanceof Error && error.message === BROWSER_ERROR_LOOPBACK_ONLY) setLocalError(t('browser.loopbackOnly'))
-      else setLocalError(t('browser.invalidAddress'))
-    }
+      const url = normalizeUrl(draft)
+      if (activeTab && controllers.current.has(activeTab.id)) controllers.current.get(activeTab.id)?.command('navigate', { url })
+      else addTab(url)
+      setDraft(url); setLocalError(null); addressRef.current?.blur()
+    } catch (error) { setLocalError(error instanceof Error && error.message === 'http-only' ? t('browser.httpOnly') : t('browser.invalidAddress')) }
   }
-
-  function navigateHistory(name: 'back' | 'forward') {
-    if (!activeTab) return
-    command(activeTab.id, name)
-  }
-
-  function reloadOrStop() {
-    if (!activeTab) return
-    if (activeFrame?.loading) {
-      command(activeTab.id, 'stop')
-      setFrames((current) => ({ ...current, [activeTab.id]: { ...current[activeTab.id], loading: false } }))
-      return
-    }
-    setFrames((current) => current[activeTab.id]
-      ? { ...current, [activeTab.id]: { ...current[activeTab.id], loading: true, error: null, loadId: current[activeTab.id].loadId + 1 } }
-      : current)
-    if (!command(activeTab.id, 'reload')) openFrame(activeTab.id, activeTab.url)
-  }
-
+  function navigateHistory(name: 'back' | 'forward') { if (activeTab) controllers.current.get(activeTab.id)?.command(name) }
+  function reloadOrStop() { if (activeTab) controllers.current.get(activeTab.id)?.command(activeFrame?.loading ? 'stop' : 'reload') }
   useFocusedShortcutScope(shortcutScopeRef, { closeTab: () => {
     if (!activeTab || tabs.length <= 1) return false
-    closeTab(activeTab.id)
-    return true
+    closeTab(activeTab.id); return true
   } })
-
-  const error = localError ?? activeFrame?.error
-  const canNavigateHistory = Boolean(activeFrame && activeFrame.historyLength > 1)
+  const error = localError
 
   return (
     <section ref={shortcutScopeRef} className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label={t('browser.title')}>
@@ -267,14 +122,14 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
       </div>
 
       <form className="flex shrink-0 items-center gap-1 border-b border-edge bg-surface px-2 py-1" onSubmit={(event) => { event.preventDefault(); navigate() }}>
-        <IconButton label={t('browser.back')} disabled={!canNavigateHistory} onClick={() => navigateHistory('back')}><NavGlyph path="m15 18-6-6 6-6" /></IconButton>
-        <IconButton label={t('browser.forward')} disabled={!canNavigateHistory} onClick={() => navigateHistory('forward')}><NavGlyph path="m9 18 6-6-6-6" /></IconButton>
+        <IconButton label={t('browser.back')} disabled={!activeFrame?.canGoBack} onClick={() => navigateHistory('back')}><NavGlyph path="m15 18-6-6 6-6" /></IconButton>
+        <IconButton label={t('browser.forward')} disabled={!activeFrame?.canGoForward} onClick={() => navigateHistory('forward')}><NavGlyph path="m9 18 6-6-6-6" /></IconButton>
         <IconButton label={activeFrame?.loading ? t('browser.stopLoading') : t('common.refresh')} onClick={reloadOrStop}>
           {activeFrame?.loading ? <StopGlyph /> : <ReloadGlyph />}
         </IconButton>
         <div className="mx-1 flex min-w-0 flex-1 items-center rounded-md border border-edge-strong bg-surface-deep focus-within:border-accent">
-          <span className={`ml-2 h-1.5 w-1.5 shrink-0 rounded-full ${error ? 'bg-danger' : activeFrame?.loading ? 'animate-pulse bg-warning' : 'bg-success'}`} title={t('browser.loopbackStatus')} />
-          <input ref={addressRef} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 bg-transparent px-2 py-1 font-mono text-xs text-ink outline-none" spellCheck={false} inputMode="url" aria-label={t('browser.address')} placeholder="localhost:3100" />
+          <span className={`ml-2 h-1.5 w-1.5 shrink-0 rounded-full ${error ? 'bg-danger' : activeFrame?.loading ? 'animate-pulse bg-warning' : 'bg-success'}`} title={t('browser.serverStatus')} />
+          <input ref={addressRef} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 bg-transparent px-2 py-1 font-mono text-xs text-ink outline-none" spellCheck={false} inputMode="url" aria-label={t('browser.address')} placeholder="https://example.com" />
         </div>
         <button type="submit" className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent hover:opacity-90">{t('browser.go')}</button>
       </form>
@@ -282,19 +137,12 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
       {error && <div className="shrink-0 border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{error}</div>}
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
-        {Object.entries(frames).map(([tabId, frame]) => (
-          <iframe
-            key={`${tabId}:${frame.loadId}`}
-            ref={(element) => { if (element) iframeRefs.current.set(tabId, element); else iframeRefs.current.delete(tabId) }}
-            src={frame.src}
-            title={tabs.find((tab) => tab.id === tabId)?.title ?? t('browser.title')}
-            className={`absolute inset-0 h-full w-full border-0 bg-white ${tabId === activeTab?.id ? 'block' : 'hidden'}`}
-            sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-scripts"
-            referrerPolicy="no-referrer"
-            onLoad={() => setFrames((current) => current[tabId]
-              ? { ...current, [tabId]: { ...current[tabId], loading: false } }
-              : current)}
-          />
+        {tabs.filter((tab) => tab.streamUrl).map((tab) => (
+          <div key={tab.id} className={`absolute inset-0 flex h-full w-full flex-col ${tab.id === activeTab?.id ? '' : 'hidden'}`}>
+            <ServerDomBrowser streamUrl={tab.streamUrl} reopen={async () => (await openServerBrowserTab(tab.id, tab.url)).streamUrl}
+              onController={(controller) => { if (controller) controllers.current.set(tab.id, controller); else controllers.current.delete(tab.id) }}
+              onStatus={(status) => updateStatus(tab.id, status)} />
+          </div>
         ))}
         {activeFrame?.loading && (
           <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-surface/85 p-2 shadow-lg" aria-label={t('browser.pageLoading')}>
@@ -303,8 +151,8 @@ export function BrowserPanel({ onClose, standalone = false }: { onClose: () => v
         )}
       </div>
       <div className="flex h-6 shrink-0 items-center border-t border-edge bg-surface px-2 text-[10px] text-ink-muted">
-        <span className="truncate">{t('browser.loopbackHint')}</span>
-        <span className="ml-auto shrink-0 pl-2">SERVER LOOPBACK</span>
+        <span className="truncate">{t('browser.serverHint')}</span>
+        <span className="ml-auto shrink-0 pl-2">SERVER BROWSER</span>
       </div>
     </section>
   )

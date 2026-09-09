@@ -1,3 +1,4 @@
+import { ServerDomBrowserTabs } from './server-dom-browser'
 // 터미널•에이전트패널 — ACP 채팅과 탭별 tmux TUI·셸을 한 탭 체계에서 연다.
 // **탭 하나가 세션 하나**다: 탭마다 자기 WS·자기 대화·서버 쪽 자식 프로세스를 하나씩 가진다.
 // 대화 화면은 서버 이벤트에서 파생한다(접는 규칙은 utils/agentFold.ts). 브라우저 재진입 첫 화면은
@@ -53,6 +54,8 @@ import {
   rawUrl,
   runAgentAuthTerminal,
   openAgentAuthServerBrowser,
+  openServerBrowserTab,
+  closeServerBrowserTab,
   submitAgentAuthBrowserInput,
   saveAgentDefault,
   saveAgentTabs,
@@ -1903,14 +1906,13 @@ function AgentSessionView({
     label: string
     methodId: string
     surface: 'browser' | 'terminal'
-    serverBrowser: boolean
     verificationUrl: string | null
     verificationCode: string | null
     errorMessage: string | null
     state: 'running' | 'succeeded' | 'failed' | 'interrupted'
     exitCode: number | null
   } | null>(null)
-  const [authBrowser, setAuthBrowser] = useState<{ methodId: string; url: string; frameUrl: string } | null>(null)
+  const [authBrowser, setAuthBrowser] = useState<{ methodId: string | null; browserTabId?: string; url: string; streamUrl: string } | null>(null)
   const authBrowserRef = useRef<typeof authBrowser>(null)
   const authBrowserOpeningRef = useRef(false)
   const [authTerminalOpen, setAuthTerminalOpen] = useState(false)
@@ -1919,14 +1921,16 @@ function AgentSessionView({
   const [savingDefault, setSavingDefault] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const wsRef = useRef<WebSocket | null>(null)
-  // 비동기적으로 URL을 읽은 뒤에도 팝업 차단을 피하려면, 사용자 클릭 순간에 빈 외부 탭을 먼저 연다.
-  const browserLoginWindowRef = useRef<Window | null>(null)
-  const closePendingBrowserLoginWindow = useCallback(() => {
-    const loginWindow = browserLoginWindowRef.current
-    if (loginWindow && !loginWindow.closed) loginWindow.close()
-    browserLoginWindowRef.current = null
+  const authBrowserDismissedRef = useRef(false)
+  const pendingAcpUrlRef = useRef<string | null>(null)
+  const acpBrowserTabsRef = useRef(new Set<string>())
+  const closeAcpBrowserTabs = useCallback(() => {
+    pendingAcpUrlRef.current = null
+    for (const id of acpBrowserTabsRef.current) void closeServerBrowserTab(id).catch(() => {})
+    acpBrowserTabsRef.current.clear()
   }, [])
   const closeAuthBrowser = useCallback(() => {
+    authBrowserDismissedRef.current = true
     authBrowserOpeningRef.current = false
     authBrowserRef.current = null
     setAuthBrowser(null)
@@ -2266,6 +2270,8 @@ function AgentSessionView({
           return setAuthUrl((current) => current?.id === event.id ? null : current)
         }
         if (event.type === 'auth_complete') {
+          closeAuthBrowser()
+          closeAcpBrowserTabs()
           setAuth(null)
           setAuthUrl(null)
           setAuthTerminalOpen(false)
@@ -2337,7 +2343,7 @@ function AgentSessionView({
     }
     // 런타임을 바꾸면 저쪽 세션으로 갈아탄다 — 이쪽 세션은 서버에 그대로 남아 돌아오면 이어진다
     // (queueEvent는 값이 바뀌지 않는 useCallback이라 여기 있어도 재접속을 부르지 않는다)
-  }, [runtime, tabId, cwd, preset?.modelId, preset?.role, queueEvent, adoptModels, adoptModes, adoptThinking])
+  }, [runtime, tabId, cwd, preset?.modelId, preset?.role, queueEvent, adoptModels, adoptModes, adoptThinking, closeAuthBrowser, closeAcpBrowserTabs])
 
   // 경과 시간만 흐르게 한다 — 나머지 값은 서버 meta가 밀어 준다
   useEffect(() => {
@@ -2394,15 +2400,13 @@ function AgentSessionView({
   const send = useCallback((payload: Record<string, unknown>) => wsRef.current?.send(JSON.stringify(payload)), [])
 
   // 인증 명령의 exit code나 등록된 완료 파일 변경을 본다. 성공했을 때만 tmux를 닫고 ACP를 복구한다.
-  // 팝업을 닫아도 로그인 명령과 감시는 계속된다 — 외부 브라우저 인증 중 화면을 오갈 수 있어야 한다.
+  // 내부 브라우저를 닫아도 로그인 명령과 감시는 계속된다.
   useEffect(() => {
     if (!authTerminal || authTerminal.state === 'failed' || authTerminal.state === 'interrupted') return
     const terminal = authTerminal
     let cancelled = false
     let timer: number | undefined
     const finish = async () => {
-      // 이미 인증돼 CLI가 URL 없이 바로 끝나는 경우, 클릭 때 미리 연 준비 탭을 남기지 않는다.
-      closePendingBrowserLoginWindow()
       closeAuthBrowser()
       await killTmuxSession(terminal.session).catch(() => {})
       if (cancelled) return
@@ -2415,36 +2419,19 @@ function AgentSessionView({
         const status = await fetchAgentAuthTerminalStatus(runtime, tabId, terminal.methodId)
         if (cancelled) return
         if (terminal.surface === 'browser' && status.verificationUrl) {
-          if (terminal.serverBrowser) {
-            if (!authBrowserRef.current && !authBrowserOpeningRef.current && !terminal.errorMessage) {
-              authBrowserOpeningRef.current = true
-              try {
-                const page = await openAgentAuthServerBrowser(runtime, tabId, terminal.methodId)
-                if (cancelled) return
-                const next = { methodId: terminal.methodId, ...page }
-                authBrowserRef.current = next
-                setAuthBrowser(next)
-              } catch (error) {
-                if (cancelled) return
-                setAuthTerminal((current) => current?.session === terminal.session
-                  ? { ...current, errorMessage: error instanceof Error ? error.message : String(error) }
-                  : current)
-              } finally {
-                authBrowserOpeningRef.current = false
-              }
-            }
-          } else {
-            const loginWindow = browserLoginWindowRef.current
-            if (loginWindow && !loginWindow.closed) {
-              try {
-                loginWindow.location.replace(status.verificationUrl)
-              } catch {
-                // 브라우저가 opener 탐색을 막으면 빈 준비 탭은 닫고, 인증 화면의 수동 열기 버튼을 쓴다.
-                loginWindow.close()
-              } finally {
-                browserLoginWindowRef.current = null
-              }
-            }
+          if (!authBrowserDismissedRef.current && !authBrowserRef.current && !authBrowserOpeningRef.current && !terminal.errorMessage && status.state === 'running') {
+            authBrowserOpeningRef.current = true
+            try {
+              const page = await openAgentAuthServerBrowser(runtime, tabId, terminal.methodId)
+              if (cancelled) return
+              const next = { methodId: terminal.methodId, ...page }
+              authBrowserRef.current = next
+              setAuthBrowser(next)
+            } catch (error) {
+              if (cancelled) return
+              setAuthTerminal((current) => current?.session === terminal.session
+                ? { ...current, errorMessage: error instanceof Error ? error.message : String(error) } : current)
+            } finally { authBrowserOpeningRef.current = false }
           }
         }
         if (status.state === 'succeeded') {
@@ -2452,7 +2439,6 @@ function AgentSessionView({
           return
         }
         if (status.state === 'failed' || status.state === 'interrupted') {
-          closePendingBrowserLoginWindow()
           closeAuthBrowser()
           setAuthTerminal((current) => current?.session === terminal.session ? { ...current, ...status } : current)
           return
@@ -2469,10 +2455,10 @@ function AgentSessionView({
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [authTerminal, closeAuthBrowser, closePendingBrowserLoginWindow, runtime, send, tabId])
+  }, [authTerminal, closeAuthBrowser, runtime, send, tabId])
 
-  // 런타임·탭 전환으로 인증 화면이 사라져도 준비용 빈 탭만 남기지 않는다.
-  useEffect(() => closePendingBrowserLoginWindow, [closePendingBrowserLoginWindow])
+  // 에이전트 화면 종료 때 ACP 인증용 서버 탭을 정리한다.
+  useEffect(() => closeAcpBrowserTabs, [closeAcpBrowserTabs])
 
   // 탭을 닫을 때 창이 이 탭의 WS로 close_session을 보낼 수 있게 보내는 손잡이를 올려 준다
   useEffect(() => {
@@ -2924,6 +2910,15 @@ function AgentSessionView({
         <AgentAuthServerBrowser
           runtime={currentRuntime.label}
           page={authBrowser}
+          onReady={() => {
+            const id = pendingAcpUrlRef.current
+            if (id) { pendingAcpUrlRef.current = null; send({ type: 'auth_url_response', id, action: 'accept' }) }
+          }}
+          onPopup={(id) => { if (!authBrowser.methodId) acpBrowserTabsRef.current.add(id) }}
+          verificationCode={authTerminal?.verificationCode ?? null}
+          reopen={async () => authBrowser.methodId
+            ? (await openAgentAuthServerBrowser(runtime, tabId, authBrowser.methodId)).streamUrl
+            : (await openServerBrowserTab(authBrowser.browserTabId!, authBrowser.url)).streamUrl}
           onClose={closeAuthBrowser}
         />
       ) : (
@@ -2933,13 +2928,24 @@ function AgentSessionView({
           urlRequest={authUrl}
           onAuthenticate={(methodId, secret) => send({ type: 'authenticate', methodId, ...(secret ? { secret } : {}) })}
           onOpenUrl={(request) => {
-            window.open(request.url, '_blank', 'noopener,noreferrer')
-            send({ type: 'auth_url_response', id: request.id, action: 'accept' })
+            if (authBrowserOpeningRef.current) return
+            authBrowserOpeningRef.current = true
+            pendingAcpUrlRef.current = request.id
+            const browserTabId = crypto.randomUUID()
+            void openServerBrowserTab(browserTabId, request.url).then((page) => {
+              if (pendingAcpUrlRef.current !== request.id) { void closeServerBrowserTab(page.id).catch(() => {}); return }
+              acpBrowserTabsRef.current.add(page.id)
+              const next = { methodId: null, browserTabId: page.id, url: page.url, streamUrl: page.streamUrl }
+              authBrowserDismissedRef.current = false
+              authBrowserRef.current = next
+              setAuthBrowser(next)
+            }).catch((error: unknown) => setErrorDetail({ title: '내부 로그인 브라우저를 열지 못했습니다', detail: error instanceof Error ? error.message : String(error) }))
+              .finally(() => { authBrowserOpeningRef.current = false })
           }}
-          onCancelUrl={(id) => send({ type: 'auth_url_response', id, action: 'cancel' })}
+          onCancelUrl={(id) => { pendingAcpUrlRef.current = null; closeAcpBrowserTabs(); send({ type: 'auth_url_response', id, action: 'cancel' }) }}
           onBackToPicker={() => {
-            closePendingBrowserLoginWindow()
             closeAuthBrowser()
+            closeAcpBrowserTabs()
             onBackToPicker()
           }}
           browserLoginUrl={authTerminal?.verificationUrl ?? null}
@@ -2954,10 +2960,7 @@ function AgentSessionView({
           onOpenBrowserLogin={() => {
             const url = authTerminal?.verificationUrl
             if (!url || !authTerminal) return
-            if (!authTerminal.serverBrowser) {
-              window.open(url, '_blank', 'noopener,noreferrer')
-              return
-            }
+            authBrowserDismissedRef.current = false
             authBrowserOpeningRef.current = true
             void openAgentAuthServerBrowser(runtime, tabId, authTerminal.methodId)
               .then((page) => {
@@ -2978,7 +2981,7 @@ function AgentSessionView({
           onOpenTerminal={(methodId) => {
             void runAgentAuthTerminal(runtime, tabId, cwd, methodId)
               .then(({ session, label, state, exitCode }) => {
-                setAuthTerminal({ session, label, methodId, surface: 'terminal', serverBrowser: false, verificationUrl: null, verificationCode: null, errorMessage: null, state, exitCode })
+                setAuthTerminal({ session, label, methodId, surface: 'terminal', verificationUrl: null, verificationCode: null, errorMessage: null, state, exitCode })
                 setAuthTerminalOpen(true)
               })
               .catch((err: unknown) => setErrorDetail({
@@ -2988,25 +2991,14 @@ function AgentSessionView({
           }}
           onStartBrowserLogin={(methodId) => {
             closeAuthBrowser()
-            const serverBrowser = auth.methods.find((method) => method.id === methodId)?.serverBrowser === true
-            if (!serverBrowser) {
-              const loginWindow = window.open('about:blank', '_blank')
-              if (loginWindow) {
-                loginWindow.document.title = `${currentRuntime.label} 로그인 준비 중`
-                loginWindow.document.body.textContent = '로그인 링크를 준비하고 있습니다…'
-                // 준비 탭을 나중에 외부 OAuth origin으로 이동해도 Mew 창에 접근할 수 없게 한다.
-                loginWindow.opener = null
-                browserLoginWindowRef.current = loginWindow
-              }
-            }
+            authBrowserDismissedRef.current = false
             void runAgentAuthTerminal(runtime, tabId, cwd, methodId)
               .then(({ session, label }) => {
                 // 명령이 즉시 실패해 POST 응답이 이미 failed여도 상태 endpoint를 한 번 읽어야
                 // 터미널을 숨긴 브라우저형 로그인에서 공급자의 안전한 실패 이유를 보여 줄 수 있다.
-                setAuthTerminal({ session, label, methodId, surface: 'browser', serverBrowser, verificationUrl: null, verificationCode: null, errorMessage: null, state: 'running', exitCode: null })
+                setAuthTerminal({ session, label, methodId, surface: 'browser', verificationUrl: null, verificationCode: null, errorMessage: null, state: 'running', exitCode: null })
               })
               .catch((err: unknown) => {
-                closePendingBrowserLoginWindow()
                 setErrorDetail({
                   title: '브라우저 로그인을 시작하지 못했습니다',
                   detail: err instanceof Error ? err.message : String(err),
@@ -3570,7 +3562,11 @@ function AgentSessionView({
           statusTone={authTerminal.state === 'failed' || authTerminal.state === 'interrupted' ? 'danger' : 'muted'}
           browserLoginUrl={authTerminal.verificationUrl}
           onOpenBrowserLogin={() => {
-            if (authTerminal.verificationUrl) window.open(authTerminal.verificationUrl, '_blank', 'noopener,noreferrer')
+            if (!authTerminal.verificationUrl) return
+            void openAgentAuthServerBrowser(runtime, tabId, authTerminal.methodId).then((page) => {
+              const next = { methodId: authTerminal.methodId, ...page }
+              authBrowserRef.current = next; setAuthBrowser(next); setAuthTerminalOpen(false)
+            }).catch((error: unknown) => setErrorDetail({ title: '내부 로그인 브라우저를 열지 못했습니다', detail: String(error) }))
           }}
           onRun={() => runAgentAuthTerminal(runtime, tabId, cwd, authTerminal.methodId)}
           onClose={() => setAuthTerminalOpen(false)}
@@ -3584,10 +3580,18 @@ function AgentSessionView({
 function AgentAuthServerBrowser({
   runtime,
   page,
+  reopen,
+  verificationCode,
+  onReady,
+  onPopup,
   onClose,
 }: {
   runtime: string
-  page: { methodId: string; url: string; frameUrl: string }
+  verificationCode: string | null
+  onPopup: (id: string) => void
+  onReady: () => void
+  page: { methodId: string | null; url: string; streamUrl: string }
+  reopen: () => Promise<string>
   onClose: () => void
 }) {
   let host = '인증 서버'
@@ -3608,13 +3612,8 @@ function AgentAuthServerBrowser({
           ×
         </button>
       </div>
-      <iframe
-        src={page.frameUrl}
-        title={`${runtime} OAuth`}
-        className="min-h-0 flex-1 border-0 bg-white"
-        sandbox="allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-scripts"
-        referrerPolicy="no-referrer"
-      />
+      {verificationCode && <div className="shrink-0 border-b border-edge bg-surface px-3 py-2 text-sm text-ink">승인 코드: <code className="select-all font-mono">{verificationCode}</code></div>}
+      <ServerDomBrowserTabs key={page.streamUrl} streamUrl={page.streamUrl} reopen={reopen} onPopup={onPopup} onReady={onReady} />
       <div className="flex h-6 shrink-0 items-center border-t border-edge bg-surface px-2 text-[10px] text-ink-muted">
         <span className="truncate">서버에서 로그인 중 · 완료되면 자동으로 채팅으로 돌아갑니다</span>
       </div>
@@ -3682,7 +3681,7 @@ function AgentAuthPanel({
             <div className="text-xs font-medium text-ink">{host}</div>
             <div className="mt-1 break-all font-mono text-[11px] text-ink-muted">{urlRequest.url}</div>
           </div>
-          <p className="mt-2 text-xs text-ink-muted">주소를 확인한 뒤 휴대폰의 일반 브라우저 새 탭에서 로그인하세요. Mew는 로그인 페이지를 iframe으로 열거나 입력값을 읽지 않습니다.</p>
+          <p className="mt-2 text-xs text-ink-muted">주소를 확인한 뒤 Mew 내부 브라우저에서 로그인하세요. 사이트 연결은 Mew 서버에서 이루어집니다.</p>
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"
@@ -3709,11 +3708,11 @@ function AgentAuthPanel({
       <button type="button" onClick={backToPicker} className="absolute left-4 top-4 flex h-7 w-7 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" aria-label="런타임 목록으로 돌아가기" title="런타임 목록으로 돌아가기"><BackChevron /></button>
       <div className="w-full max-w-xl">
         <h2 className="mb-1 text-center text-sm font-medium text-ink">{runtime} 인증 센터</h2>
-        <p className="mb-4 text-center text-xs text-ink-muted">에이전트는 Mew 서버에서 실행됩니다. 브라우저 로그인은 휴대폰의 일반 새 탭에서 끝내고, 기기 코드·토큰만 서버 런타임에 연결합니다.</p>
+        <p className="mb-4 text-center text-xs text-ink-muted">에이전트와 로그인 브라우저는 Mew 서버에서 실행됩니다. 내부 브라우저에서 인증을 마치면 에이전트가 연결됩니다.</p>
         {state.methods.some((method) => method.surface === 'browser') && (
           <div className="mb-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5 text-xs text-ink-secondary">
-            <div className="font-medium text-ink">외부 브라우저 로그인</div>
-            <p className="mt-1 text-ink-muted">로그인을 시작하면 이 기기의 일반 브라우저에 공급자 인증 페이지를 엽니다. 자격증명은 공급자 CLI가 저장하고 Mew는 완료 여부만 확인합니다.</p>
+            <div className="font-medium text-ink">내부 브라우저 로그인</div>
+            <p className="mt-1 text-ink-muted">로그인을 시작하면 내부 브라우저에 공급자 인증 페이지를 엽니다. CLI 자격증명은 공급자 CLI가 관리하며 사이트 로그인 상태는 계정별 서버 브라우저에 유지됩니다.</p>
           </div>
         )}
         <div className="space-y-2">
@@ -3782,12 +3781,12 @@ function AgentAuthPanel({
           </div>
         )}
         {browserLoginPreparing && (
-          <div className="mt-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5 text-center text-xs text-ink-secondary">외부 브라우저 로그인 링크를 준비 중…</div>
+          <div className="mt-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5 text-center text-xs text-ink-secondary">내부 브라우저 로그인 링크를 준비 중…</div>
         )}
         {browserLoginUrl && (
           <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5">
             <div className="min-w-0 text-xs text-ink-secondary">
-              <div>인증 링크가 준비됐습니다. 외부 브라우저에서 로그인을 마치세요.</div>
+              <div>인증 링크가 준비됐습니다. 내부 브라우저에서 로그인을 마치세요.</div>
               {browserLoginCode && (
                 <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold tracking-wider text-ink">
                   <span>일회용 코드: {browserLoginCode}</span>

@@ -39,10 +39,8 @@ export interface RuntimeLoginSpec extends SpawnSpec {
   label: string
   surface: 'browser' | 'terminal'
   verificationHosts?: string[]
-  /** 일반 Browser 패널과 분리된 일회성 서버 브라우저로 OAuth를 열 런타임. */
+  /** browser 표면은 공통 내부 서버 브라우저를 사용한다. */
   serverBrowser?: boolean
-  /** 일회성 서버 브라우저가 접속할 수 있는 외부 HTTPS host. `*.` suffix pattern을 허용한다. */
-  browserHosts?: string[]
   /** 브라우저 승인 뒤 CLI가 돌려받아야 하는 짧은 일회용 입력. */
   browserInput?: 'authorization-code'
   /** 명령이 TUI로 남아도 이 파일이 바뀌면 인증 완료로 본다. 경로는 브라우저에 보내지 않는다. */
@@ -171,8 +169,7 @@ function tmuxShellSpec(): SpawnSpec {
 /** Codex — 버전 고정된 로컬 어댑터(@agentclientprotocol/codex-acp). */
 function codexSpawnSpec(): SpawnSpec {
   const cmd = process.env.MEW_AGENT_CODEX_CMD || DEFAULT_CODEX_ACP_CMD
-  // mew는 서버 쪽 브라우저가 아니라 접속한 사용자의 브라우저에서 로그인해야 한다. 일반 OAuth가
-  // 서버 머신의 localhost를 열지 않게 감추고, ACP URL elicitation 기반 device-code 방법을 쓴다.
+  // CLI가 OS 브라우저를 직접 열지 않게 하고, 출력 URL을 Mew 내부 서버 브라우저로 연결한다.
   return {
     cmd,
     args: splitArgs(process.env.MEW_AGENT_CODEX_ARGS),
@@ -231,7 +228,7 @@ const login = (
   browserInput?: RuntimeLoginSpec['browserInput'],
   completionFile?: string,
   acpMethodId?: string,
-): RuntimeLoginSpec => ({ id, cmd: spec.cmd, args, env: spec.env, name, description, label, surface, verificationHosts, browserInput, completionFile, acpMethodId })
+): RuntimeLoginSpec => ({ id, cmd: spec.cmd, args, env: spec.env, name, description, label, surface, verificationHosts, serverBrowser: surface === 'browser', browserInput, completionFile, acpMethodId })
 
 export const RUNTIMES: Record<string, AgentRuntime> = {
   claude: {
@@ -245,7 +242,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/codex-acp@1.6.0'] }),
     logout: () => ({ cmd: hostCodexCliCommand(), args: ['logout'] }),
     auth: {
-      methods: () => [{ ...login(
+      methods: () => [login(
         RUNTIME_LOGIN_METHOD_ID,
         { cmd: hostCodexCliCommand(), args: [], env: codexSpawnSpec().env },
         ['login'],
@@ -254,21 +251,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
         undefined,
         'browser',
         ['auth.openai.com'],
-      ),
-        serverBrowser: true,
-        // OAuth 이동·정적 자원은 이 목록과 서버 loopback으로만 한정한다.
-        browserHosts: [
-          'auth.openai.com',
-          'chatgpt.com',
-          '*.chatgpt.com',
-          'cdn.openai.com',
-          '*.oaistatic.com',
-          'accounts.google.com',
-          '*.gstatic.com',
-          'appleid.apple.com',
-          'login.microsoftonline.com',
-        ],
-      }],
+      )],
       // ACP의 device-code 항목은 기본 OAuth 작업 하나로 치환한다.
       replaceMethodIds: ['chat-gpt-device-code'],
     },
@@ -293,7 +276,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
           kimiSpawnSpec(),
           ['login'],
           'Kimi Code 로그인 (.com)',
-          'Kimi.com 계정으로 기기 코드 로그인을 진행합니다.',
+          '내장 브라우저에서 Kimi.com 기기 코드 로그인을 진행합니다.',
           undefined,
           'browser',
           ['auth.kimi.com', 'kimi.com', 'www.kimi.com'],
@@ -303,7 +286,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
           kimiSpawnSpec(),
           ['login', '--region', 'global'],
           'Kimi Code 로그인 (.ai)',
-          'Kimi.ai 글로벌 계정으로 기기 코드 로그인을 진행합니다.',
+          '내장 브라우저에서 Kimi.ai 글로벌 기기 코드 로그인을 진행합니다.',
           undefined,
           'browser',
           ['auth.kimi.ai', 'kimi.ai', 'www.kimi.ai'],
@@ -347,7 +330,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
         cursorSpawnSpec(),
         ['login'],
         'Cursor CLI 로그인',
-        'Cursor 계정으로 로그인합니다.',
+        '내장 브라우저에서 Cursor 계정으로 로그인합니다.',
         undefined,
         'browser',
         ['cursor.com', 'www.cursor.com'],

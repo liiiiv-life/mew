@@ -123,3 +123,15 @@ test('ACP 런타임 인증 방법 id는 각각 고유하고 browser 표면은 ho
     }
   }
 })
+
+// Browser authentication is a registry invariant, including newly added methods.
+test('모든 browser 인증은 내부 서버 브라우저를 선언하고 초기 URL 호스트를 검증한다', () => {
+  const browserMethods = Object.values(RUNTIMES).flatMap((runtime) => runtime.auth?.methods().filter((method) => method.surface === 'browser').map((method) => ({ runtime: runtime.id, method })) ?? [])
+  assert.deepEqual(browserMethods.map(({ runtime, method }) => `${runtime}:${method.id}`), [
+    `codex:${RUNTIME_LOGIN_METHOD_ID}`, `kimi:${RUNTIME_LOGIN_METHOD_ID}`, `kimi:${KIMI_GLOBAL_LOGIN_METHOD_ID}`, `cursor:${RUNTIME_LOGIN_METHOD_ID}`,
+  ])
+  for (const { method } of browserMethods) {
+    assert.equal(method.serverBrowser, true)
+    assert.ok(method.verificationHosts?.length)
+  }
+})

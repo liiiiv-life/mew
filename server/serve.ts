@@ -1,4 +1,5 @@
 import './config.ts' // 반드시 첫 줄 — 다른 모듈이 상수를 계산하기 전에 설정 파일을 읽어야 한다
+import { attachDomBrowserWebSocket, closeDomBrowsers, DOM_BROWSER_WS } from './browser-dom.ts'
 import express from 'express'
 import http from 'node:http'
 import fs from 'node:fs'
@@ -43,7 +44,8 @@ process.on('uncaughtException', (err) => {
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.once(signal, () => {
     disposeAllSessions()
-    process.exit(0)
+    void closeDomBrowsers().finally(() => process.exit(0))
+    setTimeout(() => process.exit(0), 3000).unref()
   })
 }
 
@@ -108,6 +110,7 @@ attachCollabWebSocket(server, { authorize: authorizeCollab })
 attachDbWebSocket(server, { authorize: authorizeCollab })
 // 에이전트는 셸을 쓸 수 있다 — 게이트가 tmux와 같은 집합(owner/manager)이어야 한다
 attachAgentWebSocket(server, { authorize: authorizeTmux })
+attachDomBrowserWebSocket(server)
 attachBrowserProxyWebSocket(server, {
   account: (req) => {
     const auth = resolveAuth(req)
@@ -120,6 +123,7 @@ destroyUnknownUpgrades(server, [
   '/api/collab',
   '/api/db/ws',
   AGENT_WS_PATH,
+  DOM_BROWSER_WS,
   `${BROWSER_PROXY_WS_PREFIX}/`,
 ])
 
