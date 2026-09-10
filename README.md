@@ -271,8 +271,19 @@ Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**와 독립 `/browser` 
 
 - 준비: `npx playwright-core install chromium`. 시스템 Chrome/Chromium도 탐색하며 다른 설치 위치는
   `MEW_BROWSER_EXECUTABLE` 절대 경로로 지정한다. Chromium OS sandbox는 끄지 않는다.
+- 실행 모드: Linux/WSL에서 Mew 프로세스에 `DISPLAY` 또는 `WAYLAND_DISPLAY`가 있으면 창 모드로 실행한다.
+  Windows/macOS도 기본 창 모드이며, 디스플레이 환경이 없는 Linux는 헤드리스로 실행한다.
+  `MEW_BROWSER_HEADLESS=0`은 창 모드, `1`은 헤드리스를 강제한다. 창 실행 실패 시 헤드리스로 자동 재시도하지 않는다.
+  WSLg에서는 보통 `DISPLAY=:0`을 Mew 실행 환경에도 전달하면 된다. 표시 방식은 두 모드 모두 DOM 중계다.
+  서버 데스크톱에 브라우저·로그인 창이 보이므로 해당 데스크톱에 접근하는 사람도 화면을 볼 수 있다.
+  모드 변경은 새 Chromium 프로필 프로세스에 적용된다. 창 모드로 바꿔도 공급자의 로그인 허용을 보장하지 않는다.
 - 계정별 전용 프로필은 `MEW_DATA_DIR/browser/profiles/<account-hash>`에 둔다. 일반 탭은 쿠키·localStorage·IndexedDB를
   공유하고 마지막 탭 종료 때 프로필을 닫아 디스크에 유지한다. 개인 Chrome 프로필이나 기기의 Mew 쿠키를 가져오지 않는다.
+  프로필 프로세스는 `browser-dom-process.ts`가 Chromium 실행 파일을 직접 실행한 뒤 CDP로 연결한다.
+  Playwright 기본 실행 옵션 묶음은 적용하지 않으며 DOM 기록·입력 전달에는 기존 Playwright API를 사용한다.
+  CDP는 동적 loopback 포트에서만 열고 자식 프로세스가 알린 endpoint로 연결한다. 해당 포트를 터널에 노출하지 않는다.
+  마지막 프로필 사용자가 떠나면 브라우저를 종료하고, 시작 실패 시에도 생성한 자식 프로세스를 정리한다.
+  결정은 [ADR 0129](../.mew/docs/decisions/0129-mew-browser-native-launch-cdp.md)를 따른다.
 - 열린 탭 목록은 서버의 계정별 메모리 상태다. 패널 재열기·기기 새로고침은 같은 탭에 재연결한다. 서버 재시작 또는
   연결이 끊긴 뒤 10분이 지나면 탭과 방문 기록은 정리되며, 사이트의 영속 로그인 상태는 프로필에 남는다. 계정당 최대 20개 탭이다.
 - 주소 입력·뒤로/앞으로·새로고침·중지는 실제 Page를 조작한다. 사이트 팝업은 원래 opener 관계를 유지한 Mew 탭으로 열린다.
@@ -317,6 +328,8 @@ ACP 인증 완료 또는 에이전트 화면 종료 때 해당 서버 탭들을 
 검증: `node --test server/browser-dom.test.ts`. 실제 Chromium으로 폼·서버 쿠키·callback·재연결·모바일 폭·프레임 클릭·
 WebSocket·Service Worker·팝업/opener·방문 기록·SPA·대화상자·파일 전송·영속 프로필·계정 격리·인증 호스트 차단을 검사한다.
 Chromium이 없으면 실제 브라우저 테스트만 skip한다.
+창 모드 검증은 `MEW_BROWSER_HEADLESS=0 node --test server/browser-dom.test.ts`,
+디스플레이 없는 CI에서는 `MEW_BROWSER_HEADLESS=1`을 테스트 실행 환경에 지정한다.
 
 ## Android 창
 

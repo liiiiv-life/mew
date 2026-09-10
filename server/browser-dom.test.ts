@@ -10,12 +10,29 @@ import { chromium } from 'playwright-core'
 import { build } from 'rolldown'
 import { WebSocket, WebSocketServer } from 'ws'
 import { createDomNetworkGate } from './browser-dom-network.ts'
+import { domBrowserHeadless } from './browser-dom-profile.ts'
+import { launchNativeBrowser } from './browser-dom-process.ts'
 import {
   DomBrowserSession, attachDomBrowserWebSocket, closeDomBrowsers, createDomBrowserRoutes,
   createDomBrowserSession, createDomBrowserAuthSession, closeDomBrowserJob, openDomBrowserTab, domBrowserExecutable, domConnectionAllowed, domTargetAllowed,
 } from './browser-dom.ts'
 
 const owner = { role: 'owner' as const, email: 'owner@example.com', mustChangePassword: false }
+
+test('native browser launch rejects missing executables without leaving a pending connection', async () => {
+  await assert.rejects(launchNativeBrowser('/nonexistent/mew-test-browser', '/nonexistent/mew-test-profile', true), /서버 Chromium 프로세스/)
+})
+
+test('browser uses the server display and honors explicit headed/headless settings', () => {
+  assert.equal(domBrowserHeadless({ DISPLAY: ':0' }, 'linux'), false)
+  assert.equal(domBrowserHeadless({ WAYLAND_DISPLAY: 'wayland-0' }, 'linux'), false)
+  assert.equal(domBrowserHeadless({}, 'linux'), true)
+  assert.equal(domBrowserHeadless({}, 'darwin'), false)
+  assert.equal(domBrowserHeadless({}, 'win32'), false)
+  assert.equal(domBrowserHeadless({ MEW_BROWSER_HEADLESS: '1', DISPLAY: ':0' }, 'linux'), true)
+  assert.equal(domBrowserHeadless({ MEW_BROWSER_HEADLESS: '0' }, 'linux'), false)
+  assert.throws(() => domBrowserHeadless({ MEW_BROWSER_HEADLESS: 'false' }, 'linux'), /0 또는 1/)
+})
 
 test('DOM browser restricts origins, credentials, ports and session ownership', () => {
   const hosts = ['auth.openai.com', '*.oaistatic.com']
@@ -252,6 +269,7 @@ test('general browser shares persistent server state, preserves popups/history, 
     await viewer.goto(`${origin}/viewer`)
     const view = viewer.frameLocator('#root > .replayer-wrapper > iframe')
     await view.getByText('General server browser').waitFor({ timeout: 15_000 })
+    if (!domBrowserHeadless()) assert.equal(await session.page!.evaluate('navigator.webdriver'), false)
     await view.getByText('Server WebSocket connected').waitFor()
     await view.getByText('Worker ready').waitFor()
     const sourceErrors: string[] = []

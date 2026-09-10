@@ -9,7 +9,7 @@ import multer from 'multer'
 import { chromium, type Browser, type BrowserContext, type Page, type ElementHandle, type CDPSession, type Dialog, type Frame, type FileChooser, type Download, type Request } from 'playwright-core'
 import { WebSocket, WebSocketServer } from 'ws'
 import { authOf, requireRole, resolveAuth, type RequestAuth } from './reqAuth.ts'
-import { acquireBrowserProfile } from './browser-dom-profile.ts'
+import { acquireBrowserProfile, domBrowserHeadless } from './browser-dom-profile.ts'
 import { createDomNetworkGate } from './browser-dom-network.ts'
 
 export const DOM_BROWSER_WS = '/api/browser-dom/ws'
@@ -188,7 +188,7 @@ export class DomBrowserSession {
       this.network = await createDomNetworkGate((url) => domTargetAllowed(url, this.hosts, this.callbackOrigin))
       if (this.closed) { await this.network.close(); return }
       this.browser = await chromium.launch({
-        executablePath, headless: true, chromiumSandbox: true,
+        executablePath, headless: domBrowserHeadless(), chromiumSandbox: true,
         proxy: { server: this.network.server, bypass: '<-loopback>' },
         args: ['--disable-quic', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
       })
