@@ -1137,14 +1137,14 @@ export function FileTree({
     setEditing({ ...current, busy: true, error: undefined })
 
     if (current.mode === 'create-file') {
-      const name = sanitizeSegment(raw.replace(/\.md$/i, ''))
+      const name = sanitizeSegment(raw)
       if (!name) {
         setEditing({ ...current, busy: false, error: '올바른 파일명을 입력하세요' })
         return
       }
-      const relPath = current.parentPath ? `${current.parentPath}/${name}.md` : `${name}.md`
+      const relPath = current.parentPath ? `${current.parentPath}/${name}` : name
       try {
-        const { relPath: created, hidden } = await createNewDocument(relPath, name, project)
+        const { relPath: created, hidden } = await createNewDocument(relPath, name.replace(/\.md$/i, '') || name, project)
         setEditing(null)
         if (hidden) onNotice(NOT_ALLOWED)
         onFileCreated(created)

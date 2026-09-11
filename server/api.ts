@@ -1858,11 +1858,11 @@ export function createApiApp() {
         res.status(403).json({ error: 'archives/ 밑에는 새 문서를 만들 수 없습니다' })
         return
       }
-      if (!relPath.endsWith('.md')) {
-        res.status(400).json({ error: '.md 파일만 생성할 수 있습니다' })
+      if (typeof relPath !== 'string' || !relPath.trim()) {
+        res.status(400).json({ error: '파일명을 입력하세요' })
         return
       }
-      if (!title.trim()) {
+      if (typeof title !== 'string' || !title.trim()) {
         res.status(400).json({ error: '제목을 입력하세요' })
         return
       }

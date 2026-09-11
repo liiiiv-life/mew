@@ -29,13 +29,18 @@ function appendMocLink(mocRelPath: string, targetRelPath: string, title: string)
 }
 
 /**
- * 새 문서 생성. docs는 SSoT 규칙대로 frontmatter(title은 본문 H1이 아니라 여기)와
+ * 입력한 경로로 새 파일 생성. 마크다운 이외에는 빈 파일을 만든다.
+ * 마크다운은 docs에서 SSoT 규칙대로 frontmatter(title은 본문 H1이 아니라 여기)와
  * 가장 가까운 MOC 등록까지, 다른 프로젝트는 H1만 있는 평범한 마크다운으로 만든다.
  */
 export function createDocument(project: string, relPath: string, title: string): { relPath: string; mocRelPath: string | null } {
   const abs = resolveProjectPath(project, relPath)
   if (fs.existsSync(abs)) throw new ConflictError(`이미 존재하는 파일입니다: ${relPath}`)
   fs.mkdirSync(path.dirname(abs), { recursive: true })
+  if (!relPath.toLowerCase().endsWith('.md')) {
+    fs.writeFileSync(abs, '', 'utf-8')
+    return { relPath, mocRelPath: null }
+  }
   if (project !== DEFAULT_PROJECT) {
     fs.writeFileSync(abs, `# ${title}\n`, 'utf-8')
     return { relPath, mocRelPath: null }

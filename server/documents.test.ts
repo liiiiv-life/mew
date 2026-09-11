@@ -6,9 +6,35 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_PROJECT } from './paths.ts'
 import { resolveProjectPath } from './paths.ts'
-import { ConflictError, copyPathInto, writeFileInto } from './documents.ts'
+import { ConflictError, copyPathInto, createDocument, writeFileInto } from './documents.ts'
 
 const rand = () => `ztest${process.pid}${Math.random().toString(36).slice(2, 6)}`
+
+test('createDocument: 확장자를 보존하고 일반 파일은 빈 내용으로, 마크다운만 문서로 생성한다', () => {
+  const root = rand()
+  const rootAbs = resolveProjectPath(DEFAULT_PROJECT, root)
+  try {
+    fs.mkdirSync(rootAbs, { recursive: true })
+    const moc = '# Map\n'
+    fs.writeFileSync(path.join(rootAbs, 'MOC.md'), moc)
+    for (const name of ['script.ts', 'config.json', 'LICENSE', '.gitignore']) {
+      const relPath = `${root}/${name}`
+      assert.deepEqual(createDocument(DEFAULT_PROJECT, relPath, name), { relPath, mocRelPath: null })
+      assert.equal(fs.readFileSync(path.join(rootAbs, name), 'utf-8'), '')
+      assert.equal(fs.existsSync(path.join(rootAbs, `${name}.md`)), false)
+      assert.equal(fs.readFileSync(path.join(rootAbs, 'MOC.md'), 'utf-8'), moc)
+      assert.throws(() => createDocument(DEFAULT_PROJECT, relPath, name), ConflictError)
+    }
+    for (const name of ['note.md', 'UPPER.MD']) {
+      const relPath = `${root}/${name}`
+      assert.deepEqual(createDocument(DEFAULT_PROJECT, relPath, 'Note'), { relPath, mocRelPath: `${root}/MOC.md` })
+      assert.match(fs.readFileSync(path.join(rootAbs, name), 'utf-8'), /title: "Note"/)
+      assert.ok(fs.readFileSync(path.join(rootAbs, 'MOC.md'), 'utf-8').includes(`[Note](${name})`))
+    }
+  } finally {
+    fs.rmSync(rootAbs, { recursive: true, force: true })
+  }
+})
 
 test('copyPathInto: 파일을 다른 폴더로 복사하면 원래 이름을 유지하고, 같은 폴더면 " copy"를 붙인다', () => {
   const root = rand()
