@@ -943,7 +943,9 @@ export function FileTree({
   // revealSignal도 함께 본다 — **이미 열린 탭을 다시 눌렀을 때**는 경로가 그대로라 그 신호만이 유일한 단서다.
   useEffect(() => {
     if (!selectedPath || tree.length === 0) return
-    if (hadSavedOpenDirs && initialRevealRef.current.selectedPath === selectedPath
+    // 하위 프로젝트·Documents는 처음 펼칠 때 저장 상태(없으면 모두 접힘)를 유지한다.
+    // 이후 사용자가 문서 탭을 선택하면 기존대로 해당 경로를 펼친다.
+    if ((compact || hadSavedOpenDirs) && initialRevealRef.current.selectedPath === selectedPath
       && initialRevealRef.current.revealSignal === revealSignal) return
     restoringScrollRef.current = false
     ensureOpenChain(parentOf(selectedPath))
