@@ -22,3 +22,8 @@ test('없거나 손상된 상태는 모두 접힌 안전한 기본값이다', ()
   store.set(sidebarStateKey('/broken'), '{')
   assert.deepEqual(loadSidebarState('/broken'), { docsExpanded: false, expandedSubprojects: [] })
 })
+
+test('저장소가 가득 차도 사이드바 탐색을 중단하지 않는다', (t) => {
+  t.mock.method(localStorage, 'setItem', () => { throw new DOMException('Storage is full', 'QuotaExceededError') })
+  assert.doesNotThrow(() => saveSidebarState('/work/full', { docsExpanded: true, expandedSubprojects: ['app'] }))
+})

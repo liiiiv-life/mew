@@ -53,6 +53,15 @@ test('아주 큰 본문은 디스크에 두지 않는다 — 쿼터를 혼자 �
   assert.ok(getCachedFile('docs', 'huge.md'), '메모리 층에는 그대로 있다')
 })
 
+test('작던 파일이 캐시 상한을 넘으면 예전 본문을 디스크에 남기지 않는다', () => {
+  clearPersistedContent()
+  setContentIdentity('grown@example.com')
+  putCachedFile('docs', 'grown.md', { content: 'old', editable: true })
+  putCachedFile('docs', 'grown.md', { content: 'new'.repeat(100_000), editable: true })
+  assert.deepEqual(contentKeys(), [])
+  assert.equal(getCachedFile('docs', 'grown.md')?.content, 'new'.repeat(100_000))
+})
+
 test('탭에서 지운 파일은 디스크에서도 지운다', () => {
   clearPersistedContent()
   setContentIdentity('drop@example.com')

@@ -1,3 +1,4 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import type { TreeNode } from '../api/client'
 
 export type DirectoryChildren = Record<string, TreeNode[]>
@@ -62,7 +63,7 @@ export function loadDirectoryChildren(project: string): DirectoryChildren {
 
 export function saveDirectoryChildren(project: string, value: DirectoryChildren): void {
   try {
-    localStorage.setItem(treeChildrenKey(project), JSON.stringify(value))
+    writeBrowserStorage(treeChildrenKey(project), JSON.stringify(value))
   } catch {
     // localStorage quota·사생활 보호 모드에서는 메모리 캐시만 유지한다.
   }

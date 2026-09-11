@@ -1,3 +1,4 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 export type SidebarState = {
   docsExpanded: boolean
   expandedSubprojects: string[]
@@ -28,5 +29,9 @@ export function loadSidebarState(rootPath: string | null): SidebarState {
 }
 
 export function saveSidebarState(rootPath: string, value: SidebarState): void {
-  localStorage.setItem(sidebarStateKey(rootPath), JSON.stringify(value))
+  try {
+    writeBrowserStorage(sidebarStateKey(rootPath), JSON.stringify(value))
+  } catch {
+    // 펼침 상태의 로컬 fallback 실패가 탐색과 계정 상태 저장을 막아서는 안 된다.
+  }
 }

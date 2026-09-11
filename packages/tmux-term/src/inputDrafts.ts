@@ -1,3 +1,4 @@
+import { trimInputHistory, writeBrowserStorage } from '@mew/ui/browser-storage'
 // 하단 입력칸(전송 전 임시 입력)을 tmux 세션별로 브라우저에 저장한다 — 탭을 옮기거나 터미널을
 // 닫았다 열어도, 새로고침해도 쓰던 내용이 남아 있게 한다. TmuxTerminal이 key={session}으로 세션마다
 // 새로 마운트돼 state가 초기화되기 때문. 서버(tmux)엔 초안 개념이 없으므로 탭 순서(TAB_ORDER_KEY)와
@@ -26,7 +27,7 @@ function readAll(): DraftMap {
 function writeAll(map: DraftMap): void {
   try {
     if (Object.keys(map).length === 0) localStorage.removeItem(DRAFTS_KEY)
-    else localStorage.setItem(DRAFTS_KEY, JSON.stringify(map))
+    else writeBrowserStorage(DRAFTS_KEY, JSON.stringify(map))
   } catch {
     // 사파리 프라이빗 모드 등 저장 실패는 무시 — 초안 보존은 편의 기능이지 필수가 아니다
   }
@@ -49,7 +50,7 @@ function readHistories(): HistoryMap {
 function writeHistories(map: HistoryMap): void {
   try {
     if (Object.keys(map).length === 0) localStorage.removeItem(HISTORIES_KEY)
-    else localStorage.setItem(HISTORIES_KEY, JSON.stringify(map))
+    else writeBrowserStorage(HISTORIES_KEY, JSON.stringify(trimInputHistory(map)))
   } catch { /* 히스토리는 편의 기능이다. */ }
 }
 
@@ -98,6 +99,7 @@ export function recordInputHistory(session: string, text: string): void {
   if (!text.trim()) return
   const histories = readHistories()
   const previous = histories[session] ?? []
+  delete histories[session]
   histories[session] = previous[previous.length - 1] === text
     ? previous
     : [...previous, text].slice(-MAX_HISTORY_ITEMS)

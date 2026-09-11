@@ -1,3 +1,4 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 // 문서별 스크롤 위치 저장·복원 (ADR 0039). 새로고침·브라우저 재시작(ADR 0038)에 더해
 // 탭·창 전환에도 복원한다 — ADR 0029의 전환 복원 금지는 0039가 대체했다.
 
@@ -32,7 +33,7 @@ export function flushScroll() {
   }
   pending.clear()
   // ponytail: 지운 파일의 항목이 남는다 — 항목당 수십 바이트라 방치, 문제되면 open-tabs 기준으로 청소
-  for (const [project, map] of byProject) localStorage.setItem(storageKey(project), JSON.stringify(map))
+  for (const [project, map] of byProject) writeBrowserStorage(storageKey(project), JSON.stringify(map))
 }
 
 // 네이티브 드래그(사이드바 파일 끌기) 중에는 저장을 잠근다 — 드래그가 에디터 스크롤 영역

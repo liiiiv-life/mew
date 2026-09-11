@@ -1,3 +1,4 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 // 최근 연 파일의 본문 캐시 — 메모리(핫) + localStorage(콜드) 두 층.
 //
 // 탭을 오갈 때(특히 preview 탭이 이전 파일을 밀어낸 뒤 다시 열 때) 서버에서 처음부터 다시 받지
@@ -12,7 +13,7 @@ const MEM_MAX = 20
 /** localStorage에 남길 문서 수 — 넘으면 오래된 것부터 버린다 */
 const DISK_MAX = 40
 /** 이보다 큰 본문은 디스크에 두지 않는다 — 하나가 쿼터를 다 먹으면 캐시 전체가 날아간다 */
-const MAX_BYTES = 512 * 1024
+const MAX_BYTES = 128 * 1024
 const PREFIX = 'mew:content:'
 /** 그 칸의 LRU 순서(오래된 것부터)를 담는 키 */
 const ORDER_SUFFIX = '@order'
@@ -55,7 +56,7 @@ function loadOrder(): string[] {
 
 function saveOrder() {
   try {
-    localStorage.setItem(scope + ORDER_SUFFIX, JSON.stringify(orderList()))
+    writeBrowserStorage(scope + ORDER_SUFFIX, JSON.stringify(orderList()))
   } catch {
     /* 쿼터·비활성 저장소 — 캐시는 없어도 되는 것이다 */
   }
@@ -129,19 +130,12 @@ function readDisk(k: string): CachedFile | undefined {
 }
 
 function writeDisk(k: string, file: CachedFile) {
-  if (file.content.length > MAX_BYTES) return
-  const payload = JSON.stringify(file)
-  try {
-    localStorage.setItem(scope + k, payload)
-  } catch {
-    // 쿼터 초과 — 우리 칸을 비우고 한 번만 다시 시도한다
-    clearPersistedContent()
-    try {
-      localStorage.setItem(scope + k, payload)
-    } catch {
-      return
-    }
+  if (file.content.length > MAX_BYTES) {
+    try { localStorage.removeItem(scope + k) } catch { /* Optional cache only. */ }
+    return
   }
+  const payload = JSON.stringify(file)
+  if (!writeBrowserStorage(scope + k, payload)) return
   order = orderList().filter((x) => x !== k)
   order.push(k)
   while (order.length > DISK_MAX) {

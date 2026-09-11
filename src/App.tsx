@@ -1,3 +1,4 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   editorApi,
@@ -91,13 +92,21 @@ function mobileForegroundPanelKey(rootProjectPath: string): string {
 }
 
 function loadMobileForegroundPanel(rootProjectPath: string): MobileForeground | null {
-  const value = localStorage.getItem(mobileForegroundPanelKey(rootProjectPath))
-  if (value === 'editor') return value
-  return WORKSPACE_PANEL_IDS.includes(value as WorkspacePanelId) ? value as WorkspacePanelId : null
+  try {
+    const value = localStorage.getItem(mobileForegroundPanelKey(rootProjectPath))
+    if (value === 'editor') return value
+    return WORKSPACE_PANEL_IDS.includes(value as WorkspacePanelId) ? value as WorkspacePanelId : null
+  } catch {
+    return null
+  }
 }
 
 function saveMobileForegroundPanel(rootProjectPath: string | null, foreground: MobileForeground): void {
-  if (rootProjectPath) localStorage.setItem(mobileForegroundPanelKey(rootProjectPath), foreground)
+  try {
+    if (rootProjectPath) writeBrowserStorage(mobileForegroundPanelKey(rootProjectPath), foreground)
+  } catch {
+    // 다음 접속의 전면 창 기억이 실패해도 지금 선택한 파일은 에디터로 전달한다.
+  }
 }
 
 type Theme = 'dark' | 'light'
@@ -565,8 +574,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   useEffect(() => {
     if (!isOwner) return
-    localStorage.setItem(OPEN_PROJECTS_KEY, JSON.stringify(openProjectPaths))
-    localStorage.setItem(ROOT_PROJECT_ICONS_KEY, JSON.stringify(rootProjectIcons))
+    writeBrowserStorage(OPEN_PROJECTS_KEY, JSON.stringify(openProjectPaths))
+    writeBrowserStorage(ROOT_PROJECT_ICONS_KEY, JSON.stringify(rootProjectIcons))
     if (!rootProjectTabsSynced) return
     void saveRootProjectTabs({ paths: openProjectPaths, icons: rootProjectIcons }).catch(console.error)
   }, [isOwner, openProjectPaths, rootProjectIcons, rootProjectTabsSynced])
@@ -978,7 +987,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
-    localStorage.setItem(THEME_KEY, theme)
+    writeBrowserStorage(THEME_KEY, theme)
   }, [theme])
 
   useEffect(() => {
@@ -1072,7 +1081,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [mobilePanelStack, rootProjectPath, workspaceUiLoaded])
 
   useEffect(() => {
-    localStorage.setItem(TOC_KEY, tocOpen ? '1' : '0')
+    writeBrowserStorage(TOC_KEY, tocOpen ? '1' : '0')
   }, [tocOpen])
 
   // 모바일 키보드가 뜨면 visualViewport만 줄어들고 레이아웃 뷰포트(100dvh)는 그대로인 브라우저가 있어
@@ -1144,15 +1153,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [])
 
   useEffect(() => {
-    localStorage.setItem(AGENT_OPEN_KEY, agentOpen ? '1' : '0')
+    writeBrowserStorage(AGENT_OPEN_KEY, agentOpen ? '1' : '0')
   }, [agentOpen])
 
   useEffect(() => {
-    localStorage.setItem(BROWSER_OPEN_KEY, browserOpen ? '1' : '0')
+    writeBrowserStorage(BROWSER_OPEN_KEY, browserOpen ? '1' : '0')
   }, [browserOpen])
 
   useEffect(() => {
-    localStorage.setItem(ANDROID_OPEN_KEY, androidOpen ? '1' : '0')
+    writeBrowserStorage(ANDROID_OPEN_KEY, androidOpen ? '1' : '0')
   }, [androidOpen])
 
   useEffect(() => {

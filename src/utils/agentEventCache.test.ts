@@ -15,6 +15,7 @@ const {
   AGENT_EVENT_CACHE_MAX_BYTES,
   AGENT_EVENT_CACHE_TOTAL_MAX_BYTES,
   clearAgentEventCache,
+  clearAgentTabCaches,
   mergeAgentReplay,
   pruneAgentLocalCaches,
   readAgentEventCache,
@@ -118,14 +119,14 @@ test('긴 전사는 최근 이벤트를 원형 그대로 보존하며 탭·전�
   assert.deepEqual(mergeAgentReplay(cached.events, events, true, true), events)
 })
 
-test('quota 실패 뒤 전사 캐시만 비우고 활성 탭 저장을 재시도한다', () => {
+test('quota 실패 뒤 재생성 캐시를 비우고 활성 탭 저장을 재시도한다', () => {
   values.clear()
   writeAgentEventCache('codex', 'old', '/work', { sessionId: 'old', events: [message('old')] })
   values.set('unrelated', 'preserve')
   const original = localStorage.setItem
   let attempts = 0
   localStorage.setItem = (key, value) => {
-    if (++attempts === 1) throw new Error('QuotaExceededError')
+    if (key.startsWith('mew:agent-events:') && ++attempts === 1) throw new DOMException('Full', 'QuotaExceededError')
     original(key, value)
   }
   try {
@@ -136,6 +137,22 @@ test('quota 실패 뒤 전사 캐시만 비우고 활성 탭 저장을 재시도
   } finally {
     localStorage.setItem = original
   }
+})
+
+test('탭 종료는 그 탭의 모든 런타임·cwd 캐시만 지운다', () => {
+  values.clear()
+  for (const runtime of ['codex', 'kimi']) {
+    writeAgentEventCache(runtime, 'closed', '/work', { sessionId: runtime, events: [message(runtime)] })
+    values.set(`mew:agent-controls:${runtime}:closed:/work`, '{}')
+  }
+  writeAgentEventCache('codex', 'open', '/other', { sessionId: 'live', events: [message('live')] })
+  values.set('mew:agent-input-drafts', '{"open":"unsent"}')
+  clearAgentTabCaches('closed')
+  assert.equal(readAgentEventCache('codex', 'closed', '/work'), null)
+  assert.equal(readAgentEventCache('kimi', 'closed', '/work'), null)
+  assert.equal(values.has('mew:agent-controls:codex:closed:/work'), false)
+  assert.ok(readAgentEventCache('codex', 'open', '/other'))
+  assert.equal(values.get('mew:agent-input-drafts'), '{"open":"unsent"}')
 })
 
 

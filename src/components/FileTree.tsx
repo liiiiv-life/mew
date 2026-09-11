@@ -1,3 +1,4 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TreeNode } from '../api/client'
 import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, initializeGitRepository, renamePath, setGuestAccess, uploadInto } from '../api/client'
@@ -905,7 +906,11 @@ export function FileTree({
 
   useEffect(() => {
     const savedChildren = childrenForOpenDirs(openDirs, directoryChildren)
-    localStorage.setItem(openDirsKey(persistedProject), JSON.stringify([...openDirs]))
+    try {
+      writeBrowserStorage(openDirsKey(persistedProject), JSON.stringify([...openDirs]))
+    } catch {
+      // 로컬 캐시 실패로 트리 렌더와 서버 계정 상태 저장을 중단하지 않는다.
+    }
     if (persistsDirectoryChildren) saveDirectoryChildren(persistedProject, savedChildren)
     onAccountStateChangeRef.current?.({ openDirs: [...openDirs], scrollTop: treeScrollRef.current, centerAnchor: centerAnchorRef.current, directoryChildren: savedChildren })
   }, [directoryChildren, openDirs, persistedProject, persistsDirectoryChildren])

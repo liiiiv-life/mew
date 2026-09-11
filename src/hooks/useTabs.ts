@@ -1,3 +1,4 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchExternalFile, fetchFile, fetchFileAnchorPreview, fetchRules, isArchivedPath, saveExternalFile, saveFile, type DocRules, type FileVersion } from '../api/client'
 import { mediaKind } from '../utils/media'
@@ -61,9 +62,9 @@ export type StoredTabs = {
 
 /** 저장분 읽기 — 분할 이전 형식(`{tabs, activePath}`)은 칸 하나짜리로 읽는다 */
 function loadStoredTabs(project: string, workspaceScope?: string): StoredTabs | null {
-  const raw = localStorage.getItem(openTabsKey(project, workspaceScope))
-  if (!raw) return null
   try {
+    const raw = localStorage.getItem(openTabsKey(project, workspaceScope))
+    if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<StoredTabs> & { tabs?: StoredTab[]; activePath?: string | null }
     const panes = Array.isArray(parsed?.panes)
       ? parsed.panes.filter((p) => p && typeof p.id === 'string' && Array.isArray(p.tabs))
@@ -440,7 +441,11 @@ export function useTabs(
         layout: s.layout,
         focusedPaneId: s.focusedPaneId,
       }
-      localStorage.setItem(openTabsKey(p, workspaceScope), JSON.stringify(payload))
+      try {
+        writeBrowserStorage(openTabsKey(p, workspaceScope), JSON.stringify(payload))
+      } catch {
+        // 로컬 복원은 fallback이다. 저장소가 가득 차거나 차단돼도 파일 열기와 계정 동기화는 계속한다.
+      }
       onAccountTabsChange?.(p, payload)
     }
   }, [states, sessionKey, hydratedSession, workspaceScope, onAccountTabsChange])

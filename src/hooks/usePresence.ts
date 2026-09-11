@@ -1,3 +1,4 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useEffect, useRef, useState } from 'react'
 import { forgetSavedProject } from '../api/client'
 import { identityColor } from '../utils/collabColor'
@@ -76,7 +77,7 @@ export function usePresence(
           }
           // 루트 프로젝트가 바뀌었다. App이 루트별 탭·본문 캐시를 갈아끼우고 트리만 다시 읽는다.
           else if (msg.type === 'workspace') {
-            if (msg.project) localStorage.setItem('mew:project', msg.project)
+            if (msg.project) writeBrowserStorage('mew:project', msg.project)
             else forgetSavedProject()
             onWorkspaceChangeRef.current?.(msg.project)
           }

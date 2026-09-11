@@ -1,3 +1,4 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { ServerDomBrowserTabs } from './server-dom-browser'
 // 터미널•에이전트패널 — ACP 채팅과 탭별 tmux TUI·셸을 한 탭 체계에서 연다.
 // **탭 하나가 세션 하나**다: 탭마다 자기 WS·자기 대화·서버 쪽 자식 프로세스를 하나씩 가진다.
@@ -32,6 +33,7 @@ import {
 import { clearAgentInputDraft, readAgentInputDraft, readAgentInputHistory, recordAgentInputHistory, writeAgentInputDraft } from '../utils/agentInputDrafts'
 import {
   clearAgentEventCache,
+  clearAgentTabCaches,
   mergeAgentReplay,
   pruneAgentLocalCaches,
   readAgentEventCache,
@@ -386,8 +388,7 @@ function loadTabs(workspacePath: string | null): AgentTab[] {
             : [upgraded]
         })
         if (legacy !== null) {
-          localStorage.setItem(key, JSON.stringify(normalizedTabs))
-          localStorage.removeItem(TABS_KEY)
+          if (writeBrowserStorage(key, JSON.stringify(normalizedTabs))) localStorage.removeItem(TABS_KEY)
         }
         return normalizedTabs
       }
@@ -404,8 +405,7 @@ function loadActiveTabId(tabs: AgentTab[], workspacePath: string | null): string
   const legacy = stored === null && workspacePath ? localStorage.getItem(ACTIVE_TAB_KEY) : null
   const activeId = stored ?? legacy
   if (legacy !== null) {
-    if (activeId && tabs.some((tab) => tab.id === activeId)) localStorage.setItem(key, activeId)
-    localStorage.removeItem(ACTIVE_TAB_KEY)
+    if (activeId && tabs.some((tab) => tab.id === activeId) && writeBrowserStorage(key, activeId)) localStorage.removeItem(ACTIVE_TAB_KEY)
   }
   return activeId && tabs.some((tab) => tab.id === activeId) ? activeId : (tabs[0]?.id ?? null)
 }
@@ -540,7 +540,7 @@ function readAgentControlCache(runtime: string, tabId: string, cwd: string): Age
 }
 function writeAgentControlCache(runtime: string, tabId: string, cwd: string, patch: Partial<AgentControlCache>) {
   const current = readAgentControlCache(runtime, tabId, cwd)
-  try { localStorage.setItem(agentControlCacheKey(runtime, tabId, cwd), JSON.stringify({ ...current, ...patch })) } catch { /* 저장 공간이 없어도 선택기는 정상 동작한다 */ }
+  try { writeBrowserStorage(agentControlCacheKey(runtime, tabId, cwd), JSON.stringify({ ...current, ...patch })) } catch { /* 저장 공간이 없어도 선택기는 정상 동작한다 */ }
 }
 
 /**
@@ -1312,7 +1312,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
 
   const chooseView = (next: 'runtime' | 'set') => {
     setView(next)
-    try { localStorage.setItem('mew:agent-picker-view', next) } catch { /* 보기 기억 실패는 선택기를 막지 않는다 */ }
+    try { writeBrowserStorage('mew:agent-picker-view', next) } catch { /* 보기 기억 실패는 선택기를 막지 않는다 */ }
   }
 
   const install = (id: string) => {
@@ -1419,7 +1419,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   useEffect(() => {
     // 계정 원장이 SSoT이고 localStorage는 첫 화면용 fallback뿐이다. 전사·본문 캐시가 브라우저
     // quota를 채워도 이 보조 저장 실패가 서버 저장까지 막거나 React 루트를 내리면 안 된다.
-    try { localStorage.setItem(tabsKey, JSON.stringify(tabs)) } catch { /* 서버 원장 저장은 아래에서 계속한다 */ }
+    try { writeBrowserStorage(tabsKey, JSON.stringify(tabs)) } catch { /* 서버 원장 저장은 아래에서 계속한다 */ }
     if (!tabsSynced || !workspacePath) return
     pendingSaveRef.current = { workspacePath, tabs, activeId }
     if (saveRunningRef.current) return
@@ -1456,7 +1456,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
 
   useEffect(() => {
     try {
-      if (activeId) localStorage.setItem(activeTabKey, activeId)
+      if (activeId) writeBrowserStorage(activeTabKey, activeId)
       else localStorage.removeItem(activeTabKey)
     } catch { /* 마지막 활성 탭도 계정 탭 상태에서 복원할 수 있다 */ }
   }, [activeId, activeTabKey])
@@ -1546,7 +1546,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   }, [defaultCwd])
 
   const addSetTab = (set: AgentSet) => {
-    try { localStorage.setItem(RUNTIME_KEY, set.runtime) } catch { /* 최근 런타임 기억은 선택을 막지 않는다 */ }
+    try { writeBrowserStorage(RUNTIME_KEY, set.runtime) } catch { /* 최근 런타임 기억은 선택을 막지 않는다 */ }
     addRuntimeTab(set.runtime, { id: set.id, name: set.name, modelId: set.modelId, role: set.role })
   }
 
@@ -1558,11 +1558,8 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
       sendersRef.current.get(id)?.({ type: 'close_session' })
     }
     clearAgentInputDraft(id)
-    if (closing?.runtime && closing.cwd) {
-      const { runtime, cwd } = closing
-      // 자식 view의 unmount flush가 끝난 다음 지운다. 먼저 지우면 cleanup이 캐시를 다시 만들 수 있다.
-      window.setTimeout(() => clearAgentEventCache(runtime, closing.id, cwd), 0)
-    }
+    // unmount may flush the last events. Remove every runtime/cwd cache after it finishes.
+    window.setTimeout(() => clearAgentTabCaches(id), 0)
     const index = tabs.findIndex((tab) => tab.id === id)
     const rest = tabs.filter((tab) => tab.id !== id)
     // 닫은 자리의 오른쪽을 먼저 보여 주고, 끝 탭이면 왼쪽을 고른다. 아직 열어 보지 않은 탭도
@@ -2157,7 +2154,7 @@ function AgentSessionView({
   }, [draft, tabId])
 
   useEffect(() => {
-    try { localStorage.setItem(AGENT_INPUT_HEIGHT_KEY, String(Math.round(inputHeight))) } catch { /* 저장 실패는 UI 동작에 영향 없다 */ }
+    try { writeBrowserStorage(AGENT_INPUT_HEIGHT_KEY, String(Math.round(inputHeight))) } catch { /* 저장 실패는 UI 동작에 영향 없다 */ }
   }, [inputHeight])
 
   useEffect(() => () => inputResizeCleanupRef.current?.(), [])

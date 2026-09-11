@@ -1,11 +1,12 @@
+import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import type { AgentEvent } from './agentFold'
 
 const CACHE_PREFIX = 'mew:agent-events:'
 const CONTROL_CACHE_PREFIX = 'mew:agent-controls:'
 const CACHE_VERSION = 1
-/** localStorage는 origin 전체가 약 10MiB다. 전사는 서버에도 있으므로 한 탭 캐시가 이를 독점하지 않는다. */
-export const AGENT_EVENT_CACHE_MAX_BYTES = 1024 * 1024
-export const AGENT_EVENT_CACHE_TOTAL_MAX_BYTES = 4 * 1024 * 1024
+/** 전사는 서버에도 있다. 공통 2MiB 캐시 예산 안에서 한 탭의 전사를 512KiB로 제한한다. */
+export const AGENT_EVENT_CACHE_MAX_BYTES = 512 * 1024
+export const AGENT_EVENT_CACHE_TOTAL_MAX_BYTES = 2 * 1024 * 1024
 
 export type AgentEventCache = {
   sessionId: string | null
@@ -127,16 +128,7 @@ export function writeAgentEventCache(
       bytes += nextBytes
     }
     const serialized = `${header.slice(0, -1)},"events":[${parts.reverse().join(',')}]}`
-    // 먼저 공간을 확보해야 기존 캐시 때문에 새 활성 탭의 저장이 실패하지 않는다.
-    localStorage.removeItem(key)
-    pruneAgentLocalCaches(undefined, storageBytes(key, serialized))
-    try {
-      localStorage.setItem(key, serialized)
-    } catch {
-      // 다른 기능이 origin quota를 쓰는 경우 전사 캐시만 비우고 한 번 재시도한다.
-      pruneAgentLocalCaches(undefined, AGENT_EVENT_CACHE_TOTAL_MAX_BYTES)
-      localStorage.setItem(key, serialized)
-    }
+    writeBrowserStorage(key, serialized)
   } catch {
     // 사생활 모드·용량 제한에서는 실시간 대화가 계속 동작해야 한다. 캐시는 best effort다.
     pruneAgentLocalCaches()
@@ -149,6 +141,16 @@ export function clearAgentEventCache(runtime: string, tabId: string, cwd: string
   } catch {
     /* 캐시 삭제 실패가 세션 종료를 막아서는 안 된다 */
   }
+}
+
+/** Explicit tab close removes every runtime/cwd cache belonging to that tab. */
+export function clearAgentTabCaches(tabId: string): void {
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
+    for (const key of keys) {
+      if (key && (eventCacheTabId(key) === tabId || controlCacheTabId(key) === tabId)) localStorage.removeItem(key)
+    }
+  } catch { /* Closing a tab must not depend on available storage. */ }
 }
 
 /**

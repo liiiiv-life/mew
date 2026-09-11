@@ -1,3 +1,4 @@
+import { trimInputHistory, writeBrowserStorage } from '@mew/ui/browser-storage'
 // 에이전트 입력 초안은 서버 세션이 아니라 브라우저 탭 상태다. 탭 id별로 저장해 창을 닫거나
 // 새로고침해도 쓰던 문장이 돌아오게 한다.
 const DRAFTS_KEY = 'mew:agent-input-drafts'
@@ -24,7 +25,7 @@ function readAll(): DraftMap {
 function writeAll(map: DraftMap): void {
   try {
     if (Object.keys(map).length === 0) localStorage.removeItem(DRAFTS_KEY)
-    else localStorage.setItem(DRAFTS_KEY, JSON.stringify(map))
+    else writeBrowserStorage(DRAFTS_KEY, JSON.stringify(map))
   } catch {
     // 저장 실패는 편의 기능 상실로만 끝낸다.
   }
@@ -47,7 +48,7 @@ function readHistories(): HistoryMap {
 function writeHistories(map: HistoryMap): void {
   try {
     if (Object.keys(map).length === 0) localStorage.removeItem(HISTORIES_KEY)
-    else localStorage.setItem(HISTORIES_KEY, JSON.stringify(map))
+    else writeBrowserStorage(HISTORIES_KEY, JSON.stringify(trimInputHistory(map)))
   } catch { /* 히스토리는 편의 기능이다. */ }
 }
 
@@ -78,6 +79,7 @@ export function recordAgentInputHistory(tabId: string, text: string): void {
   if (!text.trim()) return
   const histories = readHistories()
   const previous = histories[tabId] ?? []
+  delete histories[tabId]
   histories[tabId] = previous[previous.length - 1] === text
     ? previous
     : [...previous, text].slice(-MAX_HISTORY_ITEMS)
