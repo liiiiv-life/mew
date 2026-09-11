@@ -1,0 +1,83 @@
+# 명령 버튼과 예약 작업
+
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+
+## 명령어 버튼 — 두 종류
+
+이름이 비슷하지만 별개 기능이다. 사이드바의 ▶는 **프로젝트별 배치 실행**, 터미널 줄의 버튼은 **지금 보고 있는 세션에 타이핑**이다.
+
+|  | 사이드바 프로젝트 ▶ 버튼 | 터미널 버튼 |
+| --- | --- | --- |
+| 설정 파일 | `<프로젝트>/.mew/cmd-button.json` | `.data/term-button.json` (**전역** — 모든 프로젝트·탭 공통) |
+| 편집 방법 | UI의 `＋ 명령 추가`·줄 꾹 누르기(우클릭), 또는 파일 직접 편집 | UI의 `+`·버튼 꾹 누르기(우클릭) |
+| 실행 위치 | 전용 숨김 세션 `mewcmd-<해시>` | 지금 열려 있는 tmux 세션 |
+| 실행 주체 | 서버(`tmux send-keys`) | 클라이언트(터미널 WebSocket에 직접 타이핑) |
+
+## 사이드바 프로젝트 ▶ 버튼 (.mew/cmd-button.json)
+
+사이드바 상단의 ▶는 루트 프로젝트 명령 탭을 열고, 하위 프로젝트 줄의 ▶는 그 하위 프로젝트의 명령어 팝오버를 연다. 각 프로젝트의 `.mew/cmd-button.json` 에 정의한 명령을 tmux에서 바로 실행한다 (owner/manager 전용 — tmux와 같은 보안 경계). 하위 프로젝트를 별도 탭으로 옮기지 않고도 자기 목록을 실행할 수 있다.
+
+파일 형식:
+
+```json
+{
+  "commands": [
+    { "name": "빌드", "command": "npm run build" },
+    { "name": "개발 서버", "command": "npm run dev" }
+  ]
+}
+```
+
+- ▶ 아이콘을 누르면 그 명령이 **프로젝트 폴더를 cwd로** 하는 tmux 세션에서 실행된다. 같은 버튼은 늘 같은 세션(`mewcmd-<해시>`)으로 이어져, 다시 누르면 그 세션에서 재실행된다.
+- **실행 중인 줄의 ▶는 ■(정지)가 된다** — 누르면 그 명령의 세션만 죽는다(`DELETE /api/tmux/sessions/:name`). 실행 여부는 서버가 붙여주는 `running`이 정하므로, 다른 곳에서 세션이 죽으면 다음 갱신에 ▶로 돌아온다.
+- 명령어 세션은 특수 이름(`mewcmd-*`)이라 **터미널 탭 목록에는 뜨지 않는다**(`isCommandSession`으로 필터). 각 줄의 터미널 아이콘을 누르면 팝업으로 그 세션을 본다 — 팝업의 \*\*\[종료\]\*\*는 세션을 죽이고 닫고, \*\*\[닫기\]\*\*는 세션을 살려둔 채 팝업만 닫는다.
+- **실행할 명령 문자열은 언제나 서버가 파일에서 읽는다** — 실행 요청 본문의 명령은 신뢰하지 않는다. (편집은 별도 경로다: `PUT`으로 목록을 통째로 저장하면 그 다음 실행이 새 파일 내용을 읽는다.)
+- 편집: 드롭다운 맨 아래 `＋ 명령 추가`, 기존 줄을 **꾹 누르거나 우클릭**하면 수정·삭제. 저장은 목록 전체 쓰기라 손으로 고친 파일과 같은 자리를 덮어쓴다(`{ "commands": [...] }` 형태로 정규화되고 다른 최상위 키는 보존되지 않는다). **이름을 바꾸면 세션 이름 해시가 바뀐다** — 그전에 띄워둔 실행 세션은 살아 있되 이 버튼에서는 더 이상 보이지 않는다.
+- 이름은 프로젝트 안에서 겹칠 수 없다(겹치면 두 명령이 한 세션을 공유하게 되므로 400).
+- 서버: `server/cmdButtons.ts`(파일 파싱·정규화·쓰기·세션 이름) + `GET/PUT/POST /api/cmd-buttons*`(owner/manager). 클라이언트: `src/components/CommandButtonMenu.tsx`·`SessionTerminalPopup.tsx`(세션 팝업은 예약 작업과 **같은 컴포넌트**를 쓴다 — 세션 이름·제목·실행 함수만 다르게 넘긴다). 하위 프로젝트의 드롭다운은 사이드바의 overflow에 잘리지 않도록 **body로 포털해 fixed로** 띄운다.
+
+## 터미널 버튼 (.data/term-button.json)
+
+터미널 패널의 **셸 탭** 버튼 줄(선택 모드 버튼과 같은 줄) 왼쪽에 뜬다. 누르면 지금 보고 있는 셸 세션에 하단 입력칸 전송과 똑같은 경로로 들어간다. 에이전트 TUI 탭에는 이 셸 명령 버튼을 표시하지 않는다.
+
+```json
+{
+  "commands": [
+    { "name": "정리", "command": "/clear", "icon": "i:sparks" },
+    { "name": "커밋", "command": "/commit", "icon": "i:git-commit", "iconOnly": true },
+    { "name": "모델", "command": "/model" }
+  ]
+}
+```
+
+- 목록은 **전역 하나**다 — 프로젝트나 터미널 탭마다 다르지 않다. 그래서 프로젝트 폴더가 아니라 서버가 `.data/`에 저장한다(`.data/`는 `paths.ts` deny 목록이라 편집 API로 열리지 않는다). 손으로 고칠 파일이 아니라 **UI가 편집 수단**이다: `+`로 추가하고, 버튼을 꾹 누르면(데스크톱은 우클릭) 이름·명령어·아이콘 수정과 삭제가 나온다.
+- `icon`은 **프로젝트 아이콘과 같은 표기**다 — `i:{키}` · 이모지 · `svg:{마크업}`. 고르는 칸도 같은 `IconPicker`라 SVG 직접 넣기까지 그대로 된다(검사는 `normalizeIconValue` 하나).
+- `iconOnly: true`면 그 버튼은 **이름을 감추고 아이콘만** 그린다(버튼마다 따로 정한다 — 편집 창의 `이름 숨기고 아이콘만 보이기`). 아이콘이 없으면 빈 칸이 되므로 무시하고 이름을 그대로 둔다.
+- 실행은 서버가 하지 않는다. 클라이언트가 이미 열려 있는 터미널 WebSocket으로 직접 보내므로 세션·cwd가 화면과 항상 일치한다. 그 소켓 자체가 owner/manager 경계라 별도 게이팅이 없다.
+- 서버: `server/termButtons.ts` + `GET/PUT /api/term-buttons`(owner/manager, 목록 읽기·쓰기만). 클라이언트: `src/components/TermButtonBar.tsx` — `AgentPanel`이 tmux 터미널 탭의 `TmuxTerminal`에 `renderCommandButtons` 렌더 프롭으로 주입한다(터미널 패키지는 이 기능의 API를 모른다).
+
+## 예약 작업 (.data/schedules.json)
+
+도구 줄 **시계 아이콘** — "언제 / 어느 폴더에서 / 어떤 에이전트로 / 어떤 프롬프트를" 을 등록하면 그 시각에 에이전트가 무인으로 돈다. owner/manager만(임의 프롬프트가 무인 실행되는 표면 — 셸과 같은 경계).
+
+- 서버: `server/schedules.ts` + `server/runAgentJob.ts` + `GET/PUT /api/schedules`, `POST /api/schedules/run`(지금 실행). 클라이언트: `src/components/ScheduleModal.tsx`, 크론식↔GUI 변환은 `src/utils/cron.ts`.
+- **원본은** `.data/schedules.json`**, crontab은 파생물이다.** 저장할 때마다 `# mew-job:<id>` 마커가 붙은 줄만 걷어내고 다시 쓴다 — 손으로 쓴 크론 줄은 건드리지 않고, 창에도 읽기 전용으로 보여준다.
+- **실행은 잡 전용 tmux 세션 안에서 일어난다.** 크론 줄이 하는 일은 세 가지뿐이다 — `tmux new-session -d -s <세션> -c <설정한 폴더>`(이미 있으면 실패시키고 그 세션을 재사용) → `send-keys -l <에이전트 명령>` → `send-keys Enter`. 명령어 버튼과 같은 구조라, 무인 실행이 끝난 뒤에도 화면이 세션에 남아 각 줄의 **터미널 아이콘**으로 그대로 들여다볼 수 있다(같은 `SessionTerminalPopup`).
+- 세션 이름은 `mewcmd-job-<id 앞 8자>`다. 명령어 버튼과 같은 프리픽스라 **터미널 탭 목록에는 뜨지 않고**(`isCommandSession` 필터), 팝업의 \*\*\[종료\]\*\*는 그 세션을 죽인다(`DELETE /api/tmux/sessions/:name`). 팝업 안의 **실행** 버튼과 `POST /api/schedules/run`은 크론과 **똑같은 세션·똑같은 명령**을 쓴다 — 예약 시각을 기다리지 않고 확인할 수 있다. 실행 요청 본문에서 받는 건 잡 `id`뿐이다.
+- **프롬프트는 셸에 인라인하지 않는다.** `.data/schedules/<id>.prompt`에 쓰고 명령이 그 파일을 읽는다 — 따옴표·개행, 그리고 크론에서 stdin 구분자로 먹히는 `%`를 통째로 피한다(명령 쪽 `%`는 escape).
+- 실행 명령은 에이전트별 템플릿이 아니라 공통 ACP runner다: `node server/runAgentJob.ts --runtime <id> --prompt-file <프롬프트파일> --log-file <로그> --cwd <폴더>`. runner가 `server/agentRuntimes.ts`의 같은 등록표로 ACP 런타임을 띄운다([ADR 0060](../../../.mew/docs/decisions/0060-mew-shared-agent-runtime-registry.md)). 사용자가 명령 문자열을 넣는 곳은 없다. `node`·`tmux`는 저장 시점에 `command -v`로 **절대 경로로 굳힌다** — cron의 PATH로는 이름만으로 못 찾는다.
+- 크론 5필드는 `[A-Za-z0-9*/,-]`만 통과시킨다(crontab 주입 차단). 출력은 세션 화면에 보이면서 동시에 `runAgentJob.ts`가 `.data/schedules/<id>.log`에 덧붙이고, 그 파일의 mtime이 창의 "마지막 실행"이다. **로그는 자동으로 줄지 않는다** — 커지면 직접 지운다.
+- 앞 실행이 아직 돌고 있는데 다음 예약 시각이 오면 **같은 세션에 그대로 타이핑된다**(=돌고 있는 에이전트의 stdin으로 들어간다). 주기를 실행 시간보다 짧게 잡지 말 것.
+- 잡을 지우면 저장할 때 그 잡의 세션도 함께 죽인다 — 숨은 세션이라 UI 어디에서도 잡을 수 없기 때문.
+
+## 시스템 자원 팝업
+
+에디터 우상단 도구 줄, **터미널 버튼 바로 아래 계기판 아이콘** — 서버가 도는 기계의 CPU·메모리·GPU 사용량과 온도, 그리고 **프로세스별 점유**를 2초마다 새로 읽어 보여준다. 터미널 버튼과 달리 터미널이 열려 있어도 계속 보인다.
+
+- 서버: `server/sysStats.ts` + `GET /api/system-stats`(owner/manager — 셸과 같은 경계다). 클라이언트: `src/components/SystemStatsModal.tsx`.
+- CPU 사용률은 `os.cpus()` 누적 시간의 **직전 호출 대비 증분**이다. 표본을 모듈 하나가 들고 있어 창이 여럿이면 각자의 구간이 짧아질 뿐 값은 유효하다.
+- 메모리 여유는 `/proc/meminfo`의 `MemAvailable`을 쓴다 — `os.freemem()`은 캐시를 사용 중으로 세서 리눅스에서 항상 과장된다.
+- GPU는 `nvidia-smi --query-gpu=...` 한 번. 없으면 빈 배열이고 팝업은 "GPU 정보 없음"을 띄운다.
+- CPU 온도는 `/sys/class/thermal/thermal_zone*/temp`. \*\*WSL·컨테이너에는 노출되지 않아 `null`\*\*이고, 그때는 팝업이 그 사실을 한 줄로 알린다(GPU 온도는 `nvidia-smi`에서 따로 오므로 WSL에서도 뜬다).
+- `processes[]`는 `/proc/<pid>/stat`을 직접 읽는다 — `ps %cpu`는 **프로세스 수명 전체의 평균**이라 "지금 누가 먹고 있나"에 못 쓴다. CPU는 `utime+stime` tick의 직전 표본 대비 증분이고 코어 하나 기준이라 100%를 넘을 수 있다. RSS·CPU·GPU가 모두 0인 항목(커널 스레드)은 빼고 보낸다. 프로세스별 GPU는 `nvidia-smi --query-compute-apps`가 주는 **메모리(MB)뿐**이다 — 프로세스별 GPU 사용률은 그 쿼리에 없다. `/proc`이 없는 환경(비리눅스)에서는 빈 배열.
+- **추이 그래프는 클라이언트가 모은다** — 서버에 링버퍼가 없다. 팝업이 열려 있는 동안 최근 60표본 (2분)을 들고 있다가 닫으면 버린다. 개별 프로세스 그래프도 이 이력에서 pid로 뽑는다.

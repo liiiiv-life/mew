@@ -1,0 +1,55 @@
+# 에이전트 런타임 설정
+
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+
+## 설치·로그인·구독
+
+- **설치와 로그인은 별개다**. ACP 런타임은 로그인 화면의 등록된 browser(내부 서버 브라우저)/terminal 작업을 쓰고, Claude·Antigravity는 탭에 열린 공식 TUI의 로그인 흐름을 그대로 쓴다. Mew는 두 terminal 런타임의 OAuth 토큰이나 승인 코드를 별도 API로 받거나 저장하지 않는다. 화면 문구와 배치는 [표시 기준](../specs/agent-panel.md#로그인-화면)을 따른다.
+- **로그인과 구독·한도도 별개다**([ADR 0130](../../../.mew/docs/decisions/0130-mew-agent-account-entitlement.md)). Kimi·Codex·Cursor ACP 채팅의 **i(세션 정보)** 팝업과 지원 런타임 설정의 `연결 계정 · 구독`에서 서버 CLI 계정·플랜을 조회한다. 명시적 구독 필요·사용량 소진·크레딧 부족 오류는 ACP가 `Authentication required`로 감싸도 로그인 화면으로 전환하지 않는다. 기존 대화와 대기 메시지를 유지하고 자동 연속 전송을 멈춘다. 대기 메시지 편집·재연결·계정 재조회는 재전송하지 않으며, 사용자가 새 메시지를 전송하면 대기 순서대로 재개한다.
+  계정 조회는 Kimi의 `web --host 127.0.0.1 --port 0 --no-open --log-level error` 임시 프로세스에서 `/api/v1/oauth/userinfo`·`usage`·`region`, Codex의 호스트 CLI `app-server`에서 `account/read`·`account/rateLimits/read`, Cursor의 `status --format json`, Claude 설정의 `auth status --json`을 사용한다. 실행 파일·환경은 런타임 설정을 따르고 상태 명령 인자는 고정한다. 임시 프로세스는 20초 제한·256KiB stdout 제한과 종료 후 강제 종료 대기를 가지며, Kimi 서버의 접속 토큰은 해당 자식의 시작 출력에서만 일시 사용한다. 공급자 인증 저장소는 직접 읽지 않고 모델 프롬프트도 보내지 않는다.
+  계정·플랜은 확인된 필드만 표시한다. 무료 플랜은 사용 불가 판정이 아니며, `VIP10` 같은 미확인 플랜 코드는 미구독으로 단정하지 않는다. CLI 버전·네트워크 문제나 조회 기능이 없으면 `확인할 수 없음`과 재조회 경로를 제공한다. Cursor는 계정 정보만 확인되고 플랜이 반환되지 않을 수 있다. API 키 기반 Codex는 ChatGPT 구독과 구분한다.
+  사용량은 i 팝업의 기존 토큰·API 환산 비용 표시로 확인한다. `구독 관리`·`구독하기` 버튼은 공급자별 고정 URL을 같은 계정의 내부 DOM 브라우저로 연다(Kimi 리전 반영). 페이지를 닫으면 그 창과 팝업을 정리하고 상태만 다시 조회한다. 구독 페이지의 계정이 표시된 CLI 계정과 같은지 사용자가 확인하며, 결제나 프롬프트 재전송은 자동 실행하지 않는다. 계정 결과는 메모리에서만 표시하고 전사·localStorage에 저장하지 않는다. Antigravity와 기존 terminal 본문은 이번 기능의 적용 대상이 아니다.
+
+## 모델·권한 기본값과 런타임 선택
+
+- **모델·권한 선택기 옆 저장 아이콘은 현재 값을 그 런타임의 기본값으로 남긴다**([ADR 0063](../../../.mew/docs/decisions/0063-mew-agent-runtime-saved-defaults.md)). 값은 브라우저가 아니라 `<DATA_DIR>/agent-defaults.json`에 런타임별로 저장되어, 새 탭·서버 재시작 뒤 `session/new`·`session/load`에도 적용된다. 현재 선택이 저장값과 같으면 아이콘이 강조된다. 저장값이 없는 **권한 모드 기본값은 그 런타임의 "전체 허용"이다**([ADR 0037](../../../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)). ACP 세션은 제한 모드로 시작하므로(claude `default`·codex `auto`) 서버가 `session/new`·`session/load`뒤마다 다시 걸어 준다(`#applyDefaults`). 이름이 런타임마다 달라 한 값으로 박지 않고 후보 순서 (`FULL_ACCESS_MODES`)로 고른다 — claude `bypassPermissions` · codex `agent-full-access` · hermes `dont_ask`. claude의 `dontAsk`는 뜻이 반대(미리 승인 안 된 건 거절)라 순서로 갈린다. 헤더 선택기로 턴마다 바꿀 수 있다. `MEW_AGENT_MODE`에 모드 id를 박으면 운영자 강제값으로 저장된 권한보다 우선한다. 모드 목록은 백엔드가 광고하는 것을 그대로 쓴다 — 광고에 없으면(예: root 실행) 조용히 넘어간다.
+
+- **새 탭은 런타임 또는 에이전트셋을 고르기 전에 세션을 띄우지 않는다**([ADR 0096](../../../.mew/docs/decisions/0096-mew-agent-tabs-created-after-selection.md)). 마지막 탭을 닫으면 가운데 `새 탭` 버튼만 남고, `+`와 이 버튼은 선택기만 연다. 설치되지 않은 런타임은 서버 등록표의 고정 설치 명령으로만 설치하고, 성공하면 새로고침 없이 그 런타임을 선택한다. 선택 후에만 WS·히스토리·입력창이 생긴다. 런타임은 탭별로 `mew:agent-tabs` 안에 남고, 예전 탭은 마지막 `mew:agent-runtime` 값으로 한 번 승격한다.
+
+- **세션 창의 헤더 아이콘은 런타임 드롭다운이다**([ADR 0074](../../../.mew/docs/decisions/0074-mew-agent-header-runtime-switch.md) — 0062의 탭 안 전환 금지를 해제). 누르면 새 탭의 목록과 같은 등록표(아이콘·설치 상태·사용/설치)가 펼쳐지고, 다른 에이전트를 고르면 **그 탭의 세션이 갈아탄다** — 새 탭을 만들지 않는다. WS 연결 effect가 `runtime` 의존이라 재접속하며 새 세션을 붙이고, 옛 세션은 서버 감독에 그대로 남는다. 설치도 드롭다운 안에서 같은 고정 명령 경로로 한다.
+
+- 실행 표면과 명령은 `server/agentRuntimes.ts`의 `RUNTIMES` 등록표가 정한다. 클라이언트에 같은 목록이 또 있는 이유는 **아이콘**뿐이고 판정은 서버가 한다:
+
+  | 런타임 | 에이전트 탭 표면·명령 | 인증 | 환경변수 |
+  | --- | --- | --- | --- |
+  | `claude` | terminal · `claude` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_CLAUDE_CLI_CMD` · `MEW_AGENT_CLAUDE_CLI_ARGS`; 예약 ACP는 기존 `MEW_AGENT_CMD` · `MEW_AGENT_CLAUDE_CMD` 계약 유지 |
+  | `antigravity` | terminal · `agy` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_ANTIGRAVITY_CMD` · `MEW_AGENT_ANTIGRAVITY_ARGS` |
+  | `codex` | 로컬 `node_modules/.bin/codex-acp`(버전 고정) → 컴퓨터에 설치된 `codex` 엔진, 자격증명은 `~/.codex` | 내부 서버 브라우저 · 호스트 `codex login` · 서버 loopback callback | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `MEW_AGENT_CODEX_CLI_CMD` · `CODEX_PATH` · `NO_BROWSER`(기본 `1`) |
+  | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `hermes acp --setup` | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
+  | `kimi` | `kimi acp` | 내부 서버 브라우저 · `kimi login`(.com) / `kimi login --region global`(.ai) | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
+  | `openclaw` | `openclaw acp` | `openclaw onboard --tui` | `MEW_AGENT_OPENCLAW_CMD` · `MEW_AGENT_OPENCLAW_ARGS` |
+  | `opencode` | `opencode acp` | `opencode auth login` | `MEW_AGENT_OPENCODE_CMD` · `MEW_AGENT_OPENCODE_ARGS` |
+  | `cursor` | `agent acp` | 내부 서버 브라우저 · `agent login`(`NO_OPEN_BROWSER=1`) | `MEW_AGENT_CURSOR_CMD` · `MEW_AGENT_CURSOR_ARGS` |
+  | `prime` | Mew 내장 어댑터 → 공식 `prime-agent --mode rpc` — 공식 인스톨러로 설치(`curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh \| sh`) | TUI `/login`(공급자 선택) | `MEW_AGENT_PRIME_ARGS` (옛 `MEW_AGENT_PRIME_CMD`는 읽지 않음) |
+
+  공통은 `MEW_AGENT_MODE`(안 주면 이 문서의 전체 허용 후보 순서). 진입점이 없거나 로그인 전 ACP를 말하지 않으면 오류와 terminal auth를 함께 보여 준다 — 목록에서 감추거나 탭을 닫지 않는다. 로그인 완료 뒤에도 실패하면 같은 화면에 최신 시작 오류를 남긴다. Prime Agent는 연결당 세션 하나라 mew의 탭 하나가 곧 하나의 Prime 세션이 된다(둘째 탭은 프로세스를 하나 더 띄운다).
+
+| 라우트 | 역할 | 하는 일 |
+| --- | --- | --- |
+| `GET /api/agent-runtimes` | manager·owner | 등록 런타임의 실행 파일 존재와 설치·안전 제거·로그아웃 가능 상태 |
+| `POST /api/agent-runtimes/:id/terminal/:tab` | manager·owner | terminal 런타임의 탭별 전용 tmux를 검증된 cwd에서 만들고 등록표의 공식 CLI 실행 |
+| `DELETE /api/agent-runtimes/:id/terminal/:tab` | manager·owner | 탭이 소유한 전용 tmux와 CLI 종료 |
+| `POST /api/agent-runtimes/:id/install` | manager·owner | id에 대응하는 등록표의 고정 설치 명령 실행. 임의 명령·인자는 받지 않음 |
+| `DELETE /api/agent-runtimes/:id/install` | manager·owner | 등록표가 선언한 고정 역설치 명령 실행. 안전한 제거 계약이 없으면 거부 |
+| `POST /api/agent-runtimes/:id/logout` | manager·owner | 등록표가 선언한 비대화형 CLI 로그아웃만 실행. 자격증명 값은 읽거나 전송하지 않음 |
+| `POST /api/agent-runtimes/:id/auth/:method/run` | manager·owner | ACP가 광고했거나 등록표에 박힌 terminal auth 고정 명령을 숨김 tmux에서 실행. body는 `{tab}`만 |
+| `GET /api/agent-runtimes/:id/account` | manager·owner | 공식 CLI 상태 기능으로 계정 표시명·플랜·구독/한도 상태·고정 구독 URL을 일시 반환. `Cache-Control: no-store`, 동시 조회만 병합 |
+| `GET /api/agent-runtimes/:id/auth/:method/status?tab=<id>` | manager·owner | 인증 작업 상태·exit code, browser 표면의 allowlist URL·일회용 코드, 필터된 실패 이유. 출력·비밀값은 기록하지 않음 |
+| `GET /api/agent-defaults/:id` | manager·owner | 런타임별로 저장된 모델·권한 기본값 |
+| `PUT /api/agent-defaults/:id` | manager·owner | 현재 모델·권한을 그 런타임의 기본값으로 원자적 저장 |
+| `GET /api/agent-runtimes/:id/settings` | manager·owner | 런타임 설정(실행 파일·추가 인자·env). **env 값은 마지막 4자만 마스킹해서** 돌려준다 |
+| `PUT /api/agent-runtimes/:id/settings` | manager·owner | 병합 저장 — 보낸 키만 갈아끼우고 없는 env 키는 기존 값을 유지(시크릿 원문을 브라우저가 모르므로) |
+| `DELETE /api/agent-runtimes/:id/settings` | manager·owner | 그 런타임의 사용자 설정을 지우고 등록표 기본값으로 돌아간다 |
+
+- **런타임 설정 팝업**(목록의 톱니 아이콘) — 설치·삭제·로그인·로그아웃과 실행 파일 경로·추가 인자·공급자 env를 런타임별로 저장한다. ACP 런타임은 `resolvedSpec`, terminal 런타임은 `resolvedTerminalSpec`이 다음 탭 시작과 설치 판정에 적용한다. Claude 예약 작업용 ACP 어댑터는 대화형 CLI 설정과 분리된 고정 계약을 유지한다. 시크릿은 서버에만 있고 화면은 `****끝4자`만 본다. 제거·로그아웃은 확인 뒤 등록표의 고정 명령만 실행하며, 안전한 역설치 계약이 없는 Antigravity는 임의 파일을 지우지 않는다.
+- ACP 런타임의 **모델 목록은 ACP가 광고하는 것을 그대로 쓴다.** Claude·Antigravity의 모델·권한·히스토리는 Mew 선택기로 복제하지 않고 공식 TUI 안에서 조작한다.

@@ -161,7 +161,7 @@ Codex·Kimi·Cursor의 browser 인증은 일반 계정 프로필을 공유한다
 ACP가 요청한 인증 URL도 owner·manager의 사용자 열기 동작으로 내부 브라우저에 연결한다. DOM 준비 전에는 ACP 요청을
 승인하지 않고, 인증 완료 또는 에이전트 화면 종료 때 관련 탭을 닫는다. 결정은 [ADR 0128](../.mew/docs/decisions/0128-mew-browser-oauth-uses-internal-browser.md)을 따른다.
 
-실행 계약과 지원 한계는 [README](README.md)의 브라우저 창 절, 결정은
+실행 계약과 지원 한계는 [서버 브라우저 문서](docs/guides/browser.md), 결정은
 [ADR 0127](../.mew/docs/decisions/0127-mew-browser-server-dom-runtime.md)에 둔다.
 자동화를 거부하는 사이트·OS 인증창·Canvas/WebGL·미디어는 일반 데스크톱 브라우저와 같은 사용 경험을 보장하지 않는다.
 
