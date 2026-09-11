@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import os from 'node:os'
 import { DATA_DIR } from './dataDir.ts'
 import http, { type IncomingMessage } from 'node:http'
 import test from 'node:test'
@@ -23,11 +24,36 @@ test('native browser launch rejects missing executables without leaving a pendin
   await assert.rejects(launchNativeBrowser('/nonexistent/mew-test-browser', '/nonexistent/mew-test-profile', true), /서버 Chromium 프로세스/)
 })
 
+test('native launch handles executable/profile paths with spaces and flushes cookies before reopening', { skip: !domBrowserExecutable() || process.platform === 'win32', timeout: 30_000 }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mew native browser-'))
+  const launcher = path.join(root, 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+  const profile = path.join(root, 'Library/Application Support/mew/browser/profiles/test account')
+  await fs.mkdir(path.dirname(launcher), { recursive: true })
+  await fs.mkdir(profile, { recursive: true })
+  // A POSIX exec wrapper tests app-shaped paths on Linux and macOS while keeping
+  // the installed browser's resources/bundle intact. It is not a macOS emulator.
+  const quotedExecutable = "'" + domBrowserExecutable()!.replaceAll("'", "'\\''") + "'"
+  await fs.writeFile(launcher, `#!/bin/sh\nexec ${quotedExecutable} "$@"\n`, { mode: 0o700 })
+  let native: Awaited<ReturnType<typeof launchNativeBrowser>> | undefined
+  t.after(async () => { await native?.close(); await fs.rm(root, { recursive: true, force: true }) })
+  native = await launchNativeBrowser(launcher, profile, domBrowserHeadless())
+  const page = await native.context.newPage()
+  if (!domBrowserHeadless()) assert.equal(await page.evaluate('navigator.webdriver'), false)
+  await native.context.addCookies([{ name: 'mew-native-fixture', value: 'persisted', domain: 'example.test', path: '/', expires: Math.floor(Date.now() / 1000) + 3600 }])
+  await native.close()
+  native = await launchNativeBrowser(launcher, profile, domBrowserHeadless())
+  assert.equal((await native.context.cookies('https://example.test')).find((cookie) => cookie.name === 'mew-native-fixture')?.value, 'persisted')
+  await native.close()
+  await native.close()
+})
+
 test('browser uses the server display and honors explicit headed/headless settings', () => {
   assert.equal(domBrowserHeadless({ DISPLAY: ':0' }, 'linux'), false)
   assert.equal(domBrowserHeadless({ WAYLAND_DISPLAY: 'wayland-0' }, 'linux'), false)
   assert.equal(domBrowserHeadless({}, 'linux'), true)
   assert.equal(domBrowserHeadless({}, 'darwin'), false)
+  assert.equal(domBrowserHeadless({ MEW_BROWSER_HEADLESS: '1' }, 'darwin'), true)
+  assert.equal(domBrowserHeadless({ MEW_BROWSER_HEADLESS: '0' }, 'darwin'), false)
   assert.equal(domBrowserHeadless({}, 'win32'), false)
   assert.equal(domBrowserHeadless({ MEW_BROWSER_HEADLESS: '1', DISPLAY: ':0' }, 'linux'), true)
   assert.equal(domBrowserHeadless({ MEW_BROWSER_HEADLESS: '0' }, 'linux'), false)

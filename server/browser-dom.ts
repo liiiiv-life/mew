@@ -11,6 +11,9 @@ import { WebSocket, WebSocketServer } from 'ws'
 import { authOf, requireRole, resolveAuth, type RequestAuth } from './reqAuth.ts'
 import { acquireBrowserProfile, domBrowserHeadless } from './browser-dom-profile.ts'
 import { createDomNetworkGate } from './browser-dom-network.ts'
+import { domBrowserExecutable } from './browser-dom-executable.ts'
+
+export { domBrowserExecutable } from './browser-dom-executable.ts'
 
 export const DOM_BROWSER_WS = '/api/browser-dom/ws'
 const sessions = new Map<string, DomBrowserSession>()
@@ -20,12 +23,6 @@ const recorder = 'if (["http:", "https:", "about:"].includes(location.protocol) 
 const TTL = 20 * 60_000
 const MAX_RESOURCE = 5 * 1024 * 1024
 const MAX_CACHE = 32 * 1024 * 1024
-
-export function domBrowserExecutable(): string | undefined {
-  if (process.env.MEW_BROWSER_EXECUTABLE) return process.env.MEW_BROWSER_EXECUTABLE
-  const candidates = [chromium.executablePath(), '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
-  return candidates.find((candidate) => fs.existsSync(candidate))
-}
 
 export function domTargetAllowed(raw: string, hosts: readonly string[], callbackOrigin: string): boolean {
   try {

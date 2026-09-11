@@ -269,12 +269,21 @@ Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**와 독립 `/browser` 
 `@rrweb/record`·`@rrweb/replay`로 DOM 변경과 사용자 입력만 연결하며 화면 캡처·영상 전송은 사용하지 않는다.
 결정과 지원 경계는 [ADR 0127](../.mew/docs/decisions/0127-mew-browser-server-dom-runtime.md)에 둔다.
 
-- 준비: `npx playwright-core install chromium`. 시스템 Chrome/Chromium도 탐색하며 다른 설치 위치는
-  `MEW_BROWSER_EXECUTABLE` 절대 경로로 지정한다. Chromium OS sandbox는 끄지 않는다.
+- 준비: Mew를 실행하는 OS 사용자로 `npx playwright-core install chromium`을 실행한다.
+  해당 OS·아키텍처용 Playwright 브라우저를 우선 사용하고, 없으면 시스템 Chrome/Chromium을 탐색한다.
+  macOS는 Google Chrome, Chromium 순서로 각각 `~/Applications` → `/Applications`의 앱 내부 실행 파일을 찾는다.
+  Apple Silicon·Intel 모두 같은 실행 경로를 사용하며, Linux 브라우저 바이너리·캐시는 Mac으로 복사하지 않는다.
+  다른 설치 위치는 `MEW_BROWSER_EXECUTABLE`에 실행 가능한 파일의 절대 경로로 지정한다.
+  예: `export MEW_BROWSER_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`.
+  `.app` 디렉터리 자체는 실행 파일이 아니다. 명시한 경로가 잘못되면 오류를 표시하고 다른 브라우저로 바꾸지 않는다.
+  Chromium OS sandbox는 끄지 않는다.
 - 실행 모드: Linux/WSL에서 Mew 프로세스에 `DISPLAY` 또는 `WAYLAND_DISPLAY`가 있으면 창 모드로 실행한다.
   Windows/macOS도 기본 창 모드이며, 디스플레이 환경이 없는 Linux는 헤드리스로 실행한다.
   `MEW_BROWSER_HEADLESS=0`은 창 모드, `1`은 헤드리스를 강제한다. 창 실행 실패 시 헤드리스로 자동 재시도하지 않는다.
   WSLg에서는 보통 `DISPLAY=:0`을 Mew 실행 환경에도 전달하면 된다. 표시 방식은 두 모드 모두 DOM 중계다.
+  macOS 창 모드는 로그인한 사용자의 데스크톱 세션에서 Mew를 실행하는 환경을 기준으로 한다.
+  Mac에는 WSL의 `DISPLAY=:0` 설정이 필요하지 않다. GUI 없는 SSH·시스템 서비스 실행은 창 모드 검증 대상이 아니다.
+  브라우저는 `.app/Contents/MacOS/…`를 직접 spawn하며 `open -a`로 기존 개인 Chrome에 연결하지 않는다.
   서버 데스크톱에 브라우저·로그인 창이 보이므로 해당 데스크톱에 접근하는 사람도 화면을 볼 수 있다.
   모드 변경은 새 Chromium 프로필 프로세스에 적용된다. 창 모드로 바꿔도 공급자의 로그인 허용을 보장하지 않는다.
 - 계정별 전용 프로필은 `MEW_DATA_DIR/browser/profiles/<account-hash>`에 둔다. 일반 탭은 쿠키·localStorage·IndexedDB를
@@ -325,7 +334,8 @@ ACP 인증 완료 또는 에이전트 화면 종료 때 해당 서버 탭들을 
 `GET /api/browser-url?url=`·`/__mew_browser/...`·`/__mew_browser_ws/...`는 이 호환 경로에 남으며 일반 Browser 패널은 사용하지 않는다.
 호환 프록시는 localhost·127.0.0.0/8·::1만 허용하고 링크·새 창 target·`window.open`은 같은 프레임으로 제한한다.
 
-검증: `node --test server/browser-dom.test.ts`. 실제 Chromium으로 폼·서버 쿠키·callback·재연결·모바일 폭·프레임 클릭·
+검증: `node --test server/browser-dom-executable.test.ts server/browser-dom.test.ts`. 실행 파일 탐색과 실제 Chromium의 공백 경로 실행·프로필 재열기를 검사한다.
+실제 Chromium으로 폼·서버 쿠키·callback·재연결·모바일 폭·프레임 클릭·
 WebSocket·Service Worker·팝업/opener·방문 기록·SPA·대화상자·파일 전송·영속 프로필·계정 격리·인증 호스트 차단을 검사한다.
 Chromium이 없으면 실제 브라우저 테스트만 skip한다.
 창 모드 검증은 `MEW_BROWSER_HEADLESS=0 node --test server/browser-dom.test.ts`,
