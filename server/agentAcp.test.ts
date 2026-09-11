@@ -37,6 +37,60 @@ test('Codex 기본 OAuth는 서버 브라우저 표면을 공개한다', () => {
 
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
 
+test('quota-wrapped authentication failure preserves the session and pauses queued prompts until explicit submission', { timeout: 10_000 }, async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-quota-'))
+  const stub = path.join(dir, 'quota.mjs')
+  fs.writeFileSync(stub, `
+import {AgentSideConnection,ndJsonStream,PROTOCOL_VERSION,RequestError} from ${JSON.stringify(sdkUrl)};
+import {Readable,Writable} from 'node:stream';
+let calls=0;
+new AgentSideConnection(conn=>({
+ initialize:async()=>({protocolVersion:PROTOCOL_VERSION,agentCapabilities:{},authMethods:[{id:'login',name:'Login'}]}),
+ newSession:async()=>({sessionId:'quota-session'}), authenticate:async()=>{throw Error('must not authenticate')},cancel:async()=>{},
+ prompt:async({sessionId,prompt})=>{
+  calls++;
+  if(calls===1) { await new Promise(r=>setTimeout(r,30)); throw new RequestError(-32000,"Authentication required: 403 You've reached your monthly usage limit for this billing cycle.") }
+  await conn.sessionUpdate({sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:prompt[0].text}}});
+  return {stopReason:'end_turn'};
+ }
+}),ndJsonStream(Writable.toWeb(process.stdout),Readable.toWeb(process.stdin)));
+`)
+  const session = await AgentSession.start('kimi', { cmd: process.execPath, args: [stub] }, workspace)
+  t.after(() => { session.dispose(); fs.rmSync(dir, { recursive: true, force: true }) })
+  const events: AgentEvent[] = []
+  let pause!: () => void, finish!: () => void
+  const paused = new Promise<void>((resolve) => { pause = resolve })
+  const finished = new Promise<void>((resolve) => { finish = resolve })
+  session.attach((event) => {
+    events.push(event)
+    if (event.type === 'meta' && event.meta.accessIssue && !event.meta.busy) pause()
+    if (event.type === 'turn_end' && events.filter((e) => e.type === 'turn_end').length === 3) finish()
+  })
+  session.prompt('first')
+  session.prompt('queued')
+  await paused
+  assert.equal(events.some((event) => event.type === 'auth'), false)
+  const error = events.find((event) => event.type === 'error')
+  assert.equal(error?.type === 'error' && error.accessIssue, 'quota_exhausted')
+  let attached: AgentEvent | undefined
+  session.attach((event) => { attached = event })()
+  assert.equal(attached?.type, 'meta')
+  if (attached?.type === 'meta') {
+    assert.equal(attached.meta.sessionId, 'quota-session')
+    assert.deepEqual(attached.meta.queued, ['queued'])
+    assert.equal(attached.meta.accessIssue, 'quota_exhausted')
+  }
+  session.beginQueuedEdit(0, 'queued')
+  session.cancelQueuedEdit(0, 'queued')
+  assert.equal(events.filter((event) => event.type === 'turn_start').length, 1)
+  session.prompt('resume')
+  await finished
+  assert.equal(textOf(events), 'queued|resume')
+  const startup = runtimeLoginAuthEvent('kimi', 'Authentication required: monthly usage limit reached')
+  assert.equal(startup.type, 'error')
+})
+
 // 세션은 워크스페이스에 묶인다 — 스텁이 쓰는 상대 경로도 전부 여기 기준이다(ADR 0043)
 const runtime = 'claude'
 

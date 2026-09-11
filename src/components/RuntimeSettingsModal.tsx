@@ -3,6 +3,8 @@
 // 덮어써야 바꿀 수 있다. 저장 즉시 다음 spawn부터 적용된다.
 import { useEffect, useState } from 'react'
 import { ConfirmDialog } from '@mew/ui'
+import { AgentAccountCard } from './AgentAccountCard'
+import { SUBSCRIPTION_URLS } from '../../shared/agent-access'
 import {
   deleteAgentRuntimeSetting,
   fetchAgentRuntimes,
@@ -187,6 +189,7 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
               {runtime?.installed && !runtime.uninstallable && <div className="mt-2 text-[11px] text-ink-faint">이 설치 방식에는 안전한 자동 제거 명령이 없어 파일을 추측해 지우지 않습니다.</div>}
               {runtime?.installed && !runtime.logoutable && <div className="mt-1 text-[11px] text-ink-faint">이 CLI는 확인된 비대화형 로그아웃 명령이 없어 자동 로그아웃을 제공하지 않습니다.</div>}
             </section>
+            {runtime?.installed && Object.hasOwn(SUBSCRIPTION_URLS, runtimeId) && <AgentAccountCard runtime={runtimeId} />}
             <div>
               <label className="mb-1 block text-xs font-medium text-ink-secondary">실행 파일</label>
               <input

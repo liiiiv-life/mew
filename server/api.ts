@@ -70,6 +70,7 @@ import { terminalAuthFromHost } from './agentHost.ts'
 import { authFailureMessageFromOutput, browserLoginDetailsFromOutput, prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
 import { resolveWorkspaceLink } from './workspaceLinks.ts'
 import { installRuntime, logoutRuntime, runtimeStatuses, RuntimeInstallError, uninstallRuntime } from './agentRuntimeInstall.ts'
+import { readRuntimeAccount } from './agentAccount.ts'
 import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentDefaults.ts'
 import { AgentCwdError, resolveAgentCwd, suggestAgentCwds } from './agentCwd.ts'
 import { AgentScheduledPromptError, cancelAgentScheduledPrompt, listAgentScheduledPrompts, scheduleAgentPrompt, updateAgentScheduledPrompt } from './agentScheduledPrompts.ts'
@@ -1953,6 +1954,12 @@ export function createApiApp() {
   // 에이전트 런타임 설치는 서버 머신에 실행 파일을 쓰는 작업 — 터미널과 같은 역할만.
   app.get('/agent-runtimes', requireRole('owner', 'manager'), (_req, res) => {
     res.json({ runtimes: runtimeStatuses() })
+  })
+
+  app.get('/agent-runtimes/:id/account', requireRole('owner', 'manager'), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    try { res.json({ account: await readRuntimeAccount(String(req.params.id)) }) }
+    catch { res.status(400).json({ error: '지원하지 않는 런타임입니다' }) }
   })
 
   // terminal형 런타임은 통합 패널의 탭별 전용 tmux에서 공식 TUI 또는 기본 셸을 실행한다. 브라우저는

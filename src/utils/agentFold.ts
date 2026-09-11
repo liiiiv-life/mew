@@ -2,6 +2,8 @@
 // 서버는 상태를 보내지 않고 이벤트만 보낸다 — 재접속하면 지나간 이벤트를 그대로 되받으므로
 // 이 함수 하나가 대화 복원 로직 전부다.
 
+import type { AccessIssue } from '../../shared/agent-access'
+
 export type PermissionOption = { optionId: string; name: string; kind: string }
 
 export type ModelInfo = { modelId: string; name: string }
@@ -31,6 +33,7 @@ export type SessionMeta = {
   turns: number
   busy: boolean
   queued: string[]
+  accessIssue?: AccessIssue | null
   usage: Usage | null
   canLoad: boolean
   canList: boolean
@@ -76,7 +79,7 @@ export type AgentEvent =
   // startedAt·durationMs — 서버(agentAcp.ts)가 턴 시작·끝에 새겨 보낸다. 옛 서버 이벤트에는 없을 수 있다
   | { type: 'turn_start'; startedAt?: number }
   | { type: 'turn_end'; stopReason: string; durationMs?: number }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; accessIssue?: AccessIssue }
   | { type: 'ready'; cwd: string }
   | { type: 'fatal'; message?: string }
   | { type: 'models'; models: ModelState }

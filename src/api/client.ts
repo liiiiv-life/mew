@@ -649,6 +649,10 @@ export function deleteAgentRuntimeSetting(id: string): Promise<{ ok: boolean }> 
   return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`, { method: 'DELETE' }).then(json<{ ok: boolean }>)
 }
 
+export function fetchAgentRuntimeAccount(id: string): Promise<{ account: import('../../shared/agent-access').RuntimeAccount }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/account`, { cache: 'no-store' }).then(json<{ account: import('../../shared/agent-access').RuntimeAccount }>)
+}
+
 /** 저장된 런타임 설정의 마스킹 뷰 — 시크릿은 ****끝4자만 온다 */
 export interface RuntimeSettingView {
   cmd?: string

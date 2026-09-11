@@ -13,6 +13,7 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import fs from 'node:fs'
+import { accessIssueFromError, type AccessIssue } from '../shared/agent-access.ts'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -120,6 +121,7 @@ export type SessionMeta = {
   busy: boolean
   /** 진행 중인 턴이 끝나면 순서대로 실행될 대기 메시지 */
   queued: string[]
+  accessIssue?: AccessIssue | null
   usage: Usage | null
   canLoad: boolean
   canList: boolean
@@ -147,7 +149,7 @@ export type AgentEvent =
   | { type: 'permission_done'; id: string }
   | { type: 'turn_start'; startedAt: number }
   | { type: 'turn_end'; stopReason: string; durationMs: number }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; accessIssue?: AccessIssue }
   | { type: 'models'; models: SessionModelState }
   | { type: 'modes'; modes: SessionModeState }
   | { type: 'thinking'; thinking: ThinkingState | null }
@@ -205,6 +207,7 @@ function describeError(err: unknown): string {
 }
 
 function isAuthRequiredError(err: unknown): boolean {
+  if (accessIssueFromError(err)) return false
   if (err && typeof err === 'object' && (err as { code?: unknown }).code === -32000) return true
   const message = err instanceof Error ? err.message : String(err)
   return /authentication required|auth_required|not logged in|please (?:run \/login|log in|sign in)/i.test(message)
@@ -231,6 +234,8 @@ function runtimeLoginMethods(runtime: string): AuthMethodInternal[] {
 
 /** initialize 전에 ACP가 죽은 탭도 같은 로그인 UI를 그릴 수 있는 공개 상태. */
 export function runtimeLoginAuthEvent(runtime: string, error: string | null, authenticating = false): AgentEvent {
+  const accessIssue = accessIssueFromError(error)
+  if (accessIssue) return { type: 'error', message: error!, accessIssue }
   const methods = runtimeLoginMethods(runtime).map(({ id, name, description, kind, surface, browserInput, serverBrowser }) => ({ id, name, description, kind, surface, browserInput, serverBrowser }))
   return { type: 'auth', methods, authenticating, error }
 }
@@ -305,6 +310,7 @@ export class AgentSession {
   #startupFailure: Promise<never>
   #rejectStartup: ((err: Error) => void) | null = null
   #sessionId = ''
+  #accessIssue: AccessIssue | null = null
   #events: AgentEvent[] = []
   /** session/load가 성공하기 전까지 전사를 숨겨 두는 임시 버퍼 — 실패한 세션이 현재 대화를 오염시키지 않게 한다. */
   #loadingEvents: AgentEvent[] | null = null
@@ -508,6 +514,7 @@ export class AgentSession {
   /** 새로 만들었거나 불러온 ACP 세션으로 갈아탄다 — 사용량 리더도 그 세션 파일을 보게 바꾼다 */
   #adopt(sessionId: string, models: SessionModelState | null, modes: SessionModeState | null, configOptions?: SessionConfigOption[] | null) {
     this.#sessionId = sessionId
+    this.#accessIssue = null
     this.#reader = new UsageReader(this.cwd, sessionId)
     this.#usage = null
     if (models) this.#useModels(models)
@@ -726,9 +733,13 @@ export class AgentSession {
   /** 진행 중인 턴이 있으면 줄을 세운다 — 끝나는 대로 순서대로 이어 돈다 */
   prompt(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings) {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
+    // Explicit new submission resumes a quota-paused queue; edits/reconnects do not.
+    const resume = !this.busy && this.#accessIssue !== null
+    if (resume) this.#accessIssue = null
     if (this.busy || this.#queue.length > 0) {
       this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings })
       this.#broadcast(this.#metaEvent())
+      if (resume) this.#drainQueue()
       return
     }
     this.#run(text, promptText, images, imageRefs, settings)
@@ -858,6 +869,13 @@ export class AgentSession {
       .prompt({ sessionId: this.#sessionId, prompt })
       .then((res) => this.#emit({ type: 'turn_end', stopReason: res.stopReason, durationMs: Date.now() - turnStartedAt }))
       .catch((err: unknown) => {
+        const accessIssue = accessIssueFromError(err)
+        if (accessIssue) {
+          this.#accessIssue = accessIssue
+          this.#emit({ type: 'error', message: describeError(err), accessIssue })
+          this.#emit({ type: 'turn_end', stopReason: 'error', durationMs: Date.now() - turnStartedAt })
+          return
+        }
         if (isAuthRequiredError(err) && this.#authMethods.length > 0) {
           this.#emit({ type: 'turn_end', stopReason: 'error', durationMs: Date.now() - turnStartedAt })
           this.#enterAuth(err)
@@ -879,6 +897,11 @@ export class AgentSession {
 
   /** 큐의 다음 항목 하나만 시작한다. clear 뒤의 프롬프트는 새 세션에서 시작한다. */
   #drainQueue() {
+    if (this.#accessIssue) {
+      this.#broadcast(this.#metaEvent())
+      this.#armIdleTimer()
+      return
+    }
     const next = this.#queue[0]
     if (next === undefined) {
       void this.#pushMeta()
@@ -1075,6 +1098,7 @@ export class AgentSession {
         turns: this.#usage?.turns ?? this.#turns,
         busy: this.busy,
         queued: this.#queue.map((item) => item.text),
+        accessIssue: this.#accessIssue,
         usage: this.#usage,
         canLoad: this.#caps.loadSession === true,
         canList: this.#caps.sessionCapabilities?.list != null,

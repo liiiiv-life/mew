@@ -77,6 +77,8 @@ import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './Me
 import { agentInputMentionOptions } from '../utils/agentInputMentions'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
 import { RuntimeSettingsButton } from './RuntimeSettingsModal'
+import { AgentAccountCard } from './AgentAccountCard'
+import { SUBSCRIPTION_URLS } from '../../shared/agent-access'
 import { AgentSetPicker } from './AgentSetPicker'
 import { ScrollDateTimePicker } from './ScrollDateTimePicker'
 import { cachedAgentRuntimes, refreshAgentRuntimes, subscribeAgentRuntimes, updateAgentRuntimesCache } from '../utils/agentPickerCache'
@@ -487,7 +489,6 @@ function InfoRow({ label, value, title }: { label: string; value: string; title?
   )
 }
 
-const CODEX_USAGE_DASHBOARD_URL = 'https://chatgpt.com/codex/settings/usage'
 
 type OpenWorkspaceFile = (project: string, path: string, line: number | null) => void
 
@@ -2488,6 +2489,8 @@ function AgentSessionView({
     [infos, tabId, takenSessionIds],
   )
 
+  const lastAccessError = events.findLast((event) => event.type === 'error' && event.accessIssue)
+  const currentAccessIssue = meta ? meta.accessIssue : lastAccessError?.type === 'error' ? lastAccessError.accessIssue : null
   const busy = meta?.busy ?? false
   const queued = meta?.queued ?? []
   const usage = meta?.usage ?? null
@@ -2885,27 +2888,11 @@ function AgentSessionView({
           ) : (
             <InfoRow label="토큰" value="기록 없음" />
           )}
-          {runtime === 'codex' && (
-            <div className="mt-2 border-t border-edge pt-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-ink-secondary">계정 사용량</span>
-                <a
-                  href={CODEX_USAGE_DASHBOARD_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded border border-edge-bright px-2 py-0.5 text-[11px] text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
-                  title="Codex Usage 대시보드를 새 탭으로 엽니다"
-                >
-                  조회 ↗
-                </a>
-              </div>
-              <p className="mt-1 text-[11px] text-ink-muted">Codex 계정의 한도·크레딧은 공식 대시보드에서 확인합니다.</p>
-            </div>
-          )}
           </div>
         )}
       </div>
 
+      {!auth && Object.hasOwn(SUBSCRIPTION_URLS, runtime) && <AgentAccountCard key={runtime} runtime={runtime} issue={currentAccessIssue} queued={!!meta?.queued.length} />}
       {auth ? authBrowser ? (
         <AgentAuthServerBrowser
           runtime={currentRuntime.label}
