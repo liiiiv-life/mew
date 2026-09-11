@@ -32,12 +32,13 @@ export function TabBar({
 }) {
   const drag = useDragReorder({
     onReorder,
+    immediateMouseDrag: true,
     onDragMove: (i, x, y) => onDragMove?.(tabs[i]?.path ?? '', x, y),
     onDrop: (i, x, y) => onDrop?.(tabs[i]?.path ?? '', x, y),
   })
 
   return (
-    <div className="flex h-9 items-center border-b border-edge bg-surface-deep">
+    <div className="flex h-9 min-w-0 flex-1 items-center border-b border-edge bg-surface-deep">
       <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
         {tabs.map((tab, i) => {
           const isActive = tab.path === activePath

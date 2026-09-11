@@ -1,3 +1,4 @@
+import { DockGrip } from './DockWorkspace'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteComment,
@@ -473,7 +474,8 @@ export function EditorPane({
   return (
     <div onPointerDownCapture={onFocus} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
       {/* 포커스되지 않은 칸의 탭 줄은 흐리게 — 커밋·단축키가 어느 칸을 가리키는지 보이게 */}
-      <div ref={(el) => registerTabBar(pane.id, el)} className={focused ? undefined : 'opacity-60'}>
+      <div data-dock-tab-bar ref={(el) => registerTabBar(pane.id, el)} className={`flex h-9 shrink-0 items-stretch ${focused ? '' : 'opacity-60'}`}>
+        <DockGrip group={`editor:${pane.id}`} />
         <TabBar
           tabs={pane.tabs}
           activePath={pane.activePath}

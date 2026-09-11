@@ -61,13 +61,13 @@ export function FabMenu({
   const longPressTimer = useRef<number | null>(null)
   const longPressArmed = useRef(false)
   const actions: Action[] = [
-    { label: '전체화면', icon: icon(Expand), run: onFullscreen }, { label: '터미널•에이전트패널', icon: icon(Brain), run: onToggleAgent },
+    { label: '전체화면', icon: icon(Expand), run: onFullscreen }, { label: '에이전트', icon: icon(Brain), run: onToggleAgent },
     { label: '오른쪽 탭', icon: icon(ArrowRight), run: onNextWindowTab },
     { label: '탭 닫기', icon: icon(Xmark), run: onCloseWindowTab },
     { label: '에디터 화면', icon: icon(EditPencil), run: onOpenEditor }, { label: '사이드바', icon: icon(Folder), run: onToggleSidebar },
     { label: '왼쪽 탭', icon: icon(ArrowLeft), run: onPrevWindowTab },
     {
-      label: '브라우저 팝업',
+      label: '브라우저',
       icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 4h6v6" /><path d="m20 4-9 9" /><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" /></svg>,
       run: onToggleBrowser,
     },

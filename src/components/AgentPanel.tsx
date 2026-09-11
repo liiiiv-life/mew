@@ -1,3 +1,4 @@
+import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { ServerDomBrowserTabs } from './server-dom-browser'
 // 터미널•에이전트패널 — ACP 채팅과 탭별 tmux TUI·셸을 한 탭 체계에서 연다.
@@ -832,7 +833,9 @@ function AgentTabBar({
   onReorder,
   onCloseTab,
   onClosePanel,
+  group,
 }: {
+  group?: string
   tabs: AgentTab[]
   activeId: string | null
   /** 선택기는 아직 저장되는 탭이 아니지만, 탭 줄에서는 `+`가 현재 탭처럼 선다. */
@@ -848,9 +851,13 @@ function AgentTabBar({
   // 두 번 눌러 이름 고치기 — 고치는 동안만 여기 남는다(이름 자체는 위에서 localStorage로 간다)
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
   // 문서 탭·터미널 탭과 같은 훅 — 꾹 눌러 끌면 순서 바꾸기, 그냥 끌면 탭 줄 굴리기
-  const drag = useDragReorder({ onReorder })
+  const scopeRef = useRef<HTMLDivElement>(null)
+  useFocusedShortcutScope(scopeRef, { closeTab: () => { if (!activeId || pickerOpen) return false; onCloseTab(activeId); return true } })
+  const dock = useDock()
+  const drag = useDragReorder({ onReorder, immediateMouseDrag: true, onDragMove: (index, x, y) => { if (group && tabs[index]) dock?.preview(group, tabs[index].id, x, y) }, onDrop: (index, x, y) => { if (group && tabs[index]) dock?.drop(group, tabs[index].id, x, y) } })
   return (
-    <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
+    <div data-dock-tab-bar ref={scopeRef} className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
+      {group && <DockGrip group={group} />}
       <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
         {tabs.map((tab, i) => {
           // 새 탭 선택기가 열려 있으면 `+`가 가상 활성 탭이다. 직전 대화 탭을 함께 활성으로 보이지 않는다.
@@ -860,6 +867,8 @@ function AgentTabBar({
             <div
               key={tab.id}
               {...drag.getItemProps(i)}
+              draggable={false}
+              onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }}
               onClick={() => {
                 if (drag.consumeClick()) return
                 onActivate(tab.id)
@@ -937,7 +946,7 @@ function AgentTabBar({
         type="button"
         onClick={onClosePanel}
         className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-        aria-label="터미널•에이전트패널 닫기"
+        aria-label={group?.startsWith('terminal') ? '터미널 닫기' : '에이전트 닫기'}
       >
         <XGlyph />
       </button>
@@ -1250,7 +1259,7 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
           {statuses === null && !error ? (
             <div className="px-3 py-2 text-xs text-ink-muted">런타임 확인 중…</div>
           ) : (
-            RUNTIMES.map((rt) => {
+            RUNTIMES.filter((runtime) => runtime.id !== 'tmux').map((rt) => {
               const status = statuses?.find((item) => item.id === rt.id)
               const busy = installing === rt.id || status?.installing === true
               return (
@@ -1343,7 +1352,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
           <div className="py-8 text-center text-xs text-ink-muted">런타임 확인 중…</div>
         ) : (
           <div className="flex flex-col gap-2">
-            {RUNTIMES.map((runtime) => {
+            {RUNTIMES.filter((runtime) => runtime.id !== 'tmux').map((runtime) => {
               const status = statuses.find((item) => item.id === runtime.id)
               const busy = installing === runtime.id || status?.installing === true
               return (
@@ -1383,7 +1392,16 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0 }: { project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+  const dock = useDock()
+  const latestDock = useRef(dock)
+  latestDock.current = dock
+  const docked = !!dock
+  const [focusedGroup, setFocusedGroup] = useState('agent')
+  const [pickerGroup, setPickerGroup] = useState('agent')
+  useEffect(() => {
+    if (foregroundKind === 'agent' || foregroundKind === 'terminal') setFocusedGroup((group) => dock?.desktop !== false && group.startsWith(foregroundKind) ? group : foregroundKind)
+  }, [foregroundKind, dock?.desktop])
   const shortcutScopeRef = useRef<HTMLDivElement>(null)
   const tabsKey = agentTabStorageKey(TABS_KEY, workspacePath)
   const activeTabKey = agentTabStorageKey(ACTIVE_TAB_KEY, workspacePath)
@@ -1403,7 +1421,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   // 그 탭이 목록에서 사라졌으면(다른 창에서 닫았거나 저장분이 깨졌으면) 첫 탭으로 돌아간다
   const [activeId, setActiveId] = useState(() => loadActiveTabId(tabs, workspacePath))
   // 한 번이라도 연 탭만 붙인다 — 탭 하나가 에이전트 프로세스 하나라, 복원된 탭까지 다 띄우면 우르르 뜬다
-  const [opened, setOpened] = useState<Set<string>>(() => new Set(activeId ? [activeId] : []))
+  const [opened, setOpened] = useState<Set<string>>(() => new Set(!docked && activeId ? [activeId] : []))
   const [infos, setInfos] = useState<Record<string, TabInfo>>({})
   const [infoTabs, setInfoTabs] = useState<Set<string>>(() => new Set())
   // 탭 상태 저장은 한 번에 하나만 보낸다. 빠른 이름·세션 갱신의 오래된 PUT이 늦게 도착해
@@ -1414,7 +1432,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   const sendersRef = useRef(new Map<string, (payload: Record<string, unknown>) => void>())
 
   // 셸/TUI 안의 Esc는 프로그램 입력이다. 터미널 밖에 포커스가 있을 때만 패널 닫기로 쓴다.
-  useOverlayDismiss(onClose, { escapePhase: 'bubble', closeOnEscape: outsideTerminal })
+  useOverlayDismiss(!dock && onClose, { escapePhase: 'bubble', closeOnEscape: outsideTerminal })
 
   useEffect(() => {
     // 계정 원장이 SSoT이고 localStorage는 첫 화면용 fallback뿐이다. 전사·본문 캐시가 브라우저
@@ -1489,12 +1507,12 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
         pruneAgentLocalCaches(new Set([...claims.map((claim) => claim.tabId), ...restoredTabs.map((tab) => tab.id)]))
         setTabs(restoredTabs)
         setActiveId(restoredActiveId)
-        setOpened(new Set(restoredActiveId ? [restoredActiveId] : []))
+        setOpened(new Set(!docked && restoredActiveId ? [restoredActiveId] : []))
       })
       .catch(console.error)
       .finally(() => { if (alive) setTabsSynced(true) })
     return () => { alive = false }
-  }, [workspacePath])
+  }, [workspacePath, docked])
 
   const refreshSessionClaims = useCallback(async () => {
     if (!workspacePath) return
@@ -1510,12 +1528,14 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   const activate = (id: string) => {
     setPickerOpen(false)
     setActiveId(id)
+    const tab = tabs.find((tab) => tab.id === id)
+    if (dock && tab) dock.select(dock.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', id), id)
     setOpened((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
   }
 
-  const addTab = () => setPickerOpen(true)
+  const addTab = () => { setPickerGroup(focusedGroup); setPickerOpen(true) }
 
-  const addRuntimeTab = (runtime: string, preset?: AgentTab['preset']) => {
+  const addRuntimeTab = (runtime: string, preset?: AgentTab['preset'], destination = runtime === 'tmux' ? 'terminal' : pickerGroup) => {
     if (openingRuntime) return
     setOpeningRuntime(runtime)
     setOpenRuntimeError(null)
@@ -1527,6 +1547,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
         setDefaultCwd(cwd)
         setTabs((prev) => [...prev, tab])
         setActiveId(tab.id)
+        latestDock.current?.assign(destination, tab.id)
         setOpened((prev) => new Set(prev).add(tab.id))
         setPickerOpen(false)
       })
@@ -1584,24 +1605,37 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
     })
     if (activeId === id) {
       setActiveId(nextActiveId)
-      setPickerOpen(nextActiveId === null)
+      if (!dock) setPickerOpen(nextActiveId === null)
     }
   }
 
+  const panelGroups = dock ? [...new Set(['agent', 'terminal', ...tabs.map((tab) => dock.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', tab.id))])] : []
+  const groupTabs = (group: string) => tabs.filter((tab) => dock?.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', tab.id) === group)
+  const groupActive = (group: string) => { const list = groupTabs(group); return list.find((tab) => tab.id === dock?.state.active[group])?.id ?? list.find((tab) => tab.id === activeId)?.id ?? list[0]?.id ?? null }
+  const focusedActiveId = dock ? groupActive(focusedGroup) : activeId
+  const focusGroup = (group: string) => { setFocusedGroup(group); onPanelFocus?.(group.startsWith('terminal') ? 'terminal' : 'agent') }
+  const visibleTabIds = dock ? panelGroups.filter((group) => group.startsWith('terminal') ? terminalOpen : agentOpen).map(groupActive).filter(Boolean).join('\0') : ''
+  useEffect(() => {
+    if (!tabsSynced || !visibleTabIds) return
+    const ids = visibleTabIds.split('\0')
+    setOpened((previous) => ids.every((id) => previous.has(id)) ? previous : new Set([...previous, ...ids]))
+  }, [visibleTabIds, tabsSynced])
+
   // App은 키 조합만 판정하고, 실제 닫을 탭은 포커스된 표면이 맡는다.
   useFocusedShortcutScope(shortcutScopeRef, { closeTab: () => {
-    if (!activeId) return false
-    closeTab(activeId)
+    if (!focusedActiveId) return false
+    closeTab(focusedActiveId)
     return true
   } })
 
   // 화면 위 40% 좌우 스와이프로 탭 전환 — 터미널·에디터와 같은 손짓 (우→좌면 오른쪽 탭, 좌→우면 왼쪽 탭)
   const switchTab = (dir: 'left' | 'right') => {
-    if (tabs.length < 2) return
-    const idx = tabs.findIndex((tab) => tab.id === activeId)
+    const list = dock ? groupTabs(focusedGroup) : tabs
+    if (list.length < 2) return
+    const idx = list.findIndex((tab) => tab.id === focusedActiveId)
     if (idx < 0) return
-    const next = dir === 'left' ? (idx + 1) % tabs.length : (idx - 1 + tabs.length) % tabs.length
-    activate(tabs[next].id)
+    const next = dir === 'left' ? (idx + 1) % list.length : (idx - 1 + list.length) % list.length
+    activate(list[next].id)
   }
   const seenNextTabSignal = useRef(nextTabSignal)
   useEffect(() => {
@@ -1616,7 +1650,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   useEffect(() => {
     if (seenCloseTabSignal.current === closeTabSignal) return
     seenCloseTabSignal.current = closeTabSignal
-    if (activeId) closeTab(activeId)
+    if (focusedActiveId) closeTab(focusedActiveId)
     // 이 signal이 바뀌는 순간의 활성 탭 하나만 닫는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closeTabSignal])
@@ -1673,6 +1707,77 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
     setTabs((prev) => withSessionId(prev, id, runtime, cwd, null))
   }, [])
 
+  const renderSession = (tab: AgentTab, isActive: boolean) => {
+    const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!) ?? readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)?.sessionId ?? null
+    return (runtimeOf(tab.runtime!).surface === 'terminal' ? (
+              <AgentTerminalView
+                active={isActive}
+                runtime={tab.runtime!}
+                tabId={tab.id}
+                cwd={tab.cwd!}
+                activeFilePath={focusedFilePath}
+                getSelectedText={getSelectedText}
+                renderCommandButtons={tab.runtime === 'tmux' ? renderCommandButtons : undefined}
+              />
+            ) : <AgentSessionView
+              tabId={tab.id}
+              active={isActive}
+              runtime={tab.runtime!}
+              cwd={tab.cwd!}
+              preset={tab.preset}
+              resumeSessionId={resumeSessionId}
+              project={project}
+              tree={tree}
+              focusedFilePath={focusedFilePath}
+              infos={infos}
+              takenSessionIds={[
+                ...sessionClaims
+                  .filter((claim) => claim.workspacePath !== workspacePath || claim.tabId !== tab.id)
+                  .map((claim) => claim.sessionId),
+                ...sessionIdsExcept(tabs, tab.id),
+              ]}
+              onRefreshSessionClaims={refreshSessionClaims}
+              onLabel={setTabLabel}
+              onProjectMention={labelProjectTab}
+              onInfo={setTabInfo}
+              onForgetSession={forgetTabSession}
+              onRegister={register}
+              onOpenFile={onOpenFile}
+              onBackToPicker={() => { if (dock) setPickerGroup(dock.groupFor('agent', tab.id)); setPickerOpen(true) }}
+              showInfo={isActive && infoTabs.has(tab.id)}
+              onToggleInfo={() => toggleInfo(tab.id)}
+            />)
+  }
+  if (dock) return <>
+    {panelGroups.map((group) => {
+      const terminal = group.startsWith('terminal'), list = groupTabs(group), selected = groupActive(group), picking = pickerOpen && pickerGroup === group
+      return <DockPanel key={group} id={group} tabs={list.map((tab) => tab.id)} kind={terminal ? 'terminal' : 'agent'} visible={(terminal ? terminalOpen : agentOpen) && (list.length > 0 || !tabs.some((tab) => (tab.runtime === 'tmux') === terminal))} onFocus={() => focusGroup(group)}>
+        <AgentTabBar group={group} tabs={list} activeId={selected} pickerOpen={picking} infos={infos} onActivate={activate}
+          onAdd={() => { focusGroup(group); if (terminal) addRuntimeTab('tmux', undefined, group); else { setPickerGroup(group); setPickerOpen(true) } }}
+          onRename={renameTab} onReorder={(from, to) => { const a = tabs.findIndex((tab) => tab.id === list[from]?.id), b = tabs.findIndex((tab) => tab.id === list[to]?.id); if (a >= 0 && b >= 0) reorderTabs(a, b) }}
+          onCloseTab={closeTab} onClosePanel={() => { if (!dock.desktop || !dock.closeGroup(group)) (terminal ? onCloseTerminal ?? onClose : onClose)() }} />
+        {!tabsSynced && (() => {
+          const tab = list.find((tab) => tab.id === selected)
+          return tab?.runtime && tab.cwd && runtimeOf(tab.runtime).surface !== 'terminal' ? <AgentCachedPreview tab={tab} /> : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">불러오는 중…</div>
+        })()}
+        {tabsSynced && !list.length && !picking && <div className="flex min-h-0 flex-1 items-center justify-center"><button type="button" className="rounded-md border border-edge-bright px-4 py-2 text-sm text-ink-secondary hover:bg-surface-raised" onClick={() => { focusGroup(group); if (terminal) addRuntimeTab('tmux', undefined, group); else { setPickerGroup(group); setPickerOpen(true) } }}>{terminal ? '새 터미널' : '새 에이전트'}</button></div>}
+        {picking && !terminal && <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+          {openRuntimeError && <div role="alert" className="px-4 pt-3 text-xs text-danger">{openRuntimeError}</div>}
+          {openingRuntime && <div className="px-4 pt-3 text-xs text-ink-muted">{runtimeOf(openingRuntime).label} 여는 중…</div>}
+          <RuntimePicker onSelect={addRuntimeTab} onSelectSet={addSetTab} />
+        </div>}
+        {terminal && openRuntimeError && <div role="alert" className="px-4 py-3 text-xs text-danger">{openRuntimeError}</div>}
+      </DockPanel>
+    })}
+    {tabsSynced && tabs.filter((tab) => tab.runtime && tab.cwd && opened.has(tab.id)).map((tab) => {
+      const group = dock.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', tab.id)
+      const active = (tab.runtime === 'tmux' ? terminalOpen : agentOpen) && groupActive(group) === tab.id && !(pickerOpen && pickerGroup === group)
+      return <DockBody key={`${tab.id}:${tab.runtime}:${tab.cwd}`} group={group} active={active} onFocus={() => focusGroup(group)}>
+        <AgentDockContent onClose={() => closeTab(tab.id)}>{renderSession(tab, active && focusedGroup === group)}</AgentDockContent>
+      </DockBody>
+    })}
+  </>
+
   return (
     <div
       ref={shortcutScopeRef}
@@ -1714,48 +1819,9 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
       {tabsSynced && tabs
         .filter((tab) => tab.runtime && tab.cwd && opened.has(tab.id))
         .map((tab) => {
-          const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!)
-            ?? readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)?.sessionId
-            ?? null
           return (
           <div key={`${tab.id}:${tab.runtime}:${tab.cwd}`} className={!pickerOpen && tab.id === activeId ? 'min-h-0 flex-1' : 'hidden'}>
-            {runtimeOf(tab.runtime!).surface === 'terminal' ? (
-              <AgentTerminalView
-                runtime={tab.runtime!}
-                tabId={tab.id}
-                cwd={tab.cwd!}
-                activeFilePath={focusedFilePath}
-                getSelectedText={getSelectedText}
-                renderCommandButtons={tab.runtime === 'tmux' ? renderCommandButtons : undefined}
-              />
-            ) : <AgentSessionView
-              tabId={tab.id}
-              active={!pickerOpen && tab.id === activeId}
-              runtime={tab.runtime!}
-              cwd={tab.cwd!}
-              preset={tab.preset}
-              resumeSessionId={resumeSessionId}
-              project={project}
-              tree={tree}
-              focusedFilePath={focusedFilePath}
-              infos={infos}
-              takenSessionIds={[
-                ...sessionClaims
-                  .filter((claim) => claim.workspacePath !== workspacePath || claim.tabId !== tab.id)
-                  .map((claim) => claim.sessionId),
-                ...sessionIdsExcept(tabs, tab.id),
-              ]}
-              onRefreshSessionClaims={refreshSessionClaims}
-              onLabel={setTabLabel}
-              onProjectMention={labelProjectTab}
-              onInfo={setTabInfo}
-              onForgetSession={forgetTabSession}
-              onRegister={register}
-              onOpenFile={onOpenFile}
-              onBackToPicker={() => setPickerOpen(true)}
-              showInfo={infoTabs.has(tab.id)}
-              onToggleInfo={() => toggleInfo(tab.id)}
-            />}
+            {renderSession(tab, !pickerOpen && tab.id === activeId)}
           </div>
           )
         })}
@@ -1770,8 +1836,15 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   )
 }
 
+function AgentDockContent({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useFocusedShortcutScope(ref, { closeTab: () => { onClose(); return true } })
+  return <div ref={ref} className="flex h-full min-h-0 flex-col" onMouseDown={dropOutsideFocus} onClick={dropInputFocusAfterPress}>{children}</div>
+}
+
 /** 공식 CLI TUI를 탭별 tmux에 직접 붙인다. 본문·입력·모바일 키는 일반 터미널과 같은 구현이다. */
 function AgentTerminalView({
+  active,
   runtime,
   tabId,
   cwd,
@@ -1779,6 +1852,7 @@ function AgentTerminalView({
   getSelectedText,
   renderCommandButtons,
 }: {
+  active: boolean
   runtime: string
   tabId: string
   cwd: string
@@ -1800,7 +1874,7 @@ function AgentTerminalView({
     return () => { alive = false }
   }, [cwd, retry, runtime, tabId])
 
-  if (session) return <TmuxTerminal sessionName={session} activeFilePath={activeFilePath} getSelectedText={getSelectedText} renderCommandButtons={renderCommandButtons} insertRefTarget="agent" />
+  if (session) return <TmuxTerminal sessionName={session} activeFilePath={activeFilePath} getSelectedText={getSelectedText} renderCommandButtons={renderCommandButtons} insertRefTarget={active ? runtime === 'tmux' ? 'terminal' : 'agent' : null} />
   return (
     <div className="flex h-full items-center justify-center bg-surface-deep p-4 text-center">
       {error ? (

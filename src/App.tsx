@@ -9,7 +9,6 @@ import {
   fetchProjects,
   fetchWorkspace,
   fetchTreeV1,
-  getProject,
   isArchivedPath,
   revertFileToCommit,
   runMewAction,
@@ -42,7 +41,8 @@ import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
 import { AgentPanel } from './components/AgentPanel'
 import { BrowserPanel } from './components/BrowserPanel'
-import { FloatingBrowserWindow } from './components/FloatingBrowserWindow'
+import { DockWorkspace, DockPanel, type DockHandle } from './components/DockWorkspace'
+import type { DockState } from './utils/dock-layout'
 import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
@@ -52,8 +52,8 @@ import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
 import { mediaKind } from './utils/media'
 import { setContentIdentity, setContentWorkspace } from './utils/contentCache'
-import { openTabsKey, useTabs, type StoredTabs } from './hooks/useTabs'
-import { dropZoneAt, paneIds, type DropSide, type DropZone, type PaneNode } from './utils/paneTree'
+import { useTabs, type StoredTabs } from './hooks/useTabs'
+import { dropZoneAt, paneIds, type DropSide, type DropZone } from './utils/paneTree'
 import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
 import { outsideTerminal } from './utils/terminalFocus'
@@ -113,6 +113,7 @@ type Theme = 'dark' | 'light'
 const THEME_KEY = 'mew:theme'
 const TOC_KEY = 'mew:toc-open'
 const LEGACY_TMUX_OPEN_KEY = 'mew:tmux-open'
+const TERMINAL_OPEN_KEY = 'mew:terminal-open'
 /** 에이전트 창이 열려 있었는지 — 터미널과 같이 프로젝트와 무관한 화면 상태다(세션 스코프가 워크스페이스다) */
 const AGENT_OPEN_KEY = 'mew:agent-open'
 const BROWSER_OPEN_KEY = 'mew:browser-open'
@@ -181,16 +182,6 @@ function projectLabel(projectPath: string | null): string {
 
 // 터미널이 열려 있었는지는 프로젝트와 무관한 화면 상태다(tmux 세션은 워크스페이스 하나뿐).
 // 예전에는 프로젝트별 탭 저장분 안에 함께 들어 있었으므로 그쪽도 한 번 봐준다.
-function loadUnifiedPanelOpen(project: string): boolean {
-  if (localStorage.getItem(AGENT_OPEN_KEY) === '1' || localStorage.getItem(LEGACY_TMUX_OPEN_KEY) === '1') return true
-  try {
-    const raw = localStorage.getItem(openTabsKey(project))
-    return raw ? (JSON.parse(raw) as { tmuxOpen?: boolean }).tmuxOpen === true : false
-  } catch {
-    return false
-  }
-}
-
 interface EditorAppProps {
   /** 로그인 상태 — 로그인하지 않았으면 role: 'guest', email: null */
   auth: AuthStatus
@@ -246,11 +237,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [loadingSubprojects, setLoadingSubprojects] = useState<Set<string>>(new Set())
   const [treeInvalidation, setTreeInvalidation] = useState<{ n: number; project: string; version: number; parents: string[] }>({ n: 0, project: '', version: 0, parents: [] })
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
-  // 터미널•에이전트패널은 셸 권한 때문에 owner/manager만 연다. 분리 패널 시절의 터미널 열림
-  // 저장값도 통합 패널 열림으로 한 번 호환해, 업그레이드 뒤 창이 사라진 것처럼 보이지 않게 한다.
-  const [agentOpen, setAgentOpen] = useState(() => canUseTerminal && loadUnifiedPanelOpen(getProject()))
+  // 셸·에이전트는 같은 권한을 사용하지만 열림 상태는 각각 기억한다.
+  const dockRef = useRef<DockHandle>(null)
+  const [terminalOpen, setTerminalOpen] = useState(() => canUseTerminal && (localStorage.getItem(TERMINAL_OPEN_KEY) !== null ? localStorage.getItem(TERMINAL_OPEN_KEY) === '1' : localStorage.getItem(LEGACY_TMUX_OPEN_KEY) === '1' || localStorage.getItem(AGENT_OPEN_KEY) === '1'))
+  const [agentOpen, setAgentOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_OPEN_KEY) === '1')
   // 브라우저 창 — 서버 localhost를 프록시로 보는 도구라 터미널과 같은 게이트(owner/manager)를 쓴다
+  const browserMounted = useRef(false)
   const [browserOpen, setBrowserOpen] = useState(() => canUseTerminal && localStorage.getItem(BROWSER_OPEN_KEY) === '1')
+  if (browserOpen) browserMounted.current = true
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
   const [androidOpen, setAndroidOpen] = useState(() => canUseTerminal && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
   // 멤버 채팅 창(Alt+C) — 사람끼리 쓰는 창이라 로그인만 하면 열린다(게스트 제외)
@@ -262,6 +256,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       if (panel === 'sidebar') return sidebarOpen
       if (panel === 'chat') return chatOpen
       if (panel === 'agent') return agentOpen
+      if (panel === 'terminal') return terminalOpen
       if (panel === 'browser') return browserOpen
       return androidOpen
     }),
@@ -278,15 +273,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     sidebar: sidebarOpen,
     chat: chatOpen,
     agent: agentOpen,
+    terminal: terminalOpen,
     browser: browserOpen,
     android: androidOpen,
   } satisfies Record<WorkspacePanelId, boolean>), [
-    sidebarOpen, chatOpen, agentOpen, browserOpen, androidOpen,
+    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, androidOpen,
   ])
   const workspacePanelSetters = useMemo(() => ({
     sidebar: setSidebarOpen,
     chat: setChatOpen,
     agent: setAgentOpen,
+    terminal: setTerminalOpen,
     browser: setBrowserOpen,
     android: setAndroidOpen,
   } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
@@ -692,7 +689,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     applyRevertedContent,
     closeTab,
     moveTabToPane,
-    splitWithTab,
     splitEmptyPane,
     remapPaths,
     removePaths,
@@ -753,19 +749,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
    * 이 좌표에 놓으면 무엇이 되는지. 본문 가장자리는 분할, 본문 가운데와 **탭 줄**은 그 칸으로 옮기기다 —
    * 탭 줄에서는 자리를 따지지 않는다(줄 안에서 끄는 건 순서 바꾸기이므로 제 칸이면 아무 일도 없다).
    */
-  const dropTargetAt = (fromPaneId: string, x: number, y: number): { paneId: string; zone: DropZone } | null => {
-    const bar = hitAt(paneBarEls.current, x, y)
-    if (bar) return bar.id === fromPaneId ? null : { paneId: bar.id, zone: 'center' }
-    const hit = hitAt(paneEls.current, x, y)
-    if (!hit) return null
-    const zone = dropZoneAt(hit.rect, x, y)
-    // 제 칸 가운데로 놓기 = 아무 일도 없음 — 그림자도 띄우지 않는다
-    if (zone === 'center' && hit.id === fromPaneId) return null
-    return { paneId: hit.id, zone }
-  }
-
-  const handleTabDragMove = useCallback((paneId: string, _path: string, x: number, y: number) => {
-    setDropTarget(dropTargetAt(paneId, x, y))
+  const handleTabDragMove = useCallback((paneId: string, path: string, x: number, y: number) => {
+    dockRef.current?.preview(`editor:${paneId}`, path, x, y)
   }, [])
 
   /**
@@ -802,19 +787,19 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     e.preventDefault()
     e.stopPropagation()
     const paneId = splitEmptyPane(target.paneId, target.zone)
+    dockRef.current?.placeEditor(paneId, target.paneId, target.zone)
     openFile(path, { paneId, preview: false, forceNewTab: true })
   }
 
-  const handleTabDrop = useCallback(
-    (paneId: string, path: string, x: number, y: number) => {
-      setDropTarget(null)
-      const target = dropTargetAt(paneId, x, y)
-      if (!target) return
-      if (target.zone === 'center') moveTabToPane(path, paneId, target.paneId)
-      else splitWithTab(path, paneId, target.paneId, target.zone)
-    },
-    [moveTabToPane, splitWithTab],
-  )
+  const handleTabDrop = useCallback((paneId: string, path: string, x: number, y: number) => {
+    dockRef.current?.drop(`editor:${paneId}`, path, x, y)
+  }, [])
+  const handleDockEditorDrop = (path: string, source: string, target: string | null) => {
+    const destination = target ?? splitEmptyPane(source, 'right')
+    moveTabToPane(path, source, destination)
+    return destination
+  }
+  const saveDockLayout = useCallback((dock: DockState) => setWorkspaceUi((previous) => ({ ...previous, dock })), [])
 
   // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
   // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
@@ -830,12 +815,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     min: 180,
     max: 480,
     initial: 256,
-  })
-  const { width: agentWidth, startResize: startAgentResize } = usePanelWidth('mew:agent-panel-width', {
-    min: 320,
-    max: 1000,
-    initial: 416,
-    invert: true,
   })
   const { width: androidWidth, startResize: startAndroidResize } = usePanelWidth('mew:android-panel-width', {
     min: 380,
@@ -856,6 +835,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       closeOnEscape: () => !(sidebarSearchCancelRef.current?.() ?? false),
     },
     chat: { open: chatOpen, close: () => closeWorkspacePanel('chat') },
+    terminal: { open: terminalOpen, close: () => closeWorkspacePanel('terminal'), closeOnEscape: outsideTerminal },
     agent: { open: agentOpen, close: () => closeWorkspacePanel('agent'), closeOnEscape: outsideTerminal },
     browser: { open: browserOpen, close: () => closeWorkspacePanel('browser') },
     android: { open: androidOpen, close: () => closeWorkspacePanel('android') },
@@ -868,15 +848,20 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const lastPanelRef = useRef<RefPanel | null>(null)
   // 플로팅 핸들의 "현재 창 탭" 명령이 가리키는 마지막 탭형 창.
   // 핸들을 누르면 DOM 포커스가 옮겨가므로 포커스 대신 포인터 사용 기록을 따로 둔다.
-  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'sidebar'>('editor')
+  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'terminal' | 'browser' | 'sidebar'>('editor')
+  const [browserNextTabSignal, setBrowserNextTabSignal] = useState(0)
+  const [browserPreviousTabSignal, setBrowserPreviousTabSignal] = useState(0)
+  const [browserCloseTabSignal, setBrowserCloseTabSignal] = useState(0)
   const [agentNextTabSignal, setAgentNextTabSignal] = useState(0)
   const [agentPreviousTabSignal, setAgentPreviousTabSignal] = useState(0)
   const [agentCloseTabSignal, setAgentCloseTabSignal] = useState(0)
   useEffect(() => {
     if (isDesktop()) return
-    if (mobileForegroundPanel === 'agent') {
-      activeTabbedSurfaceRef.current = 'agent'
-      lastPanelRef.current = 'agent'
+    if (mobileForegroundPanel === 'agent' || mobileForegroundPanel === 'terminal') {
+      activeTabbedSurfaceRef.current = mobileForegroundPanel
+      lastPanelRef.current = mobileForegroundPanel
+    } else if (mobileForegroundPanel === 'browser') {
+      activeTabbedSurfaceRef.current = 'browser'
     } else if (mobileForegroundPanel === 'sidebar') {
       activeTabbedSurfaceRef.current = 'sidebar'
     } else if (mobileForegroundPanel === 'chat') {
@@ -889,6 +874,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       activeTabbedSurfaceRef.current = 'agent'
     }
   }, [agentOpen])
+  useEffect(() => { writeBrowserStorage(TERMINAL_OPEN_KEY, terminalOpen ? '1' : '0') }, [terminalOpen])
+  useEffect(() => { if (terminalOpen) { lastPanelRef.current = 'terminal'; activeTabbedSurfaceRef.current = 'terminal' } }, [terminalOpen])
+  useEffect(() => { if (browserOpen) activeTabbedSurfaceRef.current = 'browser' }, [browserOpen])
   useEffect(() => {
     if (sidebarOpen) activeTabbedSurfaceRef.current = 'sidebar'
   }, [sidebarOpen])
@@ -911,10 +899,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   const switchCurrentWindowTabRight = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
-    if (surface === 'agent' && !agentOpen) surface = 'editor'
+    if (surface === 'agent' && !agentOpen || surface === 'terminal' && !terminalOpen) surface = 'editor'
+    if (surface === 'browser' && !browserOpen) surface = 'editor'
     if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
-    if (surface === 'agent') {
+    if (surface === 'browser') { setBrowserNextTabSignal((value) => value + 1); return }
+    if (surface === 'agent' || surface === 'terminal') {
       setAgentNextTabSignal((value) => value + 1)
       return
     }
@@ -926,14 +916,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index + 1) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
+  }, [activePath, agentOpen, terminalOpen, browserOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
 
   const switchCurrentWindowTabLeft = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
-    if (surface === 'agent' && !agentOpen) surface = 'editor'
+    if (surface === 'agent' && !agentOpen || surface === 'terminal' && !terminalOpen) surface = 'editor'
+    if (surface === 'browser' && !browserOpen) surface = 'editor'
     if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
-    if (surface === 'agent') {
+    if (surface === 'browser') { setBrowserPreviousTabSignal((value) => value + 1); return }
+    if (surface === 'agent' || surface === 'terminal') {
       setAgentPreviousTabSignal((value) => value + 1)
       return
     }
@@ -945,21 +937,23 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index - 1 + tabs.length) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
+  }, [activePath, agentOpen, terminalOpen, browserOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
 
   const closeCurrentWindowTab = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
-    if (surface === 'agent' && !agentOpen) surface = 'editor'
+    if (surface === 'agent' && !agentOpen || surface === 'terminal' && !terminalOpen) surface = 'editor'
+    if (surface === 'browser' && !browserOpen) surface = 'editor'
     if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
-    if (surface === 'agent') {
+    if (surface === 'browser') { setBrowserCloseTabSignal((value) => value + 1); return }
+    if (surface === 'agent' || surface === 'terminal') {
       setAgentCloseTabSignal((value) => value + 1)
       return
     }
     // 사이드바의 탐색기·검색은 닫히는 탭이 아니다. 이 경우 Ctrl+W와 똑같이
     // 현재 편집 칸의 문서 탭을 닫는다.
     if (activePath) closeTab(activePath, focusedPaneId)
-  }, [activePath, agentOpen, closeTab, focusedPaneId, sidebarOpen])
+  }, [activePath, agentOpen, terminalOpen, browserOpen, closeTab, focusedPaneId, sidebarOpen])
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
   // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
@@ -1017,6 +1011,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       sidebar: sidebarOpen,
       chat: chatOpen,
       agent: agentOpen,
+    terminal: terminalOpen,
       browser: browserOpen,
       android: androidOpen,
     }
@@ -1032,13 +1027,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       // 로컬의 방금 연 에이전트를 닫아 버리면 전면 순서를 복원할 수 없으므로, 서버 원장은
       // 데스크톱 배치에만 적용한다. 모바일은 각 패널의 로컬 열림 상태로 시작한다.
       if (canUseTerminal && isDesktop()) {
-        // 분리 패널 원장의 tmuxOpen=true도 통합 패널 열림으로 승격한다. false는 새 agentOpen을
-        // 덮지 않는다 — 둘 중 하나라도 열려 있었으면 통합 뒤에도 열려 있어야 한다.
-        if (typeof chrome.agentOpen === 'boolean' || typeof chrome.tmuxOpen === 'boolean') {
-          const unifiedOpen = chrome.agentOpen === true || chrome.tmuxOpen === true
-          setAgentOpen(unifiedOpen)
-          restoredOpen.agent = unifiedOpen
+        if (typeof chrome.agentOpen === 'boolean') {
+          setAgentOpen(chrome.agentOpen)
+          restoredOpen.agent = chrome.agentOpen
         }
+        const restoredTerminal = typeof chrome.terminalOpen === 'boolean' ? chrome.terminalOpen : chrome.tmuxOpen === true || chrome.agentOpen === true
+        setTerminalOpen(restoredTerminal)
+        restoredOpen.terminal = restoredTerminal
         if (typeof chrome.browserOpen === 'boolean') {
           setBrowserOpen(chrome.browserOpen)
           restoredOpen.browser = chrome.browserOpen
@@ -1052,7 +1047,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       // 계정 원장이 처음 비어 있을 때만 이 기기의 기존 화면 상태를 이관한다.
       setWorkspaceUi((previous) => ({
         ...previous,
-        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, browserOpen, androidOpen },
+        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, androidOpen },
       }))
     }
     if (savedMobileForeground && savedMobileForeground !== 'editor') {
@@ -1066,7 +1061,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
     chromeStateLoadedRootRef.current = rootProjectPath
     chromeStateRestorePendingRef.current = rootProjectPath
-  }, [agentOpen, androidOpen, browserOpen, canUseTerminal, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, canUseTerminal, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
 
   useEffect(() => {
     if (!rootProjectPath || !workspaceUiLoaded || isDesktop()) return
@@ -1172,9 +1167,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
     setWorkspaceUi((previous) => ({
       ...previous,
-      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, browserOpen, androidOpen },
+      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, androidOpen },
     }))
-  }, [agentOpen, androidOpen, browserOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
 
   const handleRenamed = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -1237,7 +1232,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         // 받을 창이 없어도 여기서 삼킨다 — 안 그러면 브라우저 기본 Ctrl+L(주소창)로 샌다
         e.preventDefault()
         // 열려 있는 보조창이 하나도 없으면 쓸 곳이 없으니 그대로 끝낸다
-        const target = pickRefTarget(lastPanelRef.current, { agent: agentOpen, chat: chatOpen })
+        const target = pickRefTarget(lastPanelRef.current, { agent: agentOpen, terminal: terminalOpen, chat: chatOpen })
         if (!target) return
         const lines = range.start === range.end ? `${range.start}` : `${range.start}-${range.end}`
         // 화면에 쓸 글자(text)와 구조(project·path)를 함께 싣는다 — 터미널·에이전트는 text를 그대로
@@ -1269,10 +1264,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         e.preventDefault()
         focusedEditor()?.startComment()
       } else if (matchesShortcut(e, getBinding('toggleTerminal'))) {
-        // 기존 터미널 단축키도 통합된 터미널•에이전트패널을 토글한다.
         if (!canUseTerminal) return
         e.preventDefault()
-        toggleWorkspacePanel('agent')
+        toggleWorkspacePanel('terminal')
       } else if (matchesShortcut(e, getBinding('toggleSidebar'))) {
         // 에디터의 Ctrl+B(굵게, defaultPrevented로 감지)와 터미널의 tmux prefix에는 양보한다
         if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.xterm'))) return
@@ -1300,15 +1294,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       } else if (matchesShortcut(e, getBinding('prevTab')) || matchesShortcut(e, getBinding('nextTab'))) {
         // Ctrl+Alt+←/→ 탭 이동 — 끝에 닿으면 반대편으로 감싼다. 터미널에 포커스가 있어도 동작한다
         // (TmuxTerminal이 이 조합을 PTY로 보내지 않고 통과시킨다)
-        if (tabs.length < 2) return
         e.preventDefault()
-        const dir = matchesShortcut(e, getBinding('nextTab')) ? 1 : -1
-        const current = Math.max(0, tabs.findIndex((t) => t.path === activePath))
-        setActivePath(tabs[(current + dir + tabs.length) % tabs.length].path)
+        if (matchesShortcut(e, getBinding('nextTab'))) switchCurrentWindowTabRight()
+        else switchCurrentWindowTabLeft()
       } else if (matchesShortcut(e, getBinding('toggleTerminalAlt'))) {
         if (!canUseTerminal) return
         e.preventDefault()
-        toggleWorkspacePanel('agent')
+        toggleWorkspacePanel('terminal')
       } else if (matchesShortcut(e, getBinding('fullscreen'))) {
         e.preventDefault()
         toggleFullscreen()
@@ -1319,9 +1311,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다
   }, [
     saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath,
-    canUseTerminal, focusedEditor, isGuest, isOwner, project, sidebarOpen, chatOpen, agentOpen,
+    canUseTerminal, focusedEditor, isGuest, isOwner, project, sidebarOpen, chatOpen, agentOpen, terminalOpen,
     browserOpen, androidOpen, mobilePanelStack, openWorkspacePanel,
-    toggleWorkspacePanel,
+    toggleWorkspacePanel, switchCurrentWindowTabRight, switchCurrentWindowTabLeft,
   ])
 
   /** 채팅 멘션·에이전트 로컬 링크 — 같은 mew의 알맞은 프로젝트와 문서 탭으로 연다. */
@@ -1407,12 +1399,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   // 사이드바 여는 버튼은 사이드바가 서는 자리와 붙은 맨 앞 칸(왼쪽·위)이 맡는다
   const sidebarPaneId = paneIds(layout)[0]
 
-  /** 배치 나무를 그대로 화면으로 — 잎이 편집 칸, 가지가 가로(row)·세로(col) 분할이다 */
-  const renderLayout = (node: PaneNode, key: string) => {
-    if (node.kind === 'leaf') {
-      const pane = panes.find((p) => p.id === node.pane)
-      if (!pane) return null
-      return (
+  const renderEditorPane = (pane: (typeof panes)[number]) => {
+    return (
+        <DockPanel key={pane.id} id={`editor:${pane.id}`} kind="editor" mobileSelected={pane.id === focusedPaneId}>
+        {panes.length > 1 && <div className="flex h-8 shrink-0 items-center gap-1 border-b border-edge px-2 md:hidden">
+          <select aria-label={t('panel.editorPane')} value={focusedPaneId} onChange={(event) => focusPane(event.target.value)} className="min-w-0 flex-1 bg-surface-deep text-xs text-ink">
+            {panes.map((item, index) => <option key={item.id} value={item.id}>{index + 1} · {item.activePath?.split('/').at(-1) ?? t('panel.editorPane')}</option>)}
+          </select>
+        </div>}
+
         <EditorPane
           key={pane.id}
           pane={pane}
@@ -1449,15 +1444,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           onTabDragMove={handleTabDragMove}
           onTabDrop={handleTabDrop}
         />
-      )
-    }
-    return (
-      <div
-        key={key}
-        className={`flex min-h-0 min-w-0 flex-1 divide-edge ${node.dir === 'col' ? 'flex-col divide-y' : 'divide-x'}`}
-      >
-        {node.kids.map((kid, i) => renderLayout(kid, `${key}.${i}`))}
-      </div>
+        </DockPanel>
     )
   }
 
@@ -1624,15 +1611,19 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           {
             id: 'agent',
             label: t('header.agent'),
-            hint: 'Alt+L · Ctrl+`',
+            hint: 'Alt+L',
             onSelect: () => toggleWorkspacePanel('agent'),
             active: agentOpen,
-            // 같은 탭 줄에서 셸과 에이전트를 함께 고르는 통합 패널.
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
               </svg>
             ),
+          },
+          {
+            id: 'terminal', label: t('header.terminal'), hint: 'Ctrl+`',
+            onSelect: () => toggleWorkspacePanel('terminal'), active: terminalOpen,
+            icon: <span className="font-mono text-xs">&gt;_</span>,
           },
           {
             id: 'browser',
@@ -2030,7 +2021,22 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         )}
 
         {/* 편집 칸들 — 분할 배치 그대로다. 칸마다 자기 탭 줄·자기 문서·자기 협업 세션을 가진다 */}
-        {renderLayout(layout, 'root')}
+        <DockWorkspace key={rootProjectPath ?? 'pending-workspace'} apiRef={dockRef} initialLayout={layout} value={workspaceUi.dock} onChange={saveDockLayout} onEditorDrop={handleDockEditorDrop} foreground={mobileForegroundPanel}>
+        {panes.map(renderEditorPane)}
+
+        {canUseTerminal && <AgentPanel
+          key={rootProjectPath ?? 'pending-workspace'} project={project} workspacePath={rootProjectPath} tree={tree}
+          focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeTab.path : null}
+          getSelectedText={getSelectedText} renderCommandButtons={renderTermButtons} onOpenFile={openMentionedFile}
+          agentOpen={agentOpen} terminalOpen={terminalOpen} foregroundKind={mobileForegroundPanel}
+          onPanelFocus={(kind) => { activeTabbedSurfaceRef.current = kind; lastPanelRef.current = kind; bringWorkspacePanelToFront(kind) }}
+          onClose={() => closeWorkspacePanel('agent')} onCloseTerminal={() => closeWorkspacePanel('terminal')}
+          nextTabSignal={agentNextTabSignal} previousTabSignal={agentPreviousTabSignal} closeTabSignal={agentCloseTabSignal}
+        />}
+        {canUseTerminal && browserMounted.current && <BrowserPanel visible={browserOpen} onClose={() => closeWorkspacePanel('browser')}
+          onPanelFocus={() => { activeTabbedSurfaceRef.current = 'browser'; bringWorkspacePanelToFront('browser') }}
+          nextTabSignal={browserNextTabSignal} previousTabSignal={browserPreviousTabSignal} closeTabSignal={browserCloseTabSignal} />}
+        </DockWorkspace>
 
         {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 모바일에서도 프로젝트 탭 아래에서만 열린다. */}
         {chatOpen && !isGuest && (
@@ -2047,39 +2053,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                 tree={tree}
                 onOpenFile={openMentionedFile}
                 onClose={() => closeWorkspacePanel('chat')}
-              />
-            </div>
-          </div>
-        )}
-
-        {agentOpen && canUseTerminal && (
-          <div
-            onPointerDownCapture={() => {
-              activeTabbedSurfaceRef.current = 'agent'
-              bringWorkspacePanelToFront('agent')
-            }}
-            className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:shrink-0 ${mobilePanelLayer('agent')}`}
-            style={{ width: isDesktop() ? agentWidth : undefined }}
-          >
-            <div
-              onPointerDown={startAgentResize}
-              className="hidden w-1.5 shrink-0 cursor-col-resize touch-none border-l border-edge bg-transparent hover:bg-accent md:block"
-              aria-hidden="true"
-            />
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-              <AgentPanel
-                key={rootProjectPath ?? 'pending-workspace'}
-                project={project}
-                workspacePath={rootProjectPath}
-                tree={tree}
-                focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeTab.path : null}
-                getSelectedText={getSelectedText}
-                renderCommandButtons={renderTermButtons}
-                onOpenFile={openMentionedFile}
-                onClose={() => closeWorkspacePanel('agent')}
-                nextTabSignal={agentNextTabSignal}
-                previousTabSignal={agentPreviousTabSignal}
-                closeTabSignal={agentCloseTabSignal}
               />
             </div>
           </div>
@@ -2115,12 +2088,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         onToggleSidebar={() => toggleWorkspacePanel('sidebar')}
         onToggleBrowser={() => { if (canUseTerminal) toggleWorkspacePanel('browser') }}
       />
-
-      {browserOpen && canUseTerminal && (
-        <FloatingBrowserWindow onClose={() => closeWorkspacePanel('browser')}>
-          <BrowserPanel onClose={() => closeWorkspacePanel('browser')} />
-        </FloatingBrowserWindow>
-      )}
 
       {settingsOpen && (
         <SettingsModal

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useDragReorder } from '@mew/ui'
+import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { listServerBrowserTabs, openServerBrowserTab, closeServerBrowserTab, type ServerBrowserTab } from '../api/client'
 import { useI18n } from '../i18n'
@@ -17,145 +19,120 @@ function normalizeUrl(raw: string): string {
 }
 function labelForUrl(url: string): string { try { return new URL(url).host || url } catch { return url } }
 
-export function BrowserPanel({ onClose, standalone = false }: { onClose: () => void; standalone?: boolean }) {
+export function BrowserPanel({ onClose, standalone = false, visible = true, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, onPanelFocus }: { onPanelFocus?: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number; onClose: () => void; standalone?: boolean; visible?: boolean }) {
   const { t } = useI18n()
-  const shortcutScopeRef = useRef<HTMLElement>(null)
-  const addressRef = useRef<HTMLInputElement>(null)
-  const controllers = useRef(new Map<string, DomBrowserController>())
+  const dock = useDock()
+  const latestDock = useRef(dock)
+  latestDock.current = dock
   const [tabs, setTabs] = useState<ServerBrowserTab[]>([])
   const [activeId, setActiveId] = useState('')
-  const [frames, setFrames] = useState<Record<string, DomBrowserStatus & { loading: boolean }>>({})
-  const activeTab = tabs.find((tab) => tab.id === activeId) ?? tabs[0]
-  const activeFrame = activeTab ? frames[activeTab.id] : undefined
-  const [draft, setDraft] = useState(DEFAULT_URL)
-  const [localError, setLocalError] = useState<string | null>(null)
+  const [focusedGroup, setFocusedGroup] = useState('browser')
+  const [error, setError] = useState<string | null>(null)
   const initialId = useRef(crypto.randomUUID())
-  const tabsRef = useRef(tabs)
-  tabsRef.current = tabs
-
   useEffect(() => {
     let cancelled = false
-    void listServerBrowserTabs().then(async (existing) => {
-      const restored = existing.length ? existing : [await openServerBrowserTab(initialId.current, DEFAULT_URL)]
-      if (cancelled) return
-      setTabs(restored.map((tab) => ({ ...tab, title: tab.title || labelForUrl(tab.url) })))
-      setActiveId(restored[0].id)
-    }).catch((error: unknown) => { if (!cancelled) setLocalError(error instanceof Error ? error.message : String(error)) })
+    void listServerBrowserTabs().then(async (existing) => existing.length ? existing : [await openServerBrowserTab(initialId.current, DEFAULT_URL)])
+      .then((restored) => { if (!cancelled) { setTabs(restored); setActiveId(restored[0]?.id ?? '') } })
+      .catch((error: unknown) => { if (!cancelled) setError(String(error)) })
     return () => { cancelled = true }
   }, [])
+  const groupFor = (id: string) => dock?.groupFor('browser', id) ?? 'browser'
+  const groups = [...new Set(['browser', ...tabs.map((tab) => groupFor(tab.id))])]
+  const groupTabs = (group: string) => tabs.filter((tab) => groupFor(tab.id) === group)
+  const selected = (group: string) => { const list = groupTabs(group); return list.find((tab) => tab.id === dock?.state.active[group])?.id ?? list.find((tab) => tab.id === activeId)?.id ?? list[0]?.id }
+  const activate = (id: string) => { setActiveId(id); dock?.select(groupFor(id), id) }
+  const addTab = (group: string, url = DEFAULT_URL) => {
+    void openServerBrowserTab(crypto.randomUUID(), url).then((tab) => {
+      setTabs((current) => [...current, tab]); setActiveId(tab.id); latestDock.current?.assign(group, tab.id)
+    }).catch((error: unknown) => setError(String(error)))
+  }
+  const removeTab = (id: string) => setTabs((current) => current.filter((tab) => tab.id !== id))
+  const closeTab = (id: string) => {
+    if (tabs.length <= 1) return
+    void closeServerBrowserTab(id).then(() => removeTab(id)).catch((error: unknown) => setError(String(error)))
+  }
+  const signals = useRef({ nextTabSignal, previousTabSignal, closeTabSignal })
   useEffect(() => {
-    const tab = tabsRef.current.find((item) => item.id === activeId)
-    if (tab) setDraft(tab.url)
-    setLocalError(null)
-  }, [activeId])
-
-  function updateStatus(id: string, status: DomBrowserStatus) {
+    const previous = signals.current
+    signals.current = { nextTabSignal, previousTabSignal, closeTabSignal }
+    const group = dock?.desktop === false ? 'browser' : focusedGroup, list = groupTabs(group), id = selected(group)
+    if (!id) return
+    if (previous.closeTabSignal !== closeTabSignal) { closeTab(id); return }
+    const direction = previous.nextTabSignal !== nextTabSignal ? 1 : previous.previousTabSignal !== previousTabSignal ? -1 : 0
+    if (direction && list.length > 1) activate(list[(list.findIndex((tab) => tab.id === id) + direction + list.length) % list.length].id)
+    // Signals act once on the group that is focused when the command arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextTabSignal, previousTabSignal, closeTabSignal])
+  const focusGroup = (group: string) => { setFocusedGroup(group); onPanelFocus?.() }
+  const tabBar = (group: string) => <BrowserTabBar group={group} tabs={groupTabs(group)} activeId={selected(group)} standalone={standalone} onActivate={activate} onAdd={() => addTab(group)} onClose={() => { if (!dock?.desktop || !dock.closeGroup(group)) onClose() }} onCloseTab={tabs.length > 1 ? closeTab : undefined}
+    onReorder={(from, to) => { const list = groupTabs(group); setTabs((current) => { const next = [...current], a = next.findIndex((tab) => tab.id === list[from]?.id), b = next.findIndex((tab) => tab.id === list[to]?.id); if (a >= 0 && b >= 0) next.splice(b, 0, ...next.splice(a, 1)); return next }) }} />
+  const page = (tab: ServerBrowserTab) => <BrowserPage tab={tab} onClose={() => closeTab(tab.id)} onStatus={(status) => {
+    if (status.closed) { removeTab(tab.id); return }
     if (status.popup) {
       const popup = status.popup
-      setTabs((current) => current.some((tab) => tab.id === popup.id) ? current : [...current, { ...popup, title: popup.title || labelForUrl(popup.url) }])
-      setActiveId(popup.id)
+      setTabs((current) => current.some((tab) => tab.id === popup.id) ? current : [...current, popup])
+      setActiveId(popup.id); dock?.assign(groupFor(tab.id), popup.id)
     }
-    if (status.closed) { removeTab(id); return }
-    setFrames((current) => ({ ...current, [id]: { ...status, loading: status.state === 'connecting' } }))
-    if (status.url) {
-      setTabs((current) => current.map((tab) => tab.id === id ? { ...tab, url: status.url!, title: status.title || labelForUrl(status.url!) } : tab))
-      if (id === activeId && document.activeElement !== addressRef.current) setDraft(status.url)
-    }
-  }
-  function addTab(url = DEFAULT_URL) {
-    void openServerBrowserTab(crypto.randomUUID(), url).then((tab) => {
-      setTabs((current) => [...current, { ...tab, title: labelForUrl(tab.url) }]); setActiveId(tab.id)
-    }).catch((error: unknown) => setLocalError(error instanceof Error ? error.message : String(error)))
-  }
-  function removeTab(id: string) {
-    controllers.current.delete(id)
-    setFrames((current) => { const next = { ...current }; delete next[id]; return next })
-    setTabs((current) => {
-      const next = current.filter((tab) => tab.id !== id)
-      if (id === activeId) setActiveId(next[0]?.id ?? '')
-      return next
-    })
-  }
-  function closeTab(id: string) {
-    if (tabs.length <= 1) return
-    void closeServerBrowserTab(id).then(() => removeTab(id)).catch((error: unknown) => setLocalError(String(error)))
-  }
-  function navigate() {
-    try {
-      const url = normalizeUrl(draft)
-      if (activeTab && controllers.current.has(activeTab.id)) controllers.current.get(activeTab.id)?.command('navigate', { url })
-      else addTab(url)
-      setDraft(url); setLocalError(null); addressRef.current?.blur()
-    } catch (error) { setLocalError(error instanceof Error && error.message === 'http-only' ? t('browser.httpOnly') : t('browser.invalidAddress')) }
-  }
-  function navigateHistory(name: 'back' | 'forward') { if (activeTab) controllers.current.get(activeTab.id)?.command(name) }
-  function reloadOrStop() { if (activeTab) controllers.current.get(activeTab.id)?.command(activeFrame?.loading ? 'stop' : 'reload') }
-  useFocusedShortcutScope(shortcutScopeRef, { closeTab: () => {
-    if (!activeTab || tabs.length <= 1) return false
-    closeTab(activeTab.id); return true
-  } })
-  const error = localError
-
-  return (
-    <section ref={shortcutScopeRef} className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label={t('browser.title')}>
-      <div className="flex h-9 shrink-0 items-stretch border-b border-edge bg-surface">
-        <div className="no-scrollbar flex min-w-0 flex-1 overflow-x-auto">
-          {tabs.map((tab) => (
-            <button key={tab.id} type="button" onClick={() => setActiveId(tab.id)}
-              className={`group flex min-w-[7rem] max-w-[14rem] items-center gap-1 border-r border-edge px-2 text-left text-xs ${tab.id === activeTab?.id ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-hover hover:text-ink'}`}
-              title={tab.url}>
-              <span className="truncate">{tab.title}</span>
-              {tabs.length > 1 && <span role="button" tabIndex={-1} onClick={(event) => { event.stopPropagation(); closeTab(tab.id) }} className="ml-auto rounded px-1 text-ink-muted opacity-70 hover:bg-surface hover:text-ink group-hover:opacity-100" aria-label={t('browser.closeTab')}>×</span>}
-            </button>
-          ))}
-        </div>
-        <IconButton label={t('browser.newTab')} onClick={() => addTab()}><span className="text-lg leading-none">+</span></IconButton>
-        <button
-          type="button"
-          onClick={onClose}
-          className="mx-1 flex h-6 w-6 shrink-0 self-center items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-          title={standalone ? t('browser.closePopup') : t('browser.close')}
-          aria-label={standalone ? t('browser.closePopup') : t('browser.close')}
-        >
-          <WindowCloseGlyph />
-        </button>
+    if (status.url) setTabs((current) => current.map((item) => item.id === tab.id && (item.url !== status.url || item.title !== status.title) ? { ...item, url: status.url!, title: status.title || labelForUrl(status.url!) } : item))
+  }} />
+  if (dock) return <>
+    {groups.map((group) => <DockPanel key={group} id={group} tabs={groupTabs(group).map((tab) => tab.id)} kind="browser" visible={visible && (groupTabs(group).length > 0 || tabs.length === 0)} onFocus={() => focusGroup(group)}>
+      {tabBar(group)}
+      {error && <div role="alert" className="px-3 py-2 text-xs text-danger">{error}</div>}
+      {!groupTabs(group).length && <button className="m-auto rounded border border-edge px-4 py-2 text-sm" onClick={() => addTab(group)}>{t('browser.newTab')}</button>}
+    </DockPanel>)}
+    {tabs.filter((tab) => tab.streamUrl).map((tab) => <DockBody key={tab.id} group={groupFor(tab.id)} active={selected(groupFor(tab.id)) === tab.id} onFocus={() => focusGroup(groupFor(tab.id))}>{page(tab)}</DockBody>)}
+  </>
+  return <section className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label={t('browser.title')}>
+    {tabBar('browser')}
+    {error && <div role="alert" className="px-3 py-2 text-xs text-danger">{error}</div>}
+    {tabs.filter((tab) => tab.streamUrl).map((tab) => <div key={tab.id} className={tab.id === selected('browser') ? 'min-h-0 flex-1' : 'hidden'}>{page(tab)}</div>)}
+  </section>
+}
+function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, onClose, onCloseTab, onReorder }: {
+  group: string; tabs: ServerBrowserTab[]; activeId?: string; standalone: boolean; onActivate: (id: string) => void; onAdd: () => void; onClose: () => void; onCloseTab?: (id: string) => void; onReorder: (from: number, to: number) => void
+}) {
+  const { t } = useI18n(), dock = useDock()
+  const scopeRef = useRef<HTMLDivElement>(null)
+  useFocusedShortcutScope(scopeRef, { closeTab: () => { if (!activeId || !onCloseTab) return false; onCloseTab(activeId); return true } })
+  const drag = useDragReorder({ onReorder, immediateMouseDrag: true, onDragMove: (i, x, y) => { if (tabs[i]) dock?.preview(group, tabs[i].id, x, y) }, onDrop: (i, x, y) => { if (tabs[i]) dock?.drop(group, tabs[i].id, x, y) } })
+  return <div data-dock-tab-bar ref={scopeRef} className="flex h-9 shrink-0 items-stretch border-b border-edge bg-surface">
+    {dock && <DockGrip group={group} />}
+    <div className="no-scrollbar flex min-w-0 flex-1 overflow-x-auto">
+      {tabs.map((tab, i) => <div key={tab.id} {...drag.getItemProps(i)} draggable={false} onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }} role="tab" tabIndex={0} aria-selected={tab.id === activeId} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onActivate(tab.id) } }} onClick={() => { if (!drag.consumeClick()) onActivate(tab.id) }}
+        className={`group flex min-w-[7rem] max-w-[14rem] cursor-pointer select-none items-center gap-1 border-r border-edge px-2 text-left text-xs ${tab.id === activeId ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-hover hover:text-ink'}`} title={tab.url}>
+        <span className="truncate">{tab.title || labelForUrl(tab.url)}</span>
+        {onCloseTab && <button type="button" onClick={(event) => { event.stopPropagation(); onCloseTab(tab.id) }} className="ml-auto rounded px-1 text-ink-muted hover:bg-surface hover:text-ink" aria-label={t('browser.closeTab')}>×</button>}
+      </div>)}
+    </div>
+    <IconButton label={t('browser.newTab')} onClick={onAdd}><span className="text-lg leading-none">+</span></IconButton>
+    <IconButton label={standalone ? t('browser.closePopup') : t('browser.close')} onClick={onClose}><WindowCloseGlyph /></IconButton>
+  </div>
+}
+function BrowserPage({ tab, onStatus, onClose }: { tab: ServerBrowserTab; onStatus: (status: DomBrowserStatus) => void; onClose: () => void }) {
+  const { t } = useI18n()
+  const scope = useRef<HTMLDivElement>(null), addressRef = useRef<HTMLInputElement>(null), controller = useRef<DomBrowserController | null>(null)
+  const [draft, setDraft] = useState(tab.url), [frame, setFrame] = useState<DomBrowserStatus | null>(null), [error, setError] = useState<string | null>(null)
+  const loading = frame?.state === 'connecting'
+  useFocusedShortcutScope(scope, { closeTab: () => { onClose(); return true } })
+  const command = (name: 'back' | 'forward' | 'reload' | 'stop') => controller.current?.command(name)
+  return <div ref={scope} className="@container flex h-full min-h-0 flex-col">
+    <form className="grid shrink-0 grid-cols-[2.25rem_2.25rem_2.25rem_minmax(0,1fr)_auto] items-center gap-1 border-b border-edge bg-surface px-2 py-1 @max-[20rem]:grid-cols-[2.25rem_2.25rem_2.25rem_minmax(0,1fr)]" onSubmit={(event) => { event.preventDefault(); try { const url = normalizeUrl(draft); controller.current?.command('navigate', { url }); setDraft(url); setError(null); addressRef.current?.blur() } catch (error) { setError(error instanceof Error && error.message === 'http-only' ? t('browser.httpOnly') : t('browser.invalidAddress')) } }}>
+      <IconButton label={t('browser.back')} disabled={!frame?.canGoBack} onClick={() => command('back')}><NavGlyph path="m15 18-6-6 6-6" /></IconButton>
+      <IconButton label={t('browser.forward')} disabled={!frame?.canGoForward} onClick={() => command('forward')}><NavGlyph path="m9 18 6-6-6-6" /></IconButton>
+      <IconButton label={loading ? t('browser.stopLoading') : t('common.refresh')} onClick={() => command(loading ? 'stop' : 'reload')}>{loading ? <StopGlyph /> : <ReloadGlyph />}</IconButton>
+      <div className="flex min-w-0 items-center rounded-md border border-edge-strong bg-surface-deep focus-within:border-accent @max-[20rem]:col-span-3 @max-[20rem]:row-start-2">
+        <input ref={addressRef} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 bg-transparent px-2 py-1 font-mono text-xs text-ink outline-none" spellCheck={false} inputMode="url" aria-label={t('browser.address')} placeholder="https://example.com" />
       </div>
-
-      <form className="flex shrink-0 items-center gap-1 border-b border-edge bg-surface px-2 py-1" onSubmit={(event) => { event.preventDefault(); navigate() }}>
-        <IconButton label={t('browser.back')} disabled={!activeFrame?.canGoBack} onClick={() => navigateHistory('back')}><NavGlyph path="m15 18-6-6 6-6" /></IconButton>
-        <IconButton label={t('browser.forward')} disabled={!activeFrame?.canGoForward} onClick={() => navigateHistory('forward')}><NavGlyph path="m9 18 6-6-6-6" /></IconButton>
-        <IconButton label={activeFrame?.loading ? t('browser.stopLoading') : t('common.refresh')} onClick={reloadOrStop}>
-          {activeFrame?.loading ? <StopGlyph /> : <ReloadGlyph />}
-        </IconButton>
-        <div className="mx-1 flex min-w-0 flex-1 items-center rounded-md border border-edge-strong bg-surface-deep focus-within:border-accent">
-          <span className={`ml-2 h-1.5 w-1.5 shrink-0 rounded-full ${error ? 'bg-danger' : activeFrame?.loading ? 'animate-pulse bg-warning' : 'bg-success'}`} title={t('browser.serverStatus')} />
-          <input ref={addressRef} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={(event) => event.currentTarget.select()} className="min-w-0 flex-1 bg-transparent px-2 py-1 font-mono text-xs text-ink outline-none" spellCheck={false} inputMode="url" aria-label={t('browser.address')} placeholder="https://example.com" />
-        </div>
-        <button type="submit" className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent hover:opacity-90">{t('browser.go')}</button>
-      </form>
-
-      {error && <div className="shrink-0 border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{error}</div>}
-
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
-        {tabs.filter((tab) => tab.streamUrl).map((tab) => (
-          <div key={tab.id} className={`absolute inset-0 flex h-full w-full flex-col ${tab.id === activeTab?.id ? '' : 'hidden'}`}>
-            <ServerDomBrowser streamUrl={tab.streamUrl} reopen={async () => (await openServerBrowserTab(tab.id, tab.url)).streamUrl}
-              onController={(controller) => { if (controller) controllers.current.set(tab.id, controller); else controllers.current.delete(tab.id) }}
-              onStatus={(status) => updateStatus(tab.id, status)} />
-          </div>
-        ))}
-        {activeFrame?.loading && (
-          <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-surface/85 p-2 shadow-lg" aria-label={t('browser.pageLoading')}>
-            <span className="block h-4 w-4 animate-spin rounded-full border-2 border-edge-strong border-t-accent" />
-          </div>
-        )}
-      </div>
-      <div className="flex h-6 shrink-0 items-center border-t border-edge bg-surface px-2 text-[10px] text-ink-muted">
-        <span className="truncate">{t('browser.serverHint')}</span>
-        <span className="ml-auto shrink-0 pl-2">SERVER BROWSER</span>
-      </div>
-    </section>
-  )
+      <button type="submit" className="whitespace-nowrap rounded bg-accent px-2 py-1 text-xs text-ink-on-accent hover:opacity-90 @max-[20rem]:col-start-4 @max-[20rem]:row-start-2">{t('browser.go')}</button>
+    </form>
+    {error && <div role="alert" className="shrink-0 border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{error}</div>}
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+      <ServerDomBrowser streamUrl={tab.streamUrl} reopen={async () => (await openServerBrowserTab(tab.id, tab.url)).streamUrl} onController={(value) => { controller.current = value }}
+        onStatus={(status) => { setFrame(status); if (status.url && document.activeElement !== addressRef.current) setDraft(status.url); onStatus(status) }} />
+      {loading && <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-surface/85 p-2 shadow-lg" aria-label={t('browser.pageLoading')}><span className="block h-4 w-4 animate-spin rounded-full border-2 border-edge-strong border-t-accent" /></div>}
+    </div>
+  </div>
 }
 
 function IconButton({ label, onClick, disabled = false, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {

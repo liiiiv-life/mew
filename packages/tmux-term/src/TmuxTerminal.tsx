@@ -117,7 +117,7 @@ export function TmuxTerminal({
    */
   renderCommandButtons?: (run: (command: string) => void) => ReactNode
   /** 호스트의 Ctrl+L 참조 이벤트 중 이 터미널이 받을 패널 target. */
-  insertRefTarget?: 'tmux' | 'agent'
+  insertRefTarget?: 'tmux' | 'agent' | 'terminal' | null
   wsPath?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)

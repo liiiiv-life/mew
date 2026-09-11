@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 // Android 네이티브 컨텍스트 메뉴(~500ms)보다 먼저 armed 상태에 들어가야 contextmenu를 가로챌 수 있다
 const LONG_PRESS_MS = 350
@@ -66,12 +66,14 @@ function edgeSpeed(depth: number): number {
 // 즉시 호출하는 라이브 재정렬 방식이라 드롭 시점 처리가 따로 없다.
 export function useDragReorder({
   onReorder,
+  immediateMouseDrag = false,
   onLongPress,
   onDragStart,
   onDragMove,
   onDrop,
 }: {
   onReorder: (from: number, to: number) => void
+  immediateMouseDrag?: boolean
   /** 터치 길게누르기 시점(이동 전) — 컨텍스트 메뉴 열기 등에 쓴다 */
   onLongPress?: (index: number, x: number, y: number) => void
   /** 실제 드래그 이동이 시작될 때 — 길게누르기로 연 메뉴 닫기 등에 쓴다 */
@@ -108,7 +110,13 @@ export function useDragReorder({
     setDragIndex(null)
   }
 
-  useEffect(() => stopAutoScroll, [])
+  useEffect(() => {
+    const cancel = (event: KeyboardEvent) => { if (event.key === 'Escape' && stateRef.current) cleanup() }
+    window.addEventListener('keydown', cancel)
+    return () => { window.removeEventListener('keydown', cancel); stopAutoScroll(); if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current); document.removeEventListener('touchmove', blockTouchScroll) }
+    // cleanup reads the gesture refs; it does not depend on render-time callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function capture(state: DragState) {
     try {
@@ -117,6 +125,12 @@ export function useDragReorder({
       // 드래그 도중 요소가 사라진 경우(세션 종료 등) — 캡처 없이도 동작엔 지장 없다
     }
   }
+
+  // Reordering moves the captured DOM node. Restore capture after React commits the move.
+  useLayoutEffect(() => {
+    const state = stateRef.current
+    if (state?.phase === 'active' && state.el.isConnected) capture(state)
+  })
 
   // 드래그 중인 탭이 다른 탭의 가운데를 지났으면 그 방향의 가장 먼 탭 자리를 목표로 삼는다
   function targetIndexFor(clientX: number, cur: number): number {
@@ -236,7 +250,12 @@ export function useDragReorder({
       if (state.isTouch) {
         if (dist > TOUCH_SLOP_PX) cleanup()
       } else if (dist > MOUSE_SLOP_PX) {
-        startPan(state)
+        if (immediateMouseDrag) {
+          if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current)
+          longPressTimer.current = null
+          capture(state)
+          activate(state)
+        } else startPan(state)
       }
       return
     }
