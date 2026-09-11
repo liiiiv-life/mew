@@ -226,12 +226,9 @@ export function LinkTooltip({
         onKeyDown={handleKeyDown}
         disabled={editingInternal}
         placeholder="표시 텍스트"
-        title={editingInternal ? '내부 링크의 표시 텍스트는 대상 문서의 title로 자동 적용됩니다' : undefined}
+        title={editingInternal ? '문서 제목 · 변경 불가' : undefined}
         className="w-64 rounded border border-edge-bright bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent disabled:opacity-50"
       />
-      {editingInternal && (
-        <div className="text-[10px] text-ink-muted">내부 링크는 대상 문서의 title이 표시 텍스트가 됩니다</div>
-      )}
       <div className="flex items-center gap-1.5">
         <input
           ref={urlInputRef}

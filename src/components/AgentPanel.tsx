@@ -1115,7 +1115,7 @@ function AgentPathBar({
           disabled={!sessionReady}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
           aria-label="새 세션"
-          title="새 세션 — 이 탭의 세션을 끝내고 새로 시작합니다 (지난 세션은 히스토리에 남습니다)"
+          title="새 세션 시작 · 이전 대화는 히스토리에 보관"
         >
           <HistoryGlyph />
         </button>
@@ -1801,7 +1801,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
         const tab = tabs.find((candidate) => candidate.id === activeId)
         return tab?.runtime && tab.cwd && runtimeOf(tab.runtime).surface !== 'terminal'
           ? <AgentCachedPreview tab={tab} />
-          : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">서버 상태 확인 중…</div>
+          : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">대화 불러오는 중…</div>
       })()}
       {tabsSynced && tabs.length === 0 && !pickerOpen && (
         <div className="flex min-h-0 flex-1 items-center justify-center">
@@ -1900,7 +1900,7 @@ function AgentCachedPreview({ tab }: { tab: AgentTab }) {
     }).slice(-6)
   }, [tab])
   return <div className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-busy="true">
-    <div className="shrink-0 px-4 py-2 text-xs text-ink-muted">최근 대화 · 서버 상태 확인 중…</div>
+    <div className="shrink-0 px-4 py-2 text-xs text-ink-muted">최근 대화 · 연결 중…</div>
     <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden px-4 pb-4">
       {items.map((text, index) => <div key={index} className="mt-3 shrink-0 whitespace-pre-wrap break-words text-sm text-ink-secondary">{text.slice(-4000)}</div>)}
     </div>
@@ -2317,7 +2317,7 @@ function AgentSessionView({
               // 자동 복원이 실패한 빈 fallback 세션은 원래 탭 포인터와 캐시를 대체하지 않는다.
               // 사용자가 새 메시지를 보내거나 다른 히스토리를 고를 때만 fallback을 채택한다.
               restoreFailureRef.current = replayed.restoreFailure
-              const message = `이전 대화를 자동으로 불러오지 못했습니다. 다시 선택하거나 새 메시지로 시작하세요.\n${replayed.restoreFailure.message}`
+              const message = `이전 대화를 불러오지 못했습니다. 다시 선택하거나 새 메시지로 시작하세요.\n${replayed.restoreFailure.message}`
               setEvents((cached) => cached.some((item) => item.type === 'error' && item.message === message)
                 ? cached
                 : [...cached, { type: 'error', message }])
@@ -2911,15 +2911,16 @@ function AgentSessionView({
             className={`flex h-6 w-6 items-center justify-center rounded hover:bg-surface-hover hover:text-ink disabled:opacity-40 ${
               showInfo ? 'bg-surface-hover text-ink' : 'text-ink-secondary'
             }`}
-            aria-label="세션 정보"
-            title="세션 정보"
+            aria-label="세션 정보 · 계정 · 사용량"
+            aria-expanded={showInfo}
+            title="세션 정보 · 계정 · 사용량"
           >
             <InfoGlyph />
           </button>
         </div>
 
         {showInfo && (
-          <div className="absolute right-3 top-full mt-1 w-[min(23rem,calc(100vw-2rem))] space-y-1 rounded-lg border border-edge-bright bg-surface p-3 text-xs shadow-xl">
+          <div className="absolute right-3 top-full mt-1 max-h-[60dvh] w-[min(23rem,calc(100%-1.5rem))] space-y-1 overflow-y-auto overscroll-contain rounded-lg border border-edge-bright bg-surface p-3 text-xs shadow-xl">
           <InfoRow label="세션 ID" value={meta ? meta.sessionId.slice(0, 8) : '—'} title={meta?.sessionId} />
           <InfoRow
             label="시작"
@@ -2953,17 +2954,17 @@ function AgentSessionView({
                 label="API 환산 비용"
                 // 서버가 아직 안 올라왔으면 cost 자체가 없다 — 없는 값에 toFixed를 걸어 패널이 죽지 않게 한다
                 value={typeof usage.cost === 'number' ? formatUsd(usage.cost) : '값 없는 모델'}
-                title="같은 토큰을 API로 샀을 때의 정가. 구독제 세션이면 실제 청구액이 아니다"
+                title="API 요금 기준 추정치 · 실제 청구액 아님"
               />
             </>
           ) : (
             <InfoRow label="토큰" value="기록 없음" />
           )}
+          {!auth && Object.hasOwn(SUBSCRIPTION_URLS, runtime) && <AgentAccountCard key={runtime} runtime={runtime} issue={currentAccessIssue} queued={!!meta?.queued.length} embedded />}
           </div>
         )}
       </div>
 
-      {!auth && Object.hasOwn(SUBSCRIPTION_URLS, runtime) && <AgentAccountCard key={runtime} runtime={runtime} issue={currentAccessIssue} queued={!!meta?.queued.length} />}
       {auth ? authBrowser ? (
         <AgentAuthServerBrowser
           runtime={currentRuntime.label}
@@ -2997,7 +2998,7 @@ function AgentSessionView({
               authBrowserDismissedRef.current = false
               authBrowserRef.current = next
               setAuthBrowser(next)
-            }).catch((error: unknown) => setErrorDetail({ title: '내부 로그인 브라우저를 열지 못했습니다', detail: error instanceof Error ? error.message : String(error) }))
+            }).catch((error: unknown) => setErrorDetail({ title: '로그인 페이지를 열지 못했습니다', detail: error instanceof Error ? error.message : String(error) }))
               .finally(() => { authBrowserOpeningRef.current = false })
           }}
           onCancelUrl={(id) => { pendingAcpUrlRef.current = null; closeAcpBrowserTabs(); send({ type: 'auth_url_response', id, action: 'cancel' }) }}
@@ -3011,9 +3012,9 @@ function AgentSessionView({
           browserLoginInput={auth.methods.find((method) => method.id === authTerminal?.methodId)?.browserInput ?? null}
           browserLoginPreparing={authTerminal?.surface === 'browser' && authTerminal.state === 'running' && !authTerminal.verificationUrl}
           browserLoginError={authTerminal?.surface === 'browser' && authTerminal.state === 'failed'
-            ? authTerminal.errorMessage ?? `로그인 명령이 실패했습니다${authTerminal.exitCode === null ? '' : ` (exit ${authTerminal.exitCode})`}. 다시 시도하세요.`
+            ? authTerminal.errorMessage ?? '로그인하지 못했습니다. 다시 시도하세요.'
             : authTerminal?.surface === 'browser' && authTerminal.state === 'interrupted'
-              ? '로그인 명령이 완료 전에 종료됐습니다. 다시 시도하세요.'
+              ? '로그인이 중단됐습니다. 다시 시도하세요.'
               : authTerminal?.surface === 'browser' ? authTerminal.errorMessage : null}
           onOpenBrowserLogin={() => {
             const url = authTerminal?.verificationUrl
@@ -3368,7 +3369,7 @@ function AgentSessionView({
                       startQueuedEdit(index, text)
                     }}
                     disabled={editingQueued !== null || isClearBoundary}
-                    title={isClearBoundary ? '이 지점에서 새 대화로 전환합니다' : '눌러서 수정'}
+                    title={isClearBoundary ? '새 대화 시작 지점' : '눌러서 수정'}
                     className="min-w-0 flex-1 truncate text-left text-ink-secondary disabled:cursor-default"
                   >
                     {text}
@@ -3541,7 +3542,7 @@ function AgentSessionView({
             triggers={mentionTriggers}
             onSubmit={submit}
             rows={2}
-            placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '보내면 대기열에 쌓입니다 (Ctrl+Enter)' : '메시지 — @프로젝트·폴더·파일 (Ctrl+Enter 전송)'}
+            placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '대기 메시지 입력 (Ctrl+Enter)' : '메시지 — @프로젝트·폴더·파일 (Ctrl+Enter 전송)'}
             className="block min-h-0 w-full flex-1 resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
             style={{ height: '100%' }}
             submitHint="Ctrl+Enter로 전송"
@@ -3569,7 +3570,7 @@ function AgentSessionView({
           />
           <button type="button" onClick={saveCurrentDefault} disabled={!currentDefault || savingDefault} className={`-mt-0.5 flex h-6 w-8 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${defaultIsSaved ? 'text-accent' : 'text-ink-secondary'}`} aria-label="현재 모델·추론 정도·권한을 기본값으로 저장" title={savingDefault ? '기본값 저장 중…' : defaultIsSaved ? `${currentRuntime.label}의 저장된 기본값입니다` : `현재 모델·추론 정도·권한을 ${currentRuntime.label} 기본값으로 저장`}><SaveGlyph /></button>
           <div className="flex flex-col gap-1.5">
-            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={!connected || attaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label="파일 첨부" title="파일 첨부 (.mew/files에 저장)"><PaperclipGlyph /></button>
+            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={!connected || attaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label="파일 첨부" title="파일 첨부"><PaperclipGlyph /></button>
             <button
               type="button"
               onClick={() => setScheduleOpen(true)}
@@ -3611,12 +3612,12 @@ function AgentSessionView({
           session={authTerminal.session}
           running
           statusNote={authTerminal.state === 'running'
-            ? '로그인 명령 실행 중 · 완료되면 자동으로 연결합니다'
+            ? '로그인 중…'
             : authTerminal.state === 'failed'
-              ? `로그인 실패${authTerminal.exitCode === null ? '' : ` (exit ${authTerminal.exitCode})`} · 종료 후 다시 여세요`
+              ? '로그인하지 못했습니다. 닫은 뒤 다시 시도하세요.'
               : authTerminal.state === 'interrupted'
-                ? '로그인 명령이 완료 전에 종료됐습니다 · 다시 여세요'
-                : '로그인 성공 · 연결 중'}
+                ? '로그인이 중단됐습니다. 닫은 뒤 다시 시도하세요.'
+                : '연결 중…'}
           statusTone={authTerminal.state === 'failed' || authTerminal.state === 'interrupted' ? 'danger' : 'muted'}
           browserLoginUrl={authTerminal.verificationUrl}
           onOpenBrowserLogin={() => {
@@ -3624,7 +3625,7 @@ function AgentSessionView({
             void openAgentAuthServerBrowser(runtime, tabId, authTerminal.methodId).then((page) => {
               const next = { methodId: authTerminal.methodId, ...page }
               authBrowserRef.current = next; setAuthBrowser(next); setAuthTerminalOpen(false)
-            }).catch((error: unknown) => setErrorDetail({ title: '내부 로그인 브라우저를 열지 못했습니다', detail: String(error) }))
+            }).catch((error: unknown) => setErrorDetail({ title: '로그인 페이지를 열지 못했습니다', detail: String(error) }))
           }}
           onRun={() => runAgentAuthTerminal(runtime, tabId, cwd, authTerminal.methodId)}
           onClose={() => setAuthTerminalOpen(false)}
@@ -3659,7 +3660,6 @@ function AgentAuthServerBrowser({
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge bg-surface px-2">
         <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-secondary">{host}</span>
-        <span className="shrink-0 text-[10px] text-ink-muted">SERVER OAUTH</span>
         <button
           type="button"
           onClick={onClose}
@@ -3676,9 +3676,6 @@ function AgentAuthServerBrowser({
         <CopyButton key={verificationCode} text={verificationCode} label="승인 코드 복사" />
       </div>}
       <ServerDomBrowserTabs key={page.streamUrl} streamUrl={page.streamUrl} reopen={reopen} onPopup={onPopup} onReady={onReady} />
-      <div className="flex h-6 shrink-0 items-center border-t border-edge bg-surface px-2 text-[10px] text-ink-muted">
-        <span className="truncate">서버에서 로그인 중 · 완료되면 자동으로 채팅으로 돌아갑니다</span>
-      </div>
     </section>
   )
 }
@@ -3723,7 +3720,8 @@ function AgentAuthPanel({
   const [browserInputSubmitting, setBrowserInputSubmitting] = useState(false)
   const [browserInputError, setBrowserInputError] = useState<string | null>(null)
   const browserInputId = useId()
-  const commandMethods = state.methods.filter((method) => method.kind === 'terminal')
+  const actionClass = 'min-h-10 shrink-0 rounded-md bg-accent px-3 py-2 text-sm text-ink-on-accent hover:bg-accent-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40'
+  const inputClass = 'min-h-10 min-w-0 flex-1 rounded-md border border-edge-strong bg-surface-deep px-3 py-2 text-sm text-ink placeholder:text-ink-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
   const backToPicker = () => {
     // URL 인증 요청을 열린 채로 두면 ACP 쪽이 사용자 응답을 계속 기다린다.
     if (urlRequest) onCancelUrl(urlRequest.id)
@@ -3734,28 +3732,24 @@ function AgentAuthPanel({
     let host = urlRequest.url
     try { host = new URL(urlRequest.url).host } catch { /* 서버가 이미 검사했다 */ }
     return (
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
-        <button type="button" onClick={backToPicker} className="absolute left-4 top-4 flex h-7 w-7 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" aria-label="런타임 목록으로 돌아가기" title="런타임 목록으로 돌아가기"><BackChevron /></button>
-        <div className="w-full max-w-lg rounded-lg border border-edge-bright bg-surface p-4">
-          <h2 className="text-sm font-semibold text-ink">{runtime} 로그인</h2>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-ink-secondary">{urlRequest.message}</p>
-          <div className="mt-3 rounded bg-surface-deep p-2">
-            <div className="text-xs font-medium text-ink">{host}</div>
-            <div className="mt-1 break-all font-mono text-[11px] text-ink-muted">{urlRequest.url}</div>
-          </div>
-          <p className="mt-2 text-xs text-ink-muted">주소를 확인한 뒤 Mew 내부 브라우저에서 로그인하세요. 사이트 연결은 Mew 서버에서 이루어집니다.</p>
-          <div className="mt-4 flex justify-end gap-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+        <button type="button" onClick={backToPicker} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label="에이전트 목록으로 돌아가기" title="에이전트 목록으로 돌아가기"><BackChevron /></button>
+        <div className="mx-auto my-auto w-full max-w-sm py-6">
+          <h2 className="text-base font-semibold text-ink">{runtime} 로그인</h2>
+          <p className="mt-2 break-all text-sm text-ink-secondary">{host}</p>
+          {urlRequest.message && <p className="mt-3 whitespace-pre-wrap break-words text-sm text-ink-secondary">{urlRequest.message}</p>}
+          <div className="mt-5 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => onCancelUrl(urlRequest.id)}
-              className="rounded border border-edge-strong px-3 py-1.5 text-sm text-ink-secondary hover:bg-surface-raised"
+              className="min-h-10 rounded-md border border-edge-strong px-3 py-2 text-sm text-ink-secondary hover:bg-surface-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
             >
               취소
             </button>
             <button
               type="button"
               onClick={() => onOpenUrl(urlRequest)}
-              className="rounded bg-accent px-3 py-1.5 text-sm text-ink-on-accent"
+              className={actionClass}
             >
               로그인 페이지 열기
             </button>
@@ -3766,49 +3760,29 @@ function AgentAuthPanel({
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
-      <button type="button" onClick={backToPicker} className="absolute left-4 top-4 flex h-7 w-7 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" aria-label="런타임 목록으로 돌아가기" title="런타임 목록으로 돌아가기"><BackChevron /></button>
-      <div className="w-full max-w-xl">
-        <h2 className="mb-1 text-center text-sm font-medium text-ink">{runtime} 인증 센터</h2>
-        <p className="mb-4 text-center text-xs text-ink-muted">에이전트와 로그인 브라우저는 Mew 서버에서 실행됩니다. 내부 브라우저에서 인증을 마치면 에이전트가 연결됩니다.</p>
-        {state.methods.some((method) => method.surface === 'browser') && (
-          <div className="mb-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5 text-xs text-ink-secondary">
-            <div className="font-medium text-ink">내부 브라우저 로그인</div>
-            <p className="mt-1 text-ink-muted">로그인을 시작하면 내부 브라우저에 공급자 인증 페이지를 엽니다. CLI 자격증명은 공급자 CLI가 관리하며 사이트 로그인 상태는 계정별 서버 브라우저에 유지됩니다.</p>
-          </div>
-        )}
-        <div className="space-y-2">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
+      <button type="button" onClick={backToPicker} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label="에이전트 목록으로 돌아가기" title="에이전트 목록으로 돌아가기"><BackChevron /></button>
+      <div className="mx-auto my-auto w-full max-w-sm py-6">
+        <h2 className="mb-5 text-base font-semibold text-ink">{runtime} 로그인</h2>
+        <div className="space-y-3">
           {state.methods.map((method) => (
-            <div key={method.id} className="rounded-md border border-edge bg-surface px-3 py-2.5">
-              <div className="flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm text-ink">{method.name}</div>
-                  {method.description && <div className="mt-0.5 text-xs text-ink-muted">{method.description}</div>}
-                </div>
-                {method.kind === 'agent' && (
+            <div key={method.id}>
+              {method.kind !== 'api-key' ? (
+                <>
                   <button
                     type="button"
-                    onClick={() => onAuthenticate(method.id)}
-                    disabled={state.authenticating}
-                    className="rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent disabled:opacity-40"
+                    onClick={() => method.kind === 'agent' ? onAuthenticate(method.id) : method.surface === 'browser' ? onStartBrowserLogin(method.id) : onOpenTerminal(method.id)}
+                    disabled={state.authenticating || browserLoginPreparing}
+                    className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md border border-edge-strong bg-surface px-3 py-2.5 text-left text-sm text-ink hover:border-edge-bright hover:bg-surface-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
                   >
-                    로그인
+                    <span className="min-w-0 break-words">{method.name}</span>
+                    <span className="shrink-0 rotate-180 text-ink-secondary"><BackChevron /></span>
                   </button>
-                )}
-                {method.kind === 'terminal' && (
-                  <button
-                    type="button"
-                    onClick={() => method.surface === 'browser' ? onStartBrowserLogin(method.id) : onOpenTerminal(method.id)}
-                    disabled={state.authenticating}
-                    className="rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent disabled:opacity-40"
-                  >
-                    {method.surface === 'browser' ? '브라우저 로그인' : '터미널 열기'}
-                  </button>
-                )}
-              </div>
-              {method.kind === 'api-key' && (
+                  {method.kind === 'terminal' && method.surface !== 'browser' && method.description && <p className="mt-2 text-xs text-ink-secondary">{method.description}</p>}
+                </>
+              ) : (
                 <form
-                  className="mt-2 flex gap-2"
+                  className="space-y-2"
                   onSubmit={(event) => {
                     event.preventDefault()
                     const value = apiKeys[method.id]?.trim()
@@ -3817,51 +3791,48 @@ function AgentAuthPanel({
                     setApiKeys((current) => ({ ...current, [method.id]: '' }))
                   }}
                 >
-                  <input
-                    type="password"
-                    value={apiKeys[method.id] ?? ''}
-                    onChange={(event) => setApiKeys((current) => ({ ...current, [method.id]: event.target.value }))}
-                    autoComplete="off"
-                    placeholder="API 키"
-                    className="min-w-0 flex-1 rounded bg-surface-deep px-2 py-1.5 text-xs text-ink outline-none"
-                  />
-                  <button
-                    type="submit"
-                    disabled={state.authenticating || !apiKeys[method.id]?.trim()}
-                    className="rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent disabled:opacity-40"
-                  >
-                    로그인
-                  </button>
+                  <label htmlFor={`${browserInputId}-${method.id}`} className="block text-sm text-ink">{method.name}</label>
+                  <div className="flex gap-2">
+                    <input
+                      id={`${browserInputId}-${method.id}`}
+                      type="password"
+                      value={apiKeys[method.id] ?? ''}
+                      onChange={(event) => setApiKeys((current) => ({ ...current, [method.id]: event.target.value }))}
+                      autoComplete="off"
+                      placeholder="API 키"
+                      className={inputClass}
+                    />
+                    <button
+                      type="submit"
+                      disabled={state.authenticating || !apiKeys[method.id]?.trim()}
+                      className={actionClass}
+                    >
+                      연결
+                    </button>
+                  </div>
                 </form>
               )}
             </div>
           ))}
         </div>
-        {commandMethods.length > 0 && (
-          <div className="mt-3 rounded bg-surface px-3 py-2 text-center">
-            <span className="text-xs text-ink-muted">인증 명령이 성공하면 자동으로 새 에이전트 세션을 연결합니다.</span>
-          </div>
-        )}
         {browserLoginPreparing && (
-          <div className="mt-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5 text-center text-xs text-ink-secondary">내부 브라우저 로그인 링크를 준비 중…</div>
+          <p className="mt-4 text-sm text-ink-secondary" role="status">로그인 준비 중…</p>
         )}
         {browserLoginUrl && (
-          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5">
-            <div className="min-w-0 text-xs text-ink-secondary">
-              <div>인증 링크가 준비됐습니다. 내부 브라우저에서 로그인을 마치세요.</div>
-              {browserLoginCode && (
-                <div className="mt-1 flex items-center gap-2 font-mono text-sm font-semibold tracking-wider text-ink">
-                  <span>일회용 코드: {browserLoginCode}</span>
-                  <button type="button" onClick={() => void copyText(browserLoginCode)} className="rounded px-1.5 py-0.5 font-sans text-[11px] font-normal tracking-normal text-accent hover:bg-surface-raised">복사</button>
-                </div>
-              )}
-            </div>
-            <button type="button" onClick={onOpenBrowserLogin} className="shrink-0 rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent">브라우저에서 계속 ↗</button>
+          <div className="mt-5 space-y-3 border-t border-edge pt-4">
+            {browserLoginCode && (
+              <div className="flex flex-wrap items-center gap-2 text-sm text-ink">
+                <span className="text-ink-secondary">승인 코드</span>
+                <code className="min-w-0 select-all break-all font-mono font-semibold">{browserLoginCode}</code>
+                <CopyButton key={browserLoginCode} text={browserLoginCode} label="승인 코드 복사" />
+              </div>
+            )}
+            <button type="button" onClick={onOpenBrowserLogin} className={actionClass + ' w-full'}>로그인 계속하기</button>
           </div>
         )}
         {browserLoginUrl && browserLoginInput === 'authorization-code' && (
           <form
-            className="mt-3 rounded-md border border-edge-bright bg-surface px-3 py-2.5"
+            className="mt-4"
             onSubmit={(event) => {
               event.preventDefault()
               const input = browserInputValue.trim()
@@ -3883,25 +3854,24 @@ function AgentAuthPanel({
                 onChange={(event) => setBrowserInputValue(event.target.value)}
                 autoComplete="off"
                 placeholder="인증 코드 붙여넣기"
-                className="min-w-0 flex-1 rounded bg-surface-deep px-2 py-1.5 text-xs text-ink outline-none"
+                className={inputClass}
               />
               <button
                 type="submit"
                 disabled={!browserInputValue.trim() || browserInputSubmitting}
-                className="rounded bg-accent px-3 py-1.5 text-xs text-ink-on-accent disabled:opacity-40"
+                className={actionClass}
               >
                 {browserInputSubmitting ? '전송 중…' : '코드 전송'}
               </button>
             </div>
-            <p className="mt-1.5 text-[11px] text-ink-muted">코드는 실행 중인 공급자 CLI에 한 번만 전달되며 Mew에 저장되지 않습니다.</p>
-            {browserInputError && <p className="mt-1 text-xs text-danger">{browserInputError}</p>}
+            {browserInputError && <p className="mt-2 text-sm text-danger-ink" role="alert">{browserInputError}</p>}
           </form>
         )}
         {browserLoginError && (
-          <div className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-center text-xs text-danger">{browserLoginError}</div>
+          <p className="mt-4 break-words text-sm text-danger-ink" role="alert">{browserLoginError}</p>
         )}
-        {state.authenticating && <div className="mt-3 text-center text-xs text-ink-muted">로그인 확인 중…</div>}
-        {state.error && <div className="mt-3 whitespace-pre-wrap rounded bg-danger/10 px-3 py-2 text-xs text-danger">{state.error}</div>}
+        {state.authenticating && !browserLoginPreparing && <p className="mt-4 text-sm text-ink-secondary" role="status">로그인 확인 중…</p>}
+        {state.error && <p className="mt-4 whitespace-pre-wrap break-words text-sm text-danger-ink" role="alert">{state.error}</p>}
       </div>
     </div>
   )

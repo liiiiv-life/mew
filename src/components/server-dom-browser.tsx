@@ -41,7 +41,7 @@ export function ServerDomBrowser({ streamUrl, reopen, onStatus, onController }: 
     <div className="flex min-h-0 flex-1 flex-col bg-white">
       {(status.state !== 'ready' || status.message) && (
         <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-surface px-3 py-2 text-xs text-ink-secondary" role={status.state === 'error' ? 'alert' : 'status'}>
-          <span className="min-w-0 flex-1 break-words">{status.message ?? '서버에서 페이지를 여는 중…'}</span>
+          <span className="min-w-0 flex-1 break-words">{status.message ?? '페이지 여는 중…'}</span>
           {status.state === 'error' && <button type="button" disabled={reopening} className="shrink-0 rounded px-2 py-1 hover:bg-surface-raised focus-visible:outline focus-visible:outline-2 disabled:opacity-50" onClick={() => { void reconnect() }}>{reopening ? '연결 중…' : '다시 연결'}</button>}
         </div>
       )}

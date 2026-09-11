@@ -261,7 +261,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'uv', args: ['tool', 'install', '--force', 'hermes-agent[acp]'] }),
     uninstall: () => ({ cmd: 'uv', args: ['tool', 'uninstall', 'hermes-agent'] }),
     auth: {
-      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, hermesSpawnSpec(), ['acp', '--setup'], 'Hermes 로그인/설정', '모델 공급자와 자격증명을 설정합니다.')],
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, hermesSpawnSpec(), ['acp', '--setup'], 'Hermes 로그인/설정', '사용할 모델과 계정을 선택하세요.')],
       replaceMethodIds: ['hermes-setup'],
     },
   },
@@ -318,7 +318,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', 'opencode-ai'] }),
     logout: () => ({ cmd: 'opencode', args: ['auth', 'logout'] }),
     auth: {
-      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, opencodeSpawnSpec(), ['auth', 'login'], 'OpenCode 로그인', '모델 공급자를 골라 로그인합니다.')],
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, opencodeSpawnSpec(), ['auth', 'login'], 'OpenCode 로그인', '사용할 서비스를 선택해 로그인하세요.')],
     },
   },
   cursor: {
@@ -344,7 +344,7 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     install: () => ({ cmd: 'sh', args: ['-lc', 'curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh'] }),
     auth: {
       // /login은 Prime Agent TUI의 슬래시 명령이다 — 터미널 팝업에서 대화형으로 공급자를 고른다.
-      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, { cmd: process.env.MEW_PRIME_AGENT_EXECUTABLE || 'prime-agent', args: [] }, [], 'Prime Agent 로그인/설정', "TUI에서 /login을 입력해 공급자(Claude·ChatGPT·Copilot·API key)를 등록합니다. 설정 뒤 이 탭을 닫으면 Mew 어댑터가 연결됩니다.")],
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, { cmd: process.env.MEW_PRIME_AGENT_EXECUTABLE || 'prime-agent', args: [] }, [], 'Prime Agent 로그인/설정', '터미널에서 /login을 입력하세요. 설정을 마치면 터미널을 닫으세요.')],
       replaceMethodIds: ['login'],
     },
   },

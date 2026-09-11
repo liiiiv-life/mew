@@ -309,7 +309,7 @@ function CmdRow({
         className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover disabled:opacity-40 ${
           button.running ? 'hover:text-danger-strong' : 'hover:text-accent-strong'
         }`}
-        title={button.running ? '정지 — 이 명령의 tmux 세션을 종료합니다' : '실행'}
+        title={button.running ? '명령 중지' : '실행'}
         aria-label={`${button.name} ${button.running ? '정지' : '실행'}`}
       >
         {button.running ? <StopGlyph /> : <PlayGlyph small />}
@@ -377,11 +377,11 @@ function CmdButtonEditor({
     >
       <div className="w-full max-w-sm rounded-lg border border-edge-bright bg-surface-raised p-4 shadow-xl">
         <div className="mb-1 text-sm font-medium text-ink">{editing.index === null ? '명령 추가' : '명령 수정'}</div>
-        <div className="mb-3 text-[11px] text-ink-muted">
-          {project}/.mew/cmd-button.json — 프로젝트 폴더를 cwd로 실행됩니다
+        <div className="mb-3 text-xs text-ink-secondary">
+          실행 폴더: {project}
         </div>
 
-        <label className="mb-1 block text-[11px] text-ink-muted">이름</label>
+        <label className="mb-1 block text-xs text-ink-secondary">이름</label>
         <input
           ref={nameRef}
           value={draft.name}
@@ -390,7 +390,7 @@ function CmdButtonEditor({
           className="mb-3 w-full rounded border border-edge-strong bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
         />
 
-        <label className="mb-1 block text-[11px] text-ink-muted">명령어</label>
+        <label className="mb-1 block text-xs text-ink-secondary">명령어</label>
         <textarea
           value={draft.command}
           onChange={(e) => setDraft({ ...draft, command: e.target.value })}
@@ -408,7 +408,7 @@ function CmdButtonEditor({
             checked={draft.oneShot}
             onChange={(e) => setDraft({ ...draft, oneShot: e.target.checked })}
           />
-          일회성 — 끝나면 세션을 자동으로 닫는다 (배포·빌드 등)
+          완료 후 터미널 종료
         </label>
 
         {error && <div className="mb-2 text-xs text-danger-strong">{error}</div>}

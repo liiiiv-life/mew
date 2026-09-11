@@ -298,7 +298,7 @@ export function ProjectPicker({
 
         {!readOnly && (
           <div className="mt-3 text-[11px] text-ink-muted">
-            타일을 끌어 자리를 바꿀 수 있습니다 (터치는 길게 누른 뒤 이동)
+            끌어서 순서 변경 · 터치는 길게 누르기
           </div>
         )}
 

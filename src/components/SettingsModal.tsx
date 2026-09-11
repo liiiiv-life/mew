@@ -292,7 +292,7 @@ function AccountPanel({
           표시 이름
           <input value={name} onChange={(e) => { setName(e.target.value); setProfileSaved(false) }} maxLength={50} required className={`${inputClass} mt-1`} />
         </label>
-        <div className="text-xs text-ink-muted">사진은 512KB 이하의 JPG, PNG, WebP 또는 GIF만 사용할 수 있습니다.</div>
+        <div className="text-xs text-ink-muted">JPG, PNG, WebP, GIF · 최대 512KB</div>
         {profileError && <div className="text-sm text-danger">{profileError}</div>}
         {profileSaved && <div className="text-sm text-success">프로필을 저장했습니다</div>}
         <button type="submit" disabled={profileBusy || !name.trim()} className="rounded bg-accent py-2 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">
@@ -331,7 +331,7 @@ function AccountPanel({
         />
         {error && <div className="text-sm text-danger">{error}</div>}
         {success && (
-          <div className="text-sm text-success">비밀번호가 변경되었습니다 — 다른 기기의 로그인은 모두 끊깁니다</div>
+          <div className="text-sm text-success">비밀번호 변경 완료 · 다른 기기에서 다시 로그인 필요</div>
         )}
         <button
           type="submit"
@@ -402,7 +402,6 @@ function AppearancePanel({
           {t('settings.dark')}
         </button>
       </div>
-      <div className="text-xs text-ink-muted">{t('settings.themeDescription')}</div>
       <div className="mt-2 border-t border-edge pt-3">
         <label htmlFor="mew-language" className="text-sm font-medium">
           {t('settings.language')}
@@ -419,11 +418,9 @@ function AppearancePanel({
             </option>
           ))}
         </select>
-        <div className="mt-1.5 text-xs text-ink-muted">{t('settings.languageDescription')}</div>
       </div>
       <div className="mt-2 border-t border-edge pt-3">
         <div className="text-sm font-medium">{t('settings.accentColor')}</div>
-        <div className="mt-1 text-xs text-ink-muted">{t('settings.accentColorDescription')}</div>
         <div className="mt-3 flex flex-col gap-3">
           {(['accent', 'accentStrong', 'link'] as const).map((prop) => (
             <label key={prop} className="block">
@@ -459,7 +456,7 @@ function AppearancePanel({
       </div>
       <div className="mt-2 border-t border-edge pt-3">
         <div className="text-sm font-medium">{t('settings.fonts')}</div>
-        <div className="mt-1 text-xs text-ink-muted">{t('settings.fontsDescription')}</div>
+        <div className="mt-1 text-xs text-ink-secondary">{t('settings.fontsDescription')}</div>
         <datalist id="mew-font-suggestions">
           {FONT_SUGGESTIONS.map((font) => <option key={font} value={font} />)}
         </datalist>
@@ -561,7 +558,7 @@ function IgnorePanel() {
             {isLocked(name) ? (
               <span
                 className="rounded border border-edge-strong px-1.5 py-0.5 text-xs text-ink-muted"
-                title="시크릿·저장소 내부라 목록에서 빼도 서버가 계속 막습니다"
+                title="항상 숨김"
               >
                 고정
               </span>

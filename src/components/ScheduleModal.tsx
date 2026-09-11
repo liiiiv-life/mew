@@ -205,8 +205,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
       }}
     >
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg bg-surface-raised p-4 shadow-xl">
-        <div className="mb-1 text-sm font-semibold text-ink">예약 작업</div>
-        <div className="mb-3 text-[11px] text-ink-muted">정해진 시각에 에이전트를 열어 프롬프트를 실행한다 — 서버 계정의 crontab으로 돌아간다</div>
+        <div className="mb-3 text-sm font-semibold text-ink">예약 작업</div>
 
         {jobs === null && !error ? (
           <div className="py-6 text-center text-xs text-ink-muted">불러오는 중…</div>
@@ -238,7 +237,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                       <button
                         type="button"
                         onClick={() => setSession(job)}
-                        title="이 작업의 tmux 세션 보기 (여기서 지금 실행할 수도 있다)"
+                        title="작업 터미널 열기"
                         aria-label={`${job.name || '예약 작업'} 터미널 세션`}
                         className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-surface-hover hover:text-ink"
                       >
@@ -287,7 +286,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                         value={job.prompt}
                         onChange={(e) => patch(job.id, { prompt: e.target.value })}
                         rows={4}
-                        placeholder="에이전트에게 시킬 일을 적는다"
+                        placeholder="작업 내용"
                         className="w-full resize-y rounded bg-surface-raised px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-faint"
                       />
 
@@ -301,7 +300,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                         </button>
                         {showCommand === job.id && (
                           <pre className="mt-1 overflow-x-auto rounded bg-surface-raised p-2 font-mono text-[10px] text-ink-muted">
-                            {job.command || '저장하면 생성됩니다'}
+                            {job.command || '저장 후 확인 가능'}
                           </pre>
                         )}
                       </div>
@@ -325,7 +324,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
 
             {otherLines.length > 0 && (
               <details className="mt-4">
-                <summary className="cursor-pointer text-[11px] text-ink-faint">직접 작성한 크론 줄 {otherLines.length}개 (여기서 수정하지 않음)</summary>
+                <summary className="cursor-pointer text-[11px] text-ink-faint">기타 예약 {otherLines.length}개 · 읽기 전용</summary>
                 <pre className="mt-1 overflow-x-auto rounded bg-surface p-2 font-mono text-[10px] text-ink-muted">{otherLines.join('\n')}</pre>
               </details>
             )}

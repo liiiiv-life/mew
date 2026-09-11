@@ -390,7 +390,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       setMewUpdate(status)
       if (!announce) return
       if (status.error) showToast(`업데이트를 확인하지 못했습니다: ${status.error}`)
-      else if (status.available && !status.canUpdate) showToast('새 버전이 있지만 이 서버는 외부 supervisor가 관리 중이라 터미널에서 업데이트해야 합니다')
+      else if (status.available && !status.canUpdate) showToast('새 버전이 있습니다. 터미널에서 업데이트해 주세요.')
       else if (status.available) showToast(`origin/main에 새 커밋 ${status.behind}개가 있습니다`)
       else showToast('Mew가 최신 버전입니다')
     } catch (err) {
@@ -408,13 +408,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       return
     }
     if (!mewUpdate.canUpdate) {
-      showToast(mewUpdate.error ?? '외부 supervisor가 관리하는 서버는 터미널에서 업데이트해야 합니다')
+      showToast(mewUpdate.error ?? '터미널에서 업데이트해 주세요.')
       return
     }
     setMewUpdating(true)
     try {
       await runMewAction('update')
-      showToast('Mew 업데이트를 시작했습니다. 완료되면 자동으로 새로고침합니다')
+      showToast('업데이트 중…')
     } catch (err) {
       setMewUpdating(false)
       showToast(err instanceof Error ? err.message : String(err))
@@ -436,7 +436,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         }
         if (status.job?.state === 'failed') {
           setMewUpdating(false)
-          showToast(status.job.message ?? '업데이트에 실패했습니다. 작업 트리와 tmux 출력을 확인하세요')
+          showToast(status.job.message ?? '업데이트에 실패했습니다. 실행 로그를 확인하세요.')
         }
       } catch {
         // 업데이트 중에는 서버가 한 번 재시작된다. 새 서버가 뜰 때까지 계속 확인한다.

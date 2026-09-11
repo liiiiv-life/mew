@@ -308,8 +308,8 @@ export function EditorPane({
     const tab = activeTabRef.current
     const other = tab?.path.endsWith('.md') ? (tab.viewMode === 'plain' ? 'Hotview' : 'Plain') : null
     return other
-      ? `본문에서 이 댓글의 자리를 찾지 못했습니다 — ${other} 보기에서 달았거나 그 부분이 바뀐 댓글입니다`
-      : '본문에서 이 댓글의 자리를 찾지 못했습니다 — 그 부분이 바뀌었거나 지워졌습니다'
+      ? `댓글 위치를 찾을 수 없습니다. ${other} 보기에서 확인하세요.`
+      : '댓글이 달린 부분이 수정되거나 삭제됐습니다'
   }
 
   /**
@@ -501,7 +501,7 @@ export function EditorPane({
           <>
             {isArchivedPath(activeTab.path) && !isGuest && (
               <div className="absolute inset-x-0 top-0 z-10 bg-warning-surface px-4 py-1 text-center text-sm text-warning-ink">
-                archives/ 문서는 불변입니다 — 편집이 차단되었습니다
+                보관 문서 · 읽기 전용
               </div>
             )}
             <div className="relative flex min-w-0 flex-1 flex-col">

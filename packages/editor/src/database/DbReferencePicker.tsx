@@ -58,7 +58,10 @@ export function DbReferencePicker({
         className="w-80 max-w-full rounded-lg border border-edge-bright bg-surface-raised p-3 shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="mb-2 text-sm font-semibold text-ink">데이터베이스 참조</div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-ink">데이터베이스 참조</span>
+          <span className="text-xs text-ink-secondary">읽기 전용</span>
+        </div>
 
         <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-muted">이 프로젝트의 데이터베이스</div>
         <div className="max-h-48 overflow-y-auto rounded border border-edge-bright">
@@ -84,7 +87,6 @@ export function DbReferencePicker({
             ))
           )}
         </div>
-        <p className="mt-1 text-[10px] text-ink-muted">선택하면 읽기 전용 뷰로 삽입됩니다.</p>
 
         <div className="mb-1 mt-3 text-[10px] uppercase tracking-wide text-ink-muted">외부 Postgres 테이블</div>
         <div className="flex gap-1">

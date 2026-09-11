@@ -94,8 +94,8 @@ export function mountDomBrowser(root: HTMLElement, streamUrl: string, status: (v
       }
     } catch { terminalError = true; report({ state: 'error', message: '브라우저 화면을 복원하지 못했습니다. 다시 연결해 주세요.' }) }
   }
-  socket.onerror = () => { terminalError = true; report({ state: 'error', message: '서버 브라우저에 연결하지 못했습니다. 다시 연결해 주세요.' }) }
-  socket.onclose = () => { if (!disposed && !terminalError) report({ state: 'error', message: '서버 브라우저 연결이 종료되었습니다.' }) }
+  socket.onerror = () => { terminalError = true; report({ state: 'error', message: '브라우저에 연결하지 못했습니다. 다시 연결해 주세요.' }) }
+  socket.onclose = () => { if (!disposed && !terminalError) report({ state: 'error', message: '연결이 끊겼습니다. 다시 연결해 주세요.' }) }
   return Object.assign(() => {
     disposed = true
     observer.disconnect()
@@ -207,7 +207,7 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
             ':where([data-mew-frame]) { display:inline-block; width:300px; height:150px; overflow:hidden; }',
             ':where([data-mew-frame][hidden]) { display:none; }',
 
-            '[data-mew-unsupported="iframe"]::after,[data-mew-unsupported="canvas"]::after,[data-mew-unsupported="video"]::after,[data-mew-unsupported="audio"]::after,[data-mew-unsupported="object"]::after,[data-mew-unsupported="embed"]::after { content: "이 영역은 DOM 브라우저에서 아직 지원하지 않습니다"; display:block; padding:12px; color:#555; background:#f5f5f5; font:13px sans-serif; }',
+            '[data-mew-unsupported="iframe"]::after,[data-mew-unsupported="canvas"]::after,[data-mew-unsupported="video"]::after,[data-mew-unsupported="audio"]::after,[data-mew-unsupported="object"]::after,[data-mew-unsupported="embed"]::after { content: "이 콘텐츠는 표시할 수 없습니다"; display:block; padding:12px; color:#555; background:#f5f5f5; font:13px sans-serif; }',
           ],
         })
         player.iframe.title = '서버 웹페이지'

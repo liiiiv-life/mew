@@ -95,7 +95,6 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
     return (
       <FolderPicker
         title={t('docs.pickExportTitle')}
-        hint={t('docs.pickExportHint')}
         confirmLabel={t('docs.exportToFolder')}
         busy={busy}
         onPick={(path) =>
@@ -124,28 +123,25 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
           type="button"
           disabled={busy}
           onClick={() => setPicking('root')}
-          className="flex w-full flex-col gap-0.5 border-t border-edge px-3 py-2.5 text-left hover:bg-surface-hover disabled:opacity-40"
+          className="flex min-h-10 w-full items-center border-t border-edge px-3 py-2.5 text-left hover:bg-surface-hover disabled:opacity-40"
         >
           <span className="text-xs text-ink">{t('docs.changeFolder')}</span>
-          <span className="text-[11px] text-ink-muted">{t('docs.changeFolderDescription')}</span>
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={() => setPicking('import')}
-          className="flex w-full flex-col gap-0.5 border-t border-edge px-3 py-2.5 text-left hover:bg-surface-hover disabled:opacity-40"
+          className="flex min-h-10 w-full items-center border-t border-edge px-3 py-2.5 text-left hover:bg-surface-hover disabled:opacity-40"
         >
           <span className="text-xs text-ink">{t('docs.import')}</span>
-          <span className="text-[11px] text-ink-muted">{t('docs.importDescription')}</span>
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={() => setPicking('export')}
-          className="flex w-full flex-col gap-0.5 border-t border-edge px-3 py-2.5 text-left hover:bg-surface-hover disabled:opacity-40"
+          className="flex min-h-10 w-full items-center border-t border-edge px-3 py-2.5 text-left hover:bg-surface-hover disabled:opacity-40"
         >
           <span className="text-xs text-ink">{t('docs.export')}</span>
-          <span className="text-[11px] text-ink-muted">{t('docs.exportDescription')}</span>
         </button>
       </div>
     </div>

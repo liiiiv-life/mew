@@ -171,23 +171,20 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
       <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised shadow-xl">
         <div className="border-b border-edge px-4 py-3">
           <div className="text-sm font-semibold text-ink">{label} 설정</div>
-          <div className="mt-0.5 text-xs text-ink-muted">실행 파일·공급자 설정을 이 런타임 전역으로 바꾼다. 다음 세션부터 적용된다.</div>
+          <div className="mt-1 text-xs text-ink-secondary">새 세션부터 적용</div>
         </div>
         {!loaded ? (
           <div className="px-4 py-8 text-center text-xs text-ink-muted">불러오는 중…</div>
         ) : (
           <div className="space-y-4 px-4 py-3">
-            <section className="rounded border border-edge bg-surface p-3">
-              <div className="text-xs font-medium text-ink-secondary">런타임 · 계정</div>
-              <div className="mt-1 text-[11px] text-ink-muted">{runtime?.installed ? '설치됨' : '설치되지 않음'} · 로그인은 이 런타임으로 새 탭을 열어 이어갑니다.</div>
+            <section>
+              <div className="text-xs text-ink-secondary">{runtime?.installed ? '설치됨' : '설치되지 않음'}</div>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {!runtime?.installed && runtime?.installable && <button type="button" disabled={lifecycleBusy} onClick={install} className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent disabled:opacity-40">설치</button>}
                 {runtime?.installed && <button type="button" disabled={lifecycleBusy} onClick={() => window.dispatchEvent(new CustomEvent('mew:open-agent-runtime', { detail: runtimeId }))} className="rounded border border-edge px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-40">로그인</button>}
                 {runtime?.installed && runtime.logoutable && <button type="button" disabled={lifecycleBusy} onClick={() => setConfirm('logout')} className="rounded border border-warning px-2.5 py-1 text-xs text-warning hover:bg-surface-hover disabled:opacity-40">로그아웃</button>}
                 {runtime?.installed && runtime.uninstallable && <button type="button" disabled={lifecycleBusy} onClick={() => setConfirm('uninstall')} className="rounded border border-danger px-2.5 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-40">런타임 삭제</button>}
               </div>
-              {runtime?.installed && !runtime.uninstallable && <div className="mt-2 text-[11px] text-ink-faint">이 설치 방식에는 안전한 자동 제거 명령이 없어 파일을 추측해 지우지 않습니다.</div>}
-              {runtime?.installed && !runtime.logoutable && <div className="mt-1 text-[11px] text-ink-faint">이 CLI는 확인된 비대화형 로그아웃 명령이 없어 자동 로그아웃을 제공하지 않습니다.</div>}
             </section>
             {runtime?.installed && Object.hasOwn(SUBSCRIPTION_URLS, runtimeId) && <AgentAccountCard runtime={runtimeId} />}
             <div>
@@ -195,8 +192,8 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
               <input
                 value={cmd}
                 onChange={(e) => setCmd(e.target.value)}
-                placeholder="비우면 등록표 기본값(예: prime-agent)"
-                className="w-full rounded border border-edge bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
+                placeholder="기본값 사용"
+                className="w-full rounded border border-edge bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-secondary focus:border-edge-bright"
               />
             </div>
             <div>
@@ -204,8 +201,8 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
               <input
                 value={extraArgs}
                 onChange={(e) => setExtraArgs(e.target.value)}
-                placeholder="기본 인자 뒤에 붙는다 — 공백으로 구분"
-                className="w-full rounded border border-edge bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
+                placeholder="공백으로 구분"
+                className="w-full rounded border border-edge bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-secondary focus:border-edge-bright"
               />
             </div>
             <div>
@@ -223,14 +220,14 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
                       value={row.key}
                       onChange={(e) => updateRow(i, { key: e.target.value.toUpperCase() })}
                       placeholder="KEY"
-                      className="w-2/5 rounded border border-edge bg-surface px-2 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
+                      className="w-2/5 rounded border border-edge bg-surface px-2 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-secondary focus:border-edge-bright"
                     />
                     <input
                       value={row.value}
                       onChange={(e) => updateRow(i, { value: e.target.value })}
                       placeholder="값"
                       type={row.secret && row.value.startsWith('****') ? 'text' : 'text'}
-                      className="min-w-0 flex-1 rounded border border-edge bg-surface px-2 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
+                      className="min-w-0 flex-1 rounded border border-edge bg-surface px-2 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-secondary focus:border-edge-bright"
                     />
                     <button
                       type="button"
@@ -245,8 +242,8 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
                 ))}
               </div>
               {hasMaskedUntouched && (
-                <div className="mt-1 text-[11px] leading-snug text-warning">
-                  ****로 시작하는 값은 서버에 저장된 기존 값을 그대로 덮어씁니다 — 바꾸려면 전체 값을 새로 입력하세요.
+                <div className="mt-1 text-xs text-ink-secondary">
+                  키를 변경하려면 전체 값을 입력하세요.
                 </div>
               )}
             </div>
@@ -278,8 +275,8 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
           </div>
         </div>
       </div>
-      {confirm === 'uninstall' && <ConfirmDialog message={`${label} 런타임을 삭제할까요?`} detail="해당 CLI만 제거합니다. 공급자 계정과 API 키 설정은 별도로 유지될 수 있습니다." confirmLabel="삭제" danger onConfirm={uninstall} onCancel={() => setConfirm(null)} />}
-      {confirm === 'logout' && <ConfirmDialog message={`${label}에서 로그아웃할까요?`} detail="공급자 CLI가 저장한 해당 런타임의 인증 정보를 지웁니다." confirmLabel="로그아웃" danger onConfirm={logout} onCancel={() => setConfirm(null)} />}
+      {confirm === 'uninstall' && <ConfirmDialog message={`${label}을 삭제할까요?`} detail="계정과 API 키 설정은 남아 있을 수 있습니다." confirmLabel="삭제" danger onConfirm={uninstall} onCancel={() => setConfirm(null)} />}
+      {confirm === 'logout' && <ConfirmDialog message={`${label}에서 로그아웃할까요?`} confirmLabel="로그아웃" danger onConfirm={logout} onCancel={() => setConfirm(null)} />}
     </div>
   )
 }
