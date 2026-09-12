@@ -1,4 +1,5 @@
 import express from 'express'
+import { createRemoteDesktopRoutes } from './remote-desktop.ts'
 import multer from 'multer'
 import { GitError } from 'simple-git'
 import fs from 'node:fs'
@@ -442,6 +443,7 @@ export function createApiApp() {
 
   // ── 서버 DOM 브라우저와 loopback 호환 프록시 ─────────────────────
   app.use('/browser-dom', createDomBrowserRoutes())
+  app.use('/remote-desktop', createRemoteDesktopRoutes(tmuxManager))
 
   app.get('/browser-url', requireRole('manager', 'owner'), (req, res) => {
     try {

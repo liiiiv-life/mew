@@ -1,0 +1,42 @@
+.remote-desktop { position: fixed; inset: 0; z-index: 1600; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--color-surface-deep); color: var(--color-ink); font-size: 13px; isolation: isolate; overscroll-behavior: none; }
+.remote-desktop button, .remote-desktop select, .remote-desktop textarea { font: inherit; color: inherit; }
+.remote-desktop button { cursor: pointer; }
+.remote-desktop button:disabled { opacity: .4; cursor: default; }
+.remote-desktop :is(button,select,textarea):focus-visible { outline: 2px solid var(--color-ink-secondary); outline-offset: 2px; }
+.desktop-toolbar { position: relative; z-index: 3; display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; padding: max(6px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) 6px max(12px,env(safe-area-inset-left)); background: var(--color-surface); border-bottom: 1px solid var(--color-edge); }
+.desktop-title, .desktop-tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.desktop-title strong { white-space: nowrap; font-weight: 500; }
+.desktop-status { color: var(--color-ink-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.desktop-tools { gap: 2px; margin-left: auto; }
+.desktop-tools button, .desktop-tools select { min-height: 36px; padding: 0 10px; border-radius: 5px; background: transparent; border: 0; white-space: nowrap; }
+.desktop-tools select { max-width: 160px; background: var(--color-surface-raised); }
+.desktop-tools .desktop-close { display: grid; place-items: center; min-width: 40px; }
+.desktop-scale { font-variant-numeric: tabular-nums; color: var(--color-ink-secondary); font-size: 11px; }
+@media (hover: hover) { .desktop-tools button:hover, .desktop-handle:hover { background: var(--color-surface-raised); } .desktop-stick:not(:disabled):hover .desktop-stick-knob { background: var(--color-surface-hover); } }
+.desktop-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; background: #080808; outline: none; }
+.desktop-video { display: block; width: 100%; height: 100%; object-fit: contain; transform-origin: center; pointer-events: none; }
+.desktop-connection { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 24px 100px; text-align: center; color: #e5e5e5; background: #080808; }
+.desktop-connection h2 { font-size: 17px; font-weight: 500; margin: 0 0 12px; }
+.desktop-connection p { max-width: 480px; line-height: 1.65; margin: 0; color: #a3a3a3; overflow-wrap: anywhere; }
+.desktop-connection button { margin-top: 24px; padding: 10px 18px; border: 1px solid #525252; border-radius: 6px; }
+.desktop-connection-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.desktop-connection-actions button { margin-top: 0; min-height: 44px; background: #171717; }
+.desktop-connection .desktop-install-error { margin-top: 16px; }
+@media (hover: hover) { .desktop-connection-actions button:not(:disabled):hover { background: #262626; } }
+.desktop-help, .desktop-paste { position: absolute; z-index: 4; top: calc(64px + env(safe-area-inset-top)); right: max(12px,env(safe-area-inset-right)); width: min(340px,calc(100% - 24px)); max-height: calc(100% - 160px); overflow: auto; padding: 16px; background: var(--color-surface); border: 1px solid var(--color-edge-strong); border-radius: 8px; line-height: 1.65; }
+.desktop-help p { margin: 10px 0 0; color: var(--color-ink-secondary); }
+.desktop-paste label { display: block; margin-bottom: 8px; }
+.desktop-paste textarea { width: 100%; min-height: 100px; resize: vertical; background: var(--color-surface-deep); border: 1px solid var(--color-edge-strong); padding: 8px; border-radius: 4px; caret-color: var(--color-ink); }
+.desktop-paste textarea::placeholder { color: var(--color-ink-secondary); }
+.desktop-paste > div { display: flex; justify-content: space-between; margin-top: 8px; }
+.desktop-paste button { padding: 6px 10px; background: var(--color-surface-raised); border-radius: 4px; }
+.desktop-control-strip { position: absolute; z-index: 5; right: max(12px,env(safe-area-inset-right)); bottom: max(16px,env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 0; padding: 6px 4px; border-radius: 12px; background: var(--color-surface); box-shadow: 0 6px 24px #0006; touch-action: none; user-select: none; -webkit-user-select: none; }
+.desktop-stick { width: 44px; height: 52px; padding: 0; display: flex; align-items: center; flex-direction: column; gap: 3px; touch-action: none; background: transparent; border: 0; border-radius: 6px; }
+.desktop-stick-ring { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--color-edge-bright); border-radius: 50%; }
+.desktop-stick-knob { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--color-surface-raised); }
+.desktop-stick[data-held] .desktop-stick-knob { background: var(--color-ink); color: var(--color-surface-deep); }
+.desktop-stick-label { white-space: nowrap; color: var(--color-ink-secondary); font-size: 9px; line-height: 13px; }
+.desktop-handle { width: 36px; height: 52px; display: grid; place-items: center; touch-action: none; background: transparent; border: 0; border-radius: 6px; cursor: grab !important; }
+.desktop-handle:active { cursor: grabbing !important; }
+@media (max-width: 600px) { .desktop-toolbar { gap: 0; } .desktop-title { width: 100%; height: 28px; } .desktop-status { margin-left: auto; } .desktop-tools { width: 100%; justify-content: flex-end; } .desktop-tools select { margin-right: auto; max-width: 110px; } .desktop-tools button { min-height: 36px; padding: 0 8px; } .desktop-help,.desktop-paste { top: calc(88px + env(safe-area-inset-top)); } }
+@media (max-height: 450px) { .desktop-title { width: auto; } .desktop-tools { width: auto; } .desktop-help,.desktop-paste { top: calc(60px + env(safe-area-inset-top)); } }

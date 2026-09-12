@@ -76,6 +76,7 @@ import { loadMewcatSkin, saveMewcatSkin, type MewcatSkinSelection } from './util
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 import { GitPanel } from './components/git-panel'
+import { RemoteDesktop } from './components/remote-desktop'
 import type { GitPanelState } from './utils/git-panel-state'
 import { normalizeDirectoryChildren, normalizeTreeCenterAnchor } from './utils/treePersistence'
 
@@ -251,6 +252,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   if (browserOpen) browserMounted.current = true
   const gitMounted = useRef(false)
   const [gitOpen, setGitOpen] = useState(() => canUseTerminal && localStorage.getItem(GIT_OPEN_KEY) === '1')
+  const [remoteDesktopOpen, setRemoteDesktopOpen] = useState(false)
   if (gitOpen) gitMounted.current = true
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
   const [androidOpen, setAndroidOpen] = useState(() => canUseTerminal && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
@@ -1581,6 +1583,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             ),
           },
           {
+            id: 'remote-desktop',
+            label: '원격 데스크톱',
+            onSelect: () => setRemoteDesktopOpen(true),
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></svg>,
+          },
+          {
             id: 'file-explorer',
             label: t('header.fileExplorer'),
             onSelect: () => setServerFileExplorerOpen(true),
@@ -2188,6 +2196,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       {dbListOpen && !isGuest && <DatabaseListModal onClose={() => setDbListOpen(false)} />}
 
       {sysStatsOpen && canUseTerminal && <SystemStatsModal onClose={() => setSysStatsOpen(false)} />}
+      {remoteDesktopOpen && canUseTerminal && <RemoteDesktop onClose={() => setRemoteDesktopOpen(false)} />}
       {scheduleOpen && canUseTerminal && <ScheduleModal onClose={() => setScheduleOpen(false)} />}
 
       {historyOpen && activeTab && (

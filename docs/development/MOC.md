@@ -1,7 +1,7 @@
 ---
 title: "개발 계약"
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 ---
 
 # 개발 계약
@@ -17,3 +17,4 @@ updated: 2026-09-11
 - [협업 방과 멤버 채팅](collaboration.md)
 - [공용 패키지](packages.md)
 - [오버레이와 탭 단축키 계약](ui-contracts.md)
+- [원격 데스크톱 아키텍처·입력·검증](remote-desktop.md)

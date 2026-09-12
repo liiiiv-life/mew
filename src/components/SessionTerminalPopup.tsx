@@ -26,6 +26,7 @@ export function SessionTerminalPopup({
   onRun,
   onClose,
   onChanged,
+  zIndex,
 }: {
   title: string
   /** 제목 아래 한 줄(명령어·주기 등) */
@@ -48,6 +49,8 @@ export function SessionTerminalPopup({
   onClose: () => void
   /** 실행/종료로 세션 상태가 바뀌었을 때 — 부모가 목록을 새로고침한다 */
   onChanged: () => void
+  /** Fullscreen parent overlays may sit above the default popup layer. */
+  zIndex?: number
 }) {
   const { t } = useI18n()
   const [started, setStarted] = useState(running)
@@ -89,10 +92,14 @@ export function SessionTerminalPopup({
   return createPortal(
     <div
       data-cmd-overlay
+      style={zIndex === undefined ? undefined : { zIndex }}
       className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-3 sm:p-4"
       onMouseDown={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         className="flex h-full max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface-raised shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -133,11 +140,11 @@ export function SessionTerminalPopup({
           )}
         </div>
 
-        <div className="flex items-center gap-2 border-t border-edge px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 border-t border-edge px-3 py-2">
           {error ? (
-            <span className="mr-auto truncate text-xs text-danger-strong">{error}</span>
+            <span role="alert" className="w-full text-xs text-danger-strong sm:mr-auto sm:min-w-0 sm:flex-1">{error}</span>
           ) : statusNote ? (
-            <span className={`mr-auto truncate text-xs ${
+            <span role="status" className={`w-full text-xs sm:mr-auto sm:min-w-0 sm:flex-1 ${
               statusTone === 'danger'
                 ? 'text-danger-strong'
                 : statusTone === 'success' ? 'text-success' : 'text-ink-muted'
@@ -156,7 +163,7 @@ export function SessionTerminalPopup({
             type="button"
             onClick={kill}
             disabled={busy}
-            className="ml-auto rounded border border-danger px-3 py-1 text-sm text-danger hover:bg-danger/10 disabled:opacity-50"
+            className="ml-auto min-h-11 shrink-0 whitespace-nowrap rounded border border-danger px-3 py-1 text-sm text-danger hover:bg-danger/10 disabled:opacity-50 sm:min-h-0"
             title={t('terminal.stopTitle')}
           >
             {t('terminal.stop')}
@@ -164,7 +171,7 @@ export function SessionTerminalPopup({
           <button
             type="button"
             onClick={onClose}
-            className="rounded border border-edge-strong px-3 py-1 text-sm text-ink-secondary hover:bg-surface-hover"
+            className="min-h-11 shrink-0 whitespace-nowrap rounded border border-edge-strong px-3 py-1 text-sm text-ink-secondary hover:bg-surface-hover sm:min-h-0"
             title={t('terminal.closeTitle')}
           >
             {t('common.close')}

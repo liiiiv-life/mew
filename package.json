@@ -14,6 +14,7 @@
     "start": "npm run build && npm run serve",
     "users": "node server/usersCli.ts",
     "lint": "oxlint",
+    "desktop:install": "node native/remote-desktop/install.mjs",
     "build:native": "cd native/collab && cargo build --release && cp target/release/libmew_collab.so mew-collab.node",
     "test": "MEW_DATA_DIR=\"${TMPDIR:-/tmp}/mew-test-data\" node --test 'server/**/*.test.ts' 'packages/**/*.test.ts' 'src/**/*.test.ts'",
     "rag:eval": "node server/rag/evaluate.ts",

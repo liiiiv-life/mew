@@ -1,0 +1,12 @@
+{
+  "name": "mew-remote-desktop-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "dependencies": {
+    "electron": "44.3.0",
+    "koffi": "3.2.1",
+    "dbus-next": "0.10.2"
+  }
+}
