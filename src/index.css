@@ -139,7 +139,7 @@ body {
   z-index: 2147483647;
   left: 0;
   top: 0;
-  width: 49.5px;
+  width: 48px;
   height: 48px;
   pointer-events: auto;
   touch-action: none;
@@ -153,6 +153,9 @@ body {
   pointer-events: none;
   transform-origin: center bottom;
 }
+.mewcat-happy-eyes { display: none; }
+.mewcat[data-activity="love"] .mewcat-eyes { display: none; }
+.mewcat[data-activity="love"] .mewcat-happy-eyes { display: inline; }
 .mewcat[data-activity="walk"] .mewcat-mark {
   animation: mewcat-walk 420ms steps(2, end) infinite;
 }

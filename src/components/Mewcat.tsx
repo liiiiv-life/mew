@@ -13,8 +13,8 @@ const animation: Record<Activity, { row: number; frames: number[]; frameMs: numb
 function floor() {
   const viewport = window.visualViewport
   const bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight
-  // 원본 스프라이트 프레임 하단에 투명 여백 약 5px(화면 기준 7.5px) 존재 → 그만큼 바닥을 내린다
-  return Math.max(0, bottom - CAT_HEIGHT + 7.5)
+  // SVG 발바닥 아래의 1px 여백만 보정한다.
+  return Math.max(0, bottom - CAT_HEIGHT + 1)
 }
 function nextActivity(): Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'> { const options: Array<Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'>> = ['idle', 'walk', 'run']; return options[Math.floor(Math.random() * options.length)] }
 
@@ -24,16 +24,31 @@ export function Mewcat({ skin }: { skin: MewcatSkin | null }) {
   return <MewcatActive />
 }
 
-/** 레포에서 직접 만든 단순 벡터 마크. 외부 이미지·폰트·스프라이트에 의존하지 않는다. */
+/** 둥근 얼굴과 짧은 발을 가진 자체 벡터 캐릭터. 설정 미리보기에서도 같은 그림을 쓴다. */
 export function MewcatMark({ className = '' }: { className?: string }) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden="true" focusable="false">
-      <path d="M9 20 13 8l8 6a17 17 0 0 1 6 0l8-6 4 12v12a15 15 0 0 1-30 0Z" fill="currentColor" />
-      <path d="m14 13 1.5 5M34 13l-1.5 5" stroke="var(--color-surface)" strokeWidth="2" strokeLinecap="round" />
-      <circle cx="18" cy="25" r="2" fill="var(--color-surface)" />
-      <circle cx="30" cy="25" r="2" fill="var(--color-surface)" />
-      <path d="M24 29v4m-5 0c2 2 8 2 10 0" fill="none" stroke="var(--color-surface)" strokeWidth="2" strokeLinecap="round" />
-      <path d="M8 30 3 28m5 6-5 2m37-6 5-2m-5 8 5 2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <g stroke="#65534c" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M33 39c9 2 13-4 10-10-1.5-3-5-2-4.5 1 .8 4-1.5 5-5 3" fill="#ead8c6" />
+        <path d="M14 29c-3 5-4 10-1 14 3 4 18 4 21 0 3-4 1-11-3-14" fill="#fff5e6" />
+        <path d="M9 17C7 13 7 5 10 5c2 0 6 4 8 7a26 26 0 0 1 11 0c2-3 6-7 8-6 2 1 2 8 0 12 3 3 4 6 3 10-1 7-9 10-17 10S7 35 6 29c-1-5 0-9 3-12Z" fill="#fff5e6" />
+        <path d="m11 10 1 7 4-2Z" fill="#e9aaa4" stroke="none" />
+        <path d="m35 11-4 4 4 2Z" fill="#e9aaa4" stroke="none" />
+        <path d="M20 13v3m4-3v4m4-4v3" stroke="#d9b99b" />
+        <ellipse cx="12.5" cy="28.5" rx="3.3" ry="1.8" fill="#efbeb1" stroke="none" />
+        <ellipse cx="33.5" cy="28.5" rx="3.3" ry="1.8" fill="#efbeb1" stroke="none" />
+        <g className="mewcat-eyes" fill="#493c37" stroke="none">
+          <ellipse cx="16" cy="25" rx="2" ry="2.5" />
+          <ellipse cx="30" cy="25" rx="2" ry="2.5" />
+          <circle cx="16.6" cy="24.2" r=".65" fill="#fff" />
+          <circle cx="30.6" cy="24.2" r=".65" fill="#fff" />
+        </g>
+        <path className="mewcat-happy-eyes" d="M13.8 25.5q2.2-3 4.4 0m9.6 0q2.2-3 4.4 0" fill="none" />
+        <path d="M21.5 28h3L23 29.5Z" fill="#c98f88" stroke="none" />
+        <path d="M23 29.5c0 2-3 2.5-3.5.5m3.5-.5c0 2 3 2.5 3.5.5" fill="none" strokeWidth="1.1" />
+        <path d="m7 25-3-1m3 5H3m35-4 3-1m-3 5h4" stroke="#b69a84" strokeWidth="1" />
+        <path d="M14 39c-2 1-3 5-1 6.5 1 .7 6 .7 7-.5 1-1 .5-3 0-4m7 0c-.5 1-1 3 0 4 1 1.2 6 1.2 7 .5 2-1.5 1-5.5-1-6.5" fill="#fff5e6" />
+      </g>
     </svg>
   )
 }
