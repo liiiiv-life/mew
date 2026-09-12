@@ -58,7 +58,7 @@
 
 ## 예약 작업 (.data/schedules.json)
 
-도구 줄 **시계 아이콘** — "언제 / 어느 폴더에서 / 어떤 에이전트로 / 어떤 프롬프트를" 을 등록하면 그 시각에 에이전트가 무인으로 돈다. owner/manager만(임의 프롬프트가 무인 실행되는 표면 — 셸과 같은 경계).
+헤더 메뉴 → **예약 작업** — "언제 / 어느 폴더에서 / 어떤 에이전트로 / 어떤 프롬프트를" 을 등록하면 그 시각에 에이전트가 무인으로 돈다. owner/manager만(임의 프롬프트가 무인 실행되는 표면 — 셸과 같은 경계).
 
 - 서버: `server/schedules.ts` + `server/runAgentJob.ts` + `GET/PUT /api/schedules`, `POST /api/schedules/run`(지금 실행). 클라이언트: `src/components/ScheduleModal.tsx`, 크론식↔GUI 변환은 `src/utils/cron.ts`.
 - **원본은** `.data/schedules.json`**, crontab은 파생물이다.** 저장할 때마다 `# mew-job:<id>` 마커가 붙은 줄만 걷어내고 다시 쓴다 — 손으로 쓴 크론 줄은 건드리지 않고, 창에도 읽기 전용으로 보여준다.
@@ -72,7 +72,7 @@
 
 ## 시스템 자원 팝업
 
-에디터 우상단 도구 줄, **터미널 버튼 바로 아래 계기판 아이콘** — 서버가 도는 기계의 CPU·메모리·GPU 사용량과 온도, 그리고 **프로세스별 점유**를 2초마다 새로 읽어 보여준다. 터미널 버튼과 달리 터미널이 열려 있어도 계속 보인다.
+헤더 메뉴 → **시스템 자원**에서 연다. 서버가 도는 기계의 CPU·메모리·GPU 사용량과 온도, 그리고 **프로세스별 점유**를 2초마다 새로 읽어 보여준다. 터미널이 열려 있어도 사용할 수 있다.
 
 - 서버: `server/sysStats.ts` + `GET /api/system-stats`(owner/manager — 셸과 같은 경계다). 클라이언트: `src/components/SystemStatsModal.tsx`.
 - CPU 사용률은 `os.cpus()` 누적 시간의 **직전 호출 대비 증분**이다. 표본을 모듈 하나가 들고 있어 창이 여럿이면 각자의 구간이 짧아질 뿐 값은 유효하다.

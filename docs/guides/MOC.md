@@ -1,7 +1,7 @@
 ---
 title: "사용법"
 created: 2026-09-11
-updated: 2026-09-12
+updated: 2026-09-13
 ---
 
 # 사용법
@@ -10,6 +10,7 @@ updated: 2026-09-12
 
 ## Current
 
+- [공동 편집·댓글·채팅·게스트 공유](collaboration.md)
 - [서버 브라우저와 Android](browser.md)
 - [원격 데스크톱 설치와 조작](remote-desktop.md)
 - [명령 버튼과 예약 작업](commands.md)
