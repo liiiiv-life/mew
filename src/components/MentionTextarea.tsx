@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type RefObject } from 'react'
 import { prefixMatch } from '@mew/editor'
 import { useOverlayDismiss } from '@mew/ui'
 
@@ -60,10 +60,13 @@ export function MentionTextarea({
   onOptionSelect,
   inputRef,
   onHistoryNavigate,
+  maxResults = 8,
 }: {
   value: string
   onChange: (value: string) => void
   options: MentionOption[]
+  /** 스크롤로 모든 후보를 고를 수 있게 하려면 Infinity를 전달한다. */
+  maxResults?: number
   /** 메뉴가 닫혀 있을 때 Enter(Shift 없이) — 채팅 전송·댓글 등록 */
   onSubmit?: () => void
   placeholder?: string
@@ -94,6 +97,7 @@ export function MentionTextarea({
   const [mention, setMention] = useState<{ trigger: string; from: number; query: string } | null>(null)
   const [selected, setSelected] = useState(0)
   const [fileDragOver, setFileDragOver] = useState(false)
+  const selectedOptionRef = useRef<HTMLButtonElement>(null)
 
   const closeMention = () => {
     setMention(null)
@@ -115,13 +119,17 @@ export function MentionTextarea({
         }
         return a.label.localeCompare(b.label, 'ko-KR') || a.id.localeCompare(b.id, 'ko-KR')
       })
-      .slice(0, 8)
-  }, [mention, optionSets])
+      .slice(0, maxResults)
+  }, [mention, optionSets, maxResults])
+
+  useEffect(() => {
+    selectedOptionRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [selected, shown])
 
   const syncMention = (next: string, caret: number) => {
     const found = mentionQueryAt(next, caret, triggerChars)
     setMention(found)
-    if (!found) setSelected(0)
+    if (!found || found.trigger !== mention?.trigger || found.query !== mention?.query) setSelected(0)
   }
 
   const pasteImages = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
@@ -187,6 +195,7 @@ export function MentionTextarea({
           {shown.map((option, i) => (
             <button
               key={option.id}
+              ref={i === selected ? selectedOptionRef : undefined}
               type="button"
               // textarea의 blur보다 먼저 잡아야 한다 — mousedown에서 고르고 기본 동작(포커스 이탈)을 막는다
               onMouseDown={(e) => {

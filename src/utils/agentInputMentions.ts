@@ -60,7 +60,7 @@ export function agentInputMentionOptions(tree: TreeNode[], project: string, proj
           options.set(id, {
             id,
             label: node.name,
-            hint: node.path,
+            hint: node.type === 'dir' ? `${node.path}/` : node.path,
             insert: `[[${project}:${node.path}]]`,
             sortPriority: node.type === 'dir' ? FOLDER : FILE,
           })

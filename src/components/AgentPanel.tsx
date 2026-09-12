@@ -3563,6 +3563,7 @@ function AgentSessionView({
               setDraft(next)
             }}
             options={fileMentionOptions}
+            maxResults={Infinity}
             triggers={mentionTriggers}
             onSubmit={submit}
             rows={2}
