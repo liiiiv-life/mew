@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useOverlayDismiss } from '@mew/ui'
 import {
   commitGitWorkingTree,
   fetchGitCommit,
@@ -171,11 +172,10 @@ function BackIcon() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
 }
 
-export function GitWorkbench({ project, repositoryPath, onNotice, onClose, onBack }: {
+export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
-  onClose: () => void
   onBack: () => void
 }) {
   const [info, setInfo] = useState<GitRepositoryInfo | null>(null)
@@ -192,6 +192,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onClose, onBac
   const [commitDescription, setCommitDescription] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ commit: GitLogEntry; x: number; y: number } | null>(null)
+  useOverlayDismiss(menu ? () => setMenu(null) : false)
   const graph = useMemo(() => graphLayout(commits), [commits])
   const graphWidth = 20 + graph.lanes * LANE_GAP
 
@@ -319,19 +320,18 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onClose, onBac
         : view.file.path
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col bg-surface">
+    <div className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
         <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'} title={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'}><BackIcon /></button>
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={heading}>{heading}</span>
-        <button type="button" onClick={onClose} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label="Git 팝업 닫기" title="닫기 (Esc)">×</button>
       </div>
 
       {error && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1">{error}</span><button type="button" onClick={() => setError(null)} aria-label="오류 닫기">×</button></div>}
 
       {view.kind === 'graph' && (
         <>
-          <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs">
-            <span className="font-semibold text-ink">{repositoryPath || '프로젝트 루트'}</span>
+          <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-edge px-3 py-1 text-xs">
+            <span className="min-w-0 truncate font-semibold text-ink" title={repositoryPath}>{repositoryPath || (project === 'docs' ? 'Documents' : '프로젝트 루트')}</span>
             {info?.branch && <span className="rounded bg-accent/15 px-1.5 py-0.5 text-accent">{info.branch}</span>}
             {info?.detached && <span className="rounded bg-warning-surface px-1.5 py-0.5 text-warning-ink">detached</span>}
             {!!info?.ahead && <span className="text-ink-muted">↑{info.ahead}</span>}
@@ -386,7 +386,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onClose, onBac
           <form className="shrink-0 space-y-2 border-t border-edge bg-surface-deep p-4" onSubmit={(event) => { event.preventDefault(); void commit() }}>
             <input value={commitTitle} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder="커밋 제목" aria-label="커밋 제목" className="w-full rounded border border-edge-strong bg-surface-deep px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
             <textarea value={commitDescription} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} rows={3} placeholder="설명 (선택)" aria-label="커밋 설명" className="w-full resize-y rounded border border-edge-strong bg-surface-deep px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-ink-muted">변경 파일 {workingTree.files.length}개를 모두 커밋합니다.</span>
               <span className="flex shrink-0 items-center gap-2">
                 <button type="button" disabled={workingTree.files.length === 0 || committing} onClick={() => onNotice('AI Commit 생성은 에이전트 연결 후 사용할 수 있습니다')} className="rounded border border-edge-strong px-4 py-2 text-xs font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">AI Commit</button>

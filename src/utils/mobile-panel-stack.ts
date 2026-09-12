@@ -5,6 +5,7 @@ export const WORKSPACE_PANEL_IDS = [
   'agent',
   'terminal',
   'browser',
+  'git',
   'android',
 ] as const
 

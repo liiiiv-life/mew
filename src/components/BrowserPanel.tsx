@@ -96,17 +96,22 @@ function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, o
   const scopeRef = useRef<HTMLDivElement>(null)
   useFocusedShortcutScope(scopeRef, { closeTab: () => { if (!activeId || !onCloseTab) return false; onCloseTab(activeId); return true } })
   const drag = useDragReorder({ onReorder, immediateMouseDrag: true, onDragMove: (i, x, y) => { if (tabs[i]) dock?.preview(group, tabs[i].id, x, y) }, onDrop: (i, x, y) => { if (tabs[i]) dock?.drop(group, tabs[i].id, x, y) } })
-  return <div data-dock-tab-bar ref={scopeRef} className="flex h-9 shrink-0 items-stretch border-b border-edge bg-surface">
+  return <div data-dock-tab-bar ref={scopeRef} className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
     {dock && <DockGrip group={group} />}
-    <div className="no-scrollbar flex min-w-0 flex-1 overflow-x-auto">
+    <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
       {tabs.map((tab, i) => <div key={tab.id} {...drag.getItemProps(i)} draggable={false} onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }} role="tab" tabIndex={0} aria-selected={tab.id === activeId} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onActivate(tab.id) } }} onClick={() => { if (!drag.consumeClick()) onActivate(tab.id) }}
-        className={`group flex min-w-[7rem] max-w-[14rem] cursor-pointer select-none items-center gap-1 border-r border-edge px-2 text-left text-xs ${tab.id === activeId ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-hover hover:text-ink'}`} title={tab.url}>
-        <span className="truncate">{tab.title || labelForUrl(tab.url)}</span>
-        {onCloseTab && <button type="button" onClick={(event) => { event.stopPropagation(); onCloseTab(tab.id) }} className="ml-auto rounded px-1 text-ink-muted hover:bg-surface hover:text-ink" aria-label={t('browser.closeTab')}>×</button>}
+        onContextMenu={(event) => { if (drag.dragIndex !== null) event.preventDefault() }}
+        className={`group flex h-full shrink-0 cursor-pointer select-none items-center gap-1.5 border-r border-edge px-2.5 text-xs [-webkit-touch-callout:none] ${tab.id === activeId ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-raised'} ${drag.dragIndex === i ? 'opacity-70 ring-1 ring-inset ring-accent' : ''}`} title={tab.url}>
+        <span className="max-w-[9rem] truncate">{tab.title || labelForUrl(tab.url)}</span>
+        {onCloseTab && <button type="button" onClick={(event) => { event.stopPropagation(); onCloseTab(tab.id) }} className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink" aria-label={t('browser.closeTab')}>×</button>}
       </div>)}
+      <button type="button" onClick={onAdd} className="flex h-full w-9 shrink-0 items-center justify-center border-r border-edge text-ink-secondary hover:bg-surface-raised hover:text-ink" title={t('browser.newTab')} aria-label={t('browser.newTab')}>
+        <PlusGlyph />
+      </button>
     </div>
-    <IconButton label={t('browser.newTab')} onClick={onAdd}><span className="text-lg leading-none">+</span></IconButton>
-    <IconButton label={standalone ? t('browser.closePopup') : t('browser.close')} onClick={onClose}><WindowCloseGlyph /></IconButton>
+    <button type="button" onClick={onClose} className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" title={standalone ? t('browser.closePopup') : t('browser.close')} aria-label={standalone ? t('browser.closePopup') : t('browser.close')}>
+      <WindowCloseGlyph />
+    </button>
   </div>
 }
 function BrowserPage({ tab, onStatus, onClose }: { tab: ServerBrowserTab; onStatus: (status: DomBrowserStatus) => void; onClose: () => void }) {
@@ -144,6 +149,9 @@ function NavGlyph({ path }: { path: string }) {
 }
 function WindowCloseGlyph() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+}
+function PlusGlyph() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
 }
 function StopGlyph() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg> }
 function ReloadGlyph() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M20 6v5h-5" /><path d="M19 11a8 8 0 1 0 .2 4" /></svg> }

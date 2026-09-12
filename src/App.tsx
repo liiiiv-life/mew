@@ -75,7 +75,8 @@ import { loadAccentColor, applyAccentColor, saveAccentColor, type AccentColor } 
 import { loadMewcatSkin, saveMewcatSkin, type MewcatSkinSelection } from './utils/mewcatSkin'
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
-import { GitWorkbenchModal } from './components/GitWorkbenchModal'
+import { GitPanel } from './components/git-panel'
+import type { GitPanelState } from './utils/git-panel-state'
 import { normalizeDirectoryChildren, normalizeTreeCenterAnchor } from './utils/treePersistence'
 
 function toggleFullscreen() {
@@ -117,6 +118,7 @@ const TERMINAL_OPEN_KEY = 'mew:terminal-open'
 /** 에이전트 창이 열려 있었는지 — 터미널과 같이 프로젝트와 무관한 화면 상태다(세션 스코프가 워크스페이스다) */
 const AGENT_OPEN_KEY = 'mew:agent-open'
 const BROWSER_OPEN_KEY = 'mew:browser-open'
+const GIT_OPEN_KEY = 'mew:git-open'
 const ANDROID_OPEN_KEY = 'mew:android-open'
 const OPEN_PROJECTS_KEY = 'mew:open-project-paths'
 const ROOT_PROJECT_ICONS_KEY = 'mew:root-project-icons'
@@ -205,6 +207,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     return initial
   })
   const [rootProjectPath, setRootProjectPath] = useState<string | null>(null)
+  const rootProjectPathRef = useRef(rootProjectPath)
+  rootProjectPathRef.current = rootProjectPath
   const [workspaceUi, setWorkspaceUi] = useState<WorkspaceUiState>({})
   const [workspaceUiLoaded, setWorkspaceUiLoaded] = useState(false)
   const [workspaceUiRevision, setWorkspaceUiRevision] = useState(0)
@@ -245,6 +249,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const browserMounted = useRef(false)
   const [browserOpen, setBrowserOpen] = useState(() => canUseTerminal && localStorage.getItem(BROWSER_OPEN_KEY) === '1')
   if (browserOpen) browserMounted.current = true
+  const gitMounted = useRef(false)
+  const [gitOpen, setGitOpen] = useState(() => canUseTerminal && localStorage.getItem(GIT_OPEN_KEY) === '1')
+  if (gitOpen) gitMounted.current = true
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
   const [androidOpen, setAndroidOpen] = useState(() => canUseTerminal && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
   // 멤버 채팅 창(Alt+C) — 사람끼리 쓰는 창이라 로그인만 하면 열린다(게스트 제외)
@@ -258,6 +265,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       if (panel === 'agent') return agentOpen
       if (panel === 'terminal') return terminalOpen
       if (panel === 'browser') return browserOpen
+      if (panel === 'git') return gitOpen
       return androidOpen
     }),
   )
@@ -275,9 +283,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     agent: agentOpen,
     terminal: terminalOpen,
     browser: browserOpen,
+    git: gitOpen,
     android: androidOpen,
   } satisfies Record<WorkspacePanelId, boolean>), [
-    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, androidOpen,
+    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen,
   ])
   const workspacePanelSetters = useMemo(() => ({
     sidebar: setSidebarOpen,
@@ -285,6 +294,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     agent: setAgentOpen,
     terminal: setTerminalOpen,
     browser: setBrowserOpen,
+    git: setGitOpen,
     android: setAndroidOpen,
   } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
 
@@ -354,7 +364,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [serverFileExplorerOpen, setServerFileExplorerOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [gitWorkbenchOpen, setGitWorkbenchOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [fontPreferences, setFontPreferences] = useState(loadFontPreferences)
   const [accentColor, setAccentColor] = useState<AccentColor>(loadAccentColor)
@@ -599,6 +608,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     setProject(WORKSPACE_PROJECT)
     setContentWorkspace(info.path)
     setActiveProject(WORKSPACE_PROJECT)
+    if (info.path !== rootProjectPathRef.current) setWorkspaceUiLoaded(false)
     setRootProjectPath(info.path)
     // 계정 UI·탭 복원을 기다리지 않고, 워크스페이스를 받은 첫 렌더부터 직전 모바일
     // 전면 화면을 올린다. 그렇지 않으면 빈 에디터의 자동 사이드바가 잠깐 보인다.
@@ -800,6 +810,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     return destination
   }
   const saveDockLayout = useCallback((dock: DockState) => setWorkspaceUi((previous) => ({ ...previous, dock })), [])
+  const saveGitPanelState = useCallback((git: GitPanelState) => setWorkspaceUi((previous) => ({ ...previous, git })), [])
 
   // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
   // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
@@ -838,6 +849,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     terminal: { open: terminalOpen, close: () => closeWorkspacePanel('terminal'), closeOnEscape: outsideTerminal },
     agent: { open: agentOpen, close: () => closeWorkspacePanel('agent'), closeOnEscape: outsideTerminal },
     browser: { open: browserOpen, close: () => closeWorkspacePanel('browser') },
+    git: { open: gitOpen, close: () => closeWorkspacePanel('git') },
     android: { open: androidOpen, close: () => closeWorkspacePanel('android') },
   }, mobileForegroundPanel)
 
@@ -848,7 +860,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const lastPanelRef = useRef<RefPanel | null>(null)
   // 플로팅 핸들의 "현재 창 탭" 명령이 가리키는 마지막 탭형 창.
   // 핸들을 누르면 DOM 포커스가 옮겨가므로 포커스 대신 포인터 사용 기록을 따로 둔다.
-  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'terminal' | 'browser' | 'sidebar'>('editor')
+  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'terminal' | 'browser' | 'git' | 'sidebar'>('editor')
+  const [gitNextTabSignal, setGitNextTabSignal] = useState(0)
+  const [gitPreviousTabSignal, setGitPreviousTabSignal] = useState(0)
+  const [gitCloseTabSignal, setGitCloseTabSignal] = useState(0)
   const [browserNextTabSignal, setBrowserNextTabSignal] = useState(0)
   const [browserPreviousTabSignal, setBrowserPreviousTabSignal] = useState(0)
   const [browserCloseTabSignal, setBrowserCloseTabSignal] = useState(0)
@@ -860,8 +875,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     if (mobileForegroundPanel === 'agent' || mobileForegroundPanel === 'terminal') {
       activeTabbedSurfaceRef.current = mobileForegroundPanel
       lastPanelRef.current = mobileForegroundPanel
-    } else if (mobileForegroundPanel === 'browser') {
-      activeTabbedSurfaceRef.current = 'browser'
+    } else if (mobileForegroundPanel === 'browser' || mobileForegroundPanel === 'git') {
+      activeTabbedSurfaceRef.current = mobileForegroundPanel
     } else if (mobileForegroundPanel === 'sidebar') {
       activeTabbedSurfaceRef.current = 'sidebar'
     } else if (mobileForegroundPanel === 'chat') {
@@ -877,6 +892,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   useEffect(() => { writeBrowserStorage(TERMINAL_OPEN_KEY, terminalOpen ? '1' : '0') }, [terminalOpen])
   useEffect(() => { if (terminalOpen) { lastPanelRef.current = 'terminal'; activeTabbedSurfaceRef.current = 'terminal' } }, [terminalOpen])
   useEffect(() => { if (browserOpen) activeTabbedSurfaceRef.current = 'browser' }, [browserOpen])
+  useEffect(() => { writeBrowserStorage(GIT_OPEN_KEY, gitOpen ? '1' : '0'); if (gitOpen) activeTabbedSurfaceRef.current = 'git' }, [gitOpen])
   useEffect(() => {
     if (sidebarOpen) activeTabbedSurfaceRef.current = 'sidebar'
   }, [sidebarOpen])
@@ -901,9 +917,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     let surface = activeTabbedSurfaceRef.current
     if (surface === 'agent' && !agentOpen || surface === 'terminal' && !terminalOpen) surface = 'editor'
     if (surface === 'browser' && !browserOpen) surface = 'editor'
+    if (surface === 'git' && !gitOpen) surface = 'editor'
     if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'browser') { setBrowserNextTabSignal((value) => value + 1); return }
+    if (surface === 'git') { setGitNextTabSignal((value) => value + 1); return }
     if (surface === 'agent' || surface === 'terminal') {
       setAgentNextTabSignal((value) => value + 1)
       return
@@ -916,15 +934,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index + 1) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, terminalOpen, browserOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
+  }, [activePath, agentOpen, terminalOpen, browserOpen, gitOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
 
   const switchCurrentWindowTabLeft = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
     if (surface === 'agent' && !agentOpen || surface === 'terminal' && !terminalOpen) surface = 'editor'
     if (surface === 'browser' && !browserOpen) surface = 'editor'
+    if (surface === 'git' && !gitOpen) surface = 'editor'
     if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'browser') { setBrowserPreviousTabSignal((value) => value + 1); return }
+    if (surface === 'git') { setGitPreviousTabSignal((value) => value + 1); return }
     if (surface === 'agent' || surface === 'terminal') {
       setAgentPreviousTabSignal((value) => value + 1)
       return
@@ -937,15 +957,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index - 1 + tabs.length) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, terminalOpen, browserOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
+  }, [activePath, agentOpen, terminalOpen, browserOpen, gitOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
 
   const closeCurrentWindowTab = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
     if (surface === 'agent' && !agentOpen || surface === 'terminal' && !terminalOpen) surface = 'editor'
     if (surface === 'browser' && !browserOpen) surface = 'editor'
+    if (surface === 'git' && !gitOpen) surface = 'editor'
     if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'browser') { setBrowserCloseTabSignal((value) => value + 1); return }
+    if (surface === 'git') { setGitCloseTabSignal((value) => value + 1); return }
     if (surface === 'agent' || surface === 'terminal') {
       setAgentCloseTabSignal((value) => value + 1)
       return
@@ -953,7 +975,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     // 사이드바의 탐색기·검색은 닫히는 탭이 아니다. 이 경우 Ctrl+W와 똑같이
     // 현재 편집 칸의 문서 탭을 닫는다.
     if (activePath) closeTab(activePath, focusedPaneId)
-  }, [activePath, agentOpen, terminalOpen, browserOpen, closeTab, focusedPaneId, sidebarOpen])
+  }, [activePath, agentOpen, terminalOpen, browserOpen, gitOpen, closeTab, focusedPaneId, sidebarOpen])
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
   // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
@@ -1013,6 +1035,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       agent: agentOpen,
     terminal: terminalOpen,
       browser: browserOpen,
+      git: gitOpen,
       android: androidOpen,
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -1038,6 +1061,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           setBrowserOpen(chrome.browserOpen)
           restoredOpen.browser = chrome.browserOpen
         }
+        setGitOpen(chrome.gitOpen === true)
+        restoredOpen.git = chrome.gitOpen === true
         if (typeof chrome.androidOpen === 'boolean') {
           setAndroidOpen(chrome.androidOpen)
           restoredOpen.android = chrome.androidOpen
@@ -1047,7 +1072,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       // 계정 원장이 처음 비어 있을 때만 이 기기의 기존 화면 상태를 이관한다.
       setWorkspaceUi((previous) => ({
         ...previous,
-        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, androidOpen },
+        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen },
       }))
     }
     if (savedMobileForeground && savedMobileForeground !== 'editor') {
@@ -1061,7 +1086,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
     chromeStateLoadedRootRef.current = rootProjectPath
     chromeStateRestorePendingRef.current = rootProjectPath
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, canUseTerminal, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, canUseTerminal, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
 
   useEffect(() => {
     if (!rootProjectPath || !workspaceUiLoaded || isDesktop()) return
@@ -1167,9 +1192,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
     setWorkspaceUi((previous) => ({
       ...previous,
-      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, androidOpen },
+      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen },
     }))
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
 
   const handleRenamed = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -1257,7 +1282,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       } else if (matchesShortcut(e, getBinding('openGit'))) {
         if (!canUseTerminal) return
         e.preventDefault()
-        setGitWorkbenchOpen(true)
+        toggleWorkspacePanel('git')
       } else if (matchesShortcut(e, getBinding('addComment'))) {
         // 지금 포커스된 칸의 선택(없으면 커서) 자리에 댓글 작성 팝업 — 텍스트 편집기가 아니면 아무 일도 없다
         if (isGuest) return
@@ -1546,7 +1571,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             id: 'git',
             label: 'Git',
             hint: 'Alt+G',
-            onSelect: () => setGitWorkbenchOpen(true),
+            active: gitOpen,
+            onSelect: () => toggleWorkspacePanel('git'),
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="6" cy="5" r="2" /><circle cx="18" cy="7" r="2" /><circle cx="7" cy="19" r="2" />
@@ -2036,6 +2062,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         {canUseTerminal && browserMounted.current && <BrowserPanel visible={browserOpen} onClose={() => closeWorkspacePanel('browser')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'browser'; bringWorkspacePanelToFront('browser') }}
           nextTabSignal={browserNextTabSignal} previousTabSignal={browserPreviousTabSignal} closeTabSignal={browserCloseTabSignal} />}
+        {canUseTerminal && workspaceUiLoaded && gitMounted.current && <GitPanel visible={gitOpen} initialState={workspaceUi.git} onChange={saveGitPanelState}
+          onNotice={showToast} onClose={() => closeWorkspacePanel('git')}
+          onPanelFocus={() => { activeTabbedSurfaceRef.current = 'git'; bringWorkspacePanelToFront('git') }}
+          nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} closeTabSignal={gitCloseTabSignal} />}
         </DockWorkspace>
 
         {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 모바일에서도 프로젝트 탭 아래에서만 열린다. */}
@@ -2168,13 +2198,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           tree={tree}
           onRevert={handleRevertFile}
           onClose={() => setHistoryOpen(false)}
-        />
-      )}
-
-      {gitWorkbenchOpen && canUseTerminal && (
-        <GitWorkbenchModal
-          onNotice={showToast}
-          onClose={() => setGitWorkbenchOpen(false)}
         />
       )}
 
