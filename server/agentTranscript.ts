@@ -49,3 +49,47 @@ export function readAgentTranscript(runtime: string, cwd: string, sessionId: str
     return null
   }
 }
+
+/** ACP may replay whole messages while the saved transcript contains streaming chunks. */
+function conversationTurns(events: AgentEvent[]): { events: AgentEvent[]; identity: string }[] {
+  const turns: { events: AgentEvent[]; identity: string }[] = []
+  let group: AgentEvent[] = [], messages: { role: string; content: unknown[] }[] = [], hasUser = false, replied = false
+  const flush = () => {
+    if (group.length) turns.push({ events: group, identity: JSON.stringify(messages) })
+    group = []; messages = []; hasUser = false; replied = false
+  }
+  for (const event of events) {
+    const update = event.type === 'update' ? event.update : null
+    const user = update?.sessionUpdate === 'user_message_chunk'
+    if (user && hasUser && replied) flush()
+    group.push(event)
+    if (user) hasUser = true
+    else if (event.type === 'turn_end' || update && ['agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'].includes(update.sessionUpdate)) replied = true
+    if (update?.sessionUpdate !== 'user_message_chunk' && update?.sessionUpdate !== 'agent_message_chunk') continue
+    const role = update.sessionUpdate
+    let message = messages.at(-1)
+    if (!message || message.role !== role) { message = { role, content: [] }; messages.push(message) }
+    const content = update.content
+    if (content.type === 'text') {
+      const last = message.content.at(-1)
+      if (typeof last === 'string') message.content[message.content.length - 1] = last + content.text
+      else message.content.push(content.text)
+    } else message.content.push(content)
+  }
+  flush()
+  return turns
+}
+
+/** Fresh backend history wins; only an identical completed prefix keeps Mew-only detail. */
+export function reconcileAgentTranscript(saved: AgentEvent[] | null, loaded: AgentEvent[]): AgentEvent[] {
+  if (!saved?.length) return loaded
+  // Some ACP adapters restore context without replaying conversation messages.
+  if (!loaded.some(event => event.type === 'update' && ['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'].includes(event.update.sessionUpdate))) return saved
+  const cached = conversationTurns(saved), fresh = conversationTurns(loaded)
+  let matching = true
+  return fresh.flatMap((turn, index) => {
+    const previous = cached[index]
+    matching = matching && !!previous && previous.identity === turn.identity && previous.events.some(event => event.type === 'turn_end')
+    return matching ? previous.events : turn.events
+  })
+}

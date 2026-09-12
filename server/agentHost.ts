@@ -349,7 +349,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
           // 삭제·손상된 백엔드 기록 하나가 탭 전체를 못 열게 하지 않는다.
           console.error(`[mew:agent-host:${runtime}] 세션 ${wantedSessionId} 자동 복원 실패:`, err)
           restoreFailure = { sessionId: wantedSessionId, message: describeError(err) }
-          started.dispose()
+          await started.disposeAndWait()
           started = await AgentSession.start(runtime, undefined, cwd)
         }
       }
@@ -414,16 +414,17 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
       attached.detach?.()
       attached.detach = null
     }
-    previous.dispose()
-
     try {
+      await previous.disposeAndWait()
       try {
         let started = await AgentSession.start(runtime, undefined, cwd)
         let loadError: string | null = null
         try {
           await started.loadSession(sessionId)
         } catch (err) {
-          started.dispose()
+          console.error(`[mew:agent-host:${runtime}] 세션 ${sessionId} 불러오기 실패:`, err)
+          // load는 writer를 얻은 뒤 전사 재생에서 실패할 수도 있다. 복구도 종료를 기다린다.
+          await started.disposeAndWait()
           loadError = describeError(err)
           // 선택한 기록이 다른 창에 점유됐거나 손상됐으면, 방금 보던 대화를 새
           // writer로 다시 잡는다. 복구까지 실패해도 탭을 종료하지 않고 빈 세션을 남긴다.

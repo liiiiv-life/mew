@@ -35,7 +35,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import { WORKSPACE_ROOT } from './paths.ts'
 import { UsageReader, type Usage } from './agentUsage.ts'
-import { readAgentTranscript, writeAgentTranscript } from './agentTranscript.ts'
+import { readAgentTranscript, reconcileAgentTranscript, writeAgentTranscript } from './agentTranscript.ts'
 import { listSessionsFromDisk, stripLocalCommandMeta } from './agentSessionList.ts'
 import { readAgentDefault, type AgentRuntimeDefault } from './agentDefaults.ts'
 export {
@@ -954,7 +954,7 @@ export class AgentSession {
     let replay: AgentEvent[]
     try {
       loaded = await this.#conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [] })
-      replay = readAgentTranscript(this.runtime, this.cwd, sessionId) ?? this.#loadingEvents
+      replay = reconcileAgentTranscript(readAgentTranscript(this.runtime, this.cwd, sessionId), this.#loadingEvents)
     } catch (err) {
       // 일부 어댑터는 실패하기 전 update를 몇 개 흘리거나 모드를 바꾼다. 어느 쪽도 현재 세션에 남기지 않는다.
       this.#models = previousModels
@@ -970,7 +970,7 @@ export class AgentSession {
     this.#resetConversation()
     this.#adopt(sessionId, null, null, loaded.configOptions)
     await this.#pushMeta()
-    for (const event of replay) this.#emit(event)
+    for (const event of replay) this.#emit(event, false)
     const models = loaded.models ?? null
     if (models) this.#useModels(models)
     if (loaded.modes) {
@@ -979,6 +979,7 @@ export class AgentSession {
     }
     await this.#applyDefaults()
     await this.#pushMeta()
+    writeAgentTranscript(this.runtime, this.cwd, sessionId, this.#events)
   }
 
   /** 이 프로젝트 폴더에서 돌았던 세션 목록 */
@@ -1071,7 +1072,7 @@ export class AgentSession {
     this.#emit({ type: 'permission_done', id })
   }
 
-  #emit(event: AgentEvent) {
+  #emit(event: AgentEvent, persist = true) {
     if (this.#loadingEvents) {
       this.#loadingEvents.push(event)
       return
@@ -1079,7 +1080,7 @@ export class AgentSession {
     this.#events.push(event)
     // ACP 히스토리는 turn_end를 재생하지 않아 감독의 유휴 종료 뒤에는 소요 시간이 사라진다.
     // 턴이 끝나는 순간의 전사만 남기면 스트리밍 중 디스크 쓰기는 피하면서 완료 상태를 복원할 수 있다.
-    if (event.type === 'turn_end') writeAgentTranscript(this.runtime, this.cwd, this.#sessionId, this.#events)
+    if (persist && event.type === 'turn_end') writeAgentTranscript(this.runtime, this.cwd, this.#sessionId, this.#events)
     this.#broadcast(event)
   }
 

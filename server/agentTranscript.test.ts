@@ -7,8 +7,37 @@ import path from 'node:path'
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-transcript-'))
 process.env.MEW_DATA_DIR = dataDir
 
-const { readAgentTranscript, writeAgentTranscript } = await import('./agentTranscript.ts')
+const { readAgentTranscript, reconcileAgentTranscript, writeAgentTranscript } = await import('./agentTranscript.ts')
 type AgentEvent = import('./agentAcp.ts').AgentEvent
+
+const message = (role: 'user' | 'agent', text: string): AgentEvent => ({ type: 'update', update: { sessionUpdate: role === 'user' ? 'user_message_chunk' : 'agent_message_chunk', content: { type: 'text', text } } })
+const savedTurn: AgentEvent[] = [message('user', '원래 질문'), { type: 'turn_start', startedAt: 100 }, message('agent', '원래 '), message('agent', '답변'), { type: 'turn_end', stopReason: 'end_turn', durationMs: 1200 }]
+
+test('외부에서 resume한 새 대화는 보존하고 같은 기존 턴은 시간과 원본 청크를 유지한다', () => {
+  const tail = [message('user', '외부 추가 질문'), message('agent', '외부 추가 답변')]
+  const loaded = [message('user', '원래 질문'), message('agent', '원래 답변'), ...tail]
+  assert.deepEqual(reconcileAgentTranscript(savedTurn, loaded), [...savedTurn, ...tail])
+  assert.deepEqual(reconcileAgentTranscript([...savedTurn, ...tail], loaded), [...savedTurn, ...tail], '다시 불러와도 중복되지 않는다')
+})
+
+test('히스토리가 바뀌거나 줄었으면 캐시의 다른 내용과 꼬리를 되살리지 않는다', () => {
+  const changed = [message('user', '원래 질문'), message('agent', '새로 생성한 답변')]
+  assert.deepEqual(reconcileAgentTranscript(savedTurn, changed), changed)
+  assert.deepEqual(reconcileAgentTranscript([...savedTurn, message('user', '삭제된 질문'), message('agent', '삭제된 답변')], [message('user', '원래 질문'), message('agent', '원래 답변')]), savedTurn)
+  const unrelated = [message('user', '다른 질문'), message('agent', '다른 답변')]
+  assert.deepEqual(reconcileAgentTranscript(savedTurn, unrelated), unrelated)
+})
+
+test('텍스트 없이 컨텍스트만 복원하는 ACP는 저장된 전사를 계속 사용한다', () => {
+  assert.deepEqual(reconcileAgentTranscript(savedTurn, []), savedTurn)
+  assert.deepEqual(reconcileAgentTranscript(null, [message('agent', 'CLI 기록')]), [message('agent', 'CLI 기록')])
+})
+
+test('완료되지 않은 동일 문구와 반복 질문은 다른 턴의 소요 시간을 가져오지 않는다', () => {
+  const fresh = [message('user', '원래 질문'), message('agent', '원래 답변'), message('user', '원래 질문'), message('agent', '원래 답변')]
+  assert.deepEqual(reconcileAgentTranscript(savedTurn, fresh), [...savedTurn, ...fresh.slice(2)])
+  assert.deepEqual(reconcileAgentTranscript(savedTurn.slice(0, -1), fresh.slice(0, 2)), fresh.slice(0, 2))
+})
 
 test('완료 전사는 런타임·경로·세션별로 보존하고 정확히 같은 키에서만 복원한다', (t) => {
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }))

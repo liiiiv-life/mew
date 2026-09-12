@@ -18,7 +18,7 @@ const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
 fs.writeFileSync(
   stubPath,
   `
-import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION } from ${JSON.stringify(sdkUrl)}
+import { AgentSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError } from ${JSON.stringify(sdkUrl)}
 import fs from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 
@@ -35,6 +35,10 @@ class SlowAgent {
     return { sessionId: this.sessionCount === 1 ? 'host-session' : 'cleared-session' }
   }
   async loadSession({ sessionId }) {
+    if (sessionId === 'partial-load') {
+      fs.writeFileSync(process.argv[3], String(process.pid))
+      throw new RequestError(-32603, 'Internal error', { details: 'history replay failed after acquiring writer' })
+    }
     if (sessionId === 'busy-thread') {
       throw { code: -32603, message: 'Internal error', data: { details: 'thread busy-thread already has an active writer' } }
     }
@@ -69,7 +73,7 @@ class SlowAgent {
   }
 }
 
-process.on('SIGTERM', () => setTimeout(() => process.exit(0), 40))
+process.on('SIGTERM', () => setTimeout(() => process.exit(0), 150))
 
 new AgentSideConnection(
   (conn) => new SlowAgent(conn),
@@ -104,10 +108,14 @@ test('/clear 뒤 같은 탭의 이전 Codex thread를 새 writer로 복원한다
   })
 
   let currentSessionId = ''
+  let refreshed: (() => void) | null = null
+  const errors: string[] = []
   let resolveSession!: (sessionId: string) => void
   let nextSession = new Promise<string>((resolve) => { resolveSession = resolve })
   const client = await connectAgentHost('codex', 'clear-resume-tab', workspace, {
+    onReplay: (_events, restored) => { if (restored) refreshed?.() },
     onEvent: (event) => {
+      if (event.type === 'error') errors.push(event.message)
       if (event.type !== 'meta' || event.meta.sessionId === currentSessionId) return
       currentSessionId = event.meta.sessionId
       resolveSession(currentSessionId)
@@ -123,6 +131,40 @@ test('/clear 뒤 같은 탭의 이전 Codex thread를 새 writer로 복원한다
   nextSession = new Promise<string>((resolve) => { resolveSession = resolve })
   client.send({ type: 'load_session', sessionId: 'host-session' })
   assert.equal(await nextSession, 'host-session')
+  const oldWriter = fs.readFileSync(writerLockFile, 'utf8')
+  const reloaded = new Promise<void>(resolve => { refreshed = resolve })
+  client.send({ type: 'load_session', sessionId: 'host-session' })
+  await reloaded
+  assert.notEqual(fs.readFileSync(writerLockFile, 'utf8'), oldWriter, '현재 대화 새로고침도 이전 writer가 종료된 뒤 같은 ID를 다시 읽는다')
+  assert.deepEqual(errors, [])
+})
+
+test('Codex 히스토리 실패 뒤 복구도 실패한 writer가 종료된 뒤 시작한다', { timeout: 10_000 }, async (t) => {
+  fs.rmSync(writerLockFile, { force: true })
+  t.after(async () => {
+    shutdownAgentHostsForWorkspace(workspace)
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  })
+  let ready!: () => void
+  const started = new Promise<void>((resolve) => { ready = resolve })
+  let failed!: (message: string) => void
+  const failure = new Promise<string>((resolve) => { failed = resolve })
+  let restored: AgentEvent[] = []
+  const client = await connectAgentHost('codex', 'failed-writer-tab', workspace, {
+    onReplay: (events, recovery) => { if (recovery) restored = events },
+    onEvent: (event) => {
+      if (event.type === 'meta') ready()
+      if (event.type === 'error') failed(event.message)
+    },
+  })
+  t.after(() => client.close())
+  await started
+  client.send({ type: 'load_session', sessionId: 'partial-load' })
+  assert.match(await failure, /history replay failed/)
+  assert.ok(restored.some((event) => event.type === 'update'
+    && event.update.sessionUpdate === 'agent_message_chunk'
+    && event.update.content.type === 'text'
+    && event.update.content.text === '이전 답변 복원'), '복구 오류로 빈 세션을 남기지 않고 이전 전사를 다시 읽는다')
 })
 
 test('자동 복원 실패가 fallback 세션으로 원래 thread 포인터를 덮지 않게 알린다', async (t) => {

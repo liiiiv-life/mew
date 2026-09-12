@@ -505,6 +505,35 @@ test('500개가 넘는 완료 턴도 질문과 답변 전체를 디스크 복원
   assert.equal(replay.at(-1)?.type, 'turn_end')
 })
 
+test('ACP resume은 저장된 Mew 전사에 가려진 외부 턴을 복원하고 다시 저장한다', async (t) => {
+  fs.mkdirSync(workspace, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-external-resume-'))
+  const stubPath = path.join(dir, 'external-resume.mjs')
+  const { writeAgentTranscript, readAgentTranscript } = await import('./agentTranscript.ts')
+  const msg = (role: 'user' | 'agent', text: string): AgentEvent => ({ type: 'update', update: { sessionUpdate: role === 'user' ? 'user_message_chunk' : 'agent_message_chunk', content: { type: 'text', text } } })
+  const saved: AgentEvent[] = [msg('user', 'mew 질문'), { type: 'turn_start', startedAt: 100 }, msg('agent', '기존 '), msg('agent', '답변'), { type: 'turn_end', stopReason: 'end_turn', durationMs: 4321 }]
+  writeAgentTranscript('codex', workspace, 'external-resume', saved)
+  const loaded = [msg('user', 'mew 질문'), msg('agent', '기존 답변'), msg('user', 'Codex에서 이어 쓴 질문'), msg('agent', '외부에서 이어 쓴 답변')]
+  fs.writeFileSync(stubPath, `
+import {AgentSideConnection,ndJsonStream,PROTOCOL_VERSION} from ${JSON.stringify(sdkUrl)};
+import {Readable,Writable} from 'node:stream';
+new AgentSideConnection(conn=>({
+ initialize:async()=>({protocolVersion:PROTOCOL_VERSION,agentCapabilities:{loadSession:true}}),
+ newSession:async()=>({sessionId:'initial'}),
+ loadSession:async({sessionId})=>{for(const event of ${JSON.stringify(loaded)}) await conn.sessionUpdate({sessionId,update:event.update});return {}},
+ cancel:async()=>{},authenticate:async()=>({})
+}),ndJsonStream(Writable.toWeb(process.stdout),Readable.toWeb(process.stdin)));
+`)
+  const session = await AgentSession.start('codex', { cmd: process.execPath, args: [stubPath] }, workspace)
+  t.after(() => { session.dispose(); fs.rmSync(dir, { recursive: true, force: true }) })
+  await session.loadSession('external-resume')
+  const replay = session.snapshot()
+  assert.ok(textOf(replay).includes('외부에서 이어 쓴 답변'))
+  assert.deepEqual(replay.filter(event => event.type === 'turn_end'), [saved.at(-1)])
+  assert.equal(replay.filter(event => event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk').length, 2)
+  assert.deepEqual(readAgentTranscript('codex', workspace, 'external-resume'), replay)
+})
+
 test('인증 필요 상태를 유지하고 URL 로그인 뒤 같은 연결에서 세션을 시작한다', async (t) => {
   fs.mkdirSync(workspace, { recursive: true })
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-auth-'))

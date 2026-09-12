@@ -709,6 +709,8 @@ function SessionPicker({
   onOpen,
   onPick,
   onNewConversation,
+  onRefresh,
+  refreshDisabled = false,
 }: {
   sessions: SessionInfo[] | null
   /** 다른 탭이 이미 열어 둔 세션 — 같은 세션을 두 프로세스가 붙들면 전사가 엉킨다 */
@@ -721,6 +723,8 @@ function SessionPicker({
   onOpen: () => void | Promise<void>
   onPick: (session: SessionInfo) => void
   onNewConversation: () => void
+  onRefresh?: () => void
+  refreshDisabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -765,6 +769,20 @@ function SessionPicker({
         >
           {/* 한 번에 다섯 줄쯤만 보이고 나머지는 여기서만 스크롤된다 */}
           <div className="max-h-56 overflow-y-auto">
+            {onRefresh && currentSessionId && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                disabled={refreshDisabled || loadingSession !== null}
+                onClick={() => { onRefresh(); setOpen(false) }}
+                title="외부에서 이어 쓴 대화를 다시 불러옵니다. 진행 중인 작업이 없어야 합니다."
+                className="flex w-full items-center gap-2 border-b border-edge px-2.5 py-2 text-left text-ink hover:bg-surface-hover disabled:opacity-40"
+              >
+                <HistoryGlyph />
+                <span>현재 대화 새로고침</span>
+              </button>
+            )}
             {hasConversation && (
               <button
                 type="button"
@@ -2892,6 +2910,12 @@ function AgentSessionView({
           }}
           // 새 대화는 작업·큐 상태와 관계없이 현재 세션을 바로 닫는다.
           onNewConversation={clearSession}
+          refreshDisabled={busy || (meta?.queued.length ?? 0) > 0 || takenIds.includes(meta?.sessionId ?? '')}
+          onRefresh={runtime === 'codex' && meta?.canLoad ? () => {
+            if (!meta.sessionId) return
+            setLoadingSession(meta.sessionId)
+            send({ type: 'load_session', sessionId: meta.sessionId })
+          } : undefined}
         />
         <div className="flex gap-1">
           <button
