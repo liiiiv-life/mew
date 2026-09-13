@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
+import { wslPowerShell } from '../native/remote-desktop/wsl-powershell.mjs'
 
 const execute = promisify(execFile)
 const DEFAULT_ROOT = path.resolve(import.meta.dirname, '../native/remote-desktop')
@@ -30,14 +31,14 @@ export function desktopIceServers(env: NodeJS.ProcessEnv = process.env): Desktop
 }
 
 /** WSL starts a Windows executable; never substitute a WSLg desktop. */
-export async function desktopHostSpec({ platform = desktopPlatform(), env = process.env, run = execute }: {
-  platform?: DesktopPlatform | null; env?: NodeJS.ProcessEnv; run?: typeof execute
+export async function desktopHostSpec({ platform = desktopPlatform(), env = process.env, run = execute, resolvePowerShell = wslPowerShell }: {
+  platform?: DesktopPlatform | null; env?: NodeJS.ProcessEnv; run?: typeof execute; resolvePowerShell?: typeof wslPowerShell
 } = {}): Promise<DesktopHostSpec> {
   if (!platform) throw new Error('이 운영체제에서는 원격 데스크톱을 사용할 수 없습니다.')
   let root = env.MEW_DESKTOP_HELPER_DIR || DEFAULT_ROOT
   if (platform === 'wsl') {
     if (!env.MEW_DESKTOP_HELPER_DIR) {
-      const result = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '[Environment]::GetFolderPath("LocalApplicationData")'], { timeout: 8000, windowsHide: true, maxBuffer: 8192 })
+      const result = await run(resolvePowerShell({ env }), ['-NoProfile', '-NonInteractive', '-Command', '[Environment]::GetFolderPath("LocalApplicationData")'], { timeout: 8000, windowsHide: true, maxBuffer: 8192 })
       root = path.win32.join(String(result.stdout).trim(), 'Mew', 'remote-desktop')
     }
     if (!/^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)/.test(root)) throw new Error('WSL의 MEW_DESKTOP_HELPER_DIR에는 Windows 절대 경로가 필요합니다.')
@@ -50,18 +51,25 @@ export async function desktopHostSpec({ platform = desktopPlatform(), env = proc
   return { platform, executable: path.join(root, 'node_modules', 'electron', 'dist', ...relative), entry: path.join(root, 'main.mjs') }
 }
 
-export async function desktopHostStatus() {
-  const platform = desktopPlatform()
+export async function desktopHostStatus({ platform = desktopPlatform(), env = process.env, getSpec = desktopHostSpec, access = fs.access }: {
+  platform?: DesktopPlatform | null; env?: NodeJS.ProcessEnv; getSpec?: typeof desktopHostSpec; access?: typeof fs.access
+} = {}) {
   if (!platform) return { platform, ready: false, message: '이 운영체제에서는 원격 데스크톱을 사용할 수 없습니다.' }
-  try { desktopIceServers() } catch (error) { return { platform, ready: false, message: (error as Error).message } }
+  try { desktopIceServers(env) } catch (error) { return { platform, ready: false, message: (error as Error).message } }
+  let spec: DesktopHostSpec
   try {
-    const spec = await desktopHostSpec()
-    await fs.access(spec.executable)
-    if (platform !== 'wsl') await fs.access(spec.entry)
-    if (platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return { platform, ready: false, message: '서버에 로그인한 Linux 데스크톱이 필요합니다. 데스크톱 세션에서 mew를 실행해 주세요.' }
+    spec = await getSpec({ platform, env })
+  } catch (error) {
+    return { platform, ready: false, installable: false, message: `보조 앱 경로를 확인하지 못했습니다. ${(error as Error).message}` }
+  }
+  try {
+    await access(spec.executable)
+    if (platform !== 'wsl') await access(spec.entry)
+    if (platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY) return { platform, ready: false, message: '서버에 로그인한 Linux 데스크톱이 필요합니다. 데스크톱 세션에서 mew를 실행해 주세요.' }
     return { platform, ready: true }
-  } catch {
-    return { platform, ready: false, installable: platform !== 'windows', message: '원격 데스크톱 보조 앱을 준비해야 합니다. 아래 설치 버튼으로 진행해 주세요. WSL은 Windows의 Node.js와 WSL interop가 필요합니다.' }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return { platform, ready: false, installable: false, message: '보조 앱 파일에 접근하지 못했습니다. 서버의 파일 권한과 Windows 드라이브 연결을 확인해 주세요.' }
+    return { platform, ready: false, installable: platform !== 'windows', message: '보조 앱 실행 파일 설치가 끝나지 않았습니다. 설치 터미널에서 [3/3] 검증 완료까지 기다린 뒤 다시 연결해 주세요. 처음 사용한다면 아래 설치 버튼을 누르세요.' }
   }
 }
 

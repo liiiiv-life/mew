@@ -46,6 +46,8 @@ export interface TmuxManager {
   rename: (oldName: string, newName: string) => Promise<void>
   /** 세션이 없으면 cwd에서 새로 띄운 뒤, 명령을 셸에 "타이핑하고 Enter"로 실행한다(재호출 = 재실행) */
   runCommand: (name: string, command: string, cwd: string) => Promise<void>
+  /** Start a fixed command as the initial process, without waiting for interactive shell initialization. */
+  startCommand: (name: string, command: string, cwd: string) => Promise<void>
   /** 고정된 제어 키 하나를 현재 pane에 보낸다. 사용자 입력을 이 경로로 전달하지 않는다. */
   sendKey: (name: string, key: 'Escape') => Promise<void>
   /** 인증 코드처럼 서버가 별도로 검증한 한 줄을 현재 pane에 리터럴로 입력하고 제출한다. */
@@ -121,6 +123,11 @@ export function createTmuxManager({ cwd }: TmuxManagerOptions): TmuxManager {
         }
         throw err
       }
+    },
+
+    async startCommand(name, command, sessionCwd) {
+      assertValidName(name)
+      await run(['new-session', '-d', '-s', name, '-c', sessionCwd, '/bin/sh', '-c', command])
     },
 
     async runCommand(name, command, sessionCwd) {

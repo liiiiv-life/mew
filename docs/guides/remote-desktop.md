@@ -16,6 +16,8 @@ updated: 2026-09-13
 
 **닫기**는 터미널 창만 닫으며 설치는 계속된다. **설치 터미널 열기**로 출력을 다시 확인할 수 있다. 실패하면 터미널에 표시된 오류를 확인하고 창을 닫은 뒤 **다시 설치**를 누른다. 재시도는 이전 설치 터미널을 교체한다. **종료**는 tmux 세션도 종료한다. 설치 완료 후에는 **닫기 → 다시 연결**을 누른다.
 
+터미널은 `[1/3]` 패키지 설치, `[2/3]` Electron 실행 파일 다운로드·압축 해제, `[3/3]` 실행 파일·버전 확인 순서로 진행한다. npm의 `added … packages`만으로는 설치 완료가 아니다. 마지막 `installed and verified`와 설치 완료 상태를 확인한다. 다운로드는 수 분 걸릴 수 있으며 10분을 넘으면 실패로 표시한다. 설치 검증은 끝났지만 서버의 연결 확인 코드를 수정한 경우에는 [README의 반영 절차](../../README.md#개발-실행과-검증)에 따라 사용자가 서버를 재시작한다.
+
 수동 설치도 가능하다. 서버의 mew 저장소에서 실행한다.
 
 ```bash
@@ -32,6 +34,8 @@ npm run desktop:install
 | WSL | **Windows에도 Node.js 22.12 이상**과 npm을 설치한다. Windows 로그인과 WSL interop를 켠 뒤 설치 버튼을 누른다. PowerShell을 통해 `%LOCALAPPDATA%\Mew\remote-desktop`에 복사하고 해당 Windows 폴더에서 npm을 실행한다. Windows npm을 찾지 못하면 터미널에 안내가 표시된다 |
 
 WSL 보조 앱 코드가 바뀌면 설치 명령을 다시 실행해 Windows 복사본도 갱신한다. GUI 세션에 접근할 수 없는 서비스/컨테이너에는 표시할 데스크톱이 없다. WSLg 창을 Windows 전체 화면으로 대신 보여주지 않는다.
+
+WSL의 PATH에 Windows 경로가 없어도 PowerShell을 마운트된 Windows 드라이브에서 자동으로 찾는다. `powershell.exe ENOENT`가 표시되던 기존 설치기는 수정 후 **다시 설치**로 재시도한다. 드라이브가 마운트되지 않았거나 WSL interop가 비활성화된 경우에는 터미널의 해당 안내를 따른다. Windows Node.js 필요 여부는 PowerShell 실행에 성공한 다음 확인한다.
 
 ## 조작
 

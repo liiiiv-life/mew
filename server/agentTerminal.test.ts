@@ -19,6 +19,7 @@ function fakeTmux() {
     sendKey: async () => {},
     sendInput: async () => {},
     capture: async () => '',
+    startCommand: async () => { throw new Error('Unexpected dedicated command') },
     runCommand: async (name, command, cwd) => {
       runs.push({ name, command, cwd })
       sessions.push({ name, createdAt: 1, attached: false, windows: 1 })

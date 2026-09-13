@@ -9,7 +9,7 @@ export const DESKTOP_INSTALL_SESSION = 'mewcmd-desktop-install'
 const APP_ROOT = path.resolve(import.meta.dirname, '..')
 
 /** A fixed, server-owned installer. No command, cwd or session comes from HTTP input. */
-export function createDesktopInstaller(tmux: Pick<TmuxManager, 'list' | 'runCommand' | 'kill'>, {
+export function createDesktopInstaller(tmux: Pick<TmuxManager, 'list' | 'startCommand' | 'kill'>, {
   directory = path.join(DATA_DIR, 'desktop-install'), appRoot = APP_ROOT,
   platform = desktopPlatform(), env = process.env,
 } = {}) {
@@ -42,7 +42,9 @@ export function createDesktopInstaller(tmux: Pick<TmuxManager, 'list' | 'runComm
     const forwarded = { WSL_INTEROP: env.WSL_INTEROP, MEW_DESKTOP_HELPER_DIR: env.MEW_DESKTOP_HELPER_DIR, PATH: `${path.dirname(process.execPath)}:${env.PATH ?? '/usr/bin:/bin'}` }
     // env's -u options must precede assignments.
     const command = spawnSpecCommand({ cmd: '/bin/sh', args: ['-c', script, 'desktop-install', statusFile], env: Object.fromEntries(Object.entries(forwarded).sort((a, b) => Number(a[1] !== undefined) - Number(b[1] !== undefined))) })
-    await tmux.runCommand(DESKTOP_INSTALL_SESSION, command, appRoot)
+    // Keep the output after completion, without starting the job through shell profile/send-keys races.
+    try { await tmux.startCommand(DESKTOP_INSTALL_SESSION, `${command}; exec /bin/sh -i`, appRoot) }
+    catch (error) { await fs.writeFile(statusFile, '125\n', { mode: 0o600 }); throw error }
     return status()
   }
 

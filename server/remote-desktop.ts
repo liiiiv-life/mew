@@ -36,7 +36,7 @@ export function validDesktopSignal(value: unknown): boolean {
   return false
 }
 
-export function createRemoteDesktopRoutes(tmux: Pick<TmuxManager, 'list' | 'runCommand' | 'kill'>, installer = createDesktopInstaller(tmux)) {
+export function createRemoteDesktopRoutes(tmux: Pick<TmuxManager, 'list' | 'startCommand' | 'kill'>, installer = createDesktopInstaller(tmux)) {
   const router = express.Router()
   router.use(requireRole('owner', 'manager'))
   router.get('/status', async (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(await desktopHostStatus()) })
