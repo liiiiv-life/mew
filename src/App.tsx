@@ -865,13 +865,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'terminal' | 'browser' | 'git' | 'sidebar'>('editor')
   const [gitNextTabSignal, setGitNextTabSignal] = useState(0)
   const [gitPreviousTabSignal, setGitPreviousTabSignal] = useState(0)
-  const [gitCloseTabSignal, setGitCloseTabSignal] = useState(0)
   const [browserNextTabSignal, setBrowserNextTabSignal] = useState(0)
   const [browserPreviousTabSignal, setBrowserPreviousTabSignal] = useState(0)
-  const [browserCloseTabSignal, setBrowserCloseTabSignal] = useState(0)
   const [agentNextTabSignal, setAgentNextTabSignal] = useState(0)
   const [agentPreviousTabSignal, setAgentPreviousTabSignal] = useState(0)
-  const [agentCloseTabSignal, setAgentCloseTabSignal] = useState(0)
   useEffect(() => {
     if (isDesktop()) return
     if (mobileForegroundPanel === 'agent' || mobileForegroundPanel === 'terminal') {
@@ -960,24 +957,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     if (index < 0) return
     setActivePath(tabs[(index - 1 + tabs.length) % tabs.length].path, focusedPaneId)
   }, [activePath, agentOpen, terminalOpen, browserOpen, gitOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
-
-  const closeCurrentWindowTab = useCallback(() => {
-    let surface = activeTabbedSurfaceRef.current
-    if (surface === 'agent' && !agentOpen || surface === 'terminal' && !terminalOpen) surface = 'editor'
-    if (surface === 'browser' && !browserOpen) surface = 'editor'
-    if (surface === 'git' && !gitOpen) surface = 'editor'
-    if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
-    activeTabbedSurfaceRef.current = surface
-    if (surface === 'browser') { setBrowserCloseTabSignal((value) => value + 1); return }
-    if (surface === 'git') { setGitCloseTabSignal((value) => value + 1); return }
-    if (surface === 'agent' || surface === 'terminal') {
-      setAgentCloseTabSignal((value) => value + 1)
-      return
-    }
-    // 사이드바의 탐색기·검색은 닫히는 탭이 아니다. 이 경우 Ctrl+W와 똑같이
-    // 현재 편집 칸의 문서 탭을 닫는다.
-    if (activePath) closeTab(activePath, focusedPaneId)
-  }, [activePath, agentOpen, terminalOpen, browserOpen, gitOpen, closeTab, focusedPaneId, sidebarOpen])
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
   // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
@@ -2065,15 +2044,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           agentOpen={agentOpen} terminalOpen={terminalOpen} foregroundKind={mobileForegroundPanel}
           onPanelFocus={(kind) => { activeTabbedSurfaceRef.current = kind; lastPanelRef.current = kind; bringWorkspacePanelToFront(kind) }}
           onClose={() => closeWorkspacePanel('agent')} onCloseTerminal={() => closeWorkspacePanel('terminal')}
-          nextTabSignal={agentNextTabSignal} previousTabSignal={agentPreviousTabSignal} closeTabSignal={agentCloseTabSignal}
+          nextTabSignal={agentNextTabSignal} previousTabSignal={agentPreviousTabSignal}
         />}
         {canUseTerminal && browserMounted.current && <BrowserPanel visible={browserOpen} onClose={() => closeWorkspacePanel('browser')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'browser'; bringWorkspacePanelToFront('browser') }}
-          nextTabSignal={browserNextTabSignal} previousTabSignal={browserPreviousTabSignal} closeTabSignal={browserCloseTabSignal} />}
+          nextTabSignal={browserNextTabSignal} previousTabSignal={browserPreviousTabSignal} />}
         {canUseTerminal && workspaceUiLoaded && gitMounted.current && <GitPanel visible={gitOpen} initialState={workspaceUi.git} onChange={saveGitPanelState}
           onNotice={showToast} onClose={() => closeWorkspacePanel('git')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'git'; bringWorkspacePanelToFront('git') }}
-          nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} closeTabSignal={gitCloseTabSignal} />}
+          nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} />}
         </DockWorkspace>
 
         {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 모바일에서도 프로젝트 탭 아래에서만 열린다. */}
@@ -2119,7 +2098,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       <FabMenu
         onFullscreen={toggleFullscreen}
         onNextWindowTab={switchCurrentWindowTabRight}
-        onCloseWindowTab={closeCurrentWindowTab}
+        onToggleTerminal={() => { if (canUseTerminal) toggleWorkspacePanel('terminal') }}
         onPrevWindowTab={switchCurrentWindowTabLeft}
         onToggleAgent={() => { if (canUseTerminal) toggleWorkspacePanel('agent') }}
         onOpenEditor={closeAllWorkspacePanels}

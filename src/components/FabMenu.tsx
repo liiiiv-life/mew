@@ -6,7 +6,7 @@ import {
   EditPencil,
   Expand,
   Folder,
-  Xmark,
+  Terminal,
 } from 'iconoir-react'
 
 type Action = { label: string; icon: ReactNode; run: () => void }
@@ -41,9 +41,9 @@ function readPosition(): Offset {
 
 /** 빠른 방향 드래그는 버튼을 고르고, 350ms 정지 후 끌기는 화면 어디로든 위치 이동이다. */
 export function FabMenu({
-  onFullscreen, onToggleAgent, onNextWindowTab, onCloseWindowTab, onPrevWindowTab, onOpenEditor, onToggleSidebar, onToggleBrowser,
+  onFullscreen, onToggleAgent, onNextWindowTab, onToggleTerminal, onPrevWindowTab, onOpenEditor, onToggleSidebar, onToggleBrowser,
 }: {
-  onFullscreen: () => void; onToggleAgent: () => void; onNextWindowTab: () => void; onCloseWindowTab: () => void; onPrevWindowTab: () => void
+  onFullscreen: () => void; onToggleAgent: () => void; onNextWindowTab: () => void; onToggleTerminal: () => void; onPrevWindowTab: () => void
   onOpenEditor: () => void; onToggleSidebar: () => void; onToggleBrowser: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -63,7 +63,7 @@ export function FabMenu({
   const actions: Action[] = [
     { label: '전체화면', icon: icon(Expand), run: onFullscreen }, { label: '에이전트', icon: icon(Brain), run: onToggleAgent },
     { label: '오른쪽 탭', icon: icon(ArrowRight), run: onNextWindowTab },
-    { label: '탭 닫기', icon: icon(Xmark), run: onCloseWindowTab },
+    { label: '터미널', icon: icon(Terminal), run: onToggleTerminal },
     { label: '에디터 화면', icon: icon(EditPencil), run: onOpenEditor }, { label: '사이드바', icon: icon(Folder), run: onToggleSidebar },
     { label: '왼쪽 탭', icon: icon(ArrowLeft), run: onPrevWindowTab },
     {
