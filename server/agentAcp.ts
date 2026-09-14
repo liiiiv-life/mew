@@ -305,9 +305,12 @@ export class AgentSession {
   /** sessions 맵에서 자기를 지우기 위한 열쇠 — sessionFor가 심는다(테스트가 직접 띄운 세션은 빈 값) */
   key = ''
   readonly cwd: string
-  #child: ChildProcess
-  #conn: ClientSideConnection
-  #startupFailure: Promise<never>
+  #child!: ChildProcess
+  #conn!: ClientSideConnection
+  #startupFailure!: Promise<never>
+  #spec: SpawnSpec
+  #restarting = false
+  #clearFailed = false
   #rejectStartup: ((err: Error) => void) | null = null
   #sessionId = ''
   #accessIssue: AccessIssue | null = null
@@ -342,6 +345,13 @@ export class AgentSession {
     this.runtime = runtime
     this.cwd = cwd
     this.#idleKillMs = idleKillMs
+    this.#spec = spec
+    this.#spawn()
+    live.add(this)
+  }
+
+  #spawn() {
+    const spec = this.#spec
     this.#startupFailure = new Promise<never>((_resolve, reject) => {
       this.#rejectStartup = reject
     })
@@ -362,15 +372,15 @@ export class AgentSession {
       env,
       detached: true,
     })
-    live.add(this)
+    const child = this.#child
     this.#child.stderr?.on('data', (chunk: Buffer) => {
-      console.error(`[mew:agent:${runtime}]`, chunk.toString().trimEnd())
+      console.error(`[mew:agent:${this.runtime}]`, chunk.toString().trimEnd())
     })
     this.#child.on('error', (err) => {
-      if (!this.#disposed) this.#failStartup(`에이전트를 실행하지 못했습니다: ${err.message}`)
+      if (!this.#disposed && child === this.#child) this.#failStartup(`에이전트를 실행하지 못했습니다: ${err.message}`)
     })
     this.#child.on('exit', (code, signal) => {
-      if (!this.#disposed) this.#failStartup(`에이전트가 종료됐습니다 (code=${code} signal=${signal})`)
+      if (!this.#disposed && child === this.#child) this.#failStartup(`에이전트가 종료됐습니다 (code=${code} signal=${signal})`)
     })
     const stream = ndJsonStream(
       Writable.toWeb(this.#child.stdin!) as WritableStream<Uint8Array>,
@@ -387,14 +397,25 @@ export class AgentSession {
   ): Promise<AgentSession> {
     if (!spec) throw new Error(`ACP를 지원하지 않는 에이전트 런타임입니다: ${runtime}`)
     const session = new AgentSession(runtime, spec, cwd, idleKillMs)
+    try {
+      await session.#initializeWithTimeout()
+      session.#armIdleTimer()
+      return session
+    } catch (err) {
+      session.dispose()
+      throw err
+    }
+  }
+
+  async #initializeWithTimeout(createSession = true) {
     let handshakeTimer: NodeJS.Timeout | null = null
     try {
       // 핸드셰이크에 시한을 둔다 — 어댑터가 떴는데 ACP를 말하지 않으면(잘못 깔린 실행 파일, 로그인
       // 안 된 CLI) initialize의 응답이 영영 오지 않는다. 시한이 없으면 그 자리에서 기다리는 쪽이
       // 통째로 멎는다: 창은 "에이전트 준비 중"에서, 셋은 작업이 running인 채로 굳는다
       await Promise.race([
-        session.#handshake(),
-        session.#startupFailure,
+        this.#handshake(createSession),
+        this.#startupFailure,
         new Promise<never>((_, reject) => {
           handshakeTimer = setTimeout(
             () => reject(new Error('에이전트가 응답하지 않습니다 (핸드셰이크 시간 초과)')),
@@ -403,15 +424,10 @@ export class AgentSession {
           handshakeTimer.unref?.()
         }),
       ])
-      session.#rejectStartup = null
-      session.#armIdleTimer()
-    } catch (err) {
-      session.dispose()
-      throw err
+      this.#rejectStartup = null
     } finally {
       if (handshakeTimer) clearTimeout(handshakeTimer)
     }
-    return session
   }
 
   /** 이 세션이 이미 접혔는지 — 종료 뒤 중복 호출을 막는다 */
@@ -446,7 +462,7 @@ export class AgentSession {
     return () => this.#disposeListeners.delete(listener)
   }
 
-  async #handshake() {
+  async #handshake(createSession = true) {
     // capability를 하나도 광고하지 않는다 — 어댑터가 CLI 기본 도구(Read/Write/Edit/Bash)를 그대로 쓴다.
     // fs를 켜면 그 도구들이 꺼지고 mcp__acp__* 로 갈리는데, 그러면 CLI에서 만든 대화를 창에서 불러올 때
     // 전사 속 `Edit` 참조를 API가 거부한다("Tool reference 'Edit' not found"). 도구 이름을 CLI와
@@ -464,6 +480,7 @@ export class AgentSession {
     })
     this.#caps = init.agentCapabilities ?? {}
     this.#authMethods = normalizeAuthMethods(this.runtime, init.authMethods ?? [])
+    if (!createSession) return
     try {
       await this.#createSession()
     } catch (err) {
@@ -514,6 +531,7 @@ export class AgentSession {
   /** 새로 만들었거나 불러온 ACP 세션으로 갈아탄다 — 사용량 리더도 그 세션 파일을 보게 바꾼다 */
   #adopt(sessionId: string, models: SessionModelState | null, modes: SessionModeState | null, configOptions?: SessionConfigOption[] | null) {
     this.#sessionId = sessionId
+    this.#clearFailed = false
     this.#accessIssue = null
     this.#reader = new UsageReader(this.cwd, sessionId)
     this.#usage = null
@@ -736,7 +754,7 @@ export class AgentSession {
     // Explicit new submission resumes a quota-paused queue; edits/reconnects do not.
     const resume = !this.busy && this.#accessIssue !== null
     if (resume) this.#accessIssue = null
-    if (this.busy || this.#queue.length > 0) {
+    if (this.busy || this.#queue.length > 0 || this.#clearFailed) {
       this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings })
       this.#broadcast(this.#metaEvent())
       if (resume) this.#drainQueue()
@@ -748,6 +766,10 @@ export class AgentSession {
   /** `/clear`는 앞선 작업을 끊지 않고, 이 큐 지점에서 새 ACP 세션을 연다. */
   clearAfterQueue() {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
+    if (this.#clearFailed && !this.busy) {
+      void this.#clearSession().then(() => this.#drainQueue())
+      return
+    }
     if (this.busy || this.#queue.length > 0) {
       this.#queue.push({ kind: 'clear', text: '/clear' })
       this.#broadcast(this.#metaEvent())
@@ -897,6 +919,7 @@ export class AgentSession {
 
   /** 큐의 다음 항목 하나만 시작한다. clear 뒤의 프롬프트는 새 세션에서 시작한다. */
   #drainQueue() {
+    if (this.#disposed || this.busy || this.#clearFailed) return
     if (this.#accessIssue) {
       this.#broadcast(this.#metaEvent())
       this.#armIdleTimer()
@@ -922,11 +945,28 @@ export class AgentSession {
     this.#run(next.text, next.promptText, next.images, next.imageRefs, next.settings)
   }
 
-  /** 연결과 프로세스는 유지한 채 ACP session/new로 새 대화를 연다. */
+  /** Codex는 큐 경계에서 프로세스를 교체해 이전 thread writer를 반납한다. */
   async #clearSession() {
     this.busy = true
+    if (this.#idleTimer) {
+      clearTimeout(this.#idleTimer)
+      this.#idleTimer = null
+    }
+    this.#broadcast(this.#metaEvent())
     try {
+      if (this.runtime === 'codex') {
+        this.#restarting = true
+        this.#loadingEvents = []
+        await this.#stopTransport()
+        if (this.#disposed) return
+        this.#spawn()
+        await this.#initializeWithTimeout(false)
+      }
+      if (this.#disposed) return
       const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
+      if (this.#disposed) return
+      this.#loadingEvents = null
+      this.#clearFailed = false
       this.#events = []
       this.#turns = 0
       this.#startedAt = new Date().toISOString()
@@ -934,10 +974,20 @@ export class AgentSession {
       this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null, created.configOptions)
       await this.#applyDefaults()
     } catch (err) {
-      this.#emit({ type: 'error', message: describeError(err) })
+      // 경계를 넘지 못한 뒤 메시지를 이전 대화에서 실행하지 않는다. /clear로 재시도한다.
+      this.#clearFailed = true
+      if (this.#restarting) {
+        // 실패한 새 어댑터의 늦은 exit가 탭과 보존한 큐까지 닫지 않도록 여기서 정리한다.
+        await this.#stopTransport().catch(() => {})
+      }
+      this.#loadingEvents = null
+      this.#emit({ type: 'error', message: `${describeError(err)}\n새 대화 전환을 완료하지 못했습니다. /clear로 다시 시도하세요.` })
     } finally {
+      this.#loadingEvents = null
+      this.#restarting = false
       this.busy = false
       await this.#pushMeta()
+      this.#armIdleTimer()
     }
   }
 
@@ -1123,7 +1173,7 @@ export class AgentSession {
     const reject = this.#rejectStartup
     this.#rejectStartup = null
     reject?.(new Error(message))
-    this.#fail(message)
+    if (!this.#restarting) this.#fail(message)
   }
 
   #armIdleTimer() {
@@ -1176,6 +1226,24 @@ export class AgentSession {
     if (stopped) return
     this.#killTree('SIGKILL')
     await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 500))])
+  }
+
+  /** 어댑터가 먼저 끝나도 손자 Codex의 writer가 남을 수 있어 그룹 전체를 기다린다. */
+  async #stopTransport() {
+    const pid = this.#child.pid
+    if (pid === undefined) return
+    const running = () => {
+      try { process.kill(-pid, 0); return true } catch { return false }
+    }
+    const waitUntilStopped = async (milliseconds: number) => {
+      const deadline = Date.now() + milliseconds
+      while (running() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20))
+      return !running()
+    }
+    this.#killTree()
+    if (await waitUntilStopped(2_000)) return
+    this.#killTree('SIGKILL')
+    if (!await waitUntilStopped(500)) throw new Error('이전 Codex 프로세스가 아직 종료되지 않았습니다. /clear로 다시 시도하세요.')
   }
 
   /** 어댑터가 밑에 둔 CLI까지 같이 보낸다 — 그룹 리더로 띄웠으므로 음수 pid가 그룹 전체다.

@@ -108,6 +108,7 @@ test('/clear 뒤 같은 탭의 이전 Codex thread를 새 writer로 복원한다
   })
 
   let currentSessionId = ''
+  let cleared = false
   let refreshed: (() => void) | null = null
   const errors: string[] = []
   let resolveSession!: (sessionId: string) => void
@@ -116,7 +117,9 @@ test('/clear 뒤 같은 탭의 이전 Codex thread를 새 writer로 복원한다
     onReplay: (_events, restored) => { if (restored) refreshed?.() },
     onEvent: (event) => {
       if (event.type === 'error') errors.push(event.message)
-      if (event.type !== 'meta' || event.meta.sessionId === currentSessionId) return
+      if (event.type === 'reset') cleared = true
+      if (event.type !== 'meta' || (event.meta.sessionId === currentSessionId && !cleared)) return
+      cleared = false
       currentSessionId = event.meta.sessionId
       resolveSession(currentSessionId)
     },
@@ -124,13 +127,15 @@ test('/clear 뒤 같은 탭의 이전 Codex thread를 새 writer로 복원한다
   t.after(() => client.close())
 
   assert.equal(await nextSession, 'host-session')
+  const initialWriter = Number(fs.readFileSync(writerLockFile, 'utf8'))
   nextSession = new Promise<string>((resolve) => { resolveSession = resolve })
   client.send({ type: 'clear_session' })
-  assert.equal(await nextSession, 'cleared-session')
+  assert.equal(await nextSession, 'host-session', '새 프로세스의 첫 세션을 사용한다')
+  assert.equal(alive(initialWriter), false, '히스토리를 불러오기 전부터 이전 writer가 종료돼 있다')
 
-  nextSession = new Promise<string>((resolve) => { resolveSession = resolve })
+  const restored = new Promise<void>(resolve => { refreshed = resolve })
   client.send({ type: 'load_session', sessionId: 'host-session' })
-  assert.equal(await nextSession, 'host-session')
+  await restored
   const oldWriter = fs.readFileSync(writerLockFile, 'utf8')
   const reloaded = new Promise<void>(resolve => { refreshed = resolve })
   client.send({ type: 'load_session', sessionId: 'host-session' })

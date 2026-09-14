@@ -43,6 +43,7 @@
 - 불러오기(`/resume`)는 **ACP 메서드**(`session/list`·`session/load`)다. 진행 중인 턴·승인·대기열과는 겹치지 않는다. 다른 런타임은 같은 자식 프로세스에서 세션만 갈아끼우지만, **Codex는 히스토리 전환 전에 어댑터를 재시작**해 이전 thread writer를 반납한다([ADR 0122](../../../.mew/docs/decisions/0122-mew-codex-history-load-restarts-writer.md)). 선택한 Codex 기록 불러오기가 실패하면 새 어댑터에서 바로 전 thread를 다시 불러와 현재 대화를 복구한다. 자동 복원 실패 시 `replay.restoreFailure`로 실패한 ID를 내려 원래 탭 포인터와 브라우저 전사를 보존한다. 사용자가 다른 히스토리를 고르거나 새 메시지를 보낼 때만 fallback 새 세션을 채택한다. 목록을 물어볼지는 `initialize`의 capability(`meta.canList`)로 정한다. 정확한 `/clear`는 CLI에 프롬프트로 넘기지 않는다. 작업 중이면 서버 큐의 **세션 경계**로 들어가 앞선 작업을 마친 뒤 ACP 새 세션을 열고, 그 뒤 큐에 넣은 메시지는 새 대화에서 실행한다. 이전 대화는 히스토리에만 남는다.
 
 - Prime Agent는 공식 `prime-agent --mode rpc`를 Mew 내부 어댑터가 ACP로 변환한다. 따라서 Prime ACP의 구현 유무와 무관하게 세션 목록/불러오기, 모델, thinking mode를 Mew 창에서 제공한다.
+- Codex `/clear`는 큐 경계에서 어댑터와 자식 프로세스 그룹의 종료를 기다린 뒤 새 ACP 연결을 초기화하고 `session/new`를 호출한다([ADR 0140](../../../.mew/docs/decisions/0140-mew-codex-clear-releases-writer.md)). `AgentSession`·감독·탭·대기 큐와 편집 소유권은 유지한다. 실패하면 전사와 포인터를 보존하고 큐를 멈추며 `/clear` 재시도가 성공한 뒤에만 뒤 메시지를 실행한다. 종료 중 dispose되면 새 프로세스를 만들지 않는다. 다른 런타임은 기존 연결을 재사용한다. `agent-clear.test.ts`는 연속 경계·전환 실패/재시도·초기화 프로세스 종료·탭 종료를, `agentHost.test.ts`는 히스토리 로드 전부터 이전 writer가 종료된 상태를 검증한다.
 
 - **토큰 사용량만 ACP 밖에서 온다** — 어댑터가 사용량을 보내지 않아 `agentUsage.ts`가 `<CLAUDE_CONFIG_DIR>/projects/<인코딩된 cwd>/<sessionId>.jsonl`을 읽는다. 읽기 전용·선택적이고, 파일이 없으면 사용량 칸만 빈다([ADR 0036](../../../.mew/docs/decisions/0036-mew-agent-session-controls-and-usage.md)).
 
