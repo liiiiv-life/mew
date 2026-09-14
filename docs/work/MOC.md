@@ -10,6 +10,8 @@ updated: 2026-09-14
 
 ## Current
 
+- [Zed 에이전트 비교·RAG 모델 상업 이용 검토](agent-model-license-review.md)
+- [오픈소스·클라우드 수익화 라이선스 검토](open-source-cloud-license-review.md)
 - [원격 데스크톱 서버 전송 구현 계획](remote-desktop-server-transport.md)
 - [배포 준비·보안·사용성 검토 — 개선 제안](deployment-readiness-review.md)
 - [mew 파일 열기 성능 개선 기준](file-open-performance.md)
