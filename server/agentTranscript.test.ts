@@ -13,6 +13,37 @@ type AgentEvent = import('./agentAcp.ts').AgentEvent
 const message = (role: 'user' | 'agent', text: string): AgentEvent => ({ type: 'update', update: { sessionUpdate: role === 'user' ? 'user_message_chunk' : 'agent_message_chunk', content: { type: 'text', text } } })
 const savedTurn: AgentEvent[] = [message('user', '원래 질문'), { type: 'turn_start', startedAt: 100 }, message('agent', '원래 '), message('agent', '답변'), { type: 'turn_end', stopReason: 'end_turn', durationMs: 1200 }]
 
+const settingsA = { model: 'model-a', thinking: 'high', permission: '전체 허용' }
+const settingsB = { ...settingsA, thinking: 'low' }
+const configuredUser = (text: string, settings = settingsA): AgentEvent => ({ ...message('user', text), settings } as AgentEvent)
+const userSettings = (events: AgentEvent[]) => events.flatMap(event =>
+  event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk' ? [event.settings] : [])
+
+test('복원된 답변이 달라도 같은 질문의 설정은 유지해 같은 조합의 다음 메시지와 비교한다', () => {
+  const saved = [configuredUser('원래 질문'), ...savedTurn.slice(1)]
+  const loaded = [message('user', '원래 질문'), message('agent', '복원 시 달라진 답변')]
+  const restored = reconcileAgentTranscript(saved, loaded)
+  assert.deepEqual(restored, [configuredUser('원래 질문'), loaded[1]], '최신 답변에 설정만 복원한다')
+  assert.deepEqual(userSettings([...restored, configuredUser('한 시간 뒤 같은 설정')]), [settingsA, settingsA])
+  assert.deepEqual(userSettings([...restored, configuredUser('바꾼 설정', settingsB)]), [settingsA, settingsB])
+  assert.deepEqual(reconcileAgentTranscript(restored, loaded), restored, 'turn_end 없는 전사를 다시 복원해도 설정을 잃지 않는다')
+})
+
+test('앞선 답변 불일치 뒤에도 질문 순서가 같으면 각 턴의 설정 변경을 보존한다', () => {
+  const saved = [configuredUser('첫 질문'), message('agent', '중간 안내와 답변'), configuredUser('둘째 질문', settingsB), message('agent', '둘째 답변')]
+  const loaded = [message('user', '첫 질문'), message('agent', '최종 답변'), message('user', '둘째 질문'), message('agent', '둘째 답변')]
+  assert.deepEqual(userSettings(reconcileAgentTranscript(saved, loaded)), [settingsA, settingsB])
+})
+
+test('질문이 달라진 뒤의 반복 질문이나 외부 추가 질문에는 이전 설정을 붙이지 않는다', () => {
+  const saved = [configuredUser('첫 질문'), message('agent', '답변'), configuredUser('반복 질문', settingsB), message('agent', '답변')]
+  const loaded = [message('user', '다른 질문'), message('agent', '답변'), message('user', '반복 질문'), message('agent', '답변')]
+  assert.deepEqual(reconcileAgentTranscript(saved, loaded), loaded)
+  const appended = [...saved, message('user', '반복 질문'), message('agent', '외부 답변')]
+  assert.deepEqual(userSettings(reconcileAgentTranscript(saved, appended)), [settingsA, settingsB, undefined])
+  assert.deepEqual(reconcileAgentTranscript(null, loaded), loaded, '새 세션에 이전 설정이 섞이지 않는다')
+})
+
 test('외부에서 resume한 새 대화는 보존하고 같은 기존 턴은 시간과 원본 청크를 유지한다', () => {
   const tail = [message('user', '외부 추가 질문'), message('agent', '외부 추가 답변')]
   const loaded = [message('user', '원래 질문'), message('agent', '원래 답변'), ...tail]

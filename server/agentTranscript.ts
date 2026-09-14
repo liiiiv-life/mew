@@ -51,11 +51,15 @@ export function readAgentTranscript(runtime: string, cwd: string, sessionId: str
 }
 
 /** ACP may replay whole messages while the saved transcript contains streaming chunks. */
-function conversationTurns(events: AgentEvent[]): { events: AgentEvent[]; identity: string }[] {
-  const turns: { events: AgentEvent[]; identity: string }[] = []
+function conversationTurns(events: AgentEvent[]): { events: AgentEvent[]; identity: string; userIdentity: string }[] {
+  const turns: { events: AgentEvent[]; identity: string; userIdentity: string }[] = []
   let group: AgentEvent[] = [], messages: { role: string; content: unknown[] }[] = [], hasUser = false, replied = false
   const flush = () => {
-    if (group.length) turns.push({ events: group, identity: JSON.stringify(messages) })
+    if (group.length) turns.push({
+      events: group,
+      identity: JSON.stringify(messages),
+      userIdentity: JSON.stringify(messages.filter(message => message.role === 'user_message_chunk')),
+    })
     group = []; messages = []; hasUser = false; replied = false
   }
   for (const event of events) {
@@ -87,9 +91,23 @@ export function reconcileAgentTranscript(saved: AgentEvent[] | null, loaded: Age
   if (!loaded.some(event => event.type === 'update' && ['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'].includes(event.update.sessionUpdate))) return saved
   const cached = conversationTurns(saved), fresh = conversationTurns(loaded)
   let matching = true
+  let matchingUsers = true
   return fresh.flatMap((turn, index) => {
     const previous = cached[index]
     matching = matching && !!previous && previous.identity === turn.identity && previous.events.some(event => event.type === 'turn_end')
-    return matching ? previous.events : turn.events
+    matchingUsers = matchingUsers && !!previous && previous.userIdentity === turn.userIdentity
+    if (matching) return previous.events
+    // ACP can omit intermediate replies or replay different answer text. Settings belong to
+    // the submitted question, so retain them independently of answer/turn_end equality.
+    // Stop at the first changed question: repeated text in a different turn is not a match.
+    if (!matchingUsers) return turn.events
+    const settings = previous.events.flatMap(event =>
+      event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk' && event.settings ? [event.settings] : [])
+    const first = settings[0]
+    if (!first || settings.some(value => value.model !== first.model || value.thinking !== first.thinking || value.permission !== first.permission)) return turn.events
+    return turn.events.map(event =>
+      event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk' && !event.settings
+        ? { ...event, settings: first }
+        : event)
   })
 }
