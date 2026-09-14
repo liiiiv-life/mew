@@ -1,6 +1,6 @@
 import { useI18n } from '../i18n'
 import type { PaneNode } from '../utils/paneTree'
-import { createContext, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from 'react'
+import { createContext, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { dockIds, dockRects, insertDock, normalizeDock, pruneDock, closeDockGroup, type DockKind, type DockNode, type DockRect, type DockSide, type DockState } from '../utils/dock-layout'
 
@@ -178,21 +178,40 @@ export function DockWorkspace({ children, value, onChange, onEditorDrop, foregro
 }
 function DockSeparators({ tree, rect, onResize }: { tree: DockNode | null; rect: DockRect; onResize: (ids: string, ratio: number) => void }) {
   const { t } = useI18n()
+  const drag = useRef<{ pointerId: number; start: number; ratio: number; length: number; horizontal: boolean; ids: string } | null>(null)
   if (!tree || 'id' in tree) return null
   const horizontal = tree.axis === 'row', length = horizontal ? rect.width : rect.height, firstSize = Math.max(0, length - 4) * tree.ratio
   const first = { ...rect, [horizontal ? 'width' : 'height']: firstSize }
   const second = { ...rect, [horizontal ? 'x' : 'y']: (horizontal ? rect.x : rect.y) + firstSize + 4, [horizontal ? 'width' : 'height']: Math.max(0, length - firstSize - 4) }
   const ids = dockIds(tree).join('|')
+  const move = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const active = drag.current
+    if (!active || event.pointerId !== active.pointerId) return
+    const position = active.horizontal ? event.clientX : event.clientY
+    onResize(active.ids, Math.max(.15, Math.min(.85, active.ratio + (position - active.start) / Math.max(1, active.length - 4))))
+  }
+  const end = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return
+    drag.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
   return <><div role="separator" tabIndex={0} aria-label={t('panel.resize')} aria-orientation={horizontal ? 'vertical' : 'horizontal'} aria-valuenow={Math.round(tree.ratio * 100)} aria-valuemin={15} aria-valuemax={85}
     className="absolute z-40 touch-none hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
     style={{ ...rectStyle(horizontal ? { x: rect.x + firstSize, y: rect.y, width: 4, height: rect.height } : { x: rect.x, y: rect.y + firstSize, width: rect.width, height: 4 }), cursor: horizontal ? 'col-resize' : 'row-resize' }}
     onKeyDown={(event) => { const delta = event.key === (horizontal ? 'ArrowLeft' : 'ArrowUp') ? -.05 : event.key === (horizontal ? 'ArrowRight' : 'ArrowDown') ? .05 : 0; if (delta) { event.preventDefault(); onResize(ids, Math.max(.15, Math.min(.85, tree.ratio + delta))) } }}
     onPointerDown={(event) => {
-      event.preventDefault(); const start = horizontal ? event.clientX : event.clientY, ratio = tree.ratio
-      const move = (e: PointerEvent) => onResize(ids, Math.max(.15, Math.min(.85, ratio + ((horizontal ? e.clientX : e.clientY) - start) / Math.max(1, length - 4))))
-      const end = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end) }
-      window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end)
-    }} />
+      if (event.button !== 0 || !event.isPrimary || drag.current) return
+      event.preventDefault()
+      // The browser replica is an iframe: window listeners lose the drag as soon
+      // as the pointer crosses into it. Keep this separator as the event target.
+      event.currentTarget.setPointerCapture(event.pointerId)
+      event.currentTarget.focus({ preventScroll: true })
+      drag.current = { pointerId: event.pointerId, start: horizontal ? event.clientX : event.clientY, ratio: tree.ratio, length, horizontal, ids }
+    }}
+    onPointerMove={move}
+    onPointerUp={(event) => { move(event); end(event) }}
+    onPointerCancel={end}
+    onLostPointerCapture={(event) => { if (drag.current?.pointerId === event.pointerId) drag.current = null }} />
     <DockSeparators tree={tree.first} rect={first} onResize={onResize} /><DockSeparators tree={tree.second} rect={second} onResize={onResize} />
   </>
 }

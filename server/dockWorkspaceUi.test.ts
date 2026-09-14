@@ -35,7 +35,7 @@ function Fixture(){
  </DockWorkspace></div>
 }
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
-const bundle=await build({input:'virtual:dock.tsx',write:false,platform:'browser',output:{format:'iife'},transform:{jsx:'react-jsx',define:{'process.env.NODE_ENV':JSON.stringify('test')}},plugins:[{name:'fixture',resolveId(id){if(id==='virtual:dock.tsx')return id;if(id.endsWith('.css'))return 'virtual:style'},async load(id){if(id.endsWith('?raw'))return 'export default '+JSON.stringify(await fs.readFile(id.slice(0,-4),'utf8'));if(id==='virtual:dock.tsx')return source;if(id==='virtual:style')return '';if(id.endsWith('/server-dom-browser.tsx'))return `import React,{useEffect} from '${require.resolve('react')}';export function ServerDomBrowserTabs(){return null};export function ServerDomBrowser({streamUrl,onController}){useEffect(()=>{window.mounts[streamUrl]=(window.mounts[streamUrl]||0)+1;onController({command:(name,args)=>window.commands.push({name,args,streamUrl})});return()=>{window.unmounts[streamUrl]=(window.unmounts[streamUrl]||0)+1}},[]);return <div className="h-full bg-white p-4 text-black">Web page <input data-browser={streamUrl} defaultValue="browser state"/></div>}`},transform(code,id){if(id.endsWith('/AgentPanel.tsx')){const start=code.indexOf('  const renderSession = (tab:'),end=code.indexOf('  if (dock) return',start);assert.ok(start>=0 && end>start);return code.slice(0,start)+`  const renderSession = (tab) => <SessionProbe id={tab.id}/>;\n`+code.slice(end)+`\nfunction SessionProbe({id}){useEffect(()=>{window.mounts[id]=(window.mounts[id]||0)+1;return()=>{window.unmounts[id]=(window.unmounts[id]||0)+1}},[]);return <textarea data-session={id} className="h-full w-full bg-surface-deep p-3 text-ink" defaultValue={id.startsWith('t')?'$ pwd\\n/fixture':'대화 중인 에이전트'}/>}`}}}]})
+const bundle=await build({input:'virtual:dock.tsx',write:false,platform:'browser',output:{format:'iife'},transform:{jsx:'react-jsx',define:{'process.env.NODE_ENV':JSON.stringify('test')}},plugins:[{name:'fixture',resolveId(id){if(id==='virtual:dock.tsx')return id;if(id.endsWith('.css'))return 'virtual:style'},async load(id){if(id.endsWith('?raw'))return 'export default '+JSON.stringify(await fs.readFile(id.slice(0,-4),'utf8'));if(id==='virtual:dock.tsx')return source;if(id==='virtual:style')return '';if(id.endsWith('/server-dom-browser.tsx'))return `import React,{useEffect} from '${require.resolve('react')}';export function ServerDomBrowserTabs(){return null};export function ServerDomBrowser({streamUrl,onController}){useEffect(()=>{window.mounts[streamUrl]=(window.mounts[streamUrl]||0)+1;onController({command:(name,args)=>window.commands.push({name,args,streamUrl})});return()=>{window.unmounts[streamUrl]=(window.unmounts[streamUrl]||0)+1}},[]);return <div className="h-full bg-white p-4 text-black">Web page <input data-browser={streamUrl} defaultValue="browser state"/><iframe title="Remote page fixture" style={{width:"100%",height:"100%",border:0}} srcDoc="<html><body style='margin:0;height:100vh'><iframe title='Nested page' style='width:100%;height:100%;border:0' srcdoc='Nested page'></iframe></body></html>"/></div>}`},transform(code,id){if(id.endsWith('/AgentPanel.tsx')){const start=code.indexOf('  const renderSession = (tab:'),end=code.indexOf('  if (dock) return',start);assert.ok(start>=0 && end>start);return code.slice(0,start)+`  const renderSession = (tab) => <SessionProbe id={tab.id}/>;\n`+code.slice(end)+`\nfunction SessionProbe({id}){useEffect(()=>{window.mounts[id]=(window.mounts[id]||0)+1;return()=>{window.unmounts[id]=(window.unmounts[id]||0)+1}},[]);return <textarea data-session={id} className="h-full w-full bg-surface-deep p-3 text-ink" defaultValue={id.startsWith('t')?'$ pwd\\n/fixture':'대화 중인 에이전트'}/>}`}}}]})
 const chunk=bundle.output.find(x=>x.type==='chunk')
 assert.ok(chunk && chunk.type === 'chunk')
 const js=chunk.code
@@ -76,6 +76,42 @@ try{
  ]
  await page.locator('[data-session="a1"]').fill('KEEP AGENT DRAFT')
  await page.locator('[data-session="t1"]').fill('KEEP TERMINAL DRAFT')
+ // Cross into a real iframe in one move: without pointer capture the parent
+ // window stops receiving pointermove/pointerup, even with no server round trip.
+ const resizeHandle = page.getByRole('separator').first()
+ const initialDockState = await page.evaluate('window.fixture.state')
+ const handle = await resizeHandle.boundingBox()
+ assert.ok(handle)
+ const startX = handle.x + handle.width / 2, resizeY = handle.y + handle.height / 2
+ const beforeResize = await bounds('browser')
+ await page.mouse.move(startX, resizeY)
+ await page.mouse.down()
+ await page.mouse.move(startX + 1, resizeY)
+ await page.mouse.move(startX + 100, resizeY)
+ await page.mouse.move(startX + 140, resizeY)
+ await page.mouse.up()
+ const afterResize = await bounds('browser')
+ assert.ok(beforeResize.width - afterResize.width > 130, 'resize must follow the pointer across browser iframes')
+ await page.mouse.move(startX - 50, resizeY)
+ assert.ok(Math.abs((await bounds('browser')).width - afterResize.width) < 1, 'pointerup must stop resizing')
+ const cancelHandle = await resizeHandle.boundingBox()
+ assert.ok(cancelHandle)
+ await page.evaluate(`document.querySelector('[role="separator"]').addEventListener('pointerdown', e => window.resizePointerId = e.pointerId, {once:true})`)
+ await page.mouse.move(cancelHandle.x + 2, resizeY)
+ await page.mouse.down()
+ await page.mouse.move(cancelHandle.x - 30, resizeY)
+ const beforeCancel = await bounds('browser')
+ await page.evaluate(`document.querySelector('[role="separator"]').dispatchEvent(new PointerEvent('pointercancel', {pointerId:window.resizePointerId,bubbles:true}))`)
+ await page.mouse.move(cancelHandle.x - 80, resizeY)
+ await page.mouse.up()
+ assert.ok(Math.abs((await bounds('browser')).width - beforeCancel.width) < 1, 'cancelled drag must release capture and stop resizing')
+ // Verify keyboard resizing, then restore the tab-drag fixture's original geometry.
+ await resizeHandle.focus()
+ const beforeKeyboard = await bounds('browser')
+ await page.keyboard.press('ArrowLeft')
+ assert.ok((await bounds('browser')).width > beforeKeyboard.width + 50, 'keyboard resizing must remain available')
+ await page.evaluate(`window.fixture.setState(${JSON.stringify(initialDockState)})`)
+ await page.waitForFunction(`Math.abs(document.querySelector('[data-dock-panel="browser"]').getBoundingClientRect().width - ${beforeResize.width}) < 1`)
  for(const group of groups){
   await dragTab(page.locator(`[data-dock-panel="${group.kind}"]`).getByText(group.secondLabel,{exact:true}),group.kind,.95,.5)
   const detached=await page.evaluate<string>(`window.fixture.state.tabs[${JSON.stringify(`${group.kind}:${group.second}`)}]`)
