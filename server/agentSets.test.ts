@@ -18,8 +18,8 @@ test('빈 이름·빈 역할·모르는 런타임은 거절한다', () => {
   assert.throws(() => normalizeSets([{ ...base, name: '  ' }]), AgentSetError)
   assert.throws(() => normalizeSets([{ ...base, role: '' }]), AgentSetError)
   assert.throws(() => normalizeSets([{ ...base, runtime: 'gpt' }]), AgentSetError)
-  assert.throws(() => normalizeSets([{ ...base, runtime: 'claude' }]), AgentSetError)
-  assert.throws(() => normalizeSets([{ ...base, runtime: 'antigravity' }]), AgentSetError)
+  assert.deepEqual(normalizeSets([{ ...base, runtime: 'claude' }]), [{ ...base, runtime: 'claude' }])
+  assert.deepEqual(normalizeSets([{ ...base, runtime: 'antigravity' }]), [{ ...base, runtime: 'antigravity' }])
 })
 
 test('id 또는 이름이 겹치면 거절한다', () => {

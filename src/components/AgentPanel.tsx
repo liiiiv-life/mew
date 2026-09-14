@@ -2357,6 +2357,10 @@ function AgentSessionView({
         }
         if (event.type === 'auth_url') return setAuthUrl({ id: event.id, url: event.url, message: event.message })
         if (event.type === 'auth_url_done') {
+          if (runtime === 'antigravity' && event.id.startsWith('antigravity-oauth-')) {
+            closeAuthBrowser()
+            closeAcpBrowserTabs()
+          }
           return setAuthUrl((current) => current?.id === event.id ? null : current)
         }
         if (event.type === 'auth_complete') {

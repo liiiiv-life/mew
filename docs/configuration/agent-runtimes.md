@@ -4,11 +4,11 @@
 
 ## 설치·로그인·구독
 
-- **설치와 로그인은 별개다**. ACP 런타임은 로그인 화면의 등록된 browser(내부 서버 브라우저)/terminal 작업을 쓰고, Claude·Antigravity는 탭에 열린 공식 TUI의 로그인 흐름을 그대로 쓴다. Mew는 두 terminal 런타임의 OAuth 토큰이나 승인 코드를 별도 API로 받거나 저장하지 않는다. 화면 문구와 배치는 [표시 기준](../specs/agent-panel.md#로그인-화면)을 따른다.
-- **로그인과 구독·한도도 별개다**([ADR 0130](../../../.mew/docs/decisions/0130-mew-agent-account-entitlement.md)). Kimi·Codex·Cursor ACP 채팅의 **i(세션 정보)** 팝업과 지원 런타임 설정의 `연결 계정 · 구독`에서 서버 CLI 계정·플랜을 조회한다. 명시적 구독 필요·사용량 소진·크레딧 부족 오류는 ACP가 `Authentication required`로 감싸도 로그인 화면으로 전환하지 않는다. 기존 대화와 대기 메시지를 유지하고 자동 연속 전송을 멈춘다. 대기 메시지 편집·재연결·계정 재조회는 재전송하지 않으며, 사용자가 새 메시지를 전송하면 대기 순서대로 재개한다.
-  계정 조회는 Kimi의 `web --host 127.0.0.1 --port 0 --no-open --log-level error` 임시 프로세스에서 `/api/v1/oauth/userinfo`·`usage`·`region`, Codex의 호스트 CLI `app-server`에서 `account/read`·`account/rateLimits/read`, Cursor의 `status --format json`, Claude 설정의 `auth status --json`을 사용한다. 실행 파일·환경은 런타임 설정을 따르고 상태 명령 인자는 고정한다. 임시 프로세스는 20초 제한·256KiB stdout 제한과 종료 후 강제 종료 대기를 가지며, Kimi 서버의 접속 토큰은 해당 자식의 시작 출력에서만 일시 사용한다. 공급자 인증 저장소는 직접 읽지 않고 모델 프롬프트도 보내지 않는다.
+- **설치와 로그인은 별개다**. ACP 런타임은 공급자 ACP 인증 또는 등록된 browser(내부 서버 브라우저)/terminal 작업을 쓴다. Antigravity는 Google 공식 ACP 서버의 인증 방법과 Google 로그인 주소를 사용한다. Claude는 공식 CLI의 계정 로그인과 Console 로그인을 구분한다. 수동 승인 코드는 해당 CLI로 일시 전달하고 OAuth 토큰은 별도 입력·저장하지 않는다([ADR 0142](../../../.mew/docs/decisions/0142-mew-claude-acp-and-cli-authentication.md)). 화면 문구와 배치는 [표시 기준](../specs/agent-panel.md#로그인-화면)을 따른다.
+- **로그인과 구독·한도도 별개다**([ADR 0130](../../../.mew/docs/decisions/0130-mew-agent-account-entitlement.md)). Claude·Kimi·Codex·Cursor ACP 채팅의 **i(세션 정보)** 팝업과 지원 런타임 설정의 `연결 계정 · 구독`에서 서버 CLI 계정·플랜을 조회한다. 명시적 구독 필요·사용량 소진·크레딧 부족 오류는 ACP가 `Authentication required`로 감싸도 로그인 화면으로 전환하지 않는다. 기존 대화와 대기 메시지를 유지하고 자동 연속 전송을 멈춘다. 대기 메시지 편집·재연결·계정 재조회는 재전송하지 않으며, 사용자가 새 메시지를 전송하면 대기 순서대로 재개한다.
+  계정 조회는 Kimi의 `web --host 127.0.0.1 --port 0 --no-open --log-level error` 임시 프로세스에서 `/api/v1/oauth/userinfo`·`usage`·`region`, Codex의 호스트 CLI `app-server`에서 `account/read`·`account/rateLimits/read`, Cursor의 `status --format json`, Claude의 동일 CLI 엔진 `auth status --json`을 사용한다. 실행 파일·환경은 런타임 설정을 따르고 상태 명령 인자는 고정한다. 임시 프로세스는 20초 제한·256KiB stdout 제한과 종료 후 강제 종료 대기를 가지며, Kimi 서버의 접속 토큰은 해당 자식의 시작 출력에서만 일시 사용한다. 공급자 인증 저장소는 직접 읽지 않고 모델 프롬프트도 보내지 않는다.
   계정·플랜은 확인된 필드만 표시한다. 무료 플랜은 사용 불가 판정이 아니며, `VIP10` 같은 미확인 플랜 코드는 미구독으로 단정하지 않는다. CLI 버전·네트워크 문제나 조회 기능이 없으면 `확인할 수 없음`과 재조회 경로를 제공한다. Cursor는 계정 정보만 확인되고 플랜이 반환되지 않을 수 있다. API 키 기반 Codex는 ChatGPT 구독과 구분한다.
-  사용량은 i 팝업의 기존 토큰·API 환산 비용 표시로 확인한다. `구독 관리`·`구독하기` 버튼은 공급자별 고정 URL을 같은 계정의 내부 DOM 브라우저로 연다(Kimi 리전 반영). 페이지를 닫으면 그 창과 팝업을 정리하고 상태만 다시 조회한다. 구독 페이지의 계정이 표시된 CLI 계정과 같은지 사용자가 확인하며, 결제나 프롬프트 재전송은 자동 실행하지 않는다. 계정 결과는 메모리에서만 표시하고 전사·localStorage에 저장하지 않는다. Antigravity와 기존 terminal 본문은 이번 기능의 적용 대상이 아니다.
+  사용량은 i 팝업의 기존 토큰·API 환산 비용 표시로 확인한다. `구독 관리`·`구독하기` 버튼은 공급자별 고정 URL을 같은 계정의 내부 DOM 브라우저로 연다(Kimi 리전 반영). 페이지를 닫으면 그 창과 팝업을 정리하고 상태만 다시 조회한다. 구독 페이지의 계정이 표시된 CLI 계정과 같은지 사용자가 확인하며, 결제나 프롬프트 재전송은 자동 실행하지 않는다. 계정 결과는 메모리에서만 표시하고 전사·localStorage에 저장하지 않는다. Antigravity의 계정·플랜·잔여량 조회와 terminal 본문은 이 정보 카드의 적용 대상이 아니다. Antigravity 로그인과 채팅은 ACP로 지원한다.
 
 ## 모델·권한 기본값과 런타임 선택
 
@@ -22,8 +22,8 @@
 
   | 런타임 | 에이전트 탭 표면·명령 | 인증 | 환경변수 |
   | --- | --- | --- | --- |
-  | `claude` | terminal · `claude` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_CLAUDE_CLI_CMD` · `MEW_AGENT_CLAUDE_CLI_ARGS`; 예약 ACP는 기존 `MEW_AGENT_CMD` · `MEW_AGENT_CLAUDE_CMD` 계약 유지 |
-  | `antigravity` | terminal · `agy` (탭별 tmux) | 공식 TUI 안에서 진행 | `MEW_AGENT_ANTIGRAVITY_CMD` · `MEW_AGENT_ANTIGRAVITY_ARGS` |
+  | `claude` | 고정 `claude-agent-acp` → 공식 Claude CLI 엔진 | 내부 서버 브라우저 · 공식 CLI `auth login --claudeai` / `--console`, 필요 시 승인 코드 입력 | ACP: `MEW_AGENT_CMD` · `MEW_AGENT_CLAUDE_CMD` 및 대응 `ARGS`; 엔진: `MEW_AGENT_CLAUDE_CLI_CMD` · `CLAUDE_CODE_EXECUTABLE`; 인증 환경: `MEW_AGENT_CONFIG_DIR`/`CLAUDE_CONFIG_DIR` |
+  | `antigravity` | Google 공식 `agy_acp_server.par` 1.1.1 | 공식 ACP의 Google OAuth · Enterprise · API key · Agent Platform | `MEW_AGENT_ANTIGRAVITY_ACP_CMD` · `MEW_AGENT_ANTIGRAVITY_ACP_ARGS` · `GEMINI_HOME` · `GEMINI_API_KEY` |
   | `codex` | 로컬 `node_modules/.bin/codex-acp`(버전 고정) → 컴퓨터에 설치된 `codex` 엔진, 자격증명은 `~/.codex` | 내부 서버 브라우저 · 호스트 `codex login` · 서버 loopback callback | `MEW_AGENT_CODEX_CMD` · `MEW_AGENT_CODEX_ARGS` · `MEW_AGENT_CODEX_CLI_CMD` · `CODEX_PATH` · `NO_BROWSER`(기본 `1`) |
   | `hermes` | `hermes acp` — mew가 번들하지 않는다 | `hermes acp --setup` | `MEW_AGENT_HERMES_CMD` · `MEW_AGENT_HERMES_ARGS` |
   | `kimi` | `kimi acp` | 내부 서버 브라우저 · `kimi login`(.com) / `kimi login --region global`(.ai) | `MEW_AGENT_KIMI_CMD` · `MEW_AGENT_KIMI_ARGS` |
@@ -51,5 +51,19 @@
 | `PUT /api/agent-runtimes/:id/settings` | manager·owner | 병합 저장 — 보낸 키만 갈아끼우고 없는 env 키는 기존 값을 유지(시크릿 원문을 브라우저가 모르므로) |
 | `DELETE /api/agent-runtimes/:id/settings` | manager·owner | 그 런타임의 사용자 설정을 지우고 등록표 기본값으로 돌아간다 |
 
-- **런타임 설정 팝업**(목록의 톱니 아이콘) — 설치·삭제·로그인·로그아웃과 실행 파일 경로·추가 인자·공급자 env를 런타임별로 저장한다. ACP 런타임은 `resolvedSpec`, terminal 런타임은 `resolvedTerminalSpec`이 다음 탭 시작과 설치 판정에 적용한다. Claude 예약 작업용 ACP 어댑터는 대화형 CLI 설정과 분리된 고정 계약을 유지한다. 시크릿은 서버에만 있고 화면은 `****끝4자`만 본다. 제거·로그아웃은 확인 뒤 등록표의 고정 명령만 실행하며, 안전한 역설치 계약이 없는 Antigravity는 임의 파일을 지우지 않는다.
-- ACP 런타임의 **모델 목록은 ACP가 광고하는 것을 그대로 쓴다.** Claude·Antigravity의 모델·권한·히스토리는 Mew 선택기로 복제하지 않고 공식 TUI 안에서 조작한다.
+- **런타임 설정 팝업**(목록의 톱니 아이콘) — 설치·삭제·로그인·로그아웃과 실행 파일 경로·추가 인자·공급자 env를 런타임별로 저장한다. ACP 런타임은 `resolvedSpec`, terminal 런타임은 `resolvedTerminalSpec`이 다음 탭 시작과 설치 판정에 적용한다. Claude의 실행 파일 설정은 기존대로 공식 CLI 엔진 경로이며, ACP 어댑터 자체는 환경변수로 지정한다. 이전 TUI의 추가 인자(`extraArgs`, `MEW_AGENT_CLAUDE_CLI_ARGS`)는 보존만 하고 ACP에 전달하지 않는다. 모델·권한은 채팅 설정으로 선택한다. 대화·예약 실행·로그인·상태 조회·로그아웃은 같은 CLI 엔진과 공급자 환경을 사용한다. 시크릿은 서버에만 있고 화면은 `****끝4자`만 본다. 제거·로그아웃은 확인 뒤 등록표의 고정 명령만 실행하며, 안전한 역설치 계약이 없는 Antigravity는 임의 파일을 지우지 않는다.
+- ACP 런타임의 **모델 목록은 ACP가 광고하는 것을 그대로 쓴다.** Claude와 Antigravity 모두 공통 ACP 모델·권한·히스토리 화면을 사용한다. 실제 목록과 세션 복원 범위는 각 서버 capability에 따른다.
+
+## Antigravity 공식 ACP
+
+[ADR 0143](../../../.mew/docs/decisions/0143-mew-antigravity-official-acp.md)에 따라 일반 `agy` TUI 대신 Google 공식 ACP 서버를 사용한다.
+
+- **설치**: 목록의 설치 버튼이 `dl.google.com`의 버전 고정 1.1.1 ZIP을 받아 `<DATA_DIR>/runtimes/antigravity-acp/1.1.1-<platform>-<arch>/`에 배치한다. Node 내장 다운로드와 시스템 `unzip`을 사용한다. Linux x64·arm64, macOS arm64를 지원하며 Intel Mac용 공식 배포본은 현재 없다. Linux x64 기준 압축 약 650 MiB·해제 약 1.9 GiB이므로 설치 중 약 2.6 GiB 여유 공간이 필요하다. 다운로드·압축 해제 실패 시 임시 파일을 정리하고 기존 설치를 덮어쓰지 않는다. 재배포 바이너리·npm 의존성은 추가하지 않는다.
+- **Google 계정**: 새 탭에서 `Log in with Google` 선택 → 로그인 페이지 열기 → 내부 서버 브라우저에서 Google 승인 → 공식 서버의 loopback callback으로 인증 완료. Free·Pro·Ultra 이용권은 Google 계정에 따른다. URL은 인증 중 메모리에만 유지한다. 취소·시간 초과 시 해당 ACP 프로세스의 로그인 listener를 종료하고 새 연결로 재시도한다. 실패하면 인증 화면으로 돌아온다.
+- **API 키**: 런타임 설정의 환경변수에 `GEMINI_API_KEY` 저장 → 새 탭 → `Gemini API key`. 공식 1.1.1 서버는 authenticate `_meta`로 받은 키를 무시하므로 별도 키 입력 폼을 제공하지 않는다.
+- **Enterprise / Agent Platform**: 공식 서버가 광고하는 인증 방법을 그대로 제공한다. Enterprise의 project/location은 `<GEMINI_HOME>/antigravity-acp/settings.json`의 `gcp` 설정을 사용한다. Agent Platform은 `GOOGLE_API_KEY` 또는 `GOOGLE_CLOUD_PROJECT`·`GOOGLE_CLOUD_LOCATION` 및 ADC를 사용한다. 이 구성은 실제 기업 계정으로 검증하지 않았다.
+- **설정과 이전 값**: 예전 `MEW_AGENT_ANTIGRAVITY_CMD`·`ARGS`와 저장된 `cmd`·`extraArgs`는 TUI용이라 ACP로 전달하지 않는다. ACP 실행 파일·인자는 서버의 `MEW_AGENT_ANTIGRAVITY_ACP_CMD`·`ARGS`로 명시한다. 저장된 공급자 환경변수는 유지한다. 별도 경로가 필요하면 `GEMINI_HOME`을 설정한다(기본 `~/.gemini`).
+- **계정·이력**: 공식 ACP 서버가 `~/.gemini/antigravity-acp/` 아래 인증과 대화를 관리한다. 일반 CLI의 `antigravity-cli/`와 별개이므로 필요하면 새로 로그인한다. 기존 CLI 대화를 ACP로 자동 이관하지 않는다. 계정 이메일·구독 잔여량 정보 카드는 제공하지 않으며 공식 `/logout` 등 서버 명령은 서버가 처리한다. Mew 설정의 자동 로그아웃·제거 버튼은 아직 제공하지 않는다.
+- **검증 범위**: 공식 Linux x64 배포본의 initialize·미인증 session/new 응답을 확인했다. 설치 성공/실패·이전 설정·OAuth URL 분할 수신·재접속·취소·실패 후 재시도는 격리된 테스트로 확인한다. 실제 Google 로그인·유료 프롬프트·Enterprise·macOS 실행은 자동 검증하지 않는다.
+
+공식 근거: [Google Zed 연동·인증](https://antigravity.google/docs/ide/extensions/zed/), [ACP Registry](https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json). 공식 바이너리는 Google 약관을 따르며 Mew 소스 라이선스로 재라이선스하지 않는다.

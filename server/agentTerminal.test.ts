@@ -33,30 +33,6 @@ function fakeTmux() {
   return { manager, sessions, runs, creates, kills }
 }
 
-test('terminal 런타임은 탭별 숨김 tmux에서 공식 CLI를 한 번만 실행한다', async () => {
-  const previousCmd = process.env.MEW_AGENT_ANTIGRAVITY_CMD
-  const previousArgs = process.env.MEW_AGENT_ANTIGRAVITY_ARGS
-  process.env.MEW_AGENT_ANTIGRAVITY_CMD = '/opt/antigravity cli/agy'
-  process.env.MEW_AGENT_ANTIGRAVITY_ARGS = '--theme dark'
-  try {
-    const fake = fakeTmux()
-    const first = await startAgentTerminal(fake.manager, 'antigravity', 'tab-1', '/workspace/project')
-    const second = await startAgentTerminal(fake.manager, 'antigravity', 'tab-1', '/workspace/project')
-    assert.equal(first.session, second.session)
-    assert.match(first.session, /^mewagent-[a-f0-9]{24}$/)
-    assert.deepEqual(fake.runs, [{
-      name: first.session,
-      command: "'/opt/antigravity cli/agy' '--theme' 'dark'",
-      cwd: '/workspace/project',
-    }])
-  } finally {
-    if (previousCmd === undefined) delete process.env.MEW_AGENT_ANTIGRAVITY_CMD
-    else process.env.MEW_AGENT_ANTIGRAVITY_CMD = previousCmd
-    if (previousArgs === undefined) delete process.env.MEW_AGENT_ANTIGRAVITY_ARGS
-    else process.env.MEW_AGENT_ANTIGRAVITY_ARGS = previousArgs
-  }
-})
-
 test('tmux 터미널 런타임은 탭 작업 폴더에서 기본 셸 세션만 만든다', async () => {
   const fake = fakeTmux()
   const first = await startAgentTerminal(fake.manager, 'tmux', 'shell-tab', '/workspace/project')
@@ -67,22 +43,24 @@ test('tmux 터미널 런타임은 탭 작업 폴더에서 기본 셸 세션만 �
 
 test('탭을 닫으면 해당 terminal 세션만 종료하고 ACP 런타임은 거부한다', async () => {
   const fake = fakeTmux()
-  const session = agentTerminalSessionName('claude', 'tab_2')
+  const session = agentTerminalSessionName('tmux', 'tab_2')
   fake.sessions.push({ name: session, createdAt: 1, attached: false, windows: 1 })
-  await stopAgentTerminal(fake.manager, 'claude', 'tab_2')
+  await stopAgentTerminal(fake.manager, 'tmux', 'tab_2')
   assert.deepEqual(fake.kills, [session])
   await assert.rejects(startAgentTerminal(fake.manager, 'codex', 'tab-3', '/workspace'))
 })
 
-test('Claude terminal은 중첩 실행 표식을 지우고 공식 CLI를 시작한다', async () => {
-  const previousCmd = process.env.MEW_AGENT_CLAUDE_CLI_CMD
-  process.env.MEW_AGENT_CLAUDE_CLI_CMD = '/opt/claude code/claude'
-  try {
-    const fake = fakeTmux()
-    await startAgentTerminal(fake.manager, 'claude', 'tab-claude', '/workspace')
-    assert.equal(fake.runs[0]?.command, "env '-u' 'CLAUDECODE' '/opt/claude code/claude'")
-  } finally {
-    if (previousCmd === undefined) delete process.env.MEW_AGENT_CLAUDE_CLI_CMD
-    else process.env.MEW_AGENT_CLAUDE_CLI_CMD = previousCmd
-  }
+test('Claude ACP 전환 후 terminal 시작을 거부하고 기존 tmux를 임의 종료하지 않는다', async () => {
+  const fake = fakeTmux()
+  await assert.rejects(startAgentTerminal(fake.manager, 'claude', 'tab-claude', '/workspace'))
+  await assert.rejects(stopAgentTerminal(fake.manager, 'claude', 'tab-claude'))
+  assert.deepEqual(fake.runs, [])
+  assert.deepEqual(fake.kills, [])
+})
+
+test('Antigravity ACP 전환은 기존 terminal 프로세스를 종료하지 않는다', async () => {
+  const fake = fakeTmux()
+  await assert.rejects(startAgentTerminal(fake.manager, 'antigravity', 'old-tab', '/workspace'))
+  await assert.rejects(stopAgentTerminal(fake.manager, 'antigravity', 'old-tab'))
+  assert.deepEqual(fake.kills, [])
 })

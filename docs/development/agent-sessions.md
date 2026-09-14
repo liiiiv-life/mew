@@ -53,6 +53,15 @@
 
 ## CLI 도구와 프로세스 환경
 
+- Claude는 [ADR 0142](../../../.mew/docs/decisions/0142-mew-claude-acp-and-cli-authentication.md)에 따라 대화형 ACP로 복원했다. 공식 CLI의 로그인 종료 후 감독이 ACP를 다시 초기화한다. 인증 실패·중단은 성공으로 취급하지 않으며 재시도할 수 있다. 실행·로그인·상태 조회·로그아웃은 같은 CLI 엔진과 설정 환경을 사용한다. `claude-acp-auth.test.ts`는 실제 계정을 호출하지 않는 CLI/ACP fixture로 이 경계를 검증한다.
+
 - 클라이언트 capability는 **인증에 필요한** `auth.terminal`**·**`elicitation.url`**만 광고하고** `fs`**는 광고하지 않는다** — `fs`를 켜면 어댑터가 CLI의 `Read`·`Write`·`Edit`를 끄고 `mcp__acp__*`로 갈아끼워서, 터미널에서 만든 대화를 창에서 불러올 때 전사 속 `Edit` 참조가 API 400으로 거부된다. 도구 이름을 CLI와 맞춰 두는 것이 계약이다 ([ADR 0044](../../../.mew/docs/decisions/0044-mew-agent-cli-tool-parity.md)) — 경로 스코프는 없다.
 - 워크스페이스를 갈아끼우면 **떠 있던 세션을 전부 접는다**(`disposeAllSessions`) — 자식 프로세스의 cwd는 뜰 때 정해져 옛 폴더에 매여 있다.
 - 자식 환경에서 `CLAUDECODE`**를 지운다.** 남아 있으면 Claude Code가 중첩 세션으로 보고 실행을 거부해 세션 생성이 통째로 실패한다(mew 서버를 Claude Code 터미널에서 띄우면 상속된다).
+- 저장한 런타임 설정은 ESM import로 읽는다. 이전 `require()` 실패를 catch로 숨기던 경로를 제거하여 CLI 실행 파일·환경 설정이 실제 spawn에 반영된다. Claude의 히스토리·사용량 경로도 적용된 `CLAUDE_CONFIG_DIR`을 따른다.
+
+## Antigravity ACP 인증
+
+Antigravity는 Google 공식 ACP 서버를 직접 spawn한다. `initialize.authMethods`를 유지하고 `gemini-api-key`는 환경변수 인증 버튼으로 분류한다. Google OAuth는 `authenticate` 중 stderr로 출력되는 `accounts.google.com/o/oauth2/…` HTTPS URL만 공통 `auth_url` 이벤트로 보낸다. 분할 청크를 줄 단위로 조립하고 32 KiB를 넘는 줄은 버리며, 원문 stderr는 로그·전사에 저장하지 않는다.
+
+URL 이벤트는 재접속한 인증 화면에만 재전송된다. 성공·실패·취소 시 `auth_url_done`으로 브라우저를 닫고 URL을 버린다. ACP에 authenticate 취소 메서드가 없으므로 취소·330초 시간 초과는 해당 연결의 프로세스를 종료하고 initialize부터 다시 진행한다. 이전 연결의 늦은 응답은 새 세션을 만들지 않는다. 공급자 CLI 자격증명은 읽거나 복사하지 않는다. 설치·환경변수·지원 범위는 [런타임 설정](../configuration/agent-runtimes.md#antigravity-공식-acp), 결정은 [ADR 0143](../../../.mew/docs/decisions/0143-mew-antigravity-official-acp.md)을 따른다.

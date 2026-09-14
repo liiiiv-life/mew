@@ -3,6 +3,7 @@
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { resolvedSpec } from './agentRuntimes.ts'
 
 export type Usage = {
   input: number
@@ -48,7 +49,7 @@ function priceOf(model: string | undefined): { input: number; output: number } |
 
 /** 자식에게 넘기는 CLAUDE_CONFIG_DIR과 같은 값이어야 한다(agentAcp의 spawn env 참고) */
 function configDir(): string {
-  return process.env.MEW_AGENT_CONFIG_DIR || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+  return resolvedSpec('claude')?.env?.CLAUDE_CONFIG_DIR || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
 }
 
 /** claude-agent-acp의 encodeProjectPath와 같은 규칙이어야 한다 — 어긋나면 사용량만 비어 보인다 */

@@ -19,8 +19,8 @@ import { Terminal } from 'iconoir-react'
 
 export const RUNTIMES = [
   { id: 'tmux', label: 'tmux 터미널', surface: 'terminal' as const, Glyph: Terminal },
-  { id: 'claude', label: 'Claude Code', surface: 'terminal' as const, Glyph: ClaudeCodeGlyph },
-  { id: 'antigravity', label: 'Antigravity CLI', surface: 'terminal' as const, Glyph: AntigravityGlyph },
+  { id: 'claude', label: 'Claude Agent', surface: 'acp' as const, Glyph: ClaudeCodeGlyph },
+  { id: 'antigravity', label: 'Antigravity', surface: 'acp' as const, Glyph: AntigravityGlyph },
   { id: 'codex', label: 'Codex', surface: 'acp' as const, Glyph: CodexGlyph },
   { id: 'hermes', label: 'Hermes', surface: 'acp' as const, Glyph: HermesAgentGlyph },
   { id: 'kimi', label: 'Kimi Code', surface: 'acp' as const, Glyph: KimiGlyph },

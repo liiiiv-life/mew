@@ -4,6 +4,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readAgentSetting } from './agentSettings.ts'
+import { antigravityCommand } from './antigravityAcp.ts'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -18,6 +20,7 @@ const PRIME_ADAPTER_CMD = path.resolve(here, 'primeAdapter.ts')
 export const RUNTIME_LOGIN_METHOD_ID = 'mew-runtime-login'
 /** Kimi Code의 글로벌(.ai) OAuth는 기본 mainland-cn(.com) 로그인과 별도 리전으로 실행한다. */
 export const KIMI_GLOBAL_LOGIN_METHOD_ID = 'mew-kimi-global-login'
+export const CLAUDE_CONSOLE_LOGIN_METHOD_ID = 'mew-claude-console-login'
 
 export interface SpawnSpec {
   cmd: string
@@ -133,31 +136,30 @@ function hostCodexCliCommand(): string {
 function claudeSpawnSpec(): SpawnSpec {
   const cmd = process.env.MEW_AGENT_CMD || process.env.MEW_AGENT_CLAUDE_CMD || DEFAULT_CLAUDE_ACP_CMD
   const args = splitArgs(process.env.MEW_AGENT_ARGS ?? process.env.MEW_AGENT_CLAUDE_ARGS)
-  const env: Record<string, string | undefined> = {}
+  const env: Record<string, string | undefined> = { CLAUDECODE: undefined }
   // CLAUDE_CONFIG_DIR을 넘기면 에이전트가 mew 서버 사용자의 자격증명을 보지 않는다(2단계 준비).
   if (process.env.MEW_AGENT_CONFIG_DIR) env.CLAUDE_CONFIG_DIR = process.env.MEW_AGENT_CONFIG_DIR
   // 어댑터가 번들한 CLI는 어댑터 버전 핀에 묶여 모델 목록이 낡는다(새 모델이 안 보인다).
   // 시스템에 설치된 claude가 있으면 그걸 쓰게 해 모델 목록이 사용자의 설치본을 따라가게 한다.
-  if (!process.env.CLAUDE_CODE_EXECUTABLE) {
-    const systemClaude = findExecutable('claude')
-    if (systemClaude) env.CLAUDE_CODE_EXECUTABLE = systemClaude
-  }
+  const executable = process.env.MEW_AGENT_CLAUDE_CLI_CMD || process.env.CLAUDE_CODE_EXECUTABLE || findHostExecutable('claude')
+  if (executable) env.CLAUDE_CODE_EXECUTABLE = executable
   return { cmd, args, env }
 }
 
-function claudeTerminalSpec(): SpawnSpec {
-  return {
-    cmd: process.env.MEW_AGENT_CLAUDE_CLI_CMD || findExecutable('claude') || 'claude',
-    args: splitArgs(process.env.MEW_AGENT_CLAUDE_CLI_ARGS),
-    // Mew 자체가 Claude Code 안에서 시작됐어도, 사용자가 연 tmux는 독립적인 공식 CLI 세션이다.
-    env: { CLAUDECODE: undefined },
-  }
+/** 인증·계정 조회도 ACP와 동일한 공식 CLI 엔진/환경을 사용한다. */
+export function claudeCliSpec(args: string[]): SpawnSpec {
+  const spec = resolvedSpec('claude')!
+  const executable = spec.env?.CLAUDE_CODE_EXECUTABLE
+  return executable
+    ? { cmd: executable, args, env: spec.env }
+    : { cmd: spec.cmd, args: ['--cli', ...args], env: spec.env }
 }
 
-function antigravityTerminalSpec(): SpawnSpec {
+function antigravitySpawnSpec(): SpawnSpec {
   return {
-    cmd: process.env.MEW_AGENT_ANTIGRAVITY_CMD || findExecutable('agy') || 'agy',
-    args: splitArgs(process.env.MEW_AGENT_ANTIGRAVITY_ARGS),
+    cmd: process.env.MEW_AGENT_ANTIGRAVITY_ACP_CMD || antigravityCommand(),
+    args: splitArgs(process.env.MEW_AGENT_ANTIGRAVITY_ACP_ARGS, process.platform === 'linux' ? ['--uid='] : []),
+    env: { PYTHONUNBUFFERED: '1', BROWSER: 'true' },
   }
 }
 
@@ -232,10 +234,23 @@ const login = (
 
 export const RUNTIMES: Record<string, AgentRuntime> = {
   claude: {
-    id: 'claude', label: 'Claude Code', surface: 'terminal', spec: claudeSpawnSpec, terminal: claudeTerminalSpec,
-    install: () => ({ cmd: 'sh', args: ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash'] }),
-    logout: () => ({ cmd: findExecutable('claude') ?? 'claude', args: ['auth', 'logout'] }),
-    auth: { methods: () => [] },
+    id: 'claude', label: 'Claude Agent', surface: 'acp', spec: claudeSpawnSpec,
+    install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/claude-agent-acp@0.65.0'] }),
+    logout: () => claudeCliSpec(['auth', 'logout']),
+    auth: {
+      methods: () => {
+        const method = (id: string, kind: '--claudeai' | '--console', name: string, description: string) => {
+          const spec = claudeCliSpec(['auth', 'login', kind])
+          return login(id, { ...spec, env: { ...spec.env, NO_BROWSER: '1' } }, spec.args, name, description,
+            undefined, 'browser', ['claude.ai', 'claude.com', 'platform.claude.com', 'console.anthropic.com'], 'authorization-code')
+        }
+        return [
+          method(RUNTIME_LOGIN_METHOD_ID, '--claudeai', 'Claude 계정으로 로그인', '공식 Claude 로그인에서 본인 계정으로 인증합니다.'),
+          method(CLAUDE_CONSOLE_LOGIN_METHOD_ID, '--console', 'Anthropic Console로 로그인', 'API 사용량을 결제하는 Console 계정으로 인증합니다.'),
+        ]
+      },
+      replaceMethodIds: ['claude-login', 'claude-ai-login', 'console-login'],
+    },
   },
   codex: {
     id: 'codex', label: 'Codex', surface: 'acp', spec: codexSpawnSpec,
@@ -296,8 +311,8 @@ export const RUNTIMES: Record<string, AgentRuntime> = {
     },
   },
   antigravity: {
-    id: 'antigravity', label: 'Antigravity CLI', surface: 'terminal', terminal: antigravityTerminalSpec,
-    install: () => ({ cmd: 'sh', args: ['-lc', 'curl -fsSL https://antigravity.google/cli/install.sh | bash'] }),
+    id: 'antigravity', label: 'Antigravity', surface: 'acp', spec: antigravitySpawnSpec,
+    install: () => ({ cmd: process.execPath, args: [path.join(here, 'installAntigravityAcp.ts')] }),
     auth: { methods: () => [] },
   },
   tmux: {
@@ -375,10 +390,16 @@ export function agentSetRuntimeList(): { id: string; label: string }[] {
  */
 function applySetting(base: SpawnSpec, runtime: string): SpawnSpec {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- ESM circular: agentSettings는 isRuntime만 알면 된다
-    const { readAgentSetting } = require('./agentSettings.ts') as typeof import('./agentSettings.ts')
     const setting = readAgentSetting(runtime)
     if (!setting) return base
+    // Saved cmd/extraArgs belonged to the agy TUI. Only explicit ACP env overrides select this server.
+    if (runtime === 'antigravity') return { ...base, env: { ...base.env, ...setting.env } }
+    // 0117 때 저장한 Claude cmd는 공식 CLI 경로다. ACP 어댑터 명령으로 재해석하지 않는다.
+    // TUI 전용 추가 인자는 보존만 하며 ACP에는 넘기지 않는다(0142). 모델/권한은 ACP 설정으로 선택한다.
+    if (runtime === 'claude') return {
+      ...base,
+      env: { ...base.env, ...setting.env, ...(setting.cmd ? { CLAUDE_CODE_EXECUTABLE: setting.cmd } : {}), CLAUDECODE: undefined },
+    }
     return {
       // Prime의 cmd override는 폐기된 로컬 ACP 포크 경로다. Prime은 항상 Mew 어댑터 → 공식 CLI를 탄다.
       cmd: runtime === 'prime' ? base.cmd : setting.cmd ?? base.cmd,

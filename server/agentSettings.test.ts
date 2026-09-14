@@ -2,15 +2,20 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import test from 'node:test'
-import {
+
+const settingsData = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-settings-test-'))
+process.env.MEW_DATA_DIR = settingsData
+const {
   describeAgentSetting,
   normalizeAgentSetting,
   writeAgentSetting,
   deleteAgentSetting,
   purgeForbiddenAgentEnv,
   readAgentSetting,
-} from './agentSettings.ts'
+} = await import('./agentSettings.ts')
+test.after(() => fs.rmSync(settingsData, { recursive: true, force: true }))
 
 test('normalize는 빈 값을 걷어내고 형식을 지킨다', () => {
   const value = normalizeAgentSetting({ cmd: '', extraArgs: ['', '--flag'], env: { A: 'x', B: '' } })

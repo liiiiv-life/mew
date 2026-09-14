@@ -78,8 +78,8 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
 | --- | --- | --- |
 | tmux 터미널 | 메뉴 → 터미널, `Ctrl+백틱` 또는 `Alt+T`로 셸 탭 열기·세션 재연결·종료 | [터미널과 탭 수명](docs/guides/terminal-agents.md) |
-| AI 런타임 선택 | 메뉴 → 에이전트(`Alt+L`) → `+`에서 Claude Code·Antigravity·Codex·Hermes·Kimi·OpenClaw·OpenCode·Cursor·Prime 선택 | [런타임별 지원](docs/configuration/agent-runtimes.md#모델권한-기본값과-런타임-선택) |
-| 런타임 설치·인증·설정 | 런타임 목록의 설치·톱니 버튼에서 로그인·로그아웃·지원되는 제거·실행 경로·인자·환경변수 설정 | [설치와 계정 연결](docs/configuration/agent-runtimes.md) |
+| AI 런타임 선택 | 메뉴 → 에이전트(`Alt+L`) → `+`에서 Claude Agent·Antigravity·Codex·Hermes·Kimi·OpenClaw·OpenCode·Cursor·Prime 선택 | [런타임별 지원](docs/configuration/agent-runtimes.md#모델권한-기본값과-런타임-선택) |
+| 런타임 설치·인증·설정 | 런타임 목록의 설치·톱니 버튼에서 인증·지원되는 로그아웃/제거·실행 설정 관리. Antigravity는 Google 공식 ACP 서버 사용 | [설치와 계정 연결](docs/configuration/agent-runtimes.md) |
 | 모델·추론·권한·기본값 | ACP 채팅 입력부에서 지원되는 설정 선택, 저장 버튼으로 런타임 기본값 저장 | [모델과 권한](docs/configuration/agent-runtimes.md#모델권한-기본값과-런타임-선택) |
 | 에이전트셋·탭 관리 | 모델·역할 프리셋으로 ACP 탭 만들기, 탭 이름 변경·런타임 전환·분할 배치 | [에이전트 탭](docs/guides/terminal-agents.md) |
 | 프롬프트·스킬·파일 첨부 | `@`로 프로젝트·파일·폴더 참조, `/`로 로컬 스킬 선택, 파일·이미지 첨부와 미리보기, ↑·↓로 보낸 입력 재사용 | [입력 사용법](docs/specs/agent-input-mentions.md) |

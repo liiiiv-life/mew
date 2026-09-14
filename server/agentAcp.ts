@@ -13,6 +13,7 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import fs from 'node:fs'
+import { antigravityAuthUrl } from './antigravityAcp.ts'
 import { accessIssueFromError, type AccessIssue } from '../shared/agent-access.ts'
 import {
   ClientSideConnection,
@@ -264,14 +265,15 @@ function normalizeAuthMethods(runtime: string, methods: AuthMethod[]): AuthMetho
           label: typeof terminalMeta?.label === 'string' ? terminalMeta.label : method.name,
         }
       : undefined
-    const apiKey = method.id === 'api-key'
+    const apiKey = runtime !== 'antigravity' && (method.id === 'api-key'
       || method.id.endsWith('-api-key')
       || /api[ -]?key/i.test(method.name)
-      || meta?.['api-key'] !== undefined
+      || meta?.['api-key'] !== undefined)
     return [{
       id: method.id,
       name: method.name,
-      description: method.description,
+      description: runtime === 'antigravity' && method.id === 'gemini-api-key'
+        ? '런타임 설정에 GEMINI_API_KEY를 저장한 뒤 새 탭에서 연결하세요.' : method.description,
       kind: terminal ? 'terminal' : apiKey ? 'api-key' : 'agent',
       terminal,
     }]
@@ -334,6 +336,8 @@ export class AgentSession {
   #authError: string | null = null
   #pendingElicitations = new Map<string, (response: Record<string, unknown>) => void>()
   #authUrls = new Map<string, Extract<AgentEvent, { type: 'auth_url' }>>()
+  #cancelStderrAuth: ((error: Error) => void) | null = null
+  #stderrAuthSequence = 0
   #startedAt = new Date().toISOString()
   #turns = 0
   #queue: QueuedItem[] = []
@@ -373,7 +377,30 @@ export class AgentSession {
       detached: true,
     })
     const child = this.#child
+    let stderrLine = ''
+    let discardStderrLine = false
     this.#child.stderr?.on('data', (chunk: Buffer) => {
+      if (this.runtime === 'antigravity') {
+        // Its OAuth protocol prints a URL to stderr, sometimes across multiple chunks.
+        // Do not persist the URL (or token-bearing diagnostics) in supervisor logs.
+        for (const part of chunk.toString().split(/(?<=\n)/)) {
+          stderrLine += part
+          if (stderrLine.length > 32_768) { stderrLine = ''; discardStderrLine = true }
+          if (!part.endsWith('\n')) continue
+          if (!discardStderrLine && child === this.#child && this.#authenticating && !this.#restarting) {
+            const url = antigravityAuthUrl(stderrLine)
+            if (url && ![...this.#authUrls.values()].some((event) => event.url === url)) {
+              const id = `antigravity-oauth-${++this.#stderrAuthSequence}`
+              const event = { type: 'auth_url', id, url, message: 'Google 계정으로 로그인하세요.' } as const
+              this.#authUrls.set(id, event)
+              this.#broadcast(event)
+            }
+          }
+          stderrLine = ''
+          discardStderrLine = false
+        }
+        return
+      }
       console.error(`[mew:agent:${this.runtime}]`, chunk.toString().trimEnd())
     })
     this.#child.on('error', (err) => {
@@ -696,17 +723,39 @@ export class AgentSession {
     const request = (method.kind === 'api-key'
       ? { methodId, _meta: apiKeyMeta }
       : { methodId }) as AuthenticateRequest
+    let authTimer: NodeJS.Timeout | undefined
+    let interrupted = false
     try {
-      await this.#conn.authenticate(request)
+      const operation = this.#conn.authenticate(request)
+      if (this.runtime === 'antigravity') {
+        await Promise.race([operation, new Promise<never>((_, reject) => {
+          this.#cancelStderrAuth = (error) => { interrupted = true; reject(error) }
+          authTimer = setTimeout(() => this.#cancelStderrAuth?.(new Error('Google 로그인 시간이 초과됐습니다. 다시 시도하세요.')), 330_000)
+          authTimer.unref?.()
+        })])
+      } else await operation
       await this.#createSession()
       this.#closeAuthUrls()
       this.#broadcast({ type: 'auth_complete' })
       await this.#pushMeta()
     } catch (err) {
       this.#closeAuthUrls()
+      if (interrupted && !this.#disposed) {
+        // ACP has no authenticate/cancel: close this connection's login listener before retrying.
+        this.#restarting = true
+        try {
+          await this.#stopTransport()
+          if (!this.#disposed) {
+            this.#spawn()
+            await this.#initializeWithTimeout(false)
+          }
+        } finally { this.#restarting = false }
+      }
       this.#enterAuth(err)
       throw err
     } finally {
+      if (authTimer) clearTimeout(authTimer)
+      this.#cancelStderrAuth = null
       this.#armIdleTimer()
     }
   }
@@ -731,6 +780,10 @@ export class AgentSession {
   }
 
   answerElicitation(id: string, action: 'accept' | 'decline' | 'cancel') {
+    if (this.runtime === 'antigravity' && id.startsWith('antigravity-oauth-') && this.#authUrls.has(id)) {
+      if (action !== 'accept') this.#cancelStderrAuth?.(new Error('Google 로그인이 취소됐습니다. 다시 시도하세요.'))
+      return
+    }
     const resolve = this.#pendingElicitations.get(id)
     if (!resolve) return
     this.#pendingElicitations.delete(id)
@@ -1197,6 +1250,7 @@ export class AgentSession {
   dispose() {
     if (this.#disposed) return
     this.#disposed = true
+    this.#cancelStderrAuth?.(new Error('로그인 세션이 종료됐습니다'))
     live.delete(this)
     if (this.#idleTimer) clearTimeout(this.#idleTimer)
     for (const resolve of this.#pending.values()) resolve({ outcome: { outcome: 'cancelled' } })

@@ -4,8 +4,13 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { accessIssueFromError, SUBSCRIPTION_URLS } from '../shared/agent-access.ts'
-import { parseRuntimeAccount, readRuntimeAccount, runtimeAccountSpec } from './agentAccount.ts'
-import { RUNTIMES, type SpawnSpec } from './agentRuntimes.ts'
+import type { SpawnSpec } from './agentRuntimes.ts'
+
+const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-account-test-data-'))
+process.env.MEW_DATA_DIR = dataDir
+const { parseRuntimeAccount, readRuntimeAccount, runtimeAccountSpec } = await import('./agentAccount.ts')
+const { RUNTIMES } = await import('./agentRuntimes.ts')
+test.after(() => fs.rm(dataDir, { recursive: true, force: true }))
 
 test('billing failures override misleading auth wrappers, but ordinary forbidden/rate limits do not', () => {
   assert.equal(accessIssueFromError({ code: -32000, message: "Authentication required: 403 You've reached your monthly usage limit for this billing cycle. Your quota will be refreshed in the next cycle." }), 'quota_exhausted')

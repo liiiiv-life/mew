@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { RUNTIMES, resolvedSpec, resolvedTerminalSpec, type SpawnSpec } from './agentRuntimes.ts'
+import { RUNTIMES, claudeCliSpec, resolvedSpec, resolvedTerminalSpec, type SpawnSpec } from './agentRuntimes.ts'
 import { accessIssueFromError, SUBSCRIPTION_URLS, type RuntimeAccount } from '../shared/agent-access.ts'
 
 type RecordValue = Record<string, any>
@@ -53,6 +53,10 @@ export function parseRuntimeAccount(runtime: string, input: unknown, usageInput?
     result.authentication = data.loggedIn === true ? data.authMethod === 'api_key' ? 'api_key' : 'connected' : data.loggedIn === false ? 'signed_out' : 'unknown'
     result.account = text(data.email)
     result.plan = text(data.subscriptionType)
+    if (result.authentication === 'api_key') {
+      result.subscriptionUrl = null
+      result.note = 'API 키로 연결되어 있습니다. Claude 구독과 API 사용량은 별개입니다.'
+    }
   } else if (runtime === 'cursor') {
     result.authentication = data.isAuthenticated === true ? 'connected' : data.isAuthenticated === false ? 'signed_out' : 'unknown'
     result.account = text(record(data.userInfo).email)
@@ -65,11 +69,11 @@ export function parseRuntimeAccount(runtime: string, input: unknown, usageInput?
 
 /** Fixed status commands, with the same executable/environment as the runtime. No prompt is sent. */
 export function runtimeAccountSpec(runtime: string): SpawnSpec | null {
+  if (runtime === 'claude') return claudeCliSpec(['auth', 'status', '--json'])
   const spec = RUNTIMES[runtime]?.surface === 'terminal' ? resolvedTerminalSpec(runtime) : resolvedSpec(runtime)
   if (!spec) return null
   if (runtime === 'kimi') return { ...spec, args: ['web', '--host', '127.0.0.1', '--port', '0', '--no-open', '--log-level', 'error'] }
   if (runtime === 'codex') return { cmd: spec.env?.CODEX_PATH || 'codex', env: spec.env, args: ['app-server'] }
-  if (runtime === 'claude') return { ...spec, args: ['auth', 'status', '--json'] }
   if (runtime === 'cursor') return { ...spec, args: ['status', '--format', 'json'] }
   return null
 }

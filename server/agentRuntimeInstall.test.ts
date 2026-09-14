@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { installRuntime, runtimeStatuses, RuntimeInstallError } from './agentRuntimeInstall.ts'
-import { KIMI_GLOBAL_LOGIN_METHOD_ID, RUNTIMES, RUNTIME_LOGIN_METHOD_ID, resolvedTerminalSpec, runtimeLoginSpec } from './agentRuntimes.ts'
+import { CLAUDE_CONSOLE_LOGIN_METHOD_ID, KIMI_GLOBAL_LOGIN_METHOD_ID, RUNTIMES, RUNTIME_LOGIN_METHOD_ID, resolvedTerminalSpec, runtimeLoginSpec } from './agentRuntimes.ts'
 
 test('런타임 상태는 서버 등록표 전체를 설치 여부와 함께 내려준다', () => {
   const statuses = runtimeStatuses()
@@ -31,12 +31,14 @@ test('등록된 런타임은 표면별로 공식 CLI 또는 고정 ACP 인증 �
     assert.deepEqual(Object.keys(RUNTIMES), [
       'claude', 'codex', 'hermes', 'kimi', 'antigravity', 'tmux', 'openclaw', 'opencode', 'cursor', 'prime',
     ])
-    assert.equal(RUNTIMES.claude.surface, 'terminal')
-    assert.equal(resolvedTerminalSpec('claude')?.cmd.endsWith('/claude') || resolvedTerminalSpec('claude')?.cmd === 'claude', true)
-    assert.equal(resolvedTerminalSpec('claude')?.env?.CLAUDECODE, undefined)
-    assert.equal(RUNTIMES.antigravity.surface, 'terminal')
-    assert.equal(path.basename(resolvedTerminalSpec('antigravity')?.cmd ?? ''), 'agy')
-    assert.ok(RUNTIMES.antigravity.install?.().args[1]?.includes('antigravity.google/cli/install.sh'))
+    assert.equal(RUNTIMES.claude.surface, 'acp')
+    assert.equal(resolvedTerminalSpec('claude'), null)
+    assert.equal(runtimeLoginSpec('claude').surface, 'browser')
+    assert.deepEqual(runtimeLoginSpec('claude').args.slice(-3), ['auth', 'login', '--claudeai'])
+    assert.deepEqual(runtimeLoginSpec('claude', CLAUDE_CONSOLE_LOGIN_METHOD_ID).args.slice(-3), ['auth', 'login', '--console'])
+    assert.equal(RUNTIMES.antigravity.surface, 'acp')
+    assert.equal(resolvedTerminalSpec('antigravity'), null)
+    assert.ok(RUNTIMES.antigravity.install?.().args[0]?.endsWith('/server/installAntigravityAcp.ts'))
     assert.equal(RUNTIMES.tmux.surface, 'terminal')
     assert.equal(RUNTIMES.tmux.terminalLaunch, 'shell')
     assert.equal(path.basename(resolvedTerminalSpec('tmux')?.cmd ?? ''), 'tmux')
@@ -109,7 +111,7 @@ test('Codex 호스트 탐색은 Mew node_modules의 번들 CLI로 후퇴하지 �
 test('ACP 런타임 인증 방법 id는 각각 고유하고 browser 표면은 host allowlist를 가진다', () => {
   for (const runtime of Object.values(RUNTIMES)) {
     const methods = runtime.auth.methods()
-    if (runtime.surface === 'terminal') {
+    if (runtime.surface === 'terminal' || runtime.id === 'antigravity') {
       assert.deepEqual(methods, [])
       continue
     }
@@ -128,6 +130,7 @@ test('ACP 런타임 인증 방법 id는 각각 고유하고 browser 표면은 ho
 test('모든 browser 인증은 내부 서버 브라우저를 선언하고 초기 URL 호스트를 검증한다', () => {
   const browserMethods = Object.values(RUNTIMES).flatMap((runtime) => runtime.auth?.methods().filter((method) => method.surface === 'browser').map((method) => ({ runtime: runtime.id, method })) ?? [])
   assert.deepEqual(browserMethods.map(({ runtime, method }) => `${runtime}:${method.id}`), [
+    `claude:${RUNTIME_LOGIN_METHOD_ID}`, `claude:${CLAUDE_CONSOLE_LOGIN_METHOD_ID}`,
     `codex:${RUNTIME_LOGIN_METHOD_ID}`, `kimi:${RUNTIME_LOGIN_METHOD_ID}`, `kimi:${KIMI_GLOBAL_LOGIN_METHOD_ID}`, `cursor:${RUNTIME_LOGIN_METHOD_ID}`,
   ])
   for (const { method } of browserMethods) {

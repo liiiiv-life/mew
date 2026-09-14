@@ -101,9 +101,9 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
 
   const buildPayload = (): Record<string, unknown> => {
     const payload: Record<string, unknown> = {}
-    if (cmd.trim()) payload.cmd = cmd.trim()
+    if (runtimeId !== 'antigravity' && cmd.trim()) payload.cmd = cmd.trim()
     const args = extraArgs.split(' ').filter((arg) => arg.length > 0)
-    if (args.length > 0) payload.extraArgs = args
+    if (runtimeId !== 'claude' && runtimeId !== 'antigravity' && args.length > 0) payload.extraArgs = args
     // env는 통째로 저장하는 게 아니라 **보낸 키만** 갈아끼우는 방식이어야 한다 — 서버에 저장된
     // 시크릿은 마스킹으로 원문을 못 받아 오므로, 건드리지 않은 줄(****로 시작)은 보내지 않고
     // 서버가 기존 값을 유지하게 해야 한다. 그래서 PUT은 "전체 교체"가 아니라 "병합 저장"이다.
@@ -187,16 +187,16 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
               </div>
             </section>
             {runtime?.installed && Object.hasOwn(SUBSCRIPTION_URLS, runtimeId) && <AgentAccountCard runtime={runtimeId} />}
-            <div>
-              <label className="mb-1 block text-xs font-medium text-ink-secondary">실행 파일</label>
+            {runtimeId !== 'antigravity' && <div>
+              <label className="mb-1 block text-xs font-medium text-ink-secondary">{runtimeId === 'claude' ? 'Claude CLI 실행 파일' : '실행 파일'}</label>
               <input
                 value={cmd}
                 onChange={(e) => setCmd(e.target.value)}
                 placeholder="기본값 사용"
                 className="w-full rounded border border-edge bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-secondary focus:border-edge-bright"
               />
-            </div>
-            <div>
+            </div>}
+            {runtimeId !== 'claude' && runtimeId !== 'antigravity' && <div>
               <label className="mb-1 block text-xs font-medium text-ink-secondary">추가 인자</label>
               <input
                 value={extraArgs}
@@ -204,7 +204,9 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
                 placeholder="공백으로 구분"
                 className="w-full rounded border border-edge bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-secondary focus:border-edge-bright"
               />
-            </div>
+            </div>}
+            {runtimeId === 'claude' && <p className="text-xs text-ink-secondary">모델과 권한은 채팅 화면에서 선택합니다. 이전 터미널의 추가 인자는 적용되지 않습니다.</p>}
+            {runtimeId === 'antigravity' && <p className="text-xs text-ink-secondary">Google 공식 ACP 서버를 사용합니다. Google 계정은 로그인 화면에서 연결하고, API 키는 아래 GEMINI_API_KEY 환경 변수로 설정하세요. 환경 변경은 새 탭부터 적용됩니다.</p>}
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <label className="text-xs font-medium text-ink-secondary">환경 변수 (API 키·엔드포인트)</label>
