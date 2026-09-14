@@ -9,6 +9,7 @@ import test from 'node:test'
 import express from 'express'
 import { chromium } from 'playwright-core'
 import { build } from 'rolldown'
+import { compile } from '@tailwindcss/node'
 import { WebSocket, WebSocketServer } from 'ws'
 import { createDomNetworkGate } from './browser-dom-network.ts'
 import { domBrowserHeadless } from './browser-dom-profile.ts'
@@ -195,7 +196,19 @@ test('real Chromium DOM view relays input, cookie-backed submission and navigati
     assert.equal((await fetch(origin + logo, { headers: { 'x-test-account': 'other' } })).status, 403)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.locator('#root iframe[width="390"]').waitFor()
-    await frame.locator('#email').fill('person@example.com')
+    await frame.locator('#email').fill('initial@example.com')
+    // A synchronous burst exceeds the old 100-message queue limit. The final
+    // value and subsequent field/click must survive the actual viewer WebSocket.
+    await page.evaluate(`(() => {
+      const node = document.querySelector('#root iframe').contentDocument.querySelector('#email');
+      node.focus();
+      for (let i = 0; i < 500; i++) {
+        node.value = 'person' + i + '@example.com';
+        node.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      node.value = 'person@example.com';
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`)
     await frame.locator('#password').fill('fixture-password')
     await frame.locator('#accepted').click()
     // Masked server echoes cannot replace the real password when focus moves away.
@@ -242,6 +255,11 @@ test('general browser shares persistent server state, preserves popups/history, 
     }],
   })
   const panelCode = panelBundle.output.find((item) => item.type === 'chunk')!
+  const sourceDir = new URL('../src/', import.meta.url).pathname
+  const panelSources = (await Promise.all(['components/BrowserPanel.tsx', 'components/server-dom-browser.tsx'].map(file => fs.readFile(path.join(sourceDir, file), 'utf8')))).join('\n')
+  const compiler = await compile(await fs.readFile(path.join(sourceDir, 'index.css'), 'utf8'), { base: sourceDir, onDependency() {} })
+  const panelCss = compiler.build([...new Set(panelSources.match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
+    + await fs.readFile(path.join(sourceDir, 'components/server-dom-browser.css'), 'utf8')
 
   const app = express()
   app.use(express.json())
@@ -260,8 +278,13 @@ test('general browser shares persistent server state, preserves popups/history, 
     <input id="file" type="file" onchange="document.querySelector('#filename').textContent=this.files[0].name"><output id="filename"></output>
     <a href="/file" download>Download fixture</a>
     <iframe id="child" src="${childOrigin}" style="width:500px;height:180px;border:0"></iframe>
+    <div id="closed-widget"></div>
     <output id="socket"></output><output id="worker"></output>
     <script>
+      const closedWidget = document.querySelector('#closed-widget').attachShadow({mode:'closed'});
+      closedWidget.innerHTML = '<style>button { color: rgb(17, 34, 51); }</style><button id="closed-action">Closed widget action</button><output></output><input type="password" value="masked-shadow-password"><div id="nested-closed"></div>';
+      closedWidget.querySelector('button').onclick = () => closedWidget.querySelector('output').textContent = 'Closed widget clicked on server';
+      closedWidget.querySelector('#nested-closed').attachShadow({mode:'closed'}).innerHTML = '<iframe id="closed-child" src="${childOrigin}" style="width:300px;height:100px"></iframe>';
       document.querySelector('#blank-popup').onclick=()=>{const popup=window.open('','sso');popup.document.write('<html><body><h1>Waiting for sign-in</h1></body></html>');popup.document.close()};
       window.siteScriptExecuted=true; document.cookie='persistent_site=kept; Max-Age=3600';localStorage.setItem('server-local','kept');
       new WebSocket(location.origin.replace('http:','ws:')+'/site-ws').onmessage=e=>document.querySelector('#socket').textContent=e.data;
@@ -275,7 +298,7 @@ test('general browser shares persistent server state, preserves popups/history, 
   app.get('/viewer.js', (_req, res) => res.type('js').send(code.type === 'chunk' ? code.code : ''))
 
   app.get('/panel.js', (_req, res) => res.type('js').send(panelCode.type === 'chunk' ? panelCode.code : ''))
-  app.get('/panel', (_req, res) => res.type('html').send('<html><head><style>.hidden{display:none}section{height:900px}iframe{border:0}.mew-dom-browser{width:900px;height:700px}</style></head><body><div id="panel"></div><script type="module" src="/panel.js"></script></body></html>'))
+  app.get('/panel', (_req, res) => res.type('html').send(`<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${panelCss}#panel{display:flex;flex-direction:column;height:100dvh}</style></head><body><div id="panel"></div><script type="module" src="/panel.js"></script></body></html>`))
   let streamUrl = ''
   app.get('/init.js', (_req, res) => res.type('js').send(`import {mountDomBrowser} from '/viewer.js'; window.packets=[];window.controller=mountDomBrowser(document.querySelector('#root'),${JSON.stringify(streamUrl)},s=>{window.packets.push(s);document.querySelector('#status').textContent=JSON.stringify(s)});`))
   app.get('/viewer', (_req, res) => res.type('html').send('<html><body><div id="status"></div><div id="root" style="width:900px;height:700px"></div><script type="module" src="/init.js"></script></body></html>'))
@@ -295,6 +318,36 @@ test('general browser shares persistent server state, preserves popups/history, 
     await viewer.goto(`${origin}/viewer`)
     const view = viewer.frameLocator('#root > .replayer-wrapper > iframe')
     await view.getByText('General server browser').waitFor({ timeout: 15_000 })
+    // Shadow roots stay closed on the source page; only the inert replica exposes
+    // their rendered DOM so human clicks still resolve through the server mirror.
+    await view.locator('#closed-action').waitFor({ timeout: 5000 })
+    assert.equal(await session.page!.evaluate('document.querySelector("#closed-widget").shadowRoot'), null)
+    assert.equal(await session.page!.evaluate('closedWidget.mode'), 'closed')
+    assert.equal(await view.locator('#closed-action').evaluate((node) => {
+      const win = globalThis as unknown as { getComputedStyle: (node: unknown) => { color: string } }
+      return win.getComputedStyle(node).color
+    }), 'rgb(17, 34, 51)')
+    assert.doesNotMatch(await view.locator('#closed-widget input').inputValue(), /masked-shadow-password/)
+    await view.locator('#closed-action').click()
+    await view.getByText('Closed widget clicked on server').waitFor({ timeout: 5000 })
+    const closedChild = view.frameLocator('#closed-child iframe')
+    await closedChild.locator('#child-button').click()
+    await closedChild.getByText('Child clicked on server').waitFor({ timeout: 5000 })
+    await session.page!.evaluate(`(() => {
+      const host = document.createElement('div'); host.id = 'late-closed'; document.body.append(host);
+      const root = host.attachShadow({mode:'closed'});
+      root.innerHTML = '<button id="late-closed-action">Late closed action</button><output></output>';
+      root.querySelector('button').onclick = () => root.querySelector('output').textContent = 'Late closed clicked on server';
+    })()`)
+    await view.locator('#late-closed-action').click()
+    await view.getByText('Late closed clicked on server').waitFor({ timeout: 5000 })
+    await viewer.evaluate(`(() => {
+      window.beforeShadowSnapshot = document.querySelector('#root > .replayer-wrapper > iframe').contentDocument.querySelector('#closed-widget');
+      window.controller.command('snapshot');
+    })()`)
+    await viewer.waitForFunction(`window.beforeShadowSnapshot !== document.querySelector('#root > .replayer-wrapper > iframe')?.contentDocument?.querySelector('#closed-widget')`)
+    await view.getByText('Closed widget clicked on server').waitFor({ timeout: 5000 })
+    await view.getByText('Late closed clicked on server').waitFor({ timeout: 5000 })
     if (!domBrowserHeadless()) assert.equal(await session.page!.evaluate('navigator.webdriver'), false)
     await view.getByText('Server WebSocket connected').waitFor()
     await view.getByText('Worker ready').waitFor()
@@ -372,6 +425,19 @@ test('general browser shares persistent server state, preserves popups/history, 
     await viewer.frameLocator('.mew-dom-browser iframe').first().getByText('Next page').waitFor({ timeout: 10_000 })
     assert.equal(await address.inputValue(), 'http://' + localAddress)
     await session.page!.waitForURL('http://' + localAddress)
+    // Use the actual panel CSS: a fixed viewer height would conceal a broken flex chain.
+    for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+      await viewer.setViewportSize(viewport)
+      await viewer.waitForFunction(`() => {
+        const surface = [...document.querySelectorAll('.mew-dom-browser')].find(element => element.getBoundingClientRect().width > 0)
+        const area = surface?.getBoundingClientRect(), panel = surface?.closest('section')?.getBoundingClientRect()
+        const frame = surface?.querySelector('iframe')?.getBoundingClientRect()
+        return area && panel && frame && area.height > 500 && Math.abs(area.bottom - panel.bottom) < 1 && Math.abs(frame.height - area.height) < 1
+      }`, undefined, { timeout: 5000 })
+      const area = await viewer.locator('.mew-dom-browser:visible').boundingBox()
+      assert.ok(area)
+      await session.page!.waitForFunction('height => Math.abs(innerHeight - height) < 1', area.height)
+    }
     await viewer.close()
     await closeDomBrowsers()
     const reopened = openDomBrowserTab(account, 'reopened', origin + '/next')

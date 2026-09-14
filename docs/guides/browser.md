@@ -6,6 +6,8 @@
 
 브라우저는 에디터·에이전트·터미널 옆에 붙는 패널이다. 상단 손잡이로 패널을 옮기거나 탭 하나를 끌어 별도 패널로 분리한다. 다른 브라우저 패널의 탭바 빈 공간에도 탭을 합칠 수 있다. 마지막 탭을 옮긴 패널은 자동으로 닫힌다. 브라우저는 좌우 배치만 허용하며 항상 작업 영역 높이를 유지한다. 패널을 닫으면 그 칸만 사라지고 나머지가 빈자리를 채운다. 탭은 남은 브라우저 패널로 모으며, 마지막 패널의 탭도 다시 열 때 방문 상태를 이어 쓴다. 닫은 분할은 복원하지 않는다. 독립 `/browser` 화면은 그대로 제공한다.
 
+실제 웹페이지도 탭바·주소창과 현재 표시 중인 안내를 제외한 세로 공간을 끝까지 채운다. 패널·화면 크기가 바뀌면 표시 영역과 서버 페이지 높이가 함께 맞춰지며, 모바일에서 주소창이 두 줄로 바뀌어도 남은 높이를 사용한다.
+
 Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**와 독립 `/browser` 화면은 실제 서버 Chromium을 조작한다.
 폰에서 `localhost:3100`을 넣으면 Mew 서버의 localhost를 열고, 공개 HTTP(S) 사이트와 서버에서 접근 가능한 사설망도 연다.
 사이트의 JavaScript·TLS·네트워크·쿠키·storage·WebSocket·Service Worker는 서버에서 동작한다.
@@ -46,8 +48,21 @@ Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**와 독립 `/browser` 
   사이트가 연 빈 팝업은 원래 Page를 유지하며, opener의 문서 작성·후속 OAuth 이동을 덮어쓰지 않는다.
   Chromium 자체 오류 문서에는 기록기를 주입하지 않고, 실패한 주소를 주소창에 유지한다.
   첫 주소의 응답을 기다리는 중에도 주소 변경·중지가 가능하다. 연결 거부·시간 초과는 서버 기준 대상 호스트와 함께 표시한다.
+- 닫힌 Shadow DOM 안에 있는 위젯도 DOM·스타일·중첩 iframe과 클릭을 중계한다. 원본 페이지의 `mode: closed`와
+  `element.shadowRoot === null` 동작은 유지한다. 확인 위젯이 Chromium에만 보이고 Mew에서 빈칸으로 나오던 누락을 보완한 것으로,
+  Cloudflare 등의 실제 인증 성공을 보장하지는 않는다. 변경 반영 후 열려 있던 사이트를 새로고침해야 생성 시점부터 기록된다.
+  `server/browser-dom-recorder-source.ts`는 고정된 `@rrweb/record` 2.1.4 번들의 **내부 shadowRoot 조회만** 확장한다.
+  문서 초기화 시 `attachShadow`가 돌려준 닫힌 루트를 WeakMap에 보관하며, 공개 getter·root mode·사이트 스크립트 실행 위치는 바꾸지 않는다.
+  rrweb 업데이트 시 해당 accessor가 정확히 하나인지 확인하는 검사가 실패하면 새 번들을 검토하고 브라우저 회귀 테스트를 실행한다.
 - 클릭·hover·폼 입력·Enter·스크롤, alert/confirm/prompt 응답과 파일 선택을 연결한다. 업로드는 파일당 8 MiB·최대 4개,
   다운로드는 탭당 최대 20개이며 서버 Chromium의 임시 파일을 같은 계정에 제공한다. 탭 종료 후에는 받을 수 없다.
+- 입력은 탭별로 순서대로 처리한다. 아직 실행하지 않은 같은 frame·문서 세대·입력칸의 연속 값은 최신 값으로 합치며,
+  Enter·클릭·다른 입력칸을 건너뛰어 합치지 않는다. 연속 scroll·resize·hover도 최신 상태로 합친다.
+  선택 상자·키 입력을 포함한 요소 조작은 2.5초(hover 1초) 안에 실패를 알리고 다음 조작으로 넘어간다.
+  대화상자 응답·중지·주소 변경·닫기는 입력 대기열을 기다리지 않는다. 재연결·연결 종료·주소 변경·중지·탭 종료 시
+  대기 입력을 비우고 실행 중인 요소 조작을 취소해 이전 연결의 조작이 뒤늦게 적용되는 것을 막는다.
+  합칠 수 없는 대기 조작이 100개를 넘으면 오류를 표시하고 연결을 닫는다. 다시 연결한 뒤 입력 내용을 확인한다.
+  입력 내용은 로그나 영속 대기열에 저장하지 않는다.
 - DOM 재생 iframe에는 `allow-scripts`를 주지 않는다. 이미지·폰트·CSS는 Chromium이 받은 자원만 계정 인증 경로로 제공한다.
   자원 캐시는 탭당 32 MiB·256개, 자원당 5 MiB로 제한한다. 임의 URL fetch·JavaScript/CDP 실행 API는 노출하지 않는다.
 - Canvas/WebGL·영상/음성·DRM·장치/OS 인증창은 DOM만으로 동일하게 재현하지 못한다. 미지원 표면을 표시하며 영상으로 대체하지 않는다.
@@ -77,9 +92,13 @@ ACP 인증 완료 또는 에이전트 화면 종료 때 해당 서버 탭들을 
 `GET /api/browser-url?url=`·`/__mew_browser/...`·`/__mew_browser_ws/...`는 이 호환 경로에 남으며 일반 Browser 패널은 사용하지 않는다.
 호환 프록시는 localhost·127.0.0.0/8·::1만 허용하고 링크·새 창 target·`window.open`은 같은 프레임으로 제한한다.
 
-검증: `node --test server/browser-dom-executable.test.ts server/browser-dom.test.ts`. 실행 파일 탐색과 실제 Chromium의 공백 경로 실행·프로필 재열기를 검사한다.
+검증: `node --test server/browser-dom-executable.test.ts server/browser-dom-input.test.ts server/browser-dom.test.ts`. 실행 파일 탐색과 실제 Chromium의 공백 경로 실행·프로필 재열기를 검사한다.
+500회 연속 입력 뒤 최종 값·제출 순서, 다른 입력칸·프레임·문서 세대 경계, 대기열 포화 시 대화상자·중지,
+재연결·주소 변경의 이전 입력 취소, 선택 옵션 대기 실패 뒤 다음 입력 복구도 검사한다.
 실제 Chromium으로 폼·서버 쿠키·callback·재연결·모바일 폭·프레임 클릭·
 WebSocket·Service Worker·팝업/opener·방문 기록·SPA·대화상자·파일 전송·영속 프로필·계정 격리·인증 호스트 차단을 검사한다.
+닫힌 Shadow DOM의 초기·동적 생성, 스타일·비밀번호 마스킹·중첩 iframe·서버 클릭·전체 스냅샷 복원도 로컬 fixture로 검사한다.
+실제 Cloudflare 확인 위젯을 통과시키는 자동화 테스트는 아니다.
 Chromium이 없으면 실제 브라우저 테스트만 skip한다.
 창 모드 검증은 `MEW_BROWSER_HEADLESS=0 node --test server/browser-dom.test.ts`,
 디스플레이 없는 CI에서는 `MEW_BROWSER_HEADLESS=1`을 테스트 실행 환경에 지정한다.

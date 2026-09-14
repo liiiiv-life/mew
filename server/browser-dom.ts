@@ -12,14 +12,17 @@ import { authOf, requireRole, resolveAuth, type RequestAuth } from './reqAuth.ts
 import { acquireBrowserProfile, domBrowserHeadless } from './browser-dom-profile.ts'
 import { createDomNetworkGate } from './browser-dom-network.ts'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
+import { domRecorderSource } from './browser-dom-recorder-source.ts'
 
 export { domBrowserExecutable } from './browser-dom-executable.ts'
 
 export const DOM_BROWSER_WS = '/api/browser-dom/ws'
 const sessions = new Map<string, DomBrowserSession>()
 const require = createRequire(import.meta.url)
-const recorder = 'if (["http:", "https:", "about:"].includes(location.protocol) && globalThis.__mewDomRecordedDocument !== globalThis.document) {\n' + fs.readFileSync(path.join(path.dirname(require.resolve('@rrweb/record')), 'record.umd.cjs'), 'utf8')
-  + '\n;\n' + fs.readFileSync(new URL('./browser-dom-recorder.js', import.meta.url), 'utf8') + '\n}'
+const recorder = domRecorderSource(
+  fs.readFileSync(path.join(path.dirname(require.resolve('@rrweb/record')), 'record.umd.cjs'), 'utf8'),
+  fs.readFileSync(new URL('./browser-dom-recorder.js', import.meta.url), 'utf8'),
+)
 const TTL = 20 * 60_000
 const MAX_RESOURCE = 5 * 1024 * 1024
 const MAX_CACHE = 32 * 1024 * 1024
@@ -81,8 +84,10 @@ export class DomBrowserSession {
   private disconnectTimer?: ReturnType<typeof setTimeout>
   private assets = new Map<string, Promise<Asset | null>>()
   private assetBytes = 0
-  private inputQueue = Promise.resolve()
-  private queued = 0
+  private inputQueue: DomInput[] = []
+  private drainingInput = false
+  private inputEpoch = 0
+  private inputAbort?: AbortController
   private lastNotice = ''
   private network?: Awaited<ReturnType<typeof createDomNetworkGate>>
 
@@ -301,30 +306,52 @@ export class DomBrowserSession {
   }
 
   async attach(socket: WebSocket): Promise<void> {
+    this.clearInputQueue()
     clearTimeout(this.disconnectTimer)
     if (this.general && !this.authJob) clearTimeout(this.timer)
     this.socket?.close(1000, 'Reconnected')
     this.socket = socket
     socket.on('close', () => {
       if (this.socket !== socket) return
+      this.clearInputQueue()
       this.socket = undefined
       this.disconnectTimer = setTimeout(() => { void this.close() }, this.general ? 10 * 60_000 : 20_000)
       this.disconnectTimer.unref()
     })
     socket.on('error', () => {})
     socket.on('message', (raw) => {
-      if (this.socket !== socket || this.queued > 100) return
+      if (this.closed || this.socket !== socket || socket.readyState !== WebSocket.OPEN) return
       let input: DomInput
       try { input = JSON.parse(raw.toString()) } catch { socket.close(1008); return }
-      if (input.kind === 'dialog' || input.kind === 'stop') { void this.input(input).catch(() => {}); return }
-      if (['navigate', 'back', 'forward', 'reload'].includes(input.kind)) {
-        void this.start().then(() => this.input(input)).catch(() => this.notice('주소를 확인하고 다시 시도해 주세요.'))
+      if (!input || typeof input !== 'object' || !['click', 'input', 'key', 'scroll', 'resize', 'snapshot', 'navigate', 'back', 'forward', 'reload', 'stop', 'dialog', 'hover', 'close'].includes(input.kind)) { socket.close(1008); return }
+      if (input.kind === 'close') { void this.close(); return }
+      if (input.kind === 'dialog' || input.kind === 'stop') {
+        if (input.kind === 'stop') this.clearInputQueue()
+        void this.input(input).catch(() => {})
         return
       }
-      this.queued++
-      this.inputQueue = this.inputQueue.then(async () => { await this.start(); await this.input(input) })
-        .catch(() => { this.send({ type: 'notice', message: '조작을 반영하지 못했습니다. 화면이 바뀌었다면 다시 시도해 주세요.' }) })
-        .finally(() => { this.queued-- })
+      if (['navigate', 'back', 'forward', 'reload'].includes(input.kind)) {
+        this.clearInputQueue()
+        const epoch = this.inputEpoch
+        void this.start().then(() => {
+          if (this.socket === socket && this.inputEpoch === epoch) return this.input(input)
+        }).catch(() => this.notice('주소를 확인하고 다시 시도해 주세요.'))
+        return
+      }
+      // Replace only consecutive state updates for the same target. A click/key
+      // or another field is an ordering barrier (especially input -> Enter).
+      const last = this.inputQueue.at(-1)
+      if (last && ['input', 'scroll', 'resize', 'hover'].includes(input.kind) && last.kind === input.kind
+        && last.frame === input.frame && last.generation === input.generation
+        && (input.kind === 'hover' || last.id === input.id)) {
+        this.inputQueue[this.inputQueue.length - 1] = input
+      } else if (this.inputQueue.length >= 100) {
+        this.clearInputQueue()
+        this.send({ type: 'error', message: '브라우저 입력이 밀려 연결을 멈췄습니다. 다시 연결한 뒤 입력 내용을 확인해 주세요.' })
+        socket.close(1013, 'Input queue is full; reconnect')
+        return
+      } else this.inputQueue.push(input)
+      void this.drainInputQueue()
     })
     try {
       const existing = !!this.startPromise
@@ -336,6 +363,31 @@ export class DomBrowserSession {
       this.send({ type: 'error', message: error instanceof Error && error.message.startsWith('서버 Chromium') ? error.message : '서버 브라우저를 열지 못했습니다. Chromium 설치와 서버 실행 환경을 확인해 주세요.' })
       await this.close()
     }
+  }
+
+  private clearInputQueue(): void {
+    this.inputEpoch++
+    this.inputQueue.length = 0
+    this.inputAbort?.abort()
+  }
+
+  private async drainInputQueue(): Promise<void> {
+    if (this.drainingInput) return
+    this.drainingInput = true
+    try {
+      while (this.inputQueue.length && !this.closed) {
+        const input = this.inputQueue.shift()!
+        const epoch = this.inputEpoch
+        const controller = new AbortController()
+        this.inputAbort = controller
+        try {
+          await this.start()
+          if (epoch === this.inputEpoch) await this.input(input, controller.signal)
+        } catch {
+          if (epoch === this.inputEpoch) this.send({ type: 'notice', message: '조작을 반영하지 못했습니다. 화면이 바뀌었다면 다시 시도해 주세요.' })
+        } finally { this.inputAbort = undefined }
+      }
+    } finally { this.drainingInput = false }
   }
 
   async upload(id: string, files: Express.Multer.File[]): Promise<void> {
@@ -397,7 +449,7 @@ export class DomBrowserSession {
     } catch { /* Page may be between documents. */ }
   }
 
-  async input(input: DomInput): Promise<void> {
+  async input(input: DomInput, signal?: AbortSignal): Promise<void> {
     const page = this.page
     if (!page || this.closed || !input || typeof input !== 'object') return
     if (input.kind === 'close') { this.send({ type: 'closed', tabId: this.job }); await this.close(); return }
@@ -437,6 +489,7 @@ export class DomBrowserSession {
     const handle = await frame.evaluateHandle((id) => (globalThis as unknown as { __mewDomNode: (id: number) => RemoteNode | null }).__mewDomNode?.(id), input.id!)
     const element = handle.asElement() as ElementHandle | null
     try {
+      signal?.throwIfAborted()
       if (input.kind === 'scroll' && Number.isFinite(input.x) && Number.isFinite(input.y)) {
         await handle.evaluate((node, pos) => {
           const target = node?.nodeType === 9 ? node.scrollingElement : node
@@ -445,14 +498,14 @@ export class DomBrowserSession {
         return
       }
       if (!element) return
-      if (input.kind === 'click') await element.click({ timeout: 2500, button: input.button === 'middle' ? 'middle' : 'left', modifiers: Array.isArray(input.modifiers) ? input.modifiers.filter((key): key is 'Alt' | 'ControlOrMeta' | 'Shift' => ['Alt', 'ControlOrMeta', 'Shift'].includes(key)) : [] })
-      else if (input.kind === 'hover') await element.hover({ timeout: 1000 })
+      if (input.kind === 'click') await element.click({ timeout: 2500, signal, button: input.button === 'middle' ? 'middle' : 'left', modifiers: Array.isArray(input.modifiers) ? input.modifiers.filter((key): key is 'Alt' | 'ControlOrMeta' | 'Shift' => ['Alt', 'ControlOrMeta', 'Shift'].includes(key)) : [] })
+      else if (input.kind === 'hover') await element.hover({ timeout: 1000, signal })
       else if (input.kind === 'input' && typeof input.value === 'string' && input.value.length <= 16_384) {
         const tag = await element.evaluate((node) => (node as unknown as RemoteNode).tagName)
-        if (tag === 'SELECT') await element.selectOption(input.value)
-        else await element.fill(input.value, { timeout: 2500 })
+        if (tag === 'SELECT') await element.selectOption(input.value, { timeout: 2500, signal })
+        else await element.fill(input.value, { timeout: 2500, signal })
       } else if (input.kind === 'key' && typeof input.key === 'string' && ['Enter', 'Tab', 'Shift+Tab', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(input.key)) {
-        await element.press(input.key)
+        await element.press(input.key, { timeout: 2500, signal })
       }
     } finally { await handle.dispose() }
   }
@@ -460,6 +513,7 @@ export class DomBrowserSession {
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
+    this.clearInputQueue()
     clearTimeout(this.timer)
     clearTimeout(this.disconnectTimer)
     clearInterval(this.stateTimer)

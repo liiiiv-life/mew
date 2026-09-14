@@ -86,7 +86,7 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
   return <section className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label={t('browser.title')}>
     {tabBar('browser')}
     {error && <div role="alert" className="px-3 py-2 text-xs text-danger">{error}</div>}
-    {tabs.filter((tab) => tab.streamUrl).map((tab) => <div key={tab.id} className={tab.id === selected('browser') ? 'min-h-0 flex-1' : 'hidden'}>{page(tab)}</div>)}
+    {tabs.filter((tab) => tab.streamUrl).map((tab) => <div key={tab.id} className={tab.id === selected('browser') ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>{page(tab)}</div>)}
   </section>
 }
 function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, onClose, onCloseTab, onReorder }: {
@@ -132,7 +132,7 @@ function BrowserPage({ tab, onStatus, onClose }: { tab: ServerBrowserTab; onStat
       <button type="submit" className="whitespace-nowrap rounded bg-accent px-2 py-1 text-xs text-ink-on-accent hover:opacity-90 @max-[20rem]:col-start-4 @max-[20rem]:row-start-2">{t('browser.go')}</button>
     </form>
     {error && <div role="alert" className="shrink-0 border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{error}</div>}
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
       <ServerDomBrowser streamUrl={tab.streamUrl} reopen={async () => (await openServerBrowserTab(tab.id, tab.url)).streamUrl} onController={(value) => { controller.current = value }}
         onStatus={(status) => { setFrame(status); if (status.url && document.activeElement !== addressRef.current) setDraft(status.url); onStatus(status) }} />
       {loading && <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-surface/85 p-2 shadow-lg" aria-label={t('browser.pageLoading')}><span className="block h-4 w-4 animate-spin rounded-full border-2 border-edge-strong border-t-accent" /></div>}
