@@ -23,6 +23,7 @@ import { createPortal } from 'react-dom'
 import { copyText, isTextareaCaretOnVisualBoundary, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { TmuxTerminal } from '@mew/tmux-term'
+import { useI18n } from '../i18n'
 import { type TreeNode } from '@mew/editor'
 import {
   agentMarkdownHrefFromClick,
@@ -711,6 +712,7 @@ function SessionPicker({
   onNewConversation,
   onRefresh,
   refreshDisabled = false,
+  loadDisabledReason,
 }: {
   sessions: SessionInfo[] | null
   /** 다른 탭이 이미 열어 둔 세션 — 같은 세션을 두 프로세스가 붙들면 전사가 엉킨다 */
@@ -725,8 +727,17 @@ function SessionPicker({
   onNewConversation: () => void
   onRefresh?: () => void
   refreshDisabled?: boolean
+  loadDisabledReason?: string
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
+  const [sessionIdInput, setSessionIdInput] = useState('')
+  const pickerId = useId()
+  const sessionId = sessionIdInput.trim()
+  const inputHint = loadDisabledReason
+    || (sessionId && sessionId === currentSessionId ? t('agent.history.current') : '')
+    || (takenIds.includes(sessionId) ? t('agent.history.taken') : '')
+  const loadDisabled = disabled || loadingSession !== null || !!loadDisabledReason
   const ref = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(false), [])
   // Esc·모바일 뒤로가기가 패널 대신 이 드롭다운을 닫게 한다
@@ -750,7 +761,7 @@ function SessionPicker({
           if (!open) void onOpen()
           setOpen((v) => !v)
         }}
-        aria-haspopup="listbox"
+        aria-controls={open ? pickerId : undefined}
         aria-expanded={open}
         aria-label="히스토리"
         title="히스토리"
@@ -763,17 +774,53 @@ function SessionPicker({
       </button>
       {open && (
         <div
-          role="listbox"
+          id={pickerId}
+          role="region"
           aria-label="지난 세션"
           className="absolute left-0 top-full z-40 mt-1 w-64 rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
         >
+          <form
+            className="border-b border-edge px-2.5 pb-2 pt-1"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (!sessionId || loadDisabled || inputHint) return
+              onPick(sessions?.find((session) => session.sessionId === sessionId) ?? { sessionId })
+              setOpen(false)
+            }}
+          >
+            <label htmlFor={`${pickerId}-input`} className="mb-1 block text-ink-secondary">{t('agent.history.sessionId')}</label>
+            <div className="flex gap-1.5">
+              <input
+                id={`${pickerId}-input`}
+                value={sessionIdInput}
+                onChange={(event) => setSessionIdInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault()
+                }}
+                placeholder={t('agent.history.enterId')}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                enterKeyHint="go"
+                disabled={loadDisabled}
+                aria-describedby={inputHint ? `${pickerId}-hint` : undefined}
+                className="h-9 min-w-0 flex-1 rounded border border-edge-bright bg-surface px-2 text-ink placeholder:text-ink-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
+              />
+              <button
+                type="submit"
+                disabled={!sessionId || loadDisabled || !!inputHint}
+                className="h-9 shrink-0 rounded bg-surface-hover px-2.5 text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
+              >
+                {t('agent.history.open')}
+              </button>
+            </div>
+            {inputHint && <p id={`${pickerId}-hint`} role="status" className="mt-1 text-ink-secondary">{inputHint}</p>}
+          </form>
           {/* 한 번에 다섯 줄쯤만 보이고 나머지는 여기서만 스크롤된다 */}
           <div className="max-h-56 overflow-y-auto">
             {onRefresh && currentSessionId && (
               <button
                 type="button"
-                role="option"
-                aria-selected={false}
                 disabled={refreshDisabled || loadingSession !== null}
                 onClick={() => { onRefresh(); setOpen(false) }}
                 title="외부에서 이어 쓴 대화를 다시 불러옵니다. 진행 중인 작업이 없어야 합니다."
@@ -786,8 +833,6 @@ function SessionPicker({
             {hasConversation && (
               <button
                 type="button"
-                role="option"
-                aria-selected={false}
                 onClick={() => {
                   onNewConversation()
                   setOpen(false)
@@ -810,13 +855,11 @@ function SessionPicker({
                 <button
                   key={session.sessionId}
                   type="button"
-                  role="option"
-                  aria-selected={false}
                   onClick={() => {
                     onPick(session)
                     setOpen(false)
                   }}
-                  disabled={current || taken || loadingSession !== null}
+                  disabled={current || taken || loadDisabled}
                   className="flex w-full flex-col items-start gap-0.5 px-2.5 py-1.5 text-left hover:bg-surface-hover disabled:opacity-40"
                 >
                   <span className="w-full truncate text-ink">{session.title || session.sessionId.slice(0, 8)}</span>
@@ -1973,6 +2016,7 @@ function AgentSessionView({
   showInfo: boolean
   onToggleInfo: () => void
 }) {
+  const { t } = useI18n()
   // 어느 프로젝트를 보고 있든 같은 창이다. 탭별 cwd는 워크스페이스 밖 경로도 될 수 있다(ADR 0077).
   const initialCache = useMemo(() => readAgentEventCache(runtime, tabId, cwd), [cwd, runtime, tabId])
   const [events, setEvents] = useState<AgentEvent[]>(() => initialCache?.events ?? [])
@@ -2901,6 +2945,11 @@ function AgentSessionView({
           loadingSession={loadingSession}
           hasConversation={items.length > 0}
           disabled={!connected}
+          loadDisabledReason={!meta?.canLoad
+            ? t('agent.history.unsupported')
+            : busy || pending || (meta?.queued.length ?? 0) > 0
+              ? t('agent.history.wait')
+              : undefined}
           onOpen={async () => {
             // 열 때마다 새로 물어본다 — 그 사이 다른 탭에서 돈 대화가 목록에 있어야 한다.
             setSessions(null)
