@@ -119,7 +119,7 @@ export function SessionTerminalPopup({
         <div className="relative min-h-0 flex-1 bg-surface-deep">
           {started ? (
             <div className="h-full">
-              <TmuxTerminal sessionName={session} />
+              <TmuxTerminal sessionName={session} inputPlaceholder={t('common.textInput')} />
             </div>
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">

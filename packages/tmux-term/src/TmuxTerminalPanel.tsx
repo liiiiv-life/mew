@@ -215,6 +215,7 @@ export function TmuxTerminalPanel({
   activeFilePath,
   getSelectedText,
   renderCommandButtons,
+  inputPlaceholder,
   wsPath,
   nextTabSignal = 0,
   previousTabSignal = 0,
@@ -226,6 +227,7 @@ export function TmuxTerminalPanel({
   getSelectedText?: () => string | null
   /** 버튼 줄에 끼워 넣을 명령어 버튼 UI — run(command)로 지금 열린 세션에 명령을 보낸다 */
   renderCommandButtons?: (run: (command: string) => void) => ReactNode
+  inputPlaceholder?: string
   wsPath?: string
   /** 값이 바뀌면 현재 세션의 오른쪽 탭으로 한 칸 이동한다. */
   nextTabSignal?: number
@@ -463,6 +465,7 @@ export function TmuxTerminalPanel({
             activeFilePath={activeFilePath}
             getSelectedText={getSelectedText}
             renderCommandButtons={renderCommandButtons}
+            inputPlaceholder={inputPlaceholder}
             wsPath={wsPath}
           />
         ) : (

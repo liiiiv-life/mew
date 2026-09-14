@@ -104,6 +104,7 @@ export function TmuxTerminal({
   getSelectedText,
   renderCommandButtons,
   insertRefTarget = 'tmux',
+  inputPlaceholder = '텍스트 입력',
   wsPath = '/api/tmux/ws',
 }: {
   sessionName: string
@@ -118,6 +119,8 @@ export function TmuxTerminal({
   renderCommandButtons?: (run: (command: string) => void) => ReactNode
   /** 호스트의 Ctrl+L 참조 이벤트 중 이 터미널이 받을 패널 target. */
   insertRefTarget?: 'tmux' | 'agent' | 'terminal' | null
+  /** 호스트 앱의 언어 설정에 맞춘 하단 입력 힌트. */
+  inputPlaceholder?: string
   wsPath?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -805,7 +808,7 @@ export function TmuxTerminal({
             e.preventDefault()
             insertIntoCommand(draggedPath)
           }}
-          placeholder={keyboardLocked ? '키보드 잠금 중 — 자물쇠를 눌러 해제' : '여러 줄 입력 가능 · Ctrl+Enter로 전송'}
+          placeholder={inputPlaceholder}
           // 잠금 중에는 여기서도 소프트 키보드가 뜨지 않는다 — 포커스·붙여넣기는 그대로 된다
           inputMode={keyboardLocked ? 'none' : 'text'}
           enterKeyHint="enter"

@@ -1921,6 +1921,7 @@ function AgentTerminalView({
   getSelectedText?: () => string | null
   renderCommandButtons?: (run: (command: string) => void) => ReactNode
 }) {
+  const { t } = useI18n()
   const [session, setSession] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
@@ -1935,7 +1936,7 @@ function AgentTerminalView({
     return () => { alive = false }
   }, [cwd, retry, runtime, tabId])
 
-  if (session) return <TmuxTerminal sessionName={session} activeFilePath={activeFilePath} getSelectedText={getSelectedText} renderCommandButtons={renderCommandButtons} insertRefTarget={active ? runtime === 'tmux' ? 'terminal' : 'agent' : null} />
+  if (session) return <TmuxTerminal sessionName={session} inputPlaceholder={t('common.textInput')} activeFilePath={activeFilePath} getSelectedText={getSelectedText} renderCommandButtons={renderCommandButtons} insertRefTarget={active ? runtime === 'tmux' ? 'terminal' : 'agent' : null} />
   return (
     <div className="flex h-full items-center justify-center bg-surface-deep p-4 text-center">
       {error ? (
@@ -3620,7 +3621,7 @@ function AgentSessionView({
             triggers={mentionTriggers}
             onSubmit={submit}
             rows={2}
-            placeholder={pending ? '승인을 기다리는 중입니다' : busy ? '대기 메시지 입력 (Ctrl+Enter)' : '메시지 — @프로젝트·폴더·파일 (Ctrl+Enter 전송)'}
+            placeholder={t('common.textInput')}
             className="block min-h-0 w-full flex-1 resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
             style={{ height: '100%' }}
             submitHint="Ctrl+Enter로 전송"
