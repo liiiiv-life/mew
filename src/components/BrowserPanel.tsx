@@ -6,17 +6,9 @@ import { listServerBrowserTabs, openServerBrowserTab, closeServerBrowserTab, typ
 import { useI18n } from '../i18n'
 import { ServerDomBrowser } from './server-dom-browser'
 import type { DomBrowserController, DomBrowserStatus } from '../utils/browser-dom-view'
+import { BrowserStartPage } from './browser-start-page'
+import { normalizeBrowserUrl as normalizeUrl, readBrowserShortcuts, writeBrowserShortcuts, type BrowserShortcut } from '../utils/browser-shortcuts'
 
-const DEFAULT_URL = 'http://localhost:3100/'
-function normalizeUrl(raw: string): string {
-  const value = raw.trim()
-  const local = /^(localhost|127\.[\d.]+|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(value)
-  const hostWithPort = /^[^/?#]+:\d+(?:[/?#]|$)/.test(value)
-  const hasScheme = !hostWithPort && /^[a-z][a-z0-9+.-]*:/i.test(value)
-  const url = new URL(hasScheme ? value : `${local || hostWithPort ? 'http' : 'https'}://${value}`)
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('http-only')
-  return url.href
-}
 function labelForUrl(url: string): string { try { return new URL(url).host || url } catch { return url } }
 
 export function BrowserPanel({ onClose, standalone = false, visible = true, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, onPanelFocus }: { onPanelFocus?: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number; onClose: () => void; standalone?: boolean; visible?: boolean }) {
@@ -28,12 +20,15 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
   const [activeId, setActiveId] = useState('')
   const [focusedGroup, setFocusedGroup] = useState('browser')
   const [error, setError] = useState<string | null>(null)
-  const initialId = useRef(crypto.randomUUID())
+  const [loaded, setLoaded] = useState(false)
+  const [shortcuts, setShortcuts] = useState(readBrowserShortcuts)
+  const pendingOpens = useRef(new Map<string, { cancelled: boolean }>())
   useEffect(() => {
     let cancelled = false
-    void listServerBrowserTabs().then(async (existing) => existing.length ? existing : [await openServerBrowserTab(initialId.current, DEFAULT_URL)])
+    void listServerBrowserTabs()
       .then((restored) => { if (!cancelled) { setTabs(restored); setActiveId(restored[0]?.id ?? '') } })
       .catch((error: unknown) => { if (!cancelled) setError(String(error)) })
+      .finally(() => { if (!cancelled) setLoaded(true) })
     return () => { cancelled = true }
   }, [])
   const groupFor = (id: string) => dock?.groupFor('browser', id) ?? 'browser'
@@ -41,14 +36,26 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
   const groupTabs = (group: string) => tabs.filter((tab) => groupFor(tab.id) === group)
   const selected = (group: string) => { const list = groupTabs(group); return list.find((tab) => tab.id === dock?.state.active[group])?.id ?? list.find((tab) => tab.id === activeId)?.id ?? list[0]?.id }
   const activate = (id: string) => { setActiveId(id); dock?.select(groupFor(id), id) }
-  const addTab = (group: string, url = DEFAULT_URL) => {
-    void openServerBrowserTab(crypto.randomUUID(), url).then((tab) => {
-      setTabs((current) => [...current, tab]); setActiveId(tab.id); latestDock.current?.assign(group, tab.id)
-    }).catch((error: unknown) => setError(String(error)))
+  const addTab = (group: string) => {
+    if (!loaded || !groupTabs(group).length) return
+    const tab = { id: crypto.randomUUID(), url: '', title: '', streamUrl: '' }
+    setTabs(current => [...current, tab]); setActiveId(tab.id); dock?.assign(group, tab.id)
+  }
+  const openTab = async (group: string, url: string, id: string = crypto.randomUUID()) => {
+    const pending = { cancelled: false }
+    pendingOpens.current.set(id, pending)
+    try {
+      const tab = await openServerBrowserTab(id, url)
+      if (pending.cancelled) { await closeServerBrowserTab(id); return }
+      setTabs(current => current.some(item => item.id === id) ? current.map(item => item.id === id ? tab : item) : [...current, tab])
+      setActiveId(tab.id); latestDock.current?.assign(group, tab.id)
+    } finally { pendingOpens.current.delete(id) }
   }
   const removeTab = (id: string) => setTabs((current) => current.filter((tab) => tab.id !== id))
   const closeTab = (id: string) => {
-    if (tabs.length <= 1) return
+    const pending = pendingOpens.current.get(id)
+    if (pending) pending.cancelled = true
+    if (!tabs.find(tab => tab.id === id)?.streamUrl) { removeTab(id); return }
     void closeServerBrowserTab(id).then(() => removeTab(id)).catch((error: unknown) => setError(String(error)))
   }
   const signals = useRef({ nextTabSignal, previousTabSignal, closeTabSignal })
@@ -64,9 +71,13 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextTabSignal, previousTabSignal, closeTabSignal])
   const focusGroup = (group: string) => { setFocusedGroup(group); onPanelFocus?.() }
-  const tabBar = (group: string) => <BrowserTabBar group={group} tabs={groupTabs(group)} activeId={selected(group)} standalone={standalone} onActivate={activate} onAdd={() => addTab(group)} onClose={() => { if (!dock?.desktop || !dock.closeGroup(group)) onClose() }} onCloseTab={tabs.length > 1 ? closeTab : undefined}
+  const tabBar = (group: string) => <BrowserTabBar group={group} tabs={groupTabs(group)} activeId={selected(group)} standalone={standalone} onActivate={activate} onAdd={() => addTab(group)} onClose={() => { if (!dock?.desktop || !dock.closeGroup(group)) onClose() }} onCloseTab={closeTab}
     onReorder={(from, to) => { const list = groupTabs(group); setTabs((current) => { const next = [...current], a = next.findIndex((tab) => tab.id === list[from]?.id), b = next.findIndex((tab) => tab.id === list[to]?.id); if (a >= 0 && b >= 0) next.splice(b, 0, ...next.splice(a, 1)); return next }) }} />
-  const page = (tab: ServerBrowserTab) => <BrowserPage tab={tab} onClose={() => closeTab(tab.id)} onStatus={(status) => {
+  const startPage = (group: string, id?: string) => loaded ? <BrowserStartPage shortcuts={shortcuts} onChange={(next: BrowserShortcut[]) => {
+    if (!writeBrowserShortcuts(next)) return false
+    setShortcuts(next); return true
+  }} onOpen={url => openTab(group, url, id)} onClose={id ? () => closeTab(id) : undefined} /> : <div role="status" className="m-auto p-6 text-sm text-ink-muted">{t('common.loading')}</div>
+  const page = (tab: ServerBrowserTab) => !tab.streamUrl ? startPage(groupFor(tab.id), tab.id) : <BrowserPage tab={tab} onClose={() => closeTab(tab.id)} onStatus={(status) => {
     if (status.closed) { removeTab(tab.id); return }
     if (status.popup) {
       const popup = status.popup
@@ -79,14 +90,15 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
     {groups.map((group) => <DockPanel key={group} id={group} tabs={groupTabs(group).map((tab) => tab.id)} kind="browser" visible={visible && (groupTabs(group).length > 0 || tabs.length === 0)} onFocus={() => focusGroup(group)}>
       {tabBar(group)}
       {error && <div role="alert" className="px-3 py-2 text-xs text-danger">{error}</div>}
-      {!groupTabs(group).length && <button className="m-auto rounded border border-edge px-4 py-2 text-sm" onClick={() => addTab(group)}>{t('browser.newTab')}</button>}
+      {!groupTabs(group).length && startPage(group)}
     </DockPanel>)}
-    {tabs.filter((tab) => tab.streamUrl).map((tab) => <DockBody key={tab.id} group={groupFor(tab.id)} active={selected(groupFor(tab.id)) === tab.id} onFocus={() => focusGroup(groupFor(tab.id))}>{page(tab)}</DockBody>)}
+    {tabs.map((tab) => <DockBody key={tab.id} group={groupFor(tab.id)} active={selected(groupFor(tab.id)) === tab.id} onFocus={() => focusGroup(groupFor(tab.id))}>{page(tab)}</DockBody>)}
   </>
   return <section className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label={t('browser.title')}>
     {tabBar('browser')}
     {error && <div role="alert" className="px-3 py-2 text-xs text-danger">{error}</div>}
-    {tabs.filter((tab) => tab.streamUrl).map((tab) => <div key={tab.id} className={tab.id === selected('browser') ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>{page(tab)}</div>)}
+    {!tabs.length && startPage('browser')}
+    {tabs.map((tab) => <div key={tab.id} className={tab.id === selected('browser') ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>{page(tab)}</div>)}
   </section>
 }
 function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, onClose, onCloseTab, onReorder }: {
@@ -102,7 +114,7 @@ function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, o
       {tabs.map((tab, i) => <div key={tab.id} {...drag.getItemProps(i)} draggable={false} onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }} role="tab" tabIndex={0} aria-selected={tab.id === activeId} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onActivate(tab.id) } }} onClick={() => { if (!drag.consumeClick()) onActivate(tab.id) }}
         onContextMenu={(event) => { if (drag.dragIndex !== null) event.preventDefault() }}
         className={`group flex h-full shrink-0 cursor-pointer select-none items-center gap-1.5 border-r border-edge px-2.5 text-xs [-webkit-touch-callout:none] ${tab.id === activeId ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-raised'} ${drag.dragIndex === i ? 'opacity-70 ring-1 ring-inset ring-accent' : ''}`} title={tab.url}>
-        <span className="max-w-[9rem] truncate">{tab.title || labelForUrl(tab.url)}</span>
+        <span className="max-w-[9rem] truncate">{tab.title || (tab.url ? labelForUrl(tab.url) : t('browser.newTab'))}</span>
         {onCloseTab && <button type="button" onClick={(event) => { event.stopPropagation(); onCloseTab(tab.id) }} className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink" aria-label={t('browser.closeTab')}>×</button>}
       </div>)}
       <button type="button" onClick={onAdd} className="flex h-full w-9 shrink-0 items-center justify-center border-r border-edge text-ink-secondary hover:bg-surface-raised hover:text-ink" title={t('browser.newTab')} aria-label={t('browser.newTab')}>

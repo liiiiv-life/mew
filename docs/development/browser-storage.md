@@ -4,6 +4,8 @@
 
 `@mew/ui/browser-storage`가 서버에서 재생성할 수 있는 localStorage 캐시의 공통 예산과 수명을 관리한다. 설정·열린 탭·분할·작성 중 초안은 캐시 정리 대상이 아니다. 인증 쿠키·다른 앱의 키·서버 세션·실제 파일도 지우지 않는다. 정리는 `localStorage.clear()`를 사용하지 않는다.
 
+내부 브라우저의 바로가기는 `mew:browser-shortcuts`에 저장하며 캐시 정리 대상이 아니다. 키가 없을 때만 기본 `liiiiv-life dev` 항목을 제공하므로 사용자가 모든 바로가기를 삭제한 빈 목록도 유지한다. 쓰기는 공통 `writeBrowserStorage`를 사용하고 실패 시 UI에 알린다. 사용법은 [브라우저 창](../guides/browser.md#브라우저-창)을 따른다.
+
 ## 관리 대상과 예산
 
 | 종류 | 키 | 항목 상한 |
