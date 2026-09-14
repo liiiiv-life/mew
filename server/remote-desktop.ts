@@ -1,17 +1,18 @@
 import express from 'express'
 import type { Server, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
-import type { ChildProcessByStdio } from 'node:child_process'
-import type { Readable, Writable } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
 import { requireRole, resolveAuth, type RequestAuth } from './reqAuth.ts'
-import { desktopHostStatus, desktopIceServers, spawnDesktopHost } from './remote-desktop-host.ts'
+import { desktopHostStatus, desktopIceServers, spawnDesktopHost, DesktopHostLaunchError, type DesktopHostProcess } from './remote-desktop-host.ts'
 import { createDesktopInstaller } from './remote-desktop-install.ts'
 import type { TmuxManager } from '../packages/tmux-term/src/server/tmux.ts'
+import { hostReader } from '../native/remote-desktop/host-wire.mjs'
+import { MAX_FRAME_BYTES } from '../native/remote-desktop/relay-protocol.mjs'
+import { desktopRelay } from './desktop-relay.ts'
 
 export const DESKTOP_WS = '/api/remote-desktop/ws'
 const MAX_BYTES = 128 * 1024
-type Host = ChildProcessByStdio<Writable, Readable, Readable>
+type Host = DesktopHostProcess
 
 export function desktopConnectionAllowed(req: IncomingMessage, auth: RequestAuth): boolean {
   if (!auth.email || auth.mustChangePassword || !['owner', 'manager'].includes(auth.role)) return false
@@ -72,13 +73,14 @@ export function attachRemoteDesktopWebSocket(server: Server | Http2SecureServer,
       if (active) { ws.send(JSON.stringify({ type: 'error', message: '다른 원격 데스크톱 연결이 사용 중입니다. 기존 연결을 닫은 뒤 다시 시도해 주세요.' })); ws.close(1013); return }
       active = ws
       const account = getAuth(req).email
-      let child: Host | undefined, hostExited = false, disposed = false, alive = true, output = '', selected = false, answered = false, hasOffer = false, screens = new Set<string>(), signalCount = 0
-      const send = (value: unknown) => { if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < MAX_BYTES * 2) ws.send(JSON.stringify(value)); else ws.close() }
+      let child: Host | undefined, hostExited = false, disposed = false, alive = true, selected = false, answered = false, hasOffer = false, screens = new Set<string>(), signalCount = 0
+      const send = (value: unknown) => { if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < MAX_FRAME_BYTES * 2) ws.send(JSON.stringify(value)); else ws.close() }
       const write = (value: unknown) => {
         if (!child || child.stdin.destroyed) return
         if (child.stdin.writableLength > MAX_BYTES * 2) { ws.close(); return }
         child.stdin.write(`${JSON.stringify(value)}\n`)
       }
+      const relay = desktopRelay(ws, write)
       const dispose = () => {
         if (disposed) return
         disposed = true; clearInterval(heartbeat); clearTimeout(startDeadline)
@@ -104,10 +106,15 @@ export function attachRemoteDesktopWebSocket(server: Server | Http2SecureServer,
       ws.once('close', dispose)
       ws.on('error', dispose)
       ws.on('message', (raw, binary) => {
-        if (disposed || binary || ++signalCount > 128) { ws.close(1008); return }
+        if (disposed || binary) { ws.close(1008); return }
         try {
           const message = JSON.parse(raw.toString())
+          if (['relay-input', 'frame-ack'].includes(message?.type)) { relay.accept(message); return }
+          if (++signalCount > 128) { ws.close(1008); return }
+          if (message?.type === 'relay' && selected) { relay.start(); return }
           if (!validDesktopSignal(message)) { ws.close(1008); return }
+          // Candidates/answers already in flight when switching cannot revive the old peer.
+          if (relay.active && ['candidate', 'answer'].includes(message.type)) return
           if (message.type === 'select') {
             if (selected || !screens.has(message.id)) { ws.close(1008); return }
             selected = true
@@ -120,30 +127,23 @@ export function attachRemoteDesktopWebSocket(server: Server | Http2SecureServer,
         const config = iceServers()
         send({ type: 'config', iceServers: config })
         child = await spawnHost()
+        if (child.desktopNetworkHint) send({ type: 'network-hint', message: child.desktopNetworkHint })
         child.stdin.on('error', () => { if (!disposed) fail('원격 데스크톱 보조 앱이 종료됐습니다.') })
         child.once('error', () => { hostExited = true; if (active === ws) active = null; if (!disposed) fail('원격 데스크톱 보조 앱을 실행하지 못했습니다. 설치와 서버 데스크톱 세션을 확인해 주세요.') })
         child.once('exit', () => { hostExited = true; if (!disposed) fail('원격 데스크톱 연결이 종료됐습니다.'); if (active === ws) active = null })
         if (disposed) { child.stdin.end('{"type":"stop"}\n'); child.kill('SIGTERM'); return }
-        child.stdout.setEncoding('utf8')
-        child.stdout.on('data', (chunk: string) => {
-          output += chunk
-          if (output.length > MAX_BYTES * 2) return fail('원격 데스크톱 응답이 너무 큽니다.')
-          let end: number
-          while ((end = output.indexOf('\n')) >= 0) {
-            const line = output.slice(0, end); output = output.slice(end + 1)
-            if (!line.startsWith('MEW_DESKTOP ')) continue
-            try {
-              const message = JSON.parse(line.slice(12))
-              if (message.type === 'sources' && Array.isArray(message.screens)) screens = new Set(message.screens.map((screen: { id: string }) => screen.id))
-              if (message.type === 'offer') hasOffer = true
-              if (message.type === 'connected') clearTimeout(startDeadline)
-              if (message.type === 'error') { fail(typeof message.message === 'string' ? message.message : '화면 공유에 실패했습니다.'); return }
-              if (['sources', 'offer', 'candidate', 'connected'].includes(message.type)) send(message)
-            } catch { fail('원격 데스크톱 응답을 읽을 수 없습니다.') }
-          }
-        })
+        const read = hostReader(message => {
+          if (disposed) return
+          if (message.type === 'sources' && Array.isArray(message.screens)) screens = new Set(message.screens.map((screen: { id: string }) => screen.id))
+          if (message.type === 'offer') hasOffer = true
+          if (['connected', 'relay-ready'].includes(message.type)) clearTimeout(startDeadline)
+          if (message.type === 'error') { fail(typeof message.message === 'string' ? message.message : '화면 공유에 실패했습니다.'); return }
+          if (relay.active && ['offer', 'candidate', 'connected', 'direct-failed'].includes(message.type)) return
+          if (['sources', 'offer', 'candidate', 'connected', 'direct-failed', 'relay-ready'].includes(message.type)) send(message)
+        }, packet => { if (!disposed) relay.frame(packet) })
+        child.stdout.on('data', (chunk: Buffer) => { try { read(chunk) } catch { fail('서버 영상 전송에 실패했습니다. 네트워크를 확인한 뒤 다시 연결해 주세요.') } })
         write({ type: 'init', iceServers: config })
-      })().catch(() => fail('원격 데스크톱 보조 앱과 ICE 설정을 확인해 주세요.'))
+      })().catch(error => fail(error instanceof DesktopHostLaunchError ? error.message : '원격 데스크톱 보조 앱과 ICE 설정을 확인해 주세요.'))
     })
   })
   server.once('close', () => { active?.terminate(); wss.close() })

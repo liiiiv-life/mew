@@ -15,7 +15,10 @@ export function installDesktopRuntime({ target, platform = process.platform, run
   if (!exists(path.join(electron, 'dist', executable))) throw new Error('Electron executable is missing after download. Installation is incomplete; retry installation.')
   const expected = JSON.parse(read(path.join(electron, 'package.json'))).version
   if (read(path.join(electron, 'dist', 'version')).trim().replace(/^v/, '') !== expected || read(path.join(electron, 'path.txt')).trim() !== executable) throw new Error('Electron version or executable path does not match. Retry installation.')
-  log('Mew remote desktop helper installed and verified. Close this terminal and reconnect.')
+  for (const notice of ['LICENSE', 'LICENSES.chromium.html']) {
+    if (!exists(path.join(electron, 'dist', notice))) throw new Error(`Electron distribution notice is missing: ${notice}. Retry installation without stripping license files.`)
+  }
+  log('Mew remote desktop helper installed and verified. The viewer will connect automatically.')
   return 0
 }
 

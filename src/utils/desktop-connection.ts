@@ -1,4 +1,7 @@
 import { desktopInput } from './desktop-input.ts'
+import { prepareDesktop } from './desktop-preparation.ts'
+import { desktopDirect } from './desktop-direct.ts'
+import { desktopRelayReceiver } from './desktop-relay.ts'
 
 export type DesktopScreen = { id: string; label: string; width: number; height: number }
 export type DesktopState = 'preparing' | 'connecting' | 'connected' | 'error' | 'paused'
@@ -6,96 +9,151 @@ export type DesktopEvents = {
   state: (state: DesktopState, message: string) => void
   screens: (screens: DesktopScreen[], selected: string) => void
   stream: (stream: MediaStream) => void
+  frame?: (frame: VideoFrame) => void
+  transport?: (mode: 'direct' | 'server') => void
   relative: (value: boolean) => void
   stats: (value: string) => void
   installable?: (value: boolean) => void
 }
 
+/** Owns preparation, lease and one-way direct -> server transport selection. */
 export function connectDesktop(events: DesktopEvents, preferredScreen?: string) {
   const input = desktopInput(message => fail(message)), abort = new AbortController()
-  let socket: WebSocket | undefined, peer: RTCPeerConnection | undefined, closed = false, connected = false
-  let iceServers: RTCIceServer[] = [], candidates: RTCIceCandidateInit[] = [], lastBytes = 0, lastTime = 0
-  let motionFrame = 0, lastMotion = 0
+  let socket: WebSocket | undefined, direct: ReturnType<typeof desktopDirect> | undefined
+  let relay: Awaited<ReturnType<typeof desktopRelayReceiver>> | undefined
+  let closed = false, connected = false, mode: 'direct' | 'switching' | 'server' = 'direct'
+  let iceServers: RTCIceServer[] = [], candidates: Record<string, unknown>[] = [], offered = false
+  let networkHint = ''
+  let lastBytes = 0, lastTime = 0, motionFrame = 0, lastMotion = 0
+  let deadline: ReturnType<typeof setTimeout> | undefined, directDeadline: ReturnType<typeof setTimeout> | undefined
   const pumpMotion = (now: number) => {
     if (closed) return
     if (now - lastMotion >= 1000 / 60) { input.flushMotion(); lastMotion = now }
     motionFrame = requestAnimationFrame(pumpMotion)
   }
   motionFrame = requestAnimationFrame(pumpMotion)
-  const send = (value: unknown) => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value)) }
+  const send = (value: unknown) => {
+    if (socket?.readyState !== WebSocket.OPEN) return
+    if (socket.bufferedAmount > 64 * 1024) { fail('서버로 보내는 입력이 지연됐습니다. 다시 연결해 주세요.'); return }
+    socket.send(JSON.stringify(value))
+  }
   const close = () => {
     if (closed) return
-    closed = true
-    cancelAnimationFrame(motionFrame)
-    try { input.close() } catch { /* Host timeout releases inputs if the reliable channel is congested. */ }
-    abort.abort(); clearInterval(heartbeat); clearInterval(stats); clearTimeout(deadline)
-    peer?.getReceivers().forEach(receiver => receiver.track?.stop()); peer?.close(); socket?.close()
+    closed = true; cancelAnimationFrame(motionFrame)
+    try { input.close() } catch { /* Native input watchdog also releases held keys. */ }
+    abort.abort(); clearInterval(heartbeat); clearInterval(stats); clearTimeout(deadline); clearTimeout(directDeadline)
+    direct?.close(); relay?.close(); socket?.close()
   }
   const fail = (message: string) => { if (!closed) { close(); events.state('error', message) } }
-  const deadline = setTimeout(() => fail('화면 연결 시간이 초과됐습니다. 서버의 공유 권한과 네트워크 설정을 확인해 주세요.'), 95_000)
+  const markConnected = () => {
+    if (closed) return
+    connected = true; clearTimeout(deadline)
+    events.state('connected', mode === 'server' ? '서버를 통해 연결됨' : '직접 연결됨')
+    input.heartbeat()
+  }
+  const switchToRelay = async () => {
+    if (closed || mode !== 'direct') return
+    mode = 'switching'; connected = false
+    events.state('connecting', 'Mew 서버를 통해 화면을 연결하고 있습니다…')
+    clearTimeout(directDeadline); clearTimeout(deadline)
+    input.close(); direct?.close(); direct = undefined; candidates = []
+    lastBytes = 0; lastTime = 0
+    deadline = setTimeout(() => fail('서버 영상 연결 시간이 초과됐습니다. 네트워크를 확인한 뒤 다시 연결해 주세요.'), 20_000)
+    try {
+      if (!events.frame) throw new Error('서버 영상 연결을 사용하려면 Mew 페이지를 새로고침해 주세요.')
+      const next = await desktopRelayReceiver({
+        display: events.frame,
+        acknowledge: (seq, keyframe) => send({ type: 'frame-ack', seq, keyframe }),
+        ready: markConnected, fail,
+      })
+      if (closed) { next.close(); return }
+      relay = next; mode = 'server'; events.transport?.('server')
+      send({ type: 'relay' })
+    } catch (error) { fail([error instanceof Error ? error.message : '서버 영상 연결을 준비하지 못했습니다.', networkHint].filter(Boolean).join(' ')) }
+  }
   const heartbeat = setInterval(() => { try { input.heartbeat() } catch (error) { fail(String((error as Error).message)) } }, 250)
   const stats = setInterval(() => {
-    if (!peer || !connected) return
-    void peer.getStats().then(report => {
+    if (!connected || closed) return
+    if (mode === 'server' && relay) {
+      const now = performance.now(), bytes = relay.bytes
+      const rate = lastTime ? `${Math.max(0, (bytes - lastBytes) * 8 / (now - lastTime) / 1000).toFixed(1)} Mbps` : ''
+      lastTime = now; lastBytes = bytes
+      events.stats(['서버 연결', rate].filter(Boolean).join(' · '))
+      return
+    }
+    if (!direct) return
+    void direct.stats().then(report => {
       let rate = '', rtt = ''
       report.forEach(value => {
         if (value.type === 'inbound-rtp' && value.kind === 'video') {
+          if (value.framesDecoded > 0) clearTimeout(directDeadline)
           if (lastTime) rate = `${Math.max(0, (value.bytesReceived - lastBytes) * 8 / (value.timestamp - lastTime) / 1000).toFixed(1)} Mbps`
           lastBytes = value.bytesReceived; lastTime = value.timestamp
         }
         if (value.type === 'candidate-pair' && value.nominated && value.state === 'succeeded' && typeof value.currentRoundTripTime === 'number') rtt = `왕복 ${Math.round(value.currentRoundTripTime * 1000)} ms`
       })
-      if (!closed) events.stats([rtt, rate].filter(Boolean).join(' · '))
+      if (!closed && mode === 'direct') events.stats(['직접 연결', rtt, rate].filter(Boolean).join(' · '))
     }).catch(() => {})
   }, 1000)
   const message = async (value: Record<string, unknown>) => {
     if (closed) return
     if (value.type === 'error') return fail(String(value.message))
     if (value.type === 'config') iceServers = value.iceServers as RTCIceServer[]
+    if (value.type === 'network-hint') networkHint = String(value.message)
     if (value.type === 'sources') {
       const screens = value.screens as DesktopScreen[]
       const selected = screens.find(screen => screen.id === preferredScreen)?.id ?? screens[0]?.id
       if (!selected) return fail('공유할 화면이 없습니다. 서버에서 데스크톱에 로그인해 주세요.')
-      events.screens(screens, selected); send({ type: 'select', id: selected }); events.state('connecting', '서버에서 화면 공유 요청을 승인해 주세요.')
+      events.screens(screens, selected); send({ type: 'select', id: selected })
+      events.state('connecting', '서버에서 화면 공유 요청을 승인해 주세요.')
     }
-    if (value.type === 'connected') events.relative(value.relativeOnly === true)
+    if (value.type === 'connected' && mode === 'direct') events.relative(value.relativeOnly === true)
+    if (value.type === 'direct-failed') return switchToRelay()
+    if (value.type === 'relay-ready' && mode === 'server') {
+      events.relative(value.relativeOnly === true)
+      for (const label of ['motion', 'control']) input.connect(label, {
+        get readyState() { return !closed && mode === 'server' && socket?.readyState === WebSocket.OPEN ? 'open' : 'closed' },
+        get bufferedAmount() { return socket?.bufferedAmount ?? 0 },
+        send: (raw: string) => send({ type: 'relay-input', reliable: label === 'control', value: JSON.parse(raw) }),
+      })
+      input.heartbeat()
+    }
+    if (mode !== 'direct') return
     if (value.type === 'offer') {
-      if (peer) throw new Error('화면 연결 응답이 중복됐습니다.')
-      peer = new RTCPeerConnection({ iceServers, bundlePolicy: 'max-bundle' })
-      peer.onicecandidate = event => { if (event.candidate) send({ type: 'candidate', candidate: event.candidate.toJSON() }) }
-      peer.ontrack = event => events.stream(event.streams[0] ?? new MediaStream([event.track]))
-      let channels = 0
-      peer.ondatachannel = event => {
-        const channel = event.channel
-        if (!['motion', 'control'].includes(channel.label)) { channel.close(); return }
-        input.connect(channel.label, channel)
-        channel.onopen = () => { if (++channels === 2 && !closed) { connected = true; clearTimeout(deadline); events.state('connected', '연결됨'); input.heartbeat() } }
-        channel.onclose = () => fail('입력 연결이 종료됐습니다. 다시 연결해 주세요.')
-        channel.onerror = () => fail('입력 연결에 실패했습니다. 다시 연결해 주세요.')
-      }
-      peer.onconnectionstatechange = () => { if (peer?.connectionState === 'failed') fail('직접 연결에 실패했습니다. 외부 네트워크에서는 서버의 TURN 설정을 확인해 주세요.') }
-      await peer.setRemoteDescription({ type: 'offer', sdp: String(value.sdp) })
-      for (const candidate of candidates) await peer.addIceCandidate(candidate)
-      candidates = []
-      await peer.setLocalDescription(await peer.createAnswer())
-      send({ type: 'answer', sdp: peer.localDescription!.sdp })
+      if (offered) throw new Error('화면 연결 응답이 중복됐습니다.')
+      offered = true
+      directDeadline = setTimeout(() => { void switchToRelay() }, 4000)
+      try {
+        events.transport?.('direct')
+        direct = desktopDirect({ iceServers, input, signal: send, stream: events.stream, connected: markConnected, failed: () => { void switchToRelay() } })
+        await direct.message(value)
+        for (const candidate of candidates) await direct?.message(candidate)
+        candidates = []
+      } catch { if (mode === 'direct') await switchToRelay() }
     }
     if (value.type === 'candidate') {
-      if (peer?.remoteDescription) await peer.addIceCandidate(value.candidate as RTCIceCandidateInit)
-      else candidates.push(value.candidate as RTCIceCandidateInit)
+      if (direct) { try { await direct.message(value) } catch { await switchToRelay() } }
+      else if (candidates.length < 128) candidates.push(value)
     }
   }
   events.state('preparing', '서버 데스크톱을 준비하고 있습니다…')
   void (async () => {
-    const response = await fetch('/api/remote-desktop/status', { signal: abort.signal, cache: 'no-store' })
-    if (!response.ok) throw new Error(response.status === 403 || response.status === 401 ? '소유자 또는 관리자 로그인이 필요합니다.' : '서버 상태를 확인하지 못했습니다.')
-    const status = await response.json()
+    await prepareDesktop({ signal: abort.signal, message: value => events.state('preparing', value), installable: value => events.installable?.(value) })
     if (closed) return
-    events.installable?.(status.installable === true)
-    if (!status.ready) return fail(status.message)
+    events.state('connecting', '로그인한 데스크톱에 연결하고 있습니다…')
+    deadline = setTimeout(() => fail('화면 연결 시간이 초과됐습니다. 서버의 화면 공유 권한을 확인해 주세요.'), 95_000)
     socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/remote-desktop/ws`)
+    socket.binaryType = 'arraybuffer'
     let queue = Promise.resolve()
-    socket.onmessage = event => { queue = queue.then(() => message(JSON.parse(event.data))).catch(error => fail(error instanceof Error ? error.message : '화면 연결 응답을 읽지 못했습니다.')) }
+    socket.onmessage = event => {
+      if (closed) return
+      if (event.data instanceof ArrayBuffer) {
+        try { if (!relay) throw new Error('예상하지 못한 영상 응답입니다.'); relay.packet(event.data) }
+        catch (error) { fail(error instanceof Error ? error.message : '영상을 읽지 못했습니다.') }
+        return
+      }
+      queue = queue.then(() => message(JSON.parse(event.data))).catch(error => fail(error instanceof Error ? error.message : '화면 연결 응답을 읽지 못했습니다.'))
+    }
     socket.onclose = () => fail('서버 연결이 종료됐습니다. 다시 연결해 주세요.')
     socket.onerror = () => fail('서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.')
   })().catch(error => { if (!closed) fail(error instanceof Error ? error.message : '화면 연결에 실패했습니다.') })

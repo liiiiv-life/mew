@@ -13,19 +13,44 @@ import { installDesktopRuntime } from '../native/remote-desktop/install-runtime.
 import { installDesktopHelper } from '../native/remote-desktop/install.mjs'
 import { wslPowerShell } from '../native/remote-desktop/wsl-powershell.mjs'
 import { desktopHostSpec, desktopHostStatus } from './remote-desktop-host.ts'
+import { HELPER_FILES, helperVersion, markHelperReady, dependenciesCurrent } from '../native/remote-desktop/helper-version.mjs'
 import type { RequestAuth } from './reqAuth.ts'
 
 const exec = promisify(execFile)
 
 test('readiness distinguishes missing runtime, discovery failure, permission failure and success', async () => {
-  const options = { platform: 'wsl' as const, env: {}, getSpec: async () => ({ platform: 'wsl' as const, executable: '/fixture/electron.exe', entry: 'C:\\fixture\\main.mjs' }) }
+  const options = { platform: 'wsl' as const, env: {}, current: async () => true, getSpec: async () => ({ platform: 'wsl' as const, executable: '/fixture/electron.exe', entry: 'C:\\fixture\\main.mjs' }) }
   const missing = await desktopHostStatus({ ...options, access: async () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }) } })
-  assert.equal(missing.installable, true); assert.match(missing.message!, /\[3\/3\]/)
+  assert.equal(missing.installable, true); assert.match(missing.message!, /준비/)
   const discovery = await desktopHostStatus({ ...options, getSpec: async () => { throw new Error('PowerShell unavailable') } })
   assert.equal(discovery.installable, false); assert.match(discovery.message!, /PowerShell unavailable/)
   const denied = await desktopHostStatus({ ...options, access: async () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }) } })
   assert.equal(denied.installable, false)
   assert.equal((await desktopHostStatus({ ...options, access: async () => {} })).ready, true)
+  const stale = await desktopHostStatus({ ...options, access: async () => {}, current: async () => false })
+  assert.equal(stale.ready, false); assert.equal(stale.installable, true)
+})
+
+test('helper content updates invalidate readiness while unchanged dependencies can be reused', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-helper-version-'))
+  try {
+    for (const file of HELPER_FILES) await fs.copyFile(path.resolve(import.meta.dirname, '../native/remote-desktop', file), path.join(root, file))
+    for (const name of ['electron', 'koffi', 'dbus-next']) {
+      await fs.mkdir(path.join(root, 'node_modules', name), { recursive: true })
+      await fs.writeFile(path.join(root, 'node_modules', name, 'package.json'), '{}')
+    }
+    markHelperReady(root)
+    const before = helperVersion(root)
+    assert.equal(dependenciesCurrent(root), true)
+    await fs.appendFile(path.join(root, 'main.mjs'), '\n// update fixture\n')
+    assert.notEqual(helperVersion(root), before)
+    assert.equal(dependenciesCurrent(root), true)
+    await fs.appendFile(path.join(root, 'package-lock.json'), '\n')
+    assert.equal(dependenciesCurrent(root), false)
+    markHelperReady(root)
+    await fs.rm(path.join(root, 'node_modules/koffi/package.json'))
+    assert.equal(dependenciesCurrent(root), false)
+  } finally { await fs.rm(root, { recursive: true, force: true }) }
 })
 
 test('Electron installation explicitly downloads and verifies the binary on every OS', () => {
@@ -37,6 +62,7 @@ test('Electron installation explicitly downloads and verifies the binary on ever
     assert.deepEqual(commands, [[process.execPath, '/fixture/node_modules/electron/install.js']])
     assert.match(output.at(-1)!, /installed and verified/)
     assert.throws(() => installDesktopRuntime({ ...options, exists: () => false }), /executable is missing/)
+    assert.throws(() => installDesktopRuntime({ ...options, exists: file => !file.endsWith('LICENSES.chromium.html') }), /distribution notice is missing/)
     assert.throws(() => installDesktopRuntime({ ...options, read: file => file.endsWith('package.json') ? '{"version":"43.0.0"}' : options.read(file) }), /does not match/)
     assert.equal(installDesktopRuntime({ ...options, run: () => ({ status: 19 }) }), 19)
     assert.throws(() => installDesktopRuntime({ ...options, run: () => ({ status: null, error: new Error('ETIMEDOUT') }) }), /network.*retry/)

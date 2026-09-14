@@ -9,6 +9,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+native/remote-desktop/.mew-ready*
+native/remote-desktop/.mew-dependencies*
+native/remote-desktop/runtime/
 dist
 dist-ssr
 *.local

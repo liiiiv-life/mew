@@ -1,64 +1,58 @@
+import { createDirectSender } from './direct-sender.mjs'
+import { createRelaySender } from './relay-sender.mjs'
+
 const bridge = globalThis.desktopHost
-let peer, stream, candidates = [], generation = 0
-const fail = (error) => bridge.signal({ type: 'error', message: error instanceof Error ? error.message : '화면 전송에 실패했습니다.' })
-function stop() { generation++; peer?.close(); stream?.getTracks().forEach((track) => track.stop()); peer = null; stream = null; candidates = [] }
+let transport, stream, generation = 0, mode = 'direct', relativeOnly = false, terminated = false
+const fail = error => bridge.signal({ type: 'error', message: error instanceof Error ? error.message : '화면 전송에 실패했습니다.' })
+function stop() { generation++; transport?.close(); stream?.getTracks().forEach(track => track.stop()); transport = null; stream = null }
+
 async function start(message) {
-  stop()
+  stop(); mode = 'direct'; relativeOnly = message.relativeOnly
   const current = generation
-  // desktopCapturer owns source selection and OS consent; a remote click has no renderer user activation.
   const captured = await navigator.mediaDevices.getUserMedia({ audio: false, video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: message.source, maxWidth: 1920, maxHeight: 1080, maxFrameRate: 60 } } })
-  if (current !== generation) { captured.getTracks().forEach((track) => track.stop()); return }
+  if (current !== generation) { captured.getTracks().forEach(track => track.stop()); return }
   stream = captured
   const video = stream.getVideoTracks()[0]
   video.contentHint = 'detail'
   video.addEventListener('ended', () => { if (current === generation) { stop(); bridge.signal({ type: 'closed' }) } })
-  const connection = new RTCPeerConnection({ iceServers: message.iceServers, bundlePolicy: 'max-bundle' })
-  peer = connection
-  connection.onicecandidate = ({ candidate }) => { if (candidate) bridge.signal({ type: 'candidate', candidate: candidate.toJSON() }) }
-  connection.onconnectionstatechange = () => {
-    if (current !== generation) return
-    if (connection.connectionState === 'connected') bridge.signal({ type: 'connected', relativeOnly: message.relativeOnly })
-    if (['failed', 'closed'].includes(connection.connectionState)) { stop(); bridge.signal({ type: 'closed' }) }
-  }
-  const sender = connection.addTrack(video, stream)
-  const transceiver = connection.getTransceivers().find((item) => item.sender === sender)
-  const codecs = RTCRtpSender.getCapabilities('video')?.codecs
-  if (codecs && transceiver?.setCodecPreferences) transceiver.setCodecPreferences([...codecs.filter((codec) => codec.mimeType === 'video/H264'), ...codecs.filter((codec) => codec.mimeType !== 'video/H264')])
-  function channel(label, options) {
-    const data = connection.createDataChannel(label, options)
-    data.onmessage = ({ data: raw }) => {
-      if (typeof raw !== 'string' || raw.length > 16 * 1024) return fail(new Error('잘못된 원격 입력입니다.'))
-      try { bridge.input(JSON.parse(raw), label === 'control') } catch (error) { fail(error) }
-    }
-    data.onclose = () => { if (current === generation) { stop(); bridge.signal({ type: 'closed' }) } }
-  }
-  channel('motion', { ordered: false, maxRetransmits: 0 })
-  channel('control', { ordered: true })
-  const offer = await connection.createOffer()
-  await connection.setLocalDescription(offer)
-  bridge.signal({ type: 'offer', sdp: connection.localDescription.sdp })
-  // Bounded bitrate; Chromium handles actual hardware availability and congestion adaptation.
-  const parameters = sender.getParameters()
-  parameters.encodings ??= [{}]
-  parameters.encodings[0].maxBitrate = 6_000_000
-  parameters.encodings[0].maxFramerate = 60
-  parameters.degradationPreference = 'maintain-framerate'
-  await sender.setParameters(parameters)
+  // Only transport failures fall back. OS capture/consent errors still surface as errors.
+  try {
+    const next = await createDirectSender(stream, message, {
+      signal: value => { if (current === generation && mode === 'direct') bridge.signal(value) },
+      input: (value, reliable) => { if (current === generation && mode === 'direct') bridge.input(value, reliable) },
+      failed: () => { if (current === generation && mode === 'direct') bridge.signal({ type: 'direct-failed' }) },
+      fail,
+    })
+    if (current !== generation) { next.close(); return }
+    transport = next
+  } catch { if (current === generation) bridge.signal({ type: 'direct-failed' }) }
 }
+
+async function relay() {
+  if (mode === 'relay' || !stream) return
+  mode = 'relay'; transport?.close(); transport = null
+  const current = generation
+  const next = await createRelaySender(stream.getVideoTracks()[0], {
+    frame: packet => { if (current === generation) bridge.frame(packet) },
+    fail: error => { if (current === generation) fail(error) },
+  })
+  if (current !== generation) { next.close(); return }
+  transport = next
+  bridge.signal({ type: 'relay-ready', codec: 'vp8', relativeOnly })
+}
+
 let signalQueue = Promise.resolve()
-bridge.onSignal((message) => {
+bridge.onSignal(message => {
+  // Stop cancels pending capture/negotiation immediately, without waiting behind it.
+  if (message.type === 'stop') { terminated = true; stop(); return }
+  // A new selection belongs to a new connection (the browser test reuses this renderer).
+  if (message.type === 'start') terminated = false
   signalQueue = signalQueue.then(async () => {
-    if (message.type === 'stop') return stop()
+    if (terminated) return
     if (message.type === 'start') return start(message)
-    if (!peer) return
-    if (message.type === 'answer') {
-      await peer.setRemoteDescription({ type: 'answer', sdp: message.sdp })
-      for (const candidate of candidates) await peer.addIceCandidate(candidate)
-      candidates = []
-    } else if (message.type === 'candidate') {
-      if (peer.remoteDescription) await peer.addIceCandidate(message.candidate)
-      else candidates.push(message.candidate)
-    }
+    if (message.type === 'relay') return relay()
+    if (mode === 'relay') { if (message.type === 'frame-ack') transport?.ack(message); return }
+    await transport?.signal(message)
   }).catch(fail)
 })
 bridge.ready()

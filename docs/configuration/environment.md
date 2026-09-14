@@ -31,7 +31,7 @@
 | `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·게스트 규칙·아이콘·RAG 인덱스/모델 캐시 |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
 | `MEW_DESKTOP_HELPER_DIR` | 프로젝트의 `native/remote-desktop`, WSL은 Windows LocalAppData의 `Mew/remote-desktop` | [원격 데스크톱 보조 앱](../guides/remote-desktop.md) 설치 경로. WSL은 Windows 절대 경로 |
-| `MEW_DESKTOP_ICE_SERVERS` | `[]` | 원격 데스크톱 WebRTC의 STUN/TURN JSON 배열. 공급자·계정은 운영자가 설정하며 인증 값은 레포에 저장하지 않는다 |
+| `MEW_DESKTOP_ICE_SERVERS` | `[]` | 선택적 WebRTC STUN/TURN JSON 배열. 비워 두면 외부 서비스를 호출하지 않고 직접 연결 실패 시 Mew 서버 전송으로 전환. 인증 값은 레포에 저장하지 않는다 |
 | `MEW_BIND` | `127.0.0.1` | 서버가 들을 주소. 공개 기본값은 loopback이며, LAN 직접 접속이 꼭 필요할 때만 노출 주소를 명시한다. 서버 배포는 HTTPS 프록시·터널 뒤 `127.0.0.1`로 유지한다 |
 | `MEW_COLLAB_RUST` | 없음(=JS Yjs) | `1`이면 협업 방 상태를 Rust(yrs)로 — 먼저 `npm run build:native` ([협업 방](../development/collaboration.md)) |
 | `DATABASE_URL` | 없음 | `/db`용 Postgres. 없거나 접속 불가면 `/db` API만 503 |

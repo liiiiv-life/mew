@@ -5,8 +5,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInputReceiver, MAX_SIGNAL_BYTES } from './protocol.mjs'
 import { createNativeInput } from './input-native.mjs'
+import { parentChannel } from './parent-channel.mjs'
+import { hostFrame } from './host-wire.mjs'
+import { readFrame, MAX_FRAME_BYTES } from './relay-protocol.mjs'
 
 const directory = path.dirname(fileURLToPath(import.meta.url))
+const parent = parentChannel()
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-desktop-'))
 app.setPath('userData', temporary)
 app.setAppLogsPath(path.join(temporary, 'logs'))
@@ -14,7 +18,20 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 let window, config, sources = [], adapter, receiver, rendererReady = false, closing = false, lease = Date.now(), started = false
 let startQueue = Promise.resolve()
-const emit = (value) => { if (!process.stdout.destroyed) process.stdout.write(`MEW_DESKTOP ${JSON.stringify(value)}\n`) }
+let transport = 'direct', inputWindow = Date.now(), inputCount = 0
+const emit = (value) => { if (!parent.output.destroyed) parent.output.write(`MEW_DESKTOP ${JSON.stringify(value)}\n`) }
+function acceptInput(value, reliable) {
+  if (!receiver || closing) return
+  if (Date.now() - inputWindow > 1000) { inputWindow = Date.now(); inputCount = 0 }
+  if (++inputCount > 240) throw new Error('원격 입력이 너무 많습니다. 다시 연결해 주세요.')
+  if (value?.type === 'paste' && reliable && typeof value.text === 'string' && value.text.length <= 4096) {
+    receiver.release()
+    clipboard.writeText(value.text)
+    const modifier = process.platform === 'darwin' ? 'MetaLeft' : 'ControlLeft'
+    try { adapter.key(modifier, true); adapter.key('KeyV', true) }
+    finally { try { adapter.key('KeyV', false) } finally { adapter.key(modifier, false) } }
+  } else receiver.accept(value, reliable === true)
+}
 async function stop() {
   if (closing) return
   closing = true
@@ -57,8 +74,8 @@ async function start(id) {
   window.webContents.send('desktop:signal', { type: 'start', source: source.id, iceServers: config.iceServers, relativeOnly: !!adapter.relativeOnly })
 }
 let pending = ''
-process.stdin.setEncoding('utf8')
-process.stdin.on('data', (chunk) => {
+parent.input.setEncoding('utf8')
+parent.input.on('data', (chunk) => {
   pending += chunk
   if (pending.length > MAX_SIGNAL_BYTES * 2) return fail(new Error('잘못된 원격 연결 메시지입니다.'))
   let end
@@ -70,44 +87,54 @@ process.stdin.on('data', (chunk) => {
       if (message.type === 'stop') { void stop(); continue }
       if (message.type === 'init' && !config) { config = message; void listSources().catch(fail); continue }
       if (message.type === 'select' && config) { startQueue = startQueue.then(() => start(message.id)).catch(fail); continue }
-      if (started && ['answer', 'candidate'].includes(message.type)) window.webContents.send('desktop:signal', message)
+      if (started && message.type === 'relay' && transport === 'direct') { transport = 'relay'; receiver?.pause(); window.webContents.send('desktop:signal', message); continue }
+      if (started && transport === 'relay' && message.type === 'relay-input') { acceptInput(message.value, message.reliable); continue }
+      if (started && (transport === 'direct' && ['answer', 'candidate'].includes(message.type) || transport === 'relay' && message.type === 'frame-ack')) window.webContents.send('desktop:signal', message)
     } catch (error) { fail(error) }
   }
 })
-process.stdin.on('end', () => { void stop() })
-process.stdin.on('error', () => { void stop() })
+parent.input.on('end', () => { void stop() })
+parent.input.on('error', () => { void stop() })
 process.on('SIGTERM', () => { void stop() })
 process.on('SIGINT', () => { void stop() })
-process.stdout.on('error', () => { void stop() })
+parent.output.on('error', () => { void stop() })
 app.on('before-quit', (event) => { if (!closing) { event.preventDefault(); void stop() } })
 
-await app.whenReady()
-window = new BrowserWindow({ show: false, width: 320, height: 200, webPreferences: { preload: path.join(directory, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: 'mew-desktop' } })
-window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-window.webContents.on('will-navigate', (event) => event.preventDefault())
-window.webContents.on('render-process-gone', () => fail(new Error('원격 화면 전송이 종료됐습니다. 다시 연결해 주세요.')))
-const owned = (event) => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame
-window.webContents.session.setPermissionRequestHandler((contents, permission, callback) => callback(contents === window.webContents && permission === 'media'))
-window.webContents.session.setPermissionCheckHandler((contents, permission) => contents === window.webContents && permission === 'media')
-ipcMain.on('desktop:ready', (event) => { if (owned(event)) { rendererReady = true; void listSources().catch(fail) } })
-ipcMain.on('desktop:signal', (event, value) => {
-  if (!owned(event) || !value || JSON.stringify(value).length > MAX_SIGNAL_BYTES) return
-  if (['offer', 'candidate', 'connected', 'error'].includes(value.type)) emit(value)
-  if (value.type === 'error' || value.type === 'closed') void stop()
-})
-let inputWindow = Date.now(), inputCount = 0
-ipcMain.on('desktop:input', (event, value, reliable) => {
-  if (!owned(event) || !receiver || closing) return
-  if (Date.now() - inputWindow > 1000) { inputWindow = Date.now(); inputCount = 0 }
-  if (++inputCount > 240) return fail(new Error('원격 입력이 너무 많습니다. 다시 연결해 주세요.'))
-  try {
-    if (value?.type === 'paste' && reliable && typeof value.text === 'string' && value.text.length <= 4096) {
-      receiver.release()
-      clipboard.writeText(value.text)
-      const modifier = process.platform === 'darwin' ? 'MetaLeft' : 'ControlLeft'
-      try { adapter.key(modifier, true); adapter.key('KeyV', true) }
-      finally { try { adapter.key('KeyV', false) } finally { adapter.key(modifier, false) } }
-    } else receiver.accept(value, reliable === true)
-  } catch (error) { fail(error) }
-})
-await window.loadFile(path.join(directory, 'app.html'))
+async function createWindow() {
+  await app.whenReady()
+  if (closing) return
+  window = new BrowserWindow({ show: false, width: 320, height: 200, webPreferences: { preload: path.join(directory, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: 'mew-desktop' } })
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.on('will-navigate', (event) => event.preventDefault())
+  window.webContents.on('render-process-gone', () => fail(new Error('원격 화면 전송이 종료됐습니다. 다시 연결해 주세요.')))
+  const owned = (event) => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame
+  // Chromium also gates local WebRTC paths through Local Network Access. Only
+  // this fixed local renderer receives these permissions, never navigated content.
+  const permissions = new Set(['media', 'local-network-access', 'local-network', 'loopback-network'])
+  window.webContents.session.setPermissionRequestHandler((contents, permission, callback) => callback(contents === window.webContents && permissions.has(permission)))
+  window.webContents.session.setPermissionCheckHandler((contents, permission) => contents === window.webContents && permissions.has(permission))
+  ipcMain.on('desktop:ready', (event) => { if (owned(event)) { rendererReady = true; void listSources().catch(fail) } })
+  ipcMain.on('desktop:signal', (event, value) => {
+    if (!owned(event) || !value || JSON.stringify(value).length > MAX_SIGNAL_BYTES) return
+    if (['offer', 'candidate', 'connected', 'direct-failed'].includes(value.type) && transport === 'direct') emit(value)
+    if (value.type === 'direct-failed') receiver?.pause()
+    if (['relay-ready', 'error'].includes(value.type)) emit(value)
+    if (value.type === 'error' || value.type === 'closed') void stop()
+  })
+  ipcMain.on('desktop:input', (event, value, reliable) => {
+    if (!owned(event) || transport !== 'direct') return
+    try { acceptInput(value, reliable) } catch (error) { fail(error) }
+  })
+  ipcMain.on('desktop:frame', (event, value) => {
+    if (!owned(event) || transport !== 'relay' || closing) return
+    try {
+      const packet = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+      readFrame(packet)
+      if (parent.output.writableLength > MAX_FRAME_BYTES * 2) throw new Error('서버로 보내는 영상이 지연됐습니다. 다시 연결해 주세요.')
+      parent.output.write(hostFrame(packet))
+    } catch (error) { fail(error) }
+  })
+  await window.loadFile(path.join(directory, 'app.html'))
+}
+// Electron must finish evaluating the ESM entry before app readiness can resolve.
+void createWindow().catch(fail)

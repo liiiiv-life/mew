@@ -1,15 +1,13 @@
 param([string]$Target = (Join-Path $env:LOCALAPPDATA 'Mew\remote-desktop'))
 $ErrorActionPreference = 'Stop'
-$npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
-if (-not $npm) {
-  # WSL/tmux can inherit PATH from before Node was installed on Windows.
-  $candidate = Join-Path $env:ProgramFiles 'nodejs\npm.cmd'
-  if (Test-Path -LiteralPath $candidate) { $npm = $candidate }
-}
-if (-not $npm) { throw 'Install Node.js 22.12+ on Windows, then retry. The Linux/WSL Node.js installation is not sufficient.' }
-$env:PATH = (Split-Path -Parent $npm) + ';' + $env:PATH
 New-Item -ItemType Directory -Force -Path $target | Out-Null
-$files = @('package.json', 'package-lock.json', 'install-runtime.mjs', 'main.mjs', 'preload.cjs', 'app.html', 'sender.mjs', 'protocol.mjs', 'keys.mjs', 'input-native.mjs', 'input-portal.mjs')
+. (Join-Path $PSScriptRoot 'windows-runtime.ps1')
+$node = Get-MewDesktopNode $target
+$npm = Join-Path (Split-Path -Parent $node) 'npm.cmd'
+$env:PATH = (Split-Path -Parent $node) + ';' + $env:PATH
+$files = & $node (Join-Path $PSScriptRoot 'helper-version.mjs') files | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) { throw 'Could not read desktop file manifest' }
+Remove-Item -LiteralPath (Join-Path $target '.mew-ready') -Force -ErrorAction SilentlyContinue
 if ([IO.Path]::GetFullPath($PSScriptRoot) -ne [IO.Path]::GetFullPath($target)) {
   foreach ($file in $files) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $target $file) -Force }
 }
@@ -17,11 +15,17 @@ if ([IO.Path]::GetFullPath($PSScriptRoot) -ne [IO.Path]::GetFullPath($target)) {
 Push-Location -LiteralPath $target
 try {
   Write-Output '[1/3] Installing helper dependencies...'
-  & $npm ci --prefix $target --omit=dev --no-audit --no-fund
-  $result = $LASTEXITCODE
+  $reusable = & $node (Join-Path $target 'helper-version.mjs') dependencies
+  $result = 0
+  if ($LASTEXITCODE -eq 0 -and $reusable -eq 'true') { Write-Output 'Dependencies unchanged; reusing the installed runtime.' }
+  else { & $npm ci --prefix $target --omit=dev --no-audit --no-fund; $result = $LASTEXITCODE }
   if ($result -eq 0) {
-    & node.exe (Join-Path $target 'install-runtime.mjs')
+    & $node (Join-Path $target 'install-runtime.mjs')
     $result = $LASTEXITCODE
+    if ($result -eq 0) {
+      & $node (Join-Path $target 'helper-version.mjs') mark
+      $result = $LASTEXITCODE
+    }
   }
 } finally { Pop-Location }
 if ($result -ne 0) { exit $result }

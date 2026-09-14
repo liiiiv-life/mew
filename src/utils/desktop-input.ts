@@ -1,5 +1,5 @@
 export type InputSnapshot = { type: 'input'; v: 1; seq: number; epoch: number; x: number; y: number; wheelX: number; wheelY: number; buttons: number; keys: string[]; point?: [number, number] }
-type Channel = Pick<RTCDataChannel, 'readyState' | 'bufferedAmount' | 'send'>
+type Channel = Pick<RTCDataChannel, 'readyState' | 'bufferedAmount'> & { send(data: string): void }
 
 /** Motion is cumulative, so an unreliable packet can be discarded without losing distance. */
 export function desktopInput(onError: (message: string) => void = () => {}) {

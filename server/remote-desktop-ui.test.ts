@@ -10,7 +10,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..'), require = createRequire(`${root}/package.json`)
 
-test('fullscreen desktop decodes real WebRTC video and controls a synthetic host on mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
+for (const transport of ['direct', 'server'] as const) test(`fullscreen desktop decodes real ${transport} video and controls a synthetic host on mobile`, { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const source = `
 import React,{useState} from '${require.resolve('react')}';
 import {createRoot} from '${require.resolve('react-dom/client')}';
@@ -23,13 +23,16 @@ let listener, socket;
 const canvas=document.createElement('canvas'); canvas.width=1280;canvas.height=720;
 const context=canvas.getContext('2d'); let frame=0;
 setInterval(()=>{context.fillStyle='#16252b';context.fillRect(0,0,1280,720);context.fillStyle='#e0eaec';context.font='28px sans-serif';context.fillText('Synthetic desktop · WebRTC test',60,75);context.fillStyle='#26383f';context.fillRect(60,115,720,460);context.fillStyle='#d3dee1';context.font='20px sans-serif';context.fillText('No physical desktop is captured or controlled.',90,165);context.fillStyle='#789dad';context.fillRect(900+Math.sin(frame++/30)*50,300,20,20)},33);
-navigator.mediaDevices.getUserMedia=async()=>{window.syntheticStream=canvas.captureStream(30);return window.syntheticStream};
-window.desktopHost={ready(){},onSignal(fn){listener=fn},signal(value){socket?.emit(value)},input(value,reliable){packets.push([value,reliable]);if(value.type==='input')receiver.accept(value,reliable)}};
+window.captureCount=0;window.frameBytes=0;window.frameCount=0;window.switches=0;
+navigator.mediaDevices.getUserMedia=async()=>{window.captureCount++;window.syntheticStream=canvas.captureStream(30);return window.syntheticStream};
+const accept=(value,reliable)=>{packets.push([value,reliable]);if(value.type==='input')receiver.accept(value,reliable)};
+const withoutCandidates=value=>value.sdp?{...value,sdp:value.sdp.replace(/^a=candidate:.*\\r?\\n/gm,'')}:value;
+window.desktopHost={ready(){},onSignal(fn){listener=fn},signal(value){socket?.emit(value)},input:accept,frame(packet){window.frameCount++;window.frameBytes+=packet.byteLength;socket?.onmessage?.({data:packet.buffer.slice(packet.byteOffset,packet.byteOffset+packet.byteLength)})}};
 class Socket {
  static OPEN=1;readyState=1;bufferedAmount=0;
  constructor(){socket=this;window.socket=this;setTimeout(()=>{this.emit({type:'config',iceServers:[]});this.emit({type:'sources',screens:[{id:'screen:0:0',label:'Test display',width:1280,height:720}]})},20)}
- emit(value){if(this.readyState===1)this.onmessage?.({data:JSON.stringify(value)})}
- send(raw){const value=JSON.parse(raw);listener(value.type==='select'?{type:'start',source:value.id,iceServers:[],relativeOnly:false}:value)}
+ emit(value){if('${transport}'==='server'&&value.type==='candidate')return;if(this.readyState===1)this.onmessage?.({data:JSON.stringify('${transport}'==='server'?withoutCandidates(value):value)})}
+ send(raw){let value=JSON.parse(raw);if(value.type==='frame-ack'&&window.pauseAcks){window.pendingAck=raw;return}if(value.type==='relay-input'){accept(value.value,value.reliable);return}if(value.type==='relay'){window.switches++;receiver.pause()}if('${transport}'==='server'){if(value.type==='candidate')return;value=withoutCandidates(value)}listener(value.type==='select'?{type:'start',source:value.id,iceServers:[],relativeOnly:false}:value)}
  close(){if(this.readyState!==1)return;this.readyState=3;listener({type:'stop'});receiver.release();this.onclose?.()}
 }
 window.WebSocket=Socket;
@@ -51,8 +54,9 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     let installs = 0, stopped = 0
     let installState = 'idle'
     page.on('pageerror', error => errors.push(error.message))
-    await page.route('http://localhost:48973/**', route => {
+    await page.route('http://localhost:48973/**', async route => {
       const p = new URL(route.request().url()).pathname
+      if (['/direct-sender.mjs', '/relay-sender.mjs', '/relay-protocol.mjs'].includes(p)) return route.fulfill({ contentType: 'text/javascript', body: await fs.readFile(`${root}/native/remote-desktop${p}`, 'utf8') })
       if (p === '/api/remote-desktop/install') {
         if (route.request().method() === 'POST') { installs++; installState = 'running' }
         return route.fulfill({ json: { session: 'mewcmd-desktop-install', terminal: installState !== 'idle', state: installState, exitCode: installState === 'failed' ? 7 : installState === 'succeeded' ? 0 : null } })
@@ -63,7 +67,19 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.goto('http://localhost:48973/')
     await page.getByText('Open desktop').click()
     await page.waitForFunction(`document.querySelector('.desktop-status')?.dataset.connected==='true'`)
-    await page.waitForFunction(`document.querySelector('video')?.videoWidth>0`)
+    await page.waitForFunction(transport === 'direct' ? `document.querySelector('video')?.videoWidth>0` : `document.querySelector('.desktop-stage canvas')?.width===1280`)
+    assert.equal(await page.evaluate('window.captureCount'), 1, 'fallback reuses the OS capture')
+    assert.equal(await page.evaluate('window.switches'), transport === 'server' ? 1 : 0)
+    if (transport === 'server') {
+      assert.ok(await page.evaluate('window.frameBytes>0'))
+      assert.equal(await page.evaluate(`document.querySelector('.desktop-stage canvas').getContext('2d').getImageData(10,10,1,1).data[3]`), 255)
+      const before = await page.evaluate('window.pauseAcks=true;window.frameCount') as number
+      await page.waitForTimeout(800)
+      const paused = await page.evaluate('window.frameCount') as number
+      assert.ok(paused - before <= 4, 'a stalled viewer cannot accumulate unbounded encoded frames')
+      await page.evaluate('window.pauseAcks=false;window.socket.send(window.pendingAck)')
+      await page.waitForFunction(`window.frameCount > ${paused}`)
+    }
     assert.equal(await page.getByRole('dialog').count(), 1)
     assert.equal(await page.locator('[data-dock-panel]').count(), 0)
     assert.deepEqual(await page.getByRole('dialog').boundingBox(), { x: 0, y: 0, width: 390, height: 844 })
@@ -116,6 +132,15 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     const before = await controls.boundingBox(); assert.ok(before)
     await gesture('조이스틱 위치 이동', -80, -100)
     const after = await controls.boundingBox(); assert.ok(after && after.x < before.x && after.y < before.y)
+    if (transport === 'direct') {
+      await clear(); await page.locator('.desktop-stage').focus(); await page.keyboard.down('Shift')
+      await page.waitForFunction('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="ShiftLeft"&&e[2]===true)')
+      await page.evaluate(`window.socket.emit({type:'direct-failed'})`)
+      await page.waitForFunction(`window.switches===1&&document.querySelector('.desktop-status')?.dataset.connected==='true'&&getComputedStyle(document.querySelector('.desktop-stage canvas')).display==='block'`)
+      assert.equal(await page.evaluate('window.captureCount'), 1)
+      assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="ShiftLeft"&&e[2]===false)'), 'transition releases held modifiers')
+      await page.keyboard.up('Shift')
+    }
     const dir = process.env.MEW_DESKTOP_SCREENSHOTS
     if (dir) { await fs.mkdir(dir, { recursive: true }); await page.screenshot({ path: path.join(dir, 'mobile.png') }) }
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -132,11 +157,9 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     assert.equal(await page.evaluate('document.activeElement.id === "open"'), true)
     ready = false
     await page.getByText('Open desktop').click()
-    await page.getByRole('alert').waitFor()
-    assert.ok(await page.getByRole('alert').textContent().then(text => text?.includes('desktop:install')))
-    assert.equal(installs, 0, 'opening the desktop does not install anything')
+    await page.getByText('원격 데스크톱을 준비하고 있습니다. 처음에는 다운로드에 몇 분 걸릴 수 있습니다.').waitFor()
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.getByRole('button', { name: '보조 앱 설치', exact: true }).click()
+    await page.getByRole('button', { name: '준비 내역 보기', exact: true }).click()
     const popup = page.locator('[data-cmd-overlay]')
     await popup.waitFor()
     assert.equal(installs, 1)
@@ -150,25 +173,31 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await popup.waitFor({ state: 'hidden' })
     assert.equal(stopped, 0, 'close detaches without killing installation')
     assert.equal(await page.locator('.remote-desktop').evaluate(element => element.inert), false)
-    await page.getByRole('button', { name: '설치 터미널 열기' }).click()
+    await page.getByRole('button', { name: '준비 내역 보기' }).click()
     assert.equal(installs, 1, 'reopening does not rerun installation')
     installState = 'failed'
-    await page.getByText(/설치 실패.*종료 코드 7/).waitFor()
+    await page.getByText(/준비 실패.*종료 코드 7/).waitFor()
     if (dir) await page.screenshot({ path: path.join(dir, 'install-mobile.png') })
     assert.equal(await page.evaluate('document.documentElement.scrollWidth > innerWidth'), false)
     await popup.getByRole('button', { name: '닫기', exact: true }).click()
-    await page.getByRole('button', { name: '다시 설치', exact: true }).click()
+    await page.getByRole('button', { name: '다시 연결', exact: true }).click()
+    await page.getByRole('button', { name: '준비 내역 보기', exact: true }).click()
     await popup.waitFor(); assert.equal(installs, 2)
-    installState = 'succeeded'
-    await page.getByText(/설치 완료/).waitFor()
-    await popup.getByRole('button', { name: '닫기', exact: true }).click()
     ready = true
-    await page.getByRole('button', { name: '다시 연결' }).click()
+    installState = 'succeeded'
+    await page.getByText(/준비 완료/).waitFor()
+    await popup.getByRole('button', { name: '닫기', exact: true }).click()
     await page.waitForFunction(`document.querySelector('.desktop-status')?.dataset.connected==='true'`)
     await page.evaluate(`Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'))`)
     await page.getByText('앱이 백그라운드로 이동해 연결을 종료했습니다.').waitFor()
     await page.waitForFunction('window.syntheticStream.getTracks().every(track=>track.readyState==="ended")')
     await page.getByRole('button', { name: '원격 데스크톱 닫기' }).click()
+    if (transport === 'server') {
+      await page.evaluate('window.VideoDecoder=undefined')
+      await page.getByText('Open desktop').click()
+      await page.getByText(/이 브라우저는 서버 영상 연결에 필요한 VP8 재생을 지원하지 않습니다/).waitFor()
+      await page.getByRole('button', { name: '원격 데스크톱 닫기' }).click()
+    }
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })

@@ -10,6 +10,8 @@ import './remote-desktop.css'
 
 export function RemoteDesktop({ onClose }: { onClose: () => void }) {
   const root = useRef<HTMLDivElement>(null), stage = useRef<HTMLDivElement>(null), video = useRef<HTMLVideoElement>(null), strip = useRef<HTMLDivElement>(null)
+  const canvas = useRef<HTMLCanvasElement>(null), surface = useRef<'direct' | 'server'>('direct')
+  const [transport, setTransport] = useState<'direct' | 'server'>('direct')
   const session = useRef<ReturnType<typeof connectDesktop> | null>(null)
   const [state, setState] = useState<DesktopState>('preparing'), [message, setMessage] = useState(''), [stats, setStats] = useState('')
   const [screens, setScreens] = useState<DesktopScreen[]>([]), [selected, setSelected] = useState(''), [attempt, setAttempt] = useState(0)
@@ -21,7 +23,7 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
   const connected = state === 'connected'
   useOverlayDismiss(onClose)
   const [installable, setInstallable] = useState(false)
-  const install = useDesktopInstall(installable)
+  const install = useDesktopInstall(installable, () => setAttempt(value => value + 1))
   useEffect(() => {
     const element = root.current
     if (!element || !install.open) return
@@ -32,7 +34,8 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
   const onView = useCallback((x: number, y: number, zoom: number) => {
     const rect = stage.current?.getBoundingClientRect()
     if (!rect) return
-    const width = video.current?.videoWidth || rect.width, height = video.current?.videoHeight || rect.height
+    const width = (surface.current === 'server' ? canvas.current?.width : video.current?.videoWidth) || rect.width
+    const height = (surface.current === 'server' ? canvas.current?.height : video.current?.videoHeight) || rect.height
     const fit = Math.min(rect.width / width, rect.height / height)
     setView(previous => clampView({ x: previous.x - x, y: previous.y - y, scale: previous.scale * Math.exp(zoom) }, rect.width, rect.height, { width: width * fit, height: height * fit }))
   }, [])
@@ -50,11 +53,22 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
   }, [])
   useEffect(() => {
     setStats(''); setRelative(false); setInstallable(false); setView({ x: 0, y: 0, scale: 1 })
+    setTransport('direct'); surface.current = 'direct'
     const element = video.current
     const connection = connectDesktop({
       state: (next, detail) => { setState(next); setMessage(detail) },
       screens: (list, chosen) => { setScreens(list); setSelected(chosen) },
       stream: stream => { if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => {}) } },
+      frame: frame => {
+        const target = canvas.current
+        if (!target) return
+        if (target.width !== frame.displayWidth) target.width = frame.displayWidth
+        if (target.height !== frame.displayHeight) target.height = frame.displayHeight
+        const context = target.getContext('2d', { alpha: false })
+        if (!context) throw new Error('원격 화면을 표시할 수 없습니다.')
+        context.drawImage(frame, 0, 0)
+      },
+      transport: mode => { surface.current = mode; setTransport(mode); setStats(''); if (mode === 'server' && video.current) video.current.srcObject = null },
       relative: setRelative, stats: setStats, installable: setInstallable,
     }, preferred.current)
     session.current = connection; setInput(connection.input)
@@ -81,10 +95,13 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
     if (connected && KEY_CODES[event.code]) { event.preventDefault(); if (!event.repeat) input?.key(event.code, down) }
   }
   const directPoint = (clientX: number, clientY: number) => {
-    const rect = video.current?.getBoundingClientRect()
-    if (!rect || relative || !video.current?.videoWidth) return false
-    const ratio = Math.min(rect.width / video.current.videoWidth, rect.height / video.current.videoHeight)
-    const width = video.current.videoWidth * ratio, height = video.current.videoHeight * ratio
+    const element = surface.current === 'server' ? canvas.current : video.current
+    const rect = element?.getBoundingClientRect()
+    const nativeWidth = surface.current === 'server' ? canvas.current?.width : video.current?.videoWidth
+    const nativeHeight = surface.current === 'server' ? canvas.current?.height : video.current?.videoHeight
+    if (!rect || relative || !nativeWidth || !nativeHeight) return false
+    const ratio = Math.min(rect.width / nativeWidth, rect.height / nativeHeight)
+    const width = nativeWidth * ratio, height = nativeHeight * ratio
     const x = (clientX - rect.x - (rect.width - width) / 2) / width, y = (clientY - rect.y - (rect.height - height) / 2) / height
     if (x < 0 || x > 1 || y < 0 || y > 1) return false
     input?.point(x, y); return true
@@ -134,12 +151,13 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
       onPointerCancel={() => { touches.current.clear(); input?.release() }}
       onLostPointerCapture={() => { touches.current.clear(); input?.release() }}
       onWheel={event => { if (connected) input?.wheel(event.deltaX * (event.deltaMode === 1 ? 40 : 1), event.deltaY * (event.deltaMode === 1 ? 40 : 1)) }}>
-      <video ref={video} autoPlay playsInline muted className="desktop-video" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} />
+      <video ref={video} autoPlay playsInline muted className="desktop-video" style={{ display: transport === 'direct' ? 'block' : 'none', transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} />
+      <canvas ref={canvas} className="desktop-video" aria-hidden="true" style={{ display: transport === 'server' ? 'block' : 'none', transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} />
       {!connected && <div className="desktop-connection" role={state === 'error' ? 'alert' : 'status'}>
         <h2>{state === 'error' ? '화면을 연결하지 못했어요' : state === 'paused' ? '연결이 종료됐어요' : '서버 화면 연결 중'}</h2><p>{message}</p>
-        {(state === 'error' || state === 'paused') && <div className="desktop-connection-actions">
+        {(installable || state === 'error' || state === 'paused') && <div className="desktop-connection-actions">
           {installable && install.actions}
-          <button disabled={install.busy} onClick={() => setAttempt(value => value + 1)}>다시 연결</button>
+          {(state === 'error' || state === 'paused') && <button onClick={() => setAttempt(value => value + 1)}>다시 연결</button>}
         </div>}
         {installable && install.error && <p className="desktop-install-error">{install.error}</p>}
       </div>}

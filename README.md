@@ -100,7 +100,7 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 서버 웹 브라우저 | 메뉴 → 브라우저(`Alt+B`)에서 URL 입력. 서버의 localhost·사설망·외부 사이트 탐색, 탭·뒤로/앞으로·폼·업로드·다운로드 사용 | [Chromium 준비와 조작](docs/guides/browser.md#브라우저-창) |
 | 브라우저 로그인·팝업 | 계정별 서버 프로필로 로그인 상태 유지, 사이트 팝업·에이전트 인증 처리, `/browser` 독립 화면 사용 | [프로필·OAuth·지원 한계](docs/guides/browser.md#브라우저-창) |
 | Android | 메뉴 → Android에서 SDK·가속·AVD 상태 확인, 안내 명령 실행·터미널 보기, 기존 WebRTC/gateway 연결 | [Android 준비](docs/guides/browser.md#android-창) |
-| 원격 데스크톱 | 메뉴의 **보조 앱 설치** 버튼으로 내부 tmux에서 설치하고 OS 권한 승인 후 전체 화면으로 연결. Mac/Linux 데스크톱 또는 WSL의 Windows 화면 조작 | [설치·연결](docs/guides/remote-desktop.md) |
+| 원격 데스크톱 | 메뉴 → 원격 데스크톱에서 자동 준비 후 전체 화면 연결. Mac/Linux 또는 WSL의 Windows 로그인 데스크톱 조작. 직접 연결 실패 시 외부 서비스 없이 Mew 서버 전송으로 전환; OS 권한 승인 필요 | [설치·연결](docs/guides/remote-desktop.md) |
 | 원격 입력·모바일 조이스틱 | 마우스·키보드·붙여넣기·원격 Esc, 조이스틱 클릭·드래그·휠·화면 이동·확대, 모니터 선택·재연결 | [조작](docs/guides/remote-desktop.md#조작) · [네트워크·검증 범위](docs/development/remote-desktop.md) |
 
 ### 데이터베이스

@@ -48,6 +48,7 @@ export function createInputReceiver(adapter, now = Date.now) {
   return {
     accept,
     release,
+    pause() { release(); lastAt = null },
     tick() { if (lastAt !== null && now() - lastAt > INPUT_TIMEOUT) { release(); return true }; return false },
   }
 }

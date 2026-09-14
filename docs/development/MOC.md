@@ -18,3 +18,4 @@ updated: 2026-09-12
 - [공용 패키지](packages.md)
 - [오버레이와 탭 단축키 계약](ui-contracts.md)
 - [원격 데스크톱 아키텍처·입력·검증](remote-desktop.md)
+- [원격 데스크톱 배포·라이선스](remote-desktop-distribution.md)
