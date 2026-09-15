@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { downloadUrl, externalDownloadUrl, externalRawUrl, rawUrl } from '../api/client'
 import { SheetViewer } from './SheetViewer'
 import { DownloadLink } from './DownloadLink'
@@ -5,13 +6,15 @@ import type { MediaKind } from '../utils/media'
 import { externalAbsolutePath, externalFileName, isExternalTabPath } from '../utils/externalFiles'
 import { useI18n } from '../i18n'
 
+const PdfViewer = lazy(() => import('./pdf-viewer'))
+
 /** 바이너리 미디어 탭 본문 — 내용은 /api/raw에서 브라우저가 직접 스트리밍한다 */
-export function MediaViewer({ path, kind }: { path: string; kind: MediaKind }) {
+export function MediaViewer({ path, kind, project, identity = 'guest', onEdit }: { path: string; kind: MediaKind; project?: string; identity?: string; onEdit?: () => void }) {
   const { t } = useI18n()
   const external = isExternalTabPath(path)
   const absolute = externalAbsolutePath(path)
-  const src = external ? externalRawUrl(absolute) : rawUrl(path)
-  const download = external ? externalDownloadUrl(absolute) : downloadUrl(path)
+  const src = external ? externalRawUrl(absolute) : rawUrl(path, project)
+  const download = external ? externalDownloadUrl(absolute) : downloadUrl(path, project)
   const name = external ? externalFileName(path) : path.split('/').pop() ?? path
 
   if (kind === 'download') {
@@ -32,7 +35,7 @@ export function MediaViewer({ path, kind }: { path: string; kind: MediaKind }) {
   }
 
   if (kind === 'pdf') {
-    return <iframe src={src} title={name} className="h-full w-full border-0 bg-surface" />
+    return <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-ink-secondary" role="status">{t('pdf.loading')}</div>}><PdfViewer src={src} download={download} name={name} identity={identity} onEdit={onEdit} /></Suspense>
   }
 
   return (

@@ -10,6 +10,7 @@ updated: 2026-09-12
 
 ## Current
 
+- [PDF 렌더링·필기·저장](pdf-viewer.md)
 - [브라우저 저장소와 자동 정리](browser-storage.md)
 
 - [에이전트 세션과 통신 계약](agent-sessions.md)

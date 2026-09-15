@@ -65,7 +65,7 @@ function securityHeaders(req: express.Request, res: express.Response, next: expr
   res.setHeader('X-Frame-Options', 'DENY')
   res.setHeader('Referrer-Policy', 'same-origin')
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(), payment=()')
-  res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self' ws: wss:; font-src 'self' data:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:")
+  res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self' ws: wss:; font-src 'self' data:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:")
   if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
   }

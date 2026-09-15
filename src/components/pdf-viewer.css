@@ -1,0 +1,60 @@
+.pdf-stage { display: block; position: relative; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; }
+.pdf-stage:modal { position: fixed; inset: 0; width: 100vw; height: 100dvh; }
+.pdf-stage::backdrop { background: var(--color-surface); }
+.pdf-viewer { position: relative; overflow: hidden; display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; color: var(--color-ink); background: var(--color-surface); font-size: 12px; container-type: inline-size; }
+.pdf-viewer:fullscreen { width: 100vw; height: 100dvh; }
+.pdf-floating-bar { position: absolute; z-index: 5; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); padding: 6px; border-radius: 18px; background: color-mix(in srgb, var(--color-surface-deep) 84%, transparent); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); box-shadow: 0 8px 30px #0003, 0 2px 6px #0001; }
+.pdf-toolbar, .pdf-tools { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; padding: 2px; flex-shrink: 0; }
+.pdf-tools { padding-top: 6px; margin-top: 4px; border-top: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent); }
+.pdf-controls, .pdf-colors { display: flex; align-items: center; gap: 2px; }
+.pdf-file-actions { margin-left: auto; }
+.pdf-viewer button, .pdf-download { display: inline-flex; justify-content: center; align-items: center; flex-shrink: 0; min-width: 34px; min-height: 34px; gap: 6px; padding: 6px; border-radius: 10px; color: var(--color-ink-secondary); cursor: pointer; }
+.pdf-viewer button:not(:disabled):hover, .pdf-download:hover { background: var(--color-surface-raised); color: var(--color-ink-bright); }
+.pdf-viewer button:disabled, .pdf-viewer select:disabled { opacity: .4; cursor: default; }
+.pdf-viewer button[aria-pressed=true] { background: color-mix(in srgb, var(--color-link) 18%, transparent); color: var(--color-ink-bright); }
+.pdf-viewer :is(button, a, input, select, [tabindex]):focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.pdf-viewer svg { width: 17px; height: 17px; stroke-width: 1.6; }
+.pdf-toolbar form { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; color: var(--color-ink-secondary); }
+.pdf-viewer input, .pdf-viewer select { height: 30px; border: 1px solid color-mix(in srgb, var(--color-ink) 12%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-surface) 72%, transparent); color: var(--color-ink); padding: 3px 6px; font: inherit; }
+.pdf-toolbar input { width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+.pdf-zoom select { max-width: 115px; }
+.pdf-tools { gap: 3px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+.pdf-tools select { max-width: 82px; }
+.pdf-divider { width: 1px; height: 18px; margin: 0 5px; background: var(--color-edge-strong); }
+.pdf-colors button span { display: block; width: 16px; height: 16px; border: 1px solid #fff8; border-radius: 50%; background: var(--pdf-swatch); }
+.pdf-state { padding: 4px 8px 1px; color: var(--color-ink-secondary); font-size: 11px; text-align: center; }
+.pdf-colors button[aria-pressed=true] span { outline: 2px solid var(--color-ink-secondary); outline-offset: 3px; }
+.pdf-viewer .pdf-save { padding-inline: 10px; color: var(--color-ink-on-accent); background: var(--color-accent); }
+.pdf-viewer .pdf-save:not(:disabled):hover { color: var(--color-ink-on-accent); background: var(--color-accent-strong); }
+.pdf-scroll { overflow: auto; flex: 1; min-height: 0; padding: max(18px, env(safe-area-inset-top)) 16px 160px; overscroll-behavior: contain; overflow-anchor: none; scrollbar-color: var(--color-edge-bright) var(--color-surface); touch-action: pan-x pan-y; }
+.pdf-pages { position: relative; margin: 0 auto; }
+.pdf-page { position: absolute; left: 50%; transform: translateX(-50%); background: white; color-scheme: light; box-shadow: 0 2px 7px #0003; isolation: isolate; contain: layout style; }
+/* Invert the composited page, including ink, without changing PDF or canvas data. */
+.pdf-inverted .pdf-page { filter: invert(1); }
+.pdf-paper, .pdf-paper canvas, .pdf-ink, .pdf-live { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pdf-paper { overflow: hidden; }
+.pdf-ink { pointer-events: none; mix-blend-mode: multiply; }
+.pdf-live { touch-action: none; mix-blend-mode: multiply; }
+.pdf-tool-pen, .pdf-tool-highlight { cursor: crosshair; }
+.pdf-tool-erase { cursor: cell; }
+.pdf-empty { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; padding: 24px; text-align: center; color: var(--color-ink-secondary); overflow: auto; }
+.pdf-empty strong { max-width: 55ch; color: var(--color-ink); font-size: 14px; font-weight: 500; }
+.pdf-empty > span { max-width: 100%; overflow-wrap: anywhere; }
+.pdf-empty button, .pdf-empty a { padding: 7px 14px; background: var(--color-surface-raised); }
+.pdf-empty progress { width: 160px; height: 3px; accent-color: var(--color-link); }
+.pdf-notice { max-width: 460px; margin-top: 6px; border-radius: 12px; padding: 10px 14px; background: var(--color-warning-surface); color: var(--color-warning-ink); flex-shrink: 0; }
+.pdf-page-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: #262626; background: #ffffffeb; }
+.pdf-page-error button { color: #262626; border: 1px solid #aaa; }
+.pdf-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* PDF.js TextLayer positioning contract (Apache-2.0), scoped to this viewer. */
+.pdf-text-layer { position: absolute; inset: 0; overflow: clip; text-align: initial; line-height: 1; letter-spacing: normal; word-spacing: normal; text-size-adjust: none; -webkit-text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; caret-color: #202124; --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); }
+.pdf-text-layer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0 0; user-select: text; -webkit-user-select: text; }
+.pdf-text-layer > :not(.markedContent), .pdf-text-layer .markedContent span:not(.markedContent) { --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.pdf-text-layer .markedContent { display: contents; }
+.pdf-text-layer ::selection { background: #7c5ce64d; }
+@media (pointer: coarse) { .pdf-viewer button, .pdf-download { min-height: 40px; min-width: 36px; } .pdf-viewer input, .pdf-viewer select { height: 36px; } }
+@container (max-width: 520px) { .pdf-toolbar { gap: 3px; } .pdf-tools { gap: 2px; } .pdf-toolbar form { gap: 4px; } .pdf-toolbar input { width: 38px; } .pdf-floating-bar { max-width: calc(100% - 16px); padding: 5px; border-radius: 16px; } .pdf-divider { margin-inline: 2px; } .pdf-zoom button { display: none; } .pdf-save span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } .pdf-zoom select { max-width: 105px; } }
+
+@container (max-width: 360px) { .pdf-toolbar { flex-wrap: wrap; } .pdf-file-actions { margin-left: auto; } }
+@media (prefers-reduced-transparency: reduce) { .pdf-floating-bar { background: var(--color-surface-deep); backdrop-filter: none; -webkit-backdrop-filter: none; } }

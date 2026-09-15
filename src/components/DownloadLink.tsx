@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { downloadSize, formatDownloadSize, isLargeDownload, isMobileCellularConnection } from '../utils/largeDownload'
 import { useI18n } from '../i18n'
 
@@ -9,9 +10,10 @@ interface PendingDownload {
 }
 
 /** 모바일 셀룰러에서만, 100MiB 초과 파일을 실제 내려받기 전에 확인한다. */
-export function DownloadLink({ href, name, className, children, onStarted }: { href: string; name: string; className?: string; children: ReactNode; onStarted?: () => void }) {
+export function DownloadLink({ href, name, className, children, onStarted, overlayContainer }: { href: string; name: string; className?: string; children: ReactNode; onStarted?: () => void; overlayContainer?: HTMLElement | null }) {
   const [pending, setPending] = useState<PendingDownload | null>(null)
   const { t } = useI18n()
+  const overlay = (content: ReactNode) => overlayContainer ? createPortal(content, overlayContainer) : content
 
   async function requestDownload() {
     if (!isMobileCellularConnection()) {
@@ -33,7 +35,7 @@ export function DownloadLink({ href, name, className, children, onStarted }: { h
   return (
     <>
       <button type="button" onClick={() => void requestDownload()} className={className}>{children}</button>
-      {pending && (
+      {pending && overlay(
         <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/50 p-4" role="presentation">
           <div role="dialog" aria-modal="true" aria-labelledby="large-download-title" className="w-full max-w-sm rounded-lg border border-edge-bright bg-surface-raised p-5 shadow-xl">
             <h2 id="large-download-title" className="text-base font-semibold text-ink">{t('download.largeTitle')}</h2>

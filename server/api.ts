@@ -23,6 +23,7 @@ import { currentRagIndex, ragEnabled, RagDisabledError, RagUnavailableError, val
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
 import { cloneExternalRepository, commitDetail, commitFileDiff, commitWorkingTree, GitWorkbenchError, initializeExternalRepository, initializeRepository, listRepositories, repositoryInfo, repositoryLog, runCommitAction, workingTreeDetail, workingTreeFileDiff } from './gitWorkbench.ts'
 import { evaluateRules, isArchived } from './rules.ts'
+import { registerPdfRoutes } from './pdf.ts'
 import { copyFile, copyPathInto, createDocument, createFolder, renamePath, deletePath, moveFileInto, ConflictError } from './documents.ts'
 import { lintContent } from './lint.ts'
 import { parseTitle } from './frontmatter.ts'
@@ -336,6 +337,25 @@ export function createApiApp() {
     }
     return true
   }
+
+  registerPdfRoutes(app, (req, res, write) => {
+    try {
+      if (req.path === '/fs/pdf') {
+        if (!['manager', 'owner'].includes(authOf(req).role)) { res.status(403).end(); return null }
+        const file = resolveExistingPath(req.query.path)
+        return { file, editable: !fs.realpathSync(file).split(path.sep).includes('archives') }
+      }
+      const relPath = String(req.query.path ?? '')
+      if (!requireGuestView(req, res, relPath) || (write && !requireGuestEdit(req, res, relPath))) return null
+      const project = projectOf(req)
+      const file = resolveProjectPath(project, relPath)
+      const realFile = fs.realpathSync(file), realRoot = fs.realpathSync(projectRoot(project))
+      const relative = path.relative(realRoot, realFile)
+      if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative) || relative.split(path.sep).some(isDeniedSegment)) throw new UnsafePathError('PDF path escapes project')
+      const editable = !realFile.split(path.sep).includes('archives') && (authOf(req).role !== 'guest' || isGuestEditable(project, relPath))
+      return { file: realFile, editable, saved: () => noteFileContentChanged(project, relPath) }
+    } catch (error) { handleError(res, error); return null }
+  })
 
   app.get('/projects', (req, res) => {
     const icons = readProjectIcons()

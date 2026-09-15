@@ -46,6 +46,7 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 목록 들여쓰기 | `Tab`·`Shift+Tab`으로 첫 항목을 포함한 목록 깊이 조절 | [들여쓰기](docs/guides/editor.md#리스트-첫-항목-들여쓰기-----b) |
 | 각주·참고문헌 | `Alt+E`로 각주 추가, 자동 번호 정리, 마커와 References 사이 이동 | [각주](docs/guides/editor.md#각주-alte) |
 | 미디어·시트 보기 | 이미지·오디오·영상·PDF 미리보기, SVG 이미지/텍스트 전환, XLSX·CSV·TSV 읽기, APK·AAB 다운로드 | [파일 형식별 보기](docs/guides/editor.md#미디어와-시트-보기) |
+| PDF 읽기·필기 | PDF 전용 전체화면·반투명 플로팅 도구, 페이지 이동·확대·텍스트 선택, 펜·형광펜·PDF 자체 저장·필기 사본 다운로드 | [PDF 사용법](docs/guides/editor.md#pdf-읽기와-필기) |
 | 자동저장·실행 취소 | 편집한 내용은 자동저장하고 `Ctrl+Z`·`Ctrl+Y`로 실행 취소·다시 실행 | [저장과 이력](docs/guides/editor.md#자동저장커밋파일-이력) |
 | 문서 탭·분할 편집 | 미리보기 탭을 고정하고 탭·손잡이를 끌어 분리·합치기·순서·크기 조절 | [편집 칸](docs/guides/editor.md#편집-칸-문서-탭--화면-분할) |
 | 선택 위치 전달 | 편집기에서 `Ctrl+L`로 파일 경로·선택 줄을 터미널·에이전트·채팅 입력에 넣기 | [경로와 줄 참조](docs/guides/editor.md#ctrll-참조-경로줄) |

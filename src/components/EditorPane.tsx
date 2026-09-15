@@ -395,7 +395,7 @@ export function EditorPane({
     const onScroll = (e: Event) => {
       if (restoringRef.current) return
       const el = e.target
-      if (!(el instanceof HTMLElement) || !el.matches('.editor-root, .cm-scroller')) return
+      if (!(el instanceof HTMLElement) || !el.matches('.editor-root, .cm-scroller, .pdf-scroll')) return
       const tab = activeTabRef.current
       if (tab) saveScroll(project, tab.path, el.scrollTop)
     }
@@ -434,12 +434,12 @@ export function EditorPane({
     }
     const restore = () => {
       if (activeTabRef.current?.path !== tab.path) return stop() // 탭을 바꿨으면 그만둔다
-      const el = host.querySelector<HTMLElement>('.editor-root, .cm-scroller')
+      const el = host.querySelector<HTMLElement>('.editor-root, .cm-scroller, .pdf-scroll')
       if (!el) return
       // 늦은 collab 동기화·이미지·분할 리마운트로 본문 높이가 자랄 때만 다시 맞춘다. 예전처럼
       // 매 프레임 DOM을 읽지 않는다.
       if (el && el.scrollHeight >= top + el.clientHeight && Math.abs(el.scrollTop - top) > 1) el.scrollTop = top
-      const content = el.querySelector('.ProseMirror, .cm-content')
+      const content = el.querySelector('.ProseMirror, .cm-content, .pdf-pages')
       if (el === observedScroll && content === observedContent) return
       resizeObserver?.disconnect()
       observedScroll = el
@@ -627,7 +627,7 @@ export function EditorPane({
               <div className="relative min-h-0 flex-1">
                 {mediaKind(activeTab.path) ? (
                   // key로 파일 전환 시 리마운트 — 이전 파일의 재생 상태가 남지 않게
-                  <MediaViewer key={activeTab.path} path={activeTab.path} kind={mediaKind(activeTab.path)!} />
+                  <MediaViewer key={`${project}:${activeTab.path}`} path={activeTab.path} kind={mediaKind(activeTab.path)!} project={project} identity={authEmail ?? 'guest'} onEdit={() => onPin(activeTab.path)} />
                 ) : isSvg && activeTab.viewMode === 'hotview' ? (
                   <SvgPreview content={activeTab.content} />
                 ) : activeTab.viewMode === 'plain' ? (
