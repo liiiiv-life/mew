@@ -1,3 +1,4 @@
+import type { SidebarCreateRequest } from '../hooks/use-sidebar-create'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TreeNode } from '../api/client'
@@ -671,6 +672,10 @@ export function FileTree({
   accountState,
   onAccountStateChange,
   workspacePath = null,
+  rootPath = '',
+  onDirectoryFocus,
+  createRequest,
+  onCreateRequestHandled,
   selectedPath,
   readOnly,
   canUseCommands = false,
@@ -703,6 +708,11 @@ export function FileTree({
   onAccountStateChange?: (state: TreePersistenceState) => void
   /** 다른 루트 프로젝트로 붙여넣을 때 원본을 다시 찾는 절대경로. */
   workspacePath?: string | null
+  /** Project-relative directory represented by this tree's top level. */
+  rootPath?: string
+  onDirectoryFocus?: (parentPath: string) => void
+  createRequest?: SidebarCreateRequest | null
+  onCreateRequestHandled?: () => void
   selectedPath: string | null
   readOnly: boolean
   canUseCommands?: boolean
@@ -858,6 +868,15 @@ export function FileTree({
     startCreate(parent, 'file')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 신호가 오를 때만 실행하는 이벤트성 이펙트
   }, [newFileSignal])
+
+  const handledCreateRequest = useRef<SidebarCreateRequest | null>(null)
+  useEffect(() => {
+    if (!createRequest || handledCreateRequest.current === createRequest) return
+    handledCreateRequest.current = createRequest
+    startCreate(createRequest.parentPath, createRequest.kind)
+    onCreateRequestHandled?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Each request is consumed once, including StrictMode.
+  }, [createRequest])
 
   // 첫 루트 응답은 저장된 자식 스냅샷 위에 얹어 즉시 보이게 한다. 그 뒤 루트 목록이 다시 오면
   // 파일 조작·watcher 갱신이므로 기존 계약대로 자식 캐시를 버리고 열린 폴더부터 다시 읽는다.
@@ -1028,6 +1047,7 @@ export function FileTree({
 
   function focusNode(path: string, type: 'file' | 'dir') {
     setFocused({ path, type })
+    onDirectoryFocus?.(type === 'dir' ? path : parentOf(path))
   }
 
   function startRename(path: string, type: 'file' | 'dir') {
@@ -1038,6 +1058,7 @@ export function FileTree({
 
   function startCreate(parentPath: string, kind: 'file' | 'folder') {
     if (readOnly) return
+    setQuery('')
     ensureOpenChain(parentPath)
     setEditing({ mode: kind === 'file' ? 'create-file' : 'create-folder', parentPath, value: '' })
   }
@@ -1359,7 +1380,7 @@ export function FileTree({
   }
 
   const rootCreateEditing =
-    (editing?.mode === 'create-file' || editing?.mode === 'create-folder') && editing.parentPath === '' ? editing : null
+    (editing?.mode === 'create-file' || editing?.mode === 'create-folder') && editing.parentPath === rootPath ? editing : null
 
   const ctx: NodeCtx = {
     selectedPath,
@@ -1372,7 +1393,7 @@ export function FileTree({
     directoryChildren,
     loadingDirs,
     dropDir,
-    onSelect,
+    onSelect: (path, opts) => { focusNode(path, 'file'); onSelect(path, opts) },
     toggleDir,
     focusNode,
     startRename,
@@ -1475,7 +1496,7 @@ export function FileTree({
                 depth={0}
                 active={rootMoc.path === selectedPath}
                 presenceColors={presence[rootMoc.path] ?? []}
-                onSelect={onSelect}
+                onSelect={(path, opts) => { focusNode(path, 'file'); onSelect(path, opts) }}
               />
             )}
             {rootCreateEditing && (

@@ -34,6 +34,8 @@ import { AdminSettingsModal } from './components/AdminSettingsModal'
 import { DatabaseListModal } from './components/DatabaseListModal'
 import { SystemStatsModal } from './components/SystemStatsModal'
 import { ScheduleModal } from './components/ScheduleModal'
+import { SidebarCreateButtons } from './components/sidebar-create-buttons'
+import { useSidebarCreate } from './hooks/use-sidebar-create'
 import { FileTree, type TreePersistenceState } from './components/FileTree'
 import { CommandButtonMenu } from './components/CommandButtonMenu'
 import { ProjectIcon } from './components/ProjectIcon'
@@ -374,6 +376,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   // 사이드바 뷰: 탐색기 · 파일명 검색(Ctrl+P) · 파일 내용 검색(Ctrl+Shift+F) · 명령
   const [sidebarView, setSidebarView] = useState<'files' | 'search' | 'content-search' | 'commands'>('files')
   const [projectSearchFocus, setProjectSearchFocus] = useState(0)
+  const sidebarCreate = useSidebarCreate(rootProjectPath, (scope) => {
+    setSidebarView('files')
+    if (scope === 'docs') setDocsExpanded(true)
+    else if (scope.startsWith('subproject:')) setExpandedSubprojects(current => new Set([...current, scope.slice('subproject:'.length)]))
+  })
   // Alt+N 새 파일 신호 — parentPath가 있으면 그 폴더에(에디터 포커스였을 때 활성 문서 폴더),
   // null이면 FileTree가 자기 선택 항목 기준으로 이름 입력을 연다
   const [newFileSignal, setNewFileSignal] = useState<{ n: number; parentPath: string | null }>({ n: 0, parentPath: null })
@@ -1847,10 +1854,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
                 </button>}
+                {!isGuest && <SidebarCreateButtons onCreate={sidebarCreate.create} disabled={!workspaceUiLoaded || sidebarStateLoadedRootRef.current !== rootProjectPath} />}
                 <button
                   type="button"
                   onClick={() => closeWorkspacePanel('sidebar')}
-                  className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+                  className={`${isGuest ? 'ml-auto ' : ''}flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink`}
                   title="사이드바 닫기 (Ctrl+B)"
                   aria-label="사이드바 닫기"
                 >
@@ -1864,6 +1872,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                   {/* Documents와 직계 하위 프로젝트만 큰 접기 단위다. 나머지 루트 내용은 실제 깊이대로 바로 보인다. */}
                   {(isGuest || (workspaceUiLoaded && sidebarStateLoadedRootRef.current === rootProjectPath)) && <FileTree
                     key={`${isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${workspaceUiRevision}`}
+                    {...sidebarCreate.treeProps('root')}
                     tree={isGuest ? docsTree : rootNodes}
                     project={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
                     stateKey={rootProjectPath ? `sidebar-tree:${isGuest ? 'docs' : 'root'}:${rootProjectPath}` : undefined}
@@ -1880,7 +1889,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                         <button
                           type="button"
                           data-path="@docs"
-                          onClick={() => setDocsExpanded((expanded) => !expanded)}
+                          onClick={() => { sidebarCreate.selectDirectory('docs', ''); setDocsExpanded((expanded) => !expanded) }}
                           onContextMenu={(event) => {
                             if (!isOwner) return
                             event.preventDefault()
@@ -1895,6 +1904,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                         {docsExpanded && (
                           <FileTree
                             key={`${DEFAULT_PROJECT}:${rootProjectPath ?? ''}:${workspaceUiRevision}`}
+                            {...sidebarCreate.treeProps('docs')}
                             tree={docsTree}
                             project={DEFAULT_PROJECT}
                             stateKey={rootProjectPath ? `sidebar-tree:docs:${rootProjectPath}` : undefined}
@@ -1909,7 +1919,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                             revealSignal={revealSignal}
                             presence={project === DEFAULT_PROJECT ? tabPresence : {}}
                             onSelect={(path) => openMentionedFile(DEFAULT_PROJECT, path, null)}
-                            onFileCreated={() => { void refreshTree() }}
+                            onFileCreated={(relPath) => { void refreshTree(); openMentionedFile(DEFAULT_PROJECT, relPath, null) }}
                             onFolderCreated={refreshTree}
                             onRenamed={() => refreshTree()}
                             onDeleted={() => refreshTree()}
@@ -1928,7 +1938,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                             <button
                               type="button"
                               data-path={`@subproject:${subproject.path}`}
-                              onClick={() => toggleSubproject(subproject.path)}
+                              onClick={() => { sidebarCreate.selectDirectory(`subproject:${subproject.path}`, subproject.path); toggleSubproject(subproject.path) }}
                               className={`flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm font-semibold hover:bg-surface-raised ${expanded ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
                               title={subproject.name}
                             >
@@ -1945,6 +1955,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                               <div className="bg-surface-raised">
                                 <FileTree
                                   key={`${WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${subproject.path}:${workspaceUiRevision}`}
+                                  {...sidebarCreate.treeProps(`subproject:${subproject.path}`)}
+                                  rootPath={subproject.path}
                                   tree={subprojectTrees[subproject.path] ?? []}
                                   project={WORKSPACE_PROJECT}
                                   stateKey={rootProjectPath ? `sidebar-tree:subproject:${rootProjectPath}:${subproject.path}` : undefined}
