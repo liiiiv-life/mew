@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, screen, systemPreferences, clipboard } from 'electron'
+import { app, BrowserWindow, desktopCapturer, ipcMain, screen, systemPreferences, clipboard, nativeImage } from 'electron'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,6 +8,9 @@ import { createNativeInput } from './input-native.mjs'
 import { parentChannel } from './parent-channel.mjs'
 import { hostFrame } from './host-wire.mjs'
 import { readFrame, MAX_FRAME_BYTES } from './relay-protocol.mjs'
+import { nativeCapture } from './native-capture.mjs'
+import { validCursor } from './cursor-protocol.mjs'
+import { macCaptureLibrary } from './capture-macos.mjs'
 
 const directory = path.dirname(fileURLToPath(import.meta.url))
 const parent = parentChannel()
@@ -18,6 +21,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 let window, config, sources = [], adapter, receiver, rendererReady = false, closing = false, lease = Date.now(), started = false
 let startQueue = Promise.resolve()
+let capture, firstCapture, lastCursor = '', lastAppearance = '', cursorShape, cursorShapeId = 0, captureBusy = false
 let transport = 'direct', inputWindow = Date.now(), inputCount = 0
 const emit = (value) => { if (!parent.output.destroyed) parent.output.write(`MEW_DESKTOP ${JSON.stringify(value)}\n`) }
 function acceptInput(value, reliable) {
@@ -38,6 +42,7 @@ async function stop() {
   clearInterval(watchdog)
   try { receiver?.release() } catch { /* Still close the OS input session below. */ }
   try { await Promise.race([adapter?.close(), new Promise((resolve) => setTimeout(resolve, 500))]) } catch { /* Best effort before terminating the owned process. */ }
+  await capture?.close()
   window?.destroy()
   try { fs.rmSync(temporary, { recursive: true, force: true }) } catch { /* Windows can retain a Chromium handle until exit. */ }
   app.exit(0)
@@ -70,8 +75,50 @@ async function start(id) {
   adapter = await createNativeInput({ platform: process.platform, wayland: !!process.env.WAYLAND_DISPLAY || process.env.XDG_SESSION_TYPE === 'wayland', bounds })
   if (closing) { await adapter.close(); return }
   receiver = createInputReceiver(adapter)
+  // Probe the actual capture before advertising a separate cursor. Startup failure
+  // uses Chromium; a failure after activation ends the session (no invisible cursor).
+  if (process.platform === 'win32') {
+    try {
+      // A display transition can leave a new duplication without any first frame.
+      // Recreate that empty duplication once; unsupported API errors still fall
+      // back immediately, and initialization never becomes an endless retry.
+      for (let attempt = 0; attempt < 2 && !closing; attempt++) {
+        capture = await nativeCapture(bounds)
+        const until = Date.now() + 1000
+        do {
+          firstCapture = await capture.next()
+          if (firstCapture.pixels) break
+          await new Promise(resolve => setTimeout(resolve, 16))
+        } while (!closing && Date.now() < until)
+        if (firstCapture?.pixels) break
+        await capture.close(); capture = null
+      }
+      if (!firstCapture?.pixels) throw new Error('No initial DXGI frame')
+    } catch {
+      await capture?.close(); capture = null; firstCapture = null
+      if (!closing) try {
+        capture = await nativeCapture(bounds, 'gdi'); firstCapture = await capture.next()
+        if (!firstCapture?.pixels) throw new Error('No initial GDI frame')
+      } catch { await capture?.close(); capture = null; firstCapture = null }
+    }
+  }
+  if (process.platform === 'darwin') {
+    try {
+      // Pin the library in the parent isolate while native stop completions drain.
+      macCaptureLibrary((await import('koffi')).default)
+      capture = await nativeCapture({ ...bounds, displayId: Number(source.display_id), scaleFactor: display.scaleFactor }, 'macos')
+      const until = Date.now() + 3000
+      do {
+        firstCapture = await capture.next()
+        if (firstCapture.pixels) break
+        await new Promise(resolve => setTimeout(resolve, 16))
+      } while (!closing && Date.now() < until)
+      if (!firstCapture?.pixels) throw new Error('No initial ScreenCaptureKit frame')
+    } catch { await capture?.close(); capture = null; firstCapture = null }
+  }
+  if (closing) { await capture?.close(); return }
   started = true
-  window.webContents.send('desktop:signal', { type: 'start', source: source.id, iceServers: config.iceServers, relativeOnly: !!adapter.relativeOnly })
+  window.webContents.send('desktop:signal', { type: 'start', source: source.id, iceServers: config.iceServers, relativeOnly: !!adapter.relativeOnly, nativeCapture: !!capture })
 }
 let pending = ''
 parent.input.setEncoding('utf8')
@@ -113,12 +160,43 @@ async function createWindow() {
   const permissions = new Set(['media', 'local-network-access', 'local-network', 'loopback-network'])
   window.webContents.session.setPermissionRequestHandler((contents, permission, callback) => callback(contents === window.webContents && permissions.has(permission)))
   window.webContents.session.setPermissionCheckHandler((contents, permission) => contents === window.webContents && permissions.has(permission))
+  ipcMain.handle('desktop:capture', async event => {
+    if (!owned(event) || !capture || closing || captureBusy) throw new Error('Capture unavailable')
+    captureBusy = true
+    const seq = Math.max(0, receiver.sequence)
+    try {
+      const packet = firstCapture ?? await capture.next(); firstCapture = null
+      if (closing) throw new Error('Capture closed')
+      if (packet.cursor) {
+        const { shape, ...position } = packet.cursor
+        if (shape) {
+          const image = nativeImage.createFromBitmap(Buffer.from(shape.pixels), { width: shape.width, height: shape.height })
+          cursorShape = { width: shape.width, height: shape.height, hotX: shape.hotX, hotY: shape.hotY, png: image.toPNG().toString('base64') }
+        }
+        const value = { type: 'cursor', ...position, seq, width: packet.width, height: packet.height }
+        const identity = JSON.stringify(position), appearance = `${position.shapeId}:${position.visible}`
+        const expected = receiver.point
+        const external = !expected || Math.abs(expected[0] - position.x) > 1 / packet.width || Math.abs(expected[1] - position.y) > 1 / packet.height
+        if (appearance !== lastAppearance || external && identity !== lastCursor) {
+          if (cursorShape && cursorShapeId !== position.shapeId) { value.shape = cursorShape; cursorShapeId = position.shapeId }
+          if (parent.output.writableLength > MAX_FRAME_BYTES * 2) throw new Error('Cursor delivery congested')
+          if (!validCursor(value)) throw new Error('Invalid native cursor')
+          emit(value)
+        }
+        lastCursor = identity; lastAppearance = appearance
+      }
+      return { width: packet.width, height: packet.height, pixels: packet.pixels }
+    } catch {
+      fail(new Error('화면 구성이 바뀌었거나 화면 캡처가 종료됐습니다. 다시 연결해 주세요.'))
+      throw new Error('화면 캡처가 종료됐습니다.')
+    } finally { captureBusy = false }
+  })
   ipcMain.on('desktop:ready', (event) => { if (owned(event)) { rendererReady = true; void listSources().catch(fail) } })
   ipcMain.on('desktop:signal', (event, value) => {
     if (!owned(event) || !value || JSON.stringify(value).length > MAX_SIGNAL_BYTES) return
     if (['offer', 'candidate', 'connected', 'direct-failed'].includes(value.type) && transport === 'direct') emit(value)
     if (value.type === 'direct-failed') receiver?.pause()
-    if (['relay-ready', 'error'].includes(value.type)) emit(value)
+    if (['relay-ready', 'error'].includes(value.type) || transport === 'relay' && value.type === 'relay-status') emit(value)
     if (value.type === 'error' || value.type === 'closed') void stop()
   })
   ipcMain.on('desktop:input', (event, value, reliable) => {

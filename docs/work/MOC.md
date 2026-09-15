@@ -1,7 +1,7 @@
 ---
 title: "진행 작업"
 created: 2026-09-11
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # 진행 작업
@@ -10,6 +10,7 @@ updated: 2026-09-14
 
 ## Current
 
+- [원격 데스크톱 커서·지연 개선 구현](remote-desktop-latency.md)
 - [Zed 에이전트 비교·RAG 모델 상업 이용 검토](agent-model-license-review.md)
 - [오픈소스·클라우드 수익화 라이선스 검토](open-source-cloud-license-review.md)
 - [원격 데스크톱 서버 전송 구현 계획](remote-desktop-server-transport.md)

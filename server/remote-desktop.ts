@@ -8,6 +8,7 @@ import { createDesktopInstaller } from './remote-desktop-install.ts'
 import type { TmuxManager } from '../packages/tmux-term/src/server/tmux.ts'
 import { hostReader } from '../native/remote-desktop/host-wire.mjs'
 import { MAX_FRAME_BYTES } from '../native/remote-desktop/relay-protocol.mjs'
+import { validCursor } from '../native/remote-desktop/cursor-protocol.mjs'
 import { desktopRelay } from './desktop-relay.ts'
 
 export const DESKTOP_WS = '/api/remote-desktop/ws'
@@ -134,6 +135,8 @@ export function attachRemoteDesktopWebSocket(server: Server | Http2SecureServer,
         if (disposed) { child.stdin.end('{"type":"stop"}\n'); child.kill('SIGTERM'); return }
         const read = hostReader(message => {
           if (disposed) return
+          if (message.type === 'cursor') { if (!selected || !validCursor(message) || ws.bufferedAmount > MAX_FRAME_BYTES * 2) throw new Error('Invalid or congested cursor'); send(message); return }
+          if (message.type === 'relay-status') { relay.status(message); return }
           if (message.type === 'sources' && Array.isArray(message.screens)) screens = new Set(message.screens.map((screen: { id: string }) => screen.id))
           if (message.type === 'offer') hasOffer = true
           if (['connected', 'relay-ready'].includes(message.type)) clearTimeout(startDeadline)

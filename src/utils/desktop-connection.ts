@@ -1,3 +1,4 @@
+import { validCursor, type DesktopCursor } from '../../native/remote-desktop/cursor-protocol.mjs'
 import { desktopInput } from './desktop-input.ts'
 import { prepareDesktop } from './desktop-preparation.ts'
 import { desktopDirect } from './desktop-direct.ts'
@@ -14,21 +15,24 @@ export type DesktopEvents = {
   relative: (value: boolean) => void
   stats: (value: string) => void
   installable?: (value: boolean) => void
+  cursor?: (value: DesktopCursor) => void
+  localCursor?: (enabled: boolean) => void
+  pointer?: (x: number, y: number, joystick: boolean | undefined) => void
 }
 
 /** Owns preparation, lease and one-way direct -> server transport selection. */
 export function connectDesktop(events: DesktopEvents, preferredScreen?: string) {
-  const input = desktopInput(message => fail(message)), abort = new AbortController()
+  const input = desktopInput(message => fail(message), (x, y, joystick) => events.pointer?.(x, y, joystick)), abort = new AbortController()
   let socket: WebSocket | undefined, direct: ReturnType<typeof desktopDirect> | undefined
   let relay: Awaited<ReturnType<typeof desktopRelayReceiver>> | undefined
   let closed = false, connected = false, mode: 'direct' | 'switching' | 'server' = 'direct'
   let iceServers: RTCIceServer[] = [], candidates: Record<string, unknown>[] = [], offered = false
   let networkHint = ''
-  let lastBytes = 0, lastTime = 0, motionFrame = 0, lastMotion = 0
+  let lastBytes = 0, lastTime = 0, motionFrame = 0, relayAck = ''
   let deadline: ReturnType<typeof setTimeout> | undefined, directDeadline: ReturnType<typeof setTimeout> | undefined
   const pumpMotion = (now: number) => {
     if (closed) return
-    if (now - lastMotion >= 1000 / 60) { input.flushMotion(); lastMotion = now }
+    input.flushMotion(now)
     motionFrame = requestAnimationFrame(pumpMotion)
   }
   motionFrame = requestAnimationFrame(pumpMotion)
@@ -78,7 +82,7 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
       const now = performance.now(), bytes = relay.bytes
       const rate = lastTime ? `${Math.max(0, (bytes - lastBytes) * 8 / (now - lastTime) / 1000).toFixed(1)} Mbps` : ''
       lastTime = now; lastBytes = bytes
-      events.stats(['서버 연결', rate].filter(Boolean).join(' · '))
+      events.stats(['서버 연결', rate, relayAck].filter(Boolean).join(' · '))
       return
     }
     if (!direct) return
@@ -99,6 +103,18 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     if (closed) return
     if (value.type === 'error') return fail(String(value.message))
     if (value.type === 'config') iceServers = value.iceServers as RTCIceServer[]
+    if (value.type === 'cursor') {
+      if (!validCursor(value)) throw new Error('잘못된 원격 커서입니다.')
+      input.remoteCursor(value); events.cursor?.(value); return
+    }
+    if (value.type === 'relay-status' && mode === 'server') {
+      relay?.status(value)
+      if (typeof value.ackMs === 'number' && Number.isFinite(value.ackMs) && value.ackMs >= 0 && value.ackMs <= 60_000) relayAck = value.idle ? '화면 정지' : `표시 응답 ${Math.round(value.ackMs)} ms`
+      return
+    }
+    if (value.type === 'connected' && mode === 'direct' || value.type === 'relay-ready' && mode === 'server') {
+      input.localCursor(value.localCursor === true); events.localCursor?.(value.localCursor === true)
+    }
     if (value.type === 'network-hint') networkHint = String(value.message)
     if (value.type === 'sources') {
       const screens = value.screens as DesktopScreen[]

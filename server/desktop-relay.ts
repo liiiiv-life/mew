@@ -5,7 +5,7 @@ import { MAX_FRAME_BYTES, readFrame, relayWindow } from '../native/remote-deskto
 /** The server forwards compressed bytes; it never creates a codec or a media file. */
 export function desktopRelay(ws: WebSocket, write: (message: unknown) => void) {
   const window = relayWindow()
-  let active = false, rateAt = Date.now(), rateCount = 0
+  let lastSeq = 0, active = false, rateAt = Date.now(), rateCount = 0
   return {
     get active() { return active },
     start() {
@@ -27,10 +27,16 @@ export function desktopRelay(ws: WebSocket, write: (message: unknown) => void) {
         write({ type: 'relay-input', value, reliable: message.reliable })
       } else throw new Error('Invalid desktop relay message')
     },
+    status(message: Record<string, unknown>) {
+      if (!active || !Number.isSafeInteger(message.seq) || Number(message.seq) !== lastSeq || typeof message.idle !== 'boolean'
+        || !Number.isFinite(message.ackMs) || Number(message.ackMs) < 0 || Number(message.ackMs) > 60_000
+        || !Number.isFinite(message.bitrate) || Number(message.bitrate) < 350_000 || Number(message.bitrate) > 4_000_000) throw new Error('Invalid relay status')
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message))
+    },
     frame(packet: Buffer) {
       if (!active) throw new Error('Unexpected desktop frame')
       const frame = readFrame(packet)
-      window.sent(frame.seq, packet.byteLength)
+      window.sent(frame.seq, packet.byteLength); lastSeq = frame.seq
       if (ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > MAX_FRAME_BYTES * 2) throw new Error('Desktop video connection is congested')
       ws.send(packet, { binary: true })
     },

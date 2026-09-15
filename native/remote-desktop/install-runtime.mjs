@@ -18,7 +18,7 @@ export function installDesktopRuntime({ target, platform = process.platform, run
   for (const notice of ['LICENSE', 'LICENSES.chromium.html']) {
     if (!exists(path.join(electron, 'dist', notice))) throw new Error(`Electron distribution notice is missing: ${notice}. Retry installation without stripping license files.`)
   }
-  log('Mew remote desktop helper installed and verified. The viewer will connect automatically.')
+  log('Electron runtime installed and verified.')
   return 0
 }
 

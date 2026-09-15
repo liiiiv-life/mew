@@ -6,7 +6,7 @@ export async function createDirectSender(stream, message, bridge) {
     connection.onicecandidate = ({ candidate }) => { if (!closed && candidate) bridge.signal({ type: 'candidate', candidate: candidate.toJSON() }) }
     connection.onconnectionstatechange = () => {
       if (closed) return
-      if (connection.connectionState === 'connected') bridge.signal({ type: 'connected', relativeOnly: message.relativeOnly })
+      if (connection.connectionState === 'connected') bridge.signal({ type: 'connected', relativeOnly: message.relativeOnly, localCursor: !!message.localCursor })
       if (['failed', 'disconnected'].includes(connection.connectionState)) bridge.failed()
     }
     const sender = connection.addTrack(video, stream)

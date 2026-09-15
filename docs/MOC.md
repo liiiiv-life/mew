@@ -1,7 +1,7 @@
 ---
 title: "mew 문서 지도"
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-15
 ---
 
 # mew 문서 지도
@@ -18,6 +18,7 @@ updated: 2026-09-11
 - [운영](operations/MOC.md)
 - [제품 스펙](specs/MOC.md)
 - [진행 작업](work/MOC.md)
+- [원격 데스크톱 지연·대역폭 개선 연구 — 기준 조사](research/remote-desktop-latency.md)
 
 ## History / raw
 

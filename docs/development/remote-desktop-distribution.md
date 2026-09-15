@@ -1,7 +1,7 @@
 ---
 title: "원격 데스크톱 배포와 라이선스"
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # 원격 데스크톱 배포
@@ -13,6 +13,11 @@ updated: 2026-09-14
 현재 배포는 Mew 소스와 설치기다. 수신 환경에서 npm 패키지와 공식 Electron 배포본, 필요한 경우 공식 Windows Node ZIP을 다운로드한다. 원격 연결 중에는 추가 외부 서비스를 사용하지 않는다. 이미 설치한 구성 요소로 연결하며 STUN/TURN 기본값은 비어 있다. 최초 설치용 다운로드와 영상 중계 서비스를 구분한다.
 
 서버 전송은 브라우저 표준 API와 기존 Electron 인코더를 사용한다. 추가 npm 미디어 의존성, FFmpeg 명령행 프로그램, WASM 코덱, 유료 API를 넣지 않았다. 직접 전송도 VP8로 제한하여 H.264 우선 협상을 제거했다.
+
+Windows DXGI/GDI 캡처는 기존 Koffi와 OS의 dxgi.dll·d3d11.dll·gdi32.dll·user32.dll·msvcrt.dll·kernel32.dll·ole32.dll을 호출한다. 새 npm 의존성이나 네이티브 컴파일 도구를 추가하지 않는다. worker·cursor·adaptation 모듈도 `HELPER_FILES`에서 설치 복사와 콘텐츠 지문에 포함한다.
+
+macOS는 자체 `capture-macos.m`·헤더를 배포하고 설치 시 Apple Command Line Tools로 dylib를 컴파일·로컬 서명한다. ScreenCaptureKit·AppKit·Foundation·CoreGraphics·CoreMedia·CoreVideo는 호스트 OS 프레임워크를 동적 연결한다. 새 npm 코덱·외부 캡처 바이너리·영상 서비스는 추가하지 않는다. 생성한 dylib와 테스트용 SDK는 저장소에 넣지 않는다. Apple SDK를 제품과 함께 재배포하지 않는다. 설치·지원 조건은 [개발 계약](remote-desktop.md#macos-캡처설치-계약)을 따른다.
+
 
 ## 고지와 확인한 조건
 

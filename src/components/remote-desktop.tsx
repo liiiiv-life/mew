@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@mew/ui'
+import { desktopCursor } from '../utils/desktop-cursor.ts'
 import { connectDesktop, type DesktopScreen, type DesktopState } from '../utils/desktop-connection.ts'
 import { clampView, type DesktopInput } from '../utils/desktop-input.ts'
 import { KEY_CODES } from '../../native/remote-desktop/keys.mjs'
@@ -10,8 +11,10 @@ import './remote-desktop.css'
 
 export function RemoteDesktop({ onClose }: { onClose: () => void }) {
   const root = useRef<HTMLDivElement>(null), stage = useRef<HTMLDivElement>(null), video = useRef<HTMLVideoElement>(null), strip = useRef<HTMLDivElement>(null)
+  const cursorImage = useRef<HTMLImageElement>(null), cursor = useRef<ReturnType<typeof desktopCursor> | null>(null)
   const canvas = useRef<HTMLCanvasElement>(null), surface = useRef<'direct' | 'server'>('direct')
   const [transport, setTransport] = useState<'direct' | 'server'>('direct')
+  const [cursorMode, setCursorMode] = useState<'local' | 'video' | null>(null)
   const session = useRef<ReturnType<typeof connectDesktop> | null>(null)
   const [state, setState] = useState<DesktopState>('preparing'), [message, setMessage] = useState(''), [stats, setStats] = useState('')
   const [screens, setScreens] = useState<DesktopScreen[]>([]), [selected, setSelected] = useState(''), [attempt, setAttempt] = useState(0)
@@ -41,7 +44,7 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
   }, [])
   const clampStrip = useCallback((x: number, y: number) => {
     const area = root.current?.getBoundingClientRect(), bar = strip.current?.getBoundingClientRect(), top = stage.current?.getBoundingClientRect().top ?? 60
-    return { x: Math.max(8, Math.min((area?.width ?? innerWidth) - (bar?.width ?? 264) - 8, x)), y: Math.max(top + 8, Math.min((area?.height ?? innerHeight) - (bar?.height ?? 64) - 16, y)) }
+    return { x: Math.max(8, Math.min((area?.width ?? innerWidth) - (bar?.width ?? 240) - 8, x)), y: Math.max(top + 8, Math.min((area?.height ?? innerHeight) - (bar?.height ?? 128) - 16, y)) }
   }, [])
   useEffect(() => {
     const previousFocus = document.activeElement as HTMLElement | null
@@ -52,21 +55,26 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
     return () => { siblings.forEach((element, i) => { element.inert = inert[i] }); previousFocus?.focus() }
   }, [])
   useEffect(() => {
-    setStats(''); setRelative(false); setInstallable(false); setView({ x: 0, y: 0, scale: 1 })
+    setStats(''); setRelative(false); setInstallable(false); setCursorMode(null); setView({ x: 0, y: 0, scale: 1 })
     setTransport('direct'); surface.current = 'direct'
     const element = video.current
+    const local = desktopCursor(stage.current!, cursorImage.current!, () => surface.current === 'server' ? canvas.current : video.current)
+    cursor.current = local
     const connection = connectDesktop({
+      cursor: value => local.shape(value), localCursor: value => { local.enable(value); setCursorMode(value ? 'local' : 'video') }, pointer: (x, y, joystick) => local.point(x, y, joystick),
       state: (next, detail) => { setState(next); setMessage(detail) },
       screens: (list, chosen) => { setScreens(list); setSelected(chosen) },
       stream: stream => { if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => {}) } },
       frame: frame => {
         const target = canvas.current
         if (!target) return
+        const resized = target.width !== frame.displayWidth || target.height !== frame.displayHeight
         if (target.width !== frame.displayWidth) target.width = frame.displayWidth
         if (target.height !== frame.displayHeight) target.height = frame.displayHeight
         const context = target.getContext('2d', { alpha: false })
         if (!context) throw new Error('원격 화면을 표시할 수 없습니다.')
         context.drawImage(frame, 0, 0)
+        if (resized) local.refresh()
       },
       transport: mode => { surface.current = mode; setTransport(mode); setStats(''); if (mode === 'server' && video.current) video.current.srcObject = null },
       relative: setRelative, stats: setStats, installable: setInstallable,
@@ -77,13 +85,15 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
     }
     const release = () => { try { connection.input.release() } catch { connection.fail('입력 연결이 지연됐습니다. 다시 연결해 주세요.') } }
     window.addEventListener('blur', release); document.addEventListener('visibilitychange', hide)
-    return () => { connection.close(); window.removeEventListener('blur', release); document.removeEventListener('visibilitychange', hide); if (element) element.srcObject = null }
+    return () => { local.close(); cursor.current = null; connection.close(); window.removeEventListener('blur', release); document.removeEventListener('visibilitychange', hide); if (element) element.srcObject = null }
   }, [attempt])
   useEffect(() => {
     const resize = () => { setPosition(previous => previous ? clampStrip(previous.x, previous.y) : null); onView(0, 0, 0) }
     window.addEventListener('resize', resize)
     return () => window.removeEventListener('resize', resize)
   }, [clampStrip, onView])
+
+  useEffect(() => { cursor.current?.refresh() }, [view, transport])
 
   const close = () => { session.current?.close(); onClose() }
   const sendKey = (event: KeyboardEvent, down: boolean) => {
@@ -94,7 +104,7 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
     if (event.target !== stage.current && event.target !== root.current) return
     if (connected && KEY_CODES[event.code]) { event.preventDefault(); if (!event.repeat) input?.key(event.code, down) }
   }
-  const directPoint = (clientX: number, clientY: number) => {
+  const directPoint = (clientX: number, clientY: number, clamp = false) => {
     const element = surface.current === 'server' ? canvas.current : video.current
     const rect = element?.getBoundingClientRect()
     const nativeWidth = surface.current === 'server' ? canvas.current?.width : video.current?.videoWidth
@@ -103,7 +113,7 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
     const ratio = Math.min(rect.width / nativeWidth, rect.height / nativeHeight)
     const width = nativeWidth * ratio, height = nativeHeight * ratio
     const x = (clientX - rect.x - (rect.width - width) / 2) / width, y = (clientY - rect.y - (rect.height - height) / 2) / height
-    if (x < 0 || x > 1 || y < 0 || y > 1) return false
+    if (!clamp && (x < 0 || x > 1 || y < 0 || y > 1)) return false
     input?.point(x, y); return true
   }
   return <>{createPortal(<div ref={root} className="remote-desktop" role="dialog" aria-modal="true" aria-labelledby="desktop-title" tabIndex={-1}
@@ -145,14 +155,15 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
             if (before > 8 && after > 8) onView(0, 0, Math.log(after / before))
           } else onView(previous.x - event.clientX, previous.y - event.clientY, 0)
           touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
-        } else if (event.pointerType !== 'touch') directPoint(event.clientX, event.clientY)
+        } else if (event.pointerType !== 'touch') { cursor.current?.mouse(); directPoint(event.clientX, event.clientY, event.buttons !== 0) }
       }}
-      onPointerUp={event => { touches.current.delete(event.pointerId); if (event.pointerType !== 'touch') input?.button(event.button === 2 ? 4 : event.button === 1 ? 2 : 1, false) }}
+      onPointerUp={event => { touches.current.delete(event.pointerId); if (event.pointerType !== 'touch' && connected) { directPoint(event.clientX, event.clientY, true); input?.button(event.button === 2 ? 4 : event.button === 1 ? 2 : 1, false) } }}
       onPointerCancel={() => { touches.current.clear(); input?.release() }}
       onLostPointerCapture={() => { touches.current.clear(); input?.release() }}
-      onWheel={event => { if (connected) input?.wheel(event.deltaX * (event.deltaMode === 1 ? 40 : 1), event.deltaY * (event.deltaMode === 1 ? 40 : 1)) }}>
-      <video ref={video} autoPlay playsInline muted className="desktop-video" style={{ display: transport === 'direct' ? 'block' : 'none', transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} />
+      onWheel={event => { if (connected && directPoint(event.clientX, event.clientY)) { event.preventDefault(); input?.wheel(event.deltaX * (event.deltaMode === 1 ? 40 : 1), event.deltaY * (event.deltaMode === 1 ? 40 : 1)) } }}>
+      <video ref={video} autoPlay playsInline muted onLoadedMetadata={() => cursor.current?.refresh()} className="desktop-video" style={{ display: transport === 'direct' ? 'block' : 'none', transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} />
       <canvas ref={canvas} className="desktop-video" aria-hidden="true" style={{ display: transport === 'server' ? 'block' : 'none', transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }} />
+      <img ref={cursorImage} className="desktop-cursor" alt="" aria-hidden="true" hidden />
       {!connected && <div className="desktop-connection" role={state === 'error' ? 'alert' : 'status'}>
         <h2>{state === 'error' ? '화면을 연결하지 못했어요' : state === 'paused' ? '연결이 종료됐어요' : '서버 화면 연결 중'}</h2><p>{message}</p>
         {(installable || state === 'error' || state === 'paused') && <div className="desktop-connection-actions">
@@ -162,10 +173,15 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
         {installable && install.error && <p className="desktop-install-error">{install.error}</p>}
       </div>}
     </div>
-    {helpOpen && <aside className="desktop-help"><strong>작은 움직임으로 빠르게 조작</strong><p>좌클릭·휠·우클릭은 가볍게 탭하면 클릭합니다. 바로 밀면 커서 이동 또는 세로 스크롤, 잠깐 꾹 누른 뒤 밀면 버튼을 누른 채 이동합니다.</p><p>화면 이동·확대는 내 화면에만 적용됩니다. 화면을 손가락으로 밀거나 두 손가락으로 확대할 수도 있습니다. 마지막 핸들로 조이스틱 전체를 옮기세요.</p>{relative && <p>이 서버는 조이스틱으로 커서를 이동합니다.</p>}<p>키보드: 화면 선택 후 입력 · F6: 도구로 이동 · Esc: 닫기</p></aside>}
+    {helpOpen && <aside className="desktop-help"><strong>작은 움직임으로 빠르게 조작</strong>{connected && cursorMode && <p data-cursor-mode={cursorMode}>커서 표시: {cursorMode === 'local' ? '이 기기에서 즉시 표시' : '영상에 포함됨. 현재 화면에서는 커서 분리를 사용할 수 없습니다.'}</p>}<p>마우스 모양 아래쪽의 커서 이동 영역을 밀면 커서만 움직입니다. 위쪽 좌클릭·우클릭은 탭하면 클릭하고, 밀면 바로 버튼을 누른 채 드래그합니다. 휠은 밀어서 세로 스크롤하고, 잠깐 꾹 누른 뒤 밀면 중간 버튼으로 드래그합니다.</p><p>화면 이동·확대는 내 화면에만 적용됩니다. 화면을 손가락으로 밀거나 두 손가락으로 확대할 수도 있습니다. 마지막 핸들로 조이스틱 전체를 옮기세요.</p>{relative && <p>이 서버는 조이스틱으로 커서를 이동합니다.</p>}<p>키보드: 화면 선택 후 입력 · F6: 도구로 이동 · Esc: 닫기</p></aside>}
     {pasteOpen && <form className="desktop-paste" onSubmit={event => { event.preventDefault(); input?.paste(text); setText(''); setPasteOpen(false); stage.current?.focus() }}><label htmlFor="desktop-paste">원격 컴퓨터에 붙여넣기</label><textarea id="desktop-paste" value={text} maxLength={4096} onChange={event => setText(event.target.value)} placeholder="전송할 텍스트" /><div><button type="button" onClick={() => { input?.key('Escape', true); input?.key('Escape', false) }}>원격 Esc</button><button type="submit" disabled={!connected || !text}>붙여넣기</button></div></form>}
     <div ref={strip} className="desktop-control-strip" role="group" aria-label="원격 데스크톱 조이스틱" style={position ? { left: position.x, top: position.y, right: 'auto', bottom: 'auto' } : undefined}>
-      {(['left', 'wheel', 'right', 'pan', 'zoom'] as const).map(kind => <DesktopStick key={kind} kind={kind} input={input} disabled={!connected} onView={onView} />)}
+      <div className="desktop-mouse">
+        {(['left', 'wheel', 'right', 'cursor'] as const).map(kind => <DesktopStick key={kind} kind={kind} input={input} disabled={!connected} onView={onView} />)}
+      </div>
+      <div className="desktop-view-controls">
+        {(['pan', 'zoom'] as const).map(kind => <DesktopStick key={kind} kind={kind} input={input} disabled={!connected} onView={onView} />)}
+      </div>
       <button className="desktop-handle" aria-label="조이스틱 위치 이동" title="드래그해서 조이스틱 전체 이동 · 방향키로도 이동" onContextMenu={event => event.preventDefault()}
         onPointerDown={event => { if (handle.current) return; event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); const rect = strip.current!.getBoundingClientRect(); handle.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top } }}
         onPointerMove={event => { const start = handle.current; if (start?.id === event.pointerId) setPosition(clampStrip(start.left + event.clientX - start.x, start.top + event.clientY - start.y)) }}

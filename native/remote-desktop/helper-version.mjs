@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // One manifest owns both installation copies and readiness. Dependencies are locked.
-export const HELPER_FILES = ['LICENSE', 'package.json', 'package-lock.json', 'helper-version.mjs', 'install-runtime.mjs', 'windows-session.ps1', 'main.mjs', 'parent-channel.mjs', 'preload.cjs', 'app.html', 'sender.mjs', 'direct-sender.mjs', 'relay-sender.mjs', 'relay-protocol.mjs', 'host-wire.mjs', 'protocol.mjs', 'keys.mjs', 'input-native.mjs', 'input-portal.mjs']
+export const HELPER_FILES = ['capture-macos.m', 'capture-macos.h', 'capture-macos.mjs', 'install-macos.mjs', 'capture-gdi.mjs', 'cursor-windows.mjs', 'capture-windows.mjs', 'capture-worker.mjs', 'native-capture.mjs', 'native-stream.mjs', 'cursor-protocol.mjs', 'relay-adaptation.mjs', 'LICENSE', 'package.json', 'package-lock.json', 'helper-version.mjs', 'install-runtime.mjs', 'windows-session.ps1', 'main.mjs', 'parent-channel.mjs', 'preload.cjs', 'app.html', 'sender.mjs', 'direct-sender.mjs', 'relay-sender.mjs', 'relay-protocol.mjs', 'host-wire.mjs', 'protocol.mjs', 'keys.mjs', 'input-native.mjs', 'input-portal.mjs']
 export function helperVersion(directory) {
   const hash = createHash('sha256')
   for (const file of HELPER_FILES) hash.update(file).update('\0').update(readFileSync(path.join(directory, file)))

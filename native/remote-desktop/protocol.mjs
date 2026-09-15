@@ -34,7 +34,7 @@ export function createInputReceiver(adapter, now = Date.now) {
       lastAt = now()
       // Restore lost movement at the old button state, then apply transitions at that position.
       if (value.point) {
-        if (value.point[0] !== previous.point?.[0] || value.point[1] !== previous.point?.[1] || value.buttons !== previous.buttons) adapter.moveTo?.(value.point[0], value.point[1])
+        if (value.point[0] !== previous.point?.[0] || value.point[1] !== previous.point?.[1] || value.buttons !== previous.buttons || value.wheelX !== previous.wheelX || value.wheelY !== previous.wheelY) adapter.moveTo?.(value.point[0], value.point[1])
       }
       else if (value.x !== previous.x || value.y !== previous.y) adapter.move(clamp(value.x - previous.x), clamp(value.y - previous.y))
       for (const bit of BUTTONS) if ((value.buttons & bit) && !(previous.buttons & bit)) { appliedButtons |= bit; adapter.button(bit, true) }
@@ -47,6 +47,8 @@ export function createInputReceiver(adapter, now = Date.now) {
   }
   return {
     accept,
+    get sequence() { return previous.seq },
+    get point() { return previous.point },
     release,
     pause() { release(); lastAt = null },
     tick() { if (lastAt !== null && now() - lastAt > INPUT_TIMEOUT) { release(); return true }; return false },

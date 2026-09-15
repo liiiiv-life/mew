@@ -11,6 +11,7 @@ import { createDesktopInstaller, DESKTOP_INSTALL_SESSION } from './remote-deskto
 import { createRemoteDesktopRoutes } from './remote-desktop.ts'
 import { installDesktopRuntime } from '../native/remote-desktop/install-runtime.mjs'
 import { installDesktopHelper } from '../native/remote-desktop/install.mjs'
+import { installMacCapture } from '../native/remote-desktop/install-macos.mjs'
 import { wslPowerShell } from '../native/remote-desktop/wsl-powershell.mjs'
 import { desktopHostSpec, desktopHostStatus } from './remote-desktop-host.ts'
 import { HELPER_FILES, helperVersion, markHelperReady, dependenciesCurrent } from '../native/remote-desktop/helper-version.mjs'
@@ -208,13 +209,53 @@ test('Mac/Linux helper override receives the complete helper before npm ci', asy
   try {
     for (const platform of ['darwin', 'linux']) {
       const target = path.join(directory, platform)
-      let invoked = false
-      const result = installDesktopHelper({ platform, release: '', env: { MEW_DESKTOP_HELPER_DIR: target }, installRuntime: options => { assert.equal(options.target, target); assert.equal(options.platform, platform); return 0 }, run: (command: string, args: string[]) => {
+      let invoked = false, compiled = false
+      const result = installDesktopHelper({ platform, release: '', env: { MEW_DESKTOP_HELPER_DIR: target }, installCapture: options => { assert.equal(options.target, target); compiled = true }, installRuntime: options => { assert.equal(options.target, target); assert.equal(options.platform, platform); return 0 }, run: (command: string, args: string[]) => {
         assert.equal(command, 'npm'); assert.deepEqual(args, ['ci', '--prefix', target, '--omit=dev', '--no-audit', '--no-fund']); invoked = true; return { status: 0 }
       } })
       assert.equal(result, 0); assert.equal(invoked, true)
+      assert.equal(compiled, platform === 'darwin')
       assert.match(await fs.readFile(path.join(target, 'main.mjs'), 'utf8'), /electron/)
       assert.ok(await fs.stat(path.join(target, 'package-lock.json')))
     }
   } finally { await fs.rm(directory, { recursive: true, force: true }) }
+})
+
+test('Mac capture installation compiles the selected CPU, signs and atomically publishes only on success', () => {
+  for (const arch of ['arm64', 'x64']) {
+    const commands: { command: string; args: string[] }[] = [], published: string[][] = [], removed: string[] = []
+    const target = "/fixture/Mew's $(literal) helper"
+    const options = { target, arch, log() {}, exists: () => true, remove: (file: string) => removed.push(file), rename: (from: string, to: string) => { published.push([from, to]) },
+      run: (command: string, args: string[]) => { commands.push({ command, args }); return { status: 0 } } }
+    installMacCapture(options)
+    assert.equal(commands[0].command, '/usr/bin/xcrun')
+    assert.equal(commands[0].args[commands[0].args.indexOf('-arch') + 1], arch === 'x64' ? 'x86_64' : 'arm64')
+    assert.ok(commands[0].args.includes(path.join(target, 'capture-macos.m')))
+    assert.deepEqual(commands.slice(1).map(call => [call.command, ...call.args.slice(0, 2)]), [
+      ['/usr/bin/codesign', '--force', '--sign'], ['/usr/bin/codesign', '--verify', '--strict'],
+    ])
+    assert.deepEqual(published, [[path.join(target, 'capture-macos.dylib.tmp'), path.join(target, 'capture-macos.dylib')]])
+    for (const failure of [0, 1, 2]) {
+      let step = 0; published.length = 0; removed.length = 0
+      assert.throws(() => installMacCapture({ ...options, run: () => ({ status: step++ === failure ? 1 : 0 }) }), /Command Line Tools/)
+      assert.equal(published.length, 0, 'a failed compiler/signature cannot replace the previous library')
+      assert.equal(removed.at(-1), path.join(target, 'capture-macos.dylib.tmp'))
+    }
+    assert.throws(() => installMacCapture({ ...options, exists: () => false }), /생성되지/)
+    assert.throws(() => installMacCapture({ ...options, arch: 'ia32' }), /64비트/)
+  }
+})
+
+test('Mac compiler failure leaves helper unready and a missing capture binary requests preparation', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-mac-install-failure-'))
+  try {
+    await fs.writeFile(path.join(root, '.mew-ready'), 'stale')
+    assert.throws(() => installDesktopHelper({ platform: 'darwin', env: { MEW_DESKTOP_HELPER_DIR: root }, run: () => ({ status: 0 }),
+      installRuntime: () => 0, installCapture: () => { throw new Error('compiler fixture failure') } }), /compiler fixture/)
+    await assert.rejects(fs.access(path.join(root, '.mew-ready')))
+    const result = await desktopHostStatus({ platform: 'mac', env: {}, current: async () => true,
+      getSpec: async () => ({ platform: 'mac', executable: '/fixture/Electron', entry: '/fixture/main.mjs' }),
+      access: async file => { if (String(file).endsWith('capture-macos.dylib')) throw Object.assign(new Error('missing'), { code: 'ENOENT' }) } })
+    assert.equal(result.ready, false); assert.equal(result.installable, true)
+  } finally { await fs.rm(root, { recursive: true, force: true }) }
 })

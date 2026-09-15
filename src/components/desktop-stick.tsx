@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { desktopStick, stickButton, type DesktopInput, type StickKind } from '../utils/desktop-input.ts'
 
-const labels: Record<StickKind, string> = { left: '좌클릭', wheel: '휠', right: '우클릭', pan: '화면 이동', zoom: '확대·축소' }
+const labels: Record<StickKind, string> = { left: '좌클릭', wheel: '휠', right: '우클릭', cursor: '커서 이동', pan: '화면 이동', zoom: '확대·축소' }
 export function DesktopIcon({ kind }: { kind: StickKind | 'handle' | 'close' | 'screen' }) {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {kind === 'close' ? <path d="m6 6 12 12M6 18 18 6" /> : kind === 'screen' ? <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></>
+      : kind === 'cursor' ? <path d="m5 3 14 10-6 1-3 6Z" />
       : kind === 'pan' ? <path d="M12 3v18M3 12h18m-12-6 3-3 3 3m-6 12 3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3" />
         : kind === 'zoom' ? <><circle cx="10" cy="10" r="6" /><path d="m15 15 6 6M7 10h6m-3-3v6" /></>
           : kind === 'handle' ? <path d="M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01" strokeWidth="3" />
@@ -15,22 +16,27 @@ export function DesktopIcon({ kind }: { kind: StickKind | 'handle' | 'close' | '
 export function DesktopStick({ kind, input, disabled, onView }: { kind: StickKind; input: DesktopInput | null; disabled: boolean; onView: (x: number, y: number, zoom: number) => void }) {
   const knob = useRef<HTMLSpanElement>(null), pointer = useRef<{ id: number; x: number; y: number } | null>(null)
   const machine = useRef<ReturnType<typeof desktopStick> | null>(null), frame = useRef(0), button = useRef<HTMLButtonElement>(null)
+  const arrows = useRef(new Set<string>())
   const cancel = useCallback(() => {
     machine.current?.up(true); pointer.current = null; cancelAnimationFrame(frame.current)
+    if (arrows.current.size && (kind === 'left' || kind === 'right')) input?.button(stickButton(kind), false)
+    arrows.current.clear()
     if (knob.current) knob.current.style.transform = ''
     button.current?.removeAttribute('data-held')
-  }, [])
+  }, [input, kind])
   useEffect(() => {
     machine.current = input ? desktopStick(kind, input, onView) : null
     window.addEventListener('blur', cancel); document.addEventListener('visibilitychange', cancel)
     return () => { cancel(); window.removeEventListener('blur', cancel); document.removeEventListener('visibilitychange', cancel) }
   }, [input, kind, onView, cancel])
   useEffect(() => { if (disabled) cancel() }, [disabled, cancel])
-  return <button ref={button} className="desktop-stick" disabled={disabled} aria-label={`${labels[kind]} 조이스틱`}
-    title={`${labels[kind]}${stickButton(kind) ? ' · 탭: 클릭 · 길게 누르기: 드래그' : ' · 밀어서 조작'}`}
+  return <button ref={button} className="desktop-stick" data-kind={kind} disabled={disabled} aria-label={`${labels[kind]} 조이스틱`}
+    title={`${labels[kind]}${kind === 'wheel' ? ' · 탭: 중간 클릭 · 밀기: 스크롤 · 길게 누르기: 드래그' : stickButton(kind) ? ' · 탭: 클릭 · 밀기: 드래그' : ' · 밀어서 조작'}`}
+    onBlur={cancel}
     onContextMenu={event => event.preventDefault()}
     onPointerDown={event => {
       if (pointer.current || !machine.current) return
+      cancel()
       event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId)
       pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY }; machine.current.down(performance.now())
       let last = performance.now()
@@ -49,11 +55,21 @@ export function DesktopStick({ kind, input, disabled, onView }: { kind: StickKin
     onKeyDown={event => {
       if (!event.key.startsWith('Arrow')) return
       event.preventDefault(); event.stopPropagation()
+      if (pointer.current) return
+      if (!arrows.current.size && (kind === 'left' || kind === 'right')) { input?.button(stickButton(kind), true); button.current?.setAttribute('data-held', '') }
+      arrows.current.add(event.key)
       const x = event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0, y = event.key === 'ArrowDown' ? 16 : event.key === 'ArrowUp' ? -16 : 0
       if (kind === 'pan') onView(x, y, 0)
       else if (kind === 'zoom') onView(0, 0, -y / 100)
       else if (kind === 'wheel') input?.wheel(0, y * 4)
       else input?.move(x, y)
+    }}
+    onKeyUp={event => {
+      if (!event.key.startsWith('Arrow')) return
+      event.preventDefault(); event.stopPropagation()
+      if (!arrows.current.delete(event.key) || arrows.current.size) return
+      if (kind === 'left' || kind === 'right') input?.button(stickButton(kind), false)
+      button.current?.removeAttribute('data-held')
     }}
     onClick={event => { if (event.detail === 0 && input && stickButton(kind)) input.click(stickButton(kind)) }}>
     <span className="desktop-stick-ring"><span ref={knob} className="desktop-stick-knob"><DesktopIcon kind={kind} /></span></span>

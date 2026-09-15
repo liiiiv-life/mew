@@ -1,12 +1,12 @@
 ---
 title: "원격 데스크톱 아키텍처와 검증"
 created: 2026-09-12
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # 원격 데스크톱
 
-[개발 지도](MOC.md) · [설치·사용법](../guides/remote-desktop.md) · [배포 라이선스](remote-desktop-distribution.md) · [ADR 0139](../../../.mew/docs/decisions/0139-mew-desktop-server-transport.md)
+[개발 지도](MOC.md) · [설치·사용법](../guides/remote-desktop.md) · [배포 라이선스](remote-desktop-distribution.md) · [ADR 0139](../../../.mew/docs/decisions/0139-mew-desktop-server-transport.md) · [ADR 0144](../../../.mew/docs/decisions/0144-mew-desktop-local-cursor.md)
 
 ## 경계와 수명
 
@@ -38,7 +38,7 @@ Windows 실행 전 설치한 전용 Node → Program Files → PATH 순서로 �
 
 Electron ESM 진입점에서 `await app.whenReady()`를 최상위로 기다리면 모듈 평가 완료와 앱 준비가 서로 기다린다. `createWindow()`를 비동기로 시작하고 진입 모듈 평가는 즉시 끝낸다. 시작 중 부모가 종료되면 준비 후 창을 만들지 않는다.
 
-네이티브 `main.mjs`만 OS 캡처·입력·클립보드 권한을 가진다. 숨겨진 renderer는 sandbox·contextIsolation을 켜고 nodeIntegration을 끄며 고정된 로컬 파일만 읽는다. preload는 시그널링·검증되는 입력만 노출한다. 고정 로컬 renderer에만 media와 Chromium Local Network Access 권한을 허용한다([Electron 권한 계약](https://www.electronjs.org/docs/latest/api/session)). 세션용 임시 Chromium 프로필은 정상 종료 시 제거한다. Windows 파일 핸들 또는 강제 종료 때문에 임시 폴더가 남을 수 있다. 캡처 영상·키 입력·SDP·ICE 자격증명은 파일에 기록하지 않는다.
+네이티브 `main.mjs`만 OS 캡처·입력·클립보드 권한을 가진다. 숨겨진 renderer는 sandbox·contextIsolation을 켜고 nodeIntegration을 끄며 고정된 로컬 파일만 읽는다. preload는 시그널링·검증되는 입력·단일 캡처 요청을 노출한다. 고정 로컬 renderer에만 media와 Chromium Local Network Access 권한을 허용한다([Electron 권한 계약](https://www.electronjs.org/docs/latest/api/session)). 세션용 임시 Chromium 프로필은 정상 종료 시 제거한다. Windows 파일 핸들 또는 강제 종료 때문에 임시 폴더가 남을 수 있다. 캡처 영상·키 입력·SDP·ICE 자격증명은 파일에 기록하지 않는다.
 
 ## 자동 준비와 내부 tmux
 
@@ -58,19 +58,35 @@ WSL 설치기는 PowerShell을 통해 Windows 복사본을 설치한다. `npm.cm
 
 설치 순서는 `[1/3] npm ci`(의존성 지문이 같고 필수 패키지가 있으면 재사용) → `[2/3] Electron 실행 파일 다운로드·압축 해제` → `[3/3] 실행 파일·버전·path.txt 검증`이다. Electron 44는 npm 패키지 설치 시 실행 파일을 받지 않으므로 `install-runtime.mjs`가 설치된 패키지의 `install.js`를 Node로 명시 실행한다([공식 설치 계약](https://github.com/electron/electron/blob/main/docs/tutorial/installation.md#binary-download-step)). WSL/Windows에서는 Windows Node로 같은 검증기를 실행한다. 다운로드 단계는 10분 상한을 두며 오류·비정상 종료·실행 파일 누락·버전 불일치가 있으면 성공으로 기록하지 않는다. OS 화면 캡처나 Electron GUI를 실행하는 검증은 아니다.
 
-준비 상태 API는 경로 탐색/interop 오류와 파일 접근 권한 오류에 재설치를 권하지 않는다. `helper-version.mjs`의 공통 파일 목록과 콘텐츠 해시를 `.mew-ready`에 기록하며 실행 파일 누락·마커 없음·소스 버전 변경이면 자동 준비한다. `.mew-dependencies`는 lockfile·OS·아키텍처 지문이며 코드만 바뀌면 npm 재설치를 생략한다. 성공 마커는 실행 파일 검증 후에만 기록한다. 실행 중인 서버에 로드된 연결 코드 수정은 서버 재시작 후 적용되며, 설치 스크립트 수정은 새 설치 시 읽는다.
+준비 상태 API는 경로 탐색/interop 오류와 파일 접근 권한 오류에 재설치를 권하지 않는다. `helper-version.mjs`의 공통 파일 목록과 콘텐츠 해시를 `.mew-ready`에 기록하며 실행 파일 누락·마커 없음·소스 버전 변경이면 자동 준비한다. `.mew-dependencies`는 lockfile·OS·아키텍처 지문이며 코드만 바뀌면 npm 재설치를 생략한다. 성공 마커는 실행 파일 검증과 Mac 네이티브 모듈 준비 후에만 기록한다. Mac의 dylib가 없으면 다시 준비한다. 실행 중인 서버에 로드된 연결 코드 수정은 서버 재시작 후 적용되며, 설치 스크립트 수정은 새 설치 시 읽는다.
 
 ## 전송과 지연
 
-- 캡처는 Electron desktopCapturer/Chromium이 소유한다. `sender.mjs`는 캡처 수명을, `direct-sender.mjs`와 `relay-sender.mjs`는 각 전송을 맡는다. 뷰어의 `desktop-connection.ts`가 준비·수명·전환 정책을, `desktop-direct.ts`와 `desktop-relay.ts`가 수신을 맡는다.
+배경은 [지연·대역폭 연구](../research/remote-desktop-latency.md), 구현 범위·검증 결과는 [작업 문서](../work/remote-desktop-latency.md)에 있다.
+
+- Windows/WSL은 아래의 DXGI worker를 우선하고 초기화 실패 시 GDI 보조 경로, 그마저 실패하면 Chromium 캡처를 사용한다. macOS는 아래의 ScreenCaptureKit 경로를 우선한다. Linux와 네이티브 초기화 실패 경로는 Electron desktopCapturer/Chromium이 캡처를 소유한다. `sender.mjs`는 캡처 수명을, `direct-sender.mjs`와 `relay-sender.mjs`는 각 전송을 맡는다. 뷰어의 `desktop-connection.ts`가 준비·수명·전환 정책을, `desktop-direct.ts`와 `desktop-relay.ts`가 수신을 맡는다.
 - 직접 연결은 VP8 WebRTC, 최대 1920×1080·60fps·6Mbps다. 연결 실패 또는 offer 수신 후 4초 안에 영상 디코딩이 확인되지 않으면 서버 전송으로 한 번 전환한다. 화면 공유 승인을 기다리는 시간에는 이 4초 타이머를 시작하지 않는다. 이미 연결된 직접 경로가 끊겨도 서버 전송으로 전환한다.
-- 서버 전송은 같은 캡처 track → WebCodecs VP8 인코더 → 이진 IPC → Mew WS → WebCodecs 디코더 → canvas다. 최대 1920×1080·30fps이며 2.5Mbps에서 시작해 표시 ACK 지연에 따라 0.35–4Mbps로 조절한다. 서버는 디코딩·재인코딩하지 않는다. 하드웨어 가속 여부는 Chromium·OS·드라이버에 달려 있다.
-- 인코더 작업 하나, 캡처 버퍼 하나, 전송 중 최대 4프레임을 둔다. 전송 중 바이트가 1MiB 이상이면 다음 인코딩을 중단한다. 한 패킷도 1MiB 이하이므로 허용 직전 프레임까지 포함한 바이트 상한은 2MiB 미만이다. 네이티브 출력·서버 WS에도 별도 상한이 있다. 느린 수신자는 인코딩 전 프레임을 생략하며 이미 인코딩한 delta 프레임을 임의로 버리지 않는다.
-- 브라우저는 디코딩된 최신 프레임 하나만 rAF에서 그린 뒤 누적 ACK를 보낸다. 표시하지 않는 대기 프레임과 사용한 VideoFrame은 즉시 닫는다. 디코딩 오류는 최대 두 번 키 프레임으로 재동기화한다. 송신 ACK 10초·수신 표시 15초 중단 시 종료하고 오래된 영상이 계속 쌓이지 않게 한다. 키 프레임은 시작·요청·약 2초마다 생성한다.
+- 서버 전송은 같은 캡처 track → WebCodecs VP8 인코더 → 이진 IPC → Mew WS → WebCodecs 디코더 → canvas다. 최대 1920×1080·30fps이며 2.5Mbps에서 시작해 표시 ACK의 기준 시간 대비 증가와 전송 중 바이트에 따라 0.35–4Mbps로 조절한다. 서버는 디코딩·재인코딩하지 않는다. 하드웨어 가속 여부는 Chromium·OS·드라이버에 달려 있다.
+- 인코더 작업 하나, 캡처 버퍼 하나와 최신 미인코딩 프레임 하나, 전송 중 최대 4프레임을 둔다. 전송 중 바이트가 1MiB 이상이면 다음 인코딩을 중단한다. 한 패킷도 1MiB 이하이므로 허용 직전 프레임까지 포함한 바이트 상한은 2MiB 미만이다. 네이티브 출력·서버 WS에도 별도 상한이 있다. 느린 수신자는 인코딩 전 프레임을 생략하며 이미 인코딩한 delta 프레임을 임의로 버리지 않는다.
+- 브라우저는 디코딩된 최신 프레임 하나만 rAF에서 그린 뒤 누적 ACK를 보낸다. 표시하지 않는 대기 프레임과 사용한 VideoFrame은 즉시 닫는다. 디코딩 오류는 최대 두 번 키 프레임으로 재동기화한다. 송신 ACK 10초·수신 표시 15초 중단 시 종료한다. 다만 아래의 명시적 유휴 상태는 예외다. 키 프레임은 시작·복구 요청·설정 변경·활성 영상의 약 10초 간격에 생성하며 정지 중 주기적으로 생성하지 않는다.
 - 기본 ICE 설정은 `[]`이며 외부 STUN/TURN 요청은 없다. 서버 전송은 기존 인증 WS URL을 사용하므로 추가 계정·공개 포트가 없다. 기존 프록시/터널 자체가 외부 서비스면 그 경로는 유지한다. 외부 접속은 HTTPS/WSS를 사용하며 TLS를 종료하는 프록시와 Mew 서버가 영상 신뢰 경계에 포함된다.
 - WebCodecs는 보안 컨텍스트와 VP8 디코딩 지원이 필요하다. 런타임 기능 검사로 미지원 브라우저에 안내하며 JPEG 폴링이나 별도 코덱 다운로드로 우회하지 않는다. WebSocket/TCP는 손실 시 후속 영상도 기다리므로 망에 따라 직접 UDP 연결보다 지연이 커질 수 있다.
 - 확대·뷰 이동·조이스틱 위치는 로컬 변환이며 재캡처·재협상하지 않는다.
 - UI의 **직접 연결**·**서버 연결**이 선택한 경로를 표시한다. 직접 경로의 `왕복 … ms`는 candidate pair RTT, Mbps는 수신 바이트 증가량이다. 실제 종단 간 지연이나 보장 수치가 아니며 OS·모바일·망에서 지연과 발열을 별도 측정해야 한다.
+
+### Windows 캡처·로컬 커서·유휴 영상
+
+- `capture-windows.mjs`가 기존 Koffi로 Windows DXGI/D3D11을 호출한다. `capture-worker.mjs`의 별도 Node worker에서 GPU 복사·Map을 수행하여 main의 OS 입력 주입을 막지 않는다. `native-capture.mjs`는 worker 준비/요청당 3초 제한과 요청 하나 상한을 둔다. worker는 프로세스의 로그인 세션·수명을 공유하며 자기 스레드에서 COM 초기화·해제를 수행한다. 정상 종료는 worker에 자원 해제를 요청하고, 1초를 넘으면 종료한다. Chromium 화면 캡처와 동일하게 연결 중 display/system idle을 막는 Windows 스레드 실행 상태를 유지하고 종료 시 해제한다. 수동 절전·잠금은 우회하지 않는다.
+- 선택한 물리 모니터의 bounds와 DXGI output을 맞춘다. 현재 x64/arm64 ABI, 회전 없는 BGRA 화면, 최대 4096×2160 픽셀 수를 지원한다. 회전·포맷·출력·포인터 분리가 지원되지 않거나 초기 프레임을 확보하지 못하면 GDI에서 커서를 분리한 화면을 준비한다. 두 네이티브 경로 모두 실패해야 Chromium으로 복귀한다. 실행 중 capture access lost·포인터 지원 실패 등은 입력을 해제하고 재연결 안내로 종료한다.
+- [ADR 0146](../../../.mew/docs/decisions/0146-mew-desktop-cursor-capture-fallback.md)의 `capture-gdi.mjs`는 로그인 Default desktop에 연결한 worker에서 최대 30Hz로 BitBlt+GdiFlush를 수행한다. 픽셀을 native memcmp로 비교하고 바뀐 화면만 V8 버퍼에 복사·전달한다. 권한·활성 desktop·모니터 bounds가 바뀌면 종료한다. `cursor-windows.mjs`가 GetCursorInfo/GetIconInfo/GetDIBits로 모양·hotspot을 읽으며 생성된 bitmap 핸들은 해제한다. DXGI보다 CPU 읽기·비교 비용이 크고 일부 GPU/보호 콘텐츠는 읽지 못할 수 있다.
+- 커서를 영상에 합성하지 않는다. `LastPresentTime=0`인 포인터 전용 갱신에서는 원시 화면 복사를 생략한다. 실제 화면 변경은 GPU staging→V8 소유 BGRA 버퍼→worker transfer→Electron IPC로 전달한다. Electron의 V8 memory cage 때문에 매핑 메모리를 외부 ArrayBuffer로 직접 노출하지 않는다. CPU readback·IPC 복사가 있으므로 zero-copy는 아니다.
+- `native-stream.mjs`는 원시 프레임을 최대 1080p canvas로 축소하고 수동 갱신 track을 생성한다. 직접 연결과 서버 전송이 이 track을 공유한다. 표시하지 않은 raw 프레임을 큐에 쌓지 않는다. 초기 직접 협상과 서버 전환·복구 요청은 canvas를 다시 그려 정지 화면도 전달한다.
+- `cursor-protocol.mjs`는 모양·hotspot·표시 상태·호스트 좌표·물리 화면 크기·적용 입력 seq를 검증한다. 모양은 최대 128×128, PNG의 실제 IHDR 크기도 확인한다. 모양이 바뀔 때만 PNG를 보내며 입력 주입으로 예상한 좌표와 일치하는 위치 echo는 생략한다. 호스트 실제 마우스·앱의 커서 이동은 별도 보정으로 보낸다. 데이터는 기존 인증 WS를 사용하며 이미지 파일로 저장하지 않는다.
+- CSS로 배경 반전을 표현할 수 없는 monochrome/masked XOR 픽셀은 밝은 중심·어두운 테두리로 근사한다. 일반 alpha 커서는 유지한다. 원격 앱이 화면에 직접 그린 커서는 분리 대상이 아니다.
+- `desktop-cursor.ts`는 모양 하나의 Blob URL을 캐시·회수한다. 마우스는 native CSS cursor, 조이스틱은 rAF에서 변환하는 이미지 레이어를 사용한다. 로컬 이동은 React 렌더·영상 ACK를 기다리지 않는다. 확대·pan·letterbox를 반영하며 늦은 입력 seq의 위치는 적용하지 않는다. 호스트 보정은 마지막 마우스/조이스틱 표시 방식을 바꾸지 않는다. 첫 영상의 metadata 수신 또는 canvas 해상도 확정 시 위치를 다시 계산하여 초기 커서가 숨은 채 남지 않게 한다. 연결 도움말의 커서 표시 상태는 실제 localCursor 협상 결과를 표시한다.
+- 네이티브 캡처가 500ms 이상 정지하고 최근 2초 안에 worker 응답이 왔으며, 미인코딩/인코딩/전송 중 프레임이 없을 때 송신기는 1초마다 `relay-status {seq,idle,ackMs,bitrate}`를 보낸다. 수신기는 해당 seq를 실제로 그린 상태에서 최근 3초 안의 유휴 응답만 인정한다. 입력 heartbeat만으로 영상 정상 상태를 판단하지 않는다. 복구 요청은 정지 중에도 최신 화면을 다시 공급한다.
+- `relay-adaptation.mjs`는 최근 6개 10초 구간의 최소 ACK를 기준으로 쓴다. 기준보다 80ms 이상 증가·전송 중 256KiB 초과·ACK 1초 초과이면 최소 2초 간격으로 25% 낮춘다. 안정 상태는 최소 10초 간격으로 8% 올린다. 긴 기본 RTT만으로 220ms 임계값에 걸려 하한으로 내려가는 문제를 제거한다. 최대 4프레임 window는 유지하므로 높은 RTT에서는 여전히 FPS 상한이 생긴다.
+- 서버의 `표시 응답 … ms`는 인코더 output 이후 전송·디코드·canvas 그리기·ACK 복귀 시간이다. 순수 네트워크 RTT나 click-to-photon이 아니다. `화면 정지`에서는 영상 payload가 없어도 제어·생존 확인 트래픽은 남는다. macOS의 ScreenCaptureKit 경로에도 유휴 생략을 적용한다. Linux와 네이티브 초기화 실패 경로는 기존 캡처를 유지한다.
 
 ### 이진 프로토콜과 신뢰 경계
 
@@ -82,13 +98,15 @@ WSL 설치기는 PowerShell을 통해 Windows 복사본을 설치한다. `npm.cm
 
 ## 입력과 권한
 
+[ADR 0145](../../../.mew/docs/decisions/0145-mew-desktop-mouse-controls.md)에 따라 상단 좌클릭·휠·우클릭과 하단 전체 너비의 커서 전용 패드를 마우스 형태로 묶는다. 화면 이동·확대는 옆의 별도 열에 두며 기존 핸들로 전체를 옮긴다. 좌·우 조이스틱은 3px 이동 문턱에서 첫 이동보다 먼저 button-down을 보내고, up/cancel/blur에서 해제한다. 커서 패드는 탭·hold 모두 버튼을 보내지 않는다. 휠만 일반 세로 스크롤과 320ms hold 후 중간 버튼 드래그를 구분한다. 방향키 드래그도 모든 방향키 해제·blur·비활성화에서 button-up을 보낸다.
+
 `desktop-input.ts`와 네이티브 `protocol.mjs`의 v1 스냅샷은 누적 이동/휠 카운터, 전체 버튼 비트셋(left=1, middle=2, right=4), 키 목록, 선택적 정규화 절대 위치를 담는다. 소수 이동을 누적한 뒤 정수로 전송해 미세 입력을 보존한다.
 
 - `motion`: unordered, maxRetransmits=0. 송신 큐가 2KB를 넘으면 건너뛰고 다음 누적 스냅샷으로 거리를 복구한다.
-- 이동·휠·절대 포인터는 공통 프레임 펌프에서 최대 초당 60개로 합친다. 고주사율 화면·여러 조이스틱·고속 마우스도 입력 메시지를 과도하게 보내지 않는다. 버튼·키 전환은 프레임을 기다리지 않는다.
+- 로컬 커서가 활성화된 일반 포인터 이동은 최대 초당 30개, 드래그·휠·기존 캡처 입력은 최대 60개로 합친다. 마지막 이동/휠 이후 약 70ms의 첫 rAF에서 reliable 스냅샷으로 유실을 복구한다. 고주사율 화면·여러 조이스틱·고속 마우스도 입력 메시지를 과도하게 보내지 않는다. 버튼·키 전환은 프레임을 기다리지 않는다.
 - `control`: ordered/reliable. 버튼·키 전환과 250ms heartbeat마다 epoch를 올린다. 큐가 64KB를 넘으면 연결을 종료한다.
 - seq로 오래된 패킷을 버린다. 미래 epoch의 motion은 최신 하나만 보관하고 해당 reliable 전환 뒤 적용한다. 빠른 이동 패킷이 클릭 down/up을 추월해 클릭 자체를 없애지 못한다.
-- 유실된 마지막 이동은 기존 버튼 상태로 먼저 복원하고 새 버튼 전환을 적용한다. 절대 클릭도 최신 위치에서 발생한다.
+- 유실된 마지막 이동은 기존 버튼 상태로 먼저 복원하고 새 버튼 전환을 적용한다. down/up/wheel 모두 UI 이벤트의 좌표를 먼저 계산하고, 놓는 위치가 화면 밖이면 가장자리로 제한한다. 휠도 같은 좌표를 동반하며 수신기가 위치를 적용한 뒤 처리한다.
 - blur·pointercancel·lost capture·닫기에서 해제한다. 백그라운드 진입은 영상도 종료한다. 네이티브 입력 heartbeat가 1.5초 끊기면 해제 후 종료한다.
 - 서버는 3초마다 인증과 WS 생존을 검사한다. 계정·역할·세션 무효화는 연결을 종료한다. 보조 앱은 부모 lease가 8초 없거나 stdin이 닫히면 종료한다. 정상 종료가 지연되면 자신이 띄운 자식만 종료한다. 이전 자식 종료 전 새 제어권을 주지 않는다.
 - 입력 초당 240개, 협상 메시지 3초당 128개 및 수신 WS 메시지 128KB 상한, Wayland 입력 대기 32개 상한을 둔다. 서버 전송의 입력·프레임 ACK는 별도 초당 240개 제한을 적용한다.
@@ -100,7 +118,7 @@ WSL 설치기는 PowerShell을 통해 Windows 복사본을 설치한다. `npm.cm
 
 | 호스트 | 캡처·실행 | 입력 |
 | --- | --- | --- |
-| macOS | 로그인한 Mac의 Electron + 화면 기록 권한 | CoreGraphics·손쉬운 사용 권한. modifier flags와 중간 버튼 드래그 유지 |
+| macOS | 로그인한 Mac의 ScreenCaptureKit + 화면 기록 권한; 초기 실패 시 Chromium | CoreGraphics·손쉬운 사용 권한. modifier flags와 중간 버튼 드래그 유지 |
 | Linux X11 | 같은 DISPLAY/Xauthority의 Electron | libX11·libXtst/XTest. 누적 휠을 notch로 변환 |
 | Linux Wayland | Chromium/PipeWire 화면 공유 승인 | D-Bus RemoteDesktop portal의 별도 입력 승인. XWayland 주입 폴백 없음 |
 | WSL | Windows LocalAppData의 Electron, WSL interop | Windows SendInput·실제 픽셀 커서 위치. Linux 화면 사용 안 함 |
@@ -109,10 +127,23 @@ Wayland 캡처와 입력 portal의 ScreenCast stream이 같지 않아 절대 좌
 
 붙여넣기는 사용자가 제출한 최대 4096자만 서버 클립보드에 쓰고 Ctrl+V/Mac Cmd+V를 보낸다. 양방향 클립보드 동기화·오디오·파일 전송은 구현하지 않는다. 로컬 Esc는 닫기이며 도구의 원격 Esc로 키를 전달한다.
 
+## macOS 캡처·설치 계약
+
+[ADR 0148](../../../.mew/docs/decisions/0148-mew-macos-local-cursor.md)에 따라 macOS 12.3 이상에서 자체 `capture-macos.m` 모듈을 사용한다. 별도 서비스·계정·공개 포트를 추가하지 않는다.
+
+- `install-macos.mjs`가 helper 준비 중 `/usr/bin/xcrun --sdk macosx clang`으로 현재 Node CPU(Apple Silicon arm64 또는 Intel x64)의 dylib를 컴파일한다. Apple Command Line Tools와 ScreenCaptureKit을 포함한 SDK가 필요하다. `codesign`의 로컬 ad-hoc 서명·검증 후 임시 파일을 원자적으로 교체한다. 컴파일/서명 실패는 준비 실패이며 `.mew-ready`를 만들지 않는다. CLT 설치·업데이트 후 다시 연결한다. 바이너리는 저장소 밖 설치 산출물이며 소스·헤더·설치 스크립트는 `HELPER_FILES`에 포함한다.
+- `capture-macos.mjs`가 기존 Koffi로 작은 C ABI를 호출한다. ScreenCaptureKit 비동기 콜백은 Objective-C 내부 queue에서 처리한다. Electron main도 라이브러리를 유지하여 worker 종료 후 도착한 native stop completion이 해제된 코드에 접근하지 않게 한다. 시작 도중 닫기는 시작 completion 이후 stream까지 종료한다.
+- Electron의 `display_id`를 `CGDirectDisplayID`와 맞추고 CoreGraphics의 논리 bounds를 확인한다. 화면은 배율을 반영하되 OS 변환 단계에서 최대 1920×1080의 짝수 크기·60Hz·BGRA로 제한한다. 입력·포인터 정규화는 논리 좌표를 사용하므로 Retina 및 음수 원점의 두 번째 화면에서 픽셀 배율을 중복 적용하지 않는다. 회전 화면도 화면 bounds의 종횡비를 사용한다.
+- `SCStreamConfiguration.showsCursor = NO`, `queueDepth = 3`으로 화면에서 커서를 제외한다. native queue는 최신 미소비 CVPixelBuffer 하나만 보관하고 이전 surface를 해제한다. worker가 요청하면 행 stride를 반영해 이전 화면과 비교하고 변경분이 있을 때만 V8 소유 버퍼에 전체 화면을 복사한다. 유휴 상태는 픽셀 없이 응답하며 기존 생성 track·VP8·WebRTC와 ACK/idle 프로토콜을 공유한다. GPU→CPU 복사는 남으며 zero-copy나 하드웨어 VP8 인코딩을 보장하지 않는다.
+- `CGEventGetLocation`의 전역 위치와 `CGCursorIsVisible`을 읽고 AppKit main queue에서 `NSCursor.currentSystemCursor`의 모양·hotspot을 최대 30Hz 확인한다. 이미지는 논리 크기의 premultiplied BGRA, 최대 128×128로 제한하고 변경 시에만 PNG로 전송한다. 현재 OS에서 시스템 모양 조회가 nil이면 시스템 화살표를 사용한다. `currentSystemCursor`와 `CGCursorIsVisible`은 deprecated 공개 API이며 최신 macOS에서 커서 모양·숨김 상태 실기 확인이 필요하다. 비공개 API나 전역 hide/show는 쓰지 않는다.
+- 첫 화면을 확보하기 전에는 커서 모양을 소비하지 않는다. 약 3초의 초기 프레임 probe에 성공해야 로컬 커서를 켠다. 초기 API/권한/화면 실패는 Chromium 영상 커서로 복귀하며 도움말에 실제 모드를 표시한다. 실행 중 stream 종료·blank/suspended/stopped·권한/활성 사용자/디스플레이 bounds·화면 크기·회전 변화는 오류로 종료한다. 연결 중 idle sleep을 막는 activity는 close 때 해제한다. 잠금·수동 절전·로그인 전 화면은 지원하지 않는다.
+
+근거: [ScreenCaptureKit 소개](https://developer.apple.com/videos/play/wwdc2022/10156/), [프레임 상태](https://developer.apple.com/documentation/screencapturekit/scframestatus), [커서 제외](https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/showscursor), [시스템 커서](https://developer.apple.com/documentation/appkit/nscursor/currentsystem).
+
 ## 검증
 
 ```bash
-MEW_DATA_DIR=/tmp/mew-desktop-test-data node --test --test-concurrency=1 server/remote-desktop.test.ts server/remote-desktop-relay.test.ts server/remote-desktop-bridge.test.ts server/remote-desktop-install.test.ts server/remote-desktop-native.test.ts server/remote-desktop-ui.test.ts src/utils/desktop-input.test.ts src/utils/desktop-preparation.test.ts server/remote-desktop-windows.test.ts
+MEW_DATA_DIR=/tmp/mew-desktop-test-data node --test --test-concurrency=1 server/remote-desktop.test.ts server/remote-desktop-relay.test.ts server/remote-desktop-bridge.test.ts server/remote-desktop-install.test.ts server/remote-desktop-native.test.ts server/remote-desktop-latency.test.ts server/remote-desktop-ui.test.ts src/utils/desktop-input.test.ts src/utils/desktop-preparation.test.ts server/remote-desktop-windows.test.ts
 npx tsc -b
 npm run lint
 ```
@@ -121,10 +152,11 @@ npm run lint
 - 서버: Origin·역할·임시 비밀번호, OS/WSL 경로, 메시지 검증, 단일 제어권, 화면 교체, 권한 회수·자식 종료. 가짜 stdio 프로세스를 사용한다.
 - OS: Windows INPUT 레이아웃, Mac modifier/middle drag, X11 notch, Wayland 승인 응답 경합·입력 순서·종료. FFI/DBus는 모의 객체다.
 - Windows bridge: 세션 0/로그인 세션 실행 인자·방화벽 차단 안내·오류의 WS 전달을 검사한다. `MEW_DESKTOP_TEST_WINDOWS_NODE`에 Windows `node.exe` 경로를 지정하면 실제 임시 작업·Electron 실행·화면 목록·인증 파이프·부모 종료·Electron 이벤트 루프 정지 시 강제 종료 테스트를 실행한다. 실제 Windows 로그인 세션에서 화면 목록이 나오는 것까지 확인했다. 픽셀이나 입력은 기록하지 않는다.
-- Windows 영상 통합 검사는 추가로 `MEW_DESKTOP_TEST_WINDOWS_VIDEO=1`을 지정한다. 직접 후보를 사용할 수 없는 뷰어와 빈 ICE 설정으로 실제 Windows 로그인 화면의 서버 전송·연속 10프레임 디코딩·부모 종료를 검사했다. 화면 파일·키 입력을 만들지 않는다. 설치본을 덮지 않고 별도 임시 helper 폴더와 Windows junction으로 기존 런타임을 참조하고 종료 후 제거한다. 실패 시 후보 유형·프로토콜·요청/응답 수만 출력하며 IP·포트·SDP·자격증명은 출력하지 않는다. Windows 실기 테스트는 `--test-concurrency=1`로 실행한다.
+- Windows 영상 통합 검사는 추가로 `MEW_DESKTOP_TEST_WINDOWS_VIDEO=1`을 지정한다. 직접 후보를 사용할 수 없는 뷰어와 빈 ICE 설정으로 실제 Windows 로그인 화면의 서버 전송·디코딩·부모 종료를 검사했다. DXGI 경로는 정지 화면에서 연속 프레임을 요구하지 않는다. 초기 프레임이 없는 duplication은 약 1초 대기 후 한 번 재생성하고, 다시 실패하면 GDI 보조 경로를 준비한다. 검증 결과와 적용 범위는 [진행 문서](../work/remote-desktop-latency.md)를 따른다. `MEW_DESKTOP_TEST_WINDOWS_LOCAL_CURSOR=1`을 함께 지정하면 네이티브 로컬 커서 활성화·실제 이미지 디코드·보이는 픽셀·DOM 표시와 첫 표시 후 계속 연결됨을 검사한다. `MEW_DESKTOP_TEST_WINDOWS_GDI=1`은 임시 복사본에서 DXGI 실패, `=timeout`은 초기 프레임 부재를 모사해 실제 Windows GDI 보조 경로를 검사한다. 커서 위치 검사는 뷰어 DOM만 이동하며 Windows 입력을 보내지 않는다. 화면 파일·키 입력을 만들지 않는다. 설치본을 덮지 않고 별도 임시 helper 폴더와 Windows junction으로 기존 런타임을 참조하고 종료 후 제거한다. 실패 시 후보 유형·프로토콜·요청/응답 수만 출력하며 IP·포트·SDP·자격증명은 출력하지 않는다. Windows 실기 테스트는 `--test-concurrency=1`로 실행한다.
 - 서버 전송 프로토콜: 이진 내용과 UTF-8/pipe 청크 경계, 과대 프레임·버전·차원·timestamp, 순서·위조/중복 ACK·프레임/바이트 상한, 잘못된 입력·전환 전 입력, 실제 WS의 영상 전달·권한 회수·부모 종료를 검사한다.
 - 자동 준비: 설치 생략·한 번 시작·완료 후 재검사·중단/실패에서 반복 금지·닫을 때 폴링 취소, 코드 변경과 의존성 재사용 지문을 검사한다.
+- Mac 캡처: 크기/Retina/음수 원점, 초기 프레임 전 커서 보존, 유휴 픽셀 생략, 커서만 변경, transfer 이후 버퍼 소유권, 실패·중복 close를 모의 FFI로 검사한다. Apple SDK 15.5와 Clang으로 arm64/x86_64 Mach-O 객체 컴파일을 검사했다. 이는 macOS 링크·실행·권한·영상 실측을 대신하지 않는다. 실제 Mac에서는 설치된 런타임과 화면 기록 권한을 준비한 뒤 `MEW_DESKTOP_TEST_MACOS_CAPTURE=1 node --test server/remote-desktop-macos.test.ts`로 임시 helper의 native 캡처·별도 커서 PNG 디코드·연속 응답·종료를 검사한다. 입력은 주입하지 않고 화면/커서 파일을 저장하지 않는다.
 - 설치: 역할 제한·고정 명령·중복 시작·실패 출력 보존·재시도·상태 복구, 따옴표/공백 경로의 셸 실행, WSL PowerShell 인자·interop 실패·사용자 지정 설치 경로. 실제 npm 설치 대신 임시 스크립트와 모의 프로세스를 사용한다. UI에서는 터미널 렌더러를 대체하고 실제 팝업의 레이어·입력·닫기·재열기·실패/완료를 검증한다.
-- Chromium UI: 실제 sender와 VP8 인코딩/디코딩을 사용해 직접 경로 및 후보 차단 후 서버 전송을 모두 검사한다. 화면은 합성 canvas다. 터치 탭·hold/cancel·5개 컨트롤·핸들·붙여넣기·모바일/데스크톱 배치·재접속·Esc·백그라운드 종료, 누른 키를 해제하는 연결 중 전환, 캡처 재사용, ACK 정지 시 프레임 상한과 복구, VP8 미지원 안내를 확인한다. Chromium이 없으면 skip한다.
+- Chromium UI: 실제 sender와 VP8 인코딩/디코딩을 사용해 직접 경로 및 후보 차단 후 서버 전송을 모두 검사한다. 네이티브 캡처 입력을 모사한 실제 WebCodecs 경로에서 로컬 커서·16초 정지 중 추가 영상 0프레임/0바이트·연결 유지·정지 중 키 프레임 복구와 갱신 재개를 확인한다. 화면은 합성 canvas다. 터치 탭·즉시 드래그·hold/cancel·6개 컨트롤·핸들·붙여넣기·모바일/데스크톱 배치·재접속·Esc·백그라운드 종료, 누른 키를 해제하는 연결 중 전환, 캡처 재사용, ACK 정지 시 프레임 상한과 복구, VP8 미지원 안내를 확인한다. Chromium이 없으면 skip한다.
 
 **나머지 실기 검증은 별도다.** Mac 바이너리·OS 권한, X11/Wayland 실제 데스크톱 주입, Safari/iOS 실물, 사용자의 외부 모바일 망, Retina/혼합 DPI·다중 모니터, 실제 지연·대역폭은 자동 테스트만으로 검증됐다고 간주하지 않는다. 각 OS에서 로그인·권한 승인·커서/휠/세 버튼 드래그·한글 붙여넣기·닫은 뒤 해제·권한 회수를 확인해야 한다. 잠금 화면·로그인 전·Windows UAC secure desktop 지원은 범위 밖이다.

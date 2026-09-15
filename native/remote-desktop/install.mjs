@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url'
 import { mkdirSync, copyFileSync, rmSync } from 'node:fs'
 import { wslPowerShell } from './wsl-powershell.mjs'
 import { installDesktopRuntime } from './install-runtime.mjs'
+import { installMacCapture } from './install-macos.mjs'
 import { HELPER_FILES, markHelperReady, dependenciesCurrent } from './helper-version.mjs'
 
 const entry = fileURLToPath(import.meta.url)
-export function installDesktopHelper({ platform = process.platform, release = os.release(), env = process.env, run = spawnSync, directory = path.dirname(entry), resolvePowerShell = wslPowerShell, installRuntime = installDesktopRuntime } = {}) {
+export function installDesktopHelper({ platform = process.platform, release = os.release(), env = process.env, run = spawnSync, directory = path.dirname(entry), resolvePowerShell = wslPowerShell, installRuntime = installDesktopRuntime, installCapture = installMacCapture } = {}) {
   const wsl = platform === 'linux' && /microsoft/i.test(release)
   const target = env.MEW_DESKTOP_HELPER_DIR || (wsl ? undefined : directory)
   if (target && !(wsl ? /^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)/.test(target) : path.isAbsolute(target))) throw new Error('MEW_DESKTOP_HELPER_DIR에는 호스트의 절대 경로가 필요합니다. WSL에서는 Windows 경로를 사용하세요.')
@@ -37,7 +38,11 @@ export function installDesktopHelper({ platform = process.platform, release = os
   if (result.status !== 0) return result.status ?? 1
   if (wsl || platform === 'win32') return 0
   const code = installRuntime({ target, platform })
-  if (code === 0) markHelperReady(target)
+  if (code === 0) {
+    if (platform === 'darwin') installCapture({ target })
+    markHelperReady(target)
+    console.log('Mew remote desktop helper installed and verified. The viewer will connect automatically.')
+  }
   return code
 }
 

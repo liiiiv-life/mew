@@ -88,6 +88,7 @@ export async function desktopHostStatus({ platform = desktopPlatform(), env = pr
   try {
     await access(spec.executable)
     if (platform !== 'wsl') await access(spec.entry)
+    if (platform === 'mac') await access(path.join(path.dirname(spec.entry), 'capture-macos.dylib'))
     if (platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY) return { platform, ready: false, message: '서버에 로그인한 Linux 데스크톱이 필요합니다. 데스크톱 세션에서 mew를 실행해 주세요.' }
     if (!await current(spec)) return { platform, ready: false, installable: platform !== 'windows', message: '원격 데스크톱 구성 요소를 업데이트합니다.' }
     return { platform, ready: true }

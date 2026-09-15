@@ -30,13 +30,29 @@
 .desktop-paste textarea::placeholder { color: var(--color-ink-secondary); }
 .desktop-paste > div { display: flex; justify-content: space-between; margin-top: 8px; }
 .desktop-paste button { padding: 6px 10px; background: var(--color-surface-raised); border-radius: 4px; }
-.desktop-control-strip { position: absolute; z-index: 5; right: max(12px,env(safe-area-inset-right)); bottom: max(16px,env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 0; padding: 6px 4px; border-radius: 12px; background: var(--color-surface); box-shadow: 0 6px 24px #0006; touch-action: none; user-select: none; -webkit-user-select: none; }
+.desktop-control-strip { position: absolute; z-index: 5; right: max(12px,env(safe-area-inset-right)); bottom: max(16px,env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 8px; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
 .desktop-stick { width: 44px; height: 52px; padding: 0; display: flex; align-items: center; flex-direction: column; gap: 3px; touch-action: none; background: transparent; border: 0; border-radius: 6px; }
 .desktop-stick-ring { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--color-edge-bright); border-radius: 50%; }
 .desktop-stick-knob { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--color-surface-raised); }
 .desktop-stick[data-held] .desktop-stick-knob { background: var(--color-ink); color: var(--color-surface-deep); }
 .desktop-stick-label { white-space: nowrap; color: var(--color-ink-secondary); font-size: 9px; line-height: 13px; }
-.desktop-handle { width: 36px; height: 52px; display: grid; place-items: center; touch-action: none; background: transparent; border: 0; border-radius: 6px; cursor: grab !important; }
+.desktop-handle { width: 44px; height: 44px; display: grid; place-items: center; touch-action: none; background: var(--color-surface); border: 0; border-radius: 8px; cursor: grab !important; }
 .desktop-handle:active { cursor: grabbing !important; }
 @media (max-width: 600px) { .desktop-toolbar { gap: 0; } .desktop-title { width: 100%; height: 28px; } .desktop-status { margin-left: auto; } .desktop-tools { width: 100%; justify-content: flex-end; } .desktop-tools select { margin-right: auto; max-width: 110px; } .desktop-tools button { min-height: 36px; padding: 0 8px; } .desktop-help,.desktop-paste { top: calc(88px + env(safe-area-inset-top)); } }
 @media (max-height: 450px) { .desktop-title { width: auto; } .desktop-tools { width: auto; } .desktop-help,.desktop-paste { top: calc(60px + env(safe-area-inset-top)); } }
+
+.desktop-cursor { position: absolute; top: 0; left: 0; pointer-events: none; user-select: none; }
+
+.desktop-mouse { display: grid; grid-template-columns: repeat(3, 44px); background: var(--color-surface); border-radius: 24px 24px 44px 44px; box-shadow: 0 6px 24px #0006; }
+.desktop-mouse > .desktop-stick { height: 56px; justify-content: center; border-radius: 0; border-bottom: 1px solid var(--color-edge-bright); }
+.desktop-mouse > .desktop-stick[data-kind="left"] { border-top-left-radius: 24px; }
+.desktop-mouse > .desktop-stick[data-kind="right"] { border-top-right-radius: 24px; }
+.desktop-mouse > .desktop-stick[data-kind="wheel"] { border-inline: 1px solid var(--color-edge-bright); }
+.desktop-mouse .desktop-stick-ring { border: 0; }
+.desktop-mouse .desktop-stick-knob { background: transparent; }
+.desktop-mouse > .desktop-stick[data-kind="cursor"] { grid-column: 1 / -1; width: 100%; height: 64px; border: 0; border-radius: 0 0 44px 44px; }
+.desktop-mouse > .desktop-stick[data-kind="cursor"] .desktop-stick-ring { width: 48px; }
+.desktop-mouse .desktop-stick[data-held] { background: var(--color-surface-raised); }
+.desktop-mouse .desktop-stick[data-held] .desktop-stick-knob { background: var(--color-ink); color: var(--color-surface-deep); }
+.desktop-view-controls { display: flex; flex-direction: column; gap: 4px; padding: 6px 4px; border-radius: 12px; background: var(--color-surface); box-shadow: 0 6px 24px #0006; }
+.desktop-view-controls .desktop-stick { justify-content: center; }

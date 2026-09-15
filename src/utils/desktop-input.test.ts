@@ -65,9 +65,12 @@ for (const [kind, bit] of [['left', 1], ['wheel', 2], ['right', 4]] as const) {
     stick.down(0); stick.move(20, 20, 10)
     const visual = stick.tick(30, .016)
     assert.ok(Math.hypot(visual.x, visual.y) <= STICK_TRAVEL + 1e-9)
-    assert.equal(events[0][0], kind === 'wheel' ? 'wheel' : 'move')
+    assert.equal(events[0][0], kind === 'wheel' ? 'wheel' : 'button')
     if (kind === 'wheel') assert.equal(events[0][1], 0)
-    stick.tick(1000, .016); stick.up(); assert.ok(!events.some(event => event[0] === 'button' || event[0] === 'click'))
+    else { assert.deepEqual(events[0], ['button', bit, true]); assert.equal(events[1][0], 'move') }
+    stick.tick(1000, .016); stick.up()
+    if (kind === 'wheel') assert.ok(!events.some(event => event[0] === 'button' || event[0] === 'click'))
+    else assert.deepEqual(events.filter(event => event[0] === 'button'), [['button', bit, true], ['button', bit, false]])
     events.length = 0
     stick.down(0); stick.move(20, 15, HOLD_MS + 1); stick.tick(350, .016); stick.up()
     assert.deepEqual(events[0], ['button', bit, true]); assert.equal(events[1][0], 'move'); assert.deepEqual(events.at(-1), ['button', bit, false])
@@ -76,6 +79,16 @@ for (const [kind, bit] of [['left', 1], ['wheel', 2], ['right', 4]] as const) {
     stick.down(0); stick.tick(350, .016); stick.up(true); assert.deepEqual(events, [['button', bit, true], ['button', bit, false]])
   })
 }
+
+test('cursor pad only moves, including taps, long holds and cancellation', () => {
+  const movements: number[][] = [], input = { button() { assert.fail('cursor pad pressed a button') }, click() { assert.fail('cursor pad clicked') }, wheel() { assert.fail('cursor pad scrolled') }, move: (...args: number[]) => movements.push(args) }
+  const stick = desktopStick('cursor', input, () => assert.fail('cursor pad changed the view'))
+  stick.down(0); stick.up()
+  stick.down(0); stick.tick(1000, .016); stick.move(20, -20, 1010)
+  assert.equal(stick.tick(1020, .016).held, false)
+  stick.up(true)
+  assert.ok(movements[0][0] > 0 && movements[0][1] < 0)
+})
 
 test('pan/zoom stay local, zoom only uses the vertical axis, viewport stays bounded', () => {
   const input = { button() { assert.fail() }, click() { assert.fail() }, move() { assert.fail() }, wheel() { assert.fail() } }

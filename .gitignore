@@ -12,6 +12,7 @@ node_modules
 native/remote-desktop/.mew-ready*
 native/remote-desktop/.mew-dependencies*
 native/remote-desktop/runtime/
+native/remote-desktop/capture-macos.dylib*
 dist
 dist-ssr
 *.local

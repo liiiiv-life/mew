@@ -10,7 +10,8 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..'), require = createRequire(`${root}/package.json`)
 
-for (const transport of ['direct', 'server'] as const) test(`fullscreen desktop decodes real ${transport} video and controls a synthetic host on mobile`, { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
+for (const scenario of ['direct', 'server', 'native', 'native-direct'] as const) test(`fullscreen desktop decodes real ${scenario} video and controls a synthetic host on mobile`, { skip: !domBrowserExecutable(), timeout: 90_000 }, async () => {
+  const transport = scenario === 'native' || scenario === 'server' ? 'server' : 'direct', nativeCapture = scenario.startsWith('native')
   const source = `
 import React,{useState} from '${require.resolve('react')}';
 import {createRoot} from '${require.resolve('react-dom/client')}';
@@ -22,17 +23,26 @@ const receiver=createInputReceiver(Object.fromEntries(['move','moveTo','wheel','
 let listener, socket;
 const canvas=document.createElement('canvas'); canvas.width=1280;canvas.height=720;
 const context=canvas.getContext('2d'); let frame=0;
-setInterval(()=>{context.fillStyle='#16252b';context.fillRect(0,0,1280,720);context.fillStyle='#e0eaec';context.font='28px sans-serif';context.fillText('Synthetic desktop · WebRTC test',60,75);context.fillStyle='#26383f';context.fillRect(60,115,720,460);context.fillStyle='#d3dee1';context.font='20px sans-serif';context.fillText('No physical desktop is captured or controlled.',90,165);context.fillStyle='#789dad';context.fillRect(900+Math.sin(frame++/30)*50,300,20,20)},33);
+setInterval(()=>{if(window.freeze)return;context.fillStyle='#16252b';context.fillRect(0,0,1280,720);context.fillStyle='#e0eaec';context.font='28px sans-serif';context.fillText('Synthetic desktop · WebRTC test',60,75);context.fillStyle='#26383f';context.fillRect(60,115,720,460);context.fillStyle='#d3dee1';context.font='20px sans-serif';context.fillText('No physical desktop is captured or controlled.',90,165);context.fillStyle='#789dad';context.fillRect(900+Math.sin(frame++/30)*50,300,20,20)},33);
 window.captureCount=0;window.frameBytes=0;window.frameCount=0;window.switches=0;
 navigator.mediaDevices.getUserMedia=async()=>{window.captureCount++;window.syntheticStream=canvas.captureStream(30);return window.syntheticStream};
+const captureStream=HTMLCanvasElement.prototype.captureStream;
+if(${nativeCapture})HTMLCanvasElement.prototype.captureStream=function(...args){window.syntheticStream=captureStream.apply(this,args);return window.syntheticStream};
+let lastNativeFrame=-1;
+const capture=async()=>{
+  if(lastNativeFrame===-1){window.captureCount++;if('${scenario}'==='native-direct')window.freeze=true;const icon=document.createElement('canvas');icon.width=12;icon.height=16;const ctx=icon.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,4,16);socket.emit({type:'cursor',visible:true,seq:0,x:.5,y:.5,width:1280,height:720,shapeId:1,shape:{width:12,height:16,hotX:0,hotY:0,png:icon.toDataURL().split(',')[1]}})}
+  if(lastNativeFrame===frame)return {width:1280,height:720};lastNativeFrame=frame;
+  const pixels=new Uint8Array(context.getImageData(0,0,1280,720).data);for(let i=0;i<pixels.length;i+=4){const red=pixels[i];pixels[i]=pixels[i+2];pixels[i+2]=red}
+  return {width:1280,height:720,pixels}
+};
 const accept=(value,reliable)=>{packets.push([value,reliable]);if(value.type==='input')receiver.accept(value,reliable)};
 const withoutCandidates=value=>value.sdp?{...value,sdp:value.sdp.replace(/^a=candidate:.*\\r?\\n/gm,'')}:value;
-window.desktopHost={ready(){},onSignal(fn){listener=fn},signal(value){socket?.emit(value)},input:accept,frame(packet){window.frameCount++;window.frameBytes+=packet.byteLength;socket?.onmessage?.({data:packet.buffer.slice(packet.byteOffset,packet.byteOffset+packet.byteLength)})}};
+window.desktopHost={capture,ready(){},onSignal(fn){listener=fn},signal(value){socket?.emit(value)},input:accept,frame(packet){window.frameCount++;window.frameBytes+=packet.byteLength;socket?.onmessage?.({data:packet.buffer.slice(packet.byteOffset,packet.byteOffset+packet.byteLength)})}};
 class Socket {
  static OPEN=1;readyState=1;bufferedAmount=0;
  constructor(){socket=this;window.socket=this;setTimeout(()=>{this.emit({type:'config',iceServers:[]});this.emit({type:'sources',screens:[{id:'screen:0:0',label:'Test display',width:1280,height:720}]})},20)}
  emit(value){if('${transport}'==='server'&&value.type==='candidate')return;if(this.readyState===1)this.onmessage?.({data:JSON.stringify('${transport}'==='server'?withoutCandidates(value):value)})}
- send(raw){let value=JSON.parse(raw);if(value.type==='frame-ack'&&window.pauseAcks){window.pendingAck=raw;return}if(value.type==='relay-input'){accept(value.value,value.reliable);return}if(value.type==='relay'){window.switches++;receiver.pause()}if('${transport}'==='server'){if(value.type==='candidate')return;value=withoutCandidates(value)}listener(value.type==='select'?{type:'start',source:value.id,iceServers:[],relativeOnly:false}:value)}
+ send(raw){let value=JSON.parse(raw);if(value.type==='frame-ack'&&window.pauseAcks){window.pendingAck=raw;return}if(value.type==='relay-input'){accept(value.value,value.reliable);return}if(value.type==='relay'){window.switches++;receiver.pause()}if('${transport}'==='server'){if(value.type==='candidate')return;value=withoutCandidates(value)}listener(value.type==='select'?{type:'start',source:value.id,iceServers:[],relativeOnly:false,nativeCapture:${nativeCapture}}:value)}
  close(){if(this.readyState!==1)return;this.readyState=3;listener({type:'stop'});receiver.release();this.onclose?.()}
 }
 window.WebSocket=Socket;
@@ -56,7 +66,7 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     page.on('pageerror', error => errors.push(error.message))
     await page.route('http://localhost:48973/**', async route => {
       const p = new URL(route.request().url()).pathname
-      if (['/direct-sender.mjs', '/relay-sender.mjs', '/relay-protocol.mjs'].includes(p)) return route.fulfill({ contentType: 'text/javascript', body: await fs.readFile(`${root}/native/remote-desktop${p}`, 'utf8') })
+      if (['/direct-sender.mjs', '/relay-sender.mjs', '/relay-protocol.mjs', '/relay-adaptation.mjs', '/native-stream.mjs'].includes(p)) return route.fulfill({ contentType: 'text/javascript', body: await fs.readFile(`${root}/native/remote-desktop${p}`, 'utf8') })
       if (p === '/api/remote-desktop/install') {
         if (route.request().method() === 'POST') { installs++; installState = 'running' }
         return route.fulfill({ json: { session: 'mewcmd-desktop-install', terminal: installState !== 'idle', state: installState, exitCode: installState === 'failed' ? 7 : installState === 'succeeded' ? 0 : null } })
@@ -68,8 +78,10 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.getByText('Open desktop').click()
     await page.waitForFunction(`document.querySelector('.desktop-status')?.dataset.connected==='true'`)
     await page.waitForFunction(transport === 'direct' ? `document.querySelector('video')?.videoWidth>0` : `document.querySelector('.desktop-stage canvas')?.width===1280`)
+    if (nativeCapture) await page.waitForFunction(`document.querySelector('.desktop-cursor')?.hidden===false`, null, { timeout: 3000 })
     assert.equal(await page.evaluate('window.captureCount'), 1, 'fallback reuses the OS capture')
     assert.equal(await page.evaluate('window.switches'), transport === 'server' ? 1 : 0)
+    if (scenario === 'native-direct') await page.evaluate('window.freeze=false')
     if (transport === 'server') {
       assert.ok(await page.evaluate('window.frameBytes>0'))
       assert.equal(await page.evaluate(`document.querySelector('.desktop-stage canvas').getContext('2d').getImageData(10,10,1,1).data[3]`), 255)
@@ -84,8 +96,18 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     assert.equal(await page.locator('[data-dock-panel]').count(), 0)
     assert.deepEqual(await page.getByRole('dialog').boundingBox(), { x: 0, y: 0, width: 390, height: 844 })
     assert.equal(await page.evaluate('document.querySelector("#root").inert'), true)
+    await page.getByRole('button', { name: '도움말', exact: true }).click()
+    assert.equal(await page.locator('[data-cursor-mode]').getAttribute('data-cursor-mode'), nativeCapture ? 'local' : 'video')
+    await page.getByRole('button', { name: '도움말', exact: true }).click()
     const controls = page.getByRole('group', { name: '원격 데스크톱 조이스틱' })
-    assert.deepEqual(await controls.getByRole('button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))), ['좌클릭 조이스틱', '휠 조이스틱', '우클릭 조이스틱', '화면 이동 조이스틱', '확대·축소 조이스틱', '조이스틱 위치 이동'])
+    assert.deepEqual(await controls.getByRole('button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))), ['좌클릭 조이스틱', '휠 조이스틱', '우클릭 조이스틱', '커서 이동 조이스틱', '화면 이동 조이스틱', '확대·축소 조이스틱', '조이스틱 위치 이동'])
+    const mouse = page.locator('.desktop-mouse'), pad = page.getByRole('button', { name: '커서 이동 조이스틱', exact: true })
+    const mouseBox = await mouse.boundingBox(), padBox = await pad.boundingBox()
+    assert.ok(mouseBox && padBox && padBox.width === mouseBox.width)
+    for (const name of ['좌클릭 조이스틱', '휠 조이스틱', '우클릭 조이스틱']) {
+      const box = await page.getByRole('button', { name, exact: true }).boundingBox()
+      assert.ok(box && box.y === mouseBox.y && box.y + box.height === padBox.y)
+    }
     const clear = () => page.evaluate('window.inputEvents.length=0;window.inputPackets.length=0')
     const cdp = await page.context().newCDPSession(page)
     const touchButton = await page.getByRole('button', { name: '좌클릭 조이스틱', exact: true }).boundingBox(); assert.ok(touchButton)
@@ -115,16 +137,27 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await clear(); await gesture('좌클릭 조이스틱', 0, 0)
     assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="button")'), [['button', 1, true], ['button', 1, false]])
     await clear(); await gesture('좌클릭 조이스틱', 20, -8)
-    assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]>0)'))
-    assert.equal(await page.evaluate('window.inputEvents.some(e=>e[0]==="button")'), false)
-    await clear(); await gesture('우클릭 조이스틱', -15, 10, true, true)
+    assert.ok(await page.evaluate('window.inputEvents.some(e=>(e[0]==="move"||e[0]==="moveTo")&&e[1]>0)'))
+    assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="button")'), [['button', 1, true], ['button', 1, false]])
+    await clear(); await gesture('우클릭 조이스틱', -15, 10, false, true)
     assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="button")'), [['button', 4, true], ['button', 4, false]])
+    await clear(); await gesture('커서 이동 조이스틱', 20, -8, true)
+    assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"||e[0]==="moveTo")'))
+    assert.equal(await page.evaluate('window.inputEvents.some(e=>e[0]==="button"||e[0]==="wheel")'), false)
+    await clear(); await gesture('커서 이동 조이스틱', 0, 0)
+    assert.equal(await page.evaluate('window.inputEvents.some(e=>e[0]==="button")'), false)
+    await page.getByRole('button', { name: '좌클릭 조이스틱', exact: true }).focus()
+    await page.keyboard.down('ArrowRight'); await page.keyboard.down('ArrowUp'); await page.keyboard.up('ArrowRight')
+    await page.waitForTimeout(100)
+    assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="button")'), [['button', 1, true]])
+    await pad.focus(); await page.keyboard.up('ArrowUp'); await page.waitForTimeout(100)
+    assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="button")'), [['button', 1, true], ['button', 1, false]])
     await clear(); await gesture('휠 조이스틱', 18, -20)
     assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="wheel"&&e[1]===0&&e[2]<0)'))
     assert.equal(await page.evaluate('window.inputEvents.some(e=>e[0]==="move")'), false)
     await clear(); await gesture('휠 조이스틱', 18, -20, true)
     assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="button")'), [['button', 2, true], ['button', 2, false]])
-    assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]>0)'))
+    assert.ok(await page.evaluate('window.inputEvents.some(e=>(e[0]==="move"||e[0]==="moveTo")&&e[1]>0)'))
     await clear(); await gesture('확대·축소 조이스틱', 0, -20)
     assert.notEqual(await page.locator('.desktop-scale').textContent(), '100%')
     await gesture('화면 이동 조이스틱', 18, 0)
@@ -146,7 +179,30 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.setViewportSize({ width: 1440, height: 900 })
     if (dir) await page.screenshot({ path: path.join(dir, 'desktop.png') })
     assert.equal(await page.evaluate('document.documentElement.scrollWidth > innerWidth'), false)
-    await page.getByRole('button', { name: '입력', exact: true }).click()
+    if (nativeCapture) {
+      assert.match(await page.locator('.desktop-stage').evaluate(el => el.style.cursor), /blob:/)
+      await page.evaluate('window.freeze=true')
+      await page.waitForTimeout(1200)
+      const before = await page.evaluate('({frames:window.frameCount,bytes:window.frameBytes})') as { frames: number; bytes: number }
+      await page.waitForTimeout(16_000)
+      assert.equal(await page.locator('.desktop-status').getAttribute('data-connected'), 'true', 'idle capture survives the old 15 second frame watchdog')
+      assert.equal(await page.evaluate('window.frameCount'), before.frames, 'static native capture sends no repeated video')
+      assert.equal(await page.evaluate('window.frameBytes'), before.bytes)
+      console.log('Static native video over 16s: 0 additional frames / 0 video payload bytes')
+      await page.evaluate('window.socket.send(JSON.stringify({type:"frame-ack",seq:window.frameCount,keyframe:true}))')
+      await page.waitForFunction(`window.frameCount>${before.frames}`, null, { timeout: 3000 })
+      const recovered = await page.evaluate('window.frameCount') as number
+      await clear()
+      const area = await page.locator('.desktop-stage').boundingBox(); assert.ok(area)
+      await page.mouse.move(area.x + area.width / 2, area.y + area.height / 2)
+      await page.mouse.down(); await page.mouse.move(area.x + area.width / 2 + 100, area.y + area.height / 2 + 50); await page.mouse.up()
+      await page.waitForFunction('window.inputEvents.some(e=>e[0]==="button"&&e[2]===false)')
+      assert.equal(await page.locator('.desktop-cursor').isVisible(), false, 'native mouse hides the joystick overlay')
+      assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="moveTo")'))
+      await page.evaluate('window.freeze=false')
+      await page.waitForFunction(`window.frameCount>${recovered}`)
+    }
+    await page.getByRole('button', { name: '입력' , exact: true }).click()
     await page.getByLabel('원격 컴퓨터에 붙여넣기').fill('한글 input')
     await page.getByRole('button', { name: '붙여넣기', exact: true }).click()
     await page.waitForFunction('window.inputPackets.some(([v])=>v.type==="paste"&&v.text==="한글 input")')
