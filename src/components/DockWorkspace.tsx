@@ -236,7 +236,9 @@ export function DockBody({ group, active, offset = 36, children, onFocus }: { gr
   const chosen = kind && dock.mobileGroups[kind] && dock.rects[dock.mobileGroups[kind]] ? dock.mobileGroups[kind!] : Object.keys(dock.rects).find((id) => dock.state.groups.some((g) => g.id === id && g.kind === kind))
   const visible = active && !!rect && (dock.desktop || dock.foreground === kind && chosen === group)
   const style = dock.desktop && rect ? rectStyle({ ...rect, y: rect.y + offset, height: Math.max(0, rect.height - offset) }) : { position: 'absolute' as const, inset: `${offset}px 0 0`, zIndex: 11 }
-  return createPortal(<div data-dock-body={group} className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface-deep" onPointerDownCapture={onFocus} onFocusCapture={onFocus} style={{ ...style, zIndex: dock.desktop ? 1 : 11, display: visible ? 'flex' : 'none' }}>{children}</div>, dock.host)
+  // Desktop bodies must not trap their menus/dialogs below sibling resize handles.
+  // Their rectangles already exclude headers and separators; mobile still needs panel layering.
+  return createPortal(<div data-dock-body={group} className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface-deep" onPointerDownCapture={onFocus} onFocusCapture={onFocus} style={{ ...style, zIndex: dock.desktop ? undefined : 11, display: visible ? 'flex' : 'none' }}>{children}</div>, dock.host)
 }
 export function DockGrip({ group }: { group: string }) {
   const dock = useDock()

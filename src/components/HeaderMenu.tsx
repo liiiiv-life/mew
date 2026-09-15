@@ -41,21 +41,22 @@ export function HeaderMenu({ items }: { items: HeaderMenuItem[] }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`rounded border border-edge-strong p-1.5 hover:bg-surface-raised ${open ? 'bg-surface-raised text-ink' : ''}`}
+        className={`flex h-8 items-center justify-center gap-2 rounded border border-edge-strong px-2 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink md:h-9 md:px-3 md:text-sm md:font-medium ${open ? 'bg-surface-raised text-ink' : ''}`}
         title={t('common.menu')}
         aria-label={t('common.menu')}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <path d="M4 6h16M4 12h16M4 18h16" />
         </svg>
+        <span className="hidden md:inline">{t('common.menu')}</span>
       </button>
       {open && (
         <div
           role="menu"
           aria-label={t('common.menu')}
-          className="absolute right-0 top-full z-40 mt-1 min-w-[12rem] whitespace-nowrap rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
+          className="absolute right-0 top-full z-[1050] mt-1 min-w-[12rem] whitespace-nowrap rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
         >
           {items.map((item) => (
             <button

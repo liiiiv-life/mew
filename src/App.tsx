@@ -1736,7 +1736,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       {/* 화면 전폭을 쓰는 줄은 이 헤더 하나뿐이다 — 프로젝트 탭 + 도구 버튼. 문서 탭 줄은 각
           편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
-        <header className="flex h-10 items-stretch border-b border-edge pr-2">
+        <header className="flex h-10 items-stretch border-b border-edge pr-2 md:h-12 md:pr-4">
           <RootProjectTabs
             paths={rootProjectPath ? [...openProjectPaths, rootProjectPath] : openProjectPaths}
             activePath={rootProjectPath}
@@ -1750,7 +1750,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             onOpen={() => setOpenProjectDialog(true)}
           />
           {/* 도구는 햄버거 하나로 접고, 게스트의 로그인 진입점만 바로 옆에 둔다. */}
-          <div className="flex shrink-0 items-center gap-1.5 pl-2 text-sm">
+          <div className="flex shrink-0 items-center gap-1.5 pl-2 text-sm md:gap-3 md:pl-4">
             {switchingRootProject && <span className="text-xs text-ink-secondary">프로젝트 여는 중…</span>}
             {isGuest && (
               <button

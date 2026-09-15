@@ -6,6 +6,7 @@
 // Claude Code의 /clear 같은 슬래시 명령도 그대로 제출된다). +로 추가하고, 버튼을 꾹 누르면
 // (데스크톱은 우클릭) 이름·명령어·아이콘 수정과 삭제를 할 수 있다.
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@mew/ui'
 import { fetchTermButtons, saveTermButtons, type TermButton } from '../api/client'
 import { IconPicker } from './IconPicker'
@@ -194,8 +195,11 @@ function TermButtonEditor({
     }
   }
 
-  return (
+  return createPortal(
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={editing.index === null ? t('term.addTitle') : t('term.editTitle')}
       className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50 p-4"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
@@ -273,6 +277,7 @@ function TermButtonEditor({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
