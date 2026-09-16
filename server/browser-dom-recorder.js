@@ -3,6 +3,7 @@
   window.__mewDomRecordedDocument = document;
   const documentId = `${Date.now()}-${Math.random()}`;
   const recordedDocument = document;
+  window.__mewDomScrollRevisions = new WeakMap();
   const start = () => {
     window.__mewDomStop?.();
     window.__mewDomStop = window.rrwebRecord.record({
@@ -10,6 +11,11 @@
         // Child frames are recorded separately by Mew, including same-origin frames.
         // Never send rrweb's embedded child-Document attachment to the parent viewer.
         if (event.type === 3 && event.data.source === 0 && event.data.isAttachIframe) return;
+        if (event.type === 3 && event.data.source === 3) {
+          const node = window.rrwebRecord.record.mirror.getNode(event.data.id);
+          const revision = node && window.__mewDomScrollRevisions.get(node);
+          if (revision) event.data.mewScroll = revision;
+        }
         window.__mewDomEmit(event, documentId).catch(() => {});
       },
       inlineStylesheet: true,

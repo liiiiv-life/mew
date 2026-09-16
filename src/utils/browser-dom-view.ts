@@ -6,6 +6,10 @@ export type DomBrowserStatus = { state: 'connecting' | 'ready' | 'error'; messag
 export type DomBrowserController = (() => void) & { command: (kind: string, extra?: Record<string, unknown>) => void }
 
 type Packet = { type: string; frame?: string; parent?: string; parentNode?: number; generation: number; event: eventWithTime }
+type ScrollPosition = { x: number; y: number; revision: number }
+type ScrollUpdate = { id: number; x: number; y: number; mewScroll?: { token: string; revision: number } }
+const scrollElement = (node: Node) => node.nodeType === 9 ? (node as Document).scrollingElement : node as HTMLElement
+
 type Surface = { generation: number; parent?: string; parentNode?: number; renderer?: ReturnType<typeof createFrame>; queue: eventWithTime[] }
 
 /** Original scripts execute exclusively in Chromium; each remote frame has an inert replica. */
@@ -110,6 +114,24 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
   let meta: eventWithTime | undefined
   let disposeInput: (() => void) | undefined
   const drafts = new Set<number>()
+  const scrollToken = Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(16)).join('-')
+  let scrollRevision = 0
+  let scrollPositions = new WeakMap<Node, ScrollPosition>()
+  const scrollTimers = new Map<Node, ReturnType<typeof setTimeout>>()
+  const applyScroll = (data: ScrollUpdate) => {
+    const node = player?.getMirror().getNode(data.id)
+    if (!node) return
+    const previous = scrollPositions.get(node)
+    // A local move owns this node until the source has processed that revision.
+    // Check at replay time too: a newer gesture may follow packet arrival.
+    if (previous?.revision && (data.mewScroll?.token !== scrollToken || data.mewScroll.revision < previous.revision)) return
+    const element = scrollElement(node)
+    if (!element) return
+    element.scrollTo({ left: data.x, top: data.y, behavior: 'instant' })
+    // Read back the clamped position. Its asynchronous scroll event is an echo,
+    // not another user gesture. Never animate a streamed scroll sample.
+    scrollPositions.set(node, { x: element.scrollLeft, y: element.scrollTop, revision: previous?.revision ?? 0 })
+  }
   const bindInput = () => {
     disposeInput?.()
     const doc = player?.iframe.contentDocument
@@ -142,17 +164,26 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
       send({ kind: 'key', id: idOf(event), key: event.key === 'Tab' && event.shiftKey ? 'Shift+Tab' : event.key })
     }
     const submit = (event: Event) => event.preventDefault()
-    let scrollTimer: ReturnType<typeof setTimeout> | undefined
-    const scroll = (event: Event) => {
-      const node = event.target as HTMLElement | Document
-      const id = mirror.getId(node)
-      const element = node.nodeType === 9 ? (node as Document).scrollingElement : node as HTMLElement
-      clearTimeout(scrollTimer)
-      scrollTimer = setTimeout(() => {
-        if (id >= 0 && element) send({ kind: 'scroll', id, x: element.scrollLeft, y: element.scrollTop })
-      }, 50)
-    }
     let hoverTimer: ReturnType<typeof setTimeout> | undefined
+    const scroll = (event: Event) => {
+      clearTimeout(hoverTimer)
+      const node = event.target as Node
+      const id = mirror.getId(node)
+      const element = scrollElement(node)
+      if (id < 0 || !element) return
+      const previous = scrollPositions.get(node)
+      const x = element.scrollLeft, y = element.scrollTop
+      if (previous?.x === x && previous.y === y) return
+      const revision = ++scrollRevision
+      scrollPositions.set(node, { x, y, revision })
+      clearTimeout(scrollTimers.get(node))
+      // Each scroll container has its own timer; nested panes must not cancel
+      // the final position of the document or of another pane.
+      scrollTimers.set(node, setTimeout(() => {
+        scrollTimers.delete(node)
+        send({ kind: 'scroll', id, x, y, scrollToken, scrollRevision: revision })
+      }, 50))
+    }
     const hover = (event: MouseEvent) => {
       const id = idOf(event)
       clearTimeout(hoverTimer)
@@ -169,7 +200,8 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
     doc.addEventListener('scroll', scroll, true)
     doc.addEventListener('focusout', blur, true)
     disposeInput = () => {
-      clearTimeout(scrollTimer)
+      for (const timer of scrollTimers.values()) clearTimeout(timer)
+      scrollTimers.clear()
       clearTimeout(hoverTimer)
       doc.removeEventListener('mouseover', hover, true)
       doc.removeEventListener('click', click, true)
@@ -196,6 +228,11 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
       }
       // Use receipt time; server and phone clocks need not agree.
       event.timestamp = Date.now()
+      // Route scroll samples through the replay timeline so preceding DOM
+      // mutations exist, while bypassing rrweb's smooth-scroll animation.
+      if (event.type === EventType.IncrementalSnapshot && event.data.source === IncrementalSource.Scroll) {
+        event = { type: EventType.Custom, timestamp: event.timestamp, data: { tag: 'mew:scroll', payload: event.data } }
+      }
       if (event.type === EventType.Meta) { meta = event; player?.addEvent(event); return }
       if (event.type === EventType.FullSnapshot && !player) {
         const rect = root.getBoundingClientRect()
@@ -204,6 +241,7 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
           root, liveMode: true, mouseTail: false, showWarning: false, showDebug: false,
           triggerFocus: false, useVirtualDom: false, UNSAFE_replayCanvas: false,
           insertStyleRules: [
+            '* { scroll-behavior: auto !important; }',
             ':where([data-mew-frame]) { display:inline-block; width:300px; height:150px; overflow:hidden; }',
             ':where([data-mew-frame][hidden]) { display:none; }',
 
@@ -213,7 +251,27 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
         player.iframe.title = '서버 웹페이지'
         player.iframe.setAttribute('sandbox', 'allow-same-origin')
         player.iframe.referrerPolicy = 'no-referrer'
-        player.on(ReplayerEvents.FullsnapshotRebuilded, () => { bindInput(); ready() })
+        player.on(ReplayerEvents.FullsnapshotRebuilded, () => {
+          scrollPositions = new WeakMap()
+          bindInput()
+          // rrweb restores snapshot offsets immediately after this callback.
+          queueMicrotask(() => {
+            const mirror = player?.getMirror()
+            for (const id of mirror?.getIds() ?? []) {
+              const node = mirror!.getNode(id)
+              if (!node || (node.nodeType !== 9 && node.nodeType !== 1)) continue
+              const element = scrollElement(node)
+              if (element && (element.scrollLeft || element.scrollTop || node.nodeType === 9)) {
+                scrollPositions.set(node, { x: element.scrollLeft, y: element.scrollTop, revision: 0 })
+              }
+            }
+          })
+          ready()
+        })
+        player.on(ReplayerEvents.CustomEvent, (event) => {
+          const custom = event as Extract<eventWithTime, { type: EventType.Custom }>
+          if (custom.data.tag === 'mew:scroll') applyScroll(custom.data.payload as ScrollUpdate)
+        })
         player.on(ReplayerEvents.EventCast, changed)
         player.enableInteract()
         player.startLive(event.timestamp)

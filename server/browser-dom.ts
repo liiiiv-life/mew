@@ -49,8 +49,8 @@ function callbackFromLogin(raw: string): string {
 
 type Asset = { type: string; body: Buffer }
 // Structural browser types keep DOM globals out of the Node server compilation.
-type RemoteNode = { nodeType: number; tagName?: string; scrollingElement?: RemoteNode; scrollTo: (x: number, y: number) => void }
-export type DomInput = { kind: 'click' | 'input' | 'key' | 'scroll' | 'resize' | 'snapshot' | 'navigate' | 'back' | 'forward' | 'reload' | 'stop' | 'dialog' | 'hover' | 'close'; url?: string; accept?: boolean; button?: 'left' | 'middle' | 'right'; modifiers?: string[]; id?: number; value?: string; key?: string; x?: number; y?: number; width?: number; height?: number; generation?: number; frame?: string }
+type RemoteNode = { nodeType: number; tagName?: string; scrollingElement?: RemoteNode; scrollTo: (options: { left: number; top: number; behavior: 'instant' }) => void }
+export type DomInput = { kind: 'click' | 'input' | 'key' | 'scroll' | 'resize' | 'snapshot' | 'navigate' | 'back' | 'forward' | 'reload' | 'stop' | 'dialog' | 'hover' | 'close'; url?: string; accept?: boolean; button?: 'left' | 'middle' | 'right'; modifiers?: string[]; id?: number; value?: string; key?: string; x?: number; y?: number; width?: number; height?: number; generation?: number; frame?: string; scrollToken?: string; scrollRevision?: number }
 
 export class DomBrowserSession {
   readonly account: string
@@ -90,6 +90,7 @@ export class DomBrowserSession {
   private drainingInput = false
   private inputEpoch = 0
   private inputAbort?: AbortController
+  private inputKind?: DomInput['kind']
   private lastNotice = ''
   private network?: Awaited<ReturnType<typeof createDomNetworkGate>>
 
@@ -326,6 +327,8 @@ export class DomBrowserSession {
       let input: DomInput
       try { input = JSON.parse(raw.toString()) } catch { socket.close(1008); return }
       if (!input || typeof input !== 'object' || !['click', 'input', 'key', 'scroll', 'resize', 'snapshot', 'navigate', 'back', 'forward', 'reload', 'stop', 'dialog', 'hover', 'close'].includes(input.kind)) { socket.close(1008); return }
+      // Hover is transient: never let an obsolete hit-target wait delay a newer gesture.
+      if (this.inputKind === 'hover') this.inputAbort?.abort()
       if (input.kind === 'close') { void this.close(); return }
       if (input.kind === 'dialog' || input.kind === 'stop') {
         if (input.kind === 'stop') this.clearInputQueue()
@@ -382,12 +385,13 @@ export class DomBrowserSession {
         const epoch = this.inputEpoch
         const controller = new AbortController()
         this.inputAbort = controller
+        this.inputKind = input.kind
         try {
           await this.start()
           if (epoch === this.inputEpoch) await this.input(input, controller.signal)
         } catch {
-          if (epoch === this.inputEpoch) this.send({ type: 'notice', message: '조작을 반영하지 못했습니다. 화면이 바뀌었다면 다시 시도해 주세요.' })
-        } finally { this.inputAbort = undefined }
+          if (epoch === this.inputEpoch && input.kind !== 'hover') this.send({ type: 'notice', message: '조작을 반영하지 못했습니다. 화면이 바뀌었다면 다시 시도해 주세요.' })
+        } finally { this.inputAbort = undefined; this.inputKind = undefined }
       }
     } finally { this.drainingInput = false }
   }
@@ -495,13 +499,22 @@ export class DomBrowserSession {
       if (input.kind === 'scroll' && Number.isFinite(input.x) && Number.isFinite(input.y)) {
         await handle.evaluate((node, pos) => {
           const target = node?.nodeType === 9 ? node.scrollingElement : node
-          target?.scrollTo(pos.x, pos.y)
-        }, { x: Math.max(0, Math.min(100_000, input.x!)), y: Math.max(0, Math.min(100_000, input.y!)) })
+          if (!node || !target) return
+          const scope = globalThis as unknown as { __mewDomScrollRevisions?: WeakMap<object, { token: string; revision: number }> }
+          if (pos.token && pos.revision) scope.__mewDomScrollRevisions?.set(node, { token: pos.token, revision: pos.revision })
+          target.scrollTo({ left: pos.x, top: pos.y, behavior: 'instant' })
+        }, {
+          x: Math.max(0, Math.min(100_000, input.x!)), y: Math.max(0, Math.min(100_000, input.y!)),
+          token: typeof input.scrollToken === 'string' && input.scrollToken.length <= 64 ? input.scrollToken : undefined,
+          revision: Number.isSafeInteger(input.scrollRevision) && input.scrollRevision! > 0 ? input.scrollRevision : undefined,
+        })
         return
       }
       if (!element) return
       if (input.kind === 'click') await element.click({ timeout: 2500, signal, button: input.button === 'middle' ? 'middle' : 'left', modifiers: Array.isArray(input.modifiers) ? input.modifiers.filter((key): key is 'Alt' | 'ControlOrMeta' | 'Shift' => ['Alt', 'ControlOrMeta', 'Shift'].includes(key)) : [] })
-      else if (input.kind === 'hover') await element.hover({ timeout: 1000, signal })
+      // A delayed hover may refer to an element the user has already scrolled past.
+      // Playwright's default auto-scroll would pull the page back to that element.
+      else if (input.kind === 'hover') await element.hover({ scroll: 'none', timeout: 150, signal })
       else if (input.kind === 'input' && typeof input.value === 'string' && input.value.length <= 16_384) {
         const tag = await element.evaluate((node) => (node as unknown as RemoteNode).tagName)
         if (tag === 'SELECT') await element.selectOption(input.value, { timeout: 2500, signal })

@@ -128,6 +128,60 @@ test('one failed action does not poison later input and malformed packets cannot
   assert.equal(socket.closeCode, 1008)
 })
 
+test('a newer gesture cancels pending hover without reporting a failed user action', async (t) => {
+  const { session, socket } = await fixture(t)
+  let aborted = false
+  const applied: string[] = []
+  session.input = async (input, signal) => {
+    if (input.kind === 'hover') await new Promise<void>((_resolve, reject) => {
+      signal?.addEventListener('abort', () => { aborted = true; reject(new Error('superseded')) }, { once: true })
+    })
+    else applied.push(input.kind)
+  }
+  socket.input({ kind: 'hover', id: 1 })
+  await setImmediate()
+  socket.input({ kind: 'scroll', id: 2, x: 0, y: 500 })
+  socket.input(enter)
+  await setImmediate()
+  assert.equal(aborted, true)
+  assert.deepEqual(applied, ['scroll', 'key'])
+  assert(!socket.packets.some((packet) => packet.type === 'notice'))
+})
+
+test('stale hover never scrolls the document or nested panes and visible hover still works', { skip: !domBrowserExecutable(), timeout: 20_000 }, async (t) => {
+  const server = http.createServer((_req, res) => {
+    res.setHeader('Content-Type', 'text/html')
+    res.end(`<!doctype html><body style="margin:0;height:4000px">
+      <button id="visible" onmouseover="this.textContent='hovered'">Visible</button>
+      <div id="pane" style="height:100px;overflow:auto"><div style="height:1000px"></div><button id="nested">Nested</button></div>
+      <button id="hidden" style="display:none">Hidden</button>
+      <button id="far" style="position:absolute;top:3000px">Far</button>
+      <input id="field" style="position:fixed;top:200px">`)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  const session = new DomBrowserSession('hover@example.test', 'hover', origin, [], origin)
+  t.after(async () => { await session.close(); server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())) })
+  const socket = new InputSocket()
+  await session.attach(socket as unknown as WebSocket)
+  const page = session.page!
+  await page.waitForFunction('window.rrwebRecord?.record.mirror.getId(document.querySelector("#far")) > 0')
+  const ids = await page.evaluate<Record<string, number>>('Object.fromEntries([...document.querySelectorAll("[id]")].map(n => [n.id, rrwebRecord.record.mirror.getId(n)]))')
+  const target = { frame: 'main', generation: session.generation }
+  for (const name of ['far', 'nested', 'hidden', 'visible']) {
+    // Await real processing so a later input cannot cancel the regression away.
+    await session.input({ kind: 'hover', ...target, id: ids[name] }).catch(() => {})
+    assert.equal(await page.evaluate('scrollY'), 0, `${name} hover scrolled the document`)
+    assert.equal(await page.locator('#pane').evaluate((node) => node.scrollTop), 0, `${name} hover scrolled a pane`)
+  }
+  assert.equal(await page.locator('#visible').textContent(), 'hovered')
+  socket.input({ kind: 'hover', ...target, id: ids.hidden })
+  await page.waitForTimeout(300)
+  socket.input({ kind: 'input', ...target, id: ids.field, value: 'still responsive' })
+  await page.waitForFunction('document.querySelector("#field").value === "still responsive"')
+  assert(!socket.packets.some((packet) => packet.type === 'notice'))
+})
+
 test('real Chromium recovers from an unavailable select option and submits the latest burst value', { skip: !domBrowserExecutable(), timeout: 20_000 }, async (t) => {
   const server = http.createServer((_req, res) => {
     res.setHeader('Content-Type', 'text/html')
