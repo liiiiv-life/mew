@@ -7,6 +7,7 @@ export interface FileNameSearchOptions {
   regex: boolean
   caseSensitive: boolean
   scopes: string[]
+  allowed?: (project: string, path: string) => boolean
   showAll: boolean
 }
 
@@ -91,6 +92,7 @@ export async function searchFileNames(query: string, opts: FileNameSearchOptions
   }
   const regex = opts.regex ? new RegExp(query, opts.caseSensitive ? '' : 'i') : null
   const ranked = measureSync('filename.rank', { candidates: candidates.length }, () => candidates
+    .filter(item => !opts.allowed || opts.allowed(item.project, item.path))
     .map((item) => ({
       item,
       score: regex ? (regex.exec(item.path)?.index ?? null) : fuzzyScore(query, item.path, opts.caseSensitive),

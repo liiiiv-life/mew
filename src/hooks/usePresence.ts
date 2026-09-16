@@ -53,9 +53,8 @@ export function usePresence(
       ws = new WebSocket(`${protocol}//${location.host}/api/presence`)
       wsRef.current = ws
       ws.onopen = () => {
-        ws?.send(
-          JSON.stringify({ type: 'focus', path: qualify(projectRef.current, focusedPathRef.current), color: colorRef.current }),
-        )
+        window.dispatchEvent(new Event('mew:permissions-changed'))
+        ws?.send(JSON.stringify({ type: 'focus', path: qualify(projectRef.current, focusedPathRef.current), color: colorRef.current }))
       }
       ws.onmessage = (event) => {
         if (typeof event.data !== 'string') return
@@ -69,6 +68,9 @@ export function usePresence(
               if (key.startsWith(prefix)) mine[key.slice(prefix.length)] = colors
             }
             setParticipants(mine)
+          } else if (msg.type === 'permissions') {
+            window.dispatchEvent(new Event('mew:permissions-changed'))
+            onTreeChangeRef.current()
           } else if (msg.type === 'tree') onTreeChangeRef.current({ project: msg.project, version: msg.version, parents: msg.parents })
           // 채팅·댓글이 바뀌었다는 **내용 없는 신호** — 받은 쪽이 REST로 다시 읽는다(신호는 게스트에게도
           // 가므로 경로·본문을 싣지 않는다). 창은 소켓을 따로 열지 않고 window 이벤트로 받는다

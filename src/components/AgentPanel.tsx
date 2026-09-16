@@ -1453,7 +1453,8 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+export function AgentPanel({ allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+  const { t } = useI18n()
   const dock = useDock()
   const latestDock = useRef(dock)
   latestDock.current = dock
@@ -1769,6 +1770,8 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
   }, [])
 
   const renderSession = (tab: AgentTab, isActive: boolean) => {
+    if (tab.runtime === 'tmux' ? !allowTerminal : !allowAgent) return null
+    if (tab.runtime && runtimeOf(tab.runtime).surface === 'terminal' && !allowTerminal) return <p className="p-3 text-sm text-ink-secondary">{t('access.terminalRequired')}</p>
     const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!) ?? readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)?.sessionId ?? null
     return (runtimeOf(tab.runtime!).surface === 'terminal' ? (
               <AgentTerminalView
@@ -1781,6 +1784,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
                 renderCommandButtons={tab.runtime === 'tmux' ? renderCommandButtons : undefined}
               />
             ) : <AgentSessionView
+              allowTerminal={allowTerminal}
               tabId={tab.id}
               active={isActive}
               runtime={tab.runtime!}
@@ -1810,7 +1814,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
             />)
   }
   if (dock) return <>
-    {panelGroups.map((group) => {
+    {panelGroups.filter(group => group.startsWith('terminal') ? allowTerminal : allowAgent).map((group) => {
       const terminal = group.startsWith('terminal'), list = groupTabs(group), selected = groupActive(group), picking = pickerOpen && pickerGroup === group
       return <DockPanel key={group} id={group} tabs={list.map((tab) => tab.id)} kind={terminal ? 'terminal' : 'agent'} visible={(terminal ? terminalOpen : agentOpen) && (list.length > 0 || !tabs.some((tab) => (tab.runtime === 'tmux') === terminal))} onFocus={() => focusGroup(group)}>
         <AgentTabBar group={group} tabs={list} activeId={selected} pickerOpen={picking} infos={infos} onActivate={activate}
@@ -1830,7 +1834,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
         {terminal && openRuntimeError && <div role="alert" className="px-4 py-3 text-xs text-danger">{openRuntimeError}</div>}
       </DockPanel>
     })}
-    {tabsSynced && tabs.filter((tab) => tab.runtime && tab.cwd && opened.has(tab.id)).map((tab) => {
+    {tabsSynced && tabs.filter((tab) => (tab.runtime === 'tmux' ? allowTerminal : allowAgent) && tab.runtime && tab.cwd && opened.has(tab.id)).map((tab) => {
       const group = dock.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', tab.id)
       const active = (tab.runtime === 'tmux' ? terminalOpen : agentOpen) && groupActive(group) === tab.id && !(pickerOpen && pickerGroup === group)
       return <DockBody key={`${tab.id}:${tab.runtime}:${tab.cwd}`} group={group} active={active} onFocus={() => focusGroup(group)}>
@@ -1993,6 +1997,7 @@ function AgentSessionView({
   showInfo,
   onToggleInfo,
 }: {
+  allowTerminal: boolean
   tabId: string
   /** 지금 보이는 탭인지 — 안 보이는 탭은 높이가 0이라 스크롤을 못 잡는다(아래 effect) */
   active: boolean

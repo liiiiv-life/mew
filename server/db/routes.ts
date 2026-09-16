@@ -3,6 +3,7 @@
 import express from 'express'
 import { DEFAULT_PROJECT } from '../paths.ts'
 import { authOf } from '../reqAuth.ts'
+import { canUse, unrestrictedFiles } from '../access-policy.ts'
 import { DbNotConfiguredError } from './pool.ts'
 import { InvalidIdentifierError } from './identifiers.ts'
 import type { ColumnType } from './schema.ts'
@@ -51,6 +52,12 @@ function handleDbError(res: express.Response, err: unknown) {
 
 export function createDbRouter(): express.Router {
   const r = express.Router()
+  r.use((req, res, next) => {
+    if (!canUse(authOf(req), 'database') || !unrestrictedFiles(authOf(req), projectOf(req), !['GET', 'HEAD'].includes(req.method))) {
+      res.status(403).json({ error: '파일 접근 권한이 없습니다' }); return
+    }
+    next()
+  })
 
   // 목록
   r.get('/', async (req, res) => {

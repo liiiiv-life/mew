@@ -1,8 +1,10 @@
+import { watchSocketAccess } from './access-socket.ts'
+import { canUse } from './access-policy.ts'
 import express from 'express'
 import type { Server, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import { WebSocket, WebSocketServer } from 'ws'
-import { requireRole, resolveAuth, type RequestAuth } from './reqAuth.ts'
+import { requireFeature, resolveAuth, type RequestAuth } from './reqAuth.ts'
 import { desktopHostStatus, desktopIceServers, spawnDesktopHost, DesktopHostLaunchError, type DesktopHostProcess } from './remote-desktop-host.ts'
 import { createDesktopInstaller } from './remote-desktop-install.ts'
 import type { TmuxManager } from '../packages/tmux-term/src/server/tmux.ts'
@@ -16,7 +18,7 @@ const MAX_BYTES = 128 * 1024
 type Host = DesktopHostProcess
 
 export function desktopConnectionAllowed(req: IncomingMessage, auth: RequestAuth): boolean {
-  if (!auth.email || auth.mustChangePassword || !['owner', 'manager'].includes(auth.role)) return false
+  if (!auth.email || auth.mustChangePassword || !canUse(auth, 'desktop')) return false
   try {
     const origin = new URL(req.headers.origin ?? '')
     const secure = (req.socket as { encrypted?: boolean }).encrypted || req.headers['x-forwarded-proto'] === 'https'
@@ -40,7 +42,7 @@ export function validDesktopSignal(value: unknown): boolean {
 
 export function createRemoteDesktopRoutes(tmux: Pick<TmuxManager, 'list' | 'startCommand' | 'kill'>, installer = createDesktopInstaller(tmux)) {
   const router = express.Router()
-  router.use(requireRole('owner', 'manager'))
+  router.use(requireFeature('desktop'))
   router.get('/status', async (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(await desktopHostStatus()) })
   router.get('/install', async (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(await installer.status()) })
   router.post('/install', async (_req, res) => {
@@ -72,6 +74,7 @@ export function attachRemoteDesktopWebSocket(server: Server | Http2SecureServer,
       if (ws.readyState !== WebSocket.OPEN) return
       if (!desktopConnectionAllowed(req, getAuth(req))) { ws.close(1008); return }
       if (active) { ws.send(JSON.stringify({ type: 'error', message: '다른 원격 데스크톱 연결이 사용 중입니다. 기존 연결을 닫은 뒤 다시 시도해 주세요.' })); ws.close(1013); return }
+      watchSocketAccess(ws, req, request => desktopConnectionAllowed(request, getAuth(request)))
       active = ws
       const account = getAuth(req).email
       let child: Host | undefined, hostExited = false, disposed = false, alive = true, selected = false, answered = false, hasOffer = false, screens = new Set<string>(), signalCount = 0

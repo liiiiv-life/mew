@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import { addUser, fetchUsers, setUserRole, type AdminUser, type Role } from '../api/client'
+import { AccountAccessMatrix } from './account-access-matrix'
 import { useI18n } from '../i18n'
 
 const ROLES: Role[] = ['owner', 'manager', 'member']
@@ -62,7 +63,7 @@ export function AdminSettingsModal({ onClose }: AdminSettingsModalProps) {
       await setUserRole(email, role)
     } catch (err) {
       setUsers(prev)
-      setLoadError(err instanceof Error ? err.message : t('admin.roleChangeFailed'))
+      throw err
     }
   }
 
@@ -72,9 +73,10 @@ export function AdminSettingsModal({ onClose }: AdminSettingsModalProps) {
     'rounded border border-edge-strong bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-edge-bright'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
       <div
-        className="flex max-h-[85vh] w-full max-w-md flex-col rounded-lg border border-edge bg-surface-deep p-5"
+        role="dialog" aria-modal="true" aria-label={t('admin.title')}
+        className="flex max-h-[90dvh] w-full max-w-6xl flex-col rounded-lg border border-edge bg-surface-deep p-3 md:p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -89,7 +91,7 @@ export function AdminSettingsModal({ onClose }: AdminSettingsModalProps) {
           </button>
         </div>
 
-        <form onSubmit={handleAddUser} className="mb-4 flex flex-col gap-2 border-b border-edge pb-4">
+        <details className="mb-3 shrink-0"><summary className="cursor-pointer py-2 text-sm font-medium">{t('admin.addAllowedEmail')}</summary><form onSubmit={handleAddUser} className="mb-4 flex flex-col gap-2 border-b border-edge pb-4">
           <div className="text-sm font-medium">{t('admin.addAllowedEmail')}</div>
           <input
             type="email"
@@ -101,7 +103,7 @@ export function AdminSettingsModal({ onClose }: AdminSettingsModalProps) {
             className={inputClass}
           />
           <div className="flex items-center gap-2">
-            <select value={newRole} onChange={(e) => setNewRole(e.target.value as Role)} className={selectClass}>
+            <select value={newRole} onChange={(e) => setNewRole(e.target.value as Role)} aria-label={t('access.role')} className={selectClass}>
               {ROLES.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABEL[r]}
@@ -135,35 +137,11 @@ export function AdminSettingsModal({ onClose }: AdminSettingsModalProps) {
               <div className="mt-1 text-xs text-ink-muted">{t('admin.passwordDeliveryWarning')}</div>
             </div>
           )}
-        </form>
+        </form></details>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mb-2 text-sm font-medium">{t('admin.accountList')}</div>
-          {loading && <div className="text-sm text-ink-muted">{t('common.loading')}</div>}
-          {loadError && <div className="text-sm text-danger">{loadError}</div>}
-          {!loading && users.length === 0 && <div className="text-sm text-ink-muted">{t('admin.noAccounts')}</div>}
-          <ul className="flex flex-col gap-1.5">
-            {users.map((u) => (
-              <li key={u.email} className="flex items-center justify-between gap-2 rounded border border-edge px-2 py-1.5">
-                <div className="min-w-0">
-                  <div className="truncate text-sm text-ink">{u.email}</div>
-                  {u.mustChangePassword && <div className="text-xs text-ink-muted">{t('admin.temporaryPasswordPending')}</div>}
-                </div>
-                <select
-                  value={u.role}
-                  onChange={(e) => handleRoleChange(u.email, e.target.value as Role)}
-                  className={selectClass}
-                >
-                  {ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {ROLE_LABEL[r]}
-                    </option>
-                  ))}
-                </select>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {loading && <p role="status" className="text-sm text-ink-secondary">{t('common.loading')}</p>}
+        {loadError && <p role="alert" className="text-sm text-danger">{loadError}</p>}
+        {!loading && <AccountAccessMatrix users={users} onRoleChange={handleRoleChange} />}
       </div>
     </div>
   )

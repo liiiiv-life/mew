@@ -179,3 +179,5 @@ export function dropCachedFile(project: string, path: string) {
   }
   saveOrder()
 }
+
+export function clearFileContentCache() { cache.clear(); clearPersistedContent() }

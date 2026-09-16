@@ -1,3 +1,4 @@
+import { capabilitiesFor, accessRevision } from './access-policy.ts'
 import express from 'express'
 import type { IncomingMessage } from 'node:http'
 import {
@@ -164,6 +165,8 @@ export function createAuthRouter() {
       mustChangePassword: session?.user.mustChangePassword ?? false,
       displayName: profile?.displayName ?? null,
       avatarDataUrl: profile?.avatarDataUrl ?? null,
+      accessRevision: accessRevision(),
+      capabilities: capabilitiesFor({ role: session?.user.role ?? 'guest', email: session?.email ?? null, mustChangePassword: session?.user.mustChangePassword ?? false }),
     })
   })
 

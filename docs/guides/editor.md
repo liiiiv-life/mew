@@ -116,7 +116,7 @@ PC에서는 플로팅 핸들을 마우스로 바로 끌어 위치를 바꾼다. 
 
 - `dragover`**에서는** `getData()`**가 언제나 빈 문자열이다**(DataTransfer 보호 모드). 받는 쪽 판정은 `hasPathDrag`(=`types` 검사)로 하고, 값 읽기(`pathFromDrag`)는 `drop`에서만 한다. 여기서 헷갈리면 `preventDefault`를 못 해 드롭 자체가 발생하지 않는다.
 - `effectAllowed`는 `copyMove`다 — `move`만 허용하면 `dropEffect='copy'`로 받는 에디터·터미널에서 드롭이 통째로 거부된다. 트리 안 폴더는 자기 `dragover`에서 `move`를 명시해 원래 뜻을 지킨다.
-- 에디터는 **전용 MIME이 있을 때만** 가로챈다. 바깥에서 끌어온 이미지·텍스트는 프로젝트의 `.mew/assets/`에 업로드되고 본문에 링크로 삽입된다. UUID 파일명과 프로젝트 id를 담은 `/api/asset` 링크는 종전 R2 공개 URL처럼 링크를 아는 사람이 볼 수 있다. Git이 무시하지 않는 새 asset은 프로젝트 저장소에 자동 커밋되며, 기존 R2 링크 22개는 `.mew/assets/`로 이관 완료했다.
+- 에디터는 **전용 MIME이 있을 때만** 가로챈다. 바깥에서 끌어온 이미지·텍스트는 프로젝트의 `.mew/assets/`에 업로드되고 본문에 링크로 삽입된다. UUID 파일명과 프로젝트 id를 담은 `/api/asset` 링크도 파일 열람 권한을 검사한다. guest 공유에는 첨부 경로의 열람 권한도 필요하다. Git이 무시하지 않는 새 asset은 프로젝트 저장소에 자동 커밋되며, 기존 R2 링크 22개는 `.mew/assets/`로 이관 완료했다.
 
 **바깥(파일 탐색기)에서 사이드바로 끌어놓기**는 놓은 폴더(빈 곳 = 프로젝트 루트)에 그 파일을 **그대로 저장**한다(`POST /api/upload-into`, multipart `file`·`destDir`). 판정은 `dataTransfer.types`에 `'Files'`가 있는지로 하고, 그때만 `dropEffect='copy'`가 된다. 이름이 겹치면 서버가 `이름 copy`로 비켜 쓰고, 여러 개를 놓으면 **순서대로** 올린다(동시에 보내면 같은 빈 이름을 함께 집는다). 에디터 본문 드롭은 `.mew/assets/`에 UUID 이름으로 저장하는 반면, 사이드바 드롭은 바이트와 원래 이름을 놓은 폴더에 보존하고 Git에 커밋한다.
 
@@ -137,7 +137,7 @@ Hotview에서 표의 세로선을 끌어 조절한 **열 너비**는 마크다�
 - 표를 **추가·삭제·이동하면 순서가 밀려 너비가 어긋날 수 있다.** 다시 끌면 덮어써진다 — 본문 md를 건드리지 않는 대가다.
 - 복원은 본문 시딩 뒤에 한 번, `addToHistory: false`(collab이면 `SEED_ORIGIN`)로 들어간다. 사용자의 undo 스택에 올라가면 Ctrl+Z 한 번에 너비가 통째로 되돌아가기 때문이다. **콘텐츠를 코드로 시딩하는 곳은 전부 이 규칙을 따른다** — `SEED_ORIGIN` 트랜잭션으로 감싸지 않으면 시딩이 사용자 undo 스택에 잡혀 Ctrl+Z 한 번에 문서 전체가 사라진다(`Editor.tsx`).
 - **불러오기에 실패하면 저장도 하지 않는다.** 못 읽은 것을 "너비 없음"으로 오해해 덮어쓰면 저장돼 있던 값이 사라진다.
-- 서버: `server/tableLayout.ts` + `GET /api/table-layout`(게스트는 보기 권한 필요)· `PUT /api/table-layout`(로그인 필요). 클라이언트: `packages/editor/src/Editor.tsx`의 `readTableWidths`/`applyTableWidths`, 주입은 `EditorApi.fetchTableLayout`/`saveTableLayout`.
+- 서버: `server/tableLayout.ts` + `GET /api/table-layout`(모든 계정에 파일 열람 권한 필요)· `PUT /api/table-layout`(로그인과 파일 수정 권한 필요). 클라이언트: `packages/editor/src/Editor.tsx`의 `readTableWidths`/`applyTableWidths`, 주입은 `EditorApi.fetchTableLayout`/`saveTableLayout`.
 
 ## 리스트 첫 항목 들여쓰기 (`- - b`)
 

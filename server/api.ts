@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_PROJECT, isDeniedSegment, isProtectedProject, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
 import { createProject, deleteProject, ProjectNameError, renameProject } from './projects.ts'
-import { buildTreeAsync, isPathVisible } from './tree.ts'
+import { buildTree, buildTreeAsync, isPathVisible } from './tree.ts'
 import { flattenTextFiles, replaceInFile, searchInProject, searchInProjectProgressively } from './search.ts'
 import {
   catalogParentOf,
@@ -96,15 +96,9 @@ import {
 import { broadcast, broadcastTree } from './presence.ts'
 import { resetTreeWatchers, watchProjectTree } from './watcher.ts'
 import { measure, measureSync } from './perfMarks.ts'
-import { authOf, requireAuthenticated, requireRole, seesEveryFile } from './reqAuth.ts'
-import {
-  decorateTreeWithGuestAccess,
-  filterTreeForGuest,
-  isGuestEditable,
-  isGuestViewable,
-  listGuestVisibleProjects,
-  setGuestRule,
-} from './guestAccess.ts'
+import { authOf, requireAuthenticated, requireRole, requireFeature, requireAnyFeature, seesEveryFile } from './reqAuth.ts'
+import { canUse, fileAccess, filterTreeForAccess, subtreeAccess, unrestrictedFiles, accessChanges } from './access-policy.ts'
+import { createAccessRouter } from './access-routes.ts'
 import {
   generateTempPassword,
   getUser,
@@ -224,10 +218,9 @@ async function catalogTextPaths(project: string): Promise<string[]> {
 
 async function scopedSearchFiles(req: express.Request): Promise<ScopedSearchFiles[]> {
   const project = projectOf(req)
-  const role = authOf(req).role
   if (project !== WORKSPACE_PROJECT) {
     const all = await catalogTextPaths(project)
-    const allowed = role === 'guest' ? all.filter((relPath) => isGuestViewable(project, relPath)) : all
+    const allowed = all.filter((relPath) => fileAccess(authOf(req), project, relPath).view)
     return [{ project, all, allowed, owner: null }]
   }
 
@@ -240,13 +233,13 @@ async function scopedSearchFiles(req: express.Request): Promise<ScopedSearchFile
   const subprojects = root.entries.filter((node) => node.type === 'dir' && node.project)
   const selectedSubs = subprojects.filter((node) => requested.has(`subproject:${node.path}`))
   const workspaceAllowed = workspaceAll.filter((relPath) => {
-    if (role === 'guest' && !isGuestViewable(WORKSPACE_PROJECT, relPath)) return false
+    if (!fileAccess(authOf(req), WORKSPACE_PROJECT, relPath).view) return false
     if (requested.size === 0) return true
     return selectedSubs.some((node) => relPath.startsWith(`${node.path}/`))
   })
   const includeDocs = requested.size === 0 || requested.has('docs')
   const docsAllowed = includeDocs
-    ? docsAll.filter((relPath) => role !== 'guest' || isGuestViewable(DEFAULT_PROJECT, relPath))
+    ? docsAll.filter((relPath) => fileAccess(authOf(req), DEFAULT_PROJECT, relPath).view)
     : []
   return [
     {
@@ -315,14 +308,63 @@ function hiddenFromTree(req: express.Request, relPath: string, type: 'file' | 'd
   return !isPathVisible(projectOf(req), relPath, { showAll: seesEveryFile(authOf(req).role), type })
 }
 
+function childrenAt(nodes: import('./tree.ts').TreeNode[], relPath: string): import('./tree.ts').TreeNode[] {
+  if (!relPath) return nodes
+  for (const node of nodes) {
+    if (node.path === relPath) return node.children ?? []
+    if (relPath.startsWith(node.path + '/')) return childrenAt(node.children ?? [], relPath)
+  }
+  return []
+}
+
+/** File ACLs cover direct URLs and mutations as well as the explorer UI. */
+function filePermissionMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const auth = authOf(req), project = projectOf(req), route = req.path
+  const write = !['GET', 'HEAD'].includes(req.method)
+  const body = req.body ?? {}
+  const target = String((write ? body.path : req.query.path) ?? req.query.path ?? '')
+  let allowed = true
+  const fileRoutes = ['/file', '/raw', '/download', '/asset', '/file-history', '/file-at-commit', '/file-revert', '/lint', '/rules', '/table-layout', '/comments', '/search/replace', '/pdf']
+  if (fileRoutes.includes(route) || route.startsWith('/pdf/')) {
+    allowed = fileAccess(auth, project, target)[write ? 'edit' : 'view']
+    if (route === '/file' && req.method === 'DELETE') allowed = subtreeAccess(auth, project, target, true)
+    if (route === '/comments') allowed &&= canUse(auth, 'collaboration')
+  } else if (route === '/rename') {
+    allowed = subtreeAccess(auth, project, body.oldPath, true) && subtreeAccess(auth, project, body.newPath, true, false)
+  } else if (route === '/copy' || route === '/copy-into') {
+    allowed = (body.sourceWorkspacePath !== undefined && auth.role === 'owner' && canUse(auth, 'serverFiles') || subtreeAccess(auth, project, body.srcPath ?? body.path))
+      && subtreeAccess(auth, project, route === '/copy' ? path.posix.dirname(body.path ?? '') : body.destDir, true, false)
+  } else if (route === '/subprojects') {
+    allowed = typeof body.path === 'string' && fileAccess(auth, project, body.path).edit
+      && fileAccess(auth, project, `${body.path}/.mew`).edit
+  } else if (route === '/new-folder' || route === '/new-document') {
+    allowed = fileAccess(auth, project, body.relPath).edit
+  } else if (route === '/upload' || route === '/upload-into' || route === '/project-icon' || route === '/project-layout') {
+    allowed = canUse(auth, 'filesWrite') && canUse(auth, 'filesRead')
+  } else if (route.startsWith('/git/') || route === '/rag/status' || route === '/rag/reindex') {
+    allowed = unrestrictedFiles(auth, project, write)
+  } else if (route === '/db' || route.startsWith('/db/')) {
+    allowed = canUse(auth, 'database') && unrestrictedFiles(auth, project, write)
+  }
+  if (!allowed) { res.status(403).json({ error: '이 파일 또는 폴더에 접근할 권한이 없습니다' }); return }
+  next()
+}
+
 export function createApiApp() {
   const app = express()
   app.use(express.json({ limit: '10mb' }))
+  app.use('/admin/access', createAccessRouter())
+  app.use((_req, res, next) => { res.setHeader('Cache-Control', 'private, no-store'); next() })
+  app.use(filePermissionMiddleware)
+  app.get('/file-access', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.json(req.query.external === '1' ? { view: canUse(authOf(req), 'serverFiles'), edit: canUse(authOf(req), 'serverFiles') } : fileAccess(authOf(req), projectOf(req), String(req.query.path ?? '')))
+  })
 
-  /** 게스트가 이 경로를 볼 수 있는지 확인 — 아니면 403을 응답하고 false를 반환한다 */
-  function requireGuestView(req: express.Request, res: express.Response, relPath: string): boolean {
-    if (authOf(req).role !== 'guest') return true
-    if (!isGuestViewable(projectOf(req), relPath)) {
+
+  /** 이 계정이 경로를 볼 수 있는지 확인 — 아니면 403을 응답하고 false를 반환한다 */
+  function requireFileView(req: express.Request, res: express.Response, relPath: string): boolean {
+    if (!fileAccess(authOf(req), projectOf(req), relPath).view) {
       res.status(403).json({ error: '접근 권한이 없습니다' })
       return false
     }
@@ -330,9 +372,8 @@ export function createApiApp() {
   }
 
   /** 게스트가 이 경로를 편집할 수 있는지 확인 — 아니면 403을 응답하고 false를 반환한다 */
-  function requireGuestEdit(req: express.Request, res: express.Response, relPath: string): boolean {
-    if (authOf(req).role !== 'guest') return true
-    if (!isGuestEditable(projectOf(req), relPath)) {
+  function requireFileEdit(req: express.Request, res: express.Response, relPath: string): boolean {
+    if (!fileAccess(authOf(req), projectOf(req), relPath).edit) {
       res.status(403).json({ error: '편집 권한이 없습니다' })
       return false
     }
@@ -342,18 +383,18 @@ export function createApiApp() {
   registerPdfRoutes(app, (req, res, write) => {
     try {
       if (req.path === '/fs/pdf') {
-        if (!['manager', 'owner'].includes(authOf(req).role)) { res.status(403).end(); return null }
+        if (!canUse(authOf(req), 'serverFiles')) { res.status(403).end(); return null }
         const file = resolveExistingPath(req.query.path)
         return { file, editable: !fs.realpathSync(file).split(path.sep).includes('archives') }
       }
       const relPath = String(req.query.path ?? '')
-      if (!requireGuestView(req, res, relPath) || (write && !requireGuestEdit(req, res, relPath))) return null
+      if (!requireFileView(req, res, relPath) || (write && !requireFileEdit(req, res, relPath))) return null
       const project = projectOf(req)
       const file = resolveProjectPath(project, relPath)
       const realFile = fs.realpathSync(file), realRoot = fs.realpathSync(projectRoot(project))
       const relative = path.relative(realRoot, realFile)
       if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative) || relative.split(path.sep).some(isDeniedSegment)) throw new UnsafePathError('PDF path escapes project')
-      const editable = !realFile.split(path.sep).includes('archives') && (authOf(req).role !== 'guest' || isGuestEditable(project, relPath))
+      const editable = !realFile.split(path.sep).includes('archives') && fileAccess(authOf(req), project, relPath).edit
       return { file: realFile, editable, saved: () => noteFileContentChanged(project, relPath) }
     } catch (error) { handleError(res, error); return null }
   })
@@ -361,7 +402,7 @@ export function createApiApp() {
   app.get('/projects', (req, res) => {
     const icons = readProjectIcons()
     const layout = readProjectLayout()
-    const names = authOf(req).role === 'guest' ? listGuestVisibleProjects() : listProjects()
+    const names = listProjects().filter(project => unrestrictedFiles(authOf(req), project) || filterTreeForAccess(authOf(req), project, buildTree(project, { showAll: true })).length > 0)
     res.json(
       names.map((name) => ({
         name,
@@ -387,7 +428,7 @@ export function createApiApp() {
     }
   })
 
-  app.get('/user-ui/agent-tabs', requireRole('owner', 'manager'), (req, res) => {
+  app.get('/user-ui/agent-tabs', requireAnyFeature('agent', 'terminal'), (req, res) => {
     try {
       const workspacePath = String(req.query.workspace ?? '')
       const email = authOf(req).email!
@@ -397,7 +438,7 @@ export function createApiApp() {
     }
   })
 
-  app.put('/user-ui/agent-tabs', requireRole('owner', 'manager'), (req, res) => {
+  app.put('/user-ui/agent-tabs', requireAnyFeature('agent', 'terminal'), (req, res) => {
     try {
       const workspacePath = typeof req.body?.workspacePath === 'string' ? req.body.workspacePath : ''
       res.json({ state: writeAgentTabs(authOf(req).email!, workspacePath, req.body) })
@@ -466,7 +507,7 @@ export function createApiApp() {
   app.use('/browser-dom', createDomBrowserRoutes())
   app.use('/remote-desktop', createRemoteDesktopRoutes(tmuxManager))
 
-  app.get('/browser-url', requireRole('manager', 'owner'), (req, res) => {
+  app.get('/browser-url', requireAnyFeature('browser', 'android'), (req, res) => {
     try {
       const target = String(req.query.url ?? '')
       if (!target.trim()) {
@@ -480,7 +521,7 @@ export function createApiApp() {
   })
 
   // ── Android 패널: 상태 확인 + 사용자가 누른 서버 등록표 명령만 one-shot tmux로 실행 ─────
-  app.get('/android/status', requireRole('manager', 'owner'), async (_req, res) => {
+  app.get('/android/status', requireFeature('android'), async (_req, res) => {
     try {
       const running = new Set((await tmuxManager.list()).map((session) => session.name))
       res.json(await collectAndroidEnvStatus(running))
@@ -489,7 +530,7 @@ export function createApiApp() {
     }
   })
 
-  app.post('/android/commands/:id/run', requireRole('manager', 'owner'), async (req, res) => {
+  app.post('/android/commands/:id/run', requireFeature('android'), async (req, res) => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
       const runnable = androidCommandById(id)
@@ -506,7 +547,7 @@ export function createApiApp() {
     }
   })
 
-  app.get('/mew-update/status', requireRole('manager', 'owner'), async (req, res) => {
+  app.get('/mew-update/status', requireFeature('system'), async (req, res) => {
     try {
       const running = (await tmuxManager.list()).some((session) => session.name === MEW_UPDATE_SESSION)
       res.json(await mewUpdateStatus(req.query.refresh === '1', running))
@@ -516,7 +557,7 @@ export function createApiApp() {
   })
 
   // 앱 자체 조작은 UI가 준 임의 셸이 아니라 이 등록표의 항목으로만 한정한다.
-  app.post('/mew-actions/:id/run', requireRole('manager', 'owner'), async (req, res) => {
+  app.post('/mew-actions/:id/run', requireFeature('system'), async (req, res) => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
       const action = MEW_ACTIONS[id as keyof typeof MEW_ACTIONS]
@@ -607,7 +648,7 @@ export function createApiApp() {
 
   // ── 워크스페이스 자체 갈아끼우기 (owner 전용) ──────────────────────────────
   // 어느 폴더를 열고 있는지 = 서버 기계의 경로다. owner 밖으로 내보내지 않는다.
-  app.get('/workspace', requireRole('manager', 'owner'), (_req, res) => {
+  app.get('/workspace', requireAuthenticated, (_req, res) => {
     try {
       res.json(currentWorkspace())
     } catch (err) {
@@ -632,7 +673,7 @@ export function createApiApp() {
   })
 
   // 에이전트 답변의 로컬 파일 링크 — 셸을 쓸 수 있는 역할만 서버 절대경로를 프로젝트 경로로 바꿀 수 있다.
-  app.get('/agent-file-link', requireRole('owner', 'manager'), (req, res) => {
+  app.get('/agent-file-link', requireFeature('agent'), (req, res) => {
     const href = req.query.href
     if (typeof href !== 'string') {
       res.status(400).json({ error: '파일 링크가 없습니다' })
@@ -642,7 +683,7 @@ export function createApiApp() {
   })
 
   // 주소창 입력을 세션을 끊기 전에 검증한다. 파일 접근 범위는 넓히지 않는다 — ACP/CLI 권한은 이미 OS 사용자 범위다.
-  app.get('/agent-cwd', requireRole('owner', 'manager'), (req, res) => {
+  app.get('/agent-cwd', requireAnyFeature('agent', 'terminal'), (req, res) => {
     try {
       const base = resolveAgentCwd(String(req.query.base ?? ''), WORKSPACE_ROOT)
       res.json({ cwd: resolveAgentCwd(String(req.query.path ?? ''), WORKSPACE_ROOT, base) })
@@ -651,7 +692,7 @@ export function createApiApp() {
     }
   })
 
-  app.get('/agent-cwd/suggestions', requireRole('owner', 'manager'), (req, res) => {
+  app.get('/agent-cwd/suggestions', requireAnyFeature('agent', 'terminal'), (req, res) => {
     try {
       const base = resolveAgentCwd(String(req.query.base ?? ''), WORKSPACE_ROOT)
       res.json(suggestAgentCwds(String(req.query.input ?? ''), WORKSPACE_ROOT, base, req.query.entered === 'true'))
@@ -679,7 +720,7 @@ export function createApiApp() {
   })
 
   // 서버 파일 탐색기 — 셸과 같은 OS 사용자 범위를 노출하므로 manager·owner만 쓴다.
-  app.get('/fs/entries', requireRole('manager', 'owner'), async (req, res) => {
+  app.get('/fs/entries', requireFeature('serverFiles'), async (req, res) => {
     try {
       res.json(await listEntries(String(req.query.path ?? '')))
     } catch (err) {
@@ -687,7 +728,7 @@ export function createApiApp() {
     }
   })
 
-  app.get('/fs/file', requireRole('manager', 'owner'), (req, res) => {
+  app.get('/fs/file', requireFeature('serverFiles'), (req, res) => {
     try {
       res.json(readExternalFile(req.query.path))
     } catch (err) {
@@ -695,7 +736,7 @@ export function createApiApp() {
     }
   })
 
-  app.put('/fs/file', requireRole('manager', 'owner'), (req, res) => {
+  app.put('/fs/file', requireFeature('serverFiles'), (req, res) => {
     try {
       const { path: filePath, content } = req.body as { path?: unknown; content?: unknown }
       res.json({ ok: true, path: writeExternalFile(filePath, content) })
@@ -704,7 +745,7 @@ export function createApiApp() {
     }
   })
 
-  app.post('/fs/rename', requireRole('manager', 'owner'), (req, res) => {
+  app.post('/fs/rename', requireFeature('serverFiles'), (req, res) => {
     try {
       const { path: target, name } = req.body as { path?: unknown; name?: unknown }
       res.json({ ok: true, path: renameExternalPath(target, name) })
@@ -713,7 +754,7 @@ export function createApiApp() {
     }
   })
 
-  app.delete('/fs/path', requireRole('manager', 'owner'), (req, res) => {
+  app.delete('/fs/path', requireFeature('serverFiles'), (req, res) => {
     try {
       deleteExternalPath(req.query.path)
       res.json({ ok: true })
@@ -722,7 +763,7 @@ export function createApiApp() {
     }
   })
 
-  app.post('/fs/paste', requireRole('manager', 'owner'), (req, res) => {
+  app.post('/fs/paste', requireFeature('serverFiles'), (req, res) => {
     try {
       const { source, destination, mode } = req.body as { source?: unknown; destination?: unknown; mode?: unknown }
       res.json({ ok: true, path: pasteExternalPath(source, destination, mode) })
@@ -755,7 +796,7 @@ export function createApiApp() {
     }
   })
 
-  app.get('/fs/raw', requireRole('manager', 'owner'), (req, res) => {
+  app.get('/fs/raw', requireFeature('serverFiles'), (req, res) => {
     try {
       const abs = resolveExistingPath(req.query.path)
       res.setHeader('X-Frame-Options', 'SAMEORIGIN')
@@ -767,7 +808,7 @@ export function createApiApp() {
     }
   })
 
-  app.get('/fs/download', requireRole('manager', 'owner'), (req, res) => {
+  app.get('/fs/download', requireFeature('serverFiles'), (req, res) => {
     try {
       const abs = resolveExistingPath(req.query.path)
       res.download(abs, path.basename(abs), { dotfiles: 'allow' }, (err) => {
@@ -791,11 +832,11 @@ export function createApiApp() {
   })
 
   // Git 워크벤치 — 경로는 현재 루트 프로젝트 안으로 제한하고, 폴더 자체가 저장소일 때만 조작한다.
-  app.get('/git/repository', requireRole('manager', 'owner'), async (req, res) => {
+  app.get('/git/repository', requireFeature('git'), async (req, res) => {
     try { res.json(await repositoryInfo(projectOf(req), String(req.query.path ?? ''))) } catch (err) { handleError(res, err) }
   })
 
-  app.post('/git/init', requireRole('manager', 'owner'), async (req, res) => {
+  app.post('/git/init', requireFeature('git'), async (req, res) => {
     try {
       const relPath = typeof req.body?.path === 'string' ? req.body.path : ''
       const info = await initializeRepository(projectOf(req), relPath)
@@ -803,35 +844,35 @@ export function createApiApp() {
     } catch (err) { handleError(res, err) }
   })
 
-  app.get('/git/log', requireRole('manager', 'owner'), async (req, res) => {
+  app.get('/git/log', requireFeature('git'), async (req, res) => {
     try { res.json({ commits: await repositoryLog(projectOf(req), String(req.query.path ?? ''), Number(req.query.limit ?? 300)) }) } catch (err) { handleError(res, err) }
   })
 
-  app.get('/git/repositories', requireRole('manager', 'owner'), async (req, res) => {
+  app.get('/git/repositories', requireFeature('git'), async (req, res) => {
     try { res.json({ repositories: await listRepositories(projectOf(req)) }) } catch (err) { handleError(res, err) }
   })
 
-  app.get('/git/commit', requireRole('manager', 'owner'), async (req, res) => {
+  app.get('/git/commit', requireFeature('git'), async (req, res) => {
     try { res.json(await commitDetail(projectOf(req), String(req.query.path ?? ''), req.query.hash)) } catch (err) { handleError(res, err) }
   })
 
-  app.get('/git/diff', requireRole('manager', 'owner'), async (req, res) => {
+  app.get('/git/diff', requireFeature('git'), async (req, res) => {
     try { res.json({ diff: await commitFileDiff(projectOf(req), String(req.query.path ?? ''), req.query.hash, req.query.file) }) } catch (err) { handleError(res, err) }
   })
 
-  app.get('/git/working-tree', requireRole('manager', 'owner'), async (req, res) => {
+  app.get('/git/working-tree', requireFeature('git'), async (req, res) => {
     try { res.json(await workingTreeDetail(projectOf(req), String(req.query.path ?? ''))) } catch (err) { handleError(res, err) }
   })
 
-  app.get('/git/working-tree/diff', requireRole('manager', 'owner'), async (req, res) => {
+  app.get('/git/working-tree/diff', requireFeature('git'), async (req, res) => {
     try { res.json({ diff: await workingTreeFileDiff(projectOf(req), String(req.query.path ?? ''), req.query.file) }) } catch (err) { handleError(res, err) }
   })
 
-  app.post('/git/commit', requireRole('manager', 'owner'), async (req, res) => {
+  app.post('/git/commit', requireFeature('git'), async (req, res) => {
     try { res.json(await commitWorkingTree(projectOf(req), String(req.body?.path ?? ''), req.body?.title, req.body?.description)) } catch (err) { handleError(res, err) }
   })
 
-  app.post('/git/action', requireRole('manager', 'owner'), async (req, res) => {
+  app.post('/git/action', requireFeature('git'), async (req, res) => {
     try {
       const info = await runCommitAction(projectOf(req), String(req.body?.path ?? ''), req.body?.action, req.body?.hash, req.body?.name)
       res.json(info)
@@ -1024,7 +1065,7 @@ export function createApiApp() {
       let tree: import('./tree.ts').TreeNode[]
       let catalogState: 'ready' | 'building' | 'stale' = 'ready'
       let catalogVersion = 0
-      if (role === 'guest' || requestedPath === null) {
+      if (!unrestrictedFiles(authOf(req), project) || requestedPath === null) {
         tree = await buildTreeAsync(project, { showAll: seesEveryFile(role) })
         warmFileCatalog(project)
       } else {
@@ -1036,7 +1077,8 @@ export function createApiApp() {
       // 이 프로젝트를 보는 세션이 있으니 트리 감시를 지연 등록한다 — 터미널·다른 세션이 만든 파일이
       // 사이드바에 바로 반영되도록(멱등). docs는 부팅 때부터 감시 중. 게스트는 감시를 유발하지 않는다.
       if (role !== 'guest') watchProjectTree(project)
-      const entries = role === 'guest' ? filterTreeForGuest(project, tree) : decorateTreeWithGuestAccess(project, tree)
+      const filtered = filterTreeForAccess(authOf(req), project, tree)
+      const entries = requestedPath !== null && !unrestrictedFiles(authOf(req), project) ? childrenAt(filtered, requestedPath) : filtered
       if (req.query.v === '1') res.json({ version: catalogVersion, state: catalogState, entries })
       else res.json(entries)
     } catch (err) {
@@ -1044,7 +1086,7 @@ export function createApiApp() {
     }
   })
 
-  app.get('/skills', requireRole('owner', 'manager'), (_req, res) => {
+  app.get('/skills', requireFeature('agent'), (_req, res) => {
     try {
       res.json({ skills: listSkills() })
     } catch (err) {
@@ -1055,10 +1097,10 @@ export function createApiApp() {
   app.get('/file', async (req, res) => {
     const relPath = String(req.query.path ?? '')
     const project = projectOf(req)
-    if (!requireGuestView(req, res, relPath)) return
+    if (!requireFileView(req, res, relPath)) return
     try {
       const absPath = resolveProjectPath(project, relPath)
-      const editable = authOf(req).role === 'guest' ? isGuestEditable(project, relPath) : true
+      const editable = fileAccess(authOf(req), project, relPath).edit
       const requestedAnchor = Number(req.query.anchorLine)
       const stat = await fs.promises.stat(absPath)
       if (Number.isInteger(requestedAnchor) && requestedAnchor > 0 && stat.size >= ANCHOR_PREVIEW_MIN_BYTES) {
@@ -1095,7 +1137,7 @@ export function createApiApp() {
     const relPath = String(req.query.path ?? '')
     const hash = String(req.query.hash ?? '')
     const project = projectOf(req)
-    if (!requireGuestView(req, res, relPath)) return
+    if (!requireFileView(req, res, relPath)) return
     try {
       resolveProjectPath(project, relPath) // 경로 검증(트래버설 방지)
       const content = await showAtCommit(project, relPath, hash)
@@ -1107,7 +1149,7 @@ export function createApiApp() {
 
   // 커밋 시점 내용을 디스크에 쓰고 커밋한다 — "내부 링크 라벨 = title" 동기화까지 PUT /file과
   // 동일하게 처리해야 하므로 그 로직을 공유한다.
-  async function writeAndCommit(project: string, relPath: string, content: string, action: 'add' | 'update', commitMessage?: string) {
+  async function writeAndCommit(project: string, relPath: string, content: string, action: 'add' | 'update', commitMessage?: string, mayEdit: (relPath: string) => boolean = () => true) {
     const absPath = resolveProjectPath(project, relPath)
     fs.mkdirSync(path.dirname(absPath), { recursive: true })
     fs.writeFileSync(absPath, content, 'utf-8')
@@ -1126,7 +1168,7 @@ export function createApiApp() {
       const newTitle = parseTitle(content)
       if (oldTitle && newTitle && oldTitle !== newTitle) {
         try {
-          linkUpdates = updateLinkLabelsFor(relPath, newTitle)
+          linkUpdates = updateLinkLabelsFor(relPath, newTitle, mayEdit)
           for (const updatedPath of linkUpdates) noteFileContentChanged(project, updatedPath)
         } catch (err) {
           console.error('link label sync failed:', err)
@@ -1140,7 +1182,7 @@ export function createApiApp() {
   app.put('/file', async (req, res) => {
     const { path: relPath, content, commit } = req.body as { path: string; content: string; commit?: boolean }
     const project = projectOf(req)
-    if (!requireGuestEdit(req, res, relPath)) return
+    if (!requireFileEdit(req, res, relPath)) return
     try {
       if (project === DEFAULT_PROJECT && isArchived(relPath)) {
         res.status(403).json({ error: 'archives/ 문서는 불변입니다 — 편집할 수 없습니다' })
@@ -1151,7 +1193,7 @@ export function createApiApp() {
       // 게스트는 부분 편집 권한을 받아도 명시적 git 커밋은 절대 트리거할 수 없다
       const doCommit = commit && authOf(req).role !== 'guest'
       if (doCommit) {
-        const result = await writeAndCommit(project, relPath, content, isNew ? 'add' : 'update')
+        const result = await writeAndCommit(project, relPath, content, isNew ? 'add' : 'update', undefined, target => fileAccess(authOf(req), project, target).edit)
         res.json({ ok: true, commit: result })
       } else {
         fs.mkdirSync(path.dirname(absPath), { recursive: true })
@@ -1175,7 +1217,7 @@ export function createApiApp() {
         res.status(400).json({ error: 'path와 hash가 필요합니다' })
         return
       }
-      if (!requireGuestEdit(req, res, relPath)) return
+      if (!requireFileEdit(req, res, relPath)) return
       if (project === DEFAULT_PROJECT && isArchived(relPath)) {
         res.status(403).json({ error: 'archives/ 문서는 불변입니다 — 되돌릴 수 없습니다' })
         return
@@ -1186,7 +1228,7 @@ export function createApiApp() {
         res.status(404).json({ error: '해당 커밋에서 파일을 찾을 수 없습니다' })
         return
       }
-      const result = await writeAndCommit(project, relPath, content, 'update', `${project}: revert ${relPath} to ${hash.slice(0, 7)}`)
+      const result = await writeAndCommit(project, relPath, content, 'update', `${project}: revert ${relPath} to ${hash.slice(0, 7)}`, target => fileAccess(authOf(req), project, target).edit)
       res.json({ ok: true, content, commit: result })
     } catch (err) {
       handleError(res, err)
@@ -1228,7 +1270,7 @@ export function createApiApp() {
         res.status(400).json({ error: 'path와 content가 필요합니다' })
         return
       }
-      if (!requireGuestEdit(req, res, relPath)) return
+      if (!requireFileEdit(req, res, relPath)) return
       if (content.length > 1_000_000) {
         res.json({ diagnostics: [] })
         return
@@ -1250,6 +1292,7 @@ export function createApiApp() {
         caseSensitive: req.query.case === '1',
         scopes: String(req.query.scopes ?? '').split(',').filter(Boolean),
         showAll: seesEveryFile(authOf(req).role),
+        allowed: (project, relPath) => fileAccess(authOf(req), project, relPath).view,
       }))
     } catch (err) {
       if (err instanceof SyntaxError) { res.status(400).json({ error: '잘못된 정규식입니다' }); return }
@@ -1370,7 +1413,7 @@ export function createApiApp() {
         return
       }
       validateRagProject(project)
-      const files = flattenTextFiles(await buildTreeAsync(project))
+      const files = flattenTextFiles(await buildTreeAsync(project)).filter(relPath => fileAccess(authOf(req), project, relPath).view)
       res.json(await currentRagIndex().search(project, files, query, req.query.history === '1'))
     } catch (err) {
       handleError(res, err)
@@ -1391,11 +1434,11 @@ export function createApiApp() {
     }
   })
 
-  app.post('/rag/reindex', requireRole('manager', 'owner'), async (req, res) => {
+  app.post('/rag/reindex', requireFeature('system'), async (req, res) => {
     const project = projectOf(req)
     try {
       validateRagProject(project)
-      const files = flattenTextFiles(await buildTreeAsync(project))
+      const files = flattenTextFiles(await buildTreeAsync(project)).filter(relPath => fileAccess(authOf(req), project, relPath).view)
       res.json({ ok: true, ...(await currentRagIndex().ensureProject(project, files, true)) })
     } catch (err) {
       handleError(res, err)
@@ -1521,7 +1564,7 @@ export function createApiApp() {
   // sendFile이 확장자 기반 Content-Type과 Range 요청(비디오 탐색)을 처리한다.
   app.get('/raw', (req, res) => {
     const relPath = String(req.query.path ?? '')
-    if (!requireGuestView(req, res, relPath)) return
+    if (!requireFileView(req, res, relPath)) return
     try {
       const absPath = resolveProjectPath(projectOf(req), relPath)
       // serve.ts의 전역 X-Frame-Options: DENY는 유지하되, PDF를 같은 오리진 iframe에
@@ -1530,7 +1573,7 @@ export function createApiApp() {
       // dotfiles: 'allow' — express의 send는 기본으로 점으로 시작하는 폴더·파일을 통째로 404 낸다.
       // 이 워크스페이스는 문서가 `.mew/docs/` 밑에 산다: 그냥 두면 그 아래 PDF·xlsx가 전부 500이었다
       // ({"error":"Internal error"}). 접근 판정은 이미 위에서 끝났다 —
-      // resolveProjectPath가 루트 탈출과 .git·node_modules·.data를 막고, requireGuestView가 게스트를 건다
+      // resolveProjectPath가 루트 탈출과 .git·node_modules·.data를 막고, requireFileView가 게스트를 건다
       res.sendFile(absPath, { dotfiles: 'allow' }, (err) => {
         if (err && !res.headersSent) handleError(res, err)
       })
@@ -1541,7 +1584,7 @@ export function createApiApp() {
 
   app.get('/download', (req, res) => {
     const relPath = String(req.query.path ?? '')
-    if (!requireGuestView(req, res, relPath)) return
+    if (!requireFileView(req, res, relPath)) return
     try {
       const absPath = resolveProjectPath(projectOf(req), relPath)
       // dotfiles는 /raw와 같은 이유로 열어 둔다 — `.mew/docs/` 밑 파일 내려받기가 통째로 막혀 있었다.
@@ -1599,7 +1642,7 @@ export function createApiApp() {
   app.get('/rules', (req, res) => {
     const relPath = String(req.query.path ?? '')
     const project = projectOf(req)
-    if (!requireGuestView(req, res, relPath)) return
+    if (!requireFileView(req, res, relPath)) return
     try {
       resolveProjectPath(project, relPath)
       if (project !== DEFAULT_PROJECT) {
@@ -1618,7 +1661,7 @@ export function createApiApp() {
   app.get('/table-layout', (req, res) => {
     const relPath = String(req.query.path ?? '')
     const project = projectOf(req)
-    if (!requireGuestView(req, res, relPath)) return
+    if (!requireFileView(req, res, relPath)) return
     try {
       resolveProjectPath(project, relPath) // 경로 탈출·차단 경로 검증
       res.json({ tables: readTableLayout(project, relPath) })
@@ -1654,11 +1697,11 @@ export function createApiApp() {
   const memberEmails = () => listUsers().map(({ email }) => email)
 
   // 단체방 + 내 DM을 한 번에 준다(원장이 500줄뿐이다). 남의 DM은 애초에 실리지 않는다
-  app.get('/chat', requireAuthenticated, (req, res) => {
+  app.get('/chat', requireFeature('chat'), (req, res) => {
     res.json(listChatFor(authOf(req).email ?? '', memberEmails()))
   })
 
-  app.post('/chat', requireAuthenticated, (req, res) => {
+  app.post('/chat', requireFeature('chat'), (req, res) => {
     const { text, to } = (req.body ?? {}) as { text?: unknown; to?: unknown }
     try {
       const author = authOf(req).email ?? ''
@@ -1690,7 +1733,7 @@ export function createApiApp() {
   })
 
   // 이 대화를 여기까지 읽었다 — 보낸 쪽 화면의 숫자가 줄어야 하므로 읽음도 방송한다
-  app.post('/chat/read', requireAuthenticated, (req, res) => {
+  app.post('/chat/read', requireFeature('chat'), (req, res) => {
     const conversation = (req.body as { conversation?: unknown } | null)?.conversation
     if (typeof conversation !== 'string' || !conversation) {
       res.status(400).json({ error: 'conversation이 필요합니다' })
@@ -1823,6 +1866,7 @@ export function createApiApp() {
       return
     }
     try {
+      if (!subtreeAccess(authOf(req), project, '.mew/assets', true, false)) { res.status(403).json({ error: '첨부 경로에 쓸 권한이 없습니다' }); return }
       const relPath = moveAssetIntoProject(project, file.path, file.originalname, file.mimetype)
       noteFileContentChanged(project, relPath)
       await refreshCatalogPaths(project, [relPath])
@@ -1835,8 +1879,7 @@ export function createApiApp() {
     }
   })
 
-  // 본문에 저장되는 UUID URL은 R2 공개 URL과 같은 bearer-link 경계다. 경로를 아는 사람은 볼 수 있지만
-  // `.mew/assets` 밖이나 사람이 고른 파일명은 절대 이 라우트로 열 수 없다.
+  // UUID 첨부도 일반 파일과 같은 ACL을 적용한다. UUID 형식 검증은 추가 경로 제한이다.
   app.get('/asset', (req, res) => {
     const relPath = String(req.query.path ?? '')
     if (!isLocalAssetPath(relPath)) {
@@ -1845,7 +1888,7 @@ export function createApiApp() {
     }
     try {
       const absPath = resolveProjectPath(projectOf(req), relPath)
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      res.setHeader('Cache-Control', 'private, no-store')
       res.sendFile(absPath, { dotfiles: 'allow' }, (err) => {
         if (err && !res.headersSent) handleError(res, err)
       })
@@ -1869,6 +1912,7 @@ export function createApiApp() {
         res.status(403).json({ error: 'archives/ 밑에는 파일을 올릴 수 없습니다' })
         return
       }
+      if (!subtreeAccess(authOf(req), project, destDir, true, false)) { res.status(403).json({ error: '업로드 경로에 쓸 권한이 없습니다' }); return }
       const relPath = moveFileInto(project, destDir, file.originalname, file.path)
       noteFileContentChanged(project, relPath)
       await refreshCatalogPaths(project, [relPath])
@@ -1907,21 +1951,7 @@ export function createApiApp() {
     }
   })
 
-  app.put('/guest-access', requireAuthenticated, (req, res) => {
-    const { path: relPath, view, edit } = req.body as { path?: unknown; view?: unknown; edit?: unknown }
-    const project = projectOf(req)
-    try {
-      if (typeof relPath !== 'string' || typeof view !== 'boolean' || typeof edit !== 'boolean') {
-        res.status(400).json({ error: 'path, view, edit가 필요합니다' })
-        return
-      }
-      resolveProjectPath(project, relPath) // 경로 검증(트래버설·미존재 방지)
-      setGuestRule(project, relPath, view, edit)
-      res.json({ ok: true })
-    } catch (err) {
-      handleError(res, err)
-    }
-  })
+  app.put('/guest-access', (_req, res) => { res.status(410).json({ error: '파일 권한은 계정 관리에서 설정하세요' }) })
 
   app.get('/admin/users', requireRole('owner'), (_req, res) => {
     res.json(
@@ -1967,14 +1997,18 @@ export function createApiApp() {
       res.status(404).json({ error: '등록되지 않은 사용자입니다' })
       return
     }
+    if (user.role === 'owner' && role !== 'owner' && listUsers().filter(entry => entry.record.role === 'owner').length === 1) {
+      res.status(400).json({ error: '마지막 owner의 역할은 변경할 수 없습니다' }); return
+    }
     upsertUser(email, { ...user, role })
+    accessChanges.emit('change')
     res.json({ ok: true })
   })
 
-  app.use('/tmux', requireRole('owner', 'manager'), createTmuxRouter(tmuxManager))
+  app.use('/tmux', requireFeature('terminal'), createTmuxRouter(tmuxManager))
 
   // 호스트 자원 현황(프로파일링 팝업) — 서버가 도는 기계의 정보라 셸과 같은 역할로 묶는다
-  app.get('/system-stats', requireRole('owner', 'manager'), async (_req, res) => {
+  app.get('/system-stats', requireFeature('system'), async (_req, res) => {
     try {
       res.json(await collectSystemStats())
     } catch (err) {
@@ -1983,11 +2017,11 @@ export function createApiApp() {
   })
 
   // 에이전트 런타임 설치는 서버 머신에 실행 파일을 쓰는 작업 — 터미널과 같은 역할만.
-  app.get('/agent-runtimes', requireRole('owner', 'manager'), (_req, res) => {
+  app.get('/agent-runtimes', requireAnyFeature('agent', 'terminal'), (_req, res) => {
     res.json({ runtimes: runtimeStatuses() })
   })
 
-  app.get('/agent-runtimes/:id/account', requireRole('owner', 'manager'), async (req, res) => {
+  app.get('/agent-runtimes/:id/account', requireFeature('agent'), async (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
     try { res.json({ account: await readRuntimeAccount(String(req.params.id)) }) }
     catch { res.status(400).json({ error: '지원하지 않는 런타임입니다' }) }
@@ -1995,7 +2029,7 @@ export function createApiApp() {
 
   // terminal형 런타임은 통합 패널의 탭별 전용 tmux에서 공식 TUI 또는 기본 셸을 실행한다. 브라우저는
   // runtime·tab·cwd만 보내며 실행 방식과 실제 tmux 이름은 서버 등록표가 정한다(ADR 0117·0119).
-  app.post('/agent-runtimes/:id/terminal/:tab', requireRole('owner', 'manager'), async (req, res) => {
+  app.post('/agent-runtimes/:id/terminal/:tab', requireFeature('terminal'), (req, res, next) => req.params.id === 'tmux' ? next() : requireFeature('agent')(req, res, next), async (req, res) => {
     try {
       const cwd = resolveAgentCwd(typeof req.body?.cwd === 'string' ? req.body.cwd : '', WORKSPACE_ROOT)
       res.json({ ok: true, ...await startAgentTerminal(tmuxManager, String(req.params.id), String(req.params.tab), cwd) })
@@ -2004,7 +2038,7 @@ export function createApiApp() {
     }
   })
 
-  app.delete('/agent-runtimes/:id/terminal/:tab', requireRole('owner', 'manager'), async (req, res) => {
+  app.delete('/agent-runtimes/:id/terminal/:tab', requireFeature('terminal'), (req, res, next) => req.params.id === 'tmux' ? next() : requireFeature('agent')(req, res, next), async (req, res) => {
     try {
       await stopAgentTerminal(tmuxManager, String(req.params.id), String(req.params.tab))
       res.json({ ok: true })
@@ -2013,7 +2047,7 @@ export function createApiApp() {
     }
   })
 
-  app.post('/agent-runtimes/:id/install', requireRole('owner', 'manager'), async (req, res) => {
+  app.post('/agent-runtimes/:id/install', requireFeature('agent'), async (req, res) => {
     try {
       res.json(await installRuntime(String(req.params.id)))
     } catch (err) {
@@ -2021,17 +2055,17 @@ export function createApiApp() {
     }
   })
 
-  app.delete('/agent-runtimes/:id/install', requireRole('owner', 'manager'), async (req, res) => {
+  app.delete('/agent-runtimes/:id/install', requireFeature('agent'), async (req, res) => {
     try { res.json(await uninstallRuntime(String(req.params.id))) } catch (err) { handleError(res, err) }
   })
 
-  app.post('/agent-runtimes/:id/logout', requireRole('owner', 'manager'), async (req, res) => {
+  app.post('/agent-runtimes/:id/logout', requireFeature('agent'), async (req, res) => {
     try { res.json(await logoutRuntime(String(req.params.id))) } catch (err) { handleError(res, err) }
   })
 
   // terminal auth는 사용자가 브라우저 안 tmux에서 직접 조작한다. 요청은 런타임·탭·노출된 method id만
   // 받고, 실제 실행 파일·인자는 ACP 세션 또는 런타임 등록표가 보관한 고정 spec에서 꺼낸다.
-  app.post('/agent-runtimes/:id/auth/:method/run', requireRole('owner', 'manager'), async (req, res) => {
+  app.post('/agent-runtimes/:id/auth/:method/run', requireFeature('agent'), async (req, res) => {
     try {
       const id = String(req.params.id)
       const methodId = String(req.params.method)
@@ -2061,7 +2095,7 @@ export function createApiApp() {
     }
   })
 
-  app.get('/agent-runtimes/:id/auth/:method/status', requireRole('owner', 'manager'), async (req, res) => {
+  app.get('/agent-runtimes/:id/auth/:method/status', requireFeature('agent'), async (req, res) => {
     try {
       const id = String(req.params.id)
       const methodId = String(req.params.method)
@@ -2091,7 +2125,7 @@ export function createApiApp() {
 
   // 등록된 OAuth 작업이 출력한 URL만 일회성 서버 브라우저로 연다. 클라이언트가
   // 임의 URL을 보내지 않고, 이후 탐색은 일반 내부 브라우저와 같은 프로필에서 실행한다.
-  app.post('/agent-runtimes/:id/auth/:method/browser', requireRole('owner', 'manager'), async (req, res) => {
+  app.post('/agent-runtimes/:id/auth/:method/browser', requireFeature('agent'), requireFeature('browser'), async (req, res) => {
     try {
       const id = String(req.params.id)
       const methodId = String(req.params.method)
@@ -2128,7 +2162,7 @@ export function createApiApp() {
 
   // 브라우저 OAuth가 돌려준 일회용 코드를 해당 고정 로그인 작업의 TTY에만 전달한다.
   // 값은 상태 파일·로그·이벤트·전사 어느 곳에도 저장하지 않는다.
-  app.post('/agent-runtimes/:id/auth/:method/input', requireRole('owner', 'manager'), async (req, res) => {
+  app.post('/agent-runtimes/:id/auth/:method/input', requireFeature('agent'), async (req, res) => {
     try {
       const id = String(req.params.id)
       const methodId = String(req.params.method)
@@ -2166,7 +2200,7 @@ export function createApiApp() {
 
   // 에이전트 창에서 고른 모델·권한을 런타임별 기본값으로 영속화한다. 저장 위치는 DATA_DIR이고,
   // 다음 session/new·session/load부터 공통 AgentSession 경로가 적용한다.
-  app.get('/agent-defaults/:id', requireRole('owner', 'manager'), (req, res) => {
+  app.get('/agent-defaults/:id', requireFeature('agent'), (req, res) => {
     try {
       res.json({ settings: readAgentDefault(String(req.params.id)) })
     } catch (err) {
@@ -2174,7 +2208,7 @@ export function createApiApp() {
     }
   })
 
-  app.put('/agent-defaults/:id', requireRole('owner', 'manager'), (req, res) => {
+  app.put('/agent-defaults/:id', requireFeature('agent'), (req, res) => {
     try {
       res.json({ settings: writeAgentDefault(String(req.params.id), req.body) })
     } catch (err) {
@@ -2184,7 +2218,7 @@ export function createApiApp() {
 
   // 런타임 설정 — 실행 파일·추가 인자·공급자 env(API 키·엔드포인트). 시크릿이므로 응답은 마스킹값이고
   // 전체 값은 절대 브라우저로 돌아오지 않는다. 저장 즉시 다음 spawn부터 적용된다.
-  app.get('/agent-runtimes/:id/settings', requireRole('owner', 'manager'), (req, res) => {
+  app.get('/agent-runtimes/:id/settings', requireFeature('agent'), (req, res) => {
     try {
       res.json({ settings: describeAgentSetting(String(req.params.id)) })
     } catch (err) {
@@ -2192,7 +2226,7 @@ export function createApiApp() {
     }
   })
 
-  app.put('/agent-runtimes/:id/settings', requireRole('owner', 'manager'), (req, res) => {
+  app.put('/agent-runtimes/:id/settings', requireFeature('agent'), (req, res) => {
     try {
       writeAgentSetting(String(req.params.id), req.body)
       // 마스킹 뷰로 회신 — 이후 세션부터 새 spec이 적용된다
@@ -2202,7 +2236,7 @@ export function createApiApp() {
     }
   })
 
-  app.delete('/agent-runtimes/:id/settings', requireRole('owner', 'manager'), (req, res) => {
+  app.delete('/agent-runtimes/:id/settings', requireFeature('agent'), (req, res) => {
     try {
       deleteAgentSetting(String(req.params.id))
       res.json({ ok: true })
@@ -2216,7 +2250,7 @@ export function createApiApp() {
   // 실행은 잡 전용 tmux 세션에서 이뤄지므로 그 세션이 떠 있는지(running)도 함께 계산해 붙인다.
   const liveSessions = async () => new Set((await tmuxManager.list()).map((s) => s.name))
 
-  app.get('/schedules', requireRole('owner', 'manager'), async (_req, res) => {
+  app.get('/schedules', requireFeature('schedules'), async (_req, res) => {
     try {
       res.json({
         jobs: jobViews(readJobs(), await liveSessions()),
@@ -2228,7 +2262,7 @@ export function createApiApp() {
     }
   })
 
-  app.put('/schedules', requireRole('owner', 'manager'), async (req, res) => {
+  app.put('/schedules', requireFeature('schedules'), async (req, res) => {
     try {
       const { jobs } = req.body as { jobs?: unknown }
       const before = readJobs()
@@ -2252,7 +2286,7 @@ export function createApiApp() {
   })
 
   // 탭 대화에 한 번만 보내는 예약. cron 작업과 달리 원 ACP 세션을 이어서 쓴다.
-  app.post('/agent/scheduled-prompts', requireRole('owner', 'manager'), (req, res) => {
+  app.post('/agent/scheduled-prompts', requireFeature('agent'), (req, res) => {
     try {
       const body = req.body as Record<string, unknown>
       const cwd = resolveAgentCwd(typeof body.cwd === 'string' ? body.cwd : '', WORKSPACE_ROOT)
@@ -2262,7 +2296,7 @@ export function createApiApp() {
     }
   })
 
-  app.get('/agent/scheduled-prompts', requireRole('owner', 'manager'), (req, res) => {
+  app.get('/agent/scheduled-prompts', requireFeature('agent'), (req, res) => {
     try {
       const cwd = resolveAgentCwd(String(req.query.cwd ?? ''), WORKSPACE_ROOT)
       res.json({ jobs: listAgentScheduledPrompts({ runtime: req.query.runtime, tab: req.query.tab, cwd }) })
@@ -2271,7 +2305,7 @@ export function createApiApp() {
     }
   })
 
-  app.delete('/agent/scheduled-prompts/:id', requireRole('owner', 'manager'), (req, res) => {
+  app.delete('/agent/scheduled-prompts/:id', requireFeature('agent'), (req, res) => {
     try {
       const cwd = resolveAgentCwd(String(req.query.cwd ?? ''), WORKSPACE_ROOT)
       const cancelled = cancelAgentScheduledPrompt({ id: req.params.id, runtime: req.query.runtime, tab: req.query.tab, cwd })
@@ -2282,7 +2316,7 @@ export function createApiApp() {
     }
   })
 
-  app.put('/agent/scheduled-prompts/:id', requireRole('owner', 'manager'), (req, res) => {
+  app.put('/agent/scheduled-prompts/:id', requireFeature('agent'), (req, res) => {
     try {
       const body = req.body as Record<string, unknown>
       const cwd = resolveAgentCwd(typeof body.cwd === 'string' ? body.cwd : '', WORKSPACE_ROOT)
@@ -2293,7 +2327,7 @@ export function createApiApp() {
   })
 
   // 에이전트셋 정의 — 새 에이전트 탭을 시작할 때 고르는 프리셋이다.
-  app.get('/agent-sets', requireRole('owner', 'manager'), (_req, res) => {
+  app.get('/agent-sets', requireFeature('agent'), (_req, res) => {
     try {
       res.json({ sets: readSets(), runtimes: agentSetRuntimeList() })
     } catch (err) {
@@ -2301,7 +2335,7 @@ export function createApiApp() {
     }
   })
 
-  app.put('/agent-sets', requireRole('owner', 'manager'), (req, res) => {
+  app.put('/agent-sets', requireFeature('agent'), (req, res) => {
     try {
       const { sets } = req.body as { sets?: unknown }
       const saved = writeSets(sets)
@@ -2313,7 +2347,7 @@ export function createApiApp() {
 
   // "지금 실행" — 크론이 도는 것과 똑같이 잡 전용 세션에 에이전트 명령을 타이핑한다(같은 문자열).
   // 프롬프트·명령은 언제나 서버가 저장된 잡에서 만든다 — 요청 본문에서는 id만 받는다.
-  app.post('/schedules/run', requireRole('owner', 'manager'), async (req, res) => {
+  app.post('/schedules/run', requireFeature('schedules'), async (req, res) => {
     try {
       const { id } = req.body as { id?: unknown }
       const job = typeof id === 'string' ? readJobs().find((j) => j.id === id) : undefined
@@ -2332,7 +2366,7 @@ export function createApiApp() {
   // 명령어 버튼 — <프로젝트>/.mew/cmd-button.json 을 읽어 목록·실행 상태를 준다. 임의 명령 실행이므로
   // tmux와 동일하게 owner/manager만. 명령 문자열은 언제나 서버가 파일에서 읽고(요청 본문의 명령은 신뢰하지
   // 않음), 실행은 특수 프리픽스 세션(탭에서 숨겨짐)에서 프로젝트 폴더를 cwd로 이뤄진다.
-  app.get('/cmd-buttons', requireRole('owner', 'manager'), async (req, res) => {
+  app.get('/cmd-buttons', requireFeature('terminal'), async (req, res) => {
     try {
       const project = projectOf(req)
       projectRoot(project) // 존재하는 프로젝트인지 확인(없으면 throw)
@@ -2350,7 +2384,7 @@ export function createApiApp() {
   // 목록 전체를 통째로 저장한다(추가·수정·삭제 공통). 파일을 직접 고치는 것과 같은 자리에 쓰므로
   // 손편집과 UI 편집이 한 파일을 공유한다. 이름을 바꾸면 세션 이름 해시도 바뀌어 옛 실행 세션과의
   // 연결이 끊긴다(그 세션은 살아 있되 이 버튼에서는 더 이상 보이지 않는다).
-  app.put('/cmd-buttons', requireRole('owner', 'manager'), async (req, res) => {
+  app.put('/cmd-buttons', requireFeature('terminal'), async (req, res) => {
     try {
       const project = projectOf(req)
       projectRoot(project) // 존재하는 프로젝트인지 확인(없으면 throw)
@@ -2372,7 +2406,7 @@ export function createApiApp() {
     }
   })
 
-  app.post('/cmd-buttons/run', requireRole('owner', 'manager'), async (req, res) => {
+  app.post('/cmd-buttons/run', requireFeature('terminal'), async (req, res) => {
     try {
       const project = projectOf(req)
       const root = projectRoot(project)
@@ -2400,7 +2434,7 @@ export function createApiApp() {
   // 터미널 명령어 버튼 — 프로젝트와 무관한 전역 목록(.data/term-button.json)이라 project 파라미터가
   // 없다. 실행은 서버가 하지 않는다: 클라이언트가 이미 열려 있는 tmux 세션의 WebSocket으로 직접
   // 타이핑해 보낸다(그 소켓 자체가 owner/manager 경계). 여기서는 목록만 읽고 쓴다.
-  app.get('/term-buttons', requireRole('owner', 'manager'), (_req, res) => {
+  app.get('/term-buttons', requireFeature('terminal'), (_req, res) => {
     try {
       res.json({ buttons: readTermButtons() })
     } catch (err) {
@@ -2408,7 +2442,7 @@ export function createApiApp() {
     }
   })
 
-  app.put('/term-buttons', requireRole('owner', 'manager'), (req, res) => {
+  app.put('/term-buttons', requireFeature('terminal'), (req, res) => {
     try {
       const buttons = normalizeTermButtons((req.body as { buttons?: unknown }).buttons)
       writeTermButtons(buttons)
@@ -2424,11 +2458,11 @@ export function createApiApp() {
 
   // 숨김 목록 — 트리·검색·감시에서 건너뛸 이름들. 전역(.data/ignore.json)이고 모두의 화면을 바꾸므로
   // 터미널·명령어 버튼과 같은 owner/manager 경계에 둔다.
-  app.get('/ignore', requireRole('owner', 'manager'), (_req, res) => {
+  app.get('/ignore', requireFeature('system'), (_req, res) => {
     res.json({ names: readIgnoreList(), defaults: DEFAULT_IGNORE, locked: LOCKED_IGNORE })
   })
 
-  app.put('/ignore', requireRole('owner', 'manager'), (req, res) => {
+  app.put('/ignore', requireFeature('system'), (req, res) => {
     try {
       const names = normalizeIgnoreList((req.body as { names?: unknown }).names)
       writeIgnoreList(names)
@@ -2447,7 +2481,7 @@ export function createApiApp() {
   })
 
   // /db 데이터베이스 뷰 — 게스트에게 행 데이터가 새지 않도록 전 라우트 인증 필요(실시간 소켓 authorizeCollab과 동일 정책)
-  app.use('/db', requireAuthenticated, createDbRouter())
+  app.use('/db', requireFeature('database'), createDbRouter())
 
   return app
 }

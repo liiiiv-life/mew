@@ -206,6 +206,25 @@ export function useTabs(
     [patch],
   )
 
+  useEffect(() => {
+    const revalidate = () => {
+      for (const [scopeProject, state] of Object.entries(statesRef.current)) {
+        for (const filePath of new Set(state.panes.flatMap(pane => pane.tabs.map(tab => tab.path)))) {
+          dropCachedFile(scopeProject, filePath)
+          void fetch(`/api/file-access?project=${encodeURIComponent(scopeProject)}&path=${encodeURIComponent(filePath)}${isExternalTabPath(filePath) ? '&external=1' : ''}`)
+            .then(response => response.ok ? response.json() as Promise<{ view: boolean; edit: boolean }> : { view: false, edit: false })
+            .then(access => patch(scopeProject, current => prunePanes({ ...current, panes: current.panes.map(pane => {
+              const tabs = access.view ? pane.tabs.map(tab => tab.path === filePath ? { ...tab, editable: access.edit } : tab) : pane.tabs.filter(tab => tab.path !== filePath)
+              return { ...pane, tabs, activePath: pane.activePath === filePath && !access.view ? tabs[0]?.path ?? null : pane.activePath }
+            }) })))
+            .catch(() => mapTabsAtPath(scopeProject, filePath, tab => ({ ...tab, editable: false })))
+        }
+      }
+    }
+    window.addEventListener('mew:permissions-changed', revalidate)
+    return () => window.removeEventListener('mew:permissions-changed', revalidate)
+  }, [patch, mapTabsAtPath])
+
   const setActivePath = useCallback(
     (path: string | null, paneId?: string) => {
       const p = projectRef.current
@@ -302,6 +321,8 @@ export function useTabs(
       }
       const handleOpenError = (err: unknown) => {
         // 열 수 없는 파일(게스트 권한 밖 등)은 빈 탭만 남아 "아무 일도 안 일어난" 것처럼 보인다 — 이유를 띄운다
+        if (!external) dropCachedFile(p, path)
+        mapTabsAtPath(p, path, tab => ({ ...tab, content: '', savedContent: '', committedContent: '', editable: false }))
         console.error(err)
         onNoticeRef.current(err instanceof Error ? err.message : String(err))
       }

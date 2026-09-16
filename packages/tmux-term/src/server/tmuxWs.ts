@@ -19,8 +19,8 @@ function clamp(value: number, min: number, max: number, fallback: number): numbe
 }
 
 /**
- * 셸 접근 = 보안 경계 — 프로덕션(5000)에서는 authorize로 owner/manager만 통과시켜야 한다.
- * 게스트·member는 절대 연결하면 안 된다.
+ * 셸 접근 경계는 호스트가 주입한 authorize로 검사한다.
+ * mew는 로그인 계정의 terminal 기능을 확인하고 onConnection으로 권한 회수를 감시한다.
  */
 export function attachTmuxWebSocket(
   httpServer: HttpServer | Http2SecureServer,
@@ -28,6 +28,7 @@ export function attachTmuxWebSocket(
     /** pty(tmux attach)가 시작할 작업 디렉터리 */
     cwd: string
     authorize?: (req: IncomingMessage) => boolean
+    onConnection?: (ws: WebSocket, req: IncomingMessage) => void
     wsPath?: string
   },
 ) {
@@ -54,12 +55,13 @@ export function attachTmuxWebSocket(
     const rows = clamp(Number(url.searchParams.get('rows')), MIN_ROWS, MAX_ROWS, 24)
 
     wss.handleUpgrade(req, socket, head, (ws) => {
-      handleConnection(ws, session, cols, rows, opts.cwd)
+      opts.onConnection?.(ws, req)
+      handleConnection(ws, session, cols, rows, opts.cwd, () => opts.authorize?.(req) ?? true)
     })
   })
 }
 
-function handleConnection(ws: WebSocket, session: string, cols: number, rows: number, cwd: string) {
+function handleConnection(ws: WebSocket, session: string, cols: number, rows: number, cwd: string, authorized: () => boolean) {
   // copy-mode 복사(기본값 external)에 더해 내부 애플리케이션의 OSC 52까지 바깥(xterm.js)으로
   // 통과시킨다 — 클라이언트의 OSC 52 핸들러가 브라우저 클립보드로 옮긴다. 멱등이라 attach마다 실행해도 안전.
   execFile('tmux', ['set-option', '-s', 'set-clipboard', 'on'], () => {})
@@ -86,15 +88,18 @@ function handleConnection(ws: WebSocket, session: string, cols: number, rows: nu
     if (ws.readyState === WebSocket.OPEN) ws.close()
   }
   const writePty = (data: string) => {
+    if (!authorized()) { ws.terminate(); return }
     if (!ptyAlive) return
     try { ptyProcess.write(data) } catch { markPtyDead() }
   }
   const resizePty = (nextCols: number, nextRows: number) => {
+    if (!authorized()) { ws.terminate(); return }
     if (!ptyAlive) return
     try { ptyProcess.resize(nextCols, nextRows) } catch { markPtyDead() }
   }
 
   ptyProcess.onData((data) => {
+    if (!authorized()) { ws.terminate(); return }
     if (ws.readyState === WebSocket.OPEN) ws.send(data)
   })
 
@@ -106,6 +111,7 @@ function handleConnection(ws: WebSocket, session: string, cols: number, rows: nu
   let pendingExitCopyMode: Promise<void> | null = null
 
   ws.on('message', (raw) => {
+    if (!authorized()) { ws.terminate(); return }
     let msg: { type?: string; data?: string; cols?: number; rows?: number }
     try {
       msg = JSON.parse(raw.toString())

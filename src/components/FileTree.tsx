@@ -2,7 +2,7 @@ import type { SidebarCreateRequest } from '../hooks/use-sidebar-create'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TreeNode } from '../api/client'
-import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, initializeGitRepository, renamePath, setGuestAccess, uploadInto } from '../api/client'
+import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, initializeGitRepository, renamePath, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
 import { ConfirmDialog, setPathDragData, useDialog } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
@@ -61,8 +61,6 @@ interface NodeCtx {
   setEditValue: (v: string) => void
   submitEdit: () => void
   cancelEdit: () => void
-  onToggleGuestView: (node: TreeNode) => void
-  onToggleGuestEdit: (node: TreeNode) => void
   // ── 드래그 이동 ──
   beginDrag: (path: string, type: 'file' | 'dir') => void
   endDrag: () => void
@@ -379,56 +377,8 @@ function ActionPopover({
   )
 }
 
-// member+ 전용 — 눈/연필 아이콘으로 이 경로의 게스트 열람/편집 허용을 직접 토글한다.
-// 서버가 edit=true면 view도 강제로 켠다(편집은 열람을 전제).
-function GuestAccessIcons({
-  node,
-  onToggleView,
-  onToggleEdit,
-}: {
-  node: TreeNode
-  onToggleView: (node: TreeNode) => void
-  onToggleEdit: (node: TreeNode) => void
-}) {
-  const view = node.guestAccess?.view ?? false
-  const edit = node.guestAccess?.edit ?? false
-  return (
-    <div className="flex shrink-0 items-center gap-0.5 pr-0.5">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          onToggleView(node)
-        }}
-        title={view ? '게스트 열람 허용됨 — 클릭하여 해제' : '게스트 열람 허용'}
-        aria-label="게스트 열람 권한 전환"
-        className={`flex h-5 w-5 items-center justify-center rounded hover:bg-surface-hover ${view ? 'text-accent' : 'text-ink-faint'}`}
-      >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-          <circle cx="12" cy="12" r="3" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          onToggleEdit(node)
-        }}
-        title={edit ? '게스트 편집 허용됨 — 클릭하여 해제' : '게스트 편집 허용'}
-        aria-label="게스트 편집 권한 전환"
-        className={`flex h-5 w-5 items-center justify-center rounded hover:bg-surface-hover ${edit ? 'text-accent' : 'text-ink-faint'}`}
-      >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-          <path d="m15 5 4 4" />
-        </svg>
-      </button>
-    </div>
-  )
-}
-
 function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCtx }) {
+  const readOnly = ctx.readOnly || node.editable === false
   const longPressTimer = useRef<number | null>(null)
   const longPressFired = useRef(false)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
@@ -444,7 +394,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
   }
 
   function onTouchStart(e: React.TouchEvent) {
-    if (ctx.readOnly) return
+    if (readOnly) return
     clearLongPress()
     const touch = e.touches[0]
     touchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null
@@ -502,7 +452,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
   }
 
   function handleContextMenu(e: React.MouseEvent) {
-    if (ctx.readOnly) return
+    if (readOnly) return
     e.preventDefault()
     ctx.focusNode(node.path, node.type)
     ctx.openPopover(node.path, node.type, e.clientX, e.clientY)
@@ -538,7 +488,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
         <button
           type="button"
           data-path={node.path}
-          draggable={!ctx.readOnly}
+          draggable={!readOnly}
           onDragStart={(e) => {
             setPathDragData(e.dataTransfer, node.path)
             ctx.beginDrag(node.path, 'file')
@@ -555,9 +505,6 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           <span className="min-w-0 flex-1 truncate">{node.name}</span>
           <PresenceDots colors={ctx.presence[node.path] ?? []} />
         </button>
-        {!ctx.readOnly && (
-          <GuestAccessIcons node={node} onToggleView={ctx.onToggleGuestView} onToggleEdit={ctx.onToggleGuestEdit} />
-        )}
       </div>
     )
   }
@@ -580,7 +527,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
       onDragOver={(e) => {
         // 바깥에서 끌어온 파일이면 이 폴더에 업로드, 사이드바 항목이면 이 폴더로 이동
         const external = hasExternalFiles(e.dataTransfer)
-        if (external ? ctx.readOnly : !ctx.canDropInto(node.path)) return
+        if (external ? readOnly : !ctx.canDropInto(node.path)) return
         e.preventDefault()
         e.stopPropagation()
         e.dataTransfer.dropEffect = external ? 'copy' : 'move'
@@ -588,7 +535,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
       }}
       onDrop={(e) => {
         if (hasExternalFiles(e.dataTransfer)) {
-          if (ctx.readOnly) return
+          if (readOnly) return
           e.preventDefault()
           e.stopPropagation()
           ctx.onDropFiles(node.path, e.dataTransfer.files)
@@ -604,7 +551,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
         <button
           type="button"
           data-path={node.path}
-          draggable={!ctx.readOnly}
+          draggable={!readOnly}
           onDragStart={(e) => {
             setPathDragData(e.dataTransfer, node.path, 'dir')
             ctx.beginDrag(node.path, 'dir')
@@ -627,9 +574,6 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
         </button>
         {node.git && ctx.openGit && <GitButton onClick={() => ctx.openGit?.(node.path)} title={`${node.name} Git 열기`} />}
         {node.project && ctx.canUseCommands && <CommandButtonMenu project={node.name} />}
-        {!ctx.readOnly && (
-          <GuestAccessIcons node={node} onToggleView={ctx.onToggleGuestView} onToggleEdit={ctx.onToggleGuestEdit} />
-        )}
       </div>
       {isOpen && (
         <div>
@@ -679,6 +623,7 @@ export function FileTree({
   selectedPath,
   readOnly,
   canUseCommands = false,
+  canUseGit = false,
   compact = false,
   roots,
   commands,
@@ -693,7 +638,6 @@ export function FileTree({
   onFolderCreated,
   onRenamed,
   onDeleted,
-  onGuestAccessChanged,
   onNotice,
   onOpenGit,
   registerSearchCancel,
@@ -716,6 +660,7 @@ export function FileTree({
   selectedPath: string | null
   readOnly: boolean
   canUseCommands?: boolean
+  canUseGit?: boolean
   /** 다른 트리 안에 넣을 때 검색·정렬 도구와 독립 스크롤을 숨긴다. */
   compact?: boolean
   /** 검색창 아래에 서는 Documents/프로젝트 가상 폴더 */
@@ -738,7 +683,7 @@ export function FileTree({
   onRenamed: (oldPath: string, newPath: string, type: 'file' | 'dir') => void
   onDeleted: (path: string, type: 'file' | 'dir') => void
   /** member+ 전용 — 눈/연필 아이콘으로 게스트 열람/편집 규칙을 바꾼 뒤 트리를 다시 불러오도록 호출 */
-  onGuestAccessChanged: () => void
+  onGuestAccessChanged?: () => void
   /** 흐름을 끊지 않는 짧은 안내(토스트) — 실패는 아니지만 말해줘야 하는 것들 */
   onNotice: (message: string) => void
   /** 저장소 폴더의 Git 워크벤치 가상 탭을 연다. */
@@ -1099,24 +1044,6 @@ export function FileTree({
     setPopover({ path, type, x, y })
   }
 
-  function handleToggleGuestView(node: TreeNode) {
-    if (readOnly) return
-    const current = node.guestAccess ?? { view: false, edit: false }
-    const nextView = !current.view
-    setGuestAccess(node.path, nextView, nextView ? current.edit : false, project)
-      .then(onGuestAccessChanged)
-      .catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)))
-  }
-
-  function handleToggleGuestEdit(node: TreeNode) {
-    if (readOnly) return
-    const current = node.guestAccess ?? { view: false, edit: false }
-    const nextEdit = !current.edit
-    setGuestAccess(node.path, nextEdit ? true : current.view, nextEdit, project)
-      .then(onGuestAccessChanged)
-      .catch((err) => setErrorMsg(err instanceof Error ? err.message : String(err)))
-  }
-
   function cancelEdit() {
     setEditing(null)
   }
@@ -1404,8 +1331,6 @@ export function FileTree({
     setEditValue,
     submitEdit,
     cancelEdit,
-    onToggleGuestView: handleToggleGuestView,
-    onToggleGuestEdit: handleToggleGuestEdit,
     beginDrag,
     endDrag,
     canDropInto,
@@ -1588,7 +1513,7 @@ export function FileTree({
             setPopover(null)
           }}
           onInitGit={
-            canUseCommands && popover.type === 'dir' && popover.path !== '' && !gitPaths.has(popover.path)
+            canUseGit && popover.type === 'dir' && popover.path !== '' && !gitPaths.has(popover.path)
               ? () => {
                   initGit(popover.path)
                   setPopover(null)

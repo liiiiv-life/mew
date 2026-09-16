@@ -2,7 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { HttpServer } from 'vite'
-import { isGuestViewable } from './guestAccess.ts'
+import { fileAccess, unrestrictedFiles, accessChanges } from './access-policy.ts'
 import type { RequestAuth } from './reqAuth.ts'
 
 const WS_PATH = '/api/presence'
@@ -23,10 +23,9 @@ function splitProjectPath(qualified: string): { project: string; relPath: string
 }
 
 function visibleTo(auth: RequestAuth, qualifiedPath: string): boolean {
-  if (auth.role !== 'guest') return true
   const parsed = splitProjectPath(qualifiedPath)
   if (!parsed) return false
-  return isGuestViewable(parsed.project, parsed.relPath)
+  return fileAccess(auth, parsed.project, parsed.relPath).view
 }
 
 function computeParticipants(forAuth: RequestAuth): Record<string, string[]> {
@@ -54,7 +53,7 @@ export function treeSignalFor(
   auth: RequestAuth,
   msg: { type: 'tree'; project: string; version: number; parents: string[] },
 ): object {
-  return auth.role === 'guest' ? { type: 'tree' } : msg
+  return auth.role === 'guest' || !unrestrictedFiles(auth, msg.project) ? { type: 'tree' } : msg
 }
 
 export function broadcastTree(msg: { type: 'tree'; project: string; version: number; parents: string[] }) {
@@ -116,3 +115,5 @@ export function attachPresenceWebSocket(
     })
   })
 }
+
+accessChanges.on('change', () => { broadcast({ type: 'permissions' }); broadcastParticipants() })

@@ -1,3 +1,4 @@
+import './test-isolated-data.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -9,7 +10,7 @@ import { createApiApp } from './api.ts'
 import { DEFAULT_PROJECT, setWorkspaceRoot, WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
 import { resetTreeWatchers } from './watcher.ts'
 import { waitForSearchIndex } from './searchCatalog.ts'
-import { setGuestRule } from './guestAccess.ts'
+import { setFileRule } from './access-policy.ts'
 
 test('Ctrl+P와 정확 내용 검색은 전체 tree 응답 없이 통합 catalog를 사용한다', async () => {
   const original = WORKSPACE_ROOT
@@ -51,8 +52,8 @@ test('Ctrl+P와 정확 내용 검색은 전체 tree 응답 없이 통합 catalog
     assert.equal(content.state, 'ready')
     assert.ok(content.version >= 1)
 
-    setGuestRule(WORKSPACE_PROJECT, 'app/public.md', true, false)
-    setGuestRule(WORKSPACE_PROJECT, 'app/private.md', false, false)
+    setFileRule('guest', WORKSPACE_PROJECT, 'app/public.md', 'view')
+    setFileRule('guest', WORKSPACE_PROJECT, 'app/private.md', 'inherit')
     role = 'guest'
     const guestResponse = await fetch(`${base}/api/search?q=${encodeURIComponent('shared permission')}&project=${encodeURIComponent(WORKSPACE_PROJECT)}`)
     assert.equal(guestResponse.status, 200)
@@ -62,7 +63,7 @@ test('Ctrl+P와 정확 내용 검색은 전체 tree 응답 없이 통합 catalog
     const longQuery = await fetch(`${base}/api/search?q=${'x'.repeat(2_001)}&project=${encodeURIComponent(WORKSPACE_PROJECT)}`)
     assert.equal(longQuery.status, 400)
   } finally {
-    setGuestRule(WORKSPACE_PROJECT, 'app/public.md', false, false)
+    setFileRule('guest', WORKSPACE_PROJECT, 'app/public.md', 'inherit')
     await new Promise<void>((resolve) => server.close(() => resolve()))
     resetTreeWatchers()
     setWorkspaceRoot(original)

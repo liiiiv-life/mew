@@ -10,6 +10,8 @@ updated: 2026-09-12
 
 ## Current
 
+- [계정별 기능·파일 권한](access-control.md)
+
 - [PDF 렌더링·필기·저장](pdf-viewer.md)
 - [브라우저 저장소와 자동 정리](browser-storage.md)
 

@@ -3,6 +3,7 @@ import type { Awareness } from 'y-protocols/awareness'
 
 /** 문서 트리 노드 — 호스트 앱이 서버에서 받아 Editor·FileTree 등에 넘긴다 */
 export interface TreeNode {
+  editable?: boolean
   name: string
   path: string
   type: 'file' | 'dir'

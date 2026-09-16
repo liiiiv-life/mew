@@ -1,3 +1,4 @@
+import { defaultCapabilities, type Feature } from '../shared/access-policy'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -53,7 +54,7 @@ import { ConfirmDialog, hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } fr
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
 import { mediaKind } from './utils/media'
-import { setContentIdentity, setContentWorkspace } from './utils/contentCache'
+import { setContentIdentity, setContentWorkspace, clearFileContentCache } from './utils/contentCache'
 import { useTabs, type StoredTabs } from './hooks/useTabs'
 import { dropZoneAt, paneIds, type DropSide, type DropZone } from './utils/paneTree'
 import { usePresence } from './hooks/usePresence'
@@ -200,7 +201,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const { role, email: authEmail } = auth
   const isGuest = role === 'guest'
   const isOwner = role === 'owner'
-  const canUseTerminal = role === 'owner' || role === 'manager'
+  const caps = useMemo(() => auth.capabilities ?? defaultCapabilities(role), [auth.capabilities, role])
+  const canUseTerminal = caps.terminal
 
   // 사용자에게 보이는 프로젝트는 서버가 현재 연 루트 폴더다. 내부 API 식별자는 호환을 위해
   // `.workspace`를 유지하고 Documents를 열 때만 `docs`로 전환한다.
@@ -244,21 +246,21 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [loadingSubprojects, setLoadingSubprojects] = useState<Set<string>>(new Set())
   const [treeInvalidation, setTreeInvalidation] = useState<{ n: number; project: string; version: number; parents: string[] }>({ n: 0, project: '', version: 0, parents: [] })
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
-  // 셸·에이전트는 같은 권한을 사용하지만 열림 상태는 각각 기억한다.
+  // 터미널·에이전트의 기능 권한과 열림 상태는 독립이다.
   const dockRef = useRef<DockHandle>(null)
   const [terminalOpen, setTerminalOpen] = useState(() => canUseTerminal && (localStorage.getItem(TERMINAL_OPEN_KEY) !== null ? localStorage.getItem(TERMINAL_OPEN_KEY) === '1' : localStorage.getItem(LEGACY_TMUX_OPEN_KEY) === '1' || localStorage.getItem(AGENT_OPEN_KEY) === '1'))
-  const [agentOpen, setAgentOpen] = useState(() => canUseTerminal && localStorage.getItem(AGENT_OPEN_KEY) === '1')
-  // 브라우저 창 — 서버 localhost를 프록시로 보는 도구라 터미널과 같은 게이트(owner/manager)를 쓴다
+  const [agentOpen, setAgentOpen] = useState(() => caps.agent && localStorage.getItem(AGENT_OPEN_KEY) === '1')
+  // 브라우저 창은 별도 기능 권한으로 검사한다.
   const browserMounted = useRef(false)
-  const [browserOpen, setBrowserOpen] = useState(() => canUseTerminal && localStorage.getItem(BROWSER_OPEN_KEY) === '1')
+  const [browserOpen, setBrowserOpen] = useState(() => caps.browser && localStorage.getItem(BROWSER_OPEN_KEY) === '1')
   if (browserOpen) browserMounted.current = true
   const gitMounted = useRef(false)
-  const [gitOpen, setGitOpen] = useState(() => canUseTerminal && localStorage.getItem(GIT_OPEN_KEY) === '1')
+  const [gitOpen, setGitOpen] = useState(() => caps.git && localStorage.getItem(GIT_OPEN_KEY) === '1')
   const [remoteDesktopOpen, setRemoteDesktopOpen] = useState(false)
   if (gitOpen) gitMounted.current = true
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
-  const [androidOpen, setAndroidOpen] = useState(() => canUseTerminal && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
-  // 멤버 채팅 창(Alt+C) — 사람끼리 쓰는 창이라 로그인만 하면 열린다(게스트 제외)
+  const [androidOpen, setAndroidOpen] = useState(() => caps.android && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
+  // 멤버 채팅 창(Alt+C)은 채팅 기능 권한을 따른다.
   const [chatOpen, setChatOpen] = useState(false)
   // 모바일 보조창은 종류별 예외 없이 이 스택 하나로 전면 순서와 뒤로가기 순서를 공유한다.
   // 새 패널을 WORKSPACE_PANEL_IDS에 넣으면 아래 registry가 빠진 연결을 타입 오류로 알려 준다.
@@ -417,8 +419,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [showToast])
 
   useEffect(() => {
-    if (canUseTerminal) void refreshMewUpdate()
-  }, [canUseTerminal, refreshMewUpdate])
+    if (caps.system) void refreshMewUpdate()
+  }, [caps.system, refreshMewUpdate])
 
   const startMewUpdate = useCallback(async () => {
     if (!mewUpdate?.available) {
@@ -1037,21 +1039,21 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       // 보조 패널은 모바일에서 화면 전체를 덮는 기기별 상태다. 계정 원장의 이전 값으로
       // 로컬의 방금 연 에이전트를 닫아 버리면 전면 순서를 복원할 수 없으므로, 서버 원장은
       // 데스크톱 배치에만 적용한다. 모바일은 각 패널의 로컬 열림 상태로 시작한다.
-      if (canUseTerminal && isDesktop()) {
-        if (typeof chrome.agentOpen === 'boolean') {
+      if (isDesktop()) {
+        if (caps.agent && typeof chrome.agentOpen === 'boolean') {
           setAgentOpen(chrome.agentOpen)
           restoredOpen.agent = chrome.agentOpen
         }
-        const restoredTerminal = typeof chrome.terminalOpen === 'boolean' ? chrome.terminalOpen : chrome.tmuxOpen === true || chrome.agentOpen === true
+        const restoredTerminal = caps.terminal && (typeof chrome.terminalOpen === 'boolean' ? chrome.terminalOpen : chrome.tmuxOpen === true || chrome.agentOpen === true)
         setTerminalOpen(restoredTerminal)
         restoredOpen.terminal = restoredTerminal
-        if (typeof chrome.browserOpen === 'boolean') {
+        if (caps.browser && typeof chrome.browserOpen === 'boolean') {
           setBrowserOpen(chrome.browserOpen)
           restoredOpen.browser = chrome.browserOpen
         }
-        setGitOpen(chrome.gitOpen === true)
-        restoredOpen.git = chrome.gitOpen === true
-        if (typeof chrome.androidOpen === 'boolean') {
+        setGitOpen(caps.git && chrome.gitOpen === true)
+        restoredOpen.git = caps.git && chrome.gitOpen === true
+        if (caps.android && typeof chrome.androidOpen === 'boolean') {
           setAndroidOpen(chrome.androidOpen)
           restoredOpen.android = chrome.androidOpen
         }
@@ -1074,7 +1076,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
     chromeStateLoadedRootRef.current = rootProjectPath
     chromeStateRestorePendingRef.current = rootProjectPath
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, canUseTerminal, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, caps, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
 
   useEffect(() => {
     if (!rootProjectPath || !workspaceUiLoaded || isDesktop()) return
@@ -1109,11 +1111,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [])
 
   useEffect(() => {
-    if (!canUseTerminal) return
+    if (isGuest) return
     fetchWorkspace()
       .then(applyWorkspace)
       .catch(console.error)
-  }, [canUseTerminal, applyWorkspace])
+  }, [isGuest, applyWorkspace])
 
   // 프로젝트를 옮기면 사이드바 트리를 그 프로젝트 것으로 갈아끼운다. 옆 프로젝트의 트리가 잠깐
   // 남아 있지 않도록 먼저 비우고, 늦게 도착한 옛 응답이 새 트리를 덮지 않게 취소 플래그를 둔다.
@@ -1256,24 +1258,24 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           }),
         )
       } else if (matchesShortcut(e, getBinding('toggleChat'))) {
-        if (isGuest) return
+        if (!caps.chat) return
         e.preventDefault()
         toggleWorkspacePanel('chat')
       } else if (matchesShortcut(e, getBinding('toggleAgent'))) {
-        if (!canUseTerminal) return
+        if (!caps.agent) return
         e.preventDefault()
         toggleWorkspacePanel('agent')
       } else if (matchesShortcut(e, getBinding('toggleBrowser'))) {
-        if (!canUseTerminal) return
+        if (!caps.browser) return
         e.preventDefault()
         toggleWorkspacePanel('browser')
       } else if (matchesShortcut(e, getBinding('openGit'))) {
-        if (!canUseTerminal) return
+        if (!caps.git) return
         e.preventDefault()
         toggleWorkspacePanel('git')
       } else if (matchesShortcut(e, getBinding('addComment'))) {
         // 지금 포커스된 칸의 선택(없으면 커서) 자리에 댓글 작성 팝업 — 텍스트 편집기가 아니면 아무 일도 없다
-        if (isGuest) return
+        if (!caps.collaboration) return
         e.preventDefault()
         focusedEditor()?.startComment()
       } else if (matchesShortcut(e, getBinding('toggleTerminal'))) {
@@ -1295,6 +1297,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           closeTab(activePath)
         }
       } else if (matchesShortcut(e, getBinding('newTab'))) {
+        if (!caps.filesWrite || !caps.filesRead) return
         // Ctrl+N도 마찬가지로 브라우저 예약 단축키라 가로챌 수 없어 기본값은 Alt+N이다.
         // 빈 탭이 아니라 새 파일 흐름 — 사이드바에 포커스면 거기 선택된 항목 기준(FileTree가
         // 알고 있다), 에디터 등 다른 곳이면 활성 문서와 같은 폴더에 이름 입력을 연다
@@ -1324,7 +1327,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다
   }, [
     saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, tabs, setActivePath,
-    canUseTerminal, focusedEditor, isGuest, isOwner, project, sidebarOpen, chatOpen, agentOpen, terminalOpen,
+    caps, canUseTerminal, focusedEditor, isGuest, isOwner, project, sidebarOpen, chatOpen, agentOpen, terminalOpen,
     browserOpen, androidOpen, mobilePanelStack, openWorkspacePanel,
     toggleWorkspacePanel, switchCurrentWindowTabRight, switchCurrentWindowTabLeft,
   ])
@@ -1431,6 +1434,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           presence={tabPresence}
           focused={pane.id === focusedPaneId}
           isGuest={isGuest}
+          canCollaborate={caps.collaboration}
           showSidebarButton={!sidebarOpen && pane.id === sidebarPaneId}
           tocOpen={tocOpen}
           dropZone={dropTarget?.paneId === pane.id ? dropTarget.zone : null}
@@ -1553,8 +1557,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           },
         ]
       : []),
-    ...(canUseTerminal
-      ? [
+    ...[
           {
             id: 'git',
             label: 'Git',
@@ -1675,8 +1678,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
               </svg>
             ),
           },
-        ]
-      : []),
+        ],
     ...(isGuest
       ? []
       : [
@@ -1736,7 +1738,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         </svg>
       ),
     },
-  ]
+  ].filter(item => {
+    const feature: Partial<Record<string, Feature>> = { git: 'git', 'remote-desktop': 'desktop', 'file-explorer': 'serverFiles', schedule: 'schedules', sysstats: 'system', 'mew-update': 'system', agent: 'agent', terminal: 'terminal', browser: 'browser', android: 'android', chat: 'chat', database: 'database' }
+    const required = feature[item.id]
+    return !required || caps[required]
+  })
 
   return (
     <div className="flex flex-col overflow-hidden bg-surface text-ink" style={{ height: 'var(--app-height, 100dvh)' }}>
@@ -1854,7 +1860,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
                 </button>}
-                {!isGuest && <SidebarCreateButtons onCreate={sidebarCreate.create} disabled={!workspaceUiLoaded || sidebarStateLoadedRootRef.current !== rootProjectPath} />}
+                {!isGuest && caps.filesRead && caps.filesWrite && <SidebarCreateButtons onCreate={sidebarCreate.create} disabled={!workspaceUiLoaded || sidebarStateLoadedRootRef.current !== rootProjectPath} />}
                 <button
                   type="button"
                   onClick={() => closeWorkspacePanel('sidebar')}
@@ -1880,8 +1886,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     onAccountStateChange={rootProjectPath ? (state) => saveAccountTreeState(`sidebar-tree:${isGuest ? 'docs' : 'root'}:${rootProjectPath}`, state) : undefined}
                     workspacePath={rootProjectPath}
                     selectedPath={project === (isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? activePath : null}
-                    readOnly={isGuest}
+                    readOnly={isGuest || !caps.filesRead || !caps.filesWrite}
                     canUseCommands={canUseTerminal && !isGuest}
+                    canUseGit={caps.git}
                     loadChildren={isGuest ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
                     treeInvalidation={treeInvalidation}
                     roots={!isGuest && <>
@@ -1912,8 +1919,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                             onAccountStateChange={rootProjectPath ? (state) => saveAccountTreeState(`sidebar-tree:docs:${rootProjectPath}`, state) : undefined}
                             compact
                             selectedPath={project === DEFAULT_PROJECT ? activePath : null}
-                            readOnly={isGuest}
-                            canUseCommands={false}
+                            readOnly={isGuest || !caps.filesRead || !caps.filesWrite}
+                            canUseCommands={canUseTerminal}
+                            canUseGit={caps.git}
                             searchFocusSignal={0}
                             newFileSignal={{ n: 0, parentPath: null }}
                             revealSignal={revealSignal}
@@ -1923,7 +1931,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                             onFolderCreated={refreshTree}
                             onRenamed={() => refreshTree()}
                             onDeleted={() => refreshTree()}
-                            onGuestAccessChanged={refreshTree}
                             onNotice={showToast}
                             registerSearchCancel={() => {}}
                             loadChildren={loadDocsTreeChildren}
@@ -1965,8 +1972,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                                   workspacePath={rootProjectPath}
                                   compact
                                   selectedPath={project === WORKSPACE_PROJECT ? activePath : null}
-                                  readOnly={false}
+                                  readOnly={!caps.filesRead || !caps.filesWrite}
                                   canUseCommands={canUseTerminal}
+                                  canUseGit={caps.git}
                                   searchFocusSignal={0}
                                   newFileSignal={{ n: 0, parentPath: null }}
                                   revealSignal={revealSignal}
@@ -1981,7 +1989,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                                   onFolderCreated={refreshTree}
                                   onRenamed={handleRenamed}
                                   onDeleted={handleDeleted}
-                                  onGuestAccessChanged={refreshTree}
                                   onNotice={showToast}
                                   registerSearchCancel={() => {}}
                                   loadChildren={loadWorkspaceTreeChildren}
@@ -2009,7 +2016,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     onFolderCreated={refreshTree}
                     onRenamed={handleRenamed}
                     onDeleted={handleDeleted}
-                    onGuestAccessChanged={refreshTree}
                     onNotice={showToast}
                     registerSearchCancel={registerSidebarSearchCancel}
                   />}
@@ -2018,7 +2024,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                   <SearchPanel
                     key={`${rootProjectPath}:${sidebarView}`}
                     focusSignal={projectSearchFocus}
-                    readOnly={isGuest}
+                    readOnly={isGuest || !caps.filesRead || !caps.filesWrite}
                     project={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
                     scopes={!isGuest ? [
                       { id: 'docs', label: t('project.documents'), icon: 'i:notes' },
@@ -2049,26 +2055,26 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         <DockWorkspace key={rootProjectPath ?? 'pending-workspace'} apiRef={dockRef} initialLayout={layout} value={workspaceUi.dock} onChange={saveDockLayout} onEditorDrop={handleDockEditorDrop} foreground={mobileForegroundPanel}>
         {panes.map(renderEditorPane)}
 
-        {canUseTerminal && <AgentPanel
+        {(caps.agent || caps.terminal) && <AgentPanel
           key={rootProjectPath ?? 'pending-workspace'} project={project} workspacePath={rootProjectPath} tree={tree}
           focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeTab.path : null}
           getSelectedText={getSelectedText} renderCommandButtons={renderTermButtons} onOpenFile={openMentionedFile}
-          agentOpen={agentOpen} terminalOpen={terminalOpen} foregroundKind={mobileForegroundPanel}
+          allowAgent={caps.agent} allowTerminal={caps.terminal} agentOpen={caps.agent && agentOpen} terminalOpen={caps.terminal && terminalOpen} foregroundKind={mobileForegroundPanel}
           onPanelFocus={(kind) => { activeTabbedSurfaceRef.current = kind; lastPanelRef.current = kind; bringWorkspacePanelToFront(kind) }}
           onClose={() => closeWorkspacePanel('agent')} onCloseTerminal={() => closeWorkspacePanel('terminal')}
           nextTabSignal={agentNextTabSignal} previousTabSignal={agentPreviousTabSignal}
         />}
-        {canUseTerminal && browserMounted.current && <BrowserPanel visible={browserOpen} onClose={() => closeWorkspacePanel('browser')}
+        {caps.browser && browserMounted.current && <BrowserPanel visible={browserOpen} onClose={() => closeWorkspacePanel('browser')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'browser'; bringWorkspacePanelToFront('browser') }}
           nextTabSignal={browserNextTabSignal} previousTabSignal={browserPreviousTabSignal} />}
-        {canUseTerminal && workspaceUiLoaded && gitMounted.current && <GitPanel visible={gitOpen} initialState={workspaceUi.git} onChange={saveGitPanelState}
+        {caps.git && workspaceUiLoaded && gitMounted.current && <GitPanel visible={gitOpen} initialState={workspaceUi.git} onChange={saveGitPanelState}
           onNotice={showToast} onClose={() => closeWorkspacePanel('git')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'git'; bringWorkspacePanelToFront('git') }}
           nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} />}
         </DockWorkspace>
 
         {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 모바일에서도 프로젝트 탭 아래에서만 열린다. */}
-        {chatOpen && !isGuest && (
+        {chatOpen && caps.chat && (
           <div
             onPointerDownCapture={() => bringWorkspacePanelToFront('chat')}
             className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:w-[22rem] md:shrink-0 ${mobilePanelLayer('chat')}`}
@@ -2087,7 +2093,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           </div>
         )}
 
-        {androidOpen && canUseTerminal && (
+        {androidOpen && caps.android && (
           <div
             onPointerDownCapture={() => bringWorkspacePanelToFront('android')}
             className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:shrink-0 ${mobilePanelLayer('android')}`}
@@ -2112,10 +2118,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         onNextWindowTab={switchCurrentWindowTabRight}
         onToggleTerminal={() => { if (canUseTerminal) toggleWorkspacePanel('terminal') }}
         onPrevWindowTab={switchCurrentWindowTabLeft}
-        onToggleAgent={() => { if (canUseTerminal) toggleWorkspacePanel('agent') }}
+        onToggleAgent={() => { if (caps.agent) toggleWorkspacePanel('agent') }}
         onOpenEditor={closeAllWorkspacePanels}
         onToggleSidebar={() => toggleWorkspacePanel('sidebar')}
-        onToggleBrowser={() => { if (canUseTerminal) toggleWorkspacePanel('browser') }}
+        onToggleBrowser={() => { if (caps.browser) toggleWorkspacePanel('browser') }}
       />
 
       {settingsOpen && (
@@ -2123,7 +2129,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           email={authEmail}
           displayName={auth.displayName}
           avatarDataUrl={auth.avatarDataUrl}
-          canEditIgnore={canUseTerminal}
+          canEditIgnore={caps.system}
           theme={theme}
           fontPreferences={fontPreferences}
           accentColor={accentColor}
@@ -2172,7 +2178,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         />
       )}
 
-      {serverFileExplorerOpen && canUseTerminal && (
+      {serverFileExplorerOpen && caps.serverFiles && (
         <ServerFileExplorer
           isOwner={isOwner}
           onOpenFile={(path) => {
@@ -2184,11 +2190,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         />
       )}
 
-      {dbListOpen && !isGuest && <DatabaseListModal onClose={() => setDbListOpen(false)} />}
+      {dbListOpen && caps.database && <DatabaseListModal onClose={() => setDbListOpen(false)} />}
 
-      {sysStatsOpen && canUseTerminal && <SystemStatsModal onClose={() => setSysStatsOpen(false)} />}
-      {remoteDesktopOpen && canUseTerminal && <RemoteDesktop onClose={() => setRemoteDesktopOpen(false)} />}
-      {scheduleOpen && canUseTerminal && <ScheduleModal onClose={() => setScheduleOpen(false)} />}
+      {sysStatsOpen && caps.system && <SystemStatsModal onClose={() => setSysStatsOpen(false)} />}
+      {remoteDesktopOpen && caps.desktop && <RemoteDesktop onClose={() => setRemoteDesktopOpen(false)} />}
+      {scheduleOpen && caps.schedules && <ScheduleModal onClose={() => setScheduleOpen(false)} />}
 
       {historyOpen && activeTab && (
         <FileHistoryModal
@@ -2218,6 +2224,11 @@ function App() {
   // (그리고 로그아웃 뒤 남의 본문을 읽어 버린다).
   const applyAuth = useCallback((status: AuthStatus) => {
     setContentIdentity(status.email)
+    const permissionVersion = JSON.stringify([status.email, status.role, status.accessRevision, status.capabilities])
+    try {
+      if (localStorage.getItem('mew:access-version') !== permissionVersion) clearFileContentCache()
+      localStorage.setItem('mew:access-version', permissionVersion)
+    } catch { clearFileContentCache() }
     setAuth(status)
   }, [])
 
@@ -2236,6 +2247,12 @@ function App() {
     }
     window.addEventListener('mew:auth-expired', onExpired)
     return () => window.removeEventListener('mew:auth-expired', onExpired)
+  }, [applyAuth])
+
+  useEffect(() => {
+    const refresh = () => { clearFileContentCache(); void fetchAuthStatus().then(applyAuth).catch(() => {}) }
+    window.addEventListener('mew:permissions-changed', refresh)
+    return () => window.removeEventListener('mew:permissions-changed', refresh)
   }, [applyAuth])
 
   if (!auth) {

@@ -1,3 +1,4 @@
+import { watchSocketAccess } from './access-socket.ts'
 import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -225,6 +226,7 @@ function getRoom(roomKey: string): Room {
 }
 
 const wss = new WebSocketServer({ noServer: true })
+const accessChecks = new WeakMap<WebSocket, () => boolean>()
 
 wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   const url = new URL(req.url ?? '', 'http://localhost')
@@ -240,6 +242,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   const room = getRoom(roomKey)
   const client: Client = {
     send: (frame) => {
+      if (accessChecks.get(ws)?.() === false) { ws.terminate(); return }
       if (ws.readyState === WebSocket.OPEN) ws.send(frame)
     },
     local: false,
@@ -247,6 +250,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   admit(room, client)
 
   ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
+    if (accessChecks.get(ws)?.() === false) { ws.terminate(); return }
     handleFrame(room, client, toUint8Array(raw))
   })
 
@@ -282,6 +286,8 @@ export function attachCollabWebSocket(
       return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      accessChecks.set(ws, () => opts.authorize?.(req) ?? true)
+      watchSocketAccess(ws, req, opts.authorize)
       wss.emit('connection', ws, req)
     })
   })

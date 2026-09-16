@@ -1,3 +1,4 @@
+import type { Capabilities, AccessSettings, FileRule, Feature } from '../../shared/access-policy'
 import type { CloudStorageFolder } from '../../shared/cloud-storage'
 import type { EditorApi, EditorDbApi, DbColumn, DbColumnType, DbRow, DbSummary, DbView, TableWidths } from '@mew/editor'
 import type { TmuxPanelApi, TmuxSession } from '@mew/tmux-term'
@@ -843,6 +844,8 @@ export interface AuthStatus {
   mustChangePassword: boolean
   displayName: string | null
   avatarDataUrl: string | null
+  capabilities?: Capabilities
+  accessRevision?: string
 }
 
 export function fetchAuthStatus(): Promise<AuthStatus> {
@@ -1095,14 +1098,6 @@ export function replaceInProjectFile(
   }).then(json<{ ok: true; count: number; commit: CommitResult | null }>)
 }
 
-export function setGuestAccess(path: string, view: boolean, edit: boolean, project: string = currentProject): Promise<{ ok: true }> {
-  return fetch('/api/guest-access', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, view, edit, project }),
-  }).then(json<{ ok: true }>)
-}
-
 export interface AdminUser {
   email: string
   role: Role
@@ -1112,6 +1107,25 @@ export interface AdminUser {
 
 export function fetchUsers(): Promise<AdminUser[]> {
   return fetch('/api/admin/users').then(json<AdminUser[]>)
+}
+
+export interface AccessPathSettings {
+  workspace: string
+  project: string
+  path: string
+  directory: boolean
+  entries: TreeNode[]
+  permissions: { subject: string; explicit: FileRule | null; effective: { view: boolean; edit: boolean } }[]
+}
+export function fetchAccessSettings(): Promise<AccessSettings> { return fetch('/api/admin/access').then(json<AccessSettings>) }
+export function saveFeatureAccess(subject: string, feature: Feature, enabled: boolean | null): Promise<AccessSettings> {
+  return fetch('/api/admin/access/feature', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, feature, enabled }) }).then(json<AccessSettings>)
+}
+export function fetchAccessPath(project: string, path: string): Promise<AccessPathSettings> {
+  return fetch(`/api/admin/access/path?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`).then(json<AccessPathSettings>)
+}
+export function saveFileAccess(subject: string, project: string, path: string, access: string, workspace: string): Promise<{ ok: true }> {
+  return fetch('/api/admin/access/path', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, project, path, access, workspace }) }).then(json<{ ok: true }>)
 }
 
 export function addUser(email: string, role: Role): Promise<{ ok: true; email: string; tempPassword: string }> {

@@ -1,3 +1,5 @@
+import { watchSocketAccess } from './access-socket.ts'
+import { canUse } from './access-policy.ts'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,7 +10,7 @@ import express from 'express'
 import multer from 'multer'
 import { chromium, type Browser, type BrowserContext, type Page, type ElementHandle, type CDPSession, type Dialog, type Frame, type FileChooser, type Download, type Request } from 'playwright-core'
 import { WebSocket, WebSocketServer } from 'ws'
-import { authOf, requireRole, resolveAuth, type RequestAuth } from './reqAuth.ts'
+import { authOf, requireFeature, resolveAuth, type RequestAuth } from './reqAuth.ts'
 import { acquireBrowserProfile, domBrowserHeadless } from './browser-dom-profile.ts'
 import { createDomNetworkGate } from './browser-dom-network.ts'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
@@ -570,7 +572,7 @@ export function openDomBrowserTab(account: string, tabId: string, url: string): 
 
 export function createDomBrowserRoutes(): express.Express {
   const app = express()
-  app.use(requireRole('owner', 'manager'))
+  app.use(requireFeature('browser'))
   app.get('/tabs', (req, res) => res.json(generalTabs(authOf(req).email ?? '').map((session) => session.info())))
   app.post('/tabs', (req, res) => {
     try {
@@ -615,7 +617,7 @@ export function createDomBrowserRoutes(): express.Express {
 }
 
 export function domConnectionAllowed(req: IncomingMessage, auth: RequestAuth, account: string): boolean {
-  if (auth.mustChangePassword || !['owner', 'manager'].includes(auth.role) || auth.email !== account) return false
+  if (auth.mustChangePassword || !canUse(auth, 'browser') || auth.email !== account) return false
   try {
     const origin = new URL(req.headers.origin ?? '')
     const secure = (req.socket as { encrypted?: boolean } | undefined)?.encrypted || req.headers['x-forwarded-proto'] === 'https'
@@ -633,6 +635,7 @@ export function attachDomBrowserWebSocket(server: Server | Http2SecureServer, ge
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      watchSocketAccess(ws, req, request => domConnectionAllowed(request, getAuth(request), session.account))
       let alive = true
       ws.on('pong', () => { alive = true })
       const heartbeat = setInterval(() => {

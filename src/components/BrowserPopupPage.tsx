@@ -10,7 +10,7 @@ export function BrowserPopupPage() {
   useEffect(() => {
     fetchAuthStatus()
       .then((auth) => {
-        if (!auth.mustChangePassword && (auth.role === 'owner' || auth.role === 'manager')) setAllowed(true)
+        if (!auth.mustChangePassword && (auth.capabilities?.browser ?? (auth.role === 'owner' || auth.role === 'manager'))) setAllowed(true)
         else location.replace('/')
       })
       .catch(() => location.replace('/'))

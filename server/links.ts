@@ -25,11 +25,11 @@ function isExternalHref(href: string): boolean {
  * targetRel 문서의 title이 바뀌었을 때, 그 문서를 가리키는 모든 내부 링크의 라벨을
  * 새 title로 맞춘다 ("내부 링크 텍스트 = 대상 문서 title" 정책). 바뀐 파일 목록을 반환.
  */
-export function updateLinkLabelsFor(targetRel: string, newTitle: string): string[] {
+export function updateLinkLabelsFor(targetRel: string, newTitle: string, mayEdit: (path: string) => boolean = () => true): string[] {
   const changed: string[] = []
   for (const abs of walkMdFiles(DOCS_ROOT, readIgnoreSet())) {
     const rel = path.relative(DOCS_ROOT, abs).split(path.sep).join('/')
-    if (rel === targetRel) continue
+    if (rel === targetRel || !mayEdit(rel)) continue
     const src = fs.readFileSync(abs, 'utf-8')
     const dir = path.posix.dirname(rel)
     const next = src.replace(LINK_RE, (match, label: string, href: string) => {

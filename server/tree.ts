@@ -12,6 +12,7 @@ import {
 import { readIgnoreSet } from './ignoreList.ts'
 
 export interface TreeNode {
+  editable?: boolean
   name: string
   path: string
   type: 'file' | 'dir'

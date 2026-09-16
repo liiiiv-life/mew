@@ -1,3 +1,4 @@
+import './test-isolated-data.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -52,13 +53,15 @@ test('isLocalAssetPath: UUID asset만 공개하고 다른 .mew 파일과 경로 
   assert.equal(isLocalAssetPath('notes/image.webp'), false)
 })
 
-test('GET /asset: 프로젝트 .mew/assets의 UUID 파일만 공개한다', async () => {
+test('GET /asset: UUID 형식과 계정별 파일 권한을 함께 검사한다', async () => {
   const project = `ztest-asset-route-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
   const projectRoot = path.join(WORKSPACE_ROOT, project)
   const relPath = '.mew/assets/123e4567-e89b-42d3-a456-426614174000.png'
   fs.mkdirSync(path.dirname(path.join(projectRoot, relPath)), { recursive: true })
   fs.writeFileSync(path.join(projectRoot, relPath), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
   const app = express()
+  let authenticated = false
+  app.use((req, _res, next) => { req.auth = { role: authenticated ? 'member' : 'guest', email: authenticated ? 'asset@example.test' : null, mustChangePassword: false }; next() })
   app.use('/api', createApiApp())
   const listener = app.listen(0)
 
@@ -66,6 +69,8 @@ test('GET /asset: 프로젝트 .mew/assets의 UUID 파일만 공개한다', asyn
     const address = listener.address()
     assert.ok(address && typeof address === 'object')
     const base = `http://127.0.0.1:${address.port}/api/asset?project=${encodeURIComponent(project)}&path=${encodeURIComponent(relPath)}`
+    assert.equal((await fetch(base)).status, 403)
+    authenticated = true
     const response = await fetch(base)
     assert.equal(response.status, 200)
     assert.equal(response.headers.get('content-type'), 'image/png')

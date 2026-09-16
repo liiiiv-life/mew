@@ -1,4 +1,5 @@
-import './config.ts' // 반드시 첫 줄 — 다른 모듈이 상수를 계산하기 전에 설정 파일을 읽어야 한다
+import './config.ts'
+import { watchSocketAccess } from './access-socket.ts' // 반드시 첫 줄 — 다른 모듈이 상수를 계산하기 전에 설정 파일을 읽어야 한다
 import { attachDomBrowserWebSocket, closeDomBrowsers, DOM_BROWSER_WS } from './browser-dom.ts'
 import { attachRemoteDesktopWebSocket, DESKTOP_WS } from './remote-desktop.ts'
 import express from 'express'
@@ -11,7 +12,7 @@ import type { Duplex } from 'node:stream'
 import { createApiApp } from './api.ts'
 import { BROWSER_PROXY_WS_PREFIX, attachBrowserProxyWebSocket, createBrowserPortProxyMiddleware, createBrowserProxyApp } from './browserProxy.ts'
 import { createAuthRouter, checkOrigin } from './authRoutes.ts'
-import { attachAuthContext, resolveAuth, authorizeTmux, authorizeCollab } from './reqAuth.ts'
+import { attachAuthContext, resolveAuth, authorizeTmux, authorizeCollab, authorizeFeature, authorizeDatabase } from './reqAuth.ts'
 import { attachTmuxWebSocket } from '@mew/tmux-term/server'
 import { WORKSPACE_ROOT } from './paths.ts'
 import { attachPresenceWebSocket } from './presence.ts'
@@ -105,18 +106,18 @@ app.use('/api', attachAuthContext, createApiApp())
 addStaticAndSpaFallback(app)
 
 const server = http.createServer(app)
-attachTmuxWebSocket(server, { cwd: WORKSPACE_ROOT, authorize: authorizeTmux })
+attachTmuxWebSocket(server, { cwd: WORKSPACE_ROOT, authorize: authorizeTmux, onConnection: (ws, req) => watchSocketAccess(ws, req, authorizeTmux) })
 attachPresenceWebSocket(server, { getAuth: resolveAuth })
 attachCollabWebSocket(server, { authorize: authorizeCollab })
-attachDbWebSocket(server, { authorize: authorizeCollab })
+attachDbWebSocket(server, { authorize: authorizeFeature('database'), authorizeProject: authorizeDatabase })
 // 에이전트는 셸을 쓸 수 있다 — 게이트가 tmux와 같은 집합(owner/manager)이어야 한다
-attachAgentWebSocket(server, { authorize: authorizeTmux })
+attachAgentWebSocket(server, { authorize: authorizeFeature('agent') })
 attachDomBrowserWebSocket(server)
 attachRemoteDesktopWebSocket(server)
 attachBrowserProxyWebSocket(server, {
   account: (req) => {
     const auth = resolveAuth(req)
-    return !auth.mustChangePassword && (auth.role === 'owner' || auth.role === 'manager') ? auth.email : null
+    return (authorizeFeature('browser')(req) || authorizeFeature('android')(req)) ? auth.email : null
   },
 })
 destroyUnknownUpgrades(server, [

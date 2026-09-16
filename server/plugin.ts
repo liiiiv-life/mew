@@ -1,4 +1,5 @@
-import './config.ts' // 반드시 첫 줄 — 설정 파일을 다른 모듈보다 먼저 읽는다
+import './config.ts'
+import { watchSocketAccess } from './access-socket.ts' // 반드시 첫 줄 — 설정 파일을 다른 모듈보다 먼저 읽는다
 import { attachDomBrowserWebSocket } from './browser-dom.ts'
 import { attachRemoteDesktopWebSocket } from './remote-desktop.ts'
 import type { Plugin } from 'vite'
@@ -6,7 +7,7 @@ import express from 'express'
 import { createApiApp } from './api.ts'
 import { attachBrowserProxyWebSocket, createBrowserPortProxyMiddleware, createBrowserProxyApp } from './browserProxy.ts'
 import { createAuthRouter, checkOrigin } from './authRoutes.ts'
-import { attachAuthContext, resolveAuth, authorizeTmux, authorizeCollab } from './reqAuth.ts'
+import { attachAuthContext, resolveAuth, authorizeTmux, authorizeCollab, authorizeFeature, authorizeDatabase } from './reqAuth.ts'
 import { attachTmuxWebSocket } from '@mew/tmux-term/server'
 import { WORKSPACE_ROOT } from './paths.ts'
 import { attachPresenceWebSocket } from './presence.ts'
@@ -35,17 +36,17 @@ export function docsApiPlugin(): Plugin {
       // httpServer는 미들웨어 모드(server.middlewares만 쓰는 임베딩)에선 null일 수 있음.
       // destroyUnknownUpgrades는 쓰지 않는다 — vite 자신의 HMR 업그레이드까지 끊어버리기 때문.
       if (server.httpServer) {
-        attachTmuxWebSocket(server.httpServer, { cwd: WORKSPACE_ROOT, authorize: authorizeTmux })
+        attachTmuxWebSocket(server.httpServer, { cwd: WORKSPACE_ROOT, authorize: authorizeTmux, onConnection: (ws, req) => watchSocketAccess(ws, req, authorizeTmux) })
         attachPresenceWebSocket(server.httpServer, { getAuth: resolveAuth })
         attachCollabWebSocket(server.httpServer, { authorize: authorizeCollab })
-        attachDbWebSocket(server.httpServer, { authorize: authorizeCollab })
-        attachAgentWebSocket(server.httpServer, { authorize: authorizeTmux })
+        attachDbWebSocket(server.httpServer, { authorize: authorizeFeature('database'), authorizeProject: authorizeDatabase })
+        attachAgentWebSocket(server.httpServer, { authorize: authorizeFeature('agent') })
         attachDomBrowserWebSocket(server.httpServer)
         attachRemoteDesktopWebSocket(server.httpServer)
         attachBrowserProxyWebSocket(server.httpServer, {
           account: (req) => {
             const auth = resolveAuth(req)
-            return !auth.mustChangePassword && (auth.role === 'owner' || auth.role === 'manager') ? auth.email : null
+            return (authorizeFeature('browser')(req) || authorizeFeature('android')(req)) ? auth.email : null
           },
         })
         // 지난 실행이 SIGKILL로 끊겼다면 그때 남은 에이전트 자식이 아직 램을 물고 있다

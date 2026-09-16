@@ -1,3 +1,4 @@
+import { canUse, accessChanges } from './access-policy.ts'
 import express from 'express'
 import crypto from 'node:crypto'
 import type { IncomingMessage, Server as HttpServer } from 'node:http'
@@ -121,6 +122,7 @@ type VerifiedBrowserToken = {
 }
 
 const sessions = new Map<string, BrowserSession>()
+accessChanges.on('change', () => sessions.clear())
 
 const sessionSweep = setInterval(() => {
   const now = Date.now()
@@ -620,7 +622,7 @@ function tokenMatchesAuthenticatedAccount(req: express.Request, verified: Verifi
   // 쓰되, 다른 Mew 계정의 cookie가 제시되면 명시적으로 거부한다.
   if (!auth.email) return true
   return (
-    (auth.role === 'manager' || auth.role === 'owner') &&
+    (canUse(auth, 'browser') || canUse(auth, 'android')) &&
     accountHash(auth.email) === verified.session.accountHash
   )
 }
@@ -723,7 +725,7 @@ export function createBrowserPortProxyMiddleware(): express.RequestHandler {
     }
     const origin = `http://localhost:${port}`
     const auth = resolveAuth(req)
-    if (auth.mustChangePassword || (auth.role !== 'manager' && auth.role !== 'owner') || !auth.email) {
+    if (auth.mustChangePassword || (!canUse(auth, 'browser') && !canUse(auth, 'android')) || !auth.email) {
       res.status(403).type('text/plain').send('권한이 없습니다')
       return
     }
@@ -824,6 +826,9 @@ export function attachBrowserProxyWebSocket(
     }
 
     wss.handleUpgrade(req, socket, head, (client) => {
+      const revoked = () => client.terminate()
+      accessChanges.on('change', revoked)
+      client.once('close', () => accessChanges.off('change', revoked))
       const protocols = typeof req.headers['sec-websocket-protocol'] === 'string'
         ? req.headers['sec-websocket-protocol'].split(',').map((value) => value.trim()).filter(Boolean)
         : []

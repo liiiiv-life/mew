@@ -1,7 +1,8 @@
+import { watchSocketAccess } from './access-socket.ts'
 // 에이전트 창 WS 릴레이 — ACP 세션의 이벤트를 브라우저로 흘리고, 브라우저의 프롬프트·취소·승인을 되돌려 준다.
 //
-// 셸 접근 = 보안 경계. authorize는 tmux와 **같은 집합**(owner/manager)이어야 한다 — 에이전트는 Bash를
-// 쓸 수 있으므로 더 낮은 게이트로 열면 터미널 경계를 우회하는 것이 된다(ADR 0034).
+// 에이전트는 셸 도구를 사용할 수 있다. authorize는 계정별 agent 기능을 검사한다(ADR 0150).
+// 파일 ACL은 에이전트 도구를 샌드박싱하지 않는다.
 import type { Server as HttpServer, IncomingMessage } from 'node:http'
 import type { Http2SecureServer } from 'node:http2'
 import type { Duplex } from 'node:stream'
@@ -87,7 +88,9 @@ type ServerMessage =
   // 지나간 대화는 한 덩어리로 간다 — 창은 이걸 받아 지금 그린 대화를 통째로 갈아끼운다
   | { type: 'replay'; events: AgentEvent[]; restored?: boolean; restoreFailure?: { sessionId: string; message: string } }
 
+const accessChecks = new WeakMap<WebSocket, () => boolean>()
 function send(ws: WebSocket, payload: ServerMessage) {
+  if (accessChecks.get(ws)?.() === false) { ws.terminate(); return }
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(payload))
 }
 
@@ -153,6 +156,7 @@ async function handleConnection(
   let detach = () => {}
 
   const handle = (msg: ClientMessage) => {
+    if (accessChecks.get(ws)?.() === false) { ws.terminate(); return }
     // 목록은 디스크만 읽는다 — 자식 프로세스가 뜨기를 기다리지 않는다(세션의 listSessions와 같은 지름길)
     if (msg.type === 'list_sessions' && runtime === 'claude') {
       void listSessionsFromDisk(cwd)
@@ -300,6 +304,8 @@ export function attachAgentWebSocket(
       return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      accessChecks.set(ws, () => opts.authorize?.(req) ?? true)
+      watchSocketAccess(ws, req, opts.authorize)
       void handleConnection(ws, runtime, tab, cwd, resumeSessionId, { modelId, role })
     })
   })

@@ -1,3 +1,4 @@
+import './test-isolated-data.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { treeSignalFor } from './presence.ts'

@@ -8,15 +8,15 @@
 - `server/plugin.ts` — vite dev 플러그인 (4999)
 - `server/dataDir.ts` — `.data/` 상태 파일 공용 입출력 (아래)
 - `server/auth.ts`, `server/authRoutes.ts` — 인증 (사용자·세션·로그인 라우트)
-- `server/reqAuth.ts` — 요청별 역할 해석(`req.auth`)·역할 게이팅 미들웨어
-- `server/guestAccess.ts` — 게스트 경로별 보기/편집 승인 규칙
+- `server/reqAuth.ts` — 요청별 인증 해석(`req.auth`)·역할/기능 게이팅 미들웨어
+- `server/access-policy.ts`·`access-routes.ts`·`access-socket.ts` — [계정별 기능·파일 권한](access-control.md), 관리 API와 연결 재검증. `guestAccess.ts`는 기존 저장 형식의 호환 코드다.
 - `server/usersCli.ts` — 승인 리스트 CLI
 - `server/docsRepo.ts` — docs 폴더 가져오기/내보내기, `server/fsBrowse.ts` — 워크스페이스 밖 폴더 목록
 - docs 전용 규칙(MOC 커버리지·archives 불변·링크 라벨 동기화)은 docs 프로젝트에만 적용된다.
 
 ## 서버 상태 파일 (`.data/`)
 
-사용자·세션·게스트 규칙·프로젝트 아이콘·프로젝트 배치·터미널 버튼·숨김 목록·예약 작업이 여기 있다. 전부 `server/dataDir.ts`를 거쳐 읽고 쓴다:
+사용자·세션·계정별 기능/파일 권한·프로젝트 아이콘·프로젝트 배치·터미널 버튼·숨김 목록·예약 작업이 여기 있다. 전부 `server/dataDir.ts`를 거쳐 읽고 쓴다:
 
 - **쓰기는 임시 파일 + rename**뿐이다. `writeFileSync`로 바로 쓰면 파일이 잠깐 0바이트가 되고, 그 순간 다른 프로세스가 읽으면 빈 값으로 오해한다.
 - **읽기 실패를 빈 값으로 넘기지 않는다.** 파일이 없으면 `null`, 깨졌으면 사본(`*.corrupt-*`)을 남기고 던진다. 못 읽은 걸 `{}`로 보고 덮어쓰면 남아 있던 설정이 통째로 사라지기 때문 — 실제로 프로젝트 아이콘이 이 경로로 초기화됐었다.

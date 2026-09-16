@@ -117,6 +117,7 @@ export interface EditorPaneProps {
   presence: Record<string, string[]>
   /** 지금 포커스된 칸인지 — 커밋·단축키·터미널이 가리키는 칸이다 */
   focused: boolean
+  canCollaborate?: boolean
   isGuest: boolean
   /** 사이드바 여는 버튼을 이 칸이 맡는지 (사이드바 닫힘 + 맨 앞 칸) */
   showSidebarButton: boolean
@@ -154,6 +155,7 @@ export function EditorPane({
   presence,
   focused,
   isGuest,
+  canCollaborate = true,
   showSidebarButton,
   tocOpen,
   dropZone,
@@ -181,7 +183,7 @@ export function EditorPane({
   activeTabRef.current = activeTab
   const scrollHostRef = useRef<HTMLDivElement | null>(null)
 
-  const collab = useCollab(project, primaryCollabPath(activeTab, role), authEmail)
+  const collab = useCollab(project, canCollaborate ? primaryCollabPath(activeTab, role) : null, authEmail)
 
   // 하단 상태줄 — 파일 종류를 가리지 않아야 하므로 뷰어(Editor)가 아니라 칸이 그린다.
   const [selChars, setSelChars] = useState(0)
@@ -218,7 +220,7 @@ export function EditorPane({
   // 미디어·SVG 미리보기처럼 텍스트 편집기가 없는 화면과 게스트에게는 아예 뜨지 않는다.
   const isTextPane =
     !!activeTab && !isExternalTabPath(activeTab.path) && !mediaKind(activeTab.path) && !(activeTab.path.endsWith('.svg') && activeTab.viewMode === 'hotview')
-  const canComment = !isGuest && isTextPane && !activeTab?.anchorPreview
+  const canComment = canCollaborate && !isGuest && isTextPane && !activeTab?.anchorPreview
   const canCommentRef = useRef(canComment)
   canCommentRef.current = canComment
   const [threads, setThreads] = useState<CommentThread[]>([])
