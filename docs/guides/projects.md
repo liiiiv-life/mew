@@ -67,6 +67,8 @@ mew에서 **폴더 하나가 프로젝트 하나**다. 설정된 시작 폴더�
 
 ## Documents 폴더 계약
 
+Documents의 에이전트 안내·문서 초기화 GUI와 CLI는 [프로젝트 문서 설정](project-setup.md)을 따른다. 프로젝트별 `.mew/agent-context.json`의 경로가 기존 `MEW_DOCS`와 기본 경로보다 우선한다.
+
 Documents는 탭이 아니라 사이드바의 가상 폴더다. 실제 폴더는 현재 루트 프로젝트 안에서 owner가 고르며 기본은 `docs`다. 설정이 없고 옛 `.mew/docs`만 있으면 그 위치를 그대로 쓴다. 폴더가 없으면 빈 Documents 폴더를 만든다.
 
 - 내부 식별자 `docs`는 유지한다. 문서·트리·검색·협업 방·git·저장 키가 이 이름을 공유하므로 UI 배치와 함께 바꾸지 않는다.

@@ -1,5 +1,6 @@
 // 예약 작업용 일회성 ACP runner. crontab/tmux는 이 파일만 실행하고, 실제 런타임 선택은 agentRuntimes.ts가 한다.
 import fs from 'node:fs'
+import { parseAgentContext } from './agent-context.ts'
 import path from 'node:path'
 import { AgentSession, type AgentEvent, isAcpRuntime } from './agentAcp.ts'
 
@@ -44,7 +45,9 @@ async function main() {
   }
 
   write(`\n[mew] ${new Date().toISOString()} runtime=${runtime} cwd=${cwd}\n`)
-  const session = await AgentSession.start(runtime, undefined, cwd)
+  const context = process.argv.includes('--context') ? parseAgentContext(JSON.parse(arg('context'))) : undefined
+  if (context === null) throw new Error('예약 작업의 문서 연결이 올바르지 않습니다')
+  const session = await AgentSession.start(runtime, undefined, cwd, undefined, context)
   const detach = session.attach((event) => {
     const line = lineFromEvent(event)
     if (line) write(line)

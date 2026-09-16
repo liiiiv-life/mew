@@ -26,6 +26,7 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 클라우드 폴더 바로가기 | 프로젝트 추가 창에서 감지된 OneDrive·Google Drive·Dropbox·macOS iCloud 폴더로 이동한 뒤 원하는 하위 폴더 선택 | [감지 범위와 사용법](docs/guides/projects.md#클라우드-폴더-바로가기) |
 | 새 프로젝트·Git clone | 프로젝트 폴더 선택 창의 작업 버튼에서 폴더 생성·저장소 clone·Git 초기화(owner) | [프로젝트 만들기](docs/guides/projects.md#프로젝트-탭) |
 | Documents·하위 프로젝트·MOC | 사이드바에서 Documents와 중첩 `.mew` 하위 프로젝트를 펼치고, 폴더 우클릭으로 하위 프로젝트 지정, `Map Of Contents`로 문서 지도 열기 | [사이드바 구조](docs/guides/projects.md#사이드바의-프로젝트--하위-프로젝트--documents) |
+| 에이전트 문서 안내·프로젝트 초기화 | Documents 우클릭 → 에이전트 안내와 문서 설정. 자동 안내·문서 연결·미리보기·없는 문서 생성, CLI도 지원(owner) | [설정과 CLI](docs/guides/project-setup.md) |
 | Documents 관리 | Documents 우클릭으로 문서 폴더 변경·가져오기·내보내기(owner). 가져오기는 기존 내용을 교체 | [Documents 설정](docs/guides/projects.md#documents-폴더-계약) |
 | 파일·폴더 관리 | 사이드바 우클릭·길게 누르기로 생성·개명·복제·복사·잘라내기·붙여넣기·삭제·다운로드. 끌어서 이동·업로드 | [파일 조작](docs/guides/projects.md#파일폴더-관리) · [끌어놓기](docs/guides/editor.md#사이드바-항목-끌어놓기) |
 | 서버 전체 파일 탐색 | 메뉴 → 파일 탐색기에서 프로젝트 밖 파일을 열고 편집·복사·이동·삭제·다운로드(manager·owner) | [서버 파일 탐색기](docs/guides/projects.md#서버-파일-탐색기) |

@@ -13,6 +13,7 @@
     "serve": "node server/serve.ts",
     "start": "npm run build && npm run serve",
     "users": "node server/usersCli.ts",
+    "project:setup": "node server/project-setup-cli.ts",
     "lint": "oxlint",
     "desktop:install": "node native/remote-desktop/install.mjs",
     "build:native": "cd native/collab && cargo build --release && cp target/release/libmew_collab.so mew-collab.node",

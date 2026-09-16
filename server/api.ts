@@ -1,3 +1,5 @@
+import { ProjectSetupError } from './project-agent-settings.ts'
+import { createProjectSetupRouter } from './project-setup-routes.ts'
 import { createSubproject, projectDirectory } from './subprojects.ts'
 import { discoverCloudStorage } from './cloud-storage.ts'
 import express from 'express'
@@ -890,6 +892,8 @@ export function createApiApp() {
   })
 
   // docs로 쓸 폴더 바꾸기 — 워크스페이스 **안**의 폴더만 받는다(workspace.ts가 경계를 검사한다)
+  app.use('/docs/agent-context', createProjectSetupRouter())
+
   app.post('/docs/root', requireRole('owner'), (req, res) => {
     const { path: target } = req.body as { path?: unknown }
     try {
@@ -2500,7 +2504,7 @@ export function createApiApp() {
 }
 
 function handleError(res: express.Response, err: unknown) {
-  if (err instanceof UnsafePathError) {
+  if (err instanceof UnsafePathError || err instanceof ProjectSetupError) {
     res.status(400).json({ error: err.message })
     return
   }

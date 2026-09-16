@@ -7,6 +7,7 @@
 // "세션을 설정한 폴더에서 띄우고, 에이전트 명령을 그 셸에 타이핑한다"뿐이다. 덕분에 무인 실행이
 // 끝난 뒤에도 화면이 세션에 남아 있어 예약 작업 창의 터미널 아이콘으로 그대로 들여다볼 수 있다.
 import fs from 'node:fs'
+import { captureAgentContext } from './agent-context.ts'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -106,6 +107,8 @@ export function agentCommand(job: AgentJob): string {
     shQuote(logFile(job.id)),
     '--cwd',
     shQuote(jobCwd(job.project)),
+    '--context',
+    shQuote(JSON.stringify(captureAgentContext(jobCwd(job.project)))),
   ].join(' ')
 }
 

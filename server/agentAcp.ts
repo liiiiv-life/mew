@@ -13,6 +13,9 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import fs from 'node:fs'
+import { agentContextText, captureAgentContext, refreshAgentContext, restoreAgentContext, saveAgentContext } from './agent-context.ts'
+import { stripMewContext } from './project-context-text.ts'
+import type { AgentContextBinding } from '../shared/project-agent-context.ts'
 import { antigravityAuthUrl } from './antigravityAcp.ts'
 import { accessIssueFromError, type AccessIssue } from '../shared/agent-access.ts'
 import {
@@ -345,7 +348,10 @@ export class AgentSession {
   #usage: Usage | null = null
   busy = false
 
-  private constructor(runtime: string, spec: SpawnSpec, cwd = WORKSPACE_ROOT, idleKillMs = AGENT_IDLE_MS) {
+  #context: AgentContextBinding
+
+  private constructor(runtime: string, spec: SpawnSpec, cwd = WORKSPACE_ROOT, idleKillMs = AGENT_IDLE_MS, context = captureAgentContext(cwd)) {
+    this.#context = context
     this.runtime = runtime
     this.cwd = cwd
     this.#idleKillMs = idleKillMs
@@ -368,6 +374,7 @@ export class AgentSession {
     delete env.CLAUDECODE
     // 탭 복원 포인터는 감독 프로세스만 쓴다. 아래 ACP/CLI의 환경변수로 넘기지 않는다.
     delete env.MEW_AGENT_RESUME_SESSION
+    delete env.MEW_AGENT_CONTEXT
     // detached — 어댑터를 프로세스 그룹 리더로 띄운다. 어댑터는 세션마다 CLI를 하나씩 밑에 두는데,
     // 어댑터만 죽이면 그 손자들이 고아로 남는다(#killTree가 그룹째 보낼 수 있어야 한다).
     this.#child = spawn(spec.cmd, spec.args, {
@@ -421,9 +428,10 @@ export class AgentSession {
     spec: SpawnSpec | undefined = resolvedSpec(runtime) ?? undefined,
     cwd = WORKSPACE_ROOT,
     idleKillMs = AGENT_IDLE_MS,
+    context?: AgentContextBinding,
   ): Promise<AgentSession> {
     if (!spec) throw new Error(`ACP를 지원하지 않는 에이전트 런타임입니다: ${runtime}`)
-    const session = new AgentSession(runtime, spec, cwd, idleKillMs)
+    const session = new AgentSession(runtime, spec, cwd, idleKillMs, context)
     try {
       await session.#initializeWithTimeout()
       session.#armIdleTimer()
@@ -557,6 +565,8 @@ export class AgentSession {
 
   /** 새로 만들었거나 불러온 ACP 세션으로 갈아탄다 — 사용량 리더도 그 세션 파일을 보게 바꾼다 */
   #adopt(sessionId: string, models: SessionModelState | null, modes: SessionModeState | null, configOptions?: SessionConfigOption[] | null) {
+    this.#context = restoreAgentContext(this.runtime, this.cwd, sessionId) ?? refreshAgentContext(this.#context)
+    saveAgentContext(this.runtime, this.cwd, sessionId, this.#context)
     this.#sessionId = sessionId
     this.#clearFailed = false
     this.#accessIssue = null
@@ -637,7 +647,7 @@ export class AgentSession {
         if (params.update.sessionUpdate === 'user_message_chunk') {
           const content = params.update.content
           if (!Array.isArray(content) && content?.type === 'text') {
-            const text = stripLocalCommandMeta(content.text)
+            const text = stripLocalCommandMeta(stripMewContext(content.text))
             if (!text) return
             if (text !== content.text) {
               this.#emit({ type: 'update', update: { ...params.update, content: { ...content, text } } })
@@ -922,6 +932,15 @@ export class AgentSession {
   }
 
   #run(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings) {
+    let context: string
+    try { context = agentContextText(this.#context, this.cwd) }
+    catch (error) {
+      this.#emit({ type: 'error', message: describeError(error) })
+      // Keep queued work available for editing/retry; do not silently discard CLI tasks.
+      this.#broadcast(this.#metaEvent())
+      this.#armIdleTimer()
+      return
+    }
     if (this.#idleTimer) {
       clearTimeout(this.#idleTimer)
       this.#idleTimer = null
@@ -938,6 +957,7 @@ export class AgentSession {
     this.#broadcast(this.#metaEvent())
     const prompt: ContentBlock[] = [
       { type: 'text', text: promptText },
+      ...(context ? [{ type: 'text' as const, text: context }] : []),
       ...images.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType })),
     ]
     this.#conn

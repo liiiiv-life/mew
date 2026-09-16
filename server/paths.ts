@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { projectDocsDir } from './project-agent-settings.ts'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -30,13 +31,7 @@ export let DOCS_DIR = resolveDocsDir(WORKSPACE_ROOT)
 export let DOCS_ROOT = path.join(WORKSPACE_ROOT, DOCS_DIR)
 
 function resolveDocsDir(root: string): string {
-  // 고른 이름은 **그 워크스페이스에 실제로 있을 때만** 쓴다 — 워크스페이스를 갈아끼우면 남의 폴더
-  // 이름이 따라와 엉뚱한 빈 폴더를 만들기 때문이다(고를 때는 존재를 검사한다, workspace.ts)
-  const chosen = process.env.MEW_DOCS?.trim()
-  if (chosen && fs.existsSync(path.join(root, chosen))) return path.normalize(chosen)
-  const legacy = path.join(MEW_DIR_NAME, DEFAULT_PROJECT)
-  if (!fs.existsSync(path.join(root, DEFAULT_PROJECT)) && fs.existsSync(path.join(root, legacy))) return legacy
-  return DEFAULT_PROJECT
+  return projectDocsDir(root, process.env.MEW_DOCS?.trim())
 }
 
 /** 홈 탭이 보는 가짜 프로젝트 — 루트가 **워크스페이스 폴더 자신**이다. docs와 같은 요령으로

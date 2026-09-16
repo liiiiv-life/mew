@@ -8,6 +8,7 @@
 // 못 따라오는 것: 이미 떠 있는 tmux 세션의 작업 디렉터리(tmux 서버가 들고 있다). 새 세션부터 새 폴더에서
 // 열린다 — 부르는 쪽(api.ts)이 tmuxManager.cwd를 같이 고친다.
 import fs from 'node:fs'
+import { defaultAgentSettings, readProjectAgentSettings, writeProjectAgentSettings } from './project-agent-settings.ts'
 import path from 'node:path'
 import { configFiles } from './config.ts'
 import {
@@ -127,9 +128,11 @@ export function switchDocsRoot(target: string): WorkspaceInfo {
   }
   if (abs === DOCS_ROOT) return currentWorkspace()
 
+  const settings = readProjectAgentSettings(WORKSPACE_ROOT) ?? defaultAgentSettings()
+  writeProjectAgentSettings(WORKSPACE_ROOT, { ...settings, docsDir: path.relative(WORKSPACE_ROOT, abs) })
+
   resetTreeWatchers()
   closeAllRooms()
-
   setDocsDir(path.relative(WORKSPACE_ROOT, abs))
   persist('MEW_DOCS', DOCS_DIR)
   watchDocsTree()

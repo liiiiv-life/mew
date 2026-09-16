@@ -1,7 +1,7 @@
 ---
 title: "사용법"
 created: 2026-09-11
-updated: 2026-09-13
+updated: 2026-09-16
 ---
 
 # 사용법
@@ -9,6 +9,8 @@ updated: 2026-09-13
 상위: [문서 지도](../MOC.md). 필요한 문서만 선택한다.
 
 ## Current
+
+- [프로젝트 문서 연결과 에이전트 자동 안내](project-setup.md)
 
 - [공동 편집·댓글·채팅·게스트 공유](collaboration.md)
 - [서버 브라우저와 Android](browser.md)

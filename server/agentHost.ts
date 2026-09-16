@@ -4,6 +4,7 @@
 // mew 서버는 로컬 소켓으로만 명령·이벤트를 중계한다. 따라서 브라우저가 닫히거나 mew가 재시작돼도
 // 감독과 그 아래 ACP/CLI는 그대로 작업을 마친다(ADR 0048).
 import './config.ts'
+import { captureAgentContext } from './agent-context.ts'
 import crypto from 'node:crypto'
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -713,7 +714,7 @@ function spawnHost(
     fs.chmodSync(HOST_DIR, 0o700)
     const logFd = fs.openSync(files.log, 'a', 0o600)
     try {
-      const env: NodeJS.ProcessEnv = { ...process.env, MEW_WORKSPACE: cwd }
+      const env: NodeJS.ProcessEnv = { ...process.env, MEW_WORKSPACE: cwd, MEW_AGENT_CONTEXT: JSON.stringify(captureAgentContext(cwd)) }
       if (resumeSessionId) env.MEW_AGENT_RESUME_SESSION = resumeSessionId
       else delete env.MEW_AGENT_RESUME_SESSION
       const child = spawn(process.execPath, [HOST_FILE, '--host', runtime, tab, cwd], {

@@ -1,7 +1,7 @@
 ---
 title: "진행 작업"
 created: 2026-09-11
-updated: 2026-09-15
+updated: 2026-09-16
 ---
 
 # 진행 작업
@@ -9,6 +9,8 @@ updated: 2026-09-15
 상위: [문서 지도](../MOC.md). 필요한 문서만 선택한다.
 
 ## Current
+
+- [프로젝트 컨텍스트 구현 계획](project-agent-context.md)
 
 - [원격 데스크톱 커서·지연 개선 구현](remote-desktop-latency.md)
 - [Zed 에이전트 비교·RAG 모델 상업 이용 검토](agent-model-license-review.md)

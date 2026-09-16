@@ -2,6 +2,7 @@
 // 가져오기/내보내기. docs는 프로젝트가 아니라 워크스페이스에 하나뿐인 특별 레포라(paths.ts)
 // 이름 바꾸기·삭제가 없다 — 대신 워크스페이스 안의 폴더 아무거나 docs로 지정할 수 있다.
 import { useEffect, useState } from 'react'
+import { DocsAgentContext } from './docs-agent-context'
 import { ConfirmDialog, useOverlayDismiss } from '@mew/ui'
 import { exportDocs, fetchWorkspace, importDocs, setDocsRoot, type WorkspaceInfo } from '../api/client'
 import { FolderPicker } from './FolderPicker'
@@ -9,6 +10,7 @@ import { useI18n } from '../i18n'
 
 export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: string) => void; onClose: () => void }) {
   const { t } = useI18n()
+  const [agentContext, setAgentContext] = useState(false)
   const [picking, setPicking] = useState<'root' | 'import' | 'export' | null>(null)
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null)
   // 가져오기는 기존 docs를 지운다 — 폴더를 고른 뒤 한 번 더 확인을 받는다
@@ -36,6 +38,8 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
       setBusy(false)
     }
   }
+
+  if (agentContext) return <DocsAgentContext onClose={() => setAgentContext(false)} onDone={onDone} />
 
   if (confirming !== null) {
     return (
@@ -118,6 +122,7 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
         {workspace && (
           <div className="border-t border-edge px-3 py-2 font-mono text-[11px] text-ink-secondary">{workspace.docsPath}</div>
         )}
+        <button type="button" onClick={() => setAgentContext(true)} className="flex min-h-10 w-full items-center border-t border-edge px-3 py-2.5 text-left text-xs text-ink hover:bg-surface-hover">{t('docs.contextTitle')}</button>
         {error && <div className="select-text border-t border-edge px-3 py-2 text-xs text-danger-ink">{error}</div>}
         <button
           type="button"
