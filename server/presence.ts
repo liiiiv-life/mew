@@ -2,8 +2,11 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { HttpServer } from 'vite'
+import { randomUUID } from 'node:crypto'
 import { fileAccess, unrestrictedFiles, accessChanges } from './access-policy.ts'
 import type { RequestAuth } from './reqAuth.ts'
+import { getUser } from './auth.ts'
+import type { ActiveMewSession } from '../shared/active-sessions.ts'
 
 const WS_PATH = '/api/presence'
 const FALLBACK_COLOR = '#737373' // 색을 아직 안 보낸(구버전) 클라이언트용 회색 — 정상 경로에서는 나오지 않음
@@ -13,7 +16,29 @@ const wss = new WebSocketServer({ noServer: true })
 // 연결(세션)마다 "지금 포커스 중인 문서 경로 하나"(열어만 둔 탭은 안 셈)와, 사이드바·탭의 점을
 // 커서 색과 일치시키기 위한 색상 하나, 그리고 이 연결이 어떤 권한으로 접속했는지(auth)를 들고 있다.
 // participants 전송은 auth별로 필터링되므로 게스트는 자신이 볼 수 있는 경로의 참가자만 받는다.
-const clientState = new Map<WebSocket, { path: string | null; color: string; auth: RequestAuth }>()
+const clientState = new Map<WebSocket, {
+  path: string | null; color: string; auth: RequestAuth
+  session: ActiveMewSession; alive: boolean; getAuth: () => RequestAuth
+}>()
+
+function clientDevice(agent: string): Pick<ActiveMewSession, 'browser' | 'device'> {
+  const browser = /Edg(?:e|A|iOS)?\//.test(agent) ? 'Edge'
+    : /Firefox\/|FxiOS\//.test(agent) ? 'Firefox'
+      : /Chrome\/|CriOS\//.test(agent) ? 'Chrome'
+        : /Safari\//.test(agent) ? 'Safari' : null
+  const device = /iPad/.test(agent) ? 'iPad' : /iPhone/.test(agent) ? 'iPhone'
+    : /Android/.test(agent) ? 'Android' : /Windows/.test(agent) ? 'Windows'
+      : /Macintosh|Mac OS X/.test(agent) ? 'Mac' : /Linux/.test(agent) ? 'Linux' : null
+  return { browser, device }
+}
+
+function publicSessions(): ActiveMewSession[] {
+  return [...clientState.entries()].filter(([ws]) => ws.readyState === WebSocket.OPEN).map(([, state]) => {
+    const email = state.auth.role !== 'guest' && !state.auth.mustChangePassword ? state.auth.email : null
+    const user = email ? getUser(email) : null
+    return { ...state.session, email, displayName: email ? user?.displayName?.trim() || email.split('@')[0] : null }
+  })
+}
 
 /** path는 클라이언트가 "{project}:{relPath}" 형식으로 보낸다(usePresence.ts) — guest 필터를 위해 분해 */
 function splitProjectPath(qualified: string): { project: string; relPath: string } | null {
@@ -66,31 +91,57 @@ export function broadcastTree(msg: { type: 'tree'; project: string; version: num
   }
 }
 
-function sendParticipantsTo(ws: WebSocket, auth: RequestAuth) {
+function sendParticipantsTo(ws: WebSocket, auth: RequestAuth, sessions: ActiveMewSession[]) {
   if (ws.readyState !== WebSocket.OPEN) return
-  ws.send(JSON.stringify({ type: 'participants', participants: computeParticipants(auth) }))
+  const state = clientState.get(ws)
+  const activeSessions = auth.role !== 'guest' && !auth.mustChangePassword && state
+    ? { selfId: state.session.id, sessions: sessions.map(session => session.project && !fileAccess(auth, session.project, session.path ?? '').view ? { ...session, path: null, workspaceLabel: null, project: null } : session) } : undefined
+  ws.send(JSON.stringify({ type: 'participants', participants: computeParticipants(auth), activeSessions }))
 }
 
 function broadcastParticipants() {
-  for (const [ws, state] of clientState) sendParticipantsTo(ws, state.auth)
+  // Revalidate before sharing identities, including after logout/password changes.
+  for (const state of clientState.values()) {
+    const auth = state.getAuth()
+    state.auth = auth.mustChangePassword ? { ...auth, role: 'guest', email: null } : auth
+  }
+  const sessions = publicSessions()
+  for (const [ws, state] of clientState) sendParticipantsTo(ws, state.auth, sessions)
 }
 
-function registerClient(ws: WebSocket, auth: RequestAuth) {
-  clientState.set(ws, { path: null, color: FALLBACK_COLOR, auth })
+function registerClient(ws: WebSocket, req: IncomingMessage, getAuth: () => RequestAuth) {
+  clientState.set(ws, {
+    path: null, color: FALLBACK_COLOR, auth: getAuth(), alive: true, getAuth,
+    session: {
+      id: randomUUID(), email: null, displayName: null, connectedAt: Date.now(),
+      ...clientDevice(req.headers['user-agent'] ?? ''),
+      workspaceLabel: null, project: null, path: null, visible: true,
+    },
+  })
   broadcastParticipants()
+  ws.on('pong', () => { const state = clientState.get(ws); if (state) state.alive = true })
 
   ws.on('message', (raw) => {
-    let msg: { type?: string; path?: unknown; color?: unknown }
+    let msg: { type?: string; path?: unknown; color?: unknown; project?: unknown; workspaceLabel?: unknown; visible?: unknown }
     try {
       msg = JSON.parse(raw.toString())
     } catch {
       return
     }
+    if (!msg || typeof msg !== 'object') return
     if (msg.type === 'focus' && (typeof msg.path === 'string' || msg.path === null)) {
+      if (typeof msg.path === 'string' && msg.path.length > 4096) return
       const color = typeof msg.color === 'string' ? msg.color : FALLBACK_COLOR
       const prev = clientState.get(ws)
       if (!prev) return
-      clientState.set(ws, { ...prev, path: msg.path || null, color })
+      const focused = msg.path ? splitProjectPath(msg.path) : null
+      clientState.set(ws, { ...prev, path: msg.path || null, color, session: {
+        ...prev.session,
+        project: focused?.project ?? (typeof msg.project === 'string' ? msg.project.slice(0, 200) : null),
+        path: focused?.relPath ?? null,
+        workspaceLabel: typeof msg.workspaceLabel === 'string' ? msg.workspaceLabel.slice(0, 200) : null,
+        visible: msg.visible !== false,
+      } })
       broadcastParticipants()
     }
   })
@@ -105,13 +156,29 @@ export function attachPresenceWebSocket(
   httpServer: HttpServer,
   opts: { getAuth?: (req: IncomingMessage) => RequestAuth } = {},
 ) {
+  const clients = new Set<WebSocket>()
+  const heartbeat = setInterval(() => {
+    for (const ws of clients) {
+      const state = clientState.get(ws)
+      if (!state?.alive) { ws.terminate(); continue }
+      state.alive = false
+      if (ws.readyState === WebSocket.OPEN) ws.ping()
+    }
+    broadcastParticipants()
+  }, 30_000)
+  heartbeat.unref()
+  httpServer.once('close', () => {
+    clearInterval(heartbeat)
+    for (const ws of clients) ws.terminate()
+  })
   httpServer.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? '', 'http://localhost')
     // 이 경로가 아니면 손대지 않고 통과시킨다 — tmux·Vite HMR 웹소켓 업그레이드와 공존해야 함
     if (url.pathname !== WS_PATH) return
-    const auth = opts.getAuth ? opts.getAuth(req) : OWNER_AUTH
     wss.handleUpgrade(req, socket, head, (ws) => {
-      registerClient(ws, auth)
+      clients.add(ws)
+      ws.once('close', () => clients.delete(ws))
+      registerClient(ws, req, () => opts.getAuth ? opts.getAuth(req) : OWNER_AUTH)
     })
   })
 }

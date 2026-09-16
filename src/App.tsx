@@ -26,6 +26,7 @@ import { RootProjectTabs } from './components/RootProjectTabs'
 import { OpenProjectDialog } from './components/OpenProjectDialog'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
+import { ActiveSessionsButton } from './components/active-sessions-button'
 import { FabMenu } from './components/FabMenu'
 import { Mewcat } from './components/Mewcat'
 import { ServerFileExplorer } from './components/ServerFileExplorer'
@@ -825,12 +826,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
   // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
-  const tabPresence = usePresence(
+  const { participants: tabPresence, activeSessions } = usePresence(
     project,
     activePath && !isExternalTabPath(activePath) ? activePath : null,
     authEmail,
     refreshTree,
     handleWorkspaceBroadcast,
+    rootProjectPath ? projectLabel(rootProjectPath) : null,
   )
 
   const { width: sidebarWidth, startResize: startSidebarResize } = usePanelWidth('mew:sidebar-width', {
@@ -1762,7 +1764,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             onIconChange={changeRootProjectIcon}
             onOpen={() => setOpenProjectDialog(true)}
           />
-          {/* 도구는 햄버거 하나로 접고, 게스트의 로그인 진입점만 바로 옆에 둔다. */}
+          {/* 햄버거 왼쪽에는 로그인 사용자의 활성 세션 수 또는 게스트의 로그인 진입점을 둔다. */}
           <div className="flex shrink-0 items-center gap-1.5 pl-2 text-sm md:gap-3 md:pl-4">
             {switchingRootProject && <span className="text-xs text-ink-secondary">프로젝트 여는 중…</span>}
             {isGuest && (
@@ -1777,6 +1779,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             {activeTab?.status === 'error' && (
               <span className="select-text hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
             )}
+            {!isGuest && <ActiveSessionsButton presence={activeSessions} />}
             <HeaderMenu items={headerMenuItems} />
           </div>
         </header>

@@ -2,6 +2,7 @@ import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useEffect, useRef, useState } from 'react'
 import { forgetSavedProject } from '../api/client'
 import { identityColor } from '../utils/collabColor'
+import type { ActiveMewSessions } from '../../shared/active-sessions'
 
 // 서버는 경로 문자열 단위로만 세므로 프로젝트를 접두어로 붙여 프로젝트끼리 섞이지 않게 한다
 function qualify(project: string, path: string | null): string | null {
@@ -19,8 +20,10 @@ export function usePresence(
   authEmail: string | null,
   onTreeChange: (signal?: { project?: string; version?: number; parents?: string[] }) => void,
   onWorkspaceChange?: (initialProject?: string) => void,
-): Record<string, string[]> {
+  workspaceLabel: string | null = null,
+): { participants: Record<string, string[]>; activeSessions: ActiveMewSessions | null } {
   const [participants, setParticipants] = useState<Record<string, string[]>>({})
+  const [activeSessions, setActiveSessions] = useState<ActiveMewSessions | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const focusedPathRef = useRef<string | null>(null)
   // 연결 이펙트를 재실행하지 않고도 항상 최신 값을 쓰기 위한 ref들
@@ -33,14 +36,24 @@ export function usePresence(
   // 프로젝트를 옮기면 접두어가 달라진다 — 소켓은 그대로 두고 보낼/거를 접두어만 바꾼다
   const projectRef = useRef(project)
   projectRef.current = project
+  const workspaceLabelRef = useRef(workspaceLabel)
+  workspaceLabelRef.current = workspaceLabel
+
+  const focusMessage = () => JSON.stringify({
+    type: 'focus', path: qualify(projectRef.current, focusedPathRef.current),
+    project: projectRef.current, workspaceLabel: workspaceLabelRef.current,
+    color: colorRef.current, visible: document.visibilityState !== 'hidden',
+  })
 
   useEffect(() => {
     focusedPathRef.current = focusedPath
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'focus', path: qualify(project, focusedPath), color: colorRef.current }))
+      ws.send(focusMessage())
     }
-  }, [project, focusedPath])
+    // focusMessage reads the latest values from refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, focusedPath, workspaceLabel, authEmail])
 
   useEffect(() => {
     let cancelled = false
@@ -54,13 +67,14 @@ export function usePresence(
       wsRef.current = ws
       ws.onopen = () => {
         window.dispatchEvent(new Event('mew:permissions-changed'))
-        ws?.send(JSON.stringify({ type: 'focus', path: qualify(projectRef.current, focusedPathRef.current), color: colorRef.current }))
+        ws?.send(focusMessage())
       }
       ws.onmessage = (event) => {
-        if (typeof event.data !== 'string') return
+        if (cancelled || typeof event.data !== 'string') return
         try {
-          const msg = JSON.parse(event.data) as { type?: string; participants?: Record<string, string[]>; project?: string; version?: number; parents?: string[] }
+          const msg = JSON.parse(event.data) as { type?: string; participants?: Record<string, string[]>; activeSessions?: ActiveMewSessions; project?: string; version?: number; parents?: string[] }
           if (msg.type === 'participants' && msg.participants) {
+            setActiveSessions(msg.activeSessions ?? null)
             // 내 프로젝트 것만 남기고 접두어를 벗겨 UI가 기존처럼 rel 경로로 쓰게 한다
             const prefix = `${projectRef.current}:`
             const mine: Record<string, string[]> = {}
@@ -88,17 +102,26 @@ export function usePresence(
         }
       }
       ws.onclose = () => {
-        if (!cancelled) retryTimer = setTimeout(connect, 3000)
+        if (!cancelled) {
+          setActiveSessions(null)
+          setParticipants({})
+          retryTimer = setTimeout(connect, 3000)
+        }
       }
     }
+    const onVisibility = () => { if (ws?.readyState === WebSocket.OPEN) ws.send(focusMessage()) }
+    document.addEventListener('visibilitychange', onVisibility)
     connect()
 
     return () => {
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
+      document.removeEventListener('visibilitychange', onVisibility)
       ws?.close()
     }
-  }, [])
+    // focusMessage only reads refs; reconnect only when the identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authEmail])
 
-  return participants
+  return { participants, activeSessions }
 }
