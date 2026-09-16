@@ -20,6 +20,11 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { Terminal as TerminalIcon } from 'iconoir-react'
+import { AgentCommandBubble, AgentCommandPopup } from './agent-command-bubble'
+import { useAgentCommands } from '../hooks/use-agent-commands'
+import { stopAgentTabCommands } from '../api/agent-commands'
+import { commandTimeline } from '../utils/agent-command-timeline'
 import { copyText, isTextareaCaretOnVisualBoundary, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { TmuxTerminal } from '@mew/tmux-term'
@@ -1638,6 +1643,7 @@ export function AgentPanel({ allowAgent = true, allowTerminal = true, project, w
     if (closing?.runtime && runtimeOf(closing.runtime).surface === 'terminal') {
       void stopAgentTerminal(closing.runtime, closing.id).catch(console.error)
     } else {
+      if (allowTerminal) void stopAgentTabCommands(id).catch(console.error)
       sendersRef.current.get(id)?.({ type: 'close_session' })
     }
     clearAgentInputDraft(id)
@@ -1975,6 +1981,7 @@ function AgentCachedPreview({ tab }: { tab: AgentTab }) {
 
 /** 탭 하나 — WS 하나, 세션 하나. 대화 상태는 전부 여기 안에 있다 */
 function AgentSessionView({
+  allowTerminal,
   tabId,
   active,
   runtime,
@@ -2028,6 +2035,8 @@ function AgentSessionView({
   const [events, setEvents] = useState<AgentEvent[]>(() => initialCache?.events ?? [])
   const [connected, setConnected] = useState(false)
   const [draft, setDraft] = useState(() => readAgentInputDraft(tabId))
+  const [cliMode, setCliMode] = useState(false)
+  const [commandPopupId, setCommandPopupId] = useState<string | null>(null)
   const [attaching, setAttaching] = useState(false)
   const [attachments, setAttachments] = useState<AgentAttachment[]>([])
   const [previewAttachment, setPreviewAttachment] = useState<AgentAttachment | null>(null)
@@ -2038,6 +2047,9 @@ function AgentSessionView({
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [meta, setMeta] = useState<SessionMeta | null>(null)
+  const cli = useAgentCommands({ runtime, cwd, sessionId: meta?.sessionId ?? resumeSessionId ?? '' }, allowTerminal)
+  const commandPopup = cli.records.find(command => command.id === commandPopupId)
+  useEffect(() => { if (!allowTerminal) setCliMode(false) }, [allowTerminal])
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
   const [auth, setAuth] = useState<AgentAuthState | null>(null)
   const [authUrl, setAuthUrl] = useState<AgentAuthUrl | null>(null)
@@ -2503,6 +2515,7 @@ function AgentSessionView({
   useOverlayDismiss(showInfo ? closeInfo : false, { outside: () => infoOverlayRef.current })
 
   const items = useMemo(() => foldEvents(events), [events])
+  const timeline = useMemo(() => commandTimeline(items, cli.records.filter(command => command.state !== 'queued')), [items, cli.records])
 
   // 돌고 있는 턴의 걸린 시간을 1초마다 흘린다 — 끝난 턴은 서버가 새긴 durationMs로 고정이다
   const anyTurnRunning = items.some((item) => item.kind === 'turn' && !item.done)
@@ -2525,7 +2538,7 @@ function AgentSessionView({
   useEffect(() => {
     if (stickRef.current) scrollToBottom()
     else setUnread(true)
-  }, [items, scrollToBottom])
+  }, [timeline, scrollToBottom])
 
   // 안 보이는 탭은 display:none이라 scrollHeight가 0이다 — 그동안 온 말은 못 따라 내려간 것이므로
   // 이 탭이 보이게 될 때 한 번 더 바닥으로 붙인다(위로 올려 두고 나간 탭은 그 자리를 지킨다)
@@ -2617,8 +2630,8 @@ function AgentSessionView({
 
   useEffect(() => {
     if (restoreFailureRef.current) return
-    onInfo(tabId, runtime, cwd, { busy: meta?.busy ?? false, sessionId: meta?.sessionId ?? '' })
-  }, [cwd, meta?.busy, meta?.sessionId, onInfo, runtime, tabId])
+    onInfo(tabId, runtime, cwd, { busy: (meta?.busy ?? false) || cli.records.some(command => command.state === 'running'), sessionId: meta?.sessionId ?? '' })
+  }, [cwd, meta?.busy, meta?.sessionId, cli.records, onInfo, runtime, tabId])
 
   /** 다른 탭이 붙들고 있는 세션 — 이 탭에서 또 열지 못하게 막는다 */
   const takenIds = useMemo(
@@ -2651,8 +2664,14 @@ function AgentSessionView({
   const [scheduled, setScheduled] = useState<AgentScheduledPrompt[]>([])
   const [editingScheduled, setEditingScheduled] = useState<{ id: string; text: string; original: string } | null>(null)
   const [rescheduling, setRescheduling] = useState<AgentScheduledPrompt | null>(null)
+  const cliModeDisabled = !allowTerminal || attaching || attachments.length > 0 || cli.submitting
+  const toggleCliMode = () => {
+    if (cliModeDisabled) return
+    setCliMode(value => !value)
+    setScheduleOpen(false)
+  }
   const startQueuedEdit = (index: number, text: string) => {
-    if (editingQueued || text === '/clear') return
+    if (editingQueued || text === '/clear' || meta?.queuedKinds?.[index] === 'cli') return
     send({ type: 'begin_edit_queued', index, expect: text })
     setEditingQueued({ index, text, original: text })
   }
@@ -2703,6 +2722,19 @@ function AgentSessionView({
   }, [cwd, onForgetSession, runtime, send, tabId])
 
   const submit = () => {
+    if (cliMode) {
+      if (!allowTerminal || !draft.trim() || !connected || !meta?.sessionId || loadingSession || cli.submitting || attaching || attachments.length) return
+      const command = draft
+      void cli.submit(tabId, command, items.filter(item => item.kind === 'user').length).then(accepted => {
+        if (!accepted) return
+        recordAgentInputHistory(tabId, command)
+        historyIndexRef.current = null
+        historyDraftRef.current = ''
+        setDraft(current => current === command ? '' : current)
+        stickRef.current = true
+      })
+      return
+    }
     const written = draft.trim()
     const refs = attachments.map((attachment) => `[[${project}:${attachment.relPath}]]`)
     const images = attachments.flatMap((attachment) => attachment.image ? [attachment.image] : [])
@@ -3151,14 +3183,15 @@ function AgentSessionView({
       ) : (
         <>
       <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
-        {items.map((item, index) => {
+        {timeline.map((item, index) => {
+          if (item.kind === 'command') return <AgentCommandBubble key={item.key} command={item.command} onOpen={() => setCommandPopupId(item.command.id)} />
           if (item.kind === 'user') {
             // 내가 쓴 말이라 이미 아는 내용이다 — 턴 버블과 같게 접어 두고, 눌러야 다 보인다
             const open = expanded.has(item.key)
             return (
               <div key={item.key} className="space-y-2">
                 {item.settings && (() => {
-                  const previous = items.slice(0, index).reverse().find((candidate) => candidate.kind === 'user')
+                  const previous = timeline.slice(0, index).reverse().find((candidate) => candidate.kind === 'user')
                   const changed = previous?.kind !== 'user'
                     || previous.settings?.model !== item.settings.model
                     || previous.settings?.thinking !== item.settings.thinking
@@ -3215,7 +3248,7 @@ function AgentSessionView({
           }
           if (item.kind === 'turn') {
             const open = expanded.has(item.key)
-            const state = turnState(item, meta?.busy ?? null)
+            const state = turnState(item, meta?.activeTask === 'cli' ? false : meta?.busy ?? null)
             // 턴 요약: 마지막 agent 텍스트의 첫 줄
             const lastAgent = [...item.children].reverse().find((c) => c.kind === 'agent')
             const summary = lastAgent && lastAgent.kind === 'agent'
@@ -3268,7 +3301,7 @@ function AgentSessionView({
                     label="이 답변 복사"
                   />
                   {/* 돌고 있는 턴만 중단할 수 있다 — 지난 턴에는 버튼이 없다 */}
-                  {busy && !item.done && (
+                  {busy && meta?.activeTask !== 'cli' && !item.done && (
                     <button
                       type="button"
                       onClick={() => send({ type: 'cancel' })}
@@ -3383,11 +3416,15 @@ function AgentSessionView({
       </div>
 
       {errorDetail && <AgentErrorDialog title={errorDetail.title} detail={errorDetail.detail} onClose={() => setErrorDetail(null)} />}
+      {cli.error && <div role="alert" className="px-3 py-2 text-xs text-danger-strong">{cli.error}</div>}
+      {commandPopup && <AgentCommandPopup key={commandPopup.id} command={commandPopup} onClose={() => setCommandPopupId(null)} onCancel={() => send({ type: 'cancel' })} onChanged={() => { void cli.refresh().catch(() => {}) }} />}
 
       {(queued.length > 0 || scheduled.length > 0) && (
         <div className="space-y-1 border-t border-edge bg-surface px-3 py-1.5 text-xs">
           {queued.map((text, index) => {
-            const isClearBoundary = text === '/clear'
+            const kind = meta?.queuedKinds?.[index] ?? (text === '/clear' ? 'clear' : 'prompt')
+            const isClearBoundary = kind === 'clear'
+            const isCliCommand = kind === 'cli'
             const drag = queueDrag.drag
             const lifted = drag !== null && drag.slot === index
             const editing = editingQueued?.index === index ? editingQueued : null
@@ -3451,11 +3488,11 @@ function AgentSessionView({
                       if (queueDrag.consumeClick()) return
                       startQueuedEdit(index, text)
                     }}
-                    disabled={editingQueued !== null || isClearBoundary}
-                    title={isClearBoundary ? '새 대화 시작 지점' : '눌러서 수정'}
-                    className="min-w-0 flex-1 truncate text-left text-ink-secondary disabled:cursor-default"
+                    disabled={editingQueued !== null || isClearBoundary || isCliCommand}
+                    title={isClearBoundary ? '새 대화 시작 지점' : isCliCommand ? '대기 중인 CLI 명령' : '눌러서 수정'}
+                    className={`min-w-0 flex-1 truncate text-left text-ink-secondary disabled:cursor-default ${isCliCommand ? 'font-mono' : ''}`}
                   >
-                    {text}
+                    {isCliCommand ? `$ ${text}` : text}
                   </button>
                 )}
                 {!editing && <button
@@ -3551,6 +3588,13 @@ function AgentSessionView({
         className="relative flex shrink-0 flex-col gap-0.5 border-t border-edge p-2"
         style={{ height: `${visibleInputHeight}px`, marginBottom: `${viewportMetrics.bottomInset}px` }}
         data-keep-keyboard
+        onKeyDownCapture={(event) => {
+          if (event.target !== agentInputRef.current || event.key !== 'Tab' || !event.ctrlKey
+            || event.altKey || event.metaKey || event.shiftKey || event.nativeEvent.isComposing) return
+          event.preventDefault()
+          event.stopPropagation()
+          if (!event.repeat) toggleCliMode()
+        }}
       >
         {/* 채팅과 입력창 사이의 선 전체가 손잡이다. 투명한 hit area를 넓혀 선을 정확히 누르지 않아도 잡힌다. */}
         <div
@@ -3573,6 +3617,14 @@ function AgentSessionView({
         <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-visible">
           <div className="flex min-w-0 flex-1 items-center gap-1">
+            <button type="button" onPointerDown={keepFocusOnPress} onClick={toggleCliMode}
+              aria-label="CLI 명령 모드" aria-pressed={cliMode}
+              aria-keyshortcuts="Control+Tab"
+              title={!allowTerminal ? '터미널 권한이 필요합니다' : attaching || attachments.length ? '첨부 파일을 제거한 뒤 CLI 모드를 켜세요' : cliMode ? 'CLI 명령 모드 켜짐 · 입력칸에서 Ctrl+Tab으로 전환' : 'CLI 명령 모드 · 입력칸에서 Ctrl+Tab으로 전환'}
+              disabled={cliModeDisabled}
+              className={`flex h-7 w-8 shrink-0 items-center justify-center rounded border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-secondary disabled:opacity-40 ${cliMode ? 'border-accent bg-accent text-ink-on-accent' : 'border-transparent text-ink-secondary hover:bg-surface-raised hover:text-ink'}`}>
+              <TerminalIcon width={16} height={16} aria-hidden="true" />
+            </button>
             <HeaderSelect className="flex-1" caretEnd value={models?.currentModelId ?? ''} options={modelOptions} onPick={(modelId) => send({ type: 'set_model', modelId })} title="모델" searchable disabled={!models || models.availableModels.length < 2} />
             <HeaderSelect value={thinking?.currentValue ?? ''} options={thinkingOptions} onPick={(value) => { if (thinking) send({ type: 'set_thinking', configId: thinking.configId, value }) }} title="사고" disabled={!thinking || thinking.options.length < 2} />
             <HeaderSelect value={modes?.currentModeId ?? ''} options={modeOptions} onPick={(modeId) => send({ type: 'set_mode', modeId })} title="권한" disabled={!modes || modes.availableModes.length < 2} />
@@ -3621,18 +3673,18 @@ function AgentSessionView({
               historyDraftRef.current = ''
               setDraft(next)
             }}
-            options={fileMentionOptions}
+            options={cliMode ? [] : fileMentionOptions}
             maxResults={Infinity}
-            triggers={mentionTriggers}
+            triggers={cliMode ? [] : mentionTriggers}
             onSubmit={submit}
             rows={2}
             placeholder={t('common.textInput')}
-            className="block min-h-0 w-full flex-1 resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted"
+            className={`block min-h-0 w-full flex-1 resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted ${cliMode ? 'font-mono ring-1 ring-inset ring-accent/40' : ''}`}
             style={{ height: '100%' }}
-            submitHint="Ctrl+Enter로 전송"
+            submitHint={cliMode ? 'Ctrl+Enter로 명령 실행' : 'Ctrl+Enter로 전송'}
             submitShortcut="mod-enter"
-            onFilesDropped={(files) => { void attachFiles(files) }}
-            onImagesPasted={(files) => { void attachFiles(files) }}
+            onFilesDropped={cliMode ? undefined : (files) => { void attachFiles(files) }}
+            onImagesPasted={cliMode ? undefined : (files) => { void attachFiles(files) }}
             inputRef={agentInputRef}
             onHistoryNavigate={navigateAgentHistory}
             onOptionSelect={(option) => {
@@ -3654,11 +3706,11 @@ function AgentSessionView({
           />
           <button type="button" onClick={saveCurrentDefault} disabled={!currentDefault || savingDefault} className={`-mt-0.5 flex h-6 w-8 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${defaultIsSaved ? 'text-accent' : 'text-ink-secondary'}`} aria-label="현재 모델·추론 정도·권한을 기본값으로 저장" title={savingDefault ? '기본값 저장 중…' : defaultIsSaved ? `${currentRuntime.label}의 저장된 기본값입니다` : `현재 모델·추론 정도·권한을 ${currentRuntime.label} 기본값으로 저장`}><SaveGlyph /></button>
           <div className="flex flex-col gap-1.5">
-            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={!connected || attaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label="파일 첨부" title="파일 첨부"><PaperclipGlyph /></button>
+            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={cliMode || !connected || attaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label="파일 첨부" title="파일 첨부"><PaperclipGlyph /></button>
             <button
               type="button"
               onClick={() => setScheduleOpen(true)}
-              disabled={!connected || !meta?.sessionId}
+              disabled={cliMode || !connected || !meta?.sessionId}
               className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40"
               aria-label="예약 메시지"
               title="예약 메시지"
@@ -3668,10 +3720,10 @@ function AgentSessionView({
             <button
               type="button"
               onClick={submit}
-              disabled={!connected || attaching || (!draft.trim() && attachments.length === 0)}
+              disabled={!connected || attaching || (cliMode && (cli.submitting || !meta?.sessionId || !!loadingSession || !allowTerminal)) || (!draft.trim() && attachments.length === 0)}
               className="flex h-8 w-8 items-center justify-center rounded bg-accent text-ink disabled:opacity-40"
-              aria-label="전송"
-              title="전송 (Ctrl+Enter)"
+              aria-label={cliMode ? '명령 실행' : '전송'}
+              title={cliMode ? '명령 실행 (Ctrl+Enter)' : '전송 (Ctrl+Enter)'}
             >
               <SendGlyph />
             </button>

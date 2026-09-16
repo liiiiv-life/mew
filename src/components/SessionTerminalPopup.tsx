@@ -5,7 +5,7 @@
 // **반드시 body로 포털한다.** 모바일 이름표(ProjectPeek)가 transform을 써서 fixed 자손의 containing
 // block이 되기 때문에, 그 안에 두면 inset-0이 화면이 아니라 이름표 상자 크기로 잡혀 팝업이 손톱만 해진다.
 // data-cmd-overlay도 함께 붙인다 — 없으면 팝업 안을 누를 때 이름표가 닫히며 팝업까지 사라진다.
-import { useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { TmuxTerminal } from '@mew/tmux-term'
 import { useOverlayDismiss } from '@mew/ui'
@@ -27,6 +27,8 @@ export function SessionTerminalPopup({
   onClose,
   onChanged,
   zIndex,
+  completedContent,
+  onStop,
 }: {
   title: string
   /** 제목 아래 한 줄(명령어·주기 등) */
@@ -51,11 +53,30 @@ export function SessionTerminalPopup({
   onChanged: () => void
   /** Fullscreen parent overlays may sit above the default popup layer. */
   zIndex?: number
+  /** Finished command output replaces the live connection without recreating a session. */
+  completedContent?: ReactNode
+  onStop?: () => Promise<unknown>
 }) {
   const { t } = useI18n()
   const [started, setStarted] = useState(running)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const completed = completedContent !== undefined
+
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    if (!dialogRef.current?.contains(document.activeElement)) closeRef.current?.focus()
+    return () => { if (opener?.isConnected) opener.focus() }
+  }, [])
+
+  useEffect(() => {
+    // Finishing removes the focused xterm textarea; keep keyboard navigation inside the dialog.
+    if (completed && !dialogRef.current?.contains(document.activeElement)) {
+      (dialogRef.current?.querySelector<HTMLElement>('pre[tabindex]') ?? closeRef.current)?.focus()
+    }
+  }, [completed])
 
   // 터미널 안에서 누른 Esc는 그 안의 프로그램에 양보하고, 그 밖에서 누른 Esc·뒤로가기만 팝업을 닫는다
   useOverlayDismiss(onClose, { closeOnEscape: outsideTerminal })
@@ -80,6 +101,12 @@ export function SessionTerminalPopup({
     setBusy(true)
     setError(null)
     try {
+      if (onStop) {
+        await onStop()
+        onChanged()
+        setBusy(false)
+        return
+      }
       await killTmuxSession(session)
       onChanged()
       onClose()
@@ -97,11 +124,21 @@ export function SessionTerminalPopup({
       onMouseDown={onClose}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         className="flex h-full max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface-raised shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key !== 'Tab') return
+          const nodes = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), [tabindex="0"]') ?? [])
+            .filter(node => node.getClientRects().length > 0)
+          const first = nodes[0], last = nodes.at(-1)
+          if (!first) return
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+        }}
       >
         <div className="flex items-center gap-2 border-b border-edge px-3 py-2.5">
           <PlayGlyph className="shrink-0 text-accent-strong" />
@@ -113,11 +150,11 @@ export function SessionTerminalPopup({
               </div>
             )}
           </div>
-          {started && <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] text-ink-secondary">{t('terminal.runningSession')}</span>}
+          {started && completedContent === undefined && <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-[10px] text-ink-secondary">{t('terminal.runningSession')}</span>}
         </div>
 
         <div className="relative min-h-0 flex-1 bg-surface-deep">
-          {started ? (
+          {completedContent !== undefined ? completedContent : started ? (
             <div className="h-full">
               <TmuxTerminal sessionName={session} inputPlaceholder={t('common.textInput')} />
             </div>
@@ -146,8 +183,8 @@ export function SessionTerminalPopup({
           ) : statusNote ? (
             <span role="status" className={`w-full text-xs sm:mr-auto sm:min-w-0 sm:flex-1 ${
               statusTone === 'danger'
-                ? 'text-danger-strong'
-                : statusTone === 'success' ? 'text-success' : 'text-ink-muted'
+                ? 'select-text text-danger-strong'
+                : statusTone === 'success' ? 'text-success-ink' : 'text-ink-muted'
             }`}>{statusNote}</span>
           ) : null}
           {browserLoginUrl && onOpenBrowserLogin && (
@@ -159,7 +196,7 @@ export function SessionTerminalPopup({
               {t('terminal.continueInBrowser')}
             </button>
           )}
-          <button
+          {completedContent === undefined && <button
             type="button"
             onClick={kill}
             disabled={busy}
@@ -167,11 +204,12 @@ export function SessionTerminalPopup({
             title={t('terminal.stopTitle')}
           >
             {t('terminal.stop')}
-          </button>
+          </button>}
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
-            className="min-h-11 shrink-0 whitespace-nowrap rounded border border-edge-strong px-3 py-1 text-sm text-ink-secondary hover:bg-surface-hover sm:min-h-0"
+            className={`${completed ? 'ml-auto ' : ''}min-h-11 shrink-0 whitespace-nowrap rounded border border-edge-strong px-3 py-1 text-sm text-ink-secondary hover:bg-surface-hover sm:min-h-0`}
             title={t('terminal.closeTitle')}
           >
             {t('common.close')}

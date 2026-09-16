@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { gunzipSync } from 'node:zlib'
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-host-ws-'))
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-host-data-'))
@@ -214,7 +216,49 @@ async function waitFor(check: () => boolean, timeout = 3_000) {
   assert.fail('조건을 기다리다 시간 초과')
 }
 
+test('CLI HTTP relay queues behind AI and independent host completes it after disconnect', { timeout: 10_000 }, async t => {
+  const { upsertUser } = await import('./auth.ts')
+  const { queueCommandInHost } = await import('./agentHost.ts')
+  const { AgentCommandStore } = await import('./agent-commands.ts')
+  const { createTmuxManager } = await import('@mew/tmux-term/server')
+  const tmux = execFileSync('which', ['tmux'], { encoding: 'utf8' }).trim()
+  const socket = `mew-host-cli-${crypto.randomUUID()}`
+  const bin = path.join(stubDir, 'bin')
+  fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, 'tmux'), `#!/bin/sh\nexec '${tmux}' -L '${socket}' "$@"\n`, { mode: 0o700 })
+  const previousPath = process.env.PATH
+  process.env.PATH = `${bin}:${previousPath}`
+  t.after(async () => {
+    shutdownAgentHostsForWorkspace(workspace)
+    await new Promise(resolve => setTimeout(resolve, 200))
+    try { execFileSync(tmux, ['-L', socket, 'kill-server'], { stdio: 'ignore' }) } catch { /* already cleaned up */ }
+    process.env.PATH = previousPath
+  })
+  const owner = 'host-cli@example.test'
+  upsertUser(owner, { hash: 'unused', role: 'owner', createdAt: 0, passwordChangedAt: 0, mustChangePassword: false })
+  let turnStarted = false
+  const client = await connectAgentHost('claude', 'cli-queue-tab', workspace, {
+    onEvent: event => { if (event.type === 'turn_start') turnStarted = true },
+  })
+  t.after(() => client.close())
+  client.send({ type: 'prompt', text: 'before CLI', promptText: 'before CLI' })
+  await waitFor(() => turnStarted)
+  const record = await queueCommandInHost(owner, {
+    runtime: 'claude', tab: 'cli-queue-tab', cwd: workspace, sessionId: 'host-session',
+    id: crypto.randomUUID(), command: 'printf "queued host output"', afterUserCount: 0,
+  })
+  assert.equal(record.state, 'queued')
+  client.close()
+  const store = new AgentCommandStore(createTmuxManager({ cwd: workspace }))
+  await waitFor(() => store.read(owner, record.id).state === 'completed', 6000)
+  const saved = store.read(owner, record.id)
+  assert.equal(saved.afterUserCount, 1)
+  assert.notEqual(saved.queueHostPid, process.pid)
+  assert.equal(gunzipSync(fs.readFileSync(path.join(store.directory(owner, record.id), 'output.gz'))).toString(), 'queued host output')
+})
+
 test('mew 연결이 사라져도 독립 감독이 작업을 끝내고 재접속에 대화를 복원한다', async (t) => {
+  fs.rmSync(finishedFile, { force: true })
   t.after(async () => {
     shutdownAgentHostsForWorkspace(workspace)
     await new Promise((resolve) => setTimeout(resolve, 80))

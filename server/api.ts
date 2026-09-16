@@ -81,6 +81,8 @@ import { AgentDefaultError, readAgentDefault, writeAgentDefault } from './agentD
 import { AgentCwdError, resolveAgentCwd, suggestAgentCwds } from './agentCwd.ts'
 import { AgentScheduledPromptError, cancelAgentScheduledPrompt, listAgentScheduledPrompts, scheduleAgentPrompt, updateAgentScheduledPrompt } from './agentScheduledPrompts.ts'
 import { AgentTerminalError, startAgentTerminal, stopAgentTerminal } from './agentTerminal.ts'
+import { AgentCommandStore } from './agent-commands.ts'
+import { createAgentCommandRouter } from './agent-command-routes.ts'
 import { readAgentSessionClaims, readAgentTabs, readRootProjects, readWorkspaceUi, writeAgentTabs, writeRootProjects, writeWorkspaceUi } from './userUiState.ts'
 import {
   AgentSettingError,
@@ -2020,6 +2022,7 @@ export function createApiApp() {
   })
 
   app.use('/tmux', requireFeature('terminal'), createTmuxRouter(tmuxManager))
+  app.use('/agent/commands', createAgentCommandRouter(new AgentCommandStore(tmuxManager)))
 
   // 호스트 자원 현황(프로파일링 팝업) — 서버가 도는 기계의 정보라 셸과 같은 역할로 묶는다
   app.get('/system-stats', requireFeature('system'), async (_req, res) => {

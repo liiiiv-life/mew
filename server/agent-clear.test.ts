@@ -112,4 +112,95 @@ test('Codex clear 도중 탭을 닫으면 새 프로세스를 만들지 않는�
   assert.equal(calls().filter(c => c.type === 'boot').length, 1)
 })
 
+async function commandFixture(t: test.TestContext) {
+  const base = await fixture(t)
+  const { createTmuxManager } = await import('@mew/tmux-term/server')
+  const { AgentCommandStore } = await import('./agent-commands.ts')
+  const { queueAgentCommand } = await import('./agent-command-queue.ts')
+  const manager = createTmuxManager({ cwd: base.dir })
+  const launches: string[] = []
+  manager.startCommand = async name => { launches.push(name) }
+  manager.list = async () => []
+  const store = new AgentCommandStore(manager, path.join(base.dir, 'commands'))
+  const owner = 'queue@example.test'
+  const submit = (command: string, authorize = () => true) => {
+    const input = { id: crypto.randomUUID(), tab: 'test', runtime: 'codex', cwd: base.dir, sessionId: base.session.sessionId, command, afterUserCount: 0 }
+    const record = queueAgentCommand(base.session, store, owner, input, authorize)
+    return { record, input }
+  }
+  const finish = (id: string) => {
+    const record = store.read(owner, id)
+    fs.writeFileSync(path.join(store.directory(owner, id), 'record.json'), JSON.stringify({ ...record, state: 'completed', finishedAt: Date.now(), archived: true }))
+  }
+  return { ...base, launches, store, owner, submit, finish, queueAgentCommand }
+}
+
+test('AI → CLI → AI → CLI shares FIFO; queued commands create no tmux and retries do not duplicate', async t => {
+  const { session, calls, launches, store, owner, submit, finish, queueAgentCommand } = await commandFixture(t)
+  session.prompt('A')
+  const b = submit('printf B')
+  session.prompt('C')
+  const d = submit('printf D')
+  queueAgentCommand(session, store, owner, b.input, () => true)
+  assert.equal(b.record.state, 'queued')
+  assert.equal(launches.length, 0)
+  await until(() => launches.length === 1)
+  assert.deepEqual(calls().filter(c => c.type === 'prompt').map(c => c.text), ['A'])
+  assert.equal(store.read(owner, b.record.id).afterUserCount, 1)
+  finish(b.record.id)
+  await until(() => launches.length === 2)
+  assert.deepEqual(calls().filter(c => c.type === 'prompt').map(c => c.text), ['A', 'C'])
+  assert.equal(store.read(owner, d.record.id).afterUserCount, 2)
+  finish(d.record.id)
+  await until(() => !session.busy)
+})
+
+test('CLI queue supports reorder and cancel without executing cancelled commands', async t => {
+  const { session, events, launches, store, owner, submit, finish } = await commandFixture(t)
+  session.prompt('A')
+  const b = submit('B'), c = submit('C')
+  session.moveQueued(1, 0)
+  const meta = events.filter(e => e.type === 'meta').at(-1)
+  assert.ok(meta?.type === 'meta')
+  assert.deepEqual(meta.meta.queued, ['C', 'B'])
+  assert.deepEqual(meta.meta.queuedKinds, ['cli', 'cli'])
+  session.unqueue(1)
+  assert.equal(store.read(owner, b.record.id).state, 'interrupted')
+  await until(() => launches.length === 1)
+  assert.equal(launches[0], c.record.session)
+  finish(c.record.id)
+  await until(() => !session.busy)
+  assert.equal(launches.length, 1)
+})
+
+test('cancel during CLI stops active command and clears both AI and CLI waiting items', async t => {
+  const { session, calls, launches, store, owner, submit, finish } = await commandFixture(t)
+  const a = submit('A')
+  await until(() => launches.length === 1)
+  session.prompt('B')
+  const c = submit('C')
+  session.cancel()
+  assert.ok(fs.existsSync(path.join(store.directory(owner, a.record.id), 'stop')))
+  assert.equal(store.read(owner, c.record.id).state, 'interrupted')
+  finish(a.record.id)
+  await until(() => !session.busy)
+  assert.equal(launches.length, 1)
+  assert.equal(calls().filter(c => c.type === 'prompt').length, 0)
+})
+
+test('CLI after clear runs in the new conversation and rechecks execution permission', async t => {
+  const { session, launches, store, owner, submit, finish } = await commandFixture(t)
+  session.prompt('A')
+  session.clearAfterQueue()
+  const b = submit('B')
+  const denied = submit('denied', () => false)
+  await until(() => launches.length === 1)
+  assert.equal(store.read(owner, b.record.id).sessionId, 'session-2')
+  assert.equal(store.read(owner, b.record.id).afterUserCount, 0)
+  finish(b.record.id)
+  await until(() => !session.busy)
+  assert.equal(launches.length, 1)
+  assert.equal(store.read(owner, denied.record.id).state, 'failed')
+})
+
 test.after(() => fs.rmSync(root, { recursive: true, force: true }))

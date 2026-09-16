@@ -88,6 +88,7 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 에이전트셋·탭 관리 | 모델·역할 프리셋으로 ACP 탭 만들기, 탭 이름 변경·런타임 전환·분할 배치 | [에이전트 탭](docs/guides/terminal-agents.md) |
 | 프롬프트·스킬·파일 첨부 | `@`로 프로젝트·파일·폴더 참조, `/`로 로컬 스킬 선택, 파일·이미지 첨부와 미리보기, ↑·↓로 보낸 입력 재사용 | [입력 사용법](docs/specs/agent-input-mentions.md) |
 | 대화·작업 기록·메시지 큐 | 메시지 전송·중단, 작업 내역·소요 시간 확인, 작업 중 대기 메시지 편집·순서 변경, `/clear`로 새 대화 시작 | [대화 조작](docs/guides/terminal-agents.md#대화-진행과-기록) |
+| 대화의 CLI 명령 | 모델 왼쪽 터미널 토글을 켜고 셸 명령 실행. 상태 버튼으로 tmux 열기·중단, 완료 후 저장 출력 보기·다운로드 | [CLI 명령 모드](docs/guides/terminal-agents.md#대화에서-cli-명령-실행) |
 | 히스토리·외부 CLI 이어쓰기 | 히스토리에서 지난 세션 선택, 외부 CLI 작업을 끝낸 뒤 **현재 대화 새로고침**, 답변 파일 링크로 편집기 열기 | [세션 복원](docs/guides/terminal-agents.md) |
 | 계정·구독·토큰·비용 | ACP 세션의 `i`에서 지원되는 계정·플랜·한도·토큰과 API 환산 비용 조회, 구독 페이지 열기 | [계정·구독 범위](docs/configuration/agent-runtimes.md#설치로그인구독) |
 | 예약 메시지 | ACP 입력줄 시계로 현재 세션에 한 번 보낼 메시지 예약·수정·시각 변경·삭제 | [예약 메시지](docs/specs/agent-scheduled-prompts.md) |

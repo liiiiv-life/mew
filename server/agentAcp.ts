@@ -111,7 +111,15 @@ export type AgentMessageSettings = { model: string; thinking: string; permission
 
 /** 큐 안의 세션 경계. 뒤의 프롬프트는 새 ACP 세션에 전달한다. */
 type QueuedClear = { kind: 'clear'; text: '/clear' }
-type QueuedItem = (QueuedPrompt | QueuedClear) & {
+/** Non-AI work shares queue ordering but never enters the ACP prompt or transcript. */
+export type AgentQueuedTask = {
+  id: string
+  text: string
+  run: (context: { sessionId: string; afterUserCount: number }) => Promise<void>
+  cancel: () => void
+}
+type QueuedCli = AgentQueuedTask & { kind: 'cli' }
+type QueuedItem = (QueuedPrompt | QueuedClear | QueuedCli) & {
   /** 이 연결에서 내용을 고치는 동안 큐 실행을 멈추는 소유자 표식. */
   editOwner?: string
 }
@@ -125,6 +133,8 @@ export type SessionMeta = {
   busy: boolean
   /** 진행 중인 턴이 끝나면 순서대로 실행될 대기 메시지 */
   queued: string[]
+  queuedKinds?: ('prompt' | 'clear' | 'cli')[]
+  activeTask?: 'cli' | null
   accessIssue?: AccessIssue | null
   usage: Usage | null
   canLoad: boolean
@@ -344,6 +354,7 @@ export class AgentSession {
   #startedAt = new Date().toISOString()
   #turns = 0
   #queue: QueuedItem[] = []
+  #activeTask: QueuedCli | null = null
   #reader: UsageReader | null = null
   #usage: Usage | null = null
   busy = false
@@ -826,6 +837,39 @@ export class AgentSession {
     this.#run(text, promptText, images, imageRefs, settings)
   }
 
+  enqueueTask(task: AgentQueuedTask) {
+    if (this.#disposed || this.#authRequired || !this.#sessionId) throw new Error('에이전트 대화를 준비한 뒤 다시 시도하세요')
+    if (this.#activeTask?.id === task.id || this.#queue.some(item => item.kind === 'cli' && item.id === task.id)) return
+    this.#queue.push({ ...task, kind: 'cli' })
+    this.#broadcast(this.#metaEvent())
+    this.#drainQueue()
+  }
+
+  #runTask(task: QueuedCli) {
+    if (this.#idleTimer) { clearTimeout(this.#idleTimer); this.#idleTimer = null }
+    this.busy = true
+    this.#activeTask = task
+    this.#broadcast(this.#metaEvent())
+    // Match user message boundaries without coupling server scheduling to the UI renderer.
+    let afterUserCount = 0, lastWasUser = false, messageId: unknown
+    for (const event of this.#events) {
+      if (event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk') {
+        const id = (event.update as { messageId?: string }).messageId
+        if (!lastWasUser || id && id !== messageId) afterUserCount++
+        lastWasUser = true
+        messageId = id
+      } else if (event.type === 'turn_start' || event.type === 'turn_end' || event.type === 'error'
+        || event.type === 'permission' || event.type === 'update' && ['agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'].includes(event.update.sessionUpdate)) lastWasUser = false
+    }
+    void Promise.resolve().then(() => task.run({ sessionId: this.#sessionId, afterUserCount }))
+      .catch((error: unknown) => { if (!this.#disposed) this.#emit({ type: 'error', message: describeError(error) }) })
+      .finally(() => {
+        this.#activeTask = null
+        this.busy = false
+        this.#drainQueue()
+      })
+  }
+
   /** `/clear`는 앞선 작업을 끊지 않고, 이 큐 지점에서 새 ACP 세션을 연다. */
   clearAfterQueue() {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
@@ -861,7 +905,8 @@ export class AgentSession {
   /** 대기 중인 메시지를 취소한다(진행 중인 턴은 건드리지 않는다) */
   unqueue(index: number) {
     if (index < 0 || index >= this.#queue.length) return
-    this.#queue.splice(index, 1)
+    const [removed] = this.#queue.splice(index, 1)
+    if (removed.kind === 'cli') removed.cancel()
     if (this.busy) this.#broadcast(this.#metaEvent())
     else this.#drainQueue()
   }
@@ -1013,6 +1058,10 @@ export class AgentSession {
     this.#queue.shift()
     if (next.kind === 'clear') {
       void this.#clearSession().then(() => this.#drainQueue())
+      return
+    }
+    if (next.kind === 'cli') {
+      this.#runTask(next)
       return
     }
     this.#run(next.text, next.promptText, next.images, next.imageRefs, next.settings)
@@ -1183,8 +1232,11 @@ export class AgentSession {
     }
     this.#pending.clear()
     // 줄 서 있던 메시지도 같이 버린다 — 중단해 놓고 다음 것이 저절로 도는 건 놀라운 동작이다
+    for (const item of this.#queue) if (item.kind === 'cli') item.cancel()
     this.#queue = []
-    if (this.#sessionId) void this.#conn.cancel({ sessionId: this.#sessionId }).catch(() => {})
+    if (this.#activeTask) this.#activeTask.cancel()
+    else if (this.#sessionId) void this.#conn.cancel({ sessionId: this.#sessionId }).catch(() => {})
+    this.#broadcast(this.#metaEvent())
   }
 
   answerPermission(id: string, optionId: string | null) {
@@ -1222,6 +1274,8 @@ export class AgentSession {
         turns: this.#usage?.turns ?? this.#turns,
         busy: this.busy,
         queued: this.#queue.map((item) => item.text),
+        queuedKinds: this.#queue.map((item) => item.kind),
+        activeTask: this.#activeTask ? 'cli' : null,
         accessIssue: this.#accessIssue,
         usage: this.#usage,
         canLoad: this.#caps.loadSession === true,
@@ -1270,6 +1324,9 @@ export class AgentSession {
   dispose() {
     if (this.#disposed) return
     this.#disposed = true
+    for (const item of this.#queue) if (item.kind === 'cli') item.cancel()
+    this.#queue = []
+    this.#activeTask?.cancel()
     this.#cancelStderrAuth?.(new Error('로그인 세션이 종료됐습니다'))
     live.delete(this)
     if (this.#idleTimer) clearTimeout(this.#idleTimer)

@@ -62,6 +62,22 @@
 
 - `GET /api/agent-cwd/suggestions?input=&base=&entered=`는 입력 중인 마지막 경로 조각의 접두어와 맞는 하위 디렉터리, 또는 이미 들어간 디렉터리의 하위를 돌려준다(owner/manager).
 
+## 대화의 CLI 명령 기록
+
+[ADR 0153](../../../.mew/docs/decisions/0153-mew-agent-cli-shared-queue.md)에 따라 CLI 모드는 HTTP로 접수하여 독립 에이전트 감독의 공통 FIFO 큐에 넣는다. AI 프롬프트·CLI·일반 모드 `/clear`가 같은 탭에서 순서대로 실행되며 CLI 원문·출력은 ACP에 전달하지 않는다. 입력 문자열을 공백·개행까지 보존하여 탭 cwd의 `$SHELL -lc`(미설정 시 `/bin/sh -lc`)에 넘긴다. CLI 모드에서는 `/clear`도 셸 입력이며 AI 세션 조작으로 해석하지 않는다. 서버가 실행기 경로와 무작위 `mewcmd-cli-*` 이름을 만들고 `TmuxManager.startCommand`로 실행 차례에만 tmux를 만든다.
+
+- `server/agent-command-queue.ts` + `agentHost.ts` — 감독 IPC `queue_command`로 접수하고 `AgentSession.enqueueTask`가 실행·취소 수명을 소유한다. 실행 직전 agent·terminal 권한을 재검사하며 출력 저장 완료 후 다음 작업을 시작한다. `/clear` 뒤에는 실행 시점의 sessionId·사용자 턴 수를 기록한다. 브라우저/HTTP 연결 종료는 큐를 취소하지 않지만 탭 종료·중단은 진행 중 CLI와 대기 작업을 취소한다. 감독의 비정상 종료 후 남은 queued 기록은 다음 조회에서 중단으로 표시하며 자동 재실행하지 않는다. 배포 전부터 살아 있던 구버전 감독은 탭을 닫고 다시 열어 교체한다.
+- `server/agent-commands.ts` — 계정별 저장소, 입력 검증, 중복 요청 방지, tmux 실행·중단 요청·사라진 세션 복구. ID가 같은 동일 요청은 명령을 두 번 실행하지 않는다.
+- `server/agent-command-runner.ts` — tmux 안의 독립 실행기. `node-pty`로 실제 TTY를 제공하고 입력·resize를 중계한다. 서버나 브라우저가 닫혀도 실행·출력 저장·완료 정리가 계속된다. 셸 wrapper는 마지막 출력의 임의 마커를 실행기가 수신할 때까지 PTY를 유지하여 빠른 종료의 출력 손실을 막는다. 사용자의 명령은 wrapper 문자열에 삽입하지 않고 인자로 전달한다.
+- 출력 청크는 표준 연결 gzip member로 즉시 저장한다. 메모리에는 최근 512 Ki 문자만 남긴다. 완료 시 전체 `output.gz`와 제어 시퀀스를 제거한 `preview.txt`, 종료 코드·상태를 저장하고 tmux를 종료한다. 중단은 `stop` 파일을 실행기가 감지해 프로세스 그룹에 TERM, 필요하면 KILL을 보내며 이미 수신한 출력도 보존한다. OS 종료·외부 강제 세션 삭제로 정상 저장을 마치지 못한 기록은 다음 조회에서 중단으로 표시한다.
+- 위치: `<DATA_DIR>/agent-commands/<계정 SHA-256>/<명령 UUID>/`. 디렉터리 0700, 파일 0600. `record.json`은 원자적으로 교체한다. 원문·출력은 브라우저 전사 캐시에 복제하지 않는다. 기록은 자동 삭제하지 않는다.
+- `GET/POST /api/agent/commands`, `POST /:id/stop`, `POST /stop-tab/:tab`, `GET /:id/output`, `GET /:id/archive`는 모두 agent·terminal 기능 권한과 계정 소유권을 적용한다. 목록은 runtime·cwd·sessionId로 제한하고 출력은 팝업을 열 때만 조회한다. 일반 tmux WS의 서버 제어 권한 경계는 그대로다.
+- 클라이언트는 1.5초 간격으로 상태를 확인하고 `afterUserCount`로 해당 사용자 턴 뒤에 CLI 버블을 배치한다. ACP가 스트리밍 청크를 다르게 복원해도 발화 순서를 기준으로 같은 위치에 놓는다. queued 기록은 본문 대신 공통 대기열에 표시하며 취소·재정렬을 지원한다. 실행 시 기록한 사용자 턴 뒤에 명령 버블을 표시한다. `meta.queuedKinds`로 항목을 구분하고 `meta.activeTask`가 cli이면 AI 답변의 진행 표시를 켜지 않는다. 모델 변경 상태줄·AI 전사에는 CLI를 포함하지 않는다.
+
+검증: `agentHost.test.ts`는 HTTP 중계 연결과 브라우저 연결이 끊긴 뒤에도 독립 감독이 대기 CLI를 실제 격리 tmux에서 실행하고 기록하는지 확인한다. `agent-clear.test.ts`는 AI→CLI→AI FIFO, 대기 중 tmux 미생성, 재정렬·취소, `/clear` 후 대화 연결과 실행 직전 권한 회수를 검증한다. `agent-commands.test.ts`는 계정/대화 격리·권한 회수·중복 실행 방지와 격리 tmux 서버에서 빠른 종료·stderr·비정상 종료·대화형 입력·중단·대용량 전체 기록·자동 세션 정리를 확인한다. `agent-command-timeline.test.ts`는 전사 재청크 후 명령 배치를 검증한다.
+
+`agent-command-ui.test.ts`는 서버를 띄우지 않는 브라우저 fixture로 PC·모바일의 토글 기본값/위치, Ctrl+Tab 전환, 원문 전송, 대기열 표시와 실행 전 터미널 미노출, AI 프롬프트 미전송, live→저장 출력 전환, 포커스 복원, 재열람 시 재실행 방지, 새로고침 복원을 확인한다. 일반 HTTP에서도 `crypto.getRandomValues` 기반 UUID 폴백으로 실행할 수 있다. 실제 셸 실행은 별도 tmux 통합 테스트의 범위다.
+
 ## CLI 도구와 프로세스 환경
 
 - Claude는 [ADR 0142](../../../.mew/docs/decisions/0142-mew-claude-acp-and-cli-authentication.md)에 따라 대화형 ACP로 복원했다. 공식 CLI의 로그인 종료 후 감독이 ACP를 다시 초기화한다. 인증 실패·중단은 성공으로 취급하지 않으며 재시도할 수 있다. 실행·로그인·상태 조회·로그아웃은 같은 CLI 엔진과 설정 환경을 사용한다. `claude-acp-auth.test.ts`는 실제 계정을 호출하지 않는 CLI/ACP fixture로 이 경계를 검증한다.

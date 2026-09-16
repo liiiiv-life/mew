@@ -33,6 +33,8 @@ export type SessionMeta = {
   turns: number
   busy: boolean
   queued: string[]
+  queuedKinds?: ('prompt' | 'clear' | 'cli')[]
+  activeTask?: 'cli' | null
   accessIssue?: AccessIssue | null
   usage: Usage | null
   canLoad: boolean

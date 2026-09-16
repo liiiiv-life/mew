@@ -23,6 +23,10 @@ import {
 } from './agentAcp.ts'
 import { isRuntimeLoginMethod, runtimeLoginSpec } from './agentRuntimes.ts'
 import { DATA_DIR } from './dataDir.ts'
+import { createTmuxManager } from '@mew/tmux-term/server'
+import { AgentCommandStore, type AgentCommandInput } from './agent-commands.ts'
+import { queueAgentCommand } from './agent-command-queue.ts'
+import type { AgentCommandRecord } from '../shared/agent-command.ts'
 
 const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
@@ -54,6 +58,7 @@ export type AgentHostCommand =
 type AgentImage = { data: string; mimeType: string }
 
 type AgentHostRequest =
+  | { type: 'queue_command'; owner: string; input: AgentCommandInput }
   | { type: 'list_sessions' }
   | { type: 'terminal_auth'; methodId: string }
 
@@ -503,9 +508,12 @@ async function handleHostMessage(
 ) {
   if (message.type === 'request') {
     try {
-      const value = message.request.type === 'list_sessions'
+      const request = message.request
+      const value = request.type === 'list_sessions'
         ? await session.listSessions()
-        : session.terminalAuthSpec(String(message.request.methodId ?? ''))
+        : request.type === 'queue_command'
+          ? queueAgentCommand(session, new AgentCommandStore(createTmuxManager({ cwd: session.cwd })), request.owner, request.input)
+          : session.terminalAuthSpec(String(request.methodId ?? ''))
       sendLine(peer.socket, { type: 'response', id: String(message.id), ok: true, value })
     } catch (err) {
       sendLine(peer.socket, { type: 'response', id: String(message.id), ok: false, error: describeError(err) })
@@ -776,6 +784,14 @@ export async function terminalAuthFromHost(runtime: string, tab: string, cwd: st
   } finally {
     client.close()
   }
+}
+
+/** The same host that serializes AI turns accepts CLI jobs into that queue. */
+export async function queueCommandInHost(owner: string, input: AgentCommandInput): Promise<AgentCommandRecord> {
+  const client = await connectAgentHost(input.runtime, input.tab, input.cwd, {}, input.sessionId)
+  try {
+    return await client.request<AgentCommandRecord>({ type: 'queue_command', owner, input })
+  } finally { client.close() }
 }
 
 /** 워크스페이스 교체는 cwd가 고정된 기존 감독을 명시적으로 접는다. mew 종료에는 호출하지 않는다. */
