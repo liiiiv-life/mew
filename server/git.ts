@@ -96,6 +96,15 @@ export async function commitFile(
   // catch로 빈 목록 처리한다.
   const ignored = await git.checkIgnore([...filesToStage]).catch(() => [] as string[])
   for (const f of ignored) filesToStage.delete(f)
+
+  // 아직 Git에 추가하지 않은 파일을 옮기면 원래 경로는 디스크와 index 양쪽에 없다.
+  // 이를 add하면 실제 이동 뒤에 pathspec 오류가 난다. 추적 중인 삭제 경로는 남겨
+  // 삭제/이동 이력을 기록하고, 양쪽에 없는 경로만 제외한다(폴더의 추적 파일도 포함).
+  for (const f of filesToStage) {
+    if (fs.lstatSync(path.join(projectRoot(project), f), { throwIfNoEntry: false })) continue
+    const tracked = await git.raw(['ls-files', '-z', '--', `:(literal)${f}`])
+    if (!tracked) filesToStage.delete(f)
+  }
   if (filesToStage.size === 0) return null
 
   await git.add([...filesToStage])
