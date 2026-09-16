@@ -1,3 +1,4 @@
+import { useTreeTouchGesture } from '../hooks/use-tree-touch-gesture'
 import type { SidebarCreateRequest } from '../hooks/use-sidebar-create'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -379,69 +380,17 @@ function ActionPopover({
 
 function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCtx }) {
   const readOnly = ctx.readOnly || node.editable === false
-  const longPressTimer = useRef<number | null>(null)
-  const longPressFired = useRef(false)
-  const touchStart = useRef<{ x: number; y: number } | null>(null)
-
-  // 손가락은 가만히 눌러도 몇 px 흔들린다. 이 안쪽의 움직임은 길게 누르기로 취급한다.
-  const LONG_PRESS_MOVE_TOLERANCE_PX = 12
-
-  function clearLongPress() {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
-    }
-  }
-
-  function onTouchStart(e: React.TouchEvent) {
-    if (readOnly) return
-    clearLongPress()
-    const touch = e.touches[0]
-    touchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null
-    longPressFired.current = false
-    longPressTimer.current = window.setTimeout(() => {
-      longPressFired.current = true
-    }, 500)
-  }
-
-  function onTouchEnd(e: React.TouchEvent) {
-    clearLongPress()
-    const touch = e.changedTouches[0]
-    touchStart.current = null
-    if (!longPressFired.current) return
-    // 길게 누르기를 연 뒤 생성되는 click이 파일 열기까지 이어지면(특히 미리보기를
-    // 지원하지 않는 파일에서) 메뉴 대신 오류 화면이 열릴 수 있다.
-    e.preventDefault()
-    e.stopPropagation()
-    ctx.focusNode(node.path, node.type)
-    ctx.openPopover(node.path, node.type, touch.clientX, touch.clientY)
-  }
-
-  function cancelLongPress(e: React.TouchEvent) {
-    const touch = e.touches[0]
-    const start = touchStart.current
-    if (touch && start) {
-      const dx = touch.clientX - start.x
-      const dy = touch.clientY - start.y
-      if (dx * dx + dy * dy < LONG_PRESS_MOVE_TOLERANCE_PX * LONG_PRESS_MOVE_TOLERANCE_PX) return
-    }
-    clearLongPress()
-    touchStart.current = null
-    // 허용 오차보다 멀리 끌면 파일 이동 제스처가 메뉴로 끝나면 안 된다.
-    longPressFired.current = false
-  }
-
-  function cancelLongPressImmediately() {
-    clearLongPress()
-    touchStart.current = null
-    longPressFired.current = false
-  }
+  const touch = useTreeTouchGesture({
+    enabled: !readOnly,
+    onMenu: (x, y) => {
+      ctx.focusNode(node.path, node.type)
+      ctx.openPopover(node.path, node.type, x, y)
+    },
+    onDragCancel: ctx.endDrag,
+  })
 
   function handleClick() {
-    if (longPressFired.current) {
-      longPressFired.current = false
-      return
-    }
+    if (touch.consumeClick()) return
     if (node.type === 'dir') {
       ctx.toggleDir(node.path)
       ctx.focusNode(node.path, 'dir')
@@ -454,17 +403,26 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
   function handleContextMenu(e: React.MouseEvent) {
     if (readOnly) return
     e.preventDefault()
+    if (touch.isTouchInput()) return
     ctx.focusNode(node.path, node.type)
     ctx.openPopover(node.path, node.type, e.clientX, e.clientY)
   }
 
   const isFocused = ctx.focused?.path === node.path
   const touchProps = {
-    onTouchStart,
-    onTouchEnd,
-    onTouchMove: cancelLongPress,
-    onTouchCancel: cancelLongPressImmediately,
+    ref: touch.ref,
+    onPointerDown: touch.onPointerDown,
     onContextMenu: handleContextMenu,
+  }
+
+  function handleDragStart(e: React.DragEvent) {
+    // Touch uses its own 1s hold; reject an early browser-native drag takeover.
+    if (touch.isTouchInput() && e.nativeEvent.isTrusted) {
+      e.preventDefault()
+      return
+    }
+    setPathDragData(e.dataTransfer, node.path, node.type)
+    ctx.beginDrag(node.path, node.type)
   }
 
   const renameEditing = ctx.editing?.mode === 'rename' && ctx.editing.path === node.path ? ctx.editing : null
@@ -489,15 +447,12 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           type="button"
           data-path={node.path}
           draggable={!readOnly}
-          onDragStart={(e) => {
-            setPathDragData(e.dataTransfer, node.path)
-            ctx.beginDrag(node.path, 'file')
-          }}
+          onDragStart={handleDragStart}
           onDragEnd={ctx.endDrag}
           onClick={handleClick}
-          onDoubleClick={() => ctx.onSelect(node.path, { preview: false })}
+          onDoubleClick={() => { if (!touch.consumeClick()) ctx.onSelect(node.path, { preview: false }) }}
           {...touchProps}
-          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none [-webkit-touch-callout:none] data-[touch-dragging=true]:bg-accent/15 data-[touch-dragging=true]:ring-1 data-[touch-dragging=true]:ring-accent hover:bg-surface-raised ${
             isSelected ? 'bg-surface-raised font-medium' : ''
           } ${isFocused ? 'ring-1 ring-inset ring-accent' : ''}`}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
@@ -552,14 +507,11 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           type="button"
           data-path={node.path}
           draggable={!readOnly}
-          onDragStart={(e) => {
-            setPathDragData(e.dataTransfer, node.path, 'dir')
-            ctx.beginDrag(node.path, 'dir')
-          }}
+          onDragStart={handleDragStart}
           onDragEnd={ctx.endDrag}
           onClick={handleClick}
           {...touchProps}
-          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] hover:bg-surface-raised ${
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] data-[touch-dragging=true]:bg-accent/15 data-[touch-dragging=true]:ring-1 data-[touch-dragging=true]:ring-accent hover:bg-surface-raised ${
             isFocused ? 'ring-1 ring-inset ring-accent' : ''
           } ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : ''}`}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
@@ -1331,7 +1283,7 @@ export function FileTree({
     setEditValue,
     submitEdit,
     cancelEdit,
-    beginDrag,
+        beginDrag,
     endDrag,
     canDropInto,
     onDragOverDir,
