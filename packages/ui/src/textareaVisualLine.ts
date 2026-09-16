@@ -32,7 +32,10 @@ export function isTextareaCaretOnVisualBoundary(
   direction: TextareaVerticalDirection,
 ) {
   if (textarea.selectionStart !== textarea.selectionEnd) return false
-  if (textarea.clientWidth <= 0 || !document.body) return logicalLineBoundary(textarea, direction)
+  // 빈 줄은 mirror의 span 경계에 포함되지 않을 수 있다. 명시적 줄바꿈을 먼저 확인해
+  // 커서 위·아래에 실제 줄이 남아 있으면 레이아웃 측정과 무관하게 커서 이동을 유지한다.
+  if (!logicalLineBoundary(textarea, direction)) return false
+  if (textarea.clientWidth <= 0 || !document.body) return true
 
   const computed = getComputedStyle(textarea)
   const mirror = document.createElement('div')
