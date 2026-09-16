@@ -555,6 +555,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       }
       return Promise.all(jobs).then(() => undefined).catch(console.error)
     }
+    for (const parent of Object.keys(subprojectTrees)) {
+      void fetchTreeEntries(WORKSPACE_PROJECT, parent).then(entries => {
+        setSubprojectTrees(previous => ({ ...previous, [parent]: entries }))
+      }).catch(console.error)
+    }
     const workspace = fetchTreeEntries(WORKSPACE_PROJECT)
     const docs = fetchTreeEntries(DEFAULT_PROJECT)
     void workspace.then(setRootTree).catch(console.error)
@@ -1955,7 +1960,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                               <ProjectIcon icon={subprojectIcons[subproject.name] ?? 'i:folder'} size={16} />
                               <span className="truncate">{subproject.name}</span>
                             </button>
-                            {canUseTerminal && <CommandButtonMenu project={subproject.name} />}
+                            {canUseTerminal && <CommandButtonMenu project={WORKSPACE_PROJECT} directory={subproject.path} />}
                           </div>
                           {expanded && (
                             <>

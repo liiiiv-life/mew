@@ -9,6 +9,7 @@ import {
   projectRoot,
   resolveProjectPath,
 } from './paths.ts'
+import { hasProjectMarker } from './subprojects.ts'
 import { readIgnoreSet } from './ignoreList.ts'
 
 export interface TreeNode {
@@ -17,7 +18,7 @@ export interface TreeNode {
   path: string
   type: 'file' | 'dir'
   children?: TreeNode[]
-  /** 루트 프로젝트 바로 아래에 있는 `.mew`를 가진 하위 프로젝트 폴더 */
+  /** 깊이와 무관하게 실제 `.mew` 디렉터리를 가진 하위 프로젝트 폴더 */
   project?: boolean
   /** 폴더 자체가 Git 저장소 루트인지 (`.git` 파일 또는 폴더 존재) */
   git?: boolean
@@ -141,7 +142,7 @@ function walk(absDir: string, relDir: string, f: Filters, downloadOnly = false):
         path: relPath,
         type: 'dir',
         children,
-        project: relDir === '' && fs.existsSync(path.join(absPath, '.mew')),
+        project: hasProjectMarker(absPath),
         git: fs.existsSync(path.join(absPath, '.git')),
       })
     } else if (entry.isFile()) {
@@ -182,7 +183,7 @@ async function walkAsync(absDir: string, relDir: string, f: Filters, downloadOnl
         path: relPath,
         type: 'dir',
         children,
-        project: relDir === '' && fs.existsSync(path.join(absPath, '.mew')),
+        project: hasProjectMarker(absPath),
         git: fs.existsSync(path.join(absPath, '.git')),
       })
     } else if (entry.isFile()) {
@@ -234,7 +235,7 @@ export async function listTreeDirAsync(project: string = DEFAULT_PROJECT, relDir
         name: entry.name,
         path: relPath,
         type: 'dir',
-        project: !normalized && fs.existsSync(path.join(absDir, entry.name, '.mew')),
+        project: hasProjectMarker(path.join(absDir, entry.name)),
         git: fs.existsSync(path.join(absDir, entry.name, '.git')),
       })
     } else if (entry.isFile() && fileVisible(entry.name, f, downloadOnly)) {

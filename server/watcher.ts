@@ -156,6 +156,11 @@ class TreeWatcher {
     const name = filename?.toString()
     if (eventType === 'rename' || !name) {
       this.pendingParents.add(relDir)
+      // A .mew marker changes the containing folder's project flag in its parent.
+      if (name === '.mew' && relDir) {
+        const parent = path.posix.dirname(relDir)
+        this.pendingParents.add(parent === '.' ? '' : parent)
+      }
       if (name) {
         const relPath = relDir ? `${relDir}/${name}` : name
         this.pendingContent.add(relPath)

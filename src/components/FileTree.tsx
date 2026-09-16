@@ -3,7 +3,7 @@ import type { SidebarCreateRequest } from '../hooks/use-sidebar-create'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { TreeNode } from '../api/client'
-import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, initializeGitRepository, renamePath, uploadInto } from '../api/client'
+import { copyFile, copyInto, createSubproject, createFolder, createNewDocument, deleteFile, downloadUrl, initializeGitRepository, renamePath, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
 import { ConfirmDialog, setPathDragData, useDialog } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
@@ -40,6 +40,7 @@ export type FileSearchScope = { id: string; label: string; icon: string }
 export type FileSearchResult = { path: string; project: string; scope: FileSearchScope }
 
 interface NodeCtx {
+  project: string
   selectedPath: string | null
   focused: Focused
   openDirs: Set<string>
@@ -272,6 +273,7 @@ function ActionPopover({
   onNewFolder,
   onUpload,
   onInitGit,
+  onCreateSubproject,
   onClose,
 }: {
   x: number
@@ -290,6 +292,7 @@ function ActionPopover({
   onNewFolder: () => void
   onUpload: () => void
   onInitGit?: () => void
+  onCreateSubproject?: () => void
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -364,6 +367,11 @@ function ActionPopover({
       <button type="button" onClick={onUpload} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
         ⬆ 업로드
       </button>
+      {onCreateSubproject && (
+        <button type="button" onClick={onCreateSubproject} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+          하위 프로젝트로 만들기
+        </button>
+      )}
       {onInitGit && (
         <button type="button" onClick={onInitGit} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
           Git 저장소로 만들기
@@ -525,7 +533,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           )}
         </button>
         {node.git && ctx.openGit && <GitButton onClick={() => ctx.openGit?.(node.path)} title={`${node.name} Git 열기`} />}
-        {node.project && ctx.canUseCommands && <CommandButtonMenu project={node.name} />}
+        {node.project && ctx.canUseCommands && <CommandButtonMenu project={ctx.project} directory={node.path} />}
       </div>
       {isOpen && (
         <div>
@@ -665,6 +673,18 @@ export function FileTree({
     Object.values(directoryChildren).forEach(visit)
     return result
   }, [directoryChildren, tree])
+  const projectPaths = useMemo(() => {
+    const result = new Set<string>()
+    const visit = (nodes: TreeNode[]) => nodes.forEach((node) => {
+      if (node.project) result.add(node.path)
+      const children = directoryChildren[node.path] ?? node.children
+      if (children) visit(children)
+    })
+    visit(tree)
+    return result
+  }, [directoryChildren, tree])
+  const creatingProjectRef = useRef(false)
+  const [creatingProject, setCreatingProject] = useState(false)
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set())
   const directoryChildrenRef = useRef(directoryChildren)
   directoryChildrenRef.current = directoryChildren
@@ -708,6 +728,24 @@ export function FileTree({
   function triggerUpload(dir: string) {
     uploadDirRef.current = dir
     uploadInputRef.current?.click()
+  }
+  async function makeSubproject(dir: string) {
+    if (creatingProjectRef.current) return
+    creatingProjectRef.current = true
+    setCreatingProject(true)
+    try {
+      await createSubproject(dir, project)
+      // The marker changes the folder row in its parent, not only its own contents.
+      requestDir(parentOf(dir), true)
+      if (openDirs.has(dir)) requestDir(dir, true)
+      onFolderCreated()
+      onNotice(`${dir}: 하위 프로젝트로 지정했습니다`)
+    } catch (err) {
+      onNotice(err instanceof Error ? err.message : String(err))
+    } finally {
+      creatingProjectRef.current = false
+      setCreatingProject(false)
+    }
   }
   const dialogs = useDialog()
   async function initGit(dir: string) {
@@ -1263,6 +1301,7 @@ export function FileTree({
     (editing?.mode === 'create-file' || editing?.mode === 'create-folder') && editing.parentPath === rootPath ? editing : null
 
   const ctx: NodeCtx = {
+    project,
     selectedPath,
     focused,
     openDirs,
@@ -1464,6 +1503,12 @@ export function FileTree({
             triggerUpload(popover.type === 'dir' ? popover.path : parentOf(popover.path))
             setPopover(null)
           }}
+          onCreateSubproject={
+            !creatingProject && popover.type === 'dir' && popover.path !== '' && popover.path !== rootPath
+              && !popover.path.split('/').includes('.mew') && !projectPaths.has(popover.path)
+              ? () => { void makeSubproject(popover.path); setPopover(null) }
+              : undefined
+          }
           onInitGit={
             canUseGit && popover.type === 'dir' && popover.path !== '' && !gitPaths.has(popover.path)
               ? () => {

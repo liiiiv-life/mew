@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { projectRoot } from './paths.ts'
+import { projectDirectory } from './subprojects.ts'
 import { COMMAND_SESSION_PREFIX } from '@mew/tmux-term/server'
 
 // 프로젝트별 명령어 버튼 설정 — <프로젝트>/.mew/cmd-button.json 을 읽고 쓴다.
@@ -24,8 +24,8 @@ const MAX_BUTTONS = 50
 const MAX_NAME_LEN = 80
 const MAX_COMMAND_LEN = 2000
 
-export function readCmdButtons(project: string): CmdButton[] {
-  const file = path.join(projectRoot(project), MEW_DIR, CMD_FILE)
+export function readCmdButtons(project: string, directory = ''): CmdButton[] {
+  const file = path.join(projectDirectory(project, directory), MEW_DIR, CMD_FILE)
   let raw: string
   try {
     raw = fs.readFileSync(file, 'utf-8')
@@ -75,8 +75,8 @@ export function normalizeCmdButtons(input: unknown): CmdButton[] {
   return out
 }
 
-export function writeCmdButtons(project: string, buttons: CmdButton[]): void {
-  const file = path.join(projectRoot(project), MEW_DIR, CMD_FILE)
+export function writeCmdButtons(project: string, buttons: CmdButton[], directory = ''): void {
+  const file = path.join(projectDirectory(project, directory), MEW_DIR, CMD_FILE)
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const tmp = `${file}.tmp-${process.pid}`
   // oneShot이 false인 경우엔 키를 아예 안 써서 옛 파일과 diff 소음을 줄인다
@@ -98,8 +98,10 @@ function extractList(parsed: unknown): unknown[] {
  * 특수 프리픽스(COMMAND_SESSION_PREFIX) + hex 해시라 세션 이름 규칙([a-zA-Z0-9_-], 50자 이하)을
  * 항상 만족하고, 터미널 탭 목록에서는 이 프리픽스로 걸러져 보이지 않는다.
  */
-export function commandSessionName(project: string, name: string): string {
-  const hash = crypto.createHash('sha256').update(`${project} ${name}`).digest('hex').slice(0, 16)
+export function commandSessionName(project: string, name: string, directory = ''): string {
+  // Explicit folder targets use absolute identity; same-named nested folders stay isolated.
+  const identity = directory ? projectDirectory(project, directory) : project
+  const hash = crypto.createHash('sha256').update(directory ? JSON.stringify([identity, name]) : `${identity} ${name}`).digest('hex').slice(0, 16)
   return `${COMMAND_SESSION_PREFIX}${hash}`
 }
 

@@ -21,6 +21,7 @@ type Editing = { index: number | null; name: string; command: string; oneShot: b
 
 export function CommandButtonMenu({
   project,
+  directory = '',
   title,
   open: controlledOpen,
   onOpenChange,
@@ -30,6 +31,7 @@ export function CommandButtonMenu({
   triggerRef,
 }: {
   project: string
+  directory?: string
   title?: string
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -63,7 +65,7 @@ export function CommandButtonMenu({
   useOverlayDismiss(open && !inline && closeMenu)
 
   const refresh = useCallback(() => {
-    fetchCmdButtons(project)
+    fetchCmdButtons(project, directory)
       .then((res) => {
         setButtons(res.buttons)
         setError(null)
@@ -72,7 +74,7 @@ export function CommandButtonMenu({
         setButtons([])
         setError(err instanceof Error ? err.message : '불러오기 실패')
       })
-  }, [project])
+  }, [project, directory])
 
   // 메뉴가 열려 있는 동안 목록·실행 상태를 불러오고 가볍게 폴링한다(실행 표시 갱신용).
   // 인라인 사이드바도 항상 열린 메뉴이므로 여기서 제외하면 첫 요청을 보내지 않아
@@ -118,7 +120,7 @@ export function CommandButtonMenu({
     if (busyName) return
     setBusyName(button.name)
     try {
-      await runCmdButton(project, button.name)
+      await runCmdButton(project, button.name, directory)
       refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : '실행 실패')
@@ -143,7 +145,7 @@ export function CommandButtonMenu({
 
   /** 추가·수정·삭제 모두 목록 전체 저장 한 경로로 처리한다 */
   async function commit(next: { name: string; command: string; oneShot?: boolean }[]) {
-    const res = await saveCmdButtons(project, next)
+    const res = await saveCmdButtons(project, next, directory)
     setButtons(res.buttons)
     setError(null)
   }
@@ -159,8 +161,8 @@ export function CommandButtonMenu({
         ? 'border-b border-edge bg-surface-deep py-1'
         : 'fixed z-[1050] max-h-[60vh] overflow-auto rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl'}
     >
-      {!inline && <div className="px-3 pb-1 pt-0.5 text-[11px] text-ink-muted">{project}</div>}
-      {error && <div className="px-3 py-2 text-xs text-danger-strong">{error}</div>}
+      {!inline && <div className="px-3 pb-1 pt-0.5 text-[11px] text-ink-muted">{directory || project}</div>}
+      {error && <div className="select-text px-3 py-2 text-xs text-danger-strong">{error}</div>}
       {buttons === null ? (
         <div className="px-3 py-3 text-xs text-ink-muted">불러오는 중…</div>
       ) : (
@@ -187,8 +189,8 @@ export function CommandButtonMenu({
         className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink ${
           open ? 'bg-surface-hover text-ink' : ''
         }`}
-        title={title ?? `${project} 명령어 버튼`}
-        aria-label={`${project} 명령어 버튼`}
+        title={title ?? `${directory || project} 명령어 버튼`}
+        aria-label={`${directory || project} 명령어 버튼`}
         aria-expanded={open}
       >
         <PlayGlyph />
@@ -198,7 +200,7 @@ export function CommandButtonMenu({
 
       {editing && (
         <CmdButtonEditor
-          project={project}
+          project={directory || project}
           editing={editing}
           onCancel={() => setEditing(null)}
           onSave={async (draft) => {
@@ -227,7 +229,7 @@ export function CommandButtonMenu({
           idleNote={popup.command}
           session={popup.session}
           running={popup.running}
-          onRun={() => runCmdButton(project, popup.name)}
+          onRun={() => runCmdButton(project, popup.name, directory)}
           onClose={() => setPopup(null)}
           onChanged={refresh}
         />

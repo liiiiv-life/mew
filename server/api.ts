@@ -1,3 +1,4 @@
+import { createSubproject, projectDirectory } from './subprojects.ts'
 import { discoverCloudStorage } from './cloud-storage.ts'
 import express from 'express'
 import { createRemoteDesktopRoutes } from './remote-desktop.ts'
@@ -834,6 +835,15 @@ export function createApiApp() {
   // Git 워크벤치 — 경로는 현재 루트 프로젝트 안으로 제한하고, 폴더 자체가 저장소일 때만 조작한다.
   app.get('/git/repository', requireFeature('git'), async (req, res) => {
     try { res.json(await repositoryInfo(projectOf(req), String(req.query.path ?? ''))) } catch (err) { handleError(res, err) }
+  })
+
+  app.post('/subprojects', requireRole('owner', 'manager', 'member'), requireFeature('filesWrite'), async (req, res) => {
+    try {
+      const project = projectOf(req)
+      createSubproject(project, req.body?.path)
+      await refreshCatalogPaths(project, [req.body.path, `${req.body.path}/.mew`])
+      res.json({ ok: true })
+    } catch (err) { handleError(res, err) }
   })
 
   app.post('/git/init', requireFeature('git'), async (req, res) => {
@@ -2369,10 +2379,11 @@ export function createApiApp() {
   app.get('/cmd-buttons', requireFeature('terminal'), async (req, res) => {
     try {
       const project = projectOf(req)
-      projectRoot(project) // 존재하는 프로젝트인지 확인(없으면 throw)
+      const directory = req.query.path ?? req.body?.path ?? ''
+      projectDirectory(project, directory) // 경로·폴더 검증
       const running = new Set((await tmuxManager.list()).map((s) => s.name))
-      const buttons = readCmdButtons(project).map((b) => {
-        const session = commandSessionName(project, b.name)
+      const buttons = readCmdButtons(project, directory as string).map((b) => {
+        const session = commandSessionName(project, b.name, directory as string)
         return { name: b.name, command: b.command, oneShot: !!b.oneShot, session, running: running.has(session) }
       })
       res.json({ buttons })
@@ -2387,13 +2398,14 @@ export function createApiApp() {
   app.put('/cmd-buttons', requireFeature('terminal'), async (req, res) => {
     try {
       const project = projectOf(req)
-      projectRoot(project) // 존재하는 프로젝트인지 확인(없으면 throw)
+      const directory = req.query.path ?? req.body?.path ?? ''
+      projectDirectory(project, directory) // 경로·폴더 검증
       const buttons = normalizeCmdButtons((req.body as { buttons?: unknown }).buttons)
-      writeCmdButtons(project, buttons)
+      writeCmdButtons(project, buttons, directory as string)
       const running = new Set((await tmuxManager.list()).map((s) => s.name))
       res.json({
         buttons: buttons.map((b) => {
-          const session = commandSessionName(project, b.name)
+          const session = commandSessionName(project, b.name, directory as string)
           return { name: b.name, command: b.command, oneShot: !!b.oneShot, session, running: running.has(session) }
         }),
       })
@@ -2409,18 +2421,19 @@ export function createApiApp() {
   app.post('/cmd-buttons/run', requireFeature('terminal'), async (req, res) => {
     try {
       const project = projectOf(req)
-      const root = projectRoot(project)
+      const directory = req.query.path ?? req.body?.path ?? ''
+      const root = projectDirectory(project, directory)
       const { name } = req.body as { name?: unknown }
       if (typeof name !== 'string' || !name) {
         res.status(400).json({ error: '버튼 이름이 없습니다' })
         return
       }
-      const button = readCmdButtons(project).find((b) => b.name === name)
+      const button = readCmdButtons(project, directory as string).find((b) => b.name === name)
       if (!button) {
         res.status(404).json({ error: '해당 명령어 버튼을 찾을 수 없습니다' })
         return
       }
-      const session = commandSessionName(project, button.name)
+      const session = commandSessionName(project, button.name, directory as string)
       // 일회성 명령은 끝나자마자 자기 세션을 스스로 닫는다 — 세션 이름은 SESSION_NAME_RE로 검증된
       // 값이라 셸에 그대로 이어 붙여도 안전하다
       const command = button.oneShot ? oneShotCommand(button.command, session) : button.command

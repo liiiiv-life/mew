@@ -386,6 +386,12 @@ export function fetchGitRepository(path = '', project = currentProject): Promise
   return fetch(`/api/git/repository?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<GitRepositoryInfo>)
 }
 
+export function createSubproject(path: string, project: string): Promise<{ ok: true }> {
+  return fetch(`/api/subprojects?${projectQs(project)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }),
+  }).then(json<{ ok: true }>)
+}
+
 export function initializeGitRepository(path = '', project = currentProject): Promise<GitRepositoryInfo> {
   return fetch(`/api/git/init?${projectQs(project)}`, {
     method: 'POST',
@@ -1583,24 +1589,24 @@ export interface CmdButton {
 }
 
 // 프로젝트 탭마다 자기 메뉴를 띄우므로(활성 프로젝트 것만 보는 게 아니다) 프로젝트를 명시적으로 받는다
-export function fetchCmdButtons(project: string): Promise<{ buttons: CmdButtonState[] }> {
-  return fetch(`/api/cmd-buttons?${projectQs(project)}`).then(json<{ buttons: CmdButtonState[] }>)
+export function fetchCmdButtons(project: string, path = ''): Promise<{ buttons: CmdButtonState[] }> {
+  return fetch(`/api/cmd-buttons?${projectQs(project)}&path=${encodeURIComponent(path)}`).then(json<{ buttons: CmdButtonState[] }>)
 }
 
-export function runCmdButton(project: string, name: string): Promise<{ ok: true; session: string }> {
+export function runCmdButton(project: string, name: string, path = ''): Promise<{ ok: true; session: string }> {
   return fetch('/api/cmd-buttons/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, project }),
+    body: JSON.stringify({ name, project, path }),
   }).then(json<{ ok: true; session: string }>)
 }
 
 /** 목록 전체를 통째로 저장한다 — 추가·수정·삭제 모두 이 한 경로를 쓴다 (term-buttons와 같은 방식) */
-export function saveCmdButtons(project: string, buttons: CmdButton[]): Promise<{ buttons: CmdButtonState[] }> {
+export function saveCmdButtons(project: string, buttons: CmdButton[], path = ''): Promise<{ buttons: CmdButtonState[] }> {
   return fetch('/api/cmd-buttons', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project, buttons }),
+    body: JSON.stringify({ project, buttons, path }),
   }).then(json<{ buttons: CmdButtonState[] }>)
 }
 
