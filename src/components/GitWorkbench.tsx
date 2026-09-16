@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useOverlayDismiss } from '@mew/ui'
+import { useDialog, useOverlayDismiss } from '@mew/ui'
 import {
   commitGitWorkingTree,
   fetchGitCommit,
@@ -289,18 +289,20 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
     }
   }
 
+  const dialogs = useDialog()
+
   const act = async (action: GitCommitAction, selected: GitLogEntry) => {
     setMenu(null)
     let name: string | undefined
     if (action === 'branch') {
-      name = window.prompt(`브랜치 이름\n${selected.hash.slice(0, 8)}에서 생성`)?.trim()
+      name = (await dialogs.prompt({ message: '브랜치 만들기', label: '브랜치 이름', detail: `${selected.hash.slice(0, 8)}에서 생성`, confirmLabel: '만들기' }))?.trim()
       if (!name) return
     } else if (action === 'tag') {
-      name = window.prompt(`태그 이름\n${selected.hash.slice(0, 8)}에 생성`)?.trim()
+      name = (await dialogs.prompt({ message: '태그 만들기', label: '태그 이름', detail: `${selected.hash.slice(0, 8)}에 생성`, confirmLabel: '만들기' }))?.trim()
       if (!name) return
     } else {
       const labels: Record<Exclude<GitCommitAction, 'branch' | 'tag'>, string> = { checkout: '이 커밋을 detached HEAD로 checkout', 'cherry-pick': '현재 브랜치에 cherry-pick', revert: '현재 브랜치에서 revert 커밋 생성' }
-      if (!window.confirm(`${labels[action]}할까요?\n\n${selected.hash.slice(0, 8)} ${selected.subject}`)) return
+      if (!(await dialogs.confirm({ message: `${labels[action]}할까요?`, detail: `${selected.hash.slice(0, 8)} ${selected.subject}`, confirmLabel: '실행', danger: true }))) return
     }
     try {
       await runGitCommitAction(repositoryPath, action, selected.hash, name, project)
@@ -321,12 +323,13 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
 
   return (
     <div className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface">
+      {dialogs.dialog}
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
         <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'} title={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'}><BackIcon /></button>
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={heading}>{heading}</span>
       </div>
 
-      {error && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1">{error}</span><button type="button" onClick={() => setError(null)} aria-label="오류 닫기">×</button></div>}
+      {error && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="select-text min-w-0 flex-1">{error}</span><button type="button" onClick={() => setError(null)} aria-label="오류 닫기">×</button></div>}
 
       {view.kind === 'graph' && (
         <>
@@ -404,8 +407,8 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
           ) : detail && (
             <>
               <div className="border-b border-edge p-4">
-                <div className="font-medium text-ink">{detail.subject}</div>
-                {detail.body && <div className="mt-2 whitespace-pre-wrap text-xs text-ink-secondary">{detail.body}</div>}
+                <div className="select-text font-medium text-ink">{detail.subject}</div>
+                {detail.body && <div className="select-text mt-2 whitespace-pre-wrap text-xs text-ink-secondary">{detail.body}</div>}
                 <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-ink-muted"><span>{detail.author} &lt;{detail.email}&gt;</span><span>{shortDate(detail.date)}</span><button type="button" className="font-mono hover:text-ink" onClick={() => void navigator.clipboard.writeText(detail.hash)}>{detail.hash}</button></div>
               </div>
               <ChangedFiles files={detail.files} onSelect={selectCommitFile} />

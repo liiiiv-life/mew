@@ -1,4 +1,6 @@
 export { ConfirmDialog } from './ConfirmDialog'
+export { DialogFrame } from './dialog-frame'
+export { useDialog } from './use-dialog'
 export { HoverTipLayer } from './HoverTipLayer'
 export { Toast } from './Toast'
 export { useToast } from './useToast'

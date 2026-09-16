@@ -1,3 +1,4 @@
+import { useDialog } from '@mew/ui'
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import {
   replaceInProjectFile,
@@ -45,6 +46,7 @@ export function SearchPanel({
   onReplaced: () => void
 }) {
   const { t } = useI18n()
+  const dialogs = useDialog()
   const [query, setQuery] = useState('')
   const [replace, setReplace] = useState('')
   const [showReplace, setShowReplace] = useState(false)
@@ -181,7 +183,7 @@ export function SearchPanel({
 
   async function replaceAll() {
     if (busy || !results.length) return
-    if (!window.confirm(`${results.length}개 파일에서 ${totalMatches}개 매치를 "${replace}"(으)로 모두 바꾸고 커밋합니다. 계속할까요?`)) return
+    if (!(await dialogs.confirm({ message: '모두 바꾸고 커밋할까요?', detail: `${results.length}개 파일에서 ${totalMatches}개 매치를 "${replace}"(으)로 바꿉니다.`, confirmLabel: '모두 바꾸기', danger: true }))) return
     setBusy(true)
     try {
       for (const file of results) {
@@ -198,6 +200,7 @@ export function SearchPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col text-sm">
+      {dialogs.dialog}
       <div className="flex items-start gap-1 border-b border-edge px-2 py-2">
         {mode === 'content' && <button
           type="button"
@@ -278,7 +281,7 @@ export function SearchPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {error && <div className="px-3 py-2 text-xs text-danger-strong">{error}</div>}
+        {error && <div className="select-text px-3 py-2 text-xs text-danger-strong">{error}</div>}
         {!error && loading && <div className="px-3 py-2 text-xs text-ink-muted">검색 중…</div>}
         {!error && mode === 'content' && indexState !== 'ready' && query && (
           <div className="px-3 py-1 text-xs text-ink-muted">

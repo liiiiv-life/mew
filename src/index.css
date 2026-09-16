@@ -334,3 +334,15 @@ strong {
 .mew-comment:hover {
   background-color: color-mix(in srgb, #eab308 48%, transparent);
 }
+
+/* App dialogs share theme-aware focus and input affordances. */
+.mew-dialog :is(button, input, textarea, a):focus-visible {
+  outline: 2px solid var(--color-link);
+  outline-offset: 2px;
+}
+.mew-dialog :is(input, textarea) { caret-color: var(--color-link); }
+.mew-dialog input::placeholder { color: var(--color-ink-secondary); }
+.mew-dialog button { transition: background-color 120ms ease-out, color 120ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .mew-dialog button { transition: none; }
+}

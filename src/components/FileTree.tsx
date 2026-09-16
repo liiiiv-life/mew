@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { TreeNode } from '../api/client'
 import { copyFile, copyInto, createFolder, createNewDocument, deleteFile, downloadUrl, initializeGitRepository, renamePath, setGuestAccess, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
-import { ConfirmDialog, setPathDragData } from '@mew/ui'
+import { ConfirmDialog, setPathDragData, useDialog } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { PresenceDots } from './PresenceDots'
 import { CommandButtonMenu } from './CommandButtonMenu'
@@ -812,9 +812,10 @@ export function FileTree({
     uploadDirRef.current = dir
     uploadInputRef.current?.click()
   }
-  function initGit(dir: string) {
+  const dialogs = useDialog()
+  async function initGit(dir: string) {
     const shown = dir || '프로젝트 루트'
-    if (!window.confirm(`이 폴더를 Git 저장소로 초기화할까요?\n\n${shown}`)) return
+    if (!(await dialogs.confirm({ message: '이 폴더를 Git 저장소로 초기화할까요?', detail: shown, confirmLabel: 'Git 초기화' }))) return
     void initializeGitRepository(dir, project)
       .then(() => {
         onNotice(`${shown}: Git 저장소를 만들었습니다`)
@@ -1416,6 +1417,7 @@ export function FileTree({
 
   return (
     <div data-tree-key={persistedProject} className={compact ? 'bg-surface-deep' : 'flex h-full flex-col border-r border-edge bg-surface-deep'}>
+      {dialogs.dialog}
       <div
         ref={listRef}
         tabIndex={-1}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useOverlayDismiss } from '@mew/ui'
+import { useDialog, useOverlayDismiss } from '@mew/ui'
 import {
   browseExternalEntries,
   deleteExternalPath,
@@ -98,6 +98,7 @@ export function ServerFileExplorer({
   onClose: () => void
 }) {
   const { t } = useI18n()
+  const dialogs = useDialog()
   const [current, setCurrent] = useState('')
   const [draft, setDraft] = useState('~')
   const [root, setRoot] = useState<ExternalEntriesResult | null>(null)
@@ -180,8 +181,8 @@ export function ServerFileExplorer({
 
   const fail = (err: unknown) => setError(err instanceof Error ? err.message : t('fileExplorer.operationFailed'))
 
-  const rename = (entry: ExternalEntry) => {
-    const name = window.prompt(t('fileExplorer.renameTitle'), entry.name)
+  const rename = async (entry: ExternalEntry) => {
+    const name = await dialogs.prompt({ message: t('fileExplorer.renameTitle'), defaultValue: entry.name, confirmLabel: t('common.save'), cancelLabel: t('common.cancel') })
     if (!name || name === entry.name) return
     renameExternalPath(entry.path, name)
       .then(({ path }) => {
@@ -191,8 +192,8 @@ export function ServerFileExplorer({
       .catch(fail)
   }
 
-  const remove = (entry: ExternalEntry) => {
-    if (!window.confirm(`${t('fileExplorer.deleteTitle')}\n${t('fileExplorer.deleteDescription')}\n\n${entry.path}`)) return
+  const remove = async (entry: ExternalEntry) => {
+    if (!(await dialogs.confirm({ message: t('fileExplorer.deleteTitle'), detail: `${t('fileExplorer.deleteDescription')}\n\n${entry.path}`, danger: true, confirmLabel: t('common.delete'), cancelLabel: t('common.cancel') }))) return
     deleteExternalPath(entry.path)
       .then(() => {
         onDeleted(entry.path, entry.type)
@@ -212,8 +213,8 @@ export function ServerFileExplorer({
       .catch(fail)
   }
 
-  const openProject = (path: string) => {
-    if (!window.confirm(`${t('fileExplorer.openProjectConfirm')}\n\n${path}`)) return
+  const openProject = async (path: string) => {
+    if (!(await dialogs.confirm({ message: t('fileExplorer.openProjectConfirm'), detail: path, confirmLabel: t('project.openHere'), cancelLabel: t('common.cancel') }))) return
     openExternalProject(path)
       .then((result) => {
         try {
@@ -231,6 +232,7 @@ export function ServerFileExplorer({
 
   return (
     <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-3" onMouseDown={onClose}>
+      {dialogs.dialog}
       <div className="flex h-[78vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface-raised shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-center border-b border-edge px-3 py-2">
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{t('fileExplorer.title')}</span>
@@ -257,7 +259,7 @@ export function ServerFileExplorer({
             </div>
           )}
         </form>
-        {error && <div className="border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div>}
+        {error && <div className="select-text border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div>}
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
           {!root ? (
             !error && <div className="px-3 py-5 text-center text-xs text-ink-muted">{t('fileExplorer.loading')}</div>
