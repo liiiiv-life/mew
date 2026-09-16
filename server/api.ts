@@ -1,3 +1,4 @@
+import { discoverCloudStorage } from './cloud-storage.ts'
 import express from 'express'
 import { createRemoteDesktopRoutes } from './remote-desktop.ts'
 import multer from 'multer'
@@ -664,6 +665,14 @@ export function createApiApp() {
   app.get('/fs/dirs', requireRole('owner'), (req, res) => {
     try {
       res.json(listDirs(resolveBrowsePath(String(req.query.path ?? ''))))
+    } catch (err) {
+      handleError(res, err)
+    }
+  })
+
+  app.get('/fs/cloud-storage', requireRole('owner'), async (_req, res) => {
+    try {
+      res.json({ folders: await discoverCloudStorage() })
     } catch (err) {
       handleError(res, err)
     }

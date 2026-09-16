@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useOverlayDismiss } from '@mew/ui'
-import {
-  browseExternalEntries,
-  cloneExternalGit,
-  createExternalFolder,
-  initializeExternalGit,
-  type ExternalEntriesResult,
-} from '../api/client'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { ArrowLeft, ArrowUp, Check, Folder, FolderPlus, GitBranch, HomeSimple, NavArrowRight, RefreshDouble, Search, Xmark } from 'iconoir-react'
+import { DialogFrame } from '@mew/ui'
+import { browseExternalEntries, cloneExternalGit, createExternalFolder, initializeExternalGit, type ExternalEntriesResult } from '../api/client'
 import { useI18n } from '../i18n'
+import { CloudStorageLocations } from './cloud-storage-locations'
+
+type Action = 'folder' | 'clone' | 'init'
+const button = 'inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-ink-secondary hover:bg-surface-hover disabled:opacity-40'
+const input = 'min-h-11 w-full min-w-0 rounded-lg border border-edge-strong bg-surface-deep px-3 text-sm text-ink'
 
 export function OpenProjectDialog({ basePath, onOpen, onClose }: {
   basePath: string
@@ -15,133 +15,160 @@ export function OpenProjectDialog({ basePath, onOpen, onClose }: {
   onClose: () => void
 }) {
   const { t } = useI18n()
+  const id = useId()
   const [path, setPath] = useState(basePath)
   const [draft, setDraft] = useState(basePath)
   const [result, setResult] = useState<ExternalEntriesResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [createMenu, setCreateMenu] = useState(false)
+  const [action, setAction] = useState<Action | null>(null)
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const [filter, setFilter] = useState('')
+  const [notice, setNotice] = useState('')
   const requestSeq = useRef(0)
-  useOverlayDismiss(onClose)
+  const busyRef = useRef(false)
+  const actionInput = useRef<HTMLInputElement>(null)
+  const actionBack = useRef<HTMLButtonElement>(null)
+  const actionTriggers = useRef<Partial<Record<Action, HTMLButtonElement | null>>>({})
+  const restoreActionFocus = useRef<Action | null>(null)
 
   const load = useCallback((nextPath: string) => {
     const seq = ++requestSeq.current
     setResult(null)
     setError(null)
-    browseExternalEntries(nextPath)
-      .then((next) => {
-        if (requestSeq.current !== seq) return
-        setResult(next)
-        setPath(next.path)
-        setDraft(next.path)
-      })
-      .catch((err: unknown) => {
-        if (requestSeq.current === seq) setError(err instanceof Error ? err.message : String(err))
-      })
+    setFilter('')
+    setDraft(nextPath)
+    browseExternalEntries(nextPath).then((next) => {
+      if (requestSeq.current !== seq) return
+      setResult(next)
+      setPath(next.path)
+      setDraft(next.path)
+    }).catch((err: unknown) => {
+      if (requestSeq.current === seq) setError(err instanceof Error ? err.message : String(err))
+    })
   }, [])
 
-  useEffect(() => load(basePath), [basePath, load])
+  const invalidateRequests = useCallback(() => { requestSeq.current++ }, [])
+  useEffect(() => { load(basePath); return invalidateRequests }, [basePath, load, invalidateRequests])
+  useEffect(() => { if (action) (actionInput.current ?? actionBack.current)?.focus() }, [action])
 
-  const run = async (action: () => Promise<unknown>, after?: () => void) => {
-    if (busy) return
+  useEffect(() => {
+    const target = restoreActionFocus.current
+    if (action || busy || !result || !target) return
+    const trigger = actionTriggers.current[target]
+    // Git initialization disables its trigger; focus an available action instead.
+    if (trigger?.disabled) actionTriggers.current.folder?.focus()
+    else trigger?.focus()
+    restoreActionFocus.current = null
+  }, [action, busy, result])
+
+  const back = () => {
+    setAction(null)
+    setError(null)
+  }
+  const begin = (next: Action) => {
+    restoreActionFocus.current = next
+    setName('')
+    setUrl('')
+    setError(null)
+    setNotice('')
+    setAction(next)
+  }
+  const run = async (operation: () => Promise<unknown>, after?: () => void) => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setError(null)
-    setCreateMenu(false)
-    try {
-      await action()
-      after?.()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
+    try { await operation(); after?.() }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { busyRef.current = false; setBusy(false) }
   }
 
-  const makeFolder = () => {
-    const name = window.prompt('새 폴더 이름')?.trim()
-    if (!name) return
-    void run(() => createExternalFolder(path, name), () => load(path))
+  const suggested = url.trim().replace(/[\\/]+$/, '').split(/[/:]/).at(-1)?.replace(/\.git$/i, '') ?? ''
+  const folderName = name.trim() || (action === 'clone' ? suggested : '')
+  const validName = !!folderName && !/[\\/]/.test(folderName) && !Array.from(folderName).some((char) => char.charCodeAt(0) < 32) && folderName !== '.' && folderName !== '..'
+  const invalidName = !!name.trim() && !validName
+  const submitAction = () => {
+    if (!action || !result || (action !== 'init' && !validName) || (action === 'clone' && !url.trim())) return
+    const operation = action === 'folder' ? () => createExternalFolder(path, folderName)
+      : action === 'clone' ? () => cloneExternalGit(path, url.trim(), folderName)
+      : () => initializeExternalGit(path)
+    void run(operation, () => {
+      setNotice(t(action === 'init' ? 'project.initialized' : 'project.created', { name: folderName }))
+      back()
+      load(path)
+    })
   }
-
-  const cloneRepository = () => {
-    const url = window.prompt('clone할 Git 저장소 주소')?.trim()
-    if (!url) return
-    const suggested = url.replace(/[\\/]+$/, '').split(/[/:]/).at(-1)?.replace(/\.git$/i, '') ?? ''
-    const name = window.prompt('만들 폴더 이름', suggested)
-    if (name === null) return
-    void run(() => cloneExternalGit(path, url, name.trim() || undefined), () => load(path))
-  }
-
-  const initRepository = () => {
-    if (!window.confirm(`현재 폴더를 Git 저장소로 초기화할까요?\n\n${path}`)) return
-    void run(() => initializeExternalGit(path), () => load(path))
-  }
-
-  const confirm = async () => {
-    if (!path || busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await onOpen(path)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setBusy(false)
-    }
-  }
-
   const directories = result?.entries.filter((entry) => entry.type === 'dir') ?? []
+  const visible = directories.filter((entry) => entry.name.toLocaleLowerCase().includes(filter.toLocaleLowerCase()))
   const currentIsGit = result?.entries.some((entry) => entry.name === '.git') ?? false
+  const actionTitle = action === 'folder' ? t('sidebar.newFolder') : action === 'clone' ? t('project.clone') : t('project.init')
 
-  return (
-    <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-3" onMouseDown={onClose}>
-      <div className="flex h-[76vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface-raised shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="flex items-center border-b border-edge px-3 py-2">
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{t('project.open')}</span>
-          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-ink-muted hover:bg-surface-hover" aria-label="닫기">×</button>
-        </div>
-
-        <form className="flex items-center gap-1.5 border-b border-edge px-3 py-2" onSubmit={(event) => { event.preventDefault(); load(draft) }}>
-          <button type="button" onClick={() => load('')} className="rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover" title="홈">⌂</button>
-          <button type="button" disabled={!result?.parent} onClick={() => result?.parent && load(result.parent)} className="rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-30" title="상위 폴더">↑</button>
-          <input value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} className="min-w-0 flex-1 rounded border border-edge bg-surface px-2 py-1 font-mono text-xs text-ink outline-none focus:border-accent" aria-label={t('project.path')} />
-          <button type="submit" className="rounded px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-hover">이동</button>
-          <div className="relative">
-            <button type="button" disabled={!result || busy} onClick={() => setCreateMenu((open) => !open)} className="flex h-7 w-7 items-center justify-center rounded bg-accent text-base text-ink-on-accent hover:bg-accent-strong disabled:opacity-40" title="만들기">+</button>
-            {createMenu && (
-              <div className="absolute right-0 top-9 z-20 min-w-52 overflow-hidden rounded-lg border border-edge-bright bg-surface-raised py-1 text-xs shadow-xl">
-                <button type="button" onClick={makeFolder} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">새 폴더</button>
-                <button type="button" onClick={cloneRepository} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">Git 저장소 clone</button>
-                <button type="button" disabled={currentIsGit} onClick={initRepository} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">현재 폴더에서 Git init</button>
-              </div>
-            )}
-          </div>
-        </form>
-
-        {error && <div className="border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div>}
-        <div className="min-h-0 flex-1 overflow-y-auto p-1">
-          {!result ? (
-            !error && <div className="px-3 py-5 text-center text-xs text-ink-muted">불러오는 중…</div>
-          ) : directories.length === 0 ? (
-            <div className="px-3 py-5 text-center text-xs text-ink-muted">하위 폴더가 없습니다</div>
-          ) : directories.map((entry) => (
-            <button key={entry.path} type="button" onClick={() => load(entry.path)} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink" title={entry.path}>
-              <span aria-hidden="true">📁</span>
-              <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-              {entry.git && <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9px] font-semibold text-accent">Git</span>}
-              <span className="text-ink-muted">›</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2 border-t border-edge px-3 py-2">
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-muted" title={path}>{path}</span>
-          {currentIsGit && <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[9px] font-semibold text-accent">Git 저장소</span>}
-          <button type="button" onClick={onClose} className="shrink-0 rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover">취소</button>
-          <button type="button" disabled={busy || !result} onClick={() => void confirm()} className="shrink-0 rounded bg-accent px-3 py-1 text-xs text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">
-            {busy ? '처리 중…' : t('project.openHere')}
-          </button>
-        </div>
+  return <DialogFrame labelledBy={id} describedBy={`${id}-hint`} busy={busy} onClose={action ? back : onClose} className="flex h-[min(680px,90dvh)] max-w-2xl flex-col">
+    <header className="flex shrink-0 items-start gap-3 px-5 pb-4 pt-5 sm:px-6">
+      <div className="min-w-0 flex-1">
+        <h2 id={id} className="text-lg font-semibold text-ink-bright">{t('project.open')}</h2>
+        <p id={`${id}-hint`} className="mt-1 text-sm text-ink-secondary">{t('project.browseHint')}</p>
       </div>
-    </div>
-  )
+      <button type="button" disabled={busy} onClick={onClose} className={`${button} -mr-2 px-2.5`} aria-label={t('common.close')}><Xmark width={20} height={20} /></button>
+    </header>
+
+    {action ? <form noValidate className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => { event.preventDefault(); submitAction() }}>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 sm:px-6">
+        <button ref={actionBack} type="button" disabled={busy} onClick={back} className={`${button} -ml-3 mb-4`}><ArrowLeft width={16} height={16} />{t('project.backToFolders')}</button>
+        <h3 className="text-base font-semibold text-ink">{actionTitle}</h3>
+        <p className="mt-2 text-sm leading-relaxed text-ink-secondary">{t(action === 'init' ? 'project.initHint' : 'project.createHint')}</p>
+        <div className="select-text mt-4 flex items-start gap-2 rounded-lg bg-surface-deep p-3 text-xs text-ink-secondary"><Folder width={16} height={16} className="shrink-0" /><span className="break-all font-mono">{path}</span></div>
+        {action === 'clone' && <div className="mt-5">
+          <label htmlFor={`${id}-url`} className="mb-2 block text-sm font-medium text-ink">{t('project.repositoryUrl')}</label>
+          <input ref={actionInput} id={`${id}-url`} value={url} disabled={busy} onChange={(event) => setUrl(event.target.value)} className={input} placeholder="https://github.com/team/project.git" autoComplete="off" spellCheck={false} />
+        </div>}
+        {action !== 'init' && <div className="mt-5">
+          <label htmlFor={`${id}-name`} className="mb-2 block text-sm font-medium text-ink">{t('project.folderName')}</label>
+          <input ref={action === 'folder' ? actionInput : undefined} id={`${id}-name`} value={name} disabled={busy} onChange={(event) => setName(event.target.value)} className={input} placeholder={action === 'clone' ? suggested || 'project' : 'my-project'} autoComplete="off" spellCheck={false} aria-invalid={invalidName || undefined} aria-describedby={invalidName ? `${id}-name-error` : undefined} />
+          {invalidName && <p id={`${id}-name-error`} className="mt-2 text-xs text-danger-ink">{t('project.invalidName')}</p>}
+        </div>}
+        {error && <p role="alert" className="mt-4 whitespace-pre-wrap break-words rounded-lg bg-danger-surface p-3 text-sm text-danger-ink">{error}</p>}
+        {busy && <p role="status" className="mt-4 text-sm text-ink-secondary">{t(action === 'clone' ? 'project.cloning' : 'project.working')}</p>}
+      </div>
+      <footer className="flex shrink-0 justify-end gap-2 border-t border-edge px-5 py-4 sm:px-6">
+        <button type="button" disabled={busy} onClick={back} className={button}>{t('common.cancel')}</button>
+        <button type="submit" disabled={busy || (action !== 'init' && !validName) || (action === 'clone' && !url.trim())} className={`${button} bg-accent !text-ink-on-accent hover:bg-accent-strong`}>{busy ? t('project.working') : actionTitle}</button>
+      </footer>
+    </form> : <>
+      <form noValidate className="flex shrink-0 gap-1.5 px-5 pb-4 sm:px-6" onSubmit={(event) => { event.preventDefault(); if (!busy) { setNotice(''); load(draft) } }}>
+        <button type="button" disabled={busy} onClick={() => { setNotice(''); load('') }} className={`${button} px-2.5`} aria-label={t('project.home')} title={t('project.home')}><HomeSimple width={18} height={18} /></button>
+        <button type="button" disabled={busy || !result?.parent} onClick={() => { if (result?.parent) { setNotice(''); load(result.parent) } }} className={`${button} px-2.5`} aria-label={t('project.parent')} title={t('project.parent')}><ArrowUp width={18} height={18} /></button>
+        <input data-dialog-autofocus value={draft} disabled={busy} onChange={(event) => setDraft(event.target.value)} spellCheck={false} autoComplete="off" className={`${input} font-mono !text-xs`} aria-label={t('project.path')} />
+        <button type="submit" disabled={busy} className={button}>{t('folder.go')}</button>
+      </form>
+      <CloudStorageLocations disabled={busy} onSelect={(nextPath) => { setNotice(''); load(nextPath) }} />
+      <div className="flex shrink-0 flex-wrap gap-1 border-y border-edge bg-surface-deep px-4 py-2 sm:px-5">
+        <button type="button" disabled={!result || busy} ref={(element) => { actionTriggers.current.folder = element }} onClick={() => begin('folder')} className={button}><FolderPlus width={17} height={17} />{t('sidebar.newFolder')}</button>
+        <button type="button" disabled={!result || busy} ref={(element) => { actionTriggers.current.clone = element }} onClick={() => begin('clone')} className={button}><GitBranch width={17} height={17} />{t('project.clone')}</button>
+        <button type="button" disabled={!result || busy || currentIsGit} ref={(element) => { actionTriggers.current.init = element }} onClick={() => begin('init')} className={`${button} sm:ml-auto`}>{currentIsGit ? <><Check width={16} height={16} />{t('project.gitRepository')}</> : t('project.init')}</button>
+      </div>
+      {notice && <p role="status" className="mx-5 mt-3 flex items-center gap-2 text-xs text-success-ink sm:mx-6"><Check width={16} height={16} />{notice}</p>}
+      <div className="flex shrink-0 items-center gap-3 px-5 py-3 sm:px-6">
+        <span className="shrink-0 text-xs font-medium text-ink-secondary">{t('project.folders')}{result && <span className="ml-2 tabular-nums">{directories.length}</span>}</span>
+        <label className="ml-auto flex min-w-0 max-w-56 items-center gap-2 text-ink-secondary"><Search width={15} height={15} className="shrink-0" /><input value={filter} onChange={(event) => setFilter(event.target.value)} disabled={!result || busy} aria-label={t('project.filter')} placeholder={t('project.filter')} className="min-h-9 w-full min-w-0 rounded-md bg-transparent px-1 text-xs text-ink" /></label>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 sm:px-4" aria-busy={!result && !error}>
+        {error ? <div role="alert" className="mx-2 rounded-lg bg-danger-surface p-4 text-sm text-danger-ink"><p className="whitespace-pre-wrap break-words">{error}</p><button type="button" onClick={() => load(draft)} className={`${button} mt-2 !text-danger-ink`}><RefreshDouble width={16} height={16} />{t('project.retry')}</button></div>
+          : !result ? <div role="status" className="px-4 py-12 text-center text-sm text-ink-secondary">{t('common.loading')}</div>
+          : visible.length === 0 ? <div className="flex flex-col items-center px-4 py-10 text-center"><Folder width={28} height={28} className="mb-3 text-ink-secondary" /><p className="text-sm font-medium text-ink">{t(filter ? 'project.noMatches' : 'folder.empty')}</p><p className="mt-2 text-xs text-ink-secondary">{t(filter ? 'project.filterHint' : 'project.emptyHint')}</p></div>
+          : visible.map((entry) => <button key={entry.path} type="button" disabled={busy} onClick={() => { setNotice(''); load(entry.path) }} className="group flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-ink hover:bg-surface-raised disabled:opacity-40" title={entry.path}>
+            <Folder width={19} height={19} className="shrink-0 text-ink-secondary" />
+            <span className="min-w-0 flex-1 truncate font-medium">{entry.name}</span>
+            {entry.git && <span className="flex shrink-0 items-center gap-1 text-xs text-ink-secondary"><GitBranch width={13} height={13} />Git</span>}
+            <NavArrowRight width={15} height={15} className="shrink-0 text-ink-secondary" />
+          </button>)}
+      </div>
+      <footer className="shrink-0 border-t border-edge bg-surface-deep px-5 py-4 sm:px-6">
+        <div className="mb-3 min-w-0"><p className="text-xs text-ink-secondary">{t('project.selectedFolder')}</p><p className="select-text mt-1 truncate font-mono text-xs text-ink" title={result?.path}>{result?.path ?? '—'}</p></div>
+        <div className="flex items-center justify-end gap-2"><button type="button" disabled={busy} onClick={onClose} className={button}>{t('common.cancel')}</button><button type="button" disabled={busy || !result} onClick={() => void run(() => Promise.resolve(onOpen(path)))} className={`${button} bg-accent !text-ink-on-accent hover:bg-accent-strong`}>{busy ? t('project.working') : t('project.openHere')}<NavArrowRight width={16} height={16} /></button></div>
+      </footer>
+    </>}
+  </DialogFrame>
 }

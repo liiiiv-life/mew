@@ -1,3 +1,4 @@
+import type { CloudStorageFolder } from '../../shared/cloud-storage'
 import type { EditorApi, EditorDbApi, DbColumn, DbColumnType, DbRow, DbSummary, DbView, TableWidths } from '@mew/editor'
 import type { TmuxPanelApi, TmuxSession } from '@mew/tmux-term'
 import { isHiddenTmuxSession } from '@mew/tmux-term'
@@ -265,6 +266,10 @@ export interface BrowseResult {
 /** 워크스페이스 밖 폴더를 훑는다 — owner 전용. 폴더만 돌아온다(파일 브라우저·워크스페이스 고르기) */
 export function browseDirs(path = ''): Promise<BrowseResult> {
   return fetch(`/api/fs/dirs?path=${encodeURIComponent(path)}`).then(json<BrowseResult>)
+}
+
+export function fetchCloudStorage(): Promise<{ folders: CloudStorageFolder[] }> {
+  return fetch('/api/fs/cloud-storage').then(json<{ folders: CloudStorageFolder[] }>)
 }
 
 export interface ExternalEntry {
