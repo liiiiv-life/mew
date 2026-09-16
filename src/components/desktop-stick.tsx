@@ -39,10 +39,9 @@ export function DesktopStick({ kind, input, disabled, onView }: { kind: StickKin
       cancel()
       event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId)
       pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY }; machine.current.down(performance.now())
-      let last = performance.now()
       const tick = (now: number) => {
         if (!pointer.current) return
-        const result = machine.current!.tick(now, (now - last) / 1000); last = now
+        const result = machine.current!.tick(now)
         if (knob.current) knob.current.style.transform = `translate(${result.x}px, ${result.y}px)`
         button.current?.toggleAttribute('data-held', result.held)
         frame.current = requestAnimationFrame(tick)

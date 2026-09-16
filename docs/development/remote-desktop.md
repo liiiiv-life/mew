@@ -1,7 +1,7 @@
 ---
 title: "원격 데스크톱 아키텍처와 검증"
 created: 2026-09-12
-updated: 2026-09-15
+updated: 2026-09-16
 ---
 
 # 원격 데스크톱
@@ -100,6 +100,8 @@ WSL 설치기는 PowerShell을 통해 Windows 복사본을 설치한다. `npm.cm
 
 [ADR 0145](../../../.mew/docs/decisions/0145-mew-desktop-mouse-controls.md)에 따라 상단 좌클릭·휠·우클릭과 하단 전체 너비의 커서 전용 패드를 마우스 형태로 묶는다. 화면 이동·확대는 옆의 별도 열에 두며 기존 핸들로 전체를 옮긴다. 좌·우 조이스틱은 3px 이동 문턱에서 첫 이동보다 먼저 button-down을 보내고, up/cancel/blur에서 해제한다. 커서 패드는 탭·hold 모두 버튼을 보내지 않는다. 휠만 일반 세로 스크롤과 320ms hold 후 중간 버튼 드래그를 구분한다. 방향키 드래그도 모든 방향키 해제·blur·비활성화에서 button-up을 보낸다.
 
+[ADR 0154](../../../.mew/docs/decisions/0154-mew-desktop-touchpad-motion.md)에 따라 모든 터치 컨트롤은 직전 입력과의 위치 차이를 즉시 처리한다. 커서·버튼 드래그는 CSS px당 원격 2px, 일반 휠은 세로 3배, 화면 이동은 1배, 확대는 세로 -100px당 로그 배율 +1이다. 최초 3px 문턱을 넘으면 시작 거리도 포함하고 이후 미세 이동·방향 반전을 보존한다. rAF는 hold·시각 피드백만 처리하며 정지 중에는 이동을 만들지 않는다. 손잡이의 8px 시각 반경은 입력 거리를 제한하지 않는다. 새 터치는 기준점을 초기화한다. 기존 속도 방식은 사용자 요청 없이 다시 도입하지 않는다.
+
 `desktop-input.ts`와 네이티브 `protocol.mjs`의 v1 스냅샷은 누적 이동/휠 카운터, 전체 버튼 비트셋(left=1, middle=2, right=4), 키 목록, 선택적 정규화 절대 위치를 담는다. 소수 이동을 누적한 뒤 정수로 전송해 미세 입력을 보존한다.
 
 - `motion`: unordered, maxRetransmits=0. 송신 큐가 2KB를 넘으면 건너뛰고 다음 누적 스냅샷으로 거리를 복구한다.
@@ -148,7 +150,7 @@ npx tsc -b
 npm run lint
 ```
 
-- protocol/joystick: 유실·역순·클릭 추월, 절대 위치, timeout, tap/즉시 이동/hold/cancel, 휠 축 제한, 로컬 뷰.
+- protocol/joystick: 유실·역순·클릭 추월, 절대 위치, timeout, tap/즉시 이동/hold/cancel, 휠 축 제한, 로컬 뷰, 정지 중 무이동·미세 반전·시각 반경 밖 이동·새 터치 기준점 초기화.
 - 서버: Origin·역할·임시 비밀번호, OS/WSL 경로, 메시지 검증, 단일 제어권, 화면 교체, 권한 회수·자식 종료. 가짜 stdio 프로세스를 사용한다.
 - OS: Windows INPUT 레이아웃, Mac modifier/middle drag, X11 notch, Wayland 승인 응답 경합·입력 순서·종료. FFI/DBus는 모의 객체다.
 - Windows bridge: 세션 0/로그인 세션 실행 인자·방화벽 차단 안내·오류의 WS 전달을 검사한다. `MEW_DESKTOP_TEST_WINDOWS_NODE`에 Windows `node.exe` 경로를 지정하면 실제 임시 작업·Electron 실행·화면 목록·인증 파이프·부모 종료·Electron 이벤트 루프 정지 시 강제 종료 테스트를 실행한다. 실제 Windows 로그인 세션에서 화면 목록이 나오는 것까지 확인했다. 픽셀이나 입력은 기록하지 않는다.

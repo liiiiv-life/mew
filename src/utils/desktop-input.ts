@@ -65,15 +65,7 @@ export const HOLD_MS = 320
 export const STICK_TRAVEL = 8
 export const stickButton = (kind: StickKind) => kind === 'left' ? 1 : kind === 'wheel' ? 2 : kind === 'right' ? 4 : 0
 
-/** High gain with a fine centre, tiny visible travel; speed independent of display refresh. */
-export function stickVelocity(x: number, y: number) {
-  const distance = Math.hypot(x, y)
-  if (distance < 2) return { x: 0, y: 0 }
-  const strength = Math.min(1, (distance - 2) / 18)
-  const speed = 2600 * strength * strength
-  return { x: x / distance * speed, y: y / distance * speed }
-}
-
+/** Touchpad deltas drive input; animation frames only update hold/visual feedback. */
 export function desktopStick(kind: StickKind, input: Pick<DesktopInput, 'button' | 'click' | 'move' | 'wheel'>, view: (x: number, y: number, zoom: number) => void) {
   let active = false, moved = false, held = false, started = 0, x = 0, y = 0
   const hold = (now: number) => {
@@ -89,19 +81,21 @@ export function desktopStick(kind: StickKind, input: Pick<DesktopInput, 'button'
         // Press before the first movement snapshot, including a quick swipe.
         if (!held && (kind === 'left' || kind === 'right')) { held = true; input.button(stickButton(kind), true) }
       }
+      // Keep the initial tap slop until movement starts, then preserve even tiny
+      // reversals and motion beyond the visible knob's travel.
+      if (!moved) return
+      const deltaX = dx - x, deltaY = dy - y
       x = dx; y = dy
+      if (!deltaX && !deltaY) return
+      if (kind === 'pan') view(deltaX, deltaY, 0)
+      else if (kind === 'zoom') { if (deltaY) view(0, 0, -deltaY / 100) }
+      else if (kind === 'wheel' && !held) { if (deltaY) input.wheel(0, deltaY * 3) }
+      else input.move(deltaX * 2, deltaY * 2)
     },
-    tick(now: number, seconds: number) {
+    tick(now: number) {
       if (!active) return { x: 0, y: 0, held: false }
       hold(now)
       const vertical = kind === 'zoom' || kind === 'wheel' && !held
-      const velocity = stickVelocity(vertical ? 0 : x, y), dt = Math.min(seconds, .04)
-      if (moved) {
-        if (kind === 'pan') view(velocity.x * dt, velocity.y * dt, 0)
-        else if (kind === 'zoom') view(0, 0, -velocity.y * dt / 700)
-        else if (kind === 'wheel' && !held) input.wheel(0, velocity.y * dt)
-        else input.move(velocity.x * dt, velocity.y * dt)
-      }
       const length = Math.hypot(vertical ? 0 : x, y), ratio = length ? Math.min(STICK_TRAVEL, length) / length : 0
       return { x: vertical ? 0 : x * ratio, y: y * ratio, held }
     },
