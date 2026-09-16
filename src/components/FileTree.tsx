@@ -254,7 +254,7 @@ function InlineInput({
         placeholder={placeholder}
         className="w-full rounded border border-accent bg-surface px-1.5 py-0.5 text-sm text-ink outline-none"
       />
-      {error && <div className="mt-0.5 text-xs text-danger">{error}</div>}
+      {error && <div className="select-text mt-0.5 text-xs text-danger">{error}</div>}
     </div>
   )
 }

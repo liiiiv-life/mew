@@ -411,7 +411,7 @@ function CmdButtonEditor({
           완료 후 터미널 종료
         </label>
 
-        {error && <div className="mb-2 text-xs text-danger-strong">{error}</div>}
+        {error && <div className="select-text mb-2 text-xs text-danger-strong">{error}</div>}
 
         <div className="flex items-center justify-end gap-2">
           {onDelete && (

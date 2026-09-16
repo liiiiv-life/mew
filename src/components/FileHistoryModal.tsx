@@ -126,7 +126,7 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {!selected && (
             <>
-              {listError && <div className="text-sm text-danger">{listError}</div>}
+              {listError && <div className="select-text text-sm text-danger">{listError}</div>}
               {!listError && entries === null && <div className="text-sm text-ink-muted">{t('common.loading')}</div>}
               {!listError && entries?.length === 0 && <div className="text-sm text-ink-muted">{t('history.none')}</div>}
               {!listError && entries && entries.length > 0 && (
@@ -153,12 +153,12 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
 
           {selected && (
             <>
-              {revertError && <div className="mb-2 text-sm text-danger">{revertError}</div>}
-              <div className="mb-3 rounded border border-edge bg-surface px-3 py-2 text-sm text-ink">
+              {revertError && <div className="select-text mb-2 text-sm text-danger">{revertError}</div>}
+              <div className="select-text mb-3 rounded border border-edge bg-surface px-3 py-2 text-sm text-ink">
                 {selected.message}
                 <div className="text-xs text-ink-muted">{formatDate(selected.date, { dateStyle: 'medium', timeStyle: 'short' })}</div>
               </div>
-              {detailError && <div className="text-sm text-danger">{detailError}</div>}
+              {detailError && <div className="select-text text-sm text-danger">{detailError}</div>}
               {!detailError && detailContent === null && <div className="text-sm text-ink-muted">{t('common.loading')}</div>}
               {!detailError &&
                 detailContent !== null &&

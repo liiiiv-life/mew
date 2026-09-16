@@ -1883,7 +1883,7 @@ export const Editor = forwardRef<
           title="클릭하면 닫힘"
           className="absolute bottom-2 right-2 flex max-w-xs cursor-pointer items-start gap-2 rounded bg-danger-strong px-2 py-1 text-xs text-ink-on-accent shadow-lg"
         >
-          <span className="min-w-0 break-words">{uploadError}</span>
+          <span className="select-text min-w-0 break-words">{uploadError}</span>
           <span aria-hidden className="shrink-0 opacity-70">✕</span>
         </div>
       )}

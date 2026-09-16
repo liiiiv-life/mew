@@ -149,7 +149,7 @@ export function IconPicker({
             {t('icon.apply')}
           </button>
         </div>
-        {fileError && <div className="mt-1 text-[11px] text-danger">{fileError}</div>}
+        {fileError && <div className="select-text mt-1 text-[11px] text-danger">{fileError}</div>}
       </div>
     </div>
   )

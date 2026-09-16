@@ -175,7 +175,7 @@ export function LinkTooltip({
               </>
             )}
             {preview.state === 'internal-missing' && (
-              <div className="text-xs text-danger">문서를 찾을 수 없습니다: {preview.path}</div>
+              <div className="select-text text-xs text-danger">문서를 찾을 수 없습니다: {preview.path}</div>
             )}
             {preview.state === 'external' && (
               <>

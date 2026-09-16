@@ -170,7 +170,7 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
           {installable && install.actions}
           {(state === 'error' || state === 'paused') && <button onClick={() => setAttempt(value => value + 1)}>다시 연결</button>}
         </div>}
-        {installable && install.error && <p className="desktop-install-error">{install.error}</p>}
+        {installable && install.error && <p className="select-text desktop-install-error">{install.error}</p>}
       </div>}
     </div>
     {helpOpen && <aside className="desktop-help"><strong>작은 움직임으로 빠르게 조작</strong>{connected && cursorMode && <p data-cursor-mode={cursorMode}>커서 표시: {cursorMode === 'local' ? '이 기기에서 즉시 표시' : '영상에 포함됨. 현재 화면에서는 커서 분리를 사용할 수 없습니다.'}</p>}<p>마우스 모양 아래쪽의 커서 이동 영역을 밀면 커서만 움직입니다. 위쪽 좌클릭·우클릭은 탭하면 클릭하고, 밀면 바로 버튼을 누른 채 드래그합니다. 휠은 밀어서 세로 스크롤하고, 잠깐 꾹 누른 뒤 밀면 중간 버튼으로 드래그합니다.</p><p>화면 이동·확대는 내 화면에만 적용됩니다. 화면을 손가락으로 밀거나 두 손가락으로 확대할 수도 있습니다. 마지막 핸들로 조이스틱 전체를 옮기세요.</p>{relative && <p>이 서버는 조이스틱으로 커서를 이동합니다.</p>}<p>키보드: 화면 선택 후 입력 · F6: 도구로 이동 · Esc: 닫기</p></aside>}

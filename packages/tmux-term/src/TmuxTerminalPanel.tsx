@@ -96,7 +96,7 @@ function InlineTabInput({
         className="w-28 rounded border border-accent bg-surface px-1.5 py-0.5 text-xs text-ink outline-none"
       />
       {error && (
-        <div className="absolute top-full left-0 z-10 mt-1 rounded border border-danger bg-surface-raised px-2 py-1 text-xs whitespace-nowrap text-danger shadow-lg">
+        <div className="select-text absolute top-full left-0 z-10 mt-1 rounded border border-danger bg-surface-raised px-2 py-1 text-xs whitespace-nowrap text-danger shadow-lg">
           {error}
         </div>
       )}

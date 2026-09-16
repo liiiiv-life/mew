@@ -164,7 +164,7 @@ export function EditorSearchBar({
             </button>
           </div>
         )}
-        {storage.error && <div className="px-1 text-xs text-danger-strong">정규식 오류: {storage.error}</div>}
+        {storage.error && <div className="select-text px-1 text-xs text-danger-strong">정규식 오류: {storage.error}</div>}
       </div>
     </div>
   )

@@ -249,7 +249,7 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
                 </div>
               )}
             </div>
-            {error && <div className="whitespace-pre-wrap rounded border border-danger/40 bg-surface px-2 py-1.5 text-xs text-danger">{error}</div>}
+            {error && <div className="select-text whitespace-pre-wrap rounded border border-danger/40 bg-surface px-2 py-1.5 text-xs text-danger">{error}</div>}
             {savedNote && <div className="text-xs text-accent">저장했습니다.</div>}
           </div>
         )}

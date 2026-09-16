@@ -73,7 +73,7 @@ function ConfirmSwitch({ target, onBack, onClose }: { target: string; onBack: ()
 
         <div className="min-h-0 flex-1 overflow-y-auto border-t border-edge px-3 py-2">
           {error ? (
-            <div className="text-xs text-danger-strong">{error}</div>
+            <div className="select-text text-xs text-danger-strong">{error}</div>
           ) : projects === null ? (
             <div className="text-xs text-ink-muted">{t('workspace.reading')}</div>
           ) : projects.length === 0 ? (

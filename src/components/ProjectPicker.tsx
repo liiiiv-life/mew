@@ -357,7 +357,7 @@ export function ProjectPicker({
           </div>
         )}
 
-        {error && !editing && !deleteTarget && <div className="mt-2 text-sm text-danger">{error}</div>}
+        {error && !editing && !deleteTarget && <div className="select-text mt-2 text-sm text-danger">{error}</div>}
       </div>
     </div>
 
@@ -434,7 +434,7 @@ export function ProjectPicker({
             )}
           </div>
 
-          {error && !deleteTarget && <div className="mt-3 text-sm text-danger">{error}</div>}
+          {error && !deleteTarget && <div className="select-text mt-3 text-sm text-danger">{error}</div>}
         </div>
       </div>
     )}
@@ -466,7 +466,7 @@ export function ProjectPicker({
             autoFocus
             className="mt-2 w-full rounded border border-edge-strong bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-danger"
           />
-          {error && <div className="mt-2 text-sm text-danger">{error}</div>}
+          {error && <div className="select-text mt-2 text-sm text-danger">{error}</div>}
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"

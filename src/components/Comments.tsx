@@ -137,7 +137,7 @@ function CommentRow({
         )}
       </div>
       {editing === null ? (
-        <div className="whitespace-pre-wrap break-words pl-3.5 text-sm text-ink">{comment.text}</div>
+        <div className="select-text whitespace-pre-wrap break-words pl-3.5 text-sm text-ink">{comment.text}</div>
       ) : (
         <div className="flex flex-col gap-1.5 pl-3.5">
           <textarea

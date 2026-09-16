@@ -64,7 +64,7 @@ export function ServerDomBrowser({ streamUrl, reopen, onStatus, onController }: 
         {downloads.map((download) => <a key={download.id} href={download.url} download={download.name} className="text-accent underline">{download.name} ↓</a>)}
       </div>}
       {dialog && <form className="shrink-0 border-b border-edge bg-surface p-3 text-sm text-ink" onSubmit={(event) => { event.preventDefault(); controller.current?.command('dialog', { accept: true, value: dialogValue }); setDialog(undefined) }}>
-        <p className="break-words whitespace-pre-wrap">{dialog.message}</p>
+        <p className="select-text break-words whitespace-pre-wrap">{dialog.message}</p>
         {dialog.dialogType === 'prompt' && <input aria-label={dialog.message} value={dialogValue} onChange={(event) => setDialogValue(event.target.value)} className="my-2 w-full rounded border border-edge bg-surface-deep p-2" />}
         <div className="mt-2 flex justify-end gap-2">
           <button type="button" className="rounded px-3 py-1 hover:bg-surface-raised" onClick={() => { controller.current?.command('dialog', { accept: false }); setDialog(undefined) }}>취소</button>

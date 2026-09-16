@@ -253,16 +253,16 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
             열기
           </button>
         </form>
-        {frameError && <div className="border-t border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{frameError}</div>}
+        {frameError && <div className="select-text border-t border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{frameError}</div>}
       </div>
 
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(10rem,18rem)_1fr] md:grid-rows-[minmax(11rem,16rem)_1fr]">
         <div className="min-h-0 overflow-auto border-b border-edge bg-surface">
           {statusError ? (
-            <div className="px-3 py-2 text-xs text-danger">{statusError}</div>
+            <div className="select-text px-3 py-2 text-xs text-danger">{statusError}</div>
           ) : status ? (
             <>
-              {commandError && <div className="border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{commandError}</div>}
+              {commandError && <div className="select-text border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{commandError}</div>}
               <div className="border-b border-edge px-3 py-2 text-xs text-ink-muted">
                 <span>SDK</span>
                 <CopyableCode text={status.sdkRoot} label="SDK 경로 복사" />

@@ -331,7 +331,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {error && <div className="mb-2 text-xs text-danger-strong">{error}</div>}
+        {error && <div className="select-text mb-2 text-xs text-danger-strong">{error}</div>}
 
         <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-sm text-ink hover:bg-surface">

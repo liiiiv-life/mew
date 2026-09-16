@@ -93,7 +93,7 @@ export function FolderPicker({
             </button>
           )}
           {error ? (
-            <div className="px-3 py-4 text-center text-xs text-danger-strong">{error}</div>
+            <div className="select-text px-3 py-4 text-center text-xs text-danger-strong">{error}</div>
           ) : !result ? (
             <div className="px-3 py-4 text-center text-xs text-ink-muted">{t('common.loading')}</div>
           ) : result.dirs.length === 0 ? (

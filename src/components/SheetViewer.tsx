@@ -39,7 +39,7 @@ export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSr
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-surface p-6 text-center">
         <span className="max-w-md truncate text-sm text-ink-muted">{name}</span>
-        <span className="text-sm text-danger">{error}</span>
+        <span className="select-text text-sm text-danger">{error}</span>
         <DownloadLink href={downloadSrc ?? downloadUrl(path)} name={name} className="text-xs text-accent hover:underline">
           {t('media.download')}
         </DownloadLink>
@@ -73,7 +73,7 @@ export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSr
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
         {head ? (
-          <table className="border-collapse text-xs text-ink">
+          <table className="select-text border-collapse text-xs text-ink">
             <thead>
               <tr>
                 {head.map((cell, i) => (

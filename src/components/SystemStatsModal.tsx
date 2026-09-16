@@ -293,7 +293,7 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           {error ? (
-            <div className="py-6 text-center text-xs text-danger-strong">{error}</div>
+            <div className="select-text py-6 text-center text-xs text-danger-strong">{error}</div>
           ) : !stats ? (
             <div className="py-6 text-center text-xs text-ink-muted">{t('system.loading')}</div>
           ) : (

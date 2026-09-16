@@ -56,7 +56,7 @@ function fileTitle(path: string): string {
 function MessageBody({ text, onOpenFile }: { text: string; onOpenFile: (project: string, path: string) => void }) {
   const parts = text.split(/(\[\[[^\]\n]+\]\])/)
   return (
-    <div className="whitespace-pre-wrap break-words text-sm text-ink">
+    <div className="select-text whitespace-pre-wrap break-words text-sm text-ink">
       {parts.map((part, i) => {
         const inner = part.startsWith('[[') && part.endsWith(']]') ? part.slice(2, -2) : null
         const token = inner ? parseFileToken(inner) : null
@@ -360,7 +360,7 @@ export function ChatPanel({
         })}
       </div>
 
-      {error && <div className="border-t border-edge px-3 py-1 text-xs text-danger">{error}</div>}
+      {error && <div className="select-text border-t border-edge px-3 py-1 text-xs text-danger">{error}</div>}
 
       <div className="flex shrink-0 items-end gap-2 border-t border-edge p-2">
         <MentionTextarea

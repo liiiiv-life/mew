@@ -49,7 +49,7 @@ export function DatabaseListModal({ onClose }: { onClose: () => void }) {
           </div>
           <div className="flex-1 overflow-y-auto border-t border-edge">
             {error ? (
-              <div className="px-3 py-4 text-center text-xs text-danger-strong">{error}</div>
+              <div className="select-text px-3 py-4 text-center text-xs text-danger-strong">{error}</div>
             ) : items === null ? (
               <div className="px-3 py-4 text-center text-xs text-ink-muted">{t('common.loading')}</div>
             ) : items.length === 0 ? (

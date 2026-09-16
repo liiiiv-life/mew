@@ -42,7 +42,7 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
       {loading ? (
         <div className="border-t border-edge px-3 py-8 text-center text-xs text-ink-muted">불러오는 중…</div>
       ) : error ? (
-        <div className="border-t border-edge px-3 py-8 text-center text-xs text-danger-strong">{error}</div>
+        <div className="select-text border-t border-edge px-3 py-8 text-center text-xs text-danger-strong">{error}</div>
       ) : !view ? (
         <div className="border-t border-edge px-3 py-8 text-center text-xs text-ink-muted">데이터베이스를 찾을 수 없습니다</div>
       ) : (
@@ -301,7 +301,7 @@ function Cell({
   }
 
   if (!editable) {
-    return <div className="min-h-[2.25rem] px-3 py-2 text-sm text-ink">{value == null ? '' : String(value)}</div>
+    return <div className="select-text min-h-[2.25rem] px-3 py-2 text-sm text-ink">{value == null ? '' : String(value)}</div>
   }
 
   const inputType = col.type === 'number' ? 'number' : col.type === 'date' ? 'date' : 'text'

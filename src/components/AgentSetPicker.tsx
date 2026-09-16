@@ -74,7 +74,7 @@ export function AgentSetPicker({ onSelect }: { onSelect: (set: AgentSet) => void
           {sets.length === 0 && <div className="py-2 text-center text-xs text-ink-muted">{t('agentSet.none')}</div>}
         </div>
       )}
-      {error && <div className="mt-3 whitespace-pre-wrap text-xs text-danger">{error}</div>}
+      {error && <div className="select-text mt-3 whitespace-pre-wrap text-xs text-danger">{error}</div>}
       {editing && <AgentSetEditor set={editing} isNew={!sets?.some((item) => item.id === editing.id)} onSave={save} onDelete={() => remove(editing.id)} onClose={() => setEditing(null)} />}
     </>
   )

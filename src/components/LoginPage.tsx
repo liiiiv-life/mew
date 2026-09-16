@@ -106,7 +106,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
                 required
                 className={inputClass}
               />
-              {error && <div className="text-sm text-danger">{error}</div>}
+              {error && <div className="select-text text-sm text-danger">{error}</div>}
               <button
                 type="submit"
                 disabled={busy || !email || !password}
@@ -141,7 +141,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
                 required
                 className={inputClass}
               />
-              {error && <div className="text-sm text-danger">{error}</div>}
+              {error && <div className="select-text text-sm text-danger">{error}</div>}
               <button
                 type="submit"
                 disabled={busy || !newPassword || !confirmPassword}

@@ -66,7 +66,7 @@ export function DbReferencePicker({
         <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-muted">이 프로젝트의 데이터베이스</div>
         <div className="max-h-48 overflow-y-auto rounded border border-edge-bright">
           {error ? (
-            <div className="px-2 py-3 text-center text-xs text-danger-strong">{error}</div>
+            <div className="select-text px-2 py-3 text-center text-xs text-danger-strong">{error}</div>
           ) : items === null ? (
             <div className="px-2 py-3 text-center text-xs text-ink-muted">불러오는 중…</div>
           ) : items.length === 0 ? (

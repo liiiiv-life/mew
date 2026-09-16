@@ -1769,7 +1769,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
               </button>
             )}
             {activeTab?.status === 'error' && (
-              <span className="hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
+              <span className="select-text hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
             )}
             <HeaderMenu items={headerMenuItems} />
           </div>

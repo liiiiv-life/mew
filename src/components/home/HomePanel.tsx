@@ -219,7 +219,7 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
         </div>
       </div>
 
-      {error && <div className="shrink-0 bg-warning-surface px-3 py-1.5 text-xs text-warning-ink">{error}</div>}
+      {error && <div className="select-text shrink-0 bg-warning-surface px-3 py-1.5 text-xs text-warning-ink">{error}</div>}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 pt-14 sm:px-5 lg:px-7">
         {shown.length === 0 ? (

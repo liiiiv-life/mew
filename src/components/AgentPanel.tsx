@@ -1168,7 +1168,7 @@ function AgentPathBar({
           className={`min-w-0 flex-1 bg-transparent font-mono text-xs outline-none disabled:cursor-not-allowed ${error ? 'text-danger' : 'text-ink-secondary focus:text-ink'}`}
         />
         {saving && <span className="shrink-0 text-[10px] text-ink-muted">이동 중…</span>}
-        {error && <span className="max-w-[35%] shrink-0 truncate text-[10px] text-danger" title={error}>{error}</span>}
+        {error && <span className="select-text max-w-[35%] shrink-0 truncate text-[10px] text-danger" title={error}>{error}</span>}
         <button
           type="button"
           onMouseDown={(event) => event.preventDefault()}
@@ -1211,7 +1211,7 @@ function AgentPathBar({
           onMouseDown={(event) => event.preventDefault()}
         >
           {loadingSuggestions && !suggestions && <div className="px-3 py-2 text-xs text-ink-muted">폴더 불러오는 중…</div>}
-          {suggestError && <div className="px-3 py-2 text-xs text-danger">{suggestError}</div>}
+          {suggestError && <div className="select-text px-3 py-2 text-xs text-danger">{suggestError}</div>}
           {!loadingSuggestions && !suggestError && suggestions?.dirs.length === 0 && (
             <div className="px-3 py-2 text-xs text-ink-muted">하위 폴더가 없습니다. Enter를 다시 누르거나 →로 이 경로를 여세요.</div>
           )}
@@ -1355,7 +1355,7 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
               )
             })
           )}
-          {error && <div className="max-h-24 overflow-auto whitespace-pre-wrap px-2.5 py-1.5 text-xs text-danger">{error.message}</div>}
+          {error && <div className="select-text max-h-24 overflow-auto whitespace-pre-wrap px-2.5 py-1.5 text-xs text-danger">{error.message}</div>}
         </div>
       )}
     </div>
@@ -1440,14 +1440,14 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
                     </button>
                   )}
                   {error?.id === runtime.id && (
-                    <div className="max-h-24 w-full basis-full overflow-auto whitespace-pre-wrap text-xs text-danger">{error.message}</div>
+                    <div className="select-text max-h-24 w-full basis-full overflow-auto whitespace-pre-wrap text-xs text-danger">{error.message}</div>
                   )}
                 </div>
               )
             })}
           </div>
         )}
-        {error?.id === '' && <div className="mt-3 whitespace-pre-wrap text-xs text-danger">{error.message}</div>}
+        {error?.id === '' && <div className="select-text mt-3 whitespace-pre-wrap text-xs text-danger">{error.message}</div>}
       </div>
     </div>
   )
@@ -1888,7 +1888,7 @@ export function AgentPanel({ project, workspacePath, tree, focusedFilePath, getS
         })}
       {pickerOpen && (
         <div className="flex min-h-0 flex-1 flex-col">
-          {openRuntimeError && <div className="shrink-0 px-4 pt-3 text-center text-xs text-danger">{openRuntimeError}</div>}
+          {openRuntimeError && <div className="select-text shrink-0 px-4 pt-3 text-center text-xs text-danger">{openRuntimeError}</div>}
           {openingRuntime && <div className="shrink-0 px-4 pt-3 text-center text-xs text-ink-muted">{runtimeOf(openingRuntime).label} 여는 중…</div>}
           <RuntimePicker onSelect={addRuntimeTab} onSelectSet={addSetTab} />
         </div>
@@ -1941,7 +1941,7 @@ function AgentTerminalView({
     <div className="flex h-full items-center justify-center bg-surface-deep p-4 text-center">
       {error ? (
         <div className="space-y-3">
-          <div className="max-w-md whitespace-pre-wrap text-sm text-danger">{error}</div>
+          <div className="select-text max-w-md whitespace-pre-wrap text-sm text-danger">{error}</div>
           <button type="button" onClick={() => setRetry((value) => value + 1)} className="rounded border border-edge-bright px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-raised">다시 연결</button>
         </div>
       ) : <div className="text-sm text-ink-muted">터미널 여는 중…</div>}
@@ -1964,7 +1964,7 @@ function AgentCachedPreview({ tab }: { tab: AgentTab }) {
   return <div className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-busy="true">
     <div className="shrink-0 px-4 py-2 text-xs text-ink-muted">최근 대화 · 연결 중…</div>
     <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden px-4 pb-4">
-      {items.map((text, index) => <div key={index} className="mt-3 shrink-0 whitespace-pre-wrap break-words text-sm text-ink-secondary">{text.slice(-4000)}</div>)}
+      {items.map((text, index) => <div key={index} className="select-text mt-3 shrink-0 whitespace-pre-wrap break-words text-sm text-ink-secondary">{text.slice(-4000)}</div>)}
     </div>
   </div>
 }
@@ -3284,13 +3284,13 @@ function AgentSessionView({
                         return (
                           <div
                             key={child.key}
-                            className="mew-agent-markdown prose prose-sm max-w-none break-words [overflow-wrap:anywhere] text-ink dark:prose-invert prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:[overflow-wrap:anywhere] prose-pre:bg-surface-deep prose-code:text-ink-secondary"
+                            className="select-text mew-agent-markdown prose prose-sm max-w-none break-words [overflow-wrap:anywhere] text-ink dark:prose-invert prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:[overflow-wrap:anywhere] prose-pre:bg-surface-deep prose-code:text-ink-secondary"
                             onClick={(event) => handleMarkdownClick(event, onOpenFile)}
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(child.text) }}
                           />
                         )
                       if (child.kind === 'thought')
-                        return <div key={child.key} className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs text-ink-muted italic">{child.text}</div>
+                        return <div key={child.key} className="select-text whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs text-ink-muted italic">{child.text}</div>
                       if (child.kind === 'tool_group') {
                         const tOpen = expanded.has(child.key)
                         const failed = child.tools.filter((t) => t.status === 'failed').length
@@ -3309,7 +3309,7 @@ function AgentSessionView({
                                 {child.tools.map((t) => (
                                   <div key={t.id} className="flex items-center gap-2 text-xs text-ink-secondary">
                                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[toolState(t.status)]}`} />
-                                    <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{t.title}</span>
+                                    <span className="select-text min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{t.title}</span>
                                     <span className="shrink-0 text-ink-muted">{STATUS_LABEL[t.status] ?? t.status}</span>
                                   </div>
                                 ))}
@@ -3321,7 +3321,7 @@ function AgentSessionView({
                       if (child.kind === 'permission')
                         return (
                           <div key={child.key} className="rounded border border-edge-bright bg-surface-deep px-2 py-1.5">
-                            <div className="mb-1.5 break-words [overflow-wrap:anywhere] text-xs text-ink-secondary">{child.title}</div>
+                            <div className="select-text mb-1.5 break-words [overflow-wrap:anywhere] text-xs text-ink-secondary">{child.title}</div>
                             {child.answered ? (
                               <div className="text-xs text-ink-muted">응답함</div>
                             ) : (
@@ -3988,11 +3988,11 @@ function AgentErrorButton({
   return (
     <button
       type="button"
-      onClick={() => onOpen({ title, detail: text })}
+      onClick={() => { if (!hasSelection()) onOpen({ title, detail: text }) }}
       className={`${block ? 'rounded-lg bg-surface px-3 py-2' : 'rounded border border-danger/30 bg-surface-deep px-2 py-1'} break-words [overflow-wrap:anywhere] text-left text-xs text-danger hover:bg-surface-raised hover:underline`}
       title="오류 상세 보기"
     >
-      {title}
+      <span className="select-text">{title}</span>
     </button>
   )
 }
@@ -4129,7 +4129,7 @@ function SchedulePromptInline({
       </div>
       <div className="mt-1 flex items-center justify-center gap-2">
         {error
-          ? <p className="text-[11px] text-danger">{error}</p>
+          ? <p className="select-text text-[11px] text-danger">{error}</p>
           : <p className="text-xs text-ink-muted" aria-live="polite">{remaining}</p>}
         <button type="submit" disabled={saving || disabled} className="shrink-0 rounded bg-accent px-2 py-1 text-xs font-medium text-ink-on-accent disabled:opacity-50">{saving ? '등록 중…' : '예약'}</button>
       </div>

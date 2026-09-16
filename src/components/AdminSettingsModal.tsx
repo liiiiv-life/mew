@@ -116,7 +116,7 @@ export function AdminSettingsModal({ onClose }: AdminSettingsModalProps) {
               {addBusy ? t('admin.adding') : t('common.add')}
             </button>
           </div>
-          {addError && <div className="text-sm text-danger">{addError}</div>}
+          {addError && <div className="select-text text-sm text-danger">{addError}</div>}
           {tempPassword && (
             <div className="rounded border border-edge-strong bg-surface p-2 text-sm">
               <div className="text-ink-secondary">

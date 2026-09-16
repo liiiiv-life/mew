@@ -118,7 +118,7 @@ export function DocsSettingsModal({ onDone, onClose }: { onDone: (message: strin
         {workspace && (
           <div className="border-t border-edge px-3 py-2 font-mono text-[11px] text-ink-secondary">{workspace.docsPath}</div>
         )}
-        {error && <div className="border-t border-edge px-3 py-2 text-xs text-danger-ink">{error}</div>}
+        {error && <div className="select-text border-t border-edge px-3 py-2 text-xs text-danger-ink">{error}</div>}
         <button
           type="button"
           disabled={busy}

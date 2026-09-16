@@ -293,7 +293,7 @@ function AccountPanel({
           <input value={name} onChange={(e) => { setName(e.target.value); setProfileSaved(false) }} maxLength={50} required className={`${inputClass} mt-1`} />
         </label>
         <div className="text-xs text-ink-muted">JPG, PNG, WebP, GIF · 최대 512KB</div>
-        {profileError && <div className="text-sm text-danger">{profileError}</div>}
+        {profileError && <div className="select-text text-sm text-danger">{profileError}</div>}
         {profileSaved && <div className="text-sm text-success">프로필을 저장했습니다</div>}
         <button type="submit" disabled={profileBusy || !name.trim()} className="rounded bg-accent py-2 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">
           {profileBusy ? '저장 중…' : '프로필 저장'}
@@ -329,7 +329,7 @@ function AccountPanel({
           required
           className={inputClass}
         />
-        {error && <div className="text-sm text-danger">{error}</div>}
+        {error && <div className="select-text text-sm text-danger">{error}</div>}
         {success && (
           <div className="text-sm text-success">비밀번호 변경 완료 · 다른 기기에서 다시 로그인 필요</div>
         )}
@@ -543,7 +543,7 @@ function IgnorePanel() {
   }
 
   if (!names) {
-    return <div className="text-sm text-ink-muted">{error ?? '불러오는 중…'}</div>
+    return <div className={`${error ? 'select-text' : ''} text-sm text-ink-muted`}>{error ?? '불러오는 중…'}</div>
   }
 
   const isLocked = (name: string) => locked.includes(name)
@@ -593,7 +593,7 @@ function IgnorePanel() {
         </button>
       </form>
 
-      {error && <div className="text-sm text-danger">{error}</div>}
+      {error && <div className="select-text text-sm text-danger">{error}</div>}
 
       <div className="flex justify-end border-t border-edge pt-3">
         <button
@@ -643,7 +643,7 @@ function ShortcutsPanel() {
 
   return (
     <div>
-      {error && <div className="mb-3 text-sm text-danger">{error}</div>}
+      {error && <div className="select-text mb-3 text-sm text-danger">{error}</div>}
       {categories.map((category) => (
         <div key={category} className="mb-4 last:mb-0">
           <div className="mb-1.5 text-xs font-semibold text-ink-muted">{localizeShortcut(locale, category, category)}</div>
