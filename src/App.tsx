@@ -856,6 +856,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   // (useOverlayDismiss) 그쪽이 떠 있으면 언제나 먼저 닫히고, 패널은 마지막에 닫힌다.
   // App이 직접 소유하는 보조 패널은 여기 한 번에 등록한다. 모달·드롭다운은 각 컴포넌트가 같은 전역
   // 오버레이 스택에 등록하므로, Esc·모바일 뒤로가기는 가장 나중에 연 창 하나만 닫는다.
+  const browserBackRef = useRef<(() => boolean) | null>(null)
   useWorkspacePanelDismissals({
     sidebar: {
       open: sidebarOpen,
@@ -866,7 +867,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     chat: { open: chatOpen, close: () => closeWorkspacePanel('chat') },
     terminal: { open: terminalOpen, close: () => closeWorkspacePanel('terminal'), closeOnEscape: outsideTerminal },
     agent: { open: agentOpen, close: () => closeWorkspacePanel('agent'), closeOnEscape: outsideTerminal },
-    browser: { open: browserOpen, close: () => closeWorkspacePanel('browser') },
+    browser: { open: browserOpen, close: () => closeWorkspacePanel('browser'), closeOnBack: () => !browserBackRef.current?.() },
     git: { open: gitOpen, close: () => closeWorkspacePanel('git') },
     android: { open: androidOpen, close: () => closeWorkspacePanel('android') },
   }, mobileForegroundPanel)
@@ -2072,7 +2073,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           onClose={() => closeWorkspacePanel('agent')} onCloseTerminal={() => closeWorkspacePanel('terminal')}
           nextTabSignal={agentNextTabSignal} previousTabSignal={agentPreviousTabSignal}
         />}
-        {caps.browser && browserMounted.current && <BrowserPanel visible={browserOpen} onClose={() => closeWorkspacePanel('browser')}
+        {caps.browser && browserMounted.current && <BrowserPanel visible={browserOpen} backNavigationRef={browserBackRef} onClose={() => closeWorkspacePanel('browser')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'browser'; bringWorkspacePanelToFront('browser') }}
           nextTabSignal={browserNextTabSignal} previousTabSignal={browserPreviousTabSignal} />}
         {caps.git && workspaceUiLoaded && gitMounted.current && <GitPanel visible={gitOpen} initialState={workspaceUi.git} onChange={saveGitPanelState}

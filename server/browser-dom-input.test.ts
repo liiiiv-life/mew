@@ -19,6 +19,38 @@ class InputSocket extends EventEmitter {
 const field = (value: string, id = 1): DomInput => ({ kind: 'input', frame: 'main', generation: 1, id, value })
 const enter: DomInput = { kind: 'key', frame: 'main', generation: 1, id: 1, key: 'Enter' }
 
+test('history navigation starts before a blocked old-page title lookup resolves', async (t) => {
+  for (const kind of ['back', 'forward'] as const) await t.test(kind, async () => {
+    const session = new DomBrowserSession('navigation@example.test', kind, 'https://example.test/', [], '', true)
+    const title = deferred()
+    let started = false
+    let reads = 0
+    const socket = new InputSocket()
+    session.socket = socket as unknown as WebSocket
+    session.page = {
+      url: () => 'https://example.test/',
+      title: async () => { if (++reads === 1) await title.promise; return 'Document' },
+      goBack: async () => { started = true },
+      goForward: async () => { started = true },
+      close: async () => {},
+    } as unknown as NonNullable<DomBrowserSession['page']>
+    const navigation = session.input({ kind })
+    try {
+      await setImmediate()
+      assert.equal(started, true, 'page metadata must not delay navigation')
+      await navigation
+      const packets = socket.packets.length
+      title.resolve()
+      await setImmediate()
+      assert.equal(socket.packets.length, packets, 'late old metadata must not replace the completed navigation status')
+    } finally {
+      title.resolve()
+      await navigation
+      await session.close()
+    }
+  })
+})
+
 function deferred() {
   let resolve!: () => void
   const promise = new Promise<void>((done) => { resolve = done })

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useDragReorder } from '@mew/ui'
+import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
+import { useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { listServerBrowserTabs, openServerBrowserTab, closeServerBrowserTab, type ServerBrowserTab } from '../api/client'
@@ -7,11 +7,12 @@ import { useI18n } from '../i18n'
 import { ServerDomBrowser } from './server-dom-browser'
 import type { DomBrowserController, DomBrowserStatus } from '../utils/browser-dom-view'
 import { BrowserStartPage } from './browser-start-page'
+import { BrowserNotice } from './browser-notice'
 import { normalizeBrowserUrl as normalizeUrl, readBrowserShortcuts, writeBrowserShortcuts, type BrowserShortcut } from '../utils/browser-shortcuts'
 
 function labelForUrl(url: string): string { try { return new URL(url).host || url } catch { return url } }
 
-export function BrowserPanel({ onClose, standalone = false, visible = true, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, onPanelFocus }: { onPanelFocus?: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number; onClose: () => void; standalone?: boolean; visible?: boolean }) {
+export function BrowserPanel({ onClose, standalone = false, visible = true, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, onPanelFocus, backNavigationRef }: { backNavigationRef?: Ref<() => boolean>; onPanelFocus?: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number; onClose: () => void; standalone?: boolean; visible?: boolean }) {
   const { t } = useI18n()
   const dock = useDock()
   const latestDock = useRef(dock)
@@ -23,6 +24,8 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
   const [loaded, setLoaded] = useState(false)
   const [shortcuts, setShortcuts] = useState(readBrowserShortcuts)
   const pendingOpens = useRef(new Map<string, { cancelled: boolean }>())
+  const controls = useRef(new Map<string, DomBrowserController>())
+  const history = useRef(new Map<string, boolean>())
   useEffect(() => {
     let cancelled = false
     void listServerBrowserTabs()
@@ -35,6 +38,15 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
   const groups = [...new Set(['browser', ...tabs.map((tab) => groupFor(tab.id))])]
   const groupTabs = (group: string) => tabs.filter((tab) => groupFor(tab.id) === group)
   const selected = (group: string) => { const list = groupTabs(group); return list.find((tab) => tab.id === dock?.state.active[group])?.id ?? list.find((tab) => tab.id === activeId)?.id ?? list[0]?.id }
+  const navigateBack = () => {
+    const id = selected(dock?.desktop === false ? 'browser' : focusedGroup)
+    const control = id ? controls.current.get(id) : undefined
+    if (!visible || !id || !history.current.get(id) || !control) return false
+    control.command('back')
+    return true
+  }
+  useImperativeHandle(backNavigationRef, () => navigateBack)
+  useOverlayDismiss(standalone && visible ? onClose : false, { closeOnBack: () => !navigateBack(), escapePhase: 'bubble' })
   const activate = (id: string) => { setActiveId(id); dock?.select(groupFor(id), id) }
   const addTab = (group: string) => {
     if (!loaded || !groupTabs(group).length) return
@@ -73,11 +85,16 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
   const focusGroup = (group: string) => { setFocusedGroup(group); onPanelFocus?.() }
   const tabBar = (group: string) => <BrowserTabBar group={group} tabs={groupTabs(group)} activeId={selected(group)} standalone={standalone} onActivate={activate} onAdd={() => addTab(group)} onClose={() => { if (!dock?.desktop || !dock.closeGroup(group)) onClose() }} onCloseTab={closeTab}
     onReorder={(from, to) => { const list = groupTabs(group); setTabs((current) => { const next = [...current], a = next.findIndex((tab) => tab.id === list[from]?.id), b = next.findIndex((tab) => tab.id === list[to]?.id); if (a >= 0 && b >= 0) next.splice(b, 0, ...next.splice(a, 1)); return next }) }} />
-  const startPage = (group: string, id?: string) => loaded ? <BrowserStartPage shortcuts={shortcuts} onChange={(next: BrowserShortcut[]) => {
+  const panelNotice = error ? { message: error, onDismiss: () => setError(null) } : undefined
+  const startPage = (group: string, id?: string) => <div className="relative flex min-h-0 flex-1 flex-col">{loaded ? <BrowserStartPage shortcuts={shortcuts} onChange={(next: BrowserShortcut[]) => {
     if (!writeBrowserShortcuts(next)) return false
     setShortcuts(next); return true
-  }} onOpen={url => openTab(group, url, id)} onClose={id ? () => closeTab(id) : undefined} /> : <div role="status" className="m-auto p-6 text-sm text-ink-muted">{t('common.loading')}</div>
-  const page = (tab: ServerBrowserTab) => !tab.streamUrl ? startPage(groupFor(tab.id), tab.id) : <BrowserPage tab={tab} onClose={() => closeTab(tab.id)} onStatus={(status) => {
+  }} onOpen={url => openTab(group, url, id)} onClose={id ? () => closeTab(id) : undefined} /> : <div role="status" className="m-auto p-6 text-sm text-ink-muted">{t('common.loading')}</div>}{panelNotice && <BrowserNotice {...panelNotice} />}</div>
+  const page = (tab: ServerBrowserTab) => !tab.streamUrl ? startPage(groupFor(tab.id), tab.id) : <BrowserPage tab={tab} notice={panelNotice} onClose={() => closeTab(tab.id)} onController={(control) => {
+    if (control) controls.current.set(tab.id, control)
+    else { controls.current.delete(tab.id); history.current.delete(tab.id) }
+  }} onStatus={(status) => {
+    history.current.set(tab.id, !!status.canGoBack)
     if (status.closed) { removeTab(tab.id); return }
     if (status.popup) {
       const popup = status.popup
@@ -89,14 +106,12 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
   if (dock) return <>
     {groups.map((group) => <DockPanel key={group} id={group} tabs={groupTabs(group).map((tab) => tab.id)} kind="browser" visible={visible && (groupTabs(group).length > 0 || tabs.length === 0)} onFocus={() => focusGroup(group)}>
       {tabBar(group)}
-      {error && <div role="alert" className="px-3 py-2 text-xs text-danger">{error}</div>}
       {!groupTabs(group).length && startPage(group)}
     </DockPanel>)}
     {tabs.map((tab) => <DockBody key={tab.id} group={groupFor(tab.id)} active={selected(groupFor(tab.id)) === tab.id} onFocus={() => focusGroup(groupFor(tab.id))}>{page(tab)}</DockBody>)}
   </>
-  return <section className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label={t('browser.title')}>
+  return <section className="relative flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label={t('browser.title')}>
     {tabBar('browser')}
-    {error && <div role="alert" className="px-3 py-2 text-xs text-danger">{error}</div>}
     {!tabs.length && startPage('browser')}
     {tabs.map((tab) => <div key={tab.id} className={tab.id === selected('browser') ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>{page(tab)}</div>)}
   </section>
@@ -126,7 +141,7 @@ function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, o
     </button>
   </div>
 }
-function BrowserPage({ tab, onStatus, onClose }: { tab: ServerBrowserTab; onStatus: (status: DomBrowserStatus) => void; onClose: () => void }) {
+function BrowserPage({ tab, onStatus, onClose, onController, notice }: { tab: ServerBrowserTab; onStatus: (status: DomBrowserStatus) => void; onClose: () => void; onController: (controller: DomBrowserController | null) => void; notice?: { message: string; onDismiss: () => void } }) {
   const { t } = useI18n()
   const scope = useRef<HTMLDivElement>(null), addressRef = useRef<HTMLInputElement>(null), controller = useRef<DomBrowserController | null>(null)
   const [draft, setDraft] = useState(tab.url), [frame, setFrame] = useState<DomBrowserStatus | null>(null), [error, setError] = useState<string | null>(null)
@@ -143,11 +158,9 @@ function BrowserPage({ tab, onStatus, onClose }: { tab: ServerBrowserTab; onStat
       </div>
       <button type="submit" className="whitespace-nowrap rounded bg-accent px-2 py-1 text-xs text-ink-on-accent hover:opacity-90 @max-[20rem]:col-start-4 @max-[20rem]:row-start-2">{t('browser.go')}</button>
     </form>
-    {error && <div role="alert" className="shrink-0 border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{error}</div>}
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
-      <ServerDomBrowser streamUrl={tab.streamUrl} reopen={async () => (await openServerBrowserTab(tab.id, tab.url)).streamUrl} onController={(value) => { controller.current = value }}
+      <ServerDomBrowser streamUrl={tab.streamUrl} reopen={async () => (await openServerBrowserTab(tab.id, tab.url)).streamUrl} notice={error ? { message: error, onDismiss: () => setError(null) } : notice} onController={(value) => { controller.current = value; onController(value) }}
         onStatus={(status) => { setFrame(status); if (status.url && document.activeElement !== addressRef.current) setDraft(status.url); onStatus(status) }} />
-      {loading && <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-surface/85 p-2 shadow-lg" aria-label={t('browser.pageLoading')}><span className="block h-4 w-4 animate-spin rounded-full border-2 border-edge-strong border-t-accent" /></div>}
     </div>
   </div>
 }

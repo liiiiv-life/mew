@@ -84,6 +84,44 @@ function SidebarSearchHarness({ closed }: { closed: string[] }) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+test('only the foreground browser delegates Back; other panels and Escape still close', async () => {
+  const closed: string[] = []
+  let navigations = 0
+  function BrowserBackHarness({ foreground, canGoBack }: { foreground: 'browser' | 'agent'; canGoBack: boolean }) {
+    const panel = (id: string) => ({ open: true, close: () => { closed.push(id) } })
+    useWorkspacePanelDismissals({
+      sidebar: panel('sidebar'), chat: panel('chat'), terminal: panel('terminal'),
+      agent: panel('agent'), git: panel('git'), android: panel('android'),
+      browser: { ...panel('browser'), closeOnBack: () => {
+        if (!canGoBack) return true
+        navigations++
+        return false
+      } },
+    }, foreground)
+    return null
+  }
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => { root.render(createElement(BrowserBackHarness, { foreground: 'browser', canGoBack: true })); await settle() })
+    for (let i = 0; i < 2; i++) await act(async () => { window.dispatchEvent(new window.Event('popstate')); await settle() })
+    assert.equal(navigations, 2)
+    assert.deepEqual(closed, [])
+    await act(async () => { root.render(createElement(BrowserBackHarness, { foreground: 'agent', canGoBack: true })); await settle() })
+    await act(async () => { window.dispatchEvent(new window.Event('popstate')); await settle() })
+    assert.deepEqual(closed, ['agent'])
+    assert.equal(navigations, 2)
+    await act(async () => { root.render(createElement(BrowserBackHarness, { foreground: 'browser', canGoBack: true })); await settle() })
+    await act(async () => { document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await settle() })
+    assert.deepEqual(closed, ['agent', 'browser'])
+    assert.equal(navigations, 2)
+  } finally {
+    await act(async () => { root.unmount(); await settle() })
+    host.remove()
+  }
+})
+
 test('App 보조 패널은 뒤로가기·Esc로 시각적 맨 위부터 하나씩 닫힌다', async () => {
   const closed: PanelId[] = []
   const host = document.createElement('div')

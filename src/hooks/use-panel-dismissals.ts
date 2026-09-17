@@ -10,6 +10,7 @@ interface PanelDismissal {
   close: () => void
   /** 패널 안의 검색 등에서 Esc를 먼저 쓸 때 false를 돌려 패널을 유지한다 */
   closeOnEscape?: (event: KeyboardEvent) => boolean
+  closeOnBack?: () => boolean
 }
 
 export type WorkspacePanelDismissals = Record<WorkspacePanelId, PanelDismissal>
@@ -27,5 +28,6 @@ export function useWorkspacePanelDismissals(
   useOverlayDismiss(panel?.open ? panel.close : false, {
     ...BUBBLE,
     closeOnEscape: panel?.closeOnEscape,
+    closeOnBack: panel?.closeOnBack,
   })
 }

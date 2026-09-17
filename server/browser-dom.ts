@@ -70,6 +70,7 @@ export class DomBrowserSession {
   private downloads = new Map<string, Download>()
   private stateTimer?: ReturnType<typeof setInterval>
   private lastState = ''
+  private stateRevision = 0
   private loading = false
   private navigationMessage?: string
   private navigationRequest?: Request
@@ -434,7 +435,9 @@ export class DomBrowserSession {
   private async navigate(action: () => Promise<unknown>, url: string): Promise<void> {
     const attempt = ++this.navigationAttempt
     this.navigationMessage = undefined
-    await this.publishState(true, true)
+    // Reading the old document's title can wait behind its scripts or dialog.
+    // Start navigation immediately; status collection must never gate leaving it.
+    void this.publishState(true, true)
     try { await action() }
     catch (error) {
       if (attempt === this.navigationAttempt && !String(error).includes('ERR_ABORTED')) this.navigationFailed(String(error), url)
@@ -444,6 +447,7 @@ export class DomBrowserSession {
 
   private async publishState(loading = this.loading, force = false): Promise<void> {
     if (!this.page || this.closed) return
+    const revision = ++this.stateRevision
     this.loading = loading
     try {
       const history = await this.cdp?.send('Page.getNavigationHistory')
@@ -451,6 +455,7 @@ export class DomBrowserSession {
       const state = { type: 'page', ...this.info(), title: await this.page.title(), host: new URL(url).host, loading, message: this.navigationMessage,
         canGoBack: !!history && history.currentIndex > 0, canGoForward: !!history && history.currentIndex < history.entries.length - 1 }
       const encoded = JSON.stringify(state)
+      if (revision !== this.stateRevision || this.closed) return
       if (force || encoded !== this.lastState) { this.lastState = encoded; this.send(state) }
     } catch { /* Page may be between documents. */ }
   }

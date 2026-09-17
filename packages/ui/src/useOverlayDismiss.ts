@@ -12,6 +12,7 @@ type EscapePhase = 'capture' | 'bubble'
 
 type Entry = {
   close: () => void
+  closeOnBack?: () => boolean
   closeOnEscape: (event: KeyboardEvent) => boolean
   escapePhase: EscapePhase
   /** 주면 이 요소 **바깥**을 누를 때도 닫는다 — Esc·뒤로가기가 없는 터치 화면의 유일한 탈출구 */
@@ -53,7 +54,11 @@ function onPopState() {
   // 뒤로가기가 우리 가드 항목을 소비했다 — 페이지를 떠나는 대신 맨 위 오버레이 하나를 닫는다.
   // 아래 오버레이가 남아 있으면 sync()가 가드를 다시 얹는다.
   guardActive = false
-  stack[stack.length - 1]?.close()
+  const top = stack[stack.length - 1]
+  if (top?.closeOnBack?.() === false) {
+    // Content consumed Back without unmounting; rearm for the next press too.
+    scheduleSync()
+  } else top?.close()
 }
 
 function sync() {
@@ -99,6 +104,8 @@ function scheduleSync() {
 }
 
 export interface OverlayDismissOptions {
+  /** false means content handled Back; retain the overlay and rearm its history guard. */
+  closeOnBack?: () => boolean
   /**
    * Esc를 이 오버레이가 삼킬지 판단한다. false를 돌려주면 Esc는 원래 가던 곳으로 흘러간다 —
    * 터미널 안(vim 등)처럼 Esc가 콘텐츠의 몫인 경우에 쓴다. 뒤로가기에는 영향이 없다.
@@ -154,6 +161,7 @@ export function useOverlayDismiss(close: (() => void) | null | false, options?: 
               if (fn) fn()
             },
             closeOnEscape: (event) => optionsRef.current?.closeOnEscape?.(event) ?? true,
+            closeOnBack: () => optionsRef.current?.closeOnBack?.() ?? true,
             escapePhase: optionsRef.current?.escapePhase ?? 'capture',
             outside: () => optionsRef.current?.outside?.() ?? null,
           })

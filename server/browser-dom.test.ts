@@ -250,13 +250,13 @@ test('general browser shares persistent server state, preserves popups/history, 
           import {BrowserPanel} from ${JSON.stringify(new URL('../src/components/BrowserPanel.tsx', import.meta.url).pathname)};
           import {ServerDomBrowserTabs} from ${JSON.stringify(new URL('../src/components/server-dom-browser.tsx', import.meta.url).pathname)};
           const authStream = new URL(location.href).searchParams.get('auth');
-          createRoot(document.querySelector('#panel')).render(React.createElement(I18nProvider,null,authStream ? React.createElement(ServerDomBrowserTabs,{streamUrl:authStream,reopen:async()=>authStream}) : React.createElement(BrowserPanel,{onClose:()=>{}})));`
+          createRoot(document.querySelector('#panel')).render(React.createElement(I18nProvider,null,authStream ? React.createElement(ServerDomBrowserTabs,{streamUrl:authStream,reopen:async()=>authStream}) : React.createElement(BrowserPanel,{standalone:true,onClose:()=>{window.panelClosed=(window.panelClosed||0)+1}})));`
       },
     }],
   })
   const panelCode = panelBundle.output.find((item) => item.type === 'chunk')!
   const sourceDir = new URL('../src/', import.meta.url).pathname
-  const panelSources = (await Promise.all(['components/BrowserPanel.tsx', 'components/server-dom-browser.tsx'].map(file => fs.readFile(path.join(sourceDir, file), 'utf8')))).join('\n')
+  const panelSources = (await Promise.all(['components/BrowserPanel.tsx', 'components/server-dom-browser.tsx', 'components/browser-notice.tsx'].map(file => fs.readFile(path.join(sourceDir, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(path.join(sourceDir, 'index.css'), 'utf8'), { base: sourceDir, onDependency() {} })
   const panelCss = compiler.build([...new Set(panelSources.match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
     + await fs.readFile(path.join(sourceDir, 'components/server-dom-browser.css'), 'utf8')
@@ -438,6 +438,24 @@ test('general browser shares persistent server state, preserves popups/history, 
       assert.ok(area)
       await session.page!.waitForFunction('height => Math.abs(innerHeight - height) < 1', area.height)
     }
+    // Hardware Back follows the selected remote tab, and rearms for repeated presses.
+    const remote = viewer.frameLocator('.mew-dom-browser:visible iframe').first()
+    for (const route of ['/back-one', '/back-two']) {
+      await session.page!.evaluate(`history.pushState({}, '', ${JSON.stringify(route)}); document.querySelector('h1').textContent=${JSON.stringify(route)}`)
+      await remote.getByText(route, { exact: true }).waitFor()
+      await viewer.waitForFunction(`document.querySelector('input').value.endsWith(${JSON.stringify(route)})`)
+    }
+    for (const route of ['/back-one', '/next']) {
+      await viewer.evaluate('history.back()')
+      await session.page!.waitForURL(new URL(route, 'http://' + localAddress).href)
+      await viewer.waitForFunction(`document.querySelector('input').value.endsWith(${JSON.stringify(route)})`)
+      assert.equal(await viewer.evaluate('window.panelClosed || 0'), 0)
+      assert.equal(new URL(viewer.url()).pathname, '/panel')
+    }
+    // A new empty tab has no remote history; hidden tabs must not consume its Back.
+    await viewer.getByRole('button', { name: /새 탭|New tab/ }).click()
+    await viewer.evaluate('history.back()')
+    await viewer.waitForFunction('window.panelClosed === 1')
     await viewer.close()
     await closeDomBrowsers()
     const reopened = openDomBrowserTab(account, 'reopened', origin + '/next')

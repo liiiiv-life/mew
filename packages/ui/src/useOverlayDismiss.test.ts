@@ -40,6 +40,41 @@ function reset() {
   backs = 0
 }
 
+test('content Back rearms the guard repeatedly while modals and Escape keep dismissal priority', async () => {
+  reset()
+  let remaining = 2
+  let closed = 0
+  const unregister = registerOverlay({
+    close: () => { closed++ }, closeOnEscape: () => true, escapePhase: 'bubble',
+    closeOnBack: () => remaining > 0 ? (remaining--, false) : true,
+  })
+  await settle()
+  let modalClosed = 0
+  const modal = registerOverlay({ close: () => { modalClosed++ }, closeOnEscape: () => true, escapePhase: 'capture' })
+  await settle()
+  window.dispatchEvent(new window.Event('popstate'))
+  assert.equal(modalClosed, 1)
+  assert.equal(remaining, 2)
+  modal()
+  await settle()
+  for (const expected of [1, 0]) {
+    const before = pushes
+    window.dispatchEvent(new window.Event('popstate'))
+    await settle()
+    assert.equal(remaining, expected)
+    assert.equal(closed, 0)
+    assert.equal(pushes, before + 1, 'consuming Back without unmounting must restore the guard')
+  }
+  window.dispatchEvent(new window.Event('popstate'))
+  assert.equal(closed, 1, 'no history falls back to closing')
+  remaining = 2
+  pressEscape()
+  assert.equal(closed, 2)
+  assert.equal(remaining, 2, 'Escape does not navigate')
+  unregister()
+  await settle()
+})
+
 test('Esc는 가장 나중에 열린 것 하나만 닫는다', async () => {
   reset()
   const closed: string[] = []
