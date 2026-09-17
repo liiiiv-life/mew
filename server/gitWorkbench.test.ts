@@ -33,7 +33,7 @@ test('저장소 초기화 뒤 로그·상세·파일 diff와 안전한 커밋 �
   await initializeRepository(paths.WORKSPACE_PROJECT, '')
   fs.mkdirSync(path.join(root, 'packages', 'addon'), { recursive: true })
   await simpleGit(path.join(root, 'packages', 'addon')).init()
-  assert.deepEqual((await listRepositories(paths.WORKSPACE_PROJECT)).map((entry) => entry.path), ['', 'packages/addon'])
+  assert.deepEqual((await listRepositories(paths.WORKSPACE_PROJECT)).map((entry) => entry.path), [''])
   fs.rmSync(path.join(root, 'packages'), { recursive: true, force: true })
   const git = simpleGit(root)
   await git.addConfig('user.name', 'Mew Test')
@@ -88,4 +88,23 @@ test('로컬 원본 저장소를 현재 디렉터리 아래 clone한다', async 
   assert.equal(fs.existsSync(path.join(target, '.git')), true)
   assert.equal(fs.readFileSync(path.join(target, 'note.txt'), 'utf8'), 'one\ntwo\nthree\n')
   assert.equal(fs.readFileSync(path.join(target, 'draft.txt'), 'utf8'), 'draft\n')
+})
+
+
+test('current project root excludes nested repositories and never falls back to an ancestor', async () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-git-root-only-'))
+  const child = path.join(parent, 'child')
+  fs.mkdirSync(child)
+  await simpleGit(child).init()
+  try {
+    paths.setWorkspaceRoot(parent)
+    assert.deepEqual(await listRepositories(paths.WORKSPACE_PROJECT), [])
+    assert.equal((await repositoryInfo(paths.WORKSPACE_PROJECT, '')).repository, false)
+    paths.setWorkspaceRoot(child)
+    assert.deepEqual(await listRepositories(paths.WORKSPACE_PROJECT), [{ path: '' }])
+    const plain = path.join(child, 'plain'); fs.mkdirSync(plain)
+    paths.setWorkspaceRoot(plain)
+    assert.deepEqual(await listRepositories(paths.WORKSPACE_PROJECT), [])
+    assert.equal((await repositoryInfo(paths.WORKSPACE_PROJECT, '')).repository, false)
+  } finally { paths.setWorkspaceRoot(root); fs.rmSync(parent, { recursive: true, force: true }) }
 })

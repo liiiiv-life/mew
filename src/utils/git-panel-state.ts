@@ -7,16 +7,8 @@ export function gitRepositoryTab(project: string, path: string): GitRepositoryTa
   return { id: JSON.stringify([project, path]), project, path, label: project === 'docs' ? (path ? `Documents / ${path}` : 'Documents') : path || '루트 프로젝트' }
 }
 
-/** Only repository identity and order survive reload; working views and commit drafts stay in memory. */
-export function restoreGitPanel(value: unknown): GitPanelState {
-  const raw = value && typeof value === 'object' ? value as Partial<GitPanelState> : {}
-  const seen = new Set<string>()
-  const tabs = (Array.isArray(raw.tabs) ? raw.tabs : []).flatMap((entry) => {
-    if (!entry || ![WORKSPACE_PROJECT, 'docs'].includes(entry.project) || typeof entry.path !== 'string' || entry.path.length > 400 || entry.path.startsWith('/') || entry.path.split('/').includes('..')) return []
-    const tab = gitRepositoryTab(entry.project, entry.path)
-    if (seen.has(tab.id)) return []
-    seen.add(tab.id)
-    return [tab]
-  }).slice(0, 100)
-  return { tabs, activeId: tabs.some((tab) => tab.id === raw.activeId) ? raw.activeId! : tabs[0]?.id ?? null }
+/** Migrate old multi-repository tabs to the current root. Drafts never survive reload. */
+export function restoreGitPanel(_value: unknown): GitPanelState {
+  const tab = { ...gitRepositoryTab(WORKSPACE_PROJECT, ''), label: '현재 프로젝트' }
+  return { tabs: [tab], activeId: tab.id }
 }

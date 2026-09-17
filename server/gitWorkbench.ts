@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import simpleGit, { type SimpleGit } from 'simple-git'
 import { resolveExistingPath } from './fsBrowse.ts'
-import { docsTopSegment, isDeniedSegment, resolveProjectPath, WORKSPACE_PROJECT } from './paths.ts'
+import { resolveProjectPath } from './paths.ts'
 import { invalidateGit } from './git.ts'
 
 export class GitWorkbenchError extends Error {}
@@ -75,24 +75,10 @@ function repository(project: string, relPath: string): { abs: string; git: Simpl
   return { abs, git: simpleGit({ baseDir: abs, config: ['core.quotepath=false'] }) }
 }
 
-/** 루트와 모든 중첩 Git 저장소를 찾는다. .git·node_modules·.data는 구조상 절대 내려가지 않는다. */
+/** Only the requested project root; nested projects open in their own project tabs. */
 export async function listRepositories(project: string): Promise<GitRepositoryEntry[]> {
   const root = scopedDirectory(project, '')
-  const found: GitRepositoryEntry[] = []
-  const walk = async (abs: string, rel: string): Promise<void> => {
-    if (isRepositoryRoot(abs)) found.push({ path: rel })
-    let entries: fs.Dirent[]
-    try { entries = await fs.promises.readdir(abs, { withFileTypes: true }) } catch { return }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || isDeniedSegment(entry.name)) continue
-      // Documents는 자기 프로젝트 스코프에서 한 번만 보인다.
-      if (project === WORKSPACE_PROJECT && rel === '' && entry.name === docsTopSegment()) continue
-      const nextRel = rel ? `${rel}/${entry.name}` : entry.name
-      await walk(path.join(abs, entry.name), nextRel)
-    }
-  }
-  await walk(root, '')
-  return found.sort((a, b) => a.path.localeCompare(b.path))
+  return isRepositoryRoot(root) ? [{ path: '' }] : []
 }
 
 function assertHash(value: unknown): string {

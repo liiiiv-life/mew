@@ -58,10 +58,10 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
 | --- | --- | --- |
 | 현재 파일 커밋·이력 복원 | `Ctrl+S` 또는 메뉴 → Commit으로 현재 파일 커밋, 편집기의 히스토리에서 이전 내용 확인·되돌리기 | [파일 저장과 이력](docs/guides/editor.md#자동저장커밋파일-이력) |
-| 저장소 탐색·그래프·diff | 메뉴 → Git 또는 `Alt+G`에서 저장소를 고르고 커밋 그래프·변경 파일·파일 diff 보기(manager·owner) | [Git 작업 패널](docs/guides/projects.md#git-작업-패널) |
+| 저장소 탐색·그래프·diff | 메뉴 → Git 또는 `Alt+G`로 현재 프로젝트의 커밋 그래프·변경 파일·diff 바로 보기(manager·owner) | [Git 작업 패널](docs/guides/projects.md#git-작업-패널) |
 | 작업트리 전체 커밋 | Git의 **커밋되지 않은 변경사항**에서 제목·설명을 입력해 모든 변경을 stage·커밋 | [커밋 범위와 제한](docs/guides/projects.md#git-작업-패널) |
 | 브랜치·태그·과거 커밋 작업 | 커밋 우클릭으로 해시 복사·branch/tag 생성·detached checkout·cherry-pick·revert | [지원 Git 작업](docs/guides/projects.md#git-작업-패널) |
-| 여러 저장소 패널 | Git의 `+`로 저장소 탭 추가, 탭 분리·합치기·패널 닫기·다시 열기 | [Git 탭과 초안 유지](docs/guides/projects.md#git-작업-패널) |
+| 프로젝트 Git 패널 | 현재 프로젝트만 표시. 하위 프로젝트는 해당 프로젝트 탭에서 열기. 패널 이동·닫기·다시 열기와 초안 유지 | [Git 패널 사용법](docs/guides/projects.md#git-작업-패널) |
 
 `AI Commit`은 현재 안내만 표시하며 자동 커밋 메시지를 생성하지 않는다([현재 범위](docs/guides/projects.md#git-작업-패널)).
 

@@ -176,7 +176,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
-  onBack: () => void
+  onBack?: () => void
 }) {
   const [info, setInfo] = useState<GitRepositoryInfo | null>(null)
   const [commits, setCommits] = useState<GitLogEntry[]>([])
@@ -200,12 +200,13 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
     setLoading(true)
     setError(null)
     try {
-      const [nextInfo, log, nextWorkingTree] = await Promise.all([
-        fetchGitRepository(repositoryPath, project),
+      const nextInfo = await fetchGitRepository(repositoryPath, project)
+      setInfo(nextInfo)
+      if (!nextInfo.repository) { setCommits([]); setWorkingTree({ files: [] }); setView({ kind: 'graph' }); return }
+      const [log, nextWorkingTree] = await Promise.all([
         fetchGitLog(repositoryPath, project),
         fetchGitWorkingTree(repositoryPath, project),
       ])
-      setInfo(nextInfo)
       setCommits(log.commits)
       setWorkingTree(nextWorkingTree)
     } catch (err) {
@@ -325,7 +326,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
     <div className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface">
       {dialogs.dialog}
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
-        <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'} title={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'}><BackIcon /></button>
+        {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'} title={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'}><BackIcon /></button>}
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={heading}>{heading}</span>
       </div>
 
@@ -344,6 +345,10 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
           <div className="min-h-0 flex-1 overflow-y-auto">
             {loading ? (
               <div className="p-5 text-center text-xs text-ink-muted">커밋을 불러오는 중…</div>
+            ) : info?.repository === false ? (
+              <p role="status" className="p-5 text-center text-sm text-ink-secondary">현재 프로젝트에 Git 저장소가 없습니다.</p>
+            ) : error ? (
+              <button type="button" onClick={() => void refresh()} className="m-5 rounded border border-edge-strong px-3 py-2 text-sm text-ink hover:bg-surface-hover">다시 시도</button>
             ) : (
               <>
                 <button type="button" onClick={() => setView({ kind: 'working' })} className="flex h-[58px] w-full items-stretch border-b border-edge bg-warning-surface/25 text-left text-xs hover:bg-surface-hover">
