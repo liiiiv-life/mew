@@ -10,7 +10,7 @@ export function sidebarStateKey(rootPath: string): string {
   return `${KEY_PREFIX}${rootPath}`
 }
 
-/** Documents와 하위 프로젝트는 파일 트리 바깥의 큰 접기 항목이라 별도로 기억한다. */
+/** Documents 펼침을 복원한다. expandedSubprojects는 이전 저장 형식과의 호환용이며 App에서 무시한다. */
 export function loadSidebarState(rootPath: string | null): SidebarState {
   if (!rootPath) return { docsExpanded: false, expandedSubprojects: [] }
   try {

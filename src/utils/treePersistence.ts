@@ -80,11 +80,11 @@ export function normalizeTreeCenterAnchor(value: unknown): TreeCenterAnchor | un
 }
 
 /** Only descend through expanded ancestors; remembered descendants of a closed folder stay lazy. */
-export function visibleOpenDirectories(tree: TreeNode[], open: Set<string>, cache: DirectoryChildren): string[] {
+export function visibleOpenDirectories(tree: TreeNode[], open: Set<string>, cache: DirectoryChildren, stopAtProjects = false): string[] {
   const result: string[] = []
   const visit = (nodes: TreeNode[]) => {
     for (const node of nodes) {
-      if (node.type !== 'dir' || !open.has(node.path)) continue
+      if (node.type !== 'dir' || !open.has(node.path) || (stopAtProjects && node.project)) continue
       result.push(node.path)
       visit(node.children ?? cache[node.path] ?? [])
     }

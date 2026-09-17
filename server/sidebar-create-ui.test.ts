@@ -49,6 +49,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const create = async (kind: 'file' | 'folder', name: string, project: string, parent = '') => {
       const count = writes.length
       await page.getByRole('button', { name: kind === 'file' ? 'New file' : 'New folder', exact: true }).click()
+      await input(kind).waitFor()
       assert.equal(await input(kind).count(), 1, 'exactly one tree accepts the request')
       await input(kind).fill(name)
       await input(kind).press('Enter')
@@ -80,6 +81,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await page.evaluate("window.fixture.setWorkspace('/two')")
     await create('file', 'root.txt', '.workspace')
     assert.equal(writes.length, beforeCancel + 1)
+    await page.mouse.move(500, 400)
     await page.getByRole('button', { name: 'New file', exact: true }).hover()
     await page.getByRole('tooltip').waitFor()
     await page.screenshot({ path: '/tmp/mew-sidebar-create-desktop.png' })

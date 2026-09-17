@@ -25,7 +25,8 @@ class Socket {
   close(){this.readyState=3;this.onclose?.()}
 }
 window.WebSocket=Socket;
-createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel project='test' workspacePath='/workspace' tree={[]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} /></I18nProvider>);`
+const preparedTabs=location.search.includes('prepared')?fetch('/api/user-ui/agent-tabs?workspace=/workspace').then(r=>r.json()):undefined;
+createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel preparedTabs={preparedTabs} project='test' workspacePath='/workspace' tree={[]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} /></I18nProvider>);`
   const bundle = await build({ input: 'virtual:cli.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'cli-fixture',
     async resolveId(id, importer) {
@@ -55,6 +56,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pro
       page.on('pageerror', error => errors.push(error.message))
       const records: AgentCommandRecord[] = []
       let launches = 0
+      let tabReads = 0
       await page.route('http://mew-cli.test/**', async route => {
         const url = new URL(route.request().url()), pathname = url.pathname
         if (pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: chunk.code })
@@ -68,15 +70,17 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pro
           return route.fulfill({ json: { commands: records } })
         }
         if (pathname.endsWith('/output')) return route.fulfill({ json: { command: records[0], text: 'first line\nlast line\n' } })
+        if (pathname === '/api/user-ui/agent-tabs' && route.request().method() === 'GET') tabReads++
         if (pathname === '/api/user-ui/agent-tabs') return route.fulfill({ json: { state: { tabs: [{ id: 'test', label: 'Codex', runtime: 'codex', cwd: '/workspace', renamed: true }], activeId: 'test' }, claims: [] } })
         if (pathname === '/api/agent-cwd') return route.fulfill({ json: { cwd: '/workspace' } })
         if (pathname === '/api/projects') return route.fulfill({ json: [] })
         if (pathname.startsWith('/api/')) return route.fulfill({ json: { settings: null, skills: [], jobs: [], runtimes: [] } })
         return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html class="dark" lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}html,body,#root{height:100%;margin:0}</style><div id="root"></div><script src="/app.js"></script></html>` })
       })
-      await page.goto('http://mew-cli.test/')
+      await page.goto('http://mew-cli.test/' + (width === 390 ? '?prepared=1' : ''))
       const toggle = page.getByRole('button', { name: 'CLI 명령 모드', exact: true })
       await toggle.waitFor()
+      assert.equal(tabReads, 1, 'prepared tab metadata is consumed without a second initial GET')
       assert.equal(await toggle.getAttribute('aria-pressed'), 'false')
       const model = page.getByTitle('모델', { exact: true })
       const toggleBox = await toggle.boundingBox(), modelBox = await model.boundingBox()

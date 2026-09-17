@@ -1,9 +1,11 @@
 import { defaultCapabilities, type Feature } from '../shared/access-policy'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
+import { WorkspaceSnapshotCache } from './utils/workspace-snapshot-cache'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   editorApi,
   fetchAuthStatus,
+  fetchAgentTabs,
   fetchMewUpdateStatus,
   fetchRootProjectTabs,
   fetchWorkspaceUi,
@@ -17,12 +19,15 @@ import {
   saveRootProjectTabs,
   saveWorkspaceUi,
   switchWorkspace,
+  openSubproject,
   type AuthStatus,
   type MewUpdateStatus,
   type TreeNode,
   type WorkspaceUiState,
 } from './api/client'
+import { SubprojectLink } from './components/subproject-link'
 import { RootProjectTabs } from './components/RootProjectTabs'
+import { normalizeProjectTabLayout, type ProjectTabGroup } from '../shared/project-tab-groups'
 import { OpenProjectDialog } from './components/OpenProjectDialog'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
@@ -127,6 +132,7 @@ const GIT_OPEN_KEY = 'mew:git-open'
 const ANDROID_OPEN_KEY = 'mew:android-open'
 const OPEN_PROJECTS_KEY = 'mew:open-project-paths'
 const ROOT_PROJECT_ICONS_KEY = 'mew:root-project-icons'
+const ROOT_PROJECT_GROUPS_KEY = 'mew:root-project-groups'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
 type AccountSidebarState = { docsExpanded: boolean; expandedSubprojects: string[] }
@@ -182,6 +188,14 @@ function loadRootProjectIcons(): Record<string, string> {
   }
 }
 
+function loadRootProjectGroups(): ProjectTabGroup[] {
+  try {
+    return normalizeProjectTabLayout(loadOpenProjectPaths(), JSON.parse(localStorage.getItem(ROOT_PROJECT_GROUPS_KEY) ?? '[]')).groups
+  } catch {
+    return []
+  }
+}
+
 function projectLabel(projectPath: string | null): string {
   if (!projectPath) return 'Project'
   return projectPath.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || projectPath
@@ -218,14 +232,39 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [workspaceUi, setWorkspaceUi] = useState<WorkspaceUiState>({})
   const [workspaceUiLoaded, setWorkspaceUiLoaded] = useState(false)
   const [workspaceUiRevision, setWorkspaceUiRevision] = useState(0)
+  const workspaceUiCache = useRef(new WorkspaceSnapshotCache<WorkspaceUiState>())
+  const workspaceUiSaveQueue = useRef<Promise<unknown>>(Promise.resolve())
+  const workspaceUiOwnerAlive = useRef(true)
+  const agentTabsPrefetch = useRef<{ path: string; promise: ReturnType<typeof fetchAgentTabs> } | null>(null)
+  const [preparedAgentTabs, setPreparedAgentTabs] = useState<ReturnType<typeof fetchAgentTabs>>()
+  const rootTreeCache = useRef(new WorkspaceSnapshotCache<TreeNode[]>(24))
+  const workspaceInfoRef = useRef<{ path: string; docsPath?: string } | null>(null)
+  const workspaceEpochRef = useRef(0)
+  const [workspaceEpoch, setWorkspaceEpoch] = useState(0)
+
+  useEffect(() => {
+    workspaceUiOwnerAlive.current = true
+    return () => { workspaceUiOwnerAlive.current = false }
+  }, [])
+
+  const prepareWorkspaceUi = useCallback((path: string) => workspaceUiCache.current.load(path, async () => (await fetchWorkspaceUi(path)).state ?? {}), [])
+  const persistWorkspaceUi = useCallback((path: string, state: WorkspaceUiState) => {
+    workspaceUiSaveQueue.current = workspaceUiSaveQueue.current.catch(() => {})
+      .then(() => workspaceUiOwnerAlive.current ? saveWorkspaceUi(path, state) : undefined).catch(console.error)
+  }, [])
   // 절대경로 탭 목록은 owner UI에만 노출한다. manager는 셸 권한상 현재 경로를 볼 수 있지만 다른
   // 브라우저 사용자가 남긴 owner 전용 목록까지 물려받지는 않는다.
   const [openProjectPaths, setOpenProjectPaths] = useState<string[]>(() => (isOwner ? loadOpenProjectPaths() : []))
   const [rootProjectIcons, setRootProjectIcons] = useState<Record<string, string>>(() => (isOwner ? loadRootProjectIcons() : {}))
+  const [rootProjectGroups, setRootProjectGroups] = useState<ProjectTabGroup[]>(() => (isOwner ? loadRootProjectGroups() : []))
+  const rootProjectSaveQueue = useRef<Promise<unknown>>(Promise.resolve())
   const [rootProjectTabsSynced, setRootProjectTabsSynced] = useState(!isOwner)
   const [openProjectDialog, setOpenProjectDialog] = useState(false)
   const [closeProjectPath, setCloseProjectPath] = useState<string | null>(null)
   const [switchingRootProject, setSwitchingRootProject] = useState(false)
+  const projectOpeningRef = useRef(false)
+  const workspaceReadSequence = useRef(0)
+  const workspaceBroadcastPending = useRef(false)
   const fullscreenGuardRef = useRef(false)
 
   const [tree, setTree] = useState<TreeNode[]>([])
@@ -234,7 +273,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [subprojectIcons, setSubprojectIcons] = useState<Record<string, string>>({})
   const [docsTree, setDocsTree] = useState<TreeNode[]>([])
   const [docsExpanded, setDocsExpanded] = useState(false)
-  const [expandedSubprojects, setExpandedSubprojects] = useState<Set<string>>(() => new Set())
   // 루트가 바뀌는 렌더에서는 이전 프로젝트 상태를 새 키에 쓰지 않도록, 복원 한 프레임을 건너뛴다.
   const sidebarStateRestorePendingRef = useRef<string | null>(null)
   const sidebarStateLoadedRootRef = useRef<string | null>(null)
@@ -243,8 +281,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   // 모바일 전면 창은 화면 크기 의존 상태라 계정 원장이 아니라 이 기기에만 남긴다.
   const mobilePanelStackRestorePendingRef = useRef<string | null>(null)
   const mobilePanelStackRestoredRootRef = useRef<string | null>(null)
-  const [subprojectTrees, setSubprojectTrees] = useState<Record<string, TreeNode[]>>({})
-  const [loadingSubprojects, setLoadingSubprojects] = useState<Set<string>>(new Set())
   const [treeInvalidation, setTreeInvalidation] = useState<{ n: number; project: string; version: number; parents: string[] }>({ n: 0, project: '', version: 0, parents: [] })
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   // 터미널·에이전트의 기능 권한과 열림 상태는 독립이다.
@@ -382,7 +418,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const sidebarCreate = useSidebarCreate(rootProjectPath, (scope) => {
     setSidebarView('files')
     if (scope === 'docs') setDocsExpanded(true)
-    else if (scope.startsWith('subproject:')) setExpandedSubprojects(current => new Set([...current, scope.slice('subproject:'.length)]))
   })
   // Alt+N 새 파일 신호 — parentPath가 있으면 그 폴더에(에디터 포커스였을 때 활성 문서 폴더),
   // null이면 FileTree가 자기 선택 항목 기준으로 이름 입력을 연다
@@ -481,25 +516,40 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       return
     }
     let alive = true
-    setWorkspaceUiLoaded(false)
-    void fetchWorkspaceUi(rootProjectPath)
-      .then(({ state }) => {
-        if (!alive) return
-        setWorkspaceUi(state ?? {})
-        setWorkspaceUiRevision((revision) => revision + 1)
-        setWorkspaceUiLoaded(true)
-      })
-      .catch(console.error)
+    const cached = workspaceUiCache.current.get(rootProjectPath)
+    if (cached) {
+      setWorkspaceUi(cached)
+      setWorkspaceUiLoaded(true)
+    } else {
+      setWorkspaceUiLoaded(false)
+      void prepareWorkspaceUi(rootProjectPath)
+        .then(state => {
+          if (!alive) return
+          setWorkspaceUi(state)
+          setWorkspaceUiRevision(revision => revision + 1)
+          setWorkspaceUiLoaded(true)
+        })
+        .catch(console.error)
+    }
     return () => { alive = false }
-  }, [isGuest, rootProjectPath])
+  }, [isGuest, rootProjectPath, prepareWorkspaceUi])
 
   useEffect(() => {
     if (!rootProjectPath || isGuest || !workspaceUiLoaded) return
-    const timer = window.setTimeout(() => {
-      void saveWorkspaceUi(rootProjectPath, workspaceUi).catch(console.error)
-    }, 500)
-    return () => window.clearTimeout(timer)
-  }, [isGuest, rootProjectPath, workspaceUi, workspaceUiLoaded])
+    workspaceUiCache.current.set(rootProjectPath, workspaceUi)
+    let saved = false
+    const save = () => {
+      if (saved) return
+      saved = true
+      persistWorkspaceUi(rootProjectPath, workspaceUi)
+    }
+    const timer = window.setTimeout(save, 500)
+    return () => {
+      window.clearTimeout(timer)
+      // Leaving before the debounce fires must not discard the outgoing tab layout.
+      if (rootProjectPathRef.current !== rootProjectPath) save()
+    }
+  }, [isGuest, rootProjectPath, workspaceUi, workspaceUiLoaded, persistWorkspaceUi])
 
   useEffect(() => {
     if (!workspaceUiLoaded) return
@@ -510,7 +560,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     sidebarStateLoadedRootRef.current = rootProjectPath
     sidebarStateRestorePendingRef.current = rootProjectPath
     setDocsExpanded(state.docsExpanded)
-    setExpandedSubprojects(new Set(state.expandedSubprojects))
   }, [isGuest, rootProjectPath, workspaceUi.sidebar, workspaceUiLoaded])
 
   useEffect(() => {
@@ -519,63 +568,50 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       sidebarStateRestorePendingRef.current = null
       return
     }
-    saveSidebarState(rootProjectPath, { docsExpanded, expandedSubprojects: [...expandedSubprojects] })
-    if (!isGuest) setWorkspaceUi((previous) => ({ ...previous, sidebar: { docsExpanded, expandedSubprojects: [...expandedSubprojects] } }))
-  }, [docsExpanded, expandedSubprojects, isGuest, rootProjectPath, workspaceUiLoaded])
+    saveSidebarState(rootProjectPath, { docsExpanded, expandedSubprojects: [] })
+    if (!isGuest) setWorkspaceUi((previous) => ({ ...previous, sidebar: { docsExpanded, expandedSubprojects: [] } }))
+  }, [docsExpanded, isGuest, rootProjectPath, workspaceUiLoaded])
 
   const refreshTree = useCallback((signal?: { project?: string; version?: number; parents?: string[] }) => {
+    const epoch = workspaceEpochRef.current
+    const root = rootProjectPathRef.current
+    const read = async (scope: string) => {
+      const nodes = await fetchTreeEntries(scope)
+      if (epoch !== workspaceEpochRef.current) return
+      rootTreeCache.current.set(`${root ?? ''}\0${scope}`, nodes)
+      if (scope === WORKSPACE_PROJECT) setRootTree(nodes)
+      if (scope === DEFAULT_PROJECT) setDocsTree(nodes)
+      if (scope === project) setTree(nodes)
+    }
     if (signal?.project && signal.parents) {
-      setTreeInvalidation((previous) => ({
-        n: previous.n + 1,
-        project: signal.project!,
-        version: signal.version ?? previous.version,
-        parents: signal.parents!,
-      }))
-      const jobs: Promise<unknown>[] = []
-      if (signal.parents.includes('')) {
-        if (signal.project === WORKSPACE_PROJECT) {
-          const request = fetchTreeEntries(WORKSPACE_PROJECT)
-          jobs.push(request.then(setRootTree))
-          if (project === WORKSPACE_PROJECT) jobs.push(request.then(setTree))
-        } else if (signal.project === DEFAULT_PROJECT) {
-          const request = fetchTreeEntries(DEFAULT_PROJECT)
-          jobs.push(request.then(setDocsTree))
-          if (project === DEFAULT_PROJECT) jobs.push(request.then(setTree))
-        } else if (project === signal.project) {
-          jobs.push(fetchTreeEntries(signal.project).then(setTree))
-        }
-      }
-      if (signal.project === WORKSPACE_PROJECT) {
-        for (const parent of signal.parents) {
-          if (subprojectTrees[parent] === undefined) continue
-          jobs.push(fetchTreeEntries(WORKSPACE_PROJECT, parent).then((entries) => {
-            setSubprojectTrees((previous) => ({ ...previous, [parent]: entries }))
-          }))
-        }
-      }
-      return Promise.all(jobs).then(() => undefined).catch(console.error)
+      setTreeInvalidation(previous => ({ n: previous.n + 1, project: signal.project!, version: signal.version ?? previous.version, parents: signal.parents! }))
+      return (signal.parents.includes('') ? read(signal.project) : Promise.resolve()).catch(console.error)
     }
-    for (const parent of Object.keys(subprojectTrees)) {
-      void fetchTreeEntries(WORKSPACE_PROJECT, parent).then(entries => {
-        setSubprojectTrees(previous => ({ ...previous, [parent]: entries }))
-      }).catch(console.error)
-    }
-    const workspace = fetchTreeEntries(WORKSPACE_PROJECT)
-    const docs = fetchTreeEntries(DEFAULT_PROJECT)
-    void workspace.then(setRootTree).catch(console.error)
-    void docs.then(setDocsTree).catch(console.error)
-    if (project === WORKSPACE_PROJECT) return workspace.then(setTree).catch(console.error)
-    if (project === DEFAULT_PROJECT) return docs.then(setTree).catch(console.error)
-    return fetchTreeEntries(project).then(setTree).catch(console.error)
-  }, [project, subprojectTrees])
+    const scopes = new Set([WORKSPACE_PROJECT, DEFAULT_PROJECT, project])
+    return Promise.all([...scopes].map(read)).then(() => undefined).catch(console.error)
+  }, [project])
 
   useEffect(() => {
+    const invalidate = () => {
+      workspaceUiCache.current.clear()
+      rootTreeCache.current.clear()
+      workspaceEpochRef.current++
+      setWorkspaceEpoch(workspaceEpochRef.current)
+    }
+    window.addEventListener('mew:permissions-changed', invalidate)
+    return () => window.removeEventListener('mew:permissions-changed', invalidate)
+  }, [])
+
+  useEffect(() => {
+    if (!rootProjectPath && !isGuest) return
+    let alive = true
     void fetchProjects()
-      .then((projects) => setSubprojectIcons(Object.fromEntries(
-        projects.flatMap(({ name, icon }) => icon ? [[name, icon] as const] : []),
-      )))
+      .then(projects => {
+        if (alive) setSubprojectIcons(Object.fromEntries(projects.flatMap(({ name, icon }) => icon ? [[name, icon] as const] : [])))
+      })
       .catch(console.error)
-  }, [rootProjectPath])
+    return () => { alive = false }
+  }, [isGuest, rootProjectPath])
 
   // 서버 상태가 비어 있을 때만 이 브라우저의 기존 localStorage를 최초 값으로 올린다. 시크릿 창의
   // 빈 저장소가 이미 쓰고 있던 계정 상태를 덮어쓰지 않도록, 내려받기 전에는 저장하지 않는다.
@@ -588,6 +624,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         if (state) {
           setOpenProjectPaths(state.paths)
           setRootProjectIcons(state.icons)
+          setRootProjectGroups(normalizeProjectTabLayout(state.paths, state.groups).groups)
         }
         setRootProjectTabsSynced(true)
       })
@@ -597,11 +634,19 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   useEffect(() => {
     if (!isOwner) return
-    writeBrowserStorage(OPEN_PROJECTS_KEY, JSON.stringify(openProjectPaths))
+    const layout = normalizeProjectTabLayout(openProjectPaths, rootProjectGroups)
+    writeBrowserStorage(OPEN_PROJECTS_KEY, JSON.stringify(layout.paths))
     writeBrowserStorage(ROOT_PROJECT_ICONS_KEY, JSON.stringify(rootProjectIcons))
+    writeBrowserStorage(ROOT_PROJECT_GROUPS_KEY, JSON.stringify(layout.groups))
     if (!rootProjectTabsSynced) return
-    void saveRootProjectTabs({ paths: openProjectPaths, icons: rootProjectIcons }).catch(console.error)
-  }, [isOwner, openProjectPaths, rootProjectIcons, rootProjectTabsSynced])
+    // Keep rapid moves in order; discard superseded or unmounted pending writes.
+    let current = true
+    rootProjectSaveQueue.current = rootProjectSaveQueue.current
+      .catch(() => {})
+      .then(() => current ? saveRootProjectTabs({ ...layout, icons: rootProjectIcons }) : undefined)
+      .catch(console.error)
+    return () => { current = false }
+  }, [isOwner, openProjectPaths, rootProjectIcons, rootProjectGroups, rootProjectTabsSynced])
 
   const rememberProjectPath = useCallback((projectPath: string) => {
     setOpenProjectPaths((previous) => {
@@ -619,13 +664,26 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     })
   }, [])
 
-  const applyWorkspace = useCallback((info: { path: string }) => {
+  const applyWorkspace = useCallback((info: { path: string; docsPath?: string }) => {
+    const previous = workspaceInfoRef.current
+    // The POST response and its presence broadcast describe the same handoff.
+    // Update refs synchronously so either arrival order applies it exactly once.
+    if (previous?.path === info.path && previous.docsPath === info.docsPath) return
+    if (previous?.path === info.path) rootTreeCache.current.clear()
+    setPreparedAgentTabs(agentTabsPrefetch.current?.path === info.path ? agentTabsPrefetch.current.promise : undefined)
+    agentTabsPrefetch.current = null
+    workspaceInfoRef.current = info
+    rootProjectPathRef.current = info.path
+    workspaceEpochRef.current++
+    setWorkspaceEpoch(workspaceEpochRef.current)
+    const cachedUi = workspaceUiCache.current.get(info.path)
+    setWorkspaceUi(cachedUi ?? {})
+    setWorkspaceUiLoaded(cachedUi !== undefined)
     // 서버 API의 `.workspace`/`docs` 이름은 모든 루트에서 같으므로, 절대 경로를 클라이언트
     // 탭·본문 캐시의 실제 경계로 사용한다.
     setProject(WORKSPACE_PROJECT)
     setContentWorkspace(info.path)
     setActiveProject(WORKSPACE_PROJECT)
-    if (info.path !== rootProjectPathRef.current) setWorkspaceUiLoaded(false)
     setRootProjectPath(info.path)
     // 계정 UI·탭 복원을 기다리지 않고, 워크스페이스를 받은 첫 렌더부터 직전 모바일
     // 전면 화면을 올린다. 그렇지 않으면 빈 에디터의 자동 사이드바가 잠깐 보인다.
@@ -635,28 +693,43 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       if (foreground && foreground !== 'editor') workspacePanelSetters[foreground](true)
     }
     rememberProjectPath(info.path)
-    setTree([])
-    setRootTree([])
-    setDocsTree([])
-    setSubprojectTrees({})
-    setLoadingSubprojects(new Set())
-    setExpandedSubprojects(new Set())
+    const cachedRoot = rootTreeCache.current.get(`${info.path}\0${WORKSPACE_PROJECT}`) ?? []
+    const cachedDocs = previous?.path === info.path ? [] : rootTreeCache.current.get(`${info.path}\0${DEFAULT_PROJECT}`) ?? []
+    setTree(cachedRoot)
+    setRootTree(cachedRoot)
+    setDocsTree(cachedDocs)
     setPendingOpen(null)
   }, [rememberProjectPath, workspacePanelSetters])
 
   const handleWorkspaceBroadcast = useCallback(() => {
-    void fetchWorkspace().then(applyWorkspace).catch(console.error)
+    // Resolve notifications after our POST so an older GET cannot undo its result.
+    // Read once afterward to retain a concurrent switch from another client.
+    if (projectOpeningRef.current) { workspaceBroadcastPending.current = true; return }
+    const sequence = ++workspaceReadSequence.current
+    void fetchWorkspace().then(info => {
+      if (sequence === workspaceReadSequence.current) applyWorkspace(info)
+    }).catch(console.error)
   }, [applyWorkspace])
 
   const openRootProject = useCallback(async (projectPath: string) => {
-    rememberProjectPath(projectPath)
-    setProject(WORKSPACE_PROJECT)
+    if (!isOwner || projectOpeningRef.current) return
     if (projectPath === rootProjectPath) {
+      setProject(WORKSPACE_PROJECT)
       setActiveProject(WORKSPACE_PROJECT)
       setOpenProjectDialog(false)
       return
     }
+    projectOpeningRef.current = true
+    workspaceReadSequence.current++
     setSwitchingRootProject(true)
+    // Account metadata is explicitly keyed by absolute root and can load in parallel.
+    // Tree/file APIs still wait for the server to confirm its active root.
+    void prepareWorkspaceUi(projectPath).catch(console.error)
+    if (caps.agent || caps.terminal) {
+      const promise = fetchAgentTabs(projectPath)
+      void promise.catch(() => {}) // The mounted panel owns error handling.
+      agentTabsPrefetch.current = { path: projectPath, promise }
+    }
     try {
       const info = await switchWorkspace(projectPath)
       applyWorkspace(info)
@@ -664,15 +737,43 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     } catch (err) {
       showToast(err instanceof Error ? err.message : String(err))
     } finally {
+      agentTabsPrefetch.current = null
+      projectOpeningRef.current = false
       setSwitchingRootProject(false)
+      if (workspaceBroadcastPending.current) {
+        workspaceBroadcastPending.current = false
+        handleWorkspaceBroadcast()
+      }
     }
-  }, [applyWorkspace, rememberProjectPath, rootProjectPath, showToast])
+  }, [applyWorkspace, caps.agent, caps.terminal, handleWorkspaceBroadcast, isOwner, rootProjectPath, showToast, prepareWorkspaceUi])
+
+  const openSidebarProject = useCallback(async (scope: string, path: string) => {
+    if (!isOwner || !rootProjectPath || projectOpeningRef.current) return
+    projectOpeningRef.current = true
+    workspaceReadSequence.current++
+    setSwitchingRootProject(true)
+    try {
+      const info = await openSubproject(path, scope, rootProjectPath)
+      applyWorkspace(info)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : String(err))
+    } finally {
+      projectOpeningRef.current = false
+      setSwitchingRootProject(false)
+      if (workspaceBroadcastPending.current) {
+        workspaceBroadcastPending.current = false
+        handleWorkspaceBroadcast()
+      }
+    }
+  }, [applyWorkspace, handleWorkspaceBroadcast, isOwner, rootProjectPath, showToast])
 
   const closeRootProject = useCallback(async (projectPath: string) => {
+    if (projectOpeningRef.current) return
     const paths = [...new Set(openProjectPaths)].filter((path) => path !== projectPath)
     if (paths.length === 0) return
     setCloseProjectPath(null)
     setOpenProjectPaths(paths)
+    setRootProjectGroups(previous => normalizeProjectTabLayout(paths, previous).groups)
     setRootProjectIcons((previous) => {
       const next = { ...previous }
       delete next[projectPath]
@@ -1120,30 +1221,30 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   useEffect(() => {
     if (isGuest) return
-    fetchWorkspace()
-      .then(applyWorkspace)
-      .catch(console.error)
-  }, [isGuest, applyWorkspace])
+    handleWorkspaceBroadcast()
+  }, [isGuest, handleWorkspaceBroadcast])
 
-  // 프로젝트를 옮기면 사이드바 트리를 그 프로젝트 것으로 갈아끼운다. 옆 프로젝트의 트리가 잠깐
-  // 남아 있지 않도록 먼저 비우고, 늦게 도착한 옛 응답이 새 트리를 덮지 않게 취소 플래그를 둔다.
+  // Only issue root-relative requests after the server handoff. Recent first-level
+  // listings paint immediately; refresh them without blanking the cached tree.
   useEffect(() => {
+    if (!rootProjectPath && !isGuest) return
     let alive = true
-    setTree([])
-    setSubprojectTrees({})
-    setLoadingSubprojects(new Set())
-    const workspace = fetchTreeEntries(WORKSPACE_PROJECT)
-    const docs = fetchTreeEntries(DEFAULT_PROJECT)
-    void workspace.then((next) => { if (alive) setRootTree(next) }).catch(console.error)
-    void docs.then((next) => { if (alive) setDocsTree(next) }).catch(console.error)
-    const active = project === WORKSPACE_PROJECT ? workspace : project === DEFAULT_PROJECT ? docs : fetchTreeEntries(project)
-    void active.then((next) => { if (alive) setTree(next) }).catch(console.error)
-    return () => {
-      alive = false
+    const epoch = workspaceEpochRef.current
+    const read = (scope: string, update: (nodes: TreeNode[]) => void) => {
+      const key = `${rootProjectPath ?? ''}\0${scope}`
+      const cached = rootTreeCache.current.get(key)
+      update(cached ?? [])
+      void fetchTreeEntries(scope).then(next => {
+        if (!alive || epoch !== workspaceEpochRef.current) return
+        rootTreeCache.current.set(key, next)
+        update(next)
+      }).catch(console.error)
     }
-  // `.workspace`는 모든 루트에서 같은 API 식별자다. 따라서 루트 프로젝트를 바꿔도
-  // project 값은 그대로일 수 있으며, 실제 루트 경로도 로딩 경계에 포함해야 한다.
-  }, [project, rootProjectPath])
+    read(WORKSPACE_PROJECT, next => { setRootTree(next); if (project === WORKSPACE_PROJECT) setTree(next) })
+    read(DEFAULT_PROJECT, next => { setDocsTree(next); if (project === DEFAULT_PROJECT) setTree(next) })
+    if (project !== WORKSPACE_PROJECT && project !== DEFAULT_PROJECT) read(project, setTree)
+    return () => { alive = false }
+  }, [isGuest, project, rootProjectPath, workspaceEpoch])
 
   // 옛 `/{프로젝트}` 주소로 들어왔으면 주소만 루트로 정리한다 — 프로젝트는 이미 그것으로 시작했다
   useEffect(() => {
@@ -1491,45 +1592,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       return { ...previous, trees: { ...trees, [key]: value } }
     })
   }, [isGuest])
-  const lastSidebarRevealRef = useRef({ rootProjectPath, activePath, project, revealSignal })
-  useEffect(() => {
-    const previous = lastSidebarRevealRef.current
-    lastSidebarRevealRef.current = { rootProjectPath, activePath, project, revealSignal }
-    if (previous.rootProjectPath !== rootProjectPath || !workspaceUiLoaded) return
-    if (previous.activePath === activePath && previous.project === project && previous.revealSignal === revealSignal) return
-    if (project !== WORKSPACE_PROJECT || !activePath) return
-    const subproject = rootTree.find((node) => node.project && activePath.startsWith(`${node.path}/`))
-    if (subproject) setExpandedSubprojects((current) => current.has(subproject.path) ? current : new Set(current).add(subproject.path))
-  }, [activePath, project, revealSignal, rootProjectPath, rootTree, workspaceUiLoaded])
-  const loadSubproject = useCallback((path: string) => {
-    if (subprojectTrees[path] !== undefined || loadingSubprojects.has(path)) return
-    setLoadingSubprojects((previous) => new Set(previous).add(path))
-    void fetchTreeEntries(WORKSPACE_PROJECT, path)
-      .then((children) => setSubprojectTrees((previous) => ({ ...previous, [path]: children })))
-      .catch((err: unknown) => showToast(err instanceof Error ? err.message : String(err)))
-      .finally(() => setLoadingSubprojects((previous) => {
-        const next = new Set(previous)
-        next.delete(path)
-        return next
-      }))
-  }, [loadingSubprojects, showToast, subprojectTrees])
-  // 복원한 하위 프로젝트도 다시 접히지 않게, 루트 목록이 들어온 뒤 펼쳐 둔 항목의 한 단계 내용을 읽는다.
-  useEffect(() => {
-    for (const path of expandedSubprojects) {
-      if (rootSubprojects.some((subproject) => subproject.path === path)) loadSubproject(path)
-    }
-  }, [expandedSubprojects, loadSubproject, rootSubprojects])
-  const toggleSubproject = (path: string) => {
-    const opening = !expandedSubprojects.has(path)
-    setExpandedSubprojects((previous) => {
-      const next = new Set(previous)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      return next
-    })
-    if (opening) loadSubproject(path)
-  }
-
   // 헤더 오른쪽 도구 목록 — 권한별로 보이는 것이 다르다. 그리는 건 HeaderMenu(햄버거) 하나뿐이다
   const headerMenuItems: HeaderMenuItem[] = [
     ...(!isGuest || canEditActiveTab
@@ -1765,6 +1827,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
             canOpen={isOwner}
             canChangeIcon={isOwner}
             icons={rootProjectIcons}
+            groups={rootProjectGroups}
+            onLayoutChange={isOwner ? layout => {
+              setOpenProjectPaths(layout.paths)
+              setRootProjectGroups(layout.groups)
+            } : undefined}
             onActivate={(projectPath) => void openRootProject(projectPath)}
             onClose={setCloseProjectPath}
             onIconChange={changeRootProjectIcon}
@@ -1884,7 +1951,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
               </div>
               <div className="min-h-0 flex-1">
                 <div className={sidebarView === 'files' ? 'h-full' : 'hidden'}>
-                  {/* Documents와 직계 하위 프로젝트만 큰 접기 단위다. 나머지 루트 내용은 실제 깊이대로 바로 보인다. */}
+                  {/* Documents는 펼치고 하위 프로젝트는 독립 탭으로 연다. 일반 폴더는 실제 깊이를 유지한다. */}
                   {(isGuest || (workspaceUiLoaded && sidebarStateLoadedRootRef.current === rootProjectPath)) && <FileTree
                     key={`${isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${workspaceUiRevision}`}
                     {...sidebarCreate.treeProps('root')}
@@ -1897,6 +1964,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     selectedPath={project === (isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? activePath : null}
                     readOnly={isGuest || !caps.filesRead || !caps.filesWrite}
                     canUseCommands={canUseTerminal && !isGuest}
+                    onOpenProject={(path) => void openSidebarProject(isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT, path)}
+                    canOpenProjects={isOwner}
                     canUseGit={caps.git}
                     loadChildren={isGuest ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
                     treeInvalidation={treeInvalidation}
@@ -1942,72 +2011,25 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                             onDeleted={() => refreshTree()}
                             onNotice={showToast}
                             registerSearchCancel={() => {}}
+                            onOpenProject={(path) => void openSidebarProject(DEFAULT_PROJECT, path)}
+                            canOpenProjects={isOwner}
                             loadChildren={loadDocsTreeChildren}
                             treeInvalidation={treeInvalidation}
                           />
                         )}
                       </div>
-                      {rootSubprojects.map((subproject) => {
-                        const expanded = expandedSubprojects.has(subproject.path)
-                        return <div key={subproject.path} className="border-b border-edge pb-1">
-                          <div className="sticky top-0 z-10 flex items-center gap-0.5 bg-surface-deep">
-                            <button
-                              type="button"
-                              data-path={`@subproject:${subproject.path}`}
-                              onClick={() => { sidebarCreate.selectDirectory(`subproject:${subproject.path}`, subproject.path); toggleSubproject(subproject.path) }}
-                              className={`flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm font-semibold hover:bg-surface-raised ${expanded ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
-                              title={subproject.name}
-                            >
-                              <ProjectIcon icon={subprojectIcons[subproject.name] ?? 'i:folder'} size={16} />
-                              <span className="truncate">{subproject.name}</span>
-                            </button>
-                            {canUseTerminal && <CommandButtonMenu project={WORKSPACE_PROJECT} directory={subproject.path} />}
-                          </div>
-                          {expanded && (
-                            <>
-                              {loadingSubprojects.has(subproject.path) && (
-                                <div className="px-2 py-1 text-xs text-ink-muted">불러오는 중…</div>
-                              )}
-                              <div className="bg-surface-raised">
-                                <FileTree
-                                  key={`${WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${subproject.path}:${workspaceUiRevision}`}
-                                  {...sidebarCreate.treeProps(`subproject:${subproject.path}`)}
-                                  rootPath={subproject.path}
-                                  tree={subprojectTrees[subproject.path] ?? []}
-                                  project={WORKSPACE_PROJECT}
-                                  stateKey={rootProjectPath ? `sidebar-tree:subproject:${rootProjectPath}:${subproject.path}` : undefined}
-                                  accountState={rootProjectPath ? accountTreeStates[`sidebar-tree:subproject:${rootProjectPath}:${subproject.path}`] : undefined}
-                                  onAccountStateChange={rootProjectPath ? (state) => saveAccountTreeState(`sidebar-tree:subproject:${rootProjectPath}:${subproject.path}`, state) : undefined}
-                                  workspacePath={rootProjectPath}
-                                  compact
-                                  selectedPath={project === WORKSPACE_PROJECT ? activePath : null}
-                                  readOnly={!caps.filesRead || !caps.filesWrite}
-                                  canUseCommands={canUseTerminal}
-                                  canUseGit={caps.git}
-                                  searchFocusSignal={0}
-                                  newFileSignal={{ n: 0, parentPath: null }}
-                                  revealSignal={revealSignal}
-                                  presence={project === WORKSPACE_PROJECT ? tabPresence : {}}
-                                  onSelect={(path) => {
-                                    openMentionedFile(WORKSPACE_PROJECT, path, null)
-                                  }}
-                                  onFileCreated={(relPath) => {
-                                    refreshTree()
-                                    openMentionedFile(WORKSPACE_PROJECT, relPath, null)
-                                  }}
-                                  onFolderCreated={refreshTree}
-                                  onRenamed={handleRenamed}
-                                  onDeleted={handleDeleted}
-                                  onNotice={showToast}
-                                  registerSearchCancel={() => {}}
-                                  loadChildren={loadWorkspaceTreeChildren}
-                                  treeInvalidation={treeInvalidation}
-                                />
-                              </div>
-                            </>
-                          )}
+                      {rootSubprojects.map((subproject) => (
+                        <div key={subproject.path} className="flex border-b border-edge">
+                          <SubprojectLink
+                            data-path={`@subproject:${subproject.path}`}
+                            name={subproject.name}
+                            icon={subprojectIcons[subproject.name] ?? 'i:folder'}
+                            unavailable={!isOwner}
+                            disabled={switchingRootProject}
+                            onClick={() => void openSidebarProject(WORKSPACE_PROJECT, subproject.path)}
+                          />
                         </div>
-                      })}
+                      ))}
                     </>}
                     searchFocusSignal={searchFocusSignal}
                     newFileSignal={newFileSignal}
@@ -2066,6 +2088,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
         {(caps.agent || caps.terminal) && <AgentPanel
           key={rootProjectPath ?? 'pending-workspace'} project={project} workspacePath={rootProjectPath} tree={tree}
+          preparedTabs={preparedAgentTabs}
           focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeTab.path : null}
           getSelectedText={getSelectedText} renderCommandButtons={renderTermButtons} onOpenFile={openMentionedFile}
           allowAgent={caps.agent} allowTerminal={caps.terminal} agentOpen={caps.agent && agentOpen} terminalOpen={caps.terminal && terminalOpen} foregroundKind={mobileForegroundPanel}

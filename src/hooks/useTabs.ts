@@ -144,6 +144,10 @@ export function useTabs(
   accountHydrated = true,
 ) {
   const [states, setStates] = useState<Record<string, ProjectTabs>>({})
+  const workspaceRequestRef = useRef({ scope: workspaceScope, epoch: 0 })
+  if (workspaceRequestRef.current.scope !== workspaceScope) {
+    workspaceRequestRef.current = { scope: workspaceScope, epoch: workspaceRequestRef.current.epoch + 1 }
+  }
   // 콜백 identity가 바뀌어도 openFileIn 등의 useCallback을 다시 만들지 않도록 ref로 든다
   const onNoticeRef = useRef(onNotice)
   onNoticeRef.current = onNotice
@@ -153,12 +157,14 @@ export function useTabs(
   const projectRef = useRef(project)
   projectRef.current = project
   const hydratedRef = useRef<string | null>(null)
+  const hydratedWorkspaceRef = useRef(workspaceScope)
   const [hydratedSession, setHydratedSession] = useState<string | null>(null)
   // 탭 껍데기를 setState로 세운 직후에는 statesRef가 아직 옛 상태다. 활성 탭의 실제 로드는
   // 다음 렌더 effect로 넘겨야 existing 탭을 다시 만들지 않고 deferredLoad만 해제할 수 있다.
   const pendingRestoreLoadsRef = useRef(new Map<string, { paneId: string; path: string; preview: boolean; viewMode: Tab['viewMode'] }[]>())
 
-  const state = states[project] ?? EMPTY
+  const sessionKey = `${project}\u0000${workspaceScope ?? ''}`
+  const state = hydratedSession === sessionKey ? states[project] ?? EMPTY : EMPTY
   const { panes, layout, focusedPaneId } = state
   const focusedPane = panes.find((p) => p.id === focusedPaneId) ?? panes[0]
   const { tabs, activePath } = focusedPane
@@ -300,7 +306,10 @@ export function useTabs(
       if (opts?.deferLoad) return
       // 바이너리 미디어는 뷰어가 /api/raw로 직접 스트리밍한다 — utf-8 fetch도 규칙 검사도 없음
       if (mediaKind(path)) return
+      const requestEpoch = workspaceRequestRef.current.epoch
+      const isCurrentWorkspace = () => requestEpoch === workspaceRequestRef.current.epoch
       const applyFullFile = ({ content, editable }: { content: string; editable: boolean }) => {
+          if (!isCurrentWorkspace()) return
           markFileOpen(trace, 'file-response')
           if (!external) putCachedFile(p, path, { content, editable })
           mapTabsAtPath(p, path, (t) => {
@@ -320,6 +329,7 @@ export function useTabs(
           })
       }
       const handleOpenError = (err: unknown) => {
+        if (!isCurrentWorkspace()) return
         // 열 수 없는 파일(게스트 권한 밖 등)은 빈 탭만 남아 "아무 일도 안 일어난" 것처럼 보인다 — 이유를 띄운다
         if (!external) dropCachedFile(p, path)
         mapTabsAtPath(p, path, tab => ({ ...tab, content: '', savedContent: '', committedContent: '', editable: false }))
@@ -332,6 +342,7 @@ export function useTabs(
       if (canPreviewAnchor) {
         fetchFileAnchorPreview(path, opts.anchorLine!, p)
           .then((first) => {
+            if (!isCurrentWorkspace()) return
             if (!first.partial) {
               applyFullFile(first)
               return
@@ -364,8 +375,10 @@ export function useTabs(
         // MOC·링크 검사는 본문 표시의 선행조건이 아니다. 로컬 서버에서 동기 검사하는 비용도 있으므로
         // 첫 편집기 paint 뒤에 시작한다. 실패해도 본문을 막지 않는 기존 계약은 그대로다.
         afterFirstPaint(() => {
+          if (!isCurrentWorkspace()) return
           fetchRules(path, p)
             .then((rules) => {
+              if (!isCurrentWorkspace()) return
               markFileOpen(trace, 'rules-response')
               mapTabsAtPath(p, path, (t) => ({ ...t, rules }))
             })
@@ -394,13 +407,16 @@ export function useTabs(
 
   // 브라우저를 껐다 켜거나 F5로 새로고침해도 열려 있던 탭들과 분할 배치를 복원한다. 루트 프로젝트별
   // 현재 저장 scope마다 한 번만 — StrictMode의 이펙트 2회 실행도 hydratedRef가 막는다.
-  const sessionKey = `${project}\u0000${workspaceScope ?? ''}`
-
   useEffect(() => {
     if (hydratedRef.current === sessionKey) return
     // 계정 원장이 기준이다. 새 기기에서 로컬 빈 상태가 서버 복원값을 덮기 전에 응답을 기다린다.
     if (workspaceScope && !accountHydrated) return
     hydratedRef.current = sessionKey
+    if (hydratedWorkspaceRef.current !== workspaceScope) {
+      hydratedWorkspaceRef.current = workspaceScope
+      setStates({})
+      pendingRestoreLoadsRef.current.clear()
+    }
     // 같은 API 프로젝트(`.workspace`, `docs`)라도 루트가 바뀌면 이전 루트의 열린 탭은
     // 메모리에서도 즉시 버린다. 저장분은 workspaceScope별 키에 남아 다시 돌아올 때 복원된다.
     setHydratedSession(null)
@@ -411,28 +427,31 @@ export function useTabs(
       setHydratedSession(sessionKey)
       return
     }
-    // 칸 뼈대를 먼저 세운다 — openFileIn이 그 칸을 찾아 탭을 붙인다
-    patch(project, () => ({
-      panes: stored.panes.map((p) => ({ id: p.id, tabs: [], activePath: null })),
+    // Restore all shells in one update. Looking up existing tabs while queuing a
+    // reset still sees the previous root's same-named files and can skip members.
+    const restored: ProjectTabs = {
+      panes: stored.panes.map(pane => ({
+        id: pane.id,
+        activePath: pane.activePath,
+        tabs: pane.tabs.map(tab => {
+          const cached = isExternalTabPath(tab.path) ? undefined : getCachedFile(project, tab.path)
+          return {
+            ...blankTab(), ...tab, deferredLoad: true,
+            ...(cached ? { content: cached.content, savedContent: cached.content, committedContent: cached.content, editable: cached.editable } : {}),
+          }
+        }),
+      })),
       layout: stored.layout,
       focusedPaneId: stored.focusedPaneId,
-    }))
-    const activeLoads: { paneId: string; path: string; preview: boolean; viewMode: Tab['viewMode'] }[] = []
-    for (const pane of stored.panes) {
-      // 탭 껍데기와 캐시 본문은 전부 즉시 복원하되, 첫 요청은 각 칸의 활성 탭 하나로 제한한다.
-      // 비활성 탭은 사용자가 선택할 때만 openFileIn의 deferredLoad 경로로 읽는다.
-      for (const t of pane.tabs) {
-        openFileIn(project, pane.id, t.path, { preview: t.preview, viewMode: t.viewMode, forceNewTab: true, deferLoad: true })
-      }
-      if (pane.activePath) patchPane(project, pane.id, (x) => ({ ...x, activePath: pane.activePath }))
-      if (pane.activePath) {
-        const active = pane.tabs.find((t) => t.path === pane.activePath)
-        if (active) activeLoads.push({ paneId: pane.id, path: active.path, preview: active.preview, viewMode: active.viewMode })
-      }
     }
+    patch(project, () => restored)
+    const activeLoads = stored.panes.flatMap(pane => {
+      const active = pane.tabs.find(tab => tab.path === pane.activePath)
+      return active ? [{ paneId: pane.id, path: active.path, preview: active.preview, viewMode: active.viewMode }] : []
+    })
     pendingRestoreLoadsRef.current.set(sessionKey, activeLoads)
     setHydratedSession(sessionKey)
-  }, [accountHydrated, accountTabs, project, sessionKey, workspaceScope, openFileIn, patch, patchPane])
+  }, [accountHydrated, accountTabs, project, sessionKey, workspaceScope, patch])
 
   // 위 hydration effect가 만든 모든 탭이 상태에 붙은 뒤 활성 탭만 읽는다. statesRef 동기화 effect가
   // 선언 순서상 먼저 돌기 때문에 openFileIn은 deferred tab을 찾아 본문 요청만 시작한다.

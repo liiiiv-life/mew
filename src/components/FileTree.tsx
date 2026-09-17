@@ -12,6 +12,7 @@ import { CommandButtonMenu } from './CommandButtonMenu'
 import { DownloadLink } from './DownloadLink'
 import { getTreeScroll, saveTreeScroll, setScrollSaveSuppressed } from '../utils/scrollMemory'
 import { readFileClipboard, writeFileClipboard, type FileClipboard } from '../utils/fileClipboard'
+import { SubprojectLink } from './subproject-link'
 import { ProjectIcon } from './ProjectIcon'
 import { GitButton } from './GitButton'
 import {
@@ -47,6 +48,8 @@ interface NodeCtx {
   editing: EditingState
   readOnly: boolean
   canUseCommands: boolean
+  openProject?: (path: string) => void
+  canOpenProjects: boolean
   presence: Record<string, string[]>
   /** 지연 로드한 폴더별 직접 자식. 값이 빈 배열이면 "불러왔지만 비어 있음"이다. */
   directoryChildren: DirectoryChildren
@@ -288,9 +291,9 @@ function ActionPopover({
   onPasteClip?: () => void
   onDownload?: ReactNode
   onDelete?: () => void
-  onNewFile: () => void
-  onNewFolder: () => void
-  onUpload: () => void
+  onNewFile?: () => void
+  onNewFolder?: () => void
+  onUpload?: () => void
   onInitGit?: () => void
   onCreateSubproject?: () => void
   onClose: () => void
@@ -358,15 +361,21 @@ function ActionPopover({
         </button>
       )}
       {onDownload}
-      <button type="button" onClick={onNewFile} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+      {onNewFile && (
+        <button type="button" onClick={onNewFile} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
         ＋ 새 파일
-      </button>
-      <button type="button" onClick={onNewFolder} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+        </button>
+      )}
+      {onNewFolder && (
+        <button type="button" onClick={onNewFolder} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
         ＋ 새 폴더
-      </button>
-      <button type="button" onClick={onUpload} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
+        </button>
+      )}
+      {onUpload && (
+        <button type="button" onClick={onUpload} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
         ⬆ 업로드
-      </button>
+        </button>
+      )}
       {onCreateSubproject && (
         <button type="button" onClick={onCreateSubproject} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
           하위 프로젝트로 만들기
@@ -399,7 +408,9 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
 
   function handleClick() {
     if (touch.consumeClick()) return
-    if (node.type === 'dir') {
+    if (node.type === 'dir' && node.project && ctx.openProject) {
+      if (ctx.canOpenProjects) ctx.openProject(node.path)
+    } else if (node.type === 'dir') {
       ctx.toggleDir(node.path)
       ctx.focusNode(node.path, 'dir')
     } else {
@@ -472,7 +483,8 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
     )
   }
 
-  const isOpen = ctx.openDirs.has(node.path)
+  const projectLink = node.project && ctx.openProject !== undefined
+  const isOpen = !projectLink && ctx.openDirs.has(node.path)
   const isDropTarget = ctx.dropDir === node.path
   // 이 폴더의 MOC는 파일 목록에서 빼고, 펼쳤을 때 맨 첫 줄에 따로 세운다
   const nodeChildren = node.children ?? ctx.directoryChildren[node.path]
@@ -511,7 +523,18 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
       }}
     >
       <div className="flex w-full items-center gap-0.5">
-        <button
+        {projectLink ? <SubprojectLink
+          name={node.name}
+          unavailable={!ctx.canOpenProjects}
+          data-path={node.path}
+          draggable={!readOnly}
+          onDragStart={handleDragStart}
+          onDragEnd={ctx.endDrag}
+          onClick={handleClick}
+          {...touchProps}
+          style={{ paddingLeft: `${depth * 14 + 8}px` }}
+          className={`${isFocused ? 'ring-1 ring-inset ring-accent' : ''} ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : ''}`}
+        /> : <button
           type="button"
           data-path={node.path}
           draggable={!readOnly}
@@ -531,9 +554,9 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
               Project
             </span>
           )}
-        </button>
-        {node.git && ctx.openGit && <GitButton onClick={() => ctx.openGit?.(node.path)} title={`${node.name} Git 열기`} />}
-        {node.project && ctx.canUseCommands && <CommandButtonMenu project={ctx.project} directory={node.path} />}
+        </button>}
+        {node.git && !projectLink && ctx.openGit && <GitButton onClick={() => ctx.openGit?.(node.path)} title={`${node.name} Git 열기`} />}
+        {node.project && !projectLink && ctx.canUseCommands && <CommandButtonMenu project={ctx.project} directory={node.path} />}
       </div>
       {isOpen && (
         <div>
@@ -583,6 +606,8 @@ export function FileTree({
   selectedPath,
   readOnly,
   canUseCommands = false,
+  onOpenProject,
+  canOpenProjects = false,
   canUseGit = false,
   compact = false,
   roots,
@@ -620,6 +645,9 @@ export function FileTree({
   selectedPath: string | null
   readOnly: boolean
   canUseCommands?: boolean
+  /** Treat marked directories as navigation boundaries instead of expandable folders. */
+  onOpenProject?: (path: string) => void
+  canOpenProjects?: boolean
   canUseGit?: boolean
   /** 다른 트리 안에 넣을 때 검색·정렬 도구와 독립 스크롤을 숨긴다. */
   compact?: boolean
@@ -677,7 +705,7 @@ export function FileTree({
     const result = new Set<string>()
     const visit = (nodes: TreeNode[]) => nodes.forEach((node) => {
       if (node.project) result.add(node.path)
-      const children = directoryChildren[node.path] ?? node.children
+      const children = node.children ?? directoryChildren[node.path]
       if (children) visit(children)
     })
     visit(tree)
@@ -839,7 +867,7 @@ export function FileTree({
       Object.entries(directoryChildrenRef.current).filter(([key]) => !stale.has(key)),
     )
     setDirectoryChildren(directoryChildrenRef.current)
-    const visible = new Set(visibleOpenDirectories(tree, openDirs, directoryChildrenRef.current))
+    const visible = new Set(visibleOpenDirectories(tree, openDirs, directoryChildrenRef.current, !!onOpenProject))
     for (const parent of parents) {
       if (!visible.has(parent)) continue
       loadingDirsRef.current = new Set(loadingDirsRef.current).add(parent)
@@ -857,7 +885,7 @@ export function FileTree({
           setLoadingDirs(next)
         })
     }
-  }, [treeInvalidation, project, loadChildren, onNotice, openDirs, tree])
+  }, [treeInvalidation, project, loadChildren, onNotice, openDirs, tree, onOpenProject])
 
   useEffect(() => {
     const savedChildren = childrenForOpenDirs(openDirs, directoryChildren)
@@ -920,6 +948,7 @@ export function FileTree({
   }, [selectedPath, tree, revealSignal])
 
   const requestDir = useCallback((path: string, refresh = false) => {
+    if (onOpenProject && [...projectPaths].some(parent => path === parent || path.startsWith(`${parent}/`))) return
     if (!loadChildren || (!refresh && directoryChildrenRef.current[path] !== undefined) || loadingDirsRef.current.has(path)) return
     loadingDirsRef.current = new Set(loadingDirsRef.current).add(path)
     setLoadingDirs(loadingDirsRef.current)
@@ -935,7 +964,7 @@ export function FileTree({
         loadingDirsRef.current = next
         setLoadingDirs(next)
       })
-  }, [loadChildren, onNotice])
+  }, [loadChildren, onNotice, onOpenProject, projectPaths])
 
   const loadDir = useCallback((path: string) => requestDir(path), [requestDir])
 
@@ -943,14 +972,14 @@ export function FileTree({
   // immediately; each restored directory is refreshed once, without a timed waterfall.
   useEffect(() => {
     if (!loadChildren || tree.length === 0) return
-    for (const path of visibleOpenDirectories(tree, openDirs, directoryChildren)) {
+    for (const path of visibleOpenDirectories(tree, openDirs, directoryChildren, !!onOpenProject)) {
       if (loadingDirsRef.current.has(path)) continue
       const cached = directoryChildren[path] !== undefined
       if (cached && revalidatedRestoredChildrenRef.current.has(path)) continue
       revalidatedRestoredChildrenRef.current.add(path)
       requestDir(path, cached)
     }
-  }, [directoryChildren, loadChildren, openDirs, requestDir, tree])
+  }, [directoryChildren, loadChildren, openDirs, requestDir, tree, onOpenProject])
 
   function toggleDir(path: string) {
     const opening = !openDirs.has(path)
@@ -971,6 +1000,7 @@ export function FileTree({
       let acc = ''
       for (const part of parts) {
         acc = acc ? `${acc}/${part}` : part
+        if (onOpenProject && projectPaths.has(acc)) break
         if (!prev.has(acc)) missing.push(acc)
       }
       // 이미 다 열려 있으면 그대로 둔다 — 탭을 누를 때마다 새 Set을 만들면 괜한 리렌더와 저장이 따라온다
@@ -983,7 +1013,7 @@ export function FileTree({
 
   function focusNode(path: string, type: 'file' | 'dir') {
     setFocused({ path, type })
-    onDirectoryFocus?.(type === 'dir' ? path : parentOf(path))
+    onDirectoryFocus?.(type === 'dir' && !(onOpenProject && projectPaths.has(path)) ? path : parentOf(path))
   }
 
   function startRename(path: string, type: 'file' | 'dir') {
@@ -994,6 +1024,11 @@ export function FileTree({
 
   function startCreate(parentPath: string, kind: 'file' | 'folder') {
     if (readOnly) return
+    const boundary = onOpenProject && [...projectPaths].find(path => parentPath === path || parentPath.startsWith(`${path}/`))
+    if (boundary) {
+      if (canOpenProjects) onOpenProject?.(boundary)
+      return
+    }
     setQuery('')
     ensureOpenChain(parentPath)
     setEditing({ mode: kind === 'file' ? 'create-file' : 'create-folder', parentPath, value: '' })
@@ -1308,6 +1343,8 @@ export function FileTree({
     editing,
     readOnly,
     canUseCommands,
+    openProject: onOpenProject,
+    canOpenProjects,
     presence,
     directoryChildren,
     loadingDirs,
@@ -1491,15 +1528,15 @@ export function FileTree({
                   setPopover(null)
                 }
           }
-          onNewFile={() => {
+          onNewFile={onOpenProject && projectPaths.has(popover.path) ? undefined : () => {
             startCreate(popover.type === 'dir' ? popover.path : parentOf(popover.path), 'file')
             setPopover(null)
           }}
-          onNewFolder={() => {
+          onNewFolder={onOpenProject && projectPaths.has(popover.path) ? undefined : () => {
             startCreate(popover.type === 'dir' ? popover.path : parentOf(popover.path), 'folder')
             setPopover(null)
           }}
-          onUpload={() => {
+          onUpload={onOpenProject && projectPaths.has(popover.path) ? undefined : () => {
             triggerUpload(popover.type === 'dir' ? popover.path : parentOf(popover.path))
             setPopover(null)
           }}

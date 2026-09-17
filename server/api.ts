@@ -1,6 +1,6 @@
 import { ProjectSetupError } from './project-agent-settings.ts'
 import { createProjectSetupRouter } from './project-setup-routes.ts'
-import { createSubproject, projectDirectory } from './subprojects.ts'
+import { createSubproject, projectDirectory, subprojectToOpen } from './subprojects.ts'
 import { discoverCloudStorage } from './cloud-storage.ts'
 import express from 'express'
 import { createRemoteDesktopRoutes } from './remote-desktop.ts'
@@ -840,6 +840,20 @@ export function createApiApp() {
   // Git 워크벤치 — 경로는 현재 루트 프로젝트 안으로 제한하고, 폴더 자체가 저장소일 때만 조작한다.
   app.get('/git/repository', requireFeature('git'), async (req, res) => {
     try { res.json(await repositoryInfo(projectOf(req), String(req.query.path ?? ''))) } catch (err) { handleError(res, err) }
+  })
+
+  app.post('/subprojects/open', requireRole('owner'), (req, res) => {
+    try {
+      if (req.body?.workspace !== WORKSPACE_ROOT) {
+        res.status(409).json({ error: '프로젝트가 변경되었습니다. 현재 목록에서 다시 선택하세요.' })
+        return
+      }
+      const directory = subprojectToOpen(projectOf(req), req.body?.path)
+      if (!requireFileView(req, res, req.body.path)) return
+      const info = switchWorkspace(directory, WORKSPACE_PROJECT)
+      tmuxManager.cwd = info.path
+      res.json(info)
+    } catch (err) { handleError(res, err) }
   })
 
   app.post('/subprojects', requireRole('owner', 'manager', 'member'), requireFeature('filesWrite'), async (req, res) => {

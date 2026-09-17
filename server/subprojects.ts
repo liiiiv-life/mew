@@ -35,3 +35,12 @@ export function createSubproject(project: string, relative: unknown): void {
     throw error
   }
 }
+
+/** Resolve a marked descendant for opening as its own root project. */
+export function subprojectToOpen(project: string, relative: unknown): string {
+  const directory = projectDirectory(project, relative)
+  if (directory === projectRoot(project) || !hasProjectMarker(directory)) {
+    throw new UnsafePathError('하위 프로젝트 폴더를 선택하세요')
+  }
+  return directory
+}

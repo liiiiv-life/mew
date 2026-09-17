@@ -88,3 +88,20 @@ test('같은 경로의 Docs·하위 프로젝트를 구별하고 높이·늦은 
   assert.equal(restoreTreeCenter(element, anchor), false)
   await window.happyDOM.close()
 })
+
+
+test('project navigation stops restored loading at direct and nested project boundaries', async () => {
+  const { visibleOpenDirectories } = await import('./treePersistence.ts')
+  const tree = [
+    { name: 'direct', path: 'direct', type: 'dir' as const, project: true },
+    { name: 'plain', path: 'plain', type: 'dir' as const },
+  ]
+  const children = {
+    direct: [{ name: 'src', path: 'direct/src', type: 'dir' as const }],
+    plain: [{ name: 'nested', path: 'plain/nested', type: 'dir' as const, project: true }],
+    'plain/nested': [{ name: 'src', path: 'plain/nested/src', type: 'dir' as const }],
+  }
+  const open = new Set(['direct', 'direct/src', 'plain', 'plain/nested', 'plain/nested/src'])
+  assert.deepEqual(visibleOpenDirectories(tree, open, children, true), ['plain'])
+  assert.deepEqual(visibleOpenDirectories(tree, open, children), [...open])
+})

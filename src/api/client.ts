@@ -1,3 +1,4 @@
+import type { ProjectTabGroup } from '../../shared/project-tab-groups'
 import type { Capabilities, AccessSettings, FileRule, Feature } from '../../shared/access-policy'
 import type { CloudStorageFolder } from '../../shared/cloud-storage'
 import type { EditorApi, EditorDbApi, DbColumn, DbColumnType, DbRow, DbSummary, DbView, TableWidths } from '@mew/editor'
@@ -55,6 +56,7 @@ export interface ProjectInfo {
 }
 
 export interface RootProjectTabState {
+  groups?: ProjectTabGroup[]
   paths: string[]
   icons: Record<string, string>
 }
@@ -477,6 +479,14 @@ export function switchWorkspace(path: string): Promise<WorkspaceInfo> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
+  }).then(json<WorkspaceInfo>)
+}
+
+export function openSubproject(path: string, project: string, workspace: string): Promise<WorkspaceInfo> {
+  return fetch(`/api/subprojects/open?project=${encodeURIComponent(project)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, workspace }),
   }).then(json<WorkspaceInfo>)
 }
 

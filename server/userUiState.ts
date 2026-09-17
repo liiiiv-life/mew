@@ -1,3 +1,4 @@
+import { normalizeProjectTabLayout, type ProjectTabGroup } from '../shared/project-tab-groups.ts'
 import path from 'node:path'
 import { DATA_DIR, readJsonRecord, writeFileAtomic } from './dataDir.ts'
 import { normalizeEmail } from './auth.ts'
@@ -22,7 +23,7 @@ export type StoredAgentTab = {
 }
 
 export type StoredAgentTabs = { tabs: StoredAgentTab[]; activeId: string | null }
-export type StoredRootProjects = { paths: string[]; icons: Record<string, string> }
+export type StoredRootProjects = { paths: string[]; icons: Record<string, string>; groups?: ProjectTabGroup[] }
 /** 계정에 귀속하는 작업 화면 상태. 브라우저별 폭·글꼴·작성 중 초안은 넣지 않는다. */
 export type StoredWorkspaceUi = Record<string, unknown>
 
@@ -54,7 +55,7 @@ function optionalText(value: unknown, max: number): string | undefined {
 
 export function normalizeRootProjects(input: unknown): StoredRootProjects {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('프로젝트 탭 상태 형식이 올바르지 않습니다')
-  const record = input as { paths?: unknown; icons?: unknown }
+  const record = input as { paths?: unknown; icons?: unknown; groups?: unknown }
   if (!Array.isArray(record.paths)) throw new Error('프로젝트 탭 경로가 필요합니다')
   const paths = [...new Set(record.paths.filter(validPath))]
   if (paths.length > MAX_PROJECTS) throw new Error(`프로젝트 탭은 최대 ${MAX_PROJECTS}개입니다`)
@@ -65,7 +66,8 @@ export function normalizeRootProjects(input: unknown): StoredRootProjects {
     const normalized = normalizeIconValue(icon)
     if (normalized) icons[projectPath] = normalized
   }
-  return { paths, icons }
+  const layout = normalizeProjectTabLayout(paths, record.groups)
+  return { paths: layout.paths, icons, ...(record.groups !== undefined ? { groups: layout.groups } : {}) }
 }
 
 export function normalizeAgentTabs(input: unknown): StoredAgentTabs {

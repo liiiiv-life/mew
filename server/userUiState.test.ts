@@ -68,3 +68,16 @@ test('작업 화면 상태는 계정·루트 경로별로 분리한다', () => {
   assert.equal(readWorkspaceUi('you@example.com', '/work/other'), null)
   assert.equal(readWorkspaceUi('other@example.com', '/work/liiiiv'), null)
 })
+
+test('project tab groups persist per account and prune closed or duplicate members', () => {
+  const saved = writeRootProjects('groups@example.com', {
+    paths: ['/a', '/b', '/c', '/d'], icons: {},
+    groups: [{ id: 'one', paths: ['/c', '/a', '/missing'], collapsed: true }, { id: 'two', paths: ['/a', '/b', '/d'] }],
+  })
+  assert.deepEqual(saved.paths, ['/a', '/c', '/b', '/d'])
+  assert.deepEqual(saved.groups, [{ id: 'one', paths: ['/a', '/c'], collapsed: true }, { id: 'two', paths: ['/b', '/d'], collapsed: false }])
+  assert.deepEqual(readRootProjects('GROUPS@example.com'), saved)
+  assert.equal(readRootProjects('no-groups@example.com'), null)
+  const closed = writeRootProjects('groups@example.com', { ...saved, paths: ['/a', '/b'] })
+  assert.deepEqual(closed.groups, [])
+})
