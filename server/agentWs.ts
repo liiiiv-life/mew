@@ -110,10 +110,10 @@ function describeError(err: unknown): string {
   return String(err)
 }
 
-function promptForRuntime(runtime: string, text: string, skillNames: string[] | undefined): string {
+function promptForRuntime(runtime: string, cwd: string, text: string, skillNames: string[] | undefined): string {
   if (!Array.isArray(skillNames) || skillNames.length === 0) return text
   const wanted = new Set(skillNames.filter((name): name is string => typeof name === 'string'))
-  const skills = listSkills().filter((skill) => wanted.has(skill.name))
+  const skills = listSkills(cwd, runtime).filter((skill) => wanted.has(skill.name))
   return composeRuntimePrompt(runtime, text, skills)
 }
 
@@ -178,7 +178,7 @@ async function handleConnection(
         const imageRefs = validImageRefs(msg.imageRefs)
         // 첨부 경로는 에이전트가 읽게 하되, 대화 창에는 사용자가 쓴 프롬프트만 남긴다.
         const displayText = typeof msg.displayText === 'string' ? msg.displayText : msg.text
-        live.send({ type: 'prompt', text: displayText, promptText: promptForRuntime(runtime, prompt, msg.skills), images, imageRefs, settings: validSettings(msg.settings) })
+        live.send({ type: 'prompt', text: displayText, promptText: promptForRuntime(runtime, cwd, prompt, msg.skills), images, imageRefs, settings: validSettings(msg.settings) })
       }
       else if (msg.type === 'cancel') live.send({ type: 'cancel' })
       else if (msg.type === 'permission') live.send({ type: 'permission', id: msg.id, optionId: msg.optionId })
@@ -196,7 +196,7 @@ async function handleConnection(
           index: msg.index,
           text: msg.text,
           expect: msg.expect,
-          promptText: promptForRuntime(runtime, msg.text, msg.skills),
+          promptText: promptForRuntime(runtime, cwd, msg.text, msg.skills),
         })
       else if (msg.type === 'clear_session') live.send({ type: 'clear_session' })
       else if (msg.type === 'set_model') live.send({ type: 'set_model', modelId: msg.modelId })

@@ -67,6 +67,7 @@ import { collectSystemStats } from './sysStats.ts'
 import { MEW_APP_ROOT, MEW_UPDATE_SESSION, mewUpdateStatus, writeMewUpdateJob } from './mewUpdate.ts'
 import { androidCommandById, collectAndroidEnvStatus } from './androidEnv.ts'
 import { listSkills } from './skills.ts'
+import { createAgentHarnessRouter } from './agent-harness-routes.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
@@ -1102,9 +1103,9 @@ export function createApiApp() {
     }
   })
 
-  app.get('/skills', requireFeature('agent'), (_req, res) => {
+  app.get('/skills', requireFeature('agent'), (req, res) => {
     try {
-      res.json({ skills: listSkills() })
+      res.json({ skills: listSkills(typeof req.query.cwd === 'string' ? req.query.cwd : undefined, typeof req.query.runtime === 'string' ? req.query.runtime : undefined) })
     } catch (err) {
       handleError(res, err)
     }
@@ -2023,6 +2024,7 @@ export function createApiApp() {
 
   app.use('/tmux', requireFeature('terminal'), createTmuxRouter(tmuxManager))
   app.use('/agent/commands', createAgentCommandRouter(new AgentCommandStore(tmuxManager)))
+  app.use('/agent/harness', createAgentHarnessRouter())
 
   // 호스트 자원 현황(프로파일링 팝업) — 서버가 도는 기계의 정보라 셸과 같은 역할로 묶는다
   app.get('/system-stats', requireFeature('system'), async (_req, res) => {

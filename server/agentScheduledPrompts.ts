@@ -67,7 +67,7 @@ async function dispatch(job: AgentScheduledPrompt) {
   const client = await connectAgentHost(job.runtime, job.tab, job.cwd, {}, job.sessionId)
   try {
     const wanted = new Set(job.skills)
-    const promptText = wanted.size ? composeRuntimePrompt(job.runtime, job.text, listSkills().filter((skill) => wanted.has(skill.name))) : job.text
+    const promptText = wanted.size ? composeRuntimePrompt(job.runtime, job.text, listSkills(job.cwd, job.runtime).filter((skill) => wanted.has(skill.name))) : job.text
     // prompt()는 실행 중인 세션에 자동으로 큐잉한다. 새 감독은 resume 힌트로 원 세션을 먼저 load한다.
     client.send({ type: 'prompt', text: job.text, promptText })
   } finally { client.close() }

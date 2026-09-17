@@ -87,6 +87,7 @@ import { agentInputMentionOptions } from '../utils/agentInputMentions'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
 import { RuntimeSettingsButton } from './RuntimeSettingsModal'
 import { AgentAccountCard } from './AgentAccountCard'
+import { AgentHarnessButtons } from './agent-harness-modal'
 import { SUBSCRIPTION_URLS } from '../../shared/agent-access'
 import { AgentSetPicker } from './AgentSetPicker'
 import { ScrollDateTimePicker } from './ScrollDateTimePicker'
@@ -2895,17 +2896,20 @@ function AgentSessionView({
   const totalTokens = usage ? usage.input + usage.output + usage.cacheWrite + usage.cacheRead : 0
   useEffect(() => {
     let alive = true
-    fetchSkills()
+    const load = () => fetchSkills(cwd, runtime)
       .then((res) => {
         if (alive) setSkills(res.skills)
       })
       .catch(() => {
         if (alive) setSkills([])
       })
+    void load()
+    window.addEventListener('mew:harness-changed', load)
     return () => {
       alive = false
+      window.removeEventListener('mew:harness-changed', load)
     }
-  }, [])
+  }, [cwd, runtime])
 
   // @ 목록의 하위 프로젝트는 현재 파일 트리만으로는 빠질 수 있어, 역할별 워크스페이스
   // 프로젝트 목록도 함께 쓴다(/api/projects).
@@ -3032,6 +3036,7 @@ function AgentSessionView({
           >
             <InfoGlyph />
           </button>
+          <AgentHarnessButtons cwd={cwd} />
         </div>
 
         {showInfo && (

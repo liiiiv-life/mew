@@ -597,8 +597,11 @@ export interface SkillSummary {
   path: string
 }
 
-export function fetchSkills(): Promise<{ skills: SkillSummary[] }> {
-  return fetch('/api/skills').then(json<{ skills: SkillSummary[] }>)
+export function fetchSkills(cwd?: string, runtime?: string): Promise<{ skills: SkillSummary[] }> {
+  const query = new URLSearchParams()
+  if (cwd) query.set('cwd', cwd)
+  if (runtime) query.set('runtime', runtime)
+  return fetch(`/api/skills?${query}`).then(json<{ skills: SkillSummary[] }>)
 }
 
 export interface AgentRuntimeStatus {

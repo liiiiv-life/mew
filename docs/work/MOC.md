@@ -1,7 +1,7 @@
 ---
 title: "진행 작업"
 created: 2026-09-11
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # 진행 작업
@@ -9,6 +9,8 @@ updated: 2026-09-16
 상위: [문서 지도](../MOC.md). 필요한 문서만 선택한다.
 
 ## Current
+
+- [스킬·MCP 관리 구현 계획](agent-harness-manager.md)
 
 - [프로젝트 컨텍스트 구현 계획](project-agent-context.md)
 
