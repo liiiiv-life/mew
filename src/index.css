@@ -65,6 +65,12 @@
 
 :root {
   color-scheme: dark;
+  /* Runtime-selected status dots use these directly; keep them outside pruned @theme tokens. */
+  --color-feature-implementing: #3687ee;
+  --color-feature-implemented: #42cbb3;
+  --color-feature-verified: #249344;
+  --color-feature-needs-fix: #df495b;
+  --color-feature-changed: #e18a26;
 }
 
 /* 라이트 테마 — html에서 .dark 클래스를 빼면 여기로 떨어진다 (SSoT 주석에서 예고된 방식) */

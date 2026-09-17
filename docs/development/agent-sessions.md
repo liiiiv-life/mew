@@ -4,6 +4,8 @@
 
 ## 프로젝트 컨텍스트 전달
 
+기능 요청의 프로젝트별 큐·독립 탭·공통 CLI·완료 판정은 [기능 기반 개발](../specs/feature-development.md#실행과-복원)을 따른다. 접수 때 캡처한 프로젝트·Documents 연결을 감독 시작 시 전달한다.
+
 [사용법과 설정 계약](../guides/project-setup.md) · [ADR 0155](../../../.mew/docs/decisions/0155-mew-project-agent-context.md).
 
 - `AgentSession.#run`은 사용자 프롬프트·첨부와 별도의 ACP 텍스트 블록으로 mew 안내를 보낸다. `agent-context.ts`가 세션에 고정된 프로젝트·Documents 경로와 실행 시점의 설정을 조합한다. 큐·예약·단발 runner도 이 경로를 공유한다.

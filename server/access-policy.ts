@@ -133,6 +133,15 @@ export function unrestrictedFiles(auth: RequestAuth, project: string, write = fa
       && !fileRules(subjectOf(auth)).some(rule => matches(target, rule.path) && !rule[key])
   } catch { return false }
 }
+
+/** Queued feature work keeps its original root even when the active UI root changes. */
+export function unrestrictedWorkspaceFiles(auth: RequestAuth, workspace: string, write = false): boolean {
+  try {
+    if (auth.role === 'guest' || !canUse(auth, 'filesRead') || (write && !canUse(auth, 'filesWrite'))) return false
+    const rules = load().workspaces[canonical(workspace)]?.[subjectOf(auth)] ?? []
+    return !rules.some(rule => !rule.view || (write && !rule.edit))
+  } catch { return false }
+}
 export function filterTreeForAccess(auth: RequestAuth, project: string, nodes: TreeNode[]): TreeNode[] {
   return nodes.flatMap(node => {
     const access = fileAccess(auth, project, node.path)

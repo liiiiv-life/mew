@@ -94,6 +94,7 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 히스토리·외부 CLI 이어쓰기 | 히스토리에서 지난 세션 선택, 외부 CLI 작업을 끝낸 뒤 **현재 대화 새로고침**, 답변 파일 링크로 편집기 열기 | [세션 복원](docs/guides/terminal-agents.md) |
 | 계정·구독·토큰·비용 | ACP 세션의 `i`에서 지원되는 계정·플랜·한도·토큰과 API 환산 비용 조회, 구독 페이지 열기 | [계정·구독 범위](docs/configuration/agent-runtimes.md#설치로그인구독) |
 | 예약 메시지 | ACP 입력줄 시계로 현재 세션에 한 번 보낼 메시지 예약·수정·시각 변경·삭제 | [예약 메시지](docs/specs/agent-scheduled-prompts.md) |
+| 기능 기반 개발 | 메뉴 → 기능에서 요청·재위임·사용자 판정. Documents의 Markdown + 프론트매터로 계층·요구사항·구현 결과·파일·커밋 관리 | [기능 목록과 실행 계약](docs/specs/feature-development.md) |
 | 프로젝트 명령 버튼 | 사이드바 ▶에서 명령 추가·편집·실행·정지, 전용 터미널 팝업으로 출력 확인 | [프로젝트 명령](docs/guides/commands.md#사이드바-프로젝트--버튼-mewcmd-buttonjson) |
 | 터미널 명령 버튼 | 셸 탭 버튼 줄의 `+`로 자주 쓰는 명령·아이콘 등록, 활성 셸에 입력 | [터미널 버튼](docs/guides/commands.md#터미널-버튼-dataterm-buttonjson) |
 | 반복 예약 작업 | 메뉴 → 예약 작업에서 폴더·에이전트·프롬프트·주기 등록, 지금 실행·출력 확인·삭제 | [cron 예약 작업](docs/guides/commands.md#예약-작업-dataschedulesjson) |

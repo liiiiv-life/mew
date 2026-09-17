@@ -4,6 +4,8 @@
 
 ## 작업 패널 배치
 
+메뉴의 기능 화면은 공통 `DialogFrame`·`ConfirmDialog`를 사용한다. 기능 트리·상세·요청 팝업·대화 연결의 기준본은 [기능 기반 개발](../specs/feature-development.md)이다.
+
 원격 데스크톱은 [ADR 0136](../../../.mew/docs/decisions/0136-mew-native-remote-desktop-webrtc.md)의 독립적인 전체 화면 오버레이다. 도킹·패널 복원에 포함하지 않는다. 공통 Esc·뒤로가기 스택을 사용하고, 닫기·백그라운드 전환은 영상과 입력을 종료한다. 조이스틱·뷰 조작 계약은 [원격 데스크톱](remote-desktop.md)에 둔다.
 
 [ADR 0134](../../../.mew/docs/decisions/0134-mew-dockable-workspace-panels.md)에 따라 에디터·에이전트·일반 터미널·웹 브라우저·Git은 `DockWorkspace`의 공통 분할 영역을 사용한다. Git 추가는 [ADR 0135](../../../.mew/docs/decisions/0135-mew-git-workspace-panel.md)를 따른다. 파일 트리 사이드바·멤버 채팅·Android는 기존 보조창을 유지한다.

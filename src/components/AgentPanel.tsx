@@ -1459,7 +1459,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ preparedTabs, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { preparedTabs?: ReturnType<typeof fetchAgentTabs>; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+export function AgentPanel({ preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
   const { t } = useI18n()
   const dock = useDock()
   const latestDock = useRef(dock)
@@ -1581,6 +1581,20 @@ export function AgentPanel({ preparedTabs, allowAgent = true, allowTerminal = tr
       .finally(() => { if (alive) setTabsSynced(true) })
     return () => { alive = false }
   }, [workspacePath, docked, preparedTabs])
+
+  // Feature execution owns the host; opening its conversation only attaches the existing tab.
+  useEffect(() => {
+    if (!requestedTab || !tabsSynced || !allowAgent || requestedTab.cwd !== workspacePath) return
+    setTabs(previous => previous.some(tab => tab.id === requestedTab.id) ? previous : [...previous, requestedTab])
+    setActiveId(requestedTab.id)
+    setOpened(previous => new Set(previous).add(requestedTab.id))
+    setPickerOpen(false)
+    const currentDock = latestDock.current
+    const group = currentDock?.groupFor('agent', requestedTab.id) ?? 'agent'
+    currentDock?.assign(group, requestedTab.id)
+    currentDock?.select(group, requestedTab.id)
+    onRequestedTabHandled?.()
+  }, [requestedTab, onRequestedTabHandled, tabsSynced, allowAgent, workspacePath])
 
   const refreshSessionClaims = useCallback(async () => {
     if (!workspacePath) return

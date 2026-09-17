@@ -10,6 +10,7 @@ updated: 2026-09-17
 
 ## Current
 
+- [기능 기반 개발 GUI — 구현 기록과 기획 초안](feature-driven-development.md)
 - [스킬·MCP 관리 구현 계획](agent-harness-manager.md)
 
 - [프로젝트 컨텍스트 구현 계획](project-agent-context.md)

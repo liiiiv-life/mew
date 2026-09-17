@@ -5,6 +5,7 @@
 // 감독과 그 아래 ACP/CLI는 그대로 작업을 마친다(ADR 0048).
 import './config.ts'
 import { captureAgentContext } from './agent-context.ts'
+import type { AgentContextBinding } from '../shared/project-agent-context.ts'
 import crypto from 'node:crypto'
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -708,12 +709,19 @@ function openSocket(
 
 const spawning = new Map<string, Promise<void>>()
 
+/** Reattach for task recovery without starting a new agent or replaying a prompt. */
+export function connectExistingAgentHost(runtime: string, tab: string, cwd: string, callbacks: AgentHostCallbacks = {}): Promise<AgentHostClient> {
+  if (!isAcpRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)) return Promise.reject(new Error('올바르지 않은 에이전트 탭입니다'))
+  return openSocket(pathsFor(runtime, tab, cwd).socket, runtime, tab, cwd, callbacks)
+}
+
 function spawnHost(
   runtime: string,
   tab: string,
   cwd: string,
   files: ReturnType<typeof pathsFor>,
   resumeSessionId: string | null,
+  context?: AgentContextBinding,
 ): Promise<void> {
   const existing = spawning.get(files.socket)
   if (existing) return existing
@@ -722,7 +730,7 @@ function spawnHost(
     fs.chmodSync(HOST_DIR, 0o700)
     const logFd = fs.openSync(files.log, 'a', 0o600)
     try {
-      const env: NodeJS.ProcessEnv = { ...process.env, MEW_WORKSPACE: cwd, MEW_AGENT_CONTEXT: JSON.stringify(captureAgentContext(cwd)) }
+      const env: NodeJS.ProcessEnv = { ...process.env, MEW_WORKSPACE: cwd, MEW_AGENT_CONTEXT: JSON.stringify(context ?? captureAgentContext(cwd)) }
       if (resumeSessionId) env.MEW_AGENT_RESUME_SESSION = resumeSessionId
       else delete env.MEW_AGENT_RESUME_SESSION
       const child = spawn(process.execPath, [HOST_FILE, '--host', runtime, tab, cwd], {
@@ -749,6 +757,7 @@ export async function connectAgentHost(
   cwd: string,
   callbacks: AgentHostCallbacks = {},
   resumeSessionId: string | null = null,
+  context?: AgentContextBinding,
 ): Promise<AgentHostClient> {
   if (!isAcpRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)
     || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))) {
@@ -762,7 +771,7 @@ export async function connectAgentHost(
     if (code !== 'ENOENT' && code !== 'ECONNREFUSED') throw err
   }
 
-  await spawnHost(runtime, tab, cwd, files, resumeSessionId)
+  await spawnHost(runtime, tab, cwd, files, resumeSessionId, context)
   const deadline = Date.now() + CONNECT_TIMEOUT_MS
   let lastError: unknown = new Error('에이전트 감독이 시작되지 않았습니다')
   while (Date.now() < deadline) {

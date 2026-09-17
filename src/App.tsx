@@ -49,6 +49,9 @@ import { ProjectIcon } from './components/ProjectIcon'
 import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
 import { AgentPanel } from './components/AgentPanel'
+import { FeatureDevelopment } from './components/feature-development'
+import { featureCopy } from './components/feature-copy'
+import { withSessionId, type AgentTab } from './utils/agentTabs'
 import { BrowserPanel } from './components/BrowserPanel'
 import { DockWorkspace, DockPanel, type DockHandle } from './components/DockWorkspace'
 import type { DockState } from './utils/dock-layout'
@@ -212,7 +215,7 @@ interface EditorAppProps {
 }
 
 function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: EditorAppProps) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { role, email: authEmail } = auth
   const isGuest = role === 'guest'
   const isOwner = role === 'owner'
@@ -286,6 +289,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   // 터미널·에이전트의 기능 권한과 열림 상태는 독립이다.
   const dockRef = useRef<DockHandle>(null)
   const [terminalOpen, setTerminalOpen] = useState(() => canUseTerminal && (localStorage.getItem(TERMINAL_OPEN_KEY) !== null ? localStorage.getItem(TERMINAL_OPEN_KEY) === '1' : localStorage.getItem(LEGACY_TMUX_OPEN_KEY) === '1' || localStorage.getItem(AGENT_OPEN_KEY) === '1'))
+  const [featuresOpen, setFeaturesOpen] = useState(false)
+  const [featureAgentTab, setFeatureAgentTab] = useState<AgentTab | null>(null)
   const [agentOpen, setAgentOpen] = useState(() => caps.agent && localStorage.getItem(AGENT_OPEN_KEY) === '1')
   // 브라우저 창은 별도 기능 권한으로 검사한다.
   const browserMounted = useRef(false)
@@ -699,6 +704,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     setRootTree(cachedRoot)
     setDocsTree(cachedDocs)
     setPendingOpen(null)
+    setFeaturesOpen(false)
+    setFeatureAgentTab(null)
   }, [rememberProjectPath, workspacePanelSetters])
 
   const handleWorkspaceBroadcast = useCallback(() => {
@@ -1594,6 +1601,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [isGuest])
   // 헤더 오른쪽 도구 목록 — 권한별로 보이는 것이 다르다. 그리는 건 HeaderMenu(햄버거) 하나뿐이다
   const headerMenuItems: HeaderMenuItem[] = [
+    ...(caps.agent ? [{
+      id: 'features', label: featureCopy[locale].title,
+      onSelect: () => setFeaturesOpen(true), disabled: !rootProjectPath,
+      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="5" cy="5" r="2" /><path d="M10 5h11M5 9v10h3M12 13h9M12 19h9" /><circle cx="10" cy="13" r="1" /><circle cx="10" cy="19" r="1" /></svg>,
+    }] : []),
     ...(!isGuest || canEditActiveTab
       ? [
           {
@@ -2088,7 +2100,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
         {(caps.agent || caps.terminal) && <AgentPanel
           key={rootProjectPath ?? 'pending-workspace'} project={project} workspacePath={rootProjectPath} tree={tree}
-          preparedTabs={preparedAgentTabs}
+          preparedTabs={preparedAgentTabs} requestedTab={featureAgentTab} onRequestedTabHandled={() => setFeatureAgentTab(null)}
           focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeTab.path : null}
           getSelectedText={getSelectedText} renderCommandButtons={renderTermButtons} onOpenFile={openMentionedFile}
           allowAgent={caps.agent} allowTerminal={caps.terminal} agentOpen={caps.agent && agentOpen} terminalOpen={caps.terminal && terminalOpen} foregroundKind={mobileForegroundPanel}
@@ -2104,6 +2116,18 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'git'; bringWorkspacePanelToFront('git') }}
           nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} />}
         </DockWorkspace>
+
+        {featuresOpen && rootProjectPath && caps.agent && <FeatureDevelopment
+          key={rootProjectPath} workspace={rootProjectPath} canUseGit={caps.git}
+          onClose={() => setFeaturesOpen(false)}
+          onOpenFile={(path) => { setFeaturesOpen(false); openMentionedFile(WORKSPACE_PROJECT, path, null) }}
+          onOpenAgent={(run) => {
+            const tab: AgentTab = { id: run.tabId, label: run.title, runtime: run.agentSet.runtime, cwd: rootProjectPath, renamed: true }
+            setFeatureAgentTab(withSessionId([tab], tab.id, run.agentSet.runtime, rootProjectPath, run.sessionId)[0])
+            setFeaturesOpen(false)
+            openWorkspacePanel('agent')
+          }}
+        />}
 
         {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 모바일에서도 프로젝트 탭 아래에서만 열린다. */}
         {chatOpen && caps.chat && (

@@ -1,7 +1,7 @@
 ---
 title: "제품 스펙"
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-17
 ---
 
 # 제품 스펙
@@ -10,6 +10,7 @@ updated: 2026-09-11
 
 ## Current
 
+- [기능 기반 개발](feature-development.md)
 - [mew 에이전트 입력 멘션](agent-input-mentions.md)
 - [mew 에이전트·터미널 패널 표시 기준](agent-panel.md)
 - [mew 에이전트 예약 메시지](agent-scheduled-prompts.md)
