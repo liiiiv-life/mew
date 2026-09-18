@@ -33,16 +33,16 @@ export function CloudStorageLocations({ disabled, onSelect }: {
   const nameCounts = new Map<string, number>()
   for (const folder of folders) nameCounts.set(folder.name, (nameCounts.get(folder.name) ?? 0) + 1)
 
-  return <section aria-labelledby={id} className="max-h-36 shrink-0 overflow-y-auto px-5 pb-3 sm:px-6">
+  return <section aria-labelledby={id} className="max-h-24 shrink-0 overflow-y-auto px-3 pb-2 sm:px-4">
     <div className="flex items-center justify-between gap-2">
       <h3 id={id} className="text-xs font-medium text-ink-secondary">{t('project.cloudShortcuts')}</h3>
-      <button type="button" onClick={refresh} disabled={disabled || loading} aria-label={t('project.cloudRefresh')} title={t('project.cloudRefresh')} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-ink-secondary hover:bg-surface-hover disabled:opacity-40"><RefreshDouble width={16} height={16} /></button>
+      <button type="button" onClick={refresh} disabled={disabled || loading} aria-label={t('project.cloudRefresh')} title={t('project.cloudRefresh')} className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg text-ink-secondary hover:bg-surface-hover disabled:opacity-40"><RefreshDouble width={16} height={16} /></button>
     </div>
     {loading ? <p role="status" className="py-1 text-xs text-ink-secondary">{t('project.cloudLoading')}</p>
       : failed ? <p role="status" className="py-1 text-xs text-ink-secondary">{t('project.cloudError')}</p>
-      : <div className="flex flex-wrap gap-1.5">{folders.map(folder => {
+      : <div className="flex flex-wrap gap-1">{folders.map(folder => {
         const duplicate = nameCounts.get(folder.name)! > 1
-        return <button key={folder.path} type="button" disabled={disabled} onClick={() => onSelect(folder.path)} aria-label={t('project.cloudGo', { name: duplicate ? `${folder.name} (${folder.path})` : folder.name })} className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-lg bg-surface-deep px-3 py-2 text-left text-sm text-ink hover:bg-surface-hover disabled:opacity-40" title={folder.path}>
+        return <button key={folder.path} type="button" disabled={disabled} onClick={() => onSelect(folder.path)} aria-label={t('project.cloudGo', { name: duplicate ? `${folder.name} (${folder.path})` : folder.name })} className="inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-md bg-surface-deep px-2 py-1 text-left text-xs text-ink hover:bg-surface-hover disabled:opacity-40" title={folder.path}>
         <Cloud width={16} height={16} className="shrink-0 text-ink-secondary" aria-hidden="true" />
         <span className="min-w-0"><span className="block truncate">{folder.name}</span>{duplicate && <span className="block break-all text-xs text-ink-secondary">{folder.path}</span>}</span>
       </button>})}</div>}
