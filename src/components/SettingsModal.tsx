@@ -7,6 +7,8 @@ import { DEFAULT_FONT_PREFERENCES, type FontPreferences } from '../utils/fontPre
 import { DEFAULT_ACCENT_COLOR, type AccentColor } from '../utils/accentColor'
 import { MEWCAT_SKINS, type MewcatSkinSelection } from '../utils/mewcatSkin'
 import { MewcatMark } from './Mewcat'
+import { MewcatNotificationSettings } from './mewcat-notifications'
+import { MewcatBreakSettings } from './mewcat-break'
 
 const PASSWORD_MIN_LENGTH = 10
 
@@ -128,7 +130,7 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
                 onAccentColorChange={onAccentColorChange}
               />
             )}
-            {section === 'mewcat' && <MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} />}
+            {section === 'mewcat' && <><MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} /><MewcatNotificationSettings /><MewcatBreakSettings /></>}
             {section === 'shortcuts' && <ShortcutsPanel />}
             {section === 'ignore' && <IgnorePanel />}
           </div>

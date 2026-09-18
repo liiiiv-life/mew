@@ -1528,8 +1528,8 @@ export interface SystemStats {
   hostname: string
 }
 
-export function fetchSystemStats(): Promise<SystemStats> {
-  return fetch('/api/system-stats').then(json<SystemStats>)
+export function fetchSystemStats(signal?: AbortSignal): Promise<SystemStats> {
+  return fetch('/api/system-stats', { signal }).then(json<SystemStats>)
 }
 
 // ---- 예약 에이전트 작업 (crontab 생성원) ----

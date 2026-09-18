@@ -34,6 +34,8 @@ import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
 import { ActiveSessionsButton } from './components/active-sessions-button'
 import { FabMenu } from './components/FabMenu'
 import { Mewcat } from './components/Mewcat'
+import { useMewcatNotifications } from './hooks/use-mewcat-notifications'
+import { OPEN_NOTICE_EVENT, type MewcatNotice } from './utils/mewcat-notifications'
 import { ServerFileExplorer } from './components/ServerFileExplorer'
 import { LoginPage } from './components/LoginPage'
 import { SettingsModal } from './components/SettingsModal'
@@ -415,6 +417,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [fontPreferences, setFontPreferences] = useState(loadFontPreferences)
   const [accentColor, setAccentColor] = useState<AccentColor>(loadAccentColor)
+  useMewcatNotifications(caps.system, authEmail)
+  const [noticeTarget, setNoticeTarget] = useState<Exclude<MewcatNotice['target'], 'system'>>()
   const [mewcatSkin, setMewcatSkin] = useState<MewcatSkinSelection>(loadMewcatSkin)
   const [searchFocusSignal] = useState(0)
   // 사이드바 뷰: 탐색기 · 파일명 검색(Ctrl+P) · 파일 내용 검색(Ctrl+Shift+F) · 명령
@@ -753,6 +757,23 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       }
     }
   }, [applyWorkspace, caps.agent, caps.terminal, handleWorkspaceBroadcast, isOwner, rootProjectPath, showToast, prepareWorkspaceUi])
+
+  useEffect(() => {
+    const open = (event: Event) => {
+      const notice = (event as CustomEvent<MewcatNotice>).detail
+      if (notice.target === 'system' && caps.system) setSysStatsOpen(true)
+      else if (notice.target && notice.target !== 'system' && caps.agent) {
+        const target = notice.target
+        const workspace = target.workspacePath ?? target.cwd
+        if (workspace !== rootProjectPath && !isOwner) return
+        setNoticeTarget(target)
+        if (workspace !== rootProjectPath) void openRootProject(workspace)
+        openWorkspacePanel('agent')
+      }
+    }
+    window.addEventListener(OPEN_NOTICE_EVENT, open)
+    return () => window.removeEventListener(OPEN_NOTICE_EVENT, open)
+  }, [caps.system, caps.agent, rootProjectPath, isOwner, openRootProject, openWorkspacePanel])
 
   const openSidebarProject = useCallback(async (scope: string, path: string) => {
     if (!isOwner || !rootProjectPath || projectOpeningRef.current) return
@@ -2099,6 +2120,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         {panes.map(renderEditorPane)}
 
         {(caps.agent || caps.terminal) && <AgentPanel
+          requestedNoticeTab={(noticeTarget?.workspacePath ?? noticeTarget?.cwd) === rootProjectPath ? noticeTarget?.tabId : undefined}
+          onNoticeHandled={() => { openWorkspacePanel('agent'); setNoticeTarget(undefined) }}
           key={rootProjectPath ?? 'pending-workspace'} project={project} workspacePath={rootProjectPath} tree={tree}
           preparedTabs={preparedAgentTabs} requestedTab={featureAgentTab} onRequestedTabHandled={() => setFeatureAgentTab(null)}
           focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeTab.path : null}

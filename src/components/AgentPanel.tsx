@@ -1,3 +1,5 @@
+import { createAgentNoticeTracker } from '../utils/mewcat-notification-rules'
+import { publishMewcatNotice, resolveMewcatNotice } from '../utils/mewcat-notifications'
 import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { ServerDomBrowserTabs } from './server-dom-browser'
@@ -1459,7 +1461,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+export function AgentPanel({ requestedNoticeTab, onNoticeHandled, preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { requestedNoticeTab?: string; onNoticeHandled?: () => void; preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
   const { t } = useI18n()
   const dock = useDock()
   const latestDock = useRef(dock)
@@ -1614,6 +1616,17 @@ export function AgentPanel({ preparedTabs, requestedTab, onRequestedTabHandled, 
     if (dock && tab) dock.select(dock.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', id), id)
     setOpened((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
   }
+
+  useEffect(() => {
+    if (!requestedNoticeTab || !tabsSynced) return
+    if (tabs.some(tab => tab.id === requestedNoticeTab)) {
+      activate(requestedNoticeTab)
+      onPanelFocus?.('agent')
+    }
+    onNoticeHandled?.()
+  // activate reads the current dock and tabs; no websocket is recreated here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedNoticeTab, tabsSynced, tabs, onNoticeHandled])
 
   const addTab = () => { setPickerGroup(focusedGroup); setPickerOpen(true) }
 
@@ -1805,6 +1818,7 @@ export function AgentPanel({ preparedTabs, requestedTab, onRequestedTabHandled, 
                 renderCommandButtons={tab.runtime === 'tmux' ? renderCommandButtons : undefined}
               />
             ) : <AgentSessionView
+              notificationWorkspace={workspacePath ?? tab.cwd!}
               allowTerminal={allowTerminal}
               tabId={tab.id}
               active={isActive}
@@ -1996,6 +2010,7 @@ function AgentCachedPreview({ tab }: { tab: AgentTab }) {
 
 /** 탭 하나 — WS 하나, 세션 하나. 대화 상태는 전부 여기 안에 있다 */
 function AgentSessionView({
+  notificationWorkspace,
   allowTerminal,
   tabId,
   active,
@@ -2019,6 +2034,7 @@ function AgentSessionView({
   showInfo,
   onToggleInfo,
 }: {
+  notificationWorkspace: string
   allowTerminal: boolean
   tabId: string
   /** 지금 보이는 탭인지 — 안 보이는 탭은 높이가 0이라 스크롤을 못 잡는다(아래 effect) */
@@ -2368,6 +2384,10 @@ function AgentSessionView({
     let closed = false
     let retry: number | undefined
     let ws: WebSocket
+    let disconnectTimer: number | undefined
+    const target = { tabId, cwd, workspacePath: notificationWorkspace }
+    const source = `${runtimeOf(runtime).label} · ${cwd.split('/').filter(Boolean).at(-1) ?? cwd}`
+    const trackNotice = createAgentNoticeTracker(source, target)
     pendingRef.current = []
     replayRef.current = null
     // 연결·ACP 초기화보다 먼저 직전 값을 보여 주고, 아래 이벤트가 최신값으로 조용히 바꾼다.
@@ -2394,12 +2414,18 @@ function AgentSessionView({
       ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?${query}`)
       wsRef.current = ws
       ws.onopen = () => {
+        clearTimeout(disconnectTimer)
+        disconnectTimer = undefined
+        resolveMewcatNotice(`${cwd}:${tabId}:connection`)
         // 다시 붙었다 — 다음에 오는 대화는 이어 붙이는 것이 아니라 지금 화면을 대신할 것이다
         swapRef.current = true
         setConnected(true)
       }
       ws.onmessage = (raw) => {
         const event = JSON.parse(String(raw.data)) as AgentEvent
+        if (event.type === 'permission_done') resolveMewcatNotice(`${cwd}:${tabId}:permission:${event.id}`)
+        const notice = trackNotice(event)
+        if (notice) publishMewcatNotice(notice)
         if (event.type === 'ready') return
         if (event.type === 'models') return adoptModels(event.models)
         if (event.type === 'modes') return adoptModes(event.modes)
@@ -2497,6 +2523,9 @@ function AgentSessionView({
       }
       ws.onclose = () => {
         if (closed) return
+        disconnectTimer ??= window.setTimeout(() => {
+          publishMewcatNotice({ key: `${cwd}:${tabId}:connection`, kind: 'connection', level: 'warning', source, target })
+        }, 10_000)
         setConnected(false)
         // 대화는 지우지 않는다 — 잠깐 끊긴 사이 화면이 빈 탭(히스토리 드롭다운)으로 보이던 원인이다.
         // 다시 붙으면 서버가 보내는 replay가 통째로 갈아끼운다
@@ -2508,13 +2537,14 @@ function AgentSessionView({
 
     return () => {
       closed = true
+      clearTimeout(disconnectTimer)
       if (retry) clearTimeout(retry)
       ws.close()
       wsRef.current = null
     }
     // 런타임을 바꾸면 저쪽 세션으로 갈아탄다 — 이쪽 세션은 서버에 그대로 남아 돌아오면 이어진다
     // (queueEvent는 값이 바뀌지 않는 useCallback이라 여기 있어도 재접속을 부르지 않는다)
-  }, [runtime, tabId, cwd, preset?.modelId, preset?.role, queueEvent, adoptModels, adoptModes, adoptThinking, closeAuthBrowser, closeAcpBrowserTabs])
+  }, [runtime, tabId, cwd, notificationWorkspace, preset?.modelId, preset?.role, queueEvent, adoptModels, adoptModes, adoptThinking, closeAuthBrowser, closeAcpBrowserTabs])
 
   // 경과 시간만 흐르게 한다 — 나머지 값은 서버 meta가 밀어 준다
   useEffect(() => {
