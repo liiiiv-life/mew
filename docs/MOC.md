@@ -1,7 +1,7 @@
 ---
 title: "mew 문서 지도"
 created: 2026-09-11
-updated: 2026-09-15
+updated: 2026-09-18
 ---
 
 # mew 문서 지도
@@ -10,6 +10,8 @@ updated: 2026-09-15
 결정 배경은 [중앙 ADR 지도](../../.mew/docs/decisions/mew/MOC.md), 공통 배치는 [문서 규칙](../../.mew/docs/README.md)을 따른다.
 
 ## Current
+
+- [기능 목록·계층·구현 연결](features/MOC.md)
 
 - [설정](configuration/MOC.md)
 - [배포](deployment/MOC.md)

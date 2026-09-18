@@ -1,7 +1,7 @@
 ---
 title: "진행 작업"
 created: 2026-09-11
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
 # 진행 작업
@@ -9,6 +9,8 @@ updated: 2026-09-17
 상위: [문서 지도](../MOC.md). 필요한 문서만 선택한다.
 
 ## Current
+
+- [Mew 기능 문서 정리 계획](feature-catalog-organization.md)
 
 - [기능 기반 개발 GUI — 구현 기록과 기획 초안](feature-driven-development.md)
 - [스킬·MCP 관리 구현 계획](agent-harness-manager.md)

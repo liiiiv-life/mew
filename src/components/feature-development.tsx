@@ -17,6 +17,7 @@ function Status({ status, copy, label = false }: { status: FeatureStatus; copy: 
 }
 type Draft = { base: Feature; value: Feature }
 type RequestTarget = { target?: Feature; parent?: Feature; retry?: FeatureRun }
+type RequestDraft = RequestTarget & { content: string; initialContent: string }
 
 export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent, canUseGit = false }: {
   workspace: string
@@ -29,11 +30,17 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
   const [data, setData] = useState<FeatureSnapshot | null>(null), [sets, setSets] = useState<AgentSet[]>([])
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [loading, setLoading] = useState(true)
   const [sort, setSort] = useState<FeatureSort>('updated'), [collapsed, setCollapsed] = useState(new Set<string>())
-  const [draft, setDraft] = useState<Draft | null>(null), [request, setRequest] = useState<RequestTarget | null>(null)
+  const [draft, setDraft] = useState<Draft | null>(null), [request, setRequest] = useState<RequestDraft | null>(null)
   const [discard, setDiscard] = useState<(() => void) | null>(null), [followRun, setFollowRun] = useState<string | null>(null)
+  const [setId, setSetId] = useState('')
+  const requestAttempt = useRef({ fingerprint: '', id: '' })
+  const requestInput = useRef<HTMLTextAreaElement>(null)
+  const addButton = useRef<HTMLButtonElement>(null)
   const [commit, setCommit] = useState<FeatureCommit | null>(null)
   const mutation = useRef(0), fetchSequence = useRef(0), alive = useRef(true), actionRef = useRef(false)
   const dirty = !!draft && (draft.value.title !== draft.base.title || draft.value.content !== draft.base.content || draft.value.parentId !== draft.base.parentId)
+  const requestDirty = !!request && request.content !== request.initialContent
+  const selectedSet = sets.find(set => set.id === setId) ?? sets.find(set => set.id === data?.runs.at(-1)?.agentSet.id) ?? sets[0]
   const selected = data?.features.find(feature => feature.id === draft?.base.id)
   const readOnly = !data?.canEdit
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -59,20 +66,27 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
     if (data && draft && !selected && !dirty && !busy) setDraft(null)
   }, [selected, dirty, draft, data, busy])
   useEffect(() => {
-    if (!followRun || dirty) return
+    if (!followRun || dirty || request) return
     const run = data?.runs.find(item => item.id === followRun), feature = data?.features.find(item => item.id === run?.featureId)
     if (feature) {
       setDraft({ base: feature, value: feature }); setFollowRun(null)
       setCollapsed(previous => { const next = new Set(previous); let parent = feature.parentId; while (parent) { next.delete(parent); parent = data?.features.find(item => item.id === parent)?.parentId ?? null }; return next })
     }
-  }, [followRun, data, dirty])
+  }, [followRun, data, dirty, request])
   useEffect(() => {
-    if (!dirty) return
+    if (!dirty && !requestDirty) return
     const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', guard)
     return () => window.removeEventListener('beforeunload', guard)
-  }, [dirty])
-  const guarded = (action: () => void) => { if (busy) return; if (dirty) setDiscard(() => action); else action() }
+  }, [dirty, requestDirty])
+  const composing = !!request
+  useEffect(() => {
+    if (composing && !busy) requestInput.current?.focus()
+  }, [composing, busy])
+  useEffect(() => {
+    if (!setId && data && selectedSet) setSetId(selectedSet.id)
+  }, [setId, data, selectedSet])
+  const guarded = (action: () => void) => { if (busy) return; if (dirty || requestDirty) setDiscard(() => action); else action() }
   const perform = async (action: () => Promise<void>) => {
     if (actionRef.current) return
     actionRef.current = true; mutation.current++; setBusy(true); setError('')
@@ -93,6 +107,25 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
     const result = await judgeFeature(workspace, feature.id, feature.version, status)
     setDraft({ base: result.feature, value: result.feature })
   })
+  const openRequest = (target: RequestTarget) => {
+    const content = target.retry?.content || target.target?.content || target.target?.title || target.retry?.title || ''
+    requestAttempt.current = { fingerprint: '', id: '' }
+    setFollowRun(null)
+    setRequest({ ...target, content, initialContent: content })
+  }
+  const cancelRequest = () => guarded(() => { setRequest(null); addButton.current?.focus() })
+  const submitRequest = () => {
+    if (!request || !request.content.trim() || !selectedSet || readOnly) return
+    const title = request.target?.title ?? request.retry?.title ?? request.content.trim().split(/\r?\n/, 1)[0].slice(0, 300)
+    const value = { title, content: request.content, agentSetId: selectedSet.id, targetId: request.target?.id ?? request.retry?.targetId ?? undefined, parentId: request.target ? undefined : request.parent?.id ?? request.retry?.parentId ?? undefined, expectedVersion: request.target?.version }
+    const fingerprint = JSON.stringify(value)
+    if (requestAttempt.current.fingerprint !== fingerprint) requestAttempt.current = { fingerprint, id: crypto.randomUUID() }
+    void perform(async () => {
+      const { run } = await requestFeature(workspace, { ...value, id: requestAttempt.current.id })
+      setRequest(null); setFollowRun(run.id)
+      addButton.current?.focus()
+    })
+  }
   const rows = useMemo(() => featureRows(data?.features ?? [], sort, collapsed, locale), [data?.features, sort, collapsed, locale])
   const runs = (data?.runs ?? []).filter(run => run.featureId === draft?.base.id).toReversed()
   const pending = runs.some(pendingFeatureRun) || (data?.runs ?? []).some(run => run.targetId === draft?.base.id && pendingFeatureRun(run))
@@ -100,25 +133,29 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
   const relatedFiles = latest?.files ?? []
   const relatedCommits = latest?.commits ?? []
   const unassigned = (data?.runs ?? []).filter(run => !run.featureId).toReversed()
-  const select = (feature: Feature) => guarded(() => { setDraft({ base: feature, value: feature }); setFollowRun(null) })
+  const select = (feature: Feature) => guarded(() => { setDraft({ base: feature, value: feature }); setFollowRun(null); setRequest(null) })
   const runActions = (run: FeatureRun) => <span className="flex shrink-0 flex-wrap items-center gap-1">
     {run.state !== 'queued' && <button className={button} type="button" onClick={() => guarded(() => onOpenAgent(run))}>{copy.conversation}</button>}
     {!readOnly && pendingFeatureRun(run) && <button className={button} type="button" disabled={busy || run.state === 'cancelling'} onClick={() => void perform(async () => { await cancelFeatureRun(workspace, run.id) })}>{copy.stop}</button>}
-    {!readOnly && !pendingFeatureRun(run) && run.state !== 'completed' && <button className={button} type="button" disabled={busy} onClick={() => guarded(() => setRequest({ retry: run, target: data?.features.find(feature => feature.id === (run.featureId ?? run.targetId)) }))}>{copy.retry}</button>}
+    {!readOnly && !pendingFeatureRun(run) && run.state !== 'completed' && <button className={button} type="button" disabled={busy} onClick={() => guarded(() => openRequest({ retry: run, target: data?.features.find(feature => feature.id === (run.featureId ?? run.targetId)) }))}>{copy.retry}</button>}
   </span>
   return <>
     <DialogFrame labelledBy={heading} onClose={() => guarded(onClose)} className="flex h-[min(88dvh,850px)] max-w-6xl flex-col" busy={busy}>
       <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-edge px-3">
-        {draft && <button type="button" className={`${button} md:hidden`} aria-label={copy.back} onClick={() => guarded(() => setDraft(null))}><ArrowLeft width={17} height={17} /></button>}
+        {draft && !request && <button type="button" className={`${button} md:hidden`} aria-label={copy.back} onClick={() => guarded(() => setDraft(null))}><ArrowLeft width={17} height={17} /></button>}
         <h2 id={heading} className="text-sm font-semibold text-ink">{copy.title}</h2>
         <span className="min-w-0 flex-1 truncate text-xs text-ink-secondary" title={workspace}>{workspace.split('/').filter(Boolean).at(-1)}</span>
         {readOnly && data && <span className="text-xs text-ink-secondary">{copy.readOnly}</span>}
         <button type="button" className={button} aria-label={copy.refresh} disabled={busy} onClick={() => void perform(async () => {})}><RefreshDouble width={15} height={15} /></button>
         <button type="button" className={button} aria-label={copy.close} disabled={busy} onClick={() => guarded(onClose)}><Xmark width={18} height={18} /></button>
       </header>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-3 py-2">
+        <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-ink-secondary"><span className="shrink-0">{copy.agentSet}</span><select aria-label={copy.agentSet} className={`${input} max-w-xs text-xs`} value={selectedSet?.id ?? ''} disabled={readOnly || busy || !sets.length} onChange={event => setSetId(event.target.value)}><option value="" disabled>{copy.agentSet}</option>{sets.map(set => <option value={set.id} key={set.id}>{set.name} · {set.runtime}</option>)}</select></label>
+        {!sets.length && !loading && <p className="text-xs text-ink-secondary">{copy.noSets}</p>}
+      </div>
       {error && <p role="alert" className="select-text shrink-0 border-b border-edge px-4 py-2 text-sm text-danger">{error}</p>}
       <div className="flex min-h-0 flex-1">
-        <nav aria-label={copy.title} className={`${draft ? 'hidden md:flex' : 'flex'} min-h-0 w-full shrink-0 flex-col md:w-[32%] md:max-w-sm md:border-r md:border-edge`}>
+        <nav aria-label={copy.title} className={`${draft && !request ? 'hidden md:flex' : 'flex'} min-h-0 w-full shrink-0 flex-col md:w-[32%] md:max-w-sm md:border-r md:border-edge`}>
           <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
             <span className="text-xs tabular-nums text-ink-secondary">{data?.features.length ?? 0} {copy.count}</span>
             <select aria-label={copy.sort} className="min-w-0 bg-surface py-1 text-xs text-ink-secondary focus:outline-ink" value={sort} onChange={event => setSort(event.target.value as FeatureSort)}>
@@ -126,7 +163,12 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
             </select>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-3" data-feature-list>
-            <button type="button" className={`${button} sticky top-0 z-10 mb-1 h-8 w-full justify-start bg-surface text-ink`} disabled={readOnly || busy} onClick={() => guarded(() => setRequest({}))}><Plus width={15} height={15} />{copy.add}</button>
+            <button ref={addButton} type="button" aria-expanded={!!request} className={`${button} sticky top-0 z-10 mb-1 h-8 w-full justify-start bg-surface text-ink`} disabled={readOnly || busy} onClick={() => guarded(() => openRequest({}))}><Plus width={15} height={15} />{copy.add}</button>
+            {request && <form aria-label={copy.add} className="mb-3 space-y-2 px-2" onSubmit={event => { event.preventDefault(); submitRequest() }}>
+              {(request.target || request.parent) && <p className="truncate text-xs text-ink-secondary" title={request.parent?.title ?? request.target?.title}>{request.parent ? copy.parent : copy.source}: {request.parent?.title ?? request.target?.title}</p>}
+              <textarea ref={requestInput} aria-label={copy.requestContent} placeholder={copy.requestPlaceholder} className={`${input} block resize-y leading-5`} rows={3} maxLength={40_000} value={request.content} disabled={busy || readOnly} onChange={event => setRequest({ ...request, content: event.target.value })} />
+              <div className="flex justify-end gap-1"><button type="button" className={button} disabled={busy} onClick={cancelRequest}>{copy.cancel}</button><button type="submit" className={`${button.replace('text-ink-secondary', 'text-ink-on-accent').replace('hover:bg-surface-hover', 'hover:bg-accent-strong')} bg-accent`} disabled={busy || readOnly || !request.content.trim() || !selectedSet}>{busy ? copy.starting : copy.submit}</button></div>
+            </form>}
             {loading && !data && <p role="status" className="p-3 text-xs text-ink-secondary">{copy.load}</p>}
             {data && !rows.length && !unassigned.length && <p className="px-3 py-8 text-center text-sm text-ink-secondary">{copy.empty}</p>}
             {rows.map(({ feature, depth, hasChildren }) => <div key={feature.id} className={`flex h-8 items-center rounded ${draft?.base.id === feature.id ? 'bg-surface-raised' : 'hover:bg-surface-raised'}`} style={{ paddingLeft: Math.min(depth, 12) * 14 }}>
@@ -146,7 +188,7 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
             </div>}
           </div>
         </nav>
-        <main className={`${draft ? 'block' : 'hidden md:block'} min-h-0 min-w-0 flex-1 overflow-y-auto`}>
+        <main className={`${draft && !request ? 'block' : 'hidden md:block'} min-h-0 min-w-0 flex-1 overflow-y-auto`}>
           {!draft ? <p className="p-10 text-center text-sm text-ink-secondary">{copy.select}</p> : <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2"><Status status={dirty ? 'changed' : selected?.status ?? draft.base.status} copy={copy} label /><span className="text-xs text-ink-secondary">{formatDate(selected?.updatedAt ?? draft.base.updatedAt)}</span></div>
@@ -160,8 +202,8 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
                 <button type="button" className={`${button} bg-surface-raised`} disabled={busy || !dirty || !draft.value.title.trim()} onClick={() => void perform(async () => { await save() })}>{copy.save}</button>
                 <button type="button" className={button} disabled={busy || !draft.value.title.trim()} onClick={() => judge('verified')}>{copy.verify}</button>
                 <button type="button" className={button} disabled={busy || !draft.value.title.trim()} onClick={() => judge('needs-fix')}>{copy.needsFix}</button>
-                <button type="button" className={`${button} text-ink`} disabled={busy || pending || !draft.value.title.trim()} onClick={() => void perform(async () => { const target = await save(); if (target) setRequest({ target }) })}>{copy.handoff}</button>
-                <button type="button" className={button} disabled={busy || !draft.value.title.trim()} onClick={() => void perform(async () => { const parent = await save(); if (parent) setRequest({ parent }) })}><Plus width={13} height={13} />{copy.child}</button>
+                <button type="button" className={`${button} text-ink`} disabled={busy || pending || !draft.value.title.trim()} onClick={() => request ? guarded(() => openRequest({ target: selected ?? draft.base })) : void perform(async () => { const target = await save(); if (target) openRequest({ target }) })}>{copy.handoff}</button>
+                <button type="button" className={button} disabled={busy || !draft.value.title.trim()} onClick={() => request ? guarded(() => openRequest({ parent: selected ?? draft.base })) : void perform(async () => { const parent = await save(); if (parent) openRequest({ parent }) })}><Plus width={13} height={13} />{copy.child}</button>
               </div>}
             </div>
             <section className="space-y-2 border-t border-edge pt-5"><h3 className="text-sm font-semibold text-ink">{copy.implementation}</h3><p className="select-text whitespace-pre-wrap break-words text-sm leading-relaxed text-ink-secondary">{latest?.summary ?? copy.noReport}</p>{latest?.validation && <><h4 className="pt-2 text-xs font-medium text-ink">{copy.validation}</h4><p className="select-text whitespace-pre-wrap break-words text-sm text-ink-secondary">{latest.validation}</p></>}</section>
@@ -172,38 +214,9 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
         </main>
       </div>
     </DialogFrame>
-    {request && <FeatureRequestDialog copy={copy} workspace={workspace} sets={sets} request={request} defaultSet={runs[0]?.agentSet.id ?? data?.runs.at(-1)?.agentSet.id} onClose={() => setRequest(null)} onSubmitted={run => { setRequest(null); setFollowRun(run.id); void perform(async () => {}) }} />}
-    {discard && <ConfirmDialog message={copy.unsaved} confirmLabel={copy.discard} cancelLabel={copy.cancel} danger onConfirm={() => { const action = discard; setDiscard(null); setDraft(selected ? { base: selected, value: selected } : null); action() }} onCancel={() => setDiscard(null)} />}
+    {discard && <ConfirmDialog message={copy.unsaved} confirmLabel={copy.discard} cancelLabel={copy.cancel} danger onConfirm={() => { const action = discard; setDiscard(null); setDraft(selected ? { base: selected, value: selected } : null); setRequest(null); action() }} onCancel={() => setDiscard(null)} />}
     {commit && <FeatureCommitDialog copy={copy} commit={commit} onClose={() => setCommit(null)} />}
   </>
-}
-
-function FeatureRequestDialog({ copy, workspace, sets, request, defaultSet, onClose, onSubmitted }: { copy: FeatureCopy; workspace: string; sets: AgentSet[]; request: RequestTarget; defaultSet?: string; onClose: () => void; onSubmitted: (run: FeatureRun) => void }) {
-  const heading = useId(), [title, setTitle] = useState(request.target?.title ?? request.retry?.title ?? ''), [content, setContent] = useState(request.target?.content ?? request.retry?.content ?? '')
-  const [setId, setSetId] = useState(request.retry?.agentSet.id ?? defaultSet ?? sets[0]?.id ?? ''), [error, setError] = useState(''), [busy, setBusy] = useState(false)
-  const attempt = useRef({ fingerprint: '', id: '' }), submitting = useRef(false)
-  const submit = async () => {
-    if (submitting.current) return
-    submitting.current = true; setBusy(true); setError('')
-    const value = { title, content, agentSetId: setId, targetId: request.target?.id ?? request.retry?.targetId ?? undefined, parentId: request.target ? undefined : request.parent?.id ?? request.retry?.parentId ?? undefined, expectedVersion: request.target?.version }
-    const fingerprint = JSON.stringify(value)
-    if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, id: crypto.randomUUID() }
-    try { const { run } = await requestFeature(workspace, { ...value, id: attempt.current.id }); onSubmitted(run) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
-    finally { submitting.current = false; setBusy(false) }
-  }
-  return <DialogFrame labelledBy={heading} onClose={onClose} busy={busy} className="max-h-[90dvh] max-w-xl overflow-y-auto">
-    <form className="space-y-4 p-5" onSubmit={event => { event.preventDefault(); void submit() }}>
-      <h2 id={heading} className="text-base font-semibold text-ink">{request.parent ? copy.child : copy.add}</h2>
-      {(request.target || request.parent) && <p className="truncate text-xs text-ink-secondary">{request.parent ? copy.parent : copy.source}: {request.parent?.title ?? request.target?.title}</p>}
-      <label className="block space-y-1 text-xs text-ink-secondary"><span>{copy.name}</span><input className={input} data-dialog-autofocus aria-label={copy.name} required maxLength={300} value={title} disabled={busy} onChange={event => setTitle(event.target.value)} /></label>
-      <label className="block space-y-1 text-xs text-ink-secondary"><span>{copy.content}</span><textarea className={`${input} min-h-40 resize-y`} aria-label={copy.content} maxLength={40_000} value={content} disabled={busy} onChange={event => setContent(event.target.value)} /></label>
-      <label className="block space-y-1 text-xs text-ink-secondary"><span>{copy.agentSet}</span><select aria-label={copy.agentSet} className={input} value={setId} disabled={busy} required onChange={event => setSetId(event.target.value)}><option value="" disabled>{copy.agentSet}</option>{sets.map(set => <option value={set.id} key={set.id}>{set.name} · {set.runtime}</option>)}</select></label>
-      {!sets.length && <p className="text-sm text-ink-secondary">{copy.noSets}</p>}
-      {error && <p role="alert" className="select-text text-sm text-danger">{error}</p>}
-      <div className="flex justify-end gap-2"><button type="button" className={button} disabled={busy} onClick={onClose}>{copy.cancel}</button><button type="submit" className={`${button} bg-accent text-ink-on-accent hover:bg-accent-strong`} disabled={busy || !title.trim() || !sets.some(set => set.id === setId)}>{busy ? copy.starting : copy.submit}</button></div>
-    </form>
-  </DialogFrame>
 }
 
 function FeatureCommitDialog({ copy, commit, onClose }: { copy: FeatureCopy; commit: FeatureCommit; onClose: () => void }) {

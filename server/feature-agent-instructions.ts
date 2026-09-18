@@ -15,7 +15,7 @@ Request: ${JSON.stringify({ title: run.title, content: run.content, targetId: ru
 
 1. Before changing project code, run this common mew command to inspect the current feature tree and versions:
 ${command} list
-2. Decide whether this is a new independent feature, an update to an existing feature, or a child feature. Preserve existing IDs and history. Honor targetId (update that feature) and parentId (create a child there) when present. For ambiguous scope, ask the user in the conversation; do not invent completed work.
+2. The request title may be an automatically generated preview of its first line; use the full content to choose a concise, descriptive feature title during assignment. Decide whether this is a new independent feature, an update to an existing feature, or a child feature. Preserve existing IDs and history. Honor targetId (update that feature) and parentId (create a child there) when present. For ambiguous scope, ask the user in the conversation; do not invent completed work.
 3. Connect this request to its feature by sending exactly one JSON object on stdin to:
 ${command} assign
 Use a quoted shell heredoc or a temporary JSON file; never interpolate user text into shell commands.
