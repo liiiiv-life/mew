@@ -138,7 +138,14 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     if (value.type === 'offer') {
       if (offered) throw new Error('화면 연결 응답이 중복됐습니다.')
       offered = true
-      directDeadline = setTimeout(() => { void switchToRelay() }, 4000)
+      directDeadline = setTimeout(() => {
+        // A decoded frame wins even if the regular statistics tick has not run.
+        void (async () => {
+          let decoded = false
+          try { (await direct?.stats())?.forEach(value => { if (value.type === 'inbound-rtp' && value.kind === 'video' && value.framesDecoded > 0) decoded = true }) } catch { /* Fall back when the peer cannot report. */ }
+          if (!closed && mode === 'direct' && !decoded) await switchToRelay()
+        })()
+      }, 1200)
       try {
         events.transport?.('direct')
         direct = desktopDirect({ iceServers, input, signal: send, stream: events.stream, connected: markConnected, failed: () => { void switchToRelay() } })

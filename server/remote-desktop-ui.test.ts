@@ -21,7 +21,7 @@ import {createInputReceiver} from '${root}/native/remote-desktop/protocol.mjs';
 const events=window.inputEvents=[], packets=window.inputPackets=[];
 const receiver=createInputReceiver(Object.fromEntries(['move','moveTo','wheel','button','key'].map(name=>[name,(...args)=>events.push([name,...args])])));
 let listener, socket;
-const canvas=document.createElement('canvas'); canvas.width=1280;canvas.height=720;
+const canvas=document.createElement('canvas'); canvas.width=1280;canvas.height=720;window.testCanvas=canvas;
 const context=canvas.getContext('2d'); let frame=0;
 setInterval(()=>{if(window.freeze)return;context.fillStyle='#16252b';context.fillRect(0,0,1280,720);context.fillStyle='#e0eaec';context.font='28px sans-serif';context.fillText('Synthetic desktop · WebRTC test',60,75);context.fillStyle='#26383f';context.fillRect(60,115,720,460);context.fillStyle='#d3dee1';context.font='20px sans-serif';context.fillText('No physical desktop is captured or controlled.',90,165);context.fillStyle='#789dad';context.fillRect(900+Math.sin(frame++/30)*50,300,20,20)},33);
 window.captureCount=0;window.frameBytes=0;window.frameCount=0;window.switches=0;
@@ -41,8 +41,8 @@ window.desktopHost={capture,ready(){},onSignal(fn){listener=fn},signal(value){so
 class Socket {
  static OPEN=1;readyState=1;bufferedAmount=0;
  constructor(){socket=this;window.socket=this;setTimeout(()=>{this.emit({type:'config',iceServers:[]});this.emit({type:'sources',screens:[{id:'screen:0:0',label:'Test display',width:1280,height:720}]})},20)}
- emit(value){if('${transport}'==='server'&&value.type==='candidate')return;if(this.readyState===1)this.onmessage?.({data:JSON.stringify('${transport}'==='server'?withoutCandidates(value):value)})}
- send(raw){let value=JSON.parse(raw);if(value.type==='frame-ack'&&window.pauseAcks){window.pendingAck=raw;return}if(value.type==='relay-input'){accept(value.value,value.reliable);return}if(value.type==='relay'){window.switches++;receiver.pause()}if('${transport}'==='server'){if(value.type==='candidate')return;value=withoutCandidates(value)}listener(value.type==='select'?{type:'start',source:value.id,iceServers:[],relativeOnly:false,nativeCapture:${nativeCapture}}:value)}
+ emit(value){if(value.type==='offer')window.offerAt=performance.now();if('${transport}'==='server'&&value.type==='candidate')return;if(this.readyState===1)this.onmessage?.({data:JSON.stringify('${transport}'==='server'?withoutCandidates(value):value)})}
+ send(raw){let value=JSON.parse(raw);if(value.type==='frame-ack'&&window.pauseAcks){window.pendingAck=raw;return}if(value.type==='relay-input'){accept(value.value,value.reliable);return}if(value.type==='relay'){window.relayWait=performance.now()-window.offerAt;window.switches++;receiver.pause()}if('${transport}'==='server'){if(value.type==='candidate')return;value=withoutCandidates(value)}listener(value.type==='select'?{type:'start',source:value.id,iceServers:[],relativeOnly:false,nativeCapture:${nativeCapture}}:value)}
  close(){if(this.readyState!==1)return;this.readyState=3;listener({type:'stop'});receiver.release();this.onclose?.()}
 }
 window.WebSocket=Socket;
@@ -83,6 +83,8 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     assert.equal(await page.evaluate('window.switches'), transport === 'server' ? 1 : 0)
     if (scenario === 'native-direct') await page.evaluate('window.freeze=false')
     if (transport === 'server') {
+      assert.ok(await page.evaluate('window.relayWait<2500'), 'blocked direct path falls back without the former four-second wait')
+      console.log('Direct-to-server wait (ms):', await page.evaluate('Math.round(window.relayWait)'))
       assert.ok(await page.evaluate('window.frameBytes>0'))
       assert.equal(await page.evaluate(`document.querySelector('.desktop-stage canvas').getContext('2d').getImageData(10,10,1,1).data[3]`), 255)
       const before = await page.evaluate('window.pauseAcks=true;window.frameCount') as number
@@ -133,6 +135,59 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       if (dx || dy) { await page.mouse.move(x + dx, y + dy); await page.waitForTimeout(100) }
       if (cancel) await target.dispatchEvent('pointercancel')
       await page.mouse.up(); await page.waitForTimeout(100)
+    }
+    await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
+    const slider = page.getByLabel('마우스 커서 감도')
+    assert.equal(await slider.inputValue(), '3')
+    await slider.fill('1')
+    await page.getByRole('button', { name: '설정 닫기', exact: true }).click()
+    await clear(); await gesture('커서 이동 조이스틱', 10, 0)
+    if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]===20)'), '1x retains the old pointer gain')
+    await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
+    await slider.fill('3')
+    await page.keyboard.press('Escape')
+    assert.equal(await page.locator('.remote-desktop').count(), 1, 'Escape closes settings before the desktop')
+    await clear(); await gesture('커서 이동 조이스틱', 10, 0)
+    if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]===60)'), 'default gain is three times the old movement')
+    await clear()
+    await page.getByRole('button', { name: '원격 Ctrl+C', exact: true }).click()
+    await page.waitForFunction('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="KeyC"&&e[2]===false)')
+    assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="key")'), [['key', 'ControlLeft', true], ['key', 'KeyC', true], ['key', 'KeyC', false], ['key', 'ControlLeft', false]])
+    await page.getByRole('button', { name: '원격 Esc', exact: true }).click()
+    assert.equal(await page.locator('.remote-desktop').count(), 1, 'remote Escape does not close the viewer')
+    const keysBefore = await page.locator('.desktop-hotkeys').boundingBox(); assert.ok(keysBefore)
+    await gesture('핫키 위치 이동', 90, 50)
+    const keysAfter = await page.locator('.desktop-hotkeys').boundingBox(); assert.ok(keysAfter && keysAfter.x > keysBefore.x && keysAfter.y > keysBefore.y)
+    await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
+    await page.getByRole('button', { name: '버튼 위치 초기화' }).click()
+    await page.getByRole('button', { name: '설정 닫기', exact: true }).click()
+    await page.getByRole('button', { name: '화면 90도 회전' }).click()
+    const media = page.locator(transport === 'direct' ? 'video' : '.desktop-stage canvas')
+    const rotated = await media.boundingBox(); assert.ok(rotated && rotated.height > rotated.width, JSON.stringify(await page.evaluate('({video:document.querySelector("video").style.cssText,canvas:document.querySelector(".desktop-stage canvas").style.cssText,switches:window.switches})')))
+    await clear(); await gesture('커서 이동 조이스틱', 10, 0)
+    if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]===0&&e[2]===-60)'), 'rotated joystick motion follows the visible screen')
+    await clear()
+    // A visible top-right point in the clockwise-rotated desktop maps to native top-left.
+    const point = { x: rotated.x + rotated.width * .8, y: rotated.y + rotated.height * .2 }
+    await page.mouse.click(point.x, point.y)
+    await page.waitForFunction('window.inputPackets.some(([v])=>v.buttons===1&&v.point)')
+    const remotePoint = await page.evaluate('window.inputPackets.find(([v])=>v.buttons===1&&v.point)[0].point') as number[]
+    assert.ok(Math.abs(remotePoint[0] - .2) < .01 && Math.abs(remotePoint[1] - .2) < .01)
+    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: '화면 90도 회전' }).click()
+    await page.getByRole('button', { name: '전체화면', exact: true }).click()
+    await page.waitForFunction('!!document.fullscreenElement')
+    await page.getByRole('button', { name: '전체화면 해제', exact: true }).click()
+    await page.waitForFunction('!document.fullscreenElement')
+    if (scenario === 'direct') {
+      await page.evaluate('window.testCanvas.width=640;window.testCanvas.height=960')
+      await page.waitForFunction('document.querySelector("video").videoWidth===640&&parseFloat(document.querySelector("video").style.height)>parseFloat(document.querySelector("video").style.width)')
+      const resized = await page.locator('video').boundingBox(); assert.ok(resized)
+      await clear(); await page.mouse.click(resized.x + resized.width * .75, resized.y + resized.height * .4)
+      await page.waitForFunction('window.inputPackets.some(([v])=>v.buttons===1&&v.point)')
+      const target = await page.evaluate('window.inputPackets.find(([v])=>v.buttons===1&&v.point)[0].point') as number[]
+      assert.ok(Math.abs(target[0] - .75) < .01 && Math.abs(target[1] - .4) < .01, 'same-track resolution changes update click projection')
+      await page.evaluate('window.testCanvas.width=1280;window.testCanvas.height=720')
+      await page.waitForFunction('document.querySelector("video").videoWidth===1280&&parseFloat(document.querySelector("video").style.width)>parseFloat(document.querySelector("video").style.height)')
     }
     await clear(); await gesture('좌클릭 조이스틱', 0, 0)
     assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="button")'), [['button', 1, true], ['button', 1, false]])
@@ -185,8 +240,23 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="ShiftLeft"&&e[2]===false)'), 'transition releases held modifiers')
       await page.keyboard.up('Shift')
     }
+    await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
+    await page.getByRole('button', { name: '버튼 위치 초기화' }).click()
+    await page.getByRole('button', { name: '설정 닫기', exact: true }).click()
+    await page.getByTitle('화면에 맞추기').click()
     const dir = process.env.MEW_DESKTOP_SCREENSHOTS
-    if (dir) { await fs.mkdir(dir, { recursive: true }); await page.screenshot({ path: path.join(dir, 'mobile.png') }) }
+    if (dir) {
+      await fs.mkdir(dir, { recursive: true }); await page.screenshot({ path: path.join(dir, 'mobile.png') })
+      await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
+      await page.screenshot({ path: path.join(dir, 'settings-mobile.png') })
+      await page.getByRole('button', { name: '설정 닫기', exact: true }).click()
+    }
+    await page.setViewportSize({ width: 320, height: 568 })
+    assert.equal(await page.locator('.desktop-tools').evaluate(el => el.scrollWidth > el.clientWidth), false)
+    await page.setViewportSize({ width: 844, height: 390 })
+    for (const selector of ['.desktop-hotkeys', '.desktop-control-strip']) {
+      const box = await page.locator(selector).boundingBox(); assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 844 && box.y + box.height <= 390)
+    }
     await page.setViewportSize({ width: 1440, height: 900 })
     if (dir) await page.screenshot({ path: path.join(dir, 'desktop.png') })
     assert.equal(await page.evaluate('document.documentElement.scrollWidth > innerWidth'), false)
@@ -258,7 +328,13 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.evaluate(`Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'))`)
     await page.getByText('앱이 백그라운드로 이동해 연결을 종료했습니다.').waitFor()
     await page.waitForFunction('window.syntheticStream.getTracks().every(track=>track.readyState==="ended")')
-    await page.getByRole('button', { name: '원격 데스크톱 닫기' }).click()
+    await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
+    await page.goBack()
+    await page.locator('#desktop-settings').waitFor({ state: 'hidden' })
+    assert.equal(await page.locator('.remote-desktop').count(), 1)
+    await page.goBack()
+    await page.locator('.remote-desktop').waitFor({ state: 'hidden' })
+    assert.equal(page.url(), 'http://localhost:48973/', 'repeated Back dismisses inner UI then viewer without navigating away')
     if (transport === 'server') {
       await page.evaluate('window.VideoDecoder=undefined')
       await page.getByText('Open desktop').click()

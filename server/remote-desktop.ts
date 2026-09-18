@@ -131,7 +131,7 @@ export function attachRemoteDesktopWebSocket(server: Server | Http2SecureServer,
         const config = iceServers()
         send({ type: 'config', iceServers: config })
         child = await spawnHost()
-        if (child.desktopNetworkHint) send({ type: 'network-hint', message: child.desktopNetworkHint })
+        if (child.desktopNetworkHint) void Promise.resolve(child.desktopNetworkHint).then(message => { if (message && !disposed) send({ type: 'network-hint', message }) }).catch(() => {})
         child.stdin.on('error', () => { if (!disposed) fail('원격 데스크톱 보조 앱이 종료됐습니다.') })
         child.once('error', () => { hostExited = true; if (active === ws) active = null; if (!disposed) fail('원격 데스크톱 보조 앱을 실행하지 못했습니다. 설치와 서버 데스크톱 세션을 확인해 주세요.') })
         child.once('exit', () => { hostExited = true; if (!disposed) fail('원격 데스크톱 연결이 종료됐습니다.'); if (active === ws) active = null })

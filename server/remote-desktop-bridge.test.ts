@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { WebSocket } from 'ws'
-import { desktopHostSpec, desktopWindowsBridgeSpec, DesktopHostLaunchError } from './remote-desktop-host.ts'
+import { desktopHostSpec, desktopWindowsBridgeSpec, desktopWindowsFirewallHint, desktopPathCache, DesktopHostLaunchError } from './remote-desktop-host.ts'
 import { attachRemoteDesktopWebSocket } from './remote-desktop.ts'
 
 const exec = promisify(execFile)
@@ -30,20 +30,33 @@ test('signaling forwards the actionable session diagnostic to the viewer', async
 test('WSL bridge preserves Windows entry paths in both service and interactive sessions', async () => {
   const calls: string[][] = []
   let session = 0
-  let firewallBlocked = false
   const run = (async (command: string, args: string[]) => {
     calls.push([command, ...args])
-    return { stdout: command === 'powershell.exe' ? JSON.stringify({ node: 'C:\\Program Files\\nodejs\\node.exe', session, firewallBlocked }) : args[0] === '-u' ? '/mnt/c/Program Files/nodejs/node.exe\n' : '\\\\wsl.localhost\\Ubuntu\\bridge.mjs\n', stderr: '' }
+    return { stdout: command === 'powershell.exe' ? JSON.stringify({ node: 'C:\\Program Files\\nodejs\\node.exe', session }) : args[0] === '-u' ? '/mnt/c/Program Files/nodejs/node.exe\n' : '\\\\wsl.localhost\\Ubuntu\\bridge.mjs\n', stderr: '' }
   }) as typeof exec
   const service = await desktopWindowsBridgeSpec(spec, run, () => 'powershell.exe')
   session = 1
   const bridge = await desktopWindowsBridgeSpec(spec, run, () => 'powershell.exe')
   assert.deepEqual(bridge, { executable: '/mnt/c/Program Files/nodejs/node.exe', args: ['\\\\wsl.localhost\\Ubuntu\\bridge.mjs', spec.entry] })
   assert.deepEqual(service, bridge)
-  firewallBlocked = true
-  const blocked = await desktopWindowsBridgeSpec(spec, run, () => 'powershell.exe')
-  assert.match(blocked.networkHint!, /방화벽.*재설치는 필요하지/)
-  assert.deepEqual(blocked.args, bridge.args, 'an inactive firewall profile or TURN may still permit a connection')
+  assert.ok(calls.every(call => !call.join(' ').includes('Get-NetFirewall')), 'launch never waits for firewall discovery')
+})
+
+test('optional firewall discovery reports blocks but tolerates unavailable diagnostics', async () => {
+  const run = (async () => ({ stdout: 'true', stderr: '' })) as unknown as typeof exec
+  assert.match((await desktopWindowsFirewallHint(spec, run, () => 'powershell.exe'))!, /방화벽.*재설치는 필요하지/)
+  const unavailable = (async () => { throw new Error('timeout') }) as unknown as typeof exec
+  assert.equal(await desktopWindowsFirewallHint(spec, unavailable, () => 'powershell.exe'), undefined)
+})
+
+test('path lookup coalesces preparation and launch, expires and retries failures', async () => {
+  let calls = 0, now = 0
+  const lookup = desktopPathCache(async key => { calls++; if (key === 'bad') throw new Error('unmounted'); return key }, () => now, 100)
+  assert.deepEqual(await Promise.all([lookup('a'), lookup('a')]), ['a', 'a']); assert.equal(calls, 1)
+  now = 99; await lookup('a'); assert.equal(calls, 1)
+  now = 100; await lookup('a'); assert.equal(calls, 2)
+  await lookup('b'); assert.equal(calls, 3)
+  await assert.rejects(lookup('bad')); await assert.rejects(lookup('bad')); assert.equal(calls, 5)
 })
 
 test('real Windows Electron starts in the login session, exchanges pipe input and exits with parent', { skip: !process.env.MEW_DESKTOP_TEST_WINDOWS_NODE, timeout: 50000 }, async () => {

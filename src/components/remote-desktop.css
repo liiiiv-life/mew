@@ -56,3 +56,28 @@
 .desktop-mouse .desktop-stick[data-held] .desktop-stick-knob { background: var(--color-ink); color: var(--color-surface-deep); }
 .desktop-view-controls { display: flex; flex-direction: column; gap: 4px; padding: 6px 4px; border-radius: 12px; background: var(--color-surface); box-shadow: 0 6px 24px #0006; }
 .desktop-view-controls .desktop-stick { justify-content: center; }
+
+.desktop-video { max-width: none; max-height: none; position: absolute; top: 50%; left: 50%; }
+.remote-desktop :is(button,select,textarea,input):focus-visible { outline: 2px solid var(--color-ink-secondary); outline-offset: 2px; }
+.desktop-tools .desktop-tool-icon { display: grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; }
+.desktop-tools button[aria-expanded="true"], .desktop-tools button[aria-pressed="true"] { background: var(--color-surface-raised); }
+.desktop-settings { position: absolute; z-index: 6; top: calc(64px + env(safe-area-inset-top)); right: max(12px,env(safe-area-inset-right)); width: min(360px,calc(100% - 24px)); max-height: calc(100% - 108px - env(safe-area-inset-top)); overflow: auto; padding: 16px; background: var(--color-surface); border: 1px solid var(--color-edge-strong); border-radius: 8px; line-height: 1.6; scrollbar-color: var(--color-edge-strong) transparent; }
+.desktop-settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.desktop-settings-heading strong { font-size: 15px; font-weight: 500; }
+.desktop-settings-heading button, .desktop-notice button { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; border: 0; background: transparent; border-radius: 4px; }
+.desktop-setting-label { display: flex; justify-content: space-between; gap: 12px; margin: 20px 0 8px; }
+.desktop-setting-label output { font-variant-numeric: tabular-nums; }
+.desktop-settings input[type="range"] { width: 100%; height: 32px; margin: 0; accent-color: var(--color-ink); cursor: pointer; }
+.desktop-settings p { margin: 8px 0 0; color: var(--color-ink-secondary); font-size: 12px; }
+.desktop-settings select { width: 100%; min-height: 44px; padding: 8px; border: 1px solid var(--color-edge-strong); border-radius: 4px; background: var(--color-surface-deep); }
+.desktop-settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.desktop-settings-actions button { min-height: 44px; padding: 8px 10px; border: 0; border-radius: 4px; background: var(--color-surface-raised); }
+.desktop-hotkeys { position: absolute; z-index: 5; left: max(12px,env(safe-area-inset-left)); top: max(112px,calc(env(safe-area-inset-top) + 100px)); max-height: calc(100% - 136px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 4px; width: 68px; padding: 4px; background: var(--color-surface); border-radius: 8px; user-select: none; }
+.desktop-hotkey-buttons { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--color-edge-strong) transparent; }
+.desktop-hotkey-buttons button { min-height: 44px; flex-shrink: 0; padding: 0 3px; border: 0; border-radius: 4px; background: transparent; font-size: 11px; }
+.desktop-hotkeys .desktop-handle { width: 100%; flex-shrink: 0; border-radius: 4px; }
+.desktop-notice { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; padding: 4px 12px; background: var(--color-surface); }
+@media (hover: hover) { .desktop-hotkey-buttons button:not(:disabled):hover, .desktop-settings button:hover { background: var(--color-surface-hover); } }
+@media (max-width: 600px) { .desktop-settings { top: calc(88px + env(safe-area-inset-top)); max-height: calc(100% - 112px - env(safe-area-inset-top)); } .desktop-tools button { min-height: 44px; } }
+@media (max-width: 360px) { .desktop-tools button { padding-inline: 4px; } .desktop-tools .desktop-tool-icon { min-width: 40px; } .desktop-tools { gap: 0; } .desktop-scale { display: none; } }
+@media (max-height: 450px) { .desktop-settings { top: calc(60px + env(safe-area-inset-top)); max-height: calc(100% - 76px - env(safe-area-inset-top)); } .desktop-hotkeys { top: max(68px,calc(env(safe-area-inset-top) + 60px)); max-height: calc(100% - 92px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); } }

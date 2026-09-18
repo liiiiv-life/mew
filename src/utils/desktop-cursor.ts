@@ -1,7 +1,7 @@
 import type { DesktopCursor } from '../../native/remote-desktop/cursor-protocol.mjs'
 
 /** DOM/native cursor updates never pass through React's render queue. */
-export function desktopCursor(stage: HTMLElement, layer: HTMLImageElement, surface: () => HTMLVideoElement | HTMLCanvasElement | null) {
+export function desktopCursor(stage: HTMLElement, layer: HTMLImageElement, surface: () => HTMLVideoElement | HTMLCanvasElement | null, project?: (x: number, y: number) => { x: number; y: number }) {
   let enabled = false, visible = true, joystick = true, x = .5, y = .5, shapeId = -1, hotX = 0, hotY = 0, url = '', frame = 0
   const draw = () => {
     frame = 0
@@ -10,6 +10,11 @@ export function desktopCursor(stage: HTMLElement, layer: HTMLImageElement, surfa
     const height = element instanceof HTMLVideoElement ? element.videoHeight : element?.height
     layer.hidden = !enabled || !visible || !joystick || !url || !rect || !width || !height || x < 0 || x > 1 || y < 0 || y > 1
     if (layer.hidden || !rect || !width || !height) return
+    if (project) {
+      const point = project(x, y)
+      layer.style.transform = `translate(${point.x - hotX}px, ${point.y - hotY}px)`
+      return
+    }
     const ratio = Math.min(rect.width / width, rect.height / height), w = width * ratio, h = height * ratio
     layer.style.transform = `translate(${rect.left - area.left + (rect.width - w) / 2 + x * w - hotX}px, ${rect.top - area.top + (rect.height - h) / 2 + y * h - hotY}px)`
   }

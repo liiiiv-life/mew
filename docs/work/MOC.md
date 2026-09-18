@@ -1,7 +1,7 @@
 ---
 title: "진행 작업"
 created: 2026-09-11
-updated: 2026-09-18
+updated: 2026-09-19
 ---
 
 # 진행 작업
@@ -9,6 +9,8 @@ updated: 2026-09-18
 상위: [문서 지도](../MOC.md). 필요한 문서만 선택한다.
 
 ## Current
+
+- [원격 데스크톱 화면·설정·핫키·연결 시작 개선](remote-desktop-controls.md)
 
 - [Mew 기능 문서 정리 계획](feature-catalog-organization.md)
 

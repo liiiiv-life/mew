@@ -111,7 +111,7 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 브라우저 로그인·팝업 | 계정별 서버 프로필로 로그인 상태 유지, 사이트 팝업·에이전트 인증 처리, `/browser` 독립 화면 사용 | [프로필·OAuth·지원 한계](docs/guides/browser.md#브라우저-창) |
 | Android | 메뉴 → Android에서 SDK·가속·AVD 상태 확인, 안내 명령 실행·터미널 보기, 기존 WebRTC/gateway 연결 | [Android 준비](docs/guides/browser.md#android-창) |
 | 원격 데스크톱 | 메뉴 → 원격 데스크톱에서 자동 준비 후 전체 화면 연결. Mac/Linux 또는 WSL의 Windows 로그인 데스크톱 조작. 직접 연결 실패 시 외부 서비스 없이 Mew 서버 전송으로 전환; OS 권한 승인 필요 | [설치·연결](docs/guides/remote-desktop.md) |
-| 원격 입력·모바일 조이스틱 | 마우스·키보드·붙여넣기·원격 Esc, 조이스틱 클릭·드래그·휠·화면 이동·확대, 모니터 선택·재연결 | [조작](docs/guides/remote-desktop.md#조작) · [네트워크·검증 범위](docs/development/remote-desktop.md) |
+| 원격 입력·모바일 조이스틱 | 마우스·키보드·붙여넣기·원격 Esc, 조이스틱 클릭·드래그·휠·확대, 전체화면·90도 회전, 감도 설정·이동 가능한 세로 핫키, 모니터 선택·재연결 | [조작](docs/guides/remote-desktop.md#조작) · [네트워크·검증 범위](docs/development/remote-desktop.md) |
 
 ### 데이터베이스
 

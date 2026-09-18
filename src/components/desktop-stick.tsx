@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { desktopStick, stickButton, type DesktopInput, type StickKind } from '../utils/desktop-input.ts'
+import { DEFAULT_SENSITIVITY, rotateDelta, type Rotation } from '../utils/desktop-view.ts'
 
 const labels: Record<StickKind, string> = { left: '좌클릭', wheel: '휠', right: '우클릭', cursor: '커서 이동', pan: '화면 이동', zoom: '확대·축소' }
-export function DesktopIcon({ kind }: { kind: StickKind | 'handle' | 'close' | 'screen' }) {
+export function DesktopIcon({ kind }: { kind: StickKind | 'handle' | 'close' | 'screen' | 'fullscreen' | 'rotate' | 'settings' }) {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {kind === 'close' ? <path d="m6 6 12 12M6 18 18 6" /> : kind === 'screen' ? <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></>
+    {kind === 'fullscreen' ? <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /> : kind === 'rotate' ? <><path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5" /><path d="M9 9h6v6H9z" /></> : kind === 'settings' ? <><path d="M4 6h16M4 12h16M4 18h16" /><path d="M8 3v6m8 0v6m-6 0v6" /></> : kind === 'close' ? <path d="m6 6 12 12M6 18 18 6" /> : kind === 'screen' ? <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></>
       : kind === 'cursor' ? <path d="m5 3 14 10-6 1-3 6Z" />
       : kind === 'pan' ? <path d="M12 3v18M3 12h18m-12-6 3-3 3 3m-6 12 3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3" />
         : kind === 'zoom' ? <><circle cx="10" cy="10" r="6" /><path d="m15 15 6 6M7 10h6m-3-3v6" /></>
@@ -13,10 +14,14 @@ export function DesktopIcon({ kind }: { kind: StickKind | 'handle' | 'close' | '
   </svg>
 }
 
-export function DesktopStick({ kind, input, disabled, onView }: { kind: StickKind; input: DesktopInput | null; disabled: boolean; onView: (x: number, y: number, zoom: number) => void }) {
+export function DesktopStick({ kind, input, disabled, onView, sensitivity = DEFAULT_SENSITIVITY, rotation = 0 }: { kind: StickKind; input: DesktopInput | null; disabled: boolean; onView: (x: number, y: number, zoom: number) => void; sensitivity?: number; rotation?: Rotation }) {
   const knob = useRef<HTMLSpanElement>(null), pointer = useRef<{ id: number; x: number; y: number } | null>(null)
   const machine = useRef<ReturnType<typeof desktopStick> | null>(null), frame = useRef(0), button = useRef<HTMLButtonElement>(null)
   const arrows = useRef(new Set<string>())
+  const move = useCallback((x: number, y: number) => {
+    const delta = rotateDelta(x * sensitivity, y * sensitivity, ((360 - rotation) % 360) as Rotation)
+    input?.move(delta.x, delta.y)
+  }, [input, sensitivity, rotation])
   const cancel = useCallback(() => {
     machine.current?.up(true); pointer.current = null; cancelAnimationFrame(frame.current)
     if (arrows.current.size && (kind === 'left' || kind === 'right')) input?.button(stickButton(kind), false)
@@ -25,10 +30,10 @@ export function DesktopStick({ kind, input, disabled, onView }: { kind: StickKin
     button.current?.removeAttribute('data-held')
   }, [input, kind])
   useEffect(() => {
-    machine.current = input ? desktopStick(kind, input, onView) : null
+    machine.current = input ? desktopStick(kind, { ...input, move }, onView) : null
     window.addEventListener('blur', cancel); document.addEventListener('visibilitychange', cancel)
     return () => { cancel(); window.removeEventListener('blur', cancel); document.removeEventListener('visibilitychange', cancel) }
-  }, [input, kind, onView, cancel])
+  }, [input, kind, onView, cancel, move])
   useEffect(() => { if (disabled) cancel() }, [disabled, cancel])
   return <button ref={button} className="desktop-stick" data-kind={kind} disabled={disabled} aria-label={`${labels[kind]} 조이스틱`}
     title={`${labels[kind]}${kind === 'wheel' ? ' · 탭: 중간 클릭 · 밀기: 스크롤 · 길게 누르기: 드래그' : stickButton(kind) ? ' · 탭: 클릭 · 밀기: 드래그' : ' · 밀어서 조작'}`}
@@ -61,7 +66,7 @@ export function DesktopStick({ kind, input, disabled, onView }: { kind: StickKin
       if (kind === 'pan') onView(x, y, 0)
       else if (kind === 'zoom') onView(0, 0, -y / 100)
       else if (kind === 'wheel') input?.wheel(0, y * 4)
-      else input?.move(x, y)
+      else move(x, y)
     }}
     onKeyUp={event => {
       if (!event.key.startsWith('Arrow')) return
