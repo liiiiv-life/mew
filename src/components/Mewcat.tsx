@@ -5,8 +5,7 @@ import { MewcatBreak } from './mewcat-break'
 import { useMewcatBreak } from '../hooks/use-mewcat-break'
 import type { MewcatSkin } from '../utils/mewcatSkin'
 
-const CAT_WIDTH = 48
-const CAT_HEIGHT = 48
+const CAT_SIZE = 48
 const MAX_THROW_SPEED = 1_400
 const THROW_SPEED_SCALE = 0.5
 const WALL_BOUNCE = 0.5
@@ -14,12 +13,23 @@ type Activity = 'idle' | 'walk' | 'run' | 'love' | 'struggle' | 'fall' | 'land'
 const animation: Record<Activity, { row: number; frames: number[]; frameMs: number }> = {
   idle: { row: 6, frames: [0, 1, 2, 3], frameMs: 220 }, walk: { row: 8, frames: [0, 1, 2, 3, 4, 5, 6, 7], frameMs: 110 }, run: { row: 9, frames: [0, 1, 2, 3], frameMs: 85 }, love: { row: 7, frames: [0, 1, 2, 3], frameMs: 140 }, struggle: { row: 15, frames: [0, 1, 2, 3, 4, 5], frameMs: 100 }, fall: { row: 9, frames: [1, 2], frameMs: 90 }, land: { row: 9, frames: [2, 3], frameMs: 120 },
 }
-function floor() {
+function movementBounds(giant: boolean) {
   const viewport = window.visualViewport
-  const bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight
-  // SVG 발바닥 아래의 1px 여백만 보정한다.
-  return Math.max(0, bottom - CAT_HEIGHT + 1)
+  const width = viewport?.width ?? window.innerWidth
+  const height = viewport?.height ?? window.innerHeight
+  const left = viewport?.offsetLeft ?? 0
+  const top = viewport?.offsetTop ?? 0
+  const size = giant ? Math.min(width * 1.18, height * 1.08) : CAT_SIZE
+  const overflow = giant ? size * 0.18 : 0
+  const ground = giant ? top + height - size + size / CAT_SIZE : Math.max(top, top + height - size + 1)
+  return {
+    size, ground,
+    minX: left - overflow,
+    maxX: Math.max(left - overflow, left + width - size + overflow),
+    minY: giant ? Math.min(top, ground) - height * 0.5 : top,
+  }
 }
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 function nextActivity(): Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'> { const options: Array<Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'>> = ['idle', 'walk', 'run']; return options[Math.floor(Math.random() * options.length)] }
 
 /** 화면 맨 아래를 자유롭게 오가며, 눌러서 잠깐 놀아 줄 수 있는 Mew의 고양이. */
@@ -28,7 +38,7 @@ export function Mewcat({ skin }: { skin: MewcatSkin | null }) {
   const notices = useMewcatNotices()
   const preferences = useNotificationPreferences()
   const attention = preferences.visual && notices.length > 0
-  if (remainingMs !== null) return <MewcatBreak remainingMs={remainingMs}><MewcatMark /></MewcatBreak>
+  if (remainingMs !== null) return <MewcatBreak remainingMs={remainingMs}><MewcatActive attention={false} giant /></MewcatBreak>
   return <>{skin !== null && <MewcatActive attention={attention} noticeId={attention ? notices.at(-1)?.id : undefined} />}<MewcatNotifications hasCat={skin !== null} /></>
 }
 
@@ -63,7 +73,7 @@ export function MewcatMark({ className = '' }: { className?: string }) {
   )
 }
 
-function MewcatActive({ attention, noticeId }: { attention: boolean; noticeId?: number }) {
+function MewcatActive({ attention, noticeId, giant = false }: { attention: boolean; noticeId?: number; giant?: boolean }) {
   const attentionRef = useRef(attention)
   attentionRef.current = attention
   const catRef = useRef<HTMLDivElement>(null)
@@ -83,34 +93,174 @@ function MewcatActive({ attention, noticeId }: { attention: boolean; noticeId?: 
   useEffect(() => {
     const cat = catRef.current
     if (!cat) return
-    let x = Math.max(0, Math.min(window.innerWidth - CAT_WIDTH, window.innerWidth * 0.3)); let y = floor(); let direction = 1; let activity: Activity = nextActivity(); let activityStarted = performance.now(); let activityEnds = activityStarted + 1_000; let horizontalVelocity = 0; let verticalVelocity = 0; let lastFrame = activityStarted; let animationFrame = 0; let pointerId: number | undefined; let dragging = false; let grabStartY = 0; let lastPointerX = 0; let lastPointerY = 0; let lastPointerAt = 0
-    const chooseRoam = (now: number) => { activity = nextActivity(); activityStarted = now; activityEnds = now + (activity === 'idle' ? 900 + Math.random() * 1_800 : activity === 'walk' ? 2_200 + Math.random() * 2_400 : 1_000 + Math.random() * 1_500) }
-    const setActivity = (next: Activity, now: number, duration = 0) => { activity = next; activityStarted = now; activityEnds = duration ? now + duration : 0 }
-    const render = () => { cat.dataset.activity = activity; cat.style.transform = `translate3d(${x}px, ${y}px, 0) scaleX(${direction < 0 ? -1 : 1})` }
-    const tick = (now: number) => { const delta = Math.min(0.05, (now - lastFrame) / 1_000); lastFrame = now; const maxX = Math.max(0, window.innerWidth - CAT_WIDTH); const ground = floor(); if (pointerId === undefined && (activity === 'idle' || activity === 'walk' || activity === 'run')) { if (attentionRef.current) { x = Math.max(0, maxX - 24); y = ground; direction = 1; setActivity('idle', now) } else if (activity === 'idle' && !activityEnds) chooseRoam(now) }; if (activity === 'walk' || activity === 'run') { x += direction * (activity === 'walk' ? 48 : 115) * delta; if (x <= 0 || x >= maxX) { x = Math.max(0, Math.min(maxX, x)); direction *= -1 } } else if (activity === 'fall') { x += horizontalVelocity * delta; verticalVelocity += 1_600 * delta; y += verticalVelocity * delta; if (x <= 0 || x >= maxX) { x = Math.max(0, Math.min(maxX, x)); horizontalVelocity = -horizontalVelocity * WALL_BOUNCE; direction = horizontalVelocity < 0 ? -1 : 1 } if (y < 0) { y = 0; verticalVelocity = Math.max(0, -verticalVelocity * WALL_BOUNCE) } if (y >= ground) { y = ground; horizontalVelocity = 0; verticalVelocity = 0; setActivity('land', now, animation.land.frames.length * animation.land.frameMs) } } else if (activity !== 'struggle') y = ground; if (activityEnds && now >= activityEnds) chooseRoam(now); render(); animationFrame = window.requestAnimationFrame(tick) }
-    // 모바일 키보드는 layout viewport보다 VisualViewport를 먼저 바꾼다. 다음 행동 전환을
-    // 기다리지 않고, resize/scroll 이벤트가 오는 즉시 바닥 위치를 다시 그린다.
-    const syncViewport = () => {
-      const now = performance.now()
-      const maxX = Math.max(0, window.innerWidth - CAT_WIDTH)
-      const ground = floor()
-      x = Math.max(0, Math.min(maxX, x))
-      if (dragging) y = Math.min(y, ground)
+    let bounds = movementBounds(giant)
+    let x = giant ? (bounds.minX + bounds.maxX) / 2 : clamp(window.innerWidth * 0.3, bounds.minX, bounds.maxX)
+    let y = bounds.ground
+    let direction = 1
+    let activity: Activity = nextActivity()
+    let activityEnds = performance.now() + 1000
+    let horizontalVelocity = 0
+    let verticalVelocity = 0
+    let lastFrame = performance.now()
+    let animationFrame = 0
+    let pointerId: number | undefined
+    let dragging = false
+    let grabStartX = 0
+    let grabStartY = 0
+    let grabX = 0
+    let grabY = 0
+    let lastPointerX = 0
+    let lastPointerY = 0
+    let lastPointerAt = 0
+    const setActivity = (next: Activity, now: number, duration = 0) => {
+      activity = next
+      activityEnds = duration ? now + duration : 0
+    }
+    const chooseRoam = (now: number) => {
+      activity = nextActivity()
+      activityEnds = now + (activity === 'idle' ? 900 + Math.random() * 1800 : activity === 'walk' ? 2200 + Math.random() * 2400 : 1000 + Math.random() * 1500)
+    }
+    const render = () => {
+      cat.dataset.activity = activity
+      cat.style.transform = `translate3d(${x}px, ${y}px, 0) scaleX(${direction < 0 ? -1 : 1})`
+    }
+    const resize = () => {
+      bounds = movementBounds(giant)
+      cat.style.width = `${bounds.size}px`
+      cat.style.height = `${bounds.size}px`
+      x = clamp(x, bounds.minX, bounds.maxX)
+      if (dragging) y = clamp(y, bounds.minY, bounds.ground)
       else if (activity === 'fall') {
-        if (y >= ground) {
-          y = ground
+        y = Math.max(bounds.minY, y)
+        if (y >= bounds.ground) {
+          y = bounds.ground
+          verticalVelocity = 0
+          setActivity('land', performance.now(), animation.land.frames.length * animation.land.frameMs)
+        }
+      } else y = bounds.ground
+      render()
+    }
+    const tick = (now: number) => {
+      const delta = Math.min(0.05, (now - lastFrame) / 1000)
+      lastFrame = now
+      if (pointerId === undefined && (activity === 'idle' || activity === 'walk' || activity === 'run')) {
+        if (attentionRef.current) {
+          x = Math.max(bounds.minX, bounds.maxX - 24)
+          y = bounds.ground
+          direction = 1
+          setActivity('idle', now)
+        } else if (activity === 'idle' && !activityEnds) chooseRoam(now)
+      }
+      if (activity === 'walk' || activity === 'run') {
+        y = bounds.ground
+        x += direction * (activity === 'walk' ? 48 : 115) * delta
+        if (x <= bounds.minX || x >= bounds.maxX) {
+          x = clamp(x, bounds.minX, bounds.maxX)
+          direction *= -1
+        }
+      } else if (activity === 'fall') {
+        x += horizontalVelocity * delta
+        verticalVelocity += 1600 * delta
+        y += verticalVelocity * delta
+        if (x <= bounds.minX || x >= bounds.maxX) {
+          x = clamp(x, bounds.minX, bounds.maxX)
+          horizontalVelocity = -horizontalVelocity * WALL_BOUNCE
+          direction = horizontalVelocity < 0 ? -1 : 1
+        }
+        if (y < bounds.minY) {
+          y = bounds.minY
+          verticalVelocity = Math.max(0, -verticalVelocity * WALL_BOUNCE)
+        }
+        if (y >= bounds.ground) {
+          y = bounds.ground
+          horizontalVelocity = 0
           verticalVelocity = 0
           setActivity('land', now, animation.land.frames.length * animation.land.frameMs)
         }
-      } else y = ground
+      } else if (activity !== 'struggle' && pointerId === undefined) y = bounds.ground
+      if (pointerId === undefined && activityEnds && now >= activityEnds) chooseRoam(now)
+      render()
+      animationFrame = window.requestAnimationFrame(tick)
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (pointerId !== undefined || event.button !== 0) return
+      event.preventDefault()
+      pointerId = event.pointerId
+      dragging = activity === 'fall' || y < bounds.ground
+      horizontalVelocity = verticalVelocity = 0
+      grabStartX = lastPointerX = event.clientX
+      grabStartY = lastPointerY = event.clientY
+      // Preserve the exact grab point, especially when the character is larger than the viewport.
+      grabX = (event.clientX - x) / bounds.size
+      grabY = (event.clientY - y) / bounds.size
+      lastPointerAt = performance.now()
+      setActivity(dragging ? 'struggle' : 'idle', lastPointerAt)
+      cat.setPointerCapture(event.pointerId)
       render()
     }
-    const onPointerDown = (event: PointerEvent) => { const now = performance.now(); pointerId = event.pointerId; dragging = false; horizontalVelocity = 0; verticalVelocity = 0; grabStartY = event.clientY; lastPointerX = event.clientX; lastPointerY = event.clientY; lastPointerAt = now; setActivity('idle', now); cat.setPointerCapture(event.pointerId) }
-    const onPointerMove = (event: PointerEvent) => { if (event.pointerId !== pointerId) return; const now = performance.now(); const elapsed = Math.max(0.01, (now - lastPointerAt) / 1_000); const nextHorizontalVelocity = (event.clientX - lastPointerX) / elapsed; const nextVerticalVelocity = (event.clientY - lastPointerY) / elapsed; horizontalVelocity = Math.max(-MAX_THROW_SPEED, Math.min(MAX_THROW_SPEED, horizontalVelocity * 0.35 + nextHorizontalVelocity * 0.65)); verticalVelocity = Math.max(-MAX_THROW_SPEED, Math.min(MAX_THROW_SPEED, verticalVelocity * 0.35 + nextVerticalVelocity * 0.65)); lastPointerX = event.clientX; lastPointerY = event.clientY; lastPointerAt = now; const verticalDistance = event.clientY - grabStartY; if (verticalDistance < -4) { if (!dragging) { dragging = true; setActivity('struggle', now) }; const maxX = Math.max(0, window.innerWidth - CAT_WIDTH); x = Math.max(0, Math.min(maxX, event.clientX - CAT_WIDTH / 2)); y = Math.max(0, Math.min(floor(), event.clientY - CAT_HEIGHT / 2)); if (horizontalVelocity) direction = horizontalVelocity < 0 ? -1 : 1 } else if (verticalDistance > 4) { dragging = false; horizontalVelocity = 0; verticalVelocity = 0; y = floor(); if (activity !== 'love') setActivity('love', now, animation.love.frames.length * animation.love.frameMs) } }
-    const onPointerUp = (event: PointerEvent) => { if (event.pointerId !== pointerId) return; if (cat.hasPointerCapture(event.pointerId)) cat.releasePointerCapture(event.pointerId); pointerId = undefined; if (dragging) { dragging = false; horizontalVelocity *= THROW_SPEED_SCALE; verticalVelocity *= THROW_SPEED_SCALE; setActivity('fall', performance.now()) } else setActivity('love', performance.now(), animation.love.frames.length * animation.love.frameMs) }
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== pointerId) return
+      const now = performance.now()
+      const elapsed = Math.max(0.01, (now - lastPointerAt) / 1000)
+      horizontalVelocity = clamp(horizontalVelocity * 0.35 + (event.clientX - lastPointerX) / elapsed * 0.65, -MAX_THROW_SPEED, MAX_THROW_SPEED)
+      verticalVelocity = clamp(verticalVelocity * 0.35 + (event.clientY - lastPointerY) / elapsed * 0.65, -MAX_THROW_SPEED, MAX_THROW_SPEED)
+      lastPointerX = event.clientX
+      lastPointerY = event.clientY
+      lastPointerAt = now
+      const dx = event.clientX - grabStartX
+      const dy = event.clientY - grabStartY
+      // Retain the small cat's downward pet gesture; the giant cat can be grabbed in any direction.
+      if (!giant && !dragging && dy > 4) {
+        horizontalVelocity = verticalVelocity = 0
+        y = bounds.ground
+        if (activity !== 'love') setActivity('love', now, animation.love.frames.length * animation.love.frameMs)
+      } else if (dragging || Math.hypot(dx, dy) > 4) {
+        dragging = true
+        setActivity('struggle', now)
+        x = clamp(event.clientX - grabX * bounds.size, bounds.minX, bounds.maxX)
+        y = clamp(event.clientY - grabY * bounds.size, bounds.minY, bounds.ground)
+      }
+      render()
+    }
+    const release = (event: PointerEvent, cancelled = false) => {
+      if (event.pointerId !== pointerId) return
+      pointerId = undefined
+      if (cat.hasPointerCapture(event.pointerId)) cat.releasePointerCapture(event.pointerId)
+      if (dragging) {
+        dragging = false
+        // A held cat should drop rather than reuse a stale flick when released much later.
+        const scale = cancelled || performance.now() - lastPointerAt > 120 ? 0 : THROW_SPEED_SCALE
+        horizontalVelocity *= scale
+        verticalVelocity *= scale
+        setActivity('fall', performance.now())
+      } else setActivity('love', performance.now(), animation.love.frames.length * animation.love.frameMs)
+      render()
+    }
+    const onPointerUp = (event: PointerEvent) => release(event)
+    const onPointerCancel = (event: PointerEvent) => release(event, true)
     const viewport = window.visualViewport
-    cat.addEventListener('pointerdown', onPointerDown); cat.addEventListener('pointermove', onPointerMove); cat.addEventListener('pointerup', onPointerUp); cat.addEventListener('pointercancel', onPointerUp); window.addEventListener('resize', syncViewport); viewport?.addEventListener('resize', syncViewport); viewport?.addEventListener('scroll', syncViewport); animationFrame = window.requestAnimationFrame(tick)
-    return () => { window.cancelAnimationFrame(animationFrame); cat.removeEventListener('pointerdown', onPointerDown); cat.removeEventListener('pointermove', onPointerMove); cat.removeEventListener('pointerup', onPointerUp); cat.removeEventListener('pointercancel', onPointerUp); window.removeEventListener('resize', syncViewport); viewport?.removeEventListener('resize', syncViewport); viewport?.removeEventListener('scroll', syncViewport) }
-  }, [])
-  return <div ref={catRef} className="mewcat text-accent" data-notification={attention ? 'true' : undefined} aria-label="Mewcat"><MewcatMark className="mewcat-mark" /></div>
+    cat.addEventListener('pointerdown', onPointerDown)
+    cat.addEventListener('pointermove', onPointerMove)
+    cat.addEventListener('pointerup', onPointerUp)
+    cat.addEventListener('pointercancel', onPointerCancel)
+    cat.addEventListener('lostpointercapture', onPointerCancel)
+    window.addEventListener('resize', resize)
+    viewport?.addEventListener('resize', resize)
+    viewport?.addEventListener('scroll', resize)
+    resize()
+    animationFrame = window.requestAnimationFrame(tick)
+    return () => {
+      window.cancelAnimationFrame(animationFrame)
+      cat.removeEventListener('pointerdown', onPointerDown)
+      cat.removeEventListener('pointermove', onPointerMove)
+      cat.removeEventListener('pointerup', onPointerUp)
+      cat.removeEventListener('pointercancel', onPointerCancel)
+      cat.removeEventListener('lostpointercapture', onPointerCancel)
+      if (pointerId !== undefined && cat.hasPointerCapture(pointerId)) cat.releasePointerCapture(pointerId)
+      window.removeEventListener('resize', resize)
+      viewport?.removeEventListener('resize', resize)
+      viewport?.removeEventListener('scroll', resize)
+    }
+  }, [giant])
+  return <div ref={catRef} className={`mewcat text-accent${giant ? ' mewcat-break-cat' : ''}`} data-notification={attention ? 'true' : undefined} aria-label="Mewcat"><div className="mewcat-art"><MewcatMark className="mewcat-mark" /></div></div>
 }

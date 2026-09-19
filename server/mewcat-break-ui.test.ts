@@ -11,7 +11,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 const root = path.resolve(import.meta.dirname, '..')
 const require = createRequire(`${root}/package.json`)
 
-test('giant cat breaks keep the workspace visible and usable outside painted paths, survive refresh, and end on expiry', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
+test('giant cat roams and can be grabbed or thrown, shows only a timer, and preserves the break lifecycle', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   // Route an isolated fixture; never build dist or start/restart the user's app.
   const source = `
 import React from '${require.resolve('react')}';
@@ -20,6 +20,7 @@ import {I18nProvider} from '${root}/src/i18n.tsx';
 import {Mewcat} from '${root}/src/components/Mewcat.tsx';
 import {MewcatBreakSettings} from '${root}/src/components/mewcat-break.tsx';
 localStorage.setItem('mew:locale','ko');
+Math.random=()=>0.7;
 window.focused=true;window.visible=true;window.keys=0;
 Object.defineProperty(document,'hasFocus',{value:()=>window.focused});
 Object.defineProperty(document,'visibilityState',{get:()=>window.visible?'visible':'hidden'});
@@ -35,6 +36,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
   try {
     for (const mobile of [false, true]) for (const light of [false, true]) {
       const page = await browser.newPage({ viewport: { width: mobile ? 390 : 1280, height: mobile ? 844 : 800 }, hasTouch: mobile })
+      page.setDefaultTimeout(5000)
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       await page.clock.install({ time: new Date('2026-09-18T00:00:00Z') })
@@ -75,7 +77,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
       assert.equal(await page.evaluate("getComputedStyle(document.querySelector('[data-mewcat-break]')).backgroundColor"), 'rgba(0, 0, 0, 0)')
       assert.equal(await page.locator(':modal').count(), 0)
       // Fake JS timers do not advance compositor animations; finish the entrance before measuring it.
-      await page.evaluate('document.getAnimations().forEach(animation => animation.finish())')
+      await page.evaluate('document.getAnimations().filter(animation => animation.effect.getTiming().iterations !== Infinity).forEach(animation => animation.finish())')
       const cat = await page.locator('.mewcat-break-cat').boundingBox()
       const graphic = await page.locator('.mewcat-break-cat svg').boundingBox()
       assert.ok(cat && graphic && graphic.width >= cat.width * .99)
@@ -91,13 +93,48 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
         const hit = document.elementFromPoint(box.x + box.width / 2, Math.max(2, box.y + box.height * 2 / 48))
         return !!hit?.closest('.mewcat-break-cat')
       })()`), false)
+      assert.match((await layer.innerText()).trim(), /^\d+:\d{2}$/)
+      const roaming = page.locator('.mewcat-break-cat')
+      const positions: number[] = []
+      for (let i = 0; i < 3; i++) {
+        positions.push((await roaming.boundingBox())!.x)
+        await page.clock.runFor(150)
+      }
+      assert.ok(Math.max(...positions) - Math.min(...positions) > 5, 'the giant cat should roam')
+      const beforeGrab = (await roaming.boundingBox())!
+      const grabX = beforeGrab.x + beforeGrab.width / 2
+      const grabY = beforeGrab.y + beforeGrab.height * .55
+      await page.mouse.move(grabX, grabY)
+      await page.mouse.down()
+      const shift = grabX > (mobile ? 390 : 1280) / 2 ? -35 : 35
+      await page.mouse.move(grabX + shift, grabY - 70, { steps: 4 })
+      assert.equal(await roaming.getAttribute('data-activity'), 'struggle')
+      const held = (await roaming.boundingBox())!
+      assert.ok(Math.abs(held.x - beforeGrab.x - shift) < 2, 'horizontal drag preserves the grab point')
+      assert.ok(Math.abs(held.y - beforeGrab.y + 70) < 2, 'vertical drag preserves the grab point')
+      await page.clock.runFor(600)
+      const stillHeld = (await roaming.boundingBox())!
+      assert.ok(Math.abs(stillHeld.x - held.x) < 1 && Math.abs(stillHeld.y - held.y) < 1, 'holding stops roaming')
+      await page.mouse.up()
+      assert.equal(await roaming.getAttribute('data-activity'), 'fall')
+      await page.clock.runFor(50)
+      const falling = (await roaming.boundingBox())!
+      await page.mouse.move(falling.x + falling.width / 2, falling.y + falling.height * .55)
+      await page.mouse.down()
+      assert.equal(await roaming.getAttribute('data-activity'), 'struggle')
+      const caught = (await roaming.boundingBox())!
+      await page.clock.runFor(200)
+      assert.ok(Math.abs((await roaming.boundingBox())!.y - caught.y) < 1, 're-grabbing cancels falling momentum')
+      await page.mouse.up()
+      await page.clock.runFor(1500)
+      assert.ok(['walk', 'run', 'idle'].includes((await roaming.getAttribute('data-activity'))!))
       await page.screenshot({ path: `/tmp/mewcat-break-${mobile ? 'mobile' : 'desktop'}-${light ? 'light' : 'dark'}.png` })
       await page.reload()
       await layer.waitFor()
       await page.clock.runFor(1000)
       assert.equal(await page.evaluate("document.querySelector('[data-mewcat-break]').matches(':popover-open')"), true)
       await page.evaluate("window.focused=false;window.dispatchEvent(new Event('blur'))")
-      await page.clock.runFor(61_000)
+      await page.clock.fastForward(61_000)
       assert.equal(await page.locator('[data-mewcat-break]').count(), 0)
       assert.equal(await toggle.isChecked(), true)
       await page.getByRole('textbox', { name: '문서' }).fill('계속 작업')

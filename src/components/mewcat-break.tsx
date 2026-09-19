@@ -15,11 +15,9 @@ export function MewcatBreak({ remainingMs, children }: { remainingMs: number; ch
     return () => { if (element.hidePopover && element.matches(':popover-open')) element.hidePopover() }
   }, [])
   return <div ref={layer} popover="manual" className="mewcat-break" data-mewcat-break>
-    <div className="mewcat-break-cat" aria-hidden="true">{children}</div>
+    {children}
     <div className="mewcat-break-caption">
-      <p role="status">{copy.resting}</p>
       <div role="timer" aria-live="off" aria-label={copy.remaining}>{formatBreakCountdown(remainingMs)}</div>
-      <p className="mewcat-break-hint">{copy.resume}</p>
     </div>
   </div>
 }

@@ -179,6 +179,7 @@ body {
   user-select: none;
   will-change: transform;
 }
+.mewcat-art { width: 100%; height: 100%; }
 .mewcat-mark {
   width: 100%;
   height: 100%;
@@ -456,25 +457,13 @@ strong {
   pointer-events: none;
 }
 .mewcat-break::backdrop { background: transparent; pointer-events: none; }
-.mewcat-break-cat {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: min(118vw, 108dvh);
-  transform: translate(-50%, -50%);
-}
-.mewcat-break-cat svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  pointer-events: none;
-  animation: mewcat-break-arrive 650ms cubic-bezier(.16, 1, .3, 1);
-}
-/* Painted SVG paths intercept clicks; its transparent rectangular bounds do not. */
-.mewcat-break-cat svg > g { pointer-events: visiblePainted; }
-.mewcat-break-cat .mewcat-eyes { display: none; }
-.mewcat-break-cat .mewcat-happy-eyes { display: inline; }
+.mewcat-break-cat { pointer-events: none; z-index: 0; }
+.mewcat-break-cat .mewcat-art { animation: mewcat-break-arrive 650ms cubic-bezier(.16, 1, .3, 1); }
+/* The shared controller captures a grabbed pointer; transparent SVG space stays click-through. */
+.mewcat-break-cat svg > g { pointer-events: visiblePainted; cursor: grab; }
+.mewcat-break-cat[data-activity="struggle"] svg > g { cursor: grabbing; }
 .mewcat-break-caption {
+  z-index: 1;
   position: absolute;
   left: 50%;
   bottom: max(16px, env(safe-area-inset-bottom));
@@ -487,8 +476,6 @@ strong {
   background: var(--color-surface);
   text-align: center;
 }
-.mewcat-break-caption > p:first-child { font-size: 14px; font-weight: 500; }
-.mewcat-break-caption [role="timer"] { margin: 2px 0; font-size: 28px; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.mewcat-break-hint { font-size: 12px; color: var(--color-ink-secondary); }
+.mewcat-break-caption [role="timer"] { font-size: 28px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 @keyframes mewcat-break-arrive { from { transform: scale(.06); } to { transform: scale(1); } }
-@media (prefers-reduced-motion: reduce) { .mewcat-break-cat svg { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .mewcat-break-cat .mewcat-art { animation: none; } }
