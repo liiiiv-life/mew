@@ -43,7 +43,7 @@ export function DesktopStick({ kind, input, disabled, onView, sensitivity = DEFA
       if (pointer.current || !machine.current) return
       cancel()
       event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId)
-      pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY }; machine.current.down(performance.now())
+      pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY }; machine.current.down(event.timeStamp)
       const tick = (now: number) => {
         if (!pointer.current) return
         const result = machine.current!.tick(now)
@@ -53,7 +53,13 @@ export function DesktopStick({ kind, input, disabled, onView, sensitivity = DEFA
       }
       frame.current = requestAnimationFrame(tick)
     }}
-    onPointerMove={event => { if (pointer.current?.id === event.pointerId) machine.current?.move(event.clientX - pointer.current.x, event.clientY - pointer.current.y, performance.now()) }}
+    onPointerMove={event => {
+      const start = pointer.current
+      if (start?.id !== event.pointerId) return
+      // Use hardware event timing, including batched samples, not React delivery time.
+      const samples = event.nativeEvent.getCoalescedEvents?.()
+      for (const sample of samples?.length ? samples : [event.nativeEvent]) machine.current?.move(sample.clientX - start.x, sample.clientY - start.y, sample.timeStamp)
+    }}
     onPointerUp={event => { if (pointer.current?.id === event.pointerId) { machine.current?.up(false); cancel() } }}
     onPointerCancel={cancel} onLostPointerCapture={cancel}
     onKeyDown={event => {

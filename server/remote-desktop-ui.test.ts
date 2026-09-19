@@ -136,19 +136,43 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       if (cancel) await target.dispatchEvent('pointercancel')
       await page.mouse.up(); await page.waitForTimeout(100)
     }
+    const timedStroke = async (distance: number, duration: number) => {
+      const target = page.getByRole('button', { name: '커서 이동 조이스틱', exact: true }), box = await target.boundingBox(); assert.ok(box)
+      await page.evaluate(`document.querySelector('[data-kind=cursor]').addEventListener('pointerdown', event => {
+        const element = event.currentTarget
+        element.sample = { x: event.clientX, y: event.clientY, id: event.pointerId, time: event.timeStamp }
+      }, { once: true })`)
+      await page.mouse.move(box.x + box.width / 2, box.y + 18); await page.mouse.down()
+      await page.evaluate(`(() => {
+        const element = document.querySelector('[data-kind=cursor]')
+        const distance = ${distance}, duration = ${duration}
+        const start = element.sample
+        const move = new PointerEvent('pointermove', { bubbles: true, pointerId: start.id, pointerType: 'mouse', clientX: start.x + distance, clientY: start.y })
+        Object.defineProperty(move, 'timeStamp', { value: start.time + duration })
+        element.dispatchEvent(move)
+      })()`)
+      await page.mouse.up(); await page.waitForTimeout(100)
+    }
     await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
     const slider = page.getByLabel('마우스 커서 감도')
     assert.equal(await slider.inputValue(), '3')
     await slider.fill('1')
     await page.getByRole('button', { name: '설정 닫기', exact: true }).click()
-    await clear(); await gesture('커서 이동 조이스틱', 10, 0)
-    if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]===20)'), '1x retains the old pointer gain')
+    await clear(); await timedStroke(10, 50)
+    if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&Math.abs(e[1]-20)<=1)'), JSON.stringify(await page.evaluate('({events:window.inputEvents,sample:document.querySelector("[data-kind=cursor]").sample,packets:window.inputPackets})')))
+    if (!nativeCapture) {
+      await clear(); await timedStroke(100, 500)
+      assert.ok(await page.evaluate('Math.abs(window.inputEvents.filter(e=>e[0]==="move").reduce((n,e)=>n+e[1],0)-200)<=1'))
+      await clear(); await timedStroke(100, 50)
+      assert.ok(await page.evaluate('Math.abs(window.inputEvents.filter(e=>e[0]==="move").reduce((n,e)=>n+e[1],0)-2000)<=1'), 'ten times the finger speed produces ten times the cursor distance')
+    }
     await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
     await slider.fill('3')
     await page.keyboard.press('Escape')
     assert.equal(await page.locator('.remote-desktop').count(), 1, 'Escape closes settings before the desktop')
-    await clear(); await gesture('커서 이동 조이스틱', 10, 0)
-    if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]===60)'), 'default gain is three times the old movement')
+    await clear(); await timedStroke(10, 50)
+    if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&Math.abs(e[1]-60)<=1)'), 'default gain is three times the old movement')
+
     await clear()
     await page.getByRole('button', { name: '원격 Ctrl+C', exact: true }).click()
     await page.waitForFunction('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="KeyC"&&e[2]===false)')
@@ -164,8 +188,8 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.getByRole('button', { name: '화면 90도 회전' }).click()
     const media = page.locator(transport === 'direct' ? 'video' : '.desktop-stage canvas')
     const rotated = await media.boundingBox(); assert.ok(rotated && rotated.height > rotated.width, JSON.stringify(await page.evaluate('({video:document.querySelector("video").style.cssText,canvas:document.querySelector(".desktop-stage canvas").style.cssText,switches:window.switches})')))
-    await clear(); await gesture('커서 이동 조이스틱', 10, 0)
-    if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]===0&&e[2]===-60)'), 'rotated joystick motion follows the visible screen')
+    await clear(); await timedStroke(10, 50)
+    if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]===0&&Math.abs(e[2]+60)<=1)'), 'rotated joystick motion follows the visible screen')
     await clear()
     // A visible top-right point in the clockwise-rotated desktop maps to native top-left.
     const point = { x: rotated.x + rotated.width * .8, y: rotated.y + rotated.height * .2 }

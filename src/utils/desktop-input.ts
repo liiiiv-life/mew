@@ -63,18 +63,21 @@ export type DesktopInput = ReturnType<typeof desktopInput>
 export type StickKind = 'left' | 'wheel' | 'right' | 'cursor' | 'pan' | 'zoom'
 export const HOLD_MS = 320
 export const STICK_TRAVEL = 8
+// At 200 CSS px/s retain the base gain. Faster/slower strokes scale linearly.
+const POINTER_REFERENCE_SPEED = .2 // CSS px/ms
+const MAX_POINTER_ACCELERATION = 16
 export const stickButton = (kind: StickKind) => kind === 'left' ? 1 : kind === 'wheel' ? 2 : kind === 'right' ? 4 : 0
 
 /** Touchpad deltas drive input; animation frames only update hold/visual feedback. */
 export function desktopStick(kind: StickKind, input: Pick<DesktopInput, 'button' | 'click' | 'move' | 'wheel'>, view: (x: number, y: number, zoom: number) => void) {
-  let active = false, moved = false, held = false, started = 0, x = 0, y = 0
+  let active = false, moved = false, held = false, started = 0, sampledAt = 0, x = 0, y = 0
   const hold = (now: number) => {
     if (active && !moved && !held && stickButton(kind) && now - started >= HOLD_MS) { held = true; input.button(stickButton(kind), true) }
   }
   return {
-    down(now: number) { active = true; moved = false; held = false; started = now; x = 0; y = 0 },
+    down(now: number) { active = true; moved = false; held = false; started = now; sampledAt = now; x = 0; y = 0 },
     move(dx: number, dy: number, now: number) {
-      if (!active) return
+      if (!active || !Number.isFinite(dx) || !Number.isFinite(dy) || !Number.isFinite(now)) return
       hold(now)
       if (Math.hypot(dx, dy) >= 3) {
         moved = true
@@ -83,14 +86,22 @@ export function desktopStick(kind: StickKind, input: Pick<DesktopInput, 'button'
       }
       // Keep the initial tap slop until movement starts, then preserve even tiny
       // reversals and motion beyond the visible knob's travel.
-      if (!moved) return
+      if (!moved) {
+        if (dx === x && dy === y) sampledAt = Math.max(sampledAt, now)
+        return
+      }
       const deltaX = dx - x, deltaY = dy - y
+      const elapsed = now > sampledAt ? now - sampledAt : 1
+      sampledAt = Math.max(sampledAt, now)
       x = dx; y = dy
       if (!deltaX && !deltaY) return
       if (kind === 'pan') view(deltaX, deltaY, 0)
       else if (kind === 'zoom') { if (deltaY) view(0, 0, -deltaY / 100) }
       else if (kind === 'wheel' && !held) { if (deltaY) input.wheel(0, deltaY * 3) }
-      else input.move(deltaX * 2, deltaY * 2)
+      else {
+        const acceleration = Math.min(MAX_POINTER_ACCELERATION, Math.hypot(deltaX, deltaY) / elapsed / POINTER_REFERENCE_SPEED)
+        input.move(deltaX * 2 * acceleration, deltaY * 2 * acceleration)
+      }
     },
     tick(now: number) {
       if (!active) return { x: 0, y: 0, held: false }

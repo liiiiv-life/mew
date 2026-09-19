@@ -215,7 +215,7 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
       <div className="desktop-settings-heading"><strong>원격 데스크톱 설정</strong><button aria-label="설정 닫기" onClick={() => { setSettingsOpen(false); settingsButton.current?.focus() }}><DesktopIcon kind="close" /></button></div>
       <label className="desktop-setting-label" htmlFor="desktop-sensitivity">마우스 커서 감도 <output htmlFor="desktop-sensitivity">{sensitivity.toFixed(1)}배</output></label>
       <input id="desktop-sensitivity" type="range" min="0.5" max="6" step="0.1" value={sensitivity} onChange={event => updateSensitivity(Number(event.target.value))} aria-describedby="desktop-sensitivity-help" />
-      <p id="desktop-sensitivity-help">커서 이동·버튼 드래그에 적용됩니다. 1배는 이전 속도, 기본은 3배입니다. 화면 직접 클릭과 휠 속도는 유지됩니다.</p>
+      <p id="desktop-sensitivity-help">빠르게 밀수록 커서가 더 멀리 움직이고, 천천히 밀면 정밀하게 움직입니다. 감도는 이 이동량에 곱하며 기본은 3배입니다. 화면 직접 클릭과 휠 속도는 유지됩니다.</p>
       <label className="desktop-setting-label" htmlFor="desktop-screen">공유 화면</label>
       <select id="desktop-screen" disabled={!screens.length} value={selected} onChange={event => { preferred.current = event.target.value; setAttempt(value => value + 1) }}>{screens.map(screen => <option key={screen.id} value={screen.id}>{screen.label}</option>)}</select>
       <label className="desktop-setting-label" htmlFor="desktop-modifier">핫키 보조키</label>
