@@ -10,7 +10,7 @@ import type { ActiveMewSessions } from '../shared/active-sessions.ts'
 
 interface Update { type: string; participants: Record<string, string[]>; activeSessions?: ActiveMewSessions }
 
-test('presence counts browser connections and protects the live identity roster', { timeout: 10_000 }, async () => {
+test('presence counts browser connections and protects the live identity roster', { timeout: 10_000 }, async (t) => {
   const guest: RequestAuth = { role: 'guest', email: null, mustChangePassword: false }
   const member: RequestAuth = { role: 'member', email: 'presence-test@example.invalid', mustChangePassword: false }
   const identities = new Map<string, RequestAuth>([['one', member], ['two', member]])
@@ -45,6 +45,7 @@ test('presence counts browser connections and protects the live identity roster'
     assert.equal(first.sessions[0].browser, 'Safari')
     assert.equal(first.sessions[0].device, 'iPhone')
     assert.equal(first.sessions[0].path, null)
+    assert.equal(first.sessions[0].memory, null)
     assert.ok(first.sessions[0].connectedAt <= Date.now())
 
     const two = await connect('two', 'Mozilla/5.0 (Windows NT 10.0) Chrome/140.0 Safari/537.36 Edg/140.0')
@@ -54,13 +55,28 @@ test('presence counts browser connections and protects the live identity roster'
     assert.equal(second.sessions.filter(s => s.email === member.email).length, 2)
     assert.equal(second.sessions.find(s => s.id === second.selfId)?.browser, 'Edge')
 
-    two.ws.send(JSON.stringify({ type: 'focus', path: '.workspace:src/example.ts', color: '#123456', workspaceLabel: 'mew', visible: false, email: 'spoof@example.invalid', displayName: 'Spoof' }))
+    two.ws.send(JSON.stringify({ type: 'focus', path: '.workspace:src/example.ts', color: '#123456', workspaceLabel: 'mew', visible: false, email: 'spoof@example.invalid', displayName: 'Spoof', jsHeapBytes: 256 * 1024 ** 2 }))
     const focused = (await one.until(m => m.activeSessions?.sessions.some(s => s.path === 'src/example.ts') === true)).activeSessions!.sessions.find(s => s.id === second.selfId)!
     assert.equal(focused.email, member.email)
     assert.notEqual(focused.displayName, 'Spoof')
     assert.equal(focused.project, '.workspace')
     assert.equal(focused.workspaceLabel, 'mew')
     assert.equal(focused.visible, false)
+    assert.equal(focused.memory?.jsHeapBytes, 256 * 1024 ** 2)
+    assert.ok(focused.memory && focused.memory.reportedAt <= Date.now())
+    assert.equal(one.updates.at(-1)?.activeSessions?.sessions.find(s => s.id === first.selfId)?.memory, null)
+    // Stale reports expire during normal broadcasts; a peer cannot extend them.
+    const later = t.mock.method(Date, 'now', () => focused.memory!.reportedAt + 90_001)
+    one.ws.send(JSON.stringify({ type: 'focus', path: null }))
+    await one.until(m => m.activeSessions?.sessions.find(s => s.id === second.selfId)?.memory === null)
+    later.mock.restore()
+    for (const invalid of [-1, 0.5, '1024', 1e100, null]) {
+      two.ws.send(JSON.stringify({ type: 'focus', path: null, workspaceLabel: String(invalid), jsHeapBytes: invalid }))
+      const update = await one.until(m => m.activeSessions?.sessions.some(s => s.id === second.selfId && s.workspaceLabel === String(invalid)) === true)
+      assert.equal(update.activeSessions!.sessions.find(s => s.id === second.selfId)?.memory, null)
+    }
+    two.ws.send(JSON.stringify({ type: 'focus', path: null, jsHeapBytes: 0 }))
+    await one.until(m => m.activeSessions?.sessions.find(s => s.id === second.selfId)?.memory?.jsHeapBytes === 0)
 
     const visitor = await connect('guest')
     const guestUpdate = await visitor.until(m => m.type === 'participants')

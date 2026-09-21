@@ -4,7 +4,7 @@ parent: "mew-collaboration"
 title: "참여자·활성 세션 보기"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: "2026-09-22"
 status_hash: "64bc964f2ebbcdcec2bc83390c7f91ba8bb519df4201a59f54d46848f619d368"
 files: ["src/components/active-sessions-button.tsx", "src/components/PresenceDots.tsx", "server/presence.ts"]
 commits: []
@@ -32,6 +32,8 @@ commits: []
 ## 구현 내용
 
 접속 수·사용자별 기기·프로젝트·현재 파일과 작업 참여자를 표시한다.
+
+각 접속 탭이 보고한 JS 메모리 추정치를 MiB·GiB로 표시한다. 측정 미지원·오래된 표본은 `—`로 표시하며 전체 RAM·서버 사용량과의 차이를 안내한다. 보고 주기와 범위는 [협업 사용법](../../guides/collaboration.md#접속-중인-mew-세션)을 따른다.
 
 <!-- mew:implementation:end -->
 

@@ -7,6 +7,7 @@ import { fileAccess, unrestrictedFiles, accessChanges } from './access-policy.ts
 import type { RequestAuth } from './reqAuth.ts'
 import { getUser } from './auth.ts'
 import type { ActiveMewSession } from '../shared/active-sessions.ts'
+import { SESSION_MEMORY_MAX_AGE_MS, validJsHeapBytes } from '../shared/active-sessions.ts'
 
 const WS_PATH = '/api/presence'
 const FALLBACK_COLOR = '#737373' // 색을 아직 안 보낸(구버전) 클라이언트용 회색 — 정상 경로에서는 나오지 않음
@@ -36,7 +37,8 @@ function publicSessions(): ActiveMewSession[] {
   return [...clientState.entries()].filter(([ws]) => ws.readyState === WebSocket.OPEN).map(([, state]) => {
     const email = state.auth.role !== 'guest' && !state.auth.mustChangePassword ? state.auth.email : null
     const user = email ? getUser(email) : null
-    return { ...state.session, email, displayName: email ? user?.displayName?.trim() || email.split('@')[0] : null }
+    const memory = state.session.memory
+    return { ...state.session, memory: memory && Date.now() - memory.reportedAt <= SESSION_MEMORY_MAX_AGE_MS ? memory : null, email, displayName: email ? user?.displayName?.trim() || email.split('@')[0] : null }
   })
 }
 
@@ -115,14 +117,14 @@ function registerClient(ws: WebSocket, req: IncomingMessage, getAuth: () => Requ
     session: {
       id: randomUUID(), email: null, displayName: null, connectedAt: Date.now(),
       ...clientDevice(req.headers['user-agent'] ?? ''),
-      workspaceLabel: null, project: null, path: null, visible: true,
+      workspaceLabel: null, project: null, path: null, visible: true, memory: null,
     },
   })
   broadcastParticipants()
   ws.on('pong', () => { const state = clientState.get(ws); if (state) state.alive = true })
 
   ws.on('message', (raw) => {
-    let msg: { type?: string; path?: unknown; color?: unknown; project?: unknown; workspaceLabel?: unknown; visible?: unknown }
+    let msg: { type?: string; path?: unknown; color?: unknown; project?: unknown; workspaceLabel?: unknown; visible?: unknown; jsHeapBytes?: unknown }
     try {
       msg = JSON.parse(raw.toString())
     } catch {
@@ -135,12 +137,14 @@ function registerClient(ws: WebSocket, req: IncomingMessage, getAuth: () => Requ
       const prev = clientState.get(ws)
       if (!prev) return
       const focused = msg.path ? splitProjectPath(msg.path) : null
+      const bytes = validJsHeapBytes(msg.jsHeapBytes)
       clientState.set(ws, { ...prev, path: msg.path || null, color, session: {
         ...prev.session,
         project: focused?.project ?? (typeof msg.project === 'string' ? msg.project.slice(0, 200) : null),
         path: focused?.relPath ?? null,
         workspaceLabel: typeof msg.workspaceLabel === 'string' ? msg.workspaceLabel.slice(0, 200) : null,
         visible: msg.visible !== false,
+        memory: bytes === null ? null : { jsHeapBytes: bytes, reportedAt: Date.now() },
       } })
       broadcastParticipants()
     }
