@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import net from 'node:net'
 import { chromium, type Browser, type BrowserContext } from 'playwright-core'
+import { launchBrowserDisplay, usesVirtualBrowserDisplay } from './browser-dom-display.ts'
 
 const children = new Set<ChildProcess>()
 process.once('exit', () => { for (const child of children) child.kill('SIGTERM') })
@@ -13,11 +14,12 @@ export async function launchNativeBrowser(executablePath: string, profileDir: st
   await new Promise<void>((resolve, reject) => { reservation.once('error', reject); reservation.listen(0, '127.0.0.1', resolve) })
   const port = (reservation.address() as net.AddressInfo).port
   await new Promise<void>((resolve) => reservation.close(() => resolve()))
+  const display = usesVirtualBrowserDisplay(headless) ? await launchBrowserDisplay() : undefined
   const child = spawn(executablePath, [
     `--user-data-dir=${profileDir}`, `--remote-debugging-port=${port}`,
     '--remote-debugging-address=127.0.0.1', '--no-first-run', '--no-startup-window',
-    ...(headless ? ['--headless=new'] : []),
-  ], { stdio: ['ignore', 'ignore', 'pipe'] })
+    ...(headless ? ['--headless=new'] : []), ...(display ? ['--ozone-platform=x11'] : []),
+  ], { stdio: ['ignore', 'ignore', 'pipe'], env: display?.env })
   children.add(child)
   let exited = false
   const exit = new Promise<void>((resolve) => {
@@ -48,7 +50,9 @@ export async function launchNativeBrowser(executablePath: string, profileDir: st
       await exit
       clearTimeout(timer)
     }
+    await display?.close()
   })()
+  if (display) void display.exited.then(() => { void close() })
   try {
     const endpoint = await new Promise<string>((resolve, reject) => {
       let pending = ''

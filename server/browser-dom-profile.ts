@@ -8,7 +8,7 @@ import { launchNativeBrowser, type NativeBrowser } from './browser-dom-process.t
 type Profile = { browser: Promise<NativeBrowser>; users: number; closing?: Promise<void> }
 const profiles = new Map<string, Profile>()
 
-/** Use the server desktop when available; never silently retry a failed GUI launch headless. */
+/** Prefer headed mode when a display is available; Linux launches isolate its GUI. Never retry headless on failure. */
 export function domBrowserHeadless(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
   if (env.MEW_BROWSER_HEADLESS === '1') return true
   if (env.MEW_BROWSER_HEADLESS === '0') return false

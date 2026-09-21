@@ -35,11 +35,13 @@ Alt+B·헤더 메뉴·플로팅 핸들의 **브라우저**와 독립 `/browser` 
 - 실행 모드: Linux/WSL에서 Mew 프로세스에 `DISPLAY` 또는 `WAYLAND_DISPLAY`가 있으면 창 모드로 실행한다.
   Windows/macOS도 기본 창 모드이며, 디스플레이 환경이 없는 Linux는 헤드리스로 실행한다.
   `MEW_BROWSER_HEADLESS=0`은 창 모드, `1`은 헤드리스를 강제한다. 창 실행 실패 시 헤드리스로 자동 재시도하지 않는다.
-  WSLg에서는 보통 `DISPLAY=:0`을 Mew 실행 환경에도 전달하면 된다. 표시 방식은 두 모드 모두 DOM 중계다.
+  Linux/WSL의 창 모드 일반 브라우저는 기본적으로 계정 프로필별 **전용 Xvfb 가상 화면**에 표시한다. 새 창·탭·사이트 팝업이 실제 서버 데스크톱을 덮거나 포커스를 가져가지 않는다. `sudo apt install xvfb`로 준비하며, 현재 서버에 이미 설치돼 있으면 추가 설치가 필요 없다.
+  `MEW_BROWSER_DISPLAY=virtual`이 기본값이고, `desktop`을 명시하면 기존 실제 데스크톱을 사용한다. 가상 화면 시작 실패 시 실제 데스크톱이나 헤드리스로 자동 전환하지 않는다. 디스플레이 없는 Linux에서도 창 모드가 필요하면 `MEW_BROWSER_HEADLESS=0`을 지정한다.
+  가상 화면은 임시 인증 쿠키와 TCP 수신 없는 Linux 로컬 소켓을 사용한다. WSLg의 읽기 전용 소켓 폴더는 변경하지 않으며 Chromium은 X11로 연결한다. 프로필 종료·시작 실패 때 가상 화면과 임시 인증 파일을 정리한다. 표시 방식은 모두 기존 DOM 중계다 ([ADR 0163](../../../.mew/docs/decisions/0163-mew-browser-virtual-display.md)).
   macOS 창 모드는 로그인한 사용자의 데스크톱 세션에서 Mew를 실행하는 환경을 기준으로 한다.
   Mac에는 WSL의 `DISPLAY=:0` 설정이 필요하지 않다. GUI 없는 SSH·시스템 서비스 실행은 창 모드 검증 대상이 아니다.
   브라우저는 `.app/Contents/MacOS/…`를 직접 spawn하며 `open -a`로 기존 개인 Chrome에 연결하지 않는다.
-  서버 데스크톱에 브라우저·로그인 창이 보이므로 해당 데스크톱에 접근하는 사람도 화면을 볼 수 있다.
+  macOS/Windows와 `MEW_BROWSER_DISPLAY=desktop`에서는 서버 데스크톱에 브라우저·로그인 창이 보이고 포커스가 이동할 수 있다. 과거 호스트 제한 인증 검증 helper에는 가상 화면을 적용하지 않는다.
   모드 변경은 새 Chromium 프로필 프로세스에 적용된다. 창 모드로 바꿔도 공급자의 로그인 허용을 보장하지 않는다.
 - 계정별 전용 프로필은 `MEW_DATA_DIR/browser/profiles/<account-hash>`에 둔다. 일반 탭은 쿠키·localStorage·IndexedDB를
   공유하고 마지막 탭 종료 때 프로필을 닫아 디스크에 유지한다. 개인 Chrome 프로필이나 기기의 Mew 쿠키를 가져오지 않는다.
@@ -126,6 +128,7 @@ WebSocket·Service Worker·팝업/opener·방문 기록·SPA·대화상자·파�
 Chromium이 없으면 실제 브라우저 테스트만 skip한다.
 창 모드 검증은 `MEW_BROWSER_HEADLESS=0 node --test server/browser-dom.test.ts`,
 디스플레이 없는 CI에서는 `MEW_BROWSER_HEADLESS=1`을 테스트 실행 환경에 지정한다.
+Linux 전용 가상 화면의 분리·임시 인증 파일 정리·실제 창 모드 입력과 팝업 검증은 `node --test server/browser-dom-display.test.ts`로 실행한다. Xvfb와 Chromium이 있어야 실제 실행 항목을 검사한다. 가상 화면에서 실제 Google 로그인의 성공 여부는 사용자 확인이 필요하다.
 
 ## Android 창
 
