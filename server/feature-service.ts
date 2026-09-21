@@ -78,7 +78,7 @@ export class FeatureService {
         if (this.store.runs(workspace).find(item => item.id === run.id)?.state === 'cancelling') {
           await this.store.finish(workspace, run.id, 'cancelled'); return
         }
-        connection.send({ type: 'prompt', text: `${run.title}\n\n${run.content}`, promptText: featureAgentInstructions(this.store.directory, workspace, run) })
+        connection.send({ type: 'prompt', text: `${run.title}\n\n${run.content}`, promptText: featureAgentInstructions(this.store.directory, workspace, run), automatic: true })
       } finally { dispatching = false }
     }
     // Process events in order, including a replay arriving before connect() resolves.

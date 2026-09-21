@@ -4,7 +4,7 @@ parent: "mew-agents"
 title: "대화에서 CLI 명령 실행"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: 2026-09-21
 status_hash: "5e176a299d57b0bec1327fb8a080e5dd0fa635c25be1fadb49b64e49a3afb1c7"
 files: ["src/components/agent-command-bubble.tsx", "server/agent-command-runner.ts", "server/agent-command-queue.ts"]
 commits: []
@@ -17,6 +17,7 @@ commits: []
 ### 범위
 
 - CLI 입력 모드, 명령 상태·중단·터미널 열기, 완료 출력 보기·다운로드를 제공한다.
+- Linux에서 설치된 에이전트 합산 OS 메모리 한도를 셸과 자손에 적용하며, 메모리 부족 시 진행 명령을 중단하고 대기 명령을 보존한다([보호 범위](../../operations/agent-memory.md)).
 
 ### 경계와 제한
 

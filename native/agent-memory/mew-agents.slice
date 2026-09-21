@@ -1,0 +1,11 @@
+[Unit]
+Description=Mew agent workloads shared memory budget
+
+[Slice]
+MemoryAccounting=yes
+MemoryHigh=50%
+MemoryMax=65%
+MemorySwapMax=25%
+
+[Install]
+WantedBy=default.target

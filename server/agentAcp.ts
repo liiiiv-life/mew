@@ -13,6 +13,7 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import fs from 'node:fs'
+import { killMemoryScope, memoryPressure, memoryScopeCommand, readAgentMemory, type MemoryReader } from './agent-memory.ts'
 import { agentContextText, captureAgentContext, refreshAgentContext, restoreAgentContext, saveAgentContext } from './agent-context.ts'
 import { stripMewContext } from './project-context-text.ts'
 import type { AgentContextBinding } from '../shared/project-agent-context.ts'
@@ -136,6 +137,7 @@ export type SessionMeta = {
   queuedKinds?: ('prompt' | 'clear' | 'cli')[]
   activeTask?: 'cli' | null
   accessIssue?: AccessIssue | null
+  memoryPaused?: boolean
   usage: Usage | null
   canLoad: boolean
   canList: boolean
@@ -321,6 +323,7 @@ export class AgentSession {
   key = ''
   readonly cwd: string
   #child!: ChildProcess
+  #memoryScope: string | undefined
   #conn!: ClientSideConnection
   #startupFailure!: Promise<never>
   #spec: SpawnSpec
@@ -357,21 +360,29 @@ export class AgentSession {
   #activeTask: QueuedCli | null = null
   #reader: UsageReader | null = null
   #usage: Usage | null = null
+  #readMemory: MemoryReader
+  #memoryPaused = false
+  #memoryTimer: NodeJS.Timeout
   busy = false
 
   #context: AgentContextBinding
 
-  private constructor(runtime: string, spec: SpawnSpec, cwd = WORKSPACE_ROOT, idleKillMs = AGENT_IDLE_MS, context = captureAgentContext(cwd)) {
+  private constructor(runtime: string, spec: SpawnSpec, cwd = WORKSPACE_ROOT, idleKillMs = AGENT_IDLE_MS, context = captureAgentContext(cwd), readMemory: MemoryReader = readAgentMemory) {
     this.#context = context
     this.runtime = runtime
     this.cwd = cwd
     this.#idleKillMs = idleKillMs
     this.#spec = spec
+    this.#readMemory = readMemory
     this.#spawn()
+    this.#memoryTimer = setInterval(() => this.checkMemory(), 2_000)
+    this.#memoryTimer.unref()
     live.add(this)
   }
 
   #spawn() {
+    const pressure = this.#memoryProblem()
+    if (pressure) throw new Error(pressure)
     const spec = this.#spec
     this.#startupFailure = new Promise<never>((_resolve, reject) => {
       this.#rejectStartup = reject
@@ -388,7 +399,9 @@ export class AgentSession {
     delete env.MEW_AGENT_CONTEXT
     // detached — 어댑터를 프로세스 그룹 리더로 띄운다. 어댑터는 세션마다 CLI를 하나씩 밑에 두는데,
     // 어댑터만 죽이면 그 손자들이 고아로 남는다(#killTree가 그룹째 보낼 수 있어야 한다).
-    this.#child = spawn(spec.cmd, spec.args, {
+    const command = memoryScopeCommand(spec.cmd, spec.args)
+    this.#memoryScope = command.unit
+    this.#child = spawn(command.cmd, command.args, {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
@@ -425,7 +438,11 @@ export class AgentSession {
       if (!this.#disposed && child === this.#child) this.#failStartup(`에이전트를 실행하지 못했습니다: ${err.message}`)
     })
     this.#child.on('exit', (code, signal) => {
-      if (!this.#disposed && child === this.#child) this.#failStartup(`에이전트가 종료됐습니다 (code=${code} signal=${signal})`)
+      if (!this.#disposed && child === this.#child) {
+        const hint = command.scoped && (signal === 'SIGKILL' || code === 137)
+          ? ' OS 메모리 한도에 의한 종료 가능성이 있습니다. mew-agents.slice의 memory.events와 사용자 journal을 확인하세요.' : ''
+        this.#failStartup(`에이전트가 종료됐습니다 (code=${code} signal=${signal}).${hint}`)
+      }
     })
     const stream = ndJsonStream(
       Writable.toWeb(this.#child.stdin!) as WritableStream<Uint8Array>,
@@ -440,9 +457,15 @@ export class AgentSession {
     cwd = WORKSPACE_ROOT,
     idleKillMs = AGENT_IDLE_MS,
     context?: AgentContextBinding,
+    readMemory: MemoryReader = readAgentMemory,
   ): Promise<AgentSession> {
     if (!spec) throw new Error(`ACP를 지원하지 않는 에이전트 런타임입니다: ${runtime}`)
-    const session = new AgentSession(runtime, spec, cwd, idleKillMs, context)
+    const pressure = memoryPressure(readMemory())
+    if (pressure) {
+      console.error(`[mew:agent-memory] ${new Date().toISOString()} ${pressure}; 에이전트 시작 거부`)
+      throw new Error(pressure)
+    }
+    const session = new AgentSession(runtime, spec, cwd, idleKillMs, context, readMemory)
     try {
       await session.#initializeWithTimeout()
       session.#armIdleTimer()
@@ -823,10 +846,21 @@ export class AgentSession {
   }
 
   /** 진행 중인 턴이 있으면 줄을 세운다 — 끝나는 대로 순서대로 이어 돈다 */
-  prompt(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings) {
+  prompt(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings, automatic = false) {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
+    if (automatic) {
+      const pressure = this.#memoryProblem()
+      if (pressure) this.#pauseForMemory(pressure)
+      if (this.#memoryPaused) {
+        this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings })
+        if (this.#idleTimer) { clearTimeout(this.#idleTimer); this.#idleTimer = null }
+        this.#broadcast(this.#metaEvent())
+        return
+      }
+    }
+    const memoryResumed = automatic ? false : this.#admitMemory()
     // Explicit new submission resumes a quota-paused queue; edits/reconnects do not.
-    const resume = !this.busy && this.#accessIssue !== null
+    const resume = memoryResumed || !this.busy && this.#accessIssue !== null
     if (resume) this.#accessIssue = null
     if (this.busy || this.#queue.length > 0 || this.#clearFailed) {
       this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings })
@@ -840,6 +874,7 @@ export class AgentSession {
   enqueueTask(task: AgentQueuedTask) {
     if (this.#disposed || this.#authRequired || !this.#sessionId) throw new Error('에이전트 대화를 준비한 뒤 다시 시도하세요')
     if (this.#activeTask?.id === task.id || this.#queue.some(item => item.kind === 'cli' && item.id === task.id)) return
+    this.#admitMemory()
     this.#queue.push({ ...task, kind: 'cli' })
     this.#broadcast(this.#metaEvent())
     this.#drainQueue()
@@ -873,6 +908,7 @@ export class AgentSession {
   /** `/clear`는 앞선 작업을 끊지 않고, 이 큐 지점에서 새 ACP 세션을 연다. */
   clearAfterQueue() {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
+    const memoryResumed = this.#admitMemory()
     if (this.#clearFailed && !this.busy) {
       void this.#clearSession().then(() => this.#drainQueue())
       return
@@ -880,6 +916,7 @@ export class AgentSession {
     if (this.busy || this.#queue.length > 0) {
       this.#queue.push({ kind: 'clear', text: '/clear' })
       this.#broadcast(this.#metaEvent())
+      if (memoryResumed) this.#drainQueue()
       return
     }
     void this.#clearSession().then(() => this.#drainQueue())
@@ -888,6 +925,9 @@ export class AgentSession {
   /** 예약 작업처럼 창 없이 한 턴만 돌리는 경로. 진행 중인 세션에는 쓰지 않는다. */
   runOnce(text: string): Promise<string> {
     if (this.busy) return Promise.reject(new Error('에이전트가 이미 실행 중입니다'))
+    const pressure = this.#memoryProblem()
+    if (pressure) this.#pauseForMemory(pressure)
+    if (this.#memoryPaused) return Promise.reject(new Error('메모리 보호로 작업이 보류되었습니다. 에이전트 탭에서 명시적으로 재개하세요.'))
     return new Promise((resolve, reject) => {
       const detach = this.attach((event) => {
         if (event.type === 'turn_end') {
@@ -898,7 +938,7 @@ export class AgentSession {
           reject(new Error(event.message))
         }
       })
-      this.prompt(text)
+      try { this.prompt(text) } catch (error) { detach(); reject(error) }
     })
   }
 
@@ -1038,7 +1078,7 @@ export class AgentSession {
   /** 큐의 다음 항목 하나만 시작한다. clear 뒤의 프롬프트는 새 세션에서 시작한다. */
   #drainQueue() {
     if (this.#disposed || this.busy || this.#clearFailed) return
-    if (this.#accessIssue) {
+    if (this.#accessIssue || this.#memoryPaused) {
       this.#broadcast(this.#metaEvent())
       this.#armIdleTimer()
       return
@@ -1049,6 +1089,8 @@ export class AgentSession {
       this.#armIdleTimer()
       return
     }
+    const pressure = this.#memoryProblem()
+    if (pressure) { this.#pauseForMemory(pressure); return }
     // 편집 중에는 앞 항목도 실행하지 않는다. 큐 인덱스를 그대로 지켜 완료가 다른 메시지를
     // 덮어쓰는 경합을 막고, 완료·취소 뒤 원래 순서에서 다시 시작한다.
     if (this.#queue.some((item) => item.editOwner)) {
@@ -1224,18 +1266,58 @@ export class AgentSession {
     this.#emit({ type: 'thinking', thinking })
   }
 
-  /** 승인 대기 중인 요청은 취소 결과로 닫는다 — 스펙 요구사항(cancel 시 outcome: cancelled) */
-  cancel() {
+  #memoryProblem(resuming = false): string | null {
+    try { return memoryPressure(this.#readMemory(), resuming) }
+    catch { return '메모리 상태를 확인하지 못해 작업을 보류합니다' }
+  }
+
+  /** Polling and queue admission share this path; no automatic replay after recovery. */
+  checkMemory() {
+    if (this.#disposed || this.#memoryPaused || !this.busy && this.#queue.length === 0) return
+    const pressure = this.#memoryProblem()
+    if (pressure) this.#pauseForMemory(pressure)
+  }
+
+  #pauseForMemory(reason: string) {
+    if (this.#memoryPaused) return
+    this.#memoryPaused = true
+    const message = `${reason}. 진행 작업 중단을 요청하고 대기열을 보류했습니다. 메모리 회복 후 새 메시지나 명령을 보내면 대기열부터 재개합니다. 중단된 작업은 자동 재실행하지 않습니다.`
+    console.error(`[mew:agent-memory] ${new Date().toISOString()} runtime=${this.runtime} ${message}`)
+    this.#emit({ type: 'error', message })
+    if (this.#sessionId) writeAgentTranscript(this.runtime, this.cwd, this.#sessionId, this.#events)
+    if (this.busy) this.#cancelActive()
+    this.#broadcast(this.#metaEvent())
+  }
+
+  #admitMemory(): boolean {
+    const pressure = this.#memoryProblem(this.#memoryPaused)
+    if (pressure) {
+      this.#pauseForMemory(pressure)
+      throw new Error(`${pressure}. 작업을 보낼 수 없습니다. 메모리 회복 후 다시 시도하세요.`)
+    }
+    if (this.#memoryPaused && this.busy) throw new Error('메모리 보호로 작업을 중단하는 중입니다. 중단 완료 후 다시 시도하세요.')
+    const resumed = this.#memoryPaused
+    this.#memoryPaused = false
+    return resumed
+  }
+
+  /** Cancel only active work; memory protection preserves the waiting queue. */
+  #cancelActive() {
     for (const [id, resolve] of this.#pending) {
       resolve({ outcome: { outcome: 'cancelled' } })
       this.#emit({ type: 'permission_done', id })
     }
     this.#pending.clear()
+    if (this.#activeTask) this.#activeTask.cancel()
+    else if (this.#sessionId) void this.#conn.cancel({ sessionId: this.#sessionId }).catch(() => {})
+  }
+
+  /** 승인 대기 중인 요청은 취소 결과로 닫는다 — 스펙 요구사항(cancel 시 outcome: cancelled) */
+  cancel() {
     // 줄 서 있던 메시지도 같이 버린다 — 중단해 놓고 다음 것이 저절로 도는 건 놀라운 동작이다
     for (const item of this.#queue) if (item.kind === 'cli') item.cancel()
     this.#queue = []
-    if (this.#activeTask) this.#activeTask.cancel()
-    else if (this.#sessionId) void this.#conn.cancel({ sessionId: this.#sessionId }).catch(() => {})
+    this.#cancelActive()
     this.#broadcast(this.#metaEvent())
   }
 
@@ -1277,6 +1359,7 @@ export class AgentSession {
         queuedKinds: this.#queue.map((item) => item.kind),
         activeTask: this.#activeTask ? 'cli' : null,
         accessIssue: this.#accessIssue,
+        memoryPaused: this.#memoryPaused,
         usage: this.#usage,
         canLoad: this.#caps.loadSession === true,
         canList: this.#caps.sessionCapabilities?.list != null,
@@ -1291,7 +1374,9 @@ export class AgentSession {
   }
 
   #fail(message: string) {
+    console.error(`[mew:agent:${this.runtime}] ${new Date().toISOString()} ${message}`)
     this.#emit({ type: 'error', message })
+    if (this.#sessionId) writeAgentTranscript(this.runtime, this.cwd, this.#sessionId, this.#events)
     this.dispose()
   }
 
@@ -1309,6 +1394,7 @@ export class AgentSession {
     if (
       this.#listeners.size > 0 ||
       this.busy ||
+      this.#queue.length > 0 ||
       this.#authenticating ||
       this.#pendingElicitations.size > 0 ||
       this.#idleTimer ||
@@ -1324,6 +1410,7 @@ export class AgentSession {
   dispose() {
     if (this.#disposed) return
     this.#disposed = true
+    clearInterval(this.#memoryTimer)
     for (const item of this.#queue) if (item.kind === 'cli') item.cancel()
     this.#queue = []
     this.#activeTask?.cancel()
@@ -1380,6 +1467,7 @@ export class AgentSession {
   /** 어댑터가 밑에 둔 CLI까지 같이 보낸다 — 그룹 리더로 띄웠으므로 음수 pid가 그룹 전체다.
    *  프로세스 종료 경로(process.on('exit'))에서도 불리므로 동기여야 한다 */
   #killTree(signal: NodeJS.Signals = 'SIGTERM') {
+    killMemoryScope(this.#memoryScope, signal)
     const pid = this.#child.pid
     if (pid === undefined) return
     try {

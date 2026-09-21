@@ -33,6 +33,7 @@
 | --- | --- | --- |
 | `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더. `server/paths.ts`의 `WORKSPACE_ROOT`를 고정 경로로 되돌리지 않는다 — 앱과 워크스페이스를 분리해야 다른 폴더·다른 서버에 안전하게 배포할 수 있다 |
 | `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·기능/파일 권한·아이콘·RAG 인덱스/모델 캐시 |
+| `MEW_AGENT_MEMORY_SCOPE` | `auto` | 설치된 systemd slice에 ACP·CLI 작업 메모리 제한 적용. `required`는 미설치 시 실행 거부, `off`는 OS 제한만 해제. [설치·메모리 보호](../operations/agent-memory.md) |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
 | `MEW_DESKTOP_HELPER_DIR` | 프로젝트의 `native/remote-desktop`, WSL은 Windows LocalAppData의 `Mew/remote-desktop` | [원격 데스크톱 보조 앱](../guides/remote-desktop.md) 설치 경로. WSL은 Windows 절대 경로 |
 | `MEW_DESKTOP_ICE_SERVERS` | `[]` | 선택적 WebRTC STUN/TURN JSON 배열. 비워 두면 외부 서비스를 호출하지 않고 직접 연결 실패 시 Mew 서버 전송으로 전환. 인증 값은 레포에 저장하지 않는다 |

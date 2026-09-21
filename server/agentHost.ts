@@ -38,7 +38,7 @@ const REQUEST_TIMEOUT_MS = 30_000
 const MAX_LINE_BYTES = 64 * 1024 * 1024
 
 export type AgentHostCommand =
-  | { type: 'prompt'; text: string; promptText: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; settings?: AgentMessageSettings }
+  | { type: 'prompt'; text: string; promptText: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; settings?: AgentMessageSettings; automatic?: boolean }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'authenticate'; methodId: string; secret?: string }
@@ -527,7 +527,7 @@ async function handleHostMessage(
   try {
     if (command.type === 'prompt') {
       chooseFallback()
-      session.prompt(String(command.text), String(command.promptText), command.images, command.imageRefs, command.settings)
+      session.prompt(String(command.text), String(command.promptText), command.images, command.imageRefs, command.settings, command.automatic === true)
     }
     else if (command.type === 'cancel') session.cancel()
     else if (command.type === 'permission') session.answerPermission(String(command.id), command.optionId ?? null)

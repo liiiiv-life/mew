@@ -80,6 +80,12 @@
 
 `agent-command-ui.test.ts`는 서버를 띄우지 않는 브라우저 fixture로 PC·모바일의 토글 기본값/위치, Ctrl+Tab 전환, 원문 전송, 대기열 표시와 실행 전 터미널 미노출, AI 프롬프트 미전송, live→저장 출력 전환, 포커스 복원, 재열람 시 재실행 방지, 새로고침 복원을 확인한다. 일반 HTTP에서도 `crypto.getRandomValues` 기반 UUID 폴백으로 실행할 수 있다. 실제 셸 실행은 별도 tmux 통합 테스트의 범위다.
 
+## 메모리 보호
+
+`agent-memory.ts`는 Linux 가용 메모리와 설치된 사용자 `mew-agents.slice` 예산을 읽고 ACP·CLI 자식을 별도 scope로 실행한다. 감독과 서버는 scope 밖이다. `AgentSession`은 시작·FIFO 인출 전과 2초 주기로 검사하여 진행 작업만 취소하고 `meta.memoryPaused=true`와 오류를 전송한다. 보류된 큐는 자동 인출·유휴 종료하지 않는다. 회복 후 명시적 새 전송은 앞선 큐부터 재개하며 중단된 턴을 재실행하지 않는다. 감독의 `prompt.automatic=true`(예약·기능 실행)는 보류를 해제하지 않는다. OS 강제 종료는 종료 오류와 전사를 저장하고 세션을 닫는다.
+
+기본 예산·회복 기준·설치·로그·범위는 [메모리 보호 운영](../operations/agent-memory.md), 결정은 [ADR 0164](../../../.mew/docs/decisions/0164-mew-agent-memory-protection.md)를 따른다. `agent-memory.test.ts`는 합성 압력에서 AI/CLI 취소와 큐 보류를 검증하고 선택적 64MiB scope OOM 검사로 OS 경계를 검증한다.
+
 ## CLI 도구와 프로세스 환경
 
 - Claude는 [ADR 0142](../../../.mew/docs/decisions/0142-mew-claude-acp-and-cli-authentication.md)에 따라 대화형 ACP로 복원했다. 공식 CLI의 로그인 종료 후 감독이 ACP를 다시 초기화한다. 인증 실패·중단은 성공으로 취급하지 않으며 재시도할 수 있다. 실행·로그인·상태 조회·로그아웃은 같은 CLI 엔진과 설정 환경을 사용한다. `claude-acp-auth.test.ts`는 실제 계정을 호출하지 않는 CLI/ACP fixture로 이 경계를 검증한다.

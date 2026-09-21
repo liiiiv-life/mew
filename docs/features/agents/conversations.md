@@ -4,7 +4,7 @@ parent: "mew-agents"
 title: "에이전트 대화·큐·복원"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: 2026-09-21
 status_hash: "b325d279cf16e291b2bcddda7cc0d70268647e336403acba780cb1081da44668"
 files: ["src/components/AgentPanel.tsx", "server/agentHost.ts", "server/agentWs.ts", "server/agentTranscript.ts"]
 commits: []
@@ -18,6 +18,7 @@ commits: []
 
 - 메시지 전송·중단·작업 기록·대기 메시지 편집/순서 변경·/clear와 히스토리 복원을 제공한다.
 - 독립 감독과 전사를 통해 브라우저·프로젝트 전환 뒤 대화를 이어 간다.
+- 메모리 부족 시 진행 작업을 중단하고 오류를 표시하며 대기열을 보류한다. 회복 후 명시적 전송으로 재개한다([OS 한도와 범위](../../operations/agent-memory.md)).
 
 ### 경계와 제한
 

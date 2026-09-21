@@ -36,6 +36,7 @@ export type SessionMeta = {
   queuedKinds?: ('prompt' | 'clear' | 'cli')[]
   activeTask?: 'cli' | null
   accessIssue?: AccessIssue | null
+  memoryPaused?: boolean
   usage: Usage | null
   canLoad: boolean
   canList: boolean

@@ -10,6 +10,7 @@ import * as pty from 'node-pty'
 import { preparePtyHelper } from '../packages/tmux-term/src/server/pty-helper.ts'
 import { writeFileAtomic } from './dataDir.ts'
 import type { StoredAgentCommand } from './agent-commands.ts'
+import { killMemoryScope, memoryScopeCommand } from './agent-memory.ts'
 
 const exec = promisify(execFile)
 export const COMMAND_PREVIEW_CHARS = 512 * 1024
@@ -22,6 +23,7 @@ export async function runAgentCommand(directory: string): Promise<void> {
   let archiveError: unknown
   let archiveBytes = 0
   let terminal: pty.IPty | undefined
+  let memoryScope: string | undefined
   let preview = ''
   let truncated = false
   let interrupted = false
@@ -33,8 +35,12 @@ export async function runAgentCommand(directory: string): Promise<void> {
   const interrupt = () => {
     if (exited || interrupted) return
     interrupted = true
+    killMemoryScope(memoryScope, 'SIGTERM')
     try { if (terminal) process.kill(-terminal.pid, 'SIGTERM') } catch { /* process already exited */ }
-    forceStop = setTimeout(() => { try { if (terminal) process.kill(-terminal.pid, 'SIGKILL') } catch { /* exited */ } }, 2_000)
+    forceStop = setTimeout(() => {
+      killMemoryScope(memoryScope, 'SIGKILL')
+      try { if (terminal) process.kill(-terminal.pid, 'SIGKILL') } catch { /* exited */ }
+    }, 2_000)
   }
   const stopTimer = setInterval(() => {
     if (fs.existsSync(path.join(directory, 'stop'))) interrupt()
@@ -71,7 +77,9 @@ export async function runAgentCommand(directory: string): Promise<void> {
     // Keep the slave open until its last byte reaches us: PTY close can discard unread output.
     // All user text is an argument; neither the command nor file paths become wrapper syntax.
     const wrapper = '"$1" -lc "$2"; result=$?; printf "%s" "$4"; while [ ! -f "$3" ]; do sleep 0.02; done; exit "$result"'
-    terminal = pty.spawn('/bin/sh', ['-c', wrapper, 'mew-command', shell, record.command, drainedFile, marker], {
+    const command = memoryScopeCommand('/bin/sh', ['-c', wrapper, 'mew-command', shell, record.command, drainedFile, marker])
+    memoryScope = command.unit
+    terminal = pty.spawn(command.cmd, command.args, {
       name: 'xterm-256color', cwd: record.cwd,
       cols: process.stdout.columns || 80, rows: process.stdout.rows || 24,
       env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
@@ -108,6 +116,7 @@ export async function runAgentCommand(directory: string): Promise<void> {
     display(`\r\n${record.error}\r\n`)
   } finally {
     if (interrupted && terminal) {
+      killMemoryScope(memoryScope, 'SIGKILL')
       // The wrapper may exit on TERM before a child that ignores it. Do not leave that group behind.
       try { process.kill(-terminal.pid, 'SIGKILL') } catch { /* group already gone */ }
     }
