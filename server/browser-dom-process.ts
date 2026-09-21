@@ -15,8 +15,8 @@ export async function launchNativeBrowser(executablePath: string, profileDir: st
   await new Promise<void>((resolve) => reservation.close(() => resolve()))
   const child = spawn(executablePath, [
     `--user-data-dir=${profileDir}`, `--remote-debugging-port=${port}`,
-    '--remote-debugging-address=127.0.0.1', '--no-first-run',
-    ...(headless ? ['--headless=new'] : []), 'about:blank',
+    '--remote-debugging-address=127.0.0.1', '--no-first-run', '--no-startup-window',
+    ...(headless ? ['--headless=new'] : []),
   ], { stdio: ['ignore', 'ignore', 'pipe'] })
   children.add(child)
   let exited = false

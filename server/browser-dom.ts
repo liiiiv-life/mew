@@ -65,6 +65,7 @@ export class DomBrowserSession {
   readonly authJob?: string
   private releaseProfile?: () => Promise<void>
   private cdp?: CDPSession
+  private cdpPromise?: Promise<CDPSession>
   private dialog?: Dialog
   private chooser?: { id: string; value: FileChooser }
   private downloads = new Map<string, Download>()
@@ -82,6 +83,7 @@ export class DomBrowserSession {
   generation = 0
   private frames = new Map<Frame, { id: string; generation: number; document: string }>()
   private startPromise?: Promise<void>
+  private closePromise?: Promise<void>
   private closed = false
   private timer: ReturnType<typeof setTimeout>
   private disconnectTimer?: ReturnType<typeof setTimeout>
@@ -176,6 +178,7 @@ export class DomBrowserSession {
   async asset(id: string): Promise<Asset | null> { return await this.assets.get(id) ?? null }
 
   async start(): Promise<void> {
+    if (this.closed) return
     if (!this.startPromise) this.startPromise = this.launch()
     return this.startPromise
   }
@@ -188,17 +191,17 @@ export class DomBrowserSession {
       const profile = await acquireBrowserProfile(this.account, executablePath)
       this.context = profile.context
       this.releaseProfile = profile.release
-      if (this.closed) { await profile.release(); return }
+      if (this.closed) return
       this.page ??= await this.context.newPage()
     } else {
       this.network = await createDomNetworkGate((url) => domTargetAllowed(url, this.hosts, this.callbackOrigin))
-      if (this.closed) { await this.network.close(); return }
+      if (this.closed) return
       this.browser = await chromium.launch({
         executablePath, headless: domBrowserHeadless(), chromiumSandbox: true,
         proxy: { server: this.network.server, bypass: '<-loopback>' },
         args: ['--disable-quic', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
       })
-      if (this.closed) { await this.browser.close(); return }
+      if (this.closed) return
       this.context = await this.browser.newContext({ viewport: { width: 900, height: 700 }, serviceWorkers: 'block', acceptDownloads: false })
       this.context.setDefaultTimeout(4000)
       await this.context.route('**/*', async (route) => {
@@ -208,8 +211,10 @@ export class DomBrowserSession {
       await this.context.routeWebSocket('**/*', (socket) => { this.notice('이 검증판은 로그인 페이지의 WebSocket 연결을 아직 지원하지 않습니다.'); socket.close() })
       this.page = await this.context.newPage()
     }
+    if (this.closed) return
     const page = this.page
-    this.cdp = await this.context.newCDPSession(page)
+    this.cdp = await (this.cdpPromise = this.context.newCDPSession(page))
+    if (this.closed) return
     page.once('close', () => { this.send({ type: 'closed', tabId: this.job }); void this.close() })
     page.on('dialog', (dialog) => {
       this.dialog = dialog
@@ -228,6 +233,7 @@ export class DomBrowserSession {
       }).catch(() => this.notice('파일을 내려받지 못했습니다. 다시 시도해 주세요.'))
     })
     page.on('popup', (popup) => {
+      if (this.closed) { void popup.close().catch(() => {}); return }
       if (!this.general) { this.notice('인증 전용 창에서는 별도 팝업을 지원하지 않습니다. 일반 브라우저에서 열어 주세요.'); void popup.close(); return }
       if ([...sessions.values()].filter((session) => session.account === this.account).length >= 20) { this.notice('브라우저 탭은 최대 20개까지 열 수 있습니다.'); void popup.close(); return }
       const child = new DomBrowserSession(this.account, crypto.randomUUID(), popup.url(), [], '', true, popup, this.authJob)
@@ -301,6 +307,7 @@ export class DomBrowserSession {
       this.send({ type: 'event', frame: state.id, parent, parentNode, generation: state.generation, event: this.sanitize(event, frame.url()) })
     })
     await page.addInitScript({ content: recorder })
+    if (this.closed) return
     // A popup may be a blank window whose opener will write or navigate it later.
     // Never navigate an adopted Page, even when its current URL is about:blank.
     // Initial network loading must not block address changes or popup attachment.
@@ -310,13 +317,14 @@ export class DomBrowserSession {
   }
 
   async attach(socket: WebSocket): Promise<void> {
+    if (this.closed) { socket.close(1000, 'Browser closed'); return }
     this.clearInputQueue()
     clearTimeout(this.disconnectTimer)
     if (this.general && !this.authJob) clearTimeout(this.timer)
     this.socket?.close(1000, 'Reconnected')
     this.socket = socket
     socket.on('close', () => {
-      if (this.socket !== socket) return
+      if (this.closed || this.socket !== socket) return
       this.clearInputQueue()
       this.socket = undefined
       this.disconnectTimer = setTimeout(() => { void this.close() }, this.general ? 10 * 60_000 : 20_000)
@@ -530,8 +538,8 @@ export class DomBrowserSession {
     } finally { await handle.dispose() }
   }
 
-  async close(): Promise<void> {
-    if (this.closed) return
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise
     this.closed = true
     this.clearInputQueue()
     clearTimeout(this.timer)
@@ -539,6 +547,22 @@ export class DomBrowserSession {
     clearInterval(this.stateTimer)
     sessions.delete(this.id)
     this.socket?.close(1000, 'Browser closed')
+    return this.closePromise = this.dispose()
+  }
+
+  private async dispose(): Promise<void> {
+    // Detach our extra CDP client before closing its target, including a client
+    // whose attachment was still pending when close was requested.
+    const cdp = await this.cdpPromise?.catch(() => undefined)
+    await cdp?.detach().catch(() => {})
+    // Closing already-created resources interrupts pending page initialization.
+    // Otherwise title/binding work could keep launch (and therefore close) waiting.
+    if (this.general) await this.page?.close().catch(() => {})
+    else await this.browser?.close().catch(() => {})
+    // A Page/profile acquired after the close request still belongs to this session.
+    // Wait for launch to settle before releasing it, and share this cleanup promise.
+    await this.startPromise?.catch(() => {})
+    clearInterval(this.stateTimer)
     this.assets.clear()
     await Promise.all([...this.downloads.values()].map(async (download) => { await download.cancel().catch(() => {}); await download.delete().catch(() => {}) }))
     this.downloads.clear()

@@ -38,11 +38,13 @@ test('native launch handles executable/profile paths with spaces and flushes coo
   let native: Awaited<ReturnType<typeof launchNativeBrowser>> | undefined
   t.after(async () => { await native?.close(); await fs.rm(root, { recursive: true, force: true }) })
   native = await launchNativeBrowser(launcher, profile, domBrowserHeadless())
+  assert.equal(native.context.pages().length, 0, 'native launch must not leave an unmanaged startup tab')
   const page = await native.context.newPage()
   if (!domBrowserHeadless()) assert.equal(await page.evaluate('navigator.webdriver'), false)
   await native.context.addCookies([{ name: 'mew-native-fixture', value: 'persisted', domain: 'example.test', path: '/', expires: Math.floor(Date.now() / 1000) + 3600 }])
   await native.close()
   native = await launchNativeBrowser(launcher, profile, domBrowserHeadless())
+  assert.equal(native.context.pages().length, 0, 'reopening a profile must not restore unmanaged tabs')
   assert.equal((await native.context.cookies('https://example.test')).find((cookie) => cookie.name === 'mew-native-fixture')?.value, 'persisted')
   await native.close()
   await native.close()
@@ -59,6 +61,90 @@ test('browser uses the server display and honors explicit headed/headless settin
   assert.equal(domBrowserHeadless({ MEW_BROWSER_HEADLESS: '1', DISPLAY: ':0' }, 'linux'), true)
   assert.equal(domBrowserHeadless({ MEW_BROWSER_HEADLESS: '0' }, 'linux'), false)
   assert.throws(() => domBrowserHeadless({ MEW_BROWSER_HEADLESS: 'false' }, 'linux'), /0 또는 1/)
+})
+
+test('closing during page creation waits for disposal and leaves other account tabs intact', { skip: !domBrowserExecutable(), timeout: 30_000 }, async (t) => {
+  const step = async <T>(name: string, action: Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try { return await Promise.race([action, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`Timed out: ${name}`)), 5000) })]) }
+    finally { clearTimeout(timer) }
+  }
+  const account = `tab-lifecycle-${crypto.randomUUID()}`
+  const profileDir = path.join(DATA_DIR, 'browser', 'profiles', crypto.createHash('sha256').update(account).digest('hex'))
+  const site = http.createServer((_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<html><body>Keep this tab</body></html>') })
+  await new Promise<void>(resolve => site.listen(0, '127.0.0.1', resolve))
+  const url = `http://127.0.0.1:${(site.address() as { port: number }).port}/`
+  const keeper = openDomBrowserTab(account, 'keeper', url)
+  const pending = openDomBrowserTab(account, 'pending', url)
+  let allowCreation!: () => void
+  const creationGate = new Promise<void>(resolve => { allowCreation = resolve })
+  t.after(async () => {
+    allowCreation()
+    await keeper.context?.browser()?.close().catch(() => {})
+    await pending.close()
+    await keeper.close()
+    site.closeAllConnections()
+    await new Promise<void>(resolve => site.close(() => resolve()))
+    await fs.rm(profileDir, { recursive: true, force: true })
+  })
+  await step('keeper start', keeper.start())
+  const context = keeper.context!
+  assert.deepEqual(context.pages(), [keeper.page])
+  const newPage = context.newPage.bind(context)
+  let created!: () => void
+  const pageCreated = new Promise<void>(resolve => { created = resolve })
+  const delayed = t.mock.method(context, 'newPage', async () => {
+    const page = await newPage()
+    created()
+    await creationGate
+    return page
+  })
+  const starting = pending.start()
+  await step('pending page created', pageCreated)
+  assert.equal(context.pages().length, 2)
+  const closing = pending.close()
+  assert.equal(pending.close(), closing, 'all close callers wait for the same cleanup')
+  allowCreation()
+  await step('pending close', Promise.all([starting, closing]))
+  delayed.mock.restore()
+  assert.equal(pending.page!.isClosed(), true)
+  assert.deepEqual(context.pages(), [keeper.page])
+  assert.equal(keeper.page!.isClosed(), false)
+  let allowAttach!: () => void
+  const attachGate = new Promise<void>(resolve => { allowAttach = resolve })
+  let attached!: () => void
+  const cdpAttached = new Promise<void>(resolve => { attached = resolve })
+  const newCDPSession = context.newCDPSession.bind(context)
+  const delayedAttach = t.mock.method(context, 'newCDPSession', async (...args: Parameters<typeof newCDPSession>) => {
+    const cdp = await newCDPSession(...args)
+    attached()
+    await attachGate
+    return cdp
+  })
+  const attaching = openDomBrowserTab(account, 'attaching', url)
+  t.after(() => { allowAttach() })
+  const attachStart = attaching.start()
+  await step('CDP attachment created', cdpAttached)
+  const attachClose = attaching.close()
+  allowAttach()
+  await step('close during CDP attachment', Promise.all([attachStart, attachClose]))
+  delayedAttach.mock.restore()
+  assert.equal(attaching.page!.isClosed(), true)
+  assert.deepEqual(context.pages(), [keeper.page])
+  // Repeated open/close operations must not grow Chromium's real tab count.
+  for (let index = 0; index < 3; index++) {
+    const tab = openDomBrowserTab(account, `repeated-${index}`, url)
+    await step(`repeated ${index} start`, tab.start())
+    await step(`repeated ${index} close`, tab.close())
+    assert.deepEqual(context.pages(), [keeper.page])
+  }
+  const unopened = openDomBrowserTab(account, 'unopened', url)
+  await unopened.close()
+  await unopened.start()
+  assert.equal(unopened.page, undefined)
+  assert.deepEqual(context.pages(), [keeper.page])
+  await step('keeper close', keeper.close())
+  assert.equal(context.browser()!.isConnected(), false)
 })
 
 test('DOM browser restricts origins, credentials, ports and session ownership', () => {

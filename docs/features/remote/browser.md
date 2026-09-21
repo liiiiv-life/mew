@@ -4,7 +4,7 @@ parent: "mew-remote"
 title: "서버 브라우저·로그인·팝업"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: "2026-09-20"
 status_hash: "f10cdc472b8ce85de135351d9b60578cf2b8b0424ff75144f0a462226d043c03"
 files: ["src/components/BrowserPanel.tsx", "src/components/server-dom-browser.tsx", "server/browser-dom.ts", "server/browser-dom-profile.ts"]
 commits: []
@@ -32,6 +32,8 @@ commits: []
 ## 구현 내용
 
 URL·탭·뒤로/앞으로·폼·업로드/다운로드·로그인 팝업과 계정별 프로필을 제공한다.
+
+관리되지 않는 Chromium 시작용 빈 탭 생성을 막고, 생성 도중 닫은 탭도 실제 서버 탭까지 정리한다. 정상 로그인 빈 팝업은 유지한다.
 
 <!-- mew:implementation:end -->
 
