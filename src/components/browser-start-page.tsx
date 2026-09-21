@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react'
-import { Globe, Plus, Xmark } from 'iconoir-react'
+import { ArrowRight, Globe, Plus, Xmark } from 'iconoir-react'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { useI18n } from '../i18n'
 import { normalizeBrowserUrl, type BrowserShortcut } from '../utils/browser-shortcuts'
@@ -40,8 +40,8 @@ export function BrowserStartPage({ shortcuts, onChange, onOpen, onClose }: {
       <form className="space-y-2" onSubmit={event => { event.preventDefault(); void open(address) }}>
         <label htmlFor={addressId} className="text-sm text-ink-secondary">{t('browser.address')}</label>
         <div className="flex gap-2">
-          <input id={addressId} value={address} onChange={event => setAddress(event.target.value)} className={inputClass} placeholder={t('browser.addressPlaceholder')} spellCheck={false} inputMode="url" autoComplete="url" disabled={busy} />
-          <button type="submit" disabled={busy || !address.trim()} className="shrink-0 rounded-md bg-accent px-3 text-sm text-ink-on-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">{t(busy ? 'browser.opening' : 'browser.go')}</button>
+          <input id={addressId} value={address} onChange={event => setAddress(event.target.value)} className={`${inputClass} flex-1`} placeholder={t('browser.addressPlaceholder')} spellCheck={false} inputMode="url" autoComplete="url" disabled={busy} />
+          <button type="submit" disabled={busy || !address.trim()} aria-label={t(busy ? 'browser.opening' : 'browser.go')} title={t(busy ? 'browser.opening' : 'browser.go')} aria-busy={busy} className="flex h-10 w-10 flex-none items-center justify-center rounded-md bg-accent text-ink-on-accent hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"><ArrowRight width={18} height={18} aria-hidden="true" /></button>
         </div>
       </form>
       <div className="space-y-2">
