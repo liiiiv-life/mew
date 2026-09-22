@@ -3,10 +3,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Connection, Table } from '@lancedb/lancedb'
 import { DATA_DIR } from '../dataDir.ts'
-import { WORKSPACE_ROOT, projectRoot } from '../paths.ts'
+import { WORKSPACE_ROOT, DOCS_ROOT, projectRoot } from '../paths.ts'
 import { chunkText, passageText } from './chunking.ts'
 import { LocalE5Embeddings } from './embeddings.ts'
 import { docsTierMap, tierForFile } from './tiers.ts'
+import { ragEnabled } from './settings.ts'
+import { withRagLock } from './lock.ts'
+import type { RagDocument } from '../../shared/rag.ts'
+export { ragEnabled } from './settings.ts'
 import type { EmbeddedChunk, EmbeddingProvider, RagMatch, RagSearchResponse, RagStatus } from './types.ts'
 
 const SCHEMA_VERSION = 2
@@ -158,7 +162,8 @@ export class RagIndex {
   }
 
   private serialize<T>(task: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(task, task)
+    const run = () => withRagLock(this.dir, task)
+    const next = this.queue.then(run, run)
     this.queue = next.then(() => undefined, () => undefined)
     return next
   }
@@ -190,94 +195,100 @@ export class RagIndex {
   }
 
   async ensureProject(project: string, relPaths: string[], force = false): Promise<{ files: number; chunks: number; updated: number }> {
-    return this.serialize(async () => {
-      let manifest = await this.resetIfSchemaChanged(this.readManifest())
-      let table = await this.tableIfExists()
-      const previous = manifest.projects[project] ?? { files: {}, chunks: 0 }
-      if (!table && Object.keys(previous.files).length) force = true
+    return this.serialize(() => this.updateProject(project, relPaths, force))
+  }
 
-      const root = this.resolveRoot(project)
-      const paths = relPaths.slice(0, MAX_FILES)
-      const tiers = project === 'docs' ? docsTierMap(root, paths) : new Map()
-      const current = new Set(paths)
-      const deleted = force ? Object.keys(previous.files) : Object.keys(previous.files).filter((rel) => !current.has(rel))
-      const prepared: PreparedFile[] = []
-      const nextFiles: Record<string, FileManifest> = force ? {} : { ...previous.files }
+  private async updateProject(project: string, relPaths: string[], force: boolean) {
+    let manifest = await this.resetIfSchemaChanged(this.readManifest())
+    let table = await this.tableIfExists()
+    const previous = manifest.projects[project] ?? { files: {}, chunks: 0 }
+    if (!table && Object.keys(previous.files).length) force = true
 
-      if (force && table) await table.delete(`project = ${sql(project)}`)
+    const root = this.resolveRoot(project)
+    const paths = relPaths.slice(0, MAX_FILES)
+    const tiers = project === 'docs' ? docsTierMap(root, paths) : new Map()
+    const current = new Set(paths)
+    const deleted = force ? Object.keys(previous.files) : Object.keys(previous.files).filter((rel) => !current.has(rel))
+    const prepared: PreparedFile[] = []
+    const nextFiles: Record<string, FileManifest> = force ? {} : { ...previous.files }
 
-      for (const rel of paths) {
-        const abs = path.join(root, rel)
-        let stat: fs.Stats
-        try {
-          stat = fs.statSync(abs)
-        } catch {
-          continue
-        }
-        if (!stat.isFile() || stat.size > MAX_FILE_BYTES) {
-          if (previous.files[rel]) deleted.push(rel)
-          delete nextFiles[rel]
-          continue
-        }
-        const old = previous.files[rel]
-        if (!force && old && old.size === stat.size && old.mtimeMs === stat.mtimeMs) continue
-        let content: string
-        try {
-          content = fs.readFileSync(abs, 'utf-8')
-        } catch {
-          continue
-        }
-        const fingerprint = sha(content)
-        prepared.push({
-          path: rel,
-          stat,
-          fingerprint,
-          chunks: chunkText(rel, content, tierForFile(rel, content, tiers.get(rel))),
-        })
-      }
-
-      let grouped: Map<string, EmbeddedChunk[]>
+    for (const rel of paths) {
+      const abs = path.join(root, rel)
+      let stat: fs.Stats
       try {
-        grouped = await this.embedAll(prepared)
-      } catch (error) {
-        throw new RagUnavailableError(error instanceof Error ? error.message : '로컬 임베딩 모델을 사용할 수 없습니다')
+        stat = fs.statSync(abs)
+      } catch {
+        continue
       }
-
-      for (const rel of new Set(deleted)) {
-        if (table) await table.delete(`project = ${sql(project)} AND path = ${sql(rel)}`)
+      if (!stat.isFile() || stat.size > MAX_FILE_BYTES) {
+        if (previous.files[rel]) deleted.push(rel)
         delete nextFiles[rel]
+        continue
       }
+      const old = previous.files[rel]
+      if (!force && old && old.size === stat.size && old.mtimeMs === stat.mtimeMs) continue
+      let content: string
+      try {
+        content = fs.readFileSync(abs, 'utf-8')
+      } catch {
+        continue
+      }
+      const fingerprint = sha(content)
+      prepared.push({
+        path: rel,
+        stat,
+        fingerprint,
+        chunks: chunkText(rel, content, tierForFile(rel, content, tiers.get(rel))),
+      })
+    }
 
-      for (const file of prepared) {
-        const rows = (grouped.get(file.path) ?? []).map((row) => ({ ...row, project }))
-        if (table) await table.delete(`project = ${sql(project)} AND path = ${sql(file.path)}`)
-        if (rows.length) {
-          if (table) await table.add(rows)
-          else {
-            const db = await this.connection()
-            table = await db.createTable(TABLE, rows)
-          }
-        }
-        nextFiles[file.path] = {
-          size: file.stat.size,
-          mtimeMs: file.stat.mtimeMs,
-          fingerprint: file.fingerprint,
-          chunks: rows.length,
-        }
-      }
+    let grouped: Map<string, EmbeddedChunk[]>
+    try {
+      grouped = await this.embedAll(prepared)
+    } catch (error) {
+      throw new RagUnavailableError(error instanceof Error ? error.message : '로컬 임베딩 모델을 사용할 수 없습니다')
+    }
 
-      const projectManifest: ProjectManifest = {
-        files: nextFiles,
-        chunks: Object.values(nextFiles).reduce((sum, file) => sum + file.chunks, 0),
+    if (force && table) await table.delete(`project = ${sql(project)}`)
+
+    for (const rel of new Set(deleted)) {
+      if (table) await table.delete(`project = ${sql(project)} AND path = ${sql(rel)}`)
+      delete nextFiles[rel]
+    }
+
+    for (const file of prepared) {
+      const rows = (grouped.get(file.path) ?? []).map((row) => ({ ...row, project }))
+      if (table) await table.delete(`project = ${sql(project)} AND path = ${sql(file.path)}`)
+      if (rows.length) {
+        if (table) await table.add(rows)
+        else {
+          const db = await this.connection()
+          table = await db.createTable(TABLE, rows)
+        }
       }
-      manifest.projects[project] = projectManifest
-      atomicJson(this.manifestFile, manifest)
-      return { files: Object.keys(nextFiles).length, chunks: projectManifest.chunks, updated: prepared.length + deleted.length }
-    })
+      nextFiles[file.path] = {
+        size: file.stat.size,
+        mtimeMs: file.stat.mtimeMs,
+        fingerprint: file.fingerprint,
+        chunks: rows.length,
+      }
+    }
+
+    const projectManifest: ProjectManifest = {
+      files: nextFiles,
+      chunks: Object.values(nextFiles).reduce((sum, file) => sum + file.chunks, 0),
+    }
+    manifest.projects[project] = projectManifest
+    atomicJson(this.manifestFile, manifest)
+    return { files: Object.keys(nextFiles).length, chunks: projectManifest.chunks, updated: prepared.length + deleted.length }
   }
 
   async search(project: string, relPaths: string[], query: string, includeHistory = false, limit = 12): Promise<RagSearchResponse> {
-    const indexed = await this.ensureProject(project, relPaths)
+    return this.serialize(() => this.searchProject(project, relPaths, query, includeHistory, limit))
+  }
+
+  private async searchProject(project: string, relPaths: string[], query: string, includeHistory: boolean, limit: number): Promise<RagSearchResponse> {
+    const indexed = await this.updateProject(project, relPaths, false)
     const table = await this.tableIfExists()
     if (!table || indexed.chunks === 0) {
       return { results: [], indexedFiles: indexed.files, indexedChunks: 0, updatedFiles: indexed.updated, model: this.embedding.id }
@@ -334,12 +345,25 @@ export class RagIndex {
     }
   }
 
+  documents(project: string, visiblePaths: string[]): RagDocument[] {
+    const manifest = this.readManifest()
+    if (manifest.schema !== SCHEMA_VERSION || manifest.model !== this.embedding.id) return []
+    const visible = new Set(visiblePaths)
+    return Object.entries(manifest.projects[project]?.files ?? {})
+      .filter(([file]) => visible.has(file))
+      .map(([file, value]) => ({ path: file, chunks: value.chunks, bytes: value.size, modifiedAt: value.mtimeMs }))
+      .sort((a, b) => a.path.localeCompare(b.path))
+  }
+
   status(project: string): RagStatus {
     const manifest = this.readManifest()
     const valid = manifest.schema === SCHEMA_VERSION && manifest.model === this.embedding.id
     const projectManifest = valid ? manifest.projects[project] : undefined
     return {
-      enabled: true,
+      enabled: ragEnabled(),
+      engine: 'LanceDB',
+      dimensions: this.embedding.dimensions,
+      database: `${workspaceKey(this.root)}/${TABLE}`,
       model: this.embedding.id,
       ready: !!projectManifest,
       indexedFiles: projectManifest ? Object.keys(projectManifest.files).length : 0,
@@ -350,17 +374,15 @@ export class RagIndex {
 
 const stores = new Map<string, RagIndex>()
 
-export function ragEnabled(): boolean {
-  return process.env.MEW_RAG_ENABLED !== '0'
-}
-
-export function currentRagIndex(): RagIndex {
-  if (!ragEnabled()) throw new RagDisabledError('의미 검색이 비활성화되어 있습니다 (MEW_RAG_ENABLED=0)')
+export function currentRagIndex(allowDisabled = false): RagIndex {
+  if (!allowDisabled && !ragEnabled()) throw new RagDisabledError('RAG가 비활성화되어 있습니다. RAG 공통 설정과 서버 환경 설정을 확인하세요.')
   const key = path.resolve(WORKSPACE_ROOT)
-  let store = stores.get(key)
+  const cacheKey = `${key}\0${DOCS_ROOT}`
+  let store = stores.get(cacheKey)
   if (!store) {
-    store = new RagIndex(key, new LocalE5Embeddings(), DATA_DIR, projectRoot)
-    stores.set(key, store)
+    const docs = projectRoot('docs')
+    store = new RagIndex(key, new LocalE5Embeddings(), DATA_DIR, (project) => project === 'docs' ? docs : project === '.workspace' ? key : path.join(key, project))
+    stores.set(cacheKey, store)
   }
   return store
 }

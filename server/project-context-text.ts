@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { ragAgentGuidance } from './rag/guidance.ts'
 import { readAgentGuidance } from './agent-guidance.ts'
 import type { AgentContextBinding, ProjectAgentSettings } from '../shared/project-agent-context.ts'
 
@@ -15,6 +16,7 @@ export function describeAgentContext(binding: AgentContextBinding, settings: Pro
   const entries = [...new Set(candidates)].filter(p => { try { return fs.statSync(p).isFile() } catch { return false } })
   return [
     readAgentGuidance(),
+    ragAgentGuidance(binding.projectRoot, binding.docsRoot),
     `Project root: ${JSON.stringify(binding.projectRoot)}`,
     `Working directory: ${JSON.stringify(cwd)}`,
     `Documents folder: ${JSON.stringify(binding.docsRoot)}`,

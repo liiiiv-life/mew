@@ -56,7 +56,8 @@ function ensureDom(): Promise<void> {
 async function installDom(): Promise<void> {
   const { Window } = await import('happy-dom')
   const win = new Window({ url: 'http://localhost' })
-  const keys = ['window', 'document', 'DOMParser', 'Node', 'Element', 'HTMLElement', 'Text', 'DocumentFragment', 'getComputedStyle', 'MutationObserver'] as const
+  // Browser-aware dependencies also expect self when window/document exist (e.g. Transformers.js).
+  const keys = ['window', 'self', 'document', 'DOMParser', 'Node', 'Element', 'HTMLElement', 'Text', 'DocumentFragment', 'getComputedStyle', 'MutationObserver'] as const
   const w = win as unknown as Record<string, unknown>
   for (const k of keys) {
     if (k in globalThis) continue // Node에 이미 있으면 덮지 않는다

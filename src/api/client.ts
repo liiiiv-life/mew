@@ -1,3 +1,4 @@
+import type { RagConfiguration, RagDocument, RagSettings } from '../../shared/rag'
 import type { ProjectTabGroup } from '../../shared/project-tab-groups'
 import type { GitAiCommitJob, GitAiCommitDraft } from '../../shared/git-ai-commit'
 import type { Capabilities, AccessSettings, FileRule, Feature } from '../../shared/access-policy'
@@ -1090,10 +1091,11 @@ export interface SemanticSearchResponse {
 }
 
 /** 내장 LanceDB + 로컬 다국어 임베딩 의미 검색. 로그인 사용자 전용. */
-export function semanticSearchProject(query: string, includeHistory: boolean): Promise<SemanticSearchResponse> {
+export function semanticSearchProject(query: string, includeHistory: boolean, project = currentProject, workspace?: string): Promise<SemanticSearchResponse> {
   const params = new URLSearchParams({
     q: query,
-    project: currentProject,
+    project,
+    ...(workspace ? { workspace } : {}),
     history: includeHistory ? '1' : '0',
   })
   return fetch(`/api/search/semantic?${params.toString()}`).then(json<SemanticSearchResponse>)
@@ -1101,21 +1103,40 @@ export function semanticSearchProject(query: string, includeHistory: boolean): P
 
 export interface RagStatus {
   enabled: boolean
+  engine: 'LanceDB'
+  dimensions: number
+  database: string
   model: string
   ready: boolean
   indexedFiles: number
   indexedChunks: number
 }
 
-export function fetchRagStatus(): Promise<RagStatus> {
-  return fetch(`/api/rag/status?${projectQs()}`).then(json<RagStatus>)
+export function fetchRagStatus(project = currentProject, workspace?: string): Promise<RagStatus> {
+  return fetch(`/api/rag/status?${ragQs(project, workspace)}`).then(json<RagStatus>)
 }
 
-export function reindexRag(): Promise<{ ok: true; files: number; chunks: number; updated: number }> {
+function ragQs(project: string, workspace?: string): string {
+  return new URLSearchParams({ project, ...(workspace ? { workspace } : {}) }).toString()
+}
+
+export function fetchRagSettings(): Promise<RagConfiguration> {
+  return fetch('/api/rag/settings').then(json<RagConfiguration>)
+}
+
+export function saveRagSettings(settings: RagSettings): Promise<RagConfiguration> {
+  return fetch('/api/rag/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }).then(json<RagConfiguration>)
+}
+
+export function fetchRagDocuments(project: string, workspace: string): Promise<{ documents: RagDocument[] }> {
+  return fetch(`/api/rag/documents?${ragQs(project, workspace)}`).then(json<{ documents: RagDocument[] }>)
+}
+
+export function reindexRag(project = currentProject, workspace?: string): Promise<{ ok: true; files: number; chunks: number; updated: number }> {
   return fetch('/api/rag/reindex', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project: currentProject }),
+    body: JSON.stringify({ project, workspace }),
   }).then(json<{ ok: true; files: number; chunks: number; updated: number }>)
 }
 

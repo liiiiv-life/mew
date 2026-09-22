@@ -28,8 +28,16 @@ export class LocalE5Embeddings implements EmbeddingProvider {
   private extractor(): Promise<Extractor> {
     if (!this.extractorPromise) {
       this.extractorPromise = import('@huggingface/transformers').then(async ({ env, pipeline }) => {
+        // Collaboration installs a DOM for its editor; RAG still runs on Node with disk caches.
+        env.allowLocalModels = true
+        env.useFS = true
+        env.useFSCache = true
+        env.useBrowserCache = false
         env.cacheDir = this.cacheDir
-        return (await pipeline('feature-extraction', this.model, { dtype: 'q8' })) as unknown as Extractor
+        return (await pipeline('feature-extraction', this.model, { dtype: 'q8', device: 'cpu' })) as unknown as Extractor
+      }).catch(error => {
+        this.extractorPromise = null
+        throw error
       })
     }
     return this.extractorPromise

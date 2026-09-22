@@ -2,7 +2,7 @@
 title: "mew 내장 RAG 운영"
 desc: "로컬 의미 검색의 데이터 수명주기·권한·복구 기준."
 created: 2026-08-21
-updated: 2026-09-11
+updated: 2026-09-23
 reviewed: 2026-08-21
 review-after-days: 90
 ---
@@ -28,3 +28,13 @@ mew 의미 검색 운영 기준(reference). 구현·환경 변수·API 계약은
 - 외부 DB·API 키·문서 전송 비용은 없다. CPU와 로컬 디스크만 쓴다.
 - 의미 검색 장애는 정확/정규식 검색과 서버 부팅을 막지 않는다.
 - 결과 품질 회귀는 경로·줄 인용이 정답 문서를 포함하는지 평가 세트로 확인한다. 생성 답변의 정확도와 분리한다.
+
+## 공통 설정·진입
+
+하단 독 끝의 RAG 또는 메뉴 → RAG에서 설정과 현재 색인을 확인한다. `DATA_DIR/rag-settings.json`은 사용자 설정이며 파생 캐시와 달리 보존한다. CLI와 서버는 같은 워크스페이스 색인 잠금을 사용하고 종료된 프로세스의 잠금은 다음 접근에서 복구한다. 검색 명령·권한·적용 시점은 [검색 설정](../configuration/search.md)을 따른다.
+
+## 서버 DOM과 임베딩 초기화
+
+협업 편집기 초기화 후에만 `self is not defined`가 나오면 브라우저 호환 전역의 누락을 확인한다. `server/collabAgent.ts`가 `window`와 같은 Window의 `self`를 설치하고, `server/rag/embeddings.ts`가 Node CPU·파일 캐시·로컬 모델 읽기를 명시한다. 실패한 모듈 import는 프로세스에 남을 수 있어 수정 반영 후 서버 재시작이 필요하다. 에이전트가 직접 빌드·재시작하지 않는다.
+
+회귀 검사는 `node --test server/rag/embeddings.test.ts`다. 실제 협업 DOM 초기화 뒤 라이브러리를 로드한다. 캐시가 준비된 환경에서는 `MEW_RAG_TEST_MODEL_CACHE=<모델 캐시 절대 경로> node --test server/rag/embeddings.test.ts`로 외부 다운로드 없이 임시 Docs의 실제 임베딩·색인·검색·재색인도 검증한다. 사용자 문서나 운영 색인은 변경하지 않는다.

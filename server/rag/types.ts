@@ -46,6 +46,9 @@ export interface RagSearchResponse {
 }
 
 export interface RagStatus {
+  engine: 'LanceDB'
+  dimensions: number
+  database: string
   enabled: boolean
   model: string
   ready: boolean

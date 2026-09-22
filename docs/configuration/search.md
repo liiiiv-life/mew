@@ -13,12 +13,28 @@
 
 ## 로컬 의미 검색 (RAG)
 
-현재 사이드바에는 **의미 검색·History / raw 버튼이 없다**. 의미 검색은 서버 API로 제공하며, 현재 프로젝트의 보이는 텍스트 파일을 청크로 나눠 로컬 LanceDB에서 검색한다. 로그인 사용자 전용이며 외부 API로 문서를 보내지 않는다.
+모바일 **하단 독 맨 오른쪽 RAG**, 데스크톱 **메뉴 → RAG**에서 연다. 이 패널은 어느 프로젝트에서도 같은 공통 설정을 보여 주며 현재 프로젝트에 연결된 **Docs(Documents)**의 벡터 DB를 확인한다. 범위는 항상 Docs이며 선택기는 없다. 기존 독 순서를 저장한 브라우저에도 새 RAG 항목을 끝에 추가한다. 이후 길게 누르기/키보드 재정렬을 지원한다.
 
-인증된 세션에서 `GET /api/search/semantic?q=<검색어>&project=<프로젝트ID>&history=0`으로 검색한다. `history=1`은 History/raw 범위를 포함한다. `GET /api/rag/status`로 상태를 확인하고 manager·owner는 `POST /api/rag/reindex`로 재색인한다. 운영 설정은 [RAG 런북](../operations/rag.md)을 참고한다.
+### 공통 설정과 에이전트
 
-- 기본 모델 `Xenova/multilingual-e5-small` q8(384차원)은 첫 검색 때 약 130MB를 내려받아 `<MEW_DATA_DIR>/rag/models`에 캐시한다. Docker에서는 기존 `/data` 볼륨에 남는다.
-- DB와 manifest는 `<MEW_DATA_DIR>/rag/indexes/<workspace-hash>`에 있다. Markdown·코드가 SSoT이고 이 폴더는 지워도 다음 검색에서 전부 재생성된다.
-- 파일 크기·mtime fingerprint가 바뀐 파일만 재임베딩한다. docs는 MOC의 Current를 기본 검색하고 `history=1`일 때만 History/raw와 대체 ADR을 포함한다.
-- 모델 다운로드·초기 인덱싱이 실패하면 `GET /api/search/semantic`만 503이다. 기존 정확/정규식 검색은 영향 없다.
-- API: `GET /api/search/semantic?q=&project=&history=0|1`, `GET /api/rag/status`, `POST /api/rag/reindex`(manager/owner). 결과는 파일 경로·시작/끝 줄·heading·점수·인용 문맥을 포함한다.
+- **로컬 RAG 사용**과 **에이전트에 RAG 사용 안내**는 같은 서버의 모든 프로젝트에 적용되며 기본값은 켜짐이다. 저장 위치는 `<MEW_DATA_DIR>/rag-settings.json`이다. `MEW_RAG_ENABLED=0`이면 UI 설정과 관계없이 비활성화한다.
+- `system` 기능 권한이 있는 계정(manager·owner 기본)이 변경한다. 읽기는 로그인 계정, 색인 상태·파일 목록은 현재 프로젝트 전체 파일 열람 권한이 필요하다. 재색인은 기존처럼 프로젝트 전체 파일 편집 권한도 필요하다.
+- 프로젝트 자동 안내가 켜진 **다음 실제 ACP 요청**부터 로컬 검색 명령을 공통 안내와 함께 전달한다. 프로젝트 지식이 필요한 작업에서 검색 후 인용 원문을 읽도록 안내한다. 매 작업의 강제 자동 검색이나 결과 자동 주입은 아니다. 일반 터미널·터미널형 에이전트 직접 입력에는 주입하지 않는다. 이 기능 배포 전에 시작된 감독 프로세스는 이전 코드를 계속 쓰므로 작업 완료 후 탭을 닫고 다시 연다.
+- CLI는 `server/rag/cli.ts`이며 데이터 폴더·세션 프로젝트 루트·Documents 절대 경로를 인자로, `{ "query": "검색어", "project": "docs", "history": false }`를 stdin JSON으로 받는다. 범위는 `docs`로 고정하며 생략해도 Docs를 검색한다. 다른 범위는 거부하고 코드 검색은 기존 파일 검색을 쓴다. 셸을 사용할 수 있는 에이전트가 실행한다. 외부 프로세스와 서버의 색인 접근은 공통 잠금으로 직렬화한다.
+- 설정은 공유하지만 검색 범위와 데이터는 워크스페이스/프로젝트별로 분리한다. 기존 공통 안내 파일을 수정하거나 프로젝트마다 RAG 파일을 만들지 않는다. 검색 실패·빈 결과에서는 기존 MOC와 파일 검색으로 이어 간다.
+
+### 벡터 DB 확인과 검색
+
+1. 현재 프로젝트의 **Docs**를 자동으로 대상으로 한다. 별도 범위 선택은 없다.
+2. LanceDB 식별자·임베딩 모델·차원·파일/청크 수를 확인한다. 패널 열기 자체는 모델 다운로드나 색인을 시작하지 않는다.
+3. 검색어를 입력하고 **검색**한다. 기본은 current만 검색하며 **History / raw 포함**을 직접 켜면 이력도 검색한다. 결과의 파일·줄을 누르면 편집기에서 연다.
+4. 색인된 청크가 없으면 **색인 시작**을 눌러 Docs를 색인한다. 청크가 생기면 버튼이 **재색인**으로 바뀐다. 빈 Docs를 색인한 경우에도 **색인 시작**을 유지하고, 실패하면 같은 버튼으로 재시도한다.
+5. **색인된 파일**에서 경로를 필터링하고 파일별 청크 수를 확인한다. 목록은 현재 접근 가능한 가시 파일로 다시 제한한다. **재색인**은 원문에서 파생 색인만 다시 만든다.
+
+- 기본 모델 `Xenova/multilingual-e5-small` q8(384차원)은 첫 검색·재색인 때 약 130MB를 내려받아 `<MEW_DATA_DIR>/rag/models`에 캐시한다. 문서는 외부 API로 보내지 않는다.
+- DB와 manifest는 `<MEW_DATA_DIR>/rag/indexes/<workspace-hash>`에 있다. Markdown·코드가 SSoT이고 색인은 재생성 가능한 캐시다. 패널의 **색인 있음**은 색인된 청크 존재 여부이며 최신 원문 확인은 검색·재색인 때 수행한다.
+- 파일 크기·mtime fingerprint가 바뀐 파일만 다시 임베딩한다. 파일 상한 4,000개, 단일 파일 크기 상한은 `MEW_RAG_MAX_FILE_BYTES`다. docs는 MOC의 Current를 기본 검색하고 history를 켰을 때만 History/raw와 대체 ADR을 포함한다.
+- 모델 다운로드·초기 인덱싱이 실패하면 의미 검색 오류를 패널에 표시하고 재시도할 수 있다. 기존 정확/정규식 검색은 유지된다.
+- API: `GET /api/search/semantic?q=&project=&history=0|1`, `GET /api/rag/status`, `GET /api/rag/documents`, `GET/PUT /api/rag/settings`, `POST /api/rag/reindex`. 프로젝트 API는 선택적 `workspace` 경로를 검사해 바뀐 루트에 요청을 적용하지 않는다. 설정 API는 서버 전체 스코프다.
+
+운영·복구는 [RAG 런북](../operations/rag.md), 결정은 [ADR 0167](../../../.mew/docs/decisions/0167-mew-shared-rag-panel-and-agent-guidance.md)을 따른다.

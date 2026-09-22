@@ -19,6 +19,8 @@ MEW_COLLAB_RUST=1 npm run serve
 
 `.node`는 플랫폼별 산물이라 커밋하지 않는다. `MEW_COLLAB_RUST=1`인데 로드가 실패하면 **조용히 JS로 돌지 않고 던진다** — 어느 구현이 도는지 모르는 상태가 협업 경로에서 제일 위험하다.
 
+서버의 헤드리스 에디터 DOM은 `window`·`document`와 함께 같은 Window를 가리키는 `self`를 제공한다. 브라우저 전역 일부만 있으면 RAG의 Transformers.js가 브라우저 경로를 감지한 뒤 `self is not defined`로 초기화에 실패한다. 기존 전역은 덮어쓰지 않는다. RAG는 DOM 유무와 관계없이 Node CPU·파일 캐시를 사용한다.
+
 ## 활성 mew 세션 (presence)
 
 - 프로젝트 헤더의 햄버거 왼쪽 숫자는 `/api/presence`에 연결된 **브라우저 탭·창별 세션 수**다. 같은 계정의 여러 탭, 백그라운드 탭, 게스트도 각각 센다. 로그인 쿠키 수·에이전트 실행 수와는 별개이며 로그인 화면은 집계하지 않는다.

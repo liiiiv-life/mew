@@ -1,3 +1,4 @@
+import { readRagSettings, parseRagSettings, saveRagSettings } from './rag/settings.ts'
 import { ProjectSetupError } from './project-agent-settings.ts'
 import { createProjectSetupRouter } from './project-setup-routes.ts'
 import { createSubproject, projectDirectory, subprojectToOpen } from './subprojects.ts'
@@ -23,7 +24,7 @@ import {
 } from './fileCatalog.ts'
 import { searchFileNames } from './fileNameSearch.ts'
 import { ensureSearchIndex, exactSearchCandidates, type SearchIndexState } from './searchCatalog.ts'
-import { currentRagIndex, ragEnabled, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
+import { currentRagIndex, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
 import { cloneExternalRepository, commitDetail, commitFileDiff, commitWorkingTree, GitWorkbenchError, initializeExternalRepository, initializeRepository, listRepositories, repositoryInfo, repositoryLog, runCommitAction, workingTreeDetail, workingTreeFileDiff } from './gitWorkbench.ts'
 import { evaluateRules, isArchived } from './rules.ts'
@@ -351,7 +352,7 @@ function filePermissionMiddleware(req: express.Request, res: express.Response, n
     allowed = fileAccess(auth, project, body.relPath).edit
   } else if (route === '/upload' || route === '/upload-into' || route === '/project-icon' || route === '/project-layout') {
     allowed = canUse(auth, 'filesWrite') && canUse(auth, 'filesRead')
-  } else if (route.startsWith('/git/') || route === '/rag/status' || route === '/rag/reindex') {
+  } else if (route.startsWith('/git/') || route === '/rag/status' || route === '/rag/reindex' || route === '/rag/documents') {
     allowed = unrestrictedFiles(auth, project, write)
   } else if (route === '/db' || route.startsWith('/db/')) {
     allowed = canUse(auth, 'database') && unrestrictedFiles(auth, project, write)
@@ -1444,6 +1445,14 @@ export function createApiApp() {
 
   // 의미 검색(RAG retrieval) — 인덱스는 권한 경계가 아니라 파생 캐시다. 로그인 사용자만 허용하고,
   // 결과도 요청 시점의 기본 트리에 보이는 파일 집합으로 다시 제한한다.
+  app.use(['/search/semantic', '/rag/status', '/rag/documents', '/rag/reindex'], (req, res, next) => {
+    const expected = req.method === 'GET' ? req.query.workspace : req.body?.workspace
+    if (expected !== undefined && expected !== WORKSPACE_ROOT) {
+      res.status(409).json({ error: '프로젝트가 변경되었습니다. 현재 프로젝트에서 다시 열어 주세요.' }); return
+    }
+    next()
+  })
+
   app.get('/search/semantic', requireAuthenticated, async (req, res) => {
     const project = projectOf(req)
     const query = String(req.query.q ?? '').trim()
@@ -1457,22 +1466,42 @@ export function createApiApp() {
         return
       }
       validateRagProject(project)
+      const workspace = WORKSPACE_ROOT, index = currentRagIndex()
       const files = flattenTextFiles(await buildTreeAsync(project)).filter(relPath => fileAccess(authOf(req), project, relPath).view)
-      res.json(await currentRagIndex().search(project, files, query, req.query.history === '1'))
+      if (workspace !== WORKSPACE_ROOT) { res.status(409).json({ error: '프로젝트가 변경되었습니다.' }); return }
+      res.json(await index.search(project, files, query, req.query.history === '1'))
     } catch (err) {
       handleError(res, err)
     }
+  })
+
+  app.get('/rag/settings', requireAuthenticated, (_req, res) => {
+    try { res.json(readRagSettings()) } catch (err) { handleError(res, err) }
+  })
+
+  app.put('/rag/settings', requireFeature('system'), (req, res) => {
+    let settings
+    try { settings = parseRagSettings(req.body) }
+    catch { res.status(400).json({ error: 'RAG 설정값이 올바르지 않습니다.' }); return }
+    try { res.json(saveRagSettings(settings)) } catch (err) { handleError(res, err) }
+  })
+
+  app.get('/rag/documents', requireAuthenticated, async (req, res) => {
+    const project = projectOf(req)
+    try {
+      validateRagProject(project)
+      const workspace = WORKSPACE_ROOT, index = currentRagIndex(true)
+      const files = flattenTextFiles(await buildTreeAsync(project)).filter(relPath => fileAccess(authOf(req), project, relPath).view)
+      if (workspace !== WORKSPACE_ROOT) { res.status(409).json({ error: '프로젝트가 변경되었습니다.' }); return }
+      res.json({ documents: index.documents(project, files) })
+    } catch (err) { handleError(res, err) }
   })
 
   app.get('/rag/status', requireAuthenticated, (req, res) => {
     const project = projectOf(req)
     try {
       validateRagProject(project)
-      if (!ragEnabled()) {
-        res.json({ enabled: false, model: '', ready: false, indexedFiles: 0, indexedChunks: 0 })
-        return
-      }
-      res.json(currentRagIndex().status(project))
+      res.json(currentRagIndex(true).status(project))
     } catch (err) {
       handleError(res, err)
     }
@@ -1482,8 +1511,10 @@ export function createApiApp() {
     const project = projectOf(req)
     try {
       validateRagProject(project)
+      const workspace = WORKSPACE_ROOT, index = currentRagIndex()
       const files = flattenTextFiles(await buildTreeAsync(project)).filter(relPath => fileAccess(authOf(req), project, relPath).view)
-      res.json({ ok: true, ...(await currentRagIndex().ensureProject(project, files, true)) })
+      if (workspace !== WORKSPACE_ROOT) { res.status(409).json({ error: '프로젝트가 변경되었습니다.' }); return }
+      res.json({ ok: true, ...(await index.ensureProject(project, files, true)) })
     } catch (err) {
       handleError(res, err)
     }
