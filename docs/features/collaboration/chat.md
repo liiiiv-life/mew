@@ -2,11 +2,13 @@
 id: "mew-collaboration-chat"
 parent: "mew-collaboration"
 title: "단체 채팅·DM·읽음 확인"
-status: "implemented"
+status: "needs-fix"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: "2026-09-21T23:58:19.040Z"
 status_hash: "3044869fecf2142055b3c8efdd3a51053186e282981a1bed5e342a14f6bbb8ae"
-files: ["src/components/ChatPanel.tsx", "server/chat.ts"]
+files:
+  - src/components/ChatPanel.tsx
+  - server/chat.ts
 commits: []
 ---
 

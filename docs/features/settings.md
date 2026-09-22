@@ -2,9 +2,9 @@
 id: "mew-settings"
 parent: null
 title: "화면·계정·운영"
-status: "implemented"
+status: "verified"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: "2026-09-21T23:58:11.342Z"
 status_hash: "66acae9698f920a11450fd0360475c1ab19b8d7e798fdd7f1215e0c9c4cb4d28"
 files: []
 commits: []
