@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "패널 배치·모바일·상태 복원"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: "2026-09-22"
 status_hash: "018bca32e486b43c386b29de3e2087d6d1447fae6a33abc99d745367947a9382"
 files: ["src/App.tsx", "src/hooks/useTabs.ts", "server/userUiState.ts"]
 commits: []
@@ -32,6 +32,8 @@ commits: []
 ## 구현 내용
 
 문서 탭·분할·도킹·크기 조절·계정별 복원과 모바일 플로팅 핸들·전체화면·뒤로가기를 제공한다.
+
+모바일 화면 왼쪽 가운데에 사이드바 열기 버튼을 제공한다. 본문을 덜 가리도록 외형과 아이콘을 작게 표시하고, 투명 여백으로 터치 영역을 확보한다. 기존 패널 전면 스택을 사용하고, 사이드바가 전면이면 숨긴다.
 
 <!-- mew:implementation:end -->
 

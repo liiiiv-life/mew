@@ -4,7 +4,7 @@ parent: "mew-projects"
 title: "프로젝트 열기·탭·그룹"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: "2026-09-22"
 status_hash: "03b352e53f93242f9efdfd05c5bd632f9bf92dd1a456279d6b0eb0efd066cd3f"
 files: ["src/components/OpenProjectDialog.tsx", "src/components/RootProjectTabs.tsx", "server/projects.ts", "server/cloud-storage.ts"]
 commits: []
@@ -33,6 +33,8 @@ commits: []
 ## 구현 내용
 
 폴더 탐색·클라우드 바로가기·새 폴더·Git clone·Git 초기화를 프로젝트 선택 창에서 제공한다.
+
+탭 그룹은 접기·펴기 토글 없이 항상 펼쳐 보이며, 상하 여백 없이 기존 테두리로 구분한다. 이전 접힘 상태를 복원해도 모든 탭이 표시된다. 프로젝트 전환 중에는 탭바 문구 대신 전체 화면 로딩 인디케이터를 표시하고, 완료·실패 후 닫는다.
 
 <!-- mew:implementation:end -->
 

@@ -135,18 +135,9 @@ export function RootProjectTabs({ paths, groups, activePath, fallbackLabel, canO
         const preview = grouping && targetGroup?.id === group.id
         const outside = target?.type === 'insert' && target.outsideGroup && targetGroup?.id === group.id ? target.side : null
         return <div key={group.id} data-project-group={group.id} role="group" aria-label={group.paths.map(labelOf).join(', ')}
-          className={`relative my-1 flex shrink-0 items-stretch rounded-md border px-1.5 ${preview ? 'border-accent bg-accent/15 outline-2 -outline-offset-2 outline-dashed outline-accent' : active ? 'border-accent/60 bg-accent/5' : 'border-edge-bright bg-surface-deep'}`}>
+          className={`relative flex shrink-0 items-stretch rounded-md border px-1.5 ${preview ? 'border-accent bg-accent/15 outline-2 -outline-offset-2 outline-dashed outline-accent' : active ? 'border-accent/60 bg-accent/5' : 'border-edge-bright bg-surface-deep'}`}>
           {outside && <span aria-hidden="true" className={`pointer-events-none absolute inset-y-0 w-0.5 bg-accent ${outside === 'before' ? 'left-0' : 'right-0'}`} />}
-          <button type="button" data-project-group-toggle={group.id} aria-expanded={!group.collapsed} disabled={!canArrange}
-            aria-label={`${t(group.collapsed ? 'project.expandGroup' : 'project.collapseGroup')}: ${group.paths.map(labelOf).join(', ')}`}
-            title={group.paths.map(labelOf).join(', ')}
-            onClick={() => { if (!gesture.consumeClick()) onLayoutChange?.({ ...layout, groups: layout.groups.map(g => g.id === group.id ? { ...g, collapsed: !g.collapsed } : g) }) }}
-            className="flex shrink-0 items-center gap-1 px-1.5 text-xs text-ink-secondary hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 7V5h7l2 2h9v13H3Z" /><path d={group.collapsed ? 'm10 10 3 3-3 3' : 'm8 12 4 4 4-4'} /></svg>
-            {group.collapsed && <span className="max-w-28 truncate">{labelOf(active && activePath ? activePath : group.paths[0])}</span>}
-            <span className="tabular-nums">{group.paths.length}</span>
-          </button>
-          {!group.collapsed && group.paths.map(tab)}
+          {group.paths.map(tab)}
         </div>
       })}
       {gesture.drag && canArrange && <div data-project-drop-end className={`flex h-full shrink-0 items-center border-x border-dashed px-3 text-xs ${target?.type === 'end' ? 'border-accent bg-accent/15 text-ink' : 'border-edge-bright text-ink-secondary'}`}>{t('project.outsideGroup')}</div>}

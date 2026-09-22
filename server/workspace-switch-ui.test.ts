@@ -13,7 +13,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
   const appSource = await fs.readFile(`${root}/src/App.tsx`, 'utf8')
   // Keep App, useTabs, FileTree, root tabs and docking real. Unrelated panels and the
   // editor renderer are inert so this measures handoff work rather than editor startup.
-  const keep = new Set(['RootProjectTabs', 'FileTree', 'DockWorkspace', 'ProjectIcon', 'SubprojectLink', 'SidebarCreateButtons', 'featureCopy'])
+  const keep = new Set(['RootProjectTabs', 'ProjectLoadingOverlay', 'FileTree', 'DockWorkspace', 'ProjectIcon', 'SubprojectLink', 'SidebarCreateButtons', 'featureCopy'])
   const stubs = new Map<string, string>()
   for (const match of appSource.matchAll(/import \{ ([^\n]+) \} from '(\.\/components\/[^']+)'/g)) {
     const names = match[1].split(',').map(n => n.trim()).filter(n => !n.startsWith('type '))
@@ -35,12 +35,12 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8'))
   } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = (await Promise.all(['src/components/RootProjectTabs.tsx', 'src/components/FileTree.tsx', 'src/components/DockWorkspace.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/RootProjectTabs.tsx', 'src/components/project-loading-overlay.tsx', 'src/components/FileTree.tsx', 'src/components/DockWorkspace.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content + appSource).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
-    const page = await browser.newPage({ viewport: { width: 1100, height: 700 } })
+    const page = await browser.newPage({ viewport: { width: 1100, height: 700 }, hasTouch: true })
     page.setDefaultTimeout(3000)
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
@@ -124,11 +124,24 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     assert.equal(countUi('/beta'), 1)
     assert.equal(requests.filter(r => r.path === '/api/user-ui/agent-tabs' && r.root === '/beta').length, 1, 'agent metadata also starts before the switch completes')
     assert.equal(active, '/alpha')
+    const loading = page.getByRole('dialog', { name: '불러오는 중…' })
+    await loading.waitFor()
+    for (const width of [1100, 390]) {
+      await page.setViewportSize({ width, height: 700 })
+      assert.deepEqual(await loading.boundingBox(), { x: 0, y: 0, width, height: 700 })
+      await page.screenshot({ path: `/tmp/mew-project-loading-${width}.png` })
+    }
+    await page.setViewportSize({ width: 1100, height: 700 })
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Tab')
+    assert.equal(await loading.evaluate(el => el.matches(':modal') && el.contains(el.ownerDocument.activeElement)), true, 'loading keeps background controls inert')
+    assert.equal(await page.locator('header').getByText('프로젝트 여는 중…').count(), 0)
     await page.locator('[data-test-content]').getByText('Content of /alpha', { exact: true }).waitFor()
     releaseUi!(); blockUi = false
     await page.waitForTimeout(40)
     releaseSwitch!(); blockSwitch = false
     await page.locator('[data-test-content]').getByText('Content of /beta', { exact: true }).waitFor()
+    await loading.waitFor({ state: 'detached' })
     assert.equal(countUi('/beta'), 1, 'prefetch is reused by hydration')
     assert.equal(await page.evaluate(() => (globalThis as unknown as { preparedAgentRoot: string }).preparedAgentRoot), '/beta')
     const treeCount = requests.filter(r => r.path === '/api/tree').length
@@ -161,9 +174,32 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     const betaCache = await page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.includes('mew:content:') && key.includes('/beta:')).map(([, value]) => value).join(''))
     assert.doesNotMatch(betaCache, /Late response/, 'late old-root response cannot pollute the current content cache')
     failSwitch = true
-    await tab('/alpha').click(); await page.waitForTimeout(100)
+    blockSwitch = true
+    await tab('/alpha').click()
+    await loading.waitFor()
+    await page.waitForTimeout(100)
+    releaseSwitch!(); blockSwitch = false
+    await loading.waitFor({ state: 'detached' })
     await page.locator('[data-test-content]').getByText('Content of /beta', { exact: true }).waitFor()
     assert.equal(active, '/beta', 'failed switch retains current project')
+    const sidebarOpener = page.locator('[data-mobile-sidebar-opener]')
+    assert.equal(await sidebarOpener.isVisible(), false, 'desktop has no floating sidebar opener')
+    await page.setViewportSize({ width: 390, height: 700 })
+    const sidebar = page.locator('[data-sidebar]')
+    if (await sidebar.isVisible()) await sidebar.getByRole('button', { name: '사이드바 닫기', exact: true }).click()
+    await sidebarOpener.waitFor()
+    const openerBox = await sidebarOpener.boundingBox()
+    assert.ok(openerBox && openerBox.x === 0 && openerBox.width >= 44 && openerBox.height >= 44)
+    assert.ok(Math.abs(openerBox.y + openerBox.height / 2 - 350) < 1, 'opener is centered on the left screen edge')
+    for (const dark of [false, true]) {
+      await page.evaluate(`document.documentElement.classList.toggle('dark', ${dark})`)
+      await page.screenshot({ path: `/tmp/mew-mobile-sidebar-opener-${dark ? 'dark' : 'light'}.png` })
+    }
+    await sidebarOpener.tap()
+    await sidebar.waitFor({ state: 'visible' })
+    assert.equal(await sidebarOpener.count(), 0, 'opener hides while sidebar is in front')
+    await sidebar.getByRole('button', { name: '사이드바 닫기', exact: true }).tap()
+    await sidebarOpener.waitFor()
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })

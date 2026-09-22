@@ -27,6 +27,7 @@ import {
 } from './api/client'
 import { SubprojectLink } from './components/subproject-link'
 import { RootProjectTabs } from './components/RootProjectTabs'
+import { ProjectLoadingOverlay } from './components/project-loading-overlay'
 import { normalizeProjectTabLayout, type ProjectTabGroup } from '../shared/project-tab-groups'
 import { OpenProjectDialog } from './components/OpenProjectDialog'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
@@ -1878,7 +1879,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           />
           {/* 햄버거 왼쪽에는 로그인 사용자의 활성 세션 수 또는 게스트의 로그인 진입점을 둔다. */}
           <div className="flex shrink-0 items-center gap-1.5 pl-2 text-sm md:gap-3 md:pl-4">
-            {switchingRootProject && <span className="text-xs text-ink-secondary">프로젝트 여는 중…</span>}
             {isGuest && (
               <button
                 type="button"
@@ -2200,6 +2200,20 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
       <Mewcat skin={mewcatSkin} />
 
+      {mobileForegroundPanel !== 'sidebar' && <button
+        type="button" data-mobile-sidebar-opener
+        onClick={() => openWorkspacePanel('sidebar')}
+        aria-label={t('sidebar.open')} title={t('sidebar.open')}
+        className="group fixed z-40 flex h-11 w-11 -translate-y-1/2 items-center justify-start text-ink-secondary hover:text-ink focus-visible:outline-none md:hidden"
+        style={{ left: 'env(safe-area-inset-left, 0px)', top: 'calc(var(--app-height, 100dvh) / 2)' }}
+      >
+        <span className="flex h-9 w-7 items-center justify-center rounded-r-lg border border-l-0 border-edge-strong bg-surface-raised group-hover:bg-surface-hover group-active:bg-surface-hover group-focus-visible:outline-2 group-focus-visible:-outline-offset-2 group-focus-visible:outline-accent">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16m4-11 3 3-3 3" />
+          </svg>
+        </span>
+      </button>}
+
       <FabMenu
         onFullscreen={toggleFullscreen}
         onNextWindowTab={switchCurrentWindowTabRight}
@@ -2295,6 +2309,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       )}
 
       {toast}
+      {switchingRootProject && <ProjectLoadingOverlay />}
     </div>
   )
 }
