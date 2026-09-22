@@ -30,6 +30,47 @@ const md = (e: Ed) => (e.storage as any).markdown.getMarkdown() as string
 
 const TABLE = `| A | B |\n| --- | --- |\n| 1 | 2 |`
 
+test('파일 링크 컨테이너는 내부 경로에만 표시하고 Markdown 왕복 저장을 보존한다', () => {
+  const content = '[문서](../guide.md#intro) · [코드](./src/main.ts) · [한글](./가이드.md)\n\n'
+    + '[웹](https://example.com) · [웹2](//example.com) · [메일](mailto:hello@example.com) · [앵커](#intro)\n\n'
+    + '- [**굵은 파일**](./guide.md)\n\n'
+    + '| 파일 |\n| --- |\n| [설정](./config.json) |'
+  const e = makeEditor(content)
+  try {
+    const links = [...e.view.dom.querySelectorAll('a')]
+    assert.deepEqual(links.map((link) => link.hasAttribute('data-file-link')), [true, true, true, false, false, false, false, true, true])
+    assert.ok(links.every((link) => link.getAttribute('href')))
+    const saved = md(e)
+    assert.doesNotMatch(saved, /data-file-link|<a|<span|<svg/)
+    assert.match(saved, /\[문서\]\(\.\.\/guide\.md#intro\)/)
+    assert.match(saved, /\[\*\*굵은 파일\*\*\]\(\.\/guide\.md\)/)
+    e.commands.setContent(saved)
+    assert.equal(md(e), saved)
+    assert.equal(e.view.dom.querySelectorAll('a[data-file-link]').length, 5)
+    assert.ok(e.view.dom.querySelector('td a[data-file-link]'))
+  } finally {
+    e.destroy()
+  }
+})
+
+test('링크 대상을 편집하면 내부 파일 컨테이너 표시도 즉시 바뀐다', () => {
+  const e = makeEditor('[문서](./guide.md)')
+  try {
+    e.commands.setTextSelection({ from: 1, to: 3 })
+    e.commands.setLink({ href: 'https://example.com' })
+    assert.equal(e.view.dom.querySelector('a')?.hasAttribute('data-file-link'), false)
+    assert.equal(md(e).trim(), '[문서](https://example.com)')
+    e.commands.setLink({ href: '../other.md' })
+    assert.ok(e.view.dom.querySelector('a[data-file-link]'))
+    assert.equal(md(e).trim(), '[문서](../other.md)')
+    e.commands.unsetLink()
+    assert.equal(e.view.dom.querySelector('a'), null)
+    assert.equal(md(e).trim(), '문서')
+  } finally {
+    e.destroy()
+  }
+})
+
 /** 문서에서 조건에 맞는 노드들의 pos 목록 */
 function findPos(e: Ed, pred: (name: string) => boolean): number[] {
   const out: number[] = []

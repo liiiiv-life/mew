@@ -17,7 +17,7 @@ import BulletList from '@tiptap/extension-bullet-list'
 import OrderedList from '@tiptap/extension-ordered-list'
 import Blockquote from '@tiptap/extension-blockquote'
 import HorizontalRule from '@tiptap/extension-horizontal-rule'
-import Link from '@tiptap/extension-link'
+import { EditorLink as Link } from './editor/file-link.ts'
 import { TableKit } from '@tiptap/extension-table'
 import { Markdown } from 'tiptap-markdown'
 // 이 모듈 그래프는 server/collabAgent가 Node에서 직접 로드하므로(@mew/editor/server 서브패스),
