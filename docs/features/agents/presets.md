@@ -6,7 +6,7 @@ status: "implemented"
 created: "2026-09-18"
 updated: "2026-09-22"
 status_hash: "3e9a3293848b77d07af2e0bbeb65a930bb54c18ce2da6a1b7543c145fb06a0b9"
-files: ["src/components/AgentSetPicker.tsx", "server/agentSets.ts", "server/agentCwd.ts"]
+files: ["src/components/AgentPanel.tsx", "src/components/AgentSetPicker.tsx", "server/agentSets.ts", "server/agentCwd.ts"]
 commits: []
 ---
 
@@ -17,6 +17,7 @@ commits: []
 ### 범위
 
 - 에이전트셋 생성·편집·선택과 프로젝트별 탭·탭 이름 관리를 제공한다.
+- 에이전트 탭이 없으면 `+` 선택 화면으로 바로 시작한다. 기존 탭은 복원하고 런타임·셋 선택 후에만 새 탭을 만든다.
 - Git의 AI Commit에서도 기존 셋을 선택하거나 새로 생성해 커밋 초안 작업에 사용한다.
 
 ### 경계와 제한

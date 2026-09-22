@@ -4,7 +4,7 @@
 
 ## 대화 진행과 기록
 
-헤더 메뉴 → **에이전트**(`Alt+L`) → `+`에서 런타임을 고르고 설치·로그인을 마친다. Claude Agent·Antigravity·Codex 등은 ACP 채팅에서 조작한다. 일반 셸은 메뉴 → **터미널**(`Ctrl+백틱`·`Alt+T`)에서 연다.
+헤더 메뉴 → **에이전트**(`Alt+L`)를 열면 탭이 없을 때 `+` 선택 화면이 바로 표시된다. 런타임을 고르고 설치·로그인을 마친다. 기존 탭이 있으면 복원하며, 추가할 때는 `+`를 누른다. Claude Agent·Antigravity·Codex 등은 ACP 채팅에서 조작한다. 일반 셸은 메뉴 → **터미널**(`Ctrl+백틱`·`Alt+T`)에서 연다.
 
 - ACP 입력창에 프롬프트를 적고 전송 버튼 또는 `Ctrl+Enter`로 보낸다. `@` 참조·`/` 스킬·첨부·입력 기록은 [입력 사용법](../specs/agent-input-mentions.md)을 따른다.
 - 터미널·에이전트 입력칸의 힌트는 **텍스트 입력**으로 통일한다. 작업 중·승인 대기·키보드 잠금 상태에도 같은 짧은 문구를 쓰며, 화면 언어에 따라 영어 `Enter text`·일본어 `テキスト入力`·중국어 `输入文本`으로 표시한다.
@@ -47,7 +47,7 @@ Codex CLI에서 같은 세션을 `resume`해 이어 쓴 뒤 mew에 돌아오면 
 - 서버: `server/agentRuntimes.ts`(공통 런타임·표면 등록표) + `server/agentTerminal.ts`(terminal 탭의 tmux 수명) + `server/agentDefaults.ts`(ACP 런타임별 모델·권한 기본값) + `server/agentAcp.ts`(ACP 세션) + `server/agentHost.ts`(ACP 탭별 독립 감독) + `server/agentWs.ts`(WS↔감독 릴레이). 클라이언트: `src/components/AgentPanel.tsx`가 ACP 채팅과 `@mew/tmux-term` 터미널 본문을 표면별로 고른다. 접근은 **owner/manager**(`authorizeTmux`와 같은 집합) — 어느 표면이든 셸을 쓸 수 있어 tmux와 같은 경계여야 한다.
 - ACP 채팅 입력창의 `/` 스킬, `@` 프로젝트·폴더·파일 멘션, 첨부·입력 기록·높이 조절은 [입력 사용법](../specs/agent-input-mentions.md)을 따른다. 스킬은 `CODEX_HOME/skills`와 `<워크스페이스>/.agents/skills`에서 읽고, 서버가 선택한 스킬 id를 런타임 등록표에 따라 프롬프트로 합성한다.
 - 질문 위에는 전송 시점의 **모델 · 추론 정도 · 권한**을 양쪽 선과 함께 남긴다. 첫 질문도 표시하며, 이전 질문과 셋 중 하나라도 달라질 때만 다시 표시한다. 이 값은 ACP 이벤트 전사에 같이 저장돼 재접속·세션 복원 뒤에도 당시 설정을 보인다.
-- `+`와 탭이 없을 때 가운데의 **새 탭** 버튼은 탭을 먼저 만들지 않고 **새 탭 선택기**를 연다. 런타임을 고르면 그 이름의 탭이 열리고, `tmux 터미널`은 전용 셸 세션을, Antigravity·Claude를 포함한 ACP 런타임은 채팅 세션을 시작한다. 에이전트셋은 모델·역할을 주입할 수 있는 ACP 채팅 런타임만 대상으로 한다. 선택 전에는 탭·WS·프로세스가 없고, 탭 이름은 직접 바꿀 수 있다. 정의는 `GET`·`PUT /api/agent-sets`(owner/manager)로 `<DATA_DIR>/agent-sets.json`에 저장된다 ([ADR 0095](../../../.mew/docs/decisions/0095-mew-agent-sets-as-tab-presets.md)·[ADR 0119](../../../.mew/docs/decisions/0119-mew-unified-terminal-agent-panel.md)).
+- `+`는 탭을 먼저 만들지 않고 **새 탭 선택기**를 연다. 에이전트 탭이 없으면 서버의 탭 복원 확인 후 같은 선택기를 바로 표시하고 `+`를 선택 상태로 보여 준다. 첫 진입과 마지막 탭을 닫은 뒤의 불필요한 클릭을 줄이기 위해 가운데 **새 에이전트/새 탭** 버튼 단계는 제거했다. 별도 재시도 금지 정책은 없다. 런타임을 고르면 그 이름의 탭이 열리고, `tmux 터미널`은 전용 셸 세션을, Antigravity·Claude를 포함한 ACP 런타임은 채팅 세션을 시작한다. 에이전트셋은 모델·역할을 주입할 수 있는 ACP 채팅 런타임만 대상으로 한다. 선택 전에는 탭·WS·프로세스가 없고, 탭 이름은 직접 바꿀 수 있다. 정의는 `GET`·`PUT /api/agent-sets`(owner/manager)로 `<DATA_DIR>/agent-sets.json`에 저장된다 ([ADR 0095](../../../.mew/docs/decisions/0095-mew-agent-sets-as-tab-presets.md)·[ADR 0119](../../../.mew/docs/decisions/0119-mew-unified-terminal-agent-panel.md)).
 - 답변의 **현재 워크스페이스 파일 링크**를 누르면 브라우저 새 탭이 아니라 같은 mew에서 해당 프로젝트와 문서 탭을 연다. `:줄`·`#L줄`이 붙으면 그 줄로 이동하며, Markdown도 정확한 원본 줄을 보여 주기 위해 이 경우 Plain으로 연다. `GET /api/agent-file-link?href=`가 서버 절대경로를 노출하지 않고 `{project,path,line}`으로 검증·변환한다(owner/manager). 웹 링크는 계속 새 브라우저 탭으로 연다.
 - 탭의 \*\*작업 경로(cwd)\*\*는 새 탭을 열 때 현재 워크스페이스 루트로 정해지며 화면에서 바꾸지 않는다. 경로는 ACP 세션·히스토리의 기준으로 계속 저장하지만, 주소창 형태의 입력줄은 없다 ([ADR 0097](../../../.mew/docs/decisions/0097-mew-agent-panel-removes-cwd-bar.md)).
 - ACP 채널은 `/api/agent/ws?runtime=<id>&tab=<id>&cwd=<absolute-path>&resume=<session-id>`이고 terminal 표면은 `POST /api/agent-runtimes/:id/terminal/:tab`으로 전용 tmux를 준비한 뒤 기존 `/api/tmux/ws?session=<server-name>`에 붙는다. 어느 쪽이든 **탭 하나가 세션 하나**다. 패널·브라우저를 닫아도 세션은 남으며, 탭의 `×`만 ACP 감독 또는 terminal tmux를 종료한다. terminal tmux 이름은 `mewagent-*`로 서버가 만들고 사용자 세션 목록에서는 숨긴다.

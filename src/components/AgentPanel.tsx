@@ -1476,8 +1476,9 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
   const tabsKey = agentTabStorageKey(TABS_KEY, workspacePath)
   const activeTabKey = agentTabStorageKey(ACTIVE_TAB_KEY, workspacePath)
   const [tabs, setTabs] = useState<AgentTab[]>(() => loadTabs(workspacePath))
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerRequested, setPickerOpen] = useState(false)
   const [tabsSynced, setTabsSynced] = useState(false)
+  const pickerOpen = pickerRequested || (!docked && tabsSynced && tabs.length === 0)
   // 다른 기기·다른 루트 화면의 탭도 같은 ACP thread를 잡을 수 있다. 히스토리를 열 때 다시 읽어
   // 마지막 저장 이후 생긴 점유까지 반영한다. 정적 첫 조회만 믿으면 이미 열린 thread를 또 load해
   // Codex가 "active writer" internal error로 거절한다.
@@ -1666,9 +1667,9 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultCwd])
 
-  const addSetTab = (set: AgentSet) => {
+  const addSetTab = (set: AgentSet, destination = pickerGroup) => {
     try { writeBrowserStorage(RUNTIME_KEY, set.runtime) } catch { /* 최근 런타임 기억은 선택을 막지 않는다 */ }
-    addRuntimeTab(set.runtime, { id: set.id, name: set.name, modelId: set.modelId, role: set.role })
+    addRuntimeTab(set.runtime, { id: set.id, name: set.name, modelId: set.modelId, role: set.role }, destination)
   }
 
   const closeTab = (id: string) => {
@@ -1855,7 +1856,8 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
   }
   if (dock) return <>
     {panelGroups.filter(group => group.startsWith('terminal') ? allowTerminal : allowAgent).map((group) => {
-      const terminal = group.startsWith('terminal'), list = groupTabs(group), selected = groupActive(group), picking = pickerOpen && pickerGroup === group
+      const terminal = group.startsWith('terminal'), list = groupTabs(group), selected = groupActive(group)
+      const picking = !terminal && ((pickerOpen && pickerGroup === group) || (tabsSynced && !tabs.some((tab) => tab.runtime !== 'tmux')))
       return <DockPanel key={group} id={group} tabs={list.map((tab) => tab.id)} kind={terminal ? 'terminal' : 'agent'} visible={(terminal ? terminalOpen : agentOpen) && (list.length > 0 || !tabs.some((tab) => (tab.runtime === 'tmux') === terminal))} onFocus={() => focusGroup(group)}>
         <AgentTabBar group={group} tabs={list} activeId={selected} pickerOpen={picking} infos={infos} onActivate={activate}
           onAdd={() => { focusGroup(group); if (terminal) addRuntimeTab('tmux', undefined, group); else { setPickerGroup(group); setPickerOpen(true) } }}
@@ -1865,11 +1867,11 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
           const tab = list.find((tab) => tab.id === selected)
           return tab?.runtime && tab.cwd && runtimeOf(tab.runtime).surface !== 'terminal' ? <AgentCachedPreview tab={tab} /> : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">불러오는 중…</div>
         })()}
-        {tabsSynced && !list.length && !picking && <div className="flex min-h-0 flex-1 items-center justify-center"><button type="button" className="rounded-md border border-edge-bright px-4 py-2 text-sm text-ink-secondary hover:bg-surface-raised" onClick={() => { focusGroup(group); if (terminal) addRuntimeTab('tmux', undefined, group); else { setPickerGroup(group); setPickerOpen(true) } }}>{terminal ? '새 터미널' : '새 에이전트'}</button></div>}
+        {tabsSynced && terminal && !list.length && <div className="flex min-h-0 flex-1 items-center justify-center"><button type="button" className="rounded-md border border-edge-bright px-4 py-2 text-sm text-ink-secondary hover:bg-surface-raised" onClick={() => { focusGroup(group); addRuntimeTab('tmux', undefined, group) }}>새 터미널</button></div>}
         {picking && !terminal && <div className="flex min-h-0 flex-1 flex-col overflow-auto">
           {openRuntimeError && <div role="alert" className="px-4 pt-3 text-xs text-danger">{openRuntimeError}</div>}
           {openingRuntime && <div className="px-4 pt-3 text-xs text-ink-muted">{runtimeOf(openingRuntime).label} 여는 중…</div>}
-          <RuntimePicker onSelect={addRuntimeTab} onSelectSet={addSetTab} />
+          <RuntimePicker onSelect={(runtime) => addRuntimeTab(runtime, undefined, group)} onSelectSet={(set) => addSetTab(set, group)} />
         </div>}
         {terminal && openRuntimeError && <div role="alert" className="px-4 py-3 text-xs text-danger">{openRuntimeError}</div>}
       </DockPanel>
@@ -1908,17 +1910,6 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
           ? <AgentCachedPreview tab={tab} />
           : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">대화 불러오는 중…</div>
       })()}
-      {tabsSynced && tabs.length === 0 && !pickerOpen && (
-        <div className="flex min-h-0 flex-1 items-center justify-center">
-          <button
-            type="button"
-            onClick={addTab}
-            className="rounded-md border border-edge-bright bg-surface px-4 py-2 text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink"
-          >
-            새 탭
-          </button>
-        </div>
-      )}
       {/* 안 보이는 탭도 붙어 있는 채로 둔다 — 돌고 있는 대화가 탭을 바꿨다고 멎으면 안 된다 */}
       {/* 서버 탭 상태를 확인하기 전에는 localStorage의 낡은 thread로 연결하지 않는다. */}
       {tabsSynced && tabs
