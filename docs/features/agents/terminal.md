@@ -4,7 +4,7 @@ parent: "mew-agents"
 title: "tmux 셸 터미널"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: "2026-09-22"
 status_hash: "b19a2771f0bfb2f727bc14539350c69b524d222b67a2322b322f359fefd6a804"
 files: ["src/components/AgentPanel.tsx", "src/components/TermButtonBar.tsx", "server/termButtons.ts", "packages/tmux-term/src/TmuxTerminal.tsx", "packages/tmux-term/src/server/tmuxWs.ts"]
 commits: []
@@ -30,6 +30,8 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+모바일 보조키를 텍스트 입력칸 위로 배치하고 Home·End·Ctrl+C를 추가해 11개 키가 한 줄의 가로 폭을 채우도록 했다. 기존 초안·포커스·키보드 잠금·방향키 이력 탐색을 유지한다. 세부 계약과 검증은 [공용 패키지](../../development/packages.md)를 따른다.
 
 일반 셸 탭 생성·재연결·입력·세션 종료와 터미널 명령 버튼을 제공한다.
 

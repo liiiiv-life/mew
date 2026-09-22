@@ -1,15 +1,18 @@
-// 모바일에서 입력 영역 아래에 항상 붙어 있는 보조키 바 (Termux의 extra keys 같은 역할).
+// 모바일 입력 영역의 보조키 바 (Termux의 extra keys 같은 역할).
 // 키보드가 떠 있을 때만 쓰는 게 아니라 — 키보드를 내린 채 방향키로 스크롤하거나 Esc를 보내는 데도
 // 쓰므로 — 띄울지 말지는 useMobileLayout(화면 폭)이 정한다.
 // 이 컴포넌트는 Ctrl/Shift 토글 상태만 노출한다. 그 토글을 다음에 입력될 글자에 어떻게 결합할지는
 // 호스트가 정한다 — 터미널은 onData를 가로채고, 에디터는 beforeinput을 가로채 단축키로 처리한다.
-function KeyButton({ label, active, onClick }: { label: string; active?: boolean; onClick: () => void }) {
+function KeyButton({ label, ariaLabel, active, onClick, stretch = false }: { label: string; ariaLabel?: string; active?: boolean; onClick: () => void; stretch?: boolean }) {
   return (
     <button
       type="button"
       onMouseDown={(e) => e.preventDefault()} // 포커스(=키보드)를 안 뺏기게 — 버튼 탭이 blur를 유발하면 안 됨
       onClick={onClick}
-      className={`flex h-6 min-w-6 shrink-0 items-center justify-center rounded px-1.5 text-[10px] leading-none font-medium ${
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      aria-pressed={active}
+      className={`flex h-6 items-center justify-center rounded text-[10px] leading-none font-medium focus-visible:outline-2 focus-visible:outline-ink ${stretch ? 'min-w-0 flex-1 px-0.5' : 'min-w-6 shrink-0 px-1.5'} ${
         active ? 'bg-accent text-ink-on-accent' : 'bg-surface-raised text-ink-secondary hover:bg-surface-hover'
       }`}
     >
@@ -32,6 +35,8 @@ export function MobileKeyBar({
   onUndo,
   onRedo,
   placement = 'fixed',
+  stretch = false,
+  extraKeys = [],
 }: {
   ctrlActive: boolean
   shiftActive: boolean
@@ -50,22 +55,26 @@ export function MobileKeyBar({
   onUndo?: () => void
   /** 주면 다시 실행 아이콘이 뜬다 — Ctrl+Y와 같은 경로로 다시 실행한다 */
   onRedo?: () => void
-  /** 터미널처럼 자기 입력칸 아래 공간을 차지해야 하면 flow를 쓴다. */
+  /** 터미널처럼 입력칸과 함께 레이아웃 공간을 차지해야 하면 flow를 쓴다. */
   placement?: 'fixed' | 'flow'
+  /** 사용 가능한 너비를 한 줄의 키에 균등 배분한다. */
+  stretch?: boolean
+  extraKeys?: Array<{ label: string; ariaLabel?: string; onClick: () => void }>
 }) {
   return (
     // z-20 — 전체 화면 오버레이(사이드바·채팅·에이전트·터미널)는 z-30이다. 같은 z-30으로 두면
     // DOM 순서상 에디터가 사이드바보다 뒤라 보조키가 사이드바 위에 떠 버린다
-    <div className={`${placement === 'fixed' ? 'fixed inset-x-0 bottom-0 z-20' : 'relative z-20 shrink-0'} flex h-8 items-center gap-0.5 overflow-x-auto border-t border-edge bg-surface-deep px-1.5 py-1 shadow-[0_-3px_12px_rgba(0,0,0,0.16)]`}>
-      <KeyButton label="Esc" onClick={onEsc} />
-      <KeyButton label="Tab" onClick={onTab} />
-      <KeyButton label="Ctrl" active={ctrlActive} onClick={onToggleCtrl} />
-      <KeyButton label="Shift" active={shiftActive} onClick={onToggleShift} />
-      <div className="mx-0.5 h-3.5 w-px shrink-0 bg-edge" />
-      <KeyButton label="←" onClick={() => onArrow('left')} />
-      <KeyButton label="↑" onClick={() => onArrow('up')} />
-      <KeyButton label="↓" onClick={() => onArrow('down')} />
-      <KeyButton label="→" onClick={() => onArrow('right')} />
+    <div data-mobile-key-bar className={`${placement === 'fixed' ? 'fixed inset-x-0 bottom-0 z-20' : 'relative z-20 shrink-0'} flex h-8 items-center gap-0.5 overflow-x-auto border-t border-edge bg-surface-deep px-1.5 py-1 shadow-[0_-3px_12px_rgba(0,0,0,0.16)]`}>
+      <KeyButton stretch={stretch} label="Esc" onClick={onEsc} />
+      <KeyButton stretch={stretch} label="Tab" onClick={onTab} />
+      <KeyButton stretch={stretch} label="Ctrl" active={ctrlActive} onClick={onToggleCtrl} />
+      <KeyButton stretch={stretch} label="Shift" active={shiftActive} onClick={onToggleShift} />
+      {!stretch && <div className="mx-0.5 h-3.5 w-px shrink-0 bg-edge" />}
+      <KeyButton stretch={stretch} label="←" onClick={() => onArrow('left')} />
+      <KeyButton stretch={stretch} label="↑" onClick={() => onArrow('up')} />
+      <KeyButton stretch={stretch} label="↓" onClick={() => onArrow('down')} />
+      <KeyButton stretch={stretch} label="→" onClick={() => onArrow('right')} />
+      {extraKeys.map(key => <KeyButton key={key.label} stretch={stretch} {...key} />)}
       {onComment && (
         <>
           <div className="mx-0.5 h-3.5 w-px shrink-0 bg-edge" />

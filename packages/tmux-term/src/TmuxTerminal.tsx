@@ -9,8 +9,8 @@ import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { readInputDraft, readInputHistory, recordInputHistory, writeInputDraft } from './inputDrafts'
 import { readKeyboardLock, writeKeyboardLock } from './keyboardLock'
 
-function arrowSequence(dir: 'up' | 'down' | 'left' | 'right', ctrl: boolean, shift: boolean): string {
-  const letter = { up: 'A', down: 'B', right: 'C', left: 'D' }[dir]
+function arrowSequence(dir: 'up' | 'down' | 'left' | 'right' | 'home' | 'end', ctrl: boolean, shift: boolean): string {
+  const letter = { up: 'A', down: 'B', right: 'C', left: 'D', home: 'H', end: 'F' }[dir]
   const mod = ctrl && shift ? 6 : ctrl ? 5 : shift ? 2 : 1
   return mod === 1 ? `\x1b[${letter}` : `\x1b[1;${mod}${letter}`
 }
@@ -758,6 +758,48 @@ export function TmuxTerminal({
           )}
         </button>
       </HoverTipLayer>
+      {/* 모바일이면 키보드가 떠 있든 아니든 항상 둔다. 터미널은 flow 배치로 두어 보조키가
+          입력칸 바로 위에 공간을 차지하고, 키보드를 내린 채 방향키·Esc를 보내는 쓰임도 그대로 보장한다. */}
+      {mobileLayout && (
+        <MobileKeyBar
+          placement="flow"
+          stretch
+          extraKeys={[
+            ...(['home', 'end'] as const).map(key => ({ label: key === 'home' ? 'Home' : 'End', onClick: () => {
+              send(arrowSequence(key, ctrlActive, shiftActive))
+              setCtrlActive(false)
+              setShiftActive(false)
+              refocusActive()
+            } })),
+            { label: '^C', ariaLabel: 'Ctrl+C', onClick: () => {
+              send('\x03')
+              setCtrlActive(false)
+              setShiftActive(false)
+              refocusActive()
+            } },
+          ]}
+          ctrlActive={ctrlActive}
+          shiftActive={shiftActive}
+          onToggleCtrl={() => setCtrlActive((v) => !v)}
+          onToggleShift={() => setShiftActive((v) => !v)}
+          onEsc={() => {
+            send('\x1b')
+            refocusActive()
+          }}
+          onTab={() => {
+            send(shiftActive ? '\x1b[Z' : '\t')
+            setShiftActive(false)
+            refocusActive()
+          }}
+          onArrow={(dir) => {
+            if (!ctrlActive && !shiftActive && (dir === 'up' || dir === 'down') && inputFocused && navigateCommandHistory(dir)) return
+            send(arrowSequence(dir, ctrlActive, shiftActive))
+            setCtrlActive(false)
+            setShiftActive(false)
+            refocusActive()
+          }}
+        />
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault()
@@ -826,33 +868,6 @@ export function TmuxTerminal({
           전송
         </button>
       </form>
-      {/* 모바일이면 키보드가 떠 있든 아니든 항상 둔다. 터미널은 flow 배치로 두어 보조키가
-          입력칸을 덮지 않고, 키보드를 내린 채 방향키·Esc를 보내는 쓰임도 그대로 보장한다. */}
-      {mobileLayout && (
-        <MobileKeyBar
-          placement="flow"
-          ctrlActive={ctrlActive}
-          shiftActive={shiftActive}
-          onToggleCtrl={() => setCtrlActive((v) => !v)}
-          onToggleShift={() => setShiftActive((v) => !v)}
-          onEsc={() => {
-            send('\x1b')
-            refocusActive()
-          }}
-          onTab={() => {
-            send(shiftActive ? '\x1b[Z' : '\t')
-            setShiftActive(false)
-            refocusActive()
-          }}
-          onArrow={(dir) => {
-            if (!ctrlActive && !shiftActive && (dir === 'up' || dir === 'down') && inputFocused && navigateCommandHistory(dir)) return
-            send(arrowSequence(dir, ctrlActive, shiftActive))
-            setCtrlActive(false)
-            setShiftActive(false)
-            refocusActive()
-          }}
-        />
-      )}
     </div>
   )
 }
