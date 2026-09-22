@@ -450,6 +450,50 @@ strong {
   .mewcat .mewcat-mark { animation: none !important; }
 }
 
+.mobile-dock { display: none; }
+@media (width < 768px) {
+  .mew-workspace { --mobile-dock-space: calc(48px + env(safe-area-inset-bottom, 0px)); }
+  .mew-workspace[data-mobile-keyboard] { --mobile-dock-space: 0px; }
+  .mew-workspace-content { margin-bottom: var(--mobile-dock-space); }
+  .mew-workspace-content > .fixed { bottom: var(--mobile-dock-space); }
+  .mobile-dock:not([hidden]) {
+    position: fixed;
+    z-index: 40;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 0;
+    padding: 1px max(6px, env(safe-area-inset-right, 0px)) calc(2px + env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left, 0px));
+    border-top: 1px solid var(--color-edge);
+    background: var(--color-surface);
+    color: var(--color-ink-secondary);
+    touch-action: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .mobile-dock button {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    height: 44px;
+    border-radius: 0;
+    touch-action: none;
+    transition: background-color 120ms ease-out, color 120ms ease-out, transform 120ms ease-out;
+  }
+  .mobile-dock button[aria-current] { color: var(--color-ink-bright); }
+  .mobile-dock button[aria-current] svg { stroke-width: 2.5; }
+  .mobile-dock button:hover { color: var(--color-ink); }
+  .mobile-dock button:active { background: var(--color-surface-hover); }
+  .mobile-dock button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+  .mobile-dock button[data-dragging] { background: var(--color-surface-hover); color: var(--color-ink-bright); transform: translateY(-8px) scale(1.08); }
+}
+@media (prefers-reduced-motion: reduce) { .mobile-dock button { transition: none; } }
+
 /* Only the giant cat obstructs the workspace; transparent space passes pointer input through. */
 .mewcat-break {
   position: fixed;

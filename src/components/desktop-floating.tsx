@@ -10,7 +10,7 @@ export function DesktopFloating({ children, label, className, root, stage }: {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const clamp = useCallback((x: number, y: number) => {
     const area = root.current!.getBoundingClientRect(), viewport = stage.current!.getBoundingClientRect(), bar = element.current!.getBoundingClientRect()
-    return { x: Math.max(8, Math.min(area.width - bar.width - 8, x)), y: Math.max(viewport.top - area.top + 8, Math.min(area.height - bar.height - 8, y)) }
+    return { x: Math.max(8, Math.min(area.width - bar.width - 8, x)), y: Math.max(viewport.top - area.top + 8, Math.min(viewport.bottom - area.top - bar.height - 8, y)) }
   }, [root, stage])
   useEffect(() => {
     const observer = new ResizeObserver(() => setPosition(previous => previous ? clamp(previous.x, previous.y) : null))

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@mew/ui'
 import { desktopCursor } from '../utils/desktop-cursor.ts'
@@ -11,7 +11,7 @@ import { DesktopIcon, DesktopStick } from './desktop-stick.tsx'
 import { useDesktopInstall } from './desktop-install.tsx'
 import './remote-desktop.css'
 
-export function RemoteDesktop({ onClose }: { onClose: () => void }) {
+export function RemoteDesktop({ onClose, dockHostRef, dockHidden = false }: { onClose: () => void; dockHostRef?: Ref<HTMLDivElement>; dockHidden?: boolean }) {
   const root = useRef<HTMLDivElement>(null), stage = useRef<HTMLDivElement>(null), video = useRef<HTMLVideoElement>(null)
   const cursorImage = useRef<HTMLImageElement>(null), cursor = useRef<ReturnType<typeof desktopCursor> | null>(null)
   const canvas = useRef<HTMLCanvasElement>(null), surface = useRef<'direct' | 'server'>('direct')
@@ -151,7 +151,7 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
     cursor.current?.refresh()
   }
   const mediaStyle = { width: geometry.width, height: geometry.height, transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) rotate(${rotation}deg) scale(${view.scale})` }
-  return <>{createPortal(<div ref={root} className="remote-desktop" role="dialog" aria-modal="true" aria-labelledby="desktop-title" tabIndex={-1}
+  return <>{createPortal(<div ref={root} className="remote-desktop" data-dock={!!dockHostRef && !dockHidden && !fullscreen || undefined} role="dialog" aria-modal="true" aria-labelledby="desktop-title" tabIndex={-1}
     onKeyDown={event => {
       if (event.key === 'Tab' && (event.target !== root.current && event.target !== stage.current || !connected)) {
         const items = root.current!.querySelectorAll<HTMLElement>('button:not(:disabled),select,input,textarea,[tabindex="0"]')
@@ -244,5 +244,6 @@ export function RemoteDesktop({ onClose }: { onClose: () => void }) {
         {(['pan', 'zoom'] as const).map(kind => <DesktopStick key={kind} kind={kind} input={input} disabled={!connected} onView={onView} sensitivity={sensitivity} rotation={rotation} />)}
       </div>
     </DesktopFloating>
+    <div ref={dockHostRef} hidden={fullscreen || dockHidden} />
   </div>, document.body)}{install.popup}</>
 }

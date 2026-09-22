@@ -98,6 +98,8 @@ WSL 설치기는 PowerShell을 통해 Windows 복사본을 설치한다. `npm.cm
 
 ## 뷰어 설정과 좌표
 
+모바일 기본 뷰어는 하단 작업 독을 표시한다. App의 독 컴포넌트는 상태를 유지한 채 `dockHostRef`로 받은 뷰어 내부 DOM에 portal하여 배경 inert에 막히지 않는다. 영상 영역과 조이스틱은 독 높이 48px + safe-area를 비운다. 실제 브라우저 전체화면에서는 호스트를 숨기고 여백을 없애며, 해제하면 다시 표시한다. 모바일 키보드 중 독 숨김도 유지한다. 독에서 다른 패널을 누르거나 스와이프하면 뷰어를 닫고 연결·눌린 입력을 정리한 뒤 해당 패널로 이동한다. 같은 원격 데스크톱 버튼은 연결을 다시 만들지 않는다. 독 순서·터치 이름 토스트 상태는 portal 이동 때도 유지한다. 배경 편집기와 설치 터미널의 기존 모달/inert 경계는 유지한다. 기본 뷰어에서 독을 가리던 동작은 사용자 요청으로 제거했으며 요청 전 재도입하지 않는다.
+
 - 상단 전체화면은 `document.documentElement.requestFullscreen()`과 `fullscreenchange`로 실제 브라우저 상태를 동기화한다. 설치 터미널이 별도 body portal이므로 문서 전체를 대상으로 한다. 뷰어가 시작한 전체화면만 unmount에서 정리한다. 거절·미지원은 상태 안내로 처리한다([Fullscreen API](https://developer.mozilla.org/en-US/docs/Web/API/Element/requestFullscreen)).
 - `desktop-view.ts`가 회전 후 종횡비로 contain 크기를 계산한다. video/canvas는 같은 명시적 크기·중심·CSS 변환을 사용하고, 클릭 좌표는 그 역변환, 로컬 커서는 정변환을 사용한다. 전역 video `max-width` 제한을 해제해 90/270도에서 두 축이 독립적으로 잘리지 않게 한다. 감도 적용 뒤 조이스틱 벡터도 역회전한다. 화면 이동은 화면 축 기준이며 회전할 때 줌·pan은 초기화한다. 직접 영상의 `loadedmetadata`와 `resize`에서 양수 크기를 동기화하여 같은 track의 원격 해상도 변경에도 투영을 갱신한다.
 - `DesktopStick`의 감도 배율은 기본 3, 범위 0.5–6, 간격 0.1이다. `desktopStick`의 속도 비례 이동량에 곱한다. 기준 속도 200 CSS px/s에서는 초기 감도 3배일 때 CSS 1px당 원격 6px, 키보드 방향키는 속도 가속 없이 기존 16px의 3배다. wheel·pan·zoom에는 곱하지 않는다. `mew.desktop.sensitivity` localStorage 값은 숫자만 인정하고 범위를 제한한다. 저장 불가 시 현재 창에서만 적용한다.

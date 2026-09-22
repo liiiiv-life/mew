@@ -1,4 +1,4 @@
-.remote-desktop { position: fixed; inset: 0; z-index: 1600; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--color-surface-deep); color: var(--color-ink); font-size: 13px; isolation: isolate; overscroll-behavior: none; }
+.remote-desktop { --desktop-dock-space: 0px; padding-bottom: var(--desktop-dock-space); position: fixed; inset: 0; z-index: 1600; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--color-surface-deep); color: var(--color-ink); font-size: 13px; isolation: isolate; overscroll-behavior: none; }
 .remote-desktop button, .remote-desktop select, .remote-desktop textarea { font: inherit; color: inherit; }
 .remote-desktop button { cursor: pointer; }
 .remote-desktop button:disabled { opacity: .4; cursor: default; }
@@ -30,7 +30,7 @@
 .desktop-paste textarea::placeholder { color: var(--color-ink-secondary); }
 .desktop-paste > div { display: flex; justify-content: space-between; margin-top: 8px; }
 .desktop-paste button { padding: 6px 10px; background: var(--color-surface-raised); border-radius: 4px; }
-.desktop-control-strip { position: absolute; z-index: 5; right: max(12px,env(safe-area-inset-right)); bottom: max(16px,env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 8px; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+.desktop-control-strip { position: absolute; z-index: 5; right: max(12px,env(safe-area-inset-right)); bottom: calc(max(16px,env(safe-area-inset-bottom)) + var(--desktop-dock-space)); display: flex; align-items: center; gap: 8px; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
 .desktop-stick { width: 44px; height: 52px; padding: 0; display: flex; align-items: center; flex-direction: column; gap: 3px; touch-action: none; background: transparent; border: 0; border-radius: 6px; }
 .desktop-stick-ring { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--color-edge-bright); border-radius: 50%; }
 .desktop-stick-knob { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--color-surface-raised); }
@@ -81,3 +81,7 @@
 @media (max-width: 600px) { .desktop-settings { top: calc(88px + env(safe-area-inset-top)); max-height: calc(100% - 112px - env(safe-area-inset-top)); } .desktop-tools button { min-height: 44px; } }
 @media (max-width: 360px) { .desktop-tools button { padding-inline: 4px; } .desktop-tools .desktop-tool-icon { min-width: 40px; } .desktop-tools { gap: 0; } .desktop-scale { display: none; } }
 @media (max-height: 450px) { .desktop-settings { top: calc(60px + env(safe-area-inset-top)); max-height: calc(100% - 76px - env(safe-area-inset-top)); } .desktop-hotkeys { top: max(68px,calc(env(safe-area-inset-top) + 60px)); max-height: calc(100% - 92px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); } }
+
+@media (width < 768px) {
+  .remote-desktop[data-dock] { --desktop-dock-space: calc(48px + env(safe-area-inset-bottom, 0px)); }
+}

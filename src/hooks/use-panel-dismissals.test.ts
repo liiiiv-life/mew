@@ -28,7 +28,7 @@ const [{ createElement, useState, act }, { createRoot }, { useWorkspacePanelDism
   import('./use-panel-dismissals.ts'),
 ])
 
-const ids = ['sidebar', 'chat', 'agent', 'terminal', 'browser', 'android'] as const
+const ids = ['sidebar', 'chat', 'agent', 'terminal', 'browser', 'git', 'android', 'features', 'rag'] as const
 type PanelId = (typeof ids)[number]
 
 function Harness({ closed }: { closed: PanelId[] }) {
@@ -51,6 +51,9 @@ function Harness({ closed }: { closed: PanelId[] }) {
     terminal: panel('terminal'),
     browser: panel('browser'),
     android: panel('android'),
+    git: panel('git'),
+    features: panel('features'),
+    rag: panel('rag'),
   }, stack.at(-1) ?? null)
   return null
 }
@@ -78,6 +81,9 @@ function SidebarSearchHarness({ closed }: { closed: string[] }) {
     terminal: closedPanel,
     browser: closedPanel,
     android: closedPanel,
+    git: closedPanel,
+    features: closedPanel,
+    rag: closedPanel,
   }, 'sidebar')
   return createElement('span', { 'data-query': query })
 }
@@ -91,7 +97,7 @@ test('only the foreground browser delegates Back; other panels and Escape still 
     const panel = (id: string) => ({ open: true, close: () => { closed.push(id) } })
     useWorkspacePanelDismissals({
       sidebar: panel('sidebar'), chat: panel('chat'), terminal: panel('terminal'),
-      agent: panel('agent'), git: panel('git'), android: panel('android'),
+      agent: panel('agent'), git: panel('git'), android: panel('android'), features: panel('features'), rag: panel('rag'),
       browser: { ...panel('browser'), closeOnBack: () => {
         if (!canGoBack) return true
         navigations++
@@ -137,9 +143,9 @@ test('App 보조 패널은 뒤로가기·Esc로 시각적 맨 위부터 하나�
     window.dispatchEvent(new window.Event('popstate'))
     await settle()
   })
-  assert.deepEqual(closed, ['android'], '모바일 뒤로가기는 맨 위 Android 패널 하나만 닫는다')
+  assert.deepEqual(closed, ['rag'], '모바일 뒤로가기는 맨 위 RAG 패널 하나만 닫는다')
 
-  for (const expected of ['browser', 'terminal', 'agent', 'chat', 'sidebar'] as PanelId[]) {
+  for (const expected of ['features', 'android', 'git', 'browser', 'terminal', 'agent', 'chat', 'sidebar'] as PanelId[]) {
     await act(async () => {
       document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
       await settle()
@@ -147,7 +153,7 @@ test('App 보조 패널은 뒤로가기·Esc로 시각적 맨 위부터 하나�
     assert.equal(closed.at(-1), expected)
   }
 
-  assert.deepEqual(closed, ['android', 'browser', 'terminal', 'agent', 'chat', 'sidebar'])
+  assert.deepEqual(closed, ['rag', 'features', 'android', 'git', 'browser', 'terminal', 'agent', 'chat', 'sidebar'])
   await act(async () => {
     root.unmount()
     await settle()

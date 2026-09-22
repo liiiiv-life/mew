@@ -1,3 +1,5 @@
+import { Database } from 'iconoir-react'
+import { RagPanel } from './components/rag-panel'
 import { defaultCapabilities, type Feature } from '../shared/access-policy'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { WorkspaceSnapshotCache } from './utils/workspace-snapshot-cache'
@@ -34,6 +36,9 @@ import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
 import { ActiveSessionsButton } from './components/active-sessions-button'
 import { FabMenu } from './components/FabMenu'
+import { MobileDock } from './components/mobile-dock'
+import { useMobileKeyboard } from './hooks/use-mobile-keyboard'
+import { adjacentDockPanel, type MobileDockPanel } from './utils/mobile-dock'
 import { Mewcat } from './components/Mewcat'
 import { useMewcatNotifications } from './hooks/use-mewcat-notifications'
 import { OPEN_NOTICE_EVENT, type MewcatNotice } from './utils/mewcat-notifications'
@@ -294,6 +299,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const dockRef = useRef<DockHandle>(null)
   const [terminalOpen, setTerminalOpen] = useState(() => canUseTerminal && (localStorage.getItem(TERMINAL_OPEN_KEY) !== null ? localStorage.getItem(TERMINAL_OPEN_KEY) === '1' : localStorage.getItem(LEGACY_TMUX_OPEN_KEY) === '1' || localStorage.getItem(AGENT_OPEN_KEY) === '1'))
   const [featuresOpen, setFeaturesOpen] = useState(false)
+  const [ragOpen, setRagOpen] = useState(false)
+  const featureCloseRef = useRef<((action?: () => void) => void) | null>(null)
   const [featureAgentTab, setFeatureAgentTab] = useState<AgentTab | null>(null)
   const [agentOpen, setAgentOpen] = useState(() => caps.agent && localStorage.getItem(AGENT_OPEN_KEY) === '1')
   // 브라우저 창은 별도 기능 권한으로 검사한다.
@@ -303,6 +310,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const gitMounted = useRef(false)
   const [gitOpen, setGitOpen] = useState(() => caps.git && localStorage.getItem(GIT_OPEN_KEY) === '1')
   const [remoteDesktopOpen, setRemoteDesktopOpen] = useState(false)
+  const [remoteDockHost, setRemoteDockHost] = useState<HTMLDivElement | null>(null)
   if (gitOpen) gitMounted.current = true
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
   const [androidOpen, setAndroidOpen] = useState(() => caps.android && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
@@ -318,6 +326,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       if (panel === 'terminal') return terminalOpen
       if (panel === 'browser') return browserOpen
       if (panel === 'git') return gitOpen
+      if (panel === 'features') return featuresOpen
+      if (panel === 'rag') return ragOpen
       return androidOpen
     }),
   )
@@ -337,8 +347,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     browser: browserOpen,
     git: gitOpen,
     android: androidOpen,
+    features: featuresOpen,
+    rag: ragOpen,
   } satisfies Record<WorkspacePanelId, boolean>), [
-    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen,
+    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, ragOpen,
   ])
   const workspacePanelSetters = useMemo(() => ({
     sidebar: setSidebarOpen,
@@ -348,6 +360,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     browser: setBrowserOpen,
     git: setGitOpen,
     android: setAndroidOpen,
+    features: setFeaturesOpen,
+    rag: setRagOpen,
   } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
 
   const mobileForegroundPanel = mobilePanelStack.at(-1) ?? null
@@ -390,10 +404,14 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [mobileForegroundPanel, rootProjectPath])
 
   const closeAllWorkspacePanels = useCallback(() => {
-    for (const panel of WORKSPACE_PANEL_IDS) workspacePanelSetters[panel](false)
-    setMobilePanelStack([])
-    if (!isDesktop()) saveMobileForegroundPanel(rootProjectPath, 'editor')
-  }, [rootProjectPath, workspacePanelSetters])
+    const close = () => {
+      for (const panel of WORKSPACE_PANEL_IDS) workspacePanelSetters[panel](false)
+      setMobilePanelStack([])
+      if (!isDesktop()) saveMobileForegroundPanel(rootProjectPath, 'editor')
+    }
+    if (featuresOpen && featureCloseRef.current) featureCloseRef.current(close)
+    else close()
+  }, [featuresOpen, rootProjectPath, workspacePanelSetters])
 
   // 모바일에서 파일을 열 때는 패널의 열림 상태를 바꾸지 않는다. 그래야 화면을 데스크톱으로
   // 넓혔을 때 열린 패널들이 그대로 남는다. 보조 패널 스택만 비워 에디터를 전면에 둔다.
@@ -696,6 +714,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     setContentWorkspace(info.path)
     setActiveProject(WORKSPACE_PROJECT)
     setRootProjectPath(info.path)
+    setFeaturesOpen(false)
     // 계정 UI·탭 복원을 기다리지 않고, 워크스페이스를 받은 첫 렌더부터 직전 모바일
     // 전면 화면을 올린다. 그렇지 않으면 빈 에디터의 자동 사이드바가 잠깐 보인다.
     if (!isDesktop()) {
@@ -710,7 +729,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     setRootTree(cachedRoot)
     setDocsTree(cachedDocs)
     setPendingOpen(null)
-    setFeaturesOpen(false)
     setFeatureAgentTab(null)
   }, [rememberProjectPath, workspacePanelSetters])
 
@@ -1006,6 +1024,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     browser: { open: browserOpen, close: () => closeWorkspacePanel('browser'), closeOnBack: () => !browserBackRef.current?.() },
     git: { open: gitOpen, close: () => closeWorkspacePanel('git') },
     android: { open: androidOpen, close: () => closeWorkspacePanel('android') },
+    features: { open: featuresOpen, close: () => featureCloseRef.current?.() },
+    rag: { open: ragOpen, close: () => closeWorkspacePanel('rag') },
   }, mobileForegroundPanel)
 
   const activeRelativePath = activeTab?.path ?? null
@@ -1051,6 +1071,29 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   useEffect(() => {
     if (chatOpen) lastPanelRef.current = 'chat'
   }, [chatOpen])
+
+  const mobileKeyboardOpen = useMobileKeyboard()
+  const mobileDockPanels: MobileDockPanel[] = ['sidebar', 'editor']
+  if (caps.agent) mobileDockPanels.push('agent')
+  if (caps.terminal) mobileDockPanels.push('terminal')
+  if (caps.git) mobileDockPanels.push('git')
+  if (caps.browser) mobileDockPanels.push('browser')
+  if (caps.agent && rootProjectPath) mobileDockPanels.push('features')
+  if (caps.desktop) mobileDockPanels.push('desktop')
+  if (!isGuest && caps.filesRead && rootProjectPath) mobileDockPanels.push('rag')
+  const selectDockPanel = (panel: MobileDockPanel) => {
+    if (!mobileDockPanels.includes(panel)) return
+    if (panel === 'desktop') { setRemoteDesktopOpen(true); return }
+    setRemoteDesktopOpen(false)
+    if (panel !== 'features' && panel !== 'rag') activeTabbedSurfaceRef.current = panel
+    if (panel === 'editor') showMobileEditor()
+    else openWorkspacePanel(panel)
+  }
+  const navigateMobileDock = (direction: -1 | 1, order: MobileDockPanel[]) => {
+    const panel = remoteDesktopOpen ? 'desktop' : mobileForegroundPanel ?? 'editor'
+    const next = adjacentDockPanel(order, panel, direction)
+    if (next) selectDockPanel(next)
+  }
 
   const switchSidebarTab = useCallback((direction: 'next' | 'previous') => {
     const views: typeof sidebarView[] = canUseTerminal
@@ -1171,6 +1214,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       browser: browserOpen,
       git: gitOpen,
       android: androidOpen,
+      features: featuresOpen,
+      rag: ragOpen,
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const chrome = value as Record<string, unknown>
@@ -1184,6 +1229,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       // 로컬의 방금 연 에이전트를 닫아 버리면 전면 순서를 복원할 수 없으므로, 서버 원장은
       // 데스크톱 배치에만 적용한다. 모바일은 각 패널의 로컬 열림 상태로 시작한다.
       if (isDesktop()) {
+        restoredOpen.features = caps.agent && chrome.featuresOpen === true
+        setFeaturesOpen(restoredOpen.features)
+        restoredOpen.rag = !isGuest && caps.filesRead && chrome.ragOpen === true
+        setRagOpen(restoredOpen.rag)
         if (caps.agent && typeof chrome.agentOpen === 'boolean') {
           setAgentOpen(chrome.agentOpen)
           restoredOpen.agent = chrome.agentOpen
@@ -1206,7 +1255,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       // 계정 원장이 처음 비어 있을 때만 이 기기의 기존 화면 상태를 이관한다.
       setWorkspaceUi((previous) => ({
         ...previous,
-        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen },
+        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, ragOpen },
       }))
     }
     if (savedMobileForeground && savedMobileForeground !== 'editor') {
@@ -1220,7 +1269,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
     chromeStateLoadedRootRef.current = rootProjectPath
     chromeStateRestorePendingRef.current = rootProjectPath
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, caps, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, ragOpen, caps, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
 
   useEffect(() => {
     if (!rootProjectPath || !workspaceUiLoaded || isDesktop()) return
@@ -1326,9 +1375,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     }
     setWorkspaceUi((previous) => ({
       ...previous,
-      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen },
+      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, ragOpen },
     }))
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, ragOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
 
   const handleRenamed = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -1629,9 +1678,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [isGuest])
   // 헤더 오른쪽 도구 목록 — 권한별로 보이는 것이 다르다. 그리는 건 HeaderMenu(햄버거) 하나뿐이다
   const headerMenuItems: HeaderMenuItem[] = [
+    ...(!isGuest && caps.filesRead ? [{ id: 'rag', label: 'RAG', icon: <Database width={14} height={14} />, onSelect: () => openWorkspacePanel('rag'), disabled: !rootProjectPath }] : []),
     ...(caps.agent ? [{
       id: 'features', label: featureCopy[locale].title,
-      onSelect: () => setFeaturesOpen(true), disabled: !rootProjectPath,
+      onSelect: () => openWorkspacePanel('features'), disabled: !rootProjectPath,
       icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="5" cy="5" r="2" /><path d="M10 5h11M5 9v10h3M12 13h9M12 19h9" /><circle cx="10" cy="13" r="1" /><circle cx="10" cy="19" r="1" /></svg>,
     }] : []),
     ...(!isGuest || canEditActiveTab
@@ -1855,7 +1905,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   })
 
   return (
-    <div className="flex flex-col overflow-hidden bg-surface text-ink" style={{ height: 'var(--app-height, 100dvh)' }}>
+    <div className="mew-workspace flex flex-col overflow-hidden bg-surface text-ink" data-mobile-keyboard={mobileKeyboardOpen || undefined} style={{ height: 'var(--app-height, 100dvh)' }}>
       {/* 화면 전폭을 쓰는 줄은 이 헤더 하나뿐이다 — 프로젝트 탭 + 도구 버튼. 문서 탭 줄은 각
           편집 칸 안에 있다(EditorPane). 탭이 줄 높이를 꽉 채워야 하므로 세로 여백은 두지 않는다. */}
       <div className="flex flex-col">
@@ -1898,7 +1948,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       </div>
 
       <div
-        className="relative flex min-h-0 flex-1 overflow-hidden"
+        className="mew-workspace-content relative flex min-h-0 flex-1 overflow-hidden"
         onDragOverCapture={handlePathDragOver}
         onDropCapture={handlePathDrop}
         // 드래그를 취소하거나(Esc) 컨테이너 밖으로 나가면 분할 그림자를 지운다
@@ -2148,17 +2198,28 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} />}
         </DockWorkspace>
 
-        {featuresOpen && rootProjectPath && caps.agent && <FeatureDevelopment
-          key={rootProjectPath} workspace={rootProjectPath} canUseGit={caps.git}
-          onClose={() => setFeaturesOpen(false)}
-          onOpenFile={(path) => { setFeaturesOpen(false); openMentionedFile(WORKSPACE_PROJECT, path, null) }}
+        {ragOpen && rootProjectPath && !isGuest && caps.filesRead && <div
+          onPointerDownCapture={() => bringWorkspacePanelToFront('rag')}
+          className={`absolute inset-0 min-h-0 min-w-0 bg-surface md:static md:z-auto md:w-[min(30rem,45vw)] md:shrink-0 md:border-l md:border-edge ${mobilePanelLayer('rag')}`}
+        ><RagPanel key={rootProjectPath} workspace={rootProjectPath} canManage={caps.system}
+          onClose={() => closeWorkspacePanel('rag')}
+          onOpenFile={(targetProject, path, line) => { closeWorkspacePanel('rag'); openMentionedFile(targetProject, path, line) }}
+        /></div>}
+
+        {featuresOpen && rootProjectPath && caps.agent && <div
+          onPointerDownCapture={() => bringWorkspacePanelToFront('features')}
+          className={`absolute inset-0 min-h-0 min-w-0 bg-surface md:static md:z-auto md:w-[min(42rem,50vw)] md:shrink-0 md:border-l md:border-edge ${mobilePanelLayer('features')}`}
+        ><FeatureDevelopment
+          key={rootProjectPath} workspace={rootProjectPath} canUseGit={caps.git} requestCloseRef={featureCloseRef}
+          onClose={() => closeWorkspacePanel('features')}
+          onOpenFile={(path) => { closeWorkspacePanel('features'); openMentionedFile(WORKSPACE_PROJECT, path, null) }}
           onOpenAgent={(run) => {
             const tab: AgentTab = { id: run.tabId, label: run.title, runtime: run.agentSet.runtime, cwd: rootProjectPath, renamed: true }
             setFeatureAgentTab(withSessionId([tab], tab.id, run.agentSet.runtime, rootProjectPath, run.sessionId)[0])
-            setFeaturesOpen(false)
+            closeWorkspacePanel('features')
             openWorkspacePanel('agent')
           }}
-        />}
+        /></div>}
 
         {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 모바일에서도 프로젝트 탭 아래에서만 열린다. */}
         {chatOpen && caps.chat && (
@@ -2200,20 +2261,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
       <Mewcat skin={mewcatSkin} onOpenSystemStats={caps.system ? () => setSysStatsOpen(true) : undefined} />
 
-      {mobileForegroundPanel !== 'sidebar' && <button
-        type="button" data-mobile-sidebar-opener
-        onClick={() => openWorkspacePanel('sidebar')}
-        aria-label={t('sidebar.open')} title={t('sidebar.open')}
-        className="group fixed z-40 flex h-11 w-11 -translate-y-1/2 items-center justify-start text-ink-secondary hover:text-ink focus-visible:outline-none md:hidden"
-        style={{ left: 'env(safe-area-inset-left, 0px)', top: 'calc(var(--app-height, 100dvh) / 2)' }}
-      >
-        <span className="flex h-9 w-7 items-center justify-center rounded-r-lg border border-l-0 border-edge-strong bg-surface-raised group-hover:bg-surface-hover group-active:bg-surface-hover group-focus-visible:outline-2 group-focus-visible:-outline-offset-2 group-focus-visible:outline-accent">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16m4-11 3 3-3 3" />
-          </svg>
-        </span>
-      </button>}
+      <MobileDock active={remoteDesktopOpen ? 'desktop' : mobileForegroundPanel ?? 'editor'} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost}
+        onSelect={selectDockPanel} onNavigate={navigateMobileDock} />
 
+      <div className="hidden md:contents">
       <FabMenu
         onFullscreen={toggleFullscreen}
         onNextWindowTab={switchCurrentWindowTabRight}
@@ -2224,6 +2275,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         onToggleSidebar={() => toggleWorkspacePanel('sidebar')}
         onToggleBrowser={() => { if (caps.browser) toggleWorkspacePanel('browser') }}
       />
+
+      </div>
 
       {settingsOpen && (
         <SettingsModal
@@ -2294,7 +2347,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       {dbListOpen && caps.database && <DatabaseListModal onClose={() => setDbListOpen(false)} />}
 
       {sysStatsOpen && caps.system && <SystemStatsModal onClose={() => setSysStatsOpen(false)} />}
-      {remoteDesktopOpen && caps.desktop && <RemoteDesktop onClose={() => setRemoteDesktopOpen(false)} />}
+      {remoteDesktopOpen && caps.desktop && <RemoteDesktop onClose={() => setRemoteDesktopOpen(false)} dockHostRef={setRemoteDockHost} dockHidden={mobileKeyboardOpen} />}
       {scheduleOpen && caps.schedules && <ScheduleModal onClose={() => setScheduleOpen(false)} />}
 
       {historyOpen && activeTab && (

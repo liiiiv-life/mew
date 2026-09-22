@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react'
 import { DialogFrame, ConfirmDialog } from '@mew/ui'
 import { Plus, Xmark, NavArrowDown, NavArrowRight, ArrowLeft, RefreshDouble } from 'iconoir-react'
 import { featureRows, pendingFeatureRun, type Feature, type FeatureCommit, type FeatureRun, type FeatureSort, type FeatureStatus } from '../../shared/features'
@@ -19,12 +19,13 @@ type Draft = { base: Feature; value: Feature }
 type RequestTarget = { target?: Feature; parent?: Feature; retry?: FeatureRun }
 type RequestDraft = RequestTarget & { content: string; initialContent: string }
 
-export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent, canUseGit = false }: {
+export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent, canUseGit = false, requestCloseRef }: {
   workspace: string
   onClose: () => void
   onOpenFile: (path: string) => void
   onOpenAgent: (run: FeatureRun) => void
   canUseGit?: boolean
+  requestCloseRef?: Ref<(action?: () => void) => void>
 }) {
   const { locale, formatDate } = useI18n(), copy = featureCopy[locale], heading = useId()
   const [data, setData] = useState<FeatureSnapshot | null>(null), [sets, setSets] = useState<AgentSet[]>([])
@@ -81,12 +82,13 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
   }, [dirty, requestDirty])
   const composing = !!request
   useEffect(() => {
-    if (composing && !busy) requestInput.current?.focus()
+    if (composing && !busy && requestInput.current?.getClientRects().length) requestInput.current?.focus()
   }, [composing, busy])
   useEffect(() => {
     if (!setId && data && selectedSet) setSetId(selectedSet.id)
   }, [setId, data, selectedSet])
   const guarded = (action: () => void) => { if (busy) return; if (dirty || requestDirty) setDiscard(() => action); else action() }
+  useImperativeHandle(requestCloseRef, () => (action = onClose) => guarded(action))
   const perform = async (action: () => Promise<void>) => {
     if (actionRef.current) return
     actionRef.current = true; mutation.current++; setBusy(true); setError('')
@@ -140,9 +142,9 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
     {!readOnly && !pendingFeatureRun(run) && run.state !== 'completed' && <button className={button} type="button" disabled={busy} onClick={() => guarded(() => openRequest({ retry: run, target: data?.features.find(feature => feature.id === (run.featureId ?? run.targetId)) }))}>{copy.retry}</button>}
   </span>
   return <>
-    <DialogFrame labelledBy={heading} onClose={() => guarded(onClose)} className="flex h-[min(88dvh,850px)] max-w-6xl flex-col" busy={busy}>
+    <section aria-labelledby={heading} aria-busy={busy} data-feature-panel className="@container flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface">
       <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-edge px-3">
-        {draft && !request && <button type="button" className={`${button} md:hidden`} aria-label={copy.back} onClick={() => guarded(() => setDraft(null))}><ArrowLeft width={17} height={17} /></button>}
+        {draft && !request && <button type="button" className={`${button} @min-[640px]:hidden`} aria-label={copy.back} onClick={() => guarded(() => setDraft(null))}><ArrowLeft width={17} height={17} /></button>}
         <h2 id={heading} className="text-sm font-semibold text-ink">{copy.title}</h2>
         <span className="min-w-0 flex-1 truncate text-xs text-ink-secondary" title={workspace}>{workspace.split('/').filter(Boolean).at(-1)}</span>
         {readOnly && data && <span className="text-xs text-ink-secondary">{copy.readOnly}</span>}
@@ -155,7 +157,7 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
       </div>
       {error && <p role="alert" className="select-text shrink-0 border-b border-edge px-4 py-2 text-sm text-danger">{error}</p>}
       <div className="flex min-h-0 flex-1">
-        <nav aria-label={copy.title} className={`${draft && !request ? 'hidden md:flex' : 'flex'} min-h-0 w-full shrink-0 flex-col md:w-[32%] md:max-w-sm md:border-r md:border-edge`}>
+        <nav aria-label={copy.title} className={`${draft && !request ? 'hidden @min-[640px]:flex' : 'flex'} min-h-0 w-full shrink-0 flex-col @min-[640px]:w-[32%] @min-[640px]:max-w-sm @min-[640px]:border-r @min-[640px]:border-edge`}>
           <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-3">
             <span className="text-xs tabular-nums text-ink-secondary">{data?.features.length ?? 0} {copy.count}</span>
             <select aria-label={copy.sort} className="min-w-0 bg-surface py-1 text-xs text-ink-secondary focus:outline-ink" value={sort} onChange={event => setSort(event.target.value as FeatureSort)}>
@@ -188,8 +190,8 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
             </div>}
           </div>
         </nav>
-        <main className={`${draft && !request ? 'block' : 'hidden md:block'} min-h-0 min-w-0 flex-1 overflow-y-auto`}>
-          {!draft ? <p className="p-10 text-center text-sm text-ink-secondary">{copy.select}</p> : <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
+        <main className={`${draft && !request ? 'block' : 'hidden @min-[640px]:block'} min-h-0 min-w-0 flex-1 overflow-y-auto`}>
+          {!draft ? <p className="p-10 text-center text-sm text-ink-secondary">{copy.select}</p> : <div className="mx-auto max-w-3xl space-y-6 p-4 @min-[640px]:p-6">
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2"><Status status={dirty ? 'changed' : selected?.status ?? draft.base.status} copy={copy} label /><span className="text-xs text-ink-secondary">{formatDate(selected?.updatedAt ?? draft.base.updatedAt)}</span></div>
               {selected?.documentPath && <button type="button" className="block max-w-full truncate text-left text-xs text-ink-secondary underline underline-offset-4" title={selected.documentPath} onClick={() => guarded(() => onOpenFile(selected.documentPath!))}>{copy.document}: {selected.documentPath}</button>}
@@ -213,7 +215,7 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
           </div>}
         </main>
       </div>
-    </DialogFrame>
+    </section>
     {discard && <ConfirmDialog message={copy.unsaved} confirmLabel={copy.discard} cancelLabel={copy.cancel} danger onConfirm={() => { const action = discard; setDiscard(null); setDraft(selected ? { base: selected, value: selected } : null); setRequest(null); action() }} onCancel={() => setDiscard(null)} />}
     {commit && <FeatureCommitDialog copy={copy} commit={commit} onClose={() => setCommit(null)} />}
   </>

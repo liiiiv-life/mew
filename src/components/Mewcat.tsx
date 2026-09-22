@@ -23,7 +23,9 @@ function movementBounds(giant: boolean) {
   const top = viewport?.offsetTop ?? 0
   const size = giant ? Math.min(width * 1.18, height * 1.08) : CAT_SIZE
   const overflow = giant ? size * 0.18 : 0
-  const ground = giant ? top + height - size + size / CAT_SIZE : Math.max(top, top + height - size + 1)
+  const dock = !giant ? document.querySelector('.mobile-dock')?.getBoundingClientRect() : undefined
+  const bottom = dock?.height ? Math.min(top + height, dock.top - 6) : top + height
+  const ground = giant ? top + height - size + size / CAT_SIZE : Math.max(top, bottom - size + 1)
   return {
     size, ground,
     minX: left - overflow,
@@ -268,6 +270,9 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
     const onPointerUp = (event: PointerEvent) => release(event)
     const onPointerCancel = (event: PointerEvent) => release(event, true)
     const viewport = window.visualViewport
+    const dock = document.querySelector('.mobile-dock')
+    const dockObserver = new ResizeObserver(resize)
+    if (dock && !giant) dockObserver.observe(dock)
     cat.addEventListener('pointerdown', onPointerDown)
     cat.addEventListener('pointermove', onPointerMove)
     cat.addEventListener('pointerup', onPointerUp)
@@ -279,6 +284,7 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
     resize()
     animationFrame = window.requestAnimationFrame(tick)
     return () => {
+      dockObserver.disconnect()
       window.cancelAnimationFrame(animationFrame)
       cat.removeEventListener('pointerdown', onPointerDown)
       cat.removeEventListener('pointermove', onPointerMove)

@@ -66,7 +66,7 @@ test('feature GUI implements compact hierarchy, editing, assignment, review, evi
   app.get('/api/agent-sets', (_req, res) => res.json({ sets: [set, secondSet] }))
   app.get('/api/git/commit', (_req, res) => res.json({ hash, subject: 'Add login', body: '실제 로그인 커밋', files: [{ status: 'A', path: 'login.ts' }] }))
   app.get('/app.js', (_req, res) => res.type('js').send(chunk.code))
-  app.get('/', (_req, res) => res.type('html').send(`<!doctype html><html class="dark"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>`))
+  app.get('/', (_req, res) => res.type('html').send(`<!doctype html><html class="dark"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root" style="height:100dvh"></div><script src="/app.js"></script></html>`))
   const server = http.createServer(app); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
@@ -118,7 +118,7 @@ test('feature GUI implements compact hierarchy, editing, assignment, review, evi
     await row(loginId).locator('[data-feature-status="verified"]').waitFor()
     await page.getByRole('button', { name: '에이전트에게 맡기기', exact: true }).click()
     const composer = page.getByRole('form', { name: '기능 요청', exact: true })
-    assert.equal(await page.getByRole('dialog').count(), 1, 'request composer is inline')
+    assert.equal(await page.getByRole('dialog').count(), 0, 'feature panel and request composer are inline')
     await composer.getByRole('button', { name: '맡기기', exact: true }).click()
     await row(loginId).locator('[data-feature-status="implementing"]').waitFor()
     assert.equal(await dotColor(loginId), 'rgb(54, 135, 238)')

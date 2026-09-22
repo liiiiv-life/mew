@@ -15,6 +15,7 @@ for (const scenario of ['direct', 'server', 'native', 'native-direct'] as const)
   const source = `
 import React,{useState} from '${require.resolve('react')}';
 import {createRoot} from '${require.resolve('react-dom/client')}';
+import {MobileDock} from '${root}/src/components/mobile-dock.tsx';
 import {RemoteDesktop} from '${root}/src/components/remote-desktop.tsx';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {createInputReceiver} from '${root}/native/remote-desktop/protocol.mjs';
@@ -46,14 +47,15 @@ class Socket {
  close(){if(this.readyState!==1)return;this.readyState=3;listener({type:'stop'});receiver.release();this.onclose?.()}
 }
 window.WebSocket=Socket;
-function Fixture(){const[open,setOpen]=useState(false);return <><button id="open" onClick={()=>setOpen(true)}>Open desktop</button>{open&&<RemoteDesktop onClose={()=>setOpen(false)}/>}</>}
+function Fixture(){const[open,setOpen]=useState(false);const[host,setHost]=useState(null);return <><button id="open" onClick={()=>setOpen(true)}>Open desktop</button><MobileDock active={open?"desktop":"editor"} available={["editor","features","desktop"]} hidden={false} portalTarget={host} onSelect={id=>setOpen(id==="desktop")} onNavigate={()=>setOpen(false)}/>{open&&<RemoteDesktop onClose={()=>setOpen(false)} dockHostRef={setHost}/>}</>}
 import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>));`
   const bundle = await build({ input: 'virtual:desktop.tsx', write: false, platform: 'browser', output: { format: 'iife', inlineDynamicImports: true }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, external: ['/sender.mjs'], plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:desktop.tsx') return id; if (id === '@mew/tmux-term') return 'virtual:terminal.tsx'; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:desktop.tsx') return source; if (id === 'virtual:terminal.tsx') return 'export const isHiddenTmuxSession = () => false; export function TmuxTerminal({sessionName}){return <div className="xterm"><span>{sessionName}</span><textarea aria-label="설치 터미널 입력" defaultValue="fixture install output"/></div>}'; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')
   assert.ok(chunk && chunk.type === 'chunk')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const popupSource = await fs.readFile(`${root}/src/components/SessionTerminalPopup.tsx`, 'utf8')
-  const css = compiler.build(popupSource.match(/[A-Za-z0-9_:[\]/.%!#()-]+/g) ?? []) + await fs.readFile(`${root}/src/components/remote-desktop.css`, 'utf8')
+  const dockSource = await fs.readFile(`${root}/src/components/mobile-dock.tsx`, 'utf8')
+  const css = compiler.build((popupSource + dockSource).match(/[A-Za-z0-9_:[\]/.%!#()-]+/g) ?? []) + await fs.readFile(`${root}/src/components/remote-desktop.css`, 'utf8')
   const sender = await fs.readFile(`${root}/native/remote-desktop/sender.mjs`, 'utf8')
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
@@ -98,6 +100,14 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     assert.equal(await page.locator('[data-dock-panel]').count(), 0)
     assert.deepEqual(await page.getByRole('dialog').boundingBox(), { x: 0, y: 0, width: 390, height: 844 })
     assert.equal(await page.evaluate('document.querySelector("#root").inert'), true)
+    const dock = page.locator('.mobile-dock')
+    await dock.waitFor({ state: 'visible' })
+    const dockBox = (await dock.boundingBox())!
+    const stageBox = (await page.locator('.desktop-stage').boundingBox())!
+    assert.ok(stageBox.y + stageBox.height <= dockBox.y, 'remote screen reserves dock space')
+    await dock.locator('[data-dock-item=desktop]').tap()
+    assert.equal(await page.evaluate('window.captureCount'), 1, 'active dock item stays usable without reconnecting')
+    await page.screenshot({ path: `/tmp/mew-remote-dock-${scenario}.png` })
     await page.getByRole('button', { name: '도움말', exact: true }).click()
     assert.equal(await page.locator('[data-cursor-mode]').getAttribute('data-cursor-mode'), nativeCapture ? 'local' : 'video')
     await page.getByRole('button', { name: '도움말', exact: true }).click()
@@ -200,8 +210,11 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     for (let i = 0; i < 3; i++) await page.getByRole('button', { name: '화면 90도 회전' }).click()
     await page.getByRole('button', { name: '전체화면', exact: true }).click()
     await page.waitForFunction('!!document.fullscreenElement')
+    await dock.waitFor({ state: 'hidden' })
+    assert.equal(await page.locator('.remote-desktop').getAttribute('data-dock'), null)
     await page.getByRole('button', { name: '전체화면 해제', exact: true }).click()
     await page.waitForFunction('!document.fullscreenElement')
+    await dock.waitFor({ state: 'visible' })
     if (scenario === 'direct') {
       await page.evaluate('window.testCanvas.width=640;window.testCanvas.height=960')
       await page.waitForFunction('document.querySelector("video").videoWidth===640&&parseFloat(document.querySelector("video").style.height)>parseFloat(document.querySelector("video").style.width)')
