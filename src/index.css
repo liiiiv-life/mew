@@ -384,7 +384,7 @@ strong {
   .mew-dialog button { transition: none; }
 }
 
-/* A cream speech bubble points to the cat; the hidden-cat fallback keeps the app theme. */
+/* Theme-aware speech bubbles share controls with the hidden-cat notification panel. */
 .mewcat-notifications {
   position: fixed;
   z-index: 2147483646;
@@ -427,7 +427,22 @@ strong {
   border-radius: 6px;
 }
 .mewcat-notification-button:hover { background: var(--color-surface-raised); }
-.mewcat-notification-button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.mewcat-notification-button:active { background: var(--color-surface-hover); }
+.mewcat-notification-button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.mewcat-notification-action {
+  gap: 10px;
+  min-height: 36px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.mewcat-notification-action:hover { background: var(--color-surface-hover); }
+.mewcat-notification-action:active { background: var(--color-edge-bright); }
 @media (pointer: coarse) {
   .mewcat-notification-button { min-width: 44px; min-height: 44px; }
 }
