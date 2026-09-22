@@ -26,7 +26,7 @@ Object.defineProperty(document,'hasFocus',{value:()=>window.focused});
 Object.defineProperty(document,'visibilityState',{get:()=>window.visible?'visible':'hidden'});
 window.addEventListener('keydown',()=>window.keys++);
 createRoot(document.getElementById('root')).render(<I18nProvider><main style={{padding:24,maxWidth:480}}><input aria-label="문서" defaultValue="보존할 내용"/><MewcatBreakSettings/></main><Mewcat skin={null}/></I18nProvider>);`
-  const bundle = await build({ input: 'virtual:break.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:break.tsx') return id }, load(id) { if (id === 'virtual:break.tsx') return source } }] })
+  const bundle = await build({ input: 'virtual:break.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:break.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:break.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')
   assert.ok(chunk && chunk.type === 'chunk')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })

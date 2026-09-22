@@ -2198,7 +2198,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         )}
       </div>
 
-      <Mewcat skin={mewcatSkin} />
+      <Mewcat skin={mewcatSkin} onOpenSystemStats={caps.system ? () => setSysStatsOpen(true) : undefined} />
 
       {mobileForegroundPanel !== 'sidebar' && <button
         type="button" data-mobile-sidebar-opener

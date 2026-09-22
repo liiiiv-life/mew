@@ -1,29 +1,27 @@
 import { useEffect, useRef } from 'react'
 import { fetchSystemStats } from '../api/client'
 import { useI18n } from '../i18n'
-import { mewcatNotificationCopy } from '../components/mewcat-notification-copy'
 import { createResourceNoticeTracker } from '../utils/mewcat-notification-rules'
 import { clearMewcatNotices, desktopNotificationPermission, onMewcatNotice, openMewcatNotice, playNotificationSound, publishMewcatNotice, unlockNotificationAudio, useNotificationPreferences } from '../utils/mewcat-notifications'
 
 /** Mounted independently of the cat skin and settings dialog. */
 export function useMewcatNotifications(canMonitorResources: boolean, identity: string | null) {
   const preferences = useNotificationPreferences()
-  const { locale } = useI18n()
-  const copy = mewcatNotificationCopy[locale]
-  const current = useRef({ preferences, copy })
-  current.current = { preferences, copy }
+  const { t } = useI18n()
+  const current = useRef({ preferences, t })
+  current.current = { preferences, t }
 
   useEffect(() => {
     clearMewcatNotices()
     const desktop = new Set<Notification>()
     const unsubscribe = onMewcatNotice(notice => {
-      const { preferences, copy } = current.current
+      const { preferences, t } = current.current
       const away = document.visibilityState === 'hidden' || !document.hasFocus()
       if (preferences.sound) playNotificationSound(notice.level)
       if (!preferences.desktop || !away || desktopNotificationPermission() !== 'granted') return
       try {
         // Never expose transcripts, tool arguments or raw errors on the lock screen.
-        const notification = new Notification(`mew · ${notice.kind === 'test' ? copy.testBody : copy[notice.kind]}`, {
+        const notification = new Notification(`mew · ${notice.kind === 'test' ? t('mewcat.testBody') : t(`mewcat.${notice.kind}`)}`, {
           tag: notice.key, silent: true,
         })
         if (desktop.size >= 30) {

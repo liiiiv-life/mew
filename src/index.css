@@ -174,7 +174,7 @@ body {
   top: 0;
   width: 48px;
   height: 48px;
-  pointer-events: auto;
+  pointer-events: none;
   touch-action: none;
   user-select: none;
   will-change: transform;
@@ -187,6 +187,9 @@ body {
   pointer-events: none;
   transform-origin: center bottom;
 }
+/* Only the painted cat receives input; its transparent box never blocks the workspace. */
+.mewcat-mark > g { pointer-events: visiblePainted; cursor: grab; }
+.mewcat[data-activity="struggle"] .mewcat-mark > g { cursor: grabbing; }
 .mewcat-happy-eyes { display: none; }
 .mewcat[data-activity="love"] .mewcat-eyes { display: none; }
 .mewcat[data-activity="love"] .mewcat-happy-eyes { display: inline; }
@@ -396,31 +399,24 @@ strong {
   color: var(--color-ink);
 }
 .mewcat-notifications-content { max-height: inherit; overflow-y: auto; border-radius: inherit; }
-.mewcat-notifications-with-cat {
-  --color-surface: var(--mewcat-fur);
-  --color-surface-raised: #f4e3cc;
-  --color-ink: var(--mewcat-ink);
-  --color-ink-secondary: #756052;
-  --color-edge: #dfc7b5;
-  --color-edge-strong: var(--mewcat-outline);
-  --color-accent: #7e493b;
-  --color-success: #3f6b43;
-  --color-warning: #925212;
-  --color-danger: #a63737;
-  bottom: max(58px, env(safe-area-inset-bottom));
-}
+.mewcat-notifications-with-cat { visibility: hidden; }
 .mewcat-notifications-with-cat::after {
   content: '';
   position: absolute;
-  right: 29px;
+  left: var(--mewcat-tail-x, 50%);
   bottom: -7px;
   width: 12px;
   height: 12px;
-  transform: rotate(45deg);
+  transform: translateX(-50%) rotate(45deg);
   border-right: 1px solid var(--color-edge-strong);
   border-bottom: 1px solid var(--color-edge-strong);
-  background: var(--mewcat-fur);
+  background: var(--color-surface);
   pointer-events: none;
+}
+.mewcat-notifications-with-cat[data-placement="below"]::after {
+  top: -7px;
+  bottom: auto;
+  transform: translateX(-50%) rotate(225deg);
 }
 .mewcat-notification-button {
   display: inline-flex;
@@ -457,11 +453,8 @@ strong {
   pointer-events: none;
 }
 .mewcat-break::backdrop { background: transparent; pointer-events: none; }
-.mewcat-break-cat { pointer-events: none; z-index: 0; }
+.mewcat-break-cat { z-index: 0; }
 .mewcat-break-cat .mewcat-art { animation: mewcat-break-arrive 650ms cubic-bezier(.16, 1, .3, 1); }
-/* The shared controller captures a grabbed pointer; transparent SVG space stays click-through. */
-.mewcat-break-cat svg > g { pointer-events: visiblePainted; cursor: grab; }
-.mewcat-break-cat[data-activity="struggle"] svg > g { cursor: grabbing; }
 .mewcat-break-caption {
   z-index: 1;
   position: absolute;

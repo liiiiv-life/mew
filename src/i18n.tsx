@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { mewcatNotificationMessages } from './components/mewcat-notification-copy'
 import { LOCALES, preferredLocale, type Locale } from './i18n-locales'
 
 export { LOCALES, LOCALE_NAMES, preferredLocale, type Locale } from './i18n-locales'
@@ -7,6 +8,7 @@ const LOCALE_KEY = 'mew:locale'
 
 const messages = {
   ko: {
+    ...mewcatNotificationMessages('ko'),
     'docs.contextTitle': "에이전트 안내와 문서 설정",
     'docs.contextBack': "돌아가기",
     'docs.contextHint': "mew에서 실행하는 채팅형 에이전트에 프로젝트 위치와 문서 탐색·갱신 안내를 자동으로 전달합니다.",
@@ -228,6 +230,7 @@ const messages = {
     'chat.send': '전송',
     'system.resourceLoadFailed': '자원 현황을 불러오지 못했습니다',
     'system.title': '시스템 자원',
+    'system.gpuPeak': 'GPU 최대',
     'system.running': '가동 {uptime}',
     'system.loading': '불러오는 중…',
     'system.collectingSamples': '표본 모으는 중…',
@@ -461,6 +464,7 @@ const messages = {
     'dateTime.minute': '분',
   },
   en: {
+    ...mewcatNotificationMessages('en'),
     'docs.contextTitle': "Agent guidance and documents",
     'docs.contextBack': "Back",
     'docs.contextHint': "Automatically send project locations and documentation navigation and update guidance to chat agents run through mew.",
@@ -682,6 +686,7 @@ const messages = {
     'chat.send': 'Send',
     'system.resourceLoadFailed': 'Could not load system resources',
     'system.title': 'System resources',
+    'system.gpuPeak': 'GPU max',
     'system.running': 'up {uptime}',
     'system.loading': 'Loading…',
     'system.collectingSamples': 'Collecting samples…',
@@ -915,6 +920,7 @@ const messages = {
     'dateTime.minute': 'Minute',
   },
   'zh-CN': {
+    ...mewcatNotificationMessages('zh-CN'),
     'docs.contextTitle': "代理指引与文档设置",
     'docs.contextBack': "返回",
     'docs.contextHint': "向通过 mew 运行的聊天代理自动提供项目位置、文档导航和更新指引。",
@@ -1136,6 +1142,7 @@ const messages = {
     'chat.send': '发送',
     'system.resourceLoadFailed': '无法加载系统资源',
     'system.title': '系统资源',
+    'system.gpuPeak': 'GPU 最高',
     'system.running': '运行 {uptime}',
     'system.loading': '加载中…',
     'system.collectingSamples': '正在收集样本…',
@@ -1369,6 +1376,7 @@ const messages = {
     'dateTime.minute': '分',
   },
   ja: {
+    ...mewcatNotificationMessages('ja'),
     'docs.contextTitle': "エージェント案内と文書設定",
     'docs.contextBack': "戻る",
     'docs.contextHint': "mew のチャットエージェントにプロジェクトの場所、文書の探索と更新の案内を自動で渡します。",
@@ -1590,6 +1598,7 @@ const messages = {
     'chat.send': '送信',
     'system.resourceLoadFailed': 'システムリソースを読み込めませんでした',
     'system.title': 'システムリソース',
+    'system.gpuPeak': 'GPU 最大',
     'system.running': '稼働 {uptime}',
     'system.loading': '読み込み中…',
     'system.collectingSamples': 'サンプルを収集中…',

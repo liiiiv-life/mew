@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useI18n } from '../i18n'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useMewcatNotices, useNotificationPreferences } from '../utils/mewcat-notifications'
 import { MewcatNotifications } from './mewcat-notifications'
+import { MewcatResources } from './mewcat-resources'
 import { MewcatBreak } from './mewcat-break'
 import { useMewcatBreak } from '../hooks/use-mewcat-break'
 import type { MewcatSkin } from '../utils/mewcatSkin'
@@ -33,13 +35,23 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 function nextActivity(): Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'> { const options: Array<Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'>> = ['idle', 'walk', 'run']; return options[Math.floor(Math.random() * options.length)] }
 
 /** 화면 맨 아래를 자유롭게 오가며, 눌러서 잠깐 놀아 줄 수 있는 Mew의 고양이. */
-export function Mewcat({ skin }: { skin: MewcatSkin | null }) {
+export function Mewcat({ skin, onOpenSystemStats }: { skin: MewcatSkin | null; onOpenSystemStats?: () => void }) {
+  const anchorRef = useRef<HTMLDivElement>(null)
   const remainingMs = useMewcatBreak()
   const notices = useMewcatNotices()
   const preferences = useNotificationPreferences()
-  const attention = preferences.visual && notices.length > 0
+  const [bubbleOpen, setBubbleOpen] = useState(false)
+  const closeBubble = useCallback(() => setBubbleOpen(false), [])
+  const showBubble = bubbleOpen && skin !== null
+  const attention = showBubble || (preferences.visual && notices.length > 0)
+  useEffect(() => {
+    if (remainingMs !== null || skin === null) setBubbleOpen(false)
+  }, [remainingMs, skin])
   if (remainingMs !== null) return <MewcatBreak remainingMs={remainingMs}><MewcatActive attention={false} giant /></MewcatBreak>
-  return <>{skin !== null && <MewcatActive attention={attention} noticeId={attention ? notices.at(-1)?.id : undefined} />}<MewcatNotifications hasCat={skin !== null} /></>
+  return <>{skin !== null && <MewcatActive anchorRef={anchorRef} attention={attention} noticeId={attention ? notices.at(-1)?.id : undefined}
+    onTap={() => setBubbleOpen(open => !open)} onDrag={closeBubble} expanded={showBubble} />}
+    {showBubble ? <MewcatResources anchorRef={anchorRef} onClose={closeBubble} onOpen={onOpenSystemStats ? () => { closeBubble(); onOpenSystemStats() } : undefined} /> : <MewcatNotifications anchorRef={anchorRef} hasCat={skin !== null} />}
+  </>
 }
 
 /** 둥근 얼굴과 짧은 발을 가진 자체 벡터 캐릭터. 설정 미리보기에서도 같은 그림을 쓴다. */
@@ -73,10 +85,14 @@ export function MewcatMark({ className = '' }: { className?: string }) {
   )
 }
 
-function MewcatActive({ attention, noticeId, giant = false }: { attention: boolean; noticeId?: number; giant?: boolean }) {
+function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, onDrag, expanded }: { anchorRef?: RefObject<HTMLDivElement | null>; attention: boolean; noticeId?: number; giant?: boolean; onTap?: () => void; onDrag?: () => void; expanded?: boolean }) {
+  const { t } = useI18n()
   const attentionRef = useRef(attention)
   attentionRef.current = attention
-  const catRef = useRef<HTMLDivElement>(null)
+  const interactionRef = useRef({ onTap, onDrag })
+  interactionRef.current = { onTap, onDrag }
+  const localRef = useRef<HTMLDivElement>(null)
+  const catRef = anchorRef ?? localRef
   const lastNotice = useRef(0)
   useEffect(() => {
     if (!noticeId || noticeId <= lastNotice.current) return
@@ -89,7 +105,7 @@ function MewcatActive({ attention, noticeId, giant = false }: { attention: boole
       { transform: 'rotate(0deg)' },
     ], { duration: 420, easing: 'ease-in-out' })
     return () => nod?.cancel()
-  }, [noticeId])
+  }, [noticeId, catRef])
   useEffect(() => {
     const cat = catRef.current
     if (!cat) return
@@ -124,12 +140,16 @@ function MewcatActive({ attention, noticeId, giant = false }: { attention: boole
       cat.dataset.activity = activity
       cat.style.transform = `translate3d(${x}px, ${y}px, 0) scaleX(${direction < 0 ? -1 : 1})`
     }
+    const followPointer = () => {
+      x = clamp(lastPointerX - grabX * bounds.size, bounds.minX, bounds.maxX)
+      y = clamp(lastPointerY - grabY * bounds.size, bounds.minY, bounds.ground)
+    }
     const resize = () => {
       bounds = movementBounds(giant)
       cat.style.width = `${bounds.size}px`
       cat.style.height = `${bounds.size}px`
       x = clamp(x, bounds.minX, bounds.maxX)
-      if (dragging) y = clamp(y, bounds.minY, bounds.ground)
+      if (dragging) followPointer()
       else if (activity === 'fall') {
         y = Math.max(bounds.minY, y)
         if (y >= bounds.ground) {
@@ -143,11 +163,16 @@ function MewcatActive({ attention, noticeId, giant = false }: { attention: boole
     const tick = (now: number) => {
       const delta = Math.min(0.05, (now - lastFrame) / 1000)
       lastFrame = now
-      if (pointerId === undefined && (activity === 'idle' || activity === 'walk' || activity === 'run')) {
+      // A captured pointer owns position, even before the mouse sends its next move.
+      // Never let roaming, gravity or ground correction run while the cat is held.
+      if (pointerId !== undefined) {
+        if (dragging) followPointer()
+        render()
+        animationFrame = window.requestAnimationFrame(tick)
+        return
+      }
+      if (activity === 'idle' || activity === 'walk' || activity === 'run') {
         if (attentionRef.current) {
-          x = Math.max(bounds.minX, bounds.maxX - 24)
-          y = bounds.ground
-          direction = 1
           setActivity('idle', now)
         } else if (activity === 'idle' && !activityEnds) chooseRoam(now)
       }
@@ -177,8 +202,8 @@ function MewcatActive({ attention, noticeId, giant = false }: { attention: boole
           verticalVelocity = 0
           setActivity('land', now, animation.land.frames.length * animation.land.frameMs)
         }
-      } else if (activity !== 'struggle' && pointerId === undefined) y = bounds.ground
-      if (pointerId === undefined && activityEnds && now >= activityEnds) chooseRoam(now)
+      } else if (activity !== 'struggle') y = bounds.ground
+      if (activityEnds && now >= activityEnds) chooseRoam(now)
       render()
       animationFrame = window.requestAnimationFrame(tick)
     }
@@ -187,6 +212,7 @@ function MewcatActive({ attention, noticeId, giant = false }: { attention: boole
       event.preventDefault()
       pointerId = event.pointerId
       dragging = activity === 'fall' || y < bounds.ground
+      if (dragging) interactionRef.current.onDrag?.()
       horizontalVelocity = verticalVelocity = 0
       grabStartX = lastPointerX = event.clientX
       grabStartY = lastPointerY = event.clientY
@@ -215,10 +241,10 @@ function MewcatActive({ attention, noticeId, giant = false }: { attention: boole
         y = bounds.ground
         if (activity !== 'love') setActivity('love', now, animation.love.frames.length * animation.love.frameMs)
       } else if (dragging || Math.hypot(dx, dy) > 4) {
+        if (!dragging) interactionRef.current.onDrag?.()
         dragging = true
         setActivity('struggle', now)
-        x = clamp(event.clientX - grabX * bounds.size, bounds.minX, bounds.maxX)
-        y = clamp(event.clientY - grabY * bounds.size, bounds.minY, bounds.ground)
+        followPointer()
       }
       render()
     }
@@ -233,7 +259,10 @@ function MewcatActive({ attention, noticeId, giant = false }: { attention: boole
         horizontalVelocity *= scale
         verticalVelocity *= scale
         setActivity('fall', performance.now())
-      } else setActivity('love', performance.now(), animation.love.frames.length * animation.love.frameMs)
+      } else {
+        setActivity('love', performance.now(), animation.love.frames.length * animation.love.frameMs)
+        if (!cancelled && Math.hypot(event.clientX - grabStartX, event.clientY - grabStartY) <= 4) interactionRef.current.onTap?.()
+      }
       render()
     }
     const onPointerUp = (event: PointerEvent) => release(event)
@@ -261,6 +290,10 @@ function MewcatActive({ attention, noticeId, giant = false }: { attention: boole
       viewport?.removeEventListener('resize', resize)
       viewport?.removeEventListener('scroll', resize)
     }
-  }, [giant])
-  return <div ref={catRef} className={`mewcat text-accent${giant ? ' mewcat-break-cat' : ''}`} data-notification={attention ? 'true' : undefined} aria-label="Mewcat"><div className="mewcat-art"><MewcatMark className="mewcat-mark" /></div></div>
+  }, [giant, catRef])
+  return <div ref={catRef} className={`mewcat text-accent${giant ? ' mewcat-break-cat' : ''}`} data-notification={attention ? 'true' : undefined} aria-label={t('settings.mewcat')}
+    role={onTap ? 'button' : undefined} tabIndex={onTap ? 0 : undefined} aria-expanded={onTap ? expanded : undefined}
+    onKeyDown={event => { if (onTap && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onTap() } }}>
+    <div className="mewcat-art"><MewcatMark className="mewcat-mark" /></div>
+  </div>
 }
