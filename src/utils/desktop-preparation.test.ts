@@ -51,3 +51,16 @@ test('closing during preparation aborts polling without killing the shared insta
   await assert.rejects(prepareDesktop(f.options), { name: 'AbortError' })
   assert.equal(f.calls.length, 2)
 })
+
+test('short helper updates reconnect promptly while long downloads back off polling', async () => {
+  const fast = fixture([{ ready: false, installable: true }, { state: 'running' }, { state: 'succeeded' }, { ready: true }])
+  const waits: number[] = []
+  fast.options.pause = async ms => { waits.push(ms) }
+  await prepareDesktop(fast.options)
+  assert.deepEqual(waits, [250])
+  const slow = fixture([{ ready: false, installable: true }, ...Array.from({ length: 6 }, () => ({ state: 'running' })), { state: 'succeeded' }, { ready: true }])
+  waits.length = 0; slow.options.pause = async ms => { waits.push(ms) }
+  await prepareDesktop(slow.options)
+  assert.deepEqual(waits, [250, 500, 1000, 1500, 1500, 1500])
+  assert.equal(slow.calls.filter(call => call.startsWith('POST')).length, 1)
+})

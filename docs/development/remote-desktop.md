@@ -1,7 +1,7 @@
 ---
 title: "원격 데스크톱 아키텍처와 검증"
 created: 2026-09-12
-updated: 2026-09-19
+updated: 2026-09-23
 ---
 
 # 원격 데스크톱
@@ -34,7 +34,7 @@ Windows Electron의 익명 stdin은 실제 환경에서 즉시 EOF가 되어 직
 
 bootstrap과 영상 시그널링 파이프는 현재 사용자 SID에만 허용하고 Network SID는 거부한다. libuv 기본 DACL이 서비스 로그온 SID에 묶일 수 있어 실제 파이프 ACL도 갱신한다. bootstrap 첫 바이트 수신 후 impersonation 사용자 SID와 실제 클라이언트 프로세스 세션 ID(0 아님)를 검사한다. 로그인 실행 대기는 25초이며 부모 소멸·실패·완료에서 작업을 제거한다. 로그인 세션의 launcher가 직접 시작한 Electron 프로세스 핸들을 보관한다. bootstrap 파이프는 연결 동안 유지하고 broker·bridge가 사라져 EOF가 오면 2초 뒤에도 끝나지 않은 Electron을 그 핸들로 종료한다. WSL이 서비스 쪽 프로세스들을 한꺼번에 종료해도 로그인 세션의 supervisor가 정리하며 PID 재사용으로 다른 프로세스를 죽이지 않는다. 비정상 OS 종료로 작업 정의가 남더라도 트리거·인증 정보가 없어 자동 실행되지 않는다. 다른 사용자나 로그인 전 화면으로 권한을 확장하지 않는다.
 
-Windows 실행 전 설치한 전용 Node → Program Files → PATH 순서로 지원 버전을 찾는다. Electron 시작 후 별도로 조회한 해당 실행 파일의 명시적 inbound 방화벽 차단 규칙을 발견하면 서버가 `network-hint`를 전달한다. 직접 연결 실패 시 먼저 서버 전송으로 전환하며, 브라우저가 서버 전송을 준비하지 못할 때만 방화벽 안내를 함께 표시한다. 설정 위치는 Mew 서버가 실행 중인 컴퓨터의 Windows라고 명시한다. 규칙 존재만으로 실행을 막지 않고 조회만 한다. 방화벽 조회는 최대 8초이며 지연·실패가 helper 시작을 막지 않는다. 세션이 끝난 뒤 도착한 진단은 전송하지 않는다. WSL의 두 `wslpath` 변환은 병렬 수행한다. 준비 상태 API와 실제 spawn의 실행 경로 탐색은 30초 동안 동일 진행 요청/성공 결과 하나를 재사용한다. 플랫폼·helper 경로·WSL interop·PATH가 바뀌면 새로 탐색하고 실패는 캐시하지 않는다. 설치 버전·파일 접근·OS 권한·캡처·인증은 캐시하지 않는다. `ready`는 구성 파일 준비 상태이며 OS 로그인·네트워크 접근 성공을 보장하지 않는다.
+Windows 실행 전 설치한 전용 Node → Program Files → PATH 순서로 지원 버전을 찾는다. Electron 시작 후 별도로 조회한 해당 실행 파일의 명시적 inbound 방화벽 차단 규칙을 발견하면 서버가 `network-hint`를 전달한다. 직접 연결 실패 시 먼저 서버 전송으로 전환하며, 브라우저가 서버 전송을 준비하지 못할 때만 방화벽 안내를 함께 표시한다. 설정 위치는 Mew 서버가 실행 중인 컴퓨터의 Windows라고 명시한다. 규칙 존재만으로 실행을 막지 않고 조회만 한다. 방화벽 조회는 최대 8초이며 지연·실패가 helper 시작을 막지 않는다. 세션이 끝난 뒤 도착한 진단은 전송하지 않는다. WSL은 설치된 전용 `runtime/node.exe`를 `--version`으로 직접 검사하고, 지원 버전이면 PowerShell 탐색을 생략한다. 없거나 실행 불가·버전 미지원이면 기존 PowerShell 탐색으로 돌아간다. Node 탐색과 bridge 소스의 `wslpath` 변환은 병렬 수행한다. bridge 실행 경로도 별도의 30초 캐시로 진행 요청·성공 결과만 재사용하고, helper spec·WSL interop·PATH 변경과 조회 실패는 무효화한다. 로그인 세션 검증은 매 연결의 broker가 계속 수행한다. 준비 상태 API와 실제 spawn의 실행 경로 탐색은 30초 동안 동일 진행 요청/성공 결과 하나를 재사용한다. 플랫폼·helper 경로·WSL interop·PATH가 바뀌면 새로 탐색하고 실패는 캐시하지 않는다. 설치 버전·파일 접근·OS 권한·캡처·인증은 캐시하지 않는다. `ready`는 구성 파일 준비 상태이며 OS 로그인·네트워크 접근 성공을 보장하지 않는다.
 
 Electron ESM 진입점에서 `await app.whenReady()`를 최상위로 기다리면 모듈 평가 완료와 앱 준비가 서로 기다린다. `createWindow()`를 비동기로 시작하고 진입 모듈 평가는 즉시 끝낸다. 시작 중 부모가 종료되면 준비 후 창을 만들지 않는다.
 
@@ -42,7 +42,7 @@ Electron ESM 진입점에서 `await app.whenReady()`를 최상위로 기다리�
 
 ## 자동 준비와 내부 tmux
 
-`desktop-preparation.ts`는 `/api/remote-desktop/status`가 준비 가능하다고 응답하면 `POST /api/remote-desktop/install`을 한 번 호출하고 완료까지 `GET`으로 기다린다. manager·owner만 사용할 수 있다. 실패 시 자동 반복하지 않으며 준비 후 상태를 다시 확인한 뒤 WS를 연다. 준비 대기는 최대 20분, 영상 연결 제한 시간은 준비가 끝난 다음부터 계산한다. 뷰어 종료는 요청·폴링만 취소한다. `server/remote-desktop-install.ts`가 고정 `mewcmd-desktop-install` 세션을 소유하며 HTTP 입력으로 명령·폴더·세션을 지정할 수 없다.
+`desktop-preparation.ts`는 `/api/remote-desktop/status`가 준비 가능하다고 응답하면 `POST /api/remote-desktop/install`을 한 번 호출하고 완료까지 `GET`으로 기다린다. manager·owner만 사용할 수 있다. 실패 시 자동 반복하지 않으며 준비 후 상태를 다시 확인한 뒤 WS를 연다. 설치 완료 조회는 250 → 500 → 1000 → 최대 1500ms 간격으로 늘려 짧은 코드 업데이트는 빨리 감지하고 긴 다운로드는 요청 빈도를 제한한다. 준비 대기는 최대 20분, 영상 연결 제한 시간은 준비가 끝난 다음부터 계산한다. 뷰어 종료는 요청·폴링만 취소한다. `server/remote-desktop-install.ts`가 고정 `mewcmd-desktop-install` 세션을 소유하며 HTTP 입력으로 명령·폴더·세션을 지정할 수 없다.
 
 서버의 Node 실행 파일과 mew 앱 루트의 `native/remote-desktop/install.mjs`를 사용한다. 프로젝트 cwd와 독립적이며, POSIX 셸로 감싸 사용자의 fish/zsh 설정과 무관하게 종료 코드를 기록한다. 현재 서버의 PATH·WSL_INTEROP·MEW_DESKTOP_HELPER_DIR을 전달한다. 동시에 들어온 시작 요청은 하나로 합치고 진행 중인 설치는 재사용한다. 완료한 작업을 재시도할 때만 이전 터미널을 교체한다.
 
@@ -165,7 +165,7 @@ npm run lint
 - 서버: Origin·역할·임시 비밀번호, OS/WSL 경로, 메시지 검증, 단일 제어권, 화면 교체, 권한 회수·자식 종료. 가짜 stdio 프로세스를 사용한다.
 - OS: Windows INPUT 레이아웃, Mac modifier/middle drag, X11 notch, Wayland 승인 응답 경합·입력 순서·종료. FFI/DBus는 모의 객체다.
 - Windows bridge: 세션 0/로그인 세션 실행 인자·방화벽 차단 안내·오류의 WS 전달을 검사한다. `MEW_DESKTOP_TEST_WINDOWS_NODE`에 Windows `node.exe` 경로를 지정하면 실제 임시 작업·Electron 실행·화면 목록·인증 파이프·부모 종료·Electron 이벤트 루프 정지 시 강제 종료 테스트를 실행한다. 실제 Windows 로그인 세션에서 화면 목록이 나오는 것까지 확인했다. 픽셀이나 입력은 기록하지 않는다.
-- Windows 영상 통합 검사는 추가로 `MEW_DESKTOP_TEST_WINDOWS_VIDEO=1`을 지정한다. 직접 후보를 사용할 수 없는 뷰어와 빈 ICE 설정으로 실제 Windows 로그인 화면의 서버 전송·디코딩·부모 종료를 검사했다. DXGI 경로는 정지 화면에서 연속 프레임을 요구하지 않는다. 초기 프레임이 없는 duplication은 약 1초 대기 후 한 번 재생성하고, 다시 실패하면 GDI 보조 경로를 준비한다. 검증 결과와 적용 범위는 [진행 문서](../work/remote-desktop-latency.md)를 따른다. `MEW_DESKTOP_TEST_WINDOWS_LOCAL_CURSOR=1`을 함께 지정하면 네이티브 로컬 커서 활성화·실제 이미지 디코드·보이는 픽셀·DOM 표시와 첫 표시 후 계속 연결됨을 검사한다. `MEW_DESKTOP_TEST_WINDOWS_GDI=1`은 임시 복사본에서 DXGI 실패, `=timeout`은 초기 프레임 부재를 모사해 실제 Windows GDI 보조 경로를 검사한다. 커서 위치 검사는 뷰어 DOM만 이동하며 Windows 입력을 보내지 않는다. 화면 파일·키 입력을 만들지 않는다. 설치본을 덮지 않고 별도 임시 helper 폴더와 Windows junction으로 기존 런타임을 참조하고 종료 후 제거한다. 실패 시 후보 유형·프로토콜·요청/응답 수만 출력하며 IP·포트·SDP·자격증명은 출력하지 않는다. Windows 실기 테스트는 `--test-concurrency=1`로 실행한다.
+- Windows 영상 통합 검사는 추가로 `MEW_DESKTOP_TEST_WINDOWS_VIDEO=1`을 지정한다. 직접 후보를 사용할 수 없는 뷰어와 빈 ICE 설정으로 실제 Windows 로그인 화면의 서버 전송·디코딩·부모 종료를 검사했다. DXGI 경로는 정지 화면에서 연속 프레임을 요구하지 않는다. 초기 프레임이 없는 duplication은 300ms 예산으로 기다린 후 한 번 재생성하고, 다시 300ms 예산 안에 pixels가 없으면 GDI 보조 경로를 준비한다. 이는 `capture-start.mjs`의 빈 프레임 재시도 예산이며 worker 초기화·개별 요청·정리 시간은 별도다. 화면이 바로 나오면 기다리지 않고, API 오류는 재생성 없이 GDI로 넘어간다. 닫는 도중 도착한 프레임은 버리고 worker를 정리한다. 검증 결과와 적용 범위는 [진행 문서](../work/remote-desktop-latency.md)를 따른다. `MEW_DESKTOP_TEST_WINDOWS_LOCAL_CURSOR=1`을 함께 지정하면 네이티브 로컬 커서 활성화·실제 이미지 디코드·보이는 픽셀·DOM 표시와 첫 표시 후 계속 연결됨을 검사한다. `MEW_DESKTOP_TEST_WINDOWS_GDI=1`은 임시 복사본에서 DXGI 실패, `=timeout`은 초기 프레임 부재를 모사해 실제 Windows GDI 보조 경로를 검사한다. 커서 위치 검사는 뷰어 DOM만 이동하며 Windows 입력을 보내지 않는다. 화면 파일·키 입력을 만들지 않는다. 설치본을 덮지 않고 별도 임시 helper 폴더와 Windows junction으로 기존 런타임을 참조하고 종료 후 제거한다. 실패 시 후보 유형·프로토콜·요청/응답 수만 출력하며 IP·포트·SDP·자격증명은 출력하지 않는다. Windows 실기 테스트는 `--test-concurrency=1`로 실행한다.
 - 서버 전송 프로토콜: 이진 내용과 UTF-8/pipe 청크 경계, 과대 프레임·버전·차원·timestamp, 순서·위조/중복 ACK·프레임/바이트 상한, 잘못된 입력·전환 전 입력, 실제 WS의 영상 전달·권한 회수·부모 종료를 검사한다.
 - 자동 준비: 설치 생략·한 번 시작·완료 후 재검사·중단/실패에서 반복 금지·닫을 때 폴링 취소, 코드 변경과 의존성 재사용 지문을 검사한다.
 - Mac 캡처: 크기/Retina/음수 원점, 초기 프레임 전 커서 보존, 유휴 픽셀 생략, 커서만 변경, transfer 이후 버퍼 소유권, 실패·중복 close를 모의 FFI로 검사한다. Apple SDK 15.5와 Clang으로 arm64/x86_64 Mach-O 객체 컴파일을 검사했다. 이는 macOS 링크·실행·권한·영상 실측을 대신하지 않는다. 실제 Mac에서는 설치된 런타임과 화면 기록 권한을 준비한 뒤 `MEW_DESKTOP_TEST_MACOS_CAPTURE=1 node --test server/remote-desktop-macos.test.ts`로 임시 helper의 native 캡처·별도 커서 PNG 디코드·연속 응답·종료를 검사한다. 입력은 주입하지 않고 화면/커서 파일을 저장하지 않는다.
@@ -173,3 +173,11 @@ npm run lint
 - Chromium UI: 실제 sender와 VP8 인코딩/디코딩을 사용해 직접 경로 및 후보 차단 후 서버 전송을 모두 검사한다. 네이티브 캡처 입력을 모사한 실제 WebCodecs 경로에서 로컬 커서·16초 정지 중 추가 영상 0프레임/0바이트·연결 유지·정지 중 키 프레임 복구와 갱신 재개를 확인한다. 화면은 합성 canvas다. 터치 탭·즉시 드래그·hold/cancel·6개 컨트롤·핸들·감도 1/3배·90도 회전 클릭과 이동·전체화면 전환·핫키 순서/해제·설정 Esc·320px/가로 화면 경계·붙여넣기·모바일/데스크톱 배치·재접속·Esc·백그라운드 종료, 누른 키를 해제하는 연결 중 전환, 캡처 재사용, ACK 정지 시 프레임 상한과 복구, VP8 미지원 안내를 확인한다. Chromium이 없으면 skip한다.
 
 **나머지 실기 검증은 별도다.** Mac 바이너리·OS 권한, X11/Wayland 실제 데스크톱 주입, Safari/iOS 실물, 사용자의 외부 모바일 망, Retina/혼합 DPI·다중 모니터, 실제 지연·대역폭은 자동 테스트만으로 검증됐다고 간주하지 않는다. 각 OS에서 로그인·권한 승인·커서/휠/세 버튼 드래그·한글 붙여넣기·닫은 뒤 해제·권한 회수를 확인해야 한다. 잠금 화면·로그인 전·Windows UAC secure desktop 지원은 범위 밖이다.
+
+## 최초 연결 최적화 검증 — 2026-09-23
+
+[연구](../research/remote-desktop-startup.md)의 일부를 구현했다. `remote-desktop-startup.test.ts`는 정상 DXGI 무대기, 빈 화면의 600ms 후 GDI 전환, 두 번째 duplication 복구, 두 네이티브 경로 실패와 시작 중 닫기·늦은 프레임 정리를 가상 시계로 검사한다. 기존 2초에서 0.6초로 줄인 것은 이 빈 프레임 대기 구간의 예산이며 전체 실기 접속 시간의 측정값은 아니다. 더 늦게 첫 화면을 제공하는 DXGI는 GDI로 넘어갈 수 있으므로 실기에서 fallback 비율·CPU 비용을 확인해야 한다.
+
+bridge 테스트는 전용 Node 경로에서 PowerShell 미실행·병렬 조회, 전용 Node 누락/미지원의 기존 탐색, 캐시 만료·환경 변경·실패 재시도를 검사한다. 준비 테스트는 짧은 설치의 250ms 완료 조회와 장시간 작업의 1500ms 상한, 취소·인증 오류를 확인한다. 현재 에이전트 환경에서는 지원 Windows Node 탐색이 실패해 실제 Windows 전체 접속은 미측정이다. 직접 우선·1.2초 서버 전환, 비상주 helper·로그인 세션·단일 제어권·부모 lease는 유지한다.
+
+검증 명령 `MEW_DATA_DIR=/tmp/mew-test-data node --test server/remote-desktop*.test.ts src/utils/desktop-*.test.ts`에서 81개 중 78개 통과, Windows/Mac opt-in 실기 3개는 생략했다. 통과 항목에는 실제 Chromium·WebRTC·VP8을 사용하는 합성 화면 4개 시나리오가 포함된다. `npx tsc -b`와 `npm run lint`는 통과했고 변경 범위 밖 기존 린트 경고 10개가 남는다. 실행 서버 빌드·재시작·설치는 수행하지 않았다.

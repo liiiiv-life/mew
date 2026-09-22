@@ -21,10 +21,12 @@ export async function prepareDesktop({ signal, message, installable, request = f
   message('원격 데스크톱을 준비하고 있습니다. 처음에는 다운로드에 몇 분 걸릴 수 있습니다.')
   let job: Job = await json('install', 'POST')
   const deadline = Date.now() + 20 * 60_000
+  let interval = 250
   while (job.state === 'running') {
     if (Date.now() > deadline) throw new Error('준비가 오래 걸리고 있습니다. 준비 내역에서 진행 상태를 확인해 주세요.')
-    await pause(1500, signal)
+    await pause(interval, signal)
     job = await json('install')
+    interval = Math.min(1500, interval * 2)
   }
   if (job.state !== 'succeeded') throw new Error(job.state === 'interrupted' ? '준비가 중단됐습니다. 다시 연결하면 준비를 재시도합니다.' : '원격 데스크톱 준비에 실패했습니다. 준비 내역에서 오류를 확인한 뒤 다시 연결해 주세요.')
   const ready: HostStatus = await json('status')

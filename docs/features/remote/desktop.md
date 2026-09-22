@@ -4,7 +4,7 @@ parent: "mew-remote"
 title: "원격 데스크톱·터치 입력"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-19"
+updated: "2026-09-23"
 status_hash: "278f4dc5c3b21929284aadc8ff47af89a35f48d29be6a318f5b80773c2f10e81"
 files: ["src/components/remote-desktop.tsx", "server/remote-desktop.ts", "server/remote-desktop-host.ts", "native/remote-desktop/main.mjs"]
 commits: []
@@ -34,6 +34,8 @@ commits: []
 구성 요소 준비·화면 선택·직접 연결/서버 전송과 마우스·키보드·모바일 조이스틱을 제공한다. 전체화면·90도 회전·속도 비례 커서 가속·감도 설정(기본 3배)·핸들로 옮기는 세로 핫키를 지원하고, 시작 경로의 중복 탐색·방화벽 진단 대기·직접 연결 fallback 대기를 줄인다.
 
 <!-- mew:implementation:end -->
+
+최초 연결 최적화로 Windows 전용 Node 직접 탐색·bridge 경로 재사용, DXGI 빈 화면의 빠른 GDI 전환, 짧은 준비 작업의 빠른 완료 확인을 적용했다. 정상 DXGI·로그인 세션·종료 시 정리는 유지하며, 실제 전체 접속 시간은 실기 확인이 필요하다.
 
 <!-- mew:validation:start -->
 ## 검증

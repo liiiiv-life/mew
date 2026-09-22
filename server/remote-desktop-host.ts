@@ -15,18 +15,36 @@ export type DesktopIceServer = { urls: string | string[]; username?: string; cre
 export class DesktopHostLaunchError extends Error {}
 export type DesktopHostProcess = ChildProcessByStdio<Writable, Readable, Readable> & { desktopNetworkHint?: string | Promise<string | undefined> }
 
-export async function desktopWindowsBridgeSpec(spec: DesktopHostSpec, run = execute, resolvePowerShell = wslPowerShell) {
-  const privateNode = path.win32.join(path.win32.dirname(spec.entry), 'runtime', 'node.exe').replaceAll("'", "''")
-  const query = `$node = $null; $candidates = @('${privateNode}', (Join-Path $env:ProgramFiles "nodejs\\node.exe"), (Get-Command node.exe -ErrorAction SilentlyContinue).Source); foreach ($candidate in $candidates) { if ($candidate -and (Test-Path -LiteralPath $candidate)) { $version = & $candidate --version; if ($LASTEXITCODE -eq 0 -and $version -match '^v(\\d+)\\.(\\d+)\\.' -and ([int]$Matches[1] -gt 22 -or ([int]$Matches[1] -eq 22 -and [int]$Matches[2] -ge 12))) { $node = $candidate; break } } }; if (-not $node) { throw "Windows Node.js is required" }; @{node=$node; session=[System.Diagnostics.Process]::GetCurrentProcess().SessionId} | ConvertTo-Json -Compress`
-  let info: { node: string; session: number }
-  try { info = JSON.parse((await run(resolvePowerShell(), ['-NoProfile', '-NonInteractive', '-Command', query], { timeout: 8000, maxBuffer: 8192 })).stdout.toString().trim()) }
-  catch { throw new DesktopHostLaunchError('Windows 실행 환경을 확인하지 못했습니다. Windows Node.js와 WSL interop를 확인해 주세요.') }
-  if (!Number.isInteger(info.session) || !/^[A-Za-z]:[\\/]/.test(info.node)) throw new DesktopHostLaunchError('Windows 로그인 세션과 Node.js 경로를 확인하지 못했습니다.')
-  const [converted, bridge] = await Promise.all([
-    run('wslpath', ['-u', info.node], { timeout: 5000 }),
-    run('wslpath', ['-w', path.join(DEFAULT_ROOT, 'windows-bridge.mjs')], { timeout: 5000 }),
-  ])
-  return { executable: converted.stdout.toString().trim(), args: [bridge.stdout.toString().trim(), spec.entry] }
+async function resolveWindowsBridgeSpec(spec: DesktopHostSpec, run = execute, resolvePowerShell = wslPowerShell) {
+  const bridgePath = run('wslpath', ['-w', path.join(DEFAULT_ROOT, 'windows-bridge.mjs')], { timeout: 5000 })
+  const nodePath = (async () => {
+    // The installer puts Node beside the helper. Probe it directly through WSL
+    // instead of starting PowerShell just to rediscover this known location.
+    const privateExecutable = path.join(path.resolve(spec.executable, '../../../..'), 'runtime', 'node.exe')
+    try {
+      const version = (await run(privateExecutable, ['--version'], { timeout: 5000, maxBuffer: 8192 })).stdout.toString().trim()
+      const match = /^v(\d+)\.(\d+)\./.exec(version)
+      if (match && (+match[1] > 22 || +match[1] === 22 && +match[2] >= 12)) return privateExecutable
+    } catch { /* Older installations may use Program Files or Windows PATH. */ }
+    const privateNode = path.win32.join(path.win32.dirname(spec.entry), 'runtime', 'node.exe').replaceAll("'", "''")
+    const query = `$node = $null; $candidates = @('${privateNode}', (Join-Path $env:ProgramFiles "nodejs\\node.exe"), (Get-Command node.exe -ErrorAction SilentlyContinue).Source); foreach ($candidate in $candidates) { if ($candidate -and (Test-Path -LiteralPath $candidate)) { $version = & $candidate --version; if ($LASTEXITCODE -eq 0 -and $version -match '^v(\\d+)\\.(\\d+)\\.' -and ([int]$Matches[1] -gt 22 -or ([int]$Matches[1] -eq 22 -and [int]$Matches[2] -ge 12))) { $node = $candidate; break } } }; if (-not $node) { throw "Windows Node.js is required" }; @{node=$node; session=[System.Diagnostics.Process]::GetCurrentProcess().SessionId} | ConvertTo-Json -Compress`
+    let info: { node: string; session: number }
+    try { info = JSON.parse((await run(resolvePowerShell(), ['-NoProfile', '-NonInteractive', '-Command', query], { timeout: 8000, maxBuffer: 8192 })).stdout.toString().trim()) }
+    catch { throw new DesktopHostLaunchError('Windows 실행 환경을 확인하지 못했습니다. Windows Node.js와 WSL interop를 확인해 주세요.') }
+    if (!Number.isInteger(info.session) || !/^[A-Za-z]:[\\/]/.test(info.node)) throw new DesktopHostLaunchError('Windows 로그인 세션과 Node.js 경로를 확인하지 못했습니다.')
+    return (await run('wslpath', ['-u', info.node], { timeout: 5000 })).stdout.toString().trim()
+  })()
+  const [executable, bridge] = await Promise.all([nodePath, bridgePath])
+  return { executable, args: [bridge.stdout.toString().trim(), spec.entry] }
+}
+
+export function desktopBridgeLookup(run = execute, resolvePowerShell = wslPowerShell, now = Date.now) {
+  const lookup = desktopPathCache(key => resolveWindowsBridgeSpec(JSON.parse(key)[0], run, resolvePowerShell), now)
+  return (spec: DesktopHostSpec, env: NodeJS.ProcessEnv = process.env) => lookup(JSON.stringify([spec, env.WSL_INTEROP || '', env.PATH || '']))
+}
+const cachedBridgeSpec = desktopBridgeLookup()
+export function desktopWindowsBridgeSpec(spec: DesktopHostSpec, run?: typeof execute, resolvePowerShell?: typeof wslPowerShell) {
+  return run || resolvePowerShell ? resolveWindowsBridgeSpec(spec, run, resolvePowerShell) : cachedBridgeSpec(spec)
 }
 
 /** Firewall diagnostics must never gate launching the login helper. */

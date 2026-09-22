@@ -9,6 +9,7 @@ import { parentChannel } from './parent-channel.mjs'
 import { hostFrame } from './host-wire.mjs'
 import { readFrame, MAX_FRAME_BYTES } from './relay-protocol.mjs'
 import { nativeCapture } from './native-capture.mjs'
+import { startWindowsCapture } from './capture-start.mjs'
 import { validCursor } from './cursor-protocol.mjs'
 import { macCaptureLibrary } from './capture-macos.mjs'
 
@@ -78,29 +79,8 @@ async function start(id) {
   // Probe the actual capture before advertising a separate cursor. Startup failure
   // uses Chromium; a failure after activation ends the session (no invisible cursor).
   if (process.platform === 'win32') {
-    try {
-      // A display transition can leave a new duplication without any first frame.
-      // Recreate that empty duplication once; unsupported API errors still fall
-      // back immediately, and initialization never becomes an endless retry.
-      for (let attempt = 0; attempt < 2 && !closing; attempt++) {
-        capture = await nativeCapture(bounds)
-        const until = Date.now() + 1000
-        do {
-          firstCapture = await capture.next()
-          if (firstCapture.pixels) break
-          await new Promise(resolve => setTimeout(resolve, 16))
-        } while (!closing && Date.now() < until)
-        if (firstCapture?.pixels) break
-        await capture.close(); capture = null
-      }
-      if (!firstCapture?.pixels) throw new Error('No initial DXGI frame')
-    } catch {
-      await capture?.close(); capture = null; firstCapture = null
-      if (!closing) try {
-        capture = await nativeCapture(bounds, 'gdi'); firstCapture = await capture.next()
-        if (!firstCapture?.pixels) throw new Error('No initial GDI frame')
-      } catch { await capture?.close(); capture = null; firstCapture = null }
-    }
+    const ready = await startWindowsCapture(bounds, { stopped: () => closing })
+    capture = ready?.capture ?? null; firstCapture = ready?.first ?? null
   }
   if (process.platform === 'darwin') {
     try {

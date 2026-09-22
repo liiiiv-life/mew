@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { WebSocket } from 'ws'
-import { desktopHostSpec, desktopWindowsBridgeSpec, desktopWindowsFirewallHint, desktopPathCache, DesktopHostLaunchError } from './remote-desktop-host.ts'
+import { desktopHostSpec, desktopWindowsBridgeSpec, desktopWindowsFirewallHint, desktopPathCache, desktopBridgeLookup, DesktopHostLaunchError } from './remote-desktop-host.ts'
 import { attachRemoteDesktopWebSocket } from './remote-desktop.ts'
 
 const exec = promisify(execFile)
@@ -47,6 +47,62 @@ test('optional firewall discovery reports blocks but tolerates unavailable diagn
   assert.match((await desktopWindowsFirewallHint(spec, run, () => 'powershell.exe'))!, /방화벽.*재설치는 필요하지/)
   const unavailable = (async () => { throw new Error('timeout') }) as unknown as typeof exec
   assert.equal(await desktopWindowsFirewallHint(spec, unavailable, () => 'powershell.exe'), undefined)
+})
+
+test('private Windows Node avoids PowerShell and overlaps the bridge path conversion', async () => {
+  const calls: string[][] = []
+  let finish!: (value: { stdout: string; stderr: string }) => void
+  const pending = new Promise<{ stdout: string; stderr: string }>(resolve => { finish = resolve })
+  const run = (async (command: string, args: string[]) => {
+    calls.push([command, ...args])
+    if (command === 'wslpath') return pending
+    assert.equal(command, '/mnt/c/helper/runtime/node.exe')
+    assert.deepEqual(args, ['--version'])
+    return { stdout: 'v24.21.0\n', stderr: '' }
+  }) as typeof exec
+  const result = desktopWindowsBridgeSpec({ ...spec, executable: '/mnt/c/helper/node_modules/electron/dist/electron.exe' }, run, () => { assert.fail('PowerShell must not start') })
+  assert.equal(calls.length, 2, 'both independent lookups start before either completes')
+  finish({ stdout: '\\\\wsl.localhost\\Ubuntu\\bridge.mjs\n', stderr: '' })
+  assert.deepEqual(await result, { executable: '/mnt/c/helper/runtime/node.exe', args: ['\\\\wsl.localhost\\Ubuntu\\bridge.mjs', spec.entry] })
+})
+
+test('missing and unsupported private Node retain Windows discovery and launch errors', async () => {
+  for (const version of [null, 'v22.11.0', 'invalid']) {
+    let powershell = 0
+    const run = (async (command: string, args: string[]) => {
+      if (command.endsWith('node.exe')) { if (version === null) throw new Error('ENOENT'); return { stdout: version, stderr: '' } }
+      if (command === 'powershell.exe') { powershell++; return { stdout: JSON.stringify({ node: 'C:\\Node\\node.exe', session: 0 }), stderr: '' } }
+      return { stdout: args[0] === '-u' ? '/mnt/c/Node/node.exe' : 'C:\\bridge.mjs', stderr: '' }
+    }) as typeof exec
+    assert.equal((await desktopWindowsBridgeSpec(spec, run, () => 'powershell.exe')).executable, '/mnt/c/Node/node.exe')
+    assert.equal(powershell, 1)
+  }
+  const failed = (async () => { throw new Error('unavailable') }) as unknown as typeof exec
+  await assert.rejects(desktopWindowsBridgeSpec(spec, failed, () => 'powershell.exe'))
+})
+
+test('bridge lookup shares successes only, invalidates on environment/entry changes and expires', async () => {
+  let now = 0, probes = 0, broken = false
+  const run = (async (command: string) => {
+    if (command === 'wslpath') return { stdout: 'C:\\bridge.mjs', stderr: '' }
+    probes++
+    if (broken) throw new Error('unavailable')
+    return { stdout: 'v24.21.0', stderr: '' }
+  }) as typeof exec
+  const lookup = desktopBridgeLookup(run, () => 'powershell.exe', () => now)
+  const env = { PATH: '/one', WSL_INTEROP: '/socket1' }
+  await Promise.all([lookup(spec, env), lookup(spec, env)]); assert.equal(probes, 1)
+  now = 29_999; await lookup(spec, env); assert.equal(probes, 1)
+  now = 30_000; await lookup(spec, env); assert.equal(probes, 2)
+  await lookup(spec, { ...env, PATH: '/two' }); assert.equal(probes, 3)
+  await lookup(spec, { ...env, WSL_INTEROP: '/socket2' }); assert.equal(probes, 4)
+  await lookup({ ...spec, entry: 'C:\\new\\main.mjs' }, env); assert.equal(probes, 5)
+  broken = true
+  await assert.rejects(lookup(spec, env), DesktopHostLaunchError)
+  const failedProbes = probes
+  await assert.rejects(lookup(spec, env), DesktopHostLaunchError)
+  assert.ok(probes > failedProbes, 'a failed lookup is retried')
+  broken = false; await lookup(spec, env)
 })
 
 test('path lookup coalesces preparation and launch, expires and retries failures', async () => {
