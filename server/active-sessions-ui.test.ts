@@ -17,11 +17,10 @@ import {usePresence} from '${root}/src/hooks/usePresence.ts';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 class Socket {static OPEN=1; readyState=1; sent=[]; constructor(){window.socket=this;setTimeout(()=>this.onopen?.(),0)} send(raw){this.sent.push(JSON.parse(raw))} close(){this.readyState=3;this.onclose?.()} receive(activeSessions){this.onmessage?.({data:JSON.stringify({type:'participants',participants:{'work:readme.md':['#abcdef']},activeSessions})})}}
 window.WebSocket=Socket;localStorage.setItem('mew:locale','ko');
-window.reportedHeap=128*1024**2;Object.defineProperty(performance,'memory',{get(){return window.reportedHeap===null?undefined:{usedJSHeapSize:window.reportedHeap}}});
-const nativeInterval=window.setInterval.bind(window);window.setInterval=(callback,delay,...args)=>{if(delay===30000)window.memoryTick=callback;return nativeInterval(callback,delay,...args)};
-const base={email:'saens@example.test',displayName:'Saens',browser:'Chrome',device:'Mac',connectedAt:1789522800000,workspaceLabel:'mew',project:'work',path:'src/components/active-sessions-button.tsx',visible:true,memory:{jsHeapBytes:256*1024**2,reportedAt:Date.now()}};
-window.roster={selfId:'one',sessions:[{...base,id:'one'},{...base,id:'two',browser:'Safari',device:'iPhone',visible:false,path:null,memory:null},{...base,id:'three',email:'collaborator-with-a-long-address@example.test',displayName:'Collaborator',path:'docs/'+('very-long-file-name-'.repeat(8))+'.md',memory:{jsHeapBytes:1536*1024**2,reportedAt:Date.now()}},{...base,id:'four',email:null,displayName:null,workspaceLabel:'Public docs',path:'welcome.md',memory:undefined}]};
-function Fixture(){const [screen,setScreen]=useState({project:'work',file:'readme.md',label:'mew'});window.setScreen=setScreen;const {activeSessions}=usePresence(screen.project,screen.file,'saens@example.test',()=>{},undefined,screen.label);return <header className="flex h-10 items-center gap-1.5 px-3 md:h-12"><span className="min-w-0 flex-1 truncate">mew</span><ActiveSessionsButton presence={activeSessions}/><button aria-label="메뉴" className="h-8 w-8">☰</button></header>};
+const nativeInterval=window.setInterval.bind(window);window.setInterval=(callback,delay,...args)=>{if(delay===30000)window.activityTick=callback;return nativeInterval(callback,delay,...args)};
+const base={email:'saens@example.test',displayName:'Saens',browser:'Chrome',device:'Mac',connectedAt:1789522800000,workspaceLabel:'mew',project:'work',path:'src/components/active-sessions-button.tsx',visible:true,agents:{running:2,reportedAt:Date.now()}};
+window.roster={selfId:'one',sessions:[{...base,id:'one'},{...base,id:'two',browser:'Safari',device:'iPhone',visible:false,path:null,agents:{running:0,reportedAt:Date.now()}},{...base,id:'three',email:'collaborator-with-a-long-address@example.test',displayName:'Collaborator',path:'docs/'+('very-long-file-name-'.repeat(8))+'.md',agents:null},{...base,id:'four',email:null,displayName:null,workspaceLabel:'Public docs',path:'welcome.md',agents:undefined}]};
+function Fixture(){const [running,setRunning]=useState(2);window.setRunning=setRunning;const [screen,setScreen]=useState({project:'work',file:'readme.md',label:'mew'});window.setScreen=setScreen;const {activeSessions}=usePresence(screen.project,screen.file,'saens@example.test',()=>{},undefined,screen.label,running);return <header className="flex h-10 items-center gap-1.5 px-3 md:h-12"><span className="min-w-0 flex-1 truncate">mew</span><ActiveSessionsButton presence={activeSessions}/><button aria-label="메뉴" className="h-8 w-8">☰</button></header>};
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:sessions.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:sessions.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, async load(id) { if (id === 'virtual:sessions.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8')) } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
@@ -39,11 +38,15 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.goto('http://mew-sessions.test/')
     await page.getByRole('button', { name: '접속 정보 연결 중…' }).waitFor()
     await page.waitForFunction('window.socket?.sent.length === 1')
-    assert.deepEqual(await page.evaluate('window.socket.sent[0]'), { type: 'focus', path: 'work:readme.md', project: 'work', workspaceLabel: 'mew', color: await page.evaluate('window.socket.sent[0].color'), visible: true, jsHeapBytes: 128 * 1024 ** 2 })
-    await page.evaluate('window.reportedHeap=64*1024**2;window.memoryTick()')
-    assert.equal(await page.evaluate('window.socket.sent.at(-1).jsHeapBytes'), 64 * 1024 ** 2)
-    await page.evaluate('window.reportedHeap=null;document.dispatchEvent(new Event("visibilitychange"))')
-    assert.equal(await page.evaluate('window.socket.sent.at(-1).jsHeapBytes'), null)
+    assert.deepEqual(await page.evaluate('window.socket.sent[0]'), { type: 'focus', path: 'work:readme.md', project: 'work', workspaceLabel: 'mew', color: await page.evaluate('window.socket.sent[0].color'), visible: true, runningAgents: 2 })
+    await page.evaluate('window.setRunning(1)')
+    await page.waitForFunction('window.socket.sent.at(-1).runningAgents === 1')
+    await page.evaluate('window.activityTick()')
+    assert.equal(await page.evaluate('window.socket.sent.at(-1).runningAgents'), 1)
+    await page.evaluate('window.setRunning(0)')
+    await page.waitForFunction('window.socket.sent.at(-1).runningAgents === 0')
+    await page.evaluate('document.dispatchEvent(new Event("visibilitychange"))')
+    assert.equal(await page.evaluate('window.socket.sent.at(-1).runningAgents'), 0)
     await page.evaluate('window.socket.receive(window.roster)')
     const trigger = page.getByRole('button', { name: '활성 세션 4개' })
     await trigger.waitFor()
@@ -58,9 +61,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(await dialog.getByText('현재 세션', { exact: true }).count(), 1)
       assert.equal(await dialog.getByText('백그라운드', { exact: true }).count(), 1)
       assert.equal(await dialog.getByText('열린 파일 없음', { exact: true }).count(), 1)
-      assert.equal(await dialog.getByText('JS 메모리 ≈ 256 MiB', { exact: true }).count(), 1)
-      assert.equal(await dialog.getByText('JS 메모리 ≈ 1.5 GiB', { exact: true }).count(), 1)
-      assert.equal(await dialog.getByText('JS 메모리 —', { exact: true }).count(), 2)
+      assert.equal(await dialog.getByText('작업 중 에이전트 2개', { exact: true }).count(), 1)
+      assert.equal(await dialog.getByText('작업 중 에이전트 0개', { exact: true }).count(), 1)
+      assert.equal(await dialog.getByText('작업 중 에이전트 —개', { exact: true }).count(), 2)
+      assert.equal(await dialog.getByText(/JS 메모리/).count(), 0)
       const box = await dialog.boundingBox()
       assert.ok(box && box.x >= 0 && box.x + box.width <= width)
       assert.equal(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth), true)

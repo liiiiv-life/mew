@@ -1461,7 +1461,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ requestedNoticeTab, onNoticeHandled, preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { requestedNoticeTab?: string; onNoticeHandled?: () => void; preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNoticeHandled, preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { onRunningAgentsChange?: (count: number) => void; requestedNoticeTab?: string; onNoticeHandled?: () => void; preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
   const { t } = useI18n()
   const dock = useDock()
   const latestDock = useRef(dock)
@@ -1493,6 +1493,11 @@ export function AgentPanel({ requestedNoticeTab, onNoticeHandled, preparedTabs, 
   // 한 번이라도 연 탭만 붙인다 — 탭 하나가 에이전트 프로세스 하나라, 복원된 탭까지 다 띄우면 우르르 뜬다
   const [opened, setOpened] = useState<Set<string>>(() => new Set(!docked && activeId ? [activeId] : []))
   const [infos, setInfos] = useState<Record<string, TabInfo>>({})
+  useEffect(() => {
+    const running = tabs.filter(tab => allowAgent && tabsSynced && tab.runtime && tab.runtime !== 'tmux' && opened.has(tab.id) && infos[tab.id]?.busy).length
+    onRunningAgentsChange?.(running)
+  }, [allowAgent, tabsSynced, tabs, opened, infos, onRunningAgentsChange])
+  useEffect(() => () => onRunningAgentsChange?.(0), [onRunningAgentsChange])
   const [infoTabs, setInfoTabs] = useState<Set<string>>(() => new Set())
   // 탭 상태 저장은 한 번에 하나만 보낸다. 빠른 이름·세션 갱신의 오래된 PUT이 늦게 도착해
   // 최신 thread 포인터를 되돌리는 경합을 막고, 대기 중에는 마지막 스냅샷만 남긴다.
@@ -2675,8 +2680,8 @@ function AgentSessionView({
 
   useEffect(() => {
     if (restoreFailureRef.current) return
-    onInfo(tabId, runtime, cwd, { busy: (meta?.busy ?? false) || cli.records.some(command => command.state === 'running'), sessionId: meta?.sessionId ?? '' })
-  }, [cwd, meta?.busy, meta?.sessionId, cli.records, onInfo, runtime, tabId])
+    onInfo(tabId, runtime, cwd, { busy: connected && ((meta?.busy ?? false) || cli.records.some(command => command.state === 'running')), sessionId: meta?.sessionId ?? '' })
+  }, [connected, cwd, meta?.busy, meta?.sessionId, cli.records, onInfo, runtime, tabId])
 
   /** 다른 탭이 붙들고 있는 세션 — 이 탭에서 또 열지 못하게 막는다 */
   const takenIds = useMemo(

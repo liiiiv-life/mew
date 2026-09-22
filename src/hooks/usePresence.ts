@@ -3,12 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { forgetSavedProject } from '../api/client'
 import { identityColor } from '../utils/collabColor'
 import type { ActiveMewSessions } from '../../shared/active-sessions'
-import { SESSION_MEMORY_INTERVAL_MS, validJsHeapBytes } from '../../shared/active-sessions'
-
-function jsHeapBytes(): number | null {
-  try { return validJsHeapBytes((performance as Performance & { memory?: { usedJSHeapSize?: unknown } }).memory?.usedJSHeapSize) }
-  catch { return null }
-}
+import { SESSION_ACTIVITY_INTERVAL_MS } from '../../shared/active-sessions'
 
 // 서버는 경로 문자열 단위로만 세므로 프로젝트를 접두어로 붙여 프로젝트끼리 섞이지 않게 한다
 function qualify(project: string, path: string | null): string | null {
@@ -27,6 +22,7 @@ export function usePresence(
   onTreeChange: (signal?: { project?: string; version?: number; parents?: string[] }) => void,
   onWorkspaceChange?: (initialProject?: string) => void,
   workspaceLabel: string | null = null,
+  runningAgents = 0,
 ): { participants: Record<string, string[]>; activeSessions: ActiveMewSessions | null } {
   const [participants, setParticipants] = useState<Record<string, string[]>>({})
   const [activeSessions, setActiveSessions] = useState<ActiveMewSessions | null>(null)
@@ -44,12 +40,14 @@ export function usePresence(
   projectRef.current = project
   const workspaceLabelRef = useRef(workspaceLabel)
   workspaceLabelRef.current = workspaceLabel
+  const runningAgentsRef = useRef(runningAgents)
+  runningAgentsRef.current = runningAgents
 
   const focusMessage = () => JSON.stringify({
     type: 'focus', path: qualify(projectRef.current, focusedPathRef.current),
     project: projectRef.current, workspaceLabel: workspaceLabelRef.current,
     color: colorRef.current, visible: document.visibilityState !== 'hidden',
-    jsHeapBytes: jsHeapBytes(),
+    runningAgents: runningAgentsRef.current,
   })
 
   useEffect(() => {
@@ -60,7 +58,7 @@ export function usePresence(
     }
     // focusMessage reads the latest values from refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, focusedPath, workspaceLabel, authEmail])
+  }, [project, focusedPath, workspaceLabel, authEmail, runningAgents])
 
   useEffect(() => {
     let cancelled = false
@@ -118,13 +116,13 @@ export function usePresence(
     }
     const onVisibility = () => { if (ws?.readyState === WebSocket.OPEN) ws.send(focusMessage()) }
     document.addEventListener('visibilitychange', onVisibility)
-    const memoryTimer = setInterval(onVisibility, SESSION_MEMORY_INTERVAL_MS)
+    const activityTimer = setInterval(onVisibility, SESSION_ACTIVITY_INTERVAL_MS)
     connect()
 
     return () => {
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
-      clearInterval(memoryTimer)
+      clearInterval(activityTimer)
       document.removeEventListener('visibilitychange', onVisibility)
       ws?.close()
     }

@@ -961,6 +961,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
   // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
+  const [agentActivity, setAgentActivity] = useState<{ workspace: string | null; count: number } | null>(null)
+  const reportRunningAgents = useCallback((count: number) => {
+    setAgentActivity(previous => previous?.workspace === rootProjectPath && previous.count === count ? previous : { workspace: rootProjectPath, count })
+  }, [rootProjectPath])
   const { participants: tabPresence, activeSessions } = usePresence(
     project,
     activePath && !isExternalTabPath(activePath) ? activePath : null,
@@ -968,6 +972,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     refreshTree,
     handleWorkspaceBroadcast,
     rootProjectPath ? projectLabel(rootProjectPath) : null,
+    agentActivity?.workspace === rootProjectPath ? agentActivity.count : 0,
   )
 
   const { width: sidebarWidth, startResize: startSidebarResize } = usePanelWidth('mew:sidebar-width', {
@@ -2122,6 +2127,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         {panes.map(renderEditorPane)}
 
         {(caps.agent || caps.terminal) && <AgentPanel
+          onRunningAgentsChange={reportRunningAgents}
           requestedNoticeTab={(noticeTarget?.workspacePath ?? noticeTarget?.cwd) === rootProjectPath ? noticeTarget?.tabId : undefined}
           onNoticeHandled={() => { openWorkspacePanel('agent'); setNoticeTarget(undefined) }}
           key={rootProjectPath ?? 'pending-workspace'} project={project} workspacePath={rootProjectPath} tree={tree}
