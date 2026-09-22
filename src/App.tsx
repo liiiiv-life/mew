@@ -88,6 +88,7 @@ import { applyFontPreferences, loadFontPreferences, normalizeFontPreferences, sa
 import { loadAccentColor, applyAccentColor, saveAccentColor, type AccentColor } from './utils/accentColor'
 import { loadMewcatSkin, saveMewcatSkin, type MewcatSkinSelection } from './utils/mewcatSkin'
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
+import { AgentGuidanceFile } from './components/agent-guidance-file'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 import { GitPanel } from './components/git-panel'
 import { RemoteDesktop } from './components/remote-desktop'
@@ -2003,6 +2004,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     loadChildren={isGuest ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
                     treeInvalidation={treeInvalidation}
                     roots={!isGuest && <>
+                      {caps.serverFiles && <AgentGuidanceFile activePath={activePath} onOpen={(path) => { showMobileEditor(); openExternalFile(path) }} onError={showToast} />}
                       <div className="border-b border-edge pb-1">
                         <button
                           type="button"

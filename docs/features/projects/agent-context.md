@@ -4,9 +4,9 @@ parent: "mew-projects"
 title: "프로젝트 문서 안내·초기화"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-18"
+updated: "2026-09-22"
 status_hash: "492f31ebed338f0e6fed7a6f097c12a72a55ed8cdd0e4c9a40067fe05dbed748"
-files: ["src/components/docs-agent-context.tsx", "server/project-setup.ts", "server/agent-context.ts", "server/project-agent-settings.ts"]
+files: ["src/components/docs-agent-context.tsx", "server/project-setup.ts", "server/agent-context.ts", "server/project-agent-settings.ts", "server/agent-guidance.ts", "server/prompts/agent-guidance.txt", "src/components/agent-guidance-file.tsx"]
 commits: []
 ---
 
@@ -16,6 +16,7 @@ commits: []
 
 ### 범위
 
+- 사이드바 Documents 위에서 서버 공통 안내 파일을 열고 편집한다. 저장은 모든 프로젝트의 다음 ACP 요청에 반영한다.
 - Documents 설정에서 자동 안내·진입 문서·추가 지침을 편집하고 미리 본다.
 - 없는 문서를 생성하는 프로젝트 초기화 GUI와 CLI를 제공한다.
 
@@ -31,6 +32,8 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+사이드바 Documents 위의 공통 안내 파일을 기존 파일 편집기로 연다. 원문은 서버 데이터 폴더에 보존하고, 저장하면 모든 프로젝트의 다음 ACP 요청에서 다시 읽는다.
 
 Documents 설정에서 자동 안내·진입 문서·추가 지침을 편집하고 미리 본다.
 

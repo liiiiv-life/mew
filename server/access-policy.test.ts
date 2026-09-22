@@ -44,6 +44,15 @@ test('account capabilities and canonical file rules are enforced across HTTP and
   try {
     assert.equal(policy.canUse(member, 'agent'), false)
     assert.equal(policy.canUse(owner, 'terminal'), true)
+    assert.equal((await request('/fs/agent-guidance')).status, 403)
+    assert.equal((await request('/fs/agent-guidance', 'GET', undefined, 'guest')).status, 403)
+    const guidance = await request('/fs/agent-guidance', 'GET', undefined, 'owner')
+    assert.equal(guidance.status, 200)
+    const guidancePath = (await guidance.json() as { path: string }).path
+    assert.equal(guidancePath, path.join(DATA_DIR, 'agent-guidance.txt'))
+    assert.equal((await request('/fs/file', 'PUT', { path: guidancePath, content: 'denied' })).status, 403)
+    assert.equal((await request('/fs/file', 'PUT', { path: guidancePath, content: 'Shared instructions' }, 'owner')).status, 200)
+    assert.equal(fs.readFileSync(guidancePath, 'utf8'), 'Shared instructions')
     assert.deepEqual(policy.fileAccess(guest, 'docs', 'public/readme.md'), { view: true, edit: true })
     assert.equal(policy.fileAccess(guest, 'docs', '.env').view, false)
     assert.equal((await request('/fs/cloud-storage')).status, 403)

@@ -3,6 +3,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { AGENT_GUIDANCE_PATH } from './agent-guidance.ts'
+import { writeFileAtomic } from './dataDir.ts'
 
 export class BrowseError extends Error {}
 
@@ -117,7 +119,9 @@ export function writeExternalFile(input: unknown, content: unknown): string {
   const abs = resolveExistingPath(input)
   if (typeof content !== 'string') throw new BrowseError('파일 내용이 올바르지 않습니다')
   if (!fs.statSync(abs).isFile()) throw new BrowseError(`파일이 아닙니다: ${abs}`)
-  fs.writeFileSync(abs, content, 'utf8')
+  // Detached agent hosts may read shared guidance while the editor saves it.
+  if (abs === path.resolve(AGENT_GUIDANCE_PATH)) writeFileAtomic(abs, content)
+  else fs.writeFileSync(abs, content, 'utf8')
   return abs
 }
 

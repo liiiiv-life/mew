@@ -8,6 +8,7 @@
 
 [사용법과 설정 계약](../guides/project-setup.md) · [ADR 0155](../../../.mew/docs/decisions/0155-mew-project-agent-context.md).
 
+- 공통 원문은 `DATA_DIR/agent-guidance.txt`, 최초 생성 템플릿은 `server/prompts/agent-guidance.txt`다. `agent-guidance.ts`는 기존 파일을 보존하며 생성하고 매 요청·미리보기에서 새로 읽는다. `/api/fs/agent-guidance`는 `serverFiles` 권한으로 파일 경로를 반환하며 편집은 기존 `/api/fs/file`과 외부 파일 탭을 사용한다. 공통 파일 저장은 원자적 교체로 독립 감독이 저장 도중 빈 내용을 읽지 않게 한다. 사이드바는 Documents 위에서 이 파일을 연다. 저장·적용 범위는 [공통 안내 파일](../guides/project-setup.md#공통-안내-파일-편집)을 따른다.
 - `AgentSession.#run`은 사용자 프롬프트·첨부와 별도의 ACP 텍스트 블록으로 mew 안내를 보낸다. `agent-context.ts`가 세션에 고정된 프로젝트·Documents 경로와 실행 시점의 설정을 조합한다. 큐·예약·단발 runner도 이 경로를 공유한다.
 - 분리 감독을 띄우기 전에 부모가 연결 정보를 캡처해 `MEW_AGENT_CONTEXT`로 전달한다. 하위 ACP 프로세스에는 그 환경변수를 제거한다. 반복 예약 명령은 `--context`로 연결을 전달한다.
 - `DATA_DIR/agent-contexts/<sha256(runtime,cwd,sessionId)>.json`에 경로만 저장한다. 기록 복원은 저장된 연결을 사용하고 새 대화는 같은 프로젝트의 최신 Documents 설정을 해석한다. 세션 중에는 화면 전환으로 연결을 바꾸지 않는다.

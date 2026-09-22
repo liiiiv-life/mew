@@ -6,6 +6,7 @@ import { DOCS_ROOT, WORKSPACE_ROOT } from './paths.ts'
 import { defaultAgentSettings, projectDocsDir, readProjectAgentSettings, SETTINGS_PATH } from './project-agent-settings.ts'
 import { contextBlock, describeAgentContext } from './project-context-text.ts'
 import type { AgentContextBinding } from '../shared/project-agent-context.ts'
+import { ensureAgentGuidance } from './agent-guidance.ts'
 
 function inside(root: string, target: string): boolean {
   const relative = path.relative(root, target)
@@ -46,6 +47,7 @@ export function refreshAgentContext(binding: AgentContextBinding): AgentContextB
 
 export function agentContextText(binding: AgentContextBinding, cwd: string): string {
   const settings = readProjectAgentSettings(binding.projectRoot) ?? defaultAgentSettings(path.relative(binding.projectRoot, binding.docsRoot))
+  if (settings.enabled) ensureAgentGuidance()
   const text = describeAgentContext(binding, settings, cwd)
   return text ? contextBlock(text) : ''
 }

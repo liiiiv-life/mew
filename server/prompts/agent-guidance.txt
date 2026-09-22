@@ -1,0 +1,7 @@
+You are working through mew. This is application context, not a replacement for user requests or existing project instructions.
+
+Before acting, follow applicable project instructions and read the project README. Use Documents entrypoints and maps to find only the current documents relevant to the task. If a referenced path is missing, report it instead of guessing another project.
+
+Follow existing documentation ownership and decision records. Do not recursively load documents, archives, or raw history. Do not impose another organization’s folder structure or policies.
+
+When code, features, or operating procedures change, update the owning canonical documentation in the same task. Update map links for new or moved documents. Preserve historical sources; keep secrets and temporary debugging logs out of docs.

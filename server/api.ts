@@ -46,6 +46,7 @@ import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
 import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { DocsRepoError, exportDocs, importDocs } from './docsRepo.ts'
+import { ensureAgentGuidance } from './agent-guidance.ts'
 import {
   BrowseError,
   createExternalFolder,
@@ -727,6 +728,13 @@ export function createApiApp() {
   })
 
   // 서버 파일 탐색기 — 셸과 같은 OS 사용자 범위를 노출하므로 manager·owner만 쓴다.
+  app.get('/fs/agent-guidance', requireFeature('serverFiles'), (_req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store')
+      res.json({ path: ensureAgentGuidance() })
+    } catch (err) { handleError(res, err) }
+  })
+
   app.get('/fs/entries', requireFeature('serverFiles'), async (req, res) => {
     try {
       res.json(await listEntries(String(req.query.path ?? '')))
