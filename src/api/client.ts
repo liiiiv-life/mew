@@ -1,4 +1,5 @@
 import type { ProjectTabGroup } from '../../shared/project-tab-groups'
+import type { GitAiCommitJob, GitAiCommitDraft } from '../../shared/git-ai-commit'
 import type { Capabilities, AccessSettings, FileRule, Feature } from '../../shared/access-policy'
 import type { CloudStorageFolder } from '../../shared/cloud-storage'
 import type { EditorApi, EditorDbApi, DbColumn, DbColumnType, DbRow, DbSummary, DbView, TableWidths } from '@mew/editor'
@@ -386,6 +387,22 @@ export type GitCommitAction = 'branch' | 'tag' | 'checkout' | 'cherry-pick' | 'r
 
 export function fetchGitRepository(path = '', project = currentProject): Promise<GitRepositoryInfo> {
   return fetch(`/api/git/repository?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<GitRepositoryInfo>)
+}
+
+function gitAiCommitUrl(project: string, workspace: string, suffix = ''): string {
+  return `/api/git/ai-commit${suffix}?${projectQs(project)}&workspace=${encodeURIComponent(workspace)}`
+}
+export function fetchGitAiCommit(project: string, workspace: string): Promise<{ job: GitAiCommitJob | null }> {
+  return fetch(gitAiCommitUrl(project, workspace)).then(json<{ job: GitAiCommitJob | null }>)
+}
+export function startGitAiCommit(project: string, workspace: string, id: string, agentSetId: string): Promise<{ job: GitAiCommitJob }> {
+  return fetch(gitAiCommitUrl(project, workspace), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, agentSetId }) }).then(json<{ job: GitAiCommitJob }>)
+}
+export function stopGitAiCommit(project: string, workspace: string, id: string): Promise<{ ok: true }> {
+  return fetch(gitAiCommitUrl(project, workspace, `/${encodeURIComponent(id)}/stop`), { method: 'POST' }).then(json<{ ok: true }>)
+}
+export function applyGitAiCommit(project: string, workspace: string, id: string): Promise<{ draft: GitAiCommitDraft }> {
+  return fetch(gitAiCommitUrl(project, workspace, `/${encodeURIComponent(id)}/draft`), { method: 'POST' }).then(json<{ draft: GitAiCommitDraft }>)
 }
 
 export function createSubproject(path: string, project: string): Promise<{ ok: true }> {

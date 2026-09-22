@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDialog, useOverlayDismiss } from '@mew/ui'
+import { GitAiCommitDialog } from './git-ai-commit-dialog'
 import {
   commitGitWorkingTree,
   fetchGitCommit,
@@ -190,6 +191,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   const [committing, setCommitting] = useState(false)
   const [commitTitle, setCommitTitle] = useState('')
   const [commitDescription, setCommitDescription] = useState('')
+  const [aiOpen, setAiOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ commit: GitLogEntry; x: number; y: number } | null>(null)
   useOverlayDismiss(menu ? () => setMenu(null) : false)
@@ -220,6 +222,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
     setView({ kind: 'graph' })
     setCommitTitle('')
     setCommitDescription('')
+    setAiOpen(false)
     void refresh()
   }, [refresh])
 
@@ -325,6 +328,12 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   return (
     <div className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface">
       {dialogs.dialog}
+      {aiOpen && <GitAiCommitDialog key={project} project={project} onClose={() => setAiOpen(false)} onApply={draft => {
+        setCommitTitle(draft.title)
+        setCommitDescription(draft.description)
+        setAiOpen(false)
+        onNotice('커밋 초안을 적용했습니다. 내용을 확인한 뒤 커밋하세요.')
+      }} />}
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
         {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'} title={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'}><BackIcon /></button>}
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={heading}>{heading}</span>
@@ -397,7 +406,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs text-ink-muted">변경 파일 {workingTree.files.length}개를 모두 커밋합니다.</span>
               <span className="flex shrink-0 items-center gap-2">
-                <button type="button" disabled={workingTree.files.length === 0 || committing} onClick={() => onNotice('AI Commit 생성은 에이전트 연결 후 사용할 수 있습니다')} className="rounded border border-edge-strong px-4 py-2 text-xs font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">AI Commit</button>
+                <button type="button" disabled={workingTree.files.length === 0 || committing} onClick={() => setAiOpen(true)} className="rounded border border-edge-strong px-4 py-2 text-xs font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">AI Commit</button>
                 <button type="submit" disabled={!commitTitle.trim() || workingTree.files.length === 0 || committing} className="rounded bg-accent px-4 py-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">{committing ? '커밋 중…' : '커밋'}</button>
               </span>
             </div>

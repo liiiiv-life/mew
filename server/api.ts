@@ -73,6 +73,8 @@ import { createFeatureRouter } from './feature-routes.ts'
 import { readCrontab } from './crontab.ts'
 import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, saveSchedules, ScheduleError } from './schedules.ts'
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
+import { GitAiCommitStore } from './git-ai-commit.ts'
+import { createGitAiCommitRouter } from './git-ai-commit-routes.ts'
 import { acpRuntimeList, agentSetRuntimeList, isRuntime } from './agentAcp.ts'
 import { isRuntimeLoginMethod, runtimeLoginSpec } from './agentRuntimes.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
@@ -905,6 +907,8 @@ export function createApiApp() {
   app.get('/git/working-tree/diff', requireFeature('git'), async (req, res) => {
     try { res.json({ diff: await workingTreeFileDiff(projectOf(req), String(req.query.path ?? ''), req.query.file) }) } catch (err) { handleError(res, err) }
   })
+
+  app.use('/git/ai-commit', createGitAiCommitRouter(new GitAiCommitStore(tmuxManager)))
 
   app.post('/git/commit', requireFeature('git'), async (req, res) => {
     try { res.json(await commitWorkingTree(projectOf(req), String(req.body?.path ?? ''), req.body?.title, req.body?.description)) } catch (err) { handleError(res, err) }
