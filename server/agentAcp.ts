@@ -93,6 +93,19 @@ export const AGENT_IDLE_MS = 30 * 60_000
 /** 어댑터를 띄운 뒤 ACP 핸드셰이크가 이만큼 걸리면 포기한다 — 정상이면 몇 초다 */
 const HANDSHAKE_TIMEOUT_MS = 30_000
 
+/** 준비/복원 병목만 기록한다. 세션 ID·프롬프트·인증 응답은 로그에 넣지 않는다. */
+async function measureAgentPhase<T>(runtime: string, phase: string, operation: () => Promise<T>): Promise<T> {
+  const started = performance.now()
+  let ok = false
+  try {
+    const result = await operation()
+    ok = true
+    return result
+  } finally {
+    console.info(`[mew:agent-timing:${runtime}] ${phase} ${Math.round(performance.now() - started)}ms ${ok ? 'ok' : 'failed'}`)
+  }
+}
+
 type QueuedPrompt = {
   kind: 'prompt'
   /** 창에 보여 줄 원문 */
@@ -458,6 +471,7 @@ export class AgentSession {
     idleKillMs = AGENT_IDLE_MS,
     context?: AgentContextBinding,
     readMemory: MemoryReader = readAgentMemory,
+    options: { deferSessionCreation?: boolean } = {},
   ): Promise<AgentSession> {
     if (!spec) throw new Error(`ACP를 지원하지 않는 에이전트 런타임입니다: ${runtime}`)
     const pressure = memoryPressure(readMemory())
@@ -467,7 +481,9 @@ export class AgentSession {
     }
     const session = new AgentSession(runtime, spec, cwd, idleKillMs, context, readMemory)
     try {
-      await session.#initializeWithTimeout()
+      // 복원할 대화가 있으면 initialize → session/load로 바로 간다. load 미지원
+      // 런타임은 기존대로 새 세션(또는 인증 화면)을 준비한다.
+      await session.#initializeWithTimeout(options.deferSessionCreation ? 'unless-load-supported' : true)
       session.#armIdleTimer()
       return session
     } catch (err) {
@@ -476,7 +492,7 @@ export class AgentSession {
     }
   }
 
-  async #initializeWithTimeout(createSession = true) {
+  async #initializeWithTimeout(createSession: boolean | 'unless-load-supported' = true) {
     let handshakeTimer: NodeJS.Timeout | null = null
     try {
       // 핸드셰이크에 시한을 둔다 — 어댑터가 떴는데 ACP를 말하지 않으면(잘못 깔린 실행 파일, 로그인
@@ -531,12 +547,12 @@ export class AgentSession {
     return () => this.#disposeListeners.delete(listener)
   }
 
-  async #handshake(createSession = true) {
+  async #handshake(createSession: boolean | 'unless-load-supported' = true) {
     // capability를 하나도 광고하지 않는다 — 어댑터가 CLI 기본 도구(Read/Write/Edit/Bash)를 그대로 쓴다.
     // fs를 켜면 그 도구들이 꺼지고 mcp__acp__* 로 갈리는데, 그러면 CLI에서 만든 대화를 창에서 불러올 때
     // 전사 속 `Edit` 참조를 API가 거부한다("Tool reference 'Edit' not found"). 도구 이름을 CLI와
     // 맞춰 두는 쪽을 택했다 — 경로 스코프를 잃는 대신 대화가 양쪽에서 이어진다(ADR 0044).
-    const init = await this.#conn.initialize({
+    const init = await measureAgentPhase(this.runtime, 'initialize', () => this.#conn.initialize({
       protocolVersion: PROTOCOL_VERSION,
       // fs는 의도적으로 광고하지 않는다. 인증에 필요한 terminal/url capability만 더한다.
       // direct SDK 0.14의 타입보다 새 ACP v1 필드가 앞서 있어 wire-compatible 값을 좁게 캐스팅한다.
@@ -546,10 +562,10 @@ export class AgentSession {
         session: { configOptions: {} },
         _meta: { 'terminal-auth': true },
       } as never,
-    })
+    }))
     this.#caps = init.agentCapabilities ?? {}
     this.#authMethods = normalizeAuthMethods(this.runtime, init.authMethods ?? [])
-    if (!createSession) return
+    if (!createSession || (createSession === 'unless-load-supported' && this.canLoadSession)) return
     try {
       await this.#createSession()
     } catch (err) {
@@ -559,12 +575,12 @@ export class AgentSession {
   }
 
   async #createSession() {
-    const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
+    const created = await measureAgentPhase(this.runtime, 'session/new', () => this.#conn.newSession({ cwd: this.cwd, mcpServers: [] }))
     this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null, created.configOptions)
     this.#authRequired = false
     this.#authenticating = false
     this.#authError = null
-    await this.#applyDefaults()
+    await measureAgentPhase(this.runtime, 'defaults', () => this.#applyDefaults())
   }
 
   #enterAuth(err?: unknown) {
@@ -1167,7 +1183,7 @@ export class AgentSession {
     let loaded: Awaited<ReturnType<ClientSideConnection['loadSession']>>
     let replay: AgentEvent[]
     try {
-      loaded = await this.#conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [] })
+      loaded = await measureAgentPhase(this.runtime, 'session/load', () => this.#conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [] }))
       replay = reconcileAgentTranscript(readAgentTranscript(this.runtime, this.cwd, sessionId), this.#loadingEvents)
     } catch (err) {
       // 일부 어댑터는 실패하기 전 update를 몇 개 흘리거나 모드를 바꾼다. 어느 쪽도 현재 세션에 남기지 않는다.
@@ -1191,7 +1207,7 @@ export class AgentSession {
       this.#modes = loaded.modes
       this.#emit({ type: 'modes', modes: loaded.modes })
     }
-    await this.#applyDefaults()
+    await measureAgentPhase(this.runtime, 'defaults', () => this.#applyDefaults())
     await this.#pushMeta()
     writeAgentTranscript(this.runtime, this.cwd, sessionId, this.#events)
   }

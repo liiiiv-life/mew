@@ -1,3 +1,4 @@
+import { uiText, getUiLocale } from '@mew/ui/i18n-core'
 // 에이전트 창이 받은 이벤트 흐름을 화면 항목으로 접는다. 그리는 쪽은 components/AgentPanel.tsx.
 // 서버는 상태를 보내지 않고 이벤트만 보낸다 — 재접속하면 지나간 이벤트를 그대로 되받으므로
 // 이 함수 하나가 대화 복원 로직 전부다.
@@ -121,9 +122,9 @@ export function formatDuration(ms: number): string {
   const minutes = Math.floor((totalSeconds % 3600) / 60)
   const seconds = totalSeconds % 60
   const parts: string[] = []
-  if (hours) parts.push(`${hours}시간`)
-  if (minutes) parts.push(`${minutes}분`)
-  if (seconds || parts.length === 0) parts.push(`${seconds}초`)
+  if (hours) parts.push(uiText("{p0}시간", { p0: hours }))
+  if (minutes) parts.push(uiText("{p0}분", { p0: minutes }))
+  if (seconds || parts.length === 0) parts.push(uiText("{p0}초", { p0: seconds }))
   return parts.join(' ')
 }
 
@@ -136,7 +137,7 @@ export function isTurnComplete(item: Pick<Extract<Item, { kind: 'turn' }>, 'done
 }
 
 /** 이벤트 목록을 화면에 그릴 항목으로 접는다 — 질문·턴(답변+작업 묶음)·에러의 세 종류로 나뉜다 */
-export function foldEvents(events: AgentEvent[]): Item[] {
+export function foldEvents(events: AgentEvent[], locale = getUiLocale()): Item[] {
   const items: Item[] = []
   // toolCallId -> 위치 — turn 안의 children 배열 기준
   const toolIndex = new Map<string, { turn: number; child: number; entry: number }>()
@@ -212,7 +213,7 @@ export function foldEvents(events: AgentEvent[]): Item[] {
       continue
     }
     if (event.type === 'error' || event.type === 'fatal') {
-      const text = ('message' in event && event.message) || '알 수 없는 오류'
+      const text = ('message' in event && event.message) || uiText("알 수 없는 오류", undefined, locale)
       const t = currentTurn()
       if (t) t.children.push({ key: `e${i}`, kind: 'error', text })
       else items.push({ key: `e${i}`, kind: 'error', text })
@@ -224,7 +225,7 @@ export function foldEvents(events: AgentEvent[]): Item[] {
         key: `p${event.id}`,
         kind: 'permission',
         id: event.id,
-        title: event.toolCall.title || '도구 실행',
+        title: event.toolCall.title || uiText("도구 실행", undefined, locale),
         options: event.options,
         answered: false,
       })

@@ -30,10 +30,10 @@ test('discovers scopes, duplicate names, global common, runtime and package-owne
     f.skill(path.join(f.home, '.codex/plugins/cache/vendor/plugin/1.0/skills/packaged/SKILL.md'), 'packaged')
     fs.symlinkSync(path.join(f.home, '.agents/skills/demo'), path.join(f.cwd, '.codex/skills/linked'))
     const inventory = await f.store.list(f.cwd, 'skills')
-    assert.equal(inventory.items.length, 6)
-    assert.equal(new Set(inventory.items.map(item => item.id)).size, 6)
-    assert.equal(inventory.scopes.length, 3)
-    assert.match(inventory.items[0].description, /multi-line\ndescription/)
+    assert.equal(inventory.items.length, 7)
+    assert.equal(new Set(inventory.items.map(item => item.id)).size, 7)
+    assert.equal(inventory.scopes.length, 4)
+    assert.match(inventory.items.find(item => item.name === 'demo')!.description, /multi-line\ndescription/)
     assert.equal(inventory.items.filter(item => !item.writable).length, 3)
     f.write(path.join(f.home, '.claude.json'), JSON.stringify({ oauth: 'private-account', mcpServers: { sample: { command: 'node', env: { TOKEN: 'private-token' } } } }))
     const mcp = await f.store.list(f.cwd, 'mcp')
@@ -51,7 +51,7 @@ test('skill moves retain assets and stale revisions, collisions and links cannot
     f.skill(path.join(source, 'SKILL.md'))
     f.write(path.join(source, 'scripts/run.sh'), '#!/bin/sh\necho hello\n')
     fs.chmodSync(path.join(source, 'scripts/run.sh'), 0o755)
-    const inventory = await f.store.list(f.cwd, 'skills'), item = inventory.items[0]
+    const inventory = await f.store.list(f.cwd, 'skills'), item = inventory.items.find(item => item.name === 'demo')!
     const target = inventory.locations.find(location => location.scope === 'global' && location.agent === 'codex')!
     let detail = await f.store.detail(f.cwd, 'skills', item.id)
     f.write(path.join(source, 'scripts/run.sh'), 'external edit')
@@ -171,9 +171,9 @@ test('slash skill discovery selects nearest scope and current runtime, shares gl
     f.skill(path.join(f.cwd, 'apps/other/.agents/skills/sibling/SKILL.md'), 'sibling')
     f.skill(path.join(f.cwd, '.claude/skills/claude-only/SKILL.md'), 'claude-only')
     const skills = listSkills(path.join(f.cwd, 'apps/web'), 'codex', f.home, {})
-    assert.deepEqual(skills.map(skill => skill.name), ['common', 'demo', 'local'])
+    assert.deepEqual(skills.map(skill => skill.name), ['commit', 'common', 'demo', 'local'])
     assert.equal(skills.find(skill => skill.name === 'demo')!.path, path.join(f.cwd, '.codex/skills/demo/SKILL.md'))
-    assert.deepEqual(listSkills(f.cwd, 'claude', f.home, {}).map(skill => skill.name), ['claude-only', 'common'])
+    assert.deepEqual(listSkills(f.cwd, 'claude', f.home, {}).map(skill => skill.name), ['claude-only', 'commit', 'common'])
   } finally { f.cleanup() }
 })
 

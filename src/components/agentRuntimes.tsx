@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 /**
  * 창에서 고를 수 있는 에이전트 런타임 — 서버의 RUNTIMES(server/agentRuntimes.ts)와 id가 같아야 한다.
  * 목록이 양쪽에 있는 것은 **브랜드 아이콘 때문**이다(서버는 spawn 명령만 안다). 판정은 언제나 서버가 한다.
@@ -18,7 +19,7 @@ import {
 import { Terminal } from 'iconoir-react'
 
 export const RUNTIMES = [
-  { id: 'tmux', label: 'tmux 터미널', surface: 'terminal' as const, Glyph: Terminal },
+  { id: 'tmux', get label() { return uiText("tmux 터미널") }, surface: 'terminal' as const, Glyph: Terminal },
   { id: 'claude', label: 'Claude Agent', surface: 'acp' as const, Glyph: ClaudeCodeGlyph },
   { id: 'antigravity', label: 'Antigravity', surface: 'acp' as const, Glyph: AntigravityGlyph },
   { id: 'codex', label: 'Codex', surface: 'acp' as const, Glyph: CodexGlyph },

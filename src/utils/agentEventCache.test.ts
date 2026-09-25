@@ -160,3 +160,27 @@ test('서버 snapshot이 로컬 꼬리를 포함하면 앞부분 복원과 최�
   const events = ['old', 'recent', 'latest', 'new'].map(message)
   assert.deepEqual(mergeAgentReplay(events.slice(1, 3), events, true), events)
 })
+
+test('반복 청크의 포함·겹침·불일치를 모든 짧은 조합에서 보존한다', () => {
+  const sequences: string[][] = [[]]
+  for (let size = 1; size <= 5; size += 1) {
+    for (let bits = 0; bits < 2 ** size; bits += 1) {
+      sequences.push(Array.from({ length: size }, (_, index) => bits & (1 << index) ? 'a' : 'b'))
+    }
+  }
+  for (const local of sequences) for (const remote of sequences) {
+    // 작은 입력의 명세: 캐시 포함을 우선하고, 아니면 가장 긴 suffix/prefix를 한 번만 남긴다.
+    const contains = remote.join('').includes(local.join(''))
+    let overlap = Math.min(local.length, remote.length)
+    while (overlap && local.slice(-overlap).join('') !== remote.slice(0, overlap).join('')) overlap -= 1
+    const expected = !remote.length || contains ? remote : [...local, ...remote.slice(overlap)]
+    assert.deepEqual(mergeAgentReplay(local.map(message), remote.map(message), true), expected.map(message))
+  }
+})
+
+test('긴 반복 청크 뒤 불일치에서도 캐시와 서버의 모든 이벤트를 보존한다', () => {
+  const repeated = message('\n')
+  const cached = [...Array<AgentEvent>(2000).fill(repeated), message('end')]
+  const replayed = Array<AgentEvent>(30000).fill(repeated)
+  assert.deepEqual(mergeAgentReplay(cached, replayed, true), [...cached, ...replayed])
+})

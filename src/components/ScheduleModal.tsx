@@ -1,21 +1,23 @@
+import { uiText, getUiLocale } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // 예약 에이전트 작업 창 — "언제 / 어느 폴더에서 / 어떤 에이전트로 / 어떤 프롬프트를" 을 GUI로 등록한다.
 // 도구 줄의 시계 아이콘으로 연다. 실제 실행은 서버가 이 목록으로 crontab을 다시 써서 이뤄지고,
 // 생성된 크론 줄은 각 작업의 "명령어"에서 그대로 볼 수 있다(읽기 전용).
 // 크론 줄이 하는 일은 잡 전용 tmux 세션을 띄우고 에이전트를 타이핑하는 것이라, 각 줄의 터미널
 // 아이콘으로 그 세션을 열어 무인 실행 화면을 그대로 볼 수 있다(명령어 버튼과 같은 창).
 import { useCallback, useEffect, useState } from 'react'
-import { useOverlayDismiss } from '@mew/ui'
+import { SelectField, useOverlayDismiss } from '@mew/ui'
 import { fetchProjects, fetchSchedules, runSchedule, saveSchedules, type AgentJob, type AgentJobView } from '../api/client'
-import { DAY_NAMES, describeSchedule, fromCron, toCron, type Schedule } from '../utils/cron'
+import { dayNames, describeSchedule, fromCron, toCron, type Schedule } from '../utils/cron'
 import { runtimeOf } from './agentRuntimes'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
 
 const KIND_LABEL: Record<Schedule['kind'], string> = {
-  daily: '매일',
-  weekly: '요일마다',
-  hourly: '매시',
-  interval: 'N분마다',
-  custom: '직접 입력',
+  get daily() { return uiText("매일") },
+  get weekly() { return uiText("요일마다") },
+  get hourly() { return uiText("매시") },
+  get interval() { return uiText("N분마다") },
+  get custom() { return uiText("직접 입력") },
 }
 
 // id는 화면에서만 쓰는 임시값 — 저장하면 서버가 진짜 id를 발급한다.
@@ -35,24 +37,24 @@ const newJob = (): AgentJobView => ({
 })
 
 function lastRunLabel(iso: string | null): string {
-  if (!iso) return '실행 기록 없음'
-  const d = new Date(iso)
-  return `마지막 실행 ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  if (!iso) return uiText("실행 기록 없음")
+  return uiText('마지막 실행 {time}', { time: new Intl.DateTimeFormat(getUiLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(iso)) })
 }
 
 const inputClass = 'rounded border border-edge-strong bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-edge-bright'
 
 /** 실행 주기 편집 — 형태를 고르면 그에 맞는 입력만 보여주고, 결과는 언제나 크론식 하나로 올라간다. */
-function ScheduleFields({ cron, onChange }: { cron: string; onChange: (cron: string) => void }) {
+function ScheduleFields({ cron, disabled, onChange }: { cron: string; disabled: boolean; onChange: (cron: string) => void }) {
+  useUiLocale()
   const s = fromCron(cron)
   const set = (next: Schedule) => onChange(toCron(next))
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <select
+      <SelectField compact label={uiText("실행 주기")} disabled={disabled} className="w-32 max-w-full"
         value={s.kind}
-        onChange={(e) => {
-          const kind = e.target.value as Schedule['kind']
+        onChange={(value) => {
+          const kind = value as Schedule['kind']
           const time = s.kind === 'daily' || s.kind === 'weekly' ? s.time : '02:00'
           if (kind === 'daily') set({ kind, time })
           else if (kind === 'weekly') set({ kind, time, days: s.kind === 'weekly' ? s.days : [1] })
@@ -60,21 +62,15 @@ function ScheduleFields({ cron, onChange }: { cron: string; onChange: (cron: str
           else if (kind === 'interval') set({ kind, minutes: 30 })
           else set({ kind: 'custom', expr: cron })
         }}
-        className={inputClass}
-      >
-        {Object.entries(KIND_LABEL).map(([kind, label]) => (
-          <option key={kind} value={kind}>
-            {label}
-          </option>
-        ))}
-      </select>
+        options={Object.entries(KIND_LABEL).map(([value, label]) => ({ value, label }))}
+      />
 
       {(s.kind === 'daily' || s.kind === 'weekly') && (
         <input type="time" value={s.time} onChange={(e) => set({ ...s, time: e.target.value })} className={inputClass} />
       )}
 
       {s.kind === 'weekly' &&
-        DAY_NAMES.map((label, day) => (
+        dayNames().map((label, day) => (
           <button
             key={day}
             type="button"
@@ -98,8 +94,7 @@ function ScheduleFields({ cron, onChange }: { cron: string; onChange: (cron: str
             onChange={(e) => set({ ...s, minute: Math.min(59, Math.max(0, Number(e.target.value) || 0)) })}
             className={`${inputClass} w-14`}
           />
-          분에
-        </label>
+          {uiText("분에")}</label>
       )}
 
       {s.kind === 'interval' && (
@@ -112,15 +107,14 @@ function ScheduleFields({ cron, onChange }: { cron: string; onChange: (cron: str
             onChange={(e) => set({ ...s, minutes: Math.min(59, Math.max(1, Number(e.target.value) || 1)) })}
             className={`${inputClass} w-14`}
           />
-          분마다
-        </label>
+          {uiText("분마다")}</label>
       )}
 
       {s.kind === 'custom' && (
         <input
           value={s.expr}
           onChange={(e) => set({ kind: 'custom', expr: e.target.value })}
-          placeholder="분 시 일 월 요일"
+          placeholder={uiText("분 시 일 월 요일")}
           className={`${inputClass} w-40 font-mono`}
         />
       )}
@@ -129,6 +123,7 @@ function ScheduleFields({ cron, onChange }: { cron: string; onChange: (cron: str
 }
 
 export function ScheduleModal({ onClose }: { onClose: () => void }) {
+  useUiLocale()
   const [jobs, setJobs] = useState<AgentJobView[] | null>(null)
   const [runtimes, setRuntimes] = useState<{ id: string; label: string }[]>([])
   const [otherLines, setOtherLines] = useState<string[]>([])
@@ -165,7 +160,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
         setRuntimes(res.runtimes)
         setOtherLines(res.otherLines)
       })
-      .catch((err) => setError(err instanceof Error ? err.message : '불러오기 실패'))
+      .catch((err) => setError(err instanceof Error ? err.message : uiText("불러오기 실패")))
     fetchProjects()
       .then((list) => setProjects(list.map((p) => p.name)))
       .catch(() => setProjects([]))
@@ -189,7 +184,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
       setRuntimes(res.runtimes)
       setOtherLines(res.otherLines)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장 실패')
+      setError(err instanceof Error ? err.message : uiText("저장 실패"))
     } finally {
       setBusy(false)
     }
@@ -205,13 +200,13 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
       }}
     >
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg bg-surface-raised p-4 shadow-xl">
-        <div className="mb-3 text-sm font-semibold text-ink">예약 작업</div>
+        <div className="mb-3 text-sm font-semibold text-ink">{uiText("예약 작업")}</div>
 
         {jobs === null && !error ? (
-          <div className="py-6 text-center text-xs text-ink-muted">불러오는 중…</div>
+          <div className="py-6 text-center text-xs text-ink-muted">{uiText("불러오는 중…")}</div>
         ) : (
           <div className="mb-3 flex-1 overflow-y-auto">
-            {(jobs ?? []).length === 0 && <div className="py-6 text-center text-xs text-ink-muted">등록된 예약 작업이 없습니다</div>}
+            {(jobs ?? []).length === 0 && <div className="py-6 text-center text-xs text-ink-muted">{uiText("등록된 예약 작업이 없습니다")}</div>}
 
             {(jobs ?? []).map((job) => {
               const open = openId === job.id
@@ -222,23 +217,23 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                       type="checkbox"
                       checked={job.enabled}
                       onChange={(e) => patch(job.id, { enabled: e.target.checked })}
-                      title={job.enabled ? '켜짐' : '꺼짐'}
+                      title={job.enabled ? uiText("켜짐") : uiText("꺼짐")}
                       className="accent-accent"
                     />
                     <button type="button" onClick={() => setOpenId(open ? null : job.id)} className="flex flex-1 items-baseline gap-2 text-left">
-                      <span className="truncate text-xs text-ink">{job.name || '(이름 없음)'}</span>
+                      <span className="truncate text-xs text-ink">{job.name || uiText("(이름 없음)")}</span>
                       <span className="truncate text-[11px] text-ink-muted">
-                        {describeSchedule(job.cron)} · {runtimeLabel(job.agent, runtimes)} · {job.project || '워크스페이스 루트'}
+                        {describeSchedule(job.cron)} · {runtimeLabel(job.agent, runtimes)} · {job.project || uiText("워크스페이스 루트")}
                       </span>
                     </button>
                     <span className="hidden shrink-0 text-[10px] text-ink-faint sm:inline">{lastRunLabel(job.lastRun)}</span>
-                    {job.running && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" title="실행 세션 있음" />}
+                    {job.running && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" title={uiText("실행 세션 있음")} />}
                     {job.session && (
                       <button
                         type="button"
                         onClick={() => setSession(job)}
-                        title="작업 터미널 열기"
-                        aria-label={`${job.name || '예약 작업'} 터미널 세션`}
+                        title={uiText("작업 터미널 열기")}
+                        aria-label={uiText("{p0} 터미널 세션", { p0: job.name || uiText("예약 작업") })}
                         className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-surface-hover hover:text-ink"
                       >
                         <TerminalGlyph />
@@ -247,7 +242,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                     <button
                       type="button"
                       onClick={() => setJobs((prev) => (prev ?? []).filter((j) => j.id !== job.id))}
-                      title="삭제"
+                      title={uiText("삭제")}
                       className="px-1 text-[13px] text-ink-faint hover:text-danger"
                     >
                       ×
@@ -260,33 +255,24 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                         <input
                           value={job.name}
                           onChange={(e) => patch(job.id, { name: e.target.value })}
-                          placeholder="작업 이름"
+                          placeholder={uiText("작업 이름")}
                           className={`${inputClass} w-40`}
                         />
-                        <select value={job.agent} onChange={(e) => patch(job.id, { agent: e.target.value as AgentJob['agent'] })} className={inputClass}>
-                          {runtimes.map(({ id, label }) => (
-                            <option key={id} value={id}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                        <select value={job.project} onChange={(e) => patch(job.id, { project: e.target.value })} className={inputClass}>
-                          <option value="">워크스페이스 루트</option>
-                          {projects.map((name) => (
-                            <option key={name} value={name}>
-                              {name}
-                            </option>
-                          ))}
-                        </select>
+                        <SelectField compact label={uiText("에이전트")} value={job.agent} disabled={busy} className="w-40 max-w-full"
+                          onChange={(value) => patch(job.id, { agent: value as AgentJob['agent'] })}
+                          options={runtimes.map(({ id, label }) => ({ value: id, label }))} />
+                        <SelectField compact label={uiText("프로젝트")} value={job.project} disabled={busy} className="w-48 max-w-full"
+                          onChange={(project) => patch(job.id, { project })}
+                          options={[{ value: '', label: uiText("워크스페이스 루트") }, ...projects.map((value) => ({ value, label: value }))]} />
                       </div>
 
-                      <ScheduleFields cron={job.cron} onChange={(cron) => patch(job.id, { cron })} />
+                      <ScheduleFields cron={job.cron} disabled={busy} onChange={(cron) => patch(job.id, { cron })} />
 
                       <textarea
                         value={job.prompt}
                         onChange={(e) => patch(job.id, { prompt: e.target.value })}
                         rows={4}
-                        placeholder="작업 내용"
+                        placeholder={uiText("작업 내용")}
                         className="w-full resize-y rounded bg-surface-raised px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-faint"
                       />
 
@@ -296,11 +282,11 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                           onClick={() => setShowCommand(showCommand === job.id ? null : job.id)}
                           className="text-[11px] text-ink-muted hover:text-ink"
                         >
-                          {showCommand === job.id ? '명령어 숨기기' : '명령어 보기'}
+                          {showCommand === job.id ? uiText("명령어 숨기기") : uiText("명령어 보기")}
                         </button>
                         {showCommand === job.id && (
                           <pre className="mt-1 overflow-x-auto rounded bg-surface-raised p-2 font-mono text-[10px] text-ink-muted">
-                            {job.command || '저장 후 확인 가능'}
+                            {job.command || uiText("저장 후 확인 가능")}
                           </pre>
                         )}
                       </div>
@@ -319,12 +305,11 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
               }}
               className="text-[11px] text-accent hover:underline"
             >
-              + 예약 작업 추가
-            </button>
+              {uiText("+ 예약 작업 추가")}</button>
 
             {otherLines.length > 0 && (
               <details className="mt-4">
-                <summary className="cursor-pointer text-[11px] text-ink-faint">기타 예약 {otherLines.length}개 · 읽기 전용</summary>
+                <summary className="cursor-pointer text-[11px] text-ink-faint">{uiText("기타 예약")}{otherLines.length}{uiText("개 · 읽기 전용")}</summary>
                 <pre className="mt-1 overflow-x-auto rounded bg-surface p-2 font-mono text-[10px] text-ink-muted">{otherLines.join('\n')}</pre>
               </details>
             )}
@@ -335,23 +320,21 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
 
         <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-sm text-ink hover:bg-surface">
-            닫기
-          </button>
+            {uiText("닫기")}</button>
           <button
             type="button"
             disabled={busy || jobs === null}
             onClick={save}
             className="rounded bg-accent px-3 py-1.5 text-sm text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
           >
-            저장
-          </button>
+            {uiText("저장")}</button>
         </div>
       </div>
 
       {session && (
         <SessionTerminalPopup
-          title={session.name || '(이름 없음)'}
-          subtitle={`${describeSchedule(session.cron)} · ${runtimeLabel(session.agent, runtimes)} · ${session.project || '워크스페이스 루트'}`}
+          title={session.name || uiText("(이름 없음)")}
+          subtitle={`${describeSchedule(session.cron)} · ${runtimeLabel(session.agent, runtimes)} · ${session.project || uiText("워크스페이스 루트")}`}
           session={session.session}
           running={session.running}
           onRun={() => runSchedule(session.id)}
@@ -368,6 +351,7 @@ function runtimeLabel(id: string, runtimes: { id: string; label: string }[]): st
 }
 
 function TerminalGlyph() {
+  useUiLocale()
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="2" y="4" width="20" height="16" rx="2" />

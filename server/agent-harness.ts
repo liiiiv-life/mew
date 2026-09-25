@@ -5,6 +5,7 @@ import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { RUNTIMES } from './agentRuntimes.ts'
 import { readAgentSettings } from './agentSettings.ts'
+import { ensureCommitSkill, MEW_SKILLS_DIR } from './mew-skills.ts'
 import { parseConfig, patchConfig, atKeys, object, type ConfigFormat } from './harness-config.ts'
 import type { HarnessDetail, HarnessInventory, HarnessItem, HarnessKind, HarnessLocation, HarnessMutation, HarnessScope } from '../shared/agent-harness.ts'
 
@@ -19,7 +20,7 @@ export class HarnessError extends Error {
 interface Location extends HarnessLocation { format?: ConfigFormat; keys?: string[] }
 interface Entry extends HarnessItem { directory?: string }
 interface Index extends HarnessInventory { locations: Location[]; items: Entry[] }
-export interface HarnessEnvironment { home: string; env: NodeJS.ProcessEnv; runtimeEnvs?: Record<string, NodeJS.ProcessEnv> }
+export interface HarnessEnvironment { home: string; env: NodeJS.ProcessEnv; runtimeEnvs?: Record<string, NodeJS.ProcessEnv>; mewSkillsDir?: string }
 
 function exists(file: string) { try { fs.lstatSync(file); return true } catch { return false } }
 function linked(file: string): boolean {
@@ -164,7 +165,18 @@ export class AgentHarnessStore {
         await scan(cache, 0)
       }
     }
+    if (kind === 'skills') {
+      const skillsRoot = this.environment?.mewSkillsDir ?? (this.environment ? path.join(home, '.mew-skills') : MEW_SKILLS_DIR)
+      const commitPath = ensureCommitSkill(skillsRoot)
+      const scope = { id: 'mew', label: 'Mew', path: skillsRoot, global: false }
+      scopes.unshift(scope)
+      add(scope, 'mew', skillsRoot, 'Mew')
+      // The fixed entrypoint is editable, but cannot be moved/deleted by generic harness actions.
+      const location = locations.find(location => location.agent === 'mew')!
+      items.push({ id: identity(location.id, 'commit'), location: location.id, ...skillMetadata(readText(commitPath), 'commit'), name: 'commit', path: commitPath, writable: !linked(commitPath), managed: true })
+    }
     for (const location of locations) {
+      if (location.agent === 'mew') continue
       if (kind === 'skills') await this.scanSkills(location, items, warnings)
       else if (exists(location.path)) {
         try {
@@ -177,7 +189,7 @@ export class AgentHarnessStore {
         } catch { warnings.push(`설정 문법 또는 읽기 권한을 확인하세요: ${location.path}`) }
       }
     }
-    return { scopes, agents: [{ id: 'shared', label: '공통' }, ...Object.values(RUNTIMES).filter(runtime => runtime.id !== 'tmux').map(({ id, label }) => ({ id, label }))], locations, items: items.sort((a, b) => a.name.localeCompare(b.name)), warnings: [...new Set(warnings)] }
+    return { scopes, agents: [...(kind === 'skills' ? [{ id: 'mew', label: 'Mew' }] : []), { id: 'shared', label: '공통' }, ...Object.values(RUNTIMES).filter(runtime => runtime.id !== 'tmux').map(({ id, label }) => ({ id, label }))], locations, items: items.sort((a, b) => a.name.localeCompare(b.name)), warnings: [...new Set(warnings)] }
   }
 
   private async scanSkills(location: Location, items: Entry[], warnings: string[]) {
@@ -239,6 +251,7 @@ export class AgentHarnessStore {
     if (!['create', 'save', 'move', 'delete'].includes(input.action)) throw new HarnessError('알 수 없는 작업입니다')
     const target = index.locations.find(location => location.id === input.target)
     if (input.action === 'create' || input.action === 'move') {
+      if (target?.agent === 'mew') throw new HarnessError('Mew 기본 스킬은 기존 파일의 내용만 편집할 수 있습니다')
       if (!target?.writable) throw new HarnessError('쓸 수 있는 대상 위치를 선택하세요')
       assertWritable(target.path)
     }
@@ -260,6 +273,7 @@ export class AgentHarnessStore {
       return
     }
     const { item, location } = this.find(index, input.id)
+    if (item.managed && input.action !== 'save') throw new HarnessError('Mew 기본 스킬은 이동·삭제할 수 없습니다. 내용을 편집하세요.')
     if (!item.writable) throw new HarnessError(item.reason || '읽기 전용 항목입니다')
     assertWritable(item.path)
     const detail = this.read(item, location)

@@ -343,7 +343,9 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     clearStartupIdle()
     if (recovering) broadcastEvent(runtimeLoginAuthEvent(runtime, null, true))
     try {
-      let started = await AgentSession.start(runtime, undefined, cwd)
+      let started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, {
+        deferSessionCreation: !!initialResumeSessionId && !acpMethodId,
+      })
       if (acpMethodId) await started.retryAuthentication(acpMethodId)
       const wantedSessionId = initialResumeSessionId
       initialResumeSessionId = null
@@ -424,7 +426,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     try {
       await previous.disposeAndWait()
       try {
-        let started = await AgentSession.start(runtime, undefined, cwd)
+        let started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, { deferSessionCreation: true })
         let loadError: string | null = null
         try {
           await started.loadSession(sessionId)
@@ -435,11 +437,15 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
           loadError = describeError(err)
           // 선택한 기록이 다른 창에 점유됐거나 손상됐으면, 방금 보던 대화를 새
           // writer로 다시 잡는다. 복구까지 실패해도 탭을 종료하지 않고 빈 세션을 남긴다.
-          started = await AgentSession.start(runtime, undefined, cwd)
+          started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, { deferSessionCreation: true })
           try {
             await started.loadSession(previousSessionId)
           } catch (recoveryError) {
             console.error(`[mew:agent-host:${runtime}] 세션 ${previousSessionId} 복구 실패:`, recoveryError)
+            // 복원용 연결에는 임시 빈 세션이 없다. 복구도 실패했을 때만 새 세션을
+            // 만들고, 실패한 load가 잡았을 수 있는 writer는 먼저 반납한다.
+            await started.disposeAndWait()
+            started = await AgentSession.start(runtime, undefined, cwd)
           }
         }
 

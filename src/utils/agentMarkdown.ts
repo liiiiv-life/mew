@@ -1,3 +1,4 @@
+import { uiText, getUiLocale } from '@mew/ui/i18n-core'
 import MarkdownIt from 'markdown-it'
 
 /**
@@ -38,16 +39,16 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const rendered = fence
     ? fence(tokens, idx, options, env, self)
     : self.renderToken(tokens, idx, options)
-  return `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, '코드 복사')}${rendered}</div>`
+  return `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, uiText("코드 복사"))}${rendered}</div>`
 }
 md.renderer.rules.code_block = (tokens, idx, options, _env, self) =>
-  `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, '코드 복사')}${
+  `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, uiText("코드 복사"))}${
     codeBlock ? codeBlock(tokens, idx, options, _env, self) : `<pre><code>${md.utils.escapeHtml(tokens[idx].content)}</code></pre>`
   }</div>`
 md.renderer.rules.table_open = (tokens, idx, options, env: { source?: string }, self) => {
   const range = tokens[idx].map
   const source = env.source && range ? env.source.split('\n').slice(range[0], range[1]).join('\n') : ''
-  return `<div class="mew-agent-table-scroll">${copyButton(source, '표 복사')}${self.renderToken(tokens, idx, options)}`
+  return `<div class="mew-agent-table-scroll">${copyButton(source, uiText("표 복사"))}${self.renderToken(tokens, idx, options)}`
 }
 md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
   `${self.renderToken(tokens, idx, options)}</div>`
@@ -72,11 +73,11 @@ export function markAgentMarkdownCopied(target: EventTarget | null) {
   const button = target instanceof Element ? target.closest<HTMLButtonElement>('button[data-mew-copy]') : null
   if (!button) return
   button.dataset.copied = '1'
-  button.title = '복사됨'
-  button.setAttribute('aria-label', '복사됨')
+  button.title = uiText("복사됨")
+  button.setAttribute('aria-label', uiText("복사됨"))
   window.setTimeout(() => {
     delete button.dataset.copied
-    const label = button.closest('.mew-agent-table-scroll') ? '표 복사' : '코드 복사'
+    const label = button.closest('.mew-agent-table-scroll') ? uiText("표 복사") : uiText("코드 복사")
     button.title = label
     button.setAttribute('aria-label', label)
   }, 900)
@@ -90,10 +91,11 @@ export function markAgentMarkdownCopied(target: EventTarget | null) {
 const rendered = new Map<string, string>()
 
 export function renderMarkdown(text: string): string {
-  const hit = rendered.get(text)
+  const key = `${getUiLocale()}\0${text}`
+  const hit = rendered.get(key)
   if (hit !== undefined) return hit
   const html = md.render(text, { source: text })
   if (rendered.size > 200) rendered.clear()
-  rendered.set(text, html)
+  rendered.set(key, html)
   return html
 }

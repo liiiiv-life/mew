@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 import type { AgentCommandRecord, AgentCommandScope } from '../../shared/agent-command'
 
 async function request<T>(suffix: string, body?: unknown): Promise<T> {
@@ -5,7 +6,7 @@ async function request<T>(suffix: string, body?: unknown): Promise<T> {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
   const value = await response.json()
-  if (!response.ok) throw new Error(value.error ?? '명령 요청에 실패했습니다')
+  if (!response.ok) throw new Error(value.error ?? uiText("명령 요청에 실패했습니다"))
   return value as T
 }
 

@@ -49,3 +49,27 @@ test('@ 멘션은 마지막 포커스 파일을 하위 프로젝트보다 먼저
     ['med-app', '하위 프로젝트', '[med-app]', '\n'],
   ])
 })
+
+test('@ includes nested Documents and distinguishes identical project-relative paths', () => {
+  const options = agentInputMentionOptions(
+    [{ name: 'README.md', path: 'README.md', type: 'file' }], '.workspace', [], 'README.md',
+    [{ name: 'README.md', path: 'README.md', type: 'file' },
+      { name: 'guides', path: 'guides', type: 'dir', children: [{ name: 'setup.md', path: 'guides/setup.md', type: 'file' }] }],
+  )
+  assert.equal(new Set(options.map(option => option.id)).size, options.length)
+  assert.deepEqual(options.filter(option => option.label === 'README.md').map(option => [option.hint, option.insert, option.sortPriority]), [
+    ['README.md', '[[.workspace:README.md]]', -1],
+    ['Documents/README.md', '[[docs:README.md]]', 2],
+  ])
+  assert.ok(options.some(option => option.hint === 'Documents/guides/' && option.insert === '[[docs:guides]]'))
+  assert.ok(options.some(option => option.insert === '[[docs:guides/setup.md]]'))
+})
+
+test('editing Documents deduplicates loaded files and preserves the focused document priority', () => {
+  const file = { name: 'notes.md', path: 'notes.md', type: 'file' as const }
+  const options = agentInputMentionOptions([file], 'docs', [], 'notes.md', [file])
+  assert.equal(options.length, 1)
+  assert.equal(options[0].insert, '[[docs:notes.md]]')
+  assert.equal(options[0].hint, 'Documents/notes.md')
+  assert.equal(options[0].sortPriority, -1)
+})

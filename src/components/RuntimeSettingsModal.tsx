@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // 에이전트 런타임 설정 팝업 — 실행 파일·추가 인자·공급자 env(API 키·엔드포인트)를 런타임별로 저장한다.
 // 시크릿은 서버에만 남고 브라우저로는 마지막 4자만 돌아오므로, 이 창에서 되찾을 방법은 없다 —
 // 덮어써야 바꿀 수 있다. 저장 즉시 다음 spawn부터 적용된다.
@@ -25,6 +27,7 @@ const GEAR_GLYPH = (
 )
 
 export function RuntimeSettingsButton({ runtimeId, label }: { runtimeId: string; label: string }) {
+  useUiLocale()
   const [open, setOpen] = useState(false)
   return (
     <>
@@ -35,8 +38,8 @@ export function RuntimeSettingsButton({ runtimeId, label }: { runtimeId: string;
           setOpen(true)
         }}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
-        aria-label={`${label} 설정`}
-        title={`${label} 설정`}
+        aria-label={uiText("{p0} 설정", { p0: label })}
+        title={uiText("{p0} 설정", { p0: label })}
       >
         {GEAR_GLYPH}
       </button>
@@ -49,6 +52,7 @@ export function RuntimeSettingsButton({ runtimeId, label }: { runtimeId: string;
 type EnvRow = { key: string; value: string; secret: boolean }
 
 function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string; label: string; onClose: () => void }) {
+  useUiLocale()
   const [cmd, setCmd] = useState('')
   const [extraArgs, setExtraArgs] = useState('')
   const [rows, setRows] = useState<EnvRow[]>([])
@@ -170,51 +174,50 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onPointerDown={(e) => e.stopPropagation()}>
       <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised shadow-xl">
         <div className="border-b border-edge px-4 py-3">
-          <div className="text-sm font-semibold text-ink">{label} 설정</div>
-          <div className="mt-1 text-xs text-ink-secondary">새 세션부터 적용</div>
+          <div className="text-sm font-semibold text-ink">{label} {uiText(" 설정")}</div>
+          <div className="mt-1 text-xs text-ink-secondary">{uiText("새 세션부터 적용")}</div>
         </div>
         {!loaded ? (
-          <div className="px-4 py-8 text-center text-xs text-ink-muted">불러오는 중…</div>
+          <div className="px-4 py-8 text-center text-xs text-ink-muted">{uiText("불러오는 중…")}</div>
         ) : (
           <div className="space-y-4 px-4 py-3">
             <section>
-              <div className="text-xs text-ink-secondary">{runtime?.installed ? '설치됨' : '설치되지 않음'}</div>
+              <div className="text-xs text-ink-secondary">{runtime?.installed ? uiText("설치됨") : uiText("설치되지 않음")}</div>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {!runtime?.installed && runtime?.installable && <button type="button" disabled={lifecycleBusy} onClick={install} className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent disabled:opacity-40">설치</button>}
-                {runtime?.installed && <button type="button" disabled={lifecycleBusy} onClick={() => window.dispatchEvent(new CustomEvent('mew:open-agent-runtime', { detail: runtimeId }))} className="rounded border border-edge px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-40">로그인</button>}
-                {runtime?.installed && runtime.logoutable && <button type="button" disabled={lifecycleBusy} onClick={() => setConfirm('logout')} className="rounded border border-warning px-2.5 py-1 text-xs text-warning hover:bg-surface-hover disabled:opacity-40">로그아웃</button>}
-                {runtime?.installed && runtime.uninstallable && <button type="button" disabled={lifecycleBusy} onClick={() => setConfirm('uninstall')} className="rounded border border-danger px-2.5 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-40">런타임 삭제</button>}
+                {!runtime?.installed && runtime?.installable && <button type="button" disabled={lifecycleBusy} onClick={install} className="rounded bg-accent px-2.5 py-1 text-xs text-ink-on-accent disabled:opacity-40">{uiText("설치")}</button>}
+                {runtime?.installed && <button type="button" disabled={lifecycleBusy} onClick={() => window.dispatchEvent(new CustomEvent('mew:open-agent-runtime', { detail: runtimeId }))} className="rounded border border-edge px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-40">{uiText("로그인")}</button>}
+                {runtime?.installed && runtime.logoutable && <button type="button" disabled={lifecycleBusy} onClick={() => setConfirm('logout')} className="rounded border border-warning px-2.5 py-1 text-xs text-warning hover:bg-surface-hover disabled:opacity-40">{uiText("로그아웃")}</button>}
+                {runtime?.installed && runtime.uninstallable && <button type="button" disabled={lifecycleBusy} onClick={() => setConfirm('uninstall')} className="rounded border border-danger px-2.5 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-40">{uiText("런타임 삭제")}</button>}
               </div>
             </section>
             {runtime?.installed && Object.hasOwn(SUBSCRIPTION_URLS, runtimeId) && <AgentAccountCard runtime={runtimeId} />}
             {runtimeId !== 'antigravity' && <div>
-              <label className="mb-1 block text-xs font-medium text-ink-secondary">{runtimeId === 'claude' ? 'Claude CLI 실행 파일' : '실행 파일'}</label>
+              <label className="mb-1 block text-xs font-medium text-ink-secondary">{runtimeId === 'claude' ? uiText("Claude CLI 실행 파일") : uiText("실행 파일")}</label>
               <input
                 value={cmd}
                 onChange={(e) => setCmd(e.target.value)}
-                placeholder="기본값 사용"
+                placeholder={uiText("기본값 사용")}
                 className="w-full rounded border border-edge bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-secondary focus:border-edge-bright"
               />
             </div>}
             {runtimeId !== 'claude' && runtimeId !== 'antigravity' && <div>
-              <label className="mb-1 block text-xs font-medium text-ink-secondary">추가 인자</label>
+              <label className="mb-1 block text-xs font-medium text-ink-secondary">{uiText("추가 인자")}</label>
               <input
                 value={extraArgs}
                 onChange={(e) => setExtraArgs(e.target.value)}
-                placeholder="공백으로 구분"
+                placeholder={uiText("공백으로 구분")}
                 className="w-full rounded border border-edge bg-surface px-2 py-1.5 font-mono text-xs text-ink outline-none placeholder:text-ink-secondary focus:border-edge-bright"
               />
             </div>}
-            {runtimeId === 'claude' && <p className="text-xs text-ink-secondary">모델과 권한은 채팅 화면에서 선택합니다. 이전 터미널의 추가 인자는 적용되지 않습니다.</p>}
-            {runtimeId === 'antigravity' && <p className="text-xs text-ink-secondary">Google 공식 ACP 서버를 사용합니다. Google 계정은 로그인 화면에서 연결하고, API 키는 아래 GEMINI_API_KEY 환경 변수로 설정하세요. 환경 변경은 새 탭부터 적용됩니다.</p>}
+            {runtimeId === 'claude' && <p className="text-xs text-ink-secondary">{uiText("모델과 권한은 채팅 화면에서 선택합니다. 이전 터미널의 추가 인자는 적용되지 않습니다.")}</p>}
+            {runtimeId === 'antigravity' && <p className="text-xs text-ink-secondary">{uiText("Google 공식 ACP 서버를 사용합니다. Google 계정은 로그인 화면에서 연결하고, API 키는 아래 GEMINI_API_KEY 환경 변수로 설정하세요. 환경 변경은 새 탭부터 적용됩니다.")}</p>}
             <div>
               <div className="mb-1 flex items-center justify-between">
-                <label className="text-xs font-medium text-ink-secondary">환경 변수 (API 키·엔드포인트)</label>
+                <label className="text-xs font-medium text-ink-secondary">{uiText("환경 변수 (API 키·엔드포인트)")}</label>
                 <button type="button" onClick={addRow} className="rounded px-1.5 py-0.5 text-xs text-accent hover:bg-surface-hover">
-                  + 추가
-                </button>
+                  {uiText("+ 추가")}</button>
               </div>
-              {rows.length === 0 && <div className="py-1 text-xs text-ink-faint">예: ANTHROPIC_API_KEY · OPENAI_API_KEY · PRIME_API_KEY</div>}
+              {rows.length === 0 && <div className="py-1 text-xs text-ink-faint">{uiText("예: ANTHROPIC_API_KEY · OPENAI_API_KEY · PRIME_API_KEY")}</div>}
               <div className="space-y-1">
                 {rows.map((row, i) => (
                   <div key={i} className="flex items-center gap-1">
@@ -227,7 +230,7 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
                     <input
                       value={row.value}
                       onChange={(e) => updateRow(i, { value: e.target.value })}
-                      placeholder="값"
+                      placeholder={uiText("값")}
                       type={row.secret && row.value.startsWith('****') ? 'text' : 'text'}
                       className="min-w-0 flex-1 rounded border border-edge bg-surface px-2 py-1 font-mono text-xs text-ink outline-none placeholder:text-ink-secondary focus:border-edge-bright"
                     />
@@ -235,8 +238,8 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
                       type="button"
                       onClick={() => removeRow(i)}
                       className="shrink-0 rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-hover hover:text-ink"
-                      aria-label="줄 삭제"
-                      title="줄 삭제"
+                      aria-label={uiText("줄 삭제")}
+                      title={uiText("줄 삭제")}
                     >
                       ×
                     </button>
@@ -245,12 +248,11 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
               </div>
               {hasMaskedUntouched && (
                 <div className="mt-1 text-xs text-ink-secondary">
-                  키를 변경하려면 전체 값을 입력하세요.
-                </div>
+                  {uiText("키를 변경하려면 전체 값을 입력하세요.")}</div>
               )}
             </div>
             {error && <div className="select-text whitespace-pre-wrap rounded border border-danger/40 bg-surface px-2 py-1.5 text-xs text-danger">{error}</div>}
-            {savedNote && <div className="text-xs text-accent">저장했습니다.</div>}
+            {savedNote && <div className="text-xs text-accent">{uiText("저장했습니다.")}</div>}
           </div>
         )}
         <div className="flex items-center justify-between gap-2 border-t border-edge px-4 py-2.5">
@@ -260,25 +262,23 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
             disabled={saving}
             className="rounded px-2 py-1 text-xs text-ink-muted hover:bg-surface-hover hover:text-ink disabled:opacity-40"
           >
-            기본값으로 되돌리기
-          </button>
+            {uiText("기본값으로 되돌리기")}</button>
           <div className="flex gap-1.5">
             <button type="button" onClick={onClose} className="rounded border border-edge px-3 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink">
-              취소
-            </button>
+              {uiText("취소")}</button>
             <button
               type="button"
               onClick={save}
               disabled={saving || !loaded}
               className="rounded bg-accent px-3 py-1 text-xs text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
             >
-              {saving ? '저장 중…' : '저장'}
+              {saving ? uiText("저장 중…") : uiText("저장")}
             </button>
           </div>
         </div>
       </div>
-      {confirm === 'uninstall' && <ConfirmDialog message={`${label}을 삭제할까요?`} detail="계정과 API 키 설정은 남아 있을 수 있습니다." confirmLabel="삭제" danger onConfirm={uninstall} onCancel={() => setConfirm(null)} />}
-      {confirm === 'logout' && <ConfirmDialog message={`${label}에서 로그아웃할까요?`} confirmLabel="로그아웃" danger onConfirm={logout} onCancel={() => setConfirm(null)} />}
+      {confirm === 'uninstall' && <ConfirmDialog message={uiText("{p0}을 삭제할까요?", { p0: label })} detail={uiText("계정과 API 키 설정은 남아 있을 수 있습니다.")} confirmLabel={uiText("삭제")} danger onConfirm={uninstall} onCancel={() => setConfirm(null)} />}
+      {confirm === 'logout' && <ConfirmDialog message={uiText("{p0}에서 로그아웃할까요?", { p0: label })} confirmLabel={uiText("로그아웃")} danger onConfirm={logout} onCancel={() => setConfirm(null)} />}
     </div>
   )
 }

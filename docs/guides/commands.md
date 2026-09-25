@@ -58,6 +58,8 @@
 
 ## 예약 작업 (.data/schedules.json)
 
+실행 주기·에이전트·프로젝트는 앱 자체 드롭다운에서 선택한다. 방향키로 탐색하고 Enter로 확정하거나 마우스·터치로 선택하며, Esc·뒤로가기는 목록만 닫는다. 선택은 편집 초안에 반영되고 **저장**을 눌러야 예약 목록에 저장된다.
+
 헤더 메뉴 → **예약 작업** — "언제 / 어느 폴더에서 / 어떤 에이전트로 / 어떤 프롬프트를" 을 등록하면 그 시각에 에이전트가 무인으로 돈다. owner/manager만(임의 프롬프트가 무인 실행되는 표면 — 셸과 같은 경계).
 
 - 서버: `server/schedules.ts` + `server/runAgentJob.ts` + `GET/PUT /api/schedules`, `POST /api/schedules/run`(지금 실행). 클라이언트: `src/components/ScheduleModal.tsx`, 크론식↔GUI 변환은 `src/utils/cron.ts`.

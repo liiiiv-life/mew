@@ -13,6 +13,9 @@ const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-host-stub-'))
 const stubPath = path.join(stubDir, 'stub.mjs')
 const finishedFile = path.join(stubDir, 'finished')
 const writerLockFile = path.join(stubDir, 'writer-lock')
+const authRequiredFile = path.join(stubDir, 'auth-required')
+const recoveryFailureFile = path.join(stubDir, 'recovery-failure')
+const callsFile = path.join(stubDir, 'calls.jsonl')
 process.env.MEW_WORKSPACE = workspace
 process.env.MEW_DATA_DIR = dataDir
 
@@ -25,9 +28,12 @@ import fs from 'node:fs'
 import { Readable, Writable } from 'node:stream'
 
 class SlowAgent {
-  constructor(conn) { this.conn = conn; this.sessionCount = 0 }
-  async initialize() { return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: { loadSession: true } } }
+  constructor(conn) { this.conn = conn; this.sessionCount = 0; this.authenticated = !fs.existsSync(${JSON.stringify(authRequiredFile)}) }
+  record(method) { fs.appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify({pid:process.pid,method}) + '\\n') }
+  async initialize() { this.record('initialize'); return { protocolVersion: PROTOCOL_VERSION, agentCapabilities: { loadSession: true }, authMethods: [{id:'login',name:'Login'}] } }
   async newSession() {
+    this.record('session/new')
+    if (!this.authenticated) throw new RequestError(-32000, 'Authentication required')
     this.sessionCount += 1
     if (this.sessionCount === 1) {
       let holderAlive = false
@@ -37,6 +43,13 @@ class SlowAgent {
     return { sessionId: this.sessionCount === 1 ? 'host-session' : 'cleared-session' }
   }
   async loadSession({ sessionId }) {
+    this.record('session/load')
+    if (!this.authenticated) throw new RequestError(-32000, 'Authentication required')
+    if (sessionId === 'unrecoverable') fs.writeFileSync(${JSON.stringify(recoveryFailureFile)}, '')
+    if (fs.existsSync(${JSON.stringify(recoveryFailureFile)})) throw new RequestError(-32603, 'history unavailable')
+    if (sessionId === 'saved-session' && this.sessionCount !== 0) {
+      throw new Error('복원 전에 빈 세션을 생성하면 안 된다')
+    }
     if (sessionId === 'partial-load') {
       fs.writeFileSync(process.argv[3], String(process.pid))
       throw new RequestError(-32603, 'Internal error', { details: 'history replay failed after acquiring writer' })
@@ -48,12 +61,14 @@ class SlowAgent {
       throw { code: -32603, message: 'Internal error', data: { details: 'thread host-session already has an active writer' } }
     }
     if (sessionId === 'host-session') {
-      const holder = Number(fs.readFileSync(process.argv[3], 'utf8'))
+      let holder = 0
+      try { holder = Number(fs.readFileSync(process.argv[3], 'utf8')) } catch {}
       let holderAlive = false
-      try { process.kill(holder, 0); holderAlive = true } catch {}
+      try { if (holder > 0) { process.kill(holder, 0); holderAlive = true } } catch {}
       if (holderAlive && holder !== process.pid) {
         throw { code: -32603, message: 'Internal error', data: { details: 'thread host-session already has an active writer' } }
       }
+      fs.writeFileSync(process.argv[3], String(process.pid))
     }
     await this.conn.sessionUpdate({ sessionId, update: {
       sessionUpdate: 'user_message_chunk', content: { type: 'text', text: '이전 질문' },
@@ -63,7 +78,7 @@ class SlowAgent {
     } })
     return {}
   }
-  async authenticate() { return {} }
+  async authenticate() { this.authenticated = true; return {} }
   async cancel() {}
   async prompt({ sessionId }) {
     await new Promise((resolve) => setTimeout(resolve, 250))
@@ -136,12 +151,15 @@ test('/clear 뒤 같은 탭의 이전 Codex thread를 새 writer로 복원한다
   assert.equal(alive(initialWriter), false, '히스토리를 불러오기 전부터 이전 writer가 종료돼 있다')
 
   const restored = new Promise<void>(resolve => { refreshed = resolve })
+  const callsBeforeLoad = fs.readFileSync(callsFile, 'utf8').length
   client.send({ type: 'load_session', sessionId: 'host-session' })
   await restored
   const oldWriter = fs.readFileSync(writerLockFile, 'utf8')
   const reloaded = new Promise<void>(resolve => { refreshed = resolve })
   client.send({ type: 'load_session', sessionId: 'host-session' })
   await reloaded
+  assert.equal(fs.readFileSync(callsFile, 'utf8').slice(callsBeforeLoad).includes('session/new'), false,
+    '히스토리 전환과 현재 대화 새로고침은 임시 세션을 만들지 않는다')
   assert.notEqual(fs.readFileSync(writerLockFile, 'utf8'), oldWriter, '현재 대화 새로고침도 이전 writer가 종료된 뒤 같은 ID를 다시 읽는다')
   assert.deepEqual(errors, [])
 })
@@ -196,6 +214,59 @@ test('자동 복원 실패가 fallback 세션으로 원래 thread 포인터를 �
   assert.ok(received)
   assert.equal(received.sessionId, 'busy-thread')
   assert.match(received.message, /Internal error/)
+})
+
+test('복원에서 인증이 만료되면 로그인 화면으로 폴백하고 같은 탭에서 재시도한다', { timeout: 10_000 }, async t => {
+  fs.writeFileSync(authRequiredFile, '')
+  t.after(async () => {
+    fs.rmSync(authRequiredFile, { force: true })
+    shutdownAgentHostsForWorkspace(workspace)
+    await new Promise(resolve => setTimeout(resolve, 200))
+  })
+  let authReady!: () => void
+  let sessionReady!: (id: string) => void
+  const auth = new Promise<void>(resolve => { authReady = resolve })
+  const ready = new Promise<string>(resolve => { sessionReady = resolve })
+  let failureId: string | undefined
+  const client = await connectAgentHost('claude', 'expired-auth-tab', workspace, {
+    onReplay: (_events, _restored, failure) => { failureId = failure?.sessionId },
+    onEvent: event => {
+      if (event.type === 'auth') authReady()
+      if (event.type === 'meta' && event.meta.sessionId) sessionReady(event.meta.sessionId)
+    },
+  }, 'saved-session')
+  t.after(() => client.close())
+  await auth
+  assert.equal(failureId, 'saved-session', '인증 실패도 원래 대화 포인터를 보존한다')
+  client.send({ type: 'authenticate', methodId: 'login' })
+  assert.equal(await ready, 'host-session')
+})
+
+test('Codex 선택 기록과 이전 대화 복구가 모두 실패하면 준비된 새 세션으로 폴백한다', { timeout: 10_000 }, async t => {
+  t.after(async () => {
+    fs.rmSync(recoveryFailureFile, { force: true })
+    shutdownAgentHostsForWorkspace(workspace)
+    await new Promise(resolve => setTimeout(resolve, 200))
+  })
+  let firstReady!: () => void
+  let recoveryReady!: () => void
+  const first = new Promise<void>(resolve => { firstReady = resolve })
+  const recovery = new Promise<void>(resolve => { recoveryReady = resolve })
+  let currentSessionId = ''
+  const client = await connectAgentHost('codex', 'failed-recovery-tab', workspace, {
+    onEvent: event => {
+      if (event.type === 'meta') { currentSessionId = event.meta.sessionId; firstReady() }
+      if (event.type === 'error') recoveryReady()
+    },
+  })
+  t.after(() => client.close())
+  await first
+  const callsBeforeLoad = fs.readFileSync(callsFile, 'utf8').length
+  client.send({ type: 'load_session', sessionId: 'unrecoverable' })
+  await recovery
+  assert.equal(currentSessionId, 'host-session', '대화 ID 없는 복원 전용 연결을 화면에 노출하지 않는다')
+  const calls = fs.readFileSync(callsFile, 'utf8').slice(callsBeforeLoad).trim().split('\n').map(line => JSON.parse(line).method)
+  assert.deepEqual(calls, ['initialize', 'session/load', 'initialize', 'session/load', 'initialize', 'session/new'])
 })
 
 function alive(pid: number): boolean {

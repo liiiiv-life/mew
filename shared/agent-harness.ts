@@ -11,6 +11,7 @@ export interface HarnessLocation {
   reason?: string
 }
 export interface HarnessItem {
+  managed?: boolean
   id: string
   location: string
   name: string

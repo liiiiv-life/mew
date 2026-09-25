@@ -43,3 +43,54 @@ test('shared guidance survives initialization and editor changes reach every pro
   ensureAgentGuidance()
   assert.match(readAgentGuidance(), /You are working through mew/)
 })
+
+test('legacy guidance migrates without changing its content, and Markdown takes precedence', () => {
+  fs.rmSync(AGENT_GUIDANCE_PATH, { force: true })
+  const legacy = path.join(DATA_DIR, 'agent-guidance.txt')
+  fs.writeFileSync(legacy, 'My instructions\n\nKeep this formatting.\n')
+  assert.equal(readAgentGuidance(), 'My instructions\n\nKeep this formatting.')
+  assert.equal(fs.existsSync(AGENT_GUIDANCE_PATH), false)
+  ensureAgentGuidance()
+  assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), fs.readFileSync(legacy, 'utf8'))
+  fs.writeFileSync(AGENT_GUIDANCE_PATH, '')
+  assert.equal(readAgentGuidance(), '')
+  ensureAgentGuidance()
+  assert.equal(readAgentGuidance(), '')
+  fs.rmSync(legacy)
+})
+
+test('settings preserve handwritten instructions, parse editor changes and reject stale writes', async () => {
+  const { agentGuidanceSettings, updateAgentGuidance, GuidanceError } = await import('./agent-guidance.ts')
+  const original = '# My instructions\n\nDo not deploy.\n'
+  fs.writeFileSync(AGENT_GUIDANCE_PATH, original)
+  let state = agentGuidanceSettings()
+  assert.equal(state.settings.language, 'inherit')
+  const stale = state.revision
+  state = updateAgentGuidance({ key: 'language', value: 'ko', revision: state.revision })
+  assert.ok(state.content.startsWith(original))
+  assert.match(readAgentGuidance(), /Respond to the user in Korean/)
+  assert.throws(() => updateAgentGuidance({ key: 'commit', value: 'always', revision: stale }), GuidanceError)
+  state = updateAgentGuidance({ key: 'commit', value: 'always', revision: state.revision })
+  assert.equal(state.settings.language, 'ko')
+  const custom = state.content.replace('Respond to the user in Korean.', 'Use the language chosen for each project.')
+  writeExternalFile(AGENT_GUIDANCE_PATH, custom, state.content)
+  assert.throws(() => writeExternalFile(AGENT_GUIDANCE_PATH, 'stale', state.content), GuidanceError)
+  state = agentGuidanceSettings()
+  assert.equal(state.settings.language, 'custom')
+  state = updateAgentGuidance({ key: 'detail', value: 'concise', revision: state.revision })
+  assert.match(state.content, /Use the language chosen for each project/)
+  state = updateAgentGuidance({ key: 'commit', value: 'inherit', revision: state.revision })
+  assert.equal(state.settings.commit, 'inherit')
+  assert.doesNotMatch(state.content, /After each completed change/)
+  assert.throws(() => updateAgentGuidance({ key: '__proto__', value: 'always', revision: state.revision }), GuidanceError)
+  for (const broken of [
+    '<!-- mew:agent-setting:language -->Missing end',
+    '<!-- mew:agent-setting:language -->x<!-- /mew:agent-setting:language --><!-- mew:agent-setting:language -->y<!-- /mew:agent-setting:language -->',
+    '<!-- mew:agent-setting:language --><!-- mew:agent-setting:commit -->x<!-- /mew:agent-setting:language --><!-- /mew:agent-setting:commit -->',
+  ]) {
+    fs.writeFileSync(AGENT_GUIDANCE_PATH, broken)
+    state = agentGuidanceSettings()
+    assert.throws(() => updateAgentGuidance({ key: 'detail', value: 'detailed', revision: state.revision }), GuidanceError)
+    assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), broken)
+  }
+})

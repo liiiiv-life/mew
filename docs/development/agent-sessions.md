@@ -8,7 +8,7 @@
 
 [사용법과 설정 계약](../guides/project-setup.md) · [ADR 0155](../../../.mew/docs/decisions/0155-mew-project-agent-context.md).
 
-- 공통 원문은 `DATA_DIR/agent-guidance.txt`, 최초 생성 템플릿은 `server/prompts/agent-guidance.txt`다. `agent-guidance.ts`는 기존 파일을 보존하며 생성하고 매 요청·미리보기에서 새로 읽는다. `/api/fs/agent-guidance`는 `serverFiles` 권한으로 파일 경로를 반환하며 편집은 기존 `/api/fs/file`과 외부 파일 탭을 사용한다. 공통 파일 저장은 원자적 교체로 독립 감독이 저장 도중 빈 내용을 읽지 않게 한다. 사이드바는 Documents 위에서 이 파일을 연다. 저장·적용 범위는 [공통 안내 파일](../guides/project-setup.md#공통-안내-파일-편집)을 따른다.
+- 공통 원문은 `DATA_DIR/agent-guidance.md`, 최초 생성은 기존 `agent-guidance.txt` → `server/prompts/agent-guidance.txt` 순서다. 기존 MD·TXT를 덮어쓰지 않으며 미리보기는 생성 없이 같은 우선순위로 읽는다. `GET /api/fs/agent-guidance`는 `serverFiles` 권한으로 `{ path, content, revision, settings }`를 반환한다. `PUT`은 `{ key, value, revision }`으로 MD의 해당 설정 구간만 원자적으로 교체한다. key는 `commit`·`language`·`detail`, 알 수 없는 값은 400, 원문 revision 불일치·설정 구간 손상은 409다. 설정의 별도 JSON 사본은 없으며 원문에서 값을 읽는다. 편집은 기존 `/api/fs/file`과 외부 파일 탭을 사용한다. 해당 MD의 에디터 저장은 `expectedContent`가 전달되면 원문과 비교해 오래된 초안의 덮어쓰기를 409로 막는다. 설정창 읽기·저장은 `mew:external-file-updated`로 열린 깨끗한 탭을 갱신하고 미저장 탭은 보존한다. 공통 파일 저장은 원자적 교체로 독립 감독이 저장 도중 빈 내용을 읽지 않게 한다. 진입은 에이전트 패널 Skills·MCP 옆 기본 지침 버튼이며 저장·적용 범위는 [공통 안내 파일](../guides/project-setup.md#공통-안내-파일-편집)을 따른다.
 - `AgentSession.#run`은 사용자 프롬프트·첨부와 별도의 ACP 텍스트 블록으로 mew 안내를 보낸다. `agent-context.ts`가 세션에 고정된 프로젝트·Documents 경로와 실행 시점의 설정을 조합한다. 큐·예약·단발 runner도 이 경로를 공유한다.
 - 분리 감독을 띄우기 전에 부모가 연결 정보를 캡처해 `MEW_AGENT_CONTEXT`로 전달한다. 하위 ACP 프로세스에는 그 환경변수를 제거한다. 반복 예약 명령은 `--context`로 연결을 전달한다.
 - `DATA_DIR/agent-contexts/<sha256(runtime,cwd,sessionId)>.json`에 경로만 저장한다. 기록 복원은 저장된 연결을 사용하고 새 대화는 같은 프로젝트의 최신 Documents 설정을 해석한다. 세션 중에는 화면 전환으로 연결을 바꾸지 않는다.
@@ -16,19 +16,19 @@
 - `project-setup.ts`의 계획·적용 로직을 owner API(`/api/docs/agent-context`)와 `project-setup-cli.ts`가 공유한다. API는 현재 프로젝트 경로를 검증하고, 적용 시 미리보기 revision을 다시 비교한다. `wx` 생성으로 기존 문서와 경쟁 생성 파일을 보존한다.
 - 자동 안내 실패 시 다른 프로젝트로 fallback하여 작업하지 않고 오류를 알린다. 설정 JSON·문서 연결을 고친 뒤 다시 요청한다.
 
-## Git AI Commit 초안 작업
+## Git AI Commit 작업
 
-[ADR 0166](../../../.mew/docs/decisions/0166-mew-git-ai-commit-drafts.md) · [사용법](../guides/projects.md#git-작업-패널).
+[ADR 0174](../../../.mew/docs/decisions/0174-mew-commit-skill-and-automatic-commits.md) · [사용법](../guides/projects.md#git-작업-패널).
 
-- `git-ai-commit-routes.ts`는 Git·에이전트 권한을 모두 확인하고 클라이언트가 보낸 workspace를 현재 루트와 비교한다. 현재 프로젝트의 루트 Git 저장소만 허용한다. 요청에는 작업 UUID와 에이전트셋 ID만 받으며 실행 명령은 서버가 정한다.
-- `git-ai-commit.ts`는 Git 상태와 HEAD 대비 작업트리 diff, 미추적 파일 내용을 읽는다. 최초 커밋 전에는 staged·unstaged diff를 함께 제공한다. index를 변경하지 않는다. 스냅샷은 160,000자, 개별 Git 출력은 4MB로 제한하고 생략 여부를 표시한다. 외부 diff·textconv는 실행하지 않는다.
-- 셋의 런타임·모델·역할을 작업 접수 시 복사한다. 서버 저장 경로는 `<DATA_DIR>/git-ai-commits/<sha256(account,cwd)>/<job-id>/`이며 `latest.json` 포인터로 마지막 작업을 복원한다. 같은 계정·저장소의 진행 작업은 중복 생성하지 않고 요청 UUID 재전송은 같은 결과를 반환한다.
-- `git-ai-commit-runner.ts`가 `mewcmd-git-<job-id>` tmux 안에서 독립 `AgentSession`을 만들고 모델을 적용한 뒤 한 턴을 실행한다. 서버/브라우저 재접속과 무관하게 작업 상태를 원자적 저장한다. 결과는 완료 사유 `end_turn`과 JSON `{title, description}` 검증이 모두 통과해야 성공이다. 실제 Git 쓰기는 이 실행기의 기능이 아니다.
-- 스냅샷·역할은 도구 호출이나 명령 실행 지시로 취급하지 않도록 프롬프트에서 구분한다. ACP 도구 승인 요청은 거절하고 작업을 실패로 마친다. 기존 ACP 런타임 권한과 CLI 도구 경계를 쓰며 별도 OS sandbox를 제공하지 않는다.
-- 취소는 작업별 `stop` 마커, 시간 제한은 10분이다. 초기화 중 취소도 어댑터가 준비된 뒤 프롬프트를 보내지 않고 종료를 기다린다. 완료/실패/취소 뒤 자식 프로세스와 tmux를 정리한다. tmux가 사라진 미완료 작업은 조회 시 실패로 복구한다.
-- 결과·오류·최근 출력 12,000자는 작업 기록에 남고 원본 diff를 담은 `input.json`은 작업 종료·시작 실패·중단 복구 시 삭제한다. 원본 ACP 응답은 64,000자로 제한한다. 계정·저장소가 다른 작업은 조회·취소·적용할 수 없다.
-- UI는 생성 결과를 미리보기로 유지하고 **초안 적용**에서만 기존 작성 영역을 교체한다. 적용 API는 다시 캡처한 스냅샷의 해시를 비교한다. 제한으로 생략된 diff의 세부 변경까지 검증하는 전체 저장소 잠금은 아니다. 실제 커밋은 기존 Git API로 사용자가 확정하며 적용 이후 변경도 사용자가 확인한다.
-- `git-ai-commit.test.ts`는 임시 Git 저장소·격리된 tmux 서버·모의 ACP로 저장소 보존, 모델 전달, 중복 방지, 권한·소유권, 취소·실패·재접속·변경 감지를 검사한다. `git-ai-commit-ui.test.ts`는 실제 컴포넌트의 데스크톱/모바일 셋 선택·신규 생성·로그·초안 보존·적용·취소·복원을 검사한다. 실제 유료 에이전트 호출은 자동 검증하지 않는다.
+- `git-ai-commit-routes.ts`는 Git·에이전트 권한과 현재 workspace를 검증한다. 현재 프로젝트 루트 저장소의 선택 파일·작업 UUID·에이전트셋 ID를 받는다. `POST /api/git/ai-commit`은 실제 자동 커밋 실행이며 이전 `/draft` 적용 API는 제공하지 않는다.
+- `mew-skills.ts`가 `<DATA_DIR>/skills/commit/SKILL.md`를 최초 한 번만 원자적으로 생성한다. 기본 원본은 `server/prompts/commit-skill.txt`, 이후 사용자 파일이 기준본이다. 시작할 때 최신 파일과 에이전트셋의 런타임·모델·역할을 작업 입력에 고정한다. 동일 파일은 모든 런타임의 `/commit` 후보와 프로젝트 안내에도 연결한다. 안내 자체는 커밋 승인이 아니다.
+- `git-ai-commit.ts`는 별도 임시 인덱스로 선택 파일의 전체 Git 트리를 캡처한다. 실제 index는 건드리지 않는다. 선택 파일의 기존 stage, 최종 작업트리 diff, 최근 15개 커밋 제목을 AI에 제공한다. 160,000자 또는 Git diff 4MB 한도를 넘으면 실행을 거절한다. 외부 diff·textconv는 실행하지 않는다. 바이너리·삭제·이름 변경도 전체 트리와 index 항목으로 변경 여부를 검사한다.
+- `git-ai-commit-runner.ts`는 작업별 `mewcmd-git-<id>` tmux에서 독립 ACP 세션을 실행한다. `mew-commit-plan` 모드로 공통 스킬을 전달하고 `end_turn`·JSON `{commits:[{title,description,files}],skipped:[{file,reason}]}`를 검증한다. 모든 선택 파일은 정확히 한 번 배정돼야 한다. 도구 승인 요청은 거절하며 별도 OS sandbox를 추가하지 않는다.
+- 실행 전과 각 커밋 사이에 HEAD·브랜치·남은 선택 파일의 트리·stage를 재검증한다. `git-commit-files.ts`는 분석한 트리의 해당 그룹만 임시 index에 넣어 커밋하고 실제 index에는 해당 경로만 반영한다. 선택 밖 stage와 작업 내용은 보존하며 Git index lock을 사용한다. 파일 내부 hunk 분리는 하지 않는다. Git hook·서명 설정은 그대로 적용된다.
+- 상태는 `<DATA_DIR>/git-ai-commits/<sha256(account,cwd)>/<id>/state.json`, 계정별 최신 작업은 `latest.json`이다. `starting`·`running`·`committing`·`completed`·`failed`·`cancelled`를 사용하고 `mode: commit` 없는 이전 초안은 실행하지 않는다. 같은 계정의 요청 UUID 재전송은 중복 실행하지 않는다. 저장소별 `mew-ai-commit.lock`으로 다른 계정·프로세스의 AI 실행도 배제한다.
+- 분석 시간 제한은 10분이다. 취소·실패 시 진행 중인 커밋을 강제로 되돌리지 않는다. 만든 커밋 해시는 매번 저장해 부분 성공을 보존한다. 자식 프로세스·입력 스냅샷·정상 종료한 작업의 저장소 lock을 정리한다. 서버·브라우저 재접속과 관계없이 tmux 작업은 유지한다. 호스트 강제 종료로 남은 Git/AI lock은 다른 Git·AI 프로세스가 없음을 확인한 뒤 제거해야 한다.
+- UI는 실제 커밋 결과를 표시하고 변경 목록·로그를 다시 읽는다. 사용자의 수동 제목·설명은 덮어쓰지 않으며 완료 후 자동 push하지 않는다.
+- `git-ai-commit.test.ts`는 임시 저장소·모의 ACP·격리 tmux로 분할 커밋·선택 밖 stage 보존·변경 감지·권한·취소·실패·재접속을 검사한다. `git-ai-commit-ui.test.ts`는 데스크톱·모바일 셋 선택·생성·로그·실제 결과 표시·수동 초안 보존·취소·복원을 검사한다. 유료 에이전트의 실제 그룹 판단 품질은 자동 검증하지 않는다.
 
 ## 탭 원장과 복원
 
@@ -46,6 +46,8 @@
 - **외부 CLI에서 이어 쓴 대화:** `session/load`가 반환한 최신 ACP 전사를 기준으로 복원한다. Mew 저장 전사가 있다는 이유로 전체 ACP 응답을 버리지 않는다. 질문·답변이 같은 완료된 접두 턴만 기존 Mew 이벤트(소요 시간·설정·작업 기록)를 보존하고, 달라진 지점부터는 최신 ACP 이벤트를 사용한다. 사용자 메시지의 모델·노력·권한은 답변 일치 여부와 별도로, 질문 내용과 순서가 같은 접두 턴에서 누락된 값만 복원한다. 따라서 중간 답변 생략이나 `turn_end` 없는 재복원 때문에 같은 설정의 상태버블이 다시 나타나지 않는다. 질문이 달라진 지점 이후나 외부에서 추가한 질문에는 과거 설정을 추정해 붙이지 않는다. ACP가 대화 이벤트를 전혀 재생하지 않는 경우에만 저장 전사로 폴백한다. 전체 복원 뒤 전사를 한 번 저장한다.
 - 살아 있는 감독에 재접속하면 메모리 replay를 사용하므로 외부 CLI 변경을 실시간 감시하지 않는다. Codex **히스토리 → 현재 대화 새로고침**은 같은 세션 ID를 기존 `load_session` 경로로 다시 읽는다. 진행 중인 턴·승인·큐와 겹칠 수 없고, 어댑터 교체는 ADR 0122를 따른다. 다른 탭이 같은 세션을 소유한 경우 새로고침을 허용하지 않는다.
 - 어댑터 교체는 종료 요청 뒤 `disposeAndWait()`로 실제 종료를 기다린다. 히스토리 전환뿐 아니라 자동 복원 실패 후 새 세션 생성과 선택한 기록 실패 후 이전 대화 복구에도 적용한다. `session/load`가 writer를 얻고 전사 재생 중 실패할 수 있으므로 실패한 어댑터도 종료 경계를 거쳐야 한다. 감독 로그에는 선택한 기록의 최초 불러오기 오류와 이전 대화 복구 오류를 각각 남긴다.
+- 자동 복원과 Codex 히스토리 전환·현재 대화 새로고침은 `initialize`가 `loadSession` 지원을 알리면 빈 `session/new`와 그 기본값 적용을 생략하고 바로 기존 세션을 불러온다. 기본값은 복원된 세션에 적용한다. load 미지원 런타임은 기존 새 세션·인증 경로를 사용한다. 자동 복원 실패는 원래 포인터를 보존하며 새 연결로 폴백하고, Codex 선택 기록·이전 대화 복구가 모두 실패하면 실패한 writer 종료 후에만 새 세션을 만든다. 살아 있는 감독에 단순 재접속할 때는 ACP 초기화나 load 없이 메모리 replay를 유지한다.
+- `<DATA_DIR>/agent/<runtime>-<hash>.log`의 `[mew:agent-timing:<runtime>]`는 `initialize`·`session/new`·`session/load`·`defaults`의 경과 ms와 호출 성공/실패를 기록한다. 타이밍 항목에는 프롬프트·세션 ID·인증 응답을 담지 않는다. `initialize`에는 어댑터가 응답하기까지의 준비 시간, `session/load`에는 ACP 전사 재생 시간이 포함되며 브라우저 렌더링 시간은 포함되지 않는다. `agent-startup.test.ts`는 모의 ACP의 불필요한 new/기본값 호출 제거와 load 미지원·인증을, `agentHost.test.ts`는 writer 반납·복원 실패·인증 만료 폴백을 검증한다.
 
 아래는 주요 메시지다. 전체 타입은 [agentWs.ts](../../server/agentWs.ts)의 `ClientMessage`·`ServerMessage`와 [agentAcp.ts](../../server/agentAcp.ts)의 `AgentEvent`를 따른다.
 
@@ -58,13 +60,15 @@
 
 - 로컬 전사 캐시는 탭당 1MiB·전체 4MiB가 상한이다. 긴 대화는 상한 안에 들어가는 최근 이벤트 꼬리만 원형 그대로 저장하고, 서버의 전체 `replay`가 오면 앞부분을 복원한다. 서버 탭 원장 조회 중에는 활성 ACP 탭의 최근 텍스트를 읽기 전용으로 먼저 표시하며, 실제 세션 연결은 원장 확인 뒤에만 시작한다. 저장 전 오래된 캐시를 정리해 공간을 확보하고 quota 실패 시 전사 캐시만 비워 한 번 재시도한다. 계정 탭 원장에 없는 탭의 `mew:agent-events:*`·`mew:agent-controls:*` 캐시는 탭 동기화 때 지운다.
 
+- 같은 세션의 캐시 병합은 각 이벤트를 한 번 직렬화하고 KMP로 포함 여부와 suffix/prefix 겹침을 찾는다. 반복 청크가 긴 전사에서도 비교 횟수가 이벤트 수에 비례한다. 전체 snapshot이 캐시를 포함하면 서버 전사를 사용하고, 이전 감독의 부분 replay는 기존 앞부분을 보존하며 겹치는 꼬리만 제거한다. 세션 변경·빈 서버 전사·ACP 복원 표식의 교체 규칙은 유지한다. `agentEventCache.test.ts`는 반복 패턴의 모든 짧은 조합과 긴 불일치 전사의 보존을 검증한다.
+
 - **히스토리를 열 때마다** 계정의 모든 루트 프로젝트 탭이 주장한 ACP 세션을 다시 읽는다. 현재 탭 또는 다른 탭이 이미 연 세션은 목록에서 잠가 두므로, 이미 붙은 writer를 다시 `session/load`해 ACP의 `Internal error`가 나는 경로가 없다.
 
 - **창은 들어오는 이벤트를 한 프레임에 모아 한 번만 그린다**(`requestAnimationFrame`). 스트리밍 청크는 초당 수십 개다. `reset`도 그 줄에서 순서대로 처리돼 "비우기"와 "새 대화"가 같은 프레임에 들어간다.
 
 - `meta`**·**`sessions`**·**`reset`**은 이벤트 버퍼에 쌓지 않는다.** `meta`는 상태 스냅샷이라 붙을 때·바뀔 때 통째로 보내고(`sessionId`·`startedAt`·`turns`·`busy`·`queued`·`usage`·`canLoad`·`canList`), `sessions`는 **물어본 창에만, 물어봤을 때만** 답한다(claude 런타임은 세션이 뜨기를 기다리지 않고 디스크에서 바로 읽는다). 세션 목록의 cwd 비교는 대소문자를 구분하지 않아, 이전 기록의 경로 표기가 현재 실제 경로와 달라도 같은 폴더 히스토리로 찾는다. `reset`을 받은 창은 지금까지 그린 대화를 버린다.
 
-- 서버는 소켓에 **30초마다 핑**을 보낸다 — 조용한 대화(에이전트가 긴 작업 중일 때)가 중간 장비의 유휴 타임아웃에 끊기지 않게. 그래도 끊기면 창이 1초 뒤 다시 붙고 `replay`로 복구한다.
+- 서버는 소켓에 **30초마다 핑**을 보낸다 — 조용한 대화(에이전트가 긴 작업 중일 때)가 중간 장비의 유휴 타임아웃에 끊기지 않게. 그래도 끊기면 창이 1초 뒤 다시 붙고 `replay`로 복구한다. 끊어진 동안과 초기 준비·히스토리 로딩에는 대화 영역의 빈 말풍선 shimmer를 표시하고 준비·로딩 종료 시 제거한다([표시 계약](../specs/agent-panel.md#연결-대기와-재연결)). 연결 끊김 뮤캣 알림은 보내지 않는다.
 
 - **진행 중에 온** `prompt`**는 던지지 않고 줄을 세운다.** 턴이 끝나면 서버가 순서대로 이어 돌리고, `cancel`은 대기열도 함께 비운다. 대기 항목은 창에서 자리를 옮기고(`move_queued`) 내용도 고칠 수 있다(`edit_queued`) — 고치는 사이 앞 턴이 끝나 큐가 당겨질 수 있으므로 `expect`(창이 보고 있던 원본)가 지금 그 자리의 값과 다르면 서버가 무시한다.
 

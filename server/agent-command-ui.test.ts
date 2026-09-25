@@ -26,7 +26,7 @@ class Socket {
 }
 window.WebSocket=Socket;
 const preparedTabs=location.search.includes('prepared')?fetch('/api/user-ui/agent-tabs?workspace=/workspace').then(r=>r.json()):undefined;
-createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel preparedTabs={preparedTabs} project='test' workspacePath='/workspace' tree={[]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} /></I18nProvider>);`
+createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel preparedTabs={preparedTabs} project='test' workspacePath='/workspace' tree={[{name:'README.md',path:'README.md',type:'file'}]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} /></I18nProvider>);`
   const bundle = await build({ input: 'virtual:cli.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'cli-fixture',
     async resolveId(id, importer) {
@@ -57,6 +57,11 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
       const records: AgentCommandRecord[] = []
       let launches = 0
       let tabReads = 0
+      let documentReads = 0
+      let documentMode: 'ready' | 'failed' | 'delayed' = 'ready'
+      let releaseDocuments: (() => void) | undefined
+      let markDocumentRequest: () => void = () => {}
+      const documentRequest = new Promise<void>(resolve => { markDocumentRequest = resolve })
       await page.route('http://mew-cli.test/**', async route => {
         const url = new URL(route.request().url()), pathname = url.pathname
         if (pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: chunk.code })
@@ -73,6 +78,20 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
         if (pathname === '/api/user-ui/agent-tabs' && route.request().method() === 'GET') tabReads++
         if (pathname === '/api/user-ui/agent-tabs') return route.fulfill({ json: { state: { tabs: [{ id: 'test', label: 'Codex', runtime: 'codex', cwd: '/workspace', renamed: true }], activeId: 'test' }, claims: [] } })
         if (pathname === '/api/agent-cwd') return route.fulfill({ json: { cwd: '/workspace' } })
+        if (pathname === '/api/tree' && url.searchParams.get('project') === 'docs') {
+          documentReads++
+          assert.equal(url.searchParams.has('path'), false, 'Documents uses the full tree, not the expanded sidebar')
+          if (documentMode === 'failed') return route.fulfill({ status: 503, json: { error: 'unavailable' } })
+          if (documentMode === 'delayed') {
+            const gate = new Promise<void>(resolve => { releaseDocuments = resolve })
+            markDocumentRequest()
+            await gate
+          }
+          return route.fulfill({ json: [
+            { name: 'README.md', path: 'README.md', type: 'file' },
+            { name: 'guides', path: 'guides', type: 'dir', children: [{ name: 'setup.md', path: 'guides/setup.md', type: 'file' }] },
+          ] })
+        }
         if (pathname === '/api/projects') return route.fulfill({ json: [] })
         if (pathname.startsWith('/api/')) return route.fulfill({ json: { settings: null, skills: [], jobs: [], runtimes: [] } })
         return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html class="dark" lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}html,body,#root{height:100%;margin:0}</style><div id="root"></div><script src="/app.js"></script></html>` })
@@ -86,6 +105,36 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
       const toggleBox = await toggle.boundingBox(), modelBox = await model.boundingBox()
       assert.ok(toggleBox && modelBox && toggleBox.x < modelBox.x)
       const draft = page.getByPlaceholder('텍스트 입력')
+      assert.equal(documentReads, 0, 'Documents is loaded on demand')
+      await draft.fill('@README')
+      const documentOption = page.getByRole('button', { name: 'README.md Documents/README.md', exact: true })
+      await documentOption.waitFor()
+      assert.equal(await page.getByRole('button', { name: 'README.md README.md', exact: true }).count(), 1)
+      await documentOption.click()
+      assert.equal(await draft.inputValue(), '[[docs:README.md]] ')
+      await draft.press('Control+Enter')
+      assert.equal(await page.evaluate("window.agentMessages.find(message => message.type === 'prompt')?.text"), '[[docs:README.md]]')
+      await page.evaluate('window.agentMessages=[]')
+      await draft.fill('@setup')
+      await page.getByRole('button', { name: 'setup.md Documents/guides/setup.md', exact: true }).waitFor()
+      await draft.press('Enter')
+      assert.equal(await draft.inputValue(), '[[docs:guides/setup.md]] ')
+      documentMode = 'failed'
+      const failed = page.waitForResponse(response => response.url().includes('/api/tree?project=docs'))
+      await draft.fill('@README'); await failed
+      await page.getByRole('button', { name: 'README.md README.md', exact: true }).click()
+      assert.equal(await draft.inputValue(), '[[test:README.md]] ', 'a failed Documents request keeps current-project candidates')
+      documentMode = 'delayed'
+      await draft.fill('@setup'); await documentRequest
+      await draft.press('Escape')
+      releaseDocuments!()
+      await draft.fill('unchanged draft')
+      assert.equal(await page.getByRole('button', { name: 'setup.md Documents/guides/setup.md', exact: true }).count(), 0)
+      documentMode = 'ready'
+      const ready = page.waitForResponse(response => response.url().includes('/api/tree?project=docs'))
+      await draft.fill('@setup'); await ready
+      await page.getByRole('button', { name: 'setup.md Documents/guides/setup.md', exact: true }).waitFor()
+      await draft.press('Escape')
       const command = '  printf "%s\\n" "hello"\nprintf "done"\n'
       await draft.fill(command)
       await draft.press('Control+Tab')

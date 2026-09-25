@@ -1,6 +1,8 @@
+import { uiText, getUiLocale } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { createAgentNoticeTracker } from '../utils/mewcat-notification-rules'
 import { publishMewcatNotice, resolveMewcatNotice } from '../utils/mewcat-notifications'
-import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
+import { DockBody, DockGrip, DockInlineBody, DockPanel, useDock } from './DockWorkspace'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { ServerDomBrowserTabs } from './server-dom-browser'
 // 터미널•에이전트패널 — ACP 채팅과 탭별 tmux TUI·셸을 한 탭 체계에서 연다.
@@ -24,6 +26,7 @@ import {
 import { createPortal } from 'react-dom'
 import { Terminal as TerminalIcon } from 'iconoir-react'
 import { AgentCommandBubble, AgentCommandPopup } from './agent-command-bubble'
+import { AgentLoadingBubbles } from './agent-loading-bubbles'
 import { useAgentCommands } from '../hooks/use-agent-commands'
 import { stopAgentTabCommands } from '../api/agent-commands'
 import { commandTimeline } from '../utils/agent-command-timeline'
@@ -57,6 +60,7 @@ import {
   fetchAgentTabs,
   fetchAgentCwdSuggestions,
   fetchProjects,
+  fetchFullTree,
   fetchSkills,
   installAgentRuntime,
   killTmuxSession,
@@ -90,6 +94,7 @@ import { SessionTerminalPopup } from './SessionTerminalPopup'
 import { RuntimeSettingsButton } from './RuntimeSettingsModal'
 import { AgentAccountCard } from './AgentAccountCard'
 import { AgentHarnessButtons } from './agent-harness-modal'
+import { AgentGuidanceButton } from './agent-guidance-settings'
 import { SUBSCRIPTION_URLS } from '../../shared/agent-access'
 import { AgentSetPicker } from './AgentSetPicker'
 import { ScrollDateTimePicker } from './ScrollDateTimePicker'
@@ -125,20 +130,20 @@ import {
 
 /** ACP가 주는 이름은 영어다 — 아는 모드만 우리 말로 바꾸고 나머지는 그대로 쓴다 */
 const MODE_LABEL: Record<string, string> = {
-  default: '승인 필요',
-  acceptEdits: '편집 자동 승인',
-  plan: '계획만',
-  dontAsk: '묻지 않음(거절)',
-  bypassPermissions: '권한 무시',
+  get default() { return uiText("승인 필요") },
+  get acceptEdits() { return uiText("편집 자동 승인") },
+  get plan() { return uiText("계획만") },
+  get dontAsk() { return uiText("묻지 않음(거절)") },
+  get bypassPermissions() { return uiText("권한 무시") },
   // codex
-  'read-only': '읽기만',
-  auto: '작업 폴더만',
-  'full-access': '전체 허용',
-  agent: '작업 폴더만',
-  'agent-full-access': '전체 허용',
+  get 'read-only'() { return uiText("읽기만") },
+  get auto() { return uiText("작업 폴더만") },
+  get 'full-access'() { return uiText("전체 허용") },
+  get agent() { return uiText("작업 폴더만") },
+  get 'agent-full-access'() { return uiText("전체 허용") },
   // hermes
-  accept_edits: '편집 자동 승인',
-  dont_ask: '묻지 않음(허용)',
+  get accept_edits() { return uiText("편집 자동 승인") },
+  get dont_ask() { return uiText("묻지 않음(허용)") },
 }
 
 const RUNTIME_KEY = 'mew:agent-runtime'
@@ -195,6 +200,7 @@ function ResizableQueueTextarea({
   onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
   label: string
 }) {
+  useUiLocale()
   const containerRef = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(DEFAULT_AGENT_QUEUE_EDIT_HEIGHT)
   const resizeCleanupRef = useRef<(() => void) | null>(null)
@@ -256,7 +262,7 @@ function ResizableQueueTextarea({
     <div ref={containerRef} className="relative min-w-0 flex-1" style={{ height: `${height}px` }}>
       <div
         role="separator"
-        aria-label={`${label} 높이 조절`}
+        aria-label={uiText("{p0} 높이 조절", { p0: label })}
         aria-orientation="horizontal"
         aria-valuemin={MIN_AGENT_QUEUE_EDIT_HEIGHT}
         aria-valuemax={maxHeight()}
@@ -265,7 +271,7 @@ function ResizableQueueTextarea({
         onPointerDown={startResize}
         onKeyDown={resizeWithKeyboard}
         className="group absolute inset-x-0 -top-1.5 z-20 h-3 cursor-row-resize touch-none outline-none"
-        title="끌어서 편집칸 높이 조절"
+        title={uiText("끌어서 편집칸 높이 조절")}
       >
         <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent" />
       </div>
@@ -336,7 +342,7 @@ const MAX_AGENT_IMAGE_BYTES = 10 * 1024 * 1024
 function attachmentExtension(path: string): string {
   const name = path.split('/').pop() ?? path
   const dot = name.lastIndexOf('.')
-  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : '파일'
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : uiText("파일")
 }
 
 /** 캡처 프로그램은 Clipboard File의 이름을 빈 문자열이나 `blob`으로 주기도 한다. */
@@ -352,11 +358,11 @@ function namedAttachment(file: File): File {
 
 async function imageForAgent(file: File): Promise<AgentAttachment['image']> {
   if (!AGENT_IMAGE_TYPES.has(file.type)) return undefined
-  if (file.size > MAX_AGENT_IMAGE_BYTES) throw new Error(`사진은 에이전트에 최대 10MB까지 첨부할 수 있습니다: ${file.name || '이름 없는 이미지'}`)
+  if (file.size > MAX_AGENT_IMAGE_BYTES) throw new Error(uiText("사진은 에이전트에 최대 10MB까지 첨부할 수 있습니다: {p0}", { p0: file.name || uiText("이름 없는 이미지") }))
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
-    reader.onerror = () => reject(new Error(`사진을 읽지 못했습니다: ${file.name || '이름 없는 이미지'}`))
-    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('사진 데이터를 읽지 못했습니다'))
+    reader.onerror = () => reject(new Error(uiText("사진을 읽지 못했습니다: {p0}", { p0: file.name || uiText("이름 없는 이미지") })))
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error(uiText("사진 데이터를 읽지 못했습니다")))
     reader.readAsDataURL(file)
   })
   return { data: dataUrl.slice(dataUrl.indexOf(',') + 1), mimeType: file.type }
@@ -430,10 +436,10 @@ function labelOf(items: Item[]): string {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  pending: '대기',
-  in_progress: '실행 중',
-  completed: '완료',
-  failed: '실패',
+  get pending() { return uiText("대기") },
+  get in_progress() { return uiText("실행 중") },
+  get completed() { return uiText("완료") },
+  get failed() { return uiText("실패") },
 }
 
 /** 버블 상태 — 색은 한 곳에서만 정한다(턴 버블·작업 묶음·작업 한 줄이 같은 뜻이면 같은 색이어야 한다) */
@@ -445,10 +451,10 @@ const BUBBLE_DOT: Record<BubbleState, string> = {
   done: 'bg-success',
 }
 const BUBBLE_LABEL: Record<BubbleState, string> = {
-  running: '작업 중',
-  failed: '에러',
-  cancelled: '중단됨',
-  done: '완료',
+  get running() { return uiText("작업 중") },
+  get failed() { return uiText("에러") },
+  get cancelled() { return uiText("중단됨") },
+  get done() { return uiText("완료") },
 }
 
 function turnState(item: Extract<Item, { kind: 'turn' }>, busy: boolean | null): BubbleState {
@@ -464,7 +470,7 @@ function toolState(status: string): BubbleState {
   return 'running'
 }
 
-const nf = new Intl.NumberFormat('ko-KR')
+const nf = { format: (value: number) => new Intl.NumberFormat(getUiLocale()).format(value) }
 /** 토큰 수는 자릿수가 길어 줄을 밀어낸다 — 1.2K·3.4M으로 줄인다(ko-KR은 '천·만'이 되므로 en-US) */
 const tf = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
 
@@ -472,7 +478,7 @@ function formatTime(iso: string | null): string {
   if (!iso) return '—'
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleString(getUiLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 /** 몇 센트짜리 세션도 0으로 보이면 안 된다 — 1달러 밑은 세 자리까지 */
@@ -485,12 +491,13 @@ function formatElapsed(iso: string | null, now: number): string {
   const start = new Date(iso).getTime()
   if (Number.isNaN(start)) return ''
   const minutes = Math.max(0, Math.floor((now - start) / 60_000))
-  if (minutes < 60) return `${minutes}분째`
+  if (minutes < 60) return uiText("{p0}분째", { p0: minutes })
   const hours = Math.floor(minutes / 60)
-  return `${hours}시간 ${minutes % 60}분째`
+  return uiText("{p0}시간 {p1}분째", { p0: hours, p1: minutes % 60 })
 }
 
 function InfoRow({ label, value, title }: { label: string; value: string; title?: string }) {
+  useUiLocale()
   return (
     <div className="flex items-baseline justify-between gap-3">
       <span className="shrink-0 text-ink-muted">{label}</span>
@@ -582,6 +589,7 @@ function HeaderSelect({
   /** 넓게 채우는 선택기(모델)는 화살표를 버튼 끝에 붙인다. */
   caretEnd?: boolean
 }) {
+  useUiLocale()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -680,7 +688,7 @@ function HeaderSelect({
                 <span className="truncate">{option.label}</span>
               </button>
             ))}
-            {shown.length === 0 && <div className="px-2.5 py-1.5 text-xs text-ink-muted">결과 없음</div>}
+            {shown.length === 0 && <div className="px-2.5 py-1.5 text-xs text-ink-muted">{uiText("결과 없음")}</div>}
           </div>
           {searchable && (
             <input
@@ -694,7 +702,7 @@ function HeaderSelect({
                   setOpen(false)
                 }
               }}
-              placeholder="검색"
+              placeholder={uiText("검색")}
               className="mx-1 mt-1 w-[calc(100%-0.5rem)] rounded bg-surface px-2 py-1 text-xs text-ink outline-none placeholder:text-ink-muted"
             />
           )}
@@ -737,6 +745,7 @@ function SessionPicker({
   refreshDisabled?: boolean
   loadDisabledReason?: string
 }) {
+  useUiLocale()
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [sessionIdInput, setSessionIdInput] = useState('')
@@ -771,20 +780,20 @@ function SessionPicker({
         }}
         aria-controls={open ? pickerId : undefined}
         aria-expanded={open}
-        aria-label="히스토리"
-        title="히스토리"
+        aria-label={uiText("히스토리")}
+        title={uiText("히스토리")}
         className={`flex h-6 items-center gap-1 rounded px-1.5 hover:bg-surface-hover disabled:opacity-40 ${
           open ? 'bg-surface-hover text-ink' : 'text-ink-secondary hover:text-ink'
         }`}
       >
         <HistoryGlyph />
-        <span>히스토리</span>
+        <span>{uiText("히스토리")}</span>
       </button>
       {open && (
         <div
           id={pickerId}
           role="region"
-          aria-label="지난 세션"
+          aria-label={uiText("지난 세션")}
           className="absolute left-0 top-full z-40 mt-1 w-64 rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
         >
           <form
@@ -831,11 +840,11 @@ function SessionPicker({
                 type="button"
                 disabled={refreshDisabled || loadingSession !== null}
                 onClick={() => { onRefresh(); setOpen(false) }}
-                title="외부에서 이어 쓴 대화를 다시 불러옵니다. 진행 중인 작업이 없어야 합니다."
+                title={uiText("외부에서 이어 쓴 대화를 다시 불러옵니다. 진행 중인 작업이 없어야 합니다.")}
                 className="flex w-full items-center gap-2 border-b border-edge px-2.5 py-2 text-left text-ink hover:bg-surface-hover disabled:opacity-40"
               >
                 <HistoryGlyph />
-                <span>현재 대화 새로고침</span>
+                <span>{uiText("현재 대화 새로고침")}</span>
               </button>
             )}
             {hasConversation && (
@@ -849,12 +858,12 @@ function SessionPicker({
                 className="flex w-full items-center gap-2 border-b border-edge px-2.5 py-2 text-left text-ink hover:bg-surface-hover disabled:opacity-40"
               >
                 <PlusGlyph />
-                <span>새 대화</span>
+                <span>{uiText("새 대화")}</span>
               </button>
             )}
-            {sessions === null && <div className="px-2.5 py-1.5 text-ink-muted">불러오는 중…</div>}
+            {sessions === null && <AgentLoadingBubbles label={t('common.loading')} compact />}
             {sessions?.length === 0 && (
-              <div className="px-2.5 py-1.5 text-ink-muted">이 워크스페이스에 지난 세션이 없습니다.</div>
+              <div className="px-2.5 py-1.5 text-ink-muted">{uiText("이 워크스페이스에 지난 세션이 없습니다.")}</div>
             )}
             {sessions?.map((session) => {
               const taken = takenIds.includes(session.sessionId)
@@ -873,11 +882,11 @@ function SessionPicker({
                   <span className="w-full truncate text-ink">{session.title || session.sessionId.slice(0, 8)}</span>
                   <span className="text-ink-muted">
                     {session.sessionId === loadingSession
-                      ? '불러오는 중…'
+                      ? uiText("불러오는 중…")
                       : current
-                        ? '현재 탭에서 열림'
+                        ? uiText("현재 탭에서 열림")
                         : taken
-                          ? '다른 탭에서 열림'
+                          ? uiText("다른 탭에서 열림")
                         : formatTime(session.updatedAt ?? null)}
                   </span>
                 </button>
@@ -917,7 +926,8 @@ function AgentTabBar({
   onCloseTab: (id: string) => void
   onClosePanel: () => void
 }) {
-  // 두 번 눌러 이름 고치기 — 고치는 동안만 여기 남는다(이름 자체는 위에서 localStorage로 간다)
+  useUiLocale()
+  // Desktop double-click expands the panel; F2 edits its tab name. Mobile keeps double-tap rename.
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
   // 문서 탭·터미널 탭과 같은 훅 — 꾹 눌러 끌면 순서 바꾸기, 그냥 끌면 탭 줄 굴리기
   const scopeRef = useRef<HTMLDivElement>(null)
@@ -936,6 +946,12 @@ function AgentTabBar({
             <div
               key={tab.id}
               {...drag.getItemProps(i)}
+              role="tab" tabIndex={0} aria-selected={isActive} aria-keyshortcuts="Shift+Enter F2"
+              onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return
+                if (event.key === 'F2') { event.preventDefault(); setEditing({ id: tab.id, text: tab.label }) }
+                else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onActivate(tab.id) }
+              }}
               draggable={false}
               onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }}
               onClick={() => {
@@ -972,12 +988,12 @@ function AgentTabBar({
                     setEditing(null)
                   }}
                   className="w-[9rem] rounded bg-surface px-1 text-xs text-ink outline-none select-text"
-                  aria-label="탭 이름"
+                  aria-label={uiText("탭 이름")}
                 />
               ) : (
                 <span
-                  onDoubleClick={() => setEditing({ id: tab.id, text: tab.label })}
-                  title="두 번 눌러 이름 고치기"
+                  onDoubleClick={() => { if (!dock?.desktop) setEditing({ id: tab.id, text: tab.label }) }}
+                  title={dock?.desktop ? uiText("F2로 이름 고치기 · 두 번 눌러 패널 확대/복귀") : uiText("두 번 눌러 이름 고치기")}
                   className="max-w-[9rem] truncate"
                 >
                   {tab.label}
@@ -990,7 +1006,7 @@ function AgentTabBar({
                   onCloseTab(tab.id)
                 }}
                 className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
-                aria-label="탭 닫기"
+                aria-label={uiText("탭 닫기")}
               >
                 ×
               </button>
@@ -1005,8 +1021,8 @@ function AgentTabBar({
           className={`flex h-full w-9 shrink-0 items-center justify-center border-r border-edge ${
             pickerOpen ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-raised hover:text-ink'
           }`}
-          aria-label="새 탭"
-          title="새 탭"
+          aria-label={uiText("새 탭")}
+          title={uiText("새 탭")}
         >
           <PlusGlyph />
         </button>
@@ -1015,7 +1031,7 @@ function AgentTabBar({
         type="button"
         onClick={onClosePanel}
         className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-        aria-label={group?.startsWith('terminal') ? '터미널 닫기' : '에이전트 닫기'}
+        aria-label={group?.startsWith('terminal') ? uiText("터미널 닫기") : uiText("에이전트 닫기")}
       >
         <XGlyph />
       </button>
@@ -1047,6 +1063,7 @@ function AgentPathBar({
   onToggleInfo: () => void
   onCommit: (path: string) => void
 }) {
+  useUiLocale()
   const [draft, setDraft] = useState(cwd ?? '')
   const [focused, setFocused] = useState(false)
   const [browsedPath, setBrowsedPath] = useState<string | null>(cwd)
@@ -1140,8 +1157,8 @@ function AgentPathBar({
           }}
           disabled={disabled || workspaceCwd === null || cwd === workspaceCwd}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
-          aria-label="워크스페이스 기본 경로에서 에이전트 열기"
-          title="워크스페이스 기본 경로로 돌아가기"
+          aria-label={uiText("워크스페이스 기본 경로에서 에이전트 열기")}
+          title={uiText("워크스페이스 기본 경로로 돌아가기")}
         >
           <HomeGlyph />
         </button>
@@ -1168,14 +1185,14 @@ function AgentPathBar({
             advanceWithKeyboard()
           }}
           disabled={disabled}
-          aria-label="에이전트 작업 경로"
+          aria-label={uiText("에이전트 작업 경로")}
           aria-expanded={focused}
           aria-controls="agent-cwd-suggestions"
-          title={busy ? '작업 중에는 경로를 바꿀 수 없습니다' : 'Enter: 폴더 안으로 · 다시 Enter 또는 →: 여기서 에이전트 열기'}
-          placeholder="현재 워크스페이스 불러오는 중…"
+          title={busy ? uiText("작업 중에는 경로를 바꿀 수 없습니다") : uiText("Enter: 폴더 안으로 · 다시 Enter 또는 →: 여기서 에이전트 열기")}
+          placeholder={uiText("현재 워크스페이스 불러오는 중…")}
           className={`min-w-0 flex-1 bg-transparent font-mono text-xs outline-none disabled:cursor-not-allowed ${error ? 'text-danger' : 'text-ink-secondary focus:text-ink'}`}
         />
-        {saving && <span className="shrink-0 text-[10px] text-ink-muted">이동 중…</span>}
+        {saving && <span className="shrink-0 text-[10px] text-ink-muted">{uiText("이동 중…")}</span>}
         {error && <span className="select-text max-w-[35%] shrink-0 truncate text-[10px] text-danger" title={error}>{error}</span>}
         <button
           type="button"
@@ -1183,8 +1200,8 @@ function AgentPathBar({
           onClick={onClearSession}
           disabled={!sessionReady}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
-          aria-label="새 세션"
-          title="새 세션 시작 · 이전 대화는 히스토리에 보관"
+          aria-label={uiText("새 세션")}
+          title={uiText("새 세션 시작 · 이전 대화는 히스토리에 보관")}
         >
           <HistoryGlyph />
         </button>
@@ -1194,8 +1211,8 @@ function AgentPathBar({
           onClick={onToggleInfo}
           disabled={!sessionReady}
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${showInfo ? 'bg-surface-raised text-ink' : 'text-ink-secondary'}`}
-          aria-label="세션 정보"
-          title="세션 정보"
+          aria-label={uiText("세션 정보")}
+          title={uiText("세션 정보")}
         >
           <InfoGlyph />
         </button>
@@ -1205,8 +1222,8 @@ function AgentPathBar({
           onClick={openHere}
           disabled={disabled || !draft.trim()}
           className="flex h-6 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
-          aria-label="이 경로에서 에이전트 열기"
-          title="이 경로에서 에이전트 열기"
+          aria-label={uiText("이 경로에서 에이전트 열기")}
+          title={uiText("이 경로에서 에이전트 열기")}
         >
           <ArrowGlyph />
         </button>
@@ -1218,10 +1235,10 @@ function AgentPathBar({
           className="absolute inset-x-0 top-full max-h-64 overflow-y-auto border-b border-edge-bright bg-surface-raised py-1 shadow-xl"
           onMouseDown={(event) => event.preventDefault()}
         >
-          {loadingSuggestions && !suggestions && <div className="px-3 py-2 text-xs text-ink-muted">폴더 불러오는 중…</div>}
+          {loadingSuggestions && !suggestions && <div className="px-3 py-2 text-xs text-ink-muted">{uiText("폴더 불러오는 중…")}</div>}
           {suggestError && <div className="select-text px-3 py-2 text-xs text-danger">{suggestError}</div>}
           {!loadingSuggestions && !suggestError && suggestions?.dirs.length === 0 && (
-            <div className="px-3 py-2 text-xs text-ink-muted">하위 폴더가 없습니다. Enter를 다시 누르거나 →로 이 경로를 여세요.</div>
+            <div className="px-3 py-2 text-xs text-ink-muted">{uiText("하위 폴더가 없습니다. Enter를 다시 누르거나 →로 이 경로를 여세요.")}</div>
           )}
           {suggestions?.dirs.map((dir, index) => (
             <button
@@ -1253,6 +1270,7 @@ void AgentPathBar
  * "탭 안에서 런타임 갈아타기 금지"를 다시 연다). 목록은 열 때 서버에서 한 번 읽는다.
  */
 function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (runtime: string) => void }) {
+  useUiLocale()
   const [open, setOpen] = useState(false)
   const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(cachedAgentRuntimes)
   const [installing, setInstalling] = useState<string | null>(null)
@@ -1293,7 +1311,7 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
     setError(null)
     void installAgentRuntime(id)
       .then(({ status }) => {
-        if (!status.installed) throw new Error('설치 후에도 실행 파일을 찾지 못했습니다')
+        if (!status.installed) throw new Error(uiText("설치 후에도 실행 파일을 찾지 못했습니다"))
         const next = statuses?.map((item) => (item.id === id ? status : item)) ?? [status]
         updateAgentRuntimesCache(next)
         onSelect(id)
@@ -1315,18 +1333,18 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
         aria-haspopup="listbox"
         aria-expanded={open}
         className={`flex h-6 w-6 items-center justify-center rounded ${open ? 'bg-surface-raised text-ink' : 'hover:bg-surface-raised hover:text-ink'}`}
-        title={`에이전트: ${currentRuntime.label} — 눌러서 바꾸기`}
+        title={uiText("에이전트: {p0} — 눌러서 바꾸기", { p0: currentRuntime.label })}
       >
         <currentRuntime.Glyph />
       </button>
       {open && (
         <div
           role="listbox"
-          aria-label="에이전트 선택"
+          aria-label={uiText("에이전트 선택")}
           className="absolute left-0 top-full z-40 mt-1 w-72 whitespace-nowrap rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl"
         >
           {statuses === null && !error ? (
-            <div className="px-3 py-2 text-xs text-ink-muted">런타임 확인 중…</div>
+            <div className="px-3 py-2 text-xs text-ink-muted">{uiText("런타임 확인 중…")}</div>
           ) : (
             RUNTIMES.filter((runtime) => runtime.id !== 'tmux').map((rt) => {
               const status = statuses?.find((item) => item.id === rt.id)
@@ -1347,8 +1365,7 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
                         }}
                         className="shrink-0 rounded px-2 py-0.5 text-xs text-accent hover:bg-surface-hover"
                       >
-                        사용
-                      </button>
+                        {uiText("사용")}</button>
                     ) : (
                       <button
                         type="button"
@@ -1356,7 +1373,7 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
                         disabled={!status?.installable || busy}
                         className="shrink-0 rounded px-2 py-0.5 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40"
                       >
-                        {busy ? '설치 중…' : '설치'}
+                        {busy ? uiText("설치 중…") : uiText("설치")}
                       </button>
                     ))}
                 </div>
@@ -1374,6 +1391,7 @@ function RuntimeDropdown({ current, onSelect }: { current: string; onSelect: (ru
 void RuntimeDropdown
 
 function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) => void; onSelectSet: (set: AgentSet) => void }) {
+  useUiLocale()
   const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(cachedAgentRuntimes)
   const [installing, setInstalling] = useState<string | null>(null)
   const [error, setError] = useState<{ id: string; message: string } | null>(null)
@@ -1398,7 +1416,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
     setError(null)
     void installAgentRuntime(id)
       .then(({ status }) => {
-        if (!status.installed) throw new Error('설치 후에도 실행 파일을 찾지 못했습니다')
+        if (!status.installed) throw new Error(uiText("설치 후에도 실행 파일을 찾지 못했습니다"))
         const next = statuses?.map((item) => (item.id === id ? status : item)) ?? [status]
         updateAgentRuntimesCache(next)
         onSelect(id)
@@ -1414,11 +1432,11 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
     <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4">
         <div className="w-full max-w-xl">
         <div className="mb-4 mt-4 flex rounded-md bg-surface p-0.5 text-xs">
-          <button type="button" onClick={() => chooseView('runtime')} className={`flex-1 rounded px-3 py-1.5 ${view === 'runtime' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink-secondary'}`}>런타임</button>
-          <button type="button" onClick={() => chooseView('set')} className={`flex-1 rounded px-3 py-1.5 ${view === 'set' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink-secondary'}`}>에이전트셋</button>
+          <button type="button" onClick={() => chooseView('runtime')} className={`flex-1 rounded px-3 py-1.5 ${view === 'runtime' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink-secondary'}`}>{uiText("런타임")}</button>
+          <button type="button" onClick={() => chooseView('set')} className={`flex-1 rounded px-3 py-1.5 ${view === 'set' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink-secondary'}`}>{uiText("에이전트셋")}</button>
         </div>
         {view === 'set' ? <AgentSetPicker onSelect={onSelectSet} /> : statuses === null ? (
-          <div className="py-8 text-center text-xs text-ink-muted">런타임 확인 중…</div>
+          <div className="py-8 text-center text-xs text-ink-muted">{uiText("런타임 확인 중…")}</div>
         ) : (
           <div className="flex flex-col gap-2">
             {RUNTIMES.filter((runtime) => runtime.id !== 'tmux').map((runtime) => {
@@ -1435,8 +1453,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
                       onClick={() => onSelect(runtime.id)}
                       className="rounded px-2.5 py-1 text-xs text-accent hover:bg-surface-raised"
                     >
-                      사용
-                    </button>
+                      {uiText("사용")}</button>
                   ) : (
                     <button
                       type="button"
@@ -1444,7 +1461,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
                       disabled={!status?.installable || busy}
                       className="rounded px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
                     >
-                      {busy ? '설치 중…' : '설치'}
+                      {busy ? uiText("설치 중…") : uiText("설치")}
                     </button>
                   )}
                   {error?.id === runtime.id && (
@@ -1461,7 +1478,8 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNoticeHandled, preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { onRunningAgentsChange?: (count: number) => void; requestedNoticeTab?: string; onNoticeHandled?: () => void; preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+export function AgentPanel({ notificationFocused = false, trackRestore, onRunningAgentsChange, requestedNoticeTab, onNoticeHandled, preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onOpenGuidanceFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { notificationFocused?: boolean; trackRestore?: <T>(request: Promise<T>) => Promise<T>; onRunningAgentsChange?: (count: number) => void; requestedNoticeTab?: string; onNoticeHandled?: () => void; preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onOpenGuidanceFile?: (path: string) => void; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+  useUiLocale()
   const { t } = useI18n()
   const dock = useDock()
   const latestDock = useRef(dock)
@@ -1565,7 +1583,7 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
     }
     let alive = true
     setTabsSynced(false)
-    void (preparedTabs ?? fetchAgentTabs(workspacePath))
+    const restoration = (preparedTabs ?? fetchAgentTabs(workspacePath))
       .then(({ state, claims }) => {
         if (alive) {
           setSessionClaims(claims)
@@ -1587,8 +1605,9 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
       })
       .catch(console.error)
       .finally(() => { if (alive) setTabsSynced(true) })
+    if (trackRestore) void trackRestore(restoration)
     return () => { alive = false }
-  }, [workspacePath, docked, preparedTabs])
+  }, [workspacePath, docked, preparedTabs, trackRestore])
 
   // Feature execution owns the host; opening its conversation only attaches the existing tab.
   useEffect(() => {
@@ -1825,6 +1844,7 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
               />
             ) : <AgentSessionView
               notificationWorkspace={workspacePath ?? tab.cwd!}
+              notificationFocused={notificationFocused && agentOpen && isActive}
               allowTerminal={allowTerminal}
               tabId={tab.id}
               active={isActive}
@@ -1849,6 +1869,7 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
               onForgetSession={forgetTabSession}
               onRegister={register}
               onOpenFile={onOpenFile}
+              onOpenGuidanceFile={onOpenGuidanceFile}
               onBackToPicker={() => { if (dock) setPickerGroup(dock.groupFor('agent', tab.id)); setPickerOpen(true) }}
               showInfo={isActive && infoTabs.has(tab.id)}
               onToggleInfo={() => toggleInfo(tab.id)}
@@ -1863,17 +1884,19 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
           onAdd={() => { focusGroup(group); if (terminal) addRuntimeTab('tmux', undefined, group); else { setPickerGroup(group); setPickerOpen(true) } }}
           onRename={renameTab} onReorder={(from, to) => { const a = tabs.findIndex((tab) => tab.id === list[from]?.id), b = tabs.findIndex((tab) => tab.id === list[to]?.id); if (a >= 0 && b >= 0) reorderTabs(a, b) }}
           onCloseTab={closeTab} onClosePanel={() => { if (!dock.desktop || !dock.closeGroup(group)) (terminal ? onCloseTerminal ?? onClose : onClose)() }} />
+        {(!tabsSynced || picking || terminal && (!list.length || openRuntimeError)) && <DockInlineBody group={group} className="flex min-h-0 flex-1 flex-col bg-surface-deep">
         {!tabsSynced && (() => {
           const tab = list.find((tab) => tab.id === selected)
-          return tab?.runtime && tab.cwd && runtimeOf(tab.runtime).surface !== 'terminal' ? <AgentCachedPreview tab={tab} /> : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">불러오는 중…</div>
+          return tab?.runtime && tab.cwd && runtimeOf(tab.runtime).surface !== 'terminal' ? <AgentCachedPreview tab={tab} /> : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">{uiText("불러오는 중…")}</div>
         })()}
-        {tabsSynced && terminal && !list.length && <div className="flex min-h-0 flex-1 items-center justify-center"><button type="button" className="rounded-md border border-edge-bright px-4 py-2 text-sm text-ink-secondary hover:bg-surface-raised" onClick={() => { focusGroup(group); addRuntimeTab('tmux', undefined, group) }}>새 터미널</button></div>}
+        {tabsSynced && terminal && !list.length && <div className="flex min-h-0 flex-1 items-center justify-center"><button type="button" className="rounded-md border border-edge-bright px-4 py-2 text-sm text-ink-secondary hover:bg-surface-raised" onClick={() => { focusGroup(group); addRuntimeTab('tmux', undefined, group) }}>{uiText("새 터미널")}</button></div>}
         {picking && !terminal && <div className="flex min-h-0 flex-1 flex-col overflow-auto">
           {openRuntimeError && <div role="alert" className="px-4 pt-3 text-xs text-danger">{openRuntimeError}</div>}
-          {openingRuntime && <div className="px-4 pt-3 text-xs text-ink-muted">{runtimeOf(openingRuntime).label} 여는 중…</div>}
+          {openingRuntime && <div className="px-4 pt-3 text-xs text-ink-muted">{uiText("{name} 여는 중…", { name: runtimeOf(openingRuntime).label })}</div>}
           <RuntimePicker onSelect={(runtime) => addRuntimeTab(runtime, undefined, group)} onSelectSet={(set) => addSetTab(set, group)} />
         </div>}
         {terminal && openRuntimeError && <div role="alert" className="px-4 py-3 text-xs text-danger">{openRuntimeError}</div>}
+        </DockInlineBody>}
       </DockPanel>
     })}
     {tabsSynced && tabs.filter((tab) => (tab.runtime === 'tmux' ? allowTerminal : allowAgent) && tab.runtime && tab.cwd && opened.has(tab.id)).map((tab) => {
@@ -1908,7 +1931,7 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
         const tab = tabs.find((candidate) => candidate.id === activeId)
         return tab?.runtime && tab.cwd && runtimeOf(tab.runtime).surface !== 'terminal'
           ? <AgentCachedPreview tab={tab} />
-          : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">대화 불러오는 중…</div>
+          : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">{uiText("대화 불러오는 중…")}</div>
       })()}
       {/* 안 보이는 탭도 붙어 있는 채로 둔다 — 돌고 있는 대화가 탭을 바꿨다고 멎으면 안 된다 */}
       {/* 서버 탭 상태를 확인하기 전에는 localStorage의 낡은 thread로 연결하지 않는다. */}
@@ -1924,7 +1947,7 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
       {pickerOpen && (
         <div className="flex min-h-0 flex-1 flex-col">
           {openRuntimeError && <div className="select-text shrink-0 px-4 pt-3 text-center text-xs text-danger">{openRuntimeError}</div>}
-          {openingRuntime && <div className="shrink-0 px-4 pt-3 text-center text-xs text-ink-muted">{runtimeOf(openingRuntime).label} 여는 중…</div>}
+          {openingRuntime && <div className="shrink-0 px-4 pt-3 text-center text-xs text-ink-muted">{uiText("{name} 여는 중…", { name: runtimeOf(openingRuntime).label })}</div>}
           <RuntimePicker onSelect={addRuntimeTab} onSelectSet={addSetTab} />
         </div>
       )}
@@ -1933,6 +1956,7 @@ export function AgentPanel({ onRunningAgentsChange, requestedNoticeTab, onNotice
 }
 
 function AgentDockContent({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  useUiLocale()
   const ref = useRef<HTMLDivElement>(null)
   useFocusedShortcutScope(ref, { closeTab: () => { onClose(); return true } })
   return <div ref={ref} className="flex h-full min-h-0 flex-col" onMouseDown={dropOutsideFocus} onClick={dropInputFocusAfterPress}>{children}</div>
@@ -1956,6 +1980,7 @@ function AgentTerminalView({
   getSelectedText?: () => string | null
   renderCommandButtons?: (run: (command: string) => void) => ReactNode
 }) {
+  useUiLocale()
   const { t } = useI18n()
   const [session, setSession] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -1977,15 +2002,16 @@ function AgentTerminalView({
       {error ? (
         <div className="space-y-3">
           <div className="select-text max-w-md whitespace-pre-wrap text-sm text-danger">{error}</div>
-          <button type="button" onClick={() => setRetry((value) => value + 1)} className="rounded border border-edge-bright px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-raised">다시 연결</button>
+          <button type="button" onClick={() => setRetry((value) => value + 1)} className="rounded border border-edge-bright px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-raised">{uiText("다시 연결")}</button>
         </div>
-      ) : <div className="text-sm text-ink-muted">터미널 여는 중…</div>}
+      ) : <div className="text-sm text-ink-muted">{uiText("터미널 여는 중…")}</div>}
     </div>
   )
 }
 
 /** 서버 원장 확인 전에는 읽기 전용 미리보기만 그린다. 세션 연결·저장은 하지 않는다. */
 function AgentCachedPreview({ tab }: { tab: AgentTab }) {
+  useUiLocale()
   const items = useMemo(() => {
     const cache = readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)
     const expectedSession = sessionIdOf(tab, tab.runtime!, tab.cwd!)
@@ -1997,7 +2023,7 @@ function AgentCachedPreview({ tab }: { tab: AgentTab }) {
     }).slice(-6)
   }, [tab])
   return <div className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-busy="true">
-    <div className="shrink-0 px-4 py-2 text-xs text-ink-muted">최근 대화 · 연결 중…</div>
+    <div className="shrink-0 px-4 py-2 text-xs text-ink-muted">{uiText("최근 대화 · 연결 중…")}</div>
     <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden px-4 pb-4">
       {items.map((text, index) => <div key={index} className="select-text mt-3 shrink-0 whitespace-pre-wrap break-words text-sm text-ink-secondary">{text.slice(-4000)}</div>)}
     </div>
@@ -2006,6 +2032,7 @@ function AgentCachedPreview({ tab }: { tab: AgentTab }) {
 
 /** 탭 하나 — WS 하나, 세션 하나. 대화 상태는 전부 여기 안에 있다 */
 function AgentSessionView({
+  notificationFocused,
   notificationWorkspace,
   allowTerminal,
   tabId,
@@ -2026,10 +2053,12 @@ function AgentSessionView({
   onForgetSession,
   onRegister,
   onOpenFile,
+  onOpenGuidanceFile,
   onBackToPicker,
   showInfo,
   onToggleInfo,
 }: {
+  notificationFocused: boolean
   notificationWorkspace: string
   allowTerminal: boolean
   tabId: string
@@ -2052,12 +2081,16 @@ function AgentSessionView({
   onForgetSession: (tabId: string, runtime: string, cwd: string) => void
   onRegister: (tabId: string, send: ((payload: Record<string, unknown>) => void) | null) => void
   onOpenFile: OpenWorkspaceFile
+  onOpenGuidanceFile?: (path: string) => void
   onBackToPicker: () => void
   showInfo: boolean
   onToggleInfo: () => void
 }) {
+  const uiLocale = useUiLocale()
   const { t } = useI18n()
   // 어느 프로젝트를 보고 있든 같은 창이다. 탭별 cwd는 워크스페이스 밖 경로도 될 수 있다(ADR 0077).
+  const notificationFocusedRef = useRef(notificationFocused)
+  notificationFocusedRef.current = notificationFocused
   const initialCache = useMemo(() => readAgentEventCache(runtime, tabId, cwd), [cwd, runtime, tabId])
   const [events, setEvents] = useState<AgentEvent[]>(() => initialCache?.events ?? [])
   const [connected, setConnected] = useState(false)
@@ -2380,7 +2413,6 @@ function AgentSessionView({
     let closed = false
     let retry: number | undefined
     let ws: WebSocket
-    let disconnectTimer: number | undefined
     const target = { tabId, cwd, workspacePath: notificationWorkspace }
     const source = `${runtimeOf(runtime).label} · ${cwd.split('/').filter(Boolean).at(-1) ?? cwd}`
     const trackNotice = createAgentNoticeTracker(source, target)
@@ -2396,6 +2428,7 @@ function AgentSessionView({
     setAuthUrl(null)
     setAuthTerminal(null)
     setAuthTerminalOpen(false)
+    setConnected(false)
 
     const connect = () => {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -2410,9 +2443,6 @@ function AgentSessionView({
       ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?${query}`)
       wsRef.current = ws
       ws.onopen = () => {
-        clearTimeout(disconnectTimer)
-        disconnectTimer = undefined
-        resolveMewcatNotice(`${cwd}:${tabId}:connection`)
         // 다시 붙었다 — 다음에 오는 대화는 이어 붙이는 것이 아니라 지금 화면을 대신할 것이다
         swapRef.current = true
         setConnected(true)
@@ -2420,7 +2450,7 @@ function AgentSessionView({
       ws.onmessage = (raw) => {
         const event = JSON.parse(String(raw.data)) as AgentEvent
         if (event.type === 'permission_done') resolveMewcatNotice(`${cwd}:${tabId}:permission:${event.id}`)
-        const notice = trackNotice(event)
+        const notice = trackNotice(event, notificationFocusedRef.current && document.visibilityState === 'visible' && document.hasFocus())
         if (notice) publishMewcatNotice(notice)
         if (event.type === 'ready') return
         if (event.type === 'models') return adoptModels(event.models)
@@ -2434,7 +2464,7 @@ function AgentSessionView({
               // 자동 복원이 실패한 빈 fallback 세션은 원래 탭 포인터와 캐시를 대체하지 않는다.
               // 사용자가 새 메시지를 보내거나 다른 히스토리를 고를 때만 fallback을 채택한다.
               restoreFailureRef.current = replayed.restoreFailure
-              const message = `이전 대화를 불러오지 못했습니다. 다시 선택하거나 새 메시지로 시작하세요.\n${replayed.restoreFailure.message}`
+              const message = uiText("이전 대화를 불러오지 못했습니다. 다시 선택하거나 새 메시지로 시작하세요.\n{p0}", { p0: replayed.restoreFailure.message })
               setEvents((cached) => cached.some((item) => item.type === 'error' && item.message === message)
                 ? cached
                 : [...cached, { type: 'error', message }])
@@ -2519,9 +2549,6 @@ function AgentSessionView({
       }
       ws.onclose = () => {
         if (closed) return
-        disconnectTimer ??= window.setTimeout(() => {
-          publishMewcatNotice({ key: `${cwd}:${tabId}:connection`, kind: 'connection', level: 'warning', source, target })
-        }, 10_000)
         setConnected(false)
         // 대화는 지우지 않는다 — 잠깐 끊긴 사이 화면이 빈 탭(히스토리 드롭다운)으로 보이던 원인이다.
         // 다시 붙으면 서버가 보내는 replay가 통째로 갈아끼운다
@@ -2533,7 +2560,6 @@ function AgentSessionView({
 
     return () => {
       closed = true
-      clearTimeout(disconnectTimer)
       if (retry) clearTimeout(retry)
       ws.close()
       wsRef.current = null
@@ -2555,7 +2581,7 @@ function AgentSessionView({
   // Info는 대화 흐름을 밀지 않는 팝업이다. 트리거까지 같은 경계에 넣어 버튼을 다시 눌러 닫을 수 있다.
   useOverlayDismiss(showInfo ? closeInfo : false, { outside: () => infoOverlayRef.current })
 
-  const items = useMemo(() => foldEvents(events), [events])
+  const items = useMemo(() => foldEvents(events, uiLocale), [events, uiLocale])
   const timeline = useMemo(() => commandTimeline(items, cli.records.filter(command => command.state !== 'queued')), [items, cli.records])
 
   // 돌고 있는 턴의 걸린 시간을 1초마다 흘린다 — 끝난 턴은 서버가 새긴 durationMs로 고정이다
@@ -2783,7 +2809,7 @@ function AgentSessionView({
       ? [{ path: attachment.relPath, mimeType: attachment.image.mimeType }]
       : [])
     const text = [written, ...refs].filter(Boolean).join('\n')
-    if (!text || !connected || attaching) return
+    if (!text || !connected || loadingSession || attaching) return
     // CLI 슬래시 명령으로 넘기면 런타임은 세션을 비워도 Mew가 전사·캐시를 새 세션으로 바꿨다는
     // 사실을 알 수 없다. 서버 큐의 세션 경계로 처리해 뒤 메시지는 새 대화에서 실행한다.
     if (written === '/clear' && refs.length === 0) {
@@ -2817,7 +2843,7 @@ function AgentSessionView({
   }
 
   const attachFiles = useCallback(async (files: File[]) => {
-    if (!connected || attaching || files.length === 0) return
+    if (attaching || files.length === 0) return
     setAttaching(true)
     try {
       const saved: AgentAttachment[] = []
@@ -2830,16 +2856,16 @@ function AgentSessionView({
       }
       setAttachments((current) => [...current, ...saved])
     } catch (err) {
-      setErrorDetail({ title: '파일 첨부 실패', detail: err instanceof Error ? err.message : String(err) })
+      setErrorDetail({ title: uiText("파일 첨부 실패"), detail: err instanceof Error ? err.message : String(err) })
     } finally {
       setAttaching(false)
     }
-  }, [attaching, connected, project])
+  }, [attaching, project])
 
   const schedule = async (at: string) => {
     const refs = attachments.map((attachment) => `[[${project}:${attachment.relPath}]]`)
     const message = [draft.trim(), ...refs].filter(Boolean).join('\n')
-    if (!message || !meta?.sessionId) throw new Error('세션을 준비한 뒤 예약하세요')
+    if (!message || !meta?.sessionId) throw new Error(uiText("세션을 준비한 뒤 예약하세요"))
     await scheduleAgentPrompt({
       runtime,
       tab: tabId,
@@ -2862,7 +2888,7 @@ function AgentSessionView({
       await cancelAgentScheduledPrompt(id, { runtime, tab: tabId, cwd })
       await refreshScheduled()
     } catch (err) {
-      setErrorDetail({ title: '예약 메시지 취소 실패', detail: err instanceof Error ? err.message : String(err) })
+      setErrorDetail({ title: uiText("예약 메시지 취소 실패"), detail: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -2884,7 +2910,7 @@ function AgentSessionView({
     const job = scheduled.find((item) => item.id === edit.id)
     if (job && edit.text.trim() && edit.text.trim() !== edit.original) {
       void updateScheduled(job, edit.text).catch((err) => {
-        setErrorDetail({ title: '예약 메시지 수정 실패', detail: err instanceof Error ? err.message : String(err) })
+        setErrorDetail({ title: uiText("예약 메시지 수정 실패"), detail: err instanceof Error ? err.message : String(err) })
       })
     }
     setEditingScheduled(null)
@@ -2901,9 +2927,9 @@ function AgentSessionView({
 
   const currentRuntime = runtimeOf(runtime)
   const currentModel = models?.availableModels.find((m) => m.modelId === models.currentModelId)?.name
-  const modelOptions = models?.availableModels.map((m) => ({ id: m.modelId, label: m.name })) ?? [{ id: '', label: '모델' }]
-  const thinkingOptions = thinking?.options.map((option) => ({ id: option.id, label: option.name })) ?? [{ id: '', label: '사고' }]
-  const modeOptions = modes?.availableModes.map((mode) => ({ id: mode.id, label: MODE_LABEL[mode.id] ?? mode.name })) ?? [{ id: '', label: '권한' }]
+  const modelOptions = models?.availableModels.map((m) => ({ id: m.modelId, label: m.name })) ?? [{ id: '', label: uiText("모델") }]
+  const thinkingOptions = thinking?.options.map((option) => ({ id: option.id, label: option.name })) ?? [{ id: '', label: uiText("사고") }]
+  const modeOptions = modes?.availableModes.map((mode) => ({ id: mode.id, label: MODE_LABEL[mode.id] ?? mode.name })) ?? [{ id: '', label: uiText("권한") }]
   const messageSettings = useMemo<AgentMessageSettings>(() => ({
     model: currentModel ?? models?.currentModelId ?? '—',
     thinking: thinking?.options.find((option) => option.id === thinking.currentValue)?.name ?? thinking?.currentValue ?? '—',
@@ -2921,19 +2947,21 @@ function AgentSessionView({
     && (savedDefault?.modeId ?? null) === (currentDefault.modeId ?? null)
   // meta가 오기 전 = 에이전트 프로세스가 아직 뜨는 중이다(질문은 그동안에도 받아 둔다 — 서버가 줄을 세운다)
   const status = !connected
-    ? '연결 중'
+    ? uiText("연결 중")
     : auth
-      ? auth.authenticating ? '로그인 확인 중' : '로그인 필요'
+      ? auth.authenticating ? uiText("로그인 확인 중") : uiText("로그인 필요")
       : !meta
-      ? '에이전트 준비 중'
+      ? uiText("에이전트 준비 중")
       : loadingSession
-        ? '세션 불러오는 중'
+        ? uiText("세션 불러오는 중")
         : pending
-          ? '승인 대기'
+          ? uiText("승인 대기")
           : busy
-            ? '진행 중'
+            ? uiText("진행 중")
             : ''
   const totalTokens = usage ? usage.input + usage.output + usage.cacheWrite + usage.cacheRead : 0
+  const conversationLoading = !connected || loadingSession !== null
+    || (!meta && !auth && !events.some(event => event.type === 'error'))
   useEffect(() => {
     let alive = true
     const load = () => fetchSkills(cwd, runtime)
@@ -2988,14 +3016,36 @@ function AgentSessionView({
       .then(({ settings }) => setSavedDefault(settings))
       .catch((err: unknown) => {
         const detail = err instanceof Error ? err.message : String(err)
-        setErrorDetail({ title: '에이전트 기본값 저장 실패', detail })
+        setErrorDetail({ title: uiText("에이전트 기본값 저장 실패"), detail })
       })
       .finally(() => setSavingDefault(false))
   }
 
+  const [mentionTrigger, setMentionTrigger] = useState<string | null>(null)
+  const [documentsMentionTree, setDocumentsMentionTree] = useState<TreeNode[]>([])
+  useEffect(() => {
+    setDocumentsMentionTree([])
+    if (mentionTrigger !== '@' || cliMode || !active) return
+    let controller: AbortController | null = null
+    const refresh = () => {
+      controller?.abort()
+      const request = new AbortController()
+      controller = request
+      setDocumentsMentionTree([])
+      // Documents is a separate API scope, independent of the selected editor tab.
+      // Read the complete tree only while @ is open, including collapsed folders.
+      void fetchFullTree('docs', request.signal).then(nodes => {
+        if (!request.signal.aborted) setDocumentsMentionTree(nodes)
+      }).catch(() => { /* Keep existing project candidates; reopening @ retries. */ })
+    }
+    refresh()
+    window.addEventListener('mew:permissions-changed', refresh)
+    return () => { controller?.abort(); window.removeEventListener('mew:permissions-changed', refresh) }
+  }, [mentionTrigger, cliMode, active, notificationWorkspace])
+
   const fileMentionOptions = useMemo<MentionOption[]>(
-    () => agentInputMentionOptions(tree, project, projects, focusedFilePath),
-    [tree, project, projects, focusedFilePath],
+    () => agentInputMentionOptions(tree, project, projects, focusedFilePath, documentsMentionTree, uiLocale),
+    [tree, project, projects, focusedFilePath, documentsMentionTree, uiLocale],
   )
   const slashTriggers = useMemo<TriggerOptionSet[]>(
     () => [
@@ -3018,8 +3068,10 @@ function AgentSessionView({
 
   return (
     <div ref={sessionRef} data-agent-session className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-surface-deep">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
       {/* 탭바 바로 아래의 세션 도구 바. 히스토리·정보 팝업만 이 바에서 펼친다. */}
-      <div ref={infoOverlayRef} className="relative z-20 flex h-8 shrink-0 items-center justify-between border-b border-edge bg-surface px-3">
+      <div ref={infoOverlayRef} inert={!connected} className="relative z-20 flex h-8 shrink-0 items-center justify-between border-b border-edge bg-surface px-3">
         <SessionPicker
           sessions={sessions}
           takenIds={takenIds}
@@ -3058,8 +3110,8 @@ function AgentSessionView({
             onClick={() => send({ type: 'clear_session' })}
             disabled={!connected}
             className="flex h-6 w-6 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40"
-            aria-label="대화 비우기"
-            title="대화 비우기 (/clear)"
+            aria-label={uiText("대화 비우기")}
+            title={uiText("대화 비우기 (/clear)")}
           >
             <ClearGlyph />
           </button>
@@ -3070,55 +3122,56 @@ function AgentSessionView({
             className={`flex h-6 w-6 items-center justify-center rounded hover:bg-surface-hover hover:text-ink disabled:opacity-40 ${
               showInfo ? 'bg-surface-hover text-ink' : 'text-ink-secondary'
             }`}
-            aria-label="세션 정보 · 계정 · 사용량"
+            aria-label={uiText("세션 정보 · 계정 · 사용량")}
             aria-expanded={showInfo}
-            title="세션 정보 · 계정 · 사용량"
+            title={uiText("세션 정보 · 계정 · 사용량")}
           >
             <InfoGlyph />
           </button>
           <AgentHarnessButtons cwd={cwd} />
+          {onOpenGuidanceFile && <AgentGuidanceButton onOpenFile={onOpenGuidanceFile} />}
         </div>
 
         {showInfo && (
           <div className="absolute right-3 top-full mt-1 max-h-[60dvh] w-[min(23rem,calc(100%-1.5rem))] space-y-1 overflow-y-auto overscroll-contain rounded-lg border border-edge-bright bg-surface p-3 text-xs shadow-xl">
-          <InfoRow label="세션 ID" value={meta ? meta.sessionId.slice(0, 8) : '—'} title={meta?.sessionId} />
+          <InfoRow label={uiText("세션 ID")} value={meta ? meta.sessionId.slice(0, 8) : '—'} title={meta?.sessionId} />
           <InfoRow
-            label="시작"
+            label={uiText("시작")}
             value={meta ? `${formatTime(meta.startedAt)} · ${formatElapsed(meta.startedAt, now)}` : '—'}
           />
-          {status && <InfoRow label="상태" value={status} />}
-          <InfoRow label="모델" value={currentModel ?? models?.currentModelId ?? '—'} />
+          {status && <InfoRow label={uiText("상태")} value={status} />}
+          <InfoRow label={uiText("모델")} value={currentModel ?? models?.currentModelId ?? '—'} />
           <InfoRow
-            label="권한 모드"
+            label={uiText("권한 모드")}
             value={modes ? (MODE_LABEL[modes.currentModeId] ?? modes.currentModeId) : '—'}
           />
-          <InfoRow label="추론 정도" value={thinking?.options.find((option) => option.id === thinking.currentValue)?.name ?? thinking?.currentValue ?? '—'} />
-          <InfoRow label="대화 턴" value={meta ? `${nf.format(meta.turns)}턴` : '—'} />
+          <InfoRow label={uiText("추론 정도")} value={thinking?.options.find((option) => option.id === thinking.currentValue)?.name ?? thinking?.currentValue ?? '—'} />
+          <InfoRow label={uiText("대화 턴")} value={meta ? uiText("{p0}턴", { p0: nf.format(meta.turns) }) : '—'} />
           {usage ? (
             <>
               {/* 줄인 값이 화면에 나가고, 정확한 자릿수는 title로 남긴다 */}
-              <InfoRow label="컨텍스트" value={`${tf.format(usage.context)} 토큰`} title={`${nf.format(usage.context)} 토큰`} />
+              <InfoRow label={uiText("컨텍스트")} value={uiText("{p0} 토큰", { p0: tf.format(usage.context) })} title={uiText("{p0} 토큰", { p0: nf.format(usage.context) })} />
               <InfoRow
-                label="입력 / 출력"
+                label={uiText("입력 / 출력")}
                 value={`${tf.format(usage.input)} / ${tf.format(usage.output)}`}
                 title={`${nf.format(usage.input)} / ${nf.format(usage.output)}`}
               />
               <InfoRow
-                label="캐시 (쓰기/읽기)"
+                label={uiText("캐시 (쓰기/읽기)")}
                 value={`${tf.format(usage.cacheWrite)} / ${tf.format(usage.cacheRead)}`}
                 title={`${nf.format(usage.cacheWrite)} / ${nf.format(usage.cacheRead)}`}
               />
-              <InfoRow label="전체 토큰" value={`${tf.format(totalTokens)} 토큰`} title={`${nf.format(totalTokens)} 토큰`} />
+              <InfoRow label={uiText("전체 토큰")} value={uiText("{p0} 토큰", { p0: tf.format(totalTokens) })} title={uiText("{p0} 토큰", { p0: nf.format(totalTokens) })} />
               {/* 구독제(Claude Code)로 돌면 실제로 나가는 돈이 아니다 — 같은 토큰의 API 정가 환산값이다 */}
               <InfoRow
-                label="API 환산 비용"
+                label={uiText("API 환산 비용")}
                 // 서버가 아직 안 올라왔으면 cost 자체가 없다 — 없는 값에 toFixed를 걸어 패널이 죽지 않게 한다
-                value={typeof usage.cost === 'number' ? formatUsd(usage.cost) : '값 없는 모델'}
-                title="API 요금 기준 추정치 · 실제 청구액 아님"
+                value={typeof usage.cost === 'number' ? formatUsd(usage.cost) : uiText("값 없는 모델")}
+                title={uiText("API 요금 기준 추정치 · 실제 청구액 아님")}
               />
             </>
           ) : (
-            <InfoRow label="토큰" value="기록 없음" />
+            <InfoRow label={uiText("토큰")} value={uiText("기록 없음")} />
           )}
           {!auth && Object.hasOwn(SUBSCRIPTION_URLS, runtime) && <AgentAccountCard key={runtime} runtime={runtime} issue={currentAccessIssue} queued={!!meta?.queued.length} embedded />}
           </div>
@@ -3158,7 +3211,7 @@ function AgentSessionView({
               authBrowserDismissedRef.current = false
               authBrowserRef.current = next
               setAuthBrowser(next)
-            }).catch((error: unknown) => setErrorDetail({ title: '로그인 페이지를 열지 못했습니다', detail: error instanceof Error ? error.message : String(error) }))
+            }).catch((error: unknown) => setErrorDetail({ title: uiText("로그인 페이지를 열지 못했습니다"), detail: error instanceof Error ? error.message : String(error) }))
               .finally(() => { authBrowserOpeningRef.current = false })
           }}
           onCancelUrl={(id) => { pendingAcpUrlRef.current = null; closeAcpBrowserTabs(); send({ type: 'auth_url_response', id, action: 'cancel' }) }}
@@ -3172,9 +3225,9 @@ function AgentSessionView({
           browserLoginInput={auth.methods.find((method) => method.id === authTerminal?.methodId)?.browserInput ?? null}
           browserLoginPreparing={authTerminal?.surface === 'browser' && authTerminal.state === 'running' && !authTerminal.verificationUrl}
           browserLoginError={authTerminal?.surface === 'browser' && authTerminal.state === 'failed'
-            ? authTerminal.errorMessage ?? '로그인하지 못했습니다. 다시 시도하세요.'
+            ? authTerminal.errorMessage ?? uiText("로그인하지 못했습니다. 다시 시도하세요.")
             : authTerminal?.surface === 'browser' && authTerminal.state === 'interrupted'
-              ? '로그인이 중단됐습니다. 다시 시도하세요.'
+              ? uiText("로그인이 중단됐습니다. 다시 시도하세요.")
               : authTerminal?.surface === 'browser' ? authTerminal.errorMessage : null}
           onOpenBrowserLogin={() => {
             const url = authTerminal?.verificationUrl
@@ -3194,7 +3247,7 @@ function AgentSessionView({
               .finally(() => { authBrowserOpeningRef.current = false })
           }}
           onSubmitBrowserLoginInput={(input) => {
-            if (!authTerminal) return Promise.reject(new Error('진행 중인 로그인 작업이 없습니다'))
+            if (!authTerminal) return Promise.reject(new Error(uiText("진행 중인 로그인 작업이 없습니다")))
             return submitAgentAuthBrowserInput(runtime, tabId, authTerminal.methodId, input).then(() => undefined)
           }}
           onOpenTerminal={(methodId) => {
@@ -3204,7 +3257,7 @@ function AgentSessionView({
                 setAuthTerminalOpen(true)
               })
               .catch((err: unknown) => setErrorDetail({
-                title: '로그인 터미널을 열지 못했습니다',
+                title: uiText("로그인 터미널을 열지 못했습니다"),
                 detail: err instanceof Error ? err.message : String(err),
               }))
           }}
@@ -3219,7 +3272,7 @@ function AgentSessionView({
               })
               .catch((err: unknown) => {
                 setErrorDetail({
-                  title: '브라우저 로그인을 시작하지 못했습니다',
+                  title: uiText("브라우저 로그인을 시작하지 못했습니다"),
                   detail: err instanceof Error ? err.message : String(err),
                 })
               })
@@ -3227,7 +3280,8 @@ function AgentSessionView({
         />
       ) : (
         <>
-      <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
+      <div data-agent-conversation aria-busy={conversationLoading} className="relative flex min-h-0 flex-1 flex-col">
+      <div ref={scrollRef} onScroll={handleScroll} inert={conversationLoading} style={{ visibility: conversationLoading ? 'hidden' : undefined }} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
         {timeline.map((item, index) => {
           if (item.kind === 'command') return <AgentCommandBubble key={item.key} command={item.command} onOpen={() => setCommandPopupId(item.command.id)} />
           if (item.kind === 'user') {
@@ -3242,7 +3296,7 @@ function AgentSessionView({
                     || previous.settings?.thinking !== item.settings.thinking
                     || previous.settings?.permission !== item.settings.permission
                   return changed ? (
-                    <div className="flex items-center gap-2 py-0.5 text-[11px] text-ink-muted" aria-label={`실행 설정: ${item.settings.model} · ${item.settings.thinking} · ${item.settings.permission}`}>
+                    <div className="flex items-center gap-2 py-0.5 text-[11px] text-ink-muted" aria-label={uiText("실행 설정: {p0} · {p1} · {p2}", { p0: item.settings.model, p1: item.settings.thinking, p2: item.settings.permission })}>
                       <span className="h-px flex-1 bg-edge" />
                       <span className="shrink-0">{item.settings.model} · {item.settings.thinking} · {item.settings.permission}</span>
                       <span className="h-px flex-1 bg-edge" />
@@ -3252,7 +3306,7 @@ function AgentSessionView({
                 {/* 설정줄은 작업 버블과 같은 전체 폭, 사용자 발화만 오른쪽으로 들여쓴다. */}
                 <div className="ml-6 space-y-2">
                 {item.images.length > 0 && (
-                  <div className="flex flex-col items-end gap-2" aria-label={`첨부 사진 ${item.images.length}장`}>
+                  <div className="flex flex-col items-end gap-2" aria-label={uiText("첨부 사진 {p0}장", { p0: item.images.length })}>
                     {item.images.map((image, index) => (
                       <a
                         key={`${image.path}-${index}`}
@@ -3260,11 +3314,11 @@ function AgentSessionView({
                         target="_blank"
                         rel="noreferrer"
                         className="block overflow-hidden rounded-lg bg-surface-raised"
-                        title="사진 크게 보기"
+                        title={uiText("사진 크게 보기")}
                       >
                         <img
                           src={rawUrl(image.path, project)}
-                          alt="첨부한 사진"
+                          alt={uiText("첨부한 사진")}
                           className="max-h-64 max-w-56 object-contain"
                         />
                       </a>
@@ -3284,7 +3338,7 @@ function AgentSessionView({
                       <span className="shrink-0 pt-1 text-ink-secondary"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
                       <span className={`min-w-0 flex-1 break-words [overflow-wrap:anywhere] select-text ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
                     </button>
-                    <CopyButton text={item.text} label="이 질문 복사" />
+                    <CopyButton text={item.text} label={uiText("이 질문 복사")} />
                   </div>
                 )}
                 </div>
@@ -3299,12 +3353,12 @@ function AgentSessionView({
             const summary = lastAgent && lastAgent.kind === 'agent'
               ? (lastAgent.text.length > 80 ? lastAgent.text.slice(0, 80) + '…' : lastAgent.text)
               : state === 'cancelled'
-                ? '중단됨'
+                ? uiText("중단됨")
                 : state === 'failed'
-                  ? '실패함'
+                  ? uiText("실패함")
                   : state === 'done'
-                    ? '완료'
-                    : '작업 중…'
+                    ? uiText("완료")
+                    : uiText("작업 중…")
             // 취소된 작업처럼 답변이 없으면 CopyButton도 없다. 그때 시간만 오른쪽 모서리에 붙지 않게
             // 아래 시간 칸에 여백을 따로 둔다.
             const answerText = item.children
@@ -3343,7 +3397,7 @@ function AgentSessionView({
                   {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
                   <CopyButton
                     text={answerText}
-                    label="이 답변 복사"
+                    label={uiText("이 답변 복사")}
                   />
                   {/* 돌고 있는 턴만 중단할 수 있다 — 지난 턴에는 버튼이 없다 */}
                   {busy && meta?.activeTask !== 'cli' && !item.done && (
@@ -3351,8 +3405,8 @@ function AgentSessionView({
                       type="button"
                       onClick={() => send({ type: 'cancel' })}
                       className="m-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-                      aria-label="중단"
-                      title="중단"
+                      aria-label={uiText("중단")}
+                      title={uiText("중단")}
                     >
                       <span className="h-2.5 w-2.5 rounded-[1px] bg-current" />
                     </button>
@@ -3378,7 +3432,7 @@ function AgentSessionView({
                         const tOpen = expanded.has(child.key)
                         const failed = child.tools.filter((t) => t.status === 'failed').length
                         const running = child.tools.some((t) => t.status === 'in_progress' || t.status === 'pending')
-                        const tSummary = `${running ? '작업 중' : failed ? `${failed}개 실패` : '완료'} · ${child.tools.length}개 작업`
+                        const tSummary = uiText("{p0} · {p1}개 작업", { p0: running ? uiText("작업 중") : failed ? uiText("{p0}개 실패", { p0: failed }) : uiText("완료"), p1: child.tools.length })
                         const gState: BubbleState = failed ? 'failed' : running ? 'running' : 'done'
                         return (
                           <div key={child.key} className="rounded border border-edge bg-surface-deep px-2 py-1">
@@ -3406,7 +3460,7 @@ function AgentSessionView({
                           <div key={child.key} className="rounded border border-edge-bright bg-surface-deep px-2 py-1.5">
                             <div className="select-text mb-1.5 break-words [overflow-wrap:anywhere] text-xs text-ink-secondary">{child.title}</div>
                             {child.answered ? (
-                              <div className="text-xs text-ink-muted">응답함</div>
+                              <div className="text-xs text-ink-muted">{uiText("응답함")}</div>
                             ) : (
                               <div className="flex flex-wrap gap-1.5">
                                 {child.options.map((option) => (
@@ -3432,8 +3486,7 @@ function AgentSessionView({
                         onClick={() => toggle(item.key)}
                         className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-ink-muted hover:bg-surface-raised hover:text-ink"
                       >
-                        <CaretGlyph dir="up" /> 접기
-                      </button>
+                        <CaretGlyph dir="up" /> {uiText(" 접기")}</button>
                     </div>
                   </div>
                 )}
@@ -3454,10 +3507,15 @@ function AgentSessionView({
               onClick={scrollToBottom}
               className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-surface-inverse px-3 py-1 text-xs text-ink-inverse shadow-lg"
             >
-              새 메시지 <CaretGlyph dir="down" />
+              {uiText("새 메시지 ")}<CaretGlyph dir="down" />
             </button>
           </div>
         )}
+      </div>
+
+      {conversationLoading && <div data-agent-loading className="absolute inset-0 overflow-hidden bg-surface-deep">
+        <AgentLoadingBubbles label={t(!connected ? 'agent.connecting' : 'common.loading')} active={active} />
+      </div>}
       </div>
 
       {errorDetail && <AgentErrorDialog title={errorDetail.title} detail={errorDetail.detail} onClose={() => setErrorDetail(null)} />}
@@ -3491,7 +3549,7 @@ function AgentSessionView({
                 {editing ? (
                   <>
                     <ResizableQueueTextarea
-                      label="대기 메시지 수정칸"
+                      label={uiText("대기 메시지 수정칸")}
                       value={editing.text}
                       onChange={(text) => setEditingQueued({ ...editing, text })}
                       onKeyDown={(e) => {
@@ -3514,16 +3572,14 @@ function AgentSessionView({
                         disabled={!editing.text.trim()}
                         className="rounded bg-accent px-2 py-1 text-xs font-medium text-accent-ink hover:bg-accent-strong disabled:opacity-40"
                       >
-                        완료
-                      </button>
+                        {uiText("완료")}</button>
                       <button
                         type="button"
                         onPointerDown={keepFocusOnPress}
                         onClick={() => cancelQueuedEdit(editing)}
                         className="rounded border border-edge-strong px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink"
                       >
-                        취소
-                      </button>
+                        {uiText("취소")}</button>
                     </div>
                   </>
                 ) : (
@@ -3534,7 +3590,7 @@ function AgentSessionView({
                       startQueuedEdit(index, text)
                     }}
                     disabled={editingQueued !== null || isClearBoundary || isCliCommand}
-                    title={isClearBoundary ? '새 대화 시작 지점' : isCliCommand ? '대기 중인 CLI 명령' : '눌러서 수정'}
+                    title={isClearBoundary ? uiText("새 대화 시작 지점") : isCliCommand ? uiText("대기 중인 CLI 명령") : uiText("눌러서 수정")}
                     className={`min-w-0 flex-1 truncate text-left text-ink-secondary disabled:cursor-default ${isCliCommand ? 'font-mono' : ''}`}
                   >
                     {isCliCommand ? `$ ${text}` : text}
@@ -3548,7 +3604,7 @@ function AgentSessionView({
                   }}
                   disabled={editingQueued !== null}
                   className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink disabled:opacity-40"
-                  aria-label="대기 메시지 취소"
+                  aria-label={uiText("대기 메시지 취소")}
                 >
                   <XGlyph small />
                 </button>}
@@ -3556,14 +3612,14 @@ function AgentSessionView({
             )
           })}
           {scheduled.length > 0 && (
-            <div className={queued.length > 0 ? 'border-t border-edge pt-1.5' : ''} aria-label="예약된 메시지">
+            <div className={queued.length > 0 ? 'border-t border-edge pt-1.5' : ''} aria-label={uiText("예약된 메시지")}>
               {scheduled.map((job) => {
                 const editing = editingScheduled?.id === job.id ? editingScheduled : null
                 return <div key={job.id} className="flex items-center gap-2 py-0.5">
                   {editing ? (
                     <>
                       <ResizableQueueTextarea
-                        label="예약 메시지 수정칸"
+                        label={uiText("예약 메시지 수정칸")}
                         value={editing.text}
                         onChange={(text) => setEditingScheduled({ ...editing, text })}
                         onKeyDown={(event) => {
@@ -3579,8 +3635,8 @@ function AgentSessionView({
                         }}
                       />
                       <div className="flex shrink-0 flex-col gap-1">
-                        <button type="button" onPointerDown={keepFocusOnPress} onClick={() => commitScheduledEdit(editing)} disabled={!editing.text.trim()} className="rounded bg-accent px-2 py-1 text-xs font-medium text-accent-ink hover:bg-accent-strong disabled:opacity-40">완료</button>
-                        <button type="button" onPointerDown={keepFocusOnPress} onClick={() => setEditingScheduled(null)} className="rounded border border-edge-strong px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink">취소</button>
+                        <button type="button" onPointerDown={keepFocusOnPress} onClick={() => commitScheduledEdit(editing)} disabled={!editing.text.trim()} className="rounded bg-accent px-2 py-1 text-xs font-medium text-accent-ink hover:bg-accent-strong disabled:opacity-40">{uiText("완료")}</button>
+                        <button type="button" onPointerDown={keepFocusOnPress} onClick={() => setEditingScheduled(null)} className="rounded border border-edge-strong px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink">{uiText("취소")}</button>
                       </div>
                     </>
                   ) : <>
@@ -3588,23 +3644,23 @@ function AgentSessionView({
                       type="button"
                       onClick={() => setEditingScheduled({ id: job.id, text: job.text, original: job.text })}
                       disabled={editingScheduled !== null}
-                      title="눌러서 수정"
+                      title={uiText("눌러서 수정")}
                       className="min-w-0 flex-1 truncate text-left text-ink-secondary disabled:cursor-default"
                     >{job.text}</button>
                     <button
                       type="button"
                       onClick={() => { setRescheduling(job); setScheduleOpen(true) }}
                       className="shrink-0 text-ink-muted hover:text-ink hover:underline"
-                      aria-label="예약 시간 수정"
-                      title="예약 시간 수정"
+                      aria-label={uiText("예약 시간 수정")}
+                      title={uiText("예약 시간 수정")}
                     ><time dateTime={job.at}>{formatTime(job.at)}</time></button>
                   </>}
                   {!editing && <button
                     type="button"
                     onClick={() => { void cancelScheduled(job.id) }}
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink"
-                    aria-label="예약 메시지 취소"
-                    title="예약 메시지 취소"
+                    aria-label={uiText("예약 메시지 취소")}
+                    title={uiText("예약 메시지 취소")}
                   >
                     <XGlyph small />
                   </button>}
@@ -3615,6 +3671,12 @@ function AgentSessionView({
         </div>
       )}
 
+        </>
+      )}
+      </div>
+      </div>
+
+      {!auth && (<>
       {scheduleOpen && (rescheduling || meta?.sessionId) && (
         <SchedulePromptInline
           onClose={() => { setScheduleOpen(false); setRescheduling(null) }}
@@ -3644,7 +3706,7 @@ function AgentSessionView({
         {/* 채팅과 입력창 사이의 선 전체가 손잡이다. 투명한 hit area를 넓혀 선을 정확히 누르지 않아도 잡힌다. */}
         <div
           role="separator"
-          aria-label="입력창 높이 조절"
+          aria-label={uiText("입력창 높이 조절")}
           aria-orientation="horizontal"
           aria-valuemin={MIN_AGENT_INPUT_HEIGHT}
           aria-valuemax={maxInputHeight}
@@ -3653,7 +3715,7 @@ function AgentSessionView({
           onPointerDown={startInputResize}
           onKeyDown={resizeInputWithKeyboard}
           className="group absolute inset-x-0 -top-1.5 z-20 h-3 cursor-row-resize touch-none outline-none"
-          title="끌어서 입력창 높이 조절"
+          title={uiText("끌어서 입력창 높이 조절")}
         >
           <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent" />
         </div>
@@ -3663,25 +3725,24 @@ function AgentSessionView({
         <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-visible">
           <div className="flex min-w-0 flex-1 items-center gap-1">
             <button type="button" onPointerDown={keepFocusOnPress} onClick={toggleCliMode}
-              aria-label="CLI 명령 모드" aria-pressed={cliMode}
+              aria-label={uiText("CLI 명령 모드")} aria-pressed={cliMode}
               aria-keyshortcuts="Control+Tab"
-              title={!allowTerminal ? '터미널 권한이 필요합니다' : attaching || attachments.length ? '첨부 파일을 제거한 뒤 CLI 모드를 켜세요' : cliMode ? 'CLI 명령 모드 켜짐 · 입력칸에서 Ctrl+Tab으로 전환' : 'CLI 명령 모드 · 입력칸에서 Ctrl+Tab으로 전환'}
+              title={!allowTerminal ? uiText("터미널 권한이 필요합니다") : attaching || attachments.length ? uiText("첨부 파일을 제거한 뒤 CLI 모드를 켜세요") : cliMode ? uiText("CLI 명령 모드 켜짐 · 입력칸에서 Ctrl+Tab으로 전환") : uiText("CLI 명령 모드 · 입력칸에서 Ctrl+Tab으로 전환")}
               disabled={cliModeDisabled}
               className={`flex h-7 w-8 shrink-0 items-center justify-center rounded border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-secondary disabled:opacity-40 ${cliMode ? 'border-accent bg-accent text-ink-on-accent' : 'border-transparent text-ink-secondary hover:bg-surface-raised hover:text-ink'}`}>
               <TerminalIcon width={16} height={16} aria-hidden="true" />
             </button>
-            <HeaderSelect className="flex-1" caretEnd value={models?.currentModelId ?? ''} options={modelOptions} onPick={(modelId) => send({ type: 'set_model', modelId })} title="모델" searchable disabled={!models || models.availableModels.length < 2} />
-            <HeaderSelect value={thinking?.currentValue ?? ''} options={thinkingOptions} onPick={(value) => { if (thinking) send({ type: 'set_thinking', configId: thinking.configId, value }) }} title="사고" disabled={!thinking || thinking.options.length < 2} />
-            <HeaderSelect value={modes?.currentModeId ?? ''} options={modeOptions} onPick={(modeId) => send({ type: 'set_mode', modeId })} title="권한" disabled={!modes || modes.availableModes.length < 2} />
+            <HeaderSelect className="flex-1" caretEnd value={models?.currentModelId ?? ''} options={modelOptions} onPick={(modelId) => send({ type: 'set_model', modelId })} title={uiText("모델")} searchable disabled={!models || models.availableModels.length < 2} />
+            <HeaderSelect value={thinking?.currentValue ?? ''} options={thinkingOptions} onPick={(value) => { if (thinking) send({ type: 'set_thinking', configId: thinking.configId, value }) }} title={uiText("사고")} disabled={!thinking || thinking.options.length < 2} />
+            <HeaderSelect value={modes?.currentModeId ?? ''} options={modeOptions} onPick={(modeId) => send({ type: 'set_mode', modeId })} title={uiText("권한")} disabled={!modes || modes.availableModes.length < 2} />
           </div>
         </div>
           {(attachments.length > 0 || attaching) && (
-            <div className="flex h-6 shrink-0 items-center gap-1 overflow-x-auto" aria-label={`첨부 파일 ${attachments.length}개`}>
+            <div className="flex h-6 shrink-0 items-center gap-1 overflow-x-auto" aria-label={uiText("첨부 파일 {p0}개", { p0: attachments.length })}>
               {attaching && (
                 <span className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-surface-raised pl-2 pr-1.5 text-xs text-ink-muted" role="status">
                   <span className="h-3 w-3 animate-spin rounded-full border-2 border-ink-muted/30 border-t-accent" aria-hidden="true" />
-                  첨부 중…
-                </span>
+                  {uiText("첨부 중…")}</span>
               )}
               {attachments.map((attachment) => (
                 <span key={attachment.relPath} className="flex h-6 min-w-20 shrink-0 items-center gap-0.5 rounded-md bg-surface-raised pl-2 pr-0 text-xs text-ink-secondary">
@@ -3690,7 +3751,7 @@ function AgentSessionView({
                       type="button"
                       onClick={() => setPreviewAttachment(attachment)}
                       className="min-w-0 truncate rounded px-0.5 text-left hover:text-ink hover:underline"
-                      title="사진 미리보기"
+                      title={uiText("사진 미리보기")}
                     >
                       {attachment.extension}
                     </button>
@@ -3702,8 +3763,8 @@ function AgentSessionView({
                       setPreviewAttachment((current) => current?.relPath === attachment.relPath ? null : current)
                     }}
                     className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
-                    aria-label={`${attachment.extension} 첨부 제거`}
-                    title="첨부 제거"
+                    aria-label={uiText("{p0} 첨부 제거", { p0: attachment.extension })}
+                    title={uiText("첨부 제거")}
                   >
                     <XGlyph small />
                   </button>
@@ -3719,6 +3780,7 @@ function AgentSessionView({
               setDraft(next)
             }}
             options={cliMode ? [] : fileMentionOptions}
+            onTriggerChange={cliMode ? undefined : setMentionTrigger}
             maxResults={Infinity}
             triggers={cliMode ? [] : mentionTriggers}
             onSubmit={submit}
@@ -3726,7 +3788,7 @@ function AgentSessionView({
             placeholder={t('common.textInput')}
             className={`block min-h-0 w-full flex-1 resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted ${cliMode ? 'font-mono ring-1 ring-inset ring-accent/40' : ''}`}
             style={{ height: '100%' }}
-            submitHint={cliMode ? 'Ctrl+Enter로 명령 실행' : 'Ctrl+Enter로 전송'}
+            submitHint={cliMode ? uiText("Ctrl+Enter로 명령 실행") : uiText("Ctrl+Enter로 전송")}
             submitShortcut="mod-enter"
             onFilesDropped={cliMode ? undefined : (files) => { void attachFiles(files) }}
             onImagesPasted={cliMode ? undefined : (files) => { void attachFiles(files) }}
@@ -3749,26 +3811,26 @@ function AgentSessionView({
               void attachFiles(files)
             }}
           />
-          <button type="button" onClick={saveCurrentDefault} disabled={!currentDefault || savingDefault} className={`-mt-0.5 flex h-6 w-8 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${defaultIsSaved ? 'text-accent' : 'text-ink-secondary'}`} aria-label="현재 모델·추론 정도·권한을 기본값으로 저장" title={savingDefault ? '기본값 저장 중…' : defaultIsSaved ? `${currentRuntime.label}의 저장된 기본값입니다` : `현재 모델·추론 정도·권한을 ${currentRuntime.label} 기본값으로 저장`}><SaveGlyph /></button>
+          <button type="button" onClick={saveCurrentDefault} disabled={!currentDefault || savingDefault} className={`-mt-0.5 flex h-6 w-8 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${defaultIsSaved ? 'text-accent' : 'text-ink-secondary'}`} aria-label={uiText("현재 모델·추론 정도·권한을 기본값으로 저장")} title={savingDefault ? uiText("기본값 저장 중…") : defaultIsSaved ? uiText("{p0}의 저장된 기본값입니다", { p0: currentRuntime.label }) : uiText("현재 모델·추론 정도·권한을 {p0} 기본값으로 저장", { p0: currentRuntime.label })}><SaveGlyph /></button>
           <div className="flex flex-col gap-1.5">
-            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={cliMode || !connected || attaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label="파일 첨부" title="파일 첨부"><PaperclipGlyph /></button>
+            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={cliMode || attaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label={uiText("파일 첨부")} title={uiText("파일 첨부")}><PaperclipGlyph /></button>
             <button
               type="button"
               onClick={() => setScheduleOpen(true)}
-              disabled={cliMode || !connected || !meta?.sessionId}
+              disabled={cliMode || !meta?.sessionId}
               className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40"
-              aria-label="예약 메시지"
-              title="예약 메시지"
+              aria-label={uiText("예약 메시지")}
+              title={uiText("예약 메시지")}
             >
               <ClockGlyph />
             </button>
             <button
               type="button"
               onClick={submit}
-              disabled={!connected || attaching || (cliMode && (cli.submitting || !meta?.sessionId || !!loadingSession || !allowTerminal)) || (!draft.trim() && attachments.length === 0)}
+              disabled={!connected || !!loadingSession || attaching || (cliMode && (cli.submitting || !meta?.sessionId || !allowTerminal)) || (!draft.trim() && attachments.length === 0)}
               className="flex h-8 w-8 items-center justify-center rounded bg-accent text-ink disabled:opacity-40"
-              aria-label={cliMode ? '명령 실행' : '전송'}
-              title={cliMode ? '명령 실행 (Ctrl+Enter)' : '전송 (Ctrl+Enter)'}
+              aria-label={cliMode ? uiText("명령 실행") : uiText("전송")}
+              title={cliMode ? uiText("명령 실행 (Ctrl+Enter)") : uiText("전송 (Ctrl+Enter)")}
             >
               <SendGlyph />
             </button>
@@ -3789,16 +3851,16 @@ function AgentSessionView({
       {authTerminal && authTerminalOpen && (
         <SessionTerminalPopup
           title={authTerminal.label}
-          subtitle={`${currentRuntime.label} 로그인`}
+          subtitle={uiText("{p0} 로그인", { p0: currentRuntime.label })}
           session={authTerminal.session}
           running
           statusNote={authTerminal.state === 'running'
-            ? '로그인 중…'
+            ? uiText("로그인 중…")
             : authTerminal.state === 'failed'
-              ? '로그인하지 못했습니다. 닫은 뒤 다시 시도하세요.'
+              ? uiText("로그인하지 못했습니다. 닫은 뒤 다시 시도하세요.")
               : authTerminal.state === 'interrupted'
-                ? '로그인이 중단됐습니다. 닫은 뒤 다시 시도하세요.'
-                : '연결 중…'}
+                ? uiText("로그인이 중단됐습니다. 닫은 뒤 다시 시도하세요.")
+                : uiText("연결 중…")}
           statusTone={authTerminal.state === 'failed' || authTerminal.state === 'interrupted' ? 'danger' : 'muted'}
           browserLoginUrl={authTerminal.verificationUrl}
           onOpenBrowserLogin={() => {
@@ -3806,7 +3868,7 @@ function AgentSessionView({
             void openAgentAuthServerBrowser(runtime, tabId, authTerminal.methodId).then((page) => {
               const next = { methodId: authTerminal.methodId, ...page }
               authBrowserRef.current = next; setAuthBrowser(next); setAuthTerminalOpen(false)
-            }).catch((error: unknown) => setErrorDetail({ title: '로그인 페이지를 열지 못했습니다', detail: String(error) }))
+            }).catch((error: unknown) => setErrorDetail({ title: uiText("로그인 페이지를 열지 못했습니다"), detail: String(error) }))
           }}
           onRun={() => runAgentAuthTerminal(runtime, tabId, cwd, authTerminal.methodId)}
           onClose={() => setAuthTerminalOpen(false)}
@@ -3834,10 +3896,11 @@ function AgentAuthServerBrowser({
   reopen: () => Promise<string>
   onClose: () => void
 }) {
-  let host = '인증 서버'
+  useUiLocale()
+  let host = uiText("인증 서버")
   try { host = new URL(page.url).hostname } catch { /* 서버가 이미 검증한 URL */ }
   return (
-    <section className="flex min-h-0 flex-1 flex-col bg-surface-deep" aria-label={`${runtime} 로그인 브라우저`}>
+    <section className="flex min-h-0 flex-1 flex-col bg-surface-deep" aria-label={uiText("{p0} 로그인 브라우저", { p0: runtime })}>
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge bg-surface px-2">
         <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-secondary">{host}</span>
@@ -3845,16 +3908,16 @@ function AgentAuthServerBrowser({
           type="button"
           onClick={onClose}
           className="flex h-6 w-6 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-          aria-label="로그인 브라우저 닫기"
-          title="로그인 화면으로 돌아가기"
+          aria-label={uiText("로그인 브라우저 닫기")}
+          title={uiText("로그인 화면으로 돌아가기")}
         >
           ×
         </button>
       </div>
       {verificationCode && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-surface px-3 py-2 text-sm text-ink">
-        <span className="shrink-0">승인 코드:</span>
+        <span className="shrink-0">{uiText("승인 코드:")}</span>
         <code className="min-w-0 select-all break-all font-mono">{verificationCode}</code>
-        <CopyButton key={verificationCode} text={verificationCode} label="승인 코드 복사" />
+        <CopyButton key={verificationCode} text={verificationCode} label={uiText("승인 코드 복사")} />
       </div>}
       <ServerDomBrowserTabs key={page.streamUrl} streamUrl={page.streamUrl} reopen={reopen} onPopup={onPopup} onReady={onReady} />
     </section>
@@ -3896,6 +3959,7 @@ function AgentAuthPanel({
   onOpenTerminal: (methodId: string) => void
   onStartBrowserLogin: (methodId: string) => void
 }) {
+  useUiLocale()
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
   const [browserInputValue, setBrowserInputValue] = useState('')
   const [browserInputSubmitting, setBrowserInputSubmitting] = useState(false)
@@ -3914,9 +3978,9 @@ function AgentAuthPanel({
     try { host = new URL(urlRequest.url).host } catch { /* 서버가 이미 검사했다 */ }
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
-        <button type="button" onClick={backToPicker} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label="에이전트 목록으로 돌아가기" title="에이전트 목록으로 돌아가기"><BackChevron /></button>
+        <button type="button" onClick={backToPicker} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={uiText("에이전트 목록으로 돌아가기")} title={uiText("에이전트 목록으로 돌아가기")}><BackChevron /></button>
         <div className="mx-auto my-auto w-full max-w-sm py-6">
-          <h2 className="text-base font-semibold text-ink">{runtime} 로그인</h2>
+          <h2 className="text-base font-semibold text-ink">{runtime} {uiText(" 로그인")}</h2>
           <p className="mt-2 break-all text-sm text-ink-secondary">{host}</p>
           {urlRequest.message && <p className="mt-3 whitespace-pre-wrap break-words text-sm text-ink-secondary">{urlRequest.message}</p>}
           <div className="mt-5 flex flex-wrap gap-2">
@@ -3925,15 +3989,13 @@ function AgentAuthPanel({
               onClick={() => onCancelUrl(urlRequest.id)}
               className="min-h-10 rounded-md border border-edge-strong px-3 py-2 text-sm text-ink-secondary hover:bg-surface-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
             >
-              취소
-            </button>
+              {uiText("취소")}</button>
             <button
               type="button"
               onClick={() => onOpenUrl(urlRequest)}
               className={actionClass}
             >
-              로그인 페이지 열기
-            </button>
+              {uiText("로그인 페이지 열기")}</button>
           </div>
         </div>
       </div>
@@ -3942,9 +4004,9 @@ function AgentAuthPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
-      <button type="button" onClick={backToPicker} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label="에이전트 목록으로 돌아가기" title="에이전트 목록으로 돌아가기"><BackChevron /></button>
+      <button type="button" onClick={backToPicker} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={uiText("에이전트 목록으로 돌아가기")} title={uiText("에이전트 목록으로 돌아가기")}><BackChevron /></button>
       <div className="mx-auto my-auto w-full max-w-sm py-6">
-        <h2 className="mb-5 text-base font-semibold text-ink">{runtime} 로그인</h2>
+        <h2 className="mb-5 text-base font-semibold text-ink">{runtime} {uiText(" 로그인")}</h2>
         <div className="space-y-3">
           {state.methods.map((method) => (
             <div key={method.id}>
@@ -3980,7 +4042,7 @@ function AgentAuthPanel({
                       value={apiKeys[method.id] ?? ''}
                       onChange={(event) => setApiKeys((current) => ({ ...current, [method.id]: event.target.value }))}
                       autoComplete="off"
-                      placeholder="API 키"
+                      placeholder={uiText("API 키")}
                       className={inputClass}
                     />
                     <button
@@ -3988,8 +4050,7 @@ function AgentAuthPanel({
                       disabled={state.authenticating || !apiKeys[method.id]?.trim()}
                       className={actionClass}
                     >
-                      연결
-                    </button>
+                      {uiText("연결")}</button>
                   </div>
                 </form>
               )}
@@ -3997,18 +4058,18 @@ function AgentAuthPanel({
           ))}
         </div>
         {browserLoginPreparing && (
-          <p className="mt-4 text-sm text-ink-secondary" role="status">로그인 준비 중…</p>
+          <p className="mt-4 text-sm text-ink-secondary" role="status">{uiText("로그인 준비 중…")}</p>
         )}
         {browserLoginUrl && (
           <div className="mt-5 space-y-3 border-t border-edge pt-4">
             {browserLoginCode && (
               <div className="flex flex-wrap items-center gap-2 text-sm text-ink">
-                <span className="text-ink-secondary">승인 코드</span>
+                <span className="text-ink-secondary">{uiText("승인 코드")}</span>
                 <code className="min-w-0 select-all break-all font-mono font-semibold">{browserLoginCode}</code>
-                <CopyButton key={browserLoginCode} text={browserLoginCode} label="승인 코드 복사" />
+                <CopyButton key={browserLoginCode} text={browserLoginCode} label={uiText("승인 코드 복사")} />
               </div>
             )}
-            <button type="button" onClick={onOpenBrowserLogin} className={actionClass + ' w-full'}>로그인 계속하기</button>
+            <button type="button" onClick={onOpenBrowserLogin} className={actionClass + ' w-full'}>{uiText("로그인 계속하기")}</button>
           </div>
         )}
         {browserLoginUrl && browserLoginInput === 'authorization-code' && (
@@ -4026,7 +4087,7 @@ function AgentAuthPanel({
                 .finally(() => setBrowserInputSubmitting(false))
             }}
           >
-            <label className="text-xs text-ink-secondary" htmlFor={browserInputId}>브라우저에 표시된 인증 코드</label>
+            <label className="text-xs text-ink-secondary" htmlFor={browserInputId}>{uiText("브라우저에 표시된 인증 코드")}</label>
             <div className="mt-1.5 flex gap-2">
               <input
                 id={browserInputId}
@@ -4034,7 +4095,7 @@ function AgentAuthPanel({
                 value={browserInputValue}
                 onChange={(event) => setBrowserInputValue(event.target.value)}
                 autoComplete="off"
-                placeholder="인증 코드 붙여넣기"
+                placeholder={uiText("인증 코드 붙여넣기")}
                 className={inputClass}
               />
               <button
@@ -4042,7 +4103,7 @@ function AgentAuthPanel({
                 disabled={!browserInputValue.trim() || browserInputSubmitting}
                 className={actionClass}
               >
-                {browserInputSubmitting ? '전송 중…' : '코드 전송'}
+                {browserInputSubmitting ? uiText("전송 중…") : uiText("코드 전송")}
               </button>
             </div>
             {browserInputError && <p className="mt-2 text-sm text-danger-ink" role="alert">{browserInputError}</p>}
@@ -4051,7 +4112,7 @@ function AgentAuthPanel({
         {browserLoginError && (
           <p className="mt-4 break-words text-sm text-danger-ink" role="alert">{browserLoginError}</p>
         )}
-        {state.authenticating && !browserLoginPreparing && <p className="mt-4 text-sm text-ink-secondary" role="status">로그인 확인 중…</p>}
+        {state.authenticating && !browserLoginPreparing && <p className="mt-4 text-sm text-ink-secondary" role="status">{uiText("로그인 확인 중…")}</p>}
         {state.error && <p className="mt-4 whitespace-pre-wrap break-words text-sm text-danger-ink" role="alert">{state.error}</p>}
       </div>
     </div>
@@ -4059,11 +4120,13 @@ function AgentAuthPanel({
 }
 
 function BackChevron() {
+  useUiLocale()
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
 }
 
 /** 접기·펼치기와 드롭다운 화살표를 하나로 — dir만 바꿔 돌려 쓴다 */
 function CaretGlyph({ dir }: { dir: 'right' | 'down' | 'up' }) {
+  useUiLocale()
   const rotate = dir === 'down' ? 'rotate-90' : dir === 'up' ? '-rotate-90' : ''
   return (
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`shrink-0 ${rotate}`}>
@@ -4086,13 +4149,14 @@ function AgentErrorButton({
   onOpen: (detail: { title: string; detail: string }) => void
   block?: boolean
 }) {
+  useUiLocale()
   const title = errorTitle(text)
   return (
     <button
       type="button"
       onClick={() => { if (!hasSelection()) onOpen({ title, detail: text }) }}
       className={`${block ? 'rounded-lg bg-surface px-3 py-2' : 'rounded border border-danger/30 bg-surface-deep px-2 py-1'} break-words [overflow-wrap:anywhere] text-left text-xs text-danger hover:bg-surface-raised hover:underline`}
-      title="오류 상세 보기"
+      title={uiText("오류 상세 보기")}
     >
       <span className="select-text">{title}</span>
     </button>
@@ -4100,6 +4164,7 @@ function AgentErrorButton({
 }
 
 function AgentImagePreviewDialog({ src, name, onClose }: { src: string; name: string; onClose: () => void }) {
+  useUiLocale()
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -4113,7 +4178,7 @@ function AgentImagePreviewDialog({ src, name, onClose }: { src: string; name: st
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`${name} 사진 미리보기`}
+        aria-label={uiText("{p0} 사진 미리보기", { p0: name })}
         className="relative flex max-h-full max-w-full items-center justify-center"
         onMouseDown={(event) => event.stopPropagation()}
       >
@@ -4122,8 +4187,8 @@ function AgentImagePreviewDialog({ src, name, onClose }: { src: string; name: st
           type="button"
           onClick={onClose}
           className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white hover:bg-black/80"
-          aria-label="사진 미리보기 닫기"
-          title="닫기"
+          aria-label={uiText("사진 미리보기 닫기")}
+          title={uiText("닫기")}
         >
           <XGlyph />
         </button>
@@ -4133,6 +4198,7 @@ function AgentImagePreviewDialog({ src, name, onClose }: { src: string; name: st
 }
 
 function AgentErrorDialog({ title, detail, onClose }: { title: string; detail: string; onClose: () => void }) {
+  useUiLocale()
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -4146,18 +4212,18 @@ function AgentErrorDialog({ title, detail, onClose }: { title: string; detail: s
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="에이전트 오류 상세"
+        aria-label={uiText("에이전트 오류 상세")}
         className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface shadow-xl"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-edge px-3 py-2">
           <div className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{title}</div>
-          <CopyButton text={detail} label="오류 상세 복사" />
+          <CopyButton text={detail} label={uiText("오류 상세 복사")} />
           <button
             type="button"
             onClick={onClose}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-            aria-label="닫기"
+            aria-label={uiText("닫기")}
           >
             <XGlyph />
           </button>
@@ -4184,6 +4250,7 @@ function SchedulePromptInline({
   disabled: boolean
   initialAt?: string
 }) {
+  useUiLocale()
   const [now, setNow] = useState(Date.now())
   const [at, setAt] = useState(() => {
     const minimum = nextLocalMinuteValue(Date.now())
@@ -4203,7 +4270,7 @@ function SchedulePromptInline({
   const remaining = formatScheduleRemaining(new Date(at).getTime() - now)
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (new Date(at).getTime() <= Date.now()) return setError('미래의 날짜와 시간을 고르세요')
+    if (new Date(at).getTime() <= Date.now()) return setError(uiText("미래의 날짜와 시간을 고르세요"))
     setSaving(true); setError(null)
     try {
       await onConfirm(at)
@@ -4216,13 +4283,13 @@ function SchedulePromptInline({
   }
 
   return (
-    <form aria-label="예약 전송" onSubmit={submit} className="relative flex shrink-0 flex-col items-center border-t border-edge bg-surface px-3 py-1.5">
+    <form aria-label={uiText("예약 전송")} onSubmit={submit} className="relative flex shrink-0 flex-col items-center border-t border-edge bg-surface px-3 py-1.5">
       <button
         type="button"
         onClick={onClose}
         className="absolute right-2 top-1.5 flex h-6 w-6 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink"
-        aria-label="예약 전송 닫기"
-        title="닫기"
+        aria-label={uiText("예약 전송 닫기")}
+        title={uiText("닫기")}
       >
         <XGlyph small />
       </button>
@@ -4233,24 +4300,25 @@ function SchedulePromptInline({
         {error
           ? <p className="select-text text-[11px] text-danger">{error}</p>
           : <p className="text-xs text-ink-muted" aria-live="polite">{remaining}</p>}
-        <button type="submit" disabled={saving || disabled} className="shrink-0 rounded bg-accent px-2 py-1 text-xs font-medium text-ink-on-accent disabled:opacity-50">{saving ? '등록 중…' : '예약'}</button>
+        <button type="submit" disabled={saving || disabled} className="shrink-0 rounded bg-accent px-2 py-1 text-xs font-medium text-ink-on-accent disabled:opacity-50">{saving ? uiText("등록 중…") : uiText("예약")}</button>
       </div>
     </form>
   )
 }
 
 function formatScheduleRemaining(milliseconds: number) {
-  if (milliseconds <= 0) return '이미 지난 시간입니다'
+  if (milliseconds <= 0) return uiText("이미 지난 시간입니다")
   const minutes = Math.floor(milliseconds / 60_000)
   const days = Math.floor(minutes / (24 * 60))
   const hours = Math.floor((minutes % (24 * 60)) / 60)
   const restMinutes = minutes % 60
-  const parts = [days && `${days}일`, hours && `${hours}시간`, restMinutes && `${restMinutes}분`].filter(Boolean)
-  return `${parts.length ? parts.join(' ') : '1분'} 후`
+  const parts = [days && uiText("{p0}일", { p0: days }), hours && uiText("{p0}시간", { p0: hours }), restMinutes && uiText("{p0}분", { p0: restMinutes })].filter(Boolean)
+  return uiText("{p0} 후", { p0: parts.length ? parts.join(' ') : uiText("1분") })
 }
 
 /** 버블 텍스트를 통째로 클립보드에 넣는다 — 끌어 고르지 않고 한 번에 가져가는 길 */
 function CopyButton({ text, label }: { text: string; label: string }) {
+  useUiLocale()
   const [done, setDone] = useState(false)
   useEffect(() => {
     if (!done) return
@@ -4272,6 +4340,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 }
 
 function CopyGlyph() {
+  useUiLocale()
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect width="13" height="13" x="9" y="9" rx="2" />
@@ -4281,6 +4350,7 @@ function CopyGlyph() {
 }
 
 function CheckGlyph() {
+  useUiLocale()
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="m4 12 5 5L20 6" />
@@ -4289,6 +4359,7 @@ function CheckGlyph() {
 }
 
 function PlusGlyph() {
+  useUiLocale()
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />
@@ -4297,6 +4368,7 @@ function PlusGlyph() {
 }
 
 function FolderGlyph() {
+  useUiLocale()
   return (
     <svg className="shrink-0 text-ink-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2h7.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z" />
@@ -4305,6 +4377,7 @@ function FolderGlyph() {
 }
 
 function HomeGlyph() {
+  useUiLocale()
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="m3 11 9-8 9 8" />
@@ -4314,6 +4387,7 @@ function HomeGlyph() {
 }
 
 function ArrowGlyph() {
+  useUiLocale()
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M5 12h14M13 6l6 6-6 6" />
@@ -4323,6 +4397,7 @@ function ArrowGlyph() {
 
 /** 지난 대화 — 시계 반대 방향 화살표로 돌아볼 수 있음을 나타낸다. */
 function HistoryGlyph() {
+  useUiLocale()
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
@@ -4333,6 +4408,7 @@ function HistoryGlyph() {
 }
 
 function ClearGlyph() {
+  useUiLocale()
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
@@ -4342,6 +4418,7 @@ function ClearGlyph() {
 }
 
 function InfoGlyph() {
+  useUiLocale()
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
@@ -4352,6 +4429,7 @@ function InfoGlyph() {
 }
 
 function SaveGlyph() {
+  useUiLocale()
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M4 4h13l3 3v13H4z" />
@@ -4361,6 +4439,7 @@ function SaveGlyph() {
 }
 
 function XGlyph({ small }: { small?: boolean }) {
+  useUiLocale()
   const s = small ? 12 : 14
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -4370,6 +4449,7 @@ function XGlyph({ small }: { small?: boolean }) {
 }
 
 function SendGlyph() {
+  useUiLocale()
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 19V5m-6 6 6-6 6 6" />
@@ -4378,6 +4458,7 @@ function SendGlyph() {
 }
 
 function ClockGlyph() {
+  useUiLocale()
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
@@ -4387,5 +4468,6 @@ function ClockGlyph() {
 }
 
 function PaperclipGlyph() {
+  useUiLocale()
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m20.5 11.5-8.2 8.2a5 5 0 0 1-7.1-7.1l8.2-8.2a3.5 3.5 0 1 1 5 5l-8.2 8.2a2 2 0 1 1-2.8-2.8l7.5-7.5" /></svg>
 }

@@ -1,8 +1,9 @@
+import { uiText } from '@mew/ui/i18n-core'
 import type { HarnessDetail, HarnessInventory, HarnessKind, HarnessMutation } from '../../shared/agent-harness'
 
 async function result<T>(response: Response): Promise<T> {
   const body = await response.json()
-  if (!response.ok) throw new Error(body.error || '요청을 처리하지 못했습니다')
+  if (!response.ok) throw new Error(body.error || uiText("요청을 처리하지 못했습니다"))
   return body
 }
 export function fetchHarness(cwd: string, kind: HarnessKind, signal?: AbortSignal) {

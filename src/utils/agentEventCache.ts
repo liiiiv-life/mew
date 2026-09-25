@@ -153,10 +153,29 @@ export function clearAgentTabCaches(tabId: string): void {
   } catch { /* Closing a tab must not depend on available storage. */ }
 }
 
+/** KMP: 반복 청크가 길어도 포함 여부·끝의 겹침을 이벤트 수에 비례해 찾는다. */
+function matchEventSequence(sequence: string[], pattern: string[]): { contains: boolean; overlap: number } {
+  if (!pattern.length) return { contains: true, overlap: 0 }
+  const prefix = new Uint32Array(pattern.length)
+  for (let i = 1, matched = 0; i < pattern.length; i += 1) {
+    while (matched > 0 && pattern[i] !== pattern[matched]) matched = prefix[matched - 1]
+    if (pattern[i] === pattern[matched]) matched += 1
+    prefix[i] = matched
+  }
+  let overlap = 0
+  let contains = false
+  for (const value of sequence) {
+    while (overlap > 0 && (overlap === pattern.length || value !== pattern[overlap])) overlap = prefix[overlap - 1]
+    if (value === pattern[overlap]) overlap += 1
+    if (overlap === pattern.length) contains = true
+  }
+  return { contains, overlap }
+}
+
 /**
- * 감독의 replay는 최근 500개뿐이다. 같은 세션이면 브라우저가 이미 본 앞부분을 보존하고 겹치는
- * 꼬리만 제거해 최신분을 잇는다. 브라우저가 꺼진 사이 500개 넘게 흘러 겹침이 없어도 기존 앞부분은
- * 남긴다. 세션이 달라졌거나 서버 전사가 비었으면 서버 상태가 기준이다.
+ * 서버의 전체 snapshot이 로컬 꼬리를 포함하면 서버 전사를 사용한다. 이전 감독의 부분
+ * replay도 지원하기 위해, 포함하지 않을 때는 캐시 앞부분을 보존하고 겹치는 꼬리만 제거한다.
+ * 세션이 달라졌거나 서버 전사가 비었으면 서버 상태가 기준이다.
  */
 export function mergeAgentReplay(
   cached: AgentEvent[],
@@ -168,28 +187,18 @@ export function mergeAgentReplay(
   // 같은 대화여도 바이트 겹침을 찾을 수 없으므로 캐시에 덧붙이지 않고 교체한다.
   if (restored) return replayed
   if (!sameSession || replayed.length === 0) return replayed
+  if (cached.length === 0) return replayed
+
+  // 포함 검사와 꼬리 검사에서 같은 이벤트를 다시 직렬화하지 않는다.
+  const local = cached.map((event) => JSON.stringify(event))
+  const remote = replayed.map((event) => JSON.stringify(event))
 
   // 제한된 로컬 꼬리보다 서버 snapshot이 더 길면 서버가 가진 앞부분도 되살린다.
-  if (cached.length > 0 && replayed.length >= cached.length) {
-    const local = cached.map((event) => JSON.stringify(event))
-    const remote = replayed.map((event) => JSON.stringify(event))
-    for (let start = remote.length - local.length; start >= 0; start -= 1) {
-      if (remote[start] === local[0] && local.every((value, index) => value === remote[start + index])) return replayed
-    }
+  if (remote.length >= local.length && matchEventSequence(remote, local).contains) {
+    return replayed
   }
 
   const maxOverlap = Math.min(cached.length, replayed.length)
-  const cachedTail = cached.slice(cached.length - maxOverlap).map((event) => JSON.stringify(event))
-  const replayHead = replayed.slice(0, maxOverlap).map((event) => JSON.stringify(event))
-  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
-    let matches = true
-    for (let i = 0; i < overlap; i += 1) {
-      if (cachedTail[maxOverlap - overlap + i] !== replayHead[i]) {
-        matches = false
-        break
-      }
-    }
-    if (matches) return [...cached, ...replayed.slice(overlap)]
-  }
-  return [...cached, ...replayed]
+  const { overlap } = matchEventSequence(local.slice(-maxOverlap), remote.slice(0, maxOverlap))
+  return [...cached, ...replayed.slice(overlap)]
 }
