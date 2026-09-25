@@ -4,12 +4,19 @@ import os from 'node:os'
 import path from 'node:path'
 import type { CloudStorageFolder } from '../shared/cloud-storage.ts'
 
-interface DiscoveryOptions {
+export interface DiscoveryOptions {
   home?: string
   platform?: NodeJS.Platform
   env?: NodeJS.ProcessEnv
   windowsUsers?: string
   volumes?: string
+  release?: string
+}
+
+export function isWsl(options: DiscoveryOptions = {}): boolean {
+  const env = options.env ?? process.env
+  return (options.platform ?? process.platform) === 'linux'
+    && !!(env.WSL_DISTRO_NAME || env.WSL_INTEROP || /microsoft/i.test(options.release ?? os.release()))
 }
 
 function providerFor(name: string): CloudStorageFolder['provider'] | undefined {
@@ -51,9 +58,12 @@ export async function discoverCloudStorage(options: DiscoveryOptions = {}): Prom
     if (folder && path.isAbsolute(folder)) candidates.push({ provider: 'onedrive', name: path.basename(folder), path: folder })
   }
   // WSL can see Windows sync folders only when the Windows volume is mounted.
-  if (platform === 'linux' && (env.WSL_DISTRO_NAME || env.WSL_INTEROP)) {
+  if (isWsl(options)) {
     const users = options.windowsUsers ?? '/mnt/c/Users'
-    for (const entry of await directories(users)) await scan(path.join(users, entry.name))
+    for (const entry of await directories(users)) {
+      if (/^(public|default|default user|all users)$/i.test(entry.name)) continue
+      await scan(path.join(users, entry.name))
+    }
   }
 
   const folders: CloudStorageFolder[] = []

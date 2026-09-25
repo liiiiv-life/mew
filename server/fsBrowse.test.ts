@@ -6,6 +6,8 @@ import path from 'node:path'
 import {
   deleteExternalPath,
   createExternalFolder,
+  createExternalDirectory,
+  MissingDirectoryError,
   listEntries,
   pasteExternalPath,
   readExternalFile,
@@ -21,6 +23,36 @@ function fixture(): string {
   return root
 }
 
+test('missing paths identify the nearest existing directory and create the complete requested path', async () => {
+  const root = fixture()
+  try {
+    const target = path.join(root, 'folder', '새 경로', 'project')
+    await assert.rejects(listEntries(target), (err: unknown) => {
+      assert.ok(err instanceof MissingDirectoryError)
+      assert.deepEqual(err.missing, { path: target, existingPath: path.join(root, 'folder'), missingName: '새 경로' })
+      return true
+    })
+    assert.equal(fs.existsSync(target), false, 'inspection never creates directories')
+    assert.equal(await createExternalDirectory(target), target)
+    assert.equal((await listEntries(target)).path, target)
+    assert.equal(await createExternalDirectory(target), target, 'another client may already have created it')
+    await assert.rejects(createExternalDirectory(''))
+    await assert.rejects(createExternalDirectory(path.join(root, 'note.txt', 'child')))
+    fs.symlinkSync(path.join(root, 'missing-target'), path.join(root, 'broken'))
+    for (const invalid of ['note.txt', 'note.txt/child', 'broken', 'broken/child']) {
+      await assert.rejects(listEntries(path.join(root, invalid)), err => !(err instanceof MissingDirectoryError))
+    }
+    await assert.rejects(createExternalDirectory(path.join(root, 'broken', 'child')))
+    assert.equal(fs.existsSync(path.join(root, 'missing-target')), false)
+    if (process.getuid?.() !== 0) {
+      const denied = path.join(root, 'denied')
+      fs.mkdirSync(denied, { mode: 0o000 })
+      try { await assert.rejects(listEntries(path.join(denied, 'child')), err => !(err instanceof MissingDirectoryError)) }
+      finally { fs.chmodSync(denied, 0o700) }
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
 test('listEntries는 숨김 항목을 포함하고 폴더를 파일보다 먼저 정렬한다', async () => {
   const root = fixture()
   try {
@@ -31,6 +63,10 @@ test('listEntries는 숨김 항목을 포함하고 폴더를 파일보다 먼저
       ['folder', 'dir'],
       ['note.txt', 'file'],
     ])
+    fs.symlinkSync(path.join(root, 'folder'), path.join(root, 'alias'))
+    const alias = await listEntries(path.join(root, 'alias'))
+    assert.equal(alias.path, path.join(root, 'alias'))
+    assert.equal(alias.canonicalPath, fs.realpathSync(path.join(root, 'folder')))
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

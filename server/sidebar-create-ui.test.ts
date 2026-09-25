@@ -24,7 +24,7 @@ return <aside className="flex h-dvh w-full max-w-sm flex-col bg-surface-deep tex
 createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><Fixture/></I18nProvider></React.StrictMode>);`
   const bundle = await build({ input: 'virtual:sidebar.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:sidebar.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, async load(id) { if (id === 'virtual:sidebar.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8')) } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = (await Promise.all(['src/components/FileTree.tsx', 'src/components/sidebar-create-buttons.tsx', 'packages/ui/src/HoverTipLayer.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/file-action-menu.tsx', 'src/components/FileTree.tsx', 'src/components/sidebar-create-buttons.tsx', 'packages/ui/src/HoverTipLayer.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
@@ -45,7 +45,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     })
     await page.addInitScript("localStorage.setItem('mew:locale','en')")
     await page.goto('http://mew-sidebar.test/')
-    const input = (kind: 'file' | 'folder') => page.getByPlaceholder(kind === 'file' ? '새 파일 이름' : '새 폴더 이름', { exact: true })
+    const input = (kind: 'file' | 'folder') => page.getByPlaceholder(kind === 'file' ? 'New file name' : 'New folder name', { exact: true })
     const create = async (kind: 'file' | 'folder', name: string, project: string, parent = '') => {
       const count = writes.length
       await page.getByRole('button', { name: kind === 'file' ? 'New file' : 'New folder', exact: true }).click()
@@ -91,6 +91,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await page.screenshot({ path: '/tmp/mew-sidebar-create-mobile.png' })
     await input('folder').press('Escape')
     await page.evaluate('window.fixture.setGuest(true)')
+    await page.getByRole('button', { name: 'New file', exact: true }).waitFor({ state: 'detached' })
     assert.equal(await page.getByRole('button', { name: 'New file', exact: true }).count(), 0)
     assert.equal(await page.getByRole('button', { name: 'New folder', exact: true }).count(), 0)
     assert.deepEqual(errors, [])

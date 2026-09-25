@@ -14,12 +14,13 @@ test('sidebar touch separates tap, release-for-menu and longer hold-for-drag', {
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {FileTree} from '${root}/src/components/FileTree.tsx';
 import {I18nProvider} from '${root}/src/i18n.tsx';
+localStorage.setItem('mew:locale','ko');
 const noop=()=>{}; const file=path=>({path,name:path.split('/').pop(),type:'file'});
 window.selected=[];window.renamed=[];window.drops=0;document.addEventListener('drop',()=>window.drops++,true);
-createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><div className="h-dvh w-80"><FileTree project=".workspace" tree={[file('note.md'),{path:'folder',name:'folder',type:'dir',children:[file('folder/child.md')]},...Array.from({length:40},(_,i)=>file('extra-'+i+'.md'))]} selectedPath={null} readOnly={false} searchFocusSignal={0} newFileSignal={{n:0,parentPath:null}} revealSignal={0} presence={{}} onSelect={path=>window.selected.push(path)} onFileCreated={noop} onFolderCreated={noop} onRenamed={(...args)=>window.renamed.push(args)} onDeleted={noop} onGuestAccessChanged={noop} onNotice={noop} registerSearchCancel={noop}/></div><div id="outside" style={{position:'fixed',right:0,top:0,width:60,height:300}} onDragOver={e=>e.preventDefault()} onDrop={e=>window.outsidePath=e.dataTransfer.getData('application/x-mew-path')}/></I18nProvider></React.StrictMode>);`
+createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><div className="relative z-20 h-dvh w-80"><FileTree project=".workspace" tree={[file('note.md'),{path:'folder',name:'folder',type:'dir',children:[file('folder/child.md')]},...Array.from({length:40},(_,i)=>file('extra-'+i+'.md'))]} selectedPath={null} readOnly={false} searchFocusSignal={0} newFileSignal={{n:0,parentPath:null}} revealSignal={0} presence={{}} onSelect={path=>window.selected.push(path)} onFileCreated={noop} onFolderCreated={noop} onRenamed={(...args)=>window.renamed.push(args)} onDeleted={noop} onGuestAccessChanged={noop} onNotice={noop} registerSearchCancel={noop}/></div><div id="outside" style={{position:'fixed',right:0,top:0,width:60,height:300}} onDragOver={e=>e.preventDefault()} onDrop={e=>window.outsidePath=e.dataTransfer.getData('application/x-mew-path')}/><nav className="mobile-dock" aria-label="Test dock"><button>Files</button><button>Editor</button></nav></I18nProvider></React.StrictMode>);`
   const bundle = await build({ input: 'virtual:sidebar-touch.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:sidebar-touch.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, async load(id) { if (id === 'virtual:sidebar-touch.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8')) } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = (await Promise.all(['src/components/FileTree.tsx', 'src/hooks/use-tree-touch-gesture.ts'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/file-action-menu.tsx', 'src/components/FileTree.tsx', 'src/hooks/use-tree-touch-gesture.ts'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
@@ -43,7 +44,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await page.goto('http://mew-touch.test/')
     const file = page.locator('button[data-path="note.md"]')
     const folder = page.locator('button[data-path="folder"]')
-    const menu = page.getByRole('button', { name: '✂ 잘라내기 (Ctrl+X)', exact: true })
+    const menu = page.getByRole('button', { name: '잘라내기', exact: true })
     const center = async (el: Locator) => { const box = await el.boundingBox(); assert.ok(box); return { x: box.x + box.width / 2, y: box.y + box.height / 2 } }
     const cdp = await context.newCDPSession(page)
     const touch = async (type: 'touchStart' | 'touchMove' | 'touchEnd' | 'touchCancel', point?: { x: number; y: number }) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: point ? [{ ...point, id: 1 }] : [] })
@@ -131,6 +132,46 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await page.waitForTimeout(1100)
     assert.equal(await page.locator('[data-touch-dragging]').count(), 0)
     assert.equal(await menu.count(), 0)
+
+    // Menus near the bottom stay above the real dock CSS, including safe-area height.
+    const actionMenu = page.locator('[data-file-action-menu]')
+    const assertAboveDock = async () => {
+      await page.waitForFunction(`(() => {
+        const menu = document.querySelector('[data-file-action-menu]').getBoundingClientRect()
+        const dock = document.querySelector('.mobile-dock').getBoundingClientRect()
+        return menu.bottom <= dock.top - 3 && menu.top >= 4 && menu.right <= innerWidth - 3
+      })()`)
+    }
+    await file.dispatchEvent('pointerdown', { pointerType: 'mouse', button: 2 })
+    await page.evaluate("document.querySelector('button[data-path=\"note.md\"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 380, clientY: 835 }))")
+    await actionMenu.waitFor()
+    await assertAboveDock()
+    await page.evaluate("document.querySelector('.mobile-dock').style.paddingBottom = '36px'")
+    await assertAboveDock()
+    await page.screenshot({ path: '/tmp/mew-sidebar-menu-dock-mobile.png' })
+
+    // An open menu reflows on rotation, scrolls internally, and its last action is reachable.
+    await page.setViewportSize({ width: 640, height: 320 })
+    await assertAboveDock()
+    assert.ok(await actionMenu.evaluate(el => el.scrollHeight > el.clientHeight))
+    const lastAction = actionMenu.locator('button').last()
+    await lastAction.scrollIntoViewIfNeeded()
+    const lastActionHit = await page.evaluate(`(() => {
+      const el = document.querySelector('[data-file-action-menu] button:last-child')
+      const rect = el.getBoundingClientRect()
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+      return { reachable: el.contains(hit), rect: rect.toJSON(), hit: hit?.outerHTML }
+    })()`) as { reachable: boolean; rect: unknown; hit?: string }
+    assert.equal(lastActionHit.reachable, true, JSON.stringify(lastActionHit))
+    await page.screenshot({ path: '/tmp/mew-sidebar-menu-dock-landscape.png' })
+
+    // A hidden dock reserves no space; desktop uses the full viewport too.
+    await page.evaluate("document.querySelector('.mobile-dock').hidden = true")
+    await page.waitForFunction("document.querySelector('[data-file-action-menu]').getBoundingClientRect().bottom > innerHeight - 6")
+    await page.setViewportSize({ width: 1200, height: 800 })
+    await page.evaluate("document.querySelector('.mobile-dock').hidden = false")
+    await page.waitForFunction("document.querySelector('[data-file-action-menu]').getBoundingClientRect().bottom > innerHeight - 6")
+    await clearMenu()
 
     // Mouse input on the same touch-capable device still uses native drag/right-click.
     await scroller.evaluate(el => { el.scrollTop = 0 })

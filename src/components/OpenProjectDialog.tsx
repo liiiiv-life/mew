@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { ArrowLeft, ArrowUp, Check, Folder, FolderPlus, GitBranch, HomeSimple, NavArrowRight, RefreshDouble, Search, Xmark } from 'iconoir-react'
-import { DialogFrame } from '@mew/ui'
-import { browseExternalEntries, cloneExternalGit, createExternalFolder, initializeExternalGit, type ExternalEntriesResult } from '../api/client'
+import { ArrowLeft, Check, Folder, FolderPlus, GitBranch, NavArrowRight } from 'iconoir-react'
+import { ConfirmDialog, DialogFrame } from '@mew/ui'
+import { browseExternalEntries, cloneExternalGit, createExternalDirectory, createExternalFolder, initializeExternalGit, MissingDirectoryError, type ExternalEntriesResult } from '../api/client'
+import type { MissingDirectory } from '../../shared/external-path'
 import { useI18n } from '../i18n'
-import { CloudStorageLocations } from './cloud-storage-locations'
+import { FileBrowser, FileBrowserHeader, fileBrowserButton as button, fileBrowserInput as input } from './file-browser'
 
 type Action = 'folder' | 'clone' | 'init'
-const button = 'inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-ink-secondary hover:bg-surface-hover disabled:opacity-40'
-const input = 'min-h-9 w-full min-w-0 rounded-md border border-edge-strong bg-surface-deep px-2 text-sm text-ink'
 
 export function OpenProjectDialog({ basePath, onOpen, onClose }: {
   basePath: string
@@ -24,8 +23,8 @@ export function OpenProjectDialog({ basePath, onOpen, onClose }: {
   const [action, setAction] = useState<Action | null>(null)
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
-  const [filter, setFilter] = useState('')
   const [notice, setNotice] = useState('')
+  const [missing, setMissing] = useState<MissingDirectory | null>(null)
   const requestSeq = useRef(0)
   const busyRef = useRef(false)
   const actionInput = useRef<HTMLInputElement>(null)
@@ -33,11 +32,11 @@ export function OpenProjectDialog({ basePath, onOpen, onClose }: {
   const actionTriggers = useRef<Partial<Record<Action, HTMLButtonElement | null>>>({})
   const restoreActionFocus = useRef<Action | null>(null)
 
-  const load = useCallback((nextPath: string) => {
+  const load = useCallback((nextPath: string, offerCreation = false) => {
     const seq = ++requestSeq.current
     setResult(null)
     setError(null)
-    setFilter('')
+    setMissing(null)
     setDraft(nextPath)
     browseExternalEntries(nextPath).then((next) => {
       if (requestSeq.current !== seq) return
@@ -45,7 +44,9 @@ export function OpenProjectDialog({ basePath, onOpen, onClose }: {
       setPath(next.path)
       setDraft(next.path)
     }).catch((err: unknown) => {
-      if (requestSeq.current === seq) setError(err instanceof Error ? err.message : String(err))
+      if (requestSeq.current !== seq) return
+      setError(err instanceof Error ? err.message : String(err))
+      if (offerCreation && err instanceof MissingDirectoryError) setMissing(err.missing)
     })
   }, [])
 
@@ -77,11 +78,12 @@ export function OpenProjectDialog({ basePath, onOpen, onClose }: {
   }
   const run = async (operation: () => Promise<unknown>, after?: () => void) => {
     if (busyRef.current) return
+    const seq = requestSeq.current
     busyRef.current = true
     setBusy(true)
     setError(null)
-    try { await operation(); after?.() }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    try { await operation(); if (requestSeq.current === seq) after?.() }
+    catch (err) { if (requestSeq.current === seq) setError(err instanceof Error ? err.message : String(err)) }
     finally { busyRef.current = false; setBusy(false) }
   }
 
@@ -100,19 +102,11 @@ export function OpenProjectDialog({ basePath, onOpen, onClose }: {
       load(path)
     })
   }
-  const directories = result?.entries.filter((entry) => entry.type === 'dir') ?? []
-  const visible = directories.filter((entry) => entry.name.toLocaleLowerCase().includes(filter.toLocaleLowerCase()))
   const currentIsGit = result?.entries.some((entry) => entry.name === '.git') ?? false
   const actionTitle = action === 'folder' ? t('sidebar.newFolder') : action === 'clone' ? t('project.clone') : t('project.init')
 
   return <DialogFrame labelledBy={id} describedBy={`${id}-hint`} busy={busy} onClose={action ? back : onClose} className="flex h-[min(680px,90dvh)] max-w-2xl flex-col">
-    <header className="flex shrink-0 items-start gap-2 px-3 py-3 sm:px-4">
-      <div className="min-w-0 flex-1">
-        <h2 id={id} className="text-base font-semibold text-ink-bright">{t('project.open')}</h2>
-        <p id={`${id}-hint`} className="mt-1 text-xs text-ink-secondary">{t('project.browseHint')}</p>
-      </div>
-      <button type="button" disabled={busy} onClick={onClose} className={`${button} -mr-1 px-2`} aria-label={t('common.close')}><Xmark width={20} height={20} /></button>
-    </header>
+    <FileBrowserHeader id={id} title={t('project.open')} hint={t('project.browseHint')} busy={busy} onClose={onClose} initialFocus />
 
     {action ? <form noValidate className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => { event.preventDefault(); submitAction() }}>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 sm:px-4">
@@ -136,39 +130,26 @@ export function OpenProjectDialog({ basePath, onOpen, onClose }: {
         <button type="button" disabled={busy} onClick={back} className={button}>{t('common.cancel')}</button>
         <button type="submit" disabled={busy || (action !== 'init' && !validName) || (action === 'clone' && !url.trim())} className={`${button} bg-accent !text-ink-on-accent hover:bg-accent-strong`}>{busy ? t('project.working') : actionTitle}</button>
       </footer>
-    </form> : <>
-      <form noValidate className="flex shrink-0 gap-1 px-3 pb-2 sm:px-4" onSubmit={(event) => { event.preventDefault(); if (!busy) { setNotice(''); load(draft) } }}>
-        <button type="button" disabled={busy} onClick={() => { setNotice(''); load('') }} className={`${button} px-2`} aria-label={t('project.home')} title={t('project.home')}><HomeSimple width={18} height={18} /></button>
-        <button type="button" disabled={busy || !result?.parent} onClick={() => { if (result?.parent) { setNotice(''); load(result.parent) } }} className={`${button} px-2`} aria-label={t('project.parent')} title={t('project.parent')}><ArrowUp width={18} height={18} /></button>
-        <input data-dialog-autofocus value={draft} disabled={busy} onChange={(event) => setDraft(event.target.value)} spellCheck={false} autoComplete="off" className={`${input} font-mono !text-xs`} aria-label={t('project.path')} />
-        <button type="submit" disabled={busy} className={button}>{t('folder.go')}</button>
-      </form>
-      <CloudStorageLocations disabled={busy} onSelect={(nextPath) => { setNotice(''); load(nextPath) }} />
+    </form> : <FileBrowser
+      onFilesChanged={() => load(path)}
+      result={result} error={error} draft={draft} onDraftChange={setDraft}
+      onNavigate={(nextPath) => { setNotice(''); load(nextPath, true) }} busy={busy} foldersOnly autoFocusPath={false}
+      toolbar={<>
       <div className="flex shrink-0 flex-wrap gap-1 border-y border-edge bg-surface-deep px-2 py-1 sm:px-3">
         <button type="button" disabled={!result || busy} ref={(element) => { actionTriggers.current.folder = element }} onClick={() => begin('folder')} className={button}><FolderPlus width={17} height={17} />{t('sidebar.newFolder')}</button>
         <button type="button" disabled={!result || busy} ref={(element) => { actionTriggers.current.clone = element }} onClick={() => begin('clone')} className={button}><GitBranch width={17} height={17} />{t('project.clone')}</button>
         <button type="button" disabled={!result || busy || currentIsGit} ref={(element) => { actionTriggers.current.init = element }} onClick={() => begin('init')} className={`${button} sm:ml-auto`}>{currentIsGit ? <><Check width={16} height={16} />{t('project.gitRepository')}</> : t('project.init')}</button>
       </div>
-      {notice && <p role="status" className="mx-3 mt-2 flex items-center gap-2 text-xs text-success-ink sm:mx-4"><Check width={16} height={16} />{notice}</p>}
-      <div className="flex shrink-0 items-center gap-2 px-3 py-1 sm:px-4">
-        <span className="shrink-0 text-xs font-medium text-ink-secondary">{t('project.folders')}{result && <span className="ml-2 tabular-nums">{directories.length}</span>}</span>
-        <label className="ml-auto flex min-w-0 max-w-56 items-center gap-2 text-ink-secondary"><Search width={15} height={15} className="shrink-0" /><input value={filter} onChange={(event) => setFilter(event.target.value)} disabled={!result || busy} aria-label={t('project.filter')} placeholder={t('project.filter')} className="min-h-8 w-full min-w-0 rounded-md bg-transparent px-1 text-xs text-ink" /></label>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-1 sm:px-2" aria-busy={!result && !error}>
-        {error ? <div role="alert" className="mx-2 rounded-lg bg-danger-surface p-4 text-sm text-danger-ink"><p className="whitespace-pre-wrap break-words">{error}</p><button type="button" onClick={() => load(draft)} className={`${button} mt-2 !text-danger-ink`}><RefreshDouble width={16} height={16} />{t('project.retry')}</button></div>
-          : !result ? <div role="status" className="px-3 py-6 text-center text-sm text-ink-secondary">{t('common.loading')}</div>
-          : visible.length === 0 ? <div className="flex flex-col items-center px-3 py-6 text-center"><Folder width={28} height={28} className="mb-3 text-ink-secondary" /><p className="text-sm font-medium text-ink">{t(filter ? 'project.noMatches' : 'folder.empty')}</p><p className="mt-2 text-xs text-ink-secondary">{t(filter ? 'project.filterHint' : 'project.emptyHint')}</p></div>
-          : visible.map((entry) => <button key={entry.path} type="button" disabled={busy} onClick={() => { setNotice(''); load(entry.path) }} className="group flex min-h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-ink hover:bg-surface-raised disabled:opacity-40" title={entry.path}>
-            <Folder width={16} height={16} className="shrink-0 text-ink-secondary" />
-            <span className="min-w-0 flex-1 truncate font-medium">{entry.name}</span>
-            {entry.git && <span className="flex shrink-0 items-center gap-1 text-xs text-ink-secondary"><GitBranch width={13} height={13} />Git</span>}
-            <NavArrowRight width={15} height={15} className="shrink-0 text-ink-secondary" />
-          </button>)}
-      </div>
-      <footer className="shrink-0 border-t border-edge bg-surface-deep px-3 py-2 sm:px-4">
-        <div className="mb-2 flex min-w-0 items-center gap-2"><p className="shrink-0 text-xs text-ink-secondary">{t('project.selectedFolder')}</p><p className="select-text min-w-0 truncate font-mono text-xs text-ink" title={result?.path}>{result?.path ?? '—'}</p></div>
-        <div className="flex items-center justify-end gap-2"><button type="button" disabled={busy} onClick={onClose} className={button}>{t('common.cancel')}</button><button type="button" disabled={busy || !result} onClick={() => void run(() => Promise.resolve(onOpen(path)))} className={`${button} bg-accent !text-ink-on-accent hover:bg-accent-strong`}>{busy ? t('project.working') : t('project.openHere')}<NavArrowRight width={16} height={16} /></button></div>
-      </footer>
-    </>}
+      </>}
+      notice={notice && <p role="status" className="mx-3 mt-2 flex items-center gap-2 text-xs text-success-ink sm:mx-4"><Check width={16} height={16} />{notice}</p>}
+      footerActions={<><button type="button" disabled={busy} onClick={onClose} className={button}>{t('common.cancel')}</button><button type="button" disabled={busy || !result} onClick={() => void run(() => Promise.resolve(onOpen(path)))} className={`${button} bg-accent !text-ink-on-accent hover:bg-accent-strong`}>{busy ? t('project.working') : t('project.openHere')}<NavArrowRight width={16} height={16} /></button></>}
+    />}
+    {missing && <ConfirmDialog message={t('project.createMissingPath', { parent: missing.existingPath, name: missing.missingName })}
+      detail={t('project.createPathDetail', { path: missing.path })} confirmLabel={t('project.createPath')} cancelLabel={t('common.cancel')}
+      onCancel={() => setMissing(null)} onConfirm={() => {
+        const target = missing.path
+        setMissing(null)
+        void run(() => createExternalDirectory(target), () => load(target))
+      }} />}
   </DialogFrame>
 }

@@ -3,10 +3,47 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { AGENT_GUIDANCE_PATH } from './agent-guidance.ts'
+import { AGENT_GUIDANCE_PATH, GuidanceError } from './agent-guidance.ts'
+import { COMMIT_SKILL_PATH } from './mew-skills.ts'
 import { writeFileAtomic } from './dataDir.ts'
+import type { MissingDirectory } from '../shared/external-path.ts'
 
 export class BrowseError extends Error {}
+
+export class MissingDirectoryError extends BrowseError {
+  missing: MissingDirectory
+  constructor(missing: MissingDirectory) {
+    super(`폴더를 열 수 없습니다: ${missing.path}`)
+    this.missing = missing
+  }
+}
+
+/** Distinguish absent components from files, denied access and dangling symlinks. */
+async function missingDirectory(dir: string): Promise<MissingDirectory | null> {
+  let current = dir
+  const missing: string[] = []
+  while (true) {
+    try {
+      await fs.promises.lstat(current)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || path.dirname(current) === current) throw err
+      missing.push(path.basename(current))
+      current = path.dirname(current)
+      continue
+    }
+    if (!(await fs.promises.stat(current)).isDirectory()) throw new BrowseError(`폴더가 아닙니다: ${current}`)
+    return missing.length ? { path: dir, existingPath: current, missingName: missing.at(-1)! } : null
+  }
+}
+
+/** Owner-confirmed complete path creation; existing directories are harmless. */
+export async function createExternalDirectory(input: unknown): Promise<string> {
+  if (typeof input !== 'string' || !input.trim() || input.includes('\0')) throw new BrowseError('경로가 필요합니다')
+  const target = resolveBrowsePath(input)
+  await missingDirectory(target)
+  await fs.promises.mkdir(target, { recursive: true })
+  return target
+}
 
 /** 사용자가 친 경로를 절대 경로로 — 빈 값은 홈, `~`는 홈 기준으로 편다 */
 export function resolveBrowsePath(input: string): string {
@@ -19,7 +56,7 @@ export function resolveBrowsePath(input: string): string {
 export type BrowseDir = { name: string; path: string }
 export type BrowseResult = { path: string; parent: string | null; dirs: BrowseDir[] }
 export type BrowseEntry = { name: string; path: string; type: 'file' | 'dir'; size: number | null; git?: boolean }
-export type BrowseEntriesResult = { path: string; parent: string | null; entries: BrowseEntry[] }
+export type BrowseEntriesResult = { path: string; canonicalPath: string; parent: string | null; entries: BrowseEntry[] }
 
 function isDir(abs: string): boolean {
   try {
@@ -57,7 +94,11 @@ export async function listEntries(input: string): Promise<BrowseEntriesResult> {
   let entries: fs.Dirent[]
   try {
     entries = await fs.promises.readdir(dir, { withFileTypes: true })
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      const missing = await missingDirectory(dir).catch(() => null)
+      if (missing) throw new MissingDirectoryError(missing)
+    }
     throw new BrowseError(`폴더를 열 수 없습니다: ${dir}`)
   }
   const result: BrowseEntry[] = []
@@ -80,7 +121,7 @@ export async function listEntries(input: string): Promise<BrowseEntriesResult> {
   }
   result.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
   const parent = path.dirname(dir)
-  return { path: dir, parent: parent === dir ? null : parent, entries: result }
+  return { path: dir, canonicalPath: await fs.promises.realpath(dir), parent: parent === dir ? null : parent, entries: result }
 }
 
 export function resolveExistingPath(input: unknown): string {
@@ -115,12 +156,15 @@ export function readExternalFile(input: unknown): { path: string; content: strin
   return { path: abs, content: fs.readFileSync(abs, 'utf8') }
 }
 
-export function writeExternalFile(input: unknown, content: unknown): string {
+export function writeExternalFile(input: unknown, content: unknown, expectedContent?: unknown): string {
   const abs = resolveExistingPath(input)
   if (typeof content !== 'string') throw new BrowseError('파일 내용이 올바르지 않습니다')
   if (!fs.statSync(abs).isFile()) throw new BrowseError(`파일이 아닙니다: ${abs}`)
   // Detached agent hosts may read shared guidance while the editor saves it.
-  if (abs === path.resolve(AGENT_GUIDANCE_PATH)) writeFileAtomic(abs, content)
+  if ([AGENT_GUIDANCE_PATH, COMMIT_SKILL_PATH].some(file => abs === path.resolve(file))) {
+    if (expectedContent !== undefined && expectedContent !== fs.readFileSync(abs, 'utf8') && content !== fs.readFileSync(abs, 'utf8')) throw new GuidanceError('지침 파일이 변경되었습니다. 편집 내용을 복사한 뒤 파일을 다시 열어 병합하세요.', 409)
+    writeFileAtomic(abs, content)
+  }
   else fs.writeFileSync(abs, content, 'utf8')
   return abs
 }

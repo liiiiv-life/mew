@@ -31,7 +31,7 @@ roots={navigation?<div className="flex"><SubprojectLink name="direct" data-path=
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:subprojects.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:subprojects.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, async load(id) { if (id === 'virtual:subprojects.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8')) } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = (await Promise.all(['src/components/FileTree.tsx', 'src/components/subproject-link.tsx', 'src/components/RootProjectTabs.tsx', 'src/hooks/use-tree-touch-gesture.ts'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/file-action-menu.tsx', 'src/hooks/use-external-file-actions.tsx', 'src/components/FileTree.tsx', 'src/components/subproject-link.tsx', 'src/components/RootProjectTabs.tsx', 'src/hooks/use-tree-touch-gesture.ts'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })

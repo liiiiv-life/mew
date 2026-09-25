@@ -26,9 +26,9 @@ test('Linux uses shallow home discovery and existing OneDrive environment paths'
   t.after(() => fs.rm(home, { recursive: true, force: true }))
   for (const root of ['onedrive', 'Google Drive', 'Dropbox (Personal)', 'custom-sync', 'nested/OneDrive', 'Library/Mobile Documents/com~apple~CloudDocs']) await fs.mkdir(path.join(home, root), { recursive: true })
   const env = { OneDrive: path.join(home, 'custom-sync'), OneDriveConsumer: path.join(home, 'onedrive'), OneDriveCommercial: path.join(home, 'missing') }
-  const found = await discoverCloudStorage({ home, platform: 'linux', env })
+  const found = await discoverCloudStorage({ home, platform: 'linux', env, release: '6.6.0-generic' })
   assert.deepEqual(found.map(folder => folder.path).sort(), ['onedrive', 'Google Drive', 'Dropbox (Personal)', 'custom-sync'].map(root => path.join(home, root)).sort())
-  assert.deepEqual(await discoverCloudStorage({ home: path.join(home, 'missing'), platform: 'linux', env: {} }), [])
+  assert.deepEqual(await discoverCloudStorage({ home: path.join(home, 'missing'), platform: 'linux', env: {}, release: '6.6.0-generic' }), [])
 })
 
 test('Windows profile folders are offered only inside WSL, with canonical paths', async t => {
@@ -37,6 +37,7 @@ test('Windows profile folders are offered only inside WSL, with canonical paths'
   const windowsUsers = path.join(home, 'Users')
   const folder = path.join(windowsUsers, 'Alice', 'OneDrive - Work')
   await fs.mkdir(folder, { recursive: true })
-  assert.deepEqual(await discoverCloudStorage({ home, platform: 'linux', env: {}, windowsUsers }), [])
+  await fs.mkdir(path.join(windowsUsers, 'Default', 'OneDrive'), { recursive: true })
+  assert.deepEqual(await discoverCloudStorage({ home, platform: 'linux', env: {}, release: '6.6.0-generic', windowsUsers }), [])
   assert.deepEqual(await discoverCloudStorage({ home, platform: 'linux', env: { WSL_DISTRO_NAME: 'Ubuntu' }, windowsUsers }), [{ provider: 'onedrive', name: 'OneDrive - Work', path: folder }])
 })

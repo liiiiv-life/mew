@@ -1,7 +1,9 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useTreeTouchGesture } from '../hooks/use-tree-touch-gesture'
 import type { SidebarCreateRequest } from '../hooks/use-sidebar-create'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TreeNode } from '../api/client'
 import { copyFile, copyInto, createSubproject, createFolder, createNewDocument, deleteFile, downloadUrl, initializeGitRepository, renamePath, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
@@ -10,6 +12,7 @@ import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { PresenceDots } from './PresenceDots'
 import { CommandButtonMenu } from './CommandButtonMenu'
 import { DownloadLink } from './DownloadLink'
+import { FileActionMenu as ActionPopover } from './file-action-menu'
 import { getTreeScroll, saveTreeScroll, setScrollSaveSuppressed } from '../utils/scrollMemory'
 import { readFileClipboard, writeFileClipboard, type FileClipboard } from '../utils/fileClipboard'
 import { SubprojectLink } from './subproject-link'
@@ -110,6 +113,7 @@ function isMocNode(node: TreeNode): boolean {
 }
 
 function MapIcon({ size = 13 }: { size?: number }) {
+  useUiLocale()
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 6 9 3l6 3 6-3v15l-6 3-6-3-6 3Z" />
@@ -121,6 +125,7 @@ function MapIcon({ size = 13 }: { size?: number }) {
 
 /** 일반 폴더의 펼침 상태는 삼각형 대신 폴더 모양으로 드러낸다. */
 function FolderIcon({ open, size = 14 }: { open: boolean; size?: number }) {
+  useUiLocale()
   return (
     <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
       {open ? (
@@ -150,6 +155,7 @@ function MocItem({
   presenceColors: string[]
   onSelect: (path: string, opts?: { preview?: boolean }) => void
 }) {
+  useUiLocale()
   return (
     <button
       type="button"
@@ -187,7 +193,7 @@ function loadOpenDirs(project: string): Set<string> | null {
 // 만들거나 옮기는 데는 성공했는데 그 결과가 내 트리에는 안 뜰 때(숨김 목록·확장자 필터) 띄우는 안내.
 // 조용히 아무 일도 없었던 것처럼 보이는 게 제일 나쁘다 — 파일은 디스크에 실제로 있다.
 // owner·manager는 필터가 없어 이 안내를 볼 일이 없다 (server/reqAuth.ts의 seesEveryFile).
-const NOT_ALLOWED = '권한이 없습니다'
+const notAllowed = () => uiText("권한이 없습니다")
 
 function sanitizeSegment(input: string): string {
   return input.trim().replace(/[\\/]+/g, '-')
@@ -210,6 +216,7 @@ function InlineInput({
   placeholder?: string
   paddingLeft: number
 }) {
+  useUiLocale()
   const inputRef = useRef<HTMLInputElement>(null)
   const committedRef = useRef(false)
 
@@ -262,140 +269,9 @@ function InlineInput({
   )
 }
 
-function ActionPopover({
-  x,
-  y,
-  onRename,
-  onDuplicate,
-  onCopyClip,
-  onCutClip,
-  onPasteClip,
-  onDownload,
-  onDelete,
-  onNewFile,
-  onNewFolder,
-  onUpload,
-  onInitGit,
-  onCreateSubproject,
-  onClose,
-}: {
-  x: number
-  y: number
-  /** 루트(빈 공간) 메뉴에서는 대상 경로가 없어 undefined로 숨긴다 */
-  onRename?: () => void
-  /** 복제 — 파일에만 제공(폴더는 undefined로 숨긴다) */
-  onDuplicate?: () => void
-  onCopyClip?: () => void
-  onCutClip?: () => void
-  /** 클립보드에 담긴 항목이 있을 때만 제공 — 없으면 undefined로 숨긴다 */
-  onPasteClip?: () => void
-  onDownload?: ReactNode
-  onDelete?: () => void
-  onNewFile?: () => void
-  onNewFolder?: () => void
-  onUpload?: () => void
-  onInitGit?: () => void
-  onCreateSubproject?: () => void
-  onClose: () => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  // 항목 개수(파일/폴더/루트)마다 실제 높이가 달라 고정 상수로는 못 잡는다 —
-  // 렌더된 실측 크기로 화면 밖을 벗어나지 않게 클램프한다.
-  const [pos, setPos] = useState({ left: x, top: y })
-
-  useEffect(() => {
-    function onDown(e: PointerEvent) {
-      if (!ref.current || ref.current.contains(e.target as Node)) return
-      onClose()
-      // 팝오버를 닫은 이 상호작용이 그 아래 요소의 클릭(파일 열기/폴더 토글 등)까지
-      // 이어지지 않도록, 뒤따라올 click 이벤트 하나를 캡처 단계에서 삼킨다.
-      function swallowClick(ce: MouseEvent) {
-        ce.preventDefault()
-        ce.stopPropagation()
-      }
-      document.addEventListener('click', swallowClick, { capture: true, once: true })
-      setTimeout(() => document.removeEventListener('click', swallowClick, true), 0)
-    }
-    document.addEventListener('pointerdown', onDown, true)
-    return () => document.removeEventListener('pointerdown', onDown, true)
-  }, [onClose])
-
-  useLayoutEffect(() => {
-    const rect = ref.current?.getBoundingClientRect()
-    if (!rect) return
-    setPos({
-      left: Math.max(0, Math.min(x, window.innerWidth - rect.width - 4)),
-      top: Math.max(0, Math.min(y, window.innerHeight - rect.height - 4)),
-    })
-  }, [x, y])
-
-  return (
-    <div
-      ref={ref}
-      style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 1000 }}
-      className="min-w-[9rem] overflow-hidden rounded-lg border border-edge-bright bg-surface-raised text-sm shadow-xl"
-    >
-      {onRename && (
-        <button type="button" onClick={onRename} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-          ✎ 이름 수정
-        </button>
-      )}
-      {onDuplicate && (
-        <button type="button" onClick={onDuplicate} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-          ⧉ 복제
-        </button>
-      )}
-      {onCopyClip && (
-        <button type="button" onClick={onCopyClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-          ⎘ 복사 (Ctrl+C)
-        </button>
-      )}
-      {onCutClip && (
-        <button type="button" onClick={onCutClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-          ✂ 잘라내기 (Ctrl+X)
-        </button>
-      )}
-      {onPasteClip && (
-        <button type="button" onClick={onPasteClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-          📋 붙여넣기 (Ctrl+V)
-        </button>
-      )}
-      {onDownload}
-      {onNewFile && (
-        <button type="button" onClick={onNewFile} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-        ＋ 새 파일
-        </button>
-      )}
-      {onNewFolder && (
-        <button type="button" onClick={onNewFolder} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-        ＋ 새 폴더
-        </button>
-      )}
-      {onUpload && (
-        <button type="button" onClick={onUpload} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-        ⬆ 업로드
-        </button>
-      )}
-      {onCreateSubproject && (
-        <button type="button" onClick={onCreateSubproject} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-          하위 프로젝트로 만들기
-        </button>
-      )}
-      {onInitGit && (
-        <button type="button" onClick={onInitGit} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-          Git 저장소로 만들기
-        </button>
-      )}
-      {onDelete && (
-        <button type="button" onClick={onDelete} className="block w-full px-3 py-2 text-left text-danger hover:bg-surface-hover">
-          🗑 삭제
-        </button>
-      )}
-    </div>
-  )
-}
 
 function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCtx }) {
+  useUiLocale()
   const readOnly = ctx.readOnly || node.editable === false
   const touch = useTreeTouchGesture({
     enabled: !readOnly,
@@ -555,7 +431,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
             </span>
           )}
         </button>}
-        {node.git && !projectLink && ctx.openGit && <GitButton onClick={() => ctx.openGit?.(node.path)} title={`${node.name} Git 열기`} />}
+        {node.git && !projectLink && ctx.openGit && <GitButton onClick={() => ctx.openGit?.(node.path)} title={uiText("{p0} Git 열기", { p0: node.name })} />}
         {node.project && !projectLink && ctx.canUseCommands && <CommandButtonMenu project={ctx.project} directory={node.path} />}
       </div>
       {isOpen && (
@@ -576,12 +452,12 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
               onCommit={ctx.submitEdit}
               onCancel={ctx.cancelEdit}
               error={createEditing.error}
-              placeholder={createEditing.mode === 'create-folder' ? '새 폴더 이름' : '새 파일 이름'}
+              placeholder={createEditing.mode === 'create-folder' ? uiText("새 폴더 이름") : uiText("새 파일 이름")}
               paddingLeft={(depth + 1) * 14 + 8}
             />
           )}
           {ctx.loadingDirs.has(node.path) && (
-            <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 8 }}>불러오는 중…</div>
+            <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 8 }}>{uiText("불러오는 중…")}</div>
           )}
           {children?.map((child) => (
             <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />
@@ -679,6 +555,7 @@ export function FileTree({
   /** 검색창 밖에 포커스가 있어도 사이드바의 첫 Esc가 검색부터 취소할 수 있게 App에 등록한다 */
   registerSearchCancel: (cancel: (() => boolean) | null) => void
 }) {
+  useUiLocale()
   const persistedProject = stateKey ?? project
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState<Focused>(null)
@@ -767,7 +644,7 @@ export function FileTree({
       requestDir(parentOf(dir), true)
       if (openDirs.has(dir)) requestDir(dir, true)
       onFolderCreated()
-      onNotice(`${dir}: 하위 프로젝트로 지정했습니다`)
+      onNotice(uiText("{p0}: 하위 프로젝트로 지정했습니다", { p0: dir }))
     } catch (err) {
       onNotice(err instanceof Error ? err.message : String(err))
     } finally {
@@ -777,11 +654,11 @@ export function FileTree({
   }
   const dialogs = useDialog()
   async function initGit(dir: string) {
-    const shown = dir || '프로젝트 루트'
-    if (!(await dialogs.confirm({ message: '이 폴더를 Git 저장소로 초기화할까요?', detail: shown, confirmLabel: 'Git 초기화' }))) return
+    const shown = dir || uiText("프로젝트 루트")
+    if (!(await dialogs.confirm({ message: uiText("이 폴더를 Git 저장소로 초기화할까요?"), detail: shown, confirmLabel: uiText("Git 초기화") }))) return
     void initializeGitRepository(dir, project)
       .then(() => {
-        onNotice(`${shown}: Git 저장소를 만들었습니다`)
+        onNotice(uiText("{p0}: Git 저장소를 만들었습니다", { p0: shown }))
         onFolderCreated()
       })
       .catch((err: unknown) => onNotice(err instanceof Error ? err.message : String(err)))
@@ -1038,7 +915,7 @@ export function FileTree({
     if (readOnly) return
     try {
       const { relPath, hidden } = await copyFile(path, project)
-      if (hidden) onNotice(NOT_ALLOWED)
+      if (hidden) onNotice(notAllowed())
       // 새 파일 생성과 같은 후처리 — 트리 갱신 + 복사본을 탭으로 연다
       onFileCreated(relPath)
     } catch (err) {
@@ -1102,7 +979,7 @@ export function FileTree({
         const { hidden } = await renamePath(current.path, newPath, project)
         setEditing(null)
         // 바꾼 이름이 트리에 안 뜨는 종류면(확장자·숨김 목록) 사라진 것처럼 보인다 — 이유를 알린다
-        if (hidden) onNotice(NOT_ALLOWED)
+        if (hidden) onNotice(notAllowed())
         onRenamed(current.path, newPath, current.type)
       } catch (err) {
         setEditing({ ...current, busy: false, error: err instanceof Error ? err.message : String(err) })
@@ -1120,14 +997,14 @@ export function FileTree({
     if (current.mode === 'create-file') {
       const name = sanitizeSegment(raw)
       if (!name) {
-        setEditing({ ...current, busy: false, error: '올바른 파일명을 입력하세요' })
+        setEditing({ ...current, busy: false, error: uiText("올바른 파일명을 입력하세요") })
         return
       }
       const relPath = current.parentPath ? `${current.parentPath}/${name}` : name
       try {
         const { relPath: created, hidden } = await createNewDocument(relPath, name.replace(/\.md$/i, '') || name, project)
         setEditing(null)
-        if (hidden) onNotice(NOT_ALLOWED)
+        if (hidden) onNotice(notAllowed())
         onFileCreated(created)
       } catch (err) {
         setEditing({ ...current, busy: false, error: err instanceof Error ? err.message : String(err) })
@@ -1135,14 +1012,14 @@ export function FileTree({
     } else {
       const name = sanitizeSegment(raw)
       if (!name) {
-        setEditing({ ...current, busy: false, error: '올바른 폴더명을 입력하세요' })
+        setEditing({ ...current, busy: false, error: uiText("올바른 폴더명을 입력하세요") })
         return
       }
       const relPath = current.parentPath ? `${current.parentPath}/${name}` : name
       try {
         const { hidden } = await createFolder(relPath, project)
         setEditing(null)
-        if (hidden) onNotice(NOT_ALLOWED)
+        if (hidden) onNotice(notAllowed())
         ensureOpenChain(relPath)
         onFolderCreated()
       } catch (err) {
@@ -1166,12 +1043,12 @@ export function FileTree({
     const newPath = destDir ? `${destDir}/${basenameOf(srcPath)}` : basenameOf(srcPath)
     if (newPath === srcPath) return // 같은 위치로의 이동 — 무동작
     if (isSelfOrDescendant(srcPath, srcType, destDir)) {
-      setErrorMsg('폴더를 자기 자신 안으로는 옮길 수 없습니다')
+      setErrorMsg(uiText("폴더를 자기 자신 안으로는 옮길 수 없습니다"))
       return
     }
     try {
       const { hidden } = await renamePath(srcPath, newPath, project)
-      if (hidden) onNotice(NOT_ALLOWED)
+      if (hidden) onNotice(notAllowed())
       onRenamed(srcPath, newPath, srcType)
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err))
@@ -1182,12 +1059,12 @@ export function FileTree({
   async function copyIntoDir(srcPath: string, srcType: 'file' | 'dir', destDir: string, sourceWorkspacePath: string | null) {
     if (readOnly) return
     if (sourceWorkspacePath === workspacePath && isSelfOrDescendant(srcPath, srcType, destDir)) {
-      setErrorMsg('폴더를 자기 자신 안으로는 복사할 수 없습니다')
+      setErrorMsg(uiText("폴더를 자기 자신 안으로는 복사할 수 없습니다"))
       return
     }
     try {
       const { relPath, hidden } = await copyInto(srcPath, destDir, project, sourceWorkspacePath === workspacePath ? null : sourceWorkspacePath)
-      if (hidden) onNotice(NOT_ALLOWED)
+      if (hidden) onNotice(notAllowed())
       if (srcType === 'file') onFileCreated(relPath)
       else onFolderCreated()
     } catch (err) {
@@ -1201,7 +1078,7 @@ export function FileTree({
     if (!clip || readOnly) return
     if (clip.mode === 'cut') {
       if (clip.workspacePath !== workspacePath) {
-        setErrorMsg('다른 프로젝트로는 잘라내기 대신 복사해 붙여넣으세요')
+        setErrorMsg(uiText("다른 프로젝트로는 잘라내기 대신 복사해 붙여넣으세요"))
         return
       }
       await moveInto(clip.path, clip.type, destDir)
@@ -1259,7 +1136,7 @@ export function FileTree({
     }
     if (dir) ensureOpenChain(dir)
     onFolderCreated() // = 트리 새로고침
-    if (hiddenAny) onNotice(NOT_ALLOWED)
+    if (hiddenAny) onNotice(notAllowed())
   }
 
   function handleTreeKeyDown(e: React.KeyboardEvent) {
@@ -1417,13 +1294,13 @@ export function FileTree({
           setDropDir(null)
           if (item) void moveInto(item.path, item.type, '')
         }}
-        className={`${compact ? 'py-1' : 'min-h-0 flex-1 overflow-y-auto pb-2'} outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
+        className={`${compact ? 'py-1' : 'min-h-0 flex-1 overflow-y-auto pb-[300px]'} outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
       >
         {roots}
         {commands}
         {filteredPaths !== null ? (
           filteredPaths.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-ink-muted">결과 없음</div>
+            <div className="px-3 py-2 text-xs text-ink-muted">{uiText("결과 없음")}</div>
           ) : (
             filteredPaths.map((result) => (
               <button
@@ -1461,7 +1338,7 @@ export function FileTree({
                 onCommit={submitEdit}
                 onCancel={cancelEdit}
                 error={rootCreateEditing.error}
-                placeholder={rootCreateEditing.mode === 'create-folder' ? '새 폴더 이름' : '새 파일 이름'}
+                placeholder={rootCreateEditing.mode === 'create-folder' ? uiText("새 폴더 이름") : uiText("새 파일 이름")}
                 paddingLeft={8}
               />
             )}
@@ -1517,7 +1394,7 @@ export function FileTree({
           }
           onDownload={
             popover.type === 'file'
-              ? <DownloadLink href={downloadUrl(popover.path, project)} name={popover.path.split('/').pop() ?? popover.path} onStarted={() => setPopover(null)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">⬇ 다운로드</DownloadLink>
+              ? <DownloadLink href={downloadUrl(popover.path, project)} name={popover.path.split('/').pop() ?? popover.path} onStarted={() => setPopover(null)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("⬇ 다운로드")}</DownloadLink>
               : undefined
           }
           onDelete={
@@ -1571,9 +1448,9 @@ export function FileTree({
 
       {deleteTarget && (
         <ConfirmDialog
-          message={`${deleteTarget.type === 'dir' ? '폴더' : '파일'} "${deleteTarget.path}"을(를) 삭제할까요?`}
-          detail="이 작업은 되돌릴 수 없습니다."
-          confirmLabel="삭제"
+          message={uiText("{p0} \"{p1}\"을(를) 삭제할까요?", { p0: deleteTarget.type === 'dir' ? uiText("폴더") : uiText("파일"), p1: deleteTarget.path })}
+          detail={uiText("이 작업은 되돌릴 수 없습니다.")}
+          confirmLabel={uiText("삭제")}
           danger
           onConfirm={deleteConfirmed}
           onCancel={() => setDeleteTarget(null)}
@@ -1585,6 +1462,7 @@ export function FileTree({
 }
 
 function FileSearchPathTooltip({ result }: { result: FileSearchResult }) {
+  useUiLocale()
   const parts = result.path.split('/').filter(Boolean)
   const relative = result.scope.id.startsWith('subproject:') ? parts.slice(1) : parts
   return <div className="pointer-events-none absolute left-2 top-full z-40 hidden min-w-[15rem] max-w-[22rem] rounded border border-edge-bright bg-surface-deep p-3 text-xs shadow-xl group-hover:block">
