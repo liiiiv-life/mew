@@ -3,7 +3,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
-import { activeFeatureRun, pendingFeatureRun, type Feature, type FeatureReport, type FeatureRequest, type FeatureRun, type FeatureWorkspace } from '../shared/features.ts'
+import { activeFeatureRun, pendingFeatureRun, featureSpecification, type Feature, type FeatureReport, type FeatureRequest, type FeatureRun, type FeatureWorkspace } from '../shared/features.ts'
 import { FeatureError } from './feature-error.ts'
 import { applyDocumentWrites, digest, documentVersion, featureDocsDir, featureIndexWrites, mergeFeatureReport, parseFeatureDocument, readFeatureDocuments, serializeFeature, validateHierarchy, type DocumentWrite } from './feature-documents.ts'
 export { FeatureError } from './feature-error.ts'
@@ -174,6 +174,7 @@ export class FeatureStore {
           const parsed = parseFeatureDocument(relative, content, feature.updatedAt).feature
           if (parsed.content !== feature.content.trim()) throw new FeatureError('요구사항에서 ## 구현 내용·## 검증은 결과용 제목입니다. 하위 제목(###)을 사용하세요.')
           for (const run of data.runs) if (run.featureId === feature.id && run.featureVersion === feature.version) run.featureVersion = parsed.version
+          for (const run of data.runs) if (run.targetId === feature.id && run.targetVersion === feature.version) run.targetVersion = parsed.version
           const status = feature.status
           Object.assign(feature, parsed, { status: status === 'implementing' ? status : parsed.status })
           if (content !== old?.raw) writes.push({ path: relative, before: old ? digest(old.raw) : null, content })
@@ -198,10 +199,19 @@ export class FeatureStore {
   async request(workspace: string, owner: string, input: FeatureRequest, agentSet: FeatureRun['agentSet'], context: FeatureRun['context'] = { projectRoot: workspace, docsRoot: path.join(workspace, featureDocsDir(workspace)) }) {
     if (!uuid.test(input.id)) throw new FeatureError('요청 ID를 확인하세요')
     const title = text(input.title, '제목', 300), content = text(input.content, '내용', 40_000, false)
+    const edit = input.edit === undefined ? undefined : (() => {
+      const value = record(input.edit)
+      if (!input.targetId || input.parentId || !Number.isInteger(input.expectedVersion)) throw new FeatureError('인라인 수정 대상을 확인하세요')
+      if (value.parentId !== null && typeof value.parentId !== 'string') throw new FeatureError('상위 기능을 확인하세요')
+      const result = { title: text(value.title, '제목', 300), content: text(value.content, '내용', 40_000, false), parentId: value.parentId as string | null, summary: text(value.summary, '구현 내용', 40_000, false), validation: text(value.validation, '검증 내용', 20_000, false) }
+      if (title !== result.title || content !== result.content) throw new FeatureError('요청과 수정 명세가 다릅니다')
+      return result
+    })()
     return this.change(workspace, data => {
       const existing = data.runs.find(run => run.id === input.id)
       if (existing) {
         if (existing.owner !== owner || existing.title !== title || existing.content !== content || existing.agentSet.id !== agentSet.id || existing.targetId !== (input.targetId ?? null) || existing.parentId !== (input.parentId ?? null)) throw new FeatureError('같은 요청 ID에 다른 내용이 있습니다', 409)
+        if (JSON.stringify(existing.edit?.after) !== JSON.stringify(edit) || (edit && existing.edit?.version !== input.expectedVersion)) throw new FeatureError('같은 요청 ID에 다른 수정이 있습니다', 409)
         return existing
       }
       if (input.targetId && input.parentId) throw new FeatureError('수정 대상과 상위 기능을 동시에 지정할 수 없습니다')
@@ -212,6 +222,16 @@ export class FeatureStore {
       if (input.parentId) featureOf(data, input.parentId)
       if (data.runs.filter(pendingFeatureRun).length >= 50) throw new FeatureError('대기 요청은 최대 50개입니다')
       const time = now(), run: FeatureRun = { id: input.id, owner, title, content, targetId: input.targetId ?? null, targetVersion: input.targetId ? input.expectedVersion! : null, parentId: input.parentId ?? null, featureId: null, featureVersion: null, agentSet: { ...agentSet }, context: { ...context }, tabId: `feature_${input.id}`, sessionId: null, dispatchedAt: null, state: 'queued', reason: '', error: '', createdAt: time, updatedAt: time, report: null }
+      if (edit) {
+        const feature = featureOf(data, input.targetId)
+        const before = featureSpecification(feature)
+        if (JSON.stringify(before) === JSON.stringify(edit)) throw new FeatureError('변경된 내용이 없습니다')
+        if (edit.parentId) featureOf(data, edit.parentId)
+        run.edit = { before, after: edit, version: feature.version }
+        Object.assign(feature, { title: edit.title, content: edit.content, parentId: edit.parentId, status: 'changed', report: { ...feature.report, summary: edit.summary, validation: edit.validation, files: feature.report?.files ?? [], commits: feature.report?.commits ?? [] } })
+        touch(feature)
+        run.targetVersion = feature.version
+      }
       data.runs.push(run); return run
     })
   }

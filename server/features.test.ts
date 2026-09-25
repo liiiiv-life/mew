@@ -115,3 +115,38 @@ test('common CLI and independent processes share the same atomic feature store',
   assert.match(featureAgentInstructions(store.directory, workspace, jobs[0]), /feature-cli\.ts/)
   assert.match(featureAgentInstructions(store.directory, workspace, jobs[0]), /mew-feature-request/)
 })
+
+test('inline edits atomically persist full specifications and queue idempotent work against the saved version', async t => {
+  const { store, workspace } = fixture(t)
+  const initial = await store.request(workspace, 'owner', request(), set); await store.claim(workspace)
+  await store.assign(workspace, initial.id, assign)
+  await store.report(workspace, initial.id, { summary: 'Old implementation', validation: 'Old checks', files: [], commits: [] })
+  await store.finish(workspace, initial.id, 'completed')
+  const base = store.read(workspace).features[0]
+  const edit = { title: 'Login with retries', content: '- API timeout: 60s\n- retries: 3', parentId: null, summary: 'Retry on timeouts', validation: 'Check retry exhaustion' }
+  const input = { ...request(), title: edit.title, content: edit.content, targetId: base.id, expectedVersion: base.version, edit }
+  const run = await store.request(workspace, 'owner', input, set)
+  const saved = store.read(workspace).features[0]
+  assert.equal(run.targetVersion, saved.version)
+  assert.equal(saved.report?.summary, edit.summary)
+  assert.equal(saved.status, 'changed')
+  assert.equal(run.edit?.before.summary, 'Old implementation')
+  assert.deepEqual(run.edit?.after, edit)
+  assert.equal((await store.request(workspace, 'owner', input, set)).id, run.id)
+  assert.equal(store.read(workspace).runs.length, 2)
+  await assert.rejects(store.request(workspace, 'owner', { ...input, edit: { ...edit, summary: 'Different' } }, set), /같은 요청 ID/)
+  await assert.rejects(store.request(workspace, 'owner', { ...input, id: crypto.randomUUID(), expectedVersion: saved.version, edit: { ...edit, summary: 'Another edit' } }, set), /이미 대기/)
+  assert.deepEqual(store.read(workspace).features[0], saved)
+  await store.claim(workspace)
+  await store.assign(workspace, run.id, { action: 'update', featureId: saved.id, version: saved.version, title: saved.title, content: saved.content, reason: 'Inline edit' })
+  assert.match(featureAgentInstructions(store.directory, workspace, run), /Retry on timeouts/)
+  await store.report(workspace, run.id, { summary: 'Retries implemented', validation: 'Tests passed', files: [], commits: [] })
+  await store.finish(workspace, run.id, 'completed')
+  assert.equal(store.read(workspace).features[0].status, 'implemented')
+  assert.equal(store.read(workspace).runs[0].report?.summary, 'Old implementation')
+  const latest = store.read(workspace).features[0], before = fs.readFileSync(path.join(workspace, latest.documentPath!), 'utf8')
+  await assert.rejects(store.request(workspace, 'owner', { ...input, id: crypto.randomUUID() }, set), /다른 변경/)
+  await assert.rejects(store.request(workspace, 'owner', { ...input, id: crypto.randomUUID(), expectedVersion: latest.version, edit: { ...edit, parentId: latest.id } }, set), /순환/)
+  assert.equal(fs.readFileSync(path.join(workspace, latest.documentPath!), 'utf8'), before)
+  assert.equal(store.read(workspace).runs.length, 2)
+})

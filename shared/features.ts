@@ -3,6 +3,8 @@ export type FeatureRunState = 'queued' | 'starting' | 'running' | 'blocked' | 'c
 export type FeatureSort = 'updated' | 'name' | 'created'
 export interface FeatureCommit { repository: string; hash: string; subject: string }
 export interface FeatureReport { summary: string; validation: string; files: string[]; commits: FeatureCommit[] }
+export interface FeatureSpecification { title: string; content: string; parentId: string | null; summary: string; validation: string }
+export const featureSpecification = (feature: Feature): FeatureSpecification => ({ title: feature.title, content: feature.content, parentId: feature.parentId, summary: feature.report?.summary ?? '', validation: feature.report?.validation ?? '' })
 export interface Feature {
   id: string
   parentId: string | null
@@ -38,9 +40,10 @@ export interface FeatureRun {
   createdAt: string
   updatedAt: string
   report: FeatureReport | null
+  edit?: { before: FeatureSpecification; after: FeatureSpecification; version: number }
 }
 export interface FeatureWorkspace { version: 1; workspace: string; revision: number; features: Feature[]; runs: FeatureRun[] }
-export interface FeatureRequest { id: string; title: string; content: string; agentSetId: string; targetId?: string; parentId?: string; expectedVersion?: number }
+export interface FeatureRequest { id: string; title: string; content: string; agentSetId: string; targetId?: string; parentId?: string; expectedVersion?: number; edit?: FeatureSpecification }
 export const activeFeatureRun = (run: FeatureRun) => ['starting', 'running', 'blocked', 'cancelling'].includes(run.state)
 export const pendingFeatureRun = (run: FeatureRun) => run.state === 'queued' || activeFeatureRun(run)
 

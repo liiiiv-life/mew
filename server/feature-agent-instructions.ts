@@ -12,6 +12,7 @@ export function featureAgentInstructions(directory: string, workspace: string, r
 This is a user-authorized feature implementation request managed by mew. Follow the project's existing instructions and documentation contracts. Work only on the requested feature. Do not start unrelated requests. Feature definitions are Markdown files under this project's Documents/features directory; their paths appear as documentPath in the list. Those files are the canonical feature specifications. Do not create a second feature specification elsewhere. Keep installation, operations, ADRs and shared guidance in their existing owning documents. Use the common commands below for assignment and result recording; do not directly edit mew's runtime state files. Ordinary external Markdown edits are allowed but never trigger a new run automatically.
 
 Request: ${JSON.stringify({ title: run.title, content: run.content, targetId: run.targetId, parentId: run.parentId })}
+${run.edit ? `\nThe user applied an inline specification edit in the feature hierarchy. The canonical document already contains the requested changes. Implement the differences below, including changes to implementation or validation text as desired behavior/checks, not evidence that work has already passed. Preserve the other requirements and linked evidence. After actual implementation, report the real results.\nInline edit: ${JSON.stringify(run.edit)}\n` : ''}
 
 1. Before changing project code, run this common mew command to inspect the current feature tree and versions:
 ${command} list

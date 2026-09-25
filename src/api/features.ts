@@ -1,8 +1,9 @@
+import { uiText } from '@mew/ui/i18n-core'
 import type { Feature, FeatureRequest, FeatureRun, FeatureWorkspace } from '../../shared/features'
 export type FeatureSnapshot = FeatureWorkspace & { canEdit: boolean }
 async function result<T>(response: Response): Promise<T> {
   const data = await response.json()
-  if (!response.ok) throw new Error(data.error || '기능 요청에 실패했습니다')
+  if (!response.ok) throw new Error(data.error || uiText("기능 요청에 실패했습니다"))
   return data as T
 }
 export const fetchFeatures = (workspace: string, signal?: AbortSignal) => fetch(`/api/features?workspace=${encodeURIComponent(workspace)}`, { signal }).then(result<FeatureSnapshot>)
