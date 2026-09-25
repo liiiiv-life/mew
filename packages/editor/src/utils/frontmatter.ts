@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 export interface FrontmatterField {
   key: string
   value: string
@@ -61,6 +62,6 @@ export function todayDate(): string {
 export function nextFieldKey(fields: FrontmatterField[]): string {
   const existing = new Set(fields.map((f) => f.key))
   let n = 1
-  while (existing.has(`필드${n}`)) n++
-  return `필드${n}`
+  while (existing.has(uiText("필드{p0}", { p0: n }))) n++
+  return uiText("필드{p0}", { p0: n })
 }

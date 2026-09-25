@@ -1,3 +1,4 @@
+import { uiText, subscribeUiLocale } from '@mew/ui/i18n-core'
 import CodeBlock from '@tiptap/extension-code-block'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 
@@ -76,8 +77,12 @@ export const CodeBlockWithCopy = CodeBlock.extend({
       button.type = 'button'
       button.className = 'code-block-copy'
       button.innerHTML = COPY_ICON
-      button.title = '코드 복사'
-      button.setAttribute('aria-label', '코드 복사')
+      const updateLabel = () => {
+        button.title = uiText("코드 복사")
+        button.setAttribute('aria-label', uiText("코드 복사"))
+      }
+      updateLabel()
+      const unsubscribeLocale = subscribeUiLocale(updateLabel)
       button.setAttribute('contenteditable', 'false')
       // 버튼을 눌러도 편집 커서가 옮겨가지 않게 한다
       button.addEventListener('mousedown', (e) => e.preventDefault())
@@ -101,6 +106,7 @@ export const CodeBlockWithCopy = CodeBlock.extend({
       return {
         dom,
         contentDOM: code,
+        destroy: unsubscribeLocale,
         update: (updated) => updated.type.name === node.type.name,
         // 편집 대상(code) 밖에서 일어난 DOM 변경(복사 버튼 아이콘 등)은 ProseMirror가 무시하게 한다
         ignoreMutation: (mutation) =>

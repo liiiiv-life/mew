@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import type { Editor } from '@tiptap/react'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { useOverlayDismiss } from '@mew/ui'
@@ -120,7 +122,7 @@ async function renderPng(table: HTMLTableElement): Promise<Blob> {
 }
 
 function copyAsImage(table: HTMLTableElement): Promise<void> {
-  if (typeof ClipboardItem === 'undefined') return Promise.reject(new Error('ClipboardItem 미지원 브라우저'))
+  if (typeof ClipboardItem === 'undefined') return Promise.reject(new Error(uiText("ClipboardItem 미지원 브라우저")))
   // clipboard.write는 클릭 핸들러 안에서 동기로 시작해야 한다 — PNG 렌더를 await한 뒤에 부르면
   // 사용자 제스처 창이 닫혀 NotAllowedError가 난다(Safari는 항상, Chromium도 상황 따라).
   // 브라우저가 Promise<Blob>을 대신 기다리도록 ClipboardItem에 프로미스를 넘긴다.
@@ -142,11 +144,12 @@ export function TableCopyMenu({
   onClose: () => void
   onError: (message: string) => void
 }) {
+  useUiLocale()
   useOverlayDismiss(onClose)
 
   const run = (fn: () => Promise<void>) => {
     // 실패 원인(NotAllowedError 등)을 그대로 보여준다 — "권한 확인" 같은 추측 문구는 디버깅을 막는다
-    fn().catch((e) => onError(`복사 실패 — ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`))
+    fn().catch((e) => onError(uiText("복사 실패 — {p0}", { p0: e instanceof Error ? `${e.name}: ${e.message}` : String(e) })))
     onClose()
   }
 
@@ -167,9 +170,9 @@ export function TableCopyMenu({
   }
 
   const items: Array<[label: string, action: () => Promise<void>]> = [
-    ['md로 복사', copyMd],
-    ['csv로 복사', copyCsv],
-    ['이미지로 복사', () => copyAsImage(tableDom)],
+    [uiText("md로 복사"), copyMd],
+    [uiText("csv로 복사"), copyCsv],
+    [uiText("이미지로 복사"), () => copyAsImage(tableDom)],
   ]
 
   return (
@@ -197,7 +200,7 @@ export function TableCopyMenu({
             }`}
           >
             {label}
-            {i === 0 && <span className="ml-2 text-[10px] text-ink-muted">기본</span>}
+            {i === 0 && <span className="ml-2 text-[10px] text-ink-muted">{uiText("기본")}</span>}
           </button>
         ))}
       </div>

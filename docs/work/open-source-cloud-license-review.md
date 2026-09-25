@@ -112,7 +112,7 @@ Codex·Cursor·Antigravity·그 외 선택 런타임의 코드 라이선스와 �
 | Rust collab | 확인한 68개에 MIT·Apache 등 허용적 선택지가 있음. unicode-ident는 Unicode-3.0 의무도 포함 | `OR`는 허용하는 라이선스를 선택하고 `AND`는 모두 준수. `r-efi`의 LGPL 선택지를 필수 LGPL 의무로 오판하지 않음 |
 | 내부 packages 5개와 Cargo manifest | 개별 `license` 필드 없음 | 루트 LICENSE가 있는 모노레포 사용과 독립 게시를 구분. 독립 배포 시 메타데이터·LICENSE 동봉 정리 |
 | RAG 모델 | 기본값 `Xenova/multilingual-e5-small`. 변환 모델 카드에 독립 license 필드 없음. 원본 `intfloat/multilingual-e5-small`은 MIT 표시 | 변환 배포물의 원본 고지·변환물 권리 근거와 모델 revision을 확인. 모델을 포함한 이미지 배포 전 정확한 파일 목록·고지 고정 |
-| 웹폰트·AI 브랜드 아이콘 | Google Fonts 원격 로딩, `@lobehub/icons-static-svg` MIT 메타데이터 | 실제 폰트를 자체 포함하면 폰트별 원문 고지 수집. 아이콘 패키지 라이선스는 브랜드 상표 사용 허락을 대신하지 않음 |
+| 웹폰트·AI 브랜드 아이콘 | IBM Plex Sans KR·Mono는 공식 배포본의 WOFF2 일반체·굵은체를 자체 포함(SIL OFL 1.1), Noto Serif KR은 Google Fonts 원격 로딩. `@lobehub/icons-static-svg` MIT 메타데이터 | IBM Plex의 원문 고지·출처·버전·해시는 [화면 설정](../configuration/environment.md#화면-설정)에 연결한 배포 자산에 포함. 아이콘 패키지 라이선스는 브랜드 상표 사용 허락을 대신하지 않음 |
 
 근거: 설치된 패키지 LICENSE와 lock, [sharp-libvips 제3자 고지](https://github.com/lovell/sharp-libvips/blob/main/THIRD-PARTY-NOTICES.md), [MPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/), [변환 모델 카드](https://huggingface.co/Xenova/multilingual-e5-small), [원본 모델 카드](https://huggingface.co/intfloat/multilingual-e5-small), [Lobe Icons](https://github.com/lobehub/lobe-icons).
 

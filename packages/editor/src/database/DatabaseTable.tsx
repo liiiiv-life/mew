@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // /db 표의 프레젠테이션 — 서버 연동은 useDatabaseView(controller)가 넘겨주고, 여기선 렌더만 한다.
 // TipTap을 모르므로 노드뷰(DatabaseView)와 독립 팝업(DatabasePanel)이 그대로 재사용한다.
 import { useRef, useState } from 'react'
@@ -7,6 +9,7 @@ import type { DbColumn, DbRow } from '../types'
 import { ADD_TYPES, TYPE_GLYPH, TYPE_LABELS, type DatabaseController } from './useDatabaseView'
 
 export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
+  useUiLocale()
   const { view, loading, error, editable } = ctrl
   const [addColOpen, setAddColOpen] = useState(false)
 
@@ -23,28 +26,28 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
             }}
-            placeholder="제목 없음"
+            placeholder={uiText("제목 없음")}
             className="min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 text-sm font-semibold text-ink outline-none hover:bg-surface-hover focus:bg-surface-hover"
           />
         ) : (
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{view?.title ?? '데이터베이스'}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{view?.title ?? uiText("데이터베이스")}</span>
         )}
         {view && !editable && (
           <span className="shrink-0 rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-ink-muted">
-            {view.kind === 'external' ? '외부 · 읽기 전용' : '참조 · 읽기 전용'}
+            {view.kind === 'external' ? uiText("외부 · 읽기 전용") : uiText("참조 · 읽기 전용")}
           </span>
         )}
         {view && view.rows.length > 0 && (
-          <span className="shrink-0 text-[11px] tabular-nums text-ink-muted">{view.rows.length}개 행</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-ink-muted">{uiText("{count}개 행", { count: view.rows.length })}</span>
         )}
       </div>
 
       {loading ? (
-        <div className="border-t border-edge px-3 py-8 text-center text-xs text-ink-muted">불러오는 중…</div>
+        <div className="border-t border-edge px-3 py-8 text-center text-xs text-ink-muted">{uiText("불러오는 중…")}</div>
       ) : error ? (
         <div className="select-text border-t border-edge px-3 py-8 text-center text-xs text-danger-strong">{error}</div>
       ) : !view ? (
-        <div className="border-t border-edge px-3 py-8 text-center text-xs text-ink-muted">데이터베이스를 찾을 수 없습니다</div>
+        <div className="border-t border-edge px-3 py-8 text-center text-xs text-ink-muted">{uiText("데이터베이스를 찾을 수 없습니다")}</div>
       ) : (
         <div className="overflow-x-auto border-t border-edge">
           <table className="w-full border-collapse text-sm">
@@ -79,7 +82,7 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
                     <td className="w-8 border-r border-edge text-center align-middle">
                       <button
                         type="button"
-                        title="행 삭제"
+                        title={uiText("행 삭제")}
                         onClick={() => ctrl.deleteRow(row.id)}
                         className="px-1 text-ink-muted opacity-0 transition-opacity hover:text-danger-strong group-hover:opacity-100"
                       >
@@ -107,8 +110,7 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
                     colSpan={view.columns.length + (editable ? 2 : 0)}
                     className="px-3 py-6 text-center text-xs text-ink-muted"
                   >
-                    아직 행이 없습니다
-                  </td>
+                    {uiText("아직 행이 없습니다")}</td>
                 </tr>
               )}
             </tbody>
@@ -123,8 +125,7 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
           className="flex w-full items-center gap-1.5 border-t border-edge px-3 py-2 text-left text-xs text-ink-muted hover:bg-surface-hover hover:text-ink"
         >
           <PlusIcon />
-          행 추가
-        </button>
+          {uiText("행 추가")}</button>
       )}
     </div>
   )
@@ -145,6 +146,7 @@ function AddColumnButton({
   onClose: () => void
   onAdd: (t: (typeof ADD_TYPES)[number]) => void
 }) {
+  useUiLocale()
   const btnRef = useRef<HTMLButtonElement>(null)
   const [rect, setRect] = useState<DOMRect | null>(null)
 
@@ -155,7 +157,7 @@ function AddColumnButton({
       <button
         ref={btnRef}
         type="button"
-        title="열 추가"
+        title={uiText("열 추가")}
         onClick={() => {
           if (!open) setRect(btnRef.current?.getBoundingClientRect() ?? null)
           onToggle()
@@ -206,6 +208,7 @@ function ColumnHeader({
   onRename: (name: string) => void
   onDelete: () => void
 }) {
+  useUiLocale()
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(col.name)
 
@@ -248,7 +251,7 @@ function ColumnHeader({
             }
           }}
           className="flex min-w-0 items-center gap-1.5 disabled:cursor-default"
-          title={editable ? '이름 변경' : col.name}
+          title={editable ? uiText("이름 변경") : col.name}
         >
           <span className="shrink-0 text-[11px] leading-none text-ink-muted">{TYPE_GLYPH[col.type]}</span>
           <span className="truncate text-xs font-medium text-ink-secondary">{col.name}</span>
@@ -256,7 +259,7 @@ function ColumnHeader({
         {editable && (
           <button
             type="button"
-            title="열 삭제"
+            title={uiText("열 삭제")}
             onClick={onDelete}
             className="text-ink-muted opacity-0 transition-opacity hover:text-danger-strong group-hover/col:opacity-100"
           >
@@ -281,6 +284,7 @@ function Cell({
   onLocal: (value: unknown) => void
   onCommit: (value: unknown) => void
 }) {
+  useUiLocale()
   const value = row.cells[col.id]
 
   if (col.type === 'checkbox') {
@@ -321,6 +325,7 @@ function Cell({
 
 // 데이터베이스를 상징하는 원통(cylinder) 아이콘 — 헤더·팝업 목록에서 공유한다
 export function DbGlyph({ className, size = 15 }: { className?: string; size?: number }) {
+  useUiLocale()
   return (
     <svg
       width={size}
@@ -341,6 +346,7 @@ export function DbGlyph({ className, size = 15 }: { className?: string; size?: n
 }
 
 function PlusIcon() {
+  useUiLocale()
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
       <path d="M12 5v14M5 12h14" />

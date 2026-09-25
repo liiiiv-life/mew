@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
@@ -47,7 +48,7 @@ function buildDecorations(doc: PMNode, storage: SearchStorage): DecorationSet {
     regex = new RegExp(storage.regex ? query : escapeRegExp(query), flags)
     storage.error = null
   } catch (err) {
-    storage.error = err instanceof Error ? err.message : '잘못된 정규식'
+    storage.error = err instanceof Error ? err.message : uiText("잘못된 정규식")
     return DecorationSet.empty
   }
 

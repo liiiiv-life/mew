@@ -22,7 +22,7 @@ export function MediaViewer({ path, kind, project, identity = 'guest', onEdit }:
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-surface p-6 text-center">
         <span className="max-w-md truncate text-sm text-ink-muted">{name}</span>
-        <DownloadLink href={download} name={name} className="rounded-md bg-accent px-4 py-2 text-sm text-white hover:opacity-90">
+        <DownloadLink href={download} name={name} className="rounded-md bg-accent px-4 py-2 text-sm text-ink-on-accent hover:opacity-90">
           {t('media.download')}
         </DownloadLink>
         <span className="text-xs text-ink-muted">{t('media.downloadOnly')}</span>

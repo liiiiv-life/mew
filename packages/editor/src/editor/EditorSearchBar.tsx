@@ -1,3 +1,5 @@
+import { useUiLocale } from '@mew/ui/i18n'
+import { uiText } from '@mew/ui/i18n-core'
 import { useEffect, useReducer, useRef, useState } from 'react'
 import type { Editor as TiptapEditor } from '@tiptap/react'
 import type { SearchStorage } from './searchExtension'
@@ -15,6 +17,7 @@ export function EditorSearchBar({
   seedNonce: number
   onClose: () => void
 }) {
+  useUiLocale()
   const storage = editor.storage.searchAndReplace as SearchStorage
   const [query, setQuery] = useState(storage.query)
   const [replace, setReplace] = useState(storage.replace)
@@ -91,8 +94,8 @@ export function EditorSearchBar({
         type="button"
         onClick={() => setShowReplace((v) => !v)}
         className="mt-0.5 rounded p-1 text-ink-muted hover:bg-surface-hover"
-        title={showReplace ? '바꾸기 접기' : '바꾸기 펼치기'}
-        aria-label="바꾸기 토글"
+        title={showReplace ? uiText("바꾸기 접기") : uiText("바꾸기 펼치기")}
+        aria-label={uiText("바꾸기 토글")}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: showReplace ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s' }}>
           <path d="m9 18 6-6-6-6" />
@@ -114,23 +117,23 @@ export function EditorSearchBar({
                   else editor.commands.findNextResult()
                 }
               }}
-              placeholder="찾기"
+              placeholder={uiText("찾기")}
               className="w-44 bg-transparent py-1 text-sm text-ink outline-none placeholder:text-ink-faint"
               spellCheck={false}
             />
             <span className="whitespace-nowrap px-1.5 text-xs text-ink-muted">
-              {storage.error ? '오류' : total ? `${current}/${total}` : '결과 없음'}
+              {storage.error ? uiText("오류") : total ? `${current}/${total}` : uiText("결과 없음")}
             </span>
-            <button type="button" onClick={toggleCase} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${caseSensitive ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title="대소문자 구분">Aa</button>
-            <button type="button" onClick={toggleRegex} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title="정규식 사용">.*</button>
+            <button type="button" onClick={toggleCase} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${caseSensitive ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("대소문자 구분")}>Aa</button>
+            <button type="button" onClick={toggleRegex} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("정규식 사용")}>.*</button>
           </div>
-          <button type="button" onClick={() => editor.commands.findPrevResult()} disabled={!total} className="rounded p-1 text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40" title="이전 매치 (Shift+Enter)" aria-label="이전 매치">
+          <button type="button" onClick={() => editor.commands.findPrevResult()} disabled={!total} className="rounded p-1 text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40" title={uiText("이전 매치 (Shift+Enter)")} aria-label={uiText("이전 매치")}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
           </button>
-          <button type="button" onClick={() => editor.commands.findNextResult()} disabled={!total} className="rounded p-1 text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40" title="다음 매치 (Enter)" aria-label="다음 매치">
+          <button type="button" onClick={() => editor.commands.findNextResult()} disabled={!total} className="rounded p-1 text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40" title={uiText("다음 매치 (Enter)")} aria-label={uiText("다음 매치")}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
           </button>
-          <button type="button" onClick={close} className="rounded p-1 text-ink-muted hover:bg-surface-hover" title="닫기 (Esc)" aria-label="검색 닫기">
+          <button type="button" onClick={close} className="rounded p-1 text-ink-muted hover:bg-surface-hover" title={uiText("닫기 (Esc)")} aria-label={uiText("검색 닫기")}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </div>
@@ -151,20 +154,19 @@ export function EditorSearchBar({
                     editor.commands.replaceCurrentResult()
                   }
                 }}
-                placeholder="바꾸기"
+                placeholder={uiText("바꾸기")}
                 className="w-44 bg-transparent py-1 text-sm text-ink outline-none placeholder:text-ink-faint"
                 spellCheck={false}
               />
             </div>
-            <button type="button" onClick={() => editor.commands.replaceCurrentResult()} disabled={!total} className="rounded p-1 text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40" title="현재 매치 바꾸기 (Enter)" aria-label="바꾸기">
+            <button type="button" onClick={() => editor.commands.replaceCurrentResult()} disabled={!total} className="rounded p-1 text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40" title={uiText("현재 매치 바꾸기 (Enter)")} aria-label={uiText("바꾸기")}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" /><path d="m14 15 3 3 4-4" /></svg>
             </button>
-            <button type="button" onClick={() => editor.commands.replaceAllResults()} disabled={!total} className="rounded px-1.5 py-1 text-xs text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40" title="모두 바꾸기" aria-label="모두 바꾸기">
-              모두
-            </button>
+            <button type="button" onClick={() => editor.commands.replaceAllResults()} disabled={!total} className="rounded px-1.5 py-1 text-xs text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40" title={uiText("모두 바꾸기")} aria-label={uiText("모두 바꾸기")}>
+              {uiText("모두")}</button>
           </div>
         )}
-        {storage.error && <div className="select-text px-1 text-xs text-danger-strong">정규식 오류: {storage.error}</div>}
+        {storage.error && <div className="select-text px-1 text-xs text-danger-strong">{uiText("정규식 오류:")}{storage.error}</div>}
       </div>
     </div>
   )

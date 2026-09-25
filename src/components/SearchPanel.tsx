@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useDialog } from '@mew/ui'
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import {
@@ -45,6 +47,7 @@ export function SearchPanel({
   /** 치환이 끝난 뒤 (트리·열린 파일 새로고침용) */
   onReplaced: () => void
 }) {
+  useUiLocale()
   const { t } = useI18n()
   const dialogs = useDialog()
   const [query, setQuery] = useState('')
@@ -135,7 +138,7 @@ export function SearchPanel({
         .catch((err) => {
           if (id !== reqIdRef.current) return
           setResults([])
-          setError(err instanceof Error ? err.message : '검색 실패')
+          setError(err instanceof Error ? err.message : uiText("검색 실패"))
         })
         .finally(() => {
           if (resultTimer) clearTimeout(resultTimer)
@@ -175,7 +178,7 @@ export function SearchPanel({
       onReplaced()
       run(query, opts)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '바꾸기 실패')
+      setError(err instanceof Error ? err.message : uiText("바꾸기 실패"))
     } finally {
       setBusy(false)
     }
@@ -183,7 +186,7 @@ export function SearchPanel({
 
   async function replaceAll() {
     if (busy || !results.length) return
-    if (!(await dialogs.confirm({ message: '모두 바꾸고 커밋할까요?', detail: `${results.length}개 파일에서 ${totalMatches}개 매치를 "${replace}"(으)로 바꿉니다.`, confirmLabel: '모두 바꾸기', danger: true }))) return
+    if (!(await dialogs.confirm({ message: uiText("모두 바꾸고 커밋할까요?"), detail: uiText("{p0}개 파일에서 {p1}개 매치를 \"{p2}\"(으)로 바꿉니다.", { p0: results.length, p1: totalMatches, p2: replace }), confirmLabel: uiText("모두 바꾸기"), danger: true }))) return
     setBusy(true)
     try {
       for (const file of results) {
@@ -192,7 +195,7 @@ export function SearchPanel({
       onReplaced()
       run(query, opts)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '바꾸기 실패')
+      setError(err instanceof Error ? err.message : uiText("바꾸기 실패"))
     } finally {
       setBusy(false)
     }
@@ -206,8 +209,8 @@ export function SearchPanel({
           type="button"
           onClick={() => setShowReplace((v) => !v)}
           className="mt-1 rounded p-1 text-ink-muted hover:bg-surface-hover"
-          title={showReplace ? '바꾸기 접기' : '바꾸기 펼치기'}
-          aria-label="바꾸기 토글"
+          title={showReplace ? uiText("바꾸기 접기") : uiText("바꾸기 펼치기")}
+          aria-label={uiText("바꾸기 토글")}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: showReplace ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s' }}>
             <path d="m9 18 6-6-6-6" />
@@ -221,7 +224,7 @@ export function SearchPanel({
               return <span key={id} className="flex max-w-full items-center gap-1 rounded bg-accent/20 px-1 py-0.5 text-xs text-ink">
                 <ProjectIcon icon={scope.icon} size={12} />
                 <span className="truncate">{scope.label}</span>
-                <button type="button" className="rounded text-ink-muted hover:text-ink" onClick={() => setSelectedScopes((items) => items.filter((item) => item !== id))} aria-label={`${scope.label} 범위 제거`}>×</button>
+                <button type="button" className="rounded text-ink-muted hover:text-ink" onClick={() => setSelectedScopes((items) => items.filter((item) => item !== id))} aria-label={uiText("{p0} 범위 제거", { p0: scope.label })}>×</button>
               </span>
             })}
             <input
@@ -238,11 +241,11 @@ export function SearchPanel({
               className="min-w-[4rem] flex-1 bg-transparent py-0.5 text-sm text-ink outline-none placeholder:text-ink-faint"
               spellCheck={false}
             />
-            <button type="button" onClick={() => setCaseSensitive((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${caseSensitive ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title="대소문자 구분">Aa</button>
-            <button type="button" onClick={() => setRegex((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title="정규식 사용">.*</button>
+            <button type="button" onClick={() => setCaseSensitive((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${caseSensitive ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("대소문자 구분")}>Aa</button>
+            <button type="button" onClick={() => setRegex((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("정규식 사용")}>.*</button>
             {scopeMenuOpen && (
               <div className="absolute left-0 top-full z-30 mt-1 max-h-64 min-w-[15rem] overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl">
-                <div className="px-2.5 py-1 text-[10px] text-ink-faint">검색할 범위 · 여러 개를 골라 OR로 검색</div>
+                <div className="px-2.5 py-1 text-[10px] text-ink-faint">{uiText("검색할 범위 · 여러 개를 골라 OR로 검색")}</div>
                 {scopes.map((scope) => {
                   const selected = selectedScopes.includes(scope.id)
                   return <button key={scope.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setSelectedScopes((items) => selected ? items.filter((item) => item !== scope.id) : [...items, scope.id])} className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs ${selected ? 'bg-surface-hover text-ink' : 'text-ink-secondary hover:bg-surface-hover'}`}>
@@ -251,7 +254,7 @@ export function SearchPanel({
                     {selected && <span className="text-accent">✓</span>}
                   </button>
                 })}
-                <button type="button" onClick={() => setScopeMenuOpen(false)} className="w-full border-t border-edge px-2.5 py-1.5 text-left text-xs text-ink-muted hover:bg-surface-hover">완료</button>
+                <button type="button" onClick={() => setScopeMenuOpen(false)} className="w-full border-t border-edge px-2.5 py-1.5 text-left text-xs text-ink-muted hover:bg-surface-hover">{uiText("완료")}</button>
               </div>
             )}
           </div>
@@ -261,7 +264,7 @@ export function SearchPanel({
                 <input
                   value={replace}
                   onChange={(e) => setReplace(e.target.value)}
-                  placeholder="바꾸기"
+                  placeholder={uiText("바꾸기")}
                   className="min-w-0 flex-1 bg-transparent py-1 text-sm text-ink outline-none placeholder:text-ink-faint"
                   spellCheck={false}
                 />
@@ -271,10 +274,9 @@ export function SearchPanel({
                 onClick={replaceAll}
                 disabled={busy || !results.length}
                 className="rounded px-1.5 py-1 text-xs text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40"
-                title="모든 파일에서 모두 바꾸기 (커밋)"
+                title={uiText("모든 파일에서 모두 바꾸기 (커밋)")}
               >
-                모두
-              </button>
+                {uiText("모두")}</button>
             </div>
           )}
         </div>
@@ -282,18 +284,18 @@ export function SearchPanel({
 
       <div className="min-h-0 flex-1 overflow-auto">
         {error && <div className="select-text px-3 py-2 text-xs text-danger-strong">{error}</div>}
-        {!error && loading && <div className="px-3 py-2 text-xs text-ink-muted">검색 중…</div>}
+        {!error && loading && <div className="px-3 py-2 text-xs text-ink-muted">{uiText("검색 중…")}</div>}
         {!error && mode === 'content' && indexState !== 'ready' && query && (
           <div className="px-3 py-1 text-xs text-ink-muted">
-            {indexState === 'building' ? '색인 준비 중 — 정확 검색으로 보완 중' : indexState === 'disabled' ? '정확 검색 색인 꺼짐 — 원문 검색 중' : '색인 복구 중 — 원문 검색으로 보완 중'}
+            {indexState === 'building' ? uiText("색인 준비 중 — 정확 검색으로 보완 중") : indexState === 'disabled' ? uiText("정확 검색 색인 꺼짐 — 원문 검색 중") : uiText("색인 복구 중 — 원문 검색으로 보완 중")}
           </div>
         )}
         {!error && query && !loading && (mode === 'files' ? fileResults.length === 0 : results.length === 0) && (
-          <div className="px-3 py-2 text-xs text-ink-muted">결과 없음</div>
+          <div className="px-3 py-2 text-xs text-ink-muted">{uiText("결과 없음")}</div>
         )}
         {!error && query && mode === 'content' && (
           <div className="px-3 py-1 text-xs text-ink-muted">
-            {totalMatches}개 결과 · {results.length}개 파일{truncated ? ' (일부만 표시)' : ''}
+            {uiText("검색 결과 {matches}개 · 파일 {files}개", { matches: totalMatches, files: results.length })}{truncated ? uiText(" (일부만 표시)") : ''}
           </div>
         )}
         {mode === 'files' && fileResults.map((file) => <button key={`${file.project}:${file.path}`} type="button" onClick={() => onOpenFileNameResult?.(file)} className="group relative flex w-full items-center gap-1.5 px-2 py-1 text-left text-sm text-ink hover:bg-surface-hover"><ProjectIcon icon={file.scope.icon} size={14} /><span className="min-w-0 flex-1 truncate">{file.path}</span><FileNamePathTooltip file={file} /></button>)}
@@ -304,7 +306,7 @@ export function SearchPanel({
             <div key={resultKey}>
               <div className="group relative flex items-center gap-1 px-2 py-0.5 hover:bg-surface-hover">
                 {file.project && <ProjectIcon icon={file.project.kind === 'docs' ? 'i:notes' : file.project.kind === 'subproject' ? (scopes.find((scope) => scope.label === file.project!.label)?.icon ?? 'i:folder') : 'i:folder'} size={14} />}
-                <button type="button" onClick={() => toggleCollapsed(resultKey)} className="rounded p-0.5 text-ink-muted" aria-label="접기/펼치기">
+                <button type="button" onClick={() => toggleCollapsed(resultKey)} className="rounded p-0.5 text-ink-muted" aria-label={uiText("접기/펼치기")}>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? 'none' : 'rotate(90deg)', transition: 'transform 0.1s' }}>
                     <path d="m9 18 6-6-6-6" />
                   </svg>
@@ -318,8 +320,8 @@ export function SearchPanel({
                     onClick={() => replaceAllInFile(file)}
                     disabled={busy}
                     className="hidden rounded p-0.5 text-ink-muted enabled:hover:bg-surface-hover disabled:opacity-40 group-hover:block"
-                    title="이 파일에서 모두 바꾸기"
-                    aria-label="이 파일에서 모두 바꾸기"
+                    title={uiText("이 파일에서 모두 바꾸기")}
+                    aria-label={uiText("이 파일에서 모두 바꾸기")}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" /><path d="m14 15 3 3 4-4" /></svg>
                   </button>
@@ -351,6 +353,7 @@ export function SearchPanel({
 }
 
 function FileNamePathTooltip({ file }: { file: FileSearchResult }) {
+  useUiLocale()
   const parts = file.path.split('/').filter(Boolean)
   const relative = file.scope.id.startsWith('subproject:') ? parts.slice(1) : parts
   return <div className="pointer-events-none absolute left-2 top-full z-40 hidden min-w-[15rem] max-w-[22rem] rounded border border-edge-bright bg-surface-deep p-3 text-xs shadow-xl group-hover:block"><div className="mb-2 flex items-center gap-2 font-medium text-ink"><ProjectIcon icon={file.scope.icon} size={16} /><span>{file.scope.label}</span></div><div className="space-y-1 text-ink-secondary">{relative.map((part, index) => <div key={`${part}:${index}`} className="flex gap-1" style={{ paddingLeft: `${index * 12}px` }}><span>ㄴ</span><span className={index === relative.length - 1 ? 'text-ink' : ''}>{part}</span></div>)}</div></div>
@@ -361,6 +364,7 @@ function searchResultKey(file: SearchFileResult, fallbackProject: string): strin
 }
 
 function ProjectPathTooltip({ file, scopes }: { file: SearchFileResult; scopes: SearchScopeOption[] }) {
+  useUiLocale()
   const owner = file.project!
   const icon = owner.kind === 'docs' ? 'i:notes' : owner.kind === 'subproject' ? (scopes.find((scope) => scope.label === owner.label)?.icon ?? 'i:folder') : 'i:folder'
   const parts = file.path.split('/').filter(Boolean)

@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./i18n": "./src/i18n.ts",
+    "./i18n-core": "./src/i18n-core.ts",
     "./browser-storage": "./src/browser-storage.ts"
   },
   "peerDependencies": {

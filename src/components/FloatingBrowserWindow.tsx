@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 
 type Bounds = { left: number; top: number; width: number; height: number }
@@ -33,6 +35,7 @@ function clampBounds(bounds: Bounds): Bounds {
 
 /** Mew 위에서만 떠 있는 창. 브라우저 권한 팝업과 달리 모바일에서도 이동·크기 조절을 일관되게 제공한다. */
 export function FloatingBrowserWindow({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  useUiLocale()
   const [bounds, setBounds] = useState<Bounds>(initialBounds)
   const gesture = useRef<{ pointerId: number; startX: number; startY: number; bounds: Bounds; edge?: ResizeEdge } | null>(null)
 
@@ -78,7 +81,7 @@ export function FloatingBrowserWindow({ children, onClose }: { children: ReactNo
   }
 
   return (
-    <div className="fixed inset-0 z-[1000] pointer-events-none" aria-label="브라우저 팝업">
+    <div className="fixed inset-0 z-[1000] pointer-events-none" aria-label={uiText("브라우저 팝업")}>
       <section
         className="pointer-events-auto absolute flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface-raised shadow-2xl"
         style={{ left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }}
@@ -91,9 +94,9 @@ export function FloatingBrowserWindow({ children, onClose }: { children: ReactNo
           onPointerUp={end}
           onPointerCancel={end}
         >
-          <span className="font-medium text-ink">브라우저</span>
-          <span className="ml-2 truncate text-[10px] text-ink-muted">Mew 서버 loopback</span>
-          <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={onClose} className="ml-auto flex h-6 w-6 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" aria-label="브라우저 닫기">
+          <span className="font-medium text-ink">{uiText("브라우저")}</span>
+          <span className="ml-2 truncate text-[10px] text-ink-muted">{uiText("Mew 서버 loopback")}</span>
+          <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={onClose} className="ml-auto flex h-6 w-6 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" aria-label={uiText("브라우저 닫기")}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>

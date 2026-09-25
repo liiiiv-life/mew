@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { SelectField } from '@mew/ui'
 import { FEATURES, GUEST_FEATURES, type AccessSettings, type Feature } from '../../shared/access-policy'
 import { fetchAccessSettings, fetchAccessPath, saveFeatureAccess, saveFileAccess, type AccessPathSettings, type AdminUser, type Role } from '../api/client'
 import { useI18n } from '../i18n'
@@ -41,7 +42,6 @@ export function AccountAccessMatrix({ users, onRoleChange }: { users: AdminUser[
   function toggle(subject: string, feature: Feature, enabled: boolean | null) {
     void mutate(async () => { setSettings(await saveFeatureAccess(subject, feature, enabled)) })
   }
-  const selectClass = 'min-h-9 rounded border border-edge-strong bg-surface px-2 text-sm text-ink disabled:opacity-50'
   return <div className="flex min-h-0 flex-1 flex-col gap-3">
     <div className="flex items-center gap-1 border-b border-edge" role="tablist" aria-label={t('admin.title')}>
       {(['features', 'files'] as const).map(value => <button key={value} type="button" role="tab" aria-selected={tab === value} disabled={busy} onClick={() => { setTab(value); setError('') }} className={`min-h-10 border-b-2 px-3 text-sm ${tab === value ? 'border-ink text-ink font-medium' : 'border-transparent text-ink-secondary'}`}>{t(`access.${value}`)}</button>)}
@@ -58,9 +58,8 @@ export function AccountAccessMatrix({ users, onRoleChange }: { users: AdminUser[
             <th scope="row" className="sticky left-0 z-10 max-w-64 border-b border-edge bg-surface-deep p-3 text-left font-normal">
               <div className="break-words font-medium">{row.displayName}</div>
               {row.subject !== 'guest' && <div className="select-text mt-0.5 break-all text-xs text-ink-secondary">{row.subject}</div>}
-              {row.role === 'guest' ? <span className="text-xs text-ink-secondary">guest</span> : <select aria-label={`${row.subject} ${t('access.role')}`} value={row.role} disabled={busy} className={`${selectClass} mt-2 w-full`} onChange={event => void mutate(async () => { await onRoleChange(row.subject, event.target.value as Role); setSettings(await fetchAccessSettings()) })}>
-                {(['member', 'manager', 'owner'] as const).map(role => <option key={role}>{role}</option>)}
-              </select>}
+              {row.role === 'guest' ? <span className="text-xs text-ink-secondary">guest</span> : <SelectField label={`${row.subject} ${t('access.role')}`} value={row.role} disabled={busy} className="mt-2 w-full min-w-0" onChange={value => void mutate(async () => { await onRoleChange(row.subject, value as Role); setSettings(await fetchAccessSettings()) })}
+                options={['member', 'manager', 'owner'].map(value => ({ value, label: value }))} />}
             </th>
             {FEATURES.map(feature => {
               const locked = row.subject === 'guest' && !GUEST_FEATURES.includes(feature)
@@ -78,7 +77,7 @@ export function AccountAccessMatrix({ users, onRoleChange }: { users: AdminUser[
     </> : <>
       <p className="text-xs text-ink-secondary">{t('access.fileHint')}</p>
       <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); const nextPath = pathInput.trim().replace(/^\/+|\/+$/g, ''); setError(''); if (nextPath === selectedPath) void loadPath(); else setSelectedPath(nextPath) }}>
-        <select aria-label={t('project.path')} value={project} disabled={busy} className={selectClass} onChange={event => { setProject(event.target.value); setSelectedPath('') }}><option value=".workspace">{t('access.root')}</option><option value="docs">{t('project.documents')}</option></select>
+        <SelectField label={t('project.path')} value={project} disabled={busy} className="w-40 max-w-full" onChange={value => { setProject(value); setSelectedPath('') }} options={[{ value: '.workspace', label: t('access.root') }, { value: 'docs', label: t('project.documents') }]} />
         <input aria-label={t('access.openPath')} value={pathInput} onChange={event => setPathInput(event.target.value)} placeholder="/" disabled={busy} className="min-h-9 min-w-28 flex-1 rounded border border-edge-strong bg-surface px-2 text-sm text-ink" />
         <button type="submit" disabled={busy} className="min-h-9 rounded border border-edge-strong px-3 text-xs">{t('access.openPath')}</button>
       </form>
@@ -99,7 +98,7 @@ export function AccountAccessMatrix({ users, onRoleChange }: { users: AdminUser[
             const value = !rule ? 'inherit' : rule.edit ? 'edit' : rule.view ? 'view' : 'deny'
             return <tr key={row.subject} className="border-b border-edge">
               <th scope="row" className="max-w-32 break-all py-3 text-left font-normal"><span>{row.displayName}</span>{row.subject !== 'guest' && <span className="select-text mt-1 block text-xs text-ink-secondary">{row.subject}</span>}</th>
-              <td className="px-2 py-3"><select aria-label={`${row.subject} ${t('access.files')}`} disabled={busy} value={value} className={`${selectClass} max-w-full`} onChange={event => { const access = event.target.value; void mutate(async () => { await saveFileAccess(row.subject, project, selectedPath, access, pathSettings.workspace); await loadPath() }) }}>{(['inherit', 'deny', 'view', 'edit'] as const).map(access => <option key={access} value={access}>{t(`access.${access}`)}</option>)}</select></td>
+              <td className="px-2 py-3"><SelectField label={`${row.subject} ${t('access.files')}`} disabled={busy} value={value} onChange={access => void mutate(async () => { await saveFileAccess(row.subject, project, selectedPath, access, pathSettings.workspace); await loadPath() })} options={(['inherit', 'deny', 'view', 'edit'] as const).map(access => ({ value: access, label: t(`access.${access}`) }))} /></td>
               <td className="py-3 text-xs text-ink-secondary">{permission.effective.edit ? t('access.edit') : permission.effective.view ? t('access.readOnly') : t('access.blocked')}</td>
             </tr>
           })}</tbody></table>}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useId } from 'react'
 import { NavArrowLeft, NavArrowRight, Minus, Plus, Download, FloppyDisk, EditPencil, Erase, Undo, Redo, Text } from 'iconoir-react'
+import { SelectField } from '@mew/ui'
 import type { PDFDocumentProxy, PDFDocumentLoadingTask } from 'pdfjs-dist'
 import { useI18n, type TranslationKey } from '../i18n'
 import { loadPdf, exportPdf } from '../utils/pdf-runtime'
@@ -177,7 +178,7 @@ export default function PdfViewer({ src, download, name, identity, onEdit }: { s
   return <dialog open ref={stageRef} className="pdf-stage" role={fullscreen ? 'dialog' : 'region'} aria-label={name} aria-modal={fullscreen || undefined}>
   <div ref={viewerRef} className={`pdf-viewer${fullscreen ? ' pdf-fullscreen' : ''}`} onKeyDown={event => {
     if (fullscreen) event.stopPropagation()
-    if (!(event.ctrlKey || event.metaKey) || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return
+    if (!(event.ctrlKey || event.metaKey) || event.target instanceof HTMLInputElement || (event.target as HTMLElement).closest('[role="combobox"]')) return
     const key = event.key.toLowerCase()
     if (['s', 'z', 'y'].includes(key)) { event.preventDefault(); event.stopPropagation() }
     if (key === 's' && ready && editable && ink.strokes.length) void save(false)
@@ -193,10 +194,9 @@ export default function PdfViewer({ src, download, name, identity, onEdit }: { s
       </div>
       <div className="pdf-controls pdf-zoom">
         {button('pdf.zoomOut', <Minus />, () => zoomTo(scale / 1.2), !ready || scale <= 0.25)}
-        <select aria-label={t('pdf.zoom')} value={zoom} disabled={!ready} onChange={event => zoomTo(event.target.value === 'fit' ? 'fit' : Number(event.target.value))}>
-          <option value="fit">{t('pdf.fit')}</option>
-          {[...new Set([0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, ...(typeof zoom === 'number' ? [zoom] : [])])].sort((a, b) => a - b).map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}
-        </select>
+        <SelectField compact className="pdf-zoom-field" label={t('pdf.zoom')} value={String(zoom)} disabled={!ready}
+          portalContainer={fullscreen ? viewerRef.current : undefined} onChange={value => zoomTo(value === 'fit' ? 'fit' : Number(value))}
+          options={[{ value: 'fit', label: t('pdf.fit') }, ...[...new Set([0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, ...(typeof zoom === 'number' ? [zoom] : [])])].sort((a, b) => a - b).map(value => ({ value: String(value), label: `${Math.round(value * 100)}%` }))]} />
         {button('pdf.zoomIn', <Plus />, () => zoomTo(scale * 1.2), !ready || scale >= 4)}
       </div>
       <div className="pdf-controls pdf-file-actions">
@@ -215,7 +215,9 @@ export default function PdfViewer({ src, download, name, identity, onEdit }: { s
         {button('pdf.erase', <Erase />, () => setTool('erase'), !ready, tool === 'erase')}
         <span className="pdf-divider" />
         <div className="pdf-colors" role="group" aria-label={t('pdf.color')}>{COLORS.map((value, index) => <button type="button" key={value} aria-label={t(['pdf.black', 'pdf.red', 'pdf.blue', 'pdf.green'][index] as TranslationKey)} title={t(['pdf.black', 'pdf.red', 'pdf.blue', 'pdf.green'][index] as TranslationKey)} aria-pressed={color === value} disabled={!ready} style={{ '--pdf-swatch': value } as React.CSSProperties} onClick={() => { setColor(value); setTool('pen') }}><span /></button>)}</div>
-        <select aria-label={t('pdf.width')} value={width} onChange={event => setWidth(Number(event.target.value))} disabled={!ready}><option value={1}>{t('pdf.thin')}</option><option value={2}>{t('pdf.medium')}</option><option value={4}>{t('pdf.thick')}</option></select>
+        <SelectField compact className="pdf-width-field" label={t('pdf.width')} value={String(width)} onChange={value => setWidth(Number(value))} disabled={!ready}
+          portalContainer={fullscreen ? viewerRef.current : undefined}
+          options={[{ value: '1', label: t('pdf.thin') }, { value: '2', label: t('pdf.medium') }, { value: '4', label: t('pdf.thick') }]} />
         <span className="pdf-divider" />
         {button('pdf.undo', <Undo />, draft.undo, !ready || !ink.undo.length)}
         {button('pdf.redo', <Redo />, draft.redo, !ready || !ink.redo.length)}

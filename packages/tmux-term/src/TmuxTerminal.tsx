@@ -1,3 +1,5 @@
+import { useUiLocale } from '@mew/ui/i18n'
+import { uiText } from '@mew/ui/i18n-core'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -104,7 +106,7 @@ export function TmuxTerminal({
   getSelectedText,
   renderCommandButtons,
   insertRefTarget = 'tmux',
-  inputPlaceholder = '텍스트 입력',
+  inputPlaceholder = uiText("텍스트 입력"),
   wsPath = '/api/tmux/ws',
 }: {
   sessionName: string
@@ -123,6 +125,7 @@ export function TmuxTerminal({
   inputPlaceholder?: string
   wsPath?: string
 }) {
+  useUiLocale()
   const containerRef = useRef<HTMLDivElement>(null)
   const activeFilePathRef = useRef(activeFilePath)
   const getSelectedTextRef = useRef(getSelectedText)
@@ -697,7 +700,7 @@ export function TmuxTerminal({
           {connState !== 'open' && (
             <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-ink-muted">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-strong" />
-              {connState === 'connecting' ? '연결 중…' : '재연결 중…'}
+              {connState === 'connecting' ? uiText("연결 중…") : uiText("재연결 중…")}
             </span>
           )}
           {renderCommandButtons?.(sendAsTyped)}
@@ -708,8 +711,8 @@ export function TmuxTerminal({
         <button
           type="button"
           onClick={jumpToBottom}
-          data-tip="맨 아래로 이동"
-          aria-label="맨 아래로 이동"
+          data-tip={uiText("맨 아래로 이동")}
+          aria-label={uiText("맨 아래로 이동")}
           className={TOOL_BUTTON_CLASS}
         >
           <FastArrowDown width={15} height={15} strokeWidth={1.8} />
@@ -722,8 +725,8 @@ export function TmuxTerminal({
             writeKeyboardLock(next)
           }}
           aria-pressed={keyboardLocked}
-          data-tip="모바일 키보드 잠금"
-          aria-label="모바일 키보드 잠금"
+          data-tip={uiText("모바일 키보드 잠금")}
+          aria-label={uiText("모바일 키보드 잠금")}
           className={keyboardLocked ? TOOL_BUTTON_ON_CLASS : TOOL_BUTTON_CLASS}
         >
           <Lock width={15} height={15} strokeWidth={1.8} />
@@ -736,8 +739,8 @@ export function TmuxTerminal({
             setSelectMode(next)
           }}
           aria-pressed={selectMode}
-          data-tip="모바일용 터미널 텍스트 선택기"
-          aria-label="선택 모드"
+          data-tip={uiText("모바일용 터미널 텍스트 선택기")}
+          aria-label={uiText("선택 모드")}
           className={selectMode ? TOOL_BUTTON_ON_CLASS : TOOL_BUTTON_CLASS}
         >
           <FrameSelect width={15} height={15} strokeWidth={1.8} />
@@ -745,8 +748,8 @@ export function TmuxTerminal({
         <button
           type="button"
           onClick={copySelectionOrScreen}
-          data-tip="선택모드에서 선택된 내용 복사"
-          aria-label="복사"
+          data-tip={uiText("선택모드에서 선택된 내용 복사")}
+          aria-label={uiText("복사")}
           className={TOOL_BUTTON_CLASS}
         >
           {copied === 'ok' ? (
@@ -862,11 +865,10 @@ export function TmuxTerminal({
         />
         <button
           type="submit"
-          title="전송 (Ctrl+Enter)"
+          title={uiText("전송 (Ctrl+Enter)")}
           className="shrink-0 rounded border border-edge bg-surface-raised px-3 py-1 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
         >
-          전송
-        </button>
+          {uiText("전송")}</button>
       </form>
     </div>
   )

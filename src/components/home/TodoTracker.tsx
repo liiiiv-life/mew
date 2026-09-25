@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // 할 일 위젯 — 로그인 사용자가 직접 등록한 항목을 세 종류(오늘·기한·주기)로 보고 고친다.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -14,12 +16,13 @@ function todayISO(): string {
 }
 
 const TYPE_META: Record<TodoType, { label: string; icon: typeof Timer }> = {
-  today: { label: '오늘', icon: Timer },
-  dated: { label: '기한', icon: Calendar },
-  recurring: { label: '주기', icon: Repeat },
+  today: { get label() { return uiText("오늘") }, icon: Timer },
+  dated: { get label() { return uiText("기한") }, icon: Calendar },
+  recurring: { get label() { return uiText("주기") }, icon: Repeat },
 }
 
 export function TodoTracker({ items, projects, loading, onCreate, onUpdate, onDelete }: HomeWidgetContext) {
+  useUiLocale()
   const [addingType, setAddingType] = useState<TodoType | null>(null)
   const [showClosed, setShowClosed] = useState(false)
   const today = todayISO()
@@ -36,17 +39,16 @@ export function TodoTracker({ items, projects, loading, onCreate, onUpdate, onDe
       <div className="flex items-center gap-2 px-1 py-3 text-xs text-ink-muted">
         <label className="ml-auto flex select-none items-center gap-1.5 rounded-full px-2 py-0.5 hover:bg-surface-raised">
           <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
-          끝난 일도 보기
-        </label>
+          {uiText("끝난 일도 보기")}</label>
       </div>
 
       {loading && items.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-edge px-1 py-8 text-center text-xs text-ink-muted">불러오는 중...</div>
+        <div className="rounded-lg border border-dashed border-edge px-1 py-8 text-center text-xs text-ink-muted">{uiText("불러오는 중...")}</div>
       ) : (
         <div className="flex flex-col gap-3">
           <TodoGroup
             type="today"
-            title="당장 오늘 할 일"
+            title={uiText("당장 오늘 할 일")}
             items={todayItems}
             adding={addingType === 'today'}
             today={today}
@@ -63,7 +65,7 @@ export function TodoTracker({ items, projects, loading, onCreate, onUpdate, onDe
           />
           <TodoGroup
             type="dated"
-            title="기한이 있는 일"
+            title={uiText("기한이 있는 일")}
             items={datedItems}
             adding={addingType === 'dated'}
             today={today}
@@ -80,7 +82,7 @@ export function TodoTracker({ items, projects, loading, onCreate, onUpdate, onDe
           />
           <TodoGroup
             type="recurring"
-            title="기간 상관 없이 주기적으로 할 일"
+            title={uiText("기간 상관 없이 주기적으로 할 일")}
             items={recurringItems}
             adding={addingType === 'recurring'}
             today={today}
@@ -112,6 +114,7 @@ function ProjectDropdown({
   selected: string[]
   onChange: (next: string[]) => void
 }) {
+  useUiLocale()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [anchor, setAnchor] = useState<{
@@ -194,8 +197,8 @@ function ProjectDropdown({
             ? 'bg-transparent text-ink-secondary hover:text-ink'
             : 'bg-transparent text-ink-faint hover:text-ink-muted'
         }`}
-        aria-label="연관 프로젝트"
-        title={selected.length > 0 ? selected.join(', ') : '프로젝트 없음'}
+        aria-label={uiText("연관 프로젝트")}
+        title={selected.length > 0 ? selected.join(', ') : uiText("프로젝트 없음")}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
@@ -221,7 +224,7 @@ function ProjectDropdown({
           <div
             ref={menuRef}
             role="dialog"
-            aria-label="프로젝트 선택"
+            aria-label={uiText("프로젝트 선택")}
             data-todo-project-dropdown
             style={{
               left: anchor.left,
@@ -242,14 +245,14 @@ function ProjectDropdown({
                   if (event.key === 'Escape') close()
                 }}
                 autoFocus={autoFocusSearch}
-                placeholder="프로젝트 검색"
-                aria-label="프로젝트 검색"
+                placeholder={uiText("프로젝트 검색")}
+                aria-label={uiText("프로젝트 검색")}
                 className="w-full rounded border border-edge-strong bg-surface px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
               />
             </div>
             <div className="min-h-0 overflow-y-auto px-1.5 pb-1.5">
               {visibleProjects.length === 0 ? (
-                <div className="px-2 py-3 text-center text-xs text-ink-muted">검색 결과가 없습니다</div>
+                <div className="px-2 py-3 text-center text-xs text-ink-muted">{uiText("검색 결과가 없습니다")}</div>
               ) : (
                 visibleProjects.map((project) => {
                   const active = selectedSet.has(project.name)
@@ -281,8 +284,7 @@ function ProjectDropdown({
                 disabled={selected.length === 0}
                 className="mt-1 w-full rounded border-t border-edge px-2 py-1.5 text-left text-xs text-ink-muted hover:bg-surface-hover disabled:opacity-40"
               >
-                선택 해제
-              </button>
+                {uiText("선택 해제")}</button>
             </div>
           </div>,
           document.body,
@@ -318,6 +320,7 @@ function TodoGroup({
   onUpdate: HomeWidgetContext['onUpdate']
   onDelete: HomeWidgetContext['onDelete']
 }) {
+  useUiLocale()
   return (
     <section className="flex flex-col gap-0.5">
       <div className="flex items-center gap-1 px-0 text-[11px] font-semibold text-ink-muted">
@@ -349,8 +352,8 @@ function TodoGroup({
           type="button"
           onClick={onAdd}
           className="flex min-h-8 w-full items-center justify-center rounded border border-dashed border-edge text-ink-muted hover:border-edge-strong hover:text-ink"
-          aria-label={`${title} 추가`}
-          title="추가"
+          aria-label={uiText("{p0} 추가", { p0: title })}
+          title={uiText("추가")}
         >
           <Plus width={15} height={15} aria-hidden="true" />
         </button>
@@ -374,6 +377,7 @@ function NewTodoRow({
   onCreate: HomeWidgetContext['onCreate']
   onCancel: () => void
 }) {
+  useUiLocale()
   const [text, setText] = useState('')
   const [due, setDue] = useState(today)
   const [time, setTime] = useState<string | null>(null)
@@ -426,7 +430,7 @@ function NewTodoRow({
           if (e.key === 'Escape') onCancel()
         }}
         maxLength={240}
-        placeholder={`${TYPE_META[type].label} 할 일`}
+        placeholder={uiText("{p0} 할 일", { p0: TYPE_META[type].label })}
         className="min-w-0 flex-1 rounded border border-edge-strong bg-transparent px-1.5 py-0.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
       />
       {type === 'dated' && (
@@ -444,8 +448,8 @@ function NewTodoRow({
         onClick={() => commit()}
         disabled={!text.trim()}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-accent hover:bg-surface-hover hover:text-accent-strong disabled:text-ink-faint disabled:opacity-50"
-        aria-label="할 일 등록"
-        title="등록"
+        aria-label={uiText("할 일 등록")}
+        title={uiText("등록")}
       >
         <Check width={16} height={16} strokeWidth={2.2} aria-hidden="true" />
       </button>
@@ -468,6 +472,7 @@ function TodoRow({
   onUpdate: HomeWidgetContext['onUpdate']
   onDelete: HomeWidgetContext['onDelete']
 }) {
+  useUiLocale()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(item.text)
 
@@ -490,7 +495,7 @@ function TodoRow({
         type="checkbox"
         checked={closed}
         onChange={(e) => onUpdate(item, { status: e.target.checked ? 'done' : 'open' })}
-        aria-label={closed ? '되돌리기' : '완료'}
+        aria-label={closed ? uiText("되돌리기") : uiText("완료")}
         className="shrink-0"
       />
 
@@ -551,8 +556,8 @@ function TodoRow({
         type="button"
         onClick={() => onDelete(item)}
         className="-mr-[4.5px] flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted opacity-80 hover:text-danger-strong group-hover:opacity-100"
-        aria-label="삭제"
-        title="삭제"
+        aria-label={uiText("삭제")}
+        title={uiText("삭제")}
       >
         <Xmark width={15} height={15} strokeWidth={2} aria-hidden="true" />
       </button>
@@ -572,6 +577,7 @@ function DateFields({
   onSubmit?: (value: string) => void
   className?: string
 }) {
+  useUiLocale()
   const [year, setYear] = useState(value.slice(0, 4))
   const [month, setMonth] = useState(value.slice(5, 7))
   const [day, setDay] = useState(value.slice(8, 10))
@@ -624,7 +630,7 @@ function DateFields({
         if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
         commit()
       }}
-      aria-label="기한"
+      aria-label={uiText("기한")}
     >
       <input
         type="text"
@@ -640,7 +646,7 @@ function DateFields({
         onFocus={(event) => event.currentTarget.select()}
         maxLength={4}
         placeholder="YYYY"
-        aria-label="연도"
+        aria-label={uiText("연도")}
         className="w-8 bg-transparent text-center text-current outline-none placeholder:text-ink-faint"
       />
       <span className="select-none text-ink-muted" aria-hidden="true">-</span>
@@ -659,7 +665,7 @@ function DateFields({
         onFocus={(event) => event.currentTarget.select()}
         maxLength={2}
         placeholder="MM"
-        aria-label="월"
+        aria-label={uiText("월")}
         className="w-5 bg-transparent text-center text-current outline-none placeholder:text-ink-faint"
       />
       <span className="select-none text-ink-muted" aria-hidden="true">-</span>
@@ -674,7 +680,7 @@ function DateFields({
         onFocus={(event) => event.currentTarget.select()}
         maxLength={2}
         placeholder="DD"
-        aria-label="일"
+        aria-label={uiText("일")}
         className="w-5 bg-transparent text-center text-current outline-none placeholder:text-ink-faint"
       />
     </div>
@@ -690,6 +696,7 @@ function TimeFields({
   onChange: (value: string | null) => void
   onSubmit?: (value: string | null) => void
 }) {
+  useUiLocale()
   const [hour, setHour] = useState(value?.slice(0, 2) ?? '')
   const [minute, setMinute] = useState(value?.slice(3, 5) ?? '')
   const minuteRef = useRef<HTMLInputElement>(null)
@@ -741,7 +748,7 @@ function TimeFields({
         if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
         commit()
       }}
-      aria-label="시간"
+      aria-label={uiText("시간")}
     >
       <input
         type="text"
@@ -757,7 +764,7 @@ function TimeFields({
         onFocus={(event) => event.currentTarget.select()}
         maxLength={2}
         placeholder="hh"
-        aria-label="시"
+        aria-label={uiText("시")}
         className="w-5 bg-transparent text-center tabular-nums text-ink outline-none placeholder:text-ink-faint"
       />
       <span className="select-none text-ink-muted" aria-hidden="true">:</span>
@@ -772,7 +779,7 @@ function TimeFields({
         onFocus={(event) => event.currentTarget.select()}
         maxLength={2}
         placeholder="mm"
-        aria-label="분"
+        aria-label={uiText("분")}
         className="w-5 bg-transparent text-center tabular-nums text-ink outline-none placeholder:text-ink-faint"
       />
     </div>
@@ -780,11 +787,13 @@ function TimeFields({
 }
 
 function ProjectGlyph({ project, size }: { project: ProjectInfo; size: number }) {
+  useUiLocale()
   if (hasIcon(project.icon)) return <ProjectIcon icon={project.icon!} size={size} />
   return <FallbackGlyph name={project.name} size={size} />
 }
 
 function FallbackGlyph({ name, size }: { name: string; size: number }) {
+  useUiLocale()
   return (
     <span
       className="flex shrink-0 items-center justify-center rounded bg-surface-hover font-mono text-[9px] text-ink-secondary"

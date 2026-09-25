@@ -10,16 +10,16 @@
 .pdf-file-actions { margin-left: auto; }
 .pdf-viewer button, .pdf-download { display: inline-flex; justify-content: center; align-items: center; flex-shrink: 0; min-width: 34px; min-height: 34px; gap: 6px; padding: 6px; border-radius: 10px; color: var(--color-ink-secondary); cursor: pointer; }
 .pdf-viewer button:not(:disabled):hover, .pdf-download:hover { background: var(--color-surface-raised); color: var(--color-ink-bright); }
-.pdf-viewer button:disabled, .pdf-viewer select:disabled { opacity: .4; cursor: default; }
+.pdf-viewer button:disabled { opacity: .4; cursor: default; }
 .pdf-viewer button[aria-pressed=true] { background: color-mix(in srgb, var(--color-link) 18%, transparent); color: var(--color-ink-bright); }
-.pdf-viewer :is(button, a, input, select, [tabindex]):focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.pdf-viewer :is(button, a, input, [tabindex]):focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
 .pdf-viewer svg { width: 17px; height: 17px; stroke-width: 1.6; }
 .pdf-toolbar form { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; color: var(--color-ink-secondary); }
-.pdf-viewer input, .pdf-viewer select { height: 30px; border: 1px solid color-mix(in srgb, var(--color-ink) 12%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-surface) 72%, transparent); color: var(--color-ink); padding: 3px 6px; font: inherit; }
+.pdf-viewer input, .pdf-viewer button[role=combobox] { height: 30px; border: 1px solid color-mix(in srgb, var(--color-ink) 12%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-surface) 72%, transparent); color: var(--color-ink); padding: 3px 6px; font: inherit; }
 .pdf-toolbar input { width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
-.pdf-zoom select { max-width: 115px; }
+.pdf-zoom-field { width: 115px; min-width: 0; flex-shrink: 0; }
 .pdf-tools { gap: 3px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
-.pdf-tools select { max-width: 82px; }
+.pdf-width-field { width: 82px; min-width: 0; flex-shrink: 0; }
 .pdf-divider { width: 1px; height: 18px; margin: 0 5px; background: var(--color-edge-strong); }
 .pdf-colors button span { display: block; width: 16px; height: 16px; border: 1px solid #fff8; border-radius: 50%; background: var(--pdf-swatch); }
 .pdf-state { padding: 4px 8px 1px; color: var(--color-ink-secondary); font-size: 11px; text-align: center; }
@@ -52,9 +52,9 @@
 .pdf-text-layer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0 0; user-select: text; -webkit-user-select: text; }
 .pdf-text-layer > :not(.markedContent), .pdf-text-layer .markedContent span:not(.markedContent) { --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
 .pdf-text-layer .markedContent { display: contents; }
-.pdf-text-layer ::selection { background: #7c5ce64d; }
-@media (pointer: coarse) { .pdf-viewer button, .pdf-download { min-height: 40px; min-width: 36px; } .pdf-viewer input, .pdf-viewer select { height: 36px; } }
-@container (max-width: 520px) { .pdf-toolbar { gap: 3px; } .pdf-tools { gap: 2px; } .pdf-toolbar form { gap: 4px; } .pdf-toolbar input { width: 38px; } .pdf-floating-bar { max-width: calc(100% - 16px); padding: 5px; border-radius: 16px; } .pdf-divider { margin-inline: 2px; } .pdf-zoom button { display: none; } .pdf-save span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } .pdf-zoom select { max-width: 105px; } }
+.pdf-text-layer ::selection { background: color-mix(in srgb, var(--color-link) 30%, transparent); }
+@media (pointer: coarse) { .pdf-viewer button, .pdf-download { min-height: 40px; min-width: 36px; } .pdf-viewer input, .pdf-viewer button[role=combobox] { height: 36px; } }
+@container (max-width: 520px) { .pdf-toolbar { gap: 3px; } .pdf-tools { gap: 2px; } .pdf-toolbar form { gap: 4px; } .pdf-toolbar input { width: 38px; } .pdf-floating-bar { max-width: calc(100% - 16px); padding: 5px; border-radius: 16px; } .pdf-divider { margin-inline: 2px; } .pdf-zoom > button { display: none; } .pdf-save span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } .pdf-zoom-field { width: 105px; } }
 
 @container (max-width: 360px) { .pdf-toolbar { flex-wrap: wrap; } .pdf-file-actions { margin-left: auto; } }
 @media (prefers-reduced-transparency: reduce) { .pdf-floating-bar { background: var(--color-surface-deep); backdrop-filter: none; -webkit-backdrop-filter: none; } }

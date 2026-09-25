@@ -1,3 +1,5 @@
+import { uiText, uiWeekdays, getUiLocale } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // 달력 위젯 — 기한이 잡힌 할 일만 날짜 칸에 놓는다. 기한 없는 항목은 여기 오지 않는다(할 일 위젯에 있다).
 //
 // 날짜는 전부 `YYYY-MM-DD` 문자열로만 다룬다. Date로 바꿔 비교하면 시간대 때문에 하루씩 밀린다.
@@ -5,7 +7,6 @@ import { useMemo, useState } from 'react'
 import { NavArrowLeft, NavArrowRight } from 'iconoir-react'
 import type { TodoItem, TodoStatus, TodoType } from '../../api/client'
 
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 
 function iso(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -21,6 +22,7 @@ export function DueCalendar({
     change: { text?: string; type?: TodoType; status?: TodoStatus; done?: boolean; due?: string | null; time?: string | null; projects?: string[] },
   ) => void
 }) {
+  useUiLocale()
   const now = new Date()
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() })
   const today = iso(now.getFullYear(), now.getMonth(), now.getDate())
@@ -53,20 +55,19 @@ export function DueCalendar({
           type="button"
           onClick={() => step(-1)}
           className="flex h-8 w-8 items-center justify-center rounded border border-edge bg-surface-raised text-ink-secondary hover:border-edge-strong hover:bg-surface-hover hover:text-ink"
-          aria-label="이전 달"
-          title="이전 달"
+          aria-label={uiText("이전 달")}
+          title={uiText("이전 달")}
         >
           <NavArrowLeft width={15} height={15} aria-hidden="true" />
         </button>
         <span className="min-w-0 flex-1 text-center text-sm font-semibold text-ink-bright">
-          {cursor.year}년 {cursor.month + 1}월
-        </span>
+          {new Intl.DateTimeFormat(getUiLocale(), { year: 'numeric', month: 'long' }).format(new Date(cursor.year, cursor.month, 1))}</span>
         <button
           type="button"
           onClick={() => step(1)}
           className="flex h-8 w-8 items-center justify-center rounded border border-edge bg-surface-raised text-ink-secondary hover:border-edge-strong hover:bg-surface-hover hover:text-ink"
-          aria-label="다음 달"
-          title="다음 달"
+          aria-label={uiText("다음 달")}
+          title={uiText("다음 달")}
         >
           <NavArrowRight width={15} height={15} aria-hidden="true" />
         </button>
@@ -75,12 +76,11 @@ export function DueCalendar({
           onClick={() => setCursor({ year: now.getFullYear(), month: now.getMonth() })}
           className="rounded border border-edge bg-surface-raised px-2.5 py-1 text-xs text-ink-muted hover:border-edge-strong hover:bg-surface-hover hover:text-ink"
         >
-          오늘
-        </button>
+          {uiText("오늘")}</button>
       </div>
 
       <div className="grid grid-cols-7 gap-1 text-[11px]">
-        {WEEKDAYS.map((w) => (
+        {uiWeekdays().map((w) => (
           <div key={w} className="px-1 pb-1 text-center font-medium text-ink-muted">
             {w}
           </div>

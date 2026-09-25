@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 import { Replayer } from '@rrweb/replay'
 import { EventType, IncrementalSource, ReplayerEvents, NodeType, type eventWithTime } from '@rrweb/types'
 
@@ -15,7 +16,7 @@ type Surface = { generation: number; parent?: string; parentNode?: number; rende
 /** Original scripts execute exclusively in Chromium; each remote frame has an inert replica. */
 export function mountDomBrowser(root: HTMLElement, streamUrl: string, status: (value: DomBrowserStatus) => void): DomBrowserController {
   const url = new URL(streamUrl, location.href)
-  if (url.origin !== location.origin || url.pathname !== '/api/browser-dom/ws') throw new Error('브라우저 주소가 올바르지 않습니다')
+  if (url.origin !== location.origin || url.pathname !== '/api/browser-dom/ws') throw new Error(uiText("브라우저 주소가 올바르지 않습니다"))
   url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const socket = new WebSocket(url)
   const surfaces = new Map<string, Surface>()
@@ -52,7 +53,12 @@ export function mountDomBrowser(root: HTMLElement, streamUrl: string, status: (v
             send({ kind: 'snapshot', frame: childId })
           }
           queueMicrotask(mountPending)
-        }, () => queueMicrotask(mountPending))
+        }, () => queueMicrotask(mountPending), (event) => {
+          // Replica iframe keys do not bubble to Mew. While expanded, give the
+          // shared overlay stack first refusal before forwarding Esc remotely.
+          if (!root.closest('[data-dock-maximized]')) return false
+          return !window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, repeat: event.repeat }))
+        })
         const queued = surface.queue.splice(0)
         for (const event of queued) surface.renderer.event(event)
       }
@@ -96,10 +102,10 @@ export function mountDomBrowser(root: HTMLElement, streamUrl: string, status: (v
         if (surface.queue.length < 1000) surface.queue.push(event)
         mountPending()
       }
-    } catch { terminalError = true; report({ state: 'error', message: '브라우저 화면을 복원하지 못했습니다. 다시 연결해 주세요.' }) }
+    } catch { terminalError = true; report({ state: 'error', message: uiText("브라우저 화면을 복원하지 못했습니다. 다시 연결해 주세요.") }) }
   }
-  socket.onerror = () => { terminalError = true; report({ state: 'error', message: '브라우저에 연결하지 못했습니다. 다시 연결해 주세요.' }) }
-  socket.onclose = () => { if (!disposed && !terminalError) report({ state: 'error', message: '연결이 끊겼습니다. 다시 연결해 주세요.' }) }
+  socket.onerror = () => { terminalError = true; report({ state: 'error', message: uiText("브라우저에 연결하지 못했습니다. 다시 연결해 주세요.") }) }
+  socket.onclose = () => { if (!disposed && !terminalError) report({ state: 'error', message: uiText("연결이 끊겼습니다. 다시 연결해 주세요.") }) }
   return Object.assign(() => {
     disposed = true
     observer.disconnect()
@@ -109,7 +115,7 @@ export function mountDomBrowser(root: HTMLElement, streamUrl: string, status: (v
   }, { command: (kind: string, extra: Record<string, unknown> = {}) => send({ kind, ...extra }) })
 }
 
-function createFrame(root: HTMLElement, send: (message: Record<string, unknown>) => void, ready: () => void, changed: () => void) {
+function createFrame(root: HTMLElement, send: (message: Record<string, unknown>) => void, ready: () => void, changed: () => void, escape: (event: KeyboardEvent) => boolean) {
   let player: Replayer | undefined
   let meta: eventWithTime | undefined
   let disposeInput: (() => void) | undefined
@@ -159,6 +165,7 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
     }
     const key = (event: KeyboardEvent) => {
       if (event.isComposing || !['Enter', 'Escape', 'Tab'].includes(event.key)) return
+      if (event.key === 'Escape' && escape(event)) { event.preventDefault(); event.stopPropagation(); return }
       if (event.key === 'Enter' && (event.target as HTMLElement)?.tagName === 'TEXTAREA') return
       if (event.key !== 'Tab') event.preventDefault()
       send({ kind: 'key', id: idOf(event), key: event.key === 'Tab' && event.shiftKey ? 'Shift+Tab' : event.key })
@@ -245,10 +252,10 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
             ':where([data-mew-frame]) { display:inline-block; width:300px; height:150px; overflow:hidden; }',
             ':where([data-mew-frame][hidden]) { display:none; }',
 
-            '[data-mew-unsupported="iframe"]::after,[data-mew-unsupported="canvas"]::after,[data-mew-unsupported="video"]::after,[data-mew-unsupported="audio"]::after,[data-mew-unsupported="object"]::after,[data-mew-unsupported="embed"]::after { content: "이 콘텐츠는 표시할 수 없습니다"; display:block; padding:12px; color:#555; background:#f5f5f5; font:13px sans-serif; }',
+            `[data-mew-unsupported="iframe"]::after,[data-mew-unsupported="canvas"]::after,[data-mew-unsupported="video"]::after,[data-mew-unsupported="audio"]::after,[data-mew-unsupported="object"]::after,[data-mew-unsupported="embed"]::after { content: ${JSON.stringify(uiText("이 콘텐츠는 표시할 수 없습니다"))}; display:block; padding:12px; color:#555; background:#f5f5f5; font:13px sans-serif; }`,
           ],
         })
-        player.iframe.title = '서버 웹페이지'
+        player.iframe.title = uiText("서버 웹페이지")
         player.iframe.setAttribute('sandbox', 'allow-same-origin')
         player.iframe.referrerPolicy = 'no-referrer'
         player.on(ReplayerEvents.FullsnapshotRebuilded, () => {

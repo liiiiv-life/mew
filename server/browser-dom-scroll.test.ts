@@ -34,8 +34,13 @@ test('DOM scrolling rejects delayed echoes, preserves nested moves, and still fo
     await new Promise<void>((resolve) => server.close(() => resolve()))
   })
   const inputs: DomInput[] = []
+  const keys: DomInput[] = []
   const input = session.input.bind(session)
-  session.input = async (value, signal) => { if (value.kind === 'scroll') inputs.push(value); await input(value, signal) }
+  session.input = async (value, signal) => {
+    if (value.kind === 'scroll') inputs.push(value)
+    if (value.kind === 'key') keys.push(value)
+    await input(value, signal)
+  }
   const send = session.send.bind(session)
   const held: { type: string; frame: string; generation: number; event: { type: number; data: { source: number; id: number; y: number; mewScroll?: { token: string; revision: number } } } }[] = []
   let hold = false
@@ -53,7 +58,7 @@ test('DOM scrolling rejects delayed echoes, preserves nested moves, and still fo
   const source = session.page!
   const wait = async (check: () => boolean) => {
     for (let i = 0; i < 100; i++) { if (check()) return; await new Promise((resolve) => setTimeout(resolve, 20)) }
-    assert.fail('scroll packet did not arrive')
+    assert.fail('input or scroll packet did not arrive')
   }
   const docY = () => view.locator('html').evaluate((node) => node.ownerDocument.scrollingElement!.scrollTop)
 
@@ -102,5 +107,23 @@ test('DOM scrolling rejects delayed echoes, preserves nested moves, and still fo
   await viewer.waitForTimeout(350)
   assert.equal(await docY(), 1200)
   assert.equal(inputs.length, 5)
+  // Escape inside the replica restores an expanded panel through the host's
+  // overlay stack; normal browsing continues to forward Escape to the source.
+  await viewer.evaluate(`
+    document.querySelector('#root').setAttribute('data-dock-maximized', 'browser');
+    window.escapes = 0;
+    window.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      window.escapes++;
+      document.querySelector('#root').removeAttribute('data-dock-maximized');
+    });
+  `)
+  await view.locator('body').dispatchEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  assert.equal(await viewer.evaluate('window.escapes'), 1)
+  assert.equal(keys.length, 0)
+  await view.locator('body').dispatchEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  await wait(() => keys.length === 1)
+  assert.equal(await viewer.evaluate('window.escapes'), 1)
   assert.deepEqual(errors, [])
 })

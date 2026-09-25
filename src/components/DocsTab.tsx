@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // docs 탭 — 프로젝트 탭 줄 맨 왼쪽에 **하나만** 서는 고정 탭.
 //
 // docs는 프로젝트가 아니라 워크스페이스에 하나뿐인 특별 레포다(server/paths.ts). 그래서
@@ -24,6 +26,7 @@ export function DocsTab({
   onActivate: () => void
   onOpenSettings: () => void
 }) {
+  useUiLocale()
   const { pressProps, consumeClick } = useLongPress(() => {
     if (canManage) onOpenSettings()
   })
@@ -41,7 +44,7 @@ export function DocsTab({
         active ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
       }`}
       style={{ touchAction: 'manipulation' }}
-      title={canManage ? 'docs — 꾹 누르거나 우클릭하면 가져오기/내보내기' : 'docs'}
+      title={canManage ? uiText("docs — 꾹 누르거나 우클릭하면 가져오기/내보내기") : 'docs'}
     >
       <span className="flex h-5 w-5 items-center justify-center">
         <ProjectIcon icon={DOCS_ICON} size={17} />

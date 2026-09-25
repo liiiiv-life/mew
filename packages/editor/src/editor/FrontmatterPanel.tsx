@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { nextFieldKey, type FrontmatterData } from '../utils/frontmatter'
 import { isExternalHref, resolveRelativePath } from '../utils/fuzzy'
@@ -19,6 +21,7 @@ export function FrontmatterPanel({
   docPath?: string
   onOpenLink?: (path: string) => void
 }) {
+  useUiLocale()
   // 드래그 중인 필드의 index와, 현재 드롭 지점(어느 필드의 위/아래인지). 순수 시각 표시용.
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [over, setOver] = useState<{ index: number; after: boolean } | null>(null)
@@ -82,7 +85,7 @@ export function FrontmatterPanel({
         value={data.title}
         onChange={(e) => setTitle(e.target.value)}
         readOnly={readOnly}
-        placeholder="제목"
+        placeholder={uiText("제목")}
         className="w-full border-none bg-transparent text-3xl leading-tight font-bold text-ink-bright outline-none placeholder:text-ink-faint"
       />
       <div className="mt-3 flex flex-col gap-1">
@@ -116,8 +119,8 @@ export function FrontmatterPanel({
                   setDragIndex(i)
                 }}
                 onDragEnd={endDrag}
-                aria-label="필드 순서 변경"
-                title="드래그해서 순서 변경"
+                aria-label={uiText("필드 순서 변경")}
+                title={uiText("드래그해서 순서 변경")}
                 className="shrink-0 cursor-grab rounded px-0.5 text-ink-faint opacity-0 hover:text-ink-muted group-hover:opacity-100 active:cursor-grabbing"
               >
                 <GripIcon />
@@ -127,7 +130,7 @@ export function FrontmatterPanel({
               value={field.key}
               onChange={(e) => setFieldKey(i, e.target.value)}
               readOnly={readOnly}
-              placeholder="필드명"
+              placeholder={uiText("필드명")}
               className="w-24 shrink-0 truncate rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-muted outline-none hover:border-edge focus:border-edge-bright"
             />
             {editing !== i && hasLink(field.value) ? (
@@ -169,7 +172,7 @@ export function FrontmatterPanel({
                 onFocus={() => setEditing(i)}
                 onBlur={() => setEditing((cur) => (cur === i ? null : cur))}
                 readOnly={readOnly}
-                placeholder="값"
+                placeholder={uiText("값")}
                 className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-secondary outline-none hover:border-edge focus:border-edge-bright"
               />
             )}
@@ -177,7 +180,7 @@ export function FrontmatterPanel({
               <button
                 type="button"
                 onClick={() => removeField(i)}
-                aria-label="필드 삭제"
+                aria-label={uiText("필드 삭제")}
                 className="shrink-0 rounded px-1.5 py-0.5 text-xs text-ink-faint opacity-0 hover:bg-surface-hover hover:text-ink group-hover:opacity-100"
               >
                 ×
@@ -191,8 +194,7 @@ export function FrontmatterPanel({
             onClick={addField}
             className="mt-1 self-start rounded px-1.5 py-1 text-xs text-ink-muted hover:bg-surface-hover hover:text-ink"
           >
-            + 필드 추가
-          </button>
+            {uiText("+ 필드 추가")}</button>
         )}
       </div>
     </div>
@@ -229,6 +231,7 @@ function hasLink(value: string): boolean {
 
 // 세로 6점 그립 — 드래그 핸들임을 알린다 (노션식)
 function GripIcon() {
+  useUiLocale()
   return (
     <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true">
       <circle cx="3" cy="3" r="1.2" />

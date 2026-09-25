@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useOverlayDismiss } from '@mew/ui'
 
 /** Fullscreen only this PDF. A modal top-layer fallback also escapes transformed/clipped panes. */
 export function usePdfFullscreen(viewer: RefObject<HTMLDivElement | null>, stage: RefObject<HTMLDialogElement | null>) {
@@ -48,6 +49,7 @@ export function usePdfFullscreen(viewer: RefObject<HTMLDivElement | null>, stage
 
   const exitRef = useRef(exit)
   exitRef.current = exit
+  useOverlayDismiss(fullscreen && (() => { void exitRef.current() }))
   useEffect(() => {
     alive.current = true
     const element = viewer.current, dialog = stage.current
@@ -66,9 +68,6 @@ export function usePdfFullscreen(viewer: RefObject<HTMLDivElement | null>, stage
         }
         return
       }
-      if (event.key !== 'Escape') return
-      event.preventDefault(); event.stopImmediatePropagation()
-      void exitRef.current()
     }
     const cancel = (event: Event) => { event.preventDefault(); void exitRef.current() }
     document.addEventListener('fullscreenchange', change)

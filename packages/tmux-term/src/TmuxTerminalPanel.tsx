@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ConfirmDialog, keepFocusOnPress, useDragReorder, type DragItemProps } from '@mew/ui'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
@@ -54,6 +56,7 @@ function InlineTabInput({
   error?: string
   placeholder?: string
 }) {
+  useUiLocale()
   const inputRef = useRef<HTMLInputElement>(null)
   const committedRef = useRef(false)
 
@@ -107,6 +110,7 @@ function InlineTabInput({
 // FileTree.tsx의 ActionPopover와 동일한 패턴: 바깥을 누르면 닫히고, 그 상호작용이 아래
 // 요소의 클릭(탭 전환 등)까지 이어지지 않도록 뒤따라올 click 하나를 삼킨다.
 function TabContextMenu({ x, y, onRename, onClose }: { x: number; y: number; onRename: () => void; onClose: () => void }) {
+  useUiLocale()
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -134,8 +138,7 @@ function TabContextMenu({ x, y, onRename, onClose }: { x: number; y: number; onR
       className="min-w-[9rem] overflow-hidden rounded-lg border border-edge-bright bg-surface-raised text-sm shadow-xl"
     >
       <button type="button" onClick={onRename} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-        ✎ 이름 변경
-      </button>
+        {uiText("✎ 이름 변경")}</button>
     </div>
   )
 }
@@ -163,6 +166,7 @@ function TabButton({
   onRename: () => void
   onKill: () => void
 }) {
+  useUiLocale()
   function handleClick() {
     if (onConsumeClick()) return
     onSelect()
@@ -201,7 +205,7 @@ function TabButton({
           onKill()
         }}
         className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
-        aria-label={`${session.name} 종료`}
+        aria-label={uiText("{p0} 종료", { p0: session.name })}
       >
         ×
       </button>
@@ -233,6 +237,7 @@ export function TmuxTerminalPanel({
   nextTabSignal?: number
   previousTabSignal?: number
 }) {
+  useUiLocale()
   const shortcutScopeRef = useRef<HTMLDivElement>(null)
   const [sessions, setSessions] = useState<TmuxSession[] | null>(null)
   const [activeSession, setActiveSession] = useState<string | null>(null)
@@ -429,14 +434,14 @@ export function TmuxTerminalPanel({
               onCommit={commitEdit}
               onCancel={() => setEditing(null)}
               error={editError}
-              placeholder="세션 이름"
+              placeholder={uiText("세션 이름")}
             />
           ) : (
             <button
               type="button"
               onClick={startCreate}
-              title="새 탭"
-              aria-label="새 탭"
+              title={uiText("새 탭")}
+              aria-label={uiText("새 탭")}
               className="flex h-full w-9 shrink-0 items-center justify-center border-r border-edge text-ink-secondary hover:bg-surface-raised hover:text-ink"
             >
               <PlusGlyph />
@@ -448,7 +453,7 @@ export function TmuxTerminalPanel({
             type="button"
             onClick={onClose}
             className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-            aria-label="터미널 닫기"
+            aria-label={uiText("터미널 닫기")}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6 6 18" />
@@ -470,7 +475,7 @@ export function TmuxTerminalPanel({
           />
         ) : (
           <div className="flex h-full items-center justify-center p-4 text-center text-sm text-ink-muted">
-            {sessions === null ? '세션 불러오는 중…' : '탭에서 세션을 선택하거나 +로 새 세션을 만드세요'}
+            {sessions === null ? uiText("세션 불러오는 중…") : uiText("탭에서 세션을 선택하거나 +로 새 세션을 만드세요")}
           </div>
         )}
       </div>
@@ -489,9 +494,9 @@ export function TmuxTerminalPanel({
 
       {killTarget !== null && (
         <ConfirmDialog
-          message={`세션 "${killTarget}"을(를) 종료할까요?`}
-          detail="실행 중인 프로세스가 함께 종료됩니다."
-          confirmLabel="종료"
+          message={uiText("세션 \"{p0}\"을(를) 종료할까요?", { p0: killTarget })}
+          detail={uiText("실행 중인 프로세스가 함께 종료됩니다.")}
+          confirmLabel={uiText("종료")}
           danger
           onConfirm={killConfirmed}
           onCancel={() => setKillTarget(null)}
@@ -504,6 +509,7 @@ export function TmuxTerminalPanel({
 
 /** 에이전트 창의 새 탭 버튼과 같은 아이콘·획 규격. */
 function PlusGlyph() {
+  useUiLocale()
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />

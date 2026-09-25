@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import type { EditorApi } from '../types'
@@ -38,6 +40,7 @@ export function LinkTooltip({
   onClose: () => void
   onOpenInternal: (path: string) => void
 }) {
+  useUiLocale()
   // 링크가 아직 없으면(새로 만드는 중) 보여줄 것이 없으니 곧장 편집 모드
   const [mode, setMode] = useState<'view' | 'edit'>(initialHref ? initialMode : 'edit')
   const [url, setUrl] = useState(initialHref)
@@ -159,7 +162,7 @@ export function LinkTooltip({
       >
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            {preview.state === 'loading' && <div className="text-xs text-ink-muted">불러오는 중…</div>}
+            {preview.state === 'loading' && <div className="text-xs text-ink-muted">{uiText("불러오는 중…")}</div>}
             {preview.state === 'internal' && (
               <>
                 <button
@@ -175,7 +178,7 @@ export function LinkTooltip({
               </>
             )}
             {preview.state === 'internal-missing' && (
-              <div className="select-text text-xs text-danger">문서를 찾을 수 없습니다: {preview.path}</div>
+              <div className="select-text text-xs text-danger">{uiText("문서를 찾을 수 없습니다:")}{preview.path}</div>
             )}
             {preview.state === 'external' && (
               <>
@@ -202,8 +205,8 @@ export function LinkTooltip({
             <button
               type="button"
               onClick={() => setMode('edit')}
-              title="링크 편집 (Ctrl+K)"
-              aria-label="링크 편집"
+              title={uiText("링크 편집 (Ctrl+K)")}
+              aria-label={uiText("링크 편집")}
               className="shrink-0 rounded px-1.5 py-0.5 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink"
             >
               ✎
@@ -225,8 +228,8 @@ export function LinkTooltip({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={editingInternal}
-        placeholder="표시 텍스트"
-        title={editingInternal ? '문서 제목 · 변경 불가' : undefined}
+        placeholder={uiText("표시 텍스트")}
+        title={editingInternal ? uiText("문서 제목 · 변경 불가") : undefined}
         className="w-64 rounded border border-edge-bright bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent disabled:opacity-50"
       />
       <div className="flex items-center gap-1.5">
@@ -235,20 +238,18 @@ export function LinkTooltip({
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="https://... 또는 문서 경로"
+          placeholder={uiText("https://... 또는 문서 경로")}
           className="w-64 rounded border border-edge-bright bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent"
         />
         <button type="button" onClick={apply} className="rounded bg-accent-strong px-2 py-1 text-xs text-ink-on-accent hover:bg-accent">
-          적용
-        </button>
+          {uiText("적용")}</button>
         {initialHref && (
           <button
             type="button"
             onClick={remove}
             className="rounded border border-edge-bright px-2 py-1 text-xs text-ink-soft hover:bg-surface-hover"
           >
-            제거
-          </button>
+            {uiText("제거")}</button>
         )}
       </div>
     </div>

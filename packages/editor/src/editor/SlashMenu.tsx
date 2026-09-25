@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // 슬래시(/) 커맨드 메뉴 — '/' 입력 시 뜨고 이어 타이핑하면 실시간으로 필터된다 (노션식).
 // 선택은 클릭/탭(onMouseDown) 또는 키보드(↑↓·Enter, Editor.tsx의 handleKeyDown 참고)로 한다.
 import type { Editor as TiptapEditor } from '@tiptap/react'
@@ -23,13 +25,14 @@ export function SlashMenu({
   selectedIndex: number
   onSelect: (command: SlashCommand) => void
 }) {
+  useUiLocale()
   return (
     <div
       style={{ position: 'fixed', top: position.top, left: position.left, zIndex: 1000 }}
       className="max-h-72 w-64 overflow-y-auto rounded border border-edge-bright bg-surface-raised p-1 shadow-lg"
     >
       {commands.length === 0 ? (
-        <div className="px-2 py-1.5 text-xs text-ink-muted">일치하는 명령 없음</div>
+        <div className="px-2 py-1.5 text-xs text-ink-muted">{uiText("일치하는 명령 없음")}</div>
       ) : (
         commands.map((command, i) => (
           <button

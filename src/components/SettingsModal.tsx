@@ -1,10 +1,12 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useState } from 'react'
-import { useOverlayDismiss } from '@mew/ui'
+import { ColorPicker, SelectField, useOverlayDismiss } from '@mew/ui'
 import { changePassword, fetchIgnoreList, logout, saveIgnoreList, updateProfile } from '../api/client'
 import { DEFAULT_SHORTCUTS, formatKeyCombo, resetAllBindings, resetBinding, setBinding, useShortcutBindings } from '@mew/shortcuts'
 import { LOCALES, LOCALE_NAMES, localizeShortcut, useI18n, type Locale, type TranslationKey } from '../i18n'
 import { DEFAULT_FONT_PREFERENCES, type FontPreferences } from '../utils/fontPreferences'
-import { DEFAULT_ACCENT_COLOR, type AccentColor } from '../utils/accentColor'
+import { DEFAULT_THEME_COLOR } from '../utils/theme-color'
 import { MEWCAT_SKINS, type MewcatSkinSelection } from '../utils/mewcatSkin'
 import { MewcatMark } from './Mewcat'
 import { MewcatNotificationSettings } from './mewcat-notifications'
@@ -24,11 +26,11 @@ interface SettingsModalProps {
   canEditIgnore: boolean
   theme: Theme
   fontPreferences: FontPreferences
-  accentColor: AccentColor
+  themeColor: string
   mewcatSkin: MewcatSkinSelection
   onToggleTheme: () => void
   onFontPreferencesChange: (fonts: FontPreferences) => void
-  onAccentColorChange: (colors: AccentColor) => void
+  onThemeColorChange: (color: string) => void
   onMewcatSkinChange: (skin: MewcatSkinSelection) => void
   onClose: () => void
   onLoggedOut: () => void
@@ -44,7 +46,8 @@ const SECTION_LABEL: Record<Section, TranslationKey> = {
 }
 
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
-export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, accentColor, mewcatSkin, onToggleTheme, onFontPreferencesChange, onAccentColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
+export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
+  useUiLocale()
   const [section, setSection] = useState<Section>(email ? 'account' : 'appearance')
   // Mobile begins with the category list; the selected panel is a second screen.
   const [mobileSection, setMobileSection] = useState<Section | null>(null)
@@ -124,10 +127,10 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
               <AppearancePanel
                 theme={theme}
                 fonts={fontPreferences}
-                accentColor={accentColor}
+                themeColor={themeColor}
                 onToggleTheme={onToggleTheme}
                 onFontsChange={onFontPreferencesChange}
-                onAccentColorChange={onAccentColorChange}
+                onThemeColorChange={onThemeColorChange}
               />
             )}
             {section === 'mewcat' && <><MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} /><MewcatNotificationSettings /><MewcatBreakSettings /></>}
@@ -141,6 +144,7 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
 }
 
 function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: (skin: MewcatSkinSelection) => void }) {
+  useUiLocale()
   const { t } = useI18n()
   const options = [{ id: null, name: t('settings.mewcatNone') }, ...MEWCAT_SKINS]
   return (
@@ -183,6 +187,7 @@ function AccountPanel({
   onLoggedOut: () => void
   onProfileChanged: (profile: { displayName: string; avatarDataUrl: string | null }) => void
 }) {
+  useUiLocale()
   const { t } = useI18n()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -201,11 +206,11 @@ function AccountPanel({
     setError(null)
     setSuccess(false)
     if (newPassword.length < PASSWORD_MIN_LENGTH) {
-      setError(`비밀번호는 ${PASSWORD_MIN_LENGTH}자 이상이어야 합니다`)
+      setError(uiText("비밀번호는 {p0}자 이상이어야 합니다", { p0: PASSWORD_MIN_LENGTH }))
       return
     }
     if (newPassword !== confirmPassword) {
-      setError('새 비밀번호가 서로 다릅니다')
+      setError(uiText("새 비밀번호가 서로 다릅니다"))
       return
     }
     setBusy(true)
@@ -216,7 +221,7 @@ function AccountPanel({
       setNewPassword('')
       setConfirmPassword('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '비밀번호 변경에 실패했습니다')
+      setError(err instanceof Error ? err.message : uiText("비밀번호 변경에 실패했습니다"))
     } finally {
       setBusy(false)
     }
@@ -234,7 +239,7 @@ function AccountPanel({
   async function handleAvatarChange(file: File | undefined) {
     if (!file) return
     if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type) || file.size > 512 * 1024) {
-      setProfileError('프로필 사진은 512KB 이하의 JPG, PNG, WebP 또는 GIF만 사용할 수 있습니다')
+      setProfileError(uiText("프로필 사진은 512KB 이하의 JPG, PNG, WebP 또는 GIF만 사용할 수 있습니다"))
       return
     }
     const reader = new FileReader()
@@ -243,7 +248,7 @@ function AccountPanel({
       setProfileError(null)
       setProfileSaved(false)
     }
-    reader.onerror = () => setProfileError('사진을 읽지 못했습니다')
+    reader.onerror = () => setProfileError(uiText("사진을 읽지 못했습니다"))
     reader.readAsDataURL(file)
   }
 
@@ -259,7 +264,7 @@ function AccountPanel({
       onProfileChanged(result.profile)
       setProfileSaved(true)
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : '프로필 저장에 실패했습니다')
+      setProfileError(err instanceof Error ? err.message : uiText("프로필 저장에 실패했습니다"))
     } finally {
       setProfileBusy(false)
     }
@@ -276,10 +281,10 @@ function AccountPanel({
       </div>
 
       <form onSubmit={handleSaveProfile} className="mb-4 flex flex-col gap-3 border-t border-edge pt-4">
-        <div className="text-sm font-medium">프로필</div>
+        <div className="text-sm font-medium">{uiText("프로필")}</div>
         <div className="flex items-center gap-3">
           {avatar ? (
-            <img src={avatar} alt="프로필 사진 미리보기" className="h-14 w-14 rounded-full border border-edge-strong object-cover" />
+            <img src={avatar} alt={uiText("프로필 사진 미리보기")} className="h-14 w-14 rounded-full border border-edge-strong object-cover" />
           ) : (
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-raised text-lg font-semibold text-ink-secondary">
               {(name.trim()[0] ?? email[0] ?? '?').toUpperCase()}
@@ -287,18 +292,17 @@ function AccountPanel({
           )}
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(e) => void handleAvatarChange(e.target.files?.[0])} className="block w-full text-xs text-ink-secondary file:mr-2 file:rounded file:border-0 file:bg-surface-raised file:px-2 file:py-1 file:text-xs file:text-ink hover:file:bg-surface-hover" />
-            {avatar && <button type="button" onClick={() => { setAvatar(null); setProfileSaved(false) }} className="w-max text-xs text-ink-muted hover:text-danger">사진 제거</button>}
+            {avatar && <button type="button" onClick={() => { setAvatar(null); setProfileSaved(false) }} className="w-max text-xs text-ink-muted hover:text-danger">{uiText("사진 제거")}</button>}
           </div>
         </div>
         <label className="text-sm text-ink-secondary">
-          표시 이름
-          <input value={name} onChange={(e) => { setName(e.target.value); setProfileSaved(false) }} maxLength={50} required className={`${inputClass} mt-1`} />
+          {uiText("표시 이름")}<input value={name} onChange={(e) => { setName(e.target.value); setProfileSaved(false) }} maxLength={50} required className={`${inputClass} mt-1`} />
         </label>
-        <div className="text-xs text-ink-muted">JPG, PNG, WebP, GIF · 최대 512KB</div>
+        <div className="text-xs text-ink-muted">{uiText("JPG, PNG, WebP, GIF · 최대 512KB")}</div>
         {profileError && <div className="select-text text-sm text-danger">{profileError}</div>}
-        {profileSaved && <div className="text-sm text-success">프로필을 저장했습니다</div>}
+        {profileSaved && <div className="text-sm text-success">{uiText("프로필을 저장했습니다")}</div>}
         <button type="submit" disabled={profileBusy || !name.trim()} className="rounded bg-accent py-2 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">
-          {profileBusy ? '저장 중…' : '프로필 저장'}
+          {profileBusy ? uiText("저장 중…") : uiText("프로필 저장")}
         </button>
       </form>
 
@@ -333,7 +337,7 @@ function AccountPanel({
         />
         {error && <div className="select-text text-sm text-danger">{error}</div>}
         {success && (
-          <div className="text-sm text-success">비밀번호 변경 완료 · 다른 기기에서 다시 로그인 필요</div>
+          <div className="text-sm text-success">{uiText("비밀번호 변경 완료 · 다른 기기에서 다시 로그인 필요")}</div>
         )}
         <button
           type="submit"
@@ -363,28 +367,25 @@ const FONT_SUGGESTIONS = ['Noto Serif KR', 'IBM Plex Sans KR', 'IBM Plex Mono', 
 function AppearancePanel({
   theme,
   fonts,
-  accentColor,
+  themeColor,
   onToggleTheme,
   onFontsChange,
-  onAccentColorChange,
+  onThemeColorChange,
 }: {
   theme: Theme
   fonts: FontPreferences
-  accentColor: AccentColor
+  themeColor: string
   onToggleTheme: () => void
   onFontsChange: (fonts: FontPreferences) => void
-  onAccentColorChange: (colors: AccentColor) => void
+  onThemeColorChange: (color: string) => void
 }) {
+  useUiLocale()
   const { locale, setLocale, t } = useI18n()
   function select(next: Theme) {
     if (theme !== next) onToggleTheme()
   }
   const optionClass = (active: boolean) =>
     `flex items-center gap-1.5 px-3 py-1.5 ${active ? 'bg-accent text-ink-on-accent' : 'bg-surface-raised text-ink-secondary hover:bg-surface-hover'}`
-
-  function handleAccentChange(color: string, property: keyof AccentColor) {
-    onAccentColorChange({ ...accentColor, [property]: color })
-  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -405,76 +406,34 @@ function AppearancePanel({
         </button>
       </div>
       <div className="mt-2 border-t border-edge pt-3">
-        <label htmlFor="mew-language" className="text-sm font-medium">
+        <div className="text-sm font-medium">
           {t('settings.language')}
-        </label>
-        <select
-          id="mew-language"
-          value={locale}
-          onChange={(event) => setLocale(event.target.value as Locale)}
-          className="mt-2 block rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-edge-bright"
-        >
-          {LOCALES.map((value) => (
-            <option key={value} value={value}>
-              {LOCALE_NAMES[value]}
-            </option>
-          ))}
-        </select>
+        </div>
+        <div className="mt-2 max-w-xs">
+          <SelectField label={t('settings.language')} value={locale}
+            options={LOCALES.map((value) => ({ value, label: LOCALE_NAMES[value] }))}
+            onChange={(value) => setLocale(value as Locale)} />
+        </div>
       </div>
       <div className="mt-2 border-t border-edge pt-3">
-        <div className="text-sm font-medium">{t('settings.accentColor')}</div>
-        <div className="mt-3 flex flex-col gap-3">
-          {(['accent', 'accentStrong', 'link'] as const).map((prop) => (
-            <label key={prop} className="block">
-              <span className="text-xs font-medium text-ink-secondary">{prop === 'accent' ? '액센트' : prop === 'accentStrong' ? '액센트(진함)' : '링크'}</span>
-              <div className="mt-1 flex gap-2 items-center">
-                <input
-                  type="color"
-                  value={accentColor[prop]}
-                  onChange={(event) => handleAccentChange(event.target.value, prop)}
-                  className="h-8 w-8 rounded border border-edge-strong bg-surface cursor-pointer"
-                  title={prop === 'accent' ? '메인 액센트 색상' : prop === 'accentStrong' ? '더 진한 액센트(호버 등)' : '링크 색상'}
-                />
-                <input
-                  type="text"
-                  value={accentColor[prop]}
-                  onChange={(event) => handleAccentChange(event.target.value, prop)}
-                  className="flex-1 rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-edge-bright font-mono"
-                  placeholder="#RRGGBB"
-                  maxLength={7}
-                />
-                <button
-                  type="button"
-                  onClick={() => onAccentColorChange({ ...accentColor, [prop]: DEFAULT_ACCENT_COLOR[prop] })}
-                  disabled={accentColor[prop] === DEFAULT_ACCENT_COLOR[prop]}
-                  className="shrink-0 rounded border border-edge-strong px-2 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-40"
-                >
-                  {t('common.reset')}
-                </button>
-              </div>
-            </label>
-          ))}
-        </div>
+        <ColorPicker value={themeColor} onChange={onThemeColorChange} defaultValue={DEFAULT_THEME_COLOR}
+          labels={{ color: t('settings.themeColor'), hex: t('settings.themeColorHex'),
+            hue: t('settings.colorHue'), saturation: t('settings.colorSaturation'), brightness: t('settings.colorBrightness'),
+            reset: t('common.reset'), close: t('common.close') }} />
       </div>
       <div className="mt-2 border-t border-edge pt-3">
         <div className="text-sm font-medium">{t('settings.fonts')}</div>
         <div className="mt-1 text-xs text-ink-secondary">{t('settings.fontsDescription')}</div>
-        <datalist id="mew-font-suggestions">
-          {FONT_SUGGESTIONS.map((font) => <option key={font} value={font} />)}
-        </datalist>
         <div className="mt-3 flex flex-col gap-3">
           {(['ui', 'markdown', 'mono'] as const).map((kind) => (
-            <label key={kind} className="block">
+            <div key={kind}>
               <span className="text-xs font-medium text-ink-secondary">{t(`settings.font.${kind}`)}</span>
               <div className="mt-1 flex gap-2">
-                <input
-                  value={fonts[kind]}
-                  onChange={(event) => onFontsChange({ ...fonts, [kind]: event.target.value })}
-                  list="mew-font-suggestions"
-                  spellCheck={false}
-                  className="min-w-0 flex-1 rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-edge-bright"
-                  style={{ fontFamily: kind === 'mono' ? 'var(--font-mono)' : kind === 'markdown' ? 'var(--mew-font-markdown)' : 'var(--font-sans)' }}
-                />
+                <div className="min-w-0 flex-1" style={{ fontFamily: kind === 'mono' ? 'var(--font-mono)' : kind === 'markdown' ? 'var(--mew-font-markdown)' : 'var(--font-sans)' }}>
+                  <SelectField editable label={t(`settings.font.${kind}`)} value={fonts[kind]}
+                    options={FONT_SUGGESTIONS.map((font) => ({ value: font, label: font }))}
+                    onChange={(value) => onFontsChange({ ...fonts, [kind]: value })} />
+                </div>
                 <button
                   type="button"
                   onClick={() => onFontsChange({ ...fonts, [kind]: DEFAULT_FONT_PREFERENCES[kind] })}
@@ -484,7 +443,7 @@ function AppearancePanel({
                   {t('common.reset')}
                 </button>
               </div>
-            </label>
+            </div>
           ))}
         </div>
       </div>
@@ -494,6 +453,7 @@ function AppearancePanel({
 
 // ── 숨김 목록: 트리·검색에서 건너뛸 폴더·파일 이름 (전역, owner/manager 전용) ──
 function IgnorePanel() {
+  useUiLocale()
   const [names, setNames] = useState<string[] | null>(null)
   const [defaults, setDefaults] = useState<string[]>([])
   const [locked, setLocked] = useState<string[]>([])
@@ -510,7 +470,7 @@ function IgnorePanel() {
         setDefaults(state.defaults)
         setLocked(state.locked)
       })
-      .catch((err) => alive && setError(err instanceof Error ? err.message : '숨김 목록을 불러오지 못했습니다'))
+      .catch((err) => alive && setError(err instanceof Error ? err.message : uiText("숨김 목록을 불러오지 못했습니다")))
     return () => {
       alive = false
     }
@@ -526,7 +486,7 @@ function IgnorePanel() {
       setDefaults(state.defaults)
       setLocked(state.locked)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장하지 못했습니다')
+      setError(err instanceof Error ? err.message : uiText("저장하지 못했습니다"))
     } finally {
       setBusy(false)
     }
@@ -537,7 +497,7 @@ function IgnorePanel() {
     const name = draft.trim()
     if (!name || !names) return
     if (names.includes(name)) {
-      setError(`이미 목록에 있습니다: ${name}`)
+      setError(uiText("이미 목록에 있습니다: {p0}", { p0: name }))
       return
     }
     setDraft('')
@@ -545,7 +505,7 @@ function IgnorePanel() {
   }
 
   if (!names) {
-    return <div className={`${error ? 'select-text' : ''} text-sm text-ink-muted`}>{error ?? '불러오는 중…'}</div>
+    return <div className={`${error ? 'select-text' : ''} text-sm text-ink-muted`}>{error ?? uiText("불러오는 중…")}</div>
   }
 
   const isLocked = (name: string) => locked.includes(name)
@@ -560,10 +520,9 @@ function IgnorePanel() {
             {isLocked(name) ? (
               <span
                 className="rounded border border-edge-strong px-1.5 py-0.5 text-xs text-ink-muted"
-                title="항상 숨김"
+                title={uiText("항상 숨김")}
               >
-                고정
-              </span>
+                {uiText("고정")}</span>
             ) : (
               <button
                 type="button"
@@ -571,8 +530,7 @@ function IgnorePanel() {
                 onClick={() => void commit(names.filter((n) => n !== name))}
                 className="rounded px-1.5 py-0.5 text-xs text-ink-muted hover:bg-surface-hover hover:text-danger disabled:opacity-40"
               >
-                지우기
-              </button>
+                {uiText("지우기")}</button>
             )}
           </li>
         ))}
@@ -582,7 +540,7 @@ function IgnorePanel() {
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="숨길 폴더·파일 이름 (예: coverage)"
+          placeholder={uiText("숨길 폴더·파일 이름 (예: coverage)")}
           spellCheck={false}
           className="min-w-0 flex-1 rounded border border-edge-strong bg-surface px-3 py-1.5 font-mono text-sm text-ink outline-none placeholder:font-sans placeholder:text-ink-faint focus:border-edge-bright"
         />
@@ -591,8 +549,7 @@ function IgnorePanel() {
           disabled={busy || !draft.trim()}
           className="shrink-0 rounded bg-accent px-3 py-1.5 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
         >
-          추가
-        </button>
+          {uiText("추가")}</button>
       </form>
 
       {error && <div className="select-text text-sm text-danger">{error}</div>}
@@ -604,8 +561,7 @@ function IgnorePanel() {
           onClick={() => void commit(defaults)}
           className="rounded border border-edge-strong px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-hover disabled:opacity-40"
         >
-          기본값으로
-        </button>
+          {uiText("기본값으로")}</button>
       </div>
     </div>
   )
@@ -613,6 +569,7 @@ function IgnorePanel() {
 
 // ── 단축키: 전체 목록 + 키 재지정 ───────────────────────────────────────────
 function ShortcutsPanel() {
+  useUiLocale()
   const { locale, t } = useI18n()
   const bindings = useShortcutBindings()
   const [recordingId, setRecordingId] = useState<string | null>(null)
@@ -683,7 +640,7 @@ function ShortcutsPanel() {
                       type="button"
                       onClick={() => resetBinding(s.id)}
                       className="rounded px-1.5 py-0.5 text-xs text-ink-muted hover:bg-surface-hover hover:text-ink"
-                      title="기본값으로 되돌리기"
+                      title={uiText("기본값으로 되돌리기")}
                     >
                       {t('common.reset')}
                     </button>

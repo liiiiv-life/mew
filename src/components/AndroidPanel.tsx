@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useState } from 'react'
 import { copyText } from '@mew/ui'
 import { Check, Copy, Refresh, Xmark } from 'iconoir-react'
@@ -32,7 +34,7 @@ function isRunnableCommand(item: AndroidCommandItem): item is RunnableAndroidCom
     && typeof item.running === 'boolean'
 }
 
-function CopyableCode({ text, label = '복사', action, busy, onRun, onStop, onOpenSession }: {
+function CopyableCode({ text, label = uiText("복사"), action, busy, onRun, onStop, onOpenSession }: {
   text: string
   label?: string
   action?: RunnableAndroidCommand
@@ -41,6 +43,7 @@ function CopyableCode({ text, label = '복사', action, busy, onRun, onStop, onO
   onStop?: () => void
   onOpenSession?: () => void
 }) {
+  useUiLocale()
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -68,8 +71,8 @@ function CopyableCode({ text, label = '복사', action, busy, onRun, onStop, onO
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover disabled:opacity-40 ${
               action.running ? 'hover:text-danger-strong' : 'hover:text-accent-strong'
             }`}
-            aria-label={`${action.context} ${action.running ? '정지' : '실행'}`}
-            title={action.running ? '정지 — tmux 세션 종료' : 'tmux에서 실행'}
+            aria-label={`${action.context} ${action.running ? uiText("정지") : uiText("실행")}`}
+            title={action.running ? uiText("정지 — tmux 세션 종료") : uiText("tmux에서 실행")}
           >
             {action.running ? <StopGlyph /> : <PlayGlyph />}
           </button>
@@ -77,8 +80,8 @@ function CopyableCode({ text, label = '복사', action, busy, onRun, onStop, onO
             type="button"
             onClick={onOpenSession}
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
-            aria-label={`${action.context} 터미널 세션`}
-            title="터미널 세션 보기"
+            aria-label={uiText("{p0} 터미널 세션", { p0: action.context })}
+            title={uiText("터미널 세션 보기")}
           >
             <TerminalGlyph />
           </button>
@@ -98,6 +101,7 @@ function CheckRow({ label, ok, detail, fixes, busyId, onRun, onStop, onOpenSessi
   onStop: (command: RunnableAndroidCommand) => void
   onOpenSession: (command: RunnableAndroidCommand) => void
 }) {
+  useUiLocale()
   return (
     <div className="grid grid-cols-[1.5rem_7rem_1fr] gap-2 border-b border-edge px-3 py-2 text-xs last:border-b-0">
       <span className={ok ? 'text-success' : 'text-warning'} aria-hidden="true">
@@ -112,7 +116,7 @@ function CheckRow({ label, ok, detail, fixes, busyId, onRun, onStop, onOpenSessi
             {step.command && (
               <CopyableCode
                 text={step.command}
-                label={`${step.context} 명령 복사`}
+                label={uiText("{p0} 명령 복사", { p0: step.context })}
                 action={isRunnableCommand(step) ? step : undefined}
                 busy={step.id === busyId}
                 onRun={() => isRunnableCommand(step) && onRun(step)}
@@ -128,6 +132,7 @@ function CheckRow({ label, ok, detail, fixes, busyId, onRun, onStop, onOpenSessi
 }
 
 export function AndroidPanel({ onClose }: { onClose: () => void }) {
+  useUiLocale()
   const [status, setStatus] = useState<AndroidEnvStatus | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [commandError, setCommandError] = useState<string | null>(null)
@@ -170,7 +175,7 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
       await runAndroidCommand(command.id)
       await refreshStatus()
     } catch (err) {
-      setCommandError(err instanceof Error ? err.message : '실행 실패')
+      setCommandError(err instanceof Error ? err.message : uiText("실행 실패"))
     } finally {
       setBusyId(null)
     }
@@ -184,7 +189,7 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
       await killTmuxSession(command.session)
       await refreshStatus()
     } catch (err) {
-      setCommandError(err instanceof Error ? err.message : '종료 실패')
+      setCommandError(err instanceof Error ? err.message : uiText("종료 실패"))
     } finally {
       setBusyId(null)
     }
@@ -225,10 +230,10 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
           </svg>
           <span className="truncate text-sm font-medium">Android</span>
         </div>
-        <button type="button" onClick={refreshStatus} className="rounded p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink" title="상태 새로고침" aria-label="상태 새로고침">
+        <button type="button" onClick={refreshStatus} className="rounded p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink" title={uiText("상태 새로고침")} aria-label={uiText("상태 새로고침")}>
           <Refresh width={15} height={15} strokeWidth={2} aria-hidden="true" />
         </button>
-        <button type="button" onClick={onClose} className="rounded p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink" title="Android 닫기" aria-label="Android 닫기">
+        <button type="button" onClick={onClose} className="rounded p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink" title={uiText("Android 닫기")} aria-label={uiText("Android 닫기")}>
           <Xmark width={15} height={15} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
@@ -247,11 +252,10 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
             className="min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-2 py-1 font-mono text-xs text-ink outline-none focus:border-edge-bright"
             spellCheck={false}
             inputMode="url"
-            aria-label="Android gateway 주소"
+            aria-label={uiText("Android gateway 주소")}
           />
           <button type="submit" className="rounded bg-surface-raised px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink">
-            열기
-          </button>
+            {uiText("열기")}</button>
         </form>
         {frameError && <div className="select-text border-t border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{frameError}</div>}
       </div>
@@ -265,7 +269,7 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
               {commandError && <div className="select-text border-b border-danger bg-danger-surface px-3 py-2 text-xs text-danger-ink">{commandError}</div>}
               <div className="border-b border-edge px-3 py-2 text-xs text-ink-muted">
                 <span>SDK</span>
-                <CopyableCode text={status.sdkRoot} label="SDK 경로 복사" />
+                <CopyableCode text={status.sdkRoot} label={uiText("SDK 경로 복사")} />
               </div>
               {status.checks.map((check) => (
                 <CheckRow
@@ -282,14 +286,14 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
               ))}
               {status.suggestedCommands.length > 0 && (
                 <div className="border-t border-edge px-3 py-2 text-xs text-ink-muted">
-                  <div className="mb-1 font-medium text-ink-secondary">실행 예시</div>
+                  <div className="mb-1 font-medium text-ink-secondary">{uiText("실행 예시")}</div>
                   <div className="space-y-1">
                     {status.suggestedCommands.map((item) => (
                       <div key={`${item.context}:${item.command}`}>
                         <div className="text-[11px] text-ink-muted">{item.context}</div>
                         <CopyableCode
                           text={item.command}
-                          label={`${item.context} 명령 복사`}
+                          label={uiText("{p0} 명령 복사", { p0: item.context })}
                           action={item}
                           busy={item.id === busyId}
                           onRun={() => void run(item)}
@@ -303,7 +307,7 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
               )}
             </>
           ) : (
-            <div className="px-3 py-2 text-xs text-ink-muted">{loading ? '확인 중' : '상태 없음'}</div>
+            <div className="px-3 py-2 text-xs text-ink-muted">{loading ? uiText("확인 중") : uiText("상태 없음")}</div>
           )}
         </div>
         <iframe
@@ -334,6 +338,7 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
 }
 
 function PlayGlyph() {
+  useUiLocale()
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M8 5v14l11-7z" />
@@ -342,6 +347,7 @@ function PlayGlyph() {
 }
 
 function StopGlyph() {
+  useUiLocale()
   return (
     <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <rect x="6" y="6" width="12" height="12" rx="1.5" />
@@ -350,6 +356,7 @@ function StopGlyph() {
 }
 
 function TerminalGlyph() {
+  useUiLocale()
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="2" y="4" width="20" height="16" rx="2" />

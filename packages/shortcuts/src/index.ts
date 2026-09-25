@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 import { useSyncExternalStore } from 'react'
 import shortcutsData from './shortcuts.json'
 
@@ -126,10 +127,10 @@ export function getBindings(): Overrides {
 /** id의 조합을 재지정한다. 다른 편집 가능한 단축키와 겹치면 저장하지 않고 에러를 반환한다. */
 export function setBinding(id: string, keys: string): { ok: true } | { ok: false; error: string } {
   const def = DEFAULT_MAP[id]
-  if (!def || !def.editable) return { ok: false, error: '수정할 수 없는 단축키입니다' }
+  if (!def || !def.editable) return { ok: false, error: uiText("수정할 수 없는 단축키입니다") }
 
   const conflict = DEFAULT_SHORTCUTS.find((s) => s.id !== id && s.editable && getBinding(s.id) === keys)
-  if (conflict) return { ok: false, error: `이미 "${conflict.label}"에서 사용 중입니다` }
+  if (conflict) return { ok: false, error: uiText("이미 \"{p0}\"에서 사용 중입니다", { p0: conflict.label }) }
 
   overrides = { ...overrides, [id]: keys }
   persist()

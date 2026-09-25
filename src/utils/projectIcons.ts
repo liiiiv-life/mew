@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 import {
   Accessibility,
   Activity,
@@ -638,7 +639,7 @@ export const ICON_PREFIX = 'i:'
 // 이름은 바꾸지 않는다 — 추가만 한다. 이름을 바꾸면 이미 설정된 프로젝트의 아이콘이 사라진다.
 export const ICON_GROUPS: { label: string; icons: Record<string, IconComponent> }[] = [
   {
-    label: '문서',
+    get label() { return uiText("문서") },
     icons: {
       book: Book,
       'open-book': OpenBook,
@@ -718,7 +719,7 @@ export const ICON_GROUPS: { label: string; icons: Record<string, IconComponent> 
     },
   },
   {
-    label: '개발',
+    get label() { return uiText("개발") },
     icons: {
       code: Code,
       'code-brackets': CodeBrackets,
@@ -821,7 +822,7 @@ export const ICON_GROUPS: { label: string; icons: Record<string, IconComponent> 
     },
   },
   {
-    label: '업무',
+    get label() { return uiText("업무") },
     icons: {
       calendar: Calendar,
       clock: Clock,
@@ -950,7 +951,7 @@ export const ICON_GROUPS: { label: string; icons: Record<string, IconComponent> 
     },
   },
   {
-    label: '창작',
+    get label() { return uiText("창작") },
     icons: {
       camera: Camera,
       image: MediaImage,
@@ -1054,7 +1055,7 @@ export const ICON_GROUPS: { label: string; icons: Record<string, IconComponent> 
     },
   },
   {
-    label: '생활',
+    get label() { return uiText("생활") },
     icons: {
       home: Home,
       star: Star,
@@ -1224,7 +1225,7 @@ export const ICON_GROUPS: { label: string; icons: Record<string, IconComponent> 
     },
   },
   {
-    label: '기호',
+    get label() { return uiText("기호") },
     icons: {
       check: Check,
       'check-circle': CheckCircle,

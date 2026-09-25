@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import type { Editor } from '@tiptap/react'
 
 // 테이블 행/열 추가·제거 십자 툴팁 — 커서를 중앙에 두고 방향키와 같은 방향에 버튼 배치
@@ -12,6 +14,7 @@ export function TableTooltip({
   onClose: () => void
   mode: 'add' | 'remove'
 }) {
+  useUiLocale()
   const handleCommand = (cmd: string) => {
     switch (cmd) {
       case 'addRowBefore':
@@ -52,16 +55,16 @@ export function TableTooltip({
   const [up, down, left, right] =
     mode === 'add'
       ? ([
-          ['addRowBefore', '↑ 행 추가'],
-          ['addRowAfter', '↓ 행 추가'],
-          ['addColBefore', '← 열 추가'],
-          ['addColAfter', '→ 열 추가'],
+          ['addRowBefore', uiText("↑ 행 추가")],
+          ['addRowAfter', uiText("↓ 행 추가")],
+          ['addColBefore', uiText("← 열 추가")],
+          ['addColAfter', uiText("→ 열 추가")],
         ] as const)
       : ([
-          ['removeRow', '↑ 행 제거'],
-          ['removeRow', '↓ 행 제거'],
-          ['removeCol', '← 열 제거'],
-          ['removeCol', '→ 열 제거'],
+          ['removeRow', uiText("↑ 행 제거")],
+          ['removeRow', uiText("↓ 행 제거")],
+          ['removeCol', uiText("← 열 제거")],
+          ['removeCol', uiText("→ 열 제거")],
         ] as const)
 
   return (

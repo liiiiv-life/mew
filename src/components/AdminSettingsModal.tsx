@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useOverlayDismiss } from '@mew/ui'
+import { SelectField, useOverlayDismiss } from '@mew/ui'
 import { addUser, fetchUsers, setUserRole, type AdminUser, type Role } from '../api/client'
 import { AccountAccessMatrix } from './account-access-matrix'
 import { useI18n } from '../i18n'
@@ -69,8 +69,6 @@ export function AdminSettingsModal({ onClose }: AdminSettingsModalProps) {
 
   const inputClass =
     'w-full rounded border border-edge-strong bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright'
-  const selectClass =
-    'rounded border border-edge-strong bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-edge-bright'
 
   return (
     <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
@@ -103,13 +101,9 @@ export function AdminSettingsModal({ onClose }: AdminSettingsModalProps) {
             className={inputClass}
           />
           <div className="flex items-center gap-2">
-            <select value={newRole} onChange={(e) => setNewRole(e.target.value as Role)} aria-label={t('access.role')} className={selectClass}>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABEL[r]}
-                </option>
-              ))}
-            </select>
+            <SelectField label={t('access.role')} value={newRole} disabled={addBusy}
+              onChange={(value) => setNewRole(value as Role)} className="w-36 min-w-0"
+              options={ROLES.map((value) => ({ value, label: ROLE_LABEL[value] }))} />
             <button
               type="submit"
               disabled={addBusy || !newEmail.trim()}

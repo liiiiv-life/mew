@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 // xlsx는 ZIP 안에 XML 몇 장이 들어 있는 형식이다 — 브라우저·node 모두 DecompressionStream을 갖고 있으므로
 // 파서 라이브러리 없이 읽는다. 값만 본다: 서식·수식·병합셀·차트는 버리고, 수식 셀은 마지막 계산값을 쓴다.
 // ponytail: 날짜는 엑셀 일련번호(45678) 그대로 보인다 — styles.xml의 numFmt까지 읽어야 날짜로 바뀐다.
@@ -29,14 +30,14 @@ function readZip(buf: ArrayBuffer): Map<string, ZipEntry> {
       break
     }
   }
-  if (eocd < 0) throw new Error('ZIP 구조를 찾지 못했습니다 — xlsx가 아니거나 파일이 깨졌습니다')
+  if (eocd < 0) throw new Error(uiText("ZIP 구조를 찾지 못했습니다 — xlsx가 아니거나 파일이 깨졌습니다"))
 
   const count = dv.getUint16(eocd + 10, true)
   let p = dv.getUint32(eocd + 16, true)
   const entries = new Map<string, ZipEntry>()
   const decoder = new TextDecoder()
   for (let i = 0; i < count; i++) {
-    if (dv.getUint32(p, true) !== CD_SIG) throw new Error('ZIP 중앙 디렉터리가 깨졌습니다')
+    if (dv.getUint32(p, true) !== CD_SIG) throw new Error(uiText("ZIP 중앙 디렉터리가 깨졌습니다"))
     const method = dv.getUint16(p + 10, true)
     const compSize = dv.getUint32(p + 20, true)
     const nameLen = dv.getUint16(p + 28, true)
@@ -56,7 +57,7 @@ function readZip(buf: ArrayBuffer): Map<string, ZipEntry> {
 async function readText(buf: ArrayBuffer, entry: ZipEntry): Promise<string> {
   const raw = new Uint8Array(buf, entry.start, entry.compSize)
   if (entry.method === 0) return new TextDecoder().decode(raw)
-  if (entry.method !== 8) throw new Error(`지원하지 않는 ZIP 압축 방식입니다: ${entry.method}`)
+  if (entry.method !== 8) throw new Error(uiText("지원하지 않는 ZIP 압축 방식입니다: {p0}", { p0: entry.method }))
   const stream = new Response(raw).body!.pipeThrough(new DecompressionStream('deflate-raw'))
   return await new Response(stream).text()
 }
@@ -154,7 +155,7 @@ export async function parseXlsx(buf: ArrayBuffer): Promise<SheetData[]> {
   }
   const shared = parseSharedStrings(await read('xl/sharedStrings.xml'))
   const sheets = parseWorkbook(await read('xl/workbook.xml'), await read('xl/_rels/workbook.xml.rels'))
-  if (!sheets.length) throw new Error('워크북에서 시트를 찾지 못했습니다')
+  if (!sheets.length) throw new Error(uiText("워크북에서 시트를 찾지 못했습니다"))
   const out: SheetData[] = []
   for (const sheet of sheets) {
     const xml = await read(sheet.path)

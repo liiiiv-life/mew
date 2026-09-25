@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // 홈 탭의 본문 — 프로젝트가 아니라 **워크스페이스 전체**를 보는 화면이다.
 //
 // 편집 칸(EditorPane) 자리를 대신 차지한다. 여기서 여는 것은 문서가 아니라 "사용자가 등록한 일"이고,
@@ -29,6 +31,7 @@ type TodoChange = {
 }
 
 export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
+  useUiLocale()
   const { t } = useI18n()
   const [items, setItems] = useState<TodoItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,7 +61,7 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
         setItems(r.items)
         setError(null)
       })
-      .catch((e) => setError(e instanceof Error ? e.message : '할 일을 불러오지 못했습니다'))
+      .catch((e) => setError(e instanceof Error ? e.message : uiText("할 일을 불러오지 못했습니다")))
       .finally(() => {
         setLoading(false)
         if (pendingMutationsRef.current === 0 && reconcileAfterQueueRef.current) {
@@ -130,7 +133,7 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
             ),
           )
         },
-        '추가하지 못했습니다',
+        uiText("추가하지 못했습니다"),
         () => {
           failedCreatesRef.current.add(temporaryId)
           setItems((prev) => prev.filter((item) => item.id !== temporaryId))
@@ -154,7 +157,7 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
         if (failedCreatesRef.current.has(item.id)) return
         const serverId = serverTodoIdsRef.current.get(item.id) ?? item.id
         await updateTodo(serverId, todoChangeFromSnapshot(next))
-      }, '고치지 못했습니다')
+      }, uiText("고치지 못했습니다"))
     },
     [enqueueMutation, sortItems],
   )
@@ -171,7 +174,7 @@ export function HomePanel({ projects }: { projects: ProjectInfo[] }) {
         await deleteTodo(serverId)
         serverTodoIdsRef.current.delete(item.id)
         serverTodoIdsRef.current.delete(serverId)
-      }, '삭제하지 못했습니다')
+      }, uiText("삭제하지 못했습니다"))
     },
     [enqueueMutation],
   )
@@ -337,6 +340,7 @@ function WidgetSettings({
   onChange: (next: HomeLayout) => void
   onClose: () => void
 }) {
+  useUiLocale()
   const { t } = useI18n()
   useOverlayDismiss(onClose)
   const widgets = orderedWidgets(layout)

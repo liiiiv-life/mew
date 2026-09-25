@@ -1,3 +1,4 @@
+import { uiText, uiWeekdays } from '@mew/ui/i18n-core'
 // 크론 5필드 ↔ GUI가 다루는 몇 가지 반복 형태의 변환. 표현할 수 없는 식은 custom으로 흘려보내
 // 사용자가 직접 쓰게 둔다 — 크론 문법 전체를 GUI로 재현하지 않는다.
 export type Schedule =
@@ -52,21 +53,21 @@ export function fromCron(expr: string): Schedule {
   return { kind: 'custom', expr }
 }
 
-export const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토']
+export const dayNames = uiWeekdays
 
 /** 사람이 읽는 한 줄 — 목록 헤더에 그대로 쓴다. */
 export function describeSchedule(expr: string): string {
   const s = fromCron(expr)
   switch (s.kind) {
     case 'daily':
-      return `매일 ${s.time}`
+      return uiText("매일 {p0}", { p0: s.time })
     case 'weekly':
-      return `매주 ${s.days.map((d) => DAY_NAMES[d]).join('·')} ${s.time}`
+      return uiText("매주 {p0} {p1}", { p0: s.days.map((d) => dayNames()[d]).join('·'), p1: s.time })
     case 'hourly':
-      return `매시 ${s.minute}분`
+      return uiText("매시 {p0}분", { p0: s.minute })
     case 'interval':
-      return `${s.minutes}분마다`
+      return uiText("{p0}분마다", { p0: s.minutes })
     case 'custom':
-      return `크론 ${s.expr}`
+      return uiText("크론 {p0}", { p0: s.expr })
   }
 }

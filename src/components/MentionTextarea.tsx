@@ -61,12 +61,15 @@ export function MentionTextarea({
   inputRef,
   onHistoryNavigate,
   maxResults = 8,
+  onTriggerChange,
 }: {
   value: string
   onChange: (value: string) => void
   options: MentionOption[]
   /** 스크롤로 모든 후보를 고를 수 있게 하려면 Infinity를 전달한다. */
   maxResults?: number
+  /** Let callers load additional candidates only while a trigger is open. */
+  onTriggerChange?: (trigger: string | null) => void
   /** 메뉴가 닫혀 있을 때 Enter(Shift 없이) — 채팅 전송·댓글 등록 */
   onSubmit?: () => void
   placeholder?: string
@@ -98,6 +101,8 @@ export function MentionTextarea({
   const [selected, setSelected] = useState(0)
   const [fileDragOver, setFileDragOver] = useState(false)
   const selectedOptionRef = useRef<HTMLButtonElement>(null)
+  const activeTrigger = mention?.trigger ?? null
+  useEffect(() => { onTriggerChange?.(activeTrigger) }, [activeTrigger, onTriggerChange])
 
   const closeMention = () => {
     setMention(null)
@@ -149,7 +154,7 @@ export function MentionTextarea({
 
   // 인라인 검색 메뉴도 모달·패널과 같은 Esc 스택에 올라간다. 기본 capture 단계가 툴팁을
   // 먼저 닫고 이벤트를 소비하므로, 아래의 에이전트·채팅 같은 bubble 패널까지 닫히지 않는다.
-  useOverlayDismiss(mention && shown.length > 0 ? closeMention : false)
+  useOverlayDismiss(mention && (shown.length > 0 || onTriggerChange) ? closeMention : false)
 
   const pick = (option: MentionOption) => {
     if (!mention) return

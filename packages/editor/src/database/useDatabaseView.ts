@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 // /db 뷰의 서버 연동·실시간 상태를 캡슐화한 훅 — TipTap 노드뷰(DatabaseView)와
 // 독립 패널(DatabasePanel, 전체 DB 팝업용)이 같은 로직을 공유하도록 분리했다.
 // 렌더는 DatabaseTable이, 순수 상태 계산은 databaseState.ts가 담당한다.
@@ -7,10 +8,10 @@ import { applyDbEvent, setCell } from './databaseState'
 
 // 컬럼 타입 라벨/글리프 — 헤더·열 추가 메뉴에서 공유한다
 export const TYPE_LABELS: Record<DbColumnType, string> = {
-  text: '텍스트',
-  number: '숫자',
-  checkbox: '체크박스',
-  date: '날짜',
+  get text() { return uiText("텍스트") },
+  get number() { return uiText("숫자") },
+  get checkbox() { return uiText("체크박스") },
+  get date() { return uiText("날짜") },
 }
 export const ADD_TYPES: DbColumnType[] = ['text', 'number', 'checkbox', 'date']
 // 컬럼 타입을 한눈에 구분하는 글리프 (노션식)
@@ -56,7 +57,7 @@ export function useDatabaseView(api: EditorDbApi | null, dbId: string | null, re
         }
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : '데이터베이스를 불러오지 못했습니다')
+        if (!cancelled) setError(e instanceof Error ? e.message : uiText("데이터베이스를 불러오지 못했습니다"))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -78,7 +79,7 @@ export function useDatabaseView(api: EditorDbApi | null, dbId: string | null, re
   const commitCell = useCallback(
     (rowId: string, columnId: string, value: unknown) => {
       if (!api || !dbId) return
-      api.updateCell(dbId, rowId, columnId, value).catch((e) => setError(e instanceof Error ? e.message : '저장 실패'))
+      api.updateCell(dbId, rowId, columnId, value).catch((e) => setError(e instanceof Error ? e.message : uiText("저장 실패")))
     },
     [api, dbId],
   )
@@ -94,12 +95,12 @@ export function useDatabaseView(api: EditorDbApi | null, dbId: string | null, re
   const renameTitle = useCallback(
     async (title: string) => {
       if (!api || !dbId) return
-      const trimmed = title.trim() || '제목 없음'
+      const trimmed = title.trim() || uiText("제목 없음")
       setView((prev) => (prev && prev.title !== trimmed ? { ...prev, title: trimmed } : prev))
       try {
         await api.rename(dbId, trimmed)
       } catch (e) {
-        setError(e instanceof Error ? e.message : '제목 변경 실패')
+        setError(e instanceof Error ? e.message : uiText("제목 변경 실패"))
       }
     },
     [api, dbId],
@@ -111,7 +112,7 @@ export function useDatabaseView(api: EditorDbApi | null, dbId: string | null, re
       const row = await api.insertRow(dbId)
       setView((prev) => (prev ? applyDbEvent(prev, { type: 'row.insert', row }) : prev))
     } catch (e) {
-      setError(e instanceof Error ? e.message : '행 추가 실패')
+      setError(e instanceof Error ? e.message : uiText("행 추가 실패"))
     }
   }, [api, dbId])
 
@@ -122,7 +123,7 @@ export function useDatabaseView(api: EditorDbApi | null, dbId: string | null, re
         await api.deleteRow(dbId, rowId)
         setView((prev) => (prev ? applyDbEvent(prev, { type: 'row.delete', rowId }) : prev))
       } catch (e) {
-        setError(e instanceof Error ? e.message : '행 삭제 실패')
+        setError(e instanceof Error ? e.message : uiText("행 삭제 실패"))
       }
     },
     [api, dbId],
@@ -145,7 +146,7 @@ export function useDatabaseView(api: EditorDbApi | null, dbId: string | null, re
           }
         })
       } catch (e) {
-        setError(e instanceof Error ? e.message : '열 추가 실패')
+        setError(e instanceof Error ? e.message : uiText("열 추가 실패"))
       }
     },
     [api, dbId],
@@ -162,7 +163,7 @@ export function useDatabaseView(api: EditorDbApi | null, dbId: string | null, re
       try {
         await api.renameColumn(dbId, columnId, trimmed)
       } catch (e) {
-        setError(e instanceof Error ? e.message : '열 이름 변경 실패')
+        setError(e instanceof Error ? e.message : uiText("열 이름 변경 실패"))
       }
     },
     [api, dbId],
@@ -175,7 +176,7 @@ export function useDatabaseView(api: EditorDbApi | null, dbId: string | null, re
         await api.deleteColumn(dbId, columnId)
         setView((prev) => (prev ? { ...prev, columns: prev.columns.filter((c) => c.id !== columnId) } : prev))
       } catch (e) {
-        setError(e instanceof Error ? e.message : '열 삭제 실패')
+        setError(e instanceof Error ? e.message : uiText("열 삭제 실패"))
       }
     },
     [api, dbId],

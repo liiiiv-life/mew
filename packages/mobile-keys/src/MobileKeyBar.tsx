@@ -1,9 +1,12 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // 모바일 입력 영역의 보조키 바 (Termux의 extra keys 같은 역할).
 // 키보드가 떠 있을 때만 쓰는 게 아니라 — 키보드를 내린 채 방향키로 스크롤하거나 Esc를 보내는 데도
 // 쓰므로 — 띄울지 말지는 useMobileLayout(화면 폭)이 정한다.
 // 이 컴포넌트는 Ctrl/Shift 토글 상태만 노출한다. 그 토글을 다음에 입력될 글자에 어떻게 결합할지는
 // 호스트가 정한다 — 터미널은 onData를 가로채고, 에디터는 beforeinput을 가로채 단축키로 처리한다.
 function KeyButton({ label, ariaLabel, active, onClick, stretch = false }: { label: string; ariaLabel?: string; active?: boolean; onClick: () => void; stretch?: boolean }) {
+  useUiLocale()
   return (
     <button
       type="button"
@@ -61,6 +64,7 @@ export function MobileKeyBar({
   stretch?: boolean
   extraKeys?: Array<{ label: string; ariaLabel?: string; onClick: () => void }>
 }) {
+  useUiLocale()
   return (
     // z-20 — 전체 화면 오버레이(사이드바·채팅·에이전트·터미널)는 z-30이다. 같은 z-30으로 두면
     // DOM 순서상 에디터가 사이드바보다 뒤라 보조키가 사이드바 위에 떠 버린다
@@ -84,8 +88,8 @@ export function MobileKeyBar({
             onMouseDown={(e) => e.preventDefault()}
             onClick={onComment}
             className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-surface-raised px-1.5 text-ink-secondary hover:bg-surface-hover"
-            aria-label="선택한 곳에 댓글"
-            title="선택한 곳에 댓글"
+            aria-label={uiText("선택한 곳에 댓글")}
+            title={uiText("선택한 곳에 댓글")}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
@@ -102,8 +106,8 @@ export function MobileKeyBar({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onCodeBlock}
               className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-surface-raised px-1.5 text-ink-secondary hover:bg-surface-hover"
-              aria-label="코드블럭"
-              title="코드블럭"
+              aria-label={uiText("코드블럭")}
+              title={uiText("코드블럭")}
             >
               {/* 코드블럭 — 꺾쇠괄호 사이 빗금(lucide code) */}
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -118,8 +122,8 @@ export function MobileKeyBar({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onTable}
               className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-surface-raised px-1.5 text-ink-secondary hover:bg-surface-hover"
-              aria-label="표 삽입"
-              title="표 삽입"
+              aria-label={uiText("표 삽입")}
+              title={uiText("표 삽입")}
             >
               {/* 표 — 테두리 안 헤더 행 + 열 구분선(lucide table) */}
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -139,8 +143,8 @@ export function MobileKeyBar({
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={onUndo}
                   className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-surface-raised px-1.5 text-ink-secondary hover:bg-surface-hover"
-                  aria-label="되돌리기"
-                  title="되돌리기"
+                  aria-label={uiText("되돌리기")}
+                  title={uiText("되돌리기")}
                 >
                   {/* 되돌리기 — 왼쪽으로 도는 화살표(lucide undo-2) */}
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -155,8 +159,8 @@ export function MobileKeyBar({
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={onRedo}
                   className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-surface-raised px-1.5 text-ink-secondary hover:bg-surface-hover"
-                  aria-label="다시 실행"
-                  title="다시 실행"
+                  aria-label={uiText("다시 실행")}
+                  title={uiText("다시 실행")}
                 >
                   {/* 다시 실행 — 오른쪽으로 도는 화살표(lucide redo-2, undo-2의 좌우 대칭) */}
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // 프로젝트 탭의 ▶ 아이콘 버튼 = 명령어 버튼. 누르면 그 프로젝트의 <프로젝트>/.mew/cmd-button.json 에
 // 정의된 명령들을 이름으로 나열한다. 각 줄엔 ▶(내부 tmux 세션에서 실행)과 터미널 아이콘(세션 팝업)이
 // 있고, 줄을 꾹 누르거나 우클릭하면 수정·삭제가 뜬다. 맨 아래 +로 새 명령을 추가한다.
@@ -42,6 +44,7 @@ export function CommandButtonMenu({
   /** 인라인 메뉴를 여는 외부 버튼도 바깥 클릭 판정에서는 메뉴 안으로 친다. */
   triggerRef?: RefObject<HTMLElement | null>
 }) {
+  useUiLocale()
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const open = alwaysOpen || (controlledOpen ?? uncontrolledOpen)
   const setOpen = useCallback((next: boolean | ((current: boolean) => boolean)) => {
@@ -72,7 +75,7 @@ export function CommandButtonMenu({
       })
       .catch((err) => {
         setButtons([])
-        setError(err instanceof Error ? err.message : '불러오기 실패')
+        setError(err instanceof Error ? err.message : uiText("불러오기 실패"))
       })
   }, [project, directory])
 
@@ -123,7 +126,7 @@ export function CommandButtonMenu({
       await runCmdButton(project, button.name, directory)
       refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '실행 실패')
+      setError(err instanceof Error ? err.message : uiText("실행 실패"))
     } finally {
       setBusyName(null)
     }
@@ -137,7 +140,7 @@ export function CommandButtonMenu({
       await killTmuxSession(button.session)
       refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '종료 실패')
+      setError(err instanceof Error ? err.message : uiText("종료 실패"))
     } finally {
       setBusyName(null)
     }
@@ -164,16 +167,15 @@ export function CommandButtonMenu({
       {!inline && <div className="px-3 pb-1 pt-0.5 text-[11px] text-ink-muted">{directory || project}</div>}
       {error && <div className="select-text px-3 py-2 text-xs text-danger-strong">{error}</div>}
       {buttons === null ? (
-        <div className="px-3 py-3 text-xs text-ink-muted">불러오는 중…</div>
+        <div className="px-3 py-3 text-xs text-ink-muted">{uiText("불러오는 중…")}</div>
       ) : (
         list.map((b, i) => (
           <CmdRow key={`${b.name}-${i}`} button={b} busy={busyName === b.name} onRun={() => run(b)} onStop={() => stop(b)} onOpenSession={() => { setPopup(b); setOpen(false) }} onEdit={() => setEditing({ index: i, name: b.name, command: b.command, oneShot: b.oneShot })} />
         ))
       )}
-      {buttons !== null && list.length === 0 && !error && <div className="px-3 py-2 text-xs text-ink-muted">아직 명령이 없습니다.</div>}
+      {buttons !== null && list.length === 0 && !error && <div className="px-3 py-2 text-xs text-ink-muted">{uiText("아직 명령이 없습니다.")}</div>}
       <button type="button" onClick={() => setEditing({ index: null, name: '', command: '', oneShot: false })} className="mt-1 flex w-full items-center gap-1.5 border-t border-edge px-3 py-2 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink">
-        <span className="text-sm leading-none">＋</span> 명령 추가
-      </button>
+        <span className="text-sm leading-none">＋</span> {uiText(" 명령 추가")}</button>
     </div>
   )
 
@@ -189,8 +191,8 @@ export function CommandButtonMenu({
         className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink ${
           open ? 'bg-surface-hover text-ink' : ''
         }`}
-        title={title ?? `${directory || project} 명령어 버튼`}
-        aria-label={`${directory || project} 명령어 버튼`}
+        title={title ?? uiText("{p0} 명령어 버튼", { p0: directory || project })}
+        aria-label={uiText("{p0} 명령어 버튼", { p0: directory || project })}
         aria-expanded={open}
       >
         <PlayGlyph />
@@ -255,6 +257,7 @@ function CmdRow({
   onOpenSession: () => void
   onEdit: () => void
 }) {
+  useUiLocale()
   const timerRef = useRef<number | null>(null)
   const longFiredRef = useRef(false)
 
@@ -298,11 +301,11 @@ function CmdRow({
         disabled={busy}
         className="min-w-0 flex-1 select-none truncate px-1.5 py-1 text-left text-sm text-ink disabled:opacity-40"
         style={{ touchAction: 'manipulation' }}
-        title={`${button.command}\n(꾹 누르거나 우클릭하면 수정)`}
+        title={uiText("{p0}\n(꾹 누르거나 우클릭하면 수정)", { p0: button.command })}
       >
         {button.name}
       </button>
-      {button.running && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" title="실행 세션 있음" />}
+      {button.running && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" title={uiText("실행 세션 있음")} />}
       {/* 실행 중이면 같은 자리가 정지 버튼이 된다 — 누르면 이 명령의 세션이 죽는다 */}
       <button
         type="button"
@@ -311,8 +314,8 @@ function CmdRow({
         className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover disabled:opacity-40 ${
           button.running ? 'hover:text-danger-strong' : 'hover:text-accent-strong'
         }`}
-        title={button.running ? '명령 중지' : '실행'}
-        aria-label={`${button.name} ${button.running ? '정지' : '실행'}`}
+        title={button.running ? uiText("명령 중지") : uiText("실행")}
+        aria-label={`${button.name} ${button.running ? uiText("정지") : uiText("실행")}`}
       >
         {button.running ? <StopGlyph /> : <PlayGlyph small />}
       </button>
@@ -320,8 +323,8 @@ function CmdRow({
         type="button"
         onClick={onOpenSession}
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink"
-        title="터미널 세션 보기"
-        aria-label={`${button.name} 터미널 세션`}
+        title={uiText("터미널 세션 보기")}
+        aria-label={uiText("{p0} 터미널 세션", { p0: button.name })}
       >
         <TerminalGlyph />
       </button>
@@ -343,6 +346,7 @@ function CmdButtonEditor({
   onCancel: () => void
   onDelete?: () => Promise<void>
 }) {
+  useUiLocale()
   const [draft, setDraft] = useState(editing)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -363,7 +367,7 @@ function CmdButtonEditor({
     try {
       await action()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장 실패')
+      setError(err instanceof Error ? err.message : uiText("저장 실패"))
     } finally {
       setBusy(false)
     }
@@ -378,21 +382,21 @@ function CmdButtonEditor({
       }}
     >
       <div className="w-full max-w-sm rounded-lg border border-edge-bright bg-surface-raised p-4 shadow-xl">
-        <div className="mb-1 text-sm font-medium text-ink">{editing.index === null ? '명령 추가' : '명령 수정'}</div>
+        <div className="mb-1 text-sm font-medium text-ink">{editing.index === null ? uiText("명령 추가") : uiText("명령 수정")}</div>
         <div className="mb-3 text-xs text-ink-secondary">
-          실행 폴더: {project}
+          {uiText("실행 폴더: ")}{project}
         </div>
 
-        <label className="mb-1 block text-xs text-ink-secondary">이름</label>
+        <label className="mb-1 block text-xs text-ink-secondary">{uiText("이름")}</label>
         <input
           ref={nameRef}
           value={draft.name}
           onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-          placeholder="빌드"
+          placeholder={uiText("빌드")}
           className="mb-3 w-full rounded border border-edge-strong bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
         />
 
-        <label className="mb-1 block text-xs text-ink-secondary">명령어</label>
+        <label className="mb-1 block text-xs text-ink-secondary">{uiText("명령어")}</label>
         <textarea
           value={draft.command}
           onChange={(e) => setDraft({ ...draft, command: e.target.value })}
@@ -410,8 +414,7 @@ function CmdButtonEditor({
             checked={draft.oneShot}
             onChange={(e) => setDraft({ ...draft, oneShot: e.target.checked })}
           />
-          완료 후 터미널 종료
-        </label>
+          {uiText("완료 후 터미널 종료")}</label>
 
         {error && <div className="select-text mb-2 text-xs text-danger-strong">{error}</div>}
 
@@ -423,24 +426,21 @@ function CmdButtonEditor({
               onClick={() => withBusy(onDelete)}
               className="mr-auto rounded border border-edge-strong px-3 py-1.5 text-sm text-danger-strong hover:bg-surface disabled:opacity-40"
             >
-              삭제
-            </button>
+              {uiText("삭제")}</button>
           )}
           <button
             type="button"
             onClick={onCancel}
             className="rounded border border-edge-strong px-3 py-1.5 text-sm text-ink hover:bg-surface"
           >
-            취소
-          </button>
+            {uiText("취소")}</button>
           <button
             type="button"
             disabled={busy || !canSave}
             onClick={() => withBusy(() => onSave(draft))}
             className="rounded bg-accent px-3 py-1.5 text-sm text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
           >
-            저장
-          </button>
+            {uiText("저장")}</button>
         </div>
       </div>
     </div>,
@@ -449,6 +449,7 @@ function CmdButtonEditor({
 }
 
 function PlayGlyph({ small }: { small?: boolean }) {
+  useUiLocale()
   const s = small ? 13 : 14
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -459,6 +460,7 @@ function PlayGlyph({ small }: { small?: boolean }) {
 
 /** 실행 중인 명령의 재생 버튼 자리에 들어간다 — 누르면 그 명령의 tmux 세션이 죽는다 */
 function StopGlyph() {
+  useUiLocale()
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <rect x="6" y="6" width="12" height="12" rx="1.5" />
@@ -467,6 +469,7 @@ function StopGlyph() {
 }
 
 function TerminalGlyph() {
+  useUiLocale()
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="2" y="4" width="20" height="16" rx="2" />
