@@ -9,7 +9,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 import type { GitAiCommitJob } from '../shared/git-ai-commit.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
-test('AI Commit chooses/creates presets, restores jobs, preserves drafts and only commits explicitly on desktop/mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
+test('AI Commit chooses/creates presets, restores jobs, creates multiple commits and preserves the manual composer on desktop/mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const source = `
 import React from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
@@ -23,7 +23,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
     async load(id) { if (id === 'virtual:git-ai.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return `export default ${JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8'))}` },
   }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const files = ['src/components/GitWorkbench.tsx', 'src/components/git-ai-commit-dialog.tsx', 'src/components/AgentSetPicker.tsx', 'packages/ui/src/dialog-frame.tsx']
+  const files = ['src/components/GitWorkbench.tsx', 'src/components/git-ai-commit-dialog.tsx', 'src/components/AgentSetPicker.tsx', 'packages/ui/src/dialog-frame.tsx', 'packages/ui/src/select-field.tsx']
   const content = (await Promise.all(files.map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))])
@@ -35,7 +35,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       let job: GitAiCommitJob | null = null
-      let starts = 0, commits = 0, applied = 0, stale = false
+      let starts = 0, commits = 0
       let sets = [{ id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', name: '기존 커밋 에이전트', runtime: 'codex', modelId: 'test-model', role: 'Write commits' }]
       await page.route('http://localhost:48976/**', async route => {
         const request = route.request(), url = new URL(request.url()), p = url.pathname
@@ -53,47 +53,58 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
         if (p.startsWith('/api/git/ai-commit')) {
           assert.equal(url.searchParams.get('project'), '.workspace'); assert.equal(url.searchParams.get('workspace'), '/workspace')
           if (p.endsWith('/stop')) { job = { ...job!, state: 'cancelled', error: '생성을 취소했습니다' }; return route.fulfill({ json: { ok: true } }) }
-          if (p.endsWith('/draft')) {
-            if (stale) return route.fulfill({ status: 400, json: { error: '생성 이후 변경사항이 달라졌습니다. 다시 생성해 주세요.' } })
-            applied++; return route.fulfill({ json: { draft: job!.result } })
-          }
           if (request.method() === 'POST') {
             starts++
-            const body = request.postDataJSON(), set = sets.find(set => set.id === body.agentSetId)!
+            const body = request.postDataJSON(); assert.deepEqual(body.files, ['file.ts', 'new.ts']); const set = sets.find(set => set.id === body.agentSetId)!
             assert.match(body.id, /^[a-f0-9-]{36}$/)
-            job = { id: body.id, agentSetName: set.name, state: 'running', output: '변경사항 분석 중…', startedAt: Date.now(), truncated: false }
+            job = { mode: 'commit', id: body.id, agentSetName: set.name, state: 'running', output: '변경사항 분석 중…', startedAt: Date.now(), truncated: false }
           }
           return route.fulfill({ json: { job } })
         }
-        if (p === '/api/git/commit' && request.method() === 'POST') { commits++; return route.fulfill({ json: { hash: 'abc12345' } }) }
-        return route.fulfill({ json: p.endsWith('/repository') ? { repository: true, branch: 'main' } : p.endsWith('/log') ? { commits: [] } : { files: [{ path: 'file.ts', status: 'M' }] } })
+        if (p === '/api/git/commit' && request.method() === 'POST') { assert.deepEqual(request.postDataJSON().files, ['file.ts', 'new.ts']); commits++; return route.fulfill({ json: { hash: 'abc12345' } }) }
+        return route.fulfill({ json: p.endsWith('/repository') ? { repository: true, branch: 'main' } : p.endsWith('/log') ? { commits: [] } : { files: [{ path: 'file.ts', status: 'M' }, { path: 'new.ts', status: 'A' }, { path: 'excluded.ts', status: 'M' }] } })
       })
       const click = (name: string) => page.getByRole('button', { name, exact: true }).click()
       await page.goto('http://localhost:48976/')
-      await page.getByRole('button', { name: /커밋되지 않은 변경사항/ }).click()
+      await page.getByRole('checkbox', { name: 'file.ts 커밋에 포함' }).check()
+      await page.getByRole('checkbox', { name: 'new.ts 커밋에 포함' }).check()
       await page.getByLabel('커밋 제목', { exact: true }).fill('기존 초안')
-      await click('AI Commit')
+      await click('AI 자동 커밋')
       await page.getByRole('button', { name: '기존 커밋 에이전트', exact: false }).click()
-      await click('초안 생성')
-      await page.getByText('기존 커밋 에이전트 · 생성 중…', { exact: true }).waitFor()
+      await click('자동 커밋 실행')
+      await page.getByText('기존 커밋 에이전트 · 변경사항 분석 중…', { exact: true }).waitFor()
       await click('닫기')
       assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), '기존 초안')
       assert.equal(starts, 1); assert.equal(commits, 0)
-      await click('AI Commit')
-      await page.getByText('기존 커밋 에이전트 · 생성 중…', { exact: true }).waitFor()
-      job = { ...job!, state: 'completed', result: { title: 'feat: 생성된 제목', description: '변경사항을 정리했습니다.' } }
-      await page.getByRole('button', { name: '초안 적용' }).waitFor()
+      await click('AI 자동 커밋')
+      await page.getByText('기존 커밋 에이전트 · 변경사항 분석 중…', { exact: true }).waitFor()
+      job = { ...job!, state: 'completed', result: { commits: [
+        { hash: 'abc123456789', title: 'fix: 첫 작업', description: '첫 변경', files: ['file.ts'] },
+        { hash: 'def123456789', title: 'feat: 두 번째 작업', description: '', files: ['new.ts'] },
+      ], skipped: [] } }
+      await page.getByText('기존 커밋 에이전트 · 자동 커밋 완료', { exact: true }).waitFor()
+      await page.getByText('fix: 첫 작업', { exact: true }).waitFor()
+      await page.getByText('feat: 두 번째 작업', { exact: true }).waitFor()
+      assert.equal(await page.getByRole('button', { name: '초안 적용' }).count(), 0)
       assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), '기존 초안')
-      if (process.env.MEW_GIT_AI_SCREENSHOTS) { await fs.mkdir(process.env.MEW_GIT_AI_SCREENSHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.MEW_GIT_AI_SCREENSHOTS, `draft-${width}.png`) }) }
-      stale = true; await click('초안 적용')
-      await page.getByRole('alert').filter({ hasText: '변경사항이 달라졌습니다' }).waitFor()
-      assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), '기존 초안')
-      stale = false; await click('초안 적용')
-      await page.getByRole('dialog').waitFor({ state: 'hidden' })
-      assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'feat: 생성된 제목')
-      assert.equal(applied, 1); assert.equal(commits, 0)
-      await click('AI Commit'); await click('에이전트셋 선택'); await click('+ 새 에이전트셋 추가')
+      if (process.env.MEW_GIT_AI_SCREENSHOTS) { await fs.mkdir(process.env.MEW_GIT_AI_SCREENSHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.MEW_GIT_AI_SCREENSHOTS, `commits-${width}.png`) }) }
+      await click('닫기')
+      assert.equal(commits, 0, 'the AI job owns commit execution, not the manual commit endpoint')
+      await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).uncheck()
+      await click('AI 자동 커밋')
+      await page.getByText('fix: 첫 작업', { exact: true }).waitFor()
+      assert.equal(await page.getByRole('button', { name: '자동 커밋 실행', exact: true }).isDisabled(), true, 'completed results remain accessible without selecting files')
+      await click('닫기')
+      await page.getByRole('checkbox', { name: 'file.ts 커밋에 포함' }).check()
+      await page.getByRole('checkbox', { name: 'new.ts 커밋에 포함' }).check()
+      await click('AI 자동 커밋'); await click('에이전트셋 선택'); await click('+ 새 에이전트셋 추가')
       const editor = page.getByRole('dialog', { name: '새 에이전트셋', exact: true })
+      assert.equal(await editor.locator('select, datalist').count(), 0)
+      const runtime = editor.getByRole('combobox', { name: '에이전트', exact: true })
+      await runtime.click()
+      await page.getByRole('option', { name: 'Codex', exact: true }).click()
+      await runtime.click(); await runtime.press('Escape')
+      assert.equal(await editor.isVisible(), true, 'Escape keeps the preset editor open')
       await editor.getByLabel('이름', { exact: true }).fill('기존 커밋 에이전트')
       await editor.getByLabel('역할 지침').fill('짧은 커밋 제목을 작성하세요')
       await editor.getByRole('button', { name: '저장', exact: true }).click()
@@ -101,18 +112,20 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await editor.getByLabel('이름', { exact: true }).fill('새 커밋 에이전트')
       await editor.getByRole('button', { name: '저장', exact: true }).click()
       await editor.waitFor({ state: 'hidden' })
-      await click('다시 생성')
-      await page.getByText('새 커밋 에이전트 · 생성 중…', { exact: true }).waitFor()
+      await click('자동 커밋 실행')
+      await page.getByText('새 커밋 에이전트 · 변경사항 분석 중…', { exact: true }).waitFor()
       assert.equal(sets.length, 2)
-      await click('생성 취소')
-      await page.getByText('새 커밋 에이전트 · 생성 취소됨', { exact: true }).waitFor()
+      assert.equal(sets[1].runtime, 'codex')
+      await click('작업 중단')
+      await page.getByText('새 커밋 에이전트 · 작업 중단됨', { exact: true }).waitFor()
       await page.keyboard.press('Escape')
       await page.getByRole('dialog').waitFor({ state: 'hidden' })
-      assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'feat: 생성된 제목')
+      assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), '기존 초안')
       await page.reload()
-      await page.getByRole('button', { name: /커밋되지 않은 변경사항/ }).click()
-      await click('AI Commit')
-      await page.getByText('새 커밋 에이전트 · 생성 취소됨', { exact: true }).waitFor()
+      await page.getByRole('checkbox', { name: 'file.ts 커밋에 포함' }).check()
+      await page.getByRole('checkbox', { name: 'new.ts 커밋에 포함' }).check()
+      await click('AI 자동 커밋')
+      await page.getByText('새 커밋 에이전트 · 작업 중단됨', { exact: true }).waitFor()
       assert.equal(starts, 2)
       const overflow = await page.evaluate(() => {
         const root = globalThis as unknown as { document: { documentElement: { scrollWidth: number; clientWidth: number } } }
@@ -123,7 +136,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await click('닫기')
       await page.getByLabel('커밋 제목', { exact: true }).fill('사용자가 확정한 제목')
       await click('커밋')
-      await page.getByRole('button', { name: /커밋되지 않은 변경사항/ }).waitFor()
+      await page.getByText('커밋되지 않은 변경사항', { exact: true }).waitFor()
       assert.equal(commits, 1)
       await page.close()
     }

@@ -20,19 +20,17 @@ export function createGitAiCommitRouter(store: GitAiCommitStore) {
   router.post('/', async (req, res, next) => {
     try {
       const { owner, cwd } = scope(req)
+      if (!Array.isArray(req.body?.files) || !req.body.files.length) throw new GitAiCommitError('커밋할 파일을 선택하세요')
       const set = readSets().find(item => item.id === req.body?.agentSetId)
       if (!set) throw new GitAiCommitError('에이전트셋을 선택하세요')
-      res.status(202).json({ job: await store.start(owner, cwd, req.body?.id, set) })
+      res.status(202).json({ job: await store.start(owner, cwd, req.body?.id, set, req.body?.files) })
     } catch (error) { next(error) }
   })
   router.post('/:id/stop', (req, res, next) => {
     try { const { owner, cwd } = scope(req); store.stop(owner, cwd, String(req.params.id)); res.json({ ok: true }) } catch (error) { next(error) }
   })
-  router.post('/:id/draft', async (req, res, next) => {
-    try { const { owner, cwd } = scope(req); res.json({ draft: await store.draft(owner, cwd, String(req.params.id)) }) } catch (error) { next(error) }
-  })
   router.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status(error instanceof GitAiCommitError ? 400 : 500).json({ error: error instanceof Error ? error.message : '커밋 초안 생성에 실패했습니다' })
+    res.status(error instanceof GitAiCommitError ? 400 : 500).json({ error: error instanceof Error ? error.message : '자동 커밋에 실패했습니다' })
   })
   return router
 }

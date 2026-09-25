@@ -1,4 +1,7 @@
-export function GitButton({ onClick, title = 'Git 열기' }: { onClick: () => void; title?: string }) {
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
+export function GitButton({ onClick, title = uiText("Git 열기") }: { onClick: () => void; title?: string }) {
+  useUiLocale()
   return (
     <button type="button" onClick={onClick} className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink" title={title} aria-label={title}>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

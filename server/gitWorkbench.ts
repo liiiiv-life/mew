@@ -6,6 +6,7 @@ import simpleGit, { type SimpleGit } from 'simple-git'
 import { resolveExistingPath } from './fsBrowse.ts'
 import { resolveProjectPath } from './paths.ts'
 import { invalidateGit } from './git.ts'
+import { commitFiles } from './git-commit-files.ts'
 
 export class GitWorkbenchError extends Error {}
 
@@ -111,7 +112,7 @@ export async function repositoryInfo(project: string, relPath: string): Promise<
   const abs = scopedDirectory(project, relPath)
   if (!isRepositoryRoot(abs)) return { repository: false, path: relPath, branch: null, detached: false, dirty: false, ahead: 0, behind: 0, remotes: [] }
   const git = simpleGit({ baseDir: abs, config: ['core.quotepath=false'] })
-  const status = await git.status()
+  const status = await git.status(['--untracked-files=all'])
   const remotes = await git.getRemotes(true)
   return {
     repository: true,
@@ -210,7 +211,7 @@ function limitedPatch(diff: string): string {
 
 export async function workingTreeDetail(project: string, relPath: string): Promise<GitWorkingTreeDetail> {
   const { git } = repository(project, relPath)
-  const status = await git.status()
+  const status = await git.status(['--untracked-files=all'])
   return {
     files: status.files.map((file) => ({
       status: `${file.index}${file.working_dir}`,
@@ -240,7 +241,7 @@ export async function workingTreeFileDiff(project: string, relPath: string, file
   const { abs, git } = repository(project, relPath)
   const pathspec = literalPathspec(fileInput)
   const file = String(fileInput)
-  const status = await git.status()
+  const status = await git.status(['--untracked-files=all'])
   const entry = status.files.find((candidate) => candidate.path === file)
   if (!entry) throw new GitWorkbenchError('커밋되지 않은 변경 파일이 아닙니다')
   if (entry.index === '?' && entry.working_dir === '?') {
@@ -262,18 +263,15 @@ function commitMessagePart(value: unknown, label: string, maxLength: number, req
   return result
 }
 
-export async function commitWorkingTree(project: string, relPath: string, titleInput: unknown, descriptionInput?: unknown): Promise<GitWorkingTreeCommitResult> {
-  const { git } = repository(project, relPath)
+export async function commitWorkingTree(project: string, relPath: string, titleInput: unknown, descriptionInput?: unknown, filesInput?: unknown): Promise<GitWorkingTreeCommitResult> {
+  const { abs } = repository(project, relPath)
   const title = commitMessagePart(titleInput, '커밋 제목', 500, true)
   const description = commitMessagePart(descriptionInput ?? '', '커밋 설명', 20_000, false)
-  if ((await git.status()).isClean()) throw new GitWorkbenchError('커밋할 변경사항이 없습니다')
-  await git.add(['-A'])
-  const staged = await git.diff(['--cached', '--name-only'])
-  if (!staged.trim()) throw new GitWorkbenchError('커밋할 변경사항이 없습니다')
-  const result = await git.commit(description ? [title, description] : title)
-  if (!result.commit) throw new GitWorkbenchError('커밋 해시를 확인할 수 없습니다')
+  let hash: string
+  try { hash = await commitFiles(abs, title, description, filesInput) }
+  catch (error) { throw new GitWorkbenchError((error as Error).message) }
   invalidateGit(project)
-  return { info: await repositoryInfo(project, relPath), hash: result.commit }
+  return { info: await repositoryInfo(project, relPath), hash }
 }
 
 export async function commitFileDiff(project: string, relPath: string, hashInput: unknown, fileInput: unknown): Promise<string> {

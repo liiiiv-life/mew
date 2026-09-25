@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { useDialog, useOverlayDismiss } from '@mew/ui'
+import { relativeCommitTime } from '../utils/git-time'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
 import {
   commitGitWorkingTree,
@@ -18,8 +21,8 @@ import {
   type GitWorkingTreeDetail,
 } from '../api/client'
 
-const LANE_GAP = 14
-const ROW_HEIGHT = 58
+const LANE_GAP = 10
+const ROW_HEIGHT = 28
 const GRAPH_COLORS = ['#5da9ff', '#f28b82', '#81c995', '#fdd663', '#c58af9', '#78d9ec', '#ff8bcb']
 
 type GraphEdge = { from: number; to: number; commit: boolean }
@@ -27,7 +30,6 @@ type GraphRow = { lane: number; before: number; after: number; edges: GraphEdge[
 type DetailSource = { kind: 'working' } | { kind: 'commit'; hash: string }
 type WorkbenchView =
   | { kind: 'graph' }
-  | { kind: 'working' }
   | { kind: 'commit'; hash: string }
   | { kind: 'diff'; source: DetailSource; file: GitChangedFile }
 
@@ -63,32 +65,24 @@ function graphLayout(commits: GitLogEntry[]): { rows: GraphRow[]; lanes: number 
 }
 
 function GraphCell({ row, width }: { row: GraphRow; width: number }) {
-  const x = (lane: number) => 10 + lane * LANE_GAP
+  useUiLocale()
+  const x = (lane: number) => 8 + lane * LANE_GAP
   const mid = ROW_HEIGHT / 2
   return (
     <svg width={width} height={ROW_HEIGHT} className="block shrink-0" aria-hidden="true">
       {Array.from({ length: row.before }, (_, lane) => (
-        <path key={`top-${lane}`} d={`M ${x(lane)} 0 L ${x(lane)} ${mid}`} stroke={GRAPH_COLORS[lane % GRAPH_COLORS.length]} strokeWidth="2" fill="none" />
+        <path key={`top-${lane}`} d={`M ${x(lane)} 0 L ${x(lane)} ${mid}`} stroke={GRAPH_COLORS[lane % GRAPH_COLORS.length]} strokeWidth="1.25" fill="none" />
       ))}
       {row.edges.map((edge, index) => (
         <path
           key={`${edge.from}-${edge.to}-${index}`}
           d={`M ${x(edge.from)} ${edge.commit ? mid : 0} C ${x(edge.from)} ${mid}, ${x(edge.to)} ${mid}, ${x(edge.to)} ${ROW_HEIGHT}`}
           stroke={GRAPH_COLORS[edge.from % GRAPH_COLORS.length]}
-          strokeWidth="2"
+          strokeWidth="1.25"
           fill="none"
         />
       ))}
-      <circle cx={x(row.lane)} cy={mid} r="4.5" fill={GRAPH_COLORS[row.lane % GRAPH_COLORS.length]} stroke="var(--color-surface-raised)" strokeWidth="2" />
-    </svg>
-  )
-}
-
-function WorkingTreeGraphCell({ width, continues }: { width: number; continues: boolean }) {
-  return (
-    <svg width={width} height={ROW_HEIGHT} className="block shrink-0" aria-hidden="true">
-      {continues && <path d={`M 10 ${ROW_HEIGHT / 2} L 10 ${ROW_HEIGHT}`} stroke={GRAPH_COLORS[0]} strokeWidth="2" />}
-      <circle cx="10" cy={ROW_HEIGHT / 2} r="5" fill="var(--color-warning-ink)" stroke="var(--color-surface-raised)" strokeWidth="2" />
+      <circle cx={x(row.lane)} cy={mid} r="3" fill={GRAPH_COLORS[row.lane % GRAPH_COLORS.length]} stroke="var(--color-surface)" strokeWidth="1" />
     </svg>
   )
 }
@@ -130,9 +124,10 @@ function parseDiff(diff: string): ParsedDiffLine[] {
 }
 
 function DiffView({ diff, loading }: { diff: string; loading: boolean }) {
+  useUiLocale()
   const lines = useMemo(() => parseDiff(diff), [diff])
-  if (loading) return <div className="p-5 text-center text-xs text-ink-muted">diff를 불러오는 중…</div>
-  if (!diff) return <div className="p-5 text-center text-xs text-ink-muted">표시할 변경 내용이 없습니다.</div>
+  if (loading) return <div className="p-5 text-center text-xs text-ink-muted">{uiText("diff를 불러오는 중…")}</div>
+  if (!diff) return <div className="p-5 text-center text-xs text-ink-muted">{uiText("표시할 변경 내용이 없습니다.")}</div>
   return (
     <div className="w-max min-w-full py-2 font-mono text-[11px] leading-5 text-ink-secondary">
       {lines.map((line, index) => (
@@ -154,31 +149,80 @@ function statusLabel(status: string): string {
   return `${index}${working}`
 }
 
-function ChangedFiles({ files, onSelect }: { files: GitChangedFile[]; onSelect: (file: GitChangedFile) => void }) {
-  if (files.length === 0) return <div className="p-6 text-center text-xs text-ink-muted">변경된 파일이 없습니다.</div>
+function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, disabled }: { files: GitChangedFile[]; onSelect: (file: GitChangedFile) => void; compact?: boolean; selected?: Set<string>; onToggle?: (path: string) => void; disabled?: boolean }) {
+  useUiLocale()
+  if (files.length === 0) return <div className="p-6 text-center text-xs text-ink-muted">{uiText("변경된 파일이 없습니다.")}</div>
   return (
     <div className="divide-y divide-edge">
       {files.map((file) => (
-        <button key={`${file.status}:${file.previousPath ?? ''}:${file.path}`} type="button" onClick={() => onSelect(file)} className="flex w-full items-center gap-3 px-4 py-3 text-left text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink">
-          <span className="w-7 shrink-0 rounded bg-surface-deep py-0.5 text-center font-mono text-[9px] text-accent" title={file.status}>{statusLabel(file.status)}</span>
-          <span className="min-w-0 flex-1 truncate">{file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}</span>
-          <span className="text-ink-muted" aria-hidden="true">›</span>
-        </button>
+        <div key={file.path} className="flex items-center">
+          {selected && onToggle && <label className="flex shrink-0 cursor-pointer items-center self-stretch pl-3 pr-1">
+            <input type="checkbox" checked={selected.has(file.path)} disabled={disabled} onChange={() => onToggle(file.path)} aria-label={uiText("{p0} 커밋에 포함", { p0: file.path })} className="h-4 w-4 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
+          </label>}
+          <button type="button" onClick={() => onSelect(file)} className={`flex min-w-0 flex-1 items-center text-left text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink ${compact ? 'gap-2 px-3 py-1.5' : 'gap-3 px-4 py-3'}`}>
+            <span className="w-7 shrink-0 rounded bg-surface-deep py-0.5 text-center font-mono text-[9px] text-accent" title={file.status}>{statusLabel(file.status)}</span>
+            <span className="min-w-0 flex-1 truncate" title={file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}>{file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}</span>
+            <span className="text-ink-muted" aria-hidden="true">›</span>
+          </button>
+        </div>
       ))}
     </div>
   )
 }
 
 function BackIcon() {
+  useUiLocale()
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
 }
 
-export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
+function GitSplitHandle({ ratio, onChange }: { ratio: number; onChange: (ratio: number) => void }) {
+  useUiLocale()
+  const drag = useRef<{ pointerId: number; y: number; ratio: number; height: number } | null>(null)
+  const update = (value: number) => onChange(Math.max(0.15, Math.min(0.85, value)))
+  const move = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const active = drag.current
+    if (active?.pointerId === event.pointerId) update(active.ratio + (event.clientY - active.y) / active.height)
+  }
+  const end = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return
+    drag.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+  return <div role="separator" tabIndex={0} aria-label={uiText("커밋 기록과 변경사항 높이 조절")} aria-orientation="horizontal"
+    aria-valuemin={15} aria-valuemax={85} aria-valuenow={Math.round(ratio * 100)}
+    className="relative z-10 h-1 shrink-0 cursor-row-resize touch-none bg-edge before:absolute before:-inset-y-1 before:inset-x-0 hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+    onKeyDown={(event) => {
+      const next = event.key === 'ArrowUp' ? ratio - 0.05 : event.key === 'ArrowDown' ? ratio + 0.05 : event.key === 'Home' ? 0.15 : event.key === 'End' ? 0.85 : null
+      if (next !== null) { event.preventDefault(); event.stopPropagation(); update(next) }
+    }}
+    onPointerDown={(event) => {
+      if (event.button !== 0 || !event.isPrimary || drag.current) return
+      event.preventDefault()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      event.currentTarget.focus({ preventScroll: true })
+      drag.current = { pointerId: event.pointerId, y: event.clientY, ratio, height: Math.max(1, (event.currentTarget.parentElement?.clientHeight ?? 4) - 4) }
+    }}
+    onPointerMove={move}
+    onPointerUp={(event) => { move(event); end(event) }}
+    onPointerCancel={end}
+    onLostPointerCapture={end}
+  />
+}
+
+export function GitWorkbench({ project, repositoryPath, onNotice, onBack, panelControls }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
   onBack?: () => void
+  panelControls?: ReactNode
 }) {
+  useUiLocale()
+  const [splitRatio, setSplitRatio] = useState(0.2)
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const [info, setInfo] = useState<GitRepositoryInfo | null>(null)
   const [commits, setCommits] = useState<GitLogEntry[]>([])
   const [workingTree, setWorkingTree] = useState<GitWorkingTreeDetail>({ files: [] })
@@ -189,6 +233,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   const [detailLoading, setDetailLoading] = useState(false)
   const [diffLoading, setDiffLoading] = useState(false)
   const [committing, setCommitting] = useState(false)
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [commitTitle, setCommitTitle] = useState('')
   const [commitDescription, setCommitDescription] = useState('')
   const [aiOpen, setAiOpen] = useState(false)
@@ -196,7 +241,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   const [menu, setMenu] = useState<{ commit: GitLogEntry; x: number; y: number } | null>(null)
   useOverlayDismiss(menu ? () => setMenu(null) : false)
   const graph = useMemo(() => graphLayout(commits), [commits])
-  const graphWidth = 20 + graph.lanes * LANE_GAP
+  const graphWidth = 16 + (graph.lanes - 1) * LANE_GAP
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -209,8 +254,10 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
         fetchGitLog(repositoryPath, project),
         fetchGitWorkingTree(repositoryPath, project),
       ])
+      setNow(Date.now())
       setCommits(log.commits)
       setWorkingTree(nextWorkingTree)
+      setSelectedFiles(current => new Set(nextWorkingTree.files.filter(file => current.has(file.path)).map(file => file.path)))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -222,6 +269,8 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
     setView({ kind: 'graph' })
     setCommitTitle('')
     setCommitDescription('')
+    setSelectedFiles(new Set())
+    setSplitRatio(0.2)
     setAiOpen(false)
     void refresh()
   }, [refresh])
@@ -265,7 +314,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   const goBack = () => {
     setError(null)
     setView((current) => {
-      if (current.kind === 'diff') return current.source.kind === 'working' ? { kind: 'working' } : { kind: 'commit', hash: current.source.hash }
+      if (current.kind === 'diff') return current.source.kind === 'working' ? { kind: 'graph' } : { kind: 'commit', hash: current.source.hash }
       return { kind: 'graph' }
     })
   }
@@ -276,15 +325,16 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   }
 
   const commit = async () => {
-    if (!commitTitle.trim() || workingTree.files.length === 0 || committing) return
+    if (!commitTitle.trim() || selectedFiles.size === 0 || committing) return
     setCommitting(true)
     setError(null)
     try {
-      await commitGitWorkingTree(repositoryPath, commitTitle, commitDescription, project)
+      await commitGitWorkingTree(repositoryPath, commitTitle, commitDescription, project, [...selectedFiles])
       setCommitTitle('')
       setCommitDescription('')
+      setSelectedFiles(new Set())
       setView({ kind: 'graph' })
-      onNotice('변경사항을 커밋했습니다')
+      onNotice(uiText("변경사항을 커밋했습니다"))
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -299,18 +349,18 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
     setMenu(null)
     let name: string | undefined
     if (action === 'branch') {
-      name = (await dialogs.prompt({ message: '브랜치 만들기', label: '브랜치 이름', detail: `${selected.hash.slice(0, 8)}에서 생성`, confirmLabel: '만들기' }))?.trim()
+      name = (await dialogs.prompt({ message: uiText("브랜치 만들기"), label: uiText("브랜치 이름"), detail: uiText("{p0}에서 생성", { p0: selected.hash.slice(0, 8) }), confirmLabel: uiText("만들기") }))?.trim()
       if (!name) return
     } else if (action === 'tag') {
-      name = (await dialogs.prompt({ message: '태그 만들기', label: '태그 이름', detail: `${selected.hash.slice(0, 8)}에 생성`, confirmLabel: '만들기' }))?.trim()
+      name = (await dialogs.prompt({ message: uiText("태그 만들기"), label: uiText("태그 이름"), detail: uiText("{p0}에 생성", { p0: selected.hash.slice(0, 8) }), confirmLabel: uiText("만들기") }))?.trim()
       if (!name) return
     } else {
-      const labels: Record<Exclude<GitCommitAction, 'branch' | 'tag'>, string> = { checkout: '이 커밋을 detached HEAD로 checkout', 'cherry-pick': '현재 브랜치에 cherry-pick', revert: '현재 브랜치에서 revert 커밋 생성' }
-      if (!(await dialogs.confirm({ message: `${labels[action]}할까요?`, detail: `${selected.hash.slice(0, 8)} ${selected.subject}`, confirmLabel: '실행', danger: true }))) return
+      const labels: Record<Exclude<GitCommitAction, 'branch' | 'tag'>, string> = { checkout: uiText("이 커밋을 detached HEAD로 checkout"), 'cherry-pick': uiText("현재 브랜치에 cherry-pick"), revert: uiText("현재 브랜치에서 revert 커밋 생성") }
+      if (!(await dialogs.confirm({ message: uiText("{p0}할까요?", { p0: labels[action] }), detail: `${selected.hash.slice(0, 8)} ${selected.subject}`, confirmLabel: uiText("실행"), danger: true }))) return
     }
     try {
       await runGitCommitAction(repositoryPath, action, selected.hash, name, project)
-      onNotice('Git 작업을 완료했습니다')
+      onNotice(uiText("Git 작업을 완료했습니다"))
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -319,105 +369,97 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
 
   const heading = view.kind === 'graph'
     ? ''
-    : view.kind === 'working'
-      ? '커밋되지 않은 변경사항'
-      : view.kind === 'commit'
-        ? detail?.subject ?? '커밋 상세'
+    : view.kind === 'commit'
+        ? detail?.subject ?? uiText("커밋 상세")
         : view.file.path
 
   return (
     <div className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface">
       {dialogs.dialog}
-      {aiOpen && <GitAiCommitDialog key={project} project={project} onClose={() => setAiOpen(false)} onApply={draft => {
-        setCommitTitle(draft.title)
-        setCommitDescription(draft.description)
-        setAiOpen(false)
-        onNotice('커밋 초안을 적용했습니다. 내용을 확인한 뒤 커밋하세요.')
-      }} />}
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
-        {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'} title={view.kind === 'graph' ? '저장소 목록' : '뒤로 가기'}><BackIcon /></button>}
+      {aiOpen && <GitAiCommitDialog key={project} project={project} files={[...selectedFiles]} onClose={() => { setAiOpen(false); void refresh() }} onFinished={() => { void refresh() }} />}
+      {(view.kind !== 'graph' || onBack || (!info?.repository && panelControls)) && <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
+        {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")} title={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")}><BackIcon /></button>}
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={heading}>{heading}</span>
-      </div>
+        {panelControls}
+      </div>}
 
-      {error && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="select-text min-w-0 flex-1">{error}</span><button type="button" onClick={() => setError(null)} aria-label="오류 닫기">×</button></div>}
+      {error && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="select-text min-w-0 flex-1">{error}</span><button type="button" onClick={() => setError(null)} aria-label={uiText("오류 닫기")}>×</button></div>}
 
-      {view.kind === 'graph' && (
-        <>
-          <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-edge px-3 py-1 text-xs">
-            <span className="min-w-0 truncate font-semibold text-ink" title={repositoryPath}>{repositoryPath || (project === 'docs' ? 'Documents' : '프로젝트 루트')}</span>
-            {info?.branch && <span className="rounded bg-accent/15 px-1.5 py-0.5 text-accent">{info.branch}</span>}
-            {info?.detached && <span className="rounded bg-warning-surface px-1.5 py-0.5 text-warning-ink">detached</span>}
-            {!!info?.ahead && <span className="text-ink-muted">↑{info.ahead}</span>}
-            {!!info?.behind && <span className="text-ink-muted">↓{info.behind}</span>}
-            <button type="button" onClick={() => void refresh()} disabled={loading} className="ml-auto rounded px-2 py-1 text-ink-secondary hover:bg-surface-hover disabled:opacity-40">새로고침</button>
+      <div className={`${view.kind === 'graph' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col`}>
+        {loading && !info ? (
+          <div className="p-5 text-center text-xs text-ink-muted">{uiText("변경사항과 커밋을 불러오는 중…")}</div>
+        ) : info?.repository === false || !info ? (
+          <div className="p-5 text-center text-xs text-ink-secondary">
+            <p role="status">{info?.repository === false ? uiText("현재 프로젝트에 Git 저장소가 없습니다.") : uiText("Git 정보를 불러오지 못했습니다.")}</p>
+            <button type="button" onClick={() => void refresh()} disabled={loading} className="mt-3 rounded border border-edge-strong px-3 py-2 hover:bg-surface-hover disabled:opacity-40">{uiText("새로고침")}</button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {loading ? (
-              <div className="p-5 text-center text-xs text-ink-muted">커밋을 불러오는 중…</div>
-            ) : info?.repository === false ? (
-              <p role="status" className="p-5 text-center text-sm text-ink-secondary">현재 프로젝트에 Git 저장소가 없습니다.</p>
-            ) : error ? (
-              <button type="button" onClick={() => void refresh()} className="m-5 rounded border border-edge-strong px-3 py-2 text-sm text-ink hover:bg-surface-hover">다시 시도</button>
-            ) : (
-              <>
-                <button type="button" onClick={() => setView({ kind: 'working' })} className="flex h-[58px] w-full items-stretch border-b border-edge bg-warning-surface/25 text-left text-xs hover:bg-surface-hover">
-                  <WorkingTreeGraphCell width={graphWidth} continues={commits.length > 0} />
-                  <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 pr-3">
-                    <span className="font-medium text-ink">커밋되지 않은 변경사항</span>
-                    <span className="text-[10px] text-ink-muted">{workingTree.files.length > 0 ? `${workingTree.files.length}개 파일 변경됨` : '변경 없음'}</span>
-                  </span>
-                  <span className="flex items-center pr-3 text-ink-muted" aria-hidden="true">›</span>
-                </button>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col" aria-busy={loading}>
+            <section aria-label={uiText("커밋 기록")} className="flex min-h-0 flex-col overflow-hidden" style={{ flex: `${splitRatio} 1 0` }}>
+              <div className="flex h-8 shrink-0 items-center gap-2 border-b border-edge px-3 text-[11px]">
+                <span className="shrink-0 font-medium text-ink">{uiText("커밋 기록")}</span>
+                {info.branch && <span className="min-w-0 truncate text-accent" title={info.branch}>{info.branch}</span>}
+                {info.detached && <span className="shrink-0 text-warning-ink">detached</span>}
+                {!!info.ahead && <span className="shrink-0 text-ink-muted">↑{info.ahead}</span>}
+                {!!info.behind && <span className="shrink-0 text-ink-muted">↓{info.behind}</span>}
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto overscroll-contain" data-git-scroll="history">
                 {commits.length === 0 ? (
-                  <div className="p-5 text-center text-xs text-ink-muted">아직 커밋이 없습니다</div>
+                  <div className="p-5 text-center text-xs text-ink-muted">{uiText("아직 커밋이 없습니다")}</div>
                 ) : commits.map((entry, index) => (
                   <button
                     key={entry.hash}
                     type="button"
                     onClick={() => setView({ kind: 'commit', hash: entry.hash })}
                     onContextMenu={(event) => { event.preventDefault(); setMenu({ commit: entry, x: event.clientX, y: event.clientY }) }}
-                    className="flex h-[58px] w-full items-stretch border-b border-edge text-left text-xs hover:bg-surface-hover"
+                    title={`${entry.subject}\n${entry.author} · ${shortDate(entry.date)} · ${entry.hash}${entry.refs.length ? `\n${entry.refs.join(', ')}` : ''}`}
+                    className="flex w-full items-center gap-2 pr-3 text-left text-[11px] hover:bg-surface-hover focus-visible:outline-accent"
+                    style={{ height: ROW_HEIGHT, minWidth: graphWidth + 220 }}
                   >
                     <GraphCell row={graph.rows[index]} width={graphWidth} />
-                    <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 pr-3">
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate font-medium text-ink">{entry.subject}</span>
-                        {entry.refs.slice(0, 3).map((ref) => <span key={ref} className="max-w-28 shrink-0 truncate rounded bg-surface-deep px-1 py-0.5 text-[9px] text-accent">{ref.replace(/^HEAD -> /, '')}</span>)}
-                      </span>
-                      <span className="flex items-center gap-2 text-[10px] text-ink-muted"><span>{entry.author}</span><span>{shortDate(entry.date)}</span><span className="font-mono">{entry.hash.slice(0, 8)}</span></span>
-                    </span>
-                    <span className="flex items-center pr-3 text-ink-muted" aria-hidden="true">›</span>
+                    <span className="min-w-16 flex-1 truncate text-ink">{entry.subject}</span>
+                    {entry.refs.length > 0 && <span className="hidden max-w-24 shrink-0 truncate rounded bg-surface-deep px-1 text-[9px] text-accent @min-[480px]:inline">{entry.refs[0].replace(/^HEAD -> /, '')}{entry.refs.length > 1 ? ` +${entry.refs.length - 1}` : ''}</span>}
+                    <time dateTime={entry.date} className="shrink-0 whitespace-nowrap text-[10px] tabular-nums text-ink-secondary">{relativeCommitTime(entry.date, now)}</time>
+                    <span className="shrink-0 font-mono text-[10px] text-ink-secondary">{entry.hash.slice(0, 7)}</span>
+                    <span className="w-12 shrink-0 truncate text-[10px] text-ink-secondary @min-[480px]:w-20">{entry.author}</span>
                   </button>
                 ))}
-              </>
-            )}
+              </div>
+            </section>
+            <GitSplitHandle ratio={splitRatio} onChange={setSplitRatio} />
+            <section aria-label={uiText("현재 변경사항")} className="flex min-h-0 flex-col overflow-hidden" style={{ flex: `${1 - splitRatio} 1 0`, minHeight: 'min(224px, 75%)' }}>
+              <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs">
+                <input type="checkbox" aria-label={uiText("변경 파일 전체 선택")} checked={workingTree.files.length > 0 && selectedFiles.size === workingTree.files.length} ref={node => { if (node) node.indeterminate = selectedFiles.size > 0 && selectedFiles.size < workingTree.files.length }} disabled={committing || workingTree.files.length === 0} onChange={event => setSelectedFiles(new Set(event.target.checked ? workingTree.files.map(file => file.path) : []))} className="h-4 w-4 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
+                <span className="min-w-0 truncate font-medium text-ink">{uiText("커밋되지 않은 변경사항")}</span>
+                <span className="shrink-0 tabular-nums text-ink-muted">{workingTree.files.length}</span>
+                <button type="button" onClick={() => void refresh()} disabled={loading || committing} className="ml-auto shrink-0 rounded px-2 py-1 text-ink-secondary hover:bg-surface-hover disabled:opacity-40">{uiText("새로고침")}</button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-scroll="changes">
+                <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={committing} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
+              </div>
+              <form aria-label={uiText("커밋 작성")} className="flex min-h-36 shrink-0 resize-y flex-col gap-2 overflow-auto border-t border-edge p-3" style={{ height: '37.5%', maxHeight: '70%' }} onSubmit={(event) => { event.preventDefault(); void commit() }}>
+                <div className="flex shrink-0 items-center gap-2">
+                  <input value={commitTitle} disabled={committing} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || committing} className="shrink-0 rounded bg-accent px-3 py-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">{committing ? uiText("커밋 중…") : uiText("커밋")}</button>
+                </div>
+                <textarea value={commitDescription} disabled={committing} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-8 w-full flex-1 resize-none rounded border border-edge-strong bg-surface-deep px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 text-xs">
+                  <span className="text-ink-muted" role="status">{uiText("{count}개 선택", { count: selectedFiles.size })}</span>
+                  {view.kind === 'graph' && info?.repository && <div className="ml-auto flex min-w-0 items-center gap-1">
+                    {panelControls}
+                    <button type="button" disabled={committing} onClick={() => setAiOpen(true)} className="shrink-0 rounded border border-edge-strong px-3 py-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">{uiText("AI 자동 커밋")}</button>
+                  </div>}
+                </div>
+              </form>
+            </section>
           </div>
-        </>
-      )}
-
-      {view.kind === 'working' && (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <ChangedFiles files={workingTree.files} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
-          </div>
-          <form className="shrink-0 space-y-2 border-t border-edge bg-surface-deep p-4" onSubmit={(event) => { event.preventDefault(); void commit() }}>
-            <input value={commitTitle} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder="커밋 제목" aria-label="커밋 제목" className="w-full rounded border border-edge-strong bg-surface-deep px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-            <textarea value={commitDescription} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} rows={3} placeholder="설명 (선택)" aria-label="커밋 설명" className="w-full resize-y rounded border border-edge-strong bg-surface-deep px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className="text-xs text-ink-muted">변경 파일 {workingTree.files.length}개를 모두 커밋합니다.</span>
-              <span className="flex shrink-0 items-center gap-2">
-                <button type="button" disabled={workingTree.files.length === 0 || committing} onClick={() => setAiOpen(true)} className="rounded border border-edge-strong px-4 py-2 text-xs font-medium text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">AI Commit</button>
-                <button type="submit" disabled={!commitTitle.trim() || workingTree.files.length === 0 || committing} className="rounded bg-accent px-4 py-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">{committing ? '커밋 중…' : '커밋'}</button>
-              </span>
-            </div>
-          </form>
-        </div>
-      )}
+        )}
+      </div>
 
       {view.kind === 'commit' && (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {detailLoading ? (
-            <div className="p-5 text-center text-xs text-ink-muted">커밋을 불러오는 중…</div>
+            <div className="p-5 text-center text-xs text-ink-muted">{uiText("커밋을 불러오는 중…")}</div>
           ) : detail && (
             <>
               <div className="border-b border-edge p-4">
@@ -435,12 +477,12 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
 
       {menu && (
         <div className="fixed z-[1200] min-w-52 overflow-hidden rounded-lg border border-edge-bright bg-surface-raised py-1 text-xs shadow-xl" style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 250) }} onPointerDown={(event) => event.stopPropagation()}>
-          <button type="button" onClick={() => { void navigator.clipboard.writeText(menu.commit.hash); setMenu(null) }} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">커밋 해시 복사</button>
-          <button type="button" onClick={() => void act('branch', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">여기서 브랜치 생성</button>
-          <button type="button" onClick={() => void act('tag', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">여기에 태그 생성</button>
-          <button type="button" onClick={() => void act('checkout', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">이 커밋 checkout</button>
+          <button type="button" onClick={() => { void navigator.clipboard.writeText(menu.commit.hash); setMenu(null) }} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("커밋 해시 복사")}</button>
+          <button type="button" onClick={() => void act('branch', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("여기서 브랜치 생성")}</button>
+          <button type="button" onClick={() => void act('tag', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("여기에 태그 생성")}</button>
+          <button type="button" onClick={() => void act('checkout', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("이 커밋 checkout")}</button>
           <button type="button" onClick={() => void act('cherry-pick', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">Cherry-pick</button>
-          <button type="button" onClick={() => void act('revert', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">Revert 커밋 생성</button>
+          <button type="button" onClick={() => void act('revert', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("Revert 커밋 생성")}</button>
         </div>
       )}
     </div>

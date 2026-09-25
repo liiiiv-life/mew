@@ -4,6 +4,7 @@ import path from 'node:path'
 import { WORKSPACE_ROOT } from './paths.ts'
 import { parseConfig } from './harness-config.ts'
 import { readAgentSetting } from './agentSettings.ts'
+import { ensureCommitSkill, MEW_SKILLS_DIR } from './mew-skills.ts'
 
 export interface SkillSummary {
   name: string
@@ -46,7 +47,8 @@ export function listSkills(cwd = WORKSPACE_ROOT, runtime = 'codex', home = os.ho
     kimi: env.KIMI_CODE_HOME || path.join(home, '.kimi-code'), antigravity: path.join(env.GEMINI_HOME || path.join(home, '.gemini'), 'antigravity'),
     prime: path.join(home, '.prime/agent'), hermes: env.HERMES_HOME || path.join(home, '.hermes'), openclaw: env.OPENCLAW_STATE_DIR || path.join(home, '.openclaw'),
   }
-  const roots: string[] = []
+  ensureCommitSkill()
+  const roots: string[] = [MEW_SKILLS_DIR]
   // The nearest project wins. Descendant/sibling projects never leak into the current prompt.
   let current = path.resolve(cwd)
   while (true) {
@@ -67,7 +69,7 @@ export function listSkills(cwd = WORKSPACE_ROOT, runtime = 'codex', home = os.ho
     }
     const meta = parseFrontmatter(content)
     const fallbackName = path.basename(file) === 'SKILL.md' ? path.basename(path.dirname(file)) : path.basename(file, '.md')
-    const name = meta.name || fallbackName
+    const name = file === path.join(MEW_SKILLS_DIR, 'commit', 'SKILL.md') ? 'commit' : meta.name || fallbackName
     if (!name || byName.has(name)) continue
     byName.set(name, {
       name,
