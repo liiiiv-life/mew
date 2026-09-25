@@ -1,4 +1,6 @@
-import { DockGrip } from './DockWorkspace'
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
+import { DockGrip, DockInlineBody } from './DockWorkspace'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteComment,
@@ -28,6 +30,8 @@ import type { Pane, Tab } from '../hooks/useTabs'
 import type { DropZone } from '../utils/paneTree'
 import { externalAbsolutePath, isExternalTabPath } from '../utils/externalFiles'
 import { afterFirstPaint, markFileOpen } from '../utils/fileOpenPerformance'
+import { MarkdownErrorBoundary } from './markdown-error-boundary'
+import { useI18n } from '../i18n'
 
 /** 상태줄용 바이트 표기 — 1KB 미만은 바이트 그대로, 그 위는 소수 한 자리 */
 function formatBytes(bytes: number): string {
@@ -76,13 +80,14 @@ function primaryCollabPath(tab: Tab | null, role: Role): string | null {
 
 /** 사이드바가 닫혀 있을 때 맨 왼쪽 칸 좌상단에 뜨는 여는 버튼 — 우상단 도구 줄과 같은 생김새 */
 function SidebarOpenButton({ onClick }: { onClick: () => void }) {
+  useUiLocale()
   return (
     <button
       type="button"
       onClick={onClick}
       className="rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
-      title="사이드바 열기 (Ctrl+B)"
-      aria-label="사이드바 열기"
+      title={uiText("사이드바 열기 (Ctrl+B)")}
+      aria-label={uiText("사이드바 열기")}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -95,6 +100,7 @@ function SidebarOpenButton({ onClick }: { onClick: () => void }) {
 
 /** 탭을 끌어와 놓으면 무슨 일이 일어나는지 미리 보이는 그림자 */
 function DropHint({ zone }: { zone: DropZone }) {
+  useUiLocale()
   const box =
     zone === 'center'
       ? 'inset-0'
@@ -176,7 +182,10 @@ export function EditorPane({
   onTabDragMove,
   onTabDrop,
 }: EditorPaneProps) {
+  useUiLocale()
+  const { t } = useI18n()
   const activeTab = pane.tabs.find((t) => t.path === pane.activePath) ?? null
+  const loading = activeTab?.loading === true
   const editorRef = useRef<EditorHandle>(null)
   const codePaneRef = useRef<CodePaneHandle>(null)
   const activeTabRef = useRef(activeTab)
@@ -310,8 +319,8 @@ export function EditorPane({
     const tab = activeTabRef.current
     const other = tab?.path.endsWith('.md') ? (tab.viewMode === 'plain' ? 'Hotview' : 'Plain') : null
     return other
-      ? `댓글 위치를 찾을 수 없습니다. ${other} 보기에서 확인하세요.`
-      : '댓글이 달린 부분이 수정되거나 삭제됐습니다'
+      ? uiText("댓글 위치를 찾을 수 없습니다. {p0} 보기에서 확인하세요.", { p0: other })
+      : uiText("댓글이 달린 부분이 수정되거나 삭제됐습니다")
   }
 
   /**
@@ -492,19 +501,21 @@ export function EditorPane({
       </div>
 
       {/* 드롭 자리 판정은 **본문**만 본다 — 탭 줄 안에서 끄는 건 순서 바꾸기지 분할이 아니다 */}
-      <div
+      <DockInlineBody group={`editor:${pane.id}`}
         ref={(el) => {
           scrollHostRef.current = el
           registerElement(pane.id, el)
         }}
-        className="relative flex min-h-0 flex-1"
+        tabIndex={-1}
+        aria-busy={loading}
+        className="relative flex min-h-0 flex-1 bg-surface-deep"
       >
+        <div inert={loading} className="relative flex min-h-0 min-w-0 flex-1">
         {activeTab ? (
           <>
             {isArchivedPath(activeTab.path) && !isGuest && (
               <div className="absolute inset-x-0 top-0 z-10 bg-warning-surface px-4 py-1 text-center text-sm text-warning-ink">
-                보관 문서 · 읽기 전용
-              </div>
+                {uiText("보관 문서 · 읽기 전용")}</div>
             )}
             <div className="relative flex min-w-0 flex-1 flex-col">
               {showSidebarButton && (
@@ -522,8 +533,8 @@ export function EditorPane({
                         type="button"
                         onClick={onOpenHistory}
                         className="rounded border border-edge-strong bg-surface-raised p-1.5 text-ink-muted shadow-sm hover:bg-surface-hover"
-                        title="히스토리"
-                        aria-label="히스토리"
+                        title={uiText("히스토리")}
+                        aria-label={uiText("히스토리")}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M3 3v5h5" />
@@ -542,8 +553,8 @@ export function EditorPane({
                             ? 'bg-accent text-ink-on-accent'
                             : 'bg-surface-raised text-ink-secondary hover:bg-surface-hover'
                         }`}
-                        title={isSvg ? '이미지' : 'Hotview'}
-                        aria-label={isSvg ? '이미지' : 'Hotview'}
+                        title={isSvg ? uiText("이미지") : 'Hotview'}
+                        aria-label={isSvg ? uiText("이미지") : 'Hotview'}
                       >
                         {isSvg ? (
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -566,8 +577,8 @@ export function EditorPane({
                             ? 'bg-accent text-ink-on-accent'
                             : 'bg-surface-raised text-ink-secondary hover:bg-surface-hover'
                         }`}
-                        title={isSvg ? '텍스트' : 'Plain'}
-                        aria-label={isSvg ? '텍스트' : 'Plain'}
+                        title={isSvg ? uiText("텍스트") : 'Plain'}
+                        aria-label={isSvg ? uiText("텍스트") : 'Plain'}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="m18 16 4-4-4-4" />
@@ -588,8 +599,8 @@ export function EditorPane({
                       className={`rounded border border-edge-strong p-1.5 shadow-sm ${
                         commentListOpen ? 'bg-accent text-ink-on-accent' : 'bg-surface-raised text-ink-muted hover:bg-surface-hover'
                       }`}
-                      title="댓글 목록 (Alt+Shift+C로 달기)"
-                      aria-label="댓글 목록"
+                      title={uiText("댓글 목록 (Alt+Shift+C로 달기)")}
+                      aria-label={uiText("댓글 목록")}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
@@ -612,8 +623,8 @@ export function EditorPane({
                     className={`hidden rounded border border-edge-strong p-1.5 shadow-sm lg:block ${
                       tocOpen ? 'bg-accent text-ink-on-accent' : 'bg-surface-raised text-ink-muted hover:bg-surface-hover'
                     }`}
-                    title="목차"
-                    aria-label="목차"
+                    title={uiText("목차")}
+                    aria-label={uiText("목차")}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                       <path d="M9 6h12M9 12h12M9 18h12" />
@@ -638,28 +649,33 @@ export function EditorPane({
                     path={activeTab.path}
                     value={activeTab.content}
                     onChange={(content) => onChangeContent(activeTab.path, content)}
-                    readOnly={!activeTab.editable || isArchivedPath(activeTab.path) || !!activeTab.anchorPreview}
+                    readOnly={loading || !activeTab.editable || isArchivedPath(activeTab.path) || !!activeTab.anchorPreview}
                     collab={collab}
                     commentThreads={threads}
                     onCommentClick={openThread}
                     lineOffset={activeTab.anchorPreview ? activeTab.anchorPreview.lineStart - 1 : 0}
                   />
                 ) : (
-                  <Editor
-                    ref={editorRef}
-                    value={activeTab.content}
-                    api={editorApi}
-                    onChange={(content) => onChangeContent(activeTab.path, content)}
-                    readOnly={!activeTab.editable || isArchivedPath(activeTab.path)}
-                    path={activeTab.path}
-                    tree={tree}
-                    onOpenLink={onOpenLink}
-                    onSelectionChars={setSelChars}
-                    collab={collab}
-                    commentThreads={threads}
-                    onCommentClick={openThread}
-                    onStartComment={canComment && selChars > 0 ? startComment : undefined}
-                  />
+                  <MarkdownErrorBoundary
+                    resetKey={JSON.stringify([project, activeTab.path])}
+                    onOpenPlain={() => onSetViewMode(activeTab.path, 'plain')}
+                  >
+                    <Editor
+                      ref={editorRef}
+                      value={activeTab.content}
+                      api={editorApi}
+                      onChange={(content) => onChangeContent(activeTab.path, content)}
+                      readOnly={loading || !activeTab.editable || isArchivedPath(activeTab.path)}
+                      path={activeTab.path}
+                      tree={tree}
+                      onOpenLink={onOpenLink}
+                      onSelectionChars={setSelChars}
+                      collab={collab}
+                      commentThreads={threads}
+                      onCommentClick={openThread}
+                      onStartComment={canComment && selChars > 0 ? startComment : undefined}
+                    />
+                  </MarkdownErrorBoundary>
                 )}
               </div>
               {/* 상태줄은 늘 떠 있다 — 가운데는 파일 크기, 오른쪽은 선택했을 때만 글자 수.
@@ -673,7 +689,7 @@ export function EditorPane({
                       ? ''
                       : formatBytes(fileBytes)}
                 </span>
-                <span className="flex-1 text-right">{selChars > 0 && `${selChars}자 선택`}</span>
+                <span className="flex-1 text-right">{selChars > 0 && uiText("{p0}자 선택", { p0: selChars })}</span>
               </div>
             </div>
             {tocOpen && isMd && (
@@ -719,20 +735,26 @@ export function EditorPane({
               </div>
             )}
             <div className="text-center">
-              <div className="mb-2">왼쪽에서 문서를 선택하세요</div>
+              <div className="mb-2">{uiText("왼쪽에서 문서를 선택하세요")}</div>
               {isGuest ? (
-                <div className="text-xs text-ink-muted">Ctrl+P 검색</div>
+                <div className="text-xs text-ink-muted">{uiText("Ctrl+P 검색")}</div>
               ) : (
                 <>
-                  <div className="text-xs text-ink-muted">Ctrl+P 검색 · 사이드바에서 Insert로 새 파일</div>
-                  <div className="mt-2 text-xs text-ink-faint">자동 저장 · Ctrl+S 커밋</div>
+                  <div className="text-xs text-ink-muted">{uiText("Ctrl+P 검색 · 사이드바에서 Insert로 새 파일")}</div>
+                  <div className="mt-2 text-xs text-ink-faint">{uiText("자동 저장 · Ctrl+S 커밋")}</div>
                 </>
               )}
             </div>
           </div>
         )}
         {dropZone && <DropHint zone={dropZone} />}
-      </div>
+        </div>
+        {loading && <div data-editor-loading role="status" aria-label={t('common.loading')}
+          className="absolute inset-0 z-50 flex cursor-wait items-center justify-center bg-black/50">
+          <span aria-hidden="true" className="h-8 w-8 rounded-full border-2 border-white/30 border-t-white motion-safe:animate-spin" />
+          <span className="sr-only">{t('common.loading')}</span>
+        </div>}
+      </DockInlineBody>
     </div>
   )
 }

@@ -127,6 +127,7 @@ function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, o
     {dock && <DockGrip group={group} />}
     <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
       {tabs.map((tab, i) => <div key={tab.id} {...drag.getItemProps(i)} draggable={false} onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }} role="tab" tabIndex={0} aria-selected={tab.id === activeId} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onActivate(tab.id) } }} onClick={() => { if (!drag.consumeClick()) onActivate(tab.id) }}
+        aria-keyshortcuts={dock?.desktop ? 'Shift+Enter' : undefined}
         onContextMenu={(event) => { if (drag.dragIndex !== null) event.preventDefault() }}
         className={`group flex h-full shrink-0 cursor-pointer select-none items-center gap-1.5 border-r border-edge px-2.5 text-xs [-webkit-touch-callout:none] ${tab.id === activeId ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-raised'} ${drag.dragIndex === i ? 'opacity-70 ring-1 ring-inset ring-accent' : ''}`} title={tab.url}>
         <span className="max-w-[9rem] truncate">{tab.title || (tab.url ? labelForUrl(tab.url) : t('browser.newTab'))}</span>

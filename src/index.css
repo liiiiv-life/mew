@@ -2,6 +2,56 @@
 @plugin '@tailwindcss/typography';
 @variant dark (&:where(.dark, .dark *));
 
+.agent-loading-bubbles {
+  padding: 12px;
+}
+.agent-loading-bubbles__shapes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.agent-loading-bubbles__bubble {
+  position: relative;
+  overflow: hidden;
+  width: 66%;
+  height: 40px;
+  flex-shrink: 0;
+  align-self: flex-end;
+  border-radius: 8px;
+  background: var(--color-surface-raised);
+}
+.agent-loading-bubbles__bubble:nth-child(2) {
+  width: 92%;
+  height: 72px;
+  align-self: flex-start;
+}
+.agent-loading-bubbles__bubble:nth-child(3) { width: 52%; }
+.agent-loading-bubbles__bubble:nth-child(4) {
+  width: 82%;
+  height: 96px;
+  align-self: flex-start;
+}
+.agent-loading-bubbles__bubble::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 15%, color-mix(in srgb, var(--color-ink) 9%, transparent) 50%, transparent 85%);
+  transform: translateX(-100%);
+  animation: agent-bubble-shimmer 1.8s ease-in-out infinite;
+}
+.agent-loading-bubbles__bubble:nth-child(2)::after { animation-delay: 120ms; }
+.agent-loading-bubbles__bubble:nth-child(3)::after { animation-delay: 240ms; }
+.agent-loading-bubbles__bubble:nth-child(4)::after { animation-delay: 360ms; }
+.agent-loading-bubbles[data-active='false'] .agent-loading-bubbles__bubble::after { animation-play-state: paused; }
+.agent-loading-bubbles[data-compact='true'] .agent-loading-bubbles__bubble { height: 28px; }
+@keyframes agent-bubble-shimmer {
+  0% { transform: translateX(-100%); }
+  80%, 100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-loading-bubbles__bubble::after { animation: none; transform: none; }
+}
+
 /*
  * 시맨틱 디자인 토큰 (SSoT)
  * - 색은 여기서만 정의한다. 컴포넌트는 생성된 유틸리티(bg-surface, text-ink 등)를,
@@ -32,12 +82,13 @@
   --color-ink-muted: #737373; /* 힌트·보조 설명 */
   --color-ink-faint: #525252; /* 플레이스홀더 */
   --color-ink-inverse: #171717; /* 밝은 배경 위 텍스트 */
-  --color-ink-on-accent: #ffffff; /* 컬러 솔리드 배경 위 텍스트 */
+  --color-ink-on-accent: #171717; /* 모드별 액센트 배경 위 텍스트 */
+  --color-ink-on-danger: #ffffff; /* 경고·삭제 버튼은 테마색과 독립 */
 
-  /* 액센트 */
-  --color-accent: #4432a8;
-  --color-accent-strong: #37268a;
-  --color-link: #7c5ce6;
+  /* 기본 테마색의 파생값 — utils/theme-color.ts와 테스트로 일치 확인 */
+  --color-accent: #a299d4;
+  --color-accent-strong: #bdb7e0;
+  --color-link: #a299d4;
 
   /* 상태 */
   --color-warning: #f59e0b;
@@ -96,9 +147,9 @@
   --color-ink-inverse: #fafafa;
   --color-ink-on-accent: #ffffff;
 
-  --color-accent: #4432a8;
-  --color-accent-strong: #37268a;
-  --color-link: #7c5ce6;
+  --color-accent: #5949b2;
+  --color-accent-strong: #3f2f9d;
+  --color-link: #5949b2;
 
   --color-warning: #f59e0b;
   --color-warning-surface: #fef3c7;
@@ -390,7 +441,7 @@ strong {
   z-index: 2147483646;
   right: max(12px, env(safe-area-inset-right));
   bottom: max(12px, env(safe-area-inset-bottom));
-  width: min(340px, calc(100vw - 24px));
+  width: min(300px, calc(100vw - 24px));
   max-height: calc(100dvh - 80px);
   overflow: visible;
   border: 1px solid var(--color-edge-strong);
@@ -422,18 +473,18 @@ strong {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 32px;
-  min-height: 32px;
+  min-width: 28px;
+  min-height: 28px;
   border-radius: 6px;
 }
 .mewcat-notification-button:hover { background: var(--color-surface-raised); }
 .mewcat-notification-button:active { background: var(--color-surface-hover); }
 .mewcat-notification-button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
 .mewcat-notification-action {
-  gap: 10px;
+  gap: 8px;
   min-height: 36px;
   max-width: 100%;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: 8px;
   background: var(--color-surface-raised);
   color: var(--color-ink);
@@ -450,7 +501,86 @@ strong {
   .mewcat .mewcat-mark { animation: none !important; }
 }
 
-.mobile-dock { display: none; }
+/* Only the expanded panel's tab bar stays above its body and below the dock. */
+[data-dock-expanded] {
+  overflow: visible;
+  pointer-events: none;
+}
+[data-dock-expanded] [data-dock-tab-bar] {
+  position: relative;
+  z-index: 30;
+  pointer-events: auto;
+}
+
+[data-tab-drag-placeholder] {
+  background: var(--color-surface-hover);
+  outline: 1px dashed var(--color-edge-bright);
+  outline-offset: -3px;
+  cursor: grabbing;
+}
+[data-tab-drag-placeholder] > * { opacity: 0; }
+
+.mobile-dock:not([hidden]) {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  color: var(--color-ink-secondary);
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.mobile-dock button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 44px;
+  touch-action: none;
+  transition: background-color 120ms ease-out, color 120ms ease-out, transform 120ms ease-out;
+}
+.mobile-dock button[aria-current] { color: var(--color-ink-bright); }
+.mobile-dock button[aria-current] svg { stroke-width: 2.5; }
+.mobile-dock button:hover { color: var(--color-ink); }
+.mobile-dock button:active { background: var(--color-surface-hover); }
+.mobile-dock button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.mobile-dock[data-reordering], .mobile-dock[data-reordering] button { cursor: grabbing; }
+.mobile-dock button[data-dragging] { background: var(--color-surface-hover); outline: 1px dashed var(--color-edge-strong); outline-offset: -3px; }
+.mobile-dock button[data-dragging] svg { opacity: 0; }
+.dock-drag-preview {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border-radius: 12px;
+  background: var(--color-surface-raised);
+  color: var(--color-ink-bright);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
+}
+.mobile-dock .dock-move-handle { display: none; }
+@media (width >= 768px) {
+  .mobile-dock:not([hidden]) {
+    left: clamp(8px, var(--dock-x, calc((100vw - var(--dock-width)) / 2)), calc(100vw - var(--dock-width) - 8px));
+    top: clamp(8px, var(--dock-y, calc(100dvh - var(--dock-height) - 16px)), calc(100dvh - var(--dock-height) - 8px));
+    gap: 2px;
+    padding: 5px 7px;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 16%);
+  }
+  .mobile-dock button { flex: 0 0 44px; border-radius: 9999px; }
+  .mobile-dock button[aria-pressed="true"] { background: var(--color-surface-raised); }
+  .mobile-dock button[aria-current] { background: var(--color-surface-hover); }
+  .mobile-dock .dock-move-handle { display: flex; flex-basis: 24px; cursor: grab; }
+  .mobile-dock[data-moving] .dock-move-handle { cursor: grabbing; }
+}
+@media (width >= 768px) and (pointer: coarse) {
+  .mobile-dock .dock-move-handle { flex-basis: 44px; }
+}
 @media (width < 768px) {
   .mew-workspace { --mobile-dock-space: calc(48px + env(safe-area-inset-bottom, 0px)); }
   .mew-workspace[data-mobile-keyboard] { --mobile-dock-space: 0px; }
@@ -474,23 +604,7 @@ strong {
     user-select: none;
     -webkit-touch-callout: none;
   }
-  .mobile-dock button {
-    display: flex;
-    flex: 1;
-    align-items: center;
-    justify-content: center;
-    min-width: 0;
-    height: 44px;
-    border-radius: 0;
-    touch-action: none;
-    transition: background-color 120ms ease-out, color 120ms ease-out, transform 120ms ease-out;
-  }
-  .mobile-dock button[aria-current] { color: var(--color-ink-bright); }
-  .mobile-dock button[aria-current] svg { stroke-width: 2.5; }
-  .mobile-dock button:hover { color: var(--color-ink); }
-  .mobile-dock button:active { background: var(--color-surface-hover); }
-  .mobile-dock button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
-  .mobile-dock button[data-dragging] { background: var(--color-surface-hover); color: var(--color-ink-bright); transform: translateY(-8px) scale(1.08); }
+  .mobile-dock button { flex: 1; border-radius: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .mobile-dock button { transition: none; } }
 

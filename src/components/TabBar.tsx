@@ -49,6 +49,8 @@ export function TabBar({
             <div
               key={tab.path}
               {...drag.getItemProps(i)}
+              role="tab" tabIndex={0} aria-selected={isActive} aria-keyshortcuts="Shift+Enter"
+              onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onActivate(tab.path) } }}
               className={`group flex h-full shrink-0 cursor-pointer items-center gap-1.5 border-r border-edge px-3 text-xs select-none [-webkit-touch-callout:none] ${
                 isActive ? 'bg-surface-raised text-ink' : 'bg-surface text-ink-secondary hover:bg-surface-raised'
               } ${drag.dragIndex === i ? 'opacity-70 ring-1 ring-inset ring-accent' : ''}`}

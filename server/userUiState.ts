@@ -3,6 +3,7 @@ import path from 'node:path'
 import { DATA_DIR, readJsonRecord, writeFileAtomic } from './dataDir.ts'
 import { normalizeEmail } from './auth.ts'
 import { normalizeIconValue } from './svgIcon.ts'
+import type { FileFavoritePreferences } from '../shared/file-favorites.ts'
 
 // 로그인 계정이 어느 브라우저에서든 이어야 할 "작업 맥락"만 저장한다. 화면 크기·초안처럼
 // 기기 성격인 값까지 넣지 않는다(ADR 0093).
@@ -28,9 +29,31 @@ export type StoredRootProjects = { paths: string[]; icons: Record<string, string
 export type StoredWorkspaceUi = Record<string, unknown>
 
 type UserUiState = {
+  fileFavorites?: FileFavoritePreferences
   rootProjects?: StoredRootProjects
   agentTabs?: Record<string, StoredAgentTabs>
   workspaceUi?: Record<string, StoredWorkspaceUi>
+}
+
+export function readFileFavorites(email: string): FileFavoritePreferences {
+  return userState(readAll(), email).fileFavorites ?? { added: [], hidden: [] }
+}
+
+/** Apply one path at a time so saves from different browser windows preserve other favorites. */
+export function updateFileFavorite(email: string, folder: string, favorite: boolean): FileFavoritePreferences {
+  if (!validPath(folder)) throw new Error('즐겨찾기 경로가 올바르지 않습니다')
+  const all = readAll()
+  const previous = userState(all, email)
+  const saved = previous.fileFavorites ?? { added: [], hidden: [] }
+  const added = new Set(saved.added)
+  const hidden = new Set(saved.hidden)
+  if (favorite) { added.add(folder); hidden.delete(folder) }
+  else { added.delete(folder); hidden.add(folder) }
+  if (added.size > 200 || hidden.size > 200) throw new Error('즐겨찾기는 최대 200개입니다')
+  const value = { added: [...added], hidden: [...hidden] }
+  all[normalizeEmail(email)] = { ...previous, fileFavorites: value }
+  writeAll(all)
+  return value
 }
 
 function readAll(): Record<string, UserUiState> {

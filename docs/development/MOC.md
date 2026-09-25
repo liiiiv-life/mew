@@ -1,7 +1,7 @@
 ---
 title: "개발 계약"
 created: 2026-09-11
-updated: 2026-09-17
+updated: 2026-09-23
 ---
 
 # 개발 계약
@@ -21,6 +21,6 @@ updated: 2026-09-17
 - [서버 구조와 상태 파일](architecture.md)
 - [협업 방과 멤버 채팅](collaboration.md)
 - [공용 패키지](packages.md)
-- [오버레이와 탭 단축키 계약](ui-contracts.md)
+- [UI 디자인 지침·여백과 정보 밀도·오버레이·탭 단축키 계약](ui-contracts.md)
 - [원격 데스크톱 아키텍처·입력·검증](remote-desktop.md)
 - [원격 데스크톱 배포·라이선스](remote-desktop-distribution.md)

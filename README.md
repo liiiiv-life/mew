@@ -25,10 +25,10 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
 | --- | --- | --- |
 | 프로젝트 탭 | 헤더 `+` 또는 `Ctrl+O`로 서버 폴더를 열고 탭으로 전환·닫기·아이콘 변경, 길게 눌러 그룹 만들기·순서 이동(owner) | [프로젝트 탭](docs/guides/projects.md#프로젝트-탭) |
-| 클라우드 폴더 바로가기 | 프로젝트 추가 창에서 감지된 OneDrive·Google Drive·Dropbox·macOS iCloud 폴더로 이동한 뒤 원하는 하위 폴더 선택 | [감지 범위와 사용법](docs/guides/projects.md#클라우드-폴더-바로가기) |
+| 즐겨찾기·클라우드 폴더 바로가기 | 프로젝트 추가·서버 파일 탐색기 맨 위에서 OS 기본 폴더·OneDrive·Google Drive·Dropbox·iCloud로 이동하고, 현재 폴더를 즐겨찾기에 추가·제거(계정별 저장) | [감지 범위와 사용법](docs/guides/projects.md#클라우드-폴더-바로가기) |
 | 새 프로젝트·Git clone | 프로젝트 폴더 선택 창의 작업 버튼에서 폴더 생성·저장소 clone·Git 초기화(owner) | [프로젝트 만들기](docs/guides/projects.md#프로젝트-탭) |
 | Documents·하위 프로젝트·MOC | Documents·일반 폴더는 펼치고 `.mew` 하위 프로젝트는 클릭해 독립 프로젝트 탭으로 열기(owner). 폴더 우클릭으로 하위 프로젝트 지정, `Map Of Contents`로 문서 지도 열기 | [사이드바 구조](docs/guides/projects.md#사이드바의-프로젝트--하위-프로젝트--documents) |
-| 에이전트 문서 안내·프로젝트 초기화 | 사이드바 Documents 위에서 공통 안내 파일 편집. Documents 우클릭 → 에이전트 안내와 문서 설정. 자동 안내·문서 연결·미리보기·없는 문서 생성, CLI도 지원(owner) | [설정과 CLI](docs/guides/project-setup.md) |
+| 에이전트 문서 안내·프로젝트 초기화 | 에이전트 패널 Skills·MCP 옆 기본 지침에서 커밋·언어·답변 길이 설정, 파일 보기로 MD 편집. Documents 우클릭 → 에이전트 안내와 문서 설정. 자동 안내·문서 연결·미리보기·없는 문서 생성, CLI도 지원(owner) | [설정과 CLI](docs/guides/project-setup.md) |
 | Documents 관리 | Documents 우클릭으로 문서 폴더 변경·가져오기·내보내기(owner). 가져오기는 기존 내용을 교체 | [Documents 설정](docs/guides/projects.md#documents-폴더-계약) |
 | 파일·폴더 관리 | 사이드바 우클릭·길게 누르기로 생성·개명·복제·복사·잘라내기·붙여넣기·삭제·다운로드. 끌어서 이동·업로드 | [파일 조작](docs/guides/projects.md#파일폴더-관리) · [끌어놓기](docs/guides/editor.md#사이드바-항목-끌어놓기) |
 | 서버 전체 파일 탐색 | 메뉴 → 파일 탐색기에서 프로젝트 밖 파일을 열고 편집·복사·이동·삭제·다운로드(manager·owner) | [서버 파일 탐색기](docs/guides/projects.md#서버-파일-탐색기) |
@@ -61,11 +61,12 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | --- | --- | --- |
 | 현재 파일 커밋·이력 복원 | `Ctrl+S` 또는 메뉴 → Commit으로 현재 파일 커밋, 편집기의 히스토리에서 이전 내용 확인·되돌리기 | [파일 저장과 이력](docs/guides/editor.md#자동저장커밋파일-이력) |
 | 저장소 탐색·그래프·diff | 메뉴 → Git 또는 `Alt+G`로 현재 프로젝트의 커밋 그래프·변경 파일·diff 바로 보기(manager·owner) | [Git 작업 패널](docs/guides/projects.md#git-작업-패널) |
-| 작업트리 전체 커밋 | Git의 **커밋되지 않은 변경사항**에서 제목·설명을 입력해 모든 변경을 stage·커밋 | [커밋 범위와 제한](docs/guides/projects.md#git-작업-패널) |
+| 선택 파일 커밋 | Git 가운데 변경 목록에서 파일을 선택하고 맨 아래에 제목·설명을 입력해 커밋. 커밋 기록은 맨 위에서 확인 | [커밋 범위와 제한](docs/guides/projects.md#git-작업-패널) |
+| GitHub 로그인 | Git 패널의 GitHub 버튼에서 코드 복사·내부 브라우저 승인·연결 계정 확인. 서버 Git 인증을 공유하며 gh 설치 필요 | [로그인과 인증 범위](docs/guides/projects.md#github-로그인) |
 | 브랜치·태그·과거 커밋 작업 | 커밋 우클릭으로 해시 복사·branch/tag 생성·detached checkout·cherry-pick·revert | [지원 Git 작업](docs/guides/projects.md#git-작업-패널) |
-| 프로젝트 Git 패널 | 현재 프로젝트만 표시. 하위 프로젝트는 해당 프로젝트 탭에서 열기. 패널 이동·닫기·다시 열기와 초안 유지 | [Git 패널 사용법](docs/guides/projects.md#git-작업-패널) |
+| 프로젝트 Git 패널 | 탭 바 없이 현재 프로젝트 작업 화면 표시. 본문의 손잡이로 이동·닫기·다시 열기와 초안 유지 | [Git 패널 사용법](docs/guides/projects.md#git-작업-패널) |
 
-`AI Commit`에서 기존 에이전트셋을 선택하거나 새로 만들어 커밋 제목·설명을 생성한다. 결과를 **초안 적용**으로 가져온 뒤 기존 **커밋** 버튼으로 확정한다([사용법](docs/guides/projects.md#git-작업-패널)).
+`AI 자동 커밋`에서 에이전트셋을 선택하고 **자동 커밋 실행**을 누르면 Mew 전용 커밋 스킬로 선택 파일을 작업 단위로 나누어 실제 커밋을 만든다. 커밋별 해시·포함 파일과 남긴 변경을 확인할 수 있다([사용법](docs/guides/projects.md#git-작업-패널)).
 
 ### 협업·댓글·게스트 공유
 
@@ -96,7 +97,7 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 히스토리·외부 CLI 이어쓰기 | 히스토리에서 지난 세션 선택, 외부 CLI 작업을 끝낸 뒤 **현재 대화 새로고침**, 답변 파일 링크로 편집기 열기 | [세션 복원](docs/guides/terminal-agents.md) |
 | 계정·구독·토큰·비용 | ACP 세션의 `i`에서 지원되는 계정·플랜·한도·토큰과 API 환산 비용 조회, 구독 페이지 열기 | [계정·구독 범위](docs/configuration/agent-runtimes.md#설치로그인구독) |
 | 예약 메시지 | ACP 입력줄 시계로 현재 세션에 한 번 보낼 메시지 예약·수정·시각 변경·삭제 | [예약 메시지](docs/specs/agent-scheduled-prompts.md) |
-| 기능 기반 개발 | 메뉴 → 기능에서 요청·재위임·사용자 판정. Documents의 Markdown + 프론트매터로 계층·요구사항·구현 결과·파일·커밋 관리 | [기능 목록과 실행 계약](docs/specs/feature-development.md) |
+| 기능 기반 개발 | 메뉴 → 기능의 계층에서 기술 명세를 항목별로 인라인 편집하고 적용하면 선택한 에이전트셋이 작업. Markdown 기준본·관련 파일·커밋·사용자 판정 관리 | [기능 목록과 실행 계약](docs/specs/feature-development.md) |
 | 프로젝트 명령 버튼 | 사이드바 ▶에서 명령 추가·편집·실행·정지, 전용 터미널 팝업으로 출력 확인 | [프로젝트 명령](docs/guides/commands.md#사이드바-프로젝트--버튼-mewcmd-buttonjson) |
 | 터미널 명령 버튼 | 셸 탭 버튼 줄의 `+`로 자주 쓰는 명령·아이콘 등록, 활성 셸에 입력 | [터미널 버튼](docs/guides/commands.md#터미널-버튼-dataterm-buttonjson) |
 | 반복 예약 작업 | 메뉴 → 예약 작업에서 폴더·에이전트·프롬프트·주기 등록, 지금 실행·출력 확인·삭제 | [cron 예약 작업](docs/guides/commands.md#예약-작업-dataschedulesjson) |
@@ -126,8 +127,8 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 
 | 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
 | --- | --- | --- |
-| 패널 배치·상태 복원 | 에디터·에이전트·터미널·브라우저·Git 손잡이와 탭을 끌어 배치. 브라우저는 좌우 배치만 지원. 문서 탭·배치·스크롤은 계정별 복원 | [편집 칸](docs/guides/editor.md#편집-칸-문서-탭--화면-분할) · [복원 범위](docs/guides/projects.md#프로젝트-탭) |
-| 모바일·전체화면·빠른 조작 | 메뉴 → 전체화면(`Alt+Enter`), 모바일 하단 독으로 패널 전환·기능/원격 데스크톱 열기·길게 눌러 순서 변경(키보드 입력 중 숨김), PC 플로팅 핸들, 길게 눌러 항목 메뉴 열기, Esc·뒤로가기로 전면 창 닫기 | [모바일 사용법](docs/guides/editor.md#모바일과-전체화면) |
+| 패널 배치·상태 복원 | 에디터·에이전트·터미널·브라우저는 손잡이·탭, Git은 본문 손잡이를 끌어 배치. 데스크톱 탭 더블클릭으로 본문 확대·복귀, Esc로 복귀(탭 바·독 유지). 브라우저는 좌우 배치만 지원. 문서 탭·배치·스크롤은 계정별 복원 | [편집 칸](docs/guides/editor.md#편집-칸-문서-탭--화면-분할) · [복원 범위](docs/guides/projects.md#프로젝트-탭) |
+| 모바일·전체화면·빠른 조작 | 메뉴 → 전체화면(`Alt+Enter`), 모바일 하단 독으로 패널 전환·기능/원격 데스크톱 열기·길게 눌러 순서 변경(키보드 입력 중 숨김), PC 반투명 플로팅 독·이동 손잡이, 플로팅 핸들, 길게 눌러 항목 메뉴 열기, Esc·뒤로가기로 전면 창 닫기 | [모바일 사용법](docs/guides/editor.md#모바일과-전체화면) |
 | 테마·언어·강조색·글꼴 | 메뉴 → 설정 → 화면에서 밝게/어둡게, 한국어·영어·일본어·중국어, 색상과 UI·본문·코드 글꼴 설정 | [화면 설정](docs/configuration/environment.md#화면-설정) |
 | 단축키 맞춤 설정 | 설정 → 단축키에서 조합 변경·개별 초기화·전체 초기화 | [단축키 설정](docs/configuration/environment.md#단축키-설정) |
 | Mewcat·알림·휴식 | 하단 고양이 클릭으로 최근 알림 목록 확인·항목별 삭제. 말풍선 하단 CPU·RAM·GPU 사용률은 0.5초마다 갱신하고 누르면 시스템 자원을 엶. 연결된 에이전트 작업·오류·서버 과부하 알림 확인. 설정 → 뮤캣에서 스킨·알림·소리와 사용/휴식 시간 설정. 선택적 강제 휴식은 거대 고양이가 돌아다니며 화면을 가림(기본 꺼짐). 타이머만 표시하고 큰 고양이도 잡아 끌거나 던질 수 있음 | [Mewcat](docs/specs/mewcat.md) |
@@ -150,7 +151,7 @@ git clone <전달받은 저장소 URL> mew && cd mew
 
 안내에 따라 편집할 폴더, 포트, 계정 이메일을 입력한다. 설치가 끝나면 표시된 주소를 브라우저로 열고, 임시 비밀번호로 로그인한 뒤 비밀번호를 바꾼다.
 
-`setup`은 Node, 빌드 도구, tmux가 설치되어 있는지 확인하고 앱 빌드와 첫 계정 생성을 진행한다. 이미 설정한 환경에서 다시 실행해도 된다.
+`setup`은 Node, 빌드 도구, tmux가 설치되어 있는지 확인하고 원격 데스크톱 보조앱 준비, 앱 빌드와 첫 계정 생성을 진행한다. Mac/Linux는 해당 OS의 구성 요소를, WSL은 Windows용 구성 요소를 자동 설치한다. 최초 다운로드는 몇 분 걸릴 수 있다. Mac은 설치 후 필요한 권한 설정을 서버 Mac에 열고, 사용자의 승인을 감지하면 자동으로 계속한다. 보조앱 설치·권한 준비 실패는 경고하고 Mew 설치를 계속한다. 이미 실행 중인 Mew에서는 설치 폴더의 터미널에서 `./mew desktop-setup`으로 보조앱 설치와 Mac 권한 준비만 재실행할 수 있다. 이 명령은 앱 빌드·서버 재시작을 하지 않는다. 로그인된 데스크톱·OS 라이브러리·OS가 요구하는 사용자 승인은 필요하다([OS별 준비](docs/guides/remote-desktop.md#처음-연결), [Mac 권한 준비](docs/guides/remote-desktop.md#mac-권한-준비)).
 
 Linux와 macOS에서 Node 22.18 이상을 지원하며, Node 24를 권장한다. 터미널과 에이전트 패널의 `terminal` 런타임은 `node-pty`를 로컬에서 빌드하고 tmux에 연결하므로 아래 도구가 필요하다.
 
@@ -177,6 +178,7 @@ macOS에서는 `node-pty 1.1.0` 배포본의 `spawn-helper`에 실행 권한이 
 
 ```bash
 ./mew start                    # 서버 시작
+./mew desktop-setup            # 보조앱 설치·Mac 권한 준비 (서버 재시작 없음)
 ./mew stop                     # 서버 중지
 ./mew restart                  # 서버 재시작
 ./mew status                   # 실행 상태와 경로 확인
@@ -184,6 +186,14 @@ macOS에서는 `node-pty 1.1.0` 배포본의 `spawn-helper`에 실행 권한이 
 ./mew update                   # origin/main fast-forward + 재빌드 + 재시작
 ./mew users add you@x.com owner
 ```
+
+## 필수 UI 구현 규칙
+
+**화면에서 이미 알 수 있는 동작을 되풀이하는 상시 설명·사용법·단축키 안내 문구를 넣지 않는다.** 버튼·필드 이름으로 충분하면 설명을 생략하고, 판단이나 오류 해결에 필요한 정보만 해당 상황에 표시한다. 상세 기준은 [화면 문구](docs/development/ui-contracts.md#화면-문구)를 따른다.
+
+**앱의 드롭다운·선택 목록에 OS/브라우저 기본 `<select>`·`<datalist>` 팝업을 사용하지 않는다. 반드시 기존 자체 컴포넌트를 재사용하고, 적합한 것이 없으면 공용 자체 컴포넌트를 만들어 사용한다.** 테두리나 `appearance`만 바꾼 네이티브 선택기도 금지한다. 모바일·데스크톱에 동일하게 적용하며, 기존 네이티브 드롭다운을 수정할 때도 자체 컴포넌트로 교체한다.
+
+단일 선택 필드는 `@mew/ui`의 `SelectField`를 우선 사용한다. 테마·키보드·터치·포커스·Esc/뒤로가기·화면 경계 검증을 포함한 상세 기준은 [자체 선택 컴포넌트 계약](docs/development/ui-contracts.md#드롭다운과-선택-컴포넌트)을 따른다.
 
 ## 개발 실행과 검증
 

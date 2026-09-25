@@ -3,6 +3,7 @@ import { ProjectSetupError } from './project-agent-settings.ts'
 import { createProjectSetupRouter } from './project-setup-routes.ts'
 import { createSubproject, projectDirectory, subprojectToOpen } from './subprojects.ts'
 import { discoverCloudStorage } from './cloud-storage.ts'
+import { changeFileFavorite, listFileFavorites } from './file-favorites.ts'
 import express from 'express'
 import { createRemoteDesktopRoutes } from './remote-desktop.ts'
 import multer from 'multer'
@@ -27,6 +28,7 @@ import { ensureSearchIndex, exactSearchCandidates, type SearchIndexState } from 
 import { currentRagIndex, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
 import { cloneExternalRepository, commitDetail, commitFileDiff, commitWorkingTree, GitWorkbenchError, initializeExternalRepository, initializeRepository, listRepositories, repositoryInfo, repositoryLog, runCommitAction, workingTreeDetail, workingTreeFileDiff } from './gitWorkbench.ts'
+import { createGitHubAuthRouter } from './github-auth-routes.ts'
 import { evaluateRules, isArchived } from './rules.ts'
 import { registerPdfRoutes } from './pdf.ts'
 import { copyFile, copyPathInto, createDocument, createFolder, renamePath, deletePath, moveFileInto, ConflictError } from './documents.ts'
@@ -47,9 +49,11 @@ import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
 import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { DocsRepoError, exportDocs, importDocs } from './docsRepo.ts'
-import { ensureAgentGuidance } from './agent-guidance.ts'
+import { agentGuidanceSettings, updateAgentGuidance, GuidanceError } from './agent-guidance.ts'
 import {
   BrowseError,
+  MissingDirectoryError,
+  createExternalDirectory,
   createExternalFolder,
   deleteExternalPath,
   listDirs,
@@ -734,7 +738,28 @@ export function createApiApp() {
   app.get('/fs/agent-guidance', requireFeature('serverFiles'), (_req, res) => {
     try {
       res.setHeader('Cache-Control', 'no-store')
-      res.json({ path: ensureAgentGuidance() })
+      res.json(agentGuidanceSettings())
+    } catch (err) { handleError(res, err) }
+  })
+
+  app.put('/fs/agent-guidance', requireFeature('serverFiles'), (req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store')
+      res.json(updateAgentGuidance(req.body))
+    } catch (err) { handleError(res, err) }
+  })
+
+  app.get('/fs/favorites', requireFeature('serverFiles'), async (req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store')
+      res.json({ folders: await listFileFavorites(authOf(req).email!) })
+    } catch (err) { handleError(res, err) }
+  })
+
+  app.put('/fs/favorites', requireFeature('serverFiles'), async (req, res) => {
+    try {
+      await changeFileFavorite(authOf(req).email!, req.body)
+      res.json({ ok: true })
     } catch (err) { handleError(res, err) }
   })
 
@@ -742,6 +767,10 @@ export function createApiApp() {
     try {
       res.json(await listEntries(String(req.query.path ?? '')))
     } catch (err) {
+      if (err instanceof MissingDirectoryError) {
+        res.status(404).json({ error: err.message, code: 'MISSING_DIRECTORY', missing: err.missing })
+        return
+      }
       handleError(res, err)
     }
   })
@@ -756,8 +785,8 @@ export function createApiApp() {
 
   app.put('/fs/file', requireFeature('serverFiles'), (req, res) => {
     try {
-      const { path: filePath, content } = req.body as { path?: unknown; content?: unknown }
-      res.json({ ok: true, path: writeExternalFile(filePath, content) })
+      const { path: filePath, content, expectedContent } = req.body as { path?: unknown; content?: unknown; expectedContent?: unknown }
+      res.json({ ok: true, path: writeExternalFile(filePath, content, expectedContent) })
     } catch (err) {
       handleError(res, err)
     }
@@ -796,6 +825,12 @@ export function createApiApp() {
     } catch (err) {
       handleError(res, err)
     }
+  })
+
+  app.post('/fs/directory', requireRole('owner'), async (req, res) => {
+    try {
+      res.json({ ok: true, path: await createExternalDirectory(req.body?.path) })
+    } catch (err) { handleError(res, err) }
   })
 
   app.post('/fs/git/init', requireRole('owner'), async (req, res) => {
@@ -850,6 +885,7 @@ export function createApiApp() {
   })
 
   // Git 워크벤치 — 경로는 현재 루트 프로젝트 안으로 제한하고, 폴더 자체가 저장소일 때만 조작한다.
+  app.use('/git/github-auth', createGitHubAuthRouter())
   app.get('/git/repository', requireFeature('git'), async (req, res) => {
     try { res.json(await repositoryInfo(projectOf(req), String(req.query.path ?? ''))) } catch (err) { handleError(res, err) }
   })
@@ -912,7 +948,7 @@ export function createApiApp() {
   app.use('/git/ai-commit', createGitAiCommitRouter(new GitAiCommitStore(tmuxManager)))
 
   app.post('/git/commit', requireFeature('git'), async (req, res) => {
-    try { res.json(await commitWorkingTree(projectOf(req), String(req.body?.path ?? ''), req.body?.title, req.body?.description)) } catch (err) { handleError(res, err) }
+    try { res.json(await commitWorkingTree(projectOf(req), String(req.body?.path ?? ''), req.body?.title, req.body?.description, req.body?.files)) } catch (err) { handleError(res, err) }
   })
 
   app.post('/git/action', requireFeature('git'), async (req, res) => {
@@ -2568,6 +2604,10 @@ export function createApiApp() {
 }
 
 function handleError(res: express.Response, err: unknown) {
+  if (err instanceof GuidanceError) {
+    res.status(err.status).json({ error: err.message })
+    return
+  }
   if (err instanceof UnsafePathError || err instanceof ProjectSetupError) {
     res.status(400).json({ error: err.message })
     return

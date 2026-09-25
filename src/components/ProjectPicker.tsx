@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import {
@@ -59,6 +61,7 @@ export function ProjectPicker({
   onProjectRenamed,
   onProjectDeleted,
 }: ProjectPickerProps) {
+  useUiLocale()
   const [placement, setPlacement] = useState(() => (readOnly ? compactPlacement(projects) : buildPlacement(projects)))
   const [editing, setEditing] = useState<string | null>(null)
   const [nameDraft, setNameDraft] = useState('')
@@ -117,7 +120,7 @@ export function ProjectPicker({
       onLayoutChanged(layout)
     } catch (err) {
       setPlacement(previous)
-      setError(err instanceof Error ? err.message : '배치 저장에 실패했습니다')
+      setError(err instanceof Error ? err.message : uiText("배치 저장에 실패했습니다"))
     }
   }
 
@@ -138,7 +141,7 @@ export function ProjectPicker({
       setNewName('')
       onProjectsChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '프로젝트 생성에 실패했습니다')
+      setError(err instanceof Error ? err.message : uiText("프로젝트 생성에 실패했습니다"))
     } finally {
       setBusy(false)
     }
@@ -157,7 +160,7 @@ export function ProjectPicker({
       setEditing(next)
       setNameDraft(next)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '이름 변경에 실패했습니다')
+      setError(err instanceof Error ? err.message : uiText("이름 변경에 실패했습니다"))
     } finally {
       setBusy(false)
     }
@@ -177,7 +180,7 @@ export function ProjectPicker({
       // 지금 보고 있던 프로젝트였다면 App이 다른 프로젝트로 옮겨 준다
       onProjectDeleted(removed)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '프로젝트 삭제에 실패했습니다')
+      setError(err instanceof Error ? err.message : uiText("프로젝트 삭제에 실패했습니다"))
     } finally {
       setBusy(false)
     }
@@ -192,7 +195,7 @@ export function ProjectPicker({
       onIconChanged(project, saved.icon)
       if (close) setEditing(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '아이콘 저장에 실패했습니다')
+      setError(err instanceof Error ? err.message : uiText("아이콘 저장에 실패했습니다"))
     } finally {
       setBusy(false)
     }
@@ -217,12 +220,12 @@ export function ProjectPicker({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <div className="text-sm font-semibold text-ink-bright">프로젝트</div>
+          <div className="text-sm font-semibold text-ink-bright">{uiText("프로젝트")}</div>
           <button
             type="button"
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-            aria-label="닫기"
+            aria-label={uiText("닫기")}
           >
             ×
           </button>
@@ -281,8 +284,8 @@ export function ProjectPicker({
                         type="button"
                         onClick={() => startEditing(p)}
                         className="absolute right-0.5 top-0.5 z-10 flex h-5 w-5 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
-                        title={`${p.name} 아이콘 설정`}
-                        aria-label={`${p.name} 아이콘 설정`}
+                        title={uiText("{p0} 아이콘 설정", { p0: p.name })}
+                        aria-label={uiText("{p0} 아이콘 설정", { p0: p.name })}
                       >
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
@@ -298,8 +301,7 @@ export function ProjectPicker({
 
         {!readOnly && (
           <div className="mt-3 text-[11px] text-ink-muted">
-            끌어서 순서 변경 · 터치는 길게 누르기
-          </div>
+            {uiText("끌어서 순서 변경 · 터치는 길게 누르기")}</div>
         )}
 
         {isOwner && (
@@ -319,7 +321,7 @@ export function ProjectPicker({
                       setNewName('')
                     }
                   }}
-                  placeholder="새 프로젝트 이름"
+                  placeholder={uiText("새 프로젝트 이름")}
                   autoFocus
                   className="min-w-0 flex-1 rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
                 />
@@ -329,8 +331,7 @@ export function ProjectPicker({
                   disabled={busy || !newName.trim()}
                   className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
                 >
-                  만들기
-                </button>
+                  {uiText("만들기")}</button>
                 <button
                   type="button"
                   onClick={() => {
@@ -339,8 +340,7 @@ export function ProjectPicker({
                   }}
                   className="rounded border border-edge-strong px-3 py-1.5 text-sm text-ink-secondary hover:bg-surface-raised"
                 >
-                  취소
-                </button>
+                  {uiText("취소")}</button>
               </div>
             ) : (
               <button
@@ -351,8 +351,7 @@ export function ProjectPicker({
                 }}
                 className="flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-edge-strong px-3 py-2 text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink"
               >
-                ＋ 새 프로젝트
-              </button>
+                {uiText("＋ 새 프로젝트")}</button>
             )}
           </div>
         )}
@@ -369,12 +368,12 @@ export function ProjectPicker({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-semibold text-ink-bright">{editing} 설정</div>
+            <div className="text-sm font-semibold text-ink-bright">{uiText("{p0} 설정", { p0: editing })}</div>
             <button
               type="button"
               onClick={closeEditing}
               className="flex h-7 w-7 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-              aria-label="닫기"
+              aria-label={uiText("닫기")}
             >
               ×
             </button>
@@ -383,7 +382,7 @@ export function ProjectPicker({
           <div className="min-h-0 flex-1 overflow-y-auto">
             {canManageEditing && (
               <div className="mb-3">
-                <div className="mb-1 text-[11px] text-ink-muted">이름 변경</div>
+                <div className="mb-1 text-[11px] text-ink-muted">{uiText("이름 변경")}</div>
                 <div className="flex items-center gap-2">
                   <input
                     value={nameDraft}
@@ -394,7 +393,7 @@ export function ProjectPicker({
                         void handleRenameProject()
                       }
                     }}
-                    placeholder="프로젝트 이름"
+                    placeholder={uiText("프로젝트 이름")}
                     className="min-w-0 flex-1 rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
                   />
                   <button
@@ -403,12 +402,11 @@ export function ProjectPicker({
                     disabled={busy || !nameDraft.trim() || nameDraft.trim() === editing}
                     className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40"
                   >
-                    변경
-                  </button>
+                    {uiText("변경")}</button>
                 </div>
               </div>
             )}
-            <div className="mb-1 text-[11px] text-ink-muted">아이콘</div>
+            <div className="mb-1 text-[11px] text-ink-muted">{uiText("아이콘")}</div>
             {/* 고르는 순간 서버에 저장하고 창은 열어둔다 — 격자 타일에 바로 반영돼 골라 가며 볼 수 있다.
                 key=프로젝트: 다른 프로젝트를 열면 이모지·SVG 칸이 그 프로젝트 값으로 다시 시작한다 */}
             <IconPicker
@@ -428,8 +426,7 @@ export function ProjectPicker({
                   }}
                   className="w-full rounded border border-danger px-3 py-2 text-sm text-danger-strong hover:bg-surface-raised"
                 >
-                  프로젝트 삭제…
-                </button>
+                  {uiText("프로젝트 삭제…")}</button>
               </div>
             )}
           </div>
@@ -445,14 +442,11 @@ export function ProjectPicker({
         onClick={closeDeleteDialog}
       >
         <div className="w-full max-w-sm rounded-lg border border-danger bg-surface-deep p-5" onClick={(e) => e.stopPropagation()}>
-          <div className="text-sm font-semibold text-danger-strong">프로젝트 삭제</div>
+          <div className="text-sm font-semibold text-danger-strong">{uiText("프로젝트 삭제")}</div>
           <div className="mt-2 text-sm text-ink-secondary">
-            <span className="font-semibold text-ink">{deleteTarget}</span> 프로젝트를 삭제하면{' '}
-            <span className="font-semibold text-ink">폴더와 그 안의 모든 파일이 영구히 사라집니다.</span> 이 작업은 되돌릴 수 없습니다.
-          </div>
+            {uiText("{name} 프로젝트를 삭제하면 폴더와 그 안의 모든 파일이 영구히 사라집니다. 이 작업은 되돌릴 수 없습니다.", { name: deleteTarget })}</div>
           <div className="mt-3 text-xs text-ink-muted">
-            확인을 위해 프로젝트 이름 <span className="font-mono text-ink-secondary">{deleteTarget}</span> 을(를) 그대로 입력하세요.
-          </div>
+            {uiText("확인을 위해 프로젝트 이름 {name}을(를) 그대로 입력하세요.", { name: deleteTarget })}</div>
           <input
             value={deleteConfirm}
             onChange={(e) => setDeleteConfirm(e.target.value)}
@@ -473,16 +467,14 @@ export function ProjectPicker({
               onClick={closeDeleteDialog}
               className="rounded border border-edge-strong px-3 py-1.5 text-sm text-ink hover:bg-surface-hover"
             >
-              취소
-            </button>
+              {uiText("취소")}</button>
             <button
               type="button"
               onClick={handleDeleteProject}
               disabled={busy || deleteConfirm !== deleteTarget}
-              className="rounded bg-danger px-3 py-1.5 text-sm font-medium text-ink-on-accent hover:bg-danger-strong disabled:opacity-40"
+              className="rounded bg-danger px-3 py-1.5 text-sm font-medium text-ink-on-danger hover:bg-danger-strong disabled:opacity-40"
             >
-              영구 삭제
-            </button>
+              {uiText("영구 삭제")}</button>
           </div>
         </div>
       </div>

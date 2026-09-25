@@ -1,3 +1,4 @@
+import { useRefreshTasks } from './use-refresh-tasks'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchExternalFile, fetchFile, fetchFileAnchorPreview, fetchRules, isArchivedPath, saveExternalFile, saveFile, type DocRules, type FileVersion } from '../api/client'
@@ -19,6 +20,8 @@ export type Tab = {
   preview: boolean
   viewMode: 'hotview' | 'plain'
   editable: boolean // 서버가 /api/file에서 계산해 내려주는 값 — 게스트의 부분 편집 승인을 반영
+  /** File-body request in progress; separate from save status and empty content. */
+  loading?: boolean
   /** 세션 복원 때는 탭 껍데기만 먼저 세운다. 선택되는 순간 기존 파일 로드 경로로 본문을 받는다. */
   deferredLoad?: boolean
   /** DevTools 성능 mark를 잇는 일시 id — 탭 복원 저장에는 넣지 않는다. */
@@ -143,6 +146,7 @@ export function useTabs(
   onAccountTabsChange?: (project: string, state: StoredTabs) => void,
   accountHydrated = true,
 ) {
+  const { pending: refreshing, track: trackRefresh } = useRefreshTasks()
   const [states, setStates] = useState<Record<string, ProjectTabs>>({})
   const workspaceRequestRef = useRef({ scope: workspaceScope, epoch: 0 })
   if (workspaceRequestRef.current.scope !== workspaceScope) {
@@ -173,6 +177,24 @@ export function useTabs(
   useEffect(() => {
     statesRef.current = states
   }, [states])
+
+  // Settings can update an external file already open in any project/pane.
+  // Refresh clean tabs only; unsaved drafts retain their original save baseline.
+  useEffect(() => {
+    const updated = (event: Event) => {
+      const { path, content } = (event as CustomEvent<{ path: string; content: string }>).detail
+      const tabPath = externalTabPath(path)
+      setStates(all => Object.fromEntries(Object.entries(all).map(([project, state]) => [project, {
+        ...state, panes: state.panes.map(pane => ({ ...pane, tabs: pane.tabs.map(tab =>
+          tab.path === tabPath && tab.content === tab.savedContent && tab.status !== 'saving'
+            ? { ...tab, content, savedContent: content, committedContent: content, status: 'idle' as const }
+            : tab,
+        ) })),
+      }])))
+    }
+    window.addEventListener('mew:external-file-updated', updated)
+    return () => window.removeEventListener('mew:external-file-updated', updated)
+  }, [])
 
   const stateOf = (p: string) => statesRef.current[p] ?? EMPTY
   const paneOf = (p: string, paneId?: string) => {
@@ -217,19 +239,19 @@ export function useTabs(
       for (const [scopeProject, state] of Object.entries(statesRef.current)) {
         for (const filePath of new Set(state.panes.flatMap(pane => pane.tabs.map(tab => tab.path)))) {
           dropCachedFile(scopeProject, filePath)
-          void fetch(`/api/file-access?project=${encodeURIComponent(scopeProject)}&path=${encodeURIComponent(filePath)}${isExternalTabPath(filePath) ? '&external=1' : ''}`)
+          void trackRefresh(fetch(`/api/file-access?project=${encodeURIComponent(scopeProject)}&path=${encodeURIComponent(filePath)}${isExternalTabPath(filePath) ? '&external=1' : ''}`)
             .then(response => response.ok ? response.json() as Promise<{ view: boolean; edit: boolean }> : { view: false, edit: false })
             .then(access => patch(scopeProject, current => prunePanes({ ...current, panes: current.panes.map(pane => {
               const tabs = access.view ? pane.tabs.map(tab => tab.path === filePath ? { ...tab, editable: access.edit } : tab) : pane.tabs.filter(tab => tab.path !== filePath)
               return { ...pane, tabs, activePath: pane.activePath === filePath && !access.view ? tabs[0]?.path ?? null : pane.activePath }
             }) })))
-            .catch(() => mapTabsAtPath(scopeProject, filePath, tab => ({ ...tab, editable: false })))
+            .catch(() => mapTabsAtPath(scopeProject, filePath, tab => ({ ...tab, editable: false }))))
         }
       }
     }
     window.addEventListener('mew:permissions-changed', revalidate)
     return () => window.removeEventListener('mew:permissions-changed', revalidate)
-  }, [patch, mapTabsAtPath])
+  }, [patch, mapTabsAtPath, trackRefresh])
 
   const setActivePath = useCallback(
     (path: string | null, paneId?: string) => {
@@ -250,7 +272,7 @@ export function useTabs(
   const openFileIn = useCallback(
     // forceNewTab: 이미 열려 있지 않은 문서라도 미리보기 탭 자리를 재사용하지 않고 항상 새 탭으로 연다
     // (에디터 안에서 Ctrl+클릭으로 내부 링크를 열 때 — 사이드바 클릭의 미리보기 재사용 동작과는 별개)
-    (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; deferLoad?: boolean; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
+    (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; deferLoad?: boolean; restoring?: boolean; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
       const preview = opts?.preview ?? true
       const existing = paneOf(p, paneId).tabs.find((t) => t.path === path)
       let trace: FileOpenTrace | undefined
@@ -264,7 +286,7 @@ export function useTabs(
           tabs: pane.tabs.map((t) =>
             t.path !== path
               ? t
-              : { ...t, preview: !preview && t.preview ? false : t.preview, deferredLoad: loadDeferred ? false : t.deferredLoad, openTrace: trace ?? t.openTrace },
+              : { ...t, preview: !preview && t.preview ? false : t.preview, deferredLoad: loadDeferred ? false : t.deferredLoad, loading: loadDeferred ? !mediaKind(path) : t.loading, openTrace: trace ?? t.openTrace },
           ),
           activePath: path,
         }))
@@ -285,6 +307,7 @@ export function useTabs(
         preview,
         viewMode: opts?.viewMode ?? (previewFirst ? 'hotview' : 'plain'),
         deferredLoad: opts?.deferLoad === true,
+        loading: !mediaKind(path),
         openTrace: trace,
         ...(cached
           ? { content: cached.content, savedContent: cached.content, committedContent: cached.content, editable: cached.editable }
@@ -322,6 +345,7 @@ export function useTabs(
               savedContent: content,
               committedContent: content,
               status: 'idle',
+              loading: false,
               editable,
               openTrace: trace ?? t.openTrace,
               anchorPreview: undefined,
@@ -332,7 +356,7 @@ export function useTabs(
         if (!isCurrentWorkspace()) return
         // 열 수 없는 파일(게스트 권한 밖 등)은 빈 탭만 남아 "아무 일도 안 일어난" 것처럼 보인다 — 이유를 띄운다
         if (!external) dropCachedFile(p, path)
-        mapTabsAtPath(p, path, tab => ({ ...tab, content: '', savedContent: '', committedContent: '', editable: false }))
+        mapTabsAtPath(p, path, tab => ({ ...tab, content: '', savedContent: '', committedContent: '', editable: false, loading: false, anchorPreview: undefined }))
         console.error(err)
         onNoticeRef.current(err instanceof Error ? err.message : String(err))
       }
@@ -369,7 +393,8 @@ export function useTabs(
           .catch(handleOpenError)
       } else {
         const fileRequest = external ? fetchExternalFile(externalAbsolutePath(path)) : fetchFile(path, p)
-        fileRequest.then(applyFullFile).catch(handleOpenError)
+        const loading = fileRequest.then(applyFullFile).catch(handleOpenError)
+        if (opts?.restoring) void trackRefresh(loading)
       }
       if (!external) {
         // MOC·링크 검사는 본문 표시의 선행조건이 아니다. 로컬 서버에서 동기 검사하는 비용도 있으므로
@@ -386,7 +411,7 @@ export function useTabs(
         })
       }
     },
-    [patchPane, mapTabsAtPath],
+    [patchPane, mapTabsAtPath, trackRefresh],
   )
 
   const openFile = useCallback(
@@ -436,7 +461,7 @@ export function useTabs(
         tabs: pane.tabs.map(tab => {
           const cached = isExternalTabPath(tab.path) ? undefined : getCachedFile(project, tab.path)
           return {
-            ...blankTab(), ...tab, deferredLoad: true,
+            ...blankTab(), ...tab, deferredLoad: true, loading: !mediaKind(tab.path),
             ...(cached ? { content: cached.content, savedContent: cached.content, committedContent: cached.content, editable: cached.editable } : {}),
           }
         }),
@@ -461,7 +486,7 @@ export function useTabs(
     if (!activeLoads) return
     pendingRestoreLoadsRef.current.delete(sessionKey)
     for (const load of activeLoads) {
-      openFileIn(project, load.paneId, load.path, { preview: load.preview, viewMode: load.viewMode })
+      openFileIn(project, load.paneId, load.path, { restoring: true, preview: load.preview, viewMode: load.viewMode })
     }
   }, [project, sessionKey, hydratedSession, states, openFileIn])
 
@@ -536,13 +561,14 @@ export function useTabs(
       const content = tab.content
       mapTabsAtPath(p, path, (t) => ({ ...t, status: 'saving' }))
       const save = isExternalTabPath(path)
-        ? saveExternalFile(externalAbsolutePath(path), content).then(() => ({ ok: true as const, commit: null }))
+        ? saveExternalFile(externalAbsolutePath(path), content, tab.savedContent).then(() => ({ ok: true as const, commit: null }))
         : saveFile(path, content, false, p)
       save
         .then(() => {
           if (!isExternalTabPath(path)) putCachedFile(p, path, { content, editable: tab.editable })
           mapTabsAtPath(p, path, (t) =>
-            t.content === content ? { ...t, savedContent: content, status: 'saved', statusMessage: 'Saved' } : t,
+            t.content === content ? { ...t, savedContent: content, status: 'saved', statusMessage: 'Saved' }
+              : isExternalTabPath(path) && t.savedContent === tab.savedContent ? { ...t, savedContent: content, status: 'idle' } : t,
           )
         })
         .catch((err) => {
@@ -627,7 +653,7 @@ export function useTabs(
       try {
         const external = isExternalTabPath(tab.path)
         const result = external
-          ? { ...(await saveExternalFile(externalAbsolutePath(tab.path), tab.content)), commit: null }
+          ? { ...(await saveExternalFile(externalAbsolutePath(tab.path), tab.content, tab.savedContent)), commit: null }
           : await saveFile(tab.path, tab.content, commit, p)
         if (!external) putCachedFile(p, tab.path, { content: tab.content, editable: tab.editable })
         const message = commit
@@ -808,6 +834,7 @@ export function useTabs(
   return {
     /** 저장된 탭 복원이 끝났는지 — 복원 전의 잠깐 빈 상태를 진짜 빈 프로젝트로 오인하지 않게 한다 */
     hydrated: hydratedSession === sessionKey,
+    refreshing,
     panes,
     layout,
     focusedPaneId: focusedPane.id,

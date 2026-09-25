@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useEditor, EditorContent, type Editor as TiptapEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -281,6 +283,7 @@ export const Editor = forwardRef<
   { value, onChange, api, readOnly, path = '', tree = [], onOpenLink, onSelectionChars, collab, commentThreads, onCommentClick, onStartComment },
   ref,
 ) {
+  useUiLocale()
   const { frontmatter, body } = useMemo(() => splitFrontmatter(value), [value])
   const lineNumberOffset = useMemo(() => {
     if (!frontmatter) return 0
@@ -642,7 +645,7 @@ export const Editor = forwardRef<
       Youtube,
       // /db 데이터베이스 노드 — api를 주입해 노드뷰가 서버(Postgres)와 실시간으로 연동한다
       Database.configure({ api }),
-      Placeholder.configure({ placeholder: '내용 입력 · / 명령어' }),
+      Placeholder.configure({ placeholder: () => uiText("내용 입력 · / 명령어") }),
       Markdown.configure({
         transformCopiedText: true,
         transformPastedText: true,
@@ -1188,7 +1191,7 @@ export const Editor = forwardRef<
       const ed = editorRef.current
       if (!ed) return
       const entry = scanFootnotes(ed.state.doc).entries.find((e) => e.num === num)
-      setFootnoteTip({ num, content: entry?.content?.trim() || '아직 내용이 없습니다 — References에 적어 주세요', left: x, top: y })
+      setFootnoteTip({ num, content: entry?.content?.trim() || uiText("아직 내용이 없습니다 — References에 적어 주세요"), left: x, top: y })
     },
     // References 줄 → 그 번호의 마커 자리로 커서를 옮기고 화면을 그리로 끌어온다
     onEntry: (num) => {
@@ -1491,10 +1494,10 @@ export const Editor = forwardRef<
   // 슬래시 커맨드는 데이터·삽입 관련 4개만 노출한다 (제목·목록·인용 등 글 형식은 마크다운
   // 단축어 `#`·`-`·`1.`·```` ``` ````로 그대로 쓸 수 있으므로 메뉴에서 뺐다).
   const slashCommands: SlashCommand[] = [
-    { id: 'db', title: '데이터베이스', description: '노션식 표 데이터베이스 (실시간 협업)', keywords: ['db', 'database', '데이터베이스', 'notion', '노션'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); insertDatabase(r.from) } },
-    { id: 'db-ref', title: '데이터베이스 참조', description: '기존 데이터베이스를 읽기 전용 뷰로 삽입', keywords: ['ref', 'reference', '참조', 'link', 'linked', 'db참조', 'db-ref', 'database', '데이터베이스'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); setDbPicker({ pos: r.from }) } },
-    { id: 'table', title: '표', description: '3×3 표 삽입', keywords: ['table', '표', '테이블'], run: (e, r) => e.chain().focus().deleteRange(r).insertTable({ rows: 3, cols: 3 }).run() },
-    { id: 'upload', title: '파일 업로드', description: '파일 첨부', keywords: ['upload', '업로드', 'file', '파일', '첨부', 'attach'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); openUploadPicker(r.from) } },
+    { id: 'db', title: uiText("데이터베이스"), description: uiText("노션식 표 데이터베이스 (실시간 협업)"), keywords: ['db', 'database', '데이터베이스', 'notion', '노션'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); insertDatabase(r.from) } },
+    { id: 'db-ref', title: uiText("데이터베이스 참조"), description: uiText("기존 데이터베이스를 읽기 전용 뷰로 삽입"), keywords: ['ref', 'reference', '참조', 'link', 'linked', 'db참조', 'db-ref', 'database', '데이터베이스'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); setDbPicker({ pos: r.from }) } },
+    { id: 'table', title: uiText("표"), description: uiText("3×3 표 삽입"), keywords: ['table', '표', '테이블'], run: (e, r) => e.chain().focus().deleteRange(r).insertTable({ rows: 3, cols: 3 }).run() },
+    { id: 'upload', title: uiText("파일 업로드"), description: uiText("파일 첨부"), keywords: ['upload', '업로드', 'file', '파일', '첨부', 'attach'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); openUploadPicker(r.from) } },
   ]
 
   // query로 시작하는 title·keywords만 보여 주는 인라인 자동완성 (빈 query면 전체).
@@ -1748,7 +1751,7 @@ export const Editor = forwardRef<
       if (pos != null && ed) ed.chain().focus().insertContentAt(pos, markdown).run()
       else ed?.chain().focus().insertContent(markdown).run()
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : '업로드 실패')
+      setUploadError(err instanceof Error ? err.message : uiText("업로드 실패"))
     } finally {
       setUploading(false)
     }
@@ -1775,7 +1778,7 @@ export const Editor = forwardRef<
       if (pos != null && ed) ed.chain().focus().insertContentAt(pos, markdown).run()
       else ed?.chain().focus().insertContent(markdown).run()
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : '업로드 실패')
+      setUploadError(err instanceof Error ? err.message : uiText("업로드 실패"))
     } finally {
       setUploading(false)
     }
@@ -1791,10 +1794,10 @@ export const Editor = forwardRef<
   async function insertDatabase(pos: number) {
     setUploadError(null)
     try {
-      const view = await api.db.create('제목 없음')
+      const view = await api.db.create(uiText("제목 없음"))
       editorRef.current?.chain().focus().insertContentAt(pos, { type: 'database', attrs: { dbId: view.id } }).run()
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : '데이터베이스 생성 실패')
+      setUploadError(err instanceof Error ? err.message : uiText("데이터베이스 생성 실패"))
     }
   }
 
@@ -1816,7 +1819,7 @@ export const Editor = forwardRef<
       const view = await api.db.attachExternal(schema, table)
       editorRef.current?.chain().focus().insertContentAt(pos, { type: 'database', attrs: { dbId: view.id } }).run()
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : '외부 테이블 참조 실패')
+      setUploadError(err instanceof Error ? err.message : uiText("외부 테이블 참조 실패"))
     }
   }
 
@@ -1872,16 +1875,15 @@ export const Editor = forwardRef<
       <EditorContent editor={editor} />
       {uploading && (
         <div className="absolute bottom-2 right-2 rounded bg-surface-inverse px-2 py-1 text-xs text-ink-inverse">
-          업로드 중…
-        </div>
+          {uiText("업로드 중…")}</div>
       )}
       {/* 에러 토스트(toast) — 클릭하면 닫히고, 6초 뒤 자동으로 사라진다 (아래 auto-dismiss effect) */}
       {uploadError && (
         <div
           role="alert"
           onClick={() => setUploadError(null)}
-          title="클릭하면 닫힘"
-          className="absolute bottom-2 right-2 flex max-w-xs cursor-pointer items-start gap-2 rounded bg-danger-strong px-2 py-1 text-xs text-ink-on-accent shadow-lg"
+          title={uiText("클릭하면 닫힘")}
+          className="absolute bottom-2 right-2 flex max-w-xs cursor-pointer items-start gap-2 rounded bg-danger-strong px-2 py-1 text-xs text-ink-on-danger shadow-lg"
         >
           <span className="select-text min-w-0 break-words">{uploadError}</span>
           <span aria-hidden className="shrink-0 opacity-70">✕</span>

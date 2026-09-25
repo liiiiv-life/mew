@@ -1,3 +1,5 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 // 프로젝트 탭 — 라우트 대신 탭으로 프로젝트를 오간다(주소는 바뀌지 않는다).
 //
 // 볼 수 있는 프로젝트는 **전부** 맨 윗줄에 선다(닫기 없음, 순서는 팝업 격자에서 정한 자리).
@@ -18,6 +20,7 @@ import { CommandButtonMenu } from './CommandButtonMenu'
 import { ProjectIcon } from './ProjectIcon'
 
 function ProjectGlyph({ project, size }: { project: ProjectInfo; size: number }) {
+  useUiLocale()
   // 모바일은 이름을 감추므로 아이콘이 없거나 모르는 키면 탭이 텅 빈다 — 첫 글자로 대신한다
   if (hasIcon(project.icon)) return <ProjectIcon icon={project.icon!} size={size} />
   return (
@@ -50,6 +53,7 @@ export function ProjectTabs({
   /** 손을 뗐다 — 여기서 한 번만 서버에 저장한다 */
   onReorderEnd: () => void
 }) {
+  useUiLocale()
   // 이번 제스처가 어디까지 왔는지: 'armed'는 꾹 누르기만 한 상태(떼면 팝업), 'dragging'은 순서를 바꾸는 중
   const gestureRef = useRef<'none' | 'armed' | 'dragging'>('none')
   const movedRef = useRef(false)
@@ -141,6 +145,7 @@ function ProjectTab({
   onClick: () => void
   onContextMenu: (e: React.MouseEvent) => void
 }) {
+  useUiLocale()
   return (
     // 탭을 여는 건 이름 버튼뿐이다 — ▶를 감싸는 컨테이너에 onClick·포인터 핸들러를 걸면 안 된다.
     // 드롭다운이 포털이라도 React 트리에서는 이 안이라, 메뉴 클릭이 여기까지 버블링된다.
@@ -158,7 +163,7 @@ function ProjectTab({
         onContextMenu={onContextMenu}
         className="flex h-full min-w-0 items-center gap-1.5 px-2.5"
         style={{ touchAction: 'manipulation' }}
-        title={`${project.name} — 꾹 눌러 좌우로 끌면 순서 바꾸기, 떼면(우클릭) 프로젝트 팝업`}
+        title={uiText("{p0} — 꾹 눌러 좌우로 끌면 순서 바꾸기, 떼면(우클릭) 프로젝트 팝업", { p0: project.name })}
       >
         <span className="flex h-5 w-5 shrink-0 items-center justify-center">
           <ProjectGlyph project={project} size={17} />

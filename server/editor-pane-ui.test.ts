@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
+import fs from 'node:fs/promises'
+import { compile } from '@tailwindcss/node'
 import { build } from 'rolldown'
 import { chromium } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom.ts'
@@ -28,22 +30,37 @@ const callbacks = Object.fromEntries(['registerHandle', 'registerElement', 'regi
 function Fixture() {
   const tabs = useTabs('docs', noop, noop, '/fixture', undefined, saved);
   const open = (path, viewMode) => tabs.openFile(path, {viewMode});
-  return <><nav><button onClick={() => open('first.md', 'hotview')}>Open markdown</button><button onClick={() => open('second.txt', 'plain')}>Open text</button><button onClick={() => open('third.md', 'hotview')}>Open another markdown</button></nav><EditorPane {...callbacks} pane={tabs.panes[0]} role="guest" authEmail={null} project="docs" tree={[]} presence={{}} focused isGuest showSidebarButton={false} tocOpen={false} dropZone={null}/></>;
+  return <div className="flex h-dvh flex-col"><nav><button onClick={() => open('first.md', 'hotview')}>Open markdown</button><button onClick={() => open('second.txt', 'plain')}>Open text</button><button onClick={() => open('third.md', 'hotview')}>Open another markdown</button><button onClick={() => open('loading.md', 'hotview')}>Open slow</button><button onClick={() => open('loading-later.txt', 'plain')}>Open later</button><button onClick={() => open('loading-empty.txt', 'plain')}>Open empty</button><button onClick={() => open('loading-error.txt', 'plain')}>Open failed</button></nav><EditorPane {...callbacks} pane={tabs.panes[0]} role="guest" authEmail={null} project="docs" tree={[]} presence={{}} focused isGuest showSidebarButton={false} tocOpen={false} dropZone={null}/></div>;
 }
 createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><Fixture/></I18nProvider></React.StrictMode>);`
     } }],
   })
   const chunk = bundle.output.find((item) => item.type === 'chunk')!
-  const server = http.createServer((req, res) => {
+  const cssFiles = ['../src/components/EditorPane.tsx', '../src/components/TabBar.tsx']
+  const cssSource = (await Promise.all(cssFiles.map(file => fs.readFile(new URL(file, import.meta.url), 'utf8')))).join('\n') + ' flex h-dvh flex-col'
+  const compiler = await compile(await fs.readFile(new URL('../src/index.css', import.meta.url), 'utf8'), { base: new URL('../src', import.meta.url).pathname, onDependency() {} })
+  const css = compiler.build([...new Set(cssSource.match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))])
+  const gates = new Map<string, Promise<void>>()
+  const hold = (file: string) => {
+    let release: () => void = () => {}
+    gates.set(file, new Promise<void>(resolve => { release = resolve }))
+    return release
+  }
+  const server = http.createServer(async (req, res) => {
     if (req.url === '/app.js') {
       res.setHeader('Content-Type', 'text/javascript')
       res.end(chunk.type === 'chunk' ? chunk.code : '')
     } else if (req.url?.startsWith('/api/')) {
       res.setHeader('Content-Type', 'application/json')
-      res.end(req.url.startsWith('/api/file?') ? JSON.stringify({path:'fixture', content:'# File content\n\nSelected file body', editable:true}) : '[]')
+      const file = new URL(req.url, 'http://fixture').searchParams.get('path') ?? ''
+      if (req.url.startsWith('/api/file?')) {
+        await gates.get(file)
+        if (file === 'loading-error.txt') { res.statusCode = 500; res.end(JSON.stringify({error:'Load failed'})); return }
+      }
+      res.end(req.url.startsWith('/api/file?') ? JSON.stringify({path:file, content:file === 'loading-empty.txt' ? '' : '# File content\n\nSelected file body', editable:true}) : '[]')
     } else {
       res.setHeader('Content-Type', 'text/html')
-      res.end('<!doctype html><html><body><div id="root"></div><script type="module" src="/app.js"></script></body></html>')
+      res.end(`<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><body><div id="root"></div><script type="module" src="/app.js"></script></body></html>`)
     }
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -55,6 +72,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
   })
   browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   const page = await browser.newPage()
+  page.setDefaultTimeout(5000)
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.stack || error.message || error.name))
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
@@ -105,4 +123,50 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
   await page.locator('.ProseMirror').filter({ hasText: 'Selected file body' }).waitFor({ timeout: 5000 })
   assert.deepEqual(errors, [])
   assert.equal(await page.evaluate('window.savedTabs.panes[0].activePath'), 'first.md')
+
+  const overlay = page.locator('[data-editor-loading]')
+  for (const [width, dark] of [[1100, true], [390, false]] as const) {
+    await page.setViewportSize({ width, height: 800 })
+    await page.evaluate(`document.documentElement.classList.toggle('dark', ${dark})`)
+    const release = hold('loading.md')
+    await page.getByRole('button', { name: 'Open slow', exact: true }).click()
+    await overlay.waitFor()
+    assert.match(await overlay.evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).backgroundColor), /^(?:rgba\(0, 0, 0, 0\.5\)|oklab\(0 0 0 \/ 0\.5\))$/)
+    assert.equal(await overlay.locator('..').getAttribute('aria-busy'), 'true')
+    assert.equal(await overlay.locator('..').locator('[inert]').count(), 1)
+    const cover = await overlay.boundingBox(), body = await overlay.locator('..').boundingBox()
+    assert.ok(cover && body && cover.width > 200 && cover.height > 100)
+    assert.deepEqual(cover, body, 'the overlay covers exactly the editor body')
+    assert.equal(await page.locator('[data-dock-tab-bar]').evaluate(el => el.closest('[inert]') === null), true)
+    await page.screenshot({ path: `/tmp/mew-editor-loading-${width}.png` })
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    assert.equal(await overlay.locator('[aria-hidden=true]').evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).animationName), 'none')
+    release()
+    await overlay.waitFor({ state: 'detached' })
+    assert.equal(await page.locator('[inert]').count(), 0)
+    await page.getByRole('button', { name: 'Open text', exact: true }).click()
+    await page.locator('.cm-content').filter({ hasText: 'Selected file body' }).waitFor()
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+  }
+  const releaseFirst = hold('loading.md'), releaseLater = hold('loading-later.txt')
+  await page.getByRole('button', { name: 'Open slow', exact: true }).click()
+  await overlay.waitFor()
+  await page.getByRole('button', { name: 'Open later', exact: true }).click()
+  await overlay.waitFor()
+  const firstResponse = page.waitForResponse(response => response.url().includes('path=loading.md'))
+  releaseFirst()
+  await (await firstResponse).finished()
+  await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+  assert.equal(await overlay.count(), 1, 'an older file response does not clear the active file overlay')
+  releaseLater()
+  await overlay.waitFor({ state: 'detached' })
+  for (const [file, button] of [['loading-empty.txt', 'Open empty'], ['loading-error.txt', 'Open failed']]) {
+    const release = hold(file)
+    await page.getByRole('button', { name: button, exact: true }).click()
+    await overlay.waitFor()
+    release()
+    await overlay.waitFor({ state: 'detached' })
+    assert.equal(await page.locator('[inert]').count(), 0, 'empty files and load failures both release the editor')
+  }
+  assert.deepEqual(errors, [])
 })

@@ -114,9 +114,24 @@ export function usePresence(
         }
       }
     }
-    const onVisibility = () => { if (ws?.readyState === WebSocket.OPEN) ws.send(focusMessage()) }
+    const sendActivity = () => { if (ws?.readyState === WebSocket.OPEN) ws.send(focusMessage()) }
+    let wasHidden = document.visibilityState === 'hidden'
+    const refreshSession = () => {
+      // A disconnected socket performs this reconciliation when it reconnects.
+      if (ws?.readyState !== WebSocket.OPEN) return
+      window.dispatchEvent(new Event('mew:permissions-changed'))
+      onWorkspaceChangeRef.current?.()
+    }
+    const onVisibility = () => {
+      sendActivity()
+      const hidden = document.visibilityState === 'hidden'
+      if (wasHidden && !hidden) refreshSession()
+      wasHidden = hidden
+    }
+    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) refreshSession() }
     document.addEventListener('visibilitychange', onVisibility)
-    const activityTimer = setInterval(onVisibility, SESSION_ACTIVITY_INTERVAL_MS)
+    window.addEventListener('pageshow', onPageShow)
+    const activityTimer = setInterval(sendActivity, SESSION_ACTIVITY_INTERVAL_MS)
     connect()
 
     return () => {
@@ -124,6 +139,7 @@ export function usePresence(
       if (retryTimer) clearTimeout(retryTimer)
       clearInterval(activityTimer)
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
       ws?.close()
     }
     // focusMessage only reads refs; reconnect only when the identity changes.

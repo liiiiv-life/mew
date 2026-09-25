@@ -1,8 +1,11 @@
+import { uiText } from '@mew/ui/i18n-core'
 import type { RagConfiguration, RagDocument, RagSettings } from '../../shared/rag'
 import type { ProjectTabGroup } from '../../shared/project-tab-groups'
-import type { GitAiCommitJob, GitAiCommitDraft } from '../../shared/git-ai-commit'
+import type { GitAiCommitJob } from '../../shared/git-ai-commit'
+import type { GitHubAuthStatus, GitHubLoginJob } from '../../shared/github-auth'
 import type { Capabilities, AccessSettings, FileRule, Feature } from '../../shared/access-policy'
-import type { CloudStorageFolder } from '../../shared/cloud-storage'
+import type { FileFavorite } from '../../shared/file-favorites'
+import type { MissingDirectory } from '../../shared/external-path'
 import type { EditorApi, EditorDbApi, DbColumn, DbColumnType, DbRow, DbSummary, DbView, TableWidths } from '@mew/editor'
 import type { TmuxPanelApi, TmuxSession } from '@mew/tmux-term'
 import { isHiddenTmuxSession } from '@mew/tmux-term'
@@ -273,8 +276,17 @@ export function browseDirs(path = ''): Promise<BrowseResult> {
   return fetch(`/api/fs/dirs?path=${encodeURIComponent(path)}`).then(json<BrowseResult>)
 }
 
-export function fetchCloudStorage(): Promise<{ folders: CloudStorageFolder[] }> {
-  return fetch('/api/fs/cloud-storage').then(json<{ folders: CloudStorageFolder[] }>)
+export function fetchFileFavorites(): Promise<{ folders: FileFavorite[] }> {
+  return fetch('/api/fs/favorites').then(json<{ folders: FileFavorite[] }>)
+}
+
+export const FILE_FAVORITES_CHANGED = 'mew:file-favorites-changed'
+
+export function setFileFavorite(path: string, favorite: boolean): Promise<{ ok: true }> {
+  return fetch('/api/fs/favorites', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, favorite }) }).then(json<{ ok: true }>).then(result => {
+    window.dispatchEvent(new Event(FILE_FAVORITES_CHANGED))
+    return result
+  })
 }
 
 export interface ExternalEntry {
@@ -287,12 +299,32 @@ export interface ExternalEntry {
 
 export interface ExternalEntriesResult {
   path: string
+  canonicalPath?: string
   parent: string | null
   entries: ExternalEntry[]
 }
 
-export function browseExternalEntries(path = ''): Promise<ExternalEntriesResult> {
-  return fetch(`/api/fs/entries?path=${encodeURIComponent(path)}`).then(json<ExternalEntriesResult>)
+export class MissingDirectoryError extends Error {
+  missing: MissingDirectory
+  constructor(message: string, missing: MissingDirectory) { super(message); this.missing = missing }
+}
+
+export async function browseExternalEntries(path = ''): Promise<ExternalEntriesResult> {
+  const response = await fetch(`/api/fs/entries?path=${encodeURIComponent(path)}`)
+  if (response.status === 404) {
+    const body = await response.clone().json().catch(() => null)
+    if (body?.code === 'MISSING_DIRECTORY' && typeof body.missing?.path === 'string'
+      && typeof body.missing.existingPath === 'string' && typeof body.missing.missingName === 'string') {
+      throw new MissingDirectoryError(body.error, body.missing)
+    }
+  }
+  return json<ExternalEntriesResult>(response)
+}
+
+export function createExternalDirectory(path: string): Promise<{ ok: true; path: string }> {
+  return fetch('/api/fs/directory', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }),
+  }).then(json<{ ok: true; path: string }>)
 }
 
 export function fetchExternalFile(path: string): Promise<{ path: string; content: string; editable: true }> {
@@ -301,11 +333,11 @@ export function fetchExternalFile(path: string): Promise<{ path: string; content
     .then((result) => ({ ...result, editable: true as const }))
 }
 
-export function saveExternalFile(path: string, content: string): Promise<{ ok: true; path: string }> {
+export function saveExternalFile(path: string, content: string, expectedContent?: string): Promise<{ ok: true; path: string }> {
   return fetch('/api/fs/file', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, content }),
+    body: JSON.stringify({ path, content, expectedContent }),
   }).then(json<{ ok: true; path: string }>)
 }
 
@@ -390,20 +422,33 @@ export function fetchGitRepository(path = '', project = currentProject): Promise
   return fetch(`/api/git/repository?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<GitRepositoryInfo>)
 }
 
+export function fetchGitHubAuth(project: string): Promise<GitHubAuthStatus> {
+  return fetch(`/api/git/github-auth?${projectQs(project)}`).then(json<GitHubAuthStatus>)
+}
+
+export function startGitHubLogin(project: string): Promise<{ job: GitHubLoginJob }> {
+  return fetch(`/api/git/github-auth?${projectQs(project)}`, { method: 'POST' }).then(json<{ job: GitHubLoginJob }>)
+}
+
+export function stopGitHubLogin(project: string, id: string): Promise<{ ok: true }> {
+  return fetch(`/api/git/github-auth/${encodeURIComponent(id)}/stop?${projectQs(project)}`, { method: 'POST' }).then(json<{ ok: true }>)
+}
+
+export function openGitHubLoginBrowser(project: string, id: string): Promise<{ streamUrl: string }> {
+  return fetch(`/api/git/github-auth/${encodeURIComponent(id)}/browser?${projectQs(project)}`, { method: 'POST' }).then(json<{ streamUrl: string }>)
+}
+
 function gitAiCommitUrl(project: string, workspace: string, suffix = ''): string {
   return `/api/git/ai-commit${suffix}?${projectQs(project)}&workspace=${encodeURIComponent(workspace)}`
 }
 export function fetchGitAiCommit(project: string, workspace: string): Promise<{ job: GitAiCommitJob | null }> {
   return fetch(gitAiCommitUrl(project, workspace)).then(json<{ job: GitAiCommitJob | null }>)
 }
-export function startGitAiCommit(project: string, workspace: string, id: string, agentSetId: string): Promise<{ job: GitAiCommitJob }> {
-  return fetch(gitAiCommitUrl(project, workspace), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, agentSetId }) }).then(json<{ job: GitAiCommitJob }>)
+export function startGitAiCommit(project: string, workspace: string, id: string, agentSetId: string, files: string[]): Promise<{ job: GitAiCommitJob }> {
+  return fetch(gitAiCommitUrl(project, workspace), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, agentSetId, files }) }).then(json<{ job: GitAiCommitJob }>)
 }
 export function stopGitAiCommit(project: string, workspace: string, id: string): Promise<{ ok: true }> {
   return fetch(gitAiCommitUrl(project, workspace, `/${encodeURIComponent(id)}/stop`), { method: 'POST' }).then(json<{ ok: true }>)
-}
-export function applyGitAiCommit(project: string, workspace: string, id: string): Promise<{ draft: GitAiCommitDraft }> {
-  return fetch(gitAiCommitUrl(project, workspace, `/${encodeURIComponent(id)}/draft`), { method: 'POST' }).then(json<{ draft: GitAiCommitDraft }>)
 }
 
 export function createSubproject(path: string, project: string): Promise<{ ok: true }> {
@@ -444,11 +489,11 @@ export function fetchGitWorkingTreeDiff(path: string, file: string, project = cu
   return fetch(`/api/git/working-tree/diff?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}&${projectQs(project)}`).then(json<{ diff: string }>)
 }
 
-export function commitGitWorkingTree(path: string, title: string, description: string, project = currentProject): Promise<GitWorkingTreeCommitResult> {
+export function commitGitWorkingTree(path: string, title: string, description: string, project: string, files: string[]): Promise<GitWorkingTreeCommitResult> {
   return fetch(`/api/git/commit?${projectQs(project)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, title, description }),
+    body: JSON.stringify({ path, title, description, files }),
   }).then(json<GitWorkingTreeCommitResult>)
 }
 
@@ -938,8 +983,8 @@ export function fetchTreeV1(project?: string, path = ''): Promise<TreeResponseV1
 }
 
 /** Ctrl+P처럼 전체 후보가 필요한 자리만 쓰는 완전 트리. 평상시 탐색기는 한 단계 지연 로드를 쓴다. */
-export function fetchFullTree(project?: string): Promise<TreeNode[]> {
-  return fetch(`/api/tree?${projectQs(project)}`).then(json<TreeNode[]>)
+export function fetchFullTree(project?: string, signal?: AbortSignal): Promise<TreeNode[]> {
+  return fetch(`/api/tree?${projectQs(project)}`, { signal }).then(json<TreeNode[]>)
 }
 
 // 탭 상태를 다루는 호출(읽기·저장·규칙)은 프로젝트를 명시적으로 받는다 — 자동저장 디바운스처럼
@@ -1037,7 +1082,7 @@ export async function searchProjectStream(
   const params = new URLSearchParams({ q: query, project, regex: opts.regex ? '1' : '0', case: opts.caseSensitive ? '1' : '0' })
   if (opts.scopes?.length) params.set('scopes', opts.scopes.join(','))
   const response = await fetch(`/api/search/stream?${params}`, { signal })
-  if (!response.ok || !response.body) throw new Error('검색 스트림을 열 수 없습니다')
+  if (!response.ok || !response.body) throw new Error(uiText("검색 스트림을 열 수 없습니다"))
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let pending = ''

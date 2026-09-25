@@ -1,3 +1,7 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
+import { useRefreshTasks } from './hooks/use-refresh-tasks'
+import { useFocusedWorkspacePanel } from './hooks/use-focused-workspace-panel'
 import { Database } from 'iconoir-react'
 import { RagPanel } from './components/rag-panel'
 import { defaultCapabilities, type Feature } from '../shared/access-policy'
@@ -58,6 +62,7 @@ import { SearchPanel } from './components/SearchPanel'
 import type { SearchMatch } from './api/client'
 import { AgentPanel } from './components/AgentPanel'
 import { FeatureDevelopment } from './components/feature-development'
+import type { FeaturePanelState } from './utils/feature-panel-state'
 import { featureCopy } from './components/feature-copy'
 import { withSessionId, type AgentTab } from './utils/agentTabs'
 import { BrowserPanel } from './components/BrowserPanel'
@@ -67,7 +72,7 @@ import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
 import { dispatchFocusedShortcut, getBinding, matchesShortcut } from '@mew/shortcuts'
-import { ConfirmDialog, hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
+import { ConfirmDialog, SelectField, hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
 import { mediaKind } from './utils/media'
@@ -91,10 +96,9 @@ import { WORKSPACE_PROJECT } from './utils/active-project'
 import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
 import { useI18n } from './i18n'
 import { applyFontPreferences, loadFontPreferences, normalizeFontPreferences, saveFontPreferences } from './utils/fontPreferences'
-import { loadAccentColor, applyAccentColor, saveAccentColor, type AccentColor } from './utils/accentColor'
+import { loadThemeColor, applyThemeColor, saveThemeColor } from './utils/theme-color'
 import { loadMewcatSkin, saveMewcatSkin, type MewcatSkinSelection } from './utils/mewcatSkin'
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
-import { AgentGuidanceFile } from './components/agent-guidance-file'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 import { GitPanel } from './components/git-panel'
 import { RemoteDesktop } from './components/remote-desktop'
@@ -218,12 +222,15 @@ function projectLabel(projectPath: string | null): string {
 interface EditorAppProps {
   /** 로그인 상태 — 로그인하지 않았으면 role: 'guest', email: null */
   auth: AuthStatus
+  refreshing: boolean
   onLoggedOut: () => void
   onRequestLogin: () => void
   onProfileChanged: (profile: { displayName: string; avatarDataUrl: string | null }) => void
 }
 
-function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: EditorAppProps) {
+function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileChanged }: EditorAppProps) {
+  useUiLocale()
+  const { pending: refreshingWorkspace, track: trackRefresh } = useRefreshTasks()
   const { t, locale } = useI18n()
   const { role, email: authEmail } = auth
   const isGuest = role === 'guest'
@@ -294,6 +301,15 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const mobilePanelStackRestorePendingRef = useRef<string | null>(null)
   const mobilePanelStackRestoredRootRef = useRef<string | null>(null)
   const [treeInvalidation, setTreeInvalidation] = useState<{ n: number; project: string; version: number; parents: string[] }>({ n: 0, project: '', version: 0, parents: [] })
+  const [focusedWorkspacePanel, setFocusedWorkspacePanel] = useFocusedWorkspacePanel()
+  const [desktopMode, setDesktopMode] = useState(isDesktop)
+  const [editorOpen, setEditorOpen] = useState(true)
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 768px)')
+    const update = () => setDesktopMode(query.matches)
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   // 터미널·에이전트의 기능 권한과 열림 상태는 독립이다.
   const dockRef = useRef<DockHandle>(null)
@@ -365,6 +381,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
 
   const mobileForegroundPanel = mobilePanelStack.at(-1) ?? null
+  const openDockPanels = (['editor', 'desktop', ...WORKSPACE_PANEL_IDS] as const).filter(panel =>
+    panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : workspacePanelOpen[panel])
+  const focusedDockPanel = focusedWorkspacePanel && openDockPanels.some(panel => panel === focusedWorkspacePanel) ? focusedWorkspacePanel : null
+  useEffect(() => {
+    if (focusedWorkspacePanel && !focusedDockPanel) setFocusedWorkspacePanel(null)
+  }, [focusedWorkspacePanel, focusedDockPanel, setFocusedWorkspacePanel])
 
   const openWorkspacePanel = useCallback((panel: WorkspacePanelId) => {
     workspacePanelSetters[panel](true)
@@ -416,6 +438,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   // 모바일에서 파일을 열 때는 패널의 열림 상태를 바꾸지 않는다. 그래야 화면을 데스크톱으로
   // 넓혔을 때 열린 패널들이 그대로 남는다. 보조 패널 스택만 비워 에디터를 전면에 둔다.
   const showMobileEditor = useCallback(() => {
+    setEditorOpen(true)
     if (!isDesktop()) {
       setMobilePanelStack([])
       saveMobileForegroundPanel(rootProjectPath, 'editor')
@@ -436,7 +459,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   const [historyOpen, setHistoryOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [fontPreferences, setFontPreferences] = useState(loadFontPreferences)
-  const [accentColor, setAccentColor] = useState<AccentColor>(loadAccentColor)
+  const [themeColor, setThemeColor] = useState<string>(loadThemeColor)
   useMewcatNotifications(caps.system, authEmail)
   const [noticeTarget, setNoticeTarget] = useState<Exclude<MewcatNotice['target'], 'system'>>()
   const [mewcatSkin, setMewcatSkin] = useState<MewcatSkinSelection>(loadMewcatSkin)
@@ -474,10 +497,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       const status = await fetchMewUpdateStatus(true)
       setMewUpdate(status)
       if (!announce) return
-      if (status.error) showToast(`업데이트를 확인하지 못했습니다: ${status.error}`)
-      else if (status.available && !status.canUpdate) showToast('새 버전이 있습니다. 터미널에서 업데이트해 주세요.')
-      else if (status.available) showToast(`origin/main에 새 커밋 ${status.behind}개가 있습니다`)
-      else showToast('Mew가 최신 버전입니다')
+      if (status.error) showToast(uiText("업데이트를 확인하지 못했습니다: {p0}", { p0: status.error }))
+      else if (status.available && !status.canUpdate) showToast(uiText("새 버전이 있습니다. 터미널에서 업데이트해 주세요."))
+      else if (status.available) showToast(uiText("origin/main에 새 커밋 {p0}개가 있습니다", { p0: status.behind }))
+      else showToast(uiText("Mew가 최신 버전입니다"))
     } catch (err) {
       if (announce) showToast(err instanceof Error ? err.message : String(err))
     }
@@ -493,13 +516,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       return
     }
     if (!mewUpdate.canUpdate) {
-      showToast(mewUpdate.error ?? '터미널에서 업데이트해 주세요.')
+      showToast(mewUpdate.error ?? uiText("터미널에서 업데이트해 주세요."))
       return
     }
     setMewUpdating(true)
     try {
       await runMewAction('update')
-      showToast('업데이트 중…')
+      showToast(uiText("업데이트 중…"))
     } catch (err) {
       setMewUpdating(false)
       showToast(err instanceof Error ? err.message : String(err))
@@ -521,7 +544,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         }
         if (status.job?.state === 'failed') {
           setMewUpdating(false)
-          showToast(status.job.message ?? '업데이트에 실패했습니다. 실행 로그를 확인하세요.')
+          showToast(status.job.message ?? uiText("업데이트에 실패했습니다. 실행 로그를 확인하세요."))
         }
       } catch {
         // 업데이트 중에는 서버가 한 번 재시작된다. 새 서버가 뜰 때까지 계속 확인한다.
@@ -551,7 +574,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       setWorkspaceUiLoaded(true)
     } else {
       setWorkspaceUiLoaded(false)
-      void prepareWorkspaceUi(rootProjectPath)
+      void trackRefresh(prepareWorkspaceUi(rootProjectPath))
         .then(state => {
           if (!alive) return
           setWorkspaceUi(state)
@@ -561,7 +584,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         .catch(console.error)
     }
     return () => { alive = false }
-  }, [isGuest, rootProjectPath, prepareWorkspaceUi])
+  }, [isGuest, rootProjectPath, prepareWorkspaceUi, trackRefresh])
 
   useEffect(() => {
     if (!rootProjectPath || isGuest || !workspaceUiLoaded) return
@@ -647,7 +670,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   useEffect(() => {
     if (!isOwner) return
     let alive = true
-    void fetchRootProjectTabs()
+    void trackRefresh(fetchRootProjectTabs())
       .then(({ state }) => {
         if (!alive) return
         if (state) {
@@ -659,7 +682,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       })
       .catch(console.error)
     return () => { alive = false }
-  }, [isOwner])
+  }, [isOwner, trackRefresh])
 
   useEffect(() => {
     if (!isOwner) return
@@ -737,10 +760,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     // Read once afterward to retain a concurrent switch from another client.
     if (projectOpeningRef.current) { workspaceBroadcastPending.current = true; return }
     const sequence = ++workspaceReadSequence.current
-    void fetchWorkspace().then(info => {
+    void trackRefresh(fetchWorkspace().then(info => {
       if (sequence === workspaceReadSequence.current) applyWorkspace(info)
-    }).catch(console.error)
-  }, [applyWorkspace])
+    }).catch(console.error))
+  }, [applyWorkspace, trackRefresh])
 
   const openRootProject = useCallback(async (projectPath: string) => {
     if (!isOwner || projectOpeningRef.current) return
@@ -847,6 +870,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   const {
     hydrated: tabsHydrated,
+    refreshing: refreshingTabs,
     panes,
     layout,
     focusedPaneId,
@@ -976,6 +1000,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
     return destination
   }
   const saveDockLayout = useCallback((dock: DockState) => setWorkspaceUi((previous) => ({ ...previous, dock })), [])
+  const saveFeaturePanelState = useCallback((features: FeaturePanelState) => setWorkspaceUi(previous => ({ ...previous, features })), [])
   const saveGitPanelState = useCallback((git: GitPanelState) => setWorkspaceUi((previous) => ({ ...previous, git })), [])
 
   // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
@@ -1081,18 +1106,40 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   if (caps.agent && rootProjectPath) mobileDockPanels.push('features')
   if (caps.desktop) mobileDockPanels.push('desktop')
   if (!isGuest && caps.filesRead && rootProjectPath) mobileDockPanels.push('rag')
-  const selectDockPanel = (panel: MobileDockPanel) => {
+  const selectDockPanel = (panel: MobileDockPanel, toggle = true) => {
     if (!mobileDockPanels.includes(panel)) return
-    if (panel === 'desktop') { setRemoteDesktopOpen(true); return }
+    dockRef.current?.restore()
+    if (panel === 'desktop') { setRemoteDesktopOpen(open => isDesktop() && toggle ? !open : true); return }
     setRemoteDesktopOpen(false)
     if (panel !== 'features' && panel !== 'rag') activeTabbedSurfaceRef.current = panel
-    if (panel === 'editor') showMobileEditor()
-    else openWorkspacePanel(panel)
+    if (panel === 'editor') {
+      if (isDesktop() && toggle && editorOpen) {
+        setEditorOpen(false)
+        return
+      }
+      showMobileEditor()
+      if (isDesktop()) {
+        setFocusedWorkspacePanel('editor')
+        setMobilePanelStack([])
+        requestAnimationFrame(() => {
+          const host = paneEls.current.get(focusedPaneId)
+          const target = host?.querySelector<HTMLElement>('[contenteditable="true"], textarea') ?? host
+          target?.focus({ preventScroll: true })
+        })
+      }
+    }
+    else if (isDesktop() && toggle && workspacePanelOpen[panel]) {
+      if (panel === 'features') featureCloseRef.current?.()
+      else closeWorkspacePanel(panel)
+    } else {
+      openWorkspacePanel(panel)
+      if (isDesktop()) setFocusedWorkspacePanel(panel)
+    }
   }
   const navigateMobileDock = (direction: -1 | 1, order: MobileDockPanel[]) => {
     const panel = remoteDesktopOpen ? 'desktop' : mobileForegroundPanel ?? 'editor'
     const next = adjacentDockPanel(order, panel, direction)
-    if (next) selectDockPanel(next)
+    if (next) selectDockPanel(next, false)
   }
 
   const switchSidebarTab = useCallback((direction: 'next' | 'previous') => {
@@ -1189,9 +1236,12 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
   }, [fontPreferences])
 
   useEffect(() => {
-    applyAccentColor(accentColor)
-    saveAccentColor(accentColor)
-  }, [accentColor])
+    applyThemeColor(themeColor, theme)
+  }, [themeColor, theme])
+
+  useEffect(() => {
+    saveThemeColor(themeColor)
+  }, [themeColor])
 
   useEffect(() => {
     saveMewcatSkin(mewcatSkin)
@@ -1318,17 +1368,17 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       const key = `${rootProjectPath ?? ''}\0${scope}`
       const cached = rootTreeCache.current.get(key)
       update(cached ?? [])
-      void fetchTreeEntries(scope).then(next => {
+      void trackRefresh(fetchTreeEntries(scope).then(next => {
         if (!alive || epoch !== workspaceEpochRef.current) return
         rootTreeCache.current.set(key, next)
         update(next)
-      }).catch(console.error)
+      }).catch(console.error))
     }
     read(WORKSPACE_PROJECT, next => { setRootTree(next); if (project === WORKSPACE_PROJECT) setTree(next) })
     read(DEFAULT_PROJECT, next => { setDocsTree(next); if (project === DEFAULT_PROJECT) setTree(next) })
     if (project !== WORKSPACE_PROJECT && project !== DEFAULT_PROJECT) read(project, setTree)
     return () => { alive = false }
-  }, [isGuest, project, rootProjectPath, workspaceEpoch])
+  }, [isGuest, project, rootProjectPath, workspaceEpoch, trackRefresh])
 
   // 옛 `/{프로젝트}` 주소로 들어왔으면 주소만 루트로 정리한다 — 프로젝트는 이미 그것으로 시작했다
   useEffect(() => {
@@ -1610,11 +1660,10 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
   const renderEditorPane = (pane: (typeof panes)[number]) => {
     return (
-        <DockPanel key={pane.id} id={`editor:${pane.id}`} kind="editor" mobileSelected={pane.id === focusedPaneId}>
-        {panes.length > 1 && <div className="flex h-8 shrink-0 items-center gap-1 border-b border-edge px-2 md:hidden">
-          <select aria-label={t('panel.editorPane')} value={focusedPaneId} onChange={(event) => focusPane(event.target.value)} className="min-w-0 flex-1 bg-surface-deep text-xs text-ink">
-            {panes.map((item, index) => <option key={item.id} value={item.id}>{index + 1} · {item.activePath?.split('/').at(-1) ?? t('panel.editorPane')}</option>)}
-          </select>
+        <DockPanel key={pane.id} id={`editor:${pane.id}`} kind="editor" visible={!desktopMode || editorOpen} tabs={pane.tabs.map(tab => tab.path)} mobileSelected={pane.id === focusedPaneId}>
+        {panes.length > 1 && <div className="flex shrink-0 items-center gap-1 border-b border-edge px-2 md:hidden">
+          <SelectField compact label={t('panel.editorPane')} value={focusedPaneId} onChange={focusPane}
+            options={panes.map((item, index) => ({ value: item.id, label: `${index + 1} · ${item.activePath?.split('/').at(-1) ?? t('panel.editorPane')}` }))} />
         </div>}
 
         <EditorPane
@@ -1688,7 +1737,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       ? [
           {
             id: 'fullscreen',
-            label: '전체화면',
+            label: uiText("전체화면"),
             hint: 'Alt+Enter',
             onSelect: toggleFullscreen,
             icon: (
@@ -1733,7 +1782,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           },
           {
             id: 'remote-desktop',
-            label: '원격 데스크톱',
+            label: uiText("원격 데스크톱"),
             onSelect: () => setRemoteDesktopOpen(true),
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></svg>,
           },
@@ -1776,11 +1825,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           {
             id: 'mew-update',
             label: mewUpdating
-              ? 'Mew 업데이트 중…'
+              ? uiText("Mew 업데이트 중…")
               : mewUpdate?.available
-                ? (mewUpdate.canUpdate ? 'Mew 업데이트' : 'Mew 수동 업데이트 필요')
-                : 'Mew 업데이트 확인',
-            hint: mewUpdate?.available ? `${mewUpdate.behind}개` : undefined,
+                ? (mewUpdate.canUpdate ? uiText("Mew 업데이트") : uiText("Mew 수동 업데이트 필요"))
+                : uiText("Mew 업데이트 확인"),
+            hint: mewUpdate?.available ? uiText("{p0}개", { p0: mewUpdate.behind }) : undefined,
             onSelect: () => void startMewUpdate(),
             disabled: mewUpdating || mewUpdate === null,
             icon: (
@@ -1959,7 +2008,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       >
         {sidebarOpen && (
           <div
-            data-sidebar
+            data-sidebar data-workspace-panel="sidebar"
             onPointerDownCapture={() => {
               activeTabbedSurfaceRef.current = 'sidebar'
               bringWorkspacePanelToFront('sidebar')
@@ -1976,8 +2025,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                   type="button"
                   onClick={() => setSidebarView('files')}
                   className={`rounded p-1 ${sidebarView === 'files' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:bg-surface-hover'}`}
-                  title="탐색기"
-                  aria-label="탐색기"
+                  title={uiText("탐색기")}
+                  aria-label={uiText("탐색기")}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 20h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-7.9a1 1 0 0 1-.79-.38l-1.62-2.24A1 1 0 0 0 8.9 4H4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1Z" />
@@ -1990,8 +2039,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     setProjectSearchFocus((s) => s + 1)
                   }}
                   className={`rounded p-1 ${sidebarView === 'search' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:bg-surface-hover'}`}
-                  title="파일명 검색 (Ctrl+P)"
-                  aria-label="파일명 검색"
+                  title={uiText("파일명 검색 (Ctrl+P)")}
+                  aria-label={uiText("파일명 검색")}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="11" cy="11" r="7" />
@@ -2005,8 +2054,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     setProjectSearchFocus((s) => s + 1)
                   }}
                   className={`rounded p-1 ${sidebarView === 'content-search' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:bg-surface-hover'}`}
-                  title="파일 내용 검색 (Ctrl+Shift+F)"
-                  aria-label="파일 내용 검색"
+                  title={uiText("파일 내용 검색 (Ctrl+Shift+F)")}
+                  aria-label={uiText("파일 내용 검색")}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -2019,8 +2068,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                   type="button"
                   onClick={() => setSidebarView('commands')}
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink ${sidebarView === 'commands' ? 'bg-surface-raised text-ink' : ''}`}
-                  title={`${projectLabel(rootProjectPath)} 명령어`}
-                  aria-label={`${projectLabel(rootProjectPath)} 명령어 버튼`}
+                  title={uiText("{p0} 명령어", { p0: projectLabel(rootProjectPath) })}
+                  aria-label={uiText("{p0} 명령어 버튼", { p0: projectLabel(rootProjectPath) })}
                   aria-pressed={sidebarView === 'commands'}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
@@ -2030,8 +2079,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                   type="button"
                   onClick={() => closeWorkspacePanel('sidebar')}
                   className={`${isGuest ? 'ml-auto ' : ''}flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink`}
-                  title="사이드바 닫기 (Ctrl+B)"
-                  aria-label="사이드바 닫기"
+                  title={uiText("사이드바 닫기 (Ctrl+B)")}
+                  aria-label={uiText("사이드바 닫기")}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M6 6l12 12M18 6 6 18" />
@@ -2059,7 +2108,6 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                     loadChildren={isGuest ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
                     treeInvalidation={treeInvalidation}
                     roots={!isGuest && <>
-                      {caps.serverFiles && <AgentGuidanceFile activePath={activePath} onOpen={(path) => { showMobileEditor(); openExternalFile(path) }} onError={showToast} />}
                       <div className="border-b border-edge pb-1">
                         <button
                           type="button"
@@ -2071,7 +2119,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
                             setDocsSettingsOpen(true)
                           }}
                           className={`sticky top-0 z-10 flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm font-medium hover:bg-surface-raised ${docsExpanded ? 'bg-surface-raised text-ink' : 'bg-surface-deep text-ink-secondary'}`}
-                          title={isOwner ? 'Documents · 우클릭하여 폴더 설정' : 'Documents'}
+                          title={isOwner ? uiText("Documents · 우클릭하여 폴더 설정") : 'Documents'}
                         >
                           <ProjectIcon icon="i:notes" size={16} />
                           <span>{t('project.documents')}</span>
@@ -2177,13 +2225,16 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         {panes.map(renderEditorPane)}
 
         {(caps.agent || caps.terminal) && <AgentPanel
+          notificationFocused={!remoteDesktopOpen && (desktopMode ? focusedDockPanel === 'agent' : mobileForegroundPanel === 'agent')}
           onRunningAgentsChange={reportRunningAgents}
           requestedNoticeTab={(noticeTarget?.workspacePath ?? noticeTarget?.cwd) === rootProjectPath ? noticeTarget?.tabId : undefined}
           onNoticeHandled={() => { openWorkspacePanel('agent'); setNoticeTarget(undefined) }}
           key={rootProjectPath ?? 'pending-workspace'} project={project} workspacePath={rootProjectPath} tree={tree}
+          trackRestore={trackRefresh}
           preparedTabs={preparedAgentTabs} requestedTab={featureAgentTab} onRequestedTabHandled={() => setFeatureAgentTab(null)}
           focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeTab.path : null}
           getSelectedText={getSelectedText} renderCommandButtons={renderTermButtons} onOpenFile={openMentionedFile}
+          onOpenGuidanceFile={caps.serverFiles ? (path) => { showMobileEditor(); openExternalFile(path) } : undefined}
           allowAgent={caps.agent} allowTerminal={caps.terminal} agentOpen={caps.agent && agentOpen} terminalOpen={caps.terminal && terminalOpen} foregroundKind={mobileForegroundPanel}
           onPanelFocus={(kind) => { activeTabbedSurfaceRef.current = kind; lastPanelRef.current = kind; bringWorkspacePanelToFront(kind) }}
           onClose={() => closeWorkspacePanel('agent')} onCloseTerminal={() => closeWorkspacePanel('terminal')}
@@ -2199,6 +2250,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         </DockWorkspace>
 
         {ragOpen && rootProjectPath && !isGuest && caps.filesRead && <div
+          data-workspace-panel="rag"
           onPointerDownCapture={() => bringWorkspacePanelToFront('rag')}
           className={`absolute inset-0 min-h-0 min-w-0 bg-surface md:static md:z-auto md:w-[min(30rem,45vw)] md:shrink-0 md:border-l md:border-edge ${mobilePanelLayer('rag')}`}
         ><RagPanel key={rootProjectPath} workspace={rootProjectPath} canManage={caps.system}
@@ -2206,11 +2258,13 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           onOpenFile={(targetProject, path, line) => { closeWorkspacePanel('rag'); openMentionedFile(targetProject, path, line) }}
         /></div>}
 
-        {featuresOpen && rootProjectPath && caps.agent && <div
+        {featuresOpen && rootProjectPath && caps.agent && workspaceUiLoaded && <div
+          data-workspace-panel="features"
           onPointerDownCapture={() => bringWorkspacePanelToFront('features')}
           className={`absolute inset-0 min-h-0 min-w-0 bg-surface md:static md:z-auto md:w-[min(42rem,50vw)] md:shrink-0 md:border-l md:border-edge ${mobilePanelLayer('features')}`}
         ><FeatureDevelopment
           key={rootProjectPath} workspace={rootProjectPath} canUseGit={caps.git} requestCloseRef={featureCloseRef}
+          initialState={workspaceUi.features} onChange={saveFeaturePanelState}
           onClose={() => closeWorkspacePanel('features')}
           onOpenFile={(path) => { closeWorkspacePanel('features'); openMentionedFile(WORKSPACE_PROJECT, path, null) }}
           onOpenAgent={(run) => {
@@ -2224,7 +2278,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
         {/* 채팅 창 — 에이전트·터미널과 같은 오른쪽 붙임 칸. 모바일에서도 프로젝트 탭 아래에서만 열린다. */}
         {chatOpen && caps.chat && (
           <div
-            onPointerDownCapture={() => bringWorkspacePanelToFront('chat')}
+            data-workspace-panel="chat"
+          onPointerDownCapture={() => bringWorkspacePanelToFront('chat')}
             className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:w-[22rem] md:shrink-0 ${mobilePanelLayer('chat')}`}
           >
             <div className="hidden w-1.5 shrink-0 border-l border-edge md:block" aria-hidden="true" />
@@ -2243,7 +2298,8 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
         {androidOpen && caps.android && (
           <div
-            onPointerDownCapture={() => bringWorkspacePanelToFront('android')}
+            data-workspace-panel="android"
+          onPointerDownCapture={() => bringWorkspacePanelToFront('android')}
             className={`fixed inset-x-0 top-10 bottom-0 flex md:static md:z-auto md:shrink-0 ${mobilePanelLayer('android')}`}
             style={{ width: isDesktop() ? androidWidth : undefined }}
           >
@@ -2261,7 +2317,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
       <Mewcat skin={mewcatSkin} onOpenSystemStats={caps.system ? () => setSysStatsOpen(true) : undefined} />
 
-      <MobileDock active={remoteDesktopOpen ? 'desktop' : mobileForegroundPanel ?? 'editor'} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost}
+      <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost}
         onSelect={selectDockPanel} onNavigate={navigateMobileDock} />
 
       <div className="hidden md:contents">
@@ -2286,11 +2342,11 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
           canEditIgnore={caps.system}
           theme={theme}
           fontPreferences={fontPreferences}
-          accentColor={accentColor}
+          themeColor={themeColor}
           mewcatSkin={mewcatSkin}
           onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
           onFontPreferencesChange={setFontPreferences}
-          onAccentColorChange={setAccentColor}
+          onThemeColorChange={setThemeColor}
           onMewcatSkinChange={setMewcatSkin}
           onClose={() => {
             setFontPreferences((fonts) => normalizeFontPreferences(fonts))
@@ -2324,9 +2380,9 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
 
       {closeProjectPath && (
         <ConfirmDialog
-          message={`프로젝트 "${projectLabel(closeProjectPath)}" 탭을 닫을까요?`}
-          detail="프로젝트 파일은 삭제되지 않으며, 나중에 + 탭에서 다시 열 수 있습니다."
-          confirmLabel="닫기"
+          message={uiText("프로젝트 \"{p0}\" 탭을 닫을까요?", { p0: projectLabel(closeProjectPath) })}
+          detail={uiText("프로젝트 파일은 삭제되지 않으며, 나중에 + 탭에서 다시 열 수 있습니다.")}
+          confirmLabel={uiText("닫기")}
           onConfirm={() => void closeRootProject(closeProjectPath)}
           onCancel={() => setCloseProjectPath(null)}
         />
@@ -2362,7 +2418,7 @@ function EditorApp({ auth, onLoggedOut, onRequestLogin, onProfileChanged }: Edit
       )}
 
       {toast}
-      {switchingRootProject && <ProjectLoadingOverlay />}
+      {(switchingRootProject || refreshing || refreshingWorkspace || refreshingTabs) && <ProjectLoadingOverlay />}
     </div>
   )
 }
@@ -2371,6 +2427,8 @@ const GUEST_AUTH: AuthStatus = { authenticated: false, email: null, role: 'guest
 
 /** 인증은 선택 사항 — 로그인하지 않으면 게스트로 EditorApp이 바로 뜬다. 로그인 버튼은 EditorApp 안에서 이 모달을 연다. */
 function App() {
+  useUiLocale()
+  const { pending: refreshing, track: trackRefresh } = useRefreshTasks()
   const [auth, setAuth] = useState<AuthStatus | null>(null)
   const [loginOpen, setLoginOpen] = useState(false)
 
@@ -2388,13 +2446,13 @@ function App() {
   }, [])
 
   useEffect(() => {
-    fetchAuthStatus()
+    void trackRefresh(fetchAuthStatus()
       .then(applyAuth)
       .catch((err) => {
         console.error(err)
         applyAuth(GUEST_AUTH)
-      })
-  }, [applyAuth])
+      }))
+  }, [applyAuth, trackRefresh])
 
   useEffect(() => {
     function onExpired() {
@@ -2405,10 +2463,10 @@ function App() {
   }, [applyAuth])
 
   useEffect(() => {
-    const refresh = () => { clearFileContentCache(); void fetchAuthStatus().then(applyAuth).catch(() => {}) }
+    const refresh = () => { clearFileContentCache(); void trackRefresh(fetchAuthStatus().then(applyAuth).catch(() => {})) }
     window.addEventListener('mew:permissions-changed', refresh)
     return () => window.removeEventListener('mew:permissions-changed', refresh)
-  }, [applyAuth])
+  }, [applyAuth, trackRefresh])
 
   if (!auth) {
     return <div className="bg-surface" style={{ height: '100dvh' }} />
@@ -2419,6 +2477,7 @@ function App() {
       <EditorApp
         key={auth.email ?? 'guest'}
         auth={auth}
+        refreshing={refreshing}
         onLoggedOut={() => applyAuth(GUEST_AUTH)}
         onRequestLogin={() => setLoginOpen(true)}
         onProfileChanged={(profile) => setAuth((current) => (current ? { ...current, ...profile } : current))}

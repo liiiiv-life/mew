@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createTabDragPreview } from './tab-drag-preview'
 
 // Android 네이티브 컨텍스트 메뉴(~500ms)보다 먼저 armed 상태에 들어가야 contextmenu를 가로챌 수 있다
 const LONG_PRESS_MS = 350
@@ -91,6 +92,12 @@ export function useDragReorder({
   const autoScrollRaf = useRef<number | null>(null)
   // 자동 스크롤은 손가락이 멈춰 있어도 도는 루프라 마지막 포인터 위치를 따로 들고 있어야 한다
   const pointerXRef = useRef(0)
+  const previewRef = useRef<ReturnType<typeof createTabDragPreview> | null>(null)
+
+  function showPreview(state: DragState) {
+    if (previewRef.current) return
+    previewRef.current = createTabDragPreview(itemsRef.current.get(state.index) ?? state.el, state.startX, state.startY)
+  }
 
   function stopAutoScroll() {
     if (autoScrollRaf.current !== null) {
@@ -105,15 +112,32 @@ export function useDragReorder({
       longPressTimer.current = null
     }
     stopAutoScroll()
+    previewRef.current?.remove()
+    previewRef.current = null
     document.removeEventListener('touchmove', blockTouchScroll)
+    const state = stateRef.current
     stateRef.current = null
     setDragIndex(null)
+    if (state?.el.hasPointerCapture(state.pointerId)) state.el.releasePointerCapture(state.pointerId)
   }
 
   useEffect(() => {
-    const cancel = (event: KeyboardEvent) => { if (event.key === 'Escape' && stateRef.current) cleanup() }
-    window.addEventListener('keydown', cancel)
-    return () => { window.removeEventListener('keydown', cancel); stopAutoScroll(); if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current); document.removeEventListener('touchmove', blockTouchScroll) }
+    const cancel = () => { if (stateRef.current) { clickSuppressedAt.current = Date.now(); cleanup() } }
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel() }
+    window.addEventListener('keydown', key)
+    window.addEventListener('blur', cancel)
+    window.addEventListener('resize', cancel)
+    document.addEventListener('visibilitychange', cancel)
+    return () => {
+      window.removeEventListener('keydown', key)
+      window.removeEventListener('blur', cancel)
+      window.removeEventListener('resize', cancel)
+      document.removeEventListener('visibilitychange', cancel)
+      previewRef.current?.remove()
+      stopAutoScroll()
+      if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current)
+      document.removeEventListener('touchmove', blockTouchScroll)
+    }
     // cleanup reads the gesture refs; it does not depend on render-time callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -129,6 +153,7 @@ export function useDragReorder({
   // Reordering moves the captured DOM node. Restore capture after React commits the move.
   useLayoutEffect(() => {
     const state = stateRef.current
+    if (state && !state.el.isConnected) { cleanup(); return }
     if (state?.phase === 'active' && state.el.isConnected) capture(state)
   })
 
@@ -182,6 +207,7 @@ export function useDragReorder({
   function activate(state: DragState) {
     state.phase = 'active'
     state.scroller = findScroller(state.el)
+    showPreview(state)
     setDragIndex(state.index)
     onDragStart?.()
     if (state.scroller && autoScrollRaf.current === null) {
@@ -213,6 +239,9 @@ export function useDragReorder({
         // 탭바의 overflow 스크롤과 공존한다 (touch-action: none을 정적으로 걸면 스크롤이 죽는다)
         if (state.isTouch) document.addEventListener('touchmove', blockTouchScroll, { passive: false })
         setDragIndex(state.index)
+        // Menus attached to a long press retain their existing behavior. Their
+        // preview starts only once movement turns the gesture into a drag.
+        if (!state.isTouch || !onLongPress) showPreview(state)
         // 터치는 여기서 메뉴가 뜨므로 뒤따라오는 click을 미리 막는다. 마우스는 메뉴가 아니라 재정렬
         // 신호일 뿐이라(메뉴는 우클릭이 연다) 그냥 놓으면 평범한 클릭으로 둔다 — 느리게 누른 클릭이다
         if (state.isTouch) {
@@ -255,6 +284,7 @@ export function useDragReorder({
           longPressTimer.current = null
           capture(state)
           activate(state)
+          previewRef.current?.move(e.clientX, e.clientY)
         } else startPan(state)
       }
       return
@@ -266,6 +296,7 @@ export function useDragReorder({
     if (state.phase === 'armed' && dist > TOUCH_SLOP_PX / 2) activate(state)
     if (state.phase !== 'active') return
 
+    previewRef.current?.move(e.clientX, e.clientY)
     applyTarget(e.clientX)
     onDragMove?.(state.index, e.clientX, e.clientY)
   }

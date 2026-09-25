@@ -1,3 +1,4 @@
+import { subscribeUiLocale } from '@mew/ui/i18n-core'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { Annotation, EditorState, StateEffect, StateField, type Extension } from '@codemirror/state'
 import {
@@ -34,7 +35,7 @@ import { toml } from '@codemirror/legacy-modes/mode/toml'
 import { properties } from '@codemirror/legacy-modes/mode/properties'
 import { sCSS } from '@codemirror/legacy-modes/mode/css'
 import { lintFile } from '../api/client'
-import { codeSearchExtensions } from '../utils/codeSearch'
+import { codeSearchExtensions, refreshCodeSearchLanguage } from '../utils/codeSearch'
 import { makeCommentAnchor, resolveCommentAnchor, type CommentAnchor, type CommentThreadInput } from '@mew/editor'
 
 // value prop 동기화로 들어온 트랜잭션 표시 — 이걸 다시 onChange로 올리면 열기만 한
@@ -375,10 +376,12 @@ export const CodePane = forwardRef<
     })
     const view = new EditorView({ state, parent: container })
     viewRef.current = view
+    const unsubscribeLocale = subscribeUiLocale(() => view.dispatch({ effects: refreshCodeSearchLanguage() }))
     // 방금 만든 뷰에 지금 스레드를 흘려 넣는다 — 필드 초기값은 빈 목록이다
     if (commentThreadsRef.current.length > 0) view.dispatch({ effects: setCommentThreads.of(commentThreadsRef.current) })
 
     return () => {
+      unsubscribeLocale()
       view.destroy()
       viewRef.current = null
     }

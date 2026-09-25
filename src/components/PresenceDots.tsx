@@ -1,8 +1,11 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 const DOT = 5 // px — 점 지름
 const BOX = 16 // px — 기존 카운트 배지와 같은 자리 크기(h-4 w-4)
 const RADIUS = 5 // px — 3명 이상일 때 정n각형 반지름
 
 function Dot({ color }: { color: string }) {
+  useUiLocale()
   return <span className="rounded-full" style={{ width: DOT, height: DOT, background: color }} />
 }
 
@@ -10,9 +13,10 @@ function Dot({ color }: { color: string }) {
 // "누가" 있는지 바로 알아볼 수 있게 하는 것이 목적이라 배열 순서는 의미 없다.
 // 1명: 점 하나 · 2명: 가로 나열 · 3명 이상: 맨 위 꼭짓점부터 시계방향으로 도는 정n각형 배치.
 export function PresenceDots({ colors }: { colors: string[] }) {
+  useUiLocale()
   if (colors.length === 0) return null
 
-  const title = `${colors.length}명이 작업 중입니다`
+  const title = uiText("{p0}명이 작업 중입니다", { p0: colors.length })
 
   if (colors.length === 1) {
     return (
