@@ -1,7 +1,7 @@
 ---
 title: "원격 데스크톱 아키텍처와 검증"
 created: 2026-09-12
-updated: 2026-09-23
+updated: 2026-09-24
 ---
 
 # 원격 데스크톱
@@ -9,6 +9,8 @@ updated: 2026-09-23
 [개발 지도](MOC.md) · [설치·사용법](../guides/remote-desktop.md) · [배포 라이선스](remote-desktop-distribution.md) · [ADR 0139](../../../.mew/docs/decisions/0139-mew-desktop-server-transport.md) · [ADR 0144](../../../.mew/docs/decisions/0144-mew-desktop-local-cursor.md)
 
 ## 경계와 수명
+
+화면 구성·설정·조작 도구를 설계할 때는 [공통 디자인 지침: 여백과 정보 밀도](ui-contracts.md#디자인-지침-여백과-정보-밀도)를 따른다.
 
 `RemoteDesktop`은 body portal의 전체 화면 dialog다. DockWorkspace, workspaceUi, 패널 복원 목록에 넣지 않는다. 화면을 닫으면 세션을 종료하며, 재접속·공유 화면 변경은 새 세션이다. 내부 브라우저의 DOM 전송 계약은 바뀌지 않는다.
 
@@ -41,6 +43,10 @@ Electron ESM 진입점에서 `await app.whenReady()`를 최상위로 기다리�
 네이티브 `main.mjs`만 OS 캡처·입력·클립보드 권한을 가진다. 숨겨진 renderer는 sandbox·contextIsolation을 켜고 nodeIntegration을 끄며 고정된 로컬 파일만 읽는다. preload는 시그널링·검증되는 입력·단일 캡처 요청을 노출한다. 고정 로컬 renderer에만 media와 Chromium Local Network Access 권한을 허용한다([Electron 권한 계약](https://www.electronjs.org/docs/latest/api/session)). 세션용 임시 Chromium 프로필은 정상 종료 시 제거한다. Windows 파일 핸들 또는 강제 종료 때문에 임시 폴더가 남을 수 있다. 캡처 영상·키 입력·SDP·ICE 자격증명은 파일에 기록하지 않는다.
 
 ## 자동 준비와 내부 tmux
+
+`./mew setup`은 설정을 로드하고 앱의 `npm ci`가 끝난 뒤, 빌드·서버 시작 전에 기존 `native/remote-desktop/install.mjs`와 `permissions.mjs`를 순서대로 실행한다. OS 판별·WSL의 Windows 설치·`MEW_DESKTOP_HELPER_DIR`·의존성 재사용·설치 검증은 같은 설치기가 소유한다. 설치·권한 준비 실패는 경고하고 Mew 설치를 계속하되 SIGINT/SIGTERM은 중단한다. `./mew desktop-setup`은 같은 설정·준비 경로만 실행하고 실패 코드를 보존하며 빌드·Mew 서버 시작/중지를 하지 않는다. 출력은 호출한 터미널에 남고 내부 tmux 설치 상태로 기록하지 않는다. 캡처·입력·로그인 자동 시작·상주 helper를 활성화하지 않는다. `./mew update` 뒤 구성 요소 갱신은 기존처럼 다음 뷰어 연결에서 수행한다.
+
+setup 통합은 Bash 구문 검사와 설치·권한 실행을 모사한 성공·실패·중단 후 진행 검사로 확인한다. 실제 setup·다운로드·빌드·서버 시작은 에이전트 검증에서 실행하지 않는다.
 
 `desktop-preparation.ts`는 `/api/remote-desktop/status`가 준비 가능하다고 응답하면 `POST /api/remote-desktop/install`을 한 번 호출하고 완료까지 `GET`으로 기다린다. manager·owner만 사용할 수 있다. 실패 시 자동 반복하지 않으며 준비 후 상태를 다시 확인한 뒤 WS를 연다. 설치 완료 조회는 250 → 500 → 1000 → 최대 1500ms 간격으로 늘려 짧은 코드 업데이트는 빨리 감지하고 긴 다운로드는 요청 빈도를 제한한다. 준비 대기는 최대 20분, 영상 연결 제한 시간은 준비가 끝난 다음부터 계산한다. 뷰어 종료는 요청·폴링만 취소한다. `server/remote-desktop-install.ts`가 고정 `mewcmd-desktop-install` 세션을 소유하며 HTTP 입력으로 명령·폴더·세션을 지정할 수 없다.
 
@@ -98,7 +104,9 @@ WSL 설치기는 PowerShell을 통해 Windows 복사본을 설치한다. `npm.cm
 
 ## 뷰어 설정과 좌표
 
-모바일 기본 뷰어는 하단 작업 독을 표시한다. App의 독 컴포넌트는 상태를 유지한 채 `dockHostRef`로 받은 뷰어 내부 DOM에 portal하여 배경 inert에 막히지 않는다. 영상 영역과 조이스틱은 독 높이 48px + safe-area를 비운다. 실제 브라우저 전체화면에서는 호스트를 숨기고 여백을 없애며, 해제하면 다시 표시한다. 모바일 키보드 중 독 숨김도 유지한다. 독에서 다른 패널을 누르거나 스와이프하면 뷰어를 닫고 연결·눌린 입력을 정리한 뒤 해당 패널로 이동한다. 같은 원격 데스크톱 버튼은 연결을 다시 만들지 않는다. 독 순서·터치 이름 토스트 상태는 portal 이동 때도 유지한다. 배경 편집기와 설치 터미널의 기존 모달/inert 경계는 유지한다. 기본 뷰어에서 독을 가리던 동작은 사용자 요청으로 제거했으며 요청 전 재도입하지 않는다.
+공유 화면과 핫키 보조키는 공통 `SelectField`로 선택한다. 목록은 원격 데스크톱 루트에 portal해 일반 뷰어·브라우저 전체화면에서 같은 위치와 입력 경계를 사용한다. Esc·뒤로가기는 목록 → 설정 → 원격 화면 순으로 닫고, 보조키 선택은 원격 컴퓨터에 키 입력을 보내지 않는다. 공유 화면 변경 시 기존 재연결 경로로 선택한 화면 ID를 전달한다.
+
+기본 뷰어는 작업 독을 표시한다. 모바일에서는 하단 고정 바, 데스크톱에서는 이동 가능한 반투명 캡슐을 사용한다([독 계약](ui-contracts.md#플로팅-핸들과-상단-메뉴)). App의 독 컴포넌트는 상태를 유지한 채 `dockHostRef`로 받은 뷰어 내부 DOM에 portal하여 배경 inert에 막히지 않는다. 모바일 영상 영역과 조이스틱은 독 높이 48px + safe-area를 비운다. 실제 브라우저 전체화면에서는 호스트를 숨기고 여백을 없애며, 해제하면 다시 표시한다. 모바일 키보드 중 독 숨김도 유지한다. 독에서 다른 패널을 누르거나 스와이프하면 뷰어를 닫고 연결·눌린 입력을 정리한 뒤 해당 패널로 이동한다. 같은 원격 데스크톱 버튼은 연결을 다시 만들지 않는다. 독 순서·터치 이름 토스트 상태는 portal 이동 때도 유지한다. 배경 편집기와 설치 터미널의 기존 모달/inert 경계는 유지한다. 기본 뷰어에서 독을 가리던 동작은 사용자 요청으로 제거했으며 요청 전 재도입하지 않는다.
 
 - 상단 전체화면은 `document.documentElement.requestFullscreen()`과 `fullscreenchange`로 실제 브라우저 상태를 동기화한다. 설치 터미널이 별도 body portal이므로 문서 전체를 대상으로 한다. 뷰어가 시작한 전체화면만 unmount에서 정리한다. 거절·미지원은 상태 안내로 처리한다([Fullscreen API](https://developer.mozilla.org/en-US/docs/Web/API/Element/requestFullscreen)).
 - `desktop-view.ts`가 회전 후 종횡비로 contain 크기를 계산한다. video/canvas는 같은 명시적 크기·중심·CSS 변환을 사용하고, 클릭 좌표는 그 역변환, 로컬 커서는 정변환을 사용한다. 전역 video `max-width` 제한을 해제해 90/270도에서 두 축이 독립적으로 잘리지 않게 한다. 감도 적용 뒤 조이스틱 벡터도 역회전한다. 화면 이동은 화면 축 기준이며 회전할 때 줌·pan은 초기화한다. 직접 영상의 `loadedmetadata`와 `resize`에서 양수 크기를 동기화하여 같은 track의 원격 해상도 변경에도 투영을 갱신한다.
@@ -111,9 +119,13 @@ WSL 설치기는 PowerShell을 통해 Windows 복사본을 설치한다. `npm.cm
 
 [ADR 0145](../../../.mew/docs/decisions/0145-mew-desktop-mouse-controls.md)에 따라 상단 좌클릭·휠·우클릭과 하단 전체 너비의 커서 전용 패드를 마우스 형태로 묶는다. 화면 이동·확대는 옆의 별도 열에 두며 기존 핸들로 전체를 옮긴다. 좌·우 조이스틱은 3px 이동 문턱에서 첫 이동보다 먼저 button-down을 보내고, up/cancel/blur에서 해제한다. 커서 패드는 탭·hold 모두 버튼을 보내지 않는다. 휠만 일반 세로 스크롤과 320ms hold 후 중간 버튼 드래그를 구분한다. 방향키 드래그도 모든 방향키 해제·blur·비활성화에서 button-up을 보낸다.
 
-[ADR 0154](../../../.mew/docs/decisions/0154-mew-desktop-touchpad-motion.md)에 따라 모든 터치 컨트롤은 직전 입력과의 위치 차이를 즉시 처리한다. 커서·버튼 드래그는 기본 이득 2px × 속도 가속 × 설정 감도를 적용한다. 일반 휠은 세로 3배, 화면 이동은 1배, 확대는 세로 -100px당 로그 배율 +1이다. 최초 3px 문턱을 넘으면 시작 거리도 포함하고 이후 미세 이동·방향 반전을 보존한다. rAF는 hold·시각 피드백만 처리하며 정지 중에는 이동을 만들지 않는다. 손잡이의 8px 시각 반경은 입력 거리를 제한하지 않는다. 새 터치는 기준점을 초기화한다. 기존 속도 방식은 사용자 요청 없이 다시 도입하지 않는다.
+[ADR 0154](../../../.mew/docs/decisions/0154-mew-desktop-touchpad-motion.md)의 커서·버튼 드래그는 직전 입력과의 위치 차이를 즉시 처리한다. 기본 이득 2px × 속도 가속 × 설정 감도를 적용한다. 최초 3px 문턱을 넘으면 시작 거리도 포함하고 이후 미세 이동·방향 반전을 보존한다. 손잡이의 8px 시각 반경은 터치패드 입력 거리를 제한하지 않으며 새 터치에서 기준점을 초기화한다.
 
-속도 가속은 `min(16, hypot(Δx, Δy) / Δt / 0.2)`이며 Δt 단위는 ms다. 브라우저 이벤트의 `timeStamp`와 지원되는 `getCoalescedEvents()` 표본을 사용해 React 처리 지연을 손가락 속도로 오해하지 않는다. 양수 소수 시간 간격은 그대로 사용하고, 같거나 역행하는 timestamp만 1ms로 계산한다. 비정상 좌표/시각은 무시한다. 극단적으로 빠른 이동에는 가속 16배 상한을 두되 저속 하한은 두지 않아 정밀 이동을 유지한다. 같은 일정 속도라면 표본 분할 수와 무관하게 같은 거리를 보낸다. 손가락을 멈춘 rAF는 이동을 생성하지 않으며 새 터치에서 시각·위치 기준을 초기화한다. wheel의 중간 버튼 드래그에도 가속을 적용하지만 일반 스크롤·pan·zoom·물리 마우스 절대 좌표·키보드 반복 속도에는 적용하지 않는다. 예시의 100px/50ms와 100px/500ms는 상한 이내여서 이동량이 정확히 10배다. 원격 화면 경계에서는 기존 좌표 clamp가 우선한다.
+[ADR 0169](../../../.mew/docs/decisions/0169-mew-desktop-view-velocity-controls.md)에 따라 일반 휠·화면 이동·확대는 속도 조이스틱이다. 탭/hold 구분을 위해 최초 3px 이동 뒤 시작하며, 이후에는 최초 접촉점이 아닌 `.desktop-stick-ring` 중앙 기준 변위를 사용한다. 반경 3px은 정지 영역, 32px은 최대 속도다. 정지 영역 밖 거리 / 29px을 0–1의 t로 제한한 뒤 t / (1 + t) 곡선을 휠 900px/s·pan 600 CSS px/s·zoom 로그 배율 1.5/s에 곱한다. 중앙 근처의 미세 조작을 유지하면서 멀리 밀수록 추가 속도 증가폭을 줄인다. 실제 최대 속도는 휠 450px/s·pan 300 CSS px/s·zoom 로그 배율 0.75/s로 기존 선형 응답의 절반이다. 손잡이의 시각적 이동은 기존 선형 비율을 유지한다. 휠·zoom은 세로 축만, pan은 방사형으로 정규화한 두 축을 사용한다. rAF와 입력 표본 사이 경과 시간을 적분해 밀어 둔 동안 계속 조절하며 한 번의 적분은 50ms로 제한한다. 중앙 복귀·up/cancel/blur·비활성화·unmount에서는 멈춘다. 휠 hold 후 중간 버튼 드래그는 터치패드 방식을 유지하고 일반 스크롤 도중 hold 드래그로 전환하지 않는다. 방향키는 기존 반복 입력을 유지한다.
+
+마우스·화면 조절 열·이동 핸들·왼쪽 핫키 바는 테마 surface 78%와 투명색을 혼합한 배경 및 4px backdrop blur를 사용한다. 컨테이너 opacity는 적용하지 않아 글자·아이콘·포커스 표시는 선명하게 유지한다.
+
+속도 가속은 `min(16, hypot(Δx, Δy) / Δt / 0.2)`이며 Δt 단위는 ms다. 브라우저 이벤트의 `timeStamp`와 지원되는 `getCoalescedEvents()` 표본을 사용해 React 처리 지연을 손가락 속도로 오해하지 않는다. 양수 소수 시간 간격은 그대로 사용하고, 같거나 역행하는 timestamp만 1ms로 계산한다. 비정상 좌표/시각은 무시한다. 극단적으로 빠른 이동에는 가속 16배 상한을 두되 저속 하한은 두지 않아 정밀 이동을 유지한다. 같은 일정 속도라면 표본 분할 수와 무관하게 같은 거리를 보낸다. 커서·버튼 드래그에서 손가락을 멈춘 rAF는 이동을 생성하지 않으며 새 터치에서 시각·위치 기준을 초기화한다. wheel의 중간 버튼 드래그에도 가속을 적용하지만 일반 스크롤·pan·zoom·물리 마우스 절대 좌표·키보드 반복 속도에는 적용하지 않는다. 예시의 100px/50ms와 100px/500ms는 상한 이내여서 이동량이 정확히 10배다. 원격 화면 경계에서는 기존 좌표 clamp가 우선한다.
 
 `desktop-input.ts`와 네이티브 `protocol.mjs`의 v1 스냅샷은 누적 이동/휠 카운터, 전체 버튼 비트셋(left=1, middle=2, right=4), 키 목록, 선택적 정규화 절대 위치를 담는다. 소수 이동을 누적한 뒤 정수로 전송해 미세 입력을 보존한다.
 
@@ -144,6 +156,20 @@ Wayland 캡처와 입력 portal의 ScreenCast stream이 같지 않아 절대 좌
 
 ## macOS 캡처·설치 계약
 
+### Mac 터미널 권한 준비
+
+`permissions.mjs`는 macOS에서만 `/dev/console` 소유 UID와 현재 비-root UID가 같은지 확인하고, 실제 원격 연결과 같은 설치 경로의 Electron 실행 파일로 `permissions-host.mjs`를 실행한다. 다른 OS에서는 권한 helper를 실행하지 않는다. 실행 인자는 고정된 check/accessibility/screen 중 하나이며 셸로 감싸지 않는다. `NODE_OPTIONS`와 `ELECTRON_RUN_AS_NODE`를 제거하고 고유 임시 프로필을 사용한다. 앱 바이너리·서명·권한 DB는 수정하지 않는다.
+
+helper는 `systemPreferences.isTrustedAccessibilityClient`와 `getMediaAccessStatus('screen')`로 확인하고, 누락된 권한만 `isTrustedAccessibilityClient(true)` 또는 CoreGraphics의 `CGRequestScreenCaptureAccess`로 요청한다. 해당 Privacy 설정 URL을 열며 화면 목록·캡처·입력 어댑터·renderer는 만들지 않는다. 설정을 여는 것은 승인이 아니며 granted 상태 확인만 완료로 취급한다. 파일 설치 마커와 권한 상태는 분리한다.
+
+손쉬운 사용 후 화면 기록 순서로 각 권한을 한 번만 요청하고, 최대 5분 동안 2초 간격(프로세스 실행 시간 별도)으로 **새 Electron 프로세스**에서 재확인한다. 앱 실행 중 권한 캐시·OS의 종료 및 다시 열기를 고려한 경로다([Electron 권한 API](https://www.electronjs.org/docs/latest/api/system-preferences)). 상태 조회는 10초, 요청은 30초 상한이며 남은 전체 예산을 넘기지 않는다. 요청 표시 후 OS 종료/시간 초과는 다음 상태 확인으로 넘기되 완료로 기록하지 않는다. 정책 제한·조회 실패·전체 대기 만료는 오류다. 같은 명령의 재실행은 OS 상태를 다시 읽는다.
+
+Ctrl+C·SIGTERM은 AbortSignal로 현재 자식과 대기를 취소하고 130/143으로 종료한다. 자식 종료를 확인한 후 임시 프로필을 정리한다. helper도 stdin EOF·오류·35초 watchdog에서 종료한다. 서버나 이미 실행 중인 원격 세션을 종료하지 않으며 공개 포트·백그라운드 서비스도 추가하지 않는다.
+
+검증은 `server/remote-desktop-permissions.test.ts`의 승인 순서·기존 승인·거부·제한·로그인 불일치·취소·경로/환경·실제 자식 프로세스 종료·모사 Electron API·셸 흐름 12개 테스트로 수행했다. 실제 Mac은 사용할 수 없어 OS 권한창, TCC의 실제 앱 식별·권한 유지와 승인 후 실제 캡처는 미검증이다. Mac에서 미승인 상태 → 설정 표시 → 승인 → 완료 → 실제 연결, 재실행 시 요청 생략을 별도로 확인해야 한다.
+
+### 캡처 모듈
+
 [ADR 0148](../../../.mew/docs/decisions/0148-mew-macos-local-cursor.md)에 따라 macOS 12.3 이상에서 자체 `capture-macos.m` 모듈을 사용한다. 별도 서비스·계정·공개 포트를 추가하지 않는다.
 
 - `install-macos.mjs`가 helper 준비 중 `/usr/bin/xcrun --sdk macosx clang`으로 현재 Node CPU(Apple Silicon arm64 또는 Intel x64)의 dylib를 컴파일한다. Apple Command Line Tools와 ScreenCaptureKit을 포함한 SDK가 필요하다. `codesign`의 로컬 ad-hoc 서명·검증 후 임시 파일을 원자적으로 교체한다. 컴파일/서명 실패는 준비 실패이며 `.mew-ready`를 만들지 않는다. CLT 설치·업데이트 후 다시 연결한다. 바이너리는 저장소 밖 설치 산출물이며 소스·헤더·설치 스크립트는 `HELPER_FILES`에 포함한다.
@@ -163,7 +189,7 @@ npx tsc -b
 npm run lint
 ```
 
-- protocol/joystick: 유실·역순·클릭 추월, 절대 위치, timeout, tap/즉시 이동/hold/cancel, 휠 축 제한, 로컬 뷰, 정지 중 무이동·미세 반전·시각 반경 밖 이동·새 터치 기준점 초기화.
+- protocol/joystick: 유실·역순·클릭 추월, 절대 위치, timeout, tap/즉시 이동/hold/cancel, 휠 축 제한, 로컬 뷰, 커서·버튼 드래그의 정지 중 무이동·미세 반전·새 터치 기준점 초기화, 휠/pan/zoom의 지속 속도·중앙 복귀·완만한 거리별 속도 증가·최대 속도 절반·중앙 근처 미세 조작·속도 상한·프레임 주기 독립성·50ms 적분 상한·취소.
 - 서버: Origin·역할·임시 비밀번호, OS/WSL 경로, 메시지 검증, 단일 제어권, 화면 교체, 권한 회수·자식 종료. 가짜 stdio 프로세스를 사용한다.
 - OS: Windows INPUT 레이아웃, Mac modifier/middle drag, X11 notch, Wayland 승인 응답 경합·입력 순서·종료. FFI/DBus는 모의 객체다.
 - Windows bridge: 세션 0/로그인 세션 실행 인자·방화벽 차단 안내·오류의 WS 전달을 검사한다. `MEW_DESKTOP_TEST_WINDOWS_NODE`에 Windows `node.exe` 경로를 지정하면 실제 임시 작업·Electron 실행·화면 목록·인증 파이프·부모 종료·Electron 이벤트 루프 정지 시 강제 종료 테스트를 실행한다. 실제 Windows 로그인 세션에서 화면 목록이 나오는 것까지 확인했다. 픽셀이나 입력은 기록하지 않는다.
@@ -172,7 +198,7 @@ npm run lint
 - 자동 준비: 설치 생략·한 번 시작·완료 후 재검사·중단/실패에서 반복 금지·닫을 때 폴링 취소, 코드 변경과 의존성 재사용 지문을 검사한다.
 - Mac 캡처: 크기/Retina/음수 원점, 초기 프레임 전 커서 보존, 유휴 픽셀 생략, 커서만 변경, transfer 이후 버퍼 소유권, 실패·중복 close를 모의 FFI로 검사한다. Apple SDK 15.5와 Clang으로 arm64/x86_64 Mach-O 객체 컴파일을 검사했다. 이는 macOS 링크·실행·권한·영상 실측을 대신하지 않는다. 실제 Mac에서는 설치된 런타임과 화면 기록 권한을 준비한 뒤 `MEW_DESKTOP_TEST_MACOS_CAPTURE=1 node --test server/remote-desktop-macos.test.ts`로 임시 helper의 native 캡처·별도 커서 PNG 디코드·연속 응답·종료를 검사한다. 입력은 주입하지 않고 화면/커서 파일을 저장하지 않는다.
 - 설치: 역할 제한·고정 명령·중복 시작·실패 출력 보존·재시도·상태 복구, 따옴표/공백 경로의 셸 실행, WSL PowerShell 인자·interop 실패·사용자 지정 설치 경로. 실제 npm 설치 대신 임시 스크립트와 모의 프로세스를 사용한다. UI에서는 터미널 렌더러를 대체하고 실제 팝업의 레이어·입력·닫기·재열기·실패/완료를 검증한다.
-- Chromium UI: 실제 sender와 VP8 인코딩/디코딩을 사용해 직접 경로 및 후보 차단 후 서버 전송을 모두 검사한다. 네이티브 캡처 입력을 모사한 실제 WebCodecs 경로에서 로컬 커서·16초 정지 중 추가 영상 0프레임/0바이트·연결 유지·정지 중 키 프레임 복구와 갱신 재개를 확인한다. 화면은 합성 canvas다. 터치 탭·즉시 드래그·hold/cancel·6개 컨트롤·핸들·감도 1/3배·90도 회전 클릭과 이동·전체화면 전환·핫키 순서/해제·설정 Esc·320px/가로 화면 경계·붙여넣기·모바일/데스크톱 배치·재접속·Esc·백그라운드 종료, 누른 키를 해제하는 연결 중 전환, 캡처 재사용, ACK 정지 시 프레임 상한과 복구, VP8 미지원 안내를 확인한다. Chromium이 없으면 skip한다.
+- Chromium UI: 실제 sender와 VP8 인코딩/디코딩을 사용해 직접 경로 및 후보 차단 후 서버 전송을 모두 검사한다. 네이티브 캡처 입력을 모사한 실제 WebCodecs 경로에서 로컬 커서·16초 정지 중 추가 영상 0프레임/0바이트·연결 유지·정지 중 키 프레임 복구와 갱신 재개를 확인한다. 화면은 합성 canvas다. 터치 탭·즉시 드래그·hold/cancel·6개 컨트롤·핸들·속도 조절 유지/중앙 복귀/해제/blur·양 테마 반투명 배경·감도 1/3배·90도 회전 클릭과 이동·전체화면 전환·핫키 순서/해제·설정 Esc·320px/가로 화면 경계·붙여넣기·모바일/데스크톱 배치·재접속·Esc·백그라운드 종료, 누른 키를 해제하는 연결 중 전환, 캡처 재사용, ACK 정지 시 프레임 상한과 복구, VP8 미지원 안내를 확인한다. Chromium이 없으면 skip한다.
 
 **나머지 실기 검증은 별도다.** Mac 바이너리·OS 권한, X11/Wayland 실제 데스크톱 주입, Safari/iOS 실물, 사용자의 외부 모바일 망, Retina/혼합 DPI·다중 모니터, 실제 지연·대역폭은 자동 테스트만으로 검증됐다고 간주하지 않는다. 각 OS에서 로그인·권한 승인·커서/휠/세 버튼 드래그·한글 붙여넣기·닫은 뒤 해제·권한 회수를 확인해야 한다. 잠금 화면·로그인 전·Windows UAC secure desktop 지원은 범위 밖이다.
 

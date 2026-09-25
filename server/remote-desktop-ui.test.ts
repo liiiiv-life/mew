@@ -55,7 +55,8 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const popupSource = await fs.readFile(`${root}/src/components/SessionTerminalPopup.tsx`, 'utf8')
   const dockSource = await fs.readFile(`${root}/src/components/mobile-dock.tsx`, 'utf8')
-  const css = compiler.build((popupSource + dockSource).match(/[A-Za-z0-9_:[\]/.%!#()-]+/g) ?? []) + await fs.readFile(`${root}/src/components/remote-desktop.css`, 'utf8')
+  const selectSource = await fs.readFile(`${root}/packages/ui/src/select-field.tsx`, 'utf8')
+  const css = compiler.build((popupSource + dockSource + selectSource).match(/[A-Za-z0-9_:[\]/.%!#()-]+/g) ?? []) + await fs.readFile(`${root}/src/components/remote-desktop.css`, 'utf8')
   const sender = await fs.readFile(`${root}/native/remote-desktop/sender.mjs`, 'utf8')
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
@@ -164,6 +165,19 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       await page.mouse.up(); await page.waitForTimeout(100)
     }
     await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
+    assert.equal(await page.locator('select, datalist').count(), 0)
+    const modifierField = page.getByRole('combobox', { name: '핫키 보조키', exact: true })
+    await modifierField.click()
+    await page.getByRole('option', { name: 'Cmd · Mac', exact: true }).tap()
+    assert.equal(await page.getByRole('button', { name: '원격 Cmd+C', exact: true }).count(), 1)
+    await modifierField.click(); await modifierField.press('Escape')
+    assert.equal(await page.getByRole('listbox').count(), 0)
+    assert.equal(await page.locator('#desktop-settings').isVisible(), true)
+    await modifierField.click()
+    await page.getByRole('option', { name: 'Ctrl · Windows / Linux', exact: true }).click()
+    const screenField = page.getByRole('combobox', { name: '공유 화면', exact: true })
+    await screenField.click()
+    await page.getByRole('option', { name: 'Test display', exact: true }).click()
     const slider = page.getByLabel('마우스 커서 감도')
     assert.equal(await slider.inputValue(), '3')
     await slider.fill('1')
@@ -210,6 +224,15 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     for (let i = 0; i < 3; i++) await page.getByRole('button', { name: '화면 90도 회전' }).click()
     await page.getByRole('button', { name: '전체화면', exact: true }).click()
     await page.waitForFunction('!!document.fullscreenElement')
+    await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
+    await modifierField.click()
+    const modifierList = page.getByRole('listbox', { name: '핫키 보조키', exact: true })
+    const listBounds = await modifierList.boundingBox()
+    assert.ok(listBounds && listBounds.x >= 0 && listBounds.x + listBounds.width <= 390 && listBounds.y >= 0 && listBounds.y + listBounds.height <= 844)
+    await page.getByRole('option', { name: 'Cmd · Mac', exact: true }).click()
+    await modifierField.click(); await page.evaluate('history.back()'); await modifierList.waitFor({ state: 'hidden' })
+    assert.equal(await page.locator('#desktop-settings').isVisible(), true)
+    await page.getByRole('button', { name: '설정 닫기', exact: true }).click()
     await dock.waitFor({ state: 'hidden' })
     assert.equal(await page.locator('.remote-desktop').getAttribute('data-dock'), null)
     await page.getByRole('button', { name: '전체화면 해제', exact: true }).click()
@@ -265,6 +288,29 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     assert.notEqual(await page.locator('.desktop-scale').textContent(), '100%')
     await gesture('화면 이동 조이스틱', 18, 0)
     assert.deepEqual(await page.evaluate('window.inputEvents'), [], 'view controls never reach the host')
+    if (scenario === 'direct') {
+      for (const kind of ['wheel', 'zoom', 'pan']) {
+        const ring = await page.locator(`[data-kind="${kind}"] .desktop-stick-ring`).boundingBox(); assert.ok(ring)
+        const centre = { x: ring.x + ring.width / 2, y: ring.y + ring.height / 2 }
+        const value = () => kind === 'wheel'
+          ? page.evaluate('window.inputEvents.filter(e=>e[0]==="wheel").reduce((sum,e)=>sum+e[2],0)')
+          : media.evaluate(el => el.style.transform)
+        await page.mouse.move(centre.x, centre.y); await page.mouse.down()
+        await page.mouse.move(centre.x + (kind === 'pan' ? -6 : 0), centre.y + (kind === 'pan' ? 0 : -12))
+        await page.waitForTimeout(120); const first = await value()
+        await page.waitForTimeout(120); assert.notEqual(await value(), first, `${kind} keeps moving without pointer events`)
+        await page.mouse.move(centre.x, centre.y)
+        await page.waitForTimeout(120); const neutral = await value()
+        await page.waitForTimeout(120); assert.equal(await value(), neutral, `${kind} stops at its visual centre`)
+        await page.mouse.move(centre.x + (kind === 'pan' ? -6 : 0), centre.y + (kind === 'pan' ? 0 : -12))
+        await page.waitForTimeout(120); assert.notEqual(await value(), neutral)
+        if (kind === 'pan') await page.evaluate('window.dispatchEvent(new Event("blur"))')
+        else await page.mouse.up()
+        await page.waitForTimeout(120); const released = await value()
+        await page.waitForTimeout(120); assert.equal(await value(), released, `${kind} stops on release or blur`)
+        await page.mouse.up()
+      }
+    }
     const before = await controls.boundingBox(); assert.ok(before)
     await gesture('조이스틱 위치 이동', -80, -100)
     const after = await controls.boundingBox(); assert.ok(after && after.x < before.x && after.y < before.y)
@@ -281,9 +327,20 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.getByRole('button', { name: '버튼 위치 초기화' }).click()
     await page.getByRole('button', { name: '설정 닫기', exact: true }).click()
     await page.getByTitle('화면에 맞추기').click()
+    for (const theme of ['light', 'dark']) {
+      await page.locator('html').evaluate((el, theme) => el.className = theme, theme)
+      for (const selector of ['.desktop-mouse', '.desktop-view-controls', '.desktop-hotkeys', '.desktop-control-strip > .desktop-handle']) {
+        const style = await page.locator(selector).evaluate(el => ({ background: el.ownerDocument.defaultView!.getComputedStyle(el).backgroundColor, opacity: el.ownerDocument.defaultView!.getComputedStyle(el).opacity }))
+        assert.match(style.background, /(?:\/ 0\.78|, 0\.78)/, `${selector} is translucent in ${theme}: ${style.background}`)
+        assert.equal(style.opacity, '1', 'text and icons stay opaque')
+      }
+    }
     const dir = process.env.MEW_DESKTOP_SCREENSHOTS
     if (dir) {
       await fs.mkdir(dir, { recursive: true }); await page.screenshot({ path: path.join(dir, 'mobile.png') })
+      await page.locator('html').evaluate(el => el.className = 'light')
+      await page.screenshot({ path: path.join(dir, 'mobile-light.png') })
+      await page.locator('html').evaluate(el => el.className = 'dark')
       await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
       await page.screenshot({ path: path.join(dir, 'settings-mobile.png') })
       await page.getByRole('button', { name: '설정 닫기', exact: true }).click()

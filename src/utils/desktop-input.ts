@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 import type { DesktopCursor } from '../../native/remote-desktop/cursor-protocol.mjs'
 export type InputSnapshot = { type: 'input'; v: 1; seq: number; epoch: number; x: number; y: number; wheelX: number; wheelY: number; buttons: number; keys: string[]; point?: [number, number] }
 type Channel = { readyState: 'connecting' | 'open' | 'closing' | 'closed'; bufferedAmount: number; send(data: string): void }
@@ -20,14 +21,14 @@ export function desktopInput(onError: (message: string) => void = () => {}, onPo
     if (channel?.readyState !== 'open') return
     // Never let movement sit in a network queue; the next snapshot recovers its distance.
     if (!reliable && channel.bufferedAmount > 2048) return
-    if (reliable && channel.bufferedAmount > 64 * 1024) { onError('입력 연결이 지연됐습니다. 다시 연결해 주세요.'); return }
+    if (reliable && channel.bufferedAmount > 64 * 1024) { onError(uiText("입력 연결이 지연됐습니다. 다시 연결해 주세요.")); return }
     if (reliable) state.epoch++
     state.seq++
     try {
       channel.send(JSON.stringify({ ...state, x: Math.trunc(state.x), y: Math.trunc(state.y), wheelX: Math.trunc(state.wheelX), wheelY: Math.trunc(state.wheelY) }))
       pendingMotion = false; unconfirmedMotion = !reliable; lastMotionAt = performance.now()
     }
-    catch { onError('입력 연결이 종료됐습니다. 다시 연결해 주세요.') }
+    catch { onError(uiText("입력 연결이 종료됐습니다. 다시 연결해 주세요.")) }
   }
   return {
     connect(name: string, channel: Channel) { if (name === 'motion') motion = channel; if (name === 'control') control = channel },
@@ -52,7 +53,7 @@ export function desktopInput(onError: (message: string) => void = () => {}, onPo
     button(bit: number, down: boolean) { state.buttons = down ? state.buttons | bit : state.buttons & ~bit; send(true) },
     key(code: string, down: boolean) { state.keys = state.keys.filter(key => key !== code); if (down && state.keys.length < 16) state.keys.push(code); send(true) },
     click(bit: number) { this.button(bit, true); this.button(bit, false) },
-    paste(text: string) { this.release(); if (control?.readyState === 'open' && text.length <= 4096) { try { control.send(JSON.stringify({ type: 'paste', text })) } catch { onError('텍스트를 보내지 못했습니다. 다시 연결해 주세요.') } } },
+    paste(text: string) { this.release(); if (control?.readyState === 'open' && text.length <= 4096) { try { control.send(JSON.stringify({ type: 'paste', text })) } catch { onError(uiText("텍스트를 보내지 못했습니다. 다시 연결해 주세요.")) } } },
     heartbeat() { send(true) },
     release() { state.buttons = 0; state.keys = []; send(true) },
     close() { this.release(); motion = null; control = null },
@@ -63,22 +64,45 @@ export type DesktopInput = ReturnType<typeof desktopInput>
 export type StickKind = 'left' | 'wheel' | 'right' | 'cursor' | 'pan' | 'zoom'
 export const HOLD_MS = 320
 export const STICK_TRAVEL = 8
+const STICK_DEADZONE = 3, STICK_RADIUS = 32
 // At 200 CSS px/s retain the base gain. Faster/slower strokes scale linearly.
 const POINTER_REFERENCE_SPEED = .2 // CSS px/ms
 const MAX_POINTER_ACCELERATION = 16
 export const stickButton = (kind: StickKind) => kind === 'left' ? 1 : kind === 'wheel' ? 2 : kind === 'right' ? 4 : 0
 
-/** Touchpad deltas drive input; animation frames only update hold/visual feedback. */
+/** Cursor drags follow touchpad deltas; wheel and view controls integrate stick velocity. */
 export function desktopStick(kind: StickKind, input: Pick<DesktopInput, 'button' | 'click' | 'move' | 'wheel'>, view: (x: number, y: number, zoom: number) => void) {
   let active = false, moved = false, held = false, started = 0, sampledAt = 0, x = 0, y = 0
+  let integratedAt = 0, centerX = 0, centerY = 0
+  const velocityMode = () => kind === 'pan' || kind === 'zoom' || kind === 'wheel' && !held
+  const velocity = () => {
+    const vx = kind === 'pan' ? x : 0, length = Math.hypot(vx, y)
+    const gain = length > STICK_DEADZONE ? Math.min(1, (length - STICK_DEADZONE) / (STICK_RADIUS - STICK_DEADZONE)) / length : 0
+    return { x: vx * gain, y: y * gain }
+  }
+  const advance = (now: number) => {
+    // Do not catch up a stalled/background frame with a large scroll or zoom jump.
+    const seconds = Math.min(50, Math.max(0, now - integratedAt)) / 1000
+    integratedAt = Math.max(integratedAt, now)
+    if (!active || !moved || !velocityMode() || !seconds) return
+    const speed = velocity()
+    if (!speed.x && !speed.y) return
+    // t / (1 + t) keeps fine control near centre and flattens toward the edge.
+    // Leave the knob's visual travel linear; only soften the output speed.
+    const softenedSeconds = seconds / (1 + Math.hypot(speed.x, speed.y))
+    if (kind === 'pan') view(speed.x * 600 * softenedSeconds, speed.y * 600 * softenedSeconds, 0)
+    else if (kind === 'zoom') view(0, 0, -speed.y * 1.5 * softenedSeconds)
+    else input.wheel(0, speed.y * 900 * softenedSeconds)
+  }
   const hold = (now: number) => {
     if (active && !moved && !held && stickButton(kind) && now - started >= HOLD_MS) { held = true; input.button(stickButton(kind), true) }
   }
   return {
-    down(now: number) { active = true; moved = false; held = false; started = now; sampledAt = now; x = 0; y = 0 },
+    down(now: number, offsetX = 0, offsetY = 0) { active = true; moved = false; held = false; started = now; sampledAt = now; integratedAt = now; centerX = offsetX; centerY = offsetY; x = 0; y = 0 },
     move(dx: number, dy: number, now: number) {
       if (!active || !Number.isFinite(dx) || !Number.isFinite(dy) || !Number.isFinite(now)) return
       hold(now)
+      advance(now)
       if (Math.hypot(dx, dy) >= 3) {
         moved = true
         // Press before the first movement snapshot, including a quick swipe.
@@ -90,22 +114,23 @@ export function desktopStick(kind: StickKind, input: Pick<DesktopInput, 'button'
         if (dx === x && dy === y) sampledAt = Math.max(sampledAt, now)
         return
       }
+      if (velocityMode()) { x = dx + centerX; y = dy + centerY; return }
       const deltaX = dx - x, deltaY = dy - y
       const elapsed = now > sampledAt ? now - sampledAt : 1
       sampledAt = Math.max(sampledAt, now)
       x = dx; y = dy
       if (!deltaX && !deltaY) return
-      if (kind === 'pan') view(deltaX, deltaY, 0)
-      else if (kind === 'zoom') { if (deltaY) view(0, 0, -deltaY / 100) }
-      else if (kind === 'wheel' && !held) { if (deltaY) input.wheel(0, deltaY * 3) }
-      else {
-        const acceleration = Math.min(MAX_POINTER_ACCELERATION, Math.hypot(deltaX, deltaY) / elapsed / POINTER_REFERENCE_SPEED)
-        input.move(deltaX * 2 * acceleration, deltaY * 2 * acceleration)
-      }
+      const acceleration = Math.min(MAX_POINTER_ACCELERATION, Math.hypot(deltaX, deltaY) / elapsed / POINTER_REFERENCE_SPEED)
+      input.move(deltaX * 2 * acceleration, deltaY * 2 * acceleration)
     },
     tick(now: number) {
-      if (!active) return { x: 0, y: 0, held: false }
+      if (!active || !Number.isFinite(now)) return { x: 0, y: 0, held: false }
       hold(now)
+      advance(now)
+      if (velocityMode()) {
+        const speed = velocity()
+        return { x: speed.x * STICK_TRAVEL, y: speed.y * STICK_TRAVEL, held }
+      }
       const vertical = kind === 'zoom' || kind === 'wheel' && !held
       const length = Math.hypot(vertical ? 0 : x, y), ratio = length ? Math.min(STICK_TRAVEL, length) / length : 0
       return { x: vertical ? 0 : x * ratio, y: y * ratio, held }

@@ -191,6 +191,12 @@ create_first_owner() {
 
 # ── commands ────────────────────────────────────────────────────────────────
 
+prepare_desktop() {
+  say "preparing remote desktop components (the first download may take several minutes)..."
+  node "$APP/native/remote-desktop/install.mjs" || return $?
+  node "$APP/native/remote-desktop/permissions.mjs"
+}
+
 cmd_setup() {
   need_node
   need_build_tools
@@ -220,6 +226,14 @@ cmd_setup() {
 
   say "installing dependencies..."
   npm ci --no-audit --no-fund
+  if prepare_desktop; then
+    say "Remote desktop preparation completed."
+  else
+    local desktop_status=$?
+    case "$desktop_status" in 130|143) exit "$desktop_status" ;; esac
+    say "warning: remote desktop preparation is incomplete; continuing Mew setup." >&2
+    say "Run ./mew desktop-setup in the Mew terminal to resume installation and Mac permission setup." >&2
+  fi
   say "building..."
   npm run build
   start_server
@@ -262,6 +276,7 @@ usage() {
 mew — a browser workspace for a folder on your machine
 
   ./mew setup           install, configure and start (safe to re-run)
+  ./mew desktop-setup   prepare remote desktop and Mac permissions without rebuilding or restarting Mew
   ./mew start | stop    start / stop the server
   ./mew restart         restart it
   ./mew update          fast-forward origin/main, rebuild, restart
@@ -273,6 +288,7 @@ EOF
 
 case "${1:-setup}" in
   setup) cmd_setup ;;
+  desktop-setup) load_config; need_node; prepare_desktop ;;
   update) cmd_update ;;
   status) cmd_status ;;
   start) load_config; start_server; say "$(url)" ;;

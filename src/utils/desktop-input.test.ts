@@ -103,19 +103,15 @@ test('pan/zoom stay local, zoom only uses the vertical axis, viewport stays boun
   assert.deepEqual(clampView({ scale: 2, x: 999, y: 999 }, 400, 800, { width: 400, height: 225 }), { scale: 2, x: 200, y: 0 }, 'letterboxed video cannot be panned entirely off-screen')
 })
 
-for (const kind of ['cursor', 'left', 'right', 'wheel', 'pan', 'zoom'] as const) {
+for (const kind of ['cursor', 'left', 'right'] as const) {
   test(`${kind} follows distance, stops while held and resets the next stroke`, () => {
     const events: unknown[][] = []
     const input = { button: (...args: unknown[]) => events.push(['button', ...args]), click: (...args: unknown[]) => events.push(['click', ...args]), move: (...args: unknown[]) => events.push(['move', ...args]), wheel: (...args: unknown[]) => events.push(['wheel', ...args]) }
     const stick = desktopStick(kind, input, (...args) => events.push(['view', ...args]))
     const checkMotion = (x: number, y: number) => {
-      if (kind === 'pan' || kind === 'zoom' || kind === 'wheel') {
-        assert.deepEqual(events.at(-1), kind === 'pan' ? ['view', x, y, 0] : kind === 'zoom' ? ['view', 0, 0, -y / 100] : ['wheel', 0, y * 3])
-      } else {
-        const [type, mx, my] = events.filter(event => event[0] !== 'button').at(-1) as [string, number, number]
-        assert.equal(type, 'move'); assert.equal(Math.sign(mx), Math.sign(x)); assert.equal(Math.sign(my), Math.sign(y))
-        assert.ok(Math.abs(mx / my - x / y) < 1e-10, 'acceleration preserves the direction')
-      }
+      const [type, mx, my] = events.filter(event => event[0] !== 'button').at(-1) as [string, number, number]
+      assert.equal(type, 'move'); assert.equal(Math.sign(mx), Math.sign(x)); assert.equal(Math.sign(my), Math.sign(y))
+      assert.ok(Math.abs(mx / my - x / y) < 1e-10, 'acceleration preserves the direction')
     }
     stick.down(0)
     stick.move(1, 1, 1)
@@ -186,4 +182,62 @@ test('acceleration stops immediately, resets on a new stroke and bounds zero-tim
   stick.move(201, 0, 2499); assert.equal(moves[4][0], 3200)
   stick.move(NaN, 0, 3000); assert.equal(moves.length, 5)
   stick.up(true); stick.move(500, 0, 4000); assert.equal(moves.length, 5)
+})
+
+for (const kind of ['wheel', 'pan', 'zoom'] as const) {
+  test(`${kind} velocity continues while displaced, scales with radius and stops at the centre/release`, () => {
+    const events: number[][] = []
+    const stick = desktopStick(kind, {
+      button() { assert.fail('velocity control must not hold a button') }, click() { assert.fail('a displaced stick must not click') },
+      move() { assert.fail('velocity control must not move the cursor') }, wheel: (x, y) => events.push([x, y, 0]),
+    }, (...args) => events.push(args))
+    const total = () => events.reduce((sum, values) => sum + (kind === 'zoom' ? values[2] : values[1]), 0)
+    stick.down(0); stick.move(0, 12, 10)
+    stick.tick(30); const first = total()
+    stick.tick(50); assert.ok(Math.abs(total() - first * 2) < 1e-9, 'a stationary finger keeps moving at constant speed')
+    stick.move(0, 21, 50); stick.tick(70)
+    const farther = total() - first * 2
+    assert.ok(Math.abs(farther) > Math.abs(first) && Math.abs(farther) < Math.abs(first) * 1.7, 'doubling displacement increases speed gently')
+    stick.move(0, 0, 70); const stopped = total()
+    stick.tick(90); stick.tick(110); assert.equal(total(), stopped)
+    stick.move(0, -12, 110); stick.tick(130)
+    assert.ok(Math.abs(total() - (stopped - first)) < 1e-9, 'crossing the centre reverses direction')
+    stick.up(); const released = total(); stick.tick(150); assert.equal(total(), released)
+    stick.down(200); stick.tick(220); assert.equal(total(), released, 'new gestures start neutral')
+    stick.move(0, 21, 230); stick.tick(250); stick.up(true)
+    const cancelled = total(); stick.tick(300); assert.equal(total(), cancelled)
+  })
+
+  test(`${kind} velocity is frame-rate independent, bounded and restricted to its axes`, () => {
+    const run = (step: number, x: number, y: number, end = 110) => {
+      const sum = [0, 0, 0]
+      const add = (a: number, b: number, c = 0) => { sum[0] += a; sum[1] += b; sum[2] += c }
+      const stick = desktopStick(kind, { button() {}, click() {}, move() { assert.fail() }, wheel: add }, add)
+      stick.down(0); stick.move(x, y, 10)
+      for (let t = 10 + step; t <= end; t += step) stick.tick(t)
+      stick.up(true)
+      return sum
+    }
+    const fast = run(10, 0, 32), slow = run(20, 0, 32)
+    fast.forEach((value, i) => assert.ok(Math.abs(value - slow[i]) < 1e-9))
+    const axis = kind === 'zoom' ? 2 : 1
+    assert.ok(Math.abs(Math.abs(slow[axis]) - (kind === 'wheel' ? 45 : kind === 'pan' ? 30 : .075)) < 1e-9, 'maximum speed is half the original linear response')
+    const at = (radius: number) => Math.abs(run(20, 0, radius)[axis])
+    assert.ok(at(13) - at(3) > at(23) - at(13), 'equal distance increases add less speed farther from the centre')
+    assert.ok(at(4) / (Math.abs(slow[axis]) * 2 / 29) > .95, 'fine control near the deadzone stays close to the original response')
+    assert.deepEqual(run(20, 0, 3200), slow, 'maximum deflection caps velocity')
+    if (kind !== 'pan') assert.deepEqual(run(20, 32, 0), [0, 0, 0], 'horizontal displacement does not scroll or zoom')
+    else assert.ok(run(20, 32, 0)[0] > 0)
+    const stalled = run(1000, 0, 32, 1010)
+    stalled.forEach((value, i) => assert.ok(Math.abs(value - slow[i] / 2) < 1e-9, 'stalls integrate at most 50ms'))
+  })
+}
+
+test('velocity neutral uses the visual centre even when the initial touch is off-centre', () => {
+  const events: number[][] = []
+  const stick = desktopStick('pan', { button() {}, click() {}, move() {}, wheel() {} }, (...args) => events.push(args))
+  stick.down(0, 10, 10); stick.move(-10, -10, 10); stick.tick(30)
+  assert.deepEqual(events, [])
+  stick.move(22, -10, 30); stick.tick(50)
+  assert.deepEqual(events, [[6, 0, 0]])
 })

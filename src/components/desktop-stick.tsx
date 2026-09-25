@@ -1,9 +1,12 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useRef } from 'react'
 import { desktopStick, stickButton, type DesktopInput, type StickKind } from '../utils/desktop-input.ts'
 import { DEFAULT_SENSITIVITY, rotateDelta, type Rotation } from '../utils/desktop-view.ts'
 
-const labels: Record<StickKind, string> = { left: '좌클릭', wheel: '휠', right: '우클릭', cursor: '커서 이동', pan: '화면 이동', zoom: '확대·축소' }
+const labels: Record<StickKind, string> = { get left() { return uiText("좌클릭") }, get wheel() { return uiText("휠") }, get right() { return uiText("우클릭") }, get cursor() { return uiText("커서 이동") }, get pan() { return uiText("화면 이동") }, get zoom() { return uiText("확대·축소") } }
 export function DesktopIcon({ kind }: { kind: StickKind | 'handle' | 'close' | 'screen' | 'fullscreen' | 'rotate' | 'settings' }) {
+  useUiLocale()
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {kind === 'fullscreen' ? <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /> : kind === 'rotate' ? <><path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5" /><path d="M9 9h6v6H9z" /></> : kind === 'settings' ? <><path d="M4 6h16M4 12h16M4 18h16" /><path d="M8 3v6m8 0v6m-6 0v6" /></> : kind === 'close' ? <path d="m6 6 12 12M6 18 18 6" /> : kind === 'screen' ? <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></>
       : kind === 'cursor' ? <path d="m5 3 14 10-6 1-3 6Z" />
@@ -15,6 +18,7 @@ export function DesktopIcon({ kind }: { kind: StickKind | 'handle' | 'close' | '
 }
 
 export function DesktopStick({ kind, input, disabled, onView, sensitivity = DEFAULT_SENSITIVITY, rotation = 0 }: { kind: StickKind; input: DesktopInput | null; disabled: boolean; onView: (x: number, y: number, zoom: number) => void; sensitivity?: number; rotation?: Rotation }) {
+  useUiLocale()
   const knob = useRef<HTMLSpanElement>(null), pointer = useRef<{ id: number; x: number; y: number } | null>(null)
   const machine = useRef<ReturnType<typeof desktopStick> | null>(null), frame = useRef(0), button = useRef<HTMLButtonElement>(null)
   const arrows = useRef(new Set<string>())
@@ -35,15 +39,17 @@ export function DesktopStick({ kind, input, disabled, onView, sensitivity = DEFA
     return () => { cancel(); window.removeEventListener('blur', cancel); document.removeEventListener('visibilitychange', cancel) }
   }, [input, kind, onView, cancel, move])
   useEffect(() => { if (disabled) cancel() }, [disabled, cancel])
-  return <button ref={button} className="desktop-stick" data-kind={kind} disabled={disabled} aria-label={`${labels[kind]} 조이스틱`}
-    title={`${labels[kind]}${kind === 'wheel' ? ' · 탭: 중간 클릭 · 밀기: 스크롤 · 길게 누르기: 드래그' : stickButton(kind) ? ' · 탭: 클릭 · 밀기: 드래그' : ' · 밀어서 조작'}`}
+  return <button ref={button} className="desktop-stick" data-kind={kind} disabled={disabled} aria-label={uiText("{p0} 조이스틱", { p0: labels[kind] })}
+    title={`${labels[kind]}${kind === 'wheel' ? uiText(" · 탭: 중간 클릭 · 중앙에서 멀리 밀수록 빠르게 스크롤 · 길게 누르기: 드래그") : stickButton(kind) ? uiText(" · 탭: 클릭 · 밀기: 드래그") : kind === 'cursor' ? uiText(" · 밀어서 조작") : uiText(" · 중앙에서 멀리 밀수록 빠르게 조절 · 놓으면 정지")}`}
     onBlur={cancel}
     onContextMenu={event => event.preventDefault()}
     onPointerDown={event => {
       if (pointer.current || !machine.current) return
       cancel()
       event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId)
-      pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY }; machine.current.down(event.timeStamp)
+      const ring = knob.current!.parentElement!.getBoundingClientRect()
+      pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
+      machine.current.down(event.timeStamp, event.clientX - ring.left - ring.width / 2, event.clientY - ring.top - ring.height / 2)
       const tick = (now: number) => {
         if (!pointer.current) return
         const result = machine.current!.tick(now)

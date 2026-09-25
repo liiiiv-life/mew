@@ -52,8 +52,8 @@ function fail(error) { emit({ type: 'error', message: error instanceof Error ? e
 const watchdog = setInterval(() => { try { if (Date.now() - lease > 8000 || receiver?.tick()) void stop() } catch (error) { fail(error) } }, 250)
 async function listSources() {
   if (!config || !rendererReady) return
-  if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(true)) throw new Error('Mac 시스템 설정에서 원격 데스크톱 보조 앱의 손쉬운 사용 권한을 허용한 뒤 다시 연결해 주세요.')
-  if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('screen') === 'denied') throw new Error('Mac 시스템 설정에서 원격 데스크톱 보조 앱의 화면 기록 권한을 허용한 뒤 다시 연결해 주세요.')
+  if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(true)) throw new Error('서버 Mac에서 보조 앱(Electron)의 손쉬운 사용 권한을 허용해 주세요. Mew 설치 폴더의 터미널에서 ./mew desktop-setup을 실행하면 설정을 열고 승인을 확인합니다. 완료 후 다시 연결해 주세요.')
+  if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('screen') === 'denied') throw new Error('서버 Mac에서 보조 앱(Electron)의 화면 기록 권한을 허용해 주세요. Mew 설치 폴더의 터미널에서 ./mew desktop-setup을 실행하면 설정을 열고 승인을 확인합니다. 완료 후 다시 연결해 주세요.')
   sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false })
   if (!sources.length) throw new Error('공유할 화면이 없습니다. 서버에 로그인한 데스크톱과 화면 공유 권한을 확인해 주세요.')
   const displays = screen.getAllDisplays(), primary = screen.getPrimaryDisplay().id
