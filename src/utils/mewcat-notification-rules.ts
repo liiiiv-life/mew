@@ -1,6 +1,6 @@
 import type { AgentEvent } from './agentFold.ts'
 
-export type NoticeKind = 'complete' | 'stopped' | 'error' | 'permission' | 'connection' | 'cpu' | 'memory' | 'gpu' | 'temperature' | 'test'
+export type NoticeKind = 'complete' | 'stopped' | 'error' | 'permission' | 'cpu' | 'memory' | 'gpu' | 'temperature' | 'test'
 export type NoticeLevel = 'success' | 'warning' | 'danger'
 export interface NoticeInput {
   key: string
@@ -18,7 +18,7 @@ export function createAgentNoticeTracker(source: string, target: { tabId: string
   const notice = (kind: NoticeKind, level: NoticeLevel, suffix = String(turn)): NoticeInput => ({
     key: `${target.cwd}:${target.tabId}:${kind}:${suffix}`, kind, level, source, target,
   })
-  return (event: AgentEvent): NoticeInput | null => {
+  return (event: AgentEvent, watching = false): NoticeInput | null => {
     if (event.type === 'replay' || event.type === 'reset' || event.type === 'turn_start') {
       failed = false
       completed = false
@@ -38,7 +38,7 @@ export function createAgentNoticeTracker(source: string, target: { tabId: string
     // The server publishes meta after draining the queue. Intermediate turns must not announce "all done".
     if (event.type === 'meta' && completed && !event.meta.busy && event.meta.queued.length === 0 && !event.meta.activeTask) {
       completed = false
-      return notice('complete', 'success')
+      return watching ? null : notice('complete', 'success')
     }
     return null
   }

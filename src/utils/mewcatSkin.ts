@@ -1,8 +1,9 @@
+import { uiText } from '@mew/ui/i18n-core'
 /** 브라우저별 화면 취향이라 글꼴·액센트와 같이 localStorage에만 저장한다. */
 export const MEWCAT_SKIN_KEY = 'mew:mewcat-skin'
 
 export const MEWCAT_SKINS = [
-  { id: 'mew', name: '기본' },
+  { id: 'mew', get name() { return uiText("기본") } },
 ] as const
 
 export type MewcatSkin = (typeof MEWCAT_SKINS)[number]['id']

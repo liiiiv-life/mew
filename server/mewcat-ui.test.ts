@@ -32,7 +32,7 @@ localStorage.setItem('mew:locale','ko');
 Math.random=()=>0.7;
 window.clearNotices=clearMewcatNotices;
 window.addRecent=()=>{publishMewcatNotice({key:'older',kind:'complete',level:'success',source:'Older agent'});publishMewcatNotice({key:'newer',kind:'error',level:'danger',source:'Newest agent'});};
-window.addAll=()=>['complete','stopped','error','permission','connection','cpu','memory','gpu','temperature','test'].forEach(kind=>publishMewcatNotice({key:'locale:'+kind,kind,level:'warning',source:kind==='test'?'Mewcat':'Original agent',target:'system'}));
+window.addAll=()=>['complete','stopped','error','permission','cpu','memory','gpu','temperature','test'].forEach(kind=>publishMewcatNotice({key:'locale:'+kind,kind,level:'warning',source:kind==='test'?'Mewcat':'Original agent',target:'system'}));
 window.notify=()=>publishMewcatNotice({key:'sample',kind:'memory',level:'warning',source:'95%',target:'system'});
 window.addEventListener('mew:open-notification',event=>window.openedTarget=event.detail.target);
 function Fixture(){window.setLocale=useI18n().setLocale;const [open,setOpen]=React.useState(false);const [allowed,setAllowed]=React.useState(true);window.setAllowed=setAllowed;return <><div style={{padding:24,maxWidth:480}}><MewcatNotificationSettings/></div><Mewcat skin="mew" onOpenSystemStats={allowed?()=>setOpen(true):undefined}/>{open&&<SystemStatsModal onClose={()=>setOpen(false)}/>}</>}
@@ -106,10 +106,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         await page.evaluate(locale => (globalThis as unknown as MewcatFixture).setLocale(locale), locale)
         const copy = mewcatNotificationCopy[locale]
         await bubble.getByText(copy.complete, { exact: true }).waitFor()
-        for (const kind of ['stopped', 'error', 'permission', 'connection', 'cpu', 'memory', 'gpu', 'temperature', 'testBody'] as const) {
+        for (const kind of ['stopped', 'error', 'permission', 'cpu', 'memory', 'gpu', 'temperature', 'testBody'] as const) {
           assert.equal(await bubble.getByText(copy[kind], { exact: true }).count(), 1)
         }
-        assert.equal(await bubble.getByText('Original agent', { exact: true }).count(), 9, 'user source remains unchanged')
+        assert.equal(await bubble.getByText('Original agent', { exact: true }).count(), 8, 'user source remains unchanged')
         const catName = locale === 'ko' ? '뮤캣' : 'Mewcat'
         assert.equal(await bubble.getByRole('button', { name: `${copy.dismiss}: ${catName}`, exact: true }).count(), 1)
         assert.equal(await page.locator('.mewcat').getAttribute('aria-label'), catName)

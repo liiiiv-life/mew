@@ -23,10 +23,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><button id="bac
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     for (const touch of [false, true]) {
-      const page = await browser.newPage({ viewport: { width: 800, height: 700 }, hasTouch: touch })
+      const page = await browser.newPage({ viewport: { width: touch ? 390 : 800, height: 700 }, hasTouch: touch, isMobile: touch })
       await page.clock.install({ time: new Date('2026-09-22T00:00:00Z') })
       await page.clock.pauseAt(new Date('2026-09-22T00:00:01Z'))
-      await page.route('http://mewcat-grab.test/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><style>${compiler.build([])}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
+      await page.route('http://mewcat-grab.test/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${compiler.build([])}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
       await page.goto('http://mewcat-grab.test/')
       const cat = page.locator('.mewcat')
       await cat.waitFor()
@@ -78,6 +78,20 @@ createRoot(document.getElementById('root')).render(<I18nProvider><button id="bac
         await up()
         assert.equal(await cat.getAttribute('data-activity'), 'fall')
         await page.clock.runFor(40)
+      }
+      // Native tap suppression after a fast drag only reproduces with a running
+      // clock; frozen physics alone misses the first background tap being lost.
+      if (touch) {
+        await page.clock.resume()
+        const live = (await cat.boundingBox())!
+        await down(live.x + 20, live.y + 20)
+        await move(live.x + 40, live.y - 180)
+        await up()
+        assert.equal(await cat.getAttribute('data-activity'), 'fall')
+        const clicks = await page.evaluate('window.backgroundClicks')
+        await down(20, 20); await up()
+        await page.waitForFunction(`window.backgroundClicks === ${Number(clicks) + 1}`)
+        assert.equal(await page.evaluate('window.backgroundClicks'), Number(clicks) + 1, 'first live touch after throwing activates the background')
       }
       await page.close()
     }

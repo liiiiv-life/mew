@@ -12,30 +12,30 @@ export function MewcatNotifications({ hasCat, anchorRef }: { hasCat: boolean; an
   // Errors and approval requests stay ahead of completions. No auto-dismiss while the user is away.
   const ordered = [...notices].sort((a, b) => ({ danger: 2, warning: 1, success: 0 }[b.level] - { danger: 2, warning: 1, success: 0 }[a.level]) || b.id - a.id)
   const notice = ordered[0]
-  const bubbleRef = useMewcatBubble(anchorRef, hasCat && preferences.visual && !!notice)
+  const bubbleRef = useMewcatBubble(anchorRef, hasCat && preferences.visual && !!notice, 300)
   if (!preferences.visual || !notice) return null
   const Icon = notice.level === 'success' ? Check : WarningTriangle
   return (
     <aside ref={bubbleRef} className={`mewcat-notifications ${hasCat ? 'mewcat-notifications-with-cat' : ''}`} aria-label={t('mewcat.title')}>
       <div className="mewcat-notifications-content">
-      <div className="flex items-start gap-2.5 px-4 pb-3 pt-4">
-        <Icon width={18} height={18} className={`mt-0.5 shrink-0 ${notice.level === 'danger' ? 'text-danger' : notice.level === 'warning' ? 'text-warning' : 'text-success'}`} aria-hidden="true" />
+      <div className="flex items-start gap-2 px-3 pb-1 pt-2">
+        <Icon width={16} height={16} className={`mt-0.5 shrink-0 ${notice.level === 'danger' ? 'text-danger' : notice.level === 'warning' ? 'text-warning' : 'text-success'}`} aria-hidden="true" />
         <div className="min-w-0 flex-1" role="status" aria-live="polite" aria-atomic="true">
           <p className="break-words text-[13px] font-medium leading-5 text-ink">{notice.kind === 'test' ? t('mewcat.testBody') : t(`mewcat.${notice.kind}`)}</p>
-          <p className="mt-1 break-words text-xs leading-relaxed text-ink-secondary">{notice.kind === 'test' ? t('settings.mewcat') : notice.source}</p>
+          <p className="mt-0.5 break-words text-xs leading-4 text-ink-secondary">{notice.kind === 'test' ? t('settings.mewcat') : notice.source}</p>
         </div>
-        <button type="button" className="mewcat-notification-button -mr-1 -mt-1.5 shrink-0 text-ink-secondary" onClick={() => dismissMewcatNotice(notice.id)} aria-label={t('mewcat.dismiss')}><Xmark width={16} height={16} /></button>
+        <button type="button" className="mewcat-notification-button shrink-0 text-ink-secondary" onClick={() => dismissMewcatNotice(notice.id)} aria-label={t('mewcat.dismiss')}><Xmark width={16} height={16} /></button>
       </div>
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-4">
+      <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
         {notice.target && <button type="button" className="mewcat-notification-button mewcat-notification-action" onClick={() => openMewcatNotice(notice)}><span>{notice.target === 'system' ? t('mewcat.system') : t('mewcat.open')}</span><ArrowRight width={15} height={15} className="shrink-0" aria-hidden="true" /></button>}
         <button type="button" className="mewcat-notification-button ml-auto gap-1.5 px-2 text-xs tabular-nums text-ink-secondary" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} aria-label={`${expanded ? t('mewcat.less') : t('mewcat.more')} · ${t('mewcat.count')} ${notices.length}`}><BellNotification width={14} height={14} aria-hidden="true" />{notices.length}<NavArrowDown width={12} height={12} className={expanded ? 'rotate-180' : ''} aria-hidden="true" /></button>
       </div>
-      {expanded && <div className="max-h-[min(45dvh,320px)] overflow-y-auto border-t border-edge px-3 py-2">
-        <button type="button" className="mewcat-notification-button mb-1 w-full px-2 text-xs text-ink-secondary" onClick={clearMewcatNotices}>{t('mewcat.clear')}</button>
-        {ordered.map(item => <div key={item.id} className="flex items-center gap-2 border-t border-edge py-2">
-          <button type="button" className="min-w-0 flex-1 rounded px-2 py-2 text-left text-xs leading-relaxed text-ink hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent" onClick={() => item.target ? openMewcatNotice(item) : dismissMewcatNotice(item.id)}>
+      {expanded && <div className="max-h-[min(45dvh,320px)] overflow-y-auto border-t border-edge px-3 py-1">
+        <button type="button" className="mewcat-notification-button w-full px-2 text-xs text-ink-secondary" onClick={clearMewcatNotices}>{t('mewcat.clear')}</button>
+        {ordered.map(item => <div key={item.id} className="flex items-start gap-2 border-t border-edge py-1.5">
+          <button type="button" className="min-w-0 flex-1 rounded py-0.5 text-left text-xs leading-[18px] text-ink hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent" onClick={() => item.target ? openMewcatNotice(item) : dismissMewcatNotice(item.id)}>
             <span className="block">{item.kind === 'test' ? t('mewcat.testBody') : t(`mewcat.${item.kind}`)}</span>
-            <span className="mt-1 block break-words text-ink-secondary">{item.kind === 'test' ? t('settings.mewcat') : item.source}</span>
+            <span className="mt-0.5 block break-words text-ink-secondary">{item.kind === 'test' ? t('settings.mewcat') : item.source}</span>
           </button>
           <button type="button" className="mewcat-notification-button shrink-0" aria-label={t('mewcat.dismiss')} onClick={() => dismissMewcatNotice(item.id)}><Xmark width={16} height={16} /></button>
         </div>)}

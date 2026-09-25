@@ -23,7 +23,8 @@ function movementBounds(giant: boolean) {
   const top = viewport?.offsetTop ?? 0
   const size = giant ? Math.min(width * 1.18, height * 1.08) : CAT_SIZE
   const overflow = giant ? size * 0.18 : 0
-  const dock = !giant ? document.querySelector('.mobile-dock')?.getBoundingClientRect() : undefined
+  const dock = !giant && !window.matchMedia('(min-width: 768px)').matches
+    ? document.querySelector('.mobile-dock')?.getBoundingClientRect() : undefined
   const bottom = dock?.height ? Math.min(top + height, dock.top - 6) : top + height
   const ground = giant ? top + height - size + size / CAT_SIZE : Math.max(top, bottom - size + 1)
   return {
@@ -269,6 +270,9 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
     }
     const onPointerUp = (event: PointerEvent) => release(event)
     const onPointerCancel = (event: PointerEvent) => release(event, true)
+    // Claim the native touch gesture too: cancelling pointerdown alone can leave
+    // the browser suppressing the first tap after a fast touch drag.
+    const onTouchStart = (event: TouchEvent) => event.preventDefault()
     const viewport = window.visualViewport
     const dock = document.querySelector('.mobile-dock')
     const dockObserver = new ResizeObserver(resize)
@@ -278,6 +282,7 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
     cat.addEventListener('pointerup', onPointerUp)
     cat.addEventListener('pointercancel', onPointerCancel)
     cat.addEventListener('lostpointercapture', onPointerCancel)
+    cat.addEventListener('touchstart', onTouchStart, { passive: false })
     window.addEventListener('resize', resize)
     viewport?.addEventListener('resize', resize)
     viewport?.addEventListener('scroll', resize)
@@ -291,6 +296,7 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
       cat.removeEventListener('pointerup', onPointerUp)
       cat.removeEventListener('pointercancel', onPointerCancel)
       cat.removeEventListener('lostpointercapture', onPointerCancel)
+      cat.removeEventListener('touchstart', onTouchStart)
       if (pointerId !== undefined && cat.hasPointerCapture(pointerId)) cat.releasePointerCapture(pointerId)
       window.removeEventListener('resize', resize)
       viewport?.removeEventListener('resize', resize)

@@ -29,6 +29,23 @@ test('agent completion waits for an empty queue, ignores replay and cancelled tu
   assert.equal(track(idle), null)
 })
 
+test('completion while watching is consumed without a notice; other events still notify', () => {
+  const track = createAgentNoticeTracker('Codex', target)
+  track({ type: 'turn_start' })
+  track(end, false)
+  assert.equal(track(idle, true), null)
+  // Leaving the tab later must not announce work already seen.
+  assert.equal(track(idle, false), null)
+  track({ type: 'turn_start' })
+  track(end, true)
+  assert.equal(track(idle, false)?.kind, 'complete')
+  track({ type: 'turn_start' })
+  assert.equal(track({ type: 'error', message: 'failure' }, true)?.kind, 'error')
+  assert.equal(track({ type: 'permission', id: 'p', toolCall: { title: 'approval' }, options: [] }, true)?.kind, 'permission')
+  track({ type: 'turn_start' })
+  assert.equal(track({ type: 'turn_end', stopReason: 'max_tokens' }, true)?.kind, 'stopped')
+})
+
 test('an error followed by failed turn emits once and never emits success', () => {
   const track = createAgentNoticeTracker('Codex', target)
   track({ type: 'turn_start' })
