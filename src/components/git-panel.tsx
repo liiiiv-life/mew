@@ -2,6 +2,7 @@ import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
+import { GitBranch } from 'iconoir-react'
 import { restoreGitPanel, type GitPanelState } from '../utils/git-panel-state'
 import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
 import { GitWorkbench } from './GitWorkbench'
@@ -29,15 +30,24 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onClose, o
     if (signal.current !== closeTabSignal) { signal.current = closeTabSignal; onClose() }
   }, [closeTabSignal, onClose])
   const controls = <div className="flex min-w-0 items-center justify-end" data-git-controls>
-    <DockGrip group={group} />
     <GitHubAccount key={tab.project} project={tab.project} />
-    <button type="button" onClick={onClose} className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" title={uiText("Git 닫기")} aria-label={uiText("Git 닫기")}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-    </button>
   </div>
   return <>
-    <DockPanel id={group} kind="git" tabs={[tab.id]} visible={visible} onFocus={onPanelFocus}>{null}</DockPanel>
-    <DockBody group={group} active offset={0} onFocus={onPanelFocus}>
+    <DockPanel id={group} kind="git" tabs={[tab.id]} visible={visible} onFocus={onPanelFocus}>
+      <GitShortcutScope onClose={onClose} className="shrink-0">
+        <div data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
+          <DockGrip group={group} />
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5 text-xs text-ink">
+            <GitBranch width={14} height={14} className="shrink-0" aria-hidden="true" />
+            <span>Git</span>
+          </div>
+          <button type="button" onClick={onClose} className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" title={uiText("Git 닫기")} aria-label={uiText("Git 닫기")}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
+      </GitShortcutScope>
+    </DockPanel>
+    <DockBody group={group} active onFocus={onPanelFocus}>
       <GitShortcutScope onClose={onClose} className="flex h-full min-h-0 min-w-0 flex-col">
         <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} panelControls={controls} />
       </GitShortcutScope>

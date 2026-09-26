@@ -4,7 +4,7 @@ parent: "mew-git"
 title: "현재 프로젝트 Git 작업 패널"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-26"
 status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
 files: ["src/components/GitWorkbench.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
@@ -39,9 +39,9 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
-- 단일 프로젝트 탭과 탭 바를 제거하고 커밋 기록부터 바로 표시한다.
-- GitHub 로그인·닫기·이동 손잡이는 기존 본문 조작 줄에 합쳤다.
-- 하위 저장소 선택은 제공하지 않으며 탭 바는 사용자 요청 전 재도입하지 않는다.
+- 다른 패널 탭 바와 같은 36px 상단 바에 Git 아이콘·제목·닫기 버튼을 표시하며 데스크톱에는 공통 이동 손잡이를 둔다.
+- 상단 바는 상세·diff·로딩·저장소 없음 상태에서도 유지하며, 본문은 그 아래에서 시작한다.
+- GitHub 로그인은 기존 본문 조작 줄에서 제공하고 하위 저장소 선택은 제공하지 않는다.
 - 기본 화면은 위에서부터 한 줄 커밋 그래프·체크박스가 있는 변경 파일·작성 영역을 약 20:50:30으로 표시한다.
 - 제목 옆에 커밋 버튼을 두고 아래 설명 영역의 높이를 조절할 수 있다.
 - 각 목록은 따로 스크롤하며 경계 드래그·키보드로 높이 비율을 조절한다.
@@ -62,10 +62,11 @@ commits: []
 
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 현재 탭 저장소만 표시되고 커밋 전 선택 파일 범위와 위험 작업 확인이 정확한지 확인한다.
-- 탭 바·상단 예약 공간 없음·GitHub/닫기 접근·손잡이 도킹 이동·30:50:20 초기 비율·작성 영역 높이 조절·전체/개별 선택·선택하지 않은 staged 파일 보존·기본 변경 파일 노출·독립 스크롤·경계 드래그/키보드·모바일 한 줄 커밋·diff 복귀를 확인한다.
+- 36px 상단 바·Git 아이콘/제목·GitHub/닫기 접근·상단 손잡이 도킹 이동·20:50:30 초기 비율·작성 영역 높이 조절·전체/개별 선택·선택하지 않은 staged 파일 보존·기본 변경 파일 노출·독립 스크롤·경계 드래그/키보드·모바일 한 줄 커밋·diff 복귀를 확인한다.
 - AI 자동 커밋의 셋 선택·신규 생성, 여러 실제 커밋·해시·포함 파일, 중단·실패·재접속과 분석 이후 변경 감지를 확인한다.
 - 부분 성공의 커밋과 선택 밖 stage·수동 초안을 보존해야 한다.
 - GitHub 미로그인/연결 계정·CLI 미설치·코드 복사·내부 승인·취소·만료·재시도·새로고침 후 재접속·동시 사용자와 부분 파일 권한 차단을 확인한다.
 - 실 GitHub 승인은 사용자가 직접 확인한다.
+- 2026-09-26: `server/git-panel-ui.test.ts`의 Chromium 검사로 상단 바 36px·본문 위치·데스크톱 핸들 도킹·모바일 핸들 숨김·닫기/재열기 시 초안과 diff 유지·저장소 없음 상태의 닫기를 확인했다. 데스크톱/모바일의 밝은·어두운 테마 화면도 캡처했다.
 
 <!-- mew:validation:end -->

@@ -64,7 +64,7 @@ mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하�
 | 선택 파일 커밋 | Git 가운데 변경 목록에서 파일을 선택하고 맨 아래에 제목·설명을 입력해 커밋. 커밋 기록은 맨 위에서 확인 | [커밋 범위와 제한](docs/guides/projects.md#git-작업-패널) |
 | GitHub 로그인 | Git 패널의 GitHub 버튼에서 코드 복사·내부 브라우저 승인·연결 계정 확인. 서버 Git 인증을 공유하며 gh 설치 필요 | [로그인과 인증 범위](docs/guides/projects.md#github-로그인) |
 | 브랜치·태그·과거 커밋 작업 | 커밋 우클릭으로 해시 복사·branch/tag 생성·detached checkout·cherry-pick·revert | [지원 Git 작업](docs/guides/projects.md#git-작업-패널) |
-| 프로젝트 Git 패널 | 탭 바 없이 현재 프로젝트 작업 화면 표시. 본문의 손잡이로 이동·닫기·다시 열기와 초안 유지 | [Git 패널 사용법](docs/guides/projects.md#git-작업-패널) |
+| 프로젝트 Git 패널 | 상단 바의 Git 아이콘·제목·닫기 버튼과 데스크톱 이동 손잡이. 닫기·다시 열기와 초안 유지 | [Git 패널 사용법](docs/guides/projects.md#git-작업-패널) |
 
 `AI 자동 커밋`에서 에이전트셋을 선택하고 **자동 커밋 실행**을 누르면 Mew 전용 커밋 스킬로 선택 파일을 작업 단위로 나누어 실제 커밋을 만든다. 커밋별 해시·포함 파일과 남긴 변경을 확인할 수 있다([사용법](docs/guides/projects.md#git-작업-패널)).
 
