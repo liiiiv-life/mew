@@ -1,4 +1,5 @@
 import { uiText } from '@mew/ui/i18n-core'
+import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { Replayer } from '@rrweb/replay'
 import { EventType, IncrementalSource, ReplayerEvents, NodeType, type eventWithTime } from '@rrweb/types'
 
@@ -164,6 +165,13 @@ function createFrame(root: HTMLElement, send: (message: Record<string, unknown>)
       send({ kind: 'input', id, value: node.isContentEditable ? node.textContent ?? '' : node.value })
     }
     const key = (event: KeyboardEvent) => {
+      if (!event.isComposing && matchesShortcut(event, getBinding('toggleMemo'))) {
+        const forwarded = new KeyboardEvent('keydown', {
+          key: event.key, code: event.code, ctrlKey: event.ctrlKey, metaKey: event.metaKey,
+          altKey: event.altKey, shiftKey: event.shiftKey, repeat: event.repeat, bubbles: true, cancelable: true,
+        })
+        if (!window.dispatchEvent(forwarded)) { event.preventDefault(); event.stopPropagation(); return }
+      }
       if (event.isComposing || !['Enter', 'Escape', 'Tab'].includes(event.key)) return
       if (event.key === 'Escape' && escape(event)) { event.preventDefault(); event.stopPropagation(); return }
       if (event.key === 'Enter' && (event.target as HTMLElement)?.tagName === 'TEXTAREA') return

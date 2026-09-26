@@ -1,6 +1,8 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  "메모": ["Memo", "备忘录", "メモ"],
+  "메모 위치 이동": ["Move memo", "移动备忘录", "メモを移動"],
   "검색 결과 {matches}개 · 파일 {files}개": ["{matches} matches · {files} files", "{matches} 个结果 · {files} 个文件", "{matches}件の結果 · {files}個のファイル"],
   "{count}개 선택": ["Selected: {count}", "已选择 {count} 个", "{count}件選択"],
   "{count}개 행": ["Rows: {count}", "{count} 行", "{count}行"],

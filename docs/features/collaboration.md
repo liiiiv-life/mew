@@ -20,6 +20,7 @@ commits: []
 ### 하위 기능
 
 - [실시간 공동 편집](collaboration/editing.md)
+- [공통 메모](collaboration/shared-memo.md)
 - [참여자·활성 세션 보기](collaboration/presence.md)
 - [댓글·답글·멤버 멘션](collaboration/comments.md)
 - [단체 채팅·DM·읽음 확인](collaboration/chat.md)

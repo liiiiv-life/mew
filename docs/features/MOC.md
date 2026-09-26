@@ -20,6 +20,7 @@ updated: 2026-09-18
 - [화면·계정·운영](settings/MOC.md) · [상위 기능](settings.md)
 
 <!-- mew:features:start -->
+- [공통 메모](collaboration/shared-memo.md)
 - [AI 런타임 설치·인증·실행 설정](agents/runtimes.md)
 - [Android 환경 점검·화면 연결](remote/android.md)
 - [Documents·문서 지도 관리](projects/documents.md)

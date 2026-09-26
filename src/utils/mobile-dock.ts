@@ -1,4 +1,4 @@
-export const MOBILE_DOCK_ORDER = ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'rag'] as const
+export const MOBILE_DOCK_ORDER = ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'rag'] as const
 export type MobileDockPanel = typeof MOBILE_DOCK_ORDER[number]
 export type DockDirection = -1 | 1
 export const MOBILE_DOCK_ORDER_KEY = 'mew:mobile-dock-order'
@@ -10,6 +10,7 @@ export function normalizeMobileDockOrder(value: unknown): MobileDockPanel[] {
     if (order.includes(panel)) continue
     const desktop = order.indexOf('desktop')
     if (panel === 'features' && desktop >= 0) order.splice(desktop, 0, panel)
+    else if (panel === 'memo' && order.includes('rag')) order.splice(order.indexOf('rag'), 0, panel)
     else order.push(panel)
   }
   return order

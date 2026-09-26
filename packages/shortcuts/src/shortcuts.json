@@ -11,6 +11,7 @@
   { "id": "nextTab", "category": "전역", "label": "다음 탭", "keys": "Ctrl+Alt+ArrowRight", "editable": true },
   { "id": "fullscreen", "category": "전역", "label": "전체화면 전환", "keys": "Alt+Enter", "editable": true },
   { "id": "toggleChat", "category": "협업", "label": "채팅 열기/닫기", "keys": "Alt+C", "editable": true },
+  { "id": "toggleMemo", "category": "협업", "label": "메모 열기/포커스/닫기", "keys": "Ctrl+M", "editable": true },
   { "id": "toggleAgent", "category": "터미널·에이전트", "label": "에이전트 열기/닫기", "keys": "Alt+L", "editable": true },
   { "id": "toggleBrowser", "category": "전역", "label": "브라우저 열기/닫기", "keys": "Alt+B", "editable": true },
   { "id": "openGit", "category": "전역", "label": "Git 열기", "keys": "Alt+G", "editable": true },

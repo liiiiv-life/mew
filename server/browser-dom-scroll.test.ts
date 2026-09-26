@@ -107,6 +107,16 @@ test('DOM scrolling rejects delayed echoes, preserves nested moves, and still fo
   await viewer.waitForTimeout(350)
   assert.equal(await docY(), 1200)
   assert.equal(inputs.length, 5)
+  // The shared memo shortcut also reaches the host while a replica has focus.
+  await viewer.evaluate(`
+    window.memoKeys = 0;
+    window.addEventListener('keydown', event => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'm') { event.preventDefault(); window.memoKeys++; }
+    });
+  `)
+  await view.locator('body').dispatchEvent('keydown', { key: 'm', code: 'KeyM', ctrlKey: true, bubbles: true, cancelable: true })
+  await view.locator('body').dispatchEvent('keydown', { key: 'm', code: 'KeyM', metaKey: true, bubbles: true, cancelable: true })
+  assert.equal(await viewer.evaluate('window.memoKeys'), 2)
   // Escape inside the replica restores an expanded panel through the host's
   // overlay stack; normal browsing continues to forward Escape to the source.
   await viewer.evaluate(`

@@ -21,6 +21,16 @@ MEW_COLLAB_RUST=1 npm run serve
 
 서버의 헤드리스 에디터 DOM은 `window`·`document`와 함께 같은 Window를 가리키는 `self`를 제공한다. 브라우저 전역 일부만 있으면 RAG의 Transformers.js가 브라우저 경로를 감지한 뒤 `self is not defined`로 초기화에 실패한다. 기존 전역은 덮어쓰지 않는다. RAG는 DOM 유무와 관계없이 Node CPU·파일 캐시를 사용한다.
 
+## 공통 메모
+
+- `SharedMemo`는 로그인된 App에서 협업 권한이 있을 때 제공한다. `toggleMemo` 기본 조합은 `Ctrl+M`이며 기존 shortcut 매처로 Cmd도 받는다. 닫힘→열기, 외부 포커스→본문 포커스, 내부 포커스→닫기를 구분하고 반복 keydown·IME 조합은 재토글하지 않는다. 비모달 portal이며 바깥 누름·Tab 이동을 막지 않는다. 공통 `useOverlayDismiss`의 bubble Esc·뒤로가기 스택을 쓰고, 제목의 pointer capture·방향키로 이동한다. `visualViewport`와 resize에 맞춰 경계를 보정한다.
+- App은 메모의 열림 상태와 포커스 요청을 `SharedMemo`에 전달한다. 하단 독의 `memo` 항목은 같은 권한 조건으로 표시하고, 팝업의 `data-workspace-panel="memo"`와 연동해 열림·포커스를 강조한다. 독 버튼, 단축키, Esc와 닫기 버튼이 같은 상태를 갱신하며 모바일 독 전환은 메모를 숨기고 편집 상태를 보존한다.
+- 본문은 `@mew/editor`의 Hotview와 `useCollab`을 재사용한다. 첫 동기화·재연결 대기에는 읽기 전용으로 두며 글자 수 상태줄은 만들지 않는다. 표 너비는 CRDT 속성으로 공유하고 프로젝트의 table-layout 파일에는 저장하지 않는다. 처음 열 때만 연결하며 닫은 뒤에도 현재 페이지에서 문서·실행 취소·미전송 변경을 보존한다. 닫힌 창의 awareness 사용자 정보는 제거한다. 제목 옆 `PresenceDots`는 열린 awareness의 계정별 색을 중복 제거해 표시하며, 연결이 끊기면 원격 awareness를 즉시 제거한다.
+- `shared/shared-memo.ts`의 예약 방 `__mew_shared__:memo` 하나를 모든 루트·프로젝트에서 사용한다. `authorizeCollab`은 이 정확한 키에만 파일 경로 검사 대신 로그인·협업 권한 검사를 적용한다. 게스트·임시 비밀번호 상태·권한 회수 차단은 기존 WebSocket 접근 검사로 유지한다. 다른 방의 파일 권한은 변하지 않는다.
+- 일반 파일 방의 메모리 릴레이·파일 자동저장은 유지한다. 예약 방에만 `server/shared-memo.ts`의 `RoomDoc` 어댑터를 적용하고 `DATA_DIR/shared-memo.json`에 버전과 base64 Yjs 전체 업데이트를 원자 저장한다. 서버가 빈 단락을 한 번 시딩해 동시 최초 접속의 중복을 막는다. 변경 후보를 저장한 후 방 상태를 교체·방송하며 실패하면 기존 방 상태와 파일을 유지하고 클라이언트를 재연결시켜 로컬 변경을 재전송한다. 손상된 저장값을 빈 메모로 덮어쓰지 않는다. CRDT 식별자·삭제 정보도 보존하므로 재접속과 서버 재시작 때 텍스트를 다시 시딩하지 않는다.
+- 이 방에는 프로젝트 파일 브리지를 붙이지 않고 루트 전환의 `closeAllRooms`에서도 제외한다. 최종 브라우저 연결 종료 시 메모리 방은 기존 수명 규칙대로 정리한다. 저장 파일은 워크스페이스 파일 API에 노출하지 않는다.
+- 검증: `server/shared-memo.test.ts`의 동시 병합·삭제·재로드·저장 실패·손상·인증 경계와 `server/shared-memo-ui.test.ts`의 실제 Hotview·WebSocket 두 브라우저 공동 편집, 포커스 토글·참여자·닫기·드래그·모바일 경계·테마·다시 열기를 사용한다.
+
 ## 활성 mew 세션 (presence)
 
 - 프로젝트 헤더의 햄버거 왼쪽 숫자는 `/api/presence`에 연결된 **브라우저 탭·창별 세션 수**다. 같은 계정의 여러 탭, 백그라운드 탭, 게스트도 각각 센다. 로그인 쿠키 수·에이전트 실행 수와는 별개이며 로그인 화면은 집계하지 않는다.

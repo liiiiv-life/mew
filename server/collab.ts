@@ -1,4 +1,6 @@
 import { watchSocketAccess } from './access-socket.ts'
+import { SHARED_MEMO_ROOM } from '../shared/shared-memo.ts'
+import { createSharedMemoDoc } from './shared-memo.ts'
 import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -23,6 +25,7 @@ const WS_PATH = '/api/collab'
  */
 interface Client {
   send(frame: Uint8Array): void
+  rejectUpdate?(): void
   /** 브리지처럼 방 자신이 띄운 클라이언트. 방을 살려두는 근거가 되지 않는다 — closeRoomIfEmpty 참고 */
   local: boolean
 }
@@ -67,7 +70,8 @@ export function setRoomLifecycle(next: RoomLifecycle | null): void {
   lifecycle = next
 }
 
-// 방(room)은 순수 메모리 상태 — 디스크 입출력은 전혀 하지 않는다. 영속화는 클라이언트가 하는
+// 일반 파일 방(room)은 순수 메모리 상태다. 공통 메모 예약 방만 영속 RoomDoc 어댑터를 쓴다.
+// 파일 영속화는 클라이언트가 하는
 // updateTabContent → autosave → PUT /api/file 경로가 전담하며, 원격 Yjs 병합도 로컬 편집과
 // 동일하게 에디터의 onChange를 태우므로 이 서버는 그저 바이트를 중계할 뿐이다.
 const rooms = new Map<string, Room>()
@@ -101,7 +105,7 @@ function closeRoomIfEmpty(roomKey: string, room: Room) {
   if (realClientCount(room) > 0) return
   // 에이전트 에디터가 방에 매여 있으므로, 상태를 버리기 전에 먼저 떼어낸다
   try {
-    lifecycle?.onClose(roomKey, publicRoom(room))
+    if (roomKey !== SHARED_MEMO_ROOM) lifecycle?.onClose(roomKey, publicRoom(room))
   } catch (err) {
     console.error('[mew] collab onClose 실패:', err)
   }
@@ -153,6 +157,7 @@ function handleFrame(room: Room, client: Client, bytes: Uint8Array) {
   } catch (err) {
     // 깨진 업데이트로 방을 죽이지 않는다 — 보낸 쪽만 손해다
     console.error('[mew] collab 업데이트 적용 실패:', err)
+    client.rejectUpdate?.()
     return
   }
   if (diff) broadcast(room, encodeSyncUpdate(diff), client)
@@ -196,8 +201,9 @@ function getRoom(roomKey: string): Room {
 
   // awareness는 CRDT가 아니라 clock+JSON 맵이라 백엔드와 무관하게 JS에 남는다. Awareness가
   // clientID를 doc에서 얻으므로 그 용도로만 쓰는 빈 Y.Doc을 붙인다 — 방의 내용은 여기 없다.
+  const doc = roomKey === SHARED_MEMO_ROOM ? createSharedMemoDoc() : createRoomDoc()
   const awareness = new Awareness(new Y.Doc())
-  const room: Room = { doc: createRoomDoc(), awareness, clients: new Map(), destroyed: false }
+  const room: Room = { doc, awareness, clients: new Map(), destroyed: false }
   rooms.set(roomKey, room)
 
   awareness.on(
@@ -217,7 +223,7 @@ function getRoom(roomKey: string): Room {
 
   // 방이 완전히 구성된 뒤에 브리지에 알린다
   try {
-    lifecycle?.onOpen(roomKey, publicRoom(room))
+    if (roomKey !== SHARED_MEMO_ROOM) lifecycle?.onOpen(roomKey, publicRoom(room))
   } catch (err) {
     console.error('[mew] collab onOpen 실패:', err)
   }
@@ -227,6 +233,7 @@ function getRoom(roomKey: string): Room {
 
 const wss = new WebSocketServer({ noServer: true })
 const accessChecks = new WeakMap<WebSocket, () => boolean>()
+const socketRooms = new WeakMap<WebSocket, string>()
 
 wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   const url = new URL(req.url ?? '', 'http://localhost')
@@ -239,8 +246,15 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     ws.close(1013, 'too many active rooms')
     return
   }
-  const room = getRoom(roomKey)
+  let room: Room
+  try { room = getRoom(roomKey) } catch (error) {
+    console.error('[mew] collab room load failed:', error)
+    ws.close(1011, 'room unavailable')
+    return
+  }
+  socketRooms.set(ws, roomKey)
   const client: Client = {
+    rejectUpdate: () => ws.close(1011, 'update failed'),
     send: (frame) => {
       if (accessChecks.get(ws)?.() === false) { ws.terminate(); return }
       if (ws.readyState === WebSocket.OPEN) ws.send(frame)
@@ -262,14 +276,16 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   })
 })
 
-/** 열려 있는 방을 전부 끊는다 — 워크스페이스를 바꿀 때 부른다.
+/** 프로젝트 파일 방을 전부 끊는다 — 워크스페이스를 바꿀 때 부른다. 서버 공통 메모는 유지한다.
  *
  * 방 키는 `프로젝트:경로`뿐이라 워크스페이스가 바뀌면 **같은 키가 다른 파일**을 가리킨다. 옛 워크스페이스
  * 내용을 든 방을 그대로 두면 디스크 브리지(collabAgent)가 그 내용을 새 워크스페이스의 동명 파일에 쓴다.
  * 소켓을 끊으면 close 핸들러가 방을 정리하고(closeRoomIfEmpty) 브리지도 떨어진다 — close 프레임 왕복을
  * 기다리지 않도록 terminate로 즉시 끊는다. 클라이언트는 어차피 곧 새로고침한다. */
 export function closeAllRooms(): void {
-  for (const ws of wss.clients) ws.terminate()
+  for (const ws of wss.clients) {
+    if (socketRooms.get(ws) !== SHARED_MEMO_ROOM) ws.terminate()
+  }
 }
 
 export function attachCollabWebSocket(

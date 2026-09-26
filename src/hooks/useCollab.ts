@@ -3,7 +3,7 @@ import * as Y from 'yjs'
 import * as encoding from 'lib0/encoding'
 import * as decoding from 'lib0/decoding'
 import { messageYjsSyncStep1, readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync'
-import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import { guestName, identityColor } from '../utils/collabColor'
 
 const MESSAGE_SYNC = 0
@@ -17,6 +17,7 @@ export interface Collab {
   // 첫 sync 응답을 받기 전까지는 문서가 "비어 있는지"를 신뢰할 수 없다 — 컴포넌트는 이 값이
   // true가 된 뒤에야 로컬 콘텐츠로 방을 시딩할지 판단해야 한다
   synced: boolean
+  connected: boolean
 }
 
 // path가 null이면 협업 연결을 하지 않는다 — 호출부(App)가 "지금 활성 탭·뷰모드가 주 편집화면인지"를
@@ -25,11 +26,13 @@ export interface Collab {
 export function useCollab(project: string, path: string | null, authEmail: string | null): Collab | null {
   const [doc, setDoc] = useState<{ ydoc: Y.Doc; awareness: Awareness } | null>(null)
   const [synced, setSynced] = useState(false)
+  const [connected, setConnected] = useState(false)
 
   useEffect(() => {
     if (!path) {
       setDoc(null)
       setSynced(false)
+      setConnected(false)
       return
     }
 
@@ -47,6 +50,7 @@ export function useCollab(project: string, path: string | null, authEmail: strin
     const awareness = new Awareness(ydoc)
     setDoc({ ydoc, awareness })
     setSynced(false)
+    setConnected(false)
 
     const name = authEmail ? authEmail.split('@')[0] : guestName()
     awareness.setLocalStateField('user', { name, color: identityColor(authEmail) })
@@ -111,7 +115,7 @@ export function useCollab(project: string, path: string | null, authEmail: strin
             // syncStep1은 상대의 상태 벡터 "요청"일 뿐 문서 내용을 담지 않는다 — 서버가 접속 즉시
             // 보내는 이 메시지를 sync 완료로 착각하면, 아직 비어 있는 로컬 ydoc을 "빈 문서"로 오판해
             // 실제 원격 내용(뒤이어 오는 syncStep2)과 로컬 콘텐츠를 이중으로 시딩해버린다.
-            if (syncMessageType !== messageYjsSyncStep1) setSynced(true)
+            if (syncMessageType !== messageYjsSyncStep1) { setSynced(true); setConnected(true) }
             break
           }
           case MESSAGE_AWARENESS: {
@@ -123,6 +127,8 @@ export function useCollab(project: string, path: string | null, authEmail: strin
 
       ws.onclose = () => {
         if (cancelled) return
+        setConnected(false)
+        removeAwarenessStates(awareness, [...awareness.getStates().keys()].filter(id => id !== awareness.clientID), remoteOrigin)
         retryTimer = setTimeout(connect, retryDelay)
         retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
       }
@@ -139,5 +145,5 @@ export function useCollab(project: string, path: string | null, authEmail: strin
     }
   }, [project, path, authEmail])
 
-  return doc ? { ydoc: doc.ydoc, awareness: doc.awareness, synced } : null
+  return doc ? { ydoc: doc.ydoc, awareness: doc.awareness, synced, connected } : null
 }

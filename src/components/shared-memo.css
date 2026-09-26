@@ -1,0 +1,8 @@
+.shared-memo {
+  width: min(560px, calc(100vw - 16px));
+  height: min(420px, calc(var(--memo-viewport-height, 100dvh) - 32px));
+}
+
+.shared-memo[hidden] { display: none; }
+.shared-memo .tiptap { padding: 16px 20px; }
+.shared-memo .editor-root > div:has(> .tiptap) { flex: 1; }

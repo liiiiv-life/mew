@@ -37,7 +37,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     const dock = page.getByRole('navigation', { name: 'Workspace dock' })
     const items = () => dock.locator('[data-dock-item]').evaluateAll(elements => elements.map(el => el.getAttribute('data-dock-item')))
     await dock.waitFor()
-    assert.deepEqual(await items(), ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'rag'])
+    assert.deepEqual(await items(), ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'rag'])
     assert.equal(await dock.getByRole('button').last().getAttribute('data-dock-item'), 'rag')
     const tooltip = page.getByRole('tooltip')
     const notice = page.locator('[data-dock-notice]')
@@ -86,7 +86,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.deepEqual(await page.evaluate('window.actions'), ['terminal'])
     const box = (await dock.boundingBox())!, y = box.y + box.height / 2
     await touch('touchStart', 170, y); await touch('touchMove', 245, y); await touch('touchEnd')
-    assert.deepEqual(await page.evaluate('window.actions.at(-1)'), { dir: -1, order: ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'rag'] })
+    assert.deepEqual(await page.evaluate('window.actions.at(-1)'), { dir: -1, order: ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'rag'] })
     await touch('touchStart', 245, y); await touch('touchMove', 170, y); await touch('touchEnd')
     assert.equal(await page.evaluate('window.actions.at(-1).dir'), 1)
     assert.equal(await page.evaluate('window.actions.length'), 3, 'swiping never clicks an icon')
@@ -110,7 +110,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.screenshot({ path: '/tmp/mew-dock-touch-reorder.png' })
     await touch('touchEnd')
     assert.equal(await preview.count(), 0)
-    assert.deepEqual(await items(), ['browser', 'sidebar', 'editor', 'agent', 'terminal', 'git', 'features', 'desktop', 'rag'])
+    assert.deepEqual(await items(), ['browser', 'sidebar', 'editor', 'agent', 'terminal', 'git', 'features', 'desktop', 'memo', 'rag'])
     assert.equal(await page.evaluate('window.actions.length'), 3, 'reordering does not navigate')
     assert.equal(await notice.count(), 0, 'reordering does not show a touch toast')
     await page.reload(); await dock.waitFor()
@@ -132,7 +132,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(bounds.height, 48)
       for (const button of await dock.getByRole('button').all()) {
         const hit = (await button.boundingBox())!
-        assert.ok(hit.width >= 34 && hit.height >= 44)
+        assert.ok(hit.width >= 30 && hit.height >= 44)
       }
       await page.waitForTimeout(60)
       const cat = (await page.locator('.mewcat').boundingBox())!
@@ -148,7 +148,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.evaluate("window.setAvailable(['sidebar','editor'])")
     assert.equal(await dock.getByRole('button').count(), 2)
     await page.getByRole('textbox', { name: 'Message' }).blur()
-    await page.evaluate('window.setAvailable([...'+JSON.stringify(['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'rag'])+'])')
+    await page.evaluate('window.setAvailable([...'+JSON.stringify(['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'rag'])+'])')
     await page.setViewportSize({ width: 1024, height: 844 })
     await dock.waitFor({ state: 'visible' })
     const assertDesktopCatGround = () => page.waitForFunction(`(() => {

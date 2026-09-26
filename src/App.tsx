@@ -34,6 +34,7 @@ import {
 import { SubprojectLink } from './components/subproject-link'
 import { RootProjectTabs } from './components/RootProjectTabs'
 import { ProjectLoadingOverlay } from './components/project-loading-overlay'
+import { SharedMemo } from './components/shared-memo'
 import { normalizeProjectTabLayout, type ProjectTabGroup } from '../shared/project-tab-groups'
 import { OpenProjectDialog } from './components/OpenProjectDialog'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
@@ -326,6 +327,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const gitMounted = useRef(false)
   const [gitOpen, setGitOpen] = useState(() => caps.git && localStorage.getItem(GIT_OPEN_KEY) === '1')
   const [remoteDesktopOpen, setRemoteDesktopOpen] = useState(false)
+  const [memoOpen, setMemoOpen] = useState(false)
+  const [memoFocusSignal, setMemoFocusSignal] = useState(0)
+  useEffect(() => { setMemoOpen(false) }, [auth.email, caps.collaboration])
   const [remoteDockHost, setRemoteDockHost] = useState<HTMLDivElement | null>(null)
   if (gitOpen) gitMounted.current = true
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
@@ -381,8 +385,8 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
 
   const mobileForegroundPanel = mobilePanelStack.at(-1) ?? null
-  const openDockPanels = (['editor', 'desktop', ...WORKSPACE_PANEL_IDS] as const).filter(panel =>
-    panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : workspacePanelOpen[panel])
+  const openDockPanels = (['editor', 'desktop', 'memo', ...WORKSPACE_PANEL_IDS] as const).filter(panel =>
+    panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel])
   const focusedDockPanel = focusedWorkspacePanel && openDockPanels.some(panel => panel === focusedWorkspacePanel) ? focusedWorkspacePanel : null
   useEffect(() => {
     if (focusedWorkspacePanel && !focusedDockPanel) setFocusedWorkspacePanel(null)
@@ -1105,9 +1109,17 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   if (caps.browser) mobileDockPanels.push('browser')
   if (caps.agent && rootProjectPath) mobileDockPanels.push('features')
   if (caps.desktop) mobileDockPanels.push('desktop')
+  if (caps.collaboration && auth.email) mobileDockPanels.push('memo')
   if (!isGuest && caps.filesRead && rootProjectPath) mobileDockPanels.push('rag')
   const selectDockPanel = (panel: MobileDockPanel, toggle = true) => {
     if (!mobileDockPanels.includes(panel)) return
+    if (panel === 'memo') {
+      setRemoteDesktopOpen(false)
+      setMemoOpen(open => isDesktop() && toggle ? !open : true)
+      setMemoFocusSignal(value => value + 1)
+      return
+    }
+    if (!isDesktop()) setMemoOpen(false)
     dockRef.current?.restore()
     if (panel === 'desktop') { setRemoteDesktopOpen(open => isDesktop() && toggle ? !open : true); return }
     setRemoteDesktopOpen(false)
@@ -1137,7 +1149,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     }
   }
   const navigateMobileDock = (direction: -1 | 1, order: MobileDockPanel[]) => {
-    const panel = remoteDesktopOpen ? 'desktop' : mobileForegroundPanel ?? 'editor'
+    const panel = memoOpen ? 'memo' : remoteDesktopOpen ? 'desktop' : mobileForegroundPanel ?? 'editor'
     const next = adjacentDockPanel(order, panel, direction)
     if (next) selectDockPanel(next, false)
   }
@@ -2317,7 +2329,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
       <Mewcat skin={mewcatSkin} onOpenSystemStats={caps.system ? () => setSysStatsOpen(true) : undefined} />
 
-      <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost}
+      <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : memoOpen ? 'memo' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost}
         onSelect={selectDockPanel} onNavigate={navigateMobileDock} />
 
       <div className="hidden md:contents">
@@ -2417,6 +2429,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         />
       )}
 
+      {caps.collaboration && auth.email && <SharedMemo authEmail={auth.email} open={memoOpen} onOpenChange={setMemoOpen} focusSignal={memoFocusSignal} />}
       {toast}
       {(switchingRootProject || refreshing || refreshingWorkspace || refreshingTabs) && <ProjectLoadingOverlay />}
     </div>
