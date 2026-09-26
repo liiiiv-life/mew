@@ -61,28 +61,28 @@ export function Mewcat({ skin, onOpenSystemStats }: { skin: MewcatSkin | null; o
 export function MewcatMark({ className = '' }: { className?: string }) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden="true" focusable="false">
-      <g stroke="var(--mewcat-outline, #65534c)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M33 39c9 2 13-4 10-10-1.5-3-5-2-4.5 1 .8 4-1.5 5-5 3" fill="#ead8c6" />
-        <path d="M14 29c-3 5-4 10-1 14 3 4 18 4 21 0 3-4 1-11-3-14" fill="var(--mewcat-fur, #fff5e6)" />
+      <g stroke="var(--mewcat-outline, #737373)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M33 39c9 2 13-4 10-10-1.5-3-5-2-4.5 1 .8 4-1.5 5-5 3" fill="var(--mewcat-fur, #171717)" />
+        <path d="M14 29c-3 5-4 10-1 14 3 4 18 4 21 0 3-4 1-11-3-14" fill="var(--mewcat-fur, #171717)" />
         <g className="mewcat-head">
-        <path d="M9 17C7 13 7 5 10 5c2 0 6 4 8 7a26 26 0 0 1 11 0c2-3 6-7 8-6 2 1 2 8 0 12 3 3 4 6 3 10-1 7-9 10-17 10S7 35 6 29c-1-5 0-9 3-12Z" fill="var(--mewcat-fur, #fff5e6)" />
+        <path d="M9 17C7 13 7 5 10 5c2 0 6 4 8 7a26 26 0 0 1 11 0c2-3 6-7 8-6 2 1 2 8 0 12 3 3 4 6 3 10-1 7-9 10-17 10S7 35 6 29c-1-5 0-9 3-12Z" fill="var(--mewcat-fur, #171717)" />
         <path d="m11 10 1 7 4-2Z" fill="#e9aaa4" stroke="none" />
         <path d="m35 11-4 4 4 2Z" fill="#e9aaa4" stroke="none" />
-        <path d="M20 13v3m4-3v4m4-4v3" stroke="#d9b99b" />
+        <path d="M20 13v3m4-3v4m4-4v3" stroke="#353535" />
         <ellipse cx="12.5" cy="28.5" rx="3.3" ry="1.8" fill="#efbeb1" stroke="none" />
         <ellipse cx="33.5" cy="28.5" rx="3.3" ry="1.8" fill="#efbeb1" stroke="none" />
-        <g className="mewcat-eyes" fill="var(--mewcat-ink, #493c37)" stroke="none">
+        <g className="mewcat-eyes" fill="var(--mewcat-ink, #e8d99b)" stroke="none">
           <ellipse cx="16" cy="25" rx="2" ry="2.5" />
           <ellipse cx="30" cy="25" rx="2" ry="2.5" />
           <circle cx="16.6" cy="24.2" r=".65" fill="#fff" />
           <circle cx="30.6" cy="24.2" r=".65" fill="#fff" />
         </g>
-        <path className="mewcat-happy-eyes" d="M13.8 25.5q2.2-3 4.4 0m9.6 0q2.2-3 4.4 0" fill="none" />
+        <path className="mewcat-happy-eyes" d="M13.8 25.5q2.2-3 4.4 0m9.6 0q2.2-3 4.4 0" fill="none" stroke="var(--mewcat-ink, #e8d99b)" />
         <path d="M21.5 28h3L23 29.5Z" fill="#c98f88" stroke="none" />
-        <path d="M23 29.5c0 2-3 2.5-3.5.5m3.5-.5c0 2 3 2.5 3.5.5" fill="none" strokeWidth="1.1" />
-        <path d="m7 25-3-1m3 5H3m35-4 3-1m-3 5h4" stroke="#b69a84" strokeWidth="1" />
+        <path d="M23 29.5c0 2-3 2.5-3.5.5m3.5-.5c0 2 3 2.5 3.5.5" fill="none" stroke="var(--mewcat-ink, #e8d99b)" strokeWidth="1.1" />
+        <path d="m7 25-3-1m3 5H3m35-4 3-1m-3 5h4" stroke="#a3a3a3" strokeWidth="1" />
         </g>
-        <path d="M14 39c-2 1-3 5-1 6.5 1 .7 6 .7 7-.5 1-1 .5-3 0-4m7 0c-.5 1-1 3 0 4 1 1.2 6 1.2 7 .5 2-1.5 1-5.5-1-6.5" fill="var(--mewcat-fur, #fff5e6)" />
+        <path d="M14 39c-2 1-3 5-1 6.5 1 .7 6 .7 7-.5 1-1 .5-3 0-4m7 0c-.5 1-1 3 0 4 1 1.2 6 1.2 7 .5 2-1.5 1-5.5-1-6.5" fill="var(--mewcat-fur, #171717)" />
       </g>
     </svg>
   )

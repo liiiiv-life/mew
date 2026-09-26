@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "Mewcat 마스코트·알림·휴식"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-26"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["src/components/Mewcat.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
@@ -46,6 +46,7 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- 기본 고양이를 검은색으로 표시하며 설정 미리보기·휴식용 큰 고양이에도 같은 색상을 적용한다.
 - 연결 끊김 알림은 반복 방해를 줄이려는 사용자 요청으로 제거했으며 요청 전 재도입하지 않는다.
 - 해당 에이전트 패널 내부의 연결 대기 표시로 대체한다.
 
@@ -55,7 +56,8 @@ commits: []
 - 자동 말풍선 폭을 300px로 줄이고 본문·목록·자원 줄의 좌우 여백을 12px로 통일했다.
 - 본문·출처 사이는 2px로 묶고 중첩 패딩·음수 마진을 제거해 최근 알림 행과 조작 줄의 높이를 줄였다.
 - 터치 버튼 크기는 유지한다.
-- 대화·시스템 자원 열기는 은은한 배경과 화살표가 있는 버튼으로 표시하고, 알림 개수·펼침 및 닫기는 보조 조작으로 구분한다.
+- 자동 알림의 바깥 여백은 상하좌우 12px로 통일하고 제목·출처·이동 버튼의 시작선을 맞춘다.
+- 대화·시스템 자원 열기는 배경 없는 작은 글자·화살표로 표시한다. 데스크톱 높이는 28px로 줄이고 모바일 터치 영역은 44px로 유지한다. 알림 개수·펼침 및 닫기는 오른쪽 보조 조작으로 구분한다.
 - 세부 간격·터치 크기는 연결된 명세를 따른다.
 
 - 공통 번역 함수로 말풍선·알림 설정·OS 알림을 연결하고 메모리 표기·뮤캣 접근성 이름도 현지화했다.
@@ -89,5 +91,7 @@ commits: []
 - 일반 크기 고양이를 던지고 마우스·터치로 반복해서 다시 잡을 때, 누르는 순간과 커서를 멈춘 동안 위치가 유지되고 다시 움직이면 같은 간격으로 따라오는지 Chromium 회귀 테스트로 검사한다.
 - 낙하 중 고양이 밖과 그림의 투명한 부분은 배경 버튼으로 입력이 전달되고, 실제 그림을 누를 때만 다시 잡히는지도 검사한다.
 - 모바일에서 애니메이션 시간을 멈추지 않고 빠르게 던진 뒤 첫 배경 탭의 클릭이 전달되는지도 확인한다.
+
+- 2026-09-26: 알림 관련 테스트 11개 통과. Chromium 데스크톱·모바일 양 테마에서 작업 완료 알림, 긴 출처 줄바꿈, 네 언어 이동 버튼, 44px 터치 영역과 실제 대화 이동을 확인했다. 타입 검사와 문서 경계·링크 검사도 통과했다.
 
 <!-- mew:validation:end -->

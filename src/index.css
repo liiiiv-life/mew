@@ -221,11 +221,11 @@ body {
   }
 }
 
-/* Shared character palette: illustration and speech bubble use the same fur and outline. */
+/* Shared black-cat palette for the character and skin preview. */
 :root {
-  --mewcat-fur: #fff5e6;
-  --mewcat-outline: #65534c;
-  --mewcat-ink: #493c37;
+  --mewcat-fur: #171717;
+  --mewcat-outline: #737373;
+  --mewcat-ink: #e8d99b;
 }
 .mewcat-head { transform-box: fill-box; transform-origin: 50% 85%; }
 
@@ -463,6 +463,20 @@ strong {
   color: var(--color-ink);
 }
 .mewcat-notifications-content { max-height: inherit; overflow-y: auto; border-radius: inherit; }
+.mewcat-notification-summary {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px 8px;
+  padding: 12px;
+}
+.mewcat-notification-footer {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
 .mewcat-notifications-with-cat { visibility: hidden; }
 .mewcat-notifications-with-cat::after {
   content: '';
@@ -494,19 +508,20 @@ strong {
 .mewcat-notification-button:active { background: var(--color-surface-hover); }
 .mewcat-notification-button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
 .mewcat-notification-action {
-  gap: 8px;
-  min-height: 36px;
+  gap: 4px;
+  min-height: 28px;
   max-width: 100%;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--color-surface-raised);
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 500;
   line-height: 18px;
 }
-.mewcat-notification-action:hover { background: var(--color-surface-hover); }
-.mewcat-notification-action:active { background: var(--color-edge-bright); }
+.mewcat-notification-action:hover,
+.mewcat-notification-action:active { background: transparent; color: var(--color-link); }
+.mewcat-notification-action:hover span { text-decoration: underline; text-underline-offset: 3px; }
 @media (pointer: coarse) {
   .mewcat-notification-button { min-width: 44px; min-height: 44px; }
 }

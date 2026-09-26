@@ -33,6 +33,7 @@ Math.random=()=>0.7;
 window.clearNotices=clearMewcatNotices;
 window.addRecent=()=>{publishMewcatNotice({key:'older',kind:'complete',level:'success',source:'Older agent'});publishMewcatNotice({key:'newer',kind:'error',level:'danger',source:'Newest agent'});};
 window.addAll=()=>['complete','stopped','error','permission','cpu','memory','gpu','temperature','test'].forEach(kind=>publishMewcatNotice({key:'locale:'+kind,kind,level:'warning',source:kind==='test'?'Mewcat':'Original agent',target:'system'}));
+window.complete=(source='Codex · mew')=>publishMewcatNotice({key:'completion',kind:'complete',level:'success',source,target:{tabId:'completed-agent',cwd:'/workspace'}});
 window.notify=()=>publishMewcatNotice({key:'sample',kind:'memory',level:'warning',source:'95%',target:'system'});
 window.addEventListener('mew:open-notification',event=>window.openedTarget=event.detail.target);
 function Fixture(){window.setLocale=useI18n().setLocale;const [open,setOpen]=React.useState(false);const [allowed,setAllowed]=React.useState(true);window.setAllowed=setAllowed;return <><div style={{padding:24,maxWidth:480}}><MewcatNotificationSettings/></div><Mewcat skin="mew" onOpenSystemStats={allowed?()=>setOpen(true):undefined}/>{open&&<SystemStatsModal onClose={()=>setOpen(false)}/>}</>}
@@ -86,6 +87,24 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await bubble.waitFor({ state: 'detached' })
       await page.waitForFunction("document.querySelector('.mewcat').dataset.activity === 'run'")
       assert.equal(samples, 0, 'resource summary does not poll before opening')
+      await page.evaluate('window.complete()')
+      await bubble.getByText(mewcatNotificationCopy.ko.complete, { exact: true }).waitFor()
+      await page.screenshot({ path: `/tmp/mewcat-complete-${mobile ? 'mobile' : 'desktop'}-${light ? 'light' : 'dark'}.png` })
+      for (const locale of LOCALES) {
+        await page.evaluate(locale => (globalThis as unknown as MewcatFixture).setLocale(locale), locale)
+        const open = bubble.getByRole('button', { name: mewcatNotificationCopy[locale].open, exact: true })
+        await open.waitFor()
+        const action = (await open.boundingBox())!, bounds = (await bubble.boundingBox())!
+        assert.ok(action.x >= bounds.x && action.x + action.width <= bounds.x + bounds.width)
+        if (mobile) assert.ok(action.height >= 44, 'compact appearance retains its touch target')
+      }
+      await page.evaluate(() => (globalThis as unknown as MewcatFixture).setLocale('ko'))
+      await page.evaluate("window.complete('Codex · 아주 긴 프로젝트 이름과 에이전트 이름이 함께 표시되는 작업 완료 알림')")
+      assert.equal(await bubble.evaluate(element => element.scrollWidth <= element.clientWidth), true)
+      const conversation = bubble.getByRole('button', { name: mewcatNotificationCopy.ko.open, exact: true })
+      if (mobile) await conversation.tap(); else await conversation.click()
+      assert.deepEqual(await page.evaluate('window.openedTarget'), { tabId: 'completed-agent', cwd: '/workspace' })
+      await bubble.waitFor({ state: 'detached' })
       const cat = page.getByRole('button', { name: '뮤캣', exact: true })
       await cat.evaluate(el => el.addEventListener('pointerdown', () => { (el.ownerDocument.defaultView as unknown as { tappedCatX: number }).tappedCatX = el.getBoundingClientRect().x }, { once: true }))
       if (mobile) await cat.tap({ force: true }); else await cat.click({ force: true })
