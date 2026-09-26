@@ -13,20 +13,31 @@ test('agent loading bubbles cover connection and history, preserve drafts and re
   const source = `import React from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {AgentPanel} from '${root}/src/components/AgentPanel.tsx';
+import {DockWorkspace} from '${root}/src/components/DockWorkspace.tsx';
+import {writeAgentEventCache} from '${root}/src/utils/agentEventCache.ts';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {onMewcatNotice} from '${root}/src/utils/mewcat-notifications.ts';
 localStorage.setItem('mew:locale','ko');window.messages=[];window.notices=[];window.sockets={};window.fail=false;window.outsideClicks=0;
+const tabs=['first','second'].map(id=>({id,label:id,renamed:true,runtime:'codex',cwd:'/workspace'}));
+localStorage.setItem('mew:agent-tabs:'+JSON.stringify('/workspace'),JSON.stringify(tabs));
+localStorage.setItem('mew:agent-active-tab:'+JSON.stringify('/workspace'),'first');
+writeAgentEventCache('codex','first','/workspace',{sessionId:'first',events:[{type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Cached text must not flash'}}}]});
 onMewcatNotice(notice=>window.notices.push(notice));
 class Socket {
  static OPEN=1;readyState=0;
  constructor(url){this.tab=new URL(url).searchParams.get('tab');window.sockets[this.tab]=this;if(window.fail)setTimeout(()=>this.close(),20)}
  emit(value){this.onmessage?.({data:JSON.stringify(value)})}
- open(restore=true){this.readyState=1;this.onopen?.();if(!restore)return;this.emit({type:'replay',events:[{type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Saved conversation'}}}]});this.emit({type:'meta',meta:{sessionId:this.tab,startedAt:new Date().toISOString(),turns:1,busy:false,queued:[],usage:null,canLoad:true,canList:true}})}
+ open(restore=true){this.readyState=1;this.onopen?.();if(!restore)return;this.emit({type:'replay',restored:true,events:[{type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Saved conversation'}}}]});this.emit({type:'meta',meta:{sessionId:this.tab,startedAt:new Date().toISOString(),turns:1,busy:false,queued:[],usage:null,canLoad:true,canList:true}})}
  send(raw){if(this.readyState!==1)throw new Error('sent while disconnected');window.messages.push(JSON.parse(raw))}
  close(){this.readyState=3;this.onclose?.()}
 }
 window.WebSocket=Socket;
-createRoot(document.getElementById('root')).render(<I18nProvider><button id="outside" onClick={()=>window.outsideClicks++}>Outside panel</button><div style={{height:'calc(100% - 40px)',position:'relative'}}><AgentPanel project="test" workspacePath="/workspace" tree={[]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} /></div></I18nProvider>);`
+function Fixture(){
+ const [layout,setLayout]=React.useState({version:1,groups:[{id:'agent:restored',kind:'agent'}],tabs:{'agent:first':'agent:restored','agent:second':'agent:restored'},active:{'agent:restored':'first'},tree:{id:'agent:restored'}});
+ const panel=<AgentPanel project="test" workspacePath="/workspace" tree={[]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} />;
+ return <><button id="outside" onClick={()=>window.outsideClicks++}>Outside panel</button><div style={{height:'calc(100% - 40px)',position:'relative',display:'flex'}}>{matchMedia('(min-width:768px)').matches?<DockWorkspace value={layout} onChange={setLayout} foreground="agent" apiRef={null} onEditorDrop={()=>'main'}>{panel}</DockWorkspace>:panel}</div></>;
+}
+createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:connection.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'fixture',
     async resolveId(id, importer) {
@@ -44,7 +55,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><button id="out
   }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
-  const content = (await Promise.all(['src/components/AgentPanel.tsx', 'src/components/MentionTextarea.tsx'].map(file => fs.readFile(`${root}/${file}`, 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/AgentPanel.tsx', 'src/components/MentionTextarea.tsx', 'src/components/DockWorkspace.tsx'].map(file => fs.readFile(`${root}/${file}`, 'utf8')))).join('\n')
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
@@ -53,9 +64,12 @@ createRoot(document.getElementById('root')).render(<I18nProvider><button id="out
       page.setDefaultTimeout(4000)
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
-      await page.route('http://mew-connection.test/**', route => {
+      let releaseTabs!: () => void
+      const tabsReady = new Promise<void>(resolve => { releaseTabs = resolve })
+      await page.route('http://mew-connection.test/**', async route => {
         const pathname = new URL(route.request().url()).pathname
         if (pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: chunk.code })
+        if (pathname === '/api/user-ui/agent-tabs') await tabsReady
         if (pathname === '/api/user-ui/agent-tabs') return route.fulfill({ json: { state: { tabs: ['first', 'second'].map(id => ({ id, label: id, renamed: true, runtime: 'codex', cwd: '/workspace' })), activeId: 'first' }, claims: [] } })
         if (pathname === '/api/agent-cwd') return route.fulfill({ json: { cwd: '/workspace' } })
         if (pathname === '/api/projects') return route.fulfill({ json: [] })
@@ -63,11 +77,68 @@ createRoot(document.getElementById('root')).render(<I18nProvider><button id="out
         return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html class="${dark ? 'dark' : ''}" lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}html,body,#root{height:100%;margin:0}</style><div id="root"></div><script src="/app.js"></script></html>` })
       })
       await page.goto('http://mew-connection.test/')
+      await page.locator('[data-agent-restoring]:visible .agent-loading-bubbles').waitFor()
+      assert.equal(await page.getByText('Cached text must not flash', { exact: true }).count(), 0)
+      assert.deepEqual(await page.evaluate('Object.keys(window.sockets)'), [], 'no connection before the server tab ledger resolves')
+      releaseTabs()
       const overlay = page.locator('[data-agent-loading]:visible')
       await overlay.waitFor().catch(error => { throw new Error(`${error.message}\n${JSON.stringify(errors)}`) })
       assert.equal(await overlay.getByRole('status').getAttribute('aria-label'), '연결 중…')
       assert.equal(await overlay.locator('.agent-loading-bubbles__bubble').count(), 4)
       assert.equal(await overlay.locator('.animate-spin').count(), 0)
+      assert.equal(await page.getByText('Cached text must not flash', { exact: true }).isVisible(), false)
+      // The restored dock group has no input focus yet. Its visible loading must still move.
+      const motion = await overlay.locator('.agent-loading-bubbles__bubble').first().evaluate(async element => {
+        const view = element.ownerDocument.defaultView!
+        const animation = element.getAnimations({ subtree: true })[0]
+        const before = Number(animation.currentTime)
+        const x = () => view.getComputedStyle(element, '::after').transform
+        const initial = x()
+        await new Promise<void>(resolve => view.setTimeout(resolve, 150))
+        const advanced = Number(animation.currentTime) > before
+        const moved = x() !== initial
+        const sample = async (time: number) => {
+          animation.currentTime = time
+          await new Promise<void>(resolve => view.requestAnimationFrame(() => resolve()))
+          return Number(x().split(',')[4])
+        }
+        const outwardStart = await sample(280), outwardEnd = await sample(1120)
+        const returnStart = await sample(1680), returnEnd = await sample(2520)
+        return { advanced, moved, outward: outwardEnd > outwardStart, returning: returnEnd < returnStart, state: animation.playState }
+      })
+      assert.deepEqual(motion, { advanced: true, moved: true, outward: true, returning: true, state: 'running' })
+      // Check painted pixels, not just CSS coordinates: the band must stay visible and cross the bubble.
+      const shimmer = overlay.locator('.agent-loading-bubbles__bubble').first()
+      const paintedBand = async (time: number) => {
+        await shimmer.evaluate((element, time) => {
+          const animation = element.getAnimations({ subtree: true })[0]
+          animation.pause()
+          animation.currentTime = time
+        }, time)
+        const png = await shimmer.screenshot({ path: `/tmp/mew-shimmer-${width}-${dark ? 'dark' : 'light'}-${time}.png` })
+        return page.evaluate<{ left: number; right: number; base: number; profiles: number[][] }>(`(async () => {
+          const img = new Image(); img.src = 'data:image/png;base64,${png.toString('base64')}'; await img.decode();
+          const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
+          const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
+          const sample = fraction => ctx.getImageData(Math.floor(img.width * fraction), Math.floor(img.height / 2), 1, 1).data[0];
+          return { left: sample(.2), right: sample(.8), base: sample(.9),
+            profiles: [.15, .5, .85].map(y => [.3, .4, .5, .6, .7].map(x =>
+              ctx.getImageData(Math.floor(img.width * x), Math.floor(img.height * y), 1, 1).data[0])) };
+        })()`)
+      }
+      const left = await paintedBand(0), right = await paintedBand(1400), returned = await paintedBand(2800)
+      const polarity = dark ? 1 : -1
+      assert.ok((left.left - left.right) * polarity >= 25, 'left band visibly contrasts with its surface')
+      assert.ok((right.right - right.left) * polarity >= 25, 'right band visibly contrasts with its surface')
+      assert.ok((returned.left - returned.right) * polarity >= 25, 'painted band returns to the left')
+      const centered = await paintedBand(700)
+      for (const row of centered.profiles) {
+        const peak = (row[2] - centered.base) * polarity
+        const expected = [0, .5, 1, .5, 0]
+        row.forEach((pixel, index) => assert.ok(Math.abs((pixel - centered.base) * polarity / peak - expected[index]) < .07,
+          'the painted gradient fades continuously through 0/50/100/50/0 at every height'))
+      }
+      await shimmer.evaluate(element => element.getAnimations({ subtree: true })[0].play())
       const session = page.locator('[data-agent-session]:visible')
       const draft = session.getByPlaceholder('텍스트 입력')
       const send = session.getByRole('button', { name: '전송', exact: true })
@@ -102,7 +173,20 @@ createRoot(document.getElementById('root')).render(<I18nProvider><button id="out
       await assertOverlayBounds()
       assert.equal(await overlay.evaluate(element => element.ownerDocument.defaultView!.getComputedStyle(element).backgroundColor), await session.evaluate(element => element.ownerDocument.defaultView!.getComputedStyle(element).backgroundColor))
       await page.emulateMedia({ reducedMotion: 'reduce' })
-      assert.equal(await overlay.locator('.agent-loading-bubbles__bubble').first().evaluate(element => element.ownerDocument.defaultView!.getComputedStyle(element, '::after').animationName), 'none')
+      assert.equal(await overlay.locator('.agent-loading-bubbles__bubble').first().evaluate(element => element.ownerDocument.defaultView!.getComputedStyle(element, '::after').animationName), 'agent-bubble-breathe')
+      const reduced = await shimmer.evaluate(element => {
+        const view = element.ownerDocument.defaultView!
+        const animation = element.getAnimations({ subtree: true })[0]
+        animation.pause(); animation.currentTime = 0
+        const from = view.getComputedStyle(element, '::after')
+        const position = from.transform, opacity = Number(from.opacity)
+        animation.currentTime = 2000
+        const to = view.getComputedStyle(element, '::after')
+        const result = { stationary: to.transform === position, brightnessChanged: Number(to.opacity) - opacity > .4 }
+        animation.play()
+        return result
+      })
+      assert.deepEqual(reduced, { stationary: true, brightnessChanged: true })
       await page.emulateMedia({ reducedMotion: 'no-preference' })
       assert.equal(await overlay.locator('.agent-loading-bubbles__bubble').first().evaluate(element => element.ownerDocument.defaultView!.getComputedStyle(element, '::after').animationName), 'agent-bubble-shimmer')
       assert.equal(await session.locator('[inert]').count(), 2)

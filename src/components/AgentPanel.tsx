@@ -1828,7 +1828,7 @@ export function AgentPanel({ notificationFocused = false, trackRestore, onRunnin
     setTabs((prev) => withSessionId(prev, id, runtime, cwd, null))
   }, [])
 
-  const renderSession = (tab: AgentTab, isActive: boolean) => {
+  const renderSession = (tab: AgentTab, isActive: boolean, visible = isActive) => {
     if (tab.runtime === 'tmux' ? !allowTerminal : !allowAgent) return null
     if (tab.runtime && runtimeOf(tab.runtime).surface === 'terminal' && !allowTerminal) return <p className="p-3 text-sm text-ink-secondary">{t('access.terminalRequired')}</p>
     const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!) ?? readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)?.sessionId ?? null
@@ -1848,6 +1848,7 @@ export function AgentPanel({ notificationFocused = false, trackRestore, onRunnin
               allowTerminal={allowTerminal}
               tabId={tab.id}
               active={isActive}
+              visible={visible}
               runtime={tab.runtime!}
               cwd={tab.cwd!}
               preset={tab.preset}
@@ -1886,8 +1887,7 @@ export function AgentPanel({ notificationFocused = false, trackRestore, onRunnin
           onCloseTab={closeTab} onClosePanel={() => { if (!dock.desktop || !dock.closeGroup(group)) (terminal ? onCloseTerminal ?? onClose : onClose)() }} />
         {(!tabsSynced || picking || terminal && (!list.length || openRuntimeError)) && <DockInlineBody group={group} className="flex min-h-0 flex-1 flex-col bg-surface-deep">
         {!tabsSynced && (() => {
-          const tab = list.find((tab) => tab.id === selected)
-          return tab?.runtime && tab.cwd && runtimeOf(tab.runtime).surface !== 'terminal' ? <AgentCachedPreview tab={tab} /> : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">{uiText("불러오는 중…")}</div>
+          return !terminal ? <AgentRestoringView /> : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">{uiText("불러오는 중…")}</div>
         })()}
         {tabsSynced && terminal && !list.length && <div className="flex min-h-0 flex-1 items-center justify-center"><button type="button" className="rounded-md border border-edge-bright px-4 py-2 text-sm text-ink-secondary hover:bg-surface-raised" onClick={() => { focusGroup(group); addRuntimeTab('tmux', undefined, group) }}>{uiText("새 터미널")}</button></div>}
         {picking && !terminal && <div className="flex min-h-0 flex-1 flex-col overflow-auto">
@@ -1903,7 +1903,7 @@ export function AgentPanel({ notificationFocused = false, trackRestore, onRunnin
       const group = dock.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', tab.id)
       const active = (tab.runtime === 'tmux' ? terminalOpen : agentOpen) && groupActive(group) === tab.id && !(pickerOpen && pickerGroup === group)
       return <DockBody key={`${tab.id}:${tab.runtime}:${tab.cwd}`} group={group} active={active} onFocus={() => focusGroup(group)}>
-        <AgentDockContent onClose={() => closeTab(tab.id)}>{renderSession(tab, active && focusedGroup === group)}</AgentDockContent>
+        <AgentDockContent onClose={() => closeTab(tab.id)}>{renderSession(tab, active && focusedGroup === group, active)}</AgentDockContent>
       </DockBody>
     })}
   </>
@@ -1929,8 +1929,8 @@ export function AgentPanel({ notificationFocused = false, trackRestore, onRunnin
       />
       {!tabsSynced && !pickerOpen && (() => {
         const tab = tabs.find((candidate) => candidate.id === activeId)
-        return tab?.runtime && tab.cwd && runtimeOf(tab.runtime).surface !== 'terminal'
-          ? <AgentCachedPreview tab={tab} />
+        return !tab?.runtime || runtimeOf(tab.runtime).surface !== 'terminal'
+          ? <AgentRestoringView />
           : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">{uiText("대화 불러오는 중…")}</div>
       })()}
       {/* 안 보이는 탭도 붙어 있는 채로 둔다 — 돌고 있는 대화가 탭을 바꿨다고 멎으면 안 된다 */}
@@ -2009,29 +2009,18 @@ function AgentTerminalView({
   )
 }
 
-/** 서버 원장 확인 전에는 읽기 전용 미리보기만 그린다. 세션 연결·저장은 하지 않는다. */
-function AgentCachedPreview({ tab }: { tab: AgentTab }) {
-  useUiLocale()
-  const items = useMemo(() => {
-    const cache = readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)
-    const expectedSession = sessionIdOf(tab, tab.runtime!, tab.cwd!)
-    if (!cache || (expectedSession && cache.sessionId !== expectedSession)) return []
-    return foldEvents(cache.events).flatMap((item) => {
-      if (item.kind === 'user') return [item.text]
-      if (item.kind === 'turn') return item.children.flatMap((child) => child.kind === 'agent' ? [child.text] : [])
-      return []
-    }).slice(-6)
-  }, [tab])
-  return <div className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-busy="true">
-    <div className="shrink-0 px-4 py-2 text-xs text-ink-muted">{uiText("최근 대화 · 연결 중…")}</div>
-    <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden px-4 pb-4">
-      {items.map((text, index) => <div key={index} className="select-text mt-3 shrink-0 whitespace-pre-wrap break-words text-sm text-ink-secondary">{text.slice(-4000)}</div>)}
-    </div>
+/** 서버 원장 확인 전부터 같은 로딩 화면을 사용한다. 캐시 전사는 세션 준비 뒤에만 표시한다. */
+function AgentRestoringView() {
+  const { t } = useI18n()
+  return <div data-agent-restoring className="flex min-h-0 flex-1 flex-col overflow-hidden" aria-busy="true">
+    <div aria-hidden="true" className="h-8 shrink-0 border-b border-edge bg-surface" />
+    <AgentLoadingBubbles label={t('common.loading')} />
   </div>
 }
 
 /** 탭 하나 — WS 하나, 세션 하나. 대화 상태는 전부 여기 안에 있다 */
 function AgentSessionView({
+  visible,
   notificationFocused,
   notificationWorkspace,
   allowTerminal,
@@ -2062,8 +2051,10 @@ function AgentSessionView({
   notificationWorkspace: string
   allowTerminal: boolean
   tabId: string
-  /** 지금 보이는 탭인지 — 안 보이는 탭은 높이가 0이라 스크롤을 못 잡는다(아래 effect) */
+  /** 입력·단축키 포커스 대상 */
   active: boolean
+  /** 다른 패널에 포커스가 있어도 현재 표시 중인 탭은 로딩을 재생한다. */
+  visible: boolean
   runtime: string
   cwd: string
   preset?: { id: string; name: string; modelId: string; role: string }
@@ -3514,7 +3505,7 @@ function AgentSessionView({
       </div>
 
       {conversationLoading && <div data-agent-loading className="absolute inset-0 overflow-hidden bg-surface-deep">
-        <AgentLoadingBubbles label={t(!connected ? 'agent.connecting' : 'common.loading')} active={active} />
+        <AgentLoadingBubbles label={t(!connected ? 'agent.connecting' : 'common.loading')} active={visible} />
       </div>}
       </div>
 

@@ -34,22 +34,35 @@
 .agent-loading-bubbles__bubble::after {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(105deg, transparent 15%, color-mix(in srgb, var(--color-ink) 9%, transparent) 50%, transparent 85%);
-  transform: translateX(-100%);
-  animation: agent-bubble-shimmer 1.8s ease-in-out infinite;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-ink) 11%, transparent) 25%,
+    color-mix(in srgb, var(--color-ink) 22%, transparent) 50%,
+    color-mix(in srgb, var(--color-ink) 11%, transparent) 75%,
+    transparent 100%);
+  animation: agent-bubble-shimmer 1.4s ease-in-out infinite alternate;
 }
-.agent-loading-bubbles__bubble:nth-child(2)::after { animation-delay: 120ms; }
-.agent-loading-bubbles__bubble:nth-child(3)::after { animation-delay: 240ms; }
-.agent-loading-bubbles__bubble:nth-child(4)::after { animation-delay: 360ms; }
+.agent-loading-bubbles__bubble:nth-child(2)::after { animation-delay: -200ms; }
+.agent-loading-bubbles__bubble:nth-child(3)::after { animation-delay: -400ms; }
+.agent-loading-bubbles__bubble:nth-child(4)::after { animation-delay: -600ms; }
 .agent-loading-bubbles[data-active='false'] .agent-loading-bubbles__bubble::after { animation-play-state: paused; }
 .agent-loading-bubbles[data-compact='true'] .agent-loading-bubbles__bubble { height: 28px; }
 @keyframes agent-bubble-shimmer {
-  0% { transform: translateX(-100%); }
-  80%, 100% { transform: translateX(100%); }
+  0% { transform: translateX(0); }
+  100% { transform: translateX(150%); }
+}
+@keyframes agent-bubble-breathe {
+  from { opacity: .35; }
+  to { opacity: .8; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .agent-loading-bubbles__bubble::after { animation: none; transform: none; }
+  .agent-loading-bubbles__bubble::after {
+    transform: translateX(75%);
+    animation-name: agent-bubble-breathe;
+    animation-duration: 2s;
+  }
 }
 
 /*
