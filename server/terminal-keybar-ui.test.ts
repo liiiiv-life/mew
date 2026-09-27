@@ -59,6 +59,17 @@ createRoot(document.getElementById('root')).render(<TmuxTerminal sessionName="ke
       assert.ok(positions.at(-1)!.x + positions.at(-1)!.width <= box.x + box.width)
       assert.ok(positions.at(-1)!.x + positions.at(-1)!.width >= box.x + box.width - 8, 'keys fill the available row')
       assert.equal(await bar.evaluate(el => el.scrollWidth <= el.clientWidth), true)
+      assert.equal(await bar.evaluate(el => el.scrollHeight <= el.clientHeight), true, 'key bar has no vertical overflow')
+      assert.equal(await bar.evaluate(el => {
+        const style = el.ownerDocument.defaultView!.getComputedStyle(el)
+        const box = el.getBoundingClientRect()
+        const top = box.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop)
+        const bottom = box.bottom - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom)
+        return [...el.querySelectorAll('button')].every(button => {
+          const key = button.getBoundingClientRect()
+          return key.top >= top && key.bottom <= bottom
+        })
+      }), true, 'bar fits the buttons and vertical padding without clipping')
       await page.screenshot({ path: `/tmp/mew-terminal-keys-${width}-${dark ? 'dark' : 'light'}.png` })
     }
     await page.setViewportSize({ width: 390, height: 400 })
