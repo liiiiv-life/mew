@@ -4,10 +4,15 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { build } from 'rolldown'
 import { compile } from '@tailwindcss/node'
-import { chromium } from 'playwright-core'
+import { chromium, type Locator } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
+
+async function composerValue(input: Locator): Promise<string> {
+  if (await input.locator('.cm-placeholder').count()) return ''
+  return (await input.locator('.cm-line').allTextContents()).join('\n')
+}
 
 test('agent loading bubbles cover connection and history, preserve drafts and respect reduced motion', { skip: !domBrowserExecutable(), timeout: 40_000 }, async () => {
   const source = `import React from '${root}/node_modules/react/index.js';
@@ -140,7 +145,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       }
       await shimmer.evaluate(element => element.getAnimations({ subtree: true })[0].play())
       const session = page.locator('[data-agent-session]:visible')
-      const draft = session.getByPlaceholder('텍스트 입력')
+      const draft = session.locator('[contenteditable="true"][aria-placeholder="텍스트 입력"]')
       const send = session.getByRole('button', { name: '전송', exact: true })
       await draft.fill('Draft before first connection')
       assert.equal(await send.isDisabled(), true)
@@ -148,7 +153,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(await overlay.isVisible(), true, 'socket open still waits for the conversation')
       await page.evaluate('window.sockets.first.open()')
       await overlay.waitFor({ state: 'hidden' })
-      assert.equal(await draft.inputValue(), 'Draft before first connection')
+      assert.equal(await composerValue(draft), 'Draft before first connection')
       await draft.fill('Keep this unsent draft')
       await session.getByText('Saved conversation', { exact: true }).waitFor()
       await page.clock.install()
@@ -197,7 +202,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       const sentBefore = await page.evaluate('window.messages.length')
       await draft.press('Control+Enter')
       assert.equal(await page.evaluate('window.messages.length'), sentBefore)
-      assert.equal(await draft.inputValue(), 'Edited while connecting')
+      assert.equal(await composerValue(draft), 'Edited while connecting')
       assert.equal(await session.getByText('Saved conversation', { exact: true }).count(), 1)
       await page.clock.runFor(12_000)
       assert.deepEqual(await page.evaluate('window.notices'), [], 'even prolonged retry failure produces no notification or sound/desktop delivery')
@@ -210,12 +215,12 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await overlay.waitFor()
       await page.evaluate('window.sockets.first.open()')
       await overlay.waitFor({ state: 'hidden' })
-      assert.equal(await draft.inputValue(), 'Edited while connecting')
+      assert.equal(await composerValue(draft), 'Edited while connecting')
       assert.equal(await session.locator('[inert]').count(), 0)
       assert.equal(await send.isEnabled(), true)
       await send.click()
       assert.equal(await page.evaluate('window.messages.at(-1).text'), 'Edited while connecting')
-      assert.equal(await draft.inputValue(), '')
+      assert.equal(await composerValue(draft), '')
       await draft.fill('Draft while loading history')
       const openHistory = async (id: string) => {
         await session.getByRole('button', { name: '히스토리', exact: true }).click()
@@ -228,7 +233,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         const before = await page.evaluate('window.messages.length')
         await draft.press('Control+Enter')
         assert.equal(await page.evaluate('window.messages.length'), before)
-        assert.equal(await draft.inputValue(), 'Draft while loading history')
+        assert.equal(await composerValue(draft), 'Draft while loading history')
       }
       await openHistory('history-replay')
       await page.evaluate("window.sockets.first.emit({type:'replay',events:[]});window.sockets.first.emit({type:'meta',meta:{sessionId:'history-replay',startedAt:new Date().toISOString(),turns:0,busy:false,queued:[],usage:null,canLoad:true,canList:true}})")
@@ -242,7 +247,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await page.evaluate("window.sockets.first.emit({type:'error',message:'History load failed'})")
       await overlay.waitFor({ state: 'hidden' })
       assert.equal(await send.isEnabled(), true)
-      assert.equal(await draft.inputValue(), 'Draft while loading history')
+      assert.equal(await composerValue(draft), 'Draft while loading history')
       await draft.fill('Typing after recovery')
       await page.evaluate("window.sockets.first.emit({type:'error',message:'Actual agent failure'})")
       assert.equal(await page.evaluate('window.notices.at(-1).kind'), 'error', 'actual agent errors still notify')

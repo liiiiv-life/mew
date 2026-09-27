@@ -1497,6 +1497,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         // 터미널 안에서 누른 Ctrl+L은 TmuxTerminal이 직접 처리한다(defaultPrevented).
         if (e.defaultPrevented) return
         if (!(e.target instanceof HTMLElement) || !e.target.closest('.ProseMirror, .cm-editor')) return
+        if (e.target.closest('[data-agent-session]')) return
         const range = focusedEditor()?.getSelectedLineRange()
         if (!range || !activeRelativePath) return
         // 받을 창이 없어도 여기서 삼킨다 — 안 그러면 브라우저 기본 Ctrl+L(주소창)로 샌다

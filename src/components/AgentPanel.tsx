@@ -30,7 +30,7 @@ import { AgentLoadingBubbles } from './agent-loading-bubbles'
 import { useAgentCommands } from '../hooks/use-agent-commands'
 import { stopAgentTabCommands } from '../api/agent-commands'
 import { commandTimeline } from '../utils/agent-command-timeline'
-import { copyText, isTextareaCaretOnVisualBoundary, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
+import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { TmuxTerminal } from '@mew/tmux-term'
 import { useI18n } from '../i18n'
@@ -88,6 +88,7 @@ import {
   type AgentScheduledPrompt,
   type SkillSummary,
 } from '../api/client'
+import type { MentionInputHandle } from './agent-composer-input'
 import { MentionTextarea, type MentionOption, type TriggerOptionSet } from './MentionTextarea'
 import { agentInputMentionOptions } from '../utils/agentInputMentions'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
@@ -2139,7 +2140,7 @@ function AgentSessionView({
     setAuthBrowser(null)
   }, [])
   const attachmentInputRef = useRef<HTMLInputElement>(null)
-  const agentInputRef = useRef<HTMLTextAreaElement>(null)
+  const agentInputRef = useRef<MentionInputHandle>(null)
   const historyIndexRef = useRef<number | null>(null)
   const historyDraftRef = useRef('')
   const infoOverlayRef = useRef<HTMLDivElement>(null)
@@ -2323,7 +2324,7 @@ function AgentSessionView({
   const navigateAgentHistory = useCallback((direction: 'up' | 'down'): boolean => {
     const input = agentInputRef.current
     if (!input || input.selectionStart !== input.selectionEnd) return false
-    if (!isTextareaCaretOnVisualBoundary(input, direction)) return false
+    if (!input.isOnVisualBoundary?.(direction)) return false
     const history = readAgentInputHistory(tabId)
     if (history.length === 0) return false
 
@@ -3687,7 +3688,7 @@ function AgentSessionView({
         style={{ height: `${visibleInputHeight}px`, marginBottom: `${viewportMetrics.bottomInset}px` }}
         data-keep-keyboard
         onKeyDownCapture={(event) => {
-          if (event.target !== agentInputRef.current || event.key !== 'Tab' || !event.ctrlKey
+          if (event.target !== agentInputRef.current?.element || event.key !== 'Tab' || !event.ctrlKey
             || event.altKey || event.metaKey || event.shiftKey || event.nativeEvent.isComposing) return
           event.preventDefault()
           event.stopPropagation()
@@ -3736,7 +3737,7 @@ function AgentSessionView({
                   {uiText("첨부 중…")}</span>
               )}
               {attachments.map((attachment) => (
-                <span key={attachment.relPath} className="flex h-6 min-w-20 shrink-0 items-center gap-0.5 rounded-md bg-surface-raised pl-2 pr-0 text-xs text-ink-secondary">
+                <span key={attachment.relPath} className="flex h-6 shrink-0 items-center gap-0.5 rounded-md bg-surface-raised pl-2 pr-0 text-xs text-ink-secondary">
                   {attachment.isImage ? (
                     <button
                       type="button"
@@ -3764,6 +3765,7 @@ function AgentSessionView({
             </div>
           )}
           <MentionTextarea
+            imageCapable
             value={draft}
             onChange={(next) => {
               historyIndexRef.current = null

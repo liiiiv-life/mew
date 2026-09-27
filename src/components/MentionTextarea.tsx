@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type CSSProperties, type RefObject } from 'react'
+import { AgentComposerInput, type MentionInputHandle } from './agent-composer-input'
+import { clipboardImages } from '../utils/clipboard-images'
 import { prefixMatch } from '@mew/editor'
 import { useOverlayDismiss } from '@mew/ui'
 
 // '@' 멘션이 되는 textarea — 채팅 입력(파일 멘션)과 댓글 작성(사용자 멘션)이 같이 쓴다.
 // '@' 뒤에 이어 친 글자를 검색어로 목록을 띄우고, 고르면 '@검색어'가 insert 문자열로 바뀐다.
-// 에디터의 멘션(트랜잭션 기반)과 달리 여기는 평범한 textarea라 keydown으로 충분하다.
+// 에이전트에서는 모바일 이미지 입력을 위해 CodeMirror 편집 호스트를 사용한다.
 
 export interface MentionOption {
   id: string
@@ -62,6 +64,7 @@ export function MentionTextarea({
   onHistoryNavigate,
   maxResults = 8,
   onTriggerChange,
+  imageCapable = false,
 }: {
   value: string
   onChange: (value: string) => void
@@ -89,11 +92,13 @@ export function MentionTextarea({
   /** 선택된 멘션의 부수 동작(예: 에이전트 탭 이름)을 호출한다. */
   onOptionSelect?: (option: MentionOption) => void
   /** 호스트가 모바일 보조키 등으로 입력 커서를 조작할 때 쓴다. */
-  inputRef?: RefObject<HTMLTextAreaElement | null>
+  inputRef?: RefObject<MentionInputHandle | null>
+  /** Rich editing host lets mobile keyboards offer image clipboard entries. */
+  imageCapable?: boolean
   /** 호스트가 첫·마지막 시각적 줄인지 확인해 입력 히스토리를 탐색한다. 처리했으면 true를 돌린다. */
   onHistoryNavigate?: (direction: 'up' | 'down') => boolean
 }) {
-  const ownTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const ownTextareaRef = useRef<MentionInputHandle>(null)
   const textareaRef = inputRef ?? ownTextareaRef
   const optionSets = useMemo<TriggerOptionSet[]>(() => [{ trigger: '@', options }, ...(triggers ?? [])], [options, triggers])
   const triggerChars = useMemo(() => optionSets.map((set) => set.trigger), [optionSets])
@@ -137,21 +142,6 @@ export function MentionTextarea({
     if (!found || found.trigger !== mention?.trigger || found.query !== mention?.query) setSelected(0)
   }
 
-  const pasteImages = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
-    if (!onImagesPasted) return
-    const direct = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
-    // 브라우저에 따라 clipboardData.files가 비어 있어 item에서만 꺼낼 수 있다.
-    const files = direct.length > 0
-      ? direct
-      : Array.from(event.clipboardData.items)
-        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null)
-    if (files.length === 0) return
-    event.preventDefault()
-    onImagesPasted(files)
-  }
-
   // 인라인 검색 메뉴도 모달·패널과 같은 Esc 스택에 올라간다. 기본 capture 단계가 툴팁을
   // 먼저 닫고 이벤트를 소비하므로, 아래의 에이전트·채팅 같은 bubble 패널까지 닫히지 않는다.
   useOverlayDismiss(mention && (shown.length > 0 || onTriggerChange) ? closeMention : false)
@@ -170,6 +160,35 @@ export function MentionTextarea({
       el?.setSelectionRange(pos, pos)
       el?.focus()
     })
+  }
+
+  const handleKeyDown = (e: KeyboardEvent | ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (mention && shown.length > 0) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelected((s) => (s + (e.key === 'ArrowDown' ? 1 : shown.length - 1)) % shown.length)
+        return
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !('nativeEvent' in e ? e.nativeEvent.isComposing : e.isComposing)) {
+        e.preventDefault()
+        pick(shown[selected] ?? shown[0])
+        return
+      }
+    }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      if (onHistoryNavigate?.(e.key === 'ArrowUp' ? 'up' : 'down')) {
+        e.preventDefault()
+        return
+      }
+    }
+    const shouldSubmit =
+      submitShortcut === 'enter'
+        ? e.key === 'Enter' && !e.shiftKey
+        : e.key === 'Enter' && (e.ctrlKey || e.metaKey)
+    if (shouldSubmit && !('nativeEvent' in e ? e.nativeEvent.isComposing : e.isComposing) && onSubmit) {
+      e.preventDefault()
+      onSubmit()
+    }
   }
 
   return (
@@ -217,8 +236,22 @@ export function MentionTextarea({
           ))}
         </div>
       )}
-      <textarea
-        ref={textareaRef}
+      {imageCapable ? <AgentComposerInput
+        value={value}
+        onChange={(next, caret) => {
+          if (next !== value) onChange(next)
+          syncMention(next, caret)
+        }}
+        onKeyDown={handleKeyDown}
+        onImagesPasted={onImagesPasted}
+        inputRef={textareaRef}
+        placeholder={placeholder}
+        label={submitHint}
+        autoFocus={autoFocus}
+        className={className}
+        style={style}
+      /> : <textarea
+        ref={(element) => { textareaRef.current = element }}
         value={value}
         placeholder={placeholder}
         autoFocus={autoFocus}
@@ -229,41 +262,20 @@ export function MentionTextarea({
           syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
         }}
         onClick={(e) => syncMention(value, (e.target as HTMLTextAreaElement).selectionStart ?? 0)}
-        onPaste={pasteImages}
-        onKeyDown={(e) => {
-          if (mention && shown.length > 0) {
-            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-              e.preventDefault()
-              setSelected((s) => (s + (e.key === 'ArrowDown' ? 1 : shown.length - 1)) % shown.length)
-              return
-            }
-            if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              pick(shown[selected] ?? shown[0])
-              return
-            }
-          }
-          if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-            if (onHistoryNavigate?.(e.key === 'ArrowUp' ? 'up' : 'down')) {
-              e.preventDefault()
-              return
-            }
-          }
-          const shouldSubmit =
-            submitShortcut === 'enter'
-              ? e.key === 'Enter' && !e.shiftKey
-              : e.key === 'Enter' && (e.ctrlKey || e.metaKey)
-          if (shouldSubmit && !e.nativeEvent.isComposing && onSubmit) {
-            e.preventDefault()
-            onSubmit()
-          }
+        onPaste={(event) => {
+          if (!onImagesPasted) return
+          const files = clipboardImages(event.clipboardData)
+          if (!files.length) return
+          event.preventDefault()
+          onImagesPasted(files)
         }}
+        onKeyDown={handleKeyDown}
         style={style}
         className={
           className ??
           'w-full resize-none rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-edge-bright'
         }
-      />
+      />}
     </div>
   )
 }

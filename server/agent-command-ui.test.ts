@@ -4,11 +4,16 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { build } from 'rolldown'
 import { compile } from '@tailwindcss/node'
-import { chromium } from 'playwright-core'
+import { chromium, type Locator } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
 import type { AgentCommandRecord } from '../shared/agent-command.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
+
+async function composerValue(input: Locator): Promise<string> {
+  if (await input.locator('.cm-placeholder').count()) return ''
+  return (await input.locator('.cm-line').allTextContents()).join('\n')
+}
 
 test('CLI composer, live-to-saved popup, keyboard focus and reload on desktop/mobile', { skip: !domBrowserExecutable(), timeout: 45_000 }, async () => {
   const source = `
@@ -55,6 +60,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       const records: AgentCommandRecord[] = []
+      let uploads = 0
       let launches = 0
       let tabReads = 0
       let documentReads = 0
@@ -65,6 +71,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
       await page.route('http://mew-cli.test/**', async route => {
         const url = new URL(route.request().url()), pathname = url.pathname
         if (pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: chunk.code })
+        if (pathname === '/api/upload-into') {
+          uploads++
+          return route.fulfill({ json: { relPath: `.mew/files/clipboard-${uploads}.png` } })
+        }
         if (pathname === '/api/agent/commands') {
           if (route.request().method() === 'POST') {
             launches++
@@ -104,26 +114,89 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
       const model = page.getByTitle('모델', { exact: true })
       const toggleBox = await toggle.boundingBox(), modelBox = await model.boundingBox()
       assert.ok(toggleBox && modelBox && toggleBox.x < modelBox.x)
-      const draft = page.getByPlaceholder('텍스트 입력')
+      const draft = page.locator('[contenteditable="true"][aria-placeholder="텍스트 입력"]')
       assert.equal(documentReads, 0, 'Documents is loaded on demand')
+      assert.equal(await draft.getAttribute('contenteditable'), 'true', 'mobile keyboards receive a rich editing host')
+      await draft.fill('사진 두 장')
+      for (const eventType of ['paste', 'beforeinput']) {
+        const uploaded = page.waitForResponse(response => response.url().endsWith('/api/upload-into'))
+        const prevented = await page.evaluate<boolean>(`(() => {
+          const element = document.querySelector('[contenteditable="true"][aria-placeholder="텍스트 입력"]')
+          const eventType = ${JSON.stringify(eventType)}
+          const data = new DataTransfer()
+          data.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'photo.png', { type: 'image/png' }))
+          const event = eventType === 'paste'
+            ? new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true })
+            : new InputEvent('beforeinput', { inputType: 'insertFromPaste', dataTransfer: data, bubbles: true, cancelable: true })
+          element.dispatchEvent(event)
+          return event.defaultPrevented
+        })()`)
+        assert.equal(prevented, true)
+        await uploaded
+        await page.getByRole('button', { name: '전송', exact: true }).waitFor()
+        // Wait for React's upload completion before committing the next image.
+        await page.waitForFunction(`() => !document.querySelector('button[aria-label="전송"]')?.disabled`)
+      }
+      assert.equal(uploads, 2)
+      assert.equal(await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).count(), 2)
+      assert.equal(await draft.locator('img').count(), 0, 'photos stay in attachment tags, never the text document')
+      await draft.press('Control+Enter')
+      const photoPrompt = await page.evaluate<{ text: string; images: unknown[] }>("window.agentMessages.find(message => message.type === 'prompt')")
+      assert.match(photoPrompt.text, /사진 두 장/)
+      assert.match(photoPrompt.text, /\[\[test:\.mew\/files\/clipboard-1.png\]\]/)
+      assert.equal(photoPrompt.images.length, 2)
+      await page.evaluate('window.agentMessages=[]')
+
+      await draft.fill('첫 줄\n둘째 줄')
+      await draft.press('Home')
+      await draft.press('ArrowUp')
+      assert.equal(await draft.locator('.cm-line').allTextContents().then(lines => lines.join('\n')), '첫 줄\n둘째 줄', 'up inside a multiline draft moves the caret')
+      await draft.press('Control+Home')
+      await draft.press('ArrowUp')
+      assert.equal(await draft.locator('.cm-line').allTextContents().then(lines => lines.join('\n')), '사진 두 장', 'first visual line recalls the last prompt')
+      await draft.press('Control+End')
+      await draft.press('ArrowDown')
+      assert.equal(await draft.locator('.cm-line').allTextContents().then(lines => lines.join('\n')), '첫 줄\n둘째 줄', 'down restores the unsent multiline draft')
+      await page.evaluate('new Promise(requestAnimationFrame)')
+      await draft.press('Control+a')
+      await page.evaluate(`(() => {
+        const element = document.querySelector('[contenteditable="true"][aria-placeholder="텍스트 입력"]')
+        const data = new DataTransfer()
+        data.setData('text/plain', '한글 붙여넣기\\n두 번째 줄')
+        data.setData('text/html', '<b>한글 붙여넣기</b><br>두 번째 줄')
+        element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+      })()`)
+      assert.equal(await draft.locator('.cm-line').allTextContents().then(lines => lines.join('\n')), '한글 붙여넣기\n두 번째 줄')
+      assert.equal(await draft.locator('b, br').count(), 0, 'formatted clipboard text remains plain text')
+      await page.evaluate(`(() => {
+        const element = document.querySelector('[contenteditable="true"][aria-placeholder="텍스트 입력"]')
+        element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+        element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, isComposing: true, bubbles: true, cancelable: true }))
+        element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '글' }))
+      })()`)
+      assert.equal(await page.evaluate("window.agentMessages.some(message => message.type === 'prompt')"), false, 'IME composition cannot submit the prompt')
+      if (process.env.MEW_CLI_SCREENSHOTS) {
+        await fs.mkdir(process.env.MEW_CLI_SCREENSHOTS, { recursive: true })
+        await page.screenshot({ path: path.join(process.env.MEW_CLI_SCREENSHOTS, `composer-${width}.png`) })
+      }
       await draft.fill('@README')
       const documentOption = page.getByRole('button', { name: 'README.md Documents/README.md', exact: true })
       await documentOption.waitFor()
       assert.equal(await page.getByRole('button', { name: 'README.md README.md', exact: true }).count(), 1)
       await documentOption.click()
-      assert.equal(await draft.inputValue(), '[[docs:README.md]] ')
+      assert.equal(await composerValue(draft), '[[docs:README.md]] ')
       await draft.press('Control+Enter')
       assert.equal(await page.evaluate("window.agentMessages.find(message => message.type === 'prompt')?.text"), '[[docs:README.md]]')
       await page.evaluate('window.agentMessages=[]')
       await draft.fill('@setup')
       await page.getByRole('button', { name: 'setup.md Documents/guides/setup.md', exact: true }).waitFor()
       await draft.press('Enter')
-      assert.equal(await draft.inputValue(), '[[docs:guides/setup.md]] ')
+      assert.equal(await composerValue(draft), '[[docs:guides/setup.md]] ')
       documentMode = 'failed'
       const failed = page.waitForResponse(response => response.url().includes('/api/tree?project=docs'))
       await draft.fill('@README'); await failed
       await page.getByRole('button', { name: 'README.md README.md', exact: true }).click()
-      assert.equal(await draft.inputValue(), '[[test:README.md]] ', 'a failed Documents request keeps current-project candidates')
+      assert.equal(await composerValue(draft), '[[test:README.md]] ', 'a failed Documents request keeps current-project candidates')
       documentMode = 'delayed'
       await draft.fill('@setup'); await documentRequest
       await draft.press('Escape')
@@ -139,8 +212,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
       await draft.fill(command)
       await draft.press('Control+Tab')
       assert.equal(await toggle.getAttribute('aria-pressed'), 'true')
-      assert.equal(await draft.inputValue(), command)
-      assert.ok(await page.evaluate('document.activeElement?.tagName === "TEXTAREA"'))
+      assert.equal(await composerValue(draft), command)
+      assert.ok(await page.evaluate('document.activeElement?.getAttribute("contenteditable") === "true"'))
       await draft.press('Control+Tab')
       assert.equal(await toggle.getAttribute('aria-pressed'), 'false')
       await toggle.focus()

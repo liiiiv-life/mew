@@ -4,9 +4,9 @@ parent: "mew-agents"
 title: "에이전트 입력·멘션·스킬·첨부"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-27"
 status_hash: "a10e27bcc06cebe98975858548ff907b5953bfbcf197fe2ef971d9294144858f"
-files: ["src/components/AgentPanel.tsx", "src/components/MentionTextarea.tsx", "src/utils/agentInputMentions.ts", "server/skills.ts"]
+files: ["src/components/AgentPanel.tsx", "src/components/MentionTextarea.tsx", "src/components/agent-composer-input.tsx", "src/utils/clipboard-images.ts", "src/utils/agentInputMentions.ts", "server/skills.ts"]
 commits: []
 ---
 
@@ -35,6 +35,7 @@ commits: []
 - @ 프로젝트/파일/폴더 멘션, / 스킬 선택, 첨부·미리보기·입력 기록과 입력칸 높이 조절을 제공한다.
 
 - 연결 중에도 초안 작성·첨부·높이 조절을 유지하며 전송 버튼과 단축키 전송만 연결 상태로 제한한다([연결 표시 계약](../../specs/agent-panel.md#연결-대기와-재연결)).
+- 모바일 이미지 클립보드를 받을 수 있는 편집 호스트에서 사진을 첨부 태그로 연결한다. 텍스트·멘션·CLI 입력 계약과 실기기 지원 범위는 [입력 명세](../../specs/agent-input-mentions.md)를 따른다.
 - 에이전트 입력의 `@` 목록은 현재 프로젝트 후보에 Documents 내부 폴더·파일도 합친다.
 - Documents의 접힌 하위 폴더도 조회하고, 같은 이름의 프로젝트 파일은 경로 힌트와 스코프별 토큰으로 구분한다.
 - Documents 조회 시점·취소·권한 필터는 [입력 명세](../../specs/agent-input-mentions.md)를 따른다.
@@ -52,5 +53,10 @@ commits: []
   - 데스크톱·모바일에서 Documents 중첩 파일 표시, 동명 파일 구분, 키보드 선택과 전송 토큰, 조회 실패·취소 후 재시도를 확인했다.
   - 타입·문서 검사는 통과했고 린트는 기존 경고만 있다.
   - 배포 빌드·서버 재시작은 수행하지 않았다.
+
+- 2026-09-27:
+  - 데스크톱·모바일 크기의 격리 Chromium에서 이미지 paste/beforeinput 첨부·전송, 멘션, 텍스트 서식 제거, 조합 중 전송 방지, 입력 기록, CLI 전환·재연결 초안 유지 검증이 통과했다.
+  - 관련 UI 테스트 2개와 입력·클립보드 유틸리티 테스트 16개, 타입·문서 검사가 통과했다. 린트는 기존 경고만 있다.
+  - 실제 모바일 OS 키보드의 클립보드 목록은 미검증이며, 배포 빌드·서버 재시작은 수행하지 않았다.
 
 <!-- mew:validation:end -->
