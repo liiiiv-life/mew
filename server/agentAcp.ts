@@ -219,7 +219,7 @@ const knownModels = new Map<string, ModelInfo[]>()
 
 export const modelsByRuntime = (): Record<string, ModelInfo[]> => Object.fromEntries(knownModels)
 
-function describeError(err: unknown): string {
+export function describeError(err: unknown): string {
   if (err instanceof Error) {
     const details = Object.fromEntries(
       Object.entries(err as Error & Record<string, unknown>).filter(([key]) => key !== 'name' && key !== 'message' && key !== 'stack'),
@@ -1257,6 +1257,17 @@ export class AgentSession {
   }
 
   async setModel(modelId: string) {
+    // 이전 Codex 셋은 모델명만 저장했다. ACP가 광고하는 같은 모델의 effort 포함 ID로
+    // 연결하되, 명시한 effort나 다른 런타임의 ID는 임의로 바꾸지 않는다.
+    if (this.runtime === 'codex' && this.#models && !modelId.includes('[')
+      && !this.#models.availableModels.some(model => model.modelId === modelId)) {
+      const variants = this.#models.availableModels.filter(model => model.modelId.startsWith(`${modelId}[`) && model.modelId.endsWith(']'))
+      const effort = this.#thinking?.currentValue ?? this.#models.currentModelId.match(/\[([^\]]+)\]$/)?.[1]
+      const preferred = variants.find(model => model.modelId === `${modelId}[${effort}]`)
+        ?? variants.find(model => model.modelId === `${modelId}[medium]`)
+        ?? variants[0]
+      if (preferred) modelId = preferred.modelId
+    }
     await this.#conn.unstable_setSessionModel({ sessionId: this.#sessionId, modelId })
     if (this.#models) this.#useModels({ ...this.#models, currentModelId: modelId })
   }

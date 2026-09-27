@@ -4,7 +4,7 @@ parent: "mew-git"
 title: "현재 프로젝트 Git 작업 패널"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-26"
+updated: "2026-09-27"
 status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
 files: ["src/components/GitWorkbench.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
@@ -50,6 +50,7 @@ commits: []
 - 기본 목록에서 변경 파일 diff로 바로 이동하고 복귀할 수 있으며 선택 파일 커밋은 기본 작성 영역에서 실행한다.
 - 체크하지 않은 파일의 stage 상태는 보존한다.
 - AI 자동 커밋은 선택 파일만 분석하며 에이전트셋의 런타임·모델·역할을 작업에 고정하고 전용 tmux·ACP 세션에서 작업 단위 계획을 만들고 Mew가 여러 커밋을 실행한다.
+- 이전 Codex 셋의 모델 ID 형식을 현재 연결기와 호환하며, 실패 시 단계와 상세 오류를 상태·진행 로그에 남긴다.
 - [실행·저장 계약](../../development/agent-sessions.md#git-ai-commit-작업)을 따른다.
 - GitHub 버튼에서 공식 `gh` 기기 코드 로그인을 시작한다.
 - 인증은 서버 OS 계정의 기존 Git 작업과 공유하며, 승인 브라우저와 진행 코드는 요청한 Mew 계정에 귀속한다.
@@ -65,6 +66,7 @@ commits: []
 - 36px 상단 바·Git 아이콘/제목·GitHub/닫기 접근·상단 손잡이 도킹 이동·20:50:30 초기 비율·작성 영역 높이 조절·전체/개별 선택·선택하지 않은 staged 파일 보존·기본 변경 파일 노출·독립 스크롤·경계 드래그/키보드·모바일 한 줄 커밋·diff 복귀를 확인한다.
 - AI 자동 커밋의 셋 선택·신규 생성, 여러 실제 커밋·해시·포함 파일, 중단·실패·재접속과 분석 이후 변경 감지를 확인한다.
 - 부분 성공의 커밋과 선택 밖 stage·수동 초안을 보존해야 한다.
+- `server/agentAcp.test.ts`와 `server/git-ai-commit.test.ts`에서 이전 모델 ID의 ACP 적용, 명시한 모델·추론 강도 유지, 구조화된 오류 보존과 실패 시 커밋·stage 미변경을 검증한다. 격리 tmux 작업도 이전 모델 ID를 사용해 실제 테스트 커밋을 생성한다.
 - GitHub 미로그인/연결 계정·CLI 미설치·코드 복사·내부 승인·취소·만료·재시도·새로고침 후 재접속·동시 사용자와 부분 파일 권한 차단을 확인한다.
 - 실 GitHub 승인은 사용자가 직접 확인한다.
 - 2026-09-26: `server/git-panel-ui.test.ts`의 Chromium 검사로 상단 바 36px·본문 위치·데스크톱 핸들 도킹·모바일 핸들 숨김·닫기/재열기 시 초안과 diff 유지·저장소 없음 상태의 닫기를 확인했다. 데스크톱/모바일의 밝은·어두운 테마 화면도 캡처했다.

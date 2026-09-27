@@ -227,6 +227,35 @@ test('cancellation during initialize never sends a prompt; timeout and permissio
   }
 })
 
+test('structured ACP startup and model errors preserve the phase and detailed cause without committing', async () => {
+  for (const phase of ['start', 'model'] as const) {
+    const { cwd, git, store } = await fixture()
+    const head = await git.revparse('HEAD')
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+    const error = { code: -32603, message: 'Internal error', data: { details: 'Unsupported format of modelId: selected-model. Expected: modelId[effort].' } }
+    let disposed = false
+    await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+      if (phase === 'start') throw error
+      return {
+        attach: () => () => {},
+        setModel: async () => { throw error },
+        runOnce: async () => { assert.fail('must not prompt after a model error') },
+        answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => { disposed = true },
+      }
+    })
+    const result = store.read(owner, cwd, job.id)
+    assert.equal(result.state, 'failed')
+    assert.match(result.error!, phase === 'start' ? /에이전트 준비/ : /모델 설정/)
+    assert.match(result.error!, /Unsupported format of modelId/)
+    assert.match(result.output, /modelId\[effort\]/)
+    assert.doesNotMatch(result.error!, /\[object Object\]/)
+    assert.equal(await git.revparse('HEAD'), head)
+    assert.equal(await git.diff(['--cached']), '')
+    assert.equal(disposed, phase === 'model')
+    assert.equal(fs.existsSync(path.join(cwd, '.git', 'mew-ai-commit.lock')), false)
+  }
+})
+
 test('HTTP requires Git + agent capabilities and validates workspace and ownership', async () => {
   const { cwd, store } = await fixture()
   writeSets([preset])
@@ -283,10 +312,10 @@ import {Readable,Writable} from 'node:stream';
 let model='';
 new AgentSideConnection(conn=>({
  initialize:async()=>({protocolVersion:PROTOCOL_VERSION,agentCapabilities:{}}),
- newSession:async()=>({sessionId:'commit-only',models:{currentModelId:'default',availableModels:[{modelId:'selected-model',name:'Selected'}]}}),
+ newSession:async()=>({sessionId:'commit-only',models:{currentModelId:'default[medium]',availableModels:[{modelId:'selected-model[medium]',name:'Selected'}]}}),
  unstable_setSessionModel:async p=>{model=p.modelId;return {}},
  prompt:async({sessionId,prompt})=>{
- if(model!=='selected-model') throw Error('model not applied');
+ if(model!=='selected-model[medium]') throw Error('legacy preset model not resolved');
  if(!prompt.some(p=>p.text?.includes('new file'))) throw Error('missing diff');
  await conn.sessionUpdate({sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify({commits:[{title:'feat: isolated commit',description:'From tmux',files:['file.txt','new.txt']}],skipped:[]})}}});
  return {stopReason:'end_turn'};

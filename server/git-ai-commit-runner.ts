@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
-import { AgentSession, type AgentEvent } from './agentAcp.ts'
+import { AgentSession, describeError, type AgentEvent } from './agentAcp.ts'
 import { writeFileAtomic } from './dataDir.ts'
 import { captureCommitChanges, parseCommitPlan, type GitAiCommitInput } from './git-ai-commit.ts'
 import { commitSnapshotFiles } from './git-commit-files.ts'
@@ -25,6 +25,7 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
   let cancelled = false
   let halted = false
   let ended = false
+  let phase = '에이전트 준비'
   let flush: NodeJS.Timeout | undefined
   const save = () => writeFileAtomic(path.join(directory, 'state.json'), JSON.stringify(job))
   const log = (text: string) => {
@@ -66,8 +67,13 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
           }
         }
       })
-      if (input.agentSet.modelId) await session.setModel(input.agentSet.modelId)
+      if (input.agentSet.modelId) {
+        phase = '모델 설정'
+        log(`모델 설정 중: ${input.agentSet.modelId}\n`)
+        await session.setModel(input.agentSet.modelId)
+      }
       if (halted) throw new Error('커밋 작업이 중단되었습니다')
+      phase = '커밋 계획 분석'
       log('Mew 커밋 스킬로 변경사항을 작업 단위로 나누는 중…\n')
       const reason = await session.runOnce(input.prompt)
       if (halted) throw new Error('커밋 작업이 중단되었습니다')
@@ -81,6 +87,7 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
     let expectedHead = input.snapshot.head
     const remaining = new Set(input.snapshot.files)
     job.state = 'committing'; save()
+    phase = '커밋 생성'
     for (const group of plan.commits) {
       if (halted || fs.existsSync(path.join(directory, 'stop'))) { cancelled = true; throw new Error('커밋 작업을 취소했습니다. 이미 만든 커밋은 유지됩니다.') }
       const current = await captureCommitChanges(input.cwd, [...remaining])
@@ -102,7 +109,9 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
     }
     job.state = 'completed'
   } catch (error) {
-    job = { ...job, state: cancelled ? 'cancelled' : 'failed', error: error instanceof Error ? error.message : String(error) }
+    const message = `${phase}: ${describeError(error)}`
+    job = { ...job, state: cancelled ? 'cancelled' : 'failed', error: message }
+    log(`\n${message}\n`)
   } finally {
     ended = true
     clearInterval(poll); clearTimeout(timeout)

@@ -37,6 +37,55 @@ test('Codex 기본 OAuth는 서버 브라우저 표면을 공개한다', () => {
 
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
 
+test('legacy Codex preset model IDs resolve to advertised effort variants without changing explicit selections', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-model-id-'))
+  const stub = path.join(dir, 'adapter.mjs')
+  const calls = path.join(dir, 'models.jsonl')
+  fs.writeFileSync(stub, `
+import {AgentSideConnection,ndJsonStream,PROTOCOL_VERSION,RequestError} from ${JSON.stringify(sdkUrl)};
+import {Readable,Writable} from 'node:stream';
+import fs from 'node:fs';
+const ids=['source[high]','target[low]','target[medium]','target[high]','fallback[low]','fallback[medium]','only[low]','exact','exact[high]'];
+new AgentSideConnection(()=>({
+ initialize:async()=>({protocolVersion:PROTOCOL_VERSION,agentCapabilities:{}}),
+ newSession:async()=>({sessionId:'model-test',models:{currentModelId:'source[high]',availableModels:ids.map(modelId=>({modelId,name:modelId}))}}),
+ unstable_setSessionModel:async({modelId})=>{
+   fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify(modelId)+'\\n');
+   if(!ids.includes(modelId)) throw new RequestError(-32603,'Internal error',{details:'Unsupported model ID: '+modelId});
+   return {};
+ },
+ prompt:async()=>{throw Error('must not send a prompt')},cancel:async()=>{}
+}),ndJsonStream(Writable.toWeb(process.stdout),Readable.toWeb(process.stdin)));
+`)
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  for (const runtime of ['codex', 'other-model-runtime']) {
+    const session = await AgentSession.start(runtime, { cmd: process.execPath, args: [stub] }, workspace)
+    try {
+      if (runtime !== 'codex') {
+        await assert.rejects(session.setModel('target'))
+        continue
+      }
+      await session.setModel('target')
+      assert.equal(session.models?.currentModelId, 'target[high]')
+      await session.setModel('target[low]')
+      assert.equal(session.models?.currentModelId, 'target[low]')
+      await session.setModel('source[high]')
+      await session.setModel('fallback')
+      assert.equal(session.models?.currentModelId, 'fallback[medium]')
+      await session.setModel('only')
+      assert.equal(session.models?.currentModelId, 'only[low]')
+      await session.setModel('exact')
+      assert.equal(session.models?.currentModelId, 'exact')
+      await assert.rejects(session.setModel('unknown'))
+      await assert.rejects(session.setModel('target[unsupported]'))
+      assert.equal(session.models?.currentModelId, 'exact', 'failed selections keep the previous model')
+    } finally { await session.disposeAndWait() }
+  }
+  assert.deepEqual(fs.readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line)), [
+    'target[high]', 'target[low]', 'source[high]', 'fallback[medium]', 'only[low]', 'exact', 'unknown', 'target[unsupported]', 'target',
+  ])
+})
+
 test('quota-wrapped authentication failure preserves the session and pauses queued prompts until explicit submission', { timeout: 10_000 }, async (t) => {
   fs.mkdirSync(workspace, { recursive: true })
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-quota-'))

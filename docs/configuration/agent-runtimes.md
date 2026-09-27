@@ -12,6 +12,8 @@
 
 ## 모델·권한 기본값과 런타임 선택
 
+- 이전 Codex 에이전트셋처럼 추론 강도 없이 모델명만 저장된 경우, 모델 선택 요청 시 ACP가 광고한 같은 모델의 `모델명[추론 강도]` ID로 연결한다. 정확히 일치하는 ID를 우선하고, 변환이 필요하면 현재 세션의 추론 강도 → `medium` → 같은 모델의 첫 지원 항목 순으로 고른다. 명시한 추론 강도·다른 런타임의 ID는 변경하지 않으며, 같은 모델이 없으면 다른 모델로 대체하지 않고 연결기의 오류를 표시한다. 저장된 셋 파일은 변경하지 않는다.
+
 - **모델·권한 선택기 옆 저장 아이콘은 현재 값을 그 런타임의 기본값으로 남긴다**([ADR 0063](../../../.mew/docs/decisions/0063-mew-agent-runtime-saved-defaults.md)). 값은 브라우저가 아니라 `<DATA_DIR>/agent-defaults.json`에 런타임별로 저장되어, 새 탭·서버 재시작 뒤 `session/new`·`session/load`에도 적용된다. 현재 선택이 저장값과 같으면 아이콘이 강조된다. 저장값이 없는 **권한 모드 기본값은 그 런타임의 "전체 허용"이다**([ADR 0037](../../../.mew/docs/decisions/0037-mew-agent-bypass-permissions-default.md)). ACP 세션은 제한 모드로 시작하므로(claude `default`·codex `auto`) 서버가 `session/new`·`session/load`뒤마다 다시 걸어 준다(`#applyDefaults`). 이름이 런타임마다 달라 한 값으로 박지 않고 후보 순서 (`FULL_ACCESS_MODES`)로 고른다 — claude `bypassPermissions` · codex `agent-full-access` · hermes `dont_ask`. claude의 `dontAsk`는 뜻이 반대(미리 승인 안 된 건 거절)라 순서로 갈린다. 헤더 선택기로 턴마다 바꿀 수 있다. `MEW_AGENT_MODE`에 모드 id를 박으면 운영자 강제값으로 저장된 권한보다 우선한다. 모드 목록은 백엔드가 광고하는 것을 그대로 쓴다 — 광고에 없으면(예: root 실행) 조용히 넘어간다.
 
 - **새 탭은 런타임 또는 에이전트셋을 고르기 전에 세션을 띄우지 않는다**([ADR 0096](../../../.mew/docs/decisions/0096-mew-agent-tabs-created-after-selection.md)). 마지막 탭을 닫으면 가운데 `새 탭` 버튼만 남고, `+`와 이 버튼은 선택기만 연다. 설치되지 않은 런타임은 서버 등록표의 고정 설치 명령으로만 설치하고, 성공하면 새로고침 없이 그 런타임을 선택한다. 선택 후에만 WS·히스토리·입력창이 생긴다. 런타임은 탭별로 `mew:agent-tabs` 안에 남고, 예전 탭은 마지막 `mew:agent-runtime` 값으로 한 번 승격한다.
