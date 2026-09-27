@@ -77,11 +77,14 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await one.locator('[data-dock-item=memo]').click()
     await memo.waitFor()
     const reopenedText = await memo.locator('.tiptap').evaluate(element => {
-      const content = element.cloneNode(true) as HTMLElement
-      content.querySelectorAll('.collaboration-carets__label').forEach(label => label.remove())
+      const content = element.cloneNode(true) as {
+        textContent: string | null
+        querySelectorAll(selector: string): Iterable<{ remove(): void }>
+      }
+      for (const label of content.querySelectorAll('.collaboration-carets__label')) label.remove()
       return content.textContent
     })
-    assert.ok(reopenedText?.includes('Second note!'), 'dock reopening preserves shared content')
+    assert.ok(reopenedText?.includes('Second note!'), `dock reopening preserves shared content: ${JSON.stringify(reopenedText)}`)
     const before = (await memo.boundingBox())!
     const handle = memo.getByRole('button', { name: '메모 위치 이동' })
     const handleBox = (await handle.boundingBox())!

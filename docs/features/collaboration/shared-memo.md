@@ -4,7 +4,7 @@ parent: "mew-collaboration"
 title: "공통 메모"
 status: "changed"
 created: "2026-09-26"
-updated: "2026-09-26"
+updated: "2026-09-27"
 files: ["src/components/shared-memo.tsx", "src/components/mobile-dock.tsx", "src/App.tsx", "server/shared-memo.ts", "server/collab.ts"]
 commits: []
 ---
@@ -31,4 +31,5 @@ commits: []
 
 - `server/shared-memo.test.ts`: 동시 편집 병합·삭제·영속화·저장 실패·손상 보존·인증/권한 경계.
 - `server/shared-memo-ui.test.ts`: 두 브라우저 Hotview 공동 편집·포커스·참여자·드래그·화면 경계·닫기·재접속.
+- 2026-09-27: UI 테스트의 서버 타입 검사 오류를 수정하고 `npx tsc -b`와 해당 Chromium 테스트를 통과했다.
 - 실제 배포 화면은 사용자 빌드·재시작 후 확인한다.
