@@ -4,7 +4,7 @@ parent: "mew-editor"
 title: "Markdown Hotview·원문·문서 속성"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-27"
 status_hash: "2741d359b18c61eecb53b8ce0ba2862f0f42c088d7d02cf55c88a23d1d44a98e"
 files: ["src/hooks/useTabs.ts", "src/components/EditorPane.tsx", "src/components/markdown-error-boundary.tsx", "packages/editor/src/Editor.tsx", "src/components/TableOfContents.tsx"]
 commits: []
@@ -38,6 +38,8 @@ commits: []
 - Hotview 초기화·렌더링 오류를 문서 안에 격리하고 원문 모드 복구를 제공한다.
 - 상세 동작은 [기본 편집](../../guides/editor.md#기본-편집)을 따른다.
 
+- Hotview 줄번호는 현재 본문의 Markdown 시작 줄을 표시하며 중간 편집·마지막 빈 문단·frontmatter 변경에도 즉시 갱신한다. 계산과 갱신 계약은 [에디터 패키지](../../development/packages.md)를 따른다.
+
 - 본문 로딩 중에는 에디터 영역에 반투명 검정 덮개와 중앙 인디케이터를 표시하고 편집을 막는다.
 - 탭 전환은 유지하며 성공·실패 시 해제한다.
 - 상세 계약은 [에디터 본문 로딩](../../development/ui-contracts.md#에디터-본문-로딩)을 따른다.
@@ -55,5 +57,7 @@ commits: []
   - 특정 사용자의 원래 오류 발생 조건을 재현한 테스트는 아니다.
 
 - `server/editor-pane-ui.test.ts`로 데스크톱·모바일 로딩 표시, 캐시 재조회, 연속 전환, 빈 문서·실패 후 해제를 검증한다.
+
+- `packages/editor/src/editor/lineFocus.test.ts`와 `server/editor-line-numbers-ui.test.ts`로 중간 삽입·삭제, 마지막 빈 문단, 여러 줄 목록·코드·구분선, 속성 변경의 줄번호를 검증한다.
 
 <!-- mew:validation:end -->

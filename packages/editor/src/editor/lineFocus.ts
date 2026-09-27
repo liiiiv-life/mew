@@ -1,10 +1,10 @@
-// 커서가 있는 "줄"에 클래스를 붙이는 장식 플러그인 — 왼쪽 거터의 줄 번호(editor.css의 counter)를
+// 커서가 있는 "줄"에 클래스를 붙이는 장식 플러그인 — 왼쪽 거터의 Markdown 줄 번호를
 // 그 줄만 밝게 하는 데 쓴다. 번호를 그리는 대상과 **정확히 같은 노드**를 골라야 한다:
 // 최상위 블록 하나가 한 줄이고, 리스트 안에서는 항목(listItem)이 한 줄이다.
-import { Extension } from '@tiptap/core'
+import { createNodeFromContent, Extension } from '@tiptap/core'
 import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state'
 import type { EditorState } from '@tiptap/pm/state'
-import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import MarkdownIt from 'markdown-it'
 
@@ -71,12 +71,6 @@ export function selectedLinePositions(state: EditorState): number[] {
   return positions
 }
 
-function markdownLineCount(markdown: string): number {
-  const trimmed = markdown.replace(/\n$/, '')
-  if (!trimmed) return 1
-  return (trimmed.match(/\n/g)?.length ?? 0) + 1
-}
-
 function normalizedLineOffset(lineOffset: number): number {
   return Math.max(0, Math.floor(Number.isFinite(lineOffset) ? lineOffset : 0))
 }
@@ -89,20 +83,6 @@ function fallbackLineNumberAttrs(doc: PMNode, lineOffset = 0): LineNumberAttr[] 
     const isLineNode = node.type.name === 'listItem' || (parent === doc && !isListContainer(node))
     if (!isLineNode) return true
     attrs.push({ pos, lineNumbers: String(line), lineCount: 1 })
-    line++
-    return true
-  })
-
-  return attrs
-}
-
-function listItemNumberAttrs(list: PMNode, listPos: number, startLine: number): LineNumberAttr[] {
-  let line = startLine
-  const attrs: LineNumberAttr[] = []
-
-  list.descendants((node, pos) => {
-    if (node.type.name !== 'listItem') return true
-    attrs.push({ pos: listPos + 1 + pos, lineNumbers: String(line), lineCount: 1 })
     line++
     return true
   })
@@ -123,11 +103,13 @@ function sourceLineCandidates(source: string, lineOffset = 0): SourceLineCandida
       candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: token.map[1] - token.map[0], kind: 'block' })
     } else if (token.level === 0 && token.type === 'blockquote_open') {
       candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: token.map[1] - token.map[0], kind: 'block' })
-    } else if (token.level === 0 && token.type === 'fence') {
+    } else if (token.level === 0 && (token.type === 'fence' || token.type === 'code_block')) {
       candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: token.map[1] - token.map[0], kind: 'code' })
     } else if (token.level === 0 && token.type === 'table_open') {
       candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: token.map[1] - token.map[0], kind: 'table' })
-    } else if (token.level === 0 && token.type === 'html_block') {
+    } else if (token.level === 0 && token.type === 'hr') {
+      candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: 1, kind: 'block' })
+    } else if (token.level === 0 && token.type === 'html_block' && token.content.replace(/<!--[\s\S]*?-->/g, '').trim()) {
       candidates.push({ startLine: token.map[0] + 1 + offset, lineCount: token.map[1] - token.map[0], kind: 'block' })
     }
   }
@@ -143,27 +125,15 @@ function sourceCandidateKind(node: PMNode): SourceLineCandidate['kind'] {
 
 export function lineNumberAttrs(
   doc: PMNode,
-  serialize?: (content: Fragment) => string,
+  serialize?: (doc: PMNode) => string,
   lineOffset = 0,
   source?: string,
 ): LineNumberAttr[] {
   if (source !== undefined) return sourceLineNumberAttrs(doc, source, lineOffset)
   if (!serialize) return fallbackLineNumberAttrs(doc, lineOffset)
 
-  let line = 1 + normalizedLineOffset(lineOffset)
-  const attrs: LineNumberAttr[] = []
-
-  doc.forEach((node, pos) => {
-    const blockLineCount = markdownLineCount(serialize(Fragment.from(node)))
-    if (isListContainer(node)) {
-      attrs.push(...listItemNumberAttrs(node, pos, line))
-    } else {
-      attrs.push({ pos, lineNumbers: String(line), lineCount: blockLineCount })
-    }
-    line += blockLineCount + 1
-  })
-
-  return attrs
+  // 저장과 같은 doc 문맥으로 직렬화해야 빈 문단·느슨한 목록·여러 줄 항목도 일치한다.
+  return sourceLineNumberAttrs(doc, serialize(doc), lineOffset)
 }
 
 function sourceLineNumberAttrs(doc: PMNode, source: string, lineOffset = 0): LineNumberAttr[] {
@@ -175,9 +145,18 @@ function sourceLineNumberAttrs(doc: PMNode, source: string, lineOffset = 0): Lin
     const isLineNode = node.type.name === 'listItem' || (parent === doc && !isListContainer(node))
     if (!isLineNode) return true
     const kind = sourceCandidateKind(node)
-    while (index < candidates.length && candidates[index].kind !== kind) index++
-    const candidate = candidates[index++]
-    if (!candidate) return true
+    let nextIndex = index
+    while (nextIndex < candidates.length && candidates[nextIndex].kind !== kind) nextIndex++
+    const candidate = candidates[nextIndex]
+    if (!candidate) {
+      // 저장에서 제외되는 마지막 입력용 문단은 다음 Markdown 블록의 시작 줄이다.
+      if (parent === doc && node === doc.lastChild && node.type.name === 'paragraph' && !node.textContent) {
+        const lastContentLine = source.trimEnd().split('\n').length + normalizedLineOffset(lineOffset)
+        attrs.push({ pos, lineNumbers: String(source.trim() ? lastContentLine + 2 : 1 + normalizedLineOffset(lineOffset)), lineCount: 1 })
+      }
+      return true
+    }
+    index = nextIndex + 1
     // 번호는 원본 범위의 시작 줄에만 붙인다. 범위 안의 번호를 행 높이로 나열하면 긴 원본 한 줄이
     // 화면에서 접힐 때 다음 번호가 그 시각적 이어진 줄 옆에 붙어, 화면 줄을 md 줄로 오인하게 된다.
     attrs.push({
@@ -216,35 +195,59 @@ export const LineFocus = Extension.create<LineFocusOptions>({
   addProseMirrorPlugins() {
     const editor = this.editor
     const options = this.options
+    let sourceCache: { source: string; canonical: string } | undefined
+    let lineCache: { doc: PMNode; source: string | undefined; offset: number; decorations: Decoration[] } | undefined
     return [
       new Plugin({
         key: new PluginKey('lineFocus'),
         props: {
           decorations(state) {
             const markdownStorage = editor.storage as {
-              markdown?: { serializer?: { serialize: (content: Fragment) => string } }
+              markdown?: {
+                serializer?: { serialize: (doc: PMNode) => string }
+                parser?: { parse: (source: string) => string }
+              }
             }
             const serializer = markdownStorage.markdown?.serializer
-            const lineDecorations = lineNumberAttrs(
-              state.doc,
-              serializer ? (content) => serializer.serialize(content) : undefined,
-              options.getLineOffset?.() ?? 0,
-              options.getSource?.(),
-            ).flatMap(({ pos, lineNumbers, lineCount }) => {
-              const node = state.doc.nodeAt(pos)
-              if (!node) return []
-              return [
-                Decoration.node(pos, pos + node.nodeSize, {
-                  'data-mew-line-numbers': lineNumbers,
-                  style: `--mew-line-count: ${lineCount};`,
-                }),
-              ]
-            })
+            const source = options.getSource?.()
+            const offset = options.getLineOffset?.() ?? 0
+            if (!lineCache || lineCache.doc !== state.doc || lineCache.source !== source || lineCache.offset !== offset) {
+              let currentSource = source
+              const parser = markdownStorage.markdown?.parser
+              if (serializer && parser && source !== undefined) {
+                const serialized = serializer.serialize(state.doc)
+                // onUpdate/React보다 decorations가 먼저 실행된다. 원문을 실제 스키마로 정규화해
+                // 현재 문서와 같을 때만 원본 줄 간격을 쓴다. 다르면 이번 트랜잭션의 저장 내용을 쓴다.
+                if (source === serialized) {
+                  sourceCache = { source, canonical: serialized.trimEnd() }
+                } else if (sourceCache?.source !== source) {
+                  const parsed = createNodeFromContent(parser.parse(source), state.schema, { slice: false }) as PMNode
+                  sourceCache = { source, canonical: serializer.serialize(parsed).trimEnd() }
+                }
+                if (source !== serialized && sourceCache?.canonical !== serialized.trimEnd()) currentSource = serialized
+              }
+              const decorations = lineNumberAttrs(
+                state.doc,
+                serializer ? (doc) => serializer.serialize(doc) : undefined,
+                offset,
+                currentSource,
+              ).flatMap(({ pos, lineNumbers, lineCount }) => {
+                const node = state.doc.nodeAt(pos)
+                if (!node) return []
+                return [
+                  Decoration.node(pos, pos + node.nodeSize, {
+                    'data-mew-line-numbers': lineNumbers,
+                    style: `--mew-line-count: ${lineCount};`,
+                  }),
+                ]
+              })
+              lineCache = { doc: state.doc, source, offset, decorations }
+            }
             const focusDecorations = selectedLinePositions(state).flatMap((pos) => {
               const node = state.doc.nodeAt(pos)
               return node ? [Decoration.node(pos, pos + node.nodeSize, { class: LINE_FOCUS_CLASS })] : []
             })
-            const decorations = [...lineDecorations, ...focusDecorations]
+            const decorations = [...lineCache.decorations, ...focusDecorations]
             return decorations.length ? DecorationSet.create(state.doc, decorations) : null
           },
         },

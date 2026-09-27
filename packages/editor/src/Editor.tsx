@@ -509,7 +509,7 @@ export const Editor = forwardRef<
       // table 노드는 md 직렬화를 고친 MarkdownTable로 등록한다 (editor/tableMarkdown.ts, 서버와 공유)
       TableKit.configure({ table: false }),
       MarkdownTable.configure({ allowTableNodeSelection: true, resizable: true }),
-      // 노션식 블록 드래그 핸들 — **눈에 보이는 것은 줄 번호**(editor.css의 counter로 줄마다 늘 떠 있다)이고,
+      // 노션식 블록 드래그 핸들 — **눈에 보이는 것은 줄 번호**(LineFocus 장식으로 줄마다 늘 떠 있다)이고,
       // 이 엘리먼트는 그 번호 위에 포개지는 투명한 손잡이다: 끌면 블록 이동, 클릭하면 그 블록을
       // NodeSelection으로 통째로 선택한다 (아래 onNodeChange가 추적한 pos 사용).
       // 호버 표시도 그립이 아니라 번호가 낸다 — onNodeChange가 그 줄에 mew-line--hover를 붙인다.
@@ -1557,6 +1557,12 @@ export const Editor = forwardRef<
       }
     }
   }, [editor, body, collab])
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    // React 원문/속성만 바뀌어도 거터를 다시 계산한다. 본문·저장·undo 이력은 바꾸지 않는다.
+    editor.view.dispatch(editor.state.tr)
+  }, [editor, body, lineNumberOffset])
 
   // 방을 처음 만든 클라이언트가 이미 로드해 둔 탭 내용(body)으로 Y.XmlFragment를 시딩한다
   // (디스크 재조회 아님) — 이미 누군가 협업 중이던 방이면 fragment가 비어 있지 않으므로

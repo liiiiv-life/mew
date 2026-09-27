@@ -23,6 +23,91 @@ function buildEditor(content: string) {
   return new Editor({ element: document.createElement('div'), extensions: [...serverEditorExtensions(), LineFocus], content })
 }
 
+function gutter(editor: ReturnType<typeof buildEditor>): (string | null)[] {
+  return Array.from(editor.view.dom.querySelectorAll('*'))
+    .filter(el => el.tagName === 'LI' || (el.parentElement === editor.view.dom && !['UL', 'OL'].includes(el.tagName)))
+    .map((el) => el.getAttribute('data-mew-line-numbers'))
+}
+
+test('편집 직후 이전 원문이 남아 있어도 중간 삽입·삭제의 줄번호를 즉시 갱신한다', () => {
+  let source = '첫 문단\n\n마지막 문단'
+  const editor = new Editor({
+    element: document.createElement('div'),
+    extensions: [...serverEditorExtensions(), LineFocus.configure({ getSource: () => source })],
+    content: source,
+  })
+  try {
+    const pos = editor.state.doc.firstChild!.nodeSize
+    const paragraph = editor.schema.nodes.paragraph.create(null, editor.schema.text('중간'))
+    editor.view.dispatch(editor.state.tr.insert(pos, paragraph))
+    assert.deepEqual(gutter(editor), ['1', '3', '5'])
+    // React가 직전 편집의 원문을 반영한 직후 다시 수정해도 한 단계 뒤처지면 안 된다.
+    source = (editor.storage as any).markdown.getMarkdown()
+    editor.view.dispatch(editor.state.tr.insert(pos, paragraph))
+    assert.deepEqual(gutter(editor), ['1', '3', '5', '7'])
+    editor.view.dispatch(editor.state.tr.delete(pos, pos + paragraph.nodeSize * 2))
+    assert.deepEqual(gutter(editor), ['1', '3'])
+  } finally { editor.destroy() }
+})
+
+test('마지막 편집용 빈 문단도 앞 블록과 frontmatter 다음 번호를 갖는다', () => {
+  const source = '```\n첫 줄\n둘째 줄\n```'
+  const editor = new Editor({
+    element: document.createElement('div'),
+    extensions: [...serverEditorExtensions(), LineFocus.configure({ getSource: () => source, getLineOffset: () => 7 })],
+    content: source,
+  })
+  try {
+    editor.commands.setTextSelection(1) // trailingNode가 마지막 빈 문단을 추가한다.
+    assert.deepEqual(gutter(editor), ['8', '13'])
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1)
+    editor.commands.insertContent('마지막')
+    assert.deepEqual(gutter(editor), ['8', '13'])
+  } finally { editor.destroy() }
+})
+
+test('빈 문단과 여러 줄 목록도 문서 전체의 Markdown 줄번호로 계산한다', () => {
+  const editor = buildEditor('- 첫 줄  \n  이어지는 줄\n- 둘째 항목\n\n마지막')
+  try {
+    const serializer = (editor.storage as any).markdown.serializer
+    assert.deepEqual(lineNumberAttrs(editor.state.doc, (c) => serializer.serialize(c)).map(a => a.lineNumbers), ['1', '3', '5'])
+    editor.view.dispatch(editor.state.tr.insert(0, editor.schema.nodes.paragraph.create()))
+    assert.deepEqual(gutter(editor), ['1', '3', '5', '7'])
+  } finally { editor.destroy() }
+})
+
+test('구분선·들여쓴 코드·숨겨진 주석이 뒤 문단의 원본 줄번호를 빼앗지 않는다', () => {
+  const source = '첫 문단\n\n---\n\n    코드\n\n<!-- 숨김 -->\n\n마지막'
+  const editor = new Editor({
+    element: document.createElement('div'),
+    extensions: [...serverEditorExtensions(), LineFocus.configure({ getSource: () => source })],
+    content: source,
+  })
+  try { assert.deepEqual(gutter(editor), ['1', '3', '5', '9']) }
+  finally { editor.destroy() }
+})
+
+test('원본 줄 간격은 커서 이동에서 보존하고 외부 교체·오프셋 변경은 새 번호를 쓴다', () => {
+  let source = '첫 문단\n이어지는 줄\n\n\n마지막'
+  let offset = 7
+  const editor = new Editor({
+    element: document.createElement('div'),
+    extensions: [...serverEditorExtensions(), LineFocus.configure({ getSource: () => source, getLineOffset: () => offset })],
+    content: source,
+  })
+  try {
+    assert.deepEqual(gutter(editor), ['8', '12'])
+    editor.commands.setTextSelection(2)
+    assert.deepEqual(gutter(editor), ['8', '12'])
+    source = '교체\n\n```\n코드\n```'
+    editor.commands.setContent(source, { emitUpdate: false })
+    assert.deepEqual(gutter(editor), ['8', '10', '14'])
+    offset = 9
+    editor.view.dispatch(editor.state.tr)
+    assert.deepEqual(gutter(editor), ['10', '12', '16'])
+  } finally { editor.destroy() }
+})
+
 /** 커서를 그 글자 위에 놓고, 골라진 줄 노드의 타입·본문·리스트 깊이를 돌려준다 */
 function lineAt(editor: ReturnType<typeof buildEditor>, text: string) {
   let pos = -1

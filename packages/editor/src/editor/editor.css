@@ -18,23 +18,21 @@
 /* 왼쪽 거터의 줄 번호 — 호버와 무관하게 늘 떠 있고, 노션식 드래그 핸들의 자리를 대신한다
    (핸들은 이 숫자 위에 포개지는 투명한 손잡이다: src/index.css의 .mew-drag-handle).
    세는 단위는 핸들이 잡는 단위와 같아야 한다 — 최상위 블록 하나가 한 줄, 리스트는 항목이 한 줄이고
-   ul/ol 같은 담는 상자 자체는 줄이 아니다. counter는 문서 순서대로 매겨지므로 중첩 리스트도 맞는다.
+   ul/ol 같은 담는 상자 자체는 줄이 아니다. 번호는 LineFocus가 계산한 Markdown 시작 줄이다.
    밝기 3단: 평소(흐림) < 호버(mew-line--hover, Editor.tsx가 붙임) < 커서가 있는 줄(mew-line--focus,
    editor/lineFocus.ts의 장식). */
 .tiptap {
-  counter-reset: mew-line;
   /* 표의 줄 번호가 스크롤 상자 밖에서 기준으로 삼는 박스(아래 .tableWrapper::before) */
   position: relative;
 }
 .tiptap > :not(ul, ol, .ProseMirror-gapcursor),
 .tiptap li {
-  counter-increment: mew-line;
   position: relative;
 }
 /* 빈 문서의 첫 문단은 제외 — 그 자리의 ::before는 placeholder(아래)가 이미 쓰고 있다 */
-.tiptap > :not(ul, ol, .ProseMirror-gapcursor, p.is-editor-empty)::before,
-.tiptap li::before {
-  content: counter(mew-line);
+.tiptap > :not(ul, ol, .ProseMirror-gapcursor, p.is-editor-empty)[data-mew-line-numbers]::before,
+.tiptap li[data-mew-line-numbers]::before {
+  content: attr(data-mew-line-numbers);
   position: absolute;
   top: 0;
   left: -1.9rem;
@@ -48,15 +46,6 @@
   opacity: var(--mew-line-opacity, 0.62);
   pointer-events: none;
   user-select: none;
-}
-.tiptap > :not(ul, ol, .ProseMirror-gapcursor, p.is-editor-empty)[data-mew-line-numbers],
-.tiptap li[data-mew-line-numbers] {
-  counter-increment: mew-line var(--mew-line-count, 1);
-}
-.tiptap > :not(ul, ol, .ProseMirror-gapcursor, p.is-editor-empty)[data-mew-line-numbers]::before,
-.tiptap li[data-mew-line-numbers]::before {
-  content: attr(data-mew-line-numbers);
-  white-space: pre;
 }
 /* 리스트 항목은 들여쓴 만큼(ul/ol의 padding-left 1.5em ≈ 24px) 오른쪽에 있고, 불렛·번호 마커가
    li 박스 왼쪽 바깥에 그려진다 — 중첩 깊이만큼 되돌려 번호를 다른 줄과 같은 왼쪽 거터에 세운다.
@@ -85,19 +74,9 @@
 .tiptap > .tableWrapper {
   position: static;
 }
-.tiptap > .tableWrapper::before {
+.tiptap > div.tableWrapper[data-mew-line-numbers]::before {
   left: calc(var(--mew-pad-x) - 1.9rem);
   top: auto;
-  margin-top: 0;
-}
-.tiptap > .tableWrapper[data-mew-line-numbers] {
-  position: relative;
-  margin-left: -1.9rem;
-  padding-left: 1.9rem;
-}
-.tiptap > .tableWrapper[data-mew-line-numbers]::before {
-  left: 0;
-  top: 0;
   margin-top: 0;
 }
 .tiptap .mew-line--hover {

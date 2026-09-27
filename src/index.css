@@ -367,7 +367,7 @@ body {
 
 /* 노션식 블록 드래그 핸들 (@tiptap/extension-drag-handle이 위치를 잡아 주는 엘리먼트).
    **그림이 없는 투명한 손잡이**다 — 눈에 보이는 것은 그 자리에 늘 떠 있는 줄 번호이고
-   (packages/editor/src/editor/editor.css의 counter), 이 상자는 그 위에 포개져 잡히기만 한다.
+   (LineFocus 장식과 packages/editor/src/editor/editor.css), 이 상자는 그 위에 포개져 잡히기만 한다.
    클릭은 블록 선택, 드래그는 블록 이동, 호버 표시는 번호가 밝아지는 것(mew-line--hover)으로 낸다 */
 .mew-drag-handle {
   width: 32px;
