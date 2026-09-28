@@ -141,6 +141,13 @@ export function fetchAgentSets(): Promise<{ sets: AgentSet[] }> {
   return fetch('/api/agent-sets').then(json<{ sets: AgentSet[] }>)
 }
 
+export type AgentModelOption = { modelId: string; name: string }
+
+export function fetchAgentModels(runtime: string, signal?: AbortSignal): Promise<{ models: AgentModelOption[] }> {
+  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/models`, { signal })
+    .then(json<{ models: AgentModelOption[] }>)
+}
+
 export function saveAgentSets(sets: AgentSet[]): Promise<{ sets: AgentSet[] }> {
   return fetch('/api/agent-sets', {
     method: 'PUT',

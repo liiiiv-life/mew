@@ -80,7 +80,7 @@ import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, s
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
 import { GitAiCommitStore } from './git-ai-commit.ts'
 import { createGitAiCommitRouter } from './git-ai-commit-routes.ts'
-import { acpRuntimeList, agentSetRuntimeList, isRuntime } from './agentAcp.ts'
+import { acpRuntimeList, agentSetRuntimeList, isRuntime, probeModels } from './agentAcp.ts'
 import { isRuntimeLoginMethod, runtimeLoginSpec } from './agentRuntimes.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
 import { authFailureMessageFromOutput, browserLoginDetailsFromOutput, prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
@@ -2133,6 +2133,17 @@ export function createApiApp() {
   // 에이전트 런타임 설치는 서버 머신에 실행 파일을 쓰는 작업 — 터미널과 같은 역할만.
   app.get('/agent-runtimes', requireAnyFeature('agent', 'terminal'), (_req, res) => {
     res.json({ runtimes: runtimeStatuses() })
+  })
+
+  app.get('/agent-runtimes/:id/models', requireFeature('agent'), async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    const runtime = String(req.params.id)
+    if (!agentSetRuntimeList().some(item => item.id === runtime)) {
+      res.status(400).json({ error: 'Unsupported agent runtime' })
+      return
+    }
+    try { res.json({ models: await probeModels(runtime) }) }
+    catch { res.status(502).json({ error: 'Could not load agent models' }) }
   })
 
   app.get('/agent-runtimes/:id/account', requireFeature('agent'), async (req, res) => {

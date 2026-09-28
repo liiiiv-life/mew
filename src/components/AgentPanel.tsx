@@ -3274,6 +3274,11 @@ function AgentSessionView({
         <>
       <div data-agent-conversation aria-busy={conversationLoading} className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} onScroll={handleScroll} inert={conversationLoading} style={{ visibility: conversationLoading ? 'hidden' : undefined }} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
+        {!conversationLoading && timeline.length === 0 && (
+          <div className="flex min-h-full items-center justify-center text-center text-ink-muted">
+            {t('agent.emptyConversation')}
+          </div>
+        )}
         {timeline.map((item, index) => {
           if (item.kind === 'command') return <AgentCommandBubble key={item.key} command={item.command} onOpen={() => setCommandPopupId(item.command.id)} />
           if (item.kind === 'user') {

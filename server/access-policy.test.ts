@@ -45,6 +45,7 @@ test('account capabilities and canonical file rules are enforced across HTTP and
     assert.equal(policy.canUse(member, 'agent'), false)
     assert.equal(policy.canUse(owner, 'terminal'), true)
     for (const account of ['member', 'guest']) {
+      assert.equal((await request('/agent-runtimes/codex/models', 'GET', undefined, account)).status, 403)
       assert.equal((await request('/git/github-auth', 'GET', undefined, account)).status, 403)
       assert.equal((await request('/git/github-auth', 'POST', undefined, account)).status, 403)
       assert.equal((await request('/git/github-auth/unknown/stop', 'POST', undefined, account)).status, 403)
@@ -112,6 +113,8 @@ test('account capabilities and canonical file rules are enforced across HTTP and
     assert.equal(policy.canUse(member, 'agent'), true)
     assert.equal(policy.canUse(member, 'terminal'), false)
     assert.equal((await request('/agent-sets')).status, 200)
+    assert.equal((await request('/agent-runtimes/unknown/models')).status, 400)
+    assert.equal((await request('/agent-runtimes/tmux/models')).status, 400)
     assert.equal((await request('/tmux/sessions')).status, 403)
     assert.equal((await request('/browser-dom/tabs')).status, 403)
     assert.equal((await request('/remote-desktop/status')).status, 403)

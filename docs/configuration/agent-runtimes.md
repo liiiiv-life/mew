@@ -39,6 +39,7 @@
 | 라우트 | 역할 | 하는 일 |
 | --- | --- | --- |
 | `GET /api/agent-runtimes` | manager·owner | 등록 런타임의 실행 파일 존재와 설치·안전 제거·로그아웃 가능 상태 |
+| `GET /api/agent-runtimes/:id/models` | agent 권한 | 에이전트셋용 ACP 모델 후보 `{models: [{modelId, name}]}`. 지원하지 않는 런타임은 400, 조회 실패는 502 |
 | `POST /api/agent-runtimes/:id/terminal/:tab` | manager·owner | terminal 런타임의 탭별 전용 tmux를 검증된 cwd에서 만들고 등록표의 공식 CLI 실행 |
 | `DELETE /api/agent-runtimes/:id/terminal/:tab` | manager·owner | 탭이 소유한 전용 tmux와 CLI 종료 |
 | `POST /api/agent-runtimes/:id/install` | manager·owner | id에 대응하는 등록표의 고정 설치 명령 실행. 임의 명령·인자는 받지 않음 |
@@ -55,6 +56,7 @@
 
 - **런타임 설정 팝업**(목록의 톱니 아이콘) — 설치·삭제·로그인·로그아웃과 실행 파일 경로·추가 인자·공급자 env를 런타임별로 저장한다. ACP 런타임은 `resolvedSpec`, terminal 런타임은 `resolvedTerminalSpec`이 다음 탭 시작과 설치 판정에 적용한다. Claude의 실행 파일 설정은 기존대로 공식 CLI 엔진 경로이며, ACP 어댑터 자체는 환경변수로 지정한다. 이전 TUI의 추가 인자(`extraArgs`, `MEW_AGENT_CLAUDE_CLI_ARGS`)는 보존만 하고 ACP에 전달하지 않는다. 모델·권한은 채팅 설정으로 선택한다. 대화·예약 실행·로그인·상태 조회·로그아웃은 같은 CLI 엔진과 공급자 환경을 사용한다. 시크릿은 서버에만 있고 화면은 `****끝4자`만 본다. 제거·로그아웃은 확인 뒤 등록표의 고정 명령만 실행하며, 안전한 역설치 계약이 없는 Antigravity는 임의 파일을 지우지 않는다.
 - ACP 런타임의 **모델 목록은 ACP가 광고하는 것을 그대로 쓴다.** Claude와 Antigravity 모두 공통 ACP 모델·권한·히스토리 화면을 사용한다. 실제 목록과 세션 복원 범위는 각 서버 capability에 따른다.
+- 에이전트셋 편집 시 모델 후보 API는 `probeModels`의 런타임별 메모리 캐시와 동시 요청 병합을 재사용한다. 캐시가 없으면 모델 조회용 임시 ACP 세션을 열고 목록을 받은 즉시 종료한다. 사용자 탭·WS·프롬프트는 만들지 않는다. 응답은 `no-store`이며 조회는 20초 제한을 따른다. 설치·로그인 미완료 등 실패 시 폼에서 재시도하거나 모델 ID를 직접 입력한다. 런타임 전환·폼 닫기 이후의 응답은 UI에서 폐기한다.
 
 ## Antigravity 공식 ACP
 

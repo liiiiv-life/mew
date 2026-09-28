@@ -36,12 +36,20 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       page.on('pageerror', error => errors.push(error.message))
       let job: GitAiCommitJob | null = null
       let starts = 0, commits = 0
+      let modelRequests = 0
       let sets = [{ id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', name: '기존 커밋 에이전트', runtime: 'codex', modelId: 'test-model', role: 'Write commits' }]
       await page.route('http://localhost:48976/**', async route => {
         const request = route.request(), url = new URL(request.url()), p = url.pathname
         if (p === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: chunk.code })
         if (!p.startsWith('/api/')) return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html class="${width === 390 ? '' : 'dark'}" lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>` })
         if (p === '/api/workspace') return route.fulfill({ json: { path: '/workspace', docs: 'docs', docsPath: '/workspace/docs', projects: [] } })
+        if (p.endsWith('/models')) {
+          if (p.includes('/codex/') && ++modelRequests === 1) return route.fulfill({ status: 502, json: { error: 'Model lookup failed' } })
+          return route.fulfill({ json: { models: p.includes('/codex/') ? [
+            { modelId: 'alpha[high]', name: 'Alpha Reasoning' },
+            { modelId: 'beta[medium]', name: 'Beta General' },
+          ] : [{ modelId: 'claude-test', name: 'Claude Test' }] } })
+        }
         if (p === '/api/agent-sets') {
           if (request.method() === 'PUT') {
             const next = request.postDataJSON().sets as typeof sets
@@ -105,6 +113,34 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await page.getByRole('option', { name: 'Codex', exact: true }).click()
       await runtime.click(); await runtime.press('Escape')
       assert.equal(await editor.isVisible(), true, 'Escape keeps the preset editor open')
+      await editor.getByRole('alert').filter({ hasText: '모델 목록을 불러오지 못했습니다' }).waitFor()
+      const model = editor.getByRole('combobox', { name: '모델 (선택)', exact: true })
+      await model.fill('custom-model')
+      await model.press('Escape')
+      await editor.getByRole('button', { name: '다시 시도', exact: true }).click()
+      await editor.getByText('모델 목록을 불러오지 못했습니다', { exact: true }).waitFor({ state: 'hidden' })
+      assert.equal(await model.inputValue(), 'custom-model', 'retry preserves a custom ID')
+      await model.fill('REASONING')
+      await page.getByRole('option', { name: 'Alpha Reasoning · alpha[high]', exact: true }).waitFor()
+      assert.equal(await page.getByRole('option', { name: 'Beta General · beta[medium]', exact: true }).count(), 0)
+      if (process.env.MEW_GIT_AI_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.MEW_GIT_AI_SCREENSHOTS, `model-search-${width}.png`) })
+      await model.press('ArrowDown'); await model.press('ArrowDown'); await model.press('Enter')
+      assert.equal(await model.inputValue(), 'alpha[high]', 'search by display name saves the exact ACP ID')
+      await model.fill('beta[')
+      await page.getByRole('option', { name: 'Beta General · beta[medium]', exact: true }).click()
+      assert.equal(await model.inputValue(), 'beta[medium]')
+      await model.click(); await model.press('Escape')
+      assert.equal(await editor.isVisible(), true)
+      await runtime.click(); await page.getByRole('option', { name: 'Claude Agent', exact: true }).click()
+      assert.equal(await model.inputValue(), '', 'switching runtimes clears the previous model')
+      await runtime.click(); await page.getByRole('option', { name: 'Codex', exact: true }).click()
+      await model.fill('unknown-model')
+      await page.getByRole('option', { name: '일치하는 모델 없음 — 직접 입력 가능', exact: true }).waitFor()
+      await model.fill('')
+      await page.getByRole('option', { name: '런타임 기본 모델', exact: true }).click()
+      assert.equal(await model.inputValue(), '')
+      await model.fill('alpha[')
+      await page.getByRole('option', { name: 'Alpha Reasoning · alpha[high]', exact: true }).click()
       await editor.getByLabel('이름', { exact: true }).fill('기존 커밋 에이전트')
       await editor.getByLabel('역할 지침').fill('짧은 커밋 제목을 작성하세요')
       await editor.getByRole('button', { name: '저장', exact: true }).click()
@@ -116,6 +152,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await page.getByText('새 커밋 에이전트 · 변경사항 분석 중…', { exact: true }).waitFor()
       assert.equal(sets.length, 2)
       assert.equal(sets[1].runtime, 'codex')
+      assert.equal(sets[1].modelId, 'alpha[high]')
       await click('작업 중단')
       await page.getByText('새 커밋 에이전트 · 작업 중단됨', { exact: true }).waitFor()
       await page.keyboard.press('Escape')

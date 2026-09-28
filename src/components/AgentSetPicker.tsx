@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { DialogFrame, SelectField } from '@mew/ui'
-import { saveAgentSets, type AgentSet } from '../api/client'
+import { fetchAgentModels, saveAgentSets, type AgentModelOption, type AgentSet } from '../api/client'
 import { RUNTIMES, runtimeOf } from './agentRuntimes'
 import { cachedAgentSets, refreshAgentSets, subscribeAgentSets, updateAgentSetsCache } from '../utils/agentPickerCache'
 import { useI18n } from '../i18n'
@@ -89,14 +89,48 @@ export function AgentSetPicker({ onSelect, onCreated }: { onSelect: (set: AgentS
 function AgentSetEditor({ set, error, saving, isNew, onSave, onDelete, onClose }: { set: AgentSet; error: string | null; saving: boolean; isNew: boolean; onSave: (set: AgentSet) => void; onDelete: () => void; onClose: () => void }) {
   const { t } = useI18n()
   const [form, setForm] = useState(set)
+  const [catalog, setCatalog] = useState<{ runtime: string; models: AgentModelOption[]; failed: boolean } | null>(null)
+  const [modelRetry, setModelRetry] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    setCatalog(null)
+    void fetchAgentModels(form.runtime, controller.signal)
+      .then(({ models }) => {
+        if (!controller.signal.aborted) setCatalog({ runtime: form.runtime, models, failed: false })
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setCatalog({ runtime: form.runtime, models: [], failed: true })
+      })
+    return () => controller.abort()
+  }, [form.runtime, modelRetry])
+  const currentCatalog = catalog?.runtime === form.runtime ? catalog : null
+  const models = currentCatalog?.models ?? []
+  const query = form.modelId.trim().toLocaleLowerCase()
+  const matchingModels = models.some(model => model.modelId === form.modelId)
+    ? models
+    : models.filter(model => `${model.name} ${model.modelId}`.toLocaleLowerCase().includes(query))
+  const modelOptions = [
+    { value: '', label: t('agentSet.defaultModel') },
+    ...matchingModels.map(model => ({ value: model.modelId, label: model.name === model.modelId ? model.name : `${model.name} · ${model.modelId}` })),
+    ...(!currentCatalog || (!currentCatalog.failed && matchingModels.length === 0)
+      ? [{ value: '__model_status__', label: t(!currentCatalog ? 'common.loading' : 'agentSet.noModels'), disabled: true }]
+      : []),
+  ]
   return (
     <DialogFrame labelledBy="agent-set-editor-title" onClose={onClose} busy={saving}>
       <div className="p-4">
         <div id="agent-set-editor-title" className="mb-3 text-sm text-ink">{isNew ? t('agentSet.new') : t('agentSet.editTitle')}</div>
         <div className="space-y-3">
           <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.name')}</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1 w-full rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none" /></label>
-          <div><div className="mb-1 text-xs text-ink-muted">{t('agentSet.agent')}</div><SelectField label={t('agentSet.agent')} value={form.runtime} disabled={saving} onChange={(runtime) => setForm({ ...form, runtime })} options={AGENT_SET_RUNTIMES.map((runtime) => ({ value: runtime.id, label: runtime.label }))} /></div>
-          <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.model')}</span><input value={form.modelId} onChange={(e) => setForm({ ...form, modelId: e.target.value })} placeholder="e.g. gpt-5.4" className="mt-1 w-full rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted" /></label>
+          <div><div className="mb-1 text-xs text-ink-muted">{t('agentSet.agent')}</div><SelectField label={t('agentSet.agent')} value={form.runtime} disabled={saving} onChange={(runtime) => setForm({ ...form, runtime, modelId: '' })} options={AGENT_SET_RUNTIMES.map((runtime) => ({ value: runtime.id, label: runtime.label }))} /></div>
+          <div>
+            <div className="mb-1 text-xs text-ink-muted">{t('agentSet.model')}</div>
+            <SelectField key={form.runtime} editable label={t('agentSet.model')} value={form.modelId} options={modelOptions} disabled={saving} onChange={(modelId) => setForm({ ...form, modelId })} />
+            {currentCatalog?.failed && <div className="mt-1 flex items-center gap-2 text-xs">
+              <span role="alert" className="text-danger">{t('agentSet.modelsFailed')}</span>
+              <button type="button" disabled={saving} onClick={() => setModelRetry(value => value + 1)} className="shrink-0 rounded px-1 py-1 text-accent hover:bg-surface-raised disabled:opacity-40">{t('project.retry')}</button>
+            </div>}
+          </div>
           <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.role')}</span><textarea value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} rows={5} className="mt-1 w-full resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none" /></label>
         </div>
         {error && <p role="alert" className="mt-3 whitespace-pre-wrap text-xs text-danger">{error}</p>}
