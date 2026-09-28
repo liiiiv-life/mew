@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "패널 배치·모바일·상태 복원"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-28"
+updated: "2026-09-29"
 status_hash: "018bca32e486b43c386b29de3e2087d6d1447fae6a33abc99d745367947a9382"
 files: ["src/hooks/use-refresh-tasks.ts", "src/hooks/usePresence.ts", "src/components/project-loading-overlay.tsx", "src/App.tsx", "src/components/DockWorkspace.tsx", "src/components/EditorPane.tsx", "src/components/TabBar.tsx", "src/components/AgentPanel.tsx", "src/components/mobile-dock.tsx", "src/utils/mobile-dock.ts", "src/hooks/use-mobile-keyboard.ts", "src/hooks/use-dock-position.ts", "src/hooks/useTabs.ts", "server/userUiState.ts"]
 commits: []
@@ -53,9 +53,10 @@ commits: []
 - 상세 해제 조건과 모바일 경계는 [작업 패널 배치](../../development/ui-contracts.md#작업-패널-배치)를 따른다.
 
 - 데스크톱에서는 둥근 반투명 플로팅 독을 하단 중앙에 표시한다.
-- 아이콘을 누르면 해당 패널을 켜거나 끄고 다른 패널은 유지한다.
+- 아이콘을 누르면 닫힌 패널을 열고, 열려 있지만 포커스되지 않은 패널은 닫지 않고 포커스를 옮긴다. 다른 패널은 유지한다.
 - 열린 패널은 옅게 하이라이트하고, 현재 포커스가 있는 작업 패널 하나는 더 진하게 표시한다.
-- 하이라이트된 아이콘을 누르면 해당 패널을 닫고 하이라이트도 없앤다.
+- 포커스된 아이콘을 다시 누를 때만 해당 패널을 닫고 하이라이트도 없앤다.
+- 다른 열린 패널로 이동할 때 마지막 입력 요소의 포커스와 작성 중인 초안을 보존한다.
 - 이미 열린 패널의 본문·탭을 클릭하거나 키보드·내부 브라우저 iframe으로 포커스를 옮기면 즉시 갱신한다.
 - 에디터는 탭·본문·분할 배치를 보존한 채 숨기고 다시 표시하며, 기능 패널은 닫기 전 미저장 확인을 유지한다.
 - 작은 손잡이로 전체 위치를 옮기고 브라우저에 기억한다.
@@ -90,6 +91,7 @@ commits: []
 <!-- mew:validation:start -->
 ## 검증
 
+- 데스크톱에서 열린 비포커스 패널을 클릭·Enter로 선택하면 포커스가 이동하고, 다시 선택할 때만 닫히는지 확인한다. 기능 패널의 미저장 초안과 입력 포커스도 유지해야 한다.
 - 독의 선택·스와이프·재정렬·취소·저장 복원·키보드 숨김·모바일 양 테마와 데스크톱 플로팅 표시·위치 이동·복원·창 축소 경계는 연결된 개발 계약의 격리 Chromium 테스트로 검사한다.
 - 패널 더블클릭 확대·복귀는 `dock-maximize-ui.test.ts`에서 탭이 있는 패널 종류·Esc 복귀/팝업 우선 닫기·선택한 탭 바의 전체 너비·다른 탭 바 숨김/키보드 차단·독 접근·상하 분할·초안/마운트 보존·모바일 전환을 확인한다.
 
@@ -101,5 +103,7 @@ commits: []
 - 2026-09-25: 실제 App의 격리 Chromium에서 양 테마의 열린 패널/포커스 배경 강도, 두 상태의 클릭 닫기와 배경 해제, 모바일 배경 없는 선택 표시를 확인했다. 독의 터치·스와이프·재정렬·이동 기존 검증도 통과했다.
 
 - 2026-09-25: 탭 확대 시 양 테마에서 선택한 탭 바의 전체 너비와 다른 탭 바 숨김·키보드 차단, 더블클릭/Esc 복귀, 초안·마운트·분할 배치 보존을 확인했다. `dock-maximize-ui.test.ts`, `dockWorkspaceUi.test.ts`, `workspace-switch-ui.test.ts`와 타입·린트·문서 검사가 통과했다.
+
+- 2026-09-29: `server/workspace-switch-ui.test.ts`에서 열린 비포커스 패널의 클릭·Enter 선택 유지, 사이드바 키보드 포커스 이동, 기능 입력 포커스·초안 복원, 포커스된 패널 재선택 닫기와 모바일 재선택 유지를 확인했다.
 
 <!-- mew:validation:end -->

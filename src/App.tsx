@@ -300,7 +300,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const mobilePanelStackRestorePendingRef = useRef<string | null>(null)
   const mobilePanelStackRestoredRootRef = useRef<string | null>(null)
   const [treeInvalidation, setTreeInvalidation] = useState<{ n: number; project: string; version: number; parents: string[] }>({ n: 0, project: '', version: 0, parents: [] })
-  const [focusedWorkspacePanel, setFocusedWorkspacePanel] = useFocusedWorkspacePanel()
+  const [focusedWorkspacePanel, setFocusedWorkspacePanel, focusWorkspacePanel] = useFocusedWorkspacePanel()
   const [desktopMode, setDesktopMode] = useState(isDesktop)
   const [editorOpen, setEditorOpen] = useState(true)
   useEffect(() => {
@@ -1111,19 +1111,20 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   if (!isGuest && caps.filesRead && rootProjectPath) mobileDockPanels.push('rag')
   const selectDockPanel = (panel: MobileDockPanel, toggle = true) => {
     if (!mobileDockPanels.includes(panel)) return
+    const closeFocused = isDesktop() && toggle && (remoteDesktopOpen ? panel === 'desktop' : focusedDockPanel === panel)
     if (panel === 'memo') {
       setRemoteDesktopOpen(false)
-      setMemoOpen(open => isDesktop() && toggle ? !open : true)
+      setMemoOpen(open => closeFocused ? !open : true)
       setMemoFocusSignal(value => value + 1)
       return
     }
     if (!isDesktop()) setMemoOpen(false)
     dockRef.current?.restore()
-    if (panel === 'desktop') { setRemoteDesktopOpen(open => isDesktop() && toggle ? !open : true); return }
+    if (panel === 'desktop') { setRemoteDesktopOpen(open => closeFocused ? !open : true); return }
     setRemoteDesktopOpen(false)
     if (panel !== 'features' && panel !== 'rag') activeTabbedSurfaceRef.current = panel
     if (panel === 'editor') {
-      if (isDesktop() && toggle && editorOpen) {
+      if (closeFocused && editorOpen) {
         setEditorOpen(false)
         return
       }
@@ -1135,15 +1136,19 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           const host = paneEls.current.get(focusedPaneId)
           const target = host?.querySelector<HTMLElement>('[contenteditable="true"], textarea') ?? host
           target?.focus({ preventScroll: true })
+          if (!host?.contains(document.activeElement)) focusWorkspacePanel('editor')
         })
       }
     }
-    else if (isDesktop() && toggle && workspacePanelOpen[panel]) {
+    else if (closeFocused && workspacePanelOpen[panel]) {
       if (panel === 'features') featureCloseRef.current?.()
       else closeWorkspacePanel(panel)
     } else {
       openWorkspacePanel(panel)
-      if (isDesktop()) setFocusedWorkspacePanel(panel)
+      if (isDesktop()) {
+        setFocusedWorkspacePanel(panel)
+        requestAnimationFrame(() => focusWorkspacePanel(panel))
+      }
     }
   }
   const navigateMobileDock = (direction: -1 | 1, order: MobileDockPanel[]) => {
