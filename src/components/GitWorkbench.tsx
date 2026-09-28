@@ -1,6 +1,6 @@
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { useDialog, useOverlayDismiss } from '@mew/ui'
 import { relativeCommitTime } from '../utils/git-time'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
@@ -209,12 +209,66 @@ function GitSplitHandle({ ratio, onChange }: { ratio: number; onChange: (ratio: 
   />
 }
 
-export function GitWorkbench({ project, repositoryPath, onNotice, onBack, panelControls }: {
+function GitComposer({ children, onSubmit }: { children: ReactNode; onSubmit: () => void }) {
+  useUiLocale()
+  const form = useRef<HTMLFormElement>(null)
+  const drag = useRef<{ pointerId: number; y: number; height: number } | null>(null)
+  const [height, setHeight] = useState<number | null>(null)
+  const [availableHeight, setAvailableHeight] = useState(0)
+  useLayoutEffect(() => {
+    const parent = form.current?.parentElement
+    if (!parent) return
+    const measure = () => { if (parent.clientHeight > 0) setAvailableHeight(parent.clientHeight) }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [])
+  const minHeight = 144
+  const maxHeight = Math.max(minHeight, Math.floor(availableHeight * 0.7))
+  const clamp = (value: number) => Math.max(minHeight, Math.min(maxHeight, value))
+  const visibleHeight = clamp(height ?? availableHeight * 0.375)
+  const move = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const active = drag.current
+    if (active?.pointerId === event.pointerId) setHeight(clamp(active.height + active.y - event.clientY))
+  }
+  const end = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return
+    drag.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+  return <form ref={form} aria-label={uiText("커밋 작성")} className="relative min-h-36 shrink-0 border-t border-edge" style={{ height: visibleHeight }} onSubmit={event => { event.preventDefault(); onSubmit() }}>
+    <div role="separator" tabIndex={0} aria-label={uiText("입력창 높이 조절")} aria-orientation="horizontal"
+      aria-valuemin={minHeight} aria-valuemax={maxHeight} aria-valuenow={Math.round(visibleHeight)}
+      title={uiText("끌어서 입력창 높이 조절")}
+      className="group absolute inset-x-0 -top-1.5 z-20 h-3 cursor-row-resize touch-none outline-none"
+      onPointerDown={event => {
+        if (event.button !== 0 || !event.isPrimary || drag.current) return
+        event.preventDefault()
+        event.currentTarget.setPointerCapture(event.pointerId)
+        event.currentTarget.focus({ preventScroll: true })
+        drag.current = { pointerId: event.pointerId, y: event.clientY, height: form.current?.getBoundingClientRect().height ?? visibleHeight }
+      }}
+      onPointerMove={move}
+      onPointerUp={event => { move(event); end(event) }}
+      onPointerCancel={end}
+      onLostPointerCapture={end}
+      onKeyDown={event => {
+        const next = event.key === 'ArrowUp' ? visibleHeight + 12 : event.key === 'ArrowDown' ? visibleHeight - 12 : event.key === 'Home' ? minHeight : event.key === 'End' ? maxHeight : null
+        if (next !== null) { event.preventDefault(); event.stopPropagation(); setHeight(clamp(next)) }
+      }}
+    >
+      <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent" />
+    </div>
+    <div className="flex h-full min-h-0 flex-col gap-2 overflow-auto p-3">{children}</div>
+  </form>
+}
+
+export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
   onBack?: () => void
-  panelControls?: ReactNode
 }) {
   useUiLocale()
   const [splitRatio, setSplitRatio] = useState(0.2)
@@ -377,10 +431,9 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, panelC
     <div className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface">
       {dialogs.dialog}
       {aiOpen && <GitAiCommitDialog key={project} project={project} files={[...selectedFiles]} onClose={() => { setAiOpen(false); void refresh() }} onFinished={() => { void refresh() }} />}
-      {(view.kind !== 'graph' || onBack || (!info?.repository && panelControls)) && <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
+      {(view.kind !== 'graph' || onBack) && <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
         {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")} title={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")}><BackIcon /></button>}
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={heading}>{heading}</span>
-        {panelControls}
       </div>}
 
       {error && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="select-text min-w-0 flex-1">{error}</span><button type="button" onClick={() => setError(null)} aria-label={uiText("오류 닫기")}>×</button></div>}
@@ -430,6 +483,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, panelC
             <section aria-label={uiText("현재 변경사항")} className="flex min-h-0 flex-col overflow-hidden" style={{ flex: `${1 - splitRatio} 1 0`, minHeight: 'min(224px, 75%)' }}>
               <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs">
                 <input type="checkbox" aria-label={uiText("변경 파일 전체 선택")} checked={workingTree.files.length > 0 && selectedFiles.size === workingTree.files.length} ref={node => { if (node) node.indeterminate = selectedFiles.size > 0 && selectedFiles.size < workingTree.files.length }} disabled={committing || workingTree.files.length === 0} onChange={event => setSelectedFiles(new Set(event.target.checked ? workingTree.files.map(file => file.path) : []))} className="h-4 w-4 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
+                <span className="shrink-0 tabular-nums text-ink-muted" role="status" aria-label={uiText("{count}개 선택", { count: selectedFiles.size })}>{selectedFiles.size}</span>
                 <span className="min-w-0 truncate font-medium text-ink">{uiText("커밋되지 않은 변경사항")}</span>
                 <span className="shrink-0 tabular-nums text-ink-muted">{workingTree.files.length}</span>
                 <button type="button" onClick={() => void refresh()} disabled={loading || committing} className="ml-auto shrink-0 rounded px-2 py-1 text-ink-secondary hover:bg-surface-hover disabled:opacity-40">{uiText("새로고침")}</button>
@@ -437,20 +491,14 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, panelC
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-scroll="changes">
                 <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={committing} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
               </div>
-              <form aria-label={uiText("커밋 작성")} className="flex min-h-36 shrink-0 resize-y flex-col gap-2 overflow-auto border-t border-edge p-3" style={{ height: '37.5%', maxHeight: '70%' }} onSubmit={(event) => { event.preventDefault(); void commit() }}>
+              <GitComposer onSubmit={() => { void commit() }}>
                 <div className="flex shrink-0 items-center gap-2">
                   <input value={commitTitle} disabled={committing} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
                   <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || committing} className="shrink-0 rounded bg-accent px-3 py-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">{committing ? uiText("커밋 중…") : uiText("커밋")}</button>
+                  {view.kind === 'graph' && info?.repository && <button type="button" disabled={committing} onClick={() => setAiOpen(true)} className="shrink-0 rounded border border-edge-strong px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">{uiText("AI 자동 커밋")}</button>}
                 </div>
                 <textarea value={commitDescription} disabled={committing} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-8 w-full flex-1 resize-none rounded border border-edge-strong bg-surface-deep px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-                <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 text-xs">
-                  <span className="text-ink-muted" role="status">{uiText("{count}개 선택", { count: selectedFiles.size })}</span>
-                  {view.kind === 'graph' && info?.repository && <div className="ml-auto flex min-w-0 items-center gap-1">
-                    {panelControls}
-                    <button type="button" disabled={committing} onClick={() => setAiOpen(true)} className="shrink-0 rounded border border-edge-strong px-3 py-1.5 text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">{uiText("AI 자동 커밋")}</button>
-                  </div>}
-                </div>
-              </form>
+              </GitComposer>
             </section>
           </div>
         )}

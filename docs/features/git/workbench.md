@@ -4,7 +4,7 @@ parent: "mew-git"
 title: "현재 프로젝트 Git 작업 패널"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-27"
+updated: "2026-09-28"
 status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
 files: ["src/components/GitWorkbench.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
@@ -41,9 +41,10 @@ commits: []
 
 - 다른 패널 탭 바와 같은 36px 상단 바에 Git 아이콘·제목·닫기 버튼을 표시하며 데스크톱에는 공통 이동 손잡이를 둔다.
 - 상단 바는 상세·diff·로딩·저장소 없음 상태에서도 유지하며, 본문은 그 아래에서 시작한다.
-- GitHub 로그인은 기존 본문 조작 줄에서 제공하고 하위 저장소 선택은 제공하지 않는다.
+- GitHub 로그인 버튼·연결 계정 정보는 패널 헤더의 닫기 버튼 왼쪽에서 제공하고 하위 저장소 선택은 제공하지 않는다.
 - 기본 화면은 위에서부터 한 줄 커밋 그래프·체크박스가 있는 변경 파일·작성 영역을 약 20:50:30으로 표시한다.
-- 제목 옆에 커밋 버튼을 두고 아래 설명 영역의 높이를 조절할 수 있다.
+- 제목 오른쪽에 커밋·AI 자동 커밋 버튼을 순서대로 두고 작성 영역 위쪽 경계선을 마우스·터치로 끌어 높이를 조절한다. 에이전트 입력창과 같은 경계선 강조와 12px 조작 영역을 사용하며 방향키·Home/End도 지원한다.
+- 선택 파일 수는 전체 선택 체크박스 오른쪽·변경사항 제목 왼쪽에 숫자만 표시한다. 커밋 작성란 아래의 선택 개수 표시는 제거한다.
 - 각 목록은 따로 스크롤하며 경계 드래그·키보드로 높이 비율을 조절한다.
 - 커밋 시간은 분·시간·일 중 가장 큰 단위 하나로 표시한다.
 - 중복된 프로젝트 루트 문구·빈 상단 바는 제거했다.
@@ -61,6 +62,11 @@ commits: []
 <!-- mew:validation:start -->
 ## 검증
 
+- 전체·개별 선택을 바꾸면 변경사항 헤더의 선택 개수가 갱신되고, 0개일 때도 숫자를 표시하는지 확인한다.
+- 2026-09-28: 선택 개수 위치 변경 후 기존 `server/git-panel-ui.test.ts` Chromium 검사, TypeScript·대상 파일 lint, 문서 경계·링크 검사를 통과했다.
+- 2026-09-28: GitHub 로그인 정보를 패널 헤더로 옮긴 뒤 `server/git-panel-ui.test.ts`·`server/github-auth-ui.test.ts`, TypeScript·대상 파일 lint를 통과했다. 데스크톱·모바일 캡처에서 닫기 버튼 왼쪽 배치를 확인했다.
+- 2026-09-28: AI 자동 커밋 버튼을 일반 커밋 오른쪽으로 옮긴 뒤 `server/git-panel-ui.test.ts`·`server/git-ai-commit-ui.test.ts`, TypeScript·대상 파일 lint를 통과했다. 데스크톱·모바일 캡처에서 두 버튼의 같은 줄 배치를 확인했다.
+- 2026-09-28: 작성 영역 상단 경계선의 마우스 양방향 드래그·터치 드래그/취소·놓기 종료·하단 고정·키보드 12px 조절/Home/End·diff/닫기 후 높이 보존·기존 모서리 핸들 제거를 `server/git-panel-ui.test.ts`에서 검증했다. AI 자동 커밋 UI 회귀·TypeScript·대상 파일 lint·문서 검사도 통과했다.
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 현재 탭 저장소만 표시되고 커밋 전 선택 파일 범위와 위험 작업 확인이 정확한지 확인한다.
 - 36px 상단 바·Git 아이콘/제목·GitHub/닫기 접근·상단 손잡이 도킹 이동·20:50:30 초기 비율·작성 영역 높이 조절·전체/개별 선택·선택하지 않은 staged 파일 보존·기본 변경 파일 노출·독립 스크롤·경계 드래그/키보드·모바일 한 줄 커밋·diff 복귀를 확인한다.
