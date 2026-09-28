@@ -397,6 +397,7 @@ export function cloneExternalGit(parent: string, url: string, name?: string): Pr
 }
 
 export interface GitRepositoryInfo {
+  workspace?: string
   repository: boolean
   path: string
   branch: string | null
@@ -510,6 +511,14 @@ export function runGitCommitAction(path: string, action: GitCommitAction, hash: 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, action, hash, name }),
   }).then(json<GitRepositoryInfo>)
+}
+
+export function runGitRemoteAction(path: string, action: 'pull' | 'push', project: string, workspace: string): Promise<{ ok: true }> {
+  return fetch(`/api/git/remote?${projectQs(project)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, action, workspace }),
+  }).then(json<{ ok: true }>)
 }
 
 export function externalRawUrl(path: string): string {

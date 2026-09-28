@@ -47,11 +47,13 @@ test('account capabilities and canonical file rules are enforced across HTTP and
     for (const account of ['member', 'guest']) {
       assert.equal((await request('/agent-runtimes/codex/models', 'GET', undefined, account)).status, 403)
       assert.equal((await request('/git/github-auth', 'GET', undefined, account)).status, 403)
+      assert.equal((await request('/git/remote', 'POST', { action: 'push', workspace: paths.WORKSPACE_ROOT }, account)).status, 403)
       assert.equal((await request('/git/github-auth', 'POST', undefined, account)).status, 403)
       assert.equal((await request('/git/github-auth/unknown/stop', 'POST', undefined, account)).status, 403)
       assert.equal((await request('/git/github-auth/unknown/browser', 'POST', undefined, account)).status, 403)
     }
     policy.setFeature(member.email!, 'git', true)
+    assert.equal((await request('/git/remote', 'POST', { action: 'pull', workspace: '/stale' }, 'owner')).status, 409)
     assert.equal((await request('/git/github-auth', 'POST')).status, 403, 'Git alone cannot open login browsers')
     policy.setFeature(member.email!, 'git', null)
     assert.equal((await request('/fs/agent-guidance')).status, 403)
@@ -128,6 +130,7 @@ test('account capabilities and canonical file rules are enforced across HTTP and
     policy.setFeature(member.email!, 'git', true)
     assert.equal((await request('/git/github-auth?project=docs')).status, 403)
     assert.equal((await request('/git/github-auth?project=docs', 'POST')).status, 403)
+    assert.equal((await request('/git/remote?project=docs', 'POST', { action: 'push', workspace: paths.WORKSPACE_ROOT })).status, 403)
     policy.setFeature(member.email!, 'git', null)
     assert.equal(policy.fileAccess(member, '.workspace', 'docs/private/secret.md').view, false)
     assert.equal(policy.fileAccess(member, 'docs', 'alias/secret.md').view, false)

@@ -2,6 +2,8 @@ import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { useDialog, useOverlayDismiss } from '@mew/ui'
+import { createPortal } from 'react-dom'
+import { ArrowDown, ArrowUp } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
 import {
@@ -13,6 +15,7 @@ import {
   fetchGitWorkingTree,
   fetchGitWorkingTreeDiff,
   runGitCommitAction,
+  runGitRemoteAction,
   type GitChangedFile,
   type GitCommitAction,
   type GitCommitDetail,
@@ -264,11 +267,12 @@ function GitComposer({ children, onSubmit }: { children: ReactNode; onSubmit: ()
   </form>
 }
 
-export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
+export function GitWorkbench({ project, repositoryPath, onNotice, onBack, actionsHost }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
   onBack?: () => void
+  actionsHost?: HTMLElement | null
 }) {
   useUiLocale()
   const [splitRatio, setSplitRatio] = useState(0.2)
@@ -287,6 +291,10 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   const [detailLoading, setDetailLoading] = useState(false)
   const [diffLoading, setDiffLoading] = useState(false)
   const [committing, setCommitting] = useState(false)
+  const [remoteAction, setRemoteAction] = useState<'pull' | 'push' | null>(null)
+  const [actionRunning, setActionRunning] = useState(false)
+  const remotePending = useRef(false)
+  const busy = committing || actionRunning || remoteAction !== null
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [commitTitle, setCommitTitle] = useState('')
   const [commitDescription, setCommitDescription] = useState('')
@@ -379,7 +387,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   }
 
   const commit = async () => {
-    if (!commitTitle.trim() || selectedFiles.size === 0 || committing) return
+    if (!commitTitle.trim() || selectedFiles.size === 0 || busy) return
     setCommitting(true)
     setError(null)
     try {
@@ -400,6 +408,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
   const dialogs = useDialog()
 
   const act = async (action: GitCommitAction, selected: GitLogEntry) => {
+    if (busy) return
     setMenu(null)
     let name: string | undefined
     if (action === 'branch') {
@@ -412,12 +421,16 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
       const labels: Record<Exclude<GitCommitAction, 'branch' | 'tag'>, string> = { checkout: uiText("이 커밋을 detached HEAD로 checkout"), 'cherry-pick': uiText("현재 브랜치에 cherry-pick"), revert: uiText("현재 브랜치에서 revert 커밋 생성") }
       if (!(await dialogs.confirm({ message: uiText("{p0}할까요?", { p0: labels[action] }), detail: `${selected.hash.slice(0, 8)} ${selected.subject}`, confirmLabel: uiText("실행"), danger: true }))) return
     }
+    if (remotePending.current) return
+    setActionRunning(true)
     try {
       await runGitCommitAction(repositoryPath, action, selected.hash, name, project)
       onNotice(uiText("Git 작업을 완료했습니다"))
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setActionRunning(false)
     }
   }
 
@@ -427,9 +440,38 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
         ? detail?.subject ?? uiText("커밋 상세")
         : view.file.path
 
+  const syncRemote = async (action: 'pull' | 'push') => {
+    if (busy || remotePending.current || loading || aiOpen || !info?.repository || info.detached || !info.workspace) return
+    remotePending.current = true
+    setRemoteAction(action)
+    setError(null)
+    try {
+      await runGitRemoteAction(repositoryPath, action, project, info.workspace)
+      onNotice(uiText("Git 작업을 완료했습니다"))
+      setView({ kind: 'graph' })
+      await refresh()
+    } catch (err) {
+      await refresh()
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      remotePending.current = false
+      setRemoteAction(null)
+    }
+  }
+
   return (
     <div className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface">
       {dialogs.dialog}
+      {actionsHost && createPortal((['pull', 'push'] as const).map(action => {
+        const Icon = action === 'pull' ? ArrowDown : ArrowUp
+        const label = action === 'pull' ? 'Pull' : 'Push'
+        return <button key={action} type="button" title={label} aria-label={label} aria-busy={remoteAction === action}
+          disabled={busy || loading || aiOpen || !info?.repository || info.detached || !info.workspace || !info.remotes?.length}
+          onClick={() => { void syncRemote(action) }}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">
+          <Icon width={16} height={16} aria-hidden="true" className={remoteAction === action ? 'animate-pulse' : undefined} />
+        </button>
+      }), actionsHost)}
       {aiOpen && <GitAiCommitDialog key={project} project={project} files={[...selectedFiles]} onClose={() => { setAiOpen(false); void refresh() }} onFinished={() => { void refresh() }} />}
       {(view.kind !== 'graph' || onBack) && <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
         {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")} title={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")}><BackIcon /></button>}
@@ -482,22 +524,22 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack }: {
             <GitSplitHandle ratio={splitRatio} onChange={setSplitRatio} />
             <section aria-label={uiText("현재 변경사항")} className="flex min-h-0 flex-col overflow-hidden" style={{ flex: `${1 - splitRatio} 1 0`, minHeight: 'min(224px, 75%)' }}>
               <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs">
-                <input type="checkbox" aria-label={uiText("변경 파일 전체 선택")} checked={workingTree.files.length > 0 && selectedFiles.size === workingTree.files.length} ref={node => { if (node) node.indeterminate = selectedFiles.size > 0 && selectedFiles.size < workingTree.files.length }} disabled={committing || workingTree.files.length === 0} onChange={event => setSelectedFiles(new Set(event.target.checked ? workingTree.files.map(file => file.path) : []))} className="h-4 w-4 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
+                <input type="checkbox" aria-label={uiText("변경 파일 전체 선택")} checked={workingTree.files.length > 0 && selectedFiles.size === workingTree.files.length} ref={node => { if (node) node.indeterminate = selectedFiles.size > 0 && selectedFiles.size < workingTree.files.length }} disabled={busy || workingTree.files.length === 0} onChange={event => setSelectedFiles(new Set(event.target.checked ? workingTree.files.map(file => file.path) : []))} className="h-4 w-4 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
                 <span className="shrink-0 tabular-nums text-ink-muted" role="status" aria-label={uiText("{count}개 선택", { count: selectedFiles.size })}>{selectedFiles.size}</span>
                 <span className="min-w-0 truncate font-medium text-ink">{uiText("커밋되지 않은 변경사항")}</span>
                 <span className="shrink-0 tabular-nums text-ink-muted">{workingTree.files.length}</span>
-                <button type="button" onClick={() => void refresh()} disabled={loading || committing} className="ml-auto shrink-0 rounded px-2 py-1 text-ink-secondary hover:bg-surface-hover disabled:opacity-40">{uiText("새로고침")}</button>
+                <button type="button" onClick={() => void refresh()} disabled={loading || busy} className="ml-auto shrink-0 rounded px-2 py-1 text-ink-secondary hover:bg-surface-hover disabled:opacity-40">{uiText("새로고침")}</button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-scroll="changes">
-                <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={committing} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
+                <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
               </div>
               <GitComposer onSubmit={() => { void commit() }}>
                 <div className="flex shrink-0 items-center gap-2">
-                  <input value={commitTitle} disabled={committing} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || committing} className="shrink-0 rounded bg-accent px-3 py-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">{committing ? uiText("커밋 중…") : uiText("커밋")}</button>
-                  {view.kind === 'graph' && info?.repository && <button type="button" disabled={committing} onClick={() => setAiOpen(true)} className="shrink-0 rounded border border-edge-strong px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">{uiText("AI 자동 커밋")}</button>}
+                  <input value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || busy} className="shrink-0 rounded bg-accent px-3 py-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">{committing ? uiText("커밋 중…") : uiText("커밋")}</button>
+                  {view.kind === 'graph' && info?.repository && <button type="button" disabled={busy} onClick={() => setAiOpen(true)} className="shrink-0 rounded border border-edge-strong px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">{uiText("AI 자동 커밋")}</button>}
                 </div>
-                <textarea value={commitDescription} disabled={committing} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-8 w-full flex-1 resize-none rounded border border-edge-strong bg-surface-deep px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                <textarea value={commitDescription} disabled={busy} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-8 w-full flex-1 resize-none rounded border border-edge-strong bg-surface-deep px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
               </GitComposer>
             </section>
           </div>

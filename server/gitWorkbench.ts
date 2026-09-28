@@ -4,13 +4,14 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import simpleGit, { type SimpleGit } from 'simple-git'
 import { resolveExistingPath } from './fsBrowse.ts'
-import { resolveProjectPath } from './paths.ts'
+import { resolveProjectPath, WORKSPACE_ROOT } from './paths.ts'
 import { invalidateGit } from './git.ts'
 import { commitFiles } from './git-commit-files.ts'
 
 export class GitWorkbenchError extends Error {}
 
 export interface GitRepositoryInfo {
+  workspace: string
   repository: boolean
   path: string
   branch: string | null
@@ -109,12 +110,14 @@ function parseRecord(record: string): GitLogEntry | null {
 }
 
 export async function repositoryInfo(project: string, relPath: string): Promise<GitRepositoryInfo> {
+  const workspace = WORKSPACE_ROOT
   const abs = scopedDirectory(project, relPath)
-  if (!isRepositoryRoot(abs)) return { repository: false, path: relPath, branch: null, detached: false, dirty: false, ahead: 0, behind: 0, remotes: [] }
+  if (!isRepositoryRoot(abs)) return { workspace, repository: false, path: relPath, branch: null, detached: false, dirty: false, ahead: 0, behind: 0, remotes: [] }
   const git = simpleGit({ baseDir: abs, config: ['core.quotepath=false'] })
   const status = await git.status(['--untracked-files=all'])
   const remotes = await git.getRemotes(true)
   return {
+    workspace,
     repository: true,
     path: relPath,
     branch: status.current,
@@ -281,6 +284,32 @@ export async function commitFileDiff(project: string, relPath: string, hashInput
 }
 
 export type GitCommitAction = 'branch' | 'tag' | 'checkout' | 'cherry-pick' | 'revert'
+
+const remoteOperations = new Set<string>()
+
+export async function runRemoteAction(project: string, relPath: string, action: unknown): Promise<void> {
+  if (action !== 'pull' && action !== 'push') throw new GitWorkbenchError('지원하지 않는 Git 작업입니다')
+  const { abs, git } = repository(project, relPath)
+  const key = fs.realpathSync(abs)
+  if (remoteOperations.has(key)) throw new GitWorkbenchError('Git 원격 작업이 이미 실행 중입니다')
+  remoteOperations.add(key)
+  try {
+    const status = await git.status()
+    if (status.detached || !status.current) throw new GitWorkbenchError('브랜치로 전환한 뒤 다시 시도하세요')
+    const remote = (await git.getConfig(`branch.${status.current}.remote`)).value
+    const ref = (await git.getConfig(`branch.${status.current}.merge`)).value
+    if (!remote || !ref?.startsWith('refs/heads/') || !(await git.getRemotes()).some(item => item.name === remote)) {
+      throw new GitWorkbenchError('현재 브랜치의 원격 추적 브랜치(upstream)를 설정한 뒤 다시 시도하세요')
+    }
+    const args = action === 'pull'
+      ? ['pull', '--ff-only', '--no-rebase', '--no-autostash', '--', remote, ref]
+      : ['push', '--no-force', '--no-follow-tags', '--recurse-submodules=no', '--', remote, `HEAD:${ref}`]
+    await execFileAsync('git', args, { cwd: abs, encoding: 'utf8', timeout: 120_000, maxBuffer: 2_000_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' } })
+  } finally {
+    remoteOperations.delete(key)
+    invalidateGit(project)
+  }
+}
 
 export async function runCommitAction(project: string, relPath: string, action: unknown, hashInput: unknown, nameInput?: unknown): Promise<GitRepositoryInfo> {
   const { git } = repository(project, relPath)

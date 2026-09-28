@@ -27,7 +27,7 @@ import { searchFileNames } from './fileNameSearch.ts'
 import { ensureSearchIndex, exactSearchCandidates, type SearchIndexState } from './searchCatalog.ts'
 import { currentRagIndex, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
-import { cloneExternalRepository, commitDetail, commitFileDiff, commitWorkingTree, GitWorkbenchError, initializeExternalRepository, initializeRepository, listRepositories, repositoryInfo, repositoryLog, runCommitAction, workingTreeDetail, workingTreeFileDiff } from './gitWorkbench.ts'
+import { cloneExternalRepository, commitDetail, commitFileDiff, commitWorkingTree, GitWorkbenchError, initializeExternalRepository, initializeRepository, listRepositories, repositoryInfo, repositoryLog, runCommitAction, runRemoteAction, workingTreeDetail, workingTreeFileDiff } from './gitWorkbench.ts'
 import { createGitHubAuthRouter } from './github-auth-routes.ts'
 import { evaluateRules, isArchived } from './rules.ts'
 import { registerPdfRoutes } from './pdf.ts'
@@ -949,6 +949,17 @@ export function createApiApp() {
 
   app.post('/git/commit', requireFeature('git'), async (req, res) => {
     try { res.json(await commitWorkingTree(projectOf(req), String(req.body?.path ?? ''), req.body?.title, req.body?.description, req.body?.files)) } catch (err) { handleError(res, err) }
+  })
+
+  app.post('/git/remote', requireFeature('git'), async (req, res) => {
+    if (req.body?.workspace !== WORKSPACE_ROOT) {
+      res.status(409).json({ error: '프로젝트가 변경되었습니다. Git 패널을 다시 여세요.' })
+      return
+    }
+    try {
+      await runRemoteAction(projectOf(req), String(req.body?.path ?? ''), req.body?.action)
+      res.json({ ok: true })
+    } catch (err) { handleError(res, err) }
   })
 
   app.post('/git/action', requireFeature('git'), async (req, res) => {

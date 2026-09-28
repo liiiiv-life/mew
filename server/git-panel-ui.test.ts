@@ -54,15 +54,24 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     page.setDefaultTimeout(6000)
     const errors: string[] = [], writes: string[] = [], reads: string[] = []
     let repositoryExists = true
+    let remoteFailure = false
+    const remoteRequests: unknown[] = []
+    let finishRemote = () => {}
     page.on('pageerror', (error) => errors.push(error.message))
     await page.route('http://localhost:48974/**', async (route) => {
       const url = new URL(route.request().url()), p = url.pathname
       if (route.request().method() !== 'GET') writes.push(p)
       if (p.startsWith('/api/')) {
+        if (p === '/api/git/remote') {
+          assert.equal(url.searchParams.get('project'), '.workspace')
+          remoteRequests.push(route.request().postDataJSON())
+          await new Promise<void>(resolve => { finishRemote = resolve })
+          return route.fulfill(remoteFailure ? { status: 409, json: { error: 'Push rejected' } } : { json: { ok: true } })
+        }
         reads.push(url.pathname + url.search)
         const payload = p === '/api/git/github-auth' ? { available: true, login: null, environmentToken: false, busy: false, job: null }
           : p === '/api/git/repositories' ? { repositories: url.searchParams.get('project') === 'docs' ? [{ path: '' }] : [{ path: '' }, { path: 'tools/a-very-long-repository-name-for-layout-checking' }] }
-          : p === '/api/git/repository' ? { repository: repositoryExists, branch: 'main', ahead: 0, behind: 0 }
+          : p === '/api/git/repository' ? { repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], branch: 'main', ahead: 0, behind: 0 }
             : p === '/api/git/log' ? { commits: Array.from({ length: 80 }, (_, index) => ({ hash: `abc12345${index}`, parents: index < 79 ? [`abc12345${index + 1}`] : [], subject: index === 0 ? '패널 작업: 긴 커밋 제목도 메타데이터를 밀어내지 않고 한 줄로 표시합니다' : `패널 작업 ${index}`, author: 'Tester with a long name', date: new Date(Date.now() - index * 3_600_000 - 1000).toISOString(), refs: index === 0 ? ['main', 'tag: v1'] : [] })) }
               : p.endsWith('/diff') ? { diff: 'diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n' }
                 : { files: Array.from({ length: 60 }, (_, index) => ({ path: index === 0 ? 'file.ts' : `src/components/long-directory-name/changed-file-${index}.tsx`, status: index % 2 ? '??' : 'M' })) }
@@ -99,6 +108,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.equal(await page.getByRole('button', { name: 'Git 닫기', exact: true }).count(), 1)
     assert.equal(await header().locator('[draggable="true"]').count(), 1)
     assert.equal(await page.getByRole('dialog').count(), 0)
+    const pull = header().getByRole('button', { name: 'Pull', exact: true })
+    const push = header().getByRole('button', { name: 'Push', exact: true })
+    assert.ok((await bounds(pull)).x < (await bounds(push)).x, 'pull precedes push in the title bar')
     const changes = page.locator('[data-git-scroll="changes"]')
     const history = page.locator('[data-git-scroll="history"]')
     const separator = page.getByRole('separator', { name: '커밋 기록과 변경사항 높이 조절' })
@@ -284,6 +296,19 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.getByLabel('편집기', { exact: true }).waitFor()
     await pick('Git 열기')
     assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'MOBILE DRAFT')
+    for (const action of ['pull', 'push', 'push'] as const) {
+      remoteFailure = remoteRequests.length === 2
+      const request = page.waitForRequest('**/api/git/remote?*')
+      await (action === 'pull' ? pull : push).click()
+      await request
+      assert.equal(await pull.isDisabled(), true)
+      assert.equal(await push.isDisabled(), true)
+      finishRemote()
+      await page.waitForFunction("!document.querySelector('button[aria-label=\"Pull\"]').disabled")
+      assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'MOBILE DRAFT', 'remote operations preserve drafts')
+    }
+    await page.getByText('Push rejected', { exact: true }).waitFor()
+    assert.deepEqual(remoteRequests, ['pull', 'push', 'push'].map(action => ({ path: '', action, workspace: '/fixture' })))
     await page.keyboard.press('Escape')
     await panel().waitFor({ state: 'hidden' })
     await pick('Git 열기')
@@ -301,6 +326,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     repositoryExists = false; reads.length = 0
     await page.reload()
     await page.getByText('현재 프로젝트에 Git 저장소가 없습니다.', { exact: true }).waitFor()
+    assert.equal(await pull.isDisabled(), true)
+    assert.equal(await push.isDisabled(), true)
     await header().getByRole('button', { name: 'Git 닫기', exact: true }).waitFor()
     await pick('Git 닫기')
     await panel().waitFor({ state: 'hidden' })
@@ -310,7 +337,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     repositoryExists = true
     await pick('새로고침')
     await page.getByText('커밋되지 않은 변경사항', { exact: true }).waitFor()
-    assert.deepEqual(writes, [], 'UI verification never mutates a repository')
+    assert.deepEqual(writes, Array(3).fill('/api/git/remote'), 'remote writes are intercepted by the fixture')
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })

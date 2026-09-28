@@ -22,6 +22,7 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onClose, o
   useUiLocale()
   const dock = useDock()
   const [state] = useState(() => restoreGitPanel(initialState))
+  const [actionsHost, setActionsHost] = useState<HTMLDivElement | null>(null)
   const tab = state.tabs[0]
   const group = dock?.groupFor('git', tab.id) ?? 'git'
   useEffect(() => onChange(state), [state, onChange])
@@ -39,6 +40,7 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onClose, o
             <span>Git</span>
           </div>
           <div className="flex min-w-0 items-center justify-end" data-git-controls>
+            <div ref={setActionsHost} className="flex shrink-0 items-center" />
             <GitHubAccount key={tab.project} project={tab.project} />
           </div>
           <button type="button" onClick={onClose} className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" title={uiText("Git 닫기")} aria-label={uiText("Git 닫기")}>
@@ -49,7 +51,7 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onClose, o
     </DockPanel>
     <DockBody group={group} active onFocus={onPanelFocus}>
       <GitShortcutScope onClose={onClose} className="flex h-full min-h-0 min-w-0 flex-col">
-        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} />
+        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} actionsHost={actionsHost} />
       </GitShortcutScope>
     </DockBody>
   </>
