@@ -2,7 +2,6 @@ import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useRefreshTasks } from './hooks/use-refresh-tasks'
 import { useFocusedWorkspacePanel } from './hooks/use-focused-workspace-panel'
-import { Database } from 'iconoir-react'
 import { RagPanel } from './components/rag-panel'
 import { defaultCapabilities, type Feature } from '../shared/access-policy'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
@@ -64,7 +63,6 @@ import type { SearchMatch } from './api/client'
 import { AgentPanel } from './components/AgentPanel'
 import { FeatureDevelopment } from './components/feature-development'
 import type { FeaturePanelState } from './utils/feature-panel-state'
-import { featureCopy } from './components/feature-copy'
 import { withSessionId, type AgentTab } from './utils/agentTabs'
 import { BrowserPanel } from './components/BrowserPanel'
 import { DockWorkspace, DockPanel, type DockHandle } from './components/DockWorkspace'
@@ -232,7 +230,7 @@ interface EditorAppProps {
 function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileChanged }: EditorAppProps) {
   useUiLocale()
   const { pending: refreshingWorkspace, track: trackRefresh } = useRefreshTasks()
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const { role, email: authEmail } = auth
   const isGuest = role === 'guest'
   const isOwner = role === 'owner'
@@ -1738,14 +1736,8 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       return { ...previous, trees: { ...trees, [key]: value } }
     })
   }, [isGuest])
-  // 헤더 오른쪽 도구 목록 — 권한별로 보이는 것이 다르다. 그리는 건 HeaderMenu(햄버거) 하나뿐이다
+  // 독에 있는 작업 패널은 제외하고 나머지 동작만 권한에 따라 햄버거 메뉴에 표시한다.
   const headerMenuItems: HeaderMenuItem[] = [
-    ...(!isGuest && caps.filesRead ? [{ id: 'rag', label: 'RAG', icon: <Database width={14} height={14} />, onSelect: () => openWorkspacePanel('rag'), disabled: !rootProjectPath }] : []),
-    ...(caps.agent ? [{
-      id: 'features', label: featureCopy[locale].title,
-      onSelect: () => openWorkspacePanel('features'), disabled: !rootProjectPath,
-      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="5" cy="5" r="2" /><path d="M10 5h11M5 9v10h3M12 13h9M12 19h9" /><circle cx="10" cy="13" r="1" /><circle cx="10" cy="19" r="1" /></svg>,
-    }] : []),
     ...(!isGuest || canEditActiveTab
       ? [
           {
@@ -1780,25 +1772,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         ]
       : []),
     ...[
-          {
-            id: 'git',
-            label: 'Git',
-            hint: 'Alt+G',
-            active: gitOpen,
-            onSelect: () => toggleWorkspacePanel('git'),
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="6" cy="5" r="2" /><circle cx="18" cy="7" r="2" /><circle cx="7" cy="19" r="2" />
-                <path d="M6 7v10M8 8.5c3.5 0 4.5-1.5 8-1.5" />
-              </svg>
-            ),
-          },
-          {
-            id: 'remote-desktop',
-            label: uiText("원격 데스크톱"),
-            onSelect: () => setRemoteDesktopOpen(true),
-            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></svg>,
-          },
           {
             id: 'file-explorer',
             label: t('header.fileExplorer'),
@@ -1850,38 +1823,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                 <path d="M12 3v12" />
                 <path d="m7 10 5 5 5-5" />
                 <path d="M5 21h14" />
-              </svg>
-            ),
-          },
-          {
-            id: 'agent',
-            label: t('header.agent'),
-            hint: 'Alt+L',
-            onSelect: () => toggleWorkspacePanel('agent'),
-            active: agentOpen,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 11.5a8.38 8.38 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.5 8.5 0 0 1 4 11.5a8.38 8.38 0 0 1 8.5-8.4 8.38 8.38 0 0 1 8.5 8.4z" />
-              </svg>
-            ),
-          },
-          {
-            id: 'terminal', label: t('header.terminal'), hint: 'Ctrl+`',
-            onSelect: () => toggleWorkspacePanel('terminal'), active: terminalOpen,
-            icon: <span className="font-mono text-xs">&gt;_</span>,
-          },
-          {
-            id: 'browser',
-            label: t('header.browser'),
-            hint: 'Alt+B',
-            onSelect: () => toggleWorkspacePanel('browser'),
-            active: browserOpen,
-            icon: (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M3 12h18" />
-                <path d="M12 3a13.5 13.5 0 0 1 0 18" />
-                <path d="M12 3a13.5 13.5 0 0 0 0 18" />
               </svg>
             ),
           },
@@ -1961,7 +1902,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       ),
     },
   ].filter(item => {
-    const feature: Partial<Record<string, Feature>> = { git: 'git', 'remote-desktop': 'desktop', 'file-explorer': 'serverFiles', schedule: 'schedules', sysstats: 'system', 'mew-update': 'system', agent: 'agent', terminal: 'terminal', browser: 'browser', android: 'android', chat: 'chat', database: 'database' }
+    const feature: Partial<Record<string, Feature>> = { 'file-explorer': 'serverFiles', schedule: 'schedules', sysstats: 'system', 'mew-update': 'system', android: 'android', chat: 'chat', database: 'database' }
     const required = feature[item.id]
     return !required || caps[required]
   })

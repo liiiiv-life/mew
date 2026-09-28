@@ -1,231 +1,321 @@
 # mew
 
-mew는 내 컴퓨터나 서버의 폴더를 브라우저에서 열어 작업하는 편집기다. 마크다운·코드 편집, 파일 검색, Git, 실시간 협업, 터미널, AI 에이전트, 서버 브라우저와 원격 데스크톱을 한 화면에서 사용하며 모바일에서도 작업을 이어갈 수 있다.
+## Quick start
 
-처음 사용한다면 [설치](#설치-macoslinux) 후 프로젝트의 파일을 눌러 연다. 아래 **기능별 안내**에서 하고 싶은 작업의 진입 방법을 찾고, 연결된 `docs/` 문서에서 자세한 사용법·설정·제한을 확인한다. `메뉴`는 화면 오른쪽 위의 햄버거 메뉴를 뜻하며, 단축키는 기본 설정 기준이다.
+[Windows (WSL 2)](#windows-wsl-2) · [macOS](#macos) · [Linux](#linux)
 
-- [프로젝트·파일·검색](#프로젝트파일검색)
-- [문서·코드·미디어 편집](#문서코드미디어-편집)
-- [Git·변경 이력](#git변경-이력)
-- [협업·댓글·게스트 공유](#협업댓글게스트-공유)
-- [터미널·AI 에이전트·자동화](#터미널ai-에이전트자동화)
-- [브라우저·Android·원격 데스크톱](#브라우저android원격-데스크톱)
-- [데이터베이스](#데이터베이스)
-- [화면·모바일·계정·운영](#화면모바일계정운영)
-- [설치](#설치-macoslinux) · [개발 실행과 검증](#개발-실행과-검증) · [상세 문서 지도](#상세-문서)
+### Windows (WSL 2)
 
-`manager`와 `owner`는 기본적으로 서버의 터미널과 에이전트를 사용할 수 있다. 계정 관리에서 기능을 개별 허용한 계정도 사실상 해당 서버 제어 권한을 갖는다. 공개 배포 전에는 [SECURITY.md](SECURITY.md)를 읽고, 신뢰하는 소수의 사람만 계정으로 초대한다.
+Run mew inside Ubuntu on WSL 2, then open it in your Windows browser.
 
-## 기능별 안내
+**1. Install WSL and Ubuntu.** Open PowerShell as administrator and run:
 
-기능 단위로 개발·검토할 때는 [Mew 기능 문서](docs/features/MOC.md)에서 작업할 항목을 고른다. Mew 프로젝트 탭의 **메뉴 → 기능**에서도 같은 목록을 연다. 기능 범위·관련 파일·확인 기준은 해당 기능에, 상세 사용법·실행 계약은 연결된 소유 문서에 함께 반영한다([관리 규칙](docs/features/README.md)).
+```powershell
+wsl --install -d Ubuntu
+```
 
-### 프로젝트·파일·검색
+Restart Windows, open **Ubuntu** from the Start menu, and create a Linux username and password. This is a separate account from your Windows login. The command requires Windows 11 or Windows 10 version 2004 (build 19041) or later. See [Microsoft's WSL installation guide](https://learn.microsoft.com/en-us/windows/wsl/install) if installation fails.
 
-| 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
-| --- | --- | --- |
-| 프로젝트 탭 | 헤더 `+` 또는 `Ctrl+O`로 서버 폴더를 열고 탭으로 전환·닫기·아이콘 변경, 길게 눌러 그룹 만들기·순서 이동(owner) | [프로젝트 탭](docs/guides/projects.md#프로젝트-탭) |
-| 즐겨찾기·클라우드 폴더 바로가기 | 프로젝트 추가·서버 파일 탐색기 맨 위에서 OS 기본 폴더·OneDrive·Google Drive·Dropbox·iCloud로 이동하고, 현재 폴더를 즐겨찾기에 추가·제거(계정별 저장) | [감지 범위와 사용법](docs/guides/projects.md#클라우드-폴더-바로가기) |
-| 새 프로젝트·Git clone | 프로젝트 폴더 선택 창의 작업 버튼에서 폴더 생성·저장소 clone·Git 초기화(owner) | [프로젝트 만들기](docs/guides/projects.md#프로젝트-탭) |
-| Documents·하위 프로젝트·MOC | Documents·일반 폴더는 펼치고 `.mew` 하위 프로젝트는 클릭해 독립 프로젝트 탭으로 열기(owner). 폴더 우클릭으로 하위 프로젝트 지정, `Map Of Contents`로 문서 지도 열기 | [사이드바 구조](docs/guides/projects.md#사이드바의-프로젝트--하위-프로젝트--documents) |
-| 에이전트 문서 안내·프로젝트 초기화 | 에이전트 패널 Skills·MCP 옆 기본 지침에서 커밋·언어·답변 길이 설정, 파일 보기로 MD 편집. Documents 우클릭 → 에이전트 안내와 문서 설정. 자동 안내·문서 연결·미리보기·없는 문서 생성, CLI도 지원(owner) | [설정과 CLI](docs/guides/project-setup.md) |
-| Documents 관리 | Documents 우클릭으로 문서 폴더 변경·가져오기·내보내기(owner). 가져오기는 기존 내용을 교체 | [Documents 설정](docs/guides/projects.md#documents-폴더-계약) |
-| 파일·폴더 관리 | 사이드바 우클릭·길게 누르기로 생성·개명·복제·복사·잘라내기·붙여넣기·삭제·다운로드. 끌어서 이동·업로드 | [파일 조작](docs/guides/projects.md#파일폴더-관리) · [끌어놓기](docs/guides/editor.md#사이드바-항목-끌어놓기) |
-| 서버 전체 파일 탐색 | 메뉴 → 파일 탐색기에서 프로젝트 밖 파일을 열고 편집·복사·이동·삭제·다운로드(manager·owner) | [서버 파일 탐색기](docs/guides/projects.md#서버-파일-탐색기) |
-| 파일명 검색 | `Ctrl+P`로 파일을 찾고 `@`로 Documents·하위 프로젝트 범위 선택 | [검색 사용법](docs/configuration/search.md#파일명내용-검색과-치환) |
-| 내용 검색·일괄 치환 | `Ctrl+Shift+F`에서 정확 검색·대소문자 구분·정규식 검색, 결과 줄로 이동, 파일별·전체 치환 | [검색과 치환](docs/configuration/search.md#파일명내용-검색과-치환) |
-| 로컬 의미 검색(RAG) | 하단 독 끝 RAG 또는 메뉴 → RAG에서 공통 사용·에이전트 안내 설정, 프로젝트별 문맥 검색·벡터 DB·색인 파일 확인·재색인 | [RAG 설정과 API](docs/configuration/search.md#로컬-의미-검색-rag) |
-| 숨김 목록 | 메뉴 → 설정 → 숨김 목록에서 검색·감시·일부 역할의 트리에 적용할 제외 이름 관리(manager·owner) | [숨김 목록의 적용 범위](docs/guides/projects.md#숨김-목록-dataignorejson) |
+If you already have Ubuntu installed, check it from PowerShell with `wsl -l -v`. If its version is `1`, run `wsl --set-version Ubuntu 2`, using the distribution name shown in the list.
 
-### 문서·코드·미디어 편집
-
-| 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
-| --- | --- | --- |
-| Markdown Hotview·Plain | `.md`를 열고 렌더된 본문 편집과 원문 편집 전환. 제목·목록·체크박스·인용·코드 블록·강조 작성 | [기본 편집](docs/guides/editor.md#기본-편집) |
-| 문서 속성·목차 | Hotview 상단에서 frontmatter 제목·필드 편집, 목차 버튼으로 제목 위치 이동 | [기본 편집](docs/guides/editor.md#기본-편집) |
-| 코드·텍스트 편집 | 파일을 눌러 줄 번호·구문 강조·지원 형식의 진단 확인. `Ctrl+F`로 문서 안 찾기·바꾸기 | [코드와 검색](docs/guides/editor.md#기본-편집) |
-| 링크·파일 참조 | `Ctrl+K`로 링크 삽입·수정, Hotview의 `@`로 파일 연결, 링크 툴팁·YouTube 노드 삽입(재생은 배포 CSP 보완 필요) | [링크와 첨부](docs/guides/editor.md#링크와-첨부) |
-| 첨부·이미지 | `/` → 파일 업로드, 파일 드롭·이미지 붙여넣기, 이미지 크기 조절 | [링크와 첨부](docs/guides/editor.md#링크와-첨부) |
-| Markdown 표 | `/` → 표로 삽입하고 행·열 편집, 열 너비 조절, Markdown·CSV·이미지로 복사 | [표 사용법](docs/guides/editor.md#표-편집과-복사) · [너비 저장](docs/guides/editor.md#표-열-너비-mewtable-layoutjson) |
-| 목록 들여쓰기 | `Tab`·`Shift+Tab`으로 첫 항목을 포함한 목록 깊이 조절 | [들여쓰기](docs/guides/editor.md#리스트-첫-항목-들여쓰기-----b) |
-| 각주·참고문헌 | `Alt+E`로 각주 추가, 자동 번호 정리, 마커와 References 사이 이동 | [각주](docs/guides/editor.md#각주-alte) |
-| 미디어·시트 보기 | 이미지·오디오·영상·PDF 미리보기, SVG 이미지/텍스트 전환, XLSX·CSV·TSV 읽기, APK·AAB 다운로드 | [파일 형식별 보기](docs/guides/editor.md#미디어와-시트-보기) |
-| PDF 읽기·필기 | PDF 전용 전체화면·반투명 플로팅 도구, 페이지 이동·확대·텍스트 선택, 펜·형광펜·PDF 자체 저장·필기 사본 다운로드 | [PDF 사용법](docs/guides/editor.md#pdf-읽기와-필기) |
-| 자동저장·실행 취소 | 편집한 내용은 자동저장하고 `Ctrl+Z`·`Ctrl+Y`로 실행 취소·다시 실행 | [저장과 이력](docs/guides/editor.md#자동저장커밋파일-이력) |
-| 문서 탭·분할 편집 | 미리보기 탭을 고정하고 탭·손잡이를 끌어 분리·합치기·순서·크기 조절 | [편집 칸](docs/guides/editor.md#편집-칸-문서-탭--화면-분할) |
-| 선택 위치 전달 | 편집기에서 `Ctrl+L`로 파일 경로·선택 줄을 터미널·에이전트·채팅 입력에 넣기 | [경로와 줄 참조](docs/guides/editor.md#ctrll-참조-경로줄) |
-
-### Git·변경 이력
-
-| 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
-| --- | --- | --- |
-| 현재 파일 커밋·이력 복원 | `Ctrl+S` 또는 메뉴 → Commit으로 현재 파일 커밋, 편집기의 히스토리에서 이전 내용 확인·되돌리기 | [파일 저장과 이력](docs/guides/editor.md#자동저장커밋파일-이력) |
-| 저장소 탐색·그래프·diff | 메뉴 → Git 또는 `Alt+G`로 현재 프로젝트의 커밋 그래프·변경 파일·diff 바로 보기(manager·owner) | [Git 작업 패널](docs/guides/projects.md#git-작업-패널) |
-| 선택 파일 커밋 | Git 가운데 변경 목록에서 파일을 선택하고 맨 아래에 제목·설명을 입력해 커밋. 커밋 기록은 맨 위에서 확인 | [커밋 범위와 제한](docs/guides/projects.md#git-작업-패널) |
-| GitHub 로그인 | Git 패널의 GitHub 버튼에서 코드 복사·내부 브라우저 승인·연결 계정 확인. 서버 Git 인증을 공유하며 gh 설치 필요 | [로그인과 인증 범위](docs/guides/projects.md#github-로그인) |
-| 브랜치·태그·과거 커밋 작업 | 커밋 우클릭으로 해시 복사·branch/tag 생성·detached checkout·cherry-pick·revert | [지원 Git 작업](docs/guides/projects.md#git-작업-패널) |
-| 프로젝트 Git 패널 | 상단 바의 Git 아이콘·제목·닫기 버튼과 데스크톱 이동 손잡이. 닫기·다시 열기와 초안 유지 | [Git 패널 사용법](docs/guides/projects.md#git-작업-패널) |
-
-`AI 자동 커밋`에서 에이전트셋을 선택하고 **자동 커밋 실행**을 누르면 Mew 전용 커밋 스킬로 선택 파일을 작업 단위로 나누어 실제 커밋을 만든다. 커밋별 해시·포함 파일과 남긴 변경을 확인할 수 있다([사용법](docs/guides/projects.md#git-작업-패널)).
-
-### 협업·댓글·게스트 공유
-
-| 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
-| --- | --- | --- |
-| 실시간 공동 편집·참여자 | 로그인한 사용자끼리 같은 파일을 열어 함께 편집하고 커서·작업 중인 사람 표시 확인 | [공동 편집](docs/guides/collaboration.md#공동-편집과-참여자) |
-| 공통 메모 | 하단 독의 메모 아이콘 또는 `Ctrl/Cmd+M`으로 서버 공통 Markdown 메모 열기·포커스·닫기. 제목을 끌어 이동하고 실시간 공동 편집·참여자 색 표시 | [메모 사용법](docs/guides/collaboration.md#공통-메모) |
-| 활성 mew 세션 | 햄버거 왼쪽 숫자로 접속 수 확인, 클릭하면 사용자별 기기·프로젝트·현재 파일 표시 | [접속 세션](docs/guides/collaboration.md#접속-중인-mew-세션) |
-| 댓글·답글·멤버 멘션 | 본문 선택 후 `Alt+Shift+C`, 하이라이트나 댓글 목록에서 답글·수정·삭제·멤버 멘션 | [댓글](docs/guides/collaboration.md#댓글과-답글) |
-| 단체 채팅·DM·읽음 확인 | 메뉴 → 채팅 또는 `Alt+C`에서 단체방·상대 선택, 메시지·파일 참조 전송 | [멤버 채팅](docs/guides/collaboration.md#단체-채팅과-dm) |
-| 게스트 열람·편집 공유 | owner의 계정 관리 → 파일·폴더 권한에서 비로그인 방문자에게 경로별 접근 허용 | [게스트 공유](docs/guides/collaboration.md#게스트-공유) |
-
-### 터미널·AI 에이전트·자동화
-
-에이전트 패널의 `i` 오른쪽 **Skills·MCP** 버튼에서 전역·현재/하위 프로젝트의 공통·에이전트별 확장을 조회·추가·수정·이동·삭제할 수 있다. 지원 위치와 적용 범위는 [스킬·MCP 관리](docs/configuration/agent-harness.md)를 따른다.
-
-이 영역은 manager·owner가 사용한다. 런타임에 따라 채팅 화면 또는 공식 CLI의 터미널 화면이 열린다.
-
-| 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
-| --- | --- | --- |
-| tmux 터미널 | 메뉴 → 터미널, `Ctrl+백틱` 또는 `Alt+T`로 셸 탭 열기·세션 재연결·종료 | [터미널과 탭 수명](docs/guides/terminal-agents.md) |
-| AI 런타임 선택 | 메뉴 → 에이전트(`Alt+L`) → `+`에서 Claude Agent·Antigravity·Codex·Hermes·Kimi·OpenClaw·OpenCode·Cursor·Prime 선택 | [런타임별 지원](docs/configuration/agent-runtimes.md#모델권한-기본값과-런타임-선택) |
-| 런타임 설치·인증·설정 | 런타임 목록의 설치·톱니 버튼에서 인증·지원되는 로그아웃/제거·실행 설정 관리. Antigravity는 Google 공식 ACP 서버 사용 | [설치와 계정 연결](docs/configuration/agent-runtimes.md) |
-| 모델·추론·권한·기본값 | ACP 채팅 입력부에서 지원되는 설정 선택, 저장 버튼으로 런타임 기본값 저장 | [모델과 권한](docs/configuration/agent-runtimes.md#모델권한-기본값과-런타임-선택) |
-| 에이전트셋·탭 관리 | 모델·역할 프리셋으로 ACP 탭 만들기, 탭 이름 변경·런타임 전환·분할 배치 | [에이전트 탭](docs/guides/terminal-agents.md) |
-| 프롬프트·스킬·파일 첨부 | `@`로 프로젝트·파일·폴더 참조, `/`로 로컬 스킬 선택, 파일·이미지 첨부와 미리보기, ↑·↓로 보낸 입력 재사용 | [입력 사용법](docs/specs/agent-input-mentions.md) |
-| 대화·작업 기록·메시지 큐 | 메시지 전송·중단, 작업 내역·소요 시간 확인, 작업 중 대기 메시지 편집·순서 변경, `/clear`로 새 대화 시작 | [대화 조작](docs/guides/terminal-agents.md#대화-진행과-기록) |
-| 대화의 CLI 명령 | 모델 왼쪽 터미널 토글을 켜고 셸 명령 실행. 상태 버튼으로 tmux 열기·중단, 완료 후 저장 출력 보기·다운로드 | [CLI 명령 모드](docs/guides/terminal-agents.md#대화에서-cli-명령-실행) |
-| 히스토리·외부 CLI 이어쓰기 | 히스토리에서 지난 세션 선택, 외부 CLI 작업을 끝낸 뒤 **현재 대화 새로고침**, 답변 파일 링크로 편집기 열기 | [세션 복원](docs/guides/terminal-agents.md) |
-| 계정·구독·토큰·비용 | ACP 세션의 `i`에서 지원되는 계정·플랜·한도·토큰과 API 환산 비용 조회, 구독 페이지 열기 | [계정·구독 범위](docs/configuration/agent-runtimes.md#설치로그인구독) |
-| 예약 메시지 | ACP 입력줄 시계로 현재 세션에 한 번 보낼 메시지 예약·수정·시각 변경·삭제 | [예약 메시지](docs/specs/agent-scheduled-prompts.md) |
-| 기능 기반 개발 | 메뉴 → 기능의 계층에서 기술 명세를 항목별로 인라인 편집하고 적용하면 선택한 에이전트셋이 작업. Markdown 기준본·관련 파일·커밋·사용자 판정 관리 | [기능 목록과 실행 계약](docs/specs/feature-development.md) |
-| 프로젝트 명령 버튼 | 사이드바 ▶에서 명령 추가·편집·실행·정지, 전용 터미널 팝업으로 출력 확인 | [프로젝트 명령](docs/guides/commands.md#사이드바-프로젝트--버튼-mewcmd-buttonjson) |
-| 터미널 명령 버튼 | 셸 탭 버튼 줄의 `+`로 자주 쓰는 명령·아이콘 등록, 활성 셸에 입력 | [터미널 버튼](docs/guides/commands.md#터미널-버튼-dataterm-buttonjson) |
-| 반복 예약 작업 | 메뉴 → 예약 작업에서 폴더·에이전트·프롬프트·주기 등록, 지금 실행·출력 확인·삭제 | [cron 예약 작업](docs/guides/commands.md#예약-작업-dataschedulesjson) |
-
-### 브라우저·Android·원격 데스크톱
-
-모두 manager·owner 전용이며, 추가 설치가 필요한 기능이다.
-
-| 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
-| --- | --- | --- |
-| 서버 웹 브라우저 | 메뉴 → 브라우저(`Alt+B`)에서 URL 입력. 서버의 localhost·사설망·외부 사이트 탐색, 탭·뒤로/앞으로·폼·업로드·다운로드 사용 | [Chromium 준비와 조작](docs/guides/browser.md#브라우저-창) |
-| 브라우저 로그인·팝업 | 계정별 서버 프로필로 로그인 상태 유지, 사이트 팝업·에이전트 인증 처리, `/browser` 독립 화면 사용 | [프로필·OAuth·지원 한계](docs/guides/browser.md#브라우저-창) |
-| Android | 메뉴 → Android에서 SDK·가속·AVD 상태 확인, 안내 명령 실행·터미널 보기, 기존 WebRTC/gateway 연결 | [Android 준비](docs/guides/browser.md#android-창) |
-| 원격 데스크톱 | 메뉴 → 원격 데스크톱에서 자동 준비 후 전체 화면 연결. Mac/Linux 또는 WSL의 Windows 로그인 데스크톱 조작. 직접 연결 실패 시 외부 서비스 없이 Mew 서버 전송으로 전환; OS 권한 승인 필요 | [설치·연결](docs/guides/remote-desktop.md) |
-| 원격 입력·모바일 조이스틱 | 마우스·키보드·붙여넣기·원격 Esc, 조이스틱 클릭·드래그·휠·확대, 전체화면·90도 회전, 감도 설정·이동 가능한 세로 핫키, 모니터 선택·재연결 | [조작](docs/guides/remote-desktop.md#조작) · [네트워크·검증 범위](docs/development/remote-desktop.md) |
-
-### 데이터베이스
-
-| 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
-| --- | --- | --- |
-| 문서 안 표 DB | Hotview에서 `/db`로 삽입해 제목·행·셀·열 편집. 텍스트·숫자·체크박스·날짜와 실시간 협업 지원 | [DB 사용법](docs/guides/database.md) |
-| DB 참조·외부 테이블 | `/` → 데이터베이스 참조에서 기존 DB 또는 외부 Postgres 테이블을 읽기 전용으로 연결 | [참조와 프로젝트 격리](docs/guides/database.md) |
-| 프로젝트 DB 목록 | 메뉴 → 데이터베이스에서 현재 프로젝트의 모든 DB를 골라 열람·편집 | [전체 DB 팝업](docs/guides/database.md) |
-| Postgres 연결 | `DATABASE_URL` 설정. 선택적으로 `npm run db:up`·`db:down`으로 DB만 실행·중지 | [DB 준비](docs/guides/database.md#postgres만-docker-compose로-띄우기-선택) |
-
-### 화면·모바일·계정·운영
-
-| 기능 | 시작 방법과 할 수 있는 일 | 상세 사용법 |
-| --- | --- | --- |
-| 패널 배치·상태 복원 | 에디터·에이전트·터미널·브라우저는 손잡이·탭, Git은 본문 손잡이를 끌어 배치. 데스크톱 탭 더블클릭으로 본문 확대·복귀, Esc로 복귀(탭 바·독 유지). 브라우저는 좌우 배치만 지원. 문서 탭·배치·스크롤은 계정별 복원 | [편집 칸](docs/guides/editor.md#편집-칸-문서-탭--화면-분할) · [복원 범위](docs/guides/projects.md#프로젝트-탭) |
-| 모바일·전체화면·빠른 조작 | 메뉴 → 전체화면(`Alt+Enter`), 모바일 하단 독으로 패널 전환·기능/원격 데스크톱 열기·길게 눌러 순서 변경(키보드 입력 중 숨김), PC 반투명 플로팅 독·이동 손잡이, 플로팅 핸들, 길게 눌러 항목 메뉴 열기, Esc·뒤로가기로 전면 창 닫기 | [모바일 사용법](docs/guides/editor.md#모바일과-전체화면) |
-| 테마·언어·강조색·글꼴 | 메뉴 → 설정 → 화면에서 밝게/어둡게, 한국어·영어·일본어·중국어, 색상과 UI·본문·코드 글꼴 설정 | [화면 설정](docs/configuration/environment.md#화면-설정) |
-| 단축키 맞춤 설정 | 설정 → 단축키에서 조합 변경·개별 초기화·전체 초기화 | [단축키 설정](docs/configuration/environment.md#단축키-설정) |
-| Mewcat·알림·휴식 | 하단 고양이 클릭으로 최근 알림 목록 확인·항목별 삭제. 말풍선 하단 CPU·RAM·GPU 사용률은 0.5초마다 갱신하고 누르면 시스템 자원을 엶. 연결된 에이전트 작업·오류·서버 과부하 알림 확인. 설정 → 뮤캣에서 스킨·알림·소리와 사용/휴식 시간 설정. 선택적 강제 휴식은 거대 고양이가 돌아다니며 화면을 가림(기본 꺼짐). 타이머만 표시하고 큰 고양이도 잡아 끌거나 던질 수 있음 | [Mewcat](docs/specs/mewcat.md) |
-| 내 계정 | 설정 → 계정에서 표시 이름·프로필 이미지·비밀번호 변경, 로그아웃 | [계정 사용법](docs/configuration/environment.md#내-계정과-계정-관리) |
-| 사용자·역할 관리 | owner가 메뉴 → 계정 관리에서 계정 추가·역할 변경. 호스트 CLI에서 목록·비밀번호 재발급·계정 삭제 | [사용자 관리](docs/configuration/environment.md#내-계정과-계정-관리) |
-| 시스템 자원 | 메뉴 → 시스템 자원에서 CPU·메모리·GPU·온도·프로세스와 최근 추이 확인(manager·owner) | [자원 팝업](docs/guides/commands.md#시스템-자원-팝업) |
-| 서버 설정·시작·중지·로그 | `./mew setup`, `start`·`stop`·`restart`·`status`·`logs`로 설치·운영 | [서버 설정](docs/configuration/environment.md#서버-설정) · [배포](docs/deployment/native.md) |
-| 앱 업데이트·HTTPS·백업 | 메뉴의 업데이트 확인·실행 또는 `./mew update`, 서버 배포 시 HTTPS·systemd·백업·복구 구성 | [업데이트와 운영](docs/deployment/native.md) |
-
-예전 워크스페이스 홈의 **할 일·달력**은 현재 화면에서 제공하지 않는다. 문서 안 체크박스와 에이전트 예약 기능은 위 안내대로 사용할 수 있다([현재 프로젝트 화면 범위](docs/guides/projects.md#현재-제공하지-않는-홈-화면)).
-
-## 설치 (macOS/Linux)
-
-터미널에서 아래 두 줄을 실행한다.
+**2. Install mew.** Run these commands in **Ubuntu**:
 
 ```bash
-git clone <전달받은 저장소 URL> mew && cd mew
+sudo apt update
+sudo apt install -y git curl ca-certificates build-essential python3 tmux
+mkdir -p ~/apps
+cd ~/apps
+git clone https://github.com/liiiiv-life/mew.git
+cd mew
 ./mew setup
 ```
 
-안내에 따라 편집할 폴더, 포트, 계정 이메일을 입력한다. 설치가 끝나면 표시된 주소를 브라우저로 열고, 임시 비밀번호로 로그인한 뒤 비밀번호를 바꾼다.
+Accept the offer to install Node with nvm if prompted. Keep the repository and your projects in the Linux filesystem, such as `~/apps` and `~/mew-workspace`, for better performance with Linux tools. You can open the current folder in Windows Explorer with `explorer.exe .`. See [Microsoft's WSL file storage guidance](https://learn.microsoft.com/en-us/windows/wsl/setup/environment#file-storage).
 
-`setup`은 Node, 빌드 도구, tmux가 설치되어 있는지 확인하고 원격 데스크톱 보조앱 준비, 앱 빌드와 첫 계정 생성을 진행한다. Mac/Linux는 해당 OS의 구성 요소를, WSL은 Windows용 구성 요소를 자동 설치한다. 최초 다운로드는 몇 분 걸릴 수 있다. Mac은 설치 후 필요한 권한 설정을 서버 Mac에 열고, 사용자의 승인을 감지하면 자동으로 계속한다. 보조앱 설치·권한 준비 실패는 경고하고 Mew 설치를 계속한다. 이미 실행 중인 Mew에서는 설치 폴더의 터미널에서 `./mew desktop-setup`으로 보조앱 설치와 Mac 권한 준비만 재실행할 수 있다. 이 명령은 앱 빌드·서버 재시작을 하지 않는다. 로그인된 데스크톱·OS 라이브러리·OS가 요구하는 사용자 승인은 필요하다([OS별 준비](docs/guides/remote-desktop.md#처음-연결), [Mac 권한 준비](docs/guides/remote-desktop.md#mac-권한-준비)).
+**3. Sign in.** Follow the [setup prompts below](#finish-setup), then open the printed URL in Edge, Chrome, or another Windows browser. It is usually `http://localhost:5000`; [WSL forwards localhost access from Windows](https://learn.microsoft.com/en-us/windows/wsl/networking#accessing-linux-networking-apps-from-windows-localhost).
 
-Linux와 macOS에서 Node 22.18 이상을 지원하며, Node 24를 권장한다. 터미널과 에이전트 패널의 `terminal` 런타임은 `node-pty`를 로컬에서 빌드하고 tmux에 연결하므로 아래 도구가 필요하다.
+### macOS
 
-에이전트는 `mew`를 실행하지 않는다. 빌드·배포·서버 재시작은 사용자가 직접 한다. `npm run build`, `npm start`, `./mew start|stop|restart|update`, 프로세스 직접 종료나 백그라운드 실행 등 현재 화면이나 서버를 바꾸는 명령도 실행하지 않는다. 코드 변경 후에는 `npm test`, `npm run lint`, `npx tsc -b`처럼 실행 중인 서버에 영향을 주지 않는 검증까지만 하고, 반영이 필요하면 사용자에게 알린다.
+**1. Install Apple's command line tools.** Open Terminal and run:
 
 ```bash
-# Debian/Ubuntu
-sudo apt install build-essential python3 tmux
-
-# macOS
 xcode-select --install
+```
+
+Wait for the installation window to finish. If the tools are already installed, continue.
+
+**2. Install Homebrew and the required tools.** If `brew` is not installed, run the command from [Homebrew](https://brew.sh/):
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Follow the installer's **Next steps** to add Homebrew to your shell, then run:
+
+```bash
 brew install tmux python
 ```
 
-macOS에서는 `node-pty 1.1.0` 배포본의 `spawn-helper`에 실행 권한이 빠져 있어, PTY 연결 전에 이를 보정한다. 현재 로드된 네이티브 모듈 옆의 보조 파일에 소유자 실행 권한만 추가한다. 실패하면 터미널에 시작 오류가 표시되고 서버 로그에 원인이 기록된다. 터미널이 빈 화면으로 나오면 로그의 `[mew:tmux]` 오류를 먼저 확인한다.
-
-설정과 실행 데이터는 저장소 폴더 밖에 저장된다(`server/config.ts`). 저장소를 삭제해도 이 데이터는 남는다.
-
-- 설정: `~/.config/mew/config.env`
-- 계정·세션·완료된 에이전트 턴 기록: `~/.local/share/mew/`
-- 로그: `~/.local/state/mew/`
-
-업데이트는 `./mew update`로 진행한다. 의존성 설치, 재빌드, 서버 재시작까지 포함한다.
+**3. Install mew.** In the same Terminal window:
 
 ```bash
-./mew start                    # 서버 시작
-./mew desktop-setup            # 보조앱 설치·Mac 권한 준비 (서버 재시작 없음)
-./mew stop                     # 서버 중지
-./mew restart                  # 서버 재시작
-./mew status                   # 실행 상태와 경로 확인
-./mew logs                     # 실시간 로그 확인
-./mew update                   # origin/main fast-forward + 재빌드 + 재시작
-./mew users add you@x.com owner
+mkdir -p ~/apps
+cd ~/apps
+git clone https://github.com/liiiiv-life/mew.git
+cd mew
+./mew setup
 ```
 
-## 필수 UI 구현 규칙
+Accept the offer to install Node with nvm if prompted. Follow the [setup prompts below](#finish-setup), then open the printed URL in your browser.
 
-**화면에서 이미 알 수 있는 동작을 되풀이하는 상시 설명·사용법·단축키 안내 문구를 넣지 않는다.** 버튼·필드 이름으로 충분하면 설명을 생략하고, 판단이나 오류 해결에 필요한 정보만 해당 상황에 표시한다. 상세 기준은 [화면 문구](docs/development/ui-contracts.md#화면-문구)를 따른다.
+Setup also prepares the remote desktop helper. On the Mac running mew, approve **Accessibility** and **Screen Recording** for Electron when System Settings opens. Setup continues once it detects the permissions. See [Mac permission setup](docs/guides/remote-desktop.md#mac-권한-준비) for details.
 
-**앱의 드롭다운·선택 목록에 OS/브라우저 기본 `<select>`·`<datalist>` 팝업을 사용하지 않는다. 반드시 기존 자체 컴포넌트를 재사용하고, 적합한 것이 없으면 공용 자체 컴포넌트를 만들어 사용한다.** 테두리나 `appearance`만 바꾼 네이티브 선택기도 금지한다. 모바일·데스크톱에 동일하게 적용하며, 기존 네이티브 드롭다운을 수정할 때도 자체 컴포넌트로 교체한다.
+### Finish setup
 
-단일 선택 필드는 `@mew/ui`의 `SelectField`를 우선 사용한다. 테마·키보드·터치·포커스·Esc/뒤로가기·화면 경계 검증을 포함한 상세 기준은 [자체 선택 컴포넌트 계약](docs/development/ui-contracts.md#드롭다운과-선택-컴포넌트)을 따른다.
+The installer asks for:
 
-## 개발 실행과 검증
+- **Workspace folder:** the parent folder of your projects. The default is `~/mew-workspace`; each folder inside it becomes a project.
+- **Port:** `5000` by default. If it is busy, setup chooses an available port nearby.
+- **Postgres connection:** optional, for database tables. You can skip it and add it later.
+- **Owner email:** your first mew account. Setup prints a temporary password.
+
+Setup installs dependencies, prepares remote desktop components, builds the app, and starts the server. The first download can take a few minutes. A remote desktop preparation failure is reported as a warning and does not stop the rest of the installation.
+
+Open the URL printed by setup, sign in, and change the temporary password. Use **+** in the header to open a project folder, then select a file in the sidebar.
+
+After a reboot, open Ubuntu or Terminal and start mew from its installation folder:
 
 ```bash
-npm run dev     # 4999 — 개발 (vite HMR)
-npm run build   # tsc + vite build → dist/
-npm run serve   # 5000 — dist/ 필요
-npm start       # build + serve
+cd ~/apps/mew
+./mew start
+```
+
+### Linux
+
+On Debian or Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y git curl ca-certificates build-essential python3 tmux
+mkdir -p ~/apps
+cd ~/apps
+git clone https://github.com/liiiiv-life/mew.git
+cd mew
+./mew setup
+```
+
+On other distributions, install the equivalent packages first. Follow [Finish setup](#finish-setup) above. For a server that should start on boot or accept remote connections, use the [deployment guide](docs/deployment/native.md).
+
+## What is mew?
+
+mew opens folders on your computer or server in a browser. Edit Markdown and code, run a terminal, work with AI agents, review Git changes, and share a document with someone else without leaving the workspace. The same interface works on a phone.
+
+The server runs on Linux or macOS; Windows uses WSL 2. It needs Node 22.18+ or 24+, with Node 24 recommended. Terminals use tmux and a locally compiled `node-pty`, which is why setup needs Python and a C/C++ toolchain. Docker is optional for Postgres; running the mew app in a container is not currently supported.
+
+Use mew with people you trust. By default, `manager` and `owner` accounts can run terminals and agents with the server user's OS permissions. Granting those features to another account gives it the same access. Read [SECURITY.md](SECURITY.md) before making an instance available to others.
+
+## Using mew
+
+**Menu** below means the menu in the top-right corner. Open workspace panels from the dock; the menu holds the remaining actions and settings. Shortcuts use the default bindings; change them under **Settings → Shortcuts**. Most of the detailed guides linked here are currently in Korean.
+
+- [Projects, files, and search](#projects-files-and-search)
+- [Writing, code, and media](#writing-code-and-media)
+- [Git](#git)
+- [Collaboration and sharing](#collaboration-and-sharing)
+- [Terminals, agents, and automation](#terminals-agents-and-automation)
+- [Browser, Android, and remote desktop](#browser-android-and-remote-desktop)
+- [Databases](#databases)
+- [Layout, settings, and accounts](#layout-settings-and-accounts)
+- [Running and updating](#running-and-updating) · [Development](#development) · [Documentation](#documentation)
+
+### Projects, files, and search
+
+| Task | Where to start | Details |
+| --- | --- | --- |
+| Open and organize projects | Header **+** or `Ctrl+O`. Switch tabs, change icons, or hold a tab to group and reorder projects (owner). | [Project tabs](docs/guides/projects.md#프로젝트-탭) |
+| Create a project or clone a repository | Use the actions in the project folder picker to create a folder, clone a repository, or initialize Git (owner). | [Project setup](docs/guides/projects.md#프로젝트-탭) |
+| Jump to a favorite or cloud folder | The folder picker and server file browser list OS folders and detected OneDrive, Google Drive, Dropbox, and iCloud folders. Favorites belong to your account. | [Folder shortcuts](docs/guides/projects.md#클라우드-폴더-바로가기) |
+| Browse Documents and subprojects | Expand folders in the sidebar. Open a `.mew` subproject in its own tab, or right-click a folder to mark it as a subproject (owner). **Map Of Contents** opens its document map. | [Sidebar structure](docs/guides/projects.md#사이드바의-프로젝트--하위-프로젝트--documents) |
+| Set up project instructions | Use the agent panel's default instructions to set commit, language, and response-length preferences. Right-click **Documents** for document setup, previews, and missing-file creation (owner). A CLI is also available. | [Instructions and setup](docs/guides/project-setup.md) |
+| Manage Documents | Right-click **Documents** to change its folder, import, or export (owner). Import replaces the existing contents. | [Documents folders](docs/guides/projects.md#documents-폴더-계약) |
+| Manage files and folders | Right-click or hold an item to create, rename, duplicate, copy, move, delete, or download it. Drag files to move or upload them. | [File operations](docs/guides/projects.md#파일폴더-관리) · [Drag and drop](docs/guides/editor.md#사이드바-항목-끌어놓기) |
+| Browse outside the project | **Menu → File browser** opens the server filesystem (manager or owner). | [Server file browser](docs/guides/projects.md#서버-파일-탐색기) |
+| Find files or text | `Ctrl+P` finds filenames; `@` narrows the scope to Documents or a subproject. `Ctrl+Shift+F` searches contents, with case matching, regular expressions, and replacement across files. | [Search and replace](docs/configuration/search.md#파일명내용-검색과-치환) |
+| Search by meaning | Open **RAG** from the dock to search project context, inspect indexed files, rebuild an index, and manage agent search guidance. | [Local semantic search](docs/configuration/search.md#로컬-의미-검색-rag) |
+| Exclude files | **Settings → Ignore list** controls excluded names for search, file watching, and some roles' file trees (manager or owner). | [Ignore rules](docs/guides/projects.md#숨김-목록-dataignorejson) |
+
+### Writing, code, and media
+
+| Task | Where to start | Details |
+| --- | --- | --- |
+| Edit Markdown | Open a `.md` file. **Hotview** edits the rendered document; **Plain** edits its source. Use headings, lists, checkboxes, quotes, code blocks, and inline formatting. | [Editing basics](docs/guides/editor.md#기본-편집) |
+| Edit metadata or jump to a heading | Edit frontmatter fields above Hotview, or use the table of contents. | [Document structure](docs/guides/editor.md#기본-편집) |
+| Edit code | Open a source file for line numbers, syntax highlighting, and diagnostics for supported formats. `Ctrl+F` opens find and replace. | [Code editing](docs/guides/editor.md#기본-편집) |
+| Insert links and attachments | `Ctrl+K` edits links; `@` links files in Hotview. Drop or paste images, resize them, or use `/` to upload a file. YouTube nodes can be inserted, but playback needs deployment CSP changes. | [Links and attachments](docs/guides/editor.md#링크와-첨부) |
+| Work with tables | Insert a table from `/`, edit rows and columns, resize columns, and copy as Markdown, CSV, or an image. | [Tables](docs/guides/editor.md#표-편집과-복사) · [Column widths](docs/guides/editor.md#표-열-너비-mewtable-layoutjson) |
+| Indent lists | Use `Tab` and `Shift+Tab`, including on the first item. | [List indentation](docs/guides/editor.md#리스트-첫-항목-들여쓰기-----b) |
+| Add footnotes | `Alt+E` inserts a footnote. Numbering and links between markers and references are maintained automatically. | [Footnotes](docs/guides/editor.md#각주-alte) |
+| View media and spreadsheets | Preview images, audio, video, and PDFs; switch SVG between image and source; read XLSX, CSV, and TSV files; download APK and AAB files. | [File previews](docs/guides/editor.md#미디어와-시트-보기) |
+| Read and annotate PDFs | Use the PDF toolbar for fullscreen, pages, zoom, text selection, pen, and highlighter. Save to the PDF or download an annotated copy. | [PDF tools](docs/guides/editor.md#pdf-읽기와-필기) |
+| Save and undo | Edits save automatically. Use `Ctrl+Z` to undo and `Ctrl+Y` to redo. | [Saving and history](docs/guides/editor.md#자동저장커밋파일-이력) |
+| Arrange editor panes | Pin preview tabs, then drag tabs and handles to split, merge, reorder, or resize panes. | [Tabs and splits](docs/guides/editor.md#편집-칸-문서-탭--화면-분할) |
+| Send a file reference | `Ctrl+L` sends the current path and selected lines to terminal, agent, or chat input. | [Path and line references](docs/guides/editor.md#ctrll-참조-경로줄) |
+
+### Git
+
+Click **Git** in the dock or press `Alt+G` to browse commits, changed files, and diffs (manager or owner). Select files in the changes list, enter a message at the bottom, and commit. Right-click a commit to copy its hash, create a branch or tag, check it out, cherry-pick, or revert it.
+
+The **GitHub** button connects the server's Git credentials through a device login in the built-in browser; it requires `gh` on the server. **AI auto-commit** uses an agent set and mew's commit skill to split selected changes into commits. It creates real commits and reports their hashes, included files, and remaining changes.
+
+For the current file, use `Ctrl+S` or **Menu → Commit**. The editor's history lets you inspect and restore earlier contents. The Git panel keeps its draft when closed and reopened, and can be moved with its desktop handle.
+
+See [Git workbench](docs/guides/projects.md#git-작업-패널), [GitHub login](docs/guides/projects.md#github-로그인), and [file history](docs/guides/editor.md#자동저장커밋파일-이력).
+
+### Collaboration and sharing
+
+| Task | Where to start | Details |
+| --- | --- | --- |
+| Edit together | Open the same file while signed in. Other participants and their cursors appear in the editor. | [Collaborative editing](docs/guides/collaboration.md#공동-편집과-참여자) |
+| Keep a shared memo | Use the memo dock icon or `Ctrl/Cmd+M`. The server-wide Markdown memo supports live editing, participant colors, and dragging by its title. | [Shared memo](docs/guides/collaboration.md#공통-메모) |
+| See who's connected | Click the session count beside the menu for users, devices, projects, and current files. | [Active sessions](docs/guides/collaboration.md#접속-중인-mew-세션) |
+| Comment on a document | Select text and press `Alt+Shift+C`. Reply, edit, delete, or mention someone through the highlight or comment list. | [Comments](docs/guides/collaboration.md#댓글과-답글) |
+| Chat with members | **Menu → Chat** or `Alt+C` opens group chat and direct messages, with file references and read receipts. | [Chat](docs/guides/collaboration.md#단체-채팅과-dm) |
+| Share with guests | An owner can grant unsigned visitors read or edit access to specific paths under account management's file and folder permissions. | [Guest sharing](docs/guides/collaboration.md#게스트-공유) |
+
+### Terminals, agents, and automation
+
+Terminal and agent features are available to managers and owners by default. Depending on the runtime, an agent opens in a chat panel or its official CLI terminal.
+
+| Task | Where to start | Details |
+| --- | --- | --- |
+| Open a shell | **Terminal** in the dock, `Ctrl+Backtick`, or `Alt+T`. Create, reconnect to, and end tmux sessions. | [Terminals and tabs](docs/guides/terminal-agents.md) |
+| Choose an agent | **Agent** in the dock (`Alt+L`) → **+**. Runtimes include Claude Agent, Antigravity, Codex, Hermes, Kimi, OpenClaw, OpenCode, Cursor, and Prime. | [Runtime support](docs/configuration/agent-runtimes.md#모델권한-기본값과-런타임-선택) |
+| Install or configure a runtime | Use the install and settings buttons in the runtime list for authentication, launch settings, and supported sign-out or removal actions. Antigravity uses Google's official ACP server. | [Runtime setup](docs/configuration/agent-runtimes.md) |
+| Choose model, reasoning, and permissions | Use the controls beside ACP chat input. Save supported settings as runtime defaults. | [Models and defaults](docs/configuration/agent-runtimes.md#모델권한-기본값과-런타임-선택) |
+| Reuse an agent setup | Create tabs from agent sets with model and role presets. Rename tabs, switch runtimes, and arrange splits. | [Agent tabs](docs/guides/terminal-agents.md) |
+| Add context to a prompt | `@` references projects, files, and folders; `/` selects local skills. Attach files or images and use the arrow keys to recall sent input. | [Agent input](docs/specs/agent-input-mentions.md) |
+| Manage a conversation | Send or stop work, inspect tool activity and elapsed time, edit or reorder queued messages, and use `/clear` to start a new conversation. | [Conversation controls](docs/guides/terminal-agents.md#대화-진행과-기록) |
+| Run a shell command from chat | Toggle the terminal icon beside the model selector. Open the command's tmux, stop it, or view and download saved output afterward. | [CLI command mode](docs/guides/terminal-agents.md#대화에서-cli-명령-실행) |
+| Resume earlier work | Choose a session from history. After working in an external CLI, use **Refresh current conversation**. File links in replies open in the editor. | [Session history](docs/guides/terminal-agents.md) |
+| Check account and usage | The ACP session's **i** button shows available account, plan, limits, token usage, and API-equivalent cost information. | [Accounts and subscriptions](docs/configuration/agent-runtimes.md#설치로그인구독) |
+| Schedule a message | The clock beside ACP input schedules a one-time message to the current session. Edit, reschedule, or delete it before it runs. | [Scheduled messages](docs/specs/agent-scheduled-prompts.md) |
+| Work from a feature spec | **Features** in the dock lets you edit requirements inline and apply them to an agent set. Track the source Markdown, related files, commits, and user review. | [Feature-driven development](docs/specs/feature-development.md) |
+| Save project commands | The sidebar's **▶** menu adds, edits, runs, and stops commands, with output in a dedicated terminal popup. | [Project commands](docs/guides/commands.md#사이드바-프로젝트--버튼-mewcmd-buttonjson) |
+| Save shell commands | Use **+** in a shell tab's command row to add a command and icon. Buttons send input to the active shell. | [Terminal buttons](docs/guides/commands.md#터미널-버튼-dataterm-buttonjson) |
+| Run recurring jobs | **Menu → Scheduled tasks** saves a folder, agent, prompt, and schedule. Run a job immediately, inspect output, or delete it. | [Recurring tasks](docs/guides/commands.md#예약-작업-dataschedulesjson) |
+
+Use **Skills** and **MCP**, beside the agent panel's **i** button, to inspect and manage extensions at global, project, and subproject scope. See [skills and MCP configuration](docs/configuration/agent-harness.md) for supported locations and runtimes.
+
+### Browser, Android, and remote desktop
+
+These features require additional components and are available to managers and owners.
+
+| Task | Where to start | Details |
+| --- | --- | --- |
+| Browse from the server | **Browser** in the dock or `Alt+B`. Open localhost services, private-network pages, or public sites, with tabs, forms, uploads, and downloads. | [Server browser](docs/guides/browser.md#브라우저-창) |
+| Keep browser logins | Each account has a server-side browser profile. Popups and agent authentication are supported, along with a standalone `/browser` page. | [Profiles and limitations](docs/guides/browser.md#브라우저-창) |
+| Prepare Android | **Menu → Android** checks SDK, acceleration, and AVD status, shows setup commands and terminal output, and connects to an existing WebRTC gateway. | [Android setup](docs/guides/browser.md#android-창) |
+| Control the desktop | **Remote desktop** in the dock prepares the helper and connects to the logged-in Mac or Linux desktop, or the Windows desktop when mew runs in WSL. OS permission approval is required. If direct video fails, it falls back to the mew server. | [Remote desktop setup](docs/guides/remote-desktop.md) |
+| Use remote input | Mouse, keyboard, paste, remote Esc, mobile joystick, drag, wheel, zoom, fullscreen, rotation, sensitivity, movable hotkeys, and monitor selection are available. | [Controls](docs/guides/remote-desktop.md#조작) · [Network and validation scope](docs/development/remote-desktop.md) |
+
+### Databases
+
+Insert a table with `/db` in Hotview, then edit its title, rows, cells, and columns together with other users. Supported fields include text, numbers, checkboxes, and dates. **Menu → Database** lists the current project's databases.
+
+Use **Database reference** in the `/` menu to embed a read-only reference to an existing database or external Postgres table. Configure `DATABASE_URL` to connect Postgres; `npm run db:up` and `npm run db:down` optionally manage just the database through Docker Compose.
+
+See the [database guide](docs/guides/database.md) for setup and project isolation.
+
+### Layout, settings, and accounts
+
+| Task | Where to start | Details |
+| --- | --- | --- |
+| Arrange panels | Drag editor, agent, terminal, and browser tabs or handles; use the body handle for Git. Double-click a desktop tab to expand its panel; `Esc` restores it. Browser panels support horizontal placement only. Document tabs, layout, and scroll positions restore per account. | [Panes](docs/guides/editor.md#편집-칸-문서-탭--화면-분할) · [Restoration](docs/guides/projects.md#프로젝트-탭) |
+| Work on mobile | Switch panels with the bottom dock; hold to reorder it. The dock hides while typing. Hold items for context menus, and use Back or `Esc` to close the frontmost overlay. **Menu → Fullscreen** or `Alt+Enter` toggles fullscreen. Desktop also has a floating dock and movable handles. | [Mobile and fullscreen](docs/guides/editor.md#모바일과-전체화면) |
+| Change appearance | **Settings → Appearance** controls light/dark themes, accent colors, UI/document/code fonts, and Korean, English, Japanese, or Chinese. | [Appearance](docs/configuration/environment.md#화면-설정) |
+| Customize shortcuts | **Settings → Shortcuts** changes bindings or resets individual shortcuts or all of them. | [Shortcuts](docs/configuration/environment.md#단축키-설정) |
+| Check Mewcat | Click the cat for recent notifications. Its bubble shows CPU, RAM, and GPU usage, updated every half-second; click the readings for system resources. **Settings → Mewcat** controls skins, sounds, notifications, and work/break timers. Optional enforced breaks put a draggable cat over the workspace; this is off by default. | [Mewcat](docs/specs/mewcat.md) |
+| Manage your account | **Settings → Account** changes your display name, profile image, and password, or signs you out. | [Account settings](docs/configuration/environment.md#내-계정과-계정-관리) |
+| Manage users | Owners use **Menu → Account management** to add accounts and change roles. The host CLI also lists users, resets passwords, and deletes accounts. | [User management](docs/configuration/environment.md#내-계정과-계정-관리) |
+| Inspect the server | **Menu → System resources** shows CPU, memory, GPU, temperatures, processes, and recent usage (manager or owner). | [System resources](docs/guides/commands.md#시스템-자원-팝업) |
+
+The former workspace home screen's to-do list and calendar are no longer available. Document checkboxes and agent scheduling remain supported. See [current project scope](docs/guides/projects.md#현재-제공하지-않는-홈-화면).
+
+## Running and updating
+
+Run these from the mew repository. On Windows, use the Ubuntu terminal.
+
+```bash
+./mew start                    # Start the server
+./mew stop                     # Stop it
+./mew restart                  # Restart it
+./mew status                   # Show status and paths
+./mew logs                     # Follow the server log
+./mew update                   # Pull origin/main, install, build, and restart
+./mew desktop-setup            # Prepare the desktop helper without restarting mew
+./mew users add you@example.com owner
+```
+
+`./mew update` uses a fast-forward pull. For installations started with `./mew start`, you can also check for updates and install them from the app menu. Servers managed by systemd or another supervisor follow the separate [deployment and update procedure](docs/deployment/native.md).
+
+Settings and runtime data live outside the clone by default:
+
+| Contents | Location |
+| --- | --- |
+| Configuration | `~/.config/mew/config.env` |
+| Accounts, sessions, and completed agent turns | `~/.local/share/mew/` |
+| Logs | `~/.local/state/mew/` |
+
+Deleting the clone leaves these files in place. Back them up along with your workspace and any Postgres data. See [server configuration](docs/configuration/environment.md#서버-설정) for overrides.
+
+To connect from a phone or another computer, follow the [HTTPS/VPN deployment guide](docs/deployment/native.md). The default server binding is local to the host. A personal `./mew start` installation does not register an automatic startup service.
+
+If remote desktop preparation failed during setup, retry with `./mew desktop-setup`. This installs the helper and handles Mac permission setup without building the app or restarting the server. A logged-in desktop and the relevant OS libraries and permissions are still required; see [OS requirements](docs/guides/remote-desktop.md#처음-연결).
+
+On macOS, mew repairs a missing execute permission on `node-pty` 1.1.0's `spawn-helper` before opening a terminal. If a terminal stays blank, check the server log for `[mew:tmux]` errors.
+
+## Development
+
+Run commands from the repository root:
+
+```bash
+npm run dev     # Vite development server with HMR, port 4999
+npm run build   # TypeScript checks + Vite build into dist/
+npm run serve   # Serve dist/, default port 5000
+npm start       # Build and serve
 npm test        # node:test
 npm run lint    # oxlint
-npx tsc -b      # 타입만 (빌드 없이)
+npx tsc -b      # Type-check without building the app bundle
 ```
 
-서버는 디스크의 `dist/`를 읽어 제공하므로 `npm run build`를 실행하면 빌드 결과가 실행 중인 화면에 바로 반영된다. 빌드와 재시작은 사용자가 직접 한다. 에이전트는 검증까지만 하고, `mew` 실행을 포함해 서버에 변경을 반영하는 명령은 실행하지 않는다.
+The server serves `dist/` directly. Building changes what a running instance serves; it is not an isolated validation step. Keep the development server private.
 
-터미널에서 수정한 파일이 이전 내용으로 돌아갔다면, mew 에디터에 열려 있던 내용이 저장되면서 파일을 덮어썼을 수 있다. 파일 내용을 다시 확인하고, 사용자에게 해당 파일을 닫거나 Revert File을 실행하도록 안내한다.
+**Coding agents must not run `mew`, build, deploy, or restart the server.** This includes `npm run build`, `npm start`, `./mew start|stop|restart|update`, killing server processes, and starting them in the background. Agents may run checks that leave the running instance alone, such as `npm test`, `npm run lint`, and `npx tsc -b`. The user runs builds and applies changes.
 
-## 상세 문서
+If a file edited from the terminal reverts unexpectedly, an open mew editor may have saved an older copy over it. Check the file again, then ask the user to close that editor or use **Revert File**.
 
-Linux 에이전트 작업의 메모리 상한은 `sh native/agent-memory/install.sh`로 설치한다. 가용 메모리 부족 시 작업 중단·큐 보류·오류 기록, 적용 시점과 검증 명령은 [메모리 보호](docs/operations/agent-memory.md)를 따른다.
+For feature work, start with the [feature map](docs/features/MOC.md), also available through **Features** in the dock in the mew project. Update the feature's scope, implementation notes, and acceptance criteria together with its linked detailed documentation. Follow the [feature documentation rules](docs/features/README.md).
 
-[문서 지도](docs/MOC.md)에서 주제별 문서를 찾을 수 있다. 문서의 명령은 모두 저장소 루트에서 실행한다. 코드를 변경하면 관련 문서도 함께 갱신한다.
+### Required UI rules
 
-| 찾는 내용 | 문서 |
+**Do not add permanent instructions, shortcut hints, or explanatory copy that repeats what the interface already makes clear.** Use the button or field label when it is enough. Show additional information where it helps someone decide or recover from an error. See [UI copy](docs/development/ui-contracts.md#화면-문구).
+
+**Do not use native `<select>` or `<datalist>` popups for app-owned choices.** Reuse an existing custom component, or create a shared one if none fits. Changing a native control's border or `appearance` does not satisfy this rule. It applies on desktop and mobile, including when modifying an existing native dropdown.
+
+Prefer `SelectField` from `@mew/ui` for single-choice fields. Follow the [selection component contract](docs/development/ui-contracts.md#드롭다운과-선택-컴포넌트) for themes, keyboard and touch input, focus, Esc/Back dismissal, and viewport boundaries.
+
+## Documentation
+
+Start at the [document map](docs/MOC.md). Detailed product specs, usage, operating procedures, and work records belong in `docs/`; this README covers setup and entry points. Update the relevant documentation whenever code changes.
+
+| Topic | Start here |
 | --- | --- |
-| 프로젝트·파일·편집·터미널·브라우저·명령 버튼·DB | [사용법](docs/guides/MOC.md) |
-| 환경변수·계정·검색·에이전트 런타임 | [설정](docs/configuration/MOC.md) |
-| 지원 배포 경로·HTTPS·systemd·업데이트·백업 | [서버 배포](docs/deployment/native.md) |
-| 코드 구조·협업·패키지·UI·에이전트 통신 계약 | [개발](docs/development/MOC.md) |
-| 제품 스펙·운영·진행 작업·과거 검토 | [문서 지도](docs/MOC.md) |
-| 계정별 기능·파일 권한 표 | [권한 설정](docs/configuration/environment.md#내-계정과-계정-관리) · [개발 계약](docs/development/access-control.md) |
-| 역할·인증·게스트 경계 | [보안](SECURITY.md) |
+| Projects, editing, terminals, browsers, commands, and databases | [User guides](docs/guides/MOC.md) |
+| Environment variables, accounts, search, and agent runtimes | [Configuration](docs/configuration/MOC.md) |
+| HTTPS, systemd, updates, and backups | [Deployment](docs/deployment/native.md) |
+| Code structure, packages, UI, collaboration, and agent protocols | [Development docs](docs/development/MOC.md) |
+| Product specs, operations, current work, and history | [Document map](docs/MOC.md) |
+| Per-account features and file permissions | [Account settings](docs/configuration/environment.md#내-계정과-계정-관리) · [Access control](docs/development/access-control.md) |
+| Roles, authentication, and guest access | [Security](SECURITY.md) |
 
-제품 스펙, 상세 사용법, 운영 절차, 작업 기록은 `docs/`에서 관리한다. README는 모든 기능의 요약·진입 방법과 설치·실행·검증 방법을 안내하고 상세 기준본으로 연결한다.
+On Linux, `sh native/agent-memory/install.sh` installs memory limits for agent work. See [agent memory protection](docs/operations/agent-memory.md) for activation, checks, low-memory job suspension, queue holds, and error reporting.

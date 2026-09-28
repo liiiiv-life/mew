@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "패널 배치·모바일·상태 복원"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-28"
 status_hash: "018bca32e486b43c386b29de3e2087d6d1447fae6a33abc99d745367947a9382"
 files: ["src/hooks/use-refresh-tasks.ts", "src/hooks/usePresence.ts", "src/components/project-loading-overlay.tsx", "src/App.tsx", "src/components/DockWorkspace.tsx", "src/components/EditorPane.tsx", "src/components/TabBar.tsx", "src/components/AgentPanel.tsx", "src/components/mobile-dock.tsx", "src/utils/mobile-dock.ts", "src/hooks/use-mobile-keyboard.ts", "src/hooks/use-dock-position.ts", "src/hooks/useTabs.ts", "server/userUiState.ts"]
 commits: []
@@ -33,6 +33,8 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- 독에 있는 작업 패널은 PC·모바일 햄버거 메뉴에서 제거해 진입점 중복을 줄인다. 독·단축키와 나머지 메뉴 항목의 권한 조건은 유지한다.
 
 - 모바일에서 여러 편집 칸을 전환하는 선택기는 공통 자체 드롭다운이며 기존 칸·문서 상태를 유지한다.
 
@@ -64,7 +66,7 @@ commits: []
 
 - 모바일 하단에 화면 너비를 채우는 직사각형 독을 제공한다.
 - 아이콘은 패널을 열거나 전면으로 전환하며 같은 아이콘을 다시 눌러도 닫지 않는다.
-- 높이는 48px + 하단 안전 여백이고, 기능 버튼은 메뉴와 같은 작업 패널을 연다.
+- 높이는 48px + 하단 안전 여백이고, 기능 버튼은 기능 작업 패널을 연다.
 - 기능 패널도 독 버튼·스와이프로 오가며 선택 항목과 초안을 유지한다.
 - 둥근 외곽선·아이콘 배경 없이 위쪽 구분선과 선택된 아이콘의 밝기·굵기로 구분한다.
 - 기본 순서는 사이드바·에디터·에이전트 패널·터미널·Git·내부 브라우저·기능·원격 데스크톱·메모·RAG이며 권한에 맞춰 표시한다.

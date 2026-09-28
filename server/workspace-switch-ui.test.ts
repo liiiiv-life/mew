@@ -13,7 +13,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
   const appSource = await fs.readFile(`${root}/src/App.tsx`, 'utf8')
   // Keep App, useTabs, FileTree, root tabs and docking real. Unrelated panels and the
   // editor renderer are inert so this measures handoff work rather than editor startup.
-  const keep = new Set(['RootProjectTabs', 'ProjectLoadingOverlay', 'FileTree', 'DockWorkspace', 'ProjectIcon', 'SubprojectLink', 'SidebarCreateButtons', 'featureCopy', 'FeatureDevelopment', 'MobileDock'])
+  const keep = new Set(['RootProjectTabs', 'ProjectLoadingOverlay', 'FileTree', 'DockWorkspace', 'ProjectIcon', 'SubprojectLink', 'SidebarCreateButtons', 'featureCopy', 'FeatureDevelopment', 'MobileDock', 'HeaderMenu'])
   const stubs = new Map<string, string>()
   for (const match of appSource.matchAll(/import \{ ([^\n]+) \} from '(\.\/components\/[^']+)'/g)) {
     const names = match[1].split(',').map(n => n.trim()).filter(n => !n.startsWith('type '))
@@ -36,7 +36,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8'))
   } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = (await Promise.all(['src/components/RootProjectTabs.tsx', 'src/components/project-loading-overlay.tsx', 'src/components/FileTree.tsx', 'src/components/DockWorkspace.tsx', 'src/components/mobile-dock.tsx', 'src/components/feature-development.tsx', 'packages/ui/src/dialog-frame.tsx', 'packages/ui/src/ConfirmDialog.tsx', 'packages/ui/src/select-field.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/RootProjectTabs.tsx', 'src/components/project-loading-overlay.tsx', 'src/components/FileTree.tsx', 'src/components/DockWorkspace.tsx', 'src/components/mobile-dock.tsx', 'src/components/HeaderMenu.tsx', 'src/components/feature-development.tsx', 'packages/ui/src/dialog-frame.tsx', 'packages/ui/src/ConfirmDialog.tsx', 'packages/ui/src/select-field.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content + appSource).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
@@ -466,6 +466,25 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     assert.equal(await list.count(), 0)
     assert.equal(await page.locator('[data-test-editor]:visible').getAttribute('data-test-active'), 'extra.md')
     await page.screenshot({ path: '/tmp/mew-mobile-pane-dropdown.png' })
+    // The real App menu keeps secondary actions; workspace panels stay in the dock.
+    for (const width of [390, 1100]) for (const dark of [false, true]) {
+      await page.setViewportSize({ width, height: 700 })
+      await page.evaluate(`document.documentElement.classList.toggle('dark', ${dark})`)
+      await page.getByRole('button', { name: '메뉴', exact: true }).click()
+      const menu = page.getByRole('menu', { name: '메뉴', exact: true })
+      await menu.waitFor()
+      for (const label of ['RAG', '기능', 'Git', '원격 데스크톱', '에이전트', '터미널', '브라우저']) {
+        assert.equal(await menu.getByRole('menuitem', { name: new RegExp(`^${label}(?:\\s|$)`) }).count(), 0, `${label} is only in the dock`)
+      }
+      for (const id of ['agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'rag']) {
+        assert.equal(await dock.locator(`[data-dock-item=${id}]`).isVisible(), true, `${id} remains accessible`)
+      }
+      assert.equal(await menu.getByRole('menuitem', { name: '설정', exact: true }).isVisible(), true)
+      assert.equal(await menu.getByRole('menuitem', { name: '전체화면', exact: false }).isVisible(), true)
+      await page.screenshot({ path: `/tmp/mew-header-menu-${width}-${dark ? 'dark' : 'light'}.png` })
+      await page.keyboard.press('Escape')
+      await menu.waitFor({ state: 'detached' })
+    }
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })
