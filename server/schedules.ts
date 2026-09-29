@@ -17,6 +17,7 @@ import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
 import { WORKSPACE_ROOT, projectRoot } from './paths.ts'
 import { readCrontab, writeCrontab } from './crontab.ts'
 import { isAcpRuntime } from './agentRuntimes.ts'
+import { normalizeSets, readSets, type AgentSet } from './agentSets.ts'
 
 export type AgentKind = string
 
@@ -28,6 +29,8 @@ export interface AgentJob {
   /** 실행 폴더. 빈 문자열이면 워크스페이스 루트 */
   project: string
   agent: AgentKind
+  /** 저장 시점의 에이전트셋 스냅샷. 이전 런타임 전용 예약에는 없다. */
+  agentSet?: AgentSet
   prompt: string
   enabled: boolean
 }
@@ -78,6 +81,7 @@ function resolveBin(bin: string): string {
 
 export const promptFile = (id: string) => path.join(JOBS_DIR, `${id}.prompt`)
 export const logFile = (id: string) => path.join(JOBS_DIR, `${id}.log`)
+export const agentSetFile = (id: string) => path.join(JOBS_DIR, `${id}.agent-set.json`)
 
 /**
  * 잡 전용 tmux 세션 이름. 명령어 버튼과 같은 프리픽스라 터미널 탭 목록에서는 걸러져 보이지 않고
@@ -101,6 +105,7 @@ export function agentCommand(job: AgentJob): string {
     shQuote(RUNNER),
     '--runtime',
     shQuote(job.agent),
+    ...(job.agentSet ? ['--agent-set-file', shQuote(agentSetFile(job.id))] : []),
     '--prompt-file',
     shQuote(promptFile(job.id)),
     '--log-file',
@@ -148,7 +153,7 @@ export function mergeCrontab(crontabText: string, jobs: AgentJob[]): string {
 }
 
 /** 클라이언트가 보낸 목록을 검증·정규화한다. 통과 못 하면 ScheduleError(=400). */
-export function normalizeJobs(input: unknown): AgentJob[] {
+export function normalizeJobs(input: unknown, selection?: { sets: AgentSet[]; existing: AgentJob[] }): AgentJob[] {
   if (!Array.isArray(input)) throw new ScheduleError('작업 목록이 배열이 아닙니다')
   if (input.length > MAX_JOBS) throw new ScheduleError(`예약 작업은 최대 ${MAX_JOBS}개까지입니다`)
   const out: AgentJob[] = []
@@ -170,7 +175,24 @@ export function normalizeJobs(input: unknown): AgentJob[] {
       throw new ScheduleError(`실행 주기가 올바르지 않습니다: ${cron || '(비어 있음)'}`)
     }
 
-    const agent = typeof rec.agent === 'string' ? rec.agent : ''
+    let agentSet: AgentSet | undefined
+    let agent = typeof rec.agent === 'string' ? rec.agent : ''
+    if (selection) {
+      const previous = selection.existing.find((job) => job.id === id)
+      if (typeof rec.agentSetId === 'string' && rec.agentSetId) {
+        const selected = selection.sets.find((set) => set.id === rec.agentSetId)
+          ?? (previous?.agentSet?.id === rec.agentSetId ? previous.agentSet : undefined)
+        if (!selected) throw new ScheduleError('에이전트셋을 찾을 수 없습니다')
+        agentSet = { ...selected }
+        agent = agentSet.runtime
+      } else if (!previous || previous.agentSet || previous.agent !== agent) {
+        throw new ScheduleError('에이전트셋을 선택하세요')
+      }
+    } else if (rec.agentSet !== undefined) {
+      try { [agentSet] = normalizeSets([rec.agentSet]) } catch { throw new ScheduleError('에이전트셋 형식이 올바르지 않습니다') }
+      if (!agentSet) throw new ScheduleError('에이전트셋 형식이 올바르지 않습니다')
+      agent = agentSet.runtime
+    }
     if (!isAcpRuntime(agent)) throw new ScheduleError('예약 실행을 지원하는 에이전트를 고르세요')
 
     const project = typeof rec.project === 'string' ? rec.project : ''
@@ -180,7 +202,7 @@ export function normalizeJobs(input: unknown): AgentJob[] {
     if (!prompt) throw new ScheduleError('프롬프트를 입력하세요')
     if (prompt.length > MAX_PROMPT_LEN) throw new ScheduleError(`프롬프트는 ${MAX_PROMPT_LEN}자 이하여야 합니다`)
 
-    out.push({ id, name, cron, project, agent, prompt, enabled: rec.enabled !== false })
+    out.push({ id, name, cron, project, agent, ...(agentSet ? { agentSet } : {}), prompt, enabled: rec.enabled !== false })
   }
   return out
 }
@@ -218,19 +240,21 @@ export function writeJobs(jobs: AgentJob[]): void {
   // 사라진 잡의 프롬프트·로그는 남겨두지 않는다
   const live = new Set(jobs.map((j) => j.id))
   for (const entry of fs.readdirSync(JOBS_DIR)) {
-    const id = entry.replace(/\.(prompt|log)$/, '')
+    const id = entry.replace(/\.(prompt|log|agent-set\.json)$/, '')
     if (id !== entry && !live.has(id)) fs.rmSync(path.join(JOBS_DIR, entry), { force: true })
   }
 
   for (const job of jobs) {
     const body = job.prompt.endsWith('\n') ? job.prompt : `${job.prompt}\n`
     writeFileAtomic(promptFile(job.id), body)
+    if (job.agentSet) writeFileAtomic(agentSetFile(job.id), `${JSON.stringify(job.agentSet)}\n`)
+    else fs.rmSync(agentSetFile(job.id), { force: true })
   }
   writeFileAtomic(JOBS_FILE, `${JSON.stringify(jobs, null, 2)}\n`)
 }
 
 export async function saveSchedules(input: unknown): Promise<AgentJob[]> {
-  const jobs = normalizeJobs(input)
+  const jobs = normalizeJobs(input, { sets: readSets(), existing: readJobs() })
   writeJobs(jobs)
   await writeCrontab(mergeCrontab(await readCrontab(), jobs))
   return jobs

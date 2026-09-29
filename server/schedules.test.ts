@@ -1,9 +1,77 @@
 // 예약 작업 검증과 crontab 생성 — 실제 crontab은 건드리지 않고 순수 함수만 확인한다.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { ScheduleError, buildCommand, jobSessionName, mergeCrontab, normalizeJobs, otherLines } from './schedules.ts'
+import { runScheduledPrompt } from './runAgentJob.ts'
 
 const base = { id: '11111111-2222-4333-8444-555555555555', name: '야간 정리', cron: '0 2 * * *', project: '', agent: 'claude', prompt: '문서 정리해줘', enabled: true }
+const preset = { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', name: '문서 검토', runtime: 'codex', modelId: 'chosen-model', role: "검토 역할\n따옴표 '와 100%" }
+
+test('셋 스냅샷·프롬프트 파일을 동기화하고 삭제 시 함께 정리한다', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-schedule-files-'))
+  try {
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import assert from 'node:assert/strict';
+      import fs from 'node:fs';
+      import { writeJobs, readJobs, agentSetFile, promptFile } from ${JSON.stringify(new URL('./schedules.ts', import.meta.url).href)};
+      const job = ${JSON.stringify({ ...base, agent: preset.runtime, agentSet: preset })};
+      writeJobs([job]);
+      assert.deepEqual(readJobs(), [job]);
+      assert.deepEqual(JSON.parse(fs.readFileSync(agentSetFile(job.id), 'utf8')), job.agentSet);
+      assert.equal(fs.readFileSync(promptFile(job.id), 'utf8'), job.prompt + '\\n');
+      writeJobs([]);
+      assert.equal(fs.existsSync(agentSetFile(job.id)), false);
+      assert.equal(fs.existsSync(promptFile(job.id)), false);
+      assert.deepEqual(readJobs(), []);
+    `], { env: { ...process.env, MEW_DATA_DIR: directory }, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+})
+
+test('예약 저장은 서버의 에이전트셋으로 런타임·모델·역할을 고정한다', () => {
+  const [job] = normalizeJobs([{ ...base, agentSetId: preset.id, agentSet: { ...preset, role: 'forged' } }], { sets: [preset], existing: [] })
+  assert.equal(job.agent, 'codex')
+  assert.deepEqual(job.agentSet, preset)
+  assert.notEqual(job.agentSet, preset)
+  assert.deepEqual(normalizeJobs([job])[0], job, '저장한 스냅샷을 다시 읽는다')
+  const command = buildCommand(job)
+  assert.ok(command.includes(`${job.id}.agent-set.json`))
+  assert.ok(!command.includes(preset.role), '역할은 셸 명령에 넣지 않는다')
+  const [retained] = normalizeJobs([{ ...job, agentSetId: preset.id }], { sets: [], existing: [job] })
+  assert.deepEqual(retained.agentSet, preset, '셋이 삭제돼도 기존 예약을 보존한다')
+  const [updated] = normalizeJobs([{ ...job, agentSetId: preset.id }], { sets: [{ ...preset, modelId: 'updated' }], existing: [job] })
+  assert.equal(updated.agentSet?.modelId, 'updated', '다시 저장하면 현재 셋을 적용한다')
+})
+
+test('새 예약은 셋이 필수이며 이전 런타임 예약만 그대로 저장할 수 있다', () => {
+  assert.throws(() => normalizeJobs([base], { sets: [preset], existing: [] }), ScheduleError)
+  assert.deepEqual(normalizeJobs([base], { sets: [], existing: [base] }), [base])
+  assert.throws(() => normalizeJobs([{ ...base, agent: 'codex' }], { sets: [], existing: [base] }), ScheduleError)
+  assert.throws(() => normalizeJobs([{ ...base, agentSetId: 'missing' }], { sets: [], existing: [base] }), ScheduleError)
+})
+
+test('예약 실행은 모델 적용 뒤 역할과 프롬프트를 전달하고 모델 실패 시 실행하지 않는다', async () => {
+  const calls: string[] = []
+  const session = {
+    setModel: async (model: string) => { calls.push(`model:${model}`) },
+    runOnce: async (prompt: string) => { calls.push(prompt); return 'end_turn' },
+  }
+  await runScheduledPrompt(session, base.prompt, preset)
+  assert.deepEqual(calls, [`model:${preset.modelId}`, `${preset.role}\n\n---\n\n${base.prompt}`])
+  calls.length = 0
+  await runScheduledPrompt(session, base.prompt, { ...preset, modelId: '' })
+  assert.deepEqual(calls, [`${preset.role}\n\n---\n\n${base.prompt}`])
+  calls.length = 0
+  await runScheduledPrompt(session, base.prompt)
+  assert.deepEqual(calls, [base.prompt])
+  calls.length = 0
+  await assert.rejects(runScheduledPrompt({ ...session, setModel: async () => { throw new Error('model unavailable') } }, base.prompt, preset), /model unavailable/)
+  assert.deepEqual(calls, [])
+})
 
 test('정상 입력은 그대로 통과한다', () => {
   const [job] = normalizeJobs([base])

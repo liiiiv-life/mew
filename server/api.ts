@@ -2416,6 +2416,7 @@ export function createApiApp() {
     try {
       res.json({
         jobs: jobViews(readJobs(), await liveSessions()),
+        agentSets: readSets(),
         otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== ''),
         runtimes: acpRuntimeList(),
       })
@@ -2439,6 +2440,7 @@ export function createApiApp() {
       }
       res.json({
         jobs: jobViews(saved, await liveSessions()),
+        agentSets: readSets(),
         otherLines: otherLines(await readCrontab()).filter((l) => l.trim() !== ''),
         runtimes: acpRuntimeList(),
       })

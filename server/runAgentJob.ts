@@ -2,7 +2,14 @@
 import fs from 'node:fs'
 import { parseAgentContext } from './agent-context.ts'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { AgentSession, type AgentEvent, isAcpRuntime } from './agentAcp.ts'
+import { normalizeSets, type AgentSet } from './agentSets.ts'
+
+export async function runScheduledPrompt(session: Pick<AgentSession, 'setModel' | 'runOnce'>, prompt: string, agentSet?: AgentSet) {
+  if (agentSet?.modelId) await session.setModel(agentSet.modelId)
+  await session.runOnce(agentSet ? `${agentSet.role}\n\n---\n\n${prompt}` : prompt)
+}
 
 function arg(name: string): string {
   const flag = `--${name}`
@@ -37,6 +44,11 @@ async function main() {
   const logFile = arg('log-file')
   const cwd = arg('cwd')
   const prompt = fs.readFileSync(promptFile, 'utf8')
+  const agentSet = process.argv.includes('--agent-set-file')
+    ? normalizeSets([JSON.parse(fs.readFileSync(arg('agent-set-file'), 'utf8'))])[0] : undefined
+  if (process.argv.includes('--agent-set-file') && (!agentSet || agentSet.runtime !== runtime)) {
+    throw new Error('예약 작업의 에이전트셋과 런타임이 일치하지 않습니다')
+  }
   fs.mkdirSync(path.dirname(logFile), { recursive: true })
   const log = fs.createWriteStream(logFile, { flags: 'a' })
   const write = (text: string) => {
@@ -53,7 +65,7 @@ async function main() {
     if (line) write(line)
   })
   try {
-    await session.runOnce(prompt)
+    await runScheduledPrompt(session, prompt, agentSet)
   } finally {
     detach()
     session.dispose()
@@ -61,7 +73,7 @@ async function main() {
   }
 }
 
-main().catch((err: unknown) => {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((err: unknown) => {
   const message = err instanceof Error ? err.stack || err.message : String(err)
   console.error(message)
   process.exitCode = 1

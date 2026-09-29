@@ -503,6 +503,7 @@ export const uiMessages = {
   "이미 만든 커밋은 유지됩니다. 남은 변경을 확인한 뒤 다시 실행하세요.": ["Commits already created are kept. Review remaining changes before running again.","已创建的提交会保留，请检查剩余更改后再次运行。","作成済みのコミットは残ります。残りの変更を確認して再実行してください。"],
   "진행 로그": ["Progress log","进度日志","進行ログ"],
   "창을 닫아도 커밋 작업은 계속됩니다. AI 자동 커밋을 다시 열면 확인할 수 있습니다.": ["Committing continues after you close this window. Reopen AI auto commit to check progress.","关闭窗口后提交仍会继续，可重新打开 AI 自动提交查看进度。","ウィンドウを閉じてもコミットは続行します。AI 自動コミットを開き直して確認できます。"],
+  "에이전트 패널에서 에이전트셋을 먼저 만들어 주세요.": ["Create an agent set in the agent panel first.","请先在代理面板中创建代理集。","先にエージェントパネルでエージェントセットを作成してください。"],
   "에이전트셋 선택": ["Choose agent set","选择代理集","エージェントセットを選択"],
   "다음 작업의 에이전트셋을 선택하세요": ["Choose an agent set for the next job","为下次任务选择代理集","次の処理のエージェントセットを選択"],
   "작업 중단": ["Stop job","停止任务","処理を中断"],

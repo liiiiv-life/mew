@@ -1658,6 +1658,8 @@ export interface AgentJob {
   cron: string
   project: string
   agent: string
+  agentSet?: AgentSet
+  agentSetId?: string
   prompt: string
   enabled: boolean
 }
@@ -1673,6 +1675,7 @@ export interface AgentJobView extends AgentJob {
 
 export interface SchedulesResponse {
   jobs: AgentJobView[]
+  agentSets: AgentSet[]
   runtimes: { id: string; label: string }[]
   /** mew가 만들지 않은 크론 줄 — 읽기 전용 */
   otherLines: string[]
