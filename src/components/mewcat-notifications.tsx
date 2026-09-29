@@ -30,10 +30,10 @@ export function MewcatNotifications({ hasCat, anchorRef }: { hasCat: boolean; an
         <button type="button" className="mewcat-notification-button ml-auto gap-1.5 px-2 text-xs tabular-nums text-ink-secondary" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} aria-label={`${expanded ? t('mewcat.less') : t('mewcat.more')} · ${t('mewcat.count')} ${notices.length}`}><BellNotification width={14} height={14} aria-hidden="true" />{notices.length}<NavArrowDown width={12} height={12} className={expanded ? 'rotate-180' : ''} aria-hidden="true" /></button>
       </div>
       </div>
-      {expanded && <div className="max-h-[min(45dvh,320px)] overflow-y-auto border-t border-edge px-3 py-1">
-        <button type="button" className="mewcat-notification-button w-full px-2 text-xs text-ink-secondary" onClick={clearMewcatNotices}>{t('mewcat.clear')}</button>
-        {ordered.map(item => <div key={item.id} className="flex items-start gap-2 border-t border-edge py-1.5">
-          <button type="button" className="min-w-0 flex-1 rounded py-0.5 text-left text-xs leading-[18px] text-ink hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent" onClick={() => item.target ? openMewcatNotice(item) : dismissMewcatNotice(item.id)}>
+      {expanded && <div className="mewcat-notification-list max-h-[min(45dvh,320px)] overflow-y-auto border-t border-edge">
+        <button type="button" className="mewcat-notification-button mewcat-notification-clear w-full px-2 text-xs text-ink-secondary" onClick={clearMewcatNotices}>{t('mewcat.clear')}</button>
+        {ordered.map(item => <div key={item.id} className="mewcat-notification-row mewcat-notification-row-plain">
+          <button type="button" className="min-w-0 flex-1 self-stretch rounded text-left text-xs leading-[18px] text-ink hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent" onClick={() => item.target ? openMewcatNotice(item) : dismissMewcatNotice(item.id)}>
             <span className="block">{item.kind === 'test' ? t('mewcat.testBody') : t(`mewcat.${item.kind}`)}</span>
             <span className="mt-0.5 block break-words text-ink-secondary">{item.kind === 'test' ? t('settings.mewcat') : item.source}</span>
           </button>

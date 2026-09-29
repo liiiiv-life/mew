@@ -50,28 +50,28 @@ export function MewcatResources({ anchorRef, onOpen, onClose }: { anchorRef: Ref
 
   return <aside ref={bubbleRef} className="mewcat-notifications mewcat-notifications-with-cat" aria-label={t('mewcat.recent')}>
     <div className="mewcat-notifications-content">
-      <header className="flex items-center justify-between gap-2 px-3 py-1">
+      <header className="mewcat-notification-header">
         <h2 className="text-xs font-medium text-ink">{t('mewcat.recent')}</h2>
-        <button type="button" className="mewcat-notification-button shrink-0 text-ink-secondary" onClick={onClose} aria-label={t('common.close')}><Xmark width={14} height={14} /></button>
+        <button type="button" className="mewcat-notification-button shrink-0 text-ink-secondary" onClick={onClose} aria-label={t('common.close')}><Xmark width={16} height={16} /></button>
       </header>
-      {recent.length ? <ul className="max-h-[min(32dvh,240px)] overflow-y-auto px-3">
+      {recent.length ? <ul className="mewcat-notification-list max-h-[min(32dvh,240px)] overflow-y-auto">
         {recent.map(notice => {
           const Icon = notice.level === 'success' ? Check : WarningTriangle
           const body = <>
             <span className="block break-words text-xs leading-[18px] text-ink">{notice.kind === 'test' ? t('mewcat.testBody') : t(`mewcat.${notice.kind}`)}</span>
             <span className="mt-0.5 block break-words text-[11px] leading-4 text-ink-secondary">{notice.kind === 'test' ? t('settings.mewcat') : notice.source}</span>
           </>
-          return <li key={notice.id} className="flex items-start gap-2 border-t border-edge py-1.5">
-            <Icon width={13} height={13} className={`mt-0.5 shrink-0 ${notice.level === 'danger' ? 'text-danger' : notice.level === 'warning' ? 'text-warning' : 'text-success'}`} aria-hidden="true" />
+          return <li key={notice.id} className="mewcat-notification-row">
+            <Icon width={16} height={16} className={`mewcat-notification-status shrink-0 ${notice.level === 'danger' ? 'text-danger' : notice.level === 'warning' ? 'text-warning' : 'text-success'}`} aria-hidden="true" />
             {notice.target ? <button type="button" className="min-w-0 flex-1 self-stretch rounded text-left hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent" onClick={() => { onClose(); openMewcatNotice(notice) }}>{body}</button>
               : <div className="min-w-0 flex-1">{body}</div>}
-            <button type="button" className="mewcat-notification-button shrink-0 text-ink-secondary" aria-label={`${t('mewcat.dismiss')}: ${notice.kind === 'test' ? t('settings.mewcat') : notice.source}`} onClick={() => dismissMewcatNotice(notice.id)}><Xmark width={13} height={13} /></button>
+            <button type="button" className="mewcat-notification-button shrink-0 text-ink-secondary" aria-label={`${t('mewcat.dismiss')}: ${notice.kind === 'test' ? t('settings.mewcat') : notice.source}`} onClick={() => dismissMewcatNotice(notice.id)}><Xmark width={16} height={16} /></button>
           </li>
         })}
-      </ul> : <p className="px-3 py-2 text-xs leading-relaxed text-ink-secondary">{t('mewcat.empty')}</p>}
+      </ul> : <p className="mewcat-notification-empty text-xs leading-relaxed text-ink-secondary">{t('mewcat.empty')}</p>}
       {canReadResources && <button type="button" onClick={onOpen} aria-label={t('mewcat.system')}
         title={t(failed ? 'system.resourceLoadFailed' : stats ? 'system.title' : 'system.loading')}
-        className="flex min-h-8 w-full flex-wrap items-center justify-center gap-x-2.5 gap-y-1 border-t border-edge px-3 py-1 text-[11px] tabular-nums text-ink-secondary hover:bg-surface-raised focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent">
+        className="mewcat-notification-metrics flex w-full flex-wrap items-center justify-center gap-x-2.5 gap-y-1 border-t border-edge text-[11px] tabular-nums text-ink-secondary hover:bg-surface-raised focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent">
         {metrics.map(([label, value]) => <span key={label}>{label}-{value}</span>)}
       </button>}
     </div>

@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "Mewcat 마스코트·알림·휴식"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-26"
+updated: "2026-09-29"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["src/components/Mewcat.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
@@ -54,10 +54,11 @@ commits: []
 - 뮤캣에서 시작한 터치의 브라우저 기본 제스처를 취소하여 던진 직후 다른 요소를 첫 탭부터 조작할 수 있다.
 
 - 자동 말풍선 폭을 300px로 줄이고 본문·목록·자원 줄의 좌우 여백을 12px로 통일했다.
-- 본문·출처 사이는 2px로 묶고 중첩 패딩·음수 마진을 제거해 최근 알림 행과 조작 줄의 높이를 줄였다.
+- 본문·출처 사이는 2px로 묶고 중첩 패딩·음수 마진을 제거한다. 최근 알림과 펼친 목록은 공통 행 간격·정렬을 사용하며 헤더·자원 줄은 상하 8px, 알림 행·빈 상태는 상하 12px로 맞춘다.
 - 터치 버튼 크기는 유지한다.
 - 자동 알림의 바깥 여백은 상하좌우 12px로 통일하고 제목·출처·이동 버튼의 시작선을 맞춘다.
 - 대화·시스템 자원 열기는 배경 없는 작은 글자·화살표로 표시한다. 데스크톱 높이는 28px로 줄이고 모바일 터치 영역은 44px로 유지한다. 알림 개수·펼침 및 닫기는 오른쪽 보조 조작으로 구분한다.
+- 상태·닫기 아이콘은 16px로 맞추고 행 본문과 닫기 버튼은 세로 가운데에 정렬한다. 자동 알림의 본문과 조작 줄 사이는 8px를 둔다.
 - 세부 간격·터치 크기는 연결된 명세를 따른다.
 
 - 공통 번역 함수로 말풍선·알림 설정·OS 알림을 연결하고 메모리 표기·뮤캣 접근성 이름도 현지화했다.
