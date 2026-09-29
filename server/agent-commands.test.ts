@@ -11,7 +11,7 @@ import { gunzipSync } from 'node:zlib'
 import { once } from 'node:events'
 import express from 'express'
 import { createTmuxManager } from '@mew/tmux-term/server'
-import { AgentCommandStore } from './agent-commands.ts'
+import { AgentCommandStore, publicCommand } from './agent-commands.ts'
 import { createAgentCommandRouter } from './agent-command-routes.ts'
 import { setFeature } from './access-policy.ts'
 
@@ -44,6 +44,27 @@ test('submission is verbatim, idempotent, scoped by owner and conversation, and 
   await assert.rejects(store.start(owner, { ...input(), command: '\0' }))
   await store.stopTab(owner, 'tab-one')
   assert.ok(fs.existsSync(path.join(store.directory(owner, record.id), 'stop')))
+})
+
+test('queued cancellation survives reload and retries without launching or becoming an execution record', async () => {
+  const request = input('never run')
+  const before = launches
+  store.prepare(owner, request)
+  store.stop(owner, request.id)
+  store.stop(owner, request.id)
+  const restored = new AgentCommandStore(fake, store.root)
+  const record = (await restored.list(owner, scope)).find(item => item.id === request.id)!
+  assert.equal(record.cancelledBeforeStart, true)
+  assert.equal(record.archived, undefined)
+  assert.equal(fs.existsSync(path.join(store.directory(owner, record.id), 'stop')), false)
+  assert.equal((await restored.start(owner, request)).cancelledBeforeStart, true)
+  assert.equal(launches, before, 'retrying the cancelled ID must not execute it')
+  const legacy = { ...restored.read(owner, request.id) }
+  delete legacy.cancelledBeforeStart
+  assert.equal(publicCommand(legacy).cancelledBeforeStart, true, 'old cancelled bubbles are hidden on the next poll')
+  assert.equal(publicCommand({ ...legacy, archived: true }).cancelledBeforeStart, undefined)
+  assert.equal(publicCommand({ ...legacy, error: 'host exited' }).cancelledBeforeStart, undefined)
+  assert.equal(publicCommand({ ...legacy, startedAt: legacy.startedAt - 1 }).cancelledBeforeStart, undefined)
 })
 
 test('HTTP requires both agent and terminal features and cannot read another account archive', async () => {

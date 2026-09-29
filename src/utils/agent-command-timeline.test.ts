@@ -23,3 +23,16 @@ test('CLI entries stay between AI turns across chunked replay without becoming A
   assert.deepEqual(commandTimeline(foldEvents(chunked), records).map(item => item.kind), timeline.map(item => item.kind))
   assert.equal(foldEvents(events).length, 3)
 })
+
+
+test('queued cancellations never become chat bubbles, while executed interruptions stay visible', () => {
+  const records: AgentCommandRecord[] = [
+    { ...command('queued', 0), state: 'queued' },
+    { ...command('cancelled', 0), state: 'interrupted', cancelledBeforeStart: true },
+    { ...command('stopped', 0), state: 'interrupted', archived: true },
+    { ...command('running', 0), state: 'running' },
+    command('completed', 0),
+    { ...command('failed', 0), state: 'failed' },
+  ]
+  assert.deepEqual(commandTimeline([], records).map(item => item.kind === 'command' && item.command.id), ['stopped', 'running', 'completed', 'failed'])
+})

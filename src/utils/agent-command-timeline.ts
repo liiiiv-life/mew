@@ -6,7 +6,7 @@ export type CommandTimelineItem = { key: string; kind: 'command'; command: Agent
 /** Insert after the matching user turn; ACP replay may re-chunk events but keeps user order. */
 export function commandTimeline(items: Item[], commands: AgentCommandRecord[]): (Item | CommandTimelineItem)[] {
   const result: (Item | CommandTimelineItem)[] = []
-  const pending = [...commands].sort((a, b) => a.afterUserCount - b.afterUserCount || a.startedAt - b.startedAt)
+  const pending = commands.filter(command => command.state !== 'queued' && !command.cancelledBeforeStart).sort((a, b) => a.afterUserCount - b.afterUserCount || a.startedAt - b.startedAt)
   let users = 0
   const flush = () => {
     while (pending.length && pending[0].afterUserCount <= users) {

@@ -8,6 +8,8 @@ export type AgentCommandRecord = AgentCommandScope & {
   afterUserCount: number
   session: string
   state: 'queued' | 'running' | 'completed' | 'failed' | 'interrupted'
+  /** Cancelled while still queued: keep the ID for deduplication, never show a chat entry. */
+  cancelledBeforeStart?: boolean
   queuedAt?: number
   startedAt: number
   finishedAt: number | null

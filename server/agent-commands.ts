@@ -134,6 +134,7 @@ export class AgentCommandStore {
   stop(owner: string, id: string): void {
     const record = this.read(owner, id)
     if (record.state === 'queued') {
+      record.cancelledBeforeStart = true
       record.state = 'interrupted'
       record.finishedAt = Date.now()
       record.startedAt = record.finishedAt
@@ -159,5 +160,9 @@ export class AgentCommandStore {
 
 export function publicCommand(record: StoredAgentCommand): AgentCommandRecord {
   const { owner: _owner, queueHostPid: _queueHostPid, ...result } = record
-  return result
+  // Older queued cancellations used equal timestamps, with no execution output/error.
+  // Return a tombstone so polling also replaces an already cached interrupted bubble.
+  const legacyCancellation = record.state === 'interrupted' && record.queuedAt !== undefined
+    && record.startedAt === record.finishedAt && !record.archived && !record.error
+  return legacyCancellation ? { ...result, cancelledBeforeStart: true } : result
 }
