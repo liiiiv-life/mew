@@ -1,6 +1,6 @@
 # 오버레이와 탭 단축키 계약
 
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 ## 디자인 지침: 여백과 정보 밀도
 

@@ -1,12 +1,12 @@
 ---
 title: "mew 문서 지도"
 created: 2026-09-11
-updated: 2026-09-23
+updated: 2026-09-29
 ---
 
 # mew 문서 지도
 
-[설치·실행](../README.md)에서 시작하고 필요한 주제만 읽는다.
+[소개·언어 선택](../README.md) 또는 [한국어 사용법](guides/getting-started-ko.md)에서 시작하고 필요한 주제만 읽는다. 코드 작업 전 [실행·검증 규칙](development/getting-started.md)을 확인한다.
 결정 배경은 [중앙 ADR 지도](../../.mew/docs/decisions/mew/MOC.md), 공통 배치는 [문서 규칙](../../.mew/docs/README.md)을 따른다.
 
 ## Current

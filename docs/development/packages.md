@@ -1,6 +1,6 @@
 # 공용 패키지
 
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 재사용 가능한 부분은 `packages/*`의 소스 패키지로 분리되어 있다 (빌드 없음 — vite·node가 소스를 직접 소비). 컴포넌트는 fetch 경로·인증을 모르고, 호스트 앱이 `api` prop으로 서버 연동을 주입한다 (앱 쪽 구현은 `src/api/client.ts`).
 

@@ -1,14 +1,18 @@
 ---
 title: "사용법"
 created: 2026-09-11
-updated: 2026-09-16
+updated: 2026-09-29
 ---
 
 # 사용법
 
 상위: [문서 지도](../MOC.md). 필요한 문서만 선택한다.
 
+네 언어의 시작 안내는 같은 사용법의 언어판이다. 설치·기능·운영 절차가 바뀌면 함께 갱신하며, 세부 계약은 각 주제 문서를 따른다.
+
 ## Current
+
+- 설치·사용·업데이트: [한국어](getting-started-ko.md) · [English](getting-started-en.md) · [简体中文](getting-started-zh.md) · [日本語](getting-started-ja.md)
 
 - [프로젝트 문서 연결과 에이전트 자동 안내](project-setup.md)
 

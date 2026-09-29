@@ -1,6 +1,6 @@
 # 명령 버튼과 예약 작업
 
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 ## 명령어 버튼 — 두 종류
 

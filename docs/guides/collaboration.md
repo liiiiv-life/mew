@@ -1,6 +1,6 @@
 # 공동 편집·댓글·채팅·게스트 공유
 
-[문서 지도](../MOC.md) · [사용법 지도](MOC.md) · [기능 안내](../../README.md)
+[문서 지도](../MOC.md) · [사용법 지도](MOC.md) · [기능 안내](../guides/getting-started-ko.md)
 
 ## 공동 편집과 참여자
 

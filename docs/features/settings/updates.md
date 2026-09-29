@@ -25,7 +25,7 @@ commits: []
 
 ### 상세 계약
 
-- [업데이트·배포·백업](../../deployment/native.md) · [계정·화면 설정](../../configuration/environment.md) · [실행·검증 불변식](../../../README.md)
+- [업데이트·배포·백업](../../deployment/native.md) · [계정·화면 설정](../../configuration/environment.md) · [실행·검증 불변식](../../development/getting-started.md)
 
 - 상위: [분야 지도](MOC.md) · [상위 기능](../settings.md).
 

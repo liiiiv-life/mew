@@ -1,6 +1,6 @@
 # 표 데이터베이스 (/db)
 
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 에디터에서 `/db`를 치면 노션식 표 데이터베이스를 삽입한다 (v1은 표 보기만). 본문에는 참조 id만 저장되고(`<div data-mew-db="uuid">`), 실제 데이터는 **Postgres가 SSoT**다.
 

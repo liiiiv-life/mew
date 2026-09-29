@@ -1,6 +1,6 @@
 # 환경변수와 계정 설정
 
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 ## 화면 설정
 

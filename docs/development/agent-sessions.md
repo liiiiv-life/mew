@@ -1,6 +1,6 @@
 # 에이전트 세션과 통신 계약
 
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 ## 프로젝트 컨텍스트 전달
 

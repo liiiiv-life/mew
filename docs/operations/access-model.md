@@ -7,7 +7,7 @@ reviewed: 2026-08-21
 review-after-days: 30
 ---
 
-mew를 **우리 워크스페이스에서 운영하는 기준**(reference). 역할 매트릭스·게스트 규칙 같은 모델 자체는 레포 `SECURITY.md`가 기준본이다. 코드는 `~/dev/liiiiv/mew`, 실행 명령은 [README](../../README.md), 코드 구조는 [개발 문서](../development/MOC.md). 이 경계가 실제로 어디까지 유효한지에 대한 검토는 [security-review-2026-07-21.md](../history/security-review-2026-07-21.md).
+mew를 **우리 워크스페이스에서 운영하는 기준**(reference). 역할 매트릭스·게스트 규칙 같은 모델 자체는 레포 `SECURITY.md`가 기준본이다. 코드는 `~/dev/liiiiv/mew`, 실행 명령은 [사용법](../guides/getting-started-ko.md), 코드 구조는 [개발 문서](../development/MOC.md). 이 경계가 실제로 어디까지 유효한지에 대한 검토는 [security-review-2026-07-21.md](../history/security-review-2026-07-21.md).
 
 > ⚠️ **이 문서의 내용을 바꾸는 변경은 write-back 트리거 4번(포트·인증 모델)이다.** 코드만 고치고 여기를 안 고치면 안 된다.
 

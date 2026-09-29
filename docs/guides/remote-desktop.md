@@ -37,7 +37,7 @@ WSL에서는 Mew를 **내부 tmux에서 시작하거나 재시작해도 된다**
 
 Windows 파일은 `%LOCALAPPDATA%\Mew\remote-desktop`에 준비한다. PATH에 PowerShell이 없어도 마운트된 Windows 드라이브에서 찾는다. Windows 드라이브·interop가 끊긴 경우에는 연결 오류 안내를 따른다. Linux GUI가 없는 서버/컨테이너에는 공유할 데스크톱이 없으며 WSLg 화면을 Windows 전체 화면으로 대신 보여주지 않는다.
 
-진단용 수동 준비도 유지한다. Mew 저장소에서 `npm run desktop:install`을 실행할 수 있다. 앱 빌드·서버 재시작은 [README](../../README.md#development)에 따라 사용자가 한다.
+진단용 수동 준비도 유지한다. Mew 저장소에서 `npm run desktop:install`을 실행할 수 있다. 앱 빌드·서버 재시작은 [실행·검증 규칙](../development/getting-started.md)에 따라 사용자가 한다.
 
 ### Mac 권한 준비
 

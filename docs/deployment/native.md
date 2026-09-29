@@ -1,6 +1,6 @@
 # 네이티브 서버 배포
 
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 ## 배포 경로와 전제
 

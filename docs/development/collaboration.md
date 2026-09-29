@@ -1,6 +1,6 @@
 # 협업 방과 멤버 채팅
 
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 ## 협업 방 (Yjs 릴레이)
 

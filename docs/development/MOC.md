@@ -1,7 +1,7 @@
 ---
 title: "개발 계약"
 created: 2026-09-11
-updated: 2026-09-23
+updated: 2026-09-29
 ---
 
 # 개발 계약
@@ -9,6 +9,7 @@ updated: 2026-09-23
 상위: [문서 지도](../MOC.md). 필요한 문서만 선택한다.
 
 ## Current
+- [개발 환경·실행 제한·검증·필수 UI 규칙](getting-started.md)
 
 - [스킬·MCP 원본 관리와 API](../configuration/agent-harness.md)
 
