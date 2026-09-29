@@ -180,29 +180,27 @@
 .tiptap a { color: var(--color-link); text-decoration: underline; }
 /* File references remain editable link marks; only their rendered container changes. */
 .tiptap a[data-file-link] {
-  position: relative;
-  display: inline-block;
-  box-sizing: border-box;
-  max-width: 100%;
-  margin-block: 0.15em;
-  padding: 0.25em 0.65em 0.25em 2em;
+  display: inline;
+  margin-inline-end: 2px;
+  padding: 0.1em 0.3em;
   border: 1px solid var(--color-edge-strong);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--color-surface);
   color: var(--color-ink);
   text-decoration: none;
-  line-height: 1.5;
-  vertical-align: baseline;
+  line-height: inherit;
+  -webkit-box-decoration-break: slice;
+  box-decoration-break: slice;
   overflow-wrap: anywhere;
   cursor: pointer;
 }
 .tiptap a[data-file-link]::before {
   content: '';
-  position: absolute;
-  top: 0.5em;
-  left: 0.6em;
-  width: 1em;
-  height: 1em;
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-inline-end: 0.25em;
+  vertical-align: -0.1em;
   background: var(--color-ink-secondary);
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z'/%3E%3Cpath d='M14 3v5h5M9 13h6M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
   pointer-events: none;
