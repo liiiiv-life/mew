@@ -3,6 +3,7 @@
 // 구간으로 삼아 계산한다). 추이 그래프는 팝업이 열려 있는 동안 클라이언트가 모은 표본만 쓴다 —
 // 서버는 링버퍼를 두지 않으므로 닫으면 이력도 사라진다.
 import { useEffect, useMemo, useState } from 'react'
+import { Xmark } from 'iconoir-react'
 import { useOverlayDismiss } from '@mew/ui'
 import { fetchSystemStats, type ProcStat, type SystemStats } from '../api/client'
 import { useI18n } from '../i18n'
@@ -285,11 +286,19 @@ export function SystemStatsModal({ onClose }: { onClose: () => void }) {
           className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised p-4 shadow-xl"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div className="mb-3 flex items-baseline justify-between gap-2">
-            <span className="text-sm font-semibold text-ink">{t('system.title')}</span>
-            <span className="min-w-0 truncate text-[11px] text-ink-muted">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="shrink-0 text-sm font-semibold text-ink">{t('system.title')}</span>
+            <span className="min-w-0 flex-1 truncate text-right text-[11px] text-ink-muted">
               {stats ? `${stats.hostname} · ${t('system.running', { uptime: uptimeText(stats.uptime, t) })}` : ''}
             </span>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t('common.close')}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+            >
+              <Xmark width={18} height={18} aria-hidden="true" />
+            </button>
           </div>
 
           {error ? (
