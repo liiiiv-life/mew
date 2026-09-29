@@ -1,7 +1,7 @@
 import { useUiLocale } from '@mew/ui/i18n'
 import { uiText } from '@mew/ui/i18n-core'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { Check, Copy, FastArrowDown, FrameSelect, Lock, Xmark } from 'iconoir-react'
@@ -72,6 +72,30 @@ const SUBMIT_ENTER_DELAY_MS = 80
 function configuredMonoFont(): string {
   return getComputedStyle(document.documentElement).getPropertyValue('--mew-font-mono').trim()
     || 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+}
+
+// xterm은 CSS 색 변수를 직접 해석하지 못하므로 호스트의 계산된 테마를 전달한다.
+function configuredTerminalTheme(): ITheme {
+  const root = document.documentElement
+  const dark = root.classList.contains('dark')
+  const style = getComputedStyle(root)
+  const background = style.getPropertyValue('--color-surface-deep').trim() || (dark ? '#0a0a0a' : '#ffffff')
+  const foreground = style.getPropertyValue('--color-ink').trim() || (dark ? '#e5e5e5' : '#262626')
+  return {
+    background,
+    foreground,
+    cursor: foreground,
+    cursorAccent: background,
+    selectionBackground: dark ? '#ffffff40' : '#00000030',
+    selectionInactiveBackground: dark ? '#ffffff26' : '#0000001a',
+    // 다크에서는 xterm의 기존 팔레트로 복원한다. 명시적인 RGB/256색 출력은 보존한다.
+    ...(dark ? {} : {
+      black: '#262626', red: '#b42318', green: '#18733a', yellow: '#856000',
+      blue: '#2458b3', magenta: '#9233a2', cyan: '#006c78', white: '#d4d4d4',
+      brightBlack: '#737373', brightRed: '#c12b20', brightGreen: '#267a38', brightYellow: '#896400',
+      brightBlue: '#315fbc', brightMagenta: '#9b3bac', brightCyan: '#087580', brightWhite: '#fafafa',
+    }),
+  }
 }
 
 /** SGR(1006) 마우스 휠 한 칸 — 64=위, 65=아래. tmux·앱이 이 형식으로 휠을 받는다 */
@@ -405,17 +429,19 @@ export function TmuxTerminal({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: configuredMonoFont(),
-      theme: {
-        background: '#0a0a0a',
-        foreground: '#e5e5e5',
-        cursor: '#e5e5e5',
-      },
+      theme: configuredTerminalTheme(),
     })
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
     term.open(container)
     fitAddon.fit()
     termRef.current = term
+
+    // 세션·소켓·스크롤백을 유지한 채 라이트/다크 전환을 즉시 반영한다.
+    const themeObserver = new MutationObserver(() => {
+      term.options.theme = configuredTerminalTheme()
+    })
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
 
     const onFontsChanged = () => {
       term.options.fontFamily = configuredMonoFont()
@@ -624,6 +650,7 @@ export function TmuxTerminal({
       term.textarea?.removeEventListener('focus', onFocus)
       term.textarea?.removeEventListener('blur', onBlur)
       resizeObserver.disconnect()
+      themeObserver.disconnect()
       if (selectionTimer !== null) window.clearTimeout(selectionTimer)
       osc52Disposable.dispose()
       selectionDisposable.dispose()
@@ -681,8 +708,8 @@ export function TmuxTerminal({
             ref={selectPreRef}
             className="absolute inset-0 m-0 select-text overflow-auto whitespace-pre p-1"
             style={{
-              background: '#0a0a0a',
-              color: '#e5e5e5',
+              background: 'var(--color-surface-deep)',
+              color: 'var(--color-ink)',
               fontFamily: 'var(--mew-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)',
               fontSize: 13,
               lineHeight: 1.2,
@@ -694,7 +721,7 @@ export function TmuxTerminal({
       </div>
       {/* 이 줄의 버튼은 전부 아이콘 하나짜리라 이름이 안 보인다 — data-tip이 붙은 것에 마우스를
           올리면 HoverTipLayer가 곧바로 이름표를 띄운다(기본 title은 1초쯤 기다려야 나온다). */}
-      <HoverTipLayer className="flex shrink-0 items-center gap-1.5 border-t border-edge bg-surface px-2 py-1">
+      <HoverTipLayer className="flex shrink-0 items-center gap-1.5 border-t border-edge bg-surface-deep px-2 py-1">
         {/* 왼쪽: 연결 상태 + 호스트 앱의 명령어 버튼. 버튼이 많아지면 이 영역만 가로 스크롤된다 */}
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
           {connState !== 'open' && (
@@ -808,7 +835,7 @@ export function TmuxTerminal({
           e.preventDefault()
           submitCommand()
         }}
-        className="flex shrink-0 items-end gap-1.5 border-t border-edge bg-surface px-2 py-1.5"
+        className="flex shrink-0 items-end gap-1.5 border-t border-edge bg-surface-deep p-2"
       >
         <textarea
           ref={inputRef}
@@ -861,14 +888,18 @@ export function TmuxTerminal({
           autoCorrect="off"
           autoComplete="off"
           spellCheck={false}
-          className="min-h-8 min-w-0 flex-1 resize-none rounded border border-edge bg-surface-deep px-2 py-1 font-mono text-sm text-ink outline-none focus:border-accent"
+          className="min-h-8 min-w-0 flex-1 resize-none rounded bg-surface px-2 py-1.5 font-mono text-sm text-ink outline-none placeholder:text-ink-muted"
         />
         <button
           type="submit"
           title={uiText("전송 (Ctrl+Enter)")}
-          className="shrink-0 rounded border border-edge bg-surface-raised px-3 py-1 text-sm text-ink-secondary hover:bg-surface-hover hover:text-ink"
+          aria-label={uiText("전송")}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent"
         >
-          {uiText("전송")}</button>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 19V5m-6 6 6-6 6 6" />
+          </svg>
+        </button>
       </form>
     </div>
   )

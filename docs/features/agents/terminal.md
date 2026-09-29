@@ -4,7 +4,7 @@ parent: "mew-agents"
 title: "tmux 셸 터미널"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-27"
+updated: "2026-09-29"
 status_hash: "b19a2771f0bfb2f727bc14539350c69b524d222b67a2322b322f359fefd6a804"
 files: ["src/components/AgentPanel.tsx", "src/components/TermButtonBar.tsx", "server/termButtons.ts", "packages/tmux-term/src/TmuxTerminal.tsx", "packages/tmux-term/src/server/tmuxWs.ts"]
 commits: []
@@ -16,7 +16,10 @@ commits: []
 
 ### 범위
 
+- 터미널 기본 색상과 선택 모드 화면은 mew의 라이트·다크 테마를 따른다.
+
 - 일반 셸 탭 생성·재연결·입력·세션 종료와 터미널 명령 버튼을 제공한다.
+- 입력 영역의 배경·입력칸·전송 버튼 디자인을 에이전트 패널과 통일한다.
 
 ### 경계와 제한
 
@@ -32,6 +35,10 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- xterm 초기 색상은 앱 토큰을 읽고, 루트 테마 변경 시 기존 터미널의 색상만 갱신한다. 라이트 모드에는 밝은 배경용 ANSI 팔레트를 사용한다. tmux 전역 설정과 내부 프로그램의 명시적인 RGB/256색 지정은 바꾸지 않는다.
+
+- 입력 바탕은 `surface-deep`, 입력칸은 `surface`로 맞추고 입력칸 테두리를 제거했다. 전송 버튼은 에이전트와 같은 강조색의 32px 위쪽 화살표 버튼이며 기존 입력 동작을 유지한다.
+
 - 모바일 보조키를 텍스트 입력칸 위로 배치하고 Home·End·Ctrl+C를 추가해 11개 키가 한 줄의 가로 폭을 채우도록 했다.
 - 보조키 바 높이는 버튼·여백·테두리에 맞춰 늘어나 세로 스크롤과 버튼 잘림을 방지한다.
 - 기존 초안·포커스·키보드 잠금·방향키 이력 탐색을 유지한다.
@@ -43,6 +50,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 라이트 모드에서 처음 연 터미널·선택 모드가 밝게 표시되고, 라이트↔다크 전환 시 세션·입력·스크롤백을 유지하며 즉시 색상이 바뀌는지 확인한다.
 
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 연결을 다시 열어도 셸이 유지되고 명령 버튼이 현재 탭에만 입력되는지 확인한다.
