@@ -16,6 +16,21 @@ import './shared-memo.css'
 // Table widths already travel in the shared CRDT; no project-relative layout file.
 const memoApi = { ...editorApi, fetchTableLayout: undefined, saveTableLayout: undefined }
 
+const resizeHandles = [
+  ['n', '메모 위쪽 크기 조절'], ['s', '메모 아래쪽 크기 조절'],
+  ['w', '메모 왼쪽 크기 조절'], ['e', '메모 오른쪽 크기 조절'],
+  ['nw', '메모 왼쪽 위 크기 조절'], ['ne', '메모 오른쪽 위 크기 조절'],
+  ['sw', '메모 왼쪽 아래 크기 조절'], ['se', '메모 오른쪽 아래 크기 조절'],
+] as const
+type ResizeDirection = typeof resizeHandles[number][0]
+
+function viewportBounds() {
+  const viewport = window.visualViewport
+  const left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8
+  const width = viewport?.width ?? window.innerWidth, height = viewport?.height ?? window.innerHeight
+  return { left, top, right: left + width - 16, bottom: top + height - 32 }
+}
+
 export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focusSignal = 0 }: {
   authEmail: string
   open?: boolean
@@ -30,9 +45,11 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
   const [value, setValue] = useState('')
   const [colors, setColors] = useState<string[]>([])
   const [position, setPosition] = useState({ x: 24, y: 80 })
+  const [size, setSize] = useState({ width: 560, height: 420 })
   const root = useRef<HTMLDivElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
   const drag = useRef<{ id: number; x: number; y: number; left: number; top: number } | null>(null)
+  const resize = useRef<{ id: number; x: number; y: number; rect: DOMRect; direction: ResizeDirection } | null>(null)
   // Keep unsent edits and undo state when the popup closes; hidden clients publish no presence.
   const collab = useCollab(SHARED_MEMO_PROJECT, activated ? SHARED_MEMO_PATH : null, authEmail)
   const focusEditor = useCallback(() => {
@@ -96,15 +113,26 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
   }, [collab?.awareness, collab?.connected, open, authEmail])
 
   const clamp = useCallback((x: number, y: number) => {
-    const viewport = window.visualViewport
-    const left = (viewport?.offsetLeft ?? 0) + 8, top = (viewport?.offsetTop ?? 0) + 8
-    const width = viewport?.width ?? window.innerWidth, height = viewport?.height ?? window.innerHeight
+    const { left, top, right, bottom } = viewportBounds()
     const rect = root.current?.getBoundingClientRect()
-    return { x: Math.max(left, Math.min(x, left + width - (rect?.width ?? 0) - 16)), y: Math.max(top, Math.min(y, top + height - (rect?.height ?? 0) - 16)) }
+    return { x: Math.max(left, Math.min(x, right - (rect?.width ?? 0))), y: Math.max(top, Math.min(y, bottom - (rect?.height ?? 0))) }
   }, [])
+  const resizeMemo = (rect: DOMRect, direction: ResizeDirection, dx: number, dy: number) => {
+    const bounds = viewportBounds()
+    const minWidth = Math.min(280, bounds.right - bounds.left)
+    const minHeight = Math.min(180, bounds.bottom - bounds.top)
+    let { left, top, right, bottom } = rect
+    if (direction.includes('w')) left = Math.max(bounds.left, Math.min(left + dx, right - minWidth))
+    if (direction.includes('e')) right = Math.min(bounds.right, Math.max(right + dx, left + minWidth))
+    if (direction.includes('n')) top = Math.max(bounds.top, Math.min(top + dy, bottom - minHeight))
+    if (direction.includes('s')) bottom = Math.min(bounds.bottom, Math.max(bottom + dy, top + minHeight))
+    setPosition({ x: left, y: top })
+    setSize({ width: right - left, height: bottom - top })
+  }
   useLayoutEffect(() => {
     if (!open || !root.current) return
     const fit = () => {
+      root.current?.style.setProperty('--memo-viewport-width', `${window.visualViewport?.width ?? window.innerWidth}px`)
       root.current?.style.setProperty('--memo-viewport-height', `${window.visualViewport?.height ?? window.innerHeight}px`)
       setPosition(current => clamp(current.x, current.y))
     }
@@ -126,7 +154,7 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
   return createPortal(
     <div ref={root} role="dialog" data-workspace-panel="memo" aria-label={uiText('메모')} tabIndex={-1} hidden={!open}
       className="shared-memo fixed z-40 flex flex-col overflow-hidden rounded-xl bg-surface-deep text-ink shadow-xl"
-      style={{ left: position.x, top: position.y }}>
+      style={{ left: position.x, top: position.y, width: size.width, height: size.height }}>
       <div className="flex shrink-0 items-center gap-1 bg-surface px-2">
         <div role="button" tabIndex={0} aria-label={uiText('메모 위치 이동')}
           className="flex min-h-10 min-w-0 flex-1 cursor-move touch-none items-center gap-1 px-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
@@ -159,6 +187,31 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
       <div className="min-h-0 flex-1">
         {collab && <Editor value={value} onChange={setValue} api={memoApi} collab={collab} readOnly={!collab.connected} />}
       </div>
+      {resizeHandles.map(([direction, label]) => (
+        <div key={direction} role="button" tabIndex={0} aria-label={uiText(label)}
+          className="shared-memo-resize" data-resize={direction}
+          onPointerDown={event => {
+            if (event.button !== 0 || !event.isPrimary || !root.current) return
+            event.preventDefault()
+            event.stopPropagation()
+            event.currentTarget.focus({ preventScroll: true })
+            event.currentTarget.setPointerCapture(event.pointerId)
+            resize.current = { id: event.pointerId, x: event.clientX, y: event.clientY, rect: root.current.getBoundingClientRect(), direction }
+          }}
+          onPointerMove={event => {
+            const start = resize.current
+            if (start?.id === event.pointerId) resizeMemo(start.rect, start.direction, event.clientX - start.x, event.clientY - start.y)
+          }}
+          onPointerUp={event => { resize.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+          onPointerCancel={() => { resize.current = null }} onLostPointerCapture={() => { resize.current = null }}
+          onKeyDown={event => {
+            if (!event.key.startsWith('Arrow') || !root.current) return
+            event.preventDefault(); event.stopPropagation()
+            resizeMemo(root.current.getBoundingClientRect(), direction,
+              event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0,
+              event.key === 'ArrowDown' ? 16 : event.key === 'ArrowUp' ? -16 : 0)
+          }} />
+      ))}
     </div>, document.body,
   )
 }

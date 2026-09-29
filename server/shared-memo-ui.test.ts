@@ -91,12 +91,64 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await one.mouse.move(handleBox.x + 70, handleBox.y + 15); await one.mouse.down(); await one.mouse.move(handleBox.x + 240, handleBox.y + 90); await one.mouse.up()
     const after = (await memo.boundingBox())!
     assert.ok(after.x > before.x + 100 && after.y > before.y + 50)
+    const dragResize = async (direction: string, dx: number, dy: number) => {
+      const box = (await memo.locator(`[data-resize="${direction}"]`).boundingBox())!
+      await one.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await one.mouse.down()
+      await one.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 3 })
+      await one.mouse.up()
+      return (await memo.boundingBox())!
+    }
+    for (const direction of ['n', 's', 'w', 'e', 'nw', 'ne', 'sw', 'se']) {
+      const start = (await memo.boundingBox())!
+      const dx = direction.includes('w') ? 24 : direction.includes('e') ? -24 : 0
+      const dy = direction.includes('n') ? 24 : direction.includes('s') ? -24 : 0
+      const smaller = await dragResize(direction, dx, dy)
+      assert.deepEqual(smaller, {
+        x: start.x + (direction.includes('w') ? 24 : 0),
+        y: start.y + (direction.includes('n') ? 24 : 0),
+        width: start.width - Math.abs(dx), height: start.height - Math.abs(dy),
+      }, `${direction}: resizing keeps the opposite edges fixed`)
+      assert.deepEqual(await dragResize(direction, -dx, -dy), start, `${direction}: expands again`)
+    }
+    const limited = await dragResize('se', 1500, 1500)
+    assert.equal(limited.x, after.x)
+    assert.equal(limited.y, after.y)
+    assert.equal(limited.x + limited.width, 1092)
+    assert.equal(limited.y + limited.height, 776)
+    const minimum = await dragResize('nw', 1500, 1500)
+    assert.equal(minimum.width, 280)
+    assert.equal(minimum.height, 180)
+    assert.equal(minimum.x + minimum.width, 1092)
+    assert.equal(minimum.y + minimum.height, 776)
+    await memo.locator('[data-resize=nw]').focus()
+    await one.keyboard.press('ArrowLeft'); await one.keyboard.press('ArrowUp')
+    const keyboardSize = (await memo.boundingBox())!
+    assert.equal(keyboardSize.width, 296)
+    assert.equal(keyboardSize.height, 196)
+    await one.keyboard.press('Escape')
+    await memo.waitFor({ state: 'hidden' })
+    await one.keyboard.press('Control+m')
+    await memo.waitFor()
+    assert.deepEqual(await memo.boundingBox(), keyboardSize, 'closing preserves the resized geometry')
     await one.setViewportSize({ width: 360, height: 640 })
     await one.waitForFunction("(() => { const rect = document.querySelector('.shared-memo').getBoundingClientRect(); return rect.right <= innerWidth && rect.bottom <= innerHeight })()")
     await two.evaluate("document.documentElement.classList.remove('dark')")
     await two.getByRole('button', { name: '메모 위치 이동' }).focus(); await two.keyboard.press('ArrowRight')
     const mobile = (await two.getByRole('dialog').boundingBox())!
     assert.ok(mobile.x >= 0 && mobile.x + mobile.width <= 390)
+    const touchHandle = (await two.locator('[data-resize=se]').boundingBox())!
+    const touch = await two.context().newCDPSession(two)
+    const touchX = touchHandle.x + touchHandle.width / 2, touchY = touchHandle.y + touchHandle.height / 2
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: touchX, y: touchY }] })
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: touchX - 32, y: touchY - 40 }] })
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await touch.detach()
+    const touchSize = (await two.getByRole('dialog').boundingBox())!
+    assert.equal(touchSize.width, mobile.width - 32)
+    assert.equal(touchSize.height, mobile.height - 40)
+    assert.equal(touchSize.x, mobile.x)
+    assert.equal(touchSize.y, mobile.y)
     if (process.env.MEW_MEMO_SCREENSHOT_DIR) {
       await fs.mkdir(process.env.MEW_MEMO_SCREENSHOT_DIR, { recursive: true })
       await two.screenshot({ path: path.join(process.env.MEW_MEMO_SCREENSHOT_DIR, 'memo-mobile-light.png') })
