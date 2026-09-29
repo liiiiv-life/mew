@@ -1,3 +1,4 @@
+import type { AgentAttachmentRef } from '../../shared/agent-attachment.ts'
 import { uiText, getUiLocale } from '@mew/ui/i18n-core'
 // 에이전트 창이 받은 이벤트 흐름을 화면 항목으로 접는다. 그리는 쪽은 components/AgentPanel.tsx.
 // 서버는 상태를 보내지 않고 이벤트만 보낸다 — 재접속하면 지나간 이벤트를 그대로 되받으므로
@@ -14,7 +15,7 @@ export type ModelState = { currentModelId: string; availableModels: ModelInfo[] 
 export type ModeInfo = { id: string; name: string; description?: string | null }
 export type ModeState = { currentModeId: string; availableModes: ModeInfo[] }
 export type ThinkingState = { configId: string; currentValue: string; options: ModeInfo[] }
-export type AgentMessageSettings = { model: string; thinking: string; permission: string }
+export type AgentMessageSettings = { model: string; thinking: string; permission: string; modelId?: string; thinkingId?: string; thinkingConfigId?: string; modeId?: string }
 
 export type Usage = {
   input: number
@@ -35,6 +36,8 @@ export type SessionMeta = {
   busy: boolean
   queued: string[]
   queuedKinds?: ('prompt' | 'clear' | 'cli')[]
+  queuedAttachments?: AgentAttachmentRef[][]
+  queuedSettings?: (AgentMessageSettings | null)[]
   activeTask?: 'cli' | null
   accessIssue?: AccessIssue | null
   memoryPaused?: boolean

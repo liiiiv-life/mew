@@ -1,3 +1,7 @@
+import { PanelTitle } from './panel-title'
+import type { AgentAttachmentInput } from '../../shared/agent-attachment'
+import { panelModelState, splitCodexModelId } from '../../shared/codex-models'
+import { WORKSPACE_PROJECT } from '../utils/active-project'
 import { uiText, getUiLocale } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { createAgentNoticeTracker } from '../utils/mewcat-notification-rules'
@@ -327,6 +331,8 @@ function hasSelection(): boolean {
 }
 
 type AgentAttachment = {
+  project: string
+  mimeType: string
   /** 서버가 충돌을 피해 결정한 실제 경로 — 프롬프트에는 이 값만 보낸다. */
   relPath: string
   /** 태그에는 경로·파일명 대신 확장자만 보여 준다. */
@@ -335,6 +341,42 @@ type AgentAttachment = {
   isImage: boolean
   /** Codex가 볼 수 있는 사진은 파일 경로와 함께 바이트도 ACP로 보낸다. */
   image?: { data: string; mimeType: string }
+}
+
+type QueuedEdit = { index: number; text: string; original: string; attachments: AgentAttachment[]; settings: AgentMessageSettings }
+
+function queuedAttachmentInput(file: AgentAttachment): AgentAttachmentInput {
+  return { project: file.project, path: file.relPath, mimeType: file.mimeType, image: file.image }
+}
+
+function AgentAttachmentList({ attachments, attaching, onPreview, onRemove }: {
+  attachments: AgentAttachment[]
+  attaching: boolean
+  onPreview: (file: AgentAttachment) => void
+  onRemove: (file: AgentAttachment) => void
+}) {
+  if (!attachments.length && !attaching) return null
+  return (
+    <div className="flex h-6 shrink-0 items-center gap-1 overflow-x-auto" aria-label={uiText("첨부 파일 {p0}개", { p0: attachments.length })}>
+      {attaching && <span className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-surface-raised pl-2 pr-1.5 text-xs text-ink-muted" role="status">
+        <span className="h-3 w-3 animate-spin rounded-full border-2 border-ink-muted/30 border-t-accent" aria-hidden="true" />
+        {uiText("첨부 중…")}
+      </span>}
+      {attachments.map(attachment => (
+        <span key={`${attachment.project}:${attachment.relPath}`} title={attachment.relPath.split('/').pop()} className="flex h-6 shrink-0 items-center gap-0.5 rounded-md bg-surface-raised p-1 text-xs text-ink-secondary">
+          {attachment.isImage ? <button type="button" onClick={() => onPreview(attachment)}
+            className="min-w-0 truncate rounded px-0.5 text-left hover:text-ink hover:underline" title={uiText("사진 미리보기")}>
+            {attachment.extension}
+          </button> : <span className="min-w-0 flex-1 truncate">{attachment.extension}</span>}
+          <button type="button" onClick={() => onRemove(attachment)}
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
+            aria-label={uiText("{p0} 첨부 제거", { p0: attachment.extension })} title={uiText("첨부 제거")}>
+            <XGlyph small />
+          </button>
+        </span>
+      ))}
+    </div>
+  )
 }
 
 const AGENT_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
@@ -939,6 +981,7 @@ function AgentTabBar({
     <div data-dock-tab-bar ref={scopeRef} className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       {group && <DockGrip group={group} />}
       <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
+        {tabs.length === 0 && <PanelTitle kind={group?.startsWith('terminal') ? 'terminal' : 'agent'} />}
         {tabs.map((tab, i) => {
           // 새 탭 선택기가 열려 있으면 `+`가 가상 활성 탭이다. 직전 대화 탭을 함께 활성으로 보이지 않는다.
           const isActive = !pickerOpen && tab.id === activeId
@@ -1014,7 +1057,7 @@ function AgentTabBar({
             </div>
           )
         })}
-        <button
+        {tabs.length > 0 && <button
           type="button"
           onClick={onAdd}
           aria-pressed={pickerOpen}
@@ -1026,7 +1069,7 @@ function AgentTabBar({
           title={uiText("새 탭")}
         >
           <PlusGlyph />
-        </button>
+        </button>}
       </div>
       <button
         type="button"
@@ -1444,29 +1487,29 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
               const status = statuses.find((item) => item.id === runtime.id)
               const busy = installing === runtime.id || status?.installing === true
               return (
-                <div key={runtime.id} className={`flex min-h-8 flex-wrap items-center gap-2 rounded-md border border-edge bg-surface px-2 py-0.5 sm:min-h-10 sm:px-2.5 sm:py-1.5 ${runtime.id === 'tmux' ? 'mb-1' : ''}`}>
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center text-ink-secondary"><runtime.Glyph /></span>
-                  <div className="min-w-0 flex-1 truncate text-sm text-ink">{runtime.label}</div>
-                  {runtime.id !== 'tmux' && <RuntimeSettingsButton runtimeId={runtime.id} label={runtime.label} />}
-                  {status?.installed ? (
-                    <button
-                      type="button"
-                      onClick={() => onSelect(runtime.id)}
-                      className="rounded px-2.5 py-1 text-xs text-accent hover:bg-surface-raised"
-                    >
-                      {uiText("사용")}</button>
-                  ) : (
+                <div key={runtime.id} className="relative isolate flex min-h-8 flex-wrap items-center gap-2 rounded-md border border-edge bg-surface px-2 py-0.5 sm:min-h-10 sm:px-2.5 sm:py-1.5">
+                  <button
+                    type="button"
+                    aria-label={runtime.label}
+                    disabled={!status?.installed || busy}
+                    onClick={() => onSelect(runtime.id)}
+                    className="absolute inset-0 rounded-md enabled:hover:bg-surface-raised focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+                  />
+                  <span className="pointer-events-none relative flex h-6 w-6 shrink-0 items-center justify-center text-ink-secondary"><runtime.Glyph /></span>
+                  <div className="pointer-events-none relative min-w-0 flex-1 truncate text-sm text-ink">{runtime.label}</div>
+                  {!status?.installed && (
                     <button
                       type="button"
                       onClick={() => install(runtime.id)}
                       disabled={!status?.installable || busy}
-                      className="rounded px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
+                      className="relative rounded px-2.5 py-1 text-xs text-ink-secondary hover:bg-surface-raised hover:text-ink disabled:opacity-40"
                     >
                       {busy ? uiText("설치 중…") : uiText("설치")}
                     </button>
                   )}
+                  <div className="relative shrink-0"><RuntimeSettingsButton runtimeId={runtime.id} label={runtime.label} /></div>
                   {error?.id === runtime.id && (
-                    <div className="select-text max-h-24 w-full basis-full overflow-auto whitespace-pre-wrap text-xs text-danger">{error.message}</div>
+                    <div className="relative select-text max-h-24 w-full basis-full overflow-auto whitespace-pre-wrap text-xs text-danger">{error.message}</div>
                   )}
                 </div>
               )
@@ -2711,11 +2754,13 @@ function AgentSessionView({
   const usage = meta?.usage ?? null
 
   // original = 고치기 시작할 때 보고 있던 원본. 서버가 이 항목을 잠가 앞 턴이 끝나도 큐를 당기지 않는다.
-  const [editingQueued, setEditingQueued] = useState<{ index: number; text: string; original: string } | null>(null)
+  const [editingQueued, setEditingQueued] = useState<QueuedEdit | null>(null)
+  const [attachingQueued, setAttachingQueued] = useState(false)
+  const queuedEditVersionRef = useRef(0)
   // 대기 큐 재정렬 — 편집 중에는 인덱스를 그대로 지켜야 하므로 큐 전체의 드래그를 잠시 막는다.
   const queueDrag = useGridDrag({
     enabled: queued.length > 1 && editingQueued === null,
-    mouseHoldMs: 500,
+    handleOnly: true,
     onMove: (from, to) => send({ type: 'move_queued', from, to }),
   })
   const [errorDetail, setErrorDetail] = useState<{ title: string; detail: string } | null>(null)
@@ -2723,7 +2768,11 @@ function AgentSessionView({
   const [scheduled, setScheduled] = useState<AgentScheduledPrompt[]>([])
   const [editingScheduled, setEditingScheduled] = useState<{ id: string; text: string; original: string } | null>(null)
   const [rescheduling, setRescheduling] = useState<AgentScheduledPrompt | null>(null)
-  const cliModeDisabled = !allowTerminal || attaching || attachments.length > 0 || cli.submitting
+  const composerDraft = editingQueued?.text ?? draft
+  const composerAttachments = editingQueued?.attachments ?? attachments
+  const composerAttaching = editingQueued ? attachingQueued : attaching
+  const composerCliMode = !editingQueued && cliMode
+  const cliModeDisabled = !!editingQueued || !allowTerminal || attaching || attachments.length > 0 || cli.submitting
   const toggleCliMode = () => {
     if (cliModeDisabled) return
     setCliMode(value => !value)
@@ -2732,17 +2781,31 @@ function AgentSessionView({
   const startQueuedEdit = (index: number, text: string) => {
     if (editingQueued || text === '/clear' || meta?.queuedKinds?.[index] === 'cli') return
     send({ type: 'begin_edit_queued', index, expect: text })
-    setEditingQueued({ index, text, original: text })
+    queuedEditVersionRef.current++
+    setScheduleOpen(false)
+    setPreviewAttachment(null)
+    requestAnimationFrame(() => agentInputRef.current?.focus())
+    setEditingQueued({ index, text, original: text, settings: { ...messageSettings, ...meta?.queuedSettings?.[index] }, attachments: (meta?.queuedAttachments?.[index] ?? []).map(file => ({
+      project: file.project, relPath: file.path, mimeType: file.mimeType,
+      extension: attachmentExtension(file.path), isImage: file.mimeType.startsWith('image/'),
+    })) })
   }
-  const commitQueuedEdit = (edit: { index: number; text: string; original: string }) => {
+  const commitQueuedEdit = (edit: QueuedEdit) => {
     const text = edit.text.trim()
-    if (!text) return
-    send({ type: 'edit_queued', index: edit.index, text, expect: edit.original, skills: selectedSkillNames(text, skills) })
+    if ((!text && !edit.attachments.length) || attachingQueued || !connected) return
+    send({ type: 'edit_queued', index: edit.index, settings: edit.settings, text, expect: edit.original, skills: selectedSkillNames(text, skills), attachments: edit.attachments.map(queuedAttachmentInput) })
+    queuedEditVersionRef.current++
+    setPreviewAttachment(null)
     setEditingQueued(null)
+    requestAnimationFrame(() => agentInputRef.current?.focus())
   }
   const cancelQueuedEdit = (edit: { index: number; original: string }) => {
     send({ type: 'cancel_edit_queued', index: edit.index, expect: edit.original })
+    queuedEditVersionRef.current++
+    setAttachingQueued(false)
+    setPreviewAttachment(null)
     setEditingQueued(null)
+    requestAnimationFrame(() => agentInputRef.current?.focus())
   }
 
   const refreshScheduled = useCallback(async () => {
@@ -2781,6 +2844,10 @@ function AgentSessionView({
   }, [cwd, onForgetSession, runtime, send, tabId])
 
   const submit = () => {
+    if (editingQueued) {
+      commitQueuedEdit(editingQueued)
+      return
+    }
     if (cliMode) {
       if (!allowTerminal || !draft.trim() || !connected || !meta?.sessionId || loadingSession || cli.submitting || attaching || attachments.length) return
       const command = draft
@@ -2795,7 +2862,7 @@ function AgentSessionView({
       return
     }
     const written = draft.trim()
-    const refs = attachments.map((attachment) => `[[${project}:${attachment.relPath}]]`)
+    const refs = attachments.map((attachment) => `[[${attachment.project}:${attachment.relPath}]]`)
     const images = attachments.flatMap((attachment) => attachment.image ? [attachment.image] : [])
     const imageRefs = attachments.flatMap((attachment) => attachment.image
       ? [{ path: attachment.relPath, mimeType: attachment.image.mimeType }]
@@ -2824,7 +2891,7 @@ function AgentSessionView({
       onInfo(tabId, runtime, cwd, { busy: meta.busy, sessionId: meta.sessionId })
     }
     // 진행 중이어도 막지 않는다 — 서버가 줄을 세웠다가 턴이 끝나면 이어서 돈다
-    send({ type: 'prompt', text, displayText: written, images, imageRefs, skills: selectedSkillNames(text, skills), settings: messageSettings })
+    send({ type: 'prompt', text, displayText: written, images, imageRefs, attachments: attachments.map(({ image: _image, ...file }) => queuedAttachmentInput(file)), skills: selectedSkillNames(text, skills), settings: messageSettings })
     recordAgentInputHistory(tabId, written)
     historyIndexRef.current = null
     historyDraftRef.current = ''
@@ -2834,28 +2901,37 @@ function AgentSessionView({
     stickRef.current = true
   }
 
-  const attachFiles = useCallback(async (files: File[]) => {
-    if (attaching || files.length === 0) return
-    setAttaching(true)
+  const attachFiles = useCallback(async (files: File[], target: 'composer' | 'queue' = 'composer') => {
+    if ((target === 'queue' ? attachingQueued : attaching) || files.length === 0) return
+    const version = queuedEditVersionRef.current
+    if (target === 'queue') setAttachingQueued(true)
+    else setAttaching(true)
     try {
       const saved: AgentAttachment[] = []
       // 서버가 이름 충돌을 순서대로 피하므로 동시에 올리지 않는다.
       for (const file of files) {
         const named = namedAttachment(file)
         const image = await imageForAgent(named)
-        const { relPath } = await uploadInto(named, '.mew/files', project)
-        saved.push({ relPath, extension: attachmentExtension(relPath), isImage: named.type.startsWith('image/'), image })
+        // 편집 중인 파일의 docs 스코프와 무관하게 현재 루트 프로젝트에 첨부한다.
+        const { relPath } = await uploadInto(named, '.mew/assets', WORKSPACE_PROJECT)
+        saved.push({ project: WORKSPACE_PROJECT, mimeType: named.type, relPath, extension: attachmentExtension(relPath), isImage: named.type.startsWith('image/'), image })
       }
-      setAttachments((current) => [...current, ...saved])
+      if (target === 'queue') {
+        if (version === queuedEditVersionRef.current) {
+          setEditingQueued(current => current ? { ...current, attachments: [...current.attachments, ...saved] } : current)
+        }
+      } else setAttachments((current) => [...current, ...saved])
     } catch (err) {
       setErrorDetail({ title: uiText("파일 첨부 실패"), detail: err instanceof Error ? err.message : String(err) })
     } finally {
-      setAttaching(false)
+      if (target === 'queue') {
+        if (version === queuedEditVersionRef.current) setAttachingQueued(false)
+      } else setAttaching(false)
     }
-  }, [attaching, project])
+  }, [attaching, attachingQueued])
 
   const schedule = async (at: string) => {
-    const refs = attachments.map((attachment) => `[[${project}:${attachment.relPath}]]`)
+    const refs = attachments.map((attachment) => `[[${attachment.project}:${attachment.relPath}]]`)
     const message = [draft.trim(), ...refs].filter(Boolean).join('\n')
     if (!message || !meta?.sessionId) throw new Error(uiText("세션을 준비한 뒤 예약하세요"))
     await scheduleAgentPrompt({
@@ -2918,15 +2994,46 @@ function AgentSessionView({
   }), [])
 
   const currentRuntime = runtimeOf(runtime)
-  const currentModel = models?.availableModels.find((m) => m.modelId === models.currentModelId)?.name
-  const modelOptions = models?.availableModels.map((m) => ({ id: m.modelId, label: m.name })) ?? [{ id: '', label: uiText("모델") }]
+  const selectableModels = useMemo(() => panelModelState(runtime, models), [runtime, models])
+  const currentModel = selectableModels?.availableModels.find((m) => m.modelId === selectableModels.currentModelId)?.name
+  const modelOptions = selectableModels?.availableModels.map((m) => ({ id: m.modelId, label: m.name })) ?? [{ id: '', label: uiText("모델") }]
   const thinkingOptions = thinking?.options.map((option) => ({ id: option.id, label: option.name })) ?? [{ id: '', label: uiText("사고") }]
   const modeOptions = modes?.availableModes.map((mode) => ({ id: mode.id, label: MODE_LABEL[mode.id] ?? mode.name })) ?? [{ id: '', label: uiText("권한") }]
   const messageSettings = useMemo<AgentMessageSettings>(() => ({
+    modelId: models?.currentModelId,
+    thinkingId: thinking?.currentValue,
+    thinkingConfigId: thinking?.configId,
+    modeId: modes?.currentModeId,
     model: currentModel ?? models?.currentModelId ?? '—',
     thinking: thinking?.options.find((option) => option.id === thinking.currentValue)?.name ?? thinking?.currentValue ?? '—',
     permission: modes ? (MODE_LABEL[modes.currentModeId] ?? modes.currentModeId) : '—',
   }), [currentModel, models?.currentModelId, modes, thinking])
+  const editingSettings = editingQueued?.settings
+  const composerModelId = editingSettings?.modelId
+    ? runtime === 'codex' ? splitCodexModelId(editingSettings.modelId).model : editingSettings.modelId
+    : selectableModels?.currentModelId ?? ''
+  const composerThinkingId = editingSettings?.thinkingId ?? thinking?.currentValue ?? ''
+  const composerModeId = editingSettings?.modeId ?? modes?.currentModeId ?? ''
+  const queueEfforts = editingQueued && runtime === 'codex' ? [...new Set(models?.availableModels.flatMap(item => {
+    const { model, effort } = splitCodexModelId(item.modelId)
+    return model === composerModelId && effort ? [effort] : []
+  }) ?? [])] : []
+  const composerThinkingOptions = queueEfforts.length ? queueEfforts.map(id => ({ id, label: thinkingOptions.find(option => option.id === id)?.label ?? id })) : thinkingOptions
+  const editQueueModel = (modelId: string) => {
+    setEditingQueued(current => {
+      if (!current) return current
+      let thinkingId = current.settings.thinkingId
+      if (runtime === 'codex') {
+        const variants = models?.availableModels.filter(item => splitCodexModelId(item.modelId).model === modelId) ?? []
+        const selected = variants.find(item => splitCodexModelId(item.modelId).effort === thinkingId)
+          ?? variants.find(item => splitCodexModelId(item.modelId).effort === 'medium') ?? variants[0]
+        if (selected) { modelId = selected.modelId; thinkingId = splitCodexModelId(modelId).effort ?? thinkingId }
+      }
+      return { ...current, settings: { ...current.settings, modelId, thinkingId,
+        model: modelOptions.find(option => option.id === (runtime === 'codex' ? splitCodexModelId(modelId).model : modelId))?.label ?? modelId,
+        thinking: thinkingOptions.find(option => option.id === thinkingId)?.label ?? thinkingId ?? '—' } }
+    })
+  }
   const currentDefault = useMemo<AgentRuntimeDefault | null>(() => {
     const modelId = models?.currentModelId
     const modeId = modes?.currentModeId
@@ -3272,7 +3379,7 @@ function AgentSessionView({
         />
       ) : (
         <>
-      <div data-agent-conversation aria-busy={conversationLoading} className="relative flex min-h-0 flex-1 flex-col">
+      <div data-agent-conversation aria-busy={conversationLoading} className="relative isolate flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} onScroll={handleScroll} inert={conversationLoading} style={{ visibility: conversationLoading ? 'hidden' : undefined }} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
         {!conversationLoading && timeline.length === 0 && (
           <div className="flex min-h-full items-center justify-center text-center text-ink-muted">
@@ -3323,7 +3430,7 @@ function AgentSessionView({
                   </div>
                 )}
                 {item.text && (
-                  <div className="flex items-start rounded-lg bg-surface-raised">
+                  <div className="flex items-start rounded-lg rounded-tr-none bg-surface-raised">
                     <button
                       type="button"
                       onClick={() => {
@@ -3369,7 +3476,7 @@ function AgentSessionView({
                 ? Math.max(0, now - item.startedAt)
                 : null
             return (
-              <div key={item.key} className="rounded-lg border border-edge bg-surface">
+              <div key={item.key} className="rounded-lg rounded-tl-none border border-edge bg-surface">
                 <div className="flex items-start">
                   <button
                     type="button"
@@ -3520,7 +3627,7 @@ function AgentSessionView({
       {commandPopup && <AgentCommandPopup key={commandPopup.id} command={commandPopup} onClose={() => setCommandPopupId(null)} onCancel={() => send({ type: 'cancel' })} onChanged={() => { void cli.refresh().catch(() => {}) }} />}
 
       {(queued.length > 0 || scheduled.length > 0) && (
-        <div className="space-y-1 border-t border-edge bg-surface px-3 py-1.5 text-xs">
+        <div data-agent-queue className="relative z-10 shrink-0 space-y-1 border-t border-edge bg-surface px-3 py-1.5 text-xs">
           {queued.map((text, index) => {
             const kind = meta?.queuedKinds?.[index] ?? (text === '/clear' ? 'clear' : 'prompt')
             const isClearBoundary = kind === 'clear'
@@ -3528,14 +3635,13 @@ function AgentSessionView({
             const drag = queueDrag.drag
             const lifted = drag !== null && drag.slot === index
             const editing = editingQueued?.index === index ? editingQueued : null
+            const queuedFiles = meta?.queuedAttachments?.[index] ?? []
             return (
               <div
                 key={`${index}-${text}`}
                 ref={queueDrag.registerCell(index)}
-                // 고치는 중에는 드래그를 떼어 둔다 — 글자를 끌어 고르는 동안 타일이 들려 버린다
-                {...(editing ? {} : queueDrag.getTileProps(index))}
                 style={lifted ? { transform: `translate(${drag.dx}px, ${drag.dy}px)` } : undefined}
-                className={`flex items-center gap-2 ${editing ? '' : 'select-none'} ${
+                className={`flex items-center gap-2 select-none ${editing ? 'rounded bg-surface-raised' : ''} ${
                   lifted
                     ? 'relative z-10 rounded bg-surface-raised opacity-80'
                     : drag !== null && drag.target === index
@@ -3543,60 +3649,47 @@ function AgentSessionView({
                       : ''
                 }`}
               >
-                {editing ? (
-                  <>
-                    <ResizableQueueTextarea
-                      label={uiText("대기 메시지 수정칸")}
-                      value={editing.text}
-                      onChange={(text) => setEditingQueued({ ...editing, text })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                          e.preventDefault()
-                          cancelQueuedEdit(editing)
-                          return
-                        }
-                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
-                          e.preventDefault()
-                          commitQueuedEdit(editing)
-                        }
-                      }}
-                    />
-                    <div className="flex shrink-0 flex-col gap-1">
-                      <button
-                        type="button"
-                        onPointerDown={keepFocusOnPress}
-                        onClick={() => commitQueuedEdit(editing)}
-                        disabled={!editing.text.trim()}
-                        className="rounded bg-accent px-2 py-1 text-xs font-medium text-accent-ink hover:bg-accent-strong disabled:opacity-40"
-                      >
-                        {uiText("완료")}</button>
-                      <button
-                        type="button"
-                        onPointerDown={keepFocusOnPress}
-                        onClick={() => cancelQueuedEdit(editing)}
-                        className="rounded border border-edge-strong px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink"
-                      >
-                        {uiText("취소")}</button>
-                    </div>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (queueDrag.consumeClick()) return
-                      startQueuedEdit(index, text)
-                    }}
-                    disabled={editingQueued !== null || isClearBoundary || isCliCommand}
-                    title={isClearBoundary ? uiText("새 대화 시작 지점") : isCliCommand ? uiText("대기 중인 CLI 명령") : uiText("눌러서 수정")}
-                    className={`min-w-0 flex-1 truncate text-left text-ink-secondary disabled:cursor-default ${isCliCommand ? 'font-mono' : ''}`}
-                  >
-                    {isCliCommand ? `$ ${text}` : text}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  {...queueDrag.getTileProps(index)}
+                  disabled={queued.length < 2 || editingQueued !== null}
+                  onClick={() => { queueDrag.consumeClick() }}
+                  onKeyDown={(event) => {
+                    const target = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : null
+                    if (target === null) return
+                    event.preventDefault()
+                    if (target >= 0 && target < queued.length) send({ type: 'move_queued', from: index, to: target })
+                  }}
+                  className="flex h-6 w-5 shrink-0 touch-none items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink enabled:cursor-grab active:cursor-grabbing disabled:opacity-40"
+                  aria-label={uiText("드래그해서 순서 변경")}
+                  title={uiText("드래그해서 순서 변경")}
+                >
+                  <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor" aria-hidden="true">
+                    <circle cx="4" cy="3" r="1" /><circle cx="8" cy="3" r="1" />
+                    <circle cx="4" cy="7" r="1" /><circle cx="8" cy="7" r="1" />
+                    <circle cx="4" cy="11" r="1" /><circle cx="8" cy="11" r="1" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    startQueuedEdit(index, text)
+                  }}
+                  disabled={editingQueued !== null || isClearBoundary || isCliCommand}
+                  title={isClearBoundary ? uiText("새 대화 시작 지점") : isCliCommand ? uiText("대기 중인 CLI 명령") : uiText("눌러서 수정")}
+                  className={`flex min-w-0 flex-1 items-center gap-1 text-left text-ink-secondary disabled:cursor-default ${isCliCommand ? 'font-mono' : ''}`}
+                >
+                  <span className="min-w-0 truncate">{isCliCommand ? `$ ${text}` : text}</span>
+                  <span className="flex max-w-1/2 shrink-0 gap-1 overflow-hidden">
+                    {queuedFiles.map(file => <span key={`${file.project}:${file.path}`} title={file.path.split('/').pop()}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-surface-raised p-1 text-ink-secondary">
+                      <PaperclipGlyph />{attachmentExtension(file.path)}
+                    </span>)}
+                  </span>
+                </button>
                 {!editing && <button
                   type="button"
                   onClick={() => {
-                    if (queueDrag.consumeClick()) return
                     send({ type: 'unqueue', index })
                   }}
                   disabled={editingQueued !== null}
@@ -3691,7 +3784,16 @@ function AgentSessionView({
         ref={composerRef}
         className="relative flex shrink-0 flex-col gap-0.5 border-t border-edge p-2"
         style={{ height: `${visibleInputHeight}px`, marginBottom: `${viewportMetrics.bottomInset}px` }}
+        data-agent-composer
+        data-editing-queue={editingQueued ? '' : undefined}
         data-keep-keyboard
+        onKeyDown={(event) => {
+          if (editingQueued && event.key === 'Escape' && !event.defaultPrevented && !previewAttachment && !event.nativeEvent.isComposing) {
+            event.preventDefault()
+            event.stopPropagation()
+            cancelQueuedEdit(editingQueued)
+          }
+        }}
         onKeyDownCapture={(event) => {
           if (event.target !== agentInputRef.current?.element || event.key !== 'Tab' || !event.ctrlKey
             || event.altKey || event.metaKey || event.shiftKey || event.nativeEvent.isComposing) return
@@ -3722,76 +3824,57 @@ function AgentSessionView({
         <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-visible">
           <div className="flex min-w-0 flex-1 items-center gap-1">
             <button type="button" onPointerDown={keepFocusOnPress} onClick={toggleCliMode}
-              aria-label={uiText("CLI 명령 모드")} aria-pressed={cliMode}
+              aria-label={uiText("CLI 명령 모드")} aria-pressed={composerCliMode}
               aria-keyshortcuts="Control+Tab"
-              title={!allowTerminal ? uiText("터미널 권한이 필요합니다") : attaching || attachments.length ? uiText("첨부 파일을 제거한 뒤 CLI 모드를 켜세요") : cliMode ? uiText("CLI 명령 모드 켜짐 · 입력칸에서 Ctrl+Tab으로 전환") : uiText("CLI 명령 모드 · 입력칸에서 Ctrl+Tab으로 전환")}
+              title={!allowTerminal ? uiText("터미널 권한이 필요합니다") : attaching || attachments.length ? uiText("첨부 파일을 제거한 뒤 CLI 모드를 켜세요") : composerCliMode ? uiText("CLI 명령 모드 켜짐 · 입력칸에서 Ctrl+Tab으로 전환") : uiText("CLI 명령 모드 · 입력칸에서 Ctrl+Tab으로 전환")}
               disabled={cliModeDisabled}
-              className={`flex h-7 w-8 shrink-0 items-center justify-center rounded border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-secondary disabled:opacity-40 ${cliMode ? 'border-accent bg-accent text-ink-on-accent' : 'border-transparent text-ink-secondary hover:bg-surface-raised hover:text-ink'}`}>
+              className={`flex h-7 w-8 shrink-0 items-center justify-center rounded border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-secondary disabled:opacity-40 ${composerCliMode ? 'border-accent bg-accent text-ink-on-accent' : 'border-transparent text-ink-secondary hover:bg-surface-raised hover:text-ink'}`}>
               <TerminalIcon width={16} height={16} aria-hidden="true" />
             </button>
-            <HeaderSelect className="flex-1" caretEnd value={models?.currentModelId ?? ''} options={modelOptions} onPick={(modelId) => send({ type: 'set_model', modelId })} title={uiText("모델")} searchable disabled={!models || models.availableModels.length < 2} />
-            <HeaderSelect value={thinking?.currentValue ?? ''} options={thinkingOptions} onPick={(value) => { if (thinking) send({ type: 'set_thinking', configId: thinking.configId, value }) }} title={uiText("사고")} disabled={!thinking || thinking.options.length < 2} />
-            <HeaderSelect value={modes?.currentModeId ?? ''} options={modeOptions} onPick={(modeId) => send({ type: 'set_mode', modeId })} title={uiText("권한")} disabled={!modes || modes.availableModes.length < 2} />
+            <HeaderSelect className="flex-1" caretEnd value={composerModelId} options={modelOptions} onPick={(modelId) => editingQueued ? editQueueModel(modelId) : send({ type: 'set_model', modelId })} title={uiText("모델")} searchable disabled={!selectableModels || selectableModels.availableModels.length < 2} />
+            <HeaderSelect value={composerThinkingId} options={composerThinkingOptions} onPick={(value) => {
+              if (editingQueued) setEditingQueued(current => current ? { ...current, settings: { ...current.settings, thinkingId: value, thinking: composerThinkingOptions.find(option => option.id === value)?.label ?? value, ...(runtime === 'codex' ? { modelId: `${composerModelId}[${value}]` } : {}) } } : current)
+              else if (thinking) send({ type: 'set_thinking', configId: thinking.configId, value })
+            }} title={uiText("사고")} disabled={!thinking || composerThinkingOptions.length < 2} />
+            <HeaderSelect value={composerModeId} options={modeOptions} onPick={(modeId) => {
+              if (editingQueued) setEditingQueued(current => current ? { ...current, settings: { ...current.settings, modeId, permission: modeOptions.find(option => option.id === modeId)?.label ?? modeId } } : current)
+              else send({ type: 'set_mode', modeId })
+            }} title={uiText("권한")} disabled={!modes || modes.availableModes.length < 2} />
           </div>
         </div>
-          {(attachments.length > 0 || attaching) && (
-            <div className="flex h-6 shrink-0 items-center gap-1 overflow-x-auto" aria-label={uiText("첨부 파일 {p0}개", { p0: attachments.length })}>
-              {attaching && (
-                <span className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-surface-raised pl-2 pr-1.5 text-xs text-ink-muted" role="status">
-                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-ink-muted/30 border-t-accent" aria-hidden="true" />
-                  {uiText("첨부 중…")}</span>
-              )}
-              {attachments.map((attachment) => (
-                <span key={attachment.relPath} className="flex h-6 shrink-0 items-center gap-0.5 rounded-md bg-surface-raised pl-2 pr-0 text-xs text-ink-secondary">
-                  {attachment.isImage ? (
-                    <button
-                      type="button"
-                      onClick={() => setPreviewAttachment(attachment)}
-                      className="min-w-0 truncate rounded px-0.5 text-left hover:text-ink hover:underline"
-                      title={uiText("사진 미리보기")}
-                    >
-                      {attachment.extension}
-                    </button>
-                  ) : <span className="min-w-0 flex-1 truncate">{attachment.extension}</span>}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachments((current) => current.filter((item) => item.relPath !== attachment.relPath))
-                      setPreviewAttachment((current) => current?.relPath === attachment.relPath ? null : current)
-                    }}
-                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
-                    aria-label={uiText("{p0} 첨부 제거", { p0: attachment.extension })}
-                    title={uiText("첨부 제거")}
-                  >
-                    <XGlyph small />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
+          <AgentAttachmentList attachments={composerAttachments} attaching={composerAttaching} onPreview={setPreviewAttachment}
+            onRemove={attachment => {
+              if (editingQueued) setEditingQueued(current => current ? { ...current, attachments: current.attachments.filter(item => item !== attachment) } : current)
+              else setAttachments(current => current.filter(item => item.relPath !== attachment.relPath))
+              setPreviewAttachment(current => current?.relPath === attachment.relPath ? null : current)
+            }} />
           <MentionTextarea
             imageCapable
-            value={draft}
+            value={composerDraft}
             onChange={(next) => {
+              if (editingQueued) {
+                setEditingQueued(current => current ? { ...current, text: next } : current)
+                return
+              }
               historyIndexRef.current = null
               historyDraftRef.current = ''
               setDraft(next)
             }}
-            options={cliMode ? [] : fileMentionOptions}
-            onTriggerChange={cliMode ? undefined : setMentionTrigger}
+            options={composerCliMode ? [] : fileMentionOptions}
+            onTriggerChange={composerCliMode ? undefined : setMentionTrigger}
             maxResults={Infinity}
-            triggers={cliMode ? [] : mentionTriggers}
+            triggers={composerCliMode ? [] : mentionTriggers}
             onSubmit={submit}
             rows={2}
             placeholder={t('common.textInput')}
-            className={`block min-h-0 w-full flex-1 resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted ${cliMode ? 'font-mono ring-1 ring-inset ring-accent/40' : ''}`}
+            className={`block min-h-0 w-full flex-1 resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-muted ${composerCliMode ? 'font-mono ring-1 ring-inset ring-accent/40' : ''}`}
             style={{ height: '100%' }}
-            submitHint={cliMode ? uiText("Ctrl+Enter로 명령 실행") : uiText("Ctrl+Enter로 전송")}
+            submitHint={editingQueued ? uiText("대기 메시지 수정칸") : composerCliMode ? uiText("Ctrl+Enter로 명령 실행") : uiText("Ctrl+Enter로 전송")}
             submitShortcut="mod-enter"
-            onFilesDropped={cliMode ? undefined : (files) => { void attachFiles(files) }}
-            onImagesPasted={cliMode ? undefined : (files) => { void attachFiles(files) }}
+            onFilesDropped={composerCliMode ? undefined : (files) => { void attachFiles(files, editingQueued ? 'queue' : 'composer') }}
+            onImagesPasted={composerCliMode ? undefined : (files) => { void attachFiles(files, editingQueued ? 'queue' : 'composer') }}
             inputRef={agentInputRef}
-            onHistoryNavigate={navigateAgentHistory}
+            onHistoryNavigate={editingQueued ? undefined : navigateAgentHistory}
             onOptionSelect={(option) => {
               if (option.id.startsWith('project:')) onProjectMention(tabId, option.label)
             }}
@@ -3806,31 +3889,46 @@ function AgentSessionView({
             onChange={(event) => {
               const files = Array.from(event.target.files ?? [])
               event.target.value = ''
-              void attachFiles(files)
+              void attachFiles(files, editingQueued ? 'queue' : 'composer')
             }}
           />
-          <button type="button" onClick={saveCurrentDefault} disabled={!currentDefault || savingDefault} className={`-mt-0.5 flex h-6 w-8 shrink-0 items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${defaultIsSaved ? 'text-accent' : 'text-ink-secondary'}`} aria-label={uiText("현재 모델·추론 정도·권한을 기본값으로 저장")} title={savingDefault ? uiText("기본값 저장 중…") : defaultIsSaved ? uiText("{p0}의 저장된 기본값입니다", { p0: currentRuntime.label }) : uiText("현재 모델·추론 정도·권한을 {p0} 기본값으로 저장", { p0: currentRuntime.label })}><SaveGlyph /></button>
+          <div className="flex h-7 shrink-0 items-center justify-center">
+            <div className="flex h-5 w-8 items-center justify-center bg-transparent">
+              <button type="button" onClick={saveCurrentDefault} disabled={!!editingQueued || !currentDefault || savingDefault} className={`flex h-full w-full items-center justify-center rounded hover:bg-surface-raised hover:text-ink disabled:opacity-40 ${defaultIsSaved ? 'text-accent' : 'text-ink-secondary'}`} aria-label={uiText("현재 모델·추론 정도·권한을 기본값으로 저장")} title={savingDefault ? uiText("기본값 저장 중…") : defaultIsSaved ? uiText("{p0}의 저장된 기본값입니다", { p0: currentRuntime.label }) : uiText("현재 모델·추론 정도·권한을 {p0} 기본값으로 저장", { p0: currentRuntime.label })}><SaveGlyph /></button>
+            </div>
+          </div>
           <div className="flex flex-col gap-1.5">
-            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={cliMode || attaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label={uiText("파일 첨부")} title={uiText("파일 첨부")}><PaperclipGlyph /></button>
+            <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={composerCliMode || composerAttaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label={uiText("파일 첨부")} title={uiText("파일 첨부")}><PaperclipGlyph /></button>
+            {editingQueued ? <button
+              type="button"
+              onPointerDown={keepFocusOnPress}
+              onClick={() => cancelQueuedEdit(editingQueued)}
+              className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+              aria-label={uiText("취소")}
+              title={uiText("취소")}
+            >
+              <XGlyph small />
+            </button> : (
             <button
               type="button"
               onClick={() => setScheduleOpen(true)}
-              disabled={cliMode || !meta?.sessionId}
+              disabled={composerCliMode || !meta?.sessionId}
               className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40"
               aria-label={uiText("예약 메시지")}
               title={uiText("예약 메시지")}
             >
               <ClockGlyph />
             </button>
+            )}
             <button
               type="button"
               onClick={submit}
-              disabled={!connected || !!loadingSession || attaching || (cliMode && (cli.submitting || !meta?.sessionId || !allowTerminal)) || (!draft.trim() && attachments.length === 0)}
-              className="flex h-8 w-8 items-center justify-center rounded bg-accent text-ink disabled:opacity-40"
-              aria-label={cliMode ? uiText("명령 실행") : uiText("전송")}
-              title={cliMode ? uiText("명령 실행 (Ctrl+Enter)") : uiText("전송 (Ctrl+Enter)")}
+              disabled={!connected || !!loadingSession || composerAttaching || (composerCliMode && (cli.submitting || !meta?.sessionId || !allowTerminal)) || (!composerDraft.trim() && composerAttachments.length === 0)}
+              className="flex h-8 w-8 items-center justify-center rounded bg-accent text-ink-on-accent disabled:opacity-40"
+              aria-label={editingQueued ? uiText("저장") : composerCliMode ? uiText("명령 실행") : uiText("전송")}
+              title={editingQueued ? uiText("저장") : composerCliMode ? uiText("명령 실행 (Ctrl+Enter)") : uiText("전송 (Ctrl+Enter)")}
             >
-              <SendGlyph />
+              {editingQueued ? <SaveGlyph /> : <SendGlyph />}
             </button>
           </div>
         </div>
@@ -3838,7 +3936,7 @@ function AgentSessionView({
       </div>
       {previewAttachment && (
         <AgentImagePreviewDialog
-          src={rawUrl(previewAttachment.relPath, project)}
+          src={rawUrl(previewAttachment.relPath, previewAttachment.project)}
           name={previewAttachment.extension}
           onClose={() => setPreviewAttachment(null)}
         />

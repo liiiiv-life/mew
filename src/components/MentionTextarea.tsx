@@ -193,7 +193,7 @@ export function MentionTextarea({
 
   return (
     <div
-      className={`relative min-w-0 flex-1 ${fileDragOver ? 'rounded-lg ring-1 ring-accent' : ''}`}
+      className={`relative min-w-0 flex-1 ${imageCapable ? 'min-h-0' : ''} ${fileDragOver ? 'rounded-lg ring-1 ring-accent' : ''}`}
       onDragEnter={(event) => {
         if (!onFilesDropped || !event.dataTransfer.types.includes('Files')) return
         setFileDragOver(true)

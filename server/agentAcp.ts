@@ -1,3 +1,5 @@
+import type { AgentAttachmentInput, AgentAttachmentRef } from '../shared/agent-attachment.ts'
+import { splitCodexModelId } from '../shared/codex-models.ts'
 // ACP(Agent Client Protocol) 클라이언트 — 에이전트를 child process로 띄우고 **워크스페이스**에 묶는다.
 // 벤더 전환은 spawn 대상 교체다(런타임 등록표 RUNTIMES). 자체 어댑터 인터페이스는 두지 않는다 — ACP가 인터페이스다.
 // 결정 기준본: docs/decisions/0034-mew-agent-panel-acp-reintroduction.md,
@@ -112,6 +114,7 @@ type QueuedPrompt = {
   text: string
   /** ACP 런타임에 실제로 보낼 프롬프트 */
   promptText: string
+  attachments?: AgentAttachmentInput[]
   images: AgentImage[]
   imageRefs: AgentImageRef[]
   settings?: AgentMessageSettings
@@ -121,7 +124,7 @@ type AgentImage = { data: string; mimeType: string }
 /** 대화 전사에는 바이트 대신 프로젝트 안의 업로드 경로만 남긴다. */
 export type AgentImageRef = { path: string; mimeType: string }
 /** 사용자가 전송을 누른 순간의 실행 설정. 대화 전사에 남겨 각 질문의 조건을 재현한다. */
-export type AgentMessageSettings = { model: string; thinking: string; permission: string }
+export type AgentMessageSettings = { model: string; thinking: string; permission: string; modelId?: string; thinkingId?: string; thinkingConfigId?: string; modeId?: string }
 
 /** 큐 안의 세션 경계. 뒤의 프롬프트는 새 ACP 세션에 전달한다. */
 type QueuedClear = { kind: 'clear'; text: '/clear' }
@@ -148,6 +151,8 @@ export type SessionMeta = {
   /** 진행 중인 턴이 끝나면 순서대로 실행될 대기 메시지 */
   queued: string[]
   queuedKinds?: ('prompt' | 'clear' | 'cli')[]
+  queuedAttachments?: AgentAttachmentRef[][]
+  queuedSettings?: (AgentMessageSettings | null)[]
   activeTask?: 'cli' | null
   accessIssue?: AccessIssue | null
   memoryPaused?: boolean
@@ -358,6 +363,7 @@ export class AgentSession {
   #models: SessionModelState | null = null
   #modes: SessionModeState | null = null
   #thinking: ThinkingState | null = null
+  #promptSettingsActive = false
   #caps: AgentCapabilities = {}
   #authMethods: AuthMethodInternal[] = []
   #authRequired = false
@@ -680,6 +686,9 @@ export class AgentSession {
   #client(): Client {
     return {
       sessionUpdate: async (params: SessionNotification) => {
+        // Per-message execution overrides must not replace the settings for the next draft.
+        if (this.#promptSettingsActive && (params.update.sessionUpdate === 'current_mode_update'
+          || params.update.sessionUpdate === 'config_option_update')) return
         // 에이전트가 스스로 모드를 바꾸기도 한다(계획 모드 종료 등) — 창의 선택기가 따라가야 한다
         if (params.update.sessionUpdate === 'current_mode_update' && this.#modes) {
           this.#modes = { ...this.#modes, currentModeId: params.update.currentModeId }
@@ -688,7 +697,9 @@ export class AgentSession {
         if (params.update.sessionUpdate === 'config_option_update') {
           const update = params.update as any
           const thinking = this.#thinking
-          if (typeof update.configId === 'string' && typeof update.value === 'string' && thinking?.configId === update.configId) {
+          if (Array.isArray(update.configOptions)) {
+            this.#useConfigOptions(update.configOptions)
+          } else if (typeof update.configId === 'string' && typeof update.value === 'string' && thinking?.configId === update.configId) {
             this.#useThinking({ ...thinking, currentValue: update.value } as ThinkingState)
           }
         }
@@ -862,13 +873,17 @@ export class AgentSession {
   }
 
   /** 진행 중인 턴이 있으면 줄을 세운다 — 끝나는 대로 순서대로 이어 돈다 */
-  prompt(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings, automatic = false) {
+  prompt(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings, automatic = false, attachments?: AgentAttachmentInput[]) {
     if (this.#authRequired || !this.#sessionId) throw new Error('먼저 에이전트에 로그인하세요')
+    settings = { ...this.#currentMessageSettings(), ...settings }
+    attachments = attachments?.map(file => ({
+      ...file, image: images[imageRefs.findIndex(ref => ref.path === file.path)],
+    }))
     if (automatic) {
       const pressure = this.#memoryProblem()
       if (pressure) this.#pauseForMemory(pressure)
       if (this.#memoryPaused) {
-        this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings })
+        this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings, attachments })
         if (this.#idleTimer) { clearTimeout(this.#idleTimer); this.#idleTimer = null }
         this.#broadcast(this.#metaEvent())
         return
@@ -879,7 +894,7 @@ export class AgentSession {
     const resume = memoryResumed || !this.busy && this.#accessIssue !== null
     if (resume) this.#accessIssue = null
     if (this.busy || this.#queue.length > 0 || this.#clearFailed) {
-      this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings })
+      this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings, attachments })
       this.#broadcast(this.#metaEvent())
       if (resume) this.#drainQueue()
       return
@@ -978,7 +993,7 @@ export class AgentSession {
   }
 
   /** 대기 중인 메시지의 내용을 저장하고 편집 잠금을 푼다. */
-  editQueued(index: number, text: string, expect: string, promptText = text, owner = 'local') {
+  editQueued(index: number, text: string, expect: string, promptText = text, owner = 'local', attachments?: AgentAttachmentInput[], settings?: AgentMessageSettings) {
     if (!Number.isInteger(index)) return
     // 다른 창의 조작으로 자리가 바뀌어도 이 연결이 잠근 원문만 찾는다.
     const actualIndex = this.#queue[index]?.text === expect
@@ -988,10 +1003,20 @@ export class AgentSession {
     if (actualIndex < 0) return
     const item = this.#queue[actualIndex]
     const next = text.trim()
-    if (!next) return
+    if (!next && !attachments?.length) return
     // `/clear`는 다른 작업으로 편집할 수 없는 세션 경계다.
     if (item.kind !== 'prompt') return
-    this.#queue[actualIndex] = { kind: 'prompt', text: next, promptText, images: item.images, imageRefs: item.imageRefs, settings: item.settings }
+    const files = attachments?.map(file => ({
+      ...file,
+      image: item.attachments?.find(saved => saved.project === file.project && saved.path === file.path)?.image ?? file.image,
+    }))
+    this.#queue[actualIndex] = {
+      kind: 'prompt', text: next, promptText, settings: settings ? { ...item.settings, ...settings } : item.settings,
+      attachments: files ?? item.attachments,
+      images: files ? files.flatMap(file => file.image ? [file.image] : []) : item.images,
+      imageRefs: files ? files.filter(file => ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.mimeType))
+        .map(file => ({ path: file.path, mimeType: file.mimeType })) : item.imageRefs,
+    }
     if (this.busy) this.#broadcast(this.#metaEvent())
     else this.#drainQueue()
   }
@@ -1032,6 +1057,24 @@ export class AgentSession {
     else this.#drainQueue()
   }
 
+  #currentMessageSettings(): AgentMessageSettings {
+    return {
+      model: this.#models?.availableModels.find(item => item.modelId === this.#models?.currentModelId)?.name ?? this.#models?.currentModelId ?? '—',
+      thinking: this.#thinking?.options.find(item => item.id === this.#thinking?.currentValue)?.name ?? this.#thinking?.currentValue ?? '—',
+      permission: this.#modes?.currentModeId ?? '—',
+      modelId: this.#models?.currentModelId,
+      thinkingId: this.#thinking?.currentValue,
+      thinkingConfigId: this.#thinking?.configId,
+      modeId: this.#modes?.currentModeId,
+    }
+  }
+
+  async #applyMessageSettings(settings: AgentMessageSettings) {
+    if (settings.modelId) await this.#conn.unstable_setSessionModel({ sessionId: this.#sessionId, modelId: settings.modelId })
+    if (settings.thinkingConfigId && settings.thinkingId) await this.#conn.setSessionConfigOption({ sessionId: this.#sessionId, configId: settings.thinkingConfigId, value: settings.thinkingId })
+    if (settings.modeId) await this.#conn.setSessionMode({ sessionId: this.#sessionId, modeId: settings.modeId })
+  }
+
   #run(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings) {
     let context: string
     try { context = agentContextText(this.#context, this.cwd) }
@@ -1061,8 +1104,13 @@ export class AgentSession {
       ...(context ? [{ type: 'text' as const, text: context }] : []),
       ...images.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType })),
     ]
-    this.#conn
-      .prompt({ sessionId: this.#sessionId, prompt })
+    const currentSettings = this.#currentMessageSettings()
+    this.#promptSettingsActive = !!settings && (['modelId', 'thinkingId', 'modeId'] as const)
+      .some(key => settings[key] !== undefined && settings[key] !== currentSettings[key])
+    Promise.resolve().then(async () => {
+      if (this.#promptSettingsActive && settings) await this.#applyMessageSettings(settings)
+      return this.#conn.prompt({ sessionId: this.#sessionId, prompt })
+    })
       .then((res) => this.#emit({ type: 'turn_end', stopReason: res.stopReason, durationMs: Date.now() - turnStartedAt }))
       .catch((err: unknown) => {
         const accessIssue = accessIssueFromError(err)
@@ -1081,7 +1129,12 @@ export class AgentSession {
         this.#emit({ type: 'error', message: describeError(err) })
         this.#emit({ type: 'turn_end', stopReason: 'error', durationMs: Date.now() - turnStartedAt })
       })
-      .finally(() => {
+      .finally(async () => {
+        if (this.#promptSettingsActive) {
+          try { await this.#applyMessageSettings(this.#currentMessageSettings()) }
+          catch (error) { this.#emit({ type: 'error', message: describeError(error) }) }
+          finally { this.#promptSettingsActive = false }
+        }
         this.busy = false
         if (this.#authRequired) {
           this.#armIdleTimer()
@@ -1274,7 +1327,21 @@ export class AgentSession {
 
   async setThinking(configId: string, value: string) {
     const result = await this.#conn.setSessionConfigOption({ sessionId: this.#sessionId, configId, value })
-    this.#useThinking(thinkingFrom(result.configOptions) ?? (this.#thinking?.configId === configId ? { ...this.#thinking, currentValue: value } : null))
+    this.#useConfigOptions(result.configOptions, this.#thinking?.configId === configId ? { ...this.#thinking, currentValue: value } : null)
+  }
+
+  #useConfigOptions(configOptions: SessionConfigOption[], fallback: ThinkingState | null = null) {
+    const thinking = thinkingFrom(configOptions) ?? fallback
+    // Effort changes also change Codex's composite model ID. Keep defaults and reconnects in sync.
+    if (this.runtime === 'codex' && this.#models) {
+      const option = configOptions.find(item => item.category === 'model' && item.type === 'select')
+      const model = typeof option?.currentValue === 'string' ? option.currentValue : splitCodexModelId(this.#models.currentModelId).model
+      const modelId = thinking ? `${model}[${thinking.currentValue}]` : model
+      if (this.#models.availableModels.some(item => item.modelId === modelId)) {
+        this.#useModels({ ...this.#models, currentModelId: modelId })
+      }
+    }
+    this.#useThinking(thinking)
   }
 
   /** 모델 상태를 갈아끼운다 — 창에 흘리는 김에 런타임별 후보 목록도 같이 채운다 */
@@ -1285,6 +1352,20 @@ export class AgentSession {
       models.availableModels.map(({ modelId, name }) => ({ modelId, name })),
     )
     this.#emit({ type: 'models', models })
+    // Legacy session/set_model returns no config options. Its advertised variants still
+    // tell us the selected effort and the new model's supported choices.
+    if (this.runtime === 'codex' && this.#thinking) {
+      const selected = splitCodexModelId(models.currentModelId)
+      if (selected.effort) {
+        const options = models.availableModels.flatMap(item => {
+          const { model, effort } = splitCodexModelId(item.modelId)
+          if (model !== selected.model || !effort) return []
+          return [this.#thinking!.options.find(option => option.id === effort)
+            ?? { id: effort, name: effort.charAt(0).toUpperCase() + effort.slice(1) }]
+        })
+        this.#useThinking({ ...this.#thinking, currentValue: selected.effort, options })
+      }
+    }
   }
 
   #useThinking(thinking: ThinkingState | null) {
@@ -1384,6 +1465,9 @@ export class AgentSession {
         busy: this.busy,
         queued: this.#queue.map((item) => item.text),
         queuedKinds: this.#queue.map((item) => item.kind),
+        queuedSettings: this.#queue.map(item => item.kind === 'prompt' ? item.settings ?? null : null),
+        queuedAttachments: this.#queue.map(item => item.kind === 'prompt'
+          ? (item.attachments ?? []).map(({ project, path, mimeType }) => ({ project, path, mimeType })) : []),
         activeTask: this.#activeTask ? 'cli' : null,
         accessIssue: this.#accessIssue,
         memoryPaused: this.#memoryPaused,

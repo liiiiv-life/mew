@@ -48,11 +48,14 @@ export function useGridDrag({
   enabled,
   onMove,
   mouseHoldMs,
+  handleOnly = false,
 }: {
   enabled: boolean
   onMove: (from: number, to: number) => void
   /** 마우스도 이 시간(ms)만큼 눌러야 드래그가 시작된다 — 없으면 마우스는 슬롭만 넘기면 바로 */
   mouseHoldMs?: number
+  /** 전용 핸들은 터치도 길게 누르지 않고 바로 끈다. 핸들에 touch-action: none을 적용한다. */
+  handleOnly?: boolean
 }) {
   const [drag, setDrag] = useState<GridDrag | null>(null)
   const cellsRef = useRef(new Map<number, HTMLElement>())
@@ -81,6 +84,7 @@ export function useGridDrag({
   /** 손끝이 올라가 있는 칸 — 격자 밖이면 null */
   function cellAt(x: number, y: number): number | null {
     for (const [slot, el] of cellsRef.current) {
+      if (slot === stateRef.current?.slot) continue
       const r = el.getBoundingClientRect()
       if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return slot
     }
@@ -99,7 +103,7 @@ export function useGridDrag({
       phase: 'pending',
     }
     stateRef.current = state
-    if (!state.isTouch && mouseHoldMs == null) {
+    if (handleOnly || (!state.isTouch && mouseHoldMs == null)) {
       // 마우스는 누르는 즉시 포인터를 잡는다 — 빠르게 끌면 첫 pointermove가 타일 밖에서 일어나
       // 타일의 핸들러가 아예 호출되지 않고, 드래그가 시작되지 않는다
       capture(state)
@@ -125,7 +129,7 @@ export function useGridDrag({
     const dist = Math.hypot(dx, dy)
 
     if (state.phase === 'pending') {
-      if (state.isTouch || mouseHoldMs != null) {
+      if (!handleOnly && (state.isTouch || mouseHoldMs != null)) {
         if (dist > TOUCH_SLOP_PX) cleanup() // 길게누르기 전에 움직임 — 스크롤·클릭에 양보
         return
       }
@@ -169,7 +173,7 @@ export function useGridDrag({
       onPointerDown: (e) => onPointerDown(slot, e),
       onPointerMove,
       onPointerUp: onPointerEnd,
-      onPointerCancel: onPointerEnd,
+      onPointerCancel: () => cleanup(),
     }
   }
 

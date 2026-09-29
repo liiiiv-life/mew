@@ -37,6 +37,64 @@ test('Codex 기본 OAuth는 서버 브라우저 표면을 공개한다', () => {
 
 const sdkUrl = import.meta.resolve('@agentclientprotocol/sdk')
 
+test('Codex model and effort controls stay synchronized across model changes, config updates and failures', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-effort-'))
+  const stub = path.join(dir, 'adapter.mjs')
+  fs.writeFileSync(stub, `
+import {AgentSideConnection,ndJsonStream,PROTOCOL_VERSION,RequestError} from ${JSON.stringify(sdkUrl)};
+import {Readable,Writable} from 'node:stream';
+const supported={astra:['low','medium','high'],other:['low','medium'],single:['high']};
+let model='astra', effort='high';
+const config=()=>[
+ {id:'model',name:'Model',category:'model',type:'select',currentValue:model,options:Object.keys(supported).map(value=>({value,name:value}))},
+ {id:'reasoning_effort',name:'Reasoning effort',category:'thought_level',type:'select',currentValue:effort,options:supported[model].map(value=>({value,name:value.toUpperCase()}))}
+];
+new AgentSideConnection(conn=>({
+ initialize:async()=>({protocolVersion:PROTOCOL_VERSION,agentCapabilities:{}}),
+ newSession:async()=>({sessionId:'effort-test',models:{currentModelId:'astra[high]',availableModels:Object.entries(supported).flatMap(([model,efforts])=>efforts.map(effort=>({modelId:model+'['+effort+']',name:model+' ('+effort+')'})))},configOptions:config()}),
+ unstable_setSessionModel:async({modelId})=>{
+   const match=/^(.*)\\[([^\\]]+)\\]$/.exec(modelId);
+   if(!match || !supported[match[1]]?.includes(match[2])) throw RequestError.invalidParams();
+   model=match[1];effort=match[2];return {};
+ },
+ setSessionConfigOption:async({value})=>{
+   if(!supported[model].includes(value)) throw RequestError.invalidParams();
+   effort=value;return {configOptions:config()};
+ },
+ prompt:async({sessionId})=>{
+   model='single';effort='high';
+   await conn.sessionUpdate({sessionId,update:{sessionUpdate:'config_option_update',configOptions:config()}});
+   return {stopReason:'end_turn'};
+ },cancel:async()=>{}
+}),ndJsonStream(Writable.toWeb(process.stdout),Readable.toWeb(process.stdin)));
+`)
+  const session = await AgentSession.start('codex', { cmd: process.execPath, args: [stub] }, workspace)
+  t.after(async () => { await session.disposeAndWait(); fs.rmSync(dir, { recursive: true, force: true }) })
+  const thinking = () => session.snapshot().findLast(event => event.type === 'thinking')?.thinking
+  await session.setModel('other')
+  assert.equal(session.models?.currentModelId, 'other[medium]')
+  assert.equal(thinking()?.currentValue, 'medium')
+  assert.deepEqual(thinking()?.options.map(option => option.id), ['low', 'medium'])
+  await session.setThinking('reasoning_effort', 'low')
+  assert.equal(session.models?.currentModelId, 'other[low]')
+  assert.equal(thinking()?.currentValue, 'low')
+  await assert.rejects(session.setThinking('reasoning_effort', 'high'))
+  assert.equal(session.models?.currentModelId, 'other[low]')
+  assert.equal(thinking()?.currentValue, 'low')
+  await session.setModel('astra')
+  assert.equal(session.models?.currentModelId, 'astra[low]')
+  assert.deepEqual(thinking()?.options.map(option => option.id), ['low', 'medium', 'high'])
+  await session.setModel('astra[high]')
+  assert.equal(thinking()?.currentValue, 'high', 'saved composite defaults also update effort')
+  session.prompt('publish config update')
+  const deadline = Date.now() + 5000
+  while (session.models?.currentModelId !== 'single[high]') {
+    assert.ok(Date.now() < deadline, 'config update arrives')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.deepEqual(thinking()?.options, [{ id: 'high', name: 'HIGH', description: null }])
+})
+
 test('legacy Codex preset model IDs resolve to advertised effort variants without changing explicit selections', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-model-id-'))
   const stub = path.join(dir, 'adapter.mjs')

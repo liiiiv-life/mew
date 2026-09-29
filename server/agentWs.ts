@@ -1,3 +1,4 @@
+import { attachmentPrompt, type AgentAttachmentInput } from '../shared/agent-attachment.ts'
 import { watchSocketAccess } from './access-socket.ts'
 // 에이전트 창 WS 릴레이 — ACP 세션의 이벤트를 브라우저로 흘리고, 브라우저의 프롬프트·취소·승인을 되돌려 준다.
 //
@@ -22,7 +23,7 @@ const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 
 type ClientMessage =
-  | { type: 'prompt'; text: string; displayText?: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; skills?: string[]; settings?: AgentMessageSettings }
+  | { type: 'prompt'; text: string; displayText?: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; skills?: string[]; settings?: AgentMessageSettings; attachments?: AgentAttachmentInput[] }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'authenticate'; methodId: string; secret?: string }
@@ -36,7 +37,7 @@ type ClientMessage =
   | { type: 'begin_edit_queued'; index: number; expect: string }
   | { type: 'cancel_edit_queued'; index: number; expect: string }
   /** expect = 창이 보고 있던 원본 — 그 사이 큐가 당겨졌으면 서버가 무시한다 */
-  | { type: 'edit_queued'; index: number; text: string; expect: string; skills?: string[] }
+  | { type: 'edit_queued'; index: number; text: string; expect: string; skills?: string[]; attachments?: AgentAttachmentInput[]; settings?: AgentMessageSettings }
   /** `/clear`: 앞선 작업 뒤 새 ACP 세션을 여는 큐 경계 */
   | { type: 'clear_session' }
   | { type: 'list_sessions' }
@@ -71,12 +72,35 @@ function validImageRefs(value: unknown): AgentImageRef[] {
   )
 }
 
+function validAttachments(value: unknown, runtime: string): AgentAttachmentInput[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const files: AgentAttachmentInput[] = value.filter(file =>
+    typeof file?.project === 'string' && typeof file?.path === 'string'
+    && file.path.startsWith('.mew/files/') && typeof file?.mimeType === 'string',
+  ).map(file => ({
+    project: file.project, path: file.path, mimeType: file.mimeType,
+    image: runtime === 'codex' ? validImages([file.image])[0] : undefined,
+  }))
+  if (validImages(files.flatMap(file => file.image ? [file.image] : [])).length !== files.filter(file => file.image).length) {
+    throw new Error('첨부 사진의 전체 크기가 제한을 초과했습니다')
+  }
+  return files
+}
+
 function validSettings(value: unknown): AgentMessageSettings | undefined {
   if (!value || typeof value !== 'object') return undefined
   const { model, thinking, permission } = value as Partial<AgentMessageSettings>
   if (typeof model !== 'string' || typeof thinking !== 'string' || typeof permission !== 'string') return undefined
   if (model.length > 160 || thinking.length > 160 || permission.length > 160) return undefined
-  return { model, thinking, permission }
+  const ids: Partial<AgentMessageSettings> = {}
+  for (const key of ['modelId', 'thinkingId', 'thinkingConfigId', 'modeId'] as const) {
+    const id = (value as AgentMessageSettings)[key]
+    if (id !== undefined) {
+      if (typeof id !== 'string' || id.length > 300) return undefined
+      ids[key] = id
+    }
+  }
+  return { model, thinking, permission, ...ids }
 }
 
 type ServerMessage =
@@ -178,7 +202,8 @@ async function handleConnection(
         const imageRefs = validImageRefs(msg.imageRefs)
         // 첨부 경로는 에이전트가 읽게 하되, 대화 창에는 사용자가 쓴 프롬프트만 남긴다.
         const displayText = typeof msg.displayText === 'string' ? msg.displayText : msg.text
-        live.send({ type: 'prompt', text: displayText, promptText: promptForRuntime(runtime, cwd, prompt, msg.skills), images, imageRefs, settings: validSettings(msg.settings) })
+        const attachments = validAttachments(msg.attachments, runtime)?.map(({ project, path, mimeType }) => ({ project, path, mimeType }))
+        live.send({ type: 'prompt', text: displayText, promptText: promptForRuntime(runtime, cwd, prompt, msg.skills), images, imageRefs, settings: validSettings(msg.settings), attachments })
       }
       else if (msg.type === 'cancel') live.send({ type: 'cancel' })
       else if (msg.type === 'permission') live.send({ type: 'permission', id: msg.id, optionId: msg.optionId })
@@ -190,14 +215,18 @@ async function handleConnection(
       else if (msg.type === 'move_queued') live.send({ type: 'move_queued', from: msg.from, to: msg.to })
       else if (msg.type === 'begin_edit_queued') live.send({ type: 'begin_edit_queued', index: msg.index, expect: msg.expect })
       else if (msg.type === 'cancel_edit_queued') live.send({ type: 'cancel_edit_queued', index: msg.index, expect: msg.expect })
-      else if (msg.type === 'edit_queued')
+      else if (msg.type === 'edit_queued') {
+        const attachments = validAttachments(msg.attachments, runtime)
         live.send({
           type: 'edit_queued',
+          settings: validSettings(msg.settings),
           index: msg.index,
           text: msg.text,
           expect: msg.expect,
-          promptText: promptForRuntime(runtime, cwd, msg.text, msg.skills),
+          promptText: promptForRuntime(runtime, cwd, attachments ? attachmentPrompt(msg.text, attachments) : msg.text, msg.skills),
+          attachments,
         })
+      }
       else if (msg.type === 'clear_session') live.send({ type: 'clear_session' })
       else if (msg.type === 'set_model') live.send({ type: 'set_model', modelId: msg.modelId })
       else if (msg.type === 'set_mode') live.send({ type: 'set_mode', modeId: msg.modeId })

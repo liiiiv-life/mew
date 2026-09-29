@@ -75,7 +75,13 @@
 
 - **진행 중에 온** `prompt`**는 던지지 않고 줄을 세운다.** 턴이 끝나면 서버가 순서대로 이어 돌리고, `cancel`은 대기열도 함께 비운다. 대기 항목은 창에서 자리를 옮기고(`move_queued`) 내용도 고칠 수 있다(`edit_queued`) — 고치는 사이 앞 턴이 끝나 큐가 당겨질 수 있으므로 `expect`(창이 보고 있던 원본)가 지금 그 자리의 값과 다르면 서버가 무시한다.
 
+- 큐 첨부는 `shared/agent-attachment.ts`의 프로젝트·업로드 경로·MIME 메타데이터를 `prompt.attachments`로 전달한다. 감독의 `meta.queuedAttachments`는 `queued`와 같은 순서의 목록이며 이미지 바이트는 포함하지 않는다. `edit_queued.attachments`는 저장할 전체 첨부 목록이고 새 사진에만 바이트를 싣는다. 감독은 같은 프로젝트·경로의 기존 사진 바이트를 유지하고 제거한 사진은 ACP 이미지 블록에서도 뺀다. WS는 수정 본문과 첨부 참조를 합쳐 런타임 프롬프트를 다시 만들며, 일반 파일 참조도 보존한다. 첨부만 있는 메시지의 빈 표시 본문은 허용하되 본문·첨부가 모두 비면 저장하지 않는다. 첨부 필드가 없는 기존 호출은 기존 이미지 목록을 유지한다. 편집 잠금·취소·연결 해제 규칙은 기존 큐 계약을 따른다. `agent-queue-attachments.test.ts`는 Codex·Claude의 WS→감독→ACP 전달을, `agent-clear.test.ts`는 첨부 유지·교체·전체 제거·취소와 첨부만 있는 큐 실행을 검증한다.
+
 - 불러오기(`/resume`)는 **ACP 메서드**(`session/list`·`session/load`)다. 진행 중인 턴·승인·대기열과는 겹치지 않는다. 다른 런타임은 같은 자식 프로세스에서 세션만 갈아끼우지만, **Codex는 히스토리 전환 전에 어댑터를 재시작**해 이전 thread writer를 반납한다([ADR 0122](../../../.mew/docs/decisions/0122-mew-codex-history-load-restarts-writer.md)). 선택한 Codex 기록 불러오기가 실패하면 새 어댑터에서 바로 전 thread를 다시 불러와 현재 대화를 복구한다. 자동 복원 실패 시 `replay.restoreFailure`로 실패한 ID를 내려 원래 탭 포인터와 브라우저 전사를 보존한다. 사용자가 다른 히스토리를 고르거나 새 메시지를 보낼 때만 fallback 새 세션을 채택한다. 목록을 물어볼지는 `initialize`의 capability(`meta.canList`)로 정한다. 정확한 `/clear`는 CLI에 프롬프트로 넘기지 않는다. 작업 중이면 서버 큐의 **세션 경계**로 들어가 앞선 작업을 마친 뒤 ACP 새 세션을 열고, 그 뒤 큐에 넣은 메시지는 새 대화에서 실행한다. 이전 대화는 히스토리에만 남는다.
+
+- 프롬프트는 등록 시점의 모델·노력도·권한 표시 이름과 실제 ID(`modelId`, `thinkingId`, `thinkingConfigId`, `modeId`)를 `settings`에 스냅샷으로 보관한다. ID를 보내지 않는 기존 클라이언트는 감독의 현재 설정으로 채운다. `meta.queuedSettings`는 `queued`와 같은 인덱스의 설정을 반환하며 `/clear`·CLI 항목은 `null`이다. 큐 재정렬·첨부 수정·재접속에서도 해당 항목의 스냅샷을 유지한다.
+- `edit_queued.settings`는 WS 검증과 감독을 거쳐 본문·첨부와 함께 교체하며 필드가 없으면 기존 설정을 보존한다. 편집 취소는 설정을 변경하지 않는다. 프론트엔드는 큐 드롭다운 변경을 로컬 편집 상태로 관리해 세션의 새 메시지 설정을 건드리지 않고 저장·취소 뒤 기존 선택으로 복귀한다.
+- 큐의 설정이 현재 설정과 다르면 ACP 프롬프트 직전에 저장된 모델·노력도·권한을 적용한다. 이 임시 적용의 설정 알림은 새 메시지용 선택에 반영하지 않으며, 턴이 끝나면 최신 새 메시지용 설정을 런타임에 복원한 뒤 다음 큐를 실행한다. 설정 적용 실패는 오류로 보고하고 해당 설정으로 프롬프트를 보내지 않는다. 전사 상태버블에도 해당 큐 설정을 남긴다. 모의 Codex·Claude의 WS→감독→ACP 경로는 `agent-queue-attachments.test.ts`로 검사한다.
 
 - Prime Agent는 공식 `prime-agent --mode rpc`를 Mew 내부 어댑터가 ACP로 변환한다. 따라서 Prime ACP의 구현 유무와 무관하게 세션 목록/불러오기, 모델, thinking mode를 Mew 창에서 제공한다.
 - Codex `/clear`는 큐 경계에서 어댑터와 자식 프로세스 그룹의 종료를 기다린 뒤 새 ACP 연결을 초기화하고 `session/new`를 호출한다([ADR 0140](../../../.mew/docs/decisions/0140-mew-codex-clear-releases-writer.md)). `AgentSession`·감독·탭·대기 큐와 편집 소유권은 유지한다. 실패하면 전사와 포인터를 보존하고 큐를 멈추며 `/clear` 재시도가 성공한 뒤에만 뒤 메시지를 실행한다. 종료 중 dispose되면 새 프로세스를 만들지 않는다. 다른 런타임은 기존 연결을 재사용한다. `agent-clear.test.ts`는 연속 경계·전환 실패/재시도·초기화 프로세스 종료·탭 종료를, `agentHost.test.ts`는 히스토리 로드 전부터 이전 writer가 종료된 상태를 검증한다.

@@ -36,7 +36,7 @@ class Agent {
   }
   async cancel() {}
   async prompt({ sessionId, prompt }) {
-    log({ type: 'prompt', sessionId, text: prompt[0].text })
+    log({ type: 'prompt', sessionId, text: prompt[0].text, images: prompt.filter(block => block.type === 'image') })
     await new Promise(resolve => setTimeout(resolve, 60))
     await this.conn.sessionUpdate({ sessionId, update: {
       sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: sessionId + ':' + prompt[0].text }
@@ -206,3 +206,50 @@ test('CLI after clear runs in the new conversation and rechecks execution permis
 })
 
 test.after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+
+test('queue attachment edits preserve retained bytes, replace removed files, and keep attachment-only prompts', async t => {
+  const { session, events, calls } = await fixture(t)
+  const keep = { project: 'test', path: '.mew/files/keep.png', mimeType: 'image/png', image: { data: 'a2VlcA==', mimeType: 'image/png' } }
+  const remove = { ...keep, path: '.mew/files/remove.png', image: { data: 'cmVtb3Zl', mimeType: 'image/png' } }
+  const added = { ...keep, path: '.mew/files/added.png', image: { data: 'YWRkZWQ=', mimeType: 'image/png' } }
+  const document = { project: 'test', path: '.mew/files/notes.pdf', mimeType: 'application/pdf' }
+  session.prompt('first')
+  session.prompt('queued', 'original refs', [keep.image, remove.image], [keep, remove], undefined, false, [keep, remove, document])
+  session.beginQueuedEdit(0, 'queued')
+  await until(() => !session.busy)
+  const snapshot = events.findLast(event => event.type === 'meta')
+  assert.ok(snapshot?.type === 'meta')
+  assert.deepEqual(snapshot.meta.queuedAttachments, [[keep, remove, document].map(({ project, path, mimeType }) => ({ project, path, mimeType }))])
+  assert.equal(JSON.stringify(snapshot).includes(keep.image.data), false, 'snapshots never repeat image bytes')
+  assert.equal(calls().filter(call => call.type === 'prompt').length, 1, 'upload/edit lock holds execution')
+  const { attachmentPrompt } = await import('../shared/agent-attachment.ts')
+  const { image: _image, ...retained } = keep
+  const attachments = [retained, added, document]
+  session.editQueued(0, '', 'queued', attachmentPrompt('', attachments), 'local', attachments)
+  await until(() => !session.busy)
+  const last = calls().filter(call => call.type === 'prompt').at(-1)
+  assert.equal(last.text, '[[test:.mew/files/keep.png]]\n[[test:.mew/files/added.png]]\n[[test:.mew/files/notes.pdf]]')
+  assert.deepEqual(last.images.map((image: { data: string }) => image.data), [keep.image.data, added.image.data])
+})
+
+test('cancelling queue edits preserves attachments; saving an empty attachment list removes all images', async t => {
+  const { session, calls } = await fixture(t)
+  const file = { project: 'test', path: '.mew/files/original.png', mimeType: 'image/png', image: { data: 'b3JpZ2luYWw=', mimeType: 'image/png' } }
+  session.prompt('first')
+  session.prompt('original', 'original refs', [file.image], [file], undefined, false, [file])
+  session.beginQueuedEdit(0, 'original')
+  await until(() => !session.busy)
+  session.cancelQueuedEdit(0, 'original')
+  await until(() => !session.busy)
+  assert.equal(calls().filter(call => call.type === 'prompt').at(-1).images[0].data, file.image.data)
+  session.prompt('another')
+  session.prompt('remove', 'old refs', [file.image], [file], undefined, false, [file])
+  session.beginQueuedEdit(0, 'remove')
+  await until(() => !session.busy)
+  session.editQueued(0, 'text only', 'remove', 'text only', 'local', [])
+  await until(() => !session.busy)
+  const last = calls().filter(call => call.type === 'prompt').at(-1)
+  assert.equal(last.text, 'text only')
+  assert.deepEqual(last.images, [])
+})

@@ -6,6 +6,7 @@ import { build } from 'rolldown'
 import { compile } from '@tailwindcss/node'
 import { chromium, type Locator } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
+import type { AgentAttachmentInput } from '../shared/agent-attachment.ts'
 import type { AgentCommandRecord } from '../shared/agent-command.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -21,6 +22,7 @@ import React from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {AgentPanel} from '${root}/src/components/AgentPanel.tsx';
 import {I18nProvider} from '${root}/src/i18n.tsx';
+import {useMobileKeyboard} from '${root}/src/hooks/use-mobile-keyboard.ts';
 localStorage.setItem('mew:locale','ko'); window.agentMessages=[];
 class Socket {
   static OPEN=1; readyState=1;
@@ -31,7 +33,14 @@ class Socket {
 }
 window.WebSocket=Socket;
 const preparedTabs=location.search.includes('prepared')?fetch('/api/user-ui/agent-tabs?workspace=/workspace').then(r=>r.json()):undefined;
-createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel preparedTabs={preparedTabs} project='test' workspacePath='/workspace' tree={[{name:'README.md',path:'README.md',type:'file'}]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} /></I18nProvider>);`
+function Fixture(){
+  const keyboard=useMobileKeyboard();
+  const [project,setProject]=React.useState('test'); window.setEditorProject=setProject;
+  return <div className="mew-workspace flex h-full flex-col" data-mobile-keyboard={keyboard?'':undefined}>
+    <div className="mew-workspace-content min-h-0 flex-1"><AgentPanel preparedTabs={preparedTabs} project={project} workspacePath='/workspace' tree={[{name:'README.md',path:'README.md',type:'file'}]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} /></div>
+  </div>;
+}
+createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:cli.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'cli-fixture',
     async resolveId(id, importer) {
@@ -61,6 +70,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
       page.on('pageerror', error => errors.push(error.message))
       const records: AgentCommandRecord[] = []
       let uploads = 0
+      const uploadBodies: string[] = []
+      let holdUpload = false
+      let releaseUpload: (() => void) | undefined
       let launches = 0
       let tabReads = 0
       let documentReads = 0
@@ -73,7 +85,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
         if (pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: chunk.code })
         if (pathname === '/api/upload-into') {
           uploads++
-          return route.fulfill({ json: { relPath: `.mew/files/clipboard-${uploads}.png` } })
+          uploadBodies.push(route.request().postData() ?? '')
+          if (holdUpload) await new Promise<void>(resolve => { releaseUpload = resolve })
+          return route.fulfill({ json: { relPath: `.mew/assets/clipboard-${uploads}.png` } })
         }
         if (pathname === '/api/agent/commands') {
           if (route.request().method() === 'POST') {
@@ -117,8 +131,50 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
       const draft = page.locator('[contenteditable="true"][aria-placeholder="텍스트 입력"]')
       assert.equal(documentReads, 0, 'Documents is loaded on demand')
       assert.equal(await draft.getAttribute('contenteditable'), 'true', 'mobile keyboards receive a rich editing host')
+      const composer = page.locator('[data-keep-keyboard]')
+      const initialComposer = await composer.boundingBox()
+      if (width === 390) assert.equal(initialComposer!.y + initialComposer!.height, 844 - 48, 'composer clears the mobile dock reservation')
+      const longDraft = Array.from({ length: 80 }, (_, i) => `${i + 1}. 긴 입력 내용이 줄바꿈되어도 입력칸 안에서 모두 확인할 수 있어야 합니다.`).join('\n')
+      await draft.fill(longDraft)
+      await draft.press('Control+End')
+      await page.waitForFunction(`() => {
+        const scroller = document.querySelector('[data-keep-keyboard] .cm-scroller')
+        return scroller.scrollHeight > scroller.clientHeight && scroller.scrollTop > 0
+      }`)
+      const assertInputContained = async () => {
+        const bounds = await composer.boundingBox()
+        const scroller = await page.locator('[data-keep-keyboard] .cm-scroller').boundingBox()
+        assert.ok(bounds && scroller && scroller.y + scroller.height <= bounds.y + bounds.height, 'long input scrolls inside the composer')
+      }
+      await assertInputContained()
+      assert.deepEqual(await composer.boundingBox(), initialComposer, 'typing must not grow or move the composer')
+      if (width === 390) {
+        await page.evaluate(`(() => {
+          Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 440 })
+          window.visualViewport.dispatchEvent(new Event('resize'))
+        })()`)
+        await page.waitForFunction(`() => document.querySelector('[data-keep-keyboard]').getBoundingClientRect().bottom <= 440`)
+        await draft.press('Control+Home')
+        await draft.press('Control+End')
+        await assertInputContained()
+        if (process.env.MEW_CLI_SCREENSHOTS) {
+          await fs.mkdir(process.env.MEW_CLI_SCREENSHOTS, { recursive: true })
+          await page.screenshot({ path: path.join(process.env.MEW_CLI_SCREENSHOTS, 'composer-keyboard-overflow.png') })
+        }
+        await page.evaluate(`(() => {
+          Reflect.deleteProperty(window.visualViewport, 'height')
+          window.visualViewport.dispatchEvent(new Event('resize'))
+        })()`)
+        await page.waitForFunction(`bottom => Math.abs(document.querySelector('[data-keep-keyboard]').getBoundingClientRect().bottom - bottom) < 1`, initialComposer!.y + initialComposer!.height)
+      }
+      await draft.fill(longDraft.replaceAll('\n', ' '))
+      await draft.press('Control+End')
+      await assertInputContained()
+      assert.deepEqual(await composer.boundingBox(), initialComposer, 'wrapped text keeps the same input height')
       await draft.fill('사진 두 장')
       for (const eventType of ['paste', 'beforeinput']) {
+        await page.evaluate(`window.setEditorProject(${JSON.stringify(eventType === 'paste' ? 'docs' : '.workspace')})`)
+        await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
         const uploaded = page.waitForResponse(response => response.url().endsWith('/api/upload-into'))
         const prevented = await page.evaluate<boolean>(`(() => {
           const element = document.querySelector('[contenteditable="true"][aria-placeholder="텍스트 입력"]')
@@ -138,14 +194,162 @@ createRoot(document.getElementById('root')).render(<I18nProvider><AgentPanel pre
         await page.waitForFunction(`() => !document.querySelector('button[aria-label="전송"]')?.disabled`)
       }
       assert.equal(uploads, 2)
+      for (const body of uploadBodies) {
+        assert.match(body, /name="project"\r\n\r\n\.workspace\r\n/, 'attachments belong to the root even when editing Documents')
+        assert.match(body, /name="destDir"\r\n\r\n\.mew\/assets\r\n/)
+      }
       assert.equal(await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).count(), 2)
       assert.equal(await draft.locator('img').count(), 0, 'photos stay in attachment tags, never the text document')
       await draft.press('Control+Enter')
       const photoPrompt = await page.evaluate<{ text: string; images: unknown[] }>("window.agentMessages.find(message => message.type === 'prompt')")
       assert.match(photoPrompt.text, /사진 두 장/)
-      assert.match(photoPrompt.text, /\[\[test:\.mew\/files\/clipboard-1.png\]\]/)
+      assert.match(photoPrompt.text, /\[\[\.workspace:\.mew\/assets\/clipboard-1.png\]\]/)
       assert.equal(photoPrompt.images.length, 2)
       await page.evaluate('window.agentMessages=[]')
+      await page.evaluate("window.setEditorProject('docs')")
+
+      const files: AgentAttachmentInput[] = [
+        { project: 'test', path: '.mew/files/clipboard-1.png', mimeType: 'image/png' },
+        { project: 'test', path: '.mew/files/notes.pdf', mimeType: 'application/pdf' },
+      ]
+      const showQueue = async (text: string, attachments = files) => {
+        await page.evaluate(({ text, attachments }) => {
+          (globalThis as any).agentSocket.emit({ type: 'meta', meta: { sessionId: 'conversation', busy: true, queued: [text], queuedKinds: ['prompt'], queuedAttachments: [attachments] } })
+        }, { text, attachments })
+      }
+      await page.evaluate("window.agentMessages=[];window.agentSocket.emit({type:'meta',meta:{sessionId:'conversation',busy:true,queued:['첫 대기','둘째 대기'],queuedKinds:['prompt','prompt'],queuedAttachments:[[],[]]}})")
+      const handles = page.getByRole('button', { name: '드래그해서 순서 변경', exact: true })
+      assert.equal(await handles.count(), 2)
+      const firstHandle = await handles.first().boundingBox()
+      const secondHandle = await handles.nth(1).boundingBox()
+      assert.ok(firstHandle && secondHandle)
+      const from = { x: firstHandle.x + firstHandle.width / 2, y: firstHandle.y + firstHandle.height / 2 }
+      const to = { x: secondHandle.x + secondHandle.width / 2, y: secondHandle.y + secondHandle.height / 2 }
+      if (width === 390) {
+        const touch = await page.context().newCDPSession(page)
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] })
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [to] })
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        await touch.detach()
+      } else {
+        await page.mouse.move(from.x, from.y)
+        await page.mouse.down()
+        await page.mouse.move(to.x, to.y, { steps: 3 })
+        await page.mouse.up()
+      }
+      assert.deepEqual(await page.evaluate("window.agentMessages.filter(message => message.type === 'move_queued')"), [{ type: 'move_queued', from: 0, to: 1 }], 'handle drags immediately without holding')
+      assert.equal(await page.locator('[data-editing-queue]').count(), 0, 'drag does not start editing')
+      await handles.nth(1).press('ArrowUp')
+      assert.deepEqual(await page.evaluate("window.agentMessages.filter(message => message.type === 'move_queued').at(-1)"), { type: 'move_queued', from: 1, to: 0 })
+      await page.evaluate('window.agentMessages=[]')
+      await draft.fill('보존할 새 메시지')
+      await showQueue('첨부 확인')
+      const queueItem = page.getByRole('button', { name: '첨부 확인 png pdf', exact: true })
+      await queueItem.click()
+      const queuedInput = page.getByRole('textbox', { name: '대기 메시지 수정칸', exact: true })
+      await queuedInput.waitFor()
+      assert.equal(await composerValue(queuedInput), '첨부 확인', 'attachment paths stay out of editable text')
+      assert.equal(await page.getByRole('button', { name: '파일 첨부', exact: true }).count(), 1, 'queue edit reuses the composer attachment picker')
+      assert.equal(await page.locator('[data-agent-queue]').getByRole('textbox').count(), 0, 'queue rows do not contain inline editors')
+      assert.equal(await page.locator('[data-agent-composer]').getByRole('textbox').count(), 1)
+      assert.equal(await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).isDisabled(), true)
+      const cancelBounds = await page.getByRole('button', { name: '취소', exact: true }).boundingBox()
+      const saveBounds = await page.getByRole('button', { name: '저장', exact: true }).boundingBox()
+      assert.ok(cancelBounds && saveBounds && cancelBounds.y + cancelBounds.height <= saveBounds.y, 'cancel X is above save')
+      await page.getByRole('button', { name: 'png', exact: true }).click()
+      await page.getByRole('dialog').waitFor()
+      assert.match(await page.getByRole('dialog').locator('img').getAttribute('src') ?? '', /clipboard-1.png/)
+      await page.keyboard.press('Escape')
+      assert.equal(await queuedInput.count(), 1, 'closing preview does not cancel the edit')
+      await page.getByRole('button', { name: 'pdf 첨부 제거', exact: true }).click()
+      await queuedInput.fill('취소할 수정')
+      await page.getByRole('button', { name: '취소', exact: true }).click()
+      assert.equal(await composerValue(draft), '보존할 새 메시지', 'cancel restores the unsent composer draft')
+      await queueItem.click()
+      assert.equal(await page.getByRole('button', { name: 'pdf 첨부 제거', exact: true }).count(), 1, 'cancel restores original attachments')
+      await page.getByRole('button', { name: 'pdf 첨부 제거', exact: true }).click()
+      holdUpload = true
+      const picker = page.waitForEvent('filechooser')
+      await page.getByRole('button', { name: '파일 첨부', exact: true }).first().click()
+      await (await picker).setFiles({ name: 'added.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) })
+      await page.getByRole('status').filter({ hasText: '첨부 중…' }).waitFor()
+      assert.equal(await page.getByRole('button', { name: '저장', exact: true }).isDisabled(), true)
+      await queuedInput.press('Control+Enter')
+      assert.equal(await page.evaluate("window.agentMessages.some(message => message.type === 'edit_queued')"), false)
+      for (let attempt = 0; !releaseUpload && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 10))
+      holdUpload = false
+      releaseUpload!()
+      await page.waitForFunction(`() => document.querySelectorAll('button[aria-label="png 첨부 제거"]').length === 2`)
+      await queuedInput.fill('')
+      await page.waitForFunction(`() => !Array.from(document.querySelectorAll('[role="status"]')).some(element => element.textContent.includes('첨부 중'))`)
+      await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+      const queueBounds = await queuedInput.boundingBox()
+      assert.ok(queueBounds && queueBounds.x >= 0 && queueBounds.x + queueBounds.width <= width, 'queue editor fits the viewport')
+      if (process.env.MEW_CLI_SCREENSHOTS) {
+        await fs.mkdir(process.env.MEW_CLI_SCREENSHOTS, { recursive: true })
+        await page.screenshot({ path: path.join(process.env.MEW_CLI_SCREENSHOTS, `queue-attachments-${width}.png`) })
+      }
+      await page.getByRole('button', { name: '저장', exact: true }).click()
+      const edited = await page.evaluate<{ text: string; attachments: AgentAttachmentInput[] }>("window.agentMessages.find(message => message.type === 'edit_queued')")
+      assert.equal(edited.text, '', 'attachment-only queue items can be saved')
+      assert.equal(await composerValue(draft), '보존할 새 메시지', 'save restores the unsent composer draft')
+      assert.deepEqual(edited.attachments.map(file => file.path), ['.mew/files/clipboard-1.png', '.mew/assets/clipboard-3.png'])
+      assert.equal(edited.attachments[1].project, '.workspace')
+      assert.match(uploadBodies[2], /name="project"\r\n\r\n\.workspace\r\n/)
+      assert.match(uploadBodies[2], /name="destDir"\r\n\r\n\.mew\/assets\r\n/)
+      assert.equal(edited.attachments[0].image, undefined, 'existing bytes are retained by the supervisor')
+      assert.ok(edited.attachments[1].image?.data)
+      await showQueue('', edited.attachments)
+      await page.getByRole('button', { name: 'png png', exact: true }).click()
+      await queuedInput.waitFor()
+      await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).first().click()
+      await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).first().click()
+      assert.equal(await page.getByRole('button', { name: '저장', exact: true }).isDisabled(), true, 'empty text and attachments cannot be saved')
+      await page.getByRole('button', { name: '취소', exact: true }).click()
+      await page.getByRole('button', { name: 'png png', exact: true }).click()
+      holdUpload = true
+      releaseUpload = undefined
+      const latePicker = page.waitForEvent('filechooser')
+      await page.getByRole('button', { name: '파일 첨부', exact: true }).first().click()
+      await (await latePicker).setFiles({ name: 'late.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) })
+      for (let attempt = 0; !releaseUpload && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 10))
+      await page.getByRole('button', { name: '취소', exact: true }).click()
+      await page.getByRole('button', { name: 'png png', exact: true }).click()
+      const lateResponse = page.waitForResponse(response => response.url().includes('/api/upload-into'))
+      holdUpload = false
+      releaseUpload!()
+      await lateResponse
+      await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+      assert.equal(await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).count(), 2, 'late upload from cancelled edit cannot attach to the next edit or composer')
+      await page.getByRole('button', { name: '취소', exact: true }).click()
+      // The shared editor preserves normal drafts, attachments and CLI mode across queue edits.
+      const draftPicker = page.waitForEvent('filechooser')
+      await page.getByRole('button', { name: '파일 첨부', exact: true }).click()
+      await (await draftPicker).setFiles({ name: 'draft.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) })
+      await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).waitFor()
+      await showQueue('키보드로 수정', [])
+      await page.getByRole('button', { name: '키보드로 수정', exact: true }).click()
+      await queuedInput.waitFor()
+      await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+      assert.equal(await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).count(), 0, 'new-message attachments stay out of queue edits')
+      await queuedInput.fill('저장할 수정')
+      await queuedInput.press('Control+Enter')
+      assert.equal(await composerValue(draft), '보존할 새 메시지')
+      await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).waitFor()
+      assert.equal(await page.evaluate("window.agentMessages.filter(message => message.type === 'edit_queued').at(-1).text"), '저장할 수정')
+      await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).click()
+      await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).click()
+      await page.getByRole('button', { name: '키보드로 수정', exact: true }).click()
+      await queuedInput.waitFor()
+      await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+      assert.equal(await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).getAttribute('aria-pressed'), 'false')
+      await queuedInput.fill('취소할 수정')
+      await queuedInput.press('Escape')
+      assert.equal(await composerValue(draft), '보존할 새 메시지')
+      assert.equal(await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).getAttribute('aria-pressed'), 'true', 'cancel restores CLI mode')
+      await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).click()
+      await page.evaluate("window.agentMessages=[];window.agentSocket.emit({type:'meta',meta:{sessionId:'conversation',busy:false,queued:[],queuedKinds:[],queuedAttachments:[]}})")
+      await page.evaluate("window.setEditorProject('test')")
 
       await draft.fill('첫 줄\n둘째 줄')
       await draft.press('Home')

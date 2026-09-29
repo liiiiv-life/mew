@@ -4,6 +4,9 @@ created: 2026-09-14
 updated: 2026-09-15
 ---
 
+> 2026-09-28 후속: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)으로 RAG와 전용 모델·의존성을 제거했다. 아래 RAG 관련 구현·검토 항목은 당시 기록이며 현재 도입·배포 과제가 아니다.
+
+
 # Zed 외부 에이전트 비교와 Mew RAG 모델의 상업 이용 검토
 
 [진행 작업](MOC.md) · [전체 라이선스 검토](open-source-cloud-license-review.md) · [Electron 상세](../development/remote-desktop-distribution.md)
@@ -67,7 +70,7 @@ Google이 제작자로 등록된 독점 라이선스의 `antigravity-acp` 1.1.1�
 
 ## 4. RAG 변환 모델이 무엇인지
 
-[embeddings.ts](../../server/rag/embeddings.ts)는 문서와 검색어를 **384개 숫자의 벡터**로 바꾼다. 답변을 생성하는 채팅 모델이 아니라 관련 문서를 찾는 임베딩 모델이다. 현재 경로는 다음과 같다.
+당시 `server/rag/embeddings.ts`는 문서와 검색어를 **384개 숫자의 벡터**로 바꾼다. 답변을 생성하는 채팅 모델이 아니라 관련 문서를 찾는 임베딩 모델이다. 현재 경로는 다음과 같다.
 
 ```text
 Microsoft E5 원본: intfloat/multilingual-e5-small

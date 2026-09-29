@@ -1,3 +1,4 @@
+import type { AgentAttachmentInput } from '../shared/agent-attachment.ts'
 // 에이전트 탭의 독립 감독 프로세스와 mew 쪽 유닉스 소켓 클라이언트.
 //
 // 브라우저 WS와 ACP 프로세스의 수명을 끊는 경계다. 탭마다 이 파일을 별도 Node 프로세스로 띄우고,
@@ -38,7 +39,7 @@ const REQUEST_TIMEOUT_MS = 30_000
 const MAX_LINE_BYTES = 64 * 1024 * 1024
 
 export type AgentHostCommand =
-  | { type: 'prompt'; text: string; promptText: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; settings?: AgentMessageSettings; automatic?: boolean }
+  | { type: 'prompt'; text: string; promptText: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; settings?: AgentMessageSettings; automatic?: boolean; attachments?: AgentAttachmentInput[] }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
   | { type: 'authenticate'; methodId: string; secret?: string }
@@ -51,7 +52,7 @@ export type AgentHostCommand =
   | { type: 'move_queued'; from: number; to: number }
   | { type: 'begin_edit_queued'; index: number; expect: string }
   | { type: 'cancel_edit_queued'; index: number; expect: string }
-  | { type: 'edit_queued'; index: number; text: string; expect: string; promptText: string }
+  | { type: 'edit_queued'; index: number; text: string; expect: string; promptText: string; attachments?: AgentAttachmentInput[]; settings?: AgentMessageSettings }
   | { type: 'clear_session' }
   | { type: 'load_session'; sessionId: string }
   | { type: 'close_session' }
@@ -533,7 +534,7 @@ async function handleHostMessage(
   try {
     if (command.type === 'prompt') {
       chooseFallback()
-      session.prompt(String(command.text), String(command.promptText), command.images, command.imageRefs, command.settings, command.automatic === true)
+      session.prompt(String(command.text), String(command.promptText), command.images, command.imageRefs, command.settings, command.automatic === true, command.attachments)
     }
     else if (command.type === 'cancel') session.cancel()
     else if (command.type === 'permission') session.answerPermission(String(command.id), command.optionId ?? null)
@@ -556,7 +557,7 @@ async function handleHostMessage(
     else if (command.type === 'cancel_edit_queued')
       session.cancelQueuedEdit(Number(command.index), String(command.expect), peer.id)
     else if (command.type === 'edit_queued')
-      session.editQueued(Number(command.index), String(command.text), String(command.expect), String(command.promptText), peer.id)
+      session.editQueued(Number(command.index), String(command.text), String(command.expect), String(command.promptText), peer.id, command.attachments, command.settings)
     else if (command.type === 'clear_session') {
       chooseFallback()
       session.clearAfterQueue()
