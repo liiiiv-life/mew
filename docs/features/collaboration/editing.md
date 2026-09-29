@@ -4,7 +4,7 @@ parent: "mew-collaboration"
 title: "실시간 공동 편집"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-29"
 status_hash: "81a72649dbeb8cd93209d368fdf5395c34899f4c259ba1ccce2b9ccdbd5eb7b4"
 files: ["server/collab.ts", "src/components/EditorPane.tsx", "src/hooks/usePresence.ts"]
 commits: []
@@ -33,12 +33,14 @@ commits: []
 ## 구현 내용
 
 - 공동 편집 상태와 참여자 커서를 동기화한다.
+- 연결이나 첫 문서 응답이 멈춰도 계속 빈 화면에 머물지 않도록 제한시간 후 자동 재접속하며 미전송 편집을 보존한다. 시간·재시도 계약은 [협업 방 계약](../../development/collaboration.md#협업-방-yjs-릴레이)을 따른다.
 
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
 ## 검증
 
+- 2026-09-29: `server/collab-reconnect-ui.test.ts`에 소켓 연결·첫 동기화 정체와 이전 소켓의 늦은 응답을 재현하는 회귀 검증을 추가했다. 실제 사용자 브라우저에서 발생한 간헐적 지연과 같은 원인인지는 아직 확인하지 못했다.
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 두 로그인 세션에서 변경·커서가 전달되고 파일 전환·권한 회수 뒤 잘못된 방에 남지 않는지 확인한다.
 

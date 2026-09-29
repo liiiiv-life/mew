@@ -10,6 +10,7 @@ const MESSAGE_SYNC = 0
 const MESSAGE_AWARENESS = 1
 const RETRY_MIN_MS = 300
 const RETRY_MAX_MS = 3000
+const SYNC_TIMEOUT_MS = 10_000
 
 export interface Collab {
   ydoc: Y.Doc
@@ -39,9 +40,10 @@ export function useCollab(project: string, path: string | null, authEmail: strin
     let cancelled = false
     let ws: WebSocket | null = null
     let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let syncTimer: ReturnType<typeof setTimeout> | null = null
     // 순간 끊김(랩탑 깨어남·와이파이 전환)은 곧바로 다시 붙는 게 맞다 — 3초를 그냥 기다리면 그동안 내
     // 편집이 방에 안 올라간다. 반면 서버가 죽었거나 인증이 막힌 경우엔 300ms 재시도가 두들기는 셈이라
-    // 붙을 때까지 두 배씩 늘린다. 접속 성공하면 다시 300ms로 되돌린다.
+    // 붙을 때까지 두 배씩 늘린다. 문서 동기화까지 성공하면 다시 300ms로 되돌린다.
     let retryDelay = RETRY_MIN_MS
     // 서버에서 온 메시지를 적용할 때 이 값을 origin으로 넘겨, 되돌려 보내지 않게 걸러낸다
     const remoteOrigin = {}
@@ -79,15 +81,38 @@ export function useCollab(project: string, path: string | null, authEmail: strin
       },
     )
 
+    function clearSyncTimer() {
+      if (syncTimer !== null) clearTimeout(syncTimer)
+      syncTimer = null
+    }
+
+    function reconnect(socket: WebSocket) {
+      if (cancelled || ws !== socket) return
+      clearSyncTimer()
+      // A stalled transport may never emit close. Retire it before scheduling the retry,
+      // and ignore late events so they cannot affect the replacement connection.
+      ws = null
+      socket.onopen = socket.onmessage = socket.onclose = null
+      socket.close()
+      setConnected(false)
+      removeAwarenessStates(awareness, [...awareness.getStates().keys()].filter(id => id !== awareness.clientID), remoteOrigin)
+      retryTimer = setTimeout(connect, retryDelay)
+      retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
+    }
+
     function connect() {
       if (cancelled) return
+      retryTimer = null
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
       const roomKey = `${project}:${path}`
-      ws = new WebSocket(`${protocol}//${location.host}/api/collab?room=${encodeURIComponent(roomKey)}`)
-      ws.binaryType = 'arraybuffer'
+      const socket = new WebSocket(`${protocol}//${location.host}/api/collab?room=${encodeURIComponent(roomKey)}`)
+      ws = socket
+      socket.binaryType = 'arraybuffer'
+      // Bound both the WebSocket handshake and the first document response.
+      syncTimer = setTimeout(() => reconnect(socket), SYNC_TIMEOUT_MS)
 
-      ws.onopen = () => {
-        retryDelay = RETRY_MIN_MS
+      socket.onopen = () => {
+        if (cancelled || ws !== socket) return
         const syncEncoder = encoding.createEncoder()
         encoding.writeVarUint(syncEncoder, MESSAGE_SYNC)
         writeSyncStep1(syncEncoder, ydoc)
@@ -103,7 +128,8 @@ export function useCollab(project: string, path: string | null, authEmail: strin
         }
       }
 
-      ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (cancelled || ws !== socket) return
         const decoder = decoding.createDecoder(new Uint8Array(event.data as ArrayBuffer))
         const messageType = decoding.readVarUint(decoder)
         switch (messageType) {
@@ -115,7 +141,12 @@ export function useCollab(project: string, path: string | null, authEmail: strin
             // syncStep1은 상대의 상태 벡터 "요청"일 뿐 문서 내용을 담지 않는다 — 서버가 접속 즉시
             // 보내는 이 메시지를 sync 완료로 착각하면, 아직 비어 있는 로컬 ydoc을 "빈 문서"로 오판해
             // 실제 원격 내용(뒤이어 오는 syncStep2)과 로컬 콘텐츠를 이중으로 시딩해버린다.
-            if (syncMessageType !== messageYjsSyncStep1) { setSynced(true); setConnected(true) }
+            if (syncMessageType !== messageYjsSyncStep1) {
+              clearSyncTimer()
+              retryDelay = RETRY_MIN_MS
+              setSynced(true)
+              setConnected(true)
+            }
             break
           }
           case MESSAGE_AWARENESS: {
@@ -125,19 +156,14 @@ export function useCollab(project: string, path: string | null, authEmail: strin
         }
       }
 
-      ws.onclose = () => {
-        if (cancelled) return
-        setConnected(false)
-        removeAwarenessStates(awareness, [...awareness.getStates().keys()].filter(id => id !== awareness.clientID), remoteOrigin)
-        retryTimer = setTimeout(connect, retryDelay)
-        retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
-      }
+      socket.onclose = () => reconnect(socket)
     }
     connect()
 
     return () => {
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
+      clearSyncTimer()
       awareness.setLocalState(null)
       ws?.close()
       awareness.destroy()

@@ -9,6 +9,7 @@
 - `server/roomDoc.ts` — CRDT 백엔드 둘(JS Yjs · Rust yrs). 요구 면은 셋뿐: `stateVector()` · `encodeStateAsUpdate(sv?)` · `applyUpdate(update)`. `applyUpdate`는 **방이 새로 얻은 업데이트**를 돌려준다(없으면 `null`) — 브로드캐스트는 이 값으로 한다. 상태 벡터 diff로 계산하면 삭제만 있는 업데이트가 빈 diff로 보여 사라진다
 - `server/collabAgent.ts` — 디스크→방 브리지. **자기 Y.Doc + awareness를 들고 방의** `connect()`**로 붙는 인프로세스 클라이언트다** — 방의 doc을 붙들지 않는다(백엔드를 갈 수 없게 된다). 루프백 소켓을 쓰지 않는 이유는 `authorizeCollab`(게스트 차단) 우회 통로를 뚫어야 하기 때문. 터미널에서 고친 `.md`가 열려 있는 Yjs 방에 `agent` 커서로 실시간 주입되는 정상 기능이다 — 2026-07-25에 지운 에이전트 창과는 무관하니 헷갈려서 지우지 말 것. `appWrites` 메아리 원장이 사용자의 정상 타이핑을 보호한다
 - 인증·`MAX_ROOMS`·awareness·방 수명은 백엔드와 무관하게 JS에 남는다. 방을 살려두는 것은 **실제 접속자뿐**이다 — 브리지의 인프로세스 클라이언트를 세면 방이 영원히 닫히지 않아 헤드리스 에디터와 fs watcher가 쌓인다
+- `useCollab`은 소켓 생성부터 첫 문서 동기화 응답까지 10초 제한을 둔다. 연결 중 또는 연결 후 응답 없이 멈추면 close 이벤트를 기다리지 않고 해당 소켓을 폐기해 300ms부터 최대 3초 간격으로 재접속한다. 첫 문서 응답 뒤에는 제한 타이머를 해제하고 재시도 간격을 초기화한다. 늦게 도착한 이전 소켓 이벤트는 무시하며, 재접속 사이 Y.Doc·미전송 편집·실행 취소 상태를 유지한다. `server/collab-reconnect-ui.test.ts`는 연결/동기화 정체·늦은 응답·편집 보존·성공 후 타이머 해제·언마운트 정리를 검증한다.
 
 Rust 백엔드는 선택이고 기본은 꺼져 있다([ADR 0035](../../../.mew/docs/decisions/0035-mew-collab-rooms-rust-yrs.md)):
 
