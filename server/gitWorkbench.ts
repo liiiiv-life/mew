@@ -1,3 +1,5 @@
+import { currentGitEnv, gitRequestContext, providerRemote, requireGitConnection, withGitCredential } from './git-execution.ts'
+import { GitConnectionError, gitConnections } from './git-connections.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
@@ -268,6 +270,7 @@ function commitMessagePart(value: unknown, label: string, maxLength: number, req
 
 export async function commitWorkingTree(project: string, relPath: string, titleInput: unknown, descriptionInput?: unknown, filesInput?: unknown): Promise<GitWorkingTreeCommitResult> {
   const { abs } = repository(project, relPath)
+  if (gitRequestContext.getStore()) await requireGitConnection(abs)
   const title = commitMessagePart(titleInput, '커밋 제목', 500, true)
   const description = commitMessagePart(descriptionInput ?? '', '커밋 설명', 20_000, false)
   let hash: string
@@ -301,6 +304,28 @@ export async function runRemoteAction(project: string, relPath: string, action: 
     if (!remote || !ref?.startsWith('refs/heads/') || !(await git.getRemotes()).some(item => item.name === remote)) {
       throw new GitWorkbenchError('현재 브랜치의 원격 추적 브랜치(upstream)를 설정한 뒤 다시 시도하세요')
     }
+    const context = gitRequestContext.getStore()
+    if (context) {
+      const urls = (await git.remote(['get-url', ...(action === 'push' ? ['--push'] : []), '--all', remote]))!.trim().split('\n')
+      if (urls.length !== 1) throw new GitWorkbenchError('원격 주소를 하나만 설정하세요')
+      const target = providerRemote(urls[0])
+      const connection = await requireGitConnection(abs)
+      try { await withGitCredential(connection, target, async (env, config) => {
+        const rewrites = await git.raw(['config', '--local', '--get-regexp', '^url\\..*\\.(insteadof|pushinsteadof)$']).catch(() => '')
+        if (rewrites.trim()) throw new GitWorkbenchError('저장소의 URL 재작성 설정을 해제한 뒤 다시 시도하세요')
+        const localOverrides = await git.raw(['config', '--local', '--name-only', '--get-regexp', '^(http\\..*(extraheader|cookiefile)|credential\\..*helper)$']).catch(() => '')
+        const safeConfig = [...localOverrides.trim().split('\n').filter(Boolean).map(key => `${key}=`), ...config]
+        const args = [...safeConfig.flatMap(value => ['-c', value]), ...(action === 'pull'
+          ? ['pull', '--ff-only', '--no-rebase', '--no-autostash', '--', target.url, ref]
+          : ['push', '--no-force', '--no-follow-tags', '--recurse-submodules=no', '--', target.url, `HEAD:${ref}`])]
+        try { await execFileAsync('git', args, { cwd: abs, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 2_000_000 }) }
+        catch { throw new GitConnectionError('Git 원격 작업에 실패했습니다. 저장소 권한·SSO 승인·브랜치 상태와 연결을 확인하세요.', 409, 'git-remote-failed') }
+      }) } catch (error) {
+        if (error instanceof GitConnectionError && error.status === 428 && context.owner && gitConnections.get(context.owner, connection.provider, connection.host)?.id === connection.id) gitConnections.remove(context.owner, connection.provider, connection.host)
+        throw error
+      }
+      return
+    }
     const args = action === 'pull'
       ? ['pull', '--ff-only', '--no-rebase', '--no-autostash', '--', remote, ref]
       : ['push', '--no-force', '--no-follow-tags', '--recurse-submodules=no', '--', remote, `HEAD:${ref}`]
@@ -312,7 +337,8 @@ export async function runRemoteAction(project: string, relPath: string, action: 
 }
 
 export async function runCommitAction(project: string, relPath: string, action: unknown, hashInput: unknown, nameInput?: unknown): Promise<GitRepositoryInfo> {
-  const { git } = repository(project, relPath)
+  const { abs, git } = repository(project, relPath)
+  if (gitRequestContext.getStore() && (action === 'cherry-pick' || action === 'revert')) { await requireGitConnection(abs); git.env(currentGitEnv()) }
   const hash = assertHash(hashInput)
   switch (action as GitCommitAction) {
     case 'branch': await git.raw(['branch', assertRefName(nameInput, 'branch'), hash]); break

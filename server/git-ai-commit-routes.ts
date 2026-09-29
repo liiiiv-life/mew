@@ -1,3 +1,4 @@
+import { GitConnectionError } from './git-connections.ts'
 import express from 'express'
 import fs from 'node:fs'
 import { authOf, requireFeature } from './reqAuth.ts'
@@ -30,6 +31,7 @@ export function createGitAiCommitRouter(store: GitAiCommitStore) {
     try { const { owner, cwd } = scope(req); store.stop(owner, cwd, String(req.params.id)); res.json({ ok: true }) } catch (error) { next(error) }
   })
   router.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (error instanceof GitConnectionError) { res.status(error.status).json({ error: error.message, code: error.code, owner: authOf(res.req).email, workspace: res.req.query.workspace }); return }
     res.status(error instanceof GitAiCommitError ? 400 : 500).json({ error: error instanceof Error ? error.message : '자동 커밋에 실패했습니다' })
   })
   return router

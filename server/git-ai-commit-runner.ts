@@ -1,3 +1,4 @@
+import { gitConnections } from './git-connections.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -42,6 +43,8 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
   const timeout = setTimeout(() => stop('분석 시간이 10분을 초과했습니다. 다시 시도해 주세요.'), timeoutMs)
   try {
     if (fs.existsSync(path.join(directory, 'stop'))) { cancelled = true; throw new Error('커밋 작업을 취소했습니다. 이미 만든 커밋은 유지됩니다.') }
+    if (!input.owner || !input.connection) throw new Error('Git 계정을 연결하고 자동 커밋을 새로 실행하세요.')
+    gitConnections.require(input.owner, input.connection.provider, input.connection.host, input.connection.id)
     const git = simpleGit(input.cwd)
     const gitDir = (await git.raw(['rev-parse', '--absolute-git-dir'])).trim()
     const lockPath = path.join(gitDir, 'mew-ai-commit.lock')
@@ -98,10 +101,11 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
       }
       if (halted || fs.existsSync(path.join(directory, 'stop'))) { cancelled = true; throw new Error('커밋 작업을 취소했습니다. 이미 만든 커밋은 유지됩니다.') }
       log(`\n커밋 중: ${group.title} (${group.files.length}개 파일)\n`)
+      const connection = gitConnections.require(input.owner, input.connection.provider, input.connection.host, input.connection.id)
       const hash = await commitSnapshotFiles(input.cwd, group, current, hash => {
         job.result!.commits.push({ ...group, hash })
         save()
-      })
+      }, connection.identity)
       expectedHead = hash
       group.files.forEach(file => remaining.delete(file))
       save()

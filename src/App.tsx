@@ -1,3 +1,4 @@
+import { GitLoginDialog } from './components/github-account'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useRefreshTasks } from './hooks/use-refresh-tasks'
@@ -2430,6 +2431,7 @@ function App() {
 
   return (
     <>
+      {auth.authenticated && <GitLoginDialog key={auth.email ?? 'guest'} />}
       <EditorApp
         key={auth.email ?? 'guest'}
         auth={auth}

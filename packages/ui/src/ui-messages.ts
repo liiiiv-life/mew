@@ -1,6 +1,14 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  "탐색 범위": ["Explorer scope", "浏览范围", "表示範囲"],
+
+  "GitHub에서 승인": ["Authorize on GitHub", "在 GitHub 上授权", "GitHub で認証"],
+  "연결 해제": ["Disconnect", "断开连接", "接続解除"],
+  "서버에 MEW_GITHUB_CLIENT_ID를 설정하고 앱의 Device flow를 활성화하세요.": ["Set MEW_GITHUB_CLIENT_ID on the server and enable Device flow for the app.", "请在服务器上设置 MEW_GITHUB_CLIENT_ID 并启用应用的 Device flow。", "サーバーに MEW_GITHUB_CLIENT_ID を設定し、アプリの Device flow を有効にしてください。"],
+  "Git 로그인 창에서 먼저 연결을 완료하세요.": ["Complete the connection in the Git sign-in dialog first.", "请先在 Git 登录窗口完成连接。", "先に Git ログイン画面で接続を完了してください。"],
+  "Git 로그인을 취소했습니다. 작성 내용은 유지됩니다.": ["Git sign-in cancelled. Your draft is preserved.", "已取消 Git 登录。草稿已保留。", "Git ログインをキャンセルしました。下書きは保持されます。"],
+
   "메모": ["Memo", "备忘录", "メモ"],
   "메모 위치 이동": ["Move memo", "移动备忘录", "メモを移動"],
   "메모 위쪽 크기 조절": ["Resize memo from top", "从上侧调整备忘录大小", "メモの上辺でサイズ変更"],

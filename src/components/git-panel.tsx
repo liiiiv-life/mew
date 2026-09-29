@@ -51,7 +51,8 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onClose, o
     </DockPanel>
     <DockBody group={group} active onFocus={onPanelFocus}>
       <GitShortcutScope onClose={onClose} className="flex h-full min-h-0 min-w-0 flex-col">
-        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} actionsHost={actionsHost} />
+        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} actionsHost={actionsHost}
+          visible={visible && (!dock || (dock.desktop ? !dock.maximized || dock.maximized === group : dock.foreground === 'git'))} />
       </GitShortcutScope>
     </DockBody>
   </>

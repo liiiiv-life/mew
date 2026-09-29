@@ -1,4 +1,6 @@
 import { readRagSettings, parseRagSettings, saveRagSettings } from './rag/settings.ts'
+import { GitConnectionError } from './git-connections.ts'
+import { gitRequestContext, requireGitConnection } from './git-execution.ts'
 import { ProjectSetupError } from './project-agent-settings.ts'
 import { createProjectSetupRouter } from './project-setup-routes.ts'
 import { createSubproject, projectDirectory, subprojectToOpen } from './subprojects.ts'
@@ -371,6 +373,10 @@ export function createApiApp() {
   app.use('/admin/access', createAccessRouter())
   app.use((_req, res, next) => { res.setHeader('Cache-Control', 'private, no-store'); next() })
   app.use(filePermissionMiddleware)
+  app.use((req, res, next) => {
+    if ((req.headers['x-mew-git-owner'] && req.headers['x-mew-git-owner'] !== encodeURIComponent(authOf(req).email ?? '')) || (req.headers['x-mew-git-workspace'] && req.headers['x-mew-git-workspace'] !== encodeURIComponent(WORKSPACE_ROOT))) { res.status(409).json({ error: '계정 또는 프로젝트가 변경되었습니다. 다시 실행하세요.' }); return }
+    gitRequestContext.run({ owner: authOf(req).email, workspace: WORKSPACE_ROOT }, next)
+  })
   app.get('/file-access', (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
     res.json(req.query.external === '1' ? { view: canUse(authOf(req), 'serverFiles'), edit: canUse(authOf(req), 'serverFiles') } : fileAccess(authOf(req), projectOf(req), String(req.query.path ?? '')))
@@ -902,7 +908,8 @@ export function createApiApp() {
   })
 
   // Git 워크벤치 — 경로는 현재 루트 프로젝트 안으로 제한하고, 폴더 자체가 저장소일 때만 조작한다.
-  app.use('/git/github-auth', createGitHubAuthRouter())
+  app.use('/git-connections/github', createGitHubAuthRouter())
+  app.use('/git/github-auth', requireFeature('git'), createGitHubAuthRouter())
   app.get('/git/repository', requireFeature('git'), async (req, res) => {
     try { res.json(await repositoryInfo(projectOf(req), String(req.query.path ?? ''))) } catch (err) { handleError(res, err) }
   })
@@ -1302,6 +1309,7 @@ export function createApiApp() {
       // 게스트는 부분 편집 권한을 받아도 명시적 git 커밋은 절대 트리거할 수 없다
       const doCommit = commit && authOf(req).role !== 'guest'
       if (doCommit) {
+        await requireGitConnection(projectRoot(project))
         const result = await writeAndCommit(project, relPath, content, isNew ? 'add' : 'update', undefined, target => fileAccess(authOf(req), project, target).edit)
         res.json({ ok: true, commit: result })
       } else {
@@ -1337,6 +1345,7 @@ export function createApiApp() {
         res.status(404).json({ error: '해당 커밋에서 파일을 찾을 수 없습니다' })
         return
       }
+      await requireGitConnection(projectRoot(project))
       const result = await writeAndCommit(project, relPath, content, 'update', `${project}: revert ${relPath} to ${hash.slice(0, 7)}`, target => fileAccess(authOf(req), project, target).edit)
       res.json({ ok: true, content, commit: result })
     } catch (err) {
@@ -2643,6 +2652,7 @@ export function createApiApp() {
 }
 
 function handleError(res: express.Response, err: unknown) {
+  if (err instanceof GitConnectionError) { res.status(err.status).json({ error: err.message, code: err.code, owner: authOf(res.req).email, workspace: gitRequestContext.getStore()?.workspace ?? WORKSPACE_ROOT }); return }
   if (err instanceof GuidanceError) {
     res.status(err.status).json({ error: err.message })
     return

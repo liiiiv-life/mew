@@ -1,129 +1,118 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { EventEmitter } from 'node:events'
-import { PassThrough } from 'node:stream'
-import type { ChildProcess } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { GitHubAuth, GitHubAuthError } from './github-auth.ts'
+import { GitHubAuth } from './github-auth.ts'
+import { GitConnections } from './git-connections.ts'
+import { githubProvider, type GitProvider } from './git-providers.ts'
 
-function fixture(options: { missing?: boolean; environment?: boolean; setupFailure?: boolean; timeout?: number } = {}) {
-  const child = Object.assign(new EventEmitter(), {
-    stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null as number | null, signalCode: null as string | null,
-    kill(signal: string) { this.signalCode = signal; return true },
-  })
-  const calls: string[][] = []
+function fixture(t: { after: (fn: () => void) => void }) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-auth-test-'))
+  const connections = new GitConnections(root)
   const closed: string[][] = []
-  let launches = 0
-  const store = new GitHubAuth(async (...args) => { closed.push(args) }, {
-    launch: () => { launches++; return child as unknown as ChildProcess },
-    run: async args => {
-      calls.push(args)
-      if (options.missing) return { ok: false, missing: true, output: '' }
-      if (args[0] === 'auth') return { ok: !options.setupFailure, output: '' }
-      return { ok: true, output: 'octocat\n' }
-    },
-    environmentToken: () => !!options.environment,
-    timeout: options.timeout,
-  })
-  const exit = (code: number) => { child.exitCode = code; child.emit('close', code) }
-  return { store, child, calls, closed, exit, launches: () => launches }
+  let mode: 'complete' | 'pending' | 'slow_down' = 'complete', identify: (() => Promise<void>) | undefined
+  const provider: GitProvider = {
+    gitUsername: 'x-access-token', acceptsPath: () => true,
+    id: 'github', host: 'github.com', verificationUrl: 'https://github.com/login/device', configured: () => true,
+    begin: async () => ({ code: 'ABCD-1234', deviceCode: 'private-device', verificationUrl: 'https://github.com/login/device', expiresIn: 2, interval: 0.005 }),
+    poll: async () => mode === 'complete' ? { state: 'complete', accessToken: 'private-token' } : { state: mode },
+    identify: async () => { await identify?.(); return { login: 'octocat', identity: { name: 'Octocat', email: '1+octocat@users.noreply.github.com' } } },
+  }
+  const store = new GitHubAuth(async (...args) => { closed.push(args) }, provider, connections)
+  t.after(() => { store.disconnect('alice'); store.disconnect('bob'); fs.rmSync(root, { recursive: true, force: true }) })
+  return { root, connections, store, closed, provider, mode: (value: typeof mode) => { mode = value }, identify: (value: () => Promise<void>) => { identify = value } }
 }
+async function until(check: () => Promise<boolean>) { for (let i = 0; i < 100; i++) { if (await check()) return; await delay(5) } assert.fail('timed out') }
 
-test('login resumes by owner, parses split code, never exposes raw CLI output, and configures Git', async () => {
-  const f = fixture()
+test('starts disconnected despite OS credentials; OAuth persists only for its owner and never exposes tokens', async t => {
+  const f = fixture(t)
+  assert.equal((await f.store.status('alice')).login, null)
   const job = f.store.start('alice')
   assert.equal(f.store.start('alice').id, job.id)
-  assert.equal(f.launches(), 1)
-  f.child.stderr.write('! First copy your one-time co')
-  f.child.stderr.write('de: ABCD-1234\nprivate token output must not escape\n')
-  const waiting = await f.store.status('alice')
-  assert.equal(waiting.job?.code, 'ABCD-1234')
-  assert.equal(waiting.job?.state, 'waiting')
-  assert.equal(JSON.stringify(waiting).includes('private token'), false)
-  assert.equal(f.calls.length, 0)
-  assert.equal(f.store.browserJob('alice', job.id), `github-${job.id}`)
-  f.exit(0)
-  await delay(0)
+  await until(async () => (await f.store.status('alice')).job?.state === 'complete')
   const result = await f.store.status('alice')
-  assert.equal(result.job?.state, 'complete')
-  assert.equal(result.job?.code, null)
   assert.equal(result.login, 'octocat')
-  assert.deepEqual(f.calls[0], ['auth', 'setup-git', '--hostname', 'github.com'])
+  assert.equal((await f.store.status('bob')).login, null)
+  assert.equal(JSON.stringify(result).includes('private'), false)
+  const disk = fs.readdirSync(f.root).filter(file => file.endsWith('.json')).map(file => fs.readFileSync(path.join(f.root, file), 'utf8')).join('')
+  assert.equal(disk.includes('private-token'), false)
+  assert.equal(f.connections.require('alice').accessToken, 'private-token')
+  assert.equal(new GitConnections(f.root).require('alice').login, 'octocat')
   assert.deepEqual(f.closed, [['alice', `github-${job.id}`]])
+  f.store.disconnect('alice')
+  assert.equal((await f.store.status('alice')).login, null)
 })
 
-test('another account cannot read approval codes, start a concurrent login, cancel or open the browser', async () => {
-  const f = fixture()
-  const job = f.store.start('alice')
-  f.child.stderr.write('First copy your one-time code: ABCD-1234')
-  const other = await f.store.status('bob')
-  assert.equal(other.busy, true)
-  assert.equal(other.job, null)
-  assert.throws(() => f.store.start('bob'), (e: GitHubAuthError) => e.status === 409)
-  assert.throws(() => f.store.stop('bob', job.id), (e: GitHubAuthError) => e.status === 404)
-  assert.throws(() => f.store.browserJob('bob', job.id), (e: GitHubAuthError) => e.status === 404)
-  f.store.stop('alice', job.id)
-  f.exit(1)
+test('accounts can authorize concurrently but cannot read, cancel or open each other’s jobs', async t => {
+  const f = fixture(t); f.mode('pending')
+  const alice = f.store.start('alice'), bob = f.store.start('bob')
+  await delay(1)
+  assert.notEqual(alice.id, bob.id)
+  assert.equal((await f.store.status('bob')).busy, false)
+  assert.throws(() => f.store.stop('bob', alice.id))
+  assert.throws(() => f.store.browserJob('bob', alice.id))
+  assert.equal(f.store.browserJob('alice', alice.id), `github-${alice.id}`)
+  f.store.stop('alice', alice.id)
+  assert.equal((await f.store.status('bob')).job?.state, 'waiting')
 })
 
-test('cancel terminates the child, clears the code, and prevents setup even if the child exits successfully', async () => {
-  const f = fixture()
-  const job = f.store.start('alice')
-  f.store.stop('alice', job.id)
-  assert.equal(f.child.signalCode, 'SIGTERM')
-  assert.throws(() => f.store.start('alice'), (e: GitHubAuthError) => e.status === 409)
-  assert.throws(() => f.store.browserJob('alice', job.id))
-  f.exit(0)
-  assert.equal((await f.store.status('alice')).job?.state, 'cancelled')
-  assert.equal(f.calls.some(args => args[0] === 'auth'), false)
-  const retry = f.store.start('alice')
-  assert.notEqual(retry.id, job.id)
-  f.store.stop('alice', retry.id)
-  f.exit(1)
+test('disconnect during identity lookup prevents late OAuth response from recreating a connection', async t => {
+  const f = fixture(t)
+  let release!: () => void
+  f.identify(() => new Promise<void>(resolve => { release = resolve }))
+  f.store.start('alice')
+  await until(async () => (await f.store.status('alice')).job?.state === 'configuring')
+  f.store.disconnect('alice'); release(); await delay(5)
+  assert.equal(f.connections.get('alice'), null)
 })
 
-test('CLI failure and Git setup failure remain failures and clean up browser sessions', async () => {
-  const failed = fixture()
-  failed.store.start('alice')
-  failed.exit(1)
-  const status = await failed.store.status('alice')
-  assert.equal(status.job?.state, 'failed')
-  assert.ok(status.job?.error)
-  assert.equal(failed.calls.some(args => args[0] === 'auth'), false)
-  const setup = fixture({ setupFailure: true })
-  setup.store.start('alice'); setup.exit(0)
-  await delay(0)
-  assert.equal((await setup.store.status('alice')).job?.state, 'failed')
-  assert.equal(setup.closed.length, 1)
-})
-
-test('missing CLI is distinguishable; process errors reveal no raw command output', async () => {
-  const f = fixture({ missing: true })
+test('expired jobs clear codes and missing app configuration has an actionable error', async t => {
+  const f = fixture(t); f.mode('pending')
+  f.provider.begin = async () => ({ code: 'ABCD-1234', deviceCode: 'private', verificationUrl: f.provider.verificationUrl, expiresIn: 0.01, interval: 0.005 })
+  f.store.start('alice')
+  await until(async () => (await f.store.status('alice')).job?.state === 'failed')
+  assert.equal((await f.store.status('alice')).job?.code, null)
+  f.provider.configured = () => false
   assert.equal((await f.store.status('alice')).available, false)
-  f.store.start('alice')
-  f.child.emit('error', Object.assign(new Error('secret command output'), { code: 'ENOENT' }))
-  f.exit(1)
-  const status = await f.store.status('alice')
-  assert.match(status.job!.error!, /설치/)
-  assert.equal(JSON.stringify(status).includes('secret command'), false)
+  assert.throws(() => f.store.start('alice'), /MEW_GITHUB_CLIENT_ID/)
 })
 
-test('environment tokens are reflected in status and cannot be silently overridden by login', async () => {
-  const f = fixture({ environment: true })
-  assert.equal((await f.store.status('alice')).environmentToken, true)
-  assert.throws(() => f.store.start('alice'), /GH_TOKEN/)
-  assert.equal(f.launches(), 0)
+test('GitHub device adapter sends documented OAuth fields and derives a private author address', async () => {
+  const calls: { url: string; init?: RequestInit }[] = []
+  const request: typeof fetch = async (input, init) => {
+    const url = String(input); calls.push({ url, init })
+    return Response.json(url.endsWith('/device/code') ? { device_code: 'device-secret', user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 }
+      : url.endsWith('/access_token') ? { access_token: 'secret' } : { id: 123, login: 'octocat', name: 'Octo Cat' })
+  }
+  const provider = githubProvider(request, () => 'client-id')
+  const device = await provider.begin(); const token = await provider.poll(device.deviceCode)
+  assert.equal(token.state, 'complete')
+  assert.equal(new URLSearchParams(String(calls[1].init!.body)).get('grant_type'), 'urn:ietf:params:oauth:grant-type:device_code')
+  const account = await provider.identify('secret')
+  assert.equal(account.identity.email, '123+octocat@users.noreply.github.com')
+  assert.equal((calls[2].init!.headers as Record<string, string>).Authorization, 'Bearer secret')
 })
 
-test('expiry terminates the child and closes the browser without treating it as successful', async () => {
-  const f = fixture({ timeout: 5 })
-  f.store.start('alice')
-  await delay(20)
-  const status = await f.store.status('alice')
-  assert.equal(status.job?.state, 'failed')
-  assert.match(status.job!.error!, /만료/)
-  assert.equal(f.child.signalCode, 'SIGTERM')
-  assert.equal(f.closed.length, 1)
-  f.exit(0)
-  assert.equal(f.calls.some(args => args[0] === 'auth'), false)
+
+test('GitHub default app works without configuration and supports a trimmed override', async t => {
+  const original = process.env.MEW_GITHUB_CLIENT_ID
+  t.after(() => {
+    if (original === undefined) delete process.env.MEW_GITHUB_CLIENT_ID
+    else process.env.MEW_GITHUB_CLIENT_ID = original
+  })
+  const ids: (string | null)[] = []
+  const request: typeof fetch = async (_input, init) => {
+    ids.push(new URLSearchParams(String(init?.body)).get('client_id'))
+    return Response.json({ device_code: 'device', user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 })
+  }
+  for (const value of [undefined, '', '   ', '  custom-app  ']) {
+    if (value === undefined) delete process.env.MEW_GITHUB_CLIENT_ID
+    else process.env.MEW_GITHUB_CLIENT_ID = value
+    const provider = githubProvider(request)
+    assert.equal(provider.configured(), true)
+    await provider.begin()
+  }
+  assert.deepEqual(ids, ['Ov23liKEjrduHJdXyo7m', 'Ov23liKEjrduHJdXyo7m', 'Ov23liKEjrduHJdXyo7m', 'custom-app'])
 })

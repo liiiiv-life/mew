@@ -13,8 +13,10 @@ test('GitHub login resumes, retries polling, preserves errors and supports keybo
   const source = `
 import React from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
-import {GitHubAccount} from '${root}/src/components/github-account.tsx';
-createRoot(document.getElementById('root')).render(<GitHubAccount project='.workspace'/>);`
+import {GitHubAccount,GitLoginDialog} from '${root}/src/components/github-account.tsx';
+import {saveFile} from '${root}/src/api/client.ts';
+function Fixture(){const [message,setMessage]=React.useState('');return <><textarea aria-label='Draft' defaultValue='preserved draft'/><button onClick={async()=>{try{await saveFile('file.md','preserved draft',true,'.workspace');setMessage('Committed')}catch(e){setMessage(e.message)}}}>Commit fixture</button><output>{message}</output></>}
+createRoot(document.getElementById('root')).render(<><GitHubAccount project='.workspace'/><GitLoginDialog/><Fixture/></>);`
   const bundle = await build({ input: 'virtual:github.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'fixture',
     resolveId(id) { if (id === 'virtual:github.tsx') return id; if (id === './server-dom-browser') return 'virtual:browser.tsx'; if (id.endsWith('.css')) return 'virtual:style' },
@@ -38,14 +40,23 @@ createRoot(document.getElementById('root')).render(<GitHubAccount project='.work
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       let status: GitHubAuthStatus = { available: true, login: null, environmentToken: false, busy: false, job: null }
+      let commits = 0, attempts = 0
       let starts = 0, failPoll = false, browserFailure = true
       await page.route('http://localhost:48977/**', async route => {
         const req = route.request(), url = new URL(req.url())
         if (url.pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: chunk.code })
         if (!url.pathname.startsWith('/api/')) return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html class="${width === 1100 ? 'dark' : ''}" lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><body class="bg-surface text-ink"><div id="root"></div><script src="/app.js"></script></body></html>` })
+        if (url.pathname === '/api/file') {
+          attempts++
+          if (!status.login) return route.fulfill({ status: 428, json: { code: 'git-auth-required', owner: 'alice', workspace: '/fixture' } })
+          assert.equal(req.headers()['x-mew-git-owner'], 'alice')
+          assert.equal(req.headers()['x-mew-git-workspace'], encodeURIComponent('/fixture'))
+          commits++; return route.fulfill({ json: { ok: true, commit: null } })
+        }
         assert.equal(url.searchParams.get('project'), '.workspace')
         if (url.pathname.endsWith('/browser')) return browserFailure ? route.fulfill({ status: 500, json: { error: '브라우저를 준비하지 못했습니다.' } }) : route.fulfill({ json: { streamUrl: '/fixture-stream' } })
         if (url.pathname.endsWith('/stop')) { status.job = { ...status.job!, state: 'cancelled', code: null }; return route.fulfill({ json: { ok: true } }) }
+        if (req.method() === 'DELETE') { status = { ...status, login: null, job: null }; return route.fulfill({ json: { ok: true } }) }
         if (req.method() === 'POST') {
           starts++
           status.job = { id: `job-${starts}`, state: 'waiting', code: 'ABCD-1234', error: null }
@@ -74,6 +85,8 @@ createRoot(document.getElementById('root')).render(<GitHubAccount project='.work
       await page.frameLocator('iframe').getByRole('textbox').waitFor()
       await page.getByRole('button', { name: '코드 복사' }).focus()
       await page.keyboard.press('Tab')
+      assert.equal(await page.evaluate('document.activeElement?.tagName'), 'A')
+      await page.keyboard.press('Tab')
       assert.equal(await page.evaluate('document.activeElement?.tagName'), 'IFRAME')
       await page.keyboard.press('Tab')
       assert.equal(await page.getByRole('button', { name: '로그인 취소' }).evaluate(el => el === el.ownerDocument.activeElement), true)
@@ -91,6 +104,25 @@ createRoot(document.getElementById('root')).render(<GitHubAccount project='.work
       status = { ...status, login: 'octocat', job: { ...status.job!, state: 'complete' } }
       await page.getByText('octocat', { exact: true }).waitFor()
       assert.equal(starts, 2)
+      if (process.env.MEW_GITHUB_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.MEW_GITHUB_SCREENSHOTS, `${width}-connected.png`) })
+      await click('연결 해제')
+      await dialog.getByRole('button', { name: 'GitHub 로그인', exact: true }).waitFor()
+      await click('닫기')
+      await click('Commit fixture')
+      await page.getByRole('dialog').waitFor()
+      await click('닫기')
+      await page.getByText('Git 로그인을 취소했습니다. 작성 내용은 유지됩니다.', { exact: true }).waitFor()
+      assert.equal(commits, 0)
+      assert.equal(await page.getByRole('textbox', { name: 'Draft' }).inputValue(), 'preserved draft')
+      await click('Commit fixture')
+      await page.getByRole('dialog').getByRole('button', { name: 'GitHub 로그인', exact: true }).click()
+      await page.getByText('ABCD-1234', { exact: true }).waitFor()
+      status = { ...status, login: 'alice', job: { ...status.job!, state: 'complete', code: null } }
+      await page.getByText('Committed', { exact: true }).waitFor()
+      assert.equal(commits, 1)
+      assert.equal(attempts, 3)
+      assert.equal(await page.getByRole('dialog').count(), 0)
+      assert.equal(await page.getByRole('textbox', { name: 'Draft' }).inputValue(), 'preserved draft')
       assert.deepEqual(errors, [])
       await page.close()
     }

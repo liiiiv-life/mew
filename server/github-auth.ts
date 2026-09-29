@@ -1,154 +1,81 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { githubLoginPending, type GitHubAuthStatus, type GitHubLoginJob } from '../shared/github-auth.ts'
+import { gitConnections, GitConnections, GitConnectionError } from './git-connections.ts'
+import { gitProvider, type GitProvider } from './git-providers.ts'
 
 export const GITHUB_DEVICE_URL = 'https://github.com/login/device'
-const LOGIN_TIMEOUT = 15 * 60_000
-const env = () => ({ ...process.env, GH_PROMPT_DISABLED: '1', GH_BROWSER: 'true', NO_COLOR: '1', GH_HOST: 'github.com' })
-type Result = { ok: boolean; missing?: boolean; output: string }
-type Dependencies = {
-  run: (args: string[]) => Promise<Result>
-  launch: () => ChildProcess
-  closeBrowser: (owner: string, id: string) => Promise<void>
-  environmentToken: () => boolean
-  timeout?: number
-}
+export class GitHubAuthError extends GitConnectionError {}
+type Job = GitHubLoginJob & { deviceCode?: string; timer?: NodeJS.Timeout; deadline: number; interval: number }
 
-function run(args: string[]): Promise<Result> {
-  return new Promise(resolve => {
-    execFile('gh', args, { env: env(), timeout: 20_000, maxBuffer: 64 * 1024 }, (error, stdout) => {
-      resolve({ ok: !error, missing: (error as NodeJS.ErrnoException | null)?.code === 'ENOENT', output: stdout })
-    })
-  })
-}
-
-export class GitHubAuthError extends Error {
-  status: number
-  constructor(message: string, status = 400) { super(message); this.status = status }
-}
-
-type Job = GitHubLoginJob & { owner: string; child?: ChildProcess; timer?: NodeJS.Timeout }
-
-/** Credentials stay with gh, matching the OS account used by all Git commands. */
+/** Jobs and durable credentials both belong to the Mew account, never the OS account. */
 export class GitHubAuth {
-  private job: Job | null = null
-  private deps: Dependencies
-
-  constructor(closeBrowser: Dependencies['closeBrowser'], overrides: Partial<Dependencies> = {}) {
-    this.deps = {
-      run,
-      launch: () => spawn('gh', ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'], { env: env(), stdio: ['ignore', 'pipe', 'pipe'] }),
-      closeBrowser,
-      environmentToken: () => !!(process.env.GH_TOKEN || process.env.GITHUB_TOKEN),
-      ...overrides,
-    }
-  }
-
+  private jobs = new Map<string, Job>()
+  private closeBrowser: (owner: string, job: string) => Promise<void>
+  private provider: GitProvider
+  private connections: GitConnections
+  constructor(closeBrowser: (owner: string, job: string) => Promise<void>, provider: GitProvider = gitProvider(), connections: GitConnections = gitConnections) { this.closeBrowser = closeBrowser; this.provider = provider; this.connections = connections }
   async status(owner: string): Promise<GitHubAuthStatus> {
-    const pending = githubLoginPending(this.job)
-    // Polling a device approval must not repeatedly query GitHub's account API.
-    const result = pending ? null : await this.deps.run(['api', '--hostname', 'github.com', 'user', '--jq', '.login'])
-    const login = result?.ok && /^[a-z\d](?:[a-z\d-]{0,38})$/i.test(result.output.trim()) ? result.output.trim() : null
-    return {
-      available: !result?.missing,
-      login,
-      environmentToken: this.deps.environmentToken(),
-      busy: pending && this.job?.owner !== owner,
-      job: this.job?.owner === owner ? this.snapshot(this.job) : null,
-    }
+    const record = this.connections.get(owner, this.provider.id, this.provider.host)
+    const job = this.jobs.get(owner)
+    return { available: this.provider.configured(), login: record && (!record.expiresAt || record.expiresAt > Date.now()) ? record.login : null, environmentToken: false, busy: false, job: job ? this.snapshot(job) : null, verificationUrl: this.provider.verificationUrl }
   }
-
   start(owner: string): GitHubLoginJob {
-    if (githubLoginPending(this.job)) {
-      if (this.job!.owner === owner) return this.snapshot(this.job!)
-      throw new GitHubAuthError('다른 사용자가 GitHub 로그인 중입니다. 완료 후 다시 시도하세요.', 409)
-    }
-    if (this.job?.child) throw new GitHubAuthError('이전 로그인을 종료하고 있습니다. 잠시 뒤 다시 시도하세요.', 409)
-    if (this.deps.environmentToken()) throw new GitHubAuthError('환경변수의 GitHub 토큰을 사용 중입니다. 서버에서 GH_TOKEN·GITHUB_TOKEN을 해제한 뒤 로그인하세요.')
-    const job: Job = { id: randomUUID(), owner, state: 'starting', code: null, error: null }
-    this.job = job
-    try {
-      const child = this.deps.launch()
-      job.child = child
-      let output = ''
-      const receive = (chunk: Buffer | string) => {
-        if (!githubLoginPending(job)) return
-        output = (output + chunk.toString()).slice(-8192)
-        const code = /one-time code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})\b/i.exec(output)?.[1]
-        if (code) { job.code = code; job.state = 'waiting' }
-      }
-      child.stdout?.on('data', receive)
-      child.stderr?.on('data', receive)
-      child.once('error', (error: NodeJS.ErrnoException) => {
-        this.finish(job, 'failed', error.code === 'ENOENT' ? 'GitHub CLI(gh)를 설치한 뒤 다시 시도하세요.' : 'GitHub 로그인을 시작하지 못했습니다. 다시 시도하세요.')
-      })
-      child.once('close', code => {
-        job.child = undefined
-        if (!githubLoginPending(job)) return
-        if (code !== 0) { this.finish(job, 'failed', 'GitHub 로그인이 완료되지 않았습니다. 승인이 만료되었거나 연결에 실패했습니다. 다시 시도하세요.'); return }
-        job.state = 'configuring'
-        job.code = null
-        void this.configure(job)
-      })
-      job.timer = setTimeout(() => {
-        this.finish(job, 'failed', '로그인 시간이 만료되었습니다. 다시 시도하세요.')
-        this.terminate(job)
-      }, this.deps.timeout ?? LOGIN_TIMEOUT)
-      job.timer.unref()
-    } catch {
-      this.finish(job, 'failed', 'GitHub 로그인을 시작하지 못했습니다. GitHub CLI 설치를 확인하세요.')
-    }
+    const existing = this.jobs.get(owner)
+    if (githubLoginPending(existing ?? null)) return this.snapshot(existing!)
+    if (!this.provider.configured()) throw new GitHubAuthError('서버에 MEW_GITHUB_CLIENT_ID를 설정하고 앱의 Device flow를 활성화하세요.', 503, 'git-provider-unconfigured')
+    const job: Job = { id: randomUUID(), state: 'starting', code: null, error: null, deadline: Date.now() + 900_000, interval: 5000 }
+    this.jobs.set(owner, job)
+    void this.begin(owner, job)
     return this.snapshot(job)
   }
-
-  stop(owner: string, id: string): void {
-    const job = this.owned(owner, id)
-    if (job.state === 'configuring') throw new GitHubAuthError('로그인을 마무리하고 있습니다. 잠시 기다려 주세요.', 409)
-    if (!githubLoginPending(job)) return
-    this.finish(job, 'cancelled')
-    this.terminate(job)
+  private async begin(owner: string, job: Job) {
+    try {
+      const device = await this.provider.begin()
+      if (!githubLoginPending(job)) return
+      Object.assign(job, { state: 'waiting', code: device.code, deviceCode: device.deviceCode, deadline: Date.now() + device.expiresIn * 1000, interval: device.interval * 1000 })
+      this.schedule(owner, job)
+    } catch { this.finish(owner, job, 'failed', 'GitHub 승인을 시작하지 못했습니다. 앱 설정과 연결을 확인하세요.') }
   }
-
+  private schedule(owner: string, job: Job) {
+    job.timer = setTimeout(() => { void this.poll(owner, job) }, Math.min(job.interval, Math.max(0, job.deadline - Date.now())))
+    job.timer.unref()
+  }
+  private async poll(owner: string, job: Job) {
+    if (!githubLoginPending(job)) return
+    if (Date.now() >= job.deadline) { this.finish(owner, job, 'failed', '로그인 시간이 만료되었습니다. 다시 시도하세요.'); return }
+    try {
+      const token = await this.provider.poll(job.deviceCode!)
+      if (!githubLoginPending(job)) return
+      if (token.state !== 'complete') { if (token.state === 'slow_down') job.interval += 5000; this.schedule(owner, job); return }
+      job.state = 'configuring'; job.code = null
+      const account = await this.provider.identify(token.accessToken)
+      if (!githubLoginPending(job) || Date.now() >= job.deadline) { this.finish(owner, job, 'failed', '로그인 시간이 만료되었습니다. 다시 시도하세요.'); return }
+      this.connections.set(owner, { provider: this.provider.id, host: this.provider.host, ...account, accessToken: token.accessToken, expiresAt: token.expiresAt })
+      this.finish(owner, job, 'complete')
+    } catch { this.finish(owner, job, 'failed', 'GitHub 로그인이 취소되었거나 실패했습니다. 다시 로그인하세요.') }
+  }
+  stop(owner: string, id: string) { this.finish(owner, this.owned(owner, id), 'cancelled') }
+  disconnect(owner: string) {
+    const job = this.jobs.get(owner)
+    if (job) this.finish(owner, job, 'cancelled')
+    this.jobs.delete(owner)
+    this.connections.remove(owner, this.provider.id, this.provider.host)
+  }
   browserJob(owner: string, id: string): string {
     const job = this.owned(owner, id)
-    if (job.state !== 'waiting' || !job.code) throw new GitHubAuthError('로그인 코드를 준비 중이거나 로그인이 종료되었습니다.', 409)
+    if (job.state !== 'waiting' || !job.code) throw new GitHubAuthError('승인 코드를 준비 중이거나 로그인이 종료되었습니다.', 409)
     return `github-${job.id}`
   }
-
-  private owned(owner: string, id: string): Job {
-    if (!this.job || this.job.owner !== owner || this.job.id !== id) throw new GitHubAuthError('로그인 작업을 찾을 수 없습니다.', 404)
-    return this.job
+  private owned(owner: string, id: string) {
+    const job = this.jobs.get(owner)
+    if (!job || job.id !== id) throw new GitHubAuthError('로그인 작업을 찾을 수 없습니다.', 404)
+    return job
   }
-
-  private async configure(job: Job): Promise<void> {
-    try {
-      const result = await this.deps.run(['auth', 'setup-git', '--hostname', 'github.com'])
-      if (job.state !== 'configuring') return
-      this.finish(job, result.ok ? 'complete' : 'failed', result.ok ? null : 'GitHub 인증은 완료됐지만 Git 연결 설정에 실패했습니다. 서버에서 gh auth setup-git을 실행하세요.')
-    } catch {
-      if (job.state === 'configuring') this.finish(job, 'failed', 'Git 연결 설정에 실패했습니다. 서버에서 gh auth setup-git을 실행하세요.')
-    }
-  }
-
-  private terminate(job: Job): void {
-    const child = job.child
-    if (!child) return
-    child.kill('SIGTERM')
-    const force = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL') }, 2000)
-    force.unref()
-    child.once('close', () => clearTimeout(force))
-  }
-
-  private finish(job: Job, state: GitHubLoginJob['state'], error: string | null = null): void {
+  private finish(owner: string, job: Job, state: GitHubLoginJob['state'], error: string | null = null) {
     if (!githubLoginPending(job)) return
     clearTimeout(job.timer)
-    job.state = state
-    job.code = null
-    job.error = error
-    void this.deps.closeBrowser(job.owner, `github-${job.id}`).catch(() => {})
+    Object.assign(job, { state, error, code: null, deviceCode: undefined })
+    void this.closeBrowser(owner, `github-${job.id}`).catch(() => {})
   }
-
-  private snapshot(job: Job): GitHubLoginJob {
-    return { id: job.id, state: job.state, code: job.code, error: job.error }
-  }
+  private snapshot(job: Job): GitHubLoginJob { return { id: job.id, state: job.state, code: job.code, error: job.error } }
 }

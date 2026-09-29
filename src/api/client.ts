@@ -1,3 +1,4 @@
+import { gitFetch } from './git-auth-request'
 import { uiText } from '@mew/ui/i18n-core'
 import type { RagConfiguration, RagDocument, RagSettings } from '../../shared/rag'
 import type { ProjectTabGroup } from '../../shared/project-tab-groups'
@@ -444,19 +445,23 @@ export function fetchGitRepository(path = '', project = currentProject): Promise
 }
 
 export function fetchGitHubAuth(project: string): Promise<GitHubAuthStatus> {
-  return fetch(`/api/git/github-auth?${projectQs(project)}`).then(json<GitHubAuthStatus>)
+  return fetch(`/api/git-connections/github?${projectQs(project)}`).then(json<GitHubAuthStatus>)
+}
+
+export function disconnectGitHub(project: string): Promise<{ ok: true }> {
+  return fetch(`/api/git-connections/github?${projectQs(project)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
 export function startGitHubLogin(project: string): Promise<{ job: GitHubLoginJob }> {
-  return fetch(`/api/git/github-auth?${projectQs(project)}`, { method: 'POST' }).then(json<{ job: GitHubLoginJob }>)
+  return fetch(`/api/git-connections/github?${projectQs(project)}`, { method: 'POST' }).then(json<{ job: GitHubLoginJob }>)
 }
 
 export function stopGitHubLogin(project: string, id: string): Promise<{ ok: true }> {
-  return fetch(`/api/git/github-auth/${encodeURIComponent(id)}/stop?${projectQs(project)}`, { method: 'POST' }).then(json<{ ok: true }>)
+  return fetch(`/api/git-connections/github/${encodeURIComponent(id)}/stop?${projectQs(project)}`, { method: 'POST' }).then(json<{ ok: true }>)
 }
 
 export function openGitHubLoginBrowser(project: string, id: string): Promise<{ streamUrl: string }> {
-  return fetch(`/api/git/github-auth/${encodeURIComponent(id)}/browser?${projectQs(project)}`, { method: 'POST' }).then(json<{ streamUrl: string }>)
+  return fetch(`/api/git-connections/github/${encodeURIComponent(id)}/browser?${projectQs(project)}`, { method: 'POST' }).then(json<{ streamUrl: string }>)
 }
 
 function gitAiCommitUrl(project: string, workspace: string, suffix = ''): string {
@@ -466,7 +471,7 @@ export function fetchGitAiCommit(project: string, workspace: string): Promise<{ 
   return fetch(gitAiCommitUrl(project, workspace)).then(json<{ job: GitAiCommitJob | null }>)
 }
 export function startGitAiCommit(project: string, workspace: string, id: string, agentSetId: string, files: string[]): Promise<{ job: GitAiCommitJob }> {
-  return fetch(gitAiCommitUrl(project, workspace), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, agentSetId, files }) }).then(json<{ job: GitAiCommitJob }>)
+  return gitFetch(gitAiCommitUrl(project, workspace), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, agentSetId, files }) }, project).then(json<{ job: GitAiCommitJob }>)
 }
 export function stopGitAiCommit(project: string, workspace: string, id: string): Promise<{ ok: true }> {
   return fetch(gitAiCommitUrl(project, workspace, `/${encodeURIComponent(id)}/stop`), { method: 'POST' }).then(json<{ ok: true }>)
@@ -511,27 +516,27 @@ export function fetchGitWorkingTreeDiff(path: string, file: string, project = cu
 }
 
 export function commitGitWorkingTree(path: string, title: string, description: string, project: string, files: string[]): Promise<GitWorkingTreeCommitResult> {
-  return fetch(`/api/git/commit?${projectQs(project)}`, {
+  return gitFetch(`/api/git/commit?${projectQs(project)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, title, description, files }),
-  }).then(json<GitWorkingTreeCommitResult>)
+  }, project).then(json<GitWorkingTreeCommitResult>)
 }
 
 export function runGitCommitAction(path: string, action: GitCommitAction, hash: string, name?: string, project = currentProject): Promise<GitRepositoryInfo> {
-  return fetch(`/api/git/action?${projectQs(project)}`, {
+  return gitFetch(`/api/git/action?${projectQs(project)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, action, hash, name }),
-  }).then(json<GitRepositoryInfo>)
+  }, project).then(json<GitRepositoryInfo>)
 }
 
 export function runGitRemoteAction(path: string, action: 'pull' | 'push', project: string, workspace: string): Promise<{ ok: true }> {
-  return fetch(`/api/git/remote?${projectQs(project)}`, {
+  return gitFetch(`/api/git/remote?${projectQs(project)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, action, workspace }),
-  }).then(json<{ ok: true }>)
+  }, project).then(json<{ ok: true }>)
 }
 
 export function externalRawUrl(path: string): string {
@@ -1296,12 +1301,13 @@ export function fetchFileAtCommit(path: string, hash: string): Promise<{ content
 export function revertFileToCommit(
   path: string,
   hash: string,
+  project: string = currentProject,
 ): Promise<{ ok: true; content: string; commit: CommitResult | null }> {
-  return fetch('/api/file-revert', {
+  return gitFetch('/api/file-revert', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, hash, project: currentProject }),
-  }).then(json<{ ok: true; content: string; commit: CommitResult | null }>)
+    body: JSON.stringify({ path, hash, project }),
+  }, project).then(json<{ ok: true; content: string; commit: CommitResult | null }>)
 }
 
 export function saveFile(
@@ -1310,11 +1316,11 @@ export function saveFile(
   commit = false,
   project: string = currentProject,
 ): Promise<{ ok: true; commit: CommitResult | null }> {
-  return fetch('/api/file', {
+  return gitFetch('/api/file', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content, commit, project }),
-  }).then(json<{ ok: true; commit: CommitResult | null }>)
+  }, project).then(json<{ ok: true; commit: CommitResult | null }>)
 }
 
 export function deleteFile(path: string, project: string = currentProject): Promise<{ ok: true; commit: CommitResult | null }> {

@@ -20,11 +20,13 @@ const { runAutomaticCommit } = await import('./git-ai-commit-runner.ts')
 const { createGitAiCommitRouter } = await import('./git-ai-commit-routes.ts')
 const { writeSets } = await import('./agentSets.ts')
 const { setFeature } = await import('./access-policy.ts')
+const { gitConnections } = await import('./git-connections.ts')
 const owner = 'git-ai@example.test'
 const preset = { id: crypto.randomUUID(), name: '커밋 작성', runtime: 'codex', modelId: 'selected-model', role: 'Write concise Korean commit messages.' }
 after(() => fs.rmSync(temp, { recursive: true, force: true }))
 
 async function fixture() {
+  gitConnections.set(owner, { provider: 'github', host: 'github.com', login: 'alice', identity: { name: 'Alice', email: '123+alice@users.noreply.github.com' }, accessToken: 'test-token' })
   const cwd = fs.mkdtempSync(path.join(temp, 'repo-'))
   const git = simpleGit(cwd)
   await git.init(); await git.addConfig('user.name', 'Test'); await git.addConfig('user.email', owner)
@@ -341,4 +343,15 @@ new AgentSideConnection(conn=>({
     for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
     try { execFileSync(tmux!, ['-L', socket, 'kill-server']) } catch { /* exited */ }
   }
+})
+
+
+test('disconnect during AI analysis stops before creating commits', async () => {
+  const { cwd, git, store } = await fixture()
+  const head = await git.revparse('HEAD')
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+  const result = await execute(store, cwd, job.id, plan, async () => { gitConnections.remove(owner) })
+  assert.equal(result.state, 'failed')
+  assert.equal(await git.revparse('HEAD'), head)
+  assert.match(result.error!, /Git 계정/)
 })

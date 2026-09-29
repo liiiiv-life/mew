@@ -18,6 +18,8 @@
 
 ## Git AI Commit 작업
 
+- 계정별 Git 연결이 없으면 작업 시작 전에 로그인한다. 작업 입력에는 소유 계정과 연결 ID만 고정하고 실행 시작·각 커밋 전에 연결 해제/교체를 검사한다. 작성자·토큰 경계는 [Git 연결 계약](git-connections.md)을 따른다.
+
 [ADR 0174](../../../.mew/docs/decisions/0174-mew-commit-skill-and-automatic-commits.md) · [사용법](../guides/projects.md#git-작업-패널).
 
 - `git-ai-commit-routes.ts`는 Git·에이전트 권한과 현재 workspace를 검증한다. 현재 프로젝트 루트 저장소의 선택 파일·작업 UUID·에이전트셋 ID를 받는다. `POST /api/git/ai-commit`은 실제 자동 커밋 실행이며 이전 `/draft` 적용 API는 제공하지 않는다.

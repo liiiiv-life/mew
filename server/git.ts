@@ -1,3 +1,5 @@
+import { currentGitEnv, gitRequestContext, requireGitConnection } from './git-execution.ts'
+import { GitConnectionError } from './git-connections.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import simpleGit, { type SimpleGit } from 'simple-git'
@@ -81,6 +83,11 @@ export async function commitFile(
   const git = gitFor(project)
   if (!git) return null
 
+  if (gitRequestContext.getStore()) {
+    try { await requireGitConnection(projectRoot(project)) }
+    catch (error) { if (error instanceof GitConnectionError && [428, 400].includes(error.status)) return null; throw error }
+  }
+  const writer = simpleGit({ baseDir: projectRoot(project), config: ['core.quotepath=false'] }).env(currentGitEnv())
   const paths = Array.isArray(relPaths) ? relPaths : [relPaths]
   const filesToStage = new Set<string>(paths)
   if (project === DEFAULT_PROJECT) {
@@ -107,11 +114,11 @@ export async function commitFile(
   }
   if (filesToStage.size === 0) return null
 
-  await git.add([...filesToStage])
+  await writer.add([...filesToStage])
   const staged = await git.diff(['--cached', '--name-only'])
   if (!staged.trim()) return null
 
   const msg = message ?? `${project}: ${action} ${paths.join(', ')}`
-  const result = await git.commit(msg)
+  const result = await writer.commit(msg, [...filesToStage].map(file => `:(literal)${file}`), { '--only': null })
   return { message: msg, files: [...filesToStage], hash: result.commit || null }
 }

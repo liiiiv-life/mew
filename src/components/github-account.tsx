@@ -1,17 +1,18 @@
+import { GIT_LOGIN_EVENT, GIT_CONNECTION_CHANGED, type GitLoginRequest } from '../api/git-auth-request'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useId, useRef, useState } from 'react'
 import { copyText, DialogFrame } from '@mew/ui'
-import { fetchGitHubAuth, openGitHubLoginBrowser, startGitHubLogin, stopGitHubLogin } from '../api/client'
+import { disconnectGitHub, fetchGitHubAuth, openGitHubLoginBrowser, startGitHubLogin, stopGitHubLogin } from '../api/client'
 import { githubLoginPending, type GitHubAuthStatus } from '../../shared/github-auth'
 import { ServerDomBrowserTabs } from './server-dom-browser'
 
 const button = 'rounded px-3 py-2 text-xs text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40'
 
-export function GitHubAccount({ project }: { project: string }) {
+export function GitHubAccount({ project, request }: { project: string; request?: GitLoginRequest }) {
   useUiLocale()
   const [status, setStatus] = useState<GitHubAuthStatus | null>(null)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(!!request)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -23,6 +24,21 @@ export function GitHubAccount({ project }: { project: string }) {
   const titleId = useId()
   const active = githubLoginPending(status?.job ?? null)
   const job = status?.job
+  const finish = useRef(request?.finish)
+  const completed = useRef<string | undefined>(undefined)
+  const close = () => { finish.current?.(false); finish.current = undefined; setOpen(false) }
+
+  useEffect(() => {
+    const changed = () => setReload(value => value + 1)
+    window.addEventListener(GIT_CONNECTION_CHANGED, changed)
+    return () => { window.removeEventListener(GIT_CONNECTION_CHANGED, changed); finish.current?.(false) }
+  }, [])
+  useEffect(() => {
+    if (status?.login && finish.current) { const done = finish.current; finish.current = undefined; setOpen(false); done(true) }
+  }, [status?.login])
+  useEffect(() => {
+    if (job?.state === 'complete' && completed.current !== job.id) { completed.current = job.id; window.dispatchEvent(new Event(GIT_CONNECTION_CHANGED)) }
+  }, [job?.id, job?.state])
 
   useEffect(() => {
     let disposed = false
@@ -50,19 +66,23 @@ export function GitHubAccount({ project }: { project: string }) {
     return () => { disposed = true; clearTimeout(timer) }
   }, [project, reload, active, status?.busy])
 
-  const action = async (kind: 'start' | 'stop' | 'browser') => {
+  const action = async (kind: 'start' | 'stop' | 'browser' | 'disconnect') => {
     if (busy) return
     version.current += 1
     setBusy(true); setError(null); setCopied(false)
     try {
-      if (kind === 'start') {
+      if (kind === 'disconnect') {
+        await disconnectGitHub(project)
+        setStatus(null); setStreamUrl(null)
+        window.dispatchEvent(new Event(GIT_CONNECTION_CHANGED))
+      } else if (kind === 'start') {
         const result = await startGitHubLogin(project)
         setStreamUrl(null)
         setStatus(previous => ({ available: true, login: null, environmentToken: false, busy: false, ...previous, job: result.job }))
       } else if (job && kind === 'stop') {
         await stopGitHubLogin(project, job.id)
         setStreamUrl(null)
-      } else if (job) {
+      } else if (job && kind === 'browser') {
         const page = await openGitHubLoginBrowser(project, job.id)
         setStreamUrl(page.streamUrl)
       }
@@ -72,23 +92,22 @@ export function GitHubAccount({ project }: { project: string }) {
 
   const label = loading ? uiText("GitHub 확인 중…") : status?.login ? `GitHub · ${status.login}` : active ? uiText("GitHub 로그인 중…") : uiText("GitHub 로그인")
   return <>
-    <div className="flex min-w-0 max-w-36 items-center">
+    {!request && <div className="flex min-w-0 max-w-36 items-center">
       <button type="button" className={`${button} max-w-full truncate`} onClick={() => setOpen(true)} aria-haspopup="dialog" title={label}>{label}</button>
-    </div>
-    {open && <DialogFrame labelledBy={titleId} onClose={() => setOpen(false)} className={streamUrl && active ? 'flex h-[85dvh] max-w-4xl flex-col' : 'max-w-md max-h-[90dvh] overflow-y-auto'}>
+    </div>}
+    {open && <DialogFrame labelledBy={titleId} onClose={close} className={streamUrl && active ? 'flex h-[85dvh] max-w-4xl flex-col' : 'max-w-md max-h-[90dvh] overflow-y-auto'}>
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-edge px-4 py-2">
         <h2 id={titleId} className="text-sm font-semibold text-ink">{uiText("GitHub 로그인")}</h2>
-        <button type="button" className={button} onClick={() => setOpen(false)}>{uiText("닫기")}</button>
+        <button type="button" className={button} onClick={close}>{uiText("닫기")}</button>
       </div>
       <div className="shrink-0 space-y-3 p-4 text-sm text-ink">
         {loading ? <p role="status">{uiText("로그인 상태를 확인하는 중…")}</p> : status?.login && !active ? <p role="status"><strong className="break-all">{status.login}</strong> {uiText(" 계정으로 연결되었습니다.")}</p> : status?.busy ? <p role="status">{uiText("다른 사용자가 GitHub 로그인 중입니다.")}</p> : !active && <p>{uiText("GitHub에 로그인해 저장소에 연결하세요.")}</p>}
-        <p className="text-xs text-ink-secondary">{uiText("연결한 GitHub 계정은 이 서버의 Git 작업에서 함께 사용합니다.")}</p>
-        {status?.available === false && <p>{uiText("GitHub CLI(gh)를 서버에 설치한 뒤 새로고침하세요.")} <a className="text-accent underline" href="https://cli.github.com/" target="_blank" rel="noopener noreferrer">{uiText("설치 안내")}</a></p>}
-        {status?.environmentToken && <p className="text-xs text-ink-secondary">{uiText("서버에 설정된 GitHub 토큰을 사용 중입니다.")}</p>}
+        {status?.available === false && <p>{uiText("서버에 MEW_GITHUB_CLIENT_ID를 설정하고 앱의 Device flow를 활성화하세요.")}</p>}
         {active && <p role="status" className="text-xs text-ink-secondary">{job?.state === 'starting' ? uiText("승인 코드를 준비하는 중…") : job?.state === 'configuring' ? uiText("Git 연결을 마무리하는 중…") : uiText("아래 코드를 GitHub 승인 화면에 입력하세요.")}</p>}
         {job?.code && <div className="flex flex-wrap items-center gap-2">
           <code className="select-all font-mono text-lg tabular-nums">{job.code}</code>
           <button type="button" className={button} onClick={() => { void copyText(job.code!).then(ok => { setCopied(ok); if (!ok) setError(uiText("코드를 복사하지 못했습니다. 코드를 선택해 직접 복사하세요.")) }) }}>{copied ? uiText("복사됨") : uiText("코드 복사")}</button>
+          <a className={`${button} underline underline-offset-2`} href="https://github.com/login/device" target="_blank" rel="noopener noreferrer">{uiText("GitHub에서 승인")}</a>
           {!streamUrl && <button type="button" className={`${button} border border-edge-strong`} disabled={busy} onClick={() => void action('browser')}>{busy ? uiText("여는 중…") : uiText("로그인 계속하기")}</button>}
         </div>}
         {(error || loadError || job?.error) && <p role="alert" className="select-text break-words text-xs text-danger">{error || loadError || job?.error}</p>}
@@ -98,9 +117,26 @@ export function GitHubAccount({ project }: { project: string }) {
         <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-edge p-3">
           {active ? <button type="button" className={button} disabled={busy || job?.state === 'configuring'} onClick={() => void action('stop')}>{uiText("로그인 취소")}</button> : <>
             <button type="button" className={button} disabled={loading || busy} onClick={() => { setError(null); setLoading(true); setReload(value => value + 1) }}>{uiText("새로고침")}</button>
+            {status?.login && <button type="button" className={button} disabled={busy} onClick={() => void action('disconnect')}>{uiText("연결 해제")}</button>}
             {!status?.login && <button type="button" className="rounded bg-accent px-3 py-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40" disabled={loading || busy || !status || !status.available || status.busy || status.environmentToken} onClick={() => void action('start')}>{busy ? uiText("시작 중…") : job?.state === 'failed' ? uiText("다시 로그인") : uiText("GitHub 로그인")}</button>}
           </>}
         </div>
     </DialogFrame>}
   </>
+}
+
+
+/** Always mounted for file commits too, even when the Git panel is closed. */
+export function GitLoginDialog() {
+  const [request, setRequest] = useState<GitLoginRequest | null>(null)
+  useEffect(() => {
+    const open = (event: Event) => {
+      event.preventDefault()
+      const next = (event as CustomEvent<GitLoginRequest>).detail
+      setRequest({ ...next, finish: connected => { next.finish(connected); setRequest(null) } })
+    }
+    window.addEventListener(GIT_LOGIN_EVENT, open)
+    return () => window.removeEventListener(GIT_LOGIN_EVENT, open)
+  }, [])
+  return request && <GitHubAccount project={request.project} request={request} />
 }

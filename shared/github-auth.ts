@@ -6,6 +6,7 @@ export interface GitHubLoginJob {
 }
 
 export interface GitHubAuthStatus {
+  verificationUrl?: string
   available: boolean
   login: string | null
   environmentToken: boolean

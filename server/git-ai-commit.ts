@@ -1,3 +1,4 @@
+import { requireGitConnection } from './git-execution.ts'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -21,7 +22,7 @@ export class GitAiCommitError extends Error {}
 export interface CommitSnapshot {
   text: string; truncated: boolean; files: string[]; head: string; branch: string; tree: string; index: string; paths: string[]
 }
-export interface GitAiCommitInput { cwd: string; agentSet: AgentSet; prompt: string; session: string; snapshot: CommitSnapshot }
+export interface GitAiCommitInput { owner: string; connection: { id: string; provider: string; host: string }; cwd: string; agentSet: AgentSet; prompt: string; session: string; snapshot: CommitSnapshot }
 
 /** Capture complete Git objects in a temporary index; the user's index stays untouched. */
 export async function captureCommitChanges(cwd: string, filesInput?: unknown): Promise<CommitSnapshot> {
@@ -150,12 +151,13 @@ export class GitAiCommitStore {
     if (fs.existsSync(path.join(directory, 'state.json'))) return this.read(owner, cwd, id)
     const previous = await this.latest(owner, cwd)
     if (gitAiCommitActive(previous)) return previous!
+    const connection = await requireGitConnection(cwd, owner)
     const changes = await captureCommitChanges(cwd, files)
     if (changes.truncated) throw new GitAiCommitError('변경량이 커서 전체 내용을 분석할 수 없습니다. 선택 파일을 줄여 다시 실행하세요.')
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 })
     const session = `mewcmd-git-${id}`
     const job: GitAiCommitJob = { mode: 'commit', files: changes.files, id, agentSetName: set.name, state: 'starting', startedAt: Date.now(), output: '', truncated: changes.truncated }
-    const input: GitAiCommitInput = { cwd, agentSet: { ...set }, prompt: commitPlanPrompt(set, changes), session, snapshot: changes }
+    const input: GitAiCommitInput = { owner, connection: { id: connection.id, provider: connection.provider, host: connection.host }, cwd, agentSet: { ...set }, prompt: commitPlanPrompt(set, changes), session, snapshot: changes }
     writeFileAtomic(path.join(directory, 'input.json'), JSON.stringify(input))
     writeFileAtomic(path.join(directory, 'state.json'), JSON.stringify(job))
     writeFileAtomic(path.join(this.scope(owner, cwd), 'latest.json'), JSON.stringify(id))

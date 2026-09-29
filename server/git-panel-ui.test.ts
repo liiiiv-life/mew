@@ -55,6 +55,11 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     const errors: string[] = [], writes: string[] = [], reads: string[] = []
     let repositoryExists = true
     let remoteFailure = false
+    let workingFiles = Array.from({ length: 60 }, (_, index) => ({ path: index === 0 ? 'file.ts' : `src/components/long-directory-name/changed-file-${index}.tsx`, status: index % 2 ? '??' : 'M' }))
+    let diffLine = 'new'
+    let workingFailure = false
+    let finishWorking = () => {}
+    let delayWorking = false
     const remoteRequests: unknown[] = []
     let finishRemote = () => {}
     page.on('pageerror', (error) => errors.push(error.message))
@@ -69,12 +74,16 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
           return route.fulfill(remoteFailure ? { status: 409, json: { error: 'Push rejected' } } : { json: { ok: true } })
         }
         reads.push(url.pathname + url.search)
-        const payload = p === '/api/git/github-auth' ? { available: true, login: null, environmentToken: false, busy: false, job: null }
+        if (p === '/api/git/working-tree') {
+          if (delayWorking) await new Promise<void>(resolve => { finishWorking = resolve })
+          if (workingFailure) return route.fulfill({ status: 503, json: { error: 'Temporary Git read failure' } })
+        }
+        const payload = p === '/api/git-connections/github' ? { available: true, login: null, environmentToken: false, busy: false, job: null }
           : p === '/api/git/repositories' ? { repositories: url.searchParams.get('project') === 'docs' ? [{ path: '' }] : [{ path: '' }, { path: 'tools/a-very-long-repository-name-for-layout-checking' }] }
           : p === '/api/git/repository' ? { repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], branch: 'main', ahead: 0, behind: 0 }
             : p === '/api/git/log' ? { commits: Array.from({ length: 80 }, (_, index) => ({ hash: `abc12345${index}`, parents: index < 79 ? [`abc12345${index + 1}`] : [], subject: index === 0 ? '패널 작업: 긴 커밋 제목도 메타데이터를 밀어내지 않고 한 줄로 표시합니다' : `패널 작업 ${index}`, author: 'Tester with a long name', date: new Date(Date.now() - index * 3_600_000 - 1000).toISOString(), refs: index === 0 ? ['main', 'tag: v1'] : [] })) }
-              : p.endsWith('/diff') ? { diff: 'diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n' }
-                : { files: Array.from({ length: 60 }, (_, index) => ({ path: index === 0 ? 'file.ts' : `src/components/long-directory-name/changed-file-${index}.tsx`, status: index % 2 ? '??' : 'M' })) }
+              : p.endsWith('/diff') ? { diff: `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+${diffLine}\n` }
+                : { files: workingFiles }
         return route.fulfill({ json: payload })
       }
       return route.fulfill(p === '/app.js' ? { contentType: 'text/javascript', body: chunk.code } : { contentType: 'text/html', body: `<!doctype html><html class="dark" lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>` })
@@ -174,7 +183,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.mouse.move(composerX, minimumComposer.y - (composerBox.height - minimumComposer.height), { steps: 4 })
     await page.mouse.up()
     const firstCheck = page.getByRole('checkbox', { name: 'file.ts 커밋에 포함', exact: true })
-    assert.equal(await firstCheck.isChecked(), false)
+    assert.equal(await firstCheck.isChecked(), true)
+    assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 60, 'initial changes are all selected')
+    assert.equal(await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).isChecked(), true)
+    await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).uncheck()
     await firstCheck.check()
     assert.equal(await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).evaluate(el => (el as unknown as { indeterminate: boolean }).indeterminate), true)
     await page.getByLabel('커밋 제목', { exact: true }).fill('selected draft')
@@ -200,6 +212,25 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.mouse.wheel(0, 250)
     await page.waitForFunction(`document.querySelector('[data-git-scroll="history"]').scrollTop > 0`)
     assert.equal(await changes.evaluate(el => el.scrollTop), changeScroll, 'lists scroll independently')
+    const originalFiles = workingFiles
+    workingFiles = [...workingFiles.map((file, index) => index === 0 ? { ...file, status: 'MM' } : file), { path: 'external-new.ts', status: '??' }]
+    await page.getByText('external-new.ts', { exact: true }).waitFor({ state: 'attached' })
+    assert.equal(await firstCheck.isChecked(), true, 'automatic updates retain selected files')
+    assert.equal(await page.getByRole('checkbox', { name: 'external-new.ts 커밋에 포함', exact: true }).isChecked(), false, 'new files are not silently selected')
+    assert.equal(await changes.evaluate(el => el.scrollTop), changeScroll, 'automatic updates preserve scroll')
+    assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'selected draft')
+    await changes.locator('[title="MM"]').waitFor()
+    workingFailure = true
+    await page.getByText('Temporary Git read failure', { exact: true }).waitFor()
+    assert.equal(await changes.getByRole('checkbox').count(), 61, 'a failed refresh retains the list')
+    workingFailure = false
+    workingFiles = originalFiles.slice(1)
+    await firstCheck.waitFor({ state: 'detached' })
+    assert.equal(await page.getByRole('button', { name: '커밋', exact: true }).isEnabled(), false, 'clean files leave the selection')
+    workingFiles = originalFiles
+    await firstCheck.waitFor()
+    assert.equal(await firstCheck.isChecked(), false)
+    await firstCheck.check()
     const handleBox = await bounds(separator)
     await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + 2)
     await page.mouse.down()
@@ -226,9 +257,27 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     const preservedComposerHeight = await composerHandle.getAttribute('aria-valuenow')
     await changes.getByRole('button').nth(6).click()
     await page.getByText('+new', { exact: true }).waitFor()
+    diffLine = 'edited-again'
+    await page.getByText('+edited-again', { exact: true }).waitFor()
+    workingFiles = originalFiles.filter((_, index) => index !== 6)
+    await page.getByText('표시할 변경 내용이 없습니다.', { exact: true }).waitFor()
+    workingFiles = originalFiles
+    diffLine = 'new'
+    await page.getByText('+new', { exact: true }).waitFor()
+    delayWorking = true
+    await page.waitForRequest('**/api/git/working-tree?*')
+    await page.waitForTimeout(100)
+    const pendingReads = reads.filter(url => url.startsWith('/api/git/working-tree?')).length
+    await page.waitForTimeout(2_200)
+    assert.equal(reads.filter(url => url.startsWith('/api/git/working-tree?')).length, pendingReads, 'slow polls never overlap')
     await header().getByRole('button', { name: 'Git 닫기', exact: true }).waitFor()
     await pick('Git 닫기')
     await panel().waitFor({ state: 'hidden' })
+    delayWorking = false
+    finishWorking()
+    const hiddenReads = reads.length
+    await page.waitForTimeout(2_200)
+    assert.equal(reads.length, hiddenReads, 'closing the panel stops polling, including a late response')
     await pick('Git 열기')
     await page.getByText('+new', { exact: true }).waitFor()
     await pick('뒤로 가기')
@@ -331,7 +380,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await pick('Git 열기')
     assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'MOBILE DRAFT')
     assert.ok(reads.length > 0)
-    assert.ok(reads.every(raw => { const url = new URL(raw, 'http://fixture'); return url.pathname !== '/api/git/repositories' && url.searchParams.get('project') === '.workspace' && (url.pathname === '/api/git/github-auth' || url.searchParams.get('path') === '') }), JSON.stringify(reads))
+    assert.ok(reads.every(raw => { const url = new URL(raw, 'http://fixture'); return url.pathname !== '/api/git/repositories' && url.searchParams.get('project') === '.workspace' && (url.pathname === '/api/git-connections/github' || url.searchParams.get('path') === '') }), JSON.stringify(reads))
     repositoryExists = false; reads.length = 0
     await page.reload()
     await page.getByText('현재 프로젝트에 Git 저장소가 없습니다.', { exact: true }).waitFor()
@@ -342,7 +391,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await panel().waitFor({ state: 'hidden' })
     await pick('Git 열기')
     assert.equal(await page.getByText('커밋되지 않은 변경사항', { exact: true }).count(), 0)
-    assert.ok(reads.every(raw => ['/api/git/repository', '/api/git/github-auth'].includes(new URL(raw, 'http://fixture').pathname)), 'non-Git project never falls back to child or parent repositories')
+    assert.ok(reads.every(raw => ['/api/git/repository', '/api/git-connections/github'].includes(new URL(raw, 'http://fixture').pathname)), 'non-Git project never falls back to child or parent repositories')
     repositoryExists = true
     await pick('새로고침')
     await page.getByText('커밋되지 않은 변경사항', { exact: true }).waitFor()

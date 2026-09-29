@@ -1,3 +1,5 @@
+import { currentGitEnv } from './git-execution.ts'
+import { gitIdentityEnv, type GitIdentity } from './git-connections.ts'
 import simpleGit from 'simple-git'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -6,7 +8,7 @@ import { selectedGitFiles } from './git-selected-files.ts'
 
 /** Commit explicit working-tree paths while retaining every unrelated index entry. */
 export async function commitFiles(cwd: string, title: string, description: string, filesInput: unknown): Promise<string> {
-  const git = simpleGit(cwd)
+  const git = simpleGit(cwd).env(currentGitEnv())
   const status = await git.status(['--untracked-files=all'])
   if (status.isClean()) throw new Error('커밋할 변경사항이 없습니다')
   if (status.conflicted.length) throw new Error('충돌을 해결한 뒤 커밋하세요')
@@ -20,7 +22,7 @@ export async function commitFiles(cwd: string, title: string, description: strin
 }
 
 /** AI commits use the analyzed tree, so an edit racing the commit stays uncommitted. */
-export async function commitSnapshotFiles(cwd: string, group: { title: string; description: string; files: string[] }, snapshot: { head: string; branch: string; tree: string; index: string; paths: string[] }, recorded: (hash: string) => void): Promise<string> {
+export async function commitSnapshotFiles(cwd: string, group: { title: string; description: string; files: string[] }, snapshot: { head: string; branch: string; tree: string; index: string; paths: string[] }, recorded: (hash: string) => void, identity?: GitIdentity): Promise<string> {
   const git = simpleGit(cwd)
   const selected = selectedGitFiles((await git.status(['--untracked-files=all'])).files, group.files)
   const paths = [...new Set(selected.flatMap(file => file.from ? [file.from, file.path] : [file.path]))].map(file => `:(literal)${file}`)
@@ -29,7 +31,7 @@ export async function commitSnapshotFiles(cwd: string, group: { title: string; d
   const fd = fs.openSync(lock, 'wx', 0o600)
   fs.closeSync(fd)
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-commit-index-'))
-  const env = { ...process.env }
+  const env = gitIdentityEnv(identity)
   delete env.GIT_PAGER
   delete env.PAGER
   try {

@@ -42,7 +42,8 @@ Noto Serif KR은 기존처럼 Google Fonts에서 불러온다. 프로덕션 CSP�
 | 변수 | 기본값 | 무엇 |
 | --- | --- | --- |
 | `MEW_WORKSPACE` | 앱 폴더의 부모 | 프로젝트들이 사는 폴더. `server/paths.ts`의 `WORKSPACE_ROOT`를 고정 경로로 되돌리지 않는다 — 앱과 워크스페이스를 분리해야 다른 폴더·다른 서버에 안전하게 배포할 수 있다 |
-| `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·기능/파일 권한·아이콘·RAG 인덱스/모델 캐시 |
+| `MEW_GITHUB_CLIENT_ID` | 내장 Mew OAuth 앱 | 자체 GitHub OAuth 앱 Client ID로 교체하는 선택 설정. 미설정·빈 값·공백은 기본 앱 사용 |
+| `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·기능/파일 권한·아이콘 |
 | `MEW_AGENT_MEMORY_SCOPE` | `auto` | 설치된 systemd slice에 ACP·CLI 작업 메모리 제한 적용. `required`는 미설치 시 실행 거부, `off`는 OS 제한만 해제. [설치·메모리 보호](../operations/agent-memory.md) |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
 | `MEW_DESKTOP_HELPER_DIR` | 프로젝트의 `native/remote-desktop`, WSL은 Windows LocalAppData의 `Mew/remote-desktop` | [원격 데스크톱 보조 앱](../guides/remote-desktop.md) 설치 경로. WSL은 Windows 절대 경로 |
@@ -67,3 +68,14 @@ npm run users -- list
 ```
 
 임시 비밀번호는 안전한 채널로 본인에게 전달한다. 최초 owner 계정은 이 CLI로만 만들 수 있다 (`npm run users -- add <email> owner`) — 이후로는 owner가 앱 내 설정 팝업에서 다른 계정의 역할을 바꿀 수 있다.
+
+
+## GitHub OAuth 연결
+
+Mew는 공개 Client ID를 코드에 포함하므로 기본 설치에는 OAuth 앱 등록이나 환경변수 설정이 필요 없다. 각 사용자는 GitHub 로그인에서 자기 계정으로 승인한다. 토큰은 설치 서버에 계정별로 저장하며 앱 소유자의 계정 권한을 공유하지 않는다.
+
+자체 앱을 쓰려면 GitHub Settings → Developer settings → OAuth Apps에서 등록하고 **Enable Device Flow**를 켠다. 등록 화면의 URL 필드는 실제 서비스 주소로 채우지만 현재 기기 코드 흐름은 callback을 사용하지 않는다. 레포 밖 서버 설정에 `MEW_GITHUB_CLIENT_ID=발급된_ID`를 넣고 사용자가 서버를 재시작하면 기본 앱을 대체한다. 앞뒤 공백은 제거하며 미설정·빈 값·공백은 내장 앱을 사용한다. Client secret은 사용하지 않는다. 기본값 구현은 `server/git-providers.ts`가 소유한다.
+
+앱은 `repo read:user` 범위를 요청한다. 회사/조직 저장소는 별도 앱 승인과 SSO가 필요할 수 있다. 토큰 만료·승인 철회 시 재로그인하며 OS의 기존 로그인으로 대체하지 않는다. 기본 앱도 GitHub의 앱 단위 인증 제한을 받는다. 실제 앱 승인·Device Flow 활성화 여부는 사용자 확인 대상이다.
+
+사용법은 [GitHub 로그인](../guides/projects.md#github-로그인), 키·암호문 백업과 저장 경계는 [Git 연결 계약](../development/git-connections.md)을 따른다.

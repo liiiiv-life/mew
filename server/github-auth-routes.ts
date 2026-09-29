@@ -1,5 +1,5 @@
 import express from 'express'
-import { authOf, requireFeature } from './reqAuth.ts'
+import { authOf, requireAuthenticated, requireAnyFeature, requireFeature } from './reqAuth.ts'
 import { closeDomBrowserJob, createDomBrowserAuthSession } from './browser-dom.ts'
 import { GITHUB_DEVICE_URL, GitHubAuth, GitHubAuthError } from './github-auth.ts'
 
@@ -7,12 +7,16 @@ const auth = new GitHubAuth(closeDomBrowserJob)
 
 export function createGitHubAuthRouter(store = auth) {
   const router = express.Router()
-  router.use(requireFeature('git'))
+  router.use(requireAuthenticated, requireAnyFeature('git', 'filesWrite'))
+  router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next() })
   router.get('/', async (req, res, next) => {
     try { res.json(await store.status(authOf(req).email!)) } catch (error) { next(error) }
   })
-  router.post('/', requireFeature('browser'), (req, res, next) => {
+  router.post('/', (req, res, next) => {
     try { res.status(202).json({ job: store.start(authOf(req).email!) }) } catch (error) { next(error) }
+  })
+  router.delete('/', (req, res, next) => {
+    try { store.disconnect(authOf(req).email!); res.json({ ok: true }) } catch (error) { next(error) }
   })
   router.post('/:id/stop', (req, res, next) => {
     try { store.stop(authOf(req).email!, String(req.params.id)); res.json({ ok: true }) } catch (error) { next(error) }

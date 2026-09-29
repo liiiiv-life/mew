@@ -267,12 +267,13 @@ function GitComposer({ children, onSubmit }: { children: ReactNode; onSubmit: ()
   </form>
 }
 
-export function GitWorkbench({ project, repositoryPath, onNotice, onBack, actionsHost }: {
+export function GitWorkbench({ project, repositoryPath, onNotice, onBack, actionsHost, visible = true }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
   onBack?: () => void
   actionsHost?: HTMLElement | null
+  visible?: boolean
 }) {
   useUiLocale()
   const [splitRatio, setSplitRatio] = useState(0.2)
@@ -300,14 +301,20 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
   const [commitDescription, setCommitDescription] = useState('')
   const [aiOpen, setAiOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const refreshVersion = useRef(0)
+  const diffVersion = useRef(0)
+  const polling = useRef(false)
   const [menu, setMenu] = useState<{ commit: GitLogEntry; x: number; y: number } | null>(null)
   useOverlayDismiss(menu ? () => setMenu(null) : false)
   const graph = useMemo(() => graphLayout(commits), [commits])
   const graphWidth = 16 + (graph.lanes - 1) * LANE_GAP
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (selectAll = false) => {
+    refreshVersion.current += 1
     setLoading(true)
     setError(null)
+    setRefreshError(null)
     try {
       const nextInfo = await fetchGitRepository(repositoryPath, project)
       setInfo(nextInfo)
@@ -319,7 +326,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
       setNow(Date.now())
       setCommits(log.commits)
       setWorkingTree(nextWorkingTree)
-      setSelectedFiles(current => new Set(nextWorkingTree.files.filter(file => current.has(file.path)).map(file => file.path)))
+      setSelectedFiles(current => new Set(nextWorkingTree.files.filter(file => selectAll || current.has(file.path)).map(file => file.path)))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -334,8 +341,69 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
     setSelectedFiles(new Set())
     setSplitRatio(0.2)
     setAiOpen(false)
-    void refresh()
+    void refresh(true)
   }, [refresh])
+
+  useEffect(() => {
+    if (!visible || loading || busy || !info?.repository) return
+    let alive = true
+    let timer: number | undefined
+    const schedule = () => {
+      window.clearTimeout(timer)
+      if (alive && !document.hidden) timer = window.setTimeout(() => { void poll() }, 2_000)
+    }
+    const poll = async () => {
+      window.clearTimeout(timer)
+      if (!alive || document.hidden) return
+      if (polling.current) { schedule(); return }
+      polling.current = true
+      const version = refreshVersion.current
+      const current = () => alive && !document.hidden && version === refreshVersion.current
+      try {
+        const next = await fetchGitWorkingTree(repositoryPath, project)
+        if (!current()) return
+        setWorkingTree(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
+        setSelectedFiles(previous => {
+          const paths = new Set(next.files.map(file => file.path))
+          const kept = [...previous].filter(file => paths.has(file))
+          return kept.length === previous.size ? previous : new Set(kept)
+        })
+        if (view.kind === 'diff' && view.source.kind === 'working') {
+          // An already modified file can change again without changing its status.
+          const request = ++diffVersion.current
+          try {
+            const result = next.files.some(file => file.path === view.file.path)
+              ? await fetchGitWorkingTreeDiff(repositoryPath, view.file.path, project)
+              : { diff: '' }
+            if (!current() || request !== diffVersion.current) return
+            setDiff(result.diff)
+          } finally {
+            if (current() && request === diffVersion.current) setDiffLoading(false)
+          }
+        }
+        if (current()) setRefreshError(null)
+      } catch (err) {
+        if (current()) setRefreshError(err instanceof Error ? err.message : String(err))
+      } finally {
+        polling.current = false
+        schedule()
+      }
+    }
+    const resume = () => { void poll() }
+    const visibilityChanged = () => {
+      window.clearTimeout(timer)
+      if (!document.hidden) resume()
+    }
+    void poll()
+    window.addEventListener('focus', resume)
+    document.addEventListener('visibilitychange', visibilityChanged)
+    return () => {
+      alive = false
+      window.clearTimeout(timer)
+      window.removeEventListener('focus', resume)
+      document.removeEventListener('visibilitychange', visibilityChanged)
+    }
+  }, [visible, loading, busy, info?.repository, project, repositoryPath, view])
 
   useEffect(() => {
     if (!menu) return
@@ -360,6 +428,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
   useEffect(() => {
     if (view.kind !== 'diff') return
     let alive = true
+    const requestVersion = ++diffVersion.current
     setDiff('')
     setDiffLoading(true)
     setError(null)
@@ -367,9 +436,9 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
       ? fetchGitWorkingTreeDiff(repositoryPath, view.file.path, project)
       : fetchGitDiff(repositoryPath, view.source.hash, view.file.path, project)
     request
-      .then((result) => { if (alive) setDiff(result.diff) })
-      .catch((err: unknown) => { if (alive) setError(err instanceof Error ? err.message : String(err)) })
-      .finally(() => { if (alive) setDiffLoading(false) })
+      .then((result) => { if (alive && requestVersion === diffVersion.current) setDiff(result.diff) })
+      .catch((err: unknown) => { if (alive && requestVersion === diffVersion.current) setError(err instanceof Error ? err.message : String(err)) })
+      .finally(() => { if (alive && requestVersion === diffVersion.current) setDiffLoading(false) })
     return () => { alive = false }
   }, [project, repositoryPath, view])
 
@@ -478,7 +547,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={heading}>{heading}</span>
       </div>}
 
-      {error && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="select-text min-w-0 flex-1">{error}</span><button type="button" onClick={() => setError(null)} aria-label={uiText("오류 닫기")}>×</button></div>}
+      {(error || refreshError) && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="select-text min-w-0 flex-1">{error || refreshError}</span><button type="button" onClick={() => { setError(null); setRefreshError(null) }} aria-label={uiText("오류 닫기")}>×</button></div>}
 
       <div className={`${view.kind === 'graph' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col`}>
         {loading && !info ? (
@@ -525,9 +594,8 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
             <section aria-label={uiText("현재 변경사항")} className="flex min-h-0 flex-col overflow-hidden" style={{ flex: `${1 - splitRatio} 1 0`, minHeight: 'min(224px, 75%)' }}>
               <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs">
                 <input type="checkbox" aria-label={uiText("변경 파일 전체 선택")} checked={workingTree.files.length > 0 && selectedFiles.size === workingTree.files.length} ref={node => { if (node) node.indeterminate = selectedFiles.size > 0 && selectedFiles.size < workingTree.files.length }} disabled={busy || workingTree.files.length === 0} onChange={event => setSelectedFiles(new Set(event.target.checked ? workingTree.files.map(file => file.path) : []))} className="h-4 w-4 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
-                <span className="shrink-0 tabular-nums text-ink-muted" role="status" aria-label={uiText("{count}개 선택", { count: selectedFiles.size })}>{selectedFiles.size}</span>
+                <span className="shrink-0 whitespace-nowrap tabular-nums text-ink-muted"><span role="status" aria-label={uiText("{count}개 선택", { count: selectedFiles.size })}>{selectedFiles.size}</span> / {workingTree.files.length}</span>
                 <span className="min-w-0 truncate font-medium text-ink">{uiText("커밋되지 않은 변경사항")}</span>
-                <span className="shrink-0 tabular-nums text-ink-muted">{workingTree.files.length}</span>
                 <button type="button" onClick={() => void refresh()} disabled={loading || busy} className="ml-auto shrink-0 rounded px-2 py-1 text-ink-secondary hover:bg-surface-hover disabled:opacity-40">{uiText("새로고침")}</button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-scroll="changes">
@@ -535,12 +603,12 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
               </div>
               <GitComposer onSubmit={() => { void commit() }}>
                 <HoverTipLayer className="flex shrink-0 items-center gap-2">
-                  <input value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || busy} aria-label={committing ? uiText("커밋 중…") : uiText("커밋")} data-tip={committing ? uiText("커밋 중…") : uiText("커밋")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
-                    <GitCommit width={18} height={18} aria-hidden="true" />
+                  <input value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="h-8 min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-3 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || busy} aria-label={committing ? uiText("커밋 중…") : uiText("커밋")} data-tip={committing ? uiText("커밋 중…") : uiText("커밋")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
+                    <GitCommit width={16} height={16} aria-hidden="true" />
                   </button>
-                  {view.kind === 'graph' && info?.repository && <button type="button" disabled={busy} onClick={() => setAiOpen(true)} aria-label={uiText("AI 자동 커밋")} data-tip={uiText("AI 자동 커밋")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-edge-strong text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
-                    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  {view.kind === 'graph' && info?.repository && <button type="button" disabled={busy} onClick={() => setAiOpen(true)} aria-label={uiText("AI 자동 커밋")} data-tip={uiText("AI 자동 커밋")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-edge-strong text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
+                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M12 3v4M3 12v5m18-5v5" />
                       <rect x="5" y="7" width="14" height="14" rx="3" />
                       <path d="M9 12v2m6-2v2m-6 3h6" />
