@@ -9,6 +9,7 @@ import { useUiLocale } from '@mew/ui/i18n'
 import { SHARED_MEMO_PATH, SHARED_MEMO_PROJECT } from '../../shared/shared-memo'
 import { editorApi } from '../api/client'
 import { useCollab } from '../hooks/useCollab'
+import { useMobileKeyboard } from '../hooks/use-mobile-keyboard'
 import { identityColor } from '../utils/collabColor'
 import { PresenceDots } from './PresenceDots'
 import './shared-memo.css'
@@ -38,6 +39,7 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
   focusSignal?: number
 }) {
   useUiLocale()
+  const keyboardOpen = useMobileKeyboard()
   const [localOpen, setLocalOpen] = useState(false)
   const open = controlledOpen ?? localOpen
   const setOpen = onOpenChange ?? setLocalOpen
@@ -45,6 +47,7 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
   const [value, setValue] = useState('')
   const [colors, setColors] = useState<string[]>([])
   const [position, setPosition] = useState({ x: 24, y: 80 })
+  const [displayPosition, setDisplayPosition] = useState(position)
   const [size, setSize] = useState({ width: 560, height: 420 })
   const root = useRef<HTMLDivElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
@@ -133,8 +136,11 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
     if (!open || !root.current) return
     const fit = () => {
       root.current?.style.setProperty('--memo-viewport-width', `${window.visualViewport?.width ?? window.innerWidth}px`)
-      root.current?.style.setProperty('--memo-viewport-height', `${window.visualViewport?.height ?? window.innerHeight}px`)
-      setPosition(current => clamp(current.x, current.y))
+      // Keep the layout height when only the keyboard's visual viewport shrinks.
+      // clamp prioritizes the visible top edge if the popup cannot fit above it.
+      root.current?.style.setProperty('--memo-viewport-height', `${window.innerHeight}px`)
+      const next = clamp(position.x, position.y)
+      setDisplayPosition(current => current.x === next.x && current.y === next.y ? current : next)
     }
     fit()
     const observer = new ResizeObserver(fit)
@@ -148,13 +154,13 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
       window.visualViewport?.removeEventListener('resize', fit)
       window.visualViewport?.removeEventListener('scroll', fit)
     }
-  }, [open, clamp])
+  }, [open, activated, position, size, clamp])
 
   if (!activated) return null
   return createPortal(
     <div ref={root} role="dialog" data-workspace-panel="memo" aria-label={uiText('메모')} tabIndex={-1} hidden={!open}
       className="shared-memo fixed z-40 flex flex-col overflow-hidden rounded-xl bg-surface-deep text-ink shadow-xl"
-      style={{ left: position.x, top: position.y, width: size.width, height: size.height }}>
+      style={{ left: displayPosition.x, top: displayPosition.y, width: size.width, height: size.height }}>
       <div className="flex shrink-0 items-center gap-1 bg-surface px-2">
         <div role="button" tabIndex={0} aria-label={uiText('메모 위치 이동')}
           className="flex min-h-10 min-w-0 flex-1 cursor-move touch-none items-center gap-1 px-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
@@ -163,7 +169,7 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
             event.preventDefault()
             event.currentTarget.focus({ preventScroll: true })
             event.currentTarget.setPointerCapture(event.pointerId)
-            drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left: position.x, top: position.y }
+            drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, left: displayPosition.x, top: displayPosition.y }
           }}
           onPointerMove={event => {
             const start = drag.current
@@ -174,7 +180,7 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
           onKeyDown={event => {
             if (!event.key.startsWith('Arrow')) return
             event.preventDefault(); event.stopPropagation()
-            setPosition(current => clamp(current.x + (event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0), current.y + (event.key === 'ArrowDown' ? 16 : event.key === 'ArrowUp' ? -16 : 0)))
+            setPosition(clamp(displayPosition.x + (event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0), displayPosition.y + (event.key === 'ArrowDown' ? 16 : event.key === 'ArrowUp' ? -16 : 0)))
           }}>
           <span>{uiText('메모')}</span><PresenceDots colors={colors} />
         </div>
@@ -185,7 +191,7 @@ export function SharedMemo({ authEmail, open: controlledOpen, onOpenChange, focu
       </div>
       {!collab?.connected && <div role="status" className="px-4 py-2 text-xs text-ink-muted">{uiText(collab?.synced ? '재연결 중…' : '연결 중…')}</div>}
       <div className="min-h-0 flex-1">
-        {collab && <Editor value={value} onChange={setValue} api={memoApi} collab={collab} readOnly={!collab.connected} />}
+        {collab && <Editor value={value} onChange={setValue} api={memoApi} collab={collab} readOnly={!collab.connected} showMobileKeyBar={open && keyboardOpen} />}
       </div>
       {resizeHandles.map(([direction, label]) => (
         <div key={direction} role="button" tabIndex={0} aria-label={uiText(label)}

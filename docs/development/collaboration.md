@@ -24,7 +24,9 @@ MEW_COLLAB_RUST=1 npm run serve
 
 ## 공통 메모
 
-- 네 변·네 모서리의 크기 조절 영역은 pointer capture로 마우스·터치 입력을 받고 반대쪽 변을 고정한다. 기본 크기는 560×420px, 최소 크기는 280×180px이며 visual viewport가 더 작으면 화면 경계를 우선한다. 조절 영역은 번역된 접근성 이름·포커스 표시를 제공하고 방향키로 해당 변을 16px씩 조절한다. 위치·크기는 컴포넌트 상태로 닫았다 다시 열 때 유지하며 서버나 로컬 저장소에는 기록하지 않는다. `visualViewport` 변경 시 CSS 최대 크기와 위치를 보정한다.
+- 메모의 모바일 보조키는 `useMobileKeyboard`의 키보드 감지 결과와 팝업 열림 상태를 `Editor.showMobileKeyBar`로 전달해 제어한다. 본문 포커스가 남아 있어도 소프트 키보드가 닫히면 숨기고 Ctrl·Shift 토글을 해제한다. 훅은 팝업 활성화 전부터 마운트해 키보드가 없는 높이를 기억하며 visual viewport와 창 높이 축소 모두를 감지한다.
+
+- 네 변·네 모서리의 크기 조절 영역은 pointer capture로 마우스·터치 입력을 받고 반대쪽 변을 고정한다. 기본 크기는 560×420px, 최소 크기는 280×180px이며 visual viewport가 더 작으면 화면 경계를 우선한다. 조절 영역은 번역된 접근성 이름·포커스 표시를 제공하고 방향키로 해당 변을 16px씩 조절한다. 위치·크기는 컴포넌트 상태로 닫았다 다시 열 때 유지하며 서버나 로컬 저장소에는 기록하지 않는다. CSS 최대 너비는 visual viewport, 최대 높이는 layout viewport(`innerHeight`)를 따른다. 최초 활성화로 portal이 마운트된 때부터 `visualViewport`의 resize·scroll 및 창 resize를 감지한다. 키보드가 visual viewport만 줄이면 높이는 유지하고 가려진 만큼 위로 옮기되 상단은 visible viewport 시작점 + 8px보다 올라가지 않는다. 하단 여백은 24px이며 공간이 부족하면 상단 노출을 우선한다. 사용자가 정한 위치와 임시 표시 위치를 분리해 키보드가 닫히면 원래 위치로 돌아간다. 이동·크기 조절은 현재 표시 위치를 기준으로 처리한다.
 - `SharedMemo`는 로그인된 App에서 협업 권한이 있을 때 제공한다. `toggleMemo` 기본 조합은 `Ctrl+M`이며 기존 shortcut 매처로 Cmd도 받는다. 닫힘→열기, 외부 포커스→본문 포커스, 내부 포커스→닫기를 구분하고 반복 keydown·IME 조합은 재토글하지 않는다. 비모달 portal이며 바깥 누름·Tab 이동을 막지 않는다. 공통 `useOverlayDismiss`의 bubble Esc·뒤로가기 스택을 쓰고, 제목의 pointer capture·방향키로 이동한다. `visualViewport`와 resize에 맞춰 경계를 보정한다.
 - App은 메모의 열림 상태와 포커스 요청을 `SharedMemo`에 전달한다. 하단 독의 `memo` 항목은 같은 권한 조건으로 표시하고, 팝업의 `data-workspace-panel="memo"`와 연동해 열림·포커스를 강조한다. 독 버튼, 단축키, Esc와 닫기 버튼이 같은 상태를 갱신하며 모바일 독 전환은 메모를 숨기고 편집 상태를 보존한다.
 - 본문은 `@mew/editor`의 Hotview와 `useCollab`을 재사용한다. 첫 동기화·재연결 대기에는 읽기 전용으로 두며 글자 수 상태줄은 만들지 않는다. 표 너비는 CRDT 속성으로 공유하고 프로젝트의 table-layout 파일에는 저장하지 않는다. 처음 열 때만 연결하며 닫은 뒤에도 현재 페이지에서 문서·실행 취소·미전송 변경을 보존한다. 닫힌 창의 awareness 사용자 정보는 제거한다. 제목 옆 `PresenceDots`는 열린 awareness의 계정별 색을 중복 제거해 표시하며, 연결이 끊기면 원격 awareness를 즉시 제거한다.

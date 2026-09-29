@@ -286,9 +286,11 @@ export const Editor = forwardRef<
     onCommentClick?: (id: string, x: number, y: number) => void
     /** 주면 모바일 보조키에 댓글 아이콘이 뜬다 — 폰에는 Alt+Shift+C가 없다. 호스트가 앵커를 만든다 */
     onStartComment?: () => void
+    /** 호스트가 보조키 표시를 제한할 수 있다. 기본값은 모바일 폭·편집기 포커스를 따른다. */
+    showMobileKeyBar?: boolean
   }
 >(function Editor(
-  { value, onChange, api, readOnly, path = '', tree = [], onOpenLink, onSelectionChars, collab, commentThreads, onCommentClick, onStartComment },
+  { value, onChange, api, readOnly, path = '', tree = [], onOpenLink, onSelectionChars, collab, commentThreads, onCommentClick, onStartComment, showMobileKeyBar = true },
   ref,
 ) {
   useUiLocale()
@@ -372,8 +374,14 @@ export const Editor = forwardRef<
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchSeed, setSearchSeed] = useState<{ q?: string; n: number }>({ n: 0 })
   const mobileLayout = useMobileLayout()
-  const mobileLayoutRef = useRef(mobileLayout)
-  mobileLayoutRef.current = mobileLayout
+  const mobileKeyBarVisible = mobileLayout && editorFocused && showMobileKeyBar
+  const mobileKeyBarVisibleRef = useRef(mobileKeyBarVisible)
+  mobileKeyBarVisibleRef.current = mobileKeyBarVisible
+  useEffect(() => {
+    if (showMobileKeyBar) return
+    setKeyBarCtrl(false)
+    setKeyBarShift(false)
+  }, [showMobileKeyBar])
 
   const scheduleCaretVisibility = useCallback((ed: TiptapEditor) => {
     if (caretScrollFrameRef.current !== null) cancelAnimationFrame(caretScrollFrameRef.current)
@@ -386,7 +394,7 @@ export const Editor = forwardRef<
         const bounds = scroller.getBoundingClientRect()
         const top = bounds.top + 12
         // 모바일 보조키 바는 fixed라 스크롤 컨테이너의 높이에 포함되지 않는다.
-        const bottom = bounds.bottom - (mobileLayoutRef.current ? 44 : 12)
+        const bottom = bounds.bottom - (mobileKeyBarVisibleRef.current ? 44 : 12)
         if (caret.top < top) scroller.scrollTop -= top - caret.top
         else if (caret.bottom > bottom) scroller.scrollTop += caret.bottom - bottom
       } catch {
@@ -2003,9 +2011,8 @@ export const Editor = forwardRef<
       {/* 보조키 바는 스크롤 컨테이너 바닥에 붙는다. 상태줄은 파일 종류를 가리지 않아야 해서
           이 컴포넌트 밖(EditorPane)으로 나갔다 — 여기 남기면 md 문서에만 뜬다. */}
       <div className="sticky bottom-0 z-20 shrink-0">
-        {/* 키보드가 떠 있는지는 보지 않는다 — 키보드를 내린 채 방향키·Esc만 쓰는 경우가 더 많다.
-            다만 에디터에 포커스가 없으면 보조키가 갈 곳이 없으므로 그때는 숨긴다. */}
-        {mobileLayout && editorFocused && (
+        {/* 기본은 모바일 폭·포커스를 따르며, 팝업 등 호스트가 키보드 상태로 제한할 수 있다. */}
+        {mobileKeyBarVisible && (
           <MobileKeyBar
             ctrlActive={keyBarCtrl}
             shiftActive={keyBarShift}

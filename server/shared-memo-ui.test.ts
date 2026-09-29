@@ -55,6 +55,63 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await one.keyboard.type('First note')
     await two.locator('[data-dock-item=memo]').tap()
     await two.locator('.tiptap h1').filter({ hasText: 'Shared memo' }).waitFor()
+    const mobileMemo = two.getByRole('dialog', { name: '메모', exact: true })
+    await mobileMemo.locator('.tiptap[contenteditable=true]').focus()
+    const keyBar = mobileMemo.locator('[data-mobile-key-bar]')
+    await keyBar.waitFor({ state: 'hidden' })
+    const originalMobile = (await mobileMemo.boundingBox())!
+    const setKeyboardViewport = async (height: number, offsetTop = 0, eventType = 'resize') => {
+      await mobileMemo.evaluate((el, viewport) => {
+        const visual = el.ownerDocument.defaultView!.visualViewport!
+        Object.defineProperty(visual, 'height', { configurable: true, value: viewport.height })
+        Object.defineProperty(visual, 'offsetTop', { configurable: true, value: viewport.offsetTop })
+        const event = el.ownerDocument.createEvent('Event')
+        event.initEvent(viewport.eventType, false, false)
+        visual.dispatchEvent(event)
+      }, { height, offsetTop, eventType })
+    }
+    const expectMemoTop = async (top: number) => {
+      await mobileMemo.evaluate(async (el, expected) => {
+        for (let frame = 0; frame < 60 && Math.abs(el.getBoundingClientRect().top - expected) > 0.5; frame++) {
+          await new Promise(resolve => el.ownerDocument.defaultView!.requestAnimationFrame(resolve))
+        }
+      }, top)
+      assert.equal((await mobileMemo.boundingBox())!.y, top)
+    }
+    await setKeyboardViewport(600)
+    await expectMemoTop(originalMobile.y)
+    await setKeyboardViewport(470)
+    await expectMemoTop(470 - 24 - originalMobile.height)
+    await keyBar.waitFor({ state: 'visible' })
+    await keyBar.getByRole('button', { name: 'Ctrl', exact: true }).dispatchEvent('click')
+    await keyBar.getByRole('button', { name: 'Shift', exact: true }).dispatchEvent('click')
+    assert.equal((await mobileMemo.boundingBox())!.height, originalMobile.height, 'keyboard avoidance moves the popup without shrinking it')
+    await setKeyboardViewport(260)
+    await expectMemoTop(8)
+    assert.ok((await mobileMemo.boundingBox())!.height > 260, 'a tall popup keeps its header visible even when the bottom cannot fit')
+    await setKeyboardViewport(260, 95, 'scroll')
+    await expectMemoTop(103)
+    await mobileMemo.getByRole('button', { name: '닫기', exact: true }).waitFor({ state: 'visible' })
+    await setKeyboardViewport(844)
+    await expectMemoTop(originalMobile.y)
+    await keyBar.waitFor({ state: 'hidden' })
+    assert.equal(await mobileMemo.locator('.tiptap').evaluate(el => el === el.ownerDocument.activeElement), true, 'keyboard dismissal hides the extra keys even while the editor retains focus')
+    assert.deepEqual(await mobileMemo.boundingBox(), originalMobile, 'dismissing the keyboard restores the original geometry')
+    await setKeyboardViewport(470)
+    await keyBar.waitFor({ state: 'visible' })
+    assert.equal(await keyBar.getByRole('button', { name: 'Ctrl', exact: true }).getAttribute('aria-pressed'), 'false')
+    assert.equal(await keyBar.getByRole('button', { name: 'Shift', exact: true }).getAttribute('aria-pressed'), 'false')
+    await setKeyboardViewport(844)
+    await keyBar.waitFor({ state: 'hidden' })
+    await mobileMemo.evaluate(el => {
+      const visual = el.ownerDocument.defaultView!.visualViewport!
+      Reflect.deleteProperty(visual, 'height')
+      Reflect.deleteProperty(visual, 'offsetTop')
+    })
+    await two.setViewportSize({ width: 390, height: 500 })
+    await keyBar.waitFor({ state: 'visible' })
+    await two.setViewportSize({ width: 390, height: 844 })
+    await keyBar.waitFor({ state: 'hidden' })
     await memo.locator('[title="2명이 작업 중입니다"]').waitFor()
     await two.locator('.tiptap').press('Control+End'); await two.keyboard.press('Enter'); await two.keyboard.type('Second note')
     await memo.locator('p').filter({ hasText: 'Second note' }).waitFor()
