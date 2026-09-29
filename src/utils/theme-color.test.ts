@@ -56,3 +56,28 @@ test('CSS before React starts matches the derived default in both themes', () =>
     for (const [token, color] of [['accent', colors.accent], ['accent-strong', colors.accentStrong], ['link', colors.link], ['ink-on-accent', colors.inkOnAccent]]) assert.ok(source.includes(`--color-${token}: ${color};`))
   }
 })
+
+test('derived highlights retain source hue and HSL saturation instead of mixing in white', () => {
+  const hsl = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min
+    return {
+      saturation: delta === 0 ? 0 : delta / (1 - Math.abs(max + min - 1)),
+      hue: delta === 0 ? 0 : max === r ? ((g - b) / delta + 6) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4,
+    }
+  }
+  for (const color of [DEFAULT_THEME_COLOR, '#bb2200', '#006633', '#0044cc', '#ff00ff', '#00ffff', '#ffff00', '#808080', '#000000', '#ffffff']) {
+    const source = hsl(color)
+    for (const mode of ['dark', 'light'] as const) {
+      const colors = deriveThemeColors(color, mode)
+      for (const value of [colors.accent, colors.accentStrong, colors.link]) {
+        const derived = hsl(value)
+        assert.ok(Math.abs(derived.saturation - source.saturation) < .015, `${color} ${mode} ${value} saturation`)
+        if (source.saturation > 0) {
+          const distance = Math.abs(derived.hue - source.hue)
+          assert.ok(Math.min(distance, 6 - distance) < .03, `${color} ${mode} ${value} hue`)
+        }
+      }
+    }
+  }
+})

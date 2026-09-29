@@ -99,9 +99,9 @@
   --color-ink-on-danger: #ffffff; /* 경고·삭제 버튼은 테마색과 독립 */
 
   /* 기본 테마색의 파생값 — utils/theme-color.ts와 테스트로 일치 확인 */
-  --color-accent: #a299d4;
-  --color-accent-strong: #bdb7e0;
-  --color-link: #a299d4;
+  --color-accent: #9082da;
+  --color-accent-strong: #a297e0;
+  --color-link: #9082da;
 
   /* 상태 */
   --color-warning: #f59e0b;
@@ -160,9 +160,9 @@
   --color-ink-inverse: #fafafa;
   --color-ink-on-accent: #ffffff;
 
-  --color-accent: #5949b2;
+  --color-accent: #5642c7;
   --color-accent-strong: #3f2f9d;
-  --color-link: #5949b2;
+  --color-link: #5642c7;
 
   --color-warning: #f59e0b;
   --color-warning-surface: #fef3c7;
