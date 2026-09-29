@@ -106,6 +106,19 @@ export function saveRootProjectTabs(state: RootProjectTabState): Promise<{ state
   }).then(json<{ state: RootProjectTabState }>)
 }
 
+/** Both navigation surfaces read the project's own .mew icon file. */
+export function fetchRootProjectIcons(paths: string[]): Promise<{ icons: Record<string, string> }> {
+  return fetch('/api/project-icons/read', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }),
+  }).then(json<{ icons: Record<string, string> }>)
+}
+
+export function saveRootProjectIcon(path: string, icon: string): Promise<{ icon: string | null }> {
+  return fetch('/api/project-icons', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, icon }),
+  }).then(json<{ icon: string | null }>)
+}
+
 /** 로그인 계정의 루트 프로젝트별 에이전트 탭·ACP 세션 포인터. */
 export type AgentSessionClaim = { workspacePath: string; tabId: string; sessionId: string }
 

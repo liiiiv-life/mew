@@ -1,4 +1,6 @@
 import path from 'node:path'
+import { projectRoot } from './paths.ts'
+import { readProjectIcon } from './projectIcons.ts'
 import { buildTreeAsync, isPathVisible, listTreeDirAsync, type TreeNode, type TreeOptions } from './tree.ts'
 import { measure, measureSync } from './perfMarks.ts'
 
@@ -75,7 +77,7 @@ function snapshotFromTree(project: string, tree: TreeNode[], version: number): C
 function visible(nodes: readonly TreeNode[], project: string, opts: TreeOptions): TreeNode[] {
   return nodes
     .filter((node) => isPathVisible(project, node.path, { ...opts, type: node.type === 'dir' ? 'dir' : 'file' }))
-    .map((node) => ({ ...node }))
+    .map((node) => ({ ...node, ...(node.project ? { icon: readProjectIcon(path.join(projectRoot(project), node.path)) } : {}) }))
 }
 
 async function build(project: string, state: ProjectCatalog, buildGeneration: number): Promise<CatalogSnapshot> {

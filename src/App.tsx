@@ -14,7 +14,8 @@ import {
   fetchMewUpdateStatus,
   fetchRootProjectTabs,
   fetchWorkspaceUi,
-  fetchProjects,
+  fetchRootProjectIcons,
+  saveRootProjectIcon,
   fetchWorkspace,
   fetchTreeV1,
   isArchivedPath,
@@ -146,7 +147,6 @@ const BROWSER_OPEN_KEY = 'mew:browser-open'
 const GIT_OPEN_KEY = 'mew:git-open'
 const ANDROID_OPEN_KEY = 'mew:android-open'
 const OPEN_PROJECTS_KEY = 'mew:open-project-paths'
-const ROOT_PROJECT_ICONS_KEY = 'mew:root-project-icons'
 const ROOT_PROJECT_GROUPS_KEY = 'mew:root-project-groups'
 /** 지울 수 없는 기본 프로젝트 — 보고 있던 프로젝트가 사라지면 여기로 빠진다 */
 const DEFAULT_PROJECT = 'docs'
@@ -191,15 +191,6 @@ function loadOpenProjectPaths(): string[] {
     return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string' && value !== '') : []
   } catch {
     return []
-  }
-}
-
-function loadRootProjectIcons(): Record<string, string> {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(ROOT_PROJECT_ICONS_KEY) ?? '{}')
-    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, string> : {}
-  } catch {
-    return {}
   }
 }
 
@@ -273,7 +264,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   // 절대경로 탭 목록은 owner UI에만 노출한다. manager는 셸 권한상 현재 경로를 볼 수 있지만 다른
   // 브라우저 사용자가 남긴 owner 전용 목록까지 물려받지는 않는다.
   const [openProjectPaths, setOpenProjectPaths] = useState<string[]>(() => (isOwner ? loadOpenProjectPaths() : []))
-  const [rootProjectIcons, setRootProjectIcons] = useState<Record<string, string>>(() => (isOwner ? loadRootProjectIcons() : {}))
+  const [rootProjectIcons, setRootProjectIcons] = useState<Record<string, string>>({})
   const [rootProjectGroups, setRootProjectGroups] = useState<ProjectTabGroup[]>(() => (isOwner ? loadRootProjectGroups() : []))
   const rootProjectSaveQueue = useRef<Promise<unknown>>(Promise.resolve())
   const [rootProjectTabsSynced, setRootProjectTabsSynced] = useState(!isOwner)
@@ -288,7 +279,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const [tree, setTree] = useState<TreeNode[]>([])
   // 사이드바는 활성 편집 스코프와 무관하게 Documents와 루트 내용을 함께 보여 준다.
   const [rootTree, setRootTree] = useState<TreeNode[]>([])
-  const [subprojectIcons, setSubprojectIcons] = useState<Record<string, string>>({})
   const [docsTree, setDocsTree] = useState<TreeNode[]>([])
   const [docsExpanded, setDocsExpanded] = useState(false)
   // 루트가 바뀌는 렌더에서는 이전 프로젝트 상태를 새 키에 쓰지 않도록, 복원 한 프레임을 건너뛴다.
@@ -658,15 +648,14 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   }, [])
 
   useEffect(() => {
-    if (!rootProjectPath && !isGuest) return
+    if (!isOwner || !rootProjectTabsSynced) return
     let alive = true
-    void fetchProjects()
-      .then(projects => {
-        if (alive) setSubprojectIcons(Object.fromEntries(projects.flatMap(({ name, icon }) => icon ? [[name, icon] as const] : [])))
-      })
-      .catch(console.error)
+    const paths = [...new Set([...openProjectPaths, ...(rootProjectPath ? [rootProjectPath] : [])])]
+    void fetchRootProjectIcons(paths).then(({ icons }) => {
+      if (alive) setRootProjectIcons(icons)
+    }).catch(console.error)
     return () => { alive = false }
-  }, [isGuest, rootProjectPath])
+  }, [isOwner, rootProjectTabsSynced, openProjectPaths, rootProjectPath, workspaceEpoch])
 
   // 서버 상태가 비어 있을 때만 이 브라우저의 기존 localStorage를 최초 값으로 올린다. 시크릿 창의
   // 빈 저장소가 이미 쓰고 있던 계정 상태를 덮어쓰지 않도록, 내려받기 전에는 저장하지 않는다.
@@ -691,17 +680,16 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     if (!isOwner) return
     const layout = normalizeProjectTabLayout(openProjectPaths, rootProjectGroups)
     writeBrowserStorage(OPEN_PROJECTS_KEY, JSON.stringify(layout.paths))
-    writeBrowserStorage(ROOT_PROJECT_ICONS_KEY, JSON.stringify(rootProjectIcons))
     writeBrowserStorage(ROOT_PROJECT_GROUPS_KEY, JSON.stringify(layout.groups))
     if (!rootProjectTabsSynced) return
     // Keep rapid moves in order; discard superseded or unmounted pending writes.
     let current = true
     rootProjectSaveQueue.current = rootProjectSaveQueue.current
       .catch(() => {})
-      .then(() => current ? saveRootProjectTabs({ ...layout, icons: rootProjectIcons }) : undefined)
+      .then(() => current ? saveRootProjectTabs({ ...layout, icons: {} }) : undefined)
       .catch(console.error)
     return () => { current = false }
-  }, [isOwner, openProjectPaths, rootProjectIcons, rootProjectGroups, rootProjectTabsSynced])
+  }, [isOwner, openProjectPaths, rootProjectGroups, rootProjectTabsSynced])
 
   const rememberProjectPath = useCallback((projectPath: string) => {
     setOpenProjectPaths((previous) => {
@@ -710,14 +698,20 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     })
   }, [])
 
-  const changeRootProjectIcon = useCallback((projectPath: string, icon: string) => {
-    setRootProjectIcons((previous) => {
-      const next = { ...previous }
-      if (icon) next[projectPath] = icon
-      else delete next[projectPath]
-      return next
-    })
-  }, [])
+  const changeRootProjectIcon = useCallback(async (projectPath: string, icon: string) => {
+    try {
+      const saved = await saveRootProjectIcon(projectPath, icon)
+      setRootProjectIcons(previous => {
+        const next = { ...previous }
+        if (saved.icon) next[projectPath] = saved.icon
+        else delete next[projectPath]
+        return next
+      })
+      rootTreeCache.current.clear()
+      workspaceEpochRef.current++
+      setWorkspaceEpoch(workspaceEpochRef.current)
+    } catch (err) { showToast(err instanceof Error ? err.message : String(err)) }
+  }, [showToast])
 
   const applyWorkspace = useCallback((info: { path: string; docsPath?: string }) => {
     const previous = workspaceInfoRef.current
@@ -2122,7 +2116,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                           <SubprojectLink
                             data-path={`@subproject:${subproject.path}`}
                             name={subproject.name}
-                            icon={subprojectIcons[subproject.name] ?? 'i:folder'}
+                            icon={subproject.icon ?? 'i:folder'}
                             unavailable={!isOwner}
                             disabled={switchingRootProject}
                             onClick={() => void openSidebarProject(WORKSPACE_PROJECT, subproject.path)}
@@ -2158,7 +2152,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                     project={isGuest ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
                     scopes={!isGuest ? [
                       { id: 'docs', label: t('project.documents'), icon: 'i:notes' },
-                      ...rootSubprojects.map((subproject) => ({ id: `subproject:${subproject.path}`, label: subproject.name, icon: subprojectIcons[subproject.name] ?? 'i:folder' })),
+                      ...rootSubprojects.map((subproject) => ({ id: `subproject:${subproject.path}`, label: subproject.name, icon: subproject.icon ?? 'i:folder' })),
                     ] : []}
                     mode={sidebarView === 'search' ? 'files' : 'content'}
                     onOpenFileNameResult={!isGuest ? (result) => openMentionedFile(result.project, result.path, null) : undefined}

@@ -401,6 +401,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
       <div className="flex w-full items-center gap-0.5">
         {projectLink ? <SubprojectLink
           name={node.name}
+          icon={node.icon ?? 'i:folder'}
           unavailable={!ctx.canOpenProjects}
           data-path={node.path}
           draggable={!readOnly}

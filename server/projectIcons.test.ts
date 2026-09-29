@@ -1,52 +1,75 @@
-// 프로젝트 아이콘이 "가끔 통째로 초기화되던" 문제를 막는 회귀 테스트.
-// 원인은 읽기 실패를 조용히 빈 객체로 넘기고, 그 위에 통째로 덮어쓴 것 — 다른 프로세스가
-// 저장하는 순간(0바이트 구간)에 읽으면 남아 있던 아이콘이 전부 사라졌다.
-import { test } from 'node:test'
+import './test-isolated-data.ts'
+import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { DATA_DIR } from './dataDir.ts'
+import { readProjectIcon, readProjectIcons, readRootProjectIcons, setProjectIcon, writeProjectIcon } from './projectIcons.ts'
+import { WORKSPACE_ROOT, setWorkspaceRoot } from './paths.ts'
+import { buildTree } from './tree.ts'
+import { listCatalogChildren, readyFileCatalog, resetFileCatalogs } from './fileCatalog.ts'
+import { renameProject } from './projects.ts'
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-icons-'))
-process.env.MEW_DATA_DIR = dir
+const original = WORKSPACE_ROOT
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-icons-'))
+setWorkspaceRoot(root)
+after(() => { setWorkspaceRoot(original); fs.rmSync(root, { recursive: true, force: true }) })
+const dir = (name: string) => {
+  const value = path.join(root, name)
+  fs.mkdirSync(path.join(value, '.mew'), { recursive: true })
+  return value
+}
 
-const { readProjectIcons, setProjectIcon } = await import('./projectIcons.ts')
-const ICONS_FILE = path.join(dir, 'project-icons.json')
-
-test('setProjectIcon: 설정·삭제가 저장되고 다른 프로젝트는 남는다', () => {
-  fs.rmSync(ICONS_FILE, { force: true })
-  setProjectIcon('alpha', 'i:book')
-  setProjectIcon('beta', '🌱')
-  assert.deepEqual(readProjectIcons(), { alpha: 'i:book', beta: '🌱' })
-
-  setProjectIcon('beta', null)
-  assert.deepEqual(readProjectIcons(), { alpha: 'i:book' })
-})
-
-test('setProjectIcon: 저장 중에도 파일이 빈 적이 없다 (원자적 교체)', () => {
-  fs.rmSync(ICONS_FILE, { force: true })
-  setProjectIcon('alpha', 'i:book')
-  // rename으로 갈아끼우므로 임시 파일이 남지 않고, 경로는 항상 완전한 JSON을 가리킨다
-  assert.deepEqual(JSON.parse(fs.readFileSync(ICONS_FILE, 'utf-8')), { alpha: 'i:book' })
-  assert.equal(
-    fs.readdirSync(dir).filter((f) => f.includes('.tmp-')).length,
-    0,
-  )
-})
-
-test('setProjectIcon: 파일이 깨져 있으면 덮어쓰지 않고 사본을 남긴 뒤 실패한다', () => {
-  fs.writeFileSync(ICONS_FILE, '{"alpha": "i:book"', 'utf-8') // 잘린 JSON
-  assert.throws(() => setProjectIcon('gamma', 'i:star'), /깨졌습니다/)
-
-  // 원본은 그대로 — 손으로 되살릴 수 있다
-  assert.equal(fs.readFileSync(ICONS_FILE, 'utf-8'), '{"alpha": "i:book"')
-  assert.ok(fs.readdirSync(dir).some((f) => f.startsWith('project-icons.json.corrupt-')))
-  // 반면 목록 조회는 실패하지 않는다 (아이콘 없이 보일 뿐)
-  assert.deepEqual(readProjectIcons(), {})
-})
-
-test('setProjectIcon: 없는 아이콘을 지우는 건 파일을 건드리지 않는다', () => {
-  fs.rmSync(ICONS_FILE, { force: true })
+test('sidebar, root tabs and nested tree read one project-owned SVG; reset survives legacy values', async () => {
+  const alpha = dir('alpha')
+  const nested = dir('plain/nested')
+  const svg = 'svg:<svg viewBox="0 0 24 24"><path d="M1 1h10v10"/></svg>'
+  fs.writeFileSync(path.join(DATA_DIR, 'project-icons.json'), JSON.stringify({ alpha: svg }))
+  assert.equal(readProjectIcons().alpha, svg)
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(alpha, '.mew/project-icon.json'), 'utf8')), { icon: svg })
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'project-icons.json'), 'utf8')), {})
+  assert.equal(readRootProjectIcons([alpha], { [alpha]: 'i:star' })[alpha], svg)
+  writeProjectIcon(nested, '🌱')
+  const tree = buildTree('.workspace', { showAll: true })
+  assert.equal(tree.find(node => node.name === 'alpha')?.icon, svg)
+  assert.equal(tree.find(node => node.name === 'plain')?.children?.find(node => node.name === 'nested')?.icon, '🌱')
+  await readyFileCatalog('.workspace')
+  assert.equal((await listCatalogChildren('.workspace', '', { showAll: true })).entries.find(node => node.name === 'alpha')?.icon, svg)
+  writeProjectIcon(alpha, 'i:star')
+  assert.equal((await listCatalogChildren('.workspace', '', { showAll: true })).entries.find(node => node.name === 'alpha')?.icon, 'i:star', 'cached tree resolves the current project file')
+  assert.equal((await listCatalogChildren('.workspace', 'plain', { showAll: true })).entries.find(node => node.name === 'nested')?.icon, '🌱')
+  resetFileCatalogs()
   setProjectIcon('alpha', null)
-  assert.equal(fs.existsSync(ICONS_FILE), false)
+  assert.equal(readProjectIcon(alpha, 'i:star'), null)
+  assert.equal(readProjectIcons().alpha, undefined)
+  assert.equal(readProjectIcon(nested), '🌱')
+})
+
+test('project rename carries the canonical icon and legacy tab fallback is only used once', () => {
+  const before = dir('before')
+  assert.equal(readProjectIcon(before, 'i:book'), 'i:book')
+  assert.equal(readProjectIcon(before, 'i:star'), 'i:book')
+  renameProject('before', 'after')
+  assert.equal(readProjectIcon(path.join(root, 'after')), 'i:book')
+  assert.equal(fs.existsSync(before), false)
+})
+
+test('corrupt files and symlinks are not overwritten, and unsafe SVG is rejected', () => {
+  const broken = dir('broken')
+  const file = path.join(broken, '.mew/project-icon.json')
+  fs.writeFileSync(file, '{"icon":')
+  assert.throws(() => writeProjectIcon(broken, 'i:star'), /깨졌습니다/)
+  assert.equal(fs.readFileSync(file, 'utf8'), '{"icon":')
+  assert.equal(readProjectIcon(broken, 'i:book'), null)
+  const linked = dir('linked')
+  fs.symlinkSync(file, path.join(linked, '.mew/project-icon.json'))
+  assert.throws(() => writeProjectIcon(linked, 'i:star'), /실제 파일/)
+  const target = dir('target')
+  fs.mkdirSync(path.join(root, 'marker-link'))
+  fs.symlinkSync(path.join(target, '.mew'), path.join(root, 'marker-link/.mew'))
+  assert.throws(() => writeProjectIcon(path.join(root, 'marker-link'), 'i:star'), /실제 폴더/)
+  assert.throws(() => writeProjectIcon(target, 'svg:<svg><script>alert(1)</script></svg>'), /안전하지/)
+  assert.equal(fs.existsSync(path.join(target, '.mew/project-icon.json')), false)
+  assert.throws(() => readRootProjectIcons(['relative']), /경로 목록/)
 })

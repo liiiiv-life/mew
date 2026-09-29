@@ -110,7 +110,7 @@ export function RootProjectTabs({ paths, groups, activePath, fallbackLabel, canO
           title={projectPath} className="flex h-full min-w-0 select-none items-center gap-1.5 px-2.5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
           style={{ WebkitTouchCallout: 'none' }}>
           <span className="flex h-5 w-5 items-center justify-center font-semibold" aria-hidden="true">
-            {icons[projectPath] ? <ProjectIcon icon={icons[projectPath]} size={15} /> : (label[0]?.toUpperCase() || '/')}
+            <ProjectIcon icon={icons[projectPath] ?? 'i:folder'} size={15} />
           </span>
           <span className={`max-w-[10rem] truncate ${labelVisible}`}>{label}</span>
         </button>

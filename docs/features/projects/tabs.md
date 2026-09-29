@@ -4,7 +4,7 @@ parent: "mew-projects"
 title: "프로젝트 열기·탭·그룹"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-29"
 status_hash: "03b352e53f93242f9efdfd05c5bd632f9bf92dd1a456279d6b0eb0efd066cd3f"
 files: ["src/components/file-action-menu.tsx", "src/hooks/use-external-file-actions.tsx", "src/components/file-browser-favorites.tsx", "server/file-favorites.ts", "src/components/file-browser.tsx", "src/components/OpenProjectDialog.tsx", "src/components/RootProjectTabs.tsx", "server/projects.ts", "server/cloud-storage.ts"]
 commits: []
@@ -15,6 +15,8 @@ commits: []
 - 서버의 폴더를 프로젝트 탭으로 열고 여러 작업 공간을 오간다.
 
 ### 범위
+
+- 프로젝트의 `.mew/project-icon.json` 하나를 사이드바·프로젝트탭의 공통 아이콘으로 사용한다.
 
 - 프로젝트 추가·서버 파일 탐색기의 맨 위에 OS/클라우드 기본 폴더와 계정별 즐겨찾기를 제공한다.
 - 폴더 탐색·클라우드 바로가기·새 폴더·Git clone·Git 초기화를 프로젝트 선택 창에서 제공한다.
@@ -34,6 +36,8 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- `server/projectIcons.ts`가 프로젝트별 아이콘 읽기·저장·기존 값 이관을 맡는다. 직계·중첩 트리와 루트 탭은 같은 값을 표시하고, 탭에서 변경하면 프로젝트 파일을 갱신한다.
 
 - 두 탐색기의 항목 우클릭은 사이드바와 같은 메뉴 컴포넌트로 복사·잘라내기·붙여넣기·이름 변경·삭제를 제공하고 폴더에 즐겨찾기 추가를 표시한다.
 - 모바일 길게 누르기도 지원한다.
@@ -61,6 +65,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- `projectIcons.test.ts`·`project-icons-api.test.ts`: 공통 SVG·중첩 아이콘·이관 우선순위·초기화·이름 변경·손상/링크 보호·owner 권한·계정 사본 배제를 검증한다.
 
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 다른 프로젝트로 갔다 돌아올 때 문서·배치가 복원되고 탭 닫기가 파일을 삭제하지 않는지 확인한다.

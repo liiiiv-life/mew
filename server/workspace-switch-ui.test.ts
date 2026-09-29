@@ -95,6 +95,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
         }
         return json({ path: active, docs: 'docs', docsPath: active + '/docs', projects: [] })
       }
+      if (url.pathname === '/api/project-icons/read') return json({ icons: {} })
       if (url.pathname === '/api/user-ui/root-projects') return json({ state: { paths: ['/alpha', '/beta'], icons: {}, groups: [] } })
       if (url.pathname === '/api/user-ui/agent-tabs') return json({ state: null, claims: [], workspace: url.searchParams.get('workspace') })
       if (url.pathname === '/api/user-ui/workspace') {

@@ -45,7 +45,7 @@ import { readTableLayout, TableLayoutError, writeTableLayout } from './tableLayo
 import { ChatError, listChatFor, markChatRead, mentionedEmails, postChatMessage } from './chat.ts'
 import { addComment, addThread, CommentsError, deleteComment, editComment, listThreads } from './comments.ts'
 import { createDbRouter } from './db/routes.ts'
-import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
+import { readProjectIcons, setProjectIcon, readRootProjectIcons, writeProjectIcon } from './projectIcons.ts'
 import { normalizeIconValue, SvgIconError } from './svgIcon.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 import { DocsRepoError, exportDocs, importDocs } from './docsRepo.ts'
@@ -432,12 +432,13 @@ export function createApiApp() {
   // 로그인 계정의 작업 맥락 — 브라우저 localStorage가 아니라 서버가 기준이라 다른 기기·시크릿 창도
   // 같은 프로젝트·에이전트 탭을 복원한다(ADR 0093).
   app.get('/user-ui/root-projects', requireRole('owner'), (req, res) => {
-    res.json({ state: readRootProjects(authOf(req).email!) })
+    const state = readRootProjects(authOf(req).email!)
+    res.json({ state: state ? { ...state, icons: readRootProjectIcons(state.paths, state.icons) } : null })
   })
 
   app.put('/user-ui/root-projects', requireRole('owner'), (req, res) => {
     try {
-      res.json({ state: writeRootProjects(authOf(req).email!, req.body) })
+      res.json({ state: writeRootProjects(authOf(req).email!, { ...req.body, icons: {} }) })
     } catch (err) {
       handleError(res, err)
     }
@@ -606,6 +607,22 @@ export function createApiApp() {
     } catch (err) {
       handleError(res, err)
     }
+  })
+
+  app.post('/project-icons/read', requireRole('owner'), (req, res) => {
+    try { res.json({ icons: readRootProjectIcons(req.body.paths) }) }
+    catch (err) { res.status(400).json({ error: String(err) }) }
+  })
+
+  app.put('/project-icons', requireRole('owner'), (req, res) => {
+    try {
+      const { path: root, icon } = req.body
+      if (typeof root !== 'string' || !path.isAbsolute(root) || (icon !== null && typeof icon !== 'string')) {
+        res.status(400).json({ error: '프로젝트 경로와 아이콘이 필요합니다' })
+        return
+      }
+      res.json({ icon: writeProjectIcon(root, icon) })
+    } catch (err) { res.status(400).json({ error: String(err) }) }
   })
 
   app.put('/project-icon', requireAuthenticated, (req, res) => {

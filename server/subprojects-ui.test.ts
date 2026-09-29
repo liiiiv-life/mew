@@ -16,22 +16,23 @@ import {FileTree} from '${root}/src/components/FileTree.tsx';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {SubprojectLink} from '${root}/src/components/subproject-link.tsx';
 import {RootProjectTabs} from '${root}/src/components/RootProjectTabs.tsx';
-const noop=()=>{};const dir=(path,children=[],project=false)=>({path,name:path.split('/').pop(),type:'dir',children,project});
+const icon='svg:<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M2 2h20v20H2z"/></svg>';
+const noop=()=>{};const dir=(path,children=[],project=false)=>({path,name:path.split('/').pop(),type:'dir',children,project,icon:project?icon:undefined});
 function Fixture(){
 const [made,setMade]=useState(false);const [readOnly,setReadOnly]=useState(false);const [navigation,setNavigation]=useState(false);const [canOpen,setCanOpen]=useState(true);
 const [paths,setPaths]=useState(['/work']);const [active,setActive]=useState('/work');
 window.readOnly=setReadOnly;window.enableNavigation=()=>setNavigation(true);window.setCanOpen=setCanOpen;
 window.notices??=[];window.opened??=[];window.loads??=[];
 const open=path=>{window.opened.push(path);setPaths(previous=>[...new Set([...previous,'/work/'+path])]);setActive('/work/'+path)};
-return <><header className="flex h-12"><RootProjectTabs paths={paths} activePath={active} fallbackLabel="work" canOpen={false} canChangeIcon={false} icons={{}} onActivate={setActive} onClose={noop} onIconChange={noop} onOpen={noop}/></header>
+return <><header className="flex h-12"><RootProjectTabs paths={paths} activePath={active} fallbackLabel="work" canOpen={false} canChangeIcon={false} icons={Object.fromEntries(paths.map(path=>[path,icon]))} onActivate={setActive} onClose={noop} onIconChange={noop} onOpen={noop}/></header>
 <div className="h-[700px] w-80"><FileTree project=".workspace" canUseCommands tree={[dir('abc',[dir('abc/def',[{name:'inside.md',path:'abc/def/inside.md',type:'file'}],made)],true),dir('plain',[dir('plain/nested',[],true)]),dir('.mew'),{name:'note.md',path:'note.md',type:'file'}]} selectedPath={null} readOnly={readOnly} searchFocusSignal={0} newFileSignal={{n:0,parentPath:null}} revealSignal={0} presence={{}} onSelect={noop} onFileCreated={noop} onFolderCreated={()=>setMade(true)} onRenamed={noop} onDeleted={noop} onNotice={notice=>window.notices.push(notice)} registerSearchCancel={noop}
 canOpenProjects={canOpen} onOpenProject={navigation?open:undefined} loadChildren={async path=>{window.loads.push(path);return []}}
-roots={navigation?<div className="flex"><SubprojectLink name="direct" data-path="@subproject:direct" unavailable={!canOpen} onClick={()=>open('direct')}/></div>:null}/></div></>}
+roots={navigation?<div className="flex"><SubprojectLink icon={icon} name="direct" data-path="@subproject:direct" unavailable={!canOpen} onClick={()=>open('direct')}/></div>:null}/></div></>}
 
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:subprojects.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:subprojects.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, async load(id) { if (id === 'virtual:subprojects.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8')) } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = (await Promise.all(['src/components/file-action-menu.tsx', 'src/hooks/use-external-file-actions.tsx', 'src/components/FileTree.tsx', 'src/components/subproject-link.tsx', 'src/components/RootProjectTabs.tsx', 'src/hooks/use-tree-touch-gesture.ts'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/ProjectIcon.tsx', 'src/components/file-action-menu.tsx', 'src/hooks/use-external-file-actions.tsx', 'src/components/FileTree.tsx', 'src/components/subproject-link.tsx', 'src/components/RootProjectTabs.tsx', 'src/hooks/use-tree-touch-gesture.ts'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
@@ -109,6 +110,12 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await row('plain/nested').focus()
     await page.keyboard.press('Space')
     await page.locator('[data-project-tabs] button[title="/work/plain/nested"]').waitFor()
+    for (const [sidebar, project] of [['@subproject:direct', 'direct'], ['abc', 'abc'], ['plain/nested', 'plain/nested']]) {
+      const mask = await row(sidebar).locator('span[style*="mask-image"]').evaluate(element => element.ownerDocument.defaultView!.getComputedStyle(element).maskImage)
+      const tabMask = await page.locator(`[data-project-tabs] button[title="/work/${project}"] span[style*="mask-image"]`).evaluate(element => element.ownerDocument.defaultView!.getComputedStyle(element).maskImage)
+      assert.notEqual(mask, 'none')
+      assert.equal(tabMask, mask, 'sidebar and project tab render the same SVG')
+    }
     assert.equal(await row('abc/def/inside.md').count(), 0)
     assert.equal(await page.getByRole('button', { name: 'plain/nested 명령어 버튼', exact: true }).count(), 0)
     await page.screenshot({ path: '/tmp/mew-subproject-tabs-desktop.png' })

@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { WORKSPACE_ROOT, isProtectedProject, isValidProjectName, projectRoot } from './paths.ts'
 import { ConflictError } from './documents.ts'
-import { readProjectIcons, setProjectIcon } from './projectIcons.ts'
+import { readProjectIcon } from './projectIcons.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
 
 export class ProjectNameError extends Error {}
@@ -24,7 +24,7 @@ export function createProject(name: string): { name: string } {
   return { name }
 }
 
-/** 프로젝트 폴더 이름을 바꾸고, 팀 공용 아이콘·배치 설정의 키도 함께 옮긴다. */
+/** 프로젝트 폴더 이름을 바꾸고, 프로젝트 아이콘 파일·공용 배치를 함께 옮긴다. */
 export function renameProject(oldName: string, newName: string): { name: string } {
   assertValidName(oldName)
   assertValidName(newName)
@@ -33,12 +33,9 @@ export function renameProject(oldName: string, newName: string): { name: string 
   const from = projectRoot(oldName) // 존재 확인 (없으면 UnknownProjectError)
   const to = path.join(WORKSPACE_ROOT, newName)
   if (fs.existsSync(to)) throw new ConflictError(`이미 존재하는 프로젝트입니다: ${newName}`)
+  readProjectIcon(from) // Migrate legacy sidebar data before moving the project.
   fs.renameSync(from, to)
 
-  // 아이콘 키 이동
-  const icon = readProjectIcons()[oldName] ?? null
-  setProjectIcon(oldName, null)
-  if (icon) setProjectIcon(newName, icon)
   // 배치 키 이동
   const layout = readProjectLayout()
   if (oldName in layout) {
@@ -55,8 +52,7 @@ export function deleteProject(name: string): void {
   if (isProtectedProject(name)) throw new ProjectNameError(`보호된 프로젝트(${name})는 삭제할 수 없습니다`)
   const dir = projectRoot(name) // 존재 확인 (없으면 UnknownProjectError)
 
-  // 아이콘·배치 정리를 먼저 — 상태 파일이 깨져 저장이 막힌 상황이라면 폴더를 지우기 전에 멈춘다
-  setProjectIcon(name, null)
+  // 배치 정리를 먼저 — 상태 파일이 깨져 저장이 막힌 상황이라면 폴더를 지우기 전에 멈춘다
   const layout = readProjectLayout()
   if (name in layout) {
     delete layout[name]
