@@ -7,6 +7,9 @@ reviewed: 2026-09-02
 review-after-days: 30
 ---
 
+> 2026-09-28 후속: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)으로 RAG와 전용 모델·의존성을 제거했다. 아래 RAG 관련 구현·검토 항목은 당시 기록이며 현재 도입·배포 과제가 아니다.
+
+
 이 문서는 [사이드바 탐색·정확 검색 성능 설계](sidebar-explorer-search-performance.md)를 실제 코드로 옮길
 **구현 담당자용 실행 계획**이다. UI 계약은 [사이드바 파일 검색](../specs/file-search.md), 현재 지연 로드 계약은
 [ADR 0088](../../../.mew/docs/decisions/0088-mew-sidebar-tree-lazy-loading.md)을 지킨다. 본문 파일은 SSoT이고 검색 자료구조는
@@ -142,7 +145,7 @@ presence WebSocket의 기존 `{ type: 'tree' }`는 호환을 위해 남긴다. �
 ## 구현 단계
 
 각 단계를 독립 PR/커밋으로 만들고, 이전 단계를 통과한 뒤 다음 단계로 간다. `npm run build`는 실행 중인 mew를
-즉시 바꾼다는 README 계약이 있으므로 구현 담당자는 `npm test`, `npm run lint`, `npx tsc -b`로 검증하고
+즉시 바꾼다는 [실행·검증 규칙](../development/getting-started.md)이 있으므로 구현 담당자는 `npm test`, `npm run lint`, `npx tsc -b`로 검증하고
 사용자 승인 없이 build/serve/restart하지 않는다.
 
 ### 0. 기준선 계측과 fixture

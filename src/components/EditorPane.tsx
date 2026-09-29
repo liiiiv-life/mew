@@ -4,7 +4,7 @@ import { DockGrip, DockInlineBody } from './DockWorkspace'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteComment,
-  editorApi,
+  createEditorApi,
   externalRawUrl,
   fetchComments,
   fetchMembers,
@@ -16,7 +16,7 @@ import {
   type Role,
   type TreeNode,
 } from '../api/client'
-import { Editor, type CommentAnchor, type EditorHandle } from '@mew/editor'
+import { Editor, type CommentAnchor, type EditorHandle, type EditorViewAnchor } from '@mew/editor'
 import { CodePane, type CodePaneHandle } from './CodePane'
 import { CommentComposer, CommentListPopover, CommentPopover, CommentThreadView } from './Comments'
 import { MediaViewer } from './MediaViewer'
@@ -24,6 +24,7 @@ import { SvgPreview } from './SvgPreview'
 import { TableOfContents } from './TableOfContents'
 import { TabBar } from './TabBar'
 import { mediaKind } from '../utils/media'
+import { editorFile, editorTabPath } from '../utils/editor-files'
 import { saveScroll, getScroll } from '../utils/scrollMemory'
 import { useCollab } from '../hooks/useCollab'
 import type { Pane, Tab } from '../hooks/useTabs'
@@ -72,8 +73,8 @@ type CommentPopup =
 
 // 실시간 협업은 파일별 "주 편집화면"에서만 지원한다 — .md는 Hotview, 그 외는 Plain.
 // 게스트는 파일별 편집 허용이 있어도 collab 소켓 자체가 서버에서 막혀 있어 항상 로컬 편집으로 처리한다.
-function primaryCollabPath(tab: Tab | null, role: Role): string | null {
-  if (role === 'guest' || !tab || tab.anchorPreview || isExternalTabPath(tab.path) || !tab.editable || isArchivedPath(tab.path) || mediaKind(tab.path)) return null
+function primaryCollabPath(tab: Tab | null, role: Role, project: string): string | null {
+  if (role === 'guest' || !tab || tab.anchorPreview || isExternalTabPath(tab.path) || !tab.editable || isArchivedPath(tab.path, project) || mediaKind(tab.path)) return null
   const eligible = tab.path.endsWith('.md') ? tab.viewMode === 'hotview' : tab.viewMode === 'plain'
   return eligible ? tab.path : null
 }
@@ -137,6 +138,7 @@ export interface EditorPaneProps {
   onActivate: (path: string) => void
   onPin: (path: string) => void
   onCloseTab: (path: string) => void
+  onClosePanel?: () => void
   onReorder: (from: number, to: number) => void
   onSetViewMode: (path: string, viewMode: Tab['viewMode']) => void
   onChangeContent: (path: string, content: string) => void
@@ -156,7 +158,7 @@ export function EditorPane({
   pane,
   role,
   authEmail,
-  project,
+  project: tabProject,
   tree,
   presence,
   focused,
@@ -170,12 +172,13 @@ export function EditorPane({
   registerTabBar,
   onFocus,
   onActivate,
-  onPin,
+  onPin: pinTab,
   onCloseTab,
+  onClosePanel,
   onReorder,
-  onSetViewMode,
-  onChangeContent,
-  onOpenLink,
+  onSetViewMode: setViewMode,
+  onChangeContent: changeContent,
+  onOpenLink: openLink,
   onOpenHistory,
   onSetTocOpen,
   onOpenSidebar,
@@ -184,15 +187,34 @@ export function EditorPane({
 }: EditorPaneProps) {
   useUiLocale()
   const { t } = useI18n()
-  const activeTab = pane.tabs.find((t) => t.path === pane.activePath) ?? null
+  const selectedTab = pane.tabs.find((t) => t.path === pane.activePath) ?? null
+  const file = editorFile(pane.activePath ?? '', tabProject)
+  const project = file.project
+  const activeTab = useMemo(() => selectedTab ? { ...selectedTab, path: file.path } : null, [selectedTab, file.path])
+  const activeKeyRef = useRef(pane.activePath)
+  activeKeyRef.current = pane.activePath
+  const toTabPath = (path: string) => editorTabPath(project, path, tabProject)
+  const onPin = (path: string) => pinTab(toTabPath(path))
+  const onSetViewMode = (path: string, mode: Tab['viewMode']) => setViewMode(toTabPath(path), mode)
+  const onChangeContent = (path: string, content: string) => changeContent(toTabPath(path), content)
+  const onOpenLink = (path: string) => openLink(toTabPath(path))
+  const editorApi = useMemo(() => createEditorApi(project), [project])
   const loading = activeTab?.loading === true
   const editorRef = useRef<EditorHandle>(null)
   const codePaneRef = useRef<CodePaneHandle>(null)
   const activeTabRef = useRef(activeTab)
   activeTabRef.current = activeTab
   const scrollHostRef = useRef<HTMLDivElement | null>(null)
+  const viewAnchorRef = useRef<{ project: string; path: string; mode: Tab['viewMode']; anchor: EditorViewAnchor } | null>(null)
+  const changeViewMode = (mode: Tab['viewMode']) => {
+    if (!activeTab || activeTab.viewMode === mode) return
+    const source = activeTab.viewMode === 'plain' ? codePaneRef.current : editorRef.current
+    const anchor = activeTab.path.endsWith('.md') ? source?.getViewAnchor() : null
+    viewAnchorRef.current = anchor ? { project, path: activeTab.path, mode, anchor } : null
+    onSetViewMode(activeTab.path, mode)
+  }
 
-  const collab = useCollab(project, canCollaborate ? primaryCollabPath(activeTab, role) : null, authEmail)
+  const collab = useCollab(project, canCollaborate ? primaryCollabPath(activeTab, role, project) : null, authEmail)
 
   // 하단 상태줄 — 파일 종류를 가리지 않아야 하므로 뷰어(Editor)가 아니라 칸이 그린다.
   const [selChars, setSelChars] = useState(0)
@@ -205,7 +227,7 @@ export function EditorPane({
     setMediaBytes(null)
     if (!mediaPath) return
     let alive = true
-    const url = isExternalTabPath(mediaPath) ? externalRawUrl(externalAbsolutePath(mediaPath)) : rawUrl(mediaPath)
+    const url = isExternalTabPath(mediaPath) ? externalRawUrl(externalAbsolutePath(mediaPath)) : rawUrl(mediaPath, project)
     fetch(url, { method: 'HEAD' })
       .then((res) => {
         const len = Number(res.headers.get('content-length'))
@@ -215,7 +237,7 @@ export function EditorPane({
     return () => {
       alive = false
     }
-  }, [mediaPath])
+  }, [mediaPath, project])
   // 저장된 파일이 아니라 지금 화면의 본문 기준이라 타이핑하는 대로 움직인다
   const textBytes = useMemo(
     () => (activeTab && !mediaPath ? new TextEncoder().encode(activeTab.content).length : null),
@@ -377,7 +399,7 @@ export function EditorPane({
       },
       revealLine: (path, line) => {
         const tab = activeTabRef.current
-        if (tab?.path !== path || tab.viewMode !== 'plain' || !codePaneRef.current) return false
+        if (!tab || activeKeyRef.current !== path || tab.viewMode !== 'plain' || !codePaneRef.current) return false
         const moved = codePaneRef.current.revealLine(line, tab.content)
         if (!moved) return false
         disarmRestoreRef.current()
@@ -427,8 +449,11 @@ export function EditorPane({
     const tab = activeTabRef.current
     const host = scrollHostRef.current
     if (!tab || !tab.path || !host) return
-    const top = getScroll(project, tab.path)
-    if (top === null) return
+    const pending = viewAnchorRef.current
+    const anchor = pending?.project === project && pending.path === tab.path && pending.mode === tab.viewMode ? pending.anchor : null
+    viewAnchorRef.current = null
+    const top = anchor ? null : getScroll(project, tab.path)
+    if (top === null && !anchor) return
     restoringRef.current = true
     let observedScroll: HTMLElement | null = null
     let observedContent: Element | null = null
@@ -449,7 +474,10 @@ export function EditorPane({
       if (!el) return
       // 늦은 collab 동기화·이미지·분할 리마운트로 본문 높이가 자랄 때만 다시 맞춘다. 예전처럼
       // 매 프레임 DOM을 읽지 않는다.
-      if (el && el.scrollHeight >= top + el.clientHeight && Math.abs(el.scrollTop - top) > 1) el.scrollTop = top
+      if (anchor) {
+        const target = tab.viewMode === 'plain' ? codePaneRef.current : editorRef.current
+        if (target?.restoreViewAnchor(anchor)) saveScroll(project, tab.path, el.scrollTop)
+      } else if (top !== null && el.scrollHeight >= top + el.clientHeight && Math.abs(el.scrollTop - top) > 1) el.scrollTop = top
       const content = el.querySelector('.ProseMirror, .cm-content, .pdf-pages')
       if (el === observedScroll && content === observedContent) return
       resizeObserver?.disconnect()
@@ -467,7 +495,7 @@ export function EditorPane({
     // 동기화가 영영 오지 않은 탭이 listener를 무한히 붙들지 않도록 이전과 같은 약 10초 상한은 둔다.
     timeout = setTimeout(stop, 10_000)
     return stop
-  }, [pane.activePath, project])
+  }, [pane.activePath, project, activeTab?.viewMode])
 
   const isMd = !!activeTab?.path.endsWith('.md') && !isExternalTabPath(activeTab.path)
   const isSvg = !!activeTab?.path.endsWith('.svg') && !isExternalTabPath(activeTab.path)
@@ -492,12 +520,25 @@ export function EditorPane({
           activePath={pane.activePath}
           presence={presence}
           onActivate={onActivate}
-          onPin={onPin}
+          onPin={pinTab}
           onClose={onCloseTab}
           onReorder={onReorder}
           onDragMove={(path, x, y) => onTabDragMove(pane.id, path, x, y)}
           onDrop={(path, x, y) => onTabDrop(pane.id, path, x, y)}
         />
+        {onClosePanel && <div className="flex items-center border-b border-edge bg-surface-deep">
+          <button
+            type="button"
+            onClick={onClosePanel}
+            className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+            title={t('common.close')}
+            aria-label={t('common.close')}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>}
       </div>
 
       {/* 드롭 자리 판정은 **본문**만 본다 — 탭 줄 안에서 끄는 건 순서 바꾸기지 분할이 아니다 */}
@@ -513,7 +554,7 @@ export function EditorPane({
         <div inert={loading} className="relative flex min-h-0 min-w-0 flex-1">
         {activeTab ? (
           <>
-            {isArchivedPath(activeTab.path) && !isGuest && (
+            {isArchivedPath(activeTab.path, project) && !isGuest && (
               <div className="absolute inset-x-0 top-0 z-10 bg-warning-surface px-4 py-1 text-center text-sm text-warning-ink">
                 {uiText("보관 문서 · 읽기 전용")}</div>
             )}
@@ -547,7 +588,7 @@ export function EditorPane({
                     <div className="flex overflow-hidden rounded border border-edge-strong shadow-sm">
                       <button
                         type="button"
-                        onClick={() => onSetViewMode(activeTab.path, 'hotview')}
+                        onClick={() => changeViewMode('hotview')}
                         className={`p-1.5 ${
                           activeTab.viewMode === 'hotview'
                             ? 'bg-accent text-ink-on-accent'
@@ -571,7 +612,7 @@ export function EditorPane({
                       </button>
                       <button
                         type="button"
-                        onClick={() => onSetViewMode(activeTab.path, 'plain')}
+                        onClick={() => changeViewMode('plain')}
                         className={`p-1.5 ${
                           activeTab.viewMode === 'plain'
                             ? 'bg-accent text-ink-on-accent'
@@ -647,9 +688,10 @@ export function EditorPane({
                   <CodePane
                     ref={codePaneRef}
                     path={activeTab.path}
+                    project={project}
                     value={activeTab.content}
                     onChange={(content) => onChangeContent(activeTab.path, content)}
-                    readOnly={loading || !activeTab.editable || isArchivedPath(activeTab.path) || !!activeTab.anchorPreview}
+                    readOnly={loading || !activeTab.editable || isArchivedPath(activeTab.path, project) || !!activeTab.anchorPreview}
                     collab={collab}
                     commentThreads={threads}
                     onCommentClick={openThread}
@@ -658,14 +700,14 @@ export function EditorPane({
                 ) : (
                   <MarkdownErrorBoundary
                     resetKey={JSON.stringify([project, activeTab.path])}
-                    onOpenPlain={() => onSetViewMode(activeTab.path, 'plain')}
+                    onOpenPlain={() => changeViewMode('plain')}
                   >
                     <Editor
                       ref={editorRef}
                       value={activeTab.content}
                       api={editorApi}
                       onChange={(content) => onChangeContent(activeTab.path, content)}
-                      readOnly={loading || !activeTab.editable || isArchivedPath(activeTab.path)}
+                      readOnly={loading || !activeTab.editable || isArchivedPath(activeTab.path, project)}
                       path={activeTab.path}
                       tree={tree}
                       onOpenLink={onOpenLink}

@@ -1,3 +1,4 @@
+import { PanelTitle } from './panel-title'
 import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useDragReorder, useOverlayDismiss } from '@mew/ui'
 import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
@@ -126,16 +127,17 @@ function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, o
   return <div data-dock-tab-bar ref={scopeRef} className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
     {dock && <DockGrip group={group} />}
     <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
-      {tabs.map((tab, i) => <div key={tab.id} {...drag.getItemProps(i)} draggable={false} onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }} role="tab" tabIndex={0} aria-selected={tab.id === activeId} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onActivate(tab.id) } }} onClick={() => { if (!drag.consumeClick()) onActivate(tab.id) }}
+      {tabs.length === 0 && <PanelTitle kind={'browser'} />}
+        {tabs.map((tab, i) => <div key={tab.id} {...drag.getItemProps(i)} draggable={false} onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }} role="tab" tabIndex={0} aria-selected={tab.id === activeId} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onActivate(tab.id) } }} onClick={() => { if (!drag.consumeClick()) onActivate(tab.id) }}
         aria-keyshortcuts={dock?.desktop ? 'Shift+Enter' : undefined}
         onContextMenu={(event) => { if (drag.dragIndex !== null) event.preventDefault() }}
         className={`group flex h-full shrink-0 cursor-pointer select-none items-center gap-1.5 border-r border-edge px-2.5 text-xs [-webkit-touch-callout:none] ${tab.id === activeId ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-raised'} ${drag.dragIndex === i ? 'opacity-70 ring-1 ring-inset ring-accent' : ''}`} title={tab.url}>
         <span className="max-w-[9rem] truncate">{tab.title || (tab.url ? labelForUrl(tab.url) : t('browser.newTab'))}</span>
         {onCloseTab && <button type="button" onClick={(event) => { event.stopPropagation(); onCloseTab(tab.id) }} className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink" aria-label={t('browser.closeTab')}>×</button>}
       </div>)}
-      <button type="button" onClick={onAdd} className="flex h-full w-9 shrink-0 items-center justify-center border-r border-edge text-ink-secondary hover:bg-surface-raised hover:text-ink" title={t('browser.newTab')} aria-label={t('browser.newTab')}>
+      {tabs.length > 0 && <button type="button" onClick={onAdd} className="flex h-full w-9 shrink-0 items-center justify-center border-r border-edge text-ink-secondary hover:bg-surface-raised hover:text-ink" title={t('browser.newTab')} aria-label={t('browser.newTab')}>
         <PlusGlyph />
-      </button>
+      </button>}
     </div>
     <button type="button" onClick={onClose} className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" title={standalone ? t('browser.closePopup') : t('browser.close')} aria-label={standalone ? t('browser.closePopup') : t('browser.close')}>
       <WindowCloseGlyph />

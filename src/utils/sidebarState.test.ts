@@ -27,3 +27,11 @@ test('저장소가 가득 차도 사이드바 탐색을 중단하지 않는다',
   t.mock.method(localStorage, 'setItem', () => { throw new DOMException('Storage is full', 'QuotaExceededError') })
   assert.doesNotThrow(() => saveSidebarState('/work/full', { docsExpanded: true, expandedSubprojects: ['app'] }))
 })
+
+
+test('탐색 범위는 이전 펼침 값보다 우선하며 이전 저장값은 계속 복원한다', () => {
+  saveSidebarState('/scope', { explorerScope: 'docs', docsExpanded: false, expandedSubprojects: [] })
+  assert.equal(loadSidebarState('/scope').docsExpanded, true)
+  saveSidebarState('/scope', { explorerScope: 'files', docsExpanded: true, expandedSubprojects: [] })
+  assert.equal(loadSidebarState('/scope').docsExpanded, false)
+})

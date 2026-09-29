@@ -36,7 +36,7 @@ import { properties } from '@codemirror/legacy-modes/mode/properties'
 import { sCSS } from '@codemirror/legacy-modes/mode/css'
 import { lintFile } from '../api/client'
 import { codeSearchExtensions, refreshCodeSearchLanguage } from '../utils/codeSearch'
-import { makeCommentAnchor, resolveCommentAnchor, type CommentAnchor, type CommentThreadInput } from '@mew/editor'
+import { makeCommentAnchor, resolveCommentAnchor, type CommentAnchor, type CommentThreadInput, type EditorViewAnchor } from '@mew/editor'
 
 // value prop 동기화로 들어온 트랜잭션 표시 — 이걸 다시 onChange로 올리면 열기만 한
 // 미리보기 탭이 "편집됨"으로 승격되고 무의미한 자동저장이 잡힌다
@@ -146,7 +146,7 @@ function isProse(filePath: string): boolean {
   return ext === 'md' || ext === 'mdx' || ext === 'txt'
 }
 
-function lintExtensions(filePath: string): Extension[] {
+function lintExtensions(filePath: string, project?: string): Extension[] {
   const ext = extOf(filePath)
   if (OXLINT_EXTS.has(ext)) {
     return [
@@ -154,7 +154,7 @@ function lintExtensions(filePath: string): Extension[] {
       linter(
         async (view) => {
           try {
-            const { diagnostics } = await lintFile(filePath, view.state.doc.toString())
+            const { diagnostics } = await lintFile(filePath, view.state.doc.toString(), project)
             const max = view.state.doc.length
             return diagnostics.map((d) => ({
               from: Math.min(d.from, max),
@@ -269,6 +269,8 @@ const theme = EditorView.theme({
 })
 
 export interface CodePaneHandle {
+  getViewAnchor: () => EditorViewAnchor | null
+  restoreViewAnchor: (anchor: EditorViewAnchor) => boolean
   /** 내부 문서가 expectedContent까지 동기화됐을 때만 지정 줄로 이동하고 true를 돌려준다. */
   revealLine: (line: number, expectedContent: string) => boolean
   /** 현재 선택된 텍스트 — 선택이 없으면 null (터미널/에이전트로 선택 텍스트를 보내는 단축키용) */
@@ -291,6 +293,7 @@ export const CodePane = forwardRef<
   CodePaneHandle,
   {
     path: string
+    project?: string
     value: string
     onChange: (content: string) => void
     readOnly: boolean
@@ -302,7 +305,7 @@ export const CodePane = forwardRef<
     /** 부분 preview는 문서 전체 줄 번호를 유지한다. 일반 문서는 0이다. */
     lineOffset?: number
   }
->(function CodePane({ path, value, onChange, readOnly, collab, commentThreads, onCommentClick, lineOffset = 0 }, ref) {
+>(function CodePane({ path, project, value, onChange, readOnly, collab, commentThreads, onCommentClick, lineOffset = 0 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
@@ -336,7 +339,7 @@ export const CodePane = forwardRef<
         theme,
         ...languageFor(path),
         ...(isProse(path) ? [EditorView.lineWrapping] : []),
-        ...(readOnly ? [] : lintExtensions(path)),
+        ...(readOnly ? [] : lintExtensions(path, project)),
         EditorState.readOnly.of(readOnly),
         EditorView.editable.of(!readOnly),
         commentField,
@@ -386,7 +389,7 @@ export const CodePane = forwardRef<
       viewRef.current = null
     }
     // 파일이 바뀌면 언어·lint 구성이 달라지므로 뷰를 새로 만든다 (문서 내용은 valueRef로 최신값 사용)
-  }, [path, readOnly, collab?.ydoc, lineOffset])
+  }, [project, path, readOnly, collab?.ydoc, lineOffset])
 
   // 방을 처음 만든 클라이언트가 이미 로드해 둔 탭 내용으로 Y.Text를 시딩한다 (디스크 재조회 아님) —
   // 이미 누군가 협업 중이던 방이면 ytext가 비어 있지 않으므로 아무 일도 하지 않는다
@@ -417,6 +420,27 @@ export const CodePane = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
+      getViewAnchor() {
+        const view = viewRef.current
+        if (!view) return null
+        const bounds = view.scrollDOM.getBoundingClientRect()
+        const cursor = view.coordsAtPos(view.state.selection.main.head)
+        const pos = cursor && cursor.top >= bounds.top && cursor.bottom <= bounds.bottom
+          ? view.state.selection.main.head
+          : view.lineBlockAtHeight(Math.max(0, bounds.top - view.documentTop)).from
+        const line = view.state.doc.lineAt(pos)
+        const top = view.documentTop + view.lineBlockAt(line.from).top
+        return { line: line.number + lineOffset, offset: Math.max(0, top - bounds.top) }
+      },
+      restoreViewAnchor(anchor) {
+        const view = viewRef.current
+        if (!view) return false
+        const line = view.state.doc.line(Math.max(1, Math.min(anchor.line - lineOffset, view.state.doc.lines)))
+        if (view.state.selection.main.head !== line.from) view.dispatch({ selection: { anchor: line.from } })
+        const offset = view.documentTop + view.lineBlockAt(line.from).top - view.scrollDOM.getBoundingClientRect().top
+        if (Math.abs(offset - anchor.offset) > 1) view.scrollDOM.scrollTop += offset - anchor.offset
+        return true
+      },
       getSelectedText() {
         const view = viewRef.current
         if (!view) return null

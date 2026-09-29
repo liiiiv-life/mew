@@ -11,6 +11,7 @@ test('Hotview gutter follows typing, trailing paragraphs and frontmatter on desk
   const initial = '---\ntitle: test\nupdated: 2026-09-27\n---\n\n첫 문단\n\n마지막 문단'
   const codeContent = '---\ntitle: test\n---\n\n# 제목\n\n```txt\n코드\n```'
   const tableContent = '앞 문단\n\n| 이름 | 설명 |\n| --- | --- |\n| 항목 | 내용 |\n\n뒤 문단'
+  const listContent = '# Current\n\n기준 문단\n\n- 일반 항목\n- [설정](configuration/MOC.md)\n- [원격 데스크톱 지연·대역폭 개선 연구 — 기준 조사와 세부 구현 확인](research/remote-desktop-latency.md)\n- 상위 항목\n  - [하위](child.md)\n    - 둘째\n      - 셋째\n        - [넷째](deep.md)\n\n앞 문장 [문장 안에서 여러 줄에 걸쳐 자연스럽게 이어지는 긴 내부 파일 링크 설명과 줄바꿈 확인](long.md) 뒤 문장\n\n1. [순서 목록](ordered.md)\n2. 다음 항목\n\n[외부 링크](https://example.com)'
   const editorPath = new URL('../packages/editor/src/Editor.tsx', import.meta.url).pathname
   const source = `
 import React from ${JSON.stringify(import.meta.resolve('react'))};
@@ -23,6 +24,7 @@ function Fixture(){
   return <><button onClick={()=>setValue(v=>v.replace('title: test','title: test\\nextra: field'))}>Add property</button>
     <button onClick={()=>setValue(${JSON.stringify(codeContent)})}>Load code</button>
     <button onClick={()=>setValue(${JSON.stringify(tableContent)})}>Load table</button>
+    <button onClick={()=>setValue(${JSON.stringify(listContent)})}>Load list</button>
     <div style={{height:600}}><Editor value={value} onChange={setValue} api={api} path="fixture.md"/></div></>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);`
@@ -115,6 +117,41 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       await expectNumbers(['1', '3', '7'])
       assert.equal(await page.evaluate('document.documentElement.scrollWidth > window.innerWidth'), false)
       if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/table-gutter-${viewport.width}.png` })
+      await page.getByRole('button', { name: 'Load list', exact: true }).click()
+      await page.locator('.tiptap li a[data-file-link]').first().waitFor()
+      for (const theme of ['dark', 'light']) {
+        await page.locator('html').evaluate((el, theme) => { el.className = theme }, theme)
+        const layout = await page.locator('.tiptap').evaluate(editor => {
+          const win = editor.ownerDocument.defaultView!
+          const paragraph = editor.querySelector(':scope > p')!
+          const numberLeft = (el: typeof paragraph) => el.getBoundingClientRect().left + parseFloat(win.getComputedStyle(el, '::before').left)
+          const items: (typeof paragraph)[] = Array.from(editor.querySelectorAll('li[data-mew-line-numbers]'))
+          const link = editor.querySelector('li a[data-file-link]')!
+          const linkParagraph = link.closest('p')!
+          const plainParagraph = items[0].querySelector('p')!
+          const longLink = editor.querySelector('a[href="long.md"]')!
+          const range = editor.ownerDocument.createRange()
+          range.selectNodeContents(longLink)
+          return {
+            paragraphNumber: numberLeft(paragraph),
+            listNumbers: items.map(numberLeft),
+            plainHeight: plainParagraph.getBoundingClientRect().height,
+            linkHeight: linkParagraph.getBoundingClientRect().height,
+            linkDisplay: win.getComputedStyle(link).display,
+            longLines: new Set(Array.from(range.getClientRects() as ArrayLike<{ top: number }>, rect => Math.round(rect.top))).size,
+            externalDecoration: win.getComputedStyle(editor.querySelector('a[href="https://example.com"]')!).textDecorationLine,
+            overflow: editor.scrollWidth > editor.clientWidth,
+          }
+        })
+        assert.ok(layout.listNumbers.every(left => Math.abs(left - layout.paragraphNumber) < 1), 'all list depths share the paragraph gutter')
+        assert.ok(Math.abs(layout.linkHeight - layout.plainHeight) < 1, 'an internal link does not enlarge a single-line list item')
+        assert.equal(layout.linkDisplay, 'inline', 'file links flow within the surrounding sentence')
+        if (viewport.width < 500) assert.ok(layout.longLines > 1, 'long labels wrap on mobile')
+        assert.equal(layout.externalDecoration, 'underline')
+        assert.equal(layout.overflow, false)
+        assert.equal(await page.evaluate('window.value'), listContent, 'presentation changes preserve Markdown')
+        if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/list-links-${theme}-${viewport.width}.png` })
+      }
       assert.deepEqual(errors, [])
       await page.close()
     }

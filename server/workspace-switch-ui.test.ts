@@ -19,7 +19,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     const names = match[1].split(',').map(n => n.trim()).filter(n => !n.startsWith('type '))
     if (names.some(n => keep.has(n))) continue
     stubs.set(match[2], names.map(name => name === 'EditorPane'
-      ? `export function EditorPane({pane,onCloseTab}) { const active=pane.tabs.find(t=>t.path===pane.activePath);return React.createElement('div',{'data-test-editor':true,'data-test-active':pane.activePath},React.createElement('span',{'data-test-content':true},active?.content||''),...pane.tabs.map(t=>React.createElement('button',{key:t.path,onClick:()=>onCloseTab(t.path)},'Close '+t.path))); }`
+      ? `export function EditorPane({pane,onCloseTab,onActivate}) { const active=pane.tabs.find(t=>t.path===pane.activePath);return React.createElement('div',{'data-test-editor':true,'data-test-active':pane.activePath},React.createElement('span',{'data-test-content':true},active?.content||''),...pane.tabs.flatMap(t=>[React.createElement('button',{key:'select:'+t.path,onClick:()=>onActivate(t.path)},'Select '+t.path),React.createElement('button',{key:t.path,onClick:()=>onCloseTab(t.path)},'Close '+t.path)])); }`
       : name === 'AgentPanel' ? `export function AgentPanel({preparedTabs}) { React.useEffect(()=>{preparedTabs?.then(value=>{window.preparedAgentRoot=value.workspace})},[preparedTabs]);return null }`
       : name === 'RemoteDesktop' ? `export function RemoteDesktop({onClose,dockHostRef}) { return React.createElement('div',{'role':'dialog','aria-label':'Remote desktop fixture',style:{position:'fixed',inset:0,zIndex:100,background:'var(--color-surface)'}},React.createElement('button',{onClick:onClose},'Close remote desktop'),React.createElement('div',{ref:dockHostRef})); }`
       : `export function ${name}(){return null}`).join('\n'))
@@ -57,7 +57,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     const treeWaiters: (() => void)[] = []
     const fileWaiters: (() => void)[] = []
     let blockFileRoot: string | null = null
-    const stateFor = (name: string) => ({ sidebar: { docsExpanded: false, expandedSubprojects: [] }, chrome: { sidebarOpen: true, sidebarView: 'tree' }, tabs: { '.workspace': { panes: [{ id: 'main', tabs: [{ path: 'README.md', preview: false, viewMode: 'plain' }, { path: 'extra.md', preview: false, viewMode: 'plain' }], activePath: 'README.md' }], layout: { kind: 'leaf', pane: 'main' }, focusedPaneId: 'main' } }, label: name })
+    const stateFor = (name: string) => ({ sidebar: { docsExpanded: false, expandedSubprojects: [] }, chrome: { sidebarOpen: true, sidebarView: 'tree', ragOpen: true }, tabs: { '.workspace': { panes: [{ id: 'main', tabs: [{ path: 'README.md', preview: false, viewMode: 'plain' }, { path: 'extra.md', preview: false, viewMode: 'plain' }], activePath: 'README.md' }], layout: { kind: 'leaf', pane: 'main' }, focusedPaneId: 'main' } }, label: name })
     await page.addInitScript(() => {
       localStorage.setItem('mew:locale', 'ko')
       class Socket extends EventTarget {
@@ -128,9 +128,40 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     await page.locator('[data-test-content]').getByText('Content of /alpha', { exact: true }).waitFor()
     const tab = (root: string) => page.locator(`[data-project-drag="${root}"]`)
     const countUi = (root: string) => requests.filter(r => r.path === '/api/user-ui/workspace' && r.method === 'GET' && r.root === root).length
-    await page.locator('[data-path="@docs"]').click()
+    const explorerToggle = page.locator('[data-explorer-toggle]')
+    const docsToggle = explorerToggle.getByRole('button', { name: '문서', exact: true })
+    const filesToggle = explorerToggle.getByRole('button', { name: '파일', exact: true })
+    assert.equal(await filesToggle.getAttribute('aria-pressed'), 'true')
+    await docsToggle.click()
+    assert.equal(await docsToggle.getAttribute('aria-pressed'), 'true')
+    await page.locator('[data-sidebar]').getByRole('button', { name: '새 파일', exact: true }).click()
+    await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"]').getByPlaceholder('새 파일 이름').waitFor()
+    await page.keyboard.press('Escape')
+    assert.equal(await page.locator('[data-tree-key="sidebar-tree:root:/alpha"]').count(), 0)
+    assert.equal(await page.locator('[data-path="@docs"]').count(), 0)
+    await docsToggle.focus()
+    await page.keyboard.press('ArrowRight')
+    assert.equal(await filesToggle.getAttribute('aria-pressed'), 'true')
+    await page.locator('[data-sidebar]').getByRole('button', { name: '새 파일', exact: true }).click()
+    await page.locator('[data-tree-key="sidebar-tree:root:/alpha"]').getByPlaceholder('새 파일 이름').waitFor()
+    await page.keyboard.press('Escape')
+    await filesToggle.focus()
+    assert.equal(await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"]').count(), 0)
+    await page.keyboard.press('Home')
+    assert.equal(await docsToggle.getAttribute('aria-pressed'), 'true')
+    if (process.env.MEW_EXPLORER_SCREENSHOTS) {
+      await fs.mkdir(process.env.MEW_EXPLORER_SCREENSHOTS, { recursive: true })
+      await page.locator('[data-sidebar]').screenshot({ path: path.join(process.env.MEW_EXPLORER_SCREENSHOTS, 'desktop-documents.png') })
+      await filesToggle.click()
+      await page.locator('[data-sidebar]').screenshot({ path: path.join(process.env.MEW_EXPLORER_SCREENSHOTS, 'desktop-files.png') })
+      await docsToggle.click()
+    }
     await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"] [data-path="alpha.md"]').click()
-    await page.getByRole('button', { name: 'Close alpha.md' }).waitFor()
+    await page.getByRole('button', { name: 'Close mew:file:docs/alpha.md' }).waitFor()
+    await page.getByRole('button', { name: 'Close README.md' }).waitFor()
+    await page.getByRole('button', { name: 'Select extra.md', exact: true }).click()
+    assert.equal(await filesToggle.getAttribute('aria-pressed'), 'true', 'file-tab reveal selects its explorer scope')
+    assert.equal(await page.getByRole('button', { name: 'Close mew:file:docs/alpha.md' }).isVisible(), true, 'Documents remains in the same pane when a root file is selected')
     await tab('/alpha').click()
     await page.getByRole('button', { name: 'Close README.md' }).waitFor()
     const signal = () => page.evaluate(() => (globalThis as unknown as { presence: { onmessage: (e: { data: string }) => void } }).presence.onmessage({ data: JSON.stringify({ type: 'workspace' }) }))
@@ -163,6 +194,19 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     const treeCount = requests.filter(r => r.path === '/api/tree').length
     await signal(); await page.waitForTimeout(100)
     assert.equal(requests.filter(r => r.path === '/api/tree').length, treeCount, 'duplicate broadcast does not empty or reload trees')
+    // Mobile tab changes retain the editor; only reselecting the active tab reveals the sidebar.
+    await page.setViewportSize({ width: 390, height: 700 })
+    const mobileEditor = page.getByRole('navigation', { name: '작업 독' }).getByRole('button', { name: '에디터 화면', exact: true })
+    await mobileEditor.tap()
+    await page.getByRole('button', { name: 'Select extra.md', exact: true }).tap()
+    assert.equal(await page.locator('[data-test-editor]').getAttribute('data-test-active'), 'extra.md')
+    assert.equal(await page.locator('[data-sidebar]').isVisible(), false, 'switching files keeps the mobile editor in front')
+    await page.getByRole('button', { name: 'Select extra.md', exact: true }).tap()
+    await page.locator('[data-sidebar]').waitFor({ state: 'visible' })
+    await mobileEditor.tap()
+    await page.getByRole('button', { name: 'Select README.md', exact: true }).tap()
+    assert.equal(await page.locator('[data-sidebar]').isVisible(), false)
+    await page.setViewportSize({ width: 1100, height: 700 })
     await page.getByRole('button', { name: 'Close extra.md' }).click()
     await page.waitForTimeout(30)
     blockTree = true
@@ -278,7 +322,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
       await page.evaluate(`document.documentElement.classList.toggle('dark', ${dark})`)
       const colors = await dock.evaluate(element => {
         const color = (selector: string) => element.ownerDocument.defaultView!.getComputedStyle(element.querySelector(selector)!).backgroundColor
-        return { focused: color('[data-dock-item=editor]'), open: color('[data-dock-item=sidebar]'), closed: color('[data-dock-item=rag]'), dock: element.ownerDocument.defaultView!.getComputedStyle(element.closest('.mew-workspace')!).backgroundColor }
+        return { focused: color('[data-dock-item=editor]'), open: color('[data-dock-item=sidebar]'), closed: color('[data-dock-item=features]'), dock: element.ownerDocument.defaultView!.getComputedStyle(element.closest('.mew-workspace')!).backgroundColor }
       })
       assert.notEqual(colors.open, 'rgba(0, 0, 0, 0)', 'an open, unfocused panel keeps a background')
       assert.equal(colors.closed, 'rgba(0, 0, 0, 0)', 'closed panels have no highlight')
@@ -307,6 +351,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     await page.locator('[data-sidebar]').waitFor({ state: 'visible' })
     assert.equal(await sidebarToggle.getAttribute('aria-pressed'), 'true', 'selecting an open background panel keeps it open')
     assert.equal(await highlighted(), 'sidebar')
+    await page.waitForFunction("document.activeElement?.closest('[data-workspace-panel]')?.getAttribute('data-workspace-panel') === 'sidebar'")
     assert.equal(await page.evaluate("document.activeElement?.closest('[data-workspace-panel]')?.getAttribute('data-workspace-panel')"), 'sidebar', 'dock selection moves keyboard focus into the panel')
     await sidebarToggle.click()
     await page.locator('[data-sidebar]').waitFor({ state: 'hidden' })
@@ -334,7 +379,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     await editorToggle.tap()
     await editorPanel.waitFor({ state: 'visible' })
     assert.equal(await editorToggle.getAttribute('aria-pressed'), null, 'mobile uses navigation, not toggle state')
-    assert.equal(await editorToggle.evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)', 'mobile navigation keeps its background-free selection')
+    await page.waitForFunction(el => el!.ownerDocument.defaultView!.getComputedStyle(el!).backgroundColor === 'rgba(0, 0, 0, 0)', await editorToggle.elementHandle())
     await page.setViewportSize({ width: 1100, height: 700 })
     await page.locator('[data-test-content]').click()
     await editorToggle.click()
@@ -343,7 +388,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     await page.keyboard.press('Enter')
     await editorPanel.waitFor({ state: 'visible' })
     assert.equal(await page.locator('[data-test-content]').textContent(), editorContent, 'hiding the editor preserves its tabs and content')
-    for (const panel of ['agent', 'terminal', 'git', 'browser', 'rag']) {
+    for (const panel of ['agent', 'terminal', 'git', 'browser']) {
       const button = dock.locator(`[data-dock-item=${panel}]`)
       const before = await button.getAttribute('aria-pressed')
       await button.click()
@@ -368,6 +413,28 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     await desktopFeatures.waitFor()
     await desktopFeatures.getByRole('button', { name: '기능 요청', exact: true }).click()
     await desktopFeatures.getByRole('textbox', { name: '추가할 기능', exact: true }).fill('독 토글에서 보존할 초안')
+    assert.equal((await desktopFeatures.locator('header').boundingBox())!.height, 36)
+    const featureGrip = desktopFeatures.locator('[draggable=true]')
+    assert.equal(await featureGrip.count(), 1, 'desktop uses the shared panel grip')
+    const widthBeforeResize = (await desktopFeatures.boundingBox())!.width
+    const featureSeparator = page.locator('[data-dock-workspace] > [role=separator]').last()
+    const resizeBounds = (await featureSeparator.boundingBox())!
+    await page.mouse.move(resizeBounds.x + resizeBounds.width / 2, resizeBounds.y + 80)
+    await page.mouse.down()
+    await page.mouse.move(resizeBounds.x - 70, resizeBounds.y + 80, { steps: 5 })
+    await page.mouse.up()
+    assert.ok((await desktopFeatures.boundingBox())!.width > widthBeforeResize + 50, 'shared divider resizes the feature panel')
+    const dockedEditor = page.locator('[data-dock-panel]').filter({ has: page.locator('[data-test-editor]') })
+    const editorBounds = (await dockedEditor.boundingBox())!
+    await featureGrip.dragTo(dockedEditor, { targetPosition: { x: editorBounds.width / 2, y: editorBounds.height - 10 } })
+    const movedFeatures = (await desktopFeatures.boundingBox())!
+    const movedEditor = (await dockedEditor.boundingBox())!
+    assert.ok(movedFeatures.y >= movedEditor.y + movedEditor.height, 'grip docks features below the editor')
+    const heightSeparator = page.locator('[data-dock-workspace] > [role=separator][aria-orientation=horizontal]').last()
+    await heightSeparator.focus()
+    await page.keyboard.press('ArrowUp')
+    assert.ok((await desktopFeatures.boundingBox())!.height > movedFeatures.height, 'stacked feature panel supports keyboard height adjustment')
+    assert.equal(await desktopFeatures.getByRole('textbox', { name: '추가할 기능', exact: true }).inputValue(), '독 토글에서 보존할 초안', 'docking preserves the draft')
     assert.equal(await highlighted(), 'features')
     await page.locator('[data-test-content]').click()
     assert.equal(await highlighted(), 'editor', 'opening features does not pin its highlight')
@@ -394,6 +461,17 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     assert.equal(await sidebar.isVisible(), true, 'selecting current dock panel does not close it')
     await dock.getByRole('button', { name: '에디터 화면', exact: true }).tap()
     await dock.getByRole('button', { name: '사이드바', exact: true }).tap()
+    await docsToggle.tap()
+    const toggleBounds = (await explorerToggle.boundingBox())!, sidebarBounds = (await sidebar.boundingBox())!
+    assert.ok(toggleBounds.y > sidebarBounds.y + sidebarBounds.height / 2)
+    assert.ok(toggleBounds.y + toggleBounds.height <= sidebarBounds.y + sidebarBounds.height)
+    if (process.env.MEW_EXPLORER_SCREENSHOTS) {
+      await sidebar.evaluate(el => el.ownerDocument.documentElement.classList.remove('dark'))
+      await page.mouse.move(0, 0)
+      await sidebar.screenshot({ path: path.join(process.env.MEW_EXPLORER_SCREENSHOTS, 'mobile-documents.png') })
+    }
+    await filesToggle.tap()
+    if (process.env.MEW_EXPLORER_SCREENSHOTS) await sidebar.screenshot({ path: path.join(process.env.MEW_EXPLORER_SCREENSHOTS, 'mobile-files.png') })
     await sidebar.locator('[data-path="beta.md"]').first().tap()
     await dock.getByRole('button', { name: '에디터 화면', exact: true }).tap()
     const cdp = await page.context().newCDPSession(page)
@@ -424,6 +502,8 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     const features = page.getByRole('region', { name: '기능', exact: true })
     await features.waitFor()
     assert.equal(await page.getByRole('dialog').count(), 0, 'features occupies a workspace panel without a modal overlay')
+    assert.equal((await features.locator('header').boundingBox())!.height, 36)
+    assert.equal(await features.locator('[draggable=true]').count(), 0, 'mobile omits the panel grip')
     assert.ok((await features.boundingBox())!.y + (await features.boundingBox())!.height <= (await dock.boundingBox())!.y, 'panel leaves the dock accessible')
     await features.getByRole('button', { name: '기능 요청', exact: true }).click()
     const draft = features.getByRole('textbox', { name: '추가할 기능', exact: true })
@@ -450,13 +530,21 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     assert.equal(await dock.locator('[data-dock-item=browser]').getAttribute('aria-current'), 'page')
     await dock.getByRole('button', { name: '기능', exact: true }).tap()
     await features.waitFor()
+    await page.waitForResponse(response => {
+      if (!response.url().includes('/api/user-ui/workspace') || response.request().method() !== 'PUT') return false
+      const state = response.request().postDataJSON().state
+      return state.chrome?.featuresOpen === true && state.dock?.groups.some((group: { kind: string }) => group.kind === 'features')
+    })
     await page.reload()
     await page.locator('[data-test-editor]').waitFor({ state: 'attached' })
     await features.waitFor()
     assert.equal(await dock.locator('[data-dock-item=features]').getAttribute('aria-current'), 'page', 'reload restores the foreground feature panel')
     await page.setViewportSize({ width: 1100, height: 700 })
     await features.waitFor()
-    assert.ok((await features.boundingBox())!.width <= 550, 'desktop features uses an attached side panel')
+    await features.locator('[draggable=true]').waitFor()
+    const restoredEditor = (await dockedEditor.boundingBox())!
+    const restoredFeatures = (await features.boundingBox())!
+    assert.ok(restoredFeatures.y >= restoredEditor.y + restoredEditor.height - 1, `docking survives closing, reopening, mobile navigation and reload: ${JSON.stringify({ restoredEditor, restoredFeatures })}`)
     await page.screenshot({ path: '/tmp/mew-feature-panel-desktop.png' })
     await features.getByRole('button', { name: '닫기', exact: true }).click()
     await page.setViewportSize({ width: 390, height: 700 })
@@ -497,12 +585,14 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
       await page.getByRole('button', { name: '메뉴', exact: true }).click()
       const menu = page.getByRole('menu', { name: '메뉴', exact: true })
       await menu.waitFor()
-      for (const label of ['RAG', '기능', 'Git', '원격 데스크톱', '에이전트', '터미널', '브라우저']) {
+      for (const label of ['기능', 'Git', '원격 데스크톱', '에이전트', '터미널', '브라우저']) {
         assert.equal(await menu.getByRole('menuitem', { name: new RegExp(`^${label}(?:\\s|$)`) }).count(), 0, `${label} is only in the dock`)
       }
-      for (const id of ['agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'rag']) {
+      for (const id of ['agent', 'terminal', 'git', 'browser', 'features', 'desktop']) {
         assert.equal(await dock.locator(`[data-dock-item=${id}]`).isVisible(), true, `${id} remains accessible`)
       }
+      assert.equal(await dock.locator('[data-dock-item=rag]').count(), 0)
+      assert.equal(await menu.getByRole('menuitem', { name: 'RAG', exact: true }).count(), 0)
       assert.equal(await menu.getByRole('menuitem', { name: '설정', exact: true }).isVisible(), true)
       assert.equal(await menu.getByRole('menuitem', { name: '전체화면', exact: false }).isVisible(), true)
       await page.screenshot({ path: `/tmp/mew-header-menu-${width}-${dark ? 'dark' : 'light'}.png` })

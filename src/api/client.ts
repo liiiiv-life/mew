@@ -1,6 +1,5 @@
 import { gitFetch } from './git-auth-request'
 import { uiText } from '@mew/ui/i18n-core'
-import type { RagConfiguration, RagDocument, RagSettings } from '../../shared/rag'
 import type { ProjectTabGroup } from '../../shared/project-tab-groups'
 import type { GitAiCommitJob } from '../../shared/git-ai-commit'
 import type { GitHubAuthStatus, GitHubLoginJob } from '../../shared/github-auth'
@@ -1149,76 +1148,6 @@ export async function searchProjectStream(
   return { truncated, state, version, scannedDirtyFiles }
 }
 
-export interface SemanticSearchResult {
-  path: string
-  line: number
-  lineEnd: number
-  title: string
-  heading: string
-  text: string
-  reveal: string
-  tier: 'current' | 'history'
-  score: number
-}
-
-export interface SemanticSearchResponse {
-  results: SemanticSearchResult[]
-  indexedFiles: number
-  indexedChunks: number
-  updatedFiles: number
-  model: string
-}
-
-/** 내장 LanceDB + 로컬 다국어 임베딩 의미 검색. 로그인 사용자 전용. */
-export function semanticSearchProject(query: string, includeHistory: boolean, project = currentProject, workspace?: string): Promise<SemanticSearchResponse> {
-  const params = new URLSearchParams({
-    q: query,
-    project,
-    ...(workspace ? { workspace } : {}),
-    history: includeHistory ? '1' : '0',
-  })
-  return fetch(`/api/search/semantic?${params.toString()}`).then(json<SemanticSearchResponse>)
-}
-
-export interface RagStatus {
-  enabled: boolean
-  engine: 'LanceDB'
-  dimensions: number
-  database: string
-  model: string
-  ready: boolean
-  indexedFiles: number
-  indexedChunks: number
-}
-
-export function fetchRagStatus(project = currentProject, workspace?: string): Promise<RagStatus> {
-  return fetch(`/api/rag/status?${ragQs(project, workspace)}`).then(json<RagStatus>)
-}
-
-function ragQs(project: string, workspace?: string): string {
-  return new URLSearchParams({ project, ...(workspace ? { workspace } : {}) }).toString()
-}
-
-export function fetchRagSettings(): Promise<RagConfiguration> {
-  return fetch('/api/rag/settings').then(json<RagConfiguration>)
-}
-
-export function saveRagSettings(settings: RagSettings): Promise<RagConfiguration> {
-  return fetch('/api/rag/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }).then(json<RagConfiguration>)
-}
-
-export function fetchRagDocuments(project: string, workspace: string): Promise<{ documents: RagDocument[] }> {
-  return fetch(`/api/rag/documents?${ragQs(project, workspace)}`).then(json<{ documents: RagDocument[] }>)
-}
-
-export function reindexRag(project = currentProject, workspace?: string): Promise<{ ok: true; files: number; chunks: number; updated: number }> {
-  return fetch('/api/rag/reindex', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project, workspace }),
-  }).then(json<{ ok: true; files: number; chunks: number; updated: number }>)
-}
-
 /** 한 파일 안의 모든 매치를 치환하고 커밋한다 — 전역 "모두 바꾸기"는 파일마다 호출한다 */
 export function replaceInProjectFile(
   path: string,
@@ -1286,14 +1215,14 @@ export interface FileHistoryEntry {
   message: string
 }
 
-export function fetchFileHistory(path: string): Promise<{ history: FileHistoryEntry[] }> {
-  return fetch(`/api/file-history?path=${encodeURIComponent(path)}&${projectQs()}`).then(
+export function fetchFileHistory(path: string, project: string = currentProject): Promise<{ history: FileHistoryEntry[] }> {
+  return fetch(`/api/file-history?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(
     json<{ history: FileHistoryEntry[] }>,
   )
 }
 
-export function fetchFileAtCommit(path: string, hash: string): Promise<{ content: string | null }> {
-  return fetch(`/api/file-at-commit?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&${projectQs()}`).then(
+export function fetchFileAtCommit(path: string, hash: string, project: string = currentProject): Promise<{ content: string | null }> {
+  return fetch(`/api/file-at-commit?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&${projectQs(project)}`).then(
     json<{ content: string | null }>,
   )
 }
@@ -1366,11 +1295,11 @@ export interface LintDiagnostic {
 }
 
 /** 편집 중인 버퍼를 서버 oxlint로 검사한다 — 저장 여부와 무관 (뷰어 모드에서는 403) */
-export function lintFile(path: string, content: string): Promise<{ diagnostics: LintDiagnostic[] }> {
+export function lintFile(path: string, content: string, project: string = currentProject): Promise<{ diagnostics: LintDiagnostic[] }> {
   return fetch('/api/lint', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, content, project: currentProject }),
+    body: JSON.stringify({ path, content, project }),
   }).then(json<{ diagnostics: LintDiagnostic[] }>)
 }
 
@@ -1438,17 +1367,17 @@ export function createNewDocument(relPath: string, title: string, project: strin
 
 /** 외부 링크 미리보기 — 서버가 대신 fetch해서 제목·설명을 뽑아준다 (뷰어 모드에선 403) */
 /** 표 열 너비 — 본문 md에 담을 수 없어 프로젝트의 .mew/table-layout.json에 따로 저장된다 */
-export function fetchTableLayout(path: string): Promise<TableWidths> {
-  return fetch(`/api/table-layout?path=${encodeURIComponent(path)}&${projectQs()}`)
+export function fetchTableLayout(path: string, project: string = currentProject): Promise<TableWidths> {
+  return fetch(`/api/table-layout?path=${encodeURIComponent(path)}&${projectQs(project)}`)
     .then(json<{ tables: TableWidths }>)
     .then((r) => r.tables)
 }
 
-export function saveTableLayout(path: string, tables: TableWidths): Promise<void> {
+export function saveTableLayout(path: string, tables: TableWidths, project: string = currentProject): Promise<void> {
   return fetch('/api/table-layout', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, tables, project: currentProject }),
+    body: JSON.stringify({ path, tables, project }),
   })
     .then(json<{ ok: true }>)
     .then(() => undefined)
@@ -1594,10 +1523,9 @@ export function fetchLinkPreview(url: string): Promise<{ title: string | null; d
   )
 }
 
-export async function uploadAsset(file: File): Promise<{ url: string; name: string; mimetype: string }> {
+export async function uploadAsset(file: File, project: string = currentProject): Promise<{ url: string; name: string; mimetype: string }> {
   // 큰 사진은 여기서 한 번 줄여 올린다 — 서버는 받은 바이트를 그대로 보관하므로 줄일 수 있는
   // 유일한 자리다. 대상이 아니거나 실패하면 원본이 그대로 넘어온다(compressImage는 던지지 않는다).
-  const project = currentProject
   const body = new FormData()
   body.append('file', await compressImage(file))
   body.append('project', project)
@@ -1817,113 +1745,129 @@ export function renameTmuxSession(name: string, newName: string): Promise<{ ok: 
 
 const DB_BASE = '/api/db'
 
-function dbList(): Promise<DbSummary[]> {
-  return fetch(`${DB_BASE}?${projectQs()}`).then(json<DbSummary[]>)
+function dbList(project: string = currentProject): Promise<DbSummary[]> {
+  return fetch(`${DB_BASE}?${projectQs(project)}`).then(json<DbSummary[]>)
 }
 
-function dbCreate(title: string): Promise<DbView> {
+function dbCreate(title: string, project: string = currentProject): Promise<DbView> {
   return fetch(DB_BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, project: currentProject }),
+    body: JSON.stringify({ title, project }),
   }).then(json<DbView>)
 }
 
-function dbAttachExternal(schema: string, table: string, title?: string): Promise<DbView> {
+function dbAttachExternal(schema: string, table: string, title?: string, project: string = currentProject): Promise<DbView> {
   return fetch(`${DB_BASE}/attach`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ schema, table, title, project: currentProject }),
+    body: JSON.stringify({ schema, table, title, project }),
   }).then(json<DbView>)
 }
 
-function dbGetView(id: string): Promise<DbView> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}?${projectQs()}`).then(json<DbView>)
+function dbGetView(id: string, project: string = currentProject): Promise<DbView> {
+  return fetch(`${DB_BASE}/${encodeURIComponent(id)}?${projectQs(project)}`).then(json<DbView>)
 }
 
-function dbRemove(id: string): Promise<void> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}?${projectQs()}`, { method: 'DELETE' }).then(json<{ ok: true }>).then(() => {})
+function dbRemove(id: string, project: string = currentProject): Promise<void> {
+  return fetch(`${DB_BASE}/${encodeURIComponent(id)}?${projectQs(project)}`, { method: 'DELETE' }).then(json<{ ok: true }>).then(() => {})
 }
 
-function dbRename(id: string, title: string): Promise<void> {
+function dbRename(id: string, title: string, project: string = currentProject): Promise<void> {
   return fetch(`${DB_BASE}/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, project: currentProject }),
+    body: JSON.stringify({ title, project }),
   })
     .then(json<DbSummary>)
     .then(() => {})
 }
 
-function dbInsertRow(id: string): Promise<DbRow> {
+function dbInsertRow(id: string, project: string = currentProject): Promise<DbRow> {
   return fetch(`${DB_BASE}/${encodeURIComponent(id)}/rows`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project: currentProject }),
+    body: JSON.stringify({ project }),
   }).then(json<DbRow>)
 }
 
-function dbUpdateCell(id: string, rowId: string, columnId: string, value: unknown): Promise<unknown> {
+function dbUpdateCell(id: string, rowId: string, columnId: string, value: unknown, project: string = currentProject): Promise<unknown> {
   return fetch(`${DB_BASE}/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ columnId, value, project: currentProject }),
+    body: JSON.stringify({ columnId, value, project }),
   })
     .then(json<{ value: unknown }>)
     .then((r) => r.value)
 }
 
-function dbDeleteRow(id: string, rowId: string): Promise<void> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowId)}?${projectQs()}`, {
+function dbDeleteRow(id: string, rowId: string, project: string = currentProject): Promise<void> {
+  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowId)}?${projectQs(project)}`, {
     method: 'DELETE',
   })
     .then(json<{ ok: true }>)
     .then(() => {})
 }
 
-function dbAddColumn(id: string, name: string, type: DbColumnType): Promise<DbColumn> {
+function dbAddColumn(id: string, name: string, type: DbColumnType, project: string = currentProject): Promise<DbColumn> {
   return fetch(`${DB_BASE}/${encodeURIComponent(id)}/columns`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, type, project: currentProject }),
+    body: JSON.stringify({ name, type, project }),
   }).then(json<DbColumn>)
 }
 
-function dbRenameColumn(id: string, columnId: string, name: string): Promise<DbColumn> {
+function dbRenameColumn(id: string, columnId: string, name: string, project: string = currentProject): Promise<DbColumn> {
   return fetch(`${DB_BASE}/${encodeURIComponent(id)}/columns/${encodeURIComponent(columnId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, project: currentProject }),
+    body: JSON.stringify({ name, project }),
   }).then(json<DbColumn>)
 }
 
-function dbDeleteColumn(id: string, columnId: string): Promise<void> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/columns/${encodeURIComponent(columnId)}?${projectQs()}`, {
+function dbDeleteColumn(id: string, columnId: string, project: string = currentProject): Promise<void> {
+  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/columns/${encodeURIComponent(columnId)}?${projectQs(project)}`, {
     method: 'DELETE',
   })
     .then(json<{ ok: true }>)
     .then(() => {})
 }
 
-export const dbApi: EditorDbApi = {
-  list: dbList,
-  create: dbCreate,
-  attachExternal: dbAttachExternal,
-  getView: dbGetView,
-  remove: dbRemove,
-  rename: dbRename,
-  insertRow: dbInsertRow,
-  updateCell: dbUpdateCell,
-  deleteRow: dbDeleteRow,
-  addColumn: dbAddColumn,
-  renameColumn: dbRenameColumn,
-  deleteColumn: dbDeleteColumn,
-  subscribe: subscribeDb,
+function createDbApi(project?: string): EditorDbApi {
+  return {
+    list: () => dbList(project),
+    create: title => dbCreate(title, project),
+    attachExternal: (schema, table, title) => dbAttachExternal(schema, table, title, project),
+    getView: id => dbGetView(id, project),
+    remove: id => dbRemove(id, project),
+    rename: (id, title) => dbRename(id, title, project),
+    insertRow: id => dbInsertRow(id, project),
+    updateCell: (id, rowId, columnId, value) => dbUpdateCell(id, rowId, columnId, value, project),
+    deleteRow: (id, rowId) => dbDeleteRow(id, rowId, project),
+    addColumn: (id, name, type) => dbAddColumn(id, name, type, project),
+    renameColumn: (id, columnId, name) => dbRenameColumn(id, columnId, name, project),
+    deleteColumn: (id, columnId) => dbDeleteColumn(id, columnId, project),
+    subscribe: (id, listener) => subscribeDb(id, listener, project),
+  }
 }
+
+export const dbApi = createDbApi()
 
 // ---- 패키지 컴포넌트에 주입하는 서버 연동 객체 (모듈 상수 = 렌더 간 identity 안정) ----
 
 export const editorApi: EditorApi = { fetchFile, uploadAsset, fetchLinkPreview, fetchTableLayout, saveTableLayout, db: dbApi }
+
+/** Capture a pane's file scope so background callbacks cannot follow another pane's focus. */
+export function createEditorApi(project: string): EditorApi {
+  return {
+    fetchFile: path => fetchFile(path, project),
+    uploadAsset: file => uploadAsset(file, project),
+    fetchLinkPreview,
+    fetchTableLayout: path => fetchTableLayout(path, project),
+    saveTableLayout: (path, tables) => saveTableLayout(path, tables, project),
+    db: createDbApi(project),
+  }
+}
 
 export const tmuxApi: TmuxPanelApi = {
   fetchSessions: fetchTmuxSessions,

@@ -1,4 +1,3 @@
-import { readRagSettings, parseRagSettings, saveRagSettings } from './rag/settings.ts'
 import { GitConnectionError } from './git-connections.ts'
 import { gitRequestContext, requireGitConnection } from './git-execution.ts'
 import { ProjectSetupError } from './project-agent-settings.ts'
@@ -27,7 +26,6 @@ import {
 } from './fileCatalog.ts'
 import { searchFileNames } from './fileNameSearch.ts'
 import { ensureSearchIndex, exactSearchCandidates, type SearchIndexState } from './searchCatalog.ts'
-import { currentRagIndex, RagDisabledError, RagUnavailableError, validateRagProject } from './rag/index.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
 import { cloneExternalRepository, commitDetail, commitFileDiff, commitWorkingTree, GitWorkbenchError, initializeExternalRepository, initializeRepository, listRepositories, repositoryInfo, repositoryLog, runCommitAction, runRemoteAction, workingTreeDetail, workingTreeFileDiff } from './gitWorkbench.ts'
 import { createGitHubAuthRouter } from './github-auth-routes.ts'
@@ -358,7 +356,7 @@ function filePermissionMiddleware(req: express.Request, res: express.Response, n
     allowed = fileAccess(auth, project, body.relPath).edit
   } else if (route === '/upload' || route === '/upload-into' || route === '/project-icon' || route === '/project-layout') {
     allowed = canUse(auth, 'filesWrite') && canUse(auth, 'filesRead')
-  } else if (route.startsWith('/git/') || route === '/rag/status' || route === '/rag/reindex' || route === '/rag/documents') {
+  } else if (route.startsWith('/git/')) {
     allowed = unrestrictedFiles(auth, project, write)
   } else if (route === '/db' || route.startsWith('/db/')) {
     allowed = canUse(auth, 'database') && unrestrictedFiles(auth, project, write)
@@ -1516,83 +1514,6 @@ export function createApiApp() {
     if (!closed) res.end()
   })
 
-  // 의미 검색(RAG retrieval) — 인덱스는 권한 경계가 아니라 파생 캐시다. 로그인 사용자만 허용하고,
-  // 결과도 요청 시점의 기본 트리에 보이는 파일 집합으로 다시 제한한다.
-  app.use(['/search/semantic', '/rag/status', '/rag/documents', '/rag/reindex'], (req, res, next) => {
-    const expected = req.method === 'GET' ? req.query.workspace : req.body?.workspace
-    if (expected !== undefined && expected !== WORKSPACE_ROOT) {
-      res.status(409).json({ error: '프로젝트가 변경되었습니다. 현재 프로젝트에서 다시 열어 주세요.' }); return
-    }
-    next()
-  })
-
-  app.get('/search/semantic', requireAuthenticated, async (req, res) => {
-    const project = projectOf(req)
-    const query = String(req.query.q ?? '').trim()
-    try {
-      if (!query) {
-        res.json({ results: [], indexedFiles: 0, indexedChunks: 0, updatedFiles: 0, model: '' })
-        return
-      }
-      if (query.length > 2_000) {
-        res.status(400).json({ error: '검색어가 너무 깁니다' })
-        return
-      }
-      validateRagProject(project)
-      const workspace = WORKSPACE_ROOT, index = currentRagIndex()
-      const files = flattenTextFiles(await buildTreeAsync(project)).filter(relPath => fileAccess(authOf(req), project, relPath).view)
-      if (workspace !== WORKSPACE_ROOT) { res.status(409).json({ error: '프로젝트가 변경되었습니다.' }); return }
-      res.json(await index.search(project, files, query, req.query.history === '1'))
-    } catch (err) {
-      handleError(res, err)
-    }
-  })
-
-  app.get('/rag/settings', requireAuthenticated, (_req, res) => {
-    try { res.json(readRagSettings()) } catch (err) { handleError(res, err) }
-  })
-
-  app.put('/rag/settings', requireFeature('system'), (req, res) => {
-    let settings
-    try { settings = parseRagSettings(req.body) }
-    catch { res.status(400).json({ error: 'RAG 설정값이 올바르지 않습니다.' }); return }
-    try { res.json(saveRagSettings(settings)) } catch (err) { handleError(res, err) }
-  })
-
-  app.get('/rag/documents', requireAuthenticated, async (req, res) => {
-    const project = projectOf(req)
-    try {
-      validateRagProject(project)
-      const workspace = WORKSPACE_ROOT, index = currentRagIndex(true)
-      const files = flattenTextFiles(await buildTreeAsync(project)).filter(relPath => fileAccess(authOf(req), project, relPath).view)
-      if (workspace !== WORKSPACE_ROOT) { res.status(409).json({ error: '프로젝트가 변경되었습니다.' }); return }
-      res.json({ documents: index.documents(project, files) })
-    } catch (err) { handleError(res, err) }
-  })
-
-  app.get('/rag/status', requireAuthenticated, (req, res) => {
-    const project = projectOf(req)
-    try {
-      validateRagProject(project)
-      res.json(currentRagIndex(true).status(project))
-    } catch (err) {
-      handleError(res, err)
-    }
-  })
-
-  app.post('/rag/reindex', requireFeature('system'), async (req, res) => {
-    const project = projectOf(req)
-    try {
-      validateRagProject(project)
-      const workspace = WORKSPACE_ROOT, index = currentRagIndex()
-      const files = flattenTextFiles(await buildTreeAsync(project)).filter(relPath => fileAccess(authOf(req), project, relPath).view)
-      if (workspace !== WORKSPACE_ROOT) { res.status(409).json({ error: '프로젝트가 변경되었습니다.' }); return }
-      res.json({ ok: true, ...(await index.ensureProject(project, files, true)) })
-    } catch (err) {
-      handleError(res, err)
-    }
-  })
-
   // 한 파일 안의 모든 매치를 치환하고 커밋한다 — 게스트는 대량 편집 불가(requireAuthenticated).
   // 프로젝트 전역 "모두 바꾸기"는 프론트가 파일마다 이 라우트를 부른다.
   app.post('/search/replace', requireAuthenticated, async (req, res) => {
@@ -2694,10 +2615,6 @@ function handleError(res: express.Response, err: unknown) {
   if (err instanceof GitError) {
     // manager·owner가 직접 요청한 Git 작업의 충돌/dirty working tree 이유는 GUI에서 해결 판단에 필요하다.
     res.status(409).json({ error: err.message })
-    return
-  }
-  if (err instanceof RagDisabledError || err instanceof RagUnavailableError) {
-    res.status(503).json({ error: err.message })
     return
   }
   if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {

@@ -38,6 +38,14 @@ test('Ctrl+P와 정확 내용 검색은 전체 tree 응답 없이 통합 catalog
   const base = typeof address === 'object' && address ? `http://127.0.0.1:${address.port}` : ''
 
   try {
+    for (const [method, route] of [
+      ['GET', '/search/semantic?q=needle'], ['GET', '/rag/status'],
+      ['GET', '/rag/documents'], ['GET', '/rag/settings'],
+      ['PUT', '/rag/settings'], ['POST', '/rag/reindex'],
+    ]) {
+      const response = await fetch(`${base}/api${route}`, { method })
+      assert.equal(response.status, 404, `${method} ${route} was removed`)
+    }
     const filesResponse = await fetch(`${base}/api/search/files?q=SearchPanel`)
     assert.equal(filesResponse.status, 200)
     const files = await filesResponse.json() as { results: Array<{ path: string; project: string }>; state: string }

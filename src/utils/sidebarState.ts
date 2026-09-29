@@ -1,5 +1,6 @@
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 export type SidebarState = {
+  explorerScope?: 'docs' | 'files'
   docsExpanded: boolean
   expandedSubprojects: string[]
 }
@@ -10,7 +11,7 @@ export function sidebarStateKey(rootPath: string): string {
   return `${KEY_PREFIX}${rootPath}`
 }
 
-/** Documents 펼침을 복원한다. expandedSubprojects는 이전 저장 형식과의 호환용이며 App에서 무시한다. */
+/** 탐색 범위를 복원한다. docsExpanded는 이전 펼침 상태와 호환하는 문서 보기 선택값이다. expandedSubprojects는 이전 저장 형식과의 호환용이며 App에서 무시한다. */
 export function loadSidebarState(rootPath: string | null): SidebarState {
   if (!rootPath) return { docsExpanded: false, expandedSubprojects: [] }
   try {
@@ -18,7 +19,7 @@ export function loadSidebarState(rootPath: string | null): SidebarState {
     if (typeof parsed !== 'object' || parsed === null) return { docsExpanded: false, expandedSubprojects: [] }
     const value = parsed as Partial<SidebarState>
     return {
-      docsExpanded: value.docsExpanded === true,
+      docsExpanded: value.explorerScope === 'docs' || (value.explorerScope !== 'files' && value.docsExpanded === true),
       expandedSubprojects: Array.isArray(value.expandedSubprojects)
         ? value.expandedSubprojects.filter((path): path is string => typeof path === 'string')
         : [],

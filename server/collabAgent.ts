@@ -56,7 +56,7 @@ function ensureDom(): Promise<void> {
 async function installDom(): Promise<void> {
   const { Window } = await import('happy-dom')
   const win = new Window({ url: 'http://localhost' })
-  // Browser-aware dependencies also expect self when window/document exist (e.g. Transformers.js).
+  // Browser-aware dependencies also expect self when window/document exist.
   const keys = ['window', 'self', 'document', 'DOMParser', 'Node', 'Element', 'HTMLElement', 'Text', 'DocumentFragment', 'getComputedStyle', 'MutationObserver'] as const
   const w = win as unknown as Record<string, unknown>
   for (const k of keys) {

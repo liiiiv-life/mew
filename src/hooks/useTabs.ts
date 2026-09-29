@@ -8,6 +8,7 @@ import { leaf, normalizeLayout, removeLeaf, splitLeaf, type DropSide, type PaneN
 import { externalAbsolutePath, externalTabPath, isExternalTabPath } from '../utils/externalFiles'
 import { afterFirstPaint, markFileOpen, startFileOpen, type FileOpenTrace } from '../utils/fileOpenPerformance'
 import { isGitTabPath } from '../utils/gitTabs'
+import { editorFile, mergeEditorTabs } from '../utils/editor-files'
 
 export type Tab = {
   path: string
@@ -58,6 +59,7 @@ export function openTabsKey(project: string, workspaceScope?: string): string {
 
 type StoredTab = { path: string; preview: boolean; viewMode: 'hotview' | 'plain' }
 export type StoredTabs = {
+  unifiedScopes?: boolean
   panes: { id: string; tabs: StoredTab[]; activePath: string | null }[]
   layout: PaneNode
   focusedPaneId: string
@@ -76,6 +78,7 @@ function loadStoredTabs(project: string, workspaceScope?: string): StoredTabs | 
         : []
     if (panes.length === 0) return null
     return {
+      unifiedScopes: parsed.unifiedScopes === true,
       panes: panes.map((p) => {
         // 중간 저장·옛 버전의 복원 경쟁으로 같은 경로가 여러 번 남아도, 한 칸에는 파일 하나만 둔다.
         // React key 충돌과 "파일 탭이 세 개"로 보이는 복원을 여기서 같이 치운다.
@@ -239,7 +242,8 @@ export function useTabs(
       for (const [scopeProject, state] of Object.entries(statesRef.current)) {
         for (const filePath of new Set(state.panes.flatMap(pane => pane.tabs.map(tab => tab.path)))) {
           dropCachedFile(scopeProject, filePath)
-          void trackRefresh(fetch(`/api/file-access?project=${encodeURIComponent(scopeProject)}&path=${encodeURIComponent(filePath)}${isExternalTabPath(filePath) ? '&external=1' : ''}`)
+          const file = editorFile(filePath, scopeProject)
+          void trackRefresh(fetch(`/api/file-access?project=${encodeURIComponent(file.project)}&path=${encodeURIComponent(file.path)}${isExternalTabPath(filePath) ? '&external=1' : ''}`)
             .then(response => response.ok ? response.json() as Promise<{ view: boolean; edit: boolean }> : { view: false, edit: false })
             .then(access => patch(scopeProject, current => prunePanes({ ...current, panes: current.panes.map(pane => {
               const tabs = access.view ? pane.tabs.map(tab => tab.path === filePath ? { ...tab, editable: access.edit } : tab) : pane.tabs.filter(tab => tab.path !== filePath)
@@ -273,6 +277,7 @@ export function useTabs(
     // forceNewTab: 이미 열려 있지 않은 문서라도 미리보기 탭 자리를 재사용하지 않고 항상 새 탭으로 연다
     // (에디터 안에서 Ctrl+클릭으로 내부 링크를 열 때 — 사이드바 클릭의 미리보기 재사용 동작과는 별개)
     (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; deferLoad?: boolean; restoring?: boolean; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
+      const file = editorFile(path, p)
       const preview = opts?.preview ?? true
       const existing = paneOf(p, paneId).tabs.find((t) => t.path === path)
       let trace: FileOpenTrace | undefined
@@ -364,7 +369,7 @@ export function useTabs(
       // 저장하지 않는다. 뒤의 전체 요청이 완료되면 기존 편집·협업 경로로 원자적으로 바뀐다.
       const canPreviewAnchor = !external && cached === undefined && opts?.anchorLine !== undefined && opts.viewMode === 'plain'
       if (canPreviewAnchor) {
-        fetchFileAnchorPreview(path, opts.anchorLine!, p)
+        fetchFileAnchorPreview(file.path, opts.anchorLine!, file.project)
           .then((first) => {
             if (!isCurrentWorkspace()) return
             if (!first.partial) {
@@ -388,11 +393,11 @@ export function useTabs(
                 version: first.version,
               },
             }))
-            fetchFile(path, p).then(applyFullFile).catch(handleOpenError)
+            fetchFile(file.path, file.project).then(applyFullFile).catch(handleOpenError)
           })
           .catch(handleOpenError)
       } else {
-        const fileRequest = external ? fetchExternalFile(externalAbsolutePath(path)) : fetchFile(path, p)
+        const fileRequest = external ? fetchExternalFile(externalAbsolutePath(path)) : fetchFile(file.path, file.project)
         const loading = fileRequest.then(applyFullFile).catch(handleOpenError)
         if (opts?.restoring) void trackRefresh(loading)
       }
@@ -401,7 +406,7 @@ export function useTabs(
         // 첫 편집기 paint 뒤에 시작한다. 실패해도 본문을 막지 않는 기존 계약은 그대로다.
         afterFirstPaint(() => {
           if (!isCurrentWorkspace()) return
-          fetchRules(path, p)
+          fetchRules(file.path, file.project)
             .then((rules) => {
               if (!isCurrentWorkspace()) return
               markFileOpen(trace, 'rules-response')
@@ -446,7 +451,8 @@ export function useTabs(
     // 메모리에서도 즉시 버린다. 저장분은 workspaceScope별 키에 남아 다시 돌아올 때 복원된다.
     setHydratedSession(null)
     // 첫 도입 때만 기존 공용 키를 읽는다. 다음 저장부터는 루트별 키로 옮겨져 서로 덮지 않는다.
-    const stored = accountTabs?.[project] ?? loadStoredTabs(project, workspaceScope) ?? (workspaceScope ? loadStoredTabs(project) : null)
+    const legacy = (scope: string) => accountTabs?.[scope] ?? loadStoredTabs(scope, workspaceScope) ?? (workspaceScope ? loadStoredTabs(scope) : null)
+    const stored = project === '.workspace' ? mergeEditorTabs(legacy(project), legacy('docs')) : legacy(project)
     if (!stored) {
       patch(project, () => EMPTY) // 빈 상태라도 만들어 둬야 이후 저장이 이 프로젝트를 기록한다
       setHydratedSession(sessionKey)
@@ -483,10 +489,13 @@ export function useTabs(
   useEffect(() => {
     if (hydratedSession !== sessionKey) return
     const activeLoads = pendingRestoreLoadsRef.current.get(sessionKey)
-    if (!activeLoads) return
     pendingRestoreLoadsRef.current.delete(sessionKey)
-    for (const load of activeLoads) {
-      openFileIn(project, load.paneId, load.path, { restoring: true, preview: load.preview, viewMode: load.viewMode })
+    const loads = activeLoads ?? (states[project]?.panes ?? []).flatMap(pane => {
+      const tab = pane.tabs.find(tab => tab.path === pane.activePath && tab.deferredLoad)
+      return tab ? [{ paneId: pane.id, path: tab.path, preview: tab.preview, viewMode: tab.viewMode }] : []
+    })
+    for (const load of loads) {
+      openFileIn(project, load.paneId, load.path, { restoring: !!activeLoads, preview: load.preview, viewMode: load.viewMode })
     }
   }, [project, sessionKey, hydratedSession, states, openFileIn])
 
@@ -498,6 +507,7 @@ export function useTabs(
     if (hydratedSession !== sessionKey) return
     for (const [p, s] of Object.entries(states)) {
       const payload: StoredTabs = {
+        ...(p === '.workspace' ? { unifiedScopes: true } : {}),
         panes: s.panes.map((pane) => ({
           id: pane.id,
           tabs: pane.tabs.filter((t) => !isExternalTabPath(t.path) && !isGitTabPath(t.path)).map((t) => ({ path: t.path, preview: t.preview, viewMode: t.viewMode })),
@@ -557,12 +567,13 @@ export function useTabs(
   const autosave = useCallback(
     (p: string, path: string) => {
       const tab = findTab(p, path)
-      if (!tab || tab.content === tab.savedContent || isArchivedPath(tab.path, p) || !tab.editable) return
+      const file = editorFile(path, p)
+      if (!tab || tab.content === tab.savedContent || isArchivedPath(file.path, file.project) || !tab.editable) return
       const content = tab.content
       mapTabsAtPath(p, path, (t) => ({ ...t, status: 'saving' }))
       const save = isExternalTabPath(path)
         ? saveExternalFile(externalAbsolutePath(path), content, tab.savedContent).then(() => ({ ok: true as const, commit: null }))
-        : saveFile(path, content, false, p)
+        : saveFile(file.path, content, false, file.project)
       save
         .then(() => {
           if (!isExternalTabPath(path)) putCachedFile(p, path, { content, editable: tab.editable })
@@ -645,8 +656,9 @@ export function useTabs(
       const pane = paneOf(p)
       const tab = pane.tabs.find((t) => t.path === pane.activePath) ?? null
       if (!tab || !tab.editable) return
+      const file = editorFile(tab.path, p)
       const dirty = commit ? tab.content !== tab.committedContent : tab.content !== tab.savedContent
-      if (!dirty || isArchivedPath(tab.path, p)) return
+      if (!dirty || isArchivedPath(file.path, file.project)) return
 
       settlePendingSave(p, tab.path)
       mapTabsAtPath(p, tab.path, (t) => ({ ...t, status: 'saving' }))
@@ -654,7 +666,7 @@ export function useTabs(
         const external = isExternalTabPath(tab.path)
         const result = external
           ? { ...(await saveExternalFile(externalAbsolutePath(tab.path), tab.content, tab.savedContent)), commit: null }
-          : await saveFile(tab.path, tab.content, commit, p)
+          : await saveFile(file.path, tab.content, commit, file.project)
         if (!external) putCachedFile(p, tab.path, { content: tab.content, editable: tab.editable })
         const message = commit
           ? `Committed${result.commit?.hash ? ' ' + result.commit.hash.slice(0, 7) : ''}`
@@ -668,7 +680,7 @@ export function useTabs(
         }))
         if (commit && !external) {
           onCommitted()
-          fetchRules(tab.path, p)
+          fetchRules(file.path, file.project)
             .then((rules) => mapTabsAtPath(p, tab.path, (t) => ({ ...t, rules })))
             .catch(console.error)
         }
@@ -684,12 +696,13 @@ export function useTabs(
   const applyRevertedContent = useCallback(
     (path: string, content: string) => {
       const p = projectRef.current
+      const file = editorFile(path, p)
       // 되돌리기는 지금 버퍼를 통째로 대체하므로 이 탭에 예약된 저장은 취소한다
       settlePendingSave(p, path)
       putCachedFile(p, path, { content, editable: findTab(p, path)?.editable ?? true })
       mapTabsAtPath(p, path, (t) => ({ ...t, content, savedContent: content, committedContent: content, status: 'saved', statusMessage: 'Reverted' }))
       onCommitted()
-      fetchRules(path, p)
+      fetchRules(file.path, file.project)
         .then((rules) => mapTabsAtPath(p, path, (t) => ({ ...t, rules })))
         .catch(console.error)
     },

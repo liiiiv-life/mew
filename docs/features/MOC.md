@@ -37,7 +37,6 @@ updated: 2026-09-18
 - [단체 채팅·DM·읽음 확인](collaboration/chat.md)
 - [대화에서 CLI 명령 실행](agents/cli-commands.md)
 - [댓글·답글·멤버 멘션](collaboration/comments.md)
-- [로컬 의미 검색·RAG](projects/semantic-search.md)
 - [링크·파일 참조·첨부](editor/references.md)
 - [문서 데이터베이스](database.md)
 - [문서 데이터베이스·전체 목록](database/document-tables.md)

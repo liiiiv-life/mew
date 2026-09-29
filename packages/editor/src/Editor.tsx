@@ -61,7 +61,15 @@ import { EditorSearchBar } from './editor/EditorSearchBar'
 import { EmptyParagraph } from './editor/emptyParagraph'
 import './editor/editor.css'
 
+export interface EditorViewAnchor {
+  line: number
+  /** 줄 시작의 스크롤 영역 상단 기준 위치(px). */
+  offset: number
+}
+
 export interface EditorHandle {
+  getViewAnchor: () => EditorViewAnchor | null
+  restoreViewAnchor: (anchor: EditorViewAnchor) => boolean
   scrollToHeading: (index: number) => void
   /** frontmatter+본문 전체를 통째로 교체 — collab 방이 있으면 그 Y.XmlFragment도 정상적인 로컬
    * 트랜잭션으로 갱신되어(ySyncPlugin이 가로챔) 다른 세션에도 그대로 반영된다. 되돌리기(revert)용. */
@@ -1680,6 +1688,33 @@ export const Editor = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
+      getViewAnchor() {
+        const root = containerRef.current
+        if (!editor || !root) return null
+        const bounds = root.getBoundingClientRect()
+        const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-mew-line-numbers]'))
+        const visible = (el: HTMLElement) => {
+          const rect = el.getBoundingClientRect()
+          return rect.bottom > bounds.top && rect.top < bounds.bottom
+        }
+        const block = blocks.find(el => el.classList.contains('mew-line--focus') && visible(el))
+          ?? blocks.find(visible)
+        if (!block) return null
+        return { line: Number(block.dataset.mewLineNumbers), offset: Math.max(0, block.getBoundingClientRect().top - bounds.top) }
+      },
+      restoreViewAnchor(anchor) {
+        const root = containerRef.current
+        if (!editor || editor.isDestroyed || !root) return false
+        const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-mew-line-numbers]'))
+        // Plain의 빈 줄·표 내부·코드 내부는 그 줄을 포함하는 렌더 블록으로 돌아간다.
+        const block = blocks.findLast(el => Number(el.dataset.mewLineNumbers) <= anchor.line) ?? blocks[0]
+        if (!block) return false
+        const pos = editor.view.posAtDOM(block, 0)
+        const selection = TextSelection.near(editor.state.doc.resolve(pos))
+        if (!selection.eq(editor.state.selection)) editor.view.dispatch(editor.state.tr.setSelection(selection))
+        root.scrollTop += block.getBoundingClientRect().top - root.getBoundingClientRect().top - anchor.offset
+        return true
+      },
       scrollToHeading(index: number) {
         const headings = containerRef.current?.querySelectorAll('h1, h2, h3, h4, h5, h6')
         const el = headings?.[index] as HTMLElement | undefined

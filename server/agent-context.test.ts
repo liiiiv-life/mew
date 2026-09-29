@@ -74,6 +74,7 @@ new AgentSideConnection(conn => new Agent(conn), ndJsonStream(Writable.toWeb(pro
   for (const call of calls()) {
     assert.equal(call.prompt.length, 2)
     assert.match(call.prompt[1].text, /A-specific guidance/)
+    assert.doesNotMatch(call.prompt[1].text, /Local RAG|server\/rag\/cli|MEW_RAG/)
     assert.ok(!call.prompt[1].text.includes('B-specific guidance'))
     assert.ok(call.prompt[1].text.includes(path.join(a, 'notes')))
   }

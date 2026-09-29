@@ -54,7 +54,8 @@ test('account capabilities and canonical file rules are enforced across HTTP and
     }
     policy.setFeature(member.email!, 'git', true)
     assert.equal((await request('/git/remote', 'POST', { action: 'pull', workspace: '/stale' }, 'owner')).status, 409)
-    assert.equal((await request('/git/github-auth', 'POST')).status, 403, 'Git alone cannot open login browsers')
+    assert.equal((await request('/git/github-auth/unknown/browser', 'POST')).status, 403, 'Git alone cannot open internal login browsers')
+    assert.equal((await request('/git-connections/github', 'GET', undefined, 'guest')).status, 403)
     policy.setFeature(member.email!, 'git', null)
     assert.equal((await request('/fs/agent-guidance')).status, 403)
     assert.equal((await request('/fs/agent-guidance', 'PUT', { key: 'language', value: 'ko', revision: '' })).status, 403)

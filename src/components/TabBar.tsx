@@ -1,3 +1,4 @@
+import { PanelTitle } from './panel-title'
 import { useDragReorder } from '@mew/ui'
 import { PresenceDots } from './PresenceDots'
 import { externalFileName, isExternalTabPath } from '../utils/externalFiles'
@@ -40,6 +41,7 @@ export function TabBar({
   return (
     <div className="flex h-9 min-w-0 flex-1 items-center border-b border-edge bg-surface-deep">
       <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
+        {tabs.length === 0 && <PanelTitle kind={'editor'} />}
         {tabs.map((tab, i) => {
           const isActive = tab.path === activePath
           const fileName = isExternalTabPath(tab.path)

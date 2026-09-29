@@ -1,18 +1,17 @@
-import { useEffect, useRef, useState, type PointerEvent, type SVGProps } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { HoverTipLayer } from '@mew/ui'
-import { Brain, Computer, Database, EditPencil, Folder, GitBranch, Globe, Notes, Terminal } from 'iconoir-react'
+import { Brain, Computer, EditPencil, Folder, GitBranch, Globe, Notes, Terminal } from 'iconoir-react'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { uiText } from '@mew/ui/i18n-core'
 import { useI18n } from '../i18n'
 import { featureCopy } from './feature-copy'
+import { FeatureIcon } from './feature-icon'
 import { MOBILE_DOCK_ORDER_KEY, normalizeMobileDockOrder, moveDockPanel, type DockDirection, type MobileDockPanel } from '../utils/mobile-dock'
 
-function FeatureIcon(props: SVGProps<SVGSVGElement>) {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}><circle cx="5" cy="5" r="2" /><path d="M10 5h11M5 9v10h3M12 13h9M12 19h9" /><circle cx="10" cy="13" r="1" /><circle cx="10" cy="19" r="1" /></svg>
-}
 
-const icons = { sidebar: Folder, editor: EditPencil, agent: Brain, terminal: Terminal, git: GitBranch, browser: Globe, desktop: Computer, features: FeatureIcon, rag: Database, memo: Notes }
+
+const icons = { sidebar: Folder, editor: EditPencil, agent: Brain, terminal: Terminal, git: GitBranch, browser: Globe, desktop: Computer, features: FeatureIcon, memo: Notes }
 const labels = { sidebar: 'fab.sidebar', editor: 'fab.editor', agent: 'header.agent', terminal: 'header.terminal', git: 'access.git', browser: 'header.browser', desktop: 'access.desktop' } as const
 type DragPreview = { x: number; y: number; width: number; height: number }
 
@@ -39,7 +38,7 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
   const [preview, setPreview] = useState<DragPreview | null>(null)
   const [notice, setNotice] = useState<MobileDockPanel | null>(null)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const labelFor = (id: MobileDockPanel) => id === 'memo' ? uiText('메모') : id === 'rag' ? 'RAG' : id === 'features' ? featureCopy[locale].title : t(labels[id])
+  const labelFor = (id: MobileDockPanel) => id === 'memo' ? uiText('메모') : id === 'features' ? featureCopy[locale].title : t(labels[id])
   const clearNotice = () => { clearTimeout(noticeTimer.current); setNotice(null) }
   const root = useRef<HTMLElement>(null)
   const gesture = useRef<{ id: number; x: number; y: number; item?: MobileDockPanel; box?: DOMRect; capture: HTMLElement; moved: boolean; dragging: boolean; order: MobileDockPanel[]; original: MobileDockPanel[] } | null>(null)

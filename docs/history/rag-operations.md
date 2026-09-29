@@ -2,10 +2,13 @@
 title: "mew 내장 RAG 운영"
 desc: "로컬 의미 검색의 데이터 수명주기·권한·복구 기준."
 created: 2026-08-21
-updated: 2026-09-23
+updated: 2026-09-28
 reviewed: 2026-08-21
 review-after-days: 90
 ---
+
+> 2026-09-28: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)에 따라 RAG를 제거했다. 아래는 당시 기록이며 현재 실행 지침이 아니다. 사용자 요청 없이 재도입·재색인·모델 다운로드를 재시도하지 않는다.
+
 
 mew 의미 검색 운영 기준(reference). 구현·환경 변수·API 계약은 [검색 설정](../configuration/search.md)·[환경변수](../configuration/environment.md), 선택 근거는 [ADR 0071](../../../.mew/docs/decisions/0071-mew-embedded-lancedb-local-rag.md).
 
@@ -38,3 +41,15 @@ mew 의미 검색 운영 기준(reference). 구현·환경 변수·API 계약은
 협업 편집기 초기화 후에만 `self is not defined`가 나오면 브라우저 호환 전역의 누락을 확인한다. `server/collabAgent.ts`가 `window`와 같은 Window의 `self`를 설치하고, `server/rag/embeddings.ts`가 Node CPU·파일 캐시·로컬 모델 읽기를 명시한다. 실패한 모듈 import는 프로세스에 남을 수 있어 수정 반영 후 서버 재시작이 필요하다. 에이전트가 직접 빌드·재시작하지 않는다.
 
 회귀 검사는 `node --test server/rag/embeddings.test.ts`다. 실제 협업 DOM 초기화 뒤 라이브러리를 로드한다. 캐시가 준비된 환경에서는 `MEW_RAG_TEST_MODEL_CACHE=<모델 캐시 절대 경로> node --test server/rag/embeddings.test.ts`로 외부 다운로드 없이 임시 Docs의 실제 임베딩·색인·검색·재색인도 검증한다. 사용자 문서나 운영 색인은 변경하지 않는다.
+
+## 문서 탐색 방식 비교
+
+`python3 server/rag/benchmark-discovery.py --output .data/benchmarks/<새 실행명>`은 현재 문서의 별도 스냅샷으로 RAG·MOC·일반 파일 검색을 비교한다. **실제로 모델을 9회 호출하므로 계정 사용량을 소비한다.** 기존 Codex CLI 인증과 `.data/rag/models`의 다운로드된 모델이 필요하다. 앱 빌드·서버 재시작은 하지 않는다.
+
+- 기본값은 GPT-6 Astra·medium·standard이며 `--model`·`--effort`로 바꾼다. 매 실행은 대화 이력이 없는 새 세션이며, 방식별 안내 외에는 같은 질문·출력 형식·문서 범위를 사용한다.
+- 일반 검색 조건은 파일 접근과 `rg` 등을 제공한다. 전체 문서를 모델 입력에 미리 넣지 않는다. MOC 지도 내용과 RAG 사용은 제외한다.
+- 최초 색인 준비 시간, 세션 전체 경과 시간, CLI가 반환한 입력·캐시·출력 토큰, 셸 명령 수, 기대 문서 경로 회수를 기록한다. 정답 설명의 품질과 방법 준수는 원문·실행 기록으로 별도 검토한다.
+- 스냅샷·해시·프롬프트·JSONL·답변·결과는 지정한 `.data` 아래에 보관한다. 세션 임시 디렉터리도 metadata에 남긴다. 원시 실행 로그를 문서에 복제하지 않는다.
+- 모델·질문별 1회인 탐색적 비교다. 실행 순서를 교차해도 네트워크·호스트 부하·공급자 캐시를 완전히 통제하지 못한다. 토큰 단가 환산은 실제 구독 청구액과 구분한다.
+
+첫 실행의 조건·결과·한계는 [문서 탐색 비교 측정](../research/document-discovery-benchmark.md)에 기록한다. 기존 `npm run rag:eval`의 검색 정답 경로 평가와 별도다.

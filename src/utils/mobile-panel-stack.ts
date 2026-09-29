@@ -8,7 +8,6 @@ export const WORKSPACE_PANEL_IDS = [
   'git',
   'android',
   'features',
-  'rag',
 ] as const
 
 export type WorkspacePanelId = (typeof WORKSPACE_PANEL_IDS)[number]

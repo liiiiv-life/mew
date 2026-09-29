@@ -59,7 +59,7 @@ updated: 2026-09-18
 | Documents 관리 | [Documents·문서 지도 관리](../features/projects/documents.md) |
 | 파일·폴더 관리 / 서버 전체 파일 탐색 / 숨김 목록 | [파일·폴더 탐색과 조작](../features/projects/files.md) |
 | 파일명 검색 / 내용 검색·일괄 치환 | [파일명·내용 검색과 치환](../features/projects/search.md) |
-| 로컬 의미 검색(RAG) | [로컬 의미 검색·RAG](../features/projects/semantic-search.md) |
+| 로컬 의미 검색(RAG) | [당시 RAG 기능 — 2026-09-28 제거](../history/rag-feature.md) |
 | Markdown Hotview·Plain / 문서 속성·목차 / 목록 들여쓰기 | [Markdown Hotview·원문·문서 속성](../features/editor/markdown.md) |
 | 코드·텍스트 편집 | [코드·텍스트 편집과 문서 내 검색](../features/editor/code.md) |
 | 링크·파일 참조 / 첨부·이미지 / 선택 위치 전달 | [링크·파일 참조·첨부](../features/editor/references.md) |

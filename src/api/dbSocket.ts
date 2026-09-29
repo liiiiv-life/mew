@@ -7,9 +7,9 @@ import { getProject } from './client'
 
 type Listener = (event: DbEvent) => void
 
-// dbId → { 구독 당시의 프로젝트, 리스너들 }. 프로젝트는 앱 안에서 바뀌므로(프로젝트 탭)
+// project + dbId → { 구독 당시의 프로젝트, 리스너들 }. 프로젝트는 앱 안에서 바뀌므로(프로젝트 탭)
 // 구독한 시점의 값을 붙들고 있어야 재연결·이벤트 필터가 엉뚱한 프로젝트를 보지 않는다.
-const listeners = new Map<string, { project: string; set: Set<Listener> }>()
+const listeners = new Map<string, { project: string; dbId: string; set: Set<Listener> }>()
 let ws: WebSocket | null = null
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -25,14 +25,14 @@ function ensureSocket() {
   ws = new WebSocket(`${protocol}//${location.host}/api/db/ws`)
   ws.onopen = () => {
     // 재연결 시 활성 룸을 모두 다시 구독한다
-    for (const [dbId, entry] of listeners) send('subscribe', entry.project, dbId)
+    for (const entry of listeners.values()) send('subscribe', entry.project, entry.dbId)
   }
   ws.onmessage = (event) => {
     if (typeof event.data !== 'string') return
     try {
       const msg = JSON.parse(event.data) as { type?: string; project?: string; dbId?: string; event?: DbEvent }
       if (msg.type !== 'db.event' || !msg.dbId || !msg.event) return
-      const entry = listeners.get(msg.dbId)
+      const entry = listeners.get(JSON.stringify([msg.project, msg.dbId]))
       if (entry && entry.project === msg.project) for (const fn of entry.set) fn(msg.event)
     } catch {
       // 잘못된 메시지 무시
@@ -51,12 +51,12 @@ function ensureSocket() {
 }
 
 /** 데이터베이스 실시간 구독 — 반환된 함수를 호출하면 해제된다 */
-export function subscribeDb(dbId: string, onEvent: Listener): () => void {
-  const project = getProject()
-  let entry = listeners.get(dbId)
+export function subscribeDb(dbId: string, onEvent: Listener, project = getProject()): () => void {
+  const key = JSON.stringify([project, dbId])
+  let entry = listeners.get(key)
   if (!entry) {
-    entry = { project, set: new Set() }
-    listeners.set(dbId, entry)
+    entry = { project, dbId, set: new Set() }
+    listeners.set(key, entry)
   }
   const isFirst = entry.set.size === 0
   entry.set.add(onEvent)
@@ -64,11 +64,11 @@ export function subscribeDb(dbId: string, onEvent: Listener): () => void {
   if (isFirst) send('subscribe', entry.project, dbId)
 
   return () => {
-    const e = listeners.get(dbId)
+    const e = listeners.get(key)
     if (!e) return
     e.set.delete(onEvent)
     if (e.set.size === 0) {
-      listeners.delete(dbId)
+      listeners.delete(key)
       send('unsubscribe', e.project, dbId)
     }
   }

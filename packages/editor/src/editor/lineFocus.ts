@@ -237,7 +237,7 @@ export const LineFocus = Extension.create<LineFocusOptions>({
                 return [
                   Decoration.node(pos, pos + node.nodeSize, {
                     'data-mew-line-numbers': lineNumbers,
-                    style: `--mew-line-count: ${lineCount};`,
+                    style: `--mew-line-count: ${lineCount}; --mew-list-depth: ${listLevel(state.doc, pos)};`,
                   }),
                 ]
               })

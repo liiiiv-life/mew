@@ -317,6 +317,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
       return
     }
     setPathDragData(e.dataTransfer, node.path, node.type)
+    e.dataTransfer.setData('application/x-mew-project', ctx.project)
     ctx.beginDrag(node.path, node.type)
   }
 
@@ -494,6 +495,8 @@ export function FileTree({
   searchFocusSignal,
   newFileSignal,
   revealSignal,
+  revealOnMount = false,
+  onRevealHandled,
   presence,
   onSelect,
   onFileCreated,
@@ -541,6 +544,9 @@ export function FileTree({
   newFileSignal: { n: number; parentPath: string | null }
   /** 오를 때마다 지금 문서 자리를 다시 드러낸다 — 이미 열린 탭을 다시 눌렀을 때도 반응하려고 신호로 받는다 */
   revealSignal: number
+  /** 탭 클릭으로 닫혀 있던 트리를 여는 경우 초기 복원보다 파일 위치 표시를 우선한다. */
+  revealOnMount?: boolean
+  onRevealHandled?: () => void
   presence: Record<string, string[]>
   onSelect: (path: string, opts?: { preview?: boolean }) => void
   onFileCreated: (relPath: string) => void
@@ -615,7 +621,9 @@ export function FileTree({
   const treeScrollRef = useRef(accountState?.scrollTop ?? getTreeScroll(persistedProject) ?? 0)
   const centerAnchorRef = useRef(accountState?.centerAnchor)
   const restoringScrollRef = useRef(!compact)
-  const initialRevealRef = useRef({ selectedPath, revealSignal })
+  const initialRevealRef = useRef({ selectedPath, revealSignal: revealOnMount ? -1 : revealSignal })
+  const onRevealHandledRef = useRef(onRevealHandled)
+  onRevealHandledRef.current = onRevealHandled
   const recordScrollRef = useRef(() => {})
   recordScrollRef.current = () => {
     const list = listRef.current
@@ -790,6 +798,7 @@ export function FileTree({
     }
     const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(restore) }
     const stop = () => { restoringScrollRef.current = false }
+    list.addEventListener('mew:tree-reveal', stop)
     const mutations = new MutationObserver(schedule)
     mutations.observe(list, { childList: true, subtree: true })
     const resize = new ResizeObserver(schedule)
@@ -800,6 +809,7 @@ export function FileTree({
       cancelAnimationFrame(frame)
       mutations.disconnect()
       resize.disconnect()
+      list.removeEventListener('mew:tree-reveal', stop)
       for (const event of ['wheel', 'pointerdown', 'touchstart', 'keydown']) list.removeEventListener(event, stop)
     }
   }, [compact])
@@ -814,14 +824,42 @@ export function FileTree({
     if ((compact || hadSavedOpenDirs) && initialRevealRef.current.selectedPath === selectedPath
       && initialRevealRef.current.revealSignal === revealSignal) return
     restoringScrollRef.current = false
+    const list = listRef.current
+    if (!list) return
+    // Documents의 바깥 트리도 초기 중앙 위치 보정을 끝내야 한다.
+    list.dispatchEvent(new Event('mew:tree-reveal', { bubbles: true }))
     ensureOpenChain(parentOf(selectedPath))
-    // openDirs 반영으로 노드가 DOM에 나타난 다음 프레임에 스크롤
-    const raf = requestAnimationFrame(() => {
-      listRef.current
-        ?.querySelector(`[data-path="${CSS.escape(selectedPath)}"]`)
-        ?.scrollIntoView({ block: 'nearest' })
-    })
-    return () => cancelAnimationFrame(raf)
+    // 지연 로딩된 자식이 실제로 나타날 때까지 기다린다. 캐시 갱신마다 재스크롤하지 않는다.
+    let raf = 0
+    const stop = () => {
+      cancelAnimationFrame(raf)
+      observer.disconnect()
+      resize.disconnect()
+      onRevealHandledRef.current?.()
+    }
+    const reveal = () => {
+      const row = list.querySelector<HTMLElement>(`[data-path="${CSS.escape(selectedPath)}"]`)
+      if (!row || !row.getClientRects().length) return
+      row.scrollIntoView({ block: 'nearest' })
+      stop()
+    }
+    const schedule = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(reveal)
+    }
+    const observer = new MutationObserver(schedule)
+    observer.observe(list, { childList: true, subtree: true })
+    // 모바일에서 에디터 뒤에 숨겨진 트리는 사이드바를 실제로 열 때 스크롤한다.
+    const resize = new ResizeObserver(schedule)
+    resize.observe(list)
+    raf = requestAnimationFrame(reveal)
+    for (const event of ['wheel', 'pointerdown', 'touchstart', 'keydown']) list.addEventListener(event, stop, { passive: true })
+    return () => {
+      cancelAnimationFrame(raf)
+      observer.disconnect()
+      resize.disconnect()
+      for (const event of ['wheel', 'pointerdown', 'touchstart', 'keydown']) list.removeEventListener(event, stop)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPath, tree, revealSignal])
 
@@ -1295,7 +1333,7 @@ export function FileTree({
           setDropDir(null)
           if (item) void moveInto(item.path, item.type, '')
         }}
-        className={`${compact ? 'py-1' : 'min-h-0 flex-1 overflow-y-auto pb-[300px]'} outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
+        className={`${compact ? 'py-1' : 'min-h-0 flex-1 overflow-y-auto pt-0.5 pb-[300px]'} outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
       >
         {roots}
         {commands}

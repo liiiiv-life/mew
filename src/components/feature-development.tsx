@@ -8,9 +8,12 @@ import { useI18n } from '../i18n'
 import { presentedSpecificationItems, replaceSpecificationItem, featureDocumentHref } from '../utils/feature-specification'
 import { featurePanelState, type FeaturePanelState } from '../utils/feature-panel-state'
 import { featureCopy, type FeatureCopy } from './feature-copy'
+import { DockGrip } from './DockWorkspace'
+import { FeatureIcon } from './feature-icon'
 import './feature-specification.css'
 
 const button = 'inline-flex min-h-8 items-center justify-center gap-1.5 rounded px-2.5 text-xs text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-40'
+const headerButton = 'flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-40'
 const input = 'min-h-9 w-full min-w-0 rounded border border-edge-strong bg-surface px-2.5 py-1.5 text-sm text-ink focus:outline-2 focus:outline-ink disabled:opacity-60'
 function Status({ status, copy }: { status: FeatureStatus; copy: FeatureCopy }) {
   return <span className="inline-flex shrink-0 items-center gap-2 text-xs text-ink-secondary" title={copy[status]}>
@@ -279,11 +282,14 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
   </li>
   return <>
     <section ref={panel} aria-labelledby={heading} aria-busy={busy} data-feature-panel className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface">
-      <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-edge px-3">
-        <h2 id={heading} className="text-sm font-semibold text-ink">{copy.title}</h2><span className="min-w-0 flex-1 truncate text-xs text-ink-secondary" title={workspace}>{workspace.split('/').filter(Boolean).at(-1)}</span>
-        {readOnly && data && <span className="text-xs text-ink-secondary">{copy.readOnly}</span>}
-        <button type="button" className={button} aria-label={copy.refresh} disabled={busy} onClick={() => void perform(async () => {})}><RefreshDouble width={15} height={15} /></button>
-        <button type="button" className={button} aria-label={copy.close} disabled={busy} onClick={() => guarded(onClose)}><Xmark width={18} height={18} /></button>
+      <header data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
+        <DockGrip group="features" />
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-2.5">
+          <h2 id={heading} className="flex shrink-0 items-center gap-1.5 text-xs text-ink"><FeatureIcon width={14} height={14} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />{copy.title}</h2><span className="min-w-0 truncate text-xs text-ink-secondary" title={workspace}>{workspace.split('/').filter(Boolean).at(-1)}</span>
+        </div>
+        {readOnly && data && <span className="shrink-0 text-xs text-ink-secondary">{copy.readOnly}</span>}
+        <button type="button" className={headerButton} title={copy.refresh} aria-label={copy.refresh} disabled={busy} onClick={() => void perform(async () => {})}><RefreshDouble width={14} height={14} /></button>
+        <button type="button" className={`${headerButton} mx-1`} title={copy.close} aria-label={copy.close} disabled={busy} onClick={() => guarded(onClose)}><Xmark width={14} height={14} /></button>
       </header>
       <div className="shrink-0 space-y-1 border-b border-edge px-3 py-2">
         <div className="flex min-w-0 items-center gap-2 text-xs text-ink-secondary"><span className="shrink-0">{copy.agentSet}</span><div className="min-w-0 max-w-xs flex-1"><SelectField label={copy.agentSet} value={selectedSet?.id ?? ''} disabled={readOnly || busy || !sets.length} options={sets.length ? sets.map(set => ({ value: set.id, label: `${set.name} · ${set.runtime}` })) : [{ value: '', label: copy.agentSet, disabled: true }]} onChange={setSetId} /></div></div>

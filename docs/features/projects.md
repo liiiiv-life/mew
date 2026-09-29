@@ -25,7 +25,6 @@ commits: []
 - [프로젝트 문서 안내·초기화](projects/agent-context.md)
 - [파일·폴더 탐색과 조작](projects/files.md)
 - [파일명·내용 검색과 치환](projects/search.md)
-- [로컬 의미 검색·RAG](projects/semantic-search.md)
 
 ### 상세 계약
 
@@ -38,6 +37,8 @@ commits: []
 
 - 현재 제공하는 하위 기능을 한 작업 영역으로 묶는다.
 - 구현과 제한의 근거는 각 하위 기능에서 연결한다.
+
+- RAG를 현재 하위 기능에서 제거하고 당시 기록을 [이력](../history/rag-feature.md)으로 보존했다.
 
 <!-- mew:implementation:end -->
 

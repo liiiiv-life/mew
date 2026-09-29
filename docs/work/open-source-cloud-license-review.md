@@ -4,6 +4,9 @@ created: 2026-09-14
 updated: 2026-09-14
 ---
 
+> 2026-09-28 후속: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)으로 RAG와 전용 모델·의존성을 제거했다. 아래 RAG 관련 구현·검토 항목은 당시 기록이며 현재 도입·배포 과제가 아니다.
+
+
 # Mew 오픈소스·클라우드 수익화 라이선스 검토
 
 [진행 작업 지도](MOC.md) · [공개 준비 계획](open-source-release-hardening-plan.md)

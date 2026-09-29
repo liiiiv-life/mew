@@ -1,6 +1,6 @@
 # 서버 구조와 상태 파일
 
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../../README.md)
+[문서 지도](../MOC.md) · [개발 계약](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 ## 구조
 

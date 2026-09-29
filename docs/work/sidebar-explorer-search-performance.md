@@ -7,6 +7,9 @@ reviewed: 2026-09-02
 review-after-days: 60
 ---
 
+> 2026-09-28 후속: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)으로 RAG와 전용 모델·의존성을 제거했다. 아래 RAG 관련 구현·검토 항목은 당시 기록이며 현재 도입·배포 과제가 아니다.
+
+
 이 문서는 **정확 검색과 탐색 성능**의 설계·우선순위 기준이다. 현재 UX 계약은
 [사이드바 파일 검색](../specs/file-search.md), 폴더 단위 지연 로드는 [ADR 0088](../../../.mew/docs/decisions/0088-mew-sidebar-tree-lazy-loading.md),
 의미 검색은 [ADR 0071](../../../.mew/docs/decisions/0071-mew-embedded-lancedb-local-rag.md)을 따른다. 증분 메모리 카탈로그와

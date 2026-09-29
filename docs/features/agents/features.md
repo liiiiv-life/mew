@@ -4,9 +4,9 @@ parent: "mew-agents"
 title: "기능 기반 개발·Markdown 문서"
 status: "changed"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-29"
 status_hash: "701eba69573a58c7cb0cae079dbdcc13ad3125808a1b999accc26f79d331606c"
-files: ["src/components/feature-development.tsx", "src/components/feature-specification.css", "src/utils/feature-specification.ts", "src/utils/feature-panel-state.ts", "server/features.ts", "server/feature-documents.ts", "server/feature-service.ts", "server/feature-agent-instructions.ts"]
+files: ["src/App.tsx", "src/components/DockWorkspace.tsx", "src/utils/dock-layout.ts", "src/components/feature-development.tsx", "src/components/feature-specification.css", "src/utils/feature-specification.ts", "src/utils/feature-panel-state.ts", "server/features.ts", "server/feature-documents.ts", "server/feature-service.ts", "server/feature-agent-instructions.ts"]
 commits: []
 ---
 
@@ -16,6 +16,7 @@ commits: []
 
 ### 범위
 
+- 다른 작업 패널과 일관된 타이틀바·데스크톱 이동 및 크기 조절을 제공하며 제목 앞에 독과 같은 기능 아이콘을 표시한다.
 - 기능 계층 안에서 요구사항·구현 내용·검증을 목록 항목으로 보고 인라인 편집한다.
 - 제목 왼쪽 아이콘으로만 해당 가지를 접고 펼치며, 제목 클릭은 같은 자리에서 제목을 편집한다.
 - 원본 문서는 제목 오른쪽 문서 아이콘으로 열며, 접힌 상태에서도 제공하고 본문의 문서 열기 버튼은 제거한다.
@@ -44,7 +45,9 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
-- PC·모바일 독의 기능 버튼으로 작업 패널을 연다.
+- 타이틀바 제목 앞의 14px 기능 아이콘은 독과 공통 `FeatureIcon`을 사용하며 PC·모바일 모두 표시한다.
+- PC·모바일 독의 기능 버튼으로 작업 패널을 연다. 다른 작업 패널과 같은 36px 타이틀바·배경·아이콘 버튼을 사용한다.
+- 데스크톱에서는 공통 도킹 손잡이로 위치를 옮기고 경계선 드래그·키보드로 폭과 높이를 조절한다. 계정·프로젝트별 배치를 복원하며 이동 중 초안을 유지한다. 모바일에서는 손잡이 없이 독 위 본문을 채운다.
 - 펼침 상태와 스크롤은 사이드바와 같은 계정의 프로젝트 화면 상태에 저장하고, 기능 목록을 불러온 뒤 복원한다.
 - 독 전환 시 펼침 상태와 초안을 유지하며 닫기·Esc·뒤로가기는 미저장 내용을 확인한다.
 - 현재 프로젝트·에이전트 권한을 따르고 모바일도 동일한 인라인 계층을 사용한다.
@@ -63,8 +66,12 @@ commits: []
 <!-- mew:validation:start -->
 ## 검증
 
+- PC·모바일 타이틀바에서 제목 앞에 독과 같은 기능 아이콘이 표시되는지 확인한다.
+
 - 서버·Markdown·큐·독립 감독 테스트와 격리 Chromium UI 테스트로 인라인 요구사항/구현 편집·작업 접수, 셋 선택·충돌·실패 재시도·초안 보존, 관련 증거·하위 기능·모바일·권한을 확인했다.
 - 실제 유료 AI의 구현 품질은 별도 사용자 확인 대상이다.
 - 2026-09-25: Markdown 렌더링·원문 범위 보존·중복 탐색 정보 숨김을 단위 검사하고, 격리 Chromium에서 제목 직접 편집·아이콘 접기·초안 보호·링크 열기·읽기 전용·모바일 터치 동작을 확인한다.
+
+- 2026-09-29: 격리 Chromium에서 36px 타이틀바, 데스크톱 손잡이 이동·마우스 폭 조절·키보드 높이 조절, 이동 중 초안 보존, 모바일 손잡이 숨김, 닫기·모바일 전환·저장 완료 후 새로고침의 배치 복원을 확인했다. `feature-ui.test.ts`·`workspace-switch-ui.test.ts`·`dockWorkspaceUi.test.ts`·`dock-maximize-ui.test.ts`, 도킹 단위 검사와 타입·대상 린트·문서 검사를 통과했다.
 
 <!-- mew:validation:end -->

@@ -7,6 +7,7 @@ import { useI18n } from '../i18n'
 
 interface FileHistoryModalProps {
   path: string
+  project?: string
   canRevert: boolean
   editorApi: EditorApi
   tree: TreeNode[]
@@ -16,7 +17,7 @@ interface FileHistoryModalProps {
 
 /** Hotview/Plain 토글 왼쪽의 히스토리 버튼으로 여는 팝업 — 목록에서 커밋을 고르면 그 시점의
  * 내용을 에디터와 같은 뷰어(읽기 전용)로 보여주고, 필요하면 그 버전으로 되돌릴 수 있다 */
-export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, onClose }: FileHistoryModalProps) {
+export function FileHistoryModal({ path, project, canRevert, editorApi, tree, onRevert, onClose }: FileHistoryModalProps) {
   const { formatDate, t } = useI18n()
   const [entries, setEntries] = useState<FileHistoryEntry[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
@@ -30,7 +31,7 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
 
   useEffect(() => {
     let cancelled = false
-    fetchFileHistory(path)
+    fetchFileHistory(path, project)
       .then(({ history }) => {
         if (!cancelled) setEntries(history)
       })
@@ -40,7 +41,7 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
     return () => {
       cancelled = true
     }
-  }, [path, t])
+  }, [path, project, t])
 
   useEffect(() => {
     if (!selected) return
@@ -48,7 +49,7 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
     setDetailContent(null)
     setDetailError(null)
     setRevertError(null)
-    fetchFileAtCommit(path, selected.hash)
+    fetchFileAtCommit(path, selected.hash, project)
       .then(({ content }) => {
         if (cancelled) return
         if (content === null) setDetailError(t('history.fileMissing'))
@@ -60,7 +61,7 @@ export function FileHistoryModal({ path, canRevert, editorApi, tree, onRevert, o
     return () => {
       cancelled = true
     }
-  }, [path, selected, t])
+  }, [path, project, selected, t])
 
   async function handleRevert() {
     if (!selected) return

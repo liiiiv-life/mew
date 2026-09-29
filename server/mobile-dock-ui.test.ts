@@ -37,11 +37,11 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     const dock = page.getByRole('navigation', { name: 'Workspace dock' })
     const items = () => dock.locator('[data-dock-item]').evaluateAll(elements => elements.map(el => el.getAttribute('data-dock-item')))
     await dock.waitFor()
-    assert.deepEqual(await items(), ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'rag'])
-    assert.equal(await dock.getByRole('button').last().getAttribute('data-dock-item'), 'rag')
+    assert.deepEqual(await items(), ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo'])
+    assert.equal(await dock.getByRole('button').last().getAttribute('data-dock-item'), 'memo')
     const tooltip = page.getByRole('tooltip')
     const notice = page.locator('[data-dock-notice]')
-    for (const id of ['sidebar', 'rag']) {
+    for (const id of ['sidebar', 'memo']) {
       const button = dock.locator(`[data-dock-item=${id}]`)
       await button.hover()
       await tooltip.waitFor()
@@ -86,7 +86,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.deepEqual(await page.evaluate('window.actions'), ['terminal'])
     const box = (await dock.boundingBox())!, y = box.y + box.height / 2
     await touch('touchStart', 170, y); await touch('touchMove', 245, y); await touch('touchEnd')
-    assert.deepEqual(await page.evaluate('window.actions.at(-1)'), { dir: -1, order: ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'rag'] })
+    assert.deepEqual(await page.evaluate('window.actions.at(-1)'), { dir: -1, order: ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo'] })
     await touch('touchStart', 245, y); await touch('touchMove', 170, y); await touch('touchEnd')
     assert.equal(await page.evaluate('window.actions.at(-1).dir'), 1)
     assert.equal(await page.evaluate('window.actions.length'), 3, 'swiping never clicks an icon')
@@ -110,7 +110,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.screenshot({ path: '/tmp/mew-dock-touch-reorder.png' })
     await touch('touchEnd')
     assert.equal(await preview.count(), 0)
-    assert.deepEqual(await items(), ['browser', 'sidebar', 'editor', 'agent', 'terminal', 'git', 'features', 'desktop', 'memo', 'rag'])
+    assert.deepEqual(await items(), ['browser', 'sidebar', 'editor', 'agent', 'terminal', 'git', 'features', 'desktop', 'memo'])
     assert.equal(await page.evaluate('window.actions.length'), 3, 'reordering does not navigate')
     assert.equal(await notice.count(), 0, 'reordering does not show a touch toast')
     await page.reload(); await dock.waitFor()
@@ -148,7 +148,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.evaluate("window.setAvailable(['sidebar','editor'])")
     assert.equal(await dock.getByRole('button').count(), 2)
     await page.getByRole('textbox', { name: 'Message' }).blur()
-    await page.evaluate('window.setAvailable([...'+JSON.stringify(['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'rag'])+'])')
+    await page.evaluate('window.setAvailable([...'+JSON.stringify(['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo'])+'])')
     await page.setViewportSize({ width: 1024, height: 844 })
     await dock.waitFor({ state: 'visible' })
     const assertDesktopCatGround = () => page.waitForFunction(`(() => {
@@ -181,13 +181,13 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await dock.locator('[data-dock-item=terminal]').click()
     assert.deepEqual(await page.evaluate('window.actions'), ['terminal'])
     const beforeReorder = await items()
-    from = (await dock.locator('[data-dock-item=rag]').boundingBox())!
+    from = (await dock.locator('[data-dock-item=memo]').boundingBox())!
     to = (await dock.locator('[data-dock-item=sidebar]').boundingBox())!
     await page.mouse.move(from.x + from.width / 2, from.y + 22)
     await page.mouse.down(); await page.waitForTimeout(480)
     await preview.waitFor()
     await page.mouse.move(to.x + to.width / 2, to.y + 65, { steps: 5 })
-    assert.equal((await items())[0], 'rag', 'mouse long press reorders on desktop')
+    assert.equal((await items())[0], 'memo', 'mouse long press reorders on desktop')
     assert.ok(Math.abs((await preview.boundingBox())!.x - to.x) < 1)
     await page.screenshot({ path: '/tmp/mew-dock-desktop-reorder.png' })
     await page.keyboard.press('Escape')
@@ -199,8 +199,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.mouse.down(); await page.waitForTimeout(480)
     await page.mouse.move(to.x + to.width / 2, to.y + 22, { steps: 5 })
     await page.mouse.up()
-    assert.equal((await items())[0], 'rag')
-    assert.equal(JSON.parse(await page.evaluate("localStorage.getItem('mew:mobile-dock-order')") as string)[0], 'rag')
+    assert.equal((await items())[0], 'memo')
+    assert.equal(JSON.parse(await page.evaluate("localStorage.getItem('mew:mobile-dock-order')") as string)[0], 'memo')
     assert.deepEqual(await page.evaluate('window.actions'), ['terminal'], 'releasing an item never selects or swipes panels')
     await page.reload(); await dock.waitFor()
     assert.deepEqual(await dock.boundingBox(), initial, 'reordering and reload do not move the header dock')

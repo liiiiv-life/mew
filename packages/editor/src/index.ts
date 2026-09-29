@@ -1,4 +1,4 @@
-export { Editor, type EditorHandle } from './Editor'
+export { Editor, type EditorHandle, type EditorViewAnchor } from './Editor'
 export { DatabasePanel } from './database/DatabasePanel'
 export { DbGlyph } from './database/DatabaseTable'
 export type {

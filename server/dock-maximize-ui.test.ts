@@ -85,7 +85,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       if (p === '/api/agent-runtimes') return route.fulfill({ json: { runtimes: [] } })
       if (p === '/api/agent-sets') return route.fulfill({ json: { sets: [] } })
       if (p === '/api/browser-dom/tabs') return route.fulfill({ json: [{ id: 'b1', title: 'Browser', url: 'https://example.test/', streamUrl: '/stream/b1' }] })
-      if (p === '/api/git/github-auth') return route.fulfill({ json: { available: true, login: 'octocat', job: null } })
+      if (p === '/api/git-connections/github') return route.fulfill({ json: { available: true, login: 'octocat', job: null } })
       if (p === '/api/git/repository') return route.fulfill({ json: { repository: true, branch: 'main' } })
       if (p === '/api/git/log') return route.fulfill({ json: { commits: [] } })
       if (p === '/api/git/working-tree') return route.fulfill({ json: { files: [] } })

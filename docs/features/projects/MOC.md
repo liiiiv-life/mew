@@ -16,4 +16,3 @@ updated: 2026-09-18
 - [프로젝트 문서 안내·초기화](agent-context.md)
 - [파일·폴더 탐색과 조작](files.md)
 - [파일명·내용 검색과 치환](search.md)
-- [로컬 의미 검색·RAG](semantic-search.md)

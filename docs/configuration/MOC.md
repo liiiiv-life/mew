@@ -14,4 +14,4 @@ updated: 2026-09-17
 
 - [에이전트 런타임 설정](agent-runtimes.md)
 - [환경변수와 계정 설정](environment.md)
-- [프로젝트 검색과 로컬 RAG](search.md)
+- [프로젝트 검색](search.md)

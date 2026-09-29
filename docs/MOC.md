@@ -25,6 +25,8 @@ updated: 2026-09-29
 
 ## History / raw
 
+- [RAG·MOC·일반 파일 검색의 시간·토큰 비교](research/document-discovery-benchmark.md)
+
 - [History / raw](history/MOC.md)
 
 권한·인증·게스트 경계의 기준본은 [SECURITY](../SECURITY.md)다.

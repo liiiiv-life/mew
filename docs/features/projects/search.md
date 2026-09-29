@@ -4,7 +4,7 @@ parent: "mew-projects"
 title: "파일명·내용 검색과 치환"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-28"
 status_hash: "79a1e8766564a2bf356422b60d751638dcc7b3a1ae78f96ce4deb3c240d57085"
 files: ["src/components/SearchPanel.tsx", "server/fileNameSearch.ts", "server/search.ts", "server/searchCatalog.ts"]
 commits: []
@@ -23,7 +23,7 @@ commits: []
 
 - 파일명 검색은 후보 수에 상한이 있다.
 - 본문 색인은 후보를 좁히는 수단이며 원문 대조·장애 시 scanner 경로를 유지한다.
-- 의미 검색은 별도 기능이다.
+- RAG 의미 검색은 제거했다. 문서 탐색은 README·MOC와 일반 파일 검색을 사용한다.
 
 ### 상세 계약
 
@@ -43,5 +43,7 @@ commits: []
 
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 같은 질의의 정확 검색 결과·범위 태그·정규식과 치환 전후 원문을 확인한다.
+
+- 2026-09-28: RAG 의존성 제거 후 일반 검색 API·FTS 후보·scanner fallback 검사를 통과했다. 테스트용 데이터는 운영 데이터와 분리한다.
 
 <!-- mew:validation:end -->

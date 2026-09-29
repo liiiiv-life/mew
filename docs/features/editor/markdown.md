@@ -4,7 +4,7 @@ parent: "mew-editor"
 title: "Markdown Hotview·원문·문서 속성"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-27"
+updated: "2026-09-28"
 status_hash: "2741d359b18c61eecb53b8ce0ba2862f0f42c088d7d02cf55c88a23d1d44a98e"
 files: ["src/hooks/useTabs.ts", "src/components/EditorPane.tsx", "src/components/markdown-error-boundary.tsx", "packages/editor/src/Editor.tsx", "src/components/TableOfContents.tsx"]
 commits: []
@@ -18,6 +18,7 @@ commits: []
 
 - Hotview·Plain 전환과 제목·목록·체크박스·인용·코드 블록·강조를 제공한다.
 - 프론트매터 속성 편집·문서 목차·목록 들여쓰기를 제공한다.
+- Hotview·Plain 전환 시 화면에 보이는 커서 줄 또는 읽던 본문 줄을 유지한다.
 
 ### 경계와 제한
 
@@ -36,8 +37,10 @@ commits: []
 - Hotview·Plain 전환과 제목·목록·체크박스·인용·코드 블록·강조를 제공한다.
 
 - Hotview 초기화·렌더링 오류를 문서 안에 격리하고 원문 모드 복구를 제공한다.
+- 보기 전환은 원문 줄번호와 화면 내 높이를 전달하고, 편집기 초기화·지연 렌더 중에는 기존 복원 관찰자로 위치를 유지한다. 사용자 입력 시 복원을 해제한다.
 - 상세 동작은 [기본 편집](../../guides/editor.md#기본-편집)을 따른다.
 
+- 목록 줄번호는 중첩 깊이와 관계없이 일반 문단과 같은 왼쪽 거터에 정렬한다. 내부 파일 링크를 포함한 목록도 본문 줄 높이를 유지한다.
 - Hotview 줄번호는 현재 본문의 Markdown 시작 줄을 표시하며 중간 편집·마지막 빈 문단·frontmatter 변경에도 즉시 갱신한다. 계산과 갱신 계약은 [에디터 패키지](../../development/packages.md)를 따른다.
 
 - 본문 로딩 중에는 에디터 영역에 반투명 검정 덮개와 중앙 인디케이터를 표시하고 편집을 막는다.
@@ -59,5 +62,6 @@ commits: []
 - `server/editor-pane-ui.test.ts`로 데스크톱·모바일 로딩 표시, 캐시 재조회, 연속 전환, 빈 문서·실패 후 해제를 검증한다.
 
 - `packages/editor/src/editor/lineFocus.test.ts`와 `server/editor-line-numbers-ui.test.ts`로 중간 삽입·삭제, 마지막 빈 문단, 여러 줄 목록·코드·구분선, 속성 변경의 줄번호를 검증한다.
+- `server/editor-view-switch-ui.test.ts`로 PC·모바일의 반복 보기 전환, 원문 180번 줄 유지, 커서가 화면 밖인 읽기 위치와 원문 보존을 검증한다.
 
 <!-- mew:validation:end -->

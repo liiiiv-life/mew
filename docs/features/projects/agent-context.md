@@ -46,6 +46,8 @@ commits: []
 
 - Documents 설정에서 자동 안내·진입 문서·추가 지침을 편집하고 미리 본다.
 
+- 로컬 RAG CLI·설정 조회와 자동 검색 안내를 제거했다.
+
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->

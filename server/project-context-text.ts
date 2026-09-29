@@ -1,6 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { ragAgentGuidance } from './rag/guidance.ts'
 import { readAgentGuidance } from './agent-guidance.ts'
 import { commitSkillGuidance } from './mew-skills.ts'
 import type { AgentContextBinding, ProjectAgentSettings } from '../shared/project-agent-context.ts'
@@ -18,7 +17,6 @@ export function describeAgentContext(binding: AgentContextBinding, settings: Pro
   return [
     readAgentGuidance(),
     commitSkillGuidance(),
-    ragAgentGuidance(binding.projectRoot, binding.docsRoot),
     `Project root: ${JSON.stringify(binding.projectRoot)}`,
     `Working directory: ${JSON.stringify(cwd)}`,
     `Documents folder: ${JSON.stringify(binding.docsRoot)}`,
