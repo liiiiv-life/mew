@@ -9,6 +9,8 @@ import { captureAgentContext, restoreAgentContext } from './agent-context.ts'
 import { defaultAgentSettings, writeProjectAgentSettings } from './project-agent-settings.ts'
 import { stripMewContext } from './project-context-text.ts'
 import { setWorkspaceRoot, WORKSPACE_ROOT } from './paths.ts'
+import { agentGuidanceSettings, updateAgentGuidance } from './agent-guidance.ts'
+import { guidanceOptions } from '../shared/agent-guidance.ts'
 
 test('ACP context follows session across queue, project switch, clear, resume and display replay', { timeout: 15_000 }, async t => {
   const previousRoot = WORKSPACE_ROOT
@@ -76,9 +78,13 @@ new AgentSideConnection(conn => new Agent(conn), ndJsonStream(Writable.toWeb(pro
     assert.ok(call.prompt[1].text.includes(path.join(a, 'notes')))
   }
   assert.ok(!JSON.stringify(events).includes('<mew-context'))
+  const guidance = agentGuidanceSettings()
+  updateAgentGuidance({ key: 'subagents', value: 'automatic', revision: guidance.revision })
   writeProjectAgentSettings(a, { ...defaultAgentSettings('new-notes'), instructions: 'A updated' })
   await session.runOnce('same-session')
   await waitIdle(3)
+  assert.ok(calls().at(-1).prompt[1].text.includes(guidanceOptions.subagents.automatic), 'the next ACP request receives the updated delegation policy without restarting the session')
+  assert.ok(!JSON.stringify(events).includes(guidanceOptions.subagents.automatic), 'guidance stays out of the displayed transcript')
   assert.ok(calls().at(-1).prompt[1].text.includes(path.join(a, 'notes')))
   session.clearAfterQueue()
   session.prompt('after-clear')

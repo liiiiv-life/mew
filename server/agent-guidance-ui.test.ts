@@ -31,7 +31,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       let fail = true, conflict = false, updates = 0
       let releaseSave: (() => void) | undefined, releaseLoad: (() => void) | undefined
       let heldLoad = false
-      let state = { path: '/data/agent-guidance.md', content: '# Guidance', revision: 'first', settings: { commit: 'inherit', language: 'inherit', detail: 'custom' } }
+      let state = { path: '/data/agent-guidance.md', content: '# Guidance', revision: 'first', settings: { commit: 'inherit', language: 'inherit', detail: 'custom', subagents: 'inherit' } }
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       await page.route('http://mew-guidance.test/**', async route => {
@@ -93,6 +93,24 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       assert.equal(await field('답변 길이').textContent(), '직접 편집한 지침')
       await choose('커밋 방식', '매 변경 완료 후 커밋')
       await page.getByRole('status').filter({ hasText: '저장했습니다.' }).waitFor()
+      assert.equal(await field('서브에이전트 위임').textContent(), '별도 지정 안 함')
+      for (const [option, value] of [['필요할 때 자동 위임', 'automatic'], ['요청할 때만 위임', 'explicit'], ['사용 안 함', 'never'], ['별도 지정 안 함', 'inherit'], ['필요할 때 자동 위임', 'automatic']]) {
+        await choose('서브에이전트 위임', option)
+        await page.getByRole('status').filter({ hasText: '저장했습니다.' }).waitFor()
+        assert.equal(state.settings.subagents, value)
+        assert.equal(await field('서브에이전트 위임').textContent(), option)
+        assert.equal(state.settings.language, 'ko')
+        assert.equal(state.settings.detail, 'custom')
+      }
+      await field('서브에이전트 위임').click()
+      for (const dark of [false, true]) {
+        await page.locator('html').evaluate((el, dark) => el.classList.toggle('dark', dark), dark)
+        const bounds = (await page.getByRole('listbox', { name: '서브에이전트 위임' }).boundingBox())!
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width && bounds.y >= 0 && bounds.y + bounds.height <= 844)
+        await page.screenshot({ path: `/tmp/mew-subagent-guidance-${width}-${dark ? 'dark' : 'light'}.png` })
+      }
+      await page.keyboard.press('Escape')
+      await page.locator('html').evaluate(el => el.classList.remove('dark'))
       conflict = true
       await choose('응답 언어', 'English')
       await page.getByRole('alert').filter({ hasText: '파일이 변경' }).waitFor()
@@ -126,6 +144,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       await button.click()
       await page.getByLabel('응답 언어', { exact: true }).waitFor()
       assert.equal(await field('응답 언어').textContent(), '한국어')
+      assert.equal(await field('서브에이전트 위임').textContent(), '필요할 때 자동 위임')
       await page.keyboard.press('Escape')
       assert.equal(await dialog.count(), 0)
       assert.equal(await button.evaluate(el => el === el.ownerDocument.activeElement), true)

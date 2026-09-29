@@ -16,6 +16,12 @@ export const guidanceOptions = {
     concise: 'Keep responses concise, focusing on results and essential information.',
     detailed: 'Provide detailed responses with relevant reasoning and verification results.',
   },
+  subagents: {
+    inherit: '',
+    automatic: 'When the runtime supports subagents, proactively delegate independent, bounded tasks when doing so would materially improve speed or quality. Keep small or tightly dependent tasks with the main agent. Give each subagent a clear scope, coordinate shared-file edits, and review and integrate its results before reporting completion.',
+    explicit: 'Use subagents only when the user explicitly requests delegation or parallel agent work, and only if the runtime supports them.',
+    never: 'Do not use subagents. Complete the work in the main agent.',
+  },
 } as const
 
 export type GuidanceKey = keyof typeof guidanceOptions

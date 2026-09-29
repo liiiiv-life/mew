@@ -9,6 +9,7 @@ import { agentContextText } from './agent-context.ts'
 import { describeAgentContext } from './project-context-text.ts'
 import { defaultAgentSettings, writeProjectAgentSettings } from './project-agent-settings.ts'
 import { readExternalFile, writeExternalFile } from './fsBrowse.ts'
+import { guidanceOptions } from '../shared/agent-guidance.ts'
 
 test('shared guidance survives initialization and editor changes reach every project on the next request', () => {
   const a = path.join(DATA_DIR, 'a'), b = path.join(DATA_DIR, 'b')
@@ -93,4 +94,39 @@ test('settings preserve handwritten instructions, parse editor changes and rejec
     assert.throws(() => updateAgentGuidance({ key: 'detail', value: 'detailed', revision: state.revision }), GuidanceError)
     assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), broken)
   }
+})
+
+test('subagent preferences preserve other guidance and reach each project without runtime configuration changes', async () => {
+  const { agentGuidanceSettings, updateAgentGuidance } = await import('./agent-guidance.ts')
+  const original = '# Shared instructions\n\nKeep handwritten guidance.\n'
+  fs.writeFileSync(AGENT_GUIDANCE_PATH, original)
+  let state = agentGuidanceSettings()
+  assert.equal(state.settings.subagents, 'inherit')
+  assert.equal(state.content, original, 'existing guidance is not opted into delegation')
+  state = updateAgentGuidance({ key: 'language', value: 'ko', revision: state.revision })
+  for (const value of ['automatic', 'explicit', 'never'] as const) {
+    state = updateAgentGuidance({ key: 'subagents', value, revision: state.revision })
+    assert.equal(state.settings.subagents, value)
+    assert.equal(state.settings.language, 'ko')
+    assert.ok(state.content.startsWith(original))
+    for (const name of ['subagent-a', 'subagent-b']) {
+      const root = path.join(DATA_DIR, name)
+      fs.mkdirSync(root, { recursive: true })
+      const context = agentContextText({ projectRoot: root, docsRoot: path.join(root, 'docs') }, root)
+      assert.ok(context.includes(guidanceOptions.subagents[value]))
+      for (const other of ['automatic', 'explicit', 'never'] as const) {
+        if (other !== value) assert.ok(!context.includes(guidanceOptions.subagents[other]))
+      }
+    }
+  }
+  const custom = state.content.replace(guidanceOptions.subagents.never, 'Delegate research only.')
+  writeExternalFile(AGENT_GUIDANCE_PATH, custom, state.content)
+  state = agentGuidanceSettings()
+  assert.equal(state.settings.subagents, 'custom')
+  state = updateAgentGuidance({ key: 'detail', value: 'concise', revision: state.revision })
+  assert.match(state.content, /Delegate research only\./)
+  state = updateAgentGuidance({ key: 'subagents', value: 'inherit', revision: state.revision })
+  assert.equal(state.settings.subagents, 'inherit')
+  assert.doesNotMatch(state.content, /mew:agent-setting:subagents|Delegate research only/)
+  assert.equal(state.settings.language, 'ko')
 })
