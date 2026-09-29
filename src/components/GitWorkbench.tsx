@@ -508,7 +508,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
                     onClick={() => setView({ kind: 'commit', hash: entry.hash })}
                     onContextMenu={(event) => { event.preventDefault(); setMenu({ commit: entry, x: event.clientX, y: event.clientY }) }}
                     title={`${entry.subject}\n${entry.author} · ${shortDate(entry.date)} · ${entry.hash}${entry.refs.length ? `\n${entry.refs.join(', ')}` : ''}`}
-                    className="flex w-full items-center gap-2 pr-3 text-left text-[11px] hover:bg-surface-hover focus-visible:outline-accent"
+                    className="flex w-full items-center gap-2 pr-2 text-left text-[11px] hover:bg-surface-hover focus-visible:outline-accent"
                     style={{ height: ROW_HEIGHT, minWidth: graphWidth + 220 }}
                   >
                     <GraphCell row={graph.rows[index]} width={graphWidth} />
@@ -516,7 +516,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
                     {entry.refs.length > 0 && <span className="hidden max-w-24 shrink-0 truncate rounded bg-surface-deep px-1 text-[9px] text-accent @min-[480px]:inline">{entry.refs[0].replace(/^HEAD -> /, '')}{entry.refs.length > 1 ? ` +${entry.refs.length - 1}` : ''}</span>}
                     <time dateTime={entry.date} className="shrink-0 whitespace-nowrap text-[10px] tabular-nums text-ink-secondary">{relativeCommitTime(entry.date, now)}</time>
                     <span className="shrink-0 font-mono text-[10px] text-ink-secondary">{entry.hash.slice(0, 7)}</span>
-                    <span className="w-12 shrink-0 truncate text-[10px] text-ink-secondary @min-[480px]:w-20">{entry.author}</span>
+                    <span className="max-w-12 shrink-0 truncate text-[10px] text-ink-secondary @min-[480px]:max-w-20">{entry.author}</span>
                   </button>
                 ))}
               </div>
