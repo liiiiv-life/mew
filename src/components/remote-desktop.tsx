@@ -167,6 +167,7 @@ export function RemoteDesktop({ onClose, dockHostRef, dockHidden = false }: { on
     }} onKeyUp={event => sendKey(event, false)}>
     <header className="desktop-toolbar">
       <div className="desktop-title"><DesktopIcon kind="screen" /><strong id="desktop-title">{uiText("원격 데스크톱")}</strong><span className="desktop-status" data-connected={connected}>{connected ? stats || uiText("연결됨") : state === 'error' ? uiText("연결 실패") : state === 'paused' ? uiText("연결 종료") : uiText("연결 중")}</span></div>
+      <div ref={dockHostRef} hidden={fullscreen || dockHidden} className="desktop-dock-host" />
       <div className="desktop-tools">
         <button onClick={() => setView({ x: 0, y: 0, scale: 1 })} title={uiText("화면에 맞추기")}>{uiText("맞춤")}<span className="desktop-scale">{Math.round(view.scale * 100)}%</span></button>
         <button disabled={!connected} onClick={() => { input?.release(); setPasteOpen(value => !value); setHelpOpen(false); setSettingsOpen(false) }} aria-expanded={pasteOpen}>{uiText("입력")}</button>
@@ -249,6 +250,5 @@ export function RemoteDesktop({ onClose, dockHostRef, dockHidden = false }: { on
         {(['pan', 'zoom'] as const).map(kind => <DesktopStick key={kind} kind={kind} input={input} disabled={!connected} onView={onView} sensitivity={sensitivity} rotation={rotation} />)}
       </div>
     </DesktopFloating>
-    <div ref={dockHostRef} hidden={fullscreen || dockHidden} />
   </div>, document.body)}{install.popup}</>
 }

@@ -56,7 +56,8 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
   const popupSource = await fs.readFile(`${root}/src/components/SessionTerminalPopup.tsx`, 'utf8')
   const dockSource = await fs.readFile(`${root}/src/components/mobile-dock.tsx`, 'utf8')
   const selectSource = await fs.readFile(`${root}/packages/ui/src/select-field.tsx`, 'utf8')
-  const css = compiler.build((popupSource + dockSource + selectSource).match(/[A-Za-z0-9_:[\]/.%!#()-]+/g) ?? []) + await fs.readFile(`${root}/src/components/remote-desktop.css`, 'utf8')
+  const tipSource = await fs.readFile(`${root}/packages/ui/src/HoverTipLayer.tsx`, 'utf8')
+  const css = compiler.build((popupSource + dockSource + selectSource + tipSource).match(/[A-Za-z0-9_:[\]/.%!#()-]+/g) ?? []) + await fs.readFile(`${root}/src/components/remote-desktop.css`, 'utf8')
   const sender = await fs.readFile(`${root}/native/remote-desktop/sender.mjs`, 'utf8')
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
@@ -103,6 +104,21 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     assert.equal(await page.evaluate('document.querySelector("#root").inert'), true)
     const dock = page.locator('.mobile-dock')
     await dock.waitFor({ state: 'visible' })
+    if (scenario === 'direct') {
+      await page.setViewportSize({ width: 1100, height: 844 })
+      await page.waitForFunction(`document.querySelector('.mobile-dock')?.getBoundingClientRect().bottom < 150`)
+      assert.equal(await page.locator('.desktop-toolbar .mobile-dock').count(), 1, 'remote viewer keeps the desktop dock in its toolbar')
+      const button = dock.locator('[data-dock-item=editor]')
+      await button.hover()
+      const tip = page.getByRole('tooltip')
+      await tip.waitFor()
+      assert.equal(await tip.evaluate(el => !!el.closest('.remote-desktop')), true, 'tooltip stays above the modal background')
+      assert.ok((await tip.boundingBox())!.y >= (await button.boundingBox())!.y + (await button.boundingBox())!.height)
+      await page.screenshot({ path: '/tmp/mew-header-dock-remote.png' })
+      await page.mouse.move(10, 300)
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.waitForFunction(`document.querySelector('.mobile-dock')?.getBoundingClientRect().width === 390`)
+    }
     const dockBox = (await dock.boundingBox())!
     const stageBox = (await page.locator('.desktop-stage').boundingBox())!
     assert.ok(stageBox.y + stageBox.height <= dockBox.y, 'remote screen reserves dock space')

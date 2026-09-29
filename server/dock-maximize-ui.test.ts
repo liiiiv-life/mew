@@ -34,7 +34,7 @@ function Fixture(){
  const [agent,setAgent]=useState(true),[terminal,setTerminal]=useState(true),[browser,setBrowser]=useState(true),[git,setGit]=useState(true),[docs,setDocs]=useState([{path:'README.md',preview:true}]);
  const ref=useRef(null);window.fixture={state,setState,setAgent,setForeground,setModal,ref};
  return <div className="flex h-dvh flex-col bg-surface-deep text-ink">
- <header data-project-tabs className="flex h-10 shrink-0 items-center border-b border-edge"><button>Project</button></header>
+ <header data-project-tabs className="flex h-10 shrink-0 items-center border-b border-edge"><button>Project</button><div className="ml-auto"> <MobileDock active={foreground} available={['editor','agent','terminal','git','browser']} hidden={false} onSelect={panel=>{ref.current.restore();setForeground(panel)}} onNavigate={()=>{}}/></div></header>
  <div className="mew-workspace-content relative flex min-h-0 flex-1 overflow-hidden">
  <aside className="hidden w-40 shrink-0 md:block" data-sidebar>Files</aside>
  <DockWorkspace apiRef={ref} value={state} onChange={value=>{window.layoutWrites++;setState(value)}} foreground={foreground} onEditorDrop={()=>'main'}>
@@ -47,7 +47,6 @@ function Fixture(){
  <GitPanel visible={git} initialState={null} onChange={()=>{}} onNotice={()=>{}} onClose={()=>setGit(false)} onPanelFocus={()=>{}}/>
  </DockWorkspace></div>
  {modal&&<DialogFrame labelledBy="fixture-modal" onClose={()=>setModal(false)}><h2 id="fixture-modal">Modal</h2><button onClick={()=>setModal(false)}>Dismiss</button></DialogFrame>}
- <MobileDock active={foreground} available={['editor','agent','terminal','git','browser']} hidden={false} onSelect={panel=>{ref.current.restore();setForeground(panel)}} onNavigate={()=>{}}/>
  </div>
 }
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`

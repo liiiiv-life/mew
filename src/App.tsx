@@ -329,6 +329,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const [memoFocusSignal, setMemoFocusSignal] = useState(0)
   useEffect(() => { setMemoOpen(false) }, [auth.email, caps.collaboration])
   const [remoteDockHost, setRemoteDockHost] = useState<HTMLDivElement | null>(null)
+  const [headerDockHost, setHeaderDockHost] = useState<HTMLDivElement | null>(null)
   if (gitOpen) gitMounted.current = true
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
   const [androidOpen, setAndroidOpen] = useState(() => caps.android && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
@@ -1950,6 +1951,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
               <span className="select-text hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
             )}
             {!isGuest && <ActiveSessionsButton presence={activeSessions} />}
+            <div ref={setHeaderDockHost} className="hidden md:flex" data-header-dock />
             <HeaderMenu items={headerMenuItems} />
           </div>
         </header>
@@ -2276,7 +2278,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
       <Mewcat skin={mewcatSkin} onOpenSystemStats={caps.system ? () => setSysStatsOpen(true) : undefined} />
 
-      <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : memoOpen ? 'memo' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost}
+      <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : memoOpen ? 'memo' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost ?? (desktopMode ? headerDockHost : null)}
         onSelect={selectDockPanel} onNavigate={navigateMobileDock} />
 
       <div className="hidden md:contents">

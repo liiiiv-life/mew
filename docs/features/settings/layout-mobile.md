@@ -6,7 +6,7 @@ status: "implemented"
 created: "2026-09-18"
 updated: "2026-09-29"
 status_hash: "018bca32e486b43c386b29de3e2087d6d1447fae6a33abc99d745367947a9382"
-files: ["src/hooks/use-refresh-tasks.ts", "src/hooks/usePresence.ts", "src/components/project-loading-overlay.tsx", "src/App.tsx", "src/components/DockWorkspace.tsx", "src/components/EditorPane.tsx", "src/components/TabBar.tsx", "src/components/AgentPanel.tsx", "src/components/mobile-dock.tsx", "src/utils/mobile-dock.ts", "src/hooks/use-mobile-keyboard.ts", "src/hooks/use-dock-position.ts", "src/hooks/useTabs.ts", "server/userUiState.ts"]
+files: ["src/hooks/use-refresh-tasks.ts", "src/hooks/usePresence.ts", "src/components/project-loading-overlay.tsx", "src/App.tsx", "src/components/DockWorkspace.tsx", "src/components/EditorPane.tsx", "src/components/TabBar.tsx", "src/components/AgentPanel.tsx", "src/components/mobile-dock.tsx", "src/utils/mobile-dock.ts", "src/hooks/use-mobile-keyboard.ts", "src/hooks/useTabs.ts", "server/userUiState.ts"]
 commits: []
 ---
 
@@ -52,16 +52,15 @@ commits: []
 - 확대·복귀·대상 전환은 세션을 다시 마운트하지 않는다.
 - 상세 해제 조건과 모바일 경계는 [작업 패널 배치](../../development/ui-contracts.md#작업-패널-배치)를 따른다.
 
-- 데스크톱에서는 둥근 반투명 플로팅 독을 하단 중앙에 표시한다.
+- 데스크톱에서는 상단 햄버거 메뉴 바로 왼쪽에 독을 고정 배치한다.
+- 독 아이콘의 hover 툴팁은 아래로 표시하며 원격 뷰어에서도 가려지지 않게 한다.
 - 아이콘을 누르면 닫힌 패널을 열고, 열려 있지만 포커스되지 않은 패널은 닫지 않고 포커스를 옮긴다. 다른 패널은 유지한다.
 - 열린 패널은 옅게 하이라이트하고, 현재 포커스가 있는 작업 패널 하나는 더 진하게 표시한다.
 - 포커스된 아이콘을 다시 누를 때만 해당 패널을 닫고 하이라이트도 없앤다.
 - 다른 열린 패널로 이동할 때 마지막 입력 요소의 포커스와 작성 중인 초안을 보존한다.
 - 이미 열린 패널의 본문·탭을 클릭하거나 키보드·내부 브라우저 iframe으로 포커스를 옮기면 즉시 갱신한다.
 - 에디터는 탭·본문·분할 배치를 보존한 채 숨기고 다시 표시하며, 기능 패널은 닫기 전 미저장 확인을 유지한다.
-- 작은 손잡이로 전체 위치를 옮기고 브라우저에 기억한다.
-- 손잡이에는 hover 툴팁을 표시하지 않는다.
-- 키보드 방향키 이동·Esc 취소·화면 경계 보정도 지원한다.
+- 자유 이동 손잡이·위치 저장은 제거하고 기존 저장 위치는 무시한다. 사용자 요청 전 플로팅 배치를 재도입하지 않는다.
 - PC·모바일 모두 아이콘을 꾹 누르면 마우스·손가락을 따라 움직이며 순서를 바꾼다.
 - 빈 자리 표시로 들어갈 위치를 보여주고, 놓으면 저장하며 Esc·터치 취소 시 원래 순서로 돌아간다.
 
@@ -91,8 +90,10 @@ commits: []
 <!-- mew:validation:start -->
 ## 검증
 
+- 데스크톱에서 독이 햄버거 메뉴 바로 왼쪽에 머무르고 툴팁이 아이콘 아래에 보이는지 확인한다. 768px 경계·모바일 하단 복귀·원격 뷰어·전체화면 전환과 아이콘 재정렬을 함께 확인한다.
+
 - 데스크톱에서 열린 비포커스 패널을 클릭·Enter로 선택하면 포커스가 이동하고, 다시 선택할 때만 닫히는지 확인한다. 기능 패널의 미저장 초안과 입력 포커스도 유지해야 한다.
-- 독의 선택·스와이프·재정렬·취소·저장 복원·키보드 숨김·모바일 양 테마와 데스크톱 플로팅 표시·위치 이동·복원·창 축소 경계는 연결된 개발 계약의 격리 Chromium 테스트로 검사한다.
+- 독의 선택·스와이프·재정렬·취소·저장 복원·키보드 숨김·모바일 양 테마와 데스크톱 헤더 배치·아래쪽 툴팁·저장 위치 무시·창 축소 경계는 연결된 개발 계약의 격리 Chromium 테스트로 검사한다.
 - 패널 더블클릭 확대·복귀는 `dock-maximize-ui.test.ts`에서 탭이 있는 패널 종류·Esc 복귀/팝업 우선 닫기·선택한 탭 바의 전체 너비·다른 탭 바 숨김/키보드 차단·독 접근·상하 분할·초안/마운트 보존·모바일 전환을 확인한다.
 
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
@@ -105,5 +106,7 @@ commits: []
 - 2026-09-25: 탭 확대 시 양 테마에서 선택한 탭 바의 전체 너비와 다른 탭 바 숨김·키보드 차단, 더블클릭/Esc 복귀, 초안·마운트·분할 배치 보존을 확인했다. `dock-maximize-ui.test.ts`, `dockWorkspaceUi.test.ts`, `workspace-switch-ui.test.ts`와 타입·린트·문서 검사가 통과했다.
 
 - 2026-09-29: `server/workspace-switch-ui.test.ts`에서 열린 비포커스 패널의 클릭·Enter 선택 유지, 사이드바 키보드 포커스 이동, 기능 입력 포커스·초안 복원, 포커스된 패널 재선택 닫기와 모바일 재선택 유지를 확인했다.
+
+- 2026-09-29: 헤더 고정 배치 후 `mobile-dock-ui.test.ts`·`workspace-switch-ui.test.ts`·`dock-maximize-ui.test.ts`에서 아래쪽 툴팁, 저장 위치 무시, 재정렬·모바일 전환과 확대 중 독 접근을 확인했다. `remote-desktop-ui.test.ts`의 모바일 영상 전송 시나리오들과 direct 시나리오의 데스크톱 도구 모음·툴팁도 통과했다. 타입·대상 린트·문서 경계와 링크 검사를 통과했다.
 
 <!-- mew:validation:end -->

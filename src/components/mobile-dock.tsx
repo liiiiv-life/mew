@@ -6,7 +6,6 @@ import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { uiText } from '@mew/ui/i18n-core'
 import { useI18n } from '../i18n'
 import { featureCopy } from './feature-copy'
-import { useDockPosition } from '../hooks/use-dock-position'
 import { MOBILE_DOCK_ORDER_KEY, normalizeMobileDockOrder, moveDockPanel, type DockDirection, type MobileDockPanel } from '../utils/mobile-dock'
 
 function FeatureIcon(props: SVGProps<SVGSVGElement>) {
@@ -25,6 +24,13 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
   onNavigate: (direction: DockDirection, order: MobileDockPanel[]) => void
 }) {
   const { t, locale } = useI18n()
+  const [desktop, setDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches)
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 768px)')
+    const update = () => setDesktop(media.matches)
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
   const [order, setOrder] = useState(() => {
     try { return normalizeMobileDockOrder(JSON.parse(localStorage.getItem(MOBILE_DOCK_ORDER_KEY) ?? 'null')) }
     catch { return normalizeMobileDockOrder(null) }
@@ -36,7 +42,6 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
   const labelFor = (id: MobileDockPanel) => id === 'memo' ? uiText('메모') : id === 'rag' ? 'RAG' : id === 'features' ? featureCopy[locale].title : t(labels[id])
   const clearNotice = () => { clearTimeout(noticeTimer.current); setNotice(null) }
   const root = useRef<HTMLElement>(null)
-  const floating = useDockPosition(root, hidden, portalTarget)
   const gesture = useRef<{ id: number; x: number; y: number; item?: MobileDockPanel; box?: DOMRect; capture: HTMLElement; moved: boolean; dragging: boolean; order: MobileDockPanel[]; original: MobileDockPanel[] } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const suppressClick = useRef(false)
@@ -130,17 +135,11 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
   }
   if (hidden) return null
   const DragIcon = dragging ? icons[dragging] : null
-  const content = <HoverTipLayer className="contents"><nav ref={root} className="mobile-dock" hidden={hidden} aria-label={t('dock.label')}
-    style={floating.style} data-moving={floating.moving || undefined} data-reordering={dragging ? true : undefined}
+  const content = <HoverTipLayer className="contents" placement={desktop ? 'bottom' : 'top'} portalTarget={portalTarget?.closest('[role="dialog"]')}><nav ref={root} className="mobile-dock" hidden={hidden} aria-label={t('dock.label')}
+    data-reordering={dragging ? true : undefined}
     onPointerDown={down} onPointerMove={move} onPointerUp={up}
     onPointerCancel={() => { suppressClick.current = true; cancel() }} onLostPointerCapture={() => { if (gesture.current) cancel() }}
     onContextMenu={event => event.preventDefault()}>
-    <button type="button" className="dock-move-handle" aria-label={t('dock.move')}
-      {...floating.handleProps}>
-      <svg width="10" height="18" viewBox="0 0 10 18" fill="currentColor" aria-hidden="true">
-        {[4, 9, 14].map(y => <g key={y}><circle cx="3" cy={y} r="1" /><circle cx="7" cy={y} r="1" /></g>)}
-      </svg>
-    </button>
     {visible.map(id => {
       const Icon = icons[id]
       const label = labelFor(id)

@@ -21,24 +21,29 @@ function closestTipEl(target: EventTarget | null): HTMLElement | null {
   return el instanceof HTMLElement && el.dataset.tip ? el : null
 }
 
-export function HoverTipLayer({ className, children }: { className?: string; children: ReactNode }) {
+export function HoverTipLayer({ className, children, placement = 'top', portalTarget }: { className?: string; children: ReactNode; placement?: 'top' | 'bottom'; portalTarget?: Element | null }) {
   const [tip, setTip] = useState<Tip | null>(null)
   const tipRef = useRef<HTMLDivElement>(null)
   // 지금 이름표를 띄우고 있는 버튼 — 같은 버튼 안(아이콘↔여백)을 오갈 때 깜빡이지 않게 한다
   const shownForRef = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    shownForRef.current = null
+    setTip(null)
+  }, [placement, portalTarget])
 
   // 이름표는 버튼 가운데에 맞춰 띄우되 화면 밖으로는 나가지 않게 민다. 폭은 그려 봐야 알 수 있어서
   // 그린 뒤에 재고 transform만 고친다 — 페인트 전에 끝나므로 튀어 보이지 않는다.
   useLayoutEffect(() => {
     const el = tipRef.current
     if (!el) return
-    el.style.transform = 'translate(-50%, -100%)'
+    const y = placement === 'bottom' ? '0%' : '-100%'
+    el.style.transform = `translate(-50%, ${y})`
     const r = el.getBoundingClientRect()
     let dx = 0
     if (r.left < MARGIN_PX) dx = MARGIN_PX - r.left
     else if (r.right > window.innerWidth - MARGIN_PX) dx = window.innerWidth - MARGIN_PX - r.right
-    if (dx !== 0) el.style.transform = `translate(calc(-50% + ${dx}px), -100%)`
-  }, [tip])
+    if (dx !== 0) el.style.transform = `translate(calc(-50% + ${dx}px), ${y})`
+  }, [tip, placement])
 
   function onPointerOver(e: React.PointerEvent) {
     if (e.pointerType !== 'mouse') return
@@ -46,7 +51,7 @@ export function HoverTipLayer({ className, children }: { className?: string; chi
     if (!el || el === shownForRef.current) return
     shownForRef.current = el
     const r = el.getBoundingClientRect()
-    setTip({ label: el.dataset.tip!, centerX: r.left + r.width / 2, top: r.top - GAP_PX })
+    setTip({ label: el.dataset.tip!, centerX: r.left + r.width / 2, top: placement === 'bottom' ? r.bottom + GAP_PX : r.top - GAP_PX })
   }
 
   function onPointerOut(e: React.PointerEvent) {
@@ -75,12 +80,12 @@ export function HoverTipLayer({ className, children }: { className?: string; chi
             // width:max-content가 없으면 폭이 `left`에 딸려 간다 — fixed 요소의 남는 자리는
             // (뷰포트 너비 − left)라, 오른쪽 끝 버튼에서는 이름표가 한 글자씩 접힌 기둥이 된다.
             // 내용만큼 펴 두고 아래 useLayoutEffect가 화면 안으로 밀어 넣는다.
-            style={{ left: tip.centerX, top: tip.top, transform: 'translate(-50%, -100%)', width: 'max-content' }}
+            style={{ left: tip.centerX, top: tip.top, transform: `translate(-50%, ${placement === 'bottom' ? '0%' : '-100%'})`, width: 'max-content' }}
             className="pointer-events-none fixed z-[1200] max-w-xs rounded border border-edge-bright bg-surface-raised px-2 py-1 text-xs whitespace-pre-line text-ink shadow-lg"
           >
             {tip.label}
           </div>,
-          document.body,
+          portalTarget ?? document.body,
         )}
     </div>
   )

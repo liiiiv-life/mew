@@ -36,7 +36,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8'))
   } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = (await Promise.all(['src/components/RootProjectTabs.tsx', 'src/components/project-loading-overlay.tsx', 'src/components/FileTree.tsx', 'src/components/DockWorkspace.tsx', 'src/components/mobile-dock.tsx', 'src/components/HeaderMenu.tsx', 'src/components/feature-development.tsx', 'packages/ui/src/dialog-frame.tsx', 'packages/ui/src/ConfirmDialog.tsx', 'packages/ui/src/select-field.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/RootProjectTabs.tsx', 'src/components/project-loading-overlay.tsx', 'src/components/FileTree.tsx', 'src/components/DockWorkspace.tsx', 'src/components/mobile-dock.tsx', 'src/components/HeaderMenu.tsx', 'src/components/feature-development.tsx', 'packages/ui/src/HoverTipLayer.tsx', 'packages/ui/src/dialog-frame.tsx', 'packages/ui/src/ConfirmDialog.tsx', 'packages/ui/src/select-field.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content + appSource).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
@@ -256,8 +256,13 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     blockTree = false
     for (const release of treeWaiters.splice(0)) release()
     const dock = page.getByRole('navigation', { name: '작업 독' })
-    assert.equal(await dock.isVisible(), true, 'desktop shows the floating dock')
-    await dock.getByRole('button', { name: '독 이동', exact: false }).waitFor()
+    assert.equal(await dock.isVisible(), true, 'desktop shows the header dock')
+    assert.equal(await page.locator('[data-header-dock] .mobile-dock').count(), 1)
+    const dockBounds = (await dock.boundingBox())!
+    const menuBounds = (await page.getByRole('button', { name: '메뉴', exact: true }).boundingBox())!
+    assert.ok(dockBounds.y >= 0 && dockBounds.y + dockBounds.height <= 48)
+    assert.ok(menuBounds.x > dockBounds.x + dockBounds.width && menuBounds.x - dockBounds.x - dockBounds.width <= 12)
+    assert.equal(await dock.locator('.dock-move-handle').count(), 0)
     const sidebarToggle = dock.locator('[data-dock-item=sidebar]')
     const editorToggle = dock.locator('[data-dock-item=editor]')
     const editorPanel = page.locator('[data-dock-panel^="editor:"]').first()
@@ -272,13 +277,13 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
       await page.evaluate(`document.documentElement.classList.toggle('dark', ${dark})`)
       const colors = await dock.evaluate(element => {
         const color = (selector: string) => element.ownerDocument.defaultView!.getComputedStyle(element.querySelector(selector)!).backgroundColor
-        return { focused: color('[data-dock-item=editor]'), open: color('[data-dock-item=sidebar]'), closed: color('[data-dock-item=rag]'), dock: element.ownerDocument.defaultView!.getComputedStyle(element).backgroundColor }
+        return { focused: color('[data-dock-item=editor]'), open: color('[data-dock-item=sidebar]'), closed: color('[data-dock-item=rag]'), dock: element.ownerDocument.defaultView!.getComputedStyle(element.closest('.mew-workspace')!).backgroundColor }
       })
       assert.notEqual(colors.open, 'rgba(0, 0, 0, 0)', 'an open, unfocused panel keeps a background')
       assert.equal(colors.closed, 'rgba(0, 0, 0, 0)', 'closed panels have no highlight')
       const brightness = (color: string) => Number(color.match(/[\d.]+/g)![0]) * (color.startsWith('color(srgb ') ? 255 : 1)
       assert.ok(Math.abs(brightness(colors.focused) - brightness(colors.dock)) > Math.abs(brightness(colors.open) - brightness(colors.dock)), 'focused background is stronger than the open background in either theme')
-      await dock.screenshot({ path: `/tmp/mew-dock-open-panels-${dark ? 'dark' : 'light'}.png` })
+      await page.screenshot({ path: `/tmp/mew-header-dock-app-${dark ? 'dark' : 'light'}.png` })
     }
     await page.evaluate("document.documentElement.classList.add('dark')")
     await page.locator('[data-sidebar]').click({ position: { x: 30, y: 200 } })

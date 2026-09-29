@@ -96,3 +96,6 @@
 @media (hover: hover) {
   .desktop-hotkeys .desktop-handle:hover, .desktop-control-strip > .desktop-handle:hover, .desktop-hotkey-buttons button:not(:disabled):hover { background: color-mix(in srgb, var(--color-surface-hover) 85%, transparent); }
 }
+
+.desktop-dock-host:not([hidden]) { margin-left: auto; }
+@media (width < 768px) { .desktop-dock-host:not([hidden]) { display: contents; } }

@@ -18,7 +18,7 @@ import {Mewcat} from '${root}/src/components/Mewcat.tsx';
 import {useMobileKeyboard} from '${root}/src/hooks/use-mobile-keyboard.ts';
 import {MOBILE_DOCK_ORDER} from '${root}/src/utils/mobile-dock.ts';
 window.actions=[];
-function Fixture(){const [active,setActive]=React.useState('editor');const [available,setAvailable]=React.useState([...MOBILE_DOCK_ORDER]);window.setAvailable=setAvailable;const hidden=useMobileKeyboard();return <div className="mew-workspace" data-mobile-keyboard={hidden||undefined}><input aria-label="Message"/><MobileDock active={active} available={available} hidden={hidden} onSelect={id=>{setActive(id);window.actions.push(id)}} onNavigate={(dir,order)=>window.actions.push({dir,order})}/><Mewcat skin="mew"/></div>}
+function Fixture(){const [active,setActive]=React.useState('editor');const [available,setAvailable]=React.useState([...MOBILE_DOCK_ORDER]);window.setAvailable=setAvailable;const hidden=useMobileKeyboard();return <div className="mew-workspace" data-mobile-keyboard={hidden||undefined}><header style={{height:48,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:12,paddingRight:8}}><MobileDock active={active} available={available} hidden={hidden} onSelect={id=>{setActive(id);window.actions.push(id)}} onNavigate={(dir,order)=>window.actions.push({dir,order})}/><button aria-label="Menu" style={{width:40,height:36}}>Menu</button></header><input aria-label="Message"/><Mewcat skin="mew"/></div>}
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:dock.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:dock.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:dock.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
@@ -31,7 +31,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     page.setDefaultTimeout(3000)
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
-    await page.addInitScript("localStorage.setItem('mew:locale','en')")
+    await page.addInitScript("localStorage.setItem('mew:locale','en');localStorage.setItem('mew:desktop-dock-position',JSON.stringify({x:200,y:600}))")
     await page.route('http://mew-dock.test/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html class="dark"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
     await page.goto('http://mew-dock.test/')
     const dock = page.getByRole('navigation', { name: 'Workspace dock' })
@@ -158,18 +158,25 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       return Math.abs(cat.bottom - 1 - bottom) < 1;
     })()`)
     await assertDesktopCatGround()
-    const handle = dock.getByRole('button', { name: 'Move dock', exact: false })
-    await handle.waitFor()
+    assert.equal(await dock.locator('.dock-move-handle').count(), 0)
+    const menu = page.getByRole('button', { name: 'Menu', exact: true })
     for (const dark of [true, false]) {
       await page.evaluate(`document.documentElement.classList.toggle('dark', ${dark})`)
-      const style = await page.evaluate(`(() => { const style = getComputedStyle(document.querySelector('.mobile-dock')); return { radius: style.borderRadius, background: style.backgroundColor, blur: style.backdropFilter }; })()`) as { radius: string; background: string; blur: string }
-      assert.equal(style.radius, '9999px')
-      assert.match(style.background, /0\.78/)
-      assert.equal(style.blur, 'blur(16px)')
+      const box = (await dock.boundingBox())!, menuBox = (await menu.boundingBox())!
+      assert.ok(box.y >= 0 && box.y + box.height <= 48, 'desktop dock stays inside the header')
+      assert.equal(menuBox.x - box.x - box.width, 12, 'dock sits immediately left of the menu')
+      assert.equal(await dock.evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).position), 'relative', 'saved floating coordinates do not apply')
+      for (const id of ['sidebar', 'memo']) {
+        const button = dock.locator(`[data-dock-item=${id}]`)
+        await button.hover()
+        await tooltip.waitFor()
+        const tipBox = (await tooltip.boundingBox())!, buttonBox = (await button.boundingBox())!
+        assert.ok(tipBox.y >= buttonBox.y + buttonBox.height, 'desktop tooltips open below the header icons')
+        assert.ok(tipBox.x >= 0 && tipBox.x + tipBox.width <= 1024)
+      }
       await page.screenshot({ path: `/tmp/mew-dock-desktop-${dark ? 'dark' : 'light'}.png` })
     }
     const initial = (await dock.boundingBox())!
-    assert.ok(Math.abs(initial.x + initial.width / 2 - 512) < 1)
     await page.evaluate('window.actions=[]')
     await dock.locator('[data-dock-item=terminal]').click()
     assert.deepEqual(await page.evaluate('window.actions'), ['terminal'])
@@ -179,7 +186,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.mouse.move(from.x + from.width / 2, from.y + 22)
     await page.mouse.down(); await page.waitForTimeout(480)
     await preview.waitFor()
-    await page.mouse.move(to.x + to.width / 2, to.y - 35, { steps: 5 })
+    await page.mouse.move(to.x + to.width / 2, to.y + 65, { steps: 5 })
     assert.equal((await items())[0], 'rag', 'mouse long press reorders on desktop')
     assert.ok(Math.abs((await preview.boundingBox())!.x - to.x) < 1)
     await page.screenshot({ path: '/tmp/mew-dock-desktop-reorder.png' })
@@ -195,40 +202,20 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.equal((await items())[0], 'rag')
     assert.equal(JSON.parse(await page.evaluate("localStorage.getItem('mew:mobile-dock-order')") as string)[0], 'rag')
     assert.deepEqual(await page.evaluate('window.actions'), ['terminal'], 'releasing an item never selects or swipes panels')
-    const grip = (await handle.boundingBox())!
-    await page.mouse.move(grip.x + grip.width / 2, grip.y + 22)
-    await page.mouse.down()
-    await page.mouse.move(grip.x + grip.width / 2 + 120, grip.y + 22 - 160, { steps: 5 })
-    await page.mouse.up()
-    const moved = (await dock.boundingBox())!
-    assert.ok(Math.abs(moved.x - initial.x - 120) < 1)
-    assert.ok(Math.abs(moved.y - initial.y + 160) < 1)
-    await assertDesktopCatGround()
-    assert.deepEqual(await page.evaluate('window.actions'), ['terminal'], 'handle movement never selects or swipes panels')
     await page.reload(); await dock.waitFor()
-    assert.deepEqual(await dock.boundingBox(), moved, 'desktop position survives reload')
-    await assertDesktopCatGround()
-    await handle.focus()
-    await page.keyboard.press('ArrowLeft')
-    const keyboardPosition = (await dock.boundingBox())!
-    assert.equal(keyboardPosition.x, moved.x - 8)
-    await handle.hover(); await page.mouse.down(); await page.mouse.move(900, 100)
-    await page.keyboard.press('Escape'); await page.mouse.up()
-    assert.deepEqual(await dock.boundingBox(), keyboardPosition, 'Escape restores the previous position')
-    await handle.hover(); await page.mouse.down(); await page.mouse.move(1020, 840); await page.mouse.up()
+    assert.deepEqual(await dock.boundingBox(), initial, 'reordering and reload do not move the header dock')
+    assert.equal((await items())[0], 'memo', 'desktop icon order survives reload')
     await page.setViewportSize({ width: 768, height: 500 })
-    const clamped = (await dock.boundingBox())!
-    assert.ok(clamped.x >= 8 && clamped.x + clamped.width <= 760)
-    assert.ok(clamped.y >= 8 && clamped.y + clamped.height <= 492)
+    const compact = (await dock.boundingBox())!, menuBox = (await menu.boundingBox())!
+    assert.ok(compact.x >= 0 && menuBox.x + menuBox.width <= 768)
+    assert.ok(compact.y + compact.height <= 48)
     await assertDesktopCatGround()
     await page.setViewportSize({ width: 390, height: 844 })
-    assert.equal(await handle.isVisible(), false)
     assert.equal((await dock.boundingBox())!.width, 390)
     assert.equal((await dock.boundingBox())!.height, 48)
     await page.waitForFunction(`document.querySelector('.mewcat').getBoundingClientRect().bottom < document.querySelector('.mobile-dock').getBoundingClientRect().top`)
     await page.setViewportSize({ width: 1024, height: 844 })
-    await handle.waitFor()
-    assert.equal((await dock.boundingBox())!.width, moved.width)
+    assert.deepEqual(await dock.boundingBox(), initial)
     await assertDesktopCatGround()
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
