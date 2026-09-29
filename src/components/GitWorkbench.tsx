@@ -1,9 +1,9 @@
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
-import { useDialog, useOverlayDismiss } from '@mew/ui'
+import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp } from 'iconoir-react'
+import { ArrowDown, ArrowUp, GitCommit } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
 import {
@@ -534,11 +534,19 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
                 <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
               </div>
               <GitComposer onSubmit={() => { void commit() }}>
-                <div className="flex shrink-0 items-center gap-2">
+                <HoverTipLayer className="flex shrink-0 items-center gap-2">
                   <input value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || busy} className="shrink-0 rounded bg-accent px-3 py-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong disabled:opacity-40">{committing ? uiText("커밋 중…") : uiText("커밋")}</button>
-                  {view.kind === 'graph' && info?.repository && <button type="button" disabled={busy} onClick={() => setAiOpen(true)} className="shrink-0 rounded border border-edge-strong px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink disabled:opacity-40">{uiText("AI 자동 커밋")}</button>}
-                </div>
+                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || busy} aria-label={committing ? uiText("커밋 중…") : uiText("커밋")} data-tip={committing ? uiText("커밋 중…") : uiText("커밋")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
+                    <GitCommit width={18} height={18} aria-hidden="true" />
+                  </button>
+                  {view.kind === 'graph' && info?.repository && <button type="button" disabled={busy} onClick={() => setAiOpen(true)} aria-label={uiText("AI 자동 커밋")} data-tip={uiText("AI 자동 커밋")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-edge-strong text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11">
+                    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 3v4M3 12v5m18-5v5" />
+                      <rect x="5" y="7" width="14" height="14" rx="3" />
+                      <path d="M9 12v2m6-2v2m-6 3h6" />
+                    </svg>
+                  </button>}
+                </HoverTipLayer>
                 <textarea value={commitDescription} disabled={busy} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-8 w-full flex-1 resize-none rounded border border-edge-strong bg-surface-deep px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
               </GitComposer>
             </section>

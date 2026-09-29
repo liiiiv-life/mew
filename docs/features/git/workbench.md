@@ -43,6 +43,7 @@ commits: []
 
 - 커밋 기록의 작성자 칸은 이름 길이만큼만 차지하고 긴 이름에만 최대 너비·말줄임을 적용한다. 행 오른쪽 여백은 8px이다.
 
+- 작성 영역의 커밋은 Git 커밋 아이콘, AI 자동 커밋은 로봇 아이콘 버튼으로 표시한다. 마우스를 올리면 기존 번역 문구를 즉시 툴팁으로 보여주고 접근성 이름도 유지한다.
 - 다른 패널 탭 바와 같은 36px 상단 바에 Git 아이콘·제목·닫기 버튼을 표시하며 데스크톱에는 공통 이동 손잡이를 둔다.
 - 상단 바는 상세·diff·로딩·저장소 없음 상태에서도 유지하며, 본문은 그 아래에서 시작한다.
 - GitHub 로그인 버튼·연결 계정 정보는 패널 헤더의 닫기 버튼 왼쪽에서 제공하고 하위 저장소 선택은 제공하지 않는다.
@@ -66,6 +67,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-09-29: 커밋·로봇 아이콘의 접근성 이름과 hover 툴팁을 `server/git-panel-ui.test.ts`에서 확인했다. Git 패널·AI 자동 커밋 UI 테스트, TypeScript·대상 lint·문서 검사를 통과했다.
 
 - 로컬 bare 저장소를 사용해 Pull fast-forward·분기된 이력 거부·현재 브랜치 Push·강제 덮어쓰기 금지·upstream 미설정·detached·중복 실행을 확인한다. Chromium에서는 헤더 배치·실행 중 비활성화·오류·초안 보존·저장소 없음 상태를 확인한다.
 - 2026-09-28: Pull/Push 추가 후 `server/gitWorkbench.test.ts`·`server/git-panel-ui.test.ts`·`server/git-ai-commit-ui.test.ts`·`server/access-policy.test.ts`, TypeScript·대상 파일 lint·문서 검사를 통과했다. 데스크톱·모바일 캡처에서 헤더 아이콘 배치를 확인했으며 원격 전송은 임시 로컬 bare 저장소로만 검증했다.

@@ -126,6 +126,15 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.ok((await bounds(changes)).y + (await bounds(changes)).height <= composerBox.y, 'composer follows the changes')
     assert.ok(Math.abs(composerBox.y + composerBox.height - panelBox.y - panelBox.height) < 2, 'composer stays at the panel bottom')
     assert.ok(Math.abs(composerBox.height / (changesBox.height + historyBox.height) - .3) < .02)
+    for (const name of ['커밋', 'AI 자동 커밋']) {
+      const button = composer.getByRole('button', { name, exact: true })
+      assert.equal(await button.textContent(), '')
+      await button.hover()
+      await page.getByRole('tooltip').filter({ hasText: name }).waitFor()
+      assert.equal(await page.getByRole('tooltip').textContent(), name)
+    }
+    await page.mouse.move(0, 0)
+    await page.getByRole('tooltip').waitFor({ state: 'hidden' })
     await screenshot('desktop-default')
     await page.evaluate("document.documentElement.classList.remove('dark')")
     await screenshot('desktop-light')
