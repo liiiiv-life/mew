@@ -1,0 +1,3 @@
+{
+  "icon": "svg:<svg width=\"64\" height=\"64\" viewBox=\"0 0 64 64\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">\n<rect x=\"2\" y=\"2\" width=\"60\" height=\"60\" stroke=\"white\" stroke-width=\"4\"/>\n<path d=\"M46 29.75C46 18.5 46 14 39 14C32 14 32 18.5 32 29.75C32 18.5 32 14 25 14C18 14 18 18.5 18 29.75L21.5 32L18 34.25C18.0002 45.5 18 50 25 50C32 50 32 45.5 32 34.25C32 45.5 32 50 39 50C46 50 46 45.5 46 34.25\" stroke=\"white\" stroke-width=\"4\"/>\n</svg>"
+}
