@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useOverlayDismiss } from '@mew/ui'
 
 // Android 네이티브 컨텍스트 메뉴(~500ms)보다 먼저 드래그를 잡아야 길게누르기가 가로채진다
 const LONG_PRESS_MS = 350
@@ -49,6 +50,7 @@ export function useGridDrag({
   onMove,
   mouseHoldMs,
   handleOnly = false,
+  verticalList = false,
 }: {
   enabled: boolean
   onMove: (from: number, to: number) => void
@@ -56,6 +58,8 @@ export function useGridDrag({
   mouseHoldMs?: number
   /** 전용 핸들은 터치도 길게 누르지 않고 바로 끈다. 핸들에 touch-action: none을 적용한다. */
   handleOnly?: boolean
+  /** 세로 목록은 원래 슬롯 기준으로 삽입 위치와 주변 행 이동량을 미리 표시한다. */
+  verticalList?: boolean
 }) {
   const [drag, setDrag] = useState<GridDrag | null>(null)
   const cellsRef = useRef(new Map<number, HTMLElement>())
@@ -81,8 +85,19 @@ export function useGridDrag({
     }
   }
 
-  /** 손끝이 올라가 있는 칸 — 격자 밖이면 null */
+  /** 미리보기로 옮긴 내용이 아닌, 움직이지 않는 원래 슬롯으로 판정한다. */
   function cellAt(x: number, y: number): number | null {
+    if (verticalList) {
+      let target: number | null = null
+      let nearest = Infinity
+      for (const [slot, el] of cellsRef.current) {
+        const r = el.getBoundingClientRect()
+        if (x < r.left || x > r.right) continue
+        const distance = Math.abs(y - (r.top + r.height / 2))
+        if (distance < nearest) { nearest = distance; target = slot }
+      }
+      return target
+    }
     for (const [slot, el] of cellsRef.current) {
       if (slot === stateRef.current?.slot) continue
       const r = el.getBoundingClientRect()
@@ -160,6 +175,40 @@ export function useGridDrag({
     return recent
   }
 
+  /** 각 행 높이가 달라도 들어갈 빈자리와 밀려나는 행의 위치를 계산한다. */
+  function getReorderOffset(slot: number): number {
+    if (!verticalList || !drag || drag.target === null || drag.target === drag.slot) return 0
+    const source = cellsRef.current.get(drag.slot)?.getBoundingClientRect()
+    const target = cellsRef.current.get(drag.target)?.getBoundingClientRect()
+    if (!source || !target) return 0
+    if (slot === drag.slot) {
+      return drag.target < drag.slot ? target.top - source.top : target.bottom - source.bottom
+    }
+    const next = cellsRef.current.get(drag.slot + 1)?.getBoundingClientRect()
+    const previous = cellsRef.current.get(drag.slot - 1)?.getBoundingClientRect()
+    const gap = next ? next.top - source.bottom : previous ? source.top - previous.bottom : 0
+    if (drag.slot < slot && slot <= drag.target) return -(source.height + gap)
+    if (drag.target <= slot && slot < drag.slot) return source.height + gap
+    return 0
+  }
+
+  useOverlayDismiss(verticalList && drag ? () => { clickSuppressedAt.current = Date.now(); cleanup() } : false, {
+    closeOnEscape: event => !event.isComposing,
+  })
+
+  useEffect(() => {
+    if (!verticalList) return
+    const cancel = () => { if (stateRef.current) { clickSuppressedAt.current = Date.now(); cleanup() } }
+    window.addEventListener('blur', cancel)
+    return () => {
+      window.removeEventListener('blur', cancel)
+      if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current)
+      document.removeEventListener('touchmove', blockTouchScroll)
+    }
+    // Gesture cleanup reads refs and does not depend on render-time callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verticalList])
+
   /** 칸(드롭 대상)을 등록한다 — 배치가 바뀌면 같은 번호에 다른 요소가 들어온다 */
   function registerCell(slot: number) {
     return (el: HTMLElement | null) => {
@@ -177,5 +226,5 @@ export function useGridDrag({
     }
   }
 
-  return { drag, registerCell, getTileProps, consumeClick }
+  return { drag, registerCell, getTileProps, consumeClick, getReorderOffset }
 }

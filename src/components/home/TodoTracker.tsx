@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 // 할 일 위젯 — 로그인 사용자가 직접 등록한 항목을 세 종류(오늘·기한·주기)로 보고 고친다.
@@ -185,7 +186,7 @@ function ProjectDropdown({
   const visibleProjects = normalizedQuery
     ? projects.filter((project) => project.name.toLocaleLowerCase().includes(normalizedQuery))
     : projects
-  const autoFocusSearch = typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  const autoFocusSearch = canAutoFocusInput()
   return (
     <div className="relative shrink-0">
       <button
@@ -388,7 +389,7 @@ function NewTodoRow({
   const committedRef = useRef(false)
 
   useEffect(() => {
-    inputRef.current?.focus()
+    if (canAutoFocusInput()) inputRef.current?.focus()
   }, [])
 
   const changeTime = (nextTime: string | null) => {
@@ -522,7 +523,7 @@ function TodoRow({
               }
             }}
             maxLength={240}
-            autoFocus
+            autoFocus={canAutoFocusInput()}
             className="min-w-0 rounded border border-edge-strong bg-transparent px-1.5 py-0.5 text-sm text-ink outline-none focus:border-edge-bright"
           />
         ) : (

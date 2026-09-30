@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { useId, useRef, useState } from 'react'
 import { ArrowRight, Globe, Plus, Xmark } from 'iconoir-react'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
@@ -63,7 +64,7 @@ export function BrowserStartPage({ shortcuts, onChange, onOpen, onClose }: {
           if (!name.trim()) return
           if (save([...shortcuts, { id: crypto.randomUUID(), name: name.trim(), url: target }])) { setName(''); setUrl(''); setAdding(false) }
         }}>
-          <label className="block space-y-1 text-xs text-ink-secondary"><span>{t('browser.shortcutName')}</span><input autoFocus required maxLength={100} value={name} onChange={event => setName(event.target.value)} className={inputClass} /></label>
+          <label className="block space-y-1 text-xs text-ink-secondary"><span>{t('browser.shortcutName')}</span><input autoFocus={canAutoFocusInput()} required maxLength={100} value={name} onChange={event => setName(event.target.value)} className={inputClass} /></label>
           <label className="block space-y-1 text-xs text-ink-secondary"><span>{t('browser.address')}</span><input required value={url} onChange={event => setUrl(event.target.value)} className={inputClass} placeholder="localhost:3000" inputMode="url" spellCheck={false} /></label>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => { setAdding(false); setError(null) }} className="rounded px-3 py-2 text-sm text-ink-secondary hover:bg-surface-raised">{t('common.cancel')}</button>

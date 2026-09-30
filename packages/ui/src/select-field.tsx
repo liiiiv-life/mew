@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from './input-focus'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from './useOverlayDismiss'
@@ -64,7 +65,7 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
     if (!option || option.disabled || disabled) return
     close()
     const focusTarget = editable ? input.current : trigger.current
-    focusTarget?.focus({ preventScroll: true })
+    if (!editable || canAutoFocusInput()) focusTarget?.focus({ preventScroll: true })
     if (option.value !== value) onChange(option.value)
   }
   const move = (step: number) => {
@@ -116,7 +117,7 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
           disabled={disabled} className="flex w-11 shrink-0 items-center justify-center rounded hover:bg-surface-hover disabled:opacity-60"
           onPointerDown={event => event.preventDefault()}
           onClick={() => {
-            input.current?.focus({ preventScroll: true })
+            if (canAutoFocusInput()) input.current?.focus({ preventScroll: true })
             if (expanded) close()
             else show()
           }}>{chevron}</button>

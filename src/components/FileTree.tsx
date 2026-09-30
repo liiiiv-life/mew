@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useTreeTouchGesture } from '../hooks/use-tree-touch-gesture'
@@ -221,7 +222,7 @@ function InlineInput({
   const committedRef = useRef(false)
 
   useEffect(() => {
-    inputRef.current?.focus()
+    if (canAutoFocusInput()) inputRef.current?.focus()
     inputRef.current?.select()
   }, [])
 
@@ -694,7 +695,7 @@ export function FileTree({
   useEffect(() => {
     if (searchFocusSignal === lastHandledSearchFocusSignal.current) return
     lastHandledSearchFocusSignal.current = searchFocusSignal
-    searchInputRef.current?.focus()
+    if (canAutoFocusInput()) searchInputRef.current?.focus()
   }, [searchFocusSignal])
 
   useEffect(() => {

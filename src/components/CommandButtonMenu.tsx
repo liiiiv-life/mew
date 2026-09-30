@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 // 프로젝트 탭의 ▶ 아이콘 버튼 = 명령어 버튼. 누르면 그 프로젝트의 <프로젝트>/.mew/cmd-button.json 에
@@ -354,7 +355,7 @@ function CmdButtonEditor({
   const canSave = draft.name.trim() !== '' && draft.command.trim() !== ''
 
   useEffect(() => {
-    nameRef.current?.focus()
+    if (canAutoFocusInput()) nameRef.current?.focus()
   }, [])
 
   // Esc·모바일 뒤로가기로 이 창만 닫는다 — 스택 맨 위라 드롭다운은 그대로 남는다

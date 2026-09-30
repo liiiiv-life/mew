@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useState } from 'react'
@@ -322,7 +323,7 @@ export function ProjectPicker({
                     }
                   }}
                   placeholder={uiText("새 프로젝트 이름")}
-                  autoFocus
+                  autoFocus={canAutoFocusInput()}
                   className="min-w-0 flex-1 rounded border border-edge-strong bg-surface px-3 py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-edge-bright"
                 />
                 <button
@@ -457,7 +458,7 @@ export function ProjectPicker({
               }
             }}
             placeholder={deleteTarget}
-            autoFocus
+            autoFocus={canAutoFocusInput()}
             className="mt-2 w-full rounded border border-edge-strong bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-danger"
           />
           {error && <div className="select-text mt-2 text-sm text-danger">{error}</div>}

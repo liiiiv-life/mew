@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "패널 배치·모바일·상태 복원"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-29"
+updated: "2026-09-30"
 status_hash: "018bca32e486b43c386b29de3e2087d6d1447fae6a33abc99d745367947a9382"
 files: ["src/hooks/use-refresh-tasks.ts", "src/hooks/usePresence.ts", "src/components/project-loading-overlay.tsx", "src/App.tsx", "src/components/DockWorkspace.tsx", "src/components/EditorPane.tsx", "src/components/TabBar.tsx", "src/components/AgentPanel.tsx", "src/components/mobile-dock.tsx", "src/utils/mobile-dock.ts", "src/hooks/use-mobile-keyboard.ts", "src/hooks/useTabs.ts", "server/userUiState.ts"]
 commits: []
@@ -15,6 +15,8 @@ commits: []
 - 화면 크기와 작업 흐름에 맞춰 문서·도구 패널을 배치한다.
 
 ### 범위
+
+- 모바일에서 드롭다운·창·검색 패널을 열어도 입력칸에 자동 포커스를 주어 키보드를 띄우지 않는다.
 
 - 문서 탭·분할·도킹·크기 조절·계정별 복원과 모바일 하단 독·전체화면·뒤로가기를 제공한다.
 - Documents·일반 파일을 오가도 같은 탭 목록·편집 칸·도킹 배치를 유지한다.
@@ -35,6 +37,10 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- 드래그 재배열 시 주변 항목은 180ms의 공통 이동 애니메이션으로 새 자리를 찾아간다. 잡은 아이템은 포인터를 바로 따라가며, 연속 재배열과 모션 감소 설정은 [공통 모션 계약](../../development/ui-contracts.md#드래그-재배열-모션)을 따른다.
+
+- 입력칸 자동 포커스는 공통 `canAutoFocusInput()` 조건을 사용한다. 모바일의 공통 대화상자는 입력칸 대신 창 자체에 포커스를 둔다. 상세 기준은 [모바일 입력 포커스](../../development/ui-contracts.md#모바일-입력-포커스)를 따른다.
 
 - Documents는 독립 편집 화면으로 전환하지 않는다. 현재 루트의 공통 탭 상태를 사용해 파일 종류에 따라 `DockPanel` 등록과 패널 위치가 초기화되지 않는다.
 
@@ -97,6 +103,10 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-09-30: 관련 드래그 UI 회귀 검사에서 재배열 애니메이션과 기존 입력·취소 동작을 확인했다. 수행 범위와 제한은 [공통 모션 검증](../../development/ui-contracts.md#드래그-재배열-모션)을 따른다.
+
+- 모바일에서 모델 선택·파일/내용 검색·입력 대화상자를 열 때 키보드가 자동으로 뜨지 않고, 입력칸을 누르면 입력할 수 있는지 확인한다. 데스크톱 자동 포커스와 대화상자의 Tab·Esc 동작도 확인한다.
 
 - 데스크톱 에디터의 X로 패널을 숨기고 독에서 다시 열었을 때 탭·본문·분할 배치가 유지되는지 확인한다. 빈 탭 바에서도 X를 제공하며 모바일에는 표시하지 않는다.
 

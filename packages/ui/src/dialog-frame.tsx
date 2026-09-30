@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from './input-focus'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from './useOverlayDismiss'
@@ -21,7 +22,11 @@ export function DialogFrame({ children, labelledBy, describedBy, onClose, classN
     const element = ref.current!
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     frames.push(element)
-    const focusFirst = () => (element.querySelector<HTMLElement>('[data-dialog-autofocus]') ?? element.querySelector<HTMLElement>(focusable) ?? element).focus()
+    const focusFirst = () => {
+      const target = element.querySelector<HTMLElement>('[data-dialog-autofocus]') ?? element.querySelector<HTMLElement>(focusable) ?? element
+      const opensKeyboard = target.matches('input:not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="submit"]), textarea, [contenteditable]:not([contenteditable="false"])')
+      ;(opensKeyboard && !canAutoFocusInput() ? element : target).focus()
+    }
     focusFirst()
     const containFocus = (event: FocusEvent) => {
       if (frames.at(-1) === element && !element.contains(event.target as Node)) focusFirst()

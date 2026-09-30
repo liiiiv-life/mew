@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 // /db 표의 프레젠테이션 — 서버 연동은 useDatabaseView(controller)가 넘겨주고, 여기선 렌더만 한다.
@@ -216,7 +217,7 @@ function ColumnHeader({
     return (
       <th className="border-r border-edge p-0 last:border-r-0">
         <input
-          autoFocus
+          autoFocus={canAutoFocusInput()}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => {

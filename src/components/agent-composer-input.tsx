@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from 'react'
 import { clipboardImages } from '../utils/clipboard-images'
 import { EditorState } from '@codemirror/state'
@@ -105,7 +106,7 @@ export function AgentComposerInput(props: {
     }
     const inputRef = latest.current.inputRef
     inputRef.current = handle
-    if (latest.current.autoFocus) view.focus()
+    if (latest.current.autoFocus && canAutoFocusInput()) view.focus()
     return () => {
       if (inputRef.current === handle) inputRef.current = null
       viewRef.current = null

@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ArrowLeft, Check, Folder, FolderPlus, GitBranch, NavArrowRight } from 'iconoir-react'
 import { ConfirmDialog, DialogFrame } from '@mew/ui'
@@ -52,7 +53,7 @@ export function OpenProjectDialog({ basePath, onOpen, onClose }: {
 
   const invalidateRequests = useCallback(() => { requestSeq.current++ }, [])
   useEffect(() => { load(basePath); return invalidateRequests }, [basePath, load, invalidateRequests])
-  useEffect(() => { if (action) (actionInput.current ?? actionBack.current)?.focus() }, [action])
+  useEffect(() => { if (action) (canAutoFocusInput() ? actionInput.current ?? actionBack.current : actionBack.current)?.focus() }, [action])
 
   useEffect(() => {
     const target = restoreActionFocus.current

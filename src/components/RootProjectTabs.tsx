@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { DialogFrame } from '@mew/ui'
+import { DialogFrame, useReorderAnimation, reorderLayoutRect } from '@mew/ui'
 import { useI18n } from '../i18n'
 import { IconPicker } from './IconPicker'
 import { ProjectIcon } from './ProjectIcon'
@@ -52,7 +52,7 @@ export function RootProjectTabs({ paths, groups, activePath, fallbackLabel, canO
     if (hit.closest('[data-project-drop-end]')) return { type: 'end' }
     const tab = hit.closest<HTMLElement>('[data-project-path]')
     if (tab?.dataset.projectPath) {
-      const box = tab.getBoundingClientRect()
+      const box = reorderLayoutRect(tab)
       const zone = projectTabDropZone(x, box.left, box.width)
       return zone === 'group' ? { type: 'group', path: tab.dataset.projectPath } : { type: 'insert', path: tab.dataset.projectPath, side: zone }
     }
@@ -66,11 +66,12 @@ export function RootProjectTabs({ paths, groups, activePath, fallbackLabel, canO
     }
     return hit === strip ? { type: 'end' } : null
   }
+  const captureReorder = useReorderAnimation(() => gesture.ref.current?.querySelectorAll<HTMLElement>('[data-project-path]') ?? [])
   const gesture = useProjectTabGesture({
     enabled: canArrange || canChangeIcon,
     onMenu: path => { if (canChangeIcon) setEditingPath(path) },
     hitTest,
-    onDrop: move,
+    onDrop: (path, target) => { captureReorder(); move(path, target) },
   })
   const target = gesture.drag?.target
   const targetGroup = target && target.type !== 'end' ? byPath.get(target.path) : undefined

@@ -46,6 +46,18 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
     assert.equal(lifted.width, from.width)
     assert.equal(lifted.y, from.y - 8)
     await page.mouse.move(x + 330, y + 100, { steps: 8 })
+    const tabMotion = await page.getByRole('tab').evaluateAll(elements => {
+      const moving = elements.flatMap(el => el.getAnimations().map((animation: ReturnType<typeof el.getAnimations>[number]) => ({ el, animation })))
+      const sample = moving.find(({ animation }) => animation.effect?.getTiming().duration === 180)
+      if (!sample) return null
+      sample.animation.pause()
+      sample.animation.currentTime = 90
+      const style = sample.el.ownerDocument.defaultView!.getComputedStyle(sample.el)
+      const result = { transform: style.transform, duration: sample.animation.effect!.getTiming().duration }
+      for (const { animation } of moving) animation.play()
+      return result
+    })
+    assert.ok(tabMotion && tabMotion.transform !== 'none' && tabMotion.transform !== 'matrix(1, 0, 0, 1, 0, 0)', 'tabs occupy intermediate positions while neighboring slots reorder')
     const moved = (await preview.boundingBox())!
     assert.ok(Math.abs(moved.x - lifted.x - 330) < 1)
     assert.ok(Math.abs(moved.y - lifted.y - 100) < 1, 'preview is visible outside the scroll container')
@@ -69,6 +81,14 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
     assert.equal(await page.evaluate('window.drops.length'), 1, 'Escape does not drop')
     assert.deepEqual(await page.evaluate('window.actions'), [])
 
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.evaluate('window.reset()')
+    await first.hover(); await page.mouse.down(); await page.waitForTimeout(530)
+    await page.mouse.move(x + 330, y + 100, { steps: 3 })
+    await preview.waitFor()
+    assert.equal(await page.getByRole('tab').evaluateAll(elements => elements.reduce((sum, el) => sum + el.getAnimations().length, 0)), 0, 'reduced motion reorders immediately')
+    await page.mouse.up()
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
     await page.evaluate("document.documentElement.classList.remove('dark')")
     await page.setViewportSize({ width: 390, height: 600 })
     await page.evaluate('window.reset()')

@@ -4,7 +4,7 @@ parent: "mew-projects"
 title: "프로젝트 열기·탭·그룹"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-29"
+updated: "2026-09-30"
 status_hash: "03b352e53f93242f9efdfd05c5bd632f9bf92dd1a456279d6b0eb0efd066cd3f"
 files: ["src/components/file-action-menu.tsx", "src/hooks/use-external-file-actions.tsx", "src/components/file-browser-favorites.tsx", "server/file-favorites.ts", "src/components/file-browser.tsx", "src/components/OpenProjectDialog.tsx", "src/components/RootProjectTabs.tsx", "server/projects.ts", "server/cloud-storage.ts"]
 commits: []
@@ -37,6 +37,8 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- 드래그 재배열 시 주변 항목은 180ms의 공통 이동 애니메이션으로 새 자리를 찾아간다. 잡은 아이템은 포인터를 바로 따라가며, 연속 재배열과 모션 감소 설정은 [공통 모션 계약](../../development/ui-contracts.md#드래그-재배열-모션)을 따른다.
+
 - `server/projectIcons.ts`가 프로젝트별 아이콘 읽기·저장·기존 값 이관을 맡는다. 직계·중첩 트리와 루트 탭은 같은 값을 표시하고, 탭에서 변경하면 프로젝트 파일을 갱신한다.
 
 - 두 탐색기의 항목 우클릭은 사이드바와 같은 메뉴 컴포넌트로 복사·잘라내기·붙여넣기·이름 변경·삭제를 제공하고 폴더에 즐겨찾기 추가를 표시한다.
@@ -65,6 +67,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-09-30: 관련 드래그 UI 회귀 검사에서 재배열 애니메이션과 기존 입력·취소 동작을 확인했다. 수행 범위와 제한은 [공통 모션 검증](../../development/ui-contracts.md#드래그-재배열-모션)을 따른다.
 
 - `projectIcons.test.ts`·`project-icons-api.test.ts`: 공통 SVG·중첩 아이콘·이관 우선순위·초기화·이름 변경·손상/링크 보호·owner 권한·계정 사본 배제를 검증한다.
 

@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useDialog } from '@mew/ui'
@@ -162,7 +163,7 @@ export function SearchPanel({
   }, [query, regex, caseSensitive, selectedScopes, mode])
 
   useEffect(() => {
-    inputRef.current?.focus()
+    if (canAutoFocusInput()) inputRef.current?.focus()
     inputRef.current?.select()
   }, [focusSignal])
 

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createTabDragPreview } from './tab-drag-preview'
+import { useReorderAnimation, reorderLayoutRect } from './reorder-animation'
 
 // Android 네이티브 컨텍스트 메뉴(~500ms)보다 먼저 armed 상태에 들어가야 contextmenu를 가로챌 수 있다
 const LONG_PRESS_MS = 350
@@ -86,6 +87,7 @@ export function useDragReorder({
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const itemsRef = useRef(new Map<number, HTMLElement>())
+  const captureReorder = useReorderAnimation(() => itemsRef.current.values())
   const stateRef = useRef<DragState | null>(null)
   const longPressTimer = useRef<number | null>(null)
   const clickSuppressedAt = useRef(0)
@@ -162,7 +164,7 @@ export function useDragReorder({
     let target = cur
     for (const [idx, el] of itemsRef.current) {
       if (idx === cur) continue
-      const r = el.getBoundingClientRect()
+      const r = reorderLayoutRect(el)
       const mid = r.left + r.width / 2
       if (idx < cur && clientX < mid) target = Math.min(target, idx)
       if (idx > cur && clientX > mid) target = Math.max(target, idx)
@@ -176,6 +178,7 @@ export function useDragReorder({
     if (!state || state.phase !== 'active') return
     const target = targetIndexFor(clientX, state.index)
     if (target === state.index) return
+    captureReorder()
     onReorder(state.index, target)
     state.index = target
     setDragIndex(target)

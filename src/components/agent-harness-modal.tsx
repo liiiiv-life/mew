@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -50,7 +51,7 @@ export function AgentHarnessModal({ cwd, initialKind, onClose }: { cwd: string; 
   useOverlayDismiss(close)
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    searchRef.current?.focus()
+    if (canAutoFocusInput()) searchRef.current?.focus()
     return () => { if (opener?.isConnected) opener.focus() }
   }, [])
   useEffect(() => {
@@ -115,7 +116,7 @@ export function AgentHarnessModal({ cwd, initialKind, onClose }: { cwd: string; 
   const showingDetail = !!selected || creating
   useEffect(() => {
     if (showingDetail && (creating || window.matchMedia('(max-width: 767px)').matches)) headingRef.current?.focus()
-    else if (!showingDetail && hadDetail.current) searchRef.current?.focus()
+    else if (!showingDetail && hadDetail.current) if (canAutoFocusInput()) searchRef.current?.focus()
     hadDetail.current = showingDetail
   }, [showingDetail, selected?.id, creating])
   return createPortal(<div data-cmd-overlay className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-2 sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) close() }}>

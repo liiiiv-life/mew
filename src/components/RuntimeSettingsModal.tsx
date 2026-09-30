@@ -3,8 +3,8 @@ import { useUiLocale } from '@mew/ui/i18n'
 // 에이전트 런타임 설정 팝업 — 실행 파일·추가 인자·공급자 env(API 키·엔드포인트)를 런타임별로 저장한다.
 // 시크릿은 서버에만 남고 브라우저로는 마지막 4자만 돌아오므로, 이 창에서 되찾을 방법은 없다 —
 // 덮어써야 바꿀 수 있다. 저장 즉시 다음 spawn부터 적용된다.
-import { useEffect, useState } from 'react'
-import { ConfirmDialog } from '@mew/ui'
+import { useEffect, useId, useState } from 'react'
+import { ConfirmDialog, DialogFrame } from '@mew/ui'
 import { AgentAccountCard } from './AgentAccountCard'
 import { SUBSCRIPTION_URLS } from '../../shared/agent-access'
 import {
@@ -53,6 +53,7 @@ type EnvRow = { key: string; value: string; secret: boolean }
 
 function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string; label: string; onClose: () => void }) {
   useUiLocale()
+  const titleId = useId()
   const [cmd, setCmd] = useState('')
   const [extraArgs, setExtraArgs] = useState('')
   const [rows, setRows] = useState<EnvRow[]>([])
@@ -171,10 +172,9 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onPointerDown={(e) => e.stopPropagation()}>
-      <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised shadow-xl">
+    <DialogFrame labelledBy={titleId} onClose={onClose} busy={saving || lifecycleBusy} className="max-h-[80vh] max-w-lg overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised">
         <div className="border-b border-edge px-4 py-3">
-          <div className="text-sm font-semibold text-ink">{label} {uiText(" 설정")}</div>
+          <div id={titleId} className="text-sm font-semibold text-ink">{label} {uiText(" 설정")}</div>
           <div className="mt-1 text-xs text-ink-secondary">{uiText("새 세션부터 적용")}</div>
         </div>
         {!loaded ? (
@@ -276,10 +276,9 @@ function RuntimeSettingsModal({ runtimeId, label, onClose }: { runtimeId: string
             </button>
           </div>
         </div>
-      </div>
       {confirm === 'uninstall' && <ConfirmDialog message={uiText("{p0}을 삭제할까요?", { p0: label })} detail={uiText("계정과 API 키 설정은 남아 있을 수 있습니다.")} confirmLabel={uiText("삭제")} danger onConfirm={uninstall} onCancel={() => setConfirm(null)} />}
       {confirm === 'logout' && <ConfirmDialog message={uiText("{p0}에서 로그아웃할까요?", { p0: label })} confirmLabel={uiText("로그아웃")} danger onConfirm={logout} onCancel={() => setConfirm(null)} />}
-    </div>
+    </DialogFrame>
   )
 }
 

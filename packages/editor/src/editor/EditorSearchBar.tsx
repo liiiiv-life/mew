@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { useUiLocale } from '@mew/ui/i18n'
 import { uiText } from '@mew/ui/i18n-core'
 import { useEffect, useReducer, useRef, useState } from 'react'
@@ -42,7 +43,7 @@ export function EditorSearchBar({
     setQuery(initial)
     editor.commands.setSearchQuery(initial)
     if (editor.storage.searchAndReplace.results.length) editor.commands.gotoSearchResult(0)
-    findInputRef.current?.focus()
+    if (canAutoFocusInput()) findInputRef.current?.focus()
     findInputRef.current?.select()
     // seedNonce가 바뀔 때만 재적용 — 타이핑 중 재실행을 막는다
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,7 +71,7 @@ export function EditorSearchBar({
 
   function close() {
     editor.commands.clearSearch()
-    editor.commands.focus()
+    if (canAutoFocusInput()) editor.commands.focus()
     onClose()
   }
 

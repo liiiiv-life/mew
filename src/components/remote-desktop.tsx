@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Ref } from 'react'
@@ -69,7 +70,7 @@ export function RemoteDesktop({ onClose, dockHostRef, dockHidden = false }: { on
     return () => { observer.disconnect(); document.removeEventListener('fullscreenchange', changed); if (ownsFullscreen.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {}) }
   }, [])
   useEffect(() => { onView(0, 0, 0) }, [viewport, nativeSize, rotation, onView])
-  useEffect(() => { if (settingsOpen) settingsPanel.current?.querySelector<HTMLInputElement>('input')?.focus() }, [settingsOpen])
+  useEffect(() => { if (settingsOpen) if (canAutoFocusInput()) settingsPanel.current?.querySelector<HTMLInputElement>('input')?.focus() }, [settingsOpen])
   const toggleFullscreen = async () => {
     setFullscreenError('')
     try {

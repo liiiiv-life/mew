@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState } from 'react'
@@ -53,7 +54,7 @@ export function LinkTooltip({
 
   useEffect(() => {
     if (mode !== 'edit') return
-    urlInputRef.current?.focus()
+    if (canAutoFocusInput()) urlInputRef.current?.focus()
     urlInputRef.current?.select()
   }, [mode])
 

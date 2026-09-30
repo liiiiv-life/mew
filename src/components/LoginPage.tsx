@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { useState } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import { changePassword, fetchAuthStatus, login, type AuthStatus } from '../api/client'
@@ -93,7 +94,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={t('auth.email')}
                 autoComplete="username"
-                autoFocus
+                autoFocus={canAutoFocusInput()}
                 required
                 className={inputClass}
               />
@@ -128,7 +129,7 @@ export function LoginPage({ onClose, onSuccess }: LoginPageProps) {
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder={t('settings.newPassword')}
                 autoComplete="new-password"
-                autoFocus
+                autoFocus={canAutoFocusInput()}
                 required
                 className={inputClass}
               />

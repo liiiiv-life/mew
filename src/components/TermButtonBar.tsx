@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 // 터미널 버튼 줄(선택 모드 버튼과 같은 줄)의 명령어 버튼. 목록은 전역 하나
 // (.data/term-button.json)라 모든 프로젝트·모든 터미널 탭이 같은 버튼을 본다 — 프로젝트마다 따로
 // 두는 헤더의 ▶ 명령어 버튼(.mew/cmd-button.json)과는 별개 기능이다.
@@ -176,7 +177,7 @@ function TermButtonEditor({
   const canSave = draft.name.trim() !== '' && draft.command.trim() !== ''
 
   useEffect(() => {
-    nameRef.current?.focus()
+    if (canAutoFocusInput()) nameRef.current?.focus()
   }, [])
 
   // Esc·모바일 뒤로가기로 이 창만 닫는다 — 스택 맨 위라 터미널 패널은 그대로 남는다

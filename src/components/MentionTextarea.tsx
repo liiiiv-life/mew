@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type CSSProperties, type RefObject } from 'react'
 import { AgentComposerInput, type MentionInputHandle } from './agent-composer-input'
 import { clipboardImages } from '../utils/clipboard-images'
@@ -247,14 +248,14 @@ export function MentionTextarea({
         inputRef={textareaRef}
         placeholder={placeholder}
         label={submitHint}
-        autoFocus={autoFocus}
+        autoFocus={autoFocus && canAutoFocusInput()}
         className={className}
         style={style}
       /> : <textarea
         ref={(element) => { textareaRef.current = element }}
         value={value}
         placeholder={placeholder}
-        autoFocus={autoFocus}
+        autoFocus={autoFocus && canAutoFocusInput()}
         rows={rows}
         aria-label={submitHint}
         onChange={(e) => {

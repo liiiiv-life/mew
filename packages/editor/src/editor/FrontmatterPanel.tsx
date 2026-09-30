@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState } from 'react'
@@ -36,7 +37,7 @@ export function FrontmatterPanel({
   useEffect(() => {
     const el = editingRef.current
     if (!el || document.activeElement === el) return
-    el.focus()
+    if (canAutoFocusInput()) el.focus()
     el.setSelectionRange(el.value.length, el.value.length)
   }, [editing])
 

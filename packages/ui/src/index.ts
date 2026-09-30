@@ -16,3 +16,6 @@ export {
   isTextareaVisualBoundary,
   type TextareaVerticalDirection,
 } from './textareaVisualLine'
+export { canAutoFocusInput } from './input-focus'
+
+export { useReorderAnimation, reorderLayoutRect, REORDER_DURATION, REORDER_EASING } from './reorder-animation'

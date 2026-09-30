@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref, type ReactNode } from 'react'
 import { DialogFrame, ConfirmDialog, SelectField } from '@mew/ui'
 import { Plus, Xmark, NavArrowDown, NavArrowRight, RefreshDouble, Page } from 'iconoir-react'
@@ -98,9 +99,9 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
     return () => window.removeEventListener('beforeunload', guard)
   }, [dirty, requestDirty])
   const editKey = edit ? `${edit.base.id}:${edit.field}:${edit.start}` : ''
-  useEffect(() => { editInput.current?.focus(); titleInput.current?.focus(); titleInput.current?.select() }, [editKey])
+  useEffect(() => { if (canAutoFocusInput()) editInput.current?.focus(); if (canAutoFocusInput()) titleInput.current?.focus(); titleInput.current?.select() }, [editKey])
   const composing = !!request
-  useEffect(() => { if (composing) requestInput.current?.focus() }, [composing])
+  useEffect(() => { if (composing) if (canAutoFocusInput()) requestInput.current?.focus() }, [composing])
   useEffect(() => { if (!setId && data && selectedSet) setSetId(selectedSet.id) }, [setId, data, selectedSet])
   const guarded = (action: () => void) => { if (actionRef.current) return; if (dirty || requestDirty) setDiscard(() => action); else action() }
   useImperativeHandle(requestCloseRef, () => (action = onClose) => guarded(action))

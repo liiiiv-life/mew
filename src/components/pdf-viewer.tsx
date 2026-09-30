@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useId } from 'react'
 import { NavArrowLeft, NavArrowRight, Minus, Plus, Download, FloppyDisk, EditPencil, Erase, Undo, Redo, Text } from 'iconoir-react'
 import { SelectField } from '@mew/ui'
@@ -227,7 +228,7 @@ export default function PdfViewer({ src, download, name, identity, onEdit }: { s
     {(saveError || ink.storageFailed) && <div className="pdf-notice" role="alert">{t(saveError ?? 'pdf.draftFailed')}</div>}
     </div>
     {error ? <div className="pdf-empty" role="alert"><strong>{t(error)}</strong><span>{name}</span>{error === 'pdf.staleDraft' ? <button onClick={() => { draft.clear(); setRetry(n => n + 1) }}>{t('pdf.discardDraft')}</button> : <button onClick={() => setRetry(n => n + 1)}>{t('pdf.retry')}</button>}<DownloadLink href={download} name={name}>{t('media.download')}</DownloadLink></div>
-      : passwordNeeded ? <form className="pdf-empty" onSubmit={event => { event.preventDefault(); passwordCallback.current?.(password); setPassword(''); setPasswordNeeded(false) }}><label htmlFor={passwordId}>{t('pdf.password')}</label><input id={passwordId} type="password" autoComplete="off" value={password} onChange={event => setPassword(event.target.value)} autoFocus /><button type="submit">{t('pdf.open')}</button></form>
+      : passwordNeeded ? <form className="pdf-empty" onSubmit={event => { event.preventDefault(); passwordCallback.current?.(password); setPassword(''); setPasswordNeeded(false) }}><label htmlFor={passwordId}>{t('pdf.password')}</label><input id={passwordId} type="password" autoComplete="off" value={password} onChange={event => setPassword(event.target.value)} autoFocus={canAutoFocusInput()} /><button type="submit">{t('pdf.open')}</button></form>
       : !pdf ? <div className="pdf-empty" role="status"><span>{t('pdf.loading')}</span>{progress !== null && <progress max={100} value={progress} aria-label={t('pdf.loading')} />}</div>
       : <div ref={scrollRef} className="pdf-scroll" tabIndex={0} aria-label={t('pdf.document')}>
         <div className={`pdf-pages${inverted ? ' pdf-inverted' : ''}`} style={{ height: offsets[offsets.length - 1] + PAGE_GAP, minWidth: Math.max(view.width - 32, ...Array.from({ length: last - first + 1 }, (_, i) => (known.get(first + i + 1) ?? fallback).width * scale)) }}>

@@ -252,6 +252,18 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await page.evaluate("window.sockets.first.emit({type:'error',message:'Actual agent failure'})")
       assert.equal(await page.evaluate('window.notices.at(-1).kind'), 'error', 'actual agent errors still notify')
       await page.clock.resume()
+      // New conversation clears immediately even when list/close/ready never reply.
+      await page.evaluate("window.sockets.first.emit({type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Old conversation to clear'}}})")
+      await session.getByText('Old conversation to clear', { exact: true }).waitFor()
+      await session.getByRole('button', { name: '히스토리', exact: true }).click()
+      await session.getByRole('button', { name: '새 대화', exact: true }).click()
+      assert.equal(await session.getByText('Old conversation to clear', { exact: true }).count(), 0)
+      assert.equal(await session.locator('[data-agent-loading]').count(), 0)
+      assert.equal(await page.evaluate('window.messages.at(-1).type'), 'close_session')
+      await page.evaluate('window.sockets.first.close()')
+      assert.equal(await session.locator('[data-agent-loading]').count(), 0, 'reconnect must not cover the cleared UI')
+      assert.equal(await send.isDisabled(), true)
+      assert.equal(await composerValue(draft), 'Typing after recovery')
       assert.deepEqual(errors, [])
       await page.close()
     }

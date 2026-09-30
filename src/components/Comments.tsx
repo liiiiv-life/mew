@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useOverlayDismiss } from '@mew/ui'
 import type { CommentEntry, CommentThread } from '../api/client'
@@ -65,7 +66,7 @@ export function CommentComposer({
         options={memberMentionOptions(members)}
         onSubmit={submit}
         rows={2}
-        autoFocus
+        autoFocus={canAutoFocusInput()}
         placeholder={t('comment.inputPlaceholder')}
         submitHint={t('comment.submitHint')}
       />
@@ -141,7 +142,7 @@ function CommentRow({
       ) : (
         <div className="flex flex-col gap-1.5 pl-3.5">
           <textarea
-            autoFocus
+            autoFocus={canAutoFocusInput()}
             value={editing}
             onChange={(e) => setEditing(e.target.value)}
             onKeyDown={(e) => {
