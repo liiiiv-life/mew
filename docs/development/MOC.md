@@ -10,6 +10,8 @@ updated: 2026-09-29
 
 ## Current
 
+- [대화 저장과 구간 동기화](conversation-storage.md)
+
 - [계정별 Git 연결·OAuth·작성자·원격 실행](git-connections.md)
 
 - [개발 환경·실행 제한·검증·필수 UI 규칙](getting-started.md)

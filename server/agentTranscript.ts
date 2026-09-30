@@ -1,53 +1,109 @@
-// ACP 히스토리는 메시지 본문만 다시 흘리고 Mew turn_end(소요 시간·종료 이유)는 보존하지 않는다.
-// 완료 턴의 화면 전사를 DATA_DIR에 남겨 감독의 유휴 종료 뒤에도 같은 정보를 복원한다.
+// SQLite contains Mew's display transcript; ACP remains the runtime context authority.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
+import { DatabaseSync } from 'node:sqlite'
+import { DATA_DIR, readJsonFile } from './dataDir.ts'
 import type { AgentEvent } from './agentAcp.ts'
 
 const TRANSCRIPT_DIR = path.join(DATA_DIR, 'agent-transcripts')
-// v1은 최근 500개만 저장해 긴 턴의 질문과 답변 앞부분을 잃었다. 그 파일을 기준본으로
-// 쓰지 않고 ACP 원본 히스토리로 폴백하도록 완전 전사부터 새 버전으로 구분한다.
-const VERSION = 2
+let database: DatabaseSync | null = null
+const written = new WeakMap<AgentEvent[], { key: string; count: number; revision: string }>()
 
-type StoredTranscript = {
-  version: typeof VERSION
-  runtime: string
-  cwd: string
-  sessionId: string
-  events: AgentEvent[]
+export function transcriptKey(runtime: string, cwd: string, sessionId: string): string {
+  return crypto.createHash('sha256').update(JSON.stringify([runtime, cwd, sessionId])).digest('hex')
 }
 
-function transcriptFile(runtime: string, cwd: string, sessionId: string): string {
-  const digest = crypto.createHash('sha256').update(JSON.stringify([runtime, cwd, sessionId])).digest('hex')
-  return path.join(TRANSCRIPT_DIR, `${digest}.json`)
-}
-
-/** 완료된 턴만 동기 저장한다 — 스트리밍 청크마다 디스크를 쓰지 않는다. */
-export function writeAgentTranscript(runtime: string, cwd: string, sessionId: string, events: AgentEvent[]): void {
-  if (!sessionId) return
-  const value: StoredTranscript = { version: VERSION, runtime, cwd, sessionId, events }
+function db(): DatabaseSync {
+  if (database) return database
+  fs.mkdirSync(TRANSCRIPT_DIR, { recursive: true, mode: 0o700 })
+  const file = path.join(TRANSCRIPT_DIR, 'transcripts.sqlite')
+  const opened = new DatabaseSync(file)
   try {
-    fs.mkdirSync(TRANSCRIPT_DIR, { recursive: true, mode: 0o700 })
-    writeFileAtomic(transcriptFile(runtime, cwd, sessionId), `${JSON.stringify(value)}\n`)
-  } catch (err) {
-    // 이 파일은 복원 품질을 높이는 보조 기록이다. 저장 실패가 이미 끝난 작업을 실패로 바꾸지 않는다.
-    console.error('[mew:agent] 전사 저장 실패:', err)
+    fs.chmodSync(file, 0o600)
+    const version = Number(opened.prepare('PRAGMA user_version').get()?.user_version ?? 0)
+    if (version > 1) throw new Error('지원하지 않는 전사 DB 버전')
+    opened.exec(`PRAGMA busy_timeout=1000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+      CREATE TABLE IF NOT EXISTS sessions (
+        key TEXT PRIMARY KEY, runtime TEXT NOT NULL, cwd TEXT NOT NULL, session_id TEXT NOT NULL,
+        revision TEXT NOT NULL, count INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS events (
+        session_key TEXT NOT NULL, seq INTEGER NOT NULL, payload TEXT NOT NULL,
+        PRIMARY KEY (session_key, seq)
+      ) WITHOUT ROWID; PRAGMA user_version=1;`)
+    database = opened
+    return opened
+  } catch (error) { opened.close(); throw error }
+}
+
+export function closeTranscriptDatabase(): void { database?.close(); database = null }
+
+/** Same append-only array: serialize/insert only its new tail. A restored array replaces atomically. */
+export function writeAgentTranscript(runtime: string, cwd: string, sessionId: string, events: AgentEvent[], onlyIfMissing = false): boolean {
+  if (!sessionId) return false
+  try {
+    const store = db(), key = transcriptKey(runtime, cwd, sessionId)
+    const previous = written.get(events)
+    store.exec('BEGIN IMMEDIATE')
+    let count = 0, revision = crypto.randomUUID() as string
+    try {
+      const current = store.prepare('SELECT count, revision FROM sessions WHERE key=?').get(key)
+      if (onlyIfMissing && current) { store.exec('COMMIT'); return true }
+      if (previous?.key === key && current && (current.revision !== previous.revision || current.count !== previous.count)) {
+        throw new Error('다른 writer가 변경한 전사를 오래된 버퍼로 덮어쓸 수 없습니다')
+      }
+      if (previous?.key === key && previous.count <= events.length
+        && current?.revision === previous.revision && current?.count === previous.count) {
+        count = previous.count
+        revision = previous.revision
+        if (count === events.length) { store.exec('COMMIT'); return true }
+      } else {
+        store.prepare('DELETE FROM events WHERE session_key=?').run(key)
+      }
+      const insert = store.prepare('INSERT INTO events(session_key,seq,payload) VALUES(?,?,?)')
+      for (let i = count; i < events.length; i++) insert.run(key, i, JSON.stringify(events[i]))
+      store.prepare(`INSERT INTO sessions VALUES(?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET
+        revision=excluded.revision, count=excluded.count, updated_at=excluded.updated_at`)
+        .run(key, runtime, cwd, sessionId, revision, events.length, Date.now())
+      store.exec('COMMIT')
+      written.set(events, { key, count: events.length, revision })
+      return true
+    } catch (error) { store.exec('ROLLBACK'); throw error }
+  } catch (error) {
+    console.error('[mew:agent] 전사 저장 실패:', error)
+    return false
   }
 }
 
-/** 현재 런타임·작업 경로·ACP 세션 ID가 모두 같은 전사만 되돌린다. */
+function importLegacy(runtime: string, cwd: string, sessionId: string): void {
+  const key = transcriptKey(runtime, cwd, sessionId)
+  if (db().prepare('SELECT key FROM sessions WHERE key=?').get(key)) return
+  const value = readJsonFile<unknown>(path.join(TRANSCRIPT_DIR, `${key}.json`))
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return
+  const stored = value as { version?: number; runtime?: string; cwd?: string; sessionId?: string; events?: AgentEvent[] }
+  // v1 was truncated. Never promote it to a complete transcript.
+  if (stored.version !== 2 || stored.runtime !== runtime || stored.cwd !== cwd || stored.sessionId !== sessionId
+    || !Array.isArray(stored.events) || !stored.events.every(event => event && typeof event.type === 'string')) return
+  if (!writeAgentTranscript(runtime, cwd, sessionId, stored.events, true)) throw new Error('기존 전사 이전 실패')
+}
+
 export function readAgentTranscript(runtime: string, cwd: string, sessionId: string): AgentEvent[] | null {
   try {
-    const value = readJsonFile<unknown>(transcriptFile(runtime, cwd, sessionId))
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-    const stored = value as Partial<StoredTranscript>
-    if (stored.version !== VERSION || stored.runtime !== runtime || stored.cwd !== cwd || stored.sessionId !== sessionId || !Array.isArray(stored.events)) return null
-    return stored.events as AgentEvent[]
-  } catch {
+    importLegacy(runtime, cwd, sessionId)
+    const key = transcriptKey(runtime, cwd, sessionId)
+    if (!db().prepare('SELECT key FROM sessions WHERE key=?').get(key)) return null
+    return readAgentTranscriptRange(runtime, cwd, sessionId, 0, Number.MAX_SAFE_INTEGER)
+  } catch (error) {
+    console.error('[mew:agent] 전사 읽기 실패:', error)
     return null
   }
+}
+
+/** Indexed half-open range, without parsing the rest of the conversation. */
+export function readAgentTranscriptRange(runtime: string, cwd: string, sessionId: string, start: number, end: number): AgentEvent[] {
+  return db().prepare('SELECT payload FROM events WHERE session_key=? AND seq>=? AND seq<? ORDER BY seq')
+    .all(transcriptKey(runtime, cwd, sessionId), start, end).map(row => JSON.parse(String(row.payload)) as AgentEvent)
 }
 
 /** ACP may replay whole messages while the saved transcript contains streaming chunks. */

@@ -1,3 +1,5 @@
+import { HistoryIndex, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
+import { randomUUID } from 'node:crypto'
 import type { AgentAttachmentInput, AgentAttachmentRef } from '../shared/agent-attachment.ts'
 import { splitCodexModelId } from '../shared/codex-models.ts'
 // ACP(Agent Client Protocol) 클라이언트 — 에이전트를 child process로 띄우고 **워크스페이스**에 묶는다.
@@ -42,7 +44,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import { WORKSPACE_ROOT } from './paths.ts'
 import { UsageReader, type Usage } from './agentUsage.ts'
-import { readAgentTranscript, reconcileAgentTranscript, writeAgentTranscript } from './agentTranscript.ts'
+import { readAgentTranscript, readAgentTranscriptRange, reconcileAgentTranscript, writeAgentTranscript } from './agentTranscript.ts'
 import { listSessionsFromDisk, stripLocalCommandMeta } from './agentSessionList.ts'
 import { readAgentDefault, type AgentRuntimeDefault } from './agentDefaults.ts'
 export {
@@ -750,11 +752,41 @@ export class AgentSession {
     }
   }
 
-  /**
-   * 지금까지 쌓인 대화 이벤트 — 재접속한 창이 **한 덩어리로**(`replay`) 받아 통째로 갈아끼운다.
-   * 예전에는 attach가 이걸 한 개씩 흘려보냈는데, 창은 이벤트마다 다시 그리느라 긴 되감기에서
-   * 눈에 띄게 굳었고 그 사이 대화가 빈 것으로 보였다(빈 탭 화면이 잠깐 뜨는 원인).
-   */
+  #history = new HistoryIndex<AgentEvent>(randomUUID())
+  #persistedEvents = 0
+  #persistTimer: ReturnType<typeof setTimeout> | null = null
+
+  historyPosition(event: AgentEvent): HistoryPosition | undefined {
+    return this.#events.at(-1) === event ? { generation: this.#history.generation, seq: this.#events.length - 1 } : undefined
+  }
+
+  historyPage(request: HistoryRequest = {}): HistoryPage<AgentEvent> {
+    const range = this.#history.range(request)
+    let events: AgentEvent[]
+    try {
+      const diskEnd = Math.min(range.end, this.#persistedEvents)
+      events = range.start < diskEnd ? readAgentTranscriptRange(this.runtime, this.cwd, this.#sessionId, range.start, diskEnd) : []
+      if (events.length !== Math.max(0, diskEnd - range.start)) throw new Error('전사 구간 누락')
+      events = events.concat(this.#events.slice(Math.max(range.start, diskEnd), range.end))
+    } catch { events = this.#events.slice(range.start, range.end) }
+    return { ...range, sessionId: this.#sessionId, events, controls: [...this.#history.controls.values()] }
+  }
+
+  #saveTranscript() {
+    if (this.#persistTimer) clearTimeout(this.#persistTimer)
+    this.#persistTimer = null
+    if (this.#disposed) return
+    if (this.#sessionId && writeAgentTranscript(this.runtime, this.cwd, this.#sessionId, this.#events)) this.#persistedEvents = this.#events.length
+  }
+
+  #resetHistory() {
+    this.#saveTranscript()
+    this.#events = []
+    this.#persistedEvents = 0
+    this.#history = new HistoryIndex<AgentEvent>(randomUUID())
+  }
+
+  /** Legacy clients still receive a complete snapshot; paged peers use historyPage. */
   snapshot(): AgentEvent[] {
     return [...this.#events]
   }
@@ -1200,7 +1232,7 @@ export class AgentSession {
       if (this.#disposed) return
       this.#loadingEvents = null
       this.#clearFailed = false
-      this.#events = []
+      this.#resetHistory()
       this.#turns = 0
       this.#startedAt = new Date().toISOString()
       this.#broadcast({ type: 'reset' })
@@ -1262,7 +1294,7 @@ export class AgentSession {
     }
     await measureAgentPhase(this.runtime, 'defaults', () => this.#applyDefaults())
     await this.#pushMeta()
-    writeAgentTranscript(this.runtime, this.cwd, sessionId, this.#events)
+    this.#saveTranscript()
   }
 
   /** 이 프로젝트 폴더에서 돌았던 세션 목록 */
@@ -1285,7 +1317,7 @@ export class AgentSession {
     // 일부 어댑터가 방금 불러온 대화까지 "사용자 인터럽트"로 기록한다. 실제로 돌고 있거나
     // 승인/대기열이 있을 때만 먼저 정리한다.
     if (this.busy || this.#pending.size > 0 || this.#queue.length > 0) this.cancel()
-    this.#events = []
+    this.#resetHistory()
     this.#queue = []
     this.#turns = 0
     this.#startedAt = new Date().toISOString()
@@ -1392,7 +1424,7 @@ export class AgentSession {
     const message = `${reason}. 진행 작업 중단을 요청하고 대기열을 보류했습니다. 메모리 회복 후 새 메시지나 명령을 보내면 대기열부터 재개합니다. 중단된 작업은 자동 재실행하지 않습니다.`
     console.error(`[mew:agent-memory] ${new Date().toISOString()} runtime=${this.runtime} ${message}`)
     this.#emit({ type: 'error', message })
-    if (this.#sessionId) writeAgentTranscript(this.runtime, this.cwd, this.#sessionId, this.#events)
+    this.#saveTranscript()
     if (this.busy) this.#cancelActive()
     this.#broadcast(this.#metaEvent())
   }
@@ -1443,9 +1475,14 @@ export class AgentSession {
       return
     }
     this.#events.push(event)
+    this.#history.push(event)
     // ACP 히스토리는 turn_end를 재생하지 않아 감독의 유휴 종료 뒤에는 소요 시간이 사라진다.
-    // 턴이 끝나는 순간의 전사만 남기면 스트리밍 중 디스크 쓰기는 피하면서 완료 상태를 복원할 수 있다.
-    if (persist && event.type === 'turn_end') writeAgentTranscript(this.runtime, this.cwd, this.#sessionId, this.#events)
+    // Stream writes are batched; turn completion flushes the remaining tail immediately.
+    if (persist && event.type === 'turn_end') this.#saveTranscript()
+    else if (persist && !this.#persistTimer) {
+      this.#persistTimer = setTimeout(() => this.#saveTranscript(), 250)
+      this.#persistTimer.unref?.()
+    }
     this.#broadcast(event)
   }
 
@@ -1487,7 +1524,7 @@ export class AgentSession {
   #fail(message: string) {
     console.error(`[mew:agent:${this.runtime}] ${new Date().toISOString()} ${message}`)
     this.#emit({ type: 'error', message })
-    if (this.#sessionId) writeAgentTranscript(this.runtime, this.cwd, this.#sessionId, this.#events)
+    this.#saveTranscript()
     this.dispose()
   }
 
@@ -1520,6 +1557,7 @@ export class AgentSession {
 
   dispose() {
     if (this.#disposed) return
+    this.#saveTranscript()
     this.#disposed = true
     clearInterval(this.#memoryTimer)
     for (const item of this.#queue) if (item.kind === 'cli') item.cancel()

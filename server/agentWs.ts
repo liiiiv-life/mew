@@ -1,3 +1,4 @@
+import { validHistoryRequest, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
 import { attachmentPrompt, type AgentAttachmentInput } from '../shared/agent-attachment.ts'
 import { watchSocketAccess } from './access-socket.ts'
 // 에이전트 창 WS 릴레이 — ACP 세션의 이벤트를 브라우저로 흘리고, 브라우저의 프롬프트·취소·승인을 되돌려 준다.
@@ -23,6 +24,7 @@ const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 
 type ClientMessage =
+  | { type: 'history'; range: HistoryRequest }
   | { type: 'prompt'; text: string; displayText?: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; skills?: string[]; settings?: AgentMessageSettings; attachments?: AgentAttachmentInput[] }
   | { type: 'cancel' }
   | { type: 'permission'; id: string; optionId: string | null }
@@ -104,6 +106,8 @@ function validSettings(value: unknown): AgentMessageSettings | undefined {
 }
 
 type ServerMessage =
+  | { type: 'history'; page: HistoryPage<AgentEvent>; restoreFailure?: { sessionId: string; message: string } }
+  | { type: 'history_event'; event: AgentEvent; position: HistoryPosition }
   | AgentEvent
   | { type: 'ready'; cwd: string }
   | { type: 'fatal'; message?: string }
@@ -148,6 +152,7 @@ async function handleConnection(
   cwd: string,
   resumeSessionId: string | null,
   preset: { modelId: string; role: string },
+  history?: HistoryRequest,
 ) {
   const fail = (err: unknown) => send(ws, { type: 'error', message: describeError(err) })
 
@@ -194,7 +199,11 @@ async function handleConnection(
     }
     const live = session
     try {
-      if (msg.type === 'prompt') {
+      if (msg.type === 'history') {
+        if (history) void live.request<HistoryPage<AgentEvent>>({ type: 'history', range: validHistoryRequest(msg.range) })
+          .then(page => send(ws, { type: 'history', page })).catch(fail)
+      }
+      else if (msg.type === 'prompt') {
         const prompt = rolePending ? `${preset.role}\n\n---\n\n${msg.text}` : msg.text
         rolePending = false
         // Codex ACP는 이미지 블록을 지원한다. 다른 런타임에는 파일 경로 참조만 보낸다.
@@ -260,13 +269,15 @@ async function handleConnection(
   let started: AgentHostClient
   try {
     started = await connectAgentHost(runtime, tab, cwd, {
+      history,
+      onHistory: (page, restoreFailure) => send(ws, { type: 'history', page, ...(restoreFailure ? { restoreFailure } : {}) }),
       onReplay: (events, restored, restoreFailure) => send(ws, {
         type: 'replay',
         events,
         ...(restored ? { restored: true } : {}),
         ...(restoreFailure ? { restoreFailure } : {}),
       }),
-      onEvent: (event) => send(ws, event),
+      onEvent: (event, _replayed, position) => send(ws, position ? { type: 'history_event', event, position } : event),
       onFatal: (message) => {
         send(ws, { type: 'fatal', message })
         ws.close()
@@ -335,7 +346,8 @@ export function attachAgentWebSocket(
     wss.handleUpgrade(req, socket, head, (ws) => {
       accessChecks.set(ws, () => opts.authorize?.(req) ?? true)
       watchSocketAccess(ws, req, opts.authorize)
-      void handleConnection(ws, runtime, tab, cwd, resumeSessionId, { modelId, role })
+      void handleConnection(ws, runtime, tab, cwd, resumeSessionId, { modelId, role }, url.searchParams.get('history') === '1'
+        ? validHistoryRequest({ generation: url.searchParams.get('generation'), after: url.searchParams.has('after') ? Number(url.searchParams.get('after')) : undefined }) : undefined)
     })
   })
 }

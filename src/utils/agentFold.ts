@@ -1,3 +1,4 @@
+import type { HistoryPage, HistoryPosition } from '../../shared/agent-history.ts'
 import type { AgentAttachmentRef } from '../../shared/agent-attachment.ts'
 import { uiText, getUiLocale } from '@mew/ui/i18n-core'
 // 에이전트 창이 받은 이벤트 흐름을 화면 항목으로 접는다. 그리는 쪽은 components/AgentPanel.tsx.
@@ -79,6 +80,8 @@ export type SessionUpdate =
   | { sessionUpdate: 'plan' | 'available_commands_update' | 'current_mode_update' }
 
 export type AgentEvent =
+  | { type: 'history'; page: HistoryPage<AgentEvent>; restoreFailure?: { sessionId: string; message: string } }
+  | { type: 'history_event'; event: AgentEvent; position: HistoryPosition }
   | { type: 'update'; update: SessionUpdate; settings?: AgentMessageSettings }
   | { type: 'user_images'; images: { path: string; mimeType: string }[] }
   | { type: 'permission'; id: string; toolCall: { title?: string | null }; options: PermissionOption[] }
@@ -140,7 +143,7 @@ export function isTurnComplete(item: Pick<Extract<Item, { kind: 'turn' }>, 'done
 }
 
 /** 이벤트 목록을 화면에 그릴 항목으로 접는다 — 질문·턴(답변+작업 묶음)·에러의 세 종류로 나뉜다 */
-export function foldEvents(events: AgentEvent[], locale = getUiLocale()): Item[] {
+export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseIndex = 0): Item[] {
   const items: Item[] = []
   // toolCallId -> 위치 — turn 안의 children 배열 기준
   const toolIndex = new Map<string, { turn: number; child: number; entry: number }>()
@@ -184,7 +187,8 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale()): Item[]
     }
   }
 
-  for (const [i, event] of events.entries()) {
+  for (const [offset, event] of events.entries()) {
+    const i = baseIndex + offset
     if (event.type === 'turn_start') {
       const turn = ensureTurn(i)
       if (event.startedAt != null) turn.startedAt = event.startedAt

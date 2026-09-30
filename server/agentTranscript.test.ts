@@ -1,4 +1,7 @@
-import test from 'node:test'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import test, { after } from 'node:test'
+import { DatabaseSync } from 'node:sqlite'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -7,7 +10,9 @@ import path from 'node:path'
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-transcript-'))
 process.env.MEW_DATA_DIR = dataDir
 
-const { readAgentTranscript, reconcileAgentTranscript, writeAgentTranscript } = await import('./agentTranscript.ts')
+const { readAgentTranscript, readAgentTranscriptRange, reconcileAgentTranscript, writeAgentTranscript, transcriptKey, closeTranscriptDatabase } = await import('./agentTranscript.ts')
+after(() => { closeTranscriptDatabase(); fs.rmSync(dataDir, { recursive: true, force: true }) })
+
 type AgentEvent = import('./agentAcp.ts').AgentEvent
 
 const message = (role: 'user' | 'agent', text: string): AgentEvent => ({ type: 'update', update: { sessionUpdate: role === 'user' ? 'user_message_chunk' : 'agent_message_chunk', content: { type: 'text', text } } })
@@ -70,8 +75,7 @@ test('완료되지 않은 동일 문구와 반복 질문은 다른 턴의 소요
   assert.deepEqual(reconcileAgentTranscript(savedTurn.slice(0, -1), fresh.slice(0, 2)), fresh.slice(0, 2))
 })
 
-test('완료 전사는 런타임·경로·세션별로 보존하고 정확히 같은 키에서만 복원한다', (t) => {
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }))
+test('완료 전사는 런타임·경로·세션별로 보존하고 정확히 같은 키에서만 복원한다', () => {
   const events: AgentEvent[] = [
     { type: 'update', update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: '작업해' } } },
     { type: 'turn_start' as const, startedAt: 100 },
@@ -85,8 +89,7 @@ test('완료 전사는 런타임·경로·세션별로 보존하고 정확히 �
   assert.equal(readAgentTranscript('claude', '/work', 'session-a'), null)
 })
 
-test('500개가 넘는 완료 전사도 앞부분을 자르지 않는다', (t) => {
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }))
+test('500개가 넘는 완료 전사도 앞부분을 자르지 않는다', () => {
   const events: AgentEvent[] = Array.from({ length: 620 }, (_, index) => ({
     type: 'update' as const,
     update: { sessionUpdate: 'agent_message_chunk' as const, content: { type: 'text', text: `chunk-${index}` } },
@@ -96,21 +99,73 @@ test('500개가 넘는 완료 전사도 앞부분을 자르지 않는다', (t) =
   assert.deepEqual(readAgentTranscript('codex', '/work', 'session-long'), events)
 })
 
-test('최근 500개만 저장하던 v1 전사는 무시하고 ACP 원본 복원으로 폴백한다', (t) => {
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }))
+test('최근 500개만 저장하던 v1 전사는 무시하고 ACP 원본 복원으로 폴백한다', () => {
   const events: AgentEvent[] = [
     { type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '끝부분만' } } },
   ]
-  writeAgentTranscript('codex', '/work', 'session-v1', events)
   const dir = path.join(dataDir, 'agent-transcripts')
-  const file = fs.readdirSync(dir).find((name) => {
-    const value = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) as { sessionId?: string }
-    return value.sessionId === 'session-v1'
-  })
-  assert.ok(file)
-  const filePath = path.join(dir, file)
-  const stored = JSON.parse(fs.readFileSync(filePath, 'utf8')) as { version: number }
-  fs.writeFileSync(filePath, `${JSON.stringify({ ...stored, version: 1 })}\n`)
-
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, `${transcriptKey('codex', '/work', 'session-v1')}.json`)
+  fs.writeFileSync(file, JSON.stringify({ version: 1, runtime: 'codex', cwd: '/work', sessionId: 'session-v1', events }))
   assert.equal(readAgentTranscript('codex', '/work', 'session-v1'), null)
+})
+
+test('v2 JSON imports without deleting its source; SQLite persists after reopening', () => {
+  const file = path.join(dataDir, 'agent-transcripts', `${transcriptKey('codex', '/work', 'legacy')}.json`)
+  fs.writeFileSync(file, JSON.stringify({ version: 2, runtime: 'codex', cwd: '/work', sessionId: 'legacy', events: savedTurn }))
+  assert.deepEqual(readAgentTranscript('codex', '/work', 'legacy'), savedTurn)
+  assert.ok(fs.existsSync(file))
+  closeTranscriptDatabase()
+  assert.deepEqual(readAgentTranscript('codex', '/work', 'legacy'), savedTurn)
+})
+
+test('append writes only new rows, ranges are indexed, replacement removes old tail', () => {
+  const events = [...savedTurn]
+  assert.equal(writeAgentTranscript('codex', '/work', 'incremental', events), true)
+  const db = new DatabaseSync(path.join(dataDir, 'agent-transcripts', 'transcripts.sqlite'))
+  try {
+    db.exec(`CREATE TABLE writes(kind TEXT); CREATE TRIGGER observe_insert AFTER INSERT ON events BEGIN INSERT INTO writes VALUES('insert'); END;
+      CREATE TRIGGER observe_delete AFTER DELETE ON events BEGIN INSERT INTO writes VALUES('delete'); END;`)
+    events.push(message('user', 'next'), message('agent', 'reply'))
+    writeAgentTranscript('codex', '/work', 'incremental', events)
+    assert.deepEqual(db.prepare('SELECT kind FROM writes').all().map(row => row.kind), ['insert', 'insert'])
+    assert.deepEqual(readAgentTranscriptRange('codex', '/work', 'incremental', 5, 7), events.slice(5))
+    const replacement = [message('user', 'changed')]
+    writeAgentTranscript('codex', '/work', 'incremental', replacement)
+    assert.deepEqual(readAgentTranscript('codex', '/work', 'incremental'), replacement)
+    db.exec('DROP TRIGGER observe_insert; DROP TRIGGER observe_delete; DROP TABLE writes')
+  } finally { db.close() }
+})
+
+test('failed transaction leaves complete previous transcript intact', () => {
+  const events = [...savedTurn]
+  writeAgentTranscript('codex', '/work', 'rollback', events)
+  const db = new DatabaseSync(path.join(dataDir, 'agent-transcripts', 'transcripts.sqlite'))
+  db.exec(`CREATE TRIGGER fail_write BEFORE INSERT ON events WHEN NEW.seq=2 BEGIN SELECT RAISE(ABORT, 'injected'); END;`)
+  try {
+    assert.equal(writeAgentTranscript('codex', '/work', 'rollback', [...savedTurn, message('agent', 'new')]), false)
+    assert.deepEqual(readAgentTranscript('codex', '/work', 'rollback'), savedTurn)
+  } finally { db.exec('DROP TRIGGER fail_write'); db.close() }
+})
+
+test('separate supervisors can append independent sessions in the same WAL database', async () => {
+  const source = new URL('./agentTranscript.ts', import.meta.url).href
+  await Promise.all([0, 1, 2].map(index => promisify(execFile)(process.execPath, ['--input-type=module', '-e', `
+    import {writeAgentTranscript,closeTranscriptDatabase} from ${JSON.stringify(source)};
+    const events=[];
+    for(let i=0;i<30;i++){events.push({type:'error',message:String(i)});if(!writeAgentTranscript('codex','/parallel','worker-${index}',events))process.exit(1)}
+    closeTranscriptDatabase();
+  `], { env: { ...process.env, MEW_DATA_DIR: dataDir } })))
+  for (let index = 0; index < 3; index++) assert.equal(readAgentTranscript('codex', '/parallel', `worker-${index}`)?.length, 30)
+})
+
+
+test('a stale append buffer cannot overwrite a newly restored transcript', () => {
+  const stale = [...savedTurn]
+  writeAgentTranscript('codex', '/work', 'conflict', stale)
+  const fresh = [message('user', 'external update')]
+  writeAgentTranscript('codex', '/work', 'conflict', fresh)
+  stale.push(message('agent', 'late response'))
+  assert.equal(writeAgentTranscript('codex', '/work', 'conflict', stale), false)
+  assert.deepEqual(readAgentTranscript('codex', '/work', 'conflict'), fresh)
 })

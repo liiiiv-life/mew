@@ -36,3 +36,13 @@ test('queued cancellations never become chat bubbles, while executed interruptio
   ]
   assert.deepEqual(commandTimeline([], records).map(item => item.kind === 'command' && item.command.id), ['stopped', 'running', 'completed', 'failed'])
 })
+
+
+test('partial history uses global user counts and hides commands from unloaded turns', () => {
+  const events: AgentEvent[] = [
+    { type: 'update', update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'question 81' } } },
+    { type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'answer 81' } } },
+  ]
+  const timeline = commandTimeline(foldEvents(events), [command('hidden', 5), command('before', 80), command('after', 81)], 80)
+  assert.deepEqual(timeline.map(item => item.kind === 'command' ? item.command.id : item.kind), ['before', 'user', 'turn', 'after'])
+})

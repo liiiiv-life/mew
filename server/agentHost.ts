@@ -1,3 +1,4 @@
+import { validHistoryRequest, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
 import type { AgentAttachmentInput } from '../shared/agent-attachment.ts'
 // 에이전트 탭의 독립 감독 프로세스와 mew 쪽 유닉스 소켓 클라이언트.
 //
@@ -60,18 +61,21 @@ export type AgentHostCommand =
 type AgentImage = { data: string; mimeType: string }
 
 type AgentHostRequest =
+  | { type: 'history'; range: HistoryRequest }
   | { type: 'queue_command'; owner: string; input: AgentCommandInput }
   | { type: 'list_sessions' }
   | { type: 'terminal_auth'; methodId: string }
 
 type HostInbound =
+  | { type: 'subscribe'; history?: HistoryRequest }
   | { type: 'command'; command: AgentHostCommand }
   | { type: 'request'; id: string; request: AgentHostRequest }
 
 type HostOutbound =
-  | { type: 'hello'; runtime: string; tab: string; cwd: string }
+  | { type: 'hello'; runtime: string; tab: string; cwd: string; history?: boolean }
   | { type: 'replay'; events: AgentEvent[]; restored?: boolean; restoreFailure?: { sessionId: string; message: string } }
-  | { type: 'event'; event: AgentEvent }
+  | { type: 'history'; page: HistoryPage<AgentEvent>; restoreFailure?: { sessionId: string; message: string } }
+  | { type: 'event'; event: AgentEvent; position?: HistoryPosition }
   | { type: 'response'; id: string; ok: true; value: unknown }
   | { type: 'response'; id: string; ok: false; error: string }
   | { type: 'fatal'; message: string }
@@ -86,6 +90,8 @@ type HostMeta = {
 }
 
 type Peer = {
+  history?: HistoryRequest
+  subscribed?: boolean
   id: string
   socket: Socket
   detach: (() => void) | null
@@ -228,20 +234,29 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
   let armStartupIdle: () => void
   let stop: (code?: number) => void
 
+  const attachPeer = (peer: Peer, restored = false) => {
+    if (!session || peer.socket.destroyed || !peer.subscribed) return
+    peer.detach?.()
+    if (peer.history) sendLine(peer.socket, { type: 'history', page: session.historyPage(peer.history), ...(restoreFailure ? { restoreFailure } : {}) })
+    else sendLine(peer.socket, { type: 'replay', events: session.snapshot(), ...(restored ? { restored: true } : {}), ...(restoreFailure ? { restoreFailure } : {}) })
+    const attached = session
+    peer.detach = attached.attach(event => sendLine(peer.socket, {
+      type: 'event', event, ...(peer.history ? { position: attached.historyPosition(event) } : {}),
+    }))
+  }
+
   const server = net.createServer((socket) => {
     const peer: Peer = { id: crypto.randomUUID(), socket, detach: null }
     peers.add(peer)
     clearStartupIdle()
-    sendLine(socket, { type: 'hello', runtime, tab, cwd })
+    sendLine(socket, { type: 'hello', runtime, tab, cwd, history: true })
 
-    const attach = () => {
-      if (!session || socket.destroyed) return
-      // snapshot과 attach 사이에는 await가 없어야 그 틈의 스트리밍 이벤트가 빠지지 않는다.
-      sendLine(socket, { type: 'replay', events: session.snapshot(), ...(restoreFailure ? { restoreFailure } : {}) })
-      peer.detach = session.attach((event) => sendLine(socket, { type: 'event', event }))
-    }
-    if (session) attach()
-    else if (startupError) {
+    // Old clients do not negotiate. New clients subscribe immediately after hello.
+    const legacyTimer = setTimeout(() => {
+      if (!peer.subscribed) { peer.subscribed = true; attachPeer(peer) }
+    }, 100)
+    legacyTimer.unref?.()
+    if (!session && startupError) {
       sendLine(socket, {
         type: 'event',
         event: runtimeLoginAuthEvent(runtime, sessionStarting ? null : startupError, sessionStarting),
@@ -251,6 +266,13 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     const receive = (raw: unknown) => {
       if (!raw || typeof raw !== 'object') return
       const message = raw as HostInbound
+      if (message.type === 'subscribe') {
+        clearTimeout(legacyTimer)
+        peer.subscribed = true
+        peer.history = message.history ? validHistoryRequest(message.history) : undefined
+        attachPeer(peer)
+        return
+      }
       if (message.type !== 'command' && message.type !== 'request') return
       if (!session) {
         if (message.type === 'request') {
@@ -300,6 +322,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     }
     installLineReader(socket, receive, () => socket.destroy())
     socket.on('close', () => {
+      clearTimeout(legacyTimer)
       peer.detach?.()
       peer.detach = null
       session?.releaseQueuedEdits(peer.id)
@@ -373,18 +396,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         if (session === started) stop()
       })
       if (recovering) broadcastEvent({ type: 'auth_complete' })
-      for (const peer of peers) {
-        if (peer.socket.destroyed) continue
-        // ACP session/load 전사는 살아 있던 감독의 이벤트 replay와 형식이 다르다.
-        // 첫 접속이 브라우저 캐시와 합치지 않고 교체하도록 복원 표식을 내려보낸다.
-        sendLine(peer.socket, {
-          type: 'replay',
-          events: started.snapshot(),
-          ...(restored ? { restored: true } : {}),
-          ...(restoreFailure ? { restoreFailure } : {}),
-        })
-        peer.detach = started.attach((event) => sendLine(peer.socket, { type: 'event', event }))
-      }
+      for (const peer of peers) attachPeer(peer, restored)
       for (const item of early.splice(0)) void handleHostMessage(started, item.peer, item.message, stop, () => { restoreFailure = null }, switchSession)
     } catch (err) {
       startupError = describeError(err)
@@ -411,6 +423,13 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
 
   switchSession = async (sessionId, peer) => {
     if (!session || sessionStarting || stopping) return
+    if (runtime !== 'codex') {
+      session.assertCanLoadSession()
+      for (const attached of peers) { attached.detach?.(); attached.detach = null }
+      try { await session.loadSession(sessionId) }
+      finally { for (const attached of peers) attachPeer(attached, true) }
+      return
+    }
     // Codex app-server는 session/new 뒤에도 이 어댑터가 열었던 thread의 writer를
     // 붙든다. 같은 프로세스에서 그 thread를 다시 load하면 자기 writer와 충돌하므로,
     // 히스토리를 갈아탈 때 프로세스를 내려 writer를 반납한 뒤 새 프로세스에서 load한다.
@@ -460,11 +479,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         started.onDispose(() => {
           if (session === started) stop()
         })
-        for (const attached of peers) {
-          if (attached.socket.destroyed) continue
-          sendLine(attached.socket, { type: 'replay', events: started.snapshot(), restored: true })
-          attached.detach = started.attach((event) => sendLine(attached.socket, { type: 'event', event }))
-        }
+        for (const attached of peers) attachPeer(attached, true)
         if (loadError && !peer.socket.destroyed) {
           sendLine(peer.socket, { type: 'event', event: { type: 'error', message: loadError } })
         }
@@ -514,10 +529,13 @@ async function handleHostMessage(
   chooseFallback: () => void,
   switchSession: (sessionId: string, peer: Peer) => Promise<void>,
 ) {
+  if (message.type === 'subscribe') return
   if (message.type === 'request') {
     try {
       const request = message.request
-      const value = request.type === 'list_sessions'
+      const value = request.type === 'history'
+        ? session.historyPage(validHistoryRequest(request.range))
+        : request.type === 'list_sessions'
         ? await session.listSessions()
         : request.type === 'queue_command'
           ? queueAgentCommand(session, new AgentCommandStore(createTmuxManager({ cwd: session.cwd })), request.owner, request.input)
@@ -563,8 +581,7 @@ async function handleHostMessage(
       session.clearAfterQueue()
     }
     else if (command.type === 'load_session') {
-      if (session.runtime === 'codex') await switchSession(String(command.sessionId), peer)
-      else await session.loadSession(String(command.sessionId))
+      await switchSession(String(command.sessionId), peer)
       chooseFallback()
     }
     else if (command.type === 'close_session') stop()
@@ -577,8 +594,10 @@ async function handleHostMessage(
 }
 
 export type AgentHostCallbacks = {
+  history?: HistoryRequest
+  onHistory?: (page: HistoryPage<AgentEvent>, restoreFailure: { sessionId: string; message: string } | null) => void
   onReplay?: (events: AgentEvent[], restored: boolean, restoreFailure: { sessionId: string; message: string } | null) => void
-  onEvent?: (event: AgentEvent) => void
+  onEvent?: (event: AgentEvent, replayed?: boolean, position?: HistoryPosition) => void
   onFatal?: (message: string) => void
   onClose?: () => void
 }
@@ -617,7 +636,8 @@ export class AgentHostClient {
     if (!raw || typeof raw !== 'object') return
     const message = raw as HostOutbound
     if (message.type === 'replay') this.#callbacks.onReplay?.(message.events, message.restored === true, message.restoreFailure ?? null)
-    else if (message.type === 'event') this.#callbacks.onEvent?.(message.event)
+    else if (message.type === 'history') this.#callbacks.onHistory?.(message.page, message.restoreFailure ?? null)
+    else if (message.type === 'event') this.#callbacks.onEvent?.(message.event, undefined, message.position)
     else if (message.type === 'fatal') this.#callbacks.onFatal?.(message.message)
     else if (message.type === 'response') {
       const pending = this.#pending.get(message.id)
@@ -697,6 +717,7 @@ function openSocket(
       settled = true
       clearTimeout(timer)
       client = new AgentHostClient(runtime, tab, cwd, socket, callbacks)
+      if (hello.history) socket.write(`${JSON.stringify({ type: 'subscribe', history: callbacks.history } satisfies HostInbound)}\n`)
       resolve(client)
     }, () => socket.destroy())
     socket.once('error', (err) => {

@@ -6,6 +6,8 @@
 
 내부 브라우저의 바로가기는 `mew:browser-shortcuts`에 저장하며 캐시 정리 대상이 아니다. 키가 없을 때만 기본 `liiiiv-life dev` 항목을 제공하므로 사용자가 모든 바로가기를 삭제한 빈 목록도 유지한다. 쓰기는 공통 `writeBrowserStorage`를 사용하고 실패 시 UI에 알린다. 사용법은 [브라우저 창](../guides/browser.md#브라우저-창)을 따른다.
 
+새 에이전트 전사는 별도 IndexedDB에 저장한다. 계정 격리·4MiB/32MiB 예산·7일 수명·구간 동기화는 [대화 저장 계약](conversation-storage.md)을 따른다. 아래 2MiB 목표는 localStorage 재생성 캐시에 적용한다. 초안·설정 저장 위치는 유지한다.
+
 ## 관리 대상과 예산
 
 PDF 필기 초안은 `mew:pdf-draft:<계정>:<PDF URL>`에 원본 버전·벡터 스트로크를 저장한다. 본문 캐시가 아닌 미저장 작업이므로 자동 정리하지 않는다. 저장 실패 표시·복원 충돌·저장 성공 시 제거는 [PDF 계약](pdf-viewer.md#초안과-수명)을 따른다.
@@ -13,7 +15,7 @@ PDF 필기 초안은 `mew:pdf-draft:<계정>:<PDF URL>`에 원본 버전·벡터
 | 종류 | 키 | 항목 상한 |
 | --- | --- | --- |
 | 서버에 저장된 파일 본문 | `mew:content:*` | 256KiB (본문 메모리 LRU는 유지) |
-| 에이전트 전사의 최근 이벤트 | `mew:agent-events:*` | 512KiB |
+| 레거시 에이전트 전사(새 쓰기 중단) | `mew:agent-events:*` | 512KiB |
 | 에이전트 모델·권한 표시 캐시 | `mew:agent-controls:*` | 32KiB |
 | 폴더 자식 목록 | `mew:tree-children:*` | 256KiB |
 | 전송 성공한 입력 기록 | `mew:agent-input-histories`, `mew:tmux-input-histories` | 각 128KiB의 최신 완전한 항목 |

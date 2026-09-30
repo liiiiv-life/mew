@@ -1,3 +1,5 @@
+import { historyCacheKey, readHistoryCache, writeHistoryCache, type CachedHistory } from '../utils/agent-history-cache'
+import { mergeHistoryPage, appendHistoryEvent } from '../utils/agent-history-state'
 import { PanelTitle } from './panel-title'
 import type { AgentAttachmentInput } from '../../shared/agent-attachment'
 import { panelModelState, splitCodexModelId } from '../../shared/codex-models'
@@ -17,6 +19,7 @@ import { ServerDomBrowserTabs } from './server-dom-browser'
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useId,
   useMemo,
   useRef,
@@ -52,8 +55,6 @@ import {
   clearAgentTabCaches,
   mergeAgentReplay,
   pruneAgentLocalCaches,
-  readAgentEventCache,
-  writeAgentEventCache,
 } from '../utils/agentEventCache'
 import { DEFAULT_RUNTIME_ID, RUNTIMES, runtimeOf } from './agentRuntimes'
 import {
@@ -727,8 +728,8 @@ function HeaderSelect({
                   option.id === value ? 'text-ink' : 'text-ink-secondary'
                 }`}
               >
+                <span className="min-w-0 flex-1 truncate">{option.label}</span>
                 <span className="flex w-3.5 shrink-0 items-center justify-center">{option.id === value && <CheckGlyph />}</span>
-                <span className="truncate">{option.label}</span>
               </button>
             ))}
             {shown.length === 0 && <div className="px-2.5 py-1.5 text-xs text-ink-muted">{uiText("결과 없음")}</div>}
@@ -1522,7 +1523,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ notificationFocused = false, trackRestore, onRunningAgentsChange, requestedNoticeTab, onNoticeHandled, preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onOpenGuidanceFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { notificationFocused?: boolean; trackRestore?: <T>(request: Promise<T>) => Promise<T>; onRunningAgentsChange?: (count: number) => void; requestedNoticeTab?: string; onNoticeHandled?: () => void; preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onOpenGuidanceFile?: (path: string) => void; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+export function AgentPanel({ cacheAccount = 'local', notificationFocused = false, trackRestore, onRunningAgentsChange, requestedNoticeTab, onNoticeHandled, preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onOpenGuidanceFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { cacheAccount?: string; notificationFocused?: boolean; trackRestore?: <T>(request: Promise<T>) => Promise<T>; onRunningAgentsChange?: (count: number) => void; requestedNoticeTab?: string; onNoticeHandled?: () => void; preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onOpenGuidanceFile?: (path: string) => void; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
   useUiLocale()
   const { t } = useI18n()
   const dock = useDock()
@@ -1745,7 +1746,7 @@ export function AgentPanel({ notificationFocused = false, trackRestore, onRunnin
     }
     clearAgentInputDraft(id)
     // unmount may flush the last events. Remove every runtime/cwd cache after it finishes.
-    window.setTimeout(() => clearAgentTabCaches(id), 0)
+    window.setTimeout(() => clearAgentTabCaches(id, cacheAccount), 0)
     const index = tabs.findIndex((tab) => tab.id === id)
     const rest = tabs.filter((tab) => tab.id !== id)
     // 닫은 자리의 오른쪽을 먼저 보여 주고, 끝 탭이면 왼쪽을 고른다. 아직 열어 보지 않은 탭도
@@ -1875,7 +1876,7 @@ export function AgentPanel({ notificationFocused = false, trackRestore, onRunnin
   const renderSession = (tab: AgentTab, isActive: boolean, visible = isActive) => {
     if (tab.runtime === 'tmux' ? !allowTerminal : !allowAgent) return null
     if (tab.runtime && runtimeOf(tab.runtime).surface === 'terminal' && !allowTerminal) return <p className="p-3 text-sm text-ink-secondary">{t('access.terminalRequired')}</p>
-    const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!) ?? readAgentEventCache(tab.runtime!, tab.id, tab.cwd!)?.sessionId ?? null
+    const resumeSessionId = sessionIdOf(tab, tab.runtime!, tab.cwd!) ?? null
     return (runtimeOf(tab.runtime!).surface === 'terminal' ? (
               <AgentTerminalView
                 active={isActive}
@@ -1887,6 +1888,8 @@ export function AgentPanel({ notificationFocused = false, trackRestore, onRunnin
                 renderCommandButtons={tab.runtime === 'tmux' ? renderCommandButtons : undefined}
               />
             ) : <AgentSessionView
+              key={cacheAccount}
+              cacheAccount={cacheAccount}
               notificationWorkspace={workspacePath ?? tab.cwd!}
               notificationFocused={notificationFocused && agentOpen && isActive}
               allowTerminal={allowTerminal}
@@ -2064,6 +2067,7 @@ function AgentRestoringView() {
 
 /** 탭 하나 — WS 하나, 세션 하나. 대화 상태는 전부 여기 안에 있다 */
 function AgentSessionView({
+  cacheAccount,
   visible,
   notificationFocused,
   notificationWorkspace,
@@ -2091,6 +2095,7 @@ function AgentSessionView({
   showInfo,
   onToggleInfo,
 }: {
+  cacheAccount: string
   notificationFocused: boolean
   notificationWorkspace: string
   allowTerminal: boolean
@@ -2126,8 +2131,14 @@ function AgentSessionView({
   // 어느 프로젝트를 보고 있든 같은 창이다. 탭별 cwd는 워크스페이스 밖 경로도 될 수 있다(ADR 0077).
   const notificationFocusedRef = useRef(notificationFocused)
   notificationFocusedRef.current = notificationFocused
-  const initialCache = useMemo(() => readAgentEventCache(runtime, tabId, cwd), [cwd, runtime, tabId])
-  const [events, setEvents] = useState<AgentEvent[]>(() => initialCache?.events ?? [])
+  const cacheKey = historyCacheKey(cacheAccount, runtime, tabId, cwd)
+  const historyRef = useRef<CachedHistory | null>(null)
+  const historyPendingRef = useRef(false)
+  const cacheWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [historyStart, setHistoryStart] = useState(0)
+  const [usersBefore, setUsersBefore] = useState(0)
+  const prependScrollRef = useRef<{ height: number; top: number } | null>(null)
+  const [events, setEvents] = useState<AgentEvent[]>([])
   const [connected, setConnected] = useState(false)
   const [draft, setDraft] = useState(() => readAgentInputDraft(tabId))
   const [cliMode, setCliMode] = useState(false)
@@ -2187,7 +2198,7 @@ function AgentSessionView({
   const historyIndexRef = useRef<number | null>(null)
   const historyDraftRef = useRef('')
   const infoOverlayRef = useRef<HTMLDivElement>(null)
-  const cacheSessionIdRef = useRef<string | null>(initialCache?.sessionId ?? null)
+  const cacheSessionIdRef = useRef<string | null>(resumeSessionId)
   const resumeSessionIdRef = useRef<string | null>(resumeSessionId)
   const eventsRef = useRef(events)
   const replayRef = useRef<{
@@ -2209,31 +2220,26 @@ function AgentSessionView({
     writeAgentControlCache(runtime, tabId, cwd, { thinking: next })
   }, [cwd, runtime, tabId])
 
-  // 서버 연결보다 먼저 localStorage 전사를 그린다. 스트리밍 중에는 짧게 모아 쓰고, 탭을 떠나거나
-  // 브라우저를 닫을 때는 마지막 상태를 동기적으로 flush한다.
+  // Persist during normal operation; pagehide is only a best-effort extra flush.
   useEffect(() => {
     eventsRef.current = events
-    if (!cacheSessionIdRef.current && events.length === 0) return
-    const timer = window.setTimeout(() => {
-      writeAgentEventCache(runtime, tabId, cwd, { sessionId: cacheSessionIdRef.current, events })
-    }, 150)
-    return () => clearTimeout(timer)
-  }, [cwd, events, runtime, tabId])
-
+    if (cacheWriteTimerRef.current === null) cacheWriteTimerRef.current = setTimeout(() => {
+      cacheWriteTimerRef.current = null
+      if (historyRef.current) void writeHistoryCache(cacheKey, tabId, historyRef.current)
+    }, 250)
+  }, [cacheKey, events, tabId])
   useEffect(() => {
-    const flush = () => {
-      if (!cacheSessionIdRef.current && eventsRef.current.length === 0) return
-      writeAgentEventCache(runtime, tabId, cwd, {
-        sessionId: cacheSessionIdRef.current,
-        events: eventsRef.current,
-      })
-    }
+    const flush = () => { if (historyRef.current) void writeHistoryCache(cacheKey, tabId, historyRef.current) }
     window.addEventListener('pagehide', flush)
+    window.addEventListener('visibilitychange', flush)
     return () => {
       window.removeEventListener('pagehide', flush)
+      window.removeEventListener('visibilitychange', flush)
+      if (cacheWriteTimerRef.current !== null) clearTimeout(cacheWriteTimerRef.current)
+      cacheWriteTimerRef.current = null
       flush()
     }
-  }, [cwd, runtime, tabId])
+  }, [cacheKey, tabId])
 
   // 에디터에서 누른 Ctrl+L의 `경로:줄` 참조를 입력창에 이어 붙인다. 창(App)이 마지막으로 연 보조창을
   // 골라 target을 실어 보내므로 에이전트 창 차례일 때만 받고, 탭이 여럿이면 **보이는 탭**만 받아 적는다
@@ -2447,7 +2453,7 @@ function AgentSessionView({
   useEffect(() => {
     let closed = false
     let retry: number | undefined
-    let ws: WebSocket
+    let ws: WebSocket | undefined
     const target = { tabId, cwd, workspacePath: notificationWorkspace }
     const source = `${runtimeOf(runtime).label} · ${cwd.split('/').filter(Boolean).at(-1) ?? cwd}`
     const trackNotice = createAgentNoticeTracker(source, target)
@@ -2469,6 +2475,8 @@ function AgentSessionView({
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
       const query = new URLSearchParams({
         runtime,
+        history: '1',
+        ...(historyRef.current ? { generation: historyRef.current.generation, after: String(historyRef.current.end) } : {}),
         tab: tabId,
         cwd,
         ...(resumeSessionIdRef.current ? { resume: resumeSessionIdRef.current } : {}),
@@ -2483,7 +2491,57 @@ function AgentSessionView({
         setConnected(true)
       }
       ws.onmessage = (raw) => {
-        const event = JSON.parse(String(raw.data)) as AgentEvent
+        let event = JSON.parse(String(raw.data)) as AgentEvent
+        const sequenced = event.type === 'history_event'
+        if (event.type === 'history') {
+          historyPendingRef.current = false
+          setLoadingSession(null)
+          if (event.restoreFailure) {
+            restoreFailureRef.current = event.restoreFailure
+            replayRef.current = { events: [], restored: true, restoreFailure: event.restoreFailure }
+            return
+          }
+          restoreFailureRef.current = null
+          replayRef.current = null
+          const next = mergeHistoryPage(historyRef.current, event.page)
+          if (!next) {
+            ws?.send(JSON.stringify({ type: 'history', range: {} }))
+            return
+          }
+          if (event.page.mode === 'prepend' && scrollRef.current) {
+            prependScrollRef.current = { height: scrollRef.current.scrollHeight, top: scrollRef.current.scrollTop }
+          }
+          historyRef.current = next
+          clearAgentEventCache(runtime, tabId, cwd)
+          cacheSessionIdRef.current = next.sessionId
+          resumeSessionIdRef.current = next.sessionId
+          setHistoryStart(next.start)
+          setUsersBefore(next.usersBefore)
+          pendingRef.current = []
+          swapRef.current = false
+          setEvents(next.events)
+          for (const control of event.page.controls) {
+            if (control.type === 'models') adoptModels(control.models)
+            if (control.type === 'modes') adoptModes(control.modes)
+            if (control.type === 'thinking') adoptThinking(control.thinking)
+          }
+          return
+        }
+        if (event.type === 'history_event') {
+          if (restoreFailureRef.current) return
+          const next = appendHistoryEvent(historyRef.current, event.event, event.position)
+          if (!next) {
+            if (!historyPendingRef.current) {
+              historyPendingRef.current = true
+              ws?.send(JSON.stringify({ type: 'history', range: {} }))
+            }
+            return
+          }
+          if (next === historyRef.current) return
+          historyRef.current = next
+          event = event.event
+          queueEvent(event)
+        }
         if (event.type === 'permission_done') resolveMewcatNotice(`${cwd}:${tabId}:permission:${event.id}`)
         const notice = trackNotice(event, notificationFocusedRef.current && document.visibilityState === 'visible' && document.hasFocus())
         if (notice) publishMewcatNotice(notice)
@@ -2538,6 +2596,9 @@ function AgentSessionView({
         if (event.type === 'sessions') return setSessions(event.sessions)
         // 재접속 되감기 — 지나간 대화가 한 덩어리로 온다. 그린 것을 통째로 갈아끼우므로 중간에 비지 않는다
         if (event.type === 'replay') {
+          historyRef.current = null
+          setHistoryStart(0)
+          setUsersBefore(0)
           // Codex 히스토리 전환은 writer를 반납하려 어댑터를 교체하므로 reset이
           // 실시간 이벤트가 아니라 replay 안에 들어온다. replay 수신이 로딩의 종료다.
           setLoadingSession(null)
@@ -2574,16 +2635,21 @@ function AgentSessionView({
         // 히스토리 불러오기 — 지금까지 그린 대화를 버린다. 새 대화는 바닥에서 시작한다.
         // 비우는 것 자체는 아래 줄 세우기가 순서대로 처리한다(뒤따라 오는 히스토리와 같은 프레임에 그려진다)
         if (event.type === 'reset') {
+          historyRef.current = null
+          historyPendingRef.current = false
+          setHistoryStart(0)
+          setUsersBefore(0)
           restoreFailureRef.current = null
           setLoadingSession(null)
           stickRef.current = true
         }
         // session/load가 reset 전에 실패하면 오류만 온다. 선택기를 계속 "불러오는 중"에 가두지 않는다.
-        if (event.type === 'error') setLoadingSession(null)
-        queueEvent(event)
+        if (event.type === 'error') { historyPendingRef.current = false; setLoadingSession(null) }
+        if (!sequenced) queueEvent(event)
       }
       ws.onclose = () => {
         if (closed) return
+        historyPendingRef.current = false
         setConnected(false)
         // 대화는 지우지 않는다 — 잠깐 끊긴 사이 화면이 빈 탭(히스토리 드롭다운)으로 보이던 원인이다.
         // 다시 붙으면 서버가 보내는 replay가 통째로 갈아끼운다
@@ -2591,17 +2657,29 @@ function AgentSessionView({
         retry = window.setTimeout(connect, 1000)
       }
     }
-    connect()
+    let cacheDeadline: ReturnType<typeof setTimeout>
+    void Promise.race([readHistoryCache(cacheKey), new Promise<null>(resolve => { cacheDeadline = setTimeout(() => resolve(null), 200) })]).then(cached => {
+      clearTimeout(cacheDeadline)
+      if (closed) return
+      if (cached && cached.sessionId === resumeSessionIdRef.current && !historyRef.current) {
+        historyRef.current = cached
+        cacheSessionIdRef.current = cached.sessionId
+        setHistoryStart(cached.start)
+        setUsersBefore(cached.usersBefore)
+        setEvents(cached.events)
+      }
+      connect()
+    })
 
     return () => {
       closed = true
       if (retry) clearTimeout(retry)
-      ws.close()
+      ws?.close()
       wsRef.current = null
     }
     // 런타임을 바꾸면 저쪽 세션으로 갈아탄다 — 이쪽 세션은 서버에 그대로 남아 돌아오면 이어진다
     // (queueEvent는 값이 바뀌지 않는 useCallback이라 여기 있어도 재접속을 부르지 않는다)
-  }, [runtime, tabId, cwd, notificationWorkspace, preset?.modelId, preset?.role, queueEvent, adoptModels, adoptModes, adoptThinking, closeAuthBrowser, closeAcpBrowserTabs])
+  }, [cacheKey, runtime, tabId, cwd, notificationWorkspace, preset?.modelId, preset?.role, queueEvent, adoptModels, adoptModes, adoptThinking, closeAuthBrowser, closeAcpBrowserTabs])
 
   // 경과 시간만 흐르게 한다 — 나머지 값은 서버 meta가 밀어 준다
   useEffect(() => {
@@ -2616,8 +2694,8 @@ function AgentSessionView({
   // Info는 대화 흐름을 밀지 않는 팝업이다. 트리거까지 같은 경계에 넣어 버튼을 다시 눌러 닫을 수 있다.
   useOverlayDismiss(showInfo ? closeInfo : false, { outside: () => infoOverlayRef.current })
 
-  const items = useMemo(() => foldEvents(events, uiLocale), [events, uiLocale])
-  const timeline = useMemo(() => commandTimeline(items, cli.records.filter(command => command.state !== 'queued')), [items, cli.records])
+  const items = useMemo(() => foldEvents(events, uiLocale, historyStart), [events, uiLocale, historyStart])
+  const timeline = useMemo(() => commandTimeline(items, cli.records.filter(command => command.state !== 'queued'), usersBefore), [items, cli.records, usersBefore])
 
   // 돌고 있는 턴의 걸린 시간을 1초마다 흘린다 — 끝난 턴은 서버가 새긴 durationMs로 고정이다
   const anyTurnRunning = items.some((item) => item.kind === 'turn' && !item.done)
@@ -2637,6 +2715,14 @@ function AgentSessionView({
     setUnread(false)
   }, [])
 
+  useLayoutEffect(() => {
+    const anchor = prependScrollRef.current
+    if (anchor && scrollRef.current) {
+      scrollRef.current.scrollTop = anchor.top + scrollRef.current.scrollHeight - anchor.height
+      prependScrollRef.current = null
+    }
+  }, [timeline])
+
   useEffect(() => {
     if (stickRef.current) scrollToBottom()
     else setUnread(true)
@@ -2654,9 +2740,16 @@ function AgentSessionView({
     if (!el) return
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 48
     if (stickRef.current) setUnread(false)
+    const history = historyRef.current
+    if (el.scrollTop < 80 && history && history.start > 0 && !historyPendingRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+      historyPendingRef.current = true
+      wsRef.current.send(JSON.stringify({ type: 'history', range: { generation: history.generation, before: history.start } }))
+    }
   }, [])
 
-  const send = useCallback((payload: Record<string, unknown>) => wsRef.current?.send(JSON.stringify(payload)), [])
+  const send = useCallback((payload: Record<string, unknown>) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify(payload))
+  }, [])
 
   // 인증 명령의 exit code나 등록된 완료 파일 변경을 본다. 성공했을 때만 tmux를 닫고 ACP를 복구한다.
   // 내부 브라우저를 닫아도 로그인 명령과 감시는 계속된다.
@@ -2834,6 +2927,9 @@ function AgentSessionView({
     resumeSessionIdRef.current = null
     onForgetSession(tabId, runtime, cwd)
     cacheSessionIdRef.current = null
+    historyRef.current = null
+    setHistoryStart(0)
+    setUsersBefore(0)
     eventsRef.current = []
     pendingRef.current = []
     setEvents([])
@@ -2851,7 +2947,7 @@ function AgentSessionView({
     if (cliMode) {
       if (!allowTerminal || !draft.trim() || !connected || !meta?.sessionId || loadingSession || cli.submitting || attaching || attachments.length) return
       const command = draft
-      void cli.submit(tabId, command, items.filter(item => item.kind === 'user').length).then(accepted => {
+      void cli.submit(tabId, command, usersBefore + items.filter(item => item.kind === 'user').length).then(accepted => {
         if (!accepted) return
         recordAgentInputHistory(tabId, command)
         historyIndexRef.current = null
@@ -2885,6 +2981,9 @@ function AgentSessionView({
       resumeSessionIdRef.current = meta.sessionId
       cacheSessionIdRef.current = meta.sessionId
       clearAgentEventCache(runtime, tabId, cwd)
+      historyRef.current = null
+      setHistoryStart(0)
+      setUsersBefore(0)
       eventsRef.current = []
       pendingRef.current = []
       setEvents([])
@@ -3059,8 +3158,8 @@ function AgentSessionView({
             ? uiText("진행 중")
             : ''
   const totalTokens = usage ? usage.input + usage.output + usage.cacheWrite + usage.cacheRead : 0
-  const conversationLoading = !connected || loadingSession !== null
-    || (!meta && !auth && !events.some(event => event.type === 'error'))
+  const conversationLoading = loadingSession !== null || (!historyRef.current && (!connected
+    || (!meta && !auth && !events.some(event => event.type === 'error'))))
   useEffect(() => {
     let alive = true
     const load = () => fetchSkills(cwd, runtime)

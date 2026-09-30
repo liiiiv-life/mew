@@ -1,3 +1,4 @@
+import { clearHistoryTab } from './agent-history-cache.ts'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import type { AgentEvent } from './agentFold'
 
@@ -144,7 +145,8 @@ export function clearAgentEventCache(runtime: string, tabId: string, cwd: string
 }
 
 /** Explicit tab close removes every runtime/cwd cache belonging to that tab. */
-export function clearAgentTabCaches(tabId: string): void {
+export function clearAgentTabCaches(tabId: string, account?: string): void {
+  void clearHistoryTab(tabId, account)
   try {
     const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
     for (const key of keys) {

@@ -10,6 +10,8 @@ updated: 2026-09-19
 
 ## Current
 
+- [대화 저장·구간 동기화 구현 계획](conversation-storage.md)
+
 - [원격 데스크톱 화면·설정·핫키·연결 시작 개선](remote-desktop-controls.md)
 
 - [Mew 기능 문서 정리 계획](feature-catalog-organization.md)

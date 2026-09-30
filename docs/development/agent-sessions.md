@@ -47,19 +47,19 @@
 ## 메시지·재접속·큐
 
 - **외부 CLI에서 이어 쓴 대화:** `session/load`가 반환한 최신 ACP 전사를 기준으로 복원한다. Mew 저장 전사가 있다는 이유로 전체 ACP 응답을 버리지 않는다. 질문·답변이 같은 완료된 접두 턴만 기존 Mew 이벤트(소요 시간·설정·작업 기록)를 보존하고, 달라진 지점부터는 최신 ACP 이벤트를 사용한다. 사용자 메시지의 모델·노력·권한은 답변 일치 여부와 별도로, 질문 내용과 순서가 같은 접두 턴에서 누락된 값만 복원한다. 따라서 중간 답변 생략이나 `turn_end` 없는 재복원 때문에 같은 설정의 상태버블이 다시 나타나지 않는다. 질문이 달라진 지점 이후나 외부에서 추가한 질문에는 과거 설정을 추정해 붙이지 않는다. ACP가 대화 이벤트를 전혀 재생하지 않는 경우에만 저장 전사로 폴백한다. 전체 복원 뒤 전사를 한 번 저장한다.
-- 살아 있는 감독에 재접속하면 메모리 replay를 사용하므로 외부 CLI 변경을 실시간 감시하지 않는다. Codex **히스토리 → 현재 대화 새로고침**은 같은 세션 ID를 기존 `load_session` 경로로 다시 읽는다. 진행 중인 턴·승인·큐와 겹칠 수 없고, 어댑터 교체는 ADR 0122를 따른다. 다른 탭이 같은 세션을 소유한 경우 새로고침을 허용하지 않는다.
+- 살아 있는 감독에 재접속하면 감독의 현재 전사를 구간 동기화하므로 외부 CLI 변경을 실시간 감시하지 않는다. Codex **히스토리 → 현재 대화 새로고침**은 같은 세션 ID를 기존 `load_session` 경로로 다시 읽는다. 진행 중인 턴·승인·큐와 겹칠 수 없고, 어댑터 교체는 ADR 0122를 따른다. 다른 탭이 같은 세션을 소유한 경우 새로고침을 허용하지 않는다.
 - 어댑터 교체는 종료 요청 뒤 `disposeAndWait()`로 실제 종료를 기다린다. 히스토리 전환뿐 아니라 자동 복원 실패 후 새 세션 생성과 선택한 기록 실패 후 이전 대화 복구에도 적용한다. `session/load`가 writer를 얻고 전사 재생 중 실패할 수 있으므로 실패한 어댑터도 종료 경계를 거쳐야 한다. 감독 로그에는 선택한 기록의 최초 불러오기 오류와 이전 대화 복구 오류를 각각 남긴다.
-- 자동 복원과 Codex 히스토리 전환·현재 대화 새로고침은 `initialize`가 `loadSession` 지원을 알리면 빈 `session/new`와 그 기본값 적용을 생략하고 바로 기존 세션을 불러온다. 기본값은 복원된 세션에 적용한다. load 미지원 런타임은 기존 새 세션·인증 경로를 사용한다. 자동 복원 실패는 원래 포인터를 보존하며 새 연결로 폴백하고, Codex 선택 기록·이전 대화 복구가 모두 실패하면 실패한 writer 종료 후에만 새 세션을 만든다. 살아 있는 감독에 단순 재접속할 때는 ACP 초기화나 load 없이 메모리 replay를 유지한다.
+- 자동 복원과 Codex 히스토리 전환·현재 대화 새로고침은 `initialize`가 `loadSession` 지원을 알리면 빈 `session/new`와 그 기본값 적용을 생략하고 바로 기존 세션을 불러온다. 기본값은 복원된 세션에 적용한다. load 미지원 런타임은 기존 새 세션·인증 경로를 사용한다. 자동 복원 실패는 원래 포인터를 보존하며 새 연결로 폴백하고, Codex 선택 기록·이전 대화 복구가 모두 실패하면 실패한 writer 종료 후에만 새 세션을 만든다. 살아 있는 감독에 단순 재접속할 때는 ACP 초기화나 load 없이 현재 전사의 구간 동기화를 사용한다(구 클라이언트는 replay).
 - `<DATA_DIR>/agent/<runtime>-<hash>.log`의 `[mew:agent-timing:<runtime>]`는 `initialize`·`session/new`·`session/load`·`defaults`의 경과 ms와 호출 성공/실패를 기록한다. 타이밍 항목에는 프롬프트·세션 ID·인증 응답을 담지 않는다. `initialize`에는 어댑터가 응답하기까지의 준비 시간, `session/load`에는 ACP 전사 재생 시간이 포함되며 브라우저 렌더링 시간은 포함되지 않는다. `agent-startup.test.ts`는 모의 ACP의 불필요한 new/기본값 호출 제거와 load 미지원·인증을, `agentHost.test.ts`는 writer 반납·복원 실패·인증 만료 폴백을 검증한다.
 
 아래는 주요 메시지다. 전체 타입은 [agentWs.ts](../../server/agentWs.ts)의 `ClientMessage`·`ServerMessage`와 [agentAcp.ts](../../server/agentAcp.ts)의 `AgentEvent`를 따른다.
 
 | 방향 | 메시지 |
 | --- | --- |
-| 클라이언트 → 서버 | `{type:'prompt', text, settings?: {model, thinking, permission}}` · `{type:'cancel'}` · `{type:'permission', id, optionId}` (`optionId`는 문자열 또는 `null`) |
-| 서버 → 클라이언트 | `{type:'ready', cwd}` · `{type:'replay', events, restored?, restoreFailure?}` · `{type:'update', update, settings?}`(ACP `session/update` 원본 + 사용자 발화 설정) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · `{type:'error', message, accessIssue?}` |
+| 클라이언트 → 서버 | `{type:'history', range:{generation,before}}` · `{type:'prompt', text, settings?: {model, thinking, permission}}` · `{type:'cancel'}` · `{type:'permission', id, optionId}` (`optionId`는 문자열 또는 `null`) |
+| 서버 → 클라이언트 | `history`(구간·커서·controls) · `history_event`(이벤트·순번) · `{type:'ready', cwd}` · `{type:'replay', events, restored?, restoreFailure?}` · `{type:'update', update, settings?}`(ACP `session/update` 원본 + 사용자 발화 설정) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · `{type:'error', message, accessIssue?}` |
 
-- **되감기는 한 프레임이다(**`replay`**).** 붙는 순간 서버가 쌓아 둔 대화(`snapshot()`)를 통째로 보내고, 그 뒤부터 이벤트가 하나씩 흐른다. 창은 마지막으로 본 전사를 탭·런타임·cwd별 `localStorage`(`mew:agent-events:*`)에 캐시해 브라우저 재진입 첫 프레임부터 그린다. 같은 세션의 `replay`는 캐시와 겹치는 꼬리를 제거한 뒤 최신분만 이어 붙이고, 다른 세션이면 `replay`로 갈아끼운다. 창은 소켓이 끊겨도 대화를 지우지 않는다. 예전에는 되감기 이벤트를 **한 개씩** 보냈고, 창은 그때마다 다시 그리느라(이벤트당 `foldEvents` 한 번 + 목록 전체) 눈에 띄게 굳었다. 지금은 긴 전사도 한 덩어리로 보내므로 이벤트 수를 이유로 질문이나 답변 앞부분을 자르지 않는다.
+- **새 연결은 구간 동기화를 사용한다.** 최근 20개 질문을 먼저 보내고, 같은 generation의 재접속에는 마지막 수신 순번 이후만 보낸다. 위로 스크롤하면 이전 구간을 조회하며 질문·답변 중간을 자르지 않는다. 기기 캐시는 계정별 IndexedDB이고 서버 표시 전사는 SQLite에 증분 저장한다. 구 감독/클라이언트에는 전체 `replay`를 유지한다. 프로토콜·용량·이전·실패 복구·검증은 [대화 저장 계약](conversation-storage.md)을 따른다. 소켓 단절은 대화를 지우지 않는다.
 
 - 로컬 전사 캐시는 탭당 1MiB·전체 4MiB가 상한이다. 긴 대화는 상한 안에 들어가는 최근 이벤트 꼬리만 원형 그대로 저장하고, 서버의 전체 `replay`가 오면 앞부분을 복원한다. 서버 탭 원장 조회 중에는 캐시 텍스트를 먼저 노출하지 않고 빈 말풍선 로딩을 표시하며, 실제 세션 연결은 원장 확인 뒤에만 시작한다. 캐시는 세션 준비 후 대화 버블 복원에 사용한다. 저장 전 오래된 캐시를 정리해 공간을 확보하고 quota 실패 시 전사 캐시만 비워 한 번 재시도한다. 계정 탭 원장에 없는 탭의 `mew:agent-events:*`·`mew:agent-controls:*` 캐시는 탭 동기화 때 지운다.
 

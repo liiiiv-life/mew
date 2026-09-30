@@ -2141,6 +2141,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         {panes.map(renderEditorPane)}
 
         {(caps.agent || caps.terminal) && <AgentPanel
+          cacheAccount={auth.email ?? 'guest'}
           notificationFocused={!remoteDesktopOpen && (desktopMode ? focusedDockPanel === 'agent' : mobileForegroundPanel === 'agent')}
           onRunningAgentsChange={reportRunningAgents}
           requestedNoticeTab={(noticeTarget?.workspacePath ?? noticeTarget?.cwd) === rootProjectPath ? noticeTarget?.tabId : undefined}
