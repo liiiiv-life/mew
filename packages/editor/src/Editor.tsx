@@ -1507,9 +1507,10 @@ export const Editor = forwardRef<
 
   // 슬래시 커맨드 목록 — run은 항상 최신 에디터(editorRef)를 받고, 메뉴 텍스트(/query)는 range로 넘겨 미리 지운다.
   // openUploadPicker는 refs만 읽는 안정 참조라 매 렌더 재생성돼도 문제없다.
-  // 슬래시 커맨드는 데이터·삽입 관련 4개만 노출한다 (제목·목록·인용 등 글 형식은 마크다운
+  // 슬래시 커맨드는 데이터·삽입 관련 명령만 노출한다 (제목·목록·인용 등 글 형식은 마크다운
   // 단축어 `#`·`-`·`1.`·```` ``` ````로 그대로 쓸 수 있으므로 메뉴에서 뺐다).
   const slashCommands: SlashCommand[] = [
+    { id: 'diagram', title: uiText("다이어그램"), description: uiText("Mermaid 다이어그램 삽입"), keywords: ['diagram', 'mermaid', '다이어그램', '흐름도'], run: (e, r) => e.chain().focus().deleteRange(r).insertContent({ type: 'codeBlock', attrs: { language: 'mermaid' }, content: [{ type: 'text', text: 'flowchart LR\n  A[시작] --> B[완료]' }] }).run() },
     { id: 'db', title: uiText("데이터베이스"), description: uiText("노션식 표 데이터베이스 (실시간 협업)"), keywords: ['db', 'database', '데이터베이스', 'notion', '노션'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); insertDatabase(r.from) } },
     { id: 'db-ref', title: uiText("데이터베이스 참조"), description: uiText("기존 데이터베이스를 읽기 전용 뷰로 삽입"), keywords: ['ref', 'reference', '참조', 'link', 'linked', 'db참조', 'db-ref', 'database', '데이터베이스'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); setDbPicker({ pos: r.from }) } },
     { id: 'table', title: uiText("표"), description: uiText("3×3 표 삽입"), keywords: ['table', '표', '테이블'], run: (e, r) => e.chain().focus().deleteRange(r).insertTable({ rows: 3, cols: 3 }).run() },

@@ -91,3 +91,15 @@ test('커스텀 노드(이미지·오디오·비디오·DB·표)가 전부 살�
   }
   editor.destroy()
 })
+
+ test('Mermaid fenced source survives collaboration schema round trips', () => {
+  const { editor } = buildEditor()
+  const storage = editor.storage as { markdown: { parser: { parse(md: string): unknown }; getMarkdown(): string } }
+  const source = '```mermaid\nflowchart LR\n  A[Browser] --> B[Server]\n```'
+  editor.commands.setContent(storage.markdown.parser.parse(source) as never)
+  assert.equal(editor.state.doc.firstChild?.attrs.language, 'mermaid')
+  assert.equal(storage.markdown.getMarkdown().trim(), source)
+  editor.commands.setContent(storage.markdown.parser.parse(storage.markdown.getMarkdown()) as never)
+  assert.equal(storage.markdown.getMarkdown().trim(), source)
+  editor.destroy()
+})

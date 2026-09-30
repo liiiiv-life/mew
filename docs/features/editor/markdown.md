@@ -47,6 +47,8 @@ commits: []
 - 탭 전환은 유지하며 성공·실패 시 해제한다.
 - 상세 계약은 [에디터 본문 로딩](../../development/ui-contracts.md#에디터-본문-로딩)을 따른다.
 
+- `/diagram`으로 Mermaid 흐름도를 삽입하고 Hotview에서 실제 다이어그램·원문 전환을 제공한다. 표준 `mermaid` 코드 펜스를 유지한다.
+
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
@@ -63,5 +65,7 @@ commits: []
 
 - `packages/editor/src/editor/lineFocus.test.ts`와 `server/editor-line-numbers-ui.test.ts`로 중간 삽입·삭제, 마지막 빈 문단, 여러 줄 목록·코드·구분선, 속성 변경의 줄번호를 검증한다.
 - `server/editor-view-switch-ui.test.ts`로 PC·모바일의 반복 보기 전환, 원문 180번 줄 유지, 커서가 화면 밖인 읽기 위치와 원문 보존을 검증한다.
+
+- `server/editor-diagram-ui.test.ts`에서 데스크톱·모바일의 실제 원격 데스크톱 흐름도 렌더링, 코드 전환, 문법 오류·복구를 검증한다. `packages/editor/src/serverExtensions.test.ts`는 Mermaid 펜스의 협업 스키마 왕복 보존을 검증한다.
 
 <!-- mew:validation:end -->

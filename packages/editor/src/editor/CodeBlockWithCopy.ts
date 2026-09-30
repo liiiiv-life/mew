@@ -1,5 +1,6 @@
 import { uiText, subscribeUiLocale } from '@mew/ui/i18n-core'
 import CodeBlock from '@tiptap/extension-code-block'
+import { createDiagramPreview } from './diagram-preview'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 
 // 복사 버튼 아이콘 — 라벨 텍스트 대신 순수 아이콘만 노출한다. currentColor라 버튼 color를 따라간다.
@@ -62,7 +63,7 @@ export const CodeBlockWithCopy = CodeBlock.extend({
     ]
   },
   addNodeView() {
-    return ({ node, HTMLAttributes }) => {
+    return ({ node, HTMLAttributes, editor }) => {
       const dom = document.createElement('div')
       dom.className = 'code-block-wrap'
 
@@ -102,17 +103,23 @@ export const CodeBlockWithCopy = CodeBlock.extend({
 
       dom.appendChild(button)
       dom.appendChild(pre)
+      const diagram = createDiagramPreview(dom, pre, node.attrs.language, node.textContent, editor.isEditable)
 
       return {
         dom,
         contentDOM: code,
-        destroy: unsubscribeLocale,
-        update: (updated) => updated.type.name === node.type.name,
+        destroy: () => { unsubscribeLocale(); diagram.destroy() },
+        update: (updated) => {
+          if (updated.type.name !== node.type.name) return false
+          code.className = updated.attrs.language ? `language-${updated.attrs.language}` : ''
+          diagram.update(updated.attrs.language, updated.textContent)
+          return true
+        },
         // 편집 대상(code) 밖에서 일어난 DOM 변경(복사 버튼 아이콘 등)은 ProseMirror가 무시하게 한다
         ignoreMutation: (mutation) =>
           !(mutation.target === code || code.contains(mutation.target as Node)),
         // 버튼에서 난 이벤트는 ProseMirror가 처리하지 않게 한다
-        stopEvent: (event) => button.contains(event.target as Node),
+        stopEvent: (event) => button.contains(event.target as Node) || diagram.contains(event.target as Node),
       }
     }
   },
