@@ -10,6 +10,8 @@ updated: 2026-09-18
 
 ## Current
 
+- [프로젝트 태스크·마일스톤 관리](tasks.md)
+
 - [프로젝트 열기·탭·그룹](tabs.md)
 - [하위 프로젝트 탭](subprojects.md)
 - [Documents·문서 지도 관리](documents.md)

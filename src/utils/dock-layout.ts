@@ -1,4 +1,4 @@
-export type DockKind = 'editor' | 'agent' | 'terminal' | 'browser' | 'git' | 'features'
+export type DockKind = 'editor' | 'agent' | 'terminal' | 'browser' | 'git' | 'features' | 'tasks'
 export type DockSide = 'left' | 'right' | 'top' | 'bottom'
 export type DockNode = { id: string } | { axis: 'row' | 'col'; ratio: number; first: DockNode; second: DockNode }
 export type DockGroup = { id: string; kind: DockKind }
@@ -55,7 +55,7 @@ export function dockRects(tree: DockNode | null, rect: DockRect, result: Record<
 export function normalizeDock(value: unknown): DockState {
   if (!value || typeof value !== 'object' || (value as DockState).version !== 1) return emptyDock()
   const raw = value as DockState, seen = new Set<string>()
-  const groups = Array.isArray(raw.groups) ? raw.groups.filter((g) => g && typeof g.id === 'string' && g.id.length < 300 && ['editor', 'agent', 'terminal', 'browser', 'git', 'features'].includes(g.kind) && !seen.has(g.id) && !!seen.add(g.id)).slice(0, 64) : []
+  const groups = Array.isArray(raw.groups) ? raw.groups.filter((g) => g && typeof g.id === 'string' && g.id.length < 300 && ['editor', 'agent', 'terminal', 'browser', 'git', 'features', 'tasks'].includes(g.kind) && !seen.has(g.id) && !!seen.add(g.id)).slice(0, 64) : []
   const used = new Set<string>()
   const walk = (node: DockNode | null, depth = 0): DockNode | null => {
     if (!node || typeof node !== 'object' || depth > 32) return null

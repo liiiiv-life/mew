@@ -10,6 +10,8 @@ updated: 2026-09-29
 
 ## Current
 
+- [프로젝트 태스크·마일스톤 사용·저장·API](project-tasks.md)
+
 - [대화 저장과 구간 동기화](conversation-storage.md)
 
 - [계정별 Git 연결·OAuth·작성자·원격 실행](git-connections.md)

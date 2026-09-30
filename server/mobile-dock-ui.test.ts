@@ -20,7 +20,18 @@ import {MOBILE_DOCK_ORDER} from '${root}/src/utils/mobile-dock.ts';
 window.actions=[];
 function Fixture(){const [active,setActive]=React.useState('editor');const [available,setAvailable]=React.useState([...MOBILE_DOCK_ORDER]);window.setAvailable=setAvailable;const hidden=useMobileKeyboard();return <div className="mew-workspace" data-mobile-keyboard={hidden||undefined}><header style={{height:48,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:12,paddingRight:8}}><MobileDock active={active} available={available} hidden={hidden} onSelect={id=>{setActive(id);window.actions.push(id)}} onNavigate={(dir,order)=>window.actions.push({dir,order})}/><button aria-label="Menu" style={{width:40,height:36}}>Menu</button></header><input aria-label="Message"/><Mewcat skin="mew"/></div>}
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
-  const bundle = await build({ input: 'virtual:dock.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:dock.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:dock.tsx') return source; if (id === 'virtual:style') return '' } }] })
+  const bundle = await build({ input: 'virtual:dock.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', async resolveId(id, importer) {
+    if (id === 'virtual:dock.tsx') return id
+    if (id.endsWith('.css')) return 'virtual:style'
+    if (id.endsWith('?raw')) {
+      const resolved = await this.resolve(id.slice(0, -4), importer, { skipSelf: true })
+      if (resolved) return `${resolved.id}?raw`
+    }
+  }, async load(id) {
+    if (id.endsWith('?raw')) return `export default ${JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8'))}`
+    if (id === 'virtual:dock.tsx') return source
+    if (id === 'virtual:style') return ''
+  } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const content = (await Promise.all(['src/components/mobile-dock.tsx', 'packages/ui/src/HoverTipLayer.tsx'].map(file => fs.readFile(`${root}/${file}`, 'utf8')))).join('\n')
@@ -100,6 +111,16 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.ok(Math.abs(lifted.x - from.x) < 1)
     assert.ok(Math.abs(lifted.y - from.y + 8) < 1, 'long press lifts the grabbed icon')
     await touch('touchMove', to.x + 22, y - 60)
+    const dockMotion = await dock.locator('[data-dock-item]').evaluateAll(elements => {
+      const moving = elements.flatMap(el => el.getAnimations().map((animation: ReturnType<typeof el.getAnimations>[number]) => ({ el, animation })))
+      const sample = moving.find(({ animation }) => animation.effect?.getTiming().duration === 180)
+      if (!sample) return null
+      sample.animation.pause(); sample.animation.currentTime = 90
+      const transform = sample.el.ownerDocument.defaultView!.getComputedStyle(sample.el).transform
+      for (const { animation } of moving) animation.play()
+      return transform
+    })
+    assert.ok(dockMotion && dockMotion !== 'none' && dockMotion !== 'matrix(1, 0, 0, 1, 0, 0)', 'dock neighbors slide through intermediate positions')
     const followed = (await preview.boundingBox())!
     assert.ok(Math.abs(followed.x - to.x) < 1)
     assert.ok(Math.abs(followed.y - lifted.y + 60) < 1, 'icon follows the finger above the dock')
@@ -115,15 +136,19 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.equal(await notice.count(), 0, 'reordering does not show a touch toast')
     await page.reload(); await dock.waitFor()
     assert.equal((await items())[0], 'browser', 'order persists')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     from = (await dock.locator('[data-dock-item=browser]').boundingBox())!
     to = (await dock.locator('[data-dock-item=git]').boundingBox())!
     await touch('touchStart', from.x + 22, y); await page.waitForTimeout(480)
-    await touch('touchMove', to.x + 22, y); await touch('touchCancel')
+    await touch('touchMove', to.x + 22, y)
+    assert.equal(await dock.locator('[data-dock-item]').evaluateAll(elements => elements.reduce((sum, el) => sum + el.getAnimations().length, 0)), 0, 'reduced motion skips dock movement')
+    await touch('touchCancel')
     assert.equal((await items())[0], 'browser', 'cancel rolls back the preview')
     await dock.locator('[data-dock-item=browser]').focus(); await page.keyboard.press('Alt+ArrowRight')
     assert.deepEqual((await items()).slice(0, 2), ['sidebar', 'browser'])
     await page.keyboard.press('Enter')
     assert.equal(await page.evaluate('window.actions.at(-1)'), 'browser')
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
     for (const width of [320, 390, 767]) for (const dark of [true, false]) {
       await page.setViewportSize({ width, height: 844 })
       await page.evaluate(`document.documentElement.classList.toggle('dark', ${dark})`)
@@ -193,6 +218,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.keyboard.press('Escape')
     await page.mouse.up()
     assert.deepEqual(await items(), beforeReorder, 'Escape rolls back item order')
+    await dock.locator('[data-dock-item]').evaluateAll(async elements => {
+      await Promise.all(elements.flatMap(el => el.getAnimations().map((animation: ReturnType<typeof el.getAnimations>[number]) => animation.finished.catch(() => {}))))
+    })
     assert.equal(await preview.count(), 0)
     assert.deepEqual(await page.evaluate('window.actions'), ['terminal'], 'cancel never selects a panel')
     await page.mouse.move(from.x + from.width / 2, from.y + 22)

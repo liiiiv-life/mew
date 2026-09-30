@@ -35,7 +35,7 @@ test('새 패널도 공통 함수만으로 전면 이동과 외부 닫기를 처
 })
 
 test('Git은 전면 전환·뒤로가기·복원에 다른 작업 패널과 함께 참여한다', () => {
-  const open = { sidebar: false, chat: false, agent: true, terminal: false, browser: false, android: false, git: true, features: false }
+  const open = { sidebar: false, chat: false, agent: true, terminal: false, browser: false, android: false, git: true, features: false, tasks: false }
   assert.deepEqual(restoreMobilePanelStack(open, 'git'), ['agent', 'git'])
   assert.deepEqual(selectMobilePanel(['git', 'agent'], 'git', true), { open: true, stack: ['agent', 'git'] })
   assert.deepEqual(closeMobilePanel(['agent', 'git'], 'git'), ['agent'])
@@ -43,24 +43,24 @@ test('Git은 전면 전환·뒤로가기·복원에 다른 작업 패널과 함�
 
 test('복원 때 마지막 전면 창을 열린 창들보다 앞에 둔다', () => {
   assert.deepEqual(
-    restoreMobilePanelStack({ terminal: false, sidebar: true, chat: false, agent: true, browser: true, android: false, git: false, features: false }, 'agent'),
+    restoreMobilePanelStack({ terminal: false, sidebar: true, chat: false, agent: true, browser: true, android: false, git: false, features: false, tasks: false }, 'agent'),
     ['sidebar', 'browser', 'agent'],
   )
   assert.deepEqual(
-    restoreMobilePanelStack({ terminal: false, sidebar: true, chat: false, agent: false, browser: false, android: false, git: false, features: false }, 'agent'),
+    restoreMobilePanelStack({ terminal: false, sidebar: true, chat: false, agent: false, browser: false, android: false, git: false, features: false, tasks: false }, 'agent'),
     ['sidebar'],
   )
 })
 
 test('에디터가 전면이었던 상태는 열린 보조 패널이 있어도 빈 스택으로 복원한다', () => {
   assert.deepEqual(
-    restoreMobilePanelStack({ terminal: false, sidebar: true, chat: false, agent: true, browser: false, android: false, git: false, features: false }, 'editor'),
+    restoreMobilePanelStack({ terminal: false, sidebar: true, chat: false, agent: true, browser: false, android: false, git: false, features: false, tasks: false }, 'editor'),
     [],
   )
 })
 
 test('에이전트와 터미널은 독립적으로 전면 전환·복원한다', () => {
-  const open = { sidebar: false, chat: false, agent: true, terminal: true, browser: false, android: false, git: false, features: false }
+  const open = { sidebar: false, chat: false, agent: true, terminal: true, browser: false, android: false, git: false, features: false, tasks: false }
   assert.deepEqual(restoreMobilePanelStack(open, 'terminal'), ['agent', 'terminal'])
   assert.deepEqual(selectMobilePanel(['agent', 'terminal'], 'agent', true), { open: true, stack: ['terminal', 'agent'] })
 })

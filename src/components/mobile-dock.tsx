@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { HoverTipLayer } from '@mew/ui'
-import { Brain, Computer, EditPencil, Folder, GitBranch, Globe, Notes, Terminal } from 'iconoir-react'
+import { HoverTipLayer, useReorderAnimation, reorderLayoutRect } from '@mew/ui'
+import { CheckCircle, Brain, Computer, EditPencil, Folder, GitBranch, Globe, Notes, Terminal } from 'iconoir-react'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { uiText } from '@mew/ui/i18n-core'
 import { useI18n } from '../i18n'
+import { taskCopy } from './project-tasks-copy'
 import { featureCopy } from './feature-copy'
 import { FeatureIcon } from './feature-icon'
 import { MOBILE_DOCK_ORDER_KEY, normalizeMobileDockOrder, moveDockPanel, type DockDirection, type MobileDockPanel } from '../utils/mobile-dock'
 
 
 
-const icons = { sidebar: Folder, editor: EditPencil, agent: Brain, terminal: Terminal, git: GitBranch, browser: Globe, desktop: Computer, features: FeatureIcon, memo: Notes }
+const icons = { sidebar: Folder, editor: EditPencil, agent: Brain, terminal: Terminal, git: GitBranch, browser: Globe, desktop: Computer, features: FeatureIcon, memo: Notes, tasks: CheckCircle }
 const labels = { sidebar: 'fab.sidebar', editor: 'fab.editor', agent: 'header.agent', terminal: 'header.terminal', git: 'access.git', browser: 'header.browser', desktop: 'access.desktop' } as const
 type DragPreview = { x: number; y: number; width: number; height: number }
 
@@ -38,9 +39,10 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
   const [preview, setPreview] = useState<DragPreview | null>(null)
   const [notice, setNotice] = useState<MobileDockPanel | null>(null)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const labelFor = (id: MobileDockPanel) => id === 'memo' ? uiText('메모') : id === 'features' ? featureCopy[locale].title : t(labels[id])
+  const labelFor = (id: MobileDockPanel) => id === 'tasks' ? taskCopy[locale].title : id === 'memo' ? uiText('메모') : id === 'features' ? featureCopy[locale].title : t(labels[id])
   const clearNotice = () => { clearTimeout(noticeTimer.current); setNotice(null) }
   const root = useRef<HTMLElement>(null)
+  const captureReorder = useReorderAnimation(() => root.current?.querySelectorAll<HTMLElement>('[data-dock-item]') ?? [])
   const gesture = useRef<{ id: number; x: number; y: number; item?: MobileDockPanel; box?: DOMRect; capture: HTMLElement; moved: boolean; dragging: boolean; order: MobileDockPanel[]; original: MobileDockPanel[] } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const suppressClick = useRef(false)
@@ -49,7 +51,7 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
     clearNotice()
     clearTimeout(timer.current)
     const current = gesture.current
-    if (current?.dragging) setOrder(current.original)
+    if (current?.dragging) { captureReorder(); setOrder(current.original) }
     gesture.current = null
     setDragging(null)
     setPreview(null)
@@ -110,11 +112,14 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
     const slots = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-dock-item]') ?? [])
     let target: MobileDockPanel | undefined, nearest = Infinity
     for (const el of slots) {
-      const box = el.getBoundingClientRect()
+      const box = reorderLayoutRect(el)
       const distance = Math.abs(event.clientX - (box.left + box.width / 2))
       if (distance < nearest) { nearest = distance; target = el.dataset.dockItem as MobileDockPanel }
     }
-    if (target && target !== current.item) { current.order = moveDockPanel(current.order, current.item, target); setOrder(current.order) }
+    if (target && target !== current.item) {
+      const next = moveDockPanel(current.order, current.item, target)
+      if (next.some((id, index) => id !== current.order[index])) { captureReorder(); current.order = next; setOrder(next) }
+    }
   }
   const up = (event: PointerEvent<HTMLElement>) => {
     const current = gesture.current
