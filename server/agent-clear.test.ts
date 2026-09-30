@@ -72,7 +72,7 @@ test('Codex clear는 앞 턴과 writer 종료를 기다리고 뒤 큐를 새 대
   session.prompt('B')
   session.clearAfterQueue()
   session.prompt('C')
-  await until(() => session.sessionId === 'session-3' && !session.busy)
+  await until(() => session.sessionId === 'session-3' && !session.busy && calls().filter(call => call.type === 'done').length === 3)
   assert.deepEqual(calls().filter(c => c.type === 'prompt').map(c => [c.sessionId, c.text]), [
     ['session-1', 'A'], ['session-2', 'B'], ['session-3', 'C'],
   ])

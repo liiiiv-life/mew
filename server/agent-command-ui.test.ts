@@ -219,6 +219,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       }
       await page.evaluate("window.agentMessages=[];window.agentSocket.emit({type:'meta',meta:{sessionId:'conversation',busy:true,queued:['첫 대기','둘째 대기'],queuedKinds:['prompt','prompt'],queuedAttachments:[[],[]]}})")
       const handles = page.getByRole('button', { name: '드래그해서 순서 변경', exact: true })
+      await handles.nth(1).waitFor({ state: 'visible' })
       assert.equal(await handles.count(), 2)
       const firstHandle = await handles.first().boundingBox()
       const secondHandle = await handles.nth(1).boundingBox()
