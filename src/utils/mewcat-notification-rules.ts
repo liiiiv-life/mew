@@ -1,13 +1,13 @@
 import type { AgentEvent } from './agentFold.ts'
 
-export type NoticeKind = 'complete' | 'stopped' | 'error' | 'permission' | 'cpu' | 'memory' | 'gpu' | 'temperature' | 'test'
+export type NoticeKind = 'complete' | 'stopped' | 'error' | 'permission' | 'cpu' | 'memory' | 'gpu' | 'temperature' | 'test' | 'updates'
 export type NoticeLevel = 'success' | 'warning' | 'danger'
 export interface NoticeInput {
   key: string
   kind: NoticeKind
   level: NoticeLevel
   source: string
-  target?: { tabId: string; cwd: string; workspacePath?: string } | 'system'
+  target?: { tabId: string; cwd: string; workspacePath?: string } | 'system' | 'updates'
 }
 
 /** Consume live events only. Replays restore the conversation, never announce old work. */

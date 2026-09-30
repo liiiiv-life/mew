@@ -35,7 +35,7 @@ export function runtimeStatuses(): RuntimeStatus[] {
     label: runtime.label,
     surface: runtime.surface,
     // 설정 화면에서 바꾼 실행 파일 기준으로 판정한다 — 저장한 경로가 실제로 있는지가 "설치됨"이다
-    installed: executableExists((runtime.surface === 'terminal' ? resolvedTerminalSpec(runtime.id) : resolvedSpec(runtime.id))?.cmd ?? ''),
+    installed: executableExists(runtime.id === 'prime' ? process.env.MEW_PRIME_AGENT_EXECUTABLE || 'prime-agent' : (runtime.surface === 'terminal' ? resolvedTerminalSpec(runtime.id) : resolvedSpec(runtime.id))?.cmd ?? ''),
     installing: installing.has(runtime.id),
     installable: runtime.install !== undefined,
     uninstallable: runtime.uninstall !== undefined,

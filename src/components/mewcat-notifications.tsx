@@ -26,7 +26,7 @@ export function MewcatNotifications({ hasCat, anchorRef }: { hasCat: boolean; an
         </div>
         <button type="button" className="mewcat-notification-button shrink-0 text-ink-secondary" onClick={() => dismissMewcatNotice(notice.id)} aria-label={t('mewcat.dismiss')}><Xmark width={16} height={16} /></button>
       <div className="mewcat-notification-footer">
-        {notice.target && <button type="button" className="mewcat-notification-button mewcat-notification-action" onClick={() => openMewcatNotice(notice)}><span>{notice.target === 'system' ? t('mewcat.system') : t('mewcat.open')}</span><ArrowRight width={13} height={13} className="shrink-0" aria-hidden="true" /></button>}
+        {notice.target && <button type="button" className="mewcat-notification-button mewcat-notification-action" onClick={() => openMewcatNotice(notice)}><span>{notice.target === 'updates' ? t('mewcat.updateOpen') : notice.target === 'system' ? t('mewcat.system') : t('mewcat.open')}</span><ArrowRight width={13} height={13} className="shrink-0" aria-hidden="true" /></button>}
         <button type="button" className="mewcat-notification-button ml-auto gap-1.5 px-2 text-xs tabular-nums text-ink-secondary" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} aria-label={`${expanded ? t('mewcat.less') : t('mewcat.more')} · ${t('mewcat.count')} ${notices.length}`}><BellNotification width={14} height={14} aria-hidden="true" />{notices.length}<NavArrowDown width={12} height={12} className={expanded ? 'rotate-180' : ''} aria-hidden="true" /></button>
       </div>
       </div>
