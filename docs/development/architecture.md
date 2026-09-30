@@ -16,7 +16,7 @@
 
 ## 서버 상태 파일 (`.data/`)
 
-사용자·세션·계정별 기능/파일 권한·프로젝트 배치·터미널 버튼·숨김 목록·예약 작업이 여기 있다. JSON 상태는 `server/dataDir.ts`를 거쳐 읽고 쓴다. 대화 전사는 `server/agentTranscript.ts`의 SQLite 저장소를 사용하며 [대화 저장 계약](conversation-storage.md)을 따른다:
+사용자·세션·계정별 기능/파일 권한·프로젝트 배치·터미널 버튼·숨김 목록·예약 작업이 여기 있다. JSON 상태는 `server/dataDir.ts`를 거쳐 읽고 쓴다. 대화 전사는 `server/agentTranscript.ts`의 SQLite 저장소를 사용하며 [대화 저장 계약](conversation-storage.md)을 따른다. 접속 기록은 `server/presence-history.ts`의 `presence/history.sqlite`에 영구 저장하며 [협업 저장 계약](collaboration.md#접속-기록일별-조회엑셀)을 따른다:
 
 - **쓰기는 임시 파일 + rename**뿐이다. `writeFileSync`로 바로 쓰면 파일이 잠깐 0바이트가 되고, 그 순간 다른 프로세스가 읽으면 빈 값으로 오해한다.
 - **읽기 실패를 빈 값으로 넘기지 않는다.** 파일이 없으면 `null`, 깨졌으면 사본(`*.corrupt-*`)을 남기고 던진다. 못 읽은 걸 `{}`로 보고 덮어쓰면 남아 있던 설정이 통째로 사라지기 때문 — 실제로 프로젝트 아이콘이 이 경로로 초기화됐었다.

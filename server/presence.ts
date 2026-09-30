@@ -8,6 +8,7 @@ import type { RequestAuth } from './reqAuth.ts'
 import { getUser } from './auth.ts'
 import type { ActiveMewSession } from '../shared/active-sessions.ts'
 import { SESSION_ACTIVITY_MAX_AGE_MS, validRunningAgentCount } from '../shared/active-sessions.ts'
+import { recordPresence, endPresence } from './presence-history.ts'
 
 const WS_PATH = '/api/presence'
 const FALLBACK_COLOR = '#737373' // 색을 아직 안 보낸(구버전) 클라이언트용 회색 — 정상 경로에서는 나오지 않음
@@ -19,7 +20,7 @@ const wss = new WebSocketServer({ noServer: true })
 // participants 전송은 auth별로 필터링되므로 게스트는 자신이 볼 수 있는 경로의 참가자만 받는다.
 const clientState = new Map<WebSocket, {
   path: string | null; color: string; auth: RequestAuth
-  session: ActiveMewSession; alive: boolean; getAuth: () => RequestAuth
+  session: ActiveMewSession; observedAt: number; alive: boolean; getAuth: () => RequestAuth
 }>()
 
 function clientDevice(agent: string): Pick<ActiveMewSession, 'browser' | 'device'> {
@@ -38,7 +39,9 @@ function publicSessions(): ActiveMewSession[] {
     const email = state.auth.role !== 'guest' && !state.auth.mustChangePassword ? state.auth.email : null
     const user = email ? getUser(email) : null
     const agents = state.session.agents
-    return { ...state.session, agents: agents && Date.now() - agents.reportedAt <= SESSION_ACTIVITY_MAX_AGE_MS ? agents : null, email, displayName: email ? user?.displayName?.trim() || email.split('@')[0] : null }
+    const session = { ...state.session, agents: agents && Date.now() - agents.reportedAt <= SESSION_ACTIVITY_MAX_AGE_MS ? agents : null, email, displayName: email ? user?.displayName?.trim() || email.split('@')[0] : null }
+    recordPresence(session, state.observedAt)
+    return session
   })
 }
 
@@ -105,7 +108,8 @@ function broadcastParticipants() {
   // Revalidate before sharing identities, including after logout/password changes.
   for (const state of clientState.values()) {
     const auth = state.getAuth()
-    state.auth = auth.mustChangePassword ? { ...auth, role: 'guest', email: null } : auth
+    const nextAuth = auth.mustChangePassword ? { ...auth, role: 'guest' as const, email: null } : auth
+    state.auth = nextAuth
   }
   const sessions = publicSessions()
   for (const [ws, state] of clientState) sendParticipantsTo(ws, state.auth, sessions)
@@ -113,7 +117,7 @@ function broadcastParticipants() {
 
 function registerClient(ws: WebSocket, req: IncomingMessage, getAuth: () => RequestAuth) {
   clientState.set(ws, {
-    path: null, color: FALLBACK_COLOR, auth: getAuth(), alive: true, getAuth,
+    path: null, color: FALLBACK_COLOR, auth: getAuth(), observedAt: Date.now(), alive: true, getAuth,
     session: {
       id: randomUUID(), email: null, displayName: null, connectedAt: Date.now(),
       ...clientDevice(req.headers['user-agent'] ?? ''),
@@ -121,7 +125,7 @@ function registerClient(ws: WebSocket, req: IncomingMessage, getAuth: () => Requ
     },
   })
   broadcastParticipants()
-  ws.on('pong', () => { const state = clientState.get(ws); if (state) state.alive = true })
+  ws.on('pong', () => { const state = clientState.get(ws); if (state) { state.alive = true; state.observedAt = Date.now() } })
 
   ws.on('message', (raw) => {
     let msg: { type?: string; path?: unknown; color?: unknown; project?: unknown; workspaceLabel?: unknown; visible?: unknown; runningAgents?: unknown }
@@ -138,7 +142,7 @@ function registerClient(ws: WebSocket, req: IncomingMessage, getAuth: () => Requ
       if (!prev) return
       const focused = msg.path ? splitProjectPath(msg.path) : null
       const running = validRunningAgentCount(msg.runningAgents)
-      clientState.set(ws, { ...prev, path: msg.path || null, color, session: {
+      clientState.set(ws, { ...prev, observedAt: Date.now(), path: msg.path || null, color, session: {
         ...prev.session,
         project: focused?.project ?? (typeof msg.project === 'string' ? msg.project.slice(0, 200) : null),
         path: focused?.relPath ?? null,
@@ -151,6 +155,8 @@ function registerClient(ws: WebSocket, req: IncomingMessage, getAuth: () => Requ
   })
 
   ws.on('close', () => {
+    const state = clientState.get(ws)
+    if (state) endPresence(state.session.id, Math.min(Date.now(), state.observedAt + 60_000))
     clientState.delete(ws)
     broadcastParticipants()
   })

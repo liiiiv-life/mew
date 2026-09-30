@@ -5,6 +5,7 @@ import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { WebSocket } from 'ws'
 import { attachPresenceWebSocket } from './presence.ts'
+import { readPresenceHistory } from './presence-history.ts'
 import type { RequestAuth } from './reqAuth.ts'
 import type { ActiveMewSessions } from '../shared/active-sessions.ts'
 
@@ -108,6 +109,14 @@ test('presence counts browser connections and protects the live identity roster'
     two.ws.close()
     const remaining = (await one.until(m => m.activeSessions?.sessions.length === 1)).activeSessions!
     assert.equal(remaining.selfId, first.selfId)
+    const from = first.sessions[0].connectedAt - 1, to = Date.now() + 120_000
+    const history = readPresenceHistory({ from, to, dayFrom: from, dayTo: to }, { role: 'owner', email: null, mustChangePassword: false })
+    const saved = history.records.filter(record => record.id === second.selfId)
+    assert.ok(saved.length > 1)
+    assert.ok(saved.every(record => record.disconnectedAt !== null))
+    assert.ok(saved.some(record => record.email === member.email))
+    assert.ok(saved.some(record => record.email === null))
+    assert.equal(JSON.stringify(saved).includes('Spoof'), false)
     one.ws.send('null')
     one.ws.send(JSON.stringify({ type: 'focus', path: '.workspace:alive.md' }))
     await one.until(m => m.participants['.workspace:alive.md']?.length === 1)

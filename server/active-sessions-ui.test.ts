@@ -6,10 +6,13 @@ import { build } from 'rolldown'
 import { compile } from '@tailwindcss/node'
 import { chromium } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
+import { sessionHistoryXlsx } from './session-history-xlsx.ts'
+import { parseXlsx } from '../src/utils/xlsx.ts'
+import type { MewSessionRecord } from '../shared/active-sessions.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-test('active session count and popup stay live across mobile layout and reconnects', { skip: !domBrowserExecutable(), timeout: 30_000 }, async () => {
+test('active session count and popup stay live across mobile layout and reconnects', { skip: !domBrowserExecutable(), timeout: 45_000 }, async () => {
   const source = `import React,{useState} from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {ActiveSessionsButton} from '${root}/src/components/active-sessions-button.tsx';
@@ -24,13 +27,31 @@ function Fixture(){const [running,setRunning]=useState(2);window.setRunning=setR
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:sessions.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:sessions.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, async load(id) { if (id === 'virtual:sessions.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8')) } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = await fs.readFile(`${root}/src/components/active-sessions-button.tsx`, 'utf8')
+  const content = (await Promise.all(['src/components/active-sessions-button.tsx', 'src/components/session-history.tsx', 'packages/ui/src/dialog-frame.tsx', 'packages/ui/src/select-field.tsx'].map(file => fs.readFile(`${root}/${file}`, 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 }, hasTouch: true })
-    await context.route('http://mew-sessions.test/**', route => route.fulfill(route.request().url().endsWith('/app.js') ? { contentType: 'text/javascript', body: chunk.code } : { contentType: 'text/html', body: `<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>` }))
+    const historyRequests: URL[] = []
+    let historyFails = false
+    await context.route('http://mew-sessions.test/**', route => {
+      const url = new URL(route.request().url())
+      if (url.pathname.startsWith('/api/presence/history')) {
+        historyRequests.push(url)
+        if (historyFails) return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+        const day = Number(url.searchParams.get('dayFrom')), from = Number(url.searchParams.get('from')), to = Number(url.searchParams.get('to'))
+        const person = url.searchParams.get('person')
+        const people = [{ email: 'saens@example.test', displayName: 'Saens' }, { email: 'colleague@example.test', displayName: 'Colleague' }]
+        const records = (day < Date.now() - 86400_000 * 2 ? [] : [[9, 11, 0], [10, 12, 0], [14, 16, 1]]).map(([start, end, who], index) => ({
+          id: String(index), recordId: index, ...people[who], connectedAt: day + start * 3600_000, startedAt: Math.max(from, day + start * 3600_000), endedAt: Math.min(to, day + end * 3600_000),
+          disconnectedAt: day + end * 3600_000, browser: 'Chrome', device: index === 1 ? 'iPhone' : 'Mac', workspaceLabel: 'mew', project: '.workspace', path: 'src/components/active-sessions-button.tsx', visible: index !== 1, agents: null,
+        })).filter(record => record.startedAt < record.endedAt && (!person || record.email === person)) satisfies MewSessionRecord[]
+        if (url.pathname.endsWith('/export')) return route.fulfill({ contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', body: sessionHistoryXlsx(records) })
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ records, people, recordedSince: Date.now(), generatedAt: Date.now() }) })
+      }
+      return route.fulfill(url.pathname === '/app.js' ? { contentType: 'text/javascript', body: chunk.code } : { contentType: 'text/html', body: `<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>` })
+    })
     const page = await context.newPage()
     page.setDefaultTimeout(4000)
     const errors: string[] = []
@@ -72,7 +93,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(await email.evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).userSelect), 'text')
       assert.equal(await dialog.getByRole('heading', { name: 'Saens', exact: true }).evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).userSelect), 'none')
       await page.keyboard.press('Tab')
-      assert.equal(await page.getByRole('button', { name: '닫기', exact: true }).evaluate(el => el === el.ownerDocument.activeElement), true)
+      assert.equal(await page.getByRole('tab', { name: '지금 접속', exact: true }).evaluate(el => el === el.ownerDocument.activeElement), true)
       await page.screenshot({ path: `/tmp/mew-active-sessions-${width}-${dark ? 'dark' : 'light'}.png` })
       await page.keyboard.press('Escape')
       await dialog.waitFor({ state: 'detached' })
@@ -97,6 +118,57 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await trigger.click()
     await page.mouse.click(2, 2)
     await page.getByRole('dialog').waitFor({ state: 'detached' })
+    await trigger.click()
+    await page.getByRole('tab', { name: '기록', exact: true }).click()
+    await page.getByText('3개 세션 · 2명 · 관측 6시간 0분', { exact: true }).waitFor()
+    for (const [width, dark] of [[1200, false], [320, false], [1200, true], [390, true]] as const) {
+      await page.setViewportSize({ width, height: 800 })
+      await page.evaluate(`document.documentElement.classList.toggle('dark', ${dark})`)
+      const dialog = page.getByRole('dialog')
+      const box = await dialog.boundingBox()
+      assert.ok(box && box.x >= 0 && box.x + box.width <= width)
+      assert.equal(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth), true)
+      await page.waitForTimeout(200)
+      await page.screenshot({ path: `/tmp/mew-session-history-${width}-${dark ? 'dark' : 'light'}.png` })
+    }
+    const person = page.getByRole('combobox', { name: '사람', exact: true })
+    await person.click()
+    await page.getByRole('option', { name: 'Colleague · colleague@example.test', exact: true }).click()
+    await page.getByText('1개 세션 · 1명 · 관측 2시간 0분', { exact: true }).waitFor()
+    assert.equal(historyRequests.at(-1)!.searchParams.get('person'), 'colleague@example.test')
+    // Escape first closes the custom person dropdown, then the containing dialog.
+    await person.click(); await page.keyboard.press('Escape')
+    assert.equal(await page.getByRole('listbox').count(), 0)
+    assert.equal(await page.getByRole('dialog').count(), 1)
+    await page.getByRole('button', { name: '14:00 · 1개 세션', exact: true }).click()
+    await page.getByText('1개 세션 · 1명 · 관측 1시간 0분', { exact: true }).waitFor()
+    const latest = historyRequests.at(-1)!
+    assert.equal(Number(latest.searchParams.get('to')) - Number(latest.searchParams.get('from')), 3600_000)
+    const downloadEvent = page.waitForEvent('download')
+    await page.getByRole('button', { name: '엑셀 다운로드', exact: true }).click()
+    const download = await downloadEvent
+    const downloadPath = await download.path()
+    assert.ok(downloadPath)
+    const bytes = await fs.readFile(downloadPath)
+    const [sheet] = await parseXlsx(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer)
+    assert.equal(sheet.rows.length, 2)
+    assert.equal(sheet.rows[1][1], 'colleague@example.test')
+    assert.equal(sheet.rows[1][7], '60')
+    assert.equal(historyRequests.at(-1)!.search, latest.search)
+    await page.getByText('상세 기록 1개', { exact: true }).click()
+    assert.equal(await page.getByRole('tabpanel').locator('li').count(), 1)
+    await page.getByLabel('날짜', { exact: true }).fill('2020-01-01')
+    await page.getByText('이 범위에 세션 기록이 없습니다.', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('button', { name: '엑셀 다운로드', exact: true }).isDisabled(), true)
+    historyFails = true
+    await page.getByRole('button', { name: '새로고침', exact: true }).click()
+    await page.getByRole('alert').waitFor()
+    historyFails = false
+    await page.getByRole('alert').getByRole('button', { name: '새로고침', exact: true }).click()
+    await page.getByText('이 범위에 세션 기록이 없습니다.', { exact: true }).waitFor()
+    await page.keyboard.press('Escape')
+    await page.getByRole('dialog').waitFor({ state: 'detached' })
+    assert.equal(await trigger.evaluate(el => el === el.ownerDocument.activeElement), true)
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })
