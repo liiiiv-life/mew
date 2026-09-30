@@ -26,3 +26,11 @@ test('id 또는 이름이 겹치면 거절한다', () => {
   assert.throws(() => normalizeSets([base, { ...base }]), AgentSetError)
   assert.throws(() => normalizeSets([base, { ...base, id: '11111111-1111-1111-1111-111111111111' }]), AgentSetError)
 })
+
+
+test('노력도 설정을 보존하고 Codex는 정확한 모델 쌍만 저장한다', () => {
+  const claude = { ...base, runtime: 'claude', thinkingId: 'high', thinkingConfigId: 'effort' }
+  assert.deepEqual(normalizeSets([claude]), [claude])
+  assert.deepEqual(normalizeSets([{ ...base, modelId: 'astra[high]', thinkingId: 'low', thinkingConfigId: 'effort' }]), [{ ...base, modelId: 'astra[high]' }])
+  assert.throws(() => normalizeSets([{ ...claude, thinkingConfigId: undefined }]), AgentSetError)
+})

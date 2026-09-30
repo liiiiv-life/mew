@@ -14,7 +14,7 @@ export type AgentTab = {
   /** 같은 탭이 런타임·cwd를 갈아타도 각 대화로 돌아가기 위한 ACP 세션 포인터 */
   sessionIds?: Record<string, string>
   /** 에이전트셋으로 연 탭의 시작 설정. 런타임만 다시 고르면 사라진다. */
-  preset?: { id: string; name: string; modelId: string; role: string }
+  preset?: { id: string; name: string; thinkingId?: string; thinkingConfigId?: string; modelId: string; role: string }
 }
 
 function sessionSlot(runtime: string, cwd: string): string {

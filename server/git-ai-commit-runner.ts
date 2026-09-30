@@ -10,7 +10,7 @@ import { commitSnapshotFiles } from './git-commit-files.ts'
 import simpleGit from 'simple-git'
 import type { GitAiCommitJob } from '../shared/git-ai-commit.ts'
 
-type CommitSession = Pick<AgentSession, 'attach' | 'setModel' | 'runOnce' | 'answerPermission' | 'cancel' | 'disposeAndWait'>
+type CommitSession = Pick<AgentSession, 'attach' | 'setModel' | 'runOnce' | 'answerPermission' | 'cancel' | 'disposeAndWait'> & Partial<Pick<AgentSession, 'setThinking'>>
 type StartSession = (runtime: string, cwd: string) => Promise<CommitSession>
 
 /** A separate process inside tmux owns the ACP lifetime and durable result. */
@@ -76,6 +76,7 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
         await session.setModel(input.agentSet.modelId)
       }
       if (halted) throw new Error('커밋 작업이 중단되었습니다')
+      if (input.agentSet.thinkingId && input.agentSet.thinkingConfigId) await session.setThinking?.(input.agentSet.thinkingConfigId, input.agentSet.thinkingId)
       phase = '커밋 계획 분석'
       log('Mew 커밋 스킬로 변경사항을 작업 단위로 나누는 중…\n')
       const reason = await session.runOnce(input.prompt)

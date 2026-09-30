@@ -14,6 +14,7 @@ export interface AgentContextBinding {
 export interface ProjectSetupInput {
   projectRoot: string
   settings: ProjectAgentSettings
+  locale?: string
   initDocs?: boolean
   exportAgents?: boolean
   create?: boolean

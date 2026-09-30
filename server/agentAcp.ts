@@ -28,6 +28,7 @@ import {
   ndJsonStream,
   PROTOCOL_VERSION,
   type AgentCapabilities,
+  type McpServer,
   type ContentBlock,
   type AuthMethod,
   type AuthenticateRequest,
@@ -222,6 +223,9 @@ function thinkingFrom(configOptions: SessionConfigOption[] | null | undefined): 
  * ACP는 세션이 떠야 모델을 알려 주므로, 창(agentWs)·셋 러너·probeModels 중 **무엇으로 떴든**
  * 여기 한 곳에 모인다. ponytail: 메모리에만 산다 — 재시작하면 다시 빈다.
  */
+const knownThinking = new Map<string, ThinkingState | null>()
+export const thinkingByRuntime = (runtime: string) => knownThinking.get(runtime) ?? null
+
 const knownModels = new Map<string, ModelInfo[]>()
 
 export const modelsByRuntime = (): Record<string, ModelInfo[]> => Object.fromEntries(knownModels)
@@ -386,6 +390,7 @@ export class AgentSession {
   #memoryTimer: NodeJS.Timeout
   busy = false
 
+  #mcpServers: McpServer[] = []
   #context: AgentContextBinding
 
   private constructor(runtime: string, spec: SpawnSpec, cwd = WORKSPACE_ROOT, idleKillMs = AGENT_IDLE_MS, context = captureAgentContext(cwd), readMemory: MemoryReader = readAgentMemory) {
@@ -479,7 +484,7 @@ export class AgentSession {
     idleKillMs = AGENT_IDLE_MS,
     context?: AgentContextBinding,
     readMemory: MemoryReader = readAgentMemory,
-    options: { deferSessionCreation?: boolean } = {},
+    options: { deferSessionCreation?: boolean; mcpServers?: McpServer[] } = {},
   ): Promise<AgentSession> {
     if (!spec) throw new Error(`ACP를 지원하지 않는 에이전트 런타임입니다: ${runtime}`)
     const pressure = memoryPressure(readMemory())
@@ -488,6 +493,7 @@ export class AgentSession {
       throw new Error(pressure)
     }
     const session = new AgentSession(runtime, spec, cwd, idleKillMs, context, readMemory)
+    session.#mcpServers = options.mcpServers ?? []
     try {
       // 복원할 대화가 있으면 initialize → session/load로 바로 간다. load 미지원
       // 런타임은 기존대로 새 세션(또는 인증 화면)을 준비한다.
@@ -583,7 +589,7 @@ export class AgentSession {
   }
 
   async #createSession() {
-    const created = await measureAgentPhase(this.runtime, 'session/new', () => this.#conn.newSession({ cwd: this.cwd, mcpServers: [] }))
+    const created = await measureAgentPhase(this.runtime, 'session/new', () => this.#conn.newSession({ cwd: this.cwd, mcpServers: this.#mcpServers }))
     this.#adopt(created.sessionId, created.models ?? null, created.modes ?? null, created.configOptions)
     this.#authRequired = false
     this.#authenticating = false
@@ -1228,7 +1234,7 @@ export class AgentSession {
         await this.#initializeWithTimeout(false)
       }
       if (this.#disposed) return
-      const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: [] })
+      const created = await this.#conn.newSession({ cwd: this.cwd, mcpServers: this.#mcpServers })
       if (this.#disposed) return
       this.#loadingEvents = null
       this.#clearFailed = false
@@ -1268,7 +1274,7 @@ export class AgentSession {
     let loaded: Awaited<ReturnType<ClientSideConnection['loadSession']>>
     let replay: AgentEvent[]
     try {
-      loaded = await measureAgentPhase(this.runtime, 'session/load', () => this.#conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: [] }))
+      loaded = await measureAgentPhase(this.runtime, 'session/load', () => this.#conn.loadSession({ sessionId, cwd: this.cwd, mcpServers: this.#mcpServers }))
       replay = reconcileAgentTranscript(readAgentTranscript(this.runtime, this.cwd, sessionId), this.#loadingEvents)
     } catch (err) {
       // 일부 어댑터는 실패하기 전 update를 몇 개 흘리거나 모드를 바꾼다. 어느 쪽도 현재 세션에 남기지 않는다.
@@ -1401,6 +1407,7 @@ export class AgentSession {
   }
 
   #useThinking(thinking: ThinkingState | null) {
+    knownThinking.set(this.runtime, thinking)
     if (thinking === null && this.#thinking === null) return
     this.#thinking = thinking
     this.#emit({ type: 'thinking', thinking })

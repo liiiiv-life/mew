@@ -1,3 +1,4 @@
+import { canAutoFocusInput } from '@mew/ui'
 import { historyCacheKey, readHistoryCache, writeHistoryCache, type CachedHistory } from '../utils/agent-history-cache'
 import { mergeHistoryPage, appendHistoryEvent } from '../utils/agent-history-state'
 import { PanelTitle } from './panel-title'
@@ -30,11 +31,12 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { Terminal as TerminalIcon } from 'iconoir-react'
 import { AgentCommandBubble, AgentCommandPopup } from './agent-command-bubble'
 import { AgentLoadingBubbles } from './agent-loading-bubbles'
 import { useAgentCommands } from '../hooks/use-agent-commands'
+import { useScheduledPrompts } from '../hooks/use-scheduled-prompts'
 import { stopAgentTabCommands } from '../api/agent-commands'
 import { commandTimeline } from '../utils/agent-command-timeline'
 import { copyText, keepFocusOnPress, useDragReorder, useOverlayDismiss } from '@mew/ui'
@@ -61,7 +63,6 @@ import {
   cancelAgentScheduledPrompt,
   fetchAgentDefault,
   fetchAgentAuthTerminalStatus,
-  fetchAgentScheduledPrompts,
   fetchAgentTabs,
   fetchAgentCwdSuggestions,
   fetchProjects,
@@ -110,7 +111,6 @@ import { sessionIdOf, sessionIdsExcept, withAutoLabel, withProjectLabel, withRen
 import { agentTabStorageKey } from '../utils/agentTabStorage'
 import {
   DEFAULT_AGENT_QUEUE_EDIT_HEIGHT,
-  MIN_AGENT_INPUT_HEIGHT,
   MIN_AGENT_QUEUE_EDIT_HEIGHT,
   agentInputMaxHeight,
   agentQueueEditMaxHeight,
@@ -188,7 +188,7 @@ const MOBILE_AGENT_INPUT_BOTTOM_GUARD_PX = 8
 function initialAgentInputHeight() {
   try {
     const saved = Number(localStorage.getItem(AGENT_INPUT_HEIGHT_KEY))
-    if (Number.isFinite(saved) && saved >= MIN_AGENT_INPUT_HEIGHT) {
+    if (Number.isFinite(saved) && saved > 0) {
       return Math.min(agentInputMaxHeight(window.innerHeight), saved)
     }
   } catch { /* localStorage를 쓸 수 없어도 기본 높이로 연다 */ }
@@ -282,7 +282,7 @@ function ResizableQueueTextarea({
         <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent" />
       </div>
       <textarea
-        autoFocus
+        autoFocus={canAutoFocusInput()}
         aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -736,7 +736,7 @@ function HeaderSelect({
           </div>
           {searchable && (
             <input
-              autoFocus
+              autoFocus={canAutoFocusInput()}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -807,6 +807,8 @@ function SessionPicker({
   useEffect(() => {
     if (!open) return
     function onDown(e: PointerEvent) {
+      // Portal dialogs belong to the dropdown; interacting with them must not unmount it.
+      if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return
       if (!ref.current?.contains(e.target as Node)) setOpen(false)
     }
     document.addEventListener('pointerdown', onDown, true)
@@ -1018,7 +1020,7 @@ function AgentTabBar({
               </span>
               {editing?.id === tab.id ? (
                 <input
-                  autoFocus
+                  autoFocus={canAutoFocusInput()}
                   value={editing.text}
                   onChange={(e) => setEditing({ id: tab.id, text: e.target.value })}
                   onKeyDown={(e) => {
@@ -1153,7 +1155,7 @@ function AgentPathBar({
   const enterDir = (path: string) => {
     setDraft(path)
     setBrowsedPath(path)
-    inputRef.current?.focus()
+    if (canAutoFocusInput()) inputRef.current?.focus()
   }
 
   const openHere = () => {
@@ -1523,7 +1525,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   )
 }
 
-export function AgentPanel({ cacheAccount = 'local', notificationFocused = false, trackRestore, onRunningAgentsChange, requestedNoticeTab, onNoticeHandled, preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onOpenGuidanceFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { cacheAccount?: string; notificationFocused?: boolean; trackRestore?: <T>(request: Promise<T>) => Promise<T>; onRunningAgentsChange?: (count: number) => void; requestedNoticeTab?: string; onNoticeHandled?: () => void; preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onOpenGuidanceFile?: (path: string) => void; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
+export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onRuntimeReady, cacheAccount = 'local', notificationFocused = false, trackRestore, onRunningAgentsChange, requestedNoticeTab, onNoticeHandled, preparedTabs, requestedTab, onRequestedTabHandled, allowAgent = true, allowTerminal = true, project, workspacePath, tree, focusedFilePath, getSelectedText, renderCommandButtons, onOpenFile, onOpenGuidanceFile, onClose, nextTabSignal = 0, previousTabSignal = 0, closeTabSignal = 0, agentOpen = true, terminalOpen = false, onCloseTerminal, onPanelFocus, foregroundKind }: { requestedPicker?: boolean; onPickerRuntimeChosen?: (runtime: string) => void; onRuntimeReady?: (runtime: string) => void; cacheAccount?: string; notificationFocused?: boolean; trackRestore?: <T>(request: Promise<T>) => Promise<T>; onRunningAgentsChange?: (count: number) => void; requestedNoticeTab?: string; onNoticeHandled?: () => void; preparedTabs?: ReturnType<typeof fetchAgentTabs>; requestedTab?: AgentTab | null; onRequestedTabHandled?: () => void; allowAgent?: boolean; allowTerminal?: boolean; foregroundKind?: string | null; agentOpen?: boolean; terminalOpen?: boolean; onCloseTerminal?: () => void; onPanelFocus?: (kind: 'agent' | 'terminal') => void; project: string; workspacePath: string | null; tree: TreeNode[]; focusedFilePath: string | null; getSelectedText?: () => string | null; renderCommandButtons?: (run: (command: string) => void) => ReactNode; onOpenFile: OpenWorkspaceFile; onOpenGuidanceFile?: (path: string) => void; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number; closeTabSignal?: number }) {
   useUiLocale()
   const { t } = useI18n()
   const dock = useDock()
@@ -1698,6 +1700,8 @@ export function AgentPanel({ cacheAccount = 'local', notificationFocused = false
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedNoticeTab, tabsSynced, tabs, onNoticeHandled])
 
+  useEffect(() => { if (requestedPicker) { setPickerGroup('agent'); setPickerOpen(true) } }, [requestedPicker])
+
   const addTab = () => { setPickerGroup(focusedGroup); setPickerOpen(true) }
 
   const addRuntimeTab = (runtime: string, preset?: AgentTab['preset'], destination = runtime === 'tmux' ? 'terminal' : pickerGroup) => {
@@ -1715,6 +1719,7 @@ export function AgentPanel({ cacheAccount = 'local', notificationFocused = false
         latestDock.current?.assign(destination, tab.id)
         setOpened((prev) => new Set(prev).add(tab.id))
         setPickerOpen(false)
+        if (runtime !== 'tmux') onPickerRuntimeChosen?.(runtime)
       })
       .catch((err: unknown) => setOpenRuntimeError(err instanceof Error ? err.message : String(err)))
       .finally(() => setOpeningRuntime(null))
@@ -1733,7 +1738,7 @@ export function AgentPanel({ cacheAccount = 'local', notificationFocused = false
 
   const addSetTab = (set: AgentSet, destination = pickerGroup) => {
     try { writeBrowserStorage(RUNTIME_KEY, set.runtime) } catch { /* 최근 런타임 기억은 선택을 막지 않는다 */ }
-    addRuntimeTab(set.runtime, { id: set.id, name: set.name, modelId: set.modelId, role: set.role }, destination)
+    addRuntimeTab(set.runtime, { id: set.id, name: set.name, modelId: set.modelId, thinkingId: set.thinkingId, thinkingConfigId: set.thinkingConfigId, role: set.role }, destination)
   }
 
   const closeTab = (id: string) => {
@@ -1866,8 +1871,8 @@ export function AgentPanel({ cacheAccount = 'local', notificationFocused = false
     setInfos((prev) =>
       prev[id]?.busy === info.busy && prev[id]?.sessionId === info.sessionId ? prev : { ...prev, [id]: info },
     )
-    if (info.sessionId) setTabs((prev) => withSessionId(prev, id, runtime, cwd, info.sessionId))
-  }, [])
+    if (info.sessionId) { setTabs((prev) => withSessionId(prev, id, runtime, cwd, info.sessionId)); onRuntimeReady?.(runtime) }
+  }, [onRuntimeReady])
 
   const forgetTabSession = useCallback((id: string, runtime: string, cwd: string) => {
     setTabs((prev) => withSessionId(prev, id, runtime, cwd, null))
@@ -2106,7 +2111,7 @@ function AgentSessionView({
   visible: boolean
   runtime: string
   cwd: string
-  preset?: { id: string; name: string; modelId: string; role: string }
+  preset?: { id: string; name: string; thinkingId?: string; thinkingConfigId?: string; modelId: string; role: string }
   resumeSessionId: string | null
   project: string
   tree: TreeNode[]
@@ -2175,6 +2180,7 @@ function AgentSessionView({
   const authBrowserOpeningRef = useRef(false)
   const [authTerminalOpen, setAuthTerminalOpen] = useState(false)
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
+  const [newConversationPending, setNewConversationPending] = useState(false)
   const [savedDefault, setSavedDefault] = useState<AgentRuntimeDefault | null>(null)
   const [savingDefault, setSavingDefault] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -2259,6 +2265,28 @@ function AgentSessionView({
   const scrollRef = useRef<HTMLDivElement>(null)
   const sessionRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
+  const composerActionsRef = useRef<HTMLDivElement>(null)
+  const [minInputHeight, setMinInputHeight] = useState(0)
+  useLayoutEffect(() => {
+    const composer = composerRef.current
+    const actions = composerActionsRef.current
+    if (!composer || !actions) return
+    const measure = () => {
+      const style = getComputedStyle(composer)
+      const actionsStyle = getComputedStyle(actions)
+      const rows = Array.from(actions.children).filter(row => getComputedStyle(row).display !== 'none')
+      const contentHeight = rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0)
+        + Math.max(0, rows.length - 1) * (parseFloat(actionsStyle.rowGap) || 0)
+      const height = Math.ceil(contentHeight + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+        + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth))
+      setMinInputHeight(height)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(composer)
+    for (const row of actions.children) observer.observe(row)
+    measure()
+    return () => observer.disconnect()
+  }, [auth])
   // 탭을 바꾸거나 세션 뷰가 다시 붙어도 작성 영역이 최소 높이로 되돌아가지 않는다.
   const [inputHeight, setInputHeight] = useState(initialAgentInputHeight)
   const inputResizeCleanupRef = useRef<(() => void) | null>(null)
@@ -2271,7 +2299,7 @@ function AgentSessionView({
   }))
   const maxInputHeight = viewportMetrics.maxInputHeight
   // 키보드가 닫히면 사용자가 정한 높이로 돌아가고, 열린 동안만 보이는 높이를 상한 안에 둔다.
-  const visibleInputHeight = Math.min(inputHeight, maxInputHeight)
+  const visibleInputHeight = Math.max(minInputHeight, Math.min(inputHeight, maxInputHeight))
 
   // 키보드가 overlay로 뜨는 모바일에서는 session 높이가 바뀌지 않으므로, visual viewport에
   // 가려진 panel 하단을 직접 재서 composer 아래 여백으로 확보한다.
@@ -2290,7 +2318,7 @@ function AgentSessionView({
       // 평상시에는 p-2만 남겨 네 방향 여백을 같게 한다. 안전 간격은 소프트 키보드가
       // 실제로 패널 아래를 덮을 때만 더한다.
       const coveredBottom = viewportOverlap > 0 ? viewportOverlap + bottomGuard : 0
-      const bottomInset = Math.ceil(Math.min(Math.max(0, panelHeight - MIN_AGENT_INPUT_HEIGHT), coveredBottom))
+      const bottomInset = Math.ceil(Math.min(Math.max(0, panelHeight - minInputHeight), coveredBottom))
       const scrollBounds = scrollRef.current?.getBoundingClientRect()
       const composerBounds = composerRef.current?.getBoundingClientRect()
       // 입력칸 앞의 실제 고정 영역을 잰다. 도구줄뿐 아니라 대기·예약 메시지가 생겨도
@@ -2298,7 +2326,7 @@ function AgentSessionView({
       const fixedContentHeight = bounds && scrollBounds && composerBounds
         ? Math.max(0, composerBounds.top - bounds.top - scrollBounds.height)
         : 32
-      const maxInputHeight = agentInputMaxHeight(panelHeight, bottomInset, fixedContentHeight)
+      const maxInputHeight = agentInputMaxHeight(panelHeight, bottomInset, fixedContentHeight, minInputHeight)
       setViewportMetrics((current) => current.maxInputHeight === maxInputHeight && current.bottomInset === bottomInset
         ? current
         : { maxInputHeight, bottomInset })
@@ -2323,7 +2351,7 @@ function AgentSessionView({
       window.visualViewport?.removeEventListener('scroll', scheduleMeasure)
     }
   // 인증 화면이 composer를 잠시 떼었다 다시 붙일 수 있어, 그 경계에서도 관찰 대상을 새로 잡는다.
-  }, [active, auth])
+  }, [active, auth, minInputHeight])
 
   const startInputResize = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
@@ -2343,7 +2371,7 @@ function AgentSessionView({
 
     const onMove = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return
-      setInputHeight(resizedHeightFromTop(startHeight, startY, event.clientY, MIN_AGENT_INPUT_HEIGHT, maxInputHeight))
+      setInputHeight(resizedHeightFromTop(startHeight, startY, event.clientY, minInputHeight, maxInputHeight))
     }
     const cleanup = () => {
       window.removeEventListener('pointermove', onMove)
@@ -2360,14 +2388,14 @@ function AgentSessionView({
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onEnd)
     window.addEventListener('pointercancel', onEnd)
-  }, [inputHeight, maxInputHeight])
+  }, [inputHeight, maxInputHeight, minInputHeight])
 
   const resizeInputWithKeyboard = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
     e.preventDefault()
     const delta = e.key === 'ArrowUp' ? 12 : -12
-    setInputHeight((height) => Math.min(maxInputHeight, Math.max(MIN_AGENT_INPUT_HEIGHT, height + delta)))
-  }, [maxInputHeight])
+    setInputHeight((height) => Math.min(maxInputHeight, Math.max(minInputHeight, height + delta)))
+  }, [maxInputHeight, minInputHeight])
 
   /** 첫·마지막 시각적 줄에서만 터미널처럼 이전·다음 전송을 순회한다. */
   const navigateAgentHistory = useCallback((direction: 'up' | 'down'): boolean => {
@@ -2481,6 +2509,7 @@ function AgentSessionView({
         cwd,
         ...(resumeSessionIdRef.current ? { resume: resumeSessionIdRef.current } : {}),
         ...(preset?.modelId ? { model: preset.modelId } : {}),
+        ...(preset?.thinkingId && preset?.thinkingConfigId ? { thinking: preset.thinkingId, thinkingConfig: preset.thinkingConfigId } : {}),
         ...(preset?.role ? { role: preset.role } : {}),
       }).toString()
       ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?${query}`)
@@ -2550,6 +2579,7 @@ function AgentSessionView({
         if (event.type === 'modes') return adoptModes(event.modes)
         if (event.type === 'thinking') return adoptThinking(event.thinking)
         if (event.type === 'meta') {
+          setNewConversationPending(false)
           const replayed = replayRef.current
           if (replayed) {
             replayRef.current = null
@@ -2679,7 +2709,7 @@ function AgentSessionView({
     }
     // 런타임을 바꾸면 저쪽 세션으로 갈아탄다 — 이쪽 세션은 서버에 그대로 남아 돌아오면 이어진다
     // (queueEvent는 값이 바뀌지 않는 useCallback이라 여기 있어도 재접속을 부르지 않는다)
-  }, [cacheKey, runtime, tabId, cwd, notificationWorkspace, preset?.modelId, preset?.role, queueEvent, adoptModels, adoptModes, adoptThinking, closeAuthBrowser, closeAcpBrowserTabs])
+  }, [cacheKey, runtime, tabId, cwd, notificationWorkspace, preset?.modelId, preset?.thinkingId, preset?.thinkingConfigId, preset?.role, queueEvent, adoptModels, adoptModes, adoptThinking, closeAuthBrowser, closeAcpBrowserTabs])
 
   // 경과 시간만 흐르게 한다 — 나머지 값은 서버 meta가 밀어 준다
   useEffect(() => {
@@ -2847,6 +2877,7 @@ function AgentSessionView({
   const usage = meta?.usage ?? null
 
   // original = 고치기 시작할 때 보고 있던 원본. 서버가 이 항목을 잠가 앞 턴이 끝나도 큐를 당기지 않는다.
+  const [expandedQueued, setExpandedQueued] = useState<{ index: number; text: string } | null>(null)
   const [editingQueued, setEditingQueued] = useState<QueuedEdit | null>(null)
   const [attachingQueued, setAttachingQueued] = useState(false)
   const queuedEditVersionRef = useRef(0)
@@ -2854,11 +2885,12 @@ function AgentSessionView({
   const queueDrag = useGridDrag({
     enabled: queued.length > 1 && editingQueued === null,
     handleOnly: true,
+    verticalList: true,
     onMove: (from, to) => send({ type: 'move_queued', from, to }),
   })
   const [errorDetail, setErrorDetail] = useState<{ title: string; detail: string } | null>(null)
   const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [scheduled, setScheduled] = useState<AgentScheduledPrompt[]>([])
+  const { scheduled, refresh: refreshScheduled, upsert: upsertScheduled, remove: removeScheduled } = useScheduledPrompts(cacheAccount, runtime, tabId, cwd, connected)
   const [editingScheduled, setEditingScheduled] = useState<{ id: string; text: string; original: string } | null>(null)
   const [rescheduling, setRescheduling] = useState<AgentScheduledPrompt | null>(null)
   const composerDraft = editingQueued?.text ?? draft
@@ -2901,18 +2933,10 @@ function AgentSessionView({
     requestAnimationFrame(() => agentInputRef.current?.focus())
   }
 
-  const refreshScheduled = useCallback(async () => {
-    const { jobs } = await fetchAgentScheduledPrompts({ runtime, tab: tabId, cwd })
-    setScheduled(jobs)
-  }, [cwd, runtime, tabId])
-
-  useEffect(() => {
-    let disposed = false
-    void fetchAgentScheduledPrompts({ runtime, tab: tabId, cwd })
-      .then(({ jobs }) => { if (!disposed) setScheduled(jobs) })
-      .catch(() => { if (!disposed) setScheduled([]) })
-    return () => { disposed = true }
-  }, [cwd, runtime, tabId])
+  useOverlayDismiss(editingQueued ? () => cancelQueuedEdit(editingQueued) : false, {
+    escapePhase: 'bubble',
+    closeOnEscape: event => !event.defaultPrevented && !event.isComposing && !previewAttachment,
+  })
 
   /**
    * 이 탭의 세션을 끝내고 새로 잡는다 — 탭은 그대로 두고 대화만 새 탭처럼 비운다.
@@ -2921,23 +2945,34 @@ function AgentSessionView({
    * 끝난 세션은 사라지지 않는다 — 그 드롭다운에서 다시 불러올 수 있다.
    */
   const clearSession = useCallback(() => {
-    restoreFailureRef.current = null
+    // Idle conversations must disappear before storage or server cleanup runs.
+    flushSync(() => {
+      setNewConversationPending(!busy)
+      restoreFailureRef.current = null
+      resumeSessionIdRef.current = null
+      cacheSessionIdRef.current = null
+      historyRef.current = null
+      historyPendingRef.current = false
+      replayRef.current = null
+      swapRef.current = false
+      prependScrollRef.current = null
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+      frameRef.current = null
+      eventsRef.current = []
+      pendingRef.current = []
+      setHistoryStart(0)
+      setUsersBefore(0)
+      setLoadingSession(null)
+      setEvents([])
+      setMeta(null)
+      setSessions(null)
+      stickRef.current = true
+      setUnread(false)
+      onForgetSession(tabId, runtime, cwd)
+    })
     send({ type: 'close_session' })
     clearAgentEventCache(runtime, tabId, cwd)
-    resumeSessionIdRef.current = null
-    onForgetSession(tabId, runtime, cwd)
-    cacheSessionIdRef.current = null
-    historyRef.current = null
-    setHistoryStart(0)
-    setUsersBefore(0)
-    eventsRef.current = []
-    pendingRef.current = []
-    setEvents([])
-    setMeta(null)
-    setSessions(null)
-    stickRef.current = true
-    setUnread(false)
-  }, [cwd, onForgetSession, runtime, send, tabId])
+  }, [busy, cwd, onForgetSession, runtime, send, tabId])
 
   const submit = () => {
     if (editingQueued) {
@@ -3033,7 +3068,7 @@ function AgentSessionView({
     const refs = attachments.map((attachment) => `[[${attachment.project}:${attachment.relPath}]]`)
     const message = [draft.trim(), ...refs].filter(Boolean).join('\n')
     if (!message || !meta?.sessionId) throw new Error(uiText("세션을 준비한 뒤 예약하세요"))
-    await scheduleAgentPrompt({
+    const { job } = await scheduleAgentPrompt({
       runtime,
       tab: tabId,
       cwd,
@@ -3042,18 +3077,20 @@ function AgentSessionView({
       skills: selectedSkillNames(message, skills),
       at: new Date(at).toISOString(),
     })
+    upsertScheduled(job)
     recordAgentInputHistory(tabId, draft.trim())
     historyIndexRef.current = null
     historyDraftRef.current = ''
     setDraft('')
     setAttachments([])
-    await refreshScheduled()
+    await refreshScheduled().catch(() => {})
   }
 
   const cancelScheduled = async (id: string) => {
     try {
       await cancelAgentScheduledPrompt(id, { runtime, tab: tabId, cwd })
-      await refreshScheduled()
+      removeScheduled(id)
+      await refreshScheduled().catch(() => {})
     } catch (err) {
       setErrorDetail({ title: uiText("예약 메시지 취소 실패"), detail: err instanceof Error ? err.message : String(err) })
     }
@@ -3062,7 +3099,7 @@ function AgentSessionView({
   const updateScheduled = async (job: AgentScheduledPrompt, text: string, at = job.at) => {
     const next = text.trim()
     if (!next) return
-    await updateAgentScheduledPrompt(job.id, {
+    const { job: updated } = await updateAgentScheduledPrompt(job.id, {
       runtime,
       tab: tabId,
       cwd,
@@ -3070,7 +3107,8 @@ function AgentSessionView({
       skills: selectedSkillNames(next, skills),
       at,
     })
-    await refreshScheduled()
+    upsertScheduled(updated)
+    await refreshScheduled().catch(() => {})
   }
 
   const commitScheduledEdit = (edit: { id: string; text: string; original: string }) => {
@@ -3158,7 +3196,7 @@ function AgentSessionView({
             ? uiText("진행 중")
             : ''
   const totalTokens = usage ? usage.input + usage.output + usage.cacheWrite + usage.cacheRead : 0
-  const conversationLoading = loadingSession !== null || (!historyRef.current && (!connected
+  const conversationLoading = loadingSession !== null || (!newConversationPending && !historyRef.current && (!connected
     || (!meta && !auth && !events.some(event => event.type === 'error'))))
   useEffect(() => {
     let alive = true
@@ -3734,69 +3772,99 @@ function AgentSessionView({
             const drag = queueDrag.drag
             const lifted = drag !== null && drag.slot === index
             const editing = editingQueued?.index === index ? editingQueued : null
+            const expanded = expandedQueued?.index === index && expandedQueued.text === text
             const queuedFiles = meta?.queuedAttachments?.[index] ?? []
             return (
               <div
                 key={`${index}-${text}`}
                 ref={queueDrag.registerCell(index)}
-                style={lifted ? { transform: `translate(${drag.dx}px, ${drag.dy}px)` } : undefined}
-                className={`flex items-center gap-2 select-none ${editing ? 'rounded bg-surface-raised' : ''} ${
-                  lifted
-                    ? 'relative z-10 rounded bg-surface-raised opacity-80'
-                    : drag !== null && drag.target === index
-                      ? 'rounded bg-surface-raised'
-                      : ''
-                }`}
+                className="relative"
+                data-queue-slot={index}
               >
-                <button
-                  type="button"
-                  {...queueDrag.getTileProps(index)}
-                  disabled={queued.length < 2 || editingQueued !== null}
-                  onClick={() => { queueDrag.consumeClick() }}
-                  onKeyDown={(event) => {
-                    const target = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : null
-                    if (target === null) return
-                    event.preventDefault()
-                    if (target >= 0 && target < queued.length) send({ type: 'move_queued', from: index, to: target })
-                  }}
-                  className="flex h-6 w-5 shrink-0 touch-none items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink enabled:cursor-grab active:cursor-grabbing disabled:opacity-40"
-                  aria-label={uiText("드래그해서 순서 변경")}
-                  title={uiText("드래그해서 순서 변경")}
+                {lifted && <div
+                  data-queue-drop-placeholder
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 z-30 rounded border border-dashed border-accent transition-transform duration-180 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                  style={{ transform: `translateY(${queueDrag.getReorderOffset(index)}px)` }}
+                />}
+                <div
+                  data-queue-row={index}
+                  data-queue-dragging={lifted ? '' : undefined}
+                  style={{ transform: lifted ? `translate(${drag.dx}px, ${drag.dy}px)` : `translateY(${queueDrag.getReorderOffset(index)}px)` }}
+                  className={`flex items-center gap-2 select-none ${editing ? 'rounded bg-surface-raised' : ''} ${lifted
+                    ? 'relative z-20 rounded bg-surface-raised shadow-md pointer-events-none'
+                    : drag ? 'relative z-10 transition-transform duration-180 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none' : ''}`}
                 >
-                  <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor" aria-hidden="true">
-                    <circle cx="4" cy="3" r="1" /><circle cx="8" cy="3" r="1" />
-                    <circle cx="4" cy="7" r="1" /><circle cx="8" cy="7" r="1" />
-                    <circle cx="4" cy="11" r="1" /><circle cx="8" cy="11" r="1" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    startQueuedEdit(index, text)
-                  }}
-                  disabled={editingQueued !== null || isClearBoundary || isCliCommand}
-                  title={isClearBoundary ? uiText("새 대화 시작 지점") : isCliCommand ? uiText("대기 중인 CLI 명령") : uiText("눌러서 수정")}
-                  className={`flex min-w-0 flex-1 items-center gap-1 text-left text-ink-secondary disabled:cursor-default ${isCliCommand ? 'font-mono' : ''}`}
-                >
-                  <span className="min-w-0 truncate">{isCliCommand ? `$ ${text}` : text}</span>
-                  <span className="flex max-w-1/2 shrink-0 gap-1 overflow-hidden">
-                    {queuedFiles.map(file => <span key={`${file.project}:${file.path}`} title={file.path.split('/').pop()}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-surface-raised p-1 text-ink-secondary">
-                      <PaperclipGlyph />{attachmentExtension(file.path)}
-                    </span>)}
-                  </span>
-                </button>
-                {!editing && <button
-                  type="button"
-                  onClick={() => {
-                    send({ type: 'unqueue', index })
-                  }}
-                  disabled={editingQueued !== null}
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink disabled:opacity-40"
-                  aria-label={uiText("대기 메시지 취소")}
-                >
-                  <XGlyph small />
-                </button>}
+                  <button
+                    type="button"
+                    {...queueDrag.getTileProps(index)}
+                    disabled={queued.length < 2 || editingQueued !== null}
+                    onClick={() => { queueDrag.consumeClick() }}
+                    onKeyDown={(event) => {
+                      const target = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : null
+                      if (target === null) return
+                      event.preventDefault()
+                      if (target >= 0 && target < queued.length) send({ type: 'move_queued', from: index, to: target })
+                    }}
+                    className="flex h-6 w-5 shrink-0 touch-none items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink enabled:cursor-grab active:cursor-grabbing disabled:opacity-40"
+                    aria-label={uiText("드래그해서 순서 변경")}
+                    title={uiText("드래그해서 순서 변경")}
+                  >
+                    <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor" aria-hidden="true">
+                      <circle cx="4" cy="3" r="1" /><circle cx="8" cy="3" r="1" />
+                      <circle cx="4" cy="7" r="1" /><circle cx="8" cy="7" r="1" />
+                      <circle cx="4" cy="11" r="1" /><circle cx="8" cy="11" r="1" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpandedQueued(expanded ? null : { index, text })
+                    }}
+                    aria-expanded={expanded}
+                    title={isClearBoundary ? uiText("새 대화 시작 지점") : isCliCommand ? uiText("대기 중인 CLI 명령") : expanded ? uiText("접기") : uiText("펼치기")}
+                    className={`flex min-w-0 flex-1 items-center gap-1 text-left text-ink-secondary disabled:cursor-default ${isCliCommand ? 'font-mono' : ''}`}
+                  >
+                    <span className={expanded ? 'min-w-0 flex-1 max-h-16 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words text-left leading-4 select-text' : 'min-w-0 truncate'}>{isCliCommand ? `$ ${text}` : text}</span>
+                    <span className="flex max-w-1/2 shrink-0 gap-1 overflow-hidden">
+                      {queuedFiles.map(file => <span key={`${file.project}:${file.path}`} title={file.path.split('/').pop()}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md bg-surface-raised p-1 text-ink-secondary">
+                        <PaperclipGlyph />{attachmentExtension(file.path)}
+                      </span>)}
+                    </span>
+                  </button>
+                  {!editing && !isClearBoundary && !isCliCommand && <button
+                    type="button"
+                    onPointerDown={keepFocusOnPress}
+                    onClick={() => startQueuedEdit(index, text)}
+                    disabled={editingQueued !== null}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink disabled:opacity-40"
+                    aria-label={uiText("편집")}
+                    title={uiText("편집")}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m16 3 5 5-12 12-6 1 1-6L16 3Z" /><path d="m14 5 5 5" />
+                    </svg>
+                  </button>}
+                  {editing ? <button
+                    type="button"
+                    onPointerDown={keepFocusOnPress}
+                    onClick={() => cancelQueuedEdit(editing)}
+                    className="h-6 shrink-0 rounded px-2 text-ink-secondary hover:bg-surface-hover hover:text-ink"
+                  >
+                    {uiText("취소")}
+                  </button> : <button
+                    type="button"
+                    onClick={() => {
+                      send({ type: 'unqueue', index })
+                    }}
+                    disabled={editingQueued !== null}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink disabled:opacity-40"
+                    aria-label={uiText("대기 메시지 취소")}
+                  >
+                    <XGlyph small />
+                  </button>}
+                </div>
               </div>
             )
           })}
@@ -3906,7 +3974,7 @@ function AgentSessionView({
           role="separator"
           aria-label={uiText("입력창 높이 조절")}
           aria-orientation="horizontal"
-          aria-valuemin={MIN_AGENT_INPUT_HEIGHT}
+          aria-valuemin={minInputHeight}
           aria-valuemax={maxInputHeight}
           aria-valuenow={Math.round(visibleInputHeight)}
           tabIndex={0}
@@ -3979,7 +4047,7 @@ function AgentSessionView({
             }}
           />
         </div>
-        <div className="flex shrink-0 flex-col justify-between">
+        <div ref={composerActionsRef} className="flex shrink-0 flex-col justify-between">
           <input
             ref={attachmentInputRef}
             type="file"
@@ -3998,16 +4066,7 @@ function AgentSessionView({
           </div>
           <div className="flex flex-col gap-1.5">
             <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={composerCliMode || composerAttaching} className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised disabled:opacity-40" aria-label={uiText("파일 첨부")} title={uiText("파일 첨부")}><PaperclipGlyph /></button>
-            {editingQueued ? <button
-              type="button"
-              onPointerDown={keepFocusOnPress}
-              onClick={() => cancelQueuedEdit(editingQueued)}
-              className="flex h-6 w-8 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-              aria-label={uiText("취소")}
-              title={uiText("취소")}
-            >
-              <XGlyph small />
-            </button> : (
+            {!editingQueued && (
             <button
               type="button"
               onClick={() => setScheduleOpen(true)}

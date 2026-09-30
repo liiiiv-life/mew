@@ -4,19 +4,21 @@ parent: "mew-agents"
 title: "에이전트 예약 메시지"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-30"
 status_hash: "333669f522d259fe25acbfd4326c1e55deca98f9f89df6cb5443d61057d19e0a"
-files: ["src/components/AgentPanel.tsx", "server/agentScheduledPrompts.ts"]
+files: ["src/components/AgentPanel.tsx", "src/hooks/use-scheduled-prompts.ts", "src/utils/agent-scheduled-cache.ts", "server/agentScheduledPrompts.ts"]
 commits: []
 ---
 
 ## 요구사항
 
 - 현재 에이전트 세션에 나중에 한 번 보낼 메시지를 등록한다.
+- 브라우저를 다시 열면 동일 계정·탭의 기기 저장 목록을 서버 조회보다 먼저 표시한다.
 
 ### 범위
 
 - 예약 시각·메시지 등록과 내용/시각 수정·삭제, 원래 세션의 큐 실행을 제공한다.
+- 기기 저장 목록의 선표시와 서버 목록의 재접속 동기화를 제공한다.
 
 ### 경계와 제한
 
@@ -33,12 +35,16 @@ commits: []
 ## 구현 내용
 
 - 예약 시각·메시지 등록과 내용/시각 수정·삭제, 원래 세션의 큐 실행을 제공한다.
+- IndexedDB에 계정·런타임·탭·작업 경로별 표시용 목록을 저장한다. 등록·수정·취소 성공과 서버 조회 결과를 즉시 반영하고, 재접속·창 복귀·온라인 복귀 시 서버 목록을 다시 확인한다.
+- 조회 실패는 캐시를 비우지 않으며 늦은 캐시·이전 조회 응답은 최신 서버 결과나 변경을 덮어쓰지 않는다. 실제 예약 실행과 복원은 서버가 소유한다([표시 캐시 계약](../../specs/agent-scheduled-prompts.md#브라우저-목록-복원)).
 
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
 ## 검증
 
+- 2026-09-30: `agent-scheduled-cache-ui.test.ts`의 격리 Chromium(1100/390px·양 테마)에서 서버 조회 지연 중 캐시 선표시, 조회 실패 중 등록·수정·취소 후 새로고침 보존, 늦은 캐시·서버 응답의 덮어쓰기 방지, 계정·런타임·탭·cwd 격리, 저장소 사용 불가·quota 실패를 확인했다. 기존 `agent-history-ui.test.ts`도 통과했다.
+- 사용자 확인 기준: 브라우저를 다시 열면 서버 조회를 기다리는 동안에도 마지막 예약 목록이 보이고, 조회 완료 후 실행·수정·취소된 상태로 갱신되는지 확인한다.
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 브라우저를 닫았다 돌아와도 예약이 남고 수정·취소가 반영되며 원래 세션으로 전달되는지 확인한다.
 

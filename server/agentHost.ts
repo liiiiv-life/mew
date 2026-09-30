@@ -1,3 +1,4 @@
+import type { McpServer } from '@agentclientprotocol/sdk'
 import { validHistoryRequest, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
 import type { AgentAttachmentInput } from '../shared/agent-attachment.ts'
 // 에이전트 탭의 독립 감독 프로세스와 mew 쪽 유닉스 소켓 클라이언트.
@@ -191,6 +192,8 @@ async function listenOnSocket(server: net.Server, socketPath: string): Promise<v
 }
 
 async function runHost(runtime: string, tab: string, cwd: string, resumeSessionId: string | null = null) {
+  const mcpServers: McpServer[] = JSON.parse(process.env.MEW_AGENT_MCP_SERVERS ?? '[]')
+  delete process.env.MEW_AGENT_MCP_SERVERS
   if (!isAcpRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)
     || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))) {
     throw new Error('올바르지 않은 에이전트 감독 인자입니다')
@@ -368,7 +371,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     if (recovering) broadcastEvent(runtimeLoginAuthEvent(runtime, null, true))
     try {
       let started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, {
-        deferSessionCreation: !!initialResumeSessionId && !acpMethodId,
+        deferSessionCreation: !!initialResumeSessionId && !acpMethodId, mcpServers,
       })
       if (acpMethodId) await started.retryAuthentication(acpMethodId)
       const wantedSessionId = initialResumeSessionId
@@ -383,7 +386,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
           console.error(`[mew:agent-host:${runtime}] 세션 ${wantedSessionId} 자동 복원 실패:`, err)
           restoreFailure = { sessionId: wantedSessionId, message: describeError(err) }
           await started.disposeAndWait()
-          started = await AgentSession.start(runtime, undefined, cwd)
+          started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, { mcpServers })
         }
       }
       if (stopping) {
@@ -446,7 +449,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
     try {
       await previous.disposeAndWait()
       try {
-        let started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, { deferSessionCreation: true })
+        let started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, { deferSessionCreation: true, mcpServers })
         let loadError: string | null = null
         try {
           await started.loadSession(sessionId)
@@ -457,7 +460,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
           loadError = describeError(err)
           // 선택한 기록이 다른 창에 점유됐거나 손상됐으면, 방금 보던 대화를 새
           // writer로 다시 잡는다. 복구까지 실패해도 탭을 종료하지 않고 빈 세션을 남긴다.
-          started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, { deferSessionCreation: true })
+          started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, { deferSessionCreation: true, mcpServers })
           try {
             await started.loadSession(previousSessionId)
           } catch (recoveryError) {
@@ -465,7 +468,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
             // 복원용 연결에는 임시 빈 세션이 없다. 복구도 실패했을 때만 새 세션을
             // 만들고, 실패한 load가 잡았을 수 있는 writer는 먼저 반납한다.
             await started.disposeAndWait()
-            started = await AgentSession.start(runtime, undefined, cwd)
+            started = await AgentSession.start(runtime, undefined, cwd, undefined, undefined, undefined, { mcpServers })
           }
         }
 
@@ -750,6 +753,7 @@ function spawnHost(
   files: ReturnType<typeof pathsFor>,
   resumeSessionId: string | null,
   context?: AgentContextBinding,
+  mcpServers: McpServer[] = [],
 ): Promise<void> {
   const existing = spawning.get(files.socket)
   if (existing) return existing
@@ -759,6 +763,7 @@ function spawnHost(
     const logFd = fs.openSync(files.log, 'a', 0o600)
     try {
       const env: NodeJS.ProcessEnv = { ...process.env, MEW_WORKSPACE: cwd, MEW_AGENT_CONTEXT: JSON.stringify(context ?? captureAgentContext(cwd)) }
+      env.MEW_AGENT_MCP_SERVERS = JSON.stringify(mcpServers)
       if (resumeSessionId) env.MEW_AGENT_RESUME_SESSION = resumeSessionId
       else delete env.MEW_AGENT_RESUME_SESSION
       const child = spawn(process.execPath, [HOST_FILE, '--host', runtime, tab, cwd], {
@@ -786,6 +791,7 @@ export async function connectAgentHost(
   callbacks: AgentHostCallbacks = {},
   resumeSessionId: string | null = null,
   context?: AgentContextBinding,
+  mcpServers: McpServer[] = [],
 ): Promise<AgentHostClient> {
   if (!isAcpRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)
     || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))) {
@@ -799,7 +805,7 @@ export async function connectAgentHost(
     if (code !== 'ENOENT' && code !== 'ECONNREFUSED') throw err
   }
 
-  await spawnHost(runtime, tab, cwd, files, resumeSessionId, context)
+  await spawnHost(runtime, tab, cwd, files, resumeSessionId, context, mcpServers)
   const deadline = Date.now() + CONNECT_TIMEOUT_MS
   let lastError: unknown = new Error('에이전트 감독이 시작되지 않았습니다')
   while (Date.now() < deadline) {

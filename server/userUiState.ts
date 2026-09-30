@@ -20,7 +20,7 @@ export type StoredAgentTab = {
   cwd?: string | null
   renamed?: boolean
   sessionIds?: Record<string, string>
-  preset?: { id: string; name: string; modelId: string; role: string }
+  preset?: { id: string; name: string; thinkingId?: string; thinkingConfigId?: string; modelId: string; role: string }
 }
 
 export type StoredAgentTabs = { tabs: StoredAgentTab[]; activeId: string | null }
@@ -129,6 +129,10 @@ export function normalizeAgentTabs(input: unknown): StoredAgentTabs {
             name: (tab.preset as Record<string, unknown>).name as string,
             modelId: (tab.preset as Record<string, unknown>).modelId as string,
             role: (tab.preset as Record<string, unknown>).role as string,
+            ...Object.fromEntries(['thinkingId', 'thinkingConfigId'].flatMap(key => {
+              const value = optionalText((tab.preset as Record<string, unknown>)[key], 120)
+              return value ? [[key, value]] : []
+            })),
           } }
         : {}),
     })

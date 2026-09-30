@@ -1,7 +1,7 @@
 ---
 title: "화면·계정·운영 기능 지도"
 created: 2026-09-18
-updated: 2026-09-18
+updated: "2026-09-30"
 ---
 
 # 화면·계정·운영
@@ -9,6 +9,8 @@ updated: 2026-09-18
 상위: [전체 기능](../MOC.md) · [상위 기능](../settings.md).
 
 ## Current
+
+- [뮤캣 도우미·대화·Mew 조작](mewcat-assistant.md)
 
 - [패널 배치·모바일·상태 복원](layout-mobile.md)
 - [화면·언어·글꼴·단축키 설정](appearance.md)

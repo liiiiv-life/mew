@@ -1,3 +1,5 @@
+import type { UpdatesStatus } from '../../shared/updates'
+import type { GitRemoteProgress, GitRemoteEvent } from '../../shared/git-remote-progress'
 import { gitFetch } from './git-auth-request'
 import { uiText } from '@mew/ui/i18n-core'
 import type { ProjectTabGroup } from '../../shared/project-tab-groups'
@@ -73,7 +75,7 @@ export interface AgentTabState {
   cwd?: string | null
   renamed?: boolean
   sessionIds?: Record<string, string>
-  preset?: { id: string; name: string; modelId: string; role: string }
+  preset?: { id: string; name: string; thinkingId?: string; thinkingConfigId?: string; modelId: string; role: string }
 }
 
 export interface AgentTabsState {
@@ -88,6 +90,8 @@ export interface AgentSet {
   role: string
   runtime: string
   modelId: string
+  thinkingId?: string
+  thinkingConfigId?: string
 }
 
 /** 계정별·루트별 작업 화면 상태. 각 필드는 독립적으로 확장 가능한 JSON 값이다. */
@@ -156,9 +160,11 @@ export function fetchAgentSets(): Promise<{ sets: AgentSet[] }> {
 
 export type AgentModelOption = { modelId: string; name: string }
 
-export function fetchAgentModels(runtime: string, signal?: AbortSignal): Promise<{ models: AgentModelOption[] }> {
+export type AgentThinkingOption = { configId: string; options: { id: string; name: string }[] }
+
+export function fetchAgentModels(runtime: string, signal?: AbortSignal): Promise<{ models: AgentModelOption[]; thinking?: AgentThinkingOption | null }> {
   return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/models`, { signal })
-    .then(json<{ models: AgentModelOption[] }>)
+    .then(json<{ models: AgentModelOption[]; thinking?: AgentThinkingOption | null }>)
 }
 
 export function saveAgentSets(sets: AgentSet[]): Promise<{ sets: AgentSet[] }> {
@@ -205,12 +211,12 @@ export function scheduleAgentPrompt(input: {
   text: string
   skills: string[]
   at: string
-}): Promise<{ job: { id: string; at: string } }> {
+}): Promise<{ job: AgentScheduledPrompt }> {
   return fetch('/api/agent/scheduled-prompts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
-  }).then(json<{ job: { id: string; at: string } }>)
+  }).then(json<{ job: AgentScheduledPrompt }>)
 }
 
 export interface AgentScheduledPrompt {
@@ -530,12 +536,49 @@ export function runGitCommitAction(path: string, action: GitCommitAction, hash: 
   }, project).then(json<GitRepositoryInfo>)
 }
 
-export function runGitRemoteAction(path: string, action: 'pull' | 'push', project: string, workspace: string): Promise<{ ok: true }> {
-  return gitFetch(`/api/git/remote?${projectQs(project)}`, {
+export interface GitBranchRef { name: string; ref: string; kind: 'local' | 'remote' | 'tag' }
+
+export function fetchGitBranches(path: string, project: string): Promise<{ branches: GitBranchRef[] }> {
+  return fetch(`/api/git/branches?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<{ branches: GitBranchRef[] }>)
+}
+
+export function runGitBranchAction(path: string, action: 'switch' | 'create', ref: string, name: string | undefined, project: string, workspace: string): Promise<GitRepositoryInfo> {
+  return gitFetch(`/api/git/branches?${projectQs(project)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, action, ref, name, workspace }),
+  }, project).then(json<GitRepositoryInfo>)
+}
+
+export async function runGitRemoteAction(path: string, action: 'pull' | 'push', project: string, workspace: string, onProgress?: (progress: GitRemoteProgress) => void): Promise<{ ok: true }> {
+  const response = await gitFetch(`/api/git/remote?${projectQs(project)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
     body: JSON.stringify({ path, action, workspace }),
-  }, project).then(json<{ ok: true }>)
+  }, project)
+  if (!response.ok || !response.headers.get('Content-Type')?.includes('application/x-ndjson')) return json<{ ok: true }>(response)
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error(uiText('Git 진행 상황 연결이 끊겼습니다. 저장소 상태를 확인하세요.'))
+  const decoder = new TextDecoder()
+  let pending = '', complete = false
+  const consume = (line: string) => {
+    if (!line.trim()) return
+    const event = JSON.parse(line) as GitRemoteEvent
+    if (event.type === 'error') throw new Error(event.error)
+    if (event.type === 'complete') complete = true
+    if (event.type === 'progress') onProgress?.(event.progress)
+  }
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      pending += decoder.decode(value, { stream: !done })
+      const lines = pending.split('\n')
+      pending = lines.pop()!
+      for (const line of lines) consume(line)
+      if (done) { consume(pending); break }
+    }
+  } finally { reader.releaseLock() }
+  if (!complete) throw new Error(uiText('Git 진행 상황 연결이 끊겼습니다. 저장소 상태를 확인하세요.'))
+  return { ok: true }
 }
 
 export function externalRawUrl(path: string): string {
@@ -1874,4 +1917,11 @@ export const tmuxApi: TmuxPanelApi = {
   createSession: createTmuxSession,
   killSession: killTmuxSession,
   renameSession: renameTmuxSession,
+}
+
+export function fetchUpdatesStatus(refresh = false): Promise<UpdatesStatus> {
+  return fetch(`/api/updates/status${refresh ? '?refresh=1' : ''}`).then(json<UpdatesStatus>)
+}
+export function runUpdates(ids: string[]): Promise<UpdatesStatus> {
+  return fetch('/api/updates/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).then(json<UpdatesStatus>)
 }

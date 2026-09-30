@@ -28,7 +28,7 @@ export interface FeatureRun {
   featureId: string | null
   featureVersion: number | null
   /** Selection-time snapshot; editing a preset never changes an accepted request. */
-  agentSet: { id: string; name: string; runtime: string; modelId: string; role: string }
+  agentSet: { id: string; name: string; runtime: string; modelId: string; role: string; thinkingId?: string; thinkingConfigId?: string }
   context: { projectRoot: string; docsRoot: string }
   tabId: string
   sessionId: string | null

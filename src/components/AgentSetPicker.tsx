@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { DialogFrame, SelectField } from '@mew/ui'
-import { fetchAgentModels, saveAgentSets, type AgentModelOption, type AgentSet } from '../api/client'
+import { fetchAgentModels, saveAgentSets, type AgentModelOption, type AgentThinkingOption, type AgentSet } from '../api/client'
 import { RUNTIMES, runtimeOf } from './agentRuntimes'
 import { cachedAgentSets, refreshAgentSets, subscribeAgentSets, updateAgentSetsCache } from '../utils/agentPickerCache'
 import { useI18n } from '../i18n'
 import { uuid } from '../utils/uuid'
+import { panelModelState, splitCodexModelId } from '../../shared/codex-models'
 
 const AGENT_SET_RUNTIMES = RUNTIMES.filter((runtime) => runtime.surface === 'acp')
 
@@ -63,7 +64,7 @@ export function AgentSetPicker({ onSelect, onCreated }: { onSelect: (set: AgentS
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center text-ink-secondary"><runtime.Glyph /></span>
                 <button type="button" onClick={() => onSelect(set)} className="min-w-0 flex-1 text-left">
                   <div className="truncate text-sm text-ink">{set.name}</div>
-                  <div className="truncate text-xs text-ink-muted">{runtime.label}{set.modelId ? ` · ${set.modelId}` : ''}</div>
+                  <div className="truncate text-xs text-ink-muted">{runtime.label}{set.modelId ? ` · ${set.modelId}` : ''}{set.thinkingId ? ` · ${set.thinkingId}` : ''}</div>
                 </button>
                 <button type="button" onClick={() => setEditing(set)} className="rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-raised hover:text-ink">{t('agentSet.edit')}</button>
                 <button type="button" onClick={() => onSelect(set)} className="rounded px-2.5 py-1 text-xs text-accent hover:bg-surface-raised">{t('agentSet.use')}</button>
@@ -89,14 +90,14 @@ export function AgentSetPicker({ onSelect, onCreated }: { onSelect: (set: AgentS
 function AgentSetEditor({ set, error, saving, isNew, onSave, onDelete, onClose }: { set: AgentSet; error: string | null; saving: boolean; isNew: boolean; onSave: (set: AgentSet) => void; onDelete: () => void; onClose: () => void }) {
   const { t } = useI18n()
   const [form, setForm] = useState(set)
-  const [catalog, setCatalog] = useState<{ runtime: string; models: AgentModelOption[]; failed: boolean } | null>(null)
+  const [catalog, setCatalog] = useState<{ runtime: string; models: AgentModelOption[]; thinking?: AgentThinkingOption | null; failed: boolean } | null>(null)
   const [modelRetry, setModelRetry] = useState(0)
   useEffect(() => {
     const controller = new AbortController()
     setCatalog(null)
     void fetchAgentModels(form.runtime, controller.signal)
-      .then(({ models }) => {
-        if (!controller.signal.aborted) setCatalog({ runtime: form.runtime, models, failed: false })
+      .then(({ models, thinking }) => {
+        if (!controller.signal.aborted) setCatalog({ runtime: form.runtime, models, thinking, failed: false })
       })
       .catch(() => {
         if (!controller.signal.aborted) setCatalog({ runtime: form.runtime, models: [], failed: true })
@@ -105,10 +106,30 @@ function AgentSetEditor({ set, error, saving, isNew, onSave, onDelete, onClose }
   }, [form.runtime, modelRetry])
   const currentCatalog = catalog?.runtime === form.runtime ? catalog : null
   const models = currentCatalog?.models ?? []
-  const query = form.modelId.trim().toLocaleLowerCase()
-  const matchingModels = models.some(model => model.modelId === form.modelId)
-    ? models
-    : models.filter(model => `${model.name} ${model.modelId}`.toLocaleLowerCase().includes(query))
+  const codex = form.runtime === 'codex'
+  const selected = codex ? splitCodexModelId(form.modelId) : { model: form.modelId, effort: null }
+  const displayModels = panelModelState(form.runtime, { currentModelId: form.modelId, availableModels: models })!.availableModels
+  const efforts = codex
+    ? [...new Set(models.flatMap(item => {
+      const variant = splitCodexModelId(item.modelId)
+      return variant.model === selected.model && variant.effort ? [variant.effort] : []
+    }))].map(id => ({ id, name: currentCatalog?.thinking?.options.find(option => option.id === id)?.name ?? id }))
+    : currentCatalog?.thinking?.options ?? []
+  if (codex && selected.effort && !efforts.some(option => option.id === selected.effort)) {
+    efforts.push({ id: selected.effort, name: selected.effort })
+  }
+  const changeModel = (value: string) => {
+    if (!codex) { setForm({ ...form, modelId: value }); return }
+    const exact = splitCodexModelId(value)
+    const variants = models.filter(item => splitCodexModelId(item.modelId).model === value)
+    const variant = variants.find(item => splitCodexModelId(item.modelId).effort === selected.effort)
+      ?? variants.find(item => splitCodexModelId(item.modelId).effort === 'medium') ?? variants[0]
+    setForm({ ...form, modelId: exact.effort ? value : variant?.modelId ?? value })
+  }
+  const query = selected.model.trim().toLocaleLowerCase()
+  const matchingModels = displayModels.some(model => model.modelId === selected.model)
+    ? displayModels
+    : displayModels.filter(model => `${model.name} ${model.modelId}`.toLocaleLowerCase().includes(query))
   const modelOptions = [
     { value: '', label: t('agentSet.defaultModel') },
     ...matchingModels.map(model => ({ value: model.modelId, label: model.name === model.modelId ? model.name : `${model.name} · ${model.modelId}` })),
@@ -122,15 +143,28 @@ function AgentSetEditor({ set, error, saving, isNew, onSave, onDelete, onClose }
         <div id="agent-set-editor-title" className="mb-3 text-sm text-ink">{isNew ? t('agentSet.new') : t('agentSet.editTitle')}</div>
         <div className="space-y-3">
           <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.name')}</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1 w-full rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none" /></label>
-          <div><div className="mb-1 text-xs text-ink-muted">{t('agentSet.agent')}</div><SelectField label={t('agentSet.agent')} value={form.runtime} disabled={saving} onChange={(runtime) => setForm({ ...form, runtime, modelId: '' })} options={AGENT_SET_RUNTIMES.map((runtime) => ({ value: runtime.id, label: runtime.label }))} /></div>
+          <div><div className="mb-1 text-xs text-ink-muted">{t('agentSet.agent')}</div><SelectField label={t('agentSet.agent')} value={form.runtime} disabled={saving} onChange={(runtime) => setForm({ ...form, runtime, modelId: '', thinkingId: undefined, thinkingConfigId: undefined })} options={AGENT_SET_RUNTIMES.map((runtime) => ({ value: runtime.id, label: runtime.label }))} /></div>
           <div>
             <div className="mb-1 text-xs text-ink-muted">{t('agentSet.model')}</div>
-            <SelectField key={form.runtime} editable label={t('agentSet.model')} value={form.modelId} options={modelOptions} disabled={saving} onChange={(modelId) => setForm({ ...form, modelId })} />
+            <SelectField key={form.runtime} editable label={t('agentSet.model')} value={selected.model} options={modelOptions} disabled={saving} onChange={changeModel} />
             {currentCatalog?.failed && <div className="mt-1 flex items-center gap-2 text-xs">
               <span role="alert" className="text-danger">{t('agentSet.modelsFailed')}</span>
               <button type="button" disabled={saving} onClick={() => setModelRetry(value => value + 1)} className="shrink-0 rounded px-1 py-1 text-accent hover:bg-surface-raised disabled:opacity-40">{t('project.retry')}</button>
             </div>}
           </div>
+          {(efforts.length > 0 || (!codex && form.thinkingId)) && <div>
+            <div className="mb-1 text-xs text-ink-muted">{t('agentSet.effort')}</div>
+            <SelectField label={t('agentSet.effort')} disabled={saving} value={codex ? selected.effort ?? '' : form.thinkingId ?? ''}
+              options={[
+                ...(!codex ? [{ value: '', label: t('agentSet.defaultEffort') }] : []),
+                ...efforts.map(option => ({ value: option.id, label: option.name })),
+                ...(!codex && form.thinkingId && !efforts.some(option => option.id === form.thinkingId)
+                  ? [{ value: form.thinkingId, label: form.thinkingId }] : []),
+              ]}
+              onChange={value => setForm(codex
+                ? { ...form, modelId: models.find(item => { const variant = splitCodexModelId(item.modelId); return variant.model === selected.model && variant.effort === value })?.modelId ?? form.modelId }
+                : { ...form, thinkingId: value || undefined, thinkingConfigId: value ? currentCatalog?.thinking?.configId ?? form.thinkingConfigId : undefined })} />
+          </div>}
           <label className="block"><span className="text-xs text-ink-muted">{t('agentSet.role')}</span><textarea value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} rows={5} className="mt-1 w-full resize-none rounded bg-surface px-2 py-1.5 text-sm text-ink outline-none" /></label>
         </div>
         {error && <p role="alert" className="mt-3 whitespace-pre-wrap text-xs text-danger">{error}</p>}

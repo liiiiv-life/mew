@@ -4,7 +4,7 @@ parent: "mew-agents"
 title: "에이전트 입력·멘션·스킬·첨부"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-29"
+updated: "2026-09-30"
 status_hash: "a10e27bcc06cebe98975858548ff907b5953bfbcf197fe2ef971d9294144858f"
 files: ["src/components/AgentPanel.tsx", "src/components/MentionTextarea.tsx", "src/components/agent-composer-input.tsx", "src/utils/clipboard-images.ts", "src/utils/agentInputMentions.ts", "server/skills.ts"]
 commits: []
@@ -34,6 +34,8 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- 입력 영역의 최소 높이는 버튼 행의 실제 콘텐츠 높이와 계산된 패딩·테두리에서 구한다. 버튼 크기·간격 변경을 자동으로 반영하며 저장된 높이보다 콘텐츠가 크면 표시 높이를 올려 입력칸과 전송 버튼의 하단 정렬을 유지한다([입력 명세](../../specs/agent-input-mentions.md)).
+
 - @ 프로젝트/파일/폴더 멘션, / 스킬 선택, 첨부·미리보기·입력 기록과 입력칸 높이 조절을 제공한다.
 
 - 연결 중에도 초안 작성·첨부·높이 조절을 유지하며 전송 버튼과 단축키 전송만 연결 상태로 제한한다([연결 표시 계약](../../specs/agent-panel.md#연결-대기와-재연결)).
@@ -52,6 +54,10 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-09-30: hug 최소 높이 전환 후 PC/모바일에서 전송 버튼을 32→48px로 늘리자 최소 높이도 137→153px로 자동 변경되고 하단 정렬을 유지하는지 검증했다. 버튼 크기 복원·기본/최소/확장 높이와 기존 입력 회귀를 포함한 테스트 6개·타입·대상 린트가 통과했다.
+
+- 2026-09-30: 최소 높이에서 하단 정렬이 깨지는 회귀를 먼저 재현한 뒤 137px로 수정했다. 격리 Chromium의 PC/모바일에서 기본·최소·확장 높이의 입력칸/전송 버튼 하단 좌표를 검사했고, 관련 테스트 6개·타입·대상 린트·문서 허용목록 검사가 통과했다. 전체 링크 검사는 중앙 ADR 0183의 기존 미등록 경계 링크 2개로 실패했다. 빌드·서버 재시작은 수행하지 않았다.
 
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 멘션 대상·스킬 범위·첨부 완료 전 전송 차단과 모바일 키보드 위 입력 위치를 확인한다.

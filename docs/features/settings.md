@@ -4,7 +4,7 @@ parent: null
 title: "화면·계정·운영"
 status: "verified"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-09-30"
 status_hash: "66acae9698f920a11450fd0360475c1ab19b8d7e798fdd7f1215e0c9c4cb4d28"
 files: []
 commits: []
@@ -18,6 +18,8 @@ commits: []
 - 여러 하위 기능을 바꿀 때도 각각의 상세 계약을 확인한다.
 
 ### 하위 기능
+
+- [뮤캣 도우미·대화·Mew 조작](settings/mewcat-assistant.md)
 
 - [패널 배치·모바일·상태 복원](settings/layout-mobile.md)
 - [화면·언어·글꼴·단축키 설정](settings/appearance.md)

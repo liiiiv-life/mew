@@ -132,6 +132,31 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(documentReads, 0, 'Documents is loaded on demand')
       assert.equal(await draft.getAttribute('contenteditable'), 'true', 'mobile keyboards receive a rich editing host')
       const composer = page.locator('[data-keep-keyboard]')
+      const assertComposerBottomAligned = async () => {
+        const inputBottom = await composer.locator('.cm-editor').evaluate(el => el.parentElement!.getBoundingClientRect().bottom)
+        const sendBox = await composer.getByRole('button', { name: '전송', exact: true }).boundingBox()
+        assert.ok(sendBox && Math.abs(sendBox.y + sendBox.height - inputBottom) < 0.5, 'send and input bottoms share the same y coordinate')
+      }
+      await assertComposerBottomAligned()
+      const resizeHandle = composer.getByRole('separator', { name: '입력창 높이 조절' })
+      for (let i = 0; i < 20; i++) await resizeHandle.press('ArrowDown')
+      await assertComposerBottomAligned()
+      assert.equal((await composer.boundingBox())!.height, 137, 'minimum includes the 28px settings row and 1px top border')
+      // Intrinsic button size changes must update the minimum without a JS pixel sum.
+      await composer.getByRole('button', { name: '전송', exact: true }).evaluate(el => { el.style.height = '48px' })
+      await resizeHandle.evaluate(async el => {
+        const view = el.ownerDocument.defaultView!
+        while (el.getAttribute('aria-valuemin') !== '153') await new Promise<void>(resolve => view.requestAnimationFrame(() => resolve()))
+      })
+      assert.equal((await composer.boundingBox())!.height, 153)
+      await assertComposerBottomAligned()
+      await composer.getByRole('button', { name: '전송', exact: true }).evaluate(el => { el.style.height = '' })
+      await resizeHandle.evaluate(async el => {
+        const view = el.ownerDocument.defaultView!
+        while (el.getAttribute('aria-valuemin') !== '137') await new Promise<void>(resolve => view.requestAnimationFrame(() => resolve()))
+      })
+      for (let i = 0; i < 4; i++) await resizeHandle.press('ArrowUp')
+      await assertComposerBottomAligned()
       const initialComposer = await composer.boundingBox()
       if (width === 390) assert.equal(initialComposer!.y + initialComposer!.height, 844 - 48, 'composer clears the mobile dock reservation')
       const longDraft = Array.from({ length: 80 }, (_, i) => `${i + 1}. 긴 입력 내용이 줄바꿈되어도 입력칸 안에서 모두 확인할 수 있어야 합니다.`).join('\n')
@@ -216,6 +241,14 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         await page.evaluate(({ text, attachments }) => {
           (globalThis as any).agentSocket.emit({ type: 'meta', meta: { sessionId: 'conversation', busy: true, queued: [text], queuedKinds: ['prompt'], queuedAttachments: [attachments] } })
         }, { text, attachments })
+        await page.locator('[data-agent-queue]').evaluate(async (root, text) => {
+          for (let frame = 0; frame < 60; frame++) {
+            const rows = root.querySelectorAll('[data-queue-row]')
+            if (rows.length === 1 && rows[0].querySelector('button[aria-expanded] > span')?.textContent === text) return
+            await new Promise(resolve => root.ownerDocument.defaultView!.requestAnimationFrame(resolve))
+          }
+          throw new Error('queue metadata did not render')
+        }, text)
       }
       await page.evaluate("window.agentMessages=[];window.agentSocket.emit({type:'meta',meta:{sessionId:'conversation',busy:true,queued:['첫 대기','둘째 대기'],queuedKinds:['prompt','prompt'],queuedAttachments:[[],[]]}})")
       const handles = page.getByRole('button', { name: '드래그해서 순서 변경', exact: true })
@@ -226,27 +259,103 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.ok(firstHandle && secondHandle)
       const from = { x: firstHandle.x + firstHandle.width / 2, y: firstHandle.y + firstHandle.height / 2 }
       const to = { x: secondHandle.x + secondHandle.width / 2, y: secondHandle.y + secondHandle.height / 2 }
+      const checkQueuePreview = async () => {
+        await page.locator('[data-queue-drop-placeholder]').waitFor()
+        // Wait for the authored shift rather than asserting an intermediate animation frame.
+        await page.locator('[data-agent-queue]').evaluate(async root => {
+          const el = root.querySelector('[data-queue-row="1"]')!
+          const slot = root.querySelector('[data-queue-slot="0"]')!
+          for (let frame = 0; frame < 60; frame++) {
+            if (Math.abs(el.getBoundingClientRect().top - slot.getBoundingClientRect().top) < 1) return
+            await new Promise(resolve => root.ownerDocument.defaultView!.requestAnimationFrame(resolve))
+          }
+          throw new Error('neighbor did not move into the vacated slot')
+        })
+        const placeholder = await page.locator('[data-queue-drop-placeholder]').boundingBox()
+        const destination = await page.locator('[data-queue-slot="1"]').boundingBox()
+        assert.ok(placeholder && destination && Math.abs(placeholder.y - destination.y) < 1, 'insertion gap follows the destination')
+        assert.equal(await page.evaluate("window.agentMessages.filter(message => message.type === 'move_queued').length"), 0, 'preview does not commit the order')
+        if (process.env.MEW_CLI_SCREENSHOTS) {
+          await fs.mkdir(process.env.MEW_CLI_SCREENSHOTS, { recursive: true })
+          await page.screenshot({ path: path.join(process.env.MEW_CLI_SCREENSHOTS, `queue-drag-${width}.png`) })
+        }
+      }
       if (width === 390) {
         const touch = await page.context().newCDPSession(page)
         await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] })
         await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [to] })
+        await checkQueuePreview()
         await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
         await touch.detach()
       } else {
         await page.mouse.move(from.x, from.y)
         await page.mouse.down()
         await page.mouse.move(to.x, to.y, { steps: 3 })
+        await checkQueuePreview()
         await page.mouse.up()
       }
       assert.deepEqual(await page.evaluate("window.agentMessages.filter(message => message.type === 'move_queued')"), [{ type: 'move_queued', from: 0, to: 1 }], 'handle drags immediately without holding')
       assert.equal(await page.locator('[data-editing-queue]').count(), 0, 'drag does not start editing')
       await handles.nth(1).press('ArrowUp')
       assert.deepEqual(await page.evaluate("window.agentMessages.filter(message => message.type === 'move_queued').at(-1)"), { type: 'move_queued', from: 1, to: 0 })
+      await page.evaluate("window.agentMessages=[];window.agentSocket.emit({type:'meta',meta:{sessionId:'conversation',busy:true,queued:['위 항목','여러 줄\\n둘째 줄\\n셋째 줄\\n넷째 줄','아래 항목'],queuedKinds:['prompt','prompt','prompt'],queuedAttachments:[[],[],[]]}})")
+      await page.getByRole('button', { name: '여러 줄 둘째 줄 셋째 줄 넷째 줄', exact: true }).click()
+      const tallSlot = await page.locator('[data-queue-slot="1"]').boundingBox()
+      const lastSlot = await page.locator('[data-queue-slot="2"]').boundingBox()
+      assert.ok(tallSlot && lastSlot && tallSlot.height > lastSlot.height)
+      const tallHandle = handles.nth(1)
+      const tallBox = await tallHandle.boundingBox()
+      assert.ok(tallBox)
+      const tallFrom = { clientX: tallBox.x + tallBox.width / 2, clientY: tallBox.y + tallBox.height / 2 }
+      const tallTo = { clientX: tallFrom.clientX, clientY: lastSlot.y + lastSlot.height / 2 }
+      await tallHandle.dispatchEvent('pointerdown', { ...tallFrom, pointerId: 73, pointerType: 'mouse', button: 0 })
+      await tallHandle.dispatchEvent('pointermove', { ...tallTo, pointerId: 73, pointerType: 'mouse' })
+      await page.locator('[data-queue-drop-placeholder]').waitFor()
+      await page.locator('[data-agent-queue]').evaluate(async root => {
+        for (let frame = 0; frame < 15; frame++) await new Promise(resolve => root.ownerDocument.defaultView!.requestAnimationFrame(resolve))
+      })
+      const tallGap = await page.locator('[data-queue-drop-placeholder]').boundingBox()
+      const movedLast = await page.locator('[data-queue-row="2"]').boundingBox()
+      assert.ok(tallGap && movedLast && Math.abs(tallGap.y + tallGap.height - (lastSlot.y + lastSlot.height)) < 1, 'tall row insertion aligns with the end of its destination')
+      assert.ok(movedLast.y + movedLast.height <= tallGap.y, 'short neighbor moves clear of the tall insertion gap')
+      await tallHandle.dispatchEvent('pointercancel', { pointerId: 73, pointerType: 'mouse' })
+      assert.equal(await page.locator('[data-queue-drop-placeholder]').count(), 0)
+      assert.equal(await page.evaluate("window.agentMessages.filter(message => message.type === 'move_queued').length"), 0, 'cancel restores the original order without committing')
+      await tallHandle.dispatchEvent('pointerdown', { ...tallFrom, pointerId: 74, pointerType: 'mouse', button: 0 })
+      await tallHandle.dispatchEvent('pointermove', { ...tallTo, pointerId: 74, pointerType: 'mouse' })
+      await page.locator('[data-queue-drop-placeholder]').waitFor()
+      await page.keyboard.press('Escape')
+      await page.locator('[data-queue-drop-placeholder]').waitFor({ state: 'detached' })
+      assert.equal(await handles.count(), 3, 'Esc cancels only the drag and preserves the panel')
+      assert.equal(await page.evaluate("window.agentMessages.filter(message => message.type === 'move_queued').length"), 0)
+      const restoredLast = await page.locator('[data-queue-row="2"]').boundingBox()
+      assert.ok(restoredLast && Math.abs(restoredLast.y - lastSlot.y) < 1)
       await page.evaluate('window.agentMessages=[]')
       await draft.fill('보존할 새 메시지')
+      const fullQueueText = '첫째 줄\n둘째 줄\n셋째 줄\n넷째 줄\n다섯째 줄\n마지막 줄'
+      await showQueue(fullQueueText, [])
+      const fullQueueItem = page.locator('[data-agent-queue] button[aria-expanded]')
+      await fullQueueItem.click()
+      assert.equal(await fullQueueItem.getAttribute('aria-expanded'), 'true')
+      assert.equal(await fullQueueItem.locator('span').first().textContent(), fullQueueText)
+      assert.equal(await page.locator('[data-editing-queue]').count(), 0, 'body click only expands the queue')
+      assert.equal(await composerValue(draft), '보존할 새 메시지')
+      assert.equal(await page.evaluate("window.agentMessages.some(message => message.type === 'begin_edit_queued')"), false)
+      const expandedBody = fullQueueItem.locator('span').first()
+      const scrollSize = await expandedBody.evaluate(el => {
+        el.scrollTop = el.scrollHeight
+        return { height: el.clientHeight, total: el.scrollHeight, top: el.scrollTop, line: parseFloat(el.ownerDocument.defaultView!.getComputedStyle(el).lineHeight) }
+      })
+      assert.ok(scrollSize.total > scrollSize.height && scrollSize.top > 0, 'long queue content scrolls internally')
+      assert.ok(scrollSize.height <= scrollSize.line * 4, 'expanded content is capped at four lines')
+      const editButton = page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true })
+      const editBox = await editButton.boundingBox()
+      const deleteBox = await page.getByRole('button', { name: '대기 메시지 취소', exact: true }).boundingBox()
+      assert.ok(editBox && deleteBox && editBox.x + editBox.width <= deleteBox.x, 'pencil is immediately before X')
+      await fullQueueItem.click()
+      assert.equal(await fullQueueItem.getAttribute('aria-expanded'), 'false')
       await showQueue('첨부 확인')
-      const queueItem = page.getByRole('button', { name: '첨부 확인 png pdf', exact: true })
-      await queueItem.click()
+      await page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true }).click()
       const queuedInput = page.getByRole('textbox', { name: '대기 메시지 수정칸', exact: true })
       await queuedInput.waitFor()
       assert.equal(await composerValue(queuedInput), '첨부 확인', 'attachment paths stay out of editable text')
@@ -256,7 +365,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).isDisabled(), true)
       const cancelBounds = await page.getByRole('button', { name: '취소', exact: true }).boundingBox()
       const saveBounds = await page.getByRole('button', { name: '저장', exact: true }).boundingBox()
-      assert.ok(cancelBounds && saveBounds && cancelBounds.y + cancelBounds.height <= saveBounds.y, 'cancel X is above save')
+      assert.ok(cancelBounds && saveBounds && cancelBounds.y + cancelBounds.height <= saveBounds.y, 'queue cancel is above the composer save')
+      assert.equal(await page.locator('[data-agent-queue]').getByRole('button', { name: '취소', exact: true }).innerText(), '취소')
+      assert.equal(await page.locator('[data-agent-composer]').getByRole('button', { name: '취소', exact: true }).count(), 0)
+      assert.equal(await page.getByRole('button', { name: '예약 메시지', exact: true }).count(), 0)
       await page.getByRole('button', { name: 'png', exact: true }).click()
       await page.getByRole('dialog').waitFor()
       assert.match(await page.getByRole('dialog').locator('img').getAttribute('src') ?? '', /clipboard-1.png/)
@@ -266,7 +378,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await queuedInput.fill('취소할 수정')
       await page.getByRole('button', { name: '취소', exact: true }).click()
       assert.equal(await composerValue(draft), '보존할 새 메시지', 'cancel restores the unsent composer draft')
-      await queueItem.click()
+      await page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true }).click()
       assert.equal(await page.getByRole('button', { name: 'pdf 첨부 제거', exact: true }).count(), 1, 'cancel restores original attachments')
       await page.getByRole('button', { name: 'pdf 첨부 제거', exact: true }).click()
       holdUpload = true
@@ -301,13 +413,13 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(edited.attachments[0].image, undefined, 'existing bytes are retained by the supervisor')
       assert.ok(edited.attachments[1].image?.data)
       await showQueue('', edited.attachments)
-      await page.getByRole('button', { name: 'png png', exact: true }).click()
+      await page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true }).click()
       await queuedInput.waitFor()
       await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).first().click()
       await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).first().click()
       assert.equal(await page.getByRole('button', { name: '저장', exact: true }).isDisabled(), true, 'empty text and attachments cannot be saved')
       await page.getByRole('button', { name: '취소', exact: true }).click()
-      await page.getByRole('button', { name: 'png png', exact: true }).click()
+      await page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true }).click()
       holdUpload = true
       releaseUpload = undefined
       const latePicker = page.waitForEvent('filechooser')
@@ -315,7 +427,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await (await latePicker).setFiles({ name: 'late.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) })
       for (let attempt = 0; !releaseUpload && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 10))
       await page.getByRole('button', { name: '취소', exact: true }).click()
-      await page.getByRole('button', { name: 'png png', exact: true }).click()
+      await page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true }).click()
       const lateResponse = page.waitForResponse(response => response.url().includes('/api/upload-into'))
       holdUpload = false
       releaseUpload!()
@@ -329,7 +441,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await (await draftPicker).setFiles({ name: 'draft.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) })
       await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).waitFor()
       await showQueue('키보드로 수정', [])
-      await page.getByRole('button', { name: '키보드로 수정', exact: true }).click()
+      await page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true }).click()
       await queuedInput.waitFor()
       await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
       assert.equal(await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).count(), 0, 'new-message attachments stay out of queue edits')
@@ -340,7 +452,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(await page.evaluate("window.agentMessages.filter(message => message.type === 'edit_queued').at(-1).text"), '저장할 수정')
       await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).click()
       await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).click()
-      await page.getByRole('button', { name: '키보드로 수정', exact: true }).click()
+      await page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true }).click()
       await queuedInput.waitFor()
       await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
       assert.equal(await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).getAttribute('aria-pressed'), 'false')
@@ -348,6 +460,15 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await queuedInput.press('Escape')
       assert.equal(await composerValue(draft), '보존할 새 메시지')
       assert.equal(await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).getAttribute('aria-pressed'), 'true', 'cancel restores CLI mode')
+      await page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true }).click()
+      await queuedInput.waitFor()
+      await queuedInput.fill('뒤로가기로 취소할 수정')
+      await page.evaluate('window.history.back()')
+      await queuedInput.waitFor({ state: 'detached' })
+      assert.equal(await composerValue(draft), '보존할 새 메시지')
+      assert.equal(await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).getAttribute('aria-pressed'), 'true')
+      assert.equal(await page.getByRole('button', { name: '키보드로 수정', exact: true }).count(), 1, 'Back preserves the queued item and the panel')
+      assert.equal(await page.evaluate('window.agentMessages.at(-1).type'), 'cancel_edit_queued')
       await page.getByRole('button', { name: 'CLI 명령 모드', exact: true }).click()
       await page.evaluate("window.agentMessages=[];window.agentSocket.emit({type:'meta',meta:{sessionId:'conversation',busy:false,queued:[],queuedKinds:[],queuedAttachments:[]}})")
       await page.evaluate("window.setEditorProject('test')")

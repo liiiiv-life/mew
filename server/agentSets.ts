@@ -14,6 +14,8 @@ export interface AgentSet {
   runtime: string
   /** 빈 문자열이면 런타임 기본 모델 */
   modelId: string
+  thinkingId?: string
+  thinkingConfigId?: string
 }
 
 export class AgentSetError extends Error {}
@@ -46,7 +48,16 @@ function normalizeSet(input: unknown): AgentSet {
   if (!role) throw new AgentSetError('역할을 입력하세요')
   if (role.length > MAX_ROLE_LEN) throw new AgentSetError(`역할은 ${MAX_ROLE_LEN}자 이하여야 합니다`)
 
-  return { id, name, role, runtime, modelId }
+  const thinking = {} as Pick<AgentSet, 'thinkingId' | 'thinkingConfigId'>
+  if (runtime !== 'codex') {
+    for (const key of ['thinkingId', 'thinkingConfigId'] as const) {
+      if (rec[key] === undefined || rec[key] === '') continue
+      if (typeof rec[key] !== 'string' || rec[key].length > 120) throw new AgentSetError('노력도 설정이 올바르지 않습니다')
+      thinking[key] = rec[key].trim()
+    }
+    if (!!thinking.thinkingId !== !!thinking.thinkingConfigId) throw new AgentSetError('노력도 설정이 올바르지 않습니다')
+  }
+  return { id, name, role, runtime, modelId, ...thinking }
 }
 
 /** 클라이언트가 보낸 프리셋 목록을 검증·정규화한다. 이전 라우터 저장값은 자동으로 버린다. */

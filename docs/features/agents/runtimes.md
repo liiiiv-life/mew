@@ -4,7 +4,7 @@ parent: "mew-agents"
 title: "AI 런타임 설치·인증·실행 설정"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-29"
+updated: "2026-09-30"
 status_hash: "ce50d3fa70fce93520dfd200e419db9b718cebd2b370a52a9250e624fc80aed1"
 files: ["src/components/RuntimeSettingsModal.tsx", "src/components/agentRuntimes.tsx", "server/agentRuntimes.ts", "server/agentRuntimeInstall.ts", "server/agentDefaults.ts"]
 commits: []
@@ -33,6 +33,8 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- 런타임 설정창은 공통 `DialogFrame`의 body portal로 목록 위에 표시하고, 내부 조작으로 뒤쪽 드롭다운이 닫히지 않게 한다.
+
 - 입력칸 기본값 저장 아이콘은 옆 드롭다운과 같은 높이의 투명 컨테이너 중앙에 정렬한다.
 
 - 런타임 선택·지원되는 설치/제거·로그인/로그아웃·실행 설정과 모델·추론·권한 기본값을 제공한다.
@@ -42,6 +44,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 런타임 목록의 설정창이 리스트에 가려지지 않고 입력·저장·삭제/로그아웃 확인창을 조작해도 유지되는지 확인한다.
 
 - 기본값 저장 아이콘이 모델·노력·권한 드롭다운과 같은 높이·중심선에 놓이는지 확인한다.
 

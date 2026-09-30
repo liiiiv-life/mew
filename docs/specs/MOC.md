@@ -1,7 +1,7 @@
 ---
 title: "제품 스펙"
 created: 2026-09-11
-updated: 2026-09-18
+updated: "2026-09-30"
 ---
 
 # 제품 스펙
@@ -9,6 +9,8 @@ updated: 2026-09-18
 상위: [문서 지도](../MOC.md). 작업 단위는 [기능 문서](../features/MOC.md)에서 고르고, 이 분야는 연결된 세부 UI·행동 계약을 소유한다.
 
 ## Current
+
+- [뮤캣 도우미·대화·Mew 조작](mewcat-assistant.md)
 
 - [기능 기반 개발](feature-development.md)
 - [mew 에이전트 입력 멘션](agent-input-mentions.md)

@@ -132,3 +132,14 @@ test('꺼진 작업은 crontab에 나가지 않는다', () => {
   const jobs = normalizeJobs([{ ...base, enabled: false }])
   assert.equal(mergeCrontab('', jobs), '')
 })
+
+
+test('예약 프롬프트 전에 모델과 노력도를 순서대로 적용한다', async () => {
+  const calls: string[] = []
+  await runScheduledPrompt({
+    setModel: async id => { calls.push(id) },
+    setThinking: async (configId, id) => { calls.push(`${configId}:${id}`) },
+    runOnce: async () => { calls.push('prompt'); return 'end_turn' },
+  }, 'review', { ...preset, runtime: 'claude', thinkingConfigId: 'effort', thinkingId: 'high' })
+  assert.deepEqual(calls, ['chosen-model', 'effort:high', 'prompt'])
+})

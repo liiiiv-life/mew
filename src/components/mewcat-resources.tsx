@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react'
+import { useEffect, useState, type RefObject, type ReactNode } from 'react'
 import { useMewcatBubble } from '../hooks/use-mewcat-bubble'
 import { useOverlayDismiss } from '@mew/ui'
 import { Check, WarningTriangle, Xmark } from 'iconoir-react'
@@ -8,8 +8,8 @@ import { dismissMewcatNotice, openMewcatNotice, useMewcatNotices } from '../util
 
 const percent = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '—' : `${Math.round(value)}%`
 
-export function MewcatResources({ anchorRef, onOpen, onClose }: { anchorRef: RefObject<HTMLDivElement | null>; onOpen?: () => void; onClose: () => void }) {
-  const bubbleRef = useMewcatBubble(anchorRef, true, 260)
+export function MewcatResources({ anchorRef, onOpen, onClose, assistant }: { assistant?: ReactNode; anchorRef: RefObject<HTMLDivElement | null>; onOpen?: () => void; onClose: () => void }) {
+  const bubbleRef = useMewcatBubble(anchorRef, true, assistant ? 340 : 260)
   const { t } = useI18n()
   const notices = useMewcatNotices()
   const recent = [...notices].sort((a, b) => b.id - a.id)
@@ -69,6 +69,7 @@ export function MewcatResources({ anchorRef, onOpen, onClose }: { anchorRef: Ref
           </li>
         })}
       </ul> : <p className="mewcat-notification-empty text-xs leading-relaxed text-ink-secondary">{t('mewcat.empty')}</p>}
+      {assistant}
       {canReadResources && <button type="button" onClick={onOpen} aria-label={t('mewcat.system')}
         title={t(failed ? 'system.resourceLoadFailed' : stats ? 'system.title' : 'system.loading')}
         className="mewcat-notification-metrics flex w-full flex-wrap items-center justify-center gap-x-2.5 gap-y-1 border-t border-edge text-[11px] tabular-nums text-ink-secondary hover:bg-surface-raised focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent">

@@ -1,3 +1,6 @@
+import { bindMewcat, type MewcatBinding } from './mewcat-assistant.ts'
+import { resolveAuth } from './reqAuth.ts'
+import type { MewcatClientMessage, MewcatActionRequest } from '../shared/mewcat-assistant.ts'
 import { validHistoryRequest, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
 import { attachmentPrompt, type AgentAttachmentInput } from '../shared/agent-attachment.ts'
 import { watchSocketAccess } from './access-socket.ts'
@@ -23,7 +26,7 @@ export const AGENT_WS_PATH = '/api/agent/ws'
 const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 
-type ClientMessage =
+type ClientMessage = MewcatClientMessage
   | { type: 'history'; range: HistoryRequest }
   | { type: 'prompt'; text: string; displayText?: string; images?: AgentImage[]; imageRefs?: AgentImageRef[]; skills?: string[]; settings?: AgentMessageSettings; attachments?: AgentAttachmentInput[] }
   | { type: 'cancel' }
@@ -109,6 +112,7 @@ type ServerMessage =
   | { type: 'history'; page: HistoryPage<AgentEvent>; restoreFailure?: { sessionId: string; message: string } }
   | { type: 'history_event'; event: AgentEvent; position: HistoryPosition }
   | AgentEvent
+  | MewcatActionRequest
   | { type: 'ready'; cwd: string }
   | { type: 'fatal'; message?: string }
   // 목록은 물어본 창에만 답한다 — 상태가 아니라 조회 결과라 이벤트 버퍼에 넣지 않는다
@@ -151,8 +155,9 @@ async function handleConnection(
   tab: string,
   cwd: string,
   resumeSessionId: string | null,
-  preset: { modelId: string; role: string },
+  preset: { modelId: string; role: string; thinkingId: string; thinkingConfigId: string },
   history?: HistoryRequest,
+  assistant?: MewcatBinding,
 ) {
   const fail = (err: unknown) => send(ws, { type: 'error', message: describeError(err) })
 
@@ -186,6 +191,10 @@ async function handleConnection(
 
   const handle = (msg: ClientMessage) => {
     if (accessChecks.get(ws)?.() === false) { ws.terminate(); return }
+    if (msg.type === 'mewcat_context' || msg.type === 'mewcat_action_result') {
+      try { assistant?.handle(msg) } catch { ws.close() }
+      return
+    }
     // 목록은 디스크만 읽는다 — 자식 프로세스가 뜨기를 기다리지 않는다(세션의 listSessions와 같은 지름길)
     if (msg.type === 'list_sessions' && runtime === 'claude') {
       void listSessionsFromDisk(cwd)
@@ -212,7 +221,7 @@ async function handleConnection(
         // 첨부 경로는 에이전트가 읽게 하되, 대화 창에는 사용자가 쓴 프롬프트만 남긴다.
         const displayText = typeof msg.displayText === 'string' ? msg.displayText : msg.text
         const attachments = validAttachments(msg.attachments, runtime)?.map(({ project, path, mimeType }) => ({ project, path, mimeType }))
-        live.send({ type: 'prompt', text: displayText, promptText: promptForRuntime(runtime, cwd, prompt, msg.skills), images, imageRefs, settings: validSettings(msg.settings), attachments })
+        live.send({ type: 'prompt', text: displayText, promptText: assistant ? assistant.prompt(prompt) : promptForRuntime(runtime, cwd, prompt, msg.skills), images, imageRefs, settings: validSettings(msg.settings), attachments })
       }
       else if (msg.type === 'cancel') live.send({ type: 'cancel' })
       else if (msg.type === 'permission') live.send({ type: 'permission', id: msg.id, optionId: msg.optionId })
@@ -287,7 +296,7 @@ async function handleConnection(
         // 유휴 종료도 이 길을 탄다. 재접속할 일시 단절을 대화 오류로 남기지 않는다.
         ws.close()
       },
-    }, resumeSessionId)
+    }, resumeSessionId, undefined, assistant?.mcpServers)
   } catch (err) {
     send(ws, { type: 'fatal', message: describeError(err) })
     ws.close()
@@ -297,6 +306,9 @@ async function handleConnection(
   if (preset.modelId) {
     // 이 탭이 큐에 넣은 첫 프롬프트보다 앞에서 적용한다. 없는 모델은 런타임 기본값으로 조용히 계속한다.
     started.send({ type: 'set_model', modelId: preset.modelId })
+  }
+  if (runtime !== 'codex' && preset.thinkingId && preset.thinkingConfigId) {
+    started.send({ type: 'set_thinking', configId: preset.thinkingConfigId, value: preset.thinkingId })
   }
   // 준비 중 받은 프롬프트는 창이 그 사이 닫혔어도 감독에 먼저 인계한다. 프론트 종료가 이미 수락한
   // 작업을 취소하는 신호가 되어서는 안 된다.
@@ -324,10 +336,13 @@ export function attachAgentWebSocket(
     }
     // 런타임+탭+cwd로 붙는다. cwd는 워크스페이스 밖도 가능하지만 실제 폴더인지 먼저 검사한다(ADR 0077).
     const runtime = url.searchParams.get('runtime') || DEFAULT_RUNTIME
-    const tab = url.searchParams.get('tab') || 'default'
+    let tab = url.searchParams.get('tab') || 'default'
+    const browser = url.searchParams.get('mewcat')
     const resumeSessionId = url.searchParams.get('resume')
     const modelId = url.searchParams.get('model') ?? ''
     const role = url.searchParams.get('role') ?? ''
+    const thinkingId = url.searchParams.get('thinking') ?? ''
+    const thinkingConfigId = url.searchParams.get('thinkingConfig') ?? ''
     let cwd: string
     try {
       cwd = resolveAgentCwd(url.searchParams.get('cwd') ?? '', WORKSPACE_ROOT)
@@ -338,7 +353,8 @@ export function attachAgentWebSocket(
     }
     if (!isAcpRuntime(runtime) || !TAB_ID.test(tab)
       || (resumeSessionId !== null && !SESSION_ID.test(resumeSessionId))
-      || modelId.length > 120 || role.length > 4_000) {
+      || (browser !== null && !TAB_ID.test(browser))
+      || modelId.length > 120 || role.length > 4_000 || thinkingId.length > 120 || thinkingConfigId.length > 120) {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
@@ -346,8 +362,26 @@ export function attachAgentWebSocket(
     wss.handleUpgrade(req, socket, head, (ws) => {
       accessChecks.set(ws, () => opts.authorize?.(req) ?? true)
       watchSocketAccess(ws, req, opts.authorize)
-      void handleConnection(ws, runtime, tab, cwd, resumeSessionId, { modelId, role }, url.searchParams.get('history') === '1'
-        ? validHistoryRequest({ generation: url.searchParams.get('generation'), after: url.searchParams.has('after') ? Number(url.searchParams.get('after')) : undefined }) : undefined)
+      void (async () => {
+        let assistant: MewcatBinding | undefined
+        if (browser) {
+          const account = resolveAuth(req).email
+          if (!account) { ws.close(); return }
+          const bindingOptions = { account, browser, runtime,
+            authorized: () => ws.readyState === ws.OPEN && (opts.authorize?.(req) ?? false),
+            owner: () => resolveAuth(req).role === 'owner',
+            superseded: () => ws.close(),
+            send: (message: MewcatActionRequest) => send(ws, message),
+          }
+          assistant = await bindMewcat(bindingOptions)
+          tab = assistant.tab
+          cwd = assistant.cwd
+          ws.on('close', () => { if (assistant?.options === bindingOptions) assistant.disconnect() })
+          if (ws.readyState !== ws.OPEN) { assistant.disconnect(); return }
+        }
+        await handleConnection(ws, runtime, tab, cwd, resumeSessionId, { modelId, role, thinkingId, thinkingConfigId }, url.searchParams.get('history') === '1'
+          ? validHistoryRequest({ generation: url.searchParams.get('generation'), after: url.searchParams.has('after') ? Number(url.searchParams.get('after')) : undefined }) : undefined, assistant)
+      })().catch(() => { send(ws, { type: 'fatal', message: 'MEWCAT_CONNECTION_FAILED' }); ws.close() })
     })
   })
 }

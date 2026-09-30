@@ -67,6 +67,7 @@
 
 - **히스토리를 열 때마다** 계정의 모든 루트 프로젝트 탭이 주장한 ACP 세션을 다시 읽는다. 현재 탭 또는 다른 탭이 이미 연 세션은 목록에서 잠가 두므로, 이미 붙은 writer를 다시 `session/load`해 ACP의 `Internal error`가 나는 경로가 없다.
 
+- 히스토리의 `새 대화`는 유휴 여부만 확인하고, 유휴 상태에서는 대화·히스토리 로딩·미처리 프레임을 즉시 비운다. 서버 종료·재접속·새 세션 준비와 목록 조회 완료를 기다리지 않으며, 준비 중에도 빈 대화를 로딩 화면으로 덮지 않는다. 연결 전 전송은 차단하고 입력 초안은 유지한다. 진행 중 작업·큐가 있는 세션의 종료 규칙은 유지한다.
 - **창은 들어오는 이벤트를 한 프레임에 모아 한 번만 그린다**(`requestAnimationFrame`). 스트리밍 청크는 초당 수십 개다. `reset`도 그 줄에서 순서대로 처리돼 "비우기"와 "새 대화"가 같은 프레임에 들어간다.
 
 - `meta`**·**`sessions`**·**`reset`**은 이벤트 버퍼에 쌓지 않는다.** `meta`는 상태 스냅샷이라 붙을 때·바뀔 때 통째로 보내고(`sessionId`·`startedAt`·`turns`·`busy`·`queued`·`usage`·`canLoad`·`canList`), `sessions`는 **물어본 창에만, 물어봤을 때만** 답한다(claude 런타임은 세션이 뜨기를 기다리지 않고 디스크에서 바로 읽는다). 세션 목록의 cwd 비교는 대소문자를 구분하지 않아, 이전 기록의 경로 표기가 현재 실제 경로와 달라도 같은 폴더 히스토리로 찾는다. `reset`을 받은 창은 지금까지 그린 대화를 버린다.
@@ -128,3 +129,8 @@
 Antigravity는 Google 공식 ACP 서버를 직접 spawn한다. `initialize.authMethods`를 유지하고 `gemini-api-key`는 환경변수 인증 버튼으로 분류한다. Google OAuth는 `authenticate` 중 stderr로 출력되는 `accounts.google.com/o/oauth2/…` HTTPS URL만 공통 `auth_url` 이벤트로 보낸다. 분할 청크를 줄 단위로 조립하고 32 KiB를 넘는 줄은 버리며, 원문 stderr는 로그·전사에 저장하지 않는다.
 
 URL 이벤트는 재접속한 인증 화면에만 재전송된다. 성공·실패·취소 시 `auth_url_done`으로 브라우저를 닫고 URL을 버린다. ACP에 authenticate 취소 메서드가 없으므로 취소·330초 시간 초과는 해당 연결의 프로세스를 종료하고 initialize부터 다시 진행한다. 이전 연결의 늦은 응답은 새 세션을 만들지 않는다. 공급자 CLI 자격증명은 읽거나 복사하지 않는다. 설치·환경변수·지원 범위는 [런타임 설정](../configuration/agent-runtimes.md#antigravity-공식-acp), 결정은 [ADR 0143](../../../.mew/docs/decisions/0143-mew-antigravity-official-acp.md)을 따른다.
+
+
+## 뮤캣 도우미 세션과 MCP
+
+뮤캣은 계정·브라우저 탭·런타임별 별도 감독을 사용한다. `AgentSession.start`의 `mcpServers` 옵션을 독립 감독으로 전달하고 모든 session/new·session/load에 재사용한다. 일반 세션의 기본값은 빈 목록이다. 세션별 내장 MCP의 권한·현재 화면 맥락·작업 ID 왕복과 저장 경계는 [도우미 계약](../specs/mewcat-assistant.md)을 따른다.

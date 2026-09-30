@@ -1,3 +1,5 @@
+import { useMewcatAssistant, type MewcatAssistantOptions } from '../hooks/use-mewcat-assistant'
+import { MewcatAssistant } from './mewcat-assistant'
 import { useI18n } from '../i18n'
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useMewcatNotices, useNotificationPreferences } from '../utils/mewcat-notifications'
@@ -38,7 +40,9 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 function nextActivity(): Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'> { const options: Array<Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'>> = ['idle', 'walk', 'run']; return options[Math.floor(Math.random() * options.length)] }
 
 /** 화면 맨 아래를 자유롭게 오가며, 눌러서 잠깐 놀아 줄 수 있는 Mew의 고양이. */
-export function Mewcat({ skin, onOpenSystemStats }: { skin: MewcatSkin | null; onOpenSystemStats?: () => void }) {
+export function Mewcat({ skin, onOpenSystemStats, assistant }: { skin: MewcatSkin | null; onOpenSystemStats?: () => void; assistant?: MewcatAssistantOptions & { onConnect: () => void; onRuntimeChange: (runtime: string) => void } }) {
+  const [activated, setActivated] = useState(false)
+  const helper = useMewcatAssistant(assistant ? { ...assistant, enabled: assistant.enabled && activated } : { account: 'guest', enabled: false, runtime: null, projectRoot: null, onAction: async () => {} })
   const anchorRef = useRef<HTMLDivElement>(null)
   const remainingMs = useMewcatBreak()
   const notices = useMewcatNotices()
@@ -52,8 +56,8 @@ export function Mewcat({ skin, onOpenSystemStats }: { skin: MewcatSkin | null; o
   }, [remainingMs, skin])
   if (remainingMs !== null) return <MewcatBreak remainingMs={remainingMs}><MewcatActive attention={false} giant /></MewcatBreak>
   return <>{skin !== null && <MewcatActive anchorRef={anchorRef} attention={attention} noticeId={attention ? notices.at(-1)?.id : undefined}
-    onTap={() => setBubbleOpen(open => !open)} onDrag={closeBubble} expanded={showBubble} />}
-    {showBubble ? <MewcatResources anchorRef={anchorRef} onClose={closeBubble} onOpen={onOpenSystemStats ? () => { closeBubble(); onOpenSystemStats() } : undefined} /> : <MewcatNotifications anchorRef={anchorRef} hasCat={skin !== null} />}
+    onTap={() => { setActivated(true); setBubbleOpen(open => !open) }} onDrag={closeBubble} expanded={showBubble} />}
+    {showBubble ? <MewcatResources anchorRef={anchorRef} assistant={assistant?.enabled ? <MewcatAssistant state={helper} runtime={assistant.runtime} onConnect={() => { closeBubble(); assistant.onConnect() }} onRuntimeChange={assistant.onRuntimeChange} /> : undefined} onClose={closeBubble} onOpen={onOpenSystemStats ? () => { closeBubble(); onOpenSystemStats() } : undefined} /> : <MewcatNotifications anchorRef={anchorRef} hasCat={skin !== null} />}
   </>
 }
 

@@ -1,3 +1,6 @@
+import { createProjectTaskRouter } from './project-task-routes.ts'
+import { updatesStatus, startUpdates, updatesRunning } from './updates.ts'
+import type { GitRemoteEvent, GitRemoteProgress } from '../shared/git-remote-progress.ts'
 import { GitConnectionError } from './git-connections.ts'
 import { gitRequestContext, requireGitConnection } from './git-execution.ts'
 import { ProjectSetupError } from './project-agent-settings.ts'
@@ -27,7 +30,7 @@ import {
 import { searchFileNames } from './fileNameSearch.ts'
 import { ensureSearchIndex, exactSearchCandidates, type SearchIndexState } from './searchCatalog.ts'
 import { commitFile, fileHistory, showAtCommit, showHeadContent } from './git.ts'
-import { cloneExternalRepository, commitDetail, commitFileDiff, commitWorkingTree, GitWorkbenchError, initializeExternalRepository, initializeRepository, listRepositories, repositoryInfo, repositoryLog, runCommitAction, runRemoteAction, workingTreeDetail, workingTreeFileDiff } from './gitWorkbench.ts'
+import { cloneExternalRepository, commitDetail, commitFileDiff, commitWorkingTree, GitWorkbenchError, initializeExternalRepository, initializeRepository, listRepositories, repositoryInfo, repositoryLog, repositoryBranches, runBranchAction, runCommitAction, runRemoteAction, workingTreeDetail, workingTreeFileDiff } from './gitWorkbench.ts'
 import { createGitHubAuthRouter } from './github-auth-routes.ts'
 import { evaluateRules, isArchived } from './rules.ts'
 import { registerPdfRoutes } from './pdf.ts'
@@ -80,7 +83,7 @@ import { agentCommand, jobCwd, jobSessionName, jobViews, otherLines, readJobs, s
 import { AgentSetError, readSets, writeSets } from './agentSets.ts'
 import { GitAiCommitStore } from './git-ai-commit.ts'
 import { createGitAiCommitRouter } from './git-ai-commit-routes.ts'
-import { acpRuntimeList, agentSetRuntimeList, isRuntime, probeModels } from './agentAcp.ts'
+import { acpRuntimeList, agentSetRuntimeList, isRuntime, probeModels, thinkingByRuntime } from './agentAcp.ts'
 import { isRuntimeLoginMethod, runtimeLoginSpec } from './agentRuntimes.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
 import { authFailureMessageFromOutput, browserLoginDetailsFromOutput, prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
@@ -109,6 +112,7 @@ import {
   writeIgnoreList,
 } from './ignoreList.ts'
 import { broadcast, broadcastTree } from './presence.ts'
+import { createPresenceHistoryRouter } from './presence-history-routes.ts'
 import { resetTreeWatchers, watchProjectTree } from './watcher.ts'
 import { measure, measureSync } from './perfMarks.ts'
 import { authOf, requireAuthenticated, requireRole, requireFeature, requireAnyFeature, seesEveryFile } from './reqAuth.ts'
@@ -369,6 +373,7 @@ export function createApiApp() {
   const app = express()
   app.use(express.json({ limit: '10mb' }))
   app.use('/admin/access', createAccessRouter())
+  app.use('/presence/history', createPresenceHistoryRouter())
   app.use((_req, res, next) => { res.setHeader('Cache-Control', 'private, no-store'); next() })
   app.use(filePermissionMiddleware)
   app.use((req, res, next) => {
@@ -567,6 +572,19 @@ export function createApiApp() {
     }
   })
 
+  app.get('/updates/status', requireFeature('system'), async (req, res) => {
+    try { res.json(await updatesStatus(req.query.refresh === '1')) }
+    catch (err) { handleError(res, err) }
+  })
+  app.post('/updates/run', requireFeature('system'), async (req, res) => {
+    try {
+      const running = (await tmuxManager.list()).some(session => Object.values(MEW_ACTIONS).some(action => action.session === session.name))
+      if (running) { res.status(409).json({ error: 'Mew 작업이 끝난 뒤 업데이트해 주세요' }); return }
+      res.json(await startUpdates(req.body?.ids))
+    }
+    catch (err) { res.status(409).json({ error: err instanceof Error ? err.message : String(err) }) }
+  })
+
   app.get('/mew-update/status', requireFeature('system'), async (req, res) => {
     try {
       const running = (await tmuxManager.list()).some((session) => session.name === MEW_UPDATE_SESSION)
@@ -580,6 +598,7 @@ export function createApiApp() {
   app.post('/mew-actions/:id/run', requireFeature('system'), async (req, res) => {
     try {
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+      if (updatesRunning()) { res.status(409).json({ error: '의존성 업데이트가 끝난 뒤 실행해 주세요' }); return }
       const action = MEW_ACTIONS[id as keyof typeof MEW_ACTIONS]
       if (!action) {
         res.status(404).json({ error: '해당 mew 작업을 찾을 수 없습니다' })
@@ -978,10 +997,37 @@ export function createApiApp() {
       res.status(409).json({ error: '프로젝트가 변경되었습니다. Git 패널을 다시 여세요.' })
       return
     }
+    const streaming = req.accepts('application/x-ndjson') && req.get('Accept') === 'application/x-ndjson'
+    const send = (event: GitRemoteEvent) => {
+      if (res.destroyed) return
+      if (!res.headersSent) {
+        res.set({ 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' })
+        res.flushHeaders()
+      }
+      res.write(JSON.stringify(event) + '\n')
+    }
     try {
-      await runRemoteAction(projectOf(req), String(req.body?.path ?? ''), req.body?.action)
-      res.json({ ok: true })
-    } catch (err) { handleError(res, err) }
+      await runRemoteAction(projectOf(req), String(req.body?.path ?? ''), req.body?.action,
+        streaming ? (progress: GitRemoteProgress) => send({ type: 'progress', progress }) : undefined)
+      if (streaming) { send({ type: 'complete' }); res.end() }
+      else res.json({ ok: true })
+    } catch (err) {
+      // Preflight failures retain HTTP 428 so the existing login continuation works.
+      if (!res.headersSent) handleError(res, err)
+      else { send({ type: 'error', error: err instanceof GitConnectionError ? err.message : 'Git 원격 작업에 실패했습니다.' }); res.end() }
+    }
+  })
+
+  app.get('/git/branches', requireFeature('git'), async (req, res) => {
+    try { res.json({ branches: await repositoryBranches(projectOf(req), String(req.query.path ?? '')) }) } catch (err) { handleError(res, err) }
+  })
+
+  app.post('/git/branches', requireFeature('git'), async (req, res) => {
+    if (req.body?.workspace !== WORKSPACE_ROOT) {
+      res.status(409).json({ error: '프로젝트가 변경되었습니다. Git 패널을 다시 여세요.' })
+      return
+    }
+    try { res.json(await runBranchAction(projectOf(req), String(req.body?.path ?? ''), req.body?.action, req.body?.ref, req.body?.name)) } catch (err) { handleError(res, err) }
   })
 
   app.post('/git/action', requireFeature('git'), async (req, res) => {
@@ -2077,6 +2123,7 @@ export function createApiApp() {
   app.use('/tmux', requireFeature('terminal'), createTmuxRouter(tmuxManager))
   app.use('/agent/commands', createAgentCommandRouter(new AgentCommandStore(tmuxManager)))
   app.use('/agent/harness', createAgentHarnessRouter())
+  app.use('/project-tasks', createProjectTaskRouter())
   app.use('/features', createFeatureRouter())
 
   // 호스트 자원 현황(프로파일링 팝업) — 서버가 도는 기계의 정보라 셸과 같은 역할로 묶는다
@@ -2100,7 +2147,7 @@ export function createApiApp() {
       res.status(400).json({ error: 'Unsupported agent runtime' })
       return
     }
-    try { res.json({ models: await probeModels(runtime) }) }
+    try { res.json({ models: await probeModels(runtime), thinking: thinkingByRuntime(runtime) }) }
     catch { res.status(502).json({ error: 'Could not load agent models' }) }
   })
 

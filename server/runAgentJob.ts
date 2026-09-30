@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url'
 import { AgentSession, type AgentEvent, isAcpRuntime } from './agentAcp.ts'
 import { normalizeSets, type AgentSet } from './agentSets.ts'
 
-export async function runScheduledPrompt(session: Pick<AgentSession, 'setModel' | 'runOnce'>, prompt: string, agentSet?: AgentSet) {
+export async function runScheduledPrompt(session: Pick<AgentSession, 'setModel' | 'runOnce'> & Partial<Pick<AgentSession, 'setThinking'>>, prompt: string, agentSet?: AgentSet) {
   if (agentSet?.modelId) await session.setModel(agentSet.modelId)
+  if (agentSet?.thinkingId && agentSet.thinkingConfigId) await session.setThinking?.(agentSet.thinkingConfigId, agentSet.thinkingId)
   await session.runOnce(agentSet ? `${agentSet.role}\n\n---\n\n${prompt}` : prompt)
 }
 

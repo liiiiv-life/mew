@@ -1,3 +1,4 @@
+import { localizedProjectTemplates } from './project-setup-copy.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -19,6 +20,7 @@ function templates(input: ProjectSetupInput): Map<string, string> {
     if (!input.initDocs && !fs.existsSync(safeProjectPath(input.projectRoot, `${docs}/AGENT.md`))) throw new ProjectSetupError('먼저 문서 기본 구조를 만들거나 Documents에 AGENT.md를 준비하세요')
     files.set('AGENTS.md', `Follow existing project instructions and read the project README if present.\nFor documentation navigation and write-back, start at [Documents](${link(docs)}/AGENT.md).\n`)
   }
+  if (input.initDocs) for (const [name, content] of localizedProjectTemplates(input.locale, docs) ?? []) files.set(name, content)
   return files
 }
 
@@ -40,7 +42,7 @@ export function planProjectSetup(input: ProjectSetupInput): ProjectSetupPlan {
     if (fs.existsSync(target) && !fs.statSync(target).isFile()) throw new ProjectSetupError(`파일 위치에 폴더가 있습니다: ${name}`)
     files.push({ path: name, action: fs.existsSync(target) ? 'preserve' : 'create' })
   }
-  const revision = crypto.createHash('sha256').update(JSON.stringify({ projectRoot, previous, settings, files })).digest('hex')
+  const revision = crypto.createHash('sha256').update(JSON.stringify({ projectRoot, previous, settings, files, locale: input.locale ?? 'en' })).digest('hex')
   return { projectRoot, settings, files, revision, context: describeAgentContext({ projectRoot, docsRoot }, settings, projectRoot) }
 }
 

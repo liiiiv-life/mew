@@ -73,6 +73,7 @@ export class FeatureService {
           if (!modelRequested) { modelRequested = true; connection.send({ type: 'set_model', modelId: run.agentSet.modelId }) }
           return
         }
+        if (run.agentSet.thinkingId && run.agentSet.thinkingConfigId) connection.send({ type: 'set_thinking', configId: run.agentSet.thinkingConfigId, value: run.agentSet.thinkingId })
         // Persist send intent first, atomically with cancellation and other recovering monitors.
         if (!await this.store.beginDispatch(workspace, run.id)) return
         if (this.store.runs(workspace).find(item => item.id === run.id)?.state === 'cancelling') {

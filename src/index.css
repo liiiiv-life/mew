@@ -485,6 +485,7 @@ strong {
 .mewcat-notification-metrics { min-height: 40px; padding: 8px 12px; }
 .mewcat-notification-clear { margin: 8px 0; }
 .mewcat-notification-summary {
+  --notice-button-size: 28px;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: start;
@@ -497,6 +498,16 @@ strong {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
+}
+/* Align visible contents, rather than invisible button boxes, to the 12px inset. */
+.mewcat-notification-summary > .mewcat-notification-button {
+  margin-right: calc((16px - var(--notice-button-size)) / 2);
+}
+.mewcat-notification-summary .mewcat-notification-footer {
+  margin-bottom: calc((18px - var(--notice-button-size)) / 2);
+}
+.mewcat-notification-summary .mewcat-notification-footer > .mewcat-notification-button:last-child {
+  margin-right: -8px;
 }
 .mewcat-notifications-with-cat { visibility: hidden; }
 .mewcat-notifications-with-cat::after {
@@ -544,6 +555,7 @@ strong {
 .mewcat-notification-action:active { background: transparent; color: var(--color-link); }
 .mewcat-notification-action:hover span { text-decoration: underline; text-underline-offset: 3px; }
 @media (pointer: coarse) {
+  .mewcat-notification-summary { --notice-button-size: 44px; }
   .mewcat-notification-button { min-width: 44px; min-height: 44px; }
   .mewcat-notification-metrics { min-height: 44px; }
 }

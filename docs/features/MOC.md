@@ -1,7 +1,7 @@
 ---
 title: "Mew 기능 문서 지도"
 created: 2026-09-18
-updated: 2026-09-18
+updated: "2026-09-30"
 ---
 
 # Mew 기능 문서
@@ -20,6 +20,10 @@ updated: 2026-09-18
 - [화면·계정·운영](settings/MOC.md) · [상위 기능](settings.md)
 
 <!-- mew:features:start -->
+
+- [프로젝트 태스크·마일스톤 관리](projects/tasks.md)
+
+- [뮤캣 도우미·대화·Mew 조작](settings/mewcat-assistant.md)
 - [공통 메모](collaboration/shared-memo.md)
 - [AI 런타임 설치·인증·실행 설정](agents/runtimes.md)
 - [Android 환경 점검·화면 연결](remote/android.md)
