@@ -132,8 +132,8 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
       {options.map((option, index) => <div key={option.value} id={`${id}-${index}`} role="option" aria-selected={option.value === value} aria-disabled={option.disabled || undefined}
         onPointerDown={event => event.preventDefault()} onClick={() => pick(index)}
         className={`flex min-h-11 items-center gap-2 px-2.5 ${option.disabled ? 'cursor-default text-ink-muted' : 'cursor-pointer text-ink hover:bg-surface-hover'} ${active === index ? 'bg-surface-hover' : ''}`}>
+        <span className="min-w-0 flex-1 break-words">{option.label}</span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className="shrink-0">{option.value === value && <path d="m5 12 4 4L19 6" />}</svg>
-        <span className="min-w-0 break-words">{option.label}</span>
       </div>)}
     </div>, portalContainer ?? document.body)}
   </>
