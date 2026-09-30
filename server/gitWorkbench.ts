@@ -1,3 +1,4 @@
+import { gitProgressParser, type GitRemoteProgress } from '../shared/git-remote-progress.ts'
 import { currentGitEnv, gitRequestContext, providerRemote, requireGitConnection, withGitCredential } from './git-execution.ts'
 import { GitConnectionError, gitConnections } from './git-connections.ts'
 import fs from 'node:fs'
@@ -56,6 +57,60 @@ export interface GitWorkingTreeCommitResult {
 
 export interface GitRepositoryEntry {
   path: string
+}
+
+export interface GitBranchRef {
+  name: string
+  ref: string
+  kind: 'local' | 'remote' | 'tag'
+}
+
+export async function repositoryBranches(project: string, relPath: string): Promise<GitBranchRef[]> {
+  const { git } = repository(project, relPath)
+  const raw = await git.raw(['for-each-ref', '--sort=refname', '--format=%(refname)%09%(symref)', 'refs/heads/', 'refs/remotes/', 'refs/tags/'])
+  return raw.trim().split('\n').filter(Boolean).flatMap(line => {
+    const [ref, symbolic] = line.split('\t')
+    if (symbolic) return []
+    const kind = ref.startsWith('refs/heads/') ? 'local' : ref.startsWith('refs/remotes/') ? 'remote' : 'tag'
+    return [{ ref, kind, name: ref.replace(/^refs\/(heads|remotes|tags)\//, '') } as GitBranchRef]
+  })
+}
+
+/** Local operations only: never fetch, force checkout, stash or discard changes. */
+export async function runBranchAction(project: string, relPath: string, action: unknown, refInput: unknown, nameInput?: unknown): Promise<GitRepositoryInfo> {
+  if (action !== 'switch' && action !== 'create') throw new GitWorkbenchError('지원하지 않는 Git 작업입니다')
+  const { abs, git } = repository(project, relPath)
+  const key = fs.realpathSync(abs)
+  if (remoteOperations.has(key)) throw new GitWorkbenchError('Git 원격 작업이 이미 실행 중입니다')
+  remoteOperations.add(key)
+  try {
+    const refs = await repositoryBranches(project, relPath)
+    const selected = refs.find(item => item.ref === refInput)
+    if (action === 'switch') {
+      if (!selected || selected.kind === 'tag') throw new GitWorkbenchError('전환할 브랜치를 선택하세요')
+      if (selected.kind === 'local') await git.raw(['switch', '--no-guess', '--', selected.name])
+      else {
+        const name = selected.name.slice(selected.name.indexOf('/') + 1)
+        await git.raw(['switch', '--track', '-c', name, selected.ref])
+      }
+    } else {
+      const name = assertRefName(nameInput, 'branch')
+      await git.raw(['check-ref-format', '--branch', name])
+      if (refInput !== 'HEAD' && !selected && !(typeof refInput === 'string' && /^[0-9a-f]{7,64}$/i.test(refInput))) {
+        throw new GitWorkbenchError('기준 브랜치·태그 또는 커밋 해시를 선택하세요')
+      }
+      if (refInput === 'HEAD' && !(await git.raw(['rev-parse', '--verify', 'HEAD']).catch(() => '')).trim()) {
+        await git.raw(['switch', '-c', name])
+      } else {
+        const hash = (await git.raw(['rev-parse', '--verify', `${refInput}^{commit}`])).trim()
+        await git.raw(['switch', '--no-track', '-c', name, hash])
+      }
+    }
+    return await repositoryInfo(project, relPath)
+  } finally {
+    remoteOperations.delete(key)
+    invalidateGit(project)
+  }
 }
 
 const execFileAsync = promisify(execFile)
@@ -290,12 +345,17 @@ export type GitCommitAction = 'branch' | 'tag' | 'checkout' | 'cherry-pick' | 'r
 
 const remoteOperations = new Set<string>()
 
-export async function runRemoteAction(project: string, relPath: string, action: unknown): Promise<void> {
+export async function runRemoteAction(project: string, relPath: string, action: unknown, onProgress?: (progress: GitRemoteProgress) => void): Promise<void> {
   if (action !== 'pull' && action !== 'push') throw new GitWorkbenchError('지원하지 않는 Git 작업입니다')
   const { abs, git } = repository(project, relPath)
   const key = fs.realpathSync(abs)
   if (remoteOperations.has(key)) throw new GitWorkbenchError('Git 원격 작업이 이미 실행 중입니다')
   remoteOperations.add(key)
+  const execute = (args: string[], env: NodeJS.ProcessEnv) => new Promise<void>((resolve, reject) => {
+    onProgress?.({ phase: 'connecting' })
+    const child = execFile('git', args, { cwd: abs, env: { ...env, LC_ALL: 'C' }, encoding: 'utf8', timeout: 120_000, maxBuffer: 2_000_000 }, error => error ? reject(error) : resolve())
+    if (onProgress) child.stderr?.on('data', gitProgressParser(onProgress))
+  })
   try {
     const status = await git.status()
     if (status.detached || !status.current) throw new GitWorkbenchError('브랜치로 전환한 뒤 다시 시도하세요')
@@ -316,9 +376,9 @@ export async function runRemoteAction(project: string, relPath: string, action: 
         const localOverrides = await git.raw(['config', '--local', '--name-only', '--get-regexp', '^(http\\..*(extraheader|cookiefile)|credential\\..*helper)$']).catch(() => '')
         const safeConfig = [...localOverrides.trim().split('\n').filter(Boolean).map(key => `${key}=`), ...config]
         const args = [...safeConfig.flatMap(value => ['-c', value]), ...(action === 'pull'
-          ? ['pull', '--ff-only', '--no-rebase', '--no-autostash', '--', target.url, ref]
-          : ['push', '--no-force', '--no-follow-tags', '--recurse-submodules=no', '--', target.url, `HEAD:${ref}`])]
-        try { await execFileAsync('git', args, { cwd: abs, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 2_000_000 }) }
+          ? ['pull', '--progress', '--ff-only', '--no-rebase', '--no-autostash', '--', target.url, ref]
+          : ['push', '--progress', '--no-force', '--no-follow-tags', '--recurse-submodules=no', '--', target.url, `HEAD:${ref}`])]
+        try { await execute(args, env) }
         catch { throw new GitConnectionError('Git 원격 작업에 실패했습니다. 저장소 권한·SSO 승인·브랜치 상태와 연결을 확인하세요.', 409, 'git-remote-failed') }
       }) } catch (error) {
         if (error instanceof GitConnectionError && error.status === 428 && context.owner && gitConnections.get(context.owner, connection.provider, connection.host)?.id === connection.id) gitConnections.remove(context.owner, connection.provider, connection.host)
@@ -327,9 +387,9 @@ export async function runRemoteAction(project: string, relPath: string, action: 
       return
     }
     const args = action === 'pull'
-      ? ['pull', '--ff-only', '--no-rebase', '--no-autostash', '--', remote, ref]
-      : ['push', '--no-force', '--no-follow-tags', '--recurse-submodules=no', '--', remote, `HEAD:${ref}`]
-    await execFileAsync('git', args, { cwd: abs, encoding: 'utf8', timeout: 120_000, maxBuffer: 2_000_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' } })
+      ? ['pull', '--progress', '--ff-only', '--no-rebase', '--no-autostash', '--', remote, ref]
+      : ['push', '--progress', '--no-force', '--no-follow-tags', '--recurse-submodules=no', '--', remote, `HEAD:${ref}`]
+    await execute(args, { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' })
   } finally {
     remoteOperations.delete(key)
     invalidateGit(project)

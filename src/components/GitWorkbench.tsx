@@ -1,10 +1,12 @@
+import type { GitRemoteProgress } from '../../shared/git-remote-progress'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp, GitCommit } from 'iconoir-react'
+import { ArrowDown, ArrowUp, Check, GitCommit } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
+import { GitBranchPicker } from './git-branch-picker'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
 import {
   commitGitWorkingTree,
@@ -16,6 +18,7 @@ import {
   fetchGitWorkingTreeDiff,
   runGitCommitAction,
   runGitRemoteAction,
+  runGitBranchAction,
   type GitChangedFile,
   type GitCommitAction,
   type GitCommitDetail,
@@ -293,8 +296,23 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
   const [diffLoading, setDiffLoading] = useState(false)
   const [committing, setCommitting] = useState(false)
   const [remoteAction, setRemoteAction] = useState<'pull' | 'push' | null>(null)
-  const [actionRunning, setActionRunning] = useState(false)
+  const [remoteFeedback, setRemoteFeedback] = useState<{ action: 'pull' | 'push'; progress: GitRemoteProgress | null; complete: boolean } | null>(null)
+  const remoteVersion = useRef(0)
   const remotePending = useRef(false)
+  useEffect(() => {
+    const invalidate = () => { remoteVersion.current++ }
+    invalidate()
+    setRemoteFeedback(null)
+    setRemoteAction(null)
+    remotePending.current = false
+    return invalidate
+  }, [project, repositoryPath])
+  useEffect(() => {
+    if (!remoteFeedback?.complete) return
+    const timer = window.setTimeout(() => setRemoteFeedback(null), 3000)
+    return () => window.clearTimeout(timer)
+  }, [remoteFeedback])
+  const [actionRunning, setActionRunning] = useState(false)
   const busy = committing || actionRunning || remoteAction !== null
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [commitTitle, setCommitTitle] = useState('')
@@ -360,8 +378,14 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
       const version = refreshVersion.current
       const current = () => alive && !document.hidden && version === refreshVersion.current
       try {
-        const next = await fetchGitWorkingTree(repositoryPath, project)
+        const [next, log, nextInfo] = await Promise.all([
+          fetchGitWorkingTree(repositoryPath, project),
+          fetchGitLog(repositoryPath, project),
+          fetchGitRepository(repositoryPath, project),
+        ])
         if (!current()) return
+        setCommits(previous => JSON.stringify(previous) === JSON.stringify(log.commits) ? previous : log.commits)
+        setInfo(previous => JSON.stringify(previous) === JSON.stringify(nextInfo) ? previous : nextInfo)
         setWorkingTree(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
         setSelectedFiles(previous => {
           const paths = new Set(next.files.map(file => file.path))
@@ -509,38 +533,80 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
         ? detail?.subject ?? uiText("커밋 상세")
         : view.file.path
 
+  const changeBranch = async (action: 'switch' | 'create', ref: string, name?: string) => {
+    if (busy || remotePending.current || loading || aiOpen || !info?.workspace) throw new Error(uiText('Git 작업이 이미 실행 중입니다'))
+    remotePending.current = true
+    refreshVersion.current++
+    setActionRunning(true)
+    setError(null)
+    try {
+      await runGitBranchAction(repositoryPath, action, ref, name, project, info.workspace)
+      setView({ kind: 'graph' })
+      await refresh()
+    } finally {
+      remotePending.current = false
+      setActionRunning(false)
+    }
+  }
+
   const syncRemote = async (action: 'pull' | 'push') => {
     if (busy || remotePending.current || loading || aiOpen || !info?.repository || info.detached || !info.workspace) return
     remotePending.current = true
+    const version = ++remoteVersion.current
+    const current = () => remoteVersion.current === version
     setRemoteAction(action)
+    setRemoteFeedback({ action, progress: null, complete: false })
     setError(null)
     try {
-      await runGitRemoteAction(repositoryPath, action, project, info.workspace)
-      onNotice(uiText("Git 작업을 완료했습니다"))
+      await runGitRemoteAction(repositoryPath, action, project, info.workspace, progress => {
+        if (current()) setRemoteFeedback({ action, progress, complete: false })
+      })
+      if (!current()) return
+      setRemoteFeedback({ action, progress: null, complete: true })
       setView({ kind: 'graph' })
       await refresh()
     } catch (err) {
+      if (!current()) return
+      setRemoteFeedback(null)
       await refresh()
-      setError(err instanceof Error ? err.message : String(err))
+      if (current()) setError(err instanceof Error ? err.message : String(err))
     } finally {
-      remotePending.current = false
-      setRemoteAction(null)
+      if (current()) {
+        remotePending.current = false
+        setRemoteAction(null)
+      }
     }
+  }
+
+  const remoteText = (action: 'pull' | 'push') => {
+    if (remoteFeedback?.action !== action) return ''
+    if (remoteFeedback.complete) return uiText('완료')
+    const progress = remoteFeedback.progress
+    if (!progress || progress.phase === 'connecting') return action === 'push' ? uiText('Push 중…') : uiText('Pull 중…')
+    if (progress.phase === 'waiting') return uiText('확인 중…')
+    const phases = { counting: uiText('준비'), compressing: uiText('압축'), writing: uiText('전송'), receiving: uiText('수신'), resolving: uiText('정리') }
+    return `${phases[progress.phase]} ${progress.percent ?? 0}%`
   }
 
   return (
     <div className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface">
       {dialogs.dialog}
-      {actionsHost && createPortal((['pull', 'push'] as const).map(action => {
-        const Icon = action === 'pull' ? ArrowDown : ArrowUp
+      {actionsHost && createPortal(<>
+        <GitBranchPicker key={`${project}:${repositoryPath}`} info={info} project={project} path={repositoryPath}
+          disabled={!visible || loading || aiOpen || !info?.repository || !info.workspace} busy={busy} onAction={changeBranch} />
+        {(['pull', 'push'] as const).map(action => {
+        const finished = remoteFeedback?.action === action && remoteFeedback.complete
+        const status = remoteText(action)
+        const Icon = finished ? Check : action === 'pull' ? ArrowDown : ArrowUp
         const label = action === 'pull' ? 'Pull' : 'Push'
-        return <button key={action} type="button" title={label} aria-label={label} aria-busy={remoteAction === action}
+        return <button key={action} type="button" title={status ? `${label}: ${status}` : label} aria-label={label} aria-busy={remoteAction === action}
           disabled={busy || loading || aiOpen || !info?.repository || info.detached || !info.workspace || !info.remotes?.length}
           onClick={() => { void syncRemote(action) }}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">
-          <Icon width={16} height={16} aria-hidden="true" className={remoteAction === action ? 'animate-pulse' : undefined} />
+          className={`flex h-7 shrink-0 items-center justify-center gap-1 rounded hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${status ? 'px-1.5 text-xs text-accent' : 'w-7 text-ink-secondary hover:text-ink disabled:opacity-40'}`}>
+          <Icon width={16} height={16} aria-hidden="true" className={remoteAction === action && !finished ? 'animate-pulse' : undefined} />
+          {status && <span role="status" aria-live="polite" aria-atomic="true" className="whitespace-nowrap tabular-nums">{status}</span>}
         </button>
-      }), actionsHost)}
+      })}</>, actionsHost)}
       {aiOpen && <GitAiCommitDialog key={project} project={project} files={[...selectedFiles]} onClose={() => { setAiOpen(false); void refresh() }} onFinished={() => { void refresh() }} />}
       {(view.kind !== 'graph' || onBack) && <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
         {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")} title={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")}><BackIcon /></button>}

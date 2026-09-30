@@ -19,6 +19,8 @@ const {
   listRepositories,
   repositoryInfo,
   repositoryLog,
+  repositoryBranches,
+  runBranchAction,
   runCommitAction,
   workingTreeDetail,
   workingTreeFileDiff,
@@ -180,7 +182,9 @@ test('remote actions pull fast-forward only and push only the tracked branch wit
     await git.raw(['branch', 'unpublished'])
     await git.addConfig('push.default', 'matching')
     await git.addConfig('remote.origin.push', 'refs/heads/*:refs/heads/*')
-    await runRemoteAction(paths.WORKSPACE_PROJECT, '', 'push')
+    const progress: import('../shared/git-remote-progress.ts').GitRemoteProgress[] = []
+    await runRemoteAction(paths.WORKSPACE_PROJECT, '', 'push', event => progress.push(event))
+    assert.ok(progress.some(event => event.phase === 'writing' && event.percent === 100), 'real local push emits transfer progress')
     assert.equal((await simpleGit(remote).revparse('main')).trim(), (await git.revparse('HEAD')).trim())
     assert.equal((await simpleGit(remote).raw(['branch', '--list', 'unpublished'])).trim(), '')
     const pending = runRemoteAction(paths.WORKSPACE_PROJECT, '', 'push')
@@ -204,4 +208,55 @@ test('remote actions pull fast-forward only and push only the tracked branch wit
     paths.setWorkspaceRoot(root)
     fs.rmSync(fixture, { recursive: true, force: true })
   }
+})
+
+test('branch picker lists refs, creates from explicit bases and switches without discarding changes', async () => {
+  const cwd = fs.mkdtempSync(path.join(root, 'branches-')), rel = path.relative(root, cwd)
+  const git = simpleGit(cwd)
+  await git.init(['--initial-branch=main'])
+  await git.addConfig('user.name', 'Branch Test'); await git.addConfig('user.email', 'branch@example.test')
+  await runBranchAction(paths.WORKSPACE_PROJECT, rel, 'create', 'HEAD', 'empty')
+  assert.equal((await git.status()).current, 'empty', 'unborn repository can create a branch')
+  await git.raw(['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  fs.writeFileSync(path.join(cwd, 'note.txt'), 'base\n'); await git.add('note.txt'); await git.commit('base')
+  const base = (await git.revparse(['HEAD'])).trim()
+  await git.raw(['tag', 'v1'])
+  fs.writeFileSync(path.join(cwd, 'note.txt'), 'main\n'); await git.add('note.txt'); await git.commit('main')
+  const main = (await git.revparse(['HEAD'])).trim()
+  await git.addRemote('origin', 'https://github.com/example/fixture.git')
+  await git.raw(['update-ref', 'refs/remotes/origin/topic', base])
+  await git.raw(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/topic'])
+  const refs = await repositoryBranches(paths.WORKSPACE_PROJECT, rel)
+  assert.deepEqual(refs.map(ref => ref.ref), ['refs/heads/main', 'refs/remotes/origin/topic', 'refs/tags/v1'])
+  const created = await runBranchAction(paths.WORKSPACE_PROJECT, rel, 'create', 'refs/tags/v1', 'feature/from-tag')
+  assert.equal(created.branch, 'feature/from-tag'); assert.equal((await git.revparse(['HEAD'])).trim(), base)
+  fs.writeFileSync(path.join(cwd, 'note.txt'), 'unsaved changes\n'); await git.add('note.txt')
+  await assert.rejects(runBranchAction(paths.WORKSPACE_PROJECT, rel, 'switch', 'refs/heads/main'), /overwritten|local changes/i)
+  assert.equal((await git.status()).current, 'feature/from-tag')
+  assert.equal(fs.readFileSync(path.join(cwd, 'note.txt'), 'utf8'), 'unsaved changes\n')
+  assert.match(await git.diff(['--cached']), /unsaved changes/)
+  fs.writeFileSync(path.join(cwd, 'note.txt'), 'base\n'); await git.add('note.txt')
+  await runBranchAction(paths.WORKSPACE_PROJECT, rel, 'switch', 'refs/heads/main')
+  assert.equal((await git.revparse(['HEAD'])).trim(), main)
+  await runBranchAction(paths.WORKSPACE_PROJECT, rel, 'create', main.slice(0, 10), 'from-hash')
+  assert.equal((await git.revparse(['HEAD'])).trim(), main)
+  await runBranchAction(paths.WORKSPACE_PROJECT, rel, 'create', 'HEAD', 'from-head')
+  assert.equal((await git.revparse(['HEAD'])).trim(), main)
+  await runBranchAction(paths.WORKSPACE_PROJECT, rel, 'create', 'refs/heads/feature/from-tag', 'from-local')
+  assert.equal((await git.revparse(['HEAD'])).trim(), base)
+  await runBranchAction(paths.WORKSPACE_PROJECT, rel, 'create', 'refs/remotes/origin/topic', 'from-remote')
+  assert.equal((await git.revparse(['HEAD'])).trim(), base)
+  assert.equal((await git.getConfig('branch.from-remote.remote')).value, null, 'custom names do not acquire unintended upstreams')
+  await runBranchAction(paths.WORKSPACE_PROJECT, rel, 'switch', 'refs/remotes/origin/topic')
+  assert.equal((await git.status()).current, 'topic')
+  assert.equal((await git.getConfig('branch.topic.remote')).value, 'origin')
+  assert.equal((await git.getConfig('branch.topic.merge')).value, 'refs/heads/topic')
+  for (const ref of ['--force', 'HEAD~1', 'refs/heads/missing', 'refs/tags/v1', 'refs/remotes/origin/HEAD']) {
+    await assert.rejects(runBranchAction(paths.WORKSPACE_PROJECT, rel, 'switch', ref))
+  }
+  for (const name of ['--force', 'bad..name', 'bad\0name', 'main', 'bad.lock']) {
+    await assert.rejects(runBranchAction(paths.WORKSPACE_PROJECT, rel, 'create', 'HEAD', name))
+  }
+  await assert.rejects(runBranchAction(paths.WORKSPACE_PROJECT, rel, 'create', 'HEAD~1', 'bad-base'))
+  assert.equal((await git.status()).current, 'topic')
 })

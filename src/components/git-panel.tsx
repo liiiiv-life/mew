@@ -35,12 +35,12 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onClose, o
       <GitShortcutScope onClose={onClose} className="shrink-0">
         <div data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
           <DockGrip group={group} />
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5 text-xs text-ink">
+          <div className="flex shrink-0 items-center gap-1.5 px-2.5 text-xs text-ink">
             <GitBranch width={14} height={14} className="shrink-0" aria-hidden="true" />
             <span>Git</span>
           </div>
-          <div className="flex min-w-0 items-center justify-end" data-git-controls>
-            <div ref={setActionsHost} className="flex shrink-0 items-center" />
+          <div className="flex min-w-0 flex-1 items-center justify-end" data-git-controls>
+            <div ref={setActionsHost} className="flex min-w-0 items-center" />
             <GitHubAccount key={tab.project} project={tab.project} />
           </div>
           <button type="button" onClick={onClose} className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" title={uiText("Git 닫기")} aria-label={uiText("Git 닫기")}>

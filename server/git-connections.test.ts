@@ -114,3 +114,72 @@ test('credential helper only returns the selected account token to the exact HTT
   assert.equal(providerRemote('ssh://git@github.com/owner/repo.git').url, 'https://github.com/owner/repo.git')
   for (const remote of ['https://github.com.attacker.test/a/b', 'https://token@github.com/a/b', 'http://github.com/a/b', '/tmp/repo', 'https://gitlab.com/a/b']) assert.throws(() => providerRemote(remote))
 })
+
+test('branch API validates workspace and operates locally without a GitHub connection', async () => {
+  const { git } = await repository('branch-api')
+  const current = (await git.raw(['symbolic-ref', '--short', 'HEAD'])).trim()
+  const owner = 'branch-owner@example.test'
+  const app = express()
+  app.use((req, _res, next) => { req.auth = { role: 'owner', email: owner, mustChangePassword: false }; next() })
+  app.use(createApiApp())
+  const server = app.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const address = server.address(); assert.ok(address && typeof address !== 'string')
+  const url = `http://127.0.0.1:${address.port}/git/branches?project=branch-api`
+  const post = (body: unknown) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  try {
+    const refs = await fetch(url)
+    assert.equal(refs.status, 200)
+    assert.deepEqual((await refs.json() as { branches: unknown[] }).branches, [{ name: current, ref: `refs/heads/${current}`, kind: 'local' }])
+    assert.equal((await post({ action: 'create', ref: 'HEAD', name: 'stale', workspace: '/old' })).status, 409)
+    assert.equal((await git.status()).current, current)
+    const created = await post({ action: 'create', ref: 'HEAD', name: 'new-branch', workspace: process.env.MEW_WORKSPACE })
+    assert.equal(created.status, 200)
+    assert.equal((await created.json() as { branch: string }).branch, 'new-branch')
+    assert.equal(gitConnections.get(owner), null)
+    assert.equal((await post({ action: 'switch', ref: `refs/heads/${current}`, workspace: process.env.MEW_WORKSPACE })).status, 200)
+    assert.equal((await git.status()).current, current)
+  } finally { server.close(); await once(server, 'close') }
+})
+
+test('remote progress streams after authentication, finishes only on Git exit and sanitizes errors', async () => {
+  const { cwd, git } = await repository('progress-api')
+  const branch = (await git.raw(['symbolic-ref', '--short', 'HEAD'])).trim()
+  await git.addRemote('origin', 'https://github.com/example/fixture.git')
+  await git.addConfig(`branch.${branch}.remote`, 'origin'); await git.addConfig(`branch.${branch}.merge`, `refs/heads/${branch}`)
+  const owner = 'progress@example.test'
+  const app = express()
+  app.use((req, _res, next) => { req.auth = { role: 'owner', email: owner, mustChangePassword: false }; next() })
+  app.use(createApiApp())
+  const server = app.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const address = server.address(); assert.ok(address && typeof address !== 'string')
+  const url = `http://127.0.0.1:${address.port}/git/remote?project=progress-api`
+  const request = () => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' }, body: JSON.stringify({ action: 'push', workspace: process.env.MEW_WORKSPACE }) })
+  const provider = gitProvider(), identify = provider.identify, originalPath = process.env.PATH
+  const bin = path.join(root, 'progress-bin'); fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, 'git'), `#!/usr/bin/env node
+const {spawnSync}=require('node:child_process');const fs=require('node:fs');
+if(process.argv.slice(2).includes('push')) {
+ if(!process.argv.includes('--progress')) process.exit(2);
+ process.stderr.write('Writing objects:  68% (17/25)\\r');
+ setTimeout(()=>{if(fs.existsSync('reject-progress')){process.stderr.write('private-progress-token secret failure\\n');process.exit(1)}process.stderr.write('Writing objects: 100% (25/25), done.\\n');process.exit(0)},80);
+} else {const r=spawnSync('/usr/bin/git',process.argv.slice(2),{stdio:'inherit'});process.exit(r.status??1)}
+`, { mode: 0o700 })
+  try {
+    const missing = await request()
+    assert.equal(missing.status, 428, 'auth challenge precedes stream headers')
+    assert.equal((await missing.json() as { code: string }).code, 'git-auth-required')
+    gitConnections.set(owner, record('progress'))
+    provider.identify = async () => ({ login: 'progress', identity: record('progress').identity })
+    process.env.PATH = `${bin}:${originalPath}`
+    const success = await request()
+    assert.equal(success.headers.get('content-type'), 'application/x-ndjson')
+    const events = (await success.text()).trim().split('\n').map(line => JSON.parse(line))
+    assert.deepEqual(events.map(event => event.type), ['progress', 'progress', 'progress', 'progress', 'complete'])
+    assert.deepEqual(events[1].progress, { phase: 'writing', percent: 68, current: 17, total: 25 })
+    fs.writeFileSync(path.join(cwd, 'reject-progress'), '')
+    const failed = (await (await request()).text()).trim().split('\n').map(line => JSON.parse(line))
+    assert.equal(failed.at(-1).type, 'error')
+    assert.equal(failed.some(event => event.type === 'complete'), false)
+    assert.equal(JSON.stringify(failed).includes('private-progress-token'), false)
+  } finally { process.env.PATH = originalPath; provider.identify = identify; server.close(); await once(server, 'close') }
+})

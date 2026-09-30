@@ -11,7 +11,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 const root = path.resolve(import.meta.dirname, '..'), require = createRequire(`${root}/package.json`)
 
 test('Git opens only the current project, migrates saved tabs, docks and preserves drafts', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
-  const files = ['src/components/git-panel.tsx', 'src/components/GitWorkbench.tsx', 'src/components/github-account.tsx', 'src/components/DockWorkspace.tsx']
+  const files = ['src/components/git-panel.tsx', 'src/components/GitWorkbench.tsx', 'src/components/git-branch-picker.tsx', 'packages/ui/src/select-field.tsx', 'src/components/github-account.tsx', 'src/components/DockWorkspace.tsx']
   const content = (await Promise.all(files.map((file) => fs.readFile(`${root}/${file}`, 'utf8')))).join('\n')
   const source = `
 import React,{useCallback,useEffect,useRef,useState} from '${require.resolve('react')}';
@@ -22,6 +22,17 @@ import {GitPanel} from '${root}/src/components/git-panel.tsx';
 import {useWorkspacePanelDismissals} from '${root}/src/hooks/use-panel-dismissals.ts';
 import {WORKSPACE_PANEL_IDS} from '${root}/src/utils/mobile-panel-stack.ts';
 import {dispatchFocusedShortcut} from '${root}/packages/shortcuts/src/focusedShortcutScope.ts';
+const originalFetch=window.fetch.bind(window);
+window.fetch=(input,init)=>{
+  if(window.remoteStream&&String(input).startsWith('/api/git/remote?')) {
+    return Promise.resolve(new Response(new ReadableStream({start(controller){
+      window.gitStreamPush=text=>controller.enqueue(new TextEncoder().encode(text));
+      window.gitStreamClose=()=>controller.close();
+    }}),{headers:{'Content-Type':'application/x-ndjson'}}));
+  }
+  return originalFetch(input,init);
+};
+window.notices=[];
 function Fixture(){
   const [dock,setDock]=useState(JSON.parse(localStorage.getItem('fixture:dock')||'null'));
   const [git,setGit]=useState(JSON.parse(localStorage.getItem('fixture:git')||'null'));
@@ -38,7 +49,7 @@ function Fixture(){
     <header className="flex h-10 shrink-0 items-center gap-4 px-3"><button onClick={()=>{setOpen(true);setForeground('git')}}>Git 열기</button><button onClick={()=>setForeground(null)}>편집기 보기</button></header>
     <DockWorkspace apiRef={ref} value={dock} onChange={saveDock} onEditorDrop={()=>''} foreground={foreground}>
       <DockPanel id="editor:main" kind="editor"><div className="h-9 shrink-0 border-b border-edge px-3 text-xs">README.md</div><textarea aria-label="편집기" className="h-full w-full bg-surface-deep p-3" defaultValue="문서 편집 중"/></DockPanel>
-      <GitPanel visible={open} initialState={git} onChange={saveGit} onNotice={()=>{}} onClose={dismiss} onPanelFocus={()=>setForeground('git')} nextTabSignal={next} previousTabSignal={previous} closeTabSignal={close}/>
+      <GitPanel visible={open} initialState={git} onChange={saveGit} onNotice={message=>window.notices.push(message)} onClose={dismiss} onPanelFocus={()=>setForeground('git')} nextTabSignal={next} previousTabSignal={previous} closeTabSignal={close}/>
     </DockWorkspace>
   </div>
 }
@@ -54,12 +65,23 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     page.setDefaultTimeout(6000)
     const errors: string[] = [], writes: string[] = [], reads: string[] = []
     let repositoryExists = true
+    let externalCommit = false
+    let repositoryBranch = 'main'
     let remoteFailure = false
     let workingFiles = Array.from({ length: 60 }, (_, index) => ({ path: index === 0 ? 'file.ts' : `src/components/long-directory-name/changed-file-${index}.tsx`, status: index % 2 ? '??' : 'M' }))
     let diffLine = 'new'
     let workingFailure = false
     let finishWorking = () => {}
     let delayWorking = false
+    const branchRequests: { action: string; ref: string; name?: string; workspace: string; path: string }[] = []
+    let branchFailure = false
+    const branchRefs = [
+      { name: 'main', ref: 'refs/heads/main', kind: 'local' },
+      { name: 'feature/searchable', ref: 'refs/heads/feature/searchable', kind: 'local' },
+      { name: 'origin/remote-topic', ref: 'refs/remotes/origin/remote-topic', kind: 'remote' },
+      { name: 'v1', ref: 'refs/tags/v1', kind: 'tag' },
+    ]
+    const branchInfo = () => ({ repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], branch: repositoryBranch, ahead: 0, behind: 0 })
     const remoteRequests: unknown[] = []
     let finishRemote = () => {}
     page.on('pageerror', (error) => errors.push(error.message))
@@ -67,6 +89,14 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       const url = new URL(route.request().url()), p = url.pathname
       if (route.request().method() !== 'GET') writes.push(p)
       if (p.startsWith('/api/')) {
+        if (p === '/api/git/branches') {
+          if (route.request().method() === 'GET') { reads.push(url.pathname + url.search); return route.fulfill({ json: { branches: branchRefs } }) }
+          const body = route.request().postDataJSON(); branchRequests.push(body)
+          if (branchFailure) return route.fulfill({ status: 409, json: { error: 'Local changes would be overwritten' } })
+          repositoryBranch = body.action === 'create' ? body.name : body.ref.replace('refs/heads/', '').replace('refs/remotes/origin/', '')
+          if (!branchRefs.some(ref => ref.ref === `refs/heads/${repositoryBranch}`)) branchRefs.push({ name: repositoryBranch, ref: `refs/heads/${repositoryBranch}`, kind: 'local' })
+          return route.fulfill({ json: branchInfo() })
+        }
         if (p === '/api/git/remote') {
           assert.equal(url.searchParams.get('project'), '.workspace')
           remoteRequests.push(route.request().postDataJSON())
@@ -80,8 +110,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         }
         const payload = p === '/api/git-connections/github' ? { available: true, login: null, environmentToken: false, busy: false, job: null }
           : p === '/api/git/repositories' ? { repositories: url.searchParams.get('project') === 'docs' ? [{ path: '' }] : [{ path: '' }, { path: 'tools/a-very-long-repository-name-for-layout-checking' }] }
-          : p === '/api/git/repository' ? { repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], branch: 'main', ahead: 0, behind: 0 }
-            : p === '/api/git/log' ? { commits: Array.from({ length: 80 }, (_, index) => ({ hash: `abc12345${index}`, parents: index < 79 ? [`abc12345${index + 1}`] : [], subject: index === 0 ? '패널 작업: 긴 커밋 제목도 메타데이터를 밀어내지 않고 한 줄로 표시합니다' : `패널 작업 ${index}`, author: 'Tester with a long name', date: new Date(Date.now() - index * 3_600_000 - 1000).toISOString(), refs: index === 0 ? ['main', 'tag: v1'] : [] })) }
+          : p === '/api/git/repository' ? { repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], branch: repositoryBranch, ahead: 0, behind: 0 }
+            : p === '/api/git/log' ? { commits: Array.from({ length: 80 }, (_, index) => ({ hash: `abc12345${index}`, parents: index < 79 ? [`abc12345${index + 1}`] : [], subject: index === 0 && externalCommit ? '외부 터미널에서 만든 새 커밋' : index === 0 ? '패널 작업: 긴 커밋 제목도 메타데이터를 밀어내지 않고 한 줄로 표시합니다' : `패널 작업 ${index}`, author: 'Tester with a long name', date: new Date(Date.now() - index * 3_600_000 - 1000).toISOString(), refs: index === 0 ? ['main', 'tag: v1'] : [] })) }
               : p.endsWith('/diff') ? { diff: `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+${diffLine}\n` }
                 : { files: workingFiles }
         return route.fulfill({ json: payload })
@@ -212,6 +242,16 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.mouse.wheel(0, 250)
     await page.waitForFunction(`document.querySelector('[data-git-scroll="history"]').scrollTop > 0`)
     assert.equal(await changes.evaluate(el => el.scrollTop), changeScroll, 'lists scroll independently')
+    const historyScroll = await history.evaluate(el => el.scrollTop)
+    externalCommit = true
+    repositoryBranch = 'external-branch'
+    await history.getByText('외부 터미널에서 만든 새 커밋', { exact: true }).waitFor({ state: 'attached' })
+    await page.getByRole('region', { name: '커밋 기록' }).getByText('external-branch', { exact: true }).waitFor()
+    assert.equal(await history.evaluate(el => el.scrollTop), historyScroll, 'external commits preserve history scroll')
+    assert.equal(await firstCheck.isChecked(), true, 'external commits preserve file selection')
+    assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'selected draft')
+    externalCommit = false
+    repositoryBranch = 'main'
     const originalFiles = workingFiles
     workingFiles = [...workingFiles.map((file, index) => index === 0 ? { ...file, status: 'MM' } : file), { path: 'external-new.ts', status: '??' }]
     await page.getByText('external-new.ts', { exact: true }).waitFor({ state: 'attached' })
@@ -381,6 +421,103 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'MOBILE DRAFT')
     assert.ok(reads.length > 0)
     assert.ok(reads.every(raw => { const url = new URL(raw, 'http://fixture'); return url.pathname !== '/api/git/repositories' && url.searchParams.get('project') === '.workspace' && (url.pathname === '/api/git-connections/github' || url.searchParams.get('path') === '') }), JSON.stringify(reads))
+    const branchButton = header().getByRole('button', { name: '브랜치 선택', exact: true })
+    assert.ok((await bounds(branchButton)).x < (await bounds(pull)).x, 'branch picker precedes pull and push')
+    for (const width of [1440, 320]) {
+      await page.setViewportSize({ width, height: 900 })
+      await branchButton.click()
+      const branchPopup = page.getByRole('dialog', { name: '브랜치 선택', exact: true })
+      const branchSearch = branchPopup.getByRole('combobox', { name: '브랜치 검색' })
+      await branchPopup.getByRole('option', { name: 'main', exact: true }).waitFor()
+      const box = await bounds(branchPopup)
+      assert.ok(box.x >= 0 && box.x + box.width <= width, 'branch dropdown fits the viewport')
+      assert.equal(await branchPopup.getByRole('option').count(), 3, 'tags are bases, not branch checkout entries')
+      await branchSearch.fill('SEARCHABLE')
+      assert.equal(await branchPopup.getByRole('option').count(), 1)
+      await branchSearch.fill('no-match')
+      await branchPopup.getByText('브랜치가 없습니다', { exact: true }).waitFor()
+      await branchSearch.fill('')
+      await screenshot(`branch-picker-${width}-dark`)
+      await page.locator('html').evaluate(el => el.classList.remove('dark'))
+      await screenshot(`branch-picker-${width}-light`)
+      await page.locator('html').evaluate(el => el.classList.add('dark'))
+      await page.keyboard.press('Escape')
+      await branchPopup.waitFor({ state: 'hidden' })
+      assert.equal(await panel().isVisible(), true, 'Esc dismisses only the dropdown')
+    }
+    await branchButton.click()
+    const branchPopup = page.getByRole('dialog', { name: '브랜치 선택', exact: true })
+    const branchSearch = branchPopup.getByRole('combobox', { name: '브랜치 검색' })
+    await branchPopup.getByRole('option', { name: 'main', exact: true }).waitFor()
+    await branchSearch.fill('searchable')
+    await branchSearch.press('Enter')
+    await branchPopup.waitFor({ state: 'hidden' })
+    await branchButton.getByText('feature/searchable', { exact: true }).waitFor()
+    assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'MOBILE DRAFT', 'branch switch preserves commit draft')
+    await branchButton.click()
+    await branchPopup.getByRole('button', { name: '새 브랜치', exact: true }).click()
+    await branchPopup.getByLabel('새 브랜치 이름', { exact: true }).fill('feature/new')
+    const baseInput = branchPopup.getByRole('combobox', { name: '기준 브랜치·태그·커밋' })
+    await baseInput.fill('v1')
+    await page.getByRole('option', { name: 'tag: v1', exact: true }).click()
+    await branchPopup.getByRole('button', { name: '생성 후 전환', exact: true }).click()
+    await branchPopup.waitFor({ state: 'hidden' })
+    await branchButton.getByText('feature/new', { exact: true }).waitFor()
+    assert.deepEqual(branchRequests.slice(0, 2), [
+      { path: '', action: 'switch', ref: 'refs/heads/feature/searchable', workspace: '/fixture' },
+      { path: '', action: 'create', ref: 'refs/tags/v1', name: 'feature/new', workspace: '/fixture' },
+    ])
+    branchFailure = true
+    await branchButton.click()
+    await branchPopup.getByRole('option', { name: 'main', exact: true }).click()
+    await branchPopup.getByRole('alert').getByText('Local changes would be overwritten').waitFor()
+    assert.equal(await branchPopup.isVisible(), true, 'failed switch keeps recovery controls open')
+    assert.equal(await branchButton.textContent(), 'feature/new')
+    await page.keyboard.press('Escape')
+    branchFailure = false
+    assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'MOBILE DRAFT')
+    const emitRemote = (event: unknown) => page.evaluate('window.gitStreamPush(' + JSON.stringify(JSON.stringify(event) + '\n') + ')')
+    await page.evaluate('window.remoteStream=true')
+    await push.click()
+    await push.getByText('Push 중…', { exact: true }).waitFor()
+    await emitRemote({ type: 'progress', progress: { phase: 'writing', percent: 68, current: 17, total: 25 } })
+    await push.getByText('전송 68%', { exact: true }).waitFor()
+    assert.equal(await push.isDisabled(), true)
+    await screenshot('push-progress-mobile-dark')
+    await page.locator('html').evaluate(el => el.classList.remove('dark'))
+    await screenshot('push-progress-mobile-light')
+    await page.locator('html').evaluate(el => el.classList.add('dark'))
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await screenshot('push-progress-desktop-dark')
+    await page.locator('html').evaluate(el => el.classList.remove('dark'))
+    await screenshot('push-progress-desktop-light')
+    await page.locator('html').evaluate(el => el.classList.add('dark'))
+    await page.setViewportSize({ width: 320, height: 900 })
+    const pushBox = await bounds(push), closeBox = await bounds(header().getByRole('button', { name: 'Git 닫기', exact: true }))
+    assert.ok(pushBox.x >= 0 && closeBox.x + closeBox.width <= 320, 'progress keeps toolbar controls inside a narrow viewport')
+    const titleBox = await bounds(header().getByText('Git', { exact: true })), pickerBox = await bounds(branchButton)
+    assert.ok(titleBox.x + titleBox.width <= pickerBox.x, 'Git title and branch picker never overlap while progress expands')
+    await emitRemote({ type: 'progress', progress: { phase: 'waiting' } })
+    await push.getByText('확인 중…', { exact: true }).waitFor()
+    assert.equal(await push.getByText('완료', { exact: true }).count(), 0, '100% transfer is not success before server confirmation')
+    await emitRemote({ type: 'complete' })
+    await page.evaluate('window.gitStreamClose()')
+    await push.getByText('완료', { exact: true }).waitFor()
+    await screenshot('push-complete-mobile')
+    assert.deepEqual(await page.evaluate('window.notices'), [], 'remote completion stays next to its button instead of adding a global toast')
+    await push.getByText('완료', { exact: true }).waitFor({ state: 'hidden' })
+    await push.click()
+    await push.getByText('Push 중…', { exact: true }).waitFor()
+    await emitRemote({ type: 'error', error: 'Remote rejected' })
+    await page.evaluate('window.gitStreamClose()')
+    await page.getByText('Remote rejected', { exact: true }).waitFor()
+    assert.equal(await push.getByText('완료', { exact: true }).count(), 0)
+    await push.click()
+    await push.getByText('Push 중…', { exact: true }).waitFor()
+    await page.evaluate('window.gitStreamClose()')
+    await page.getByText('Git 진행 상황 연결이 끊겼습니다. 저장소 상태를 확인하세요.', { exact: true }).waitFor()
+    assert.equal(await push.getByText('완료', { exact: true }).count(), 0, 'truncated stream never claims success or automatically replays push')
+    await page.evaluate('window.remoteStream=false')
     repositoryExists = false; reads.length = 0
     await page.reload()
     await page.getByText('현재 프로젝트에 Git 저장소가 없습니다.', { exact: true }).waitFor()
@@ -395,7 +532,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     repositoryExists = true
     await pick('새로고침')
     await page.getByText('커밋되지 않은 변경사항', { exact: true }).waitFor()
-    assert.deepEqual(writes, Array(3).fill('/api/git/remote'), 'remote writes are intercepted by the fixture')
+    assert.deepEqual(writes, [...Array(3).fill('/api/git/remote'), ...Array(3).fill('/api/git/branches')], 'remote writes are intercepted by the fixture')
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })

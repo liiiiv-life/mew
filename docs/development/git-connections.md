@@ -1,7 +1,7 @@
 ---
 title: "계정별 Git 연결과 실행"
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 # 계정별 Git 연결과 실행
@@ -31,8 +31,10 @@ updated: 2026-09-29
 
 - 일반·파일별·AI 커밋 및 cherry-pick/revert 커미터에 요청한 사용자의 작성자 정보를 실행 단위로 전달한다. GitHub가 반환한 ID·login으로 비공개 주소 `ID+login@users.noreply.github.com`을 만든다. 공유 `user.name`·`user.email`은 수정하지 않는다. 기존 커밋을 cherry-pick할 때 원저자의 author는 Git 규칙대로 유지한다.
 - 파일 생성·복사·이동·삭제·업로드·치환의 기존 부수 커밋은 계정이 연결되어 있을 때만 만든다. 미연결·미지원 원격이면 파일 작업을 유지하고 커밋을 생략한다. 파일 저장의 명시적 commit 및 이력 복원은 쓰기 전에 연결을 확인한다. 파일별 커밋은 다른 staged 파일을 함께 커밋하지 않는다.
+- 타이틀바 브랜치 생성·전환(`GET/POST /api/git/branches`)은 Git 기능·프로젝트 전체 파일 권한과 POST의 workspace를 검사하는 로컬 작업이다. GitHub 연결이나 원격 조회는 요구하지 않는다. `for-each-ref`로 실제 로컬/원격/태그 ref만 base로 허용하고 커밋 해시는 별도로 검증한다. `switch`는 강제 전환·stash 없이 실행한다. 직접 원격 브랜치 선택은 추적 로컬 브랜치를 생성하고, 별도 이름으로 base 지정 생성은 upstream을 자동 설정하지 않는다. 같은 저장소의 Pull/Push·브랜치 작업은 중복 실행을 막는다.
 - 계정 선택은 브랜치의 upstream remote → origin → 유일한 remote 순이다. 원격이 없는 로컬 저장소는 GitHub 연결을 사용한다. 여러 remote가 모호하면 설정을 요구한다.
 - Pull/Push는 실제 fetch/push URL의 등록 제공자·호스트를 검사한다. GitHub SSH 주소를 실행 시 HTTPS로 정규화하되 저장된 remote는 바꾸지 않는다. 임의 호스트·로컬 경로·내장 자격증명·다중 push URL·저장소 URL 재작성은 거부한다.
+- `POST /api/git/remote`에 `Accept: application/x-ndjson`을 보내면 실제 Git 실행 시점부터 `progress`·`complete`·`error` 이벤트를 스트리밍한다. 인증·workspace·원격 검증 실패는 스트림 시작 전에 기존 HTTP 상태(로그인 필요 428 포함)로 응답한다. Git에는 `--progress`와 `LC_ALL=C`를 적용하고 stderr의 단계·퍼센트·객체 카운터만 추출한다. 원문 로그·URL·자격증명은 전송하지 않는다. `complete`는 Git 정상 종료 후에만 보내며 전송 100%는 원격 성공을 뜻하지 않는다. 클라이언트 연결 해제는 Git을 재실행하거나 강제로 중단하지 않는다. 일반 JSON 응답도 호환한다.
 - 자격증명은 해당 명령의 임시 Unix socket과 credential helper로만 전달한다. helper는 정확한 HTTPS 호스트와 저장소 경로만 받는다. OS helper·전역/시스템 설정·추가 인증 헤더·쿠키·대화형 프롬프트·HTTP 리다이렉트를 사용하지 않는다. 종료 시 socket을 제거한다. 이 경로는 지원 운영체제인 Linux/macOS/WSL을 대상으로 한다.
 - AI 작업 파일에는 Mew owner와 연결 ID·제공자·호스트만 전달한다. 실행 시작과 각 커밋 직전에 현재 연결 ID를 확인하고 해제/교체된 연결로 작업을 계속하지 않는다. 토큰은 AI 프롬프트나 input.json에 넣지 않는다.
 - 터미널·일반 에이전트의 임의 셸, 외부 폴더 clone은 기존 OS 실행 환경이다. 앱의 계정 선택은 셸 샌드박스가 아니며 작업트리도 사용자별로 복제하지 않는다. 커밋 서명과 hook은 기존 Git 설정을 따른다.
