@@ -74,7 +74,7 @@
 
 - 서버는 소켓에 **30초마다 핑**을 보낸다 — 조용한 대화(에이전트가 긴 작업 중일 때)가 중간 장비의 유휴 타임아웃에 끊기지 않게. 그래도 끊기면 창이 1초 뒤 다시 붙고 `replay`로 복구한다. 끊어진 동안과 초기 준비·히스토리 로딩에는 대화 영역의 빈 말풍선 shimmer를 표시하고 준비·로딩 종료 시 제거한다([표시 계약](../specs/agent-panel.md#연결-대기와-재연결)). 연결 끊김 뮤캣 알림은 보내지 않는다.
 
-- **진행 중에 온** `prompt`**는 던지지 않고 줄을 세운다.** 턴이 끝나면 서버가 순서대로 이어 돌리고, `cancel`은 대기열도 함께 비운다. 대기 항목은 창에서 자리를 옮기고(`move_queued`) 내용도 고칠 수 있다(`edit_queued`) — 고치는 사이 앞 턴이 끝나 큐가 당겨질 수 있으므로 `expect`(창이 보고 있던 원본)가 지금 그 자리의 값과 다르면 서버가 무시한다.
+- **진행 중에 온** `prompt`**는 던지지 않고 줄을 세운다.** 턴이 끝나면 서버가 순서대로 이어 돌리고, `cancel`은 진행 작업과 승인 요청만 취소하고 대기열은 보존한다. 진행 작업의 종료 처리가 끝나면 맨 위 항목부터 FIFO로 계속 실행한다([ADR 0186](../../../.mew/docs/decisions/0186-mew-cancel-active-continues-queue.md)). 큐 편집 잠금·메모리·인증·사용량 오류 보류는 유지한다. 대기 항목은 창에서 자리를 옮기고(`move_queued`) 내용도 고칠 수 있다(`edit_queued`) — 고치는 사이 앞 턴이 끝나 큐가 당겨질 수 있으므로 `expect`(창이 보고 있던 원본)가 지금 그 자리의 값과 다르면 서버가 무시한다.
 
 - 큐 첨부는 `shared/agent-attachment.ts`의 프로젝트·업로드 경로·MIME 메타데이터를 `prompt.attachments`로 전달한다. 감독의 `meta.queuedAttachments`는 `queued`와 같은 순서의 목록이며 이미지 바이트는 포함하지 않는다. `edit_queued.attachments`는 저장할 전체 첨부 목록이고 새 사진에만 바이트를 싣는다. 감독은 같은 프로젝트·경로의 기존 사진 바이트를 유지하고 제거한 사진은 ACP 이미지 블록에서도 뺀다. WS는 수정 본문과 첨부 참조를 합쳐 런타임 프롬프트를 다시 만들며, 일반 파일 참조도 보존한다. 첨부만 있는 메시지의 빈 표시 본문은 허용하되 본문·첨부가 모두 비면 저장하지 않는다. 첨부 필드가 없는 기존 호출은 기존 이미지 목록을 유지한다. 편집 잠금·취소·연결 해제 규칙은 기존 큐 계약을 따른다. `agent-queue-attachments.test.ts`는 Codex·Claude의 WS→감독→ACP 전달을, `agent-clear.test.ts`는 첨부 유지·교체·전체 제거·취소와 첨부만 있는 큐 실행을 검증한다.
 
@@ -97,7 +97,7 @@
 
 [ADR 0153](../../../.mew/docs/decisions/0153-mew-agent-cli-shared-queue.md)에 따라 CLI 모드는 HTTP로 접수하여 독립 에이전트 감독의 공통 FIFO 큐에 넣는다. AI 프롬프트·CLI·일반 모드 `/clear`가 같은 탭에서 순서대로 실행되며 CLI 원문·출력은 ACP에 전달하지 않는다. 입력 문자열을 공백·개행까지 보존하여 탭 cwd의 `$SHELL -lc`(미설정 시 `/bin/sh -lc`)에 넘긴다. CLI 모드에서는 `/clear`도 셸 입력이며 AI 세션 조작으로 해석하지 않는다. 서버가 실행기 경로와 무작위 `mewcmd-cli-*` 이름을 만들고 `TmuxManager.startCommand`로 실행 차례에만 tmux를 만든다.
 
-- `server/agent-command-queue.ts` + `agentHost.ts` — 감독 IPC `queue_command`로 접수하고 `AgentSession.enqueueTask`가 실행·취소 수명을 소유한다. 실행 직전 agent·terminal 권한을 재검사하며 출력 저장 완료 후 다음 작업을 시작한다. `/clear` 뒤에는 실행 시점의 sessionId·사용자 턴 수를 기록한다. 브라우저/HTTP 연결 종료는 큐를 취소하지 않지만 탭 종료·중단은 진행 중 CLI와 대기 작업을 취소한다. 감독의 비정상 종료 후 남은 queued 기록은 다음 조회에서 중단으로 표시하며 자동 재실행하지 않는다. 배포 전부터 살아 있던 구버전 감독은 탭을 닫고 다시 열어 교체한다.
+- `server/agent-command-queue.ts` + `agentHost.ts` — 감독 IPC `queue_command`로 접수하고 `AgentSession.enqueueTask`가 실행·취소 수명을 소유한다. 실행 직전 agent·terminal 권한을 재검사하며 출력 저장 완료 후 다음 작업을 시작한다. `/clear` 뒤에는 실행 시점의 sessionId·사용자 턴 수를 기록한다. 브라우저/HTTP 연결 종료는 큐를 취소하지 않지만 탭 종료는 진행 중 CLI와 대기 작업을 취소한다. 사용자 중단은 진행 중 CLI만 취소하고 종료·출력 저장 완료 뒤 다음 대기 작업을 실행한다. 감독의 비정상 종료 후 남은 queued 기록은 다음 조회에서 중단으로 표시하며 자동 재실행하지 않는다. 배포 전부터 살아 있던 구버전 감독은 탭을 닫고 다시 열어 교체한다.
 - `server/agent-commands.ts` — 계정별 저장소, 입력 검증, 중복 요청 방지, tmux 실행·중단 요청·사라진 세션 복구. ID가 같은 동일 요청은 명령을 두 번 실행하지 않는다.
 - `server/agent-command-runner.ts` — tmux 안의 독립 실행기. `node-pty`로 실제 TTY를 제공하고 입력·resize를 중계한다. 서버나 브라우저가 닫혀도 실행·출력 저장·완료 정리가 계속된다. 셸 wrapper는 마지막 출력의 임의 마커를 실행기가 수신할 때까지 PTY를 유지하여 빠른 종료의 출력 손실을 막는다. 사용자의 명령은 wrapper 문자열에 삽입하지 않고 인자로 전달한다.
 - 출력 청크는 표준 연결 gzip member로 즉시 저장한다. 메모리에는 최근 512 Ki 문자만 남긴다. 완료 시 전체 `output.gz`와 제어 시퀀스를 제거한 `preview.txt`, 종료 코드·상태를 저장하고 tmux를 종료한다. 중단은 `stop` 파일을 실행기가 감지해 프로세스 그룹에 TERM, 필요하면 KILL을 보내며 이미 수신한 출력도 보존한다. OS 종료·외부 강제 세션 삭제로 정상 저장을 마치지 못한 기록은 다음 조회에서 중단으로 표시한다.

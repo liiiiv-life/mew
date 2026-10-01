@@ -1148,7 +1148,7 @@ test('대기 메시지 편집을 취소하면 원문을 유지하고 큐 실행�
   assert.deepEqual(prompts, ['첫째', '둘째'])
 })
 
-test('중단하면 대기 중인 메시지도 같이 버린다', async (t) => {
+test('승인 대기에서 중단하면 다음 대기 메시지를 실행한다', async (t) => {
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'inside.txt'), 'ok')
   const stubPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-acp-')), 'stub.mjs')
@@ -1159,23 +1159,26 @@ test('중단하면 대기 중인 메시지도 같이 버린다', async (t) => {
   t.after(() => session.dispose())
 
   const prompts: string[] = []
+  let ended = 0
   const done = new Promise<void>((resolve) => {
     session.attach((event) => {
-      if (event.type === 'permission') session.cancel()
+      if (event.type === 'permission') {
+        if (prompts.length === 1) session.cancel()
+        else session.answerPermission(event.id, event.options[0].optionId)
+      }
       if (event.type === 'update' && event.update.sessionUpdate === 'user_message_chunk') {
         const content = event.update.content
         if (!Array.isArray(content) && content?.type === 'text') prompts.push(content.text)
       }
-      if (event.type === 'turn_end') resolve()
+      if (event.type === 'turn_end' && ++ended === 2) resolve()
     })
   })
 
   session.prompt('첫째')
   session.prompt('둘째')
   await done
-  await new Promise((resolve) => setTimeout(resolve, 50))
 
-  assert.deepEqual(prompts, ['첫째'], '중단한 뒤에는 대기 메시지가 돌지 않는다')
+  assert.deepEqual(prompts, ['첫째', '둘째'], '중단한 뒤 다음 대기 메시지가 실행된다')
 })
 
 test('탭마다 세션이 따로 뜬다 — 한 탭을 닫아도 다른 탭은 그대로다', async (t) => {

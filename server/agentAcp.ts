@@ -1324,6 +1324,7 @@ export class AgentSession {
     // 승인/대기열이 있을 때만 먼저 정리한다.
     if (this.busy || this.#pending.size > 0 || this.#queue.length > 0) this.cancel()
     this.#resetHistory()
+    for (const item of this.#queue) if (item.kind === 'cli') item.cancel()
     this.#queue = []
     this.#turns = 0
     this.#startedAt = new Date().toISOString()
@@ -1461,9 +1462,7 @@ export class AgentSession {
 
   /** 승인 대기 중인 요청은 취소 결과로 닫는다 — 스펙 요구사항(cancel 시 outcome: cancelled) */
   cancel() {
-    // 줄 서 있던 메시지도 같이 버린다 — 중단해 놓고 다음 것이 저절로 도는 건 놀라운 동작이다
-    for (const item of this.#queue) if (item.kind === 'cli') item.cancel()
-    this.#queue = []
+    // 진행 작업의 finally에서 종료 확인 후 다음 FIFO 항목을 실행한다.
     this.#cancelActive()
     this.#broadcast(this.#metaEvent())
   }

@@ -34,10 +34,16 @@ class Agent {
     log({ type: 'new', boot })
     return { sessionId: 'session-' + boot }
   }
-  async cancel() {}
+  async cancel() { log({ type: 'cancel' }); this.cancelPrompt?.() }
   async prompt({ sessionId, prompt }) {
     log({ type: 'prompt', sessionId, text: prompt[0].text, images: prompt.filter(block => block.type === 'image') })
-    await new Promise(resolve => setTimeout(resolve, 60))
+    let cancelled = false
+    await new Promise(resolve => {
+      const timer = setTimeout(resolve, 60)
+      this.cancelPrompt = () => { cancelled = true; clearTimeout(timer); resolve() }
+    })
+    this.cancelPrompt = null
+    if (cancelled) { log({ type: 'cancelled', sessionId }); return { stopReason: 'cancelled' } }
     await this.conn.sessionUpdate({ sessionId, update: {
       sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: sessionId + ':' + prompt[0].text }
     } })
@@ -174,7 +180,7 @@ test('CLI queue supports reorder and cancel without executing cancelled commands
   assert.equal(launches.length, 1)
 })
 
-test('cancel during CLI stops active command and clears both AI and CLI waiting items', async t => {
+test('cancel during CLI stops only active command and continues AI and CLI in FIFO order', async t => {
   const { session, calls, launches, store, owner, submit, finish } = await commandFixture(t)
   const a = submit('A')
   await until(() => launches.length === 1)
@@ -182,12 +188,16 @@ test('cancel during CLI stops active command and clears both AI and CLI waiting 
   const c = submit('C')
   session.cancel()
   assert.ok(fs.existsSync(path.join(store.directory(owner, a.record.id), 'stop')))
-  assert.equal(store.read(owner, c.record.id).cancelledBeforeStart, true)
+  assert.equal(store.read(owner, c.record.id).state, 'queued')
   assert.equal(store.read(owner, a.record.id).cancelledBeforeStart, undefined)
-  finish(a.record.id)
-  await until(() => !session.busy)
   assert.equal(launches.length, 1)
   assert.equal(calls().filter(c => c.type === 'prompt').length, 0)
+  finish(a.record.id)
+  await until(() => launches.length === 2)
+  assert.deepEqual(calls().filter(c => c.type === 'prompt').map(c => c.text), ['B'])
+  assert.equal(launches[1], c.record.session)
+  finish(c.record.id)
+  await until(() => !session.busy)
 })
 
 test('CLI after clear runs in the new conversation and rechecks execution permission', async t => {
@@ -252,4 +262,23 @@ test('cancelling queue edits preserves attachments; saving an empty attachment l
   const last = calls().filter(call => call.type === 'prompt').at(-1)
   assert.equal(last.text, 'text only')
   assert.deepEqual(last.images, [])
+})
+
+test('cancel during AI preserves reordered queue and starts its first item after turn end', async t => {
+  const { session, events, calls } = await fixture(t)
+  session.prompt('active')
+  session.prompt('second')
+  session.prompt('first')
+  session.moveQueued(1, 0)
+  await until(() => calls().some(c => c.type === 'prompt'))
+  session.cancel()
+  const meta = events.filter(e => e.type === 'meta').at(-1)
+  assert.ok(meta?.type === 'meta')
+  assert.deepEqual(meta.meta.queued, ['first', 'second'])
+  await until(() => !session.busy)
+  assert.deepEqual(calls().filter(c => c.type === 'prompt').map(c => c.text), ['active', 'first', 'second'])
+  const turns = events.filter(e => e.type === 'turn_start' || e.type === 'turn_end')
+  assert.equal(turns[1]?.type, 'turn_end')
+  assert.ok(turns[1]?.type === 'turn_end' && turns[1].stopReason === 'cancelled')
+  assert.equal(turns[2]?.type, 'turn_start')
 })

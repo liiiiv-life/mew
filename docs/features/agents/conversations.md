@@ -4,7 +4,7 @@ parent: "mew-agents"
 title: "에이전트 대화·큐·복원"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-30"
+updated: "2026-10-01"
 status_hash: "b325d279cf16e291b2bcddda7cc0d70268647e336403acba780cb1081da44668"
 files: ["src/components/AgentPanel.tsx", "src/hooks/useGridDrag.ts", "server/agentHost.ts", "server/agentWs.ts", "server/agentTranscript.ts"]
 commits: []
@@ -13,6 +13,7 @@ commits: []
 ## 요구사항
 
 - 작업을 보내고 진행·중단·대기열·이전 대화를 관리한다.
+- 진행 작업을 중단하면 대기열을 보존하고 종료 확인 뒤 맨 위 작업부터 실행한다.
 - 빈 대화는 중앙의 번역된 안내 문구로 채팅 시작을 안내한다.
 
 ### 범위
@@ -40,6 +41,8 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- AI·CLI 중단은 진행 작업과 승인 요청만 취소한다. 종료 처리 후 공통 FIFO 큐를 이어 실행하며 편집 잠금·보호 보류는 유지한다. 탭 종료·대화 전환은 대기 작업도 정리한다.
 
 - 드래그 재배열 시 주변 항목은 180ms의 공통 이동 애니메이션으로 새 자리를 찾아간다. 잡은 아이템은 포인터를 바로 따라가며, 연속 재배열과 모션 감소 설정은 [공통 모션 계약](../../development/ui-contracts.md#드래그-재배열-모션)을 따른다.
 
@@ -71,6 +74,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-01: ACP·공통 큐·메모리 보호 검사 47개 통과(선택적 OS 검사 2개 생략). AI 중단 후 재정렬된 맨 위 메시지 실행, 승인 취소 후 다음 메시지 실행, CLI 종료 확인 전 대기 유지와 AI→CLI 순서를 확인했다. 타입·대상 린트·문서 경계·링크 검사도 통과했다. 빌드·서버 재시작은 수행하지 않았다.
 
 - 2026-09-30: 관련 드래그 UI 회귀 검사에서 재배열 애니메이션과 기존 입력·취소 동작을 확인했다. 수행 범위와 제한은 [공통 모션 검증](../../development/ui-contracts.md#드래그-재배열-모션)을 따른다.
 
