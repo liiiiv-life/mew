@@ -30,4 +30,9 @@ updated: 2026-09-29
 - [공용 패키지](packages.md)
 - [UI 디자인 지침·여백과 정보 밀도·오버레이·탭 단축키 계약](ui-contracts.md)
 - [원격 데스크톱 아키텍처·입력·검증](remote-desktop.md)
+- [Windows 자체 가상 디스플레이·서명·헤드리스 GPU 캡처](remote-desktop-virtual-display.md)
 - [원격 데스크톱 배포·라이선스](remote-desktop-distribution.md)
+
+- [Mac/Linux 상주 네이티브 GPU 호스트](remote-desktop-posix.md)
+
+- [외부 원격 데스크톱 직결·자동 NAT·OS 네트워크 승인](remote-desktop-connectivity.md)

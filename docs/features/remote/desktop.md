@@ -4,9 +4,9 @@ parent: "mew-remote"
 title: "원격 데스크톱·터치 입력"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-10-02"
 status_hash: "278f4dc5c3b21929284aadc8ff47af89a35f48d29be6a318f5b80773c2f10e81"
-files: ["src/components/remote-desktop.tsx", "server/remote-desktop.ts", "server/remote-desktop-host.ts", "native/remote-desktop/main.mjs", "mew"]
+files: ["src/components/remote-desktop.tsx", "server/remote-desktop.ts", "server/remote-desktop-host.ts", "native/remote-desktop/main.mjs", "native/remote-desktop/native-host.mjs", "native/remote-desktop/gpu-windows.cpp", "native/remote-desktop/virtual-display-driver.cpp", "server/desktop-resident-host.ts", "mew"]
 commits: []
 ---
 
@@ -19,9 +19,11 @@ commits: []
 - `./mew setup`에서 OS별 보조앱 구성 요소를 미리 설치하고, Mac은 필요한 권한 설정을 서버 Mac에 열어 사용자의 승인을 확인한다.
 - Mew 터미널에서 `./mew desktop-setup`으로 빌드·재시작 없이 준비만 재실행할 수 있다.
 - OS 로그인·라이브러리·사용자 승인은 필요하다.
+- macOS 13 이상(Apple Silicon/Intel)과 Linux x64/arm64의 X11·Wayland 데스크톱에서도 자체 보조앱으로 연결·입력·연결 알림을 제공한다.
 
-- 구성 요소 준비·화면 선택·직접 연결/서버 전송과 마우스·키보드·모바일 조이스틱을 제공한다.
-- 전체화면·90도 회전·속도 비례 커서 가속·감도 설정(기본 3배)·핸들로 옮기는 세로 핫키를 지원하고, 시작 경로의 중복 탐색·방화벽 진단 대기·직접 연결 fallback 대기를 줄인다.
+- 구성 요소 준비·화면 선택·WebRTC 직접 연결과 마우스·키보드·모바일 조이스틱을 제공한다.
+- 영상과 입력이 실제 준비되면 원격으로 연결되는 PC에 연결 알림을 한 번 표시한다.
+- 전체화면·90도 회전·속도 비례 커서 가속·감도 설정(기본 3배)·핸들로 옮기는 세로 핫키를 지원하고, 시작 경로의 중복 탐색·방화벽 진단 대기·접속 시 호스트 시작과 화면 선택 왕복을 줄인다.
 
 - 휠·화면 이동·확대는 중앙에서 멀어질수록 완만하게 증가하는 속도로 지속 조절하고 중앙 복귀·손 떼기에서 멈춘다.
 - 마우스 UI와 왼쪽 플로팅 핫키 바는 반투명하게 표시한다.
@@ -31,6 +33,7 @@ commits: []
 - 서버 전체에 한 연결을 사용한다.
 - 지원 OS의 로그인된 데스크톱과 승인이 필요하며 잠금·로그인 전·UAC 화면은 지원하지 않는다.
 - 실제 성능은 환경에 따라 달라진다.
+- Windows 자체 가상 디스플레이는 별도 서명된 드라이버 설치가 필요하다. 현재 소스·빌드·호스트 연동을 제공하며 정식 서명과 모니터 전원 꺼짐 상태의 실기 검증은 남아 있다.
 
 ### 상세 계약
 
@@ -41,10 +44,15 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- Windows 캡처는 WGC GPU 표면·하드웨어 H.264를 사용하고, 자체 가상 모니터는 파일 핸들 소유권·10초 lease로 연결 중에만 유지한다.
+- 실제 화면 좌표가 확정된 뒤 입력을 준비하며, 최초 영상 디코드와 입력 채널이 모두 준비돼야 연결 완료를 표시한다.
+- reliable 채널의 준비 확인으로 호스트에 **mew 원격 데스크톱 연결됨** 시스템 알림을 표시한다. 재접속별 한 번이며 알림 오류가 영상·입력을 중단하지 않는다.
+- StarDesk 없는 자체 드라이버의 빌드·서명·설치 계약과 확인 범위는 [가상 화면 문서](../../development/remote-desktop-virtual-display.md)에 기록한다.
+
 - 공유 화면·핫키 보조키는 원격 화면 루트에 표시하는 자체 드롭다운이며 전체화면·설정의 입력 경계를 유지한다.
 
 - `./mew setup`은 기존 OS별 설치기와 Mac 권한 준비를 앱 빌드 전에 호출한다.
-- 화면 캡처·입력·상주 실행은 시작하지 않으며, 진행과 실패는 터미널에 표시한다.
+- 설치 자체는 화면 캡처·입력·상주 실행을 시작하지 않으며, 진행과 실패는 터미널에 표시한다.
 - `desktop-setup`은 같은 준비만 실행한다.
 - 이미 승인된 권한은 재요청하지 않고, 승인 대기는 최대 5분이며 중단·재시도할 수 있다.
 - 상세 순서와 검증 한계는 [자동 준비 계약](../../development/remote-desktop.md#자동-준비와-내부-tmux)과 [Mac 권한 준비](../../development/remote-desktop.md#mac-터미널-권한-준비)를 따른다.
@@ -54,14 +62,19 @@ commits: []
 - 모바일 기본 뷰어에서도 독을 표시하며 브라우저 전체화면에서만 숨긴다(키보드 중 숨김은 유지).
 - 독으로 다른 패널을 선택하면 원격 연결을 종료하고 이동한다.
 
-- 구성 요소 준비·화면 선택·직접 연결/서버 전송과 마우스·키보드·모바일 조이스틱을 제공한다.
-- 전체화면·90도 회전·속도 비례 커서 가속·감도 설정(기본 3배)·핸들로 옮기는 세로 핫키를 지원하고, 시작 경로의 중복 탐색·방화벽 진단 대기·직접 연결 fallback 대기를 줄인다.
+- 구성 요소 준비·화면 선택·WebRTC 직접 연결과 마우스·키보드·모바일 조이스틱을 제공한다.
+- 전체화면·90도 회전·속도 비례 커서 가속·감도 설정(기본 3배)·핸들로 옮기는 세로 핫키를 지원하고, 시작 경로의 중복 탐색·방화벽 진단 대기·접속 시 호스트 시작과 화면 선택 왕복을 줄인다.
 
 - 휠·화면 이동·확대는 중앙에서 멀리 밀수록 속도 증가폭이 완만해지는 연속 조이스틱이며, 커서·버튼 드래그는 기존 터치패드 방식을 유지한다.
 - 마우스·화면 조절 열·핫키 바는 테마 색의 반투명 배경을 사용한다.
 
-- 최초 연결 최적화로 Windows 전용 Node 직접 탐색·bridge 경로 재사용, DXGI 빈 화면의 빠른 GDI 전환, 짧은 준비 작업의 빠른 완료 확인을 적용했다.
-- 정상 DXGI·로그인 세션·종료 시 정리는 유지하며, 실제 전체 접속 시간은 실기 확인이 필요하다.
+- Windows/WSL은 상주 Node·D3D11 GPU 캡처·Media Foundation 하드웨어 H.264·네이티브 WebRTC를 사용한다. 대기 중 캡처·인코딩은 멈추고 접속마다 장치를 재사용한다.
+- 외부 직결을 위해 STUN 협상 재시도·활성 소켓의 짧은 PCP/NAT-PMP/UPnP 매핑·Windows UDP 앱 규칙의 UAC 승인 준비를 제공한다. 기존 차단 정책은 보존한다. [외부 연결·검증 범위](../../development/remote-desktop-connectivity.md).
+- Mac/Linux도 같은 직결·재시도·임시 매핑 수명을 사용한다. 커널이 선택한 IPv4 인터페이스를 조회하고 서비스 PATH·다중 NIC·VPN 경로를 구분한다. Mac의 로컬 네트워크 권한 설명과 Mac/Linux 방화벽의 읽기 전용 실패 안내를 제공한다. 수신 전용 네이티브 입력 채널을 세션 종료까지 소유해 GC로 연결이 끊기는 공통 오류를 방지한다.
+- 입력·권한 lease, 접속별 session ID, 캡처 종료 확인 후 제어권 전환을 유지한다. TURN·WebSocket 영상 중계는 거부한다. 기본 화면을 서버가 선택해 브라우저 선택 왕복을 생략한다.
+- Mac/Linux도 상주 Node·네이티브 GPU 캡처·하드웨어 H.264·직접 WebRTC를 사용한다. GPU가 없으면 Electron·CPU 인코딩으로 폴백하지 않는다. [설치·GPU·권한 계약](../../development/remote-desktop-posix.md).
+- Mac은 승인된 화면 기록·손쉬운 사용 권한으로 동작하고, Wayland는 portal 입력 권한 회수 시 유휴 상태에서도 연결을 종료한다.
+- 새 Windows 호스트는 C++ Build Tools·Windows SDK·GPU 하드웨어 H.264가 필요하다.
 
 <!-- mew:implementation:end -->
 
@@ -69,7 +82,14 @@ commits: []
 ## 검증
 
 - 사용자 확인 기준:
-  - 지원 환경에서 연결·중단·화면 선택·터치 드래그·회전 후 클릭 좌표·감도·속도 조이스틱의 지속 조절/중앙 복귀/놓기 정지·반투명 컨트롤·핫키 이동/입력·전체화면과 직접 연결 실패 시 서버 전송을 확인한다.
+  - 외부 LTE/5G 폰에서 실제 영상·입력·재접속을 확인한다. 같은 PC 연결 성공을 외부 연결 검증으로 대체하지 않는다.
+  - 원격으로 연결되는 PC에서 첫 화면·입력 준비 후 연결 알림이 한 번 표시되고 재접속하면 다시 표시되는지 확인한다. OS 알림 차단 시에도 원격 연결은 동작해야 한다.
+  - Mac의 승인·실제 화면·Retina 좌표·입력·알림과 Linux X11/Wayland의 연결·입력·종료·재접속을 확인한다. Wayland는 상대 이동·키보드 승인·권한 회수 후 연결 종료를 확인한다.
+  - 지원 환경에서 연결·중단·화면 선택·터치 드래그·회전 후 클릭 좌표·감도·속도 조이스틱의 지속 조절/중앙 복귀/놓기 정지·반투명 컨트롤·핫키 이동/입력·전체화면과 직접 연결 실패 안내와 중계 거부를 확인한다.
   - 자동 검증과 실기 한계는 [구현 계획](../../work/remote-desktop-controls.md)에 기록한다.
+
+- Windows Chrome 실기에서 하드웨어 H.264 첫 화면·같은 프로세스의 재접속을 메모리에서 확인했다. 외부 NAT·모바일·click-to-photon은 별도 실측 대상이다. [구현·검증 기록](../../work/remote-desktop-resident-direct.md).
+- Linux X11 네이티브 캡처·직접 H.264·XTest 입력·알림 요청·인증 회수·상주 프로세스 재사용을 격리 Xvfb의 테스트 전용 소프트웨어 인코더로 검사했다. 운영 하드웨어 인코딩 성능은 아직 측정하지 않았다. Mac과 Wayland의 실제 기기 검증은 남아 있다. [OS별 검증 범위](../../development/remote-desktop.md#검증).
+- Linux 네이티브 WebRTC·실제 OS 경로 조회와 격리 NAT에서 매핑 후보만 사용하는 연결·재접속·매핑 삭제를 검사했다. WSL의 Linux 프로세스에서 실행했으며 실제 Mac·물리 Linux GPU·LTE/5G 폰의 검증과 구분한다. [외부 직결 검증](../../development/remote-desktop-connectivity.md#오류와-검증-범위).
 
 <!-- mew:validation:end -->

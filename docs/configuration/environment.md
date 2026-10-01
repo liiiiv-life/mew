@@ -47,7 +47,9 @@ Noto Serif KR은 기존처럼 Google Fonts에서 불러온다. 프로덕션 CSP�
 | `MEW_AGENT_MEMORY_SCOPE` | `auto` | 설치된 systemd slice에 ACP·CLI 작업 메모리 제한 적용. `required`는 미설치 시 실행 거부, `off`는 OS 제한만 해제. [설치·메모리 보호](../operations/agent-memory.md) |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
 | `MEW_DESKTOP_HELPER_DIR` | 프로젝트의 `native/remote-desktop`, WSL은 Windows LocalAppData의 `Mew/remote-desktop` | [원격 데스크톱 보조 앱](../guides/remote-desktop.md) 설치 경로. WSL은 Windows 절대 경로 |
-| `MEW_DESKTOP_ICE_SERVERS` | `[]` | 선택적 WebRTC STUN/TURN JSON 배열. 비워 두면 외부 서비스를 호출하지 않고 직접 연결 실패 시 Mew 서버 전송으로 전환. 인증 값은 레포에 저장하지 않는다 |
+| `MEW_DESKTOP_ICE_SERVERS` | `[{"urls":["stun:stun.l.google.com:19302","stun:stun.cloudflare.com:3478"]}]` | WebRTC 주소 발견용 STUN JSON 배열. `[]`로 외부 조회 비활성화. TURN·영상 중계는 지원하지 않으며 NAT/방화벽에 따라 직접 연결이 불가능할 수 있음 |
+| `MEW_DESKTOP_AUTO_NAT` | `1` | 활성 직결이 지연되면 OS 기본 게이트웨이의 PCP/NAT-PMP/UPnP 임시 UDP 매핑을 시도. `0`으로 비활성화. [수명·OS 네트워크 승인](../development/remote-desktop-connectivity.md) |
+| `MEW_DESKTOP_UDP_PORT` | 자동 선택 | Windows/WSL·Mac·Linux 네이티브 호스트의 고정 UDP 포트(1024–65535). 운영자 선택 설정. 기본 연결은 포트 지정 없이 STUN과 짧은 자동 NAT 매핑을 사용함 |
 | `MEW_BIND` | `127.0.0.1` | 서버가 들을 주소. 공개 기본값은 loopback이며, LAN 직접 접속이 꼭 필요할 때만 노출 주소를 명시한다. 서버 배포는 HTTPS 프록시·터널 뒤 `127.0.0.1`로 유지한다 |
 | `MEW_COLLAB_RUST` | 없음(=JS Yjs) | `1`이면 협업 방 상태를 Rust(yrs)로 — 먼저 `npm run build:native` ([협업 방](../development/collaboration.md)) |
 | `DATABASE_URL` | 없음 | `/db`용 Postgres. 없거나 접속 불가면 `/db` API만 503 |

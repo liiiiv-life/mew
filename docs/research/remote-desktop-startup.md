@@ -8,7 +8,7 @@ updated: 2026-09-23
 
 [문서 지도](../MOC.md) · [현재 구현 계약](../development/remote-desktop.md) · [설치·사용법](../guides/remote-desktop.md)
 
-상태: **기준 조사; 일부 후속 구현 완료.** 2026-09-23에 전용 Windows Node 직접 탐색·bridge 경로 캐시, DXGI 빈 프레임 대기 단축, 설치 초기 폴링 단축을 구현했다. 최신 수치·검증 범위는 [현재 계약](../development/remote-desktop.md#최초-연결-최적화-검증--2026-09-23)을 따른다. 아래 분석·미구현 제안은 조사 당시 내용을 보존한다.
+상태: **기준 조사; 일부 후속 구현 완료.** 2026-09-23에 전용 Windows Node 직접 탐색·bridge 경로 캐시, DXGI 빈 프레임 대기 단축, 설치 초기 폴링 단축을 구현했다. 최신 수치·검증 범위는 [현재 계약](../history/remote-desktop-electron-transport.md#최초-연결-최적화-검증--2026-09-23)을 따른다. 2026-10-01 상주 GPU 호스트·직결 전환은 [ADR 0185](../../../.mew/docs/decisions/0185-mew-desktop-resident-direct-host.md)와 [구현 기록](../work/remote-desktop-resident-direct.md)을 따른다. 아래 분석·미구현 제안은 조사 당시 내용을 보존한다.
 
 2026-09-22 작업트리(`c7a6335` 기반, 기존 미커밋 변경 포함)를 조사했다. 기존 [지연·대역폭 연구](remote-desktop-latency.md)는 연결 후 응답성이 중심이며, 이 문서는 원격 데스크톱 열기부터 첫 화면과 입력 준비까지를 다룬다. 사용자가 겪은 소요 시간·설치 여부·호스트 OS·접속망은 아직 특정하지 못했다. 실행 서버와 현재 소스의 일치 여부도 확인되지 않았다.
 

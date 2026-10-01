@@ -4,10 +4,11 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "main": "main.mjs",
+  "main": "native-host.mjs",
+  "overrides": { "usocket": { "node-gyp": "11.5.0" } },
   "dependencies": {
-    "electron": "44.3.0",
     "koffi": "3.2.1",
-    "dbus-next": "0.10.2"
+    "dbus-next": "0.10.2",
+    "node-datachannel": "0.33.4"
   }
 }

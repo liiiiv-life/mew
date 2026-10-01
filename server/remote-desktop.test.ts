@@ -5,13 +5,17 @@ import { once, EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { setTimeout as delay } from 'node:timers/promises'
 import { WebSocket } from 'ws'
-import { desktopPlatform, desktopHostSpec, desktopIceServers, type spawnDesktopHost } from './remote-desktop-host.ts'
+import { desktopPlatform, desktopHostSpec, desktopIceServers, desktopUdpPort, type spawnDesktopHost } from './remote-desktop-host.ts'
 import { attachRemoteDesktopWebSocket, desktopConnectionAllowed, validDesktopSignal } from './remote-desktop.ts'
 import type { RequestAuth } from './reqAuth.ts'
-import { hostFrame } from '../native/remote-desktop/host-wire.mjs'
-import { packFrame } from '../native/remote-desktop/relay-protocol.mjs'
 
 const owner: RequestAuth = { role: 'owner', email: 'owner@example.test', mustChangePassword: false }
+
+test('fixed direct UDP port is opt-in and bounded before native launch', () => {
+  assert.equal(desktopUdpPort({}), undefined)
+  assert.equal(desktopUdpPort({ MEW_DESKTOP_UDP_PORT: '50020' }), 50020)
+  for (const value of ['0', '1023', '65536', '50020;command', '50020.5', '-1', ' 50020']) assert.throws(() => desktopUdpPort({ MEW_DESKTOP_UDP_PORT: value }))
+})
 
 test('desktop authorization requires an unchanged privileged account and exact Origin', () => {
   const request = { headers: { host: 'mew.example.test', origin: 'https://mew.example.test', 'x-forwarded-proto': 'https' }, socket: {} } as unknown as IncomingMessage
@@ -24,20 +28,22 @@ test('desktop authorization requires an unchanged privileged account and exact O
   assert.equal(validDesktopSignal({ type: 'select', id: 'screen:0:0' }), true)
 })
 
-test('OS launch plans use native Electron and WSL uses Windows paths without a shell', async () => {
+test('OS launch plans use resident native Node hosts on Windows, Mac and Linux', async () => {
   assert.equal(desktopPlatform('darwin', 'Darwin'), 'mac')
   assert.equal(desktopPlatform('linux', '6.6.87.2-microsoft-standard-WSL2'), 'wsl')
   assert.equal(desktopPlatform('linux', '6.14.0'), 'linux')
   const mac = await desktopHostSpec({ platform: 'mac', env: { MEW_DESKTOP_HELPER_DIR: '/opt/Mew helper' } })
-  assert.equal(mac.executable, '/opt/Mew helper/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
+  assert.equal(mac.executable, '/opt/Mew helper/MewDesktop.app/Contents/MacOS/MewDesktop')
+  assert.equal(mac.entry, '/opt/Mew helper/native-host.mjs')
   const calls: unknown[] = []
-  const wsl = await desktopHostSpec({ platform: 'wsl', env: { MEW_DESKTOP_HELPER_DIR: 'C:\\Users\\Test User\\Mew' }, run: (async (file: string, args: string[]) => { calls.push([file, args]); return { stdout: '/mnt/c/Users/Test User/Mew/node_modules/electron/dist/electron.exe\n', stderr: '' } }) as never })
-  assert.equal(wsl.entry, 'C:\\Users\\Test User\\Mew\\main.mjs')
-  assert.equal(wsl.executable, '/mnt/c/Users/Test User/Mew/node_modules/electron/dist/electron.exe')
-  assert.deepEqual(calls, [['wslpath', ['-u', 'C:\\Users\\Test User\\Mew\\node_modules\\electron\\dist\\electron.exe']]])
+  const wsl = await desktopHostSpec({ platform: 'wsl', env: { MEW_DESKTOP_HELPER_DIR: 'C:\\Users\\Test User\\Mew' }, run: (async (file: string, args: string[]) => { calls.push([file, args]); return { stdout: '/mnt/c/Users/Test User/Mew/runtime/node.exe\n', stderr: '' } }) as never })
+  assert.equal(wsl.entry, 'C:\\Users\\Test User\\Mew\\native-host.mjs')
+  assert.equal(wsl.executable, '/mnt/c/Users/Test User/Mew/runtime/node.exe')
+  assert.deepEqual(calls, [['wslpath', ['-u', 'C:\\Users\\Test User\\Mew\\runtime\\node.exe']]])
   await assert.rejects(desktopHostSpec({ platform: 'wsl', env: { MEW_DESKTOP_HELPER_DIR: '/home/test/helper' } }), /Windows/)
-  assert.deepEqual(desktopIceServers({}), [])
-  assert.deepEqual(desktopIceServers({ MEW_DESKTOP_ICE_SERVERS: '[{"urls":"turn:relay.example.test:3478","username":"test","credential":"test-only"}]' })[0].urls, ['turn:relay.example.test:3478'])
+  assert.deepEqual(desktopIceServers({}), [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }])
+  assert.deepEqual(desktopIceServers({ MEW_DESKTOP_ICE_SERVERS: '[]' }), [])
+  assert.throws(() => desktopIceServers({ MEW_DESKTOP_ICE_SERVERS: '[{"urls":"turn:relay.example.test:3478"}]' }), /TURN/)
   assert.throws(() => desktopIceServers({ MEW_DESKTOP_ICE_SERVERS: '[{"urls":"https://wrong.test"}]' }))
 })
 
@@ -107,34 +113,45 @@ test('unknown screen selection cannot reach the native helper', { timeout: 5000 
   } finally { ws.terminate(); await new Promise<void>(resolve => server.close(() => resolve())) }
 })
 
-test('server video and input keep the same authorization lease and cannot survive revocation', { timeout: 5000 }, async () => {
-  const server = createServer(), fake = fakeHost()
-  let auth = { ...owner }
-  attachRemoteDesktopWebSocket(server, { getAuth: () => auth, heartbeatMs: 50, iceServers: () => [], spawnHost: async () => fake.host })
+test('authenticated signaling accepts the next ICE offer and drops retired answers and candidates', { timeout: 5000 }, async () => {
+  const server = createServer(), fake = fakeHost(), received: Record<string, unknown>[] = []
+  attachRemoteDesktopWebSocket(server, { getAuth: () => owner, iceServers: () => [], spawnHost: async () => fake.host })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   const ws = new WebSocket(`${origin.replace('http:', 'ws:')}/api/remote-desktop/ws`, { origin })
-  const binary: Buffer[] = []
-  ws.on('message', (raw, isBinary) => {
-    if (isBinary) { binary.push(Buffer.from(raw as Buffer)); ws.send('{"type":"frame-ack","seq":1}'); return }
-    const message = JSON.parse(raw.toString())
-    if (message.type === 'sources') ws.send('{"type":"select","id":"screen:0:0"}')
-    if (message.type === 'offer') ws.send('{"type":"relay"}')
-  })
-  const until = async (condition: () => boolean) => { for (let i = 0; i < 100 && !condition(); i++) await delay(10); assert.ok(condition()) }
+  ws.on('message', raw => received.push(JSON.parse(raw.toString())))
+  const until = async (condition: () => boolean) => { for (let i = 0; i < 200 && !condition(); i++) await delay(5); assert.ok(condition()) }
   try {
-    await until(() => fake.messages.some(message => message.type === 'relay'))
-    const frame = packFrame({ seq: 1, timestamp: 33_333, width: 1280, height: 720, key: true }, new Uint8Array([0, 255, 10, 128]))
-    fake.host.stdout.emit('data', hostFrame(frame))
-    await until(() => fake.messages.some(message => message.type === 'frame-ack'))
-    assert.deepEqual(binary, [Buffer.from(frame)])
-    ws.send(JSON.stringify({ type: 'relay-input', reliable: true, value: { type: 'input', v: 1, seq: 1, epoch: 1, x: 0, y: 0, wheelX: 0, wheelY: 0, buttons: 1, keys: [] } }))
-    await until(() => fake.messages.some(message => message.type === 'relay-input'))
+    await until(() => received.some(value => value.type === 'sources'))
+    ws.send(JSON.stringify({ type: 'select', id: 'screen:0:0' }))
+    await until(() => received.some(value => value.type === 'offer'))
+    ws.send(JSON.stringify({ type: 'answer', negotiation: 0, sdp: 'v=0\r\n' }))
+    await until(() => fake.messages.some(value => value.type === 'answer'))
+    fake.host.stdout.emit('data', Buffer.from('MEW_DESKTOP {"type":"offer","negotiation":1,"sdp":"v=0\\r\\n"}\n'))
+    await until(() => received.some(value => value.type === 'offer' && value.negotiation === 1))
+    for (const negotiation of [0, 1]) {
+      ws.send(JSON.stringify({ type: 'candidate', negotiation, candidate: { candidate: `generation-${negotiation}` } }))
+      ws.send(JSON.stringify({ type: 'answer', negotiation, sdp: 'v=0\r\n' }))
+    }
+    await until(() => fake.messages.some(value => value.type === 'answer' && value.negotiation === 1))
+    assert.equal(ws.readyState, WebSocket.OPEN)
+    assert.deepEqual(fake.messages.filter(value => value.type === 'answer').map(value => value.negotiation), [0, 1])
+    assert.deepEqual(fake.messages.filter(value => value.type === 'candidate').map(value => value.negotiation), [1])
+    assert.equal(validDesktopSignal({ type: 'answer', negotiation: 3, sdp: 'v=0\r\n' }), false)
+    const exited = once(fake.host, 'exit'); ws.close(); await exited
+  } finally { ws.terminate(); await new Promise<void>(resolve => server.close(() => resolve())) }
+})
+
+for (const type of ['relay', 'relay-input', 'frame-ack']) test(`direct-only signaling rejects ${type} without forwarding it`, { timeout: 5000 }, async () => {
+  const server = createServer(), fake = fakeHost()
+  attachRemoteDesktopWebSocket(server, { getAuth: () => owner, iceServers: () => [], spawnHost: async () => fake.host })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  const ws = new WebSocket(`${origin.replace('http:', 'ws:')}/api/remote-desktop/ws`, { origin })
+  try {
     const exited = once(fake.host, 'exit')
-    auth = { ...owner, role: 'member' }
-    await once(ws, 'close'); await exited
-    assert.ok(fake.messages.some(message => message.type === 'stop'))
-    fake.host.stdout.emit('data', hostFrame(frame))
-    assert.equal(binary.length, 1)
+    await once(ws, 'open'); ws.send(JSON.stringify({ type }))
+    const [code] = await once(ws, 'close'); await exited
+    assert.equal(code, 1008); assert.equal(fake.messages.some(value => value.type === type), false)
   } finally { ws.terminate(); await new Promise<void>(resolve => server.close(() => resolve())) }
 })

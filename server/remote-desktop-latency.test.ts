@@ -23,6 +23,8 @@ test('local pointer updates precede network sends; stale corrections never rewin
   time = 80; input.flushMotion(time)
   input.remoteCursor({ ...cursor, seq: packets.at(-1)!.seq, x: .9, y: .8 }); assert.deepEqual(positions.at(-1), [.9, .8, undefined])
   input.remoteCursor({ ...cursor, seq: packets.at(-1)!.seq, x: 1.5 }); input.heartbeat()
+  assert.equal(packets.at(-1)!.point, undefined, 'idle feedback never becomes pointer input')
+  input.button(1, true)
   assert.deepEqual(packets.at(-1)!.point, [.9, .8], 'another monitor cannot put out-of-range coordinates on the input wire')
 })
 

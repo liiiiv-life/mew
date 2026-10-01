@@ -95,8 +95,8 @@ test('permission subprocess uses the installed executable, literal paths and san
   const options: PermissionHostOptions = { target: "/tmp/Mew's $(false)", profile: '/tmp/profile', mode: 'check', env: { NODE_OPTIONS: 'bad', ELECTRON_RUN_AS_NODE: '1', PATH: '/fixture' }, timeout: 10_000 }
   const result = await runPermissionHost(options, async (command, args, raw) => {
     const settings = raw as { env: NodeJS.ProcessEnv; cwd: string; timeout: number; killSignal: string }
-    assert.equal(command, path.join(options.target, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'))
-    assert.deepEqual(args, [path.join(options.target, 'permissions-host.mjs'), 'check'])
+    assert.equal(command, path.join(options.target, 'MewDesktop.app/Contents/MacOS/MewDesktop'))
+    assert.deepEqual(args, [path.join(options.target, 'permissions-native.mjs'), 'check'])
     assert.equal(settings.cwd, options.target)
     assert.equal(settings.timeout, 10_000)
     assert.equal(settings.killSignal, 'SIGKILL')
@@ -113,29 +113,25 @@ test('permission subprocess uses the installed executable, literal paths and san
 test('the permission host requests only the chosen OS permission without capture or input modules', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-permission-host-test-'))
   try {
-    const host = path.join(root, 'permissions-host.mjs')
-    await fs.copyFile(new URL('../native/remote-desktop/permissions-host.mjs', import.meta.url), host)
-    for (const name of ['electron', 'koffi']) {
+    const host = path.join(root, 'permissions-native.mjs')
+    await fs.copyFile(new URL('../native/remote-desktop/permissions-native.mjs', import.meta.url), host)
+    for (const name of ['koffi']) {
       await fs.mkdir(path.join(root, 'node_modules', name), { recursive: true })
       await fs.writeFile(path.join(root, 'node_modules', name, 'package.json'), JSON.stringify({ type: 'module', exports: './index.js' }))
     }
-    await fs.writeFile(path.join(root, 'node_modules/electron/index.js'), `
-      export const app = {setPath(){}, setAppLogsPath(){}, whenReady: async()=>{}, dock:{hide(){}}, exit: code=>process.exit(code)};
-      export const systemPreferences = {
-        isTrustedAccessibilityClient(prompt){if(prompt) console.log('REQUEST_ACCESSIBILITY'); return process.env.GRANTED === '1';},
-        getMediaAccessStatus(){return process.env.GRANTED === '1' ? 'granted' : 'not-determined';}
-      };
-      export const shell = {openExternal: async url=>console.log('SETTINGS:'+url)};
-    `)
     await fs.writeFile(path.join(root, 'node_modules/koffi/index.js'), `
-      export default {load(file){if(!file.endsWith('/CoreGraphics')) throw Error('Unexpected library'); return {
-        func(signature){if(signature!=='bool CGRequestScreenCaptureAccess()') throw Error('Unexpected API'); return ()=>{console.log('REQUEST_SCREEN'); return false;};}
+      export default {load(file){if(!file.endsWith('/gpu-macos.dylib')) throw Error('Unexpected library'); return {
+        func(signature){
+          if(signature==='void mew_gpu_pump()') return ()=>{};
+          if(signature!=='int mew_gpu_permissions(int)') throw Error('Capture/input API is forbidden during preparation');
+          return mode=>{if(mode===1)console.log('REQUEST_ACCESSIBILITY');if(mode===2)console.log('REQUEST_SCREEN');return process.env.GRANTED==='1'?3:0};
+        }
       };}};
     `)
     for (const mode of ['check', 'accessibility', 'screen']) {
-      const script = `Object.defineProperty(process, 'platform', {value:'darwin'}); process.argv=[process.execPath, ${JSON.stringify(host)}, ${JSON.stringify(mode)}]; await import(${JSON.stringify(pathToFileURL(host).href)});`
+      const script = `import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';import {EventEmitter} from 'node:events';cp.spawn=(_command,args)=>{console.log('SETTINGS:'+args[0]);return new EventEmitter()};syncBuiltinESMExports();Object.defineProperty(process, 'platform', {value:'darwin'}); process.argv=[process.execPath, ${JSON.stringify(host)}, ${JSON.stringify(mode)}]; await import(${JSON.stringify(pathToFileURL(host).href)});`
       const result = await execute(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, GRANTED: '0', MEW_DESKTOP_PERMISSION_PROFILE: root }, timeout: 5000 })
-      assert.deepEqual(parsePermissionStatus(result.stdout), denied)
+      assert.deepEqual(parsePermissionStatus(result.stdout), { accessibility: false, screen: 'denied' })
       assert.equal(result.stdout.includes('REQUEST_ACCESSIBILITY'), mode === 'accessibility')
       assert.equal(result.stdout.includes('REQUEST_SCREEN'), mode === 'screen')
       assert.equal(result.stdout.includes('SETTINGS:'), mode !== 'check')
@@ -147,11 +143,11 @@ test('the permission host requests only the chosen OS permission without capture
 test('permission subprocess timeout and cancellation wait for the owned process to exit', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-permission-lifetime-'))
   try {
-    const binary = path.join(root, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
+    const binary = path.join(root, 'MewDesktop.app/Contents/MacOS/MewDesktop')
     await fs.mkdir(path.dirname(binary), { recursive: true })
     await fs.symlink(process.execPath, binary)
     const pidFile = path.join(root, 'fixture.pid')
-    await fs.writeFile(path.join(root, 'permissions-host.mjs'), `
+    await fs.writeFile(path.join(root, 'permissions-native.mjs'), `
       import fs from 'node:fs';
       fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
       console.log('READY');

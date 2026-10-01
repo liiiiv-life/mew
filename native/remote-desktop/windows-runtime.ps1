@@ -1,8 +1,9 @@
 # Private fallback runtime. No MSI, administrator rights, registry or global PATH changes.
-function Get-MewDesktopNode([string]$Target) {
+function Get-MewDesktopNode([string]$Target, [switch]$PrivateOnly) {
   $private = Join-Path $Target 'runtime\node.exe'
-  $candidates = @($private, (Join-Path $env:ProgramFiles 'nodejs\node.exe'))
-  $onPath = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+  $candidates = @($private)
+  if (-not $PrivateOnly) { $candidates += (Join-Path $env:ProgramFiles 'nodejs\node.exe') }
+  $onPath = if (-not $PrivateOnly) { (Get-Command node.exe -ErrorAction SilentlyContinue).Source } else { $null }
   if ($onPath) { $candidates += $onPath }
   foreach ($candidate in $candidates) {
     if (-not (Test-Path -LiteralPath $candidate)) { continue }

@@ -36,6 +36,24 @@ test('absolute clicks land at the latest pointer position even if motion was los
   assert.equal(s.events.length, 2, 'idle heartbeats do not repeatedly warp the physical cursor')
 })
 
+test('remote cursor feedback never becomes idle input, and lost local motion still recovers', () => {
+  const s = setup()
+  const cursor = { type: 'cursor' as const, seq: 0, x: .3, y: .4, width: 1920, height: 1080, visible: true }
+  s.input.remoteCursor(cursor); s.input.localCursor(true)
+  s.input.heartbeat(); s.receiver.accept(s.reliable.shift())
+  s.input.remoteCursor({ ...cursor, seq: 1, x: .6 })
+  s.input.key('KeyA', true); s.receiver.accept(s.reliable.shift())
+  s.input.release(); s.receiver.accept(s.reliable.shift())
+  assert.deepEqual(s.events, [['key', 'KeyA', true], ['key', 'KeyA', false]])
+  s.events.length = 0
+  s.input.point(.8, .9); s.input.flushMotion() // Drop the unreliable packet.
+  s.input.heartbeat(); s.receiver.accept(s.reliable.shift())
+  assert.deepEqual(s.events, [['point', .8, .9]])
+  s.input.remoteCursor({ ...cursor, seq: 100, x: .7 })
+  s.input.heartbeat(); s.receiver.accept(s.reliable.shift())
+  assert.equal(s.events.length, 1, 'feedback cannot warp the cursor after recovery either')
+})
+
 test('release, timeout and invalid packets cannot leave keys/buttons pressed', () => {
   const s = setup()
   s.input.button(2, true); s.input.key('ControlLeft', true)

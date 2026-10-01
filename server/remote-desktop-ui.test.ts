@@ -10,7 +10,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..'), require = createRequire(`${root}/package.json`)
 
-for (const scenario of ['direct', 'server', 'native', 'native-direct'] as const) test(`fullscreen desktop decodes real ${scenario} video and controls a synthetic host on mobile`, { skip: !domBrowserExecutable(), timeout: 90_000 }, async () => {
+for (const scenario of ['direct', 'native-direct'] as readonly string[]) test(`fullscreen desktop decodes real ${scenario} video and controls a synthetic host on mobile`, { skip: !domBrowserExecutable(), timeout: 90_000 }, async () => {
   const transport = scenario === 'native' || scenario === 'server' ? 'server' : 'direct', nativeCapture = scenario.startsWith('native')
   const source = `
 import React,{useState} from '${require.resolve('react')}';
@@ -20,7 +20,10 @@ import {RemoteDesktop} from '${root}/src/components/remote-desktop.tsx';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {createInputReceiver} from '${root}/native/remote-desktop/protocol.mjs';
 const events=window.inputEvents=[], packets=window.inputPackets=[];
-const receiver=createInputReceiver(Object.fromEntries(['move','moveTo','wheel','button','key'].map(name=>[name,(...args)=>events.push([name,...args])])));
+const Peer=window.RTCPeerConnection, peers=[];window.RTCPeerConnection=class extends Peer{constructor(...args){super(...args);peers.push(this)}};
+window.videoStats=async()=>{let result={frames:0,bytes:0};for(const p of peers){if(p.connectionState==='closed')continue;(await p.getStats()).forEach(s=>{if(s.type==='inbound-rtp'&&s.kind==='video')result={frames:s.framesDecoded??0,bytes:s.bytesReceived??0}})}return result};
+
+const adapter=Object.fromEntries(['move','moveTo','wheel','button','key'].map(name=>[name,(...args)=>events.push([name,...args])]));let receiver=createInputReceiver(adapter);
 let listener, socket;
 const canvas=document.createElement('canvas'); canvas.width=1280;canvas.height=720;window.testCanvas=canvas;
 const context=canvas.getContext('2d'); let frame=0;
@@ -38,10 +41,11 @@ const capture=async()=>{
 };
 const accept=(value,reliable)=>{packets.push([value,reliable]);if(value.type==='input')receiver.accept(value,reliable)};
 const withoutCandidates=value=>value.sdp?{...value,sdp:value.sdp.replace(/^a=candidate:.*\\r?\\n/gm,'')}:value;
-window.desktopHost={capture,ready(){},onSignal(fn){listener=fn},signal(value){socket?.emit(value)},input:accept,frame(packet){window.frameCount++;window.frameBytes+=packet.byteLength;socket?.onmessage?.({data:packet.buffer.slice(packet.byteOffset,packet.byteOffset+packet.byteLength)})}};
+window.notifications=0;
+window.desktopHost={capture,ready(){},onSignal(fn){listener=fn},signal(value){if(value.type==='viewer-ready'){window.notifications++;return}socket?.emit(value)},input:accept,frame(packet){window.frameCount++;window.frameBytes+=packet.byteLength;socket?.onmessage?.({data:packet.buffer.slice(packet.byteOffset,packet.byteOffset+packet.byteLength)})}};
 class Socket {
  static OPEN=1;readyState=1;bufferedAmount=0;
- constructor(){socket=this;window.socket=this;setTimeout(()=>{this.emit({type:'config',iceServers:[]});this.emit({type:'sources',screens:[{id:'screen:0:0',label:'Test display',width:1280,height:720}]})},20)}
+ constructor(){receiver=createInputReceiver(adapter);lastNativeFrame=-1;socket=this;window.socket=this;setTimeout(()=>{this.emit({type:'config',iceServers:[]});this.emit({type:'sources',screens:[{id:'screen:0:0',label:'Test display',width:1280,height:720}]})},20)}
  emit(value){if(value.type==='offer')window.offerAt=performance.now();if('${transport}'==='server'&&value.type==='candidate')return;if(this.readyState===1)this.onmessage?.({data:JSON.stringify('${transport}'==='server'?withoutCandidates(value):value)})}
  send(raw){let value=JSON.parse(raw);if(value.type==='frame-ack'&&window.pauseAcks){window.pendingAck=raw;return}if(value.type==='relay-input'){accept(value.value,value.reliable);return}if(value.type==='relay'){window.relayWait=performance.now()-window.offerAt;window.switches++;receiver.pause()}if('${transport}'==='server'){if(value.type==='candidate')return;value=withoutCandidates(value)}listener(value.type==='select'?{type:'start',source:value.id,iceServers:[],relativeOnly:false,nativeCapture:${nativeCapture}}:value)}
  close(){if(this.readyState!==1)return;this.readyState=3;listener({type:'stop'});receiver.release();this.onclose?.()}
@@ -70,7 +74,7 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     page.on('pageerror', error => errors.push(error.message))
     await page.route('http://localhost:48973/**', async route => {
       const p = new URL(route.request().url()).pathname
-      if (['/direct-sender.mjs', '/relay-sender.mjs', '/relay-protocol.mjs', '/relay-adaptation.mjs', '/native-stream.mjs'].includes(p)) return route.fulfill({ contentType: 'text/javascript', body: await fs.readFile(`${root}/native/remote-desktop${p}`, 'utf8') })
+      if (['/direct-sender.mjs', '/connection-notice.mjs', '/relay-sender.mjs', '/relay-protocol.mjs', '/relay-adaptation.mjs', '/native-stream.mjs'].includes(p)) return route.fulfill({ contentType: 'text/javascript', body: await fs.readFile(`${root}/native/remote-desktop${p}`, 'utf8') })
       if (p === '/api/remote-desktop/install') {
         if (route.request().method() === 'POST') { installs++; installState = 'running' }
         return route.fulfill({ json: { session: 'mewcmd-desktop-install', terminal: installState !== 'idle', state: installState, exitCode: installState === 'failed' ? 7 : installState === 'succeeded' ? 0 : null } })
@@ -81,6 +85,7 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.goto('http://localhost:48973/')
     await page.getByText('Open desktop').click()
     await page.waitForFunction(`document.querySelector('.desktop-status')?.dataset.connected==='true'`)
+    await page.waitForFunction('window.notifications===1')
     await page.waitForFunction(transport === 'direct' ? `document.querySelector('video')?.videoWidth>0` : `document.querySelector('.desktop-stage canvas')?.width===1280`)
     if (nativeCapture) await page.waitForFunction(`document.querySelector('.desktop-cursor')?.hidden===false`, null, { timeout: 3000 })
     assert.equal(await page.evaluate('window.captureCount'), 1, 'fallback reuses the OS capture')
@@ -334,10 +339,13 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       await clear(); await page.locator('.desktop-stage').focus(); await page.keyboard.down('Shift')
       await page.waitForFunction('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="ShiftLeft"&&e[2]===true)')
       await page.evaluate(`window.socket.emit({type:'direct-failed'})`)
-      await page.waitForFunction(`window.switches===1&&document.querySelector('.desktop-status')?.dataset.connected==='true'&&getComputedStyle(document.querySelector('.desktop-stage canvas')).display==='block'`)
-      assert.equal(await page.evaluate('window.captureCount'), 1)
-      assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="ShiftLeft"&&e[2]===false)'), 'transition releases held modifiers')
+      await page.waitForFunction(`document.querySelector('.desktop-status')?.dataset.connected==='false'`)
+      assert.equal(await page.evaluate('window.switches'), 0, 'direct failure never starts a relay')
+      assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="ShiftLeft"&&e[2]===false)'), 'failure releases held modifiers')
       await page.keyboard.up('Shift')
+      await page.getByRole('button', { name: '다시 연결', exact: true }).click()
+      await page.waitForFunction(`document.querySelector('.desktop-status')?.dataset.connected==='true'`)
+      if (nativeCapture) await page.evaluate('window.freeze=false')
     }
     await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
     await page.getByRole('button', { name: '버튼 위치 초기화' }).click()
@@ -374,15 +382,16 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       assert.match(await page.locator('.desktop-stage').evaluate(el => el.style.cursor), /blob:/)
       await page.evaluate('window.freeze=true')
       await page.waitForTimeout(1200)
-      const before = await page.evaluate('({frames:window.frameCount,bytes:window.frameBytes})') as { frames: number; bytes: number }
+      const before = await page.evaluate('window.videoStats()') as { frames: number; bytes: number }
       await page.waitForTimeout(16_000)
       assert.equal(await page.locator('.desktop-status').getAttribute('data-connected'), 'true', 'idle capture survives the old 15 second frame watchdog')
-      assert.equal(await page.evaluate('window.frameCount'), before.frames, 'static native capture sends no repeated video')
-      assert.equal(await page.evaluate('window.frameBytes'), before.bytes)
+      const idle = await page.evaluate('window.videoStats()') as { frames: number; bytes: number }
+      assert.equal(idle.frames, before.frames, 'static native capture sends no repeated video')
+      assert.equal(idle.bytes, before.bytes)
       console.log('Static native video over 16s: 0 additional frames / 0 video payload bytes')
-      await page.evaluate('window.socket.send(JSON.stringify({type:"frame-ack",seq:window.frameCount,keyframe:true}))')
-      await page.waitForFunction(`window.frameCount>${before.frames}`, null, { timeout: 3000 })
-      const recovered = await page.evaluate('window.frameCount') as number
+      await page.evaluate('window.freeze=false')
+      await page.waitForFunction(`(async()=>((await window.videoStats()).frames>${before.frames}))()`, null, { timeout: 3000 })
+      const recovered = (await page.evaluate('window.videoStats()') as { frames: number }).frames
       await clear()
       const area = await page.locator('.desktop-stage').boundingBox(); assert.ok(area)
       await page.mouse.move(area.x + area.width / 2, area.y + area.height / 2)
@@ -391,7 +400,7 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       assert.equal(await page.locator('.desktop-cursor').isVisible(), false, 'native mouse hides the joystick overlay')
       assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="moveTo")'))
       await page.evaluate('window.freeze=false')
-      await page.waitForFunction(`window.frameCount>${recovered}`)
+      await page.waitForFunction(`(async()=>((await window.videoStats()).frames>${recovered}))()`)
     }
     await page.getByRole('button', { name: '입력' , exact: true }).click()
     await page.getByLabel('원격 컴퓨터에 붙여넣기').fill('한글 input')

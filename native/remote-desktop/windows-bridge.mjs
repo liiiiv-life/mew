@@ -74,6 +74,8 @@ server.listen(pipe, () => {
     if ((code || !result.includes('LAUNCHED')) && !stopping) {
       const stage = result.match(/SESSION_LAUNCH_FAILED:([a-z]+)/)?.[1] ?? 'startup'
       fail(`Windows 로그인 세션에서 실행하지 못했습니다 (${stage}). 같은 Windows 계정으로 로그인하고 작업 스케줄러 실행 권한을 확인해 주세요.`)
+    } else if (!stopping && !channel) {
+      fail('Windows 호스트가 시작 중에 종료됐습니다. 보조 앱의 네이티브 의존성과 GPU 모듈을 다시 준비해 주세요.')
     }
   })
 })

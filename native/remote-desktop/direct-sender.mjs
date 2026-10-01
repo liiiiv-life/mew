@@ -1,5 +1,8 @@
+import { connectionNotice } from './connection-notice.mjs'
+
 export async function createDirectSender(stream, message, bridge) {
   let closed = false, candidates = []
+  const notice = connectionNotice(() => bridge.signal({ type: 'viewer-ready' }))
   const video = stream.getVideoTracks()[0]
   const connection = new RTCPeerConnection({ iceServers: message.iceServers, bundlePolicy: 'max-bundle' })
   try {
@@ -17,10 +20,15 @@ export async function createDirectSender(stream, message, bridge) {
     transceiver.setCodecPreferences(vp8)
     function channel(label, options) {
       const data = connection.createDataChannel(label, options)
+      data.onopen = () => { if (!closed) notice.opened(label) }
       data.onmessage = ({ data: raw }) => {
         if (closed) return
         if (typeof raw !== 'string' || raw.length > 16 * 1024) return bridge.fail(new Error('잘못된 원격 입력입니다.'))
-        try { bridge.input(JSON.parse(raw), label === 'control') } catch (error) { bridge.fail(error) }
+        try {
+          const value = JSON.parse(raw)
+          if (label === 'control' && value.type === 'viewer-ready' && Object.keys(value).length === 1) notice.ready()
+          else bridge.input(value, label === 'control')
+        } catch (error) { bridge.fail(error) }
       }
       data.onclose = () => { if (!closed) bridge.failed() }
     }
@@ -48,7 +56,7 @@ export async function createDirectSender(stream, message, bridge) {
           else if (candidates.length < 128) candidates.push(message.candidate)
         }
       },
-      close() { closed = true; connection.close(); candidates = [] },
+      close() { closed = true; notice.close(); connection.close(); candidates = [] },
     }
-  } catch (error) { closed = true; connection.close(); throw error }
+  } catch (error) { closed = true; notice.close(); connection.close(); throw error }
 }

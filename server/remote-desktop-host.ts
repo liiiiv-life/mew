@@ -1,11 +1,14 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import type { EventEmitter } from 'node:events'
 import type { Readable, Writable } from 'node:stream'
 import { promisify } from 'node:util'
 import { wslPowerShell } from '../native/remote-desktop/wsl-powershell.mjs'
 import { helperVersion } from '../native/remote-desktop/helper-version.mjs'
+import { runtimeSupportError } from '../native/remote-desktop/runtime-support.mjs'
+import { nativeFirewallHint } from '../native/remote-desktop/network-support.mjs'
 
 const execute = promisify(execFile)
 const DEFAULT_ROOT = path.resolve(import.meta.dirname, '../native/remote-desktop')
@@ -13,14 +16,14 @@ export type DesktopPlatform = 'mac' | 'linux' | 'windows' | 'wsl'
 export type DesktopHostSpec = { platform: DesktopPlatform; executable: string; entry: string }
 export type DesktopIceServer = { urls: string | string[]; username?: string; credential?: string }
 export class DesktopHostLaunchError extends Error {}
-export type DesktopHostProcess = ChildProcessByStdio<Writable, Readable, Readable> & { desktopNetworkHint?: string | Promise<string | undefined> }
+export type DesktopHostProcess = EventEmitter & { stdin: Writable; stdout: Readable; stderr: Readable; kill(signal?: NodeJS.Signals): boolean; desktopNetworkHint?: string | Promise<string | undefined> }
 
 async function resolveWindowsBridgeSpec(spec: DesktopHostSpec, run = execute, resolvePowerShell = wslPowerShell) {
   const bridgePath = run('wslpath', ['-w', path.join(DEFAULT_ROOT, 'windows-bridge.mjs')], { timeout: 5000 })
   const nodePath = (async () => {
     // The installer puts Node beside the helper. Probe it directly through WSL
     // instead of starting PowerShell just to rediscover this known location.
-    const privateExecutable = path.join(path.resolve(spec.executable, '../../../..'), 'runtime', 'node.exe')
+    const privateExecutable = spec.entry.endsWith('native-host.mjs') ? spec.executable : path.join(path.resolve(spec.executable, '../../../..'), 'runtime', 'node.exe')
     try {
       const version = (await run(privateExecutable, ['--version'], { timeout: 5000, maxBuffer: 8192 })).stdout.toString().trim()
       const match = /^v(\d+)\.(\d+)\./.exec(version)
@@ -49,11 +52,13 @@ export function desktopWindowsBridgeSpec(spec: DesktopHostSpec, run?: typeof exe
 
 /** Firewall diagnostics must never gate launching the login helper. */
 export async function desktopWindowsFirewallHint(spec: DesktopHostSpec, run = execute, resolvePowerShell = wslPowerShell): Promise<string | undefined> {
-  const electron = path.win32.join(path.win32.dirname(spec.entry), 'node_modules', 'electron', 'dist', 'electron.exe').replaceAll("'", "''")
-  const query = `$blocked = @(Get-NetFirewallApplicationFilter -Program '${electron}' -ErrorAction SilentlyContinue | Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block' }).Count -gt 0; $blocked | ConvertTo-Json -Compress`
+  const node = path.win32.join(path.win32.dirname(spec.entry), 'runtime', 'node.exe').replaceAll("'", "''")
+  const query = `$rules = @(Get-NetFirewallApplicationFilter -ErrorAction Stop | Where-Object { $_.Program -eq '${node}' } | Get-NetFirewallRule -ErrorAction Stop | Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' }); @{ blocked = @($rules | Where-Object { $_.Action -eq 'Block' }).Count -gt 0; allowed = @($rules | Where-Object { $_.Action -eq 'Allow' }).Count -gt 0 } | ConvertTo-Json -Compress`
   try {
     const result = await run(resolvePowerShell(), ['-NoProfile', '-NonInteractive', '-Command', query], { timeout: 8000, maxBuffer: 8192 })
-    if (JSON.parse(result.stdout.toString().trim()) === true) return 'Windows 방화벽에 원격 데스크톱 앱(Electron)의 차단 규칙이 있습니다. Mew 서버가 실행 중인 컴퓨터의 Windows 보안에서 Electron의 네트워크 접근을 허용해 주세요. 서버 연결은 계속 사용할 수 있습니다. 재설치는 필요하지 않습니다.'
+    const state = JSON.parse(result.stdout.toString().trim())
+    if (state?.blocked === true) return 'Windows 방화벽에 원격 데스크톱 호스트(Node)의 차단 규칙이 있습니다. Mew 보조 앱의 runtime/node.exe에 대한 네트워크 접근을 허용해 주세요.'
+    if (state?.allowed === false) return 'Windows 방화벽에서 Mew 보조 앱의 runtime/node.exe에 대한 명시적 수신 허용 규칙을 확인하지 못했습니다. 원격 연결에 사용할 네트워크 프로필에서 이 앱의 UDP 수신을 허용해 주세요.'
   } catch { /* Optional diagnostics cannot fail an otherwise usable session. */ }
 }
 
@@ -82,14 +87,29 @@ export function desktopPlatform(platform = process.platform, release = os.releas
 
 export function desktopIceServers(env: NodeJS.ProcessEnv = process.env): DesktopIceServer[] {
   let entries: unknown
-  try { entries = JSON.parse(env.MEW_DESKTOP_ICE_SERVERS || '[]') } catch { throw new Error('MEW_DESKTOP_ICE_SERVERS는 JSON 배열이어야 합니다.') }
+  try { entries = JSON.parse(env.MEW_DESKTOP_ICE_SERVERS || '[{"urls":["stun:stun.l.google.com:19302","stun:stun.cloudflare.com:3478"]}]') } catch { throw new Error('MEW_DESKTOP_ICE_SERVERS는 JSON 배열이어야 합니다.') }
   if (!Array.isArray(entries) || entries.length > 8) throw new Error('원격 데스크톱 ICE 서버 설정을 확인해 주세요.')
   return entries.map((value) => {
     const urls = typeof value?.urls === 'string' ? [value.urls] : value?.urls
-    if (!Array.isArray(urls) || !urls.length || urls.length > 8 || urls.some((url) => typeof url !== 'string' || url.length > 2048 || !/^(stun|stuns|turn|turns):[^\s]+$/.test(url))) throw new Error('ICE 서버에는 stun: 또는 turn: 주소가 필요합니다.')
+    if (!Array.isArray(urls) || !urls.length || urls.length > 8 || urls.some((url) => typeof url !== 'string' || url.length > 2048 || !/^stuns?:[^\s]+$/.test(url))) throw new Error('직접 연결에는 stun: 또는 stuns: 주소만 사용할 수 있습니다. TURN 중계는 지원하지 않습니다.')
     if ([value.username, value.credential].some((entry) => entry !== undefined && (typeof entry !== 'string' || entry.length > 4096))) throw new Error('ICE 서버 인증 설정을 확인해 주세요.')
     return { urls, ...(value.username ? { username: value.username } : {}), ...(value.credential ? { credential: value.credential } : {}) }
   })
+}
+
+export function desktopAutoNat(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.MEW_DESKTOP_AUTO_NAT
+  if (value === undefined || value === '' || value === '1') return true
+  if (value === '0') return false
+  throw new Error('MEW_DESKTOP_AUTO_NAT은 0 또는 1이어야 합니다.')
+}
+
+/** A fixed UDP socket allows an operator-owned router mapping without a relay. */
+export function desktopUdpPort(env: NodeJS.ProcessEnv = process.env): number | undefined {
+  const value = env.MEW_DESKTOP_UDP_PORT
+  if (value === undefined || value === '') return undefined
+  if (!/^\d{1,5}$/.test(value) || +value < 1024 || +value > 65535) throw new Error('MEW_DESKTOP_UDP_PORT는 1024–65535의 UDP 포트여야 합니다.')
+  return +value
 }
 
 /** WSL starts a Windows executable; never substitute a WSLg desktop. */
@@ -104,13 +124,14 @@ async function resolveDesktopHostSpec({ platform = desktopPlatform(), env = proc
       root = path.win32.join(String(result.stdout).trim(), 'Mew', 'remote-desktop')
     }
     if (!/^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)/.test(root)) throw new Error('WSL의 MEW_DESKTOP_HELPER_DIR에는 Windows 절대 경로가 필요합니다.')
-    const entry = path.win32.join(root, 'main.mjs'), nativeExe = path.win32.join(root, 'node_modules', 'electron', 'dist', 'electron.exe')
+    const entry = path.win32.join(root, 'native-host.mjs'), nativeExe = path.win32.join(root, 'runtime', 'node.exe')
     const { stdout } = await run('wslpath', ['-u', nativeExe], { timeout: 5000, maxBuffer: 8192 })
     return { platform, executable: String(stdout).trim(), entry }
   }
   if (!path.isAbsolute(root)) throw new Error('MEW_DESKTOP_HELPER_DIR에는 절대 경로가 필요합니다.')
-  const relative = platform === 'mac' ? ['Electron.app', 'Contents', 'MacOS', 'Electron'] : [platform === 'windows' ? 'electron.exe' : 'electron']
-  return { platform, executable: path.join(root, 'node_modules', 'electron', 'dist', ...relative), entry: path.join(root, 'main.mjs') }
+  if (platform === 'windows') return { platform, executable: path.join(root, 'runtime', 'node.exe'), entry: path.join(root, 'native-host.mjs') }
+  const relative = platform === 'mac' ? ['MewDesktop.app', 'Contents', 'MacOS', 'MewDesktop'] : ['runtime', 'node']
+  return { platform, executable: path.join(root, ...relative), entry: path.join(root, 'native-host.mjs') }
 }
 
 export function desktopHostSpec(options?: Parameters<typeof resolveDesktopHostSpec>[0]): Promise<DesktopHostSpec> {
@@ -119,7 +140,7 @@ export function desktopHostSpec(options?: Parameters<typeof resolveDesktopHostSp
 }
 
 export async function desktopHelperCurrent(spec: DesktopHostSpec) {
-  const root = spec.platform === 'wsl' ? path.resolve(spec.executable, '../../../..') : path.dirname(spec.entry)
+  const root = spec.platform === 'wsl' ? path.dirname(path.dirname(spec.executable)) : path.dirname(spec.entry)
   try { return (await fs.readFile(path.join(root, '.mew-ready'), 'utf8')).trim() === helperVersion(DEFAULT_ROOT) }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error }
 }
@@ -128,7 +149,9 @@ export async function desktopHostStatus({ platform = desktopPlatform(), env = pr
   platform?: DesktopPlatform | null; env?: NodeJS.ProcessEnv; getSpec?: typeof desktopHostSpec; access?: typeof fs.access; current?: typeof desktopHelperCurrent
 } = {}) {
   if (!platform) return { platform, ready: false, message: '이 운영체제에서는 원격 데스크톱을 사용할 수 없습니다.' }
-  try { desktopIceServers(env) } catch (error) { return { platform, ready: false, message: (error as Error).message } }
+  const unsupported = runtimeSupportError()
+  if (unsupported) return { platform, ready: false, installable: false, message: unsupported }
+  try { desktopIceServers(env); desktopUdpPort(env); desktopAutoNat(env) } catch (error) { return { platform, ready: false, message: (error as Error).message } }
   let spec: DesktopHostSpec
   try {
     spec = await getSpec({ platform, env })
@@ -138,7 +161,8 @@ export async function desktopHostStatus({ platform = desktopPlatform(), env = pr
   try {
     await access(spec.executable)
     if (platform !== 'wsl') await access(spec.entry)
-    if (platform === 'mac') await access(path.join(path.dirname(spec.entry), 'capture-macos.dylib'))
+    if (platform === 'mac' || platform === 'linux') await access(path.join(path.dirname(spec.entry), platform === 'mac' ? 'gpu-macos.dylib' : 'gpu-linux.so'))
+    if (platform === 'windows' || platform === 'wsl') await access(path.join(platform === 'wsl' ? path.dirname(path.dirname(spec.executable)) : path.dirname(spec.entry), 'gpu-windows.dll'))
     if (platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY) return { platform, ready: false, message: '서버에 로그인한 Linux 데스크톱이 필요합니다. 데스크톱 세션에서 mew를 실행해 주세요.' }
     if (!await current(spec)) return { platform, ready: false, installable: platform !== 'windows', message: '원격 데스크톱 구성 요소를 업데이트합니다.' }
     return { platform, ready: true }
@@ -161,6 +185,8 @@ export async function spawnDesktopHost() {
   }
   const child: DesktopHostProcess = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], env, windowsHide: true })
   if (spec.platform === 'wsl') child.desktopNetworkHint = desktopWindowsFirewallHint(spec)
+  else if (spec.platform === 'windows') child.desktopNetworkHint = desktopWindowsFirewallHint(spec, execute, () => path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'))
+  else child.desktopNetworkHint = nativeFirewallHint({ platform: spec.platform === 'mac' ? 'darwin' : 'linux', executable: spec.executable })
   // Native diagnostics can contain window titles/URLs. Drain without recording them.
   child.stderr.resume()
   return child

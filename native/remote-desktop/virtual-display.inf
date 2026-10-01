@@ -1,0 +1,52 @@
+[Version]
+Signature="$Windows NT$"
+Class=Display
+ClassGUID={4D36E968-E325-11CE-BFC1-08002BE10318}
+ClassVer=2.0
+Provider=%Provider%
+CatalogFile=mew-display.cat
+DriverVer=10/01/2026,1.0.0.0
+PnpLockDown=1
+
+[Manufacturer]
+%Provider%=Mew,NT$ARCH$.10.0...19041
+[Mew.NT$ARCH$.10.0...19041]
+%Device%=Install,Root\MewVirtualDisplay
+
+[SourceDisksNames]
+1=%Disk%
+[SourceDisksFiles]
+mew-display.dll=1
+[DestinationDirs]
+CopyDriver=12,UMDF
+[CopyDriver]
+mew-display.dll
+
+[Install.NT]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT
+CopyFiles=CopyDriver
+[Install.NT.hw]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT.HW
+AddReg=Hardware
+[Hardware]
+HKR,,UpperFilters,0x00010000,"IndirectKmd"
+HKR,WUDF,DeviceGroupId,0x00000000,"MewVirtualDisplayGroup"
+; Administrator-only by default. The installer grants exactly its named user's SID.
+HKR,,Security,0x00000000,"D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+[Install.NT.Services]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT.Services
+[Install.NT.Wdf]
+UmdfService=MewVirtualDisplay,Service
+UmdfServiceOrder=MewVirtualDisplay
+UmdfKernelModeClientPolicy=AllowKernelModeClients
+[Service]
+UmdfLibraryVersion=2.25.0
+ServiceBinary=%12%\UMDF\mew-display.dll
+UmdfExtensions=IddCx0102
+[Strings]
+Provider="Mew"
+Device="Mew Virtual Display"
+Disk="Mew Virtual Display Driver"

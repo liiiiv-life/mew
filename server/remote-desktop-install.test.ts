@@ -36,7 +36,7 @@ test('helper content updates invalidate readiness while unchanged dependencies c
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-helper-version-'))
   try {
     for (const file of HELPER_FILES) await fs.copyFile(path.resolve(import.meta.dirname, '../native/remote-desktop', file), path.join(root, file))
-    for (const name of ['electron', 'koffi', 'dbus-next']) {
+    for (const name of ['electron', 'koffi', 'dbus-next', 'node-datachannel']) {
       await fs.mkdir(path.join(root, 'node_modules', name), { recursive: true })
       await fs.writeFile(path.join(root, 'node_modules', name, 'package.json'), '{}')
     }
@@ -184,7 +184,7 @@ test('PowerShell discovery handles Linux-only PATH, escaped custom mounts and un
   assert.throws(() => wslPowerShell({ ...options, executable: () => false }), /드라이브.*마운트/)
 })
 
-test('WSL helper discovery uses the resolved PowerShell path before translating the Electron path', async () => {
+test('WSL helper discovery uses the resolved PowerShell path before translating the native Node path', async () => {
   const commands: string[] = []
   const resolved = '/custom/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
   const spec = await desktopHostSpec({ platform: 'wsl', env: { PATH: '/bin' }, resolvePowerShell: ({ env } = {}) => { assert.equal(env?.PATH, '/bin'); return resolved }, run: (async (command: string) => {
@@ -192,7 +192,7 @@ test('WSL helper discovery uses the resolved PowerShell path before translating 
     return { stdout: command === resolved ? 'C:\\Users\\Example\\AppData\\Local\r\n' : '/mnt/c/helper/electron.exe\n', stderr: '' }
   }) as never })
   assert.deepEqual(commands, [resolved, 'wslpath'])
-  assert.equal(spec.entry, 'C:\\Users\\Example\\AppData\\Local\\Mew\\remote-desktop\\main.mjs')
+  assert.equal(spec.entry, 'C:\\Users\\Example\\AppData\\Local\\Mew\\remote-desktop\\native-host.mjs')
 })
 
 test('a found PowerShell that cannot execute reports interop failure without rerunning installation', () => {
@@ -214,8 +214,8 @@ test('Mac/Linux helper override receives the complete helper before npm ci', asy
         assert.equal(command, 'npm'); assert.deepEqual(args, ['ci', '--prefix', target, '--omit=dev', '--no-audit', '--no-fund']); invoked = true; return { status: 0 }
       } })
       assert.equal(result, 0); assert.equal(invoked, true)
-      assert.equal(compiled, platform === 'darwin')
-      assert.match(await fs.readFile(path.join(target, 'main.mjs'), 'utf8'), /electron/)
+      assert.equal(compiled, true)
+      assert.match(await fs.readFile(path.join(target, 'native-host.mjs'), 'utf8'), /nativeDirect/)
       assert.ok(await fs.stat(path.join(target, 'package-lock.json')))
     }
   } finally { await fs.rm(directory, { recursive: true, force: true }) }
@@ -250,12 +250,12 @@ test('Mac compiler failure leaves helper unready and a missing capture binary re
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-mac-install-failure-'))
   try {
     await fs.writeFile(path.join(root, '.mew-ready'), 'stale')
-    assert.throws(() => installDesktopHelper({ platform: 'darwin', env: { MEW_DESKTOP_HELPER_DIR: root }, run: () => ({ status: 0 }),
+    assert.throws(() => installDesktopHelper({ platform: 'darwin', release: '22.6.0', env: { MEW_DESKTOP_HELPER_DIR: root }, run: () => ({ status: 0 }),
       installRuntime: () => 0, installCapture: () => { throw new Error('compiler fixture failure') } }), /compiler fixture/)
     await assert.rejects(fs.access(path.join(root, '.mew-ready')))
     const result = await desktopHostStatus({ platform: 'mac', env: {}, current: async () => true,
       getSpec: async () => ({ platform: 'mac', executable: '/fixture/Electron', entry: '/fixture/main.mjs' }),
-      access: async file => { if (String(file).endsWith('capture-macos.dylib')) throw Object.assign(new Error('missing'), { code: 'ENOENT' }) } })
+      access: async file => { if (String(file).endsWith('gpu-macos.dylib')) throw Object.assign(new Error('missing'), { code: 'ENOENT' }) } })
     assert.equal(result.ready, false); assert.equal(result.installable, true)
   } finally { await fs.rm(root, { recursive: true, force: true }) }
 })

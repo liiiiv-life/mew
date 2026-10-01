@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
+import { runtimeSupportError } from './runtime-support.mjs'
 
 const entry = fileURLToPath(import.meta.url)
 const execute = promisify(execFile)
@@ -24,10 +25,10 @@ export async function runPermissionHost({ target, profile, mode, env, signal, ti
   const childEnv = { ...env, MEW_DESKTOP_PERMISSION_PROFILE: profile }
   delete childEnv.ELECTRON_RUN_AS_NODE
   delete childEnv.NODE_OPTIONS
-  const executable = path.join(target, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
+  const executable = path.join(target, 'MewDesktop.app/Contents/MacOS/MewDesktop')
   let exited
   try {
-    const operation = run(executable, [path.join(target, 'permissions-host.mjs'), mode], {
+    const operation = run(executable, [path.join(target, 'permissions-native.mjs'), mode], {
       env: childEnv, cwd: target, timeout, maxBuffer: 16_384, killSignal: 'SIGKILL', signal,
     })
     // Abort can reject execFile before the child closes its profile files.
@@ -59,6 +60,10 @@ export async function prepareDesktopPermissions({
     log('보조앱 파일 준비가 끝났습니다. 원격 데스크톱에서 연결하세요. OS의 로그인·화면 공유 조건은 별도로 필요합니다.')
     return
   }
+  if (process.platform === 'darwin') {
+    const unsupported = runtimeSupportError()
+    if (unsupported) throw new Error(unsupported)
+  }
   const target = env.MEW_DESKTOP_HELPER_DIR || directory
   if (!path.isAbsolute(target)) throw new Error('MEW_DESKTOP_HELPER_DIR에는 Mac의 절대 경로가 필요합니다.')
   if (!await loginUser()) throw new Error('Mac 데스크톱에 로그인한 사용자로 실행해야 합니다. sudo 없이 같은 사용자의 Mew 터미널에서 ./mew desktop-setup을 실행해 주세요.')
@@ -70,7 +75,7 @@ export async function prepareDesktopPermissions({
   try {
     while (now() < deadline) {
       signal?.throwIfAborted()
-      // Screen permission can be cached for the lifetime of an Electron process.
+      // Recheck screen permission in a fresh native app process.
       const status = await run({ target, profile, mode: 'check', env, signal, timeout: Math.max(1, Math.min(10_000, deadline - now())) })
       signal?.throwIfAborted()
       if (!status) throw new Error('Mac 권한 상태를 확인하지 못했습니다.')
@@ -84,7 +89,7 @@ export async function prepareDesktopPermissions({
       const mode = status.accessibility ? 'screen' : 'accessibility'
       if (!requested.has(mode) && now() < deadline) {
         requested.add(mode)
-        log(`${mode === 'accessibility' ? '손쉬운 사용' : '화면 기록'} 설정을 서버 Mac에서 엽니다. Electron 보조앱을 허용해 주세요.`)
+        log(`${mode === 'accessibility' ? '손쉬운 사용' : '화면 기록'} 설정을 서버 Mac에서 엽니다. Mew Desktop 보조앱을 허용해 주세요.`)
         log('승인창은 이 터미널이나 접속 기기가 아닌 서버 Mac의 데스크톱에 표시됩니다. 승인하면 자동으로 계속합니다. 최대 5분 대기하며 Ctrl+C로 중단할 수 있습니다.')
         await run({ target, profile, mode, env, signal, timeout: Math.max(1, Math.min(30_000, deadline - now())) })
       }

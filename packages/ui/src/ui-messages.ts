@@ -1,6 +1,11 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  "서버의 외부 연결 주소를 찾지 못했습니다. STUN 주소 탐색과 인터넷 연결을 확인해 주세요.": ["The server could not discover an external address. Check STUN discovery and internet access.", "服务器无法发现外部连接地址。请检查 STUN 地址发现和互联网连接。", "サーバーの外部接続アドレスを取得できませんでした。STUN とインターネット接続を確認してください。"],
+  "외부 기기와 직접 연결하지 못했습니다. 자동 NAT 연결과 호스트의 UDP 허용 상태를 확인해 주세요.": ["A direct path to the remote device could not be established. Check automatic NAT connectivity and the host's UDP permission.", "无法与外部设备直接连接。请检查自动 NAT 连接和 主机 UDP 权限。", "外部端末への直接接続を確立できませんでした。自動 NAT 接続と ホストの UDP 許可を確認してください。"],
+  "원격 화면을 받지 못했습니다. 서버의 활성 화면과 캡처 상태를 확인해 주세요.": ["No remote video was received. Check the active display and capture on the server.", "未收到远程画面。请检查服务器的活动显示器和捕获状态。", "リモート映像を受信できませんでした。サーバーの有効な画面とキャプチャ状態を確認してください。"],
+  "직접 연결하지 못했습니다. 두 기기의 UDP·방화벽·IPv6 또는 포트 매핑을 확인해 주세요.": ["Direct connection failed. Check UDP, firewalls, IPv6 or port mapping on both devices.", "无法直接连接。请检查两台设备的 UDP、防火墙、IPv6 或端口映射。", "直接接続できませんでした。両方の端末の UDP、ファイアウォール、IPv6 またはポート転送を確認してください。"],
+  "원격 화면에 직접 연결하고 있습니다…": ["Connecting directly to the remote screen…", "正在直接连接远程屏幕…", "リモート画面に直接接続しています…"],
   "{p0}개 업데이트: {p1}": ["{p0} updates: {p1}", "{p0} 项更新：{p1}", "{p0} 件の更新: {p1}"],
   "일부 업데이트가 실패해 Mew 업데이트를 보류했습니다. 실패 항목을 다시 시도하세요.": ["Mew update was paused because some updates failed. Retry the failed items.", "部分更新失败，已暂停 Mew 更新。请重试失败项目。", "一部の更新が失敗したため Mew の更新を保留しました。失敗した項目を再試行してください。"],
   "의존성": ["Dependencies", "依赖项", "依存関係"],

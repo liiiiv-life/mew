@@ -52,7 +52,7 @@ test('X11 wheel preserves sub-notch input and maps right/middle buttons', () => 
   assert.ok(calls.some(call => call.name === 'XCloseDisplay'))
 })
 
-test('Wayland subscribes before permission responses, serializes input, and closes its portal session', async () => {
+async function portalFixture() {
   const bus = Object.assign(new EventEmitter(), { name: ':1.42', disconnected: false, disconnect() { this.disconnected = true }, getProxyObject: async (_destination: string, location: string) => ({ getInterface: () => location === '/org/freedesktop/DBus' ? daemon : location === '/session/test' ? session : desktop }) })
   const calls: unknown[][] = [], matches = new Set<string>()
   const daemon = { async AddMatch(rule: string) { matches.add(rule) }, async RemoveMatch(rule: string) { matches.delete(rule) } }
@@ -66,8 +66,28 @@ test('Wayland subscribes before permission responses, serializes input, and clos
   }
   const desktop = Object.fromEntries(['CreateSession', 'SelectDevices', 'Start', 'NotifyPointerMotion', 'NotifyPointerButton', 'NotifyKeyboardKeycode', 'NotifyPointerAxis'].map(method => [method, (...args: unknown[]) => method.startsWith('Notify') ? Promise.resolve(calls.push([method, ...args])) : request(method, ...args)]))
   const adapter = await portalInput({ load: async () => ({ default: { sessionBus: () => bus, Variant: class { signature: string; value: unknown; constructor(signature: string, value: unknown) { this.signature = signature; this.value = value } } } }) })
+  return { adapter, session, bus, calls, matches }
+}
+
+test('Wayland subscribes before permission responses, serializes input, and closes its portal session', async () => {
+  const { adapter, bus, calls, matches } = await portalFixture()
+  assert.doesNotThrow(() => adapter.check())
   assert.equal(adapter.relativeOnly, true); assert.equal(adapter.moveTo, undefined)
   adapter.button(2, true); adapter.move(10, 20); adapter.button(2, false); await adapter.close()
   assert.deepEqual(calls.filter(call => String(call[0]).startsWith('Notify')), [['NotifyPointerButton', '/session/test', {}, 274, 1], ['NotifyPointerMotion', '/session/test', {}, 10, 20], ['NotifyPointerButton', '/session/test', {}, 274, 0]])
   assert.equal(calls.at(-1)![0], 'Close'); assert.equal(bus.disconnected, true); assert.equal(matches.size, 0)
+  assert.throws(() => adapter.check(), /종료/)
+})
+
+test('Wayland revocation or a broken session bus is visible to the host watchdog without further user input', async () => {
+  for (const reason of ['revoked', 'bus']) {
+    const { adapter, session, bus } = await portalFixture()
+    assert.doesNotThrow(() => adapter.check())
+    if (reason === 'revoked') session.emit('Closed')
+    else bus.emit('error', new Error('Session bus lost'))
+    assert.throws(() => adapter.check(), /종료|끊겼/)
+    assert.throws(() => adapter.move(1, 1), /종료|끊겼/)
+    await adapter.close()
+    assert.equal(bus.disconnected, true)
+  }
 })

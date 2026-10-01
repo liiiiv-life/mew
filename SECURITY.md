@@ -4,7 +4,9 @@
 
 mew는 터미널이 달린 파일 편집기다. 에이전트·터미널·원격 데스크톱·서버 파일 탐색기 등 서버 제어 기능을 허용하면 서버 OS 사용자 권한 범위에 접근할 수 있다. 기본값은 manager·owner지만 owner가 member에게 개별 기능을 허용할 수도 있다. SSH 계정을 주는 것과 같은 기준으로 서버 제어 기능을 부여한다.
 
-파일별 규칙은 mew 파일 API에 적용하며 셸·에이전트 도구를 샌드박싱하지 않는다. 파일 제한을 비밀 보호 경계로 쓸 계정에는 서버 제어 기능을 함께 허용하지 않는다. 원격 데스크톱은 계정별 가상 화면이 아니라 서버의 실제 로그인 데스크톱이며 WSL에서는 Windows 화면까지 포함한다. OS 권한·단일 제어 연결·Origin·인증과 입력 lease는 [원격 데스크톱 계약](docs/development/remote-desktop.md)을 따른다.
+파일별 규칙은 mew 파일 API에 적용하며 셸·에이전트 도구를 샌드박싱하지 않는다. 파일 제한을 비밀 보호 경계로 쓸 계정에는 서버 제어 기능을 함께 허용하지 않는다. 원격 데스크톱은 계정별 가상 화면이 아니라 서버의 실제 로그인 데스크톱이며 WSL에서는 Windows 화면까지 포함한다. 지원 OS의 상주 네이티브 호스트는 접속 종료 후 캡처·인코더·입력을 해제하고 장치만 남긴다. 영상·입력은 암호화된 WebRTC 직접 연결이며 서버 영상 중계·TURN을 사용하지 않는다. Mac/Linux도 인증된 부모의 비공개 stdio와 session ID·lease로 제어하는 전용 Node 호스트다. Mac의 OS 승인·활성 사용자와 Linux의 잠금 서비스를 검사하며, Wayland는 같은 portal 세션의 입력·화면·PipeWire 소켓 FD를 소유하고 승인 회수 시 유휴 상태에서도 연결을 종료한다. [POSIX 보안·수명 계약](docs/development/remote-desktop-posix.md)을 따른다. OS 권한·단일 제어 연결·Origin·인증과 입력 lease는 [원격 데스크톱 계약](docs/development/remote-desktop.md)을 따른다.
+
+Windows 자체 가상 디스플레이도 동일한 로그인 데스크톱의 확장 화면이며 계정별 격리가 아니다. 드라이버 장치는 SYSTEM·Administrators와 설치 시 지정한 로컬 사용자 SID만 허용한다. 활성 모니터는 장치 파일 핸들과 lease에 묶고 정상 종료·핸들 정리·만료에서 제거한다. 일반 사용자 호스트는 승격하지 않으며 운영 설치기는 신뢰되는 카탈로그와 INF/DLL 멤버를 검증한다. 자체 드라이버의 정식 서명·설치 실기 상태는 [가상 디스플레이 계약](docs/development/remote-desktop-virtual-display.md)에 명시한다.
 
 ## 역할
 
@@ -183,3 +185,5 @@ Mew는 공급자 OAuth bearer token(예: `CLAUDE_CODE_OAUTH_TOKEN`)을 UI나 런
 
 공개 이슈 대신 이 레포의 GitHub Security Advisories로 비공개 제보를 부탁한다. 재현 방법과 함께
 `./mew status`가 출력하는 정보를 같이 적어 주면 좋다.
+
+원격 데스크톱 외부 직결은 Windows OS 승인으로 전용 Node의 UDP 수신만 허용하고, 활성 ICE 소켓에만 최대 300초의 임시 NAT lease를 사용한다. 기존 방화벽 차단·다른 앱 매핑은 보존하며 외부 URL의 UPnP 제어를 거부한다. [승인·소유권·정리 계약](docs/development/remote-desktop-connectivity.md)을 따른다. Mac/Linux도 같은 활성 세션의 임시 매핑·종료 수명을 사용한다. OS가 선택한 IPv4 경로만 조회하며 VPN을 임의의 물리 LAN으로 우회하지 않는다. Mac 로컬 네트워크·앱 방화벽과 Linux UFW/firewalld는 읽기 전용 복구 진단으로 처리하며 전역 정책을 자동 변경하지 않는다.

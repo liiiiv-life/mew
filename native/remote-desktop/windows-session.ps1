@@ -19,9 +19,13 @@ if ($Mode -eq 'launch') {
     $config = $reader.ReadLine() | ConvertFrom-Json
     if ($config.token -notmatch '^[a-f0-9]{64}$' -or $config.pipe -notmatch '^\\\\\.\\pipe\\mew-desktop-[a-f0-9]{48}$') { throw 'Invalid bootstrap' }
     $entry = [IO.Path]::GetFullPath($config.entry)
-    $electron = Join-Path (Split-Path -Parent $entry) 'node_modules\electron\dist\electron.exe'
+    if ([IO.Path]::GetFileName($entry) -eq 'native-host.mjs') {
+      $executable = Join-Path (Split-Path -Parent $entry) 'runtime\node.exe'
+    } elseif ([IO.Path]::GetFileName($entry) -eq 'main.mjs') {
+      $executable = Join-Path (Split-Path -Parent $entry) 'node_modules\electron\dist\electron.exe'
+    } else { throw 'Invalid helper entry' }
     $start = New-Object Diagnostics.ProcessStartInfo
-    $start.FileName = $electron
+    $start.FileName = $executable
     $start.Arguments = '"' + $entry + '"'
     $start.WorkingDirectory = Split-Path -Parent $entry
     $start.UseShellExecute = $false

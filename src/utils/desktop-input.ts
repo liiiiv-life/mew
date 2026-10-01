@@ -16,7 +16,7 @@ export function desktopInput(onError: (message: string) => void = () => {}, onPo
     if (state.point?.[0] === next[0] && state.point?.[1] === next[1]) return
     state.point = next; activity()
   }
-  const send = (reliable: boolean) => {
+  const send = (reliable: boolean, includePoint = pendingMotion || unconfirmedMotion) => {
     const channel = reliable ? control : motion
     if (channel?.readyState !== 'open') return
     // Never let movement sit in a network queue; the next snapshot recovers its distance.
@@ -25,7 +25,9 @@ export function desktopInput(onError: (message: string) => void = () => {}, onPo
     if (reliable) state.epoch++
     state.seq++
     try {
-      channel.send(JSON.stringify({ ...state, x: Math.trunc(state.x), y: Math.trunc(state.y), wheelX: Math.trunc(state.wheelX), wheelY: Math.trunc(state.wheelY) }))
+      // Cursor feedback updates the local drawing position, without authorizing
+      // an idle heartbeat or keyboard-only action to move the physical cursor.
+      channel.send(JSON.stringify({ ...state, point: includePoint ? state.point : undefined, x: Math.trunc(state.x), y: Math.trunc(state.y), wheelX: Math.trunc(state.wheelX), wheelY: Math.trunc(state.wheelY) }))
       pendingMotion = false; unconfirmedMotion = !reliable; lastMotionAt = performance.now()
     }
     catch { onError(uiText("입력 연결이 종료됐습니다. 다시 연결해 주세요.")) }
@@ -50,7 +52,7 @@ export function desktopInput(onError: (message: string) => void = () => {}, onPo
       const interval = localCursor && !state.buttons && (now ?? performance.now()) - lastWheelAt > 100 ? 1000 / 30 : 1000 / 60
       if (pendingMotion && (now === undefined || now - lastMotionAt >= interval)) send(false)
     },
-    button(bit: number, down: boolean) { state.buttons = down ? state.buttons | bit : state.buttons & ~bit; send(true) },
+    button(bit: number, down: boolean) { state.buttons = down ? state.buttons | bit : state.buttons & ~bit; send(true, true) },
     key(code: string, down: boolean) { state.keys = state.keys.filter(key => key !== code); if (down && state.keys.length < 16) state.keys.push(code); send(true) },
     click(bit: number) { this.button(bit, true); this.button(bit, false) },
     paste(text: string) { this.release(); if (control?.readyState === 'open' && text.length <= 4096) { try { control.send(JSON.stringify({ type: 'paste', text })) } catch { onError(uiText("텍스트를 보내지 못했습니다. 다시 연결해 주세요.")) } } },

@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { WebSocket } from 'ws'
-import { desktopHostSpec, desktopWindowsBridgeSpec, desktopWindowsFirewallHint, desktopPathCache, desktopBridgeLookup, DesktopHostLaunchError } from './remote-desktop-host.ts'
+import { desktopWindowsBridgeSpec, desktopWindowsFirewallHint, desktopPathCache, desktopBridgeLookup, DesktopHostLaunchError } from './remote-desktop-host.ts'
 import { attachRemoteDesktopWebSocket } from './remote-desktop.ts'
 
 const exec = promisify(execFile)
@@ -43,10 +43,23 @@ test('WSL bridge preserves Windows entry paths in both service and interactive s
 })
 
 test('optional firewall discovery reports blocks but tolerates unavailable diagnostics', async () => {
-  const run = (async () => ({ stdout: 'true', stderr: '' })) as unknown as typeof exec
-  assert.match((await desktopWindowsFirewallHint(spec, run, () => 'powershell.exe'))!, /방화벽.*재설치는 필요하지/)
+  const run = (async () => ({ stdout: '{"blocked":true,"allowed":false}', stderr: '' })) as unknown as typeof exec
+  assert.match((await desktopWindowsFirewallHint(spec, run, () => 'powershell.exe'))!, /방화벽.*runtime\/node.exe/)
   const unavailable = (async () => { throw new Error('timeout') }) as unknown as typeof exec
   assert.equal(await desktopWindowsFirewallHint(spec, unavailable, () => 'powershell.exe'), undefined)
+})
+
+test('missing explicit inbound allowance is a hint, while allowed or unknown firewall state stays silent', async () => {
+  for (const [state, expected] of [
+    ['{"blocked":false,"allowed":false}', true],
+    ['{"blocked":false,"allowed":true}', false],
+    ['{}', false],
+  ] as const) {
+    const run = (async () => ({ stdout: state, stderr: '' })) as unknown as typeof exec
+    const hint = await desktopWindowsFirewallHint(spec, run, () => 'powershell.exe')
+    if (expected) assert.match(hint!, /명시적.*UDP 수신/)
+    else assert.equal(hint, undefined)
+  }
 })
 
 test('private Windows Node avoids PowerShell and overlaps the bridge path conversion', async () => {
@@ -115,31 +128,33 @@ test('path lookup coalesces preparation and launch, expires and retries failures
   await assert.rejects(lookup('bad')); await assert.rejects(lookup('bad')); assert.equal(calls, 5)
 })
 
-test('real Windows Electron starts in the login session, exchanges pipe input and exits with parent', { skip: !process.env.MEW_DESKTOP_TEST_WINDOWS_NODE, timeout: 50000 }, async () => {
-  const host = await desktopHostSpec()
-  const root = path.resolve(host.executable, '../../../../'), name = `mew-ipc-test-${process.pid}.mjs`, file = path.join(root, name)
-  const source = `import {app, desktopCapturer} from 'electron'; import {parentChannel} from './parent-channel.mjs'; const p=parentChannel(); p.output.write('BOOT\\n'); p.input.on('data',()=>p.output.write('INPUT\\n')); p.input.on('end',()=>app.exit(0)); p.input.on('error',()=>app.exit(1)); app.whenReady().then(async()=>{const screens=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:0,height:0},fetchWindowIcons:false});p.output.write('SCREENS '+screens.length+'\\n');p.output.write('READY\\n')}); setTimeout(()=>app.exit(2),7000);`
-  await fs.writeFile(file, source)
-  const launcher = path.join(root, 'windows-session.ps1')
-  const previous = await fs.readFile(launcher).catch(() => null)
-  await fs.copyFile(path.resolve(import.meta.dirname, '../native/remote-desktop/windows-session.ps1'), launcher)
+test('isolated Windows native host exchanges authenticated pipe input and cannot outlive its parent', {
+  skip: !process.env.MEW_DESKTOP_TEST_WINDOWS_HELPER || !process.env.MEW_DESKTOP_TEST_WINDOWS_NODE, timeout: 50_000,
+}, async () => {
+  const node = process.env.MEW_DESKTOP_TEST_WINDOWS_NODE!, helper = process.env.MEW_DESKTOP_TEST_WINDOWS_HELPER!
+  const local = async (file: string) => process.platform === 'win32' ? file : (await exec('wslpath', ['-u', file])).stdout.trim()
+  const temp = (await exec(node, ['-p', 'require("node:os").tmpdir()'])).stdout.trim()
+  const root = await fs.mkdtemp(path.join(await local(temp), 'mew-desktop-pipe-test-'))
+  const windowsRoot = process.platform === 'win32' ? root : (await exec('wslpath', ['-w', root])).stdout.trim()
+  const file = path.join(root, 'native-host.mjs'), native = path.resolve(import.meta.dirname, '../native/remote-desktop')
   let child: ReturnType<typeof spawn> | undefined
   try {
-    const bridge = (await exec('wslpath', ['-w', path.resolve(import.meta.dirname, '../native/remote-desktop/windows-bridge.mjs')])).stdout.trim()
-    child = spawn(process.env.MEW_DESKTOP_TEST_WINDOWS_NODE!, [bridge, path.win32.join(path.win32.dirname(host.entry), name)], { stdio: ['pipe', 'pipe', 'pipe'] })
+    await fs.mkdir(path.join(root, 'runtime'))
+    await fs.copyFile(await local(path.win32.join(helper, 'runtime/node.exe')), path.join(root, 'runtime/node.exe'))
+    for (const name of ['windows-session.ps1', 'windows-bridge.mjs', 'parent-channel.mjs']) await fs.copyFile(path.join(native, name), path.join(root, name))
+    await fs.writeFile(file, `import {execFile} from 'node:child_process';import {parentChannel} from './parent-channel.mjs';const p=parentChannel();p.output.write('BOOT\\n');p.input.on('data',()=>p.output.write('INPUT\\n'));p.input.on('end',()=>process.exit(0));p.input.on('error',()=>process.exit(1));execFile('powershell.exe',['-NoProfile','-Command','[System.Diagnostics.Process]::GetCurrentProcess().SessionId'],(error,out)=>{if(error)process.exit(2);p.output.write('SESSION '+out.trim()+'\\nREADY\\n')});setTimeout(()=>process.exit(2),7000);`)
+    const start = () => spawn(node, [path.win32.join(windowsRoot, 'windows-bridge.mjs'), path.win32.join(windowsRoot, 'native-host.mjs')], { stdio: ['pipe', 'pipe', 'pipe'] })
+    child = start()
     let output = '', error = ''
     child.stdout!.on('data', data => { output += data; if (['BOOT', 'INPUT', 'READY'].every(word => output.includes(word))) child!.stdin!.end() })
     child.stderr!.on('data', data => { error += data })
-    child.stdin!.on('error', () => {})
-    child.stdin!.write('init\n')
-    const code = await new Promise(resolve => child!.once('close', resolve))
-    assert.equal(code, 0, error)
+    child.stdin!.on('error', () => {}); child.stdin!.write('init\n')
+    assert.equal(await new Promise(resolve => child!.once('close', resolve)), 0, error)
     for (const word of ['BOOT', 'INPUT', 'READY']) assert.match(output, new RegExp(word))
-    assert.match(output, /SCREENS [1-9]/, 'the interactive session exposes an actual screen')
-    // Simulate a blocked native/event-loop call: pipe EOF and JS timers cannot
-    // rescue it. The broker must terminate the exact process it launched.
-    await fs.writeFile(file, `import {app} from 'electron';import {parentChannel} from './parent-channel.mjs';const p=parentChannel();p.input.on('error',()=>{});app.whenReady().then(()=>{p.output.write('HUNG '+process.pid+'\\n');setTimeout(()=>Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0),100)});`)
-    child = spawn(process.env.MEW_DESKTOP_TEST_WINDOWS_NODE!, [bridge, path.win32.join(path.win32.dirname(host.entry), name)], { stdio: ['pipe', 'pipe', 'pipe'] })
+    assert.match(output, /SESSION [1-9]\d*/, 'the host runs in an interactive Windows session')
+    // Neither pipe EOF nor a JS watchdog can rescue a blocked native call.
+    await fs.writeFile(file, `import {parentChannel} from './parent-channel.mjs';const p=parentChannel();p.input.on('error',()=>{});p.output.write('HUNG '+process.pid+'\\n');setTimeout(()=>Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0),100);`)
+    child = start()
     let stalled = ''
     child.stdout!.on('data', data => { stalled += data; if (/HUNG \d+/.test(stalled)) child!.stdin!.end() })
     child.stderr!.resume(); child.stdin!.on('error', () => {}); child.stdin!.write('init\n')
@@ -149,12 +164,12 @@ test('real Windows Electron starts in the login session, exchanges pipe input an
     const probe = `try{process.kill(${pid},0);console.log('alive')}catch{console.log('gone')}`
     let gone = false
     for (let i = 0; i < 30; i++) {
-      if ((await exec(process.env.MEW_DESKTOP_TEST_WINDOWS_NODE!, ['-e', probe])).stdout.trim() === 'gone') { gone = true; break }
+      if ((await exec(node, ['-e', probe])).stdout.trim() === 'gone') { gone = true; break }
       await new Promise(resolve => setTimeout(resolve, 200))
     }
-    assert.ok(gone, 'the stalled Electron must not outlive its parent')
+    assert.ok(gone, 'the stalled host must not outlive its parent')
   } finally {
-    child?.kill(); await fs.rm(file, { force: true })
-    if (previous) await fs.writeFile(launcher, previous); else await fs.rm(launcher, { force: true })
+    if (child && child.exitCode === null && child.signalCode === null) { const exited = once(child, 'close'); child.kill(); await exited }
+    await exec(node, ['-e', 'require("node:fs").rmSync(process.argv[1],{recursive:true,force:true,maxRetries:20,retryDelay:200})', windowsRoot])
   }
 })

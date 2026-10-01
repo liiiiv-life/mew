@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, screen, systemPreferences, clipboard, nativeImage } from 'electron'
+import { app, BrowserWindow, desktopCapturer, ipcMain, screen, systemPreferences, clipboard, nativeImage, Notification } from 'electron'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,6 +12,7 @@ import { nativeCapture } from './native-capture.mjs'
 import { startWindowsCapture } from './capture-start.mjs'
 import { validCursor } from './cursor-protocol.mjs'
 import { macCaptureLibrary } from './capture-macos.mjs'
+import { configureHostPermissions } from './host-permissions.mjs'
 
 const directory = path.dirname(fileURLToPath(import.meta.url))
 const parent = parentChannel()
@@ -24,6 +25,8 @@ let window, config, sources = [], adapter, receiver, rendererReady = false, clos
 let startQueue = Promise.resolve()
 let capture, firstCapture, lastCursor = '', lastAppearance = '', cursorShape, cursorShapeId = 0, captureBusy = false
 let transport = 'direct', inputWindow = Date.now(), inputCount = 0
+let notified = false, notification
+let rendererStopped
 const emit = (value) => { if (!parent.output.destroyed) parent.output.write(`MEW_DESKTOP ${JSON.stringify(value)}\n`) }
 function acceptInput(value, reliable) {
   if (!receiver || closing) return
@@ -40,19 +43,33 @@ function acceptInput(value, reliable) {
 async function stop() {
   if (closing) return
   closing = true
+  // Stop the renderer's desktop track/peer before destroying WebContents. Linux
+  // capture shutdown can otherwise remain active until the parent's kill bound.
+  const renderer = !window || window.webContents.isDestroyed() ? Promise.resolve() : new Promise(resolve => {
+    const finish = () => { clearTimeout(timer); rendererStopped = undefined; resolve() }
+    const timer = setTimeout(finish, 300)
+    rendererStopped = finish
+    try { window.webContents.send('desktop:signal', { type: 'stop' }) } catch { finish() }
+  })
+  try { notification?.close() } catch { /* Continue media/input cleanup. */ }
   clearInterval(watchdog)
   try { receiver?.release() } catch { /* Still close the OS input session below. */ }
-  try { await Promise.race([adapter?.close(), new Promise((resolve) => setTimeout(resolve, 500))]) } catch { /* Best effort before terminating the owned process. */ }
-  await capture?.close()
+  const input = Promise.race([Promise.resolve().then(() => adapter?.close()), new Promise((resolve) => setTimeout(resolve, 500))]).catch(() => {})
+  await Promise.allSettled([renderer, input, Promise.resolve().then(() => capture?.close())])
   window?.destroy()
   try { fs.rmSync(temporary, { recursive: true, force: true }) } catch { /* Windows can retain a Chromium handle until exit. */ }
   app.exit(0)
 }
-function fail(error) { emit({ type: 'error', message: error instanceof Error ? error.message : '원격 데스크톱을 시작할 수 없습니다.' }); void stop() }
-const watchdog = setInterval(() => { try { if (Date.now() - lease > 8000 || receiver?.tick()) void stop() } catch (error) { fail(error) } }, 250)
+function fail(error) { if (closing) return; emit({ type: 'error', message: error instanceof Error ? error.message : '원격 데스크톱을 시작할 수 없습니다.' }); void stop() }
+const watchdog = setInterval(() => {
+  try {
+    adapter?.check?.()
+    if (Date.now() - lease > 8000 || receiver?.tick()) void stop()
+  } catch (error) { fail(error) }
+}, 250)
 async function listSources() {
   if (!config || !rendererReady) return
-  if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(true)) throw new Error('서버 Mac에서 보조 앱(Electron)의 손쉬운 사용 권한을 허용해 주세요. Mew 설치 폴더의 터미널에서 ./mew desktop-setup을 실행하면 설정을 열고 승인을 확인합니다. 완료 후 다시 연결해 주세요.')
+  if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(false)) throw new Error('서버 Mac에서 보조 앱(Electron)의 손쉬운 사용 권한을 허용해 주세요. Mew 설치 폴더의 터미널에서 ./mew desktop-setup을 실행하면 설정을 열고 승인을 확인합니다. 완료 후 다시 연결해 주세요.')
   if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('screen') === 'denied') throw new Error('서버 Mac에서 보조 앱(Electron)의 화면 기록 권한을 허용해 주세요. Mew 설치 폴더의 터미널에서 ./mew desktop-setup을 실행하면 설정을 열고 승인을 확인합니다. 완료 후 다시 연결해 주세요.')
   sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false })
   if (!sources.length) throw new Error('공유할 화면이 없습니다. 서버에 로그인한 데스크톱과 화면 공유 권한을 확인해 주세요.')
@@ -137,9 +154,7 @@ async function createWindow() {
   const owned = (event) => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame
   // Chromium also gates local WebRTC paths through Local Network Access. Only
   // this fixed local renderer receives these permissions, never navigated content.
-  const permissions = new Set(['media', 'local-network-access', 'local-network', 'loopback-network'])
-  window.webContents.session.setPermissionRequestHandler((contents, permission, callback) => callback(contents === window.webContents && permissions.has(permission)))
-  window.webContents.session.setPermissionCheckHandler((contents, permission) => contents === window.webContents && permissions.has(permission))
+  configureHostPermissions(window, () => !closing)
   ipcMain.handle('desktop:capture', async event => {
     if (!owned(event) || !capture || closing || captureBusy) throw new Error('Capture unavailable')
     captureBusy = true
@@ -174,6 +189,17 @@ async function createWindow() {
   ipcMain.on('desktop:ready', (event) => { if (owned(event)) { rendererReady = true; void listSources().catch(fail) } })
   ipcMain.on('desktop:signal', (event, value) => {
     if (!owned(event) || !value || JSON.stringify(value).length > MAX_SIGNAL_BYTES) return
+    if (value.type === 'stopped' && closing) { rendererStopped?.(); return }
+    if (value.type === 'viewer-ready' && transport === 'direct' && started && receiver && !closing && !notified) {
+      notified = true
+      try {
+        if (Notification.isSupported()) {
+          notification = new Notification({ title: 'mew 원격 데스크톱 연결됨', body: '이 PC에 원격으로 연결되었습니다.', silent: true })
+          notification.show()
+        }
+      } catch { /* Missing notification services or permissions must not stop streaming. */ }
+      return
+    }
     if (['offer', 'candidate', 'connected', 'direct-failed'].includes(value.type) && transport === 'direct') emit(value)
     if (value.type === 'direct-failed') receiver?.pause()
     if (['relay-ready', 'error'].includes(value.type) || transport === 'relay' && value.type === 'relay-status') emit(value)
