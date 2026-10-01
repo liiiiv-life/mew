@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "패널 배치·모바일·상태 복원"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-30"
+updated: "2026-10-01"
 status_hash: "018bca32e486b43c386b29de3e2087d6d1447fae6a33abc99d745367947a9382"
 files: ["src/hooks/use-refresh-tasks.ts", "src/hooks/usePresence.ts", "src/components/project-loading-overlay.tsx", "src/App.tsx", "src/components/DockWorkspace.tsx", "src/components/EditorPane.tsx", "src/components/TabBar.tsx", "src/components/AgentPanel.tsx", "src/components/mobile-dock.tsx", "src/utils/mobile-dock.ts", "src/hooks/use-mobile-keyboard.ts", "src/hooks/useTabs.ts", "server/userUiState.ts"]
 commits: []
@@ -56,8 +56,9 @@ commits: []
 - 패널 이동 손잡이는 데스크톱에서만 표시한다.
 - 실제 탭이 없는 패널의 탭 바에는 독과 같은 아이콘·번역된 제목을 표시한다. 에이전트 선택기를 연 상태도 포함하며 실제 탭이 생기면 제목을 숨긴다. 고정 제목을 쓰는 기능·Git 패널은 기존 표시를 유지한다.
 - 에이전트·터미널·브라우저에 실제 탭이 없으면 `+`를 숨기고 본문에 각각 에이전트 선택기·새 터미널 시작 버튼·브라우저 시작 화면을 표시한다. 첫 탭 생성 후 `+`를 다시 표시한다.
-- 기능 패널도 공통 도킹 영역에서 위치·폭·높이를 조절하고 계정·프로젝트별 배치를 복원한다. 타이틀바는 다른 패널과 같은 36px다.
-- 모바일에서는 에디터·에이전트·터미널·브라우저·Git·기능 상단의 손잡이와 해당 여백을 제거한다.
+- 기능·메모 패널도 공통 도킹 영역에서 위치·폭·높이를 조절하고 계정·프로젝트별 배치를 복원한다. 타이틀바는 다른 패널과 같은 36px다.
+- 2026-10-01: 태스크 패널을 제거하고 메모 팝업을 공통 패널로 대체했다. 이전 태스크 독·배치 항목은 정규화에서 제외한다. 메모는 모바일 전면 스택·Esc/뒤로가기·PC 확대/복원에 참여한다. 상세 저장·협업 상태는 [공통 메모](../collaboration/shared-memo.md)를 따른다.
+- 모바일에서는 에디터·에이전트·터미널·브라우저·Git·기능·메모 상단의 손잡이와 해당 여백을 제거한다.
 
 - 데스크톱 탭 더블클릭 확대는 임시 표시 상태로 처리하며 저장된 분할 배치를 변경하지 않는다.
 - 사이드바를 포함한 작업 영역에 선택한 패널의 탭 바·본문을 함께 펼치고, 다른 패널의 탭 바는 숨기고 조작을 막는다.

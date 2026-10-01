@@ -9,7 +9,7 @@ import { compile } from '@tailwindcss/node'
 import { chromium } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
 
-test('shared memo dock, keyboard focus, drag, presence, live Markdown and persisted reopen', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
+test('shared memo panel docking, focus, presence, shared editing and persisted reopen', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-memo-ui-'))
   process.env.MEW_DATA_DIR = directory
   const { attachCollabWebSocket, closeAllRooms } = await import('./collab.ts')
@@ -18,16 +18,32 @@ test('shared memo dock, keyboard focus, drag, presence, live Markdown and persis
 import React,{useState} from 'react'; import {createRoot} from 'react-dom/client';
 import {SharedMemo} from '${root}/src/components/shared-memo.tsx';
 import {MobileDock} from '${root}/src/components/mobile-dock.tsx';
+import {DockWorkspace,DockPanel} from '${root}/src/components/DockWorkspace.tsx';
+import {useSharedMemo} from '${root}/src/hooks/use-shared-memo.ts';
+import {useOverlayDismiss} from '@mew/ui';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 localStorage.setItem('mew:locale','ko');
-function Fixture(){const [open,setOpen]=useState(false);const [focus,setFocus]=useState(0);return <><input aria-label="Outside"/><MobileDock active={open?'memo':'editor'} openPanels={open?['memo']:[]} available={['editor','memo']} hidden={false} onNavigate={()=>{}} onSelect={id=>{setOpen(current=>id==='memo'?(innerWidth>=768?!current:true):false);setFocus(value=>value+1)}}/><SharedMemo authEmail={new URLSearchParams(location.search).get('user') || 'one@example.test'} open={open} onOpenChange={setOpen} focusSignal={focus}/></>}
+function Fixture(){
+  const [open,setOpen]=useState(false),[focus,setFocus]=useState(0),[front,setFront]=useState('editor'),[dock,setDock]=useState(null),[project,setProject]=useState(0);
+  const changeOpen=React.useCallback(value=>{setOpen(value);setFront(value?'memo':'editor')},[]);
+  const session=useSharedMemo({authEmail:new URLSearchParams(location.search).get('user')||'one@example.test',open,onOpenChange:changeOpen,focusSignal:focus,onFocus:()=>setFront('memo')});
+  useOverlayDismiss(open&&front==='memo'?session.close:false,{escapePhase:'bubble'});
+  return <div style={{height:'100dvh',display:'flex',flexDirection:'column'}}>
+    <button onClick={()=>setProject(value=>value+1)}>Switch project</button>
+    <MobileDock active={front} openPanels={open?['editor','memo']:['editor']} available={['editor','memo']} hidden={false} onNavigate={()=>{}} onSelect={id=>{if(id==='memo'){changeOpen(innerWidth>=768&&front==='memo'?!open:true);setFocus(value=>value+1)}else setFront('editor')}}/>
+    <DockWorkspace key={project} value={dock} onChange={setDock} foreground={front} apiRef={null} onEditorDrop={()=>''}>
+      <DockPanel id="editor" kind="editor" tabs={['editor']} mobileSelected onFocus={()=>setFront('editor')}><input aria-label="Outside"/></DockPanel>
+      <DockPanel id="memo" kind="memo" tabs={['memo']} visible={open} mobileSelected onFocus={()=>setFront('memo')}><SharedMemo session={session} open={open}/></DockPanel>
+    </DockWorkspace>
+  </div>
+}
 createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><Fixture/></I18nProvider></React.StrictMode>);`
   const bundle = await build({ input: 'virtual:memo.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'memo-fixture', resolveId(id) { if (id === 'virtual:memo.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' },
     load(id) { if (id === 'virtual:memo.tsx') return source; if (id === 'virtual:style') return '' },
   }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const ui = (await Promise.all(['src/components/shared-memo.tsx', 'src/components/PresenceDots.tsx', 'src/components/mobile-dock.tsx', 'packages/editor/src/Editor.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const ui = (await Promise.all(['src/components/shared-memo.tsx', 'src/components/DockWorkspace.tsx', 'src/components/PresenceDots.tsx', 'src/components/mobile-dock.tsx', 'packages/editor/src/Editor.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(path.join(root, 'src/index.css'), 'utf8'), { base: path.join(root, 'src'), onDependency() {} })
   const css = compiler.build([...new Set((source + ui).match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))]) + '\n' + (await Promise.all(['packages/editor/src/editor/editor.css', 'src/components/shared-memo.css'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const server = http.createServer((req, res) => {
@@ -48,18 +64,17 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await one.goto(base); await two.goto(`${base}?user=two@example.test`)
     await one.getByRole('textbox', { name: 'Outside' }).focus()
     await one.keyboard.press('Control+m')
-    const memo = one.getByRole('dialog', { name: '메모', exact: true })
+    const memo = one.getByRole('region', { name: '메모', exact: true })
     await memo.locator('.tiptap[contenteditable=true]').waitFor()
     await one.waitForFunction("document.activeElement?.classList.contains('tiptap')")
     await one.keyboard.type('# Shared memo'); await one.keyboard.press('Enter')
     await one.keyboard.type('First note')
     await two.locator('[data-dock-item=memo]').tap()
     await two.locator('.tiptap h1').filter({ hasText: 'Shared memo' }).waitFor()
-    const mobileMemo = two.getByRole('dialog', { name: '메모', exact: true })
+    const mobileMemo = two.getByRole('region', { name: '메모', exact: true })
     await mobileMemo.locator('.tiptap[contenteditable=true]').focus()
     const keyBar = mobileMemo.locator('[data-mobile-key-bar]')
     await keyBar.waitFor({ state: 'hidden' })
-    const originalMobile = (await mobileMemo.boundingBox())!
     const setKeyboardViewport = async (height: number, offsetTop = 0, eventType = 'resize') => {
       await mobileMemo.evaluate((el, viewport) => {
         const visual = el.ownerDocument.defaultView!.visualViewport!
@@ -70,33 +85,17 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
         visual.dispatchEvent(event)
       }, { height, offsetTop, eventType })
     }
-    const expectMemoTop = async (top: number) => {
-      await mobileMemo.evaluate(async (el, expected) => {
-        for (let frame = 0; frame < 60 && Math.abs(el.getBoundingClientRect().top - expected) > 0.5; frame++) {
-          await new Promise(resolve => el.ownerDocument.defaultView!.requestAnimationFrame(resolve))
-        }
-      }, top)
-      assert.equal((await mobileMemo.boundingBox())!.y, top)
-    }
     await setKeyboardViewport(600)
-    await expectMemoTop(originalMobile.y)
     await setKeyboardViewport(470)
-    await expectMemoTop(470 - 24 - originalMobile.height)
     await keyBar.waitFor({ state: 'visible' })
     await keyBar.getByRole('button', { name: 'Ctrl', exact: true }).dispatchEvent('click')
     await keyBar.getByRole('button', { name: 'Shift', exact: true }).dispatchEvent('click')
-    assert.equal((await mobileMemo.boundingBox())!.height, originalMobile.height, 'keyboard avoidance moves the popup without shrinking it')
     await setKeyboardViewport(260)
-    await expectMemoTop(8)
-    assert.ok((await mobileMemo.boundingBox())!.height > 260, 'a tall popup keeps its header visible even when the bottom cannot fit')
     await setKeyboardViewport(260, 95, 'scroll')
-    await expectMemoTop(103)
     await mobileMemo.getByRole('button', { name: '닫기', exact: true }).waitFor({ state: 'visible' })
     await setKeyboardViewport(844)
-    await expectMemoTop(originalMobile.y)
     await keyBar.waitFor({ state: 'hidden' })
     assert.equal(await mobileMemo.locator('.tiptap').evaluate(el => el === el.ownerDocument.activeElement), true, 'keyboard dismissal hides the extra keys even while the editor retains focus')
-    assert.deepEqual(await mobileMemo.boundingBox(), originalMobile, 'dismissing the keyboard restores the original geometry')
     await setKeyboardViewport(470)
     await keyBar.waitFor({ state: 'visible' })
     assert.equal(await keyBar.getByRole('button', { name: 'Ctrl', exact: true }).getAttribute('aria-pressed'), 'false')
@@ -119,7 +118,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await one.keyboard.press('Control+End'); await one.keyboard.type('!')
     await two.locator('.tiptap').filter({ hasText: 'Second note!' }).waitFor()
     await one.getByRole('textbox', { name: 'Outside' }).click()
-    assert.equal(await memo.isVisible(), true, 'outside clicks leave the popup open')
+    assert.equal(await memo.isVisible(), true, 'outside clicks leave the panel open')
     await one.keyboard.press('Control+m')
     assert.equal(await memo.locator('.tiptap').evaluate(el => el === el.ownerDocument.activeElement), true)
     await one.keyboard.press('Control+m')
@@ -143,69 +142,40 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     })
     assert.ok(reopenedText?.includes('Second note!'), `dock reopening preserves shared content: ${JSON.stringify(reopenedText)}`)
     const before = (await memo.boundingBox())!
-    const handle = memo.getByRole('button', { name: '메모 위치 이동' })
-    const handleBox = (await handle.boundingBox())!
-    await one.mouse.move(handleBox.x + 70, handleBox.y + 15); await one.mouse.down(); await one.mouse.move(handleBox.x + 240, handleBox.y + 90); await one.mouse.up()
-    const after = (await memo.boundingBox())!
-    assert.ok(after.x > before.x + 100 && after.y > before.y + 50)
-    const dragResize = async (direction: string, dx: number, dy: number) => {
-      const box = (await memo.locator(`[data-resize="${direction}"]`).boundingBox())!
-      await one.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-      await one.mouse.down()
-      await one.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 3 })
-      await one.mouse.up()
-      return (await memo.boundingBox())!
-    }
-    for (const direction of ['n', 's', 'w', 'e', 'nw', 'ne', 'sw', 'se']) {
-      const start = (await memo.boundingBox())!
-      const dx = direction.includes('w') ? 24 : direction.includes('e') ? -24 : 0
-      const dy = direction.includes('n') ? 24 : direction.includes('s') ? -24 : 0
-      const smaller = await dragResize(direction, dx, dy)
-      assert.deepEqual(smaller, {
-        x: start.x + (direction.includes('w') ? 24 : 0),
-        y: start.y + (direction.includes('n') ? 24 : 0),
-        width: start.width - Math.abs(dx), height: start.height - Math.abs(dy),
-      }, `${direction}: resizing keeps the opposite edges fixed`)
-      assert.deepEqual(await dragResize(direction, -dx, -dy), start, `${direction}: expands again`)
-    }
-    const limited = await dragResize('se', 1500, 1500)
-    assert.equal(limited.x, after.x)
-    assert.equal(limited.y, after.y)
-    assert.equal(limited.x + limited.width, 1092)
-    assert.equal(limited.y + limited.height, 776)
-    const minimum = await dragResize('nw', 1500, 1500)
-    assert.equal(minimum.width, 280)
-    assert.equal(minimum.height, 180)
-    assert.equal(minimum.x + minimum.width, 1092)
-    assert.equal(minimum.y + minimum.height, 776)
-    await memo.locator('[data-resize=nw]').focus()
-    await one.keyboard.press('ArrowLeft'); await one.keyboard.press('ArrowUp')
-    const keyboardSize = (await memo.boundingBox())!
-    assert.equal(keyboardSize.width, 296)
-    assert.equal(keyboardSize.height, 196)
+    const grip = one.locator('[data-dock-panel="memo"]').getByLabel('패널 이동')
+    const gripBox = (await grip.boundingBox())!
+    const editorBox = (await one.locator('[data-dock-panel="editor"]').boundingBox())!
+    await one.mouse.move(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2)
+    await one.mouse.down(); await one.mouse.move(editorBox.x + 8, editorBox.y + editorBox.height / 2, { steps: 8 }); await one.mouse.up()
+    assert.ok((await memo.boundingBox())!.x < before.x, 'memo moves using the common dock grip')
+    const separator = one.getByRole('separator')
+    const separatorBox = (await separator.boundingBox())!
+    const widthBeforeResize = (await memo.boundingBox())!.width
+    await one.mouse.move(separatorBox.x + 2, separatorBox.y + 100); await one.mouse.down(); await one.mouse.move(separatorBox.x + 82, separatorBox.y + 100); await one.mouse.up()
+    assert.ok((await memo.boundingBox())!.width > widthBeforeResize + 50, 'common dock separator resizes the memo')
+    await memo.getByRole('tab', { name: '메모', exact: true }).dblclick()
+    await one.locator('[data-dock-panel="memo"][data-dock-expanded]').waitFor()
+    await one.keyboard.press('Escape')
+    assert.equal(await one.locator('[data-dock-expanded]').count(), 0)
+    assert.equal(await memo.isVisible(), true, 'first Escape restores the expanded panel')
+    await one.getByRole('button', { name: 'Switch project' }).click()
+    await memo.locator('.tiptap').waitFor()
+    await memo.locator('.tiptap').filter({ hasText: 'Second note' }).waitFor()
+    const remountedText = await memo.locator('.tiptap').evaluate(el => {
+      const copy = el.cloneNode(true) as { textContent: string | null; querySelectorAll(selector: string): Iterable<{ remove(): void }> }
+      for (const label of copy.querySelectorAll('.collaboration-carets__label')) label.remove()
+      return copy.textContent
+    })
+    assert.ok(remountedText?.includes('Second note!'), 'project switches preserve the shared document')
+    await memo.locator('.tiptap').focus()
     await one.keyboard.press('Escape')
     await memo.waitFor({ state: 'hidden' })
     await one.keyboard.press('Control+m')
     await memo.waitFor()
-    assert.deepEqual(await memo.boundingBox(), keyboardSize, 'closing preserves the resized geometry')
-    await one.setViewportSize({ width: 360, height: 640 })
-    await one.waitForFunction("(() => { const rect = document.querySelector('.shared-memo').getBoundingClientRect(); return rect.right <= innerWidth && rect.bottom <= innerHeight })()")
     await two.evaluate("document.documentElement.classList.remove('dark')")
-    await two.getByRole('button', { name: '메모 위치 이동' }).focus(); await two.keyboard.press('ArrowRight')
-    const mobile = (await two.getByRole('dialog').boundingBox())!
-    assert.ok(mobile.x >= 0 && mobile.x + mobile.width <= 390)
-    const touchHandle = (await two.locator('[data-resize=se]').boundingBox())!
-    const touch = await two.context().newCDPSession(two)
-    const touchX = touchHandle.x + touchHandle.width / 2, touchY = touchHandle.y + touchHandle.height / 2
-    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: touchX, y: touchY }] })
-    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: touchX - 32, y: touchY - 40 }] })
-    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-    await touch.detach()
-    const touchSize = (await two.getByRole('dialog').boundingBox())!
-    assert.equal(touchSize.width, mobile.width - 32)
-    assert.equal(touchSize.height, mobile.height - 40)
-    assert.equal(touchSize.x, mobile.x)
-    assert.equal(touchSize.y, mobile.y)
+    assert.equal(await two.locator('[data-resize]').count(), 0, 'popup resize handles are removed')
+    assert.equal(await two.getByRole('dialog').count(), 0, 'memo is a workspace panel')
+    assert.ok(await mobileMemo.evaluate(el => el.scrollWidth <= el.clientWidth), 'mobile memo fits its panel')
     if (process.env.MEW_MEMO_SCREENSHOT_DIR) {
       await fs.mkdir(process.env.MEW_MEMO_SCREENSHOT_DIR, { recursive: true })
       await two.screenshot({ path: path.join(process.env.MEW_MEMO_SCREENSHOT_DIR, 'memo-mobile-light.png') })
@@ -214,7 +184,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     }
     await one.getByRole('button', { name: '닫기', exact: true }).click()
     await two.keyboard.press('Escape')
-    assert.equal(await two.getByRole('dialog').isVisible(), false)
+    assert.equal(await mobileMemo.isVisible(), false)
     await one.close(); await two.close()
     const reopened = await browser.newPage()
     reopened.setDefaultTimeout(5000)

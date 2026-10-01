@@ -1,4 +1,3 @@
-import { createProjectTaskRouter } from './project-task-routes.ts'
 import { updatesStatus, startUpdates, updatesRunning } from './updates.ts'
 import type { GitRemoteEvent, GitRemoteProgress } from '../shared/git-remote-progress.ts'
 import { GitConnectionError } from './git-connections.ts'
@@ -2123,7 +2122,6 @@ export function createApiApp() {
   app.use('/tmux', requireFeature('terminal'), createTmuxRouter(tmuxManager))
   app.use('/agent/commands', createAgentCommandRouter(new AgentCommandStore(tmuxManager)))
   app.use('/agent/harness', createAgentHarnessRouter())
-  app.use('/project-tasks', createProjectTaskRouter())
   app.use('/features', createFeatureRouter())
 
   // 호스트 자원 현황(프로파일링 팝업) — 서버가 도는 기계의 정보라 셸과 같은 역할로 묶는다

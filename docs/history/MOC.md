@@ -17,3 +17,5 @@ updated: 2026-09-11
 - [제거된 RAG 기능 기록](rag-feature.md)
 - [제거된 RAG 운영 기록](rag-operations.md)
 - [RAG·MOC·일반 검색 비교 측정](../research/document-discovery-benchmark.md)
+
+- [제거된 태스크 기능 기록](project-tasks.md) · [제거 전 저장·UI 계약](project-tasks-contract.md)

@@ -448,6 +448,53 @@ export const Editor = forwardRef<
   const keyBarCtrlRef = useRef(keyBarCtrl)
   const keyBarShiftRef = useRef(keyBarShift)
 
+  // 커서 바로 앞의 "@query" 패턴을 감지해 멘션 팝업 상태를 갱신
+  const updateMentionState = useCallback((ed: any) => {
+    const { $from, empty } = ed.state.selection
+    if (!empty) {
+      setMention(null)
+      return
+    }
+    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(textBefore)
+    if (!match) {
+      setMention(null)
+      return
+    }
+    const query = match[1]
+    const from = $from.start() + $from.parentOffset - query.length - 1
+    const coords = ed.view.coordsAtPos(from)
+    setMention((prev) =>
+      prev && prev.from === from && prev.query === query
+        ? prev
+        : { from, query, position: { top: coords.bottom + 6, left: coords.left }, selectedIndex: 0 },
+    )
+  }, [])
+
+  // 커서 바로 앞의 "/query" 패턴을 감지해 슬래시 커맨드 메뉴 상태를 갱신 (노션식) —
+  // '/'는 줄 시작이나 공백 뒤에서만 인식하므로 URL·경로(docs/foo) 안에서는 뜨지 않는다.
+  const updateSlashState = useCallback((ed: any) => {
+    const { $from, empty } = ed.state.selection
+    if (!empty) {
+      setSlash(null)
+      return
+    }
+    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
+    const match = /(?:^|\s)\/([^\s/]*)$/.exec(textBefore)
+    if (!match) {
+      setSlash(null)
+      return
+    }
+    const query = match[1]
+    const from = $from.start() + $from.parentOffset - query.length - 1
+    const coords = ed.view.coordsAtPos(from)
+    setSlash((prev) =>
+      prev && prev.from === from && prev.query === query
+        ? prev
+        : { from, query, position: { top: coords.bottom + 6, left: coords.left }, selectedIndex: 0 },
+    )
+  }, [])
+
   const editor = useEditor({
     extensions: [
       Document,
@@ -1429,29 +1476,6 @@ export const Editor = forwardRef<
     }
   }, [tooltip])
 
-  // 커서 바로 앞의 "@query" 패턴을 감지해 멘션 팝업 상태를 갱신
-  const updateMentionState = useCallback((ed: any) => {
-    const { $from, empty } = ed.state.selection
-    if (!empty) {
-      setMention(null)
-      return
-    }
-    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
-    const match = /(?:^|\s)@([^\s@]*)$/.exec(textBefore)
-    if (!match) {
-      setMention(null)
-      return
-    }
-    const query = match[1]
-    const from = $from.start() + $from.parentOffset - query.length - 1
-    const coords = ed.view.coordsAtPos(from)
-    setMention((prev) =>
-      prev && prev.from === from && prev.query === query
-        ? prev
-        : { from, query, position: { top: coords.bottom + 6, left: coords.left }, selectedIndex: 0 },
-    )
-  }, [])
-
   const mentionResults = useMemo<MentionResult[]>(() => {
     if (!mention) return []
     return flattenFiles(tree)
@@ -1480,30 +1504,6 @@ export const Editor = forwardRef<
     },
     [mention, editor, path, api],
   )
-
-  // 커서 바로 앞의 "/query" 패턴을 감지해 슬래시 커맨드 메뉴 상태를 갱신 (노션식) —
-  // '/'는 줄 시작이나 공백 뒤에서만 인식하므로 URL·경로(docs/foo) 안에서는 뜨지 않는다.
-  const updateSlashState = useCallback((ed: any) => {
-    const { $from, empty } = ed.state.selection
-    if (!empty) {
-      setSlash(null)
-      return
-    }
-    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
-    const match = /(?:^|\s)\/([^\s/]*)$/.exec(textBefore)
-    if (!match) {
-      setSlash(null)
-      return
-    }
-    const query = match[1]
-    const from = $from.start() + $from.parentOffset - query.length - 1
-    const coords = ed.view.coordsAtPos(from)
-    setSlash((prev) =>
-      prev && prev.from === from && prev.query === query
-        ? prev
-        : { from, query, position: { top: coords.bottom + 6, left: coords.left }, selectedIndex: 0 },
-    )
-  }, [])
 
   // 슬래시 커맨드 목록 — run은 항상 최신 에디터(editorRef)를 받고, 메뉴 텍스트(/query)는 range로 넘겨 미리 지운다.
   // openUploadPicker는 refs만 읽는 안정 참조라 매 렌더 재생성돼도 문제없다.

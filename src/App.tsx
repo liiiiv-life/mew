@@ -1,4 +1,3 @@
-import { ProjectTasks } from './components/project-tasks'
 import { UpdatesModal } from './components/updates-modal'
 import { fetchUpdatesStatus } from './api/client'
 import { uuid } from './utils/uuid'
@@ -42,6 +41,7 @@ import { SubprojectLink } from './components/subproject-link'
 import { RootProjectTabs } from './components/RootProjectTabs'
 import { ProjectLoadingOverlay } from './components/project-loading-overlay'
 import { SharedMemo } from './components/shared-memo'
+import { useSharedMemo } from './hooks/use-shared-memo'
 import { normalizeProjectTabLayout, type ProjectTabGroup } from '../shared/project-tab-groups'
 import { OpenProjectDialog } from './components/OpenProjectDialog'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
@@ -310,7 +310,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   // 터미널·에이전트의 기능 권한과 열림 상태는 독립이다.
   const dockRef = useRef<DockHandle>(null)
   const [terminalOpen, setTerminalOpen] = useState(() => canUseTerminal && (localStorage.getItem(TERMINAL_OPEN_KEY) !== null ? localStorage.getItem(TERMINAL_OPEN_KEY) === '1' : localStorage.getItem(LEGACY_TMUX_OPEN_KEY) === '1' || localStorage.getItem(AGENT_OPEN_KEY) === '1'))
-  const [tasksOpen, setTasksOpen] = useState(false)
   const [featuresOpen, setFeaturesOpen] = useState(false)
   const featureCloseRef = useRef<((action?: () => void) => void) | null>(null)
   const [featureAgentTab, setFeatureAgentTab] = useState<AgentTab | null>(null)
@@ -342,7 +341,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       if (panel === 'terminal') return terminalOpen
       if (panel === 'browser') return browserOpen
       if (panel === 'git') return gitOpen
-      if (panel === 'tasks') return tasksOpen
+      if (panel === 'memo') return memoOpen
       if (panel === 'features') return featuresOpen
       return androidOpen
     }),
@@ -379,10 +378,10 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     browser: browserOpen,
     git: gitOpen,
     android: androidOpen,
-    tasks: tasksOpen,
+    memo: memoOpen,
     features: featuresOpen,
   } satisfies Record<WorkspacePanelId, boolean>), [
-    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, tasksOpen,
+    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen,
   ])
   const workspacePanelSetters = useMemo(() => ({
     sidebar: setSidebarOpen,
@@ -392,12 +391,12 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     browser: setBrowserOpen,
     git: setGitOpen,
     android: setAndroidOpen,
-    tasks: setTasksOpen,
+    memo: setMemoOpen,
     features: setFeaturesOpen,
   } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
 
   const mobileForegroundPanel = mobilePanelStack.at(-1) ?? null
-  const openDockPanels = (['editor', 'desktop', 'memo', ...WORKSPACE_PANEL_IDS] as const).filter(panel =>
+  const openDockPanels = (['editor', 'desktop', ...WORKSPACE_PANEL_IDS] as const).filter(panel =>
     panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel])
   const focusedDockPanel = focusedWorkspacePanel && openDockPanels.some(panel => panel === focusedWorkspacePanel) ? focusedWorkspacePanel : null
   useEffect(() => {
@@ -440,6 +439,13 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       saveMobileForegroundPanel(rootProjectPath, panel)
     }
   }, [mobileForegroundPanel, rootProjectPath])
+
+  const changeMemoOpen = useCallback((open: boolean) => {
+    if (open) { setRemoteDesktopOpen(false); dockRef.current?.restore(); openWorkspacePanel('memo'); setFocusedWorkspacePanel('memo') }
+    else closeWorkspacePanel('memo')
+  }, [openWorkspacePanel, closeWorkspacePanel, setFocusedWorkspacePanel])
+  const focusMemo = useCallback(() => { setRemoteDesktopOpen(false); dockRef.current?.restore(); bringWorkspacePanelToFront('memo'); setFocusedWorkspacePanel('memo') }, [bringWorkspacePanelToFront, setFocusedWorkspacePanel])
+  const memoSession = useSharedMemo({ authEmail: caps.collaboration ? auth.email ?? '' : '', open: memoOpen, onOpenChange: changeMemoOpen, onFocus: focusMemo, focusSignal: memoFocusSignal })
 
   const closeAllWorkspacePanels = useCallback(() => {
     const close = () => {
@@ -1078,7 +1084,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     browser: { open: browserOpen, close: () => closeWorkspacePanel('browser'), closeOnBack: () => !browserBackRef.current?.() },
     git: { open: gitOpen, close: () => closeWorkspacePanel('git') },
     android: { open: androidOpen, close: () => closeWorkspacePanel('android') },
-    tasks: { open: tasksOpen, close: () => closeWorkspacePanel('tasks') },
+    memo: { open: memoOpen, close: memoSession.close },
     features: { open: featuresOpen, close: () => featureCloseRef.current?.() },
   }, mobileForegroundPanel)
 
@@ -1132,24 +1138,17 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   if (caps.terminal) mobileDockPanels.push('terminal')
   if (caps.git) mobileDockPanels.push('git')
   if (caps.browser) mobileDockPanels.push('browser')
-  if (rootProjectPath && !isGuest && caps.filesRead) mobileDockPanels.push('tasks')
   if (caps.agent && rootProjectPath) mobileDockPanels.push('features')
   if (caps.desktop) mobileDockPanels.push('desktop')
   if (caps.collaboration && auth.email) mobileDockPanels.push('memo')
   const selectDockPanel = (panel: MobileDockPanel, toggle = true) => {
     if (!mobileDockPanels.includes(panel)) return
     const closeFocused = isDesktop() && toggle && (remoteDesktopOpen ? panel === 'desktop' : focusedDockPanel === panel)
-    if (panel === 'memo') {
-      setRemoteDesktopOpen(false)
-      setMemoOpen(open => closeFocused ? !open : true)
-      setMemoFocusSignal(value => value + 1)
-      return
-    }
-    if (!isDesktop()) setMemoOpen(false)
     dockRef.current?.restore()
     if (panel === 'desktop') { setRemoteDesktopOpen(open => closeFocused ? !open : true); return }
     setRemoteDesktopOpen(false)
-    if (panel !== 'features' && panel !== 'tasks') activeTabbedSurfaceRef.current = panel
+    if (panel === 'memo') setMemoFocusSignal(value => value + 1)
+    if (panel !== 'features' && panel !== 'memo') activeTabbedSurfaceRef.current = panel
     if (panel === 'editor') {
       if (closeFocused && editorOpen) {
         setEditorOpen(false)
@@ -1179,7 +1178,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     }
   }
   const navigateMobileDock = (direction: -1 | 1, order: MobileDockPanel[]) => {
-    const panel = memoOpen ? 'memo' : remoteDesktopOpen ? 'desktop' : mobileForegroundPanel ?? 'editor'
+    const panel = remoteDesktopOpen ? 'desktop' : mobileForegroundPanel ?? 'editor'
     const next = adjacentDockPanel(order, panel, direction)
     if (next) selectDockPanel(next, false)
   }
@@ -1306,7 +1305,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       browser: browserOpen,
       git: gitOpen,
       android: androidOpen,
-      tasks: tasksOpen,
+      memo: memoOpen,
     features: featuresOpen,
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -1321,8 +1320,8 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       // 로컬의 방금 연 에이전트를 닫아 버리면 전면 순서를 복원할 수 없으므로, 서버 원장은
       // 데스크톱 배치에만 적용한다. 모바일은 각 패널의 로컬 열림 상태로 시작한다.
       if (isDesktop()) {
-        restoredOpen.tasks = !isGuest && caps.filesRead && chrome.tasksOpen === true
-        setTasksOpen(restoredOpen.tasks)
+        restoredOpen.memo = !!auth.email && caps.collaboration && chrome.memoOpen === true
+        setMemoOpen(restoredOpen.memo)
         restoredOpen.features = caps.agent && chrome.featuresOpen === true
         setFeaturesOpen(restoredOpen.features)
         if (caps.agent && typeof chrome.agentOpen === 'boolean') {
@@ -1347,7 +1346,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       // 계정 원장이 처음 비어 있을 때만 이 기기의 기존 화면 상태를 이관한다.
       setWorkspaceUi((previous) => ({
         ...previous,
-        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, tasksOpen },
+        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen },
       }))
     }
     if (savedMobileForeground && savedMobileForeground !== 'editor') {
@@ -1361,7 +1360,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     }
     chromeStateLoadedRootRef.current = rootProjectPath
     chromeStateRestorePendingRef.current = rootProjectPath
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, tasksOpen, caps, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, memoOpen, caps, auth.email, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
 
   useEffect(() => {
     if (!rootProjectPath || !workspaceUiLoaded || isDesktop()) return
@@ -1467,9 +1466,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     }
     setWorkspaceUi((previous) => ({
       ...previous,
-      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, tasksOpen },
+      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen },
     }))
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, tasksOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, memoOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
 
   const handleRenamed = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -2267,8 +2266,8 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
             openWorkspacePanel('agent')
           }}
         />}</DockPanel>}
-        {rootProjectPath && !isGuest && caps.filesRead && <DockPanel id="tasks" kind="tasks" visible={tasksOpen} mobileSelected onFocus={() => bringWorkspacePanelToFront('tasks')}>
-          {tasksOpen && <ProjectTasks key={`${auth.email}:${rootProjectPath}`} workspace={rootProjectPath} onClose={() => closeWorkspacePanel('tasks')} />}
+        {caps.collaboration && auth.email && <DockPanel id="memo" kind="memo" visible={memoOpen} tabs={['memo']} mobileSelected onFocus={() => bringWorkspacePanelToFront('memo')}>
+          <SharedMemo session={memoSession} open={memoOpen} />
         </DockPanel>}
         </DockWorkspace>
 
@@ -2314,7 +2313,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
       <Mewcat skin={mewcatSkin} assistant={{ account: auth.email ?? 'guest', enabled: caps.agent, runtime: mewcatRuntime, projectRoot: rootProjectPath, onAction: handleMewcatAction, onRuntimeChange: selectMewcatRuntime, onConnect: () => { setMewcatPicker(true); openWorkspacePanel('agent'); showToast(t('mewcat.assistant.guide')) } }} onOpenSystemStats={caps.system ? () => setSysStatsOpen(true) : undefined} />
 
-      <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : memoOpen ? 'memo' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost ?? (desktopMode ? headerDockHost : null)}
+      <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost ?? (desktopMode ? headerDockHost : null)}
         onSelect={selectDockPanel} onNavigate={navigateMobileDock} />
 
       <div className="hidden md:contents">
@@ -2416,7 +2415,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         />
       )}
 
-      {caps.collaboration && auth.email && <SharedMemo authEmail={auth.email} open={memoOpen} onOpenChange={setMemoOpen} focusSignal={memoFocusSignal} />}
       {toast}
       {(switchingRootProject || refreshing || refreshingWorkspace || refreshingTabs) && <ProjectLoadingOverlay />}
     </div>

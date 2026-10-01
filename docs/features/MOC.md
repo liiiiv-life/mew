@@ -21,7 +21,6 @@ updated: "2026-09-30"
 
 <!-- mew:features:start -->
 
-- [프로젝트 태스크·마일스톤 관리](projects/tasks.md)
 
 - [뮤캣 도우미·대화·Mew 조작](settings/mewcat-assistant.md)
 - [공통 메모](collaboration/shared-memo.md)
