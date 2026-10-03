@@ -1,7 +1,7 @@
 ---
 title: "Mew 오픈소스·클라우드 수익화 라이선스 검토"
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-10-02
 ---
 
 > 2026-09-28 후속: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)으로 RAG와 전용 모델·의존성을 제거했다. 아래 RAG 관련 구현·검토 항목은 당시 기록이며 현재 도입·배포 과제가 아니다.
@@ -72,6 +72,37 @@ MIT를 유지한다면 복잡한 CLA가 반드시 필요한 것은 아니다. �
 검토일 인증 없는 GitHub contents API가 과거 경로에 **200 응답과 78,601바이트 파일 정보**를 반환했다. 현재 트리 삭제만으로 공개 접근이 끝나지 않았다. 외부 노출 확인에 쓴 참조는 `7e344d3:public/oreo-cat-aichan-owo.png`다.
 
 후속 조치는 권리자로부터 필요한 재배포 허가를 확보하거나, 허가가 없으면 해당 객체를 포함하는 공개 브랜치·태그·이력과 GitHub에 남은 접근 경로를 정리하는 것이다. 재도입 금지의 변경은 새 ADR이 필요하다. 이력 재작성·강제 push는 별도 작업으로 준비하고, 기존 클론·포크·캐시까지 자동 회수되는 것으로 보지 않는다. 이번 검토에서는 원격 이력을 변경하지 않았다.
+
+#### 2026-10-02 로컬·원격 이력 정리
+
+`git-filter-repo --path public/oreo-cat-aichan-owo.png --invert-paths`로 별도 mirror 복제본의 전체 이력을 재작성한 뒤, 현재 저장소의 `main`과 로컬 `origin/main` 참조에 반영했다. 기존 HEAD 트리·인덱스·작업 파일은 그대로 보존했다. 로컬 reflog를 정리하고 객체 GC를 수행했으며, 모든 참조에서 해당 경로와 이미지 blob이 사라지고 기존 blob을 직접 조회할 수 없음을 확인했다. 문서의 옛 커밋 번호는 당시 검토의 역사적 참조다. 문제 자산에 관한 검토 기록과 이전 스킨 저장값의 호환 코드는 유지한다.
+
+사용자 요청으로 원격 HEAD가 준비 시점의 `993ebf6ee73b4dcb27e5bb22d3132fc1a6f1f9e8`과 같은지 확인한 뒤, 해당 값을 조건으로 하는 `--force-with-lease`로 GitHub `main`을 `f40487a08161f06b07d32046cd0fdede613b5691`로 갱신했다. 원격에는 `main`만 있고 태그는 없으며, 원격에서 새로 받은 bare clone의 전체 참조에 해당 경로·blob이 없음을 확인했다. 미커밋 작업 파일은 push에 포함하지 않았다.
+
+**옛 커밋의 직접 접근은 아직 남아 있다.** 같은 날 인증 없는 GitHub contents API의 `7e344d3:public/oreo-cat-aichan-owo.png` 조회가 여전히 HTTP 200을 반환했다. 따라서 공개 접근 해결은 완료되지 않았다. GitHub에 남은 과거 객체·PR 참조·캐시의 제거 가능 여부를 지원 경로에서 확인해야 한다. 협업자는 정리된 원격에서 다시 clone하거나 이력을 맞춰야 하며, 옛 이력을 merge/push하지 않는다. 다른 클론·포크와 과거 배포물도 별도로 확인한다.
+
+복구용 원본 bundle은 저장소 밖의 접근 제한된 로컬 백업에 보관했다. 백업에는 문제 자산이 남아 있으므로 공개하거나 다시 push하지 않으며, 원격 정리와 복구 불필요 여부가 확인된 뒤 폐기한다.
+
+#### 2026-10-02 추가 자산·의존성 이력 검토
+
+사용자의 추가 정리 요청으로 재작성된 전체 참조의 객체·경로 목록(고유 역사 경로 1,152개), 자산 추가·삭제 커밋, npm lock blob 21개(패키지 기록 8,493개)를 대조했다. 자산 후보는 직접 열어 확인하고, 관련 출처 주석·원문 고지·기존 라이선스 검토를 확인했다. 전체 소스의 저작권 감정이나 모든 과거 바이너리 배포물의 계약 감사는 아니다.
+
+| 항목 | 확인과 조치 |
+| --- | --- |
+| `public/mewcat-walk-8.png` | `3374272`에서 추가하고 `ad2407a`에서 삭제한 444,745바이트 걷기 시트가 과거 이력에 남아 있었다. 직접 제작·재배포 허가 근거를 확인하지 못했고 현재 사용하지 않으므로 보수적으로 제거했다. 이미지 외관만으로 Oreo Cat 파생물 또는 권리 침해로 확정하지 않는다. |
+| IBM Plex WOFF2 4개 | 공식 프로젝트의 SIL OFL 1.1과 저장소의 원문 고지·출처 manifest를 확인했다. 현재 파일 SHA-256은 manifest와 모두 일치한다. 허가 있는 자산이므로 유지한다. [IBM 원문](https://github.com/IBM/plex/blob/master/LICENSE.txt) |
+| AI 브랜드 아이콘·Windows 가상 디스플레이 참고 코드 | Lobe Icons MIT와 Microsoft MIT를 확인했다. 드라이버의 Microsoft 저작권 주석과 `virtual-display-origin-license` 고지는 유지한다. 브랜드 상표 사용과 바이너리 배포 조건까지 일괄 승인하지 않는다. [Lobe 원문](https://github.com/lobehub/lobe-icons/blob/master/LICENSE), [Microsoft 원문](https://github.com/microsoft/Windows-driver-samples/blob/main/LICENSE) |
+| `.mew/assets/b7485a60-1d89-4e5e-9c63-5452d8e74952.jpg` | 업로드된 강아지 사진. 외부 저작물이라는 근거는 없으므로 삭제하지 않았다. 직접 촬영·공개 권한 여부는 확인 요청 중이며, 답변 전에는 권리 확인 완료로 보지 않는다. |
+| `.mew/files/Screenshot_20260927_204950_Brave.jpg` | Mew UI 화면 캡처로 확인했다. 기존 Oreo Cat 이미지가 포함됐다는 근거는 발견하지 못했으며 유지한다. |
+| 모델·SDK·외부 실행 파일·압축 자산 | 과거 경로·객체 목록에 원본 Oreo ZIP, ONNX·safetensors 가중치, 추적된 외부 EXE·DLL·WASM·Node addon 파일은 발견하지 못했다. RAG 다운로드 코드·의존성 선언은 가중치의 Git 재배포와 구분해 유지한다. |
+| 과거 npm 라이선스 선언 | 비상업적 제한·BUSL·SSPL·UNLICENSED 선언은 발견하지 못했다. Apache·MIT·BSD·ISC·LGPL·MPL·EPL 등과 Anthropic 별도 계약 표시는 있었다. 메타데이터가 없는 `jsbi 2.0.5`·`khroma 2.1.0`은 해당 npm 배포본에서 Apache-2.0·MIT 원문을 확인했다. `map-stream 0.1.0`은 배포본에 원문이 없지만 upstream에 MIT가 있으므로 금지 자산으로 삭제하지 않고 실제 배포 고지 수집 대상으로 남긴다. [map-stream 원문](https://github.com/dominictarr/map-stream/blob/master/LICENCE) |
+| Claude Agent SDK | SDK 본체는 Git에 복사하지 않고 lock에 설치 의존성만 선언한다. 별도 계약이라는 이유로 이력을 제거하지 않는다. 공식 SDK 안내는 제품 통합에 상업 약관을 적용하고 제3자 제품의 claude.ai 로그인 제공에는 사전 승인을 요구하므로, 실제 인증·호스팅 형태는 기존 런타임 계약과 공급자의 적용 약관을 별도 확인해야 한다. [공식 안내](https://code.claude.com/docs/en/agent-sdk/overview) |
+
+`git-filter-repo --path public/mewcat-walk-8.png --invert-paths`로 별도 mirror를 정리한 뒤 로컬 참조를 갱신했다. HEAD 트리, 인덱스, 작업 상태와 모든 기존 추적 파일의 SHA-256이 유지됨을 확인했다. 원본 bundle은 저장소 밖 `/home/saens/.cache/mew-license-cleanup-12ch0x6y/before.bundle`에 접근 제한을 두어 보관했다. 이 백업에는 삭제 전 걷기 시트가 남아 있으므로 공개하거나 push하지 않는다.
+
+이전 원격 HEAD `f40487a08161f06b07d32046cd0fdede613b5691`을 명시한 `--force-with-lease`로 GitHub `main`을 `2359760412d7607c71dbb030986a33ca022b770e`로 갱신했다. 원격의 브랜치·태그 목록과 새 bare clone을 검사했고 두 이미지의 경로·blob이 전체 공개 참조에 없음을 확인했다. 광고된 PR 참조는 없었으며 로컬 Git 무결성 검사도 통과했다. 신규 커밋은 만들지 않았고 미커밋 작업 파일은 push하지 않았다.
+
+**직접 URL 접근은 해결되지 않았다.** 재확인한 Oreo Cat의 `7e344d3` 경로와 걷기 시트의 추가 커밋 경로 모두 인증 없는 contents API에서 HTTP 200을 반환했다. GitHub 공식 안내는 비민감 데이터 삭제를 지원하지 않는다고 명시하므로, 비밀정보 제거 지원으로 저작권 자산의 삭제를 보장하지 않는다. 과거 객체의 노출 해결은 호스팅 서비스의 적용 정책과 권리자 절차를 별도로 확인해야 하며, 이력 재작성·레포 새 생성만으로 기존 클론·포크·과거 URL의 회수를 보장하지 않는다. [GitHub 공식 안내](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository)
 
 이 자산의 재배포 불가 판단은 기존 ADR에 근거한다. 원저작자 판매 약관을 이번에 독립적으로 재확인하지 못했으므로 권리 확인 때 원문도 확보한다. 로컬 ZIP은 표준 ZIP 파서로 열리지 않아 약관 원문을 확인하는 증거로 사용하지 않았다.
 
