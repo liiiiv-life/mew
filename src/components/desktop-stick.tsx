@@ -2,13 +2,19 @@ import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useRef } from 'react'
 import { desktopStick, stickButton, type DesktopInput, type StickKind } from '../utils/desktop-input.ts'
-import { DEFAULT_SENSITIVITY, rotateDelta, type Rotation } from '../utils/desktop-view.ts'
+import { DEFAULT_SENSITIVITY, desktopLocalPoint, rotateDelta, type Rotation } from '../utils/desktop-view.ts'
 
 const labels: Record<StickKind, string> = { get left() { return uiText("좌클릭") }, get wheel() { return uiText("휠") }, get right() { return uiText("우클릭") }, get cursor() { return uiText("커서 이동") }, get pan() { return uiText("화면 이동") }, get zoom() { return uiText("확대·축소") } }
-export function DesktopIcon({ kind }: { kind: StickKind | 'handle' | 'close' | 'screen' | 'fullscreen' | 'rotate' | 'settings' }) {
+export function DesktopIcon({ kind }: { kind: StickKind | 'handle' | 'close' | 'screen' | 'fullscreen' | 'rotate' | 'settings' | 'collapse' | 'expand' }) {
   useUiLocale()
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {kind === 'fullscreen' ? <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /> : kind === 'rotate' ? <><path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5" /><path d="M9 9h6v6H9z" /></> : kind === 'settings' ? <><path d="M4 6h16M4 12h16M4 18h16" /><path d="M8 3v6m8 0v6m-6 0v6" /></> : kind === 'close' ? <path d="m6 6 12 12M6 18 18 6" /> : kind === 'screen' ? <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></>
+    {kind === 'fullscreen' ? <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /> : kind === 'rotate' ? <>
+      <rect x="2" y="13" width="11" height="7" rx="1.5" />
+      <rect x="15" y="2" width="7" height="11" rx="1.5" />
+      <path d="M4 7a6 6 0 0 1 8-3m-3-2 3 2-2 3" />
+    </> : kind === 'settings' ? <><path d="M4 6h16M4 12h16M4 18h16" /><path d="M8 3v6m8 0v6m-6 0v6" /></> : kind === 'close' ? <path d="m6 6 12 12M6 18 18 6" /> : kind === 'screen' ? <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></>
+      : kind === 'collapse' ? <path d="m6 15 6-6 6 6" />
+      : kind === 'expand' ? <path d="m6 9 6 6 6-6" />
       : kind === 'cursor' ? <path d="m5 3 14 10-6 1-3 6Z" />
       : kind === 'pan' ? <path d="M12 3v18M3 12h18m-12-6 3-3 3 3m-6 12 3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3" />
         : kind === 'zoom' ? <><circle cx="10" cy="10" r="6" /><path d="m15 15 6 6M7 10h6m-3-3v6" /></>
@@ -23,9 +29,8 @@ export function DesktopStick({ kind, input, disabled, onView, sensitivity = DEFA
   const machine = useRef<ReturnType<typeof desktopStick> | null>(null), frame = useRef(0), button = useRef<HTMLButtonElement>(null)
   const arrows = useRef(new Set<string>())
   const move = useCallback((x: number, y: number) => {
-    const delta = rotateDelta(x * sensitivity, y * sensitivity, ((360 - rotation) % 360) as Rotation)
-    input?.move(delta.x, delta.y)
-  }, [input, sensitivity, rotation])
+    input?.move(x * sensitivity, y * sensitivity)
+  }, [input, sensitivity])
   const cancel = useCallback(() => {
     machine.current?.up(true); pointer.current = null; cancelAnimationFrame(frame.current)
     if (arrows.current.size && (kind === 'left' || kind === 'right')) input?.button(stickButton(kind), false)
@@ -47,9 +52,10 @@ export function DesktopStick({ kind, input, disabled, onView, sensitivity = DEFA
       if (pointer.current || !machine.current) return
       cancel()
       event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId)
-      const ring = knob.current!.parentElement!.getBoundingClientRect()
+      const ring = knob.current!.parentElement!
+      const point = desktopLocalPoint(ring, event.clientX, event.clientY, rotation)
       pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
-      machine.current.down(event.timeStamp, event.clientX - ring.left - ring.width / 2, event.clientY - ring.top - ring.height / 2)
+      machine.current.down(event.timeStamp, point.x - ring.clientWidth / 2, point.y - ring.clientHeight / 2)
       const tick = (now: number) => {
         if (!pointer.current) return
         const result = machine.current!.tick(now)
@@ -64,7 +70,10 @@ export function DesktopStick({ kind, input, disabled, onView, sensitivity = DEFA
       if (start?.id !== event.pointerId) return
       // Use hardware event timing, including batched samples, not React delivery time.
       const samples = event.nativeEvent.getCoalescedEvents?.()
-      for (const sample of samples?.length ? samples : [event.nativeEvent]) machine.current?.move(sample.clientX - start.x, sample.clientY - start.y, sample.timeStamp)
+      for (const sample of samples?.length ? samples : [event.nativeEvent]) {
+        const delta = rotateDelta(sample.clientX - start.x, sample.clientY - start.y, ((360 - rotation) % 360) as Rotation)
+        machine.current?.move(delta.x, delta.y, sample.timeStamp)
+      }
     }}
     onPointerUp={event => { if (pointer.current?.id === event.pointerId) { machine.current?.up(false); cancel() } }}
     onPointerCancel={cancel} onLostPointerCapture={cancel}
@@ -74,7 +83,7 @@ export function DesktopStick({ kind, input, disabled, onView, sensitivity = DEFA
       if (pointer.current) return
       if (!arrows.current.size && (kind === 'left' || kind === 'right')) { input?.button(stickButton(kind), true); button.current?.setAttribute('data-held', '') }
       arrows.current.add(event.key)
-      const x = event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0, y = event.key === 'ArrowDown' ? 16 : event.key === 'ArrowUp' ? -16 : 0
+      const { x, y } = rotateDelta(event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0, event.key === 'ArrowDown' ? 16 : event.key === 'ArrowUp' ? -16 : 0, ((360 - rotation) % 360) as Rotation)
       if (kind === 'pan') onView(x, y, 0)
       else if (kind === 'zoom') onView(0, 0, -y / 100)
       else if (kind === 'wheel') input?.wheel(0, y * 4)

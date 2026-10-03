@@ -27,6 +27,8 @@ interface SettingsModalProps {
   theme: Theme
   fontPreferences: FontPreferences
   themeColor: string
+  mewcatHideDesktop: boolean
+  onMewcatHideDesktopChange: (value: boolean) => void
   mewcatSkin: MewcatSkinSelection
   onToggleTheme: () => void
   onFontPreferencesChange: (fonts: FontPreferences) => void
@@ -46,7 +48,7 @@ const SECTION_LABEL: Record<Section, TranslationKey> = {
 }
 
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
-export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
+export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, mewcatHideDesktop, onMewcatHideDesktopChange, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
   useUiLocale()
   const [section, setSection] = useState<Section>(email ? 'account' : 'appearance')
   // Mobile begins with the category list; the selected panel is a second screen.
@@ -133,7 +135,7 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
                 onThemeColorChange={onThemeColorChange}
               />
             )}
-            {section === 'mewcat' && <><MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} /><MewcatNotificationSettings /><MewcatBreakSettings /></>}
+            {section === 'mewcat' && <><MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} /><label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink"><input type="checkbox" checked={mewcatHideDesktop} onChange={event => onMewcatHideDesktopChange(event.target.checked)} className="accent-accent" />{uiText("원격 데스크톱에서 뮤캣 숨기기")}</label><MewcatNotificationSettings /><MewcatBreakSettings /></>}
             {section === 'shortcuts' && <ShortcutsPanel />}
             {section === 'ignore' && <IgnorePanel />}
           </div>

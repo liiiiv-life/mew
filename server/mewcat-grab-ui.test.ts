@@ -12,24 +12,33 @@ const root = path.resolve(import.meta.dirname, '..')
 test('a thrown Mewcat keeps background input accessible and can be caught without jumping', { skip: !domBrowserExecutable(), timeout: 30_000 }, async () => {
   const source = `import React from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
+import {createPortal} from '${root}/node_modules/react-dom/index.js';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {Mewcat} from '${root}/src/components/Mewcat.tsx';
 Math.random=()=>0.7;
 window.backgroundClicks=0;
-createRoot(document.getElementById('root')).render(<I18nProvider><button id="background" type="button" style={{position:'fixed',inset:0,width:'100%',height:'100%'}} onClick={()=>window.backgroundClicks++}>Background action</button><Mewcat skin="mew" onOpenSystemStats={()=>{}}/></I18nProvider>);`
+const remote = location.search.includes('remote');
+const host = remote ? document.body.appendChild(document.createElement('div')) : null;
+if(host) { host.setAttribute('role','dialog'); document.getElementById('root').inert=true; }
+const background=<button id="background" type="button" style={{position:'fixed',inset:0,width:'100%',height:'100%'}} onClick={()=>window.backgroundClicks++}>Background action</button>;
+createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPortal(background,host):background}<Mewcat skin="mew" portalTarget={host} onOpenSystemStats={()=>{}}/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:grab.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:grab.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:grab.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
-    for (const touch of [false, true]) {
+    for (const remote of [false, true]) for (const touch of [false, true]) {
       const page = await browser.newPage({ viewport: { width: touch ? 390 : 800, height: 700 }, hasTouch: touch, isMobile: touch })
       await page.clock.install({ time: new Date('2026-09-22T00:00:00Z') })
       await page.clock.pauseAt(new Date('2026-09-22T00:00:01Z'))
       await page.route('http://mewcat-grab.test/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${compiler.build([])}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
-      await page.goto('http://mewcat-grab.test/')
+      await page.goto(`http://mewcat-grab.test/${remote ? '?remote' : ''}`)
       const cat = page.locator('.mewcat')
       await cat.waitFor()
+      if (remote) {
+        assert.equal(await page.locator('#root').evaluate(el => el.inert), true)
+        assert.equal(await page.getByRole('dialog').locator('.mewcat').count(), 1)
+      }
       const cdp = await page.context().newCDPSession(page)
       const down = async (x: number, y: number) => {
         if (touch) await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] })

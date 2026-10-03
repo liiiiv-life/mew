@@ -1,3 +1,5 @@
+import { remapPagePath, rewritePageLinks, type DocumentPageMutation } from '../../shared/document-pages'
+import { editorTabPath } from '../utils/editor-files'
 import { useRefreshTasks } from './use-refresh-tasks'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -160,6 +162,9 @@ export function useTabs(
   onNoticeRef.current = onNotice
   const statesRef = useRef<Record<string, ProjectTabs>>({})
   // 디바운스가 걸려 있는 저장 — 예약할 때의 프로젝트를 함께 붙들어 둔다
+  const inFlightSaves = useRef(new Set<Promise<unknown>>())
+  const pageMutationRef = useRef<number | null>(null)
+  const fileNavigationRef = useRef(0)
   const saveTimerRef = useRef<{ timer: ReturnType<typeof setTimeout>; project: string; path: string } | null>(null)
   const projectRef = useRef(project)
   projectRef.current = project
@@ -276,7 +281,7 @@ export function useTabs(
   const openFileIn = useCallback(
     // forceNewTab: 이미 열려 있지 않은 문서라도 미리보기 탭 자리를 재사용하지 않고 항상 새 탭으로 연다
     // (에디터 안에서 Ctrl+클릭으로 내부 링크를 열 때 — 사이드바 클릭의 미리보기 재사용 동작과는 별개)
-    (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; deferLoad?: boolean; restoring?: boolean; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
+    (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; replaceActive?: boolean; deferLoad?: boolean; restoring?: boolean; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
       const file = editorFile(path, p)
       const preview = opts?.preview ?? true
       const existing = paneOf(p, paneId).tabs.find((t) => t.path === path)
@@ -320,6 +325,11 @@ export function useTabs(
       }
       if (!existing) {
         patchPane(p, paneId, (pane) => {
+          if (opts?.replaceActive) {
+            const active = pane.tabs.find(tab => tab.path === pane.activePath)
+            if (active && active.content === active.savedContent && active.status !== 'saving') return { ...pane, tabs: pane.tabs.map(tab => tab === active ? newTab : tab), activePath: path }
+            return { ...pane, tabs: [...pane.tabs, newTab], activePath: path }
+          }
           if (opts?.forceNewTab) return { ...pane, tabs: [...pane.tabs, newTab], activePath: path }
           // 미리보기 탭은 칸마다 하나만 유지 — 새로 여는 문서가 그 자리를 재사용
           const previewIdx = pane.tabs.findIndex((t) => t.preview)
@@ -420,11 +430,36 @@ export function useTabs(
   )
 
   const openFile = useCallback(
-    (path: string, opts?: { preview?: boolean; forceNewTab?: boolean; paneId?: string; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
+    (path: string, opts?: { preview?: boolean; forceNewTab?: boolean; replaceActive?: boolean; paneId?: string; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
       const p = projectRef.current
-      openFileIn(p, opts?.paneId ?? stateOf(p).focusedPaneId, path, opts)
+      const paneId = opts?.paneId ?? stateOf(p).focusedPaneId
+      const active = paneOf(p, paneId).tabs.find(tab => tab.path === paneOf(p, paneId).activePath)
+      const sequence = ++fileNavigationRef.current
+      if (!opts?.replaceActive || !active?.editable || active.content === active.savedContent && active.status !== 'saving') {
+        openFileIn(p, paneId, path, opts)
+        return
+      }
+      const epoch = workspaceRequestRef.current.epoch
+      if (pageMutationRef.current === epoch) { openFileIn(p, paneId, path, opts); return }
+      const pending = saveTimerRef.current
+      if (pending?.project === p && pending.path === active.path) { clearTimeout(pending.timer); saveTimerRef.current = null }
+      // Keep the current editor alive until its draft is saved, then replace its
+      // tab in place. A save failure leaves the draft visible and opens nothing.
+      const navigation = (async () => {
+        await Promise.all([...inFlightSaves.current])
+        if (workspaceRequestRef.current.epoch !== epoch || pageMutationRef.current === epoch) return
+        const file = editorFile(active.path, p), content = active.content
+        if (isExternalTabPath(active.path)) await saveExternalFile(externalAbsolutePath(active.path), content, active.savedContent)
+        else await saveFile(file.path, content, false, file.project)
+        if (workspaceRequestRef.current.epoch !== epoch) return
+        if (!isExternalTabPath(active.path)) putCachedFile(p, active.path, { content, editable: active.editable })
+        mapTabsAtPath(p, active.path, tab => ({ ...tab, savedContent: content, status: 'saved' }))
+        if (fileNavigationRef.current === sequence && paneOf(p, paneId).activePath === active.path) openFileIn(p, paneId, path, opts)
+      })().catch(error => onNoticeRef.current(error instanceof Error ? error.message : String(error)))
+        .finally(() => inFlightSaves.current.delete(navigation))
+      inFlightSaves.current.add(navigation)
     },
-    [openFileIn],
+    [openFileIn, mapTabsAtPath],
   )
 
   const openExternalFile = useCallback(
@@ -568,13 +603,14 @@ export function useTabs(
     (p: string, path: string) => {
       const tab = findTab(p, path)
       const file = editorFile(path, p)
+      if (file.project === 'docs' && pageMutationRef.current === workspaceRequestRef.current.epoch) return
       if (!tab || tab.content === tab.savedContent || isArchivedPath(file.path, file.project) || !tab.editable) return
       const content = tab.content
       mapTabsAtPath(p, path, (t) => ({ ...t, status: 'saving' }))
       const save = isExternalTabPath(path)
         ? saveExternalFile(externalAbsolutePath(path), content, tab.savedContent).then(() => ({ ok: true as const, commit: null }))
         : saveFile(file.path, content, false, file.project)
-      save
+      const request = save
         .then(() => {
           if (!isExternalTabPath(path)) putCachedFile(p, path, { content, editable: tab.editable })
           mapTabsAtPath(p, path, (t) =>
@@ -585,6 +621,8 @@ export function useTabs(
         .catch((err) => {
           mapTabsAtPath(p, path, (t) => ({ ...t, status: 'error', statusMessage: err instanceof Error ? err.message : String(err) }))
         })
+        .finally(() => inFlightSaves.current.delete(request))
+      inFlightSaves.current.add(request)
     },
     [mapTabsAtPath],
   )
@@ -657,6 +695,7 @@ export function useTabs(
       const tab = pane.tabs.find((t) => t.path === pane.activePath) ?? null
       if (!tab || !tab.editable) return
       const file = editorFile(tab.path, p)
+      if (file.project === 'docs' && pageMutationRef.current === workspaceRequestRef.current.epoch) return
       const dirty = commit ? tab.content !== tab.committedContent : tab.content !== tab.savedContent
       if (!dirty || isArchivedPath(file.path, file.project)) return
 
@@ -664,9 +703,11 @@ export function useTabs(
       mapTabsAtPath(p, tab.path, (t) => ({ ...t, status: 'saving' }))
       try {
         const external = isExternalTabPath(tab.path)
-        const result = external
-          ? { ...(await saveExternalFile(externalAbsolutePath(tab.path), tab.content, tab.savedContent)), commit: null }
-          : await saveFile(file.path, tab.content, commit, file.project)
+        const request = external
+          ? saveExternalFile(externalAbsolutePath(tab.path), tab.content, tab.savedContent).then(result => ({ ...result, commit: null }))
+          : saveFile(file.path, tab.content, commit, file.project)
+        inFlightSaves.current.add(request)
+        const result = await request.finally(() => inFlightSaves.current.delete(request))
         if (!external) putCachedFile(p, tab.path, { content: tab.content, editable: tab.editable })
         const message = commit
           ? `Committed${result.commit?.hash ? ' ' + result.commit.hash.slice(0, 7) : ''}`
@@ -805,6 +846,70 @@ export function useTabs(
     [patch],
   )
 
+  const prepareDocumentPageMutation = useCallback(async () => {
+    const p = projectRef.current
+    const epoch = workspaceRequestRef.current.epoch
+    if (pageMutationRef.current === epoch) throw new Error('문서 변경이 진행 중입니다. 잠시 후 다시 시도하세요.')
+    pageMutationRef.current = epoch
+    const release = () => {
+      if (pageMutationRef.current !== epoch) return
+      pageMutationRef.current = null
+      for (const tab of stateOf(p).panes.flatMap(pane => pane.tabs)) {
+        if (editorFile(tab.path, p).project === 'docs') setTimeout(() => { if (workspaceRequestRef.current.epoch === epoch) autosave(p, tab.path) }, 500)
+      }
+    }
+    try {
+      if (saveTimerRef.current) {
+        const pending = saveTimerRef.current
+        clearTimeout(pending.timer); saveTimerRef.current = null
+        if (editorFile(pending.path, pending.project).project !== 'docs') autosave(pending.project, pending.path)
+      }
+      await Promise.all([...inFlightSaves.current])
+      if (workspaceRequestRef.current.epoch !== epoch) throw new Error('프로젝트가 변경되었습니다. 다시 시도하세요.')
+      const dirty = new Map(stateOf(p).panes.flatMap(pane => pane.tabs).filter(tab => editorFile(tab.path, p).project === 'docs' && tab.content !== tab.savedContent && tab.editable).map(tab => [tab.path, tab]))
+      await Promise.all([...dirty.values()].map(async tab => {
+        const file = editorFile(tab.path, p), content = tab.content
+        await saveFile(file.path, content, false, file.project)
+        mapTabsAtPath(p, tab.path, current => ({ ...current, savedContent: content, status: 'saved' }))
+      }))
+      if (workspaceRequestRef.current.epoch !== epoch) throw new Error('프로젝트가 변경되었습니다. 다시 시도하세요.')
+      return release
+    } catch (error) { release(); throw error }
+  }, [mapTabsAtPath, autosave])
+
+  const applyDocumentPageMutation = useCallback((result: DocumentPageMutation) => {
+    const p = projectRef.current
+    const epoch = workspaceRequestRef.current.epoch
+    pageMutationRef.current = null
+    const mapTab = (tab: Tab): Tab => {
+      if (isExternalTabPath(tab.path) || isGitTabPath(tab.path)) return tab
+      const file = editorFile(tab.path, p)
+      if (file.project !== 'docs') return tab
+      const next = remapPagePath(file.path, result.moves)
+      dropCachedFile(p, tab.path)
+      const rewrite = (text: string) => rewritePageLinks(text, file.path, next, result.moves)
+      return { ...tab, path: editorTabPath('docs', next, p), content: rewrite(tab.content), savedContent: rewrite(tab.savedContent), committedContent: rewrite(tab.committedContent) }
+    }
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current.timer); saveTimerRef.current = null }
+    const pendingPaths = stateOf(p).panes.flatMap(pane => pane.tabs).filter(tab => editorFile(tab.path, p).project === 'docs').map(tab => mapTab(tab).path)
+    patch(p, state => ({ ...state, panes: state.panes.map(pane => {
+      const next = pane.tabs.map(mapTab)
+      return { ...pane, tabs: next, activePath: pane.activePath ? next[pane.tabs.findIndex(tab => tab.path === pane.activePath)]?.path ?? pane.activePath : null }
+    }) }))
+    // A file fetch started before promotion cannot populate its newly mapped tab.
+    // Refresh current paths while retaining edits made during the structural request.
+    for (const path of new Set(pendingPaths)) {
+      const file = editorFile(path, p)
+      if (result.removed && (file.path === result.removed.path || result.removed.directory && file.path.startsWith(`${result.removed.path}/`))) continue
+      void fetchFile(file.path, file.project).then(({ content, editable }) => {
+        if (workspaceRequestRef.current.epoch !== epoch) return
+        putCachedFile(p, path, { content, editable })
+        mapTabsAtPath(p, path, tab => ({ ...tab, content: tab.content === tab.savedContent ? content : tab.content, savedContent: content, editable, loading: false }))
+      }).catch(error => onNoticeRef.current(error instanceof Error ? error.message : String(error)))
+    }
+    for (const path of new Set(pendingPaths)) setTimeout(() => { if (projectRef.current === p && workspaceRequestRef.current.epoch === epoch) autosave(p, path) }, 500)
+  }, [patch, autosave, mapTabsAtPath])
+
   // 파일/폴더 삭제 시 해당 탭 닫기
   const removePaths = useCallback(
     (path: string, type: 'file' | 'dir') => {
@@ -869,6 +974,8 @@ export function useTabs(
     splitWithTab,
     splitEmptyPane,
     remapPaths,
+    applyDocumentPageMutation,
+    prepareDocumentPageMutation,
     removePaths,
     forgetProject,
   }

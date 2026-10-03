@@ -4,7 +4,7 @@ parent: "mew-git"
 title: "현재 프로젝트 Git 작업 패널"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-30"
+updated: "2026-10-02"
 status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
 files: ["src/components/GitWorkbench.tsx", "src/components/git-branch-picker.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
@@ -17,6 +17,7 @@ commits: []
 ### 범위
 
 - 커밋 그래프·변경 파일·diff, 체크한 파일의 작업트리 내용 커밋을 제공한다.
+- diff 헤더에서 파일명을 작게 표시하고 문서 아이콘으로 해당 파일을 에디터에서 연다.
 - 처음 불러온 미커밋 변경 파일은 기본적으로 모두 선택한다.
 - 패널을 보는 동안 외부 편집·Git 작업으로 바뀐 커밋 기록·브랜치 정보·미커밋 변경 목록과 열린 작업트리 diff를 자동 갱신한다.
 - AI 자동 커밋에서 기존 에이전트셋을 선택하거나 새로 만들고 Mew 커밋 스킬을 사용하는 전용 작업으로 선택 변경을 작업 단위로 나눠 실제 커밋한다.
@@ -66,6 +67,7 @@ commits: []
 - 각 목록은 따로 스크롤하며 경계 드래그·키보드로 높이 비율을 조절한다.
 - 커밋 시간은 분·시간·일 중 가장 큰 단위 하나로 표시한다.
 - 중복된 프로젝트 루트 문구·빈 상단 바는 제거했다.
+- diff 헤더 파일명은 10px(기존 14px에서 4px 축소)이며 같은 줄의 28×28px 문서 아이콘 버튼으로 현재 프로젝트의 파일을 연다. 기존 파일 열기 흐름을 사용해 모바일에서는 에디터를 전면에 표시하고 Git 패널 상태를 유지한다. 삭제 상태 파일은 열기 버튼을 비활성화한다.
 - 기본 목록에서 변경 파일 diff로 바로 이동하고 복귀할 수 있으며 선택 파일 커밋은 기본 작성 영역에서 실행한다.
 - 체크하지 않은 파일의 stage 상태는 보존한다.
 - 패널 초기 진입·프로젝트 전환 시 처음 불러온 변경 파일을 모두 선택한다. 이후 새로고침과 자동 갱신은 사용자의 선택을 유지한다.
@@ -81,11 +83,13 @@ commits: []
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
+## 검증
+
+- 2026-10-02: diff 파일명 4px 축소·에디터 열기 버튼 추가 후 TypeScript·대상 lint·기존 Git 패널 Chromium 회귀·문서 링크 검사를 통과했다. 문서 경계 검사는 작업 외 `todo/docs/` 미등록 문서로 실패했다. 빌드·서버 재시작은 실행하지 않았다.
 
 - 2026-09-30: 원격 진행 피드백 검증으로 Git 진행 파서·실제 로컬 원격 전송·인증 후 NDJSON 스트림·실패 로그 비밀값 미노출 테스트를 통과했다(`server/git-remote-progress.test.ts`·`server/gitWorkbench.test.ts`·`server/git-connections.test.ts`). 브라우저 검사는 실제 chunk 스트림의 전송률·원격 확인 대기·완료 표시/3초 뒤 복원·실패·조기 연결 종료·전역 토스트 미발생을 검사했다(`server/git-panel-ui.test.ts`). TypeScript·대상 lint·문서 경계/링크 검사도 통과했다. 실서비스 push·빌드·서버 재시작은 실행하지 않았다.
 
 - 2026-09-30: 브랜치 추가 검증으로 `server/gitWorkbench.test.ts`·`server/git-connections.test.ts`·`server/access-policy.test.ts`·`server/git-panel-ui.test.ts`를 통과했다. 실제 임시 저장소에서 HEAD·로컬/원격 브랜치·태그·커밋 해시 base 생성, 원격 추적, 충돌 시 작업 내용·stage 보존, 잘못된 이름/base 거부를 검사했다. HTTP workspace·기능/파일 권한과 미연결 로컬 작업, 브라우저 검색·키보드 전환·태그 base 생성·실패 복구·초안 보존·320px/데스크톱 양 테마도 확인했다. TypeScript·대상 lint·문서 경계/링크 검사 통과. 빌드·서버 재시작·실제 원격 전송은 실행하지 않았다.
-## 검증
 
 - 2026-09-30: 격리 Chromium에서 외부 커밋 기록·브랜치 정보 자동 반영과 기록 스크롤·파일 선택·초안 보존을 검증했다. 기존 Git 패널 UI 회귀, TypeScript·대상 lint·워크스페이스 문서 검사를 통과했다. 빌드·서버 재시작은 수행하지 않았다.
 - 2026-09-29: 기본 OAuth 앱과 미설정·빈 값·공백·자체 ID 교체를 포함한 인증/연결 테스트 9개, 대상 lint와 워크스페이스 문서 검사를 통과했다. 실제 GitHub 승인과 서버 재시작은 수행하지 않았다.

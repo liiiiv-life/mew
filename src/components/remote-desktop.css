@@ -1,20 +1,21 @@
-.remote-desktop { --desktop-dock-space: 0px; padding-bottom: var(--desktop-dock-space); position: fixed; inset: 0; z-index: 1600; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--color-surface-deep); color: var(--color-ink); font-size: 13px; isolation: isolate; overscroll-behavior: none; }
+.remote-desktop { --desktop-dock-space: 0px; position: fixed; inset: 0; z-index: 1600; height: 100dvh; overflow: hidden; background: var(--color-surface-deep); color: var(--color-ink); font-size: 13px; isolation: isolate; overscroll-behavior: none; }
+.desktop-panel { position: absolute; left: 50%; top: 50%; display: flex; flex-direction: column; padding-bottom: var(--desktop-dock-space); transform-origin: center; container: desktop-panel / size; }
 .remote-desktop button, .remote-desktop textarea { font: inherit; color: inherit; }
 .remote-desktop button { cursor: pointer; }
 .remote-desktop button:disabled { opacity: .4; cursor: default; }
 .remote-desktop :is(button,textarea):focus-visible { outline: 2px solid var(--color-ink-secondary); outline-offset: 2px; }
-.desktop-toolbar { position: relative; z-index: 3; display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; padding: max(6px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) 6px max(12px,env(safe-area-inset-left)); background: var(--color-surface); border-bottom: 1px solid var(--color-edge); }
-.desktop-title, .desktop-tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.desktop-title strong { white-space: nowrap; font-weight: 500; }
+.desktop-toolbar { position: relative; z-index: 3; display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 0 12px; flex-shrink: 0; min-height: 36px; padding: env(safe-area-inset-top) max(8px,env(safe-area-inset-right)) 0 max(10px,env(safe-area-inset-left)); background: var(--color-surface-deep); border-bottom: 1px solid var(--color-edge); }
+.desktop-title, .desktop-tools { display: flex; align-items: center; gap: 6px; min-width: 0; height: 35px; }
+.desktop-title strong { white-space: nowrap; font-size: 12px; font-weight: 400; }
 .desktop-status { color: var(--color-ink-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .desktop-tools { gap: 2px; margin-left: auto; }
-.desktop-tools button { min-height: 36px; padding: 0 10px; border-radius: 5px; background: transparent; border: 0; white-space: nowrap; }
-.desktop-tools .desktop-close { display: grid; place-items: center; min-width: 40px; }
+.desktop-tools button { height: 28px; min-height: 0; padding: 0 6px; border-radius: 4px; background: transparent; border: 0; white-space: nowrap; font-size: 12px; color: var(--color-ink-secondary); }
+.desktop-tools .desktop-close { display: grid; place-items: center; width: 24px; height: 24px; min-width: 24px; padding: 0; margin-inline: 4px; }
 .desktop-scale { font-variant-numeric: tabular-nums; color: var(--color-ink-secondary); font-size: 11px; }
-@media (hover: hover) { .desktop-tools button:hover, .desktop-handle:hover { background: var(--color-surface-raised); } .desktop-stick:not(:disabled):hover .desktop-stick-knob { background: var(--color-surface-hover); } }
+@media (hover: hover) { .desktop-tools button:hover, .desktop-handle:hover { background: var(--color-surface-raised); color: var(--color-ink); } .desktop-stick:not(:disabled):hover .desktop-stick-knob { background: var(--color-surface-hover); } }
 .desktop-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; background: #080808; outline: none; }
 .desktop-video { display: block; width: 100%; height: 100%; object-fit: contain; transform-origin: center; pointer-events: none; }
-.desktop-connection { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 24px 100px; text-align: center; color: #e5e5e5; background: #080808; }
+.desktop-connection { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 24px 100px; text-align: center; color: #e5e5e5; background: #080808; }
 .desktop-connection h2 { font-size: 17px; font-weight: 500; margin: 0 0 12px; }
 .desktop-connection p { max-width: 480px; line-height: 1.65; margin: 0; color: #a3a3a3; overflow-wrap: anywhere; }
 .desktop-connection button { margin-top: 24px; padding: 10px 18px; border: 1px solid #525252; border-radius: 6px; }
@@ -22,7 +23,7 @@
 .desktop-connection-actions button { margin-top: 0; min-height: 44px; background: #171717; }
 .desktop-connection .desktop-install-error { margin-top: 16px; }
 @media (hover: hover) { .desktop-connection-actions button:not(:disabled):hover { background: #262626; } }
-.desktop-help, .desktop-paste { position: absolute; z-index: 4; top: calc(64px + env(safe-area-inset-top)); right: max(12px,env(safe-area-inset-right)); width: min(340px,calc(100% - 24px)); max-height: calc(100% - 160px); overflow: auto; padding: 16px; background: var(--color-surface); border: 1px solid var(--color-edge-strong); border-radius: 8px; line-height: 1.65; }
+.desktop-help, .desktop-paste { position: absolute; z-index: 4; top: calc(44px + env(safe-area-inset-top)); right: max(12px,env(safe-area-inset-right)); width: min(340px,calc(100% - 24px)); max-height: calc(100% - 160px); overflow: auto; padding: 16px; background: var(--color-surface); border: 1px solid var(--color-edge-strong); border-radius: 8px; line-height: 1.65; }
 .desktop-help p { margin: 10px 0 0; color: var(--color-ink-secondary); }
 .desktop-paste label { display: block; margin-bottom: 8px; }
 .desktop-paste textarea { width: 100%; min-height: 100px; resize: vertical; background: var(--color-surface-deep); border: 1px solid var(--color-edge-strong); padding: 8px; border-radius: 4px; caret-color: var(--color-ink); }
@@ -37,19 +38,18 @@
 .desktop-stick-label { white-space: nowrap; color: var(--color-ink-secondary); font-size: 9px; line-height: 13px; }
 .desktop-handle { width: 44px; height: 44px; display: grid; place-items: center; touch-action: none; background: var(--color-surface); border: 0; border-radius: 8px; cursor: grab !important; }
 .desktop-handle:active { cursor: grabbing !important; }
-@media (max-width: 600px) { .desktop-toolbar { gap: 0; } .desktop-title { width: 100%; height: 28px; } .desktop-status { margin-left: auto; } .desktop-tools { width: 100%; justify-content: flex-end; } .desktop-tools button { min-height: 36px; padding: 0 8px; } .desktop-help,.desktop-paste { top: calc(88px + env(safe-area-inset-top)); } }
-@media (max-height: 450px) { .desktop-title { width: auto; } .desktop-tools { width: auto; } .desktop-help,.desktop-paste { top: calc(60px + env(safe-area-inset-top)); } }
+@container desktop-panel (max-width: 600px) { .desktop-toolbar { gap: 0; } .desktop-title { width: 100%; height: 36px; } .desktop-status { margin-left: auto; } .desktop-tools { width: 100%; justify-content: flex-end; } .desktop-help,.desktop-paste { top: calc(80px + env(safe-area-inset-top)); } }
 
 .desktop-cursor { position: absolute; top: 0; left: 0; pointer-events: none; user-select: none; }
 
-.desktop-mouse { display: grid; grid-template-columns: repeat(3, 44px); background: var(--color-surface); border-radius: 24px 24px 44px 44px; box-shadow: 0 6px 24px #0006; }
-.desktop-mouse > .desktop-stick { height: 56px; justify-content: center; border-radius: 0; border-bottom: 1px solid var(--color-edge-bright); }
+.desktop-mouse { --desktop-mouse-size: 132px; width: var(--desktop-mouse-size); display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 2fr); grid-template-rows: calc(var(--desktop-mouse-size) * 2 / 5) var(--desktop-mouse-size); background: var(--color-surface); border-radius: 24px 24px 44px 44px; box-shadow: 0 6px 24px #0006; }
+.desktop-mouse > .desktop-stick { width: 100%; height: 100%; min-width: 0; justify-content: center; border-radius: 0; border-bottom: 1px solid var(--color-edge-bright); }
 .desktop-mouse > .desktop-stick[data-kind="left"] { border-top-left-radius: 24px; }
 .desktop-mouse > .desktop-stick[data-kind="right"] { border-top-right-radius: 24px; }
 .desktop-mouse > .desktop-stick[data-kind="wheel"] { border-inline: 1px solid var(--color-edge-bright); }
-.desktop-mouse .desktop-stick-ring { border: 0; }
+.desktop-mouse .desktop-stick-ring { max-width: 100%; border: 0; }
 .desktop-mouse .desktop-stick-knob { background: transparent; }
-.desktop-mouse > .desktop-stick[data-kind="cursor"] { grid-column: 1 / -1; width: 100%; height: 64px; border: 0; border-radius: 0 0 44px 44px; }
+.desktop-mouse > .desktop-stick[data-kind="cursor"] { grid-column: 1 / -1; border: 0; border-radius: 0 0 44px 44px; }
 .desktop-mouse > .desktop-stick[data-kind="cursor"] .desktop-stick-ring { width: 48px; }
 .desktop-mouse .desktop-stick[data-held] { background: var(--color-surface-raised); }
 .desktop-mouse .desktop-stick[data-held] .desktop-stick-knob { background: var(--color-ink); color: var(--color-surface-deep); }
@@ -58,9 +58,9 @@
 
 .desktop-video { max-width: none; max-height: none; position: absolute; top: 50%; left: 50%; }
 .remote-desktop :is(button,textarea,input):focus-visible { outline: 2px solid var(--color-ink-secondary); outline-offset: 2px; }
-.desktop-tools .desktop-tool-icon { display: grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; }
+.desktop-tools .desktop-tool-icon { display: grid; place-items: center; min-width: 28px; height: 28px; padding: 0; }
 .desktop-tools button[aria-expanded="true"], .desktop-tools button[aria-pressed="true"] { background: var(--color-surface-raised); }
-.desktop-settings { position: absolute; z-index: 6; top: calc(64px + env(safe-area-inset-top)); right: max(12px,env(safe-area-inset-right)); width: min(360px,calc(100% - 24px)); max-height: calc(100% - 108px - env(safe-area-inset-top)); overflow: auto; padding: 16px; background: var(--color-surface); border: 1px solid var(--color-edge-strong); border-radius: 8px; line-height: 1.6; scrollbar-color: var(--color-edge-strong) transparent; }
+.desktop-settings { position: absolute; z-index: 6; top: calc(44px + env(safe-area-inset-top)); right: max(12px,env(safe-area-inset-right)); width: min(360px,calc(100% - 24px)); max-height: calc(100% - 108px - env(safe-area-inset-top)); overflow: auto; padding: 16px; background: var(--color-surface); border: 1px solid var(--color-edge-strong); border-radius: 8px; line-height: 1.6; scrollbar-color: var(--color-edge-strong) transparent; }
 .desktop-settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .desktop-settings-heading strong { font-size: 15px; font-weight: 500; }
 .desktop-settings-heading button, .desktop-notice button { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; border: 0; background: transparent; border-radius: 4px; }
@@ -70,15 +70,18 @@
 .desktop-settings p { margin: 8px 0 0; color: var(--color-ink-secondary); font-size: 12px; }
 .desktop-settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
 .desktop-settings-actions button { min-height: 44px; padding: 8px 10px; border: 0; border-radius: 4px; background: var(--color-surface-raised); }
-.desktop-hotkeys { position: absolute; z-index: 5; left: max(12px,env(safe-area-inset-left)); top: max(112px,calc(env(safe-area-inset-top) + 100px)); max-height: calc(100% - 136px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 4px; width: 68px; padding: 4px; background: var(--color-surface); border-radius: 8px; user-select: none; }
+.desktop-hotkeys { position: absolute; z-index: 5; left: max(12px,env(safe-area-inset-left)); top: max(112px,calc(env(safe-area-inset-top) + 100px)); max-height: calc(100% - 136px - env(safe-area-inset-top) - env(safe-area-inset-bottom) - var(--desktop-dock-space)); display: flex; flex-direction: column; gap: 0; width: 56px; padding: 2px; background: var(--color-surface); border-radius: 6px; user-select: none; }
+.desktop-hotkeys.is-collapsed { width: 32px; }
 .desktop-hotkey-buttons { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--color-edge-strong) transparent; }
-.desktop-hotkey-buttons button { min-height: 44px; flex-shrink: 0; padding: 0 3px; border: 0; border-radius: 4px; background: transparent; font-size: 11px; }
-.desktop-hotkeys .desktop-handle { width: 100%; flex-shrink: 0; border-radius: 4px; }
+.desktop-hotkey-buttons[hidden] { display: none; }
+.desktop-hotkey-buttons button { min-height: 24px; flex-shrink: 0; padding: 0 2px; border: 0; border-radius: 3px; background: transparent; font-size: 9px; line-height: 12px; }
+.desktop-hotkeys .desktop-handle, .desktop-hotkey-toggle { width: 100%; height: 28px; flex-shrink: 0; border-radius: 3px; }
+.desktop-hotkey-toggle { display: grid; place-items: center; padding: 0; border: 0; background: transparent; }
 .desktop-notice { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; padding: 4px 12px; background: var(--color-surface); }
 @media (hover: hover) { .desktop-hotkey-buttons button:not(:disabled):hover, .desktop-settings button:hover { background: var(--color-surface-hover); } }
-@media (max-width: 600px) { .desktop-settings { top: calc(88px + env(safe-area-inset-top)); max-height: calc(100% - 112px - env(safe-area-inset-top)); } .desktop-tools button { min-height: 44px; } }
-@media (max-width: 360px) { .desktop-tools button { padding-inline: 4px; } .desktop-tools .desktop-tool-icon { min-width: 40px; } .desktop-tools { gap: 0; } .desktop-scale { display: none; } }
-@media (max-height: 450px) { .desktop-settings { top: calc(60px + env(safe-area-inset-top)); max-height: calc(100% - 76px - env(safe-area-inset-top)); } .desktop-hotkeys { top: max(68px,calc(env(safe-area-inset-top) + 60px)); max-height: calc(100% - 92px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); } }
+@container desktop-panel (max-width: 600px) { .desktop-settings { top: calc(80px + env(safe-area-inset-top)); max-height: calc(100% - 112px - env(safe-area-inset-top)); } }
+@container desktop-panel (max-width: 360px) { .desktop-tools button { padding-inline: 4px; } .desktop-tools { gap: 0; } .desktop-scale { display: none; } }
+@container desktop-panel (max-height: 450px) { .desktop-hotkeys { top: max(68px,calc(env(safe-area-inset-top) + 60px)); max-height: calc(100% - 92px - env(safe-area-inset-top) - env(safe-area-inset-bottom) - var(--desktop-dock-space)); } }
 
 @media (width < 768px) {
   .remote-desktop[data-dock] { --desktop-dock-space: calc(48px + env(safe-area-inset-bottom, 0px)); }
@@ -94,8 +97,12 @@
 .desktop-stick-label { color: var(--color-ink); }
 .desktop-view-controls .desktop-stick-knob, .desktop-mouse .desktop-stick[data-held] { background: color-mix(in srgb, var(--color-surface-raised) 65%, transparent); }
 @media (hover: hover) {
-  .desktop-hotkeys .desktop-handle:hover, .desktop-control-strip > .desktop-handle:hover, .desktop-hotkey-buttons button:not(:disabled):hover { background: color-mix(in srgb, var(--color-surface-hover) 85%, transparent); }
+  .desktop-hotkeys .desktop-handle:hover, .desktop-hotkey-toggle:hover, .desktop-control-strip > .desktop-handle:hover, .desktop-hotkey-buttons button:not(:disabled):hover { background: color-mix(in srgb, var(--color-surface-hover) 85%, transparent); }
 }
 
 .desktop-dock-host:not([hidden]) { margin-left: auto; }
+@media (width >= 768px) {
+  .desktop-toolbar .mobile-dock:not([hidden]) { height: 35px; padding-block: 0; }
+  .desktop-toolbar .mobile-dock button { height: 28px; }
+}
 @media (width < 768px) { .desktop-dock-host:not([hidden]) { display: contents; } }

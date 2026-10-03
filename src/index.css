@@ -463,6 +463,8 @@ strong {
   color: var(--color-ink);
 }
 .mewcat-notifications-content { max-height: inherit; overflow-y: auto; border-radius: inherit; }
+.mewcat-notifications-auto { max-height: none; }
+.mewcat-notifications-auto > .mewcat-notifications-content { max-height: none; overflow: clip; }
 .mewcat-notification-header {
   display: flex;
   align-items: center;

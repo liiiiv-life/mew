@@ -2,18 +2,20 @@ import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { DesktopIcon } from './desktop-stick.tsx'
+import { desktopLocalPoint, rotateDelta, type Rotation } from '../utils/desktop-view.ts'
 
-export function DesktopFloating({ children, label, className, root, stage }: {
+export function DesktopFloating({ children, label, className, root, stage, rotation = 0 }: {
   children: ReactNode; label: string; className: string
   root: RefObject<HTMLDivElement | null>; stage: RefObject<HTMLDivElement | null>
+  rotation?: Rotation
 }) {
   useUiLocale()
   const element = useRef<HTMLDivElement>(null)
   const drag = useRef<{ id: number; x: number; y: number; left: number; top: number } | null>(null)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null)
   const clamp = useCallback((x: number, y: number) => {
-    const area = root.current!.getBoundingClientRect(), viewport = stage.current!.getBoundingClientRect(), bar = element.current!.getBoundingClientRect()
-    return { x: Math.max(8, Math.min(area.width - bar.width - 8, x)), y: Math.max(viewport.top - area.top + 8, Math.min(viewport.bottom - area.top - bar.height - 8, y)) }
+    const area = root.current!, viewport = stage.current!, bar = element.current!
+    return { x: Math.max(8, Math.min(area.clientWidth - bar.offsetWidth - 8, x)), y: Math.max(viewport.offsetTop + 8, Math.min(viewport.offsetTop + viewport.clientHeight - bar.offsetHeight - 8, y)) }
   }, [root, stage])
   useEffect(() => {
     const observer = new ResizeObserver(() => setPosition(previous => previous ? clamp(previous.x, previous.y) : null))
@@ -21,15 +23,14 @@ export function DesktopFloating({ children, label, className, root, stage }: {
     return () => observer.disconnect()
   }, [stage, clamp])
   const origin = () => {
-    const rect = element.current!.getBoundingClientRect(), area = root.current!.getBoundingClientRect()
-    return { left: rect.left - area.left, top: rect.top - area.top }
+    return { left: element.current!.offsetLeft, top: element.current!.offsetTop }
   }
   return <div ref={element} className={className} role="group" aria-label={label} style={position ? { left: position.x, top: position.y, right: 'auto', bottom: 'auto' } : undefined}>
     {children}
     <button className="desktop-handle" aria-label={uiText("{p0} 위치 이동", { p0: label === uiText("원격 데스크톱 조이스틱") ? uiText("조이스틱") : label })} title={uiText("핸들을 끌거나 방향키로 이동")} onContextMenu={event => event.preventDefault()}
-      onPointerDown={event => { if (drag.current) return; event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, ...origin() } }}
-      onPointerMove={event => { const start = drag.current; if (start?.id === event.pointerId) setPosition(clamp(start.left + event.clientX - start.x, start.top + event.clientY - start.y)) }}
+      onPointerDown={event => { if (drag.current) return; event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); drag.current = { id: event.pointerId, ...desktopLocalPoint(root.current!, event.clientX, event.clientY, rotation), ...origin() } }}
+      onPointerMove={event => { const start = drag.current; if (start?.id === event.pointerId) { const point = desktopLocalPoint(root.current!, event.clientX, event.clientY, rotation); setPosition(clamp(start.left + point.x - start.x, start.top + point.y - start.y)) } }}
       onPointerUp={() => { drag.current = null }} onPointerCancel={() => { drag.current = null }} onLostPointerCapture={() => { drag.current = null }}
-      onKeyDown={event => { if (!event.key.startsWith('Arrow')) return; event.preventDefault(); event.stopPropagation(); const start = origin(); setPosition(clamp(start.left + (event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0), start.top + (event.key === 'ArrowDown' ? 16 : event.key === 'ArrowUp' ? -16 : 0))) }}><DesktopIcon kind="handle" /></button>
+      onKeyDown={event => { if (!event.key.startsWith('Arrow')) return; event.preventDefault(); event.stopPropagation(); const start = origin(); const delta = rotateDelta(event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0, event.key === 'ArrowDown' ? 16 : event.key === 'ArrowUp' ? -16 : 0, ((360 - rotation) % 360) as Rotation); setPosition(clamp(start.left + delta.x, start.top + delta.y)) }}><DesktopIcon kind="handle" /></button>
   </div>
 }

@@ -12,11 +12,11 @@ export function MewcatNotifications({ hasCat, anchorRef }: { hasCat: boolean; an
   // Errors and approval requests stay ahead of completions. No auto-dismiss while the user is away.
   const ordered = [...notices].sort((a, b) => ({ danger: 2, warning: 1, success: 0 }[b.level] - { danger: 2, warning: 1, success: 0 }[a.level]) || b.id - a.id)
   const notice = ordered[0]
-  const bubbleRef = useMewcatBubble(anchorRef, hasCat && preferences.visual && !!notice, 300)
+  const bubbleRef = useMewcatBubble(anchorRef, hasCat && preferences.visual && !!notice, 300, false)
   if (!preferences.visual || !notice) return null
   const Icon = notice.level === 'success' ? Check : WarningTriangle
   return (
-    <aside ref={bubbleRef} className={`mewcat-notifications ${hasCat ? 'mewcat-notifications-with-cat' : ''}`} aria-label={t('mewcat.title')}>
+    <aside ref={bubbleRef} className={`mewcat-notifications mewcat-notifications-auto ${hasCat ? 'mewcat-notifications-with-cat' : ''}`} aria-label={t('mewcat.title')}>
       <div className="mewcat-notifications-content">
       <div className="mewcat-notification-summary">
         <Icon width={16} height={16} className={`mt-0.5 shrink-0 ${notice.level === 'danger' ? 'text-danger' : notice.level === 'warning' ? 'text-warning' : 'text-success'}`} aria-hidden="true" />

@@ -4,7 +4,7 @@ parent: "mew-projects"
 title: "파일·폴더 탐색과 조작"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-29"
+updated: "2026-10-02"
 status_hash: "67a95247d8f805106459a6f3cc3fd61abca57f6504dbe508c57550c824406a0a"
 files: ["src/components/file-action-menu.tsx", "src/hooks/use-external-file-actions.tsx", "src/components/file-browser-favorites.tsx", "server/file-favorites.ts", "src/components/file-browser.tsx", "src/components/FileTree.tsx", "src/components/ServerFileExplorer.tsx", "server/api.ts", "server/fileCatalog.ts"]
 commits: []
@@ -17,7 +17,7 @@ commits: []
 ### 범위
 
 - 프로젝트 추가·서버 파일 탐색기의 맨 위에 OS/클라우드 기본 폴더와 계정별 즐겨찾기를 제공한다.
-- 하단 플로팅 문서/Documents·파일/Files 토글로 탐색 목록을 분리한다. 선택한 보기와 각 트리의 펼침·스크롤을 프로젝트별로 보존한다.
+- 상단 전체 너비 문서/Documents·파일/Files 토글로 탐색 목록을 분리한다. 선택한 보기와 각 트리의 펼침·스크롤을 프로젝트별로 보존한다.
 - 사이드바에서 생성·개명·복제·복사·잘라내기·붙여넣기·삭제와 드래그 이동을 제공한다.
 - 에디터 파일 탭을 한 번 클릭하면 사이드바에서 해당 파일의 위치를 표시한다.
 - 모바일에서 다른 파일 탭 선택은 에디터를 유지하고, 현재 활성 파일 탭을 다시 선택할 때만 사이드바로 전환한다.
@@ -38,7 +38,9 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
-- 선택한 범위의 트리만 마운트하고 기존 상단 Documents 펼침 행은 제거한다. 토글은 스크롤과 무관하게 아래에 떠 있으며 키보드 방향키·Home/End를 지원한다. 새 파일·폴더와 Alt+N은 현재 보기를 대상으로 한다. `sidebar.explorerScope`를 계정·로컬 상태에 저장하고 기존 `docsExpanded`에서 이관한다.
+- 파일 보기의 문서 폴더 진입점은 클릭하면 문서 보기로 전환하며 일반 폴더 조작을 제공하지 않는다.
+
+- 선택한 범위의 트리만 마운트하고 기존 상단 Documents 펼침 행은 제거한다. 토글은 스크롤과 무관하게 위쪽 독립 행에 있으며 키보드 방향키·Home/End를 지원한다. 새 파일·폴더와 Alt+N은 현재 보기를 대상으로 한다. `sidebar.explorerScope`를 계정·로컬 상태에 저장하고 기존 `docsExpanded`에서 이관한다.
 
 - `App.tsx`는 파일 탭 선택 시 사이드바의 파일 보기를 열고 선택한 파일의 문서/파일 보기로 전환한다. `FileTree.tsx`는 부모 폴더를 열고 지연 로딩된 파일 행이 표시된 뒤 스크롤한다. 같은 탭 재선택에도 동작하며 프로젝트 밖 파일은 제외한다.
 - 모바일의 비활성 탭 선택은 전면 패널을 유지하며 위치 표시 요청만 갱신한다. 닫혔거나 숨겨진 사이드바는 이후 표시될 때 선택한 파일로 스크롤한다.
@@ -59,12 +61,14 @@ commits: []
 - 사이드바에서 생성·개명·복제·복사·잘라내기·붙여넣기·삭제와 드래그 이동을 제공한다.
 
 - 사이드바 파일 목록 위에 2px 여백을, 끝에 300px의 스크롤 여백을 제공한다.
-- PC·모바일의 문서/파일 트리 각각에 동일하게 적용하며 플로팅 토글 아래에 마지막 항목이 가려지지 않게 스크롤할 수 있다.
+- PC·모바일의 문서/파일 트리 각각에 동일하게 적용한다.
 
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-02: `workspace-switch-ui.test.ts`에서 문서 폴더 진입점의 보기 전환, 기존 키보드 전환·상태 복원과 모바일 상단 전체 너비 배치를 확인했다. 데스크톱 다크·모바일 라이트 캡처, TypeScript·대상 lint를 확인했다. 빌드·재시작은 수행하지 않았다.
 
 - 2026-09-29: 실제 App을 사용하는 `workspace-switch-ui.test.ts`에서 문서/파일 단독 표시, 방향키·Home 전환, 현재 보기의 새 파일 입력, 파일 탭 선택 시 보기 전환, 프로젝트 복원·모바일 하단 배치를 확인했다. 펼침/스크롤·생성 회귀와 저장 형식·번역 테스트, TypeScript·대상 lint·문서 검사를 통과했다. 데스크톱 다크·모바일 라이트 캡처를 확인했으며 빌드·재시작은 수행하지 않았다.
 

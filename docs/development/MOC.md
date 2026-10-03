@@ -10,6 +10,9 @@ updated: 2026-09-29
 
 ## Current
 
+- [Documents 상위·하위 문서와 대표 파일](document-pages.md)
+- [Documents 링크 그래프 엔진](document-graph.md)
+
 
 - [대화 저장과 구간 동기화](conversation-storage.md)
 

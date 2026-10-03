@@ -31,3 +31,9 @@ export function saveMewcatSkin(
   storage.setItem(MEWCAT_SKIN_KEY, skin ?? 'none')
   return skin
 }
+
+export const MEWCAT_HIDE_DESKTOP_KEY = 'mew:mewcat-hide-desktop'
+
+export function loadMewcatHideDesktop(): boolean {
+  try { return localStorage.getItem(MEWCAT_HIDE_DESKTOP_KEY) === '1' } catch { return false }
+}

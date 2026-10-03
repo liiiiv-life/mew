@@ -1,3 +1,4 @@
+import { representativeName } from '../shared/document-pages.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DOCS_ROOT } from './paths.ts'
@@ -106,7 +107,8 @@ function walkMocCoverage(): MocCoverage {
       const stat = fs.statSync(target)
       if (stat.isDirectory() || path.extname(target) !== '.md') continue
       reachable.add(rel)
-      if (path.basename(target) === 'MOC.md') queue.push(target)
+      const name = path.basename(target)
+      if (/^_?MOC\.md$/i.test(name) || name === representativeName(path.basename(path.dirname(target)))) queue.push(target)
     }
   }
 

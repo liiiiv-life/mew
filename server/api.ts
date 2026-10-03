@@ -1,3 +1,6 @@
+import { DocumentPages, DocumentPageError } from './document-pages.ts'
+import { DocumentGraphIndex } from './document-graph.ts'
+import { subscribeFileCatalog } from './fileCatalog.ts'
 import { updatesStatus, startUpdates, updatesRunning } from './updates.ts'
 import type { GitRemoteEvent, GitRemoteProgress } from '../shared/git-remote-progress.ts'
 import { GitConnectionError } from './git-connections.ts'
@@ -296,7 +299,13 @@ function indexedSearchPaths(
 }
 
 async function refreshCatalogPaths(project: string, relPaths: string[]): Promise<void> {
-  const parents = [...new Set(relPaths.map(catalogParentOf))]
+  const parents = [...new Set(relPaths.map(rel => {
+    let parent = catalogParentOf(rel)
+    // Page demotion removes its former directory. Refresh the first surviving
+    // ancestor so the catalog removes that subtree instead of scanning it.
+    while (parent && !fs.existsSync(resolveProjectPath(project, parent))) parent = catalogParentOf(parent)
+    return parent
+  }))]
   const changed: string[] = []
   for (const parent of parents) {
     if (await refreshFileCatalogParent(project, parent)) changed.push(parent)
@@ -1211,6 +1220,41 @@ export function createApiApp() {
     } catch (err) {
       handleError(res, err)
     }
+  })
+
+  const documentGraph = new DocumentGraphIndex()
+  subscribeFileCatalog(update => { if (update.project === DEFAULT_PROJECT) documentGraph.invalidate([...update.changedPaths, ...update.removedPaths]) })
+  app.post('/docs/pages/:action', requireAuthenticated, requireFeature('filesWrite'), async (req, res) => {
+    try {
+      const root = projectRoot(DEFAULT_PROJECT), auth = authOf(req)
+      const pages = new DocumentPages(root, (rel, recursive = false) => recursive ? subtreeAccess(auth, DEFAULT_PROJECT, rel, true) : fileAccess(auth, DEFAULT_PROJECT, rel).edit)
+      const { path: target = '', name = '', destination = '' } = req.body ?? {}
+      if (typeof target !== 'string' || typeof name !== 'string' || typeof destination !== 'string') { res.status(400).json({ error: '올바른 문서 경로와 이름을 입력하세요' }); return }
+      const result = req.params.action === 'create' ? pages.create(target, name)
+        : req.params.action === 'rename' ? pages.rename(target, name)
+        : req.params.action === 'delete' ? pages.delete(target)
+        : req.params.action === 'move' ? pages.move(target, destination)
+        : req.params.action === 'copy' ? pages.move(target, destination, true) : null
+      if (!result) { res.status(400).json({ error: '알 수 없는 문서 작업입니다' }); return }
+      for (const rel of result.changed) noteFileContentChanged(DEFAULT_PROJECT, rel)
+      await refreshCatalogPaths(DEFAULT_PROJECT, result.changed)
+      if (projectRoot(DEFAULT_PROJECT) !== root) { res.status(409).json({ error: '프로젝트가 변경되었습니다. 다시 시도하세요.' }); return }
+      res.json(result)
+    } catch (err) {
+      if (err instanceof DocumentPageError) res.status(err.status).json({ error: err.message })
+      else handleError(res, err)
+    }
+  })
+
+  app.get('/docs/graph', requireFeature('filesRead'), async (req, res) => {
+    try {
+      const root = projectRoot(DEFAULT_PROJECT)
+      const files = await listCatalogFiles(DEFAULT_PROJECT, { showAll: seesEveryFile(authOf(req).role) })
+      const graph = await documentGraph.read(root, files.map(file => file.path), rel => fileAccess(authOf(req), DEFAULT_PROJECT, rel).view)
+      if (projectRoot(DEFAULT_PROJECT) !== root) { res.status(409).json({ error: '프로젝트가 변경되었습니다. 다시 시도하세요.' }); return }
+      res.set('Cache-Control', 'no-store').json(graph)
+      if (authOf(req).role !== 'guest') watchProjectTree(DEFAULT_PROJECT)
+    } catch (err) { handleError(res, err) }
   })
 
   app.get('/tree', async (req, res) => {

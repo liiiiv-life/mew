@@ -107,7 +107,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
       if (url.pathname === '/api/tree') {
         if (blockTree) await new Promise<void>(resolve => treeWaiters.push(resolve))
         if (failTree) return route.fulfill({ status: 500, json: { error: 'refresh failed' } })
-        return json({ version: 1, state: 'ready', entries: [{ name: captured.slice(1) + '.md', path: captured.slice(1) + '.md', type: 'file' }] })
+        return json({ version: 1, state: 'ready', entries: [...(url.searchParams.get('project') === 'docs' ? [{ name: 'MOC.md', path: 'MOC.md', type: 'file' }] : []), { name: captured.slice(1) + '.md', path: captured.slice(1) + '.md', type: 'file' }] })
       }
       if (url.pathname === '/api/file') {
         const delayed = captured === blockFileRoot
@@ -132,10 +132,13 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     const docsToggle = explorerToggle.getByRole('button', { name: '문서', exact: true })
     const filesToggle = explorerToggle.getByRole('button', { name: '파일', exact: true })
     assert.equal(await filesToggle.getAttribute('aria-pressed'), 'true')
-    await docsToggle.click()
+    await page.locator('[data-path="@docs"]').click()
     assert.equal(await docsToggle.getAttribute('aria-pressed'), 'true')
-    await page.locator('[data-sidebar]').getByRole('button', { name: '새 파일', exact: true }).click()
-    await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"]').getByPlaceholder('새 파일 이름').waitFor()
+    const graphEntry = page.locator('[data-docs-graph-entry]')
+    assert.equal(await graphEntry.count(), 1)
+    assert.ok((await graphEntry.boundingBox())!.y < (await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"] [data-path="MOC.md"]').boundingBox())!.y)
+    await page.locator('[data-sidebar]').getByRole('button', { name: '새 문서', exact: true }).click()
+    await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"]').getByPlaceholder('새 문서 이름').waitFor()
     await page.keyboard.press('Escape')
     assert.equal(await page.locator('[data-tree-key="sidebar-tree:root:/alpha"]').count(), 0)
     assert.equal(await page.locator('[data-path="@docs"]').count(), 0)
@@ -156,11 +159,12 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
       await page.locator('[data-sidebar]').screenshot({ path: path.join(process.env.MEW_EXPLORER_SCREENSHOTS, 'desktop-files.png') })
       await docsToggle.click()
     }
-    await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"] [data-path="alpha.md"]').click()
+    await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"] [data-path="alpha.md"]').click({ modifiers: ['Control'] })
     await page.getByRole('button', { name: 'Close mew:file:docs/alpha.md' }).waitFor()
     await page.getByRole('button', { name: 'Close README.md' }).waitFor()
     await page.getByRole('button', { name: 'Select extra.md', exact: true }).click()
     assert.equal(await filesToggle.getAttribute('aria-pressed'), 'true', 'file-tab reveal selects its explorer scope')
+    assert.equal(await page.locator('[data-docs-graph-entry]').count(), 0)
     assert.equal(await page.getByRole('button', { name: 'Close mew:file:docs/alpha.md' }).isVisible(), true, 'Documents remains in the same pane when a root file is selected')
     await tab('/alpha').click()
     await page.getByRole('button', { name: 'Close README.md' }).waitFor()
@@ -388,7 +392,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     await page.keyboard.press('Enter')
     await editorPanel.waitFor({ state: 'visible' })
     assert.equal(await page.locator('[data-test-content]').textContent(), editorContent, 'hiding the editor preserves its tabs and content')
-    for (const panel of ['agent', 'terminal', 'git', 'browser']) {
+    for (const panel of ['agent', 'terminal', 'git']) {
       const button = dock.locator(`[data-dock-item=${panel}]`)
       const before = await button.getAttribute('aria-pressed')
       await button.click()
@@ -402,10 +406,13 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
       assert.equal(await button.getAttribute('aria-pressed'), 'false', 'only selecting the focused panel closes it')
       if (before === 'true') await button.click()
     }
-    const desktopToggle = dock.locator('[data-dock-item=desktop]')
-    await desktopToggle.click()
+    const openMenuPanel = async (label: string) => {
+      await page.getByRole('button', { name: '메뉴', exact: true }).click()
+      await page.getByRole('menuitem', { name: label, exact: true }).click()
+    }
+    await openMenuPanel('원격 데스크톱')
     await page.getByRole('dialog', { name: 'Remote desktop fixture' }).waitFor()
-    await desktopToggle.click()
+    await page.getByRole('button', { name: 'Close remote desktop', exact: true }).click()
     await page.getByRole('dialog', { name: 'Remote desktop fixture' }).waitFor({ state: 'detached' })
     const featureToggle = dock.locator('[data-dock-item=features]')
     await featureToggle.click()
@@ -463,7 +470,8 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     await dock.getByRole('button', { name: '사이드바', exact: true }).tap()
     await docsToggle.tap()
     const toggleBounds = (await explorerToggle.boundingBox())!, sidebarBounds = (await sidebar.boundingBox())!
-    assert.ok(toggleBounds.y > sidebarBounds.y + sidebarBounds.height / 2)
+    assert.ok(toggleBounds.y < sidebarBounds.y + sidebarBounds.height / 2)
+    assert.ok(toggleBounds.width >= sidebarBounds.width - 20)
     assert.ok(toggleBounds.y + toggleBounds.height <= sidebarBounds.y + sidebarBounds.height)
     if (process.env.MEW_EXPLORER_SCREENSHOTS) {
       await sidebar.evaluate(el => el.ownerDocument.documentElement.classList.remove('dark'))
@@ -493,11 +501,12 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     assert.equal(await dock.locator('[data-dock-item=agent]').getAttribute('aria-current'), 'page', 'right swipe skips document tabs and selects the next panel')
     await swipe(65)
     assert.equal(await dock.locator('[data-dock-item=editor]').getAttribute('aria-current'), 'page')
-    await dock.getByRole('button', { name: '원격 데스크톱', exact: true }).tap()
+    await openMenuPanel('원격 데스크톱')
     await page.getByRole('dialog', { name: 'Remote desktop fixture' }).waitFor()
-    await dock.getByRole('button', { name: '브라우저', exact: true }).tap()
+    await page.getByRole('button', { name: 'Close remote desktop', exact: true }).click()
+    await openMenuPanel('브라우저')
     await page.getByRole('dialog', { name: 'Remote desktop fixture' }).waitFor({ state: 'detached' })
-    assert.equal(await dock.locator('[data-dock-item=browser]').getAttribute('aria-current'), 'page')
+    assert.equal(await dock.locator('[data-dock-item=browser]').count(), 0)
     await dock.getByRole('button', { name: '기능', exact: true }).tap()
     const features = page.getByRole('region', { name: '기능', exact: true })
     await features.waitFor()
@@ -515,7 +524,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     assert.equal(await draft.inputValue(), '패널 전환 후에도 남을 요청')
     await swipe(65)
     await features.waitFor({ state: 'hidden' })
-    assert.equal(await dock.locator('[data-dock-item=browser]').getAttribute('aria-current'), 'page')
+    assert.equal(await dock.locator('[data-dock-item=git]').getAttribute('aria-current'), 'page')
     await swipe(-65)
     await features.waitFor()
     assert.equal(await draft.inputValue(), '패널 전환 후에도 남을 요청')
@@ -527,7 +536,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     await page.evaluate("window.dispatchEvent(new PopStateEvent('popstate'))")
     await page.getByRole('dialog').getByRole('button', { name: '변경 버리기', exact: true }).click()
     await features.waitFor({ state: 'detached' })
-    assert.equal(await dock.locator('[data-dock-item=browser]').getAttribute('aria-current'), 'page')
+    assert.equal(await dock.locator('[data-dock-item=git]').getAttribute('aria-current'), 'page')
     await dock.getByRole('button', { name: '기능', exact: true }).tap()
     await features.waitFor()
     await page.waitForResponse(response => {
@@ -585,11 +594,15 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
       await page.getByRole('button', { name: '메뉴', exact: true }).click()
       const menu = page.getByRole('menu', { name: '메뉴', exact: true })
       await menu.waitFor()
-      for (const label of ['기능', 'Git', '원격 데스크톱', '에이전트', '터미널', '브라우저']) {
+      for (const label of ['기능', 'Git', '에이전트', '터미널']) {
         assert.equal(await menu.getByRole('menuitem', { name: new RegExp(`^${label}(?:\\s|$)`) }).count(), 0, `${label} is only in the dock`)
       }
-      for (const id of ['agent', 'terminal', 'git', 'browser', 'features', 'desktop']) {
+      for (const id of ['agent', 'terminal', 'git', 'features']) {
         assert.equal(await dock.locator(`[data-dock-item=${id}]`).isVisible(), true, `${id} remains accessible`)
+      }
+      for (const [id, label] of [['browser', '브라우저'], ['desktop', '원격 데스크톱']]) {
+        assert.equal(await dock.locator(`[data-dock-item=${id}]`).count(), 0)
+        assert.equal(await menu.getByRole('menuitem', { name: label, exact: true }).isVisible(), true)
       }
       assert.equal(await dock.locator('[data-dock-item=rag]').count(), 0)
       assert.equal(await menu.getByRole('menuitem', { name: 'RAG', exact: true }).count(), 0)

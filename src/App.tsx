@@ -1,3 +1,4 @@
+import { Computer, Globe } from 'iconoir-react'
 import { UpdatesModal } from './components/updates-modal'
 import { fetchUpdatesStatus } from './api/client'
 import { uuid } from './utils/uuid'
@@ -38,12 +39,14 @@ import {
   type WorkspaceUiState,
 } from './api/client'
 import { SubprojectLink } from './components/subproject-link'
+import { ProjectIcon } from './components/ProjectIcon'
 import { RootProjectTabs } from './components/RootProjectTabs'
 import { ProjectLoadingOverlay } from './components/project-loading-overlay'
 import { SharedMemo } from './components/shared-memo'
 import { useSharedMemo } from './hooks/use-shared-memo'
 import { normalizeProjectTabLayout, type ProjectTabGroup } from '../shared/project-tab-groups'
 import { OpenProjectDialog } from './components/OpenProjectDialog'
+import { DocumentGraph } from './components/DocumentGraph'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
 import { ActiveSessionsButton } from './components/active-sessions-button'
@@ -104,7 +107,7 @@ import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
 import { useI18n } from './i18n'
 import { applyFontPreferences, loadFontPreferences, normalizeFontPreferences, saveFontPreferences } from './utils/fontPreferences'
 import { loadThemeColor, applyThemeColor, saveThemeColor } from './utils/theme-color'
-import { loadMewcatSkin, saveMewcatSkin, type MewcatSkinSelection } from './utils/mewcatSkin'
+import { loadMewcatSkin, saveMewcatSkin, loadMewcatHideDesktop, MEWCAT_HIDE_DESKTOP_KEY, type MewcatSkinSelection } from './utils/mewcatSkin'
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 import { GitPanel } from './components/git-panel'
@@ -324,6 +327,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const [memoOpen, setMemoOpen] = useState(false)
   const [memoFocusSignal, setMemoFocusSignal] = useState(0)
   useEffect(() => { setMemoOpen(false) }, [auth.email, caps.collaboration])
+  const [remoteMewcatHost, setRemoteMewcatHost] = useState<HTMLDivElement | null>(null)
   const [remoteDockHost, setRemoteDockHost] = useState<HTMLDivElement | null>(null)
   const [headerDockHost, setHeaderDockHost] = useState<HTMLDivElement | null>(null)
   if (gitOpen) gitMounted.current = true
@@ -474,8 +478,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   }, [mobileForegroundPanel])
   // docs 탭을 꾹 누르면 뜨는 폴더 가져오기/내보내기 창 — owner 전용
   const [docsSettingsOpen, setDocsSettingsOpen] = useState(false)
+  const [documentGraphOpen, setDocumentGraphOpen] = useState(false)
   // 채팅 멘션·에이전트 답변의 파일 링크 — 다른 프로젝트면 옮긴 다음 렌더에서 파일과 줄을 연다
-  const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string; line: number | null } | null>(null)
+  const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string; line: number | null; options?: { preview?: boolean; forceNewTab?: boolean; replaceActive?: boolean } } | null>(null)
   const [serverFileExplorerOpen, setServerFileExplorerOpen] = useState(false)
   const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -484,6 +489,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const [themeColor, setThemeColor] = useState<string>(loadThemeColor)
   useMewcatNotifications(caps.system, authEmail)
   const [noticeTarget, setNoticeTarget] = useState<Extract<MewcatNotice['target'], object>>()
+  const [mewcatHideDesktop, setMewcatHideDesktop] = useState(loadMewcatHideDesktop)
   const [mewcatSkin, setMewcatSkin] = useState<MewcatSkinSelection>(loadMewcatSkin)
   const [searchFocusSignal] = useState(0)
   // 사이드바 뷰: 탐색기 · 파일명 검색(Ctrl+P) · 파일 내용 검색(Ctrl+Shift+F) · 명령
@@ -920,6 +926,8 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     moveTabToPane,
     splitEmptyPane,
     remapPaths,
+    applyDocumentPageMutation,
+    prepareDocumentPageMutation,
     removePaths,
   } = useTabs(
     project,
@@ -1137,12 +1145,10 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   if (caps.agent) mobileDockPanels.push('agent')
   if (caps.terminal) mobileDockPanels.push('terminal')
   if (caps.git) mobileDockPanels.push('git')
-  if (caps.browser) mobileDockPanels.push('browser')
   if (caps.agent && rootProjectPath) mobileDockPanels.push('features')
-  if (caps.desktop) mobileDockPanels.push('desktop')
   if (caps.collaboration && auth.email) mobileDockPanels.push('memo')
   const selectDockPanel = (panel: MobileDockPanel, toggle = true) => {
-    if (!mobileDockPanels.includes(panel)) return
+    if (!mobileDockPanels.includes(panel) && !(panel === 'browser' && caps.browser) && !(panel === 'desktop' && caps.desktop)) return
     const closeFocused = isDesktop() && toggle && (remoteDesktopOpen ? panel === 'desktop' : focusedDockPanel === panel)
     dockRef.current?.restore()
     if (panel === 'desktop') { setRemoteDesktopOpen(open => closeFocused ? !open : true); return }
@@ -1620,11 +1626,11 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
   /** 채팅 멘션·에이전트 로컬 링크 — 같은 mew의 알맞은 프로젝트와 문서 탭으로 연다. */
   const openMentionedFile = useCallback(
-    (target: string, path: string, line: number | null = null) => {
+    (target: string, path: string, line: number | null = null, options?: { preview?: boolean; forceNewTab?: boolean; replaceActive?: boolean }) => {
       // 에디터는 모바일 보조창 스택의 한 항목이 아니다. 파일을 여는 순간에는 패널을 닫지
       // 않고 전면 스택만 비워야, 뒤의 사이드바가 올라오지 않으면서 데스크톱 열림 상태도 남는다.
       showMobileEditor()
-      setPendingOpen({ project, path: editorTabPath(target, path, project), line })
+      setPendingOpen({ project, path: editorTabPath(target, path, project), line, options })
     },
     [project, showMobileEditor],
   )
@@ -1635,7 +1641,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     // 두 번째 클릭에서야 파일이 보이는 경합이 생긴다.
     if (!tabsHydrated || !pendingOpen || pendingOpen.project !== project) return
     if (pendingOpen.line !== null) setPendingReveal({ path: pendingOpen.path, line: pendingOpen.line })
-    openFile(pendingOpen.path, { preview: false })
+    openFile(pendingOpen.path, { preview: false, ...pendingOpen.options })
     // Hotview는 원본 줄과 렌더 블록 위치가 일대일이 아니다. 줄 링크는 Plain으로 열어 정확히 이동한다.
     if (pendingOpen.line !== null && pendingOpen.path.endsWith('.md')) setTabViewMode(pendingOpen.path, 'plain')
     setPendingOpen(null)
@@ -1821,6 +1827,20 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   }, [isGuest])
   // 독에 있는 작업 패널은 제외하고 나머지 동작만 권한에 따라 햄버거 메뉴에 표시한다.
   const headerMenuItems: HeaderMenuItem[] = [
+    ...(caps.browser ? [{
+      id: 'browser',
+      label: t('header.browser'),
+      icon: <Globe width={14} height={14} />,
+      active: browserOpen,
+      onSelect: () => selectDockPanel('browser'),
+    }] : []),
+    ...(caps.desktop ? [{
+      id: 'desktop',
+      label: t('access.desktop'),
+      icon: <Computer width={14} height={14} />,
+      active: remoteDesktopOpen,
+      onSelect: () => selectDockPanel('desktop'),
+    }] : []),
     ...(!isGuest || canEditActiveTab
       ? [
           {
@@ -2106,7 +2126,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
                 </button>}
-                {!isGuest && caps.filesRead && caps.filesWrite && <SidebarCreateButtons onCreate={sidebarCreate.create} disabled={!workspaceUiLoaded || sidebarStateLoadedRootRef.current !== rootProjectPath} />}
+                {!isGuest && caps.filesRead && caps.filesWrite && <SidebarCreateButtons documents={docsExpanded} onCreate={sidebarCreate.create} disabled={!workspaceUiLoaded || sidebarStateLoadedRootRef.current !== rootProjectPath} />}
                 <button
                   type="button"
                   onClick={() => closeWorkspacePanel('sidebar')}
@@ -2120,55 +2140,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                 </button>
               </div>
               <div className="min-h-0 flex-1">
-                <div className={sidebarView === 'files' ? 'relative h-full' : 'hidden'}>
-                  {(isGuest || (workspaceUiLoaded && sidebarStateLoadedRootRef.current === rootProjectPath)) && <FileTree
-                    key={`${isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${workspaceUiRevision}`}
-                    {...sidebarCreate.treeProps(isGuest || docsExpanded ? 'docs' : 'root')}
-                    tree={isGuest || docsExpanded ? docsTree : rootNodes}
-                    project={isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
-                    stateKey={rootProjectPath ? `sidebar-tree:${isGuest || docsExpanded ? 'docs' : 'root'}:${rootProjectPath}` : undefined}
-                    accountState={rootProjectPath ? accountTreeStates[`sidebar-tree:${isGuest || docsExpanded ? 'docs' : 'root'}:${rootProjectPath}`] : undefined}
-                    onAccountStateChange={rootProjectPath ? (state) => saveAccountTreeState(`sidebar-tree:${isGuest || docsExpanded ? 'docs' : 'root'}:${rootProjectPath}`, state) : undefined}
-                    workspacePath={rootProjectPath}
-                    selectedPath={activeFile.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? activeFile.path || null : null}
-                    revealOnMount={pendingSidebarReveal?.root === rootProjectPath && pendingSidebarReveal?.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) && pendingSidebarReveal?.path === activeFile.path}
-                    onRevealHandled={() => setPendingSidebarReveal(null)}
-                    readOnly={isGuest || !caps.filesRead || !caps.filesWrite}
-                    canUseCommands={canUseTerminal && !isGuest}
-                    onOpenProject={(path) => void openSidebarProject(isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT, path)}
-                    canOpenProjects={isOwner}
-                    canUseGit={caps.git}
-                    loadChildren={isGuest || docsExpanded ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
-                    treeInvalidation={treeInvalidation}
-                    roots={!isGuest && !docsExpanded && rootSubprojects.map((subproject) => (
-                      <div key={subproject.path} className="flex border-b border-edge">
-                        <SubprojectLink
-                          data-path={`@subproject:${subproject.path}`}
-                          name={subproject.name}
-                          icon={subproject.icon ?? 'i:folder'}
-                          unavailable={!isOwner}
-                          disabled={switchingRootProject}
-                          onClick={() => void openSidebarProject(WORKSPACE_PROJECT, subproject.path)}
-                        />
-                      </div>
-                    ))}
-                    searchFocusSignal={searchFocusSignal}
-                    newFileSignal={newFileSignal.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? newFileSignal : { n: 0, parentPath: null }}
-                    revealSignal={revealSignal}
-                    presence={activeFile.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? tabPresence : {}}
-                    onSelect={(path) => openMentionedFile(isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT, path, null)}
-                    onFileCreated={(relPath) => {
-                      void refreshTree()
-                      openMentionedFile(isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT, relPath, null)
-                    }}
-                    onFolderCreated={refreshTree}
-                    onRenamed={docsExpanded ? (oldPath, newPath, type) => { remapPaths(editorTabPath(DEFAULT_PROJECT, oldPath, project), editorTabPath(DEFAULT_PROJECT, newPath, project), type); void refreshTree() } : handleRenamed}
-                    onDeleted={docsExpanded ? (path, type) => { removePaths(editorTabPath(DEFAULT_PROJECT, path, project), type); void refreshTree() } : handleDeleted}
-                    onNotice={showToast}
-                    registerSearchCancel={registerSidebarSearchCancel}
-                  />}
-                  {!isGuest && <div className="pointer-events-none absolute inset-x-0 bottom-2 z-20 flex justify-center px-2">
-                    <div role="group" aria-label={uiText("탐색 범위")} data-explorer-toggle className="pointer-events-auto flex max-w-full gap-0.5 rounded-full bg-surface-raised/80 p-0.5 shadow-sm">
+                <div className={sidebarView === 'files' ? 'flex h-full flex-col' : 'hidden'}>
+                  {!isGuest && <div className="shrink-0 border-b border-edge p-1">
+                    <div role="group" aria-label={uiText("탐색 범위")} data-explorer-toggle className="flex w-full rounded-md bg-surface p-0.5 text-xs">
                       {(['docs', 'files'] as const).map(scope => {
                         const selected = (scope === 'docs') === docsExpanded
                         return <button key={scope} type="button" aria-pressed={selected}
@@ -2182,12 +2156,72 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                             const buttons = event.currentTarget.parentElement?.querySelectorAll('button')
                             buttons?.[next === 'docs' ? 0 : 1]?.focus()
                           }}
-                          className={`min-h-7 min-w-0 rounded-full px-2.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-accent ${selected ? 'bg-ink/85 text-surface' : 'text-ink-secondary hover:bg-surface-hover/80 hover:text-ink'}`}>
+                          className={`min-w-0 flex-1 rounded px-3 py-1.5 focus-visible:outline-2 focus-visible:outline-accent ${selected ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink-secondary'}`}>
                           {scope === 'docs' ? t('explorer.documents') : t('explorer.files')}
                         </button>
                       })}
                     </div>
                   </div>}
+                  <div className="min-h-0 flex-1">
+                    {(isGuest || (workspaceUiLoaded && sidebarStateLoadedRootRef.current === rootProjectPath)) && <FileTree
+                      key={`${isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT}:${rootProjectPath ?? ''}:${workspaceUiRevision}`}
+                      {...sidebarCreate.treeProps(isGuest || docsExpanded ? 'docs' : 'root')}
+                      tree={isGuest || docsExpanded ? docsTree : rootNodes}
+                      project={isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT}
+                      stateKey={rootProjectPath ? `sidebar-tree:${isGuest || docsExpanded ? 'docs' : 'root'}:${rootProjectPath}` : undefined}
+                      accountState={rootProjectPath ? accountTreeStates[`sidebar-tree:${isGuest || docsExpanded ? 'docs' : 'root'}:${rootProjectPath}`] : undefined}
+                      onAccountStateChange={rootProjectPath ? (state) => saveAccountTreeState(`sidebar-tree:${isGuest || docsExpanded ? 'docs' : 'root'}:${rootProjectPath}`, state) : undefined}
+                      workspacePath={rootProjectPath}
+                      selectedPath={activeFile.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? activeFile.path || null : null}
+                      revealOnMount={pendingSidebarReveal?.root === rootProjectPath && pendingSidebarReveal?.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) && pendingSidebarReveal?.path === activeFile.path}
+                      onRevealHandled={() => setPendingSidebarReveal(null)}
+                      readOnly={isGuest || !caps.filesRead || !caps.filesWrite}
+                      canUseCommands={canUseTerminal && !isGuest}
+                      onOpenProject={(path) => void openSidebarProject(isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT, path)}
+                      canOpenProjects={isOwner}
+                      canUseGit={caps.git}
+                      loadChildren={isGuest || docsExpanded ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
+                      treeInvalidation={treeInvalidation}
+                      roots={!isGuest && !docsExpanded && <>
+                        <button type="button" data-path="@docs" title={workspaceInfoRef.current?.docsPath}
+                          onClick={() => { setDocsExpanded(true); sidebarCreate.selectDirectory('docs', '') }}
+                          className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+                          <ProjectIcon icon="i:folder" size={14} />
+                          <span className="min-w-0 flex-1 truncate">{workspaceInfoRef.current?.docsPath?.split('/').filter(Boolean).at(-1) ?? 'docs'}</span>
+                        </button>
+                        {rootSubprojects.map((subproject) => (
+                        <div key={subproject.path} className="flex border-b border-edge">
+                          <SubprojectLink
+                            data-path={`@subproject:${subproject.path}`}
+                            name={subproject.name}
+                            icon={subproject.icon ?? 'i:folder'}
+                            unavailable={!isOwner}
+                            disabled={switchingRootProject}
+                            onClick={() => void openSidebarProject(WORKSPACE_PROJECT, subproject.path)}
+                          />
+                        </div>
+                      ))}</>}
+                      searchFocusSignal={searchFocusSignal}
+                      newFileSignal={newFileSignal.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? newFileSignal : { n: 0, parentPath: null }}
+                      revealSignal={revealSignal}
+                      presence={activeFile.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? tabPresence : {}}
+                      documentPages={isGuest || docsExpanded}
+                      onBeforePageMutation={prepareDocumentPageMutation}
+                      onPageMutation={result => { applyDocumentPageMutation(result); void refreshTree() }}
+                      onSelect={(path, options) => openMentionedFile(isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT, path, null, options)}
+                      onFileCreated={(relPath) => {
+                        void refreshTree()
+                        openMentionedFile(isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT, relPath, null)
+                      }}
+                      onFolderCreated={refreshTree}
+                      onRenamed={docsExpanded ? (oldPath, newPath, type) => { remapPaths(editorTabPath(DEFAULT_PROJECT, oldPath, project), editorTabPath(DEFAULT_PROJECT, newPath, project), type); void refreshTree() } : handleRenamed}
+                      onDeleted={docsExpanded ? (path, type) => { removePaths(editorTabPath(DEFAULT_PROJECT, path, project), type); void refreshTree() } : handleDeleted}
+                      onNotice={showToast}
+                      onOpenGraph={isGuest || docsExpanded ? () => setDocumentGraphOpen(true) : undefined}
+                      registerSearchCancel={registerSidebarSearchCancel}
+                    />}
+
+                  </div>
                 </div>
                 <div className={(sidebarView === 'search' || sidebarView === 'content-search') ? 'h-full' : 'hidden'}>
                   <SearchPanel
@@ -2248,7 +2282,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'browser'; bringWorkspacePanelToFront('browser') }}
           nextTabSignal={browserNextTabSignal} previousTabSignal={browserPreviousTabSignal} />}
         {caps.git && workspaceUiLoaded && gitMounted.current && <GitPanel visible={gitOpen} initialState={workspaceUi.git} onChange={saveGitPanelState}
-          onNotice={showToast} onClose={() => closeWorkspacePanel('git')}
+          onNotice={showToast} onOpenFile={openMentionedFile} onClose={() => closeWorkspacePanel('git')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'git'; bringWorkspacePanelToFront('git') }}
           nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} />}
         {rootProjectPath && caps.agent && workspaceUiLoaded && <DockPanel
@@ -2311,7 +2345,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         )}
       </div>
 
-      <Mewcat skin={mewcatSkin} assistant={{ account: auth.email ?? 'guest', enabled: caps.agent, runtime: mewcatRuntime, projectRoot: rootProjectPath, onAction: handleMewcatAction, onRuntimeChange: selectMewcatRuntime, onConnect: () => { setMewcatPicker(true); openWorkspacePanel('agent'); showToast(t('mewcat.assistant.guide')) } }} onOpenSystemStats={caps.system ? () => setSysStatsOpen(true) : undefined} />
+      <Mewcat portalTarget={remoteDesktopOpen ? remoteMewcatHost : null} hidden={remoteDesktopOpen && mewcatHideDesktop} skin={mewcatSkin} assistant={{ account: auth.email ?? 'guest', enabled: caps.agent, runtime: mewcatRuntime, projectRoot: rootProjectPath, onAction: handleMewcatAction, onRuntimeChange: selectMewcatRuntime, onConnect: () => { setMewcatPicker(true); openWorkspacePanel('agent'); showToast(t('mewcat.assistant.guide')) } }} onOpenSystemStats={caps.system ? () => setSysStatsOpen(true) : undefined} />
 
       <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost ?? (desktopMode ? headerDockHost : null)}
         onSelect={selectDockPanel} onNavigate={navigateMobileDock} />
@@ -2340,6 +2374,11 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           fontPreferences={fontPreferences}
           themeColor={themeColor}
           mewcatSkin={mewcatSkin}
+          mewcatHideDesktop={mewcatHideDesktop}
+          onMewcatHideDesktopChange={value => {
+            setMewcatHideDesktop(value)
+            writeBrowserStorage(MEWCAT_HIDE_DESKTOP_KEY, value ? '1' : '0')
+          }}
           onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
           onFontPreferencesChange={setFontPreferences}
           onThemeColorChange={setThemeColor}
@@ -2354,6 +2393,10 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       )}
 
       {adminOpen && isOwner && <AdminSettingsModal onClose={() => setAdminOpen(false)} />}
+
+      {documentGraphOpen && caps.filesRead && <DocumentGraph key={`${rootProjectPath}:${workspaceInfoRef.current?.docsPath ?? ''}`}
+        revision={treeInvalidation.n} onClose={() => setDocumentGraphOpen(false)}
+        onOpen={path => { setDocumentGraphOpen(false); openMentionedFile(DEFAULT_PROJECT, path, null) }} />}
 
       {docsSettingsOpen && isOwner && (
         <DocsSettingsModal
@@ -2400,7 +2443,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
       {caps.system && <UpdatesModal open={updatesOpen} mew={mewUpdate} mewUpdating={mewUpdating} onMewUpdate={startMewUpdate} onRefreshMew={refreshMewUpdate} onClose={() => setUpdatesOpen(false)} />}
       {sysStatsOpen && caps.system && <SystemStatsModal onClose={() => setSysStatsOpen(false)} />}
-      {remoteDesktopOpen && caps.desktop && <RemoteDesktop onClose={() => setRemoteDesktopOpen(false)} dockHostRef={setRemoteDockHost} dockHidden={mobileKeyboardOpen} />}
+      {remoteDesktopOpen && caps.desktop && <RemoteDesktop onClose={() => setRemoteDesktopOpen(false)} dockHostRef={setRemoteDockHost} mewcatHostRef={setRemoteMewcatHost} dockHidden={mobileKeyboardOpen} />}
       {scheduleOpen && caps.schedules && <ScheduleModal onClose={() => setScheduleOpen(false)} />}
 
       {historyOpen && activeTab && (

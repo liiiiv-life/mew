@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { useMewcatAssistant, type MewcatAssistantOptions } from '../hooks/use-mewcat-assistant'
 import { MewcatAssistant } from './mewcat-assistant'
 import { useI18n } from '../i18n'
@@ -40,7 +41,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 function nextActivity(): Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'> { const options: Array<Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'>> = ['idle', 'walk', 'run']; return options[Math.floor(Math.random() * options.length)] }
 
 /** 화면 맨 아래를 자유롭게 오가며, 눌러서 잠깐 놀아 줄 수 있는 Mew의 고양이. */
-export function Mewcat({ skin, onOpenSystemStats, assistant }: { skin: MewcatSkin | null; onOpenSystemStats?: () => void; assistant?: MewcatAssistantOptions & { onConnect: () => void; onRuntimeChange: (runtime: string) => void } }) {
+export function Mewcat({ skin, hidden = false, portalTarget, onOpenSystemStats, assistant }: { hidden?: boolean; portalTarget?: HTMLElement | null; skin: MewcatSkin | null; onOpenSystemStats?: () => void; assistant?: MewcatAssistantOptions & { onConnect: () => void; onRuntimeChange: (runtime: string) => void } }) {
   const [activated, setActivated] = useState(false)
   const helper = useMewcatAssistant(assistant ? { ...assistant, enabled: assistant.enabled && activated } : { account: 'guest', enabled: false, runtime: null, projectRoot: null, onAction: async () => {} })
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -52,13 +53,14 @@ export function Mewcat({ skin, onOpenSystemStats, assistant }: { skin: MewcatSki
   const showBubble = bubbleOpen && skin !== null
   const attention = showBubble || (preferences.visual && notices.length > 0)
   useEffect(() => {
-    if (remainingMs !== null || skin === null) setBubbleOpen(false)
-  }, [remainingMs, skin])
-  if (remainingMs !== null) return <MewcatBreak remainingMs={remainingMs}><MewcatActive attention={false} giant /></MewcatBreak>
-  return <>{skin !== null && <MewcatActive anchorRef={anchorRef} attention={attention} noticeId={attention ? notices.at(-1)?.id : undefined}
+    if (hidden || remainingMs !== null || skin === null) setBubbleOpen(false)
+  }, [hidden, remainingMs, skin])
+  if (hidden) return null
+  const content = remainingMs !== null ? <MewcatBreak remainingMs={remainingMs}><MewcatActive attention={false} giant /></MewcatBreak> : <>{skin !== null && <MewcatActive anchorRef={anchorRef} attention={attention} noticeId={attention ? notices.at(-1)?.id : undefined}
     onTap={() => { setActivated(true); setBubbleOpen(open => !open) }} onDrag={closeBubble} expanded={showBubble} />}
     {showBubble ? <MewcatResources anchorRef={anchorRef} assistant={assistant?.enabled ? <MewcatAssistant state={helper} runtime={assistant.runtime} onConnect={() => { closeBubble(); assistant.onConnect() }} onRuntimeChange={assistant.onRuntimeChange} /> : undefined} onClose={closeBubble} onOpen={onOpenSystemStats ? () => { closeBubble(); onOpenSystemStats() } : undefined} /> : <MewcatNotifications anchorRef={anchorRef} hasCat={skin !== null} />}
   </>
+  return portalTarget ? createPortal(content, portalTarget) : content
 }
 
 /** 둥근 얼굴과 짧은 발을 가진 자체 벡터 캐릭터. 설정 미리보기에서도 같은 그림을 쓴다. */

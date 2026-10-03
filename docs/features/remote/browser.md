@@ -4,7 +4,7 @@ parent: "mew-remote"
 title: "서버 브라우저·로그인·팝업"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-10-02"
 status_hash: "f10cdc472b8ce85de135351d9b60578cf2b8b0424ff75144f0a462226d043c03"
 files: ["src/components/BrowserPanel.tsx", "src/components/server-dom-browser.tsx", "server/browser-dom.ts", "server/browser-dom-profile.ts"]
 commits: []
@@ -31,6 +31,8 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- PC·모바일 햄버거 메뉴에서 권한에 따라 열며 Dock에는 표시하지 않는다.
 
 - URL·탭·뒤로/앞으로·폼·업로드/다운로드·로그인 팝업과 계정별 프로필을 제공한다.
 

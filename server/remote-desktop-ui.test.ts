@@ -111,7 +111,11 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await dock.waitFor({ state: 'visible' })
     if (scenario === 'direct') {
       await page.setViewportSize({ width: 1100, height: 844 })
+      await page.waitForFunction(`document.querySelector('.desktop-panel')?.clientWidth === 1100`)
       await page.waitForFunction(`document.querySelector('.mobile-dock')?.getBoundingClientRect().bottom < 150`)
+      const header = await page.locator('.desktop-toolbar').evaluate(el => ({ height: el.getBoundingClientRect().height, background: el.ownerDocument.defaultView!.getComputedStyle(el).backgroundColor, expected: el.ownerDocument.defaultView!.getComputedStyle(el.closest('.remote-desktop')!).backgroundColor }))
+      assert.equal(header.height, 36, 'desktop toolbar matches other panel header heights')
+      assert.equal(header.background, header.expected, 'toolbar uses the common deep panel background')
       assert.equal(await page.locator('.desktop-toolbar .mobile-dock').count(), 1, 'remote viewer keeps the desktop dock in its toolbar')
       const button = dock.locator('[data-dock-item=editor]')
       await button.hover()
@@ -125,6 +129,8 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       await page.waitForFunction(`document.querySelector('.mobile-dock')?.getBoundingClientRect().width === 390`)
     }
     const dockBox = (await dock.boundingBox())!
+    assert.equal(await page.locator('.desktop-toolbar').evaluate(el => el.getBoundingClientRect().height), 72, 'mobile title and tool rows each use the standard panel height')
+    assert.equal((await page.locator('.desktop-close').boundingBox())!.height, 24, 'close control matches other panels')
     const stageBox = (await page.locator('.desktop-stage').boundingBox())!
     assert.ok(stageBox.y + stageBox.height <= dockBox.y, 'remote screen reserves dock space')
     await dock.locator('[data-dock-item=desktop]').tap()
@@ -138,9 +144,15 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     const mouse = page.locator('.desktop-mouse'), pad = page.getByRole('button', { name: '커서 이동 조이스틱', exact: true })
     const mouseBox = await mouse.boundingBox(), padBox = await pad.boundingBox()
     assert.ok(mouseBox && padBox && padBox.width === mouseBox.width)
+    assert.equal(padBox.height, mouseBox.width, 'cursor area is a square')
+    assert.ok(Math.abs(mouseBox.height - mouseBox.width * 1.4) < .02, 'mouse stacks a short button row and a square cursor area')
     for (const name of ['좌클릭 조이스틱', '휠 조이스틱', '우클릭 조이스틱']) {
       const box = await page.getByRole('button', { name, exact: true }).boundingBox()
       assert.ok(box && box.y === mouseBox.y && box.y + box.height === padBox.y)
+      assert.ok(Math.abs(box.height - mouseBox.width * 2 / 5) < .02, 'button row height is two fifths of the mouse width')
+      if (name !== '휠 조이스틱') assert.ok(Math.abs(box.width - box.height) < .02, 'left and right buttons are individually square')
+      const fraction = name === '휠 조이스틱' ? 1 / 5 : 2 / 5
+      assert.ok(Math.abs(box.width - mouseBox.width * fraction) < .02, 'top buttons keep the 2:1:2 width ratio')
     }
     const clear = () => page.evaluate('window.inputEvents.length=0;window.inputPackets.length=0')
     const cdp = await page.context().newCDPSession(page)
@@ -223,7 +235,25 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.waitForFunction('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="KeyC"&&e[2]===false)')
     assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="key")'), [['key', 'ControlLeft', true], ['key', 'KeyC', true], ['key', 'KeyC', false], ['key', 'ControlLeft', false]])
     await page.getByRole('button', { name: '원격 Esc', exact: true }).click()
+    await page.waitForFunction('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="Escape"&&e[2]===false)')
     assert.equal(await page.locator('.remote-desktop').count(), 1, 'remote Escape does not close the viewer')
+    const hotkeys = page.getByRole('group', { name: '핫키', exact: true })
+    const expandedBounds = (await hotkeys.boundingBox())!
+    assert.ok(expandedBounds.width <= 56 && expandedBounds.height <= 252, 'hotkey bar stays compact')
+    await clear()
+    await page.getByRole('button', { name: '핫키 접기', exact: true }).press('Enter')
+    assert.equal(await page.locator('#desktop-hotkey-buttons').isVisible(), false)
+    assert.equal(await hotkeys.getByRole('button').count(), 2, 'collapsed list leaves only expand and move controls focusable')
+    const collapsedBounds = (await hotkeys.boundingBox())!
+    assert.ok(collapsedBounds.width <= 32 && collapsedBounds.height <= 60)
+    await gesture('핫키 위치 이동', 24, 24)
+    const collapsedMoved = (await hotkeys.boundingBox())!
+    assert.ok(collapsedMoved.x > collapsedBounds.x && collapsedMoved.y > collapsedBounds.y, 'collapsed bar still moves')
+    if (scenario === 'direct') await page.screenshot({ path: '/tmp/mew-remote-hotkeys-collapsed.png' })
+    await page.getByRole('button', { name: '핫키 펼치기', exact: true }).tap()
+    assert.equal(await page.locator('#desktop-hotkey-buttons').isVisible(), true)
+    assert.equal(await hotkeys.getByRole('button').count(), 10)
+    assert.deepEqual(await page.evaluate('window.inputEvents.filter(e=>e[0]==="key")'), [], 'collapse controls do not send remote keys')
     const keysBefore = await page.locator('.desktop-hotkeys').boundingBox(); assert.ok(keysBefore)
     await gesture('핫키 위치 이동', 90, 50)
     const keysAfter = await page.locator('.desktop-hotkeys').boundingBox(); assert.ok(keysAfter && keysAfter.x > keysBefore.x && keysAfter.y > keysBefore.y)
@@ -233,6 +263,7 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.getByRole('button', { name: '화면 90도 회전' }).click()
     const media = page.locator(transport === 'direct' ? 'video' : '.desktop-stage canvas')
     const rotated = await media.boundingBox(); assert.ok(rotated && rotated.height > rotated.width, JSON.stringify(await page.evaluate('({video:document.querySelector("video").style.cssText,canvas:document.querySelector(".desktop-stage canvas").style.cssText,switches:window.switches})')))
+    assert.ok(await mouse.evaluate(el => Math.abs(el.getBoundingClientRect().width - el.getBoundingClientRect().height * 1.4) < .02), 'mouse proportions turn sideways with the video')
     await clear(); await timedStroke(10, 50)
     if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&e[1]===0&&Math.abs(e[2]+60)<=1)'), 'rotated joystick motion follows the visible screen')
     await clear()
@@ -241,8 +272,34 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.mouse.click(point.x, point.y)
     await page.waitForFunction('window.inputPackets.some(([v])=>v.buttons===1&&v.point)')
     const remotePoint = await page.evaluate('window.inputPackets.find(([v])=>v.buttons===1&&v.point)[0].point') as number[]
-    assert.ok(Math.abs(remotePoint[0] - .2) < .01 && Math.abs(remotePoint[1] - .2) < .01)
-    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: '화면 90도 회전' }).click()
+    assert.ok(Math.abs(remotePoint[0] - .2) < .01 && Math.abs(remotePoint[1] - .2) < .01, JSON.stringify({ remotePoint, rotated, point, stage: await page.locator('.desktop-stage').evaluate(el => ({ width: el.clientWidth, height: el.clientHeight, rect: el.getBoundingClientRect().toJSON() })) }))
+    for (const angle of [90, 180, 270, 0]) {
+      if (angle !== 90) await page.getByRole('button', { name: '화면 90도 회전' }).click()
+      assert.equal(await page.locator('.desktop-panel').getAttribute('data-rotation'), String(angle))
+      await page.getByRole('button', { name: '핫키 접기', exact: true }).click()
+      await page.getByRole('button', { name: '핫키 펼치기', exact: true }).click()
+      for (const selector of ['.desktop-control-strip', '.desktop-hotkeys', '.desktop-toolbar']) {
+        const bounds = (await page.locator(selector).boundingBox())!
+        assert.ok(bounds.x >= -1 && bounds.y >= -1 && bounds.x + bounds.width <= 391 && bounds.y + bounds.height <= 845, `${selector} stays in the rotated viewport at ${angle}°`)
+      }
+      const before = (await page.locator('.desktop-hotkeys').boundingBox())!
+      const dx = before.x + before.width / 2 < 195 ? 8 : -8
+      const dy = before.y + before.height / 2 < 422 ? 8 : -8
+      await gesture('핫키 위치 이동', dx, dy)
+      const after = (await page.locator('.desktop-hotkeys').boundingBox())!
+      assert.ok(Math.abs(after.x - before.x - dx) < 1 && Math.abs(after.y - before.y - dy) < 1, `handle follows screen-space drag at ${angle}°: ${JSON.stringify({ before, after, dx, dy })}`)
+      await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
+      await modifierField.click()
+      const menu = page.getByRole('listbox', { name: '핫키 보조키', exact: true })
+      const bounds = (await menu.boundingBox())!
+      assert.ok(bounds.x >= -1 && bounds.y >= -1 && bounds.x + bounds.width <= 391 && bounds.y + bounds.height <= 845, `rotated dropdown stays in viewport at ${angle}°`)
+      assert.equal(await menu.evaluate(el => !!el.closest('.desktop-panel')), true)
+      await page.getByRole('option', { name: 'Cmd · Mac', exact: true }).click()
+      await modifierField.click()
+      await page.getByRole('option', { name: 'Ctrl · Windows / Linux', exact: true }).click()
+      await page.getByRole('button', { name: '설정 닫기', exact: true }).click()
+      if (angle === 90 && scenario === 'direct') await page.screenshot({ path: '/tmp/mew-remote-rotated.png' })
+    }
     await page.getByRole('button', { name: '전체화면', exact: true }).click()
     await page.waitForFunction('!!document.fullscreenElement')
     await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
@@ -372,8 +429,9 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.setViewportSize({ width: 320, height: 568 })
     assert.equal(await page.locator('.desktop-tools').evaluate(el => el.scrollWidth > el.clientWidth), false)
     await page.setViewportSize({ width: 844, height: 390 })
+    await page.waitForFunction(`document.querySelector('.desktop-panel')?.clientWidth === 844 && document.querySelector('.desktop-panel')?.clientHeight === 390`)
     for (const selector of ['.desktop-hotkeys', '.desktop-control-strip']) {
-      const box = await page.locator(selector).boundingBox(); assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 844 && box.y + box.height <= 390)
+      const box = await page.locator(selector).boundingBox(); assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 844 && box.y + box.height <= 390, `${selector}: ${JSON.stringify(box)}`)
     }
     await page.setViewportSize({ width: 1440, height: 900 })
     if (dir) await page.screenshot({ path: path.join(dir, 'desktop.png') })

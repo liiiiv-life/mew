@@ -23,26 +23,48 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
   useLayoutEffect(() => {
     if (!expanded) return
     const place = () => {
-      const rect = field.current!.getBoundingClientRect(), viewport = window.visualViewport
-      const left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0
-      const width = viewport?.width ?? window.innerWidth, height = viewport?.height ?? window.innerHeight
+      let rect = field.current!.getBoundingClientRect()
+      const viewport = window.visualViewport
+      const transform = portalContainer && getComputedStyle(portalContainer).transform
+      const local = !!transform && transform !== 'none'
+      if (local && portalContainer) {
+        const area = portalContainer.getBoundingClientRect()
+        const matrix = new DOMMatrixReadOnly(transform)
+        // Only invert the linear part: layout coordinates are centered in the container.
+        const inverse = new DOMMatrixReadOnly([matrix.a, matrix.b, matrix.c, matrix.d, 0, 0]).inverse()
+        const corners = [[rect.left, rect.top], [rect.right, rect.top], [rect.left, rect.bottom], [rect.right, rect.bottom]].map(([x, y]) => {
+          const point = inverse.transformPoint({ x: x - area.left - area.width / 2, y: y - area.top - area.height / 2 })
+          return { x: portalContainer.clientWidth / 2 + point.x, y: portalContainer.clientHeight / 2 + point.y }
+        })
+        const x = Math.min(...corners.map(point => point.x)), y = Math.min(...corners.map(point => point.y))
+        rect = new DOMRect(x, y, Math.max(...corners.map(point => point.x)) - x, Math.max(...corners.map(point => point.y)) - y)
+      }
+      const left = local ? 0 : viewport?.offsetLeft ?? 0, top = local ? 0 : viewport?.offsetTop ?? 0
+      const width = local ? portalContainer!.clientWidth : viewport?.width ?? window.innerWidth
+      const height = local ? portalContainer!.clientHeight : viewport?.height ?? window.innerHeight
       const below = top + height - rect.bottom - 8, above = rect.top - top - 8
       const down = below >= Math.min(280, options.length * 44 + 8) || below >= above
-      setPosition({ left: Math.max(left + 8, Math.min(rect.left, left + width - Math.min(rect.width, width - 16) - 8)),
+      setPosition({ position: local ? 'absolute' : 'fixed', left: Math.max(left + 8, Math.min(rect.left, left + width - Math.min(rect.width, width - 16) - 8)),
         width: Math.min(rect.width, width - 16), maxHeight: Math.max(0, Math.min(280, down ? below : above)),
-        ...(down ? { top: rect.bottom + 4 } : { bottom: window.innerHeight - rect.top + 4 }) })
+        ...(down ? { top: rect.bottom + 4 } : { bottom: (local ? height : window.innerHeight) - rect.top + 4 }) })
     }
     const outside = (event: PointerEvent) => {
       const target = event.target as Node
       if (!field.current?.contains(target) && !menu.current?.contains(target)) close()
     }
     place()
+    const observer = new ResizeObserver(place)
+    observer.observe(field.current!)
+    if (portalContainer) observer.observe(portalContainer)
+    const mutations = new MutationObserver(place)
+    if (portalContainer) mutations.observe(portalContainer, { attributes: true, attributeFilter: ['style'] })
     document.addEventListener('pointerdown', outside, true)
     window.addEventListener('resize', place)
     window.addEventListener('scroll', place, true)
     window.visualViewport?.addEventListener('resize', place)
     window.visualViewport?.addEventListener('scroll', place)
     return () => {
+      observer.disconnect(); mutations.disconnect()
       document.removeEventListener('pointerdown', outside, true)
       window.removeEventListener('resize', place)
       window.removeEventListener('scroll', place, true)

@@ -1,3 +1,3 @@
 .shared-memo .editor-root > div:has(> .tiptap) { flex: 1; }
-.shared-memo .editor-root .tiptap { padding-top: 0.5rem; }
+.shared-memo .editor-root .tiptap { padding-top: 16px; }
 .shared-memo .tiptap > :first-child { margin-top: 0; }

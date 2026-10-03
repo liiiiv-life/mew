@@ -8,11 +8,12 @@ import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
 import { GitWorkbench } from './GitWorkbench'
 import { GitHubAccount } from './github-account'
 
-export function GitPanel({ visible, initialState, onChange, onNotice, onClose, onPanelFocus, closeTabSignal = 0 }: {
+export function GitPanel({ visible, initialState, onChange, onNotice, onOpenFile, onClose, onPanelFocus, closeTabSignal = 0 }: {
   visible: boolean
   initialState: unknown
   onChange: (state: GitPanelState) => void
   onNotice: (message: string) => void
+  onOpenFile?: (project: string, path: string) => void
   onClose: () => void
   onPanelFocus: () => void
   nextTabSignal?: number
@@ -51,7 +52,7 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onClose, o
     </DockPanel>
     <DockBody group={group} active onFocus={onPanelFocus}>
       <GitShortcutScope onClose={onClose} className="flex h-full min-h-0 min-w-0 flex-col">
-        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} actionsHost={actionsHost}
+        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} onOpenFile={onOpenFile} actionsHost={actionsHost}
           visible={visible && (!dock || (dock.desktop ? !dock.maximized || dock.maximized === group : dock.foreground === 'git'))} />
       </GitShortcutScope>
     </DockBody>

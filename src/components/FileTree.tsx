@@ -1,3 +1,4 @@
+import { pageRepresentative, documentPageTarget, remapPagePath, type DocumentPageMutation } from '../../shared/document-pages'
 import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
@@ -6,7 +7,7 @@ import type { SidebarCreateRequest } from '../hooks/use-sidebar-create'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TreeNode } from '../api/client'
-import { copyFile, copyInto, createSubproject, createFolder, createNewDocument, deleteFile, downloadUrl, initializeGitRepository, renamePath, uploadInto } from '../api/client'
+import { copyFile, copyInto, createSubproject, createFolder, createNewDocument, mutateDocumentPage, deleteFile, downloadUrl, initializeGitRepository, renamePath, uploadInto } from '../api/client'
 import { flattenFiles, fuzzyScore } from '@mew/editor'
 import { ConfirmDialog, setPathDragData, useDialog } from '@mew/ui'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
@@ -37,6 +38,8 @@ type EditingState =
   | { mode: 'create-file' | 'create-folder'; parentPath: string; value: string; error?: string; busy?: boolean }
   | null
 
+export type TreeOpenOptions = { preview?: boolean; forceNewTab?: boolean; replaceActive?: boolean }
+
 type Focused = { path: string; type: 'file' | 'dir' } | null
 
 type PopoverState = { path: string; type: 'file' | 'dir'; x: number; y: number } | null
@@ -46,6 +49,8 @@ export type FileSearchResult = { path: string; project: string; scope: FileSearc
 
 interface NodeCtx {
   project: string
+  documentPages: boolean
+  openPage: (node: TreeNode, opts?: TreeOpenOptions) => void
   selectedPath: string | null
   focused: Focused
   openDirs: Set<string>
@@ -60,7 +65,7 @@ interface NodeCtx {
   loadingDirs: Set<string>
   /** 드롭 강조 중인 폴더 경로(''=루트). 이동 대상 미리보기 */
   dropDir: string | null
-  onSelect: (path: string, opts?: { preview?: boolean }) => void
+  onSelect: (path: string, opts?: TreeOpenOptions) => void
   toggleDir: (path: string) => void
   focusNode: (path: string, type: 'file' | 'dir') => void
   startRename: (path: string, type: 'file' | 'dir') => void
@@ -148,20 +153,24 @@ function MocItem({
   depth,
   active,
   presenceColors,
+  label = 'Map Of Contents',
+  documentPages = false,
   onSelect,
 }: {
   path: string
   depth: number
   active: boolean
   presenceColors: string[]
-  onSelect: (path: string, opts?: { preview?: boolean }) => void
+  label?: string
+  documentPages?: boolean
+  onSelect: (path: string, opts?: TreeOpenOptions) => void
 }) {
   useUiLocale()
   return (
     <button
       type="button"
       data-path={path}
-      onClick={() => onSelect(path)}
+      onClick={event => onSelect(path, documentPages ? { replaceActive: !event.ctrlKey && !event.metaKey, forceNewTab: event.ctrlKey || event.metaKey, preview: false } : undefined)}
       onDoubleClick={() => onSelect(path, { preview: false })}
       title={path}
       className={`mb-0.5 flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none hover:bg-surface-raised ${
@@ -170,7 +179,7 @@ function MocItem({
       style={{ paddingLeft: `${depth * 14 + 8}px` }}
     >
       <MapIcon size={14} />
-      <span className="min-w-0 flex-1 truncate">Map Of Contents</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
       <PresenceDots colors={presenceColors} />
     </button>
   )
@@ -283,9 +292,11 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
     onDragCancel: ctx.endDrag,
   })
 
-  function handleClick() {
+  function handleClick(event: React.MouseEvent) {
     if (touch.consumeClick()) return
-    if (node.type === 'dir' && node.project && ctx.openProject) {
+    if (ctx.documentPages && !node.project && (node.type === 'dir' || /\.md$/i.test(node.name))) {
+      ctx.openPage(node, { forceNewTab: event.ctrlKey || event.metaKey, replaceActive: !event.ctrlKey && !event.metaKey, preview: false })
+    } else if (node.type === 'dir' && node.project && ctx.openProject) {
       if (ctx.canOpenProjects) ctx.openProject(node.path)
     } else if (node.type === 'dir') {
       ctx.toggleDir(node.path)
@@ -334,6 +345,40 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
         paddingLeft={depth * 14 + 8}
       />
     )
+  }
+
+  if (ctx.documentPages && !node.project && (node.type === 'dir' || /\.md$/i.test(node.name))) {
+    const folder = node.type === 'dir', open = folder && ctx.openDirs.has(node.path)
+    const all = node.children ?? ctx.directoryChildren[node.path] ?? []
+    const representative = folder ? pageRepresentative(node.path, all) : undefined
+    const pageFile = representative?.path ?? (folder && ctx.selectedPath && documentPageTarget(ctx.selectedPath) === node.path ? ctx.selectedPath : undefined)
+    const active = node.path === ctx.selectedPath || pageFile === ctx.selectedPath
+    const creating = ctx.editing?.mode === 'create-file' && ctx.editing.parentPath === node.path ? ctx.editing : null
+    return <div className="group/page" data-document-page={node.path}
+      onDragOver={event => { if (!ctx.canDropInto(node.path)) return; event.preventDefault(); event.stopPropagation(); ctx.onDragOverDir(node.path) }}
+      onDrop={event => { if (!ctx.canDropInto(node.path)) return; event.preventDefault(); event.stopPropagation(); ctx.onDropDir(node.path) }}>
+      <div className={`flex min-w-0 items-center rounded hover:bg-surface-raised ${active ? 'bg-surface-raised' : ''} ${ctx.dropDir === node.path ? 'ring-1 ring-accent' : ''}`} style={{ paddingLeft: depth * 14 + 4 }}>
+        {folder ? <button type="button" aria-label={uiText('{p0} 하위 문서', { p0: node.name })} aria-expanded={open}
+          onClick={() => { ctx.toggleDir(node.path); ctx.focusNode(node.path, 'dir') }} className="flex h-7 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d={open ? 'm6 9 6 6 6-6' : 'm9 6 6 6-6 6'} /></svg>
+        </button> : <span className="w-5 shrink-0" />}
+        <button type="button" aria-current={active ? 'page' : undefined} data-path={node.path} data-page-file={pageFile} draggable={!readOnly} onDragStart={handleDragStart} onDragEnd={ctx.endDrag}
+          onClick={handleClick} {...touchProps} className={`flex min-w-0 flex-1 items-center gap-1.5 rounded py-1 pr-1 text-left text-sm text-ink select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-accent ${isFocused ? 'ring-1 ring-inset ring-accent' : ''}`}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="shrink-0 text-ink-muted" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6M8 13h8M8 17h5" /></svg>
+          <span className="min-w-0 flex-1 truncate">{folder ? node.name : node.name.replace(/\.md$/i, '')}</span>
+          <PresenceDots colors={ctx.presence[pageFile ?? node.path] ?? []} />
+        </button>
+        {!readOnly && <button type="button" aria-label={uiText('{p0}에 하위 문서 추가', { p0: folder ? node.name : node.name.replace(/\.md$/i, '') })}
+          onClick={() => ctx.startCreate(node.path, 'file')} className="mr-1 flex h-7 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent sm:opacity-0 sm:group-hover/page:opacity-100 sm:group-focus-within/page:opacity-100">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        </button>}
+      </div>
+      {creating && <InlineInput value={creating.value} onChange={ctx.setEditValue} onCommit={ctx.submitEdit} onCancel={ctx.cancelEdit} error={creating.error} placeholder={uiText('새 문서 이름')} paddingLeft={(depth + 1) * 14 + 24} />}
+      {open && <div>
+        {ctx.loadingDirs.has(node.path) && <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 24 }}>{uiText('불러오는 중…')}</div>}
+        {all.filter(child => child !== representative && !isMocNode(child)).map(child => <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />)}
+      </div>}
+    </div>
   }
 
   if (node.type === 'file') {
@@ -490,6 +535,10 @@ export function FileTree({
   canUseGit = false,
   compact = false,
   roots,
+  onOpenGraph,
+  documentPages = false,
+  onPageMutation,
+  onBeforePageMutation,
   commands,
   loadChildren,
   treeInvalidation,
@@ -534,6 +583,11 @@ export function FileTree({
   compact?: boolean
   /** 검색창 아래에 서는 Documents/프로젝트 가상 폴더 */
   roots?: React.ReactNode
+  /** Docs root only: graph entry above its MOC. */
+  onOpenGraph?: () => void
+  documentPages?: boolean
+  onBeforePageMutation?: () => Promise<void | (() => void)>
+  onPageMutation?: (result: DocumentPageMutation) => void
   /** 파일 목록 흐름에 끼우는 루트 프로젝트 명령 등 추가 항목 */
   commands?: React.ReactNode
   /** 폴더를 펼칠 때 해당 폴더의 직접 자식만 불러온다. 없으면 기존 완전 트리처럼 동작한다. */
@@ -549,7 +603,7 @@ export function FileTree({
   revealOnMount?: boolean
   onRevealHandled?: () => void
   presence: Record<string, string[]>
-  onSelect: (path: string, opts?: { preview?: boolean }) => void
+  onSelect: (path: string, opts?: TreeOpenOptions) => void
   onFileCreated: (relPath: string) => void
   onFolderCreated: () => void
   onRenamed: (oldPath: string, newPath: string, type: 'file' | 'dir') => void
@@ -622,6 +676,8 @@ export function FileTree({
   const treeScrollRef = useRef(accountState?.scrollTop ?? getTreeScroll(persistedProject) ?? 0)
   const centerAnchorRef = useRef(accountState?.centerAnchor)
   const restoringScrollRef = useRef(!compact)
+  const pageOpenSequence = useRef(0)
+  useEffect(() => () => { pageOpenSequence.current++ }, [persistedProject])
   const initialRevealRef = useRef({ selectedPath, revealSignal: revealOnMount ? -1 : revealSignal })
   const onRevealHandledRef = useRef(onRevealHandled)
   onRevealHandledRef.current = onRevealHandled
@@ -829,7 +885,7 @@ export function FileTree({
     if (!list) return
     // Documents의 바깥 트리도 초기 중앙 위치 보정을 끝내야 한다.
     list.dispatchEvent(new Event('mew:tree-reveal', { bubbles: true }))
-    ensureOpenChain(parentOf(selectedPath))
+    ensureOpenChain(parentOf(documentPages ? documentPageTarget(selectedPath) : selectedPath))
     // 지연 로딩된 자식이 실제로 나타날 때까지 기다린다. 캐시 갱신마다 재스크롤하지 않는다.
     let raf = 0
     const stop = () => {
@@ -839,7 +895,7 @@ export function FileTree({
       onRevealHandledRef.current?.()
     }
     const reveal = () => {
-      const row = list.querySelector<HTMLElement>(`[data-path="${CSS.escape(selectedPath)}"]`)
+      const row = list.querySelector<HTMLElement>(`[data-path="${CSS.escape(selectedPath)}"], [data-page-file="${CSS.escape(selectedPath)}"]`)
       if (!row || !row.getClientRects().length) return
       row.scrollIntoView({ block: 'nearest' })
       stop()
@@ -930,6 +986,7 @@ export function FileTree({
 
   function focusNode(path: string, type: 'file' | 'dir') {
     setFocused({ path, type })
+    if (documentPages && type === 'file' && /\.md$/i.test(path)) { onDirectoryFocus?.(documentPageTarget(path)); return }
     onDirectoryFocus?.(type === 'dir' && !(onOpenProject && projectPaths.has(path)) ? path : parentOf(path))
   }
 
@@ -947,13 +1004,33 @@ export function FileTree({
       return
     }
     setQuery('')
-    ensureOpenChain(parentPath)
-    setEditing({ mode: kind === 'file' ? 'create-file' : 'create-folder', parentPath, value: '' })
+    ensureOpenChain(documentPages && parentPath.endsWith('.md') ? parentOf(parentPath) : parentPath)
+    setEditing({ mode: documentPages || kind === 'file' ? 'create-file' : 'create-folder', parentPath, value: '' })
+  }
+
+  async function changePage(action: Parameters<typeof mutateDocumentPage>[0], path: string, name = '', destination = '') {
+    const release = await onBeforePageMutation?.()
+    try {
+      const result = await mutateDocumentPage(action, path, name, destination)
+      pageOpenSequence.current++
+      const remap = (path: string) => remapPagePath(path, result.moves)
+      setOpenDirs(current => new Set([...current].map(remap)))
+      setFocused(current => current ? { ...current, path: remap(current.path) } : null)
+      const remapNode = (node: TreeNode): TreeNode => ({ ...node, path: remap(node.path), name: basenameOf(remap(node.path)), ...(node.children ? { children: node.children.map(remapNode) } : {}) })
+      directoryChildrenRef.current = Object.fromEntries(Object.entries(directoryChildrenRef.current).map(([parent, nodes]) => [remap(parent), nodes.map(remapNode)]))
+      setDirectoryChildren(directoryChildrenRef.current)
+      onPageMutation?.(result)
+      return result
+    } finally { release?.() }
   }
 
   async function requestCopy(path: string) {
     if (readOnly) return
     try {
+      if (documentPages && (path.endsWith('.md') || focused?.type === 'dir' && focused.path === path || popover?.type === 'dir' && popover.path === path)) {
+        const result = await changePage('copy', path, '', parentOf(path))
+        onFileCreated(result.path); return
+      }
       const { relPath, hidden } = await copyFile(path, project)
       if (hidden) onNotice(notAllowed())
       // 새 파일 생성과 같은 후처리 — 트리 갱신 + 복사본을 탭으로 연다
@@ -973,7 +1050,8 @@ export function FileTree({
     setDeleteTarget(null)
     if (!target) return
     try {
-      await deleteFile(target.path, project)
+      if (documentPages && (target.type === 'dir' || target.path.endsWith('.md'))) await changePage('delete', target.path)
+      else await deleteFile(target.path, project)
       setFocused((f) => (f?.path === target.path ? null : f))
       onDeleted(target.path, target.type)
     } catch (err) {
@@ -1016,6 +1094,10 @@ export function FileTree({
       }
       setEditing({ ...current, busy: true, error: undefined })
       try {
+        if (documentPages && (current.type === 'dir' || current.path.endsWith('.md'))) {
+          const result = await changePage('rename', current.path, name)
+          setEditing(null); ensureOpenChain(parentOf(result.path)); onFolderCreated(); return
+        }
         const { hidden } = await renamePath(current.path, newPath, project)
         setEditing(null)
         // 바꾼 이름이 트리에 안 뜨는 종류면(확장자·숨김 목록) 사라진 것처럼 보인다 — 이유를 알린다
@@ -1042,6 +1124,10 @@ export function FileTree({
       }
       const relPath = current.parentPath ? `${current.parentPath}/${name}` : name
       try {
+        if (documentPages) {
+          const result = await changePage('create', current.parentPath, name)
+          setEditing(null); ensureOpenChain(parentOf(result.path)); onFileCreated(result.path); return
+        }
         const { relPath: created, hidden } = await createNewDocument(relPath, name.replace(/\.md$/i, '') || name, project)
         setEditing(null)
         if (hidden) onNotice(notAllowed())
@@ -1087,6 +1173,10 @@ export function FileTree({
       return
     }
     try {
+      if (documentPages && (srcType === 'dir' || srcPath.endsWith('.md'))) {
+        const result = await changePage('move', srcPath, '', destDir)
+        ensureOpenChain(parentOf(result.path)); onFolderCreated(); return
+      }
       const { hidden } = await renamePath(srcPath, newPath, project)
       if (hidden) onNotice(notAllowed())
       onRenamed(srcPath, newPath, srcType)
@@ -1103,6 +1193,10 @@ export function FileTree({
       return
     }
     try {
+      if (documentPages && sourceWorkspacePath === workspacePath && (srcType === 'dir' || srcPath.endsWith('.md'))) {
+        const result = await changePage('copy', srcPath, '', destDir)
+        ensureOpenChain(parentOf(result.path)); onFileCreated(result.path); return
+      }
       const { relPath, hidden } = await copyInto(srcPath, destDir, project, sourceWorkspacePath === workspacePath ? null : sourceWorkspacePath)
       if (hidden) onNotice(notAllowed())
       if (srcType === 'file') onFileCreated(relPath)
@@ -1181,7 +1275,7 @@ export function FileTree({
 
   function handleTreeKeyDown(e: React.KeyboardEvent) {
     if (readOnly || !focused || editing) return
-    const targetParent = focused.type === 'dir' ? focused.path : parentOf(focused.path)
+    const targetParent = documentPages || focused.type === 'dir' ? focused.path : parentOf(focused.path)
 
     // Ctrl/⌘ + C(복사)·X(잘라내기)·V(붙여넣기)·D(복제). 트리 노드는 select-none이라
     // 가로챌 텍스트 선택이 없어 네이티브 클립보드를 덮어써도 안전하다.
@@ -1204,7 +1298,7 @@ export function FileTree({
       }
       if (k === 'd') {
         e.preventDefault()
-        if (focused.type === 'file') void requestCopy(focused.path) // 폴더 복제는 금지
+        if (focused.type === 'file' || documentPages) void requestCopy(focused.path)
         return
       }
     }
@@ -1254,6 +1348,26 @@ export function FileTree({
 
   const ctx: NodeCtx = {
     project,
+    documentPages,
+    openPage: (node, opts) => {
+      const sequence = ++pageOpenSequence.current
+      focusNode(node.path, node.type)
+      if (node.type === 'file') { onSelect(node.path, opts); return }
+      const resolve = (children: TreeNode[]) => {
+        if (sequence !== pageOpenSequence.current) return
+        const representative = pageRepresentative(node.path, children)
+        if (representative) onSelect(representative.path, opts)
+        else if (!openDirs.has(node.path)) toggleDir(node.path)
+      }
+      const cached = node.children ?? directoryChildrenRef.current[node.path]
+      if (cached) resolve(cached)
+      else if (loadChildren) void loadChildren(node.path).then(children => {
+        if (sequence !== pageOpenSequence.current) return
+        directoryChildrenRef.current = { ...directoryChildrenRef.current, [node.path]: children }
+        setDirectoryChildren(directoryChildrenRef.current)
+        resolve(children)
+      }).catch(error => onNotice(error instanceof Error ? error.message : String(error)))
+    },
     selectedPath,
     focused,
     openDirs,
@@ -1266,7 +1380,7 @@ export function FileTree({
     directoryChildren,
     loadingDirs,
     dropDir,
-    onSelect: (path, opts) => { focusNode(path, 'file'); onSelect(path, opts) },
+    onSelect: (path, opts) => { pageOpenSequence.current++; focusNode(path, 'file'); onSelect(path, opts) },
     toggleDir,
     focusNode,
     startRename,
@@ -1362,10 +1476,17 @@ export function FileTree({
           )
         ) : (
           <>
+            {onOpenGraph && rootPath === '' && <button type="button" data-docs-graph-entry onClick={onOpenGraph}
+              className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m6 7 11 0M6 7l5 11M17 7l-6 11"/><circle cx="6" cy="7" r="2.5"/><circle cx="17" cy="7" r="2.5"/><circle cx="11" cy="18" r="2.5"/></svg>
+              {uiText('그래프 보기')}
+            </button>}
             {rootMoc && (
               <MocItem
                 path={rootMoc.path}
                 depth={0}
+                label={documentPages ? uiText('문서 홈') : undefined}
+                documentPages={documentPages}
                 active={rootMoc.path === selectedPath}
                 presenceColors={presence[rootMoc.path] ?? []}
                 onSelect={(path, opts) => { focusNode(path, 'file'); onSelect(path, opts) }}
@@ -1378,7 +1499,7 @@ export function FileTree({
                 onCommit={submitEdit}
                 onCancel={cancelEdit}
                 error={rootCreateEditing.error}
-                placeholder={rootCreateEditing.mode === 'create-folder' ? uiText("새 폴더 이름") : uiText("새 파일 이름")}
+                placeholder={documentPages ? uiText('새 문서 이름') : rootCreateEditing.mode === 'create-folder' ? uiText("새 폴더 이름") : uiText("새 파일 이름")}
                 paddingLeft={8}
               />
             )}
@@ -1401,7 +1522,7 @@ export function FileTree({
                 }
           }
           onDuplicate={
-            popover.type === 'file'
+            popover.type === 'file' || documentPages
               ? () => {
                   void requestCopy(popover.path)
                   setPopover(null)
@@ -1427,7 +1548,7 @@ export function FileTree({
           onPasteClip={
             clipboard
               ? () => {
-                  void pasteInto(popover.type === 'dir' ? popover.path : parentOf(popover.path))
+                  void pasteInto(documentPages ? popover.path : popover.type === 'dir' ? popover.path : parentOf(popover.path))
                   setPopover(null)
                 }
               : undefined
@@ -1446,10 +1567,10 @@ export function FileTree({
                 }
           }
           onNewFile={onOpenProject && projectPaths.has(popover.path) ? undefined : () => {
-            startCreate(popover.type === 'dir' ? popover.path : parentOf(popover.path), 'file')
+            startCreate(documentPages ? popover.path : popover.type === 'dir' ? popover.path : parentOf(popover.path), 'file')
             setPopover(null)
           }}
-          onNewFolder={onOpenProject && projectPaths.has(popover.path) ? undefined : () => {
+          onNewFolder={documentPages ? undefined : onOpenProject && projectPaths.has(popover.path) ? undefined : () => {
             startCreate(popover.type === 'dir' ? popover.path : parentOf(popover.path), 'folder')
             setPopover(null)
           }}

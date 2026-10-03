@@ -4,7 +4,7 @@ import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp, Check, GitCommit } from 'iconoir-react'
+import { ArrowDown, ArrowUp, Check, GitCommit, Page } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
 import { GitBranchPicker } from './git-branch-picker'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
@@ -270,11 +270,12 @@ function GitComposer({ children, onSubmit }: { children: ReactNode; onSubmit: ()
   </form>
 }
 
-export function GitWorkbench({ project, repositoryPath, onNotice, onBack, actionsHost, visible = true }: {
+export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpenFile, actionsHost, visible = true }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
   onBack?: () => void
+  onOpenFile?: (project: string, path: string) => void
   actionsHost?: HTMLElement | null
   visible?: boolean
 }) {
@@ -610,7 +611,12 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, action
       {aiOpen && <GitAiCommitDialog key={project} project={project} files={[...selectedFiles]} onClose={() => { setAiOpen(false); void refresh() }} onFinished={() => { void refresh() }} />}
       {(view.kind !== 'graph' || onBack) && <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
         {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")} title={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")}><BackIcon /></button>}
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink" title={heading}>{heading}</span>
+        <span className={`min-w-0 flex-1 truncate font-semibold text-ink ${view.kind === 'diff' ? 'text-[10px]' : 'text-sm'}`} title={heading}>{heading}</span>
+        {view.kind === 'diff' && onOpenFile && <button type="button" onClick={() => onOpenFile(project, [repositoryPath, view.file.path].filter(Boolean).join('/'))}
+          disabled={view.file.status.includes('D')} aria-label={uiText("파일 열기")} title={uiText("파일 열기")}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:pointer-events-none">
+          <Page width={16} height={16} aria-hidden="true" />
+        </button>}
       </div>}
 
       {(error || refreshError) && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="select-text min-w-0 flex-1">{error || refreshError}</span><button type="button" onClick={() => { setError(null); setRefreshError(null) }} aria-label={uiText("오류 닫기")}>×</button></div>}

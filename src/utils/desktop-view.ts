@@ -19,6 +19,13 @@ export function rotateDelta(x: number, y: number, rotation: Rotation) {
   return { x, y }
 }
 
+/** Convert viewport coordinates into a quarter-turned element's layout coordinates. */
+export function desktopLocalPoint(element: HTMLElement, x: number, y: number, rotation: Rotation) {
+  const rect = element.getBoundingClientRect()
+  const point = rotateDelta(x - rect.left - rect.width / 2, y - rect.top - rect.height / 2, ((360 - rotation) % 360) as Rotation)
+  return { x: element.clientWidth / 2 + point.x, y: element.clientHeight / 2 + point.y }
+}
+
 export function desktopGeometry(width: number, height: number, nativeWidth: number, nativeHeight: number, rotation: Rotation, view: View) {
   const swapped = rotation === 90 || rotation === 270
   const fit = Math.min(width / (swapped ? nativeHeight : nativeWidth), height / (swapped ? nativeWidth : nativeHeight))

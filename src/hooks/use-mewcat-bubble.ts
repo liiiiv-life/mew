@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, type RefObject } from 'react'
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 
 /** Follow the moving character without rerendering the app on every animation frame. */
-export function useMewcatBubble(anchor: RefObject<HTMLDivElement | null> | undefined, enabled: boolean, preferredWidth = 340) {
+export function useMewcatBubble(anchor: RefObject<HTMLDivElement | null> | undefined, enabled: boolean, preferredWidth = 340, constrainHeight = true) {
   const ref = useRef<HTMLElement>(null)
   useLayoutEffect(() => {
     const bubble = ref.current
@@ -26,10 +26,11 @@ export function useMewcatBubble(anchor: RefObject<HTMLDivElement | null> | undef
         const available = side === 'above' ? above : below
         const bubbleWidth = Math.min(preferredWidth, width)
         bubble.style.width = `${bubbleWidth}px`
-        bubble.style.maxHeight = `${Math.max(0, available - 2)}px`
+        bubble.style.maxHeight = constrainHeight ? `${Math.max(0, available - 2)}px` : 'none'
         const center = box.left + box.width / 2
         const x = clamp(center - bubbleWidth / 2, left, left + width - bubbleWidth)
-        const y = side === 'above' ? box.top - 10 - bubble.offsetHeight : box.bottom + 10
+        const preferredY = side === 'above' ? box.top - 10 - bubble.offsetHeight : box.bottom + 10
+        const y = constrainHeight ? preferredY : clamp(preferredY, top, Math.max(top, bottom - bubble.offsetHeight))
         const tail = clamp(center - x - 1, 18, bubbleWidth - 20)
         const next = `${x}:${y}:${tail}:${side}`
         if (next !== previous) {
@@ -51,6 +52,6 @@ export function useMewcatBubble(anchor: RefObject<HTMLDivElement | null> | undef
       for (const name of ['left', 'top', 'right', 'bottom', 'width', 'max-height', 'visibility', '--mewcat-tail-x']) bubble.style.removeProperty(name)
       delete bubble.dataset.placement
     }
-  }, [anchor, enabled, preferredWidth])
+  }, [anchor, enabled, preferredWidth, constrainHeight])
   return ref
 }

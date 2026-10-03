@@ -6,6 +6,7 @@ import { externalFileName, isExternalTabPath } from '../utils/externalFiles'
 export interface TabBarItem {
   path: string
   preview: boolean
+  label?: string
 }
 
 export function TabBar({
@@ -44,9 +45,9 @@ export function TabBar({
         {tabs.length === 0 && <PanelTitle kind={'editor'} />}
         {tabs.map((tab, i) => {
           const isActive = tab.path === activePath
-          const fileName = isExternalTabPath(tab.path)
+          const fileName = tab.label ?? (isExternalTabPath(tab.path)
               ? externalFileName(tab.path)
-              : tab.path.split('/').pop() ?? tab.path
+              : tab.path.split('/').pop() ?? tab.path)
           return (
             <div
               key={tab.path}

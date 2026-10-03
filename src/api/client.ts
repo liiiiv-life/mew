@@ -1925,3 +1925,11 @@ export function fetchUpdatesStatus(refresh = false): Promise<UpdatesStatus> {
 export function runUpdates(ids: string[]): Promise<UpdatesStatus> {
   return fetch('/api/updates/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).then(json<UpdatesStatus>)
 }
+
+export function fetchDocumentGraph(signal?: AbortSignal): Promise<import('../../shared/document-graph').DocumentGraphData> {
+  return fetch('/api/docs/graph', { signal }).then(json<import('../../shared/document-graph').DocumentGraphData>)
+}
+
+export function mutateDocumentPage(action: 'create' | 'rename' | 'delete' | 'move' | 'copy', path: string, name = '', destination = ''): Promise<import('../../shared/document-pages').DocumentPageMutation> {
+  return fetch(`/api/docs/pages/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, name, destination }) }).then(json<import('../../shared/document-pages').DocumentPageMutation>)
+}

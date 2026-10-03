@@ -54,7 +54,7 @@ export function MewcatResources({ anchorRef, onOpen, onClose, assistant }: { ass
         <h2 className="text-xs font-medium text-ink">{t('mewcat.recent')}</h2>
         <button type="button" className="mewcat-notification-button shrink-0 text-ink-secondary" onClick={onClose} aria-label={t('common.close')}><Xmark width={16} height={16} /></button>
       </header>
-      {recent.length ? <ul className="mewcat-notification-list max-h-[min(32dvh,240px)] overflow-y-auto">
+      {recent.length ? <ul className="mewcat-notification-list">
         {recent.map(notice => {
           const Icon = notice.level === 'success' ? Check : WarningTriangle
           const body = <>

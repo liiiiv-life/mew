@@ -31,6 +31,7 @@ import {publishMewcatNotice,clearMewcatNotices} from '${root}/src/utils/mewcat-n
 localStorage.setItem('mew:locale','ko');
 Math.random=()=>0.7;
 window.clearNotices=clearMewcatNotices;
+window.updateNotice=()=>publishMewcatNotice({key:'updates',kind:'updates',level:'success',source:'mew · Codex · Claude · 설치된 의존성 업데이트',target:'updates'});
 window.addRecent=()=>{publishMewcatNotice({key:'older',kind:'complete',level:'success',source:'Older agent'});publishMewcatNotice({key:'newer',kind:'error',level:'danger',source:'Newest agent'});};
 window.addAll=()=>['complete','stopped','error','permission','cpu','memory','gpu','temperature','test'].forEach(kind=>publishMewcatNotice({key:'locale:'+kind,kind,level:'warning',source:kind==='test'?'Mewcat':'Original agent',target:'system'}));
 window.complete=(source='Codex · mew')=>publishMewcatNotice({key:'completion',kind:'complete',level:'success',source,target:{tabId:'completed-agent',cwd:'/workspace'}});
@@ -104,6 +105,18 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       const conversation = bubble.getByRole('button', { name: mewcatNotificationCopy.ko.open, exact: true })
       if (mobile) await conversation.tap(); else await conversation.click()
       assert.deepEqual(await page.evaluate('window.openedTarget'), { tabId: 'completed-agent', cwd: '/workspace' })
+      await bubble.waitFor({ state: 'detached' })
+      await page.evaluate("window.updateNotice()")
+      await bubble.getByText(mewcatNotificationCopy.ko.updates, { exact: true }).waitFor()
+      assert.equal(await bubble.locator('.mewcat-notifications-content').evaluate(el => {
+        const style = el.ownerDocument.defaultView!.getComputedStyle(el)
+        el.scrollTop = el.scrollHeight
+        const bounds = el.getBoundingClientRect()
+        const textFits = Array.from(el.querySelectorAll('p')).every(p => (p as typeof el).getBoundingClientRect().bottom <= bounds.bottom)
+        return style.overflowY === 'clip' && style.maxHeight === 'none' && el.scrollTop === 0 && textFits
+      }), true, 'update notification shows all content without internal scrolling')
+      await bubble.getByRole('button', { name: mewcatNotificationCopy.ko.updateOpen, exact: true }).click()
+      assert.equal(await page.evaluate('window.openedTarget'), 'updates')
       await bubble.waitFor({ state: 'detached' })
       const cat = page.getByRole('button', { name: '뮤캣', exact: true })
       await cat.evaluate(el => el.addEventListener('pointerdown', () => { (el.ownerDocument.defaultView as unknown as { tappedCatX: number }).tappedCatX = el.getBoundingClientRect().x }, { once: true }))

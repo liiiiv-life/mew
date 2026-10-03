@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "Mewcat 마스코트·알림·휴식"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-30"
+updated: "2026-10-02"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["src/components/Mewcat.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
@@ -48,6 +48,12 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- 업데이트를 포함한 자동 알림 본문은 높이 제한·자체 스크롤 없이 전체 내용을 표시한다. 고양이 주변 공간이 부족하면 말풍선 위치를 화면 안으로 보정한다. 펼친 알림 목록의 스크롤은 유지한다.
+
+- 원격 데스크톱에서 표시하는 뮤캣·말풍선은 뷰어 내부 호스트에 portal하여 배경 `inert`의 영향을 받지 않는다. 클릭·드래그·키보드 조작은 뮤캣에서 처리하고 원격 입력으로 전달하지 않는다.
+
+- 설정 → 뮤캣의 **원격 데스크톱에서 뮤캣 숨기기**를 켜면 원격 뷰어가 열린 동안 고양이·말풍선·휴식 표시를 숨기고 닫으면 복원한다. 기본값은 꺼짐이며 브라우저별 `mew:mewcat-hide-desktop`에 저장한다. 알림 수집·OS 알림과 휴식 타이머는 계속 동작한다.
+
 - 기본 고양이를 검은색으로 표시하며 설정 미리보기·휴식용 큰 고양이에도 같은 색상을 적용한다.
 - 연결 끊김 알림은 반복 방해를 줄이려는 사용자 요청으로 제거했으며 요청 전 재도입하지 않는다.
 - 해당 에이전트 패널 내부의 연결 대기 표시로 대체한다.
@@ -83,6 +89,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-02: PC·모바일 양 테마에서 업데이트 알림 본문 전체 표시·내부 스크롤 없음·업데이트 화면 이동을 확인했다. 알림 UI 회귀·대상 린트·문서 링크 검사가 통과했다. 추가 도우미 UI 검사는 에이전트 선택 메뉴를 기존 대화 버블이 가리는 문제로 실패했다. 빌드·서버 재시작은 수행하지 않았다.
 
 - 알림 판단·설정·브라우저 전달 조건과 Chromium 데스크톱/모바일 2개 테마를 자동 검사한다(명세의 검증 명령).
 - 실제 Windows 알림·음성 출력은 사용자 PC의 테스트 버튼으로 확인한다.

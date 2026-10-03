@@ -1,3 +1,4 @@
+import { representativeName } from '../shared/document-pages.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_PROJECT, DOCS_ROOT, resolveProjectPath } from './paths.ts'
@@ -12,7 +13,7 @@ const MOC_NAMES = ['_MOC.md', 'MOC.md']
 function findNearestMoc(relDir: string): string {
   let dir = relDir
   while (dir && dir !== '.') {
-    for (const name of MOC_NAMES) {
+    for (const name of [representativeName(dir), ...MOC_NAMES]) {
       const candidate = path.join(dir, name)
       if (fs.existsSync(path.join(DOCS_ROOT, candidate))) return candidate.split(path.sep).join('/')
     }
@@ -46,8 +47,9 @@ export function createDocument(project: string, relPath: string, title: string):
     return { relPath, mocRelPath: null }
   }
   fs.writeFileSync(abs, buildFrontmatter(title), 'utf-8')
-  const mocRelPath = findNearestMoc(path.dirname(relPath))
-  appendMocLink(mocRelPath, relPath, title)
+  const candidate = findNearestMoc(path.dirname(relPath))
+  const mocRelPath = fs.existsSync(path.join(DOCS_ROOT, candidate)) ? candidate : null
+  if (mocRelPath) appendMocLink(mocRelPath, relPath, title)
   return { relPath, mocRelPath }
 }
 
