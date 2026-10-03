@@ -1,4 +1,5 @@
 import { uiText } from '@mew/ui/i18n-core'
+import { observeEditorViewport, visibleEditorBounds } from '@mew/ui'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEditor, EditorContent, type Editor as TiptapEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -294,7 +295,7 @@ export const Editor = forwardRef<
   ref,
 ) {
   useUiLocale()
-  const { frontmatter, body } = useMemo(() => splitFrontmatter(value), [value])
+  const { frontmatter, body, lineNumbers: frontmatterLineNumbers } = useMemo(() => splitFrontmatter(value), [value])
   const lineNumberOffset = useMemo(() => {
     if (!frontmatter) return 0
     const bodyStart = value.length - body.length
@@ -351,7 +352,7 @@ export const Editor = forwardRef<
   const [slash, setSlash] = useState<{
     from: number
     query: string
-    position: { top: number; left: number }
+    position: { top: number; bottom: number; left: number }
     selectedIndex: number
   } | null>(null)
   const [editorFocused, setEditorFocused] = useState(false)
@@ -375,8 +376,6 @@ export const Editor = forwardRef<
   const [searchSeed, setSearchSeed] = useState<{ q?: string; n: number }>({ n: 0 })
   const mobileLayout = useMobileLayout()
   const mobileKeyBarVisible = mobileLayout && editorFocused && showMobileKeyBar
-  const mobileKeyBarVisibleRef = useRef(mobileKeyBarVisible)
-  mobileKeyBarVisibleRef.current = mobileKeyBarVisible
   useEffect(() => {
     if (showMobileKeyBar) return
     setKeyBarCtrl(false)
@@ -391,10 +390,8 @@ export const Editor = forwardRef<
       if (!scroller || !ed.isFocused) return
       try {
         const caret = ed.view.coordsAtPos(ed.state.selection.head)
-        const bounds = scroller.getBoundingClientRect()
-        const top = bounds.top + 12
-        // 모바일 보조키 바는 fixed라 스크롤 컨테이너의 높이에 포함되지 않는다.
-        const bottom = bounds.bottom - (mobileKeyBarVisibleRef.current ? 44 : 12)
+        const { top, bottom } = visibleEditorBounds(scroller)
+        if (bottom <= top) return
         if (caret.top < top) scroller.scrollTop -= top - caret.top
         else if (caret.bottom > bottom) scroller.scrollTop += caret.bottom - bottom
       } catch {
@@ -402,6 +399,15 @@ export const Editor = forwardRef<
       }
     })
   }, [])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    return observeEditorViewport(container, () => {
+      const ed = editorRef.current
+      if (ed) scheduleCaretVisibility(ed)
+    })
+  }, [scheduleCaretVisibility])
 
   useEffect(
     () => () => {
@@ -491,7 +497,7 @@ export const Editor = forwardRef<
     setSlash((prev) =>
       prev && prev.from === from && prev.query === query
         ? prev
-        : { from, query, position: { top: coords.bottom + 6, left: coords.left }, selectedIndex: 0 },
+        : { from, query, position: { top: coords.top, bottom: coords.bottom, left: coords.left }, selectedIndex: 0 },
     )
   }, [])
 
@@ -563,7 +569,18 @@ export const Editor = forwardRef<
         onEntryClick: (num) => footnoteHandlersRef.current.onEntry(num),
       }),
       Blockquote,
-      HorizontalRule,
+      HorizontalRule.extend({
+        addNodeView() {
+          return ({ HTMLAttributes }) => {
+            const dom = document.createElement('div')
+            dom.className = 'mew-horizontal-rule'
+            const rule = document.createElement('hr')
+            for (const [name, value] of Object.entries(HTMLAttributes)) rule.setAttribute(name, String(value))
+            dom.append(rule)
+            return { dom }
+          }
+        },
+      }),
       // target: null — Chromium/Brave는 contenteditable 안의 target="_blank" 링크를 클릭하면
       // preventDefault()를 호출해도 새 탭을 강제로 연다 (Ctrl+Click 여부 무관). 속성 자체를 없애야 함.
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-link underline', target: null, rel: null } }),
@@ -1916,6 +1933,7 @@ export const Editor = forwardRef<
       {frontmatter && (
         <FrontmatterPanel
           data={frontmatter}
+          lineNumbers={frontmatterLineNumbers}
           onChange={handleFrontmatterChange}
           readOnly={readOnly}
           docPath={path}
@@ -1986,6 +2004,7 @@ export const Editor = forwardRef<
       {slash && (
         <SlashMenu
           position={slash.position}
+          getAnchor={() => editorRef.current?.view.coordsAtPos(slash.from) ?? slash.position}
           commands={slashResults}
           selectedIndex={slash.selectedIndex}
           onSelect={runSlashCommand}

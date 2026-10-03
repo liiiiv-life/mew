@@ -29,7 +29,7 @@ function Fixture(){
 createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><Fixture/></I18nProvider></React.StrictMode>);`
   const styles: string[] = []
   const bundle = await build({
-    input: 'virtual:switch.tsx', write: false, platform: 'browser', output: { format: 'esm' },
+    input: 'virtual:switch.tsx', write: false, platform: 'browser', output: { format: 'esm', codeSplitting: false },
     transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } },
     plugins: [{
       name: 'switch-fixture',

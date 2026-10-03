@@ -1,3 +1,4 @@
+import { observeEditorViewport } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { DockGrip, DockInlineBody } from './DockWorkspace'
@@ -30,6 +31,7 @@ import { useCollab } from '../hooks/useCollab'
 import type { Pane, Tab } from '../hooks/useTabs'
 import type { DropZone } from '../utils/paneTree'
 import { externalAbsolutePath, isExternalTabPath } from '../utils/externalFiles'
+import { documentPageTarget } from '../../shared/document-pages'
 import { afterFirstPaint, markFileOpen } from '../utils/fileOpenPerformance'
 import { MarkdownErrorBoundary } from './markdown-error-boundary'
 import { useI18n } from '../i18n'
@@ -205,6 +207,10 @@ export function EditorPane({
   const activeTabRef = useRef(activeTab)
   activeTabRef.current = activeTab
   const scrollHostRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const host = scrollHostRef.current
+    if (host) return observeEditorViewport(host, () => {}, true)
+  }, [])
   const viewAnchorRef = useRef<{ project: string; path: string; mode: Tab['viewMode']; anchor: EditorViewAnchor } | null>(null)
   const changeViewMode = (mode: Tab['viewMode']) => {
     if (!activeTab || activeTab.viewMode === mode) return
@@ -516,7 +522,11 @@ export function EditorPane({
       <div data-dock-tab-bar ref={(el) => registerTabBar(pane.id, el)} className={`flex h-9 shrink-0 items-stretch ${focused ? '' : 'opacity-60'}`}>
         <DockGrip group={`editor:${pane.id}`} />
         <TabBar
-          tabs={pane.tabs}
+          tabs={pane.tabs.map(tab => {
+            const entry = editorFile(tab.path, tabProject)
+            const logical = documentPageTarget(entry.path)
+            return entry.project === 'docs' && entry.path.endsWith('.md') ? { ...tab, label: logical.split('/').pop()?.replace(/\.md$/i, '') || uiText('문서 홈') } : tab
+          })}
           activePath={pane.activePath}
           presence={presence}
           onActivate={onActivate}
@@ -558,7 +568,7 @@ export function EditorPane({
               <div className="absolute inset-x-0 top-0 z-10 bg-warning-surface px-4 py-1 text-center text-sm text-warning-ink">
                 {uiText("보관 문서 · 읽기 전용")}</div>
             )}
-            <div className="relative flex min-w-0 flex-1 flex-col">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
               {showSidebarButton && (
                 <div className="absolute left-3 top-3 z-20">
                   <SidebarOpenButton onClick={onOpenSidebar} />
@@ -722,7 +732,7 @@ export function EditorPane({
               </div>
               {/* 상태줄은 늘 떠 있다 — 가운데는 파일 크기, 오른쪽은 선택했을 때만 글자 수.
                   양옆 칸을 같은 flex-1로 둬야 가운데가 바 한가운데에 선다. */}
-              <div className="flex shrink-0 items-center border-t border-edge bg-surface-deep px-2 py-0.5 text-[10px] leading-none text-ink-muted">
+              <div data-editor-status-bar className="flex shrink-0 items-center border-t border-edge bg-surface-deep px-2 py-0.5 text-[10px] leading-none text-ink-muted">
                 <span className="flex-1" />
                 <span>
                   {activeTab.anchorPreview

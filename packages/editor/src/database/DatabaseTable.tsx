@@ -15,9 +15,9 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
   const [addColOpen, setAddColOpen] = useState(false)
 
   return (
-    <div className="overflow-hidden rounded-lg border border-edge-bright bg-surface-raised">
+    <div className="overflow-hidden rounded-[2px] border border-edge bg-surface-deep">
       {/* 헤더: 원통 아이콘 + 제목 + 배지 + 행 수 */}
-      <div className="flex items-center gap-2 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 px-2 py-1">
         <DbGlyph className="shrink-0 text-ink-muted" />
         {editable ? (
           <input
@@ -28,7 +28,7 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
             }}
             placeholder={uiText("제목 없음")}
-            className="min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 text-sm font-semibold text-ink outline-none hover:bg-surface-hover focus:bg-surface-hover"
+            className="min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 text-sm font-semibold text-ink outline-none hover:bg-surface focus:bg-surface"
           />
         ) : (
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{view?.title ?? uiText("데이터베이스")}</span>
@@ -44,14 +44,14 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
       </div>
 
       {loading ? (
-        <div className="border-t border-edge px-3 py-8 text-center text-xs text-ink-muted">{uiText("불러오는 중…")}</div>
+        <div className="border-t border-edge px-2 py-4 text-center text-xs text-ink-muted">{uiText("불러오는 중…")}</div>
       ) : error ? (
-        <div className="select-text border-t border-edge px-3 py-8 text-center text-xs text-danger-strong">{error}</div>
+        <div className="select-text border-t border-edge px-2 py-4 text-center text-xs text-danger-strong">{error}</div>
       ) : !view ? (
-        <div className="border-t border-edge px-3 py-8 text-center text-xs text-ink-muted">{uiText("데이터베이스를 찾을 수 없습니다")}</div>
+        <div className="border-t border-edge px-2 py-4 text-center text-xs text-ink-muted">{uiText("데이터베이스를 찾을 수 없습니다")}</div>
       ) : (
         <div className="overflow-x-auto border-t border-edge">
-          <table className="w-full border-collapse text-sm">
+          <table className="mew-database-table w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-edge">
                 {editable && <th className="w-8 border-r border-edge p-0" />}
@@ -78,7 +78,7 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
             </thead>
             <tbody>
               {view.rows.map((row) => (
-                <tr key={row.id} className="group border-b border-edge last:border-b-0 hover:bg-surface-hover">
+                <tr key={row.id} className="group border-b border-edge last:border-b-0 hover:bg-surface">
                   {editable && (
                     <td className="w-8 border-r border-edge text-center align-middle">
                       <button
@@ -109,7 +109,7 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
                 <tr>
                   <td
                     colSpan={view.columns.length + (editable ? 2 : 0)}
-                    className="px-3 py-6 text-center text-xs text-ink-muted"
+                    className="px-2 py-3 text-center text-xs text-ink-muted"
                   >
                     {uiText("아직 행이 없습니다")}</td>
                 </tr>
@@ -123,7 +123,7 @@ export function DatabaseTable({ ctrl }: { ctrl: DatabaseController }) {
         <button
           type="button"
           onClick={ctrl.addRow}
-          className="flex w-full items-center gap-1.5 border-t border-edge px-3 py-2 text-left text-xs text-ink-muted hover:bg-surface-hover hover:text-ink"
+          className="flex w-full items-center gap-1.5 border-t border-edge px-2 py-1.5 text-left text-xs text-ink-muted hover:bg-surface hover:text-ink"
         >
           <PlusIcon />
           {uiText("행 추가")}</button>
@@ -163,7 +163,7 @@ function AddColumnButton({
           if (!open) setRect(btnRef.current?.getBoundingClientRect() ?? null)
           onToggle()
         }}
-        className="flex h-full w-full items-center justify-center py-2 text-ink-muted hover:bg-surface-hover hover:text-ink"
+        className="flex h-full w-full items-center justify-center py-1.5 text-ink-muted hover:bg-surface hover:text-ink"
       >
         <PlusIcon />
       </button>
@@ -184,7 +184,7 @@ function AddColumnButton({
                     onClose()
                     onAdd(t)
                   }}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-ink hover:bg-surface-hover"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-ink hover:bg-surface"
                 >
                   <span className="w-3.5 shrink-0 text-center text-ink-muted">{TYPE_GLYPH[t]}</span>
                   {TYPE_LABELS[t]}
@@ -233,14 +233,14 @@ function ColumnHeader({
               setRenaming(false)
             }
           }}
-          className="w-full bg-surface-hover px-3 py-2 text-xs font-medium text-ink outline-none"
+          className="w-full bg-surface-hover px-2 py-1.5 text-xs font-medium text-ink outline-none"
         />
       </th>
     )
   }
 
   return (
-    <th className="group/col border-r border-edge px-3 py-2 text-left align-middle last:border-r-0">
+    <th className="group/col border-r border-edge px-2 py-1.5 text-left align-middle last:border-r-0">
       <div className="flex items-center justify-between gap-1">
         <button
           type="button"
@@ -290,7 +290,7 @@ function Cell({
 
   if (col.type === 'checkbox') {
     return (
-      <div className="flex items-center justify-center py-2">
+      <div className="flex items-center justify-center py-1.5">
         <input
           type="checkbox"
           className="accent-accent"
@@ -306,7 +306,7 @@ function Cell({
   }
 
   if (!editable) {
-    return <div className="select-text min-h-[2.25rem] px-3 py-2 text-sm text-ink">{value == null ? '' : String(value)}</div>
+    return <div className="select-text min-h-8 px-2 py-1.5 text-sm text-ink">{value == null ? '' : String(value)}</div>
   }
 
   const inputType = col.type === 'number' ? 'number' : col.type === 'date' ? 'date' : 'text'
@@ -319,7 +319,7 @@ function Cell({
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
       }}
-      className="w-full bg-transparent px-3 py-2 text-sm text-ink outline-none focus:bg-surface-hover"
+      className="w-full bg-transparent px-2 py-1.5 text-sm text-ink outline-none focus:bg-surface"
     />
   )
 }

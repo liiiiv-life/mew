@@ -165,6 +165,16 @@
   border-top: 1px solid var(--color-edge-strong);
   margin: 1.5em 0;
 }
+/* hr는 void 요소여서 줄번호 가상 요소를 표시할 래퍼가 필요하다. */
+.tiptap .mew-horizontal-rule {
+  margin: 1.5em 0;
+}
+.tiptap .mew-horizontal-rule hr {
+  margin: 0;
+}
+.tiptap > div.mew-horizontal-rule[data-mew-line-numbers]::before {
+  top: calc(var(--mew-body-line-height) / -2);
+}
 .tiptap a { color: var(--color-link); text-decoration: underline; }
 /* 인라인 코드처럼 문장 안에서 줄바꿈하고, 세로 padding 없이 테두리 높이를 줄인다. */
 .tiptap a[data-file-link] {
@@ -238,7 +248,7 @@
    화면에서 표가 항상 화면 폭에 갇혀 글자만 세로로 터졌다. 좌우 스크롤(위 wrapper)이 정작 모바일에서
    전혀 걸리지 않던 이유다. table-layout도 auto여야 첫 행뿐 아니라 모든 행 내용이 열 폭에 반영된다.
    폭을 다 조절한 표는 prosemirror-tables가 인라인 width(px)를 박으므로 저장된 폭이 그대로 이긴다. */
-.tiptap table {
+.tiptap table:not(.mew-database-table) {
   border-collapse: collapse;
   table-layout: auto;
   width: max-content;
@@ -246,7 +256,8 @@
   font-size: 0.95em;
 }
 /* 한 열이 끝없이 넓어지는 것만 막는 상한 — 좁은 화면에선 뷰포트 기준으로 더 죈다 */
-.tiptap th, .tiptap td {
+.tiptap th:not(.mew-database-table th),
+.tiptap td:not(.mew-database-table td) {
   position: relative;
   border: 1px solid var(--color-edge-strong);
   padding: 0.4em 0.75em;
@@ -265,7 +276,7 @@
 .tiptap.resize-cursor {
   cursor: col-resize;
 }
-.tiptap th {
+.tiptap th:not(.mew-database-table th) {
   background: var(--color-surface-raised);
   color: var(--color-ink-bright);
   font-weight: 600;
@@ -361,3 +372,55 @@
 }
 .diagram-preview svg { display: block; max-width: none; margin: 0 auto; }
 .diagram-preview[hidden], .diagram-source-toggle[hidden], .code-block-wrap pre[hidden] { display: none; }
+
+/* 속성 행도 본문과 같은 원문 줄번호 거터를 사용한다. */
+.frontmatter-line {
+  position: relative;
+}
+.frontmatter-line[data-mew-line-numbers]::before {
+  content: attr(data-mew-line-numbers);
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: -1.9rem;
+  width: 1.4rem;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--color-ink-muted);
+  opacity: 0.62;
+  pointer-events: none;
+  user-select: none;
+}
+.frontmatter-line:hover::before { opacity: 0.82; }
+.frontmatter-line:focus-within::before {
+  opacity: 1;
+  color: var(--color-ink-secondary);
+}
+/* 번호는 본문 거터에 고정하고, 핸들과 필드 내용만 오른쪽에 공간을 둔다. */
+.frontmatter-property {
+  padding-left: 1.9rem;
+}
+.frontmatter-handle {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1.9rem;
+  height: 1.8rem;
+  padding-right: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  touch-action: none;
+  opacity: 0;
+}
+.frontmatter-property:hover .frontmatter-handle,
+.frontmatter-property:focus-within .frontmatter-handle { opacity: 1; }
+.frontmatter-popover { width: min(240px, calc(100vw - 16px)); }
+@media (pointer: coarse) {
+  .frontmatter-handle { opacity: 1; }
+  .frontmatter-popover button { min-height: 36px; }
+}

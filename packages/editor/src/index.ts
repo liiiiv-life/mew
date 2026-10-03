@@ -24,4 +24,5 @@ export {
   nextFieldKey,
   type FrontmatterData,
   type FrontmatterField,
+  type FrontmatterType,
 } from './utils/frontmatter'

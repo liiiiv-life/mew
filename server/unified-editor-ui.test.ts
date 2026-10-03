@@ -33,7 +33,9 @@ function Fixture(){
 }
 createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><Fixture/></I18nProvider></React.StrictMode>);`
   const bundle = await build({ input: 'virtual:unified.tsx', write: false, platform: 'browser', output: { format: 'esm' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:unified.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, async load(id) { if (id === 'virtual:unified.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8')) } }] })
-  const chunk = bundle.output.find(item => item.type === 'chunk')!
+  const chunks = bundle.output.filter(item => item.type === 'chunk')
+  const chunk = chunks.find(item => item.isEntry)!
+  const scripts = new Map(chunks.map(item => ['/' + item.fileName, item.code]))
   const content = (await Promise.all(['src/components/EditorPane.tsx', 'src/components/TabBar.tsx', 'src/components/DockWorkspace.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))])
@@ -57,10 +59,11 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
       }
       if (url.pathname === '/api/table-layout') return route.fulfill({ json: { tables: {} } })
       if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} })
-      return route.fulfill(url.pathname === '/app.js' ? { contentType: 'text/javascript', body: chunk.code } : { contentType: 'text/html', body: `<!doctype html><html><meta charset="utf-8"><style>${css}[data-dock-workspace]{position:relative;height:650px}</style><div id="root"></div><script type="module" src="/app.js"></script></html>` })
+      const script = url.pathname === '/app.js' ? chunk.code : scripts.get(url.pathname)
+      return route.fulfill(script ? { contentType: 'text/javascript', body: script } : { contentType: 'text/html', body: `<!doctype html><html><meta charset="utf-8"><style>${css}[data-dock-workspace]{position:relative;height:650px}</style><div id="root"></div><script type="module" src="/app.js"></script></html>` })
     })
     await page.goto('http://mew-unified.test/')
-    await page.getByRole('button', { name: 'Open Documents', exact: true }).click()
+    await page.getByRole('button', { name: 'Open Documents', exact: true }).click().catch(error => { if (errors.length) throw new Error(errors.join('\n')); throw error })
     await page.locator('.cm-content').filter({ hasText: 'Documents original' }).waitFor()
     const panel = page.locator('[data-dock-panel="editor:main"]')
     const terminal = page.locator('[data-dock-panel="terminal:fixture"]')

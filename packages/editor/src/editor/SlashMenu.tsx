@@ -1,3 +1,5 @@
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { placeSlashMenu } from './slashMenuPosition'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 // 슬래시(/) 커맨드 메뉴 — '/' 입력 시 뜨고 이어 타이핑하면 실시간으로 필터된다 (노션식).
@@ -16,19 +18,52 @@ export interface SlashCommand {
 
 export function SlashMenu({
   position,
+  getAnchor,
   commands,
   selectedIndex,
   onSelect,
 }: {
-  position: { top: number; left: number }
+  position: { top: number; bottom: number; left: number }
+  getAnchor: () => { top: number; bottom: number; left: number }
   commands: SlashCommand[]
   selectedIndex: number
   onSelect: (command: SlashCommand) => void
 }) {
   useUiLocale()
+  const menu = useRef<HTMLDivElement>(null)
+  const [layout, setLayout] = useState<CSSProperties>({ visibility: 'hidden' })
+  useLayoutEffect(() => {
+    const element = menu.current
+    if (!element) return
+    const viewport = window.visualViewport
+    const place = () => {
+      const anchor = getAnchor()
+      setLayout(placeSlashMenu(anchor, {
+        top: viewport?.offsetTop ?? 0,
+        left: viewport?.offsetLeft ?? 0,
+        width: viewport?.width ?? window.innerWidth,
+        height: viewport?.height ?? window.innerHeight,
+      }, element.scrollHeight + 2))
+    }
+    place()
+    const observer = new ResizeObserver(place)
+    observer.observe(element)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    viewport?.addEventListener('resize', place)
+    viewport?.addEventListener('scroll', place)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+      viewport?.removeEventListener('resize', place)
+      viewport?.removeEventListener('scroll', place)
+    }
+  }, [position, getAnchor, commands])
   return (
     <div
-      style={{ position: 'fixed', top: position.top, left: position.left, zIndex: 1000 }}
+      ref={menu}
+      style={{ position: 'fixed', ...layout, zIndex: 1000 }}
       className="max-h-72 w-64 overflow-y-auto rounded border border-edge-bright bg-surface-raised p-1 shadow-lg"
     >
       {commands.length === 0 ? (

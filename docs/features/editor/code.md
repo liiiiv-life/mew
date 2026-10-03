@@ -4,7 +4,7 @@ parent: "mew-editor"
 title: "코드·텍스트 편집과 문서 내 검색"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-10-02"
 status_hash: "4d8fe6026b3341576de674bb4b2ae85cd1124f3eb3638b2e33e15d8697ed1fc1"
 files: ["src/components/EditorPane.tsx", "src/hooks/useTabs.ts", "src/components/CodePane.tsx", "packages/editor/src/editor/EditorSearchBar.tsx"]
 commits: []
@@ -18,6 +18,8 @@ commits: []
 
 - 줄 번호·구문 강조·지원 형식의 진단을 표시한다.
 - 문서 안 찾기·바꾸기와 실행 취소·다시 실행을 제공한다.
+
+- 모바일 키보드가 열릴 때 편집기 높이를 줄여 터치한 커서 줄과 선택 글자 수·파일 크기 상태줄을 키보드 위에 유지한다.
 
 ### 경계와 제한
 
@@ -33,6 +35,8 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- 모바일 viewport·편집기 높이 변경 뒤 포커스된 커서를 다시 맞추고 키보드를 닫으면 높이를 복원한다. 상세 계약은 [모바일 에디터와 키보드](../../development/ui-contracts.md#모바일-에디터와-키보드)를 따른다.
+
 - 줄 번호·구문 강조·지원 형식의 진단을 표시한다.
 
 - 본문 로딩 중에는 에디터 영역에 반투명 검정 덮개와 중앙 인디케이터를 표시하고 편집을 막는다.
@@ -43,6 +47,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- `server/editor-keyboard-ui.test.ts`에서 키보드로 줄어든 화면의 28번 줄 유지·반복 크기 변경·상태줄과 보조키의 비겹침·입력·높이 복원·데스크톱과 읽기 스크롤 보존을 확인한다. OS 키보드 자체는 실기기 확인 대상이다.
 
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 지원 파일의 강조·진단·찾기 위치와 수정 후 실행 취소를 확인한다.

@@ -32,7 +32,7 @@ function Fixture(){
 }
 createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><Fixture/></I18nProvider></React.StrictMode>);`
   const bundle = await build({
-    input: 'virtual:editor-recovery.tsx', write: false, platform: 'browser', output: { format: 'esm' },
+    input: 'virtual:editor-recovery.tsx', write: false, platform: 'browser', output: { format: 'esm', codeSplitting: false },
     transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } },
     plugins: [{
       name: 'editor-recovery-fixture',
@@ -47,7 +47,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
       transform(code, id) {
         if (!id.endsWith('/packages/editor/src/Editor.tsx')) return
         // Exercise both render failures and editor initialization effect failures in the real tree.
-        const anchor = '  const { frontmatter, body } = useMemo('
+        const anchor = '  const { frontmatter, body, lineNumbers: frontmatterLineNumbers } = useMemo('
         assert.ok(code.includes(anchor))
         return code.replace(anchor, `
   useEffect(() => { if (path === 'broken-effect.md') throw new Error('fixture initialization failure') }, [path])

@@ -13,7 +13,7 @@ export function DatabaseView(props: NodeViewProps) {
   const ctrl = useDatabaseView(api, dbId, readonly)
 
   return (
-    <NodeViewWrapper className="my-3">
+    <NodeViewWrapper className="my-2">
       {/* contentEditable=false + mousedown/keydown 전파 차단: 표 안의 입력·클릭이 ProseMirror의
           노드 선택/드래그로 새어 포커스를 뺏기지 않게 한다 (그러지 않으면 셀·제목 입력이 안 됨) */}
       <div

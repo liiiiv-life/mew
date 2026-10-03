@@ -1,5 +1,6 @@
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
+import { useEffect, useRef } from 'react'
 // 모바일 입력 영역의 보조키 바 (Termux의 extra keys 같은 역할).
 // 키보드가 떠 있을 때만 쓰는 게 아니라 — 키보드를 내린 채 방향키로 스크롤하거나 Esc를 보내는 데도
 // 쓰므로 — 띄울지 말지는 useMobileLayout(화면 폭)이 정한다.
@@ -65,10 +66,31 @@ export function MobileKeyBar({
   extraKeys?: Array<{ label: string; ariaLabel?: string; onClick: () => void }>
 }) {
   useUiLocale()
+  const barRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (placement !== 'fixed') return
+    const viewport = window.visualViewport
+    const bar = barRef.current
+    const originalBottom = bar?.style.bottom ?? ''
+    const update = () => {
+      const bottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)
+      if (bar) bar.style.bottom = `${Math.max(0, window.innerHeight - bottom)}px`
+    }
+    update()
+    viewport?.addEventListener('resize', update)
+    viewport?.addEventListener('scroll', update)
+    window.addEventListener('resize', update)
+    return () => {
+      viewport?.removeEventListener('resize', update)
+      viewport?.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+      if (bar) bar.style.bottom = originalBottom
+    }
+  }, [placement])
   return (
     // z-20 — 전체 화면 오버레이(사이드바·채팅·에이전트·터미널)는 z-30이다. 같은 z-30으로 두면
     // DOM 순서상 에디터가 사이드바보다 뒤라 보조키가 사이드바 위에 떠 버린다
-    <div data-mobile-key-bar className={`${placement === 'fixed' ? 'fixed inset-x-0 bottom-0 z-20' : 'relative z-20 shrink-0'} flex items-center gap-0.5 overflow-x-auto border-t border-edge bg-surface-deep px-1.5 py-1 shadow-[0_-3px_12px_rgba(0,0,0,0.16)]`}>
+    <div ref={barRef} data-mobile-key-bar className={`${placement === 'fixed' ? 'fixed inset-x-0 bottom-0 z-20' : 'relative z-20 shrink-0'} flex items-center gap-0.5 overflow-x-auto border-t border-edge bg-surface-deep px-1.5 py-1 shadow-[0_-3px_12px_rgba(0,0,0,0.16)]`}>
       <KeyButton stretch={stretch} label="Esc" onClick={onEsc} />
       <KeyButton stretch={stretch} label="Tab" onClick={onTab} />
       <KeyButton stretch={stretch} label="Ctrl" active={ctrlActive} onClick={onToggleCtrl} />

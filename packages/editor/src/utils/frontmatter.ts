@@ -1,7 +1,11 @@
 import { uiText } from '@mew/ui/i18n-core'
+export const FRONTMATTER_TYPES = ['text', 'link', 'select', 'multi-select', 'date', 'number'] as const
+export type FrontmatterType = typeof FRONTMATTER_TYPES[number]
 export interface FrontmatterField {
   key: string
   value: string
+  type?: FrontmatterType
+  options?: string[]
 }
 
 export interface FrontmatterData {
@@ -26,30 +30,78 @@ function quote(raw: string): string {
   return `"${raw.replace(/"/g, '\\"')}"`
 }
 
+/** Settings stay attached to their field in a YAML comment, without becoming document properties. */
+function parseField(key: string, raw: string): FrontmatterField {
+  const tag = ' # mew:field '
+  for (let marker = raw.indexOf(tag); marker !== -1; marker = raw.indexOf(tag, marker + tag.length)) {
+    try {
+      const settings = JSON.parse(raw.slice(marker + tag.length))
+      if (settings && FRONTMATTER_TYPES.includes(settings.type)) {
+        return { key, value: unquote(raw.slice(0, marker)), type: settings.type,
+          ...(Array.isArray(settings.options) ? { options: [...new Set<string>(settings.options.filter((v: unknown) => typeof v === 'string'))] } : {}) }
+      }
+    } catch { /* A tag in the value/options is text; keep looking for a complete settings comment. */ }
+  }
+  return { key, value: unquote(raw) }
+}
+
+export function frontmatterType(field: FrontmatterField): FrontmatterType {
+  if (field.type) return field.type
+  if (/^\d{4}-\d{2}-\d{2}$/.test(field.value)) return 'date'
+  if (field.value.trim() && Number.isFinite(Number(field.value))) return 'number'
+  if (/^https?:\/\/|^\[[^\]]*\]\([^)]+\)$/.test(field.value)) return 'link'
+  return 'text'
+}
+
+export function frontmatterSelections(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value)
+    if (Array.isArray(parsed) && parsed.every(v => typeof v === 'string')) return [...new Set<string>(parsed)]
+  } catch { /* A scalar becomes one choice; commas inside text do not split it. */ }
+  return value ? [value] : []
+}
+
+export function changeFrontmatterType(field: FrontmatterField, type: FrontmatterType): FrontmatterField {
+  const previous = frontmatterType(field)
+  const selections = previous === 'multi-select' ? frontmatterSelections(field.value) : field.value ? [field.value] : []
+  const value = type === 'multi-select' ? JSON.stringify(selections)
+    : previous === 'multi-select' && selections.length <= 1 ? selections[0] ?? '' : field.value
+  return { ...field, type, value,
+    ...(['select', 'multi-select'].includes(type) ? { options: [...new Set([...(field.options ?? []), ...selections])] } : {}) }
+}
+
 /** frontmatter가 없거나 title이 없으면 frontmatter: null, body는 원본 그대로. title 외엔 전부 선택 필드. */
-export function splitFrontmatter(content: string): { frontmatter: FrontmatterData | null; body: string } {
+export function splitFrontmatter(content: string): { frontmatter: FrontmatterData | null; body: string; lineNumbers?: { title: number; fields: number[] } } {
   const match = FRONTMATTER_RE.exec(content)
   if (!match) return { frontmatter: null, body: content }
 
   let title: string | undefined
   const fields: FrontmatterField[] = []
-  for (const line of match[1].split(/\r?\n/)) {
+  const lineNumbers = { title: 2, fields: [] as number[] }
+  for (const [index, line] of match[1].split(/\r?\n/).entries()) {
+    if (line.trimStart().startsWith('#')) continue
     const m = FIELD_LINE_RE.exec(line)
     if (!m) continue
     const key = m[1].trim()
     const value = unquote(m[2])
-    if (key === 'title') title = value
-    else fields.push({ key, value })
+    if (key === 'title') {
+      title = value
+      lineNumbers.title = index + 2
+    } else {
+      fields.push(parseField(key, m[2]))
+      lineNumbers.fields.push(index + 2)
+    }
   }
   if (title === undefined) return { frontmatter: null, body: content }
 
-  return { frontmatter: { title, fields }, body: content.slice(match[0].length) }
+  return { frontmatter: { title, fields }, body: content.slice(match[0].length), lineNumbers }
 }
 
 export function joinFrontmatter(frontmatter: FrontmatterData, body: string): string {
   const lines = [`title: ${quote(frontmatter.title)}`]
   for (const f of frontmatter.fields) {
-    lines.push(`${f.key}: ${quote(f.value)}`)
+    const settings = f.type ? ` # mew:field ${JSON.stringify({ type: f.type, ...(f.options ? { options: f.options } : {}) })}` : ''
+    lines.push(`${f.key}: ${quote(f.value)}${settings}`)
   }
   return `---\n${lines.join('\n')}\n---\n\n${body}`
 }

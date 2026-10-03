@@ -16,7 +16,7 @@ import { SearchQuery, openSearchPanel, setSearchQuery } from '@codemirror/search
 import { HighlightStyle, StreamLanguage, bracketMatching, syntaxHighlighting } from '@codemirror/language'
 import { linter, lintGutter } from '@codemirror/lint'
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
-import { pathFromDrag } from '@mew/ui'
+import { pathFromDrag, observeEditorViewport, visibleEditorBounds } from '@mew/ui'
 import { tags } from '@lezer/highlight'
 import type { Collab } from '../hooks/useCollab'
 import { markdown } from '@codemirror/lang-markdown'
@@ -379,11 +379,24 @@ export const CodePane = forwardRef<
     })
     const view = new EditorView({ state, parent: container })
     viewRef.current = view
+    const stopViewport = observeEditorViewport(container, () => view.requestMeasure({
+      key: container,
+      read: () => {
+        if (!view.hasFocus) return 0
+        const caret = view.coordsAtPos(view.state.selection.main.head)
+        if (!caret) return 0
+        const { top, bottom } = visibleEditorBounds(view.scrollDOM)
+        if (bottom <= top) return 0
+        return caret.bottom > bottom ? caret.bottom - bottom : caret.top < top ? caret.top - top : 0
+      },
+      write: delta => { if (delta) view.scrollDOM.scrollTop += delta },
+    }))
     const unsubscribeLocale = subscribeUiLocale(() => view.dispatch({ effects: refreshCodeSearchLanguage() }))
     // 방금 만든 뷰에 지금 스레드를 흘려 넣는다 — 필드 초기값은 빈 목록이다
     if (commentThreadsRef.current.length > 0) view.dispatch({ effects: setCommentThreads.of(commentThreadsRef.current) })
 
     return () => {
+      stopViewport()
       unsubscribeLocale()
       view.destroy()
       viewRef.current = null
