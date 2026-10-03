@@ -70,7 +70,7 @@ new AgentSideConnection(conn=>({
   return { session, budget, events, meta }
 }
 
-test('pressure cancels active AI once, retains queue, persists error and requires explicit recovery', { timeout: 10_000 }, async t => {
+test('pressure cancels active AI once, retains queue, persists error and automatically continues after recovery', { timeout: 10_000 }, async t => {
   const { session, budget, events, meta } = await fixture(t)
   session.prompt('hold')
   session.prompt('queued')
@@ -87,20 +87,20 @@ test('pressure cancels active AI once, retains queue, persists error and require
   assert.throws(() => session.prompt('rejected'), /메모리/)
   budget.available = 1.2 * GIB
   assert.throws(() => session.prompt('still rejected'), /메모리/)
-  budget.available = 4 * GIB
-  session.checkMemory()
-  session.beginQueuedEdit(0, 'queued')
-  session.cancelQueuedEdit(0, 'queued')
-  assert.deepEqual(meta().queued, ['queued'])
-  assert.equal(meta().memoryPaused, true)
   session.prompt('scheduled', 'scheduled', [], [], undefined, true)
   assert.deepEqual(meta().queued, ['queued', 'scheduled'])
   await assert.rejects(session.runOnce('background'), /메모리 보호/)
-  session.prompt('resume')
-  await until(() => !session.busy && meta().queued.length === 0)
+  budget.available = 4 * GIB
+  session.beginQueuedEdit(0, 'queued')
+  session.checkMemory()
+  assert.equal(session.busy, false)
   assert.equal(meta().memoryPaused, false)
+  session.cancelQueuedEdit(0, 'queued')
+  await until(() => !session.busy && meta().queued.length === 0)
   const sent = events.flatMap(e => e.type === 'update' && e.update.sessionUpdate === 'user_message_chunk' && e.update.content.type === 'text' ? [e.update.content.text] : [])
-  assert.deepEqual(sent, ['hold', 'queued', 'scheduled', 'resume'])
+  assert.equal(sent[0], 'hold')
+  assert.match(sent[1], /중단된 작업을 이어서/)
+  assert.deepEqual(sent.slice(2), ['queued', 'scheduled'])
 })
 
 test('pressure cancels running CLI, preserves waiting CLI and guards queue drain', async t => {
@@ -118,9 +118,24 @@ test('pressure cancels running CLI, preserves waiting CLI and guards queue drain
   assert.equal(queuedCancels, 0)
   assert.deepEqual(meta().queued, ['waiting'])
   budget.available = 4 * GIB
-  session.prompt('resume')
+  session.checkMemory()
   await until(() => !session.busy && meta().queued.length === 0)
   assert.equal(queuedRuns, 1)
+})
+
+test('user stop removes memory continuation even without waiting work', async t => {
+  const { session, budget, events, meta } = await fixture(t)
+  session.prompt('hold')
+  await new Promise(resolve => setTimeout(resolve, 80))
+  budget.available = 0
+  session.checkMemory()
+  await until(() => !session.busy)
+  session.cancel()
+  budget.available = 4 * GIB
+  session.checkMemory()
+  assert.equal(meta().memoryPaused, false)
+  assert.equal(session.busy, false)
+  assert.equal(events.filter(e => e.type === 'turn_start').length, 1)
 })
 
 test('low memory refuses initial agent spawn', async () => {

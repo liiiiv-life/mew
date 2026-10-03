@@ -18,7 +18,7 @@ import * as cache from '${root}/src/utils/agent-history-cache.ts';
 window.cache=cache;window.requests=[];
 const events=[];for(let i=0;i<45;i++)events.push({type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question '+i}}},{type:'turn_start'},{type:'update',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Answer '+i+' '+('long readable answer '.repeat(15))}}},{type:'turn_end',stopReason:'end_turn'});
 const index=new HistoryIndex('browser-generation');events.forEach(event=>index.push(event));
-const meta={type:'meta',meta:{sessionId:'conversation',startedAt:new Date().toISOString(),turns:45,busy:false,queued:[],usage:null,canLoad:true,canList:true}};
+const meta={type:'meta',meta:{sessionId:'conversation',startedAt:new Date().toISOString(),turns:45,busy:false,queued:location.search.includes('slow')?[]:['Saved queue task'],queuedKinds:['prompt'],queuedAttachments:[[{project:'test',path:'notes.md',mimeType:'text/markdown'}]],queuedSettings:[{model:'Cached model',thinking:'High',permission:'Default'}],usage:null,canLoad:true,canList:true}};
 class Socket {
  static OPEN=1;readyState=0;
  constructor(url){window.socket=this;this.url=url;window.requests.push(url);setTimeout(()=>{this.readyState=1;this.onopen?.();const query=new URL(url).searchParams;this.emit({type:'history',page:index.page(events,'conversation',{generation:query.get('generation'),after:query.has('after')?Number(query.get('after')):undefined})});this.emit(meta)},location.search.includes('slow')?1500:20)}
@@ -77,11 +77,21 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
         if (!cached) await new Promise(resolve => setTimeout(resolve, 50))
       }
       assert.ok(cached, 'cache exists before navigation')
+      const queueKey = `window.cache.historyCacheKey('alice','codex','history','/workspace')`
+      await page.waitForFunction(`window.cache.readQueueCache(${queueKey}).then(value=>value?.queued[0]==='Saved queue task')`)
+      assert.equal(await page.evaluate(`window.cache.readQueueCache(window.cache.historyCacheKey('bob','codex','history','/workspace'))`), null)
       assert.equal(await page.evaluate(`window.cache.readHistoryCache(window.cache.historyCacheKey('bob','codex','history','/workspace'))`), null)
+      await page.evaluate('window.socket.close()')
+      assert.equal(await page.getByText('Saved queue task', { exact: true }).count(), 1, 'disconnect preserves the queue')
       await page.goto('http://mew-history.test/?slow')
       await page.getByText('Question 44', { exact: true }).waitFor()
+      await page.getByText('Saved queue task', { exact: true }).waitFor()
+      await page.getByText('Saved queue task', { exact: true }).click()
+      await page.locator('[data-queue-settings]').filter({ hasText: 'Cached model' }).waitFor()
+      assert.equal(await page.locator('[data-queue-row] button').first().isDisabled(), true)
       assert.equal(await page.evaluate('window.socket.readyState'), 0, 'local history is visible before the connection opens')
       await page.waitForFunction('window.socket.readyState===1')
+      await page.getByText('Saved queue task', { exact: true }).waitFor({ state: 'detached' })
       assert.ok(await page.evaluate(`window.requests[0].includes('after=180')`), 'reload resumes from the cached cursor')
       assert.equal(await page.getByText('Question 44', { exact: true }).count(), 1)
       await page.screenshot({ path: `/tmp/mew-history-${width}-${dark ? 'dark' : 'light'}.png` })
@@ -102,6 +112,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       }
       await page.evaluate(`window.cache.clearHistoryTab('history')`)
       assert.equal(await page.evaluate(`window.cache.readHistoryCache(window.cache.historyCacheKey('alice','codex','history','/workspace'))`), null)
+      assert.equal(await page.evaluate(`window.cache.readQueueCache(window.cache.historyCacheKey('alice','codex','history','/workspace'))`), null)
       assert.deepEqual(errors, [])
       await page.close()
     }

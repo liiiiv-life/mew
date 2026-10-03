@@ -386,6 +386,9 @@ export class AgentSession {
   #reader: UsageReader | null = null
   #usage: Usage | null = null
   #readMemory: MemoryReader
+  #activePrompt = false
+  #activePromptSettings: AgentMessageSettings | undefined
+  #memoryContinuation: QueuedPrompt | null = null
   #memoryPaused = false
   #memoryTimer: NodeJS.Timeout
   busy = false
@@ -931,7 +934,7 @@ export class AgentSession {
     // Explicit new submission resumes a quota-paused queue; edits/reconnects do not.
     const resume = memoryResumed || !this.busy && this.#accessIssue !== null
     if (resume) this.#accessIssue = null
-    if (this.busy || this.#queue.length > 0 || this.#clearFailed) {
+    if (this.busy || this.#queue.length > 0 || this.#memoryContinuation || this.#clearFailed) {
       this.#queue.push({ kind: 'prompt', text, promptText, images, imageRefs, settings, attachments })
       this.#broadcast(this.#metaEvent())
       if (resume) this.#drainQueue()
@@ -1128,6 +1131,8 @@ export class AgentSession {
       this.#idleTimer = null
     }
     this.busy = true
+    this.#activePrompt = true
+    this.#activePromptSettings = settings
     this.#turns += 1
     const turnStartedAt = Date.now()
     // 사용자 발화도 이벤트 버퍼에 남긴다 — 재접속한 창이 대화를 그대로 복원하려면 여기 있어야 한다
@@ -1173,6 +1178,8 @@ export class AgentSession {
           catch (error) { this.#emit({ type: 'error', message: describeError(error) }) }
           finally { this.#promptSettingsActive = false }
         }
+        this.#activePrompt = false
+        this.#activePromptSettings = undefined
         this.busy = false
         if (this.#authRequired) {
           this.#armIdleTimer()
@@ -1185,12 +1192,12 @@ export class AgentSession {
   /** 큐의 다음 항목 하나만 시작한다. clear 뒤의 프롬프트는 새 세션에서 시작한다. */
   #drainQueue() {
     if (this.#disposed || this.busy || this.#clearFailed) return
-    if (this.#accessIssue || this.#memoryPaused) {
+    if (this.#authRequired || this.#accessIssue || this.#memoryPaused) {
       this.#broadcast(this.#metaEvent())
       this.#armIdleTimer()
       return
     }
-    const next = this.#queue[0]
+    const next = this.#memoryContinuation ?? this.#queue[0]
     if (next === undefined) {
       void this.#pushMeta()
       this.#armIdleTimer()
@@ -1204,7 +1211,8 @@ export class AgentSession {
       this.#broadcast(this.#metaEvent())
       return
     }
-    this.#queue.shift()
+    if (next === this.#memoryContinuation) this.#memoryContinuation = null
+    else this.#queue.shift()
     if (next.kind === 'clear') {
       void this.#clearSession().then(() => this.#drainQueue())
       return
@@ -1419,9 +1427,17 @@ export class AgentSession {
     catch { return '메모리 상태를 확인하지 못해 작업을 보류합니다' }
   }
 
-  /** Polling and queue admission share this path; no automatic replay after recovery. */
+  /** Recovery waits for both sufficient headroom and cancellation completion. */
   checkMemory() {
-    if (this.#disposed || this.#memoryPaused || !this.busy && this.#queue.length === 0) return
+    if (this.#disposed) return
+    if (this.#memoryPaused) {
+      if (this.busy || this.#memoryProblem(true)) return
+      this.#memoryPaused = false
+      this.#broadcast(this.#metaEvent())
+      this.#drainQueue()
+      return
+    }
+    if (!this.busy && this.#queue.length === 0) return
     const pressure = this.#memoryProblem()
     if (pressure) this.#pauseForMemory(pressure)
   }
@@ -1429,7 +1445,11 @@ export class AgentSession {
   #pauseForMemory(reason: string) {
     if (this.#memoryPaused) return
     this.#memoryPaused = true
-    const message = `${reason}. 진행 작업 중단을 요청하고 대기열을 보류했습니다. 메모리 회복 후 새 메시지나 명령을 보내면 대기열부터 재개합니다. 중단된 작업은 자동 재실행하지 않습니다.`
+    if (this.#activePrompt) {
+      const text = '메모리 부족으로 중단된 작업을 이어서 진행하세요. 이전 대화와 현재 파일 상태를 확인하고 이미 완료된 작업을 반복하지 말고 남은 작업을 완료하세요.'
+      this.#memoryContinuation = { kind: 'prompt', text, promptText: text, images: [], imageRefs: [], settings: this.#activePromptSettings }
+    }
+    const message = `${reason}. 진행 작업 중단을 요청하고 대기열을 보류했습니다. 메모리 회복 후 중단된 AI 작업과 대기열을 자동으로 재개합니다.`
     console.error(`[mew:agent-memory] ${new Date().toISOString()} runtime=${this.runtime} ${message}`)
     this.#emit({ type: 'error', message })
     this.#saveTranscript()
@@ -1463,6 +1483,7 @@ export class AgentSession {
   /** 승인 대기 중인 요청은 취소 결과로 닫는다 — 스펙 요구사항(cancel 시 outcome: cancelled) */
   cancel() {
     // 진행 작업의 finally에서 종료 확인 후 다음 FIFO 항목을 실행한다.
+    this.#memoryContinuation = null
     this.#cancelActive()
     this.#broadcast(this.#metaEvent())
   }
@@ -1549,6 +1570,8 @@ export class AgentSession {
       this.#listeners.size > 0 ||
       this.busy ||
       this.#queue.length > 0 ||
+      this.#memoryPaused ||
+      this.#memoryContinuation !== null ||
       this.#authenticating ||
       this.#pendingElicitations.size > 0 ||
       this.#idleTimer ||

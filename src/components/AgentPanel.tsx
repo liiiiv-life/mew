@@ -1,5 +1,5 @@
 import { canAutoFocusInput } from '@mew/ui'
-import { historyCacheKey, readHistoryCache, writeHistoryCache, type CachedHistory } from '../utils/agent-history-cache'
+import { historyCacheKey, readHistoryCache, writeHistoryCache, readQueueCache, writeQueueCache, type CachedQueue, type CachedHistory } from '../utils/agent-history-cache'
 import { mergeHistoryPage, appendHistoryEvent } from '../utils/agent-history-state'
 import { PanelTitle } from './panel-title'
 import type { AgentAttachmentInput } from '../../shared/agent-attachment'
@@ -2158,6 +2158,7 @@ function AgentSessionView({
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [meta, setMeta] = useState<SessionMeta | null>(null)
+  const [cachedQueue, setCachedQueue] = useState<CachedQueue | null>(null)
   const cli = useAgentCommands({ runtime, cwd, sessionId: meta?.sessionId ?? resumeSessionId ?? '' }, allowTerminal)
   const commandPopup = cli.records.find(command => command.id === commandPopupId)
   useEffect(() => { if (!allowTerminal) setCliMode(false) }, [allowTerminal])
@@ -2493,6 +2494,7 @@ function AgentSessionView({
     setModes(cachedControls.modes)
     setThinking(cachedControls.thinking)
     setMeta(null)
+    setCachedQueue(null)
     setAuth(null)
     setAuthUrl(null)
     setAuthTerminal(null)
@@ -2580,6 +2582,8 @@ function AgentSessionView({
         if (event.type === 'thinking') return adoptThinking(event.thinking)
         if (event.type === 'meta') {
           setNewConversationPending(false)
+          setCachedQueue(event.meta)
+          if (!restoreFailureRef.current && !replayRef.current?.restoreFailure) void writeQueueCache(cacheKey, tabId, event.meta)
           const replayed = replayRef.current
           if (replayed) {
             replayRef.current = null
@@ -2688,7 +2692,8 @@ function AgentSessionView({
       }
     }
     let cacheDeadline: ReturnType<typeof setTimeout>
-    void Promise.race([readHistoryCache(cacheKey), new Promise<null>(resolve => { cacheDeadline = setTimeout(() => resolve(null), 200) })]).then(cached => {
+    void Promise.race([Promise.all([readHistoryCache(cacheKey), readQueueCache(cacheKey)]), new Promise<null>(resolve => { cacheDeadline = setTimeout(() => resolve(null), 200) })]).then(snapshot => {
+      const [cached, queue] = snapshot ?? [null, null]
       clearTimeout(cacheDeadline)
       if (closed) return
       if (cached && cached.sessionId === resumeSessionIdRef.current && !historyRef.current) {
@@ -2698,6 +2703,7 @@ function AgentSessionView({
         setUsersBefore(cached.usersBefore)
         setEvents(cached.events)
       }
+      if (queue?.sessionId === resumeSessionIdRef.current) setCachedQueue(queue)
       connect()
     })
 
@@ -2873,7 +2879,8 @@ function AgentSessionView({
   const lastAccessError = events.findLast((event) => event.type === 'error' && event.accessIssue)
   const currentAccessIssue = meta ? meta.accessIssue : lastAccessError?.type === 'error' ? lastAccessError.accessIssue : null
   const busy = meta?.busy ?? false
-  const queued = meta?.queued ?? []
+  const queueMeta = meta ?? cachedQueue
+  const queued = queueMeta?.queued ?? []
   const usage = meta?.usage ?? null
 
   // original = 고치기 시작할 때 보고 있던 원본. 서버가 이 항목을 잠가 앞 턴이 끝나도 큐를 당기지 않는다.
@@ -2883,7 +2890,7 @@ function AgentSessionView({
   const queuedEditVersionRef = useRef(0)
   // 대기 큐 재정렬 — 편집 중에는 인덱스를 그대로 지켜야 하므로 큐 전체의 드래그를 잠시 막는다.
   const queueDrag = useGridDrag({
-    enabled: queued.length > 1 && editingQueued === null,
+    enabled: connected && !!meta && queued.length > 1 && editingQueued === null,
     handleOnly: true,
     verticalList: true,
     onMove: (from, to) => send({ type: 'move_queued', from, to }),
@@ -2904,13 +2911,13 @@ function AgentSessionView({
     setScheduleOpen(false)
   }
   const startQueuedEdit = (index: number, text: string) => {
-    if (editingQueued || text === '/clear' || meta?.queuedKinds?.[index] === 'cli') return
+    if (!connected || !meta || editingQueued || text === '/clear' || queueMeta?.queuedKinds?.[index] === 'cli') return
     send({ type: 'begin_edit_queued', index, expect: text })
     queuedEditVersionRef.current++
     setScheduleOpen(false)
     setPreviewAttachment(null)
     requestAnimationFrame(() => agentInputRef.current?.focus())
-    setEditingQueued({ index, text, original: text, settings: { ...messageSettings, ...meta?.queuedSettings?.[index] }, attachments: (meta?.queuedAttachments?.[index] ?? []).map(file => ({
+    setEditingQueued({ index, text, original: text, settings: { ...messageSettings, ...queueMeta?.queuedSettings?.[index] }, attachments: (queueMeta?.queuedAttachments?.[index] ?? []).map(file => ({
       project: file.project, relPath: file.path, mimeType: file.mimeType,
       extension: attachmentExtension(file.path), isImage: file.mimeType.startsWith('image/'),
     })) })
@@ -2965,6 +2972,7 @@ function AgentSessionView({
       setLoadingSession(null)
       setEvents([])
       setMeta(null)
+      setCachedQueue(null)
       setSessions(null)
       stickRef.current = true
       setUnread(false)
@@ -3764,16 +3772,17 @@ function AgentSessionView({
       {commandPopup && <AgentCommandPopup key={commandPopup.id} command={commandPopup} onClose={() => setCommandPopupId(null)} onCancel={() => send({ type: 'cancel' })} onChanged={() => { void cli.refresh().catch(() => {}) }} />}
 
       {(queued.length > 0 || scheduled.length > 0) && (
-        <div data-agent-queue className="relative z-10 shrink-0 space-y-1 border-t border-edge bg-surface px-3 py-1.5 text-xs">
+        <div data-agent-queue className="relative z-10 max-h-[109px] shrink-0 space-y-1 overflow-y-auto overscroll-contain border-t border-edge bg-surface px-3 py-1.5 text-xs">
           {queued.map((text, index) => {
-            const kind = meta?.queuedKinds?.[index] ?? (text === '/clear' ? 'clear' : 'prompt')
+            const kind = queueMeta?.queuedKinds?.[index] ?? (text === '/clear' ? 'clear' : 'prompt')
             const isClearBoundary = kind === 'clear'
             const isCliCommand = kind === 'cli'
             const drag = queueDrag.drag
             const lifted = drag !== null && drag.slot === index
             const editing = editingQueued?.index === index ? editingQueued : null
             const expanded = expandedQueued?.index === index && expandedQueued.text === text
-            const queuedFiles = meta?.queuedAttachments?.[index] ?? []
+            const queuedFiles = queueMeta?.queuedAttachments?.[index] ?? []
+            const queuedSettings = editing?.settings ?? queueMeta?.queuedSettings?.[index]
             return (
               <div
                 key={`${index}-${text}`}
@@ -3798,7 +3807,7 @@ function AgentSessionView({
                   <button
                     type="button"
                     {...queueDrag.getTileProps(index)}
-                    disabled={queued.length < 2 || editingQueued !== null}
+                    disabled={!connected || !meta || queued.length < 2 || editingQueued !== null}
                     onClick={() => { queueDrag.consumeClick() }}
                     onKeyDown={(event) => {
                       const target = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : null
@@ -3823,21 +3832,28 @@ function AgentSessionView({
                     }}
                     aria-expanded={expanded}
                     title={isClearBoundary ? uiText("새 대화 시작 지점") : isCliCommand ? uiText("대기 중인 CLI 명령") : expanded ? uiText("접기") : uiText("펼치기")}
-                    className={`flex min-w-0 flex-1 items-center gap-1 text-left text-ink-secondary disabled:cursor-default ${isCliCommand ? 'font-mono' : ''}`}
+                    className={`flex min-w-0 flex-1 gap-1 text-left text-ink-secondary disabled:cursor-default ${expanded ? 'flex-col items-stretch' : 'items-center'} ${isCliCommand ? 'font-mono' : ''}`}
                   >
-                    <span className={expanded ? 'min-w-0 flex-1 max-h-16 overflow-y-auto overscroll-contain whitespace-pre-wrap break-words text-left leading-4 select-text' : 'min-w-0 truncate'}>{isCliCommand ? `$ ${text}` : text}</span>
-                    <span className="flex max-w-1/2 shrink-0 gap-1 overflow-hidden">
+                    <span className={expanded ? 'min-w-0 whitespace-pre-wrap break-words text-left leading-4 select-text' : 'min-w-0 truncate'}>{isCliCommand ? `$ ${text}` : text}</span>
+                    {expanded && !isClearBoundary && !isCliCommand && <span
+                      data-queue-settings
+                      className="text-[11px] leading-4 text-ink-muted break-words"
+                      aria-label={uiText("실행 설정: {p0} · {p1} · {p2}", { p0: queuedSettings?.model ?? '—', p1: queuedSettings?.thinking ?? '—', p2: queuedSettings?.permission ?? '—' })}
+                    >
+                      {queuedSettings?.model ?? '—'} · {queuedSettings?.thinking ?? '—'} · {queuedSettings?.permission ?? '—'}
+                    </span>}
+                    {queuedFiles.length > 0 && <span data-queue-attachments className={expanded ? 'flex flex-wrap gap-1' : 'flex max-w-1/2 shrink-0 gap-1 overflow-hidden'}>
                       {queuedFiles.map(file => <span key={`${file.project}:${file.path}`} title={file.path.split('/').pop()}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md bg-surface-raised p-1 text-ink-secondary">
-                        <PaperclipGlyph />{attachmentExtension(file.path)}
+                        className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-md bg-surface-raised p-1 text-ink-secondary">
+                        <PaperclipGlyph /><span className="truncate">{expanded ? file.path.split('/').pop() : attachmentExtension(file.path)}</span>
                       </span>)}
-                    </span>
+                    </span>}
                   </button>
                   {!editing && !isClearBoundary && !isCliCommand && <button
                     type="button"
                     onPointerDown={keepFocusOnPress}
                     onClick={() => startQueuedEdit(index, text)}
-                    disabled={editingQueued !== null}
+                    disabled={!connected || !meta || editingQueued !== null}
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink disabled:opacity-40"
                     aria-label={uiText("편집")}
                     title={uiText("편집")}
@@ -3858,7 +3874,7 @@ function AgentSessionView({
                     onClick={() => {
                       send({ type: 'unqueue', index })
                     }}
-                    disabled={editingQueued !== null}
+                    disabled={!connected || !meta || editingQueued !== null}
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink disabled:opacity-40"
                     aria-label={uiText("대기 메시지 취소")}
                   >

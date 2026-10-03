@@ -1,8 +1,9 @@
 import { HistoryIndex } from '../../shared/agent-history.ts'
 import type { HistoryPage } from '../../shared/agent-history.ts'
-import type { AgentEvent } from './agentFold.ts'
+import type { AgentEvent, SessionMeta } from './agentFold.ts'
 
-export type CachedHistory = Omit<HistoryPage<AgentEvent>, 'controls' | 'mode'>
+export type CachedQueue = Pick<SessionMeta, 'sessionId' | 'queued' | 'queuedKinds' | 'queuedAttachments' | 'queuedSettings'>
+export type CachedHistory = Omit<HistoryPage<AgentEvent>, 'controls' | 'mode'> & { queue?: CachedQueue }
 type Meta = Omit<CachedHistory, 'events'> & { key: string; tab: string; savedAt: number; bytes: number }
 const DB_NAME = 'mew-agent-history'
 const MAX_BYTES = 32 * 1024 * 1024
@@ -60,12 +61,17 @@ export async function readHistoryCache(key: string): Promise<CachedHistory | nul
         if (!meta || typeof meta.generation !== 'string' || typeof meta.sessionId !== 'string'
           || !Number.isSafeInteger(meta.start) || !Number.isSafeInteger(meta.end) || meta.start < 0 || meta.end < meta.start
           || !Number.isFinite(meta.savedAt) || Date.now() - meta.savedAt > MAX_AGE) return
+        if (meta.start === meta.end) {
+          const { key: _key, tab: _tab, savedAt: _savedAt, bytes: _bytes, ...value } = meta
+          result = { ...value, events: [] }
+          return
+        }
         const records = tx.objectStore('events').getAll(rows(key, meta.start, meta.end))
         records.onsuccess = () => {
           const values = records.result as { seq: number; event: AgentEvent }[]
           if (values.length !== meta.end - meta.start || values.some((row, i) => row.seq !== meta.start + i)) return
           result = { generation: meta.generation, sessionId: meta.sessionId, start: meta.start, end: meta.end,
-            total: meta.total, usersBefore: meta.usersBefore, events: values.map(row => row.event) }
+            total: meta.total, usersBefore: meta.usersBefore, events: values.map(row => row.event), ...(meta.queue ? { queue: meta.queue } : {}) }
         }
       }
       tx.oncomplete = () => resolve(result)
@@ -102,7 +108,9 @@ export function writeHistoryCache(key: string, tab: string, input: CachedHistory
               const old = all.find(meta => meta.key === key)
               const same = old?.generation === value.generation && old.sessionId === value.sessionId
                 && old.start === value.start && old.end <= value.end
-              let bytes = same ? old.bytes : 0
+              const queueBytes = value.queue ? JSON.stringify(value.queue).length * 2 : 0
+              let bytes = (same ? old.bytes - (old.queue ? JSON.stringify(old.queue).length * 2 : 0) : 0) + queueBytes
+              if (bytes > MAX_ENTRY_BYTES) { drop(tx, key); return }
               if (!same) drop(tx, key)
               for (let seq = same ? old.end : value.start; seq < value.end; seq++) {
                 const event = value.events[seq - value.start]
@@ -147,4 +155,22 @@ export async function clearHistoryTab(tab: string, account?: string): Promise<vo
       tx.oncomplete = tx.onerror = tx.onabort = () => resolve()
     })
   } catch { /* unavailable storage */ }
+}
+
+// Separate snapshots share the history DB budget, retention and explicit tab cleanup.
+function queueCacheKey(key: string): string {
+  return JSON.stringify([...JSON.parse(key), 'queue'])
+}
+export async function readQueueCache(key: string): Promise<CachedQueue | null> {
+  const cached = await readHistoryCache(queueCacheKey(key))
+  const queue = cached?.queue
+  return queue && queue.sessionId === cached.sessionId && Array.isArray(queue.queued)
+    && queue.queued.every(text => typeof text === 'string') ? queue : null
+}
+export function writeQueueCache(key: string, tab: string, meta: CachedQueue): Promise<void> {
+  const { sessionId, queued, queuedKinds, queuedAttachments, queuedSettings } = meta
+  return writeHistoryCache(queueCacheKey(key), tab, {
+    sessionId, generation: 'queue', start: 0, end: 0, total: 0, usersBefore: 0, events: [],
+    queue: { sessionId, queued, queuedKinds, queuedAttachments, queuedSettings },
+  })
 }

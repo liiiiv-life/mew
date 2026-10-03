@@ -85,7 +85,7 @@ export const readAgentMemory: MemoryReader = () => {
   return budgets
 }
 
-/** Hysteresis: stop at 10% (at least 512 MiB); explicit resume needs 20% (at least 1 GiB). */
+/** Hysteresis: stop at 10% (at least 512 MiB); resume needs 20% (at least 1 GiB). */
 export function memoryPressure(budgets: MemoryBudget[], resuming = false): string | null {
   for (const budget of budgets) {
     const threshold = Math.min(budget.total * 0.4, Math.max((resuming ? 1024 : 512) * MIB, budget.total * (resuming ? 0.2 : 0.1)))

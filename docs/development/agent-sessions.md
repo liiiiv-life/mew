@@ -111,7 +111,7 @@
 
 ## 메모리 보호
 
-`agent-memory.ts`는 Linux 가용 메모리와 설치된 사용자 `mew-agents.slice` 예산을 읽고 ACP·CLI 자식을 별도 scope로 실행한다. 감독과 서버는 scope 밖이다. `AgentSession`은 시작·FIFO 인출 전과 2초 주기로 검사하여 진행 작업만 취소하고 `meta.memoryPaused=true`와 오류를 전송한다. 보류된 큐는 자동 인출·유휴 종료하지 않는다. 회복 후 명시적 새 전송은 앞선 큐부터 재개하며 중단된 턴을 재실행하지 않는다. 감독의 `prompt.automatic=true`(예약·기능 실행)는 보류를 해제하지 않는다. OS 강제 종료는 종료 오류와 전사를 저장하고 세션을 닫는다.
+`agent-memory.ts`는 Linux 가용 메모리와 설치된 사용자 `mew-agents.slice` 예산을 읽고 ACP·CLI 자식을 별도 scope로 실행한다. 감독과 서버는 scope 밖이다. `AgentSession`은 시작·FIFO 인출 전과 2초 주기로 검사하여 진행 작업만 취소하고 `meta.memoryPaused=true`와 오류를 전송한다. 보류된 큐는 자동 인출·유휴 종료하지 않는다. 취소 완료와 회복 여유를 확인하면 중단된 AI 작업의 이어가기 메시지를 원래 설정으로 먼저 실행하고 FIFO 큐를 재개한다. CLI는 재실행하지 않는다. 사용자 중단은 이어가기를 제거하며 큐 편집·인증·사용량 보호는 유지한다. 감독의 `prompt.automatic=true`(예약·기능 실행)는 보류를 해제하지 않는다. OS 강제 종료는 종료 오류와 전사를 저장하고 세션을 닫는다.
 
 기본 예산·회복 기준·설치·로그·범위는 [메모리 보호 운영](../operations/agent-memory.md), 결정은 [ADR 0164](../../../.mew/docs/decisions/0164-mew-agent-memory-protection.md)를 따른다. `agent-memory.test.ts`는 합성 압력에서 AI/CLI 취소와 큐 보류를 검증하고 선택적 64MiB scope OOM 검사로 OS 경계를 검증한다.
 

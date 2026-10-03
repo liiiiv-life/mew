@@ -6,7 +6,7 @@
 
 내부 브라우저의 바로가기는 `mew:browser-shortcuts`에 저장하며 캐시 정리 대상이 아니다. 키가 없을 때만 기본 `liiiiv-life dev` 항목을 제공하므로 사용자가 모든 바로가기를 삭제한 빈 목록도 유지한다. 쓰기는 공통 `writeBrowserStorage`를 사용하고 실패 시 UI에 알린다. 사용법은 [브라우저 창](../guides/browser.md#브라우저-창)을 따른다.
 
-새 에이전트 전사는 별도 IndexedDB에 저장한다. 계정 격리·4MiB/32MiB 예산·7일 수명·구간 동기화는 [대화 저장 계약](conversation-storage.md)을 따른다. 아래 2MiB 목표는 localStorage 재생성 캐시에 적용한다. 초안·설정 저장 위치는 유지한다.
+새 에이전트 전사와 대기 큐 스냅샷은 별도 IndexedDB에 저장한다. 계정 격리·4MiB/32MiB 예산·7일 수명·구간 동기화는 [대화 저장 계약](conversation-storage.md)을 따른다. 아래 2MiB 목표는 localStorage 재생성 캐시에 적용한다. 초안·설정 저장 위치는 유지한다.
 
 ## 관리 대상과 예산
 

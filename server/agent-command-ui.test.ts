@@ -196,6 +196,25 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await draft.press('Control+End')
       await assertInputContained()
       assert.deepEqual(await composer.boundingBox(), initialComposer, 'wrapped text keeps the same input height')
+      await draft.fill('파일 드롭 초안')
+      await draft.evaluate(element => {
+        const browserWindow = element.ownerDocument.defaultView!
+        const data = new browserWindow.DataTransfer()
+        data.items.add(new File(['external file contents'], 'notes.txt', { type: 'text/plain' }))
+        data.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'photo.png', { type: 'image/png' }))
+        element.dispatchEvent(new browserWindow.DragEvent('dragenter', { dataTransfer: data, bubbles: true, cancelable: true }))
+        const over = new browserWindow.DragEvent('dragover', { dataTransfer: data, bubbles: true, cancelable: true })
+        element.dispatchEvent(over)
+        if (!over.defaultPrevented) throw new Error('file dragover must allow dropping')
+        element.dispatchEvent(new browserWindow.DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }))
+      })
+      await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).nth(1).waitFor()
+      assert.equal(await composerValue(draft), '파일 드롭 초안', 'external file contents stay out of the text editor')
+      assert.equal(uploads, 2, 'each dropped file uploads once')
+      await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).first().click()
+      await page.getByRole('button', { name: 'png 첨부 제거', exact: true }).click()
+      uploads = 0
+      uploadBodies.length = 0
       await draft.fill('사진 두 장')
       for (const eventType of ['paste', 'beforeinput']) {
         await page.evaluate(`window.setEditorProject(${JSON.stringify(eventType === 'paste' ? 'docs' : '.workspace')})`)
@@ -239,7 +258,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       ]
       const showQueue = async (text: string, attachments = files) => {
         await page.evaluate(({ text, attachments }) => {
-          (globalThis as any).agentSocket.emit({ type: 'meta', meta: { sessionId: 'conversation', busy: true, queued: [text], queuedKinds: ['prompt'], queuedAttachments: [attachments] } })
+          (globalThis as any).agentSocket.emit({ type: 'meta', meta: { sessionId: 'conversation', busy: true, queued: [text], queuedKinds: ['prompt'], queuedAttachments: [attachments], queuedSettings: [{ model: 'Queued model', thinking: 'High', permission: '승인 요청' }] } })
         }, { text, attachments })
         await page.locator('[data-agent-queue]').evaluate(async (root, text) => {
           for (let frame = 0; frame < 60; frame++) {
@@ -344,10 +363,16 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       const expandedBody = fullQueueItem.locator('span').first()
       const scrollSize = await expandedBody.evaluate(el => {
         el.scrollTop = el.scrollHeight
-        return { height: el.clientHeight, total: el.scrollHeight, top: el.scrollTop, line: parseFloat(el.ownerDocument.defaultView!.getComputedStyle(el).lineHeight) }
+        return { height: el.clientHeight, total: el.scrollHeight, top: el.scrollTop, line: parseFloat(el.ownerDocument.defaultView!.getComputedStyle(el).lineHeight), paddingRight: el.ownerDocument.defaultView!.getComputedStyle(el).paddingRight }
       })
-      assert.ok(scrollSize.total > scrollSize.height && scrollSize.top > 0, 'long queue content scrolls internally')
-      assert.ok(scrollSize.height <= scrollSize.line * 4, 'expanded content is capped at four lines')
+      assert.equal(scrollSize.total, scrollSize.height, 'expanded content is fully laid out without an internal scroll area')
+      assert.equal(scrollSize.top, 0)
+      assert.ok(scrollSize.height >= scrollSize.line * 6, 'all six lines are shown at their full height')
+      const queueScroll = await page.locator('[data-agent-queue]').evaluate(el => {
+        el.scrollTop = el.scrollHeight
+        return { height: el.clientHeight, total: el.scrollHeight, top: el.scrollTop }
+      })
+      assert.ok(queueScroll.total > queueScroll.height && queueScroll.top > 0, 'long expanded content scrolls through the queue list')
       const editButton = page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true })
       const editBox = await editButton.boundingBox()
       const deleteBox = await page.getByRole('button', { name: '대기 메시지 취소', exact: true }).boundingBox()
@@ -355,6 +380,22 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await fullQueueItem.click()
       assert.equal(await fullQueueItem.getAttribute('aria-expanded'), 'false')
       await showQueue('첨부 확인')
+      const attachmentQueueItem = page.locator('[data-agent-queue] button[aria-expanded]')
+      assert.equal(await attachmentQueueItem.locator('[data-queue-settings]').count(), 0)
+      await attachmentQueueItem.click()
+      const settingsLine = attachmentQueueItem.locator('[data-queue-settings]')
+      assert.equal(await settingsLine.textContent(), 'Queued model · High · 승인 요청')
+      const attachmentTags = attachmentQueueItem.locator('[data-queue-attachments] > span')
+      assert.deepEqual(await attachmentTags.allTextContents(), ['clipboard-1.png', 'notes.pdf'])
+      const bodyBox = await attachmentQueueItem.locator('span').first().boundingBox()
+      const settingsBox = await settingsLine.boundingBox()
+      const firstTag = await attachmentTags.nth(0).boundingBox()
+      const secondTag = await attachmentTags.nth(1).boundingBox()
+      assert.ok(bodyBox && settingsBox && firstTag && secondTag)
+      assert.ok(settingsBox.y >= bodyBox.y + bodyBox.height, 'settings follow the body')
+      assert.ok(firstTag.y >= settingsBox.y + settingsBox.height, 'attachments follow the settings')
+      assert.ok(secondTag.x > firstTag.x && secondTag.y === firstTag.y, 'tags flow from left to right')
+      assert.equal(await attachmentQueueItem.locator('[data-queue-attachments]').evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).flexWrap), 'wrap')
       await page.locator('[data-agent-queue]').getByRole('button', { name: '편집', exact: true }).click()
       const queuedInput = page.getByRole('textbox', { name: '대기 메시지 수정칸', exact: true })
       await queuedInput.waitFor()
