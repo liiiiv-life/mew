@@ -4,7 +4,7 @@ parent: "mew-agents"
 title: "에이전트 입력·멘션·스킬·첨부"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-30"
+updated: "2026-10-02"
 status_hash: "a10e27bcc06cebe98975858548ff907b5953bfbcf197fe2ef971d9294144858f"
 files: ["src/components/AgentPanel.tsx", "src/components/MentionTextarea.tsx", "src/components/agent-composer-input.tsx", "src/utils/clipboard-images.ts", "src/utils/agentInputMentions.ts", "server/skills.ts"]
 commits: []
@@ -39,6 +39,7 @@ commits: []
 - @ 프로젝트/파일/폴더 멘션, / 스킬 선택, 첨부·미리보기·입력 기록과 입력칸 높이 조절을 제공한다.
 
 - 연결 중에도 초안 작성·첨부·높이 조절을 유지하며 전송 버튼과 단축키 전송만 연결 상태로 제한한다([연결 표시 계약](../../specs/agent-panel.md#연결-대기와-재연결)).
+- 외부 파일을 입력칸에 드롭하면 여러 파일을 각각 첨부 태그로 연결하고, 파일 내용이 작성 중인 본문에 섞이지 않도록 편집기보다 먼저 처리한다.
 - 모바일 이미지 클립보드를 받을 수 있는 편집 호스트에서 사진을 첨부 태그로 연결한다. 텍스트·멘션·CLI 입력 계약과 실기기 지원 범위는 [입력 명세](../../specs/agent-input-mentions.md)를 따른다.
 - 첨부 태그의 확장자·제거 버튼을 감싸는 컨테이너는 사방에 같은 여백을 둔다.
 - 긴 입력·자동 줄바꿈은 입력칸 내부에서 스크롤하며, 모바일 독·키보드 보정으로 정한 영역 밖으로 편집기가 늘어나지 않는다.
@@ -54,6 +55,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-02: 격리 Chromium에서 OS 파일 드롭과 같은 파일 전송 데이터로 텍스트·사진 2개를 동시에 놓아 각각 한 번씩 첨부 콜백을 호출하고 작성 본문을 보존하는지 확인했다. 대상 린트는 기존 경고 1개만 있으며 UI 검사기는 통과했다. 전체 AgentPanel 테스트·타입 검사는 작업 중인 API 모듈의 누락으로 완료하지 못했고, 문서 허용목록 검사는 기존 `todo/docs/` 미등록 경계로 실패했다. 빌드·서버 재시작은 수행하지 않았다.
 
 - 2026-09-30: hug 최소 높이 전환 후 PC/모바일에서 전송 버튼을 32→48px로 늘리자 최소 높이도 137→153px로 자동 변경되고 하단 정렬을 유지하는지 검증했다. 버튼 크기 복원·기본/최소/확장 높이와 기존 입력 회귀를 포함한 테스트 6개·타입·대상 린트가 통과했다.
 

@@ -199,7 +199,7 @@ export function MentionTextarea({
         if (!onFilesDropped || !event.dataTransfer.types.includes('Files')) return
         setFileDragOver(true)
       }}
-      onDragOver={(event) => {
+      onDragOverCapture={(event) => {
         if (!onFilesDropped || !event.dataTransfer.types.includes('Files')) return
         event.preventDefault()
         event.dataTransfer.dropEffect = 'copy'
@@ -208,9 +208,11 @@ export function MentionTextarea({
         if (event.currentTarget.contains(event.relatedTarget as Node)) return
         setFileDragOver(false)
       }}
-      onDrop={(event) => {
+      onDropCapture={(event) => {
         if (!onFilesDropped || !event.dataTransfer.files.length) return
         event.preventDefault()
+        // Consume files before CodeMirror reads dropped files into the text document.
+        event.stopPropagation()
         setFileDragOver(false)
         onFilesDropped(Array.from(event.dataTransfer.files))
       }}
