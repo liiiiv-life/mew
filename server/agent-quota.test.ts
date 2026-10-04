@@ -30,3 +30,17 @@ test('unknown is distinct from empty/full; invalid fields and expired resets nev
   assert.equal(shortestQuota(quotaWindows('codex', { rateLimits: { primary: { usedPercent: 0, windowDurationMins: 300, resetsAt: 1 } } })), null)
   for (const usedPercent of [null, '72', NaN, Infinity, -1]) assert.deepEqual(quotaWindows('codex', { rateLimits: { primary: { usedPercent, windowDurationMins: 300 } } }), [])
 })
+
+test('full quota list includes additional Codex buckets and Claude model windows without changing the summary', () => {
+  const codex = quotaWindows('codex', { rateLimits: { limitId: 'codex', primary: { usedPercent: 72, windowDurationMins: 10080 } }, rateLimitsByLimitId: {
+    codex: { primary: { usedPercent: 72, windowDurationMins: 10080 } }, other: { limitName: 'Other model', primary: { usedPercent: 90, windowDurationMins: 300 } },
+  } })
+  assert.equal(codex.length, 2)
+  assert.equal(codex[1].name, 'Other model')
+  assert.equal(shortestQuota(codex)?.remainingPercent, 28)
+  const claude = quotaWindows('claude', { rate_limits: { seven_day: { utilization: 72 }, seven_day_opus: { utilization: 95 }, seven_day_fable: { utilization: 25 } } })
+  assert.equal(claude.length, 3)
+  assert.equal(claude[1].name, 'Opus')
+  assert.equal(claude[2].name, 'fable')
+  assert.equal(shortestQuota(claude)?.remainingPercent, 28)
+})
