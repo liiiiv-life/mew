@@ -5,7 +5,7 @@ title: "태스크 패널·목록·달력·간트"
 status: "changed"
 created: "2026-10-03"
 updated: "2026-10-04"
-files: ["src/components/task-panel.tsx", "src/components/task-calendar.tsx", "src/components/task-gantt.tsx", "src/utils/task-schedule.ts", "src/utils/task-timeline.ts", "src/hooks/use-task-list.ts", "src/hooks/use-task-drag.ts", "src/utils/task-list-session.ts", "shared/task-list.ts", "packages/ui/src/date-field.tsx", "packages/ui/src/date-field.css", "server/task-list.ts", "server/task-list-routes.ts", "src/App.tsx"]
+files: ["src/components/task-panel.tsx", "src/components/task-range-calendar.tsx", "src/components/task-calendar.tsx", "src/components/task-gantt.tsx", "src/utils/task-schedule.ts", "src/utils/task-timeline.ts", "src/hooks/use-task-list.ts", "src/hooks/use-task-drag.ts", "src/utils/task-list-session.ts", "shared/task-list.ts", "packages/ui/src/date-field.tsx", "packages/ui/src/date-field.css", "server/task-list.ts", "server/task-list-routes.ts", "src/App.tsx"]
 commits: []
 ---
 
@@ -18,12 +18,12 @@ commits: []
 - 별도 추가 폼 없이 마지막 입력칸에 바로 작성하고 Enter로 다음 항목을 이어 쓴다.
 - 기존 내용은 인라인 수정·줄 나누기·여러 줄 붙여넣기·빈 줄 Backspace 삭제를 지원한다.
 - 삭제 버튼 왼쪽 +로 하위 항목을 만들고 바로 입력한다. 부모 이동은 자손을 함께 옮기며 부모 삭제는 자식을 한 단계 올려 보존한다.
-- 시작일·완료일을 지정하고 기간을 저장한다. + 버튼 왼쪽 날짜 상태는 시작일이 미래이면 회색 `시작 전`, 시작한 일정은 완료일 기준 `D-n`·`D-Day`·빨간색 `D+n`으로 표시한다. 클릭하면 시작일·완료일 두 줄의 `YYYY-MM-DD` 입력과 달력 버튼을 연다.
+- 시작일·완료일을 지정하고 기간을 저장한다. + 버튼 왼쪽 날짜 상태는 시작일이 미래이면 회색 `시작 전`, 시작한 일정은 완료일 기준 `D-n`·`D-Day`·빨간색 `D+n`으로 표시한다. 클릭하면 팝오버에 통합된 기간 선택 달력을 연다. 첫 클릭은 시작일, 이후 날짜 클릭은 종료일이며 같거나 이른 날짜를 누르면 시작일을 다시 정하고 종료일 선택을 기다린다.
 - 타이틀바의 목록·달력·간트 탭과 하단 독의 좌우 스와이프로 보기를 순환하며 같은 태스크 데이터를 편집한다.
 - 달력 위쪽은 월간 날짜 선택, 아래쪽은 선택 날짜에 해당하는 기간 일정과 새 일정 입력이다.
 - 간트는 `liiiiv/gantt-maker`의 눈금·막대·색·기간 이동/길이 조절·그리기·확대/축소 조작을 재사용한다.
-- 날짜칸은 평소 `YY-MM-DD`로 표시하고 직접 편집할 때 0000-00-00 고정 마스크 안의 연/월/일 구간을 클릭해 입력하며 자릿수 완료·방향키·Tab·Enter로 다음 구간에 이동한다.
-- 항목별 날짜칸에 직접 입력하거나 자체 달력에서 날짜를 선택한다. PC/모바일·밝은/어두운 테마에서 일관된 조작과 표시를 제공한다.
+- 목록과 간트의 기간 선택 달력에서 연도·월을 클릭해 키보드로 수정한다.
+- 목록과 간트에서 동일한 통합 달력으로 기간을 선택한다. PC/모바일·밝은/어두운 테마에서 일관된 조작과 표시를 제공한다.
 - 패널 헤더와 PC·모바일 독은 캘린더 아이콘으로 기능 패널과 구분한다.
 - 체크박스로 완료를 표시하고 별도 객체를 삭제할 수 있다.
 - 체크박스를 잡아 드래그해 항목 순서를 바꾸고 저장한다. 짧은 클릭·탭은 완료 표시를 유지하며 이동은 내용·완료·ID를 바꾸지 않는다.
@@ -36,6 +36,8 @@ commits: []
 - 상위: [분야 지도](MOC.md) · [프로젝트](../projects.md)
 
 ## 구현 내용
+
+- 2026-10-04 목록·간트 팝오버의 두 달력 버튼과 날짜 입력을 `TaskRangeCalendar`로 대체했다. 시작일을 고를 때 종료일을 비우고 두 날짜를 함께 갱신한다. 종료일 선택 후 다음 클릭은 새 기간 선택을 시작한다. 연도(0001–9999)·월(1–12)은 클릭·직접 입력·Enter/blur 확정, Esc 복원하며 읽기 전용에서는 탐색만 허용한다.
 
 - 2026-10-03 시작일과 세 뷰를 추가했다. 기존 `date`를 종료일로 유지하며 `startDate`를 독립 필드로 저장·병합한다. 한쪽만 있는 날짜는 하루 일정으로 표시한다.
 - 보기 탭은 36px 타이틀바에 표시하고 방향키·Home/End로 탐색한다. App의 현재 패널 탭 전환 신호를 연결하여 독 스와이프는 패널을 유지하면서 이전·다음 보기를 순환한다.
@@ -52,6 +54,8 @@ commits: []
 - 앞서 메모에 추가했던 체크리스트 전환 버튼은 사용자 의도에 맞게 제거했다. 메모의 기존 편집·공동 편집은 유지한다.
 
 ## 검증
+
+- 2026-10-04 통합 기간 달력: 17일→9일→19일, 같은 날짜 재선택, 연도·월 수정과 잘못된 월 복원, 키보드 선택·모바일 터치·저장/재로드·읽기 전용을 브라우저 회귀 2개로 확인했다. 타입·lint(기존 경고만)·문서 링크/경계 검사도 통과했다.
 
 - 2026-10-04: 타이틀바의 세 보기 탭과 방향키·Home 탐색, 하단 독의 실제 터치로 양방향 전환·끝 순환·패널 유지, 기존 태스크 입력·저장·간트 편집·독 제스처 회귀를 세 UI 검사로 검증했다. 타입·대상 lint·워크스페이스 문서 링크 검사도 통과했다.
 

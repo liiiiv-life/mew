@@ -1,0 +1,70 @@
+import { useRef, useState, type KeyboardEvent } from 'react'
+import { NavArrowLeft, NavArrowRight, Trash } from 'iconoir-react'
+import { useUiLocale } from '@mew/ui/i18n'
+import { uiText, uiWeekdays } from '@mew/ui/i18n-core'
+import { dateFromValue, dateValue, localToday, shiftDate, validDateValue } from '@mew/ui/date-value'
+import './task-range-calendar.css'
+
+export function TaskRangeCalendar({ start, end, readOnly, onChange }: {
+  start?: string | null; end?: string | null; readOnly: boolean
+  onChange: (start: string | null, end: string | null) => void
+}) {
+  const locale = useUiLocale(), today = localToday(), initial = start || end || today
+  const [month, setMonth] = useState(initial.slice(0, 7)), [active, setActive] = useState(initial)
+  const [pending, setPending] = useState<string | null>(null)
+  const grid = useRef<HTMLDivElement>(null)
+  const choose = (day: string) => {
+    if (readOnly) return
+    if (!pending || day <= pending) { setPending(day); onChange(day, null) }
+    else { onChange(pending, day); setPending(null) }
+  }
+  const navigate = (next: string, focus = false) => {
+    if (!validDateValue(next)) return
+    setActive(next); setMonth(next.slice(0, 7))
+    if (focus) requestAnimationFrame(() => grid.current?.querySelector<HTMLButtonElement>(`[data-date="${next}"]`)?.focus())
+  }
+  const moveMonth = (step: number, focus = false) => {
+    const date = dateFromValue(`${month}-01`); date.setUTCMonth(date.getUTCMonth() + step)
+    const next = dateValue(date).slice(0, 7)
+    if (!validDateValue(`${next}-01`)) return
+    const last = new Date(date); last.setUTCMonth(last.getUTCMonth() + 1); last.setUTCDate(0)
+    navigate(`${next}-${String(Math.min(dateFromValue(active).getUTCDate(), last.getUTCDate())).padStart(2, '0')}`, focus)
+  }
+  const keyDown = (event: KeyboardEvent<HTMLButtonElement>, day: string) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    if (event.key === 'PageUp' || event.key === 'PageDown') {
+      event.preventDefault(); event.stopPropagation(); moveMonth((event.key === 'PageUp' ? -1 : 1) * (event.shiftKey ? 12 : 1), true); return
+    }
+    const weekday = dateFromValue(day).getUTCDay()
+    const step = ({ ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 } as Record<string, number>)[event.key] ?? (event.key === 'Home' ? -weekday : event.key === 'End' ? 6 - weekday : null)
+    if (step !== null) { event.preventDefault(); event.stopPropagation(); navigate(shiftDate(day, step), true) }
+  }
+  const first = shiftDate(`${month}-01`, -dateFromValue(`${month}-01`).getUTCDay())
+  const fullDate = new Intl.DateTimeFormat(locale, { dateStyle: 'full', timeZone: 'UTC' })
+  const monthLabel = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'long', timeZone: 'UTC' }).format(dateFromValue(`${month}-01`))
+  return <div className="task-range-calendar">
+    <div className="task-range-summary"><span>{uiText('시작일')} <b>{start || '—'}</b></span><span>{uiText('종료일')} <b>{end || '—'}</b></span></div>
+    <header className="task-range-header">
+      <div className="task-range-month" key={month}>{(['year', 'month'] as const).map((part, index) => <input key={part} aria-label={uiText(part === 'year' ? '연도' : '월')} inputMode="numeric" maxLength={index === 0 ? 4 : 2} defaultValue={month.split('-')[index]} onFocus={event => event.currentTarget.select()} onBlur={event => {
+        const value = event.currentTarget.value.trim(), number = Number(value)
+        if (/^\d+$/.test(value) && number >= 1 && number <= (index === 0 ? 9999 : 12)) {
+          const parts = month.split('-'); parts[index] = String(number).padStart(index === 0 ? 4 : 2, '0'); navigate(`${parts.join('-')}-01`)
+        } else event.currentTarget.value = month.split('-')[index]
+      }} onKeyDown={event => {
+        if (event.nativeEvent.isComposing) return
+        if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() }
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); event.currentTarget.value = month.split('-')[index]; event.currentTarget.blur() }
+      }} />)}</div>
+      <button type="button" className="task-tool" aria-label={uiText('이전 달')} disabled={month === '0001-01'} onClick={() => moveMonth(-1)}><NavArrowLeft width={16} height={16} /></button>
+      <button type="button" className="task-tool" aria-label={uiText('다음 달')} disabled={month === '9999-12'} onClick={() => moveMonth(1)}><NavArrowRight width={16} height={16} /></button>
+    </header>
+    <div ref={grid} role="grid" aria-label={monthLabel}>
+      <div role="row" className="task-range-week">{uiWeekdays().map((day, index) => <span role="columnheader" key={index}>{day}</span>)}</div>
+      {Array.from({ length: 6 }, (_, week) => <div role="row" className="task-range-week" key={week}>{Array.from({ length: 7 }, (_, index) => {
+        const day = shiftDate(first, week * 7 + index), selected = day === start || day === end, inRange = !!start && !!end && day > start && day < end
+        return <div key={day} role="gridcell" aria-selected={selected || inRange}><button type="button" data-date={day} data-selected={selected || undefined} data-range={inRange || undefined} data-outside={day.slice(0, 7) !== month || undefined} aria-label={fullDate.format(dateFromValue(day))} aria-current={day === today ? 'date' : undefined} aria-disabled={readOnly || undefined} disabled={!validDateValue(day)} tabIndex={day === active ? 0 : -1} onFocus={() => setActive(day)} onKeyDown={event => keyDown(event, day)} onClick={() => choose(day)}>{dateFromValue(day).getUTCDate()}</button></div>
+      })}</div>)}
+    </div>
+    <footer className="task-range-footer"><button type="button" className="task-tool" onClick={() => navigate(today)}>{uiText('오늘')}</button><button type="button" className="task-tool" aria-label={uiText('일정 지우기')} data-tip={uiText('일정 지우기')} disabled={readOnly || (!start && !end)} onClick={() => { setPending(null); onChange(null, null) }}><Trash width={16} height={16} /></button></footer>
+  </div>
+}

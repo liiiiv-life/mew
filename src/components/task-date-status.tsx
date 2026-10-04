@@ -1,13 +1,14 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { DateField, useOverlayDismiss } from '@mew/ui'
+import { useOverlayDismiss } from '@mew/ui'
 import { useUiLocale } from '@mew/ui/i18n'
 import { uiText } from '@mew/ui/i18n-core'
+import { TaskRangeCalendar } from './task-range-calendar'
 import type { TaskItem } from '../../shared/task-list'
 import { taskDateLabel } from '../utils/task-date-label'
 
 export function TaskDateStatus({ task, today, readOnly, onChange }: {
-  task: TaskItem; today: string; readOnly: boolean; onChange: (field: 'startDate' | 'date', value: string | null) => void
+  task: TaskItem; today: string; readOnly: boolean; onChange: (start: string | null, end: string | null) => void
 }) {
   useUiLocale()
   const id = useId(), trigger = useRef<HTMLButtonElement>(null), popup = useRef<HTMLDivElement>(null)
@@ -36,8 +37,7 @@ export function TaskDateStatus({ task, today, readOnly, onChange }: {
   return <>
     <button ref={trigger} type="button" className="task-date-status" data-tone={status.tone} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(value => !value)}>{status.label === '시작 전' || status.label === '날짜 설정' ? uiText(status.label) : status.label}</button>
     {open && createPortal(<div ref={popup} id={id} role="dialog" aria-label={uiText('일정 편집')} tabIndex={-1} className="task-date-popover" style={position}>
-      <div className="task-date-row"><span>{uiText('시작일')}</span><DateField value={task.startDate} label={uiText('태스크 시작 날짜')} readOnly={readOnly} onChange={value => onChange('startDate', value)} /></div>
-      <div className="task-date-row"><span>{uiText('완료일')}</span><DateField value={task.date} label={uiText('태스크 날짜')} readOnly={readOnly} onChange={value => onChange('date', value)} /></div>
+      <TaskRangeCalendar start={task.startDate} end={task.date} readOnly={readOnly} onChange={onChange} />
     </div>, document.body)}
   </>
 }

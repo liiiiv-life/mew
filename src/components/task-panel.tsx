@@ -5,7 +5,7 @@ import { useUiLocale } from '@mew/ui/i18n'
 import { uiText } from '@mew/ui/i18n-core'
 import { DockGrip, DockInlineBody } from './DockWorkspace'
 import type { useTaskList } from '../hooks/use-task-list'
-import { TASK_LIMIT, TASK_TEXT_LIMIT, taskDepths, taskSubtreeEnd, removeTask, setTaskDate, type TaskItem } from '../../shared/task-list'
+import { TASK_LIMIT, TASK_TEXT_LIMIT, taskDepths, taskSubtreeEnd, removeTask, type TaskItem } from '../../shared/task-list'
 import { uuid } from '../utils/uuid'
 import { useTaskDrag } from '../hooks/use-task-drag'
 import { createPortal } from 'react-dom'
@@ -144,7 +144,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
             onChange={event => edit(tasks.map(task => task.id === item.id ? { ...task, done: event.target.checked } : task))} /></label>
           <div className="task-content"><TaskText id={item.id} text={item.text} disabled={!canEdit} inputs={inputs}
             onChange={text => update(item.id, text)} onKeyDown={event => keyDown(event, index)} onPaste={event => paste(event, index)} onBlur={() => void flush()} /></div>
-          <TaskDateStatus task={item} today={today} readOnly={!canEdit} onChange={(field, value) => edit(tasks.map(task => task.id === item.id ? setTaskDate(task, field, value) : task))} />
+          <TaskDateStatus task={item} today={today} readOnly={!canEdit} onChange={(startDate, date) => edit(tasks.map(task => task.id === item.id ? { ...task, startDate, date } : task))} />
           {canEdit && <button type="button" onClick={() => addChild(index)} disabled={tasks.length >= TASK_LIMIT} aria-label={uiText('하위 태스크 추가')} data-tip={uiText('하위 태스크 추가')}
             className="task-delete flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-ink"><Plus width={14} height={14} aria-hidden="true" /></button>}
           {canEdit && <button type="button" onClick={() => remove(index)} aria-label={uiText('태스크 삭제')} data-tip={uiText('태스크 삭제')}
