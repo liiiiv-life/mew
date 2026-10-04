@@ -12,14 +12,15 @@ export function useSharedMemo({ authEmail, open, onOpenChange, focusSignal = 0, 
   const keyboardOpen = useMobileKeyboard()
   const [activated, setActivated] = useState(false)
   const [value, setValue] = useState('')
+  const [viewMode, setViewMode] = useState<'hotview' | 'plain'>('hotview')
   const [colors, setColors] = useState<string[]>([])
   const root = useRef<HTMLDivElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
   const collab = useCollab(SHARED_MEMO_PROJECT, activated && authEmail ? SHARED_MEMO_PATH : null, authEmail)
   const focusEditor = useCallback(() => {
-    const editor = root.current?.querySelector<HTMLElement>('.tiptap[contenteditable="true"]')
+    const editor = root.current?.querySelector<HTMLElement>(viewMode === 'plain' ? '.cm-content[contenteditable="true"]' : '.tiptap[contenteditable="true"]')
     ;(editor ?? root.current)?.focus({ preventScroll: true })
-  }, [])
+  }, [viewMode])
   const close = useCallback(() => {
     const restore = root.current?.contains(document.activeElement)
     onOpenChange(false)
@@ -42,14 +43,9 @@ export function useSharedMemo({ authEmail, open, onOpenChange, focusSignal = 0, 
     if (!open) return
     setActivated(true)
     if (!root.current?.contains(document.activeElement)) previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const frame = requestAnimationFrame(focusEditor)
+    const frame = requestAnimationFrame(() => root.current?.focus({ preventScroll: true }))
     return () => cancelAnimationFrame(frame)
-  }, [open, activated, focusSignal, focusEditor])
-  useEffect(() => {
-    if (!open || !collab?.connected) return
-    const frame = requestAnimationFrame(focusEditor)
-    return () => cancelAnimationFrame(frame)
-  }, [open, collab?.connected, focusEditor])
+  }, [open, activated, focusSignal])
   useEffect(() => {
     const awareness = collab?.awareness
     if (!awareness) return
@@ -67,6 +63,6 @@ export function useSharedMemo({ authEmail, open, onOpenChange, focusSignal = 0, 
     return () => { awareness.off('change', update) }
   }, [collab?.awareness, collab?.connected, open, authEmail])
 
-  return { root, value, setValue, colors, collab, keyboardOpen, close, activated }
+  return { root, value, setValue, viewMode, setViewMode, colors, collab, keyboardOpen, close, activated }
 }
 export type SharedMemoSession = ReturnType<typeof useSharedMemo>
