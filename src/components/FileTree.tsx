@@ -2,6 +2,7 @@ import { pageRepresentative, documentPageTarget, remapPagePath, type DocumentPag
 import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
+import { useTreeMoveAnimation } from '../hooks/use-tree-move-animation'
 import { useTreeTouchGesture } from '../hooks/use-tree-touch-gesture'
 import type { SidebarCreateRequest } from '../hooks/use-sidebar-create'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
@@ -673,6 +674,7 @@ export function FileTree({
     setClipboardState(value)
   }, [])
   const listRef = useRef<HTMLDivElement>(null)
+  const captureMove = useTreeMoveAnimation(listRef)
   const treeScrollRef = useRef(accountState?.scrollTop ?? getTreeScroll(persistedProject) ?? 0)
   const centerAnchorRef = useRef(accountState?.centerAnchor)
   const restoringScrollRef = useRef(!compact)
@@ -1012,6 +1014,7 @@ export function FileTree({
     const release = await onBeforePageMutation?.()
     try {
       const result = await mutateDocumentPage(action, path, name, destination)
+      if (action === 'move') captureMove(path, result.path)
       pageOpenSequence.current++
       const remap = (path: string) => remapPagePath(path, result.moves)
       setOpenDirs(current => new Set([...current].map(remap)))
@@ -1179,6 +1182,7 @@ export function FileTree({
       }
       const { hidden } = await renamePath(srcPath, newPath, project)
       if (hidden) onNotice(notAllowed())
+      captureMove(srcPath, newPath)
       onRenamed(srcPath, newPath, srcType)
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err))
