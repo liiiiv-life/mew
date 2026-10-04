@@ -86,7 +86,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     })
   }
   const update = (id: string, text: string) => edit(tasks.map(item => item.id === id ? { ...item, text } : item))
-  const remove = (index: number) => { const shownIndex = visibleTasks.findIndex(item => item.id === tasks[index].id); edit(removeTask(tasks, index)); focus(visibleTasks[shownIndex - 1]?.id ?? visibleTasks[shownIndex + 1]?.id ?? 'draft', 'end') }
+  const remove = (index: number) => edit(removeTask(tasks, index))
   const addChild = (index: number) => {
     if (tasks.length >= TASK_LIMIT) return
     const child = createTask('', tasks[index].id), end = taskSubtreeEnd(tasks, index)

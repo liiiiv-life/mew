@@ -291,6 +291,19 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(stored().find(task => task.id === 'period')?.startDate, '2026-10-03')
     assert.equal(await mobile.locator('.task-panel').evaluate(el => el.scrollWidth <= el.clientWidth), true)
     await mobile.screenshot({ path: `${screenshots}/mobile-gantt-light.png` })
+    await mobile.getByRole('tab', { name: '목록', exact: true }).tap()
+    const deleteDraft = mobile.getByRole('textbox', { name: '새 태스크' })
+    await deleteDraft.fill('삭제 포커스 검사 1'); await deleteDraft.press('Enter')
+    await deleteDraft.fill('삭제 포커스 검사 2')
+    const createdForDeletion = mobile.waitForResponse(async response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok() && (await response.json()).tasks.some((task: { text: string }) => task.text === '삭제 포커스 검사 2'))
+    await deleteDraft.press('Enter'); await createdForDeletion
+    await deleteDraft.evaluate(el => el.blur())
+    for (const text of ['삭제 포커스 검사 1', '삭제 포커스 검사 2']) {
+      const item = stored().find(task => task.text === text)!
+      const deleted = mobile.waitForResponse(async response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok() && !(await response.json()).tasks.some((task: { id: string }) => task.id === item.id))
+      await mobile.locator(`[data-task-id="${item.id}"]`).getByRole('button', { name: '태스크 삭제' }).tap(); await deleted
+      assert.equal(await mobile.locator('.task-panel textarea:focus').count(), 0, 'touch deletion never focuses an adjacent task or the draft')
+    }
     const readonly = await browser.newPage({ viewport: { width: 390, height: 740 } })
     await readonly.route('**/api/task-list?*', route => route.fulfill({ json: { tasks: stored(), canEdit: false } }))
     await readonly.goto(base); await readonly.locator('[data-task-id=period]').waitFor()
