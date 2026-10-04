@@ -1,12 +1,14 @@
 import { applyTaskChanges, taskChanges, taskParent, taskDate, taskStartDate, validTaskTree, type TaskBoard, type TaskChange, type TaskItem } from '../../shared/task-list.ts'
+import { taskRollups, taskWithRollup } from '../../shared/task-rollup.ts'
+import { sameTags, taskTags, validTags } from '../../shared/task-tags.ts'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 
 type TaskApi = { read: () => Promise<TaskBoard>; save: (changes: TaskChange[]) => Promise<TaskBoard> }
-type State = TaskBoard & { loading: boolean; saving: boolean; error: string | null; draft: string }
+type State = TaskBoard & { loading: boolean; saving: boolean; error: string | null; draft: string; draftTags: string[] }
 
 /** Lives above the project-keyed dock so closing/remounting a panel cannot discard pending edits. */
 export class TaskListSession {
-  state: State = { tasks: [], canEdit: false, loading: true, saving: false, error: null, draft: '' }
+  state: State = { tasks: [], canEdit: false, loading: true, saving: false, error: null, draft: '', draftTags: [] }
   private baseline: TaskItem[] = []
   private listeners = new Set<() => void>()
   private timer: ReturnType<typeof setTimeout> | undefined
@@ -21,8 +23,9 @@ export class TaskListSession {
       const draft = draftKey ? JSON.parse(localStorage.getItem(draftKey) ?? 'null') : null
       const validItems = (items: unknown): items is TaskItem[] => Array.isArray(items) && items.length <= 2000 && items.every(item => item && typeof item.id === 'string' && typeof item.text === 'string' && typeof item.done === 'boolean' && (item.parentId == null || typeof item.parentId === 'string')) && validTaskTree(items)
       if (validItems(draft?.baseline) && validItems(draft?.tasks)) {
-        this.baseline = draft.baseline
-        this.state = { ...this.state, tasks: draft.tasks, draft: typeof draft.draft === 'string' ? draft.draft : '' }
+        const flatten = (items: TaskItem[]) => { const rollups = taskRollups(items); return items.map(item => { const { parentId: _parentId, ...task } = taskWithRollup(item, rollups); return task }) }
+        this.baseline = flatten(draft.baseline)
+        this.state = { ...this.state, tasks: flatten(draft.tasks), draft: typeof draft.draft === 'string' ? draft.draft : '', draftTags: validTags(draft.draftTags) ? draft.draftTags : [] }
       }
     } catch { /* Invalid or unavailable browser storage. */ }
   }
@@ -32,7 +35,7 @@ export class TaskListSession {
     if (this.disposed) return
     this.state = { ...this.state, ...patch }
     if (this.draftKey) try {
-      if (this.state.draft || taskChanges(this.baseline, this.state.tasks).length) writeBrowserStorage(this.draftKey, JSON.stringify({ baseline: this.baseline, tasks: this.state.tasks, draft: this.state.draft }))
+      if (this.state.draft || this.state.draftTags.length || taskChanges(this.baseline, this.state.tasks).length) writeBrowserStorage(this.draftKey, JSON.stringify({ baseline: this.baseline, tasks: this.state.tasks, draft: this.state.draft, draftTags: this.state.draftTags }))
       else localStorage.removeItem(this.draftKey)
     } catch { /* In-memory drafts remain available when storage is full. */ }
     for (const listener of this.listeners) listener()
@@ -44,6 +47,7 @@ export class TaskListSession {
     if (!this.state.error) this.schedule()
   }
   setDraft(draft: string) { if (this.state.canEdit) this.publish({ draft }) }
+  setDraftTags(draftTags: string[]) { if (this.state.canEdit) this.publish({ draftTags }) }
   async refresh() {
     if (this.disposed || this.reading || this.state.saving || this.state.error || (!this.state.loading && taskChanges(this.baseline, this.state.tasks).length)) return
     this.reading = true
@@ -90,6 +94,7 @@ export class TaskListSession {
         if (!change.after || !change.before || !current) return { ...change, before: current }
         return { ...change, before: current, after: { ...current,
           text: change.after.text !== change.before.text ? change.after.text : current.text,
+          tags: !sameTags(change.after.tags, change.before.tags) ? taskTags(change.after) : taskTags(current),
           done: change.after.done !== change.before.done ? change.after.done : current.done,
           date: taskDate(change.after) !== taskDate(change.before) ? taskDate(change.after) : taskDate(current),
           startDate: taskStartDate(change.after) !== taskStartDate(change.before) ? taskStartDate(change.after) : taskStartDate(current),

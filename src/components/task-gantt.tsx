@@ -1,15 +1,13 @@
-import { TaskDisclosure } from './task-disclosure'
-import { hiddenTaskIds } from '../utils/task-collapse'
-import { taskRollups, taskWithRollup } from '../../shared/task-rollup'
+import { TaskText } from './task-text'
 import { TaskRangeCalendar } from './task-range-calendar'
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@mew/ui'
 import { useUiLocale } from '@mew/ui/i18n'
 import { uiText } from '@mew/ui/i18n-core'
 import { localToday } from '@mew/ui/date-value'
 import { CursorPointer, EditPencil, Minus, Plus, Xmark } from 'iconoir-react'
-import { TASK_LIMIT, taskDepths, taskRange, type TaskItem } from '../../shared/task-list'
+import { TASK_LIMIT, taskRange, type TaskItem } from '../../shared/task-list'
 import { floorTo, fromDay, isWeekend, scaleFor, tickDays, tickLabel, toDay } from '../utils/task-timeline'
 import { MAX_TASK_DAY, MIN_TASK_DAY, moveTaskRange, taskBars, taskStatus, taskStatusLabels } from '../utils/task-schedule'
 import { uuid } from '../utils/uuid'
@@ -20,21 +18,20 @@ type Mode = 'move' | 'start' | 'end' | 'draw' | 'header'
 type Gesture = { pointer: number; element: Element; mode: Mode; task: TaskItem | null; x: number; y: number; anchor: number; ppd: number; moved: boolean; next: TaskItem | null }
 type Pick = { id: string; x: number; y: number; keyboard?: boolean }
 
-export function TaskGantt({ tasks, canEdit, edit, collapsed, onToggle }: { tasks: TaskItem[]; canEdit: boolean; edit: (tasks: TaskItem[]) => void; collapsed: ReadonlySet<string>; onToggle: (id: string) => void }) {
+export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.length }: { tasks: TaskItem[]; canEdit: boolean; edit: (tasks: TaskItem[]) => void; knownTags: string[]; totalTasks?: number }) {
   const locale = useUiLocale(), today = localToday(), gradientId = useId().replace(/:/g, '')
   const [ppd, setPpd] = useState(24), [drawing, setDrawing] = useState(false), [preview, setPreview] = useState<TaskItem | null>(null), [pick, setPick] = useState<Pick | null>(null)
   const scroller = useRef<HTMLDivElement>(null), svg = useRef<SVGSVGElement>(null), gesture = useRef<Gesture | null>(null)
   const labels = useRef<HTMLDivElement>(null), pickElement = useRef<HTMLElement | SVGElement | null>(null)
   const current = useRef({ tasks, canEdit, edit, ppd }); current.current = { tasks, canEdit, edit, ppd }
   const pendingScroll = useRef<number | null>(null)
-  const rollups = useMemo(() => taskRollups(tasks), [tasks])
-  const ranges = tasks.map(task => taskWithRollup(task, rollups)).flatMap(task => { const range = taskRange(task); return range ? [toDay(range.start), toDay(range.end)] : [] })
+  const ranges = tasks.flatMap(task => { const range = taskRange(task); return range ? [toDay(range.start), toDay(range.end)] : [] })
   const startDay = Math.max(MIN_TASK_DAY, Math.min(toDay(today) - 14, ...ranges) - 7)
   const endDay = Math.min(MAX_TASK_DAY, Math.max(toDay(today) + 21, ...ranges) + 7)
   const previousStart = useRef(startDay), days = endDay - startDay + 1
   const allShown = preview ? tasks.some(task => task.id === preview.id) ? tasks.map(task => task.id === preview.id ? preview : task) : [...tasks, preview] : tasks
-  const hidden = hiddenTaskIds(allShown, collapsed), shown = allShown.filter(task => !hidden.has(task.id))
-  const bars = taskBars(allShown, today), depths = taskDepths(allShown), width = days * ppd, height = (shown.length + 1) * ROW_H
+  const shown = allShown
+  const bars = taskBars(allShown, today), width = days * ppd, height = (shown.length + 1) * ROW_H
   const { minor, major } = scaleFor(Math.min(ppd, days > 800 ? 4 : ppd))
   const minors = tickDays(startDay, endDay, minor), majors = tickDays(startDay, endDay, major)
   const X = (day: number) => (day - startDay) * ppd
@@ -91,18 +88,17 @@ export function TaskGantt({ tasks, canEdit, edit, collapsed, onToggle }: { tasks
   }, [])
   useEffect(() => {
     const active = gesture.current
-    if ((!canEdit || (active?.task && rollups.parents.has(active.task.id))) && active?.mode !== 'header') cancel()
+    if (!canEdit && active?.mode !== 'header') cancel()
     else if (active?.task) {
       const now = tasks.find(task => task.id === active.task!.id)
       if (!now || now.startDate !== active.task.startDate || now.date !== active.task.date) cancel()
     }
-    if (pick && (!tasks.some(task => task.id === pick.id) || hiddenTaskIds(tasks, collapsed).has(pick.id))) closePick(false)
-  }, [tasks, canEdit, pick, rollups.parents, collapsed, closePick])
+    if (pick && !tasks.some(task => task.id === pick.id)) closePick(false)
+  }, [tasks, canEdit, pick, closePick])
   const dayAt = (clientX: number) => Math.max(MIN_TASK_DAY, Math.min(MAX_TASK_DAY, Math.floor(startDay + (clientX - (svg.current?.getBoundingClientRect().left ?? 0)) / ppd)))
   const begin = (event: ReactPointerEvent<Element>, mode: Mode, task: TaskItem | null) => {
     if (event.button !== 0 || !event.isPrimary || (mode !== 'header' && !canEdit)) return
-    if (mode !== 'header' && task && rollups.parents.has(task.id)) return
-    if (mode === 'draw' && !task && tasks.length >= TASK_LIMIT) return
+    if (mode === 'draw' && !task && totalTasks >= TASK_LIMIT) return
     event.preventDefault(); event.stopPropagation(); setPick(null)
     event.currentTarget.setPointerCapture(event.pointerId)
     if (task) pickElement.current = (event.currentTarget.closest('[data-gantt-task]')?.querySelector('[data-gantt-bar]') ?? event.currentTarget) as HTMLElement | SVGElement
@@ -155,12 +151,11 @@ export function TaskGantt({ tasks, canEdit, edit, collapsed, onToggle }: { tasks
       <div className="task-gantt-content" style={{ width: `calc(var(--task-gantt-label-width) + ${width}px)` }}>
         <div ref={labels} className="task-gantt-labels" style={{ width: 'var(--task-gantt-label-width)' }}>
           <div className="task-gantt-label-header">{uiText('태스크')}</div>
-          {shown.map(task => <div key={task.id} className="task-gantt-label" data-done={task.done} style={{ paddingLeft: 8 + Math.min(depths.get(task.id) ?? 0, 6) * 12 }}>
-            <TaskDisclosure parent={rollups.parents.has(task.id)} collapsed={collapsed.has(task.id)} onToggle={() => { cancel(); onToggle(task.id) }} />
+          {shown.map(task => <div key={task.id} className="task-gantt-label" data-done={task.done} style={{ paddingLeft: 8 }}>
             <input type="checkbox" checked={task.done} disabled={!canEdit} aria-label={uiText('태스크 완료')} onChange={event => edit(tasks.map(item => item.id === task.id ? { ...item, done: event.target.checked } : item))} />
             <button type="button" data-tip={task.text || uiText('새 태스크')} onClick={event => pickTask(task, event.currentTarget, event.detail === 0)}>{task.text || uiText('새 태스크')}</button>
           </div>)}
-          <div className="task-gantt-label task-gantt-new">{canEdit && <button type="button" disabled={tasks.length >= TASK_LIMIT} onClick={() => { const task = { id: uuid(), text: uiText('새 태스크'), done: false }; edit([...tasks, task]) }}><Plus width={14} height={14} aria-hidden="true" />{uiText('새 태스크')}</button>}</div>
+          <div className="task-gantt-label task-gantt-new">{canEdit && <button type="button" disabled={totalTasks >= TASK_LIMIT} onClick={() => { const task = { id: uuid(), text: uiText('새 태스크'), done: false }; edit([...tasks, task]) }}><Plus width={14} height={14} aria-hidden="true" />{uiText('새 태스크')}</button>}</div>
         </div>
         <div className="task-gantt-plot" style={{ width }}>
           <svg className="task-gantt-header" width={width} height={HEADER_H} aria-label={uiText('간트 날짜 눈금')}>
@@ -178,10 +173,10 @@ export function TaskGantt({ tasks, canEdit, edit, collapsed, onToggle }: { tasks
             {majors.map(day => <line key={day} x1={X(day)} x2={X(day)} y1={0} y2={height} stroke="var(--color-edge)" />)}
             {shown.map((task, row) => <g key={task.id} data-gantt-task={task.id}>
               <line x1={0} x2={width} y1={(row + 1) * ROW_H} y2={(row + 1) * ROW_H} stroke="var(--color-edge)" opacity={.5} />
-              {drawing && canEdit && !rollups.parents.has(task.id) && <rect data-gantt-grab x={0} y={row * ROW_H} width={width} height={ROW_H} fill="transparent" style={{ cursor: 'crosshair', touchAction: 'none' }} onPointerDown={event => begin(event, 'draw', tasks.find(item => item.id === task.id) ?? null)} />}
+              {drawing && canEdit && <rect data-gantt-grab x={0} y={row * ROW_H} width={width} height={ROW_H} fill="transparent" style={{ cursor: 'crosshair', touchAction: 'none' }} onPointerDown={event => begin(event, 'draw', tasks.find(item => item.id === task.id) ?? null)} />}
               {(bars.get(task.id) ?? []).map((bar, index, rowBars) => {
                 const x = X(toDay(bar.start)), span = toDay(bar.end) - toDay(bar.start) + 1, w = Math.max(4, span * ppd - 1), y = row * ROW_H + (ROW_H - BAR_H) / 2
-                const status = taskStatus(taskWithRollup(task, rollups), today), label = `${task.text} · ${bar.start} – ${bar.end}${bar.own ? ` · ${uiText(taskStatusLabels[status])}` : ''}`
+                const status = taskStatus(task, today), label = `${task.text} · ${bar.start} – ${bar.end}${bar.own ? ` · ${uiText(taskStatusLabels[status])}` : ''}`
                 return <g key={index}>
                   {index > 0 && <line x1={X(toDay(rowBars[index - 1].end) + 1)} x2={x} y1={y + BAR_H / 2} y2={y + BAR_H / 2} stroke="var(--color-ink-muted)" strokeWidth={3} strokeLinecap="round" />}
                   <rect data-gantt-bar={bar.own ? task.id : undefined} data-gantt-summary={!bar.own || undefined} data-gantt-grab={bar.own && canEdit || undefined}
@@ -200,17 +195,17 @@ export function TaskGantt({ tasks, canEdit, edit, collapsed, onToggle }: { tasks
               })}
             </g>)}
             <line x1={8} x2={width - 8} y1={shown.length * ROW_H + ROW_H / 2} y2={shown.length * ROW_H + ROW_H / 2} stroke="var(--color-edge)" strokeDasharray="3 6" />
-            {drawing && canEdit && tasks.length < TASK_LIMIT && <rect data-gantt-new data-gantt-grab x={0} y={shown.length * ROW_H} width={width} height={ROW_H} fill="transparent" style={{ cursor: 'crosshair', touchAction: 'none' }} onPointerDown={event => begin(event, 'draw', null)} />}
+            {drawing && canEdit && totalTasks < TASK_LIMIT && <rect data-gantt-new data-gantt-grab x={0} y={shown.length * ROW_H} width={width} height={ROW_H} fill="transparent" style={{ cursor: 'crosshair', touchAction: 'none' }} onPointerDown={event => begin(event, 'draw', null)} />}
             <line pointerEvents="none" x1={X(toDay(today))} x2={X(toDay(today))} y1={0} y2={height} stroke="#f43f5e" strokeWidth={1.5} strokeDasharray="4 3" />
           </svg>
         </div>
       </div>
     </div>
-    {pick && selected && createPortal(<GanttInspector pick={pick} task={taskWithRollup(selected, rollups)} canEdit={canEdit} datesReadOnly={rollups.parents.has(selected.id)} onClose={closePick} onEdit={item => edit(tasks.map(task => task.id === item.id ? rollups.parents.has(item.id) ? { ...task, text: item.text, done: item.done } : item : task))} />, document.body)}
+    {pick && selected && createPortal(<GanttInspector pick={pick} task={selected} knownTags={knownTags} canEdit={canEdit} onClose={closePick} onEdit={item => edit(tasks.map(task => task.id === item.id ? item : task))} />, document.body)}
   </div>
 }
 
-function GanttInspector({ pick, task, canEdit, datesReadOnly, onClose, onEdit }: { pick: Pick; task: TaskItem; canEdit: boolean; datesReadOnly: boolean; onClose: (restore?: boolean) => void; onEdit: (task: TaskItem) => void }) {
+function GanttInspector({ pick, task, knownTags, canEdit, onClose, onEdit }: { pick: Pick; task: TaskItem; knownTags: string[]; canEdit: boolean; onClose: (restore?: boolean) => void; onEdit: (task: TaskItem) => void }) {
   const ref = useRef<HTMLDivElement>(null), [position, setPosition] = useState({ left: pick.x, top: pick.y })
   useLayoutEffect(() => {
     const update = () => {
@@ -223,14 +218,14 @@ function GanttInspector({ pick, task, canEdit, datesReadOnly, onClose, onEdit }:
     // Start on a non-input control so keyboard access does not open a touch keyboard.
     if (pick.keyboard) ref.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
     window.addEventListener('resize', update); window.visualViewport?.addEventListener('resize', update); window.visualViewport?.addEventListener('scroll', update)
-    const outside = (event: PointerEvent) => { const target = event.target as Element; if (!ref.current?.contains(target) && !target.closest('.mew-calendar')) onClose(false) }
+    const outside = (event: PointerEvent) => { const target = event.target as Element; if (!ref.current?.contains(target) && !target.closest('.mew-calendar, .task-tag-suggestions')) onClose(false) }
     document.addEventListener('pointerdown', outside)
     return () => { window.removeEventListener('resize', update); window.visualViewport?.removeEventListener('resize', update); window.visualViewport?.removeEventListener('scroll', update); document.removeEventListener('pointerdown', outside) }
   }, [pick, onClose])
   return <div ref={ref} role="dialog" aria-label={uiText('일정 편집')} className="task-gantt-inspector" style={position}>
     <div className="task-inspector-head"><strong>{uiText('일정 편집')}</strong><button type="button" className="task-tool" aria-label={uiText('닫기')} data-tip={uiText('닫기')} onClick={() => onClose()}><Xmark width={16} height={16} aria-hidden="true" /></button></div>
-    <input aria-label={uiText('태스크 내용')} value={task.text} readOnly={!canEdit} onChange={event => onEdit({ ...task, text: event.target.value })} maxLength={8000} />
-    <TaskRangeCalendar key={task.id} start={task.startDate} end={task.date} readOnly={!canEdit || datesReadOnly} onChange={(startDate, date) => onEdit({ ...task, startDate, date })} />
+    <TaskText id={task.id} text={task.text} tags={task.tags} knownTags={knownTags} disabled={!canEdit} onChange={(text, tags) => onEdit({ ...task, text, tags })} />
+    <TaskRangeCalendar key={task.id} start={task.startDate} end={task.date} readOnly={!canEdit} onChange={(startDate, date) => onEdit({ ...task, startDate, date })} />
     <div className="task-inspector-actions"><label><input type="checkbox" checked={task.done} disabled={!canEdit} onChange={event => onEdit({ ...task, done: event.target.checked })} />{uiText('완료')}</label>
     </div>
   </div>

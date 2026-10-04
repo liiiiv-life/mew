@@ -2,7 +2,7 @@ import express from 'express'
 import { authOf, requireAuthenticated } from './reqAuth.ts'
 import { unrestrictedFiles } from './access-policy.ts'
 import { WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
-import { changeTaskList, readTaskList, TaskInputError } from './task-list.ts'
+import { changeTaskList, readTaskList, readTaskTags, TaskInputError } from './task-list.ts'
 import { TaskConflict } from '../shared/task-list.ts'
 
 export function createTaskListRouter() {
@@ -16,11 +16,11 @@ export function createTaskListRouter() {
     next()
   })
   router.get('/', (req, res) => {
-    try { res.json({ tasks: readTaskList(WORKSPACE_ROOT), canEdit: unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true) }) }
+    try { res.json({ tasks: readTaskList(WORKSPACE_ROOT), tags: readTaskTags(WORKSPACE_ROOT), canEdit: unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true) }) }
     catch { res.status(500).json({ error: '태스크를 불러오지 못했습니다' }) }
   })
   router.patch('/', (req, res) => {
-    try { res.json({ tasks: changeTaskList(WORKSPACE_ROOT, req.body?.changes), canEdit: true }) }
+    try { res.json({ tasks: changeTaskList(WORKSPACE_ROOT, req.body?.changes), tags: readTaskTags(WORKSPACE_ROOT), canEdit: true }) }
     catch (error) {
       const status = error instanceof TaskConflict ? 409 : error instanceof TaskInputError ? 400 : 500
       res.status(status).json({ error: status === 500 ? '태스크를 저장하지 못했습니다' : (error as Error).message })

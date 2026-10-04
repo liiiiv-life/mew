@@ -10,6 +10,18 @@ import { chromium, type Page, type Locator } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
 import { taskChanges } from '../shared/task-list.ts'
 
+async function expectDateValue(input: Locator, expected: string) {
+  await input.evaluate((el, value) => new Promise<void>((resolve, reject) => {
+    const started = Date.now()
+    const check = () => {
+      if ('value' in el && el.value === value) { resolve(); return }
+      if (Date.now() - started > 3000) { reject(new Error(`Expected date ${value}`)); return }
+      el.ownerDocument.defaultView!.requestAnimationFrame(check)
+    }
+    check()
+  }), expected)
+}
+
 test('calendar agenda and Gantt share persisted periods, edit by mouse/touch/keyboard and preserve read-only views', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-task-schedule-ui-'))
   process.env.MEW_DATA_DIR = directory
@@ -17,8 +29,8 @@ test('calendar agenda and Gantt share persisted periods, edit by mouse/touch/key
   const { changeTaskList, readTaskList } = await import('./task-list.ts')
   const { WORKSPACE_ROOT } = await import('./paths.ts')
   changeTaskList(WORKSPACE_ROOT, taskChanges([], [
-    { id: 'parent', text: '출시 준비', done: false },
-    { id: 'period', text: '개발', done: false, parentId: 'parent', startDate: '2026-10-02', date: '2026-10-06' },
+    { id: 'parent', text: '출시 준비', done: false, startDate: '2026-10-02', date: '2026-10-06' },
+    { id: 'period', text: '개발', done: false, startDate: '2026-10-02', date: '2026-10-06' },
     { id: 'legacy', text: '검토', done: true, date: '2026-10-04' },
     { id: 'undated', text: '나중에 할 일', done: false },
   ]))
@@ -59,37 +71,14 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const errors: string[] = []
     for (const page of [desktop, mobile]) { page.setDefaultTimeout(5000); page.on('pageerror', error => errors.push(error.message)); await page.clock.setFixedTime(new Date('2026-10-03T03:00:00Z')); await page.goto(base); await page.locator('[data-task-id=undated]').waitFor().catch(async error => { throw new Error(`${error.message}\n${errors.join('\n')}\n${await page.locator('body').innerText()}`) }) }
     const panel = desktop.locator('.task-panel')
-    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['undated', 'parent', 'period', 'legacy'], 'list applies date status sorting and preserves parent blocks')
-    const originalBoard = JSON.stringify(readTaskList(WORKSPACE_ROOT))
-    const parentRow = panel.locator('[data-task-id=parent]')
-    const disclosure = parentRow.getByRole('button', { name: '접기', exact: true })
-    const disclosureBox = (await disclosure.boundingBox())!, checkboxBox = (await parentRow.getByRole('checkbox').boundingBox())!
-    assert.ok(disclosureBox.x + disclosureBox.width <= checkboxBox.x, 'disclosure is to the left of the checkbox')
-    await disclosure.press('Enter')
-    assert.equal(await parentRow.getByRole('button', { name: '펼치기', exact: true }).getAttribute('aria-expanded'), 'false')
-    assert.equal(await panel.locator('[data-task-id=period]').count(), 0)
-    assert.equal(await parentRow.locator('.task-date-status').innerText(), 'D-3', 'hidden children still determine parent dates')
-    await panel.getByRole('tab', { name: '달력', exact: true }).click()
-    await panel.locator('.task-calendar-day[data-date="2026-10-04"]').click()
-    assert.equal(await panel.locator('[data-task-id=period]').count(), 0, 'fold state carries into calendar agenda')
-    await panel.getByRole('tab', { name: '간트', exact: true }).click()
-    assert.equal(await panel.locator('[data-gantt-task=period]').count(), 0)
-    assert.equal(await panel.locator('[data-gantt-task=parent] [data-gantt-summary]').count(), 1)
-    await panel.locator('.task-gantt-label').filter({ hasText: '출시 준비' }).getByRole('button', { name: '펼치기', exact: true }).click()
-    await panel.locator('[data-gantt-task=period]').waitFor()
-    await panel.getByRole('tab', { name: '목록', exact: true }).click()
-    assert.equal(JSON.stringify(readTaskList(WORKSPACE_ROOT)), originalBoard, 'folding and unfolding never writes task data')
-    const mobileParent = mobile.locator('[data-task-id=parent]')
-    await mobileParent.getByRole('button', { name: '접기', exact: true }).tap()
-    assert.equal(await mobile.locator('[data-task-id=period]').count(), 0)
-    await mobile.screenshot({ path: `${screenshots}/mobile-collapsed-light.png` })
-    await mobileParent.getByRole('button', { name: '펼치기', exact: true }).tap()
-    await mobile.locator('[data-task-id=period]').waitFor()
+    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['undated', 'parent', 'period', 'legacy'], 'list applies date status sorting to independent rows')
+    assert.equal(await panel.locator('.task-disclosure').count(), 0)
     assert.equal(await panel.locator('[data-task-id=undated] .task-date-status').innerText(), '날짜 설정')
     assert.equal(await panel.locator('[data-task-id=period] .task-date-status').innerText(), 'D-3')
     await panel.locator('[data-task-id=period] .task-date-status').click()
     const dates = desktop.locator('.task-date-popover')
-    assert.equal(await dates.locator('.task-range-summary').textContent(), '시작일 2026-10-02종료일 2026-10-06')
+    await expectDateValue(dates.getByRole('textbox', { name: '시작일', exact: true }), '2026-10-02')
+    await expectDateValue(dates.getByRole('textbox', { name: '종료일', exact: true }), '2026-10-06')
     assert.equal(await dates.getByRole('button', { name: '달력 열기' }).count(), 0)
     await dates.getByRole('textbox', { name: '연도' }).fill('2025')
     await dates.getByRole('textbox', { name: '연도' }).press('Enter')
@@ -99,18 +88,22 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await dates.locator('[data-date="2026-10-16"]').click()
     const sameDaySaved = desktop.waitForResponse(async response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok() && (await response.json()).tasks.some((task: { id: string; startDate?: string; date?: string }) => task.id === 'period' && task.startDate === '2026-10-16' && task.date === '2026-10-16'))
     await dates.locator('[data-date="2026-10-16"]').press('Enter'); await sameDaySaved
-    assert.equal(await dates.locator('.task-range-summary').textContent(), '시작일 2026-10-16종료일 2026-10-16')
+    await expectDateValue(dates.getByRole('textbox', { name: '시작일', exact: true }), '2026-10-16')
+    await expectDateValue(dates.getByRole('textbox', { name: '종료일', exact: true }), '2026-10-16')
     assert.equal(await dates.locator('[data-start][data-end]').getAttribute('data-date'), '2026-10-16')
     assert.equal(await dates.locator('[data-range]').count(), 0)
     await dates.getByRole('textbox', { name: '월', exact: true }).fill('9')
     await dates.getByRole('textbox', { name: '월', exact: true }).press('Enter')
     await dates.locator('[data-date="2026-09-17"]').click()
     await dates.locator('[data-date="2026-09-09"]').click()
-    assert.equal(await dates.locator('.task-range-summary').textContent(), '시작일 2026-09-09종료일 —')
+    await expectDateValue(dates.getByRole('textbox', { name: '시작일', exact: true }), '2026-09-09')
+    await expectDateValue(dates.getByRole('textbox', { name: '종료일', exact: true }), '0000-00-00')
     await dates.locator('[data-date="2026-09-09"]').click()
-    assert.equal(await dates.locator('.task-range-summary').textContent(), '시작일 2026-09-09종료일 2026-09-09')
+    await expectDateValue(dates.getByRole('textbox', { name: '시작일', exact: true }), '2026-09-09')
+    await expectDateValue(dates.getByRole('textbox', { name: '종료일', exact: true }), '2026-09-09')
     await dates.locator('[data-date="2026-09-09"]').click()
-    assert.equal(await dates.locator('.task-range-summary').textContent(), '시작일 2026-09-09종료일 —')
+    await expectDateValue(dates.getByRole('textbox', { name: '시작일', exact: true }), '2026-09-09')
+    await expectDateValue(dates.getByRole('textbox', { name: '종료일', exact: true }), '0000-00-00')
     await dates.locator('[data-date="2026-09-19"]').click()
     assert.equal(await dates.locator('[data-range]').count(), 9)
     await dates.getByRole('textbox', { name: '월', exact: true }).fill('13')
@@ -127,11 +120,10 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await dates.waitFor({ state: 'hidden' })
     await panel.locator('[data-task-id=parent] .task-date-status').click()
     const parentDates = desktop.locator('.task-date-popover')
-    assert.equal(await parentDates.locator('.task-range-summary').textContent(), '시작일 2026-10-02종료일 2026-10-06')
-    assert.equal(await parentDates.getByRole('button', { name: '일정 지우기' }).isDisabled(), true)
-    assert.equal(await parentDates.locator('[data-date="2026-10-03"]').getAttribute('aria-disabled'), 'true')
-    await parentDates.locator('[data-date="2026-10-03"]').click({ force: true })
-    assert.equal(await parentDates.locator('.task-range-summary').textContent(), '시작일 2026-10-02종료일 2026-10-06')
+    await expectDateValue(parentDates.getByRole('textbox', { name: '시작일', exact: true }), '2026-10-02')
+    await expectDateValue(parentDates.getByRole('textbox', { name: '종료일', exact: true }), '2026-10-06')
+    assert.equal(await parentDates.getByRole('button', { name: '일정 지우기' }).isDisabled(), false)
+    assert.equal(await parentDates.locator('[data-date="2026-10-03"]').getAttribute('aria-disabled'), null)
     await desktop.keyboard.press('Escape')
     assert.equal(await panel.locator('header [role=tablist] [role=tab]').count(), 3, 'all view tabs are in the title bar')
     await panel.getByRole('tab', { name: '목록', exact: true }).focus()
@@ -167,7 +159,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await pasted
     assert.deepEqual(stored().filter(task => ['첫째 일정', '둘째 일정'].includes(task.text)).map(task => [task.startDate, task.date]), [['2026-10-10', '2026-10-10'], ['2026-10-10', '2026-10-10']], 'pasted calendar tasks use the selected day and stay in the agenda')
     await panel.getByRole('tab', { name: '간트', exact: true }).click()
-    await panel.locator('[data-gantt-summary]').waitFor()
+    assert.equal(await panel.locator('[data-gantt-summary]').count(), 0)
     const bar = panel.locator('[data-gantt-bar=period]')
     await bar.scrollIntoViewIfNeeded()
     const before = stored().find(task => task.id === 'period')!, rect = (await bar.boundingBox())!
@@ -198,20 +190,18 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(await inspector.getByRole('button', { name: '달력 열기' }).count(), 0)
     await desktop.keyboard.press('Escape'); await inspector.waitFor({ state: 'hidden' })
     assert.equal(await bar.evaluate(el => el.ownerDocument.activeElement === el), true, 'closing the keyboard inspector restores bar focus')
-    const parentBar = panel.locator('[data-gantt-task=parent] [data-gantt-summary]')
-    assert.equal(await panel.locator('[data-gantt-task=parent] [data-gantt-resize]').count(), 0)
-    await parentBar.focus(); await parentBar.press('ArrowRight')
+    const parentBar = panel.locator('[data-gantt-task=parent] [data-gantt-bar]')
+    assert.equal(await panel.locator('[data-gantt-task=parent] [data-gantt-resize]').count(), 2)
     await parentBar.press('Enter')
     const parentInspector = desktop.locator('.task-gantt-inspector')
-    assert.equal(await parentInspector.locator('.task-range-summary').textContent(), '시작일 2026-10-02종료일 2026-10-08')
-    assert.equal(await parentInspector.getByRole('button', { name: '일정 지우기' }).isDisabled(), true)
+    assert.equal(await parentInspector.getByRole('button', { name: '일정 지우기' }).isDisabled(), false)
     const parentEdited = desktop.waitForResponse(response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok())
     await parentInspector.getByRole('textbox', { name: '태스크 내용' }).fill('출시 준비 수정'); await parentEdited
     assert.equal(stored().find(task => task.id === 'parent')?.text, '출시 준비 수정')
-    assert.equal(stored().find(task => task.id === 'parent')?.startDate, undefined, 'editing parent text never persists derived dates')
+    assert.equal(stored().find(task => task.id === 'parent')?.startDate, '2026-10-02')
     await desktop.keyboard.press('Escape')
     await panel.getByRole('button', { name: '일정 그리기' }).click()
-    assert.equal(await panel.locator('[data-gantt-task=parent] [data-gantt-grab]').count(), 0, 'drawing cannot edit a parent')
+    assert.equal(await panel.locator('[data-gantt-task=parent] [data-gantt-grab]').count(), 4, 'all rows can draw their own schedule')
     const empty = panel.locator('[data-gantt-new]'); await empty.scrollIntoViewIfNeeded()
     const blank = (await empty.boundingBox())!, total = stored().length
     await desktop.mouse.move(blank.x + 360, blank.y + 20); await desktop.mouse.down(); await desktop.mouse.move(blank.x + 432, blank.y + 20, { steps: 4 })
@@ -243,19 +233,19 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await desktop.getByRole('button', { name: '한국어', exact: true }).click()
     await desktop.reload(); await desktop.locator('[data-task-id=period]').waitFor()
     await desktop.locator('[data-task-id=period] .task-date-status').click()
-    assert.match(await desktop.locator('.task-date-popover .task-range-summary').innerText(), /2026-10-02/)
+    await expectDateValue(desktop.locator('.task-date-popover').getByRole('textbox', { name: '시작일', exact: true }), '2026-10-02')
     await desktop.keyboard.press('Escape')
     await mobile.reload(); await mobile.locator('[data-task-id=period]').waitFor()
     await mobile.locator('html').evaluate(el => el.classList.remove('dark'))
     const status = mobile.locator('[data-task-id=period] .task-date-status')
     const statusBox = (await status.boundingBox())!
-    const mobilePlus = (await mobile.locator('[data-task-id=period]').getByRole('button', { name: '하위 태스크 추가' }).boundingBox())!
-    assert.ok(statusBox.x + statusBox.width <= mobilePlus.x)
+    const mobileDelete = (await mobile.locator('[data-task-id=period]').getByRole('button', { name: '태스크 삭제' }).boundingBox())!
+    assert.ok(statusBox.x + statusBox.width <= mobileDelete.x)
     await status.tap()
     const mobileDates = mobile.locator('.task-date-popover')
     const dateBox = (await mobileDates.boundingBox())!
     assert.ok(dateBox.x >= 0 && dateBox.x + dateBox.width <= 320)
-    assert.match(await mobileDates.locator('.task-range-summary').innerText(), /2026-10-02/)
+    await expectDateValue(mobileDates.getByRole('textbox', { name: '시작일', exact: true }), '2026-10-02')
     await mobileDates.locator('[data-date="2026-10-02"]').tap()
     await mobileDates.locator('[data-date="2026-10-08"]').tap()
     await checkDateCalendar(mobileDates)
@@ -315,9 +305,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const readonly = await browser.newPage({ viewport: { width: 390, height: 740 } })
     await readonly.route('**/api/task-list?*', route => route.fulfill({ json: { tasks: stored(), canEdit: false } }))
     await readonly.goto(base); await readonly.locator('[data-task-id=period]').waitFor()
-    await readonly.locator('[data-task-id=parent]').getByRole('button', { name: '접기', exact: true }).click()
-    assert.equal(await readonly.locator('[data-task-id=period]').count(), 0, 'read-only users can fold rows')
-    await readonly.locator('[data-task-id=parent]').getByRole('button', { name: '펼치기', exact: true }).click()
+    assert.equal(await readonly.locator('.task-disclosure').count(), 0)
     await readonly.getByRole('tab', { name: '달력', exact: true }).click()
     await readonly.getByRole('tab', { name: '간트', exact: true }).click()
     assert.equal(await readonly.getByRole('button', { name: '일정 그리기' }).isDisabled(), true)
@@ -330,22 +318,6 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await readonly.keyboard.press('Escape')
     assert.equal(await readonly.locator('[data-gantt-resize]').count(), 0)
     assert.equal(await readonly.locator('[data-gantt-grab]').count(), 1, 'only viewport gestures remain enabled')
-    const nested = await browser.newPage({ viewport: { width: 390, height: 740 }, hasTouch: true })
-    await nested.route('**/api/task-list?*', route => route.fulfill({ json: { canEdit: false, tasks: [
-      { id: 'root', text: 'root', done: false },
-      { id: 'branch', text: 'branch', done: false, parentId: 'root' },
-      { id: 'leaf', text: 'leaf', done: false, parentId: 'branch' },
-      { id: 'peer', text: 'peer', done: false, parentId: 'root' },
-    ] } }))
-    await nested.goto(base)
-    await nested.locator('[data-task-id=branch]').getByRole('button', { name: '접기', exact: true }).tap()
-    await nested.locator('[data-task-id=root]').getByRole('button', { name: '접기', exact: true }).tap()
-    assert.equal(await nested.locator('[data-task-id]').count(), 1)
-    await nested.locator('[data-task-id=root]').getByRole('button', { name: '펼치기', exact: true }).tap()
-    assert.equal(await nested.locator('[data-task-id]').count(), 3)
-    assert.equal(await nested.locator('[data-task-id=leaf]').count(), 0, 'inner fold state survives folding and expanding its ancestor')
-    await nested.locator('[data-task-id=branch]').getByRole('button', { name: '펼치기', exact: true }).tap()
-    assert.equal(await nested.locator('[data-task-id]').count(), 4)
     assert.deepEqual(errors, [])
   } finally { await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true }) }
 })

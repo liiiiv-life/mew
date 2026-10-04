@@ -34,10 +34,9 @@ test('task objects persist, merge unrelated edits, reject conflicts and protect 
     assert.equal(changeTaskList('/dated', taskChanges([dated], [{ ...a, date: null }]))[0].date, null)
     assert.deepEqual(readTaskList('/dated'), [a])
     const nested = [a, { ...b, parentId: a.id }]
-    assert.deepEqual(changeTaskList('/nested', taskChanges([], nested)), nested)
-    assert.deepEqual(readTaskList('/nested'), nested)
-    assert.throws(() => changeTaskList('/nested', taskChanges(nested, [a, { ...b, parentId: 'missing' }])), /다른 창/)
-    assert.deepEqual(readTaskList('/nested'), nested)
+    assert.throws(() => changeTaskList('/nested', taskChanges([], nested)), /잘못된/)
+    fs.writeFileSync(taskListFile('/nested'), JSON.stringify({ version: 1, tasks: nested }))
+    assert.deepEqual(readTaskList('/nested'), [a, b], 'legacy hierarchy becomes independent rows')
     assert.deepEqual(readTaskList('/project-b'), [], 'root projects are isolated')
     assert.deepEqual(readTaskList('/project-a'), [a, b])
     changeTaskList('/project-a', taskChanges([a, b], [{ ...a, done: true }, b]))

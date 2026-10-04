@@ -1,6 +1,12 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  '태그': ['Tags', '标签', 'タグ'],
+  '태그 필터': ['Filter by tag', '按标签筛选', 'タグで絞り込み'],
+  '모든 태그': ['All tags', '所有标签', 'すべてのタグ'],
+  '태그 삭제': ['Remove tag', '移除标签', 'タグを削除'],
+  '태그 추가': ['Add tag', '添加标签', 'タグを追加'],
+  '태그 자동완성': ['Tag suggestions', '标签建议', 'タグ候補'],
   "지연": ["Overdue", "逾期", "遅延"],
   "계획": ["Planned", "计划", "計画"],
   "전체": ["All", "全部", "全体"],

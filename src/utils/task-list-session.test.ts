@@ -82,3 +82,23 @@ test('a failed date write retries over remote text and completion without losing
     assert.equal(serverItems[0].text, 'remote'); assert.equal(serverItems[0].done, true)
   } finally { session.dispose() }
 })
+
+test('failed tag writes retry without overwriting remote content or completion', async () => {
+  let serverItems = [{ ...item, tags: ['abc'] }], fail = true
+  const session = new TaskListSession({ read: async () => ({ tasks: serverItems, canEdit: true, tags: ['abc'] }), save: async changes => {
+    if (fail) throw new Error('save failed')
+    serverItems = applyTaskChanges(serverItems, changes) as typeof serverItems
+    return { tasks: serverItems, canEdit: true, tags: ['abc', 'abcde'] }
+  } })
+  try {
+    await session.refresh()
+    session.setDraft('draft'); session.setDraftTags(['abc'])
+    session.edit([{ ...serverItems[0], tags: ['abc', 'abcde'] }]); await session.flush()
+    assert.ok(session.state.error)
+    serverItems = [{ ...serverItems[0], text: 'remote', done: true }]; fail = false
+    await session.retry()
+    assert.deepEqual(serverItems, [{ ...item, text: 'remote', done: true, tags: ['abc', 'abcde'] }])
+    assert.deepEqual(session.state.draftTags, ['abc'])
+    assert.deepEqual(session.state.tags, ['abc', 'abcde'])
+  } finally { session.dispose() }
+})
