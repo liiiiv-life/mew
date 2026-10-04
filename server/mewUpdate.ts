@@ -80,7 +80,19 @@ export function writeMewUpdateJob(job: MewUpdateJob): void {
   fs.renameSync(temporary, UPDATE_JOB_FILE)
 }
 
+export function needsMewUpdate(available: boolean, job: MewUpdateJob | null): boolean {
+  // Pull may have succeeded before installation/build/restart failed.
+  return available || job?.state === 'failed'
+}
+
 export async function mewUpdateStatus(refreshRemote: boolean, running: boolean): Promise<MewUpdateStatus> {
+  let job = readMewUpdateJob()
+  // A concurrent status request can arrive between reserving the job and
+  // starting tmux. Give queued workers a short launch window.
+  if (!running && (job?.state === 'running' || job?.state === 'queued' && Date.now() - job.startedAt > 30_000)) {
+    job = { ...job, state: 'failed', finishedAt: Date.now(), message: '업데이트 작업이 중단되었습니다. 다시 시도해 주세요.' }
+    writeMewUpdateJob(job)
+  }
   const base = {
     supported: false,
     canUpdate: false,
@@ -94,7 +106,7 @@ export async function mewUpdateStatus(refreshRemote: boolean, running: boolean):
     running,
     managedByMew: managedByMew(),
     error: null,
-    job: readMewUpdateJob(),
+    job,
   } satisfies MewUpdateStatus
 
   try {

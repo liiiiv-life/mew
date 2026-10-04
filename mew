@@ -248,10 +248,13 @@ cmd_setup() {
 cmd_update() {
   load_config
   git pull --ff-only origin main || die "git pull failed — commit or stash your local changes first"
-  npm ci --no-audit --no-fund
-  npm run build
-  stop_server
-  start_server
+  say "installing dependencies..."
+  npm ci --no-audit --no-fund || die "dependency installation failed — update failed"
+  say "building..."
+  npm run build || die "build failed — update failed; server was not restarted"
+  say "restarting..."
+  stop_server || die "server stop failed — update failed"
+  start_server || die "server restart failed — update failed"
   say "updated. $(url)"
 }
 
