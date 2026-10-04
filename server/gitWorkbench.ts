@@ -1,3 +1,4 @@
+import { gitOriginLink } from './git-origin-link.ts'
 import { gitProgressParser, type GitRemoteProgress } from '../shared/git-remote-progress.ts'
 import { currentGitEnv, gitRequestContext, providerRemote, requireGitConnection, withGitCredential } from './git-execution.ts'
 import { GitConnectionError, gitConnections } from './git-connections.ts'
@@ -22,6 +23,7 @@ export interface GitRepositoryInfo {
   dirty: boolean
   ahead: number
   behind: number
+  originUrl?: string | null
   remotes: string[]
 }
 
@@ -182,6 +184,7 @@ export async function repositoryInfo(project: string, relPath: string): Promise<
     dirty: !status.isClean(),
     ahead: status.ahead,
     behind: status.behind,
+    originUrl: gitOriginLink(remotes.find((remote) => remote.name === 'origin')?.refs.fetch),
     remotes: remotes.map((remote) => remote.name),
   }
 }
