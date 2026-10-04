@@ -15,7 +15,7 @@ export function TaskRangeCalendar({ start, end, readOnly, onChange }: {
   const grid = useRef<HTMLDivElement>(null)
   const choose = (day: string) => {
     if (readOnly) return
-    if (!pending || day <= pending) { setPending(day); onChange(day, null) }
+    if (!pending || day < pending) { setPending(day); onChange(day, null) }
     else { onChange(pending, day); setPending(null) }
   }
   const navigate = (next: string, focus = false) => {
