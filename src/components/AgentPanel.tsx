@@ -4043,6 +4043,16 @@ function AgentSessionView({
               }
               historyIndexRef.current = null
               historyDraftRef.current = ''
+              if (!cliModeDisabled && next.startsWith('! ') && !draft.startsWith('! ')) {
+                const caret = agentInputRef.current?.selectionStart ?? 2
+                // CodeMirror may report document and selection updates before React renders.
+                // Set the target mode so duplicate notifications cannot toggle it back.
+                setCliMode(!cliMode)
+                setScheduleOpen(false)
+                setDraft(next.slice(2))
+                requestAnimationFrame(() => agentInputRef.current?.setSelectionRange(Math.max(0, caret - 2), Math.max(0, caret - 2)))
+                return
+              }
               setDraft(next)
             }}
             options={composerCliMode ? [] : fileMentionOptions}

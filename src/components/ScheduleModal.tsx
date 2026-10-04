@@ -7,6 +7,7 @@ import { useUiLocale } from '@mew/ui/i18n'
 // 아이콘으로 그 세션을 열어 무인 실행 화면을 그대로 볼 수 있다(명령어 버튼과 같은 창).
 import { useCallback, useEffect, useState } from 'react'
 import { SelectField, useOverlayDismiss } from '@mew/ui'
+import { Xmark } from 'iconoir-react'
 import { fetchProjects, fetchSchedules, runSchedule, saveSchedules, type AgentJob, type AgentJobView, type AgentSet } from '../api/client'
 import { dayNames, describeSchedule, fromCron, toCron, type Schedule } from '../utils/cron'
 import { runtimeOf } from './agentRuntimes'
@@ -42,7 +43,7 @@ function lastRunLabel(iso: string | null): string {
 }
 
 const inputClass = 'h-11 min-w-0 rounded border border-edge-strong bg-surface px-2.5 text-sm text-ink outline-none focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60'
-const labelClass = 'flex min-w-0 flex-col gap-1.5 text-xs text-ink-muted'
+const labelClass = 'flex min-w-0 flex-col gap-1 text-xs text-ink-muted'
 
 /** 실행 주기 편집 — 형태를 고르면 그에 맞는 입력만 보여주고, 결과는 언제나 크론식 하나로 올라간다. */
 function ScheduleFields({ cron, disabled, onChange }: { cron: string; disabled: boolean; onChange: (cron: string) => void }) {
@@ -207,25 +208,39 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
     // 바깥을 눌렀는지는 target으로 판정한다 — 세션 팝업은 포털이지만 React 이벤트는 컴포넌트 트리를
     // 타고 올라오므로, onMouseDown={onClose}로 두면 팝업 안을 누를 때 이 창까지 닫힌다
     <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-2 sm:p-3"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose()
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label={uiText("예약 작업")} className="flex max-h-[90dvh] w-full max-w-2xl flex-col rounded-lg bg-surface-raised p-4 shadow-xl">
-        <div className="mb-3 text-sm font-semibold text-ink">{uiText("예약 작업")}</div>
+      <div role="dialog" aria-modal="true" aria-label={uiText("예약 작업")} className="flex max-h-[90dvh] w-full max-w-2xl flex-col rounded-lg bg-surface-raised p-2.5 sm:p-3 shadow-xl">
+        <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-ink">{uiText("예약 작업")}</h2>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+            aria-label={uiText("닫기")}
+            data-tip={uiText("닫기")}
+            className="rounded p-1.5 text-ink-muted hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
+          >
+            <Xmark width={18} height={18} />
+          </button>
+        </div>
 
         {jobs === null && !error ? (
           <div className="py-6 text-center text-xs text-ink-muted">{uiText("불러오는 중…")}</div>
         ) : (
-          <div className="mb-4 min-h-0 flex-1 overflow-y-auto">
+          <div className="mb-2 min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {(jobs ?? []).length === 0 && <div className="py-6 text-center text-xs text-ink-muted">{uiText("등록된 예약 작업이 없습니다")}</div>}
 
             {(jobs ?? []).map((job) => {
               const open = openId === job.id
+              const schedule = fromCron(job.cron)
+              const fixedTime = schedule.kind === 'daily' || schedule.kind === 'weekly'
               return (
-                <div key={job.id} className={`mb-3 rounded bg-surface p-3 ${job.enabled ? '' : 'opacity-50'}`}>
-                  <div className="flex items-center gap-2">
+                <div key={job.id} className={`mb-1.5 rounded bg-surface p-2 ${job.enabled ? '' : 'opacity-50'}`}>
+                  <div className="flex items-center gap-1.5">
                     <input
                       type="checkbox"
                       disabled={busy}
@@ -235,13 +250,19 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                       title={job.enabled ? uiText("켜짐") : uiText("꺼짐")}
                       className="h-4 w-4 shrink-0 accent-accent"
                     />
-                    <button type="button" onClick={() => setOpenId(open ? null : job.id)} aria-expanded={open} className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-1 text-left">
-                      <span className="w-full truncate text-sm text-ink">{job.name || uiText("(이름 없음)")}</span>
-                      <span className="w-full truncate text-xs text-ink-muted">
-                        {describeSchedule(job.cron)} · {job.agentSet?.name || runtimeLabel(job.agent, runtimes)} · {job.project || uiText("워크스페이스 루트")}
+                    <button type="button" onClick={() => setOpenId(open ? null : job.id)} aria-expanded={open} className="flex min-h-11 min-w-0 flex-1 items-start gap-2 rounded text-left focus-visible:outline-2 focus-visible:outline-accent">
+                      <span className={`w-16 shrink-0 break-words text-ink tabular-nums sm:w-20 ${fixedTime ? 'text-xl font-semibold tracking-tight sm:text-2xl' : 'text-sm font-semibold'}`}>
+                        {fixedTime ? schedule.time : describeSchedule(job.cron)}
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="truncate text-sm font-medium text-ink">{job.name || uiText("(이름 없음)")}</span>
+                        <span className="break-words text-xs leading-snug text-ink-muted">
+                          {fixedTime && <>{describeSchedule(job.cron).replace(schedule.time, '').trim()} · </>}
+                          {job.agentSet?.name || runtimeLabel(job.agent, runtimes)} · {job.project || uiText("워크스페이스 루트")}
+                        </span>
+                        <span className="text-xs leading-snug text-ink-faint">{lastRunLabel(job.lastRun)}</span>
                       </span>
                     </button>
-                    <span className="hidden shrink-0 text-xs text-ink-muted lg:inline">{lastRunLabel(job.lastRun)}</span>
                     {job.running && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" title={uiText("실행 세션 있음")} />}
                     {job.session && (
                       <button
@@ -249,7 +270,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                         onClick={() => setSession(job)}
                         title={uiText("작업 터미널 열기")}
                         aria-label={uiText("{p0} 터미널 세션", { p0: job.name || uiText("예약 작업") })}
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-surface-hover hover:text-ink"
+                        className="flex h-11 w-8 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-surface-hover hover:text-ink"
                       >
                         <TerminalGlyph />
                       </button>
@@ -260,19 +281,20 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
                       aria-label={uiText("삭제")}
                       onClick={() => setJobs((prev) => (prev ?? []).filter((j) => j.id !== job.id))}
                       title={uiText("삭제")}
-                      className="h-11 w-11 shrink-0 rounded text-lg text-ink-muted hover:bg-surface-hover hover:text-danger disabled:opacity-60"
+                      data-tip={uiText("삭제")}
+                      className="flex h-11 w-8 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-danger focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60"
                     >
-                      ×
+                      <Xmark width={18} height={18} />
                     </button>
                   </div>
 
                   {open && (
-                    <div className="mt-3 flex flex-col gap-4">
+                    <div className="mt-2 flex flex-col gap-2 border-t border-edge pt-2">
                       <label className={labelClass}>
                         {uiText("작업 이름")}
                         <input value={job.name} disabled={busy} onChange={(e) => patch(job.id, { name: e.target.value })} className={`${inputClass} w-full`} />
                       </label>
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <div className={labelClass}>
                           <label htmlFor={`schedule-set-${job.id}`}>{uiText("에이전트셋")}</label>
                           <SelectField id={`schedule-set-${job.id}`} label={uiText("에이전트셋")} value={job.agentSet?.id ?? ''} disabled={busy || agentSets.length === 0}
@@ -337,7 +359,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
               {uiText("+ 예약 작업 추가")}</button>
 
             {otherLines.length > 0 && (
-              <details className="mt-4">
+              <details className="mt-2">
                 <summary className="cursor-pointer text-xs text-ink-faint">{uiText("기타 예약")}{otherLines.length}{uiText("개 · 읽기 전용")}</summary>
                 <pre className="mt-1 overflow-x-auto rounded bg-surface p-2 font-mono text-[10px] text-ink-muted">{otherLines.join('\n')}</pre>
               </details>

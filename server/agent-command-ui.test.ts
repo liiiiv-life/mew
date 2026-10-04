@@ -20,6 +20,12 @@ test('CLI composer, live-to-saved popup, keyboard focus and reload on desktop/mo
   const source = `
 import React from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
+import {EditorView} from '${root}/node_modules/@codemirror/view/dist/index.js';
+window.repeatPrefixUpdate=()=>{
+  const view=EditorView.findFromDOM(document.querySelector('.cm-editor'));
+  view.dispatch({changes:{from:0,to:view.state.doc.length,insert:'! '},selection:{anchor:2}});
+  view.dispatch({selection:{anchor:0}});
+};
 import {AgentPanel} from '${root}/src/components/AgentPanel.tsx';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {useMobileKeyboard} from '${root}/src/hooks/use-mobile-keyboard.ts';
@@ -132,6 +138,31 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(documentReads, 0, 'Documents is loaded on demand')
       assert.equal(await draft.getAttribute('contenteditable'), 'true', 'mobile keyboards receive a rich editing host')
       const composer = page.locator('[data-keep-keyboard]')
+      await draft.pressSequentially('! ')
+      await page.getByRole('button', { name: '명령 실행', exact: true }).waitFor()
+      assert.equal(await toggle.getAttribute('aria-pressed'), 'true')
+      assert.equal(await composerValue(draft), '')
+      await draft.pressSequentially('! ')
+      await page.getByRole('button', { name: '전송', exact: true }).waitFor()
+      assert.equal(await toggle.getAttribute('aria-pressed'), 'false')
+      assert.equal(await composerValue(draft), '')
+      await page.evaluate('window.repeatPrefixUpdate()')
+      await page.getByRole('button', { name: '명령 실행', exact: true }).waitFor()
+      assert.equal(await toggle.getAttribute('aria-pressed'), 'true', 'duplicate editor notifications switch mode once')
+      assert.equal(await composerValue(draft), '')
+      await draft.pressSequentially('! ')
+      await page.getByRole('button', { name: '전송', exact: true }).waitFor()
+      await draft.fill('echo hello')
+      await draft.press('Home')
+      await draft.pressSequentially('! ')
+      await page.getByRole('button', { name: '명령 실행', exact: true }).waitFor()
+      assert.equal(await composerValue(draft), 'echo hello', 'prefix toggle preserves the remaining draft')
+      await draft.pressSequentially('! ')
+      await page.getByRole('button', { name: '전송', exact: true }).waitFor()
+      assert.equal(await composerValue(draft), 'echo hello', 'cursor remains at the start after toggling')
+      await draft.fill('hello ! ')
+      assert.equal(await toggle.getAttribute('aria-pressed'), 'false', 'embedded prefix does not toggle')
+      await draft.fill('')
       const assertComposerBottomAligned = async () => {
         const inputBottom = await composer.locator('.cm-editor').evaluate(el => el.parentElement!.getBoundingClientRect().bottom)
         const sendBox = await composer.getByRole('button', { name: '전송', exact: true }).boundingBox()
