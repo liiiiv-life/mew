@@ -9,7 +9,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-test('sidebar touch separates tap, release-for-menu and longer hold-for-drag', { skip: !domBrowserExecutable(), timeout: 30_000 }, async () => {
+test('sidebar touch separates tap, stationary hold-for-menu and immediate drag after arming', { skip: !domBrowserExecutable(), timeout: 30_000 }, async () => {
   const source = `import React from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {FileTree} from '${root}/src/components/FileTree.tsx';
@@ -74,9 +74,10 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await clearMenu()
 
     await touch('touchStart', start)
-    await page.waitForTimeout(1100)
-    assert.equal(await file.getAttribute('data-touch-dragging'), 'true')
+    await page.waitForTimeout(400)
+    assert.equal(await file.getAttribute('data-touch-dragging'), null, 'hold arms without showing a drag preview')
     await touch('touchMove', await center(folder))
+    assert.equal(await file.getAttribute('data-touch-dragging'), 'true', 'movement starts at the tab/dock hold threshold, before native long-press feedback')
     await page.screenshot({ path: '/tmp/mew-sidebar-touch-drag.png' })
     await touch('touchEnd')
     await page.waitForFunction('window.renamed.length === 1')
@@ -93,7 +94,9 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await page.waitForTimeout(1100)
     await touch('touchEnd')
     assert.equal(await page.evaluate('window.drops'), drops)
-    assert.equal(await menu.count(), 0)
+    await menu.waitFor()
+    assert.equal(writes.length, 1, 'a stationary long hold opens the menu without moving')
+    await clearMenu()
 
     // The existing path MIME contract also reaches non-tree drop targets.
     await touch('touchStart', start)

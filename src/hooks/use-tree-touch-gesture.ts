@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 const MENU_HOLD_MS = 500
-const DRAG_HOLD_MS = 1000
+// Match tabs/dock: arm before the browser long-press feedback (~500ms).
+const DRAG_HOLD_MS = 350
 const MOVE_TOLERANCE_PX = 12
 
 /** Touch owns its hold timing; mouse input keeps the browser's native HTML drag. */
@@ -19,7 +20,7 @@ export function useTreeTouchGesture({ enabled, onMenu, onDragCancel }: {
   useEffect(() => {
     if (!element || !enabled) return
     const source = element
-    let gesture: { id: number; x: number; y: number; startX: number; startY: number; moved: boolean; phase: 'pending' | 'menu' | 'drag' } | null = null
+    let gesture: { id: number; x: number; y: number; startX: number; startY: number; moved: boolean; phase: 'pending' | 'armed' | 'menu' | 'drag' } | null = null
     let menuTimer: ReturnType<typeof setTimeout> | undefined
     let dragTimer: ReturnType<typeof setTimeout> | undefined
     let data: DataTransfer | null = null
@@ -114,18 +115,24 @@ export function useTreeTouchGesture({ enabled, onMenu, onDragCancel }: {
       menuTimer = setTimeout(() => { if (gesture) gesture.phase = 'menu' }, MENU_HOLD_MS)
       dragTimer = setTimeout(() => {
         if (!gesture) return
-        data = new DataTransfer()
-        if (dispatch('dragstart', source)) { cancel(); return }
-        gesture.phase = 'drag'
-        source.dataset.touchDragging = 'true'
-        ghost = document.createElement('div')
-        ghost.setAttribute('aria-hidden', 'true')
-        ghost.textContent = source.textContent
-        ghost.className = 'pointer-events-none fixed z-[1100] max-w-60 truncate rounded border border-accent bg-surface-raised px-2 py-1 text-sm text-ink'
-        document.body.append(ghost)
-        updateTarget()
-        frame = requestAnimationFrame(autoScroll)
+        gesture.phase = 'armed'
       }, DRAG_HOLD_MS)
+    }
+
+    function beginDrag() {
+      if (!gesture) return
+      clearTimers()
+      data = new DataTransfer()
+      if (dispatch('dragstart', source)) { cancel(); return }
+      gesture.phase = 'drag'
+      source.dataset.touchDragging = 'true'
+      ghost = document.createElement('div')
+      ghost.setAttribute('aria-hidden', 'true')
+      ghost.textContent = source.textContent
+      ghost.className = 'pointer-events-none fixed z-[1100] max-w-60 truncate rounded border border-accent bg-surface-raised px-2 py-1 text-sm text-ink'
+      document.body.append(ghost)
+      updateTarget()
+      frame = requestAnimationFrame(autoScroll)
     }
 
     function move(event: TouchEvent) {
@@ -134,8 +141,10 @@ export function useTreeTouchGesture({ enabled, onMenu, onDragCancel }: {
       const touch = Array.from(event.touches).find(item => item.identifier === gesture?.id)
       if (!touch) return
       if (gesture.phase !== 'drag') {
-        if (Math.hypot(touch.clientX - gesture.x, touch.clientY - gesture.y) >= MOVE_TOLERANCE_PX) cancel()
-        return
+        if (Math.hypot(touch.clientX - gesture.startX, touch.clientY - gesture.startY) < MOVE_TOLERANCE_PX) return
+        if (gesture.phase === 'pending') { cancel(); return }
+        beginDrag()
+        if (!gesture) return
       }
       event.preventDefault()
       gesture.moved ||= Math.hypot(touch.clientX - gesture.startX, touch.clientY - gesture.startY) >= MOVE_TOLERANCE_PX
@@ -148,7 +157,7 @@ export function useTreeTouchGesture({ enabled, onMenu, onDragCancel }: {
       if (!gesture) return
       const touch = Array.from(event.changedTouches).find(item => item.identifier === gesture?.id)
       if (!touch) return
-      const phase = gesture.phase
+      const phase = gesture.phase === 'armed' ? 'pending' : gesture.phase
       if (phase !== 'pending') {
         event.preventDefault()
         event.stopPropagation()
