@@ -3349,7 +3349,7 @@ function AgentSessionView({
             send({ type: 'load_session', sessionId: meta.sessionId })
           } : undefined}
         />
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => send({ type: 'clear_session' })}

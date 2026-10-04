@@ -90,8 +90,8 @@ export function AgentQuotaBattery({ runtime, account, enabled }: { runtime: stri
   }
   let label = quota ? c.remaining.replace('{period}', period(quota)).replace('{value}', String(value)) : c.unavailable
   if (quota?.resetsAt) label += ` · ${c.reset} ${new Date(quota.resetsAt).toLocaleString(locale)}`
-  return <div ref={rootRef} className="shrink-0">
-    <button ref={buttonRef} type="button" onClick={() => setOpen(value => !value)} aria-label={label} aria-expanded={open} aria-controls={open ? popupId : undefined} aria-haspopup="dialog" className="rounded-full focus-visible:outline-2 focus-visible:outline-accent">
+  return <div ref={rootRef} className="flex shrink-0 items-center">
+    <button ref={buttonRef} type="button" onClick={() => setOpen(value => !value)} aria-label={label} aria-expanded={open} aria-controls={open ? popupId : undefined} aria-haspopup="dialog" className="flex items-center rounded-full focus-visible:outline-2 focus-visible:outline-accent">
     <span role={quota ? 'meter' : 'img'} aria-label={label} aria-valuemin={quota ? 0 : undefined} aria-valuemax={quota ? 100 : undefined} aria-valuenow={value ?? undefined} aria-valuetext={quota ? label : undefined} data-tip={label}
     className="relative my-1 flex h-5 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-edge-bright bg-surface-deep text-[11px] font-medium tabular-nums text-ink">
     {quota && <span aria-hidden="true" className={`absolute inset-y-0 left-0 ${value! <= 10 ? 'bg-danger/25' : value! <= 25 ? 'bg-warning/25' : 'bg-accent/25'}`} style={{ width: `${quota.remainingPercent}%` }} />}
