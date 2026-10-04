@@ -22,7 +22,7 @@ child.stderr.on('data', remember)
 
 const result = await new Promise<{ code: number; message: string | null }>((resolve) => {
   child.once('error', (err) => resolve({ code: 1, message: err.message }))
-  child.once('exit', (code, signal) => resolve({
+  child.once('close', (code, signal) => resolve({
     code: code ?? 1,
     message: code === 0
       ? null

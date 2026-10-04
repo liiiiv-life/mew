@@ -14,7 +14,7 @@ export function UpdatesModal({ open, mew, mewUpdating, onMewUpdate, onRefreshMew
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingMew, setPendingMew] = useState(false)
-  const busy = loading || !!status?.job.running || mewUpdating
+  const busy = loading || !!status?.job.running || mewUpdating || !!mew?.running
   const refresh = async () => {
     setLoading(true); setError(null)
     try { const [next] = await Promise.all([fetchUpdatesStatus(true), onRefreshMew()]); setStatus(next) }
@@ -49,7 +49,8 @@ export function UpdatesModal({ open, mew, mewUpdating, onMewUpdate, onRefreshMew
   }, [status, mew?.available])
   const available = batchUpdateIds(status?.items ?? [])
   const button = 'whitespace-nowrap rounded border border-edge px-1.5 py-1.5 text-xs hover:bg-surface-hover disabled:opacity-40'
-  const mewReady = !!mew?.available && mew.canUpdate
+  const mewFailed = mew?.job?.state === 'failed'
+  const mewReady = !!mew?.canUpdate && (!!mew.available || mewFailed)
   if (!open) return null
   return <DialogFrame labelledBy="updates-title" onClose={onClose} className="max-w-3xl max-h-[90dvh] flex flex-col">
     <header className="flex items-center gap-1.5 border-b border-edge px-3 py-3 sm:px-4">
@@ -59,11 +60,15 @@ export function UpdatesModal({ open, mew, mewUpdating, onMewUpdate, onRefreshMew
       <button type="button" className="rounded p-1.5 hover:bg-surface-hover" aria-label={uiText('닫기')} onClick={onClose}><Xmark width={18} height={18} /></button>
     </header>
     {error && <p role="alert" className="px-4 py-2 text-xs text-danger">{error}</p>}
+    {mewFailed && <div role="alert" className="px-4 py-2 text-xs text-danger">
+      <p>{uiText('업데이트에 실패했습니다. 실행 로그를 확인하세요.')}</p>
+      {mew.job?.message && <details className="mt-1"><summary className="cursor-pointer">{uiText('실행 로그')}</summary><pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all text-ink-secondary">{mew.job.message}</pre></details>}
+    </div>}
     <div className="overflow-auto px-4 pb-3" aria-busy={busy}>
       <table className="w-full table-fixed text-left text-xs">
         <thead className="sticky top-0 bg-surface text-ink-secondary"><tr><th className="w-[36%] py-2 font-medium">{uiText('항목')}</th><th className="w-[20%] font-medium">{uiText('현재 버전')}</th><th className="w-[20%] font-medium">{uiText('최신 버전')}</th><th className="w-[24%] text-right font-medium">{uiText('업데이트')}</th></tr></thead>
         <tbody>
-          <tr className="border-t border-edge"><td className="py-2 pr-2">Mew{(mew?.error || mew?.available && !mew.canUpdate) && <p className="mt-1 text-ink-secondary break-words">{mew.error ?? uiText('터미널에서 업데이트해 주세요.')}</p>}</td><td className="break-all pr-2 tabular-nums">{mew?.localHash ?? '—'}</td><td className="break-all pr-2 tabular-nums">{mew?.remoteHash ?? '—'}</td><td className="text-right"><button className={button} disabled={busy || !mewReady} onClick={() => void update([], true)}>{uiText(mewUpdating ? '업데이트 중…' : mew?.available ? '업데이트' : mew?.localHash && mew.remoteHash && !mew.error ? '최신' : '확인 불가')}</button></td></tr>
+          <tr className="border-t border-edge"><td className="py-2 pr-2">Mew{(mew?.error || (mew?.available || mewFailed) && !mew?.canUpdate) && <p className="mt-1 text-ink-secondary break-words">{mew?.error ?? uiText('터미널에서 업데이트해 주세요.')}</p>}</td><td className="break-all pr-2 tabular-nums">{mew?.localHash ?? '—'}</td><td className="break-all pr-2 tabular-nums">{mew?.remoteHash ?? '—'}</td><td className="text-right"><button className={button} disabled={busy || !mewReady} onClick={() => void update([], true)}>{uiText(mewUpdating || mew?.running ? '업데이트 중…' : mewFailed ? '다시 시도' : mew?.available ? '업데이트' : mew?.localHash && mew.remoteHash && !mew.error ? '최신' : '확인 불가')}</button></td></tr>
           {(['agent', 'system', 'dependency'] as const).map(category => <CategoryRows key={category} category={category} status={status} busy={busy} button={button} update={ids => void update(ids)} />)}
         </tbody>
       </table>

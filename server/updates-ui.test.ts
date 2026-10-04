@@ -13,7 +13,7 @@ import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {UpdatesModal} from '${root}/src/components/updates-modal.tsx';
 import {setUiLocale} from '@mew/ui/i18n-core';
 setUiLocale('ko'); window.mewUpdates=0;
-function Fixture(){const [open,setOpen]=React.useState(true);return <><button onClick={()=>setOpen(true)}>다시 열기</button><UpdatesModal open={open} mew={{localHash:'abc123',remoteHash:'def456',available:true,canUpdate:true}} mewUpdating={false} onMewUpdate={async()=>{window.mewUpdates++}} onRefreshMew={async()=>{}} onClose={()=>setOpen(false)} /></>};createRoot(document.getElementById('root')).render(<Fixture/>);`
+function Fixture(){const [open,setOpen]=React.useState(true);const [mew,setMew]=React.useState({localHash:'abc123',remoteHash:'def456',available:true,canUpdate:true});window.setMew=setMew;return <><button onClick={()=>setOpen(true)}>다시 열기</button><UpdatesModal open={open} mew={mew} mewUpdating={false} onMewUpdate={async()=>{window.mewUpdates++}} onRefreshMew={async()=>{}} onClose={()=>setOpen(false)} /></>};createRoot(document.getElementById('root')).render(<Fixture/>);`
   const bundle = await build({ input: 'virtual:updates.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:updates.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:updates.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const content = await fs.readFile(`${root}/src/components/updates-modal.tsx`, 'utf8')
@@ -63,6 +63,15 @@ function Fixture(){const [open,setOpen]=React.useState(true);return <><button on
       await page.getByRole('button', { name: '일괄 업데이트', exact: true }).click()
       status.job = { running: false, items: requests[2].map(id => ({ id, state: 'succeeded', error: null })) }
       await page.waitForFunction(() => (globalThis as any).mewUpdates === 1)
+      await page.evaluate(() => (globalThis as any).setMew({ localHash: 'def456', remoteHash: 'def456', available: false, canUpdate: true, job: { state: 'failed', startedAt: 1, finishedAt: 2, message: 'build failed: ' + 'long-error/'.repeat(100) } }))
+      await page.getByRole('alert').filter({ hasText: '업데이트에 실패했습니다.' }).waitFor()
+      await page.getByText('실행 로그', { exact: true }).click()
+      assert.equal(await page.getByRole('dialog').evaluate(el => el.scrollWidth <= el.clientWidth), true)
+      await page.screenshot({ path: `/tmp/mew-update-failure-${width}.png` })
+      const retry = page.getByRole('button', { name: '다시 시도', exact: true })
+      assert.equal(await retry.isEnabled(), true)
+      await retry.click()
+      await page.waitForFunction(() => (globalThis as any).mewUpdates === 2)
       await page.close()
     }
   } finally { await browser.close() }
