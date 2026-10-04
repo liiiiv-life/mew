@@ -111,7 +111,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         const payload = p === '/api/git-connections/github' ? { available: true, login: null, environmentToken: false, busy: false, job: null }
           : p === '/api/git/repositories' ? { repositories: url.searchParams.get('project') === 'docs' ? [{ path: '' }] : [{ path: '' }, { path: 'tools/a-very-long-repository-name-for-layout-checking' }] }
           : p === '/api/git/repository' ? { repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], branch: repositoryBranch, ahead: 0, behind: 0 }
-            : p === '/api/git/log' ? { commits: Array.from({ length: 80 }, (_, index) => ({ hash: `abc12345${index}`, parents: index < 79 ? [`abc12345${index + 1}`] : [], subject: index === 0 && externalCommit ? '외부 터미널에서 만든 새 커밋' : index === 0 ? '패널 작업: 긴 커밋 제목도 메타데이터를 밀어내지 않고 한 줄로 표시합니다' : `패널 작업 ${index}`, author: 'Tester with a long name', date: new Date(Date.now() - index * 3_600_000 - 1000).toISOString(), refs: index === 0 ? ['main', 'tag: v1'] : [] })) }
+            : p === '/api/git/log' ? { commits: Array.from({ length: 80 }, (_, index) => ({ hash: `abc12345${index}`, parents: index < 79 ? [`abc12345${index + 1}`] : [], subject: index === 0 && externalCommit ? '외부 터미널에서 만든 새 커밋' : index === 0 ? '패널 작업: 긴 커밋 제목도 메타데이터를 밀어내지 않고 한 줄로 표시합니다' : `패널 작업 ${index}`, author: 'Tester with a long name', date: new Date(Date.now() - index * 3_600_000 - 10_000).toISOString(), refs: index === 0 ? ['main', 'tag: v1'] : [] })) }
               : p.endsWith('/diff') ? { diff: `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+${diffLine}\n` }
                 : { files: workingFiles }
         return route.fulfill({ json: payload })
@@ -246,6 +246,28 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await selectionTouch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
     await page.waitForTimeout(100)
     assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 0, 'checked start deselects the range without reselecting unchecked or revisited rows')
+    const changesDragBox = await bounds(changes)
+    const bottomPoint = { x: firstDragBox.x + firstDragBox.width / 2, y: changesDragBox.y + changesDragBox.height - 2 }
+    const visibleRows = Math.ceil(changesDragBox.height / 28)
+    await selectionTouch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [selectionPoint(firstDragBox)] })
+    await selectionTouch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [bottomPoint] })
+    await page.waitForTimeout(700)
+    assert.ok(await changes.evaluate(el => el.scrollTop) > 150, 'holding at the bottom scrolls without more pointer moves')
+    assert.ok(await changes.getByRole('checkbox', { checked: true }).count() > visibleRows, 'newly exposed rows join the selection')
+    await selectionTouch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    const stoppedScroll = await changes.evaluate(el => el.scrollTop)
+    await page.waitForTimeout(100)
+    assert.equal(await changes.evaluate(el => el.scrollTop), stoppedScroll, 'release stops automatic scrolling')
+    const topPoint = { x: bottomPoint.x, y: changesDragBox.y + 2 }
+    await selectionTouch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: bottomPoint.x, y: changesDragBox.y + 60 }] })
+    await selectionTouch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [topPoint] })
+    await page.waitForTimeout(250)
+    assert.ok(await changes.evaluate(el => el.scrollTop) < stoppedScroll, 'holding at the top scrolls upward')
+    await selectionTouch.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
+    const cancelledScroll = await changes.evaluate(el => el.scrollTop)
+    await page.waitForTimeout(100)
+    assert.equal(await changes.evaluate(el => el.scrollTop), cancelledScroll, 'cancellation stops automatic scrolling')
+    await changes.evaluate(el => { el.scrollTop = 0 })
     await selectionTouch.send('Emulation.setTouchEmulationEnabled', { enabled: false })
     await selectionTouch.detach()
     await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).check()

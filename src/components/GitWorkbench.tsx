@@ -157,9 +157,19 @@ function statusLabel(status: string): string {
 
 function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, disabled }: { files: GitChangedFile[]; onSelect: (file: GitChangedFile) => void; compact?: boolean; selected?: Set<string>; onToggle?: (path: string) => void; disabled?: boolean }) {
   useUiLocale()
-  const selectionDrag = useRef<{ pointerId: number; startY: number; startX: number; startIndex: number; checked: boolean; dragging: boolean; visited: Set<string> } | null>(null)
+  const selectionDrag = useRef<{ pointerId: number; startY: number; startX: number; startIndex: number; checked: boolean; dragging: boolean; y: number; visited: Set<string> } | null>(null)
   const suppressClick = useRef(false)
-  useEffect(() => { selectionDrag.current = null }, [files, disabled])
+  const scrollFrame = useRef<number | null>(null)
+  const selectAtPointer = useRef<(list: HTMLDivElement, y: number) => void>(() => {})
+  const stopAutoScroll = () => {
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
+    scrollFrame.current = null
+  }
+  useEffect(() => {
+    selectionDrag.current = null
+    stopAutoScroll()
+    return stopAutoScroll
+  }, [files, disabled])
   const selectRange = (index: number) => {
     const drag = selectionDrag.current
     if (!drag || !selected || !onToggle || disabled) return
@@ -170,24 +180,59 @@ function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, di
       if (selected.has(path) !== drag.checked) onToggle(path)
     }
   }
+  useLayoutEffect(() => {
+    selectAtPointer.current = (list, y) => {
+      const scroll = list.closest<HTMLElement>('[data-git-scroll="changes"]')
+      const viewport = scroll?.getBoundingClientRect()
+      const visibleY = viewport ? Math.max(viewport.top, Math.min(viewport.bottom - 1, y)) : y
+      const rows = list.querySelectorAll<HTMLElement>('[data-git-selection-row]')
+      let index = 0
+      rows.forEach((row, i) => {
+        if (visibleY >= row.getBoundingClientRect().top) index = i
+      })
+      selectRange(index)
+    }
+  })
+  const startAutoScroll = (list: HTMLDivElement) => {
+    if (scrollFrame.current !== null) return
+    const scroll = list.closest<HTMLElement>('[data-git-scroll="changes"]')
+    if (!scroll) return
+    let previousTime: number | null = null
+    const tick = (time: number) => {
+      scrollFrame.current = null
+      const drag = selectionDrag.current
+      if (!drag?.dragging) return
+      const bounds = scroll.getBoundingClientRect()
+      const edge = Math.min(40, bounds.height / 3)
+      if (edge <= 0) return
+      const strength = drag.y < bounds.top + edge
+        ? -Math.min(1, (bounds.top + edge - drag.y) / edge)
+        : drag.y > bounds.bottom - edge ? Math.min(1, (drag.y - bounds.bottom + edge) / edge) : 0
+      if (!strength) return
+      const elapsed = previousTime === null ? 16 : Math.min(32, time - previousTime)
+      previousTime = time
+      const before = scroll.scrollTop
+      scroll.scrollTop += strength * elapsed * 0.48
+      selectAtPointer.current(list, drag.y)
+      if (scroll.scrollTop !== before) scrollFrame.current = requestAnimationFrame(tick)
+    }
+    scrollFrame.current = requestAnimationFrame(tick)
+  }
   const moveSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = selectionDrag.current
     if (!drag || drag.pointerId !== event.pointerId || disabled) return
     if (!drag.dragging && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return
     drag.dragging = true
+    drag.y = event.clientY
     suppressClick.current = true
     event.preventDefault()
-    const rows = event.currentTarget.querySelectorAll<HTMLElement>('[data-git-selection-row]')
-    let index = 0
-    rows.forEach((row, i) => {
-      const bounds = row.getBoundingClientRect()
-      if (event.clientY >= bounds.top) index = i
-    })
-    selectRange(index)
+    selectAtPointer.current(event.currentTarget, drag.y)
+    startAutoScroll(event.currentTarget)
   }
   const finishSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (selectionDrag.current?.pointerId !== event.pointerId) return
     selectionDrag.current = null
+    stopAutoScroll()
     if (event.type === 'pointercancel') suppressClick.current = false
   }
   if (files.length === 0) return <div className="p-6 text-center text-xs text-ink-muted">{uiText("변경된 파일이 없습니다.")}</div>
@@ -200,7 +245,7 @@ function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, di
             onPointerDown={event => {
               if (disabled || !event.isPrimary || event.button !== 0) return
               suppressClick.current = false
-              selectionDrag.current = { pointerId: event.pointerId, startY: event.clientY, startX: event.clientX, startIndex: index, checked: !selected.has(file.path), dragging: false, visited: new Set() }
+              selectionDrag.current = { pointerId: event.pointerId, startY: event.clientY, startX: event.clientX, startIndex: index, checked: !selected.has(file.path), dragging: false, y: event.clientY, visited: new Set() }
               event.currentTarget.setPointerCapture(event.pointerId)
             }}>
             <input type="checkbox" checked={selected.has(file.path)} disabled={disabled} onChange={() => onToggle(file.path)} aria-label={uiText("{p0} 커밋에 포함", { p0: file.path })} className="h-4 w-4 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
