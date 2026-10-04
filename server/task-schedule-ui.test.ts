@@ -6,7 +6,7 @@ import path from 'node:path'
 import express from 'express'
 import { build } from 'rolldown'
 import { compile } from '@tailwindcss/node'
-import { chromium, type Page } from 'playwright-core'
+import { chromium, type Page, type Locator } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
 import { taskChanges } from '../shared/task-list.ts'
 
@@ -113,6 +113,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await dates.locator('[data-date="2026-10-02"]').click()
     await dates.locator('[data-date="2026-10-06"]').focus()
     await dates.locator('[data-date="2026-10-06"]').press('Enter')
+    await checkDateCalendar(dates)
     await desktop.screenshot({ path: `${screenshots}/desktop-range-dark.png` })
     await desktop.keyboard.press('Escape')
     await dates.waitFor({ state: 'hidden' })
@@ -249,6 +250,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.match(await mobileDates.locator('.task-range-summary').innerText(), /2026-10-02/)
     await mobileDates.locator('[data-date="2026-10-02"]').tap()
     await mobileDates.locator('[data-date="2026-10-08"]').tap()
+    await checkDateCalendar(mobileDates)
     await mobile.screenshot({ path: `${screenshots}/mobile-range-light.png` })
     await mobile.keyboard.press('Escape')
     await mobileDates.waitFor({ state: 'hidden' })
@@ -344,4 +346,22 @@ function contrast(foreground: string, background: string): number {
   }
   const a = luminance(foreground), b = luminance(background)
   return (Math.max(a, b) + .05) / (Math.min(a, b) + .05)
+}
+
+async function checkDateCalendar(calendar: Locator) {
+  const selection = await calendar.locator('[data-selected] .task-range-day-number').first().evaluate(el => {
+    const style = el.ownerDocument.defaultView!.getComputedStyle(el), rect = el.getBoundingClientRect()
+    return { color: style.color, background: style.backgroundColor, radius: style.borderRadius, width: rect.width, height: rect.height }
+  })
+  assert.ok(contrast(selection.color, selection.background) >= 4.5, 'selected endpoints retain readable contrast in both themes')
+  assert.equal(selection.width, selection.height, 'endpoint circles do not stretch at narrow widths')
+  assert.equal(selection.radius, '50%')
+  const today = await calendar.locator('[aria-current="date"] .task-range-day-number').evaluate(el => {
+    const style = el.ownerDocument.defaultView!.getComputedStyle(el)
+    return { width: style.borderTopWidth, style: style.borderTopStyle, color: style.borderTopColor }
+  })
+  assert.equal(today.width, '2px')
+  assert.equal(today.style, 'solid')
+  assert.notEqual(today.color, 'rgba(0, 0, 0, 0)', 'today stays visibly circled within the range')
+  assert.equal(await calendar.evaluate(el => el.scrollWidth <= el.clientWidth), true, 'calendar content stays within the popup')
 }
