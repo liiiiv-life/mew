@@ -41,7 +41,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
   const ui = (await Promise.all(files.map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const dateCss = await fs.readFile(`${root}/packages/ui/src/date-field.css`, 'utf8'), panelCss = await fs.readFile(`${root}/src/components/task-panel.css`, 'utf8')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
-  const css = compiler.build([...new Set((source + ui).match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g)), ...Array.from((dateCss + panelCss).matchAll(/--color-([a-z-]+)/g), match => `bg-${match[1]}`)]) + panelCss + dateCss + await fs.readFile(`${root}/src/components/task-range-calendar.css`, 'utf8')
+  const css = compiler.build([...new Set((source + ui).match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g)), ...Array.from((dateCss + panelCss).matchAll(/--color-([a-z-]+)/g), match => `bg-${match[1]}`)]) + panelCss + dateCss + await fs.readFile(`${root}/packages/ui/src/date-calendar.css`, 'utf8')
   const app = express(); app.use(express.json())
   app.use((req, _res, next) => { req.auth = { role: 'owner', email: 'one@example.test', mustChangePassword: false }; next() })
   let patches = 0

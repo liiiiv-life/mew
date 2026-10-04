@@ -33,15 +33,17 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
   const candidates = [source]
   const bundle = await build({ input: 'virtual:frontmatter.tsx', write: false, platform: 'browser', output: { format: 'esm' },
     transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } },
-    plugins: [{ name: 'frontmatter-fixture', resolveId(id) { if (id === 'virtual:frontmatter.tsx') return id },
+    plugins: [{ name: 'frontmatter-fixture', resolveId(id) { if (id === 'virtual:frontmatter.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' },
       async load(id) {
         if (id === 'virtual:frontmatter.tsx') return source
+        if (id === 'virtual:style') return ''
         if (id.endsWith('.tsx')) candidates.push(await fs.readFile(id, 'utf8'))
       },
     }],
   })
   const compiler = await compile(await fs.readFile(path.join(root, 'src/index.css'), 'utf8'), { base: path.join(root, 'src'), onDependency() {} })
-  const css = compiler.build([...new Set(candidates.join('\n').match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))]) + await fs.readFile(path.join(root, 'packages/editor/src/editor/editor.css'), 'utf8')
+  const calendarCss = (await Promise.all(['date-field.css', 'date-calendar.css'].map(name => fs.readFile(path.join(root, 'packages/ui/src', name), 'utf8')))).join('\n')
+  const css = calendarCss + compiler.build([...new Set(candidates.join('\n').match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))]) + await fs.readFile(path.join(root, 'packages/editor/src/editor/editor.css'), 'utf8')
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
@@ -56,6 +58,16 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       const rows = page.locator('.frontmatter-property'), handles = page.getByRole('button', { name: '필드 순서 변경', exact: true })
       await rows.first().waitFor()
       assert.equal(await page.locator('select,datalist').count(), 0)
+      assert.equal(await page.locator('input[type="date"]').count(), 0)
+      const dueRow = rows.filter({ has: page.getByRole('textbox', { name: 'due', exact: true }) })
+      await dueRow.getByRole('button', { name: '달력 열기', exact: true }).click()
+      const calendar = page.getByRole('dialog', { name: '날짜 선택', exact: true })
+      await calendar.locator('.task-range-calendar').waitFor()
+      await calendar.locator('[data-date="2026-10-04"]').click()
+      await page.waitForFunction(`window.saved.includes('2026-10-04')`)
+      await dueRow.getByRole('button', { name: '달력 열기', exact: true }).click()
+      await page.keyboard.press('Escape')
+      assert.equal(await calendar.count(), 0)
       await handles.first().focus()
       await page.keyboard.press('Shift+F10')
       await page.getByRole('dialog', { name: '필드 타입 변경' }).waitFor()

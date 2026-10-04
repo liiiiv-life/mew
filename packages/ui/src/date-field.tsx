@@ -6,6 +6,7 @@ import { uiText, uiWeekdays } from './i18n-core'
 import { useOverlayDismiss } from './useOverlayDismiss'
 import { dateFromValue, dateValue, localToday, shiftDate, validDateValue } from './date-value'
 import './date-field.css'
+import { DateCalendar as SharedDateCalendar } from './date-calendar'
 
 const segmentRanges = [[0, 4], [5, 7], [8, 10]] as const
 type DateParts = [string, string, string]
@@ -13,8 +14,8 @@ const dateParts = (value?: string | null): DateParts => value ? value.split('-')
 const maskedDate = (parts: DateParts) => parts.map((part, index) => part.padStart(index === 0 ? 4 : 2, '0')).join('-')
 
 /** One masked input with independently selectable year/month/day segments. */
-export function DateField({ value, label, readOnly = false, compact = false, onChange }: {
-  value?: string | null; label: string; readOnly?: boolean; compact?: boolean; onChange: (value: string | null) => void
+export function DateField({ value, label, readOnly = false, compact = false, calendar = 'default', onChange }: {
+  value?: string | null; label: string; readOnly?: boolean; compact?: boolean; calendar?: 'default' | 'task'; onChange: (value: string | null) => void
 }) {
   useUiLocale()
   const id = useId(), field = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null), input = useRef<HTMLInputElement>(null)
@@ -153,12 +154,12 @@ export function DateField({ value, label, readOnly = false, compact = false, onC
       aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} className="mew-date-icon"
       onClick={() => setOpen(!open)}><Calendar width={15} height={15} aria-hidden="true" /></button>}
     {invalid && <span id={`${id}-error`} role="alert" className="mew-date-error">{uiText('올바른 날짜를 입력하세요 (YYYY-MM-DD)')}</span>}
-    {open && !readOnly && <DateCalendar id={id} value={value ?? null} anchor={field} onChoose={choose} onClose={close} />}
+    {open && !readOnly && <DateCalendar calendar={calendar} id={id} value={value ?? null} anchor={field} onChoose={choose} onClose={close} />}
   </div>
 }
 
-function DateCalendar({ id, value, anchor, onChoose, onClose }: {
-  id: string; value: string | null; anchor: RefObject<HTMLDivElement | null>
+function DateCalendar({ calendar, id, value, anchor, onChoose, onClose }: {
+  calendar: 'default' | 'task'; id: string; value: string | null; anchor: RefObject<HTMLDivElement | null>
   onChoose: (value: string | null) => void; onClose: (restore?: boolean) => void
 }) {
   const locale = useUiLocale(), today = localToday()
@@ -235,6 +236,7 @@ function DateCalendar({ id, value, anchor, onChoose, onClose }: {
       const next = event.relatedTarget as Node | null
       if (next && !event.currentTarget.contains(next) && !anchor.current?.contains(next)) onClose(false)
     }}>
+    {calendar === 'task' ? <SharedDateCalendar single start={value} readOnly={false} onChange={day => onChoose(day)} /> : <>
     <header className="mew-calendar-header">
       <span aria-live="polite" className="mew-calendar-month">{monthLabel}</span>
       <div className="mew-calendar-nav">
@@ -261,5 +263,6 @@ function DateCalendar({ id, value, anchor, onChoose, onClose }: {
       </div>
       <button type="button" className="mew-date-icon" aria-label={uiText('날짜 지우기')} data-tip={uiText('날짜 지우기')} disabled={!value} onClick={() => onChoose(null)}><Trash width={15} height={15} aria-hidden="true" /></button>
     </footer>
+    </>}
   </div>, document.body)
 }

@@ -1,4 +1,4 @@
-import { canAutoFocusInput } from '@mew/ui'
+import { canAutoFocusInput, DateField } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState } from 'react'
@@ -46,9 +46,10 @@ export function FrontmatterFieldValue({ field, readOnly, busy, onChange, onOpenL
   }
   const date = /^\d{4}-\d{2}-\d{2}$/.test(field.value) ? new Date(`${field.value}T00:00:00Z`) : null
   const validDate = !field.value || !!date && !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === field.value
+  if (type === 'date' && validDate) return <DateField value={field.value || null} label={field.key || uiText('값')} readOnly={readOnly} calendar="task" onChange={value => onChange(value ?? '')} />
   const invalid = type === 'number' ? !!field.value && !Number.isFinite(Number(field.value)) : type === 'date' && !validDate
   return <input ref={input} value={field.value} readOnly={readOnly} aria-label={field.key || uiText('값')}
-    aria-invalid={invalid || undefined} type={type === 'date' && validDate ? 'date' : 'text'} inputMode={type === 'number' ? 'decimal' : undefined}
+    aria-invalid={invalid || undefined} type="text" inputMode={type === 'number' ? 'decimal' : undefined}
     title={invalid ? uiText(type === 'number' ? '숫자를 입력하세요' : '날짜를 YYYY-MM-DD 형식으로 입력하세요') : undefined}
     className={inputClass} placeholder={uiText('값')} onFocus={() => setEditing(true)} onBlur={() => setEditing(false)} onChange={event => onChange(event.target.value)} />
 }

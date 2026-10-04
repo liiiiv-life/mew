@@ -4,7 +4,7 @@ parent: "mew-editor"
 title: "Markdown Hotview·원문·문서 속성"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-03"
+updated: "2026-10-05"
 status_hash: "2741d359b18c61eecb53b8ce0ba2862f0f42c088d7d02cf55c88a23d1d44a98e"
 files: ["packages/editor/src/editor/FrontmatterSelect.tsx", "server/frontmatter-options.ts", "src/hooks/useTabs.ts", "src/components/EditorPane.tsx", "src/components/markdown-error-boundary.tsx", "packages/editor/src/Editor.tsx", "packages/editor/src/editor/FrontmatterPanel.tsx", "src/components/TableOfContents.tsx"]
 commits: []
@@ -19,6 +19,7 @@ commits: []
 - Hotview·Plain 전환과 제목·목록·체크박스·인용·코드 블록·강조를 제공한다.
 - 줄 맨 앞의 `[] `·`[ ] ` 입력으로 체크박스 줄을 만들며, 클릭으로 완료 상태를 바꾸고 Enter로 이어 쓰거나 빈 항목에서 일반 문단으로 돌아온다.
 - 프론트매터 속성 편집·문서 목차·목록 들여쓰기를 제공한다.
+- 날짜 속성은 태스크 패널과 같은 공용 달력을 사용하며 날짜 하나를 선택·삭제한다. 연도·월 직접 변경과 키보드 탐색을 지원하고 저장값은 `YYYY-MM-DD`를 유지한다.
 - 프론트매터 제목과 각 속성 행에도 Markdown 원문의 줄번호를 표시한다.
 - 속성 필드의 들여쓰기는 핸들 아이콘과 오른쪽 여백을 포함한 12px만 확보한다.
 - 단일·다중선택 창에서 검색·새 이름 입력·Enter로 항목 생성과 선택을 함께 처리한다. 항목 목록은 같은 프로젝트의 동일한 필드명끼리 공유한다.
@@ -40,6 +41,8 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- 날짜 속성의 기본 브라우저 달력을 공용 `DateCalendar`의 단일 날짜 모드로 교체했다. 태스크 패널은 같은 컴포넌트의 기간 선택 모드를 유지한다. 상세 계약은 [에디터 패키지](../../development/packages.md)를 따른다.
 
 - 모바일 viewport·편집기 높이 변경 뒤 포커스된 커서를 다시 맞추고 키보드를 닫으면 높이를 복원한다. 상세 계약은 [모바일 에디터와 키보드](../../development/ui-contracts.md#모바일-에디터와-키보드)를 따른다.
 
@@ -68,6 +71,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-05: `server/frontmatter-ui.test.ts`에서 PC·모바일 공용 달력 열기·날짜 선택·저장·Esc 닫기를 통과했다. `server/date-field-ui.test.ts`와 변경 UI 코드 lint도 통과했다. 태스크 UI 검사는 동시 변경 중인 태스크 저장 코드의 입력 거부·응답 시간 초과로 완료하지 못했다.
 
 - `server/editor-keyboard-ui.test.ts`에서 키보드로 줄어든 화면의 28번 줄 유지·반복 크기 변경·상태줄과 보조키의 비겹침·입력·높이 복원·데스크톱과 읽기 스크롤 보존을 확인한다. OS 키보드 자체는 실기기 확인 대상이다.
 
