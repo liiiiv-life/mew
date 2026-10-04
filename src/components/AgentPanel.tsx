@@ -100,6 +100,7 @@ import { agentInputMentionOptions } from '../utils/agentInputMentions'
 import { SessionTerminalPopup } from './SessionTerminalPopup'
 import { RuntimeSettingsButton } from './RuntimeSettingsModal'
 import { AgentAccountCard } from './AgentAccountCard'
+import { AgentQuotaBattery } from './AgentQuotaBattery'
 import { AgentHarnessButtons } from './agent-harness-modal'
 import { AgentGuidanceButton } from './agent-guidance-settings'
 import { SUBSCRIPTION_URLS } from '../../shared/agent-access'
@@ -3359,6 +3360,7 @@ function AgentSessionView({
           >
             <ClearGlyph />
           </button>
+          <AgentQuotaBattery runtime={runtime} account={cacheAccount} enabled={visible && connected && !auth} />
           <button
             type="button"
             onClick={onToggleInfo}

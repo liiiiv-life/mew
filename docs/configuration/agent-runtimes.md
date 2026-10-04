@@ -8,7 +8,7 @@
 - **로그인과 구독·한도도 별개다**([ADR 0130](../../../.mew/docs/decisions/0130-mew-agent-account-entitlement.md)). Claude·Kimi·Codex·Cursor ACP 채팅의 **i(세션 정보)** 팝업과 지원 런타임 설정의 `연결 계정 · 구독`에서 서버 CLI 계정·플랜을 조회한다. 명시적 구독 필요·사용량 소진·크레딧 부족 오류는 ACP가 `Authentication required`로 감싸도 로그인 화면으로 전환하지 않는다. 기존 대화와 대기 메시지를 유지하고 자동 연속 전송을 멈춘다. 대기 메시지 편집·재연결·계정 재조회는 재전송하지 않으며, 사용자가 새 메시지를 전송하면 대기 순서대로 재개한다.
   계정 조회는 Kimi의 `web --host 127.0.0.1 --port 0 --no-open --log-level error` 임시 프로세스에서 `/api/v1/oauth/userinfo`·`usage`·`region`, Codex의 호스트 CLI `app-server`에서 `account/read`·`account/rateLimits/read`, Cursor의 `status --format json`, Claude의 동일 CLI 엔진 `auth status --json`을 사용한다. 실행 파일·환경은 런타임 설정을 따르고 상태 명령 인자는 고정한다. 임시 프로세스는 20초 제한·256KiB stdout 제한과 종료 후 강제 종료 대기를 가지며, Kimi 서버의 접속 토큰은 해당 자식의 시작 출력에서만 일시 사용한다. 공급자 인증 저장소는 직접 읽지 않고 모델 프롬프트도 보내지 않는다.
   계정·플랜은 확인된 필드만 표시한다. 무료 플랜은 사용 불가 판정이 아니며, `VIP10` 같은 미확인 플랜 코드는 미구독으로 단정하지 않는다. CLI 버전·네트워크 문제나 조회 기능이 없으면 `확인할 수 없음`과 재조회 경로를 제공한다. Cursor는 계정 정보만 확인되고 플랜이 반환되지 않을 수 있다. API 키 기반 Codex는 ChatGPT 구독과 구분한다.
-  사용량은 i 팝업의 기존 토큰·API 환산 비용 표시로 확인한다. `구독 관리`·`구독하기` 버튼은 공급자별 고정 URL을 같은 계정의 내부 DOM 브라우저로 연다(Kimi 리전 반영). 페이지를 닫으면 그 창과 팝업을 정리하고 상태만 다시 조회한다. 구독 페이지의 계정이 표시된 CLI 계정과 같은지 사용자가 확인하며, 결제나 프롬프트 재전송은 자동 실행하지 않는다. 계정 결과는 메모리에서만 표시하고 전사·localStorage에 저장하지 않는다. Antigravity의 계정·플랜·잔여량 조회와 terminal 본문은 이 정보 카드의 적용 대상이 아니다. Antigravity 로그인과 채팅은 ACP로 지원한다.
+  Codex·Claude·Kimi Code의 구독 잔여율은 세션 도구 바의 배터리에서 확인한다. Codex의 `usedPercent`·`windowDurationMins`·`resetsAt`, Kimi CLI가 정규화한 `summary`·`limits`의 `used`·`limit`·`window`·`resetAt`을 공개 `quota` 배열(`remainingPercent`, `windowMinutes`, `resetsAt`)로 투영한다. Claude는 OAuth 연결일 때 동일 CLI의 stream-json SDK 제어 프로토콜로 `initialize` → `get_usage`만 요청하고 `rate_limits.five_hour`·`seven_day`의 utilization(0–100)·초기화 시각을 읽는다. `--no-session-persistence`, 빈 설정 소스, hooks 비활성, 빈 strict MCP 설정과 빈 tools로 모델 프롬프트·기존 세션·사용자 훅/MCP 실행을 피한다. 실험적인 `get_usage`를 지원하지 않는 CLI와 조회 실패는 잔여율을 제공하지 않는다. 각 임시 프로세스에 기존 20초·256KiB 제한을 적용한다. 계정 상태와 사용량은 순차 프로세스로 조회되므로 Claude의 전체 조회는 최대 약 40초다. 실제 API 키 연결에서는 구독 조회를 하지 않는다. 브라우저는 잔여량만 계정·런타임별 메모리에 최대 5분 유지하고 동시/반복 조회를 합친다. 세션 토큰·API 환산 비용은 기존 i 팝업에서 확인한다. `구독 관리`·`구독하기` 버튼은 공급자별 고정 URL을 같은 계정의 내부 DOM 브라우저로 연다(Kimi 리전 반영). 페이지를 닫으면 그 창과 팝업을 정리하고 상태만 다시 조회한다. 구독 페이지의 계정이 표시된 CLI 계정과 같은지 사용자가 확인하며, 결제나 프롬프트 재전송은 자동 실행하지 않는다. 계정 결과는 메모리에서만 표시하고 전사·localStorage에 저장하지 않는다. Antigravity의 계정·플랜·잔여량 조회와 terminal 본문은 이 정보 카드의 적용 대상이 아니다. Antigravity 로그인과 채팅은 ACP로 지원한다.
 
 ## 모델·권한 기본값과 런타임 선택
 
@@ -46,7 +46,7 @@
 | `DELETE /api/agent-runtimes/:id/install` | manager·owner | 등록표가 선언한 고정 역설치 명령 실행. 안전한 제거 계약이 없으면 거부 |
 | `POST /api/agent-runtimes/:id/logout` | manager·owner | 등록표가 선언한 비대화형 CLI 로그아웃만 실행. 자격증명 값은 읽거나 전송하지 않음 |
 | `POST /api/agent-runtimes/:id/auth/:method/run` | manager·owner | ACP가 광고했거나 등록표에 박힌 terminal auth 고정 명령을 숨김 tmux에서 실행. body는 `{tab}`만 |
-| `GET /api/agent-runtimes/:id/account` | manager·owner | 공식 CLI 상태 기능으로 계정 표시명·플랜·구독/한도 상태·고정 구독 URL을 일시 반환. `Cache-Control: no-store`, 동시 조회만 병합 |
+| `GET /api/agent-runtimes/:id/account` | manager·owner | 공식 CLI 상태 기능으로 계정 표시명·플랜·구독/한도 상태·고정 구독 URL을 일시 반환. `Cache-Control: no-store`, 동시 조회만 병합; 지원 런타임의 정규화된 `quota` 배열 포함 |
 | `GET /api/agent-runtimes/:id/auth/:method/status?tab=<id>` | manager·owner | 인증 작업 상태·exit code, browser 표면의 allowlist URL·일회용 코드, 필터된 실패 이유. 출력·비밀값은 기록하지 않음 |
 | `GET /api/agent-defaults/:id` | manager·owner | 런타임별로 저장된 모델·권한 기본값 |
 | `PUT /api/agent-defaults/:id` | manager·owner | 현재 모델·권한을 그 런타임의 기본값으로 원자적 저장 |

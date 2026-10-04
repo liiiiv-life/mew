@@ -95,3 +95,28 @@ test('missing CLI and unsupported status are unknown, never misreported as signe
   assert.equal(account.subscription, 'unknown')
   await assert.rejects(readRuntimeAccount('not-a-runtime'))
 })
+
+test('Claude usage uses read-only CLI controls without prompts, hooks, MCP or credential reads', { timeout: 15_000 }, async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-claude-quota-'))
+  const file = path.join(dir, 'claude')
+  await fs.writeFile(file, `#!${process.execPath}
+import {createInterface} from 'node:readline';
+if(process.argv.includes('auth')) {
+ console.log(JSON.stringify({loggedIn:true,authMethod:'oauth',subscriptionType:'max'}));
+} else {
+ if(!process.argv.includes('--no-session-persistence')||!process.argv.includes('--strict-mcp-config')||!process.argv.includes('{"disableAllHooks":true}')) process.exit(9);
+ for await(const line of createInterface({input:process.stdin})) {
+  const r=JSON.parse(line);
+  if(r.type!=='control_request'||!['initialize','get_usage'].includes(r.request.subtype)) process.exit(9);
+  const response=r.request.subtype==='get_usage'?{rate_limits_available:true,rate_limits:{five_hour:{utilization:72,resets_at:'2099-01-01T00:00:00Z'}},privateToken:'never-return'}:{};
+  console.log(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:r.request_id,response}}));
+ }
+}
+`, { mode: 0o700 })
+  t.mock.method(RUNTIMES.claude as { spec: () => SpawnSpec }, 'spec', () => ({ cmd: 'unused', args: [], env: { CLAUDE_CODE_EXECUTABLE: file } }))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const result = await readRuntimeAccount('claude')
+  assert.equal(result.authentication, 'connected')
+  assert.deepEqual(result.quota, [{ remainingPercent: 28, windowMinutes: 300, resetsAt: '2099-01-01T00:00:00.000Z' }])
+  assert.doesNotMatch(JSON.stringify(result), /never-return/)
+})

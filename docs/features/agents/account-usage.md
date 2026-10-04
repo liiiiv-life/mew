@@ -4,9 +4,9 @@ parent: "mew-agents"
 title: "연결 계정·구독·사용량 보기"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-10-04"
 status_hash: "1e4c050b97fab4559073b246c0c69f70ffdffecde6ba5a18e4cd996fd21bd2e0"
-files: ["src/components/AgentAccountCard.tsx", "server/agentAccount.ts", "server/agentUsage.ts"]
+files: ["src/components/AgentAccountCard.tsx", "src/components/AgentQuotaBattery.tsx", "shared/agent-quota.ts", "server/agentAccount.ts", "server/agentUsage.ts"]
 commits: []
 ---
 
@@ -17,6 +17,8 @@ commits: []
 ### 범위
 
 - 지원 런타임에서 계정·플랜·한도와 세션 토큰·API 환산 비용을 표시하고 공식 구독 페이지를 연다.
+
+- Codex·Claude·Kimi Code의 가장 짧은 집계 기간 한도의 남은 비율을 세션 도구 바의 둥근 배터리로 바로 확인한다.
 
 ### 경계와 제한
 
@@ -34,6 +36,9 @@ commits: []
 
 - 지원 런타임에서 계정·플랜·한도와 세션 토큰·API 환산 비용을 표시하고 공식 구독 페이지를 연다.
 
+- 공급자의 공개 한도를 공통 잔여율로 정규화하고 가장 짧은 기간을 선택한다. 배터리는 숫자·배경 채움으로 표시하고 조회 불가와 소진을 구분한다. 상세 갱신·표시 계약은 계정·한도 표시 명세를 따른다.
+- Claude의 읽기 전용 SDK 제어 조회를 사용하며 인증 저장소 직접 읽기와 모델 프롬프트 전송은 하지 않는다.
+
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
@@ -41,5 +46,7 @@ commits: []
 
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 연결 계정 표시와 한도 오류가 구분되고 구독 창 닫기만으로 결제나 작업 재전송이 발생하지 않는지 확인한다.
+
+- 2026-10-04 자동 검증: 공급자별 최단 기간 선택·잔여율 정규화·CLI 읽기 전용 제어·데스크톱/모바일 배터리 표시 11개 테스트, 타입·린트·문서 경계·링크 검사를 통과했다. 기존 계정 팝업 회귀 테스트도 통과했다. 별도 모델·큐 UI 회귀 테스트는 큐 편집 후 Other 모델 표시 대기에서 실패했고 배터리 변경 전 코드에서도 동일하게 재현됐다. 실제 Claude 구독 계정은 이 환경이 API 키 연결이어서 검증하지 못했다.
 
 <!-- mew:validation:end -->

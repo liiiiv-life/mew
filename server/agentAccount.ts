@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { RUNTIMES, claudeCliSpec, resolvedSpec, resolvedTerminalSpec, type SpawnSpec } from './agentRuntimes.ts'
 import { accessIssueFromError, SUBSCRIPTION_URLS, type RuntimeAccount } from '../shared/agent-access.ts'
+import { quotaWindows } from '../shared/agent-quota.ts'
 
 type RecordValue = Record<string, any>
 const record = (value: unknown): RecordValue => value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {}
@@ -21,6 +22,7 @@ function base(runtime: string): RuntimeAccount {
 /** Strictly project public status fields; never return the CLI's raw output. */
 export function parseRuntimeAccount(runtime: string, input: unknown, usageInput?: unknown): RuntimeAccount {
   const result = base(runtime)
+  result.quota = quotaWindows(runtime, usageInput)
   const data = record(input)
   if (runtime === 'kimi') {
     const info = record(data.userInfo)
@@ -63,6 +65,7 @@ export function parseRuntimeAccount(runtime: string, input: unknown, usageInput?
     result.plan = text(data.membershipType)
   }
   result.subscription = subscription(result.plan)
+  if (result.authentication !== 'connected') result.quota = []
   if (result.subscription === 'unknown' && result.plan && !result.note) result.note = '공급자가 반환한 플랜 표시만으로 유료 구독 여부를 확정할 수 없습니다. 구독 페이지에서 확인해 주세요.'
   return result
 }
@@ -81,7 +84,7 @@ export function runtimeAccountSpec(runtime: string): SpawnSpec | null {
 const children = new Set<ChildProcessWithoutNullStreams>()
 process.once('exit', () => { for (const child of children) child.kill('SIGTERM') })
 
-async function probe(runtime: string, spec: SpawnSpec): Promise<RuntimeAccount> {
+async function probe(runtime: string, spec: SpawnSpec, claudeUsage = false): Promise<RuntimeAccount> {
   const child = spawn(spec.cmd, spec.args, { env: { ...process.env, ...spec.env }, stdio: 'pipe' })
   children.add(child)
   let exited = false
@@ -98,14 +101,26 @@ async function probe(runtime: string, spec: SpawnSpec): Promise<RuntimeAccount> 
   controller.signal.addEventListener('abort', stop, { once: true })
   const timer = setTimeout(() => controller.abort(), 20_000)
   const rpc = (id: number | null, method: string, params?: unknown) => child.stdin.write(JSON.stringify({ ...(id === null ? {} : { id }), method, ...(params === undefined ? {} : { params }) }) + '\n')
+  const control = (request_id: string, subtype: string) => child.stdin.write(JSON.stringify({ type: 'control_request', request_id, request: { subtype, ...(subtype === 'get_usage' ? { skip_behaviors: true } : {}) } }) + '\n')
   // A failed stdin must not emit an unhandled EPIPE if an older CLI exits early.
   child.stdin.on('error', () => controller.abort())
   try {
     if (runtime === 'codex') rpc(1, 'initialize', { clientInfo: { name: 'mew_account_status', version: '1.0.0' } })
+    if (claudeUsage) control('initialize', 'initialize')
     let account: unknown
     let output = ''
     for await (const line of lines) {
       if (controller.signal.aborted) break
+      if (claudeUsage) {
+        let message: RecordValue
+        try { message = record(JSON.parse(line)) } catch { continue }
+        if (message.type !== 'control_response') continue
+        const response = record(message.response)
+        if (response.subtype === 'error') throw new Error('usage control unavailable')
+        if (response.request_id === 'initialize') control('usage', 'get_usage')
+        if (response.request_id === 'usage') return { ...base(runtime), quota: quotaWindows(runtime, response.response) }
+        continue
+      }
       if (runtime === 'kimi') {
         const match = line.match(/Kimi server: (http:\/\/127\.0\.0\.1:\d+\/[^\s]*)/)
         if (!match) continue
@@ -141,7 +156,14 @@ async function probe(runtime: string, spec: SpawnSpec): Promise<RuntimeAccount> 
         }
       } else output += line + '\n'
     }
-    if (runtime !== 'kimi' && runtime !== 'codex' && !controller.signal.aborted) return parseRuntimeAccount(runtime, JSON.parse(output))
+    if (runtime !== 'kimi' && runtime !== 'codex' && !controller.signal.aborted && !claudeUsage) {
+      const result = parseRuntimeAccount(runtime, JSON.parse(output))
+      if (runtime === 'claude' && result.authentication === 'connected') {
+        const usage = await probe(runtime, claudeCliSpec(['--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--setting-sources', '', '--settings', '{"disableAllHooks":true}', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--tools', '']), true).catch(() => null)
+        result.quota = usage?.quota ?? []
+      }
+      return result
+    }
     throw new Error('account status unavailable')
   } finally {
     clearTimeout(timer)

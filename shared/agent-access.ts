@@ -23,6 +23,7 @@ export type RuntimeAccount = {
   subscriptionUrl: string | null
   note: string | null
   checkedAt: string
+  quota?: import('./agent-quota.ts').QuotaWindow[]
 }
 
 export const SUBSCRIPTION_URLS: Record<string, string> = {
