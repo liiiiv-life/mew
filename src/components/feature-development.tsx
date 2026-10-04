@@ -21,15 +21,15 @@ function Status({ status, copy }: { status: FeatureStatus; copy: FeatureCopy }) 
 }
 type Section = 'content' | 'summary' | 'validation' | 'children' | 'files' | 'commits'
 function FeatureSection({ featureId, section, label, open, onToggle, children, copy }: {
-  featureId: string; section: Section; label: string; open: boolean; onToggle: () => void; children: ReactNode; copy: FeatureCopy
+  featureId: string; section: Section; label: string; open: boolean; onToggle?: () => void; children: ReactNode; copy: FeatureCopy
 }) {
   const contentId = useId()
   return <li className="min-w-0" data-spec-section={section} data-feature-children={section === 'children' ? featureId : undefined}>
     <div className="flex min-h-8 items-center gap-1">
       <h3 className="min-w-0 text-xs font-medium text-ink-secondary">
-        <button type="button" className="flex min-h-8 items-center gap-1 rounded pr-1 text-left hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink" aria-label={`${label} ${open ? copy.collapse : copy.expand}`} aria-expanded={open} aria-controls={contentId} onClick={onToggle}>
+        {onToggle ? <button type="button" className="flex min-h-8 items-center gap-1 rounded pr-1 text-left hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink" aria-label={`${label} ${open ? copy.collapse : copy.expand}`} aria-expanded={open} aria-controls={contentId} onClick={onToggle}>
           {open ? <NavArrowDown width={13} height={13} aria-hidden="true" /> : <NavArrowRight width={13} height={13} aria-hidden="true" />}{label}
-        </button>
+        </button> : <span className="pl-2">{label}</span>}
       </h3>
     </div>
     <div id={contentId} hidden={!open}>{open && children}</div>
@@ -107,12 +107,6 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
       while (current) { next.add(current.id); current = data?.features.find(item => item.id === current?.parentId) }
       return next
     })
-    setExpandedSections(previous => {
-      const next = new Set(previous)
-      let parentId = feature.parentId
-      while (parentId) { next.add(`${parentId}:children`); parentId = data?.features.find(item => item.id === parentId)?.parentId ?? null }
-      return next
-    })
     requestAnimationFrame(() => {
       const title = panel.current?.querySelector<HTMLElement>(`[data-feature-id="${feature.id}"]`)
       title?.scrollIntoView({ block: 'nearest' }); title?.focus({ preventScroll: true })
@@ -128,10 +122,10 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
     const childPaths = new Set(children.map(row => row.feature.documentPath).filter((value): value is string => !!value))
     const items = presentedSpecificationItems(source, [feature.title, label, field === 'content' ? '요구사항' : field === 'summary' ? '구현 내용' : '검증', ...(field === 'content' && children.length ? ['하위 기능', '하위기능', copy.children] : [])])
       .filter(item => !(field === 'content' && item.linkHref && childPaths.has(featureDocumentHref(feature.documentPath, item.linkHref) ?? '')))
-    return <FeatureSection featureId={feature.id} section={field} label={label} copy={copy} open={sectionOpen(feature, field)} onToggle={() => toggleSection(feature, field)}>
+    return <FeatureSection featureId={feature.id} section={field} label={label} copy={copy} open={field === 'content' || sectionOpen(feature, field)} onToggle={field === 'content' ? undefined : () => toggleSection(feature, field)}>
       <ul className="min-w-0 space-y-0.5">
         {items.map(item => <li key={item.start} className="min-w-0" style={{ paddingLeft: item.indent * 12 }}>
-            <div className="feature-specification-preview select-text relative min-h-8 px-2 py-1 text-sm leading-6 text-ink" onClick={event => {
+            <div className={`feature-specification-preview select-text relative px-2 py-1 ${field === 'content' ? 'text-xs leading-5 text-ink-secondary' : 'min-h-8 text-sm leading-6 text-ink'}`} onClick={event => {
               const anchor = event.target instanceof Element ? event.target.closest('a') : null
               if (!anchor) return
               const file = featureDocumentHref(feature.documentPath, anchor.getAttribute('href') ?? '')
@@ -156,7 +150,7 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
     {!collapsed.has(feature.id) && <div className="mb-1 ml-2.5 min-w-0 border-l border-edge pl-2.5" data-feature-specification>
       <ul className="min-w-0">
         {textItems(feature, 'content', copy.content)}
-        {!!childrenByParent.get(feature.id)?.length && <FeatureSection featureId={feature.id} section="children" label={copy.children} copy={copy} open={sectionOpen(feature, 'children')} onToggle={() => toggleSection(feature, 'children')}>
+        {!!childrenByParent.get(feature.id)?.length && <FeatureSection featureId={feature.id} section="children" label={copy.children} copy={copy} open>
           <ul className="min-w-0">{childrenByParent.get(feature.id)!.map(renderFeature)}</ul>
         </FeatureSection>}
         {textItems(feature, 'summary', copy.implementation)}{textItems(feature, 'validation', copy.validation)}

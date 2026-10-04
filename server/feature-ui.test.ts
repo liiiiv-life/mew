@@ -31,15 +31,16 @@ test('feature GUI implements read-only hierarchy, evidence, state restoration an
   const set = { id: crypto.randomUUID(), name: '기본 구현팀', role: 'Build', runtime: 'codex', modelId: '' }
   const secondSet = { ...set, id: crypto.randomUUID(), name: '두 번째 팀' }; writeSets([set, secondSet])
   const report = { summary: '로그인을 구현했습니다.', validation: '기능 검증 통과', files: ['login.ts'], commits: [{ repository: '', hash }] }
-  const make = async (title: string, status: 'verified' | 'needs-fix' | null = null) => {
-    const run = await store.request(workspace, 'owner@example.com', { id: crypto.randomUUID(), title, content: `${title} 요구사항`, agentSetId: set.id }, set)
+  const make = async (title: string, status: 'verified' | 'needs-fix' | null = null, parentId?: string) => {
+    const run = await store.request(workspace, 'owner@example.com', { id: crypto.randomUUID(), title, content: `${title} 요구사항`, agentSetId: set.id, parentId }, set)
     await store.claim(workspace)
-    const feature = await store.assign(workspace, run.id, { action: 'new', title, content: run.content, reason: '새 기능' })
+    const feature = await store.assign(workspace, run.id, { action: parentId ? 'child' : 'new', parentId, title, content: run.content, reason: '새 기능' })
     await store.report(workspace, run.id, report); await store.finish(workspace, run.id, 'completed')
     if (status) await store.judge(workspace, feature.id, store.read(workspace).features.find(item => item.id === feature.id)!.version, status)
     return feature.id
   }
   const loginId = await make('로그인'), searchId = await make('검색', 'verified'); await make('설정', 'needs-fix')
+  const childId = await make('로그인 제한', null, loginId)
   const callbacks = new Map<string, AgentHostCallbacks>()
   const executor = new FeatureService(store, async (_runtime, tab, _cwd, cb) => {
     callbacks.set(tab, cb)
@@ -97,11 +98,26 @@ test('feature GUI implements read-only hierarchy, evidence, state restoration an
     assert.equal(await login.locator('[data-feature-specification]').count(), 0)
     await page.getByRole('button', { name: '모두 펼치기', exact: true }).click()
     const section = (field: string) => login.locator(`:scope > [data-feature-specification] > ul > [data-spec-section="${field}"]`)
-    for (const [field, label] of [['content', '요구사항'], ['summary', '구현 내용'], ['validation', '검증'], ['files', '관련 파일'], ['commits', '관련 커밋']]) {
+    for (const [field, label] of [['summary', '구현 내용'], ['validation', '검증'], ['files', '관련 파일'], ['commits', '관련 커밋']]) {
       assert.equal(await section(field).locator(':scope > div').last().isHidden(), true)
       await section(field).getByRole('button', { name: `${label} 펼치기`, exact: true }).press('Enter')
       assert.equal(await section(field).locator(':scope > div').last().isVisible(), true)
     }
+    assert.equal(await section('content').locator(':scope > div').last().isVisible(), true)
+    assert.equal(await section('children').locator(':scope > div').last().isVisible(), true)
+    assert.equal(await login.getByRole('button', { name: /^(요구사항|하위 기능) (펼치기|접기)$/ }).count(), 0)
+    const child = page.locator(`[data-feature-node="${childId}"]`)
+    await child.getByRole('button', { name: '로그인 제한 접기', exact: true }).click()
+    assert.equal(await child.locator('[data-feature-specification]').count(), 0)
+    await child.getByRole('button', { name: '로그인 제한 펼치기', exact: true }).click()
+    await child.getByText('로그인 제한 요구사항', { exact: true }).waitFor()
+    const requirementsStyle = await section('content').locator('.feature-specification-preview').evaluate(el => {
+      const style = el.ownerDocument.defaultView!.getComputedStyle(el)
+      return { size: style.fontSize, color: style.color }
+    })
+    assert.equal(requirementsStyle.size, '12px')
+    assert.equal(requirementsStyle.color, 'rgb(163, 163, 163)')
+    assert.equal(await section('summary').locator('.feature-specification-preview').evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).fontSize), '14px')
     await row(loginId).click()
     await login.getByText('로그인 요구사항', { exact: true }).click()
     await assertReadonly()
@@ -114,9 +130,9 @@ test('feature GUI implements read-only hierarchy, evidence, state restoration an
     await section('commits').getByRole('button').filter({ hasText: hash.slice(0, 8) }).click()
     await page.getByRole('dialog').getByText('실제 로그인 커밋').waitFor()
     await page.getByRole('dialog').getByRole('button', { name: '닫기', exact: true }).click()
-    await login.locator('details').first().locator(':scope > summary').click()
-    await login.locator('details details').first().locator(':scope > summary').click()
-    await login.getByRole('button', { name: '대화 열기', exact: true }).click()
+    await login.locator(':scope > [data-feature-specification] > details').locator(':scope > summary').click()
+    await login.locator(':scope > [data-feature-specification] > details > details').locator(':scope > summary').click()
+    await login.locator(':scope > [data-feature-specification] > details > details').getByRole('button', { name: '대화 열기', exact: true }).click()
     assert.equal((await page.evaluate('window.agents') as string[]).length, 1)
     await section('files').getByRole('button', { name: '관련 파일 접기', exact: true }).click()
     await page.getByRole('button', { name: '새로고침', exact: true }).click()
@@ -130,7 +146,10 @@ test('feature GUI implements read-only hierarchy, evidence, state restoration an
     assert.equal(await page.locator('[data-feature-panel]').evaluate(el => el.scrollWidth <= el.clientWidth), true)
     await page.screenshot({ path: '/tmp/mew-features-readonly-mobile.png' })
     await login.getByRole('button', { name: '로그인 접기', exact: true }).click()
+    assert.equal(await row(childId).count(), 0)
     await login.getByRole('button', { name: '로그인 펼치기', exact: true }).click()
+    await row(childId).waitFor()
+    await login.getByText('로그인 요구사항', { exact: true }).waitFor()
     await page.getByRole('button', { name: '닫기', exact: true }).click()
     assert.equal(await page.evaluate('window.featureClosed'), true)
     assert.deepEqual(mutations, [])
