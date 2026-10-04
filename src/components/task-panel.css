@@ -96,3 +96,8 @@
 .task-date-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .task-date-row + .task-date-row { margin-top: 4px; }
 .task-date-row .mew-date-field { width: 156px; }
+
+.task-draft-plus { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; pointer-events: none; color: var(--color-ink-secondary); }
+.task-draft[data-empty]:not(:focus-within) .task-draft-plus { display: flex; }
+.task-draft[data-empty]:not(:focus-within) .task-check { display: none; }
+.task-draft[data-empty]:not(:focus-within):hover { background: var(--color-surface-hover); border-radius: 4px; }

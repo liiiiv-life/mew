@@ -152,9 +152,10 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
         </div> }
   const lines = <div ref={view === 'list' ? drag.list : undefined} {...(view === 'list' ? drag.events : {})} className="task-lines px-3 py-2">
         {(view === 'calendar' ? visibleTasks : drag.tasks).map(renderTask)}
-        {canEdit && tasks.length < TASK_LIMIT && <div data-drop-before={view === 'list' && !!drag.preview && drag.preview.beforeId === null || undefined} className="task-line">
+        {canEdit && tasks.length < TASK_LIMIT && <div data-drop-before={view === 'list' && !!drag.preview && drag.preview.beforeId === null || undefined} className="task-line task-draft" data-empty={!draft || undefined}>
+          <span className="task-draft-plus" aria-hidden="true"><Plus width={18} height={18} /></span>
           <span className="task-check"><input type="checkbox" disabled aria-hidden="true" /></span>
-          <TaskText id="draft" text={draft} disabled={false} placeholder={uiText('새 태스크')} inputs={inputs}
+          <TaskText id="draft" text={draft} disabled={false} inputs={inputs}
             onChange={setDraft} onKeyDown={event => keyDown(event, tasks.length)} onPaste={event => paste(event, tasks.length)}
             onBlur={commitDraft} />
         </div>}
