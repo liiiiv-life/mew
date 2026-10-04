@@ -2,12 +2,15 @@ import { GIT_LOGIN_EVENT, GIT_CONNECTION_CHANGED, type GitLoginRequest } from '.
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useId, useRef, useState } from 'react'
-import { copyText, DialogFrame } from '@mew/ui'
+import { copyText, DialogFrame, HoverTipLayer } from '@mew/ui'
+import { Check, Copy, Computer, Github, LinkSlash, OpenNewWindow, Refresh, Xmark, XmarkCircle } from 'iconoir-react'
 import { disconnectGitHub, fetchGitHubAuth, openGitHubLoginBrowser, startGitHubLogin, stopGitHubLogin } from '../api/client'
 import { githubLoginPending, type GitHubAuthStatus } from '../../shared/github-auth'
 import { ServerDomBrowserTabs } from './server-dom-browser'
 
-const button = 'rounded px-3 py-2 text-xs text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40'
+const iconButton = 'flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40'
+
+const button = 'inline-flex h-7 items-center justify-center gap-1.5 rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40'
 
 export function GitHubAccount({ project, request }: { project: string; request?: GitLoginRequest }) {
   useUiLocale()
@@ -95,32 +98,34 @@ export function GitHubAccount({ project, request }: { project: string; request?:
     {!request && <div className="flex min-w-0 max-w-36 items-center">
       <button type="button" className={`${button} max-w-full truncate`} onClick={() => setOpen(true)} aria-haspopup="dialog" title={label}>{label}</button>
     </div>}
-    {open && <DialogFrame labelledBy={titleId} onClose={close} className={streamUrl && active ? 'flex h-[85dvh] max-w-4xl flex-col' : 'max-w-md max-h-[90dvh] overflow-y-auto'}>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-edge px-4 py-2">
-        <h2 id={titleId} className="text-sm font-semibold text-ink">{uiText("GitHub 로그인")}</h2>
-        <button type="button" className={button} onClick={close}>{uiText("닫기")}</button>
+    {open && <DialogFrame labelledBy={titleId} onClose={close} className={streamUrl && active ? 'flex h-[85dvh] max-w-4xl flex-col' : 'flex max-w-sm max-h-[90dvh] flex-col'}>
+      <HoverTipLayer className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-edge px-3 py-2">
+        <h2 id={titleId} className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-ink"><Github width={16} height={16} aria-hidden="true" />{uiText("GitHub 로그인")}</h2>
+        <button type="button" className={iconButton} onClick={close} aria-label={uiText("닫기")} data-tip={uiText("닫기")}><Xmark width={16} height={16} aria-hidden="true" /></button>
       </div>
-      <div className="shrink-0 space-y-3 p-4 text-sm text-ink">
+      <div className="shrink-0 space-y-2 px-3 py-2.5 text-xs text-ink">
         {loading ? <p role="status">{uiText("로그인 상태를 확인하는 중…")}</p> : status?.login && !active ? <p role="status"><strong className="break-all">{status.login}</strong> {uiText(" 계정으로 연결되었습니다.")}</p> : status?.busy ? <p role="status">{uiText("다른 사용자가 GitHub 로그인 중입니다.")}</p> : !active && <p>{uiText("GitHub에 로그인해 저장소에 연결하세요.")}</p>}
         {status?.available === false && <p>{uiText("서버에 MEW_GITHUB_CLIENT_ID를 설정하고 앱의 Device flow를 활성화하세요.")}</p>}
         {active && <p role="status" className="text-xs text-ink-secondary">{job?.state === 'starting' ? uiText("승인 코드를 준비하는 중…") : job?.state === 'configuring' ? uiText("Git 연결을 마무리하는 중…") : uiText("아래 코드를 GitHub 승인 화면에 입력하세요.")}</p>}
-        {job?.code && <div className="flex flex-wrap items-center gap-2">
-          <code className="select-all font-mono text-lg tabular-nums">{job.code}</code>
-          <button type="button" className={button} onClick={() => { void copyText(job.code!).then(ok => { setCopied(ok); if (!ok) setError(uiText("코드를 복사하지 못했습니다. 코드를 선택해 직접 복사하세요.")) }) }}>{copied ? uiText("복사됨") : uiText("코드 복사")}</button>
-          <a className={`${button} underline underline-offset-2`} href="https://github.com/login/device" target="_blank" rel="noopener noreferrer">{uiText("GitHub에서 승인")}</a>
-          {!streamUrl && <button type="button" className={`${button} border border-edge-strong`} disabled={busy} onClick={() => void action('browser')}>{busy ? uiText("여는 중…") : uiText("로그인 계속하기")}</button>}
+        {job?.code && <div className="flex flex-wrap items-center gap-1.5">
+          <code className="select-all rounded border border-edge bg-surface-deep px-2 py-1 font-mono text-base font-semibold tracking-wide tabular-nums">{job.code}</code>
+          <button type="button" className={iconButton} aria-label={copied ? uiText("복사됨") : uiText("코드 복사")} data-tip={copied ? uiText("복사됨") : uiText("코드 복사")} onClick={() => { void copyText(job.code!).then(ok => { setCopied(ok); if (!ok) setError(uiText("코드를 복사하지 못했습니다. 코드를 선택해 직접 복사하세요.")) }) }}>{copied ? <Check width={14} height={14} aria-hidden="true" /> : <Copy width={14} height={14} aria-hidden="true" />}<span role="status" className="sr-only">{copied ? uiText("복사됨") : ""}</span></button>
+          <a className={iconButton} aria-label={uiText("GitHub에서 승인")} data-tip={uiText("GitHub에서 승인")} href="https://github.com/login/device" target="_blank" rel="noopener noreferrer"><OpenNewWindow width={14} height={14} aria-hidden="true" /></a>
+          {!streamUrl && <button type="button" className={`${button} border border-edge-strong`} disabled={busy} onClick={() => void action('browser')}><Computer width={14} height={14} aria-hidden="true" />{busy ? uiText("여는 중…") : uiText("로그인 계속하기")}</button>}
         </div>}
         {(error || loadError || job?.error) && <p role="alert" className="select-text break-words text-xs text-danger">{error || loadError || job?.error}</p>}
         {job?.state === 'complete' && !status?.login && <p role="status" className="text-xs text-ink-secondary">{uiText("승인은 완료됐지만 계정을 확인하지 못했습니다. 새로고침해 주세요.")}</p>}
       </div>
       {streamUrl && active && job && <ServerDomBrowserTabs key={streamUrl} streamUrl={streamUrl} reopen={async () => (await openGitHubLoginBrowser(project, job.id)).streamUrl} />}
-        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-edge p-3">
-          {active ? <button type="button" className={button} disabled={busy || job?.state === 'configuring'} onClick={() => void action('stop')}>{uiText("로그인 취소")}</button> : <>
-            <button type="button" className={button} disabled={loading || busy} onClick={() => { setError(null); setLoading(true); setReload(value => value + 1) }}>{uiText("새로고침")}</button>
-            {status?.login && <button type="button" className={button} disabled={busy} onClick={() => void action('disconnect')}>{uiText("연결 해제")}</button>}
-            {!status?.login && <button type="button" className="rounded bg-accent px-3 py-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40" disabled={loading || busy || !status || !status.available || status.busy || status.environmentToken} onClick={() => void action('start')}>{busy ? uiText("시작 중…") : job?.state === 'failed' ? uiText("다시 로그인") : uiText("GitHub 로그인")}</button>}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 border-t border-edge px-3 py-2">
+          {active ? <button type="button" className={iconButton} aria-label={uiText("로그인 취소")} data-tip={uiText("로그인 취소")} disabled={busy || job?.state === 'configuring'} onClick={() => void action('stop')}><XmarkCircle width={14} height={14} aria-hidden="true" /></button> : <>
+            <button type="button" className={iconButton} aria-label={uiText("새로고침")} data-tip={uiText("새로고침")} disabled={loading || busy} onClick={() => { setError(null); setLoading(true); setReload(value => value + 1) }}><Refresh width={14} height={14} aria-hidden="true" /></button>
+            {status?.login && <button type="button" className={iconButton} aria-label={uiText("연결 해제")} data-tip={uiText("연결 해제")} disabled={busy} onClick={() => void action('disconnect')}><LinkSlash width={14} height={14} aria-hidden="true" /></button>}
+            {!status?.login && <button type="button" className="inline-flex h-7 items-center justify-center gap-1.5 rounded bg-accent px-2 text-xs font-medium text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40" disabled={loading || busy || !status || !status.available || status.busy || status.environmentToken} onClick={() => void action('start')}><Github width={14} height={14} aria-hidden="true" />{busy ? uiText("시작 중…") : job?.state === 'failed' ? uiText("다시 로그인") : uiText("GitHub 로그인")}</button>}
           </>}
         </div>
+      </HoverTipLayer>
     </DialogFrame>}
   </>
 }

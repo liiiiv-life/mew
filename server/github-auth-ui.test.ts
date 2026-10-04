@@ -29,12 +29,12 @@ createRoot(document.getElementById('root')).render(<><GitHubAccount project='.wo
     },
   }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = (await Promise.all(['src/components/github-account.tsx', 'packages/ui/src/dialog-frame.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/github-account.tsx', 'packages/ui/src/dialog-frame.tsx', 'packages/ui/src/HoverTipLayer.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
-    for (const width of [1100, 390]) {
+    for (const width of [1100, 390, 320]) {
       const page = await browser.newPage({ viewport: { width, height: 844 } })
       page.setDefaultTimeout(9000)
       const errors: string[] = []
@@ -69,8 +69,12 @@ createRoot(document.getElementById('root')).render(<><GitHubAccount project='.wo
       await page.goto('http://localhost:48977/')
       await click('GitHub 로그인')
       const dialog = page.getByRole('dialog')
+      assert.equal(await dialog.getByRole('button', { name: '닫기', exact: true }).textContent(), '')
       await dialog.getByRole('button', { name: 'GitHub 로그인', exact: true }).click()
       await page.getByText('ABCD-1234', { exact: true }).waitFor()
+      await dialog.getByRole('button', { name: '코드 복사', exact: true }).hover()
+      await page.getByRole('tooltip').filter({ hasText: '코드 복사' }).waitFor()
+      await page.mouse.move(0, 0)
       if (process.env.MEW_GITHUB_SCREENSHOTS) {
         await fs.mkdir(process.env.MEW_GITHUB_SCREENSHOTS, { recursive: true })
         await page.screenshot({ path: path.join(process.env.MEW_GITHUB_SCREENSHOTS, `${width}-waiting.png`) })

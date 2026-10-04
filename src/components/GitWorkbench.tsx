@@ -4,7 +4,7 @@ import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp, Check, GitCommit, Page } from 'iconoir-react'
+import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
 import { GitBranchPicker } from './git-branch-picker'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
@@ -250,8 +250,8 @@ function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, di
             }}>
             <input type="checkbox" checked={selected.has(file.path)} disabled={disabled} onChange={() => onToggle(file.path)} aria-label={uiText("{p0} 커밋에 포함", { p0: file.path })} className="h-4 w-4 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
           </label>}
-          <button type="button" onClick={() => onSelect(file)} className={`flex min-w-0 flex-1 items-center text-left text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink ${compact ? 'gap-2 px-3 py-1.5' : 'gap-3 px-4 py-3'}`}>
-            <span className="w-7 shrink-0 rounded bg-surface-deep py-0.5 text-center font-mono text-[9px] text-accent" title={file.status}>{statusLabel(file.status)}</span>
+          <button type="button" onClick={() => onSelect(file)} className={`flex min-w-0 flex-1 items-center text-left text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink ${compact ? 'gap-2 pr-3 py-1.5' : 'gap-3 pr-4 py-3'} ${selected && onToggle ? compact ? 'pl-1.5' : 'pl-2.5' : compact ? 'pl-3' : 'pl-4'}`}>
+            <span className="shrink-0 rounded bg-surface-deep px-1 py-0.5 text-center font-mono text-[9px] text-accent" title={file.status}>{statusLabel(file.status)}</span>
             <span className="min-w-0 flex-1 truncate" title={file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}>{file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}</span>
             <span className="text-ink-muted" aria-hidden="true">›</span>
           </button>
@@ -315,10 +315,10 @@ function GitComposer({ children, onSubmit }: { children: ReactNode; onSubmit: ()
     observer.observe(parent)
     return () => observer.disconnect()
   }, [])
-  const minHeight = 144
+  const minHeight = 128
   const maxHeight = Math.max(minHeight, Math.floor(availableHeight * 0.7))
   const clamp = (value: number) => Math.max(minHeight, Math.min(maxHeight, value))
-  const visibleHeight = clamp(height ?? availableHeight * 0.375)
+  const visibleHeight = clamp(height ?? availableHeight / 3)
   const move = (event: ReactPointerEvent<HTMLDivElement>) => {
     const active = drag.current
     if (active?.pointerId === event.pointerId) setHeight(clamp(active.height + active.y - event.clientY))
@@ -328,7 +328,7 @@ function GitComposer({ children, onSubmit }: { children: ReactNode; onSubmit: ()
     drag.current = null
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
-  return <form ref={form} aria-label={uiText("커밋 작성")} className="relative min-h-36 shrink-0 border-t border-edge" style={{ height: visibleHeight }} onSubmit={event => { event.preventDefault(); onSubmit() }}>
+  return <form ref={form} aria-label={uiText("커밋 작성")} className="relative min-h-32 shrink-0 border-t border-edge" style={{ height: visibleHeight }} onSubmit={event => { event.preventDefault(); onSubmit() }}>
     <div role="separator" tabIndex={0} aria-label={uiText("입력창 높이 조절")} aria-orientation="horizontal"
       aria-valuemin={minHeight} aria-valuemax={maxHeight} aria-valuenow={Math.round(visibleHeight)}
       title={uiText("끌어서 입력창 높이 조절")}
@@ -351,7 +351,7 @@ function GitComposer({ children, onSubmit }: { children: ReactNode; onSubmit: ()
     >
       <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent group-focus-visible:bg-accent" />
     </div>
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-auto p-3">{children}</div>
+    <div className="flex h-full min-h-0 flex-col gap-1.5 overflow-auto p-2">{children}</div>
   </form>
 }
 
@@ -688,11 +688,19 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
         return <button key={action} type="button" title={status ? `${label}: ${status}` : label} aria-label={label} aria-busy={remoteAction === action}
           disabled={busy || loading || aiOpen || !info?.repository || info.detached || !info.workspace || !info.remotes?.length}
           onClick={() => { void syncRemote(action) }}
-          className={`flex h-7 shrink-0 items-center justify-center gap-1 rounded hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${status ? 'px-1.5 text-xs text-accent' : 'w-7 text-ink-secondary hover:text-ink disabled:opacity-40'}`}>
-          <Icon width={16} height={16} aria-hidden="true" className={remoteAction === action && !finished ? 'animate-pulse' : undefined} />
+          className={`flex h-6 shrink-0 items-center justify-center gap-1 rounded hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${status ? 'px-1 text-[10px] text-accent' : 'w-6 text-ink-secondary hover:text-ink disabled:opacity-40'}`}>
+          <Icon width={14} height={14} aria-hidden="true" className={remoteAction === action && !finished ? 'animate-pulse' : undefined} />
           {status && <span role="status" aria-live="polite" aria-atomic="true" className="whitespace-nowrap tabular-nums">{status}</span>}
         </button>
-      })}</>, actionsHost)}
+      })}
+        {info?.originUrl && <a href={info.originUrl} target="_blank" rel="noopener noreferrer"
+          title="origin" aria-label="origin"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+          {new URL(info.originUrl).hostname === 'github.com'
+            ? <Github width={16} height={16} aria-hidden="true" />
+            : <OpenNewWindow width={16} height={16} aria-hidden="true" />}
+        </a>}
+      </>, actionsHost)}
       {aiOpen && <GitAiCommitDialog key={project} project={project} files={[...selectedFiles]} onClose={() => { setAiOpen(false); void refresh() }} onFinished={() => { void refresh() }} />}
       {(view.kind !== 'graph' || onBack) && <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
         {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")} title={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")}><BackIcon /></button>}
@@ -759,20 +767,20 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
                 <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
               </div>
               <GitComposer onSubmit={() => { void commit() }}>
-                <HoverTipLayer className="flex shrink-0 items-center gap-2">
-                  <input value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="h-8 min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-3 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || busy} aria-label={committing ? uiText("커밋 중…") : uiText("커밋")} data-tip={committing ? uiText("커밋 중…") : uiText("커밋")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
-                    <GitCommit width={16} height={16} aria-hidden="true" />
+                <HoverTipLayer className="flex shrink-0 items-center gap-1.5">
+                  <input value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="h-7 min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || busy} aria-label={committing ? uiText("커밋 중…") : uiText("커밋")} data-tip={committing ? uiText("커밋 중…") : uiText("커밋")} className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
+                    <GitCommit width={14} height={14} aria-hidden="true" />
                   </button>
-                  {view.kind === 'graph' && info?.repository && <button type="button" disabled={busy} onClick={() => setAiOpen(true)} aria-label={uiText("AI 자동 커밋")} data-tip={uiText("AI 자동 커밋")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-edge-strong text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
-                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  {view.kind === 'graph' && info?.repository && <button type="button" disabled={busy} onClick={() => setAiOpen(true)} aria-label={uiText("AI 자동 커밋")} data-tip={uiText("AI 자동 커밋")} className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-edge-strong text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M12 3v4M3 12v5m18-5v5" />
                       <rect x="5" y="7" width="14" height="14" rx="3" />
                       <path d="M9 12v2m6-2v2m-6 3h6" />
                     </svg>
                   </button>}
                 </HoverTipLayer>
-                <textarea value={commitDescription} disabled={busy} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-8 w-full flex-1 resize-none rounded border border-edge-strong bg-surface-deep px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                <textarea value={commitDescription} disabled={busy} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-7 w-full flex-1 resize-none rounded border border-edge-strong bg-surface-deep px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
               </GitComposer>
             </section>
           </div>

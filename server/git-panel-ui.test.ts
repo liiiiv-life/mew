@@ -81,7 +81,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       { name: 'origin/remote-topic', ref: 'refs/remotes/origin/remote-topic', kind: 'remote' },
       { name: 'v1', ref: 'refs/tags/v1', kind: 'tag' },
     ]
-    const branchInfo = () => ({ repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], branch: repositoryBranch, ahead: 0, behind: 0 })
+    const branchInfo = () => ({ repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], originUrl: 'https://github.com/owner/repo', branch: repositoryBranch, ahead: 0, behind: 0 })
     const remoteRequests: unknown[] = []
     let finishRemote = () => {}
     page.on('pageerror', (error) => errors.push(error.message))
@@ -110,7 +110,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         }
         const payload = p === '/api/git-connections/github' ? { available: true, login: null, environmentToken: false, busy: false, job: null }
           : p === '/api/git/repositories' ? { repositories: url.searchParams.get('project') === 'docs' ? [{ path: '' }] : [{ path: '' }, { path: 'tools/a-very-long-repository-name-for-layout-checking' }] }
-          : p === '/api/git/repository' ? { repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], branch: repositoryBranch, ahead: 0, behind: 0 }
+          : p === '/api/git/repository' ? { repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], originUrl: 'https://github.com/owner/repo', branch: repositoryBranch, ahead: 0, behind: 0 }
             : p === '/api/git/log' ? { commits: Array.from({ length: 80 }, (_, index) => ({ hash: `abc12345${index}`, parents: index < 79 ? [`abc12345${index + 1}`] : [], subject: index === 0 && externalCommit ? '외부 터미널에서 만든 새 커밋' : index === 0 ? '패널 작업: 긴 커밋 제목도 메타데이터를 밀어내지 않고 한 줄로 표시합니다' : `패널 작업 ${index}`, author: 'Tester with a long name', date: new Date(Date.now() - index * 3_600_000 - 10_000).toISOString(), refs: index === 0 ? ['main', 'tag: v1'] : [] })) }
               : p.endsWith('/diff') ? { diff: `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+${diffLine}\n` }
                 : { files: workingFiles }
@@ -147,8 +147,14 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.equal(await page.getByRole('button', { name: 'Git 닫기', exact: true }).count(), 1)
     assert.equal(await header().locator('[draggable="true"]').count(), 1)
     assert.equal(await page.getByRole('dialog').count(), 0)
+    const origin = header().getByRole('link', { name: 'origin', exact: true })
+    assert.equal(await origin.getAttribute('href'), 'https://github.com/owner/repo')
+    assert.equal(await origin.getAttribute('target'), '_blank')
+    assert.equal(await origin.getAttribute('rel'), 'noopener noreferrer')
     const pull = header().getByRole('button', { name: 'Pull', exact: true })
     const push = header().getByRole('button', { name: 'Push', exact: true })
+    assert.equal((await bounds(pull)).width, 24)
+    assert.equal((await bounds(push)).height, 24)
     assert.ok((await bounds(pull)).x < (await bounds(push)).x, 'pull precedes push in the title bar')
     const changes = page.locator('[data-git-scroll="changes"]')
     const history = page.locator('[data-git-scroll="history"]')
@@ -164,7 +170,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.ok(historyBox.y + historyBox.height <= changesBox.y, 'history precedes the changes')
     assert.ok((await bounds(changes)).y + (await bounds(changes)).height <= composerBox.y, 'composer follows the changes')
     assert.ok(Math.abs(composerBox.y + composerBox.height - panelBox.y - panelBox.height) < 2, 'composer stays at the panel bottom')
-    assert.ok(Math.abs(composerBox.height / (changesBox.height + historyBox.height) - .3) < .02)
+    assert.ok(Math.abs(composerBox.height / (changesBox.height + historyBox.height) - .25) < .02)
     for (const name of ['커밋', 'AI 자동 커밋']) {
       const button = composer.getByRole('button', { name, exact: true })
       assert.equal(await button.textContent(), '')
@@ -206,7 +212,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.keyboard.press('End')
     assert.equal(await composerHandle.getAttribute('aria-valuenow'), await composerHandle.getAttribute('aria-valuemax'))
     await page.keyboard.press('Home')
-    assert.equal(await composerHandle.getAttribute('aria-valuenow'), '144')
+    assert.equal(await composerHandle.getAttribute('aria-valuenow'), '128')
     const minimumComposer = await bounds(composer)
     await page.mouse.move(composerX, minimumComposer.y)
     await page.mouse.down()
@@ -216,15 +222,6 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.equal(await firstCheck.isChecked(), true)
     assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 60, 'initial changes are all selected')
     assert.equal(await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).isChecked(), true)
-    await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).uncheck()
-    await firstCheck.check()
-    assert.equal(await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).evaluate(el => (el as unknown as { indeterminate: boolean }).indeterminate), true)
-    await page.getByLabel('커밋 제목', { exact: true }).fill('selected draft')
-    assert.equal(await page.getByRole('button', { name: '커밋', exact: true }).isEnabled(), true)
-    await firstCheck.uncheck()
-    assert.equal(await page.getByRole('button', { name: '커밋', exact: true }).isEnabled(), false)
-    await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).check()
-    assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 60)
     await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).uncheck()
     const dragChecks = changes.getByRole('checkbox')
     const firstDragBox = await bounds(dragChecks.nth(0))
@@ -271,6 +268,15 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await selectionTouch.send('Emulation.setTouchEmulationEnabled', { enabled: false })
     await selectionTouch.detach()
     await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).check()
+    await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).uncheck()
+    await firstCheck.check()
+    assert.equal(await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).evaluate(el => (el as unknown as { indeterminate: boolean }).indeterminate), true)
+    await page.getByLabel('커밋 제목', { exact: true }).fill('selected draft')
+    assert.equal(await page.getByRole('button', { name: '커밋', exact: true }).isEnabled(), true)
+    await firstCheck.uncheck()
+    assert.equal(await page.getByRole('button', { name: '커밋', exact: true }).isEnabled(), false)
+    await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).check()
+    assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 60)
     await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).uncheck()
     await firstCheck.check()
     const rowBox = await bounds(history.getByRole('button').first())
@@ -377,6 +383,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await history.evaluate(el => { el.scrollTop = 0 })
     await page.setViewportSize({ width: 320, height: 720 })
     await page.getByRole('region', { name: '현재 변경사항' }).waitFor()
+    await header().locator('[data-git-title]').waitFor({ state: 'hidden' })
+    assert.equal(await header().locator('[data-git-title]').isVisible(), false)
     assert.equal(await history.evaluate(el => el.scrollWidth > el.clientWidth), false)
     assert.equal((await bounds(history.getByRole('button').first())).height, 28)
     await screenshot('mobile-split')
@@ -539,10 +547,12 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await screenshot('push-progress-desktop-light')
     await page.locator('html').evaluate(el => el.classList.add('dark'))
     await page.setViewportSize({ width: 320, height: 900 })
+    await header().locator('[data-git-title]').waitFor({ state: 'hidden' })
     const pushBox = await bounds(push), closeBox = await bounds(header().getByRole('button', { name: 'Git 닫기', exact: true }))
     assert.ok(pushBox.x >= 0 && closeBox.x + closeBox.width <= 320, 'progress keeps toolbar controls inside a narrow viewport')
-    const titleBox = await bounds(header().getByText('Git', { exact: true })), pickerBox = await bounds(branchButton)
-    assert.ok(titleBox.x + titleBox.width <= pickerBox.x, 'Git title and branch picker never overlap while progress expands')
+    assert.equal(await header().locator('[data-git-title]').isVisible(), false, 'narrow panels reserve the title space for controls')
+    const pickerBox = await bounds(branchButton)
+    assert.ok(pickerBox.x + pickerBox.width <= (await bounds(pull)).x, 'branch picker and remote controls do not overlap')
     await emitRemote({ type: 'progress', progress: { phase: 'waiting' } })
     await push.getByText('확인 중…', { exact: true }).waitFor()
     assert.equal(await push.getByText('완료', { exact: true }).count(), 0, '100% transfer is not success before server confirmation')

@@ -33,10 +33,10 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onOpenFile
   }, [closeTabSignal, onClose])
   return <>
     <DockPanel id={group} kind="git" tabs={[tab.id]} visible={visible} onFocus={onPanelFocus}>
-      <GitShortcutScope onClose={onClose} className="shrink-0">
+      <GitShortcutScope onClose={onClose} className="@container/git-header shrink-0">
         <div data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
           <DockGrip group={group} />
-          <div className="flex shrink-0 items-center gap-1.5 px-2.5 text-xs text-ink">
+          <div data-git-title className="hidden shrink-0 items-center gap-1.5 px-2.5 text-xs text-ink @min-[400px]/git-header:flex">
             <GitBranch width={14} height={14} className="shrink-0" aria-hidden="true" />
             <span>Git</span>
           </div>
