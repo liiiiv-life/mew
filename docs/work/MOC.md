@@ -10,6 +10,8 @@ updated: "2026-10-04"
 
 ## Current
 
+- [대량 문서 변경의 AI 커밋 압축 연구](git-document-commit-compression.md)
+
 - [AI 커밋 토큰 절감 검토](git-ai-commit-token-efficiency.md)
 
 - [상주 GPU 원격 데스크톱 직결 구현·적용 검증](remote-desktop-resident-direct.md)
