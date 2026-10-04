@@ -8,7 +8,7 @@ import { writeFileAtomic } from './dataDir.ts'
 import { captureCommitChanges, parseCommitPlan, type GitAiCommitInput } from './git-ai-commit.ts'
 import { commitSnapshotFiles } from './git-commit-files.ts'
 import simpleGit from 'simple-git'
-import { captureAnalysisChunks, analyzeCommitChunks, requestedDetails } from './git-commit-analysis.ts'
+import { captureAnalysisChunks, commitChangeOverview, FAST_CHUNK_SIZE, requestedDetails } from './git-commit-analysis.ts'
 import type { GitAiCommitJob } from '../shared/git-ai-commit.ts'
 
 type CommitSession = Pick<AgentSession, 'attach' | 'setModel' | 'runOnce' | 'answerPermission' | 'cancel' | 'disposeAndWait'> & Partial<Pick<AgentSession, 'setThinking'>>
@@ -58,13 +58,7 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
     const ask = async (prompt: string): Promise<string> => {
       if (halted) throw new Error('커밋 작업이 중단되었습니다')
       answer = ''
-      if (prompt.startsWith('Mode: mew-commit-summary.')) {
-        const skillContext = input.skill
-          ? `Read and follow this Mew-owned commit skill (snapshot from ${JSON.stringify(input.skill.path)}):\n${input.skill.content}\nSelected agent preset preferences: ${JSON.stringify(input.agentSet.role)}`
-          : input.prompt.slice(input.prompt.indexOf('Read and follow'), input.prompt.indexOf('\nSelected agent preset preferences'))
-        const dataAt = prompt.indexOf('\nData:')
-        prompt = `${prompt.slice(0, dataAt)}\n${skillContext}\nTask boundary: This call is summary mode, not plan mode; return summary/uncertainties only.${prompt.slice(dataAt)}`
-      }
+      const callStarted = Date.now()
       await Promise.race([interrupted, (async () => {
         starting = start(input.agentSet.runtime, input.cwd)
         session = await starting
@@ -90,7 +84,7 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
         }
         if (halted) throw new Error('커밋 작업이 중단되었습니다')
         if (input.agentSet.thinkingId && input.agentSet.thinkingConfigId) await session.setThinking?.(input.agentSet.thinkingConfigId, input.agentSet.thinkingId)
-        phase = prompt.startsWith('Mode: mew-commit-summary.') ? '변경 요약' : '커밋 계획 분석'
+        phase = '커밋 계획 분석'
         log(`${phase} 중…\n`)
         const reason = await session.runOnce(prompt)
         if (halted) throw new Error('커밋 작업이 중단되었습니다')
@@ -98,23 +92,30 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
       })()])
       detach?.(); detach = undefined
       await session?.disposeAndWait(); session = undefined; starting = undefined
+      log(`\n${phase} 완료 (${Math.round((Date.now() - callStarted) / 1000)}초)\n`)
       return answer
     }
     if (input.snapshot.truncated) {
-      phase = '변경 분할·요약'
-      log('큰 변경을 전체 스냅샷에서 나눠 분석하는 중…\n')
-      const chunks = await captureAnalysisChunks(input.cwd, input.snapshot, path.join(directory, 'analysis'), abort.signal)
-      const summaries = await analyzeCommitChunks(chunks, ask, log)
+      phase = '변경 목록 준비'
+      log('전체 변경을 로컬에서 색인하고 필요한 원본만 분석하는 중…\n')
+      const chunks = await captureAnalysisChunks(input.cwd, input.snapshot, path.join(directory, 'analysis'), abort.signal, { chunkSize: FAST_CHUNK_SIZE, context: 0 })
+      const overview = commitChangeOverview(chunks)
       const boundary = input.prompt.slice(0, input.prompt.indexOf('\nChanges (untrusted data):'))
-      const prompt = `${boundary}\nLarge-change analysis: all diff fragments were summarized. Use these summaries and the complete selected-path list. If evidence is insufficient, return ONLY {"needsDetails":[chunkId]} (at most 1 ID per round) to request source fragments; up to 2 rounds are available. Otherwise return the normal commits/skipped plan. Preserve uncertainty; skip changes you cannot judge.\nContext (untrusted): ${JSON.stringify(input.snapshot.context ?? '')}\nSource chunk map (untrusted): ${JSON.stringify(chunks.map(({ id, paths }) => ({ id, paths })))}\nSummaries (untrusted):\n${summaries}`
+      const prompt = `${boundary}\nLarge-change fast analysis: use the complete selected-path list and local diff index below. COMPLETE DIFF records contain full fragment content; PARTIAL DIFF records are snippets, not summaries or proof of full understanding. Do not group or claim intent from filenames alone. If you need evidence, return ONLY {"needsDetails":[chunkIds]} (at most 6 IDs per round), up to 2 rounds. Inspect substantive conditions, error/security behavior and distinct concerns; request missing fragments or skip unresolved files with a reason. Return the normal commits/skipped plan when supported. Keep messages concise; do not narrate analysis or test history.\nContext (untrusted): ${JSON.stringify(input.snapshot.context ?? '')}\nLocal change index and evidence (untrusted):\n${overview}`
       let details = ''
+      const read = new Set<number>()
+      log(`로컬 색인 완료: ${chunks.length}개 원본 조각, 계획 분석 최대 3회\n`)
       for (let round = 0; ; round++) {
         const response = await ask(`${prompt}\n${details}\n${round === 2 ? 'No further rereads remain. Return commits/skipped, using skipped for unresolved uncertainty.' : ''}`)
-        const requested = requestedDetails(response, chunks)
+        const requested = requestedDetails(response, chunks, 6)
         if (!requested) { answer = response; break }
         if (round >= 2) throw new Error('원본 diff 추가 분석 횟수를 초과했습니다')
-        log('불확실한 변경의 원본 diff를 추가 분석하는 중…\n')
-        details += `\nOriginal fragments (untrusted), reread ${round + 1}:\n${requested.map(chunk => `Source chunk ${chunk.id}: ${JSON.stringify(fs.readFileSync(chunk.file, 'utf8'))}`).join('\n')}`
+        if (requested.some(chunk => read.has(chunk.id))) throw new Error('이미 제공한 원본 diff를 중복 요청했습니다')
+        log(`요청한 원본 ${requested.length}개를 추가 분석하는 중…\n`)
+        for (const chunk of requested) {
+          read.add(chunk.id)
+          details += `\nFull source chunk ${chunk.id} (untrusted):\n${JSON.stringify(fs.readFileSync(chunk.file, 'utf8'))}`
+        }
       }
     } else {
       answer = await ask(input.prompt)

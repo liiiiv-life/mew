@@ -18,7 +18,7 @@ process.env.MEW_WORKSPACE = temp
 const { GitAiCommitStore, captureCommitChanges, parseCommitPlan } = await import('./git-ai-commit.ts')
 const { runAutomaticCommit } = await import('./git-ai-commit-runner.ts')
 const { createGitAiCommitRouter } = await import('./git-ai-commit-routes.ts')
-const { captureAnalysisChunks, analyzeCommitChunks, requestedDetails, ANALYSIS_CHUNK_SIZE } = await import('./git-commit-analysis.ts')
+const { captureAnalysisChunks, commitChangeOverview, requestedDetails, ANALYSIS_CHUNK_SIZE, FAST_CHUNK_SIZE } = await import('./git-commit-analysis.ts')
 const { writeSets } = await import('./agentSets.ts')
 const { setFeature } = await import('./access-policy.ts')
 const { gitConnections } = await import('./git-connections.ts')
@@ -61,7 +61,7 @@ test('snapshot includes tracked, untracked, renamed and unborn changes without s
   assert.throws(() => parseCommitPlan('done', []))
 })
 
-test('large staged diff is streamed completely from immutable objects, with bounded summary reduction', async () => {
+test('large staged diff is streamed completely from immutable objects, without model summarization', async () => {
   const { cwd, git } = await fixture()
   const content = 'large change\n'.repeat(340_000) + 'FINAL_SENTINEL\n'
   fs.writeFileSync(path.join(cwd, 'file.txt'), content)
@@ -79,16 +79,6 @@ test('large staged diff is streamed completely from immutable objects, with boun
   const reconstructed = all.join('').replaceAll('\nPath: "file.txt"\n', '')
   const expected = execFileSync('git', ['diff', '--no-renames', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3', snapshot.head, snapshot.tree, '--', 'file.txt'], { cwd, encoding: 'utf8', maxBuffer: 6_000_000 })
   assert.equal(reconstructed, expected)
-  let mapCalls = 0, reduceCalls = 0
-  const summaries = await analyzeCommitChunks(chunks, async prompt => {
-    if (prompt.includes('supplied summaries')) reduceCalls++
-    else mapCalls++
-    assert.ok(prompt.length < 110_000)
-    return JSON.stringify({ summary: 'file.txt concrete changes '.repeat(180), uncertainties: [] })
-  }, () => {})
-  assert.equal(mapCalls, chunks.length)
-  assert.ok(reduceCalls > 0)
-  assert.ok(summaries.length <= 48_000)
   assert.equal(requestedDetails('{"needsDetails":[0]}', chunks)![0], chunks[0])
   assert.throws(() => requestedDetails('{"needsDetails":[-1]}', chunks))
   assert.throws(() => requestedDetails('{"needsDetails":[0,1]}', chunks))
@@ -114,38 +104,28 @@ test('diff fragments preserve long Unicode lines and literal filenames in an unb
   assert.equal((await git.status()).staged.length, 0)
 })
 
-test('valid summaries above the soft target are accepted; oversized summaries compact once without rereading diff', async () => {
-  const file = path.join(temp, 'summary-input.txt')
-  fs.writeFileSync(file, 'ORIGINAL_DIFF_SENTINEL')
-  const chunks = [{ id: 0, file, paths: ['file.txt'] }]
-  let calls = 0
-  const soft = await analyzeCommitChunks(chunks, async () => {
-    calls++
-    return JSON.stringify({ summary: '가'.repeat(6249), uncertainties: ['나'.repeat(224)] })
-  }, () => {})
-  assert.equal(calls, 1)
-  assert.ok(soft.includes('가'.repeat(6249)))
-  calls = 0
-  const compacted = await analyzeCommitChunks(chunks, async prompt => {
-    calls++
-    if (calls === 1) return JSON.stringify({ summary: 'facts '.repeat(1500), uncertainties: ['Unresolved relationship'] })
-    assert.doesNotMatch(prompt, /ORIGINAL_DIFF_SENTINEL/)
-    assert.match(prompt, /Unresolved relationship/)
-    return JSON.stringify({ summary: 'file.txt changes, source chunk 0', uncertainties: ['Unresolved relationship'] })
-  }, () => {})
-  assert.equal(calls, 2)
-  assert.match(compacted, /Unresolved relationship/)
-  calls = 0
-  await assert.rejects(analyzeCommitChunks(chunks, async () => {
-    calls++
-    return JSON.stringify({ summary: 'x'.repeat(9000), uncertainties: [] })
-  }, () => {}), /압축 후에도.*한도/)
-  assert.equal(calls, 2)
-  await assert.rejects(analyzeCommitChunks(chunks, async () => 'plain prose', () => {}), /JSON으로/)
-  await assert.rejects(analyzeCommitChunks(chunks, async () => '{"summary":"facts","uncertainties":[{}]}', () => {}), /형식/)
+test('local overview covers every fragment, bounds evidence and allows batched original reads', async () => {
+  const { cwd } = await fixture()
+  fs.writeFileSync(path.join(cwd, 'new.txt'), 'large content\n'.repeat(16_000) + 'FINAL_SENTINEL\n')
+  const snapshot = await captureCommitChanges(cwd)
+  const chunks = await captureAnalysisChunks(cwd, snapshot, fs.mkdtempSync(path.join(temp, 'fast-chunks-')), undefined, { chunkSize: FAST_CHUNK_SIZE, context: 0 })
+  assert.ok(chunks.length > 6)
+  assert.ok(chunks.every(chunk => fs.readFileSync(chunk.file, 'utf8').length <= FAST_CHUNK_SIZE))
+  const overview = commitChangeOverview(chunks)
+  assert.ok(overview.length <= 48_000)
+  for (const chunk of chunks) assert.ok(overview.includes(`Source chunk ${chunk.id}, paths`))
+  assert.match(overview, /PARTIAL DIFF/)
+  const requested = requestedDetails(JSON.stringify({ needsDetails: [0, 1, 2] }), chunks, 6)!
+  assert.deepEqual(requested.map(chunk => chunk.id), [0, 1, 2])
+  assert.throws(() => requestedDetails(JSON.stringify({ needsDetails: [0, 0] }), chunks, 6))
+  assert.throws(() => requestedDetails(JSON.stringify({ needsDetails: [chunks.length] }), chunks, 6))
+  assert.throws(() => requestedDetails(JSON.stringify({ needsDetails: [0, 1, 2, 3, 4, 5, 6] }), chunks, 6))
+  const file = path.join(temp, 'tiny-diff.txt')
+  fs.writeFileSync(file, 'Path: "file.txt"\n@@ -1 +1 @@\n-before\n+after\n')
+  assert.match(commitChangeOverview([{ id: 0, file, paths: ['file.txt'] }]), /COMPLETE DIFF[\s\S]*-before\n\+after/)
 })
 
-test('large automatic commits summarize in fresh sessions, reread originals and commit full content', async () => {
+test('large automatic commits plan without per-chunk model calls, reread originals and commit full content', async () => {
   const { cwd, git, store } = await fixture()
   const content = 'new implementation\n'.repeat(12_000) + 'FINAL_SENTINEL\n'
   fs.writeFileSync(path.join(cwd, 'file.txt'), content)
@@ -154,7 +134,7 @@ test('large automatic commits summarize in fresh sessions, reread originals and 
   const index = await git.diff(['--cached', '--', 'excluded.txt'])
   const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
   assert.equal(job.truncated, true)
-  let starts = 0, disposals = 0, summaries = 0, plans = 0
+  let starts = 0, disposals = 0, plans = 0
   let lastChunk = 0
   await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
     starts++
@@ -166,17 +146,16 @@ test('large automatic commits summarize in fresh sessions, reread originals and 
       runOnce: async prompt => {
         assert.equal(++calls, 1, 'each bounded call gets a fresh context')
         let output: object
-        if (prompt.startsWith('Mode: mew-commit-summary.')) {
-          summaries++
-          lastChunk = Number(prompt.match(/Source chunk (\d+):/)![1])
-          output = { summary: `file.txt implementation changes, source chunk ${lastChunk}`, uncertainties: ['Confirm end of file'] }
+        plans++
+        assert.ok(prompt.length < 80_000)
+        assert.doesNotMatch(prompt, /Mode: mew-commit-summary/)
+        if (plans === 1) {
+          lastChunk = Number([...prompt.matchAll(/Source chunk (\d+), paths/g)].at(-1)![1])
+          output = { needsDetails: [lastChunk] }
         } else {
-          plans++
-          if (plans === 1) output = { needsDetails: [lastChunk] }
-          else {
-            assert.match(prompt, /FINAL_SENTINEL/)
-            output = { commits: [{ title: 'feat: large change', description: '', files: ['file.txt'] }], skipped: [] }
-          }
+          assert.match(prompt, /Full source chunk/)
+          assert.match(prompt, /FINAL_SENTINEL/)
+          output = { commits: [{ title: 'feat: large change', description: '', files: ['file.txt'] }], skipped: [] }
         }
         listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(output) } } })
         return 'end_turn'
@@ -186,15 +165,15 @@ test('large automatic commits summarize in fresh sessions, reread originals and 
   })
   const result = store.read(owner, cwd, job.id)
   assert.equal(result.state, 'completed', result.error)
-  assert.ok(summaries > 1)
   assert.equal(plans, 2)
+  assert.equal(starts, 2)
   assert.equal(disposals, starts)
   assert.equal(await git.show(['HEAD:file.txt']), content)
   assert.equal(await git.diff(['--cached', '--', 'excluded.txt']), index)
   assert.equal(fs.existsSync(path.join(store.directory(owner, cwd, job.id), 'analysis')), false)
 })
 
-test('summary failures, permission requests, cancellation and racing edits leave large changes uncommitted', async () => {
+test('invalid plans, permission requests, cancellation and racing edits leave large changes uncommitted', async () => {
   for (const scenario of ['invalid', 'permission', 'cancel', 'edit'] as const) {
     const { cwd, git, store } = await fixture()
     fs.writeFileSync(path.join(cwd, 'file.txt'), 'large change\n'.repeat(15_000))
@@ -207,16 +186,14 @@ test('summary failures, permission requests, cancellation and racing edits leave
       return {
         attach: callback => { listener = callback; return () => {} },
         setModel: async () => {},
-        runOnce: async prompt => {
+        runOnce: async () => {
           if (scenario === 'permission') listener({ type: 'permission', id: 'p', toolCall: { toolCallId: 't', title: 'write' }, options: [] })
           if (scenario === 'cancel') {
             store.stop(owner, cwd, job.id)
             await new Promise(resolve => setTimeout(resolve, 300))
           }
           if (scenario === 'edit' && !changed) { changed = true; fs.appendFileSync(path.join(cwd, 'file.txt'), 'racing edit') }
-          const output = scenario === 'invalid' ? '{}' : prompt.startsWith('Mode: mew-commit-summary.')
-            ? JSON.stringify({ summary: 'file.txt changes', uncertainties: [] })
-            : JSON.stringify({ commits: [{ title: 'fix: large change', description: '', files: ['file.txt'] }], skipped: [] })
+          const output = scenario === 'invalid' ? '{}' : JSON.stringify({ commits: [{ title: 'fix: large change', description: '', files: ['file.txt'] }], skipped: [] })
           listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
           return 'end_turn'
         },
