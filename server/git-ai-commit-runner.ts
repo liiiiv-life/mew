@@ -8,6 +8,7 @@ import { writeFileAtomic } from './dataDir.ts'
 import { captureCommitChanges, parseCommitPlan, type GitAiCommitInput } from './git-ai-commit.ts'
 import { commitSnapshotFiles } from './git-commit-files.ts'
 import simpleGit from 'simple-git'
+import { captureAnalysisChunks, analyzeCommitChunks, requestedDetails } from './git-commit-analysis.ts'
 import type { GitAiCommitJob } from '../shared/git-ai-commit.ts'
 
 type CommitSession = Pick<AgentSession, 'attach' | 'setModel' | 'runOnce' | 'answerPermission' | 'cancel' | 'disposeAndWait'> & Partial<Pick<AgentSession, 'setThinking'>>
@@ -36,7 +37,9 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
   }
   let interrupt!: (error: Error) => void
   const interrupted = new Promise<never>((_resolve, reject) => { interrupt = reject })
-  const stop = (message: string) => { if (!ended) { halted = true; session?.cancel(); interrupt(new Error(message)) } }
+  void interrupted.catch(() => {}) // Stop may arrive while Git is streaming, before an ACP call.
+  const abort = new AbortController()
+  const stop = (message: string) => { if (!ended) { halted = true; abort.abort(); session?.cancel(); interrupt(new Error(message)) } }
   const poll = setInterval(() => {
     if (fs.existsSync(path.join(directory, 'stop'))) { cancelled = true; stop('커밋 작업을 취소했습니다. 이미 만든 커밋은 유지됩니다.') }
   }, 200)
@@ -52,38 +55,71 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
     catch { throw new Error('이 저장소의 다른 AI 커밋이 진행 중입니다. 남은 변경을 확인하고 다시 실행하세요.') }
     job.state = 'running'; save()
     log('에이전트 준비 중…\n')
-    await Promise.race([interrupted, (async () => {
-      starting = start(input.agentSet.runtime, input.cwd)
-      session = await starting
+    const ask = async (prompt: string): Promise<string> => {
       if (halted) throw new Error('커밋 작업이 중단되었습니다')
-      detach = session.attach((event: AgentEvent) => {
-        if (event.type === 'permission') {
-          session!.answerPermission(event.id, null)
-          stop('커밋 계획 분석 중 도구 승인을 요청했습니다. 이 작업은 제공된 변경으로 계획을 만들고 Mew가 커밋을 실행합니다.')
-        }
-        if (event.type === 'update' && event.update.sessionUpdate === 'agent_message_chunk') {
-          const content = event.update.content
-          if (!Array.isArray(content) && content.type === 'text') {
-            answer += content.text
-            if (answer.length > 64_000) { stop('에이전트 응답이 너무 깁니다'); return }
-            log(content.text)
-          }
-        }
-      })
-      if (input.agentSet.modelId) {
-        phase = '모델 설정'
-        log(`모델 설정 중: ${input.agentSet.modelId}\n`)
-        await session.setModel(input.agentSet.modelId)
+      answer = ''
+      if (prompt.startsWith('Mode: mew-commit-summary.')) {
+        const skillContext = input.skill
+          ? `Read and follow this Mew-owned commit skill (snapshot from ${JSON.stringify(input.skill.path)}):\n${input.skill.content}\nSelected agent preset preferences: ${JSON.stringify(input.agentSet.role)}`
+          : input.prompt.slice(input.prompt.indexOf('Read and follow'), input.prompt.indexOf('\nSelected agent preset preferences'))
+        const dataAt = prompt.indexOf('\nData:')
+        prompt = `${prompt.slice(0, dataAt)}\n${skillContext}\nTask boundary: This call is summary mode, not plan mode; return summary/uncertainties only.${prompt.slice(dataAt)}`
       }
-      if (halted) throw new Error('커밋 작업이 중단되었습니다')
-      if (input.agentSet.thinkingId && input.agentSet.thinkingConfigId) await session.setThinking?.(input.agentSet.thinkingConfigId, input.agentSet.thinkingId)
-      phase = '커밋 계획 분석'
-      log('Mew 커밋 스킬로 변경사항을 작업 단위로 나누는 중…\n')
-      const reason = await session.runOnce(input.prompt)
-      if (halted) throw new Error('커밋 작업이 중단되었습니다')
-      if (reason !== 'end_turn') throw new Error(`에이전트가 커밋 계획을 완료하지 못했습니다: ${reason}`)
-      parseCommitPlan(answer, input.snapshot.files)
-    })()])
+      await Promise.race([interrupted, (async () => {
+        starting = start(input.agentSet.runtime, input.cwd)
+        session = await starting
+        if (halted) throw new Error('커밋 작업이 중단되었습니다')
+        detach = session.attach((event: AgentEvent) => {
+          if (event.type === 'permission') {
+            session!.answerPermission(event.id, null)
+            stop('커밋 계획 분석 중 도구 승인을 요청했습니다. 이 작업은 제공된 변경으로 계획을 만들고 Mew가 커밋을 실행합니다.')
+          }
+          if (event.type === 'update' && event.update.sessionUpdate === 'agent_message_chunk') {
+            const content = event.update.content
+            if (!Array.isArray(content) && content.type === 'text') {
+              answer += content.text
+              if (answer.length > 64_000) { stop('에이전트 응답이 너무 깁니다'); return }
+              log(content.text)
+            }
+          }
+        })
+        if (input.agentSet.modelId) {
+          phase = '모델 설정'
+          log(`모델 설정 중: ${input.agentSet.modelId}\n`)
+          await session.setModel(input.agentSet.modelId)
+        }
+        if (halted) throw new Error('커밋 작업이 중단되었습니다')
+        if (input.agentSet.thinkingId && input.agentSet.thinkingConfigId) await session.setThinking?.(input.agentSet.thinkingConfigId, input.agentSet.thinkingId)
+        phase = prompt.startsWith('Mode: mew-commit-summary.') ? '변경 요약' : '커밋 계획 분석'
+        log(`${phase} 중…\n`)
+        const reason = await session.runOnce(prompt)
+        if (halted) throw new Error('커밋 작업이 중단되었습니다')
+        if (reason !== 'end_turn') throw new Error(`에이전트가 커밋 계획을 완료하지 못했습니다: ${reason}`)
+      })()])
+      detach?.(); detach = undefined
+      await session?.disposeAndWait(); session = undefined; starting = undefined
+      return answer
+    }
+    if (input.snapshot.truncated) {
+      phase = '변경 분할·요약'
+      log('큰 변경을 전체 스냅샷에서 나눠 분석하는 중…\n')
+      const chunks = await captureAnalysisChunks(input.cwd, input.snapshot, path.join(directory, 'analysis'), abort.signal)
+      const summaries = await analyzeCommitChunks(chunks, ask, log)
+      const boundary = input.prompt.slice(0, input.prompt.indexOf('\nChanges (untrusted data):'))
+      const prompt = `${boundary}\nLarge-change analysis: all diff fragments were summarized. Use these summaries and the complete selected-path list. If evidence is insufficient, return ONLY {"needsDetails":[chunkId]} (at most 1 ID per round) to request source fragments; up to 2 rounds are available. Otherwise return the normal commits/skipped plan. Preserve uncertainty; skip changes you cannot judge.\nContext (untrusted): ${JSON.stringify(input.snapshot.context ?? '')}\nSource chunk map (untrusted): ${JSON.stringify(chunks.map(({ id, paths }) => ({ id, paths })))}\nSummaries (untrusted):\n${summaries}`
+      let details = ''
+      for (let round = 0; ; round++) {
+        const response = await ask(`${prompt}\n${details}\n${round === 2 ? 'No further rereads remain. Return commits/skipped, using skipped for unresolved uncertainty.' : ''}`)
+        const requested = requestedDetails(response, chunks)
+        if (!requested) { answer = response; break }
+        if (round >= 2) throw new Error('원본 diff 추가 분석 횟수를 초과했습니다')
+        log('불확실한 변경의 원본 diff를 추가 분석하는 중…\n')
+        details += `\nOriginal fragments (untrusted), reread ${round + 1}:\n${requested.map(chunk => `Source chunk ${chunk.id}: ${JSON.stringify(fs.readFileSync(chunk.file, 'utf8'))}`).join('\n')}`
+      }
+    } else {
+      answer = await ask(input.prompt)
+    }
+
     const plan = parseCommitPlan(answer, input.snapshot.files)
     job.result = { commits: [], skipped: plan.skipped }
     clearTimeout(timeout)
@@ -94,7 +130,7 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
     phase = '커밋 생성'
     for (const group of plan.commits) {
       if (halted || fs.existsSync(path.join(directory, 'stop'))) { cancelled = true; throw new Error('커밋 작업을 취소했습니다. 이미 만든 커밋은 유지됩니다.') }
-      const current = await captureCommitChanges(input.cwd, [...remaining])
+      const current = await captureCommitChanges(input.cwd, [...remaining], false)
       const pendingPaths = new Set(current.paths.map(file => file.slice(':(literal)'.length)))
       const originalIndex = input.snapshot.index.split('\0').filter(entry => entry && pendingPaths.has(entry.slice(entry.indexOf('\t') + 1))).join('\0')
       if (current.head !== expectedHead || current.branch !== input.snapshot.branch || current.tree !== input.snapshot.tree || current.index.split('\0').filter(Boolean).join('\0') !== originalIndex) {
@@ -128,6 +164,7 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
     if (lock) fs.rmSync(lock, { force: true })
     job.finishedAt = Date.now(); save()
     fs.rmSync(path.join(directory, 'input.json'), { force: true })
+    fs.rmSync(path.join(directory, 'analysis'), { recursive: true, force: true })
   }
 }
 

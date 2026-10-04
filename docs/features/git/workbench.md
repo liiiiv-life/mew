@@ -4,9 +4,9 @@ parent: "mew-git"
 title: "현재 프로젝트 Git 작업 패널"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-02"
+updated: "2026-10-04"
 status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
-files: ["src/components/GitWorkbench.tsx", "src/components/git-branch-picker.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
+files: ["src/components/GitWorkbench.tsx", "src/components/git-branch-picker.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-commit-analysis.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
 ---
 
@@ -21,6 +21,7 @@ commits: []
 - 처음 불러온 미커밋 변경 파일은 기본적으로 모두 선택한다.
 - 패널을 보는 동안 외부 편집·Git 작업으로 바뀐 커밋 기록·브랜치 정보·미커밋 변경 목록과 열린 작업트리 diff를 자동 갱신한다.
 - AI 자동 커밋에서 기존 에이전트셋을 선택하거나 새로 만들고 Mew 커밋 스킬을 사용하는 전용 작업으로 선택 변경을 작업 단위로 나눠 실제 커밋한다.
+- 큰 변경은 전체 diff를 작은 조각으로 끝까지 요약한 뒤 커밋을 구성하고, 불확실한 부분은 원본을 추가 분석한다. 실제 커밋은 원본 전체를 사용한다.
 - 진행 로그·취소·재접속을 제공한다.
 - 브랜치·태그 생성·detached checkout·cherry-pick·revert를 제공한다.
 - 타이틀바의 브랜치 드롭다운에서 현재 브랜치를 확인하고 로컬·원격 브랜치를 검색·선택해 전환한다.
@@ -74,6 +75,8 @@ commits: []
 - 보이는 Git 패널은 자동 조회가 끝난 뒤 2초 간격으로 커밋 기록·브랜치 정보·변경 목록과 열린 작업트리 diff를 다시 읽는다. 변경 없는 커밋 기록·브랜치 정보는 기존 상태를 유지한다. 같은 상태의 파일도 내용이 달라질 수 있으므로 열린 diff는 매번 재조회한다. 커밋 초안·남아 있는 파일 선택·스크롤을 유지하고 새 파일은 자동 선택하지 않는다.
 - 패널 닫기·모바일의 다른 패널 전환·다른 데스크톱 패널 최대화·브라우저 탭 숨김 동안 자동 조회를 멈춘다. 다시 표시하거나 창으로 돌아오면 조회하고, 느린 요청을 중복 실행하지 않으며 닫기·화면 전환·수동 갱신 뒤의 오래된 응답은 적용하지 않는다. 자동 조회 실패 시 기존 내용을 유지하고 오류를 표시하며 다음 조회에서 재시도한다.
 - AI 자동 커밋은 선택 파일만 분석하며 에이전트셋의 런타임·모델·역할을 작업에 고정하고 전용 tmux·ACP 세션에서 작업 단위 계획을 만들고 Mew가 여러 커밋을 실행한다.
+- 정상 요약이 권장 길이를 약간 넘었다는 이유로 작업을 거절하지 않는다. JSON 입력 한도를 넘으면 기존 요약만 1회 압축하며 계속 초과하면 길이 오류를 표시한다.
+- 분석 입력 한도를 넘으면 고정된 Git 스냅샷의 분할 요약·관심사별 통합·최대 2회의 원본 재확인을 새 ACP 세션들로 수행한다. 선택 파일 누락·중복과 분석 이후 변경을 검증하며 판단할 수 없는 파일은 사유와 함께 남긴다.
 - 이전 Codex 셋의 모델 ID 형식을 현재 연결기와 호환하며, 실패 시 단계와 상세 오류를 상태·진행 로그에 남긴다.
 - [실행·저장 계약](../../development/agent-sessions.md#git-ai-commit-작업)을 따른다.
 - GitHub OAuth 기기 인증과 토큰은 Mew 계정별로 소유하며 처음에는 미연결 상태다. OS 인증을 가져오지 않는다.
@@ -84,6 +87,10 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-04: 정상 JSON의 요약이 권장 길이를 넘을 때 수용하고, 실제 한도 초과만 기존 요약으로 1회 압축하도록 수정했다. 권장 초과·압축 시 원본 재전송 없음·불확실성 보존·계속 초과·형식 오류를 임시 입력과 모의 ACP로 확인했다. 관련 18개 테스트·TypeScript·대상 lint·스킬·문서 검사를 통과했다.
+
+- 2026-10-04: 큰 변경의 staged diff 4MB 초과·원문 전체 복원·긴 Unicode 줄·요약 통합·독립 ACP 호출·원본 재확인·전체 내용 커밋·선택 밖 stage 보존·요약 실패/취소/분석 중 편집을 임시 저장소와 모의 ACP로 검증했다. `server/git-ai-commit.test.ts`·`server/mew-skills.test.ts`의 17개 테스트와 TypeScript·대상 lint·스킬 형식·문서 검사를 통과했다. 실제 유료 모델의 요약 품질과 실행 서버 적용은 사용자 확인 대상이다.
 
 - 2026-10-02: diff 파일명 4px 축소·에디터 열기 버튼 추가 후 TypeScript·대상 lint·기존 Git 패널 Chromium 회귀·문서 링크 검사를 통과했다. 문서 경계 검사는 작업 외 `todo/docs/` 미등록 문서로 실패했다. 빌드·서버 재시작은 실행하지 않았다.
 

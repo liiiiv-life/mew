@@ -18,6 +18,7 @@ process.env.MEW_WORKSPACE = temp
 const { GitAiCommitStore, captureCommitChanges, parseCommitPlan } = await import('./git-ai-commit.ts')
 const { runAutomaticCommit } = await import('./git-ai-commit-runner.ts')
 const { createGitAiCommitRouter } = await import('./git-ai-commit-routes.ts')
+const { captureAnalysisChunks, analyzeCommitChunks, requestedDetails, ANALYSIS_CHUNK_SIZE } = await import('./git-commit-analysis.ts')
 const { writeSets } = await import('./agentSets.ts')
 const { setFeature } = await import('./access-policy.ts')
 const { gitConnections } = await import('./git-connections.ts')
@@ -58,6 +59,178 @@ test('snapshot includes tracked, untracked, renamed and unborn changes without s
   assert.throws(() => parseCommitPlan('{"commits":[{"title":"bad","description":"","files":["other"]}],"skipped":[]}', ['file.txt']))
   assert.throws(() => parseCommitPlan('{"commits":[],"skipped":[]}', ['file.txt']))
   assert.throws(() => parseCommitPlan('done', []))
+})
+
+test('large staged diff is streamed completely from immutable objects, with bounded summary reduction', async () => {
+  const { cwd, git } = await fixture()
+  const content = 'large change\n'.repeat(340_000) + 'FINAL_SENTINEL\n'
+  fs.writeFileSync(path.join(cwd, 'file.txt'), content)
+  await git.add('file.txt')
+  const index = await git.diff(['--cached'])
+  const snapshot = await captureCommitChanges(cwd, ['file.txt'])
+  assert.equal(snapshot.truncated, true)
+  fs.writeFileSync(path.join(cwd, 'file.txt'), 'racing edit')
+  const directory = fs.mkdtempSync(path.join(temp, 'chunks-'))
+  const chunks = await captureAnalysisChunks(cwd, snapshot, directory)
+  const all = chunks.map(chunk => fs.readFileSync(chunk.file, 'utf8'))
+  assert.ok(all.every(text => text.length <= ANALYSIS_CHUNK_SIZE))
+  assert.match(all.at(-1)!, /FINAL_SENTINEL/)
+  assert.doesNotMatch(all.join(''), /racing edit/)
+  const reconstructed = all.join('').replaceAll('\nPath: "file.txt"\n', '')
+  const expected = execFileSync('git', ['diff', '--no-renames', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3', snapshot.head, snapshot.tree, '--', 'file.txt'], { cwd, encoding: 'utf8', maxBuffer: 6_000_000 })
+  assert.equal(reconstructed, expected)
+  let mapCalls = 0, reduceCalls = 0
+  const summaries = await analyzeCommitChunks(chunks, async prompt => {
+    if (prompt.includes('supplied summaries')) reduceCalls++
+    else mapCalls++
+    assert.ok(prompt.length < 110_000)
+    return JSON.stringify({ summary: 'file.txt concrete changes '.repeat(180), uncertainties: [] })
+  }, () => {})
+  assert.equal(mapCalls, chunks.length)
+  assert.ok(reduceCalls > 0)
+  assert.ok(summaries.length <= 48_000)
+  assert.equal(requestedDetails('{"needsDetails":[0]}', chunks)![0], chunks[0])
+  assert.throws(() => requestedDetails('{"needsDetails":[-1]}', chunks))
+  assert.throws(() => requestedDetails('{"needsDetails":[0,1]}', chunks))
+  assert.equal(await git.diff(['--cached']), index)
+})
+
+test('diff fragments preserve long Unicode lines and literal filenames in an unborn repository', async () => {
+  const cwd = fs.mkdtempSync(path.join(temp, 'unicode-'))
+  const git = simpleGit(cwd); await git.init()
+  const file = '한글 " [file].txt'
+  fs.writeFileSync(path.join(cwd, file), '🙂'.repeat(60_000) + '\nEND\n')
+  const snapshot = await captureCommitChanges(cwd)
+  const chunks = await captureAnalysisChunks(cwd, snapshot, fs.mkdtempSync(path.join(temp, 'unicode-chunks-')))
+  const heading = `\nPath: ${JSON.stringify(file)}\n`
+  const reconstructed = chunks.map(chunk => {
+    assert.deepEqual(chunk.paths, [file])
+    const text = fs.readFileSync(chunk.file, 'utf8')
+    assert.ok(text.length <= ANALYSIS_CHUNK_SIZE)
+    return text.replaceAll(heading, '')
+  }).join('')
+  assert.equal(reconstructed.split('🙂').length - 1, 60_000)
+  assert.match(reconstructed, /END/)
+  assert.equal((await git.status()).staged.length, 0)
+})
+
+test('valid summaries above the soft target are accepted; oversized summaries compact once without rereading diff', async () => {
+  const file = path.join(temp, 'summary-input.txt')
+  fs.writeFileSync(file, 'ORIGINAL_DIFF_SENTINEL')
+  const chunks = [{ id: 0, file, paths: ['file.txt'] }]
+  let calls = 0
+  const soft = await analyzeCommitChunks(chunks, async () => {
+    calls++
+    return JSON.stringify({ summary: '가'.repeat(6249), uncertainties: ['나'.repeat(224)] })
+  }, () => {})
+  assert.equal(calls, 1)
+  assert.ok(soft.includes('가'.repeat(6249)))
+  calls = 0
+  const compacted = await analyzeCommitChunks(chunks, async prompt => {
+    calls++
+    if (calls === 1) return JSON.stringify({ summary: 'facts '.repeat(1500), uncertainties: ['Unresolved relationship'] })
+    assert.doesNotMatch(prompt, /ORIGINAL_DIFF_SENTINEL/)
+    assert.match(prompt, /Unresolved relationship/)
+    return JSON.stringify({ summary: 'file.txt changes, source chunk 0', uncertainties: ['Unresolved relationship'] })
+  }, () => {})
+  assert.equal(calls, 2)
+  assert.match(compacted, /Unresolved relationship/)
+  calls = 0
+  await assert.rejects(analyzeCommitChunks(chunks, async () => {
+    calls++
+    return JSON.stringify({ summary: 'x'.repeat(9000), uncertainties: [] })
+  }, () => {}), /압축 후에도.*한도/)
+  assert.equal(calls, 2)
+  await assert.rejects(analyzeCommitChunks(chunks, async () => 'plain prose', () => {}), /JSON으로/)
+  await assert.rejects(analyzeCommitChunks(chunks, async () => '{"summary":"facts","uncertainties":[{}]}', () => {}), /형식/)
+})
+
+test('large automatic commits summarize in fresh sessions, reread originals and commit full content', async () => {
+  const { cwd, git, store } = await fixture()
+  const content = 'new implementation\n'.repeat(12_000) + 'FINAL_SENTINEL\n'
+  fs.writeFileSync(path.join(cwd, 'file.txt'), content)
+  fs.writeFileSync(path.join(cwd, 'excluded.txt'), 'unrelated stage')
+  await git.add('excluded.txt')
+  const index = await git.diff(['--cached', '--', 'excluded.txt'])
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+  assert.equal(job.truncated, true)
+  let starts = 0, disposals = 0, summaries = 0, plans = 0
+  let lastChunk = 0
+  await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+    starts++
+    let listener: (event: AgentEvent) => void = () => {}
+    let calls = 0
+    return {
+      attach: callback => { listener = callback; return () => {} },
+      setModel: async () => {},
+      runOnce: async prompt => {
+        assert.equal(++calls, 1, 'each bounded call gets a fresh context')
+        let output: object
+        if (prompt.startsWith('Mode: mew-commit-summary.')) {
+          summaries++
+          lastChunk = Number(prompt.match(/Source chunk (\d+):/)![1])
+          output = { summary: `file.txt implementation changes, source chunk ${lastChunk}`, uncertainties: ['Confirm end of file'] }
+        } else {
+          plans++
+          if (plans === 1) output = { needsDetails: [lastChunk] }
+          else {
+            assert.match(prompt, /FINAL_SENTINEL/)
+            output = { commits: [{ title: 'feat: large change', description: '', files: ['file.txt'] }], skipped: [] }
+          }
+        }
+        listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(output) } } })
+        return 'end_turn'
+      },
+      answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => { disposals++ },
+    }
+  })
+  const result = store.read(owner, cwd, job.id)
+  assert.equal(result.state, 'completed', result.error)
+  assert.ok(summaries > 1)
+  assert.equal(plans, 2)
+  assert.equal(disposals, starts)
+  assert.equal(await git.show(['HEAD:file.txt']), content)
+  assert.equal(await git.diff(['--cached', '--', 'excluded.txt']), index)
+  assert.equal(fs.existsSync(path.join(store.directory(owner, cwd, job.id), 'analysis')), false)
+})
+
+test('summary failures, permission requests, cancellation and racing edits leave large changes uncommitted', async () => {
+  for (const scenario of ['invalid', 'permission', 'cancel', 'edit'] as const) {
+    const { cwd, git, store } = await fixture()
+    fs.writeFileSync(path.join(cwd, 'file.txt'), 'large change\n'.repeat(15_000))
+    await git.add('file.txt')
+    const head = await git.revparse('HEAD'), index = await git.diff(['--cached'])
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+    let changed = false
+    await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+      let listener: (event: AgentEvent) => void = () => {}
+      return {
+        attach: callback => { listener = callback; return () => {} },
+        setModel: async () => {},
+        runOnce: async prompt => {
+          if (scenario === 'permission') listener({ type: 'permission', id: 'p', toolCall: { toolCallId: 't', title: 'write' }, options: [] })
+          if (scenario === 'cancel') {
+            store.stop(owner, cwd, job.id)
+            await new Promise(resolve => setTimeout(resolve, 300))
+          }
+          if (scenario === 'edit' && !changed) { changed = true; fs.appendFileSync(path.join(cwd, 'file.txt'), 'racing edit') }
+          const output = scenario === 'invalid' ? '{}' : prompt.startsWith('Mode: mew-commit-summary.')
+            ? JSON.stringify({ summary: 'file.txt changes', uncertainties: [] })
+            : JSON.stringify({ commits: [{ title: 'fix: large change', description: '', files: ['file.txt'] }], skipped: [] })
+          listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
+          return 'end_turn'
+        },
+        answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => {},
+      }
+    })
+    const result = store.read(owner, cwd, job.id)
+    assert.equal(result.state, scenario === 'cancel' ? 'cancelled' : 'failed')
+    if (scenario === 'edit') assert.match(result.error!, /달라졌습니다/)
+    assert.equal(await git.revparse('HEAD'), head)
+    assert.equal(await git.diff(['--cached']), index)
+    assert.equal(fs.existsSync(path.join(store.directory(owner, cwd, job.id), 'analysis')), false)
+    assert.equal(fs.existsSync(path.join(cwd, '.git', 'mew-ai-commit.lock')), false)
+  }
 })
 
 const plan: GitCommitPlan = { commits: [

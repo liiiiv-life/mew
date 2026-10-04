@@ -20,12 +20,12 @@ const runner = fileURLToPath(new URL('./git-ai-commit-runner.ts', import.meta.ur
 const ID = /^[a-f0-9-]{36}$/
 export class GitAiCommitError extends Error {}
 export interface CommitSnapshot {
-  text: string; truncated: boolean; files: string[]; head: string; branch: string; tree: string; index: string; paths: string[]
+  text: string; context?: string; truncated: boolean; files: string[]; head: string; branch: string; tree: string; index: string; paths: string[]
 }
-export interface GitAiCommitInput { owner: string; connection: { id: string; provider: string; host: string }; cwd: string; agentSet: AgentSet; prompt: string; session: string; snapshot: CommitSnapshot }
+export interface GitAiCommitInput { owner: string; connection: { id: string; provider: string; host: string }; cwd: string; agentSet: AgentSet; prompt: string; skill?: { path: string; content: string }; session: string; snapshot: CommitSnapshot }
 
 /** Capture complete Git objects in a temporary index; the user's index stays untouched. */
-export async function captureCommitChanges(cwd: string, filesInput?: unknown): Promise<CommitSnapshot> {
+export async function captureCommitChanges(cwd: string, filesInput?: unknown, includeText = true): Promise<CommitSnapshot> {
   if (!fs.existsSync(path.join(cwd, '.git'))) throw new GitAiCommitError('현재 프로젝트에 Git 저장소가 없습니다')
   const git = simpleGit(cwd)
   const status = await git.status(['--untracked-files=all'])
@@ -41,29 +41,33 @@ export async function captureCommitChanges(cwd: string, filesInput?: unknown): P
   const branch = await git.raw(['symbolic-ref', '-q', 'HEAD']).then(value => value.trim(), () => '')
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-commit-snapshot-'))
   const env = { ...process.env, GIT_INDEX_FILE: path.join(temporary, 'index') }
-  const command = async (args: string[]) => (await exec('git', args, { cwd, env, encoding: 'utf8', maxBuffer: 4_000_000, timeout: 30_000 })).stdout.trim()
+  const command = async (args: string[], realIndex = false) => (await exec('git', args, { cwd, env: realIndex ? process.env : env, encoding: 'utf8', maxBuffer: 4_000_000, timeout: 30_000 })).stdout.trim()
   try {
     await command(['read-tree', ...(head ? [head] : ['--empty'])])
     await command(['add', '--', ...paths])
     const tree = await command(['write-tree'])
-    const base = head || await command(['hash-object', '-t', 'tree', '/dev/null'])
-    let patch = '', truncated = false
-    try { patch = await command(['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3', base, tree, '--', ...paths]) }
-    catch (error) {
-      const result = error as { code?: string; stdout?: string }
-      if (result.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || typeof result.stdout !== 'string') throw error
-      patch = result.stdout; truncated = true
-    }
     const index = await git.raw(['ls-files', '--stage', '-z', '--', ...paths])
-    const staged = await git.diff(['--cached', '--no-ext-diff', '--no-textconv', '--no-color', '--', ...paths])
+    if (!includeText) return { text: '', truncated: false, files: files.map(file => file.path), head, branch, tree, index, paths }
+    const base = head || await command(['hash-object', '-t', 'tree', '/dev/null'])
+    let truncated = false
+    const bounded = async (args: string[], realIndex = false) => {
+      try { return await command(args, realIndex) }
+      catch (error) {
+        const result = error as { code?: string; stdout?: string }
+        if (result.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || typeof result.stdout !== 'string') throw error
+        truncated = true; return result.stdout
+      }
+    }
+    const patch = await bounded(['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3', base, tree, '--', ...paths])
+    const staged = await bounded(['diff', '--cached', '--no-ext-diff', '--no-textconv', '--no-color', '--', ...paths], true)
     const recent = head ? await git.raw(['log', '-15', '--format=%s']) : ''
     const text = `Branch: ${status.current ?? '(unborn)'}\nFiles:\n${files.map(file => `${file.index}${file.working_dir} ${JSON.stringify(file.path)}${file.from ? ` from ${JSON.stringify(file.from)}` : ''}`).join('\n')}\nRecent commit subjects:\n${recent}\nExisting stage (context; commit the working-tree snapshot):\n${staged}\nChanges:\n${patch}`
-    return { text: text.slice(0, 160_000), truncated: truncated || text.length > 160_000, files: files.map(file => file.path), head, branch, tree, index, paths }
+    const context = `Branch: ${status.current ?? '(unborn)'}\nRecent commit subjects:\n${recent}\nExisting stage (context only, excerpt if large):\n${staged.slice(0, 12_000)}`
+    return { context, text: text.slice(0, 160_000), truncated: truncated || text.length > 160_000, files: files.map(file => file.path), head, branch, tree, index, paths }
   } finally { fs.rmSync(temporary, { recursive: true, force: true }) }
 }
 
-export function commitPlanPrompt(set: AgentSet, changes: CommitSnapshot): string {
-  const skill = readCommitSkill()
+export function commitPlanPrompt(set: AgentSet, changes: CommitSnapshot, skill = readCommitSkill()): string {
   return `Mode: mew-commit-plan. The user authorized actual commits for the selected files in this repository.
 Read and follow this Mew-owned commit skill (snapshot from ${JSON.stringify(skill.path)}):
 ${skill.content}
@@ -132,6 +136,7 @@ export class GitAiCommitStore {
           job = { ...job, state: 'failed', error: '커밋 작업이 중단되었습니다. 남은 변경을 확인하고 다시 실행해 주세요.', finishedAt: Date.now() }
           writeFileAtomic(path.join(this.directory(owner, cwd, id), 'state.json'), JSON.stringify(job))
           fs.rmSync(path.join(this.directory(owner, cwd, id), 'input.json'), { force: true })
+          fs.rmSync(path.join(this.directory(owner, cwd, id), 'analysis'), { recursive: true, force: true })
         }
       }
     }
@@ -153,11 +158,11 @@ export class GitAiCommitStore {
     if (gitAiCommitActive(previous)) return previous!
     const connection = await requireGitConnection(cwd, owner)
     const changes = await captureCommitChanges(cwd, files)
-    if (changes.truncated) throw new GitAiCommitError('변경량이 커서 전체 내용을 분석할 수 없습니다. 선택 파일을 줄여 다시 실행하세요.')
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 })
     const session = `mewcmd-git-${id}`
     const job: GitAiCommitJob = { mode: 'commit', files: changes.files, id, agentSetName: set.name, state: 'starting', startedAt: Date.now(), output: '', truncated: changes.truncated }
-    const input: GitAiCommitInput = { owner, connection: { id: connection.id, provider: connection.provider, host: connection.host }, cwd, agentSet: { ...set }, prompt: commitPlanPrompt(set, changes), session, snapshot: changes }
+    const skill = readCommitSkill()
+    const input: GitAiCommitInput = { owner, connection: { id: connection.id, provider: connection.provider, host: connection.host }, cwd, agentSet: { ...set }, skill, prompt: commitPlanPrompt(set, changes, skill), session, snapshot: changes }
     writeFileAtomic(path.join(directory, 'input.json'), JSON.stringify(input))
     writeFileAtomic(path.join(directory, 'state.json'), JSON.stringify(job))
     writeFileAtomic(path.join(this.scope(owner, cwd), 'latest.json'), JSON.stringify(id))
