@@ -1,8 +1,8 @@
 ---
 title: "mew 에이전트 예약 메시지"
 desc: "에이전트 탭 세션에 나중에 한 번 넣는 메시지의 범위와 조작."
-created: 2026-08-31
-updated: 2026-09-30
+created: "2026-08-31"
+updated: "2026-10-03"
 ---
 
 기능 항목: [예약 메시지](../features/agents/scheduled-messages.md). 이 문서는 해당 기능의 세부 동작·표시 계약을 소유한다.
