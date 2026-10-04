@@ -157,7 +157,7 @@ function statusLabel(status: string): string {
 
 function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, disabled }: { files: GitChangedFile[]; onSelect: (file: GitChangedFile) => void; compact?: boolean; selected?: Set<string>; onToggle?: (path: string) => void; disabled?: boolean }) {
   useUiLocale()
-  const selectionDrag = useRef<{ pointerId: number; startY: number; startX: number; startIndex: number; dragging: boolean; visited: Set<string> } | null>(null)
+  const selectionDrag = useRef<{ pointerId: number; startY: number; startX: number; startIndex: number; checked: boolean; dragging: boolean; visited: Set<string> } | null>(null)
   const suppressClick = useRef(false)
   useEffect(() => { selectionDrag.current = null }, [files, disabled])
   const selectRange = (index: number) => {
@@ -167,7 +167,7 @@ function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, di
       const path = files[i]?.path
       if (path === undefined || drag.visited.has(path)) continue
       drag.visited.add(path)
-      if (!selected.has(path)) onToggle(path)
+      if (selected.has(path) !== drag.checked) onToggle(path)
     }
   }
   const moveSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -200,7 +200,7 @@ function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, di
             onPointerDown={event => {
               if (disabled || !event.isPrimary || event.button !== 0) return
               suppressClick.current = false
-              selectionDrag.current = { pointerId: event.pointerId, startY: event.clientY, startX: event.clientX, startIndex: index, dragging: false, visited: new Set() }
+              selectionDrag.current = { pointerId: event.pointerId, startY: event.clientY, startX: event.clientX, startIndex: index, checked: !selected.has(file.path), dragging: false, visited: new Set() }
               event.currentTarget.setPointerCapture(event.pointerId)
             }}>
             <input type="checkbox" checked={selected.has(file.path)} disabled={disabled} onChange={() => onToggle(file.path)} aria-label={uiText("{p0} 커밋에 포함", { p0: file.path })} className="h-4 w-4 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
