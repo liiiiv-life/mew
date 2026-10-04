@@ -1,12 +1,12 @@
 ---
 title: "History / raw"
-created: 2026-09-11
-updated: 2026-09-11
+created: "2026-09-11"
+updated: "2026-10-04"
 ---
 
 # History / raw
 
-상위: [문서 지도](../MOC.md). 필요한 문서만 선택한다.
+상위: [문서 홈](../MOC.md). 현재 기준본이 아니라 보존용 원문과 과거 기록만 둔다.
 
 ## History / raw
 
@@ -15,7 +15,9 @@ updated: 2026-09-11
 - [이전 워크스페이스 README 사본](workspace-readme.md)
 
 - [제거된 RAG 기능 기록](rag-feature.md)
+
 - [제거된 RAG 운영 기록](rag-operations.md)
+
 - [RAG·MOC·일반 검색 비교 측정](../research/document-discovery-benchmark.md)
 
 - [제거된 태스크 기능 기록](project-tasks.md) · [제거 전 저장·UI 계약](project-tasks-contract.md)

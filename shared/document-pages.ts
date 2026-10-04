@@ -10,6 +10,22 @@ export function documentPageTarget(file: string): string {
   const parts = file.split('/'), name = parts.pop()!, directory = parts.join('/')
   return name === representativeName(directory) || name === 'MOC.md' || name === '_MOC.md' ? directory : file
 }
+const titleWords = new Map([
+  ['ai', 'AI'], ['api', 'API'], ['cli', 'CLI'], ['db', 'DB'], ['dom', 'DOM'], ['gpu', 'GPU'], ['json', 'JSON'],
+  ['mcp', 'MCP'], ['nat', 'NAT'], ['oauth', 'OAuth'], ['os', 'OS'], ['pdf', 'PDF'], ['posix', 'POSIX'], ['rag', 'RAG'],
+  ['ui', 'UI'], ['ux', 'UX'], ['wsl', 'WSL'], ['android', 'Android'], ['github', 'GitHub'], ['google', 'Google'],
+  ['hotview', 'Hotview'], ['linux', 'Linux'], ['mac', 'Mac'], ['markdown', 'Markdown'], ['mew', 'mew'], ['mewcat', 'Mewcat'],
+  ['postgres', 'Postgres'], ['tmux', 'tmux'], ['windows', 'Windows'],
+])
+export function documentPageLabel(path: string): string {
+  const base = (path.split('/').pop() ?? path).replace(/\.md$/i, '').replace(/^_/, '')
+  if (!base || /^_?MOC$/i.test(base)) return ''
+  if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(base)) return base
+  return base.split(/[-_\s]+/).filter(Boolean).map(part => {
+    const lower = part.toLocaleLowerCase('en-US')
+    return titleWords.get(lower) ?? lower.replace(/^\p{L}/u, char => char.toLocaleUpperCase('en-US'))
+  }).join(' ')
+}
 export function remapPagePath(path: string, moves: readonly DocumentPageMove[]): string {
   const move = [...moves].sort((a, b) => b.from.length - a.from.length).find(move => path === move.from || (move.directory && path.startsWith(`${move.from}/`)))
   return move ? move.to + path.slice(move.from.length) : path
@@ -54,7 +70,7 @@ export function rewritePageLinks(content: string, oldPath: string, newPath: stri
     if (moved === target && parent(oldPath) === parent(newPath)) return href
     let result = absolute ? `/${moved}` : relative(parent(newPath), moved)
     if (extensionless && result.endsWith('.md')) result = result.slice(0, -3)
-    return encodeURI(result).replace(/#/g, '%23').replace(/\?/g, '%3F') + suffix
+    return encodeURI(result).replace(/[#?()]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase()) + suffix
   }
   // Mask ranges before replacing targets, then restore byte-for-byte.
   const masks: string[] = []

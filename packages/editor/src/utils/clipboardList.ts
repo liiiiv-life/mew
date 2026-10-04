@@ -8,9 +8,9 @@ export function unwrapOpenListWrappers(content: Fragment, openStart: number, ope
   while (openStart > 0 && openEnd > 0 && content.childCount === 1) {
     const child = content.firstChild!
     const name = child.type.name
-    if (name === 'bulletList' || name === 'orderedList') {
+    if (name === 'bulletList' || name === 'orderedList' || name === 'taskList') {
       if (child.childCount > 1) break
-    } else if (name !== 'listItem') {
+    } else if (name !== 'listItem' && name !== 'taskItem') {
       break
     }
     content = child.content

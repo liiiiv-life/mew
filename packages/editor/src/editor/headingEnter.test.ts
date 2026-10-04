@@ -24,7 +24,8 @@ function buildEditor(content: string) {
 }
 
 function markdown(editor: ReturnType<typeof buildEditor>): string {
-  return (editor.storage as any).markdown.getMarkdown()
+  // These tests compare body structure; final-newline persistence is covered by lineFocus.test.ts.
+  return (editor.storage as any).markdown.getMarkdown().trimEnd()
 }
 
 test('제목 중간에서 Enter — 뒷부분은 본문이 된다', () => {

@@ -1,4 +1,4 @@
-import { pageRepresentative, documentPageTarget, remapPagePath, type DocumentPageMutation } from '../../shared/document-pages'
+import { pageRepresentative, documentPageLabel, documentPageTarget, remapPagePath, type DocumentPageMutation } from '../../shared/document-pages'
 import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
@@ -53,7 +53,9 @@ interface NodeCtx {
   documentPages: boolean
   openPage: (node: TreeNode, opts?: TreeOpenOptions) => void
   selectedPath: string | null
+  openPaths?: ReadonlySet<string>
   focused: Focused
+  menuPath: string | undefined
   openDirs: Set<string>
   editing: EditingState
   readOnly: boolean
@@ -153,6 +155,7 @@ function MocItem({
   path,
   depth,
   active,
+  opened = false,
   presenceColors,
   label = 'Map Of Contents',
   documentPages = false,
@@ -161,6 +164,7 @@ function MocItem({
   path: string
   depth: number
   active: boolean
+  opened?: boolean
   presenceColors: string[]
   label?: string
   documentPages?: boolean
@@ -175,7 +179,7 @@ function MocItem({
       onDoubleClick={() => onSelect(path, { preview: false })}
       title={path}
       className={`mb-0.5 flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none hover:bg-surface-raised ${
-        active ? 'bg-surface-raised font-medium text-ink' : 'text-ink-secondary'
+        active ? 'bg-surface-raised font-medium text-ink' : opened ? 'bg-surface-raised/50 text-ink-secondary' : 'text-ink-secondary'
       }`}
       style={{ paddingLeft: `${depth * 14 + 8}px` }}
     >
@@ -316,8 +320,11 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
     ctx.openPopover(node.path, node.type, e.clientX, e.clientY)
   }
 
+  const isMenuTarget = ctx.menuPath === node.path
+  const holdHighlight = 'data-[touch-holding=true]:bg-surface-raised'
   const isFocused = ctx.focused?.path === node.path
   const touchProps = {
+    'data-menu-target': isMenuTarget || undefined,
     ref: touch.ref,
     onPointerDown: touch.onPointerDown,
     onContextMenu: handleContextMenu,
@@ -353,23 +360,25 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
     const all = node.children ?? ctx.directoryChildren[node.path] ?? []
     const representative = folder ? pageRepresentative(node.path, all) : undefined
     const pageFile = representative?.path ?? (folder && ctx.selectedPath && documentPageTarget(ctx.selectedPath) === node.path ? ctx.selectedPath : undefined)
+      ?? (folder ? Array.from(ctx.openPaths ?? []).find(path => documentPageTarget(path) === node.path) : undefined)
+    const label = documentPageLabel(folder ? node.path : node.name) || (folder ? node.name : node.name.replace(/\.md$/i, ''))
     const active = node.path === ctx.selectedPath || pageFile === ctx.selectedPath
     const creating = ctx.editing?.mode === 'create-file' && ctx.editing.parentPath === node.path ? ctx.editing : null
     return <div className="group/page" data-document-page={node.path}
       onDragOver={event => { if (!ctx.canDropInto(node.path)) return; event.preventDefault(); event.stopPropagation(); ctx.onDragOverDir(node.path) }}
       onDrop={event => { if (!ctx.canDropInto(node.path)) return; event.preventDefault(); event.stopPropagation(); ctx.onDropDir(node.path) }}>
-      <div className={`flex min-w-0 items-center rounded hover:bg-surface-raised ${active ? 'bg-surface-raised' : ''} ${ctx.dropDir === node.path ? 'ring-1 ring-accent' : ''}`} style={{ paddingLeft: depth * 14 + 4 }}>
-        {folder ? <button type="button" aria-label={uiText('{p0} 하위 문서', { p0: node.name })} aria-expanded={open}
+      <div className={`flex min-w-0 items-center rounded hover:bg-surface-raised ${active ? 'bg-surface-raised' : ctx.openPaths?.has(pageFile ?? node.path) ? 'bg-surface-raised/50' : ''} ${ctx.dropDir === node.path ? 'ring-1 ring-accent' : ''}`} style={{ paddingLeft: depth * 14 + 4 }}>
+        {folder ? <button type="button" aria-label={uiText('{p0} 하위 문서', { p0: label })} aria-expanded={open}
           onClick={() => { ctx.toggleDir(node.path); ctx.focusNode(node.path, 'dir') }} className="flex h-7 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d={open ? 'm6 9 6 6 6-6' : 'm9 6 6 6-6 6'} /></svg>
         </button> : <span className="w-5 shrink-0" />}
         <button type="button" aria-current={active ? 'page' : undefined} data-path={node.path} data-page-file={pageFile} draggable={!readOnly} onDragStart={handleDragStart} onDragEnd={ctx.endDrag}
-          onClick={handleClick} {...touchProps} className={`flex min-w-0 flex-1 items-center gap-1.5 rounded py-1 pr-1 text-left text-sm text-ink select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-accent ${isFocused ? 'ring-1 ring-inset ring-accent' : ''}`}>
+          onClick={handleClick} {...touchProps} className={`flex min-w-0 flex-1 items-center gap-1.5 rounded py-1 pr-1 text-left text-sm text-ink select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-accent ${holdHighlight} ${isMenuTarget ? 'bg-surface-raised' : ''}`}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="shrink-0 text-ink-muted" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6M8 13h8M8 17h5" /></svg>
-          <span className="min-w-0 flex-1 truncate">{folder ? node.name : node.name.replace(/\.md$/i, '')}</span>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
           <PresenceDots colors={ctx.presence[pageFile ?? node.path] ?? []} />
         </button>
-        {!readOnly && <button type="button" aria-label={uiText('{p0}에 하위 문서 추가', { p0: folder ? node.name : node.name.replace(/\.md$/i, '') })}
+        {!readOnly && <button type="button" aria-label={uiText('{p0}에 하위 문서 추가', { p0: label })}
           onClick={() => ctx.startCreate(node.path, 'file')} className="mr-1 flex h-7 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent sm:opacity-0 sm:group-hover/page:opacity-100 sm:group-focus-within/page:opacity-100">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </button>}
@@ -395,9 +404,9 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           onClick={handleClick}
           onDoubleClick={() => { if (!touch.consumeClick()) ctx.onSelect(node.path, { preview: false }) }}
           {...touchProps}
-          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none [-webkit-touch-callout:none] data-[touch-dragging=true]:bg-accent/15 data-[touch-dragging=true]:ring-1 data-[touch-dragging=true]:ring-accent hover:bg-surface-raised ${
-            isSelected ? 'bg-surface-raised font-medium' : ''
-          } ${isFocused ? 'ring-1 ring-inset ring-accent' : ''}`}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm select-none [-webkit-touch-callout:none] ${holdHighlight} data-[touch-dragging=true]:bg-accent/15 data-[touch-dragging=true]:ring-1 data-[touch-dragging=true]:ring-accent hover:bg-surface-raised ${
+            isSelected || isMenuTarget ? 'bg-surface-raised font-medium' : ctx.openPaths?.has(node.path) ? 'bg-surface-raised/50' : ''
+          }`}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
         >
           <span className="min-w-0 flex-1 truncate">{node.name}</span>
@@ -458,7 +467,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           onClick={handleClick}
           {...touchProps}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
-          className={`${isFocused ? 'ring-1 ring-inset ring-accent' : ''} ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : ''}`}
+          className={`${holdHighlight} ${isFocused || isMenuTarget ? 'bg-surface-raised' : ''} ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : ''}`}
         /> : <button
           type="button"
           data-path={node.path}
@@ -467,9 +476,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           onDragEnd={ctx.endDrag}
           onClick={handleClick}
           {...touchProps}
-          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] data-[touch-dragging=true]:bg-accent/15 data-[touch-dragging=true]:ring-1 data-[touch-dragging=true]:ring-accent hover:bg-surface-raised ${
-            isFocused ? 'ring-1 ring-inset ring-accent' : ''
-          } ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : ''}`}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] ${holdHighlight} data-[touch-dragging=true]:bg-accent/15 data-[touch-dragging=true]:ring-1 data-[touch-dragging=true]:ring-accent hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : isMenuTarget ? 'bg-surface-raised' : ''}`}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
         >
           <FolderIcon open={isOpen} />
@@ -490,6 +497,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
               path={moc.path}
               depth={depth + 1}
               active={moc.path === ctx.selectedPath}
+              opened={ctx.openPaths?.has(moc.path)}
               presenceColors={ctx.presence[moc.path] ?? []}
               onSelect={ctx.onSelect}
             />
@@ -529,6 +537,7 @@ export function FileTree({
   createRequest,
   onCreateRequestHandled,
   selectedPath,
+  openPaths,
   readOnly,
   canUseCommands = false,
   onOpenProject,
@@ -574,6 +583,7 @@ export function FileTree({
   createRequest?: SidebarCreateRequest | null
   onCreateRequestHandled?: () => void
   selectedPath: string | null
+  openPaths?: ReadonlySet<string>
   readOnly: boolean
   canUseCommands?: boolean
   /** Treat marked directories as navigation boundaries instead of expandable folders. */
@@ -1373,7 +1383,9 @@ export function FileTree({
       }).catch(error => onNotice(error instanceof Error ? error.message : String(error)))
     },
     selectedPath,
+    openPaths,
     focused,
+    menuPath: popover?.path,
     openDirs,
     editing,
     readOnly,
@@ -1492,6 +1504,7 @@ export function FileTree({
                 label={documentPages ? uiText('문서 홈') : undefined}
                 documentPages={documentPages}
                 active={rootMoc.path === selectedPath}
+                opened={openPaths?.has(rootMoc.path)}
                 presenceColors={presence[rootMoc.path] ?? []}
                 onSelect={(path, opts) => { focusNode(path, 'file'); onSelect(path, opts) }}
               />

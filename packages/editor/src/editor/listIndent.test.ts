@@ -25,7 +25,8 @@ function buildEditor(content: string) {
 }
 
 function markdown(editor: ReturnType<typeof buildEditor>): string {
-  return (editor.storage as any).markdown.getMarkdown()
+  // These tests compare body structure; final-newline persistence is covered by lineFocus.test.ts.
+  return (editor.storage as any).markdown.getMarkdown().trimEnd()
 }
 
 // 주어진 텍스트를 가진 문단 안으로 커서를 옮긴다 (글자 사이 — 앞뒤 어느 쪽 끝도 아닌 자리)

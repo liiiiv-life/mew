@@ -4,6 +4,7 @@ export { DbGlyph } from './database/DatabaseTable'
 export type {
   TreeNode,
   EditorApi,
+  FrontmatterOptionsApi,
   EditorCollab,
   TableWidths,
   EditorDbApi,

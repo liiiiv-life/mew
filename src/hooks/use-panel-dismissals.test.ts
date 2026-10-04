@@ -189,3 +189,49 @@ test('파일 검색 중 첫 Esc는 검색만 취소하고, 다음 Esc가 사이�
   })
   host.remove()
 })
+
+test('mobile Back restores repeated panel visits and editor, capped at 20 entries', async () => {
+  type Foreground = import('../utils/mobile-panel-stack.ts').MobileForeground
+  let select: (panel: Foreground) => void = () => {}
+  let shown: Foreground = 'editor'
+  function NavigationHarness({ scope = 'project' }: { scope?: string }) {
+    const [current, setCurrent] = useState<Foreground>('editor')
+    select = setCurrent
+    shown = current
+    const panels = Object.fromEntries(
+      [...ids, 'memo', 'tasks'].map(id => [id, { open: true, close: () => setCurrent('editor') }]),
+    ) as import('./use-panel-dismissals.ts').WorkspacePanelDismissals
+    useWorkspacePanelDismissals(panels, current === 'editor' ? null : current, {
+      enabled: true, scope, show: setCurrent,
+    })
+    return null
+  }
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  const back = async () => act(async () => { window.dispatchEvent(new window.Event('popstate')); await settle() })
+  const visit = async (panel: Foreground) => act(async () => { select(panel); await settle() })
+  try {
+    await act(async () => { root.render(createElement(NavigationHarness)); await settle() })
+    for (const panel of ['agent', 'git', 'agent', 'editor'] as const) await visit(panel)
+    for (const expected of ['agent', 'git', 'agent', 'editor']) {
+      await back()
+      assert.equal(shown, expected)
+    }
+    for (let i = 0; i < 25; i++) await visit(i % 2 ? 'editor' : 'agent')
+    await visit('agent') // same selection does not add history
+    for (let i = 0; i < 20; i++) {
+      await back()
+      assert.equal(shown, i % 2 ? 'agent' : 'editor')
+    }
+    await back() // exhausted history falls back to closing the panel
+    assert.equal(shown, 'editor')
+    await visit('git')
+    await act(async () => { root.render(createElement(NavigationHarness, { scope: 'other-project' })); await settle() })
+    await back()
+    assert.equal(shown, 'editor', 'project switch clears navigation history')
+  } finally {
+    await act(async () => { root.unmount(); await settle() })
+    host.remove()
+  }
+})

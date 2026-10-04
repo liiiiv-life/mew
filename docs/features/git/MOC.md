@@ -1,12 +1,12 @@
 ---
-title: "Git·변경 이력 기능 지도"
+title: "Git·변경 이력"
 created: 2026-09-18
-updated: 2026-09-18
+updated: 2026-10-04
 ---
 
 # Git·변경 이력
 
-상위: [전체 기능](../MOC.md) · [상위 기능](../git.md).
+상위: [기능 홈](../MOC.md) · [Git·변경 이력 개요](../git.md).
 
 ## Current
 

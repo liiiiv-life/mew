@@ -48,8 +48,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     const dock = page.getByRole('navigation', { name: 'Workspace dock' })
     const items = () => dock.locator('[data-dock-item]').evaluateAll(elements => elements.map(el => el.getAttribute('data-dock-item')))
     await dock.waitFor()
-    assert.deepEqual(await items(), ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo'])
-    assert.equal(await dock.getByRole('button').last().getAttribute('data-dock-item'), 'memo')
+    assert.deepEqual(await items(), ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'tasks'])
+    assert.equal(await dock.getByRole('button').last().getAttribute('data-dock-item'), 'tasks')
     const tooltip = page.getByRole('tooltip')
     const notice = page.locator('[data-dock-notice]')
     for (const id of ['sidebar', 'memo']) {
@@ -97,7 +97,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.deepEqual(await page.evaluate('window.actions'), ['terminal'])
     const box = (await dock.boundingBox())!, y = box.y + box.height / 2
     await touch('touchStart', 170, y); await touch('touchMove', 245, y); await touch('touchEnd')
-    assert.deepEqual(await page.evaluate('window.actions.at(-1)'), { dir: -1, order: ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo'] })
+    assert.deepEqual(await page.evaluate('window.actions.at(-1)'), { dir: -1, order: ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'tasks'] })
     await touch('touchStart', 245, y); await touch('touchMove', 170, y); await touch('touchEnd')
     assert.equal(await page.evaluate('window.actions.at(-1).dir'), 1)
     assert.equal(await page.evaluate('window.actions.length'), 3, 'swiping never clicks an icon')
@@ -131,7 +131,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.screenshot({ path: '/tmp/mew-dock-touch-reorder.png' })
     await touch('touchEnd')
     assert.equal(await preview.count(), 0)
-    assert.deepEqual(await items(), ['browser', 'sidebar', 'editor', 'agent', 'terminal', 'git', 'features', 'desktop', 'memo'])
+    assert.deepEqual(await items(), ['browser', 'sidebar', 'editor', 'agent', 'terminal', 'git', 'features', 'desktop', 'memo', 'tasks'])
     assert.equal(await page.evaluate('window.actions.length'), 3, 'reordering does not navigate')
     assert.equal(await notice.count(), 0, 'reordering does not show a touch toast')
     await page.reload(); await dock.waitFor()
@@ -170,10 +170,41 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await dock.waitFor({ state: 'hidden' })
     await page.setViewportSize({ width: 390, height: 844 })
     await dock.waitFor({ state: 'visible' })
+    // Zoom alone keeps the dock; a keyboard opening while zoomed must hide it.
+    await page.getByRole('textbox', { name: 'Message' }).evaluate(el => {
+      const win = el.ownerDocument.defaultView!
+      Object.defineProperties(win.visualViewport!, {
+        height: { configurable: true, value: 844 / 1.25 },
+        scale: { configurable: true, value: 1.25 },
+      })
+      el.focus()
+      el.ownerDocument.dispatchEvent(new win.Event('fullscreenchange'))
+      win.visualViewport!.dispatchEvent(new win.Event('resize'))
+    })
+    await dock.waitFor({ state: 'visible' })
+    await page.getByRole('textbox', { name: 'Message' }).evaluate(el => {
+      const win = el.ownerDocument.defaultView!
+      Object.defineProperty(win.visualViewport!, 'height', { configurable: true, value: 440 / 1.25 })
+      win.visualViewport!.dispatchEvent(new win.Event('resize'))
+    })
+    await dock.waitFor({ state: 'hidden' })
+    assert.equal(await page.locator('.mew-workspace').getAttribute('data-mobile-keyboard'), 'true')
+    await page.getByRole('textbox', { name: 'Message' }).evaluate(el => {
+      const win = el.ownerDocument.defaultView!
+      Object.defineProperty(win.visualViewport!, 'height', { configurable: true, value: 844 / 1.25 })
+      win.visualViewport!.dispatchEvent(new win.Event('scroll'))
+    })
+    await dock.waitFor({ state: 'visible' })
+    await page.getByRole('textbox', { name: 'Message' }).evaluate(el => {
+      const win = el.ownerDocument.defaultView!
+      Reflect.deleteProperty(win.visualViewport!, 'height'); Reflect.deleteProperty(win.visualViewport!, 'scale')
+      win.visualViewport!.dispatchEvent(new win.Event('resize'))
+      el.ownerDocument.dispatchEvent(new win.Event('fullscreenchange'))
+    })
     await page.evaluate("window.setAvailable(['sidebar','editor'])")
     assert.equal(await dock.getByRole('button').count(), 2)
     await page.getByRole('textbox', { name: 'Message' }).blur()
-    await page.evaluate('window.setAvailable([...'+JSON.stringify(['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo'])+'])')
+    await page.evaluate('window.setAvailable([...'+JSON.stringify(['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'desktop', 'memo', 'tasks'])+'])')
     await page.setViewportSize({ width: 1024, height: 844 })
     await dock.waitFor({ state: 'visible' })
     const assertDesktopCatGround = () => page.waitForFunction(`(() => {

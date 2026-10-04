@@ -4,7 +4,7 @@ parent: null
 title: "프로젝트·파일·검색"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-25"
+updated: "2026-10-03"
 status_hash: "9d42c3f85dd684af076ce22b3d7c3a6e79602ce5c77e72784345380a970e31d4"
 files: []
 commits: []
@@ -25,6 +25,7 @@ commits: []
 - [프로젝트 문서 안내·초기화](projects/agent-context.md)
 - [파일·폴더 탐색과 조작](projects/files.md)
 - [파일명·내용 검색과 치환](projects/search.md)
+- [태스크 패널·목록·달력·간트](projects/tasks.md)
 
 ### 상세 계약
 

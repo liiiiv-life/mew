@@ -1,12 +1,12 @@
 ---
-title: "협업·댓글·채팅 기능 지도"
+title: "협업·댓글·채팅"
 created: 2026-09-18
-updated: 2026-09-18
+updated: 2026-10-04
 ---
 
 # 협업·댓글·채팅
 
-상위: [전체 기능](../MOC.md) · [상위 기능](../collaboration.md).
+상위: [기능 홈](../MOC.md) · [협업·댓글·채팅 개요](../collaboration.md).
 
 ## Current
 

@@ -424,6 +424,7 @@ export interface GitRepositoryInfo {
   dirty: boolean
   ahead: number
   behind: number
+  originUrl?: string | null
   remotes: string[]
 }
 
@@ -991,6 +992,13 @@ async function json<T>(res: Response): Promise<T> {
     throw new Error(body.error ?? `HTTP ${res.status}`)
   }
   return res.json() as Promise<T>
+}
+
+export async function fetchTaskList(workspace: string, email: string): Promise<import('../../shared/task-list').TaskBoard> {
+  return json(await fetch(`/api/task-list?workspace=${encodeURIComponent(workspace)}`, { headers: { 'X-Mew-Task-Owner': encodeURIComponent(email) } }))
+}
+export async function patchTaskList(workspace: string, changes: import('../../shared/task-list').TaskChange[], email: string): Promise<import('../../shared/task-list').TaskBoard> {
+  return json(await fetch('/api/task-list', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Mew-Task-Owner': encodeURIComponent(email) }, body: JSON.stringify({ workspace, changes }) }))
 }
 
 export type Role = 'owner' | 'manager' | 'member' | 'guest'
@@ -1908,6 +1916,13 @@ export function createEditorApi(project: string): EditorApi {
     fetchLinkPreview,
     fetchTableLayout: path => fetchTableLayout(path, project),
     saveTableLayout: (path, tables) => saveTableLayout(path, tables, project),
+    frontmatterOptions: {
+      fetch: field => fetch(`/api/frontmatter-options?field=${encodeURIComponent(field)}&${projectQs(project)}`)
+        .then(json<{ options: string[] | null }>).then(result => result.options),
+      update: (field, change) => fetch('/api/frontmatter-options', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, field, ...change }),
+      }).then(json<{ options: string[] }>).then(result => result.options),
+    },
     db: createDbApi(project),
   }
 }

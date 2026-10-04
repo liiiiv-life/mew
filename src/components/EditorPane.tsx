@@ -31,7 +31,7 @@ import { useCollab } from '../hooks/useCollab'
 import type { Pane, Tab } from '../hooks/useTabs'
 import type { DropZone } from '../utils/paneTree'
 import { externalAbsolutePath, isExternalTabPath } from '../utils/externalFiles'
-import { documentPageTarget } from '../../shared/document-pages'
+import { documentPageLabel, documentPageTarget } from '../../shared/document-pages'
 import { afterFirstPaint, markFileOpen } from '../utils/fileOpenPerformance'
 import { MarkdownErrorBoundary } from './markdown-error-boundary'
 import { useI18n } from '../i18n'
@@ -525,7 +525,7 @@ export function EditorPane({
           tabs={pane.tabs.map(tab => {
             const entry = editorFile(tab.path, tabProject)
             const logical = documentPageTarget(entry.path)
-            return entry.project === 'docs' && entry.path.endsWith('.md') ? { ...tab, label: logical.split('/').pop()?.replace(/\.md$/i, '') || uiText('문서 홈') } : tab
+            return entry.project === 'docs' && entry.path.endsWith('.md') ? { ...tab, label: documentPageLabel(logical) || uiText('문서 홈') } : tab
           })}
           activePath={pane.activePath}
           presence={presence}

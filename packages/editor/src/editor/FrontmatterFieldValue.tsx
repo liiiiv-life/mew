@@ -1,46 +1,28 @@
-import { canAutoFocusInput, SelectField } from '@mew/ui'
+import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState } from 'react'
-import { frontmatterSelections, frontmatterType, type FrontmatterField } from '../utils/frontmatter'
-import { Check } from './FrontmatterFieldMenu'
-import { FrontmatterPopover } from './FrontmatterPopover'
+import { frontmatterType, type FrontmatterField } from '../utils/frontmatter'
+import { FrontmatterSelect } from './FrontmatterSelect'
 
 const inputClass = 'min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-secondary outline-none hover:border-edge focus:border-edge-bright'
 const LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g
 
-export function FrontmatterFieldValue({ field, readOnly, onChange, onOpenLink }: {
+export function FrontmatterFieldValue({ field, readOnly, busy, onChange, onOpenLink, onCreate, onOpen }: {
   field: FrontmatterField; readOnly?: boolean; onChange: (value: string) => void; onOpenLink: (href: string) => void
+  onCreate: (field: FrontmatterField) => Promise<boolean>; onOpen?: () => void
+  busy?: boolean
 }) {
   useUiLocale()
   const [editing, setEditing] = useState(false)
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const type = frontmatterType(field)
-  const selections = frontmatterSelections(field.value)
-  const choices = [...new Set([...(field.options ?? []), ...(type === 'multi-select' ? selections : field.value ? [field.value] : [])])]
   const links = [...field.value.matchAll(LINK_RE)]
   useEffect(() => {
     if (editing && canAutoFocusInput() && input.current && input.current.ownerDocument.activeElement !== input.current) input.current.focus()
   }, [editing])
 
-  if (type === 'select') return <SelectField compact label={field.key || uiText('값')} value={field.value}
-    disabled={readOnly} className="min-w-0 flex-1" options={[{ value: '', label: uiText('선택') }, ...choices.filter(Boolean).map(value => ({ value, label: value }))]} onChange={onChange} />
-
-  if (type === 'multi-select') return <div className="min-w-0 flex-1">
-    <button type="button" disabled={readOnly} aria-label={field.key || uiText('값')} aria-haspopup="dialog" aria-expanded={!!anchor && !readOnly}
-      className="flex min-h-7 w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 text-left text-xs hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent"
-      onClick={event => setAnchor(anchor ? null : event.currentTarget)}>
-      {selections.length ? selections.map(value => <span key={value} className="max-w-full break-words rounded bg-surface-hover px-1.5 py-0.5 text-ink-secondary">{value}</span>) : <span className="text-ink-muted">{uiText('선택')}</span>}
-    </button>
-    {anchor && !readOnly && <FrontmatterPopover anchor={anchor} label={field.key || uiText('값')} onClose={() => setAnchor(null)}>
-      {choices.length ? choices.map(value => <button key={value} type="button" aria-pressed={selections.includes(value)}
-        className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent"
-        onClick={() => onChange(JSON.stringify(selections.includes(value) ? selections.filter(v => v !== value) : [...selections, value]))}>
-        <span className="min-w-0 break-words">{value}</span><Check checked={selections.includes(value)} />
-      </button>) : <div className="p-2 text-ink-muted">{uiText('선택 항목이 없습니다')}</div>}
-    </FrontmatterPopover>}
-  </div>
+  if (type === 'select' || type === 'multi-select') return <FrontmatterSelect field={field} readOnly={readOnly} busy={busy} onChange={onChange} onCreate={onCreate} onOpen={onOpen} />
 
   if (!editing && (links.length || (type === 'link' && field.value))) {
     let last = 0

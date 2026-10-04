@@ -6,6 +6,7 @@ import { build } from 'rolldown'
 import { compile } from '@tailwindcss/node'
 import { chromium } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
+import { applyTaskChanges, type TaskItem } from '../shared/task-list.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -13,7 +14,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
   const appSource = await fs.readFile(`${root}/src/App.tsx`, 'utf8')
   // Keep App, useTabs, FileTree, root tabs and docking real. Unrelated panels and the
   // editor renderer are inert so this measures handoff work rather than editor startup.
-  const keep = new Set(['RootProjectTabs', 'ProjectLoadingOverlay', 'FileTree', 'DockWorkspace', 'ProjectIcon', 'SubprojectLink', 'SidebarCreateButtons', 'featureCopy', 'FeatureDevelopment', 'MobileDock', 'HeaderMenu'])
+  const keep = new Set(['RootProjectTabs', 'ProjectLoadingOverlay', 'FileTree', 'DockWorkspace', 'ProjectIcon', 'SubprojectLink', 'SidebarCreateButtons', 'featureCopy', 'FeatureDevelopment', 'MobileDock', 'HeaderMenu', 'TaskPanel'])
   const stubs = new Map<string, string>()
   for (const match of appSource.matchAll(/import \{ ([^\n]+) \} from '(\.\/components\/[^']+)'/g)) {
     const names = match[1].split(',').map(n => n.trim()).filter(n => !n.startsWith('type '))
@@ -38,7 +39,9 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const content = (await Promise.all(['src/components/RootProjectTabs.tsx', 'src/components/project-loading-overlay.tsx', 'src/components/FileTree.tsx', 'src/components/DockWorkspace.tsx', 'src/components/mobile-dock.tsx', 'src/components/HeaderMenu.tsx', 'src/components/feature-development.tsx', 'packages/ui/src/HoverTipLayer.tsx', 'packages/ui/src/dialog-frame.tsx', 'packages/ui/src/ConfirmDialog.tsx', 'packages/ui/src/select-field.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
-  const css = compiler.build([...new Set((source + content + appSource).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
+  const taskContent = await fs.readFile(`${root}/src/components/task-panel.tsx`, 'utf8')
+  const dateCss = await fs.readFile(`${root}/packages/ui/src/date-field.css`, 'utf8')
+  const css = compiler.build([...new Set((source + content + appSource + taskContent).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g)), ...Array.from(dateCss.matchAll(/--color-([a-z-]+)/g), match => `bg-${match[1]}`)]) + await fs.readFile(`${root}/src/components/task-panel.css`, 'utf8') + dateCss
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 700 }, hasTouch: true })
@@ -49,6 +52,7 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     let failSwitch = false
     const requests: { path: string; method: string; root: string; time: number }[] = []
     const persisted = new Map<string, unknown>()
+    const taskBoards = new Map<string, TaskItem[]>()
     let releaseSwitch: (() => void) | undefined
     let releaseUi: (() => void) | undefined
     let blockSwitch = false, blockUi = true, blockTree = false
@@ -115,6 +119,12 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
         return json({ path: url.searchParams.get('path'), content: delayed ? 'Late response from ' + captured : 'Content of ' + captured, editable: true })
       }
       if (url.pathname === '/api/features') return json({ features: [], runs: [], canEdit: true })
+      if (url.pathname === '/api/task-list') {
+        const workspace = method === 'PATCH' ? route.request().postDataJSON().workspace : url.searchParams.get('workspace')
+        if (workspace !== active) return route.fulfill({ status: 409, json: { error: '프로젝트가 변경되었습니다. 태스크 패널을 다시 여세요.' } })
+        if (method === 'PATCH') taskBoards.set(workspace, applyTaskChanges(taskBoards.get(workspace) ?? [], route.request().postDataJSON().changes))
+        return json({ tasks: taskBoards.get(workspace) ?? [], canEdit: true })
+      }
       if (url.pathname === '/api/agent-sets') return json({ sets: [] })
       if (url.pathname === '/api/projects') return json([])
       if (url.pathname.startsWith('/api/')) return json({})
@@ -486,14 +496,10 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     }
     const selectedDocument = await page.locator('[data-test-editor]').getAttribute('data-test-active')
     await swipe(65)
-    await sidebar.waitFor({ state: 'visible' })
-    assert.equal(await dock.locator('[data-dock-item=sidebar]').getAttribute('aria-current'), 'page', 'swipe goes directly to sidebar despite an available previous editor tab')
+    assert.equal(await dock.locator('[data-dock-item=editor]').getAttribute('aria-current'), 'page', 'swipe keeps the editor foreground')
+    assert.notEqual(await page.locator('[data-test-editor]').getAttribute('data-test-active'), selectedDocument, 'left-to-right swipe selects the previous document tab')
     await swipe(-65)
-    assert.equal(await dock.locator('[data-dock-item=editor]').getAttribute('aria-current'), 'page')
-    assert.equal(await page.locator('[data-test-editor]').getAttribute('data-test-active'), selectedDocument, 'panel switching preserves the selected document')
-    await swipe(-65)
-    assert.equal(await dock.locator('[data-dock-item=agent]').getAttribute('aria-current'), 'page', 'right swipe skips document tabs and selects the next panel')
-    await swipe(65)
+    assert.equal(await page.locator('[data-test-editor]').getAttribute('data-test-active'), selectedDocument, 'right-to-left swipe returns to the next document tab')
     assert.equal(await dock.locator('[data-dock-item=editor]').getAttribute('aria-current'), 'page')
     await openMenuPanel('원격 데스크톱')
     await page.getByRole('dialog', { name: 'Remote desktop fixture' }).waitFor()
@@ -599,6 +605,24 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
       await page.screenshot({ path: `/tmp/mew-header-menu-${width}-${dark ? 'dark' : 'light'}.png` })
       await page.keyboard.press('Escape')
       await menu.waitFor({ state: 'detached' })
+    }
+    // The actual App dock opens a distinct task panel, preserves its session and closes it on Esc.
+    for (const width of [1100, 390]) {
+      await page.setViewportSize({ width, height: 800 })
+      const taskDock = dock.locator('[data-dock-item=tasks]')
+      await taskDock.click()
+      const taskPanel = page.getByRole('region', { name: '태스크', exact: true })
+      const draft = taskPanel.getByRole('textbox', { name: '새 태스크' })
+      await draft.waitFor()
+      if (width === 390) assert.equal(await draft.evaluate(el => el === el.ownerDocument.activeElement), false, 'mobile task entry does not raise the keyboard automatically')
+      await draft.fill(`App task ${width}`); await draft.press('Enter')
+      await taskPanel.locator('[data-task-id]').last().getByRole('textbox', { name: '태스크 내용', exact: true }).waitFor()
+      assert.equal(await taskPanel.locator('[data-task-id]').last().getByRole('textbox', { name: '태스크 내용', exact: true }).inputValue(), `App task ${width}`)
+      await page.keyboard.press('Escape')
+      await taskPanel.waitFor({ state: 'hidden' })
+      await taskDock.click(); await taskPanel.waitFor()
+      assert.equal(await taskPanel.locator('[data-task-id]').last().getByRole('textbox', { name: '태스크 내용', exact: true }).inputValue(), `App task ${width}`)
+      await taskPanel.getByRole('button', { name: '닫기', exact: true }).click()
     }
     assert.deepEqual(errors, [])
   } finally { await browser.close() }

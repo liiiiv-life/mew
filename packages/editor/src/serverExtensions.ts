@@ -18,6 +18,7 @@ import OrderedList from '@tiptap/extension-ordered-list'
 import Blockquote from '@tiptap/extension-blockquote'
 import HorizontalRule from '@tiptap/extension-horizontal-rule'
 import { EditorLink as Link } from './editor/file-link.ts'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { TableKit } from '@tiptap/extension-table'
 import { Markdown } from 'tiptap-markdown'
 // 이 모듈 그래프는 server/collabAgent가 Node에서 직접 로드하므로(@mew/editor/server 서브패스),
@@ -68,6 +69,8 @@ export function serverEditorExtensions(): Extensions {
     Heading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
     BulletList,
     OrderedList,
+    TaskList,
+    TaskItem.configure({ nested: true, HTMLAttributes: { 'data-type': 'taskItem' } }),
     // 기본 ListItem이 아니라 첫 자식으로 리스트를 허용하는 쪽 — 이유는 editor/listIndent.ts
     IndentableListItem,
     ListConversion,

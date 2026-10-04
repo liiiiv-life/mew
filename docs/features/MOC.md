@@ -1,29 +1,32 @@
 ---
-title: "Mew 기능 문서 지도"
+title: "기능 홈"
 created: 2026-09-18
-updated: "2026-09-30"
+updated: "2026-10-04"
 ---
 
-# Mew 기능 문서
+# 기능 홈
 
-상위: [문서 지도](../MOC.md). [관리·상태·소유권](README.md) · [정리 계획과 범위](../work/feature-catalog-organization.md).
+상위: [문서 홈](../MOC.md). 기능별 요구사항·구현 연결·사용자 확인 기준을 고르는 입구다.
+
+[기능 문서 관리 기준](README.md) · [정리 계획과 범위](../work/feature-catalog-organization.md)
 
 ## Current
 
-- [프로젝트·파일·검색](projects/MOC.md) · [상위 기능](projects.md)
-- [문서·코드·미디어 편집](editor/MOC.md) · [상위 기능](editor.md)
-- [Git·변경 이력](git/MOC.md) · [상위 기능](git.md)
-- [협업·댓글·채팅](collaboration/MOC.md) · [상위 기능](collaboration.md)
-- [터미널·에이전트·자동화](agents/MOC.md) · [상위 기능](agents.md)
-- [브라우저·Android·원격 데스크톱](remote/MOC.md) · [상위 기능](remote.md)
-- [문서 데이터베이스](database/MOC.md) · [상위 기능](database.md)
-- [화면·계정·운영](settings/MOC.md) · [상위 기능](settings.md)
+- [프로젝트·파일·검색](projects/MOC.md) · [개요](projects.md)
+- [문서·코드·미디어 편집](editor/MOC.md) · [개요](editor.md)
+- [Git·변경 이력](git/MOC.md) · [개요](git.md)
+- [협업·댓글·채팅](collaboration/MOC.md) · [개요](collaboration.md)
+- [터미널·에이전트·자동화](agents/MOC.md) · [개요](agents.md)
+- [브라우저·Android·원격 데스크톱](remote/MOC.md) · [개요](remote.md)
+- [문서 데이터베이스](database/MOC.md) · [개요](database.md)
+- [화면·계정·운영](settings/MOC.md) · [개요](settings.md)
 
 <!-- mew:features:start -->
 
 
 - [뮤캣 도우미·대화·Mew 조작](settings/mewcat-assistant.md)
 - [공통 메모](collaboration/shared-memo.md)
+- [태스크 패널·목록·달력·간트](projects/tasks.md)
 - [AI 런타임 설치·인증·실행 설정](agents/runtimes.md)
 - [Android 환경 점검·화면 연결](remote/android.md)
 - [Documents·문서 지도 관리](projects/documents.md)

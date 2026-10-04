@@ -17,6 +17,7 @@ import OrderedList from '@tiptap/extension-ordered-list'
 import Blockquote from '@tiptap/extension-blockquote'
 import HorizontalRule from '@tiptap/extension-horizontal-rule'
 import { EditorLink as Link } from './editor/file-link'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { TableKit } from '@tiptap/extension-table'
 import { MarkdownTable } from './editor/tableMarkdown'
 import DragHandle from '@tiptap/extension-drag-handle'
@@ -540,6 +541,12 @@ export const Editor = forwardRef<
       Heading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
       BulletList,
       OrderedList,
+      TaskList,
+      TaskItem.configure({
+        nested: true,
+        HTMLAttributes: { 'data-type': 'taskItem' },
+        a11y: { checkboxLabel: node => `${uiText('체크박스')}: ${node.textContent}` },
+      }),
       // 첫 자식으로 리스트를 허용하는 ListItem — 첫 항목 Tab 들여쓰기가 성립하는 스키마(listIndent.ts).
       // serverExtensions.ts와 반드시 같은 것을 써야 협업 병합에서 문서가 갈라지지 않는다
       IndentableListItem,
@@ -1162,7 +1169,7 @@ export const Editor = forwardRef<
           }
           return false
         },
-        // 링크 클릭: 일반 클릭은 보기 툴팁(미리보기·편집 진입), Ctrl/Cmd+클릭은 바로 열기
+        // 내부 파일 링크는 바로 열고, 나머지는 일반 클릭으로 보기 툴팁을 연다.
         // — 내부 문서 상대 경로는 새 탭이 아니라 에디터 내부 탭에서 연다
         mousedown: (view, event) => {
           if (readOnlyRef.current) return false
@@ -1208,7 +1215,7 @@ export const Editor = forwardRef<
           }
           return false
         },
-        // readOnly(뷰어)에서도 동작한다 — 상대 경로 네비게이션(깨진 URL)을 막고 툴팁으로 대체
+        // readOnly(뷰어)에서도 내부 파일 링크를 앱 안에서 연다.
         click: (view, event) => {
           // editorRef로 최신 인스턴스를 가리키는 이유는 위 editorRef 선언부 주석 참고
           const editor = editorRef.current
@@ -1219,6 +1226,12 @@ export const Editor = forwardRef<
           if (!anchor || !view.dom.contains(anchor)) return false
 
           const href = anchor.getAttribute('href') ?? ''
+          if (anchor.hasAttribute('data-file-link')) {
+            e.preventDefault()
+            setLinkTooltip(null)
+            if (href) onOpenLink?.(resolveRelativePath(path, href))
+            return true
+          }
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault()
             if (href) {
@@ -1367,6 +1380,11 @@ export const Editor = forwardRef<
     const view = editor.view
 
     // 리스트 항목은 텍스트 앞에 \t를 넣어도 불렛이 안 움직이므로 중첩 리스트로 처리
+    if (editor.isActive('taskItem')) {
+      if (shift) editor.chain().focus().liftListItem('taskItem').run()
+      else editor.chain().focus().sinkListItem('taskItem').run()
+      return
+    }
     if (editor.isActive('listItem')) {
       if (shift) {
         // 기본 lift가 안 되는 자리(자기 줄 없는 부모 항목 안)는 직접 꺼낸다 — 아니면 들여쓴 걸 되돌릴 수 없다
@@ -1937,6 +1955,7 @@ export const Editor = forwardRef<
           onChange={handleFrontmatterChange}
           readOnly={readOnly}
           docPath={path}
+          optionsApi={api.frontmatterOptions}
           onOpenLink={onOpenLink}
         />
       )}

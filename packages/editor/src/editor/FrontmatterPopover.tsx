@@ -1,10 +1,10 @@
-import { useOverlayDismiss } from '@mew/ui'
+import { canAutoFocusInput, useOverlayDismiss } from '@mew/ui'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 /** Field menus share viewport placement, dismissal and keyboard navigation. */
-export function FrontmatterPopover({ anchor, label, onClose, children }: {
-  anchor: HTMLElement; label: string; onClose: () => void; children: ReactNode
+export function FrontmatterPopover({ anchor, label, onClose, children, initialFocus }: {
+  anchor: HTMLElement; label: string; onClose: () => void; children: ReactNode; initialFocus?: 'input'
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ left: 0, top: 0, maxHeight: 280, visibility: 'hidden' as 'hidden' | 'visible' })
@@ -40,8 +40,10 @@ export function FrontmatterPopover({ anchor, label, onClose, children }: {
     }
   }, [anchor])
   useEffect(() => {
-    if (position.visibility === 'visible') ref.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
-  }, [position.visibility])
+    if (position.visibility !== 'visible') return
+    const target = initialFocus === 'input' && canAutoFocusInput() ? 'input' : 'button'
+    ref.current?.querySelector<HTMLElement>(target)?.focus({ preventScroll: true })
+  }, [position.visibility, initialFocus])
   return createPortal(<div ref={ref} role="dialog" aria-label={label} style={position}
     className="frontmatter-popover fixed z-[1201] overflow-y-auto overscroll-contain rounded border border-edge-bright bg-surface-raised p-1 text-xs text-ink shadow-xl"
     onKeyDown={event => {

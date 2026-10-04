@@ -4,7 +4,7 @@ parent: "mew-projects"
 title: "Documents·문서 지도 관리"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-03"
+updated: "2026-10-04"
 status_hash: "67f36d128f8ff98f55ff2f44e2197710413f6968309439a998bd606dad06b477"
 files: ["src/components/DocsSettingsModal.tsx", "src/components/FileTree.tsx", "server/docsRepo.ts", "src/components/DocumentGraph.tsx", "server/document-graph.ts", "src/utils/document-graph-layout.ts", "server/document-pages.ts", "src/hooks/useTabs.ts"]
 commits: []
@@ -46,6 +46,7 @@ commits: []
 
 - 문서/파일 토글은 탐색기 맨 위의 독립 행에서 전체 너비를 채우며, 두 버튼이 너비를 나눠 사용한다. 목록과 겹치지 않고 키보드 전환을 유지한다. 에이전트 패널 + 탭의 런타임/에이전트셋 토글과 같은 모양·색상을 사용한다. 기본 surface 배경과 둥근 사각형 안에 선택 항목만 raised 배경·기본 글자색으로 표시하며, 미선택 항목은 muted 글자색을 사용한다.
 - 파일 보기에는 연결된 문서 폴더 이름의 진입점을 표시한다. 클릭하면 폴더를 펼치지 않고 문서 보기로 전환하며 새 파일 목적지도 문서 루트로 바꾼다.
+- Documents 트리와 에디터 탭은 실제 파일명 대신 `document-pages` → `Document Pages`, `api-reference` → `API Reference` 같은 자연어 표시명을 사용한다. 저장 경로와 링크 대상은 기존 소문자 케밥 케이스를 유지한다.
 
 - Documents는 일반 파일 트리에 중첩하지 않고 독립 목록으로 표시한다. 펼침·스크롤과 새 파일 목적지는 보기별로 유지하며 owner의 문서 토글 우클릭으로 기존 폴더 설정을 연다. [ADR 0190](../../../../.mew/docs/decisions/0190-mew-explorer-top-toggle-and-docs-entry.md)을 따른다.
 
@@ -58,6 +59,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-04: Documents 대표 문서들을 상위 페이지 홈처럼 보이도록 정리하고, 트리·탭 표시명 변환을 추가했다. `MEW_DATA_DIR="${TMPDIR:-/tmp}/mew-test-data" node --test server/document-pages.test.ts server/document-pages-ui.test.ts`, `npm run lint`, `npx tsc -b`, `python3 ../.mew/docs/.github/scripts/check_doc_links.py --workspace`를 통과했다. `python3 ../.mew/docs/.github/scripts/check_repo_docs.py`는 종료 코드 0이었지만 이번 변경과 무관한 `todo/docs/*` 배치 경고를 출력했다. 전체 `npm test -- --runTestsByPath ...`는 스크립트가 전체 패턴을 함께 실행해 관련 없는 에이전트 UI 시간초과·환경 실패가 섞여 중단했다.
 
 - 2026-10-03: 상위·하위 저장 전환, 이동·복사·개명·링크 보정, 충돌·쓰기 실패 복원과 실제 API 권한 테스트를 통과했다. 실제 FileTree·useTabs에서 대표 숨김·화살표 분리·현재 탭 교체·Ctrl/Cmd 탭, 편집 직후 이동 및 구조 변경 중 입력의 보존·새 경로 자동저장을 확인했다. 기존 App 전환·생성·탭 위치 표시·터치·통합 편집기 회귀를 확인했다. TypeScript·대상 lint·문서 링크 검사를 통과했으며 빌드·재시작은 수행하지 않았다.
 
@@ -76,3 +79,5 @@ commits: []
   - Documents에 연결한 실제 경로와 MOC가 맞고 파일 보기의 진입점으로 문서 보기에 전환되는지 확인한다.
 
 <!-- mew:validation:end -->
+
+2026-10-04 자연어 파일명의 대소문자·공백 표시를 보존하고, 이름 변경 시 괄호를 포함한 경로를 안전한 Markdown 링크로 인코딩한다. 공용 지도 검사는 `_폴더이름.md` 대표 문서와 인코딩·공백 경로를 인식한다.

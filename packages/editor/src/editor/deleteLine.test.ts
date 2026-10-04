@@ -24,7 +24,8 @@ function buildEditor(content: string) {
 }
 
 function markdown(editor: ReturnType<typeof buildEditor>): string {
-  return (editor.storage as any).markdown.getMarkdown()
+  // These tests compare body structure; final-newline persistence is covered by lineFocus.test.ts.
+  return (editor.storage as any).markdown.getMarkdown().trimEnd()
 }
 
 function placeCursorIn(editor: ReturnType<typeof buildEditor>, needle: string) {

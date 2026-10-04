@@ -29,6 +29,19 @@ function gutter(editor: ReturnType<typeof buildEditor>): (string | null)[] {
     .map((el) => el.getAttribute('data-mew-line-numbers'))
 }
 
+test('체크 목록의 각 항목과 중첩 항목도 원문 줄번호와 깊이를 갖는다', () => {
+  const source = '- [ ] 첫 항목\n- [x] 둘째\n  - [ ] 하위'
+  const editor = new Editor({ element: document.createElement('div'), extensions: [...serverEditorExtensions(), LineFocus.configure({ getSource: () => source })], content: source })
+  try {
+    assert.deepEqual(gutter(editor), ['1', '2', '3'])
+    const positions: number[] = []
+    editor.state.doc.descendants((node, pos) => { if (node.type.name === 'taskItem') positions.push(pos) })
+    assert.deepEqual(positions.map(pos => listLevel(editor.state.doc, pos)), [1, 1, 2])
+    editor.commands.setTextSelection(positions[2] + 2)
+    assert.equal(focusedLinePos(editor.state), positions[2])
+  } finally { editor.destroy() }
+})
+
 test('편집 직후 이전 원문이 남아 있어도 중간 삽입·삭제의 줄번호를 즉시 갱신한다', () => {
   let source = '첫 문단\n\n마지막 문단'
   const editor = new Editor({
@@ -59,7 +72,7 @@ test('마지막 편집용 빈 문단도 앞 블록과 frontmatter 다음 번호�
   })
   try {
     editor.commands.setTextSelection(1) // trailingNode가 마지막 빈 문단을 추가한다.
-    assert.deepEqual(gutter(editor), ['8', '13'])
+    assert.deepEqual(gutter(editor), ['8', '12'])
     editor.commands.setTextSelection(editor.state.doc.content.size - 1)
     editor.commands.insertContent('마지막')
     assert.deepEqual(gutter(editor), ['8', '13'])
@@ -101,10 +114,10 @@ test('원본 줄 간격은 커서 이동에서 보존하고 외부 교체·오�
     assert.deepEqual(gutter(editor), ['8', '12'])
     source = '교체\n\n```\n코드\n```'
     editor.commands.setContent(source, { emitUpdate: false })
-    assert.deepEqual(gutter(editor), ['8', '10', '14'])
+    assert.deepEqual(gutter(editor), ['8', '10', '13'])
     offset = 9
     editor.view.dispatch(editor.state.tr)
-    assert.deepEqual(gutter(editor), ['10', '12', '16'])
+    assert.deepEqual(gutter(editor), ['10', '12', '15'])
   } finally { editor.destroy() }
 })
 
@@ -393,3 +406,23 @@ test('긴 코드블럭은 원본 md 줄 범위만큼 다음 Hotview 줄번호를
     ],
   )
 })
+
+for (const source of ['- 항목', '1. 항목', '- [ ] 항목']) {
+  test(`목록 뒤 빈 문단 삭제 후 재생성되는 입력 줄은 다음 원문 줄이다: ${source}`, () => {
+    const editor = buildEditor(source)
+    try {
+      editor.commands.setTextSelection(3)
+      assert.deepEqual(gutter(editor), ['1', '2'])
+      const tail = editor.state.doc.lastChild!
+      const tailPos = editor.state.doc.content.size - tail.nodeSize
+      editor.view.dispatch(editor.state.tr.delete(tailPos, editor.state.doc.content.size))
+      assert.deepEqual(gutter(editor), ['1', '2'])
+      const saved = (editor.storage as any).markdown.getMarkdown()
+      assert.equal(saved, source + '\n')
+      editor.commands.setContent(saved)
+      editor.commands.setTextSelection(3)
+      assert.deepEqual(gutter(editor), ['1', '2'])
+      assert.equal((editor.storage as any).markdown.getMarkdown(), saved)
+    } finally { editor.destroy() }
+  })
+}

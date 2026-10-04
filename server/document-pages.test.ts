@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DocumentPages } from './document-pages.ts'
-import { rewritePageLinks, pageRepresentative } from '../shared/document-pages.ts'
+import { documentPageLabel, rewritePageLinks, pageRepresentative } from '../shared/document-pages.ts'
 
 function fixture(t: test.TestContext) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-pages-'))
@@ -13,6 +13,15 @@ function fixture(t: test.TestContext) {
   const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8')
   return { root, write, read, pages: new DocumentPages(root) }
 }
+
+test('document page labels present slug paths as natural names', () => {
+  assert.equal(documentPageLabel('development/document-pages.md'), 'Document Pages')
+  assert.equal(documentPageLabel('configuration/api-reference.md'), 'API Reference')
+  assert.equal(documentPageLabel('features/mewcat-assistant.md'), 'Mewcat Assistant')
+  assert.equal(documentPageLabel('MOC.md'), '')
+  assert.equal(documentPageLabel('Docs/my API Notes.md'), 'my API Notes')
+  assert.equal(documentPageLabel('Docs/한글 문서.md'), '한글 문서')
+})
 
 test('first child promotes a leaf, rebases links and preserves parent body; last child demotes it', t => {
   const { root, write, read, pages } = fixture(t)
@@ -144,4 +153,17 @@ test('representative conflicts discovered after a directory move or copy restore
   assert.throws(() => pages.move('dev', '', true))
   assert.equal(read('dev/_dev copy.md'), 'Copy conflict')
   assert.equal(fs.existsSync(path.join(root, 'dev copy')), false)
+})
+
+
+test('natural page names survive promotion, rename and demotion with valid encoded links', t => {
+  const { write, read, pages } = fixture(t)
+  write('my API Notes.md', '# Notes'); write('MOC.md', '[notes](<my API Notes.md#intro>)')
+  const child = pages.create('my API Notes.md', '한글 가이드 (초안)')
+  assert.equal(child.path, 'my API Notes/한글 가이드 (초안).md')
+  pages.rename('my API Notes', '한글 API (홈)')
+  assert.equal(read('MOC.md'), '[notes](<%ED%95%9C%EA%B8%80%20API%20%28%ED%99%88%29/_%ED%95%9C%EA%B8%80%20API%20%28%ED%99%88%29.md#intro>)')
+  pages.delete('한글 API (홈)/한글 가이드 (초안).md')
+  assert.equal(read('한글 API (홈).md'), '# Notes')
+  assert.equal(read('MOC.md'), '[notes](<%ED%95%9C%EA%B8%80%20API%20%28%ED%99%88%29.md#intro>)')
 })

@@ -30,6 +30,98 @@ const md = (e: Ed) => (e.storage as any).markdown.getMarkdown() as string
 
 const TABLE = `| A | B |\n| --- | --- |\n| 1 | 2 |`
 
+test('체크 목록은 완료 상태·중첩과 Markdown 왕복 저장을 보존한다', () => {
+  const e = makeEditor('- [ ] 할 일\n- [x] 완료\n  - [ ] 하위 할 일')
+  try {
+    const states: boolean[] = []
+    e.state.doc.descendants(node => { if (node.type.name === 'taskItem') states.push(node.attrs.checked) })
+    assert.deepEqual(states, [false, true, false])
+    e.commands.setTextSelection(3)
+    const saved = md(e)
+    assert.match(saved, /- \[ \] 할 일/)
+    assert.match(saved, /- \[x\] 완료/)
+    assert.doesNotMatch(saved, /<input|data-type/)
+    e.commands.setContent(saved)
+    assert.equal(md(e), saved)
+  } finally { e.destroy() }
+})
+
+test('일반 항목과 체크 항목이 섞인 Markdown에서도 본문을 잃지 않는다', () => {
+  const e = makeEditor('- 일반 항목\n- [ ] 할 일\n- [x] 완료')
+  try {
+    assert.match(md(e), /^- 일반 항목/m)
+    assert.match(md(e), /\[ \] 할 일/)
+    assert.match(md(e), /\[x\] 완료/)
+  } finally { e.destroy() }
+})
+
+test('내부 링크는 글자 사이 커서를 막고 전체 선택·삭제와 주변 입력을 허용한다', () => {
+  const e = makeEditor('앞 [문서 지도](./guide.md) 뒤')
+  try {
+    assert.equal(e.view.dom.querySelector('a')?.getAttribute('contenteditable'), 'false')
+    e.commands.setTextSelection(1)
+    e.commands.setTextSelection(5)
+    assert.equal(e.state.selection.from, 8)
+    e.view.dispatch(e.state.tr.insertText('!'))
+    assert.match(md(e), /\[문서 지도\]\(\.\/guide.md\)!/)
+    e.commands.setTextSelection(10)
+    e.commands.setTextSelection(5)
+    assert.equal(e.state.selection.from, 3)
+    e.commands.setTextSelection({ from: 4, to: 6 })
+    assert.equal(e.state.selection.from, 3)
+    assert.equal(e.state.selection.to, 8)
+    e.commands.deleteSelection()
+    assert.equal(e.view.dom.querySelector('a'), null)
+    assert.match(md(e), /앞 ! 뒤/)
+  } finally {
+    e.destroy()
+  }
+})
+
+test('외부 링크 텍스트는 계속 편집할 수 있다', () => {
+  const e = makeEditor('[웹 사이트](https://example.com)')
+  try {
+    assert.equal(e.view.dom.querySelector('a')?.getAttribute('contenteditable'), null)
+    e.commands.setTextSelection(3)
+    assert.equal(e.state.selection.from, 3)
+    e.view.dispatch(e.state.tr.insertText('새'))
+    assert.match(md(e), /\[웹 새사이트\]\(https:\/\/example.com\)/)
+  } finally {
+    e.destroy()
+  }
+})
+
+test('링크 경계에서 Backspace·Delete는 글자 대신 링크 전체를 삭제한다', () => {
+  for (const [key, pos] of [['Backspace', 8], ['Delete', 3]] as const) {
+    const e = makeEditor('앞 [문서 지도](./guide.md) 뒤')
+    try {
+      e.commands.setTextSelection(pos)
+      const event = new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      e.view.dom.dispatchEvent(event as unknown as Event)
+      assert.equal(e.view.dom.querySelector('a'), null)
+      assert.equal(md(e), '앞  뒤\n')
+    } finally {
+      e.destroy()
+    }
+  }
+})
+
+test('방향키는 내부 링크를 한 번에 건너뛰고 Shift 선택은 링크 전체를 포함한다', () => {
+  const e = makeEditor('앞 [문서 규칙](./rules.md) 뒤')
+  const press = (key: string, shiftKey = false) => e.view.dom.dispatchEvent(new win.KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }) as unknown as Event)
+  try {
+    e.commands.setTextSelection(8)
+    press('ArrowLeft')
+    assert.equal(e.state.selection.head, 3)
+    press('ArrowRight')
+    assert.equal(e.state.selection.head, 8)
+    press('ArrowLeft', true)
+    assert.equal(e.state.selection.from, 3)
+    assert.equal(e.state.selection.to, 8)
+    assert.equal(e.state.doc.textBetween(e.state.selection.from, e.state.selection.to), '문서 규칙')
+  } finally { e.destroy() }
+})
+
 test('파일 링크 컨테이너는 내부 경로에만 표시하고 Markdown 왕복 저장을 보존한다', () => {
   const content = '[문서](../guide.md#intro) · [코드](./src/main.ts) · [한글](./가이드.md)\n\n'
     + '[웹](https://example.com) · [웹2](//example.com) · [메일](mailto:hello@example.com) · [앵커](#intro)\n\n'

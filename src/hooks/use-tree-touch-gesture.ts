@@ -87,6 +87,7 @@ export function useTreeTouchGesture({ enabled, onMenu, onDragCancel }: {
       ghost?.remove()
       ghost = null
       source.removeAttribute('data-touch-dragging')
+      source.removeAttribute('data-touch-holding')
       gesture = null
       target = null
       data = null
@@ -112,7 +113,11 @@ export function useTreeTouchGesture({ enabled, onMenu, onDragCancel }: {
       window.addEventListener('blur', cancel)
       const touch = event.touches[0]
       gesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, startX: touch.clientX, startY: touch.clientY, moved: false, phase: 'pending' }
-      menuTimer = setTimeout(() => { if (gesture) gesture.phase = 'menu' }, MENU_HOLD_MS)
+      menuTimer = setTimeout(() => {
+        if (!gesture) return
+        gesture.phase = 'menu'
+        source.dataset.touchHolding = 'true'
+      }, MENU_HOLD_MS)
       dragTimer = setTimeout(() => {
         if (!gesture) return
         gesture.phase = 'armed'
@@ -125,6 +130,7 @@ export function useTreeTouchGesture({ enabled, onMenu, onDragCancel }: {
       data = new DataTransfer()
       if (dispatch('dragstart', source)) { cancel(); return }
       gesture.phase = 'drag'
+      source.removeAttribute('data-touch-holding')
       source.dataset.touchDragging = 'true'
       ghost = document.createElement('div')
       ghost.setAttribute('aria-hidden', 'true')

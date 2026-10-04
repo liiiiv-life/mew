@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "화면·언어·글꼴·단축키 설정"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-09-29"
+updated: "2026-10-03"
 status_hash: "4f239b57ff4cc09aac87a665e96e137692355fb592ecb3c0965c8ea2b7ff2181"
 files: ["src/components/SettingsModal.tsx", "packages/ui/src/color-picker.tsx", "src/i18n.tsx", "packages/ui/src/ui-messages.ts", "packages/ui/src/i18n-core.ts", "src/index.css", "src/utils/theme-color.ts", "index.html", "server/serve.ts", "public/fonts/ibm-plex/fonts.css"]
 commits: []
@@ -13,6 +13,7 @@ commits: []
 ## 요구사항
 
 - 기기에서 쓰기 편한 외형과 키 조합을 설정한다.
+- 탭 닫기 키는 포커스된 파일·에이전트·터미널 등의 내부 탭에 적용하고, 닫을 탭이 없으면 다른 창의 탭을 닫지 않는다.
 
 ### 범위
 
@@ -31,6 +32,8 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- 탭 닫기는 capture 단계에서 처리해 편집기·PTY 전달과 앱에 도착한 키의 브라우저 기본 동작을 막는다. `Alt+W` 대체 조합을 개별 설정할 수 있고 앱 전체화면 진입 후에는 지원 브라우저에 `KeyW` 잠금을 요청한다. 일반 탭의 브라우저 예약키 제한은 [포커스 계약](../../development/ui-contracts.md#포커스-기반-탭-단축키)을 따른다.
 
 - 언어·글꼴 선택은 공통 `SelectField`의 자체 드롭다운을 사용한다. 글꼴 이름 직접 입력·초기화와 브라우저별 저장을 유지한다.
 
@@ -55,6 +58,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-03: 포커스별 닫기·빈 패널의 다른 탭 보호·capture 전달 차단·키 반복 방지 테스트 3개와 타입 검사를 통과했다. 대상 린트는 기존 번역 모듈 경고만 있다. 문서 링크 검사는 통과했고 문서 경계 검사는 기존 `todo/docs` 미등록 문서 때문에 실패했다. 빌드·서버 재시작과 실제 브라우저 예약키 잠금 확인은 수행하지 않았다.
 
 - 아래 항목은 이번 정리에서 실행한 테스트 결과가 아닌 사용자 확인 기준이다:
   - 설정 재열기·초기화·포커스별 단축키가 맞고 다른 기기의 화면 설정을 덮어쓰지 않는지 확인한다.

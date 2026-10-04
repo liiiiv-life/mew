@@ -29,8 +29,8 @@
 .tiptap li {
   position: relative;
 }
-/* 빈 문서의 첫 문단은 제외 — 그 자리의 ::before는 placeholder(아래)가 이미 쓰고 있다 */
-.tiptap > :not(ul, ol, .ProseMirror-gapcursor, p.is-editor-empty)[data-mew-line-numbers]::before,
+/* 빈 문단도 번호를 표시한다. 입력 안내는 별도의 ::after를 사용한다. */
+.tiptap > :not(ul, ol, .ProseMirror-gapcursor)[data-mew-line-numbers]::before,
 .tiptap li[data-mew-line-numbers]::before {
   content: attr(data-mew-line-numbers);
   position: absolute;
@@ -75,9 +75,11 @@
   --mew-line-opacity: 1;
   --mew-line-color: var(--color-ink-secondary);
 }
-.tiptap p.is-editor-empty:first-child::before {
+.tiptap p.is-editor-empty:first-child::after {
   content: attr(data-placeholder);
-  float: left;
+  position: absolute;
+  top: 0;
+  left: 0;
   color: var(--color-ink-faint);
   pointer-events: none;
   height: 0;
@@ -95,6 +97,26 @@
 .tiptap ol li::marker { color: var(--color-ink-muted); font-weight: 600; }
 .tiptap li { margin: 0.25em 0; }
 .tiptap li p { margin: 0; }
+.tiptap ul[data-type="taskList"] { list-style: none; }
+.tiptap li[data-type="taskItem"] { position: relative; }
+.tiptap li[data-type="taskItem"] > label {
+  position: absolute;
+  left: -22px;
+  top: 0;
+  width: 20px;
+  height: var(--mew-body-line-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.tiptap li[data-type="taskItem"] > label input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
 .tiptap blockquote {
   border-left: 3px solid var(--color-edge-bright);
   padding-left: 1em;
@@ -344,34 +366,37 @@
 }
 
 /* Mermaid stays a standard fenced code block in Markdown and collaboration. */
-.code-block-wrap.is-diagram {
-  padding-top: 36px;
-}
 .diagram-source-toggle {
   position: absolute;
   top: 4px;
-  left: 8px;
-  min-height: 28px;
-  padding: 2px 8px;
-  border: 1px solid var(--color-edge-strong);
+  right: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border: 0;
   border-radius: 4px;
   background: var(--color-surface);
   color: var(--color-ink);
-  font: inherit;
-  font-size: 12px;
   cursor: pointer;
 }
-.diagram-source-toggle:hover { background: var(--color-surface-hover); }
-.diagram-source-toggle:focus-visible { outline: 2px solid var(--color-accent, var(--color-ink)); outline-offset: 2px; }
+.diagram-source-toggle:hover, .diagram-dialog-close:hover { background: var(--color-surface-hover); }
+.diagram-source-toggle:focus-visible, .diagram-dialog-close:focus-visible { outline: 2px solid var(--color-accent, var(--color-ink)); outline-offset: 2px; }
+.diagram-dialog { max-width: 1100px; max-height: 90dvh; display: flex; flex-direction: column; }
+.diagram-dialog-content { display: flex; flex-direction: column; min-height: 0; }
+.diagram-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; color: var(--color-ink); }
+.diagram-dialog-close { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
 .diagram-preview {
   overflow: auto;
+  min-height: 0;
   padding: 12px;
   background: #fff;
   color: #1f2937;
-  border-radius: 4px;
 }
 .diagram-preview svg { display: block; max-width: none; margin: 0 auto; }
-.diagram-preview[hidden], .diagram-source-toggle[hidden], .code-block-wrap pre[hidden] { display: none; }
+.diagram-source-toggle[hidden] { display: none; }
 
 /* 속성 행도 본문과 같은 원문 줄번호 거터를 사용한다. */
 .frontmatter-line {
@@ -401,14 +426,15 @@
 }
 /* 번호는 본문 거터에 고정하고, 핸들과 필드 내용만 오른쪽에 공간을 둔다. */
 .frontmatter-property {
-  padding-left: 1.9rem;
+  --frontmatter-handle-width: 12px;
+  padding-left: var(--frontmatter-handle-width);
 }
 .frontmatter-handle {
   position: absolute;
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 1.9rem;
+  width: var(--frontmatter-handle-width);
   height: 1.8rem;
   padding-right: 2px;
   display: flex;

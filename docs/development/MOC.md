@@ -1,12 +1,12 @@
 ---
-title: "개발 계약"
+title: "개발 계약 홈"
 created: 2026-09-11
-updated: 2026-09-29
+updated: 2026-10-04
 ---
 
-# 개발 계약
+# 개발 계약 홈
 
-상위: [문서 지도](../MOC.md). 필요한 문서만 선택한다.
+상위: [문서 홈](../MOC.md). 구현 중 지켜야 하는 저장·권한·UI·검증 계약을 고르는 입구다.
 
 ## Current
 
@@ -30,6 +30,7 @@ updated: 2026-09-29
 - [에이전트 세션과 통신 계약](agent-sessions.md)
 - [서버 구조와 상태 파일](architecture.md)
 - [협업 방과 멤버 채팅](collaboration.md)
+- [태스크 패널·객체 저장](task-list.md)
 - [공용 패키지](packages.md)
 - [UI 디자인 지침·여백과 정보 밀도·오버레이·탭 단축키 계약](ui-contracts.md)
 - [원격 데스크톱 아키텍처·입력·검증](remote-desktop.md)

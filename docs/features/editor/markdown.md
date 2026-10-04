@@ -4,9 +4,9 @@ parent: "mew-editor"
 title: "Markdown Hotview·원문·문서 속성"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-02"
+updated: "2026-10-03"
 status_hash: "2741d359b18c61eecb53b8ce0ba2862f0f42c088d7d02cf55c88a23d1d44a98e"
-files: ["src/hooks/useTabs.ts", "src/components/EditorPane.tsx", "src/components/markdown-error-boundary.tsx", "packages/editor/src/Editor.tsx", "packages/editor/src/editor/FrontmatterPanel.tsx", "src/components/TableOfContents.tsx"]
+files: ["packages/editor/src/editor/FrontmatterSelect.tsx", "server/frontmatter-options.ts", "src/hooks/useTabs.ts", "src/components/EditorPane.tsx", "src/components/markdown-error-boundary.tsx", "packages/editor/src/Editor.tsx", "packages/editor/src/editor/FrontmatterPanel.tsx", "src/components/TableOfContents.tsx"]
 commits: []
 ---
 
@@ -17,8 +17,11 @@ commits: []
 ### 범위
 
 - Hotview·Plain 전환과 제목·목록·체크박스·인용·코드 블록·강조를 제공한다.
+- 줄 맨 앞의 `[] `·`[ ] ` 입력으로 체크박스 줄을 만들며, 클릭으로 완료 상태를 바꾸고 Enter로 이어 쓰거나 빈 항목에서 일반 문단으로 돌아온다.
 - 프론트매터 속성 편집·문서 목차·목록 들여쓰기를 제공한다.
 - 프론트매터 제목과 각 속성 행에도 Markdown 원문의 줄번호를 표시한다.
+- 속성 필드의 들여쓰기는 핸들 아이콘과 오른쪽 여백을 포함한 12px만 확보한다.
+- 단일·다중선택 창에서 검색·새 이름 입력·Enter로 항목 생성과 선택을 함께 처리한다. 항목 목록은 같은 프로젝트의 동일한 필드명끼리 공유한다.
 - 속성 왼쪽 핸들로 순서를 바꾸고 타입 메뉴에서 글 링크·단일선택·다중선택·날짜·텍스트·숫자를 지정한다. 각 타입 항목은 이름 왼쪽에 타입 아이콘을 표시한다.
 - Hotview·Plain 전환 시 화면에 보이는 커서 줄 또는 읽던 본문 줄을 유지한다.
 
@@ -47,16 +50,19 @@ commits: []
 - 보기 전환은 원문 줄번호와 화면 내 높이를 전달하고, 편집기 초기화·지연 렌더 중에는 기존 복원 관찰자로 위치를 유지한다. 사용자 입력 시 복원을 해제한다.
 - 상세 동작은 [기본 편집](../../guides/editor.md#기본-편집)을 따른다.
 
+- 체크 목록은 클라이언트·협업 서버에 같은 `TaskList`·`TaskItem` 스키마를 등록한다. Markdown 저장·중첩·줄번호·복사 계약은 [에디터 패키지](../../development/packages.md)를 따른다.
 - 목록 줄번호는 중첩 깊이와 관계없이 일반 문단과 같은 왼쪽 거터에 정렬한다. 내부 파일 링크를 포함한 목록도 본문 줄 높이를 유지한다.
 - 속성 줄번호는 제목·본문 줄번호와 같은 x좌표에 맞추고, 핸들과 필드 내용은 오른쪽으로 옮겨 겹치지 않게 한다. 마우스·터치 재정렬, 우클릭·클릭·키보드 타입 메뉴와 메뉴 맨 아래의 필드 삭제, 선택 항목 추가·삭제와 문서 재열기 후 타입·항목 복원을 제공한다. 저장 형식은 [에디터 패키지](../../development/packages.md)를 따른다.
+- 빈 문서의 첫 줄과 연속 빈 문단도 항상 줄번호를 표시한다. 입력 안내와 줄번호는 별도 가상 요소를 사용하며, 중간 빈 문단은 기존 `<br/>` 저장 계약을 유지한다. 마지막 입력용 빈 문단은 마지막 줄바꿈 하나로 저장하고 바로 다음 원문 줄번호를 사용한다. 불렛·체크 목록 뒤에서 빈 줄을 삭제해도 추가 빈 줄이나 건너뛴 번호를 남기지 않는다.
 - 구분선에도 본문과 같은 왼쪽 거터에 원문 줄번호를 표시한다.
 - Hotview 줄번호는 현재 본문의 Markdown 시작 줄을 표시하며 중간 편집·마지막 빈 문단·frontmatter 변경에도 즉시 갱신한다. 계산과 갱신 계약은 [에디터 패키지](../../development/packages.md)를 따른다.
 
+- 단일·다중선택은 검색·생성 가능한 자체 목록을 사용한다. 공유 저장과 기존 문서 호환·재조회·실패 처리는 [에디터 패키지](../../development/packages.md)를 따른다.
 - 본문 로딩 중에는 에디터 영역에 반투명 검정 덮개와 중앙 인디케이터를 표시하고 편집을 막는다.
 - 탭 전환은 유지하며 성공·실패 시 해제한다.
 - 상세 계약은 [에디터 본문 로딩](../../development/ui-contracts.md#에디터-본문-로딩)을 따른다.
 
-- `/diagram`으로 Mermaid 흐름도를 삽입하고 Hotview에서 실제 다이어그램·원문 전환을 제공한다. 표준 `mermaid` 코드 펜스를 유지한다.
+- `/diagram`으로 Mermaid 흐름도를 삽입하고 Hotview에서 코드를 기본 표시하고 이미지 아이콘 버튼으로 다이어그램 팝업을 연다. 표준 `mermaid` 코드 펜스를 유지한다.
 
 <!-- mew:implementation:end -->
 
@@ -74,12 +80,18 @@ commits: []
 
 - `server/editor-pane-ui.test.ts`로 데스크톱·모바일 로딩 표시, 캐시 재조회, 연속 전환, 빈 문서·실패 후 해제를 검증한다.
 
+- `server/frontmatter-options.test.ts`로 공유 항목의 저장·프로젝트 및 필드 격리·동시 추가·삭제와 오래된 seed의 비복원·권한·잘못된 입력·손상 원장 보존을 검증한다.
+- `server/frontmatter-ui.test.ts`는 PC·모바일에서 선택창 직접 입력·생성과 선택·중복 방지·다른 문서의 공유 목록·재열기·저장 실패 시 값 보존도 검증한다.
 - `server/frontmatter-ui.test.ts`와 `packages/editor/src/utils/frontmatter.test.ts`로 PC·터치 재정렬, 타입 전환과 값 보존, 선택 항목·단일/다중선택의 저장·재열기, 내부 링크 열기, 외부 링크 표시, Esc·뒤로가기·바깥 누름, 양 테마 메뉴 경계와 읽기 전용을 검증한다.
+- `packages/editor/src/editor/markdownBehavior.test.ts`로 체크 목록의 완료 상태·중첩·Markdown 왕복 저장과 일반 목록 혼합 시 본문 보존을 검증한다. `server/editor-line-numbers-ui.test.ts`는 PC·모바일에서 `[] ` 입력·완료 전환·Enter 이어 쓰기와 빈 항목 종료·Tab 중첩·양 테마의 체크박스/줄번호 배치를 검증한다.
+- `server/editor-line-numbers-ui.test.ts`에서 빈 문서의 1번 줄·입력 안내 비겹침·연속 빈 문단 번호·`<br/>` 저장·전체 삭제 뒤 1번 줄 복원을 PC·모바일에서 검증한다.
 - `packages/editor/src/editor/lineFocus.test.ts`와 `server/editor-line-numbers-ui.test.ts`로 중간 삽입·삭제, 마지막 빈 문단, 여러 줄 목록·코드·구분선, 속성 변경의 줄번호를 검증한다.
 - `server/editor-view-switch-ui.test.ts`로 PC·모바일의 반복 보기 전환, 원문 180번 줄 유지, 커서가 화면 밖인 읽기 위치와 원문 보존을 검증한다.
 
-- `server/editor-diagram-ui.test.ts`에서 데스크톱·모바일의 실제 원격 데스크톱 흐름도 렌더링, 코드 전환, 문법 오류·복구를 검증한다. `packages/editor/src/serverExtensions.test.ts`는 Mermaid 펜스의 협업 스키마 왕복 보존을 검증한다.
+- `server/editor-diagram-ui.test.ts`에서 데스크톱·모바일의 코드 기본 표시·이미지 버튼 팝업, 실제 원격 데스크톱 흐름도 렌더링, Esc·닫기·포커스 복원과 문법 오류·복구를 검증한다. `packages/editor/src/serverExtensions.test.ts`는 Mermaid 펜스의 협업 스키마 왕복 보존을 검증한다.
 
 - `packages/editor/src/editor/slashMenuPosition.test.ts`로 아래 배치, 키보드로 줄어든 화면의 위 배치, viewport 이동·좁은 화면의 높이/너비 제한과 검색 결과 축소를 검증한다. 실기기 키보드 애니메이션은 사용자 확인 대상이다.
 
 <!-- mew:validation:end -->
+
+- 2026-10-03: 불렛·순서·체크 목록 뒤의 마지막 빈 문단 삭제/재생성·원문 마지막 줄바꿈·다시 읽기 줄번호를 검증했다. PC·모바일 Backspace 회귀와 편집기·메모 협업 검사 132개, 전체 타입 검사와 변경 코드 lint를 통과했다.

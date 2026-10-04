@@ -10,12 +10,17 @@ export const EmptyParagraph = Paragraph.extend({
       markdown: {
         serialize(state: any, node: any, parent: any, index: number) {
           const loneBreak = node.childCount === 1 && node.firstChild?.type.name === 'hardBreak'
-          // ProseMirror가 문서 끝에 보장하는 빈 문단은 실제 "빈 줄"이 아니라 편집 시작점이다.
-          // 이것까지 저장하면 문서를 열기만 해도 매번 <br/>가 덧붙으므로 제외한다.
+          // 자동으로 재생성되는 마지막 입력용 문단은 <br/> 대신 마지막 줄바꿈 하나로 저장한다.
+          // 다시 읽을 때 문단을 추가하지 않으므로 열기·삭제를 반복해도 빈 줄이 늘지 않는다.
           const implicitTail = parent?.type?.name === 'doc' && index === parent.childCount - 1
-          if ((node.content.size === 0 || loneBreak) && !implicitTail) state.write('<br/>')
+          if ((node.content.size === 0 || loneBreak) && implicitTail) {
+            if (state.out.trimEnd()) state.out = state.out.replace(/\n*$/, '\n')
+            return
+          }
+          if (node.content.size === 0 || loneBreak) state.write('<br/>')
           else state.renderInline(node)
           state.closeBlock(node)
+          if (implicitTail && state.out) state.out = state.out.replace(/\n*$/, '\n')
         },
         parse: {},
       },

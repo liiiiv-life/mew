@@ -63,7 +63,7 @@ export const CodeBlockWithCopy = CodeBlock.extend({
     ]
   },
   addNodeView() {
-    return ({ node, HTMLAttributes, editor }) => {
+    return ({ node, HTMLAttributes }) => {
       const dom = document.createElement('div')
       dom.className = 'code-block-wrap'
 
@@ -103,7 +103,7 @@ export const CodeBlockWithCopy = CodeBlock.extend({
 
       dom.appendChild(button)
       dom.appendChild(pre)
-      const diagram = createDiagramPreview(dom, pre, node.attrs.language, node.textContent, editor.isEditable)
+      const diagram = createDiagramPreview(dom, pre, node.attrs.language, node.textContent)
 
       return {
         dom,

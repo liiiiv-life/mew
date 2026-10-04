@@ -1,0 +1,84 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { TaskListSession } from './task-list-session.ts'
+import { applyTaskChanges, type TaskBoard } from '../../shared/task-list.ts'
+
+const item = { id: 'one', text: 'first', done: false }
+test('a second reorder during an in-flight save preserves order and remote completion', async () => {
+  const second = { id: 'two', text: 'second', done: false }
+  let resolveSave!: (board: TaskBoard) => void
+  const session = new TaskListSession({ read: async () => ({ tasks: [item, second], canEdit: true }), save: () => new Promise(resolve => { resolveSave = resolve }) })
+  try {
+    await session.refresh()
+    session.edit([second, item])
+    const saving = session.flush()
+    session.edit([item, second])
+    resolveSave({ tasks: [second, { ...item, done: true }], canEdit: true })
+    await saving
+    assert.deepEqual(session.state.tasks, [{ ...item, done: true }, second])
+  } finally { session.dispose() }
+})
+test('editing during save rebases pending local text over remotely changed completion', async () => {
+  let resolveSave!: (board: TaskBoard) => void
+  const session = new TaskListSession({ read: async () => ({ tasks: [item], canEdit: true }), save: () => new Promise(resolve => { resolveSave = resolve }) })
+  try {
+    await session.refresh()
+    session.edit([{ ...item, text: 'second' }])
+    const saving = session.flush()
+    session.edit([{ ...item, text: 'third' }])
+    resolveSave({ tasks: [{ ...item, text: 'second', done: true }], canEdit: true })
+    await saving
+    assert.deepEqual(session.state.tasks, [{ ...item, text: 'third', done: true }])
+  } finally { session.dispose() }
+})
+test('failed writes keep input and explicit retry preserves unrelated remote fields', async () => {
+  let fail = true, serverItems = [item]
+  const session = new TaskListSession({ read: async () => ({ tasks: serverItems, canEdit: true }), save: async changes => {
+    if (fail) throw new Error('태스크를 저장하지 못했습니다')
+    serverItems = applyTaskChanges(serverItems, changes)
+    return { tasks: serverItems, canEdit: true }
+  } })
+  try {
+    await session.refresh()
+    session.edit([{ ...item, text: 'local' }]); await session.flush()
+    assert.equal(session.state.tasks[0].text, 'local'); assert.ok(session.state.error)
+    serverItems = [{ ...item, text: 'remote', done: true }]
+    fail = false; await session.retry()
+    assert.equal(session.state.error, null)
+    assert.deepEqual(serverItems, [{ ...item, text: 'local', done: true }])
+  } finally { session.dispose() }
+})
+test('polling response cannot discard text entered while the read was in flight', async () => {
+  let resolveRead!: (board: TaskBoard) => void, delayed = false
+  const session = new TaskListSession({ read: () => delayed ? new Promise(resolve => { resolveRead = resolve }) : Promise.resolve({ tasks: [item], canEdit: true }), save: async () => ({ tasks: [], canEdit: true }) })
+  try {
+    await session.refresh(); delayed = true
+    const reading = session.refresh()
+    session.edit([{ ...item, text: 'local' }])
+    resolveRead({ tasks: [{ ...item, done: true }], canEdit: true })
+    await reading
+    assert.deepEqual(session.state.tasks, [{ ...item, text: 'local', done: true }])
+  } finally { session.dispose() }
+})
+
+test('a failed date write retries over remote text and completion without losing the date', async () => {
+  let fail = true
+  let serverItems: import('../../shared/task-list.ts').TaskItem[] = [item]
+  const session = new TaskListSession({ read: async () => ({ tasks: serverItems, canEdit: true }), save: async changes => {
+    if (fail) throw new Error('태스크를 저장하지 못했습니다')
+    serverItems = applyTaskChanges(serverItems, changes)
+    return { tasks: serverItems, canEdit: true }
+  } })
+  try {
+    await session.refresh()
+    session.edit([{ ...item, startDate: '2026-10-13', date: '2026-10-15' }]); await session.flush()
+    assert.equal(session.state.tasks[0].date, '2026-10-15')
+    assert.equal(session.state.tasks[0].startDate, '2026-10-13')
+    serverItems = [{ ...item, text: 'remote', done: true, startDate: '2026-10-14', date: '2026-10-16' }]
+    fail = false; await session.retry()
+    assert.equal(session.state.error, null)
+    assert.equal(serverItems[0].date, '2026-10-15')
+    assert.equal(serverItems[0].startDate, '2026-10-13')
+    assert.equal(serverItems[0].text, 'remote'); assert.equal(serverItems[0].done, true)
+  } finally { session.dispose() }
+})

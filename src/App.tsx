@@ -42,6 +42,8 @@ import { SubprojectLink } from './components/subproject-link'
 import { ProjectIcon } from './components/ProjectIcon'
 import { RootProjectTabs } from './components/RootProjectTabs'
 import { ProjectLoadingOverlay } from './components/project-loading-overlay'
+import { TaskPanel } from './components/task-panel'
+import { useTaskList } from './hooks/use-task-list'
 import { SharedMemo } from './components/shared-memo'
 import { useSharedMemo } from './hooks/use-shared-memo'
 import { normalizeProjectTabLayout, type ProjectTabGroup } from '../shared/project-tab-groups'
@@ -80,7 +82,7 @@ import type { DockState } from './utils/dock-layout'
 import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
-import { dispatchFocusedShortcut, getBinding, matchesShortcut } from '@mew/shortcuts'
+import { closeFocusedTab, getBinding, matchesShortcut } from '@mew/shortcuts'
 import { ConfirmDialog, SelectField, hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
@@ -117,7 +119,11 @@ import { normalizeDirectoryChildren, normalizeTreeCenterAnchor } from './utils/t
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
-  else document.documentElement.requestFullscreen().catch(() => {})
+  else document.documentElement.requestFullscreen().then(() => {
+    // 브라우저 예약 Ctrl/Cmd+W는 일반 탭에서 전달되지 않는다. 앱 전체화면에서만 잠근다.
+    const keyboard = (navigator as Navigator & { keyboard?: { lock: (keys: string[]) => Promise<void> } }).keyboard
+    return keyboard?.lock(['KeyW']).catch(() => {})
+  }).catch(() => {})
 }
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
@@ -324,6 +330,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const gitMounted = useRef(false)
   const [gitOpen, setGitOpen] = useState(() => caps.git && localStorage.getItem(GIT_OPEN_KEY) === '1')
   const [remoteDesktopOpen, setRemoteDesktopOpen] = useState(false)
+  const [tasksOpen, setTasksOpen] = useState(false)
+  const taskSession = useTaskList(rootProjectPath, caps.filesRead ? auth.email ?? '' : '', tasksOpen)
+  useEffect(() => { setTasksOpen(false) }, [auth.email, caps.filesRead])
   const [memoOpen, setMemoOpen] = useState(false)
   const [memoFocusSignal, setMemoFocusSignal] = useState(0)
   useEffect(() => { setMemoOpen(false) }, [auth.email, caps.collaboration])
@@ -345,6 +354,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       if (panel === 'terminal') return terminalOpen
       if (panel === 'browser') return browserOpen
       if (panel === 'git') return gitOpen
+      if (panel === 'tasks') return tasksOpen
       if (panel === 'memo') return memoOpen
       if (panel === 'features') return featuresOpen
       return androidOpen
@@ -382,10 +392,11 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     browser: browserOpen,
     git: gitOpen,
     android: androidOpen,
+    tasks: tasksOpen,
     memo: memoOpen,
     features: featuresOpen,
   } satisfies Record<WorkspacePanelId, boolean>), [
-    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen,
+    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen, tasksOpen,
   ])
   const workspacePanelSetters = useMemo(() => ({
     sidebar: setSidebarOpen,
@@ -395,6 +406,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     browser: setBrowserOpen,
     git: setGitOpen,
     android: setAndroidOpen,
+    tasks: setTasksOpen,
     memo: setMemoOpen,
     features: setFeaturesOpen,
   } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
@@ -541,6 +553,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     void Promise.all([fetchMewUpdateStatus(true), fetchUpdatesStatus(true)]).then(([mew, dependencies]) => {
       if (!alive) return
       setMewUpdate(mew)
+      if (mew.running || mew.job?.state === 'queued' || mew.job?.state === 'running') setMewUpdating(true)
       const labels = [...(mew.available ? ['Mew'] : []), ...dependencies.items.filter(item => item.available).map(item => item.label)]
       if (labels.length) publishMewcatNotice({ key: 'updates:available', kind: 'updates', level: 'warning', source: uiText('{p0}개 업데이트: {p1}', { p0: labels.length, p1: labels.slice(0, 3).join(', ') + (labels.length > 3 ? '…' : '') }), target: 'updates' })
     }).catch(() => { /* Each failed check remains visible in the update screen. */ })
@@ -548,7 +561,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   }, [caps.system, refreshMewUpdate])
 
   const startMewUpdate = useCallback(async () => {
-    if (!mewUpdate?.available) {
+    if (!mewUpdate?.available && mewUpdate?.job?.state !== 'failed') {
       await refreshMewUpdate(true)
       return
     }
@@ -939,6 +952,15 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     workspaceUiLoaded,
   )
 
+  const sidebarOpenPaths = useMemo(() => {
+    const result: Record<string, Set<string>> = {}
+    for (const pane of panes) for (const tab of pane.tabs) {
+      const file = editorFile(tab.path, project)
+      ;(result[file.project] ??= new Set()).add(file.path)
+    }
+    return result
+  }, [panes, project])
+
   const activeFile = editorFile(activePath ?? '', project)
   const activeEditorApi = useMemo(() => createEditorApi(activeFile.project), [activeFile.project])
   const activeFileTree = activeFile.project === DEFAULT_PROJECT ? docsTree : tree
@@ -1092,9 +1114,17 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     browser: { open: browserOpen, close: () => closeWorkspacePanel('browser'), closeOnBack: () => !browserBackRef.current?.() },
     git: { open: gitOpen, close: () => closeWorkspacePanel('git') },
     android: { open: androidOpen, close: () => closeWorkspacePanel('android') },
+    tasks: { open: tasksOpen, close: () => closeWorkspacePanel('tasks') },
     memo: { open: memoOpen, close: memoSession.close },
     features: { open: featuresOpen, close: () => featureCloseRef.current?.() },
-  }, mobileForegroundPanel)
+  }, mobileForegroundPanel, {
+    enabled: !isDesktop() && workspaceUiLoaded,
+    scope: `${auth.email}:${rootProjectPath}`,
+    show: (panel) => {
+      if (panel === 'editor') showMobileEditor()
+      else openWorkspacePanel(panel)
+    },
+  })
 
   const activeRelativePath = activeTab ? activeFile.path : null
 
@@ -1103,7 +1133,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const lastPanelRef = useRef<RefPanel | null>(null)
   // 플로팅 핸들의 "현재 창 탭" 명령이 가리키는 마지막 탭형 창.
   // 핸들을 누르면 DOM 포커스가 옮겨가므로 포커스 대신 포인터 사용 기록을 따로 둔다.
-  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'terminal' | 'browser' | 'git' | 'sidebar'>('editor')
+  const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'terminal' | 'browser' | 'git' | 'sidebar' | 'tasks'>('editor')
+  const [taskNextTabSignal, setTaskNextTabSignal] = useState(0)
+  const [taskPreviousTabSignal, setTaskPreviousTabSignal] = useState(0)
   const [gitNextTabSignal, setGitNextTabSignal] = useState(0)
   const [gitPreviousTabSignal, setGitPreviousTabSignal] = useState(0)
   const [browserNextTabSignal, setBrowserNextTabSignal] = useState(0)
@@ -1115,7 +1147,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     if (mobileForegroundPanel === 'agent' || mobileForegroundPanel === 'terminal') {
       activeTabbedSurfaceRef.current = mobileForegroundPanel
       lastPanelRef.current = mobileForegroundPanel
-    } else if (mobileForegroundPanel === 'browser' || mobileForegroundPanel === 'git') {
+    } else if (mobileForegroundPanel === 'browser' || mobileForegroundPanel === 'git' || mobileForegroundPanel === 'tasks') {
       activeTabbedSurfaceRef.current = mobileForegroundPanel
     } else if (mobileForegroundPanel === 'sidebar') {
       activeTabbedSurfaceRef.current = 'sidebar'
@@ -1146,6 +1178,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   if (caps.terminal) mobileDockPanels.push('terminal')
   if (caps.git) mobileDockPanels.push('git')
   if (caps.agent && rootProjectPath) mobileDockPanels.push('features')
+  if (caps.filesRead && auth.email && rootProjectPath) mobileDockPanels.push('tasks')
   if (caps.collaboration && auth.email) mobileDockPanels.push('memo')
   const selectDockPanel = (panel: MobileDockPanel, toggle = true) => {
     if (!mobileDockPanels.includes(panel) && !(panel === 'browser' && caps.browser) && !(panel === 'desktop' && caps.desktop)) return
@@ -1179,12 +1212,22 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       openWorkspacePanel(panel)
       if (isDesktop()) {
         setFocusedWorkspacePanel(panel)
-        requestAnimationFrame(() => focusWorkspacePanel(panel))
+        requestAnimationFrame(() => {
+          if (panel === 'memo') memoSession.root.current?.focus({ preventScroll: true })
+          else focusWorkspacePanel(panel)
+        })
       }
     }
   }
   const navigateMobileDock = (direction: -1 | 1, order: MobileDockPanel[]) => {
-    const panel = remoteDesktopOpen ? 'desktop' : mobileForegroundPanel ?? 'editor'
+    const panel = remoteDesktopOpen ? 'desktop' : isDesktop() ? focusedDockPanel : mobileForegroundPanel ?? 'editor'
+    if (!panel) return
+    if (panel === 'tasks' || panel === 'sidebar' || panel === 'agent' || panel === 'terminal' || panel === 'browser' || panel === 'editor' && tabs.length > 0) {
+      activeTabbedSurfaceRef.current = panel
+      if (direction < 0) switchCurrentWindowTabLeft()
+      else switchCurrentWindowTabRight()
+      return
+    }
     const next = adjacentDockPanel(order, panel, direction)
     if (next) selectDockPanel(next, false)
   }
@@ -1207,9 +1250,11 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     if (surface === 'agent' && !agentOpen || surface === 'terminal' && !terminalOpen) surface = 'editor'
     if (surface === 'browser' && !browserOpen) surface = 'editor'
     if (surface === 'git' && !gitOpen) surface = 'editor'
+    if (surface === 'tasks' && !tasksOpen) surface = 'editor'
     if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'browser') { setBrowserNextTabSignal((value) => value + 1); return }
+    if (surface === 'tasks') { setTaskNextTabSignal(value => value + 1); return }
     if (surface === 'git') { setGitNextTabSignal((value) => value + 1); return }
     if (surface === 'agent' || surface === 'terminal') {
       setAgentNextTabSignal((value) => value + 1)
@@ -1223,16 +1268,18 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index + 1) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, terminalOpen, browserOpen, gitOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
+  }, [activePath, agentOpen, terminalOpen, browserOpen, gitOpen, tasksOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
 
   const switchCurrentWindowTabLeft = useCallback(() => {
     let surface = activeTabbedSurfaceRef.current
     if (surface === 'agent' && !agentOpen || surface === 'terminal' && !terminalOpen) surface = 'editor'
     if (surface === 'browser' && !browserOpen) surface = 'editor'
     if (surface === 'git' && !gitOpen) surface = 'editor'
+    if (surface === 'tasks' && !tasksOpen) surface = 'editor'
     if (surface === 'sidebar' && !sidebarOpen) surface = agentOpen ? 'agent' : 'editor'
     activeTabbedSurfaceRef.current = surface
     if (surface === 'browser') { setBrowserPreviousTabSignal((value) => value + 1); return }
+    if (surface === 'tasks') { setTaskPreviousTabSignal(value => value + 1); return }
     if (surface === 'git') { setGitPreviousTabSignal((value) => value + 1); return }
     if (surface === 'agent' || surface === 'terminal') {
       setAgentPreviousTabSignal((value) => value + 1)
@@ -1246,7 +1293,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     const index = tabs.findIndex((tab) => tab.path === activePath)
     if (index < 0) return
     setActivePath(tabs[(index - 1 + tabs.length) % tabs.length].path, focusedPaneId)
-  }, [activePath, agentOpen, terminalOpen, browserOpen, gitOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
+  }, [activePath, agentOpen, terminalOpen, browserOpen, gitOpen, tasksOpen, focusedPaneId, setActivePath, sidebarOpen, switchSidebarTab, tabs])
 
   // 터미널의 Ctrl+L이 우선 사용할 값 — 포커스된 칸의 활성 뷰(hotview/plain)에서 선택된 텍스트를
   // 읽는다. 선택이 없으면 각 패널이 activeFilePath(상대경로)로 폴백한다.
@@ -1307,12 +1354,13 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       sidebar: sidebarOpen,
       chat: chatOpen,
       agent: agentOpen,
-    terminal: terminalOpen,
+      terminal: terminalOpen,
       browser: browserOpen,
       git: gitOpen,
       android: androidOpen,
+      tasks: tasksOpen,
       memo: memoOpen,
-    features: featuresOpen,
+      features: featuresOpen,
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const chrome = value as Record<string, unknown>
@@ -1326,6 +1374,8 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       // 로컬의 방금 연 에이전트를 닫아 버리면 전면 순서를 복원할 수 없으므로, 서버 원장은
       // 데스크톱 배치에만 적용한다. 모바일은 각 패널의 로컬 열림 상태로 시작한다.
       if (isDesktop()) {
+        restoredOpen.tasks = !!auth.email && caps.filesRead && chrome.tasksOpen === true
+        setTasksOpen(restoredOpen.tasks)
         restoredOpen.memo = !!auth.email && caps.collaboration && chrome.memoOpen === true
         setMemoOpen(restoredOpen.memo)
         restoredOpen.features = caps.agent && chrome.featuresOpen === true
@@ -1352,7 +1402,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       // 계정 원장이 처음 비어 있을 때만 이 기기의 기존 화면 상태를 이관한다.
       setWorkspaceUi((previous) => ({
         ...previous,
-        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen },
+        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen, tasksOpen },
       }))
     }
     if (savedMobileForeground && savedMobileForeground !== 'editor') {
@@ -1366,7 +1416,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     }
     chromeStateLoadedRootRef.current = rootProjectPath
     chromeStateRestorePendingRef.current = rootProjectPath
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, memoOpen, caps, auth.email, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, memoOpen, tasksOpen, caps, auth.email, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
 
   useEffect(() => {
     if (!rootProjectPath || !workspaceUiLoaded || isDesktop()) return
@@ -1472,9 +1522,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     }
     setWorkspaceUi((previous) => ({
       ...previous,
-      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen },
+      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen, tasksOpen },
     }))
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, memoOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, memoOpen, tasksOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
 
   const handleRenamed = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -1493,6 +1543,10 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   )
 
   useEffect(() => {
+    function handleCloseTab(e: KeyboardEvent) {
+      if (!matchesShortcut(e, getBinding('closeTab')) && !matchesShortcut(e, getBinding('closeTabAlt'))) return
+      closeFocusedTab(e, () => { if (activePath) closeTab(activePath) })
+    }
     function handleKeyDown(e: KeyboardEvent) {
       // Esc는 useOverlayDismiss 스택이 capture 단계에서 처리한다 (모달 → 터미널 → 사이드바 순)
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
@@ -1578,15 +1632,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.xterm'))) return
         e.preventDefault()
         toggleWorkspacePanel('sidebar')
-      } else if (matchesShortcut(e, getBinding('closeTab'))) {
-        // Ctrl+W를 실제로 닫을 탭이 있을 때만 가로챈다. 포커스된 보조 창에 닫을 탭이 없으면
-        // 에디터로 새지 않고 브라우저 기본 탭 닫기를 양보한다.
-        const result = dispatchFocusedShortcut('closeTab', e)
-        if (result === 'handled') e.preventDefault()
-        else if (result === 'no-scope' && activePath) {
-          e.preventDefault()
-          closeTab(activePath)
-        }
       } else if (matchesShortcut(e, getBinding('newTab'))) {
         if (!caps.filesWrite || !caps.filesRead) return
         // Ctrl+N도 마찬가지로 브라우저 예약 단축키라 가로챌 수 없어 기본값은 Alt+N이다.
@@ -1614,8 +1659,12 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         toggleFullscreen()
       }
     }
+    window.addEventListener('keydown', handleCloseTab, true)
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleCloseTab, true)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
     // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다
   }, [
     saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, activeFile.path, activeFile.project, tabs, setActivePath,
@@ -2172,6 +2221,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                       accountState={rootProjectPath ? accountTreeStates[`sidebar-tree:${isGuest || docsExpanded ? 'docs' : 'root'}:${rootProjectPath}`] : undefined}
                       onAccountStateChange={rootProjectPath ? (state) => saveAccountTreeState(`sidebar-tree:${isGuest || docsExpanded ? 'docs' : 'root'}:${rootProjectPath}`, state) : undefined}
                       workspacePath={rootProjectPath}
+                      openPaths={sidebarOpenPaths[isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT]}
                       selectedPath={activeFile.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? activeFile.path || null : null}
                       revealOnMount={pendingSidebarReveal?.root === rootProjectPath && pendingSidebarReveal?.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) && pendingSidebarReveal?.path === activeFile.path}
                       onRevealHandled={() => setPendingSidebarReveal(null)}
@@ -2248,7 +2298,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
             </div>
             <div
               onPointerDown={startSidebarResize}
-              className="hidden w-1.5 shrink-0 cursor-col-resize touch-none bg-transparent hover:bg-accent md:block"
+              className="hidden w-1 shrink-0 cursor-col-resize touch-none bg-edge hover:bg-accent md:block"
               aria-hidden="true"
             />
           </div>
@@ -2300,6 +2350,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
             openWorkspacePanel('agent')
           }}
         />}</DockPanel>}
+        {rootProjectPath && caps.filesRead && auth.email && <DockPanel id="tasks" kind="tasks" visible={tasksOpen} tabs={['tasks']} mobileSelected onFocus={() => { activeTabbedSurfaceRef.current = 'tasks'; bringWorkspacePanelToFront('tasks') }}>
+          <TaskPanel session={taskSession} nextTabSignal={taskNextTabSignal} previousTabSignal={taskPreviousTabSignal} onClose={() => closeWorkspacePanel('tasks')} />
+        </DockPanel>}
         {caps.collaboration && auth.email && <DockPanel id="memo" kind="memo" visible={memoOpen} tabs={['memo']} mobileSelected onFocus={() => bringWorkspacePanelToFront('memo')}>
           <SharedMemo session={memoSession} open={memoOpen} />
         </DockPanel>}

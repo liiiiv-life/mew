@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./date-value": "./src/date-value.ts",
     "./i18n": "./src/i18n.ts",
     "./i18n-core": "./src/i18n-core.ts",
     "./browser-storage": "./src/browser-storage.ts"

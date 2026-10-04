@@ -87,6 +87,11 @@ export interface EditorDbApi {
 /** 문서 안 표의 등장 순서대로의 열 너비(px). null = 그 표는 저장된 너비 없음 */
 export type TableWidths = (number[] | null)[]
 
+export interface FrontmatterOptionsApi {
+  fetch: (field: string) => Promise<string[] | null>
+  update: (field: string, change: { add: string[]; remove: string[]; seed: string[] }) => Promise<string[]>
+}
+
 export interface EditorApi {
   fetchFile: (path: string) => Promise<{ path: string; content: string; editable: boolean }>
   uploadAsset: (file: File) => Promise<{ url: string; name: string; mimetype: string }>
@@ -94,5 +99,6 @@ export interface EditorApi {
   /** 표 열 너비 — md가 담지 못하는 레이아웃이라 호스트가 본문 밖(.mew/)에 저장한다 */
   fetchTableLayout?: (path: string) => Promise<TableWidths>
   saveTableLayout?: (path: string, tables: TableWidths) => Promise<void>
+  frontmatterOptions?: FrontmatterOptionsApi
   db: EditorDbApi
 }

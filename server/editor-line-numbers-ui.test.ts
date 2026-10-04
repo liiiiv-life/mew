@@ -13,6 +13,8 @@ test('Hotview gutter follows typing, trailing paragraphs and frontmatter on desk
   const ruleContent = '앞 문단\n\n---\n\n뒤 문단';
   const tableContent = '앞 문단\n\n| 이름 | 설명 |\n| --- | --- |\n| 항목 | 내용 |\n\n뒤 문단'
   const listContent = '# Current\n\n기준 문단\n\n- 일반 항목\n- [설정](configuration/MOC.md)\n- [원격 데스크톱 지연·대역폭 개선 연구 — 기준 조사와 세부 구현 확인](research/remote-desktop-latency.md)\n- 상위 항목\n  - [하위](child.md)\n    - 둘째\n      - 셋째\n        - [넷째](deep.md)\n\n앞 문장 [문장 안에서 여러 줄에 걸쳐 자연스럽게 이어지는 긴 내부 파일 링크 설명과 줄바꿈 확인](long.md) 뒤 문장\n\n1. [순서 목록](ordered.md)\n2. 다음 항목\n\n[외부 링크](https://example.com)'
+  const navigationContent = '[문서 규칙](./rules.md)\n\n앞 [문서 규칙](./rules.md) 뒤\n\n[첫 문서](./one.md)[둘째 문서](./two.md)'
+  const taskContent = '- [ ] 첫 항목\n- [x] 완료\n  - [ ] 하위 할 일'
   const editorPath = new URL('../packages/editor/src/Editor.tsx', import.meta.url).pathname
   const source = `
 import React from ${JSON.stringify(import.meta.resolve('react'))};
@@ -21,13 +23,20 @@ import {Editor} from ${JSON.stringify(editorPath)};
 const api={db:{},fetchFile:async()=>({content:''}),fetchLinkPreview:async()=>({title:null,description:null})};
 function Fixture(){
   const [value,setValue]=React.useState(${JSON.stringify(initial)});
+  const [readOnly,setReadOnly]=React.useState(false);
   window.value=value;
   return <><button onClick={()=>setValue(v=>v.replace('title: test','title: test\\nextra: field'))}>Add property</button>
     <button onClick={()=>setValue(${JSON.stringify(codeContent)})}>Load code</button>
     <button onClick={()=>setValue(${JSON.stringify(tableContent)})}>Load table</button>
     <button onClick={()=>setValue(${JSON.stringify(ruleContent)})}>Load rule</button>
     <button onClick={()=>setValue(${JSON.stringify(listContent)})}>Load list</button>
-    <div style={{height:600}}><Editor value={value} onChange={setValue} api={api} path="fixture.md"/></div></>;
+    <button onClick={()=>setValue(${JSON.stringify(navigationContent)})}>Load link navigation</button>
+    <button onClick={()=>setValue('- Tail item')}>Load bullet tail</button>
+    <button onClick={()=>setValue('- [ ] Tail item')}>Load checkbox tail</button>
+    <button onClick={()=>setValue('')}>New task document</button>
+    <button onClick={()=>setValue(${JSON.stringify(taskContent)})}>Load tasks</button>
+    <button onClick={()=>setReadOnly(v=>!v)}>Read-only tasks</button>
+    <div style={{height:600}}><Editor readOnly={readOnly} value={value} onChange={setValue} api={api} path="fixture.md"/></div></>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);`
   const styles: string[] = []
@@ -59,10 +68,11 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       await page.goto('http://mew-gutter.test/')
       const expectNumbers = async (expected: string[]) => {
         await page.waitForFunction(`expected => JSON.stringify(Array.from(document.querySelectorAll('.tiptap [data-mew-line-numbers]'), el => el.getAttribute('data-mew-line-numbers'))) === JSON.stringify(expected)`, expected, { timeout: 5000 })
+        await page.waitForFunction(`Array.from(document.querySelectorAll('.tiptap [data-mew-line-numbers]')).every(el => getComputedStyle(el, '::before').content === JSON.stringify(el.getAttribute('data-mew-line-numbers')))`, undefined, { timeout: 5000 })
         const numbers = await page.locator('.tiptap [data-mew-line-numbers]').evaluateAll(elements => elements.map(el => ({
           number: el.getAttribute('data-mew-line-numbers'), content: el.ownerDocument.defaultView!.getComputedStyle(el, '::before').content,
         })))
-        assert.ok(numbers.every(({ number, content }) => content === `"${number}"`), 'CSS displays the mapped Markdown numbers')
+        assert.ok(numbers.every(({ number, content }) => content === `"${number}"`), `CSS displays the mapped Markdown numbers: ${JSON.stringify(numbers)}`)
       }
       const expectProperties = async (expected: string[]) => {
         assert.deepEqual(await page.locator('.frontmatter-line').evaluateAll(elements => elements.map(el => {
@@ -88,7 +98,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
         }
       })
       assert.ok(Math.abs(fieldGeometry.numberRight - fieldGeometry.bodyNumberRight) < 1, 'frontmatter field numbers align with body numbers')
-      assert.ok(fieldGeometry.labelLeft > fieldGeometry.bodyLeft + 20, 'field content is indented to the right')
+      assert.ok(Math.abs(fieldGeometry.labelLeft - fieldGeometry.bodyLeft - 12) < 1, 'field indentation matches the 12px handle')
       assert.ok(fieldGeometry.handleLeft > fieldGeometry.numberRight, 'handle stays to the right of the number')
       assert.ok(fieldGeometry.handleRight <= fieldGeometry.labelLeft + 1, 'handle does not overlap the field')
 
@@ -203,6 +213,124 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
         assert.equal(await page.evaluate('window.value'), listContent, 'presentation changes preserve Markdown')
         if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/list-links-${theme}-${viewport.width}.png` })
       }
+      for (const index of [0, 1, 2, 3]) {
+        for (const direction of ['left', 'right']) {
+          await page.getByRole('button', { name: 'Load link navigation', exact: true }).click()
+          await page.waitForFunction(`document.querySelectorAll('.tiptap a[data-file-link]').length === 4`)
+          const link = page.locator('.tiptap a[data-file-link]').nth(index)
+          await link.evaluate(async (el, direction) => {
+            const doc = el.ownerDocument
+            ;(el.closest('.tiptap') as typeof el).focus()
+            const range = doc.createRange()
+            if (direction === 'left') range.setStartAfter(el)
+            else range.setStartBefore(el)
+            range.collapse(true)
+            const selection = doc.getSelection()!
+            selection.removeAllRanges(); selection.addRange(range)
+            await new Promise(resolve => doc.defaultView!.requestAnimationFrame(() => doc.defaultView!.requestAnimationFrame(resolve)))
+          }, direction)
+          await page.keyboard.press(direction === 'left' ? 'ArrowLeft' : 'ArrowRight')
+          const caret = await link.evaluate(el => {
+            const selection = el.ownerDocument.getSelection()!
+            const node = selection.anchorNode!
+            const parent = node.nodeType === 3 ? node.parentElement : node as typeof el
+            return { collapsed: selection.isCollapsed, insideLink: !!parent?.closest('a[data-file-link]') }
+          })
+          assert.deepEqual(caret, { collapsed: true, insideLink: false }, `caret stays outside the link after Arrow${direction}`)
+          const label = await link.textContent()
+          await page.keyboard.type('Z')
+          const href = await link.getAttribute('href')
+          await page.waitForFunction(`({label, href, direction}) => window.value.includes(direction === 'left' ? 'Z['+label+']' : '['+label+']('+href+')Z')`, {label, href, direction})
+          assert.equal(await link.textContent(), label, 'navigation and typing preserve the link label')
+        }
+      }
+      for (const name of ['Load bullet tail', 'Load checkbox tail']) {
+        await page.getByRole('button', { name, exact: true }).click()
+        const tail = page.locator('.tiptap > p').last()
+        await tail.click()
+        await expectNumbers(['1', '2'])
+        await page.keyboard.press('Enter')
+        await page.keyboard.press('Backspace')
+        await page.keyboard.press('Backspace')
+        await expectNumbers(['1', '2'])
+        assert.equal(await page.locator('.tiptap > p').count(), 1, 'only the final input line remains')
+        const saved = await page.evaluate('window.value') as string
+        assert.ok(saved.endsWith('\n') && !saved.endsWith('\n\n'), 'source has one final blank line')
+        assert.doesNotMatch(saved, /<br/)
+      }
+      await page.getByRole('button', { name: 'New task document', exact: true }).click()
+      const editable = page.locator('.tiptap')
+      await page.waitForFunction(`document.querySelector('.tiptap').textContent === ''`)
+      await expectNumbers(['1'])
+      const placeholder = await editable.locator('p').first().evaluate(el => ({
+        number: el.ownerDocument.defaultView!.getComputedStyle(el, '::before').content,
+        hint: el.ownerDocument.defaultView!.getComputedStyle(el, '::after').content,
+        text: el.getAttribute('data-placeholder'),
+      }))
+      assert.equal(placeholder.number, '"1"', 'an empty document still shows line 1')
+      assert.equal(placeholder.hint, JSON.stringify(placeholder.text), 'placeholder uses a separate pseudo-element')
+      for (const theme of ['dark', 'light']) {
+        await page.locator('html').evaluate((el, theme) => { el.className = theme }, theme)
+        const gap = await editable.locator('p').first().evaluate(el => {
+          const win = el.ownerDocument.defaultView!
+          const number = win.getComputedStyle(el, '::before'), hint = win.getComputedStyle(el, '::after')
+          return { numberRight: parseFloat(number.left) + parseFloat(number.width), hintLeft: parseFloat(hint.left), hintTop: hint.top }
+        })
+        assert.ok(gap.numberRight < gap.hintLeft, 'line number and placeholder do not overlap')
+        assert.equal(gap.hintTop, '0px', 'placeholder stays on the empty first line')
+        if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/empty-gutter-${theme}-${viewport.width}.png` })
+      }
+      await editable.locator('p').first().click()
+      await page.keyboard.press('Enter')
+      await page.keyboard.press('Enter')
+      await expectNumbers(['1', '3', '5'])
+      assert.equal((await page.evaluate('window.value') as string).match(/<br\/>/g)?.length, 2, 'empty paragraphs are preserved in Markdown')
+      await page.keyboard.type('마지막 문단')
+      await expectNumbers(['1', '3', '5'])
+      await page.keyboard.press('ControlOrMeta+a')
+      await page.keyboard.press('Backspace')
+      await expectNumbers(['1'])
+      await editable.locator('p').first().click()
+      await page.keyboard.type('[] ')
+      assert.equal(await editable.locator('li[data-type="taskItem"]').count(), 1, await editable.innerHTML())
+      await page.keyboard.type('새 할 일')
+      await page.waitForFunction(`window.value.includes('- [ ] 새 할 일')`)
+      const checkbox = editable.locator('input[type="checkbox"]').first()
+      await checkbox.check()
+      await page.waitForFunction(`window.value.includes('- [x] 새 할 일')`)
+      await editable.locator('li[data-type="taskItem"] p').first().click()
+      await page.keyboard.press('End')
+      await page.keyboard.press('Enter')
+      await page.keyboard.type('다음 할 일')
+      assert.equal(await editable.locator('input[type="checkbox"]').count(), 2)
+      assert.equal(await editable.locator('input[type="checkbox"]').nth(1).isChecked(), false)
+      await page.keyboard.press('Tab')
+      assert.equal(await editable.locator('li[data-type="taskItem"] li[data-type="taskItem"]').count(), 1)
+      await page.keyboard.press('Shift+Tab')
+      assert.equal(await editable.locator('li[data-type="taskItem"] li[data-type="taskItem"]').count(), 0)
+      await page.keyboard.press('Enter')
+      await page.keyboard.press('Enter')
+      await page.keyboard.type('일반 문단')
+      assert.equal(await editable.locator(':scope > p').filter({ hasText: '일반 문단' }).count(), 1, 'empty task Enter returns to a paragraph')
+      await page.getByRole('button', { name: 'Load tasks', exact: true }).click()
+      await expectNumbers(['1', '2', '3'])
+      for (const theme of ['dark', 'light']) {
+        await page.locator('html').evaluate((el, theme) => { el.className = theme }, theme)
+        const geometry = await editable.locator('li[data-type="taskItem"]').evaluateAll(items => items.map(item => {
+          const win = item.ownerDocument.defaultView!
+          const box = item.querySelector('input')!.getBoundingClientRect()
+          const text = item.querySelector('p')!.getBoundingClientRect()
+          return { gutter: item.getBoundingClientRect().left + parseFloat(win.getComputedStyle(item, '::before').left), boxRight: box.right, textLeft: text.left }
+        }))
+        assert.ok(geometry.every(item => Math.abs(item.gutter - geometry[0].gutter) < 1), 'task gutter stays aligned at every depth')
+        assert.ok(geometry.every(item => item.boxRight <= item.textLeft), 'checkbox does not overlap the text')
+        if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/tasks-${theme}-${viewport.width}.png` })
+      }
+      await page.getByRole('button', { name: 'Read-only tasks', exact: true }).click()
+      const originalTasks = await page.evaluate('window.value')
+      await editable.locator('input[type="checkbox"]').first().click()
+      assert.equal(await editable.locator('input[type="checkbox"]').first().isChecked(), false)
+      assert.equal(await page.evaluate('window.value'), originalTasks, 'read-only checkboxes preserve content')
       assert.deepEqual(errors, [])
       await page.close()
     }

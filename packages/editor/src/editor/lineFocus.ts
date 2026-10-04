@@ -29,18 +29,18 @@ export function focusedLinePos(state: EditorState): number {
   if ($head.depth < 1) return state.selection instanceof NodeSelection ? state.selection.from : -1
   // 가장 안쪽 항목이 그 줄이다 — 중첩 리스트에서 바깥 항목까지 밝아지면 안 된다
   for (let depth = $head.depth; depth >= 1; depth--)
-    if ($head.node(depth).type.name === 'listItem') return $head.before(depth)
+    if (['listItem', 'taskItem'].includes($head.node(depth).type.name)) return $head.before(depth)
   return $head.before(1)
 }
 
 function isListContainer(node: PMNode): boolean {
-  return node.type.name === 'bulletList' || node.type.name === 'orderedList'
+  return node.type.name === 'bulletList' || node.type.name === 'orderedList' || node.type.name === 'taskList'
 }
 
 function lineRange(node: PMNode, pos: number): { from: number; to: number } {
   // 리스트 항목의 줄 번호는 항목 전체가 아니라 첫 블록(보통 paragraph)에 붙은 번호다.
   // 하위 리스트까지 범위에 넣으면 안쪽 항목만 선택해도 바깥 항목 번호가 같이 켜진다.
-  if (node.type.name !== 'listItem') return { from: pos, to: pos + node.nodeSize }
+  if (!['listItem', 'taskItem'].includes(node.type.name)) return { from: pos, to: pos + node.nodeSize }
   const first = node.firstChild
   if (!first) return { from: pos, to: pos + node.nodeSize }
   return { from: pos, to: Math.min(pos + 1 + first.nodeSize, pos + node.nodeSize) }
@@ -63,7 +63,7 @@ export function selectedLinePositions(state: EditorState): number[] {
 
   const positions: number[] = []
   state.doc.descendants((node, pos, parent) => {
-    const isLineNode = node.type.name === 'listItem' || (parent === state.doc && !isListContainer(node))
+    const isLineNode = (node.type.name === 'listItem' || node.type.name === 'taskItem') || (parent === state.doc && !isListContainer(node))
     if (!isLineNode) return true
     if (intersectsSelection(lineRange(node, pos), selection.from, selection.to)) positions.push(pos)
     return true
@@ -80,7 +80,7 @@ function fallbackLineNumberAttrs(doc: PMNode, lineOffset = 0): LineNumberAttr[] 
   const attrs: LineNumberAttr[] = []
 
   doc.descendants((node, pos, parent) => {
-    const isLineNode = node.type.name === 'listItem' || (parent === doc && !isListContainer(node))
+    const isLineNode = (node.type.name === 'listItem' || node.type.name === 'taskItem') || (parent === doc && !isListContainer(node))
     if (!isLineNode) return true
     attrs.push({ pos, lineNumbers: String(line), lineCount: 1 })
     line++
@@ -117,7 +117,7 @@ function sourceLineCandidates(source: string, lineOffset = 0): SourceLineCandida
 }
 
 function sourceCandidateKind(node: PMNode): SourceLineCandidate['kind'] {
-  if (node.type.name === 'listItem') return 'list'
+  if ((node.type.name === 'listItem' || node.type.name === 'taskItem')) return 'list'
   if (node.type.name === 'codeBlock') return 'code'
   if (node.type.name === 'table') return 'table'
   return 'block'
@@ -142,17 +142,17 @@ function sourceLineNumberAttrs(doc: PMNode, source: string, lineOffset = 0): Lin
   let index = 0
 
   doc.descendants((node, pos, parent) => {
-    const isLineNode = node.type.name === 'listItem' || (parent === doc && !isListContainer(node))
+    const isLineNode = (node.type.name === 'listItem' || node.type.name === 'taskItem') || (parent === doc && !isListContainer(node))
     if (!isLineNode) return true
     const kind = sourceCandidateKind(node)
     let nextIndex = index
     while (nextIndex < candidates.length && candidates[nextIndex].kind !== kind) nextIndex++
     const candidate = candidates[nextIndex]
     if (!candidate) {
-      // 저장에서 제외되는 마지막 입력용 문단은 다음 Markdown 블록의 시작 줄이다.
+      // 마지막 입력용 문단은 저장된 마지막 줄바꿈 다음의 빈 줄이다.
       if (parent === doc && node === doc.lastChild && node.type.name === 'paragraph' && !node.textContent) {
         const lastContentLine = source.trimEnd().split('\n').length + normalizedLineOffset(lineOffset)
-        attrs.push({ pos, lineNumbers: String(source.trim() ? lastContentLine + 2 : 1 + normalizedLineOffset(lineOffset)), lineCount: 1 })
+        attrs.push({ pos, lineNumbers: String(source.trim() ? lastContentLine + 1 : 1 + normalizedLineOffset(lineOffset)), lineCount: 1 })
       }
       return true
     }
@@ -177,10 +177,10 @@ function sourceLineNumberAttrs(doc: PMNode, source: string, lineOffset = 0): Lin
  */
 export function listLevel(doc: PMNode, pos: number): number {
   if (pos < 0 || pos > doc.content.size) return 0
-  if (doc.nodeAt(pos)?.type.name !== 'listItem') return 0
+  if (!['listItem', 'taskItem'].includes(doc.nodeAt(pos)?.type.name ?? '')) return 0
   const $pos = doc.resolve(pos)
   let level = 1
-  for (let depth = 1; depth <= $pos.depth; depth++) if ($pos.node(depth).type.name === 'listItem') level++
+  for (let depth = 1; depth <= $pos.depth; depth++) if (['listItem', 'taskItem'].includes($pos.node(depth).type.name)) level++
   return level
 }
 

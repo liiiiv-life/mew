@@ -1,12 +1,12 @@
 ---
-title: "브라우저·Android·원격 데스크톱 기능 지도"
+title: "브라우저·Android·원격 데스크톱"
 created: 2026-09-18
-updated: 2026-09-18
+updated: 2026-10-04
 ---
 
 # 브라우저·Android·원격 데스크톱
 
-상위: [전체 기능](../MOC.md) · [상위 기능](../remote.md).
+상위: [기능 홈](../MOC.md) · [브라우저·Android·원격 데스크톱 개요](../remote.md).
 
 ## Current
 

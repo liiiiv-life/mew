@@ -11,6 +11,7 @@ import { createSubproject, projectDirectory, subprojectToOpen } from './subproje
 import { discoverCloudStorage } from './cloud-storage.ts'
 import { changeFileFavorite, listFileFavorites } from './file-favorites.ts'
 import express from 'express'
+import { createTaskListRouter } from './task-list-routes.ts'
 import { createRemoteDesktopRoutes } from './remote-desktop.ts'
 import multer from 'multer'
 import { GitError } from 'simple-git'
@@ -47,6 +48,7 @@ import { createTmuxManager, createTmuxRouter } from '@mew/tmux-term/server'
 import { CmdButtonError, commandSessionName, normalizeCmdButtons, oneShotCommand, readCmdButtons, writeCmdButtons } from './cmdButtons.ts'
 import { normalizeTermButtons, readTermButtons, TermButtonError, writeTermButtons } from './termButtons.ts'
 import { readTableLayout, TableLayoutError, writeTableLayout } from './tableLayout.ts'
+import { readFrontmatterOptions, updateFrontmatterOptions, FrontmatterOptionsError } from './frontmatter-options.ts'
 import { ChatError, listChatFor, markChatRead, mentionedEmails, postChatMessage } from './chat.ts'
 import { addComment, addThread, CommentsError, deleteComment, editComment, listThreads } from './comments.ts'
 import { createDbRouter } from './db/routes.ts'
@@ -75,7 +77,7 @@ import { createDomBrowserAuthSession, createDomBrowserRoutes, closeDomBrowserJob
 import { createTodo, deleteTodo, listTodos, TodoError, updateTodo, type TodoChange } from './todos.ts'
 import { currentWorkspace, switchDocsRoot, switchWorkspace, WorkspaceError } from './workspace.ts'
 import { collectSystemStats } from './sysStats.ts'
-import { MEW_APP_ROOT, MEW_UPDATE_SESSION, mewUpdateStatus, writeMewUpdateJob } from './mewUpdate.ts'
+import { MEW_APP_ROOT, MEW_UPDATE_SESSION, mewUpdateStatus, needsMewUpdate, writeMewUpdateJob } from './mewUpdate.ts'
 import { androidCommandById, collectAndroidEnvStatus } from './androidEnv.ts'
 import { listSkills } from './skills.ts'
 import { createAgentHarnessRouter } from './agent-harness-routes.ts'
@@ -368,6 +370,8 @@ function filePermissionMiddleware(req: express.Request, res: express.Response, n
     allowed = fileAccess(auth, project, body.relPath).edit
   } else if (route === '/upload' || route === '/upload-into' || route === '/project-icon' || route === '/project-layout') {
     allowed = canUse(auth, 'filesWrite') && canUse(auth, 'filesRead')
+  } else if (route === '/frontmatter-options') {
+    allowed = unrestrictedFiles(auth, project, write)
   } else if (route.startsWith('/git/')) {
     allowed = unrestrictedFiles(auth, project, write)
   } else if (route === '/db' || route.startsWith('/db/')) {
@@ -384,6 +388,7 @@ export function createApiApp() {
   app.use('/presence/history', createPresenceHistoryRouter())
   app.use((_req, res, next) => { res.setHeader('Cache-Control', 'private, no-store'); next() })
   app.use(filePermissionMiddleware)
+  app.use('/task-list', createTaskListRouter())
   app.use((req, res, next) => {
     if ((req.headers['x-mew-git-owner'] && req.headers['x-mew-git-owner'] !== encodeURIComponent(authOf(req).email ?? '')) || (req.headers['x-mew-git-workspace'] && req.headers['x-mew-git-workspace'] !== encodeURIComponent(WORKSPACE_ROOT))) { res.status(409).json({ error: '계정 또는 프로젝트가 변경되었습니다. 다시 실행하세요.' }); return }
     gitRequestContext.run({ owner: authOf(req).email, workspace: WORKSPACE_ROOT }, next)
@@ -612,7 +617,7 @@ export function createApiApp() {
         res.status(404).json({ error: '해당 mew 작업을 찾을 수 없습니다' })
         return
       }
-      const running = (await tmuxManager.list()).some((session) => session.name === action.session)
+      const running = (await tmuxManager.list()).some((session) => Object.values(MEW_ACTIONS).some(action => action.session === session.name))
       if (running) {
         res.status(409).json({ error: '이미 실행 중입니다' })
         return
@@ -627,13 +632,19 @@ export function createApiApp() {
           res.status(409).json({ error: '이 서버는 외부 supervisor가 관리 중이라 화면에서 재시작할 수 없습니다' })
           return
         }
-        if (!status.available) {
+        if (!needsMewUpdate(status.available, status.job)) {
           res.status(409).json({ error: '이미 최신 버전입니다' })
           return
         }
         writeMewUpdateJob({ state: 'queued', startedAt: Date.now(), finishedAt: null, message: null })
       }
-      await tmuxManager.runCommand(action.session, oneShotCommand(action.command, action.session), MEW_APP_ROOT)
+      try {
+        // Start the worker directly; interactive shell startup must not swallow the command.
+        await tmuxManager.startCommand(action.session, oneShotCommand(action.command, action.session), MEW_APP_ROOT)
+      } catch (err) {
+        if (id === 'update') writeMewUpdateJob({ state: 'failed', startedAt: Date.now(), finishedAt: Date.now(), message: err instanceof Error ? err.message : String(err) })
+        throw err
+      }
       res.json({ ok: true, session: action.session })
     } catch (err) {
       handleError(res, err)
@@ -1814,6 +1825,15 @@ export function createApiApp() {
     }
   })
 
+  app.get('/frontmatter-options', (req, res) => {
+    try { res.json({ options: readFrontmatterOptions(projectOf(req), req.query.field) }) }
+    catch (error) { handleError(res, error) }
+  })
+  app.post('/frontmatter-options', requireAuthenticated, (req, res) => {
+    try { res.json({ options: updateFrontmatterOptions(projectOf(req), req.body.field, req.body) }) }
+    catch (error) { handleError(res, error) }
+  })
+
   // 표 열 너비 — 마크다운이 담지 못하는 레이아웃이라 <프로젝트>/.mew/table-layout.json에 따로 둔다.
   // 본문(.md)은 건드리지 않으므로 저장·불러오기가 실패해도 문서 자체는 멀쩡하다.
   app.get('/table-layout', (req, res) => {
@@ -2664,6 +2684,7 @@ export function createApiApp() {
 }
 
 function handleError(res: express.Response, err: unknown) {
+  if (err instanceof FrontmatterOptionsError) { res.status(400).json({ error: err.message }); return }
   if (err instanceof GitConnectionError) { res.status(err.status).json({ error: err.message, code: err.code, owner: authOf(res.req).email, workspace: gitRequestContext.getStore()?.workspace ?? WORKSPACE_ROOT }); return }
   if (err instanceof GuidanceError) {
     res.status(err.status).json({ error: err.message })

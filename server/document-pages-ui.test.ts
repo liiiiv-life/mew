@@ -107,7 +107,7 @@ test('Documents pages navigate in place, open modifier tabs, and preserve edits 
   assert.equal(await active(), 'mew:file:docs/dev/MOC.md')
   assert.equal(await count(), 1, 'ordinary parent click replaces the current tab')
   assert.equal(fs.readFileSync(path.join(root, 'notes.md'), 'utf8'), 'Notes edited before leaving', 'navigation saves the draft before replacing its tab')
-  const disclosure = page.getByRole('button', { name: 'dev 하위 문서', exact: true })
+  const disclosure = page.getByRole('button', { name: 'Dev 하위 문서', exact: true })
   await disclosure.click()
   assert.equal(await active(), 'mew:file:docs/dev/MOC.md', 'disclosure only changes the child list')
   assert.equal(await page.locator('[data-path="dev/MOC.md"]').count(), 0, 'representative is hidden')
@@ -120,7 +120,7 @@ test('Documents pages navigate in place, open modifier tabs, and preserve edits 
   await page.getByRole('textbox', { name: '문서 본문' }).filter({ hasText: 'Notes edited before leaving' }).waitFor()
   assert.equal(await count(), 3, 'Cmd click retains a separate tab')
   await page.getByRole('textbox', { name: '문서 본문' }).fill('Edited notes [dev](dev/MOC.md)')
-  await page.getByRole('button', { name: 'notes에 하위 문서 추가', exact: true }).click()
+  await page.getByRole('button', { name: 'Notes에 하위 문서 추가', exact: true }).click()
   const input = page.getByPlaceholder('새 문서 이름')
   await input.fill('child'); await input.press('Enter')
   await promotionStarted

@@ -71,8 +71,8 @@ test('closing the last panel preserves tabs for reopening without preserving an 
   assert.ok(!closed.groups.some((group) => group.id === 'agent:split'))
 })
 
-test('memo layouts persist and retired task groups disappear without losing neighboring panels', () => {
+test('memo and task layouts persist without losing neighboring panels', () => {
   const state = normalizeDock({ version: 1, groups: [{ id: 'memo', kind: 'memo' }, { id: 'tasks', kind: 'tasks' }, { id: 'editor', kind: 'editor' }], tree: { axis: 'row', ratio: .5, first: { id: 'tasks' }, second: { axis: 'row', ratio: .5, first: { id: 'memo' }, second: { id: 'editor' } } } })
-  assert.deepEqual(state.groups.map(g => g.id), ['memo', 'editor'])
-  assert.deepEqual(dockIds(state.tree), ['memo', 'editor'])
+  assert.deepEqual(state.groups.map(g => g.id), ['memo', 'tasks', 'editor'])
+  assert.deepEqual(dockIds(state.tree), ['tasks', 'memo', 'editor'])
 })

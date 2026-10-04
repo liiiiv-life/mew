@@ -1,7 +1,7 @@
 ---
 title: "Development setup and rules"
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-03
 ---
 
 # Development
@@ -33,6 +33,8 @@ For feature work, start with the [feature map](../features/MOC.md), also availab
 ### Required UI rules
 
 **Keep working UI compact.** Avoid decorative whitespace, stacked container padding, and unnecessary minimum heights. Reduce outer spacing before shrinking readable text or usable click/touch targets. Follow the [spacing and information density rules](ui-contracts.md#디자인-지침-여백과-정보-밀도).
+
+**Prefer icon buttons for familiar actions.** Close, refresh, copy, cancel, and disconnect controls should normally use the established icon set with a translated accessible name and a shared tooltip. Keep short text where an icon alone makes the primary action or its consequences unclear. Use small padding and gaps by default; see the [UI button and spacing contract](ui-contracts.md#디자인-지침-여백과-정보-밀도).
 
 **Do not add permanent instructions, shortcut hints, or explanatory copy that repeats what the interface already makes clear.** Use the button or field label when it is enough. Show additional information where it helps someone decide or recover from an error. See [UI copy](ui-contracts.md#%ED%99%94%EB%A9%B4-%EB%AC%B8%EA%B5%AC).
 

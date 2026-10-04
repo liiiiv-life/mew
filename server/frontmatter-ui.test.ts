@@ -15,11 +15,19 @@ import React from ${JSON.stringify(import.meta.resolve('react'))};
 import {createRoot} from ${JSON.stringify(import.meta.resolve('react-dom/client'))};
 import {FrontmatterPanel} from ${JSON.stringify(path.join(root, 'packages/editor/src/editor/FrontmatterPanel.tsx'))};
 import {splitFrontmatter,joinFrontmatter} from ${JSON.stringify(path.join(root, 'packages/editor/src/utils/frontmatter.ts'))};
+const shared = new Map();
+const optionsApi = {fetch: async key => shared.get(key) ?? null, update: async (key, change) => {
+ await new Promise(resolve => setTimeout(resolve, 10));
+ if(window.failOptions) throw new Error('Could not save options');
+ const next = [...new Set([...(shared.get(key) ?? change.seed), ...change.add])].filter(v => !change.remove.includes(v));
+ shared.set(key, next); return next;
+}};
 function Fixture(){
- const [value,setValue]=React.useState(${JSON.stringify(initial)}), [epoch,setEpoch]=React.useState(0), [readOnly,setReadOnly]=React.useState(false);
+ const [current,setCurrent]=React.useState(${JSON.stringify(initial)}), [other,setOther]=React.useState('---\\ntitle: Other\\nstatus: \"\" # mew:field {\"type\":\"select\"}\\n---\\n\\nBody'), [documentName,setDocumentName]=React.useState('current'), [epoch,setEpoch]=React.useState(0), [readOnly,setReadOnly]=React.useState(false);
+ const value = documentName === 'current' ? current : other, setValue = documentName === 'current' ? setCurrent : setOther;
  const {frontmatter, lineNumbers}=splitFrontmatter(value); window.saved=value; window.open=(...args)=>{window.external=args;return null;};
- return <><button onClick={()=>setEpoch(e=>e+1)}>Reload</button><button onClick={()=>setReadOnly(r=>!r)}>Read-only</button>
- <div className="editor-root" style={{height:650,overflow:'auto'}}><FrontmatterPanel key={epoch} data={frontmatter} lineNumbers={lineNumbers} docPath="docs/current.md" readOnly={readOnly} onChange={next=>setValue(joinFrontmatter(next,'Body'))} onOpenLink={p=>window.opened=p}/></div></>;
+ return <><button onClick={()=>setDocumentName(name=>name==='current'?'other':'current')}>Other document</button><button onClick={()=>setEpoch(e=>e+1)}>Reload</button><button onClick={()=>setReadOnly(r=>!r)}>Read-only</button>
+ <div className="editor-root" style={{height:650,overflow:'auto'}}><FrontmatterPanel key={epoch} data={frontmatter} lineNumbers={lineNumbers} docPath={documentName+'.md'} optionsApi={optionsApi} readOnly={readOnly} onChange={next=>setValue(joinFrontmatter(next,'Body'))} onOpenLink={p=>window.opened=p}/></div></>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);`
   const candidates = [source]
@@ -94,6 +102,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       await menu.getByRole('textbox', { name: '새 선택 항목' }).fill('Archive')
       await menu.getByRole('button', { name: '추가', exact: true }).click()
       await menu.getByRole('button', { name: 'Archive 항목 삭제' }).click()
+      await page.waitForFunction(`!window.saved.includes('Archive')`)
       assert.ok(!(await page.evaluate('window.saved') as string).includes('Archive'))
       const snapshot = await page.evaluate('window.saved')
       await page.keyboard.press('Escape')
@@ -110,12 +119,51 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       await page.keyboard.press('Escape')
       await rows.last().getByRole('button', { name: 'status', exact: true }).click()
       const choices = page.getByRole('dialog', { name: 'status', exact: true })
-      await choices.getByRole('button', { name: 'Draft', exact: true }).click()
+      await choices.getByRole('option', { name: 'Draft', exact: true }).click()
       assert.ok((await page.evaluate('window.saved') as string).includes('Published'))
-      assert.equal(await choices.getByRole('button', { name: 'Draft', exact: true }).getAttribute('aria-pressed'), 'true')
+      assert.equal(await choices.getByRole('option', { name: 'Draft', exact: true }).getAttribute('aria-selected'), 'true')
       await page.keyboard.press('Escape')
       await page.getByRole('button', { name: 'Reload', exact: true }).click()
       assert.equal(await rows.last().getByRole('button', { name: 'status' }).textContent(), 'PublishedDraft')
+      await rows.last().getByRole('button', { name: 'status', exact: true }).click()
+      const search = choices.getByRole('combobox', { name: '검색 또는 새 항목' })
+      await search.fill('Review')
+      await search.press('Enter')
+      await page.waitForFunction(`window.saved.includes('Review')`)
+      await search.fill('Review')
+      assert.equal(await choices.getByRole('option', { name: '“Review” 추가' }).count(), 0, 'existing names are not duplicated')
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: 'Other document', exact: true }).click()
+      await rows.first().getByRole('combobox', { name: 'status', exact: true }).click()
+      await page.getByRole('option', { name: 'Review', exact: true }).waitFor()
+      await page.getByRole('combobox', { name: '검색 또는 새 항목' }).fill('Approved')
+      await page.getByRole('option', { name: '“Approved” 추가', exact: true }).click()
+      await page.waitForFunction(`window.saved.includes('status: "Approved"')`)
+      await page.getByRole('button', { name: 'Reload', exact: true }).click()
+      assert.equal(await rows.first().getByRole('combobox', { name: 'status', exact: true }).textContent(), 'Approved')
+      await page.getByRole('button', { name: 'Other document', exact: true }).click()
+      await rows.last().getByRole('button', { name: 'status', exact: true }).click()
+      await choices.getByRole('option', { name: 'Approved', exact: true }).waitFor()
+      for (const theme of ['dark', 'light']) {
+        await page.locator('html').evaluate((el, theme) => { el.className = theme }, theme)
+        const bounds = (await choices.boundingBox())!
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1 && bounds.y >= 0 && bounds.y + bounds.height <= 844)
+        if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/frontmatter-select-${width}-${theme}.png` })
+      }
+      await search.fill('조합중')
+      const beforeComposition = await page.evaluate('window.saved')
+      await search.evaluate(el => {
+        const Keyboard = el.ownerDocument.defaultView!.KeyboardEvent
+        el.dispatchEvent(new Keyboard('keydown', { key: 'Enter', isComposing: true, bubbles: true }))
+      })
+      assert.equal(await page.evaluate('window.saved'), beforeComposition)
+      await page.evaluate('window.failOptions = true')
+      await search.fill('Failed')
+      await search.press('Enter')
+      await page.getByRole('alert').waitFor()
+      assert.ok(!(await page.evaluate('window.saved') as string).includes('Failed'))
+      await page.evaluate('window.failOptions = false')
+      await page.keyboard.press('Escape')
       await openMenu()
       await menu.getByRole('button', { name: '텍스트', exact: true }).click()
       assert.ok(await rows.last().getByRole('textbox', { name: 'status' }).inputValue(), 'changing type retains all selections')

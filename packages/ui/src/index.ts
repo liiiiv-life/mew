@@ -1,5 +1,6 @@
 export { ConfirmDialog } from './ConfirmDialog'
 export { DialogFrame } from './dialog-frame'
+export { DateField } from './date-field'
 export { SelectField, type SelectOption } from './select-field'
 export { ColorPicker, type ColorPickerProps } from './color-picker'
 export { useDialog } from './use-dialog'
