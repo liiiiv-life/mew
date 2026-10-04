@@ -1,26 +1,35 @@
 ---
-title: "mew 문서 지도"
-created: 2026-09-11
-updated: 2026-09-29
+title: "mew"
+created: "2026-09-11"
+updated: "2026-10-04"
 ---
 
-# mew 문서 지도
+# mew
 
-[소개·언어 선택](../README.md) 또는 [한국어 사용법](guides/getting-started-ko.md)에서 시작하고 필요한 주제만 읽는다. 코드 작업 전 [실행·검증 규칙](development/getting-started.md)을 확인한다.
-결정 배경은 [중앙 ADR 지도](../../.mew/docs/decisions/mew/MOC.md), 공통 배치는 [문서 규칙](../../.mew/docs/README.md)을 따른다.
+처음 쓰는 사람은 [소개·언어 선택](../README.md) 또는 [한국어 사용법](guides/getting-started-ko.md)에서 시작한다. 구현 작업을 맡은 에이전트는 필요한 영역만 고르고, 코드 작업 전 [실행·검증 규칙](development/getting-started.md)을 확인한다.
+
+결정 배경은 [mew 결정 기록](../../.mew/docs/decisions/mew/MOC.md), 공통 문서 배치는 [Liiiiv 문서 규칙](../../.mew/docs/README.md)을 따른다. Documents 화면에서는 이 파일이 `docs`의 대표 문서다.
 
 ## Current
 
-- [기능 목록·계층·구현 연결](features/MOC.md)
+- [기능](features/MOC.md)
 
 - [설정](configuration/MOC.md)
+
 - [배포](deployment/MOC.md)
+
 - [개발 계약](development/MOC.md)
+
 - [사용법](guides/MOC.md)
+
 - [운영](operations/MOC.md)
+
 - [제품 스펙](specs/MOC.md)
+
 - [진행 작업](work/MOC.md)
+
 - [원격 데스크톱 지연·대역폭 개선 연구 — 기준 조사](research/remote-desktop-latency.md)
+
 - [원격 데스크톱 최초 화면 표시 시간 단축 연구 — 일부 구현](research/remote-desktop-startup.md)
 
 ## History / raw
