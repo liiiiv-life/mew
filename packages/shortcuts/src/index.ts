@@ -159,4 +159,4 @@ function subscribe(listener: () => void): () => void {
 export function useShortcutBindings(): Overrides {
   return useSyncExternalStore(subscribe, getBindings, getBindings)
 }
-export { dispatchFocusedShortcut, useFocusedShortcutScope, type FocusedShortcutHandlers } from './focusedShortcutScope'
+export { closeFocusedTab, dispatchFocusedShortcut, useFocusedShortcutScope, type FocusedShortcutHandlers } from './focusedShortcutScope'

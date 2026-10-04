@@ -6,6 +6,7 @@
   { "id": "toggleTerminalAlt", "category": "전역", "label": "터미널 열기/닫기 (대체)", "keys": "Alt+T", "editable": true },
   { "id": "toggleSidebar", "category": "전역", "label": "사이드바 열기/닫기", "keys": "Ctrl+B", "editable": true },
   { "id": "closeTab", "category": "전역", "label": "탭 닫기", "keys": "Ctrl+W", "editable": true },
+  { "id": "closeTabAlt", "category": "전역", "label": "탭 닫기 (대체)", "keys": "Alt+W", "editable": true },
   { "id": "newTab", "category": "전역", "label": "새 파일", "keys": "Alt+N", "editable": true },
   { "id": "prevTab", "category": "전역", "label": "이전 탭", "keys": "Ctrl+Alt+ArrowLeft", "editable": true },
   { "id": "nextTab", "category": "전역", "label": "다음 탭", "keys": "Ctrl+Alt+ArrowRight", "editable": true },
