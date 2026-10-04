@@ -103,8 +103,11 @@ export function AgentQuotaBattery({ runtime, account, enabled }: { runtime: stri
       {windows.length ? [...windows].sort((a, b) => a.windowMinutes - b.windowMinutes).map((row, index) => {
         const valid = !row.resetsAt || Date.parse(row.resetsAt) > now
         return <div key={index} className="mb-2 last:mb-0">
-          <div className="flex items-center justify-between gap-2"><span>{period(row)}</span><span className="shrink-0 tabular-nums">{valid ? `${Math.floor(row.remainingPercent)}%` : '—'}</span></div>
-          <div className="my-1 h-1 overflow-hidden rounded-full bg-surface-deep"><div className="h-full rounded-full bg-accent" style={{ width: valid ? `${row.remainingPercent}%` : '0%' }} /></div>
+          <div className="flex items-center gap-2">
+            <span className="max-w-[50%] truncate" title={period(row)}>{period(row)}</span>
+            <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-deep"><div className="h-full rounded-full bg-accent" style={{ width: valid ? `${row.remainingPercent}%` : '0%' }} /></div>
+            <span className="shrink-0 tabular-nums">{valid ? `${Math.floor(row.remainingPercent)}%` : '—'}</span>
+          </div>
           {row.resetsAt && <div className="text-ink-secondary">{c.reset} {new Date(row.resetsAt).toLocaleString(locale)}</div>}
         </div>
       }) : <div className="text-ink-secondary">{c.unavailable}</div>}
