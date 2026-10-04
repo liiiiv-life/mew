@@ -2,7 +2,7 @@
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
   "시작 전": ["Not started", "尚未开始", "開始前"],
-  "일정 없음": ["No schedule", "无日程", "予定なし"],
+  "날짜 설정": ["Set dates", "设置日期", "日付を設定"],
   "완료일": ["Due date", "完成日", "完了日"],
   "새 문서": ["New document", "新文档", "新しい文書"],
   "문서 홈": ["Documents home", "文档主页", "文書ホーム"],

@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { Calendar, Xmark, RefreshDouble, Trash, Plus, List, StatsUpSquare } from 'iconoir-react'
 import { TaskDateStatus } from './task-date-status'
 import { useUiLocale } from '@mew/ui/i18n'
@@ -10,6 +10,7 @@ import { uuid } from '../utils/uuid'
 import { useTaskDrag } from '../hooks/use-task-drag'
 import { createPortal } from 'react-dom'
 import { localToday } from '@mew/ui/date-value'
+import { sortTasksByDateStatus } from '../utils/task-date-label'
 import { tasksOnDate } from '../utils/task-schedule'
 import { TaskCalendar } from './task-calendar'
 import { TaskGantt } from './task-gantt'
@@ -53,10 +54,19 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   const [selectedDate, setSelectedDate] = useState(localToday), [month, setMonth] = useState(() => localToday().slice(0, 7))
   const inputs = useRef(new Map<string, HTMLTextAreaElement>()).current
   const { tasks, canEdit, loading, saving, error, draft, edit, setDraft, flush, retry } = session
+  const [today, setToday] = useState(localToday)
+  useEffect(() => {
+    const refresh = () => setToday(localToday())
+    const timer = window.setInterval(refresh, 30_000)
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh) }
+  }, [])
+  const sortedTasks = useMemo(() => sortTasksByDateStatus(tasks, today), [tasks, today])
   const depths = taskDepths(tasks)
-  const drag = useTaskDrag(tasks, canEdit, edit)
+  const drag = useTaskDrag(view === 'list' ? sortedTasks : tasks, canEdit, edit)
   const createTask = (text: string, parentId?: string | null): TaskItem => ({ ...newTask(text, parentId), ...(view === 'calendar' ? { startDate: selectedDate, date: selectedDate } : {}) })
-  const visibleTasks = view === 'calendar' ? tasksOnDate(tasks, selectedDate) : tasks
+  const visibleTasks = view === 'calendar' ? tasksOnDate(tasks, selectedDate) : sortedTasks
   const focus = (id: string, position: number | 'end' = 0) => requestAnimationFrame(() => {
     const input = inputs.get(id)
     if (!input) return
@@ -134,7 +144,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
             onChange={event => edit(tasks.map(task => task.id === item.id ? { ...task, done: event.target.checked } : task))} /></label>
           <div className="task-content"><TaskText id={item.id} text={item.text} disabled={!canEdit} inputs={inputs}
             onChange={text => update(item.id, text)} onKeyDown={event => keyDown(event, index)} onPaste={event => paste(event, index)} onBlur={() => void flush()} /></div>
-          <TaskDateStatus task={item} readOnly={!canEdit} onChange={(field, value) => edit(tasks.map(task => task.id === item.id ? setTaskDate(task, field, value) : task))} />
+          <TaskDateStatus task={item} today={today} readOnly={!canEdit} onChange={(field, value) => edit(tasks.map(task => task.id === item.id ? setTaskDate(task, field, value) : task))} />
           {canEdit && <button type="button" onClick={() => addChild(index)} disabled={tasks.length >= TASK_LIMIT} aria-label={uiText('하위 태스크 추가')} data-tip={uiText('하위 태스크 추가')}
             className="task-delete flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-ink"><Plus width={14} height={14} aria-hidden="true" /></button>}
           {canEdit && <button type="button" onClick={() => remove(index)} aria-label={uiText('태스크 삭제')} data-tip={uiText('태스크 삭제')}
