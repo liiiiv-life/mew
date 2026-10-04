@@ -5,7 +5,7 @@ title: "태스크 패널·목록·달력·간트"
 status: "changed"
 created: "2026-10-03"
 updated: "2026-10-04"
-files: ["src/components/task-panel.tsx", "src/components/task-range-calendar.tsx", "shared/task-rollup.ts", "src/components/task-calendar.tsx", "src/components/task-gantt.tsx", "src/utils/task-schedule.ts", "src/utils/task-timeline.ts", "src/hooks/use-task-list.ts", "src/hooks/use-task-drag.ts", "src/utils/task-list-session.ts", "shared/task-list.ts", "packages/ui/src/date-field.tsx", "packages/ui/src/date-field.css", "server/task-list.ts", "server/task-list-routes.ts", "src/App.tsx"]
+files: ["src/components/task-panel.tsx", "src/components/task-disclosure.tsx", "src/utils/task-collapse.ts", "src/components/task-range-calendar.tsx", "shared/task-rollup.ts", "src/components/task-calendar.tsx", "src/components/task-gantt.tsx", "src/utils/task-schedule.ts", "src/utils/task-timeline.ts", "src/hooks/use-task-list.ts", "src/hooks/use-task-drag.ts", "src/utils/task-list-session.ts", "shared/task-list.ts", "packages/ui/src/date-field.tsx", "packages/ui/src/date-field.css", "server/task-list.ts", "server/task-list-routes.ts", "src/App.tsx"]
 commits: []
 ---
 
@@ -17,7 +17,8 @@ commits: []
 - 항목마다 고유 ID·내용·완료 여부를 가진 독립 객체를 저장한다. 계층과 날짜 외 추가 속성은 다루지 않는다.
 - 마지막 추가 행은 문구 없이 가로 중앙의 +만 표시한다. 클릭·키보드 포커스로 바로 입력하고 Enter로 다음 항목을 이어 쓴다.
 - 기존 내용은 인라인 수정·줄 나누기·여러 줄 붙여넣기·빈 줄 Backspace 삭제를 지원한다.
-- 삭제 버튼 왼쪽 +로 하위 항목을 만들고 바로 입력한다. 부모 이동은 자손을 함께 옮기며 부모 삭제는 자식을 한 단계 올려 보존한다.
+- 하위 항목이 있는 행의 체크박스 왼쪽 버튼으로 접고 펼친다. 접으면 모든 단계의 하위 행을 숨기고 펼치면 다시 표시하며, 안쪽 항목의 접힘 상태는 유지한다. 목록·달력·간트에서 같은 접힘 상태를 사용한다.
+- 삭제 버튼 왼쪽 +로 하위 항목을 만들고 바로 입력한다. 접힌 부모는 새 하위 입력을 위해 자동으로 펼친다. 부모 이동은 자손을 함께 옮기며 부모 삭제는 자식을 한 단계 올려 보존한다.
 - 하위 항목이 있는 태스크의 일정은 모든 단계의 하위 일정 중 가장 이른 시작일–가장 늦은 종료일로 자동 계산하며 중간 빈 날짜도 포함한다. 상위 날짜는 읽기 전용이고 내용·완료는 편집할 수 있다.
 - 하위 항목이 없는 태스크의 시작일·완료일을 지정하고 기간을 저장한다. + 버튼 왼쪽 날짜 상태는 시작일이 미래이면 회색 `시작 전`, 시작한 일정은 완료일 기준 `D-n`·`D-Day`·빨간색 `D+n`으로 표시한다. 클릭하면 팝오버에 통합된 기간 선택 달력을 연다. 첫 클릭은 시작일, 이후 날짜 클릭은 종료일이며 같거나 이른 날짜를 누르면 시작일을 다시 정하고 종료일 선택을 기다린다.
 - 타이틀바의 목록·달력·간트 탭과 하단 독의 좌우 스와이프로 보기를 순환하며 같은 태스크 데이터를 편집한다.
@@ -38,6 +39,8 @@ commits: []
 
 ## 구현 내용
 
+- 2026-10-04 공통 `TaskDisclosure`와 `hiddenTaskIds`로 체크박스 앞의 접기/펼치기 버튼을 연결했다. 패널이 열린 동안 보기 전환에도 접힘 상태를 유지하며 읽기 전용 사용자도 조작한다. 숨긴 자손은 저장·상위 기간 계산·서브트리 이동에 계속 포함하고 간트의 이름/막대 행은 함께 접는다.
+
 - 2026-10-04 `taskRollups`로 상위 기간을 자동 계산하고 목록 상태·정렬·달력·간트에 공통 적용했다. 상위의 자체 저장 날짜는 무시하며 모든 자손 날짜가 없으면 날짜 없음이다. 상위 기간의 날짜 선택/삭제·간트 이동/리사이즈/그리기를 막고 서버도 직접 날짜 변경을 거부한다. 파생 날짜는 별도 저장하지 않아 하위 수정·삭제·계층 변경에 즉시 반영한다.
 
 - 2026-10-04 목록·간트 팝오버의 두 달력 버튼과 날짜 입력을 `TaskRangeCalendar`로 대체했다. 시작일을 고를 때 종료일을 비우고 두 날짜를 함께 갱신한다. 종료일 선택 후 다음 클릭은 새 기간 선택을 시작한다. 연도(0001–9999)·월(1–12)은 클릭·직접 입력·Enter/blur 확정, Esc 복원하며 읽기 전용에서는 탐색만 허용한다.
@@ -57,6 +60,8 @@ commits: []
 - 앞서 메모에 추가했던 체크리스트 전환 버튼은 사용자 의도에 맞게 제거했다. 메모의 기존 편집·공동 편집은 유지한다.
 
 ## 검증
+
+- 2026-10-04 접기/펼치기: 체크박스 왼쪽 배치·Enter/터치·세 보기 공유·안쪽 접힘 보존·읽기 전용 조작·접힌 서브트리 이동·하위 추가 시 자동 펼침/포커스를 브라우저 회귀 2개와 단위 검사 2개로 검증했다. 타입·대상 lint·디자인 탐지를 통과했다.
 
 - 2026-10-04 상위 일정 자동 계산: 겹침/빈 날짜 포함·중첩·미지정·이전 자체 날짜·수정/삭제/승격·연도 경계·서버 날짜 거부·목록/간트 읽기 전용과 내용 편집·모바일·저장/병합 회귀를 확인했다. 대상 lint·디자인 탐지·문서 링크 검사를 통과했다. 전체 타입 검사는 작업 밖 `feature-development.tsx`의 `FeatureSpecification` 누락과 symbol 문자열 변환 오류 3건으로 실패했다.
 

@@ -101,3 +101,10 @@
 .task-draft[data-empty]:not(:focus-within) .task-draft-plus { display: flex; }
 .task-draft[data-empty]:not(:focus-within) .task-check { display: none; }
 .task-draft[data-empty]:not(:focus-within):hover { background: var(--color-surface-hover); border-radius: 4px; }
+
+.task-disclosure, .task-disclosure-space { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 28px; }
+.task-disclosure { padding: 0; border-radius: 4px; color: var(--color-ink-secondary); }
+.task-disclosure:hover { background: var(--color-surface-hover); color: var(--color-ink); }
+.task-disclosure:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.task-gantt-label .task-disclosure { display: inline-flex; min-width: 24px; padding: 0; }
+.task-gantt-label[data-done="true"] .task-disclosure { text-decoration: none; }
