@@ -157,12 +157,52 @@ function statusLabel(status: string): string {
 
 function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, disabled }: { files: GitChangedFile[]; onSelect: (file: GitChangedFile) => void; compact?: boolean; selected?: Set<string>; onToggle?: (path: string) => void; disabled?: boolean }) {
   useUiLocale()
+  const selectionDrag = useRef<{ pointerId: number; startY: number; startX: number; startIndex: number; dragging: boolean; visited: Set<string> } | null>(null)
+  const suppressClick = useRef(false)
+  useEffect(() => { selectionDrag.current = null }, [files, disabled])
+  const selectRange = (index: number) => {
+    const drag = selectionDrag.current
+    if (!drag || !selected || !onToggle || disabled) return
+    for (let i = Math.min(drag.startIndex, index); i <= Math.max(drag.startIndex, index); i++) {
+      const path = files[i]?.path
+      if (path === undefined || drag.visited.has(path)) continue
+      drag.visited.add(path)
+      if (!selected.has(path)) onToggle(path)
+    }
+  }
+  const moveSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = selectionDrag.current
+    if (!drag || drag.pointerId !== event.pointerId || disabled) return
+    if (!drag.dragging && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return
+    drag.dragging = true
+    suppressClick.current = true
+    event.preventDefault()
+    const rows = event.currentTarget.querySelectorAll<HTMLElement>('[data-git-selection-row]')
+    let index = 0
+    rows.forEach((row, i) => {
+      const bounds = row.getBoundingClientRect()
+      if (event.clientY >= bounds.top) index = i
+    })
+    selectRange(index)
+  }
+  const finishSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (selectionDrag.current?.pointerId !== event.pointerId) return
+    selectionDrag.current = null
+    if (event.type === 'pointercancel') suppressClick.current = false
+  }
   if (files.length === 0) return <div className="p-6 text-center text-xs text-ink-muted">{uiText("변경된 파일이 없습니다.")}</div>
   return (
-    <div className="divide-y divide-edge">
-      {files.map((file) => (
-        <div key={file.path} className="flex items-center">
-          {selected && onToggle && <label className="flex shrink-0 cursor-pointer items-center self-stretch pl-3 pr-1">
+    <div className="divide-y divide-edge" onPointerMove={moveSelection} onPointerUp={event => { moveSelection(event); finishSelection(event) }} onPointerCancel={finishSelection} onLostPointerCapture={finishSelection}
+      onClickCapture={event => { if (suppressClick.current && event.detail > 0) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false } }}>
+      {files.map((file, index) => (
+        <div key={file.path} data-git-selection-row className="flex items-center">
+          {selected && onToggle && <label className="flex shrink-0 cursor-pointer touch-none items-center self-stretch pl-3 pr-1"
+            onPointerDown={event => {
+              if (disabled || !event.isPrimary || event.button !== 0) return
+              suppressClick.current = false
+              selectionDrag.current = { pointerId: event.pointerId, startY: event.clientY, startX: event.clientX, startIndex: index, dragging: false, visited: new Set() }
+              event.currentTarget.setPointerCapture(event.pointerId)
+            }}>
             <input type="checkbox" checked={selected.has(file.path)} disabled={disabled} onChange={() => onToggle(file.path)} aria-label={uiText("{p0} 커밋에 포함", { p0: file.path })} className="h-4 w-4 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
           </label>}
           <button type="button" onClick={() => onSelect(file)} className={`flex min-w-0 flex-1 items-center text-left text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink ${compact ? 'gap-2 px-3 py-1.5' : 'gap-3 px-4 py-3'}`}>
