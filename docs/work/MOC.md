@@ -10,6 +10,8 @@ updated: 2026-09-19
 
 ## Current
 
+- [AI 커밋 토큰 절감 검토](git-ai-commit-token-efficiency.md)
+
 - [상주 GPU 원격 데스크톱 직결 구현·적용 검증](remote-desktop-resident-direct.md)
 
 - [대화 저장·구간 동기화 구현 계획](conversation-storage.md)
