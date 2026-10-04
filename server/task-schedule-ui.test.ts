@@ -59,7 +59,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const errors: string[] = []
     for (const page of [desktop, mobile]) { page.setDefaultTimeout(5000); page.on('pageerror', error => errors.push(error.message)); await page.clock.setFixedTime(new Date('2026-10-03T03:00:00Z')); await page.goto(base); await page.locator('[data-task-id=undated]').waitFor().catch(async error => { throw new Error(`${error.message}\n${errors.join('\n')}\n${await page.locator('body').innerText()}`) }) }
     const panel = desktop.locator('.task-panel')
-    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['parent', 'period', 'undated', 'legacy'], 'list applies date status sorting and preserves parent blocks')
+    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['undated', 'parent', 'period', 'legacy'], 'list applies date status sorting and preserves parent blocks')
     assert.equal(await panel.locator('[data-task-id=undated] .task-date-status').innerText(), '날짜 설정')
     assert.equal(await panel.locator('[data-task-id=period] .task-date-status').innerText(), 'D-3')
     await panel.locator('[data-task-id=period] .task-date-status').click()
@@ -91,6 +91,14 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await desktop.screenshot({ path: `${screenshots}/desktop-range-dark.png` })
     await desktop.keyboard.press('Escape')
     await dates.waitFor({ state: 'hidden' })
+    await panel.locator('[data-task-id=parent] .task-date-status').click()
+    const parentDates = desktop.locator('.task-date-popover')
+    assert.equal(await parentDates.locator('.task-range-summary').textContent(), '시작일 2026-10-02종료일 2026-10-06')
+    assert.equal(await parentDates.getByRole('button', { name: '일정 지우기' }).isDisabled(), true)
+    assert.equal(await parentDates.locator('[data-date="2026-10-03"]').getAttribute('aria-disabled'), 'true')
+    await parentDates.locator('[data-date="2026-10-03"]').click({ force: true })
+    assert.equal(await parentDates.locator('.task-range-summary').textContent(), '시작일 2026-10-02종료일 2026-10-06')
+    await desktop.keyboard.press('Escape')
     assert.equal(await panel.locator('header [role=tablist] [role=tab]').count(), 3, 'all view tabs are in the title bar')
     await panel.getByRole('tab', { name: '목록', exact: true }).focus()
     await panel.getByRole('tab', { name: '목록', exact: true }).press('ArrowRight')
@@ -99,11 +107,11 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await desktop.screenshot({ path: `${screenshots}/desktop-list-dark.png` })
     await panel.getByRole('tab', { name: '달력', exact: true }).click()
     await panel.locator('.task-calendar-day[data-date="2026-10-04"]').click()
-    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['period', 'legacy'])
-    assert.equal(await panel.locator('.task-calendar-day[data-date="2026-10-04"]').getAttribute('aria-label').then(label => label?.includes('2개 일정')), true)
+    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['parent', 'period', 'legacy'])
+    assert.equal(await panel.locator('.task-calendar-day[data-date="2026-10-04"]').getAttribute('aria-label').then(label => label?.includes('3개 일정')), true)
     await panel.locator('.task-calendar-day[data-date="2026-10-04"]').press('ArrowRight')
     assert.equal(await panel.locator('.task-calendar-day[data-date="2026-10-05"]').getAttribute('data-selected'), 'true')
-    assert.equal(await panel.locator('[data-task-id]').count(), 1)
+    assert.equal(await panel.locator('[data-task-id]').count(), 2)
     await panel.locator('.task-calendar-day[data-date="2026-10-05"]').press('ArrowLeft')
     const calendarContrast = await panel.locator('.task-calendar-day[data-selected] .task-calendar-number').evaluate(el => {
       const style = el.ownerDocument.defaultView!.getComputedStyle(el); return [style.color, style.backgroundColor]
@@ -156,7 +164,20 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(await inspector.getByRole('button', { name: '달력 열기' }).count(), 0)
     await desktop.keyboard.press('Escape'); await inspector.waitFor({ state: 'hidden' })
     assert.equal(await bar.evaluate(el => el.ownerDocument.activeElement === el), true, 'closing the keyboard inspector restores bar focus')
+    const parentBar = panel.locator('[data-gantt-task=parent] [data-gantt-summary]')
+    assert.equal(await panel.locator('[data-gantt-task=parent] [data-gantt-resize]').count(), 0)
+    await parentBar.focus(); await parentBar.press('ArrowRight')
+    await parentBar.press('Enter')
+    const parentInspector = desktop.locator('.task-gantt-inspector')
+    assert.equal(await parentInspector.locator('.task-range-summary').textContent(), '시작일 2026-10-02종료일 2026-10-08')
+    assert.equal(await parentInspector.getByRole('button', { name: '일정 지우기' }).isDisabled(), true)
+    const parentEdited = desktop.waitForResponse(response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok())
+    await parentInspector.getByRole('textbox', { name: '태스크 내용' }).fill('출시 준비 수정'); await parentEdited
+    assert.equal(stored().find(task => task.id === 'parent')?.text, '출시 준비 수정')
+    assert.equal(stored().find(task => task.id === 'parent')?.startDate, undefined, 'editing parent text never persists derived dates')
+    await desktop.keyboard.press('Escape')
     await panel.getByRole('button', { name: '일정 그리기' }).click()
+    assert.equal(await panel.locator('[data-gantt-task=parent] [data-gantt-grab]').count(), 0, 'drawing cannot edit a parent')
     const empty = panel.locator('[data-gantt-new]'); await empty.scrollIntoViewIfNeeded()
     const blank = (await empty.boundingBox())!, total = stored().length
     await desktop.mouse.move(blank.x + 360, blank.y + 20); await desktop.mouse.down(); await desktop.mouse.move(blank.x + 432, blank.y + 20, { steps: 4 })
@@ -213,7 +234,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
       const style = el.ownerDocument.defaultView!.getComputedStyle(el); return [style.color, style.backgroundColor]
     })
     assert.ok(contrast(lightContrast[0], lightContrast[1]) >= 4.5, 'light selected dates have readable text')
-    assert.equal(await mobile.locator('[data-task-id]').count(), 2)
+    assert.equal(await mobile.locator('[data-task-id]').count(), 3)
     await mobile.screenshot({ path: `${screenshots}/mobile-calendar-light.png` })
     const dock = (await mobile.locator('.mobile-dock').boundingBox())!
     const dockX = dock.x + dock.width - 8, dockY = dock.y + dock.height / 2

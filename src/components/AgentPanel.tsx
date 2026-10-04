@@ -3360,7 +3360,6 @@ function AgentSessionView({
           >
             <ClearGlyph />
           </button>
-          <AgentQuotaBattery runtime={runtime} account={cacheAccount} enabled={visible && connected && !auth} />
           <button
             type="button"
             onClick={onToggleInfo}
@@ -3376,6 +3375,7 @@ function AgentSessionView({
           </button>
           <AgentHarnessButtons cwd={cwd} />
           {onOpenGuidanceFile && <AgentGuidanceButton onOpenFile={onOpenGuidanceFile} />}
+          <AgentQuotaBattery runtime={runtime} account={cacheAccount} enabled={visible && connected && !auth} />
         </div>
 
         {showInfo && (

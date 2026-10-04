@@ -1,3 +1,4 @@
+import { taskRollups, taskWithRollup } from '../../shared/task-rollup'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { Calendar, Xmark, RefreshDouble, Trash, Plus, List, StatsUpSquare } from 'iconoir-react'
 import { TaskDateStatus } from './task-date-status'
@@ -63,6 +64,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh) }
   }, [])
   const sortedTasks = useMemo(() => sortTasksByDateStatus(tasks, today), [tasks, today])
+  const rollups = useMemo(() => taskRollups(tasks), [tasks])
   const depths = taskDepths(tasks)
   const drag = useTaskDrag(view === 'list' ? sortedTasks : tasks, canEdit, edit)
   const createTask = (text: string, parentId?: string | null): TaskItem => ({ ...newTask(text, parentId), ...(view === 'calendar' ? { startDate: selectedDate, date: selectedDate } : {}) })
@@ -144,7 +146,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
             onChange={event => edit(tasks.map(task => task.id === item.id ? { ...task, done: event.target.checked } : task))} /></label>
           <div className="task-content"><TaskText id={item.id} text={item.text} disabled={!canEdit} inputs={inputs}
             onChange={text => update(item.id, text)} onKeyDown={event => keyDown(event, index)} onPaste={event => paste(event, index)} onBlur={() => void flush()} /></div>
-          <TaskDateStatus task={item} today={today} readOnly={!canEdit} onChange={(startDate, date) => edit(tasks.map(task => task.id === item.id ? { ...task, startDate, date } : task))} />
+          <TaskDateStatus task={taskWithRollup(item, rollups)} today={today} readOnly={!canEdit || rollups.parents.has(item.id)} onChange={(startDate, date) => { if (!canEdit || rollups.parents.has(item.id)) return; edit(tasks.map(task => task.id === item.id ? { ...task, startDate, date } : task)) }} />
           {canEdit && <button type="button" onClick={() => addChild(index)} disabled={tasks.length >= TASK_LIMIT} aria-label={uiText('하위 태스크 추가')} data-tip={uiText('하위 태스크 추가')}
             className="task-delete flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-ink"><Plus width={14} height={14} aria-hidden="true" /></button>}
           {canEdit && <button type="button" onClick={() => remove(index)} aria-label={uiText('태스크 삭제')} data-tip={uiText('태스크 삭제')}

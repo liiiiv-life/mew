@@ -1,3 +1,4 @@
+import { taskRollups, taskWithRollup } from '../../shared/task-rollup.ts'
 import { taskParent, type TaskItem } from '../../shared/task-list.ts'
 import { toDay } from './task-timeline.ts'
 
@@ -10,7 +11,9 @@ export function taskDateLabel(task: TaskItem, today: string): { label: string; t
 
 /** Stable sibling sorting keeps each parent's descendants in its subtree. */
 export function sortTasksByDateStatus(tasks: TaskItem[], today: string): TaskItem[] {
-  const rank = (task: TaskItem) => {
+  const rollups = taskRollups(tasks)
+  const rank = (original: TaskItem) => {
+    const task = taskWithRollup(original, rollups)
     if (task.startDate && task.startDate > today) return 4
     if (!task.date) return 0
     return task.date === today ? 1 : task.date > today ? 2 : 3
