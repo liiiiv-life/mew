@@ -41,3 +41,7 @@
 @media (pointer: coarse) { .task-range-calendar .task-tool { min-width: 32px; height: 32px; } }
 
 .task-range-grid { touch-action: pan-y pinch-zoom; }
+
+.task-range-summary[data-single] { grid-template-columns: minmax(0, 1fr); }
+.task-range-summary .mew-date-field { width: 100%; }
+.task-range-summary .mew-date-field input { width: 100%; }

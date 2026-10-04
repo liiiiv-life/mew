@@ -4,10 +4,12 @@ import { useUiLocale } from './i18n'
 import { uiText, uiWeekdays } from './i18n-core'
 import { dateFromValue, dateValue, localToday, shiftDate, validDateValue } from './date-value'
 import './date-calendar.css'
+import { DateField } from './date-field'
 
-export function DateCalendar({ start, end, readOnly, onChange, single = false }: {
+export function DateCalendar({ start, end, readOnly, onChange, single = false, onInputChange = onChange }: {
   start?: string | null; end?: string | null; readOnly: boolean; single?: boolean
   onChange: (start: string | null, end: string | null) => void
+  onInputChange?: (start: string | null, end: string | null) => void
 }) {
   const locale = useUiLocale(), today = localToday(), initial = (start && validDateValue(start) ? start : null) || (end && validDateValue(end) ? end : null) || today
   const [month, setMonth] = useState(initial.slice(0, 7)), [active, setActive] = useState(initial)
@@ -65,7 +67,22 @@ export function DateCalendar({ start, end, readOnly, onChange, single = false }:
       <button type="button" className="task-tool" aria-label={uiText('이전 달')} data-tip={uiText('이전 달')} disabled={month === '0001-01'} onClick={() => moveMonth(-1)}><NavArrowLeft width={16} height={16} aria-hidden="true" /></button>
       <button type="button" className="task-tool" aria-label={uiText('다음 달')} data-tip={uiText('다음 달')} disabled={month === '9999-12'} onClick={() => moveMonth(1)}><NavArrowRight width={16} height={16} aria-hidden="true" /></button>
     </header>
-    {!single && <div className="task-range-summary"><span data-active={!readOnly && !pending || undefined}>{uiText('시작일')} <b>{start || '—'}</b></span><span data-active={!readOnly && !!pending || undefined}>{uiText('종료일')} <b>{end || '—'}</b></span></div>}
+    <div className="task-range-summary" data-single={single || undefined}>
+      <span data-active={!readOnly && !pending || undefined}>{uiText(single ? '날짜' : '시작일')}
+        <DateField calendar="none" value={start} label={uiText(single ? '날짜' : '시작일')} readOnly={readOnly} onChange={day => {
+          setPending(null)
+          if (day) navigate(day)
+          onInputChange(day, single ? null : day && end && day > end ? day : end ?? null)
+        }} />
+      </span>
+      {!single && <span data-active={!readOnly && !!pending || undefined}>{uiText('종료일')}
+        <DateField calendar="none" value={end} label={uiText('종료일')} readOnly={readOnly} onChange={day => {
+          setPending(null)
+          if (day) navigate(day)
+          onInputChange(day && start && day < start ? day : start ?? null, day)
+        }} />
+      </span>}
+    </div>
     <div ref={grid} role="grid" aria-label={monthLabel} className="task-range-grid"
       onPointerDown={event => {
         suppressClick.current = false

@@ -15,7 +15,7 @@ const maskedDate = (parts: DateParts) => parts.map((part, index) => part.padStar
 
 /** One masked input with independently selectable year/month/day segments. */
 export function DateField({ value, label, readOnly = false, compact = false, calendar = 'default', onChange }: {
-  value?: string | null; label: string; readOnly?: boolean; compact?: boolean; calendar?: 'default' | 'task'; onChange: (value: string | null) => void
+  value?: string | null; label: string; readOnly?: boolean; compact?: boolean; calendar?: 'default' | 'task' | 'none'; onChange: (value: string | null) => void
 }) {
   useUiLocale()
   const id = useId(), field = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null), input = useRef<HTMLInputElement>(null)
@@ -46,7 +46,7 @@ export function DateField({ value, label, readOnly = false, compact = false, cal
   }
   const forward = () => {
     if (activeSegment.current < 2) select(activeSegment.current + 1)
-    else if (commit()) trigger.current?.focus({ preventScroll: true })
+    else if (commit()) { if (calendar === 'none') input.current?.blur(); else trigger.current?.focus({ preventScroll: true }) }
   }
   const writeDigits = (digits: string) => {
     if (!/^\d+$/.test(digits)) return
@@ -134,7 +134,7 @@ export function DateField({ value, label, readOnly = false, compact = false, cal
       }}
       onBlur={() => { setEditing(false); focused.current = false; typed.current = ''; if (!readOnly) commit() }} onKeyDown={event => {
         if (readOnly || event.nativeEvent.isComposing || event.keyCode === 229) return
-        if (event.altKey && event.key === 'ArrowDown') { event.preventDefault(); event.stopPropagation(); setOpen(true); return }
+        if (calendar !== 'none' && event.altKey && event.key === 'ArrowDown') { event.preventDefault(); event.stopPropagation(); setOpen(true); return }
         if (event.ctrlKey || event.metaKey || event.altKey) return
         if (/^\d$/.test(event.key)) { event.preventDefault(); writeDigits(event.key); return }
         if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); erase(event.key === 'Backspace'); return }
@@ -150,24 +150,24 @@ export function DateField({ value, label, readOnly = false, compact = false, cal
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); replaceParts(dateParts(value)); select(0); return }
         if (event.key.length === 1) event.preventDefault()
       }} />
-    {!readOnly && <button ref={trigger} type="button" aria-label={uiText('달력 열기')} data-tip={uiText('달력 열기')}
+    {!readOnly && calendar !== 'none' && <button ref={trigger} type="button" aria-label={uiText('달력 열기')} data-tip={uiText('달력 열기')}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined} className="mew-date-icon"
       onClick={() => setOpen(!open)}><Calendar width={15} height={15} aria-hidden="true" /></button>}
     {invalid && <span id={`${id}-error`} role="alert" className="mew-date-error">{uiText('올바른 날짜를 입력하세요 (YYYY-MM-DD)')}</span>}
-    {open && !readOnly && <DateCalendar calendar={calendar} id={id} value={value ?? null} anchor={field} onChoose={choose} onClose={close} />}
+    {open && !readOnly && calendar !== 'none' && <DateCalendar onInput={date => { replaceParts(dateParts(date)); onChange(date) }} calendar={calendar} id={id} value={value ?? null} anchor={field} onChoose={choose} onClose={close} />}
   </div>
 }
 
-function DateCalendar({ calendar, id, value, anchor, onChoose, onClose }: {
+function DateCalendar({ calendar, id, value, anchor, onChoose, onInput, onClose }: {
   calendar: 'default' | 'task'; id: string; value: string | null; anchor: RefObject<HTMLDivElement | null>
-  onChoose: (value: string | null) => void; onClose: (restore?: boolean) => void
+  onChoose: (value: string | null) => void; onInput: (value: string | null) => void; onClose: (restore?: boolean) => void
 }) {
   const locale = useUiLocale(), today = localToday()
   const initial = value && validDateValue(value) ? value : today
   const [active, setActive] = useState(initial), [month, setMonth] = useState(initial.slice(0, 7)), [direction, setDirection] = useState(1)
   const [position, setPosition] = useState<CSSProperties | null>(null)
   const popup = useRef<HTMLDivElement>(null), focusDay = useRef(true)
-  useOverlayDismiss(() => onClose())
+  useOverlayDismiss(() => onClose(), { closeOnEscape: event => !(calendar === 'task' && event.target instanceof HTMLInputElement && popup.current?.contains(event.target)) })
   useLayoutEffect(() => {
     const place = () => {
       const target = anchor.current, menu = popup.current
@@ -236,7 +236,7 @@ function DateCalendar({ calendar, id, value, anchor, onChoose, onClose }: {
       const next = event.relatedTarget as Node | null
       if (next && !event.currentTarget.contains(next) && !anchor.current?.contains(next)) onClose(false)
     }}>
-    {calendar === 'task' ? <SharedDateCalendar single start={value} readOnly={false} onChange={day => onChoose(day)} /> : <>
+    {calendar === 'task' ? <SharedDateCalendar onInputChange={day => onInput(day)} single start={value} readOnly={false} onChange={day => onChoose(day)} /> : <>
     <header className="mew-calendar-header">
       <span aria-live="polite" className="mew-calendar-month">{monthLabel}</span>
       <div className="mew-calendar-nav">

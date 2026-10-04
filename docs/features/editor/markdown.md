@@ -43,6 +43,8 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- 공용 달력의 날짜 표시를 연·월·일 구간 입력으로 바꿨다. 단일 날짜와 기간 양 끝의 직접 수정·자동 구간 이동·잘못된 날짜 보존·읽기 전용을 같은 `DateField`로 처리하며, 직접 입력 중 달력을 유지한다.
+
 - 공용 `DateCalendar` 날짜 격자에서 터치·펜의 수평 스와이프를 월 탐색으로 처리한다. 세로 스크롤·취소는 월을 바꾸지 않으며 스와이프 뒤 날짜 클릭은 차단한다.
 
 - 날짜 속성의 기본 브라우저 달력을 공용 `DateCalendar`의 단일 날짜 모드로 교체했다. 태스크 패널은 같은 컴포넌트의 기간 선택 모드를 유지한다. 상세 계약은 [에디터 패키지](../../development/packages.md)를 따른다.
@@ -74,6 +76,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-05: `server/date-calendar-ui.test.ts`와 `server/frontmatter-ui.test.ts`에서 PC·모바일 구간 직접 입력·자동 이동·단일 팝업 유지·기간 역전 보정·없는 날짜 보존·삭제·읽기 전용을 검증했다. 기존 `server/date-field-ui.test.ts`와 대상 lint도 통과했다. 전체 타입 검사는 작업 밖 `server/task-schedule-ui.test.ts`의 미사용 변수 오류로 실패했다.
 
 - 2026-10-05: `server/frontmatter-ui.test.ts`에서 실제 모바일 터치의 좌/우 월 이동·선택값 보존·세로 제스처·취소·이후 날짜 탭과 PC 회귀를 통과했다. 변경 달력 lint도 통과했다. 전체 타입 검사는 작업 밖 태스크 간트·태그 코드 오류로 실패했다.
 
