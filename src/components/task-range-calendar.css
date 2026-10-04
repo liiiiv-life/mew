@@ -15,6 +15,8 @@
 .task-range-week button[data-outside] { color: var(--color-ink-secondary); }
 .task-range-week button[data-range] { background: var(--color-surface-hover); }
 .task-range-week button[data-selected] { background: var(--color-accent); color: var(--color-ink-on-accent); }
-.task-range-week button[aria-current="date"] { text-decoration: underline; text-underline-offset: 4px; }
+.task-range-week button[aria-current="date"] { position: relative; font-weight: 600; }
+.task-range-week button[aria-current="date"]::after { content: ''; position: absolute; width: 26px; height: 26px; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px solid var(--color-accent-strong); border-radius: 50%; pointer-events: none; }
+.task-range-week button[aria-current="date"][data-selected]::after { border-color: var(--color-ink-on-accent); }
 .task-range-week button:disabled { opacity: .4; }
 .task-range-footer { justify-content: space-between; margin-top: 4px; }
