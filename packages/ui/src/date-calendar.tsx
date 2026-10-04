@@ -13,6 +13,8 @@ export function DateCalendar({ start, end, readOnly, onChange, single = false }:
   const [month, setMonth] = useState(initial.slice(0, 7)), [active, setActive] = useState(initial)
   const [pending, setPending] = useState<string | null>(null)
   const grid = useRef<HTMLDivElement>(null)
+  const swipe = useRef<{ id: number; x: number; y: number; horizontal: boolean } | null>(null)
+  const suppressClick = useRef(false)
   const choose = (day: string) => {
     if (readOnly) return
     if (single) { onChange(day, null); return }
@@ -64,7 +66,36 @@ export function DateCalendar({ start, end, readOnly, onChange, single = false }:
       <button type="button" className="task-tool" aria-label={uiText('다음 달')} data-tip={uiText('다음 달')} disabled={month === '9999-12'} onClick={() => moveMonth(1)}><NavArrowRight width={16} height={16} aria-hidden="true" /></button>
     </header>
     {!single && <div className="task-range-summary"><span data-active={!readOnly && !pending || undefined}>{uiText('시작일')} <b>{start || '—'}</b></span><span data-active={!readOnly && !!pending || undefined}>{uiText('종료일')} <b>{end || '—'}</b></span></div>}
-    <div ref={grid} role="grid" aria-label={monthLabel}>
+    <div ref={grid} role="grid" aria-label={monthLabel} className="task-range-grid"
+      onPointerDown={event => {
+        suppressClick.current = false
+        if (event.pointerType === 'mouse') return
+        if (!event.isPrimary) { swipe.current = null; return }
+        swipe.current = { id: event.pointerId, x: event.clientX, y: event.clientY, horizontal: false }
+      }}
+      onPointerMove={event => {
+        const gesture = swipe.current
+        if (!gesture || gesture.id !== event.pointerId) return
+        const dx = Math.abs(event.clientX - gesture.x), dy = Math.abs(event.clientY - gesture.y)
+        if (!gesture.horizontal && dy > 10 && dy >= dx) { swipe.current = null; return }
+        if (dx > 10 && dx > dy * 1.5) {
+          gesture.horizontal = true
+          suppressClick.current = true
+          event.currentTarget.setPointerCapture(event.pointerId)
+        }
+      }}
+      onPointerUp={event => {
+        const gesture = swipe.current
+        swipe.current = null
+        if (!gesture || gesture.id !== event.pointerId) return
+        const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y
+        if (gesture.horizontal && Math.abs(dx) >= 40 && Math.abs(dx) > Math.abs(dy) * 1.5) moveMonth(dx < 0 ? 1 : -1)
+      }}
+      onPointerCancel={() => { swipe.current = null }}
+      onLostPointerCapture={event => { if (event.target === event.currentTarget) swipe.current = null }}
+      onClickCapture={event => {
+        if (suppressClick.current && event.detail !== 0) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false }
+      }}>
       <div role="row" className="task-range-week">{uiWeekdays().map((day, index) => <span role="columnheader" key={index}>{day}</span>)}</div>
       {Array.from({ length: 6 }, (_, week) => <div role="row" className="task-range-week" key={week}>{Array.from({ length: 7 }, (_, index) => {
         const day = shiftDate(first, week * 7 + index), selected = day === start || day === end, inRange = !!start && !!end && day > start && day < end, period = !!start && !!end && start < end && day >= start && day <= end

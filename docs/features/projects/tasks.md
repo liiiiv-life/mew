@@ -4,7 +4,7 @@ parent: "mew-projects"
 title: "태스크 패널·목록·달력·간트"
 status: "changed"
 created: "2026-10-03"
-updated: "2026-10-04"
+updated: "2026-10-05"
 files: ["src/components/task-panel.tsx", "src/components/task-disclosure.tsx", "src/utils/task-collapse.ts", "src/components/task-range-calendar.tsx", "shared/task-rollup.ts", "src/components/task-calendar.tsx", "src/components/task-gantt.tsx", "src/utils/task-schedule.ts", "src/utils/task-timeline.ts", "src/hooks/use-task-list.ts", "src/hooks/use-task-drag.ts", "src/utils/task-list-session.ts", "shared/task-list.ts", "packages/ui/src/date-field.tsx", "packages/ui/src/date-field.css", "server/task-list.ts", "server/task-list-routes.ts", "src/App.tsx"]
 commits: []
 ---
@@ -25,6 +25,7 @@ commits: []
 - 달력 위쪽은 월간 날짜 선택, 아래쪽은 선택 날짜에 해당하는 기간 일정과 새 일정 입력이다.
 - 간트는 `liiiiv/gantt-maker`의 눈금·막대·색·기간 이동/길이 조절·그리기·확대/축소 조작을 재사용한다.
 - 목록과 간트의 기간 선택 달력에서 연도·월을 클릭해 키보드로 수정한다.
+- 공용 날짜 선택 달력은 좌우 터치 스와이프로 월을 바꾸며 선택값은 유지한다. 세로 스크롤과 날짜 탭은 그대로 지원한다.
 - 목록과 간트에서 동일한 통합 달력으로 기간을 선택하며 오늘 날짜는 숫자를 감싸는 테마색 원형 테두리로 강조한다. PC/모바일·밝은/어두운 테마에서 일관된 조작과 표시를 제공한다.
 - 패널 헤더와 PC·모바일 독은 캘린더 아이콘으로 기능 패널과 구분한다.
 - 체크박스로 완료를 표시하고 별도 객체를 삭제할 수 있다. 삭제 후 남은 항목·새 입력칸에 자동 포커스하지 않는다.
@@ -38,6 +39,8 @@ commits: []
 - 상위: [분야 지도](MOC.md) · [프로젝트](../projects.md)
 
 ## 구현 내용
+
+- 공용 `DateCalendar` 날짜 격자에서 터치·펜의 수평 스와이프를 월 탐색으로 처리한다. 세로 스크롤·취소는 월을 바꾸지 않으며 스와이프 뒤 날짜 클릭은 차단한다.
 
 - 2026-10-04 같은 날짜를 두 번 선택하면 시작일과 종료일을 같은 날짜로 확정하도록 기간 선택 조건을 수정했다.
 
@@ -64,6 +67,8 @@ commits: []
 - 앞서 메모에 추가했던 체크리스트 전환 버튼은 사용자 의도에 맞게 제거했다. 메모의 기존 편집·공동 편집은 유지한다.
 
 ## 검증
+
+- 2026-10-05: `server/frontmatter-ui.test.ts`에서 실제 모바일 터치의 좌/우 월 이동·선택값 보존·세로 제스처·취소·이후 날짜 탭과 PC 회귀를 통과했다. 변경 달력 lint도 통과했다. 전체 타입 검사는 작업 밖 태스크 간트·태그 코드 오류로 실패했다.
 
 - 2026-10-04 같은 날짜 선택: 10월 16일 클릭→같은 날짜 Enter로 시작일·종료일 동시 저장과 단일 날짜 강조를 확인했다. 이른 날짜 재선택·기간 확정 후 새 선택 및 기존 PC/모바일·간트·읽기 전용을 포함한 브라우저 회귀 1개, 타입·대상 lint·문서 링크 검사를 통과했다.
 

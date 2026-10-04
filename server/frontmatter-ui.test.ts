@@ -63,6 +63,27 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       await dueRow.getByRole('button', { name: '달력 열기', exact: true }).click()
       const calendar = page.getByRole('dialog', { name: '날짜 선택', exact: true })
       await calendar.locator('.task-range-calendar').waitFor()
+      if (width < 500) {
+        const touch = await page.context().newCDPSession(page)
+        const swipeMonth = async (dx: number, dy = 0, cancel = false) => {
+          const box = (await calendar.getByRole('grid').boundingBox())!
+          const x = box.x + box.width / 2, y = box.y + box.height / 2
+          await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+          for (let step = 1; step <= 4; step++) await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + dx * step / 4, y: y + dy * step / 4 }] })
+          await touch.send('Input.dispatchTouchEvent', { type: cancel ? 'touchCancel' : 'touchEnd', touchPoints: [] })
+        }
+        await swipeMonth(-90)
+        await calendar.getByRole('grid', { name: '2026년 11월' }).waitFor()
+        assert.equal(await calendar.getByRole('textbox', { name: '월', exact: true }).inputValue(), '11')
+        assert.equal(await dueRow.getByRole('textbox', { name: 'due', exact: true }).inputValue(), '2026-10-02')
+        await swipeMonth(90)
+        await calendar.getByRole('grid', { name: '2026년 10월' }).waitFor()
+        assert.equal(await calendar.getByRole('textbox', { name: '월', exact: true }).inputValue(), '10')
+        await swipeMonth(8, 70)
+        assert.equal(await calendar.getByRole('textbox', { name: '월', exact: true }).inputValue(), '10')
+        await swipeMonth(-90, 0, true)
+        assert.equal(await calendar.getByRole('textbox', { name: '월', exact: true }).inputValue(), '10')
+      }
       await calendar.locator('[data-date="2026-10-04"]').click()
       await page.waitForFunction(`window.saved.includes('2026-10-04')`)
       await dueRow.getByRole('button', { name: '달력 열기', exact: true }).click()
