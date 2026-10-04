@@ -6,7 +6,7 @@ status: "implemented"
 created: "2026-09-18"
 updated: "2026-10-04"
 status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
-files: ["src/components/GitWorkbench.tsx", "src/components/git-branch-picker.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-commit-analysis.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
+files: ["src/components/GitWorkbench.tsx", "src/components/git-branch-picker.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-commit-analysis.ts", "server/git-commit-packets.ts", "server/git-diff-codec.ts", "server/git-change-intent.ts", "server/git-change-intent-cli.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
 ---
 
@@ -79,7 +79,7 @@ commits: []
 - 보이는 Git 패널은 자동 조회가 끝난 뒤 2초 간격으로 커밋 기록·브랜치 정보·변경 목록과 열린 작업트리 diff를 다시 읽는다. 변경 없는 커밋 기록·브랜치 정보는 기존 상태를 유지한다. 같은 상태의 파일도 내용이 달라질 수 있으므로 열린 diff는 매번 재조회한다. 커밋 초안·남아 있는 파일 선택·스크롤을 유지하고 새 파일은 자동 선택하지 않는다.
 - 패널 닫기·모바일의 다른 패널 전환·다른 데스크톱 패널 최대화·브라우저 탭 숨김 동안 자동 조회를 멈춘다. 다시 표시하거나 창으로 돌아오면 조회하고, 느린 요청을 중복 실행하지 않으며 닫기·화면 전환·수동 갱신 뒤의 오래된 응답은 적용하지 않는다. 자동 조회 실패 시 기존 내용을 유지하고 오류를 표시하며 다음 조회에서 재시도한다.
 - AI 자동 커밋은 선택 파일만 분석하며 에이전트셋의 런타임·모델·역할을 작업에 고정하고 전용 tmux·ACP 세션에서 작업 단위 계획을 만들고 Mew가 여러 커밋을 실행한다.
-- 분석 입력 한도를 넘으면 고정된 Git 스냅샷의 로컬 변경 색인으로 바로 계획을 요청하고, 필요한 8,000자 원본 조각을 회당 최대 6개·최대 2회 묶어서 재확인한다. 기본 계획 호출은 1~3회로 제한하며 조각별 AI 요약은 하지 않는다. 발췌와 전체 조각을 구분하고 호출 시간을 로그로 표시한다. 선택 파일 누락·중복과 분석 이후 변경을 검증하며 판단할 수 없는 파일은 사유와 함께 남긴다.
+- 큰 변경은 고정 Git 스냅샷의 3줄 문맥 전체 diff를 무손실 압축한다. 반복 줄·공통 전후 문자·동일 변경은 한 번 표현하되 모든 조각을 보존한다. 한 패킷이면 계획 1회, 넘으면 두 개씩 병렬로 패킷 전량 분석 후 최종 계획으로 처리한다. 목적 기록은 실제 이전/새 객체와 일치할 때만 참고하고 전체 diff 분석을 생략하지 않는다. 크기·발췌·최대 3회 한도 때문에 스킵하던 경로는 제거했다. 선택 파일 누락·중복과 분석 이후 변경을 검증하며 실제 불확실성만 사유와 함께 남긴다.
 - 이전 Codex 셋의 모델 ID 형식을 현재 연결기와 호환하며, 실패 시 단계와 상세 오류를 상태·진행 로그에 남긴다.
 - [실행·저장 계약](../../development/agent-sessions.md#git-ai-commit-작업)을 따른다.
 - GitHub OAuth 기기 인증과 토큰은 Mew 계정별로 소유하며 처음에는 미연결 상태다. OS 인증을 가져오지 않는다.
@@ -92,6 +92,8 @@ commits: []
 ## 검증
 
 - 모바일에서 전체 선택을 해제한 뒤 체크박스부터 위·아래로 드래그하면 지나간 파일이 선택되는지, 체크된 파일에서 시작하면 해제되는지, 재방문해도 상태가 바뀌지 않는지 확인한다. 단일 탭·Space 토글과 파일명 터치 스크롤도 확인한다.
+
+- 2026-10-04: 전체 diff 무손실 압축과 변경 시점 목적 기록으로 전환했다. 복원·사전 참조·고유 변경 전량 커버리지·단일 패킷 1회 계획·원본 재확인·목적 객체 대조·stage 보존·취소/변경 감지·병렬 실패 정리를 임시 저장소와 모의 ACP로 검증했다. 관련 32개 테스트·TypeScript·대상 lint를 통과했다. 유료 모델의 실제 판단 품질·완료 시간은 별도 실측 대상이다.
 
 - 2026-10-04: 큰 변경의 기본 실행에서 순차 요약을 제거하고 로컬 색인·최대 3회 계획으로 변경했다. 모든 조각의 목록 포함·개요 입력 예산·전체/부분 표시·일괄 원본 요청·단일 파일 전체 커밋·선택 밖 stage 보존·취소/변경 감지를 검증했다. 관련 18개 테스트·TypeScript·대상 lint를 통과했다. 실제 모델의 판단 품질·완료 시간은 아직 측정하지 않았다.
 

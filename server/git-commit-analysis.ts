@@ -4,7 +4,6 @@ import { spawn, execFileSync } from 'node:child_process'
 import type { CommitSnapshot } from './git-ai-commit.ts'
 
 export const ANALYSIS_CHUNK_SIZE = 48_000
-export const FAST_CHUNK_SIZE = 8000
 export interface AnalysisChunk { id: number; file: string; paths: string[] }
 
 /** Stream immutable Git objects; even a single huge file is read to the end. */
@@ -69,29 +68,6 @@ export async function captureAnalysisChunks(cwd: string, snapshot: CommitSnapsho
   }
   if (pending) save()
   return chunks
-}
-
-/** Local index and explicitly partial evidence; no model call per fragment. */
-export function commitChangeOverview(chunks: AnalysisChunk[], budget = 48_000): string {
-  const records = chunks.map(chunk => {
-    const text = fs.readFileSync(chunk.file, 'utf8')
-    const headings = text.split('\n').filter(line => /^(?:@@|new file mode|deleted file mode|old mode|new mode|Binary files)/.test(line))
-    return { chunk, text, header: `Source chunk ${chunk.id}, paths ${JSON.stringify(chunk.paths)}, ${text.length} characters, ${headings.length} diff headers` }
-  })
-  const metadataSize = records.reduce((sum, record) => sum + record.header.length + 120, 0)
-  if (metadataSize > budget) throw new Error('변경 목록이 입력 한도를 초과했습니다. 선택 파일을 줄여 실행하세요.')
-  const allowance = Math.min(1200, Math.floor((budget - metadataSize) / Math.max(records.length, 1)))
-  return records.map(({ chunk, text, header }) => {
-    if (text.length <= allowance) return `${header}\nCOMPLETE DIFF:\n${text}`
-    const lines = text.split('\n')
-    // Include identifiers throughout a fragment, not just the first hunk.
-    const symbols = lines.filter(line => /^(?:@@|[+-]\s*(?:export |import |(?:async )?function |(?:const|let) \w+|interface |type |test\(|describe\())/.test(line))
-    const candidates = [...symbols, ...lines.slice(0, 5), ...lines.slice(-5)]
-    const evidence = [...new Set(candidates)].map(line => line.length > 160 ? `${line.slice(0, 160)}…` : line).join('\n')
-    const first = Math.floor(allowance / 2)
-    const snippet = evidence.length <= allowance ? evidence : allowance > 8 ? `${evidence.slice(0, first)}\n…\n${evidence.slice(-(allowance - first - 3))}` : ''
-    return `${header}\nPARTIAL DIFF (request needsDetails:[${chunk.id}] for full fragment):\n${snippet}`
-  }).join('\n')
 }
 
 export function requestedDetails(output: string, chunks: AnalysisChunk[], limit = 1): AnalysisChunk[] | null {

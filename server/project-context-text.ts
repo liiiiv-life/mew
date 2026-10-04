@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { readAgentGuidance } from './agent-guidance.ts'
 import { commitSkillGuidance } from './mew-skills.ts'
 import type { AgentContextBinding, ProjectAgentSettings } from '../shared/project-agent-context.ts'
@@ -17,6 +18,7 @@ export function describeAgentContext(binding: AgentContextBinding, settings: Pro
   return [
     readAgentGuidance(),
     commitSkillGuidance(),
+    `Change intent recorder: run ${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL('./git-change-intent-cli.ts', import.meta.url)))} --cwd ${shellQuote(binding.projectRoot)} with JSON on stdin: {"purpose":"brief reason for this task's changes","files":["repository-root-relative changed paths"],"verification":"checks actually performed (optional)"}. This writes disposable Git metadata only; it does not stage, commit or authorize a commit.`,
     `Project root: ${JSON.stringify(binding.projectRoot)}`,
     `Working directory: ${JSON.stringify(cwd)}`,
     `Documents folder: ${JSON.stringify(binding.docsRoot)}`,
@@ -36,3 +38,5 @@ export function stripMewContext(text: string): string {
   if (!text.includes(CONTEXT_START)) return text
   return text.replace(/\s*<mew-context version="1">[\s\S]*?<\/mew-context>/g, '').trimEnd()
 }
+
+function shellQuote(value: string): string { return "'" + value.replaceAll("'", "'\\''") + "'" }
