@@ -16,7 +16,7 @@ import {I18nProvider} from '${root}/src/i18n.tsx';
 import {HistoryIndex} from '${root}/shared/agent-history.ts';
 import * as cache from '${root}/src/utils/agent-history-cache.ts';
 window.cache=cache;window.requests=[];
-const events=[];for(let i=0;i<45;i++)events.push({type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question '+i}}},{type:'turn_start'},{type:'update',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Answer '+i+' '+('long readable answer '.repeat(15))}}},{type:'turn_end',stopReason:'end_turn'});
+const events=[];for(let i=0;i<45;i++)events.push({type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question '+i}}},{type:'turn_start'},{type:'update',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Answer '+i+' '+(i===42?'long readable answer\\n\\n'.repeat(65):'long readable answer '.repeat(15))}}},{type:'turn_end',stopReason:'end_turn'});
 const index=new HistoryIndex('browser-generation');events.forEach(event=>index.push(event));
 const meta={type:'meta',meta:{sessionId:'conversation',startedAt:new Date().toISOString(),turns:45,busy:false,queued:location.search.includes('slow')?[]:['Saved queue task'],queuedKinds:['prompt'],queuedAttachments:[[{project:'test',path:'notes.md',mimeType:'text/markdown'}]],queuedSettings:[{model:'Cached model',thinking:'High',permission:'Default'}],usage:null,canLoad:true,canList:true}};
 class Socket {
@@ -70,6 +70,61 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await scroll.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
       await page.getByText('Question 5', { exact: true }).waitFor({ state: 'attached' })
       assert.ok(await scroll.evaluate(el => el.scrollTop > 100), 'prepend preserves the previous viewport')
+      const questionTop = (number: number) => page.getByText(`Question ${number}`, { exact: true }).evaluate(el => {
+        const question = el.closest('[data-agent-question]')!
+        const scroller = question.parentElement!
+        return question.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientTop
+          - parseFloat(el.ownerDocument.defaultView!.getComputedStyle(scroller).paddingTop) + scroller.scrollTop
+      })
+      const assertAtQuestion = async (number: number) => {
+        const desired = await questionTop(number)
+        const actual = await scroll.evaluate(el => el.scrollTop)
+        const max = await scroll.evaluate(el => el.scrollHeight - el.clientHeight)
+        assert.ok(Math.abs(actual - Math.min(desired, max)) <= 1, `viewport aligns to Question ${number}`)
+      }
+      await page.getByText(/^Answer 42 /).first().locator('..').click()
+      const middle = await questionTop(42) + 500
+      await scroll.evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')) }, middle)
+      await scroll.focus()
+      await scroll.press('ArrowUp')
+      await assertAtQuestion(42)
+      await scroll.press('ArrowUp')
+      await assertAtQuestion(41)
+      await scroll.press('ArrowDown')
+      await assertAtQuestion(42)
+      await scroll.press('ArrowDown')
+      await assertAtQuestion(43)
+      await scroll.press('ArrowDown')
+      await assertAtQuestion(44)
+      await scroll.press('ArrowDown')
+      await assertAtQuestion(44)
+      await scroll.press('ArrowUp')
+      await assertAtQuestion(43)
+      await scroll.press('ArrowUp')
+      await assertAtQuestion(42)
+      await scroll.evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')) }, middle)
+      await scroll.press('ArrowDown')
+      await assertAtQuestion(43)
+      await scroll.evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')) }, middle)
+      await scroll.evaluate(el => el.dispatchEvent(new el.ownerDocument.defaultView!.KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true, bubbles: true, cancelable: true })))
+      assert.ok(Math.abs(await scroll.evaluate(el => el.scrollTop) - middle) <= 1, 'selection keys do not jump between questions')
+      const draft = page.locator('[data-keep-keyboard] [contenteditable="true"]')
+      await draft.fill('first line\nsecond line')
+      await draft.press('ArrowUp')
+      assert.ok(Math.abs(await scroll.evaluate(el => el.scrollTop) - middle) <= 1, 'composer arrow keys leave conversation scroll alone')
+      await draft.fill('')
+      await page.getByText(/^Answer 42 /).first().locator('..').click()
+      assert.equal(await scroll.evaluate(el => el.ownerDocument.activeElement === el), true, 'clicking a conversation bubble focuses question navigation')
+      const button = page.getByText('Question 40', { exact: true }).locator('..')
+      await button.focus()
+      await button.press('ArrowDown')
+      assert.equal(await scroll.evaluate(el => el.ownerDocument.activeElement === el), false, 'keyboard navigation preserves button focus')
+      await scroll.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
+      await page.getByText('Question 0', { exact: true }).waitFor({ state: 'attached' })
+      await scroll.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
+      await scroll.focus()
+      await scroll.press('ArrowUp')
+      await assertAtQuestion(0)
       const deadline = Date.now() + 5000
       let cached: unknown = null
       while (!cached && Date.now() < deadline) {

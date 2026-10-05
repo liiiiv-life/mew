@@ -2259,6 +2259,7 @@ function AgentSessionView({
     writeAgentInputDraft(tabId, draft)
   }, [draft, tabId])
   const scrollRef = useRef<HTMLDivElement>(null)
+  const questionScrollRef = useRef<{ key: string; top: number } | null>(null)
   const sessionRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const composerActionsRef = useRef<HTMLDivElement>(null)
@@ -2740,6 +2741,7 @@ function AgentSessionView({
   // 중이 대부분이다)이면 자리를 그대로 두고 "새 메시지"만 띄운다. 누르면 바닥으로 가고, 스스로
   // 바닥까지 내려가도 사라진다
   const scrollToBottom = useCallback(() => {
+    questionScrollRef.current = null
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
     stickRef.current = true
@@ -2769,6 +2771,7 @@ function AgentSessionView({
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
+    if (questionScrollRef.current && Math.abs(questionScrollRef.current.top - el.scrollTop) > 1) questionScrollRef.current = null
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 48
     if (stickRef.current) setUnread(false)
     const history = historyRef.current
@@ -2777,6 +2780,32 @@ function AgentSessionView({
       wsRef.current.send(JSON.stringify({ type: 'history', range: { generation: history.generation, before: history.start } }))
     }
   }, [])
+
+  const navigateQuestion = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="menu"], [role="listbox"], [role="slider"]')) return
+    const el = event.currentTarget
+    const questions = [...el.querySelectorAll<HTMLElement>('[data-agent-question]')]
+    if (!questions.length) return
+    const top = el.getBoundingClientRect().top + el.clientTop + parseFloat(getComputedStyle(el).paddingTop)
+    const positions = questions.map(question => question.getBoundingClientRect().top - top + el.scrollTop)
+    const last = questionScrollRef.current
+    let selected = last && Math.abs(last.top - el.scrollTop) <= 1
+      ? questions.findIndex(question => question.dataset.agentQuestion === last.key) : -1
+    if (selected >= 0 && Math.abs(Math.min(positions[selected], el.scrollHeight - el.clientHeight) - el.scrollTop) > 1) selected = -1
+    const up = event.key === 'ArrowUp'
+    const index = selected >= 0
+      ? Math.max(0, Math.min(questions.length - 1, selected + (up ? -1 : 1)))
+      : up ? positions.findLastIndex(position => position < el.scrollTop - 1)
+        : positions.findIndex(position => position > el.scrollTop + 1)
+    event.preventDefault()
+    event.stopPropagation()
+    if (index < 0) return
+    el.scrollTo({ top: positions[index], behavior: 'instant' })
+    questionScrollRef.current = { key: questions[index].dataset.agentQuestion!, top: el.scrollTop }
+    handleScroll()
+  }, [handleScroll])
 
   const send = useCallback((payload: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify(payload))
@@ -3521,7 +3550,11 @@ function AgentSessionView({
       ) : (
         <>
       <div data-agent-conversation aria-busy={conversationLoading} className="relative isolate flex min-h-0 flex-1 flex-col">
-      <div ref={scrollRef} onScroll={handleScroll} inert={conversationLoading} style={{ visibility: conversationLoading ? 'hidden' : undefined }} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm">
+      <div ref={scrollRef} tabIndex={0} onKeyDown={navigateQuestion} onScroll={handleScroll}
+        onClick={event => {
+          if (event.detail > 0 && event.target instanceof Element && !event.target.closest('a, input, textarea, select, [contenteditable]:not([contenteditable="false"])')) event.currentTarget.focus({ preventScroll: true })
+        }}
+        inert={conversationLoading} style={{ visibility: conversationLoading ? 'hidden' : undefined }} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink">
         {!conversationLoading && timeline.length === 0 && (
           <div className="flex min-h-full items-center justify-center text-center text-ink-muted">
             {t('agent.emptyConversation')}
@@ -3533,7 +3566,7 @@ function AgentSessionView({
             // 내가 쓴 말이라 이미 아는 내용이다 — 턴 버블과 같게 접어 두고, 눌러야 다 보인다
             const open = expanded.has(item.key)
             return (
-              <div key={item.key} className="space-y-2">
+              <div key={item.key} data-agent-question={item.key} className="space-y-2">
                 {item.settings && (() => {
                   const previous = timeline.slice(0, index).reverse().find((candidate) => candidate.kind === 'user')
                   const changed = previous?.kind !== 'user'
