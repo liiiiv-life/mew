@@ -1,7 +1,7 @@
 import { TaskDocumentProvider } from './task-document-context'
 import { TaskText } from './task-text'
 import { TaskTagFilter } from './task-tag-filter'
-import { collectTaskTags, extractTaskTags, taskTags, TASK_TAG_LIMIT } from '../../shared/task-tags'
+import { collectTaskTags, taskTags, TASK_TAG_LIMIT } from '../../shared/task-tags'
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { Calendar, Xmark, RefreshDouble, Trash, Plus, List, StatsUpSquare } from 'iconoir-react'
 import { TaskDateStatus } from './task-date-status'
@@ -21,7 +21,7 @@ import { TaskGantt } from './task-gantt'
 import './task-panel.css'
 
 type Session = ReturnType<typeof useTaskList>
-const newTask = (text: string, tags: string[] = []): TaskItem => ({ id: uuid(), done: false, ...extractTaskTags(text, [...new Set(tags)].slice(0, TASK_TAG_LIMIT)) })
+const newTask = (text: string, tags: string[] = []): TaskItem => ({ id: uuid(), done: false, text, tags: [...new Set(tags)].slice(0, TASK_TAG_LIMIT) })
 const taskErrors = [
   '태스크를 불러오지 못했습니다', '태스크를 저장하지 못했습니다',
   '다른 창에서 같은 태스크를 수정했습니다. 입력은 유지됩니다. 확인 후 다시 저장하세요.',
@@ -114,7 +114,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     const lines = (input.value.slice(0, input.selectionStart) + text + input.value.slice(input.selectionEnd)).split('\n')
     if (tasks.length + lines.length > TASK_LIMIT || lines.some(line => line.length > TASK_TEXT_LIMIT)) return
     const created = lines.map(line => createTask(line, index < tasks.length ? taskTags(tasks[index]) : draftTags))
-    if (index < tasks.length) created[0] = { ...tasks[index], ...extractTaskTags(lines[0], taskTags(tasks[index])) }
+    if (index < tasks.length) created[0] = { ...tasks[index], text: lines[0] }
     edit([...tasks.slice(0, index), ...created, ...tasks.slice(index + (index < tasks.length ? 1 : 0))])
     if (index === tasks.length) { setDraft(''); setDraftTags([]) }
     focus(created.at(-1)!.id, 'end')

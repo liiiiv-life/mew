@@ -27,11 +27,31 @@ export function useTaskList(workspace: string | null, email: string, open: boole
   useEffect(() => {
     if (!open || !workspace || !email) return
     void session.refresh()
+    const controller = new AbortController()
+    const stream = async () => {
+      try {
+        const response = await fetch(`/api/task-list/events?workspace=${encodeURIComponent(workspace)}`, { headers: { 'X-Mew-Task-Owner': encodeURIComponent(email) }, signal: controller.signal })
+        if (!response.ok || !response.body) return
+        const reader = response.body.getReader(), decoder = new TextDecoder()
+        let buffered = ''
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffered += decoder.decode(value, { stream: true })
+          let boundary: number
+          while ((boundary = buffered.indexOf('\n\n')) >= 0) {
+            if (buffered.slice(0, boundary).startsWith('data:')) void session.refresh()
+            buffered = buffered.slice(boundary + 2)
+          }
+        }
+      } catch { /* Periodic refresh covers unavailable streams and reconnects. */ }
+    }
+    void stream()
     const timer = setInterval(() => { void session.refresh() }, 3000)
     const refresh = () => { if (!document.hidden) void session.refresh() }
     window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)
-    return () => { clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh) }
+    return () => { controller.abort(); clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh) }
   }, [session, open, workspace, email])
   useEffect(() => {
     for (const [key, value] of sessions.current) if (!key.startsWith(`${email}:`)) { value.dispose(); sessions.current.delete(key) }

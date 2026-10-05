@@ -4,8 +4,8 @@ parent: "mew-projects"
 title: "태스크 패널·목록·달력·간트"
 status: "changed"
 created: "2026-10-03"
-updated: "2026-10-05"
-files: ["src/components/task-panel.tsx", "src/components/task-text.tsx", "src/components/task-tag-filter.tsx", "src/utils/task-tag-color.ts", "shared/task-tags.ts", "src/components/task-range-calendar.tsx", "src/components/task-calendar.tsx", "src/components/task-gantt.tsx", "src/utils/task-schedule.ts", "src/utils/task-timeline.ts", "src/hooks/use-task-list.ts", "src/hooks/use-task-drag.ts", "src/utils/task-list-session.ts", "shared/task-list.ts", "packages/ui/src/select-field.tsx", "packages/ui/src/date-field.tsx", "packages/ui/src/date-field.css", "server/task-list.ts", "server/task-list-routes.ts", "src/App.tsx"]
+updated: "2026-10-06"
+files: ["src/components/task-panel.tsx", "src/components/task-text.tsx", "src/components/task-tag-picker.tsx", "server/task-markdown.ts", "src/components/task-tag-filter.tsx", "src/utils/task-tag-color.ts", "shared/task-tags.ts", "src/components/task-range-calendar.tsx", "src/components/task-calendar.tsx", "src/components/task-gantt.tsx", "src/utils/task-schedule.ts", "src/utils/task-timeline.ts", "src/hooks/use-task-list.ts", "src/hooks/use-task-drag.ts", "src/utils/task-list-session.ts", "shared/task-list.ts", "packages/ui/src/select-field.tsx", "packages/ui/src/date-field.tsx", "packages/ui/src/date-field.css", "server/task-list.ts", "server/task-list-routes.ts", "src/App.tsx"]
 commits: []
 ---
 
@@ -14,9 +14,9 @@ commits: []
 - 목록 기본 정렬은 `날짜 설정 → D-Day → D-n → D+n → 시작 전`이며 같은 그룹의 저장 순서를 유지한다.
 
 - 메모와 독립된 태스크 패널에서 일반 글을 입력하듯 할 일을 작성한다.
-- 항목마다 고유 ID·내용·완료 여부를 가진 독립 객체를 저장한다. 태그와 날짜로 분류하며 상위·하위 계층은 제공하지 않는다.
+- 항목마다 고유 ID의 Markdown 파일을 저장한다. 제목은 문서의 `title`이며 완료·태그·날짜는 프론트매터로 관리한다. 생성·삭제는 연결 파일에도 적용하고 파일에서 변경한 속성은 열린 패널에 반영한다. 태그와 날짜로 분류하며 상위·하위 계층은 제공하지 않는다.
 - 마지막 추가 행은 문구 없이 가로 중앙의 +만 표시한다. 클릭·키보드 포커스로 바로 입력하고 Enter로 다음 항목을 이어 쓴다.
-- 내용 입력에서 `@파일명`으로 루트 프로젝트의 내부 파일을 검색하고 방향키·Enter·Tab·클릭·터치로 문서 링크를 넣는다. 목록·달력·간트 편집에서 공유하며 문서 버튼을 누르면 에디터에서 연다.
+- 날짜 버튼 왼쪽의 문서 아이콘으로 연결된 Markdown을 연다. 간트 편집 카드와 읽기 전용에서도 열 수 있다. 제목 수정은 파일의 `title`만 바꾸며 본문·사용자 속성을 보존한다.
 - 기존 내용은 인라인 수정·줄 나누기·여러 줄 붙여넣기·빈 줄 Backspace 삭제를 지원한다.
 - 각 태스크의 시작일·완료일을 지정하고 기간을 저장한다. 삭제 버튼 왼쪽 날짜 상태는 시작일이 미래이면 회색 `시작 전`, 시작한 일정은 완료일 기준 `D-n`·`D-Day`·빨간색 `D+n`으로 표시한다. 클릭하면 팝오버에 통합된 기간 선택 달력을 연다. 첫 클릭은 시작일, 다음 클릭이 같은 날짜이거나 이후 날짜이면 종료일로 확정하며, 같은 날짜를 두 번 선택하면 하루 일정으로 저장한다. 이른 날짜를 누르면 시작일을 다시 정하고 종료일 선택을 기다린다.
 - 타이틀바의 목록·달력·간트 탭과 하단 독의 좌우 스와이프로 보기를 순환하며 같은 태스크 데이터를 편집한다.
@@ -32,7 +32,7 @@ commits: []
 - PC·모바일 독 진입·도킹 이동/크기 조절·확대·전면 전환·닫기·프로젝트별 배치 복원을 제공한다.
 - 현재 루트 프로젝트별로 자동 저장하고 실패·동시 수정 충돌 시 입력을 보존한다.
 
-- 내용 입력에서 `#이름` 다음 Space·Enter로 태그를 확정하고 `#` 없는 컬러 칩을 체크박스와 본문 사이에 표시한다. 색상은 이름별 자동 지정이고 모서리는 9px다. 기존 이름을 접두어로 자동완성하며 키보드·마우스·터치로 선택한다.
+- 제목 왼쪽 독립 태그 입력에서 검색·다중 선택·새 태그 생성/삭제를 제공한다. `#` 없는 컬러 칩, 이름별 자동 색상과 9px 모서리를 유지한다. 제목 안의 `@`·`#`는 그대로 제목에 남긴다.
 - 같은 루트 프로젝트의 모든 태스크 입력칸과 세 보기에서 태그를 공유한다. 작은 필터 아이콘과 컬러 칩으로 여러 태그를 선택하고 선택한 태그 중 하나라도 붙은 항목을 목록·달력·간트에 표시한다. 개별/전체 해제를 제공하며 태그를 삭제해도 내용·일정·완료를 보존한다.
 - 이전 상위·하위 항목의 ID·내용·완료·표시 기간을 독립 객체로 보존한다.
 
@@ -42,6 +42,9 @@ commits: []
 - 상위: [분야 지도](MOC.md) · [프로젝트](../projects.md)
 
 ## 구현 내용
+
+- 2026-10-06 Markdown 기준 저장으로 전환했다. 기존 JSON은 쓰기 권한 조회/수정 시 ID·순서·속성을 보존해 이관하고 버전 3에는 순서·태그 목록만 남긴다. 파일 감시 SSE와 주기 조회로 외부 수정/삭제/이름 변경을 반영한다. 제목 왼쪽 검색 가능한 다중 태그 입력과 문서 열기 아이콘을 제공한다. 인라인 `@` 참조와 `#` 태그 추출은 사용자 요청으로 제거했으며 별도 요청 없이 재도입하지 않는다.
+- 아래의 인라인 참조·해시태그 구현/검증은 변경 전 이력이며 현재 계약은 [Markdown 저장 계약](../../development/task-list.md)을 따른다.
 
 - 2026-10-05 간트 기본 날짜 범위·숨긴 스크롤바·양끝 표시 범위 핸들을 구현했다. 일정 편집과 독립된 탐색 동작이며 읽기 전용·키보드 조절·취소를 지원한다.
 
@@ -93,6 +96,8 @@ commits: []
 - 앞서 메모에 추가했던 체크리스트 전환 버튼은 사용자 의도에 맞게 제거했다. 메모의 기존 편집·공동 편집은 유지한다.
 
 ## 검증
+
+- 2026-10-06: Markdown 저장·이관·충돌/실패 복원·세션/태그/정렬 16개 단위·API 검사와 PC/모바일 목록·달력·간트 브라우저 회귀 2개를 통과했다. 외부 수정 즉시 반영, 제목/본문/사용자 속성 보존, 파일 열기/삭제, 검색·다중 태그 선택, 읽기 전용과 320px 화면 경계를 확인했다. 전체 타입 검사·변경 코드 lint·UI detector·문서 경계/링크 검사도 통과했다. 빌드·서버 재시작은 수행하지 않았다.
 
 - 2026-10-05: `task-schedule-ui.test.ts`·`task-schedule.test.ts` 4개 테스트 통과. 기본 날짜 범위·양끝 드래그·키보드 조절·Esc 복원·읽기 전용·일정 미저장과 기존 PC/모바일 조작을 확인했다. 타입 검사·대상 lint·문서 경계/링크 검사도 통과했다.
 
@@ -149,7 +154,7 @@ commits: []
 
 - 2026-10-03: 객체 저장/API·세션·PC/모바일 태스크·실제 App 진입/Esc/재열기·독/배치·기존 메모 회귀 27개 검사를 통과했다. 전체 타입 검사와 문서 링크 검사도 통과했다. 변경 코드 lint는 오류 없이 기존 mobile-dock 의존성 경고 2건을 보고했다. 문서 경계 검사는 작업 밖 todo/docs의 기존 미등록 문서 때문에 실패했다.
 
-- 사용자 확인 예정: 실제 앱에서 태그 입력·접두어 자동완성·세 보기 필터의 조작감과 태스크 독 진입, 시작/종료 기간, 달력 날짜별 일정과 간트 이동/리사이즈의 조작감, 프로젝트별 목록·도킹 배치 복원.
+- 사용자 확인 예정: 실제 앱에서 분리된 태그 입력·검색/다중 선택·Markdown 양방향 반영·세 보기 필터의 조작감과 태스크 독 진입, 시작/종료 기간, 달력 날짜별 일정과 간트 이동/리사이즈의 조작감, 프로젝트별 목록·도킹 배치 복원.
 - 저장/API·세션·PC/모바일 UI 검증 파일과 기준은 상세 계약을 따른다.
 
 - 2026-10-04 날짜 상태 표시와 일정 팝오버를 추가했다. 날짜 미지정은 `날짜 설정`으로 표시하며 공용 DateField에서 날짜를 지정·삭제하고 자동 저장한다.

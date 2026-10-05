@@ -1,3 +1,4 @@
+import { readTaskDocuments, writeTaskDocuments } from './task-markdown.ts'
 import { taskRollups, taskWithRollup } from '../shared/task-rollup.ts'
 import { collectTaskTags, validTags } from '../shared/task-tags.ts'
 import path from 'node:path'
@@ -20,9 +21,16 @@ export function taskListFile(workspace: string) {
   return path.join(DATA_DIR, `task-list-${createHash('sha256').update(workspace).digest('hex')}.json`)
 }
 export function readTaskList(workspace: string): TaskItem[] {
-  const data = readJsonFile<{ version: number; tasks: unknown }>(taskListFile(workspace))
-  if (data === null) {
-    if (fs.existsSync(taskListFile(workspace))) throw new Error('태스크 저장 파일을 읽지 못했습니다')
+  const data = readJsonFile<{ version: number; tasks: unknown; order?: string[] }>(taskListFile(workspace))
+  if (data === null && fs.existsSync(taskListFile(workspace))) throw new Error('태스크 저장 파일을 읽지 못했습니다')
+  if (data?.version === 3 || data === null) {
+    const documents = readTaskDocuments(workspace)
+    if (documents.length > TASK_LIMIT || !documents.every(doc => validItem(doc.task)) || !validTaskTree(documents.map(doc => doc.task))) throw new Error('태스크 저장 파일을 읽지 못했습니다')
+    if (data?.version === 3 && (!Array.isArray(data.order) || !data.order.every(id => typeof id === 'string'))) throw new Error('태스크 저장 파일을 읽지 못했습니다')
+    const order = data?.order ?? []
+    const rank = new Map(order.map((id, index) => [id, index]))
+    const tasks = documents.map(doc => doc.task).sort((a, b) => (rank.get(a.id) ?? order.length) - (rank.get(b.id) ?? order.length))
+    if (data?.version === 3 || tasks.length) return tasks
     return []
   }
   if ((data.version !== 1 && data.version !== 2) || !Array.isArray(data.tasks) || data.tasks.length > TASK_LIMIT || !data.tasks.every(validItem)
@@ -54,8 +62,11 @@ export function changeTaskList(workspace: string, input: unknown): TaskItem[] {
   }
   const clean = (item: TaskItem | null): TaskItem | null => item === null ? null : { id: item.id, text: item.text, done: item.done, ...(item.tags?.length ? { tags: [...item.tags] } : {}), ...(item.date ? { date: item.date } : {}), ...(item.startDate ? { startDate: item.startDate } : {}) }
   const changes = (input as TaskChange[]).map(change => ({ id: change.id, before: clean(change.before), after: clean(change.after), afterId: change.afterId, ...(change.move ? { move: true } : {}) }))
+  const stored = readJsonFile<{ version: number }>(taskListFile(workspace))
+  if (stored && stored.version < 3 && readTaskDocuments(workspace).length) throw new Error('기존 태스크와 Markdown 파일이 중복됩니다')
   const tasks = applyTaskChanges(readTaskList(workspace), changes)
   if (tasks.length > TASK_LIMIT) throw new TaskInputError('태스크는 최대 2,000개까지 추가할 수 있습니다')
-  writeFileAtomic(taskListFile(workspace), JSON.stringify({ version: 2, tasks, tags: collectTaskTags(tasks, readTaskTags(workspace)) }) + '\n')
-  return tasks
+  const tags = collectTaskTags(tasks, readTaskTags(workspace))
+  writeTaskDocuments(workspace, tasks, () => writeFileAtomic(taskListFile(workspace), JSON.stringify({ version: 3, order: tasks.map(task => task.id), tags }) + '\n'))
+  return readTaskList(workspace)
 }

@@ -1,3 +1,7 @@
+import fs from 'node:fs'
+import { taskDirectory } from './task-markdown.ts'
+import { taskListFile } from './task-list.ts'
+import { readJsonFile } from './dataDir.ts'
 import express from 'express'
 import { authOf, requireAuthenticated } from './reqAuth.ts'
 import { unrestrictedFiles } from './access-policy.ts'
@@ -15,8 +19,34 @@ export function createTaskListRouter() {
     if (!unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, req.method !== 'GET')) { res.status(403).json({ error: '권한이 없습니다' }); return }
     next()
   })
+  router.get('/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('X-Accel-Buffering', 'no')
+    res.flushHeaders()
+    let watcher: fs.FSWatcher | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const send = () => {
+      if (req.query.workspace !== WORKSPACE_ROOT || !unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, false)) { res.end(); return }
+      res.write('data: changed\n\n')
+    }
+    const notify = () => { clearTimeout(timer); timer = setTimeout(send, 75) }
+    const attach = () => {
+      watcher?.close(); watcher = undefined
+      try { watcher = fs.watch(taskDirectory(WORKSPACE_ROOT), notify); watcher.on('error', () => { watcher?.close(); watcher = undefined; notify() }) } catch { /* The task directory is created on the first save. */ }
+    }
+    const root = WORKSPACE_ROOT
+    let rootWatcher: fs.FSWatcher | undefined
+    try { rootWatcher = fs.watch(root, (_event, name) => { if (name?.toString() === 'tasks') { attach(); notify() } }); rootWatcher.on('error', () => res.end()) } catch { res.end(); return }
+    attach(); send()
+    const heartbeat = setInterval(() => { if (root !== WORKSPACE_ROOT) res.end(); else res.write(': keepalive\n\n') }, 15_000)
+    res.on('close', () => { clearTimeout(timer); clearInterval(heartbeat); watcher?.close(); rootWatcher?.close() })
+  })
   router.get('/', (req, res) => {
-    try { res.json({ tasks: readTaskList(WORKSPACE_ROOT), tags: readTaskTags(WORKSPACE_ROOT), canEdit: unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true) }) }
+    try {
+      const legacy = readJsonFile<{ version: number }>(taskListFile(WORKSPACE_ROOT))
+      if (legacy && legacy.version < 3 && unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true)) changeTaskList(WORKSPACE_ROOT, [])
+      res.json({ tasks: readTaskList(WORKSPACE_ROOT), tags: readTaskTags(WORKSPACE_ROOT), canEdit: unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true) }) }
     catch { res.status(500).json({ error: '태스크를 불러오지 못했습니다' }) }
   })
   router.patch('/', (req, res) => {

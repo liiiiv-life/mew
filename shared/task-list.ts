@@ -1,7 +1,7 @@
 import { sameTags, taskTags, validTags } from './task-tags.ts'
 import { validDateValue } from '@mew/ui/date-value'
 
-export type TaskItem = { id: string; text: string; done: boolean; tags?: string[]; parentId?: string | null; date?: string | null; startDate?: string | null }
+export type TaskItem = { id: string; path?: string; text: string; done: boolean; tags?: string[]; parentId?: string | null; date?: string | null; startDate?: string | null }
 export type TaskChange = { id: string; before: TaskItem | null; after: TaskItem | null; afterId: string | null; move?: boolean }
 export type TaskBoard = { tasks: TaskItem[]; canEdit: boolean; tags?: string[] }
 export const TASK_LIMIT = 2000
