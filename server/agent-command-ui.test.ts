@@ -21,6 +21,10 @@ test('CLI composer, live-to-saved popup, keyboard focus and reload on desktop/mo
 import React from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {EditorView} from '${root}/node_modules/@codemirror/view/dist/index.js';
+window.composerSelection=()=>{
+  const selection=EditorView.findFromDOM(document.querySelector('.cm-editor')).state.selection.main;
+  return {from:selection.from,to:selection.to};
+};
 window.repeatPrefixUpdate=()=>{
   const view=EditorView.findFromDOM(document.querySelector('.cm-editor'));
   view.dispatch({changes:{from:0,to:view.state.doc.length,insert:'! '},selection:{anchor:2}});
@@ -545,6 +549,11 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await page.evaluate("window.agentMessages=[];window.agentSocket.emit({type:'meta',meta:{sessionId:'conversation',busy:false,queued:[],queuedKinds:[],queuedAttachments:[]}})")
       await page.evaluate("window.setEditorProject('test')")
 
+      await page.evaluate(() => {
+        const histories = JSON.parse(localStorage.getItem('mew:agent-input-histories') ?? '{}')
+        for (const key of Object.keys(histories)) histories[key].unshift('이전 입력\n마지막 줄')
+        localStorage.setItem('mew:agent-input-histories', JSON.stringify(histories))
+      })
       await draft.fill('첫 줄\n둘째 줄')
       await draft.press('Home')
       await draft.press('ArrowUp')
@@ -552,10 +561,20 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await draft.press('Control+Home')
       await draft.press('ArrowUp')
       assert.equal(await draft.locator('.cm-line').allTextContents().then(lines => lines.join('\n')), '사진 두 장', 'first visual line recalls the last prompt')
+      await page.evaluate('new Promise(requestAnimationFrame)')
+      assert.deepEqual(await page.evaluate('window.composerSelection()'), { from: '사진 두 장'.length, to: '사진 두 장'.length }, 'up places the caret at the end of the recalled prompt')
+      await draft.press('Control+Home')
+      await draft.press('ArrowUp')
+      await draft.press('Control+End')
+      await draft.press('ArrowDown')
+      assert.equal(await composerValue(draft), '사진 두 장', 'down recalls the next sent prompt')
+      await page.evaluate('new Promise(requestAnimationFrame)')
+      assert.deepEqual(await page.evaluate('window.composerSelection()'), { from: 0, to: 0 }, 'down places the caret at the start of the next sent prompt')
       await draft.press('Control+End')
       await draft.press('ArrowDown')
       assert.equal(await draft.locator('.cm-line').allTextContents().then(lines => lines.join('\n')), '첫 줄\n둘째 줄', 'down restores the unsent multiline draft')
       await page.evaluate('new Promise(requestAnimationFrame)')
+      assert.deepEqual(await page.evaluate('window.composerSelection()'), { from: 0, to: 0 }, 'down places the caret at the start of the restored multiline draft')
       await draft.press('Control+a')
       await page.evaluate(`(() => {
         const element = document.querySelector('[contenteditable="true"][aria-placeholder="텍스트 입력"]')

@@ -2428,7 +2428,8 @@ function AgentSessionView({
       const textarea = agentInputRef.current
       if (!textarea) return
       textarea.focus()
-      textarea.setSelectionRange(next.length, next.length)
+      const caret = direction === 'up' ? next.length : 0
+      textarea.setSelectionRange(caret, caret)
     })
     return true
   }, [draft, tabId])

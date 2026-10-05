@@ -4,7 +4,7 @@ parent: "mew-agents"
 title: "에이전트 입력·멘션·스킬·첨부"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-02"
+updated: "2026-10-05"
 status_hash: "a10e27bcc06cebe98975858548ff907b5953bfbcf197fe2ef971d9294144858f"
 files: ["src/components/AgentPanel.tsx", "src/components/MentionTextarea.tsx", "src/components/agent-composer-input.tsx", "src/utils/clipboard-images.ts", "src/utils/agentInputMentions.ts", "server/skills.ts"]
 commits: []
@@ -34,6 +34,8 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- 입력 기록 탐색 후 방향에 맞게 커서를 배치한다([입력 명세](../../specs/agent-input-mentions.md)).
+
 - 입력 영역의 최소 높이는 버튼 행의 실제 콘텐츠 높이와 계산된 패딩·테두리에서 구한다. 버튼 크기·간격 변경을 자동으로 반영하며 저장된 높이보다 콘텐츠가 크면 표시 높이를 올려 입력칸과 전송 버튼의 하단 정렬을 유지한다([입력 명세](../../specs/agent-input-mentions.md)).
 
 - @ 프로젝트/파일/폴더 멘션, / 스킬 선택, 첨부·미리보기·입력 기록과 입력칸 높이 조절을 제공한다.
@@ -55,6 +57,8 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-05: 격리 Chromium의 데스크톱·모바일에서 ↑ 기록 호출의 끝 커서, ↓ 다음 기록·여러 줄 초안 복원의 시작 커서를 검증했다. 관련 UI 테스트·타입·대상 린트·문서 허용목록·워크스페이스 링크 검사가 통과했다. UI 테스트는 기존 준비 단계의 전송 버튼 대기 시간 초과로 한 차례 실패한 뒤 재실행해 통과했다. 빌드·서버 재시작은 수행하지 않았다.
 
 - 2026-10-02: 격리 Chromium에서 OS 파일 드롭과 같은 파일 전송 데이터로 텍스트·사진 2개를 동시에 놓아 각각 한 번씩 첨부 콜백을 호출하고 작성 본문을 보존하는지 확인했다. 대상 린트는 기존 경고 1개만 있으며 UI 검사기는 통과했다. 전체 AgentPanel 테스트·타입 검사는 작업 중인 API 모듈의 누락으로 완료하지 못했고, 문서 허용목록 검사는 기존 `todo/docs/` 미등록 경계로 실패했다. 빌드·서버 재시작은 수행하지 않았다.
 
