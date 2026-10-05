@@ -6,7 +6,7 @@ import path from 'node:path'
 import express from 'express'
 import { build } from 'rolldown'
 import { compile } from '@tailwindcss/node'
-import { chromium } from 'playwright-core'
+import { chromium, type Locator } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 function tagContrast(color: string, background: string): number {
@@ -16,6 +16,18 @@ function tagContrast(color: string, background: string): number {
   }).reduce((sum, channel, index) => sum + channel * [.2126, .7152, .0722][index], 0)
   const a = luminance(color), b = luminance(background)
   return (Math.max(a, b) + .05) / (Math.min(a, b) + .05)
+}
+
+async function assertInlineTagAlignment(row: Locator): Promise<void> {
+  const metrics = await row.locator('.task-text').evaluate(el => {
+    const input = el.querySelector('textarea')!, style = el.ownerDocument.defaultView!.getComputedStyle(input)
+    const lineHeight = parseFloat(style.lineHeight)
+    const center = input.getBoundingClientRect().top + parseFloat(style.paddingTop) + lineHeight / 2
+    return [...el.querySelectorAll('.task-tag')].map(tag => { const rect = tag.getBoundingClientRect(); return { delta: Math.abs(rect.top + rect.height / 2 - center), height: rect.height, lineHeight } })
+  })
+  assert.ok(metrics.length > 0)
+  assert.ok(metrics.every(tag => tag.delta <= 1), 'tag centers align with the first text line, including wrapped text and read-only chips')
+  assert.ok(metrics.every(tag => tag.height <= tag.lineHeight), 'tag backgrounds stay within the text line height')
 }
 
 test('task panel supports continuous typing, independent objects, autosave, retry, docking and mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
@@ -213,6 +225,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const textBox = (await input.boundingBox())!, tagsBox = (await tagged.locator('.task-tags').boundingBox())!
     assert.ok(tagsBox.x >= textBox.x + textBox.width && tagsBox.x - textBox.x - textBox.width <= 8, 'tags sit immediately to the right of the task text')
     assert.ok(Math.abs(tagsBox.y - textBox.y) <= 4, 'tags share the text row')
+    await assertInlineTagAlignment(tagged)
     const colors = await tagged.locator('.task-tag').evaluateAll(elements => elements.map(el => el.ownerDocument.defaultView!.getComputedStyle(el).backgroundColor))
     assert.ok(new Set(colors).size > 1, 'tag names receive varied colors')
     const darkPairs = await tagged.locator('.task-tag').evaluateAll(elements => elements.map(el => { const style = el.ownerDocument.defaultView!.getComputedStyle(el); return [style.color, style.backgroundColor] }))
@@ -279,6 +292,11 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await mobileInput.fill('모바일 분류 #ab')
     assert.deepEqual(await two.getByRole('listbox', { name: '태그 자동완성' }).locator('.task-tag-result').allTextContents(), ['ab'], 'already attached tags are excluded')
     await mobileInput.fill('모바일 분류')
+    await mobileInput.fill('모바일에서 여러 줄로 넘어가는 긴 태스크 내용의 첫 줄 옆에 태그를 맞춥니다')
+    await mobileInput.evaluate(el => new Promise<void>(resolve => el.ownerDocument.defaultView!.requestAnimationFrame(() => resolve())))
+    assert.ok((await mobileInput.boundingBox())!.height > 28, 'long mobile text wraps')
+    await assertInlineTagAlignment(mobile.locator(`[data-task-id="${taggedId}"]`))
+    await mobileInput.fill('모바일 분류')
     const mobileDraft = mobile.getByRole('textbox', { name: '새 태스크' })
     await mobileDraft.fill('모바일 #ab')
     await two.getByRole('listbox', { name: '태그 자동완성' }).waitFor()
@@ -293,9 +311,14 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.ok(lightPairs.every(([color, background]) => tagContrast(color, background) >= 4.5), 'light tag text meets contrast requirements')
     const mobileTextBox = (await mobileInput.boundingBox())!, mobileTagsBox = (await mobileRow.locator('.task-tags').boundingBox())!
     assert.ok(mobileTagsBox.x >= mobileTextBox.x + mobileTextBox.width && Math.abs(mobileTagsBox.y - mobileTextBox.y) <= 4, 'mobile tags stay to the right of their text')
+    await assertInlineTagAlignment(mobileRow)
     await two.screenshot({ path: '/tmp/mew-task-panel/mobile-tags-light.png' })
     await two.getByRole('listbox', { name: '태그 자동완성' }).getByRole('option').first().tap()
     assert.equal(await mobile.locator('.task-draft .task-tag').innerText(), 'abc')
+    const removeBox = (await mobile.locator('.task-draft .task-tag-remove').boundingBox())!
+    await two.touchscreen.tap(removeBox.x + removeBox.width / 2, removeBox.y - 2)
+    assert.equal(await mobile.locator('.task-draft .task-tag').count(), 0, 'touching the transparent area above the compact chip still removes it')
+    await mobileDraft.fill('모바일 #abc'); await mobileDraft.press('Space')
     await mobileDraft.press('Enter')
     await two.waitForResponse(response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok())
     const mobileFilter = mobile.getByRole('combobox', { name: '태그 필터', exact: true })
@@ -344,6 +367,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(await readOnlyPanel.getByRole('textbox', { name: '태스크 내용', exact: true }).first().getAttribute('readonly'), '')
     assert.equal(await readOnlyPanel.getByRole('button', { name: '태스크 삭제' }).count(), 0)
     assert.equal(await readOnlyPanel.locator('.task-tag-remove').count(), 0)
+    await assertInlineTagAlignment(readOnlyPanel.locator(`[data-task-id="${taggedId}"]`))
     assert.deepEqual(errors, [])
   } finally { await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true }) }
 })

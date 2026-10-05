@@ -111,11 +111,12 @@
 .task-text > textarea:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
 .task-text > textarea::selection { background: var(--color-accent); color: var(--color-ink-on-accent); }
 .task-line[data-done="true"] .task-text > textarea { text-decoration: line-through; color: var(--color-ink-secondary); }
-.task-tags { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; gap: 4px; overflow-x: auto; scrollbar-width: thin; padding: 3px 0; }
+.task-tags { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; gap: 4px; overflow-x: auto; scrollbar-width: thin; padding: 4px 0; }
 .task-tag { display: inline-flex; flex-shrink: 0; max-width: 100%; align-items: center; border-radius: 9px; background: hsl(var(--task-tag-hue) 80% 92%); color: hsl(var(--task-tag-hue) 65% 25%); font-size: 12px; line-height: 20px; }
+.task-tags > .task-tag { height: 20px; }
 .task-tag-name { min-width: 0; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 2px; }
-.task-tag-remove { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 0 9px 9px 0; color: inherit; }
+.task-tag-remove { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 0 9px 9px 0; color: inherit; }
 .task-tag-remove:hover { background: hsl(var(--task-tag-hue) 65% 25% / .12); }
 .dark .task-tag { background: hsl(var(--task-tag-hue) 40% 23%); color: hsl(var(--task-tag-hue) 85% 86%); }
 .dark .task-tag-remove:hover { background: hsl(var(--task-tag-hue) 85% 86% / .12); }
@@ -150,4 +151,9 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
 .task-tag-result strong { font-weight: 600; }
 .task-gantt-inspector > .task-text { margin-bottom: 8px; }
 .task-draft[data-empty]:not(:focus-within) .task-text { min-height: 28px; }
-@media (pointer: coarse) { .task-tag-remove { width: 28px; height: 28px; } .task-tag-name { line-height: 28px; } .task-tag-suggestions > button { min-height: 40px; } }
+@media (pointer: coarse) {
+  .task-tag-remove { width: 24px; }
+  .task-tags button { position: relative; }
+  .task-tags button::before { content: ''; position: absolute; inset: -4px 0; }
+  .task-tag-suggestions > button { min-height: 40px; }
+}
