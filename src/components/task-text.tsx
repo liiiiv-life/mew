@@ -18,7 +18,6 @@ export function TaskText({ id, text, tags = [], knownTags, disabled, inputs, onC
 }) {
   const documents = useTaskDocuments()
   const ref = useRef<HTMLTextAreaElement>(null), popup = useRef<HTMLDivElement>(null), listId = useId()
-  const measure = useRef<HTMLSpanElement>(null)
   const dismissed = useRef(false)
   const pendingCaret = useRef<number | null>(null)
   const [caret, setCaret] = useState<number | null>(null), [active, setActive] = useState(-1)
@@ -41,7 +40,7 @@ export function TaskText({ id, text, tags = [], knownTags, disabled, inputs, onC
   useLayoutEffect(() => {
     const input = ref.current
     if (!input) return
-    const resize = () => { input.style.width = tags.length ? `${Math.ceil(measure.current?.getBoundingClientRect().width ?? 0) + 6}px` : '100%'; input.style.height = '0'; input.style.height = `${input.scrollHeight}px` }
+    const resize = () => { input.style.height = '0'; input.style.height = `${input.scrollHeight}px` }
     resize()
     if (pendingCaret.current !== null) { input.setSelectionRange(pendingCaret.current, pendingCaret.current); pendingCaret.current = null }
     const observer = new ResizeObserver(resize); observer.observe(input)
@@ -82,7 +81,10 @@ export function TaskText({ id, text, tags = [], knownTags, disabled, inputs, onC
     return true
   }
   return <div className="task-text" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) onBlur?.() }}>
-    <span ref={measure} className="task-text-measure" aria-hidden="true">{text || ' '}</span>
+    {tags.length > 0 && <div className="task-tags" aria-label={uiText('태그')}>{tags.map(tag => <span key={tag} className="task-tag" style={{ '--task-tag-hue': taskTagHue(tag) } as CSSProperties}>
+      {onFilter ? <button type="button" className="task-tag-name" onClick={() => onFilter(tag)}>{tag}</button> : <span className="task-tag-name">{tag}</span>}
+      {!disabled && <button type="button" className="task-tag-remove" aria-label={`${uiText('태그 삭제')}: ${tag}`} data-tip={uiText('태그 삭제')} onClick={() => onChange(text, tags.filter(value => value !== tag))}><Xmark width={12} height={12} aria-hidden="true" /></button>}
+    </span>)}</div>}
     <textarea ref={element => { ref.current = element; if (element) inputs?.set(id, element); else inputs?.delete(id) }} rows={1} value={text} readOnly={disabled} maxLength={TASK_TEXT_LIMIT}
       aria-label={uiText(id === 'draft' ? '새 태스크' : '태스크 내용')} aria-autocomplete="list" aria-haspopup="listbox" aria-controls={open ? listId : undefined} aria-activedescendant={open && selected >= 0 ? `${listId}-${selected}` : undefined}
       onSelect={event => { const input = event.currentTarget; if (!dismissed.current && input === input.ownerDocument.activeElement && input.selectionStart === input.selectionEnd) setCaret(input.selectionStart) }}
@@ -103,10 +105,7 @@ export function TaskText({ id, text, tags = [], knownTags, disabled, inputs, onC
         onKeyDown?.(event)
       }} onPaste={onPaste} onBlur={dismiss} />
 
-    {tags.length > 0 && <div className="task-tags" aria-label={uiText('태그')}>{tags.map(tag => <span key={tag} className="task-tag" style={{ '--task-tag-hue': taskTagHue(tag) } as CSSProperties}>
-      {onFilter ? <button type="button" className="task-tag-name" onClick={() => onFilter(tag)}>{tag}</button> : <span className="task-tag-name">{tag}</span>}
-      {!disabled && <button type="button" className="task-tag-remove" aria-label={`${uiText('태그 삭제')}: ${tag}`} data-tip={uiText('태그 삭제')} onClick={() => onChange(text, tags.filter(value => value !== tag))}><Xmark width={12} height={12} aria-hidden="true" /></button>}
-    </span>)}</div>}
+
     {documents.open && links.length > 0 && <div className="task-document-links">{links.map((link, index) => <button key={index} type="button" onClick={() => documents.open?.(link.path)}><Page width={12} height={12} aria-hidden="true" />{link.label}</button>)}</div>}
     {open && createPortal(<div ref={popup} id={listId} role="listbox" aria-label={uiText(mention ? '파일명 검색' : '태그 자동완성')} className="task-tag-suggestions" style={position}>
       {choices.map((tag, index) => <button key={tag} id={`${listId}-${index}`} type="button" role="option" tabIndex={-1} aria-selected={selected === index} onPointerDown={event => event.preventDefault()} onClick={() => confirm(tag)} onPointerMove={() => setActive(index)}>

@@ -224,7 +224,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const input = tagged.getByRole('textbox', { name: '태스크 내용', exact: true })
     for (const tag of ['abcde', 'abdet', 'abdvf', 'bsas']) { await input.fill('분류 작업 #' + tag); await input.press('Space'); assert.ok((await tagged.locator('.task-tag-name').allTextContents()).includes(tag), 'Space confirms ' + tag) }
     const textBox = (await input.boundingBox())!, tagsBox = (await tagged.locator('.task-tags').boundingBox())!
-    assert.ok(tagsBox.x >= textBox.x + textBox.width && tagsBox.x - textBox.x - textBox.width <= 8, 'tags sit immediately to the right of the task text')
+    assert.ok(tagsBox.x + tagsBox.width <= textBox.x && textBox.x - tagsBox.x - tagsBox.width <= 8, 'tags sit immediately before the task text')
     assert.ok(Math.abs(tagsBox.y - textBox.y) <= 4, 'tags share the text row')
     await assertInlineTagAlignment(tagged)
     const colors = await tagged.locator('.task-tag').evaluateAll(elements => elements.map(el => el.ownerDocument.defaultView!.getComputedStyle(el).backgroundColor))
@@ -311,7 +311,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const lightPairs = await mobileRow.locator('.task-tag').evaluateAll(elements => elements.map(el => { const style = el.ownerDocument.defaultView!.getComputedStyle(el); return [style.color, style.backgroundColor] }))
     assert.ok(lightPairs.every(([color, background]) => tagContrast(color, background) >= 4.5), 'light tag text meets contrast requirements')
     const mobileTextBox = (await mobileInput.boundingBox())!, mobileTagsBox = (await mobileRow.locator('.task-tags').boundingBox())!
-    assert.ok(mobileTagsBox.x >= mobileTextBox.x + mobileTextBox.width && Math.abs(mobileTagsBox.y - mobileTextBox.y) <= 4, 'mobile tags stay to the right of their text')
+    assert.ok(mobileTagsBox.x + mobileTagsBox.width <= mobileTextBox.x && Math.abs(mobileTagsBox.y - mobileTextBox.y) <= 4, 'mobile tags stay before their text')
     await assertInlineTagAlignment(mobileRow)
     await two.screenshot({ path: '/tmp/mew-task-panel/mobile-tags-light.png' })
     await two.getByRole('listbox', { name: '태그 자동완성' }).getByRole('option').first().tap()
