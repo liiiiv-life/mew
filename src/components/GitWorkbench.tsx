@@ -1,7 +1,7 @@
 import type { GitRemoteProgress } from '../../shared/git-remote-progress'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
 import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page } from 'iconoir-react'
@@ -300,7 +300,7 @@ function GitSplitHandle({ ratio, onChange }: { ratio: number; onChange: (ratio: 
   />
 }
 
-function GitComposer({ children, onSubmit }: { children: ReactNode; onSubmit: () => void }) {
+function GitComposer({ id, children, onSubmit }: { id: string; children: ReactNode; onSubmit: () => void }) {
   useUiLocale()
   const form = useRef<HTMLFormElement>(null)
   const drag = useRef<{ pointerId: number; y: number; height: number } | null>(null)
@@ -328,7 +328,7 @@ function GitComposer({ children, onSubmit }: { children: ReactNode; onSubmit: ()
     drag.current = null
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
-  return <form ref={form} aria-label={uiText("커밋 작성")} className="relative min-h-32 shrink-0 border-t border-edge" style={{ height: visibleHeight }} onSubmit={event => { event.preventDefault(); onSubmit() }}>
+  return <form id={id} ref={form} aria-label={uiText("커밋 작성")} className="relative min-h-32 shrink-0 border-t border-edge bg-surface-deep" style={{ height: visibleHeight }} onSubmit={event => { event.preventDefault(); onSubmit() }}>
     <div role="separator" tabIndex={0} aria-label={uiText("입력창 높이 조절")} aria-orientation="horizontal"
       aria-valuemin={minHeight} aria-valuemax={maxHeight} aria-valuenow={Math.round(visibleHeight)}
       title={uiText("끌어서 입력창 높이 조절")}
@@ -403,6 +403,8 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [commitTitle, setCommitTitle] = useState('')
   const [commitDescription, setCommitDescription] = useState('')
+  const [composerOpen, setComposerOpen] = useState(false)
+  const commitFormId = useId()
   const [aiOpen, setAiOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [refreshError, setRefreshError] = useState<string | null>(null)
@@ -442,6 +444,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
     setView({ kind: 'graph' })
     setCommitTitle('')
     setCommitDescription('')
+    setComposerOpen(false)
     setSelectedFiles(new Set())
     setSplitRatio(0.2)
     setAiOpen(false)
@@ -573,6 +576,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
       await commitGitWorkingTree(repositoryPath, commitTitle, commitDescription, project, [...selectedFiles])
       setCommitTitle('')
       setCommitDescription('')
+      setComposerOpen(false)
       setSelectedFiles(new Set())
       setView({ kind: 'graph' })
       onNotice(uiText("변경사항을 커밋했습니다"))
@@ -760,16 +764,9 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
               <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs">
                 <input type="checkbox" aria-label={uiText("변경 파일 전체 선택")} checked={workingTree.files.length > 0 && selectedFiles.size === workingTree.files.length} ref={node => { if (node) node.indeterminate = selectedFiles.size > 0 && selectedFiles.size < workingTree.files.length }} disabled={busy || workingTree.files.length === 0} onChange={event => setSelectedFiles(new Set(event.target.checked ? workingTree.files.map(file => file.path) : []))} className="h-4 w-4 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
                 <span className="shrink-0 whitespace-nowrap tabular-nums text-ink-muted"><span role="status" aria-label={uiText("{count}개 선택", { count: selectedFiles.size })}>{selectedFiles.size}</span> / {workingTree.files.length}</span>
-                <span className="min-w-0 truncate font-medium text-ink">{uiText("커밋되지 않은 변경사항")}</span>
-                <button type="button" onClick={() => void refresh()} disabled={loading || busy} className="ml-auto shrink-0 rounded px-2 py-1 text-ink-secondary hover:bg-surface-hover disabled:opacity-40">{uiText("새로고침")}</button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-scroll="changes">
-                <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
-              </div>
-              <GitComposer onSubmit={() => { void commit() }}>
-                <HoverTipLayer className="flex shrink-0 items-center gap-1.5">
-                  <input value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="h-7 min-w-0 flex-1 rounded border border-edge-strong bg-surface-deep px-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-                  <button type="submit" disabled={!commitTitle.trim() || selectedFiles.size === 0 || busy} aria-label={committing ? uiText("커밋 중…") : uiText("커밋")} data-tip={committing ? uiText("커밋 중…") : uiText("커밋")} className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
+                <span className="min-w-0 truncate font-medium text-ink">{uiText("변경사항")}</span>
+                <HoverTipLayer className="ml-auto flex shrink-0 items-center gap-1.5">
+                  <button type="button" onClick={() => { if (composerOpen) void commit(); else setComposerOpen(true) }} disabled={busy || (composerOpen && (!commitTitle.trim() || selectedFiles.size === 0))} aria-expanded={composerOpen} aria-controls={composerOpen ? commitFormId : undefined} aria-label={committing ? uiText("커밋 중…") : uiText("커밋")} data-tip={committing ? uiText("커밋 중…") : uiText("커밋")} className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
                     <GitCommit width={14} height={14} aria-hidden="true" />
                   </button>
                   {view.kind === 'graph' && info?.repository && <button type="button" disabled={busy} onClick={() => setAiOpen(true)} aria-label={uiText("AI 자동 커밋")} data-tip={uiText("AI 자동 커밋")} className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-edge-strong text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
@@ -780,8 +777,14 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
                     </svg>
                   </button>}
                 </HoverTipLayer>
-                <textarea value={commitDescription} disabled={busy} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-7 w-full flex-1 resize-none rounded border border-edge-strong bg-surface-deep px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
-              </GitComposer>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-scroll="changes">
+                <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
+              </div>
+              {composerOpen && <GitComposer id={commitFormId} onSubmit={() => { void commit() }}>
+                <input autoFocus value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="h-7 min-w-0 w-full shrink-0 rounded border border-edge bg-surface px-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                <textarea value={commitDescription} disabled={busy} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-7 w-full flex-1 resize-none rounded border border-edge bg-surface px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+              </GitComposer>}
             </section>
           </div>
         )}

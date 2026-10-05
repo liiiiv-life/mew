@@ -513,6 +513,7 @@ export const uiMessages = {
   "현재 변경사항": ["Current changes","当前更改","現在の変更"],
   "변경 파일 전체 선택": ["Select all changed files","选择所有更改文件","変更ファイルをすべて選択"],
   "커밋되지 않은 변경사항": ["Uncommitted changes","未提交的更改","未コミットの変更"],
+  "변경사항": ["Changes","更改","変更"],
   "커밋 작성": ["Write commit","编写提交","コミットを作成"],
   "커밋 제목": ["Commit title","提交标题","コミットタイトル"],
   "커밋 중…": ["Committing…","正在提交…","コミット中…"],
