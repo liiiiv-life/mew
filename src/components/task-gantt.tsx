@@ -26,6 +26,7 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   const scroller = useRef<HTMLDivElement>(null), svg = useRef<SVGSVGElement>(null), gesture = useRef<Gesture | null>(null)
   const labels = useRef<HTMLDivElement>(null), pickElement = useRef<HTMLElement | SVGElement | null>(null)
   const current = useRef({ tasks, canEdit, edit, ppd }); current.current = { tasks, canEdit, edit, ppd }
+  const [scrollTop, setScrollTop] = useState(0)
   const [bounds, setBounds] = useState<{ start: number | null; end: number | null }>({ start: null, end: null })
   const pendingScroll = useRef<number | null>(null)
   const allShown = preview ? tasks.some(task => task.id === preview.id) ? tasks.map(task => task.id === preview.id ? preview : task) : [...tasks, preview] : tasks
@@ -167,7 +168,7 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
       <div className="task-gantt-legend">{(['done', 'planned', 'missed'] as const).map(status => <span key={status}><i data-status={status} />{uiText(taskStatusLabels[status])}</span>)}</div>
     </div>
     <div className="task-gantt-frame" onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={() => { if (gesture.current) cancel() }}>
-      <div ref={scroller} className="task-gantt-scroller">
+      <div ref={scroller} className="task-gantt-scroller" onScroll={event => setScrollTop(event.currentTarget.scrollTop)}>
       <div className="task-gantt-content" style={{ width: `calc(var(--task-gantt-label-width) + ${width}px)` }}>
         <div ref={labels} className="task-gantt-labels" style={{ width: 'var(--task-gantt-label-width)' }}>
           <div className="task-gantt-label-header">{uiText('태스크')}</div>
@@ -221,7 +222,7 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
         </div>
       </div>
       </div>
-      {(['start', 'end'] as const).map(side => <button key={side} type="button" className="task-gantt-boundary" data-gantt-boundary={side}
+      {(['start', 'end'] as const).map(side => <button key={side} type="button" className="task-gantt-boundary" data-gantt-boundary={side} style={{ top: HEADER_H + Math.max(1, shown.length) * ROW_H / 2 - scrollTop }}
         aria-label={uiText(side === 'start' ? '시작일' : '종료일')} data-tip={uiText(side === 'start' ? '시작일' : '종료일')}
         onPointerDown={event => begin(event, side === 'start' ? 'range-start' : 'range-end', null)}
         onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); adjustBoundary(side, (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 7 : 1)) } }}><span aria-hidden="true" /></button>)}
