@@ -6,7 +6,7 @@ import { DATA_DIR, writeFileAtomic } from './dataDir.ts'
 export interface GitIdentity { name: string; email: string }
 export interface GitConnection {
   id: string; provider: string; host: string; login: string; identity: GitIdentity
-  accessToken: string; expiresAt?: number
+  accessToken: string; expiresAt?: number; refreshToken?: string; refreshExpiresAt?: number
 }
 export class GitConnectionError extends Error {
   status: number
@@ -17,6 +17,7 @@ export class GitConnectionError extends Error {
 /** Application isolation, not an OS sandbox. Never return these records through an API. */
 export class GitConnections {
   private root: string
+  private refreshing = new Map<string, Promise<GitConnection | null>>()
   constructor(root = path.join(DATA_DIR, 'git-connections')) { this.root = root }
   private file(owner: string, provider: string, host: string) {
     if (!owner) throw new GitConnectionError('Mew에 로그인하세요.', 403, 'forbidden')
@@ -52,12 +53,35 @@ export class GitConnections {
     if (!record || (record.expiresAt && record.expiresAt <= Date.now()) || (id && record.id !== id)) throw new GitConnectionError('Git 계정을 연결한 뒤 다시 시도하세요.')
     return record
   }
+  async resolve(owner: string, provider: string, host: string, refresh?: (token: string) => Promise<Pick<GitConnection, 'accessToken' | 'expiresAt' | 'refreshToken' | 'refreshExpiresAt'>>): Promise<GitConnection | null> {
+    const record = this.get(owner, provider, host)
+    if (!record?.expiresAt || record.expiresAt > Date.now()) return record
+    if (!record.refreshToken || !refresh || (record.refreshExpiresAt && record.refreshExpiresAt <= Date.now())) return null
+    const file = this.file(owner, provider, host)
+    const pending = this.refreshing.get(file)
+    if (pending) return pending
+    const task = (async () => {
+      try {
+        const token = await refresh(record.refreshToken!)
+        const current = this.get(owner, provider, host)
+        if (current?.id !== record.id) return current
+        return this.write(owner, { ...record, ...token, expiresAt: token.expiresAt, refreshToken: token.refreshToken, refreshExpiresAt: token.refreshExpiresAt })
+      } catch (error) {
+        if (error instanceof GitConnectionError && error.code === 'git-auth-required') return null
+        throw error
+      }
+    })()
+    this.refreshing.set(file, task)
+    try { return await task } finally { this.refreshing.delete(file) }
+  }
   set(owner: string, value: Omit<GitConnection, 'id'>): GitConnection {
-    const file = this.file(owner, value.provider, value.host)
+    return this.write(owner, { ...value, id: randomUUID() })
+  }
+  private write(owner: string, record: GitConnection): GitConnection {
+    const file = this.file(owner, record.provider, record.host)
     const key = this.key(true), iv = randomBytes(12)
     const cipher = createCipheriv('aes-256-gcm', key, iv)
-    cipher.setAAD(Buffer.from(JSON.stringify([owner, value.provider, value.host])))
-    const record = { ...value, id: randomUUID() }
+    cipher.setAAD(Buffer.from(JSON.stringify([owner, record.provider, record.host])))
     const data = Buffer.concat([cipher.update(JSON.stringify(record)), cipher.final()])
     writeFileAtomic(file, JSON.stringify({ iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: data.toString('base64') }))
     return record

@@ -15,7 +15,7 @@ export class GitHubAuth {
   private connections: GitConnections
   constructor(closeBrowser: (owner: string, job: string) => Promise<void>, provider: GitProvider = gitProvider(), connections: GitConnections = gitConnections) { this.closeBrowser = closeBrowser; this.provider = provider; this.connections = connections }
   async status(owner: string): Promise<GitHubAuthStatus> {
-    const record = this.connections.get(owner, this.provider.id, this.provider.host)
+    const record = await this.connections.resolve(owner, this.provider.id, this.provider.host, this.provider.refresh)
     const job = this.jobs.get(owner)
     return { available: this.provider.configured(), login: record && (!record.expiresAt || record.expiresAt > Date.now()) ? record.login : null, environmentToken: false, busy: false, job: job ? this.snapshot(job) : null, verificationUrl: this.provider.verificationUrl }
   }
@@ -50,7 +50,7 @@ export class GitHubAuth {
       job.state = 'configuring'; job.code = null
       const account = await this.provider.identify(token.accessToken)
       if (!githubLoginPending(job) || Date.now() >= job.deadline) { this.finish(owner, job, 'failed', '로그인 시간이 만료되었습니다. 다시 시도하세요.'); return }
-      this.connections.set(owner, { provider: this.provider.id, host: this.provider.host, ...account, accessToken: token.accessToken, expiresAt: token.expiresAt })
+      this.connections.set(owner, { provider: this.provider.id, host: this.provider.host, ...account, accessToken: token.accessToken, expiresAt: token.expiresAt, refreshToken: token.refreshToken, refreshExpiresAt: token.refreshExpiresAt })
       this.finish(owner, job, 'complete')
     } catch { this.finish(owner, job, 'failed', 'GitHub 로그인이 취소되었거나 실패했습니다. 다시 로그인하세요.') }
   }

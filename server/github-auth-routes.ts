@@ -1,7 +1,8 @@
 import express from 'express'
 import { authOf, requireAuthenticated, requireAnyFeature, requireFeature } from './reqAuth.ts'
 import { closeDomBrowserJob, createDomBrowserAuthSession } from './browser-dom.ts'
-import { GITHUB_DEVICE_URL, GitHubAuth, GitHubAuthError } from './github-auth.ts'
+import { GitConnectionError } from './git-connections.ts'
+import { GITHUB_DEVICE_URL, GitHubAuth } from './github-auth.ts'
 
 const auth = new GitHubAuth(closeDomBrowserJob)
 
@@ -32,7 +33,7 @@ export function createGitHubAuthRouter(store = auth) {
     } catch (error) { next(error) }
   })
   router.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status(error instanceof GitHubAuthError ? error.status : 500).json({ error: error instanceof GitHubAuthError ? error.message : 'GitHub 연결을 확인하지 못했습니다. 다시 시도하세요.' })
+    res.status(error instanceof GitConnectionError ? error.status : 500).json({ error: error instanceof GitConnectionError ? error.message : 'GitHub 연결을 확인하지 못했습니다. 다시 시도하세요.' })
   })
   return router
 }

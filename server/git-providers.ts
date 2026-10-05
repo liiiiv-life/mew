@@ -1,12 +1,14 @@
 import { GitConnectionError, type GitIdentity } from './git-connections.ts'
 
 export interface DeviceAuthorization { deviceCode: string; code: string; verificationUrl: string; expiresIn: number; interval: number }
-export type DeviceToken = { state: 'pending' | 'slow_down' } | { state: 'complete'; accessToken: string; expiresAt?: number }
+export interface GitToken { accessToken: string; expiresAt?: number; refreshToken?: string; refreshExpiresAt?: number }
+export type DeviceToken = { state: 'pending' | 'slow_down' } | ({ state: 'complete' } & GitToken)
 export interface GitProvider {
   gitUsername: string; acceptsPath(pathname: string): boolean
   id: string; host: string; verificationUrl: string; configured(): boolean
   begin(): Promise<DeviceAuthorization>
   poll(deviceCode: string): Promise<DeviceToken>
+  refresh?(refreshToken: string): Promise<GitToken>
   identify(accessToken: string): Promise<{ login: string; identity: GitIdentity }>
 }
 
@@ -21,6 +23,14 @@ export function githubProvider(request: typeof fetch = fetch, clientId = () => p
     })
     if (!response.ok) throw new Error('GitHub 인증 서버에 연결하지 못했습니다. 다시 시도하세요.')
     return await response.json() as Record<string, unknown>
+  }
+  const token = (data: Record<string, unknown>): GitToken => {
+    if (typeof data.access_token !== 'string' || !data.access_token) throw new GitConnectionError('GitHub 연결이 만료되었습니다. 다시 로그인하세요.')
+    return { accessToken: data.access_token,
+      ...(typeof data.expires_in === 'number' ? { expiresAt: Date.now() + data.expires_in * 1000 } : {}),
+      ...(typeof data.refresh_token === 'string' && data.refresh_token ? { refreshToken: data.refresh_token } : {}),
+      ...(typeof data.refresh_token_expires_in === 'number' ? { refreshExpiresAt: Date.now() + data.refresh_token_expires_in * 1000 } : {}),
+    }
   }
   return {
     gitUsername: 'x-access-token', acceptsPath: pathname => /^\/[\w.-]+\/[\w.-]+(?:\.git)?\/?$/.test(pathname),
@@ -37,7 +47,17 @@ export function githubProvider(request: typeof fetch = fetch, clientId = () => p
       if (data.error === 'authorization_pending') return { state: 'pending' }
       if (data.error === 'slow_down') return { state: 'slow_down' }
       if (typeof data.access_token !== 'string' || !data.access_token) throw new Error(data.error === 'access_denied' ? 'GitHub 로그인을 취소했습니다.' : 'GitHub 로그인이 만료되었거나 실패했습니다. 다시 로그인하세요.')
-      return { state: 'complete', accessToken: data.access_token, ...(typeof data.expires_in === 'number' ? { expiresAt: Date.now() + data.expires_in * 1000 } : {}) }
+      return { state: 'complete', ...token(data) }
+    },
+    async refresh(refreshToken) {
+      let data: Record<string, unknown>
+      try { data = await post('oauth/access_token', { grant_type: 'refresh_token', refresh_token: refreshToken }) }
+      catch { throw new GitConnectionError('GitHub 연결을 갱신하지 못했습니다. 잠시 후 다시 시도하세요.', 503, 'git-provider-unavailable') }
+      if (data.error === 'bad_refresh_token') throw new GitConnectionError('GitHub 연결이 만료되었습니다. 다시 로그인하세요.')
+      if (data.error) throw new GitConnectionError('GitHub 연결을 갱신하지 못했습니다. 앱 설정을 확인하세요.', 503, 'git-provider-unavailable')
+      const result = token(data)
+      if (!result.refreshToken) throw new GitConnectionError('GitHub 갱신 응답을 확인하지 못했습니다.', 503, 'git-provider-unavailable')
+      return result
     },
     async identify(accessToken) {
       const response = await request('https://api.github.com/user', { headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(20_000), redirect: 'error' })

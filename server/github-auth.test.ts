@@ -116,3 +116,71 @@ test('GitHub default app works without configuration and supports a trimmed over
   }
   assert.deepEqual(ids, ['Ov23liKEjrduHJdXyo7m', 'Ov23liKEjrduHJdXyo7m', 'Ov23liKEjrduHJdXyo7m', 'custom-app'])
 })
+
+test('expired OAuth connections rotate encrypted tokens once and preserve the connection ID', async t => {
+  const f = fixture(t)
+  const old = f.connections.set('alice', { provider: 'github', host: 'github.com', login: 'octocat', identity: { name: 'Octocat', email: '1+octocat@users.noreply.github.com' }, accessToken: 'private-old', expiresAt: Date.now() - 1, refreshToken: 'private-refresh', refreshExpiresAt: Date.now() + 60_000 })
+  let calls = 0
+  f.provider.refresh = async token => {
+    assert.equal(token, 'private-refresh'); calls++; await delay(5)
+    return { accessToken: 'private-new', expiresAt: Date.now() + 60_000, refreshToken: 'private-rotated', refreshExpiresAt: Date.now() + 120_000 }
+  }
+  const statuses = await Promise.all([f.store.status('alice'), f.store.status('alice')])
+  assert.ok(statuses.every(status => status.login === 'octocat' && !JSON.stringify(status).includes('private')))
+  assert.equal(calls, 1)
+  const saved = new GitConnections(f.root).require('alice')
+  assert.equal(saved.id, old.id)
+  assert.equal(saved.accessToken, 'private-new')
+  assert.equal(saved.refreshToken, 'private-rotated')
+  assert.ok(fs.readdirSync(f.root).filter(file => file.endsWith('.json')).every(file => !fs.readFileSync(path.join(f.root, file), 'utf8').includes('private')))
+})
+
+test('refresh cannot restore a disconnected or replaced connection', async t => {
+  const f = fixture(t)
+  for (const replace of [false, true]) {
+    f.connections.set('alice', { provider: 'github', host: 'github.com', login: 'old', identity: { name: 'old', email: 'old@example.test' }, accessToken: 'old', expiresAt: Date.now() - 1, refreshToken: 'refresh' })
+    let release!: () => void
+    f.provider.refresh = () => new Promise(resolve => { release = () => resolve({ accessToken: 'late', expiresAt: Date.now() + 60_000, refreshToken: 'late-refresh' }) })
+    const pending = f.store.status('alice')
+    f.store.disconnect('alice')
+    if (replace) f.connections.set('alice', { provider: 'github', host: 'github.com', login: 'replacement', identity: { name: 'new', email: 'new@example.test' }, accessToken: 'replacement' })
+    release()
+    assert.equal((await pending).login, replace ? 'replacement' : null)
+    assert.equal(f.connections.get('alice')?.accessToken ?? null, replace ? 'replacement' : null)
+  }
+})
+
+test('refresh failures preserve credentials and distinguish retryable outages from reauthorization', async t => {
+  const f = fixture(t)
+  const record = { provider: 'github', host: 'github.com', login: 'octocat', identity: { name: 'Octocat', email: '1+octocat@users.noreply.github.com' }, accessToken: 'old', expiresAt: Date.now() - 1, refreshToken: 'refresh' }
+  f.connections.set('alice', record)
+  f.provider.refresh = githubProvider(async () => { throw new Error('offline') }).refresh
+  await assert.rejects(f.store.status('alice'), { status: 503, code: 'git-provider-unavailable' })
+  assert.equal(f.connections.get('alice')?.refreshToken, 'refresh')
+  f.provider.refresh = githubProvider(async () => Response.json({ error: 'bad_refresh_token' })).refresh
+  assert.equal((await f.store.status('alice')).login, null)
+  f.connections.set('alice', { ...record, refreshExpiresAt: Date.now() - 1 })
+  f.provider.refresh = async () => { assert.fail('expired refresh token must not be sent') }
+  assert.equal((await f.store.status('alice')).login, null)
+  f.connections.set('alice', { ...record, refreshToken: undefined })
+  assert.equal((await f.store.status('alice')).login, null)
+})
+
+test('device flow retains refresh credentials and refresh uses the public client ID without a secret', async () => {
+  const calls: URLSearchParams[] = []
+  const provider = githubProvider(async (_input, init) => {
+    calls.push(new URLSearchParams(String(init?.body)))
+    return Response.json({ access_token: 'access', expires_in: 28800, refresh_token: 'refresh', refresh_token_expires_in: 15897600 })
+  }, () => 'app')
+  const issued = await provider.poll('device')
+  assert.equal(issued.state, 'complete')
+  if (issued.state !== 'complete') assert.fail()
+  assert.equal(issued.refreshToken, 'refresh')
+  assert.ok(issued.refreshExpiresAt! > Date.now())
+  const refreshed = await provider.refresh!('refresh')
+  assert.equal(refreshed.refreshToken, 'refresh')
+  assert.equal(calls[1].get('client_id'), 'app')
+  assert.equal(calls[1].get('grant_type'), 'refresh_token')
+  assert.equal(calls[1].get('refresh_token'), 'refresh')
+  assert.equal(calls[1].has('client_secret'), false)
+})

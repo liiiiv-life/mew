@@ -13,7 +13,7 @@ process.env.MEW_DATA_DIR = path.join(root, 'data')
 process.env.MEW_WORKSPACE = path.join(root, 'workspace')
 fs.mkdirSync(process.env.MEW_WORKSPACE)
 const { gitConnections, GitConnectionError } = await import('./git-connections.ts')
-const { gitRequestContext, providerRemote, withGitCredential } = await import('./git-execution.ts')
+const { gitRequestContext, providerRemote, withGitCredential, requireGitConnection } = await import('./git-execution.ts')
 const { gitProvider } = await import('./git-providers.ts')
 const { createApiApp } = await import('./api.ts')
 const { commitFiles } = await import('./git-commit-files.ts')
@@ -182,4 +182,22 @@ if(process.argv.slice(2).includes('push')) {
     assert.equal(failed.some(event => event.type === 'complete'), false)
     assert.equal(JSON.stringify(failed).includes('private-progress-token'), false)
   } finally { process.env.PATH = originalPath; provider.identify = identify; server.close(); await once(server, 'close') }
+})
+
+
+test('Git actions refresh expired credentials without opening the account panel', async () => {
+  const { cwd } = await repository('expired-action')
+  const owner = 'refresh-action@example.test'
+  const connection = gitConnections.set(owner, { ...record('alice'), expiresAt: Date.now() - 1, refreshToken: 'refresh-action' })
+  const provider = gitProvider(), refresh = provider.refresh
+  provider.refresh = async token => {
+    assert.equal(token, 'refresh-action')
+    return { accessToken: 'renewed-action', expiresAt: Date.now() + 60_000, refreshToken: 'rotated-action' }
+  }
+  try {
+    const renewed = await requireGitConnection(cwd, owner)
+    assert.equal(renewed.id, connection.id)
+    assert.equal(renewed.accessToken, 'renewed-action')
+    assert.equal(gitConnections.require(owner).refreshToken, 'rotated-action')
+  } finally { provider.refresh = refresh; gitConnections.remove(owner) }
 })

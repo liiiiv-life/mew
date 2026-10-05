@@ -33,6 +33,7 @@ export async function requireGitConnection(cwd: string, owner = gitRequestContex
   const target = name ? providerRemote((await git.remote(['get-url', name]))!.trim()) : { provider: 'github', host: 'github.com' }
   const context = gitRequestContext.getStore()
   if (context?.workspace && context.workspace !== WORKSPACE_ROOT) throw new GitConnectionError('프로젝트가 변경되었습니다. 다시 실행하세요.', 409, 'git-workspace-changed')
+  await gitConnections.resolve(owner, target.provider, target.host, gitProvider(target.provider, target.host).refresh)
   const record = gitConnections.require(owner, target.provider, target.host)
   if (context && context.owner === owner) context.connection = record
   return record
