@@ -1,7 +1,7 @@
 ---
 title: "mew"
 created: "2026-09-11"
-updated: "2026-10-04"
+updated: "2026-10-05"
 ---
 
 # mew
@@ -27,6 +27,8 @@ updated: "2026-10-04"
 - [제품 스펙](specs/MOC.md)
 
 - [진행 작업](work/MOC.md)
+
+- [mew.saens.kr 계정 기반 P2P 원격 접속 설계 — 미구현](work/remote-access.md)
 
 - [원격 데스크톱 지연·대역폭 개선 연구 — 기준 조사](research/remote-desktop-latency.md)
 

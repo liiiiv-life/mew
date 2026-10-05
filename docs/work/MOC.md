@@ -1,7 +1,7 @@
 ---
 title: "진행 작업 홈"
 created: "2026-09-11"
-updated: "2026-10-04"
+updated: "2026-10-05"
 ---
 
 # 진행 작업 홈
@@ -9,6 +9,8 @@ updated: "2026-10-04"
 상위: [문서 홈](../MOC.md). 아직 확정 계약으로 증류되기 전의 구현 계획과 검토 기록을 둔다.
 
 ## Current
+
+- [mew.saens.kr 계정 기반 P2P 원격 접속 설계 — 미구현](remote-access.md)
 
 - [대량 문서 변경의 AI 커밋 압축 연구](git-document-commit-compression.md)
 
