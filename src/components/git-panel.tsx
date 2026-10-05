@@ -1,3 +1,4 @@
+import { PanelCloseButton } from './panel-close-button'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -44,9 +45,7 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onOpenFile
             <div ref={setActionsHost} className="flex min-w-0 items-center" />
             <GitHubAccount key={tab.project} project={tab.project} />
           </div>
-          <button type="button" onClick={onClose} className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" title={uiText("Git 닫기")} aria-label={uiText("Git 닫기")}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-          </button>
+          <PanelCloseButton onClick={onClose} aria-label={uiText("Git 닫기")} />
         </div>
       </GitShortcutScope>
     </DockPanel>

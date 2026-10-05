@@ -1,5 +1,6 @@
+import { PanelCloseButton } from './panel-close-button'
 import { useRef } from 'react'
-import { Xmark, Notes } from 'iconoir-react'
+import { Notes } from 'iconoir-react'
 import { Editor, type EditorHandle } from '@mew/editor'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
@@ -33,10 +34,7 @@ export function SharedMemo({ session, open }: { session: SharedMemoSession; open
           </svg>
         </button>)}
       </div>
-      <button type="button" onClick={close} aria-label={uiText('닫기')} title={uiText('닫기')}
-        className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-ink">
-        <Xmark width={14} height={14} />
-      </button>
+      <PanelCloseButton onClick={close} aria-label={uiText('닫기')} />
     </header>
     <DockInlineBody group="memo" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {activated && !collab?.connected && <div role="status" className="px-3 py-2 text-xs text-ink-muted">{uiText(collab?.synced ? '재연결 중…' : '연결 중…')}</div>}

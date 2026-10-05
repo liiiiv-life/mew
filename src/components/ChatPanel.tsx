@@ -1,3 +1,4 @@
+import { PanelCloseButton } from './panel-close-button'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flattenFiles } from '@mew/editor'
 import {
@@ -295,20 +296,10 @@ export function ChatPanel({
     <div className="flex h-full w-full bg-surface-deep">
       {rail}
       <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-2">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge pl-2">
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-ink">{title}</span>
         <span className="shrink-0 text-[10px] text-ink-muted">Alt+C</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-          aria-label={t('chat.close')}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
-        </button>
+        <PanelCloseButton onClick={onClose} aria-label={t('chat.close')} />
       </div>
 
       <div

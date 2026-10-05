@@ -1,3 +1,4 @@
+import { PanelCloseButton } from './panel-close-button'
 import { PanelTitle } from './panel-title'
 import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useDragReorder, useOverlayDismiss } from '@mew/ui'
@@ -139,9 +140,7 @@ function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, o
         <PlusGlyph />
       </button>}
     </div>
-    <button type="button" onClick={onClose} className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink" title={standalone ? t('browser.closePopup') : t('browser.close')} aria-label={standalone ? t('browser.closePopup') : t('browser.close')}>
-      <WindowCloseGlyph />
-    </button>
+    <PanelCloseButton onClick={onClose} aria-label={standalone ? t('browser.closePopup') : t('browser.close')} />
   </div>
 }
 function BrowserPage({ tab, onStatus, onClose, onController, notice }: { tab: ServerBrowserTab; onStatus: (status: DomBrowserStatus) => void; onClose: () => void; onController: (controller: DomBrowserController | null) => void; notice?: { message: string; onDismiss: () => void } }) {
@@ -174,9 +173,6 @@ function IconButton({ label, onClick, disabled = false, children }: { label: str
 
 function NavGlyph({ path }: { path: string }) {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path} /></svg>
-}
-function WindowCloseGlyph() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
 }
 function PlusGlyph() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>

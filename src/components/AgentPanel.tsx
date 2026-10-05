@@ -1,3 +1,4 @@
+import { PanelCloseButton } from './panel-close-button'
 import { canAutoFocusInput } from '@mew/ui'
 import { historyCacheKey, readHistoryCache, writeHistoryCache, readQueueCache, writeQueueCache, type CachedQueue, type CachedHistory } from '../utils/agent-history-cache'
 import { mergeHistoryPage, appendHistoryEvent } from '../utils/agent-history-state'
@@ -1075,14 +1076,7 @@ function AgentTabBar({
           <PlusGlyph />
         </button>}
       </div>
-      <button
-        type="button"
-        onClick={onClosePanel}
-        className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-        aria-label={group?.startsWith('terminal') ? uiText("터미널 닫기") : uiText("에이전트 닫기")}
-      >
-        <XGlyph />
-      </button>
+      <PanelCloseButton onClick={onClosePanel} aria-label={group?.startsWith('terminal') ? uiText("터미널 닫기") : uiText("에이전트 닫기")} />
     </div>
   )
 }

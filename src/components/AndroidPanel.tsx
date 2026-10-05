@@ -1,8 +1,9 @@
+import { PanelCloseButton } from './panel-close-button'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useState } from 'react'
 import { copyText } from '@mew/ui'
-import { Check, Copy, Refresh, Xmark } from 'iconoir-react'
+import { Check, Copy, Refresh } from 'iconoir-react'
 import {
   fetchAndroidEnvStatus,
   fetchBrowserFrameUrl,
@@ -219,7 +220,7 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
   return (
     <>
       <section className="flex h-full min-w-0 flex-col bg-surface-deep text-ink" aria-label="Android">
-      <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface px-2">
+      <div className="flex h-9 shrink-0 items-center border-b border-edge bg-surface pl-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <rect x="5" y="4" width="14" height="16" rx="2" />
@@ -233,9 +234,7 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
         <button type="button" onClick={refreshStatus} className="rounded p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink" title={uiText("상태 새로고침")} aria-label={uiText("상태 새로고침")}>
           <Refresh width={15} height={15} strokeWidth={2} aria-hidden="true" />
         </button>
-        <button type="button" onClick={onClose} className="rounded p-1 text-ink-secondary hover:bg-surface-hover hover:text-ink" title={uiText("Android 닫기")} aria-label={uiText("Android 닫기")}>
-          <Xmark width={15} height={15} strokeWidth={2} aria-hidden="true" />
-        </button>
+        <PanelCloseButton onClick={onClose} aria-label={uiText("Android 닫기")} />
       </div>
 
       <div className="shrink-0 border-b border-edge bg-surface">

@@ -1,3 +1,4 @@
+import { PanelCloseButton } from './panel-close-button'
 import { observeEditorViewport } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
@@ -537,17 +538,7 @@ export function EditorPane({
           onDrop={(path, x, y) => onTabDrop(pane.id, path, x, y)}
         />
         {onClosePanel && <div className="flex items-center border-b border-edge bg-surface-deep">
-          <button
-            type="button"
-            onClick={onClosePanel}
-            className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
-            title={t('common.close')}
-            aria-label={t('common.close')}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
-          </button>
+          <PanelCloseButton onClick={onClosePanel} aria-label={t('common.close')} />
         </div>}
       </div>
 

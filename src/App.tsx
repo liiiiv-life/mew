@@ -1,3 +1,4 @@
+import { PanelCloseButton } from './components/panel-close-button'
 import { Computer, Globe } from 'iconoir-react'
 import { UpdatesModal } from './components/updates-modal'
 import { fetchUpdatesStatus } from './api/client'
@@ -2121,7 +2122,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           >
             <div className="flex min-w-0 flex-1 flex-col">
               {/* 탐색기 ↔ 검색(Ctrl+Shift+F) 전환 — 프로젝트 전환 버튼은 헤더 맨 왼쪽에 있다 */}
-              <div className="flex h-9 shrink-0 items-center gap-1 border-b border-edge px-2">
+              <div className="flex h-9 shrink-0 items-center gap-1 border-b border-edge pl-2">
                 <button
                   type="button"
                   onClick={() => setSidebarView('files')}
@@ -2176,17 +2177,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
                 </button>}
                 {!isGuest && caps.filesRead && caps.filesWrite && <SidebarCreateButtons documents={docsExpanded} onCreate={sidebarCreate.create} disabled={!workspaceUiLoaded || sidebarStateLoadedRootRef.current !== rootProjectPath} />}
-                <button
-                  type="button"
-                  onClick={() => closeWorkspacePanel('sidebar')}
-                  className={`${isGuest ? 'ml-auto ' : ''}flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink`}
-                  title={uiText("사이드바 닫기 (Ctrl+B)")}
-                  aria-label={uiText("사이드바 닫기")}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M6 6l12 12M18 6 6 18" />
-                  </svg>
-                </button>
+                <PanelCloseButton onClick={() => closeWorkspacePanel('sidebar')} className={isGuest ? 'ml-auto' : ''} aria-label={uiText("사이드바 닫기")} />
               </div>
               <div className="min-h-0 flex-1">
                 <div className={sidebarView === 'files' ? 'flex h-full flex-col' : 'hidden'}>

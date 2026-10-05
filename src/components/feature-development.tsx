@@ -1,3 +1,4 @@
+import { PanelCloseButton } from './panel-close-button'
 import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref, type ReactNode } from 'react'
 import { DialogFrame, SelectField } from '@mew/ui'
 import { Xmark, NavArrowDown, NavArrowRight, RefreshDouble, Page } from 'iconoir-react'
@@ -169,7 +170,7 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, onOpenAgent
         </div>
         {data && <span className="shrink-0 text-xs text-ink-secondary">{copy.readOnly}</span>}
         <button type="button" className={headerButton} title={copy.refresh} aria-label={copy.refresh} disabled={busy} onClick={() => void perform()}><RefreshDouble width={14} height={14} /></button>
-        <button type="button" className={`${headerButton} mx-1`} title={copy.close} aria-label={copy.close} disabled={busy} onClick={() => onClose()}><Xmark width={14} height={14} /></button>
+        <PanelCloseButton aria-label={copy.close} disabled={busy} onClick={() => onClose()} />
       </header>
       {error && <p role="alert" className="select-text shrink-0 border-b border-edge px-3 py-2 text-sm text-danger">{error}</p>}
       <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 px-3">
