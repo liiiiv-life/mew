@@ -28,8 +28,10 @@ test('list sorting follows date status priority, retains sibling order and prese
     { ...task, id: 'soon-second', date: '2026-10-05', done: true },
   ]
   const original = [...items]
-  assert.deepEqual(sortTasksByDateStatus(items, '2026-10-04').map(item => item.id), ['undated', 'today', 'soon', 'child-today', 'child-future', 'soon-second', 'late', 'future'])
+  assert.deepEqual(sortTasksByDateStatus(items, '2026-10-04').map(item => item.id), ['today', 'soon', 'child-today', 'child-future', 'soon-second', 'late', 'future', 'undated'])
+  const added = { ...task, id: 'new-undated' }
+  assert.deepEqual(sortTasksByDateStatus([...items, added], '2026-10-04').slice(-2).map(item => item.id), ['undated', 'new-undated'], 'new undated items stay below scheduled tasks and earlier undated items')
   assert.deepEqual(items, original, 'sorting leaves persisted input order untouched')
   assert.deepEqual(sortTasksByDateStatus([items[7], items[2]], '2026-10-04').map(item => item.id), ['soon-second', 'soon'], 'manual ordering within a status group remains stable')
-  assert.equal(sortTasksByDateStatus(items, '2026-10-05').findIndex(item => item.id === 'soon-second'), 1, 'today changes the status priority')
+  assert.equal(sortTasksByDateStatus(items, '2026-10-05').findIndex(item => item.id === 'soon-second'), 0, 'today changes the status priority')
 })

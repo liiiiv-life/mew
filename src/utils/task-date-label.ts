@@ -14,9 +14,9 @@ export function sortTasksByDateStatus(tasks: TaskItem[], today: string): TaskIte
   const rollups = taskRollups(tasks)
   const rank = (original: TaskItem) => {
     const task = taskWithRollup(original, rollups)
-    if (task.startDate && task.startDate > today) return 4
-    if (!task.date) return 0
-    return task.date === today ? 1 : task.date > today ? 2 : 3
+    if (task.startDate && task.startDate > today) return 3
+    if (!task.date) return 4
+    return task.date === today ? 0 : task.date > today ? 1 : 2
   }
   const children = new Map<string | null, TaskItem[]>()
   for (const task of tasks) {

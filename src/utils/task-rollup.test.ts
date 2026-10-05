@@ -23,7 +23,7 @@ test('parent schedules span overlapping or disjoint children and ignore old expl
   const separated = [parent, child('a', '2026-09-01', '2026-09-03'), child('b', '2026-09-06', '2026-09-08')]
   assert.deepEqual(tasksOnDate(separated, '2026-09-04').map(task => task.id), ['parent'], 'calendar includes the parent across the gap')
   assert.equal(taskDateLabel(taskWithRollup(parent, taskRollups(separated)), '2026-09-04').label, 'D-4')
-  assert.deepEqual(sortTasksByDateStatus([parent, ...separated.slice(1), { id: 'empty', text: '', done: false }], '2026-09-04').map(task => task.id), ['empty', 'parent', 'a', 'b'])
+  assert.deepEqual(sortTasksByDateStatus([parent, ...separated.slice(1), { id: 'empty', text: '', done: false }], '2026-09-04').map(task => task.id), ['parent', 'a', 'b', 'empty'])
 })
 
 test('nested rollups use leaf dates, ignore undated descendants and react to edits/deletion/reparenting', () => {
