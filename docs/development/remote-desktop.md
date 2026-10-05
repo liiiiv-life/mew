@@ -78,6 +78,8 @@ Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-dire
 
 ## 뷰어 설정과 좌표
 
+입력 장치에 따른 컨트롤 표시는 서로 독립적이다. `(any-hover: hover) and (any-pointer: fine)`의 초기 값·`change` 알림으로 마우스·트랙패드 가용성을 추정하고, 원격 화면의 `pointerType=mouse` 입력으로도 가상 마우스 묶음(화면 이동·확대·핸들 포함)을 숨긴다. `pen`은 마우스로 판정하지 않는다. 미디어 조건이 해제되면 다시 표시하고, 조건이 false인 상태의 화면 터치도 다시 표시한다. 원격 화면·뷰어 루트에 들어온 trusted·비조합·지원 `code`의 첫 keydown으로 핫키 바 전체를 숨긴다. 설정·붙여넣기 필드·조이스틱의 키 입력과 합성 이벤트로는 키보드를 판정하지 않는다. 키보드 감지는 뷰어 수명 동안 재접속·회전·배치 초기화에도 유지한다. 브라우저가 범용 키보드 연결·분리 API를 제공하지 않으므로 연결만 된 키보드의 즉시 감지와 분리 후 자동 복원은 지원하지 않는다. `code`는 가상 키보드·접근성 장치에서도 생성될 수 있어 물리 장치 여부의 확정 근거는 아니다([MDN code](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code), [any-pointer](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/@media/any-pointer)). 숨기는 컨트롤은 unmount하여 터치·Tab 탐색 대상에서 제외하고 진행 중 조이스틱 입력을 정리한다.
+
 상단 도구 줄은 다른 패널 헤더와 같은 `surface-deep` 배경·`edge` 아래 경계·36px 높이를 사용한다. 닫기는 24px, 다른 도구는 28px 버튼으로 표시하고 제목·도구 글자는 12px이다. 폭 600px 이하에서는 제목과 도구를 각각 36px의 두 줄로 나누며 safe-area는 별도로 더한다. 데스크톱의 내부 독도 헤더 높이에 맞춘다.
 
 공유 화면과 핫키 보조키는 공통 `SelectField`로 선택한다. 목록은 회전하는 원격 데스크톱 패널에 portal해 영상·컨트롤과 함께 회전한다. `SelectField`는 변환된 portal 컨테이너의 로컬 좌표로 메뉴를 배치하고 컨테이너 크기·변환 변경을 추적한다. 일반 뷰어·브라우저 전체화면에서 같은 위치와 입력 경계를 사용한다. Esc·뒤로가기는 목록 → 설정 → 원격 화면 순으로 닫고, 보조키 선택은 원격 컴퓨터에 키 입력을 보내지 않는다. 공유 화면 변경 시 기존 재연결 경로로 선택한 화면 ID를 전달한다.

@@ -32,6 +32,15 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
   const [settingsOpen, setSettingsOpen] = useState(false), [fullscreen, setFullscreen] = useState(!!document.fullscreenElement), [fullscreenError, setFullscreenError] = useState('')
   const ownsFullscreen = useRef(false), [layout, setLayout] = useState(0), [modifier, setModifier] = useState('ControlLeft')
   const [hotkeysExpanded, setHotkeysExpanded] = useState(true)
+  const [keyboardDetected, setKeyboardDetected] = useState(false)
+  const [mouseDetected, setMouseDetected] = useState(() => window.matchMedia('(any-hover: hover) and (any-pointer: fine)').matches)
+  useEffect(() => {
+    const media = window.matchMedia('(any-hover: hover) and (any-pointer: fine)')
+    const changed = () => setMouseDetected(media.matches)
+    media.addEventListener('change', changed)
+    changed()
+    return () => media.removeEventListener('change', changed)
+  }, [])
   const [viewport, setViewport] = useState({ width: 1, height: 1 }), [nativeSize, setNativeSize] = useState({ width: 1280, height: 720 })
   const geometry = desktopGeometry(viewport.width, viewport.height, nativeSize.width, nativeSize.height, 0, view)
   const projection = useRef(geometry); projection.current = geometry
@@ -142,6 +151,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
 
   const sendKey = (event: KeyboardEvent, down: boolean) => {
     event.stopPropagation()
+    if (down && event.isTrusted && !event.nativeEvent.isComposing && KEY_CODES[event.code] && (event.target === stage.current || event.target === root.current)) setKeyboardDetected(true)
     if (event.key === 'Escape') { if (down) close(); return }
     if (event.key === 'F6') { event.preventDefault(); if (down) root.current?.querySelector<HTMLButtonElement>('.desktop-tools button')?.focus(); return }
     // Only the actual viewport takes remote keyboard input; the toolbar remains accessible.
@@ -194,6 +204,8 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
       onBlur={() => input?.release()} onContextMenu={event => event.preventDefault()}
       onPointerDown={event => {
         if (!connected) return
+        if (event.pointerType === 'mouse') setMouseDetected(true)
+        else if (event.pointerType === 'touch' && !window.matchMedia('(any-hover: hover) and (any-pointer: fine)').matches) setMouseDetected(false)
         event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId)
         if (event.pointerType === 'touch') touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
         else if (directPoint(event.clientX, event.clientY)) input?.button(event.button === 2 ? 4 : event.button === 1 ? 2 : 1, true)
@@ -208,7 +220,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
             if (before > 8 && after > 8) onView(0, 0, Math.log(after / before))
           } else { const delta = rotateDelta(previous.x - event.clientX, previous.y - event.clientY, ((360 - rotation) % 360) as Rotation); onView(delta.x, delta.y, 0) }
           touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
-        } else if (event.pointerType !== 'touch') { cursor.current?.mouse(); directPoint(event.clientX, event.clientY, event.buttons !== 0) }
+        } else if (event.pointerType !== 'touch') { if (event.pointerType === 'mouse') setMouseDetected(true); cursor.current?.mouse(); directPoint(event.clientX, event.clientY, event.buttons !== 0) }
       }}
       onPointerUp={event => { touches.current.delete(event.pointerId); if (event.pointerType !== 'touch' && connected) { directPoint(event.clientX, event.clientY, true); input?.button(event.button === 2 ? 4 : event.button === 1 ? 2 : 1, false) } }}
       onPointerCancel={() => { touches.current.clear(); input?.release() }}
@@ -242,7 +254,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
     </aside>}
     {helpOpen && <aside className="desktop-help"><strong>{uiText("터치패드처럼 움직여 조작")}</strong>{connected && cursorMode && <p data-cursor-mode={cursorMode}>{uiText("커서 표시:")}{cursorMode === 'local' ? uiText("이 기기에서 즉시 표시") : uiText("영상에 포함됨. 현재 화면에서는 커서 분리를 사용할 수 없습니다.")}</p>}<p>{uiText("마우스 모양 아래쪽의 커서 이동 영역은 터치패드처럼 손가락을 움직인 만큼 커서를 옮깁니다. 손가락을 멈추면 커서도 멈추고, 떼었다 다시 대서 이어 움직일 수 있습니다. 위쪽 좌클릭·우클릭은 탭하면 클릭하고, 밀면 바로 버튼을 누른 채 드래그합니다. 휠은 밀어서 세로 스크롤하고, 잠깐 꾹 누른 뒤 밀면 중간 버튼으로 드래그합니다.")}</p><p>{uiText("휠·화면 이동·확대는 중앙에서 멀리 밀수록 빨라지고, 밀어 둔 동안 계속 작동합니다. 중앙으로 돌아오거나 손을 떼면 멈춥니다. 화면 이동·확대는 내 화면에만 적용됩니다. 화면을 손가락으로 밀거나 두 손가락으로 확대할 수도 있습니다. 마지막 핸들로 조이스틱 전체를 옮기세요.")}</p>{relative && <p>{uiText("이 서버는 조이스틱으로 커서를 이동합니다.")}</p>}<p>{uiText("키보드: 화면 선택 후 입력 · F6: 도구로 이동 · Esc: 닫기")}</p></aside>}
     {pasteOpen && <form className="desktop-paste" onSubmit={event => { event.preventDefault(); input?.paste(text); setText(''); setPasteOpen(false); stage.current?.focus() }}><label htmlFor="desktop-paste">{uiText("원격 컴퓨터에 붙여넣기")}</label><textarea id="desktop-paste" value={text} maxLength={4096} onChange={event => setText(event.target.value)} placeholder={uiText("전송할 텍스트")} /><div><button type="button" onClick={() => { input?.key('Escape', true); input?.key('Escape', false) }}>{uiText("원격 Esc")}</button><button type="submit" disabled={!connected || !text}>{uiText("붙여넣기")}</button></div></form>}
-    <DesktopFloating key={`keys-${layout}`} root={panel} stage={stage} rotation={rotation} className={`desktop-hotkeys${hotkeysExpanded ? '' : ' is-collapsed'}`} label={uiText("핫키")}>
+    {!keyboardDetected && <DesktopFloating key={`keys-${layout}`} root={panel} stage={stage} rotation={rotation} className={`desktop-hotkeys${hotkeysExpanded ? '' : ' is-collapsed'}`} label={uiText("핫키")}>
       <button type="button" className="desktop-hotkey-toggle" aria-expanded={hotkeysExpanded} aria-controls="desktop-hotkey-buttons" aria-label={`${uiText("핫키")} ${hotkeysExpanded ? uiText("접기") : uiText("펼치기")}`} title={hotkeysExpanded ? uiText("접기") : uiText("펼치기")} onClick={() => setHotkeysExpanded(value => !value)}>
         <DesktopIcon kind={hotkeysExpanded ? 'collapse' : 'expand'} />
       </button>
@@ -255,15 +267,15 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
           [modifier === 'MetaLeft' ? 'Cmd+Tab' : 'Alt+Tab', [modifier === 'MetaLeft' ? 'MetaLeft' : 'AltLeft', 'Tab']],
         ].map(([label, keys]) => <button key={String(label)} disabled={!connected} aria-label={uiText("원격 {p0}", { p0: label })} title={uiText("원격 {p0}", { p0: label })} onClick={() => hotkey(keys as string[])}>{label as string}</button>)}
       </div>
-    </DesktopFloating>
-    <DesktopFloating key={`mouse-${layout}`} root={panel} stage={stage} rotation={rotation} className="desktop-control-strip" label={uiText("원격 데스크톱 조이스틱")}>
+    </DesktopFloating>}
+    {!mouseDetected && <DesktopFloating key={`mouse-${layout}`} root={panel} stage={stage} rotation={rotation} className="desktop-control-strip" label={uiText("원격 데스크톱 조이스틱")}>
       <div className="desktop-mouse">
         {(['left', 'wheel', 'right', 'cursor'] as const).map(kind => <DesktopStick key={kind} kind={kind} input={input} disabled={!connected} onView={onView} sensitivity={sensitivity} rotation={rotation} />)}
       </div>
       <div className="desktop-view-controls">
         {(['pan', 'zoom'] as const).map(kind => <DesktopStick key={kind} kind={kind} input={input} disabled={!connected} onView={onView} sensitivity={sensitivity} rotation={rotation} />)}
       </div>
-    </DesktopFloating>
+    </DesktopFloating>}
     </div>
   </div>, document.body)}{install.popup}</>
 }

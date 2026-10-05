@@ -66,6 +66,15 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, locale: 'ko-KR' })
+    await page.addInitScript(`
+      const originalMatchMedia = window.matchMedia.bind(window);
+      const media = new EventTarget(); media.matches = false;
+      window.matchMedia = query => query === '(any-hover: hover) and (any-pointer: fine)' ? media : originalMatchMedia(query);
+      window.setMouseAvailable = value => { media.matches = value; media.dispatchEvent(new Event('change')); };
+      for (const type of ['pointerdown', 'pointermove', 'pointerup']) window.addEventListener(type, event => {
+        if (!window.detectFixtureMouse && event.pointerType === 'mouse') Object.defineProperty(event, 'pointerType', { value: 'pen' });
+      }, true);
+    `)
     page.setDefaultTimeout(8000)
     const errors: string[] = []
     let ready = true
@@ -401,9 +410,27 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     const before = await controls.boundingBox(); assert.ok(before)
     await gesture('조이스틱 위치 이동', -80, -100)
     const after = await controls.boundingBox(); assert.ok(after && after.x < before.x && after.y < before.y)
+    await page.locator('.desktop-stage').dispatchEvent('keydown', { code: 'KeyA', key: 'a' })
+    assert.equal(await hotkeys.isVisible(), true, 'synthetic keyboard events do not hide hotkeys')
+    await page.evaluate('window.setMouseAvailable(true)')
+    await controls.waitFor({ state: 'hidden' })
+    assert.equal(await hotkeys.isVisible(), true, 'mouse availability does not hide keyboard controls')
+    await page.evaluate('window.setMouseAvailable(false)')
+    await controls.waitFor({ state: 'visible' })
+    await page.locator('.desktop-stage').dispatchEvent('pointermove', { pointerType: 'pen', pointerId: 99, clientX: 100, clientY: 350 })
+    assert.equal(await controls.isVisible(), true, 'a pen does not hide the virtual mouse')
+    const inputArea = (await page.locator('.desktop-stage').boundingBox())!
+    await page.evaluate('window.detectFixtureMouse=true')
+    await page.mouse.move(inputArea.x + inputArea.width / 2, inputArea.y + inputArea.height / 2)
+    await controls.waitFor({ state: 'hidden' })
+    await page.locator('.desktop-stage').tap()
+    await controls.waitFor({ state: 'visible' })
+    await page.evaluate('window.detectFixtureMouse=false')
     if (transport === 'direct') {
       await clear(); await page.locator('.desktop-stage').focus(); await page.keyboard.down('Shift')
       await page.waitForFunction('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="ShiftLeft"&&e[2]===true)')
+      await hotkeys.waitFor({ state: 'hidden' })
+      assert.equal(await controls.isVisible(), true, 'keyboard input hides only hotkeys')
       await page.evaluate(`window.socket.emit({type:'direct-failed'})`)
       await page.waitForFunction(`document.querySelector('.desktop-status')?.dataset.connected==='false'`)
       assert.equal(await page.evaluate('window.switches'), 0, 'direct failure never starts a relay')
@@ -419,7 +446,7 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.getByTitle('화면에 맞추기').click()
     for (const theme of ['light', 'dark']) {
       await page.locator('html').evaluate((el, theme) => el.className = theme, theme)
-      for (const selector of ['.desktop-mouse', '.desktop-view-controls', '.desktop-hotkeys', '.desktop-control-strip > .desktop-handle']) {
+      for (const selector of ['.desktop-mouse', '.desktop-view-controls', '.desktop-control-strip > .desktop-handle']) {
         const style = await page.locator(selector).evaluate(el => ({ background: el.ownerDocument.defaultView!.getComputedStyle(el).backgroundColor, opacity: el.ownerDocument.defaultView!.getComputedStyle(el).opacity }))
         assert.match(style.background, /(?:\/ 0\.78|, 0\.78)/, `${selector} is translucent in ${theme}: ${style.background}`)
         assert.equal(style.opacity, '1', 'text and icons stay opaque')
@@ -439,7 +466,8 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     assert.equal(await page.locator('.desktop-tools').evaluate(el => el.scrollWidth > el.clientWidth), false)
     await page.setViewportSize({ width: 844, height: 390 })
     await page.waitForFunction(`document.querySelector('.desktop-panel')?.clientWidth === 844 && document.querySelector('.desktop-panel')?.clientHeight === 390`)
-    for (const selector of ['.desktop-hotkeys', '.desktop-control-strip']) {
+    assert.equal(await hotkeys.count(), 0, 'keyboard detection survives reconnect and layout reset')
+    for (const selector of ['.desktop-control-strip']) {
       const box = await page.locator(selector).boundingBox(); assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 844 && box.y + box.height <= 390, `${selector}: ${JSON.stringify(box)}`)
     }
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -461,10 +489,12 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       const recovered = (await page.evaluate('window.videoStats()') as { frames: number }).frames
       await clear()
       const area = await page.locator('.desktop-stage').boundingBox(); assert.ok(area)
+      await page.evaluate('window.detectFixtureMouse=true')
       await page.mouse.move(area.x + area.width / 2, area.y + area.height / 2)
       await page.mouse.down(); await page.mouse.move(area.x + area.width / 2 + 100, area.y + area.height / 2 + 50); await page.mouse.up()
       await page.waitForFunction('window.inputEvents.some(e=>e[0]==="button"&&e[2]===false)')
       assert.equal(await page.locator('.desktop-cursor').isVisible(), false, 'native mouse hides the joystick overlay')
+      assert.equal(await controls.count(), 0, 'native mouse also hides the virtual mouse controls')
       assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="moveTo")'))
       await page.evaluate('window.freeze=false')
       await page.waitForFunction(`(async()=>((await window.videoStats()).frames>${recovered}))()`)
