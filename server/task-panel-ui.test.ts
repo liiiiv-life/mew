@@ -52,7 +52,7 @@ return <div style={{height:'100dvh',display:'flex',flexDirection:'column'}}><but
 <MobileDock active={front} openPanels={open?['editor','tasks']:['editor']} available={['editor','tasks']} hidden={false} onSelect={id=>{if(id==='tasks'){if(innerWidth>=768&&open&&front==='tasks')close();else{setOpen(true);setFront('tasks')}}else setFront('editor')}} onNavigate={()=>{}}/>
 <DockWorkspace key={key} value={dock} onChange={setDock} foreground={front} apiRef={null} onEditorDrop={()=>''}>
 <DockPanel id='editor' kind='editor' tabs={['editor']} mobileSelected onFocus={()=>setFront('editor')}><input aria-label='Outside'/></DockPanel>
-<DockPanel id='tasks' kind='tasks' visible={open} tabs={['tasks']} mobileSelected onFocus={()=>setFront('tasks')}><TaskPanel session={session} onClose={close}/></DockPanel>
+<DockPanel id='tasks' kind='tasks' visible={open} tabs={['tasks']} mobileSelected onFocus={()=>setFront('tasks')}><TaskPanel workspace='fixture' onOpenFile={path=>{window.openedTaskFile=path}} session={session} onClose={close}/></DockPanel>
 </DockWorkspace></div>}
 createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><Fixture/></I18nProvider></React.StrictMode>);`
   const bundle = await build({ input: 'virtual:task.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'task-fixture', resolveId(id) {
@@ -69,6 +69,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
   app.use((req, _res, next) => { req.auth = { role: 'owner', email: 'one@example.test', mustChangePassword: false }; next() })
   let failNext = false
   app.use('/api/task-list', (req, res, next) => { if (req.method === 'PATCH' && failNext) { failNext = false; res.status(500).json({ error: '태스크를 저장하지 못했습니다' }); return } next() }, createTaskListRouter())
+  app.get('/api/tree', (_req, res) => res.json([{type:'file',name:'Reference.md',path:'docs/Reference.md'},{type:'file',name:'Reference.md',path:'nested/Reference.md'},{type:'file',name:'Space (draft).md',path:'docs/Space (draft).md'}]))
   app.get('/app.js', (_req, res) => res.type('js').send(chunk.code))
   app.get('/', (_req, res) => res.type('html').send(`<!doctype html><html class="dark"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>`))
   const server = app.listen(0, '127.0.0.1')
@@ -368,6 +369,46 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(await readOnlyPanel.getByRole('button', { name: '태스크 삭제' }).count(), 0)
     assert.equal(await readOnlyPanel.locator('.task-tag-remove').count(), 0)
     await assertInlineTagAlignment(readOnlyPanel.locator(`[data-task-id="${taggedId}"]`))
+    for (const page of [one, two]) {
+      const region = page.getByRole('region', { name: '태스크', exact: true })
+      const entry = region.getByRole('textbox', { name: '새 태스크' })
+      await entry.fill('@Ref')
+      const suggestions = page.getByRole('listbox', { name: '파일명 검색' })
+      await suggestions.waitFor()
+      assert.equal(await suggestions.getByRole('option').count(), 2, 'same names retain distinct paths')
+      const box = (await suggestions.boundingBox())!
+      assert.ok(box.x >= 0 && box.x + box.width <= page.viewportSize()!.width)
+      await page.screenshot({ path: '/tmp/mew-task-panel/' + (page === one ? 'desktop-mentions.png' : 'mobile-mentions.png') })
+      await entry.press('ArrowDown')
+      assert.equal(await suggestions.getByRole('option', { selected: true }).innerText(), 'nested/Reference.md')
+      await entry.press('ArrowUp')
+      await entry.press('Escape')
+      assert.equal(await suggestions.count(), 0)
+      assert.equal(await region.isVisible(), true, 'Esc dismisses mentions before the task panel')
+      await entry.fill('검토 @Ref')
+      await suggestions.waitFor()
+      if (page === two) await suggestions.getByRole('option').first().tap()
+      else await entry.press('Enter')
+      assert.equal(await entry.inputValue(), '검토 [Reference](docs/Reference.md) ')
+      await page.screenshot({ path: '/tmp/mew-task-panel/' + (page === one ? 'desktop-links.png' : 'mobile-links.png') })
+      await entry.press('Enter')
+      const link = region.getByRole('button', { name: 'Reference', exact: true }).last()
+      await link.click()
+      assert.equal(await link.evaluate(el => (el.ownerDocument.defaultView as unknown as { openedTaskFile: string }).openedTaskFile), 'docs/Reference.md')
+      await entry.fill('@Space')
+      await page.getByRole('listbox', { name: '파일명 검색' }).waitFor()
+      await entry.press('Tab')
+      assert.equal(await entry.inputValue(), '[Space (draft)](docs/Space%20%28draft%29.md) ')
+      await entry.press('Enter')
+      await region.getByRole('button', { name: 'Space (draft)', exact: true }).last().click()
+      assert.equal(await entry.evaluate(el => (el.ownerDocument.defaultView as unknown as { openedTaskFile: string }).openedTaskFile), 'docs/Space (draft).md')
+      await region.getByRole('status').waitFor({ state: 'hidden' })
+      await page.reload(); await page.locator('[data-dock-item=tasks]').click()
+      await region.getByRole('button', { name: 'Reference', exact: true }).last().waitFor()
+    }
+    await readOnly.reload(); await readOnly.locator('[data-dock-item=tasks]').click()
+    await readOnlyPanel.getByRole('button', { name: 'Reference', exact: true }).last().click()
+    assert.equal(await readOnlyPanel.evaluate(el => (el.ownerDocument.defaultView as unknown as { openedTaskFile: string }).openedTaskFile), 'docs/Reference.md')
     assert.deepEqual(errors, [])
   } finally { await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true }) }
 })

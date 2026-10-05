@@ -1,3 +1,4 @@
+import { TaskDocumentProvider } from './task-document-context'
 import { TaskText } from './task-text'
 import { TaskTagFilter } from './task-tag-filter'
 import { collectTaskTags, extractTaskTags, taskTags, TASK_TAG_LIMIT } from '../../shared/task-tags'
@@ -28,7 +29,7 @@ const taskErrors = [
   '태스크는 최대 2,000개까지 추가할 수 있습니다', '잘못된 태스크 변경입니다', '권한이 없습니다',
 ] as const
 
-export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSignal = 0 }: { session: Session; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
+export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSignal = 0, workspace, onOpenFile }: { workspace?: string | null; onOpenFile?: (path: string) => void; session: Session; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
   useUiLocale()
   const tabId = useId()
   const [filters, setFilters] = useState<string[]>([])
@@ -137,7 +138,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
             onBlur={commitDraft} />
         </div>}
       </div>
-  return <section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
+  return <TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
     <header data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       <DockGrip group="tasks" />
       <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5">
@@ -170,5 +171,5 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     {drag.preview && createPortal(<div aria-hidden="true" data-task-drag-preview className="task-drag-preview" style={{ left: drag.preview.x, top: drag.preview.y, width: drag.preview.width }}>
       <span className="task-check"><input type="checkbox" checked={drag.preview.item.done} readOnly tabIndex={-1} /></span><span className="task-drag-text">{drag.preview.item.text}</span>
     </div>, document.body)}
-  </section>
+  </section></TaskDocumentProvider>
 }

@@ -157,3 +157,10 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
   .task-tags button::before { content: ''; position: absolute; inset: -4px 0; }
   .task-tag-suggestions > button { min-height: 40px; }
 }
+
+.task-text:has(.task-document-links) { flex-wrap: wrap; }
+.task-document-links { display: flex; flex-basis: 100%; gap: 4px; flex-wrap: wrap; }
+.task-document-links > button { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2px 5px; border-radius: 4px; background: var(--color-surface-raised); color: var(--color-ink); font-size: 12px; overflow-wrap: anywhere; text-align: left; }
+.task-document-links > button:hover { background: var(--color-surface-hover); }
+.task-document-links > button:focus-visible { outline: 1px solid var(--color-accent); }
+.task-document-links > button > svg { flex-shrink: 0; }

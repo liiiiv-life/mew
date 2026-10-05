@@ -2342,7 +2342,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           }}
         />}</DockPanel>}
         {rootProjectPath && caps.filesRead && auth.email && <DockPanel id="tasks" kind="tasks" visible={tasksOpen} tabs={['tasks']} mobileSelected onFocus={() => { activeTabbedSurfaceRef.current = 'tasks'; bringWorkspacePanelToFront('tasks') }}>
-          <TaskPanel session={taskSession} nextTabSignal={taskNextTabSignal} previousTabSignal={taskPreviousTabSignal} onClose={() => closeWorkspacePanel('tasks')} />
+          <TaskPanel workspace={rootProjectPath} onOpenFile={path => openMentionedFile(WORKSPACE_PROJECT, path)} session={taskSession} nextTabSignal={taskNextTabSignal} previousTabSignal={taskPreviousTabSignal} onClose={() => closeWorkspacePanel('tasks')} />
         </DockPanel>}
         {caps.collaboration && auth.email && <DockPanel id="memo" kind="memo" visible={memoOpen} tabs={['memo']} mobileSelected onFocus={() => bringWorkspacePanelToFront('memo')}>
           <SharedMemo session={memoSession} open={memoOpen} />

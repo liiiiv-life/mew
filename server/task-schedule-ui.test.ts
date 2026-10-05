@@ -45,7 +45,7 @@ import {I18nProvider} from '${root}/src/i18n.tsx';
 localStorage.setItem('mew:locale','ko');
 setUiLocale('ko');
 function Fixture(){const session=useTaskList(${JSON.stringify(WORKSPACE_ROOT)},'one@example.test',true);const [dock,setDock]=useState(null),[next,setNext]=useState(0),[previous,setPrevious]=useState(0);
-return <div style={{height:'100dvh',display:'flex',flexDirection:'column'}}><div><button onClick={()=>setUiLocale('en')}>English</button><button onClick={()=>setUiLocale('ko')}>한국어</button></div><MobileDock active='tasks' available={['editor','tasks']} hidden={false} onSelect={()=>{}} onNavigate={direction=>direction>0?setNext(value=>value+1):setPrevious(value=>value+1)}/><DockWorkspace value={dock} onChange={setDock} foreground='tasks' apiRef={null} onEditorDrop={()=>''}><DockPanel id='tasks' kind='tasks' tabs={['tasks']} mobileSelected onFocus={()=>{}}><TaskPanel session={session} nextTabSignal={next} previousTabSignal={previous} onClose={()=>{}}/></DockPanel></DockWorkspace></div>}
+return <div style={{height:'100dvh',display:'flex',flexDirection:'column'}}><div><button onClick={()=>setUiLocale('en')}>English</button><button onClick={()=>setUiLocale('ko')}>한국어</button></div><MobileDock active='tasks' available={['editor','tasks']} hidden={false} onSelect={()=>{}} onNavigate={direction=>direction>0?setNext(value=>value+1):setPrevious(value=>value+1)}/><DockWorkspace value={dock} onChange={setDock} foreground='tasks' apiRef={null} onEditorDrop={()=>''}><DockPanel id='tasks' kind='tasks' tabs={['tasks']} mobileSelected onFocus={()=>{}}><TaskPanel workspace='fixture' onOpenFile={path=>{window.openedTaskFile=path}} session={session} nextTabSignal={next} previousTabSignal={previous} onClose={()=>{}}/></DockPanel></DockWorkspace></div>}
 createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><Fixture/></I18nProvider></React.StrictMode>);`
   const bundle = await build({ input: 'virtual:task-schedule.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'schedule-fixture', resolveId(id) { if (id === 'virtual:task-schedule.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:task-schedule.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
@@ -58,6 +58,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
   app.use((req, _res, next) => { req.auth = { role: 'owner', email: 'one@example.test', mustChangePassword: false }; next() })
   let patches = 0
   app.use('/api/task-list', (req, _res, next) => { if (req.method === 'PATCH') patches++; next() }, createTaskListRouter())
+  app.get('/api/tree', (_req, res) => res.json([{type:'file',name:'Reference.md',path:'docs/Reference.md'}]))
   app.get('/app.js', (_req, res) => res.type('js').send(chunk.code))
   app.get('/', (_req, res) => res.type('html').send(`<!doctype html><html class="dark"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>`))
   const server = app.listen(0, '127.0.0.1'); await new Promise<void>(resolve => server.once('listening', resolve))
@@ -302,6 +303,25 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
       await mobile.locator(`[data-task-id="${item.id}"]`).getByRole('button', { name: '태스크 삭제' }).tap(); await deleted
       assert.equal(await mobile.locator('.task-panel textarea:focus').count(), 0, 'touch deletion never focuses an adjacent task or the draft')
     }
+    await mobile.getByRole('tab', { name: '달력', exact: true }).tap()
+    const mentionDraft = mobile.getByRole('textbox', { name: '새 태스크' })
+    await mentionDraft.fill('링크 일정 @Ref')
+    await mobile.getByRole('listbox', { name: '파일명 검색' }).getByRole('option').tap()
+    const linkSaved = mobile.waitForResponse(async response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok() && (await response.json()).tasks.some((task: { text: string }) => task.text === '링크 일정 [Reference](docs/Reference.md) '))
+    await mentionDraft.press('Enter'); await linkSaved
+    await mobile.getByRole('button', { name: 'Reference', exact: true }).last().tap()
+    assert.equal(await mentionDraft.evaluate(el => (el.ownerDocument.defaultView as unknown as { openedTaskFile: string }).openedTaskFile), 'docs/Reference.md')
+    await mobile.getByRole('tab', { name: '간트', exact: true }).tap()
+    await mobile.locator('.task-gantt-label button').filter({ hasText: '링크 일정' }).tap()
+    const linkInspector = mobile.getByRole('dialog', { name: '일정 편집' })
+    const inspectorText = linkInspector.getByRole('textbox', { name: '태스크 내용' })
+    await inspectorText.fill('간트 연결 @Ref')
+    await mobile.getByRole('listbox', { name: '파일명 검색' }).getByRole('option').tap()
+    assert.equal(await linkInspector.isVisible(), true, 'portal mention selection keeps the Gantt inspector open')
+    assert.equal(await inspectorText.inputValue(), '간트 연결 [Reference](docs/Reference.md) ')
+    await linkInspector.getByRole('button', { name: 'Reference', exact: true }).tap()
+    assert.equal(await inspectorText.evaluate(el => (el.ownerDocument.defaultView as unknown as { openedTaskFile: string }).openedTaskFile), 'docs/Reference.md')
+    await mobile.keyboard.press('Escape')
     const readonly = await browser.newPage({ viewport: { width: 390, height: 740 } })
     await readonly.route('**/api/task-list?*', route => route.fulfill({ json: { tasks: stored(), canEdit: false } }))
     await readonly.goto(base); await readonly.locator('[data-task-id=period]').waitFor()
