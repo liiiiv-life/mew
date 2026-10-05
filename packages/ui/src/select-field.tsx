@@ -8,12 +8,12 @@ export type SelectOption = { value: string; label: string; disabled?: boolean; l
 type SelectFieldProps = {
   id?: string; label: string; options: readonly SelectOption[]; disabled?: boolean
   compact?: boolean; className?: string; portalContainer?: HTMLElement | null
-  triggerContent?: ReactNode; triggerClassName?: string; popupWidth?: number
+  triggerContent?: ReactNode; triggerClassName?: string; popupWidth?: number; popupClassName?: string
 } & ({ multiple?: false; editable?: boolean; value: string; onChange: (value: string) => void }
   | { multiple: true; editable?: false; value: string[]; onChange: (value: string[]) => void })
 
 /** Themed selection. Focus stays on the trigger, including inside dialogs. */
-export function SelectField({ id: fieldId, label, value, options, disabled = false, editable = false, compact = false, className = 'w-full min-w-0', portalContainer, onChange, multiple, triggerContent, triggerClassName, popupWidth }: SelectFieldProps) {
+export function SelectField({ id: fieldId, label, value, options, disabled = false, editable = false, compact = false, className = 'w-full min-w-0', portalContainer, onChange, multiple, triggerContent, triggerClassName, popupWidth, popupClassName }: SelectFieldProps) {
   const id = useId()
   const trigger = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null), field = useRef<HTMLDivElement>(null)
@@ -48,7 +48,7 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
       const width = local ? portalContainer!.clientWidth : viewport?.width ?? window.innerWidth
       const height = local ? portalContainer!.clientHeight : viewport?.height ?? window.innerHeight
       const below = top + height - rect.bottom - 8, above = rect.top - top - 8
-      const down = below >= Math.min(280, options.length * 44 + 8) || below >= above
+      const down = below >= Math.min(280, menu.current?.scrollHeight ?? options.length * 44 + 8) || below >= above
       const menuWidth = Math.min(popupWidth ?? rect.width, width - 16)
       setPosition({ position: local ? 'absolute' : 'fixed', left: Math.max(left + 8, Math.min(rect.left, left + width - menuWidth - 8)),
         width: menuWidth, maxHeight: Math.max(0, Math.min(280, down ? below : above)),
@@ -158,8 +158,9 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
       </button>}
     </div>
     {expanded && position && createPortal(<div ref={menu} id={id} role="listbox" aria-label={label} aria-multiselectable={multiple || undefined} style={position}
-      className="fixed z-[1201] overflow-y-auto overscroll-contain rounded border border-edge-bright bg-surface-raised py-1 text-sm shadow-xl">
+      className={`fixed z-[1201] overflow-y-auto overscroll-contain rounded border border-edge-bright bg-surface-raised py-1 text-sm shadow-xl ${popupClassName ?? ''}`}>
       {options.map((option, index) => <div key={option.value} id={`${id}-${index}`} role="option" aria-selected={isSelected(option)} aria-disabled={option.disabled || undefined}
+        data-active={active === index || undefined}
         onPointerDown={event => event.preventDefault()} onClick={() => { setActive(index); pick(index) }}
         className={`flex items-center gap-2 px-2.5 ${multiple && compact ? 'min-h-8 text-xs pointer-coarse:min-h-11' : 'min-h-11'} ${option.disabled ? 'cursor-default text-ink-muted' : 'cursor-pointer text-ink hover:bg-surface-hover'} ${active === index ? 'bg-surface-hover' : ''}`}>
         {option.leading}

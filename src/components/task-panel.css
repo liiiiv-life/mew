@@ -133,6 +133,14 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
 .task-filter-count { flex-shrink: 0; color: var(--color-ink-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .task-filter-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: hsl(var(--task-tag-hue) 60% 45%); }
 .dark .task-filter-dot { background: hsl(var(--task-tag-hue) 70% 70%); }
+.task-filter-menu { padding: 4px; border-color: var(--color-edge); border-radius: 10px; background: var(--color-surface-deep); box-shadow: 0 6px 18px #0002, 0 2px 6px #0001; }
+.task-filter-menu > [role="option"] { min-height: 28px; gap: 8px; padding: 2px 8px; border-radius: 6px; background: transparent; font-size: 12px; line-height: 20px; }
+.task-filter-menu > [role="option"][aria-selected="true"] { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.task-filter-menu > [role="option"][data-active], .task-filter-menu > [role="option"]:hover { background: var(--color-surface-hover); }
+.task-filter-menu > [role="option"][data-active] { box-shadow: inset 0 0 0 1px var(--color-edge-strong); }
+.task-filter-menu > [role="option"] > svg { width: 14px; height: 14px; color: var(--color-accent); stroke-width: 2; }
+.task-filter-menu .task-filter-dot { width: 6px; height: 6px; }
+@media (pointer: coarse) { .task-filter-menu > [role="option"] { min-height: 32px; } }
 @media (pointer: coarse) { .task-filter-trigger, .task-filter-clear { min-width: 32px; height: 32px; } .task-filter-chip { height: 28px; } }
 .task-tag-suggestions { position: fixed; z-index: 110; overflow: auto; overscroll-behavior: contain; padding: 4px; border-radius: 8px; background: var(--color-surface-deep); color: var(--color-ink); box-shadow: 0 6px 20px #0003, 0 2px 5px #0002; }
 .task-tag-suggestions > button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px; border-radius: 4px; text-align: left; font-size: 12px; }

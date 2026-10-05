@@ -17,7 +17,7 @@ export function TaskTagFilter({ tags, selected, count, total, onChange }: {
   }
   return <div ref={root} className="task-filter" data-active={selected.length > 0 || undefined}>
     <SelectField multiple compact label={uiText('태그 필터')} value={selected} onChange={onChange}
-      className="task-filter-field" triggerClassName="task-filter-trigger" popupWidth={220}
+      className="task-filter-field" triggerClassName="task-filter-trigger" popupWidth={200} popupClassName="task-filter-menu"
       triggerContent={<><Filter width={14} height={14} aria-hidden="true" />{selected.length > 0 && <span>{selected.length}</span>}</>}
       options={tags.map(tag => ({ value: tag, label: tag, leading: <span className="task-filter-dot" style={tagStyle(tag)} aria-hidden="true" /> }))} />
     <div className="task-filter-selected">{selected.map(tag => <button key={tag} type="button" className="task-tag task-filter-chip" style={tagStyle(tag)}
