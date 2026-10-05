@@ -120,9 +120,20 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
 .dark .task-tag { background: hsl(var(--task-tag-hue) 40% 23%); color: hsl(var(--task-tag-hue) 85% 86%); }
 .dark .task-tag-remove:hover { background: hsl(var(--task-tag-hue) 85% 86% / .12); }
 .task-tag button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; border-radius: 4px; }
-.task-filter { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--color-edge); }
-.task-tag-filter { width: 176px; min-width: 0; }
-.task-filter-count { margin-left: auto; color: var(--color-ink); font-size: 11px; font-variant-numeric: tabular-nums; }
+.task-filter { display: flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 3px 8px; border-bottom: 1px solid var(--color-edge); }
+.task-filter-field { flex-shrink: 0; }
+.task-filter-trigger, .task-filter-clear { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 28px; height: 26px; padding: 0 6px; border-radius: 6px; color: var(--color-ink-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.task-filter-trigger:hover, .task-filter-trigger[aria-expanded="true"], .task-filter-clear:hover { background: var(--color-surface-hover); color: var(--color-ink); }
+.task-filter[data-active] .task-filter-trigger { color: var(--color-ink); background: var(--color-surface-raised); }
+.task-filter-trigger:focus-visible, .task-filter-clear:focus-visible, .task-filter-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.task-filter-selected { display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.task-filter-chip { max-width: 160px; height: 22px; padding-right: 5px; }
+.task-filter-chip > svg { flex-shrink: 0; opacity: .65; }
+.task-filter-chip:hover { box-shadow: inset 0 0 0 1px currentColor; }
+.task-filter-count { flex-shrink: 0; color: var(--color-ink-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.task-filter-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: hsl(var(--task-tag-hue) 60% 45%); }
+.dark .task-filter-dot { background: hsl(var(--task-tag-hue) 70% 70%); }
+@media (pointer: coarse) { .task-filter-trigger, .task-filter-clear { min-width: 32px; height: 32px; } .task-filter-chip { height: 28px; } }
 .task-tag-suggestions { position: fixed; z-index: 110; overflow: auto; overscroll-behavior: contain; padding: 4px; border-radius: 8px; background: var(--color-surface-deep); color: var(--color-ink); box-shadow: 0 6px 20px #0003, 0 2px 5px #0002; }
 .task-tag-suggestions > button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px; border-radius: 4px; text-align: left; font-size: 12px; }
 .task-tag-suggestions > button[aria-selected="true"] { background: var(--color-surface-raised); }

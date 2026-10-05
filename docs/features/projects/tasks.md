@@ -5,7 +5,7 @@ title: "태스크 패널·목록·달력·간트"
 status: "changed"
 created: "2026-10-03"
 updated: "2026-10-05"
-files: ["src/components/task-panel.tsx", "src/components/task-text.tsx", "shared/task-tags.ts", "src/components/task-range-calendar.tsx", "src/components/task-calendar.tsx", "src/components/task-gantt.tsx", "src/utils/task-schedule.ts", "src/utils/task-timeline.ts", "src/hooks/use-task-list.ts", "src/hooks/use-task-drag.ts", "src/utils/task-list-session.ts", "shared/task-list.ts", "packages/ui/src/date-field.tsx", "packages/ui/src/date-field.css", "server/task-list.ts", "server/task-list-routes.ts", "src/App.tsx"]
+files: ["src/components/task-panel.tsx", "src/components/task-text.tsx", "src/components/task-tag-filter.tsx", "src/utils/task-tag-color.ts", "shared/task-tags.ts", "src/components/task-range-calendar.tsx", "src/components/task-calendar.tsx", "src/components/task-gantt.tsx", "src/utils/task-schedule.ts", "src/utils/task-timeline.ts", "src/hooks/use-task-list.ts", "src/hooks/use-task-drag.ts", "src/utils/task-list-session.ts", "shared/task-list.ts", "packages/ui/src/select-field.tsx", "packages/ui/src/date-field.tsx", "packages/ui/src/date-field.css", "server/task-list.ts", "server/task-list-routes.ts", "src/App.tsx"]
 commits: []
 ---
 
@@ -31,7 +31,7 @@ commits: []
 - 현재 루트 프로젝트별로 자동 저장하고 실패·동시 수정 충돌 시 입력을 보존한다.
 
 - 내용 입력에서 `#이름` 다음 Space·Enter로 태그를 확정하고 `#` 없는 컬러 칩을 텍스트 바로 오른쪽에 표시한다. 색상은 이름별 자동 지정이고 모서리는 9px다. 기존 이름을 접두어로 자동완성하며 키보드·마우스·터치로 선택한다.
-- 같은 루트 프로젝트의 모든 태스크 입력칸과 세 보기에서 태그를 공유하고 목록·달력·간트를 태그로 필터링한다. 태그를 삭제해도 내용·일정·완료를 보존한다.
+- 같은 루트 프로젝트의 모든 태스크 입력칸과 세 보기에서 태그를 공유한다. 작은 필터 아이콘과 컬러 칩으로 여러 태그를 선택하고 선택한 태그 중 하나라도 붙은 항목을 목록·달력·간트에 표시한다. 개별/전체 해제를 제공하며 태그를 삭제해도 내용·일정·완료를 보존한다.
 - 이전 상위·하위 항목의 ID·내용·완료·표시 기간을 독립 객체로 보존한다.
 
 ### 상세 계약
@@ -40,6 +40,8 @@ commits: []
 - 상위: [분야 지도](MOC.md) · [프로젝트](../projects.md)
 
 ## 구현 내용
+
+- 2026-10-05 큰 단일 태그 선택기를 작은 필터 아이콘·선택 개수·컬러 칩·결과 개수로 다듬었다. 공용 `SelectField`에 다중 선택을 추가해 열린 목록에서 연속 선택·키보드 토글을 제공하고, 세 보기의 OR 필터·개별/전체 해제·새 항목의 선택 태그 기본값을 연결했다.
 
 - 2026-10-05 저장 중 상태를 타이틀바의 태스크 제목 바로 오른쪽으로 옮겼다. 제목·상태는 왼쪽 그룹, 보기 탭·닫기는 오른쪽 그룹으로 유지한다.
 
@@ -77,6 +79,8 @@ commits: []
 - 앞서 메모에 추가했던 체크리스트 전환 버튼은 사용자 의도에 맞게 제거했다. 메모의 기존 편집·공동 편집은 유지한다.
 
 ## 검증
+
+- 2026-10-05 다중 태그 필터: 태스크·달력/간트·테마 설정 브라우저 회귀 3개를 통과했다. PC 다크·320px 모바일 라이트에서 OR 결과·중복 없는 표시·연속 선택·Enter/Space 토글·Esc 우선 닫기·개별/전체 해제·해제 후 포커스·새 항목의 선택 태그·숨긴 항목 보존·필터 줄/팝업 경계·선택 칩 대비 4.5:1 이상을 확인했다. 전체 타입·대상 lint·문서 링크/경계 검사를 통과했다.
 
 - 2026-10-05 저장 중 상태 위치 변경 후 태스크 패널 브라우저 회귀 1개·타입·대상 lint·문서 링크 검사를 통과했다.
 

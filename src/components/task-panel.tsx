@@ -1,6 +1,6 @@
 import { TaskText } from './task-text'
-import { collectTaskTags, extractTaskTags, taskTags } from '../../shared/task-tags'
-import { SelectField } from '@mew/ui'
+import { TaskTagFilter } from './task-tag-filter'
+import { collectTaskTags, extractTaskTags, taskTags, TASK_TAG_LIMIT } from '../../shared/task-tags'
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { Calendar, Xmark, RefreshDouble, Trash, Plus, List, StatsUpSquare } from 'iconoir-react'
 import { TaskDateStatus } from './task-date-status'
@@ -20,7 +20,7 @@ import { TaskGantt } from './task-gantt'
 import './task-panel.css'
 
 type Session = ReturnType<typeof useTaskList>
-const newTask = (text: string, tags: string[] = []): TaskItem => ({ id: uuid(), done: false, ...extractTaskTags(text, tags) })
+const newTask = (text: string, tags: string[] = []): TaskItem => ({ id: uuid(), done: false, ...extractTaskTags(text, [...new Set(tags)].slice(0, TASK_TAG_LIMIT)) })
 const taskErrors = [
   '태스크를 불러오지 못했습니다', '태스크를 저장하지 못했습니다',
   '다른 창에서 같은 태스크를 수정했습니다. 입력은 유지됩니다. 확인 후 다시 저장하세요.',
@@ -31,7 +31,7 @@ const taskErrors = [
 export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSignal = 0 }: { session: Session; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
   useUiLocale()
   const tabId = useId()
-  const [filter, setFilter] = useState('')
+  const [filters, setFilters] = useState<string[]>([])
   const [view, setView] = useState<'list' | 'calendar' | 'gantt'>('list')
   const [selectedDate, setSelectedDate] = useState(localToday), [month, setMonth] = useState(() => localToday().slice(0, 7))
   const inputs = useRef(new Map<string, HTMLTextAreaElement>()).current
@@ -46,10 +46,11 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   }, [])
   const sortedTasks = useMemo(() => sortTasksByDateStatus(tasks, today), [tasks, today])
   const knownTags = collectTaskTags(tasks, [...(session.tags ?? []), ...draftTags])
-  const filteredTasks = tasks.filter(task => !filter || taskTags(task).includes(filter))
-  const sortedFiltered = sortedTasks.filter(task => !filter || taskTags(task).includes(filter))
+  const matchesFilter = (task: TaskItem) => !filters.length || taskTags(task).some(tag => filters.includes(tag))
+  const filteredTasks = tasks.filter(matchesFilter)
+  const sortedFiltered = sortedTasks.filter(matchesFilter)
   const drag = useTaskDrag(sortedFiltered, canEdit, next => edit(mergeVisibleTasks(tasks, sortedFiltered, next)))
-  const createTask = (text: string, tags: string[] = []): TaskItem => ({ ...newTask(text, [...tags, ...(filter && !tags.includes(filter) ? [filter] : [])]), ...(view === 'calendar' ? { startDate: selectedDate, date: selectedDate } : {}) })
+  const createTask = (text: string, tags: string[] = []): TaskItem => ({ ...newTask(text, [...tags, ...filters]), ...(view === 'calendar' ? { startDate: selectedDate, date: selectedDate } : {}) })
   const visibleTasks = view === 'calendar' ? tasksOnDate(filteredTasks, selectedDate) : sortedFiltered
   const focus = (id: string, position: number | 'end' = 0) => {
     requestAnimationFrame(() => {
@@ -120,14 +121,14 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   const renderTask = (item: TaskItem) => { const index = tasks.findIndex(task => task.id === item.id); return <div key={item.id} data-task-id={item.id} data-done={item.done} data-dragging={view === 'list' && drag.preview?.item.id === item.id || undefined} data-drop-before={view === 'list' && drag.preview?.beforeId === item.id || undefined} className="task-line group">
           <label className="task-check" {...(view === 'list' ? drag.handle(item.id) : {})}><input type="checkbox" checked={item.done} disabled={!canEdit} aria-label={uiText('태스크 완료')} aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
             onChange={event => edit(tasks.map(task => task.id === item.id ? { ...task, done: event.target.checked } : task))} /></label>
-          <div className="task-content"><TaskText id={item.id} text={item.text} tags={item.tags} knownTags={knownTags} onFilter={setFilter} disabled={!canEdit} inputs={inputs}
+          <div className="task-content"><TaskText id={item.id} text={item.text} tags={item.tags} knownTags={knownTags} onFilter={tag => setFilters(current => current.includes(tag) ? current : [...current, tag])} disabled={!canEdit} inputs={inputs}
             onChange={(text, tags) => update(item.id, text, tags)} onKeyDown={event => keyDown(event, index)} onPaste={event => paste(event, index)} onBlur={() => void flush()} /></div>
           <TaskDateStatus task={item} today={today} readOnly={!canEdit} onChange={(startDate, date) => { if (!canEdit) return; edit(tasks.map(task => task.id === item.id ? { ...task, startDate, date } : task)) }} />
           {canEdit && <button type="button" onClick={() => remove(index)} aria-label={uiText('태스크 삭제')} data-tip={uiText('태스크 삭제')}
             className="task-delete flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-danger focus-visible:outline-2 focus-visible:outline-ink"><Trash width={14} height={14} aria-hidden="true" /></button>}
         </div> }
   const lines = <div ref={view === 'list' ? drag.list : undefined} {...(view === 'list' ? drag.events : {})} className="task-lines px-3 py-2">
-        {(view === 'calendar' ? visibleTasks : drag.tasks.filter(task => !filter || taskTags(task).includes(filter))).map(renderTask)}
+        {(view === 'calendar' ? visibleTasks : drag.tasks.filter(matchesFilter)).map(renderTask)}
         {canEdit && tasks.length < TASK_LIMIT && <div data-drop-before={view === 'list' && !!drag.preview && drag.preview.beforeId === null || undefined} className="task-line task-draft" data-empty={!draft && !draftTags.length || undefined}>
           <span className="task-draft-plus" aria-hidden="true"><Plus width={18} height={18} /></span>
           <span className="task-check"><input type="checkbox" disabled aria-hidden="true" /></span>
@@ -158,12 +159,12 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
       <button type="button" onClick={onClose} aria-label={uiText('닫기')} data-tip={uiText('닫기')}
         className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"><Xmark width={14} height={14} aria-hidden="true" /></button>
     </header>
-    {knownTags.length > 0 && <div className="task-filter"><SelectField label={uiText('태그 필터')} compact className="task-tag-filter" value={filter} options={[{ value: '', label: uiText('모든 태그') }, ...knownTags.map(tag => ({ value: tag, label: tag }))]} onChange={setFilter} /><span className="task-filter-count">{filteredTasks.length}/{tasks.length}</span></div>}
+    {knownTags.length > 0 && <TaskTagFilter tags={knownTags} selected={filters} count={filteredTasks.length} total={tasks.length} onChange={setFilters} />}
     <DockInlineBody group="tasks" role="tabpanel" id={`${tabId}-body`} aria-labelledby={`${tabId}-${view}`} className={view === 'gantt' ? 'task-view-body min-h-0 flex-1 overflow-hidden' : 'task-view-body min-h-0 flex-1 overflow-auto'}>
       {error && <div role="alert" className="flex items-center gap-2 px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1">{uiText(taskErrors.find(message => message === error) ?? '태스크를 저장하지 못했습니다')}</span>
         <button type="button" onClick={() => void retry()} aria-label={uiText('다시 저장')} data-tip={uiText('다시 저장')} className="flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink"><RefreshDouble width={16} height={16} aria-hidden="true" /></button>
       </div>}
-      {loading ? <div role="status" className="px-3 py-2 text-xs text-ink-muted">{uiText('불러오는 중…')}</div> : view === 'gantt' ? <TaskGantt tasks={filteredTasks} knownTags={knownTags} canEdit={canEdit} totalTasks={tasks.length} edit={next => edit(mergeVisibleTasks(tasks, filteredTasks, next.map(task => !tasks.some(existing => existing.id === task.id) && filter ? { ...task, tags: [filter] } : task)))} /> : view === 'calendar' ? <TaskCalendar tasks={filteredTasks} selected={selectedDate} month={month} onSelect={setSelectedDate} onMonth={setMonth}>{tasksOnDate(filteredTasks, selectedDate).length === 0 && <p className="task-empty">{uiText('이 날짜에는 일정이 없습니다')}</p>}{lines}</TaskCalendar> : lines}
+      {loading ? <div role="status" className="px-3 py-2 text-xs text-ink-muted">{uiText('불러오는 중…')}</div> : view === 'gantt' ? <TaskGantt tasks={filteredTasks} knownTags={knownTags} canEdit={canEdit} totalTasks={tasks.length} edit={next => edit(mergeVisibleTasks(tasks, filteredTasks, next.map(task => !tasks.some(existing => existing.id === task.id) && filters.length ? { ...task, tags: [...new Set([...taskTags(task), ...filters])].slice(0, TASK_TAG_LIMIT) } : task)))} /> : view === 'calendar' ? <TaskCalendar tasks={filteredTasks} selected={selectedDate} month={month} onSelect={setSelectedDate} onMonth={setMonth}>{tasksOnDate(filteredTasks, selectedDate).length === 0 && <p className="task-empty">{uiText('이 날짜에는 일정이 없습니다')}</p>}{lines}</TaskCalendar> : lines}
       {drag.preview && tasks.length === TASK_LIMIT && drag.preview.beforeId === null && <div className="task-drop-end" />}
     </DockInlineBody>
     {drag.preview && createPortal(<div aria-hidden="true" data-task-drag-preview className="task-drag-preview" style={{ left: drag.preview.x, top: drag.preview.y, width: drag.preview.width }}>

@@ -1,21 +1,26 @@
 import { canAutoFocusInput } from './input-focus'
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from './useOverlayDismiss'
 
-export type SelectOption = { value: string; label: string; disabled?: boolean }
+export type SelectOption = { value: string; label: string; disabled?: boolean; leading?: ReactNode }
 
-/** Themed single selection. Focus stays on the trigger, including inside dialogs. */
-export function SelectField({ id: fieldId, label, value, options, disabled = false, editable = false, compact = false, className = 'w-full min-w-0', portalContainer, onChange }: {
-  id?: string; label: string; value: string; options: readonly SelectOption[]; disabled?: boolean; editable?: boolean
-  compact?: boolean; className?: string; portalContainer?: HTMLElement | null; onChange: (value: string) => void
-}) {
+type SelectFieldProps = {
+  id?: string; label: string; options: readonly SelectOption[]; disabled?: boolean
+  compact?: boolean; className?: string; portalContainer?: HTMLElement | null
+  triggerContent?: ReactNode; triggerClassName?: string; popupWidth?: number
+} & ({ multiple?: false; editable?: boolean; value: string; onChange: (value: string) => void }
+  | { multiple: true; editable?: false; value: string[]; onChange: (value: string[]) => void })
+
+/** Themed selection. Focus stays on the trigger, including inside dialogs. */
+export function SelectField({ id: fieldId, label, value, options, disabled = false, editable = false, compact = false, className = 'w-full min-w-0', portalContainer, onChange, multiple, triggerContent, triggerClassName, popupWidth }: SelectFieldProps) {
   const id = useId()
   const trigger = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null), field = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false), [active, setActive] = useState(0)
   const [position, setPosition] = useState<CSSProperties | null>(null)
   const search = useRef({ text: '', at: 0 })
+  const isSelected = (option: SelectOption) => multiple ? value.includes(option.value) : option.value === value
   const expanded = open && !disabled
   const close = () => setOpen(false)
   useOverlayDismiss(expanded && close)
@@ -44,8 +49,9 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
       const height = local ? portalContainer!.clientHeight : viewport?.height ?? window.innerHeight
       const below = top + height - rect.bottom - 8, above = rect.top - top - 8
       const down = below >= Math.min(280, options.length * 44 + 8) || below >= above
-      setPosition({ position: local ? 'absolute' : 'fixed', left: Math.max(left + 8, Math.min(rect.left, left + width - Math.min(rect.width, width - 16) - 8)),
-        width: Math.min(rect.width, width - 16), maxHeight: Math.max(0, Math.min(280, down ? below : above)),
+      const menuWidth = Math.min(popupWidth ?? rect.width, width - 16)
+      setPosition({ position: local ? 'absolute' : 'fixed', left: Math.max(left + 8, Math.min(rect.left, left + width - menuWidth - 8)),
+        width: menuWidth, maxHeight: Math.max(0, Math.min(280, down ? below : above)),
         ...(down ? { top: rect.bottom + 4 } : { bottom: (local ? height : window.innerHeight) - rect.top + 4 }) })
     }
     const outside = (event: PointerEvent) => {
@@ -71,13 +77,13 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
       window.visualViewport?.removeEventListener('resize', place)
       window.visualViewport?.removeEventListener('scroll', place)
     }
-  }, [expanded, options.length, portalContainer])
+  }, [expanded, options.length, portalContainer, popupWidth])
   const positioned = position !== null
   useEffect(() => {
     if (expanded) menu.current?.children[active]?.scrollIntoView({ block: 'nearest' })
   }, [expanded, active, positioned])
   const show = () => {
-    const selected = options.findIndex(option => option.value === value && !option.disabled)
+    const selected = options.findIndex(option => isSelected(option) && !option.disabled)
     setActive(selected >= 0 ? selected : editable ? -1 : options.findIndex(option => !option.disabled))
     search.current = { text: '', at: 0 }
     setOpen(true)
@@ -85,10 +91,11 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
   const pick = (index: number) => {
     const option = options[index]
     if (!option || option.disabled || disabled) return
-    close()
+    if (!multiple) close()
     const focusTarget = editable ? input.current : trigger.current
     if (!editable || canAutoFocusInput()) focusTarget?.focus({ preventScroll: true })
-    if (option.value !== value) onChange(option.value)
+    if (multiple) onChange(value.includes(option.value) ? value.filter(item => item !== option.value) : [...value, option.value])
+    else if (option.value !== value) onChange(option.value)
   }
   const move = (step: number) => {
     for (let n = 1; n <= options.length; n++) {
@@ -134,7 +141,7 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
         <input ref={input} {...accessibility} value={value} disabled={disabled} autoComplete="off" spellCheck={false}
           className="min-w-0 flex-1 rounded bg-transparent px-2.5 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60"
           onClick={() => { if (!expanded) show() }} onKeyDown={onKeyDown}
-          onChange={event => { setActive(-1); setOpen(true); onChange(event.target.value) }} />
+          onChange={event => { if (!multiple) { setActive(-1); setOpen(true); onChange(event.target.value) } }} />
         <button type="button" tabIndex={-1} aria-label={label} aria-expanded={expanded} aria-controls={expanded ? id : undefined}
           disabled={disabled} className="flex w-11 shrink-0 items-center justify-center rounded hover:bg-surface-hover disabled:opacity-60"
           onPointerDown={event => event.preventDefault()}
@@ -144,19 +151,20 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
             else show()
           }}>{chevron}</button>
       </div> : <button ref={trigger} type="button" {...accessibility}
+        data-tip={triggerContent !== undefined ? label : undefined}
         disabled={disabled} onClick={() => expanded ? close() : show()} onKeyDown={onKeyDown}
-        className={`flex w-full min-w-0 items-center justify-between gap-2 rounded border border-edge-strong bg-surface px-2.5 text-left text-ink hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60 ${compact ? 'min-h-8 text-xs pointer-coarse:min-h-11' : 'min-h-11 text-sm'}`}>
-        <span className="min-w-0 flex-1 truncate">{options.find(option => option.value === value)?.label ?? value}</span>
-        {chevron}
+        className={triggerClassName ?? `flex w-full min-w-0 items-center justify-between gap-2 rounded border border-edge-strong bg-surface px-2.5 text-left text-ink hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60 ${compact ? 'min-h-8 text-xs pointer-coarse:min-h-11' : 'min-h-11 text-sm'}`}>
+        {triggerContent ?? <><span className="min-w-0 flex-1 truncate">{multiple ? options.filter(isSelected).map(option => option.label).join(', ') || label : options.find(isSelected)?.label ?? value}</span>{chevron}</>}
       </button>}
     </div>
-    {expanded && position && createPortal(<div ref={menu} id={id} role="listbox" aria-label={label} style={position}
+    {expanded && position && createPortal(<div ref={menu} id={id} role="listbox" aria-label={label} aria-multiselectable={multiple || undefined} style={position}
       className="fixed z-[1201] overflow-y-auto overscroll-contain rounded border border-edge-bright bg-surface-raised py-1 text-sm shadow-xl">
-      {options.map((option, index) => <div key={option.value} id={`${id}-${index}`} role="option" aria-selected={option.value === value} aria-disabled={option.disabled || undefined}
-        onPointerDown={event => event.preventDefault()} onClick={() => pick(index)}
-        className={`flex min-h-11 items-center gap-2 px-2.5 ${option.disabled ? 'cursor-default text-ink-muted' : 'cursor-pointer text-ink hover:bg-surface-hover'} ${active === index ? 'bg-surface-hover' : ''}`}>
+      {options.map((option, index) => <div key={option.value} id={`${id}-${index}`} role="option" aria-selected={isSelected(option)} aria-disabled={option.disabled || undefined}
+        onPointerDown={event => event.preventDefault()} onClick={() => { setActive(index); pick(index) }}
+        className={`flex items-center gap-2 px-2.5 ${multiple && compact ? 'min-h-8 text-xs pointer-coarse:min-h-11' : 'min-h-11'} ${option.disabled ? 'cursor-default text-ink-muted' : 'cursor-pointer text-ink hover:bg-surface-hover'} ${active === index ? 'bg-surface-hover' : ''}`}>
+        {option.leading}
         <span className="min-w-0 flex-1 break-words">{option.label}</span>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className="shrink-0">{option.value === value && <path d="m5 12 4 4L19 6" />}</svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className="shrink-0">{isSelected(option) && <path d="m5 12 4 4L19 6" />}</svg>
       </div>)}
     </div>, portalContainer ?? document.body)}
   </>

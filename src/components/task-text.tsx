@@ -5,13 +5,7 @@ import { useOverlayDismiss } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { TASK_TEXT_LIMIT } from '../../shared/task-list'
 import { extractTaskTags, tagToken, validTag, TASK_TAG_LIMIT } from '../../shared/task-tags'
-
-const tagHue = (tag: string) => {
-  let hash = 2166136261
-  for (const char of tag) hash = Math.imul(hash ^ char.codePointAt(0)!, 16777619)
-  hash ^= hash >>> 16; hash = Math.imul(hash, 0x85ebca6b); hash ^= hash >>> 13
-  return [8, 35, 78, 155, 190, 225, 270, 325][(hash >>> 0) % 8]
-}
+import { taskTagHue } from '../utils/task-tag-color'
 
 export function TaskText({ id, text, tags = [], knownTags, disabled, inputs, onChange, onKeyDown, onPaste, onBlur, onFilter }: {
   id: string; text: string; tags?: string[]; knownTags: string[]; disabled: boolean
@@ -86,7 +80,7 @@ export function TaskText({ id, text, tags = [], knownTags, disabled, inputs, onC
         }
         onKeyDown?.(event)
       }} onPaste={onPaste} onBlur={dismiss} />
-    {tags.length > 0 && <div className="task-tags" aria-label={uiText('태그')}>{tags.map(tag => <span key={tag} className="task-tag" style={{ '--task-tag-hue': tagHue(tag) } as CSSProperties}>
+    {tags.length > 0 && <div className="task-tags" aria-label={uiText('태그')}>{tags.map(tag => <span key={tag} className="task-tag" style={{ '--task-tag-hue': taskTagHue(tag) } as CSSProperties}>
       {onFilter ? <button type="button" className="task-tag-name" onClick={() => onFilter(tag)}>{tag}</button> : <span className="task-tag-name">{tag}</span>}
       {!disabled && <button type="button" className="task-tag-remove" aria-label={`${uiText('태그 삭제')}: ${tag}`} data-tip={uiText('태그 삭제')} onClick={() => onChange(text, tags.filter(value => value !== tag))}><Xmark width={12} height={12} aria-hidden="true" /></button>}
     </span>)}</div>}
