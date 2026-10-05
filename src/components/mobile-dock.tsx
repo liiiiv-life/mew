@@ -12,7 +12,7 @@ import { MOBILE_DOCK_ORDER_KEY, normalizeMobileDockOrder, moveDockPanel, type Do
 
 
 const icons = { sidebar: Folder, editor: EditPencil, agent: Brain, terminal: Terminal, git: GitBranch, browser: Globe, desktop: Computer, features: FeatureIcon, memo: Notes, tasks: Calendar }
-const labels = { sidebar: 'fab.sidebar', editor: 'fab.editor', agent: 'header.agent', terminal: 'header.terminal', git: 'access.git', browser: 'header.browser', desktop: 'access.desktop' } as const
+const labels = { sidebar: 'panel.sidebar', editor: 'panel.editor', agent: 'header.agent', terminal: 'header.terminal', git: 'access.git', browser: 'header.browser', desktop: 'access.desktop' } as const
 type DragPreview = { x: number; y: number; width: number; height: number }
 
 export function MobileDock({ active, openPanels, available, hidden, portalTarget, onSelect, onNavigate }: {

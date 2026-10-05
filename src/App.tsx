@@ -53,7 +53,6 @@ import { DocumentGraph } from './components/DocumentGraph'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
 import { ActiveSessionsButton } from './components/active-sessions-button'
-import { FabMenu } from './components/FabMenu'
 import { MobileDock } from './components/mobile-dock'
 import { useMobileKeyboard } from './hooks/use-mobile-keyboard'
 import { adjacentDockPanel, type MobileDockPanel } from './utils/mobile-dock'
@@ -463,16 +462,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   }, [openWorkspacePanel, closeWorkspacePanel, setFocusedWorkspacePanel])
   const focusMemo = useCallback(() => { setRemoteDesktopOpen(false); dockRef.current?.restore(); bringWorkspacePanelToFront('memo'); setFocusedWorkspacePanel('memo') }, [bringWorkspacePanelToFront, setFocusedWorkspacePanel])
   const memoSession = useSharedMemo({ authEmail: caps.collaboration ? auth.email ?? '' : '', open: memoOpen, onOpenChange: changeMemoOpen, onFocus: focusMemo, focusSignal: memoFocusSignal })
-
-  const closeAllWorkspacePanels = useCallback(() => {
-    const close = () => {
-      for (const panel of WORKSPACE_PANEL_IDS) workspacePanelSetters[panel](false)
-      setMobilePanelStack([])
-      if (!isDesktop()) saveMobileForegroundPanel(rootProjectPath, 'editor')
-    }
-    if (featuresOpen && featureCloseRef.current) featureCloseRef.current(close)
-    else close()
-  }, [featuresOpen, rootProjectPath, workspacePanelSetters])
 
   // 모바일에서 파일을 열 때는 패널의 열림 상태를 바꾸지 않는다. 그래야 화면을 데스크톱으로
   // 넓혔을 때 열린 패널들이 그대로 남는다. 보조 패널 스택만 비워 에디터를 전면에 둔다.
@@ -1132,8 +1121,8 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   // Ctrl+L 참조는 **마지막으로 연 보조창 하나**에만 간다(예전엔 열려 있는 창 전부가 받아 적었다).
   // 여는 순간을 기억해 두고, 그 창이 닫혀 있으면 지금 열려 있는 다른 창으로 흘려보낸다.
   const lastPanelRef = useRef<RefPanel | null>(null)
-  // 플로팅 핸들의 "현재 창 탭" 명령이 가리키는 마지막 탭형 창.
-  // 핸들을 누르면 DOM 포커스가 옮겨가므로 포커스 대신 포인터 사용 기록을 따로 둔다.
+  // 독 스와이프·탭 이동 단축키가 가리키는 마지막 탭형 창.
+  // 독을 누르면 DOM 포커스가 옮겨가므로 포커스 대신 패널 사용 기록을 따로 둔다.
   const activeTabbedSurfaceRef = useRef<'editor' | 'agent' | 'terminal' | 'browser' | 'git' | 'sidebar' | 'tasks'>('editor')
   const [taskNextTabSignal, setTaskNextTabSignal] = useState(0)
   const [taskPreviousTabSignal, setTaskPreviousTabSignal] = useState(0)
@@ -2393,20 +2382,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
       <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost ?? (desktopMode ? headerDockHost : null)}
         onSelect={selectDockPanel} onNavigate={navigateMobileDock} />
-
-      <div className="hidden md:contents">
-      <FabMenu
-        onFullscreen={toggleFullscreen}
-        onNextWindowTab={switchCurrentWindowTabRight}
-        onToggleTerminal={() => { if (canUseTerminal) toggleWorkspacePanel('terminal') }}
-        onPrevWindowTab={switchCurrentWindowTabLeft}
-        onToggleAgent={() => { if (caps.agent) toggleWorkspacePanel('agent') }}
-        onOpenEditor={closeAllWorkspacePanels}
-        onToggleSidebar={() => toggleWorkspacePanel('sidebar')}
-        onToggleBrowser={() => { if (caps.browser) toggleWorkspacePanel('browser') }}
-      />
-
-      </div>
 
       {settingsOpen && (
         <SettingsModal

@@ -9,22 +9,21 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-test('foreground menus and dialogs cover floating handles and dock resize hit targets', { skip: !domBrowserExecutable(), timeout: 30_000 }, async () => {
+test('foreground menus and dialogs cover dock resize hit targets', { skip: !domBrowserExecutable(), timeout: 30_000 }, async () => {
   const source = `import React,{useState,useRef} from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {useOverlayDismiss} from '${root}/packages/ui/src/useOverlayDismiss.ts';
 import {DockWorkspace,DockPanel,DockBody} from '${root}/src/components/DockWorkspace.tsx';
 import {HeaderMenu} from '${root}/src/components/HeaderMenu.tsx';
-import {FabMenu} from '${root}/src/components/FabMenu.tsx';
 import {TermButtonBar} from '${root}/src/components/TermButtonBar.tsx';
 const noop=()=>{};
 function Body(){const [open,setOpen]=useState(false);useOverlayDismiss(open&&(()=>setOpen(false)));return <><button onClick={()=>setOpen(true)}>Open panel dialog</button><TermButtonBar run={noop}/>{open&&<div data-panel-dialog className="fixed inset-0 z-50 bg-surface-raised p-8">Panel dialog</div>}</>}
-function Fixture(){const [dock,setDock]=useState(null);const ref=useRef(null);window.dock=dock;return <div className="flex h-dvh flex-col bg-surface text-ink"><header className="flex h-10 shrink-0 items-center justify-end pr-2 md:h-12 md:pr-4"><HeaderMenu items={[{id:'action',label:'Menu action',icon:null,onSelect:()=>window.selected=true}]}/></header><DockWorkspace apiRef={ref} value={dock} onChange={setDock} foreground="terminal" onEditorDrop={()=>''}><DockPanel id="editor:main" kind="editor">Editor</DockPanel><DockPanel id="terminal" kind="terminal">Terminal</DockPanel><DockBody group="terminal" active><Body/></DockBody></DockWorkspace><FabMenu onFullscreen={noop} onToggleAgent={noop} onNextWindowTab={noop} onToggleTerminal={noop} onPrevWindowTab={noop} onOpenEditor={noop} onToggleSidebar={noop} onToggleBrowser={noop}/></div>}
+function Fixture(){const [dock,setDock]=useState(null);const ref=useRef(null);window.dock=dock;return <div className="flex h-dvh flex-col bg-surface text-ink"><header className="flex h-10 shrink-0 items-center justify-end pr-2 md:h-12 md:pr-4"><HeaderMenu items={[{id:'action',label:'Menu action',icon:null,onSelect:()=>window.selected=true}]}/></header><DockWorkspace apiRef={ref} value={dock} onChange={setDock} foreground="terminal" onEditorDrop={()=>''}><DockPanel id="editor:main" kind="editor">Editor</DockPanel><DockPanel id="terminal" kind="terminal">Terminal</DockPanel><DockBody group="terminal" active><Body/></DockBody></DockWorkspace></div>}
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:layers.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:layers.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, async load(id) { if (id === 'virtual:layers.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8')) } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const content = (await Promise.all(['src/components/DockWorkspace.tsx', 'src/components/HeaderMenu.tsx', 'src/components/FabMenu.tsx', 'src/components/TermButtonBar.tsx', 'src/components/IconPicker.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
+  const content = (await Promise.all(['src/components/DockWorkspace.tsx', 'src/components/HeaderMenu.tsx', 'src/components/TermButtonBar.tsx', 'src/components/IconPicker.tsx'].map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set((source + content).match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
@@ -73,15 +72,14 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.equal(await cursor(), 'col-resize')
     await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 80, y); await page.mouse.up()
     assert.ok((await page.locator('[data-dock-panel="terminal"]').boundingBox())!.width < initialWidth - 70, 'closing the overlay restores resizing')
-    // Put the handle exactly under a menu item on both responsive layouts.
+    // Header menus remain clickable on both responsive layouts.
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 800 })
       const menuY = width >= 768 ? 68 : 60
-      await page.evaluate(`localStorage.setItem('mew:floating-handle-position', JSON.stringify({right:46,bottom:${800 - menuY - 24}}))`)
       await page.reload()
       await page.getByRole('button', { name: 'Menu', exact: true }).click()
       const menuX = width - 70
-      assert.equal(await page.evaluate(`!!document.elementFromPoint(${menuX},${menuY})?.closest('[role="menu"]')`), true, 'header menu is painted and hit-tested above the handle')
+      assert.equal(await page.evaluate(`!!document.elementFromPoint(${menuX},${menuY})?.closest('[role="menu"]')`), true, 'header menu receives pointer input')
       await page.mouse.click(menuX, menuY)
       assert.equal(await page.evaluate('window.selected'), true)
       await page.waitForFunction('!history.state?.mewOverlayGuard')

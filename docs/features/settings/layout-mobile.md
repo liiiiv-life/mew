@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "패널 배치·모바일·상태 복원"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-04"
+updated: "2026-10-05"
 status_hash: "018bca32e486b43c386b29de3e2087d6d1447fae6a33abc99d745367947a9382"
 files: ["src/hooks/use-refresh-tasks.ts", "src/hooks/usePresence.ts", "src/components/project-loading-overlay.tsx", "src/App.tsx", "src/components/DockWorkspace.tsx", "src/components/EditorPane.tsx", "src/components/TabBar.tsx", "src/components/AgentPanel.tsx", "src/components/mobile-dock.tsx", "src/utils/mobile-dock.ts", "src/hooks/use-mobile-keyboard.ts", "src/hooks/useTabs.ts", "server/userUiState.ts"]
 commits: []
@@ -24,6 +24,7 @@ commits: []
 - 문서 탭·분할·도킹·크기 조절·계정별 복원과 모바일 하단 독·전체화면·뒤로가기를 제공한다.
 - Documents·일반 파일을 오가도 같은 탭 목록·편집 칸·도킹 배치를 유지한다.
 - 데스크톱 에디터 탭 바 오른쪽에 다른 패널과 같은 닫기(X) 버튼을 제공한다.
+- PC·모바일의 패널 조작은 독·상단 메뉴를 사용하며 별도의 플로팅 핸들은 제공하지 않는다.
 - 데스크톱에서 모든 작업 패널 탭의 더블클릭으로 본문 확대·원래 배치 복귀를 제공한다.
 - 프로젝트·패널 탭 바와 독은 덮지 않으며 Esc로도 복귀한다.
 
@@ -102,7 +103,8 @@ commits: []
 - 2026-10-03 사용자 요청으로 탭 우선 스와이프를 다시 제공한다.
 - 마우스 호버에는 아이콘 이름 툴팁을 표시하고, 터치 탭에는 독 바로 위 중앙에서 이름 토스트가 0.5초 뒤 사라진다.
 - 모바일 키보드가 열리면 독과 예약 하단 여백을 함께 숨긴다. 화면 확대 상태에서도 키보드 감지를 유지하고 전체화면 변경·viewport 스크롤을 반영한다.
-- 모바일 플로팅 핸들과 왼쪽 사이드바 버튼은 대체했으며 사용자 요청 전 재도입하지 않는다.
+- PC·모바일 플로팅 핸들과 왼쪽 사이드바 버튼은 독·상단 메뉴로 대체했으며 사용자 요청 전 재도입하지 않는다.
+- 2026-10-05: 중복 진입점을 제거하려는 사용자 요청으로 남아 있던 데스크톱 핸들 컴포넌트·위치/고정 저장 로직·방향 제스처·전용 번역·테스트까지 삭제했다. 독에서도 쓰는 에디터·사이드바 이름은 공용 패널 번역으로 유지한다.
 - 상세 제스처·배치·저장 계약은 연결된 개발 문서를 따른다.
 
 - 앱 초기 복원·백그라운드 복귀·presence 재연결 후 갱신 중에는 기존 화면 중앙에 로딩 인디케이터만 표시한다.
@@ -114,6 +116,10 @@ commits: []
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-05: 타입 검사·린트(오류 없음, 기존 경고)·문서 허용목록/링크 검사·UI 정적 검사를 통과했다. `overlay-layer-ui.test.ts`·`mobile-dock-ui.test.ts`·`mobile-dock.test.ts` 5개 테스트가 통과했다. 언어 단위 테스트 2개도 통과했다. 전체 App 테스트는 `Select extra.md`, 언어 전환 UI 테스트는 에이전트 입력칸을 찾지 못해 실패했으며 변경 전 HEAD에서도 같은 지점의 실패를 확인했다.
+
+- PC·모바일에서 플로팅 핸들이 없고 독·상단 메뉴·탭 바·단축키로 기존 작업을 계속할 수 있는지 확인한다.
 
 - 2026-10-04: 태스크 타이틀바의 목록·달력·간트 탭이 실제 독 양방향 터치 스와이프로 전환되고 끝에서 순환하면서 패널을 유지하는지 `task-schedule-ui.test.ts`로 검증했다. 기존 독·태스크 UI 회귀와 타입·대상 lint·문서 링크 검사도 통과했다.
 

@@ -2,7 +2,7 @@ import { Brain, EditPencil, Globe, Terminal } from 'iconoir-react'
 import { useI18n } from '../i18n'
 
 const icons = { editor: EditPencil, agent: Brain, terminal: Terminal, browser: Globe }
-const labels = { editor: 'fab.editor', agent: 'header.agent', terminal: 'header.terminal', browser: 'header.browser' } as const
+const labels = { editor: 'panel.editor', agent: 'header.agent', terminal: 'header.terminal', browser: 'header.browser' } as const
 
 /** Empty tab bars keep their panel identity without creating a selectable tab. */
 export function PanelTitle({ kind }: { kind: keyof typeof icons }) {
