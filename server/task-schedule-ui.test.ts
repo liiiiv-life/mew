@@ -160,6 +160,22 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await pasted
     assert.deepEqual(stored().filter(task => ['첫째 일정', '둘째 일정'].includes(task.text)).map(task => [task.startDate, task.date]), [['2026-10-10', '2026-10-10'], ['2026-10-10', '2026-10-10']], 'pasted calendar tasks use the selected day and stay in the agenda')
     await panel.getByRole('tab', { name: '간트', exact: true }).click()
+    assert.equal(await panel.locator('.task-gantt').getAttribute('data-range-start'), '2026-09-28')
+    assert.equal(await panel.locator('.task-gantt').getAttribute('data-range-end'), '2026-10-10')
+    const rangePatches = patches
+    const leftBoundary = panel.locator('[data-gantt-boundary=start]'), leftBox = (await leftBoundary.boundingBox())!
+    await desktop.mouse.move(leftBox.x + 12, leftBox.y + 15); await desktop.mouse.down(); await desktop.mouse.move(leftBox.x - 60, leftBox.y + 15); await desktop.mouse.up()
+    assert.equal(await panel.locator('.task-gantt').getAttribute('data-range-start'), '2026-09-25')
+    await leftBoundary.press('ArrowRight'); await leftBoundary.press('ArrowRight'); await leftBoundary.press('ArrowRight')
+    const rightBoundary = panel.locator('[data-gantt-boundary=end]'), rightBox = (await rightBoundary.boundingBox())!
+    await desktop.mouse.move(rightBox.x + 12, rightBox.y + 15); await desktop.mouse.down(); await desktop.mouse.move(rightBox.x + 60, rightBox.y + 15); await desktop.mouse.up()
+    assert.equal(await panel.locator('.task-gantt').getAttribute('data-range-end'), '2026-10-12')
+    await rightBoundary.press('ArrowLeft'); await rightBoundary.press('ArrowLeft')
+    await desktop.mouse.move(leftBox.x + 12, leftBox.y + 15); await desktop.mouse.down(); await desktop.mouse.move(leftBox.x - 36, leftBox.y + 15)
+    await desktop.keyboard.press('Escape'); await desktop.mouse.up()
+    assert.equal(await panel.locator('.task-gantt').getAttribute('data-range-start'), '2026-09-28')
+    assert.equal(patches, rangePatches, 'range handles only change the viewport')
+    assert.equal(await panel.locator('.task-gantt-scroller').evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).scrollbarWidth), 'none')
     assert.equal(await panel.locator('[data-gantt-summary]').count(), 0)
     const bar = panel.locator('[data-gantt-bar=period]')
     await bar.scrollIntoViewIfNeeded()
@@ -205,7 +221,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(await panel.locator('[data-gantt-task=parent] [data-gantt-grab]').count(), 4, 'all rows can draw their own schedule')
     const empty = panel.locator('[data-gantt-new]'); await empty.scrollIntoViewIfNeeded()
     const blank = (await empty.boundingBox())!, total = stored().length
-    await desktop.mouse.move(blank.x + 360, blank.y + 20); await desktop.mouse.down(); await desktop.mouse.move(blank.x + 432, blank.y + 20, { steps: 4 })
+    await desktop.mouse.move(blank.x + 24, blank.y + 20); await desktop.mouse.down(); await desktop.mouse.move(blank.x + 72, blank.y + 20, { steps: 4 })
     assert.equal(stored().length, total)
     const drawn = desktop.waitForResponse(response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok()); await desktop.mouse.up(); await drawn
     assert.equal(stored().length, total + 1)
@@ -219,6 +235,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const header = (await panel.locator('.task-gantt-header').boundingBox())!
     await desktop.mouse.move(450, header.y + 25); await desktop.mouse.down(); await desktop.mouse.move(480, header.y + 25); await desktop.mouse.up()
     assert.ok(await panel.locator('.task-gantt-scroller').evaluate(el => el.scrollLeft) < scrollBefore, 'horizontal header drag pans without waiting for a zoom render')
+    await panel.getByRole('button', { name: '축소', exact: true }).click()
     const scaleBefore = Number(await panel.locator('.task-gantt-header').getAttribute('width'))
     await desktop.mouse.move(450, header.y + 25); await desktop.mouse.down(); await desktop.mouse.move(450, header.y + 50); await desktop.mouse.up()
     assert.ok(Number(await panel.locator('.task-gantt-header').getAttribute('width')) > scaleBefore)
@@ -338,6 +355,9 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await readonly.keyboard.press('Escape')
     assert.equal(await readonly.locator('[data-gantt-resize]').count(), 0)
     assert.equal(await readonly.locator('[data-gantt-grab]').count(), 1, 'only viewport gestures remain enabled')
+    const readonlyStart = (await readonly.locator('.task-gantt').getAttribute('data-range-start'))!
+    await readonly.locator('[data-gantt-boundary=start]').press('ArrowLeft')
+    assert.equal(await readonly.locator('.task-gantt').getAttribute('data-range-start'), new Date(Date.parse(readonlyStart) - 86400000).toISOString().slice(0, 10))
     assert.deepEqual(errors, [])
   } finally { await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true }) }
 })

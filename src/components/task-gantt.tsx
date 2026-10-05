@@ -14,8 +14,8 @@ import { uuid } from '../utils/uuid'
 
 // SVG grid, row dimensions, bars, handles and header gestures follow liiiiv/gantt-maker.
 const ROW_H = 44, HEADER_H = 46, BAR_H = 22, LABEL_W = 168
-type Mode = 'move' | 'start' | 'end' | 'draw' | 'header'
-type Gesture = { pointer: number; element: Element; mode: Mode; task: TaskItem | null; x: number; y: number; anchor: number; ppd: number; moved: boolean; next: TaskItem | null }
+type Mode = 'move' | 'start' | 'end' | 'draw' | 'header' | 'range-start' | 'range-end'
+type Gesture = { pointer: number; element: Element; mode: Mode; task: TaskItem | null; x: number; y: number; anchor: number; ppd: number; moved: boolean; next: TaskItem | null; bounds: { start: number | null; end: number | null }; start: number; end: number }
 type Pick = { id: string; x: number; y: number; keyboard?: boolean }
 
 export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.length }: { tasks: TaskItem[]; canEdit: boolean; edit: (tasks: TaskItem[]) => void; knownTags: string[]; totalTasks?: number }) {
@@ -24,12 +24,13 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   const scroller = useRef<HTMLDivElement>(null), svg = useRef<SVGSVGElement>(null), gesture = useRef<Gesture | null>(null)
   const labels = useRef<HTMLDivElement>(null), pickElement = useRef<HTMLElement | SVGElement | null>(null)
   const current = useRef({ tasks, canEdit, edit, ppd }); current.current = { tasks, canEdit, edit, ppd }
+  const [bounds, setBounds] = useState<{ start: number | null; end: number | null }>({ start: null, end: null })
   const pendingScroll = useRef<number | null>(null)
-  const ranges = tasks.flatMap(task => { const range = taskRange(task); return range ? [toDay(range.start), toDay(range.end)] : [] })
-  const startDay = Math.max(MIN_TASK_DAY, Math.min(toDay(today) - 14, ...ranges) - 7)
-  const endDay = Math.min(MAX_TASK_DAY, Math.max(toDay(today) + 21, ...ranges) + 7)
-  const previousStart = useRef(startDay), days = endDay - startDay + 1
   const allShown = preview ? tasks.some(task => task.id === preview.id) ? tasks.map(task => task.id === preview.id ? preview : task) : [...tasks, preview] : tasks
+  const ranges = allShown.flatMap(task => { const range = taskRange(task); return range ? [toDay(range.end)] : [] })
+  const startDay = bounds.start ?? Math.max(MIN_TASK_DAY, toDay(today) - 5)
+  const endDay = Math.max(startDay, bounds.end ?? Math.min(MAX_TASK_DAY, Math.max(toDay(today), ...ranges)))
+  const previousStart = useRef(startDay), days = endDay - startDay + 1
   const shown = allShown
   const bars = taskBars(allShown, today), width = days * ppd, height = (shown.length + 1) * ROW_H
   const { minor, major } = scaleFor(Math.min(ppd, days > 800 ? 4 : ppd))
@@ -44,6 +45,7 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   const cancel = () => {
     const active = gesture.current; gesture.current = null
     if (active?.element.hasPointerCapture(active.pointer)) active.element.releasePointerCapture(active.pointer)
+    if (active?.mode === 'range-start' || active?.mode === 'range-end') setBounds(active.bounds)
     setPreview(null)
   }
   const zoom = (value: number, clientX?: number) => {
@@ -88,7 +90,7 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   }, [])
   useEffect(() => {
     const active = gesture.current
-    if (!canEdit && active?.mode !== 'header') cancel()
+    if (!canEdit && active && !['header', 'range-start', 'range-end'].includes(active.mode)) cancel()
     else if (active?.task) {
       const now = tasks.find(task => task.id === active.task!.id)
       if (!now || now.startDate !== active.task.startDate || now.date !== active.task.date) cancel()
@@ -97,16 +99,26 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   }, [tasks, canEdit, pick, closePick])
   const dayAt = (clientX: number) => Math.max(MIN_TASK_DAY, Math.min(MAX_TASK_DAY, Math.floor(startDay + (clientX - (svg.current?.getBoundingClientRect().left ?? 0)) / ppd)))
   const begin = (event: ReactPointerEvent<Element>, mode: Mode, task: TaskItem | null) => {
-    if (event.button !== 0 || !event.isPrimary || (mode !== 'header' && !canEdit)) return
+    if (event.button !== 0 || !event.isPrimary || (!['header', 'range-start', 'range-end'].includes(mode) && !canEdit)) return
     if (mode === 'draw' && !task && totalTasks >= TASK_LIMIT) return
     event.preventDefault(); event.stopPropagation(); setPick(null)
     event.currentTarget.setPointerCapture(event.pointerId)
     if (task) pickElement.current = (event.currentTarget.closest('[data-gantt-task]')?.querySelector('[data-gantt-bar]') ?? event.currentTarget) as HTMLElement | SVGElement
-    gesture.current = { pointer: event.pointerId, element: event.currentTarget, mode, task, x: event.clientX, y: event.clientY, anchor: dayAt(event.clientX), ppd, moved: false, next: null }
+    gesture.current = { pointer: event.pointerId, element: event.currentTarget, mode, task, x: event.clientX, y: event.clientY, anchor: dayAt(event.clientX), ppd, moved: false, next: null, bounds, start: startDay, end: endDay }
   }
   const move = (event: ReactPointerEvent) => {
     const active = gesture.current
     if (!active || active.pointer !== event.pointerId) return
+    if (active.mode === 'range-start' || active.mode === 'range-end') {
+      const delta = Math.round((event.clientX - active.x) / active.ppd)
+      if (active.mode === 'range-start') {
+        pendingScroll.current = 0
+        setBounds({ ...active.bounds, start: Math.max(MIN_TASK_DAY, Math.min(active.end, active.start + delta)) })
+      } else {
+        setBounds({ ...active.bounds, end: Math.min(MAX_TASK_DAY, Math.max(active.start, active.end + delta)) })
+      }
+      return
+    }
     if (active.mode === 'header') {
       if (scroller.current) scroller.current.scrollLeft -= event.clientX - active.x
       if (event.clientY !== active.y) zoom(current.current.ppd * Math.exp((event.clientY - active.y) * .007), event.clientX)
@@ -135,7 +147,12 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   }
   const pickTask = (task: TaskItem, element: Element, keyboard = false) => { pickElement.current = element as HTMLElement | SVGElement; const rect = element.getBoundingClientRect(); setPick({ id: task.id, x: rect.right, y: rect.top, keyboard }) }
 
-  return <div className="task-gantt">
+  const adjustBoundary = (side: 'start' | 'end', delta: number) => {
+    if (side === 'start') { pendingScroll.current = 0; setBounds({ ...bounds, start: Math.max(MIN_TASK_DAY, Math.min(endDay, startDay + delta)) }) }
+    else setBounds({ ...bounds, end: Math.min(MAX_TASK_DAY, Math.max(startDay, endDay + delta)) })
+  }
+
+  return <div className="task-gantt" data-range-start={fromDay(startDay)} data-range-end={fromDay(endDay)}>
     <div className="task-gantt-tools">
       <div className="task-tool-group">
         <button type="button" className="task-tool" aria-label={uiText('선택')} data-tip={uiText('선택')} aria-pressed={!drawing} onClick={() => { cancel(); setDrawing(false) }}><CursorPointer width={16} height={16} aria-hidden="true" /></button>
@@ -147,7 +164,8 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
       <button type="button" className="task-tool" aria-label={uiText('확대')} data-tip={uiText('확대')} disabled={ppd >= 80} onClick={() => zoom(ppd * 1.4)}><Plus width={16} height={16} aria-hidden="true" /></button>
       <div className="task-gantt-legend">{(['done', 'planned', 'missed'] as const).map(status => <span key={status}><i data-status={status} />{uiText(taskStatusLabels[status])}</span>)}</div>
     </div>
-    <div ref={scroller} className="task-gantt-scroller" onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={() => { if (gesture.current) cancel() }}>
+    <div className="task-gantt-frame" onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={() => { if (gesture.current) cancel() }}>
+      <div ref={scroller} className="task-gantt-scroller">
       <div className="task-gantt-content" style={{ width: `calc(var(--task-gantt-label-width) + ${width}px)` }}>
         <div ref={labels} className="task-gantt-labels" style={{ width: 'var(--task-gantt-label-width)' }}>
           <div className="task-gantt-label-header">{uiText('태스크')}</div>
@@ -200,6 +218,11 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
           </svg>
         </div>
       </div>
+      </div>
+      {(['start', 'end'] as const).map(side => <button key={side} type="button" className="task-gantt-boundary" data-gantt-boundary={side}
+        aria-label={uiText(side === 'start' ? '시작일' : '종료일')} data-tip={uiText(side === 'start' ? '시작일' : '종료일')}
+        onPointerDown={event => begin(event, side === 'start' ? 'range-start' : 'range-end', null)}
+        onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); adjustBoundary(side, (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 7 : 1)) } }}><span aria-hidden="true" /></button>)}
     </div>
     {pick && selected && createPortal(<GanttInspector pick={pick} task={selected} knownTags={knownTags} canEdit={canEdit} onClose={closePick} onEdit={item => edit(tasks.map(task => task.id === item.id ? item : task))} />, document.body)}
   </div>
