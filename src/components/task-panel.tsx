@@ -139,8 +139,11 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   return <section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
     <header data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       <DockGrip group="tasks" />
-      <div role="tab" aria-label={uiText('태스크')} aria-selected="true" tabIndex={0} className="task-panel-title flex min-w-0 flex-1 items-center gap-1.5 px-2.5 text-xs">
-        <Calendar width={14} height={14} aria-hidden="true" /><span>{uiText('태스크')}</span>
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5">
+        <div role="tab" aria-label={uiText('태스크')} aria-selected="true" tabIndex={0} className="task-panel-title flex shrink-0 items-center gap-1.5 text-xs">
+          <Calendar width={14} height={14} aria-hidden="true" /><span>{uiText('태스크')}</span>
+        </div>
+        {saving && <span role="status" className="min-w-0 truncate text-xs text-ink-secondary">{uiText('저장 중…')}</span>}
       </div>
       <div className="task-view-switch" role="tablist" aria-label={uiText('태스크 보기')}>
         {([{ id: 'list', label: '목록', Icon: List }, { id: 'calendar', label: '달력', Icon: Calendar }, { id: 'gantt', label: '간트', Icon: StatsUpSquare }] as const).map(({ id, label, Icon }) => <button key={id} type="button" className="task-view-button" role="tab" id={`${tabId}-${id}`} aria-selected={view === id} aria-controls={`${tabId}-body`} tabIndex={view === id ? 0 : -1} onClick={() => switchView(id)} onKeyDown={event => {
@@ -152,7 +155,6 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
           event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
         }}><Icon width={14} height={14} aria-hidden="true" />{uiText(label)}</button>)}
       </div>
-      {saving && <span role="status" className="px-1 text-xs text-ink-muted">{uiText('저장 중…')}</span>}
       <button type="button" onClick={onClose} aria-label={uiText('닫기')} data-tip={uiText('닫기')}
         className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"><Xmark width={14} height={14} aria-hidden="true" /></button>
     </header>
