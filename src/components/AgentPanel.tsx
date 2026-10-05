@@ -2781,6 +2781,16 @@ function AgentSessionView({
     }
   }, [])
 
+  const scrollToQuestion = useCallback((key: string) => {
+    const el = scrollRef.current
+    const question = el && [...el.querySelectorAll<HTMLElement>('[data-agent-question]')].find(node => node.dataset.agentQuestion === key)
+    if (!el || !question) return
+    const top = el.getBoundingClientRect().top + el.clientTop + parseFloat(getComputedStyle(el).paddingTop)
+    el.scrollTo({ top: question.getBoundingClientRect().top - top + el.scrollTop, behavior: 'instant' })
+    questionScrollRef.current = { key, top: el.scrollTop }
+    handleScroll()
+  }, [handleScroll])
+
   const navigateQuestion = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
@@ -2802,10 +2812,8 @@ function AgentSessionView({
     event.preventDefault()
     event.stopPropagation()
     if (index < 0) return
-    el.scrollTo({ top: positions[index], behavior: 'instant' })
-    questionScrollRef.current = { key: questions[index].dataset.agentQuestion!, top: el.scrollTop }
-    handleScroll()
-  }, [handleScroll])
+    scrollToQuestion(questions[index].dataset.agentQuestion!)
+  }, [scrollToQuestion])
 
   const send = useCallback((payload: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify(payload))
@@ -3625,6 +3633,7 @@ function AgentSessionView({
           }
           if (item.kind === 'turn') {
             const open = expanded.has(item.key)
+            const question = timeline.slice(0, index).findLast(candidate => candidate.kind === 'user')
             const state = turnState(item, meta?.activeTask === 'cli' ? false : meta?.busy ?? null)
             // 마지막 답변을 패널 폭에 맞춰 두 줄로 요약한다.
             const lastAgent = [...item.children].reverse().find((c) => c.kind === 'agent')
@@ -3651,7 +3660,7 @@ function AgentSessionView({
             const actionSpace = Math.max(0, (Number(Boolean(answerText.trim())) + Number(canStop)) * 36 - 6)
             return (
               <div key={item.key} className="rounded-lg rounded-tl-none border border-edge bg-surface">
-                <div data-agent-turn-header className="relative min-h-9">
+                <div data-agent-turn-header className={`min-h-9 ${open ? 'sticky -top-3 z-10 flex rounded-tr-lg border-b border-edge bg-surface' : 'relative'}`}>
                   <button
                     type="button"
                     aria-expanded={open}
@@ -3659,7 +3668,7 @@ function AgentSessionView({
                       if (hasSelection()) return
                       toggle(item.key)
                     }}
-                    className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-left text-xs text-ink-secondary hover:text-ink"
+                    className={`flex min-w-0 items-start gap-2 px-3 py-2 text-left text-xs text-ink-secondary hover:text-ink ${open ? 'flex-1' : 'w-full'}`}
                   >
                     <span
                       className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[state]}`}
@@ -3668,7 +3677,7 @@ function AgentSessionView({
                     />
                     {open ? <>
                       <span className="sr-only">{summary}</span>
-                      {durationMs != null && <span data-agent-duration className="ml-auto shrink-0 tabular-nums text-ink-muted" style={{ marginRight: actionSpace }}>{formatDuration(durationMs)}</span>}
+                      {durationMs != null && <span data-agent-duration className="ml-auto min-w-0 truncate tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>}
                     </> : (
                       <span className={`min-w-0 flex-1 line-clamp-2 break-words [overflow-wrap:anywhere] text-ink ${durationMs != null ? 'min-h-[2lh]' : ''}`}>
                         {/* 1행은 버튼, 2행은 시간만큼 각각 별도로 줄바꿈 폭을 줄인다. */}
@@ -3678,7 +3687,8 @@ function AgentSessionView({
                       </span>
                     )}
                   </button>
-                  <div className="absolute right-0 top-0 flex items-start">
+                  <div className={`flex shrink-0 items-start ${open ? '' : 'absolute right-0 top-0'}`}>
+                  {open && question && <button type="button" onClick={() => scrollToQuestion(question.key)} className="my-1.5 rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink">{t('agent.toQuestion')}</button>}
                   {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
                   <CopyButton
                     text={answerText}
@@ -3699,7 +3709,7 @@ function AgentSessionView({
                   </div>
                 </div>
                 {open && (
-                  <div className="space-y-2 border-t border-edge px-3 py-2">
+                  <div className="space-y-2 px-3 py-2">
                     {item.children.map((child) => {
                       if (child.kind === 'agent')
                         // 답변은 마크다운이다 — 목록·굵기·코드블럭을 글자 그대로 두지 않고 그린다
@@ -3764,15 +3774,6 @@ function AgentSessionView({
                         )
                       return <AgentErrorButton key={child.key} text={child.text} onOpen={setErrorDetail} />
                     })}
-                    {/* 긴 버블은 끝까지 읽고 나면 위로 돌아갈 필요 없이 여기서 접는다 */}
-                    <div className="flex justify-end pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => toggle(item.key)}
-                        className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-ink-muted hover:bg-surface-raised hover:text-ink"
-                      >
-                        {uiText("접기")}</button>
-                    </div>
                   </div>
                 )}
               </div>

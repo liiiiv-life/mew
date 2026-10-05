@@ -17,7 +17,7 @@ import {HistoryIndex} from '${root}/shared/agent-history.ts';
 import * as cache from '${root}/src/utils/agent-history-cache.ts';
 localStorage.setItem('mew:locale','ko');window.cache=cache;window.requests=[];
 Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.copied=text}}});
-const events=[];for(let i=0;i<45;i++)events.push({type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question '+i}}},{type:'turn_start'},{type:'update',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Answer '+i+' '+(i===42?'long readable answer\\n\\n'.repeat(65):i===40?'long readable answer '.repeat(100):i===44?'short':'long readable answer '.repeat(15))}}},{type:'turn_end',stopReason:'end_turn',durationMs:i===40||i===44?90000:i===41?45296000:undefined});
+const events=[];for(let i=0;i<45;i++)events.push({type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question '+i}}},{type:'turn_start'},{type:'update',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Answer '+i+' '+(i===42||i===43?'long readable answer\\n\\n'.repeat(65):i===40?'long readable answer '.repeat(100):i===44?'short':'long readable answer '.repeat(15))}}},{type:'turn_end',stopReason:'end_turn',durationMs:i===40||i===44?90000:i===41?45296000:i===42?125000:undefined});
 const index=new HistoryIndex('browser-generation');events.forEach(event=>index.push(event));
 const meta={type:'meta',meta:{sessionId:'conversation',startedAt:new Date().toISOString(),turns:45,busy:false,queued:location.search.includes('slow')?[]:['Saved queue task'],queuedKinds:['prompt'],queuedAttachments:[[{project:'test',path:'notes.md',mimeType:'text/markdown'}]],queuedSettings:[{model:'Cached model',thinking:'High',permission:'Default'}],usage:null,canLoad:true,canList:true}};
 class Socket {
@@ -101,7 +101,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       assert.equal(await timedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'false')
       const shortHeader = page.locator('[data-agent-turn-header]').filter({ has: page.locator('[data-agent-summary]').filter({ hasText: 'Answer 44 short' }) })
       assert.equal(await shortHeader.locator('[data-agent-duration]').isVisible(), true, 'short answers keep the second-line duration visible')
-      const oldHeader = page.locator('[data-agent-turn-header]').filter({ has: page.locator('[data-agent-summary]').filter({ hasText: 'Answer 43 ' }) })
+      const oldHeader = page.locator('[data-agent-turn-header]').filter({ has: page.getByText(/^Answer 43 /) })
       assert.equal(await oldHeader.locator('[data-agent-duration]').count(), 0, 'older transcripts without duration have no time placeholder')
       const questionTop = (number: number) => page.getByText(`Question ${number}`, { exact: true }).evaluate(el => {
         const question = el.closest('[data-agent-question]')!
@@ -117,6 +117,40 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       }
       await page.getByText(/^Answer 42 /).first().locator('..').click()
       const middle = await questionTop(42) + 500
+      await scroll.evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')) }, middle)
+      const expandedHeader = page.locator('[data-agent-turn-header]').filter({ has: page.getByText(/^Answer 42 /) })
+      const stickyBounds = await expandedHeader.evaluate(el => {
+        const scroller = el.parentElement!.parentElement!
+        return { header: el.getBoundingClientRect().top, viewport: scroller.getBoundingClientRect().top + scroller.clientTop }
+      })
+      assert.ok(Math.abs(stickyBounds.header - stickyBounds.viewport) <= 1, `expanded header sticks to the conversation top: ${JSON.stringify(stickyBounds)}`)
+      assert.equal(await expandedHeader.locator('[data-agent-duration]').isVisible(), true)
+      assert.equal(await page.getByRole('button', { name: '접기', exact: true }).count(), 0, 'expanded answers have no bottom collapse button')
+      await expandedHeader.getByRole('button', { name: '이 답변 복사', exact: true }).click()
+      assert.equal(await expandedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'true', 'sticky copy leaves the answer expanded')
+      assert.equal(await page.evaluate('window.copied'), 'Answer 42 ' + 'long readable answer\n\n'.repeat(65))
+      await scroll.screenshot({ path: `/tmp/mew-sticky-answer-${width}-${dark ? 'dark' : 'light'}.png` })
+      await expandedHeader.getByRole('button', { name: '질문으로', exact: true }).click()
+      await assertAtQuestion(42)
+      assert.equal(await expandedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'true', 'question jump leaves the answer expanded')
+      await scroll.press('ArrowUp')
+      await assertAtQuestion(41)
+      // A following expanded answer supplies enough scroll range to pass this bubble's end.
+      await oldHeader.locator('button[aria-expanded]').evaluate(el => el.dispatchEvent(new el.ownerDocument.defaultView!.MouseEvent('click', { bubbles: true })))
+      const boundaryTop = await expandedHeader.evaluate(el => {
+        const scroller = el.parentElement!.parentElement!
+        return el.parentElement!.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top
+          - scroller.clientTop + scroller.scrollTop - el.getBoundingClientRect().height / 2
+      })
+      await scroll.evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')) }, boundaryTop)
+      const boundary = await expandedHeader.evaluate(el => ({
+        top: el.getBoundingClientRect().top,
+        bottom: el.getBoundingClientRect().bottom,
+        bubbleBottom: el.parentElement!.getBoundingClientRect().bottom,
+        viewportTop: el.parentElement!.parentElement!.getBoundingClientRect().top,
+      }))
+      assert.ok(boundary.top < boundary.viewportTop && boundary.bottom <= boundary.bubbleBottom + 1, 'sticky header yields at its own bubble bottom')
+      await oldHeader.locator('button[aria-expanded]').evaluate(el => el.dispatchEvent(new el.ownerDocument.defaultView!.MouseEvent('click', { bubbles: true })))
       await scroll.evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')) }, middle)
       await scroll.focus()
       await scroll.press('ArrowUp')
@@ -201,6 +235,22 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await page.evaluate(`window.cache.clearHistoryTab('history')`)
       assert.equal(await page.evaluate(`window.cache.readHistoryCache(window.cache.historyCacheKey('alice','codex','history','/workspace'))`), null)
       assert.equal(await page.evaluate(`window.cache.readQueueCache(window.cache.historyCacheKey('alice','codex','history','/workspace'))`), null)
+      await page.evaluate(`
+        window.socket.emit({type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question 45'}}});
+        window.socket.emit({type:'turn_start',startedAt:Date.now()-90000});
+        window.socket.emit({type:'update',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Running answer '+('streamed paragraph\\n\\n'.repeat(65))}}});
+        window.socket.emit({type:'meta',meta:{sessionId:'conversation',busy:true,turns:45,queued:[]}});
+      `)
+      const runningHeader = page.locator('[data-agent-turn-header]').filter({ has: page.getByText(/^Running answer /) })
+      await runningHeader.locator('button[aria-expanded]').click()
+      await scroll.evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')) }, await questionTop(45) + 500)
+      const runningBounds = await runningHeader.evaluate(el => ({ top: el.getBoundingClientRect().top, viewport: el.parentElement!.parentElement!.getBoundingClientRect().top }))
+      assert.ok(Math.abs(runningBounds.top - runningBounds.viewport) <= 1, 'running header sticks with all controls')
+      await runningHeader.getByRole('button', { name: '중단', exact: true }).click()
+      assert.equal(await page.evaluate('window.requests.at(-1).type'), 'cancel', 'sticky stop cancels the active turn')
+      assert.equal(await runningHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'true', 'stop does not fold the answer')
+      await runningHeader.getByRole('button', { name: '질문으로', exact: true }).click()
+      await assertAtQuestion(45)
       assert.deepEqual(errors, [])
       await page.close()
     }
