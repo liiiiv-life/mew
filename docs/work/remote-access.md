@@ -1,10 +1,39 @@
 ---
 title: "mew.saens.kr 계정 기반 P2P 원격 접속 설계"
-created: 2026-10-05
-updated: 2026-10-05
+created: "2026-10-05"
+updated: "2026-10-05"
 ---
 
-# mew.saens.kr 계정 기반 P2P 원격 접속 설계
+## 간단 설명
+
+기존에는 사용자가 mew를 클론해서 localhost:5001에다가 프론트 서버를 열기까지는 가능했지만, 이를 외부 기기(다른 컴퓨터, 핸드폰 브라우저 등)에서 연결하려면 Tailscale이나 도메인 연결과 같이, 잘 모르면 복잡하게 느껴질 수 있는 세팅 과정이 필요했음. 이 부분은 mew에서 자동으로 처리가 불가능해서 사용자가 직접 해야 함.
+
+(난 지금 Cloudflare에서 Tunnel이라는 기능 써서 우리집컴의 localhost:5000을 내 도메인(mew.liiiiv.life)으로 접근 가능하도록 열어둔거임.)
+
+그래서 사용자가 그런 처리도 아예 없이 원격접속도 쉽게 할 수 있도록 하려고 함.
+
+### 작동과정 1) 등록
+
+1. "Mew 원격 접속 활성화" 버튼 하나 누름. (원격 데탑이랑은 다른 기능)
+2. 그럼 [mew.saens.kr](http://mew.saens.kr) 이라는 사이트로 연결, 로그인하라고 함. (구글,애플,깃헙,이메일 로그인 지원하도록 함.)
+3. 로그인하면 해당 기기 이름 입력. 이후 바로 등록됨. (mew.saens.kr/{user-id}/{device-name} 으로.)
+
+### 작동과정 2) 접속
+
+#### i) 바로 접속
+
+1. mew.saens.kr/{user-id}/{device-name} 에 접속
+2. 로그인창 뜸. 로그인하면 바로 mew 접속됨
+
+#### ii) 사이트부터 접속
+
+1. [mew.saens.kr](https://mew.saens.kr) 에 접속
+2. 로그인하면 [mew.saens.kr/dashboard](http://mew.saens.kr/dashboard) 에 접속됨
+3. 등록한 기기가 거기에 뜸. 그거 누르면 mew 접속됨
+
+<br/>
+
+<br/>
 
 [진행 작업](MOC.md) · [문서 지도](../MOC.md) · [ADR 0195](../../../.mew/docs/decisions/0195-mew-account-based-p2p-remote-access.md)
 
