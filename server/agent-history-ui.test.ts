@@ -15,8 +15,9 @@ import {AgentPanel} from '${root}/src/components/AgentPanel.tsx';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {HistoryIndex} from '${root}/shared/agent-history.ts';
 import * as cache from '${root}/src/utils/agent-history-cache.ts';
-window.cache=cache;window.requests=[];
-const events=[];for(let i=0;i<45;i++)events.push({type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question '+i}}},{type:'turn_start'},{type:'update',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Answer '+i+' '+(i===42?'long readable answer\\n\\n'.repeat(65):'long readable answer '.repeat(15))}}},{type:'turn_end',stopReason:'end_turn'});
+localStorage.setItem('mew:locale','ko');window.cache=cache;window.requests=[];
+Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.copied=text}}});
+const events=[];for(let i=0;i<45;i++)events.push({type:'update',update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question '+i}}},{type:'turn_start'},{type:'update',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Answer '+i+' '+(i===42?'long readable answer\\n\\n'.repeat(65):i===40?'long readable answer '.repeat(100):i===44?'short':'long readable answer '.repeat(15))}}},{type:'turn_end',stopReason:'end_turn',durationMs:i===40||i===44?90000:i===41?45296000:undefined});
 const index=new HistoryIndex('browser-generation');events.forEach(event=>index.push(event));
 const meta={type:'meta',meta:{sessionId:'conversation',startedAt:new Date().toISOString(),turns:45,busy:false,queued:location.search.includes('slow')?[]:['Saved queue task'],queuedKinds:['prompt'],queuedAttachments:[[{project:'test',path:'notes.md',mimeType:'text/markdown'}]],queuedSettings:[{model:'Cached model',thinking:'High',permission:'Default'}],usage:null,canLoad:true,canList:true}};
 class Socket {
@@ -70,6 +71,38 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await scroll.evaluate(el => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
       await page.getByText('Question 5', { exact: true }).waitFor({ state: 'attached' })
       assert.ok(await scroll.evaluate(el => el.scrollTop > 100), 'prepend preserves the previous viewport')
+      const timedHeader = page.locator('[data-agent-turn-header]').filter({ has: page.getByText(/^Answer 40 /) })
+      await timedHeader.scrollIntoViewIfNeeded()
+      await timedHeader.screenshot({ path: `/tmp/mew-answer-header-${width}-${dark ? 'dark' : 'light'}.png` })
+      const geometry = await timedHeader.evaluate(el => {
+        const summary = el.querySelector('[data-agent-summary]')!
+        const range = el.ownerDocument.createRange()
+        range.selectNodeContents(summary)
+        const lines = [...range.getClientRects()].slice(0, 2).map(rect => ({ top: rect.top, right: rect.right, width: rect.width }))
+        const duration = el.querySelector('[data-agent-duration]')!.getBoundingClientRect()
+        const copy = el.querySelector('button[title="이 답변 복사"]')!.getBoundingClientRect()
+        return { lines, duration: { top: duration.top, left: duration.left, bottom: duration.bottom }, copy: { top: copy.top, left: copy.left }, bottom: el.getBoundingClientRect().bottom }
+      })
+      assert.equal(geometry.lines.length, 2)
+      assert.ok(geometry.lines[0].width > geometry.lines[1].width + 10, `only the second line loses the duration width: ${JSON.stringify(geometry)}`)
+      assert.ok(geometry.lines[0].right <= geometry.copy.left, 'first line stays clear of the copy button')
+      assert.ok(geometry.lines[1].right <= geometry.duration.left + 1, 'second line stays clear of the duration')
+      assert.ok(Math.abs(geometry.duration.top - geometry.lines[1].top) <= 3, 'duration shares the second line')
+      assert.ok(geometry.copy.top < geometry.duration.top && geometry.duration.bottom <= geometry.bottom, 'copy stays above the fully visible duration')
+      assert.equal(await timedHeader.locator('button[aria-expanded] svg').count(), 0, 'answer has no disclosure icon')
+      const questionButton = page.getByText('Question 40', { exact: true }).locator('..')
+      assert.equal(await questionButton.locator('svg').count(), 0, 'question has no disclosure icon')
+      await timedHeader.getByRole('button', { name: '이 답변 복사', exact: true }).click()
+      assert.equal(await page.evaluate('window.copied'), 'Answer 40 ' + 'long readable answer '.repeat(100), 'copy retains the full answer')
+      assert.equal(await timedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'false', 'copy does not expand the answer')
+      await timedHeader.locator('button[aria-expanded]').press('Enter')
+      assert.equal(await timedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'true')
+      await timedHeader.locator('button[aria-expanded]').press('Space')
+      assert.equal(await timedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'false')
+      const shortHeader = page.locator('[data-agent-turn-header]').filter({ has: page.locator('[data-agent-summary]').filter({ hasText: 'Answer 44 short' }) })
+      assert.equal(await shortHeader.locator('[data-agent-duration]').isVisible(), true, 'short answers keep the second-line duration visible')
+      const oldHeader = page.locator('[data-agent-turn-header]').filter({ has: page.locator('[data-agent-summary]').filter({ hasText: 'Answer 43 ' }) })
+      assert.equal(await oldHeader.locator('[data-agent-duration]').count(), 0, 'older transcripts without duration have no time placeholder')
       const questionTop = (number: number) => page.getByText(`Question ${number}`, { exact: true }).evaluate(el => {
         const question = el.closest('[data-agent-question]')!
         const scroller = question.parentElement!

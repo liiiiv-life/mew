@@ -3607,13 +3607,13 @@ function AgentSessionView({
                   <div className="flex items-start rounded-lg rounded-tr-none bg-surface-raised">
                     <button
                       type="button"
+                      aria-expanded={open}
                       onClick={() => {
                         if (hasSelection()) return
                         toggle(item.key)
                       }}
                       className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left text-ink"
                     >
-                      <span className="shrink-0 pt-1 text-ink-secondary"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
                       <span className={`min-w-0 flex-1 break-words [overflow-wrap:anywhere] select-text ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
                     </button>
                     <CopyButton text={item.text} label={uiText("이 질문 복사")} />
@@ -3626,10 +3626,10 @@ function AgentSessionView({
           if (item.kind === 'turn') {
             const open = expanded.has(item.key)
             const state = turnState(item, meta?.activeTask === 'cli' ? false : meta?.busy ?? null)
-            // 턴 요약: 마지막 agent 텍스트의 첫 줄
+            // 마지막 답변을 패널 폭에 맞춰 두 줄로 요약한다.
             const lastAgent = [...item.children].reverse().find((c) => c.kind === 'agent')
             const summary = lastAgent && lastAgent.kind === 'agent'
-              ? (lastAgent.text.length > 80 ? lastAgent.text.slice(0, 80) + '…' : lastAgent.text)
+              ? lastAgent.text
               : state === 'cancelled'
                 ? uiText("중단됨")
                 : state === 'failed'
@@ -3637,8 +3637,6 @@ function AgentSessionView({
                   : state === 'done'
                     ? uiText("완료")
                     : uiText("작업 중…")
-            // 취소된 작업처럼 답변이 없으면 CopyButton도 없다. 그때 시간만 오른쪽 모서리에 붙지 않게
-            // 아래 시간 칸에 여백을 따로 둔다.
             const answerText = item.children
               .filter((c) => c.kind === 'agent')
               .map((c) => (c.kind === 'agent' ? c.text : ''))
@@ -3649,36 +3647,45 @@ function AgentSessionView({
               : item.startedAt != null
                 ? Math.max(0, now - item.startedAt)
                 : null
+            const canStop = busy && meta?.activeTask !== 'cli' && !item.done
+            const actionSpace = Math.max(0, (Number(Boolean(answerText.trim())) + Number(canStop)) * 36 - 6)
             return (
               <div key={item.key} className="rounded-lg rounded-tl-none border border-edge bg-surface">
-                <div className="flex items-start">
+                <div data-agent-turn-header className="relative min-h-9">
                   <button
                     type="button"
+                    aria-expanded={open}
                     onClick={() => {
                       if (hasSelection()) return
                       toggle(item.key)
                     }}
-                    className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left text-xs text-ink-secondary hover:text-ink"
+                    className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-left text-xs text-ink-secondary hover:text-ink"
                   >
                     <span
                       className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[state]}`}
                       title={BUBBLE_LABEL[state]}
                       aria-label={BUBBLE_LABEL[state]}
                     />
-                    <span className="shrink-0 pt-0.5"><CaretGlyph dir={open ? 'down' : 'right'} /></span>
-                    <span className={open ? 'sr-only' : 'line-clamp-2 select-text text-ink'}>{summary}</span>
+                    {open ? <>
+                      <span className="sr-only">{summary}</span>
+                      {durationMs != null && <span data-agent-duration className="ml-auto shrink-0 tabular-nums text-ink-muted" style={{ marginRight: actionSpace }}>{formatDuration(durationMs)}</span>}
+                    </> : (
+                      <span className={`min-w-0 flex-1 line-clamp-2 break-words [overflow-wrap:anywhere] text-ink ${durationMs != null ? 'min-h-[2lh]' : ''}`}>
+                        {/* 1행은 버튼, 2행은 시간만큼 각각 별도로 줄바꿈 폭을 줄인다. */}
+                        <span aria-hidden="true" className="float-right h-[1lh]" style={{ width: actionSpace }} />
+                        {durationMs != null && <span data-agent-duration className="float-right clear-right h-[1lh] max-w-full truncate pl-2 tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>}
+                        <span data-agent-summary className="select-text">{summary}</span>
+                      </span>
+                    )}
                   </button>
-                  {/* 걸린 시간 — "15초"·"36분 32초" 꼴. 옛 히스토리(시간 정보 없음)는 감춘다 */}
-                  {durationMs != null && (
-                    <span className={`shrink-0 pt-2 text-xs tabular-nums text-ink-muted ${answerText.trim() ? '' : 'mr-3'}`}>{formatDuration(durationMs)}</span>
-                  )}
+                  <div className="absolute right-0 top-0 flex items-start">
                   {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
                   <CopyButton
                     text={answerText}
                     label={uiText("이 답변 복사")}
                   />
                   {/* 돌고 있는 턴만 중단할 수 있다 — 지난 턴에는 버튼이 없다 */}
-                  {busy && meta?.activeTask !== 'cli' && !item.done && (
+                  {canStop && (
                     <button
                       type="button"
                       onClick={() => send({ type: 'cancel' })}
@@ -3689,6 +3696,7 @@ function AgentSessionView({
                       <span className="h-2.5 w-2.5 rounded-[1px] bg-current" />
                     </button>
                   )}
+                  </div>
                 </div>
                 {open && (
                   <div className="space-y-2 border-t border-edge px-3 py-2">
@@ -3714,9 +3722,8 @@ function AgentSessionView({
                         const gState: BubbleState = failed ? 'failed' : running ? 'running' : 'done'
                         return (
                           <div key={child.key} className="rounded border border-edge bg-surface-deep px-2 py-1">
-                            <button type="button" onClick={() => toggle(child.key)} className="flex w-full items-center gap-2 text-xs text-ink-secondary hover:text-ink">
+                            <button type="button" aria-expanded={tOpen} onClick={() => toggle(child.key)} className="flex w-full items-center gap-2 text-xs text-ink-secondary hover:text-ink">
                               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[gState]}`} />
-                              <CaretGlyph dir={tOpen ? 'down' : 'right'} />
                               <span>{tSummary}</span>
                             </button>
                             {tOpen && (
@@ -3764,7 +3771,7 @@ function AgentSessionView({
                         onClick={() => toggle(item.key)}
                         className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-ink-muted hover:bg-surface-raised hover:text-ink"
                       >
-                        <CaretGlyph dir="up" /> {uiText(" 접기")}</button>
+                        {uiText("접기")}</button>
                     </div>
                   </div>
                 )}
