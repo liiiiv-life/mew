@@ -4,7 +4,7 @@ parent: "mew-remote"
 title: "원격 데스크톱·터치 입력"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-02"
+updated: "2026-10-05"
 status_hash: "278f4dc5c3b21929284aadc8ff47af89a35f48d29be6a318f5b80773c2f10e81"
 files: ["src/components/remote-desktop.tsx", "server/remote-desktop.ts", "server/remote-desktop-host.ts", "native/remote-desktop/main.mjs", "native/remote-desktop/native-host.mjs", "native/remote-desktop/gpu-windows.cpp", "native/remote-desktop/virtual-display-driver.cpp", "server/desktop-resident-host.ts", "mew"]
 commits: []
@@ -73,6 +73,7 @@ commits: []
 - 마우스·화면 조절 열·핫키 바는 테마 색의 반투명 배경을 사용한다.
 - 핫키 바는 작은 글자·여백의 밀집 배치이며 위쪽 화살표로 접고 펼친다. 접힌 상태에서도 핸들로 이동할 수 있다.
 - 마우스 위쪽 좌클릭·휠·우클릭의 폭 비율은 2:1:2이고, 높이는 전체 폭의 2/5로 좌클릭·우클릭 각각이 정사각형이다. 아래쪽 커서 이동 영역은 전체 폭과 같은 변 길이의 정사각형이다.
+- 위치 이동 핸들은 오른쪽 화면 이동·확대 컨테이너 아래에 놓고, 컨테이너·간격·핸들의 전체 높이를 왼쪽 마우스 높이에 맞춘다.
 
 - Windows/WSL은 상주 Node·D3D11 GPU 캡처·Media Foundation 하드웨어 H.264·네이티브 WebRTC를 사용한다. 대기 중 캡처·인코딩은 멈추고 접속마다 장치를 재사용한다.
 - 외부 직결을 위해 STUN 협상 재시도·활성 소켓의 짧은 PCP/NAT-PMP/UPnP 매핑·Windows UDP 앱 규칙의 UAC 승인 준비를 제공한다. 기존 차단 정책은 보존한다. [외부 연결·검증 범위](../../development/remote-desktop-connectivity.md).
@@ -93,6 +94,8 @@ commits: []
   - Mac의 승인·실제 화면·Retina 좌표·입력·알림과 Linux X11/Wayland의 연결·입력·종료·재접속을 확인한다. Wayland는 상대 이동·키보드 승인·권한 회수 후 연결 종료를 확인한다.
   - 지원 환경에서 연결·중단·화면 선택·터치 드래그·회전 후 클릭 좌표·감도·속도 조이스틱의 지속 조절/중앙 복귀/놓기 정지·반투명 컨트롤·핫키 이동/입력·전체화면과 직접 연결 실패 안내와 중계 거부를 확인한다.
   - 자동 검증과 실기 한계는 [구현 계획](../../work/remote-desktop-controls.md)에 기록한다.
+
+- 2026-10-05: 격리 Chromium의 `remote-desktop-ui.test.ts` 2개 시나리오에서 화면 조절 컨테이너 아래 핸들의 위치·폭·44px 터치 높이와 마우스의 위·아래 정렬, 기존 회전·핸들 이동·입력을 확인했다. PC·모바일 캡처를 검토했고 타입·대상 린트·디자인 탐지·문서 경계·링크 검사도 통과했다. 빌드·서버 재시작과 실제 원격 기기 검증은 수행하지 않았다.
 
 - Windows Chrome 실기에서 하드웨어 H.264 첫 화면·같은 프로세스의 재접속을 메모리에서 확인했다. 외부 NAT·모바일·click-to-photon은 별도 실측 대상이다. [구현·검증 기록](../../work/remote-desktop-resident-direct.md).
 - Linux X11 네이티브 캡처·직접 H.264·XTest 입력·알림 요청·인증 회수·상주 프로세스 재사용을 격리 Xvfb의 테스트 전용 소프트웨어 인코더로 검사했다. 운영 하드웨어 인코딩 성능은 아직 측정하지 않았다. Mac과 Wayland의 실제 기기 검증은 남아 있다. [OS별 검증 범위](../../development/remote-desktop.md#검증).
