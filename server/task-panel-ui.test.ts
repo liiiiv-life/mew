@@ -9,6 +9,15 @@ import { compile } from '@tailwindcss/node'
 import { chromium } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
 
+function tagContrast(color: string, background: string): number {
+  const luminance = (value: string) => value.match(/[\d.]+/g)!.slice(0, 3).map(Number).map(number => {
+    const channel = number / 255
+    return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4
+  }).reduce((sum, channel, index) => sum + channel * [.2126, .7152, .0722][index], 0)
+  const a = luminance(color), b = luminance(background)
+  return (Math.max(a, b) + .05) / (Math.min(a, b) + .05)
+}
+
 test('task panel supports continuous typing, independent objects, autosave, retry, docking and mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-task-ui-'))
   process.env.MEW_DATA_DIR = directory
@@ -194,15 +203,23 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(await panel.locator('.task-draft .task-tag').count(), 0)
     await draft.fill('분류 작업 #abc'); await draft.press('Enter')
     assert.equal(await panel.locator('[data-task-id]').count(), 5, 'Enter first confirms the hashtag')
-    assert.equal(await panel.locator('.task-draft .task-tag').innerText(), '#abc')
+    assert.equal(await panel.locator('.task-draft .task-tag').innerText(), 'abc')
     await draft.press('Enter')
-    const taggedId = await panel.locator('[data-task-id]').filter({ hasText: '#abc' }).getAttribute('data-task-id')
+    const taggedId = await panel.locator('[data-task-id]').filter({ hasText: 'abc' }).getAttribute('data-task-id')
     const tagged = panel.locator(`[data-task-id="${taggedId}"]`)
     await tagged.waitFor()
     const input = tagged.getByRole('textbox', { name: '태스크 내용', exact: true })
-    for (const tag of ['abcde', 'abdet', 'abdvf', 'bsas']) { await input.fill('분류 작업 #' + tag); await input.press('Space'); assert.ok((await tagged.locator('.task-tag-name').allTextContents()).includes('#' + tag), 'Space confirms ' + tag) }
+    for (const tag of ['abcde', 'abdet', 'abdvf', 'bsas']) { await input.fill('분류 작업 #' + tag); await input.press('Space'); assert.ok((await tagged.locator('.task-tag-name').allTextContents()).includes(tag), 'Space confirms ' + tag) }
+    const textBox = (await input.boundingBox())!, tagsBox = (await tagged.locator('.task-tags').boundingBox())!
+    assert.ok(tagsBox.x >= textBox.x + textBox.width && tagsBox.x - textBox.x - textBox.width <= 8, 'tags sit immediately to the right of the task text')
+    assert.ok(Math.abs(tagsBox.y - textBox.y) <= 4, 'tags share the text row')
+    const colors = await tagged.locator('.task-tag').evaluateAll(elements => elements.map(el => el.ownerDocument.defaultView!.getComputedStyle(el).backgroundColor))
+    assert.ok(new Set(colors).size > 1, 'tag names receive varied colors')
+    const darkPairs = await tagged.locator('.task-tag').evaluateAll(elements => elements.map(el => { const style = el.ownerDocument.defaultView!.getComputedStyle(el); return [style.color, style.backgroundColor] }))
+    assert.ok(darkPairs.every(([color, background]) => tagContrast(color, background) >= 4.5), 'dark tag text meets contrast requirements')
+    assert.equal(await tagged.locator('.task-tag').first().evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).borderRadius), '9px')
     await draft.fill('#abcd'); await draft.press('Enter')
-    assert.equal(await panel.locator('.task-draft .task-tag-name').innerText(), '#abcd', 'Enter creates the typed name even when a longer known tag matches')
+    assert.equal(await panel.locator('.task-draft .task-tag-name').innerText(), 'abcd', 'Enter creates the typed name even when a longer known tag matches')
     await panel.locator('.task-draft').getByRole('button', { name: '태그 삭제: abcd' }).click()
     await draft.fill('새 분류 #ab')
     const suggestions = one.getByRole('listbox', { name: '태그 자동완성' })
@@ -210,10 +227,10 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.deepEqual(await suggestions.locator('.task-tag-result').allTextContents(), ['abc', 'abcde', 'abdet', 'abdvf', 'ab'])
     await one.screenshot({ path: '/tmp/mew-task-panel/desktop-tags-dark.png' })
     await draft.press('ArrowDown'); await draft.press('ArrowDown'); await draft.press('Enter')
-    assert.equal(await panel.locator('.task-draft .task-tag').innerText(), '#abcde')
+    assert.equal(await panel.locator('.task-draft .task-tag').innerText(), 'abcde')
     await draft.press('Enter')
     await panel.getByRole('combobox', { name: '태그 필터', exact: true }).click()
-    await one.getByRole('option', { name: '#bsas', exact: true }).click()
+    await one.getByRole('option', { name: 'bsas', exact: true }).click()
     assert.equal(await panel.locator('[data-task-id]').count(), 1)
     await panel.getByRole('tab', { name: '간트', exact: true }).click()
     assert.equal(await panel.locator('.task-gantt-label:not(.task-gantt-new)').count(), 1)
@@ -228,7 +245,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await panel.getByRole('combobox', { name: '태그 필터', exact: true }).click()
     await one.getByRole('option', { name: '모든 태그', exact: true }).click()
     await input.fill('분류 작업 #bsas'); await input.press('Space')
-    assert.equal(await tagged.locator('.task-tag-name').filter({ hasText: '#bsas' }).count(), 1, 'duplicate tags stay unique')
+    assert.equal(await tagged.locator('.task-tag-name').filter({ hasText: 'bsas' }).count(), 1, 'duplicate tags stay unique')
     await input.press('Tab')
     await two.reload(); await two.locator('[data-dock-item=tasks]').tap()
     await mobile.locator(`[data-task-id="${taggedId}"]`).waitFor()
@@ -241,17 +258,23 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await two.getByRole('listbox', { name: '태그 자동완성' }).waitFor()
     await two.setViewportSize({ width: 320, height: 844 })
     await two.locator('html').evaluate(el => el.classList.remove('dark'))
+    await two.getByRole('listbox', { name: '태그 자동완성' }).evaluate(el => new Promise<void>(resolve => el.ownerDocument.defaultView!.requestAnimationFrame(() => resolve())))
     const menuBox = (await two.getByRole('listbox', { name: '태그 자동완성' }).boundingBox())!
     assert.ok(menuBox.x >= 0 && menuBox.x + menuBox.width <= 320 && menuBox.y + menuBox.height <= 844, 'tag suggestions fit the mobile viewport')
     assert.equal(await mobile.evaluate(el => el.scrollWidth <= el.clientWidth), true)
+    const mobileRow = mobile.locator(`[data-task-id="${taggedId}"]`)
+    const lightPairs = await mobileRow.locator('.task-tag').evaluateAll(elements => elements.map(el => { const style = el.ownerDocument.defaultView!.getComputedStyle(el); return [style.color, style.backgroundColor] }))
+    assert.ok(lightPairs.every(([color, background]) => tagContrast(color, background) >= 4.5), 'light tag text meets contrast requirements')
+    const mobileTextBox = (await mobileInput.boundingBox())!, mobileTagsBox = (await mobileRow.locator('.task-tags').boundingBox())!
+    assert.ok(mobileTagsBox.x >= mobileTextBox.x + mobileTextBox.width && Math.abs(mobileTagsBox.y - mobileTextBox.y) <= 4, 'mobile tags stay to the right of their text')
     await two.screenshot({ path: '/tmp/mew-task-panel/mobile-tags-light.png' })
     await two.getByRole('listbox', { name: '태그 자동완성' }).getByRole('option').first().tap()
-    assert.equal(await mobile.locator('.task-draft .task-tag').innerText(), '#abc')
+    assert.equal(await mobile.locator('.task-draft .task-tag').innerText(), 'abc')
     await mobileDraft.press('Enter')
     await two.waitForResponse(response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok())
     assert.ok(readTaskList(WORKSPACE_ROOT).find(item => item.id === taggedId)?.tags?.includes('한글'))
     await one.reload(); await one.locator('[data-dock-item=tasks]').click()
-    await panel.locator(`[data-task-id="${taggedId}"] .task-tag-name`).filter({ hasText: '#한글' }).waitFor()
+    await panel.locator(`[data-task-id="${taggedId}"] .task-tag-name`).filter({ hasText: '한글' }).waitFor()
     const datedRow = mobile.locator('[data-task-id]').first()
     const datedId = await datedRow.getAttribute('data-task-id')
     await datedRow.locator('.task-date-status').click()
