@@ -1,3 +1,4 @@
+import { TaskActionMenu, type TaskMenuAnchor } from './task-action-menu'
 import { Page } from 'iconoir-react'
 import { useTaskDocuments } from './task-documents'
 import { TaskText } from './task-text'
@@ -21,8 +22,12 @@ type Gesture = { pointer: number; element: Element; mode: Mode; task: TaskItem |
 type Pick = { id: string; x: number; y: number; keyboard?: boolean }
 
 export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.length }: { tasks: TaskItem[]; canEdit: boolean; edit: (tasks: TaskItem[]) => void; knownTags: string[]; totalTasks?: number }) {
+  const documents = useTaskDocuments()
+  const [menu, setMenu] = useState<(TaskMenuAnchor & { id: string }) | null>(null)
   const locale = useUiLocale(), today = localToday(), gradientId = useId().replace(/:/g, '')
   const [ppd, setPpd] = useState(24), [drawing, setDrawing] = useState(false), [preview, setPreview] = useState<TaskItem | null>(null), [pick, setPick] = useState<Pick | null>(null)
+  const menuTask = tasks.find(task => task.id === menu?.id)
+  useEffect(() => { setMenu(null) }, [canEdit])
   const scroller = useRef<HTMLDivElement>(null), svg = useRef<SVGSVGElement>(null), gesture = useRef<Gesture | null>(null)
   const labels = useRef<HTMLDivElement>(null), pickElement = useRef<HTMLElement | SVGElement | null>(null)
   const current = useRef({ tasks, canEdit, edit, ppd }); current.current = { tasks, canEdit, edit, ppd }
@@ -211,7 +216,7 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
           <div className="task-gantt-label-header">{uiText('태스크')}</div>
           {shown.map(task => <div key={task.id} className="task-gantt-label" data-done={task.done} style={{ paddingLeft: 8 }}>
             <input type="checkbox" checked={task.done} disabled={!canEdit} aria-label={uiText('태스크 완료')} onChange={event => edit(tasks.map(item => item.id === task.id ? { ...item, done: event.target.checked } : item))} />
-            <button type="button" data-tip={task.text || uiText('새 태스크')} onClick={event => pickTask(task, event.currentTarget, event.detail === 0)}>{task.text || uiText('새 태스크')}</button>
+            <button type="button" data-tip={task.text || uiText('새 태스크')} onClick={event => pickTask(task, event.currentTarget, event.detail === 0)} onContextMenu={event => { event.preventDefault(); setMenu({ id: task.id, x: event.clientX, y: event.clientY, trigger: event.currentTarget }) }} onKeyDown={event => { if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); setMenu({ id: task.id, x: rect.left, y: rect.bottom, trigger: event.currentTarget }) } }}>{task.text || uiText('새 태스크')}</button>
           </div>)}
           <div className="task-gantt-label task-gantt-new">{canEdit && <button type="button" disabled={totalTasks >= TASK_LIMIT} onClick={() => { const task = { id: uuid(), text: uiText('새 태스크'), done: false }; edit([...tasks, task]) }}><Plus width={14} height={14} aria-hidden="true" />{uiText('새 태스크')}</button>}</div>
         </div>
@@ -242,9 +247,10 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
                     stroke={pick?.id === task.id ? 'var(--color-ink)' : 'none'} strokeWidth={1.5} style={{ cursor: bar.own && canEdit ? 'grab' : 'pointer', touchAction: bar.own && canEdit ? 'none' : undefined }}
                     onPointerDown={bar.own && canEdit ? event => begin(event, 'move', task) : undefined}
                     onClick={!canEdit || !bar.own ? event => pickTask(task, event.currentTarget) : undefined}
-                    onContextMenu={event => { event.preventDefault(); pickElement.current = event.currentTarget; setPick({ id: task.id, x: event.clientX, y: event.clientY }) }}
+                    onContextMenu={event => { event.preventDefault(); setMenu({ id: task.id, x: event.clientX, y: event.clientY, trigger: event.currentTarget }) }}
                     onKeyDown={event => {
-                      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pickTask(task, event.currentTarget, true) }
+                      if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') { event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); setMenu({ id: task.id, x: rect.left, y: rect.bottom, trigger: event.currentTarget }) }
+                      else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pickTask(task, event.currentTarget, true) }
                       else if (canEdit && bar.own && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) { event.preventDefault(); edit(tasks.map(item => item.id === task.id ? moveTaskRange(item, event.key === 'ArrowLeft' ? -1 : 1, event.shiftKey ? 'end' : event.altKey ? 'start' : 'move') : item)) }
                     }}><title>{label}</title></rect>
                   {w >= 40 && <text x={x + 8} y={y + 15} fontSize={11} fill="#102235" pointerEvents="none">{uiText('{p0}일', { p0: span })}</text>}
@@ -260,6 +266,11 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
       </div>
       </div>
     </div>
+    {menu && menuTask && <TaskActionMenu anchor={menu} task={menuTask} onClose={() => setMenu(null)}
+      onOpenDocument={menuTask.path && documents.open ? () => documents.open?.(menuTask.path!) : undefined}
+      onEditDates={canEdit ? () => pickTask(menuTask, menu.trigger, true) : undefined}
+      onToggleDone={canEdit ? () => edit(tasks.map(item => item.id === menuTask.id ? { ...item, done: !item.done } : item)) : undefined}
+      onDelete={canEdit ? () => { setPick(null); edit(tasks.filter(item => item.id !== menuTask.id)) } : undefined} />}
     {pick && selected && createPortal(<GanttInspector pick={pick} task={selected} knownTags={knownTags} canEdit={canEdit} onClose={closePick} onEdit={item => edit(tasks.map(task => task.id === item.id ? item : task))} />, document.body)}
   </div>
 }

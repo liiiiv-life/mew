@@ -14,9 +14,16 @@
 .task-line > textarea::placeholder, .task-content > textarea::placeholder { color: var(--color-ink-secondary); }
 .task-line > textarea:focus-visible, .task-content > textarea:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
 .task-line[data-done="true"] .task-content > textarea { text-decoration: line-through; color: var(--color-ink-secondary); }
-.task-delete { opacity: 0; }
-.task-line:hover .task-delete, .task-line:focus-within .task-delete, .task-delete:focus-visible { opacity: 1; }
-@media (hover: none) { .task-delete { opacity: 1; } }
+.task-swipe { position: relative; min-width: 0; }
+.task-row-content { display: flex; align-items: flex-start; gap: 4px; min-width: 0; flex: 1; padding-right: var(--task-swipe-offset, 0px); transition: padding-right 160ms cubic-bezier(.16, 1, .3, 1); }
+.task-swipe[data-swiping] > .task-row-content { transition: none; }
+.task-swipe .task-content textarea, .task-swipe .task-date-status, .task-swipe .task-open-document { touch-action: pan-y pinch-zoom; }
+.task-delete { touch-action: manipulation; position: absolute; top: 2px; right: 0; display: flex; align-items: center; justify-content: center; width: 36px; height: 28px; border-radius: 4px; color: var(--color-danger); background: var(--color-surface); }
+.task-delete[hidden] { display: none; }
+.task-delete:hover { background: var(--color-surface-hover); }
+.task-delete:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+@media (pointer: coarse) { .task-delete { height: 32px; } }
+@media (prefers-reduced-motion: reduce) { .task-swipe > .task-row-content { transition: none; } }
 
 .task-panel { container-type: inline-size; }
 .task-content { display: flex; gap: 6px; flex: 1; min-width: 0; align-items: flex-start; }
@@ -176,3 +183,12 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
   .task-tag-add::before { content: ''; position: absolute; inset: -4px -2px; }
   .task-tag-picker-menu [role="option"] { min-height: 32px; }
 }
+
+.task-action-menu { position: fixed; z-index: 1300; width: 176px; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid var(--color-edge); border-radius: 8px; background: var(--color-surface-deep); color: var(--color-ink); box-shadow: 0 6px 18px #0002; }
+.task-action-menu > button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 3px 8px; border-radius: 4px; font-size: 12px; text-align: left; touch-action: manipulation; }
+.task-action-menu > button:hover, .task-action-menu > button:focus-visible { background: var(--color-surface-hover); }
+.task-action-menu > button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.task-action-menu > button > svg { flex-shrink: 0; }
+.task-action-menu > [aria-checked="true"] { color: var(--color-accent); }
+.task-action-menu > .task-action-danger { color: var(--color-danger); }
+@media (pointer: coarse) { .task-action-menu > button { min-height: 32px; } }

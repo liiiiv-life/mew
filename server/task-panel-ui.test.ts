@@ -316,6 +316,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(await readOnlyPanel.getByRole('button', { name: '태그 추가', exact: true }).count(), 0)
     await readOnlyPanel.locator(`[data-task-id="${taggedId}"]`).getByRole('button', { name: '파일 열기', exact: true }).click()
     assert.equal(await readOnlyPanel.evaluate(el => (el.ownerDocument.defaultView as unknown as { openedTaskFile: string }).openedTaskFile), renamedTask.path)
+    await mobileRow.locator('textarea').press('Alt+Delete')
     await mobileRow.getByRole('button', { name: '태스크 삭제', exact: true }).tap()
     await two.waitForResponse(response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok())
     await assert.rejects(fs.stat(file), /ENOENT/)

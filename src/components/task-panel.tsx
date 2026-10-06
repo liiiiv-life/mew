@@ -3,8 +3,10 @@ import { TaskText } from './task-text'
 import { TaskTagFilter } from './task-tag-filter'
 import { collectTaskTags, taskTags, TASK_TAG_LIMIT } from '../../shared/task-tags'
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
-import { Calendar, Xmark, RefreshDouble, Trash, Plus, List, StatsUpSquare } from 'iconoir-react'
+import { Calendar, Xmark, RefreshDouble, Plus, List, StatsUpSquare } from 'iconoir-react'
 import { TaskDateStatus } from './task-date-status'
+import { TaskActionMenu, type TaskMenuAnchor } from './task-action-menu'
+import { TaskSwipeRow } from './task-swipe-row'
 import { useUiLocale } from '@mew/ui/i18n'
 import { uiText } from '@mew/ui/i18n-core'
 import { DockGrip, DockInlineBody } from './DockWorkspace'
@@ -32,12 +34,17 @@ const taskErrors = [
 export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSignal = 0, workspace, onOpenFile }: { workspace?: string | null; onOpenFile?: (path: string) => void; session: Session; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
   useUiLocale()
   const tabId = useId()
+  const [menu, setMenu] = useState<(TaskMenuAnchor & { id: string }) | null>(null)
+  const [dateId, setDateId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [filters, setFilters] = useState<string[]>([])
   const [view, setView] = useState<'list' | 'calendar' | 'gantt'>('list')
   const [selectedDate, setSelectedDate] = useState(localToday), [month, setMonth] = useState(() => localToday().slice(0, 7))
   const inputs = useRef(new Map<string, HTMLTextAreaElement>()).current
   const { tasks, canEdit, loading, saving, error, draft, draftTags, edit, setDraft, setDraftTags, flush, retry } = session
+  useEffect(() => { setMenu(null); setDateId(null) }, [workspace, canEdit, view, filters])
   const [today, setToday] = useState(localToday)
+  useEffect(() => { setDeleteId(null) }, [workspace, canEdit])
   useEffect(() => {
     const refresh = () => setToday(localToday())
     const timer = window.setInterval(refresh, 30_000)
@@ -70,7 +77,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     edit([...tasks, createTask(draft, draftTags)])
     setDraft(''); setDraftTags([])
   }
-  const switchView = (next: typeof view) => { if (next !== view) { commitDraft(); setView(next) } }
+  const switchView = (next: typeof view) => { if (next !== view) { commitDraft(); setDeleteId(null); setView(next) } }
   const navigateView = useRef<(direction: -1 | 1) => void>(() => {})
   navigateView.current = direction => {
     const views = ['list', 'calendar', 'gantt'] as const
@@ -119,15 +126,14 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     if (index === tasks.length) { setDraft(''); setDraftTags([]) }
     focus(created.at(-1)!.id, 'end')
   }
-  const renderTask = (item: TaskItem) => { const index = tasks.findIndex(task => task.id === item.id); return <div key={item.id} data-task-id={item.id} data-done={item.done} data-dragging={view === 'list' && drag.preview?.item.id === item.id || undefined} data-drop-before={view === 'list' && drag.preview?.beforeId === item.id || undefined} className="task-line group">
+  const menuTask = visibleTasks.find(item => item.id === menu?.id)
+  const renderTask = (item: TaskItem) => { const index = tasks.findIndex(task => task.id === item.id); return <TaskSwipeRow key={`${workspace}:${item.id}`} enabled={canEdit} open={deleteId === item.id} onReveal={open => setDeleteId(open ? item.id : null)} onDelete={() => { remove(index); setDeleteId(null) }} onMenu={anchor => setMenu({ ...anchor, id: item.id })} id={item.id} done={item.done} dragging={view === 'list' && drag.preview?.item.id === item.id} dropBefore={view === 'list' && drag.preview?.beforeId === item.id}>
           <label className="task-check" {...(view === 'list' ? drag.handle(item.id) : {})}><input type="checkbox" checked={item.done} disabled={!canEdit} aria-label={uiText('태스크 완료')} aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
             onChange={event => edit(tasks.map(task => task.id === item.id ? { ...task, done: event.target.checked } : task))} /></label>
           <div className="task-content"><TaskText id={item.id} text={item.text} tags={item.tags} knownTags={knownTags} onFilter={tag => setFilters(current => current.includes(tag) ? current : [...current, tag])} disabled={!canEdit} inputs={inputs}
             onChange={(text, tags) => update(item.id, text, tags)} onKeyDown={event => keyDown(event, index)} onPaste={event => paste(event, index)} onBlur={() => void flush()} /></div>
-          <TaskDateStatus task={item} today={today} readOnly={!canEdit} onChange={(startDate, date) => { if (!canEdit) return; edit(tasks.map(task => task.id === item.id ? { ...task, startDate, date } : task)) }} />
-          {canEdit && <button type="button" onClick={() => remove(index)} aria-label={uiText('태스크 삭제')} data-tip={uiText('태스크 삭제')}
-            className="task-delete flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-danger focus-visible:outline-2 focus-visible:outline-ink"><Trash width={14} height={14} aria-hidden="true" /></button>}
-        </div> }
+          <TaskDateStatus task={item} isOpen={dateId === item.id} onOpenChange={open => setDateId(open ? item.id : null)} today={today} readOnly={!canEdit} onChange={(startDate, date) => { if (!canEdit) return; edit(tasks.map(task => task.id === item.id ? { ...task, startDate, date } : task)) }} />
+        </TaskSwipeRow> }
   const lines = <div ref={view === 'list' ? drag.list : undefined} {...(view === 'list' ? drag.events : {})} className="task-lines px-3 py-2">
         {(view === 'calendar' ? visibleTasks : drag.tasks.filter(matchesFilter)).map(renderTask)}
         {canEdit && tasks.length < TASK_LIMIT && <div data-drop-before={view === 'list' && !!drag.preview && drag.preview.beforeId === null || undefined} className="task-line task-draft" data-empty={!draft && !draftTags.length || undefined}>
@@ -168,6 +174,11 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
       {loading ? <div role="status" className="px-3 py-2 text-xs text-ink-muted">{uiText('불러오는 중…')}</div> : view === 'gantt' ? <TaskGantt tasks={filteredTasks} knownTags={knownTags} canEdit={canEdit} totalTasks={tasks.length} edit={next => edit(mergeVisibleTasks(tasks, filteredTasks, next.map(task => !tasks.some(existing => existing.id === task.id) && filters.length ? { ...task, tags: [...new Set([...taskTags(task), ...filters])].slice(0, TASK_TAG_LIMIT) } : task)))} /> : view === 'calendar' ? <TaskCalendar tasks={filteredTasks} selected={selectedDate} month={month} onSelect={setSelectedDate} onMonth={setMonth}>{tasksOnDate(filteredTasks, selectedDate).length === 0 && <p className="task-empty">{uiText('이 날짜에는 일정이 없습니다')}</p>}{lines}</TaskCalendar> : lines}
       {drag.preview && tasks.length === TASK_LIMIT && drag.preview.beforeId === null && <div className="task-drop-end" />}
     </DockInlineBody>
+    {menu && menuTask && <TaskActionMenu anchor={menu} task={menuTask} onClose={() => setMenu(null)}
+      onOpenDocument={menuTask.path && onOpenFile ? () => onOpenFile(menuTask.path!) : undefined}
+      onEditDates={canEdit ? () => setDateId(menuTask.id) : undefined}
+      onToggleDone={canEdit ? () => edit(tasks.map(item => item.id === menuTask.id ? { ...item, done: !item.done } : item)) : undefined}
+      onDelete={canEdit ? () => { remove(tasks.findIndex(item => item.id === menuTask.id)); setDeleteId(null) } : undefined} />}
     {drag.preview && createPortal(<div aria-hidden="true" data-task-drag-preview className="task-drag-preview" style={{ left: drag.preview.x, top: drag.preview.y, width: drag.preview.width }}>
       <span className="task-check"><input type="checkbox" checked={drag.preview.item.done} readOnly tabIndex={-1} /></span><span className="task-drag-text">{drag.preview.item.text}</span>
     </div>, document.body)}

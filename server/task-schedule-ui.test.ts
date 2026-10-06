@@ -266,6 +266,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await mobile.locator('html').evaluate(el => el.classList.remove('dark'))
     const status = mobile.locator('[data-task-id=period] .task-date-status')
     const statusBox = (await status.boundingBox())!
+    await mobile.locator('[data-task-id=period] textarea').press('Alt+Delete')
     const mobileDelete = (await mobile.locator('[data-task-id=period]').getByRole('button', { name: '태스크 삭제' }).boundingBox())!
     assert.ok(statusBox.x + statusBox.width <= mobileDelete.x)
     await status.tap()
@@ -348,6 +349,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     for (const text of ['삭제 포커스 검사 1', '삭제 포커스 검사 2']) {
       const item = stored().find(task => task.text === text)!
       const deleted = mobile.waitForResponse(async response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok() && !(await response.json()).tasks.some((task: { id: string }) => task.id === item.id))
+      await mobile.locator(`[data-task-id="${item.id}"] textarea`).press('Alt+Delete')
       await mobile.locator(`[data-task-id="${item.id}"]`).getByRole('button', { name: '태스크 삭제' }).tap(); await deleted
       assert.equal(await mobile.locator('.task-panel textarea:focus').count(), 0, 'touch deletion never focuses an adjacent task or the draft')
     }
