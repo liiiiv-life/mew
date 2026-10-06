@@ -3660,7 +3660,7 @@ function AgentSessionView({
             const actionSpace = canStop ? 30 : 0
             return (
               <div key={item.key} className="rounded-lg rounded-tl-none border border-edge bg-surface">
-                <div data-agent-turn-header className={`min-h-9 ${open ? 'sticky -top-3 z-20 flex items-center rounded-tr-lg border-b border-edge bg-surface' : 'relative'}`}>
+                <div data-agent-turn-header className={open ? 'sticky -top-3 z-20 flex h-6.5 items-center rounded-tr-lg border-b border-edge bg-surface' : 'relative min-h-9'}>
                   <button
                     type="button"
                     aria-expanded={open}
@@ -3668,10 +3668,10 @@ function AgentSessionView({
                       if (hasSelection()) return
                       toggle(item.key)
                     }}
-                    className={`flex min-w-0 gap-2 px-3 py-2 text-left text-xs text-ink-secondary hover:text-ink ${open ? 'flex-1 self-stretch items-center' : 'w-full items-start'}`}
+                    className={`flex min-w-0 text-left text-xs text-ink-secondary hover:text-ink ${open ? 'flex-1 self-stretch items-center gap-1.5 px-2.5' : 'w-full items-start gap-2 px-3 py-2'}`}
                   >
                     <span
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${open ? '' : 'mt-1'} ${BUBBLE_DOT[state]}`}
+                      className={`shrink-0 rounded-full ${open ? 'size-1.25' : 'mt-1 h-1.5 w-1.5'} ${BUBBLE_DOT[state]}`}
                       title={BUBBLE_LABEL[state]}
                       aria-label={BUBBLE_LABEL[state]}
                     />
@@ -3688,6 +3688,7 @@ function AgentSessionView({
                   {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
                   {open && <CopyButton
                     text={answerText}
+                    compact
                     label={uiText("이 답변 복사")}
                   />}
                   {/* 돌고 있는 턴만 중단할 수 있다 — 지난 턴에는 버튼이 없다 */}
@@ -3695,11 +3696,11 @@ function AgentSessionView({
                     <button
                       type="button"
                       onClick={() => send({ type: 'cancel' })}
-                      className="m-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink"
+                      className={`flex shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink ${open ? 'm-0.5 size-5' : 'm-1.5 h-6 w-6'}`}
                       aria-label={uiText("중단")}
                       title={uiText("중단")}
                     >
-                      <span className="h-2.5 w-2.5 rounded-[1px] bg-current" />
+                      <span className={`rounded-[1px] bg-current ${open ? 'size-2' : 'h-2.5 w-2.5'}`} />
                     </button>
                   )}
                   </div>
@@ -3773,13 +3774,13 @@ function AgentSessionView({
                   </div>
                 )}
                 {open && (
-                  <div data-agent-turn-footer className="sticky -bottom-3 z-10 flex items-center justify-end rounded-b-lg border-t border-edge bg-surface">
-                    {durationMs != null && <span data-agent-duration className="min-w-0 truncate pl-3 text-xs tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>}
+                  <div data-agent-turn-footer className="sticky -bottom-3 z-10 flex h-6.5 items-center justify-end gap-1 rounded-b-lg border-t border-edge bg-surface px-1">
+                    {durationMs != null && <span data-agent-duration className="min-w-0 truncate pl-1.5 text-[11px] leading-4 tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>}
                     <button
                       type="button"
                       aria-expanded={open}
                       onClick={() => toggle(item.key)}
-                      className="flex min-h-9 items-center justify-center rounded-br-lg px-3 py-2 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
+                      className="flex h-5 items-center justify-center rounded px-2 text-[11px] leading-4 text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
                     >
                       {uiText("접기")}
                     </button>
@@ -4643,7 +4644,7 @@ function formatScheduleRemaining(milliseconds: number) {
 }
 
 /** 버블 텍스트를 통째로 클립보드에 넣는다 — 끌어 고르지 않고 한 번에 가져가는 길 */
-function CopyButton({ text, label }: { text: string; label: string }) {
+function CopyButton({ text, label, compact = false }: { text: string; label: string; compact?: boolean }) {
   useUiLocale()
   const [done, setDone] = useState(false)
   useEffect(() => {
@@ -4656,7 +4657,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
     <button
       type="button"
       onClick={() => void copyText(text).then((ok) => ok && setDone(true))}
-      className="m-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
+      className={`flex shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink ${compact ? 'm-0.5 size-5 [&_svg]:size-2.5' : 'm-1.5 h-6 w-6'}`}
       aria-label={label}
       title={label}
     >
