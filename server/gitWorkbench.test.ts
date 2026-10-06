@@ -15,6 +15,7 @@ const {
   commitDetail,
   commitFileDiff,
   commitWorkingTree,
+  discardWorkingTree,
   initializeRepository,
   listRepositories,
   repositoryInfo,
@@ -29,6 +30,66 @@ const {
 after(() => {
   paths.setWorkspaceRoot(original)
   fs.rmSync(root, { recursive: true, force: true })
+})
+
+test('discard restores only selected staged/unstaged files, deletions and renames, and removes selected new files', async t => {
+  const directory = path.join(root, 'discard')
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
+  fs.mkdirSync(directory)
+  const git = simpleGit(directory)
+  await git.init()
+  await git.addConfig('user.name', 'Mew Test')
+  await git.addConfig('user.email', 'mew@example.com')
+  const original = ['modified.txt', 'deleted.txt', 'rename.txt', 'keep.txt', 'literal[1].txt']
+  for (const file of original) fs.writeFileSync(path.join(directory, file), 'original\n')
+  await git.add('.')
+  await git.commit('initial')
+  fs.writeFileSync(path.join(directory, 'modified.txt'), 'staged\n')
+  fs.writeFileSync(path.join(directory, 'keep.txt'), 'keep staged\n')
+  await git.add(['modified.txt', 'keep.txt'])
+  fs.writeFileSync(path.join(directory, 'modified.txt'), 'unstaged\n')
+  fs.writeFileSync(path.join(directory, 'literal[1].txt'), 'changed\n')
+  fs.unlinkSync(path.join(directory, 'deleted.txt'))
+  await git.mv('rename.txt', 'renamed.txt')
+  fs.writeFileSync(path.join(directory, 'new.txt'), 'new\n')
+  await git.add('new.txt')
+  fs.writeFileSync(path.join(directory, 'untracked.txt'), 'new\n')
+  fs.writeFileSync(path.join(directory, 'keep-new.txt'), 'keep\n')
+  const selected = ['modified.txt', 'deleted.txt', 'renamed.txt', 'literal[1].txt', 'new.txt', 'untracked.txt']
+  fs.writeFileSync(path.join(directory, 'rename.txt'), 'unselected replacement\n')
+  await assert.rejects(discardWorkingTree(paths.WORKSPACE_PROJECT, 'discard', selected), /함께 선택/)
+  assert.equal(fs.readFileSync(path.join(directory, 'rename.txt'), 'utf8'), 'unselected replacement\n')
+  fs.unlinkSync(path.join(directory, 'rename.txt'))
+  await assert.rejects(discardWorkingTree(paths.WORKSPACE_PROJECT, 'discard', ['modified.txt', 'missing.txt']))
+  assert.equal(fs.readFileSync(path.join(directory, 'modified.txt'), 'utf8'), 'unstaged\n')
+  await assert.rejects(discardWorkingTree(paths.WORKSPACE_PROJECT, 'discard', ['../outside']))
+  await assert.rejects(discardWorkingTree(paths.WORKSPACE_PROJECT, 'discard', []))
+  await discardWorkingTree(paths.WORKSPACE_PROJECT, 'discard', selected)
+  for (const file of original.filter(file => file !== 'keep.txt')) assert.equal(fs.readFileSync(path.join(directory, file), 'utf8'), 'original\n')
+  for (const file of ['renamed.txt', 'new.txt', 'untracked.txt']) assert.equal(fs.existsSync(path.join(directory, file)), false)
+  assert.equal(await git.raw(['show', ':keep.txt']), 'keep staged\n')
+  assert.equal(fs.readFileSync(path.join(directory, 'keep-new.txt'), 'utf8'), 'keep\n')
+  assert.deepEqual((await git.status()).files.map(file => file.path).sort(), ['keep-new.txt', 'keep.txt'])
+})
+
+test('discard supports repositories without HEAD and rejects directories before changing files', async t => {
+  const directory = path.join(root, 'discard-unborn')
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
+  fs.mkdirSync(directory)
+  const git = simpleGit(directory)
+  await git.init()
+  fs.writeFileSync(path.join(directory, 'added.txt'), 'new\n')
+  await git.add('added.txt')
+  fs.writeFileSync(path.join(directory, 'keep.txt'), 'keep\n')
+  await discardWorkingTree(paths.WORKSPACE_PROJECT, 'discard-unborn', ['added.txt'])
+  assert.equal(fs.existsSync(path.join(directory, 'added.txt')), false)
+  assert.equal(fs.existsSync(path.join(directory, 'keep.txt')), true)
+  await git.add('keep.txt')
+  fs.unlinkSync(path.join(directory, 'keep.txt'))
+  fs.mkdirSync(path.join(directory, 'keep.txt'))
+  fs.writeFileSync(path.join(directory, 'keep.txt', 'nested.txt'), 'preserve\n')
+  await assert.rejects(discardWorkingTree(paths.WORKSPACE_PROJECT, 'discard-unborn', ['keep.txt']), /폴더/)
+  assert.equal(fs.existsSync(path.join(directory, 'keep.txt', 'nested.txt')), true)
 })
 
 test('저장소 초기화 뒤 로그·상세·파일 diff와 안전한 커밋 작업을 제공한다', async () => {

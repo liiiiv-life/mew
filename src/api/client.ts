@@ -529,6 +529,14 @@ export function commitGitWorkingTree(path: string, title: string, description: s
   }, project).then(json<GitWorkingTreeCommitResult>)
 }
 
+export function discardGitWorkingTree(path: string, project: string, workspace: string, files: string[]): Promise<{ ok: true }> {
+  return fetch(`/api/git/discard?${projectQs(project)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, workspace, files }),
+  }).then(json<{ ok: true }>)
+}
+
 export function runGitCommitAction(path: string, action: GitCommitAction, hash: string, name?: string, project = currentProject): Promise<GitRepositoryInfo> {
   return gitFetch(`/api/git/action?${projectQs(project)}`, {
     method: 'POST',

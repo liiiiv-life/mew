@@ -284,6 +284,55 @@ export async function workingTreeDetail(project: string, relPath: string): Promi
   }
 }
 
+export async function discardWorkingTree(project: string, relPath: string, filesInput: unknown): Promise<void> {
+  if (!Array.isArray(filesInput) || !filesInput.length || filesInput.length > 10_000) throw new GitWorkbenchError('취소할 파일을 선택하세요')
+  filesInput.forEach(literalPathspec)
+  const { abs, git } = repository(project, relPath)
+  const key = fs.realpathSync(abs)
+  if (remoteOperations.has(key)) throw new GitWorkbenchError('Git 작업이 이미 실행 중입니다')
+  remoteOperations.add(key)
+  try {
+    const status = await git.status(['--untracked-files=all'])
+    const selected = filesInput.map(file => {
+      const entry = status.files.find(candidate => candidate.path === file)
+      if (!entry) throw new GitWorkbenchError('커밋되지 않은 변경 파일이 아닙니다')
+      return entry
+    })
+    const files = [...new Set(selected.flatMap(file => file.from && file.index === 'R' ? [file.path, file.from] : [file.path]))]
+    for (const file of selected) {
+      if (file.from && file.index === 'R' && !filesInput.includes(file.from) && status.files.some(other => other.path === file.from)) {
+        throw new GitWorkbenchError('이름 변경 전 경로의 변경사항도 함께 선택하세요')
+      }
+    }
+    for (const file of files) {
+      literalPathspec(file)
+      const parts = file.split('/')
+      for (let i = 1; i < parts.length; i++) {
+        const parent = path.join(abs, ...parts.slice(0, i))
+        if (fs.existsSync(parent) && fs.lstatSync(parent).isSymbolicLink()) throw new GitWorkbenchError('심볼릭 링크 안의 파일은 취소할 수 없습니다')
+      }
+      const target = path.join(abs, file)
+      if (fs.existsSync(target) && fs.lstatSync(target).isDirectory()) throw new GitWorkbenchError('폴더·서브모듈 변경은 취소할 수 없습니다')
+    }
+    const head = (await git.raw(['rev-parse', '--verify', 'HEAD']).catch(() => '')).trim()
+    const tree = head ? (await git.raw(['ls-tree', '-r', '-z', head])).split('\0').filter(Boolean) : []
+    const tracked = new Set(tree.map(entry => entry.slice(entry.indexOf('\t') + 1)))
+    if (tree.some(entry => entry.startsWith('160000 ') && files.includes(entry.slice(entry.indexOf('\t') + 1)))) {
+      throw new GitWorkbenchError('서브모듈 변경은 취소할 수 없습니다')
+    }
+    const restore = files.filter(file => tracked.has(file))
+    const remove = files.filter(file => !tracked.has(file))
+    if (restore.length) await git.raw(['restore', `--source=${head}`, '--staged', '--worktree', '--', ...restore.map(literalPathspec)])
+    if (remove.length) {
+      await git.raw(['rm', '--cached', '-f', '--ignore-unmatch', '--', ...remove.map(literalPathspec)])
+      for (const file of remove) fs.rmSync(path.join(abs, file), { force: true })
+    }
+  } finally {
+    invalidateGit(project)
+    remoteOperations.delete(key)
+  }
+}
+
 async function untrackedFileDiff(abs: string, file: string): Promise<string> {
   try {
     const result = await execFileAsync('git', ['diff', '--no-index', '--no-ext-diff', '--unified=3', '--', '/dev/null', `./${file}`], {

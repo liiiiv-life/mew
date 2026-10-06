@@ -4,7 +4,7 @@ parent: "mew-git"
 title: "현재 프로젝트 Git 작업 패널"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-05"
+updated: "2026-10-06"
 status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
 files: ["src/components/GitWorkbench.tsx", "src/components/git-branch-picker.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-commit-analysis.ts", "server/git-commit-packets.ts", "server/git-diff-codec.ts", "server/git-change-intent.ts", "server/git-change-intent-cli.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
@@ -19,6 +19,7 @@ commits: []
 - 커밋 그래프·변경 파일·diff, 체크한 파일의 작업트리 내용 커밋을 제공한다.
 - diff 헤더에서 파일명을 작게 표시하고 문서 아이콘으로 해당 파일을 에디터에서 연다.
 - 처음 불러온 미커밋 변경 파일은 기본적으로 모두 선택한다.
+- 변경사항 바의 커밋 아이콘 왼쪽에 선택 변경 취소 아이콘을 둔다. 선택이 없거나 처리 중이면 비활성화하며 확인 팝업에서 파일 목록·복구 불가·새 파일 삭제를 안내한다. 확인 후에만 선택 파일의 staged·unstaged 변경을 HEAD로 되돌리고 새 파일을 삭제하며 선택 밖 변경과 커밋 초안을 유지한다.
 - 커밋 제목·설명 입력란은 기본으로 숨기고 변경사항 바 맨 오른쪽의 커밋 아이콘을 누르면 하단에 표시한다. 입력란에는 제목·설명과 제목 오른쪽 종이비행기 전송 아이콘을 두며, 전송 버튼·같은 커밋 아이콘·제목 Enter로 수동 커밋하고 로봇 아이콘으로 AI 자동 커밋을 연다.
 - 파일 체크박스 영역에서 터치·마우스 드래그를 시작하면 시작 항목이 미선택이면 지나간 항목을 모두 선택하고, 이미 선택돼 있으면 모두 해제한다. 같은 항목을 다시 지나가도 상태를 유지하며, 단일 탭·클릭과 키보드는 선택을 토글한다.
 - 체크박스 드래그 중 변경 목록의 위·아래 가장자리에 머무르면 자동 스크롤하며 새로 나타나는 항목에도 선택·해제를 이어간다. 손을 떼거나 취소하면 스크롤을 멈춘다.
@@ -54,6 +55,8 @@ commits: []
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- `POST /api/git/discard`는 Git·파일 쓰기·프로젝트 전체 접근 권한과 현재 workspace를 검증한다. 선택 경로와 현재 변경 목록을 먼저 확인하고 이름 변경의 원래 파일도 함께 복원한다. 최초 커밋 전 새 파일 취소를 지원하며 폴더·서브모듈·심볼릭 링크 하위 경로는 거부한다. GitHub 연결이나 원격 작업 없이 실행한다. 공용 위험 작업 확인창은 취소 버튼에 초기 포커스를 두고 취소·Esc 시 요청을 보내지 않는다.
 
 - 체크박스 영역의 포인터 캡처로 드래그 선택을 처리한다. 5px 이상 움직이면 시작 행의 반대 선택 상태를 드래그 전체에 고정해 시작 행과 현재 행 사이에 적용하고, 종료 클릭이 체크박스를 다시 토글하거나 diff를 열지 않도록 막는다. 체크박스 밖에서 시작한 터치는 목록 스크롤을 유지한다. 목록 가장자리 40px 안에서는 포인터 위치에 비례해 프레임마다 스크롤하며 새로 드러난 행에 같은 선택 상태를 적용한다. 종료·취소·목록 변경·비활성화·언마운트 시 프레임을 취소한다.
 
@@ -98,6 +101,8 @@ commits: []
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
+
+- 2026-10-06: 서버·번역·권한·Git 패널 Chromium 총 13개 검사를 통과했다. 선택 범위 밖 stage 보존, 삭제·이름 변경·새 파일·최초 커밋 전 취소, 잘못된 경로/폴더/미선택 원래 경로 거부, workspace·권한 차단, 확인 전 무요청·취소·Esc·실패 후 선택 유지·성공 후 목록 갱신을 확인했다. PC·모바일 확인창 캡처와 타입·대상 lint·UI detector·문서 경계/링크 검사도 통과했다.
 ## 검증
 
 - 2026-10-05: 커밋 입력란 기본 숨김·변경사항 바의 두 아이콘 배치·제목 자동 초점·상단 버튼과 Enter의 수동 커밋·성공 후 입력란 숨김·입력란을 열지 않는 AI 커밋·초안 보존을 격리 Chromium의 기존 Git 패널·AI 커밋 회귀 검사로 확인했다. 데스크톱·모바일의 밝은·어두운 테마 캡처, TypeScript·대상 lint·공통 UI 번역 3개 검사·문서 경계/링크 검사도 통과했다. 빌드·서버 재시작은 수행하지 않았다.

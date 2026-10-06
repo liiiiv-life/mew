@@ -4,12 +4,13 @@ import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page, SendDiagonal, Xmark } from 'iconoir-react'
+import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page, SendDiagonal, Undo, Xmark } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
 import { GitBranchPicker } from './git-branch-picker'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
 import {
   commitGitWorkingTree,
+  discardGitWorkingTree,
   fetchGitCommit,
   fetchGitDiff,
   fetchGitLog,
@@ -591,6 +592,32 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
 
   const dialogs = useDialog()
 
+  const discardPending = useRef(false)
+  const discard = async () => {
+    if (busy || discardPending.current || !selectedFiles.size || !info?.workspace) return
+    discardPending.current = true
+    const files = [...selectedFiles]
+    const workspace = info.workspace
+    setActionRunning(true)
+    try {
+      const confirmed = await dialogs.confirm({
+        message: uiText('선택한 파일 {count}개의 변경사항을 취소할까요?', { count: files.length }),
+        detail: uiText('커밋되지 않은 변경은 복구할 수 없습니다. 새 파일은 삭제됩니다.') + '\n\n' + files.join('\n'),
+        confirmLabel: uiText('변경사항 취소'), danger: true,
+      })
+      if (!confirmed) return
+      setError(null)
+      await discardGitWorkingTree(repositoryPath, project, workspace, files)
+      onNotice(uiText('선택한 변경사항을 취소했습니다'))
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      discardPending.current = false
+      setActionRunning(false)
+    }
+  }
+
   const act = async (action: GitCommitAction, selected: GitLogEntry) => {
     if (busy) return
     setMenu(null)
@@ -767,6 +794,9 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
                 <span className="shrink-0 whitespace-nowrap tabular-nums text-ink-muted"><span role="status" aria-label={uiText("{count}개 선택", { count: selectedFiles.size })}>{selectedFiles.size}</span> / {workingTree.files.length}</span>
                 <span className="min-w-0 truncate font-medium text-ink">{uiText("변경사항")}</span>
                 <HoverTipLayer className="ml-auto flex shrink-0 items-center gap-1.5">
+                  <button type="button" onClick={() => void discard()} disabled={busy || selectedFiles.size === 0} aria-label={uiText('선택한 변경사항 취소')} data-tip={uiText('선택한 변경사항 취소')} className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-edge-strong text-ink-secondary hover:bg-surface-hover hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
+                    <Undo width={14} height={14} aria-hidden="true" />
+                  </button>
                   <button ref={commitButtonRef} type="button" onClick={() => { if (composerOpen) void commit(); else setComposerOpen(true) }} disabled={busy || (composerOpen && (!commitTitle.trim() || selectedFiles.size === 0))} aria-expanded={composerOpen} aria-controls={composerOpen ? commitFormId : undefined} aria-label={committing ? uiText("커밋 중…") : uiText("커밋")} data-tip={committing ? uiText("커밋 중…") : uiText("커밋")} className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
                     <GitCommit width={14} height={14} aria-hidden="true" />
                   </button>

@@ -11,7 +11,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 const root = path.resolve(import.meta.dirname, '..'), require = createRequire(`${root}/package.json`)
 
 test('Git opens only the current project, migrates saved tabs, docks and preserves drafts', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
-  const files = ['src/components/git-panel.tsx', 'src/components/GitWorkbench.tsx', 'src/components/git-branch-picker.tsx', 'packages/ui/src/select-field.tsx', 'src/components/github-account.tsx', 'src/components/DockWorkspace.tsx']
+  const files = ['src/components/git-panel.tsx', 'src/components/GitWorkbench.tsx', 'src/components/git-branch-picker.tsx', 'packages/ui/src/select-field.tsx', 'packages/ui/src/ConfirmDialog.tsx', 'packages/ui/src/dialog-frame.tsx', 'src/components/github-account.tsx', 'src/components/DockWorkspace.tsx']
   const content = (await Promise.all(files.map((file) => fs.readFile(`${root}/${file}`, 'utf8')))).join('\n')
   const source = `
 import React,{useCallback,useEffect,useRef,useState} from '${require.resolve('react')}';
@@ -83,12 +83,21 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     ]
     const branchInfo = () => ({ repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], originUrl: 'https://github.com/owner/repo', branch: repositoryBranch, ahead: 0, behind: 0 })
     const remoteRequests: unknown[] = []
+    const discardRequests: { files: string[]; workspace: string; path: string }[] = []
+    let discardFailure = false
     let finishRemote = () => {}
     page.on('pageerror', (error) => errors.push(error.message))
     await page.route('http://localhost:48974/**', async (route) => {
       const url = new URL(route.request().url()), p = url.pathname
       if (route.request().method() !== 'GET') writes.push(p)
       if (p.startsWith('/api/')) {
+        if (p === '/api/git/discard') {
+          assert.equal(url.searchParams.get('project'), '.workspace')
+          const body = route.request().postDataJSON(); discardRequests.push(body)
+          if (discardFailure) return route.fulfill({ status: 409, json: { error: 'Discard failed' } })
+          workingFiles = workingFiles.filter(file => !body.files.includes(file.path))
+          return route.fulfill({ json: { ok: true } })
+        }
         if (p === '/api/git/branches') {
           if (route.request().method() === 'GET') { reads.push(url.pathname + url.search); return route.fulfill({ json: { branches: branchRefs } }) }
           const body = route.request().postDataJSON(); branchRequests.push(body)
@@ -664,6 +673,37 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.deepEqual(submitted.files, workingFiles.map(file => file.path))
     await composer.waitFor({ state: 'hidden' })
     assert.deepEqual(writes, [...Array(3).fill('/api/git/remote'), ...Array(3).fill('/api/git/branches'), '/api/git/commit'], 'writes are intercepted by the fixture')
+    const discardButton = page.getByRole('button', { name: '선택한 변경사항 취소', exact: true })
+    await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).uncheck()
+    assert.equal(await discardButton.isDisabled(), true)
+    await page.getByRole('checkbox', { name: `${workingFiles[0].path} 커밋에 포함`, exact: true }).check()
+    const selectedPath = workingFiles[0].path
+    await discardButton.click()
+    const confirmation = page.getByRole('dialog')
+    await confirmation.getByText('선택한 파일 1개의 변경사항을 취소할까요?', { exact: true }).waitFor()
+    assert.ok((await confirmation.innerText()).includes(selectedPath))
+    assert.equal(await confirmation.getByRole('button', { name: '취소', exact: true }).evaluate(el => el === el.ownerDocument.activeElement), true)
+    assert.equal(discardRequests.length, 0)
+    await screenshot('discard-confirm-mobile')
+    await confirmation.getByRole('button', { name: '취소', exact: true }).click()
+    assert.equal(discardRequests.length, 0)
+    await discardButton.click()
+    await page.keyboard.press('Escape')
+    assert.equal(discardRequests.length, 0)
+    discardFailure = true
+    await discardButton.click()
+    await confirmation.getByRole('button', { name: '변경사항 취소', exact: true }).click()
+    await page.getByText('Discard failed', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('checkbox', { name: `${selectedPath} 커밋에 포함`, exact: true }).isChecked(), true)
+    discardFailure = false
+    await page.setViewportSize({ width: 1440, height: 900 })
+    assert.ok((await bounds(discardButton)).x < (await bounds(page.getByRole('button', { name: '커밋', exact: true }))).x)
+    await discardButton.click()
+    await screenshot('discard-confirm-desktop')
+    await confirmation.getByRole('button', { name: '변경사항 취소', exact: true }).click()
+    await page.getByRole('checkbox', { name: `${selectedPath} 커밋에 포함`, exact: true }).waitFor({ state: 'hidden' })
+    assert.deepEqual(discardRequests.at(-1), { path: '', workspace: '/fixture', files: [selectedPath] })
+    assert.ok(workingFiles.length > 0, 'unselected changes remain')
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })
