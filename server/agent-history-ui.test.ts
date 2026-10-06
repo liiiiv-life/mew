@@ -85,9 +85,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
         const bounds = await question.evaluate(el => {
           const bubble = el.querySelector('button[aria-expanded]')!
           const copy = el.querySelector('button[title="이 질문 복사"]')!
-          return { right: bubble.getBoundingClientRect().right, copyLeft: copy.getBoundingClientRect().left, background: el.ownerDocument.defaultView!.getComputedStyle(copy.parentElement!).backgroundColor }
+          return { left: bubble.getBoundingClientRect().left, copyRight: copy.getBoundingClientRect().right, background: el.ownerDocument.defaultView!.getComputedStyle(copy.parentElement!).backgroundColor }
         })
-        assert.ok(bounds.copyLeft > bounds.right, 'question copy sits outside the bubble')
+        assert.ok(bounds.copyRight < bounds.left, 'question copy sits outside the left of the bubble')
         assert.equal(bounds.background, 'rgba(0, 0, 0, 0)', 'question copy container has no bubble background')
         await question.getByRole('button', { name: '이 질문 복사', exact: true }).click()
         assert.equal(await page.evaluate('window.copied'), 'Question 40')

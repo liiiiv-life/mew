@@ -3614,6 +3614,7 @@ function AgentSessionView({
                 )}
                 {item.text && (
                   <div className="flex items-start gap-1">
+                    <CopyButton text={item.text} label={uiText("이 질문 복사")} />
                     <button
                       type="button"
                       aria-expanded={open}
@@ -3625,7 +3626,6 @@ function AgentSessionView({
                     >
                       <span className={`min-w-0 flex-1 break-words [overflow-wrap:anywhere] select-text ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
                     </button>
-                    <CopyButton text={item.text} label={uiText("이 질문 복사")} />
                   </div>
                 )}
                 </div>
