@@ -226,7 +226,7 @@ function DockSeparators({ tree, rect, onResize }: { tree: DockNode | null; rect:
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
   return <><div role="separator" tabIndex={0} aria-label={t('panel.resize')} aria-orientation={horizontal ? 'vertical' : 'horizontal'} aria-valuenow={Math.round(tree.ratio * 100)} aria-valuemin={15} aria-valuemax={85}
-    className="absolute z-40 touch-none hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+    className={`absolute z-40 touch-none border-edge bg-surface-deep hover:border-accent focus-visible:border-accent focus-visible:outline-none ${horizontal ? 'border-l' : 'border-t'}`}
     style={{ ...rectStyle(horizontal ? { x: rect.x + firstSize, y: rect.y, width: 4, height: rect.height } : { x: rect.x, y: rect.y + firstSize, width: rect.width, height: 4 }), cursor: horizontal ? 'col-resize' : 'row-resize' }}
     onKeyDown={(event) => { const delta = event.key === (horizontal ? 'ArrowLeft' : 'ArrowUp') ? -.05 : event.key === (horizontal ? 'ArrowRight' : 'ArrowDown') ? .05 : 0; if (delta) { event.preventDefault(); onResize(ids, Math.max(.15, Math.min(.85, tree.ratio + delta))) } }}
     onPointerDown={(event) => {

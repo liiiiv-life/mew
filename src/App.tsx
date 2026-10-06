@@ -2294,7 +2294,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
             </div>
             <div
               onPointerDown={startSidebarResize}
-              className="hidden w-1 shrink-0 cursor-col-resize touch-none bg-edge hover:bg-accent md:block"
+              className="hidden w-1 shrink-0 cursor-col-resize touch-none border-l border-edge bg-surface-deep hover:border-accent md:block"
               aria-hidden="true"
             />
           </div>
