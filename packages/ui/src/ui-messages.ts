@@ -1,6 +1,13 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  '위치 이동': ['Move', '移动位置', '位置を移動'],
+  '크기 조절': ['Resize', '调整大小', 'サイズ変更'],
+  '메모 (PC)': ['Memo (desktop)', '备忘录（电脑）', 'メモ（PC）'],
+  '태스크 (PC)': ['Tasks (desktop)', '任务（电脑）', 'タスク（PC）'],
+  '탭': ['Tab', '标签页', 'タブ'],
+  '팝업': ['Popup', '弹窗', 'ポップアップ'],
+
   '태그': ['Tags', '标签', 'タグ'],
   '태그 필터': ['Filter by tag', '按标签筛选', 'タグで絞り込み'],
   '태그 필터 해제': ['Remove tag filter', '取消标签筛选', 'タグの絞り込みを解除'],

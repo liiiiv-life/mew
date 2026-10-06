@@ -1,3 +1,6 @@
+import { useFloatingPanel } from '../hooks/use-floating-panel'
+import { uiText } from '@mew/ui/i18n-core'
+import { Drag, Expand } from 'iconoir-react'
 import { useI18n } from '../i18n'
 import type { PaneNode } from '../utils/paneTree'
 import { createContext, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react'
@@ -241,16 +244,18 @@ function DockSeparators({ tree, rect, onResize }: { tree: DockNode | null; rect:
   </>
 }
 /** All surfaces portal into the same host. Moving a split changes geometry, not component ownership. */
-export function DockPanel({ id, kind, visible = true, children, onFocus, mobileSelected, tabs = [] }: { tabs?: string[]; mobileSelected?: boolean; id: string; kind: DockKind; visible?: boolean; children: ReactNode; onFocus?: () => void }) {
+export function DockPanel({ id, floating = false, storageKey = `mew:popup:${id}`, kind, visible = true, children, onFocus, mobileSelected, tabs = [] }: { floating?: boolean; storageKey?: string; tabs?: string[]; mobileSelected?: boolean; id: string; kind: DockKind; visible?: boolean; children: ReactNode; onFocus?: () => void }) {
   const dock = useDock(), register = dock?.register
+  const floats = floating && !!dock?.desktop
+  const popup = useFloatingPanel(storageKey, dock?.host ?? null, floats)
   const tabKey = JSON.stringify(tabs)
-  useLayoutEffect(() => { register?.(id, { kind, visible, tabs: JSON.parse(tabKey) as string[] }); return () => register?.(id, null) }, [register, id, kind, visible, tabKey])
+  useLayoutEffect(() => { register?.(id, { kind, visible: visible && !floats, tabs: JSON.parse(tabKey) as string[] }); return () => register?.(id, null) }, [register, id, kind, visible, tabKey, floats])
   if (!dock?.host) return null
   const chosen = dock.mobileGroups[kind] && dock.rects[dock.mobileGroups[kind]] ? dock.mobileGroups[kind] : Object.keys(dock.rects).find((id) => dock.state.groups.some((g) => g.id === id && g.kind === kind))
   const mobileVisible = visible && (mobileSelected ?? chosen === id) && (kind === 'editor' ? !dock.foreground || dock.foreground === 'editor' : dock.foreground === kind)
-  const expanded = dock.maximized === id
-  const covered = !!dock.maximized && !expanded
-  return createPortal(<section data-dock-panel={id} data-dock-expanded={expanded || undefined} data-workspace-panel={kind} inert={covered || undefined} onPointerDownCapture={() => { dock.focusGroup(kind, id); onFocus?.() }} onFocusCapture={() => { dock.focusGroup(kind, id); onFocus?.() }}
+  const expanded = !floats && dock.maximized === id
+  const covered = !floats && !!dock.maximized && !expanded
+  return createPortal(<section data-dock-panel={id} data-dock-expanded={expanded || undefined} data-workspace-panel={kind} inert={covered || undefined} onPointerDownCapture={() => { if (floats) popup.focus(); dock.focusGroup(kind, id); onFocus?.() }} onFocusCapture={() => { if (floats) popup.focus(); dock.focusGroup(kind, id); onFocus?.() }}
     onClickCapture={(event) => { if (isPanelTab(event.target, event.currentTarget)) dock.followMaximize(id) }}
     onDoubleClickCapture={(event) => { if (isPanelTab(event.target, event.currentTarget)) dock.toggleMaximize(id) }}
     onKeyDownCapture={(event) => {
@@ -260,9 +265,13 @@ export function DockPanel({ id, kind, visible = true, children, onFocus, mobileS
         if (!event.repeat) dock.toggleMaximize(id)
       } else if (event.key === 'Enter' || event.key === ' ') dock.followMaximize(id)
     }}
-    className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface-deep"
-    style={dock.desktop ? { ...rectStyle(expanded ? dock.expandedRect : dock.rects[id]), ...(covered ? { visibility: 'hidden' } : {}) } : { position: 'absolute', inset: 0, display: mobileVisible ? 'flex' : 'none', zIndex: kind === 'editor' ? 0 : 10 }}>
+    onDragStartCapture={event => { if (floats) { event.preventDefault(); event.stopPropagation() } }}
+    data-floating-panel={floats || undefined}
+    className={`flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface-deep ${floats ? 'rounded-lg shadow-lg' : ''}`}
+    style={floats ? { ...popup.style, display: visible ? 'flex' : 'none' } : dock.desktop ? { ...rectStyle(expanded ? dock.expandedRect : dock.rects[id]), ...(covered ? { visibility: 'hidden' } : {}) } : { position: 'absolute', inset: 0, display: mobileVisible ? 'flex' : 'none', zIndex: kind === 'editor' ? 0 : 10 }}>
+    {floats && <button type="button" aria-label={uiText('위치 이동')} data-tip={uiText('위치 이동')} className="flex h-6 shrink-0 cursor-move touch-none items-center justify-center bg-surface-raised text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent" {...popup.controls('move')}><Drag width={14} height={14} /></button>}
     {children}
+    {floats && <button type="button" aria-label={uiText('크기 조절')} data-tip={uiText('크기 조절')} className="absolute bottom-0 right-0 flex h-6 w-6 cursor-nwse-resize touch-none items-center justify-center rounded-tl bg-surface-raised text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent" {...popup.controls('resize')}><Expand width={14} height={14} /></button>}
   </section>, dock.host, id)
 }
 function isPanelTab(target: EventTarget, panel: HTMLElement): boolean {

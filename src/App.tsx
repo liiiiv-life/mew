@@ -1,3 +1,5 @@
+import { restoreDeviceLayout, saveDeviceLayout } from './utils/device-layout'
+import { useToolPresentation } from './hooks/use-tool-presentation'
 import { PanelCloseButton } from './components/panel-close-button'
 import { Computer, Globe } from 'iconoir-react'
 import { UpdatesModal } from './components/updates-modal'
@@ -254,6 +256,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const [rootProjectPath, setRootProjectPath] = useState<string | null>(null)
   const rootProjectPathRef = useRef(rootProjectPath)
   rootProjectPathRef.current = rootProjectPath
+  const toolPresentation = useToolPresentation()
   const [workspaceUi, setWorkspaceUi] = useState<WorkspaceUiState>({})
   const [workspaceUiLoaded, setWorkspaceUiLoaded] = useState(false)
   const [workspaceUiRevision, setWorkspaceUiRevision] = useState(0)
@@ -272,11 +275,12 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     return () => { workspaceUiOwnerAlive.current = false }
   }, [])
 
-  const prepareWorkspaceUi = useCallback((path: string) => workspaceUiCache.current.load(path, async () => (await fetchWorkspaceUi(path)).state ?? {}), [])
+  const prepareWorkspaceUi = useCallback((path: string) => workspaceUiCache.current.load(path, async () => restoreDeviceLayout(authEmail ?? 'guest', path, (await fetchWorkspaceUi(path)).state ?? {})), [authEmail])
   const persistWorkspaceUi = useCallback((path: string, state: WorkspaceUiState) => {
+    saveDeviceLayout(authEmail ?? 'guest', path, state)
     workspaceUiSaveQueue.current = workspaceUiSaveQueue.current.catch(() => {})
       .then(() => workspaceUiOwnerAlive.current ? saveWorkspaceUi(path, state) : undefined).catch(console.error)
-  }, [])
+  }, [authEmail])
   // 절대경로 탭 목록은 owner UI에만 노출한다. manager는 셸 권한상 현재 경로를 볼 수 있지만 다른
   // 브라우저 사용자가 남긴 owner 전용 목록까지 물려받지는 않는다.
   const [openProjectPaths, setOpenProjectPaths] = useState<string[]>(() => (isOwner ? loadOpenProjectPaths() : []))
@@ -2097,6 +2101,11 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null)
         }}
       >
+        <button type="button" data-sidebar-toggle aria-expanded={sidebarOpen} aria-label={uiText(sidebarOpen ? '사이드바 닫기' : '사이드바 열기')} data-tip={uiText(sidebarOpen ? '사이드바 닫기' : '사이드바 열기')} onClick={() => toggleWorkspacePanel('sidebar')}
+          className="absolute top-1/2 z-50 hidden h-9 w-5 -translate-y-1/2 items-center justify-center rounded-r border border-edge-strong bg-surface-deep text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent md:flex"
+          style={{ left: sidebarOpen ? sidebarWidth - 1 : 0 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={sidebarOpen ? 'm15 6-6 6 6 6' : 'm9 6 6 6-6 6'} /></svg>
+        </button>
         {sidebarOpen && (
           <div
             data-sidebar data-workspace-panel="sidebar"
@@ -2106,7 +2115,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
             }}
             // 모바일은 프로젝트 탭 아래 작업 영역 전체를 덮는다. 파일 탭은 사이드바가 열린 동안 보이지 않는다.
             // 데스크톱은 기존 고정 칸이다.
-            className={`absolute inset-x-0 top-0 bottom-0 flex bg-surface-deep md:static md:z-auto md:shrink-0 ${mobilePanelLayer('sidebar')}`}
+            className={`absolute inset-x-0 top-0 bottom-0 flex bg-surface-deep md:static md:z-auto md:order-first md:shrink-0 ${mobilePanelLayer('sidebar')}`}
             style={{ width: isDesktop() ? sidebarWidth : undefined }}
           >
             <div className="flex min-w-0 flex-1 flex-col">
@@ -2330,13 +2339,13 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
             openWorkspacePanel('agent')
           }}
         />}</DockPanel>}
-        {rootProjectPath && caps.filesRead && auth.email && <DockPanel id="tasks" kind="tasks" visible={tasksOpen} tabs={['tasks']} mobileSelected onFocus={() => { activeTabbedSurfaceRef.current = 'tasks'; bringWorkspacePanelToFront('tasks') }}>
+        {rootProjectPath && caps.filesRead && auth.email && <DockPanel floating={toolPresentation.tasks === 'popup'} storageKey={`mew:popup:${authEmail}:${rootProjectPath}:tasks`} id="tasks" kind="tasks" visible={tasksOpen} tabs={['tasks']} mobileSelected onFocus={() => { activeTabbedSurfaceRef.current = 'tasks'; bringWorkspacePanelToFront('tasks') }}>
           <TaskPanel workspace={rootProjectPath} onOpenFile={path => {
             const file = workspaceDocumentFile(path, workspaceInfoRef.current)
             openMentionedFile(file.project, file.path)
           }} session={taskSession} nextTabSignal={taskNextTabSignal} previousTabSignal={taskPreviousTabSignal} onClose={() => closeWorkspacePanel('tasks')} />
         </DockPanel>}
-        {caps.collaboration && auth.email && <DockPanel id="memo" kind="memo" visible={memoOpen} tabs={['memo']} mobileSelected onFocus={() => bringWorkspacePanelToFront('memo')}>
+        {caps.collaboration && auth.email && <DockPanel floating={toolPresentation.memo === 'popup'} storageKey={`mew:popup:${authEmail}:${rootProjectPath}:memo`} id="memo" kind="memo" visible={memoOpen} tabs={['memo']} mobileSelected onFocus={() => bringWorkspacePanelToFront('memo')}>
           <SharedMemo session={memoSession} open={memoOpen} />
         </DockPanel>}
         </DockWorkspace>

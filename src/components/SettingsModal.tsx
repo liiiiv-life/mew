@@ -1,3 +1,4 @@
+import { useToolPresentation, setToolPresentation } from '../hooks/use-tool-presentation'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useState } from 'react'
@@ -382,6 +383,7 @@ function AppearancePanel({
   onThemeColorChange: (color: string) => void
 }) {
   useUiLocale()
+  const presentation = useToolPresentation()
   const { locale, setLocale, t } = useI18n()
   function select(next: Theme) {
     if (theme !== next) onToggleTheme()
@@ -391,6 +393,12 @@ function AppearancePanel({
 
   return (
     <div className="flex flex-col gap-3">
+      {(['memo', 'tasks'] as const).map(tool => <div key={tool} className="flex items-center justify-between gap-3">
+        <span className="text-sm">{uiText(tool === 'memo' ? '메모 (PC)' : '태스크 (PC)')}</span>
+        <div className="flex overflow-hidden rounded border border-edge-strong text-sm">
+          {(['tab', 'popup'] as const).map(mode => <button key={mode} type="button" aria-pressed={presentation[tool] === mode} className={optionClass(presentation[tool] === mode)} onClick={() => setToolPresentation(tool, mode)}>{uiText(mode === 'tab' ? '탭' : '팝업')}</button>)}
+        </div>
+      </div>)}
       <div className="text-sm font-medium">{t('settings.theme')}</div>
       <div className="flex w-max overflow-hidden rounded border border-edge-strong text-sm">
         <button type="button" onClick={() => select('light')} className={optionClass(theme === 'light')}>
