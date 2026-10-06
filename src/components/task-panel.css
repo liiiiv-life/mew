@@ -174,9 +174,10 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
 }
 
 .task-tag-picker { flex-shrink: 0; max-width: 45%; }
-.task-tag-add { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 20px; height: 20px; border-radius: 4px; color: var(--color-ink-secondary); }
-.task-tag-add:hover, .task-tag-add[aria-expanded="true"] { color: var(--color-ink); background: var(--color-surface-hover); }
-.task-tag-add:focus-visible, .task-tag-picker-menu button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.task-tag.task-tag-placeholder { background: var(--color-surface-raised); color: var(--color-ink-secondary); }
+.task-tag-name[aria-haspopup] { height: 20px; color: inherit; }
+.task-tag-placeholder .task-tag-name:hover, .task-tag-placeholder .task-tag-name[aria-expanded="true"] { background: var(--color-surface-hover); border-radius: inherit; }
+.task-tag-picker-menu button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .task-tag-picker-menu > input { display: block; width: 100%; padding: 4px 6px; border: 1px solid var(--color-edge); border-radius: 4px; color: var(--color-ink); background: var(--color-surface); font-size: 12px; caret-color: var(--color-accent); }
 .task-tag-picker-menu > input:focus-visible { outline: 1px solid var(--color-accent); }
 .task-tag-picker-menu [role="option"] { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px; border-radius: 4px; text-align: left; font-size: 12px; }
@@ -185,8 +186,6 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
 .task-tag-picker-menu [role="option"]:disabled { opacity: .5; }
 .task-draft[data-empty]:not(:focus-within) .task-tags { visibility: hidden; }
 @media (pointer: coarse) {
-  .task-tag-add { position: relative; }
-  .task-tag-add::before { content: ''; position: absolute; inset: -4px -2px; }
   .task-tag-picker-menu [role="option"] { min-height: 32px; }
 }
 

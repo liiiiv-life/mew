@@ -390,7 +390,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await mobile.getByRole('tab', { name: '간트', exact: true }).tap()
     await mobile.locator('.task-gantt-label button').filter({ hasText: '문서 일정' }).tap()
     const linkInspector = mobile.getByRole('dialog', { name: '일정 편집' })
-    await linkInspector.getByRole('button', { name: '태그 추가', exact: true }).tap()
+    await linkInspector.locator('.task-tag-picker [aria-haspopup="dialog"]').first().tap()
     const tags = mobile.locator('.task-tag-picker-menu')
     await tags.getByRole('textbox', { name: '검색', exact: true }).fill('간트')
     await tags.getByRole('option', { name: '간트', exact: true }).tap()
