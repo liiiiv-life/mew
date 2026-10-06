@@ -2130,6 +2130,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
               <div className="flex h-9 shrink-0 items-center gap-1 border-b border-edge pl-2">
                 <button
                   type="button"
+                  data-numbered-tab
                   onClick={() => setSidebarView('files')}
                   className={`rounded p-1 ${sidebarView === 'files' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:bg-surface-hover'}`}
                   title={uiText("탐색기")}
@@ -2140,7 +2141,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                   </svg>
                 </button>
                 <button
-                  type="button"
+                  type="button" data-numbered-tab
                   onClick={() => {
                     setSidebarView('search')
                     setProjectSearchFocus((s) => s + 1)
@@ -2155,7 +2156,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                   </svg>
                 </button>
                 <button
-                  type="button"
+                  type="button" data-numbered-tab
                   onClick={() => {
                     setSidebarView('content-search')
                     setProjectSearchFocus((s) => s + 1)
@@ -2173,6 +2174,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                 </button>
                 {canUseTerminal && <button
                   type="button"
+                  data-numbered-tab
                   onClick={() => setSidebarView('commands')}
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink ${sidebarView === 'commands' ? 'bg-surface-raised text-ink' : ''}`}
                   title={uiText("{p0} 명령어", { p0: projectLabel(rootProjectPath) })}

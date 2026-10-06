@@ -160,3 +160,4 @@ export function useShortcutBindings(): Overrides {
   return useSyncExternalStore(subscribe, getBindings, getBindings)
 }
 export { closeFocusedTab, dispatchFocusedShortcut, useFocusedShortcutScope, type FocusedShortcutHandlers } from './focusedShortcutScope'
+export { numberedTabIndex } from './numberedTab'
