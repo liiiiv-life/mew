@@ -16,8 +16,8 @@ import { uuid } from '../utils/uuid'
 
 // SVG grid, row dimensions, bars, handles and header gestures follow liiiiv/gantt-maker.
 const ROW_H = 44, HEADER_H = 46, BAR_H = 22, LABEL_W = 168
-type Mode = 'move' | 'start' | 'end' | 'draw' | 'header' | 'range-start' | 'range-end'
-type Gesture = { pointer: number; element: Element; mode: Mode; task: TaskItem | null; x: number; y: number; anchor: number; ppd: number; moved: boolean; next: TaskItem | null; bounds: { start: number | null; end: number | null }; start: number; end: number }
+type Mode = 'move' | 'start' | 'end' | 'draw' | 'header'
+type Gesture = { pointer: number; element: Element; mode: Mode; task: TaskItem | null; x: number; y: number; anchor: number; ppd: number; moved: boolean; next: TaskItem | null }
 type Pick = { id: string; x: number; y: number; keyboard?: boolean }
 
 export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.length }: { tasks: TaskItem[]; canEdit: boolean; edit: (tasks: TaskItem[]) => void; knownTags: string[]; totalTasks?: number }) {
@@ -26,19 +26,54 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   const scroller = useRef<HTMLDivElement>(null), svg = useRef<SVGSVGElement>(null), gesture = useRef<Gesture | null>(null)
   const labels = useRef<HTMLDivElement>(null), pickElement = useRef<HTMLElement | SVGElement | null>(null)
   const current = useRef({ tasks, canEdit, edit, ppd }); current.current = { tasks, canEdit, edit, ppd }
-  const [scrollTop, setScrollTop] = useState(0)
   const [bounds, setBounds] = useState<{ start: number | null; end: number | null }>({ start: null, end: null })
   const pendingScroll = useRef<number | null>(null)
   const allShown = preview ? tasks.some(task => task.id === preview.id) ? tasks.map(task => task.id === preview.id ? preview : task) : [...tasks, preview] : tasks
   const ranges = allShown.flatMap(task => { const range = taskRange(task); return range ? [toDay(range.end)] : [] })
   const startDay = bounds.start ?? Math.max(MIN_TASK_DAY, toDay(today) - 5)
-  const endDay = Math.max(startDay, bounds.end ?? Math.min(MAX_TASK_DAY, Math.max(toDay(today), ...ranges)))
+  const endDay = Math.max(startDay, bounds.end ?? Math.min(MAX_TASK_DAY, Math.max(toDay(today), ...ranges) + 5))
   const previousStart = useRef(startDay), days = endDay - startDay + 1
   const shown = allShown
   const bars = taskBars(allShown, today), width = days * ppd, height = (shown.length + 1) * ROW_H
   const { minor, major } = scaleFor(Math.min(ppd, days > 800 ? 4 : ppd))
   const minors = tickDays(startDay, endDay, minor), majors = tickDays(startDay, endDay, major)
   const X = (day: number) => (day - startDay) * ppd
+  const [edgeOffset, setEdgeOffset] = useState(0)
+  const edge = useRef({ side: 0, amount: 0, time: 0 })
+  const edgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const visibleRange = useRef({ startDay, endDay, bounds }); visibleRange.current = { startDay, endDay, bounds }
+  const pan = (delta: number, native = false) => {
+    const element = scroller.current
+    if (!element || !delta) return false
+    const max = Math.max(0, element.scrollWidth - element.clientWidth)
+    const side = delta < 0 && element.scrollLeft <= 1 ? -1 : delta > 0 && element.scrollLeft >= max - 1 ? 1 : 0
+    if (!side) {
+      edge.current = { side: 0, amount: 0, time: 0 }; setEdgeOffset(0)
+      if (!native) element.scrollLeft += delta
+      return false
+    }
+    const range = visibleRange.current
+    if (side < 0 ? range.startDay <= MIN_TASK_DAY : range.endDay >= MAX_TASK_DAY) return false
+    const now = performance.now(), previous = edge.current
+    const amount = (previous.side === side && now - previous.time < 300 ? previous.amount : 0) + Math.min(36, Math.abs(delta))
+    edge.current = { side, amount, time: now }
+    if (edgeTimer.current) clearTimeout(edgeTimer.current)
+    if (amount >= 96) {
+      edge.current = { side: 0, amount: 0, time: 0 }; setEdgeOffset(0)
+      if (side < 0) {
+        const start = Math.max(MIN_TASK_DAY, range.startDay - 14)
+        pendingScroll.current = element.scrollLeft + (range.startDay - start) * current.current.ppd - Math.min(Math.abs(delta), 48)
+        setBounds({ ...range.bounds, start })
+      } else {
+        pendingScroll.current = element.scrollLeft + Math.min(Math.abs(delta), 48)
+        setBounds({ ...range.bounds, end: Math.min(MAX_TASK_DAY, range.endDay + 14) })
+      }
+    } else {
+      setEdgeOffset(-side * 18 * (1 - Math.exp(-amount / 40)))
+      edgeTimer.current = setTimeout(() => { setEdgeOffset(0); edge.current = { side: 0, amount: 0, time: 0 } }, 180)
+    }
+    return true
+  }
   const closePick = useCallback((restore = true) => {
     setPick(null)
     if (restore && pickElement.current?.isConnected) pickElement.current.focus({ preventScroll: true })
@@ -48,7 +83,6 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   const cancel = () => {
     const active = gesture.current; gesture.current = null
     if (active?.element.hasPointerCapture(active.pointer)) active.element.releasePointerCapture(active.pointer)
-    if (active?.mode === 'range-start' || active?.mode === 'range-end') setBounds(active.bounds)
     setPreview(null)
   }
   const zoom = (value: number, clientX?: number) => {
@@ -67,23 +101,41 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
       else scroller.current.scrollLeft += (previousStart.current - startDay) * ppd
     }
     previousStart.current = startDay
-  }, [ppd, startDay])
+  }, [ppd, startDay, endDay])
   useEffect(() => {
     const element = scroller.current
     if (!element) return
     const wheel = (event: WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return
+      if (!event.ctrlKey && !event.metaKey) {
+        const delta = event.deltaX || (event.shiftKey ? event.deltaY : 0)
+        const pixels = delta * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientWidth : 1)
+        if (pan(pixels, true)) event.preventDefault()
+        return
+      }
       event.preventDefault(); zoom(current.current.ppd * Math.exp(-event.deltaY * .0025), event.clientX)
     }
+    let touchPoint: { x: number; y: number } | null = null
+    const touchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 1 || gesture.current || !touchPoint) return
+      const point = event.touches[0], dx = touchPoint.x - point.clientX, dy = touchPoint.y - point.clientY
+      touchPoint = { x: point.clientX, y: point.clientY }
+      if (Math.abs(dx) > Math.abs(dy) && pan(dx, true)) event.preventDefault()
+    }
+    const touchEnd = () => { touchPoint = null; setEdgeOffset(0) }
+    const touchStart = (event: TouchEvent) => { touchPoint = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null }
     const touch = (event: TouchEvent) => { if ((event.target as Element).closest('[data-gantt-grab]')) event.preventDefault() }
     const key = (event: KeyboardEvent) => {
+      if (event.target === element && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); pan(event.key === 'ArrowLeft' ? -40 : 40) }
       if (event.key === 'Escape' && gesture.current) { event.preventDefault(); event.stopImmediatePropagation(); cancel() }
     }
     const hidden = () => { if (document.hidden) cancel() }
     element.addEventListener('wheel', wheel, { passive: false }); element.addEventListener('touchstart', touch, { passive: false })
+    element.addEventListener('touchstart', touchStart, { passive: true }); element.addEventListener('touchmove', touchMove, { passive: false }); element.addEventListener('touchend', touchEnd); element.addEventListener('touchcancel', touchEnd)
     window.addEventListener('keydown', key, true); window.addEventListener('blur', cancel); window.addEventListener('resize', cancel); document.addEventListener('visibilitychange', hidden)
     return () => {
       element.removeEventListener('wheel', wheel); element.removeEventListener('touchstart', touch)
+      element.removeEventListener('touchstart', touchStart); element.removeEventListener('touchmove', touchMove); element.removeEventListener('touchend', touchEnd); element.removeEventListener('touchcancel', touchEnd)
+      if (edgeTimer.current) clearTimeout(edgeTimer.current)
       window.removeEventListener('keydown', key, true); window.removeEventListener('blur', cancel); window.removeEventListener('resize', cancel); document.removeEventListener('visibilitychange', hidden)
       const active = gesture.current; gesture.current = null
       if (active?.element.hasPointerCapture(active.pointer)) active.element.releasePointerCapture(active.pointer)
@@ -93,7 +145,7 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   }, [])
   useEffect(() => {
     const active = gesture.current
-    if (!canEdit && active && !['header', 'range-start', 'range-end'].includes(active.mode)) cancel()
+    if (!canEdit && active && active.mode !== 'header') cancel()
     else if (active?.task) {
       const now = tasks.find(task => task.id === active.task!.id)
       if (!now || now.startDate !== active.task.startDate || now.date !== active.task.date) cancel()
@@ -102,28 +154,18 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   }, [tasks, canEdit, pick, closePick])
   const dayAt = (clientX: number) => Math.max(MIN_TASK_DAY, Math.min(MAX_TASK_DAY, Math.floor(startDay + (clientX - (svg.current?.getBoundingClientRect().left ?? 0)) / ppd)))
   const begin = (event: ReactPointerEvent<Element>, mode: Mode, task: TaskItem | null) => {
-    if (event.button !== 0 || !event.isPrimary || (!['header', 'range-start', 'range-end'].includes(mode) && !canEdit)) return
+    if (event.button !== 0 || !event.isPrimary || (mode !== 'header' && !canEdit)) return
     if (mode === 'draw' && !task && totalTasks >= TASK_LIMIT) return
     event.preventDefault(); event.stopPropagation(); setPick(null)
     event.currentTarget.setPointerCapture(event.pointerId)
     if (task) pickElement.current = (event.currentTarget.closest('[data-gantt-task]')?.querySelector('[data-gantt-bar]') ?? event.currentTarget) as HTMLElement | SVGElement
-    gesture.current = { pointer: event.pointerId, element: event.currentTarget, mode, task, x: event.clientX, y: event.clientY, anchor: dayAt(event.clientX), ppd, moved: false, next: null, bounds, start: startDay, end: endDay }
+    gesture.current = { pointer: event.pointerId, element: event.currentTarget, mode, task, x: event.clientX, y: event.clientY, anchor: dayAt(event.clientX), ppd, moved: false, next: null }
   }
   const move = (event: ReactPointerEvent) => {
     const active = gesture.current
     if (!active || active.pointer !== event.pointerId) return
-    if (active.mode === 'range-start' || active.mode === 'range-end') {
-      const delta = Math.round((event.clientX - active.x) / active.ppd)
-      if (active.mode === 'range-start') {
-        pendingScroll.current = 0
-        setBounds({ ...active.bounds, start: Math.max(MIN_TASK_DAY, Math.min(active.end, active.start + delta)) })
-      } else {
-        setBounds({ ...active.bounds, end: Math.min(MAX_TASK_DAY, Math.max(active.start, active.end + delta)) })
-      }
-      return
-    }
     if (active.mode === 'header') {
-      if (scroller.current) scroller.current.scrollLeft -= event.clientX - active.x
+      pan(active.x - event.clientX)
       if (event.clientY !== active.y) zoom(current.current.ppd * Math.exp((event.clientY - active.y) * .007), event.clientX)
       active.x = event.clientX; active.y = event.clientY
       return
@@ -150,11 +192,6 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   }
   const pickTask = (task: TaskItem, element: Element, keyboard = false) => { pickElement.current = element as HTMLElement | SVGElement; const rect = element.getBoundingClientRect(); setPick({ id: task.id, x: rect.right, y: rect.top, keyboard }) }
 
-  const adjustBoundary = (side: 'start' | 'end', delta: number) => {
-    if (side === 'start') { pendingScroll.current = 0; setBounds({ ...bounds, start: Math.max(MIN_TASK_DAY, Math.min(endDay, startDay + delta)) }) }
-    else setBounds({ ...bounds, end: Math.min(MAX_TASK_DAY, Math.max(startDay, endDay + delta)) })
-  }
-
   return <div className="task-gantt" data-range-start={fromDay(startDay)} data-range-end={fromDay(endDay)}>
     <div className="task-gantt-tools">
       <div className="task-tool-group">
@@ -168,7 +205,7 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
       <div className="task-gantt-legend">{(['done', 'planned', 'missed'] as const).map(status => <span key={status}><i data-status={status} />{uiText(taskStatusLabels[status])}</span>)}</div>
     </div>
     <div className="task-gantt-frame" onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={() => { if (gesture.current) cancel() }}>
-      <div ref={scroller} className="task-gantt-scroller" onScroll={event => setScrollTop(event.currentTarget.scrollTop)}>
+      <div ref={scroller} className="task-gantt-scroller" tabIndex={0} aria-label={uiText('태스크 간트')}>
       <div className="task-gantt-content" style={{ width: `calc(var(--task-gantt-label-width) + ${width}px)` }}>
         <div ref={labels} className="task-gantt-labels" style={{ width: 'var(--task-gantt-label-width)' }}>
           <div className="task-gantt-label-header">{uiText('태스크')}</div>
@@ -178,7 +215,7 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
           </div>)}
           <div className="task-gantt-label task-gantt-new">{canEdit && <button type="button" disabled={totalTasks >= TASK_LIMIT} onClick={() => { const task = { id: uuid(), text: uiText('새 태스크'), done: false }; edit([...tasks, task]) }}><Plus width={14} height={14} aria-hidden="true" />{uiText('새 태스크')}</button>}</div>
         </div>
-        <div className="task-gantt-plot" style={{ width }}>
+        <div className="task-gantt-plot" style={{ width, transform: `translateX(${edgeOffset}px)` }}>
           <svg className="task-gantt-header" width={width} height={HEADER_H} aria-label={uiText('간트 날짜 눈금')}>
             <rect width={width} height={HEADER_H} fill="var(--color-surface)" />
             {majors.map((day, index) => <g key={day}><line x1={X(day)} x2={X(day)} y1={0} y2={HEADER_H} stroke="var(--color-edge)" /><text x={Math.max(0, X(day)) + 8} y={17} className="task-gantt-major">{tickLabel(day, major, locale)}</text>{index === 0 && day > startDay && <text x={8} y={17} className="task-gantt-major">{tickLabel(floorTo(startDay, major), major, locale)}</text>}</g>)}
@@ -222,10 +259,6 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
         </div>
       </div>
       </div>
-      {(['start', 'end'] as const).map(side => <button key={side} type="button" className="task-gantt-boundary" data-gantt-boundary={side} style={{ top: HEADER_H + Math.max(1, shown.length) * ROW_H / 2 - scrollTop }}
-        aria-label={uiText(side === 'start' ? '시작일' : '종료일')} data-tip={uiText(side === 'start' ? '시작일' : '종료일')}
-        onPointerDown={event => begin(event, side === 'start' ? 'range-start' : 'range-end', null)}
-        onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); adjustBoundary(side, (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 7 : 1)) } }}><span aria-hidden="true" /></button>)}
     </div>
     {pick && selected && createPortal(<GanttInspector pick={pick} task={selected} knownTags={knownTags} canEdit={canEdit} onClose={closePick} onEdit={item => edit(tasks.map(task => task.id === item.id ? item : task))} />, document.body)}
   </div>
