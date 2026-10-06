@@ -1,8 +1,8 @@
+import { createPortal } from 'react-dom'
 import { DockSettingsPanel } from './dock-settings-panel'
 import type { MobileDockPanel } from '../utils/mobile-dock'
 import { useMewcatFurColor, setMewcatFurColor } from '../hooks/use-mewcat-fur-color'
 import { DEFAULT_MEWCAT_FUR_COLOR } from '../utils/mewcat-fur-color'
-import { useToolPresentation, setToolPresentation } from '../hooks/use-tool-presentation'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useState } from 'react'
@@ -57,6 +57,7 @@ const SECTION_LABEL: Record<Section, TranslationKey> = {
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
 export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, mewcatHideDesktop, onMewcatHideDesktopChange, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
   useUiLocale()
+  const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null)
   const [section, setSection] = useState<Section>(email ? 'account' : 'appearance')
   // Mobile begins with the category list; the selected panel is a second screen.
   const [mobileSection, setMobileSection] = useState<Section | null>(null)
@@ -74,8 +75,8 @@ export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl
     ...(canEditIgnore ? (['ignore'] as Section[]) : []),
   ]
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 max-md:px-0 md:px-4" onClick={onClose}>
+  return createPortal(
+    <div ref={setPortalContainer} role="dialog" aria-modal="true" aria-label={t('settings.title')} style={{ zIndex: 2147483647 }} className="fixed inset-0 flex items-center justify-center bg-black/50 max-md:px-0 md:px-4" onClick={onClose}>
       <div
         className="flex max-h-[85vh] w-full max-w-2xl overflow-hidden rounded-lg border border-edge bg-surface-deep max-md:h-full max-md:max-h-none max-md:rounded-none"
         onClick={(e) => e.stopPropagation()}
@@ -135,6 +136,7 @@ export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl
             {section === 'account' && email && <AccountPanel email={email} displayName={displayName} avatarDataUrl={avatarDataUrl} onLoggedOut={onLoggedOut} onProfileChanged={onProfileChanged} />}
             {section === 'appearance' && (
               <AppearancePanel
+                portalContainer={portalContainer}
                 theme={theme}
                 fonts={fontPreferences}
                 themeColor={themeColor}
@@ -150,7 +152,7 @@ export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl
           </div>
         </div>
       </div>
-    </div>
+    </div>, document.body
   )
 }
 
@@ -384,19 +386,20 @@ function AppearancePanel({
   theme,
   fonts,
   themeColor,
+  portalContainer,
   onToggleTheme,
   onFontsChange,
   onThemeColorChange,
 }: {
   theme: Theme
   fonts: FontPreferences
+  portalContainer: HTMLElement | null
   themeColor: string
   onToggleTheme: () => void
   onFontsChange: (fonts: FontPreferences) => void
   onThemeColorChange: (color: string) => void
 }) {
   useUiLocale()
-  const presentation = useToolPresentation()
   const { locale, setLocale, t } = useI18n()
   function select(next: Theme) {
     if (theme !== next) onToggleTheme()
@@ -406,12 +409,6 @@ function AppearancePanel({
 
   return (
     <div className="flex flex-col gap-3">
-      {(['memo', 'tasks'] as const).map(tool => <div key={tool} className="flex items-center justify-between gap-3">
-        <span className="text-sm">{uiText(tool === 'memo' ? '메모 (PC)' : '태스크 (PC)')}</span>
-        <div className="flex overflow-hidden rounded border border-edge-strong text-sm">
-          {(['tab', 'popup'] as const).map(mode => <button key={mode} type="button" aria-pressed={presentation[tool] === mode} className={optionClass(presentation[tool] === mode)} onClick={() => setToolPresentation(tool, mode)}>{uiText(mode === 'tab' ? '탭' : '팝업')}</button>)}
-        </div>
-      </div>)}
       <div className="text-sm font-medium">{t('settings.theme')}</div>
       <div className="flex w-max overflow-hidden rounded border border-edge-strong text-sm">
         <button type="button" onClick={() => select('light')} className={optionClass(theme === 'light')}>
@@ -433,7 +430,7 @@ function AppearancePanel({
           {t('settings.language')}
         </div>
         <div className="mt-2 max-w-xs">
-          <SelectField label={t('settings.language')} value={locale}
+          <SelectField portalContainer={portalContainer} label={t('settings.language')} value={locale}
             options={LOCALES.map((value) => ({ value, label: LOCALE_NAMES[value] }))}
             onChange={(value) => setLocale(value as Locale)} />
         </div>
@@ -453,7 +450,7 @@ function AppearancePanel({
               <span className="text-xs font-medium text-ink-secondary">{t(`settings.font.${kind}`)}</span>
               <div className="mt-1 flex gap-2">
                 <div className="min-w-0 flex-1" style={{ fontFamily: kind === 'mono' ? 'var(--font-mono)' : kind === 'markdown' ? 'var(--mew-font-markdown)' : 'var(--font-sans)' }}>
-                  <SelectField editable label={t(`settings.font.${kind}`)} value={fonts[kind]}
+                  <SelectField portalContainer={portalContainer} editable label={t(`settings.font.${kind}`)} value={fonts[kind]}
                     options={FONT_SUGGESTIONS.map((font) => ({ value: font, label: font }))}
                     onChange={(value) => onFontsChange({ ...fonts, [kind]: value })} />
                 </div>

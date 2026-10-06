@@ -1,3 +1,4 @@
+import { ToolPresentationToggle } from './tool-presentation-toggle'
 import { PanelCloseButton } from './panel-close-button'
 import { useRef } from 'react'
 import { Notes } from 'iconoir-react'
@@ -34,6 +35,7 @@ export function SharedMemo({ session, open }: { session: SharedMemoSession; open
           </svg>
         </button>)}
       </div>
+      <ToolPresentationToggle tool="memo" />
       <PanelCloseButton onClick={close} aria-label={uiText('닫기')} />
     </header>
     <DockInlineBody group="memo" className="flex min-h-0 flex-1 flex-col overflow-hidden">

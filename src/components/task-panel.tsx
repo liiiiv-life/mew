@@ -1,3 +1,4 @@
+import { ToolPresentationToggle } from './tool-presentation-toggle'
 import { TaskAssigneeProvider } from './task-assignee-context'
 import { taskAssignees } from '../../shared/task-assignees'
 import { TaskTagColorContext } from './task-tag-color-context'
@@ -170,6 +171,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
           event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
         }}><Icon width={14} height={14} aria-hidden="true" />{uiText(label)}</button>)}
       </div>
+      <ToolPresentationToggle tool="tasks" />
       <button type="button" onClick={onClose} aria-label={uiText('닫기')} data-tip={uiText('닫기')}
         className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"><Xmark width={14} height={14} aria-hidden="true" /></button>
     </header>
