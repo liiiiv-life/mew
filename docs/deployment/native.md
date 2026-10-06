@@ -170,3 +170,7 @@ sudo systemctl status mew
 | --- | --- | --- |
 | `GET /api/updates/status` | manager·owner | 설치된 항목·버전·실행 가능 여부·직전 작업 상태. `?refresh=1`로 원격 재조회 |
 | `POST /api/updates/run` | manager·owner | `{ ids: string[] }`로 등록된 설치 항목의 개별·일괄 업데이트 요청. 즉시 작업 상태 응답 |
+
+### 화면에서 실행하는 업데이트 런타임
+
+화면 업데이트는 실행 중인 서버의 Node 절대경로를 사용한다. 작업 스크립트는 Bash로 호출하고, 의존성 설치·빌드 PATH와 서버 재시작(`MEW_NODE`)도 같은 Node로 고정한다. tmux 환경의 다른 Node 버전이나 `mew` 실행 비트 누락으로 인한 시작 실패를 방지한다. 실패 이유·단계와 재시도 상태는 업데이트 화면에 남으며 기존 main/프로세스 관리자 경계는 유지한다.

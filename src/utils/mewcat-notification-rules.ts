@@ -7,6 +7,7 @@ export interface NoticeInput {
   kind: NoticeKind
   level: NoticeLevel
   source: string
+  updateVersions?: string[]
   target?: { tabId: string; cwd: string; workspacePath?: string } | 'system' | 'updates'
 }
 

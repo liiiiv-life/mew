@@ -6,8 +6,9 @@ import { MEW_APP_ROOT, writeMewUpdateJob } from './mewUpdate.ts'
 const startedAt = Date.now()
 writeMewUpdateJob({ state: 'running', startedAt, finishedAt: null, message: null })
 
-const child = spawn(path.join(MEW_APP_ROOT, 'mew'), ['update'], {
+const child = spawn('bash', [path.join(MEW_APP_ROOT, 'mew'), 'update'], {
   cwd: MEW_APP_ROOT,
+  env: { ...process.env, MEW_NODE: process.execPath, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}` },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 

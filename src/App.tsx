@@ -545,7 +545,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       setMewUpdate(mew)
       if (mew.running || mew.job?.state === 'queued' || mew.job?.state === 'running') setMewUpdating(true)
       const labels = [...(mew.available ? ['Mew'] : []), ...dependencies.items.filter(item => item.available).map(item => item.label)]
-      if (labels.length) publishMewcatNotice({ key: 'updates:available', kind: 'updates', level: 'warning', source: uiText('{p0}개 업데이트: {p1}', { p0: labels.length, p1: labels.slice(0, 3).join(', ') + (labels.length > 3 ? '…' : '') }), target: 'updates' })
+      if (labels.length) publishMewcatNotice({ updateVersions: [...(mew.available && mew.remoteHash ? [`mew:${mew.remoteHash}`] : []), ...dependencies.items.filter(item => item.available && item.latest).map(item => `${item.id}:${item.latest}`)], key: 'updates:available', kind: 'updates', level: 'warning', source: uiText('{p0}개 업데이트: {p1}', { p0: labels.length, p1: labels.slice(0, 3).join(', ') + (labels.length > 3 ? '…' : '') }), target: 'updates' })
     }).catch(() => { /* Each failed check remains visible in the update screen. */ })
     return () => { alive = false }
   }, [caps.system, refreshMewUpdate])

@@ -143,10 +143,11 @@ const ANCHOR_PREVIEW_MIN_BYTES = 512 * 1024
 const DEFAULT_ANCHOR_CHUNK_LINES = 400
 const MAX_ANCHOR_CHUNK_LINES = 2_000
 // 앱 자체 작업은 서버가 등록한 값만 실행한다. 브라우저가 명령 문자열을 보낼 수는 없다.
+const quoteShell = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
 const MEW_ACTIONS = {
   restart: { command: './mew restart', session: 'mewcmd-mew-restart' },
   build: { command: 'npm run build', session: 'mewcmd-mew-build' },
-  update: { command: 'node server/runMewUpdate.ts', session: MEW_UPDATE_SESSION },
+  update: { command: `${quoteShell(process.execPath)} server/runMewUpdate.ts`, session: MEW_UPDATE_SESSION },
 } as const
 
 const UPLOAD_TEMP_DIR = path.join(DATA_DIR, 'uploads')

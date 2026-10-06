@@ -158,7 +158,7 @@ start_server() {
   if pid=$(running_pid); then say "already running (pid $pid) — $(url)"; return 0; fi
   [ -f dist/index.html ] || die "not built yet — run: ./mew setup"
   mkdir -p "$STATE_DIR"
-  nohup node server/serve.ts >>"$LOG" 2>&1 &
+  nohup "${MEW_NODE:-node}" server/serve.ts >>"$LOG" 2>&1 &
   echo $! >"$PIDFILE"
   disown || true
   sleep 1

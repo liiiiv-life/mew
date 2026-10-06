@@ -13,6 +13,12 @@ export function parseNotificationPreferences(raw: string | null): NotificationPr
 }
 let preferences = { ...defaults }
 try { preferences = parseNotificationPreferences(localStorage.getItem(NOTIFICATION_KEY)) } catch { /* restricted storage */ }
+const dismissedUpdateKey = 'mew:dismissed-update-versions'
+const dismissedUpdates = new Set<string>()
+try {
+  const saved: unknown = JSON.parse(localStorage.getItem(dismissedUpdateKey) ?? '[]')
+  if (Array.isArray(saved)) for (const version of saved) if (typeof version === 'string') dismissedUpdates.add(version)
+} catch { /* session-only dismissal */ }
 let notices: MewcatNotice[] = []
 let sequence = 0
 const recent = new Map<string, number>()
@@ -28,6 +34,7 @@ export function setNotificationPreferences(patch: Partial<NotificationPreference
   emit()
 }
 export function publishMewcatNotice(input: NoticeInput) {
+  if (input.kind === 'updates' && input.updateVersions?.length && input.updateVersions.every(version => dismissedUpdates.has(version))) return
   const now = Date.now()
   // Repeated errors / duplicate sockets must not flood the queue or audio output.
   if (now - (recent.get(input.key) ?? -Infinity) < 30_000) return
@@ -39,9 +46,15 @@ export function publishMewcatNotice(input: NoticeInput) {
   emit()
   deliveries.forEach(deliver => deliver(notice))
 }
-export function dismissMewcatNotice(id: number) { notices = notices.filter(notice => notice.id !== id); emit() }
+export function dismissMewcatNotice(id: number) {
+  const notice = notices.find(item => item.id === id)
+  if (notice?.kind === 'updates') {
+    for (const version of notice.updateVersions ?? []) dismissedUpdates.add(version)
+    try { localStorage.setItem(dismissedUpdateKey, JSON.stringify([...dismissedUpdates].slice(-512))) } catch { /* session-only dismissal */ }
+  }
+  notices = notices.filter(notice => notice.id !== id); emit() }
 export function resolveMewcatNotice(key: string) { notices = notices.filter(notice => notice.key !== key); emit() }
-export function clearMewcatNotices() { notices = []; emit() }
+export function clearMewcatNotices() { for (const notice of [...notices]) dismissMewcatNotice(notice.id) }
 export function onMewcatNotice(deliver: (notice: MewcatNotice) => void) { deliveries.add(deliver); return () => { deliveries.delete(deliver) } }
 export const OPEN_NOTICE_EVENT = 'mew:open-notification'
 export function openMewcatNotice(notice: MewcatNotice) {
