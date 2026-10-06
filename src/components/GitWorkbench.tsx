@@ -274,10 +274,24 @@ function BackIcon() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
 }
 
-function GitSplitHandle({ ratio, onChange }: { ratio: number; onChange: (ratio: number) => void }) {
+const CHANGES_MIN_HEIGHT = 36 + 28 * 1.5
+
+function GitSplitHandle({ ratio, onChange, composerOpen }: { ratio: number; onChange: (ratio: number) => void; composerOpen: boolean }) {
   useUiLocale()
   const drag = useRef<{ pointerId: number; y: number; ratio: number; height: number } | null>(null)
-  const update = (value: number) => onChange(Math.max(0.15, Math.min(0.85, value)))
+  const handle = useRef<HTMLDivElement>(null)
+  const [availableHeight, setAvailableHeight] = useState(0)
+  useLayoutEffect(() => {
+    const parent = handle.current?.parentElement
+    if (!parent) return
+    const measure = () => setAvailableHeight(Math.max(1, parent.clientHeight - 4))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [])
+  const maxRatio = composerOpen || !availableHeight ? 0.85 : Math.max(0.15, 1 - CHANGES_MIN_HEIGHT / availableHeight)
+  const update = (value: number) => onChange(Math.max(0.15, Math.min(maxRatio, value)))
   const move = (event: ReactPointerEvent<HTMLDivElement>) => {
     const active = drag.current
     if (active?.pointerId === event.pointerId) update(active.ratio + (event.clientY - active.y) / active.height)
@@ -287,11 +301,11 @@ function GitSplitHandle({ ratio, onChange }: { ratio: number; onChange: (ratio: 
     drag.current = null
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
-  return <div role="separator" tabIndex={0} aria-label={uiText("커밋 기록과 변경사항 높이 조절")} aria-orientation="horizontal"
-    aria-valuemin={15} aria-valuemax={85} aria-valuenow={Math.round(ratio * 100)}
+  return <div ref={handle} role="separator" tabIndex={0} aria-label={uiText("커밋 기록과 변경사항 높이 조절")} aria-orientation="horizontal"
+    aria-valuemin={15} aria-valuemax={Math.round(maxRatio * 100)} aria-valuenow={Math.round(ratio * 100)}
     className="relative z-10 h-1 shrink-0 cursor-row-resize touch-none bg-edge before:absolute before:-inset-y-1 before:inset-x-0 hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
     onKeyDown={(event) => {
-      const next = event.key === 'ArrowUp' ? ratio - 0.05 : event.key === 'ArrowDown' ? ratio + 0.05 : event.key === 'Home' ? 0.15 : event.key === 'End' ? 0.85 : null
+      const next = event.key === 'ArrowUp' ? ratio - 0.05 : event.key === 'ArrowDown' ? ratio + 0.05 : event.key === 'Home' ? 0.15 : event.key === 'End' ? maxRatio : null
       if (next !== null) { event.preventDefault(); event.stopPropagation(); update(next) }
     }}
     onPointerDown={(event) => {
@@ -797,8 +811,8 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
                 ))}
               </div>
             </section>
-            <GitSplitHandle ratio={splitRatio} onChange={setSplitRatio} />
-            <section aria-label={uiText("현재 변경사항")} className="flex min-h-0 flex-col overflow-hidden" style={{ flex: `${1 - splitRatio} 1 0`, minHeight: 'min(224px, 75%)' }}>
+            <GitSplitHandle ratio={splitRatio} onChange={setSplitRatio} composerOpen={composerOpen} />
+            <section aria-label={uiText("현재 변경사항")} className="flex min-h-0 flex-col overflow-hidden" style={{ flex: `${1 - splitRatio} 1 0`, minHeight: `min(${composerOpen ? 224 : CHANGES_MIN_HEIGHT}px, 75%)` }}>
               <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs">
                 <input type="checkbox" aria-label={uiText("변경 파일 전체 선택")} checked={workingTree.files.length > 0 && selectedFiles.size === workingTree.files.length} ref={node => { if (node) node.indeterminate = selectedFiles.size > 0 && selectedFiles.size < workingTree.files.length }} disabled={busy || workingTree.files.length === 0} onChange={event => setSelectedFiles(new Set(event.target.checked ? workingTree.files.map(file => file.path) : []))} className="h-4 w-4 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
                 <span className="shrink-0 whitespace-nowrap tabular-nums text-ink-muted"><span role="status" aria-label={uiText("{count}개 선택", { count: selectedFiles.size })}>{selectedFiles.size}</span> / {workingTree.files.length}</span>
