@@ -1,5 +1,5 @@
 import { PanelCloseButton } from './panel-close-button'
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react'
 import { SelectField } from '@mew/ui'
 import { NavArrowDown, NavArrowRight, RefreshDouble, Page, Sort } from 'iconoir-react'
 import { featureRows, type Feature, type FeatureRun, type FeatureSort, type FeatureStatus } from '../../shared/features'
@@ -45,6 +45,54 @@ function FeatureTitle({ feature, canEdit, workspace, onSaved }: { feature: Featu
       }} />
     {error && <p role="alert" className="select-text text-xs text-danger">{error}</p>}
   </div>
+}
+type FeatureRow = ReturnType<typeof featureRows>[number]
+interface FeatureTreeContext {
+  workspace: string
+  copy: FeatureCopy
+  canEdit: boolean
+  busy: boolean
+  collapsed: ReadonlySet<string>
+  childrenByParent: Map<string | null, FeatureRow[]>
+  toggle: (id: string) => void
+  onOpenFile: (path: string) => void
+  onSaved: () => Promise<void>
+}
+function FeatureTreeNode({ row: { feature, depth, hasChildren }, ctx, stickyTop = 0 }: { row: FeatureRow; ctx: FeatureTreeContext; stickyTop?: number }) {
+  const header = useRef<HTMLDivElement>(null)
+  const [headerHeight, setHeaderHeight] = useState(32)
+  const open = hasChildren && !ctx.collapsed.has(feature.id)
+  useLayoutEffect(() => {
+    if (!hasChildren || !header.current) return
+    const element = header.current
+    const measure = () => {
+      const height = element.getBoundingClientRect().height
+      if (height > 0) setHeaderHeight(height)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [hasChildren])
+  return <li data-feature-node={feature.id} className="isolate min-w-0">
+    <div ref={header} data-feature-header data-feature-sticky-depth={open ? depth : undefined}
+      className={`flex min-h-8 items-start rounded hover:bg-surface-raised ${open ? 'sticky z-20 bg-surface' : ''}`}
+      style={{ paddingLeft: depth * 14 + 4, top: open ? stickyTop : undefined }}>
+      {hasChildren ? <button className="flex h-8 w-5 shrink-0 items-center justify-center text-ink-secondary focus-visible:outline-2 focus-visible:outline-ink" type="button" aria-label={`${feature.title} ${open ? ctx.copy.collapse : ctx.copy.expand}`} aria-expanded={open} onClick={() => ctx.toggle(feature.id)}>
+        {open ? <NavArrowDown width={13} height={13} aria-hidden="true" /> : <NavArrowRight width={13} height={13} aria-hidden="true" />}
+      </button> : <span data-feature-leaf aria-hidden="true" className="flex h-8 w-5 shrink-0 items-center justify-center text-ink-muted">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="6" cy="6" r="2" /></svg>
+      </span>}
+      <div data-feature-id={feature.id} className="flex min-h-8 min-w-0 flex-1 items-center gap-2 pr-2 text-sm font-medium text-ink" title={feature.title} style={{ scrollMarginTop: stickyTop }}>
+        <Status status={feature.status} copy={ctx.copy} />
+        <FeatureTitle key={ctx.workspace} feature={feature} canEdit={ctx.canEdit && !!feature.documentPath} workspace={ctx.workspace} onSaved={ctx.onSaved} />
+      </div>
+      {feature.documentPath && <button type="button" title={`${ctx.copy.document}: ${feature.documentPath}`} aria-label={`${ctx.copy.document}: ${feature.documentPath}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-40" disabled={ctx.busy} onClick={() => ctx.onOpenFile(feature.documentPath!)}><Page width={15} height={15} aria-hidden="true" /></button>}
+    </div>
+    {open && <ul className="feature-tree-children relative min-w-0" data-feature-children={feature.id} style={{ '--feature-guide-left': `${depth * 14 + 12}px` } as React.CSSProperties}>
+      {ctx.childrenByParent.get(feature.id)?.map(row => <FeatureTreeNode key={row.feature.id} row={row} ctx={ctx} stickyTop={stickyTop + headerHeight} />)}
+    </ul>}
+  </li>
 }
 export function FeatureDevelopment({ workspace, onClose, onOpenFile, requestCloseRef, initialState, onChange }: {
   workspace: string; onClose: () => void; onOpenFile: (path: string) => void; onOpenAgent: (run: FeatureRun) => void; canUseGit?: boolean; requestCloseRef?: Ref<(action?: () => void) => void>; initialState?: unknown; onChange?: (state: FeaturePanelState) => void
@@ -106,17 +154,7 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, requestClos
   }, [rows])
   const branches = useMemo(() => new Set((data?.features ?? []).flatMap(feature => feature.parentId ? [feature.parentId] : [])), [data?.features])
   const allExpanded = [...branches].every(id => expanded.has(id))
-  const renderFeature = ({ feature, depth, hasChildren }: (typeof rows)[number]): ReactNode => <li key={feature.id} data-feature-node={feature.id} style={{ marginLeft: depth > 0 && depth <= 6 ? 12 : 0 }} className="min-w-0">
-    <div data-feature-header className="flex min-h-8 items-start rounded hover:bg-surface-raised">
-      {hasChildren ? <button className="flex h-8 w-5 shrink-0 items-center justify-center text-ink-secondary focus-visible:outline-2 focus-visible:outline-ink" type="button" aria-label={`${feature.title} ${collapsed.has(feature.id) ? copy.expand : copy.collapse}`} aria-expanded={!collapsed.has(feature.id)} onClick={() => toggle(feature.id)}>{collapsed.has(feature.id) ? <NavArrowRight width={13} height={13} aria-hidden="true" /> : <NavArrowDown width={13} height={13} aria-hidden="true" />}</button> : <span className="w-5 shrink-0" aria-hidden="true" />}
-      <div data-feature-id={feature.id} className="flex min-h-8 min-w-0 flex-1 items-center gap-2 pr-2 text-sm font-medium text-ink" title={feature.title}>
-        <Status status={feature.status} copy={copy} />
-        <FeatureTitle key={workspace} feature={feature} canEdit={!!data?.canEdit && !!feature.documentPath} workspace={workspace} onSaved={refresh} />
-      </div>
-      {feature.documentPath && <button type="button" title={`${copy.document}: ${feature.documentPath}`} aria-label={`${copy.document}: ${feature.documentPath}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-40" disabled={busy} onClick={() => onOpenFile(feature.documentPath!)}><Page width={15} height={15} aria-hidden="true" /></button>}
-    </div>
-    {hasChildren && !collapsed.has(feature.id) && <ul className="mb-1 ml-2.5 min-w-0 border-l border-edge pl-2.5" data-feature-children={feature.id}>{childrenByParent.get(feature.id)?.map(renderFeature)}</ul>}
-  </li>
+  const treeContext: FeatureTreeContext = { workspace, copy, canEdit: !!data?.canEdit, busy, collapsed, childrenByParent, toggle, onOpenFile, onSaved: refresh }
   return <section ref={panel} aria-labelledby={heading} aria-busy={busy} data-feature-panel className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface">
       <header data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
         <DockGrip group="features" />
@@ -139,7 +177,7 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, requestClos
         {loading && !data && <p role="status" className="p-3 text-xs text-ink-secondary">{copy.load}</p>}
         {data && !rows.length && <p className="px-3 py-8 text-center text-sm text-ink-secondary">{copy.empty}</p>}
         <ul>
-          {(childrenByParent.get(null) ?? []).map(renderFeature)}
+          {(childrenByParent.get(null) ?? []).map(row => <FeatureTreeNode key={row.feature.id} row={row} ctx={treeContext} />)}
         </ul>
       </div>
     </section>

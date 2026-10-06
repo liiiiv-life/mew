@@ -1,3 +1,13 @@
+.feature-tree-children::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset-block: 0;
+  left: var(--feature-guide-left);
+  width: 1px;
+  z-index: 10;
+  background: var(--color-edge-strong);
+}
 .feature-sort-field { min-width: 0; max-width: 160px; }
 .feature-sort-trigger { display: flex; align-items: center; gap: 5px; max-width: 100%; height: 28px; padding: 0 7px; border-radius: 5px; color: var(--color-ink-secondary); font-size: 12px; line-height: 18px; }
 .feature-sort-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
