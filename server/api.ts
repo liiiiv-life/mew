@@ -1,3 +1,4 @@
+import { createDebuggerRouter } from './debugger-routes.ts'
 import { mergeTaskFrontmatter, TaskFrontmatterConflict } from '../packages/editor/src/utils/task-frontmatter-merge.ts'
 import { runAccountWorkspace } from './account-workspace.ts'
 import { recordChangeIp, requestIp } from './change-ip.ts'
@@ -400,6 +401,7 @@ export function createApiApp() {
   app.use((_req, res, next) => { res.setHeader('Cache-Control', 'private, no-store'); next() })
   app.use(filePermissionMiddleware)
   app.use('/task-list', createTaskListRouter())
+  app.use('/debugger', createDebuggerRouter())
   app.use((req, res, next) => {
     if ((req.headers['x-mew-git-owner'] && req.headers['x-mew-git-owner'] !== encodeURIComponent(authOf(req).email ?? '')) || (req.headers['x-mew-git-workspace'] && req.headers['x-mew-git-workspace'] !== encodeURIComponent(workspacePaths.root))) { res.status(409).json({ error: '계정 또는 프로젝트가 변경되었습니다. 다시 실행하세요.' }); return }
     gitRequestContext.run({ owner: authOf(req).email, workspace: workspacePaths.root }, next)

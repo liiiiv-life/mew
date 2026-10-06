@@ -5,7 +5,7 @@ import { useMewcatFurColor, setMewcatFurColor } from '../hooks/use-mewcat-fur-co
 import { DEFAULT_MEWCAT_FUR_COLOR } from '../utils/mewcat-fur-color'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ColorPicker, SelectField, useOverlayDismiss } from '@mew/ui'
 import { changePassword, fetchIgnoreList, logout, saveIgnoreList, updateProfile } from '../api/client'
 import { DEFAULT_SHORTCUTS, formatKeyCombo, resetAllBindings, resetBinding, setBinding, useShortcutBindings } from '@mew/shortcuts'
@@ -17,12 +17,17 @@ import { MewcatMark } from './Mewcat'
 import { MewcatNotificationSettings } from './mewcat-notifications'
 import { MewcatBreakSettings } from './mewcat-break'
 
+const DebuggerSettings = lazy(() => import('./debugger-settings'))
+
 const PASSWORD_MIN_LENGTH = 10
 
-type Section = 'account' | 'appearance' | 'notifications' | 'dock' | 'mewcat' | 'shortcuts' | 'ignore'
+type Section = 'debugger' | 'account' | 'appearance' | 'notifications' | 'dock' | 'mewcat' | 'shortcuts' | 'ignore'
 type Theme = 'dark' | 'light'
 
 interface SettingsModalProps {
+  initialDebugger?: boolean
+  debuggerRoot?: string
+  onOpenDebugger?: () => void
   dockAvailable?: readonly MobileDockPanel[]
   /** 로그인한 사용자의 이메일 — 게스트면 null이라 계정 탭을 숨긴다 */
   email: string | null
@@ -46,6 +51,7 @@ interface SettingsModalProps {
 }
 
 const SECTION_LABEL: Record<Section, TranslationKey> = {
+  debugger: 'settings.debugger',
   account: 'settings.account',
   appearance: 'settings.appearance',
   dock: 'settings.dock',
@@ -56,12 +62,12 @@ const SECTION_LABEL: Record<Section, TranslationKey> = {
 }
 
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
-export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, mewcatHideDesktop, onMewcatHideDesktopChange, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
+export function SettingsModal({ initialDebugger, debuggerRoot, onOpenDebugger, dockAvailable, email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, mewcatHideDesktop, onMewcatHideDesktopChange, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
   useUiLocale()
   const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null)
-  const [section, setSection] = useState<Section>(email ? 'account' : 'appearance')
+  const [section, setSection] = useState<Section>(debuggerRoot && initialDebugger ? 'debugger' : email ? 'account' : 'appearance')
   // Mobile begins with the category list; the selected panel is a second screen.
-  const [mobileSection, setMobileSection] = useState<Section | null>(null)
+  const [mobileSection, setMobileSection] = useState<Section | null>(section === 'debugger' ? 'debugger' : null)
   const { t } = useI18n()
 
   // Esc·모바일 뒤로가기로 이 창만 닫는다 (뒤의 사이드바·터미널은 그대로)
@@ -72,6 +78,7 @@ export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl
     'appearance',
     'notifications',
     'dock',
+    ...(debuggerRoot ? (['debugger'] as Section[]) : []),
     'mewcat',
     'shortcuts',
     ...(canEditIgnore ? (['ignore'] as Section[]) : []),
@@ -148,6 +155,7 @@ export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl
               />
             )}
             {section === 'notifications' && <MewcatNotificationSettings hasCat={mewcatSkin !== null} />}
+            {section === 'debugger' && debuggerRoot && <Suspense fallback={<div role="status">…</div>}><DebuggerSettings key={debuggerRoot} root={debuggerRoot} portalContainer={portalContainer} onOpen={onOpenDebugger ?? onClose} /></Suspense>}
             {section === 'dock' && <DockSettingsPanel available={dockAvailable} />}
             {section === 'mewcat' && <><MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} /><label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink"><input type="checkbox" checked={mewcatHideDesktop} onChange={event => onMewcatHideDesktopChange(event.target.checked)} className="accent-accent" />{uiText("원격 데스크톱에서 뮤캣 숨기기")}</label><MewcatBreakSettings /></>}
             {section === 'shortcuts' && <ShortcutsPanel />}

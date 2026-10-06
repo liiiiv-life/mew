@@ -1,4 +1,4 @@
-export type DockKind = 'editor' | 'agent' | 'terminal' | 'browser' | 'git' | 'features' | 'memo' | 'tasks'
+export type DockKind = 'editor' | 'agent' | 'terminal' | 'browser' | 'git' | 'features' | 'memo' | 'tasks' | 'debugger'
 export type DockSide = 'left' | 'right' | 'top' | 'bottom'
 export type DockNode = { id: string } | { axis: 'row' | 'col'; ratio: number; first: DockNode; second: DockNode }
 export type DockGroup = { id: string; kind: DockKind }
@@ -26,7 +26,7 @@ export function defaultDockTree(editor: DockNode | null, groups: DockGroup[]): D
   const split = (axis: 'row' | 'col', ratio: number, first: DockNode | null, second: DockNode | null): DockNode | null =>
     first && second ? { axis, ratio, first, second } : first ?? second
   const editing = split('col', .69, editor, panel('terminal'))
-  const tools = split('col', .4, panel('git'), panel('agent'))
+  const tools = split('col', .4, panel('git'), split('col', .65, panel('agent'), panel('debugger')))
   const work = split('row', 2 / 3, editing, tools)
   const planning = split('col', .57, panel('features'), panel('tasks'))
   return split('row', .74, work, planning)
@@ -86,7 +86,7 @@ export function dockRects(tree: DockNode | null, rect: DockRect, result: Record<
 export function normalizeDock(value: unknown): DockState {
   if (!value || typeof value !== 'object' || (value as DockState).version !== 1) return emptyDock()
   const raw = value as DockState, seen = new Set<string>()
-  const groups = Array.isArray(raw.groups) ? raw.groups.filter((g) => g && typeof g.id === 'string' && g.id.length < 300 && ['editor', 'agent', 'terminal', 'browser', 'git', 'features', 'memo', 'tasks'].includes(g.kind) && !seen.has(g.id) && !!seen.add(g.id)).slice(0, 64) : []
+  const groups = Array.isArray(raw.groups) ? raw.groups.filter((g) => g && typeof g.id === 'string' && g.id.length < 300 && ['editor', 'agent', 'terminal', 'browser', 'git', 'features', 'memo', 'tasks', 'debugger'].includes(g.kind) && !seen.has(g.id) && !!seen.add(g.id)).slice(0, 64) : []
   const used = new Set<string>()
   const walk = (node: DockNode | null, depth = 0): DockNode | null => {
     if (!node || typeof node !== 'object' || depth > 32) return null

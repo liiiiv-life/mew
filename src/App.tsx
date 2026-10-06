@@ -19,7 +19,7 @@ import { useFocusedWorkspacePanel } from './hooks/use-focused-workspace-panel'
 import { defaultCapabilities, type Feature } from '../shared/access-policy'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { WorkspaceSnapshotCache } from './utils/workspace-snapshot-cache'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createEditorApi,
   fetchAuthStatus,
@@ -132,6 +132,8 @@ function toggleFullscreen() {
     return keyboard?.lock(['KeyW']).catch(() => {})
   }).catch(() => {})
 }
+
+const DebuggerPanel = lazy(() => import('./components/debugger-panel'))
 
 const isDesktop = () => window.matchMedia('(min-width: 768px)').matches
 
@@ -250,6 +252,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const isOwner = role === 'owner'
   const caps = useMemo(() => auth.capabilities ?? defaultCapabilities(role), [auth.capabilities, role])
   const canUseTerminal = caps.terminal
+  const canDebug = caps.terminal && (auth.role === 'owner' || auth.role === 'manager')
 
   // 사용자에게 보이는 프로젝트는 서버가 현재 연 루트 폴더다. 내부 API 식별자는 호환을 위해
   // `.workspace` 안에서 편집 상태를 공유하고 Documents 파일의 API 스코프는 별도로 유지한다.
@@ -329,6 +332,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const dockRef = useRef<DockHandle>(null)
   const [terminalOpen, setTerminalOpen] = useState(() => canUseTerminal && (localStorage.getItem(TERMINAL_OPEN_KEY) !== null ? localStorage.getItem(TERMINAL_OPEN_KEY) === '1' : localStorage.getItem(LEGACY_TMUX_OPEN_KEY) === '1' || localStorage.getItem(AGENT_OPEN_KEY) === '1'))
   const [featuresOpen, setFeaturesOpen] = useState(false)
+  const [debuggerOpen, setDebuggerOpen] = useState(false)
   const featureCloseRef = useRef<((action?: () => void) => void) | null>(null)
   const [featureAgentTab, setFeatureAgentTab] = useState<AgentTab | null>(null)
   const [agentOpen, setAgentOpen] = useState(() => caps.agent && localStorage.getItem(AGENT_OPEN_KEY) === '1')
@@ -366,6 +370,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       if (panel === 'tasks') return tasksOpen
       if (panel === 'memo') return memoOpen
       if (panel === 'features') return featuresOpen
+      if (panel === 'debugger') return debuggerOpen
       return androidOpen
     }),
   )
@@ -385,6 +390,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     window.dispatchEvent(new CustomEvent('mew:mewcat-agent-ready', { detail: runtime }))
   }, [selectMewcatRuntime])
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [debuggerSettingsRequested, setDebuggerSettingsRequested] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
   const [dbListOpen, setDbListOpen] = useState(false)
   const [sysStatsOpen, setSysStatsOpen] = useState(false)
@@ -404,8 +410,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     tasks: tasksOpen,
     memo: memoOpen,
     features: featuresOpen,
+    debugger: debuggerOpen,
   } satisfies Record<WorkspacePanelId, boolean>), [
-    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen, tasksOpen,
+    sidebarOpen, chatOpen, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, debuggerOpen, memoOpen, tasksOpen,
   ])
   const workspacePanelSetters = useMemo(() => ({
     sidebar: setSidebarOpen,
@@ -418,6 +425,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     tasks: setTasksOpen,
     memo: setMemoOpen,
     features: setFeaturesOpen,
+    debugger: setDebuggerOpen,
   } satisfies Record<WorkspacePanelId, (open: boolean) => void>), [])
 
   const mobileForegroundPanel = mobilePanelStack.at(-1) ?? null
@@ -791,6 +799,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     setActiveProject(WORKSPACE_PROJECT)
     setRootProjectPath(info.path)
     setFeaturesOpen(false)
+    setDebuggerOpen(false)
     // 계정 UI·탭 복원을 기다리지 않고, 워크스페이스를 받은 첫 렌더부터 직전 모바일
     // 전면 화면을 올린다. 그렇지 않으면 빈 에디터의 자동 사이드바가 잠깐 보인다.
     if (!isDesktop()) {
@@ -1105,7 +1114,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     open: { ...workspacePanelOpen, editor: editorOpen }, sidebarWidth, androidWidth,
     tools: toolPresentation, popups: { memo: loadFloatingRect(popupKey('memo')), tasks: loadFloatingRect(popupKey('tasks')) },
   })
-  const permitted: Record<WorkspacePanelId, boolean> = { sidebar: caps.filesRead, chat: caps.chat, android: caps.android, agent: caps.agent, terminal: canUseTerminal, git: caps.git, browser: caps.browser, features: caps.agent && !!rootProjectPath, tasks: caps.filesRead && !!auth.email, memo: caps.collaboration && !!auth.email }
+  const permitted: Record<WorkspacePanelId, boolean> = { sidebar: caps.filesRead, chat: caps.chat, android: caps.android, agent: caps.agent, terminal: canUseTerminal, git: caps.git, browser: caps.browser, features: caps.agent && !!rootProjectPath, debugger: canDebug && !!auth.email && !!rootProjectPath, tasks: caps.filesRead && !!auth.email, memo: caps.collaboration && !!auth.email }
   const layoutFactory = factoryLayout(captureLayout())
   for (const panel of WORKSPACE_PANEL_IDS) layoutFactory.open[panel] &&= permitted[panel]
   const applyLayoutPreset = (next: LayoutSnapshot) => {
@@ -1154,6 +1163,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     tasks: { open: tasksOpen, close: () => closeWorkspacePanel('tasks') },
     memo: { open: memoOpen, close: memoSession.close },
     features: { open: featuresOpen, close: () => featureCloseRef.current?.() },
+    debugger: { open: debuggerOpen, close: () => closeWorkspacePanel('debugger') },
   }, mobileForegroundPanel, {
     enabled: !isDesktop() && workspaceUiLoaded,
     scope: `${auth.email}:${rootProjectPath}`,
@@ -1218,6 +1228,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   if (caps.terminal) mobileDockPanels.push('terminal')
   if (caps.git) mobileDockPanels.push('git')
   if (caps.agent && rootProjectPath) mobileDockPanels.push('features')
+  if (canDebug && auth.email && rootProjectPath) mobileDockPanels.push('debugger')
   if (caps.filesRead && auth.email && rootProjectPath) mobileDockPanels.push('tasks')
   if (caps.collaboration && auth.email) mobileDockPanels.push('memo')
   const selectDockPanel = (panel: MobileDockPanel, toggle = true) => {
@@ -1227,7 +1238,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     if (panel === 'desktop') { setRemoteDesktopOpen(open => closeFocused ? !open : true); return }
     setRemoteDesktopOpen(false)
     if (panel === 'memo') setMemoFocusSignal(value => value + 1)
-    if (panel !== 'features' && panel !== 'memo') activeTabbedSurfaceRef.current = panel
+    if (panel !== 'features' && panel !== 'memo' && panel !== 'debugger') activeTabbedSurfaceRef.current = panel
     if (panel === 'editor') {
       if (closeFocused && editorOpen) {
         setEditorOpen(false)
@@ -1401,6 +1412,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       tasks: tasksOpen,
       memo: memoOpen,
       features: featuresOpen,
+      debugger: debuggerOpen,
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const chrome = value as Record<string, unknown>
@@ -1420,6 +1432,8 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         setMemoOpen(restoredOpen.memo)
         restoredOpen.features = caps.agent && chrome.featuresOpen === true
         setFeaturesOpen(restoredOpen.features)
+        restoredOpen.debugger = canDebug && !!auth.email && chrome.debuggerOpen === true
+        setDebuggerOpen(restoredOpen.debugger)
         if (caps.agent && typeof chrome.agentOpen === 'boolean') {
           setAgentOpen(chrome.agentOpen)
           restoredOpen.agent = chrome.agentOpen
@@ -1442,7 +1456,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       // 계정 원장이 처음 비어 있을 때만 이 기기의 기존 화면 상태를 이관한다.
       setWorkspaceUi((previous) => ({
         ...previous,
-        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen, tasksOpen },
+        chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, debuggerOpen, memoOpen, tasksOpen },
       }))
     }
     if (savedMobileForeground && savedMobileForeground !== 'editor') {
@@ -1456,7 +1470,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     }
     chromeStateLoadedRootRef.current = rootProjectPath
     chromeStateRestorePendingRef.current = rootProjectPath
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, memoOpen, tasksOpen, caps, auth.email, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, debuggerOpen, memoOpen, tasksOpen, canDebug, caps, auth.email, chatOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUi.chrome, workspaceUiLoaded, workspacePanelSetters])
 
   useEffect(() => {
     if (!rootProjectPath || !workspaceUiLoaded || isDesktop()) return
@@ -1562,9 +1576,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     }
     setWorkspaceUi((previous) => ({
       ...previous,
-      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, memoOpen, tasksOpen },
+      chrome: { tocOpen, sidebarOpen, sidebarView, agentOpen, terminalOpen, browserOpen, gitOpen, androidOpen, featuresOpen, debuggerOpen, memoOpen, tasksOpen },
     }))
-  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, memoOpen, tasksOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
+  }, [agentOpen, terminalOpen, androidOpen, browserOpen, gitOpen, featuresOpen, debuggerOpen, memoOpen, tasksOpen, isGuest, rootProjectPath, sidebarOpen, sidebarView, tocOpen, workspaceUiLoaded])
 
   const handleRenamed = useCallback(
     (oldPath: string, newPath: string, type: 'file' | 'dir') => {
@@ -2372,6 +2386,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           onNotice={showToast} onOpenFile={openMentionedFile} onClose={() => closeWorkspacePanel('git')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'git'; bringWorkspacePanelToFront('git') }}
           nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} />}
+        {rootProjectPath && canDebug && auth.email && <DockPanel id="debugger" kind="debugger" visible={debuggerOpen} mobileSelected onFocus={() => bringWorkspacePanelToFront('debugger')}>
+          {debuggerOpen && <Suspense fallback={<div role="status" className="p-2 text-xs text-ink-secondary">…</div>}><DebuggerPanel key={`${auth.email}:${rootProjectPath}`} root={rootProjectPath} onClose={() => closeWorkspacePanel('debugger')} onSettings={() => { setDebuggerSettingsRequested(true); setSettingsOpen(true) }} onOpenFile={(file, line) => { const relative = file.startsWith(rootProjectPath + '/') ? file.slice(rootProjectPath.length + 1) : file; if (!relative.startsWith('/')) openMentionedFile(WORKSPACE_PROJECT, relative, line) }} /></Suspense>}
+        </DockPanel>}
         {rootProjectPath && caps.agent && workspaceUiLoaded && <DockPanel
           id="features" kind="features" visible={featuresOpen} mobileSelected
           onFocus={() => bringWorkspacePanelToFront('features')}
@@ -2446,6 +2463,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       {settingsOpen && (
         <SettingsModal
           dockAvailable={mobileDockPanels}
+          initialDebugger={debuggerSettingsRequested}
+          debuggerRoot={canDebug && auth.email ? rootProjectPath ?? undefined : undefined}
+          onOpenDebugger={() => { setSettingsOpen(false); setDebuggerSettingsRequested(false); openWorkspacePanel('debugger') }}
           email={authEmail}
           displayName={auth.displayName}
           avatarDataUrl={auth.avatarDataUrl}
@@ -2466,6 +2486,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           onClose={() => {
             setFontPreferences((fonts) => normalizeFontPreferences(fonts))
             setSettingsOpen(false)
+            setDebuggerSettingsRequested(false)
           }}
           onLoggedOut={onLoggedOut}
           onProfileChanged={onProfileChanged}

@@ -1,0 +1,64 @@
+---
+id: "mew-debugger"
+parent: "mew-agents"
+title: "외부 DAP 디버거"
+status: "implemented"
+created: "2026-10-07"
+updated: "2026-10-07"
+files: ["src/components/debugger-panel.tsx", "src/components/debugger-settings.tsx", "server/debugger.ts", "server/debugger-dap.ts", "server/debugger-routes.ts"]
+commits: []
+description: "선택 설치하는 외부 DAP 디버거의 설정 탭·독 패널·계정별 세션, 브레이크포인트·스텝 실행·스택·변수·고정 감시와 설치·권한·검증 범위를 정의한다."
+---
+
+## 요구사항
+
+[디버거 만들기](../../tasks/디버거%20만들기.md)의 브레이크포인트, 변수 변화 우선 표시, 변수 고정 요구를 외부 Debug Adapter Protocol(DAP) 어댑터로 제공한다. mew에는 디버거 엔진이나 언어 런타임을 번들하지 않는다.
+
+### 설정과 설치
+
+- **설정 → 디버거**에서 어댑터, 서버 실행 파일, 인수(JSON 문자열 배열), stdio/TCP, TCP 포트, launch/attach, 실행 설정(JSON 객체)을 관리한다. 저장·연결 테스트·디버거 열기를 제공한다. 설정과 브레이크포인트·고정 표현식은 계정과 현재 프로젝트 루트별로 저장한다.
+- js-debug(JavaScript/TypeScript/Node.js), debugpy(Python), LLDB DAP와 CodeLLDB(C/C++/Rust), Delve(Go), 사용자 지정 DAP의 프리셋을 제공한다. 실제 지원 언어·실행 설정은 해당 어댑터의 계약을 따른다.
+- **js-debug 설치**는 Microsoft 공식 standalone DAP 릴리스 `1.140.0`을 사용한다. 버튼을 누를 때만 내려받고 SHA-256·크기·압축 경로·파일 종류를 검사한 뒤 데이터 폴더의 `debuggers/js-debug-1.140.0/`에 배치한다. VS Code/VSIX나 IDE를 설치하지 않는다. 설치 완료 시 서버의 Node 실행 경로와 어댑터 경로를 해당 계정 설정에 반영한다. 설치에는 서버의 HTTPS 접근과 `tar`가 필요하다.
+- 나머지 어댑터는 서버에 별도로 설치하고 경로·인수를 설정한다. CodeLLDB는 `codelldb --port 56789`, Delve는 `dlv dap --listen=127.0.0.1:56789`, debugpy는 `python3 -m debugpy.adapter`, LLDB DAP는 `lldb-dap` 프리셋을 제공한다. 다른 TCP 디버거와 함께 쓸 때 포트를 변경한다.
+- TCP는 `127.0.0.1`에만 연결한다. 실행 파일을 비우면 이미 실행 중인 loopback DAP 서버에 연결한다. 관리형 js-debug는 `0` 포트로 시작하고 stdout에서 실제 포트를 감지한다. 파일 경로는 **mew 서버** 기준이며 소스와 디버깅 대상도 서버에 있어야 한다.
+
+Node.js 실행 설정 예:
+
+```json
+{
+  "type": "pwa-node",
+  "program": "/absolute/project/main.js",
+  "cwd": "/absolute/project",
+  "console": "internalConsole",
+  "args": []
+}
+```
+
+`launch`는 새 프로그램을 실행하고, `attach`는 이미 실행 중인 대상에 연결한다. attach의 `port`·`processId` 등은 실행 설정에 넣는다. TCP 연결 포트 필드는 **어댑터** 포트이며 디버깅 대상의 포트와 다르다. 실행 설정은 어댑터에 그대로 전달하며 VS Code의 `${workspaceFolder}`나 launch.json 환경 변수 치환은 제공하지 않는다.
+
+### 패널과 세션
+
+- 독의 디버거 아이콘이나 설정의 **디버거 열기**로 별도 패널을 연다. 기존 독 배치·모바일 전면 스택·계정별 프로젝트 UI 복원을 따른다. 설정과 패널 컴포넌트는 지연 로드하며 닫힌 패널은 상태를 폴링하지 않는다.
+- 시작·계속 실행·일시정지·다음 줄·함수 안으로·함수 밖으로·연결 종료를 제공한다. 서버에는 계정·프로젝트별로 한 세션만 허용하고 중복 시작은 거부한다. 실행 중에는 연결·실행 설정 변경을 거부하며 브레이크포인트와 감시 목록만 수정할 수 있다. 설치·설정 조회·패널 열기만으로 어댑터를 실행하지 않는다. **시작** 또는 **연결 테스트** 때만 외부 프로세스를 만든다. 테스트는 initialize 후 연결과 관리 프로세스를 종료한다.
+- 브레이크포인트는 패널에서 소스 경로와 1부터 시작하는 줄 번호로 추가·비활성화·삭제한다. 상대 소스 경로는 프로젝트 루트 기준이다. 어댑터의 검증 여부와 메시지를 표시하고 실행 중 변경도 전송한다. 현재 버전은 에디터 줄 번호를 클릭하는 브레이크포인트 거터를 제공하지 않는다.
+- 중단 이벤트에서 호출 스택을 조회한다. 스택 행을 선택하면 해당 프레임의 변수를 읽고 프로젝트 안의 소스 파일과 줄을 에디터에서 연다. 프로젝트 밖 소스는 현재 에디터에서 열지 않는다.
+- 비싼 scope를 제외한 기본 변수를 읽고 객체를 펼칠 때만 자식을 읽는다. 같은 소스·프레임 이름·scope·변수 이름으로 이전 중단 값을 비교한다. 변경된 기본 변수를 먼저 배치하고 표시한다. 최초 조회는 변경으로 표시하지 않는다. 동일 중단 시점의 재조회에서도 변경 표시를 유지한다.
+- 변수의 핀 버튼이나 표현식 입력으로 감시 대상을 고정한다. 매 중단 시 현재 프레임에서 evaluate하고 값 변화도 표시한다. 표현식 오류는 해당 감시 값에 표시한다. 고정 목록은 세션 종료·문서 수정 뒤에도 유지한다.
+- 패널 닫기는 세션을 종료하지 않는다. **연결 종료**는 launch 대상 종료를 요청하고 attach 대상은 유지하도록 요청한다. mew가 시작한 어댑터와 터미널 자식 프로세스는 연결 종료·오류·권한 회수 시 정리한다. 서버 프로세스가 재시작되면 DAP 세션을 복원하지 않는다.
+
+### 구현과 경계
+
+- HTTP `/api/debugger` 아래 설정 조회·저장, 설치, 연결 테스트, 세션 시작·종료, 허용된 DAP 명령을 제공한다. 현재 프로젝트 헤더를 검사하며 명령·종료는 세션 ID도 비교한다. 계정·프로젝트별 설정 파일은 데이터 폴더에 원자적으로 저장한다.
+- DAP 헤더의 바이트 길이와 분할된 UTF-8 프레임을 처리하고 요청 시간 제한·연결 종료 거부를 제공한다. js-debug의 `startDebugging` 역방향 요청은 같은 어댑터에 별도 자식 연결을 만들어 처리한다. `runInTerminal`은 셸 문자열 해석 없이 argv로 실행하며 관리 프로세스로 추적한다.
+- owner·manager, 터미널 기능, 해당 프로젝트 전체 파일 읽기·수정 권한이 필요하다. 실행·설치는 서버 OS 권한으로 동작한다. 접속 중 정책 변경과 5초 주기 검사에서 실행 중인 세션을 재검증한다. 자세한 권한 경계는 [계정별 기능·파일 권한](../../development/access-control.md)을 따른다.
+- 출력은 최근 64,000자로 제한한다. DAP 메시지는 8MiB, 세션의 연결 수는 16개, 보관 세션은 서버 전체 64개, 브레이크포인트는 설정당 200개, 고정 표현식은 64개로 제한한다. 스택은 40개, 각 변수 조회는 200개까지 표시한다. 변수 값 수정, 임의 DAP 요청, 역방향 디버깅, 자동 언어 런타임 설치는 제공하지 않는다.
+
+### 확인 기준과 검증
+
+- `server/debugger.test.ts`: UTF-8 분할·다중 메시지·요청 시간 초과·과대 헤더 거부, 초기화/구성 순서, 스택·변수·스텝·감시, 브레이크포인트 삭제와 계정·프로젝트별 저장을 검증한다.
+- `server/debugger-routes.test.ts`: 역할·터미널·전체 파일 권한, 프로젝트/세션 불일치, 계정·프로젝트 분리, 잘못된 설정 보존·실행 중 모드 변경 거부·권한 회수 시 세션 정리를 검증한다.
+- `server/debugger-ui.test.ts`: 앱 번들을 만들지 않는 격리 브라우저 픽스처로 데스크톱 다크/320px 모바일 라이트의 설정 오류·연결 테스트·패널 시작·스텝·변경 우선 표시·핀·종료를 확인한다.
+- 2026-10-07: 임시 데이터 폴더에 공식 js-debug standalone을 설치하고 실제 Node.js 프로그램의 자식 DAP 세션·브레이크포인트·스택·변수 평가·계속 실행·종료를 검증했다. 실어댑터 테스트는 `MEW_TEST_JS_DEBUG`에 임시 설치의 `js-debug/src/dapDebugServer.js` 경로를 지정하면 실행한다.
+- Python·LLDB·CodeLLDB·Go는 연결 프리셋과 공통 DAP 경로를 제공하며 각 실제 언어 환경의 실행 검증은 아직 수행하지 않았다.
+
+공식 계약: [DAP](https://microsoft.github.io/debug-adapter-protocol/overview.html), [js-debug](https://github.com/microsoft/vscode-js-debug), [debugpy](https://github.com/microsoft/debugpy), [CodeLLDB](https://github.com/vadimcn/codelldb), [Delve DAP](https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_dap.md).
