@@ -4,7 +4,7 @@ parent: "mew-settings"
 title: "Mewcat 마스코트·알림·휴식"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-02"
+updated: "2026-10-06"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["src/components/Mewcat.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
@@ -17,6 +17,7 @@ commits: []
 
 ### 범위
 
+- 색상 선택기·HEX로 털색 변경과 기본 검은색 초기화를 제공한다. 밝은 털색에서도 눈·입이 보이도록 대비를 조정한다.
 - 자체 SVG 고양이의 걷기·달리기·클릭·끌기·던지기와 설정에서 숨기기·스킨 선택을 제공한다.
 - 작업 완료·오류·승인과 지속적인 서버 자원 과부하를 말풍선으로 알리고 해당 화면으로 이동한다.
 - 현재 보고 있는 에이전트 탭의 작업 완료 알림은 생략한다. 다른 탭·패널·브라우저 창에 있을 때의 완료 알림과 오류·승인 요청 알림은 유지한다.
@@ -54,7 +55,7 @@ commits: []
 
 - 설정 → 뮤캣의 **원격 데스크톱에서 뮤캣 숨기기**를 켜면 원격 뷰어가 열린 동안 고양이·말풍선·휴식 표시를 숨기고 닫으면 복원한다. 기본값은 꺼짐이며 브라우저별 `mew:mewcat-hide-desktop`에 저장한다. 알림 수집·OS 알림과 휴식 타이머는 계속 동작한다.
 
-- 기본 고양이를 검은색으로 표시하며 설정 미리보기·휴식용 큰 고양이에도 같은 색상을 적용한다.
+- 기본 고양이는 검은색이며 설정 → 뮤캣에서 원하는 털색을 선택하거나 초기화한다. 미리보기·휴식용 큰 고양이·원격 뷰어에도 즉시 같은 색을 적용하고 브라우저별로 저장·복원한다.
 - 연결 끊김 알림은 반복 방해를 줄이려는 사용자 요청으로 제거했으며 요청 전 재도입하지 않는다.
 - 해당 에이전트 패널 내부의 연결 대기 표시로 대체한다.
 
@@ -108,3 +109,5 @@ commits: []
 - 2026-09-26: 알림 관련 테스트 11개 통과. Chromium 데스크톱·모바일 양 테마에서 작업 완료 알림, 긴 출처 줄바꿈, 네 언어 이동 버튼, 44px 터치 영역과 실제 대화 이동을 확인했다. 타입 검사와 문서 경계·링크 검사도 통과했다.
 
 <!-- mew:validation:end -->
+
+털색 확인 기준: PC·모바일에서 색상 선택/HEX 입력·즉시 미리보기·여러 고양이 동시 반영·새로고침 복원·초기화·잘못된 값/저장 실패 복구를 확인한다. 구현은 `use-mewcat-fur-color.ts`와 `mewcat-fur-color.ts`가 소유한다.
