@@ -1,8 +1,10 @@
+import { useMewcatFurColor } from '../hooks/use-mewcat-fur-color'
+import { mewcatFurPalette } from '../utils/mewcat-fur-color'
 import { createPortal } from 'react-dom'
 import { useMewcatAssistant, type MewcatAssistantOptions } from '../hooks/use-mewcat-assistant'
 import { MewcatAssistant } from './mewcat-assistant'
 import { useI18n } from '../i18n'
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject, type CSSProperties } from 'react'
 import { useMewcatNotices, useNotificationPreferences } from '../utils/mewcat-notifications'
 import { MewcatNotifications } from './mewcat-notifications'
 import { MewcatResources } from './mewcat-resources'
@@ -65,8 +67,9 @@ export function Mewcat({ skin, hidden = false, portalTarget, onOpenSystemStats, 
 
 /** 둥근 얼굴과 짧은 발을 가진 자체 벡터 캐릭터. 설정 미리보기에서도 같은 그림을 쓴다. */
 export function MewcatMark({ className = '' }: { className?: string }) {
+  const color = useMewcatFurColor()
   return (
-    <svg viewBox="0 0 48 48" className={className} aria-hidden="true" focusable="false">
+    <svg viewBox="0 0 48 48" style={mewcatFurPalette(color) as CSSProperties} className={className} aria-hidden="true" focusable="false">
       <g stroke="var(--mewcat-outline, #737373)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
         <path d="M33 39c9 2 13-4 10-10-1.5-3-5-2-4.5 1 .8 4-1.5 5-5 3" fill="var(--mewcat-fur, #171717)" />
         <path d="M14 29c-3 5-4 10-1 14 3 4 18 4 21 0 3-4 1-11-3-14" fill="var(--mewcat-fur, #171717)" />
@@ -74,7 +77,7 @@ export function MewcatMark({ className = '' }: { className?: string }) {
         <path d="M9 17C7 13 7 5 10 5c2 0 6 4 8 7a26 26 0 0 1 11 0c2-3 6-7 8-6 2 1 2 8 0 12 3 3 4 6 3 10-1 7-9 10-17 10S7 35 6 29c-1-5 0-9 3-12Z" fill="var(--mewcat-fur, #171717)" />
         <path d="m11 10 1 7 4-2Z" fill="#e9aaa4" stroke="none" />
         <path d="m35 11-4 4 4 2Z" fill="#e9aaa4" stroke="none" />
-        <path d="M20 13v3m4-3v4m4-4v3" stroke="#353535" />
+        <path d="M20 13v3m4-3v4m4-4v3" stroke="var(--mewcat-stripe, #353535)" />
         <ellipse cx="12.5" cy="28.5" rx="3.3" ry="1.8" fill="#efbeb1" stroke="none" />
         <ellipse cx="33.5" cy="28.5" rx="3.3" ry="1.8" fill="#efbeb1" stroke="none" />
         <g className="mewcat-eyes" fill="var(--mewcat-ink, #e8d99b)" stroke="none">

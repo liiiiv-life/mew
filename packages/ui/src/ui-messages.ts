@@ -1,6 +1,8 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  '털색': ['Fur color', '毛色', '毛色'],
+  '털색 HEX': ['Fur color HEX', '毛色 HEX', '毛色 HEX'],
   '위치 이동': ['Move', '移动位置', '位置を移動'],
   '크기 조절': ['Resize', '调整大小', 'サイズ変更'],
   '메모 (PC)': ['Memo (desktop)', '备忘录（电脑）', 'メモ（PC）'],

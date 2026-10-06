@@ -1,3 +1,5 @@
+import { useMewcatFurColor, setMewcatFurColor } from '../hooks/use-mewcat-fur-color'
+import { DEFAULT_MEWCAT_FUR_COLOR } from '../utils/mewcat-fur-color'
 import { useToolPresentation, setToolPresentation } from '../hooks/use-tool-presentation'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
@@ -147,6 +149,7 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
 }
 
 function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: (skin: MewcatSkinSelection) => void }) {
+  const furColor = useMewcatFurColor()
   useUiLocale()
   const { t } = useI18n()
   const options = [{ id: null, name: t('settings.mewcatNone') }, ...MEWCAT_SKINS]
@@ -171,6 +174,10 @@ function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: 
             </button>
           )
         })}
+      </div>
+      <div className="mt-3 border-t border-edge pt-3">
+        <ColorPicker value={furColor} onChange={setMewcatFurColor} defaultValue={DEFAULT_MEWCAT_FUR_COLOR}
+          labels={{ color: uiText('털색'), hex: uiText('털색 HEX'), hue: t('settings.colorHue'), saturation: t('settings.colorSaturation'), brightness: t('settings.colorBrightness'), reset: t('common.reset'), close: t('common.close') }} />
       </div>
     </div>
   )
