@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Copy, EditPencil, Folder, FolderPlus, FolderSettings, GitBranch, MultiplePagesPlus, PagePlus, PasteClipboard, Scissor, Star, Trash, Upload } from 'iconoir-react'
 import { useOverlayDismiss } from '@mew/ui'
 import { useI18n } from '../i18n'
 
@@ -97,7 +98,7 @@ export function FileActionMenu({
       // Apply limits before measuring so a tall menu scrolls above the dock.
       menu.style.maxHeight = `${maxHeight}px`
       menu.style.maxWidth = `${maxWidth}px`
-      menu.style.minWidth = `${Math.min(192, maxWidth)}px`
+      menu.style.minWidth = `${Math.min(168, maxWidth)}px`
       const rect = menu.getBoundingClientRect()
       const next = {
         left: Math.max(left, Math.min(x, right - rect.width)),
@@ -130,65 +131,65 @@ export function FileActionMenu({
       data-file-action-menu
       onPointerDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
-      style={{ position: 'fixed', ...pos, minWidth: Math.min(192, pos.maxWidth), zIndex: 1300 }}
-      className="overflow-y-auto overscroll-contain rounded-lg border border-edge-bright bg-surface-raised text-sm shadow-xl"
+      style={{ position: 'fixed', ...pos, minWidth: Math.min(168, pos.maxWidth), zIndex: 1300 }}
+      className="overflow-y-auto overscroll-contain rounded-none border border-edge-bright bg-surface-raised text-sm"
     >
       {onRename && (
-        <button type="button" onClick={onRename} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-          {t('fileExplorer.rename')}
+        <button type="button" onClick={onRename} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <EditPencil width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.rename')}
         </button>
       )}
       {onDuplicate && (
-        <button type="button" onClick={onDuplicate} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-          {t('fileExplorer.duplicate')}
+        <button type="button" onClick={onDuplicate} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <MultiplePagesPlus width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.duplicate')}
         </button>
       )}
       {onCopyClip && (
-        <button type="button" onClick={onCopyClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-          {t('fileExplorer.copy')}
+        <button type="button" onClick={onCopyClip} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <Copy width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.copy')}
         </button>
       )}
       {onCutClip && (
-        <button type="button" onClick={onCutClip} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-          {t('fileExplorer.cut')}
+        <button type="button" onClick={onCutClip} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <Scissor width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.cut')}
         </button>
       )}
       {onPasteClip && (
-        <button type="button" onClick={onPasteClip} disabled={pasteDisabled} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-          {t('fileExplorer.paste')}
+        <button type="button" onClick={onPasteClip} disabled={pasteDisabled} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <PasteClipboard width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.paste')}
         </button>
       )}
       {onDownload}
       {onNewFile && (
-        <button type="button" onClick={onNewFile} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-        {t('sidebar.newFile')}
+        <button type="button" onClick={onNewFile} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <PagePlus width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('sidebar.newFile')}
         </button>
       )}
       {onNewFolder && (
-        <button type="button" onClick={onNewFolder} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-        {t('sidebar.newFolder')}
+        <button type="button" onClick={onNewFolder} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <FolderPlus width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('sidebar.newFolder')}
         </button>
       )}
       {onUpload && (
-        <button type="button" onClick={onUpload} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-        {t('fileExplorer.upload')}
+        <button type="button" onClick={onUpload} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <Upload width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.upload')}
         </button>
       )}
       {onCreateSubproject && (
-        <button type="button" onClick={onCreateSubproject} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-          {t('fileExplorer.createSubproject')}
+        <button type="button" onClick={onCreateSubproject} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <FolderSettings width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.createSubproject')}
         </button>
       )}
       {onInitGit && (
-        <button type="button" onClick={onInitGit} className="block w-full px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-40">
-          {t('fileExplorer.initGit')}
+        <button type="button" onClick={onInitGit} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
+          <GitBranch width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.initGit')}
         </button>
       )}
-      {onAddFavorite && <button type="button" onClick={onAddFavorite} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('favorites.add')}</button>}
-      {onOpenProject && <button type="button" onClick={onOpenProject} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.openProject')}</button>}
+      {onAddFavorite && <button type="button" onClick={onAddFavorite} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover"><Star width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('favorites.add')}</button>}
+      {onOpenProject && <button type="button" onClick={onOpenProject} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover"><Folder width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.openProject')}</button>}
       {onDelete && (
-        <button type="button" onClick={onDelete} className="block w-full px-3 py-2 text-left text-danger hover:bg-surface-hover">
-          {t('fileExplorer.delete')}
+        <button type="button" onClick={onDelete} className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-danger hover:bg-surface-hover">
+          <Trash width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.delete')}
         </button>
       )}
     </div>

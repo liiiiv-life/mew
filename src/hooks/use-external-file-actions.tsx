@@ -1,3 +1,4 @@
+import { Download } from 'iconoir-react'
 import { useRef, useState } from 'react'
 import { useDialog } from '@mew/ui'
 import { deleteExternalPath, externalDownloadUrl, pasteExternalPath, renameExternalPath, setFileFavorite, type ExternalEntry } from '../api/client'
@@ -76,7 +77,7 @@ export function useExternalFileActions(options: {
       onPasteClip={() => choose(paste)} pasteDisabled={!clipboard}
       onAddFavorite={menu.entry.type === 'dir' ? () => choose(entry => void run(async () => { await setFileFavorite(entry.path, true) })) : undefined}
       onOpenProject={menu.entry.type === 'dir' && options.onOpenProject ? () => choose(entry => callbacks.current.onOpenProject?.(entry.path)) : undefined}
-      onDownload={menu.entry.type === 'file' && <DownloadLink href={externalDownloadUrl(menu.entry.path)} name={menu.entry.name} onStarted={() => setMenu(null)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{t('fileExplorer.download')}</DownloadLink>}
+      onDownload={menu.entry.type === 'file' && <DownloadLink href={externalDownloadUrl(menu.entry.path)} name={menu.entry.name} onStarted={() => setMenu(null)} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover"><Download width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.download')}</DownloadLink>}
     />,
     dialog: dialogs.dialog,
   }

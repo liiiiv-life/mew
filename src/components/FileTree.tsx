@@ -1,3 +1,5 @@
+import { Download } from 'iconoir-react'
+import { useI18n } from '../i18n'
 import { pageRepresentative, documentPageLabel, documentPageTarget, remapPagePath, type DocumentPageMutation } from '../../shared/document-pages'
 import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
@@ -637,7 +639,7 @@ export function FileTree({
   /** 검색창 밖에 포커스가 있어도 사이드바의 첫 Esc가 검색부터 취소할 수 있게 App에 등록한다 */
   registerSearchCancel: (cancel: (() => boolean) | null) => void
 }) {
-  useUiLocale()
+  const { t } = useI18n()
   const persistedProject = stateKey ?? project
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState<Focused>(null)
@@ -1581,7 +1583,7 @@ export function FileTree({
           }
           onDownload={
             popover.type === 'file'
-              ? <DownloadLink href={downloadUrl(popover.path, project)} name={popover.path.split('/').pop() ?? popover.path} onStarted={() => setPopover(null)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("⬇ 다운로드")}</DownloadLink>
+              ? <DownloadLink href={downloadUrl(popover.path, project)} name={popover.path.split('/').pop() ?? popover.path} onStarted={() => setPopover(null)} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover"><Download width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.download')}</DownloadLink>
               : undefined
           }
           onDelete={
