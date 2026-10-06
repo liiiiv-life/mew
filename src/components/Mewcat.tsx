@@ -53,7 +53,7 @@ export function Mewcat({ skin, hidden = false, portalTarget, onOpenSystemStats, 
   const [bubbleOpen, setBubbleOpen] = useState(false)
   const closeBubble = useCallback(() => setBubbleOpen(false), [])
   const showBubble = bubbleOpen && skin !== null
-  const attention = showBubble || (preferences.visual && notices.length > 0)
+  const attention = showBubble || (preferences.visual && preferences.mewcat && notices.length > 0)
   useEffect(() => {
     if (hidden || remainingMs !== null || skin === null) setBubbleOpen(false)
   }, [hidden, remainingMs, skin])

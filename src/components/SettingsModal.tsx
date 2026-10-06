@@ -19,7 +19,7 @@ import { MewcatBreakSettings } from './mewcat-break'
 
 const PASSWORD_MIN_LENGTH = 10
 
-type Section = 'account' | 'appearance' | 'dock' | 'mewcat' | 'shortcuts' | 'ignore'
+type Section = 'account' | 'appearance' | 'notifications' | 'dock' | 'mewcat' | 'shortcuts' | 'ignore'
 type Theme = 'dark' | 'light'
 
 interface SettingsModalProps {
@@ -49,6 +49,7 @@ const SECTION_LABEL: Record<Section, TranslationKey> = {
   account: 'settings.account',
   appearance: 'settings.appearance',
   dock: 'settings.dock',
+  notifications: 'settings.notifications',
   mewcat: 'settings.mewcat',
   shortcuts: 'settings.shortcuts',
   ignore: 'settings.ignoreList',
@@ -69,6 +70,7 @@ export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl
   const sections: Section[] = [
     ...(email ? (['account'] as Section[]) : []),
     'appearance',
+    'notifications',
     'dock',
     'mewcat',
     'shortcuts',
@@ -145,8 +147,9 @@ export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl
                 onThemeColorChange={onThemeColorChange}
               />
             )}
+            {section === 'notifications' && <MewcatNotificationSettings hasCat={mewcatSkin !== null} />}
             {section === 'dock' && <DockSettingsPanel available={dockAvailable} />}
-            {section === 'mewcat' && <><MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} /><label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink"><input type="checkbox" checked={mewcatHideDesktop} onChange={event => onMewcatHideDesktopChange(event.target.checked)} className="accent-accent" />{uiText("원격 데스크톱에서 뮤캣 숨기기")}</label><MewcatNotificationSettings /><MewcatBreakSettings /></>}
+            {section === 'mewcat' && <><MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} /><label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink"><input type="checkbox" checked={mewcatHideDesktop} onChange={event => onMewcatHideDesktopChange(event.target.checked)} className="accent-accent" />{uiText("원격 데스크톱에서 뮤캣 숨기기")}</label><MewcatBreakSettings /></>}
             {section === 'shortcuts' && <ShortcutsPanel />}
             {section === 'ignore' && <IgnorePanel />}
           </div>

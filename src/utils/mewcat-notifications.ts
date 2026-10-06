@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from 'react'
 import type { NoticeInput } from './mewcat-notification-rules.ts'
 
-export type NotificationPreferences = { visual: boolean; desktop: boolean; sound: boolean; resources: boolean }
+export type NotificationPreferences = { visual: boolean; mewcat: boolean; desktop: boolean; sound: boolean; resources: boolean }
 export type MewcatNotice = NoticeInput & { id: number; createdAt: number }
 export const NOTIFICATION_KEY = 'mew:notification-preferences'
-const defaults: NotificationPreferences = { visual: true, desktop: false, sound: false, resources: true }
+const defaults: NotificationPreferences = { visual: true, mewcat: true, desktop: false, sound: false, resources: true }
 export function parseNotificationPreferences(raw: string | null): NotificationPreferences {
   try {
     const value = JSON.parse(raw ?? '{}')

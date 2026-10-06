@@ -90,9 +90,10 @@ test('missing samples break consecutive load, unknown GPU data does not raise fa
 })
 
 test('preferences tolerate unavailable, corrupt and partial browser storage', () => {
-  const defaults = { visual: true, desktop: false, sound: false, resources: true }
+  const defaults = { visual: true, mewcat: true, desktop: false, sound: false, resources: true }
   assert.deepEqual(parseNotificationPreferences(null), defaults)
   assert.deepEqual(parseNotificationPreferences('broken'), defaults)
+  assert.deepEqual(parseNotificationPreferences('{"visual":true,"mewcat":false,"sound":true}'), { ...defaults, mewcat: false, sound: true })
   assert.deepEqual(parseNotificationPreferences('null'), defaults)
   assert.deepEqual(parseNotificationPreferences('{"sound":true,"desktop":"yes","visual":false}'), { ...defaults, sound: true, visual: false })
 })

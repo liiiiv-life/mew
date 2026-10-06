@@ -1,3 +1,4 @@
+import { HeaderNotifications } from './components/header-notifications'
 import { LayoutPresets } from './components/layout-presets'
 import { factoryLayout, editorIds, layoutPresetsKey, normalizeLayoutSnapshot, type LayoutSnapshot } from './utils/layout-presets'
 import { loadFloatingRect, restoreFloatingRect } from './hooks/use-floating-panel'
@@ -2115,6 +2116,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
             {activeTab?.status === 'error' && (
               <span className="select-text hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
             )}
+            <HeaderNotifications />
             {!isGuest && <ActiveSessionsButton presence={activeSessions} />}
             {desktopMode && rootProjectPath && workspaceUiLoaded && tabsHydrated && <LayoutPresets key={`${authEmail}:${rootProjectPath}`} storageKey={layoutPresetsKey(authEmail ?? 'guest', rootProjectPath)} factory={layoutFactory} capture={captureLayout} onApply={applyLayoutPreset} />}
             {(!isGuest || canEditActiveTab) && <HoverTipLayer className="contents" placement="bottom">

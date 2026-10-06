@@ -29,6 +29,7 @@ registerHooks({
     return nextResolve(specifier, context)
   },
   load(url, context, nextLoad) {
+    if (url.endsWith('.css')) return { format: 'module', shortCircuit: true, source: '' }
     if (url.endsWith('.tsx')) return { format: 'module', shortCircuit: true, source: ts.transpileModule(readFileSync(fileURLToPath(url), 'utf8'), { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2023 } }).outputText }
     return nextLoad(url, context)
   },
@@ -38,6 +39,8 @@ const [{ createElement: h, act }, { createRoot }, { I18nProvider }, ui, store, {
   import('../utils/mewcat-notifications.ts'), import('../hooks/use-mewcat-notifications.ts'),
 ])
 
+const { HeaderNotifications } = await import('./header-notifications.tsx')
+
 async function mount(child: ReturnType<typeof h>) {
   const element = document.createElement('div')
   document.body.append(element)
@@ -46,28 +49,38 @@ async function mount(child: ReturnType<typeof h>) {
   return { element, close: async () => { await act(async () => root.unmount()); element.remove() } }
 }
 
-test('hidden cat retains actionable notices, dismiss and visual preference work', async () => {
+test('header receives actionable notices without a cat; cat channel and visual preference stay independent', async () => {
   store.clearMewcatNotices()
-  store.setNotificationPreferences({ visual: true })
-  const view = await mount(h(ui.MewcatNotifications, { hasCat: false }))
+  store.setNotificationPreferences({ visual: true, mewcat: true })
+  const header = await mount(h(HeaderNotifications))
+  const cat = await mount(h(ui.MewcatNotifications, { hasCat: false }))
   const opened: unknown[] = []
   const listen = (event: Event) => opened.push((event as CustomEvent).detail.target)
   window.addEventListener(store.OPEN_NOTICE_EVENT, listen)
+  assert.equal(header.element.querySelector('button'), null)
   await act(async () => store.publishMewcatNotice({ key: 'ui-error', kind: 'error', level: 'danger', source: 'Codex', target: { tabId: 'tab', cwd: '/work' } }))
-  assert.match(view.element.textContent!, /encountered an error/)
-  assert.ok(!view.element.querySelector('.mewcat-notifications-with-cat'))
-  await act(async () => [...view.element.querySelectorAll('button')].find(button => button.textContent === 'Open conversation')!.click())
+  assert.equal(cat.element.querySelector('aside'), null)
+  assert.match(header.element.querySelector('button')!.getAttribute('aria-label')!, /Notifications: 1/)
+  await act(async () => header.element.querySelector('button')!.click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  assert.match(dialog.textContent!, /encountered an error/)
+  await act(async () => [...dialog.querySelectorAll('button')].find(button => button.textContent!.includes('encountered an error'))!.click())
   assert.deepEqual(opened, [{ tabId: 'tab', cwd: '/work' }])
-  assert.equal(view.element.querySelector('aside'), null)
+  assert.equal(header.element.querySelector('button'), null)
   await act(async () => store.publishMewcatNotice({ key: 'ui-memory', kind: 'memory', level: 'warning', source: '95%', target: 'system' }))
+  const activeCat = await mount(h(ui.MewcatNotifications, { hasCat: true }))
+  assert.ok(activeCat.element.querySelector('aside'))
+  await act(async () => store.setNotificationPreferences({ mewcat: false }))
+  assert.equal(activeCat.element.querySelector('aside'), null)
+  assert.ok(header.element.querySelector('button'))
   await act(async () => store.setNotificationPreferences({ visual: false }))
-  assert.equal(view.element.querySelector('aside'), null)
-  await act(async () => store.setNotificationPreferences({ visual: true }))
-  assert.match(view.element.textContent!, /memory is running low/)
-  await act(async () => (view.element.querySelector('[aria-label="Dismiss notification"]') as HTMLElement).click())
-  assert.equal(view.element.querySelector('aside'), null)
+  assert.equal(header.element.querySelector('button'), null)
+  await act(async () => store.setNotificationPreferences({ visual: true, mewcat: true }))
+  await act(async () => header.element.querySelector('button')!.click())
+  await act(async () => (document.querySelector('[aria-label="Dismiss notification: 95%"]') as HTMLElement).click())
+  assert.equal(header.element.querySelector('button'), null)
   window.removeEventListener(store.OPEN_NOTICE_EVENT, listen)
-  await view.close()
+  await header.close(); await cat.close(); await activeCat.close()
 })
 
 test('unsupported desktop API leaves in-app settings usable', async () => {
@@ -96,7 +109,7 @@ test('OS delivery requires permission, preference and an inactive window; payloa
   let focused = true
   Object.defineProperty(document, 'hasFocus', { value: () => focused, configurable: true })
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
-  store.setNotificationPreferences({ desktop: true, sound: false })
+  store.setNotificationPreferences({ desktop: true, sound: false, mewcat: false })
   function Harness() { useMewcatNotifications(false, 'user@example.test'); return null }
   const view = await mount(h(Harness))
   const send = (key: string) => store.publishMewcatNotice({ key, kind: 'error', level: 'danger', source: 'SECRET project name' })

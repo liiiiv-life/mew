@@ -4,14 +4,17 @@ parent: "mew-settings"
 title: "Mewcat 마스코트·알림·휴식"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-06"
+updated: "2026-10-07"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
-files: ["src/components/Mewcat.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
+files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
-description: "자체 SVG 뮤캣의 색상·스킨·이동·끌기와 에이전트 작업·오류·자원 과부하 알림을 다루는 기능 계약. 데스크톱 알림·소리와 선택적 거대 뮤캣 휴식의 타이머·저장·입력 유지 규칙을 설명한다."
+description: "자체 SVG 뮤캣의 색상·스킨·이동·끌기와 에이전트 작업·오류·자원 과부하 알림을 다루는 기능 계약. 뮤캣 없는 헤더 알림·독립 알림 설정, 데스크톱 알림·소리와 선택적 거대 뮤캣 휴식의 타이머·저장·입력 유지 규칙을 설명한다."
 ---
 
 ## 요구사항
+
+- 뮤캣 스킨이 없거나 고양이를 숨겨도 알림을 수집하고, 앱 내 알림이 켜져 있고 미확인 알림이 있으면 상단 활성 세션 버튼 왼쪽에 종 아이콘과 개수를 표시한다. 누르면 같은 알림 목록에서 해당 화면 이동·개별 닫기·모두 확인을 제공한다.
+- 알림 채널·자원 감시·테스트는 설정의 독립 **알림** 탭으로 옮긴다. 뮤캣 스킨이 켜진 경우 **뮤캣으로도 알림 표시** 옵션을 추가하며 이 옵션을 꺼도 헤더·OS 알림·소리를 유지한다. 뮤캣 탭은 스킨·털색·원격 뷰어 숨김·휴식 설정을 소유한다.
 
 - 화면 하단의 고양이와 상호작용하고, 에이전트 작업·오류·서버 과부하를 시각 알림과 선택적인 PC 데스크톱 알림·소리로 확인한다.
 - 원하면 사용 시간 뒤 뮤캣 자체가 거대하게 커져 작업 화면을 가리고 휴식을 유도한다.
@@ -125,10 +128,10 @@ Mew 스킨 하나만 제공하고, 새 스킨은 클라이언트의 `MEWCAT_SKIN
 
 업데이트를 포함한 자동 알림 본문은 높이 제한·자체 스크롤 없이 전체 내용을 표시한다. 고양이 주변 공간이 부족하면 말풍선 위치를 화면 안으로 보정한다. 펼친 알림 목록의 스크롤은 유지한다.
 
-뮤캣은 읽지 않은 알림이나 클릭 목록이 열려 있으면 현재 위치에서 멈추고 말풍선을 보여준다. 말풍선은 앱 테마의
+뮤캣은 추가 알림 표시가 켜진 미확인 알림이나 클릭 목록이 열려 있으면 현재 위치에서 멈추고 말풍선을 보여준다. 말풍선은 앱 테마의
 배경·글자·테두리·상태 색상을 사용한다. 라이트에서는 밝게, 다크에서는 어둡게 표시하며 꼬리도 본체와
 같은 배경·테두리색을 따른다. 클릭 목록과 자동 알림에 동일하게 적용한다. 고양이 그림의 색상은 유지한다.
-고양이를 숨겼을 때는 꼬리 없이 기존 앱 테마의 알림 패널로 표시한다.
+고양이를 숨겼을 때는 자동 말풍선을 표시하지 않으며 상단 종 아이콘에서 알림을 확인한다.
 말풍선에 크림색·갈색을 고정하던 스타일은 다크 모드의 밝기 문제로 제거했으며 사용자 요청 전 재도입하지 않는다.
 
 자동 알림은 폭 300px 안에서 실제 글자·아이콘의 콘텐츠 끝을 기준으로 상하좌우 12px 여백에 맞춘다. 닫기·개수 버튼의 내부 가로 여백과 하단 버튼의 내부 세로 여백은 음수 margin으로 보정하며, 클릭·터치 영역 크기는 유지한다. 16px 상태 아이콘·본문·닫기를 8px 간격의 그리드로 배치하며, 제목·출처·이동 버튼의 왼쪽 시작선을 맞춘다. 제목은 13px, 출처는 12px이며 둘 사이는 2px, 본문과 조작 줄 사이는 8px다. 닫기와 알림 개수 버튼은 같은 오른쪽 여백에 맞춘다. 긴 출처는 본문 열 안에서 줄바꿈하고 이동 버튼은 내용 너비만 사용한다. 펼친 목록도 중첩된 행·버튼 패딩을 없애 같은 밀도를 유지한다.
@@ -171,10 +174,10 @@ Mew 스킨 하나만 제공하고, 새 스킨은 클라이언트의 `MEWCAT_SKIN
 
 ### 알림 설정과 PC 데스크톱 알림
 
-**설정 → 뮤캣 → 알림**에서 말풍선, 데스크톱 알림, 소리, 서버 자원 감시를 각각 켜고 끈다.
-말풍선·자원 감시는 기본 켜짐, 데스크톱·소리는 기본 꺼짐이다. 설정은 이 브라우저의
+**설정 → 알림**에서 앱 내 알림, 데스크톱 알림, 소리, 서버 자원 감시를 각각 켜고 끈다.
+앱 내 알림·자원 감시는 기본 켜짐, 데스크톱·소리는 기본 꺼짐이다. 뮤캣 스킨이 활성화되어 있으면 **뮤캣으로도 알림 표시**를 추가로 설정하며 기본 켜짐으로 기존 말풍선 동작을 유지한다. 설정은 이 브라우저의
 `mew:notification-preferences`에 저장하며 저장소를 쓸 수 없으면 현재 페이지에서만 적용한다.
-스킨 **없음**은 고양이만 숨긴다. 말풍선·OS 알림·소리는 각각의 설정을 따른다.
+스킨 **없음**은 고양이·자동 말풍선을 숨기며 헤더 알림·OS 알림·소리 수집과 전달은 유지한다. 헤더의 종은 앱 내 알림(`visual`)이 켜지고 큐에 항목이 있을 때만 표시한다. 기존 저장값은 그대로 이어받고 추가 `mewcat` 필드가 없으면 기본 켜짐으로 읽는다. 앱 내 알림을 꺼도 큐를 삭제하지 않아 다시 켜면 확인할 수 있다.
 
 1. **데스크톱 알림 허용**을 눌러 브라우저 권한을 허용한다. 이때 데스크톱 옵션도 켜진다.
 2. 필요하면 **알림 소리**를 켠다. 켜는 동작에서 미리듣기를 하고 브라우저 오디오를 활성화한다.
@@ -203,10 +206,10 @@ Windows에서는 지원 브라우저의 Windows 알림으로 나타나며 클릭
 `src/utils/mewcat-notification-rules.ts`가 에이전트·자원 판단, `src/utils/mewcat-notifications.ts`가
 한 페이지의 큐·설정·소리, `src/hooks/use-mewcat-notifications.ts`가 자원 조회·OS 전달을 맡는다.
 `AgentPanel.tsx`는 실시간 이벤트만 연결하고 UI·설정은 `src/components/mewcat-notifications.tsx`가
-담당한다. `mewcat-notification-copy.ts`의 네 언어 문구를 `i18n.tsx`에 `mewcat.*` 키로 등록하고, 클릭·자동 말풍선·설정·OS 알림 모두 공통 `t()`를 사용한다.
+담당한다. `src/components/header-notifications.tsx`는 뮤캣과 독립적으로 같은 큐를 표시하고 위험·경고·완료 순서와 최신 우선 정렬을 공유한다. 목록은 Esc·뒤로가기·닫기로 닫고 해당 화면 이동이나 마지막 항목 확인 때 종을 비운다. `mewcat-notification-copy.ts`의 네 언어 문구를 `i18n.tsx`에 `mewcat.*` 키로 등록하고, 클릭·자동 말풍선·설정·OS 알림 모두 공통 `t()`를 사용한다.
 
 ```bash
-node --test src/utils/mewcat-notifications.test.ts src/components/mewcat-notifications.test.ts server/mewcat-ui.test.ts
+node --test src/utils/mewcat-notifications.test.ts src/components/mewcat-notifications.test.ts server/header-notifications-ui.test.ts server/mewcat-ui.test.ts
 node --test server/mewcat-grab-ui.test.ts
 npx tsc -b
 npm run lint
@@ -288,6 +291,8 @@ node --test src/utils/mewcat-break-rules.test.ts server/mewcat-break-ui.test.ts
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- 헤더 활성 세션 왼쪽의 `HeaderNotifications`는 스킨 유무와 관계없이 미확인 큐를 표시한다. 설정에 알림 탭을 추가하고 기존 알림 설정을 이동했다. 선택적 `mewcat` 채널은 고양이 자동 말풍선·주의 동작만 제어하며 헤더와 OS 전달·소리를 바꾸지 않는다. 동일 큐의 확인 처리는 모든 표시에서 공유한다.
 
 - 업데이트를 포함한 자동 알림 본문은 높이 제한·자체 스크롤 없이 전체 내용을 표시한다. 고양이 주변 공간이 부족하면 말풍선 위치를 화면 안으로 보정한다. 펼친 알림 목록의 스크롤은 유지한다.
 

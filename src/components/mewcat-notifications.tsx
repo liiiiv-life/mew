@@ -1,3 +1,4 @@
+import { uiText } from '@mew/ui/i18n-core'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useMewcatBubble } from '../hooks/use-mewcat-bubble'
 import { ArrowRight, BellNotification, Check, NavArrowDown, WarningTriangle, Xmark } from 'iconoir-react'
@@ -12,8 +13,8 @@ export function MewcatNotifications({ hasCat, anchorRef }: { hasCat: boolean; an
   // Errors and approval requests stay ahead of completions. No auto-dismiss while the user is away.
   const ordered = [...notices].sort((a, b) => ({ danger: 2, warning: 1, success: 0 }[b.level] - { danger: 2, warning: 1, success: 0 }[a.level]) || b.id - a.id)
   const notice = ordered[0]
-  const bubbleRef = useMewcatBubble(anchorRef, hasCat && preferences.visual && !!notice, 300, false)
-  if (!preferences.visual || !notice) return null
+  const bubbleRef = useMewcatBubble(anchorRef, hasCat && preferences.visual && preferences.mewcat && !!notice, 300, false)
+  if (!hasCat || !preferences.visual || !preferences.mewcat || !notice) return null
   const Icon = notice.level === 'success' ? Check : WarningTriangle
   return (
     <aside ref={bubbleRef} className={`mewcat-notifications mewcat-notifications-auto ${hasCat ? 'mewcat-notifications-with-cat' : ''}`} aria-label={t('mewcat.title')}>
@@ -45,7 +46,7 @@ export function MewcatNotifications({ hasCat, anchorRef }: { hasCat: boolean; an
   )
 }
 
-export function MewcatNotificationSettings() {
+export function MewcatNotificationSettings({ hasCat = false }: { hasCat?: boolean }) {
   const preferences = useNotificationPreferences()
   const { t } = useI18n()
   const [permission, setPermission] = useState(desktopNotificationPermission)
@@ -65,12 +66,10 @@ export function MewcatNotificationSettings() {
       if (result === 'granted') setNotificationPreferences({ desktop: true })
     } catch { setError(t('mewcat.permissionError')) }
   }
-  return <section className="mt-6 border-t border-edge pt-4" aria-label={t('mewcat.title')}>
-    <h3 className="text-sm font-medium text-ink">{t('mewcat.title')}</h3>
-    <p className="mt-2 text-xs leading-relaxed text-ink-secondary">{t('mewcat.hint')}</p>
-    <div className="mt-3 divide-y divide-edge">
+  return <section aria-label={uiText('알림')}>
+    <div className="divide-y divide-edge">
       {(['visual', 'desktop', 'sound', 'resources'] as const).map(key => <label key={key} className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-2 text-sm text-ink">
-        {t(`mewcat.${key}`)}
+        {key === 'visual' ? uiText('앱 내 알림') : t(`mewcat.${key}`)}
         <input type="checkbox" className="h-4 w-4 shrink-0 accent-accent" checked={preferences[key]} disabled={key === 'desktop' && permission !== 'granted'} onChange={event => {
           const enabled = event.target.checked
           setNotificationPreferences({ [key]: enabled })
@@ -80,6 +79,9 @@ export function MewcatNotificationSettings() {
         }} />
       </label>)}
     </div>
+    {hasCat && <label className="flex min-h-11 cursor-pointer items-center justify-between gap-4 border-t border-edge py-2 text-sm text-ink">
+      {uiText('뮤캣으로도 알림 표시')}<input type="checkbox" className="h-4 w-4 shrink-0 accent-accent" checked={preferences.mewcat} onChange={event => setNotificationPreferences({ mewcat: event.target.checked })} />
+    </label>}
     <p className="mt-2 text-xs leading-relaxed text-ink-secondary">{t(`mewcat.${permission}`)}</p>
     {permission === 'default' && <button type="button" className="mt-2 min-h-9 rounded border border-edge px-3 text-xs text-ink hover:bg-surface-raised" onClick={() => { void allow() }}>{t('mewcat.enable')}</button>}
     <div className="mt-4">
