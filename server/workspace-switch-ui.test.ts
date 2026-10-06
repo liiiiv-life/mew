@@ -205,6 +205,22 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     await loading.waitFor({ state: 'detached' })
     assert.equal(countUi('/beta'), 1, 'prefetch is reused by hydration')
     assert.equal(await page.evaluate(() => (globalThis as unknown as { preparedAgentRoot: string }).preparedAgentRoot), '/beta')
+    const layoutDock = page.getByRole('navigation', { name: '작업 독' })
+    const dockBounds = (await layoutDock.boundingBox())!
+    const railSidebarBounds = (await page.locator('[data-sidebar]').boundingBox())!
+    assert.equal(dockBounds.x, 0)
+    assert.equal(dockBounds.y, 48)
+    assert.ok(dockBounds.width <= 48 && dockBounds.height > dockBounds.width)
+    assert.equal(railSidebarBounds.x, dockBounds.width + 1)
+    const railToggleBounds = (await page.locator('[data-sidebar-toggle]').boundingBox())!
+    assert.equal(railToggleBounds.x, railSidebarBounds.x + railSidebarBounds.width - 1)
+    await page.locator('[data-sidebar-toggle]').click()
+    await page.locator('[data-sidebar]').waitFor({ state: 'hidden' })
+    assert.equal(await layoutDock.isVisible(), true, 'sidebar collapse keeps the dock available')
+    assert.equal((await page.locator('[data-sidebar-toggle]').boundingBox())!.x, railSidebarBounds.x)
+    await page.locator('[data-sidebar-toggle]').click()
+    await page.locator('[data-sidebar]').waitFor({ state: 'visible' })
+    await page.screenshot({ path: '/tmp/mew-sidebar-dock-app.png' })
     const treeCount = requests.filter(r => r.path === '/api/tree').length
     await signal(); await page.waitForTimeout(100)
     assert.equal(requests.filter(r => r.path === '/api/tree').length, treeCount, 'duplicate broadcast does not empty or reload trees')
@@ -315,12 +331,8 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     blockTree = false
     for (const release of treeWaiters.splice(0)) release()
     const dock = page.getByRole('navigation', { name: '작업 독' })
-    assert.equal(await dock.isVisible(), true, 'desktop shows the header dock')
-    assert.equal(await page.locator('[data-header-dock] .mobile-dock').count(), 1)
-    const dockBounds = (await dock.boundingBox())!
-    const menuBounds = (await page.getByRole('button', { name: '메뉴', exact: true }).boundingBox())!
-    assert.ok(dockBounds.y >= 0 && dockBounds.y + dockBounds.height <= 48)
-    assert.ok(menuBounds.x > dockBounds.x + dockBounds.width && menuBounds.x - dockBounds.x - dockBounds.width <= 12)
+    assert.equal(await dock.isVisible(), true, 'desktop shows the sidebar dock')
+    assert.equal(await page.locator('[data-sidebar-dock] .mobile-dock').count(), 1)
     assert.equal(await dock.locator('.dock-move-handle').count(), 0)
     const sidebarToggle = dock.locator('[data-dock-item=sidebar]')
     const editorToggle = dock.locator('[data-dock-item=editor]')

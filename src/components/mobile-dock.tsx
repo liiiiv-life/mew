@@ -10,9 +10,10 @@ import { visibleDockPanels, moveDockPanel, type DockDirection, type MobileDockPa
 
 type DragPreview = { x: number; y: number; width: number; height: number }
 
-export function MobileDock({ active, openPanels, available, hidden, portalTarget, onSelect, onNavigate }: {
+export function MobileDock({ active, openPanels, available, hidden, portalTarget, vertical = false, onSelect, onNavigate }: {
   openPanels?: readonly MobileDockPanel[]
   active: string; available: readonly MobileDockPanel[]; hidden: boolean
+  vertical?: boolean
   portalTarget?: HTMLElement | null
   onSelect: (panel: MobileDockPanel) => void
   onNavigate: (direction: DockDirection, order: MobileDockPanel[]) => void
@@ -27,6 +28,7 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
     media.addEventListener('change', update)
     return () => media.removeEventListener('change', update)
   }, [])
+  const verticalLayout = desktop && vertical
   const [draftOrder, setOrder] = useState(preferences.order)
   const [dragging, setDragging] = useState<MobileDockPanel | null>(null)
   const order = dragging ? draftOrder : preferences.order
@@ -73,7 +75,7 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
     const current = gesture.current, dock = root.current
     if (!current?.box || !dock) return
     const bounds = dock.getBoundingClientRect()
-    setPreview({ x: current.box.left + x - current.x - bounds.left - dock.clientLeft, y: current.box.top + y - current.y - bounds.top - dock.clientTop - 8, width: current.box.width, height: current.box.height })
+    setPreview({ x: current.box.left + x - current.x - bounds.left - dock.clientLeft + dock.scrollLeft, y: current.box.top + y - current.y - bounds.top - dock.clientTop + dock.scrollTop - 8, width: current.box.width, height: current.box.height })
   }
   const down = (event: PointerEvent<HTMLElement>) => {
     if (!event.isPrimary) { suppressClick.current = true; cancel(); return }
@@ -108,7 +110,7 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
     let target: MobileDockPanel | undefined, nearest = Infinity
     for (const el of slots) {
       const box = reorderLayoutRect(el)
-      const distance = Math.abs(event.clientX - (box.left + box.width / 2))
+      const distance = verticalLayout ? Math.abs(event.clientY - (box.top + box.height / 2)) : Math.abs(event.clientX - (box.left + box.width / 2))
       if (distance < nearest) { nearest = distance; target = el.dataset.dockItem as MobileDockPanel }
     }
     if (target && target !== current.item) {
@@ -135,7 +137,7 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
   if (hidden || !visible.length) return null
   const DragIcon = dragging ? dockIcons[dragging] : null
   const content = <HoverTipLayer className="contents" placement={desktop ? 'bottom' : 'top'} portalTarget={portalTarget?.closest('[role="dialog"]')}><nav ref={root} className="mobile-dock" hidden={hidden} aria-label={t('dock.label')}
-    data-reordering={dragging ? true : undefined}
+    data-vertical={verticalLayout || undefined} data-reordering={dragging ? true : undefined}
     onPointerDown={down} onPointerMove={move} onPointerUp={up}
     onPointerCancel={() => { suppressClick.current = true; cancel() }} onLostPointerCapture={() => { if (gesture.current) cancel() }}
     onContextMenu={event => event.preventDefault()}>
@@ -148,9 +150,10 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
         aria-describedby="mobile-dock-hint"
         onClick={event => { if (event.detail === 0 || !suppressClick.current) onSelect(id) }}
         onKeyDown={event => {
-          if (!event.altKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return
+          const keys = verticalLayout ? ['ArrowUp', 'ArrowDown'] : ['ArrowLeft', 'ArrowRight']
+          if (!event.altKey || !keys.includes(event.key)) return
           event.preventDefault()
-          const target = visible[visible.indexOf(id) + (event.key === 'ArrowLeft' ? -1 : 1)]
+          const target = visible[visible.indexOf(id) + (event.key === keys[0] ? -1 : 1)]
           if (target) commit(moveDockPanel(order, id, target))
         }}><Icon width={22} height={22} strokeWidth={1.7} aria-hidden="true" /></button>
     })}
@@ -158,7 +161,7 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
       style={{ left: preview.x, top: preview.y, width: preview.width, height: preview.height }}>
       <DragIcon width={22} height={22} strokeWidth={1.7} />
     </span>}
-    <span id="mobile-dock-hint" className="sr-only">{t('dock.hint')}</span>
+    <span id="mobile-dock-hint" className="sr-only">{t(verticalLayout ? 'dock.verticalHint' : 'dock.hint')}</span>
   </nav>
     {notice && createPortal(<div role="status" data-dock-notice style={{ bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))' }}
       className="pointer-events-none fixed left-1/2 z-[1700] max-w-[calc(100vw-16px)] -translate-x-1/2 rounded border border-edge-bright bg-surface-raised px-2 py-1 text-xs text-ink shadow-lg md:hidden">

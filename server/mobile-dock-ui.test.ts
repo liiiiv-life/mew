@@ -18,7 +18,7 @@ import {Mewcat} from '${root}/src/components/Mewcat.tsx';
 import {useMobileKeyboard} from '${root}/src/hooks/use-mobile-keyboard.ts';
 import {MOBILE_DOCK_ORDER} from '${root}/src/utils/mobile-dock.ts';
 window.actions=[];
-function Fixture(){const [active,setActive]=React.useState('editor');const [available,setAvailable]=React.useState([...MOBILE_DOCK_ORDER]);window.setAvailable=setAvailable;const hidden=useMobileKeyboard();return <div className="mew-workspace" data-mobile-keyboard={hidden||undefined}><header style={{height:48,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:12,paddingRight:8}}><MobileDock active={active} available={available} hidden={hidden} onSelect={id=>{setActive(id);window.actions.push(id)}} onNavigate={(dir,order)=>window.actions.push({dir,order})}/><button aria-label="Menu" style={{width:40,height:36}}>Menu</button></header><input aria-label="Message"/><Mewcat skin="mew"/></div>}
+function Fixture(){const [vertical,setVertical]=React.useState(false);window.setVertical=setVertical;const [active,setActive]=React.useState('editor');const [available,setAvailable]=React.useState([...MOBILE_DOCK_ORDER]);window.setAvailable=setAvailable;const hidden=useMobileKeyboard();return <div className="mew-workspace" data-mobile-keyboard={hidden||undefined}><header style={{height:48,display:"flex",alignItems:vertical?"flex-start":"center",justifyContent:"flex-end",gap:12,paddingRight:8}}><MobileDock vertical={vertical} active={active} available={available} hidden={hidden} onSelect={id=>{setActive(id);window.actions.push(id)}} onNavigate={(dir,order)=>window.actions.push({dir,order})}/><button aria-label="Menu" style={{width:40,height:36}}>Menu</button></header><input aria-label="Message"/><Mewcat skin="mew"/></div>}
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:dock.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', async resolveId(id, importer) {
     if (id === 'virtual:dock.tsx') return id
@@ -276,6 +276,25 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.setViewportSize({ width: 1024, height: 844 })
     assert.deepEqual(await dock.boundingBox(), initial)
     await assertDesktopCatGround()
+    await page.evaluate('window.setVertical(true)')
+    assert.equal(await dock.getAttribute('data-vertical'), 'true')
+    const verticalItems = await dock.getByRole('button').all()
+    const first = (await verticalItems[0].boundingBox())!
+    const second = (await verticalItems[1].boundingBox())!
+    assert.equal(first.x, second.x)
+    assert.ok(second.y > first.y)
+    await verticalItems[0].focus(); await page.keyboard.press('Alt+ArrowDown')
+    assert.equal((await items())[1], 'memo', 'vertical keyboard reorder follows the column')
+    await dock.locator('[data-dock-item]').evaluateAll(async elements => {
+      await Promise.all(elements.flatMap(el => el.getAnimations().map((animation: ReturnType<typeof el.getAnimations>[number]) => animation.finished.catch(() => {}))))
+    })
+    from = (await dock.locator('[data-dock-item=memo]').boundingBox())!
+    to = (await dock.getByRole('button').last().boundingBox())!
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+    await page.mouse.down(); await page.waitForTimeout(480)
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 5 })
+    await page.mouse.up()
+    assert.equal((await items()).at(-1), 'memo', 'vertical drag uses the target row')
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })

@@ -343,7 +343,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   useEffect(() => { setMemoOpen(false) }, [auth.email, caps.collaboration])
   const [remoteMewcatHost, setRemoteMewcatHost] = useState<HTMLDivElement | null>(null)
   const [remoteDockHost, setRemoteDockHost] = useState<HTMLDivElement | null>(null)
-  const [headerDockHost, setHeaderDockHost] = useState<HTMLDivElement | null>(null)
+  const [sidebarDockHost, setSidebarDockHost] = useState<HTMLDivElement | null>(null)
   if (gitOpen) gitMounted.current = true
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
   const [androidOpen, setAndroidOpen] = useState(() => caps.android && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
@@ -2092,7 +2092,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
               <span className="select-text hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
             )}
             {!isGuest && <ActiveSessionsButton presence={activeSessions} />}
-            <div ref={setHeaderDockHost} className="hidden md:flex" data-header-dock />
             <HeaderMenu items={headerMenuItems} />
           </div>
         </header>
@@ -2108,9 +2107,10 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null)
         }}
       >
+        <div ref={setSidebarDockHost} className="desktop-dock-rail" data-sidebar-dock />
         <button type="button" data-sidebar-toggle aria-expanded={sidebarOpen} aria-label={uiText(sidebarOpen ? '사이드바 닫기' : '사이드바 열기')} data-tip={uiText(sidebarOpen ? '사이드바 닫기' : '사이드바 열기')} onClick={() => toggleWorkspacePanel('sidebar')}
           className="absolute top-1/2 z-50 hidden h-9 w-5 -translate-y-1/2 items-center justify-center rounded-r border border-edge-strong bg-surface-deep text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent md:flex"
-          style={{ left: sidebarOpen ? sidebarWidth - 1 : 0 }}>
+          style={{ left: `calc(var(--desktop-dock-width) + ${sidebarOpen ? sidebarWidth - 1 : 0}px)` }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={sidebarOpen ? 'm15 6-6 6 6 6' : 'm9 6 6 6-6 6'} /></svg>
         </button>
         {sidebarOpen && (
@@ -2400,8 +2400,8 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
       <Mewcat portalTarget={remoteDesktopOpen ? remoteMewcatHost : null} hidden={remoteDesktopOpen && mewcatHideDesktop} skin={mewcatSkin} assistant={{ account: auth.email ?? 'guest', enabled: caps.agent, runtime: mewcatRuntime, projectRoot: rootProjectPath, onAction: handleMewcatAction, onRuntimeChange: selectMewcatRuntime, onConnect: () => { setMewcatPicker(true); openWorkspacePanel('agent'); showToast(t('mewcat.assistant.guide')) } }} onOpenSystemStats={caps.system ? () => setSysStatsOpen(true) : undefined} />
 
-      <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost ?? (desktopMode ? headerDockHost : null)}
-        onSelect={selectDockPanel} onNavigate={navigateMobileDock} />
+      <MobileDock active={remoteDesktopOpen ? 'desktop' : desktopMode ? focusedDockPanel ?? '' : mobileForegroundPanel ?? 'editor'} openPanels={desktopMode ? mobileDockPanels.filter(panel => panel === 'editor' ? editorOpen : panel === 'desktop' ? remoteDesktopOpen : panel === 'memo' ? memoOpen : workspacePanelOpen[panel]) : undefined} available={mobileDockPanels} hidden={mobileKeyboardOpen} portalTarget={remoteDockHost ?? (desktopMode ? sidebarDockHost : null)}
+        vertical={desktopMode && !remoteDockHost} onSelect={selectDockPanel} onNavigate={navigateMobileDock} />
 
       {settingsOpen && (
         <SettingsModal
