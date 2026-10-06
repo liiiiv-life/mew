@@ -440,7 +440,7 @@ export interface GitLogEntry {
   date: string
 }
 
-export interface GitChangedFile { status: string; path: string; previousPath?: string }
+export interface GitChangedFile { status: string; path: string; previousPath?: string; currentIp?: boolean }
 export interface GitCommitDetail extends GitLogEntry { body: string; files: GitChangedFile[] }
 export interface GitWorkingTreeDetail { files: GitChangedFile[] }
 export interface GitWorkingTreeCommitResult { info: GitRepositoryInfo; hash: string }

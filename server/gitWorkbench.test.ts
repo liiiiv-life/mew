@@ -321,3 +321,20 @@ test('branch picker lists refs, creates from explicit bases and switches without
   await assert.rejects(runBranchAction(paths.WORKSPACE_PROJECT, rel, 'create', 'HEAD~1', 'bad-base'))
   assert.equal((await git.status()).current, 'topic')
 })
+
+test('working tree defaults select only files whose current contents came from this IP', async t => {
+  const directory = path.join(root, 'ip-defaults')
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
+  fs.mkdirSync(directory)
+  await simpleGit(directory).init()
+  const { recordChangeIp } = await import('./change-ip.ts')
+  for (const [name, ip] of [['mine.txt', 'client-a'], ['other.txt', 'client-b'], ['external.txt', 'client-a']]) {
+    const file = path.join(directory, name)
+    fs.writeFileSync(file, 'saved')
+    recordChangeIp(file, ip, 'saved')
+  }
+  fs.writeFileSync(path.join(directory, 'external.txt'), 'outside edit')
+  const details = await workingTreeDetail(paths.WORKSPACE_PROJECT, 'ip-defaults', 'client-a')
+  assert.deepEqual(details.files.filter(file => file.currentIp).map(file => file.path), ['mine.txt'])
+  assert.equal(details.files.length, 3)
+})

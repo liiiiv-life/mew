@@ -1,3 +1,4 @@
+import { recordChangeIp, requestIp } from './change-ip.ts'
 import { DocumentPages, DocumentPageError } from './document-pages.ts'
 import { DocumentGraphIndex } from './document-graph.ts'
 import { subscribeFileCatalog } from './fileCatalog.ts'
@@ -845,7 +846,9 @@ export function createApiApp() {
   app.put('/fs/file', requireFeature('serverFiles'), (req, res) => {
     try {
       const { path: filePath, content, expectedContent } = req.body as { path?: unknown; content?: unknown; expectedContent?: unknown }
-      res.json({ ok: true, path: writeExternalFile(filePath, content, expectedContent) })
+      const savedPath = writeExternalFile(filePath, content, expectedContent)
+      recordChangeIp(savedPath, requestIp(req), String(content))
+      res.json({ ok: true, path: savedPath })
     } catch (err) {
       handleError(res, err)
     }
@@ -998,7 +1001,7 @@ export function createApiApp() {
   })
 
   app.get('/git/working-tree', requireFeature('git'), async (req, res) => {
-    try { res.json(await workingTreeDetail(projectOf(req), String(req.query.path ?? ''))) } catch (err) { handleError(res, err) }
+    try { res.json(await workingTreeDetail(projectOf(req), String(req.query.path ?? ''), requestIp(req))) } catch (err) { handleError(res, err) }
   })
 
   app.get('/git/working-tree/diff', requireFeature('git'), async (req, res) => {
@@ -1415,6 +1418,7 @@ export function createApiApp() {
       }
       const absPath = resolveProjectPath(project, relPath)
       const isNew = !fs.existsSync(absPath)
+      const contentChanged = isNew || fs.readFileSync(absPath, 'utf8') !== content
       // 게스트는 부분 편집 권한을 받아도 명시적 git 커밋은 절대 트리거할 수 없다
       const doCommit = commit && authOf(req).role !== 'guest'
       if (doCommit) {
@@ -1424,6 +1428,7 @@ export function createApiApp() {
       } else {
         fs.mkdirSync(path.dirname(absPath), { recursive: true })
         fs.writeFileSync(absPath, content, 'utf-8')
+        if (contentChanged) recordChangeIp(absPath, requestIp(req), content)
         // 자동저장(비커밋) 경로 — 협업 브리지가 메아리로 무시하도록 기록
         noteAppWrite(absPath, content)
         noteFileContentChanged(project, relPath)

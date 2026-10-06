@@ -434,7 +434,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
       setNow(Date.now())
       setCommits(log.commits)
       setWorkingTree(nextWorkingTree)
-      setSelectedFiles(current => new Set(nextWorkingTree.files.filter(file => selectAll || current.has(file.path)).map(file => file.path)))
+      setSelectedFiles(current => new Set(nextWorkingTree.files.filter(file => selectAll ? file.currentIp === true : current.has(file.path)).map(file => file.path)))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {

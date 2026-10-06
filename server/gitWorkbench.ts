@@ -1,3 +1,4 @@
+import { changedFromIp } from './change-ip.ts'
 import { gitOriginLink } from './git-origin-link.ts'
 import { gitProgressParser, type GitRemoteProgress } from '../shared/git-remote-progress.ts'
 import { currentGitEnv, gitRequestContext, providerRemote, requireGitConnection, withGitCredential } from './git-execution.ts'
@@ -41,6 +42,7 @@ export interface GitChangedFile {
   status: string
   path: string
   previousPath?: string
+  currentIp?: boolean
 }
 
 export interface GitCommitDetail extends GitLogEntry {
@@ -272,13 +274,14 @@ function limitedPatch(diff: string): string {
   return diff.length <= MAX_PATCH_CHARS ? diff : `${diff.slice(0, MAX_PATCH_CHARS)}\n\n… patch가 2MB를 넘어 나머지를 생략했습니다 …\n`
 }
 
-export async function workingTreeDetail(project: string, relPath: string): Promise<GitWorkingTreeDetail> {
-  const { git } = repository(project, relPath)
+export async function workingTreeDetail(project: string, relPath: string, ip?: string): Promise<GitWorkingTreeDetail> {
+  const { git, abs } = repository(project, relPath)
   const status = await git.status(['--untracked-files=all'])
   return {
     files: status.files.map((file) => ({
       status: `${file.index}${file.working_dir}`,
       path: file.path,
+      ...(ip ? { currentIp: changedFromIp(path.join(abs, file.path), ip) } : {}),
       ...(file.from ? { previousPath: file.from } : {}),
     })),
   }

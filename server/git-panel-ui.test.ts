@@ -68,7 +68,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     let externalCommit = false
     let repositoryBranch = 'main'
     let remoteFailure = false
-    let workingFiles = Array.from({ length: 60 }, (_, index) => ({ path: index === 0 ? 'file.ts' : `src/components/long-directory-name/changed-file-${index}.tsx`, status: index % 2 ? '??' : 'M' }))
+    let workingFiles = Array.from({ length: 60 }, (_, index) => ({ path: index === 0 ? 'file.ts' : `src/components/long-directory-name/changed-file-${index}.tsx`, status: index % 2 ? '??' : 'M', currentIp: index < 2 }))
     let diffLine = 'new'
     let workingFailure = false
     let finishWorking = () => {}
@@ -278,8 +278,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.mouse.up()
     const firstCheck = page.getByRole('checkbox', { name: 'file.ts 커밋에 포함', exact: true })
     assert.equal(await firstCheck.isChecked(), true)
-    assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 60, 'initial changes are all selected')
-    assert.equal(await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).isChecked(), true)
+    assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 2, 'only changes from the current IP are initially selected')
+    assert.equal(await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).isChecked(), false)
+    await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).check()
     await page.getByRole('checkbox', { name: '변경 파일 전체 선택' }).uncheck()
     const dragChecks = changes.getByRole('checkbox')
     const firstDragBox = await bounds(dragChecks.nth(0))
@@ -365,7 +366,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     externalCommit = false
     repositoryBranch = 'main'
     const originalFiles = workingFiles
-    workingFiles = [...workingFiles.map((file, index) => index === 0 ? { ...file, status: 'MM' } : file), { path: 'external-new.ts', status: '??' }]
+    workingFiles = [...workingFiles.map((file, index) => index === 0 ? { ...file, status: 'MM' } : file), { path: 'external-new.ts', status: '??', currentIp: false }]
     await page.getByText('external-new.ts', { exact: true }).waitFor({ state: 'attached' })
     assert.equal(await firstCheck.isChecked(), true, 'automatic updates retain selected files')
     assert.equal(await page.getByRole('checkbox', { name: 'external-new.ts 커밋에 포함', exact: true }).isChecked(), false, 'new files are not silently selected')
