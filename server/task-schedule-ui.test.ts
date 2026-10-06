@@ -74,6 +74,8 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const errors: string[] = []
     for (const page of [desktop, mobile]) { page.setDefaultTimeout(5000); page.on('pageerror', error => errors.push(error.message)); await page.clock.setFixedTime(new Date('2026-10-03T03:00:00Z')); await page.goto(base); await page.locator('[data-task-id=undated]').waitFor().catch(async error => { throw new Error(`${error.message}\n${errors.join('\n')}\n${await page.locator('body').innerText()}`) }) }
     const panel = desktop.locator('.task-panel')
+    assert.equal(await panel.locator('[data-task-id=legacy]').count(), 0, 'completed tasks default to hidden')
+    for (const page of [desktop, mobile]) await page.getByRole('checkbox', { name: '완료된 항목 보기', exact: true }).check()
     assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['parent', 'period', 'legacy', 'undated'], 'list applies date status sorting to independent rows')
     assert.equal(await panel.locator('.task-disclosure').count(), 0)
     assert.equal(await panel.locator('[data-task-id=undated] .task-date-status').innerText(), '날짜 설정')
@@ -259,10 +261,12 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(await panel.getByRole('button', { name: 'Draw schedule' }).count(), 1)
     await desktop.getByRole('button', { name: '한국어', exact: true }).click()
     await desktop.reload(); await desktop.locator('[data-task-id=period]').waitFor()
+    await desktop.getByRole('checkbox', { name: '완료된 항목 보기', exact: true }).check()
     await desktop.locator('[data-task-id=period] .task-date-status').click()
     await expectDateValue(desktop.locator('.task-date-popover').getByRole('textbox', { name: '시작일', exact: true }), '2026-10-02')
     await desktop.keyboard.press('Escape')
     await mobile.reload(); await mobile.locator('[data-task-id=period]').waitFor()
+    await mobile.getByRole('checkbox', { name: '완료된 항목 보기', exact: true }).check()
     await mobile.locator('html').evaluate(el => el.classList.remove('dark'))
     const status = mobile.locator('[data-task-id=period] .task-date-status')
     const statusBox = (await status.boundingBox())!

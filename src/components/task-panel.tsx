@@ -38,11 +38,12 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   const [dateId, setDateId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [filters, setFilters] = useState<string[]>([])
+  const [showCompleted, setShowCompleted] = useState(false)
   const [view, setView] = useState<'list' | 'calendar' | 'gantt'>('list')
   const [selectedDate, setSelectedDate] = useState(localToday), [month, setMonth] = useState(() => localToday().slice(0, 7))
   const inputs = useRef(new Map<string, HTMLTextAreaElement>()).current
   const { tasks, canEdit, loading, saving, error, draft, draftTags, edit, setDraft, setDraftTags, flush, retry } = session
-  useEffect(() => { setMenu(null); setDateId(null) }, [workspace, canEdit, view, filters])
+  useEffect(() => { setMenu(null); setDateId(null) }, [workspace, canEdit, view, filters, showCompleted])
   const [today, setToday] = useState(localToday)
   useEffect(() => { setDeleteId(null) }, [workspace, canEdit])
   useEffect(() => {
@@ -54,7 +55,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   }, [])
   const sortedTasks = useMemo(() => sortTasksByDateStatus(tasks, today), [tasks, today])
   const knownTags = collectTaskTags(tasks, [...(session.tags ?? []), ...draftTags])
-  const matchesFilter = (task: TaskItem) => !filters.length || taskTags(task).some(tag => filters.includes(tag))
+  const matchesFilter = (task: TaskItem) => (showCompleted || !task.done) && (!filters.length || taskTags(task).some(tag => filters.includes(tag)))
   const filteredTasks = tasks.filter(matchesFilter)
   const sortedFiltered = sortedTasks.filter(matchesFilter)
   const drag = useTaskDrag(sortedFiltered, canEdit, next => edit(mergeVisibleTasks(tasks, sortedFiltered, next)))
@@ -166,7 +167,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
       <button type="button" onClick={onClose} aria-label={uiText('닫기')} data-tip={uiText('닫기')}
         className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"><Xmark width={14} height={14} aria-hidden="true" /></button>
     </header>
-    {knownTags.length > 0 && <TaskTagFilter tags={knownTags} selected={filters} count={filteredTasks.length} total={tasks.length} onChange={setFilters} />}
+    <TaskTagFilter tags={knownTags} selected={filters} count={filteredTasks.length} total={tasks.length} onChange={setFilters} showCompleted={showCompleted} onShowCompletedChange={setShowCompleted} />
     <DockInlineBody group="tasks" role="tabpanel" id={`${tabId}-body`} aria-labelledby={`${tabId}-${view}`} className={view === 'gantt' ? 'task-view-body min-h-0 flex-1 overflow-hidden' : 'task-view-body min-h-0 flex-1 overflow-auto'}>
       {error && <div role="alert" className="flex items-center gap-2 px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1">{uiText(taskErrors.find(message => message === error) ?? '태스크를 저장하지 못했습니다')}</span>
         <button type="button" onClick={() => void retry()} aria-label={uiText('다시 저장')} data-tip={uiText('다시 저장')} className="flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink"><RefreshDouble width={16} height={16} aria-hidden="true" /></button>

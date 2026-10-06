@@ -11,6 +11,7 @@ export const uiMessages = {
   '팝업': ['Popup', '弹窗', 'ポップアップ'],
 
   '태그': ['Tags', '标签', 'タグ'],
+  '완료된 항목 보기': ['Show completed items', '显示已完成项目', '完了した項目を表示'],
   '태그 필터': ['Filter by tag', '按标签筛选', 'タグで絞り込み'],
   '태그 필터 해제': ['Remove tag filter', '取消标签筛选', 'タグの絞り込みを解除'],
   '모든 태그 필터 해제': ['Clear tag filters', '清除标签筛选', 'タグの絞り込みをすべて解除'],
