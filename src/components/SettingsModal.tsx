@@ -1,3 +1,5 @@
+import { DockSettingsPanel } from './dock-settings-panel'
+import type { MobileDockPanel } from '../utils/mobile-dock'
 import { useMewcatFurColor, setMewcatFurColor } from '../hooks/use-mewcat-fur-color'
 import { DEFAULT_MEWCAT_FUR_COLOR } from '../utils/mewcat-fur-color'
 import { useToolPresentation, setToolPresentation } from '../hooks/use-tool-presentation'
@@ -17,10 +19,11 @@ import { MewcatBreakSettings } from './mewcat-break'
 
 const PASSWORD_MIN_LENGTH = 10
 
-type Section = 'account' | 'appearance' | 'mewcat' | 'shortcuts' | 'ignore'
+type Section = 'account' | 'appearance' | 'dock' | 'mewcat' | 'shortcuts' | 'ignore'
 type Theme = 'dark' | 'light'
 
 interface SettingsModalProps {
+  dockAvailable?: readonly MobileDockPanel[]
   /** 로그인한 사용자의 이메일 — 게스트면 null이라 계정 탭을 숨긴다 */
   email: string | null
   displayName: string | null
@@ -45,13 +48,14 @@ interface SettingsModalProps {
 const SECTION_LABEL: Record<Section, TranslationKey> = {
   account: 'settings.account',
   appearance: 'settings.appearance',
+  dock: 'settings.dock',
   mewcat: 'settings.mewcat',
   shortcuts: 'settings.shortcuts',
   ignore: 'settings.ignoreList',
 }
 
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
-export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, mewcatHideDesktop, onMewcatHideDesktopChange, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
+export function SettingsModal({ dockAvailable, email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, mewcatHideDesktop, onMewcatHideDesktopChange, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
   useUiLocale()
   const [section, setSection] = useState<Section>(email ? 'account' : 'appearance')
   // Mobile begins with the category list; the selected panel is a second screen.
@@ -64,6 +68,7 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
   const sections: Section[] = [
     ...(email ? (['account'] as Section[]) : []),
     'appearance',
+    'dock',
     'mewcat',
     'shortcuts',
     ...(canEditIgnore ? (['ignore'] as Section[]) : []),
@@ -138,6 +143,7 @@ export function SettingsModal({ email, displayName, avatarDataUrl, canEditIgnore
                 onThemeColorChange={onThemeColorChange}
               />
             )}
+            {section === 'dock' && <DockSettingsPanel available={dockAvailable} />}
             {section === 'mewcat' && <><MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} /><label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink"><input type="checkbox" checked={mewcatHideDesktop} onChange={event => onMewcatHideDesktopChange(event.target.checked)} className="accent-accent" />{uiText("원격 데스크톱에서 뮤캣 숨기기")}</label><MewcatNotificationSettings /><MewcatBreakSettings /></>}
             {section === 'shortcuts' && <ShortcutsPanel />}
             {section === 'ignore' && <IgnorePanel />}

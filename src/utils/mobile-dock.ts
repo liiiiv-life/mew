@@ -26,3 +26,13 @@ export function moveDockPanel(order: MobileDockPanel[], from: MobileDockPanel, t
   next.splice(end, 0, ...next.splice(start, 1))
   return next
 }
+
+export const MOBILE_DOCK_HIDDEN_KEY = 'mew:mobile-dock-hidden'
+
+export function normalizeHiddenDockPanels(value: unknown): MobileDockPanel[] {
+  return Array.isArray(value) ? [...new Set(value.filter((id): id is MobileDockPanel => MOBILE_DOCK_ORDER.includes(id)))] : []
+}
+
+export function visibleDockPanels(order: readonly MobileDockPanel[], available: readonly MobileDockPanel[], hidden: readonly MobileDockPanel[]): MobileDockPanel[] {
+  return order.filter(id => available.includes(id) && !hidden.includes(id))
+}

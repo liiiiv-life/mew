@@ -2405,6 +2405,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
       {settingsOpen && (
         <SettingsModal
+          dockAvailable={mobileDockPanels}
           email={authEmail}
           displayName={auth.displayName}
           avatarDataUrl={auth.avatarDataUrl}

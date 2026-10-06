@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { adjacentDockPanel, MOBILE_DOCK_ORDER, moveDockPanel, normalizeMobileDockOrder } from './mobile-dock.ts'
+import { adjacentDockPanel, MOBILE_DOCK_ORDER, moveDockPanel, normalizeMobileDockOrder, normalizeHiddenDockPanels, visibleDockPanels } from './mobile-dock.ts'
 
 test('dock order preserves customization and inserts new entries before desktop', () => {
   assert.deepEqual(normalizeMobileDockOrder(null), MOBILE_DOCK_ORDER)
@@ -27,4 +27,13 @@ test('swipes use adjacent allowed panels, preserve custom order and stop at eith
 test('task entries persist and retired RAG entries disappear without changing the customized dock order', () => {
   const saved = ['memo', 'tasks', 'rag', 'git', 'editor', 'sidebar', 'agent', 'terminal', 'browser', 'features', 'desktop', 'rag']
   assert.deepEqual(normalizeMobileDockOrder(saved), ['memo', 'tasks', 'git', 'editor', 'sidebar', 'agent', 'terminal', 'browser', 'features', 'desktop'])
+})
+
+test('visibility filters preferences and permissions without losing stored order', () => {
+  assert.deepEqual(normalizeHiddenDockPanels(null), [])
+  assert.deepEqual(normalizeHiddenDockPanels(['agent', 'agent', 'rag', 3, null]), ['agent'])
+  const order = normalizeMobileDockOrder(['git', 'agent', 'editor'])
+  assert.deepEqual(visibleDockPanels(order, ['editor', 'agent', 'git'], ['agent']), ['git', 'editor'])
+  assert.deepEqual(visibleDockPanels(order, ['editor', 'agent', 'git'], ['git', 'editor', 'agent']), [])
+  assert.deepEqual(visibleDockPanels(order, ['editor', 'agent', 'git'], []), ['git', 'agent', 'editor'])
 })

@@ -1,18 +1,13 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { HoverTipLayer, useReorderAnimation, reorderLayoutRect } from '@mew/ui'
-import { Brain, Computer, EditPencil, Folder, GitBranch, Globe, Notes, Terminal, Calendar } from 'iconoir-react'
-import { writeBrowserStorage } from '@mew/ui/browser-storage'
-import { uiText } from '@mew/ui/i18n-core'
 import { useI18n } from '../i18n'
-import { featureCopy } from './feature-copy'
-import { FeatureIcon } from './feature-icon'
-import { MOBILE_DOCK_ORDER_KEY, normalizeMobileDockOrder, moveDockPanel, type DockDirection, type MobileDockPanel } from '../utils/mobile-dock'
+import { dockIcons, useDockLabel } from './dock-items'
+import { useDockPreferences, setDockOrder } from '../hooks/use-dock-preferences'
+import { visibleDockPanels, moveDockPanel, type DockDirection, type MobileDockPanel } from '../utils/mobile-dock'
 
 
 
-const icons = { sidebar: Folder, editor: EditPencil, agent: Brain, terminal: Terminal, git: GitBranch, browser: Globe, desktop: Computer, features: FeatureIcon, memo: Notes, tasks: Calendar }
-const labels = { sidebar: 'panel.sidebar', editor: 'panel.editor', agent: 'header.agent', terminal: 'header.terminal', git: 'access.git', browser: 'header.browser', desktop: 'access.desktop' } as const
 type DragPreview = { x: number; y: number; width: number; height: number }
 
 export function MobileDock({ active, openPanels, available, hidden, portalTarget, onSelect, onNavigate }: {
@@ -22,7 +17,9 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
   onSelect: (panel: MobileDockPanel) => void
   onNavigate: (direction: DockDirection, order: MobileDockPanel[]) => void
 }) {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
+  const labelFor = useDockLabel()
+  const preferences = useDockPreferences()
   const [desktop, setDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches)
   useEffect(() => {
     const media = window.matchMedia('(min-width: 768px)')
@@ -30,22 +27,19 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
     media.addEventListener('change', update)
     return () => media.removeEventListener('change', update)
   }, [])
-  const [order, setOrder] = useState(() => {
-    try { return normalizeMobileDockOrder(JSON.parse(localStorage.getItem(MOBILE_DOCK_ORDER_KEY) ?? 'null')) }
-    catch { return normalizeMobileDockOrder(null) }
-  })
+  const [draftOrder, setOrder] = useState(preferences.order)
   const [dragging, setDragging] = useState<MobileDockPanel | null>(null)
+  const order = dragging ? draftOrder : preferences.order
   const [preview, setPreview] = useState<DragPreview | null>(null)
   const [notice, setNotice] = useState<MobileDockPanel | null>(null)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const labelFor = (id: MobileDockPanel) => id === 'tasks' ? uiText('태스크') : id === 'memo' ? uiText('메모') : id === 'features' ? featureCopy[locale].title : t(labels[id])
   const clearNotice = () => { clearTimeout(noticeTimer.current); setNotice(null) }
   const root = useRef<HTMLElement>(null)
   const captureReorder = useReorderAnimation(() => root.current?.querySelectorAll<HTMLElement>('[data-dock-item]') ?? [])
   const gesture = useRef<{ id: number; x: number; y: number; item?: MobileDockPanel; box?: DOMRect; capture: HTMLElement; moved: boolean; dragging: boolean; order: MobileDockPanel[]; original: MobileDockPanel[] } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const suppressClick = useRef(false)
-  const visible = order.filter(id => available.includes(id))
+  const visible = visibleDockPanels(order, available, preferences.hidden)
   const cancel = () => {
     clearNotice()
     clearTimeout(timer.current)
@@ -71,9 +65,10 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
     document.addEventListener('visibilitychange', dismiss)
     return () => { clearTimeout(noticeTimer.current); clearTimeout(timer.current); window.removeEventListener('blur', dismiss); window.removeEventListener('resize', dismiss); window.removeEventListener('keydown', key, true); document.removeEventListener('visibilitychange', dismiss) }
   }, [])
-  const availableKey = available.join(',')
+  useEffect(() => { cancel() }, [preferences.order])
+  const availableKey = available.join(',') + ':' + preferences.hidden.join(',')
   useEffect(() => { cancel() }, [hidden, portalTarget, availableKey])
-  const commit = (next: MobileDockPanel[]) => { setOrder(next); writeBrowserStorage(MOBILE_DOCK_ORDER_KEY, JSON.stringify(next)) }
+  const commit = (next: MobileDockPanel[]) => { setOrder(next); setDockOrder(next) }
   const updatePreview = (x: number, y: number) => {
     const current = gesture.current, dock = root.current
     if (!current?.box || !dock) return
@@ -93,6 +88,7 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
       const current = gesture.current
       if (!current || current.moved) return
       current.dragging = true
+      setOrder(current.order)
       suppressClick.current = true
       setDragging(item)
       updatePreview(current.x, current.y)
@@ -136,15 +132,15 @@ export function MobileDock({ active, openPanels, available, hidden, portalTarget
     }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
-  if (hidden) return null
-  const DragIcon = dragging ? icons[dragging] : null
+  if (hidden || !visible.length) return null
+  const DragIcon = dragging ? dockIcons[dragging] : null
   const content = <HoverTipLayer className="contents" placement={desktop ? 'bottom' : 'top'} portalTarget={portalTarget?.closest('[role="dialog"]')}><nav ref={root} className="mobile-dock" hidden={hidden} aria-label={t('dock.label')}
     data-reordering={dragging ? true : undefined}
     onPointerDown={down} onPointerMove={move} onPointerUp={up}
     onPointerCancel={() => { suppressClick.current = true; cancel() }} onLostPointerCapture={() => { if (gesture.current) cancel() }}
     onContextMenu={event => event.preventDefault()}>
     {visible.map(id => {
-      const Icon = icons[id]
+      const Icon = dockIcons[id]
       const label = labelFor(id)
       return <button key={id} type="button" data-dock-item={id} data-dragging={dragging === id || undefined}
         aria-label={label} data-tip={dragging ? undefined : label} aria-current={active === id ? (openPanels ? 'true' : 'page') : undefined}

@@ -700,3 +700,32 @@ strong {
 .mewcat-break-caption [role="timer"] { font-size: 28px; line-height: 1.2; font-variant-numeric: tabular-nums; }
 @keyframes mewcat-break-arrive { from { transform: scale(.06); } to { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .mewcat-break-cat .mewcat-art { animation: none; } }
+
+.dock-setting-switch {
+  appearance: none;
+  width: 32px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-edge-strong);
+  cursor: pointer;
+  position: relative;
+  transition: background-color 150ms ease-out;
+}
+.dock-setting-switch::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  top: 2px;
+  border-radius: 50%;
+  background: var(--color-ink-secondary);
+  transition: transform 150ms ease-out;
+}
+.dock-setting-switch:checked { background: var(--color-accent); border-color: var(--color-accent); }
+.dock-setting-switch:checked::after { transform: translateX(12px); background: var(--color-ink-on-accent); }
+.dock-setting-switch:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .dock-setting-switch, .dock-setting-switch::after { transition: none; }
+}
