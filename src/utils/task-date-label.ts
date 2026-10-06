@@ -1,10 +1,17 @@
 import { taskRollups, taskWithRollup } from '../../shared/task-rollup.ts'
 import { taskParent, type TaskItem } from '../../shared/task-list.ts'
 import { toDay } from './task-timeline.ts'
+import { uiText } from '@mew/ui/i18n-core'
 
 export function taskDateLabel(task: TaskItem, today: string): { label: string; tone: 'muted' | 'normal' | 'danger' } {
-  if (task.startDate && task.startDate > today) return { label: '시작 전', tone: 'muted' }
-  if (!task.date) return { label: '날짜 설정', tone: 'muted' }
+  if (task.startDate && task.startDate > today) {
+    const days = toDay(task.startDate) - toDay(today)
+    const label = days >= 30 ? uiText('{count}달 후 시작', { count: Math.floor(days / 30) })
+      : days >= 7 ? uiText('{count}주 후 시작', { count: Math.floor(days / 7) })
+      : uiText('{count}일 후 시작', { count: days })
+    return { label, tone: 'muted' }
+  }
+  if (!task.date) return { label: uiText('날짜 설정'), tone: 'muted' }
   const days = toDay(task.date) - toDay(today)
   return { label: days === 0 ? 'D-Day' : days > 0 ? `D-${days}` : `D+${-days}`, tone: days < 0 ? 'danger' : 'normal' }
 }
