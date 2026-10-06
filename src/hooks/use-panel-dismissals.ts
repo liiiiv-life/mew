@@ -47,14 +47,20 @@ export function useWorkspacePanelDismissals(
   const current = useMemo<NavigationEntry>(() => ({ panel: currentPanel, screen }), [currentPanel, screen])
   const previous = useRef({ scope: navigation?.scope, current })
   const historyRef = useRef<NavigationEntry[]>([])
+  const closingFromBack = useRef(false)
   const [history, setHistory] = useState<NavigationEntry[]>([])
   useEffect(() => {
     const last = previous.current
     previous.current = { scope: navigation?.scope, current }
     if (!navigation?.enabled || last.scope !== navigation.scope) {
+      closingFromBack.current = false
       historyRef.current = []
       setHistory((entries) => entries.length ? [] : entries)
     } else if (last.current.panel !== current.panel || last.current.screen?.key !== current.screen?.key) {
+      if (closingFromBack.current) {
+        closingFromBack.current = false
+        return
+      }
       historyRef.current = [...historyRef.current, last.current].slice(-20)
       setHistory(historyRef.current)
     }
@@ -77,7 +83,9 @@ export function useWorkspacePanelDismissals(
   const canGoBack = !!navigation?.enabled && history.length > 0
   const onBack = () => {
     if (panel?.closeOnBack?.() === false) return false
-    return !goBack()
+    if (goBack()) return false
+    closingFromBack.current = !!panel?.open
+    return true
   }
   useOverlayDismiss(panel?.open ? panel.close : canGoBack ? () => {} : false, {
     ...BUBBLE,

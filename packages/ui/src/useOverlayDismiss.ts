@@ -55,10 +55,13 @@ function onPopState() {
   // 아래 오버레이가 남아 있으면 sync()가 가드를 다시 얹는다.
   guardActive = false
   const top = stack[stack.length - 1]
-  if (top?.closeOnBack?.() === false) {
-    // Content consumed Back without unmounting; rearm for the next press too.
+  try {
+    if (top?.closeOnBack?.() !== false) top?.close()
+  } finally {
+    // A foreground panel can change while the shared registration stays mounted.
+    // Rearm even when close() did not unregister anything.
     scheduleSync()
-  } else top?.close()
+  }
 }
 
 function sync() {

@@ -75,6 +75,24 @@ test('content Back rearms the guard repeatedly while modals and Escape keep dism
   await settle()
 })
 
+test('Back rearms a shared registration when closing changes its foreground without unmounting', async () => {
+  reset()
+  let remaining = 2
+  const unregister = registerOverlay({
+    close: () => { remaining-- }, closeOnEscape: () => true, escapePhase: 'bubble',
+  })
+  await settle()
+  window.dispatchEvent(new window.Event('popstate'))
+  await settle()
+  assert.equal(remaining, 1)
+  assert.equal(pushes, 2, 'the remaining panel needs a guard even without registration cleanup')
+  window.dispatchEvent(new window.Event('popstate'))
+  assert.equal(remaining, 0, 'the second Back also reaches the app')
+  unregister()
+  await settle()
+  assert.equal(backs, 0, 'exhausting the stack leaves the browser history unguarded')
+})
+
 test('Esc는 가장 나중에 열린 것 하나만 닫는다', async () => {
   reset()
   const closed: string[] = []
