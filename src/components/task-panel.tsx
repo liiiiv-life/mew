@@ -56,6 +56,9 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   }, [])
   const sortedTasks = useMemo(() => sortTasksByDateStatus(tasks, today), [tasks, today])
   const knownTags = collectTaskTags(tasks, [...(session.tags ?? []), ...draftTags])
+  useEffect(() => {
+    setFilters(current => { const next = current.filter(tag => knownTags.includes(tag)); return next.length === current.length ? current : next })
+  }, [knownTags])
   const matchesFilter = (task: TaskItem) => (showCompleted || !task.done) && (!filters.length || taskTags(task).some(tag => filters.includes(tag)))
   const filteredTasks = tasks.filter(matchesFilter)
   const sortedFiltered = sortedTasks.filter(matchesFilter)
@@ -146,7 +149,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
             onBlur={commitDraft} />
         </div>}
       </div>
-  return <TaskTagColorContext.Provider value={{ colors: session.tagColors, onChange: session.setTagColor }}><TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
+  return <TaskTagColorContext.Provider value={{ colors: session.tagColors, onChange: session.setTagColor, onDelete: session.deleteTag }}><TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
     <header data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       <DockGrip group="tasks" />
       <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5">

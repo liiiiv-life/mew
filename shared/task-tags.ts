@@ -27,3 +27,9 @@ export function extractTaskTags(text: string, existing: string[] = [], requireSp
   })
   return { text: content, tags }
 }
+
+export const validDeletedTags = (tags: unknown): tags is string[] => Array.isArray(tags) && tags.length <= 2000 && tags.every(validTag) && new Set(tags).size === tags.length
+export function removeTaskTags(tasks: TaskItem[], deleted: Iterable<string>): TaskItem[] {
+  const names = new Set(deleted)
+  return tasks.map(task => taskTags(task).some(tag => names.has(tag)) ? { ...task, tags: taskTags(task).filter(tag => !names.has(tag)) } : task)
+}

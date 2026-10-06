@@ -18,7 +18,7 @@ export function useTaskList(workspace: string | null, email: string, open: boole
     const key = `${email}:${workspace}`
     let value = sessions.current.get(key)
     if (!value) {
-      value = new TaskListSession({ read: () => fetchTaskList(workspace ?? '', email), save: (changes, colors) => patchTaskList(workspace ?? '', changes, email, colors) }, `mew:task-draft:${key}:${draftWindow}`)
+      value = new TaskListSession({ read: () => fetchTaskList(workspace ?? '', email), save: (changes, colors, deleted) => patchTaskList(workspace ?? '', changes, email, colors, deleted) }, `mew:task-draft:${key}:${draftWindow}`)
       sessions.current.set(key, value)
     }
     return value
@@ -56,5 +56,5 @@ export function useTaskList(workspace: string | null, email: string, open: boole
   useEffect(() => {
     for (const [key, value] of sessions.current) if (!key.startsWith(`${email}:`)) { value.dispose(); sessions.current.delete(key) }
   }, [email])
-  return { ...state, setTagColor: (tag: string, hue: number) => session.setTagColor(tag, hue), edit: (tasks: typeof state.tasks) => session.edit(tasks), setDraft: (text: string) => session.setDraft(text), setDraftTags: (tags: string[]) => session.setDraftTags(tags), flush: () => session.flush(), retry: () => session.retry() }
+  return { ...state, deleteTag: (tag: string) => session.deleteTag(tag), setTagColor: (tag: string, hue: number) => session.setTagColor(tag, hue), edit: (tasks: typeof state.tasks) => session.edit(tasks), setDraft: (text: string) => session.setDraft(text), setDraftTags: (tags: string[]) => session.setDraftTags(tags), flush: () => session.flush(), retry: () => session.retry() }
 }

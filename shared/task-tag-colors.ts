@@ -23,3 +23,8 @@ export function applyTagColorChanges(colors: TaskTagColors, changes: TaskTagColo
   }
   return next
 }
+
+export function removeTagColors(colors: TaskTagColors, deleted: Iterable<string>): TaskTagColors {
+  const names = new Set(deleted)
+  return Object.fromEntries(Object.entries(colors).filter(([tag]) => !names.has(tag)))
+}

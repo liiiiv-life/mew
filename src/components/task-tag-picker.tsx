@@ -11,7 +11,7 @@ import { taskTagHue } from '../utils/task-tag-color'
 export function TaskTagPicker({ tags, knownTags, disabled, onChange }: {
   tags: string[]; knownTags: string[]; disabled: boolean; onChange: (tags: string[]) => void
 }) {
-  const { colors, onChange: changeColor } = useTaskTagColors()
+  const { colors, onChange: changeColor, onDelete: deleteTag } = useTaskTagColors()
   const [colorPick, setColorPick] = useState<{ tag: string; anchor: HTMLButtonElement } | null>(null)
   const tagsElement = useRef<HTMLDivElement>(null)
   const id = useId(), trigger = useRef<HTMLButtonElement>(null), popup = useRef<HTMLDivElement>(null)
@@ -71,7 +71,13 @@ export function TaskTagPicker({ tags, knownTags, disabled, onChange }: {
           <button type="button" className="task-tag-color-trigger" aria-label={`${uiText('태그 색상')}: ${tag}`} aria-haspopup="dialog" aria-expanded={colorPick?.tag === tag} style={{ '--task-tag-hue': taskTagHue(tag, colors) } as CSSProperties} onClick={event => setColorPick({ tag, anchor: event.currentTarget })}><span className="task-filter-dot" aria-hidden="true" /></button>
           <button id={`${id}-${index}`} type="button" role="option" aria-selected={tags.includes(tag)} data-active={index === Math.min(active, choices.length - 1)} disabled={!tags.includes(tag) && tags.length >= TASK_TAG_LIMIT} onClick={() => toggle(tag)} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); const buttons = popup.current?.querySelectorAll<HTMLButtonElement>('[role="option"]'); buttons?.[(index + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length]?.focus() } }}>
           <span className="task-tag-result">{tag}</span>{tags.includes(tag) ? <Check width={14} height={14} aria-hidden="true" /> : tag === create ? <Plus width={14} height={14} aria-hidden="true" /> : null}
-        </button></div>)}
+        </button>
+          {tag !== create && <button type="button" className="task-tag-delete" aria-label={`${uiText('태그 전체 삭제')}: ${tag}`} data-tip={uiText('모든 태스크에서 태그 삭제')} onClick={() => {
+            if (colorPick?.tag === tag) setColorPick(null)
+            deleteTag(tag); setQuery(''); setActive(0)
+            requestAnimationFrame(() => { if (canAutoFocusInput()) popup.current?.querySelector('input')?.focus({ preventScroll: true }); else popup.current?.focus({ preventScroll: true }) })
+          }}><Xmark width={12} height={12} aria-hidden="true" /></button>}
+        </div>)}
       </div>
       {colorPick && <TaskTagColorPicker tag={colorPick.tag} hue={taskTagHue(colorPick.tag, colors)} anchor={colorPick.anchor} onChange={hue => changeColor(colorPick.tag, hue)} onClose={() => setColorPick(null)} />}
     </div>, document.body)}

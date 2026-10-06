@@ -219,3 +219,7 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
   .task-tag-color-trigger { width: 32px; height: 32px; }
   .task-tag-color-grid > button { height: 32px; }
 }
+
+.task-tag-delete { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 24px; height: 28px; border-radius: 4px; color: var(--color-ink-secondary); }
+.task-tag-delete:hover, .task-tag-delete:focus-visible { color: var(--color-danger); background: var(--color-surface-hover); }
+@media (pointer: coarse) { .task-tag-delete { width: 28px; height: 32px; } }

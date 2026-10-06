@@ -1,3 +1,4 @@
+import { removeTaskTags } from '../../shared/task-tags.ts'
 import { applyTagColorChanges, type TaskTagColorChange } from '../../shared/task-tag-colors.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -229,5 +230,79 @@ test('color conflicts keep local choice and explicit retry preserves unrelated r
     session.state = { ...session.state, canEdit: false }
     session.setTagColor('abc', 35)
     assert.equal(session.state.tagColors.abc, 325, 'read-only sessions cannot change colors')
+  } finally { session.dispose() }
+})
+
+test('global tag deletion includes fresh remote tasks and keeps drafts, unrelated tags and colors', async () => {
+  let stored = [{ ...item, tags: ['shared', 'keep'] }, { id: 'done', text: 'hidden', done: true, tags: ['shared'] }]
+  let colors = { shared: 225, keep: 35 }
+  let deletedBatch: string[] = []
+  const session = new TaskListSession({ read: async () => ({ tasks: stored, tags: ['shared', 'keep'], tagColors: colors, canEdit: true }), save: async (changes, _colors, deleted = []) => {
+    deletedBatch = deleted
+    stored = removeTaskTags(applyTaskChanges(removeTaskTags(stored, deleted), changes), deleted) as typeof stored
+    colors = Object.fromEntries(Object.entries(colors).filter(([tag]) => !deleted.includes(tag))) as typeof colors
+    return { tasks: stored, tags: ['keep'], tagColors: colors, canEdit: true }
+  } })
+  try {
+    await session.refresh()
+    session.setDraftTags(['shared', 'keep'])
+    session.edit([{ ...session.state.tasks[0], text: 'local edit', tags: ['shared', 'keep', 'extra'] }, session.state.tasks[1]])
+    session.deleteTag('shared')
+    stored = [...stored, { id: 'fresh', text: 'new remote task', done: false, tags: ['shared', 'remote'] }]
+    await session.flush()
+    assert.deepEqual(deletedBatch, ['shared'])
+    assert.deepEqual(stored.map(task => task.tags), [['keep', 'extra'], [], ['remote']])
+    assert.equal(stored[0].text, 'local edit')
+    assert.deepEqual(session.state.draftTags, ['keep'])
+    assert.deepEqual(session.state.tagColors, { keep: 35 })
+    session.state = { ...session.state, canEdit: false }
+    session.deleteTag('keep')
+    assert.deepEqual(session.state.tagColors, { keep: 35 })
+  } finally { session.dispose() }
+})
+
+test('deleting a tag during another save remains pending until a separate acknowledged deletion', async () => {
+  let resolveSave!: (board: TaskBoard) => void
+  const deletions: string[][] = []
+  const session = new TaskListSession({ read: async () => ({ tasks: [{ ...item, tags: ['shared'] }], tags: ['shared'], tagColors: { shared: 225 }, canEdit: true }), save: (_changes, _colors, deleted = []) => {
+    deletions.push(deleted)
+    return new Promise(resolve => { resolveSave = resolve })
+  } })
+  try {
+    await session.refresh()
+    session.edit([{ ...session.state.tasks[0], text: 'edited' }])
+    const saving = session.flush()
+    session.deleteTag('shared')
+    session.edit([{ ...session.state.tasks[0], tags: ['later'] }])
+    resolveSave({ tasks: [{ ...item, text: 'edited', tags: ['shared'] }], tags: ['shared'], tagColors: { shared: 225 }, canEdit: true })
+    await saving
+    assert.deepEqual(session.state.tasks[0].tags, ['later'])
+    assert.deepEqual(session.state.tagColors, {})
+    const deleting = session.flush()
+    assert.deepEqual(deletions, [[], ['shared']])
+    resolveSave({ tasks: [{ ...item, text: 'edited', tags: ['later'] }], tags: ['later'], tagColors: {}, canEdit: true })
+    await deleting
+    assert.equal(session.state.error, null)
+  } finally { session.dispose() }
+})
+
+test('a lost global deletion response retries the identical deletion without restoring the tag', async () => {
+  let stored = [{ ...item, tags: ['shared', 'keep'] }], attempts = 0
+  const deletedBatches: string[][] = []
+  const session = new TaskListSession({ read: async () => ({ tasks: stored, tags: ['shared', 'keep'], canEdit: true }), save: async (_changes, _colors, deleted = []) => {
+    attempts++; deletedBatches.push(deleted)
+    stored = removeTaskTags(stored, deleted) as typeof stored
+    if (attempts === 1) throw Object.assign(new Error('lost response'), { status: 503 })
+    return { tasks: stored, tags: ['keep'], canEdit: true }
+  } })
+  try {
+    await session.refresh()
+    session.deleteTag('shared')
+    await session.flush()
+    assert.equal(session.state.error, null)
+    await session.flush()
+    assert.deepEqual(deletedBatches, [['shared'], ['shared']])
+    assert.deepEqual(session.state.tasks[0].tags, ['keep'])
+    assert.equal(session.state.error, null)
   } finally { session.dispose() }
 })

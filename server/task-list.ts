@@ -1,7 +1,7 @@
-import { applyTagColorChanges, validTagColors, validTagColorChanges, type TaskTagColors } from '../shared/task-tag-colors.ts'
+import { applyTagColorChanges, removeTagColors, validTagColors, validTagColorChanges, type TaskTagColors } from '../shared/task-tag-colors.ts'
 import { readTaskDocuments, writeTaskDocuments, taskListFile } from './task-markdown.ts'
 import { taskRollups, taskWithRollup } from '../shared/task-rollup.ts'
-import { collectTaskTags, validTags } from '../shared/task-tags.ts'
+import { collectTaskTags, validTags, validDeletedTags, removeTaskTags } from '../shared/task-tags.ts'
 import fs from 'node:fs'
 import { readJsonFile, writeFileAtomic } from './dataDir.ts'
 import { applyTaskChanges, validTaskTree, validTaskDates, TASK_LIMIT, TASK_TEXT_LIMIT, type TaskChange, type TaskItem } from '../shared/task-list.ts'
@@ -49,9 +49,10 @@ export function readTaskTagColors(workspace: string): TaskTagColors {
   if (data?.tagColors !== undefined && !validTagColors(data.tagColors)) throw new Error('태스크 저장 파일을 읽지 못했습니다')
   return data?.tagColors ?? {}
 }
-export function changeTaskList(workspace: string, input: unknown, colorInput: unknown = []): TaskItem[] {
+export function changeTaskList(workspace: string, input: unknown, colorInput: unknown = [], deletedInput: unknown = []): TaskItem[] {
+  if (!validDeletedTags(deletedInput)) throw new TaskInputError('잘못된 태스크 변경입니다')
   if (!validTagColorChanges(colorInput)) throw new TaskInputError('잘못된 태스크 변경입니다')
-  const tagColors = applyTagColorChanges(readTaskTagColors(workspace), colorInput)
+  const tagColors = removeTagColors(applyTagColorChanges(readTaskTagColors(workspace), colorInput), deletedInput)
   if (!validTagColors(tagColors)) throw new TaskInputError('잘못된 태스크 변경입니다')
   if (!Array.isArray(input) || input.length > TASK_LIMIT * 2) throw new TaskInputError('잘못된 태스크 변경입니다')
   const ids = new Set<string>()
@@ -65,13 +66,13 @@ export function changeTaskList(workspace: string, input: unknown, colorInput: un
       || (change.afterId !== null && (typeof change.afterId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(change.afterId) || change.afterId === change.id))) throw new TaskInputError('잘못된 태스크 변경입니다')
     ids.add(change.id)
   }
-  const clean = (item: TaskItem | null): TaskItem | null => item === null ? null : { id: item.id, text: item.text, done: item.done, ...(item.tags?.length ? { tags: [...item.tags] } : {}), ...(item.date ? { date: item.date } : {}), ...(item.startDate ? { startDate: item.startDate } : {}) }
+  const clean = (item: TaskItem | null): TaskItem | null => item === null ? null : { id: item.id, text: item.text, done: item.done, ...(item.tags?.length ? { tags: item.tags.filter(tag => !deletedInput.includes(tag)) } : {}), ...(item.date ? { date: item.date } : {}), ...(item.startDate ? { startDate: item.startDate } : {}) }
   const changes = (input as TaskChange[]).map(change => ({ id: change.id, before: clean(change.before), after: clean(change.after), afterId: change.afterId, ...(change.move ? { move: true } : {}) }))
   const stored = readJsonFile<{ version: number }>(taskListFile(workspace))
   if (stored && stored.version < 3 && readTaskDocuments(workspace).length) throw new Error('기존 태스크와 Markdown 파일이 중복됩니다')
-  const tasks = applyTaskChanges(readTaskList(workspace), changes)
+  const tasks = removeTaskTags(applyTaskChanges(removeTaskTags(readTaskList(workspace), deletedInput), changes), deletedInput)
   if (tasks.length > TASK_LIMIT) throw new TaskInputError('태스크는 최대 2,000개까지 추가할 수 있습니다')
-  const tags = collectTaskTags(tasks, readTaskTags(workspace))
+  const tags = collectTaskTags(tasks, readTaskTags(workspace)).filter(tag => !deletedInput.includes(tag))
   writeTaskDocuments(workspace, tasks, documents => writeFileAtomic(taskListFile(workspace), JSON.stringify({ version: 5, order: tasks.map(task => task.id), tags, tagColors, documents }) + '\n'))
   return readTaskList(workspace)
 }

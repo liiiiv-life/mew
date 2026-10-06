@@ -62,7 +62,7 @@ export function createTaskListRouter() {
     catch { res.status(500).json({ error: '태스크를 불러오지 못했습니다' }) }
   })
   router.patch('/', (req, res) => {
-    try { res.json({ tasks: changeTaskList(WORKSPACE_ROOT, req.body?.changes, req.body?.tagColorChanges), tags: readTaskTags(WORKSPACE_ROOT), tagColors: readTaskTagColors(WORKSPACE_ROOT), canEdit: true }) }
+    try { res.json({ tasks: changeTaskList(WORKSPACE_ROOT, req.body?.changes, req.body?.tagColorChanges, req.body?.deletedTags), tags: readTaskTags(WORKSPACE_ROOT), tagColors: readTaskTagColors(WORKSPACE_ROOT), canEdit: true }) }
     catch (error) {
       const status = error instanceof TaskConflict ? 409 : error instanceof TaskInputError ? 400 : 500
       res.status(status).json({ error: status === 500 ? '태스크를 저장하지 못했습니다' : (error as Error).message })

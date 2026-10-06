@@ -1,10 +1,10 @@
-import { applyTagColorChanges, tagColorChanges, tagColor, validTagColor, validTagColors, type TaskTagColors, type TaskTagColorChange } from '../../shared/task-tag-colors.ts'
+import { applyTagColorChanges, removeTagColors, tagColorChanges, tagColor, validTagColor, validTagColors, type TaskTagColors, type TaskTagColorChange } from '../../shared/task-tag-colors.ts'
 import { applyTaskChanges, taskChanges, taskParent, taskDate, taskStartDate, validTaskTree, TaskConflict, type TaskBoard, type TaskChange, type TaskItem } from '../../shared/task-list.ts'
 import { taskRollups, taskWithRollup } from '../../shared/task-rollup.ts'
-import { sameTags, taskTags, validTags, validTag } from '../../shared/task-tags.ts'
+import { sameTags, taskTags, validTags, validTag, validDeletedTags, removeTaskTags } from '../../shared/task-tags.ts'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 
-type TaskApi = { read: () => Promise<TaskBoard>; save: (changes: TaskChange[], colors?: TaskTagColorChange[]) => Promise<TaskBoard> }
+type TaskApi = { read: () => Promise<TaskBoard>; save: (changes: TaskChange[], colors?: TaskTagColorChange[], deletedTags?: string[]) => Promise<TaskBoard> }
 type State = TaskBoard & { tagColors: TaskTagColors; loading: boolean; saving: boolean; error: string | null; draft: string; draftTags: string[] }
 
 /** Lives above the project-keyed dock so closing/remounting a panel cannot discard pending edits. */
@@ -12,10 +12,11 @@ export class TaskListSession {
   state: State = { tagColors: {}, tasks: [], canEdit: false, loading: true, saving: false, error: null, draft: '', draftTags: [] }
   private baseline: TaskItem[] = []
   private baselineColors: TaskTagColors = {}
+  private deletedTags = new Set<string>()
   private listeners = new Set<() => void>()
   private timer: ReturnType<typeof setTimeout> | undefined
   private reading = false
-  private pendingSave?: { sent: TaskItem[]; changes: TaskChange[]; sentColors: TaskTagColors; colors: TaskTagColorChange[] }
+  private pendingSave?: { sent: TaskItem[]; changes: TaskChange[]; sentColors: TaskTagColors; colors: TaskTagColorChange[]; deleted: string[] }
   private saveRetries = 0
   private disposed = false
   private api: TaskApi
@@ -29,6 +30,7 @@ export class TaskListSession {
       if (validItems(draft?.baseline) && validItems(draft?.tasks)) {
         const flatten = (items: TaskItem[]) => { const rollups = taskRollups(items); return items.map(item => { const { parentId: _parentId, ...task } = taskWithRollup(item, rollups); return task }) }
         this.baseline = flatten(draft.baseline)
+        this.deletedTags = new Set(validDeletedTags(draft.deletedTags) ? draft.deletedTags : [])
         this.baselineColors = validTagColors(draft.baselineColors) ? draft.baselineColors : {}
         this.state = { ...this.state, tasks: flatten(draft.tasks), tagColors: validTagColors(draft.tagColors) ? draft.tagColors : {}, draft: typeof draft.draft === 'string' ? draft.draft : '', draftTags: validTags(draft.draftTags) ? draft.draftTags : [] }
       }
@@ -40,7 +42,7 @@ export class TaskListSession {
     if (this.disposed) return
     this.state = { ...this.state, ...patch }
     if (this.draftKey) try {
-      if (this.state.draft || this.state.draftTags.length || taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length) writeBrowserStorage(this.draftKey, JSON.stringify({ baseline: this.baseline, baselineColors: this.baselineColors, tagColors: this.state.tagColors, tasks: this.state.tasks, draft: this.state.draft, draftTags: this.state.draftTags }))
+      if (this.state.draft || this.state.draftTags.length || taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length || this.deletedTags.size) writeBrowserStorage(this.draftKey, JSON.stringify({ deletedTags: [...this.deletedTags], baseline: this.baseline, baselineColors: this.baselineColors, tagColors: this.state.tagColors, tasks: this.state.tasks, draft: this.state.draft, draftTags: this.state.draftTags }))
       else localStorage.removeItem(this.draftKey)
     } catch { /* In-memory drafts remain available when storage is full. */ }
     for (const listener of this.listeners) listener()
@@ -51,6 +53,14 @@ export class TaskListSession {
     this.publish({ tasks })
     if (!this.state.error && !this.pendingSave) this.schedule()
   }
+  deleteTag(tag: string) {
+    if (!this.state.canEdit || this.disposed || !validTag(tag)) return
+    this.deletedTags.add(tag)
+    this.publish({ tasks: removeTaskTags(this.state.tasks, [tag]), tags: this.state.tags?.filter(value => value !== tag),
+      draftTags: this.state.draftTags.filter(value => value !== tag), tagColors: removeTagColors(this.state.tagColors, [tag]) })
+    if (!this.state.error && !this.pendingSave) this.schedule()
+  }
+  private changes(before: TaskItem[], after: TaskItem[]) { return taskChanges(removeTaskTags(before, this.deletedTags), removeTaskTags(after, this.deletedTags)) }
   setTagColor(tag: string, hue: number) {
     if (!this.state.canEdit || this.disposed || !validTag(tag) || !validTagColor(hue)) return
     this.publish({ tagColors: { ...this.state.tagColors, [tag]: hue } })
@@ -59,7 +69,7 @@ export class TaskListSession {
   setDraft(draft: string) { if (this.state.canEdit) this.publish({ draft }) }
   setDraftTags(draftTags: string[]) { if (this.state.canEdit) this.publish({ draftTags }) }
   async refresh() {
-    if (this.disposed || this.reading || this.state.saving || this.pendingSave || this.state.error || (!this.state.loading && (taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length))) return
+    if (this.disposed || this.reading || this.state.saving || this.pendingSave || this.state.error || (!this.state.loading && this.deletedTags.size) || (!this.state.loading && (taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length))) return
     this.reading = true
     // Edits made while a polling request is in flight must also survive its response.
     const before = this.baseline
@@ -67,14 +77,14 @@ export class TaskListSession {
     try {
       const board = await this.api.read()
       if (this.disposed) return
-      const pending = taskChanges(before, this.state.tasks)
-      const tasks = applyTaskChanges(board.tasks, pending)
+      const pending = this.changes(before, this.state.tasks)
+      const tasks = removeTaskTags(applyTaskChanges(removeTaskTags(board.tasks, this.deletedTags), pending), this.deletedTags)
       const pendingColors = tagColorChanges(beforeColors, this.state.tagColors)
-      const tagColors = applyTagColorChanges(board.tagColors ?? {}, pendingColors)
+      const tagColors = removeTagColors(applyTagColorChanges(board.tagColors ?? {}, pendingColors), this.deletedTags)
       this.baseline = board.tasks
       this.baselineColors = board.tagColors ?? {}
-      this.publish({ ...board, tasks, tagColors, loading: false, error: null })
-      if ((pending.length || pendingColors.length) && board.canEdit) this.schedule()
+      this.publish({ ...board, tags: board.tags?.filter(tag => !this.deletedTags.has(tag)), tasks, tagColors, loading: false, error: null })
+      if ((pending.length || pendingColors.length || this.deletedTags.size) && board.canEdit) this.schedule()
     } catch (error) { this.publish({ loading: false, error: (error as Error).message }) }
     finally { this.reading = false }
   }
@@ -82,25 +92,27 @@ export class TaskListSession {
     clearTimeout(this.timer)
     if (this.disposed || this.reading || this.state.loading || this.state.saving || this.state.error || !this.state.canEdit) return
     const sent = this.pendingSave?.sent ?? this.state.tasks
-    const changes = this.pendingSave?.changes ?? taskChanges(this.baseline, sent)
+    const changes = this.pendingSave?.changes ?? this.changes(this.baseline, sent)
     const sentColors = this.pendingSave?.sentColors ?? this.state.tagColors
     const colors = this.pendingSave?.colors ?? tagColorChanges(this.baselineColors, sentColors)
-    if (!changes.length && !colors.length) return
-    this.pendingSave = { sent, changes, sentColors, colors }
+    const deleted = this.pendingSave?.deleted ?? [...this.deletedTags]
+    if (!changes.length && !colors.length && !deleted.length) return
+    this.pendingSave = { sent, changes, sentColors, colors, deleted }
     this.publish({ saving: true })
     try {
-      const board = await this.api.save(changes, colors)
+      const board = await this.api.save(changes, colors, deleted)
       if (this.disposed) return
-      const pending = taskChanges(sent, this.state.tasks)
-      const tasks = applyTaskChanges(board.tasks, pending)
+      for (const tag of deleted) this.deletedTags.delete(tag)
+      const pending = this.changes(sent, this.state.tasks)
+      const tasks = removeTaskTags(applyTaskChanges(removeTaskTags(board.tasks, this.deletedTags), pending), this.deletedTags)
       const pendingColors = tagColorChanges(sentColors, this.state.tagColors)
-      const tagColors = applyTagColorChanges(board.tagColors ?? {}, pendingColors)
+      const tagColors = removeTagColors(applyTagColorChanges(board.tagColors ?? {}, pendingColors), this.deletedTags)
       this.baseline = board.tasks
       this.baselineColors = board.tagColors ?? {}
       this.pendingSave = undefined
       this.saveRetries = 0
-      this.publish({ ...board, tasks, tagColors, saving: false })
-      if (pending.length || pendingColors.length) this.schedule()
+      this.publish({ ...board, tags: board.tags?.filter(tag => !this.deletedTags.has(tag)), tasks, tagColors, saving: false })
+      if (pending.length || pendingColors.length || this.deletedTags.size) this.schedule()
     } catch (error) {
       if (this.disposed) return
       const status = (error as Error & { status?: number }).status
@@ -119,7 +131,7 @@ export class TaskListSession {
     try {
       const board = await this.api.read()
       if (this.disposed) return
-      const pending = taskChanges(this.baseline, this.state.tasks)
+      const pending = this.changes(this.baseline, this.state.tasks)
       // Explicit retry keeps local changed fields and preserves unrelated remote fields.
       const rebased = pending.map(change => {
         const current = board.tasks.find(item => item.id === change.id) ?? null
@@ -132,14 +144,14 @@ export class TaskListSession {
           startDate: taskStartDate(change.after) !== taskStartDate(change.before) ? taskStartDate(change.after) : taskStartDate(current),
           parentId: taskParent(change.after) !== taskParent(change.before) ? taskParent(change.after) : taskParent(current) } }
       }).filter(change => change.before || change.after)
-      const tasks = applyTaskChanges(board.tasks, rebased)
+      const tasks = removeTaskTags(applyTaskChanges(board.tasks, rebased), this.deletedTags)
       const colors = tagColorChanges(this.baselineColors, this.state.tagColors).map(change => ({ ...change, before: tagColor(board.tagColors ?? {}, change.tag) }))
-      const tagColors = applyTagColorChanges(board.tagColors ?? {}, colors)
+      const tagColors = removeTagColors(applyTagColorChanges(board.tagColors ?? {}, colors), this.deletedTags)
       this.baselineColors = board.tagColors ?? {}
       this.baseline = board.tasks
       this.pendingSave = undefined
       this.saveRetries = 0
-      this.publish({ ...board, tasks, tagColors, error: null, loading: false })
+      this.publish({ ...board, tags: board.tags?.filter(tag => !this.deletedTags.has(tag)), tasks, tagColors, error: null, loading: false })
     } catch (error) { this.publish({ error: (error as Error).message }) }
     finally { this.reading = false }
     await this.flush()

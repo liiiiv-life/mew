@@ -12,6 +12,8 @@ export const uiMessages = {
 
   '태그': ['Tags', '标签', 'タグ'],
   '완료된 항목 보기': ['Show completed items', '显示已完成项目', '完了した項目を表示'],
+  '태그 전체 삭제': ['Delete tag everywhere', '全局删除标签', 'タグを全体から削除'],
+  '모든 태스크에서 태그 삭제': ['Remove tag from every task', '从所有任务中移除标签', 'すべてのタスクからタグを削除'],
   '태그 색상': ['Tag color', '标签颜色', 'タグの色'],
   '색상 {index}': ['Color {index}', '颜色 {index}', '色 {index}'],
   '태그 검색': ['Search tags', '搜索标签', 'タグを検索'],

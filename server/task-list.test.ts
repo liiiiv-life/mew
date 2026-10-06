@@ -11,7 +11,7 @@ test('task objects persist, merge unrelated edits, reject conflicts and protect 
   process.env.MEW_DATA_DIR = directory
   process.env.MEW_WORKSPACE = path.join(directory, 'workspace')
   fs.mkdirSync(process.env.MEW_WORKSPACE)
-  const { changeTaskList: change, readTaskList: read, readTaskTagColors, taskListFile } = await import('./task-list.ts')
+  const { changeTaskList: change, readTaskList: read, readTaskTagColors, readTaskTags, taskListFile } = await import('./task-list.ts')
   const readTaskList = (workspace: string) => read(workspace).map(({ path: _path, ...task }) => task)
   const changeTaskList = (workspace: string, changes: unknown) => change(workspace, changes).map(({ path: _path, ...task }) => task)
   const { createTaskListRouter } = await import('./task-list-routes.ts')
@@ -29,6 +29,19 @@ test('task objects persist, merge unrelated edits, reject conflicts and protect 
   assert.throws(() => change(colorWorkspace, [], [{ tag: 'abc', before: 225, after: 999 }]), /잘못된/)
   assert.deepEqual(readTaskTagColors(colorWorkspace), { abc: 225 }, 'rejected writes preserve saved colors')
 
+  const deleteWorkspace = path.join(directory, 'delete-tag')
+  const taggedTasks = [{ ...a, tags: ['shared', 'keep'] }, { ...b, done: true, tags: ['shared'] }]
+  change(deleteWorkspace, taskChanges([], taggedTasks), [{ tag: 'shared', before: null, after: 225 }, { tag: 'keep', before: null, after: 35 }])
+  const externalTask = { id: 'external', text: 'new outside', done: false, tags: ['shared', 'outside'] }
+  change(deleteWorkspace, taskChanges(taggedTasks, [...taggedTasks, externalTask]))
+  change(deleteWorkspace, taskChanges(taggedTasks, [{ ...taggedTasks[0], text: 'preserved edit', tags: ['keep', 'extra'] }, taggedTasks[1]]), [], ['shared'])
+  assert.deepEqual(read(deleteWorkspace).map(task => task.tags ?? []), [['keep', 'extra'], [], ['outside']], 'global deletion includes completed and newly added tasks and merges other edits')
+  assert.equal(read(deleteWorkspace)[0].text, 'preserved edit')
+  assert.equal(readTaskTags(deleteWorkspace).includes('shared'), false)
+  assert.deepEqual(readTaskTagColors(deleteWorkspace), { keep: 35 })
+  change(deleteWorkspace, [], [], ['shared'])
+  assert.throws(() => change(deleteWorkspace, [], [], ['bad tag']), /잘못된/)
+  assert.throws(() => change(deleteWorkspace, [], [], ['keep', 'keep']), /잘못된/)
   let role: 'owner' | 'member' | 'guest' = 'owner'
   const app = express()
   app.use(express.json())
@@ -155,6 +168,9 @@ test('task objects persist, merge unrelated edits, reject conflicts and protect 
     response = await fetch(url, { method: 'PATCH', headers, body: JSON.stringify({ workspace: WORKSPACE_ROOT, changes: taskChanges([a, b], [b]) }) }); assert.equal(response.status, 403)
     response = await fetch(url, { method: 'PATCH', headers, body: JSON.stringify({ workspace: WORKSPACE_ROOT, changes: [], tagColorChanges: [{ tag: 'abc', before: 225, after: 325 }] }) })
     assert.equal(response.status, 403, 'read-only users cannot write tag colors')
+    assert.deepEqual(readTaskTagColors(WORKSPACE_ROOT), { abc: 225 })
+    response = await fetch(url, { method: 'PATCH', headers, body: JSON.stringify({ workspace: WORKSPACE_ROOT, changes: [], deletedTags: ['abc'] }) })
+    assert.equal(response.status, 403, 'read-only users cannot delete project tags')
     assert.deepEqual(readTaskTagColors(WORKSPACE_ROOT), { abc: 225 })
     setFeature('one@example.test', 'filesRead', false)
     response = await fetch(`${url}?workspace=${encodeURIComponent(WORKSPACE_ROOT)}`, { headers }); assert.equal(response.status, 403)
