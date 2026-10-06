@@ -2,8 +2,8 @@ import { PanelCloseButton } from './panel-close-button'
 import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref, type ReactNode } from 'react'
 import { SelectField } from '@mew/ui'
 import { NavArrowDown, NavArrowRight, RefreshDouble, Page, Sort } from 'iconoir-react'
-import { featureRows, type FeatureRun, type FeatureSort, type FeatureStatus } from '../../shared/features'
-import { fetchFeatures, type FeatureSnapshot } from '../api/features'
+import { featureRows, type Feature, type FeatureRun, type FeatureSort, type FeatureStatus } from '../../shared/features'
+import { editFeature, fetchFeatures, type FeatureSnapshot } from '../api/features'
 import { useI18n } from '../i18n'
 import { featurePanelState, type FeaturePanelState } from '../utils/feature-panel-state'
 import { featureCopy, type FeatureCopy } from './feature-copy'
@@ -17,6 +17,34 @@ function Status({ status, copy }: { status: FeatureStatus; copy: FeatureCopy }) 
   return <span className="inline-flex shrink-0 items-center gap-2 text-xs text-ink-secondary" title={copy[status]}>
     <span data-feature-status={status} aria-label={copy[status]} className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: `var(--color-feature-${status})` }} />
   </span>
+}
+function FeatureTitle({ feature, canEdit, workspace, onSaved }: { feature: Feature; canEdit: boolean; workspace: string; onSaved: () => Promise<void> }) {
+  const [draft, setDraft] = useState<string | null>(null), [error, setError] = useState(''), [saving, setSaving] = useState(false)
+  const base = useRef(feature), pending = useRef(false)
+  const save = async () => {
+    if (!canEdit || pending.current || draft === null) return
+    if (draft === base.current.title) { setDraft(null); setError(''); return }
+    pending.current = true; setSaving(true); setError('')
+    try {
+      const { id, version, content, parentId } = base.current
+      const { feature: next } = await editFeature(workspace, { id, version, content, parentId, title: draft })
+      base.current = next; setDraft(next.title)
+      await onSaved()
+      setDraft(null)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
+    finally { pending.current = false; setSaving(false) }
+  }
+  return <div className="min-w-0 flex-1">
+    <input type="text" aria-label={feature.title} className="w-full min-w-0 truncate rounded bg-transparent text-sm text-ink focus:outline-2 focus:outline-ink" value={draft ?? feature.title} readOnly={!canEdit || saving} maxLength={300}
+      onFocus={() => { if (canEdit && draft === null) { base.current = feature; setDraft(feature.title) } }}
+      onChange={event => setDraft(event.target.value)} onBlur={() => void save()}
+      onKeyDown={event => {
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return
+        if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() }
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setDraft(null); setError('') }
+      }} />
+    {error && <p role="alert" className="select-text text-xs text-danger">{error}</p>}
+  </div>
 }
 export function FeatureDevelopment({ workspace, onClose, onOpenFile, requestCloseRef, initialState, onChange }: {
   workspace: string; onClose: () => void; onOpenFile: (path: string) => void; onOpenAgent: (run: FeatureRun) => void; canUseGit?: boolean; requestCloseRef?: Ref<(action?: () => void) => void>; initialState?: unknown; onChange?: (state: FeaturePanelState) => void
@@ -81,9 +109,9 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, requestClos
   const renderFeature = ({ feature, depth, hasChildren }: (typeof rows)[number]): ReactNode => <li key={feature.id} data-feature-node={feature.id} style={{ marginLeft: depth > 0 && depth <= 6 ? 12 : 0 }} className="min-w-0">
     <div data-feature-header className="flex min-h-8 items-start rounded hover:bg-surface-raised">
       {hasChildren ? <button className="flex h-8 w-5 shrink-0 items-center justify-center text-ink-secondary focus-visible:outline-2 focus-visible:outline-ink" type="button" aria-label={`${feature.title} ${collapsed.has(feature.id) ? copy.expand : copy.collapse}`} aria-expanded={!collapsed.has(feature.id)} onClick={() => toggle(feature.id)}>{collapsed.has(feature.id) ? <NavArrowRight width={13} height={13} aria-hidden="true" /> : <NavArrowDown width={13} height={13} aria-hidden="true" />}</button> : <span className="w-5 shrink-0" aria-hidden="true" />}
-      <div data-feature-id={feature.id} className="flex h-8 min-w-0 flex-1 items-center gap-2 pr-2 text-sm font-medium text-ink" title={feature.title}>
+      <div data-feature-id={feature.id} className="flex min-h-8 min-w-0 flex-1 items-center gap-2 pr-2 text-sm font-medium text-ink" title={feature.title}>
         <Status status={feature.status} copy={copy} />
-        <button type="button" className="min-w-0 truncate select-text text-left focus-visible:outline-2 focus-visible:outline-ink" disabled={!feature.documentPath} onClick={() => onOpenFile(feature.documentPath!)}>{feature.title}</button>
+        <FeatureTitle key={workspace} feature={feature} canEdit={!!data?.canEdit && !!feature.documentPath} workspace={workspace} onSaved={refresh} />
       </div>
       {feature.documentPath && <button type="button" title={`${copy.document}: ${feature.documentPath}`} aria-label={`${copy.document}: ${feature.documentPath}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-40" disabled={busy} onClick={() => onOpenFile(feature.documentPath!)}><Page width={15} height={15} aria-hidden="true" /></button>}
     </div>
@@ -95,7 +123,7 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, requestClos
         <div className="flex min-w-0 flex-1 items-center gap-2 px-2.5">
           <h2 id={heading} className="flex shrink-0 items-center gap-1.5 text-xs text-ink"><FeatureIcon width={14} height={14} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />{copy.title}</h2><span className="min-w-0 truncate text-xs text-ink-secondary" title={workspace}>{workspace.split('/').filter(Boolean).at(-1)}</span>
         </div>
-        {data && <span className="shrink-0 text-xs text-ink-secondary">{copy.readOnly}</span>}
+        {data && !data.canEdit && <span className="shrink-0 text-xs text-ink-secondary">{copy.readOnly}</span>}
         <button type="button" className={headerButton} title={copy.refresh} aria-label={copy.refresh} disabled={busy} onClick={() => void perform()}><RefreshDouble width={14} height={14} /></button>
         <PanelCloseButton aria-label={copy.close} disabled={busy} onClick={() => onClose()} />
       </header>
