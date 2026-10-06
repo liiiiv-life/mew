@@ -1,7 +1,7 @@
 ---
 title: "Development setup and rules"
 created: 2026-09-29
-updated: 2026-10-03
+updated: 2026-10-06
 ---
 
 # Development
@@ -21,6 +21,15 @@ npx tsc -b      # Type-check without building the app bundle
 ```
 
 The server serves `dist/` directly. Building changes what a running instance serves; it is not an isolated validation step. Keep the development server private.
+
+The mew repository does not use the shared documentation pre-commit hook. Its local `core.hooksPath` setting was removed because unrelated workspace document errors repeatedly blocked commits. Run documentation checks manually from the repository root:
+
+```bash
+python3 ../.mew/docs/.github/scripts/check_repo_docs.py
+python3 ../.mew/docs/.github/scripts/check_doc_links.py --workspace
+```
+
+The workspace hook installer can reconnect the shared hook. Remove that connection in mew with `git config --local --unset core.hooksPath`.
 
 **Coding agents must not run** `mew`**, build, deploy, or restart the server.** This includes `npm run build`, `npm start`, `./mew start|stop|restart|update`, killing server processes, and starting them in the background. Agents may run checks that leave the running instance alone, such as `npm test`, `npm run lint`, and `npx tsc -b`. The user runs builds and applies changes.
 
