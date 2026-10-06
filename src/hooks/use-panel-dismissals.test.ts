@@ -235,3 +235,82 @@ test('mobile Back restores repeated panel visits and editor, capped at 20 entrie
     host.remove()
   }
 })
+
+test('navigation restores panel screens across editor visits without recording restoration or hidden screen changes', async () => {
+  type Foreground = import('../utils/mobile-panel-stack.ts').MobileForeground
+  type Screen = 'graph' | 'commit:abc' | 'diff:working:a.ts' | 'diff:working:b.ts' | 'diff:abc:a.ts'
+  let visit: (panel: Foreground) => void = () => {}
+  let changeScreen: (screen: Screen) => void = () => {}
+  let goBack: () => boolean = () => false
+  let shown: Foreground = 'editor', screen: Screen = 'graph'
+  function NavigationHarness({ scope = 'project', enabled = true }: { scope?: string; enabled?: boolean }) {
+    const [current, setCurrent] = useState<Foreground>('editor')
+    const [currentScreen, setScreen] = useState<Screen>('graph')
+    visit = setCurrent
+    changeScreen = setScreen
+    shown = current
+    screen = currentScreen
+    const panels = Object.fromEntries(
+      [...ids, 'memo', 'tasks'].map(id => [id, { open: true, close: () => setCurrent('editor') }]),
+    ) as import('./use-panel-dismissals.ts').WorkspacePanelDismissals
+    goBack = useWorkspacePanelDismissals(panels, current === 'editor' ? null : current, {
+      enabled, scope, show: setCurrent,
+      screens: { git: { key: currentScreen, restore: () => setScreen(currentScreen) } },
+    })
+    return null
+  }
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  const back = async () => act(async () => { window.dispatchEvent(new window.Event('popstate')); await settle() })
+  const select = async (panel: Foreground, target?: Screen) => act(async () => {
+    visit(panel)
+    if (target) changeScreen(target)
+    await settle()
+  })
+  try {
+    await act(async () => { root.render(createElement(NavigationHarness)); await settle() })
+    await select('git')
+    await select('git', 'diff:working:a.ts')
+    await select('editor')
+    await select('editor', 'diff:working:b.ts') // hidden Git changes do not alter the saved visit
+    await back()
+    assert.equal(shown, 'git')
+    assert.equal(screen, 'diff:working:a.ts')
+    await back()
+    assert.equal(screen, 'graph')
+    assert.equal(shown, 'git')
+    await back()
+    assert.equal(shown, 'editor')
+    assert.equal(goBack(), false, 'restoring the screen did not append a new visit')
+
+    await select('git', 'graph')
+    await select('git', 'commit:abc')
+    await select('git', 'diff:abc:a.ts')
+    await select('editor')
+    await back()
+    assert.equal(screen, 'diff:abc:a.ts')
+    await back()
+    assert.equal(screen, 'commit:abc')
+    await act(async () => { assert.equal(goBack(), true); await settle() }) // toolbar Back uses the same navigator
+    assert.equal(screen, 'graph')
+    await back()
+    assert.equal(shown, 'editor')
+
+    await select('git', 'diff:working:a.ts')
+    await select('git', 'diff:working:b.ts')
+    await select('git', 'diff:working:b.ts') // repeated screen selection creates no visit
+    await back()
+    assert.equal(screen, 'diff:working:a.ts')
+    await act(async () => { root.render(createElement(NavigationHarness, { enabled: false })); await settle() })
+    assert.equal(goBack(), false, 'desktop mode clears the mobile navigator')
+    await act(async () => { root.render(createElement(NavigationHarness)); await settle() })
+    assert.equal(goBack(), false)
+    await select('editor')
+    await act(async () => { root.render(createElement(NavigationHarness, { scope: 'other-project' })); await settle() })
+    assert.equal(goBack(), false, 'project switch discards screen restore callbacks too')
+  } finally {
+    await act(async () => { root.unmount(); await settle() })
+    host.remove()
+  }
+})

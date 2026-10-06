@@ -19,6 +19,7 @@ import {createRoot} from '${require.resolve('react-dom/client')}';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {DockWorkspace,DockPanel} from '${root}/src/components/DockWorkspace.tsx';
 import {GitPanel} from '${root}/src/components/git-panel.tsx';
+import {gitWorkbenchScreenKey} from '${root}/src/utils/git-workbench-navigation.ts';
 import {useWorkspacePanelDismissals} from '${root}/src/hooks/use-panel-dismissals.ts';
 import {WORKSPACE_PANEL_IDS} from '${root}/src/utils/mobile-panel-stack.ts';
 import {dispatchFocusedShortcut} from '${root}/packages/shortcuts/src/focusedShortcutScope.ts';
@@ -37,19 +38,24 @@ function Fixture(){
   const [dock,setDock]=useState(JSON.parse(localStorage.getItem('fixture:dock')||'null'));
   const [git,setGit]=useState(JSON.parse(localStorage.getItem('fixture:git')||'null'));
   const [open,setOpen]=useState(true),[foreground,setForeground]=useState('git');
+  const [screen,setScreen]=useState({kind:'graph'}),[desktop,setDesktop]=useState(innerWidth>=768);
+  useEffect(()=>{const query=matchMedia('(min-width: 768px)'),update=()=>setDesktop(query.matches);query.addEventListener('change',update);return()=>query.removeEventListener('change',update)},[]);
   const [next,setNext]=useState(0),[previous,setPrevious]=useState(0),[close,setClose]=useState(0);
   const ref=useRef(null);
   const saveDock=useCallback(value=>{setDock(value);localStorage.setItem('fixture:dock',JSON.stringify(value))},[]);
   const saveGit=useCallback(value=>{setGit(value);localStorage.setItem('fixture:git',JSON.stringify(value))},[]);
   const dismiss=()=>{setOpen(false);setForeground(null)};
-  useWorkspacePanelDismissals(Object.fromEntries(WORKSPACE_PANEL_IDS.map(id=>[id,{open:id==='git'&&open,close:dismiss}])),foreground);
+  const back=useWorkspacePanelDismissals(Object.fromEntries(WORKSPACE_PANEL_IDS.map(id=>[id,{open:id==='git'&&open,close:dismiss}])),foreground,{
+    enabled:!desktop,scope:'fixture',screens:{git:{key:gitWorkbenchScreenKey(screen),restore:()=>setScreen(screen)}},
+    show:panel=>{setForeground(panel==='editor'?null:panel);if(panel==='git')setOpen(true)}
+  });
   useEffect(()=>{const key=event=>{if(event.ctrlKey&&event.key==='w'&&dispatchFocusedShortcut('closeTab',event)==='handled')event.preventDefault()};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[]);
-  window.fixture={dock,git,setOpen,setForeground,setNext,setPrevious,setClose};
+  window.fixture={dock,git,screen,setOpen,setForeground,setNext,setPrevious,setClose};
   return <div className="flex h-dvh flex-col bg-surface-deep text-ink">
     <header className="flex h-10 shrink-0 items-center gap-4 px-3"><button onClick={()=>{setOpen(true);setForeground('git')}}>Git 열기</button><button onClick={()=>setForeground(null)}>편집기 보기</button></header>
     <DockWorkspace apiRef={ref} value={dock} onChange={saveDock} onEditorDrop={()=>''} foreground={foreground}>
       <DockPanel id="editor:main" kind="editor"><div className="h-9 shrink-0 border-b border-edge px-3 text-xs">README.md</div><textarea aria-label="편집기" className="h-full w-full bg-surface-deep p-3" defaultValue="문서 편집 중"/></DockPanel>
-      <GitPanel visible={open} initialState={git} onChange={saveGit} onNotice={message=>window.notices.push(message)} onClose={dismiss} onPanelFocus={()=>setForeground('git')} nextTabSignal={next} previousTabSignal={previous} closeTabSignal={close}/>
+      <GitPanel visible={open} initialState={git} onChange={saveGit} navigation={{view:screen,onChange:setScreen,back}} onOpenFile={(project,path)=>{window.openedFile={project,path};setForeground(null)}} onNotice={message=>window.notices.push(message)} onClose={dismiss} onPanelFocus={()=>setForeground('git')} nextTabSignal={next} previousTabSignal={previous} closeTabSignal={close}/>
     </DockWorkspace>
   </div>
 }
@@ -705,6 +711,54 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.getByRole('checkbox', { name: `${selectedPath} 커밋에 포함`, exact: true }).waitFor({ state: 'hidden' })
     assert.deepEqual(discardRequests.at(-1), { path: '', workspace: '/fixture', files: [selectedPath] })
     assert.ok(workingFiles.length > 0, 'unselected changes remain')
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    const back = async () => { await page.evaluate('history.back()'); await page.waitForTimeout(60) }
+    const viewKind = (kind: string) => page.waitForFunction(`window.fixture.screen.kind === '${kind}'`)
+    await pick('편집기 보기')
+    await pick('Git 열기')
+    await changes.getByRole('button').first().click()
+    await viewKind('diff')
+    const openedPath = await page.evaluate<string>('window.fixture.screen.file.path')
+    // An overlay still consumes Back before a registered screen does.
+    await branchButton.click()
+    await branchPopup.waitFor()
+    await back()
+    await branchPopup.waitFor({ state: 'hidden' })
+    await viewKind('diff')
+    await back()
+    await viewKind('graph')
+    await changes.waitFor()
+    assert.equal(await page.getByLabel('편집기', { exact: true }).isVisible(), false, 'diff Back returns to Git before the previous panel')
+
+    await changes.getByRole('button').first().click()
+    await viewKind('diff')
+    await pick('파일 열기')
+    await page.getByLabel('편집기', { exact: true }).waitFor()
+    assert.deepEqual(await page.evaluate('window.openedFile'), { project: '.workspace', path: openedPath })
+    await back()
+    await page.getByRole('button', { name: '파일 열기', exact: true }).waitFor()
+    assert.equal(await page.evaluate('window.fixture.screen.file.path'), openedPath, 'editor Back restores the exact diff')
+    await back()
+    await viewKind('graph')
+    await changes.waitFor()
+
+    await history.getByRole('button').first().click()
+    await viewKind('commit')
+    await page.locator('[data-dock-body="git"]').getByRole('button', { name: openedPath }).click()
+    await viewKind('diff')
+    await pick('파일 열기')
+    await page.getByLabel('편집기', { exact: true }).waitFor()
+    await back()
+    await page.getByRole('button', { name: '파일 열기', exact: true }).waitFor()
+    assert.equal(await page.evaluate('window.fixture.screen.source.kind'), 'commit')
+    await back()
+    await viewKind('commit')
+    await pick('뒤로 가기')
+    await viewKind('graph')
+    await back()
+    await page.getByLabel('편집기', { exact: true }).waitFor()
+    assert.equal(await page.getByRole('button', { name: '뒤로 가기', exact: true }).isVisible(), false, 'toolbar Back consumes history instead of creating another diff visit')
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })

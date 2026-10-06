@@ -115,6 +115,7 @@ import { loadMewcatSkin, saveMewcatSkin, loadMewcatHideDesktop, MEWCAT_HIDE_DESK
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
 import { GitPanel } from './components/git-panel'
+import { gitWorkbenchScreenKey, type GitWorkbenchView } from './utils/git-workbench-navigation'
 import { RemoteDesktop } from './components/remote-desktop'
 import type { GitPanelState } from './utils/git-panel-state'
 import { normalizeDirectoryChildren, normalizeTreeCenterAnchor } from './utils/treePersistence'
@@ -1059,6 +1060,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const saveDockLayout = useCallback((dock: DockState) => setWorkspaceUi((previous) => ({ ...previous, dock })), [])
   const saveFeaturePanelState = useCallback((features: FeaturePanelState) => setWorkspaceUi(previous => ({ ...previous, features })), [])
   const saveGitPanelState = useCallback((git: GitPanelState) => setWorkspaceUi((previous) => ({ ...previous, git })), [])
+  const [gitScreen, setGitScreen] = useState<{ scope: string | null; view: GitWorkbenchView }>({ scope: rootProjectPath, view: { kind: 'graph' } })
+  const gitView = useMemo<GitWorkbenchView>(() => gitScreen.scope === rootProjectPath ? gitScreen.view : { kind: 'graph' }, [gitScreen, rootProjectPath])
+  const changeGitView = useCallback((view: GitWorkbenchView) => setGitScreen({ scope: rootProjectPath, view }), [rootProjectPath])
 
   // 경로별로 지금 몇 개의 세션이 이 문서를 "포커스"하고 있는지 (열어만 둔 탭은 안 셈)
   // + 서버 watcher의 트리 변경 알림 — 다른 세션·에이전트가 만든 파일도 사이드바에 바로 반영
@@ -1095,7 +1099,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   // App이 직접 소유하는 보조 패널은 여기 한 번에 등록한다. 모달·드롭다운은 각 컴포넌트가 같은 전역
   // 오버레이 스택에 등록하므로, Esc·모바일 뒤로가기는 가장 나중에 연 창 하나만 닫는다.
   const browserBackRef = useRef<(() => boolean) | null>(null)
-  useWorkspacePanelDismissals({
+  const navigateWorkspaceBack = useWorkspacePanelDismissals({
     sidebar: {
       open: sidebarOpen,
       close: () => closeWorkspacePanel('sidebar'),
@@ -1114,6 +1118,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   }, mobileForegroundPanel, {
     enabled: !isDesktop() && workspaceUiLoaded,
     scope: `${auth.email}:${rootProjectPath}`,
+    screens: {
+      git: { key: gitWorkbenchScreenKey(gitView), restore: () => changeGitView(gitView) },
+    },
     show: (panel) => {
       if (panel === 'editor') showMobileEditor()
       else openWorkspacePanel(panel)
@@ -2321,6 +2328,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'browser'; bringWorkspacePanelToFront('browser') }}
           nextTabSignal={browserNextTabSignal} previousTabSignal={browserPreviousTabSignal} />}
         {caps.git && workspaceUiLoaded && gitMounted.current && <GitPanel visible={gitOpen} initialState={workspaceUi.git} onChange={saveGitPanelState}
+          navigation={{ view: gitView, onChange: changeGitView, back: navigateWorkspaceBack }}
           onNotice={showToast} onOpenFile={openMentionedFile} onClose={() => closeWorkspacePanel('git')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'git'; bringWorkspacePanelToFront('git') }}
           nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} />}

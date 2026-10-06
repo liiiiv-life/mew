@@ -6,6 +6,7 @@ import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
 import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page, SendDiagonal, Undo, Xmark } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
+import type { GitWorkbenchNavigation, GitWorkbenchView } from '../utils/git-workbench-navigation'
 import { GitBranchPicker } from './git-branch-picker'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
 import {
@@ -34,12 +35,6 @@ const GRAPH_COLORS = ['#5da9ff', '#f28b82', '#81c995', '#fdd663', '#c58af9', '#7
 
 type GraphEdge = { from: number; to: number; commit: boolean }
 type GraphRow = { lane: number; before: number; after: number; edges: GraphEdge[] }
-type DetailSource = { kind: 'working' } | { kind: 'commit'; hash: string }
-type WorkbenchView =
-  | { kind: 'graph' }
-  | { kind: 'commit'; hash: string }
-  | { kind: 'diff'; source: DetailSource; file: GitChangedFile }
-
 function graphLayout(commits: GitLogEntry[]): { rows: GraphRow[]; lanes: number } {
   let active: string[] = []
   let max = 1
@@ -368,7 +363,7 @@ function GitComposer({ id, children, onSubmit }: { id: string; children: ReactNo
   </form>
 }
 
-export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpenFile, actionsHost, visible = true }: {
+export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpenFile, actionsHost, visible = true, navigation }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
@@ -376,6 +371,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   onOpenFile?: (project: string, path: string) => void
   actionsHost?: HTMLElement | null
   visible?: boolean
+  navigation?: GitWorkbenchNavigation
 }) {
   useUiLocale()
   const [splitRatio, setSplitRatio] = useState(0.2)
@@ -387,7 +383,9 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   const [info, setInfo] = useState<GitRepositoryInfo | null>(null)
   const [commits, setCommits] = useState<GitLogEntry[]>([])
   const [workingTree, setWorkingTree] = useState<GitWorkingTreeDetail>({ files: [] })
-  const [view, setView] = useState<WorkbenchView>({ kind: 'graph' })
+  const [localView, setLocalView] = useState<GitWorkbenchView>({ kind: 'graph' })
+  const view = navigation?.view ?? localView
+  const setView = navigation?.onChange ?? setLocalView
   const [detail, setDetail] = useState<GitCommitDetail | null>(null)
   const [diff, setDiff] = useState('')
   const [loading, setLoading] = useState(true)
@@ -452,7 +450,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
     } finally {
       setLoading(false)
     }
-  }, [project, repositoryPath])
+  }, [project, repositoryPath, setView])
 
   useEffect(() => {
     setView({ kind: 'graph' })
@@ -463,7 +461,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
     setSplitRatio(0.2)
     setAiOpen(false)
     void refresh(true)
-  }, [refresh])
+  }, [refresh, setView])
 
   useEffect(() => {
     if (!visible || loading || busy || !info?.repository) return
@@ -571,10 +569,8 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
 
   const goBack = () => {
     setError(null)
-    setView((current) => {
-      if (current.kind === 'diff') return current.source.kind === 'working' ? { kind: 'graph' } : { kind: 'commit', hash: current.source.hash }
-      return { kind: 'graph' }
-    })
+    if (navigation?.back()) return
+    setView(view.kind === 'diff' && view.source.kind === 'commit' ? { kind: 'commit', hash: view.source.hash } : { kind: 'graph' })
   }
 
   const selectCommitFile = (file: GitChangedFile) => {
