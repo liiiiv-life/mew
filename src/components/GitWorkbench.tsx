@@ -363,12 +363,13 @@ function GitComposer({ id, children, onSubmit }: { id: string; children: ReactNo
   </form>
 }
 
-export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpenFile, actionsHost, visible = true, navigation }: {
+export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpenFile, branchHost, actionsHost, visible = true, navigation }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
   onBack?: () => void
   onOpenFile?: (project: string, path: string) => void
+  branchHost?: HTMLElement | null
   actionsHost?: HTMLElement | null
   visible?: boolean
   navigation?: GitWorkbenchNavigation
@@ -717,9 +718,10 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   return (
     <div className="@container flex h-full min-h-0 min-w-0 flex-1 flex-col bg-surface">
       {dialogs.dialog}
-      {actionsHost && createPortal(<>
+      {branchHost && createPortal(
         <GitBranchPicker key={`${project}:${repositoryPath}`} info={info} project={project} path={repositoryPath}
-          disabled={!visible || loading || aiOpen || !info?.repository || !info.workspace} busy={busy} onAction={changeBranch} />
+          disabled={!visible || loading || aiOpen || !info?.repository || !info.workspace} busy={busy} onAction={changeBranch} />, branchHost)}
+      {actionsHost && createPortal(<>
         {(['pull', 'push'] as const).map(action => {
         const finished = remoteFeedback?.action === action && remoteFeedback.complete
         const status = remoteText(action)

@@ -3,7 +3,6 @@ import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
-import { GitBranch } from 'iconoir-react'
 import { restoreGitPanel, type GitPanelState } from '../utils/git-panel-state'
 import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
 import { GitWorkbench } from './GitWorkbench'
@@ -26,6 +25,7 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onOpenFile
   useUiLocale()
   const dock = useDock()
   const [state] = useState(() => restoreGitPanel(initialState))
+  const [branchHost, setBranchHost] = useState<HTMLDivElement | null>(null)
   const [actionsHost, setActionsHost] = useState<HTMLDivElement | null>(null)
   const tab = state.tabs[0]
   const group = dock?.groupFor('git', tab.id) ?? 'git'
@@ -36,14 +36,11 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onOpenFile
   }, [closeTabSignal, onClose])
   return <>
     <DockPanel id={group} kind="git" tabs={[tab.id]} visible={visible} onFocus={onPanelFocus}>
-      <GitShortcutScope onClose={onClose} className="@container/git-header shrink-0">
+      <GitShortcutScope onClose={onClose} className="shrink-0">
         <div data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
           <DockGrip group={group} />
-          <div data-git-title className="hidden shrink-0 items-center gap-1.5 px-2.5 text-xs text-ink @min-[400px]/git-header:flex">
-            <GitBranch width={14} height={14} className="shrink-0" aria-hidden="true" />
-            <span>Git</span>
-          </div>
-          <div className="flex min-w-0 flex-1 items-center justify-end" data-git-controls>
+          <div ref={setBranchHost} data-git-branch className="flex min-w-0 flex-1 items-center" />
+          <div className="flex shrink-0 items-center justify-end" data-git-controls>
             <div ref={setActionsHost} className="flex min-w-0 items-center" />
             <GitHubAccount key={tab.project} project={tab.project} />
           </div>
@@ -53,7 +50,7 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onOpenFile
     </DockPanel>
     <DockBody group={group} active onFocus={onPanelFocus}>
       <GitShortcutScope onClose={onClose} className="flex h-full min-h-0 min-w-0 flex-col">
-        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} onOpenFile={onOpenFile} actionsHost={actionsHost} navigation={navigation}
+        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} onOpenFile={onOpenFile} branchHost={branchHost} actionsHost={actionsHost} navigation={navigation}
           visible={visible && (!dock || (dock.desktop ? !dock.maximized || dock.maximized === group : dock.foreground === 'git'))} />
       </GitShortcutScope>
     </DockBody>
