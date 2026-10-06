@@ -1,7 +1,7 @@
 ---
 title: "진행 작업 홈"
 created: "2026-09-11"
-updated: "2026-10-05"
+updated: "2026-10-06"
 ---
 
 # 진행 작업 홈
@@ -10,7 +10,9 @@ updated: "2026-10-05"
 
 ## Current
 
-- [mew.saens.kr 계정 기반 P2P 원격 접속 설계 — 미구현](remote-access.md)
+- [mew 중계 기능 만들기 — 계정 기반 P2P 원격 접속 설계 · 미구현](<../tasks/mew 중계 기능 만들기.md>)
+
+- [원격 접속 설계의 이전 경로 — 작업 문서로 연결](remote-access.md)
 
 - [대량 문서 변경의 AI 커밋 압축 연구](git-document-commit-compression.md)
 
