@@ -1,3 +1,4 @@
+import { runAccountWorkspace } from './account-workspace.ts'
 import { recordChangeIp, requestIp } from './change-ip.ts'
 import { DocumentPages, DocumentPageError } from './document-pages.ts'
 import { DocumentGraphIndex } from './document-graph.ts'
@@ -18,7 +19,7 @@ import multer from 'multer'
 import { GitError } from 'simple-git'
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_PROJECT, isDeniedSegment, isProtectedProject, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
+import { DEFAULT_PROJECT, isDeniedSegment, isProtectedProject, listProjects, projectRoot, resolveProjectPath, UnknownProjectError, UnsafePathError, WORKSPACE_PROJECT, workspacePaths, workspaceContext } from './paths.ts'
 import { createProject, deleteProject, ProjectNameError, renameProject } from './projects.ts'
 import { buildTree, buildTreeAsync, isPathVisible } from './tree.ts'
 import { flattenTextFiles, replaceInFile, searchInProject, searchInProjectProgressively } from './search.ts'
@@ -137,7 +138,12 @@ import {
 } from './auth.ts'
 
 /** tmux 세션은 워크스페이스 루트에서 시작한다 */
-export const tmuxManager = createTmuxManager({ cwd: WORKSPACE_ROOT })
+export const tmuxManager = createTmuxManager({ cwd: workspacePaths.root })
+let defaultTerminalCwd = tmuxManager.cwd
+Object.defineProperty(tmuxManager, 'cwd', {
+  get: () => workspaceContext.getStore() ? workspacePaths.root : defaultTerminalCwd,
+  set: (value: string) => { defaultTerminalCwd = value },
+})
 
 const AGENT_TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const ANCHOR_PREVIEW_MIN_BYTES = 512 * 1024
@@ -386,6 +392,7 @@ function filePermissionMiddleware(req: express.Request, res: express.Response, n
 
 export function createApiApp() {
   const app = express()
+  app.use((req, _res, next) => runAccountWorkspace(authOf(req).email, next))
   app.use(express.json({ limit: '10mb' }))
   app.use('/admin/access', createAccessRouter())
   app.use('/presence/history', createPresenceHistoryRouter())
@@ -393,8 +400,8 @@ export function createApiApp() {
   app.use(filePermissionMiddleware)
   app.use('/task-list', createTaskListRouter())
   app.use((req, res, next) => {
-    if ((req.headers['x-mew-git-owner'] && req.headers['x-mew-git-owner'] !== encodeURIComponent(authOf(req).email ?? '')) || (req.headers['x-mew-git-workspace'] && req.headers['x-mew-git-workspace'] !== encodeURIComponent(WORKSPACE_ROOT))) { res.status(409).json({ error: '계정 또는 프로젝트가 변경되었습니다. 다시 실행하세요.' }); return }
-    gitRequestContext.run({ owner: authOf(req).email, workspace: WORKSPACE_ROOT }, next)
+    if ((req.headers['x-mew-git-owner'] && req.headers['x-mew-git-owner'] !== encodeURIComponent(authOf(req).email ?? '')) || (req.headers['x-mew-git-workspace'] && req.headers['x-mew-git-workspace'] !== encodeURIComponent(workspacePaths.root))) { res.status(409).json({ error: '계정 또는 프로젝트가 변경되었습니다. 다시 실행하세요.' }); return }
+    gitRequestContext.run({ owner: authOf(req).email, workspace: workspacePaths.root }, next)
   })
   app.get('/file-access', (req, res) => {
     res.setHeader('Cache-Control', 'no-store')
@@ -581,7 +588,7 @@ export function createApiApp() {
       }
       // Android 안내 명령은 모두 one-shot이다. 대화형 명령은 사용자가 팝업 터미널에서 응답할 수 있고,
       // 명령이 끝나면 프로젝트 명령어 버튼과 똑같이 자기 숨김 세션을 정리한다.
-      await tmuxManager.runCommand(runnable.session, oneShotCommand(runnable.command, runnable.session), WORKSPACE_ROOT)
+      await tmuxManager.runCommand(runnable.session, oneShotCommand(runnable.command, runnable.session), workspacePaths.root)
       res.json({ ok: true, session: runnable.session })
     } catch (err) {
       handleError(res, err)
@@ -741,8 +748,6 @@ export function createApiApp() {
         return
       }
       const info = switchWorkspace(resolveBrowsePath(target))
-      // 세션 만들기가 모듈 초기화 때 받은 cwd를 쓴다 — 라이브 바인딩이 닿지 않는 유일한 곳이라 여기서 고친다
-      tmuxManager.cwd = info.path
       res.json(info)
     } catch (err) {
       handleError(res, err)
@@ -762,8 +767,8 @@ export function createApiApp() {
   // 주소창 입력을 세션을 끊기 전에 검증한다. 파일 접근 범위는 넓히지 않는다 — ACP/CLI 권한은 이미 OS 사용자 범위다.
   app.get('/agent-cwd', requireAnyFeature('agent', 'terminal'), (req, res) => {
     try {
-      const base = resolveAgentCwd(String(req.query.base ?? ''), WORKSPACE_ROOT)
-      res.json({ cwd: resolveAgentCwd(String(req.query.path ?? ''), WORKSPACE_ROOT, base) })
+      const base = resolveAgentCwd(String(req.query.base ?? ''), workspacePaths.root)
+      res.json({ cwd: resolveAgentCwd(String(req.query.path ?? ''), workspacePaths.root, base) })
     } catch (err) {
       handleError(res, err)
     }
@@ -771,8 +776,8 @@ export function createApiApp() {
 
   app.get('/agent-cwd/suggestions', requireAnyFeature('agent', 'terminal'), (req, res) => {
     try {
-      const base = resolveAgentCwd(String(req.query.base ?? ''), WORKSPACE_ROOT)
-      res.json(suggestAgentCwds(String(req.query.input ?? ''), WORKSPACE_ROOT, base, req.query.entered === 'true'))
+      const base = resolveAgentCwd(String(req.query.base ?? ''), workspacePaths.root)
+      res.json(suggestAgentCwds(String(req.query.input ?? ''), workspacePaths.root, base, req.query.entered === 'true'))
     } catch (err) {
       handleError(res, err)
     }
@@ -941,7 +946,6 @@ export function createApiApp() {
       const abs = resolveExistingPath((req.body as { path?: unknown }).path)
       if (!fs.statSync(abs).isDirectory()) throw new BrowseError(`폴더가 아닙니다: ${abs}`)
       const info = switchWorkspace(abs, WORKSPACE_PROJECT)
-      tmuxManager.cwd = info.path
       res.json({ ...info, project: WORKSPACE_PROJECT })
     } catch (err) {
       handleError(res, err)
@@ -957,14 +961,13 @@ export function createApiApp() {
 
   app.post('/subprojects/open', requireRole('owner'), (req, res) => {
     try {
-      if (req.body?.workspace !== WORKSPACE_ROOT) {
+      if (req.body?.workspace !== workspacePaths.root) {
         res.status(409).json({ error: '프로젝트가 변경되었습니다. 현재 목록에서 다시 선택하세요.' })
         return
       }
       const directory = subprojectToOpen(projectOf(req), req.body?.path)
       if (!requireFileView(req, res, req.body.path)) return
       const info = switchWorkspace(directory, WORKSPACE_PROJECT)
-      tmuxManager.cwd = info.path
       res.json(info)
     } catch (err) { handleError(res, err) }
   })
@@ -1017,7 +1020,7 @@ export function createApiApp() {
   })
 
   app.post('/git/discard', requireFeature('git'), requireFeature('filesWrite'), async (req, res) => {
-    if (req.body?.workspace !== WORKSPACE_ROOT) {
+    if (req.body?.workspace !== workspacePaths.root) {
       res.status(409).json({ error: '프로젝트가 변경되었습니다. Git 패널을 다시 여세요.' })
       return
     }
@@ -1028,7 +1031,7 @@ export function createApiApp() {
   })
 
   app.post('/git/remote', requireFeature('git'), async (req, res) => {
-    if (req.body?.workspace !== WORKSPACE_ROOT) {
+    if (req.body?.workspace !== workspacePaths.root) {
       res.status(409).json({ error: '프로젝트가 변경되었습니다. Git 패널을 다시 여세요.' })
       return
     }
@@ -1058,7 +1061,7 @@ export function createApiApp() {
   })
 
   app.post('/git/branches', requireFeature('git'), async (req, res) => {
-    if (req.body?.workspace !== WORKSPACE_ROOT) {
+    if (req.body?.workspace !== workspacePaths.root) {
       res.status(409).json({ error: '프로젝트가 변경되었습니다. Git 패널을 다시 여세요.' })
       return
     }
@@ -2241,7 +2244,7 @@ export function createApiApp() {
   // runtime·tab·cwd만 보내며 실행 방식과 실제 tmux 이름은 서버 등록표가 정한다(ADR 0117·0119).
   app.post('/agent-runtimes/:id/terminal/:tab', requireFeature('terminal'), (req, res, next) => req.params.id === 'tmux' ? next() : requireFeature('agent')(req, res, next), async (req, res) => {
     try {
-      const cwd = resolveAgentCwd(typeof req.body?.cwd === 'string' ? req.body.cwd : '', WORKSPACE_ROOT)
+      const cwd = resolveAgentCwd(typeof req.body?.cwd === 'string' ? req.body.cwd : '', workspacePaths.root)
       res.json({ ok: true, ...await startAgentTerminal(tmuxManager, String(req.params.id), String(req.params.tab), cwd) })
     } catch (err) {
       handleError(res, err)
@@ -2280,7 +2283,7 @@ export function createApiApp() {
       const id = String(req.params.id)
       const methodId = String(req.params.method)
       const tab = typeof req.body?.tab === 'string' ? req.body.tab : ''
-      const cwd = resolveAgentCwd(req.body?.cwd ?? '', WORKSPACE_ROOT)
+      const cwd = resolveAgentCwd(req.body?.cwd ?? '', workspacePaths.root)
       if (!isRuntime(id) || !AGENT_TAB_ID.test(tab) || !methodId || methodId.length > 100) {
         res.status(400).json({ error: '로그인 요청이 올바르지 않습니다' })
         return
@@ -2294,7 +2297,7 @@ export function createApiApp() {
         // 실패·성공한 세션은 새로 만들어 상태 파일과 화면 출력을 함께 초기화한다.
         if (running) await tmuxManager.kill(session)
         const command = prepareAgentAuthTerminal(id, tab, methodId, spec)
-        await tmuxManager.runCommand(session, command, WORKSPACE_ROOT)
+        await tmuxManager.runCommand(session, command, workspacePaths.root)
         running = true
       }
       const status = readAgentAuthTerminalStatus(id, tab, methodId, running, spec.completionFile)
@@ -2501,7 +2504,7 @@ export function createApiApp() {
   app.post('/agent/scheduled-prompts', requireFeature('agent'), (req, res) => {
     try {
       const body = req.body as Record<string, unknown>
-      const cwd = resolveAgentCwd(typeof body.cwd === 'string' ? body.cwd : '', WORKSPACE_ROOT)
+      const cwd = resolveAgentCwd(typeof body.cwd === 'string' ? body.cwd : '', workspacePaths.root)
       res.json({ job: scheduleAgentPrompt({ ...body, cwd }) })
     } catch (err) {
       handleError(res, err)
@@ -2510,7 +2513,7 @@ export function createApiApp() {
 
   app.get('/agent/scheduled-prompts', requireFeature('agent'), (req, res) => {
     try {
-      const cwd = resolveAgentCwd(String(req.query.cwd ?? ''), WORKSPACE_ROOT)
+      const cwd = resolveAgentCwd(String(req.query.cwd ?? ''), workspacePaths.root)
       res.json({ jobs: listAgentScheduledPrompts({ runtime: req.query.runtime, tab: req.query.tab, cwd }) })
     } catch (err) {
       handleError(res, err)
@@ -2519,7 +2522,7 @@ export function createApiApp() {
 
   app.delete('/agent/scheduled-prompts/:id', requireFeature('agent'), (req, res) => {
     try {
-      const cwd = resolveAgentCwd(String(req.query.cwd ?? ''), WORKSPACE_ROOT)
+      const cwd = resolveAgentCwd(String(req.query.cwd ?? ''), workspacePaths.root)
       const cancelled = cancelAgentScheduledPrompt({ id: req.params.id, runtime: req.query.runtime, tab: req.query.tab, cwd })
       if (!cancelled) return res.status(404).json({ error: '예약 메시지를 찾을 수 없습니다' })
       res.json({ ok: true })
@@ -2531,7 +2534,7 @@ export function createApiApp() {
   app.put('/agent/scheduled-prompts/:id', requireFeature('agent'), (req, res) => {
     try {
       const body = req.body as Record<string, unknown>
-      const cwd = resolveAgentCwd(typeof body.cwd === 'string' ? body.cwd : '', WORKSPACE_ROOT)
+      const cwd = resolveAgentCwd(typeof body.cwd === 'string' ? body.cwd : '', workspacePaths.root)
       res.json({ job: updateAgentScheduledPrompt({ ...body, id: req.params.id, cwd }) })
     } catch (err) {
       handleError(res, err)
@@ -2703,7 +2706,7 @@ export function createApiApp() {
 
 function handleError(res: express.Response, err: unknown) {
   if (err instanceof FrontmatterOptionsError) { res.status(400).json({ error: err.message }); return }
-  if (err instanceof GitConnectionError) { res.status(err.status).json({ error: err.message, code: err.code, owner: authOf(res.req).email, workspace: gitRequestContext.getStore()?.workspace ?? WORKSPACE_ROOT }); return }
+  if (err instanceof GitConnectionError) { res.status(err.status).json({ error: err.message, code: err.code, owner: authOf(res.req).email, workspace: gitRequestContext.getStore()?.workspace ?? workspacePaths.root }); return }
   if (err instanceof GuidanceError) {
     res.status(err.status).json({ error: err.message })
     return

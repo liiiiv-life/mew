@@ -35,10 +35,11 @@ const listeners = new Set<(update: CatalogUpdate) => void>()
 let generation = 0
 
 function stateFor(project: string): ProjectCatalog {
-  let state = projects.get(project)
+  const key = projectRoot(project)
+  let state = projects.get(key)
   if (!state) {
     state = { snapshot: null, build: null, update: Promise.resolve(), stale: false }
-    projects.set(project, state)
+    projects.set(key, state)
   }
   return state
 }

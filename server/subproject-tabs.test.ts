@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import express from 'express'
 import { createApiApp, tmuxManager } from './api.ts'
+import { writeActiveWorkspace } from './userUiState.ts'
 import { configFiles } from './config.ts'
 import { WORKSPACE_ROOT, setWorkspaceRoot } from './paths.ts'
 import { resetTreeWatchers } from './watcher.ts'
@@ -61,13 +62,13 @@ test('opening subprojects validates scope, role and source workspace before swit
       ['plain/nested', '.workspace', 'plain/nested'],
       ['reference', 'docs', 'docs/reference'],
     ]) {
-      setWorkspaceRoot(root)
+      writeActiveWorkspace('tabs-owner@example.com', root)
       const response = await open(target, scope)
       assert.equal(response.status, 200, await response.clone().text())
       const info = await response.json() as { path: string; docsPath: string }
       assert.equal(info.path, path.join(root, expected))
-      assert.equal(WORKSPACE_ROOT, info.path)
-      assert.equal(tmuxManager.cwd, info.path)
+      assert.equal(WORKSPACE_ROOT, root, 'switching keeps the server default root')
+      assert.equal(tmuxManager.cwd, originalCwd, 'switching keeps the shared terminal default')
       assert.ok(info.docsPath.startsWith(info.path + path.sep))
       assert.equal((await open(target, scope)).status, 409, 'a repeated old-root request cannot open a different folder')
       resetTreeWatchers()

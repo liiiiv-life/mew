@@ -2,7 +2,7 @@
 // 브라우저가 서버 절대경로를 직접 열지 않고 App의 문서 탭 열기 흐름으로 들어가기 위한 경계다.
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_PROJECT, DOCS_ROOT, isDeniedSegment, listProjects, WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
+import { DEFAULT_PROJECT, isDeniedSegment, listProjects, WORKSPACE_PROJECT, workspacePaths } from './paths.ts'
 
 export interface WorkspaceFileLink {
   project: string
@@ -86,8 +86,8 @@ export function resolveWorkspaceLinkAt(raw: string, roots: WorkspaceRoots): Work
 
 export function resolveWorkspaceLink(raw: string): WorkspaceFileLink | null {
   return resolveWorkspaceLinkAt(raw, {
-    workspaceRoot: WORKSPACE_ROOT,
-    docsRoot: DOCS_ROOT,
+    workspaceRoot: workspacePaths.root,
+    docsRoot: workspacePaths.docsRoot,
     projects: listProjects(),
   })
 }

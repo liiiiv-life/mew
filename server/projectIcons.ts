@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DATA_DIR, readJsonRecord, writeFileAtomic } from './dataDir.ts'
-import { listProjects, projectRoot, WORKSPACE_ROOT } from './paths.ts'
+import { listProjects, projectRoot, workspacePaths } from './paths.ts'
 import { normalizeIconValue } from './svgIcon.ts'
 
 const LEGACY_FILE = path.join(DATA_DIR, 'project-icons.json')
@@ -28,7 +28,7 @@ export function readProjectIcon(root: string, fallback?: string): string | null 
     if (record) return typeof record.icon === 'string' ? normalizeIconValue(record.icon) || null : null
     // Legacy names were scoped to the active parent's sidebar. Never guess by basename elsewhere.
     const name = path.basename(root)
-    const legacy = path.dirname(root) === WORKSPACE_ROOT ? readJsonRecord<string>(LEGACY_FILE) : null
+    const legacy = path.dirname(root) === workspacePaths.root ? readJsonRecord<string>(LEGACY_FILE) : null
     const value = legacy?.[name] ?? fallback
     if (!value) return null
     const icon = writeProjectIcon(root, value)

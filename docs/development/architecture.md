@@ -1,5 +1,5 @@
 ---
-description: "서버 주요 모듈과 인증·권한 경계, DATA_DIR의 상태·대화 저장 및 프로젝트 아이콘 기준본의 책임을 설명한다."
+description: "서버 주요 모듈과 인증·권한 경계, 계정별 활성 프로젝트와 요청 경로, DATA_DIR의 상태·대화 저장 및 프로젝트 아이콘 기준본의 책임을 설명한다."
 ---
 # 서버 구조와 상태 파일
 
@@ -32,3 +32,10 @@ description: "서버 주요 모듈과 인증·권한 경계, DATA_DIR의 상태�
 기존 `.data/project-icons.json`의 현재 루트 직계 프로젝트 값은 첫 조회 때 프로젝트 파일로 이관한 뒤 이전 키를 제거한다. 계정의 기존 탭 아이콘은 프로젝트 파일·사이드바 값이 없을 때만 초기값으로 이관한다. 이름만 같은 다른 루트에는 옛 사이드바 값을 적용하지 않는다. 조회할 수 없는 프로젝트는 기본 폴더 아이콘을 표시한다. 읽기·이관은 표시 시점에 이루어지므로 닫힌 프로젝트를 재귀 탐색하지 않는다.
 
 Owner 전용 `POST /api/project-icons/read`는 절대경로 목록의 현재 아이콘을 읽고, `PUT /api/project-icons`는 `{ path, icon }`을 프로젝트에 저장한다. 기존 `/api/project-icon`도 같은 파일을 갱신한다. 계정의 루트 탭 저장에는 아이콘 내용을 더 이상 넣지 않는다. [ADR 0177](../../../.mew/docs/decisions/0177-mew-project-owned-icons.md)을 따른다.
+## 계정별 활성 프로젝트
+
+[ADR 0200](../../../.mew/docs/decisions/0200-mew-account-active-workspace.md)에 따라 마지막 활성 프로젝트는 `user-ui-state.json`의 계정별 `activeWorkspace`가 소유한다. `server/account-workspace.ts`는 인증된 계정의 루트를 읽고 `paths.ts`의 `AsyncLocalStorage` 컨텍스트에 요청 수명 동안 고정한다. `workspacePaths`와 `projectRoot` 등 경로 함수는 이 컨텍스트를 읽으며, 계정 없는 CLI·서버 초기화는 기존 서버 기본 루트를 사용한다. 저장값이 없거나 경로가 삭제되면 기본 루트로 복원한다.
+
+`POST /api/workspace`, `/api/fs/open-project`, `/api/subprojects/open`은 기존 owner 권한을 유지하고 요청 계정의 루트만 저장한다. `workspace` presence 알림은 같은 인증 계정에만 전달한다. 서버 기본 루트·`MEW_WORKSPACE` 설정·다른 계정의 watcher·공동 편집 방은 바꾸지 않는다. 기존 에이전트 작업 경로는 고정된 채 유지하고 새 터미널의 기본 경로는 요청 계정의 루트를 따른다. Documents 폴더 설정은 기존처럼 프로젝트 설정 파일이 소유한다.
+
+파일 카탈로그와 검색 상태·트리 감시자는 실제 프로젝트 경로, 검색 SQLite 핸들은 루트별 DB 경로로 분리한다. 프로젝트 WebSocket 연결은 연결 시 계정 루트를 사용하며 공동 편집 방은 서버 내부 키에 루트를 포함한다. 와이어의 `프로젝트:상대경로`와 서버 공통 메모 방은 유지한다. 같은 실제 루트를 보는 계정끼리는 공동 편집을 공유하며 다른 루트의 동명 파일과는 분리한다.

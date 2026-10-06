@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import simpleGit, { type SimpleGit } from 'simple-git'
 import { resolveExistingPath } from './fsBrowse.ts'
-import { resolveProjectPath, WORKSPACE_ROOT } from './paths.ts'
+import { resolveProjectPath, workspacePaths } from './paths.ts'
 import { invalidateGit } from './git.ts'
 import { commitFiles } from './git-commit-files.ts'
 
@@ -171,7 +171,7 @@ function parseRecord(record: string): GitLogEntry | null {
 }
 
 export async function repositoryInfo(project: string, relPath: string): Promise<GitRepositoryInfo> {
-  const workspace = WORKSPACE_ROOT
+  const workspace = workspacePaths.root
   const abs = scopedDirectory(project, relPath)
   if (!isRepositoryRoot(abs)) return { workspace, repository: false, path: relPath, branch: null, detached: false, dirty: false, ahead: 0, behind: 0, remotes: [] }
   const git = simpleGit({ baseDir: abs, config: ['core.quotepath=false'] })

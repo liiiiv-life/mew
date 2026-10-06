@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { DATA_DIR, writeFileAtomic } from './dataDir.ts'
-import { WORKSPACE_ROOT, resolveProjectPath, isDeniedSegment, isSecretFile } from './paths.ts'
+import { resolveProjectPath, isDeniedSegment, isSecretFile, workspacePaths } from './paths.ts'
 import { defaultCapabilities, FEATURES, GUEST_FEATURES, type Capabilities, type Feature, type FileRule } from '../shared/access-policy.ts'
 import type { RequestAuth } from './reqAuth.ts'
 import type { TreeNode } from './tree.ts'
@@ -23,7 +23,7 @@ function canonical(file: string): string {
     return path.join(canonical(parent), path.basename(file))
   }
 }
-export function workspaceScope(): string { return canonical(WORKSPACE_ROOT) }
+export function workspaceScope(): string { return canonical(workspacePaths.root) }
 export function accessRevision(): string {
   try { const stat = fs.statSync(FILE); return `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}` } catch { return 'legacy' }
 }

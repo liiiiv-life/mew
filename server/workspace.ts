@@ -1,25 +1,13 @@
-// 워크스페이스 갈아끼우기 — 홈 탭에서 "다른 폴더를 열기"를 누르면 여기로 온다.
-//
-// 프로세스를 다시 띄우지 않고 바꾼다: paths.ts의 경로들이 라이브 바인딩이라, 요청 때마다 경로를 푸는
-// 쪽(문서·트리·검색·프로젝트 목록)은 setWorkspaceRoot 한 번으로 전부 새 폴더를 본다. 대신 **옛 폴더에
-// 매여 있던 것들**은 여기서 손으로 접는다 — 트리 감시자와 협업 방. 다음 실행에도 유지되도록 설정 파일에
-// 적어 둔다.
-//
-// 못 따라오는 것: 이미 떠 있는 tmux 세션의 작업 디렉터리(tmux 서버가 들고 있다). 새 세션부터 새 폴더에서
-// 열린다 — 부르는 쪽(api.ts)이 tmuxManager.cwd를 같이 고친다.
+import { writeActiveWorkspace } from './userUiState.ts'
+import { broadcastAccount } from './presence.ts'
+import { workspaceContext } from './paths.ts'
+// 로그인 사용자의 활성 루트는 계정 원장과 요청 컨텍스트에 저장한다.
+// 계정 없는 CLI·서버 초기화는 기존 전역 기본 루트와 환경 설정을 사용한다.
 import fs from 'node:fs'
 import { defaultAgentSettings, readProjectAgentSettings, writeProjectAgentSettings } from './project-agent-settings.ts'
 import path from 'node:path'
 import { configFiles } from './config.ts'
-import {
-  DOCS_DIR,
-  DOCS_ROOT,
-  ensureDocsRoot,
-  listProjects,
-  setDocsDir,
-  setWorkspaceRoot,
-  WORKSPACE_ROOT,
-} from './paths.ts'
+import { ensureDocsRoot, listProjects, setDocsDir, setWorkspaceRoot, workspacePaths } from './paths.ts'
 import { resetTreeWatchers, watchDocsTree } from './watcher.ts'
 import { closeAllRooms } from './collab.ts'
 import { broadcast } from './presence.ts'
@@ -37,7 +25,7 @@ export interface WorkspaceInfo {
 }
 
 export function currentWorkspace(): WorkspaceInfo {
-  return { path: WORKSPACE_ROOT, projects: listProjects(), docs: DOCS_DIR, docsPath: DOCS_ROOT }
+  return { path: workspacePaths.root, projects: listProjects(), docs: workspacePaths.docsDir, docsPath: workspacePaths.docsRoot }
 }
 
 /** 설정 파일에 그대로 쓸 수 있는 경로인지 — 셸(`. config.env`)과 Node(loadEnvFile) 둘 다 읽는 파일이다 */
@@ -78,7 +66,7 @@ function persist(key: string, value: string) {
 
 /**
  * 워크스페이스를 바꾼다. 성공하면 새 워크스페이스 정보를 돌려준다.
- * 부르는 쪽은 **모든 클라이언트를 새로고침시켜야 한다** — 열린 탭·트리·프로젝트가 전부 옛 폴더의 것이다.
+ * 로그인 사용자의 전환은 같은 계정에만 알리며 다른 계정의 작업 경로와 협업 방을 유지한다.
  */
 export function switchWorkspace(target: string, initialProject?: string): WorkspaceInfo {
   const abs = path.resolve(target)
@@ -90,7 +78,16 @@ export function switchWorkspace(target: string, initialProject?: string): Worksp
     throw new WorkspaceError(`없는 폴더입니다: ${abs}`)
   }
   if (!stat.isDirectory()) throw new WorkspaceError(`폴더가 아닙니다: ${abs}`)
-  if (abs === WORKSPACE_ROOT) return currentWorkspace()
+  const context = workspaceContext.getStore()
+  if (context?.account) {
+    setWorkspaceRoot(abs)
+    ensureDocsRoot()
+    writeActiveWorkspace(context.account, abs)
+    watchDocsTree()
+    broadcastAccount(context.account, { type: 'workspace', ...(initialProject ? { project: initialProject } : {}) })
+    return currentWorkspace()
+  }
+  if (abs === workspacePaths.root) return currentWorkspace()
 
   // 옛 폴더에 매인 것부터 접는다 — 새 경로가 걸린 뒤에 접으면 엉뚱한 파일을 붙들고 있게 된다
   resetTreeWatchers()
@@ -122,20 +119,21 @@ export function switchDocsRoot(target: string): WorkspaceInfo {
     throw new WorkspaceError(`없는 폴더입니다: ${abs}`)
   }
   if (!stat.isDirectory()) throw new WorkspaceError(`폴더가 아닙니다: ${abs}`)
-  if (abs === WORKSPACE_ROOT) throw new WorkspaceError('워크스페이스 폴더 자신은 docs가 될 수 없습니다')
-  if (abs !== WORKSPACE_ROOT && !abs.startsWith(WORKSPACE_ROOT + path.sep)) {
+  if (abs === workspacePaths.root) throw new WorkspaceError('워크스페이스 폴더 자신은 docs가 될 수 없습니다')
+  if (abs !== workspacePaths.root && !abs.startsWith(workspacePaths.root + path.sep)) {
     throw new WorkspaceError(`워크스페이스 안의 폴더만 docs로 쓸 수 있습니다: ${abs}`)
   }
-  if (abs === DOCS_ROOT) return currentWorkspace()
+  if (abs === workspacePaths.docsRoot) return currentWorkspace()
 
-  const settings = readProjectAgentSettings(WORKSPACE_ROOT) ?? defaultAgentSettings()
-  writeProjectAgentSettings(WORKSPACE_ROOT, { ...settings, docsDir: path.relative(WORKSPACE_ROOT, abs) })
+  const settings = readProjectAgentSettings(workspacePaths.root) ?? defaultAgentSettings()
+  writeProjectAgentSettings(workspacePaths.root, { ...settings, docsDir: path.relative(workspacePaths.root, abs) })
 
   resetTreeWatchers()
   closeAllRooms()
-  setDocsDir(path.relative(WORKSPACE_ROOT, abs))
-  persist('MEW_DOCS', DOCS_DIR)
+  setDocsDir(path.relative(workspacePaths.root, abs))
+  if (!workspaceContext.getStore()?.account) persist('MEW_DOCS', workspacePaths.docsDir)
   watchDocsTree()
+  // Documents 위치는 프로젝트 공통 설정이다. 각 계정은 자기 활성 루트를 다시 읽는다.
   broadcast({ type: 'workspace' })
 
   return currentWorkspace()

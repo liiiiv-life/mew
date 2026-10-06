@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { McpServer } from '@agentclientprotocol/sdk'
 import { DATA_DIR } from './dataDir.ts'
-import { WORKSPACE_ROOT } from './paths.ts'
+import { workspacePaths } from './paths.ts'
 import { createExternalFolder, resolveExistingPath } from './fsBrowse.ts'
 import { applyProjectSetup, defaultAgentSettings, planProjectSetup, readProjectAgentSettings } from './project-setup.ts'
 import { projectDocsDir, safeProjectPath } from './project-agent-settings.ts'
@@ -121,7 +121,7 @@ export class MewcatBinding {
       return args[key] as string
     }
     const project = () => resolveExistingPath(string('projectRoot'))
-    if (name === 'mew_get_context') return { ...this.context, canManageProjects: this.options.owner(), defaultProjectParent: path.dirname(this.context.projectRoot ?? WORKSPACE_ROOT), tools: MEWCAT_TOOLS.map(tool => tool.name) }
+    if (name === 'mew_get_context') return { ...this.context, canManageProjects: this.options.owner(), defaultProjectParent: path.dirname(this.context.projectRoot ?? workspacePaths.root), tools: MEWCAT_TOOLS.map(tool => tool.name) }
     if (name === 'mew_get_help') {
       const topic = MEWCAT_HELP_TOPICS.indexOf(string('topic') as typeof MEWCAT_HELP_TOPICS[number])
       if (topic < 0) throw new MewcatToolError('MEWCAT_INVALID_ARGUMENT')

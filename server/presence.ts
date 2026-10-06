@@ -75,6 +75,15 @@ export function broadcast(msg: object) {
   }
 }
 
+/** Workspace navigation belongs only to the authenticated account. */
+export function broadcastAccount(email: string, msg: object) {
+  const payload = JSON.stringify(msg)
+  for (const [client, state] of clientState) {
+    const auth = state.getAuth()
+    if (client.readyState === WebSocket.OPEN && !auth.mustChangePassword && auth.email === email) client.send(payload)
+  }
+}
+
 /**
  * 부분 tree invalidation은 부모 경로를 담는다. 로그인 역할에는 성능을 위해 범위를 보내되,
  * guest에게는 승인 밖 이름이 새지 않도록 기존의 내용 없는 전체 갱신 신호만 보낸다.

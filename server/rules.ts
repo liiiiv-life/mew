@@ -1,7 +1,7 @@
 import { representativeName } from '../shared/document-pages.ts'
 import fs from 'node:fs'
 import path from 'node:path'
-import { DOCS_ROOT } from './paths.ts'
+import { workspacePaths } from './paths.ts'
 
 /** Mirrors docs/.github/scripts/moc_coverage.py exactly — keep both in sync. */
 const HUB = new Set(['README.md', 'CLAUDE.md', 'MOC.md'])
@@ -10,7 +10,7 @@ const EXCLUDE_PATHS = ['products/_template']
 const LINK_RE = /\[[^\]]*\]\(([^)\s]+)\)/g
 
 function norm(abs: string): string {
-  return path.relative(DOCS_ROOT, abs).split(path.sep).join('/')
+  return path.relative(workspacePaths.docsRoot, abs).split(path.sep).join('/')
 }
 
 export function isArchived(relPath: string): boolean {
@@ -75,7 +75,7 @@ export function computeMocCoverage(): MocCoverage {
 
 function walkMocCoverage(): MocCoverage {
   const allDocs = new Set<string>()
-  for (const abs of walkMarkdownFiles(DOCS_ROOT)) {
+  for (const abs of walkMarkdownFiles(workspacePaths.docsRoot)) {
     const rel = norm(abs)
     if (isExcluded(rel) || HUB.has(rel)) continue
     allDocs.add(rel)
@@ -84,7 +84,7 @@ function walkMocCoverage(): MocCoverage {
   const reachable = new Set<string>()
   const broken: string[] = []
   const seen = new Set<string>()
-  const queue = [path.join(DOCS_ROOT, 'MOC.md')]
+  const queue = [path.join(workspacePaths.docsRoot, 'MOC.md')]
 
   while (queue.length) {
     const moc = queue.pop()!
@@ -94,7 +94,7 @@ function walkMocCoverage(): MocCoverage {
     if (!fs.existsSync(moc)) continue
 
     for (const target of linksOf(moc)) {
-      const relToRoot = path.relative(DOCS_ROOT, target)
+      const relToRoot = path.relative(workspacePaths.docsRoot, target)
       if (relToRoot.startsWith('..')) {
         broken.push(`${key} -> ${target} (저장소 밖)`)
         continue
@@ -117,12 +117,12 @@ function walkMocCoverage(): MocCoverage {
 
 /** Checks a single document's own local links for existence (lychee-lite). */
 export function checkOwnLinks(relPath: string): string[] {
-  const abs = path.join(DOCS_ROOT, relPath)
+  const abs = path.join(workspacePaths.docsRoot, relPath)
   if (!fs.existsSync(abs)) return []
   const broken: string[] = []
   for (const target of linksOf(abs)) {
     if (!fs.existsSync(target)) {
-      broken.push(path.relative(DOCS_ROOT, target).split(path.sep).join('/'))
+      broken.push(path.relative(workspacePaths.docsRoot, target).split(path.sep).join('/'))
     }
   }
   return broken

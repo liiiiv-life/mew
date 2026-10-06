@@ -29,6 +29,7 @@ export type StoredRootProjects = { paths: string[]; icons: Record<string, string
 export type StoredWorkspaceUi = Record<string, unknown>
 
 type UserUiState = {
+  activeWorkspace?: string
   fileFavorites?: FileFavoritePreferences
   rootProjects?: StoredRootProjects
   agentTabs?: Record<string, StoredAgentTabs>
@@ -204,4 +205,16 @@ export function writeWorkspaceUi(email: string, workspacePath: string, input: un
   all[key] = { ...previous, workspaceUi: { ...previous.workspaceUi, [workspacePath]: value } }
   writeAll(all)
   return value
+}
+
+export function readActiveWorkspace(email: string): string | null {
+  const value = userState(readAll(), email).activeWorkspace
+  return validPath(value) ? value : null
+}
+
+export function writeActiveWorkspace(email: string, root: string): void {
+  if (!validPath(root)) throw new Error('프로젝트 경로가 올바르지 않습니다')
+  const all = readAll(), key = normalizeEmail(email)
+  all[key] = { ...userState(all, key), activeWorkspace: root }
+  writeAll(all)
 }

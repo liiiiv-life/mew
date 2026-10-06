@@ -1,3 +1,4 @@
+import { withWorkspaceUpgrade } from './reqAuth.ts'
 import { bindMewcat, type MewcatBinding } from './mewcat-assistant.ts'
 import { resolveAuth } from './reqAuth.ts'
 import type { MewcatClientMessage, MewcatActionRequest } from '../shared/mewcat-assistant.ts'
@@ -16,7 +17,7 @@ import { DEFAULT_RUNTIME, isAcpRuntime, type AgentEvent, type AgentImageRef, typ
 import { connectAgentHost, type AgentHostClient } from './agentHost.ts'
 import { composeRuntimePrompt } from './agentRuntimes.ts'
 import { listSessionsFromDisk } from './agentSessionList.ts'
-import { WORKSPACE_ROOT } from './paths.ts'
+import { workspacePaths } from './paths.ts'
 import { listSkills } from './skills.ts'
 import { resolveAgentCwd } from './agentCwd.ts'
 
@@ -326,7 +327,7 @@ export function attachAgentWebSocket(
   opts: { authorize?: (req: IncomingMessage) => boolean } = {},
 ) {
   const wss = new WebSocketServer({ noServer: true })
-  httpServer.on('upgrade', (req, socket: Duplex, head: Buffer) => {
+  httpServer.on('upgrade', withWorkspaceUpgrade((req, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? '', 'http://localhost')
     if (url.pathname !== AGENT_WS_PATH) return
     if (opts.authorize && !opts.authorize(req)) {
@@ -345,7 +346,7 @@ export function attachAgentWebSocket(
     const thinkingConfigId = url.searchParams.get('thinkingConfig') ?? ''
     let cwd: string
     try {
-      cwd = resolveAgentCwd(url.searchParams.get('cwd') ?? '', WORKSPACE_ROOT)
+      cwd = resolveAgentCwd(url.searchParams.get('cwd') ?? '', workspacePaths.root)
     } catch {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
       socket.destroy()
@@ -383,5 +384,5 @@ export function attachAgentWebSocket(
           ? validHistoryRequest({ generation: url.searchParams.get('generation'), after: url.searchParams.has('after') ? Number(url.searchParams.get('after')) : undefined }) : undefined, assistant)
       })().catch(() => { send(ws, { type: 'fatal', message: 'MEWCAT_CONNECTION_FAILED' }); ws.close() })
     })
-  })
+  }))
 }

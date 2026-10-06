@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { DATA_DIR, writeFileAtomic } from './dataDir.ts'
-import { DOCS_ROOT, WORKSPACE_ROOT } from './paths.ts'
+import { workspacePaths } from './paths.ts'
 import { defaultAgentSettings, projectDocsDir, readProjectAgentSettings, SETTINGS_PATH } from './project-agent-settings.ts'
 import { contextBlock, describeAgentContext } from './project-context-text.ts'
 import type { AgentContextBinding } from '../shared/project-agent-context.ts'
@@ -32,12 +32,12 @@ export function captureAgentContext(cwd: string): AgentContextBinding {
   let candidate = root
   while (true) {
     if (fs.existsSync(path.join(candidate, SETTINGS_PATH))) return { projectRoot: candidate, docsRoot: path.join(candidate, projectDocsDir(candidate)) }
-    if (candidate === WORKSPACE_ROOT) break
+    if (candidate === workspacePaths.root) break
     const parent = path.dirname(candidate)
     if (parent === candidate) break
     candidate = parent
   }
-  if (inside(WORKSPACE_ROOT, root)) return { projectRoot: WORKSPACE_ROOT, docsRoot: DOCS_ROOT }
+  if (inside(workspacePaths.root, root)) return { projectRoot: workspacePaths.root, docsRoot: workspacePaths.docsRoot }
   return { projectRoot: root, docsRoot: path.join(root, projectDocsDir(root)) }
 }
 

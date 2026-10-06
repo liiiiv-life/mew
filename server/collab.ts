@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { workspacePaths } from './paths.ts'
+import { withWorkspaceUpgrade } from './reqAuth.ts'
 import { watchSocketAccess } from './access-socket.ts'
 import { SHARED_MEMO_ROOM } from '../shared/shared-memo.ts'
 import { createSharedMemoDoc } from './shared-memo.ts'
@@ -237,7 +240,10 @@ const socketRooms = new WeakMap<WebSocket, string>()
 
 wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   const url = new URL(req.url ?? '', 'http://localhost')
-  const roomKey = url.searchParams.get('room')
+  const wireRoom = url.searchParams.get('room')
+  const index = wireRoom?.indexOf(':') ?? -1
+  const roomKey = wireRoom && wireRoom !== SHARED_MEMO_ROOM && index > 0
+    ? `${workspacePaths.root}\0${wireRoom}` : wireRoom
   if (!roomKey) {
     ws.close()
     return
@@ -263,17 +269,17 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   }
   admit(room, client)
 
-  ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
+  ws.on('message', AsyncLocalStorage.bind((raw: Buffer | ArrayBuffer | Buffer[]) => {
     if (accessChecks.get(ws)?.() === false) { ws.terminate(); return }
     handleFrame(room, client, toUint8Array(raw))
-  })
+  }))
 
-  ws.on('close', () => {
+  ws.on('close', AsyncLocalStorage.bind(() => {
     const owned = room.clients.get(client)
     room.clients.delete(client)
     if (owned && owned.size > 0) removeAwarenessStates(room.awareness, Array.from(owned), null)
     closeRoomIfEmpty(roomKey, room)
-  })
+  }))
 })
 
 /** 프로젝트 파일 방을 전부 끊는다 — 워크스페이스를 바꿀 때 부른다. 서버 공통 메모는 유지한다.
@@ -292,7 +298,7 @@ export function attachCollabWebSocket(
   httpServer: HttpServer,
   opts: { authorize?: (req: IncomingMessage) => boolean } = {},
 ) {
-  httpServer.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+  httpServer.on('upgrade', withWorkspaceUpgrade((req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? '', 'http://localhost')
     // 이 경로가 아니면 손대지 않고 통과시킨다 — tmux·presence 등 다른 웹소켓 업그레이드와 공존해야 함
     if (url.pathname !== WS_PATH) return
@@ -302,9 +308,9 @@ export function attachCollabWebSocket(
       return
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      accessChecks.set(ws, () => opts.authorize?.(req) ?? true)
+      accessChecks.set(ws, AsyncLocalStorage.bind(() => opts.authorize?.(req) ?? true))
       watchSocketAccess(ws, req, opts.authorize)
       wss.emit('connection', ws, req)
     })
-  })
+  }))
 }

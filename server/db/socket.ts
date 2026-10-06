@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { withWorkspaceUpgrade } from '../reqAuth.ts'
 import { watchSocketAccess } from '../access-socket.ts'
 // /db 실시간 협업 소켓 — 클라이언트가 특정 데이터베이스 룸을 구독하면 그 룸의 변경 이벤트를 받는다.
 // presence.ts/collab.ts와 같은 noServer 업그레이드 패턴. 변경은 REST(인증 필요)로만 일어나고,
@@ -21,7 +23,7 @@ function registerClient(ws: WebSocket, allowed: (project: string) => boolean) {
   // 한 문서에 여러 /db 노드가 있을 수 있어 연결 하나가 여러 룸을 구독한다 (roomKey → 구독 해제 함수).
   const subs = new Map<string, () => void>()
 
-  ws.on('message', (raw) => {
+  ws.on('message', AsyncLocalStorage.bind((raw) => {
     let msg: { type?: string; project?: unknown; dbId?: unknown }
     try {
       msg = JSON.parse(raw.toString())
@@ -50,7 +52,7 @@ function registerClient(ws: WebSocket, allowed: (project: string) => boolean) {
         subs.delete(key)
       }
     }
-  })
+  }))
 
   ws.on('close', () => {
     for (const unsub of subs.values()) unsub()
@@ -62,7 +64,7 @@ export function attachDbWebSocket(
   httpServer: HttpServer,
   opts: { authorize?: (req: IncomingMessage) => boolean; authorizeProject?: (req: IncomingMessage, project: string) => boolean } = {},
 ) {
-  httpServer.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+  httpServer.on('upgrade', withWorkspaceUpgrade((req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(req.url ?? '', 'http://localhost')
     // 이 경로가 아니면 손대지 않고 통과 — tmux·presence·collab 업그레이드와 공존해야 함
     if (url.pathname !== WS_PATH) return
@@ -73,7 +75,7 @@ export function attachDbWebSocket(
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       watchSocketAccess(ws, req, opts.authorize)
-      registerClient(ws, project => (opts.authorize?.(req) ?? true) && (opts.authorizeProject?.(req, project) ?? true))
+      registerClient(ws, AsyncLocalStorage.bind(project => (opts.authorize?.(req) ?? true) && (opts.authorizeProject?.(req, project) ?? true)))
     })
-  })
+  }))
 }

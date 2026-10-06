@@ -3,7 +3,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { parseDocument } from 'yaml'
 import { projectDocsDir, safeProjectPath } from './project-agent-settings.ts'
-import { DOCS_ROOT, WORKSPACE_ROOT } from './paths.ts'
+import { workspacePaths } from './paths.ts'
 import { FeatureError } from './feature-error.ts'
 import type { Feature, FeatureCommit, FeatureReport } from '../shared/features.ts'
 import { pageRepresentative, representativeName } from '../shared/document-pages.ts'
@@ -17,7 +17,7 @@ const persistedStatuses = new Set(['changed', 'implemented', 'verified', 'needs-
 const validId = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/
 
 export function featureDocsDir(workspace: string, fallback?: string) {
-  const current = workspace === WORKSPACE_ROOT ? path.relative(workspace, DOCS_ROOT) : undefined
+  const current = workspace === workspacePaths.root ? path.relative(workspace, workspacePaths.docsRoot) : undefined
   try { return projectDocsDir(workspace, fallback ?? current) }
   catch (error) { fail('.mew/agent-context.json', error instanceof Error ? error.message : String(error)) }
 }

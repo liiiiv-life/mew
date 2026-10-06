@@ -6,7 +6,7 @@ import { readJsonFile } from './dataDir.ts'
 import express from 'express'
 import { authOf, requireAuthenticated } from './reqAuth.ts'
 import { unrestrictedFiles } from './access-policy.ts'
-import { WORKSPACE_PROJECT, WORKSPACE_ROOT } from './paths.ts'
+import { WORKSPACE_PROJECT, workspacePaths } from './paths.ts'
 import { changeTaskList, readTaskList, readTaskTags, readTaskTagColors, TaskInputError } from './task-list.ts'
 import { TaskConflict } from '../shared/task-list.ts'
 
@@ -16,7 +16,7 @@ export function createTaskListRouter() {
   router.use((req, res, next) => {
     const workspace = req.method === 'GET' ? req.query.workspace : req.body?.workspace
     if (req.headers['x-mew-task-owner'] !== encodeURIComponent(authOf(req).email ?? '')) { res.status(409).json({ error: '계정이 변경되었습니다. 태스크 패널을 다시 여세요.' }); return }
-    if (workspace !== WORKSPACE_ROOT) { res.status(409).json({ error: '프로젝트가 변경되었습니다. 태스크 패널을 다시 여세요.' }); return }
+    if (workspace !== workspacePaths.root) { res.status(409).json({ error: '프로젝트가 변경되었습니다. 태스크 패널을 다시 여세요.' }); return }
     if (!unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, req.method !== 'GET')) { res.status(403).json({ error: '권한이 없습니다' }); return }
     next()
   })
@@ -25,11 +25,11 @@ export function createTaskListRouter() {
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('X-Accel-Buffering', 'no')
     res.flushHeaders()
-    const root = WORKSPACE_ROOT
+    const root = workspacePaths.root
     const watchers = new Map<string, fs.FSWatcher>()
     let timer: ReturnType<typeof setTimeout> | undefined
     const send = () => {
-      if (root !== WORKSPACE_ROOT || !unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, false)) { res.end(); return }
+      if (root !== workspacePaths.root || !unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, false)) { res.end(); return }
       res.write('data: changed\n\n')
     }
     const notify = () => { clearTimeout(timer); timer = setTimeout(send, 75) }
@@ -54,15 +54,15 @@ export function createTaskListRouter() {
   })
   router.get('/', (req, res) => {
     try {
-      const legacy = readJsonFile<{ version: number }>(taskListFile(WORKSPACE_ROOT))
+      const legacy = readJsonFile<{ version: number }>(taskListFile(workspacePaths.root))
       const canEdit = unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true)
-      const tasks = readTaskList(WORKSPACE_ROOT)
-      if (canEdit && ((legacy && legacy.version < 5) || taskDocumentsNeedMigration(tasks, WORKSPACE_ROOT))) changeTaskList(WORKSPACE_ROOT, [])
-      res.json({ tasks: readTaskList(WORKSPACE_ROOT), tags: readTaskTags(WORKSPACE_ROOT), tagColors: readTaskTagColors(WORKSPACE_ROOT), canEdit: unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true) }) }
+      const tasks = readTaskList(workspacePaths.root)
+      if (canEdit && ((legacy && legacy.version < 5) || taskDocumentsNeedMigration(tasks, workspacePaths.root))) changeTaskList(workspacePaths.root, [])
+      res.json({ tasks: readTaskList(workspacePaths.root), tags: readTaskTags(workspacePaths.root), tagColors: readTaskTagColors(workspacePaths.root), canEdit: unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true) }) }
     catch { res.status(500).json({ error: '태스크를 불러오지 못했습니다' }) }
   })
   router.patch('/', (req, res) => {
-    try { res.json({ tasks: changeTaskList(WORKSPACE_ROOT, req.body?.changes, req.body?.tagColorChanges, req.body?.deletedTags), tags: readTaskTags(WORKSPACE_ROOT), tagColors: readTaskTagColors(WORKSPACE_ROOT), canEdit: true }) }
+    try { res.json({ tasks: changeTaskList(workspacePaths.root, req.body?.changes, req.body?.tagColorChanges, req.body?.deletedTags), tags: readTaskTags(workspacePaths.root), tagColors: readTaskTagColors(workspacePaths.root), canEdit: true }) }
     catch (error) {
       const status = error instanceof TaskConflict ? 409 : error instanceof TaskInputError ? 400 : 500
       res.status(status).json({ error: status === 500 ? '태스크를 저장하지 못했습니다' : (error as Error).message })

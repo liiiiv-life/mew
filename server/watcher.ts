@@ -221,7 +221,6 @@ const watchers = new Map<string, TreeWatcher>()
 /** 프로젝트 트리를 감시해 구조가 바뀌면(파일·폴더 생성·삭제·이동) 모든 세션에 tree 신호를 보낸다.
  *  여러 번 불러도 안전(멱등)하고, 존재하지 않는 프로젝트면 아무것도 하지 않는다. */
 export function watchProjectTree(project: string) {
-  if (watchers.has(project)) return
   let root: string
   try {
     root = projectRoot(project)
@@ -229,12 +228,13 @@ export function watchProjectTree(project: string) {
     if (err instanceof UnknownProjectError) return
     throw err
   }
+  if (watchers.has(root)) return
   const watcher = new TreeWatcher(project, root)
-  watchers.set(project, watcher)
+  watchers.set(root, watcher)
   void watcher.start().catch(() => {
     // 권한 변경·삭제·네트워크 드라이브 단절은 트리 응답 자체를 실패시키지 않는다.
     watcher.close()
-    if (watchers.get(project) === watcher) watchers.delete(project)
+    if (watchers.get(root) === watcher) watchers.delete(root)
   })
 }
 

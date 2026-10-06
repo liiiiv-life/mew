@@ -1,5 +1,5 @@
 ---
-description: "Yjs 협업 방의 와이어 형식·권한·디스크 반영, 공통 메모·presence·접속 기록과 멤버 채팅 저장·방송 계약을 정의한다."
+description: "루트별 Yjs 협업 방과 계정별 프로젝트 전환 알림의 와이어 형식·권한·디스크 반영, 공통 메모·presence·접속 기록과 멤버 채팅 저장·방송 계약을 정의한다."
 ---
 # 협업 방과 멤버 채팅
 
@@ -7,7 +7,7 @@ description: "Yjs 협업 방의 와이어 형식·권한·디스크 반영, 공�
 
 ## 협업 방 (Yjs 릴레이)
 
-- `server/collab.ts` — 방·클라이언트·awareness·`/api/collab` 웹소켓. 방 하나 = `프로젝트:상대경로`
+- `server/collab.ts` — 방·클라이언트·awareness·`/api/collab` 웹소켓. 클라이언트 방 이름 = `프로젝트:상대경로`, 서버 내부 키 = `루트 절대경로` + NUL + 클라이언트 방 이름. 같은 루트의 공동 편집은 공유하고 다른 루트의 동명 파일은 분리한다. 연결의 경로·권한 검사는 계정의 연결 시 루트에 고정하며 다른 계정의 프로젝트 전환으로 방을 끊지 않는다([계정별 경로 계약](architecture.md#계정별-활성-프로젝트)).
 - `server/syncCodec.ts` — 프레임 인코딩/디코딩. **와이어 포맷이 코드 결합 계약이다**: 바깥 varUint 채널(`0` sync · `1` awareness) + sync 안의 varUint 종류(`0` step1 · `1` step2 · `2` update) + varUint8Array 본문. y-protocols와 바이트 단위로 같아야 하고 `server/syncCodec.test.ts`가 그것을 대조한다 — 어긋나면 배포 순간 열려 있는 모든 탭이 조용히 깨진다. 신뢰할 수 없는 바이트에는 던지지 않고 `null`을 준다
 - `server/roomDoc.ts` — CRDT 백엔드 둘(JS Yjs · Rust yrs). 요구 면은 셋뿐: `stateVector()` · `encodeStateAsUpdate(sv?)` · `applyUpdate(update)`. `applyUpdate`는 **방이 새로 얻은 업데이트**를 돌려준다(없으면 `null`) — 브로드캐스트는 이 값으로 한다. 상태 벡터 diff로 계산하면 삭제만 있는 업데이트가 빈 diff로 보여 사라진다
 - `server/collabAgent.ts` — 디스크→방 브리지. **자기 Y.Doc + awareness를 들고 방의** `connect()`**로 붙는 인프로세스 클라이언트다** — 방의 doc을 붙들지 않는다(백엔드를 갈 수 없게 된다). 루프백 소켓을 쓰지 않는 이유는 `authorizeCollab`(게스트 차단) 우회 통로를 뚫어야 하기 때문. 터미널에서 고친 `.md`가 열려 있는 Yjs 방에 `agent` 커서로 실시간 주입되는 정상 기능이다 — 2026-07-25에 지운 에이전트 창과는 무관하니 헷갈려서 지우지 말 것. `appWrites` 메아리 원장이 사용자의 정상 타이핑을 보호한다

@@ -3,7 +3,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { DATA_DIR } from './dataDir.ts'
-import { resolveProjectPath, WORKSPACE_ROOT } from './paths.ts'
+import { projectRoot, resolveProjectPath, workspacePaths } from './paths.ts'
 import { DOWNLOAD_EXTENSIONS, isPathVisible, MEDIA_EXTENSIONS } from './tree.ts'
 import { subscribeFileCatalog, type CatalogUpdate } from './fileCatalog.ts'
 import { measure, measureSync } from './perfMarks.ts'
@@ -19,8 +19,7 @@ type ProjectState = {
 
 const SCHEMA_VERSION = 1
 const states = new Map<string, ProjectState>()
-let database: DatabaseSync | null = null
-let databaseRoot = ''
+const databases = new Map<string, DatabaseSync>()
 let generation = 0
 
 function enabled(): boolean {
@@ -28,16 +27,17 @@ function enabled(): boolean {
 }
 
 function projectState(project: string): ProjectState {
-  let state = states.get(project)
+  const key = projectRoot(project)
+  let state = states.get(key)
   if (!state) {
     state = { state: enabled() ? 'building' : 'disabled', build: null, queue: Promise.resolve(), dirty: new Set() }
-    states.set(project, state)
+    states.set(key, state)
   }
   return state
 }
 
 function dbPath(): string {
-  const hash = crypto.createHash('sha256').update(WORKSPACE_ROOT).digest('hex').slice(0, 20)
+  const hash = crypto.createHash('sha256').update(workspacePaths.root).digest('hex').slice(0, 20)
   return path.join(DATA_DIR, 'search', hash, 'catalog.sqlite')
 }
 
@@ -92,11 +92,8 @@ function initializeDatabase(file: string): DatabaseSync {
 }
 
 function discardDatabase(file: string) {
-  if (databaseRoot === file) {
-    try { database?.close() } catch { /* 손상된 handle */ }
-    database = null
-    databaseRoot = ''
-  }
+  try { databases.get(file)?.close() } catch { /* damaged handle */ }
+  databases.delete(file)
   for (const suffix of ['', '-wal', '-shm']) {
     try { fs.rmSync(`${file}${suffix}`, { force: true }) } catch { /* 파생 캐시는 다음 재구축에서 다시 시도 */ }
   }
@@ -104,16 +101,16 @@ function discardDatabase(file: string) {
 
 function openDatabase(): DatabaseSync {
   const file = dbPath()
-  if (database && databaseRoot === file) return database
-  try { database?.close() } catch { /* 옛 workspace handle */ }
+  const existing = databases.get(file)
+  if (existing) return existing
+  let database: DatabaseSync
   try {
     database = initializeDatabase(file)
   } catch {
-    // DB는 원문이 아닌 파생 캐시다. 손상·중단된 migration이면 버리고 같은 호출에서 빈 schema로 복구한다.
     discardDatabase(file)
     database = initializeDatabase(file)
   }
-  databaseRoot = file
+  databases.set(file, database)
   return database
 }
 
@@ -258,8 +255,8 @@ async function rebuild(project: string, paths: string[], buildGeneration: number
 }
 
 export function ensureSearchIndex(project: string, paths: string[]): SearchIndexState {
-  const state = projectState(project)
   if (!enabled()) return 'disabled'
+  const state = projectState(project)
   if (!state.build && state.state !== 'ready') state.build = rebuild(project, paths, generation)
   return state.state
 }
@@ -305,8 +302,9 @@ export function exactSearchCandidates(project: string, query: string, allowedPat
   paths: string[] | null
   dirtyPaths: string[]
 } {
+  if (!enabled()) return { state: 'disabled', paths: null, dirtyPaths: [] }
   const state = projectState(project)
-  if (!enabled() || query.length < 3 || state.state !== 'ready') {
+  if (query.length < 3 || state.state !== 'ready') {
     return { state: enabled() ? state.state : 'disabled', paths: null, dirtyPaths: [...state.dirty] }
   }
   try {
@@ -345,7 +343,6 @@ export async function waitForSearchIndex(project: string): Promise<SearchIndexSt
 export function resetSearchIndex(): void {
   generation += 1
   states.clear()
-  database?.close()
-  database = null
-  databaseRoot = ''
+  for (const database of databases.values()) database.close()
+  databases.clear()
 }

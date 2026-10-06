@@ -43,7 +43,7 @@ import {
   type SessionNotification,
   type ToolCallUpdate,
 } from '@agentclientprotocol/sdk'
-import { WORKSPACE_ROOT } from './paths.ts'
+import { workspacePaths } from './paths.ts'
 import { UsageReader, type Usage } from './agentUsage.ts'
 import { readAgentTranscript, readAgentTranscriptRange, reconcileAgentTranscript, writeAgentTranscript } from './agentTranscript.ts'
 import { listSessionsFromDisk, stripLocalCommandMeta } from './agentSessionList.ts'
@@ -396,7 +396,7 @@ export class AgentSession {
   #mcpServers: McpServer[] = []
   #context: AgentContextBinding
 
-  private constructor(runtime: string, spec: SpawnSpec, cwd = WORKSPACE_ROOT, idleKillMs = AGENT_IDLE_MS, context = captureAgentContext(cwd), readMemory: MemoryReader = readAgentMemory) {
+  private constructor(runtime: string, spec: SpawnSpec, cwd = workspacePaths.root, idleKillMs = AGENT_IDLE_MS, context = captureAgentContext(cwd), readMemory: MemoryReader = readAgentMemory) {
     this.#context = context
     this.runtime = runtime
     this.cwd = cwd
@@ -483,7 +483,7 @@ export class AgentSession {
   static async start(
     runtime: string,
     spec: SpawnSpec | undefined = resolvedSpec(runtime) ?? undefined,
-    cwd = WORKSPACE_ROOT,
+    cwd = workspacePaths.root,
     idleKillMs = AGENT_IDLE_MS,
     context?: AgentContextBinding,
     readMemory: MemoryReader = readAgentMemory,

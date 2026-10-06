@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import fs from 'node:fs'
 import { projectDocsDir } from './project-agent-settings.ts'
 import path from 'node:path'
@@ -30,6 +31,21 @@ export const DEFAULT_PROJECT = 'docs'
 export let DOCS_DIR = resolveDocsDir(WORKSPACE_ROOT)
 export let DOCS_ROOT = path.join(WORKSPACE_ROOT, DOCS_DIR)
 
+export type WorkspacePaths = { root: string; docsDir: string; docsRoot: string; account: string | null }
+export const workspaceContext = new AsyncLocalStorage<WorkspacePaths>()
+
+export function pathsForWorkspace(root: string, account: string | null): WorkspacePaths {
+  const docsDir = resolveDocsDir(root)
+  return { root, docsDir, docsRoot: path.join(root, docsDir), account }
+}
+
+/** Request-local paths; startup and standalone CLI operations use the server default. */
+export const workspacePaths = {
+  get root(): string { return workspaceContext.getStore()?.root ?? WORKSPACE_ROOT },
+  get docsDir(): string { return workspaceContext.getStore()?.docsDir ?? DOCS_DIR },
+  get docsRoot(): string { return workspaceContext.getStore()?.docsRoot ?? DOCS_ROOT },
+}
+
 function resolveDocsDir(root: string): string {
   return projectDocsDir(root, process.env.MEW_DOCS?.trim())
 }
@@ -43,6 +59,8 @@ export const WORKSPACE_PROJECT = '.workspace'
 /** 워크스페이스를 갈아끼운다 — 파생 경로(DOCS_DIR·DOCS_ROOT)도 같이 다시 계산한다.
  *  실제 전환 절차(검증·설정 저장·감시자/협업 방 정리)는 workspace.ts가 맡는다. */
 export function setWorkspaceRoot(absolutePath: string): void {
+  const context = workspaceContext.getStore()
+  if (context) { Object.assign(context, pathsForWorkspace(path.resolve(absolutePath), context.account)); return }
   WORKSPACE_ROOT = path.resolve(absolutePath)
   DOCS_DIR = resolveDocsDir(WORKSPACE_ROOT)
   DOCS_ROOT = path.join(WORKSPACE_ROOT, DOCS_DIR)
@@ -51,6 +69,12 @@ export function setWorkspaceRoot(absolutePath: string): void {
 /** docs 폴더를 워크스페이스 안 다른 폴더로 바꾼다 — 인자는 워크스페이스 루트 기준 상대 경로.
  *  다음 실행에도 남도록 `MEW_DOCS`에 같이 적는다(setWorkspaceRoot가 이 값을 다시 읽는다). */
 export function setDocsDir(relativeDir: string): void {
+  const context = workspaceContext.getStore()
+  if (context) {
+    context.docsDir = path.normalize(relativeDir)
+    context.docsRoot = path.join(context.root, context.docsDir)
+    return
+  }
   DOCS_DIR = path.normalize(relativeDir)
   DOCS_ROOT = path.join(WORKSPACE_ROOT, DOCS_DIR)
   process.env.MEW_DOCS = DOCS_DIR
@@ -58,8 +82,8 @@ export function setDocsDir(relativeDir: string): void {
 
 /** docs 폴더는 항상 존재한다 — 없으면 빈 폴더로 만든다(새 워크스페이스는 빈 docs로 시작) */
 export function ensureDocsRoot(): string {
-  fs.mkdirSync(DOCS_ROOT, { recursive: true })
-  return DOCS_ROOT
+  fs.mkdirSync(workspacePaths.docsRoot, { recursive: true })
+  return workspacePaths.docsRoot
 }
 
 /** 이 편집기 앱 자신이 들어 있는 프로젝트 폴더 이름(예: 'mew') — UI로 자기 자신을 삭제/개명하지 못하게 보호한다 */
@@ -99,15 +123,15 @@ export function isValidProjectName(name: string): boolean {
   )
 }
 
-/** DOCS_DIR의 첫 칸 — 워크스페이스 루트에서 docs가 차지하는 폴더 이름(`.mew/docs`면 `.mew`) */
+/** workspacePaths.docsDir의 첫 칸 — 워크스페이스 루트에서 docs가 차지하는 폴더 이름(`.mew/docs`면 `.mew`) */
 export function docsTopSegment(): string {
-  return DOCS_DIR.split(path.sep)[0]
+  return workspacePaths.docsDir.split(path.sep)[0]
 }
 
 /** 워크스페이스의 프로젝트 목록 — docs는 프로젝트가 아니므로 들어가지 않는다 */
 export function listProjects(): string[] {
   return fs
-    .readdirSync(WORKSPACE_ROOT, { withFileTypes: true })
+    .readdirSync(workspacePaths.root, { withFileTypes: true })
     .filter((e) => e.isDirectory() && isValidProjectName(e.name))
     .map((e) => e.name)
     .sort((a, b) => a.localeCompare(b))
@@ -115,9 +139,9 @@ export function listProjects(): string[] {
 
 export function projectRoot(project: string): string {
   if (project === DEFAULT_PROJECT) return ensureDocsRoot()
-  if (project === WORKSPACE_PROJECT) return WORKSPACE_ROOT
+  if (project === WORKSPACE_PROJECT) return workspacePaths.root
   if (!PROJECT_NAME_RE.test(project)) throw new UnknownProjectError(`올바른 프로젝트 이름이 아닙니다: ${project}`)
-  const root = path.join(WORKSPACE_ROOT, project)
+  const root = path.join(workspacePaths.root, project)
   let stat: fs.Stats
   try {
     stat = fs.statSync(root)
@@ -144,11 +168,11 @@ export function resolveProjectPath(project: string, relativePath: string): strin
   return resolved
 }
 
-/** Resolves a repo-relative path against DOCS_ROOT, rejecting any path that escapes it. */
+/** Resolves a repo-relative path against workspacePaths.docsRoot, rejecting any path that escapes it. */
 export function resolveDocsPath(relativePath: string): string {
   return resolveProjectPath(DEFAULT_PROJECT, relativePath)
 }
 
 export function toRelativePath(absolutePath: string): string {
-  return path.relative(DOCS_ROOT, absolutePath)
+  return path.relative(workspacePaths.docsRoot, absolutePath)
 }

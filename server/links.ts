@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { DOCS_ROOT } from './paths.ts'
+import { workspacePaths } from './paths.ts'
 import { readIgnoreSet } from './ignoreList.ts'
 
 function walkMdFiles(absDir: string, ignore: Set<string>, acc: string[] = []): string[] {
@@ -27,8 +27,8 @@ function isExternalHref(href: string): boolean {
  */
 export function updateLinkLabelsFor(targetRel: string, newTitle: string, mayEdit: (path: string) => boolean = () => true): string[] {
   const changed: string[] = []
-  for (const abs of walkMdFiles(DOCS_ROOT, readIgnoreSet())) {
-    const rel = path.relative(DOCS_ROOT, abs).split(path.sep).join('/')
+  for (const abs of walkMdFiles(workspacePaths.docsRoot, readIgnoreSet())) {
+    const rel = path.relative(workspacePaths.docsRoot, abs).split(path.sep).join('/')
     if (rel === targetRel || !mayEdit(rel)) continue
     const src = fs.readFileSync(abs, 'utf-8')
     const dir = path.posix.dirname(rel)

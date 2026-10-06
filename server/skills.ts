@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { WORKSPACE_ROOT } from './paths.ts'
+import { workspacePaths } from './paths.ts'
 import { parseConfig } from './harness-config.ts'
 import { readAgentSetting } from './agentSettings.ts'
 import { ensureCommitSkill, MEW_SKILLS_DIR } from './mew-skills.ts'
@@ -39,7 +39,7 @@ function walkSkillFiles(root: string, depth = 6, seen = new Set<string>(), flat 
   return found
 }
 
-export function listSkills(cwd = WORKSPACE_ROOT, runtime = 'codex', home = os.homedir(), env: NodeJS.ProcessEnv = { ...process.env, ...(runtime === 'claude' && process.env.MEW_AGENT_CONFIG_DIR ? { CLAUDE_CONFIG_DIR: process.env.MEW_AGENT_CONFIG_DIR } : {}), ...readAgentSetting(runtime)?.env }): SkillSummary[] {
+export function listSkills(cwd = workspacePaths.root, runtime = 'codex', home = os.homedir(), env: NodeJS.ProcessEnv = { ...process.env, ...(runtime === 'claude' && process.env.MEW_AGENT_CONFIG_DIR ? { CLAUDE_CONFIG_DIR: process.env.MEW_AGENT_CONFIG_DIR } : {}), ...readAgentSetting(runtime)?.env }): SkillSummary[] {
   const runtimeDirs: Record<string, string> = { codex: '.codex', claude: '.claude', cursor: '.cursor', opencode: '.opencode', kimi: '.kimi-code', antigravity: '.agent', prime: '.prime/agent', openclaw: '' }
   const globalDirs: Record<string, string> = {
     codex: env.CODEX_HOME || path.join(home, '.codex'), claude: env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'),

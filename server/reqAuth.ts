@@ -1,3 +1,5 @@
+import { runAccountWorkspace } from './account-workspace.ts'
+import type { Duplex } from 'node:stream'
 import type express from 'express'
 import { SHARED_MEMO_ROOM } from '../shared/shared-memo.ts'
 import type { IncomingMessage } from 'node:http'
@@ -112,4 +114,9 @@ export function authorizeCollab(req: IncomingMessage): boolean {
 
 export function authorizeDatabase(req: IncomingMessage, project = 'docs'): boolean {
   return canUse(resolveAuth(req), 'database') && unrestrictedFiles(resolveAuth(req), project)
+}
+
+/** WebSocket authorization and setup resolve paths in the connecting account's root. */
+export function withWorkspaceUpgrade(handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void) {
+  return (req: IncomingMessage, socket: Duplex, head: Buffer) => runAccountWorkspace(resolveAuth(req).email, () => handler(req, socket, head))
 }

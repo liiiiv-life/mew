@@ -2,7 +2,7 @@
 // 삭제는 폴더를 통째로 지우는 되돌릴 수 없는 작업이라, 기본(docs)과 앱 자신은 보호한다.
 import fs from 'node:fs'
 import path from 'node:path'
-import { WORKSPACE_ROOT, isProtectedProject, isValidProjectName, projectRoot } from './paths.ts'
+import { isProtectedProject, isValidProjectName, projectRoot, workspacePaths } from './paths.ts'
 import { ConflictError } from './documents.ts'
 import { readProjectIcon } from './projectIcons.ts'
 import { readProjectLayout, writeProjectLayout } from './projectLayout.ts'
@@ -18,7 +18,7 @@ function assertValidName(name: unknown): asserts name is string {
 /** 워크스페이스 루트에 새 최상위 폴더(=프로젝트)를 만든다. git 레포가 아니라 저장만 되고 커밋은 안 남는다. */
 export function createProject(name: string): { name: string } {
   assertValidName(name)
-  const dir = path.join(WORKSPACE_ROOT, name)
+  const dir = path.join(workspacePaths.root, name)
   if (fs.existsSync(dir)) throw new ConflictError(`이미 존재하는 프로젝트입니다: ${name}`)
   fs.mkdirSync(dir)
   return { name }
@@ -31,7 +31,7 @@ export function renameProject(oldName: string, newName: string): { name: string 
   if (isProtectedProject(oldName)) throw new ProjectNameError(`보호된 프로젝트(${oldName})는 이름을 바꿀 수 없습니다`)
   if (newName === oldName) return { name: newName }
   const from = projectRoot(oldName) // 존재 확인 (없으면 UnknownProjectError)
-  const to = path.join(WORKSPACE_ROOT, newName)
+  const to = path.join(workspacePaths.root, newName)
   if (fs.existsSync(to)) throw new ConflictError(`이미 존재하는 프로젝트입니다: ${newName}`)
   readProjectIcon(from) // Migrate legacy sidebar data before moving the project.
   fs.renameSync(from, to)

@@ -71,6 +71,7 @@ async function installDom(): Promise<void> {
 
 // ── 방 생명주기 ─────────────────────────────────────────────────────────────
 function parseRoomKey(roomKey: string): { project: string; relPath: string } | null {
+  roomKey = roomKey.slice(roomKey.lastIndexOf('\0') + 1)
   const idx = roomKey.indexOf(':')
   if (idx <= 0) return null
   return { project: roomKey.slice(0, idx), relPath: roomKey.slice(idx + 1) }
