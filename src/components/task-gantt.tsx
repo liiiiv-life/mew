@@ -25,7 +25,9 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
   const documents = useTaskDocuments()
   const [menu, setMenu] = useState<(TaskMenuAnchor & { id: string }) | null>(null)
   const locale = useUiLocale(), today = localToday(), gradientId = useId().replace(/:/g, '')
-  const [ppd, setPpd] = useState(24), [drawing, setDrawing] = useState(false), [preview, setPreview] = useState<TaskItem | null>(null), [pick, setPick] = useState<Pick | null>(null)
+  const [ppd, setPpd] = useState(24), [pencilMode, setDrawing] = useState(false), [preview, setPreview] = useState<TaskItem | null>(null), [pick, setPick] = useState<Pick | null>(null)
+  const [modifierHeld, setModifierHeld] = useState(false)
+  const drawing = canEdit && (pencilMode || modifierHeld)
   const menuTask = tasks.find(task => task.id === menu?.id)
   useEffect(() => { setMenu(null) }, [canEdit])
   const scroller = useRef<HTMLDivElement>(null), svg = useRef<SVGSVGElement>(null), gesture = useRef<Gesture | null>(null)
@@ -129,19 +131,22 @@ export function TaskGantt({ tasks, canEdit, edit, knownTags, totalTasks = tasks.
     const touchEnd = () => { touchPoint = null; setEdgeOffset(0) }
     const touchStart = (event: TouchEvent) => { touchPoint = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null }
     const touch = (event: TouchEvent) => { if ((event.target as Element).closest('[data-gantt-grab]')) event.preventDefault() }
+    const modifier = (event: KeyboardEvent) => setModifierHeld(event.ctrlKey || event.metaKey)
     const key = (event: KeyboardEvent) => {
+      modifier(event)
       if (event.target === element && ['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); pan(event.key === 'ArrowLeft' ? -40 : 40) }
       if (event.key === 'Escape' && gesture.current) { event.preventDefault(); event.stopImmediatePropagation(); cancel() }
     }
-    const hidden = () => { if (document.hidden) cancel() }
+    const blur = () => { setModifierHeld(false); cancel() }
+    const hidden = () => { if (document.hidden) blur() }
     element.addEventListener('wheel', wheel, { passive: false }); element.addEventListener('touchstart', touch, { passive: false })
     element.addEventListener('touchstart', touchStart, { passive: true }); element.addEventListener('touchmove', touchMove, { passive: false }); element.addEventListener('touchend', touchEnd); element.addEventListener('touchcancel', touchEnd)
-    window.addEventListener('keydown', key, true); window.addEventListener('blur', cancel); window.addEventListener('resize', cancel); document.addEventListener('visibilitychange', hidden)
+    window.addEventListener('keydown', key, true); window.addEventListener('keyup', modifier, true); window.addEventListener('blur', blur); window.addEventListener('resize', cancel); document.addEventListener('visibilitychange', hidden)
     return () => {
       element.removeEventListener('wheel', wheel); element.removeEventListener('touchstart', touch)
       element.removeEventListener('touchstart', touchStart); element.removeEventListener('touchmove', touchMove); element.removeEventListener('touchend', touchEnd); element.removeEventListener('touchcancel', touchEnd)
       if (edgeTimer.current) clearTimeout(edgeTimer.current)
-      window.removeEventListener('keydown', key, true); window.removeEventListener('blur', cancel); window.removeEventListener('resize', cancel); document.removeEventListener('visibilitychange', hidden)
+      window.removeEventListener('keydown', key, true); window.removeEventListener('keyup', modifier, true); window.removeEventListener('blur', blur); window.removeEventListener('resize', cancel); document.removeEventListener('visibilitychange', hidden)
       const active = gesture.current; gesture.current = null
       if (active?.element.hasPointerCapture(active.pointer)) active.element.releasePointerCapture(active.pointer)
     }
