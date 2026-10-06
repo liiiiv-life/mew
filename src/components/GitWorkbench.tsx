@@ -156,6 +156,16 @@ function statusLabel(status: string): string {
   return `${index}${working}`
 }
 
+function statusColor(mark: string): string {
+  switch (mark) {
+    case 'A': case '?': return 'text-success-ink'
+    case 'D': case 'U': return 'text-danger-ink'
+    case 'M': case 'T': return 'text-warning-ink'
+    case 'R': case 'C': return 'text-syntax-property'
+    default: return 'text-ink-secondary'
+  }
+}
+
 function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, disabled }: { files: GitChangedFile[]; onSelect: (file: GitChangedFile) => void; compact?: boolean; selected?: Set<string>; onToggle?: (path: string) => void; disabled?: boolean }) {
   useUiLocale()
   const selectionDrag = useRef<{ pointerId: number; startY: number; startX: number; startIndex: number; checked: boolean; dragging: boolean; y: number; visited: Set<string> } | null>(null)
@@ -252,7 +262,9 @@ function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, di
             <input type="checkbox" checked={selected.has(file.path)} disabled={disabled} onChange={() => onToggle(file.path)} aria-label={uiText("{p0} 커밋에 포함", { p0: file.path })} className="h-4 w-4 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
           </label>}
           <button type="button" onClick={() => onSelect(file)} className={`flex min-w-0 flex-1 items-center text-left text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink ${compact ? 'gap-2 pr-3 py-1.5' : 'gap-3 pr-4 py-3'} ${selected && onToggle ? compact ? 'pl-1.5' : 'pl-2.5' : compact ? 'pl-3' : 'pl-4'}`}>
-            <span className="shrink-0 rounded bg-surface-deep px-1 py-0.5 text-center font-mono text-[9px] text-accent" title={file.status}>{statusLabel(file.status)}</span>
+            <span className="shrink-0 rounded bg-surface-deep px-1 py-0.5 text-center font-mono text-[9px]" title={file.status}>
+              {statusLabel(file.status).split('').map((mark, index) => <span key={index} className={statusColor(mark)}>{mark}</span>)}
+            </span>
             <span className="min-w-0 flex-1 truncate" title={file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}>{file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}</span>
             <span className="text-ink-muted" aria-hidden="true">›</span>
           </button>
