@@ -4,7 +4,7 @@ import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page } from 'iconoir-react'
+import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page, SendDiagonal } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
 import { GitBranchPicker } from './git-branch-picker'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
@@ -782,7 +782,12 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
                 <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
               </div>
               {composerOpen && <GitComposer id={commitFormId} onSubmit={() => { void commit() }}>
-                <input autoFocus value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="h-7 min-w-0 w-full shrink-0 rounded border border-edge bg-surface px-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                <HoverTipLayer className="flex shrink-0 items-center gap-1.5">
+                  <input autoFocus value={commitTitle} disabled={busy} onChange={(event) => setCommitTitle(event.target.value)} maxLength={500} placeholder={uiText("커밋 제목")} aria-label={uiText("커밋 제목")} className="h-7 min-w-0 flex-1 rounded border border-edge bg-surface px-2 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
+                  <button type="submit" disabled={busy || !commitTitle.trim() || selectedFiles.size === 0} aria-label={committing ? uiText("커밋 중…") : uiText("전송")} data-tip={committing ? uiText("커밋 중…") : uiText("전송")} className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-accent text-ink-on-accent hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
+                    <SendDiagonal width={14} height={14} aria-hidden="true" />
+                  </button>
+                </HoverTipLayer>
                 <textarea value={commitDescription} disabled={busy} onChange={(event) => setCommitDescription(event.target.value)} maxLength={20000} placeholder={uiText("설명 (선택)")} aria-label={uiText("커밋 설명")} className="min-h-7 w-full flex-1 resize-none rounded border border-edge bg-surface px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-muted focus:border-accent" />
               </GitComposer>}
             </section>
