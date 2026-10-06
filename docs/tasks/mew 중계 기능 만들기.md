@@ -1,9 +1,10 @@
 ---
 title: "mew 중계 기능 만들기"
-done: "false"
-tags: ""
-startDate: "2026-10-08"
-date: "2026-10-11"
+done: false
+tags:
+  - 기능
+startDate: "2026-10-10"
+date: "2026-10-13"
 description: "mew.saens.kr 계정 기반 기기 등록·접속과 중앙 인증·시그널링, 직접 WebRTC 전송의 구성·보안·실패 조건·출시 기준을 정한 미구현 설계다."
 ---
 
