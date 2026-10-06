@@ -28,6 +28,8 @@ updated: "2026-10-06"
 
 - [진행 작업](work/_work.md)
 
+- [디버거 만들기 — 진행 작업](<tasks/디버거 만들기.md>)
+
 - [mew 중계 기능 만들기 — 계정 기반 P2P 원격 접속 설계 · 미구현](<tasks/mew 중계 기능 만들기.md>)
 
 - [원격 데스크톱 지연·대역폭 개선 연구 — 기준 조사](research/remote-desktop-latency.md)
