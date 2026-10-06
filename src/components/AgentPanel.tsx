@@ -3677,12 +3677,9 @@ function AgentSessionView({
                     />
                     {open ? <>
                       <span className="sr-only">{summary}</span>
-                      {durationMs != null && <span data-agent-duration className="ml-auto min-w-0 truncate tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>}
                     </> : (
-                      <span className={`min-w-0 flex-1 line-clamp-2 break-words [overflow-wrap:anywhere] text-ink ${durationMs != null ? 'min-h-[2lh]' : ''}`}>
-                        {/* 1행은 버튼, 2행은 시간만큼 각각 별도로 줄바꿈 폭을 줄인다. */}
+                      <span className="min-w-0 flex-1 line-clamp-2 break-words [overflow-wrap:anywhere] text-ink">
                         <span aria-hidden="true" className="float-right h-[1lh]" style={{ width: actionSpace }} />
-                        {durationMs != null && <span data-agent-duration className="float-right clear-right h-[1lh] max-w-full truncate pl-2 tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>}
                         <span data-agent-summary className="select-text">{summary}</span>
                       </span>
                     )}
@@ -3776,7 +3773,8 @@ function AgentSessionView({
                   </div>
                 )}
                 {open && (
-                  <div data-agent-turn-footer className="sticky -bottom-3 z-10 flex justify-end rounded-b-lg border-t border-edge bg-surface">
+                  <div data-agent-turn-footer className="sticky -bottom-3 z-10 flex items-center justify-end rounded-b-lg border-t border-edge bg-surface">
+                    {durationMs != null && <span data-agent-duration className="min-w-0 truncate pl-3 text-xs tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>}
                     <button
                       type="button"
                       aria-expanded={open}

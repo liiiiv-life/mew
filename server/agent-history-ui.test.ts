@@ -74,20 +74,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       const timedHeader = page.locator('[data-agent-turn-header]').filter({ has: page.getByText(/^Answer 40 /) })
       await timedHeader.scrollIntoViewIfNeeded()
       await timedHeader.screenshot({ path: `/tmp/mew-answer-header-${width}-${dark ? 'dark' : 'light'}.png` })
-      const geometry = await timedHeader.evaluate(el => {
-        const summary = el.querySelector('[data-agent-summary]')!
-        const range = el.ownerDocument.createRange()
-        range.selectNodeContents(summary)
-        const lines = [...range.getClientRects()].slice(0, 2).map(rect => ({ top: rect.top, right: rect.right, width: rect.width }))
-        const duration = el.querySelector('[data-agent-duration]')!.getBoundingClientRect()
-        return { lines, duration: { top: duration.top, left: duration.left, bottom: duration.bottom }, right: el.getBoundingClientRect().right, bottom: el.getBoundingClientRect().bottom }
-      })
-      assert.equal(geometry.lines.length, 2)
-      assert.ok(geometry.lines[0].width > geometry.lines[1].width + 10, `only the second line loses the duration width: ${JSON.stringify(geometry)}`)
-      assert.ok(geometry.lines[0].right <= geometry.right, 'first line uses the full summary width')
-      assert.ok(geometry.lines[1].right <= geometry.duration.left + 1, 'second line stays clear of the duration')
-      assert.ok(Math.abs(geometry.duration.top - geometry.lines[1].top) <= 3, 'duration shares the second line')
-      assert.ok(geometry.duration.bottom <= geometry.bottom, 'duration remains fully visible')
+      assert.equal(await timedHeader.locator('..').locator('[data-agent-duration]').count(), 0, 'collapsed answers hide duration')
       assert.equal(await timedHeader.getByRole('button', { name: '이 답변 복사', exact: true }).count(), 0, 'collapsed answers hide copy')
       assert.equal(await timedHeader.locator('button[aria-expanded] svg').count(), 0, 'answer has no disclosure icon')
       const questionButton = page.getByText('Question 40', { exact: true }).locator('..')
@@ -124,7 +111,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
         assert.ok(Math.max(...centers.map(item => item.y)) - Math.min(...centers.map(item => item.y)) <= 0.5, `expanded header shares one vertical center: ${JSON.stringify(centers)}`)
       }
       const shortHeader = page.locator('[data-agent-turn-header]').filter({ has: page.locator('[data-agent-summary]').filter({ hasText: 'Answer 44 short' }) })
-      assert.equal(await shortHeader.locator('[data-agent-duration]').isVisible(), true, 'short answers keep the second-line duration visible')
+      assert.equal(await shortHeader.locator('..').locator('[data-agent-duration]').count(), 0, 'short collapsed answers hide duration')
       const oldHeader = page.locator('[data-agent-turn-header]').filter({ has: page.getByText(/^Answer 43 /) })
       assert.equal(await oldHeader.locator('[data-agent-duration]').count(), 0, 'older transcripts without duration have no time placeholder')
       const questionTop = (number: number) => page.getByText(`Question ${number}`, { exact: true }).evaluate(el => {
@@ -148,9 +135,16 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
         return { header: el.getBoundingClientRect().top, viewport: scroller.getBoundingClientRect().top + scroller.clientTop }
       })
       assert.ok(Math.abs(stickyBounds.header - stickyBounds.viewport) <= 1, `expanded header sticks to the conversation top: ${JSON.stringify(stickyBounds)}`)
-      assert.equal(await expandedHeader.locator('[data-agent-duration]').isVisible(), true)
+      assert.equal(await expandedHeader.locator('[data-agent-duration]').count(), 0, 'expanded headers hide duration')
       await assertHeaderAlignment(expandedHeader)
       const footer = expandedHeader.locator('..').locator('[data-agent-turn-footer]')
+      assert.equal(await footer.locator('[data-agent-duration]').textContent(), '2분 5초')
+      const timeBounds = await footer.evaluate(el => {
+        const time = el.querySelector('[data-agent-duration]')!.getBoundingClientRect()
+        const button = el.querySelector('button')!.getBoundingClientRect()
+        return { right: time.right, left: button.left, timeCenter: time.top + time.height / 2, buttonCenter: button.top + button.height / 2 }
+      })
+      assert.ok(timeBounds.right <= timeBounds.left && Math.abs(timeBounds.timeCenter - timeBounds.buttonCenter) <= 0.5, 'duration sits beside collapse on the same vertical center')
       const footerBounds = await footer.evaluate(el => {
         const scroller = el.parentElement!.parentElement!
         return { bottom: el.getBoundingClientRect().bottom, viewportBottom: scroller.getBoundingClientRect().bottom - scroller.clientTop, top: el.getBoundingClientRect().top, bubbleTop: el.parentElement!.getBoundingClientRect().top }
@@ -164,6 +158,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await footer.getByRole('button', { name: '접기', exact: true }).click()
       assert.equal(await expandedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'false', 'sticky footer collapses its answer')
       assert.equal(await footer.count(), 0, 'collapsed answers remove the footer')
+      assert.equal(await expandedHeader.locator('..').locator('[data-agent-duration]').count(), 0, 'folding hides duration')
       await expandedHeader.locator('button[aria-expanded]').press('Enter')
       await scroll.evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')) }, middle)
       await footer.getByRole('button', { name: '접기', exact: true }).press('Space')
@@ -292,6 +287,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       const runningBounds = await runningHeader.evaluate(el => ({ top: el.getBoundingClientRect().top, viewport: el.parentElement!.parentElement!.getBoundingClientRect().top }))
       assert.ok(Math.abs(runningBounds.top - runningBounds.viewport) <= 1, 'running header sticks with all controls')
       await assertHeaderAlignment(runningHeader)
+      assert.equal(await runningHeader.locator('[data-agent-duration]').count(), 0, 'running headers hide duration')
+      assert.equal(await runningHeader.locator('..').locator('[data-agent-turn-footer] [data-agent-duration]').isVisible(), true, 'running duration appears in the sticky footer')
       await scroll.screenshot({ path: `/tmp/mew-running-answer-${width}-${dark ? 'dark' : 'light'}.png` })
       await runningHeader.getByRole('button', { name: '중단', exact: true }).click()
       assert.equal(await page.evaluate('window.requests.at(-1).type'), 'cancel', 'sticky stop cancels the active turn')
