@@ -1,3 +1,4 @@
+import { applyTagColorChanges, validTagColors, validTagColorChanges, type TaskTagColors } from '../shared/task-tag-colors.ts'
 import { readTaskDocuments, writeTaskDocuments, taskListFile } from './task-markdown.ts'
 import { taskRollups, taskWithRollup } from '../shared/task-rollup.ts'
 import { collectTaskTags, validTags } from '../shared/task-tags.ts'
@@ -43,7 +44,15 @@ export function readTaskTags(workspace: string): string[] {
   const data = readJsonFile<{ tags?: unknown }>(taskListFile(workspace))
   return collectTaskTags(tasks, Array.isArray(data?.tags) ? data.tags.filter(tag => typeof tag === 'string' && validTags([tag])) : [])
 }
-export function changeTaskList(workspace: string, input: unknown): TaskItem[] {
+export function readTaskTagColors(workspace: string): TaskTagColors {
+  const data = readJsonFile<{ tagColors?: unknown }>(taskListFile(workspace))
+  if (data?.tagColors !== undefined && !validTagColors(data.tagColors)) throw new Error('태스크 저장 파일을 읽지 못했습니다')
+  return data?.tagColors ?? {}
+}
+export function changeTaskList(workspace: string, input: unknown, colorInput: unknown = []): TaskItem[] {
+  if (!validTagColorChanges(colorInput)) throw new TaskInputError('잘못된 태스크 변경입니다')
+  const tagColors = applyTagColorChanges(readTaskTagColors(workspace), colorInput)
+  if (!validTagColors(tagColors)) throw new TaskInputError('잘못된 태스크 변경입니다')
   if (!Array.isArray(input) || input.length > TASK_LIMIT * 2) throw new TaskInputError('잘못된 태스크 변경입니다')
   const ids = new Set<string>()
   for (const value of input) {
@@ -63,6 +72,6 @@ export function changeTaskList(workspace: string, input: unknown): TaskItem[] {
   const tasks = applyTaskChanges(readTaskList(workspace), changes)
   if (tasks.length > TASK_LIMIT) throw new TaskInputError('태스크는 최대 2,000개까지 추가할 수 있습니다')
   const tags = collectTaskTags(tasks, readTaskTags(workspace))
-  writeTaskDocuments(workspace, tasks, documents => writeFileAtomic(taskListFile(workspace), JSON.stringify({ version: 5, order: tasks.map(task => task.id), tags, documents }) + '\n'))
+  writeTaskDocuments(workspace, tasks, documents => writeFileAtomic(taskListFile(workspace), JSON.stringify({ version: 5, order: tasks.map(task => task.id), tags, tagColors, documents }) + '\n'))
   return readTaskList(workspace)
 }

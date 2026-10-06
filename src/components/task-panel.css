@@ -201,3 +201,21 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
 .task-action-menu > [aria-checked="true"] { color: var(--color-accent); }
 .task-action-menu > .task-action-danger { color: var(--color-danger); }
 @media (pointer: coarse) { .task-action-menu > button { min-height: 32px; } }
+
+.task-tag-option { display: flex; align-items: center; gap: 0; }
+.task-tag-option > [role="option"] { flex: 1; min-width: 0; }
+.task-tag-color-trigger { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; }
+.task-tag-color-trigger:hover, .task-tag-color-trigger[aria-expanded="true"] { background: var(--color-surface-hover); }
+.task-tag-color-trigger .task-filter-dot { width: 10px; height: 10px; }
+.task-tag-color-picker { position: fixed; z-index: 120; width: 144px; max-width: calc(100vw - 16px); padding: 8px; border: 1px solid var(--color-edge-strong); border-radius: 8px; background: var(--color-surface-deep); color: var(--color-ink); box-shadow: 0 6px 20px #0003; }
+.task-tag-color-title { margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 500; }
+.task-tag-color-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.task-tag-color-grid > button { display: flex; align-items: center; justify-content: center; height: 28px; border-radius: 50%; background: hsl(var(--task-tag-hue) 80% 92%); color: hsl(var(--task-tag-hue) 65% 25%); }
+.dark .task-tag-color-grid > button { background: hsl(var(--task-tag-hue) 40% 23%); color: hsl(var(--task-tag-hue) 85% 86%); }
+.task-tag-color-grid > button:hover { outline: 1px solid var(--color-ink-secondary); outline-offset: -1px; }
+.task-tag-color-grid > button[aria-pressed="true"] { outline: 2px solid currentColor; outline-offset: -2px; }
+.task-tag-color-grid > button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+@media (pointer: coarse) {
+  .task-tag-color-trigger { width: 32px; height: 32px; }
+  .task-tag-color-grid > button { height: 32px; }
+}

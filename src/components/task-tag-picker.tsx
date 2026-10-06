@@ -1,3 +1,5 @@
+import { useTaskTagColors } from './task-tag-color-context'
+import { TaskTagColorPicker } from './task-tag-color-picker'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Plus, Search, Xmark } from 'iconoir-react'
@@ -9,6 +11,8 @@ import { taskTagHue } from '../utils/task-tag-color'
 export function TaskTagPicker({ tags, knownTags, disabled, onChange }: {
   tags: string[]; knownTags: string[]; disabled: boolean; onChange: (tags: string[]) => void
 }) {
+  const { colors, onChange: changeColor } = useTaskTagColors()
+  const [colorPick, setColorPick] = useState<{ tag: string; anchor: HTMLButtonElement } | null>(null)
   const tagsElement = useRef<HTMLDivElement>(null)
   const id = useId(), trigger = useRef<HTMLButtonElement>(null), popup = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false), [query, setQuery] = useState(''), [active, setActive] = useState(0)
@@ -19,8 +23,8 @@ export function TaskTagPicker({ tags, knownTags, disabled, onChange }: {
   if (create) choices.push(create)
   const anchor = () => trigger.current?.isConnected ? trigger.current : tagsElement.current?.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')
   const openPicker = (event: MouseEvent<HTMLButtonElement>) => { trigger.current = event.currentTarget; setOpen(value => !value); setQuery(''); setActive(0) }
-  const close = () => { setOpen(false); if (popup.current?.contains(document.activeElement) || document.activeElement === document.body) anchor()?.focus({ preventScroll: true }) }
-  useEffect(() => { if (disabled) setOpen(false) }, [disabled])
+  const close = () => { setColorPick(null); setOpen(false); if (popup.current?.contains(document.activeElement) || document.activeElement === document.body) anchor()?.focus({ preventScroll: true }) }
+  useEffect(() => { if (disabled) { setColorPick(null); setOpen(false) } }, [disabled])
   useLayoutEffect(() => { if (open) { if (canAutoFocusInput()) popup.current?.querySelector('input')?.focus({ preventScroll: true }); else popup.current?.focus({ preventScroll: true }) } }, [open])
   useOverlayDismiss(open && close, { escapePhase: 'capture', outside: () => popup.current })
   useLayoutEffect(() => {
@@ -47,7 +51,7 @@ export function TaskTagPicker({ tags, knownTags, disabled, onChange }: {
     if (tag === create) { setQuery(''); setActive(0) }
   }
   return <div ref={tagsElement} className="task-tags task-tag-picker" aria-label={uiText('태그')}>
-    {tags.map(tag => <span key={tag} className="task-tag" style={{ '--task-tag-hue': taskTagHue(tag) } as CSSProperties}>
+    {tags.map(tag => <span key={tag} className="task-tag" style={{ '--task-tag-hue': taskTagHue(tag, colors) } as CSSProperties}>
       {disabled ? <span className="task-tag-name">{tag}</span> : <button type="button" className="task-tag-name" aria-label={`${uiText('태그')}: ${tag}`} aria-haspopup="dialog" aria-expanded={open && trigger.current?.textContent === tag} onClick={openPicker}>{tag}</button>}
       {!disabled && <button type="button" className="task-tag-remove" aria-label={`${uiText('태그 삭제')}: ${tag}`} data-tip={uiText('태그 삭제')} onClick={() => onChange(tags.filter(value => value !== tag))}><Xmark width={12} height={12} aria-hidden="true" /></button>}
     </span>)}
@@ -63,10 +67,13 @@ export function TaskTagPicker({ tags, knownTags, disabled, onChange }: {
         }} />
       </label>
       <div id={id} role="listbox" aria-label={uiText('태그')} aria-multiselectable="true">
-        {choices.map((tag, index) => <button key={tag} id={`${id}-${index}`} type="button" role="option" aria-selected={tags.includes(tag)} data-active={index === Math.min(active, choices.length - 1)} disabled={!tags.includes(tag) && tags.length >= TASK_TAG_LIMIT} onClick={() => toggle(tag)} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); const buttons = popup.current?.querySelectorAll<HTMLButtonElement>('[role="option"]'); buttons?.[(index + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length]?.focus() } }}>
-          <span className="task-filter-dot" style={{ '--task-tag-hue': taskTagHue(tag) } as CSSProperties} aria-hidden="true" /><span className="task-tag-result">{tag}</span>{tags.includes(tag) ? <Check width={14} height={14} aria-hidden="true" /> : tag === create ? <Plus width={14} height={14} aria-hidden="true" /> : null}
-        </button>)}
+        {choices.map((tag, index) => <div key={tag} className="task-tag-option">
+          <button type="button" className="task-tag-color-trigger" aria-label={`${uiText('태그 색상')}: ${tag}`} aria-haspopup="dialog" aria-expanded={colorPick?.tag === tag} style={{ '--task-tag-hue': taskTagHue(tag, colors) } as CSSProperties} onClick={event => setColorPick({ tag, anchor: event.currentTarget })}><span className="task-filter-dot" aria-hidden="true" /></button>
+          <button id={`${id}-${index}`} type="button" role="option" aria-selected={tags.includes(tag)} data-active={index === Math.min(active, choices.length - 1)} disabled={!tags.includes(tag) && tags.length >= TASK_TAG_LIMIT} onClick={() => toggle(tag)} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); const buttons = popup.current?.querySelectorAll<HTMLButtonElement>('[role="option"]'); buttons?.[(index + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length]?.focus() } }}>
+          <span className="task-tag-result">{tag}</span>{tags.includes(tag) ? <Check width={14} height={14} aria-hidden="true" /> : tag === create ? <Plus width={14} height={14} aria-hidden="true" /> : null}
+        </button></div>)}
       </div>
+      {colorPick && <TaskTagColorPicker tag={colorPick.tag} hue={taskTagHue(colorPick.tag, colors)} anchor={colorPick.anchor} onChange={hue => changeColor(colorPick.tag, hue)} onClose={() => setColorPick(null)} />}
     </div>, document.body)}
   </div>
 }

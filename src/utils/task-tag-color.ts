@@ -1,4 +1,7 @@
-export function taskTagHue(tag: string): number {
+import { tagColor, type TaskTagColors } from '../../shared/task-tag-colors'
+export function taskTagHue(tag: string, colors: TaskTagColors = {}): number {
+  const chosen = tagColor(colors, tag)
+  if (chosen !== null) return chosen
   let hash = 2166136261
   for (const char of tag) hash = Math.imul(hash ^ char.codePointAt(0)!, 16777619)
   hash ^= hash >>> 16; hash = Math.imul(hash, 0x85ebca6b); hash ^= hash >>> 13

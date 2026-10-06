@@ -1,3 +1,4 @@
+import { applyTagColorChanges, type TaskTagColorChange } from '../../shared/task-tag-colors.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { TaskListSession } from './task-list-session.ts'
@@ -188,4 +189,45 @@ test('disposing a session cancels its automatic save retry', async t => {
   session.edit([{ ...item, text: 'local' }]); await session.flush()
   session.dispose(); t.mock.timers.tick(10000)
   assert.equal(attempts, 1)
+})
+
+test('tag colors preserve edits during saves and merge unrelated remote tags', async () => {
+  let resolveSave!: (board: TaskBoard) => void
+  let sentColors: TaskTagColorChange[] = []
+  const session = new TaskListSession({ read: async () => ({ tasks: [item], tagColors: {}, canEdit: true }), save: (_changes, colors) => {
+    sentColors = colors ?? []
+    return new Promise(resolve => { resolveSave = resolve })
+  } })
+  try {
+    await session.refresh()
+    session.setTagColor('abc', 225)
+    const saving = session.flush()
+    session.setTagColor('abc', 325)
+    resolveSave({ tasks: [item], tagColors: { abc: 225, other: 35 }, canEdit: true })
+    await saving
+    assert.deepEqual(sentColors, [{ tag: 'abc', before: null, after: 225 }])
+    assert.deepEqual(session.state.tagColors, { abc: 325, other: 35 })
+  } finally { session.dispose() }
+})
+
+test('color conflicts keep local choice and explicit retry preserves unrelated remote colors', async () => {
+  let serverColors = { abc: 225, other: 35 }
+  const session = new TaskListSession({ read: async () => ({ tasks: [item], tagColors: serverColors, canEdit: true }), save: async (_changes, colors) => {
+    serverColors = applyTagColorChanges(serverColors, colors ?? []) as typeof serverColors
+    return { tasks: [item], tagColors: serverColors, canEdit: true }
+  } })
+  try {
+    await session.refresh()
+    session.setTagColor('abc', 325)
+    serverColors = { abc: 78, other: 155 }
+    await session.flush()
+    assert.ok(session.state.error)
+    assert.equal(session.state.tagColors.abc, 325)
+    await session.retry()
+    assert.equal(session.state.error, null)
+    assert.deepEqual(serverColors, { abc: 325, other: 155 })
+    session.state = { ...session.state, canEdit: false }
+    session.setTagColor('abc', 35)
+    assert.equal(session.state.tagColors.abc, 325, 'read-only sessions cannot change colors')
+  } finally { session.dispose() }
 })

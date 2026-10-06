@@ -11,13 +11,24 @@ test('task objects persist, merge unrelated edits, reject conflicts and protect 
   process.env.MEW_DATA_DIR = directory
   process.env.MEW_WORKSPACE = path.join(directory, 'workspace')
   fs.mkdirSync(process.env.MEW_WORKSPACE)
-  const { changeTaskList: change, readTaskList: read, taskListFile } = await import('./task-list.ts')
+  const { changeTaskList: change, readTaskList: read, readTaskTagColors, taskListFile } = await import('./task-list.ts')
   const readTaskList = (workspace: string) => read(workspace).map(({ path: _path, ...task }) => task)
   const changeTaskList = (workspace: string, changes: unknown) => change(workspace, changes).map(({ path: _path, ...task }) => task)
   const { createTaskListRouter } = await import('./task-list-routes.ts')
   const { WORKSPACE_ROOT } = await import('./paths.ts')
   const { setFeature, setFileRule } = await import('./access-policy.ts')
   const a = { id: 'a', text: 'first', done: false }, b = { id: 'b', text: 'second', done: false }
+  const colorWorkspace = path.join(directory, 'tag-colors')
+  const colorChange = [{ tag: 'abc', before: null, after: 225 }]
+  change(colorWorkspace, [], colorChange)
+  assert.deepEqual(readTaskTagColors(colorWorkspace), { abc: 225 })
+  change(colorWorkspace, [], colorChange)
+  change(colorWorkspace, taskChanges([], [a]))
+  assert.deepEqual(readTaskTagColors(colorWorkspace), { abc: 225 }, 'task writes preserve tag colors')
+  assert.throws(() => change(colorWorkspace, [], [{ tag: 'abc', before: null, after: 325 }]), /다른 창/)
+  assert.throws(() => change(colorWorkspace, [], [{ tag: 'abc', before: 225, after: 999 }]), /잘못된/)
+  assert.deepEqual(readTaskTagColors(colorWorkspace), { abc: 225 }, 'rejected writes preserve saved colors')
+
   let role: 'owner' | 'member' | 'guest' = 'owner'
   const app = express()
   app.use(express.json())
@@ -128,6 +139,11 @@ test('task objects persist, merge unrelated edits, reject conflicts and protect 
     assert.equal((await response.json() as { canEdit: boolean }).canEdit, true)
     response = await fetch(`${url}?workspace=/wrong`, { headers }); assert.equal(response.status, 409)
     response = await fetch(`${url}?workspace=${encodeURIComponent(WORKSPACE_ROOT)}`, { headers: { ...headers, 'X-Mew-Task-Owner': 'other' } }); assert.equal(response.status, 409)
+    response = await fetch(url, { method: 'PATCH', headers, body: JSON.stringify({ workspace: WORKSPACE_ROOT, changes: [], tagColorChanges: [{ tag: 'abc', before: null, after: 225 }] }) })
+    assert.equal(response.status, 200)
+    assert.deepEqual((await response.json() as { tagColors: unknown }).tagColors, { abc: 225 })
+    response = await fetch(`${url}?workspace=${encodeURIComponent(WORKSPACE_ROOT)}`, { headers })
+    assert.deepEqual((await response.json() as { tagColors: unknown }).tagColors, { abc: 225 })
     role = 'guest'
     response = await fetch(`${url}?workspace=${encodeURIComponent(WORKSPACE_ROOT)}`, { headers }); assert.equal(response.status, 403)
     role = 'member'
@@ -137,6 +153,9 @@ test('task objects persist, merge unrelated edits, reject conflicts and protect 
     response = await fetch(`${url}?workspace=${encodeURIComponent(WORKSPACE_ROOT)}`, { headers })
     assert.equal(response.status, 200); assert.equal((await response.json() as { canEdit: boolean }).canEdit, false)
     response = await fetch(url, { method: 'PATCH', headers, body: JSON.stringify({ workspace: WORKSPACE_ROOT, changes: taskChanges([a, b], [b]) }) }); assert.equal(response.status, 403)
+    response = await fetch(url, { method: 'PATCH', headers, body: JSON.stringify({ workspace: WORKSPACE_ROOT, changes: [], tagColorChanges: [{ tag: 'abc', before: 225, after: 325 }] }) })
+    assert.equal(response.status, 403, 'read-only users cannot write tag colors')
+    assert.deepEqual(readTaskTagColors(WORKSPACE_ROOT), { abc: 225 })
     setFeature('one@example.test', 'filesRead', false)
     response = await fetch(`${url}?workspace=${encodeURIComponent(WORKSPACE_ROOT)}`, { headers }); assert.equal(response.status, 403)
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); fs.rmSync(directory, { recursive: true, force: true }) }

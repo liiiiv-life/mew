@@ -12,6 +12,8 @@ export const uiMessages = {
 
   '태그': ['Tags', '标签', 'タグ'],
   '완료된 항목 보기': ['Show completed items', '显示已完成项目', '完了した項目を表示'],
+  '태그 색상': ['Tag color', '标签颜色', 'タグの色'],
+  '색상 {index}': ['Color {index}', '颜色 {index}', '色 {index}'],
   '태그 검색': ['Search tags', '搜索标签', 'タグを検索'],
   '태그 필터': ['Filter by tag', '按标签筛选', 'タグで絞り込み'],
   '태그 필터 해제': ['Remove tag filter', '取消标签筛选', 'タグの絞り込みを解除'],

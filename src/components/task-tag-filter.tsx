@@ -1,14 +1,16 @@
+import { useTaskTagColors } from './task-tag-color-context'
 import { useRef, type CSSProperties } from 'react'
 import { SelectField } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { Filter, Xmark } from 'iconoir-react'
 import { taskTagHue } from '../utils/task-tag-color'
 
-const tagStyle = (tag: string) => ({ '--task-tag-hue': taskTagHue(tag) }) as CSSProperties
 
 export function TaskTagFilter({ tags, selected, count, total, onChange, showCompleted, onShowCompletedChange }: {
   tags: string[]; selected: string[]; count: number; total: number; onChange: (tags: string[]) => void; showCompleted: boolean; onShowCompletedChange: (show: boolean) => void
 }) {
+  const { colors } = useTaskTagColors()
+  const tagStyle = (tag: string) => ({ '--task-tag-hue': taskTagHue(tag, colors) }) as CSSProperties
   const root = useRef<HTMLDivElement>(null)
   const remove = (next: string[], button: HTMLButtonElement) => {
     const restoreFocus = button === button.ownerDocument.activeElement

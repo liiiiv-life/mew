@@ -1009,8 +1009,8 @@ async function taskListJson(res: Response): Promise<import('../../shared/task-li
   try { return await json(res) }
   catch (error) { throw Object.assign(error as Error, { status: res.status }) }
 }
-export async function patchTaskList(workspace: string, changes: import('../../shared/task-list').TaskChange[], email: string): Promise<import('../../shared/task-list').TaskBoard> {
-  return taskListJson(await fetch('/api/task-list', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Mew-Task-Owner': encodeURIComponent(email) }, body: JSON.stringify({ workspace, changes }) }))
+export async function patchTaskList(workspace: string, changes: import('../../shared/task-list').TaskChange[], email: string, tagColorChanges: import('../../shared/task-tag-colors').TaskTagColorChange[] = []): Promise<import('../../shared/task-list').TaskBoard> {
+  return taskListJson(await fetch('/api/task-list', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Mew-Task-Owner': encodeURIComponent(email) }, body: JSON.stringify({ workspace, changes, tagColorChanges }) }))
 }
 
 export type Role = 'owner' | 'manager' | 'member' | 'guest'

@@ -1,19 +1,21 @@
+import { applyTagColorChanges, tagColorChanges, tagColor, validTagColor, validTagColors, type TaskTagColors, type TaskTagColorChange } from '../../shared/task-tag-colors.ts'
 import { applyTaskChanges, taskChanges, taskParent, taskDate, taskStartDate, validTaskTree, TaskConflict, type TaskBoard, type TaskChange, type TaskItem } from '../../shared/task-list.ts'
 import { taskRollups, taskWithRollup } from '../../shared/task-rollup.ts'
-import { sameTags, taskTags, validTags } from '../../shared/task-tags.ts'
+import { sameTags, taskTags, validTags, validTag } from '../../shared/task-tags.ts'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 
-type TaskApi = { read: () => Promise<TaskBoard>; save: (changes: TaskChange[]) => Promise<TaskBoard> }
-type State = TaskBoard & { loading: boolean; saving: boolean; error: string | null; draft: string; draftTags: string[] }
+type TaskApi = { read: () => Promise<TaskBoard>; save: (changes: TaskChange[], colors?: TaskTagColorChange[]) => Promise<TaskBoard> }
+type State = TaskBoard & { tagColors: TaskTagColors; loading: boolean; saving: boolean; error: string | null; draft: string; draftTags: string[] }
 
 /** Lives above the project-keyed dock so closing/remounting a panel cannot discard pending edits. */
 export class TaskListSession {
-  state: State = { tasks: [], canEdit: false, loading: true, saving: false, error: null, draft: '', draftTags: [] }
+  state: State = { tagColors: {}, tasks: [], canEdit: false, loading: true, saving: false, error: null, draft: '', draftTags: [] }
   private baseline: TaskItem[] = []
+  private baselineColors: TaskTagColors = {}
   private listeners = new Set<() => void>()
   private timer: ReturnType<typeof setTimeout> | undefined
   private reading = false
-  private pendingSave?: { sent: TaskItem[]; changes: TaskChange[] }
+  private pendingSave?: { sent: TaskItem[]; changes: TaskChange[]; sentColors: TaskTagColors; colors: TaskTagColorChange[] }
   private saveRetries = 0
   private disposed = false
   private api: TaskApi
@@ -27,7 +29,8 @@ export class TaskListSession {
       if (validItems(draft?.baseline) && validItems(draft?.tasks)) {
         const flatten = (items: TaskItem[]) => { const rollups = taskRollups(items); return items.map(item => { const { parentId: _parentId, ...task } = taskWithRollup(item, rollups); return task }) }
         this.baseline = flatten(draft.baseline)
-        this.state = { ...this.state, tasks: flatten(draft.tasks), draft: typeof draft.draft === 'string' ? draft.draft : '', draftTags: validTags(draft.draftTags) ? draft.draftTags : [] }
+        this.baselineColors = validTagColors(draft.baselineColors) ? draft.baselineColors : {}
+        this.state = { ...this.state, tasks: flatten(draft.tasks), tagColors: validTagColors(draft.tagColors) ? draft.tagColors : {}, draft: typeof draft.draft === 'string' ? draft.draft : '', draftTags: validTags(draft.draftTags) ? draft.draftTags : [] }
       }
     } catch { /* Invalid or unavailable browser storage. */ }
   }
@@ -37,7 +40,7 @@ export class TaskListSession {
     if (this.disposed) return
     this.state = { ...this.state, ...patch }
     if (this.draftKey) try {
-      if (this.state.draft || this.state.draftTags.length || taskChanges(this.baseline, this.state.tasks).length) writeBrowserStorage(this.draftKey, JSON.stringify({ baseline: this.baseline, tasks: this.state.tasks, draft: this.state.draft, draftTags: this.state.draftTags }))
+      if (this.state.draft || this.state.draftTags.length || taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length) writeBrowserStorage(this.draftKey, JSON.stringify({ baseline: this.baseline, baselineColors: this.baselineColors, tagColors: this.state.tagColors, tasks: this.state.tasks, draft: this.state.draft, draftTags: this.state.draftTags }))
       else localStorage.removeItem(this.draftKey)
     } catch { /* In-memory drafts remain available when storage is full. */ }
     for (const listener of this.listeners) listener()
@@ -48,21 +51,30 @@ export class TaskListSession {
     this.publish({ tasks })
     if (!this.state.error && !this.pendingSave) this.schedule()
   }
+  setTagColor(tag: string, hue: number) {
+    if (!this.state.canEdit || this.disposed || !validTag(tag) || !validTagColor(hue)) return
+    this.publish({ tagColors: { ...this.state.tagColors, [tag]: hue } })
+    if (!this.state.error && !this.pendingSave) this.schedule()
+  }
   setDraft(draft: string) { if (this.state.canEdit) this.publish({ draft }) }
   setDraftTags(draftTags: string[]) { if (this.state.canEdit) this.publish({ draftTags }) }
   async refresh() {
-    if (this.disposed || this.reading || this.state.saving || this.pendingSave || this.state.error || (!this.state.loading && taskChanges(this.baseline, this.state.tasks).length)) return
+    if (this.disposed || this.reading || this.state.saving || this.pendingSave || this.state.error || (!this.state.loading && (taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length))) return
     this.reading = true
     // Edits made while a polling request is in flight must also survive its response.
     const before = this.baseline
+    const beforeColors = this.baselineColors
     try {
       const board = await this.api.read()
       if (this.disposed) return
       const pending = taskChanges(before, this.state.tasks)
       const tasks = applyTaskChanges(board.tasks, pending)
+      const pendingColors = tagColorChanges(beforeColors, this.state.tagColors)
+      const tagColors = applyTagColorChanges(board.tagColors ?? {}, pendingColors)
       this.baseline = board.tasks
-      this.publish({ ...board, tasks, loading: false, error: null })
-      if (pending.length && board.canEdit) this.schedule()
+      this.baselineColors = board.tagColors ?? {}
+      this.publish({ ...board, tasks, tagColors, loading: false, error: null })
+      if ((pending.length || pendingColors.length) && board.canEdit) this.schedule()
     } catch (error) { this.publish({ loading: false, error: (error as Error).message }) }
     finally { this.reading = false }
   }
@@ -71,19 +83,24 @@ export class TaskListSession {
     if (this.disposed || this.reading || this.state.loading || this.state.saving || this.state.error || !this.state.canEdit) return
     const sent = this.pendingSave?.sent ?? this.state.tasks
     const changes = this.pendingSave?.changes ?? taskChanges(this.baseline, sent)
-    if (!changes.length) return
-    this.pendingSave = { sent, changes }
+    const sentColors = this.pendingSave?.sentColors ?? this.state.tagColors
+    const colors = this.pendingSave?.colors ?? tagColorChanges(this.baselineColors, sentColors)
+    if (!changes.length && !colors.length) return
+    this.pendingSave = { sent, changes, sentColors, colors }
     this.publish({ saving: true })
     try {
-      const board = await this.api.save(changes)
+      const board = await this.api.save(changes, colors)
       if (this.disposed) return
       const pending = taskChanges(sent, this.state.tasks)
       const tasks = applyTaskChanges(board.tasks, pending)
+      const pendingColors = tagColorChanges(sentColors, this.state.tagColors)
+      const tagColors = applyTagColorChanges(board.tagColors ?? {}, pendingColors)
       this.baseline = board.tasks
+      this.baselineColors = board.tagColors ?? {}
       this.pendingSave = undefined
       this.saveRetries = 0
-      this.publish({ ...board, tasks, saving: false })
-      if (pending.length) this.schedule()
+      this.publish({ ...board, tasks, tagColors, saving: false })
+      if (pending.length || pendingColors.length) this.schedule()
     } catch (error) {
       if (this.disposed) return
       const status = (error as Error & { status?: number }).status
@@ -116,10 +133,13 @@ export class TaskListSession {
           parentId: taskParent(change.after) !== taskParent(change.before) ? taskParent(change.after) : taskParent(current) } }
       }).filter(change => change.before || change.after)
       const tasks = applyTaskChanges(board.tasks, rebased)
+      const colors = tagColorChanges(this.baselineColors, this.state.tagColors).map(change => ({ ...change, before: tagColor(board.tagColors ?? {}, change.tag) }))
+      const tagColors = applyTagColorChanges(board.tagColors ?? {}, colors)
+      this.baselineColors = board.tagColors ?? {}
       this.baseline = board.tasks
       this.pendingSave = undefined
       this.saveRetries = 0
-      this.publish({ ...board, tasks, error: null, loading: false })
+      this.publish({ ...board, tasks, tagColors, error: null, loading: false })
     } catch (error) { this.publish({ error: (error as Error).message }) }
     finally { this.reading = false }
     await this.flush()

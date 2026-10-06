@@ -1,3 +1,4 @@
+import { TaskTagColorContext } from './task-tag-color-context'
 import { TaskDocumentProvider } from './task-document-context'
 import { TaskText } from './task-text'
 import { TaskTagFilter } from './task-tag-filter'
@@ -145,7 +146,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
             onBlur={commitDraft} />
         </div>}
       </div>
-  return <TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
+  return <TaskTagColorContext.Provider value={{ colors: session.tagColors, onChange: session.setTagColor }}><TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
     <header data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       <DockGrip group="tasks" />
       <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5">
@@ -183,5 +184,5 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     {drag.preview && createPortal(<div aria-hidden="true" data-task-drag-preview className="task-drag-preview" style={{ left: drag.preview.x, top: drag.preview.y, width: drag.preview.width }}>
       <span className="task-check"><input type="checkbox" checked={drag.preview.item.done} readOnly tabIndex={-1} /></span><span className="task-drag-text">{drag.preview.item.text}</span>
     </div>, document.body)}
-  </section></TaskDocumentProvider>
+  </section></TaskDocumentProvider></TaskTagColorContext.Provider>
 }
