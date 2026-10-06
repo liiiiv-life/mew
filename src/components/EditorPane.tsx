@@ -2,6 +2,7 @@ import { PanelCloseButton } from './panel-close-button'
 import { observeEditorViewport } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
+import { useShortcutBindings } from '@mew/shortcuts'
 import { DockGrip, DockInlineBody } from './DockWorkspace'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -190,6 +191,7 @@ export function EditorPane({
 }: EditorPaneProps) {
   useUiLocale()
   const { t } = useI18n()
+  const shortcutBindings = useShortcutBindings()
   const selectedTab = pane.tabs.find((t) => t.path === pane.activePath) ?? null
   const file = editorFile(pane.activePath ?? '', tabProject)
   const project = file.project
@@ -777,17 +779,14 @@ export function EditorPane({
                 <SidebarOpenButton onClick={onOpenSidebar} />
               </div>
             )}
-            <div className="text-center">
-              <div className="mb-2">{uiText("왼쪽에서 문서를 선택하세요")}</div>
-              {isGuest ? (
-                <div className="text-xs text-ink-muted">{uiText("Ctrl+P 검색")}</div>
-              ) : (
-                <>
-                  <div className="text-xs text-ink-muted">{uiText("Ctrl+P 검색 · 사이드바에서 Insert로 새 파일")}</div>
-                  <div className="mt-2 text-xs text-ink-faint">{uiText("자동 저장 · Ctrl+S 커밋")}</div>
-                </>
-              )}
-            </div>
+            <dl className="grid max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2 px-3 text-sm">
+              <dt>{uiText("사이드바 열기")}</dt>
+              <dd className="text-right"><kbd className="font-mono text-xs">{shortcutBindings.toggleSidebar}</kbd></dd>
+              <dt>{uiText("문서 검색")}</dt>
+              <dd className="text-right"><kbd className="font-mono text-xs">{shortcutBindings.projectSearch}</kbd></dd>
+              <dt>{uiText("문서 파일 검색")}</dt>
+              <dd className="text-right"><kbd className="font-mono text-xs">{shortcutBindings.quickOpen}</kbd></dd>
+            </dl>
           </div>
         )}
         {dropZone && <DropHint zone={dropZone} />}
