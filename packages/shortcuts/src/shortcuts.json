@@ -10,6 +10,8 @@
   { "id": "newTab", "category": "전역", "label": "새 파일", "keys": "Alt+N", "editable": true },
   { "id": "prevTab", "category": "전역", "label": "이전 탭", "keys": "Ctrl+Alt+ArrowLeft", "editable": true },
   { "id": "nextTab", "category": "전역", "label": "다음 탭", "keys": "Ctrl+Alt+ArrowRight", "editable": true },
+  { "id": "prevPanelTab", "category": "전역", "label": "이전 탭", "keys": "Alt+Q", "editable": false },
+  { "id": "nextPanelTab", "category": "전역", "label": "다음 탭", "keys": "Alt+E", "editable": false },
   { "id": "fullscreen", "category": "전역", "label": "전체화면 전환", "keys": "Alt+Enter", "editable": true },
   { "id": "toggleChat", "category": "협업", "label": "채팅 열기/닫기", "keys": "Alt+C", "editable": true },
   { "id": "toggleMemo", "category": "협업", "label": "메모 열기/포커스/닫기", "keys": "Ctrl+M", "editable": true },

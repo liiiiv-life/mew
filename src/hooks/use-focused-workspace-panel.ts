@@ -1,5 +1,5 @@
-import { numberedTabIndex } from '@mew/shortcuts'
-import { activateNumberedPanelTab, numberedTabPanel } from '../utils/numbered-panel-tabs'
+import { numberedTabIndex, adjacentPanelTabDirection } from '@mew/shortcuts'
+import { activateNumberedPanelTab, activateAdjacentPanelTab, numberedTabPanel } from '../utils/numbered-panel-tabs'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** Track the working surface across portals, keyboard navigation and iframe focus. */
@@ -20,7 +20,8 @@ export function useFocusedWorkspacePanel() {
     const focus = (event: Event) => record(event.target)
     const selectTab = (event: KeyboardEvent) => {
       const index = numberedTabIndex(event)
-      if (index === null) return
+      const direction = adjacentPanelTabDirection(event)
+      if (index === null && direction === null) return
       const target = event.target instanceof Element ? event.target : document.activeElement
       // A modal has its own keyboard scope; do not switch the panel behind it.
       if (target?.closest('[role="dialog"], [aria-modal="true"]')) return
@@ -30,7 +31,8 @@ export function useFocusedWorkspacePanel() {
       lastSurface = panel
       event.preventDefault()
       event.stopImmediatePropagation()
-      activateNumberedPanelTab(panel, index)
+      if (index !== null) activateNumberedPanelTab(panel, index)
+      else if (direction !== null) activateAdjacentPanelTab(panel, direction)
     }
     let frameFocus: ReturnType<typeof setTimeout> | undefined
     const blur = () => {

@@ -2132,6 +2132,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                   type="button"
                   data-numbered-tab
                   onClick={() => setSidebarView('files')}
+                  aria-pressed={sidebarView === 'files'}
                   className={`rounded p-1 ${sidebarView === 'files' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:bg-surface-hover'}`}
                   title={uiText("탐색기")}
                   aria-label={uiText("탐색기")}
@@ -2146,6 +2147,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                     setSidebarView('search')
                     setProjectSearchFocus((s) => s + 1)
                   }}
+                  aria-pressed={sidebarView === 'search'}
                   className={`rounded p-1 ${sidebarView === 'search' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:bg-surface-hover'}`}
                   title={uiText("파일명 검색 (Ctrl+P)")}
                   aria-label={uiText("파일명 검색")}
@@ -2161,6 +2163,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                     setSidebarView('content-search')
                     setProjectSearchFocus((s) => s + 1)
                   }}
+                  aria-pressed={sidebarView === 'content-search'}
                   className={`rounded p-1 ${sidebarView === 'content-search' ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:bg-surface-hover'}`}
                   title={uiText("파일 내용 검색 (Ctrl+Shift+F)")}
                   aria-label={uiText("파일 내용 검색")}

@@ -1,5 +1,5 @@
 ---
-description: "공통 UI의 정보 밀도·아이콘·드롭다운·날짜 입력·드래그 모션·번역·모바일 키보드·데스크톱 왼쪽 독·오버레이·패널의 1px 경계선·탭 번호 단축키 및 파일 작업 동작을 정의한다."
+description: "공통 UI의 정보 밀도·아이콘·드롭다운·날짜 입력·드래그 모션·번역·모바일 키보드·데스크톱 왼쪽 독·오버레이·패널의 1px 경계선·탭 번호·좌우 이동 단축키 및 파일 작업 동작을 정의한다."
 ---
 # 오버레이와 탭 단축키 계약
 
@@ -279,12 +279,14 @@ Documents는 [상위·하위 문서 계약](document-pages.md)을 따른다. 대
 
 ## 포커스 기반 탭 단축키
 
+`Alt+Q`는 왼쪽(이전) 탭, `Alt+E`는 오른쪽(다음) 탭으로 이동하며 양 끝에서 반대편 끝으로 순환한다. 번호 선택과 같은 포커스·분할 패널·모달 제외·입력 차단 계약을 사용한다. 이 두 조합은 고정이며 설정 목록에서 확인할 수 있다. 기존 `Ctrl+Alt+←/→`와 사용자 지정 이전·다음 탭 조합도 유지한다. 내부 브라우저 iframe은 좌우 이동 조합도 앱으로 전달한다. 사이드바는 `aria-pressed`, 다른 탭 줄은 `aria-selected`로 현재 위치를 판별한다.
+
 `Alt+1`…`Alt+9`는 현재 포커스된 패널의 표시 순서에 해당하는 탭을 선택한다. `useFocusedWorkspacePanel`은 window capture 단계에서 `numberedTabIndex`로 조합을 판정하고 `activateNumberedPanelTab`으로 기존 탭 클릭 동작을 실행한다. `data-dock-body`는 같은 그룹의 `data-dock-panel` 탭 줄에 연결하므로 다른 분할 패널의 탭을 선택하지 않는다. 탭 줄의 `role="tablist"`가 있으면 그 목록을 사용하고, 없으면 `data-dock-tab-bar`의 `role="tab"` 순서를 사용한다. 사이드바는 `data-numbered-tab`으로 전환 버튼 순서를 지정한다.
 
 - 없는 번호는 현재 탭을 유지하며, 탭이 없는 패널에서도 다른 패널로 넘기지 않는다. 번호 단축키는 편집기·PTY로 전달하지 않는다. `Alt+0`, Ctrl/Cmd/Shift가 함께 눌린 조합, IME 조합 중 입력은 처리하지 않는다.
 - macOS Option으로 `key`가 특수문자로 바뀌어도 `Digit1`…`Digit9`의 물리 키를 인식하며 숫자 키패드도 지원한다. 내부 브라우저 iframe은 번호 조합을 앱 window로 전달한다.
 - 키보드·포인터로 마지막 선택한 패널을 기억하되 닫힌·숨긴·inert 패널과 모달 입력에서는 배경 탭을 전환하지 않는다. 태스크는 제목을 제외한 목록·달력·간트 보기 목록을 사용한다.
-- 회귀 검증은 `src/hooks/use-focused-workspace-panel.test.ts`에서 분할 에디터·포털 터미널·사이드바·태스크 선택, 없는 번호, Option 키, 수정키·IME 제외, 모달과 inert 패널, 입력 전달 차단을 확인한다.
+- 회귀 검증은 `src/hooks/use-focused-workspace-panel.test.ts`에서 분할 에디터·포털 터미널·사이드바·태스크 선택, 없는 번호, Option 키, 수정키·IME 제외, 모달과 inert 패널, 입력 전달 차단과 `Alt+Q/E`의 양끝 순환을 확인한다.
 
 
 `Ctrl/Cmd+W`(기본 `closeTab`)와 `Alt+W`(기본 `closeTabAlt`)는 App의 window capture 리스너에서 조합을 판정한 뒤, `@mew/shortcuts`의 `closeFocusedTab`·`dispatchFocusedShortcut`으로 **포커스된 표면**에 전달한다. 터미널·에이전트 패널·브라우저처럼 자기 탭을 소유하는 창은 루트 ref와 `useFocusedShortcutScope(ref, { closeTab })`만 등록한다. 이 계약 덕분에 새 탭 창을 추가해도 App의 단축키 조건문을 고치지 않는다.
