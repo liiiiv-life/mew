@@ -7,6 +7,7 @@ import { sameTags } from '../shared/task-tags.ts'
 import type { TaskItem } from '../shared/task-list.ts'
 
 export const TASK_DOCUMENT_DIRECTORY = 'docs/tasks'
+const TASK_GUIDE_FILENAMES = new Set(['_tasks.md', 'MOC.md', '_MOC.md', 'README.md'].map(name => name.toLowerCase()))
 export const taskDirectory = (workspace: string) => path.join(workspace, TASK_DOCUMENT_DIRECTORY)
 export type TaskDocumentIdentity = { id: string; path: string; device: number; inode: number }
 export function taskListFile(workspace: string) {
@@ -45,7 +46,7 @@ export function readTaskDocuments(workspace: string): TaskDocument[] {
   return [TASK_DOCUMENT_DIRECTORY, 'tasks'].flatMap(relative => {
     const dir = directory(workspace, relative)
     if (!fs.existsSync(dir)) return []
-    return fs.readdirSync(dir).filter(name => name.endsWith('.md')).sort().map(name => {
+    return fs.readdirSync(dir).filter(name => name.endsWith('.md') && !TASK_GUIDE_FILENAMES.has(name.toLowerCase())).sort().map(name => {
       const file = path.join(dir, name)
       if (!fs.lstatSync(file).isFile() || fs.lstatSync(file).isSymbolicLink()) throw new Error('Invalid task file')
       const raw = fs.readFileSync(file, 'utf8')
@@ -83,7 +84,7 @@ export function taskFilename(title: string): string {
 }
 
 function documentPaths(tasks: TaskItem[]): Map<string, string> {
-  const paths = new Map<string, string>(), used = new Set<string>()
+  const paths = new Map<string, string>(), used = new Set([...TASK_GUIDE_FILENAMES].map(name => `${TASK_DOCUMENT_DIRECTORY}/${name}`))
   const key = (value: string) => value.normalize('NFC').toLowerCase()
   const base = (task: TaskItem) => `${TASK_DOCUMENT_DIRECTORY}/${taskFilename(task.text)}`
   // Keep existing suffixes stable when siblings are deleted or reordered.

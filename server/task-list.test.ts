@@ -112,8 +112,12 @@ test('task objects persist, merge unrelated edits, reject conflicts and protect 
     role = 'owner'
     setFeature('one@example.test', 'filesWrite', true)
     setFileRule('one@example.test', '.workspace', '', 'edit')
+    fs.mkdirSync(path.join(WORKSPACE_ROOT, 'docs/tasks'), { recursive: true })
+    const taskGuide = '---\ntitle: tasks\ndescription: 태스크 안내\n---\n'
+    fs.writeFileSync(path.join(WORKSPACE_ROOT, 'docs/tasks/_tasks.md'), taskGuide)
     const migrated = await fetch(`${url}?workspace=${encodeURIComponent(WORKSPACE_ROOT)}`, { headers })
     assert.equal(migrated.status, 200)
+    assert.equal(fs.readFileSync(path.join(WORKSPACE_ROOT, 'docs/tasks/_tasks.md'), 'utf8'), taskGuide, 'panel loading and migration preserve the parent document')
     assert.equal(fs.existsSync(path.join(WORKSPACE_ROOT, 'docs/tasks/first.md')), true, 'writable panel read migrates legacy tasks')
     assert.equal(JSON.parse(fs.readFileSync(taskListFile(WORKSPACE_ROOT), 'utf8')).version, 5)
     fs.mkdirSync(path.join(WORKSPACE_ROOT, 'tasks'))

@@ -172,6 +172,24 @@ test('title-based Markdown paths preserve body, properties and identity through 
     assert.throws(() => changeTaskList(linkedRoot, taskChanges([], [a])), /Invalid task directory/)
 
     const specialRoot = path.join(root, 'special')
+    const guidesRoot = path.join(root, 'guides')
+    const guidesDir = path.join(guidesRoot, 'docs/tasks')
+    fs.mkdirSync(guidesDir, { recursive: true })
+    const guides = ['_tasks.md', 'MOC.md', '_MOC.md', 'README.md']
+    const guideRaw = '---\ntitle: 태스크 안내\ndescription: 상위 문서\n---\n안내 본문\n'
+    for (const name of guides) fs.writeFileSync(path.join(guidesDir, name), guideRaw)
+    assert.deepEqual(readTaskList(guidesRoot), [], 'guide documents are not task items')
+    const guideTasks = changeTaskList(guidesRoot, taskChanges([], guides.map((name, index) => ({ id: `guide-${index}`, text: name.slice(0, -3), done: false }))))
+    assert.deepEqual(guideTasks.map(task => task.path), guides.map(name => `docs/tasks/${name.slice(0, -3)} (2).md`), 'task titles cannot occupy reserved guide paths')
+    for (const name of guides) assert.equal(fs.readFileSync(path.join(guidesDir, name), 'utf8'), guideRaw)
+    const editedGuides = changeTaskList(guidesRoot, taskChanges(guideTasks, guideTasks.map(task => ({ ...task, done: true }))))
+    assert.ok(editedGuides.every(task => task.done))
+    changeTaskList(guidesRoot, taskChanges(editedGuides, []))
+    assert.deepEqual(fs.readdirSync(guidesDir).sort(), [...guides].sort(), 'task deletion preserves all guide files')
+    fs.writeFileSync(path.join(guidesDir, 'broken-task.md'), guideRaw)
+    assert.throws(() => changeTaskList(guidesRoot, []), /태스크 저장 파일/, 'ordinary documents still require valid task fields')
+    assert.equal(fs.readFileSync(path.join(guidesDir, 'broken-task.md'), 'utf8'), guideRaw)
+
     const specialTasks = changeTaskList(specialRoot, taskChanges([], [
       { ...a, id: 'blank', text: '' }, { ...a, id: 'unsafe', text: '../경로/제목:*?' },
       { ...a, id: 'long', text: '아주 긴 제목 '.repeat(100) }, { ...a, id: 'reserved', text: 'CON' },
