@@ -4,11 +4,11 @@ parent: "mew-editor"
 title: "Markdown Hotview·원문·문서 속성"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-05"
+updated: "2026-10-07"
 status_hash: "2741d359b18c61eecb53b8ce0ba2862f0f42c088d7d02cf55c88a23d1d44a98e"
 files: ["packages/editor/src/editor/FrontmatterSelect.tsx", "server/frontmatter-options.ts", "src/hooks/useTabs.ts", "src/components/EditorPane.tsx", "src/components/markdown-error-boundary.tsx", "packages/editor/src/Editor.tsx", "packages/editor/src/editor/FrontmatterPanel.tsx", "src/components/TableOfContents.tsx"]
 commits: []
-description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유지, 체크박스·문서 목차·프론트매터 속성과 날짜·선택 필드 편집을 다루는 기능 계약. 모바일 키보드와 원문 저장 경계를 포함한다."
+description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유지, 체크박스·문서 목차·프론트매터 속성과 날짜·선택 필드 편집을 다루는 기능 계약. YAML 다중행 태그·담당자 보존, 모바일 키보드와 원문 저장 경계를 포함한다."
 ---
 
 ## 요구사항
@@ -43,6 +43,8 @@ description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유�
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- 프론트매터의 YAML 블록·인라인 배열/객체와 여러 줄 문자열을 전체 속성으로 읽는다. 본문이나 다른 속성 저장 시 수정하지 않은 원래 YAML·주석을 보존해 태스크 태그와 담당자 목록의 초기화를 방지한다. 값·키·타입의 명시적 수정과 필드 삭제는 그대로 적용하며 상세 저장 계약은 [에디터 패키지](../../development/packages.md)를 따른다.
 
 - 공용 달력의 날짜 표시를 연·월·일 구간 입력으로 바꿨다. 단일 날짜와 기간 양 끝의 직접 수정·자동 구간 이동·잘못된 날짜 보존·읽기 전용을 같은 `DateField`로 처리하며, 직접 입력 중 달력을 유지한다.
 

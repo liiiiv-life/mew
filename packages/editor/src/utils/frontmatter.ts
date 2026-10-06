@@ -1,4 +1,5 @@
 import { uiText } from '@mew/ui/i18n-core'
+import { parseDocument } from 'yaml'
 export const FRONTMATTER_TYPES = ['text', 'link', 'select', 'multi-select', 'date', 'number'] as const
 export type FrontmatterType = typeof FRONTMATTER_TYPES[number]
 export interface FrontmatterField {
@@ -6,6 +7,7 @@ export interface FrontmatterField {
   value: string
   type?: FrontmatterType
   options?: string[]
+  source?: { key: string; value: string; yaml: string }
 }
 
 export interface FrontmatterData {
@@ -22,12 +24,14 @@ const FIELD_LINE_RE = /^([^:\n]*):\s*(.*)$/
 
 function unquote(raw: string): string {
   const t = raw.trim()
-  if (t.startsWith('"') && t.endsWith('"')) return t.slice(1, -1).replace(/\\"/g, '"')
+  if (t.startsWith('"') && t.endsWith('"')) {
+    try { return JSON.parse(t) } catch { return t.slice(1, -1).replace(/\\"/g, '"') }
+  }
   return t
 }
 
 function quote(raw: string): string {
-  return `"${raw.replace(/"/g, '\\"')}"`
+  return JSON.stringify(raw)
 }
 
 /** Settings stay attached to their field in a YAML comment, without becoming document properties. */
@@ -63,7 +67,7 @@ export function frontmatterSelections(value: string): string[] {
 
 export function changeFrontmatterType(field: FrontmatterField, type: FrontmatterType): FrontmatterField {
   const previous = frontmatterType(field)
-  const selections = previous === 'multi-select' ? frontmatterSelections(field.value) : field.value ? [field.value] : []
+  const selections = previous === 'multi-select' || field.source && field.value.startsWith('[') ? frontmatterSelections(field.value) : field.value ? [field.value] : []
   const value = type === 'multi-select' ? JSON.stringify(selections)
     : previous === 'multi-select' && selections.length <= 1 ? selections[0] ?? '' : field.value
   return { ...field, type, value,
@@ -78,7 +82,9 @@ export function splitFrontmatter(content: string): { frontmatter: FrontmatterDat
   let title: string | undefined
   const fields: FrontmatterField[] = []
   const lineNumbers = { title: 2, fields: [] as number[] }
-  for (const [index, line] of match[1].split(/\r?\n/).entries()) {
+  const lines = match[1].split(/\r?\n/)
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
     if (line.trimStart().startsWith('#')) continue
     const m = FIELD_LINE_RE.exec(line)
     if (!m) continue
@@ -88,8 +94,20 @@ export function splitFrontmatter(content: string): { frontmatter: FrontmatterDat
       title = value
       lineNumbers.title = index + 2
     } else {
-      fields.push(parseField(key, m[2]))
-      lineNumbers.fields.push(index + 2)
+      const start = index
+      while (index + 1 < lines.length && (/^(?:\s+\S|-(?:\s|$)|#)/.test(lines[index + 1]) || !lines[index + 1].trim())) index++
+      const field = parseField(key, m[2])
+      if (index > start || m[2].trim().startsWith('[') || m[2].trim().startsWith('{')) {
+        const source = lines.slice(start, index + 1).join('\n')
+        const parsed = parseDocument(source)
+        if (!parsed.errors.length) {
+          const value = parsed.toJS()?.[key]
+          field.value = typeof value === 'string' ? value : value == null ? '' : JSON.stringify(value)
+        }
+        field.source = { key, value: field.value, yaml: source }
+      }
+      fields.push(field)
+      lineNumbers.fields.push(start + 2)
     }
   }
   if (title === undefined) return { frontmatter: null, body: content }
@@ -101,6 +119,10 @@ export function joinFrontmatter(frontmatter: FrontmatterData, body: string): str
   const lines = [`title: ${quote(frontmatter.title)}`]
   for (const f of frontmatter.fields) {
     const settings = f.type ? ` # mew:field ${JSON.stringify({ type: f.type, ...(f.options ? { options: f.options } : {}) })}` : ''
+    if (f.source && f.source.key === f.key && f.source.value === f.value && !f.type) {
+      lines.push(f.source.yaml)
+      continue
+    }
     lines.push(`${f.key}: ${quote(f.value)}${settings}`)
   }
   return `---\n${lines.join('\n')}\n---\n\n${body}`

@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { parseDocument } from 'yaml'
 import { taskChanges } from '../shared/task-list.ts'
+import { splitFrontmatter, joinFrontmatter } from '@mew/editor/frontmatter'
 
 test('title-based Markdown paths preserve body, properties and identity through renames, collisions and migration', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-task-md-'))
@@ -206,6 +207,19 @@ test('title-based Markdown paths preserve body, properties and identity through 
     const propertyRoot = path.join(root, 'document-properties')
     let propertyTasks = changeTaskList(propertyRoot, taskChanges([], [a]))
     const propertyFile = path.join(propertyRoot, propertyTasks[0].path!)
+    const assigned = propertyTasks.map(task => ({ ...task, assignees: ['alice@example.test'] }))
+    propertyTasks = changeTaskList(propertyRoot, taskChanges(propertyTasks, assigned))
+    for (let edit = 0; edit < 3; edit++) {
+      const { frontmatter } = splitFrontmatter(fs.readFileSync(propertyFile, 'utf8'))
+      assert.ok(frontmatter)
+      fs.writeFileSync(propertyFile, joinFrontmatter(frontmatter, `문서 본문 수정 ${edit}`))
+      const reloaded = readTaskList(propertyRoot)
+      assert.deepEqual(reloaded[0].tags, a.tags, 'Hotview body saves retain task tags')
+      assert.deepEqual(reloaded[0].assignees, ['alice@example.test'], 'Hotview body saves retain assignees')
+      assert.equal(reloaded[0].id, a.id)
+      propertyTasks = changeTaskList(propertyRoot, taskChanges(reloaded, reloaded.map(task => ({ ...task, done: !task.done }))))
+      assert.deepEqual(propertyTasks[0].tags, a.tags, 'subsequent panel edits retain document tags')
+    }
     const propertyRaw = '---\ntitle: "제목 #literal @literal"\ndone: "false"\ntags: ""\nstartDate: "2026-10-01"\ndate: "2026-10-06"\ndescription: 직접 작성한 요약\ncustom: keep # comment\n---\n원래 본문\n'
     fs.writeFileSync(propertyFile, propertyRaw)
     propertyTasks = readTaskList(propertyRoot)

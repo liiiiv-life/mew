@@ -46,3 +46,50 @@ test('text resembling a settings marker does not become metadata', () => {
   const original = { title: 'Doc', fields: [{ key: 'text', value: 'literal # mew:field {"type":"number"}' }] }
   assert.deepEqual(splitFrontmatter(joinFrontmatter(original, 'Body')).frontmatter, original)
 })
+
+test('body edits preserve block and flow YAML collections, multiline values and field line numbers', () => {
+  const header = 'title: Task\ntags:\n  - 기능 # keep tag comment\n  - 검증\nassignees:\n  - alice@example.test\ncustom:\n  nested: retained\ndescription: >-\n  multiple\n  lines\nflow: [one, two]'
+  const original = `---\n${header}\n---\n\nBody`
+  const parsed = splitFrontmatter(original)
+  assert.ok(parsed.frontmatter)
+  assert.deepEqual(parsed.lineNumbers, { title: 2, fields: [3, 6, 8, 10, 13] })
+  assert.deepEqual(JSON.parse(parsed.frontmatter.fields[0].value), ['기능', '검증'])
+  assert.equal(parsed.frontmatter.fields[3].value, 'multiple lines')
+  let content = original
+  for (let index = 0; index < 3; index++) {
+    const data = splitFrontmatter(content).frontmatter!
+    content = joinFrontmatter(data, `Edited body ${index}`)
+    const yaml = parse(content.split('---')[1])
+    assert.deepEqual(yaml.tags, ['기능', '검증'])
+    assert.deepEqual(yaml.assignees, ['alice@example.test'])
+    assert.deepEqual(yaml.custom, { nested: 'retained' })
+    assert.equal(yaml.description, 'multiple lines')
+    assert.deepEqual(yaml.flow, ['one', 'two'])
+    assert.ok(content.includes(header.slice(header.indexOf('\n') + 1)))
+  }
+})
+
+test('preserved YAML fields can still be explicitly edited, renamed, reordered and deleted', () => {
+  const original = splitFrontmatter('---\ntitle: Task\ntags:\n  - 기능\n  - 검증\n---\n\nBody').frontmatter!
+  const tags = original.fields[0]
+  assert.equal(parse(joinFrontmatter({ ...original, fields: [{ ...tags, value: '' }] }, 'Body').split('---')[1]).tags, '')
+  const selected = changeFrontmatterType(tags, 'multi-select')
+  assert.deepEqual(frontmatterSelections(selected.value), ['기능', '검증'])
+  const edited = { ...selected, value: JSON.stringify(['기능', '추가']) }
+  assert.deepEqual(JSON.parse(parse(joinFrontmatter({ ...original, fields: [edited] }, 'Body').split('---')[1]).tags), ['기능', '추가'])
+  const renamed = parse(joinFrontmatter({ ...original, fields: [{ ...tags, key: 'labels' }] }, 'Body').split('---')[1])
+  assert.equal(renamed.tags, undefined)
+  assert.deepEqual(JSON.parse(renamed.labels), ['기능', '검증'])
+  assert.equal(parse(joinFrontmatter({ ...original, fields: [] }, 'Body').split('---')[1]).tags, undefined)
+})
+
+test('indentless lists and escaped collection text survive repeated body edits', () => {
+  const raw = '---\ntitle: Task\ntags:\n- 기능\n# list comment\n- 검증\ncustom: ["quoted\\\" value", "C:\\\\folder"]\n---\n\nBody'
+  const original = splitFrontmatter(raw).frontmatter!
+  const edited = joinFrontmatter({ ...original, fields: original.fields.map(field => ({ ...field, key: `renamed-${field.key}` })) }, 'Edited')
+  const parsed = parse(edited.split('---')[1])
+  assert.deepEqual(JSON.parse(parsed['renamed-tags']), ['기능', '검증'])
+  assert.deepEqual(JSON.parse(parsed['renamed-custom']), ['quoted" value', 'C:\\folder'])
+  const next = joinFrontmatter(splitFrontmatter(edited).frontmatter!, 'Edited again')
+  assert.deepEqual(parse(next.split('---')[1]), parsed)
+})
