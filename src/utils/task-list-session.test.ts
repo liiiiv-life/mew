@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { TaskListSession } from './task-list-session.ts'
-import { applyTaskChanges, type TaskBoard } from '../../shared/task-list.ts'
+import { applyTaskChanges, TaskConflict, type TaskBoard } from '../../shared/task-list.ts'
 
 const item = { id: 'one', text: 'first', done: false }
 test('a second reorder during an in-flight save preserves order and remote completion', async () => {
@@ -41,6 +41,7 @@ test('failed writes keep input and explicit retry preserves unrelated remote fie
   try {
     await session.refresh()
     session.edit([{ ...item, text: 'local' }]); await session.flush()
+    await session.flush(); await session.flush()
     assert.equal(session.state.tasks[0].text, 'local'); assert.ok(session.state.error)
     serverItems = [{ ...item, text: 'remote', done: true }]
     fail = false; await session.retry()
@@ -94,6 +95,7 @@ test('failed tag writes retry without overwriting remote content or completion',
     await session.refresh()
     session.setDraft('draft'); session.setDraftTags(['abc'])
     session.edit([{ ...serverItems[0], tags: ['abc', 'abcde'] }]); await session.flush()
+    await session.flush(); await session.flush()
     assert.ok(session.state.error)
     serverItems = [{ ...serverItems[0], text: 'remote', done: true }]; fail = false
     await session.retry()
@@ -101,4 +103,89 @@ test('failed tag writes retry without overwriting remote content or completion',
     assert.deepEqual(session.state.draftTags, ['abc'])
     assert.deepEqual(session.state.tags, ['abc', 'abcde'])
   } finally { session.dispose() }
+})
+
+
+test('temporary failures retry automatically without showing an alert and preserve later input', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let attempts = 0, serverItems = [item]
+  const session = new TaskListSession({ read: async () => ({ tasks: serverItems, canEdit: true }), save: async changes => {
+    attempts++
+    if (attempts === 1) throw Object.assign(new Error('temporary'), { status: 500 })
+    serverItems = applyTaskChanges(serverItems, changes)
+    return { tasks: serverItems, canEdit: true }
+  } })
+  try {
+    await session.refresh()
+    session.edit([{ ...item, text: 'local' }]); await session.flush()
+    assert.equal(session.state.error, null)
+    session.edit([{ ...item, text: 'later' }])
+    t.mock.timers.tick(999)
+    assert.equal(attempts, 1)
+    t.mock.timers.tick(1)
+    await Promise.resolve(); await Promise.resolve()
+    assert.equal(attempts, 2)
+    assert.equal(session.state.error, null)
+    assert.equal(session.state.tasks[0].text, 'later')
+    await session.flush()
+    assert.equal(serverItems[0].text, 'later')
+  } finally { session.dispose() }
+})
+
+test('retry resends an acknowledged creation before saving edits made after a lost response', async () => {
+  let attempts = 0, serverItems: typeof item[] = []
+  const session = new TaskListSession({ read: async () => ({ tasks: serverItems, canEdit: true }), save: async changes => {
+    attempts++
+    serverItems = applyTaskChanges(serverItems, changes)
+    if (attempts === 1) throw new TypeError('Failed to fetch')
+    return { tasks: serverItems, canEdit: true }
+  } })
+  try {
+    await session.refresh()
+    session.edit([item]); await session.flush()
+    session.edit([{ ...item, text: 'later' }])
+    await session.flush(); await session.flush()
+    assert.deepEqual(serverItems, [{ ...item, text: 'later' }])
+    assert.equal(session.state.error, null)
+  } finally { session.dispose() }
+})
+
+test('repeated failures stop after two automatic retries and keep the draft', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let attempts = 0
+  const session = new TaskListSession({ read: async () => ({ tasks: [item], canEdit: true }), save: async () => {
+    attempts++; throw Object.assign(new Error('unavailable'), { status: 503 })
+  } })
+  try {
+    await session.refresh()
+    session.edit([{ ...item, text: 'local' }]); await session.flush()
+    for (const delay of [1000, 3000]) { t.mock.timers.tick(delay); await Promise.resolve(); await Promise.resolve() }
+    assert.equal(attempts, 3)
+    assert.equal(session.state.error, 'unavailable')
+    assert.equal(session.state.tasks[0].text, 'local')
+    t.mock.timers.tick(10000)
+    assert.equal(attempts, 3)
+  } finally { session.dispose() }
+})
+
+test('conflicts and rejected writes require explicit retry immediately', async () => {
+  for (const error of [new TaskConflict(), ...[400, 401, 403, 409].map(status => Object.assign(new Error('rejected'), { status }))]) {
+    const session = new TaskListSession({ read: async () => ({ tasks: [item], canEdit: true }), save: async () => { throw error } })
+    try {
+      await session.refresh()
+      session.edit([{ ...item, text: 'local' }]); await session.flush()
+      assert.equal(session.state.error, error.message)
+      assert.equal(session.state.tasks[0].text, 'local')
+    } finally { session.dispose() }
+  }
+})
+
+test('disposing a session cancels its automatic save retry', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let attempts = 0
+  const session = new TaskListSession({ read: async () => ({ tasks: [item], canEdit: true }), save: async () => { attempts++; throw new TypeError('Failed to fetch') } })
+  await session.refresh()
+  session.edit([{ ...item, text: 'local' }]); await session.flush()
+  session.dispose(); t.mock.timers.tick(10000)
+  assert.equal(attempts, 1)
 })

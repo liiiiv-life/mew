@@ -69,8 +69,8 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
   const app = express()
   app.use(express.json())
   app.use((req, _res, next) => { req.auth = { role: 'owner', email: 'one@example.test', mustChangePassword: false }; next() })
-  let failNext = false
-  app.use('/api/task-list', (req, res, next) => { if (req.method === 'PATCH' && failNext) { failNext = false; res.status(500).json({ error: '태스크를 저장하지 못했습니다' }); return } next() }, createTaskListRouter())
+  let failures = 0
+  app.use('/api/task-list', (req, res, next) => { if (req.method === 'PATCH' && failures > 0) { failures--; res.status(500).json({ error: '태스크를 저장하지 못했습니다' }); return } next() }, createTaskListRouter())
   app.get('/api/tree', (_req, res) => res.json([{type:'file',name:'Reference.md',path:'docs/Reference.md'},{type:'file',name:'Reference.md',path:'nested/Reference.md'},{type:'file',name:'Space (draft).md',path:'docs/Space (draft).md'}]))
   app.get('/app.js', (_req, res) => res.type('js').send(chunk.code))
   app.get('/', (_req, res) => res.type('html').send(`<!doctype html><html class="dark"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>`))
@@ -128,7 +128,16 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.equal(await mobile.locator('[data-task-id]').first().getByRole('checkbox').isChecked(), true)
     await mobile.locator('[data-task-id]').last().getByRole('textbox', { name: '태스크 내용', exact: true }).fill('모바일에서 수정')
     await one.waitForFunction("Array.from(document.querySelectorAll('.task-panel textarea')).some(el=>el.value==='모바일에서 수정')")
-    failNext = true
+    failures = 1
+    const transientFailure = one.waitForResponse(response => response.url().includes('/api/task-list') && response.status() === 500)
+    await rows.nth(1).getByRole('textbox', { name: '태스크 내용', exact: true }).fill('자동 복구')
+    await transientFailure
+    assert.equal(await panel.getByRole('alert').count(), 0)
+    const recovered = one.waitForResponse(response => response.url().includes('/api/task-list') && response.request().method() === 'PATCH' && response.ok())
+    await recovered
+    assert.equal(await panel.getByRole('alert').count(), 0)
+    assert.ok(readTaskList(WORKSPACE_ROOT).some(task => task.text === '자동 복구'))
+    failures = 3
     await rows.nth(1).getByRole('textbox', { name: '태스크 내용', exact: true }).fill('실패해도 유지')
     await panel.getByRole('alert').waitFor()
     assert.equal(await rows.nth(1).getByRole('textbox', { name: '태스크 내용', exact: true }).inputValue(), '실패해도 유지')

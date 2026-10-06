@@ -1,4 +1,4 @@
-import { applyTaskChanges, taskChanges, taskParent, taskDate, taskStartDate, validTaskTree, type TaskBoard, type TaskChange, type TaskItem } from '../../shared/task-list.ts'
+import { applyTaskChanges, taskChanges, taskParent, taskDate, taskStartDate, validTaskTree, TaskConflict, type TaskBoard, type TaskChange, type TaskItem } from '../../shared/task-list.ts'
 import { taskRollups, taskWithRollup } from '../../shared/task-rollup.ts'
 import { sameTags, taskTags, validTags } from '../../shared/task-tags.ts'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
@@ -13,6 +13,8 @@ export class TaskListSession {
   private listeners = new Set<() => void>()
   private timer: ReturnType<typeof setTimeout> | undefined
   private reading = false
+  private pendingSave?: { sent: TaskItem[]; changes: TaskChange[] }
+  private saveRetries = 0
   private disposed = false
   private api: TaskApi
   private draftKey?: string
@@ -44,12 +46,12 @@ export class TaskListSession {
   edit(tasks: TaskItem[]) {
     if (!this.state.canEdit || this.disposed) return
     this.publish({ tasks })
-    if (!this.state.error) this.schedule()
+    if (!this.state.error && !this.pendingSave) this.schedule()
   }
   setDraft(draft: string) { if (this.state.canEdit) this.publish({ draft }) }
   setDraftTags(draftTags: string[]) { if (this.state.canEdit) this.publish({ draftTags }) }
   async refresh() {
-    if (this.disposed || this.reading || this.state.saving || this.state.error || (!this.state.loading && taskChanges(this.baseline, this.state.tasks).length)) return
+    if (this.disposed || this.reading || this.state.saving || this.pendingSave || this.state.error || (!this.state.loading && taskChanges(this.baseline, this.state.tasks).length)) return
     this.reading = true
     // Edits made while a polling request is in flight must also survive its response.
     const before = this.baseline
@@ -67,9 +69,10 @@ export class TaskListSession {
   async flush() {
     clearTimeout(this.timer)
     if (this.disposed || this.reading || this.state.loading || this.state.saving || this.state.error || !this.state.canEdit) return
-    const sent = this.state.tasks
-    const changes = taskChanges(this.baseline, sent)
+    const sent = this.pendingSave?.sent ?? this.state.tasks
+    const changes = this.pendingSave?.changes ?? taskChanges(this.baseline, sent)
     if (!changes.length) return
+    this.pendingSave = { sent, changes }
     this.publish({ saving: true })
     try {
       const board = await this.api.save(changes)
@@ -77,9 +80,21 @@ export class TaskListSession {
       const pending = taskChanges(sent, this.state.tasks)
       const tasks = applyTaskChanges(board.tasks, pending)
       this.baseline = board.tasks
+      this.pendingSave = undefined
+      this.saveRetries = 0
       this.publish({ ...board, tasks, saving: false })
       if (pending.length) this.schedule()
-    } catch (error) { this.publish({ saving: false, error: (error as Error).message }) }
+    } catch (error) {
+      if (this.disposed) return
+      const status = (error as Error & { status?: number }).status
+      const transient = !(error instanceof TaskConflict) && (status == null || status >= 500)
+      if (transient && this.saveRetries < 2) {
+        // Resend the identical batch if the server saved it but its response was lost.
+        const delay = [1000, 3000][this.saveRetries++]
+        this.publish({ saving: false })
+        this.timer = setTimeout(() => { void this.flush() }, delay)
+      } else this.publish({ saving: false, error: (error as Error).message })
+    }
   }
   async retry() {
     if (this.disposed || this.reading || this.state.saving) return
@@ -102,6 +117,8 @@ export class TaskListSession {
       }).filter(change => change.before || change.after)
       const tasks = applyTaskChanges(board.tasks, rebased)
       this.baseline = board.tasks
+      this.pendingSave = undefined
+      this.saveRetries = 0
       this.publish({ ...board, tasks, error: null, loading: false })
     } catch (error) { this.publish({ error: (error as Error).message }) }
     finally { this.reading = false }
