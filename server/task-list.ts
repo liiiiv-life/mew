@@ -1,10 +1,8 @@
-import { readTaskDocuments, writeTaskDocuments } from './task-markdown.ts'
+import { readTaskDocuments, writeTaskDocuments, taskListFile } from './task-markdown.ts'
 import { taskRollups, taskWithRollup } from '../shared/task-rollup.ts'
 import { collectTaskTags, validTags } from '../shared/task-tags.ts'
-import path from 'node:path'
 import fs from 'node:fs'
-import { createHash } from 'node:crypto'
-import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
+import { readJsonFile, writeFileAtomic } from './dataDir.ts'
 import { applyTaskChanges, validTaskTree, validTaskDates, TASK_LIMIT, TASK_TEXT_LIMIT, type TaskChange, type TaskItem } from '../shared/task-list.ts'
 
 export class TaskInputError extends Error {}
@@ -17,20 +15,18 @@ function validItem(value: unknown): value is TaskItem {
     && validTaskDates(item)
     && typeof item.text === 'string' && item.text.length <= TASK_TEXT_LIMIT && typeof item.done === 'boolean'
 }
-export function taskListFile(workspace: string) {
-  return path.join(DATA_DIR, `task-list-${createHash('sha256').update(workspace).digest('hex')}.json`)
-}
+export { taskListFile } from './task-markdown.ts'
 export function readTaskList(workspace: string): TaskItem[] {
   const data = readJsonFile<{ version: number; tasks: unknown; order?: string[] }>(taskListFile(workspace))
   if (data === null && fs.existsSync(taskListFile(workspace))) throw new Error('태스크 저장 파일을 읽지 못했습니다')
-  if (data?.version === 3 || data === null) {
+  if ((data?.version === 3 || data?.version === 4 || data?.version === 5) || data === null) {
     const documents = readTaskDocuments(workspace)
     if (documents.length > TASK_LIMIT || !documents.every(doc => validItem(doc.task)) || !validTaskTree(documents.map(doc => doc.task))) throw new Error('태스크 저장 파일을 읽지 못했습니다')
-    if (data?.version === 3 && (!Array.isArray(data.order) || !data.order.every(id => typeof id === 'string'))) throw new Error('태스크 저장 파일을 읽지 못했습니다')
+    if ((data?.version === 3 || data?.version === 4 || data?.version === 5) && (!Array.isArray(data.order) || !data.order.every(id => typeof id === 'string'))) throw new Error('태스크 저장 파일을 읽지 못했습니다')
     const order = data?.order ?? []
     const rank = new Map(order.map((id, index) => [id, index]))
     const tasks = documents.map(doc => doc.task).sort((a, b) => (rank.get(a.id) ?? order.length) - (rank.get(b.id) ?? order.length))
-    if (data?.version === 3 || tasks.length) return tasks
+    if ((data?.version === 3 || data?.version === 4 || data?.version === 5) || tasks.length) return tasks
     return []
   }
   if ((data.version !== 1 && data.version !== 2) || !Array.isArray(data.tasks) || data.tasks.length > TASK_LIMIT || !data.tasks.every(validItem)
@@ -67,6 +63,6 @@ export function changeTaskList(workspace: string, input: unknown): TaskItem[] {
   const tasks = applyTaskChanges(readTaskList(workspace), changes)
   if (tasks.length > TASK_LIMIT) throw new TaskInputError('태스크는 최대 2,000개까지 추가할 수 있습니다')
   const tags = collectTaskTags(tasks, readTaskTags(workspace))
-  writeTaskDocuments(workspace, tasks, () => writeFileAtomic(taskListFile(workspace), JSON.stringify({ version: 3, order: tasks.map(task => task.id), tags }) + '\n'))
+  writeTaskDocuments(workspace, tasks, documents => writeFileAtomic(taskListFile(workspace), JSON.stringify({ version: 5, order: tasks.map(task => task.id), tags, documents }) + '\n'))
   return readTaskList(workspace)
 }

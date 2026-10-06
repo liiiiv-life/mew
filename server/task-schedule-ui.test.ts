@@ -74,7 +74,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const errors: string[] = []
     for (const page of [desktop, mobile]) { page.setDefaultTimeout(5000); page.on('pageerror', error => errors.push(error.message)); await page.clock.setFixedTime(new Date('2026-10-03T03:00:00Z')); await page.goto(base); await page.locator('[data-task-id=undated]').waitFor().catch(async error => { throw new Error(`${error.message}\n${errors.join('\n')}\n${await page.locator('body').innerText()}`) }) }
     const panel = desktop.locator('.task-panel')
-    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['undated', 'parent', 'period', 'legacy'], 'list applies date status sorting to independent rows')
+    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['parent', 'period', 'legacy', 'undated'], 'list applies date status sorting to independent rows')
     assert.equal(await panel.locator('.task-disclosure').count(), 0)
     assert.equal(await panel.locator('[data-task-id=undated] .task-date-status').innerText(), '날짜 설정')
     assert.equal(await panel.locator('[data-task-id=period] .task-date-status').innerText(), 'D-3')

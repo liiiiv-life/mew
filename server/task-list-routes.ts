@@ -1,5 +1,6 @@
 import fs from 'node:fs'
-import { taskDirectory } from './task-markdown.ts'
+import path from 'node:path'
+import { taskDirectory, taskDocumentsNeedMigration } from './task-markdown.ts'
 import { taskListFile } from './task-list.ts'
 import { readJsonFile } from './dataDir.ts'
 import express from 'express'
@@ -24,28 +25,39 @@ export function createTaskListRouter() {
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('X-Accel-Buffering', 'no')
     res.flushHeaders()
-    let watcher: fs.FSWatcher | undefined
+    const root = WORKSPACE_ROOT
+    const watchers = new Map<string, fs.FSWatcher>()
     let timer: ReturnType<typeof setTimeout> | undefined
     const send = () => {
-      if (req.query.workspace !== WORKSPACE_ROOT || !unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, false)) { res.end(); return }
+      if (root !== WORKSPACE_ROOT || !unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, false)) { res.end(); return }
       res.write('data: changed\n\n')
     }
     const notify = () => { clearTimeout(timer); timer = setTimeout(send, 75) }
     const attach = () => {
-      watcher?.close(); watcher = undefined
-      try { watcher = fs.watch(taskDirectory(WORKSPACE_ROOT), notify); watcher.on('error', () => { watcher?.close(); watcher = undefined; notify() }) } catch { /* The task directory is created on the first save. */ }
+      for (const dir of [root, path.join(root, 'docs'), path.join(root, 'tasks'), taskDirectory(root)]) {
+        if (!fs.existsSync(dir)) { watchers.get(dir)?.close(); watchers.delete(dir); continue }
+        if (watchers.has(dir)) continue
+        try {
+          const watcher = fs.watch(dir, (_event, name) => {
+            if (dir === root && name && !['docs', 'tasks'].includes(name.toString())) return
+            if (dir === path.join(root, 'docs') && name && name.toString() !== 'tasks') return
+            attach(); notify()
+          })
+          watcher.on('error', () => { watcher.close(); watchers.delete(dir); notify() })
+          watchers.set(dir, watcher)
+        } catch { /* Parent watches and polling cover directories not created yet. */ }
+      }
     }
-    const root = WORKSPACE_ROOT
-    let rootWatcher: fs.FSWatcher | undefined
-    try { rootWatcher = fs.watch(root, (_event, name) => { if (name?.toString() === 'tasks') { attach(); notify() } }); rootWatcher.on('error', () => res.end()) } catch { res.end(); return }
+    res.on('close', () => { clearTimeout(timer); clearInterval(heartbeat); for (const watcher of watchers.values()) watcher.close() })
+    const heartbeat = setInterval(send, 15_000)
     attach(); send()
-    const heartbeat = setInterval(() => { if (root !== WORKSPACE_ROOT) res.end(); else res.write(': keepalive\n\n') }, 15_000)
-    res.on('close', () => { clearTimeout(timer); clearInterval(heartbeat); watcher?.close(); rootWatcher?.close() })
   })
   router.get('/', (req, res) => {
     try {
       const legacy = readJsonFile<{ version: number }>(taskListFile(WORKSPACE_ROOT))
-      if (legacy && legacy.version < 3 && unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true)) changeTaskList(WORKSPACE_ROOT, [])
+      const canEdit = unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true)
+      const tasks = readTaskList(WORKSPACE_ROOT)
+      if (canEdit && ((legacy && legacy.version < 5) || taskDocumentsNeedMigration(tasks, WORKSPACE_ROOT))) changeTaskList(WORKSPACE_ROOT, [])
       res.json({ tasks: readTaskList(WORKSPACE_ROOT), tags: readTaskTags(WORKSPACE_ROOT), canEdit: unrestrictedFiles(authOf(req), WORKSPACE_PROJECT, true) }) }
     catch { res.status(500).json({ error: '태스크를 불러오지 못했습니다' }) }
   })

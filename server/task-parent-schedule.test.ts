@@ -27,7 +27,7 @@ test('legacy hierarchies flatten without losing identity or visible ranges; ever
     const edited = flattened.map(task => task.id === 'p' ? { ...task, startDate: '2026-10-01', date: '2026-10-03', tags: ['abc'] } : task)
     changeTaskList(path.join(directory, 'root'), taskChanges(flattened, edited))
     assert.deepEqual(readTaskList(path.join(directory, 'root')), edited)
-    assert.equal(JSON.parse(fs.readFileSync(taskListFile(path.join(directory, 'root')), 'utf8')).version, 3)
+    assert.equal(JSON.parse(fs.readFileSync(taskListFile(path.join(directory, 'root')), 'utf8')).version, 5)
     assert.deepEqual(readTaskTags(path.join(directory, 'root')), ['abc'])
     changeTaskList(path.join(directory, 'root'), taskChanges(edited, edited.slice(1)))
     assert.deepEqual(readTaskList(path.join(directory, 'root')), edited.slice(1), 'deleting a former parent leaves other rows intact')
