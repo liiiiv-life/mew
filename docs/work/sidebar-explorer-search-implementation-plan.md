@@ -11,7 +11,7 @@ review-after-days: 30
 
 
 이 문서는 [사이드바 탐색·정확 검색 성능 설계](sidebar-explorer-search-performance.md)를 실제 코드로 옮길
-**구현 담당자용 실행 계획**이다. UI 계약은 [사이드바 파일 검색](../specs/file-search.md), 현재 지연 로드 계약은
+**구현 담당자용 실행 계획**이다. UI 계약은 [사이드바 파일 검색](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/%ED%8C%8C%EC%9D%BC%EB%AA%85%C2%B7%EB%82%B4%EC%9A%A9%20%EA%B2%80%EC%83%89%EA%B3%BC%20%EC%B9%98%ED%99%98.md), 현재 지연 로드 계약은
 [ADR 0088](../../../.mew/docs/decisions/0088-mew-sidebar-tree-lazy-loading.md)을 지킨다. 본문 파일은 SSoT이고 검색 자료구조는
 `MEW_DATA_DIR` 아래의 삭제·재생성 가능한 파생 캐시다.
 

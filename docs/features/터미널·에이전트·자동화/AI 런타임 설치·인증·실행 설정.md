@@ -26,7 +26,7 @@ commits: []
 
 ### 상세 계약
 
-- [런타임 설정](../../configuration/agent-runtimes.md) · [패널·로그인 표시 계약](../../specs/agent-panel.md)
+- [런타임 설정](../../configuration/agent-runtimes.md) · [패널·로그인 표시 계약](%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EB%8C%80%ED%99%94%C2%B7%ED%81%90%C2%B7%EB%B3%B5%EC%9B%90.md)
 
 - 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94.md).
 
@@ -38,7 +38,7 @@ commits: []
 - 입력칸 기본값 저장 아이콘은 옆 드롭다운과 같은 높이의 투명 컨테이너 중앙에 정렬한다.
 
 - 런타임 선택·지원되는 설치/제거·로그인/로그아웃·실행 설정과 모델·추론·권한 기본값을 제공한다.
-- `AgentPanel`은 Codex의 복합 모델 목록을 기본 모델별로 묶는다. `AgentSession`은 모델 변경·사고 변경·ACP 설정 갱신에서 노력도 지원 목록과 실제 모델 ID를 동기화한다([표시 계약](../../specs/agent-panel.md#모델노력도-선택)).
+- `AgentPanel`은 Codex의 복합 모델 목록을 기본 모델별로 묶는다. `AgentSession`은 모델 변경·사고 변경·ACP 설정 갱신에서 노력도 지원 목록과 실제 모델 ID를 동기화한다([표시 계약](%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EB%8C%80%ED%99%94%C2%B7%ED%81%90%C2%B7%EB%B3%B5%EC%9B%90.md#모델노력도-선택)).
 
 <!-- mew:implementation:end -->
 

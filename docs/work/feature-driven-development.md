@@ -6,7 +6,7 @@ updated: 2026-09-17
 
 # 기능 기반 개발 GUI — 구현 기록과 기획 초안
 
-상위: [진행 작업](_work.md). 상태: 구현·격리 검증 완료, 실행 서버 반영 전. 현재 동작의 기준본은 [기능 기반 개발](../specs/feature-development.md), 결정은 [ADR 0159](../../../.mew/docs/decisions/0159-mew-feature-driven-development.md)다. 아래 초안은 요구사항과 당시 검토 과정을 보존하며 현재 계약으로 사용하지 않는다.
+상위: [진행 작업](_work.md). 상태: 구현·격리 검증 완료, 실행 서버 반영 전. 현재 동작의 기준본은 [기능 기반 개발](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EA%B8%B0%EB%8A%A5%20%EA%B8%B0%EB%B0%98%20%EA%B0%9C%EB%B0%9C%C2%B7Markdown%20%EB%AC%B8%EC%84%9C.md), 결정은 [ADR 0159](../../../.mew/docs/decisions/0159-mew-feature-driven-development.md)다. 아래 초안은 요구사항과 당시 검토 과정을 보존하며 현재 계약으로 사용하지 않는다.
 
 ## 구현 결과
 
@@ -106,4 +106,4 @@ updated: 2026-09-17
 - [ADR 0095 — 에이전트셋은 탭 시작 프리셋](../../../.mew/docs/decisions/0095-mew-agent-sets-as-tab-presets.md): 기능 관리와 작업 기록은 mew 기능 시스템의 책임으로 설계하고 셋은 담당 실행 설정으로 사용한다. 이 ADR은 무인 라우팅·작업 이력이 다시 필요하면 별도 작업 시스템으로 결정하도록 한다. 실행 구조 확정 시 새 중앙 ADR을 작성한다.
 - [ADR 0155 — 프로젝트 컨텍스트 자동 전달](../../../.mew/docs/decisions/0155-mew-project-agent-context.md): mew 공통 지침 전달의 기존 경계다. 기능 지침의 연결 방식은 후속 설계 대상이며 현재 자동 전달 계약을 변경하지 않는다.
 
-초안의 요구사항은 위 계획에 따라 구현한다. 완료된 동작의 기준본은 [기능 기반 개발](../specs/feature-development.md)로 기록한다.
+초안의 요구사항은 위 계획에 따라 구현한다. 완료된 동작의 기준본은 [기능 기반 개발](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EA%B8%B0%EB%8A%A5%20%EA%B8%B0%EB%B0%98%20%EA%B0%9C%EB%B0%9C%C2%B7Markdown%20%EB%AC%B8%EC%84%9C.md)로 기록한다.

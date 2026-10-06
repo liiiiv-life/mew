@@ -249,13 +249,13 @@ cd mew
 | 安装或配置运行时 | 在运行时列表中使用安装和设置按钮进行身份验证、启动设置，以及受支持的退出登录或移除操作。Antigravity 使用 Google 官方 ACP 服务器。 | [运行时设置](../configuration/agent-runtimes.md) |
 | 选择模型、推理与权限 | 使用 ACP 聊天输入框旁的控件。将支持的设置保存为运行时默认值。 | [模型与默认值](../configuration/agent-runtimes.md#%EB%AA%A8%EB%8D%B8%EA%B6%8C%ED%95%9C-%EA%B8%B0%EB%B3%B8%EA%B0%92%EA%B3%BC-%EB%9F%B0%ED%83%80%EC%9E%84-%EC%84%A0%ED%83%9D) |
 | 复用 agent 设置 | 从带有模型和角色预设的 agent 集合创建标签。可重命名标签、切换运行时和安排拆分。 | [Agent 标签](../guides/terminal-agents.md) |
-| 向提示添加上下文 | `@` 引用项目、文件和文件夹；`/` 选择本地技能。可附加文件或图像，并用方向键调出已发送的输入。 | [Agent 输入](../specs/agent-input-mentions.md) |
+| 向提示添加上下文 | `@` 引用项目、文件和文件夹；`/` 选择本地技能。可附加文件或图像，并用方向键调出已发送的输入。 | [Agent 输入](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EC%9E%85%EB%A0%A5%C2%B7%EB%A9%98%EC%85%98%C2%B7%EC%8A%A4%ED%82%AC%C2%B7%EC%B2%A8%EB%B6%80.md) |
 | 管理对话 | 发送或停止工作，查看工具活动和经过时间，编辑或重排排队消息，并用 `/clear` 开始新对话。 | [对话控制](../guides/terminal-agents.md#%EB%8C%80%ED%99%94-%EC%A7%84%ED%96%89%EA%B3%BC-%EA%B8%B0%EB%A1%9D) |
 | 从聊天运行 shell 命令 | 切换模型选择器旁的终端图标。随后可打开命令的 tmux、停止命令，或查看和下载保存的输出。 | [CLI 命令模式](../guides/terminal-agents.md#%EB%8C%80%ED%99%94%EC%97%90%EC%84%9C-cli-%EB%AA%85%EB%A0%B9-%EC%8B%A4%ED%96%89) |
 | 继续之前的工作 | 从历史记录选择会话。在外部 CLI 中工作后，使用 **Refresh current conversation**。回复中的文件链接会在编辑器中打开。 | [会话历史](../guides/terminal-agents.md) |
 | 查看账户和用量 | ACP 会话的 **i** 按钮显示可用账户、套餐、限额、令牌用量和 API 等效费用信息。 | [账户与订阅](../configuration/agent-runtimes.md#%EC%84%A4%EC%B9%98%EB%A1%9C%EA%B7%B8%EC%9D%B8%EA%B5%AC%EB%8F%85) |
-| 安排消息 | ACP 输入框旁的时钟可向当前会话安排一次性消息。运行前可编辑、重新安排或删除。 | [定时消息](../specs/agent-scheduled-prompts.md) |
-| 根据功能规格工作 | dock 中的 **Features** 可内联编辑需求并应用到 agent 集合。跟踪源 Markdown、相关文件、提交和用户审查。 | [功能驱动开发](../specs/feature-development.md) |
+| 安排消息 | ACP 输入框旁的时钟可向当前会话安排一次性消息。运行前可编辑、重新安排或删除。 | [定时消息](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EC%98%88%EC%95%BD%20%EB%A9%94%EC%8B%9C%EC%A7%80.md) |
+| 根据功能规格工作 | dock 中的 **Features** 可内联编辑需求并应用到 agent 集合。跟踪源 Markdown、相关文件、提交和用户审查。 | [功能驱动开发](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EA%B8%B0%EB%8A%A5%20%EA%B8%B0%EB%B0%98%20%EA%B0%9C%EB%B0%9C%C2%B7Markdown%20%EB%AC%B8%EC%84%9C.md) |
 | 保存项目命令 | 侧边栏的 **▶** 菜单可添加、编辑、运行和停止命令，输出显示在专用终端弹窗中。 | [项目命令](../guides/commands.md#%EC%82%AC%EC%9D%B4%EB%93%9C%EB%B0%94-%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8--%EB%B2%84%ED%8A%BC-mewcmd-buttonjson) |
 | 保存 shell 命令 | 使用 shell 标签命令行中的 **+** 添加命令和图标。按钮会向活动 shell 发送输入。 | [终端按钮](../guides/commands.md#%ED%84%B0%EB%AF%B8%EB%84%90-%EB%B2%84%ED%8A%BC-dataterm-buttonjson) |
 | 运行周期性任务 | **Menu → Scheduled tasks** 保存文件夹、agent、提示和日程。可立即运行任务、检查输出或删除。 | [周期性任务](../guides/commands.md#%EC%98%88%EC%95%BD-%EC%9E%91%EC%97%85-dataschedulesjson) |
@@ -296,7 +296,7 @@ cd mew
 | 在手机上工作 | 用底部 dock 切换面板；长按可重新排序。输入时 dock 会隐藏。长按项目打开上下文菜单，使用返回键或 `Esc` 关闭最前方的覆盖层。**Menu → Fullscreen** 或 `Alt+Enter` 切换全屏。桌面端 dock 位于页眉菜单正左侧，图标提示显示在图标下方。 | [手机与全屏](../guides/editor.md#%EB%AA%A8%EB%B0%94%EC%9D%BC%EA%B3%BC-%EC%A0%84%EC%B2%B4%ED%99%94%EB%A9%B4) |
 | 更改外观 | **Settings → Appearance** 控制浅色/深色主题、强调色、界面/文档/代码字体，以及韩文、英文、日文或中文。 | [外观](../configuration/environment.md#%ED%99%94%EB%A9%B4-%EC%84%A4%EC%A0%95) |
 | 自定义快捷键 | **Settings → Shortcuts** 修改绑定，或重置单个或全部快捷键。 | [快捷键](../configuration/environment.md#%EB%8B%A8%EC%B6%95%ED%82%A4-%EC%84%A4%EC%A0%95) |
-| 查看 Mewcat | 点击猫查看最近通知。气泡每半秒更新 CPU、RAM 和 GPU 使用率；点击读数查看系统资源。**Settings → Mewcat** 控制皮肤、声音、通知及工作/休息计时器。可选的强制休息会在工作区上放置一只可拖动的猫；默认关闭。 | [Mewcat](../specs/mewcat.md) |
+| 查看 Mewcat | 点击猫查看最近通知。气泡每半秒更新 CPU、RAM 和 GPU 使用率；点击读数查看系统资源。**Settings → Mewcat** 控制皮肤、声音、通知及工作/休息计时器。可选的强制休息会在工作区上放置一只可拖动的猫；默认关闭。 | [Mewcat](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/Mewcat%20%EB%A7%88%EC%8A%A4%EC%BD%94%ED%8A%B8%C2%B7%EC%95%8C%EB%A6%BC%C2%B7%ED%9C%B4%EC%8B%9D.md) |
 | 管理自己的账户 | **Settings → Account** 可修改显示名称、头像和密码，或退出登录。 | [账户设置](../configuration/environment.md#%EB%82%B4-%EA%B3%84%EC%A0%95%EA%B3%BC-%EA%B3%84%EC%A0%95-%EA%B4%80%EB%A6%AC) |
 | 管理用户 | owner 使用 **Menu → Account management** 添加账户和更改角色。主机 CLI 也可列出用户、重置密码和删除账户。 | [用户管理](../configuration/environment.md#%EB%82%B4-%EA%B3%84%EC%A0%95%EA%B3%BC-%EA%B3%84%EC%A0%95-%EA%B4%80%EB%A6%AC) |
 | 检查服务器 | **Menu → System resources** 显示 CPU、内存、GPU、温度、进程和近期用量（manager 或 owner）。 | [系统资源](../guides/commands.md#%EC%8B%9C%EC%8A%A4%ED%85%9C-%EC%9E%90%EC%9B%90-%ED%8C%9D%EC%97%85) |

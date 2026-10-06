@@ -11,7 +11,7 @@ review-after-days: 60
 
 
 이 문서는 **정확 검색과 탐색 성능**의 설계·우선순위 기준이다. 현재 UX 계약은
-[사이드바 파일 검색](../specs/file-search.md), 폴더 단위 지연 로드는 [ADR 0088](../../../.mew/docs/decisions/0088-mew-sidebar-tree-lazy-loading.md),
+[사이드바 파일 검색](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/%ED%8C%8C%EC%9D%BC%EB%AA%85%C2%B7%EB%82%B4%EC%9A%A9%20%EA%B2%80%EC%83%89%EA%B3%BC%20%EC%B9%98%ED%99%98.md), 폴더 단위 지연 로드는 [ADR 0088](../../../.mew/docs/decisions/0088-mew-sidebar-tree-lazy-loading.md),
 의미 검색은 [ADR 0071](../../../.mew/docs/decisions/0071-mew-embedded-lancedb-local-rag.md)을 따른다. 증분 메모리 카탈로그와
 Node 내장 SQLite FTS5 저장소는 [ADR 0105](../../../.mew/docs/decisions/0105-mew-incremental-file-catalog-and-exact-search-index.md)에서 채택했다.
 

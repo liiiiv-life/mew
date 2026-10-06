@@ -37,7 +37,7 @@ Browser tests under `server/` use the Node.js TypeScript configuration, which ex
 
 If a file edited from the terminal reverts unexpectedly, an open mew editor may have saved an older copy over it. Check the file again, then ask the user to close that editor or use **Revert File**.
 
-For feature work, start with the [feature map](../features/MOC.md), also available through **Features** in the dock in the mew project. Update the feature's scope, implementation notes, and acceptance criteria together with its linked detailed documentation. Follow the [feature documentation rules](../features/README.md).
+For feature work, start with the [feature map](../features/MOC.md), also available through **Features** in the dock in the mew project. Keep the feature's scope, detailed behavior, implementation notes, and acceptance criteria in the owning feature document; update linked shared contracts when they change. Follow the [feature documentation rules](../features/README.md).
 
 ### Required UI rules
 

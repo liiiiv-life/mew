@@ -24,8 +24,6 @@ updated: "2026-10-06"
 
 - [운영](operations/MOC.md)
 
-- [제품 스펙](specs/MOC.md)
-
 - [진행 작업](work/_work.md)
 
 - [디버거 만들기 — 진행 작업](<tasks/디버거 만들기.md>)
@@ -41,6 +39,8 @@ updated: "2026-10-06"
 - [하이](하이.md)
 
 ## History / raw
+
+- [이전 Specs 경로 — 이동 안내](specs/MOC.md)
 
 - [RAG·MOC·일반 파일 검색의 시간·토큰 비교](research/document-discovery-benchmark.md)
 
