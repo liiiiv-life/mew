@@ -89,6 +89,7 @@
 .task-inspector-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 .task-inspector-actions > label { display: inline-flex; align-items: center; gap: 5px; }
 @media (pointer: coarse) { .task-view-button { height: 32px; } .task-tool { min-width: 32px; height: 32px; } }
+@media (pointer: coarse) { .task-row-content > .task-open-document { margin-block: -2px; } }
 @container (max-width: 580px) { .task-gantt { --task-gantt-label-width: 132px; } }
 
 @container (max-width: 420px) { .task-panel-title > span { display: none; } }
