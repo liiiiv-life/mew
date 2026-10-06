@@ -6,7 +6,7 @@ status: "changed"
 created: "2026-09-18"
 updated: "2026-10-06"
 status_hash: "701eba69573a58c7cb0cae079dbdcc13ad3125808a1b999accc26f79d331606c"
-files: ["src/App.tsx", "src/components/DockWorkspace.tsx", "src/utils/dock-layout.ts", "src/components/feature-development.tsx", "src/utils/feature-panel-state.ts", "server/features.ts", "server/feature-documents.ts", "server/feature-document-tree.ts", "server/document-pages.ts", "server/feature-service.ts", "server/feature-agent-instructions.ts"]
+files: ["src/App.tsx", "src/components/DockWorkspace.tsx", "src/utils/dock-layout.ts", "src/components/feature-development.tsx", "src/components/feature-development.css", "src/utils/feature-panel-state.ts", "server/features.ts", "server/feature-documents.ts", "server/feature-document-tree.ts", "server/document-pages.ts", "server/feature-service.ts", "server/feature-agent-instructions.ts"]
 commits: []
 ---
 
@@ -15,6 +15,7 @@ commits: []
 - 기능 항목 하나를 Markdown 파일 하나로 관리하고, 제목은 실제 파일 이름을 사용한다.
 - Documents와 같은 `이름.md` ↔ `이름/_이름.md` 규칙으로 하위 항목을 관리한다. 마지막 자식을 제거하면 단일 파일로 돌아간다.
 - 기능 패널의 기존 타이틀바·행·상태 표시·정렬·새로고침·도킹·모바일 배치를 유지한다.
+- 정렬 조작은 작은 아이콘·현재 기준을 표시하며, 선택 목록도 패널의 작업 밀도에 맞춘다. 터치 영역·키보드 탐색·선택 상태와 화면 상태 복원을 유지한다.
 - 패널에는 제목과 원본 문서 열기·하위 항목만 표시한다. 제목 클릭은 문서를 열고 화살표는 자식 목록만 접고 펼친다.
 - 요구사항·구현 내용·검증·관련 파일·커밋·요청과 작업 이력의 상세 표시는 사용자 요청으로 제거했다. 명시적 후속 요청 없이 재도입하지 않는다.
 - 읽기 전용 경계와 계정·프로젝트별 펼침·정렬·스크롤 복원을 유지한다. 변경 API·에이전트셋 조회는 호출하지 않는다.
@@ -33,12 +34,15 @@ commits: []
 - 제목·부모 관계를 파일명·폴더에서 읽고, 상위 대표 파일은 별도 자식으로 중복 표시하지 않는다.
 - 파일 기반 항목 생성·개명·부모 이동은 본문·상대 링크·실행 버전 연결을 보존한다. 중복 이름·외부 변경은 덮어쓰지 않는다.
 - 패널 본문 섹션과 커밋 상세 팝업을 제거하고 제목·자식 전용 트리로 단순화했다. 문서 열기와 기존 화면 상태 복원은 유지한다.
+- 정렬 선택기에 전용 외형을 적용해 큰 입력 필드 테두리를 제거하고, 도구 줄·버튼·선택 행의 여백을 줄였다. 공통 선택기의 접근성·선택 저장·오버레이 동작을 재사용한다.
 - 기존 기능 문서는 제목과 같은 파일명·상위 대표 구조로 이동하고 문서 지도·들어오는 링크를 보정한다.
 
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-06: 정렬 폴리싱 후 `server/feature-ui.test.ts`에서 PC 다크 28px 버튼·160px 메뉴·28px 행, 키보드 탐색 시 값 유지·Esc 포커스 유지·정렬 복원, 320px 모바일 라이트 32px 버튼·36px 행·터치 선택·화면 경계를 확인했다. TypeScript·전체 lint(기존 경고만 남음)·문서 허용목록·워크스페이스 링크 검사를 통과했다. 빌드·서버 반영은 수행하지 않았다.
 
 - 2026-10-06: 기능·문서 페이지·실행 서비스·독립 감독·PC 다크/모바일 라이트 UI 검사 36개와 TypeScript·전체 lint·문서 허용목록 검사를 통과했다. 전체 문서 링크 검사는 기존 미추적 `docs/하이.md`의 MOC 미연결 1건만 남아 있다. 빌드·서버 반영은 수행하지 않았다.
 

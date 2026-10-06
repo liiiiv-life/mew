@@ -1,7 +1,7 @@
 import { PanelCloseButton } from './panel-close-button'
 import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref, type ReactNode } from 'react'
 import { SelectField } from '@mew/ui'
-import { NavArrowDown, NavArrowRight, RefreshDouble, Page } from 'iconoir-react'
+import { NavArrowDown, NavArrowRight, RefreshDouble, Page, Sort } from 'iconoir-react'
 import { featureRows, type FeatureRun, type FeatureSort, type FeatureStatus } from '../../shared/features'
 import { fetchFeatures, type FeatureSnapshot } from '../api/features'
 import { useI18n } from '../i18n'
@@ -9,6 +9,7 @@ import { featurePanelState, type FeaturePanelState } from '../utils/feature-pane
 import { featureCopy, type FeatureCopy } from './feature-copy'
 import { DockGrip } from './DockWorkspace'
 import { FeatureIcon } from './feature-icon'
+import './feature-development.css'
 
 const button = 'inline-flex min-h-8 items-center justify-center gap-1.5 rounded px-2.5 text-xs text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-40'
 const headerButton = 'flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-40'
@@ -25,6 +26,7 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, requestClos
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [loading, setLoading] = useState(true)
   const [saved] = useState(() => featurePanelState(initialState))
   const [sort, setSort] = useState<FeatureSort>(saved.sort)
+  const sortOptions = [{ value: 'updated', label: copy.updated }, { value: 'name', label: copy.nameSort }, { value: 'created', label: copy.created }]
   const [expanded, setExpanded] = useState(() => new Set(saved.expandedFeatures))
   const [scrollTop, setScrollTop] = useState(saved.scrollTop)
   const list = useRef<HTMLDivElement>(null), scrollRestored = useRef(false)
@@ -98,10 +100,12 @@ export function FeatureDevelopment({ workspace, onClose, onOpenFile, requestClos
         <PanelCloseButton aria-label={copy.close} disabled={busy} onClick={() => onClose()} />
       </header>
       {error && <p role="alert" className="select-text shrink-0 border-b border-edge px-3 py-2 text-sm text-danger">{error}</p>}
-      <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 px-3">
+      <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-1 px-2">
         <span className="mr-auto text-xs tabular-nums text-ink-secondary">{data?.features.length ?? 0} {copy.count}</span>
         <button type="button" className={button} disabled={!branches.size} onClick={() => setExpanded(allExpanded ? new Set() : new Set(branches))}>{allExpanded && branches.size ? copy.allCollapse : copy.allExpand}</button>
-        <div className="min-w-0 max-w-40"><SelectField label={copy.sort} value={sort} options={[{ value: 'updated', label: copy.updated }, { value: 'name', label: copy.nameSort }, { value: 'created', label: copy.created }]} onChange={value => setSort(value as FeatureSort)} /></div>
+        <SelectField label={copy.sort} value={sort} options={sortOptions} onChange={value => setSort(value as FeatureSort)}
+          className="feature-sort-field" triggerClassName="feature-sort-trigger" popupWidth={160} popupClassName="feature-sort-menu"
+          triggerContent={<><Sort width={14} height={14} aria-hidden="true" /><span>{sortOptions.find(option => option.value === sort)?.label}</span><NavArrowDown width={12} height={12} aria-hidden="true" /></>} />
       </div>
       <div ref={list} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3" data-feature-list onScroll={event => { if (scrollRestored.current) setScrollTop(event.currentTarget.scrollTop) }}>
         {loading && !data && <p role="status" className="p-3 text-xs text-ink-secondary">{copy.load}</p>}

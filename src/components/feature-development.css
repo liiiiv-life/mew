@@ -1,0 +1,16 @@
+.feature-sort-field { min-width: 0; max-width: 160px; }
+.feature-sort-trigger { display: flex; align-items: center; gap: 5px; max-width: 100%; height: 28px; padding: 0 7px; border-radius: 5px; color: var(--color-ink-secondary); font-size: 12px; line-height: 18px; }
+.feature-sort-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feature-sort-trigger > svg { flex-shrink: 0; }
+.feature-sort-trigger > svg:last-child { width: 12px; height: 12px; }
+.feature-sort-trigger[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
+.feature-sort-trigger:hover, .feature-sort-trigger[aria-expanded="true"] { background: var(--color-surface-raised); color: var(--color-ink); }
+.feature-sort-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.feature-sort-menu { padding: 4px; border-radius: 7px; }
+.feature-sort-menu > [role="option"] { min-height: 28px; gap: 8px; padding: 0 7px; border-radius: 3px; font-size: 12px; line-height: 18px; }
+.feature-sort-menu > [aria-selected="true"] { font-weight: 500; }
+.feature-sort-menu > [role="option"] > svg { width: 14px; height: 14px; }
+@media (pointer: coarse) {
+  .feature-sort-trigger { height: 32px; }
+  .feature-sort-menu > [role="option"] { min-height: 36px; }
+}
