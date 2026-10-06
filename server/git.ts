@@ -3,7 +3,7 @@ import { GitConnectionError } from './git-connections.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import simpleGit, { type SimpleGit } from 'simple-git'
-import { DEFAULT_PROJECT, projectRoot } from './paths.ts'
+import { projectRoot } from './paths.ts'
 
 // 프로젝트마다 자기 레포에서 커밋한다 — git 레포가 아닌 폴더는 커밋 없이 저장만 된다
 const gitByProject = new Map<string, SimpleGit | null>()
@@ -73,7 +73,7 @@ export async function fileHistory(project: string, relPath: string): Promise<Fil
   }
 }
 
-/** Stages relPath(s) plus (docs only) any changed MOC.md files and commits them together. Returns null if nothing changed. */
+/** Stages only the requested relPath(s) and commits them together. Returns null if nothing changed. */
 export async function commitFile(
   project: string,
   relPaths: string | string[],
@@ -90,12 +90,6 @@ export async function commitFile(
   const writer = simpleGit({ baseDir: projectRoot(project), config: ['core.quotepath=false'] }).env(currentGitEnv())
   const paths = Array.isArray(relPaths) ? relPaths : [relPaths]
   const filesToStage = new Set<string>(paths)
-  if (project === DEFAULT_PROJECT) {
-    const status = await git.status()
-    for (const f of [...status.modified, ...status.not_added, ...status.created, ...status.deleted]) {
-      if (/^_?MOC\.md$/.test(path.basename(f))) filesToStage.add(f)
-    }
-  }
 
   // .gitignore에 걸린 경로는 스테이징에서 뺀다 — 그대로 add하면 git이 통째로 거부해, 이미
   // 디스크에 반영된 파일 작업이 500으로 둔갑한다(새 파일은 생겼는데 UI는 실패·재시도 "이미 존재"

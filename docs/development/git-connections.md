@@ -2,6 +2,7 @@
 title: "계정별 Git 연결과 실행"
 created: 2026-09-29
 updated: 2026-10-05
+description: "Mew 계정별 GitHub 연결의 암호화 저장·기기 승인·작성자 식별과 인증 분리, Git 실행 환경 및 보안 검증 계약을 정의한다."
 ---
 
 # 계정별 Git 연결과 실행

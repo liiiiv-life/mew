@@ -1,10 +1,10 @@
 ---
 title: "mew 접근 모델 — 포트·역할·경계"
-desc: "우리 운영 기준 mew 접근 정책 — 포트 노출, 권한 모델을 지금 모양으로 바꾼 기록, 발급 계정 현황. 모델 자체는 레포 SECURITY.md."
 created: "2026-07-27"
 updated: 2026-09-01
 reviewed: 2026-08-21
 review-after-days: 30
+description: "Liiiiv 워크스페이스 운영의 포트·계정·tailnet·게스트·파일 접근 경계를 설명하며 제품 역할·권한 정책의 기준본은 SECURITY로 연결한다."
 ---
 
 mew를 **우리 워크스페이스에서 운영하는 기준**(reference). 역할 매트릭스·게스트 규칙 같은 모델 자체는 레포 `SECURITY.md`가 기준본이다. 코드는 `~/dev/liiiiv/mew`, 실행 명령은 [사용법](../guides/getting-started-ko.md), 코드 구조는 [개발 문서](../development/MOC.md). 이 경계가 실제로 어디까지 유효한지에 대한 검토는 [security-review-2026-07-21.md](../history/security-review-2026-07-21.md).

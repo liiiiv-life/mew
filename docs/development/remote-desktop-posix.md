@@ -2,6 +2,7 @@
 title: "Mac/Linux 상주 네이티브 GPU 호스트"
 created: 2026-10-01
 updated: 2026-10-02
+description: "Mac/Linux 상주 Node 호스트의 GPU H.264 캡처·직접 입력, OS별 화면·입력 권한과 설치·세션 수명·검증 계약을 정의한다."
 ---
 
 # Mac/Linux 상주 네이티브 GPU 호스트

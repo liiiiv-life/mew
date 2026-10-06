@@ -2,6 +2,7 @@
 title: "Windows 자체 가상 디스플레이·헤드리스 GPU 캡처"
 created: 2026-10-01
 updated: 2026-10-01
+description: "Windows 자체 UMDF·IddCx 가상 화면의 드라이버·WGC 캡처·설치·서명·수명 계약과 정식 배포·헤드리스 실기 검증의 남은 조건을 설명한다."
 ---
 
 # Windows 가상 화면

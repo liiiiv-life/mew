@@ -1,3 +1,6 @@
+---
+description: "Yjs 협업 방의 와이어 형식·권한·디스크 반영, 공통 메모·presence·접속 기록과 멤버 채팅 저장·방송 계약을 정의한다."
+---
 # 협업 방과 멤버 채팅
 
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)

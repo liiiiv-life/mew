@@ -2,6 +2,7 @@
 title: "mew"
 created: "2026-09-11"
 updated: "2026-10-06"
+description: "Documents의 mew 문서 홈으로 기능·설정·배포·개발·사용법·운영과 연구·이전 기록의 주요 링크를 제공한다."
 ---
 
 # mew

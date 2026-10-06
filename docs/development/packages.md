@@ -1,3 +1,6 @@
+---
+description: "editor·ui 등 공용 소스 패키지의 책임, 호스트 API 주입과 UI 번역 공유, Mermaid 다이어그램 편집·렌더링 경계를 설명한다."
+---
 # 공용 패키지
 
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)

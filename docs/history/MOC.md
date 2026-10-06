@@ -2,6 +2,7 @@
 title: "History / raw"
 created: "2026-09-11"
 updated: "2026-10-04"
+description: "이전 README·RAG·태스크·보안 검토·Electron 원격 데스크톱의 보존 기록과 현재 계약 링크를 제공하는 역사 홈이다."
 ---
 
 # History / raw

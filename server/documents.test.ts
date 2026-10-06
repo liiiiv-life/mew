@@ -27,9 +27,10 @@ test('createDocument: 확장자를 보존하고 일반 파일은 빈 내용으�
     }
     for (const name of ['note.md', 'UPPER.MD']) {
       const relPath = `${root}/${name}`
-      assert.deepEqual(createDocument(DEFAULT_PROJECT, relPath, 'Note'), { relPath, mocRelPath: `${root}/MOC.md` })
+      assert.deepEqual(createDocument(DEFAULT_PROJECT, relPath, 'Note'), { relPath, mocRelPath: null })
       assert.match(fs.readFileSync(path.join(rootAbs, name), 'utf-8'), /title: "Note"/)
-      assert.ok(fs.readFileSync(path.join(rootAbs, 'MOC.md'), 'utf-8').includes(`[Note](${name})`))
+      assert.equal(fs.readFileSync(path.join(rootAbs, 'MOC.md'), 'utf-8'), moc)
+      assert.match(fs.readFileSync(path.join(rootAbs, name), 'utf-8'), /description: "Note"/)
     }
   } finally {
     fs.rmSync(rootAbs, { recursive: true, force: true })

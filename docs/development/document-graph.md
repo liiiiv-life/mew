@@ -2,6 +2,7 @@
 title: "Documents 링크 그래프 엔진"
 created: 2026-10-02
 updated: 2026-10-03
+description: "Documents의 Markdown 링크 그래프 API와 문서 선택·열기, 권한 필터·파일 제한·분석 캐시 및 검증 계약을 정의한다."
 ---
 
 # Documents 링크 그래프

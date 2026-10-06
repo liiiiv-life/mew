@@ -1,3 +1,6 @@
+---
+description: "서버 주요 모듈과 인증·권한 경계, DATA_DIR의 상태·대화 저장 및 프로젝트 아이콘 기준본의 책임을 설명한다."
+---
 # 서버 구조와 상태 파일
 
 [문서 지도](../MOC.md) · [개발 계약](MOC.md) · [설치·실행](../guides/getting-started-ko.md)

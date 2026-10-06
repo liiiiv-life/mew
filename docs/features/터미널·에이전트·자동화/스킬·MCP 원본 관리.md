@@ -8,6 +8,7 @@ updated: "2026-09-25"
 status_hash: "b9b25fb50a126dd475ca2e6bae99f42419f210afd46114df41118c8d3543c502"
 files: ["src/components/agent-harness-modal.tsx", "server/agent-harness.ts", "server/harness-config.ts"]
 commits: []
+description: "전역·프로젝트·하위 프로젝트의 스킬과 MCP 원본 설정 검색·생성·수정·이동·삭제를 다루는 기능 계약. 시스템·플러그인 캐시·심볼릭 링크의 읽기 전용 경계와 런타임 적용 한계를 설명한다."
 ---
 
 ## 요구사항

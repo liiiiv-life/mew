@@ -1,3 +1,6 @@
+---
+description: "한국어 mew 시작 안내로 Windows WSL·macOS·Linux 설치와 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
+---
 # mew 사용법
 
 [한국어](getting-started-ko.md) · [English](getting-started-en.md) · [简体中文](getting-started-zh.md) · [日本語](getting-started-ja.md)

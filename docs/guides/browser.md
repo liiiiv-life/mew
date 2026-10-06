@@ -1,3 +1,6 @@
+---
+description: "서버 DOM 브라우저의 탭·주소·로그인·저장 상태·설정과 Android 환경 점검·기기 화면 연결 방법 및 지원 범위를 안내한다."
+---
 # 서버 브라우저와 Android
 
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)

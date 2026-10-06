@@ -167,6 +167,7 @@ export function serializeFeature(feature: Feature, old?: FeatureDocument): strin
   const yaml = old ? parseDocument(old.yaml.toString()) : parseDocument('')
   if (yaml.toJS() == null) yaml.contents = null
   yaml.set('id', feature.id); yaml.set('parent', feature.parentId); yaml.set('title', feature.title)
+  if (!old) yaml.set('description', `기능: ${feature.title}`)
   yaml.set('status', feature.status === 'implementing' ? 'changed' : feature.status)
   yaml.set('created', feature.createdAt); yaml.set('updated', feature.updatedAt)
   yaml.set('status_hash', requirementsHash(feature))
@@ -237,25 +238,4 @@ export function applyDocumentWrites(workspace: string, writes: DocumentWrite[]) 
 
 export function mergeFeatureReport(previous: FeatureReport | null | undefined, next: FeatureReport): FeatureReport {
   return { ...next, files: [...new Set([...(previous?.files ?? []), ...next.files])], commits: [...new Map([...(previous?.commits ?? []), ...next.commits].map(commit => [`${commit.repository}:${commit.hash}`, commit])).values()] }
-}
-
-/** Update only our index block; keep hand-written navigation and notes. */
-export function featureIndexWrites(workspace: string, docsDir: string, features: Feature[], planned = new Map<string, string>()): DocumentWrite[] {
-  if (!features.length) return []
-  const output: DocumentWrite[] = [], file = `${docsDir}/features/MOC.md`
-  const absolute = documentPath(workspace, file)
-  const raw = planned.get(file) ?? (fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : null)
-  const lines = [...features].sort((a, b) => a.title.localeCompare(b.title)).map(feature => {
-    const target = path.posix.relative(`${docsDir}/features`, feature.documentPath!).split('/').map(encodeURIComponent).join('/')
-    return `- [${feature.title.replace(/[\\[\]]/g, '\\$&').replaceAll('\n', ' ')}](${target})`
-  })
-  const block = `<!-- mew:features:start -->\n${lines.join('\n')}\n<!-- mew:features:end -->`
-  const content = raw?.includes('<!-- mew:features:start -->')
-    ? raw.replace(/<!-- mew:features:start -->[\s\S]*?<!-- mew:features:end -->/, block)
-    : `${raw ?? '# 기능 문서\n\n상위: [Documents](../MOC.md).\n'}\n${block}\n`
-  if (content !== raw) output.push({ path: file, before: raw === null ? null : digest(raw), content })
-  const parent = `${docsDir}/MOC.md`, parentFile = documentPath(workspace, parent)
-  const parentRaw = fs.existsSync(parentFile) ? fs.readFileSync(parentFile, 'utf8') : null
-  if (!parentRaw?.includes('(features/MOC.md)')) output.push({ path: parent, before: parentRaw === null ? null : digest(parentRaw), content: `${parentRaw ?? '# Documents\n'}\n- [기능 문서](features/MOC.md)\n` })
-  return output
 }

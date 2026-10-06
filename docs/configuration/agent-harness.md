@@ -2,6 +2,7 @@
 title: "스킬·MCP 관리"
 created: 2026-09-17
 updated: 2026-10-04
+description: "Skills·MCP 관리창의 출처·스코프별 조회, 원본 편집·이동·삭제와 런타임별 지원 위치, 읽기 전용·충돌 보호 및 API를 설명한다."
 ---
 
 # 스킬·MCP 관리

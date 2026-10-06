@@ -8,6 +8,7 @@ updated: "2026-10-06"
 status_hash: "67f36d128f8ff98f55ff2f44e2197710413f6968309439a998bd606dad06b477"
 files: ["src/components/DocsSettingsModal.tsx", "src/components/FileTree.tsx", "server/docsRepo.ts", "src/components/DocumentGraph.tsx", "server/document-graph.ts", "src/utils/document-graph-layout.ts", "server/document-pages.ts", "src/hooks/useTabs.ts"]
 commits: []
+description: "Documents 대표 문서·하위 문서 탐색과 단일 파일·폴더 구조 전환, 그래프 보기와 가져오기·내보내기를 다루는 기능 계약. 일반 파일과 에디터 탭·배치 공유 및 현재 프로젝트 경계를 설명한다."
 ---
 
 ## 요구사항

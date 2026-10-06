@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
 import { activeFeatureRun, pendingFeatureRun, featureSpecification, type Feature, type FeatureReport, type FeatureRequest, type FeatureRun, type FeatureWorkspace } from '../shared/features.ts'
 import { FeatureError } from './feature-error.ts'
-import { applyDocumentWrites, documentVersion, featureDocsDir, featureIndexWrites, mergeFeatureReport, parseFeatureDocument, readFeatureDocuments, serializeFeature, validateHierarchy, type DocumentWrite } from './feature-documents.ts'
+import { applyDocumentWrites, documentVersion, featureDocsDir, mergeFeatureReport, parseFeatureDocument, readFeatureDocuments, serializeFeature, validateHierarchy, type DocumentWrite } from './feature-documents.ts'
 import { featureDocumentPaths, featureTreeWrites } from './feature-document-tree.ts'
 export { FeatureError } from './feature-error.ts'
 
@@ -180,13 +180,6 @@ export class FeatureStore {
           for (const run of data.runs) if (run.featureId === feature.id && run.featureVersion === feature.version) run.featureVersion = parsed.version
           for (const run of data.runs) if (run.targetId === feature.id && run.targetVersion === feature.version) run.targetVersion = parsed.version
           Object.assign(feature, parsed, { status: feature.status })
-        }
-        if (writes.length) {
-          for (const index of featureIndexWrites(workspace, docsDir, data.features, new Map(writes.flatMap(write => write.content === null ? [] : [[write.path, write.content] as const])))) {
-            const existing = writes.find(write => write.path === index.path)
-            if (existing) existing.content = index.content
-            else writes.push(index)
-          }
         }
         if (legacy) {
           try { fs.writeFileSync(`${file}.v1-backup`, JSON.stringify(legacy) + '\n', { flag: 'wx', mode: 0o600 }) }

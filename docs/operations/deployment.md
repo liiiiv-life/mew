@@ -1,8 +1,8 @@
 ---
 title: "mew 배포 운영 런북"
-desc: "네이티브 mew 서버를 공개하기 전후에 확인하는 운영 절차."
 created: 2026-09-04
 updated: 2026-09-11
+description: "Liiiiv 운영자가 공개·반영 전후 확인할 네이티브 설치·OS 사용자·HTTPS·백업·권한·macOS 장애 구분 및 재시도 제한을 정한다."
 ---
 
 현재 지원 경로와 경계는 [ADR 0111](../../../.mew/docs/decisions/0111-mew-native-deployment-and-supervisor.md), 실제

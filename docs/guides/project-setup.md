@@ -2,6 +2,7 @@
 title: "프로젝트 문서 연결과 에이전트 자동 안내"
 created: 2026-09-16
 updated: "2026-09-30"
+description: "프로젝트 Documents 연결과 에이전트 자동 안내·공통 지침을 GUI·CLI에서 설정하고, 기존 파일을 보존하며 문서·외부 도구 진입점을 초기화하는 방법을 안내한다."
 ---
 
 # 프로젝트 문서 연결과 에이전트 자동 안내
@@ -12,7 +13,7 @@ updated: "2026-09-30"
 
 mew의 채팅형(ACP) 에이전트는 매 요청마다 프로젝트 루트, 작업 폴더, Documents 위치와 짧은 문서 탐색·갱신 안내를 받는다. 별도 AGENTS.md 생성 없이 기본으로 켜진다. 추가 문서 진입점과 프로젝트 지침은 설정할 수 있다.
 
-안내는 프로젝트 README와 기존 지침을 따르고, 문서 지도에서 관련 current 문서만 읽고, 기능·코드·운영 변경을 소유 문서에 되돌려 쓰도록 요청한다. 문서 본문 전체, 회사 고유 정책, 브랜드 규칙을 자동으로 복사하지 않는다. 시스템 역할의 강제 지침이나 문서 열람 검증 기능은 아니다.
+안내는 프로젝트 README와 기존 지침을 따르고, 문서 경로와 프론트매터 `description`에서 관련 current 문서를 골라 읽고, 기능·코드·운영 변경을 소유 문서에 되돌려 쓰도록 요청한다. 문서 본문 전체, 회사 고유 정책, 브랜드 규칙을 자동으로 복사하지 않는다. 시스템 역할의 강제 지침이나 문서 열람 검증 기능은 아니다.
 
 기본 안내는 작업 완료 또는 승인된 커밋 전에 짧은 변경 목적과 이번 작업의 파일을 기록하도록 요청한다. 소스에 커밋용 주석을 붙이는 방식이 아니다. 전달된 기록 명령에 목적·Git 루트 상대 경로·실제로 수행한 검증을 stdin JSON으로 보내면 Git 메타데이터에만 남는다. 다른 작업과 섞인 파일·시크릿·대화 원문은 기록하지 않는다. 기록이 없거나 실패해도 작업을 계속하며, 자동 커밋은 기록과 실제 이전/새 Git 객체를 대조하고 전체 diff를 읽는다. 기록은 커밋 승인이나 정식 문서를 대신하지 않는다. 상세 계약은 [AI 커밋 실행](../development/agent-sessions.md#git-ai-commit-작업)을 따른다. 기존 설치의 사용자 안내는 업데이트로 덮어쓰지 않는다.
 
@@ -31,7 +32,7 @@ mew의 채팅형(ACP) 에이전트는 매 요청마다 프로젝트 루트, 작�
 - **파일 보기**로 `agent-guidance.md`를 기존 에디터에서 열어 자유롭게 수정한다. 다시 설정창을 열거나 **다시 불러오기**를 누르면 파일에서 값을 읽는다. 선택값에 해당하지 않는 설정 문구는 **직접 편집한 지침**으로 표시하고 다른 항목을 바꿔도 보존한다.
 - 다른 편집으로 원문이 바뀌었다면 저장을 거부하고 다시 불러오도록 안내한다. 설정 저장 시 이미 열린 파일의 저장된 내용도 갱신한다. 미저장 초안은 보존하고 오래된 내용으로 저장하려 하면 충돌을 알린다.
 
-실제 기준본은 `DATA_DIR/agent-guidance.md`이며 기본 설치 위치는 `~/.local/share/mew/agent-guidance.md`다. `MEW_DATA_DIR` 또는 기존 `.data`를 쓰는 설치는 그 데이터 폴더를 따른다. 처음 요청하거나 설정을 열 때 MD가 없으면 기존 `agent-guidance.txt` 내용을 그대로 복사한다. TXT도 없으면 `server/prompts/agent-guidance.txt`를 사용한다. 기존 TXT는 보존하며 이후에는 MD만 사용한다. 앱 업데이트·재시작은 기존 MD를 덮어쓰지 않는다. 미리보기만 실행하면 파일을 생성하지 않고 MD → 기존 TXT → 템플릿 순서로 읽는다.
+실제 기준본은 `DATA_DIR/agent-guidance.md`이며 기본 설치 위치는 `~/.local/share/mew/agent-guidance.md`다. `MEW_DATA_DIR` 또는 기존 `.data`를 쓰는 설치는 그 데이터 폴더를 따른다. 처음 요청하거나 설정을 열 때 MD가 없으면 기존 `agent-guidance.txt` 내용을 그대로 복사한다. TXT도 없으면 `server/prompts/agent-guidance.txt`를 사용한다. 기존 TXT는 보존하며 이후에는 MD만 사용한다. 앱 업데이트·재시작은 기존 MD를 덮어쓰지 않는다. 런타임에서 읽을 때 과거 기본 템플릿의 MOC 탐색·등록 두 문장만 description 탐색·갱신 문장으로 치환하며 저장 파일과 사용자 설정은 보존한다. 미리보기만 실행하면 파일을 생성하지 않고 MD → 기존 TXT → 템플릿 순서로 읽는다.
 
 설정 문구는 MD 안의 `<!-- mew:agent-setting:항목 -->`와 `<!-- /mew:agent-setting:항목 -->` 사이에 일반 문장으로 저장된다. 이 표시 밖에 자유 지침을 작성할 수 있으며 설정 변경은 해당 구간만 교체한다. 구간이 누락·중복·겹침으로 손상되면 파일 보기에서 먼저 수정해야 한다.
 
@@ -46,7 +47,7 @@ mew의 채팅형(ACP) 에이전트는 매 요청마다 프로젝트 루트, 작�
 5. 외부 도구에서도 문서 안내를 쓰려면 **외부 도구용 AGENTS.md 만들기**를 선택한다.
 6. **미리보기**에서 생성·갱신·기존 유지 파일과 전달 안내를 확인한 뒤 **적용**한다. 입력을 바꾸면 다시 미리보기해야 한다. 적용 후 화면을 다시 불러온다.
 
-초기화 대상은 Documents의 `AGENT.md`, `README.md`, `MOC.md`와 프로젝트 `README.md`다. 없는 파일만 생성하며 기존 문서 내용·지도·AGENTS.md를 덮어쓰거나 이동하지 않는다. 기본 GUI·CLI 생성 템플릿은 영어다. [뮤캣 도우미](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%EB%AE%A4%EC%BA%A3%20%EB%8F%84%EC%9A%B0%EB%AF%B8%C2%B7%EB%8C%80%ED%99%94%C2%B7Mew%20%EC%A1%B0%EC%9E%91.md)의 문서 준비 도구는 현재 UI 언어로 없는 문서만 만든다. 기존 MOC에 이미 문서가 있다면 그 지도를 계속 사용한다. 추가 폴더와 ADR 저장 위치는 프로젝트 정책에 맡긴다.
+초기화 대상은 Documents의 `AGENT.md`, `README.md`와 프로젝트 `README.md`다. 새 Documents 문서는 `description`을 포함하며 MOC는 새로 만들지 않는다. 없는 파일만 생성하며 기존 문서 내용·지도·AGENTS.md를 덮어쓰거나 이동하지 않는다. 기본 GUI·CLI 생성 템플릿은 영어다. [뮤캣 도우미](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%EB%AE%A4%EC%BA%A3%20%EB%8F%84%EC%9A%B0%EB%AF%B8%C2%B7%EB%8C%80%ED%99%94%C2%B7Mew%20%EC%A1%B0%EC%9E%91.md)의 문서 준비 도구는 현재 UI 언어로 없는 문서만 만든다. 기존 MOC는 화면과 링크 호환을 위해 보존하지만 탐색·새 문서 등록 의무는 없다. 추가 폴더와 ADR 저장 위치는 프로젝트 정책에 맡긴다.
 
 AGENTS.md 내보내기는 해당 파일이 없을 때만 짧은 Documents 연결 파일을 만든다. 기존 파일은 미리보기에 **기존 유지**로 표시되며 자동 병합하지 않는다. 이 경우 기존 지침에 Documents 진입점 링크가 필요한지는 사용자가 판단한다.
 
@@ -65,7 +66,7 @@ npm run project:setup -- --project /absolute/path/to/project --init-docs --apply
 npm run project:setup -- --project /absolute/path/to/new-project --create --init-docs --export-agents --apply
 
 # 기존 Markdown 진입점과 프로젝트 지침 지정
-npm run project:setup -- --project /absolute/path/to/project --entry docs/MOC.md --instructions "Follow the existing project decisions." --apply
+npm run project:setup -- --project /absolute/path/to/project --entry docs/AGENT.md --instructions "Follow the existing project decisions." --apply
 
 # 자동 안내 끄기 / 도움말
 npm run project:setup -- --project /absolute/path/to/project --disable --apply
@@ -101,4 +102,4 @@ Documents 경로 선택 우선순위는 프로젝트 설정 → 해당 폴더가
 - 이미 실행 중인 이전 버전의 독립 에이전트 감독은 서버 재시작만으로 교체되지 않는다. 작업이 끝난 뒤 기존 에이전트 탭을 닫고 다시 열어 업데이트된 전달 경로를 사용한다.
 - 이 기능을 배포하려면 사용자가 mew를 빌드·재시작한다. 에이전트는 실행 중인 서버에 반영하는 명령을 실행하지 않는다.
 
-문서 탐색에는 README·MOC와 일반 파일 검색을 사용한다. 로컬 RAG 명령은 프로젝트 자동 안내에 포함하지 않는다([검색 계약](../configuration/search.md#문서-탐색)).
+문서 탐색에는 README·지침과 각 문서의 `description`을 사용하고 관련 본문만 읽는다. 로컬 RAG 명령은 프로젝트 자동 안내에 포함하지 않는다([검색 계약](../configuration/search.md#문서-탐색)).

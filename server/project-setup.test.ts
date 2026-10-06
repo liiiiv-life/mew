@@ -41,7 +41,7 @@ test('setup rejects outside paths, symlinks, stale previews and corrupt settings
   }
   const input = { projectRoot: root, settings: defaultAgentSettings(), initDocs: true }
   const preview = planProjectSetup(input)
-  fs.writeFileSync(path.join(root, 'docs/MOC.md'), 'created by another editor')
+  fs.writeFileSync(path.join(root, 'docs/AGENT.md'), 'created by another editor')
   assert.throws(() => applyProjectSetup(input, preview.revision), /미리보기/)
   fs.mkdirSync(path.join(root, '.mew'))
   fs.writeFileSync(path.join(root, '.mew/agent-context.json'), '{broken')
@@ -61,6 +61,9 @@ test('CLI creates a new project only with apply and uses the same setup plan', t
   assert.deepEqual(applied.files, preview.files)
   assert.equal(applied.applied, true)
   assert.match(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), /project%20notes\/AGENT.md/)
+  assert.equal(fs.existsSync(path.join(root, 'project notes/MOC.md')), false)
+  assert.match(fs.readFileSync(path.join(root, 'project notes/AGENT.md'), 'utf8'), /^---\ndescription:/)
+  assert.match(fs.readFileSync(path.join(root, 'project notes/README.md'), 'utf8'), /frontmatter description/)
   assert.equal(projectDocsDir(root), 'project notes')
   assert.equal(readProjectAgentSettings(root)?.enabled, true)
 })

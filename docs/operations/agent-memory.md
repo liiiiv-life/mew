@@ -2,6 +2,7 @@
 title: "에이전트 메모리 보호"
 created: 2026-09-21
 updated: 2026-10-03
+description: "Linux systemd·cgroup v2의 에이전트 합산 메모리 한도 설치, 작업 보류·재개·진단·복구와 WSL 지원 경계를 안내한다."
 ---
 
 # 에이전트 메모리 보호

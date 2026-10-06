@@ -8,6 +8,7 @@ updated: "2026-10-06"
 status_hash: "701eba69573a58c7cb0cae079dbdcc13ad3125808a1b999accc26f79d331606c"
 files: ["src/App.tsx", "src/components/DockWorkspace.tsx", "src/utils/dock-layout.ts", "src/components/feature-development.tsx", "src/components/feature-development.css", "src/utils/feature-panel-state.ts", "server/features.ts", "server/feature-documents.ts", "server/feature-document-tree.ts", "server/document-pages.ts", "server/feature-service.ts", "server/feature-agent-instructions.ts"]
 commits: []
+description: "파일 이름과 Documents 폴더 구조를 기준으로 기능 항목을 관리하는 기능 계약. 제목 인라인 수정·문서 아이콘 열기·계층 표시와 상태 해시, 기존 API·CLI 실행 큐·보고·사용자 판정의 보존 규칙을 설명한다."
 ---
 
 ## 요구사항

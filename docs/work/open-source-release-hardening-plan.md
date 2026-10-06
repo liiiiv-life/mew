@@ -1,8 +1,8 @@
 ---
 title: "mew 오픈소스 공개 준비 실행 계획"
-desc: "공개 릴리스 전 코드·문서·배포 경계를 검증하는 실행 순서와 잔여 외부 확인 사항."
 created: 2026-09-04
 updated: 2026-09-04
+description: "공개 배포를 위한 라이선스·자산 정리·자격증명·업로드·게스트·HTTP 경계 강화와 릴리스 검증 게이트를 정리한 구현 계획이다."
 ---
 
 기준 결정은 [ADR 0112](../../../.mew/docs/decisions/0112-mew-public-release-security-and-credential-boundaries.md)와

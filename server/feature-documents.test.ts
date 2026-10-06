@@ -1,3 +1,4 @@
+import { parseDocument } from 'yaml'
 import './test-isolated-data.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -64,7 +65,9 @@ test('Markdown is canonical, survives clone/rename and preserves custom fields a
   assert.equal(cloned.features[0].report?.summary, report.summary); assert.deepEqual(cloned.runs, [])
   const runtime = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
   assert.equal(runtime.version, 2); assert.equal('features' in runtime, false); assert.equal('pendingWrites' in runtime, false)
-  assert.match(fs.readFileSync(path.join(workspace, 'manual/features/MOC.md'), 'utf8'), /email-login.md/)
+  assert.equal(fs.existsSync(path.join(workspace, 'manual/features/MOC.md')), false, 'feature changes do not create an index document')
+  assert.equal(fs.existsSync(path.join(workspace, 'manual/MOC.md')), false)
+  assert.equal(parseDocument(original.split('---')[1]).get('description'), `기능: ${feature.title}`)
 })
 test('external requirement edits invalidate review, reject stale writes and never start work', async t => {
   const { workspace, store } = fixture(t)

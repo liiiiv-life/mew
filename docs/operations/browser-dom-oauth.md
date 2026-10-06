@@ -1,8 +1,8 @@
 ---
 title: "Mew DOM 브라우저에서 Google 로그인을 가능하게 한 실행 방식"
-desc: "직접 실행·CDP 연결·DOM 중계의 역할, 로그인 비교 실험의 증거와 회귀 방지 기준."
 created: 2026-09-11
 updated: 2026-09-11
+description: "Chromium 직접 실행 후 Playwright CDP 연결로 Mew 내부 브라우저의 Google 로그인을 확인한 실험 근거·수명·보안·재검증 범위를 기록한다."
 ---
 
 # 확인된 결론

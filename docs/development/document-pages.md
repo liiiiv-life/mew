@@ -2,6 +2,7 @@
 title: "Documents 상위·하위 문서 계약"
 created: 2026-10-03
 updated: 2026-10-06
+description: "상위·하위 Documents 문서의 파일·폴더 전환, 대표 파일·이름 변경·이동과 내부 링크 보존 및 탐색·편집 계약을 정의한다."
 ---
 
 # Documents 페이지
@@ -51,3 +52,7 @@ updated: 2026-10-06
 실기기 터치와 여러 접속자의 동시 구조 변경은 이 격리 Chromium 검사로 검증하지 않는다.
 
 2026-10-04에는 표시명 변환을 추가해 Documents 트리와 탭에서 slug 파일명을 자연어로 보이게 했다. `server/document-pages.test.ts`와 `server/document-pages-ui.test.ts`를 직접 실행해 상위·하위 문서 조작과 표시명 회귀를 확인했다. TypeScript, lint, 문서 링크 검사를 통과했다. 전체 `npm test -- --runTestsByPath ...`는 저장소 스크립트가 전체 패턴을 함께 실행해 관련 없는 에이전트 UI 테스트 시간초과·환경 실패가 섞여 중단했다.
+
+## description 탐색과 신규 파일
+
+AI는 [문서 규칙](../README.md)에 따라 경로·description으로 문서를 선택한다. 기존 MOC는 화면 대표와 링크 호환 용도로 유지하며 새 Markdown 파일 생성은 MOC 링크를 추가하지 않는다. 기본 Documents 문서는 제목 기반 description을 생성하고 작성자가 본문 범위에 맞춰 구체화한다. 파일 단위 커밋은 요청한 파일만 포함하며 다른 변경 MOC를 자동 포함하지 않는다.

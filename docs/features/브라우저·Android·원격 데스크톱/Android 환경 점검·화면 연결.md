@@ -8,6 +8,7 @@ updated: "2026-09-25"
 status_hash: "bed0a9e331155081546a5580d1b26a16663266c47fe7472e00f82e8352aff86c"
 files: ["src/components/AndroidPanel.tsx", "server/androidEnv.ts", "server/browserProxy.ts"]
 commits: []
+description: "Android SDK·가속·system image·AVD 상태 점검, 준비 명령 실행과 기존 WebRTC gateway 화면 연결을 다루는 기능 계약. 조회만으로 설치·다운로드·프로세스 시작을 하지 않는 경계를 설명한다."
 ---
 
 ## 요구사항

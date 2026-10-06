@@ -2,6 +2,7 @@
 title: "이전 Electron 배포·라이선스 검토"
 created: 2026-10-01
 updated: 2026-10-01
+description: "네이티브 호스트 전환 전 Electron·Chromium·VP8 배포물의 라이선스·고지·상업 이용 검토를 보존한다. 현재 배포 계약은 별도 문서를 따른다."
 ---
 
 # 이전 Electron 배포 검토

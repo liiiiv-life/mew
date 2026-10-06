@@ -2,6 +2,7 @@
 title: "Development setup and rules"
 created: 2026-09-29
 updated: 2026-10-06
+description: "개발 명령과 타입·테스트·린트 검증, 에이전트의 빌드·서버 실행 제한, 문서 갱신과 필수 UI 구현 규칙을 정한다."
 ---
 
 # Development
@@ -26,8 +27,10 @@ The mew repository does not use the shared documentation pre-commit hook. Its lo
 
 ```bash
 python3 ../.mew/docs/.github/scripts/check_repo_docs.py
-python3 ../.mew/docs/.github/scripts/check_doc_links.py --workspace
+node server/document-descriptions.ts --check --all
 ```
+
+The legacy workspace link checker still enforces MOC coverage and does not implement mew’s description policy. Use the description check above for this repository. Existing links must still be repaired when files move.
 
 The workspace hook installer can reconnect the shared hook. Remove that connection in mew with `git config --local --unset core.hooksPath`.
 
@@ -37,7 +40,7 @@ Browser tests under `server/` use the Node.js TypeScript configuration, which ex
 
 If a file edited from the terminal reverts unexpectedly, an open mew editor may have saved an older copy over it. Check the file again, then ask the user to close that editor or use **Revert File**.
 
-For feature work, start with the [feature map](../features/MOC.md), also available through **Features** in the dock in the mew project. Keep the feature's scope, detailed behavior, implementation notes, and acceptance criteria in the owning feature document; update linked shared contracts when they change. Follow the [feature documentation rules](../features/README.md).
+For feature work, select the owning current document from its frontmatter `description` using `node server/document-descriptions.ts`. Follow the [documentation rules](../README.md); MOC registration is optional. **Features** in the dock displays the existing document hierarchy. Keep the feature's scope, detailed behavior, implementation notes, and acceptance criteria in the owning feature document; update linked shared contracts when they change. Follow the [feature documentation rules](../features/README.md).
 
 ### Required UI rules
 

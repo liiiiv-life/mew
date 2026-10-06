@@ -2,6 +2,7 @@
 title: "Mew 기능 문서 정리 계획"
 created: 2026-09-18
 updated: 2026-10-06
+description: "Mew 기능을 Documents/features의 고정 ID·계층으로 정리하고 기존 명세를 통합한 계획·소유권·이전 대응·검증 기록을 남긴다."
 ---
 
 # Mew 기능 문서 정리 계획

@@ -1,3 +1,6 @@
+---
+description: "언어·글꼴·테마색·Dock·단축키 설정과 계정 관리, 서버 환경변수 우선순위 및 GitHub OAuth 설정을 안내한다."
+---
 # 환경변수와 계정 설정
 
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)

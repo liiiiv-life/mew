@@ -8,6 +8,7 @@ updated: "2026-10-03"
 status_hash: "5e176a299d57b0bec1327fb8a080e5dd0fa635c25be1fadb49b64e49a3afb1c7"
 files: ["src/components/agent-command-bubble.tsx", "server/agent-command-runner.ts", "server/agent-command-queue.ts"]
 commits: []
+description: "에이전트 대화에서 CLI 입력 모드와 ! 접두어로 셸 명령을 보내고 상태·중단·출력·다운로드를 확인하는 기능 계약. AI와 공통 큐의 순서, 실행 전 취소 및 메모리 보호 범위를 설명한다."
 ---
 
 ## 요구사항

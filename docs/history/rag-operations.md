@@ -1,10 +1,10 @@
 ---
 title: "mew 내장 RAG 운영"
-desc: "로컬 의미 검색의 데이터 수명주기·권한·복구 기준."
 created: 2026-08-21
 updated: 2026-09-28
 reviewed: 2026-08-21
 review-after-days: 90
+description: "제거 전 RAG의 원문·색인 저장 위치, 검색 경계·비용·복구·임베딩 초기화와 문서 탐색 비교 운영 절차를 보존한다."
 ---
 
 > 2026-09-28: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)에 따라 RAG를 제거했다. 아래는 당시 기록이며 현재 실행 지침이 아니다. 사용자 요청 없이 재도입·재색인·모델 다운로드를 재시도하지 않는다.

@@ -8,6 +8,7 @@ updated: "2026-09-25"
 status_hash: "0f0b4f100693e9172887fe664580e4df69853a9da651461c3a04302ef8bdf3ed"
 files: ["packages/editor/src/database/DbReferencePicker.tsx", "packages/editor/src/database/DatabaseView.tsx", "server/db/catalog.ts"]
 commits: []
+description: "기존 문서 데이터베이스와 외부 Postgres 테이블을 선택해 읽기 전용으로 참조하는 기능 계약. 원본 수정 금지와 연결·카탈로그·프로젝트 접근 경계를 설명한다."
 ---
 
 ## 요구사항

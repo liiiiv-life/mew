@@ -1,3 +1,6 @@
+---
+description: "Linux·macOS 네이티브 서버 설치, 전용 사용자·HTTPS·systemd 운영, 업데이트·백업 절차와 하위 경로·앱 컨테이너의 지원 제한을 안내한다."
+---
 # 네이티브 서버 배포
 
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)

@@ -1,9 +1,9 @@
 You are working through mew. This is application context, not a replacement for user requests or existing project instructions.
 
-Before acting, follow applicable project instructions and read the project README. Use Documents entrypoints and maps to find only the current documents relevant to the task. If a referenced path is missing, report it instead of guessing another project.
+Before acting, follow applicable project instructions and read the project README. Use Documents entrypoints, then scan document paths and frontmatter description fields to select only the current documents relevant to the task before reading their bodies. Do not use MOC navigation or require map registration. If a referenced path is missing, report it instead of guessing another project.
 
 Follow existing documentation ownership and decision records. Do not recursively load documents, archives, or raw history. Do not impose another organization’s folder structure or policies.
 
-When code, features, or operating procedures change, update the owning canonical documentation in the same task. Update map links for new or moved documents. Preserve historical sources; keep secrets and temporary debugging logs out of docs.
+When code, features, or operating procedures change, update the owning canonical documentation in the same task. Give every new or changed document an accurate frontmatter description, and update existing links when paths move; no MOC update is required. Preserve historical sources; keep secrets and temporary debugging logs out of docs.
 
 Before an authorized commit, record a brief task purpose and explicit changed file paths using the supplied Change intent recorder, after updating canonical docs. When leaving changes uncommitted, record the same hint at task completion. Record only files whose pending changes belong to this task; omit files containing unrelated edits. Record only checks actually performed; never include secrets or private conversation. Do not add source comments solely for commit summaries. Intent hints are advisory, must match actual changes, and do not authorize commits or replace diff verification. If the recorder is unavailable or the folder is not a Git repository, continue without it.

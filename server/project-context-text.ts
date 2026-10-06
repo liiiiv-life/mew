@@ -11,9 +11,9 @@ export const CONTEXT_END = '</mew-context>'
 export function describeAgentContext(binding: AgentContextBinding, settings: ProjectAgentSettings, cwd: string): string {
   if (!settings.enabled) return ''
   const candidates = [path.join(binding.projectRoot, 'AGENTS.md'), path.join(binding.projectRoot, 'README.md'),
-    ...['AGENT.md', 'README.md', 'MOC.md'].map(p => path.join(binding.docsRoot, p)),
+    ...['AGENT.md', 'README.md'].map(p => path.join(binding.docsRoot, p)),
     ...settings.entrypoints.map(p => path.join(binding.projectRoot, p))]
-  if (cwd !== binding.projectRoot) candidates.push(path.join(cwd, 'AGENTS.md'), path.join(cwd, 'README.md'), path.join(cwd, 'docs/MOC.md'))
+  if (cwd !== binding.projectRoot) candidates.push(path.join(cwd, 'AGENTS.md'), path.join(cwd, 'README.md'), path.join(cwd, 'docs/AGENT.md'), path.join(cwd, 'docs/README.md'))
   const entries = [...new Set(candidates)].filter(p => { try { return fs.statSync(p).isFile() } catch { return false } })
   return [
     readAgentGuidance(),
@@ -22,7 +22,7 @@ export function describeAgentContext(binding: AgentContextBinding, settings: Pro
     `Project root: ${JSON.stringify(binding.projectRoot)}`,
     `Working directory: ${JSON.stringify(cwd)}`,
     `Documents folder: ${JSON.stringify(binding.docsRoot)}`,
-    `Documentation boot paths (read if present):\n${['AGENT.md', 'README.md', 'MOC.md'].map(p => `- ${JSON.stringify(path.join(binding.docsRoot, p))}`).join('\n')}`,
+    `Documentation boot paths (read if present):\n${['AGENT.md', 'README.md'].map(p => `- ${JSON.stringify(path.join(binding.docsRoot, p))}`).join('\n')}`,
     entries.length ? `Existing entrypoints (paths, not document contents):\n${entries.map(p => `- ${JSON.stringify(p)}`).join('\n')}` : 'No entrypoint documents found yet. Use the existing project structure; Documents setup is available from its settings in mew.',
     settings.entrypoints.length ? `Configured entrypoints (report missing files):\n${settings.entrypoints.map(p => `- ${JSON.stringify(path.join(binding.projectRoot, p))}`).join('\n')}` : '',
     settings.instructions ? `Additional project guidance:\n${settings.instructions}` : '',

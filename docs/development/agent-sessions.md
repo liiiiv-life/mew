@@ -1,3 +1,6 @@
+---
+description: "프로젝트 안내 전달, 에이전트 세션·탭 원장·큐·재접속, Git AI Commit 작업과 CLI·메모리·뮤캣 통신의 서버 계약을 정의한다."
+---
 # 에이전트 세션과 통신 계약
 
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)

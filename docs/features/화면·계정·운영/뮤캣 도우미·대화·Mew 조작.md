@@ -7,6 +7,7 @@ created: "2026-09-30"
 updated: "2026-10-06"
 files: ["src/components/mewcat-assistant.tsx", "src/hooks/use-mewcat-assistant.ts", "server/mewcat-assistant.ts", "server/mewcat-mcp-stdio.ts", "src/App.tsx"]
 commits: []
+description: "뮤캣 팝업의 독립 에이전트 대화·스트리밍·중지·기록 초기화·복원과 자동 내장 MCP를 다루는 기능 계약. 프로젝트 생성·Documents 준비·화면 열기·작업 초안, 권한과 실제 UI 결과 확인을 설명한다."
 ---
 
 ## 요구사항

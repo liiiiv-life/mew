@@ -8,6 +8,7 @@ updated: "2026-09-27"
 status_hash: "a4d3adb2072291555b6bd681a8a5b7e3b9de108e056a15951673f169dd30caf7"
 files: ["packages/editor/src/editor/TableTooltip.tsx", "packages/editor/src/editor/TableCopyMenu.tsx", "server/tableLayout.ts"]
 commits: []
+description: "Markdown 표의 행·열 편집과 열 너비 조절, Markdown·CSV·이미지 복사를 다루는 기능 계약. 표 너비 저장 방식과 Postgres 문서 데이터베이스와의 구분을 설명한다."
 ---
 
 ## 요구사항

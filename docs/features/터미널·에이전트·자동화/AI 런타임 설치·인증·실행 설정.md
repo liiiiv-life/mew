@@ -8,6 +8,7 @@ updated: "2026-09-30"
 status_hash: "ce50d3fa70fce93520dfd200e419db9b718cebd2b370a52a9250e624fc80aed1"
 files: ["src/components/RuntimeSettingsModal.tsx", "src/components/agentRuntimes.tsx", "server/agentRuntimes.ts", "server/agentRuntimeInstall.ts", "server/agentDefaults.ts"]
 commits: []
+description: "지원 에이전트 런타임 선택·설치·제거·인증과 모델·노력도·권한 기본값을 다루는 기능 계약. ACP와 공식 CLI 표면 및 공급자별 설정·인증 지원 범위를 설명한다."
 ---
 
 ## 요구사항

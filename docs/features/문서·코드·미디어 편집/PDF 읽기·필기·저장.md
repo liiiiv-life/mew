@@ -8,6 +8,7 @@ updated: "2026-09-25"
 status_hash: "b749b40de63eb8c6d48b59612004c55dac7bc042f3883af412cbf26f08966f92"
 files: ["src/components/pdf-viewer.tsx", "src/components/pdf-page.tsx", "server/pdf.ts"]
 commits: []
+description: "PDF 페이지 이동·확대·텍스트 선택·전체화면과 펜·형광펜 주석을 다루는 기능 계약. 원본 저장·사본 다운로드, 파일 권한과 주석·실기기 제약을 설명한다."
 ---
 
 ## 요구사항

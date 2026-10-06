@@ -8,6 +8,7 @@ updated: "2026-09-28"
 status_hash: "834df5b74f90a8f7d616052f4adefcaf6f580bb94d9a5703cbf2c39ef63a0fe1"
 files: ["src/components/rag-panel.tsx", "server/rag/settings.ts", "server/rag/guidance.ts", "server/rag/cli.ts", "server/rag/index.ts", "server/rag/embeddings.ts", "server/rag/chunking.ts"]
 commits: []
+description: "2026-09-28 제거된 로컬 RAG의 기능 요구사항·색인·검색·설정·구현·검증을 보존한다. 현재 실행이나 모델 재다운로드 지침이 아니다."
 ---
 
 > 2026-09-28: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)에 따라 RAG를 제거했다. 아래는 당시 기록이며 현재 실행 지침이 아니다. 사용자 요청 없이 재도입·재색인·모델 다운로드를 재시도하지 않는다.

@@ -2,6 +2,7 @@
 title: "대화 저장과 구간 동기화"
 created: 2026-09-30
 updated: 2026-10-02
+description: "SQLite의 증분 대화 저장과 기존 JSON 이전, generation·순번 기반 구간 동기화, IndexedDB 캐시·화면 수명 및 측정 결과를 정의한다."
 ---
 
 # 대화 저장과 구간 동기화

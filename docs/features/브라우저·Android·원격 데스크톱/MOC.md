@@ -2,6 +2,7 @@
 title: "브라우저·Android·원격 데스크톱"
 created: 2026-09-18
 updated: 2026-10-04
+description: "서버 브라우저와 Android 환경 준비·gateway 화면 및 원격 데스크톱 입력 기능 문서를 연결하는 분야 소개와 화면용 링크 목록."
 ---
 
 # 브라우저·Android·원격 데스크톱

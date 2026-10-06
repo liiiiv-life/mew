@@ -8,6 +8,7 @@ updated: "2026-10-06"
 status_hash: "b19a2771f0bfb2f727bc14539350c69b524d222b67a2322b322f359fefd6a804"
 files: ["src/components/AgentPanel.tsx", "src/components/TermButtonBar.tsx", "server/termButtons.ts", "packages/tmux-term/src/TmuxTerminal.tsx", "packages/tmux-term/src/server/tmuxWs.ts"]
 commits: []
+description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·세션 종료와 명령 버튼을 다루는 기능 계약. 에이전트 TUI와의 구분, 테마 반영 및 패널 닫기와 세션 종료의 차이를 설명한다."
 ---
 
 ## 요구사항

@@ -10,6 +10,7 @@ files:
   - src/components/ChatPanel.tsx
   - server/chat.ts
 commits: []
+description: "로그인 멤버의 단체방·DM·읽지 않은 대화·메시지별 읽음과 파일 참조를 다루는 기능 계약으로, 사용자 판정은 수정 필요 상태다. 채팅 권한과 DM 전달 범위·서버 관리자 접근의 경계를 설명한다."
 ---
 
 ## 요구사항

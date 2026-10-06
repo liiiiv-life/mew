@@ -1,3 +1,6 @@
+---
+description: "프로젝트·하위 프로젝트 탭, 폴더 탐색·즐겨찾기·클라우드 바로가기·Documents, 파일 관리·GitHub·Git 작업 패널과 태스크 사용법을 안내한다."
+---
 # 프로젝트와 파일 탐색
 
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)

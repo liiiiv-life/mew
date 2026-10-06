@@ -7,6 +7,7 @@ created: "2026-09-30"
 updated: "2026-10-01"
 files: ["src/components/project-tasks.tsx", "server/project-tasks.ts", "server/project-task-routes.ts", "src/App.tsx"]
 commits: []
+description: "제거된 계층형 태스크 기능의 요구사항·상세 동작·구현·검증과 기존 JSON 보존 방침을 기록한다. 현재 평면 태스크와 구분한다."
 ---
 
 > 2026-10-01: 사용자 요청으로 태스크 패널과 API를 제거하고 [공통 메모 패널](../features/%ED%98%91%EC%97%85%C2%B7%EB%8C%93%EA%B8%80%C2%B7%EC%B1%84%ED%8C%85/%EA%B3%B5%ED%86%B5%20%EB%A9%94%EB%AA%A8.md)로 대체했다. 아래는 제거 전 기록이며 현재 기능이 아니다. 기존 `DATA_DIR/project-tasks-*.json`은 삭제하거나 메모로 자동 이전하지 않는다. 사용자 요청 없이 재도입하지 않는다.

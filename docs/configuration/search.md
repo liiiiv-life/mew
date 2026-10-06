@@ -1,3 +1,6 @@
+---
+description: "파일명·내용 검색과 치환의 단축키·정규식·프로젝트 범위·결과 제한, 에이전트 문서 탐색 및 제거된 RAG의 경계를 설명한다."
+---
 # 프로젝트 검색
 
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
@@ -13,7 +16,7 @@
 
 ## 문서 탐색
 
-에이전트는 README·MOC로 필요한 범위를 정하고 파일·기능명으로 일반 파일 검색을 사용한다. RAG 패널·API·로컬 CLI·모델·색인·자동 안내는 [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)에 따라 제거했다. 이전 브라우저의 독 순서에 남은 RAG는 무시하며 다른 항목 순서를 유지한다.
+에이전트는 README·지침을 확인한 뒤 각 문서의 YAML `description`과 경로로 필요한 범위를 정하고 관련 본문만 읽는다. `node server/document-descriptions.ts`는 본문을 출력하지 않는 목록을 만들며 MOC 등록은 필요하지 않다. [문서 규칙](../README.md)을 따른다. RAG 패널·API·로컬 CLI·모델·색인·자동 안내는 [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)에 따라 제거했다. 이전 브라우저의 독 순서에 남은 RAG는 무시하며 다른 항목 순서를 유지한다.
 
 기존 설치의 `MEW_DATA_DIR/rag/`와 `rag-settings.json`은 더 이상 읽거나 갱신하지 않는다. 실행 중인 설치의 데이터를 자동 삭제하지 않으며, 제거 버전을 적용한 뒤 필요하면 해당 잔여 파일만 정리할 수 있다. 사용자 요청 없이 RAG를 다시 도입하거나 색인·모델 다운로드를 재시도하지 않는다. [과거 운영 기록](../history/rag-operations.md)·[측정 결과](../research/document-discovery-benchmark.md)는 이력으로 보존한다.
 

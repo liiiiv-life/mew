@@ -78,3 +78,19 @@ test('a missing untracked path does not commit unrelated staged changes', async 
   assert.equal(await commitFile(project, 'missing.md', 'delete'), null)
   assert.equal((await git.diff(['--cached', '--name-only'])).trim(), 'unrelated.md')
 })
+
+
+test('a document commit leaves modified and staged MOC files outside the requested paths', async () => {
+  const { dir, git } = await repository('docs')
+  fs.writeFileSync(path.join(dir, 'note.md'), 'original note\n')
+  fs.writeFileSync(path.join(dir, 'MOC.md'), 'original map\n')
+  await git.add(['note.md', 'MOC.md'])
+  await git.commit('initial documents')
+  fs.writeFileSync(path.join(dir, 'note.md'), 'updated note\n')
+  fs.writeFileSync(path.join(dir, 'MOC.md'), 'unrelated map edit\n')
+  await git.add('MOC.md')
+  assert.ok(await commitFile('docs', 'note.md', 'update'))
+  assert.equal(await git.show(['HEAD:note.md']), 'updated note\n')
+  assert.equal(await git.show(['HEAD:MOC.md']), 'original map\n')
+  assert.equal((await git.diff(['--cached', '--name-only'])).trim(), 'MOC.md')
+})

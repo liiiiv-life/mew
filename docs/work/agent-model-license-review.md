@@ -2,6 +2,7 @@
 title: "Zed 외부 에이전트 비교와 Mew RAG 모델의 상업 이용 검토"
 created: 2026-09-14
 updated: 2026-09-15
+description: "Zed ACP 통합과 Mew 외부 에이전트·이전 RAG 모델·Electron의 상업 이용을 검토한 기록이다. 현재 인증 상태와 제거된 RAG는 후속 결정으로 구분한다."
 ---
 
 > 2026-09-28 후속: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)으로 RAG와 전용 모델·의존성을 제거했다. 아래 RAG 관련 구현·검토 항목은 당시 기록이며 현재 도입·배포 과제가 아니다.

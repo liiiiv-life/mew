@@ -86,6 +86,7 @@ test('Authenticated Mewcat websocket injects MCP into its supervisor and complet
   assert.equal(await answer, `프로젝트 준비 완료:${dir}/notes`)
   assert.deepEqual(actions, [{ kind: 'open_project', path: `${dir}/notes` }])
   assert.match(hostCwd, /data\/mewcat\//)
-  assert.match(fs.readFileSync(`${dir}/notes/docs/MOC.md`, 'utf8'), /문서 지도/)
+  assert.match(fs.readFileSync(`${dir}/notes/docs/README.md`, 'utf8'), /description/)
+  assert.equal(fs.existsSync(`${dir}/notes/docs/MOC.md`), false)
   assert.ok(events.includes('meta'))
 })

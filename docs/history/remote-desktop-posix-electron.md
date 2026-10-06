@@ -2,6 +2,7 @@
 title: "이전 Mac/Linux Electron 원격 데스크톱"
 created: 2026-10-01
 updated: 2026-10-01
+description: "Mac/Linux 네이티브 전환 전 Electron 화면 캡처와 OS별 입력·권한·설치·검증 계약을 보존한다. 현재 POSIX 호스트의 기준이 아니다."
 ---
 
 # 이전 Mac/Linux Electron 원격 데스크톱

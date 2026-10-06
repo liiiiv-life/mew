@@ -1,3 +1,6 @@
+---
+description: "재생성 가능한 브라우저 캐시의 예산·7일 수명·정리 시점과 초안·설정·열린 탭을 보존하는 저장소 계약을 정의한다."
+---
 # 브라우저 저장소와 자동 정리
 
 [문서 지도](../MOC.md) · [개발 계약](MOC.md) · [ADR 0133](../../../.mew/docs/decisions/0133-mew-browser-cache-budget-and-retention.md)

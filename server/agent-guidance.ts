@@ -33,11 +33,18 @@ export function ensureAgentGuidance(): string {
 
 /** No cache: edits apply to the next request. Preview alone does not create state. */
 export function readAgentGuidance(): string {
-  try { return fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8').trim() }
+  try { return currentDocumentationGuidance(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8').trim()) }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    return seed().toString('utf8').trim()
+    return currentDocumentationGuidance(seed().toString('utf8').trim())
   }
+}
+
+/** Update only the former default wording; handwritten guidance and stored settings stay intact. */
+function currentDocumentationGuidance(content: string): string {
+  return content
+    .replace('Use Documents entrypoints and maps to find only the current documents relevant to the task.', 'Use Documents entrypoints, then scan document paths and frontmatter description fields to select only the current documents relevant to the task before reading their bodies. Do not use MOC navigation or require map registration.')
+    .replace('Update map links for new or moved documents.', 'Give every new or changed document an accurate frontmatter description, and update existing links when paths move; no MOC update is required.')
 }
 
 export class GuidanceError extends Error {

@@ -18,6 +18,7 @@ test('title-based Markdown paths preserve body, properties and identity through 
     let file = path.join(workspace, tasks[0].path!)
     const parse = () => parseDocument(fs.readFileSync(file, 'utf8').split('---')[1]).toJS()
     assert.equal(parse().title, a.text)
+    assert.equal(parse().description, `태스크: ${a.text}`)
     assert.equal(parse().id, undefined)
     assert.equal(readTaskList(workspace)[0].id, a.id)
     assert.deepEqual(parse().tags, a.tags)
@@ -34,6 +35,7 @@ test('title-based Markdown paths preserve body, properties and identity through 
     assert.equal(fs.existsSync(oldFile), false)
     file = path.join(workspace, tasks[0].path!)
     assert.equal(parse().title, '새 제목')
+    assert.equal(parse().description, '태스크: 새 제목')
     assert.equal(parse().date, undefined)
     assert.equal(parse().custom, 'preserved')
     assert.ok(fs.readFileSync(file, 'utf8').endsWith('# 본문\n\n내용을 유지합니다.\n'))
@@ -186,7 +188,7 @@ test('title-based Markdown paths preserve body, properties and identity through 
     const propertyRoot = path.join(root, 'document-properties')
     let propertyTasks = changeTaskList(propertyRoot, taskChanges([], [a]))
     const propertyFile = path.join(propertyRoot, propertyTasks[0].path!)
-    const propertyRaw = '---\ntitle: "제목 #literal @literal"\ndone: "false"\ntags: ""\nstartDate: "2026-10-01"\ndate: "2026-10-06"\ncustom: keep # comment\n---\n원래 본문\n'
+    const propertyRaw = '---\ntitle: "제목 #literal @literal"\ndone: "false"\ntags: ""\nstartDate: "2026-10-01"\ndate: "2026-10-06"\ndescription: 직접 작성한 요약\ncustom: keep # comment\n---\n원래 본문\n'
     fs.writeFileSync(propertyFile, propertyRaw)
     propertyTasks = readTaskList(propertyRoot)
     assert.equal(propertyTasks[0].done, false)
@@ -198,6 +200,7 @@ test('title-based Markdown paths preserve body, properties and identity through 
     assert.equal(fs.readFileSync(propertyFile, 'utf8'), propertyRaw, 'reading text properties does not rewrite the document')
     propertyTasks = changeTaskList(propertyRoot, taskChanges(propertyTasks, propertyTasks.map(task => ({ ...task, done: true }))))
     assert.equal(propertyTasks[0].done, true)
+    assert.equal(parseDocument(fs.readFileSync(propertyFile, 'utf8').split('---')[1]).get('description'), '직접 작성한 요약')
     assert.ok(fs.readFileSync(propertyFile, 'utf8').includes('custom: keep # comment'))
     assert.ok(fs.readFileSync(propertyFile, 'utf8').endsWith('원래 본문\n'))
     for (const [rawTags, tags] of [['"작업"', ['작업']], ["'[작업, 검증]'", ['작업', '검증']], ["'[\"작업\",\"검증\"]'", ['작업', '검증']]] as const) {

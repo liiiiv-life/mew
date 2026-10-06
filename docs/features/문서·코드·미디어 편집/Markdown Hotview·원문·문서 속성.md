@@ -8,6 +8,7 @@ updated: "2026-10-05"
 status_hash: "2741d359b18c61eecb53b8ce0ba2862f0f42c088d7d02cf55c88a23d1d44a98e"
 files: ["packages/editor/src/editor/FrontmatterSelect.tsx", "server/frontmatter-options.ts", "src/hooks/useTabs.ts", "src/components/EditorPane.tsx", "src/components/markdown-error-boundary.tsx", "packages/editor/src/Editor.tsx", "packages/editor/src/editor/FrontmatterPanel.tsx", "src/components/TableOfContents.tsx"]
 commits: []
+description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유지, 체크박스·문서 목차·프론트매터 속성과 날짜·선택 필드 편집을 다루는 기능 계약. 모바일 키보드와 원문 저장 경계를 포함한다."
 ---
 
 ## 요구사항

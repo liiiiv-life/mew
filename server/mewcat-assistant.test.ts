@@ -36,7 +36,8 @@ test('Mewcat MCP isolates accounts, checks revoked access, awaits browser result
   await assert.rejects(binding.tool('mew_create_project', { parent: dir, name: 'notes' }))
   await assert.rejects(binding.tool('mew_create_project', { parent: dir, name: '../escape' }))
   await binding.tool('mew_setup_documents', { projectRoot: created.path })
-  assert.match(fs.readFileSync(path.join(created.path, 'docs/MOC.md'), 'utf8'), /문서 지도/)
+  assert.match(fs.readFileSync(path.join(created.path, 'docs/README.md'), 'utf8'), /description/)
+  assert.equal(fs.existsSync(path.join(created.path, 'docs/MOC.md')), false)
   fs.writeFileSync(path.join(created.path, 'README.md'), 'User project truth')
   await binding.tool('mew_setup_documents', { projectRoot: created.path })
   assert.equal(fs.readFileSync(path.join(created.path, 'README.md'), 'utf8'), 'User project truth')
@@ -118,7 +119,7 @@ new AgentSideConnection(conn=>({
 })
 
 test('Localized document templates preserve existing files and locale belongs to preview revision', () => {
-  for (const [locale, title] of [['en', 'Documentation map'], ['ko', '문서 지도'], ['ja', '文書マップ'], ['zh-CN', '文档地图']]) {
+  for (const [locale, title] of [['en', 'Documentation rules'], ['ko', '문서 관리'], ['ja', '文書管理'], ['zh-CN', '文档管理']]) {
     const root = path.join(dir, locale)
     fs.mkdirSync(root)
     fs.writeFileSync(path.join(root, 'README.md'), 'Existing README')
@@ -127,6 +128,13 @@ test('Localized document templates preserve existing files and locale belongs to
     assert.throws(() => applyProjectSetup({ ...input, locale: locale === 'en' ? 'ko' : 'en' }, plan.revision))
     applyProjectSetup(input, plan.revision)
     assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), 'Existing README')
-    assert.match(fs.readFileSync(path.join(root, 'docs/MOC.md'), 'utf8'), new RegExp(title))
+    assert.match(fs.readFileSync(path.join(root, 'docs/README.md'), 'utf8'), new RegExp(title))
+    assert.equal(fs.existsSync(path.join(root, 'docs/MOC.md')), false)
+    for (const file of ['AGENT.md', 'README.md']) {
+      const content = fs.readFileSync(path.join(root, 'docs', file), 'utf8')
+      assert.match(content, /^---\ndescription:/)
+      assert.match(content, /description/)
+      assert.doesNotMatch(content, /\]\(MOC\.md\)/)
+    }
   }
 })

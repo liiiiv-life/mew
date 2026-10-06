@@ -8,6 +8,7 @@ updated: "2026-10-06"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["src/components/Mewcat.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
+description: "자체 SVG 뮤캣의 색상·스킨·이동·끌기와 에이전트 작업·오류·자원 과부하 알림을 다루는 기능 계약. 데스크톱 알림·소리와 선택적 거대 뮤캣 휴식의 타이머·저장·입력 유지 규칙을 설명한다."
 ---
 
 ## 요구사항

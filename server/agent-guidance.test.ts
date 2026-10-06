@@ -133,3 +133,21 @@ test('subagent preferences preserve other guidance and reach each project withou
   assert.doesNotMatch(state.content, /mew:agent-setting:subagents|Delegate research only/)
   assert.equal(state.settings.language, 'ko')
 })
+
+
+test('description navigation replaces only former default guidance and does not inject legacy maps', () => {
+  const stored = 'Use Documents entrypoints and maps to find only the current documents relevant to the task.\nUpdate map links for new or moved documents.\nKeep my custom rules and maps unchanged.\n'
+  fs.writeFileSync(AGENT_GUIDANCE_PATH, stored)
+  const root = path.join(DATA_DIR, 'description-project')
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'docs/MOC.md'), '# Legacy map')
+  fs.writeFileSync(path.join(root, 'docs/README.md'), '# Rules')
+  const context = describeAgentContext({ projectRoot: root, docsRoot: path.join(root, 'docs') }, defaultAgentSettings(), root)
+  assert.match(context, /frontmatter description fields/)
+  assert.match(context, /no MOC update is required/)
+  assert.match(context, /Keep my custom rules and maps unchanged/)
+  assert.doesNotMatch(context, /docs\/MOC\.md/)
+  assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), stored, 'runtime migration must not rewrite custom state')
+  const explicit = describeAgentContext({ projectRoot: root, docsRoot: path.join(root, 'docs') }, { ...defaultAgentSettings(), entrypoints: ['docs/MOC.md'] }, root)
+  assert.match(explicit, /Configured entrypoints[\s\S]*docs\/MOC\.md/, 'explicit project choices stay reportable')
+})

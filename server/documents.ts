@@ -1,38 +1,14 @@
-import { representativeName } from '../shared/document-pages.ts'
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_PROJECT, DOCS_ROOT, resolveProjectPath } from './paths.ts'
+import { DEFAULT_PROJECT, resolveProjectPath } from './paths.ts'
 import { buildFrontmatter } from './frontmatter.ts'
 
 export class ConflictError extends Error {}
 
-// 폴더에 따라 MOC.md 또는 _MOC.md(정렬을 위해 언더스코어를 붙인 경우)를 쓴다
-const MOC_NAMES = ['_MOC.md', 'MOC.md']
-
-/** Walks up from relDir toward DOCS_ROOT looking for the nearest MOC file, falling back to the root one. */
-function findNearestMoc(relDir: string): string {
-  let dir = relDir
-  while (dir && dir !== '.') {
-    for (const name of [representativeName(dir), ...MOC_NAMES]) {
-      const candidate = path.join(dir, name)
-      if (fs.existsSync(path.join(DOCS_ROOT, candidate))) return candidate.split(path.sep).join('/')
-    }
-    dir = path.dirname(dir)
-  }
-  return 'MOC.md'
-}
-
-function appendMocLink(mocRelPath: string, targetRelPath: string, title: string) {
-  const mocAbs = path.join(DOCS_ROOT, mocRelPath)
-  const linkPath = path.relative(path.dirname(mocAbs), path.join(DOCS_ROOT, targetRelPath)).split(path.sep).join('/')
-  const content = fs.readFileSync(mocAbs, 'utf-8')
-  fs.writeFileSync(mocAbs, content.replace(/\s*$/, '') + `\n- [${title}](${linkPath})\n`, 'utf-8')
-}
-
 /**
  * 입력한 경로로 새 파일 생성. 마크다운 이외에는 빈 파일을 만든다.
  * 마크다운은 docs에서 SSoT 규칙대로 frontmatter(title은 본문 H1이 아니라 여기)와
- * 가장 가까운 MOC 등록까지, 다른 프로젝트는 H1만 있는 평범한 마크다운으로 만든다.
+ * description을 생성한다. 기존 MOC는 수정하지 않는다.
  */
 export function createDocument(project: string, relPath: string, title: string): { relPath: string; mocRelPath: string | null } {
   const abs = resolveProjectPath(project, relPath)
@@ -47,10 +23,7 @@ export function createDocument(project: string, relPath: string, title: string):
     return { relPath, mocRelPath: null }
   }
   fs.writeFileSync(abs, buildFrontmatter(title), 'utf-8')
-  const candidate = findNearestMoc(path.dirname(relPath))
-  const mocRelPath = fs.existsSync(path.join(DOCS_ROOT, candidate)) ? candidate : null
-  if (mocRelPath) appendMocLink(mocRelPath, relPath, title)
-  return { relPath, mocRelPath }
+  return { relPath, mocRelPath: null }
 }
 
 /** Creates an empty directory (a no-op in git until it holds a tracked file). */

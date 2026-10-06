@@ -1,3 +1,6 @@
+---
+description: "/db Postgres 표의 컬럼·셀·협업·전체 DB 팝업과 읽기 전용 참조, 프로젝트 격리·선택적 Postgres 실행·보안 경계를 안내한다."
+---
 # 표 데이터베이스 (/db)
 
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)

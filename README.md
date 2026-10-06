@@ -10,3 +10,5 @@ Runs on Linux, macOS, and Windows through WSL 2.
 - [English](docs/guides/getting-started-en.md)
 - [简体中文](docs/guides/getting-started-zh.md)
 - [日本語](docs/guides/getting-started-ja.md)
+
+Documentation discovery and authoring: [documentation rules](docs/README.md).
