@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { DATA_DIR } from './dataDir.ts'
@@ -13,13 +13,28 @@ const destination = path.join(DATA_DIR, 'debuggers', `js-debug-${JS_DEBUG_VERSIO
 export const jsDebugEntry = path.join(destination, 'js-debug', 'src', 'dapDebugServer.js')
 let installing: Promise<string> | null = null
 export async function jsDebugInstalled() { return fs.stat(jsDebugEntry).then(stat => stat.isFile(), () => false) }
+/** Keep the standalone CommonJS bundle independent of the parent project's module type. */
+export async function prepareJsDebugPackage(directory = path.dirname(path.dirname(jsDebugEntry))) {
+  const file = path.join(directory, 'package.json')
+  let manifest: Record<string, unknown> = { private: true }
+  try { manifest = JSON.parse(await fs.readFile(file, 'utf8')) } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) throw new Error('js-debug package.json 형식이 올바르지 않습니다')
+  if (manifest.type === 'commonjs') return
+  const temporary = `${file}.tmp-${randomUUID()}`
+  try {
+    await fs.writeFile(temporary, JSON.stringify({ ...manifest, type: 'commonjs' }, null, 2) + '\n', { mode: 0o600 })
+    await fs.rename(temporary, file)
+  } finally { await fs.rm(temporary, { force: true }) }
+}
 export function installJsDebug(): Promise<string> {
   if (installing) return installing
   installing = install().finally(() => { installing = null })
   return installing
 }
 async function install() {
-  if (await jsDebugInstalled()) return jsDebugEntry
+  if (await jsDebugInstalled()) { await prepareJsDebugPackage(); return jsDebugEntry }
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-js-debug-'))
   try {
     const response = await fetch(asset, { signal: AbortSignal.timeout(60000) })
@@ -39,6 +54,7 @@ async function install() {
     await fs.mkdir(unpacked)
     await exec('tar', ['-xzf', archive, '-C', unpacked, '--no-same-owner', '--no-same-permissions'], { timeout: 15000 })
     await fs.access(path.join(unpacked, 'js-debug', 'src', 'dapDebugServer.js'))
+    await prepareJsDebugPackage(path.join(unpacked, 'js-debug'))
     await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
     // Copy across filesystems into a temporary sibling; only publish a complete install.
     const staging = `${destination}.tmp-${process.pid}`

@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { RequestAuth } from './reqAuth.ts'
 import { getUser } from './auth.ts'
 import { accessChanges, canUse, unrestrictedWorkspaceFiles } from './access-policy.ts'
+import { jsDebugEntry, prepareJsDebugPackage } from './debugger-install.ts'
 import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
 import { DapConnection } from './debugger-dap.ts'
 import { defaultDebugConfig, type DebugConfig, type DebugSnapshot } from '../shared/debugger.ts'
@@ -169,6 +170,7 @@ export class DebugSession {
     if (this.account) { this.permissionTimer = setInterval(this.recheckPermission, 5000); this.permissionTimer.unref(); accessChanges.on('change', this.recheckPermission) }
     this.starting = true; this.snapshot = { ...idleDebugSnapshot(), id: randomUUID(), state: 'starting' }
     try {
+      if (this.config.kind === 'js-debug' && this.config.args[0] && path.resolve(this.root, this.config.args[0]) === path.resolve(jsDebugEntry)) await prepareJsDebugPackage()
       let client: DapConnection
       if (this.config.transport === 'stdio') {
         const process = this.process(this.config.command, this.config.args)
@@ -188,7 +190,11 @@ export class DebugSession {
               }
               process.stdout!.on('data', data)
               process.once('error', error => { clearTimeout(timer); reject(error) })
-              process.once('exit', () => { clearTimeout(timer); reject(new Error('어댑터가 연결 전에 종료되었습니다')) })
+              process.once('close', (code, signal) => {
+                clearTimeout(timer)
+                const detail = this.snapshot.output.split('\n').map(line => line.trim()).filter(line => line && line.length <= 1024).slice(-8).join('\n').slice(-2000)
+                reject(new Error(`어댑터가 연결 전에 종료되었습니다 (${signal ?? `종료 코드 ${code}`}):${detail ? `\n${detail}` : ' 실행 파일과 인수를 확인하세요.'}`))
+              })
             })
           }
           process.stdout!.on('data', chunk => this.output(chunk.toString()))

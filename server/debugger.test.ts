@@ -96,3 +96,13 @@ test('real js-debug adapter supports child sessions, breakpoints, stack and eval
   await session.stop()
   assert.equal(session.snapshot.state, 'terminated')
 })
+
+test('adapter startup failures report exit code and drained stderr', async t => {
+  const { DebugSession } = await import('./debugger.ts')
+  const config = { ...defaultDebugConfig('custom', os.tmpdir()), transport: 'tcp' as const, command: process.execPath, args: ['-e', "process.stderr.write('fixture startup failed\\n'); process.exit(7)"] }
+  const session = new DebugSession(config, os.tmpdir())
+  t.after(() => session.stop())
+  await assert.rejects(session.start(true), /종료 코드 7.*\nfixture startup failed/)
+  assert.equal(session.snapshot.state, 'error')
+  assert.match(session.snapshot.reason, /fixture startup failed/)
+})

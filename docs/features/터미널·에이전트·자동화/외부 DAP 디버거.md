@@ -7,7 +7,7 @@ created: "2026-10-07"
 updated: "2026-10-07"
 files: ["src/components/debugger-panel.tsx", "src/components/debugger-settings.tsx", "server/debugger.ts", "server/debugger-dap.ts", "server/debugger-routes.ts"]
 commits: []
-description: "선택 설치하는 외부 DAP 디버거의 설정 탭·독 패널·계정별 세션, 브레이크포인트·스텝 실행·스택·변수·고정 감시와 설치·권한·검증 범위를 정의한다."
+description: "선택 설치하는 외부 DAP 디버거의 설정 탭·독 패널·계정별 세션, 브레이크포인트·스텝 실행·스택·변수·고정 감시와 CommonJS 설치 격리·기존 설치 보정·시작 오류 진단과 권한·검증 범위를 정의한다."
 ---
 
 ## 요구사항
@@ -18,7 +18,7 @@ description: "선택 설치하는 외부 DAP 디버거의 설정 탭·독 패널
 
 - **설정 → 디버거**에서 어댑터, 서버 실행 파일, 인수(JSON 문자열 배열), stdio/TCP, TCP 포트, launch/attach, 실행 설정(JSON 객체)을 관리한다. 저장·연결 테스트·디버거 열기를 제공한다. 설정과 브레이크포인트·고정 표현식은 계정과 현재 프로젝트 루트별로 저장한다.
 - js-debug(JavaScript/TypeScript/Node.js), debugpy(Python), LLDB DAP와 CodeLLDB(C/C++/Rust), Delve(Go), 사용자 지정 DAP의 프리셋을 제공한다. 실제 지원 언어·실행 설정은 해당 어댑터의 계약을 따른다.
-- **js-debug 설치**는 Microsoft 공식 standalone DAP 릴리스 `1.140.0`을 사용한다. 버튼을 누를 때만 내려받고 SHA-256·크기·압축 경로·파일 종류를 검사한 뒤 데이터 폴더의 `debuggers/js-debug-1.140.0/`에 배치한다. VS Code/VSIX나 IDE를 설치하지 않는다. 설치 완료 시 서버의 Node 실행 경로와 어댑터 경로를 해당 계정 설정에 반영한다. 설치에는 서버의 HTTPS 접근과 `tar`가 필요하다.
+- **js-debug 설치**는 Microsoft 공식 standalone DAP 릴리스 `1.140.0`을 사용한다. 버튼을 누를 때만 내려받고 SHA-256·크기·압축 경로·파일 종류를 검사한 뒤 데이터 폴더의 `debuggers/js-debug-1.140.0/`에 배치한다. VS Code/VSIX나 IDE를 설치하지 않는다. 설치 완료 시 서버의 Node 실행 경로와 어댑터 경로를 해당 계정 설정에 반영한다. 설치에는 서버의 HTTPS 접근과 `tar`가 필요하다. standalone 번들은 CommonJS이므로 어댑터 루트에 `package.json`의 `type: commonjs`를 명시해 상위 mew 프로젝트의 `type: module`을 상속하지 않게 한다. 기존 package.json의 다른 메타데이터는 유지한다. 기존 설치도 설치 버튼 또는 관리형 어댑터 세션 시작 시 다시 다운로드하지 않고 모듈 경계를 보정한다.
 - 나머지 어댑터는 서버에 별도로 설치하고 경로·인수를 설정한다. CodeLLDB는 `codelldb --port 56789`, Delve는 `dlv dap --listen=127.0.0.1:56789`, debugpy는 `python3 -m debugpy.adapter`, LLDB DAP는 `lldb-dap` 프리셋을 제공한다. 다른 TCP 디버거와 함께 쓸 때 포트를 변경한다.
 - TCP는 `127.0.0.1`에만 연결한다. 실행 파일을 비우면 이미 실행 중인 loopback DAP 서버에 연결한다. 관리형 js-debug는 `0` 포트로 시작하고 stdout에서 실제 포트를 감지한다. 파일 경로는 **mew 서버** 기준이며 소스와 디버깅 대상도 서버에 있어야 한다.
 
@@ -48,17 +48,22 @@ Node.js 실행 설정 예:
 
 ### 구현과 경계
 
-- HTTP `/api/debugger` 아래 설정 조회·저장, 설치, 연결 테스트, 세션 시작·종료, 허용된 DAP 명령을 제공한다. 현재 프로젝트 헤더를 검사하며 명령·종료는 세션 ID도 비교한다. 계정·프로젝트별 설정 파일은 데이터 폴더에 원자적으로 저장한다.
+- HTTP `/api/debugger` 아래 설정 조회·저장, 설치, 연결 테스트, 세션 시작·종료, 허용된 DAP 명령을 제공한다. 현재 프로젝트 헤더를 검사하며 명령·종료는 세션 ID도 비교한다. 계정·프로젝트별 설정 파일은 데이터 폴더에 원자적으로 저장한다. 어댑터가 TCP 포트를 알리기 전에 종료되면 stderr가 닫힐 때까지 기다려 종료 코드·시그널과 최근 오류 줄을 반환한다. 긴 번들 소스 줄은 오류 요약에서 제외하고 요약은 2,000자로 제한한다.
 - DAP 헤더의 바이트 길이와 분할된 UTF-8 프레임을 처리하고 요청 시간 제한·연결 종료 거부를 제공한다. js-debug의 `startDebugging` 역방향 요청은 같은 어댑터에 별도 자식 연결을 만들어 처리한다. `runInTerminal`은 셸 문자열 해석 없이 argv로 실행하며 관리 프로세스로 추적한다.
 - owner·manager, 터미널 기능, 해당 프로젝트 전체 파일 읽기·수정 권한이 필요하다. 실행·설치는 서버 OS 권한으로 동작한다. 접속 중 정책 변경과 5초 주기 검사에서 실행 중인 세션을 재검증한다. 자세한 권한 경계는 [계정별 기능·파일 권한](../../development/access-control.md)을 따른다.
 - 출력은 최근 64,000자로 제한한다. DAP 메시지는 8MiB, 세션의 연결 수는 16개, 보관 세션은 서버 전체 64개, 브레이크포인트는 설정당 200개, 고정 표현식은 64개로 제한한다. 스택은 40개, 각 변수 조회는 200개까지 표시한다. 변수 값 수정, 임의 DAP 요청, 역방향 디버깅, 자동 언어 런타임 설치는 제공하지 않는다.
 
 ### 확인 기준과 검증
 
-- `server/debugger.test.ts`: UTF-8 분할·다중 메시지·요청 시간 초과·과대 헤더 거부, 초기화/구성 순서, 스택·변수·스텝·감시, 브레이크포인트 삭제와 계정·프로젝트별 저장을 검증한다.
+- `server/debugger-install.test.ts`: `type: module` 프로젝트 내부 설치에서 발생하는 CommonJS 실행 실패를 재현하고 설치 재사용·메타데이터 보존·세션 시작 시 기존 설치 보정을 검증한다.
+- `server/debugger.test.ts`: UTF-8 분할·다중 메시지·요청 시간 초과·과대 헤더 거부, 초기화/구성 순서, 스택·변수·스텝·감시, 브레이크포인트 삭제와 계정·프로젝트별 저장과 조기 종료 시 코드·stderr 진단을 검증한다.
 - `server/debugger-routes.test.ts`: 역할·터미널·전체 파일 권한, 프로젝트/세션 불일치, 계정·프로젝트 분리, 잘못된 설정 보존·실행 중 모드 변경 거부·권한 회수 시 세션 정리를 검증한다.
 - `server/debugger-ui.test.ts`: 앱 번들을 만들지 않는 격리 브라우저 픽스처로 데스크톱 다크/320px 모바일 라이트의 설정 오류·연결 테스트·패널 시작·스텝·변경 우선 표시·핀·종료를 확인한다.
 - 2026-10-07: 임시 데이터 폴더에 공식 js-debug standalone을 설치하고 실제 Node.js 프로그램의 자식 DAP 세션·브레이크포인트·스택·변수 평가·계속 실행·종료를 검증했다. 실어댑터 테스트는 `MEW_TEST_JS_DEBUG`에 임시 설치의 `js-debug/src/dapDebugServer.js` 경로를 지정하면 실행한다.
 - Python·LLDB·CodeLLDB·Go는 연결 프리셋과 공통 DAP 경로를 제공하며 각 실제 언어 환경의 실행 검증은 아직 수행하지 않았다.
 
 공식 계약: [DAP](https://microsoft.github.io/debug-adapter-protocol/overview.html), [js-debug](https://github.com/microsoft/vscode-js-debug), [debugpy](https://github.com/microsoft/debugpy), [CodeLLDB](https://github.com/vadimcn/codelldb), [Delve DAP](https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_dap.md).
+
+### 2026-10-07 설치 위치에 따른 연결 실패 수정
+
+최초 실제 어댑터 검증은 임시 폴더에서 실행해 mew 내부 `.data` 설치가 상위 ES 모듈 설정을 상속하는 조건을 놓쳤다. 내부 설치의 조기 종료를 재현한 뒤 CommonJS 패키지 경계를 추가하고 기존 설치를 보정했다. 실제 내부 설치 경로로 Node.js 브레이크포인트·스택·변수 평가·계속 실행·일시정지·종료를 다시 검증했다. 회귀 테스트로 같은 설치 조건을 유지한다.
