@@ -3660,7 +3660,7 @@ function AgentSessionView({
             const actionSpace = canStop ? 30 : 0
             return (
               <div key={item.key} className="rounded-lg rounded-tl-none border border-edge bg-surface">
-                <div data-agent-turn-header className={`min-h-9 ${open ? 'sticky -top-3 z-10 flex items-center rounded-tr-lg border-b border-edge bg-surface' : 'relative'}`}>
+                <div data-agent-turn-header className={`min-h-9 ${open ? 'sticky -top-3 z-20 flex items-center rounded-tr-lg border-b border-edge bg-surface' : 'relative'}`}>
                   <button
                     type="button"
                     aria-expanded={open}
