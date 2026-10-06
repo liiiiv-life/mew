@@ -32,6 +32,8 @@ updated: "2026-10-06"
 
 - [mew 중계 기능 만들기 — 계정 기반 P2P 원격 접속 설계 · 미구현](<tasks/mew 중계 기능 만들기.md>)
 
+- [desc 목록·MOC 문서 탐색 비용 비교 — 실제 AI 측정](research/desc-moc-benchmark.md)
+
 - [원격 데스크톱 지연·대역폭 개선 연구 — 기준 조사](research/remote-desktop-latency.md)
 
 - [원격 데스크톱 최초 화면 표시 시간 단축 연구 — 일부 구현](research/remote-desktop-startup.md)
