@@ -124,7 +124,7 @@
 .task-tag-name { min-width: 0; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-tag:has(.task-tag-remove) .task-tag-name { padding-right: 2px; }
 button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 2px; }
-.task-tag-remove { display: inline-flex; align-items: center; justify-content: flex-start; width: 20px; height: 20px; border-radius: 0 9px 9px 0; color: inherit; }
+.task-tag-remove { display: inline-flex; align-items: center; justify-content: flex-start; width: 18px; height: 20px; border-radius: 0 9px 9px 0; color: inherit; }
 .task-tag-remove:hover { background: hsl(var(--task-tag-hue) 65% 25% / .12); }
 .dark .task-tag { background: hsl(var(--task-tag-hue) 40% 23%); color: hsl(var(--task-tag-hue) 85% 86%); }
 .dark .task-tag-remove:hover { background: hsl(var(--task-tag-hue) 85% 86% / .12); }
@@ -161,7 +161,6 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
 .task-gantt-inspector > .task-text { margin-bottom: 8px; }
 .task-draft[data-empty]:not(:focus-within) .task-text { min-height: 28px; }
 @media (pointer: coarse) {
-  .task-tag-remove { width: 24px; }
   .task-tags button { position: relative; }
   .task-tags button::before { content: ''; position: absolute; inset: -4px 0; }
   .task-tag-suggestions > button { min-height: 40px; }
