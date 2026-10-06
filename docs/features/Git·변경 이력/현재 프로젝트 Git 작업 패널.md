@@ -8,7 +8,7 @@ updated: "2026-10-06"
 status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
 files: ["src/components/GitWorkbench.tsx", "src/components/git-branch-picker.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-commit-analysis.ts", "server/git-commit-packets.ts", "server/git-diff-codec.ts", "server/git-change-intent.ts", "server/git-change-intent-cli.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
-description: "현재 프로젝트의 변경 파일·diff·커밋 그래프, 선택 변경 커밋·취소, 브랜치 전환과 Pull·Push를 다루는 기능 계약. 계정 연결과 AI 작업 단위 커밋의 승인·범위·복원 규칙을 포함한다."
+description: "현재 프로젝트의 변경 파일 와일드카드 검색·diff·커밋 그래프, 선택 변경 커밋·취소, 브랜치 전환과 Pull·Push를 다루는 기능 계약. 계정 연결과 AI 작업 단위 커밋의 승인·범위·복원 규칙을 포함한다."
 ---
 
 ## 요구사항
@@ -20,6 +20,9 @@ description: "현재 프로젝트의 변경 파일·diff·커밋 그래프, 선�
 ### 범위
 
 - 커밋 그래프·변경 파일·diff, 체크한 파일의 작업트리 내용 커밋을 제공한다.
+- Changes(변경사항) 제목 오른쪽의 검색창에서 변경 파일을 즉시 필터링한다. 일반 입력은 대소문자를 구분하지 않는 경로 부분 검색이며, `*`는 경로 구분자를 포함한 0개 이상의 문자, `?`는 한 문자를 뜻한다. 와일드카드는 전체 상대 경로 또는 파일명과 일치해야 한다. 이름 변경 파일은 이전 경로도 검색한다. 예: `*.tsx`, `src/*`, `file-?.ts`.
+- 검색창은 기존 헤더 높이 안에 검색 아이콘·입력·결과 개수·지우기 버튼을 정렬하고 테마색 포커스 테두리를 적용한다. 좁은 패널에서는 검색 아이콘·결과 개수를 숨겨 입력 공간과 작업 버튼을 확보한다. X 또는 입력 중 Esc로 검색을 지우며 결과가 없으면 별도 빈 결과 상태를 표시한다.
+- 검색은 기존 선택과 커밋 초안을 유지한다. 전체 선택/해제와 드래그 선택은 표시된 검색 결과에만 적용하고 숨겨진 파일의 선택은 보존한다. 헤더의 선택 개수·커밋·AI 커밋·변경 취소는 숨겨진 선택까지 포함한 기존 전체 선택을 사용한다. diff 왕복·자동 새로고침·패널 닫기/재열기에도 검색을 유지하며 프로젝트·저장소를 바꾸면 초기화한다.
 - 변경 파일 마크는 추가·새 파일(`A`·`?`) 초록, 삭제(`D`) 빨강, 변경·타입 변경(`M`·`T`) 노랑, 이름 변경·복사(`R`·`C`) 보라, 충돌(`U`) 빨강으로 구분한다. 복합 상태는 문자마다 색상을 적용하며 상태 문자와 원본 상태 툴팁을 유지한다.
 - diff 헤더에서 파일명을 작게 표시하고 문서 아이콘으로 해당 파일을 에디터에서 연다.
 - 모바일 뒤로가기는 패널과 내부 화면을 함께 복원한다. `Git 목록 → diff → 에디터` 이동 후 두 번 뒤로가면 같은 파일의 `diff → Git 목록` 순서로 돌아간다. 커밋 상세·과거 커밋 diff도 방문 순서로 복원하며, 화면 안의 뒤로가기 버튼은 같은 이력을 소비한다.
@@ -110,6 +113,8 @@ description: "현재 프로젝트의 변경 파일·diff·커밋 그래프, 선�
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
+
+- 2026-10-06: 변경 파일 검색의 부분 일치·대소문자·와일드카드·이름 변경 전 경로를 단위 검사로 확인했다. Git 패널 Chromium 회귀에서 결과 수·검색 결과만 전체 선택/해제·숨겨진 선택 보존·diff 왕복·빈 결과·Esc/X 초기화와 320px 입력·작업 버튼 배치를 확인했다. PC·모바일 캡처와 타입·대상 lint·UI detector·문서 description·경계 검사를 통과했다. 빌드·서버 재시작은 수행하지 않았다.
 
 - 2026-10-06: 서버·번역·권한·Git 패널 Chromium 총 13개 검사를 통과했다. 선택 범위 밖 stage 보존, 삭제·이름 변경·새 파일·최초 커밋 전 취소, 잘못된 경로/폴더/미선택 원래 경로 거부, workspace·권한 차단, 확인 전 무요청·취소·Esc·실패 후 선택 유지·성공 후 목록 갱신을 확인했다. PC·모바일 확인창 캡처와 타입·대상 lint·UI detector·문서 경계/링크 검사도 통과했다.
 ## 검증

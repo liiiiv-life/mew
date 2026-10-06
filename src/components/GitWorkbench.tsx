@@ -4,8 +4,9 @@ import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page, SendDiagonal, Undo, Xmark } from 'iconoir-react'
+import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page, Search, SendDiagonal, Undo, Xmark } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
+import { filterGitChanges } from '../utils/git-change-filter'
 import type { GitWorkbenchNavigation, GitWorkbenchView } from '../utils/git-workbench-navigation'
 import { GitBranchPicker } from './git-branch-picker'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
@@ -427,6 +428,10 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   const [actionRunning, setActionRunning] = useState(false)
   const busy = committing || actionRunning || remoteAction !== null
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
+  const [changeQuery, setChangeQuery] = useState('')
+  const changeSearchRef = useRef<HTMLInputElement>(null)
+  const filteredFiles = useMemo(() => filterGitChanges(workingTree.files, changeQuery), [workingTree.files, changeQuery])
+  const filteredSelectedCount = filteredFiles.filter(file => selectedFiles.has(file.path)).length
   const [commitTitle, setCommitTitle] = useState('')
   const [commitDescription, setCommitDescription] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
@@ -473,6 +478,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
     setCommitDescription('')
     setComposerOpen(false)
     setSelectedFiles(new Set())
+    setChangeQuery('')
     setSplitRatio(0.2)
     setAiOpen(false)
     void refresh(true)
@@ -813,11 +819,36 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
             </section>
             <GitSplitHandle ratio={splitRatio} onChange={setSplitRatio} composerOpen={composerOpen} />
             <section aria-label={uiText("현재 변경사항")} className="flex min-h-0 flex-col overflow-hidden" style={{ flex: `${1 - splitRatio} 1 0`, minHeight: `min(${composerOpen ? 224 : CHANGES_MIN_HEIGHT}px, 75%)` }}>
-              <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge px-3 text-xs">
-                <input type="checkbox" aria-label={uiText("변경 파일 전체 선택")} checked={workingTree.files.length > 0 && selectedFiles.size === workingTree.files.length} ref={node => { if (node) node.indeterminate = selectedFiles.size > 0 && selectedFiles.size < workingTree.files.length }} disabled={busy || workingTree.files.length === 0} onChange={event => setSelectedFiles(new Set(event.target.checked ? workingTree.files.map(file => file.path) : []))} className="h-4 w-4 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
-                <span className="shrink-0 whitespace-nowrap tabular-nums text-ink-muted"><span role="status" aria-label={uiText("{count}개 선택", { count: selectedFiles.size })}>{selectedFiles.size}</span> / {workingTree.files.length}</span>
-                <span className="min-w-0 truncate font-medium text-ink">{uiText("변경사항")}</span>
-                <HoverTipLayer className="ml-auto flex shrink-0 items-center gap-1.5">
+              <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-edge px-2 text-xs @min-[400px]:px-3">
+                <input type="checkbox" aria-label={uiText("변경 파일 전체 선택")} checked={filteredFiles.length > 0 && filteredSelectedCount === filteredFiles.length} ref={node => { if (node) node.indeterminate = filteredSelectedCount > 0 && filteredSelectedCount < filteredFiles.length }} disabled={busy || filteredFiles.length === 0} onChange={event => {
+                  const checked = event.target.checked
+                  setSelectedFiles(current => {
+                    const next = new Set(current)
+                    for (const file of filteredFiles) { if (checked) next.add(file.path); else next.delete(file.path) }
+                    return next
+                  })
+                }} className="h-4 w-4 shrink-0 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
+                <span className="shrink-0 whitespace-nowrap text-[10px] tabular-nums text-ink-muted"><span role="status" aria-label={uiText("{count}개 선택", { count: selectedFiles.size })}>{selectedFiles.size}</span> / {workingTree.files.length}</span>
+                <span className="shrink-0 font-medium text-ink">{uiText("변경사항")}</span>
+                <HoverTipLayer className="flex h-7 min-w-0 max-w-80 flex-1 items-center gap-1 rounded border border-edge bg-surface-deep px-1.5 text-ink-muted focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/20">
+                  <Search width={12} height={12} aria-hidden="true" className="hidden shrink-0 @min-[400px]:block" />
+                  <input ref={changeSearchRef} type="text" role="searchbox" value={changeQuery} onChange={event => setChangeQuery(event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Escape' && !event.nativeEvent.isComposing && changeQuery) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        setChangeQuery('')
+                      }
+                    }}
+                    aria-label={uiText("변경 파일 검색")} placeholder={uiText("검색")} title={uiText("파일 경로 검색 (*, ?)")} autoComplete="off" spellCheck={false}
+                    className="h-full w-full min-w-0 flex-1 bg-transparent text-[11px] text-ink outline-none placeholder:text-ink-muted" />
+                  {changeQuery.trim() && <span role="status" aria-label={uiText("{count}개 표시", { count: filteredFiles.length })} className="hidden shrink-0 text-[10px] tabular-nums @min-[480px]:inline">{filteredFiles.length}</span>}
+                  {changeQuery && <button type="button" onClick={() => { setChangeQuery(''); changeSearchRef.current?.focus() }} aria-label={uiText("검색 지우기")} data-tip={uiText("검색 지우기")}
+                    className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+                    <Xmark width={12} height={12} aria-hidden="true" />
+                  </button>}
+                </HoverTipLayer>
+                <HoverTipLayer className="ml-auto flex shrink-0 items-center gap-1">
                   <button type="button" onClick={() => void discard()} disabled={busy || selectedFiles.size === 0} aria-label={uiText('선택한 변경사항 취소')} data-tip={uiText('선택한 변경사항 취소')} className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-edge-strong text-ink-secondary hover:bg-surface-hover hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40">
                     <Undo width={14} height={14} aria-hidden="true" />
                   </button>
@@ -834,7 +865,9 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
                 </HoverTipLayer>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-scroll="changes">
-                <ChangedFiles compact files={workingTree.files} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />
+                {changeQuery.trim() && filteredFiles.length === 0
+                  ? <div role="status" className="px-3 py-5 text-center text-xs text-ink-muted">{uiText("검색 결과가 없습니다.")}</div>
+                  : <ChangedFiles compact files={filteredFiles} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />}
               </div>
               {composerOpen && <GitComposer id={commitFormId} onSubmit={() => { void commit() }}>
                 <HoverTipLayer className="flex shrink-0 items-center gap-1.5">

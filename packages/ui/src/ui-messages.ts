@@ -138,6 +138,10 @@ export const uiMessages = {
 
   "브랜치 선택": ["Select branch", "选择分支", "ブランチを選択"],
   "브랜치 검색": ["Search branches", "搜索分支", "ブランチを検索"],
+  "변경 파일 검색": ["Search changed files", "搜索更改的文件", "変更ファイルを検索"],
+  "파일 경로 검색 (*, ?)": ["Search file paths (*, ?)", "搜索文件路径 (*, ?)", "ファイルパスを検索 (*, ?)"],
+  "검색 지우기": ["Clear search", "清除搜索", "検索をクリア"],
+  "{count}개 표시": ["{count} shown", "显示 {count} 个", "{count}件表示"],
   "브랜치": ["Branch", "分支", "ブランチ"],
   "새 브랜치": ["New branch", "新建分支", "新しいブランチ"],
   "새 브랜치 이름": ["New branch name", "新分支名称", "新しいブランチ名"],
