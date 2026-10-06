@@ -287,7 +287,7 @@ function InlineInput({
 
 function TreeChildren({ depth, documentPages = false, children }: { depth: number; documentPages?: boolean; children: React.ReactNode }) {
   return <div className="relative">
-    <span aria-hidden="true" data-tree-guide className="pointer-events-none absolute inset-y-0 z-10 w-px bg-edge-strong" style={{ left: depth * 14 + (documentPages ? 14 : 15) }} />
+    <span aria-hidden="true" data-tree-guide className="pointer-events-none absolute inset-y-0 z-10 w-px bg-edge-strong" style={{ left: depth * 14 + (documentPages ? 12 : 13) }} />
     {children}
   </div>
 }
