@@ -262,6 +262,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     assert.ok(darkPairs.every(([color, background]) => tagContrast(color, background) >= 4.5))
     await tagged.getByRole('button', { name: '태그: bsas', exact: true }).click()
     const picker = one.locator('.task-tag-picker-menu')
+    assert.equal(await picker.getByRole('textbox', { name: '검색', exact: true }).getAttribute('placeholder'), '태그 검색')
     await picker.getByRole('textbox', { name: '검색', exact: true }).fill('abc')
     assert.deepEqual(await picker.locator('.task-tag-result').allTextContents(), ['abc', 'abcde'])
     await one.screenshot({ path: '/tmp/mew-task-panel/desktop-tags-dark.png' })
@@ -303,6 +304,12 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await addTags(mobileRow, two, ['한글'])
     await mobileRow.locator('.task-tag-picker [aria-haspopup="dialog"]').first().tap()
     const mobilePicker = two.locator('.task-tag-picker-menu')
+    assert.equal(await mobilePicker.getByRole('textbox', { name: '검색', exact: true }).getAttribute('placeholder'), '태그 검색')
+    const searchColors = await mobilePicker.locator('.task-tag-picker-search').evaluate(el => {
+      const view = el.ownerDocument.defaultView!
+      return [view.getComputedStyle(el.querySelector('input')!, '::placeholder').color, view.getComputedStyle(el).backgroundColor]
+    })
+    assert.ok(tagContrast(searchColors[0], searchColors[1]) >= 4.5, 'unfocused mobile search placeholder remains readable')
     const box = (await mobilePicker.boundingBox())!
     assert.ok(box.x >= 0 && box.x + box.width <= 320 && box.y >= 0 && box.y + box.height <= 844)
     assert.equal(await mobile.evaluate(el => el.scrollWidth <= el.clientWidth), true)

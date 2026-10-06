@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Plus, Xmark } from 'iconoir-react'
+import { Check, Plus, Search, Xmark } from 'iconoir-react'
 import { canAutoFocusInput, useOverlayDismiss } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { normalizeTag, validTag, TASK_TAG_LIMIT } from '../../shared/task-tags'
@@ -53,12 +53,15 @@ export function TaskTagPicker({ tags, knownTags, disabled, onChange }: {
     </span>)}
     {tags.length === 0 && <span className="task-tag task-tag-placeholder">{disabled ? <span className="task-tag-name">{uiText('태그')}</span> : <button type="button" className="task-tag-name" aria-haspopup="dialog" aria-expanded={open} onClick={openPicker}>{uiText('태그')}</button>}</span>}
     {open && createPortal(<div ref={popup} className="task-tag-picker-menu task-tag-suggestions" role="dialog" tabIndex={-1} aria-label={uiText('태그')} style={position} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== trigger.current) close() }}>
-      <input value={query} aria-label={uiText('검색')} aria-controls={id} aria-activedescendant={choices.length ? `${id}-${Math.min(active, choices.length - 1)}` : undefined}
+      <label className="task-tag-picker-search">
+        <Search width={15} height={15} aria-hidden="true" />
+        <input placeholder={uiText('태그 검색')} value={query} aria-label={uiText('검색')} aria-controls={id} aria-activedescendant={choices.length ? `${id}-${Math.min(active, choices.length - 1)}` : undefined}
         onChange={event => { setQuery(event.target.value); setActive(0) }} onKeyDown={event => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setActive(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % Math.max(1, choices.length)) }
           if (event.key === 'Enter' && choices.length) { event.preventDefault(); toggle(choices[Math.min(active, choices.length - 1)]) }
         }} />
+      </label>
       <div id={id} role="listbox" aria-label={uiText('태그')} aria-multiselectable="true">
         {choices.map((tag, index) => <button key={tag} id={`${id}-${index}`} type="button" role="option" aria-selected={tags.includes(tag)} data-active={index === Math.min(active, choices.length - 1)} disabled={!tags.includes(tag) && tags.length >= TASK_TAG_LIMIT} onClick={() => toggle(tag)} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); const buttons = popup.current?.querySelectorAll<HTMLButtonElement>('[role="option"]'); buttons?.[(index + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length]?.focus() } }}>
           <span className="task-filter-dot" style={{ '--task-tag-hue': taskTagHue(tag) } as CSSProperties} aria-hidden="true" /><span className="task-tag-result">{tag}</span>{tags.includes(tag) ? <Check width={14} height={14} aria-hidden="true" /> : tag === create ? <Plus width={14} height={14} aria-hidden="true" /> : null}
