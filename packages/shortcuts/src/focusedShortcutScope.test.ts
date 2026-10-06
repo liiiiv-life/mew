@@ -96,3 +96,17 @@ test('capture에서 탭을 닫아 편집기·터미널로 키가 전달되지 �
     input.remove()
   }
 })
+
+test('확인창에서 탭 닫기 키를 다시 눌러도 배경 탭을 닫지 않는다', () => {
+  const dialog = document.createElement('div')
+  dialog.setAttribute('role', 'dialog')
+  const button = document.createElement('button'); dialog.append(button)
+  document.body.append(dialog); button.focus()
+  let closed = false
+  const event = new window.KeyboardEvent('keydown', { key: 'w', altKey: true, cancelable: true })
+  try {
+    closeFocusedTab(event, () => { closed = true })
+    assert.equal(event.defaultPrevented, true)
+    assert.equal(closed, false)
+  } finally { dialog.remove() }
+})

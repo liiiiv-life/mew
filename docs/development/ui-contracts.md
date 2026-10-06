@@ -296,6 +296,7 @@ Documents는 [상위·하위 문서 계약](document-pages.md)을 따른다. 대
 `Ctrl/Cmd+W`(기본 `closeTab`)와 `Alt+W`(기본 `closeTabAlt`)는 App의 window capture 리스너에서 조합을 판정한 뒤, `@mew/shortcuts`의 `closeFocusedTab`·`dispatchFocusedShortcut`으로 **포커스된 표면**에 전달한다. 터미널·에이전트 패널·브라우저처럼 자기 탭을 소유하는 창은 루트 ref와 `useFocusedShortcutScope(ref, { closeTab })`만 등록한다. 이 계약 덕분에 새 탭 창을 추가해도 App의 단축키 조건문을 고치지 않는다.
 
 - 키가 앱에 전달되면 닫을 탭 유무와 관계없이 `preventDefault()`·`stopImmediatePropagation()`으로 브라우저 기본 동작과 편집기·PTY 전달을 막는다. 반복 keydown은 소비만 하고 추가 탭을 닫지 않는다. 마지막 내부 브라우저 탭과 주소를 열기 전의 빈 탭도 닫을 수 있다. 탭이 없는 시작 화면에서는 다른 표면의 탭으로 새지 않는다.
+- 확인창·모달에 포커스가 있으면 탭 닫기 키를 소비하고 배경 탭의 닫기 행동·편집기 폴백을 실행하지 않는다. 작업 중 에이전트 탭의 확인·취소는 [에이전트 대화 계약](../features/터미널·에이전트·자동화/에이전트%20대화·큐·복원.md#작업-중-탭-닫기-확인)을 따른다.
 - 등록된 창이 없고 편집기의 초점 칸에 활성 문서가 있을 때만 그 문서 탭을 닫는다. 터미널의 탭 닫기는 기존 `×` 버튼과 같은 경로로 해당 셸 세션을 종료한다.
 - 일반 브라우저 탭의 예약 `Ctrl/Cmd+W`는 keydown 자체가 전달되지 않을 수 있어 웹 코드만으로 차단을 보장할 수 없다. 앱 전체화면 진입 성공 후 지원되는 브라우저에서 `navigator.keyboard.lock(['KeyW'])`를 요청한다. 거부·미지원이면 기존 전체화면을 유지한다. 일반 탭 또는 잠금 불가 환경에서는 `Alt+W`를 사용한다. 두 조합은 설정에서 각각 변경할 수 있다. [Chrome Keyboard Lock 계약](https://developer.chrome.com/articles/keyboard-lock)을 따른다.
 

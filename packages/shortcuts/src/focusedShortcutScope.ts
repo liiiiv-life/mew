@@ -42,6 +42,8 @@ export function closeFocusedTab(event: KeyboardEvent, closeEditorTab: () => void
   event.preventDefault()
   event.stopImmediatePropagation()
   if (event.repeat) return
+  const target = event.target instanceof HTMLElement ? event.target : document.activeElement
+  if (target instanceof HTMLElement && target.closest('[role="dialog"], [aria-modal="true"]')) return
   if (dispatchFocusedShortcut('closeTab', event) === 'no-scope') closeEditorTab()
 }
 

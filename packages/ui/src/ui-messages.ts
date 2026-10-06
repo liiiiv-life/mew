@@ -1072,6 +1072,8 @@ export const uiMessages = {
   "고치지 못했습니다": ["Could not edit","修改失败","編集できませんでした"],
   "삭제하지 못했습니다": ["Could not delete","删除失败","削除できませんでした"],
   "이 콘텐츠는 표시할 수 없습니다": ["This content cannot be displayed","无法显示此内容","このコンテンツは表示できません"],
+  "{p0} 에이전트가 작업 중입니다. 탭을 닫을까요?": ["Agent {p0} is working. Close this tab?", "智能体 {p0} 正在工作。要关闭此标签页吗？", "エージェント {p0} は作業中です。このタブを閉じますか？"],
+  "탭을 닫으면 진행 중인 작업이 종료됩니다.": ["Closing this tab stops the current work.", "关闭此标签页将停止正在进行的工作。", "このタブを閉じると、進行中の作業が終了します。"],
 } as const
 
 export type UiMessage = keyof typeof uiMessages

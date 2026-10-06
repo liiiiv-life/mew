@@ -1,5 +1,5 @@
 import { PanelCloseButton } from './panel-close-button'
-import { PanelNotice, canAutoFocusInput } from '@mew/ui'
+import { ConfirmDialog, PanelNotice, canAutoFocusInput } from '@mew/ui'
 import { historyCacheKey, readHistoryCache, writeHistoryCache, readQueueCache, writeQueueCache, type CachedQueue, type CachedHistory } from '../utils/agent-history-cache'
 import { mergeHistoryPage, appendHistoryEvent } from '../utils/agent-history-state'
 import { PanelTitle } from './panel-title'
@@ -1554,6 +1554,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
   // 한 번이라도 연 탭만 붙인다 — 탭 하나가 에이전트 프로세스 하나라, 복원된 탭까지 다 띄우면 우르르 뜬다
   const [opened, setOpened] = useState<Set<string>>(() => new Set(!docked && activeId ? [activeId] : []))
   const [infos, setInfos] = useState<Record<string, TabInfo>>({})
+  const [closeTarget, setCloseTarget] = useState<string | null>(null)
   useEffect(() => {
     const running = tabs.filter(tab => allowAgent && tabsSynced && tab.runtime && tab.runtime !== 'tmux' && opened.has(tab.id) && infos[tab.id]?.busy).length
     onRunningAgentsChange?.(running)
@@ -1736,9 +1737,10 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
     addRuntimeTab(set.runtime, { id: set.id, name: set.name, modelId: set.modelId, thinkingId: set.thinkingId, thinkingConfigId: set.thinkingConfigId, role: set.role }, destination)
   }
 
-  const closeTab = (id: string) => {
+  const finishCloseTab = (id: string) => {
     const closing = tabs.find((tab) => tab.id === id)
-    if (closing?.runtime && runtimeOf(closing.runtime).surface === 'terminal') {
+    if (!closing) return
+    if (closing.runtime && runtimeOf(closing.runtime).surface === 'terminal') {
       void stopAgentTerminal(closing.runtime, closing.id).catch(console.error)
     } else {
       if (allowTerminal) void stopAgentTabCommands(id).catch(console.error)
@@ -1774,6 +1776,24 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
       if (!dock) setPickerOpen(nextActiveId === null)
     }
   }
+
+  const closeTab = (id: string) => {
+    const tab = tabs.find(candidate => candidate.id === id)
+    if (!tab) return
+    if (tab.runtime !== 'tmux' && infos[id]?.busy) {
+      setCloseTarget(id)
+      return
+    }
+    finishCloseTab(id)
+  }
+  const closingTab = tabs.find(tab => tab.id === closeTarget)
+  const closeConfirmation = closingTab && <ConfirmDialog
+    message={uiText("{p0} 에이전트가 작업 중입니다. 탭을 닫을까요?", { p0: closingTab.label })}
+    detail={uiText("탭을 닫으면 진행 중인 작업이 종료됩니다.")}
+    confirmLabel={uiText("닫기")} danger
+    onCancel={() => setCloseTarget(null)}
+    onConfirm={() => { setCloseTarget(null); finishCloseTab(closingTab.id) }}
+  />
 
   const panelGroups = dock ? [...new Set(['agent', 'terminal', ...tabs.map((tab) => dock.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', tab.id))])] : []
   const groupTabs = (group: string) => tabs.filter((tab) => dock?.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', tab.id) === group)
@@ -1924,6 +1944,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
             />)
   }
   if (dock) return <>
+    {closeConfirmation}
     {panelGroups.filter(group => group.startsWith('terminal') ? allowTerminal : allowAgent).map((group) => {
       const terminal = group.startsWith('terminal'), list = groupTabs(group), selected = groupActive(group)
       const picking = !terminal && ((pickerOpen && pickerGroup === group) || (tabsSynced && !tabs.some((tab) => tab.runtime !== 'tmux')))
@@ -1962,6 +1983,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
       onMouseDown={dropOutsideFocus}
       onClick={dropInputFocusAfterPress}
     >
+      {closeConfirmation}
       <AgentTabBar
         tabs={tabs}
         activeId={activeId}
