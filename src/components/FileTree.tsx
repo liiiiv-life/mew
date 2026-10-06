@@ -285,6 +285,13 @@ function InlineInput({
 }
 
 
+function TreeChildren({ depth, documentPages = false, children }: { depth: number; documentPages?: boolean; children: React.ReactNode }) {
+  return <div className="relative">
+    <span aria-hidden="true" data-tree-guide className="pointer-events-none absolute inset-y-0 z-10 w-px bg-edge-strong" style={{ left: depth * 14 + (documentPages ? 14 : 15) }} />
+    {children}
+  </div>
+}
+
 function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCtx }) {
   useUiLocale()
   const readOnly = ctx.readOnly || node.editable === false
@@ -383,11 +390,13 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </button>}
       </div>
-      {creating && <InlineInput value={creating.value} onChange={ctx.setEditValue} onCommit={ctx.submitEdit} onCancel={ctx.cancelEdit} error={creating.error} placeholder={uiText('새 문서 이름')} paddingLeft={(depth + 1) * 14 + 24} />}
-      {open && <div>
-        {ctx.loadingDirs.has(node.path) && <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 24 }}>{uiText('불러오는 중…')}</div>}
-        {all.filter(child => child !== representative && !isMocNode(child)).map(child => <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />)}
-      </div>}
+      {(open || creating) && <TreeChildren depth={depth} documentPages>
+        {creating && <InlineInput value={creating.value} onChange={ctx.setEditValue} onCommit={ctx.submitEdit} onCancel={ctx.cancelEdit} error={creating.error} placeholder={uiText('새 문서 이름')} paddingLeft={(depth + 1) * 14 + 24} />}
+        {open && <>
+          {ctx.loadingDirs.has(node.path) && <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 24 }}>{uiText('불러오는 중…')}</div>}
+          {all.filter(child => child !== representative && !isMocNode(child)).map(child => <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />)}
+        </>}
+      </TreeChildren>}
     </div>
   }
 
@@ -491,7 +500,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
         {node.project && !projectLink && ctx.canUseCommands && <CommandButtonMenu project={ctx.project} directory={node.path} />}
       </div>
       {isOpen && (
-        <div>
+        <TreeChildren depth={depth}>
           {moc && (
             <MocItem
               path={moc.path}
@@ -519,7 +528,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
           {children?.map((child) => (
             <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />
           ))}
-        </div>
+        </TreeChildren>
       )}
     </div>
   )

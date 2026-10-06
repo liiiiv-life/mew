@@ -4,7 +4,7 @@ parent: "mew-projects"
 title: "Documents·문서 지도 관리"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-04"
+updated: "2026-10-06"
 status_hash: "67f36d128f8ff98f55ff2f44e2197710413f6968309439a998bd606dad06b477"
 files: ["src/components/DocsSettingsModal.tsx", "src/components/FileTree.tsx", "server/docsRepo.ts", "src/components/DocumentGraph.tsx", "server/document-graph.ts", "src/utils/document-graph-layout.ts", "server/document-pages.ts", "src/hooks/useTabs.ts"]
 commits: []
@@ -15,6 +15,8 @@ commits: []
 - Documents에서 상위 문서와 하위 문서를 탐색하고 같은 에디터에서 연다.
 
 ### 범위
+
+- 펼친 폴더와 상위 문서의 하위 목록에 세로 가이드선을 표시한다. 중첩된 조상마다 한 줄씩 이어져 세 단계 아래 항목에는 세 줄이 보이며 접으면 해당 선도 사라진다.
 
 - 폴더를 상위 문서로 표시하며 이름을 누르면 `_폴더이름.md` 대표 본문을 연다. 대표 파일은 하위 목록에 중복 표시하지 않는다.
 - 자식 없는 문서는 `이름.md`로 저장하며 첫 자식 추가·마지막 자식 제거 때 저장 구조를 전환한다.
@@ -41,6 +43,8 @@ commits: []
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- `FileTree.tsx`의 공통 `TreeChildren`은 각 하위 목록에 1px 테마 구분선을 겹쳐 표시한다. 기존 14px 들여쓰기를 유지하고 생성 입력·로딩 행에도 선을 이어 표시하며 클릭·드래그와 접근성 탐색에는 관여하지 않는다.
+
 - Docs 이름 클릭과 하위 펼침을 분리했다. 하위 문서 추가·이동·삭제·이름 변경·복제는 대표 파일과 본문 링크를 함께 처리하고 열린 탭 및 자동저장 경로를 갱신한다. 기존 MOC는 호환하며 실제 문서를 일괄 이전하지 않는다. [ADR 0191](../../../../.mew/docs/decisions/0191-mew-documents-parent-and-child-pages.md)을 따른다.
 - 문서 그래프는 Docs 내부 Markdown·참조형·위키 링크를 권한에 따라 연결한다. 서버는 변경된 문서만 다시 분석하며 직접 구현한 Web Worker 배치와 Canvas 렌더링으로 화면 스레드의 부담을 줄인다. 그래프 진입점은 Docs 루트 문서 홈 위에만 표시한다.
 
@@ -58,6 +62,8 @@ commits: []
 <!-- mew:implementation:end -->
 
 <!-- mew:validation:start -->
+
+- 2026-10-06: 격리 Chromium 임시 fixture에서 파일·문서 트리의 세 단계 가이드선 수·14px 간격·연속 높이·접기 제거·클릭 통과를 검증하고 PC/모바일·양 테마 캡처를 확인했다. `server/document-pages-ui.test.ts`, `server/sidebar-tab-reveal-ui.test.ts`, `npx tsc -b`, `npm run lint`(기존 경고), 문서 배치·워크스페이스 링크 검사를 통과했다. 빌드·서버 재시작은 수행하지 않았다.
 ## 검증
 
 - 2026-10-04: Documents 대표 문서들을 상위 페이지 홈처럼 보이도록 정리하고, 트리·탭 표시명 변환을 추가했다. `MEW_DATA_DIR="${TMPDIR:-/tmp}/mew-test-data" node --test server/document-pages.test.ts server/document-pages-ui.test.ts`, `npm run lint`, `npx tsc -b`, `python3 ../.mew/docs/.github/scripts/check_doc_links.py --workspace`를 통과했다. `python3 ../.mew/docs/.github/scripts/check_repo_docs.py`는 종료 코드 0이었지만 이번 변경과 무관한 `todo/docs/*` 배치 경고를 출력했다. 전체 `npm test -- --runTestsByPath ...`는 스크립트가 전체 패턴을 함께 실행해 관련 없는 에이전트 UI 시간초과·환경 실패가 섞여 중단했다.
