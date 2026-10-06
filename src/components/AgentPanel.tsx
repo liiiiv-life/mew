@@ -3613,7 +3613,7 @@ function AgentSessionView({
                   </div>
                 )}
                 {item.text && (
-                  <div className="flex items-start rounded-lg rounded-tr-none bg-surface-raised">
+                  <div className="flex items-start gap-1">
                     <button
                       type="button"
                       aria-expanded={open}
@@ -3621,7 +3621,7 @@ function AgentSessionView({
                         if (hasSelection()) return
                         toggle(item.key)
                       }}
-                      className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left text-ink"
+                      className="flex min-w-0 flex-1 items-start gap-2 rounded-lg rounded-tr-none bg-surface-raised px-3 py-2 text-left text-ink"
                     >
                       <span className={`min-w-0 flex-1 break-words [overflow-wrap:anywhere] select-text ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
                     </button>
@@ -3658,10 +3658,10 @@ function AgentSessionView({
                 ? Math.max(0, now - item.startedAt)
                 : null
             const canStop = busy && meta?.activeTask !== 'cli' && !item.done
-            const actionSpace = Math.max(0, (Number(Boolean(answerText.trim())) + Number(canStop)) * 36 - 6)
+            const actionSpace = canStop ? 30 : 0
             return (
               <div key={item.key} className="rounded-lg rounded-tl-none border border-edge bg-surface">
-                <div data-agent-turn-header className={`min-h-9 ${open ? 'sticky -top-3 z-10 flex rounded-tr-lg border-b border-edge bg-surface' : 'relative'}`}>
+                <div data-agent-turn-header className={`min-h-9 ${open ? 'sticky -top-3 z-10 flex items-center rounded-tr-lg border-b border-edge bg-surface' : 'relative'}`}>
                   <button
                     type="button"
                     aria-expanded={open}
@@ -3669,10 +3669,10 @@ function AgentSessionView({
                       if (hasSelection()) return
                       toggle(item.key)
                     }}
-                    className={`flex min-w-0 items-start gap-2 px-3 py-2 text-left text-xs text-ink-secondary hover:text-ink ${open ? 'flex-1' : 'w-full'}`}
+                    className={`flex min-w-0 gap-2 px-3 py-2 text-left text-xs text-ink-secondary hover:text-ink ${open ? 'flex-1 self-stretch items-center' : 'w-full items-start'}`}
                   >
                     <span
-                      className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[state]}`}
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${open ? '' : 'mt-1'} ${BUBBLE_DOT[state]}`}
                       title={BUBBLE_LABEL[state]}
                       aria-label={BUBBLE_LABEL[state]}
                     />
@@ -3688,13 +3688,13 @@ function AgentSessionView({
                       </span>
                     )}
                   </button>
-                  <div className={`flex shrink-0 items-start ${open ? '' : 'absolute right-0 top-0'}`}>
+                  <div className={`flex shrink-0 items-center ${open ? '' : 'absolute right-0 top-0'}`}>
                   {open && question && <button type="button" onClick={() => scrollToQuestion(question.key)} className="my-1.5 rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink">{t('agent.toQuestion')}</button>}
                   {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
-                  <CopyButton
+                  {open && <CopyButton
                     text={answerText}
                     label={uiText("이 답변 복사")}
-                  />
+                  />}
                   {/* 돌고 있는 턴만 중단할 수 있다 — 지난 턴에는 버튼이 없다 */}
                   {canStop && (
                     <button

@@ -80,25 +80,49 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
         range.selectNodeContents(summary)
         const lines = [...range.getClientRects()].slice(0, 2).map(rect => ({ top: rect.top, right: rect.right, width: rect.width }))
         const duration = el.querySelector('[data-agent-duration]')!.getBoundingClientRect()
-        const copy = el.querySelector('button[title="이 답변 복사"]')!.getBoundingClientRect()
-        return { lines, duration: { top: duration.top, left: duration.left, bottom: duration.bottom }, copy: { top: copy.top, left: copy.left }, bottom: el.getBoundingClientRect().bottom }
+        return { lines, duration: { top: duration.top, left: duration.left, bottom: duration.bottom }, right: el.getBoundingClientRect().right, bottom: el.getBoundingClientRect().bottom }
       })
       assert.equal(geometry.lines.length, 2)
       assert.ok(geometry.lines[0].width > geometry.lines[1].width + 10, `only the second line loses the duration width: ${JSON.stringify(geometry)}`)
-      assert.ok(geometry.lines[0].right <= geometry.copy.left, 'first line stays clear of the copy button')
+      assert.ok(geometry.lines[0].right <= geometry.right, 'first line uses the full summary width')
       assert.ok(geometry.lines[1].right <= geometry.duration.left + 1, 'second line stays clear of the duration')
       assert.ok(Math.abs(geometry.duration.top - geometry.lines[1].top) <= 3, 'duration shares the second line')
-      assert.ok(geometry.copy.top < geometry.duration.top && geometry.duration.bottom <= geometry.bottom, 'copy stays above the fully visible duration')
+      assert.ok(geometry.duration.bottom <= geometry.bottom, 'duration remains fully visible')
+      assert.equal(await timedHeader.getByRole('button', { name: '이 답변 복사', exact: true }).count(), 0, 'collapsed answers hide copy')
       assert.equal(await timedHeader.locator('button[aria-expanded] svg').count(), 0, 'answer has no disclosure icon')
       const questionButton = page.getByText('Question 40', { exact: true }).locator('..')
       assert.equal(await questionButton.locator('svg').count(), 0, 'question has no disclosure icon')
+      const question = page.locator('[data-agent-question]').filter({ has: questionButton })
+      for (const open of [false, true]) {
+        if (open) await questionButton.click()
+        const bounds = await question.evaluate(el => {
+          const bubble = el.querySelector('button[aria-expanded]')!
+          const copy = el.querySelector('button[title="이 질문 복사"]')!
+          return { right: bubble.getBoundingClientRect().right, copyLeft: copy.getBoundingClientRect().left, background: el.ownerDocument.defaultView!.getComputedStyle(copy.parentElement!).backgroundColor }
+        })
+        assert.ok(bounds.copyLeft > bounds.right, 'question copy sits outside the bubble')
+        assert.equal(bounds.background, 'rgba(0, 0, 0, 0)', 'question copy container has no bubble background')
+        await question.getByRole('button', { name: '이 질문 복사', exact: true }).click()
+        assert.equal(await page.evaluate('window.copied'), 'Question 40')
+        assert.equal(await questionButton.getAttribute('aria-expanded'), String(open), 'question copy preserves disclosure state')
+      }
+      await questionButton.click()
+      await timedHeader.locator('button[aria-expanded]').press('Enter')
       await timedHeader.getByRole('button', { name: '이 답변 복사', exact: true }).click()
       assert.equal(await page.evaluate('window.copied'), 'Answer 40 ' + 'long readable answer '.repeat(100), 'copy retains the full answer')
-      assert.equal(await timedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'false', 'copy does not expand the answer')
-      await timedHeader.locator('button[aria-expanded]').press('Enter')
-      assert.equal(await timedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'true')
+      assert.equal(await timedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'true', 'copy leaves the answer expanded')
       await timedHeader.locator('button[aria-expanded]').press('Space')
       assert.equal(await timedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'false')
+      assert.equal(await timedHeader.getByRole('button', { name: '이 답변 복사', exact: true }).count(), 0, 'folding removes copy from the focus order')
+      const assertHeaderAlignment = async (header: typeof timedHeader) => {
+        const centers = await header.evaluate(el => {
+          const center = (element: Pick<typeof el, 'getBoundingClientRect'>) => { const rect = element.getBoundingClientRect(); return rect.top + rect.height / 2 }
+          const dot = el.querySelector('button[aria-expanded] > span[aria-label]')!
+          const elements = [dot, ...el.querySelectorAll('[data-agent-duration], button:not([aria-expanded]), button:not([aria-expanded]) svg, button:not([aria-expanded]) > span')]
+          return elements.map(element => ({ name: element.getAttribute('aria-label') ?? element.textContent, y: center(element) }))
+        })
+        assert.ok(Math.max(...centers.map(item => item.y)) - Math.min(...centers.map(item => item.y)) <= 0.5, `expanded header shares one vertical center: ${JSON.stringify(centers)}`)
+      }
       const shortHeader = page.locator('[data-agent-turn-header]').filter({ has: page.locator('[data-agent-summary]').filter({ hasText: 'Answer 44 short' }) })
       assert.equal(await shortHeader.locator('[data-agent-duration]').isVisible(), true, 'short answers keep the second-line duration visible')
       const oldHeader = page.locator('[data-agent-turn-header]').filter({ has: page.getByText(/^Answer 43 /) })
@@ -125,6 +149,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       })
       assert.ok(Math.abs(stickyBounds.header - stickyBounds.viewport) <= 1, `expanded header sticks to the conversation top: ${JSON.stringify(stickyBounds)}`)
       assert.equal(await expandedHeader.locator('[data-agent-duration]').isVisible(), true)
+      await assertHeaderAlignment(expandedHeader)
       assert.equal(await page.getByRole('button', { name: '접기', exact: true }).count(), 0, 'expanded answers have no bottom collapse button')
       await expandedHeader.getByRole('button', { name: '이 답변 복사', exact: true }).click()
       assert.equal(await expandedHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'true', 'sticky copy leaves the answer expanded')
@@ -242,10 +267,15 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
         window.socket.emit({type:'meta',meta:{sessionId:'conversation',busy:true,turns:45,queued:[]}});
       `)
       const runningHeader = page.locator('[data-agent-turn-header]').filter({ has: page.getByText(/^Running answer /) })
+      await runningHeader.getByRole('button', { name: '중단', exact: true }).waitFor()
+      assert.equal(await runningHeader.getByRole('button', { name: '이 답변 복사', exact: true }).count(), 0, 'collapsed running answers hide copy')
+      assert.equal(await runningHeader.getByRole('button', { name: '중단', exact: true }).isVisible(), true, 'collapsed running answers retain stop')
       await runningHeader.locator('button[aria-expanded]').click()
       await scroll.evaluate((el, top) => { el.scrollTop = top; el.dispatchEvent(new Event('scroll')) }, await questionTop(45) + 500)
       const runningBounds = await runningHeader.evaluate(el => ({ top: el.getBoundingClientRect().top, viewport: el.parentElement!.parentElement!.getBoundingClientRect().top }))
       assert.ok(Math.abs(runningBounds.top - runningBounds.viewport) <= 1, 'running header sticks with all controls')
+      await assertHeaderAlignment(runningHeader)
+      await scroll.screenshot({ path: `/tmp/mew-running-answer-${width}-${dark ? 'dark' : 'light'}.png` })
       await runningHeader.getByRole('button', { name: '중단', exact: true }).click()
       assert.equal(await page.evaluate('window.requests.at(-1).type'), 'cancel', 'sticky stop cancels the active turn')
       assert.equal(await runningHeader.locator('button[aria-expanded]').getAttribute('aria-expanded'), 'true', 'stop does not fold the answer')
