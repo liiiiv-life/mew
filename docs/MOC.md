@@ -34,6 +34,8 @@ updated: "2026-10-06"
 
 - [원격 데스크톱 최초 화면 표시 시간 단축 연구 — 일부 구현](research/remote-desktop-startup.md)
 
+- [하이](하이.md)
+
 ## History / raw
 
 - [RAG·MOC·일반 파일 검색의 시간·토큰 비교](research/document-discovery-benchmark.md)
