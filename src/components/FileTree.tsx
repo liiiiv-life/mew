@@ -371,9 +371,13 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
   }
 
   if (ctx.documentPages && !node.project && (node.type === 'dir' || /\.md$/i.test(node.name))) {
-    const folder = node.type === 'dir', open = folder && ctx.openDirs.has(node.path)
-    const all = node.children ?? ctx.directoryChildren[node.path] ?? []
+    const folder = node.type === 'dir'
+    const loadedChildren = node.children ?? ctx.directoryChildren[node.path]
+    const all = loadedChildren ?? []
     const representative = folder ? pageRepresentative(node.path, all) : undefined
+    const children = all.filter(child => child !== representative && !isMocNode(child))
+    const hasChildren = folder && (loadedChildren === undefined || children.length > 0)
+    const open = hasChildren && ctx.openDirs.has(node.path)
     const pageFile = representative?.path ?? (folder && ctx.selectedPath && documentPageTarget(ctx.selectedPath) === node.path ? ctx.selectedPath : undefined)
       ?? (folder ? Array.from(ctx.openPaths ?? []).find(path => documentPageTarget(path) === node.path) : undefined)
     const label = documentPageLabel(folder ? node.path : node.name) || (folder ? node.name : node.name.replace(/\.md$/i, ''))
@@ -384,10 +388,12 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
       onDrop={event => { if (!ctx.canDropInto(node.path)) return; event.preventDefault(); event.stopPropagation(); ctx.onDropDir(node.path) }}>
       <TreeHeader depth={depth} open={open}>
         <div className={`flex min-w-0 items-center rounded hover:bg-surface-raised ${active ? 'bg-surface-raised' : ctx.openPaths?.has(pageFile ?? node.path) ? 'bg-surface-raised/50' : ''} ${ctx.dropDir === node.path ? 'ring-1 ring-accent' : ''}`} style={{ paddingLeft: depth * 14 + 4 }}>
-          {folder ? <button type="button" aria-label={uiText('{p0} 하위 문서', { p0: label })} aria-expanded={open}
+          {hasChildren ? <button type="button" aria-label={uiText('{p0} 하위 문서', { p0: label })} aria-expanded={open}
             onClick={() => { ctx.toggleDir(node.path); ctx.focusNode(node.path, 'dir') }} className="flex h-7 w-5 shrink-0 items-center justify-center rounded text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d={open ? 'm6 9 6 6 6-6' : 'm9 6 6 6-6 6'} /></svg>
-          </button> : <span className="w-5 shrink-0" />}
+          </button> : <span aria-hidden="true" data-document-leaf className="flex h-7 w-5 shrink-0 items-center justify-center text-ink-muted">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="6" cy="6" r="2" /></svg>
+          </span>}
           <button type="button" aria-current={active ? 'page' : undefined} data-path={node.path} data-page-file={pageFile} style={{ scrollMarginTop: `${depth * 1.75}rem` }} draggable={!readOnly} onDragStart={handleDragStart} onDragEnd={ctx.endDrag}
             onClick={handleClick} {...touchProps} className={`flex min-w-0 flex-1 items-center gap-1.5 rounded py-1 pr-1 text-left text-sm text-ink select-none [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-accent ${holdHighlight} ${isMenuTarget ? 'bg-surface-raised' : ''}`}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="shrink-0 text-ink-muted" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6M8 13h8M8 17h5" /></svg>
@@ -404,7 +410,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
         {creating && <InlineInput value={creating.value} onChange={ctx.setEditValue} onCommit={ctx.submitEdit} onCancel={ctx.cancelEdit} error={creating.error} placeholder={uiText('새 문서 이름')} paddingLeft={(depth + 1) * 14 + 24} />}
         {open && <>
           {ctx.loadingDirs.has(node.path) && <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 24 }}>{uiText('불러오는 중…')}</div>}
-          {all.filter(child => child !== representative && !isMocNode(child)).map(child => <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />)}
+          {children.map(child => <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />)}
         </>}
       </TreeChildren>}
     </div>

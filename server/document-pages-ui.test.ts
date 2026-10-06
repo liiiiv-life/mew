@@ -18,6 +18,7 @@ test('Documents pages navigate in place, open modifier tabs, and preserve edits 
   const write = (rel: string, body: string) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), body) }
   write('MOC.md', '[dev](dev/MOC.md) [notes](notes.md)')
   write('dev/MOC.md', 'Development body'); write('dev/access-control.md', 'Access body')
+  write('empty/_empty.md', 'Empty page body')
   write('notes.md', 'Notes body'); write('other.md', 'Other body')
   const pages = new DocumentPages(root)
   const source = `
@@ -97,6 +98,8 @@ test('Documents pages navigate in place, open modifier tabs, and preserve edits 
   await page.goto('http://mew-pages.test/')
   await page.waitForTimeout(200)
   assert.deepEqual(errors, [], 'fixture mounts without browser errors')
+  assert.equal(await page.locator('[data-document-page="notes.md"] [data-document-leaf]').getAttribute('aria-hidden'), 'true', 'leaf pages mark the disclosure slot with a decorative bullet')
+  assert.equal(await page.locator('[data-document-page="notes.md"] button[aria-expanded]').count(), 0)
   const active = () => page.locator('[data-active]').getAttribute('data-active')
   const count = () => page.locator('[data-test-tab]').count()
   await page.locator('[data-path="notes.md"]').click()
@@ -113,6 +116,7 @@ test('Documents pages navigate in place, open modifier tabs, and preserve edits 
   assert.equal(await page.locator('[data-path="dev/MOC.md"]').count(), 0, 'representative is hidden')
   await page.locator('[data-path="dev/access-control.md"]').click()
   await page.getByRole('textbox', { name: '문서 본문' }).filter({ hasText: 'Access body' }).waitFor()
+  assert.equal(await page.locator('[data-document-page="dev/access-control.md"] [data-document-leaf]').count(), 1, 'nested leaves have a bullet too')
   assert.equal(await count(), 1, 'ordinary child click also replaces in place')
   await page.locator('[data-path="dev"]').click({ modifiers: ['Control'] })
   assert.equal(await count(), 2, 'Ctrl click retains a separate tab')
@@ -139,6 +143,10 @@ test('Documents pages navigate in place, open modifier tabs, and preserve edits 
   assert.equal(fs.readFileSync(path.join(root, 'notes/_notes.md'), 'utf8'), 'Edited after promotion')
   assert.equal(saves.at(-1), 'notes/_notes.md', 'autosave follows the representative path')
   assert.equal(fs.existsSync(path.join(root, 'notes.md')), false, 'autosave never recreates the old leaf')
+  assert.equal(await page.locator('[data-document-page="notes"] > [data-tree-sticky-depth] button[aria-expanded]').count(), 1, 'promotion replaces the bullet with a disclosure')
+  await page.locator('[data-path="empty"]').click()
+  await page.locator('[data-document-page="empty"] [data-document-leaf]').waitFor()
+  assert.equal(await page.locator('[data-document-page="empty"] button[aria-expanded]').count(), 0, 'a loaded directory with only its representative also has a bullet')
   for (const width of [1100, 390]) {
     await page.setViewportSize({ width, height: 700 })
     await page.locator('#root').evaluate((el, dark) => el.ownerDocument.documentElement.classList.toggle('dark', dark), width === 1100)
