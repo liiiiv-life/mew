@@ -1,7 +1,8 @@
+import { sameAssignees, taskAssignees, validAssignees } from './task-assignees.ts'
 import { sameTags, taskTags, validTags } from './task-tags.ts'
 import { validDateValue } from '@mew/ui/date-value'
 
-export type TaskItem = { id: string; path?: string; text: string; done: boolean; tags?: string[]; parentId?: string | null; date?: string | null; startDate?: string | null }
+export type TaskItem = { id: string; path?: string; text: string; done: boolean; tags?: string[]; assignees?: string[]; parentId?: string | null; date?: string | null; startDate?: string | null }
 export type TaskChange = { id: string; before: TaskItem | null; after: TaskItem | null; afterId: string | null; move?: boolean }
 export type TaskBoard = { tasks: TaskItem[]; canEdit: boolean; tags?: string[]; tagColors?: import('./task-tag-colors.ts').TaskTagColors }
 export const TASK_LIMIT = 2000
@@ -24,7 +25,7 @@ export function taskChanges(before: TaskItem[], after: TaskItem[]): TaskChange[]
       if (position >= 0) order.splice(position, 1)
       order.splice(index, 0, item.id)
     }
-    if (!previous || move || previous.text !== item.text || previous.done !== item.done || !sameTags(previous.tags, item.tags) || taskParent(previous) !== taskParent(item) || taskDate(previous) !== taskDate(item) || taskStartDate(previous) !== taskStartDate(item)) changes.push({ id: item.id, before: previous, after: item, afterId: after[index - 1]?.id ?? null, ...(move ? { move: true } : {}) })
+    if (!previous || move || previous.text !== item.text || previous.done !== item.done || !sameTags(previous.tags, item.tags) || !sameAssignees(previous.assignees, item.assignees) || taskParent(previous) !== taskParent(item) || taskDate(previous) !== taskDate(item) || taskStartDate(previous) !== taskStartDate(item)) changes.push({ id: item.id, before: previous, after: item, afterId: after[index - 1]?.id ?? null, ...(move ? { move: true } : {}) })
   })
   return changes
 }
@@ -38,7 +39,7 @@ export function applyTaskChanges(tasks: TaskItem[], changes: TaskChange[]): Task
     if (!change.before) {
       if (!change.after) throw new TaskConflict()
       if (current) {
-        if (current.text !== change.after.text || current.done !== change.after.done || !sameTags(current.tags, change.after.tags) || taskParent(current) !== taskParent(change.after) || taskDate(current) !== taskDate(change.after) || taskStartDate(current) !== taskStartDate(change.after)) throw new TaskConflict()
+        if (current.text !== change.after.text || current.done !== change.after.done || !sameTags(current.tags, change.after.tags) || !sameAssignees(current.assignees, change.after.assignees) || taskParent(current) !== taskParent(change.after) || taskDate(current) !== taskDate(change.after) || taskStartDate(current) !== taskStartDate(change.after)) throw new TaskConflict()
         continue // Retrying an acknowledged-but-lost creation response.
       }
       const anchor = change.afterId === null ? -1 : next.findIndex(item => item.id === change.afterId)
@@ -46,7 +47,7 @@ export function applyTaskChanges(tasks: TaskItem[], changes: TaskChange[]): Task
       next.splice(anchor + 1, 0, { ...change.after })
     } else if (!change.after) {
       if (!current) continue
-      if (current.text !== change.before.text || current.done !== change.before.done || !sameTags(current.tags, change.before.tags) || taskParent(current) !== taskParent(change.before) || taskDate(current) !== taskDate(change.before) || taskStartDate(current) !== taskStartDate(change.before)) throw new TaskConflict()
+      if (current.text !== change.before.text || current.done !== change.before.done || !sameTags(current.tags, change.before.tags) || !sameAssignees(current.assignees, change.before.assignees) || taskParent(current) !== taskParent(change.before) || taskDate(current) !== taskDate(change.before) || taskStartDate(current) !== taskStartDate(change.before)) throw new TaskConflict()
       next.splice(index, 1)
     } else {
       if (!current) throw new TaskConflict()
@@ -57,6 +58,10 @@ export function applyTaskChanges(tasks: TaskItem[], changes: TaskChange[]): Task
       if (!sameTags(change.before.tags, change.after.tags)) {
         if (!sameTags(current.tags, change.before.tags) && !sameTags(current.tags, change.after.tags)) throw new TaskConflict()
         current.tags = [...taskTags(change.after)]
+      }
+      if (!sameAssignees(change.before.assignees, change.after.assignees)) {
+        if (!sameAssignees(current.assignees, change.before.assignees) && !sameAssignees(current.assignees, change.after.assignees)) throw new TaskConflict()
+        current.assignees = [...taskAssignees(change.after)]
       }
       if (taskDate(change.before) !== taskDate(change.after)) {
         if (taskDate(current) !== taskDate(change.before) && taskDate(current) !== taskDate(change.after)) throw new TaskConflict()
@@ -114,7 +119,7 @@ export function taskRange(item: TaskItem): { start: string; end: string } | null
 export function validTaskTree(tasks: TaskItem[]): boolean {
   const path: string[] = [], seen = new Set<string>()
   for (const item of tasks) {
-    if (!validTaskDates(item) || (item.tags !== undefined && !validTags(item.tags))) return false
+    if (!validTaskDates(item) || (item.tags !== undefined && !validTags(item.tags)) || (item.assignees !== undefined && !validAssignees(item.assignees))) return false
     if (seen.has(item.id)) return false
     const parent = taskParent(item)
     if (parent === null) path.length = 0

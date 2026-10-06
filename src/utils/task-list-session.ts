@@ -1,3 +1,4 @@
+import { sameAssignees, taskAssignees, validAssignees } from '../../shared/task-assignees.ts'
 import { applyTagColorChanges, removeTagColors, tagColorChanges, tagColor, validTagColor, validTagColors, type TaskTagColors, type TaskTagColorChange } from '../../shared/task-tag-colors.ts'
 import { applyTaskChanges, taskChanges, taskParent, taskDate, taskStartDate, validTaskTree, TaskConflict, type TaskBoard, type TaskChange, type TaskItem } from '../../shared/task-list.ts'
 import { taskRollups, taskWithRollup } from '../../shared/task-rollup.ts'
@@ -5,11 +6,11 @@ import { sameTags, taskTags, validTags, validTag, validDeletedTags, removeTaskTa
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 
 type TaskApi = { read: () => Promise<TaskBoard>; save: (changes: TaskChange[], colors?: TaskTagColorChange[], deletedTags?: string[]) => Promise<TaskBoard> }
-type State = TaskBoard & { tagColors: TaskTagColors; loading: boolean; saving: boolean; error: string | null; draft: string; draftTags: string[] }
+type State = TaskBoard & { tagColors: TaskTagColors; loading: boolean; saving: boolean; error: string | null; draft: string; draftTags: string[]; draftAssignees: string[] }
 
 /** Lives above the project-keyed dock so closing/remounting a panel cannot discard pending edits. */
 export class TaskListSession {
-  state: State = { tagColors: {}, tasks: [], canEdit: false, loading: true, saving: false, error: null, draft: '', draftTags: [] }
+  state: State = { tagColors: {}, tasks: [], canEdit: false, loading: true, saving: false, error: null, draft: '', draftTags: [], draftAssignees: [] }
   private baseline: TaskItem[] = []
   private baselineColors: TaskTagColors = {}
   private deletedTags = new Set<string>()
@@ -32,7 +33,7 @@ export class TaskListSession {
         this.baseline = flatten(draft.baseline)
         this.deletedTags = new Set(validDeletedTags(draft.deletedTags) ? draft.deletedTags : [])
         this.baselineColors = validTagColors(draft.baselineColors) ? draft.baselineColors : {}
-        this.state = { ...this.state, tasks: flatten(draft.tasks), tagColors: validTagColors(draft.tagColors) ? draft.tagColors : {}, draft: typeof draft.draft === 'string' ? draft.draft : '', draftTags: validTags(draft.draftTags) ? draft.draftTags : [] }
+        this.state = { ...this.state, tasks: flatten(draft.tasks), tagColors: validTagColors(draft.tagColors) ? draft.tagColors : {}, draft: typeof draft.draft === 'string' ? draft.draft : '', draftTags: validTags(draft.draftTags) ? draft.draftTags : [], draftAssignees: validAssignees(draft.draftAssignees) ? draft.draftAssignees : [] }
       }
     } catch { /* Invalid or unavailable browser storage. */ }
   }
@@ -42,7 +43,7 @@ export class TaskListSession {
     if (this.disposed) return
     this.state = { ...this.state, ...patch }
     if (this.draftKey) try {
-      if (this.state.draft || this.state.draftTags.length || taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length || this.deletedTags.size) writeBrowserStorage(this.draftKey, JSON.stringify({ deletedTags: [...this.deletedTags], baseline: this.baseline, baselineColors: this.baselineColors, tagColors: this.state.tagColors, tasks: this.state.tasks, draft: this.state.draft, draftTags: this.state.draftTags }))
+      if (this.state.draft || this.state.draftTags.length || this.state.draftAssignees.length || taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length || this.deletedTags.size) writeBrowserStorage(this.draftKey, JSON.stringify({ deletedTags: [...this.deletedTags], baseline: this.baseline, baselineColors: this.baselineColors, tagColors: this.state.tagColors, tasks: this.state.tasks, draft: this.state.draft, draftTags: this.state.draftTags, draftAssignees: this.state.draftAssignees }))
       else localStorage.removeItem(this.draftKey)
     } catch { /* In-memory drafts remain available when storage is full. */ }
     for (const listener of this.listeners) listener()
@@ -67,6 +68,7 @@ export class TaskListSession {
     if (!this.state.error && !this.pendingSave) this.schedule()
   }
   setDraft(draft: string) { if (this.state.canEdit) this.publish({ draft }) }
+  setDraftAssignees(draftAssignees: string[]) { if (this.state.canEdit && validAssignees(draftAssignees)) this.publish({ draftAssignees }) }
   setDraftTags(draftTags: string[]) { if (this.state.canEdit) this.publish({ draftTags }) }
   async refresh() {
     if (this.disposed || this.reading || this.state.saving || this.pendingSave || this.state.error || (!this.state.loading && this.deletedTags.size) || (!this.state.loading && (taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length))) return
@@ -139,6 +141,7 @@ export class TaskListSession {
         return { ...change, before: current, after: { ...current,
           text: change.after.text !== change.before.text ? change.after.text : current.text,
           tags: !sameTags(change.after.tags, change.before.tags) ? taskTags(change.after) : taskTags(current),
+          assignees: !sameAssignees(change.after.assignees, change.before.assignees) ? taskAssignees(change.after) : taskAssignees(current),
           done: change.after.done !== change.before.done ? change.after.done : current.done,
           date: taskDate(change.after) !== taskDate(change.before) ? taskDate(change.after) : taskDate(current),
           startDate: taskStartDate(change.after) !== taskStartDate(change.before) ? taskStartDate(change.after) : taskStartDate(current),

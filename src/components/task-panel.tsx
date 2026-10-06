@@ -1,3 +1,5 @@
+import { TaskAssigneeProvider } from './task-assignee-context'
+import { taskAssignees } from '../../shared/task-assignees'
 import { TaskTagColorContext } from './task-tag-color-context'
 import { TaskDocumentProvider } from './task-document-context'
 import { TaskText } from './task-text'
@@ -43,7 +45,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   const [view, setView] = useState<'list' | 'calendar' | 'gantt'>('list')
   const [selectedDate, setSelectedDate] = useState(localToday), [month, setMonth] = useState(() => localToday().slice(0, 7))
   const inputs = useRef(new Map<string, HTMLTextAreaElement>()).current
-  const { tasks, canEdit, loading, saving, error, draft, draftTags, edit, setDraft, setDraftTags, flush, retry } = session
+  const { tasks, canEdit, loading, saving, error, draft, draftTags, draftAssignees, setDraftAssignees, edit, setDraft, setDraftTags, flush, retry } = session
   useEffect(() => { setMenu(null); setDateId(null) }, [workspace, canEdit, view, filters, showCompleted])
   const [today, setToday] = useState(localToday)
   useEffect(() => { setDeleteId(null) }, [workspace, canEdit])
@@ -63,7 +65,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   const filteredTasks = tasks.filter(matchesFilter)
   const sortedFiltered = sortedTasks.filter(matchesFilter)
   const drag = useTaskDrag(sortedFiltered, canEdit, next => edit(mergeVisibleTasks(tasks, sortedFiltered, next)))
-  const createTask = (text: string, tags: string[] = []): TaskItem => ({ ...newTask(text, [...tags, ...filters]), ...(view === 'calendar' ? { startDate: selectedDate, date: selectedDate } : {}) })
+  const createTask = (text: string, tags: string[] = [], assignees: string[] = []): TaskItem => ({ assignees, ...newTask(text, [...tags, ...filters]), ...(view === 'calendar' ? { startDate: selectedDate, date: selectedDate } : {}) })
   const visibleTasks = view === 'calendar' ? tasksOnDate(filteredTasks, selectedDate) : sortedFiltered
   const focus = (id: string, position: number | 'end' = 0) => {
     requestAnimationFrame(() => {
@@ -78,9 +80,9 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   const update = (id: string, text: string, tags: string[]) => edit(tasks.map(item => item.id === id ? { ...item, text, tags } : item))
   const remove = (index: number) => edit(removeTask(tasks, index))
   const commitDraft = () => {
-    if ((!draft.trim() && !draftTags.length) || tasks.length >= TASK_LIMIT || !canEdit) return
-    edit([...tasks, createTask(draft, draftTags)])
-    setDraft(''); setDraftTags([])
+    if ((!draft.trim() && !draftTags.length && !draftAssignees.length) || tasks.length >= TASK_LIMIT || !canEdit) return
+    edit([...tasks, createTask(draft, draftTags, draftAssignees)])
+    setDraft(''); setDraftTags([]); setDraftAssignees([])
   }
   const switchView = (next: typeof view) => { if (next !== view) { commitDraft(); setDeleteId(null); setView(next) } }
   const navigateView = useRef<(direction: -1 | 1) => void>(() => {})
@@ -104,7 +106,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
       if (tasks.length >= TASK_LIMIT) return
       if (isDraft) { commitDraft(); return }
       const item = tasks[index]
-      const next = createTask(item.text.slice(input.selectionEnd), taskTags(item))
+      const next = createTask(item.text.slice(input.selectionEnd), taskTags(item), taskAssignees(item))
       edit([...tasks.slice(0, index), { ...item, text: item.text.slice(0, input.selectionStart) }, next, ...tasks.slice(index + 1)])
       focus(next.id)
     } else if (event.key === 'Backspace' && !input.value && input.selectionStart === 0 && shownIndex > 0) {
@@ -125,31 +127,31 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     const input = event.currentTarget
     const lines = (input.value.slice(0, input.selectionStart) + text + input.value.slice(input.selectionEnd)).split('\n')
     if (tasks.length + lines.length > TASK_LIMIT || lines.some(line => line.length > TASK_TEXT_LIMIT)) return
-    const created = lines.map(line => createTask(line, index < tasks.length ? taskTags(tasks[index]) : draftTags))
+    const created = lines.map(line => createTask(line, index < tasks.length ? taskTags(tasks[index]) : draftTags, index < tasks.length ? taskAssignees(tasks[index]) : draftAssignees))
     if (index < tasks.length) created[0] = { ...tasks[index], text: lines[0] }
     edit([...tasks.slice(0, index), ...created, ...tasks.slice(index + (index < tasks.length ? 1 : 0))])
-    if (index === tasks.length) { setDraft(''); setDraftTags([]) }
+    if (index === tasks.length) { setDraft(''); setDraftTags([]); setDraftAssignees([]) }
     focus(created.at(-1)!.id, 'end')
   }
   const menuTask = visibleTasks.find(item => item.id === menu?.id)
   const renderTask = (item: TaskItem) => { const index = tasks.findIndex(task => task.id === item.id); return <TaskSwipeRow key={`${workspace}:${item.id}`} enabled={canEdit} open={deleteId === item.id} onReveal={open => setDeleteId(open ? item.id : null)} onDelete={() => { remove(index); setDeleteId(null) }} onMenu={anchor => setMenu({ ...anchor, id: item.id })} id={item.id} done={item.done} dragging={view === 'list' && drag.preview?.item.id === item.id} dropBefore={view === 'list' && drag.preview?.beforeId === item.id}>
           <label className="task-check" {...(view === 'list' ? drag.handle(item.id) : {})}><input type="checkbox" checked={item.done} disabled={!canEdit} aria-label={uiText('태스크 완료')} aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
             onChange={event => edit(tasks.map(task => task.id === item.id ? { ...task, done: event.target.checked } : task))} /></label>
-          <div className="task-content"><TaskText id={item.id} text={item.text} tags={item.tags} knownTags={knownTags} onFilter={tag => setFilters(current => current.includes(tag) ? current : [...current, tag])} disabled={!canEdit} inputs={inputs}
+          <div className="task-content"><TaskText id={item.id} text={item.text} tags={item.tags} assignees={item.assignees} onAssigneesChange={assignees => edit(tasks.map(task => task.id === item.id ? { ...task, assignees } : task))} knownTags={knownTags} onFilter={tag => setFilters(current => current.includes(tag) ? current : [...current, tag])} disabled={!canEdit} inputs={inputs}
             onChange={(text, tags) => update(item.id, text, tags)} onKeyDown={event => keyDown(event, index)} onPaste={event => paste(event, index)} onBlur={() => void flush()} /></div>
           <TaskDateStatus task={item} isOpen={dateId === item.id} onOpenChange={open => setDateId(open ? item.id : null)} today={today} readOnly={!canEdit} onChange={(startDate, date) => { if (!canEdit) return; edit(tasks.map(task => task.id === item.id ? { ...task, startDate, date } : task)) }} />
         </TaskSwipeRow> }
   const lines = <div ref={view === 'list' ? drag.list : undefined} {...(view === 'list' ? drag.events : {})} className="task-lines px-3 py-2">
         {(view === 'calendar' ? visibleTasks : drag.tasks.filter(matchesFilter)).map(renderTask)}
-        {canEdit && tasks.length < TASK_LIMIT && <div data-drop-before={view === 'list' && !!drag.preview && drag.preview.beforeId === null || undefined} className="task-line task-draft" data-empty={!draft && !draftTags.length || undefined}>
+        {canEdit && tasks.length < TASK_LIMIT && <div data-drop-before={view === 'list' && !!drag.preview && drag.preview.beforeId === null || undefined} className="task-line task-draft" data-empty={!draft && !draftTags.length && !draftAssignees.length || undefined}>
           <span className="task-draft-plus" aria-hidden="true"><Plus width={18} height={18} /></span>
           <span className="task-check"><input type="checkbox" disabled aria-hidden="true" /></span>
-          <TaskText id="draft" text={draft} tags={draftTags} knownTags={knownTags} disabled={false} inputs={inputs}
+          <TaskText id="draft" text={draft} tags={draftTags} assignees={draftAssignees} onAssigneesChange={setDraftAssignees} knownTags={knownTags} disabled={false} inputs={inputs}
             onChange={(text, tags) => { setDraft(text); setDraftTags(tags) }} onKeyDown={event => keyDown(event, tasks.length)} onPaste={event => paste(event, tasks.length)}
             onBlur={commitDraft} />
         </div>}
       </div>
-  return <TaskTagColorContext.Provider value={{ colors: session.tagColors, onChange: session.setTagColor, onDelete: session.deleteTag }}><TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
+  return <TaskAssigneeProvider key={workspace}><TaskTagColorContext.Provider value={{ colors: session.tagColors, onChange: session.setTagColor, onDelete: session.deleteTag }}><TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
     <header data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       <DockGrip group="tasks" />
       <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5">
@@ -187,5 +189,5 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     {drag.preview && createPortal(<div aria-hidden="true" data-task-drag-preview className="task-drag-preview" style={{ left: drag.preview.x, top: drag.preview.y, width: drag.preview.width }}>
       <span className="task-check"><input type="checkbox" checked={drag.preview.item.done} readOnly tabIndex={-1} /></span><span className="task-drag-text">{drag.preview.item.text}</span>
     </div>, document.body)}
-  </section></TaskDocumentProvider></TaskTagColorContext.Provider>
+  </section></TaskDocumentProvider></TaskTagColorContext.Provider></TaskAssigneeProvider>
 }

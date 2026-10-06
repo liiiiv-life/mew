@@ -300,7 +300,7 @@ function GanttInspector({ pick, task, knownTags, canEdit, onClose, onEdit }: { p
   const documents = useTaskDocuments()
   return <div ref={ref} role="dialog" aria-label={uiText('일정 편집')} className="task-gantt-inspector" style={position}>
     <div className="task-inspector-head"><strong>{uiText('일정 편집')}</strong><button type="button" className="task-tool" aria-label={uiText('닫기')} data-tip={uiText('닫기')} onClick={() => onClose()}><Xmark width={16} height={16} aria-hidden="true" /></button></div>
-    <TaskText id={task.id} text={task.text} tags={task.tags} knownTags={knownTags} disabled={!canEdit} onChange={(text, tags) => onEdit({ ...task, text, tags })} />
+    <TaskText id={task.id} text={task.text} tags={task.tags} assignees={task.assignees} onAssigneesChange={assignees => onEdit({ ...task, assignees })} knownTags={knownTags} disabled={!canEdit} onChange={(text, tags) => onEdit({ ...task, text, tags })} />
     {task.path && documents.open && <button type="button" className="task-tool" aria-label={uiText('파일 열기')} data-tip={uiText('파일 열기')} onClick={() => documents.open?.(task.path!)}><Page width={14} height={14} aria-hidden="true" /></button>}
     <TaskRangeCalendar key={task.id} start={task.startDate} end={task.date} readOnly={!canEdit} onChange={(startDate, date) => onEdit({ ...task, startDate, date })} />
     <div className="task-inspector-actions"><label><input type="checkbox" checked={task.done} disabled={!canEdit} onChange={event => onEdit({ ...task, done: event.target.checked })} />{uiText('완료')}</label>

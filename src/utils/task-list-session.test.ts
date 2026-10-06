@@ -306,3 +306,34 @@ test('a lost global deletion response retries the identical deletion without res
     assert.equal(session.state.error, null)
   } finally { session.dispose() }
 })
+
+test('assignee retry keeps local selection and remote text, tags and completion', async () => {
+  let fail = true
+  let serverItems: import('../../shared/task-list.ts').TaskItem[] = [item]
+  const session = new TaskListSession({ read: async () => ({ tasks: serverItems, canEdit: true }), save: async changes => {
+    if (fail) throw new Error('태스크를 저장하지 못했습니다')
+    serverItems = applyTaskChanges(serverItems, changes)
+    return { tasks: serverItems, canEdit: true }
+  } })
+  try {
+    await session.refresh()
+    session.edit([{ ...item, assignees: ['one@example.test'] }]); await session.flush()
+    serverItems = [{ ...item, text: 'remote', done: true, tags: ['remote'], assignees: ['two@example.test'] }]
+    fail = false; await session.retry()
+    assert.deepEqual(serverItems, [{ ...item, text: 'remote', done: true, tags: ['remote'], assignees: ['one@example.test'] }])
+  } finally { session.dispose() }
+})
+
+test('assignee selection made during a save survives remote completion', async () => {
+  let resolveSave!: (board: TaskBoard) => void
+  const session = new TaskListSession({ read: async () => ({ tasks: [item], canEdit: true }), save: () => new Promise(resolve => { resolveSave = resolve }) })
+  try {
+    await session.refresh()
+    session.edit([{ ...item, assignees: ['one@example.test'] }])
+    const saving = session.flush()
+    session.edit([{ ...item, assignees: ['one@example.test', 'two@example.test'] }])
+    resolveSave({ tasks: [{ ...item, done: true, assignees: ['one@example.test'] }], canEdit: true })
+    await saving
+    assert.deepEqual(session.state.tasks, [{ ...item, done: true, assignees: ['one@example.test', 'two@example.test'] }])
+  } finally { session.dispose() }
+})

@@ -1,3 +1,4 @@
+import { validAssignees } from '../shared/task-assignees.ts'
 import { applyTagColorChanges, removeTagColors, validTagColors, validTagColorChanges, type TaskTagColors } from '../shared/task-tag-colors.ts'
 import { readTaskDocuments, writeTaskDocuments, taskListFile } from './task-markdown.ts'
 import { taskRollups, taskWithRollup } from '../shared/task-rollup.ts'
@@ -13,6 +14,7 @@ function validItem(value: unknown): value is TaskItem {
   return typeof item.id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(item.id)
     && (item.parentId == null || (typeof item.parentId === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(item.parentId)))
     && (item.tags === undefined || validTags(item.tags))
+    && (item.assignees === undefined || validAssignees(item.assignees))
     && validTaskDates(item)
     && typeof item.text === 'string' && item.text.length <= TASK_TEXT_LIMIT && typeof item.done === 'boolean'
 }
@@ -35,8 +37,8 @@ export function readTaskList(workspace: string): TaskItem[] {
   const tasks = data.tasks as TaskItem[]
   const rollups = taskRollups(tasks)
   return tasks.map(task => {
-    const { id, text, done, tags, date, startDate } = taskWithRollup(task, rollups)
-    return { id, text, done, ...(tags?.length ? { tags } : {}), ...(date ? { date } : {}), ...(startDate ? { startDate } : {}) }
+    const { id, text, done, tags, assignees, date, startDate } = taskWithRollup(task, rollups)
+    return { id, text, done, ...(tags?.length ? { tags } : {}), ...(assignees?.length ? { assignees } : {}), ...(date ? { date } : {}), ...(startDate ? { startDate } : {}) }
   })
 }
 export function readTaskTags(workspace: string): string[] {
@@ -66,7 +68,7 @@ export function changeTaskList(workspace: string, input: unknown, colorInput: un
       || (change.afterId !== null && (typeof change.afterId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(change.afterId) || change.afterId === change.id))) throw new TaskInputError('잘못된 태스크 변경입니다')
     ids.add(change.id)
   }
-  const clean = (item: TaskItem | null): TaskItem | null => item === null ? null : { id: item.id, text: item.text, done: item.done, ...(item.tags?.length ? { tags: item.tags.filter(tag => !deletedInput.includes(tag)) } : {}), ...(item.date ? { date: item.date } : {}), ...(item.startDate ? { startDate: item.startDate } : {}) }
+  const clean = (item: TaskItem | null): TaskItem | null => item === null ? null : { id: item.id, text: item.text, done: item.done, ...(item.assignees?.length ? { assignees: item.assignees } : {}), ...(item.tags?.length ? { tags: item.tags.filter(tag => !deletedInput.includes(tag)) } : {}), ...(item.date ? { date: item.date } : {}), ...(item.startDate ? { startDate: item.startDate } : {}) }
   const changes = (input as TaskChange[]).map(change => ({ id: change.id, before: clean(change.before), after: clean(change.after), afterId: change.afterId, ...(change.move ? { move: true } : {}) }))
   const stored = readJsonFile<{ version: number }>(taskListFile(workspace))
   if (stored && stored.version < 3 && readTaskDocuments(workspace).length) throw new Error('기존 태스크와 Markdown 파일이 중복됩니다')

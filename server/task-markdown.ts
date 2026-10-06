@@ -1,3 +1,4 @@
+import { sameAssignees } from '../shared/task-assignees.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
@@ -61,9 +62,10 @@ export function readTaskDocuments(workspace: string): TaskDocument[] {
       const identity = identities.find(item => item.path === relativePath) ?? identities.find(item => stat.ino !== 0 && item.device === stat.dev && item.inode === stat.ino)
       const id = identity?.id ?? value.id ?? createHash('sha256').update(stat.ino ? `${stat.dev}:${stat.ino}` : relativePath).digest('hex')
       const tags = taskDocumentTags(value.tags)
+      const assignees = taskDocumentTags(value.assignees)
       const done = value.done === 'true' ? true : value.done === 'false' ? false : value.done
       const task = { id, text: value.title, done,
-        ...(tags != null ? { tags } : {}), ...(value.date != null ? { date: value.date } : {}),
+        ...(tags != null ? { tags } : {}), ...(assignees != null ? { assignees } : {}), ...(value.date != null ? { date: value.date } : {}),
         ...(value.startDate != null ? { startDate: value.startDate } : {}), path: relativePath } as TaskItem
       return { task, raw, body: raw.slice(match[0].length), yaml }
     })
@@ -137,9 +139,9 @@ export function writeTaskDocuments(workspace: string, tasks: TaskItem[], commit:
       yaml.set('description', description(task.text)); changed = true
     }
     if (!old || old.task.done !== task.done) { yaml.set('done', task.done); changed = true }
-    for (const key of ['tags', 'date', 'startDate'] as const) {
+    for (const key of ['tags', 'assignees', 'date', 'startDate'] as const) {
       const value = task[key]
-      if (old && (key === 'tags' ? sameTags(old.task.tags, task.tags) : (old.task[key] ?? null) === (value ?? null))) continue
+      if (old && (key === 'tags' ? sameTags(old.task.tags, task.tags) : key === 'assignees' ? sameAssignees(old.task.assignees, task.assignees) : (old.task[key] ?? null) === (value ?? null))) continue
       if (value == null || Array.isArray(value) && !value.length) yaml.delete(key)
       else yaml.set(key, value)
       changed = true

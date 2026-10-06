@@ -56,5 +56,5 @@ export function useTaskList(workspace: string | null, email: string, open: boole
   useEffect(() => {
     for (const [key, value] of sessions.current) if (!key.startsWith(`${email}:`)) { value.dispose(); sessions.current.delete(key) }
   }, [email])
-  return { ...state, deleteTag: (tag: string) => session.deleteTag(tag), setTagColor: (tag: string, hue: number) => session.setTagColor(tag, hue), edit: (tasks: typeof state.tasks) => session.edit(tasks), setDraft: (text: string) => session.setDraft(text), setDraftTags: (tags: string[]) => session.setDraftTags(tags), flush: () => session.flush(), retry: () => session.retry() }
+  return { ...state, deleteTag: (tag: string) => session.deleteTag(tag), setTagColor: (tag: string, hue: number) => session.setTagColor(tag, hue), edit: (tasks: typeof state.tasks) => session.edit(tasks), setDraft: (text: string) => session.setDraft(text), setDraftAssignees: (assignees: string[]) => session.setDraftAssignees(assignees), setDraftTags: (tags: string[]) => session.setDraftTags(tags), flush: () => session.flush(), retry: () => session.retry() }
 }

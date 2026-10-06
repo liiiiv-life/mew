@@ -223,3 +223,26 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
 .task-tag-delete { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 24px; height: 28px; border-radius: 4px; color: var(--color-ink-secondary); }
 .task-tag-delete:hover, .task-tag-delete:focus-visible { color: var(--color-danger); background: var(--color-surface-hover); }
 @media (pointer: coarse) { .task-tag-delete { width: 28px; height: 32px; } }
+
+.task-assignees { display: flex; flex: 0 0 auto; align-items: flex-start; max-width: 92px; }
+.task-assignee-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 28px; min-height: 28px; padding: 4px 2px; border-radius: 5px; color: var(--color-ink-secondary); }
+button.task-assignee-trigger:hover { background: var(--color-surface-hover); color: var(--color-ink); }
+.task-assignee-trigger:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 1px; }
+.task-assignee-avatar { display: inline-flex; width: 20px; height: 20px; flex: 0 0 20px; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; border: 1px solid var(--assignee-color); background: color-mix(in srgb, var(--assignee-color) 18%, var(--color-surface)); color: var(--color-ink); font-size: 8px; font-weight: 600; line-height: 1; }
+.task-assignee-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.task-assignee-trigger > span { display: inline-flex; }
+.task-assignee-count { align-items: center; font-size: 10px; }
+.task-assignee-option { display: flex; width: 100%; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; text-align: left; }
+.task-assignee-option:hover, .task-assignee-option[data-active="true"], .task-assignee-option:focus-visible { background: var(--color-surface-hover); }
+.task-assignee-option:focus-visible { outline: 2px solid var(--color-ink); outline-offset: -2px; }
+.task-assignee-option:disabled { opacity: .5; }
+.task-assignee-option > svg { flex-shrink: 0; }
+.task-assignee-identity { display: flex; flex: 1; min-width: 0; flex-direction: column; font-size: 12px; }
+.task-assignee-identity > span, .task-assignee-identity > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-assignee-identity > small { color: var(--color-ink-secondary); font-size: 10px; }
+.task-assignee-status { padding: 8px; font-size: 12px; color: var(--color-ink-secondary); }
+.task-assignee-status button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; vertical-align: middle; }
+.task-assignee-status button:hover { background: var(--color-surface-hover); }
+.task-assignee-status button:focus-visible { outline: 2px solid var(--color-ink); }
+.task-draft[data-empty]:not(:focus-within) .task-assignees { visibility: hidden; }
+@media (pointer: coarse) { .task-assignee-trigger { min-width: 32px; min-height: 32px; } .task-assignee-option { min-height: 40px; } }
