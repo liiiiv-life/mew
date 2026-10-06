@@ -1,30 +1,33 @@
 ---
-id: c5a18446-f1b7-4b13-ace6-2d8fa5ed25cc
 title: "mew 중계 기능 만들기"
-done: false
-tags:
-  - 기능
-date: 2026-10-08
-startDate: 2026-10-05
+done: "false"
+tags: ""
+startDate: "2026-10-08"
+date: "2026-10-11"
 ---
 
 # mew 중계 기능 만들기
 
 ## 간단 설명
 
-기존에는 사용자가 mew를 클론해서 localhost:5001에다가 프론트 서버를 열기까지는 가능했지만, 이를 외부 기기(다른 컴퓨터, 핸드폰 브라우저 등)에서 연결하려면 Tailscale이나 도메인 연결과 같이, 잘 모르면 복잡하게 느껴질 수 있는 세팅 과정이 필요했음. 이 부분은 mew에서 자동으로 처리가 불가능해서 사용자가 직접 해야 함.
+기존에는 사용자가 mew를 클론해서 localhost:5001에다가 프론트 서버를 열기까지는 가능했지만, 이를 외부 기기(다른 컴퓨터, 핸드폰 브라우저 등)에서 연결하려면 Tailscale이나 도메인 연결과 같이, 잘 모르면 복잡하게 느껴질 수 있는 세팅 과정이 필요했음.
 
 (난 지금 Cloudflare에서 Tunnel이라는 기능 써서 우리집컴의 localhost:5000을 내 도메인(mew.liiiiv.life)으로 접근 가능하도록 열어둔거임.)
 
 그래서 사용자가 그런 처리도 아예 없이 원격접속도 쉽게 할 수 있도록 하려고 함.
 
-### 작동과정 1) 등록
+### 1) 설치 및 등록
 
-1. "Mew 원격 접속 활성화" 버튼 하나 누름. (원격 데탑이랑은 다른 기능)
-2. 그럼 [mew.saens.kr](https://mew.saens.kr) 이라는 사이트로 연결, 로그인하라고 함. (로그인 제공자와 이메일 로그인 지원 범위는 구현 전에 확정한다.)
-3. 로그인하면 해당 기기 이름 입력. 이후 바로 등록됨. (mew.saens.kr/{user-id}/{device-name} 으로.)
+1. Git clone 후 `cd mew && ./mew` 로 설치 및 초기 세팅
+2. 세팅 중 외부 접속 어케할건지 물어봄.
+   1. mew 중계서버 활용
+   2. cloudflare tunnel 활용
+   3. tailscale 활용
+   4. 안함
+3. mew 중계서버 활용 선택하면, [mew.saens.kr](https://mew.saens.kr) 이라는 사이트로 연결, 로그인하라고 함. (구글,애플,깃헙,이메일 지원)
+4. 로그인하면 해당 기기 이름 입력. 이후 바로 등록됨(mew.saens.kr/{user-id}/{device-name} 으로.)
 
-### 작동과정 2) 접속
+### 2) 접속
 
 #### i) 바로 접속
 
@@ -39,9 +42,7 @@ startDate: 2026-10-05
 
 <br/>
 
-<br/>
-
-[진행 작업](../work/MOC.md) · [문서 지도](../MOC.md) · [ADR 0195](../../../.mew/docs/decisions/0195-mew-account-based-p2p-remote-access.md)
+[진행 작업](../work/_work.md) · [문서 지도](../MOC.md) · [ADR 0195](../../../.mew/docs/decisions/0195-mew-account-based-p2p-remote-access.md)
 
 **상태: 설계 방향 채택 · 미구현 · 미배포.** 사용자가 보유한 saens.kr의 mew.saens.kr을 중앙 접속 주소로 사용한다. DNS·인증서·OAuth 앱·중앙 인프라를 구성하거나 운영 상태를 확인한 문서는 아니다.
 
