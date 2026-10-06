@@ -6,7 +6,8 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { FeatureStore } from './features.ts'
-import { digest, requirementsHash, serializeFeature } from './feature-documents.ts'
+import { digest, requirementsHash, serializeFeature, parseFeatureDocument, readFeatureDocuments } from './feature-documents.ts'
+import { DocumentPages } from './document-pages.ts'
 import { writeProjectAgentSettings, defaultAgentSettings } from './project-agent-settings.ts'
 import type { Feature } from '../shared/features.ts'
 
@@ -41,7 +42,8 @@ test('Markdown is canonical, survives clone/rename and preserves custom fields a
   const newPath = path.join(path.dirname(doc), 'email-login.md'); fs.renameSync(doc, newPath)
   fs.writeFileSync(newPath, original.replace('title:', '# Keep this comment\nowner: product-team\ncustom:\n  score: 3\ntitle:'))
   let external = store.read(workspace).features[0]
-  assert.equal(external.status, 'verified', 'metadata-only edits preserve approval')
+  assert.equal(external.title, 'email-login', 'the filename owns the feature title')
+  assert.equal(external.status, 'changed', 'renaming changes the reviewed title')
   assert.match(external.documentPath!, /email-login.md$/)
   external = await store.edit(workspace, external.id, { ...external, content: 'Revised requirements\n\n## 남은 사항\n- Mobile layout' })
   const written = fs.readFileSync(newPath, 'utf8')
@@ -98,14 +100,14 @@ test('legacy JSON migration keeps backup, history and queued version bindings', 
   await store.prepare(workspace)
   assert.equal(fs.readFileSync(path.join(workspace, migrated.features[0].documentPath!), 'utf8'), bytes)
 })
-test('malformed documents, duplicates, hierarchy cycles and symlinks fail without overwriting', async t => {
+test('folder hierarchy ignores obsolete parent metadata; malformed YAML, duplicate IDs and symlinks fail without overwriting', async t => {
   const { root, workspace, store } = fixture(t)
   const { feature } = await create(store, workspace)
   const doc = path.join(workspace, feature.documentPath!), raw = fs.readFileSync(doc, 'utf8')
   fs.writeFileSync(doc, raw.replace('parent: null', `parent: ${feature.id}`))
-  assert.throws(() => store.read(workspace), /순환/)
+  assert.equal(store.read(workspace).features[0].parentId, null)
   fs.writeFileSync(doc, raw.replace('parent: null', 'parent: absent'))
-  assert.throws(() => store.read(workspace), /상위 기능 absent/)
+  assert.equal(store.read(workspace).features[0].parentId, null)
   fs.writeFileSync(doc, raw.replace('title: Login', 'title: [broken'))
   const broken = fs.readFileSync(doc, 'utf8')
   await assert.rejects(store.edit(workspace, feature.id, feature))
@@ -124,12 +126,12 @@ test('interrupted transactions recover idempotently and preserve conflicting ext
   const { workspace, store, stateFile } = fixture(t)
   const { feature } = await create(store, workspace)
   const doc = path.join(workspace, feature.documentPath!), original = fs.readFileSync(doc, 'utf8')
-  const next = serializeFeature({ ...feature, title: 'Recovered', status: 'verified' })
+  const next = serializeFeature({ ...feature, content: 'Recovered', status: 'verified' })
   const runtime = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
   runtime.pendingWrites = [{ path: feature.documentPath, before: digest(original), content: next }]
   fs.writeFileSync(stateFile, JSON.stringify(runtime)); fs.writeFileSync(doc, next)
   await store.prepare(workspace)
-  assert.equal(store.read(workspace).features[0].title, 'Recovered')
+  assert.equal(store.read(workspace).features[0].content, 'Recovered')
   assert.equal('pendingWrites' in JSON.parse(fs.readFileSync(stateFile, 'utf8')), false)
   runtime.pendingWrites[0] = { path: feature.documentPath, before: digest(next), content: original }
   fs.writeFileSync(stateFile, JSON.stringify(runtime)); fs.writeFileSync(doc, next.replace('Recovered', 'External'))
@@ -139,9 +141,116 @@ test('interrupted transactions recover idempotently and preserve conflicting ext
 test('handwritten Markdown is discovered with stable IDs and requirements hash review binding', t => {
   const { workspace, store } = fixture(t), dir = path.join(workspace, 'docs/features')
   fs.mkdirSync(dir, { recursive: true })
-  const manual = { id: 'email-login', title: 'Email login', parentId: null, content: 'Use email.' }
+  const manual = { id: 'email-login', title: 'email-login', parentId: null, content: 'Use email.' }
   fs.writeFileSync(path.join(dir, 'email-login.md'), `---\nid: email-login\ntitle: Email login\nstatus: verified\nstatus_hash: ${requirementsHash(manual)}\ncreated: 2026-09-17\nupdated: 2026-09-17\n---\n\n## 요구사항\n\nUse email.\n\n## 구현 내용\n\nEmail form.\n\n## 검증\n\nTests pass.\n`)
   const feature = store.read(workspace).features[0]
   assert.equal(feature.id, 'email-login'); assert.equal(feature.status, 'verified'); assert.equal(feature.report?.summary, 'Email form.')
   assert.deepEqual(store.read(workspace).runs, [])
+})
+
+test('ordinary Markdown and flexible result markers never prevent reading the feature tree', t => {
+  const { workspace, store } = fixture(t), dir = path.join(workspace, 'docs/features')
+  fs.mkdirSync(dir, { recursive: true })
+  const plain = '# 본문 제목\n\n일반 문서\n\n```md\n<!-- mew:implementation:start -->\n## 구현 내용\n예시\n<!-- mew:implementation:end -->\n```\n\n<!-- mew:validation:start -->\n불완전한 구분자도 본문이다.\n'
+  fs.writeFileSync(path.join(dir, '일반 항목.md'), plain)
+  fs.writeFileSync(path.join(dir, '보고.md'), '<!-- mew:implementation:start -->\n\n- 제목 앞 메모\n## 구현 내용\n\n구현 결과\n<!-- mew:implementation:end -->\n\n<!-- mew:validation:start -->\n\n## 검증\n\n완료\n<!-- mew:validation:end -->\n')
+  const features = store.read(workspace).features
+  assert.equal(features.length, 2)
+  const ordinary = features.find(feature => feature.title === '일반 항목')!
+  assert.equal(ordinary.content, plain.trim()); assert.equal(ordinary.report, null)
+  assert.equal(ordinary.status, 'changed')
+  assert.equal(store.read(workspace).features.find(feature => feature.title === '일반 항목')!.id, ordinary.id)
+  assert.match(features.find(feature => feature.title === '보고')!.report!.summary, /제목 앞 메모[\s\S]*구현 결과/)
+  assert.equal(parseFeatureDocument('docs/features/중복.md', '## 검증\n첫 번째\n## 검증\n두 번째', '').feature.report!.validation, '첫 번째\n\n두 번째')
+})
+
+test('feature API promotes, renames and demotes nested pages with links and run versions preserved', async t => {
+  const { workspace, store } = fixture(t)
+  const { run, feature: parent } = await create(store, workspace, '상위')
+  await store.report(workspace, run.id, { summary: '완료', files: [], commits: [] }); await store.finish(workspace, run.id, 'completed')
+  fs.writeFileSync(path.join(workspace, 'docs/링크.md'), '[상위](features/상위.md)')
+  const childRun = await store.request(workspace, 'owner', { id: crypto.randomUUID(), title: '하위', content: '[상위](../상위.md)', agentSetId: preset.id, parentId: parent.id }, preset)
+  await store.claim(workspace)
+  const child = await store.assign(workspace, childRun.id, { action: 'child', title: '하위', content: childRun.content, parentId: parent.id, reason: '하위' })
+  let data = store.read(workspace)
+  assert.equal(data.features.find(feature => feature.id === parent.id)!.documentPath, 'docs/features/상위/_상위.md')
+  assert.equal(child.documentPath, 'docs/features/상위/하위.md')
+  assert.equal(fs.existsSync(path.join(workspace, 'docs/features/상위.md')), false)
+  assert.match(fs.readFileSync(path.join(workspace, 'docs/링크.md'), 'utf8'), /features\/%EC%83%81%EC%9C%84\/_%EC%83%81%EC%9C%84.md/)
+  const current = data.features.find(feature => feature.id === parent.id)!
+  await store.edit(workspace, parent.id, { ...current, title: '새 상위' })
+  data = store.read(workspace)
+  assert.equal(data.features.find(feature => feature.id === parent.id)!.documentPath, 'docs/features/새 상위/_새 상위.md')
+  const moved = data.features.find(feature => feature.id === child.id)!
+  assert.equal(moved.documentPath, 'docs/features/새 상위/하위.md')
+  assert.equal(data.runs.find(run => run.id === childRun.id)!.featureVersion, moved.version)
+  await store.edit(workspace, child.id, { ...moved, parentId: null })
+  data = store.read(workspace)
+  assert.equal(data.features.find(feature => feature.id === parent.id)!.documentPath, 'docs/features/새 상위.md')
+  assert.equal(data.features.find(feature => feature.id === child.id)!.documentPath, 'docs/features/하위.md')
+  assert.equal(fs.existsSync(path.join(workspace, 'docs/features/새 상위')), false)
+  const names = data.features.map(feature => feature.documentPath).sort()
+  await assert.rejects(store.edit(workspace, child.id, { ...data.features.find(feature => feature.id === child.id)!, title: '새 상위' }), /같은 이름/)
+  assert.deepEqual(store.read(workspace).features.map(feature => feature.documentPath).sort(), names)
+})
+
+test('Documents create, move and final-child delete are reflected without metadata or automatic work', t => {
+  const { workspace, store } = fixture(t), docsRoot = path.join(workspace, 'docs')
+  fs.mkdirSync(path.join(docsRoot, 'features'), { recursive: true })
+  fs.writeFileSync(path.join(docsRoot, 'features/상위.md'), '# 원본\n본문')
+  const pages = new DocumentPages(docsRoot)
+  pages.create('features/상위.md', '하위')
+  let features = store.read(workspace).features
+  const parent = features.find(feature => feature.title === '상위')!, child = features.find(feature => feature.title === '하위')!
+  assert.equal(parent.documentPath, 'docs/features/상위/_상위.md'); assert.equal(child.parentId, parent.id)
+  assert.equal(features.length, 2)
+  pages.delete('features/상위/하위.md')
+  features = store.read(workspace).features
+  assert.equal(features.length, 1); assert.equal(features[0].documentPath, 'docs/features/상위.md')
+  assert.equal(fs.existsSync(path.join(docsRoot, 'features/상위')), false)
+  assert.equal(fs.readFileSync(path.join(docsRoot, 'features/상위.md'), 'utf8'), '# 원본\n본문')
+  assert.deepEqual(store.read(workspace).runs, [])
+  assert.equal(readFeatureDocuments(workspace, 'docs').size, 1)
+})
+
+test('parent renames preserve binary attachments, hidden files and manual MOC links; attachments prevent demotion', async t => {
+  const { workspace, store } = fixture(t), docsRoot = path.join(workspace, 'docs')
+  fs.mkdirSync(path.join(docsRoot, 'features'), { recursive: true })
+  fs.writeFileSync(path.join(docsRoot, 'features/부모.md'), '# 본문\n\n![그림](./그림.bin)')
+  const pages = new DocumentPages(docsRoot)
+  pages.create('features/부모.md', '자식')
+  const bytes = Buffer.from([0, 255, 128, 64, 1])
+  fs.writeFileSync(path.join(docsRoot, 'features/부모/그림.bin'), bytes)
+  fs.writeFileSync(path.join(docsRoot, 'features/부모/.메모'), '숨김')
+  fs.writeFileSync(path.join(docsRoot, 'features/MOC.md'), '# 사용자 지도\n\n[부모](부모/_부모.md)')
+  const parent = store.read(workspace).features.find(feature => feature.title === '부모')!
+  await store.edit(workspace, parent.id, { ...parent, title: '새 부모' })
+  assert.deepEqual(fs.readFileSync(path.join(docsRoot, 'features/새 부모/그림.bin')), bytes)
+  assert.equal(fs.readFileSync(path.join(docsRoot, 'features/새 부모/.메모'), 'utf8'), '숨김')
+  assert.equal(fs.existsSync(path.join(docsRoot, 'features/부모')), false)
+  assert.match(fs.readFileSync(path.join(docsRoot, 'features/MOC.md'), 'utf8'), /\[부모\]\(%EC%83%88%20%EB%B6%80%EB%AA%A8\/_%EC%83%88%20%EB%B6%80%EB%AA%A8.md\)/)
+  const child = store.read(workspace).features.find(feature => feature.title === '자식')!
+  await store.edit(workspace, child.id, { ...child, parentId: null })
+  assert.equal(store.read(workspace).features.find(feature => feature.id === parent.id)!.documentPath, 'docs/features/새 부모/_새 부모.md')
+  assert.deepEqual(fs.readFileSync(path.join(docsRoot, 'features/새 부모/그림.bin')), bytes)
+})
+
+test('interrupted attachment moves recover without overwriting external changes', async t => {
+  const { workspace, store, stateFile } = fixture(t)
+  await create(store, workspace)
+  const old = 'docs/features/old.bin', next = 'docs/features/next.bin', bytes = Buffer.from([0, 254, 1])
+  fs.writeFileSync(path.join(workspace, old), bytes)
+  const runtime = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
+  runtime.pendingWrites = [{ path: next, moveFrom: old, before: digest(bytes), content: null }]
+  fs.writeFileSync(stateFile, JSON.stringify(runtime))
+  fs.renameSync(path.join(workspace, old), path.join(workspace, next))
+  await store.prepare(workspace)
+  assert.deepEqual(fs.readFileSync(path.join(workspace, next)), bytes)
+  assert.equal('pendingWrites' in JSON.parse(fs.readFileSync(stateFile, 'utf8')), false)
+  fs.renameSync(path.join(workspace, next), path.join(workspace, old))
+  fs.writeFileSync(path.join(workspace, old), Buffer.from([1, 2, 3]))
+  fs.writeFileSync(stateFile, JSON.stringify(runtime))
+  await assert.rejects(store.prepare(workspace), /충돌/)
+  assert.deepEqual(fs.readFileSync(path.join(workspace, old)), Buffer.from([1, 2, 3]))
+  assert.equal(fs.existsSync(path.join(workspace, next)), false)
 })

@@ -5,7 +5,8 @@ import { execFileSync } from 'node:child_process'
 import { DATA_DIR, readJsonFile, writeFileAtomic } from './dataDir.ts'
 import { activeFeatureRun, pendingFeatureRun, featureSpecification, type Feature, type FeatureReport, type FeatureRequest, type FeatureRun, type FeatureWorkspace } from '../shared/features.ts'
 import { FeatureError } from './feature-error.ts'
-import { applyDocumentWrites, digest, documentVersion, featureDocsDir, featureIndexWrites, mergeFeatureReport, parseFeatureDocument, readFeatureDocuments, serializeFeature, validateHierarchy, type DocumentWrite } from './feature-documents.ts'
+import { applyDocumentWrites, documentVersion, featureDocsDir, featureIndexWrites, mergeFeatureReport, parseFeatureDocument, readFeatureDocuments, serializeFeature, validateHierarchy, type DocumentWrite } from './feature-documents.ts'
+import { featureDocumentPaths, featureTreeWrites } from './feature-document-tree.ts'
 export { FeatureError } from './feature-error.ts'
 
 type RuntimeState = { version: 2; workspace: string; docsDir: string; revision: number; runs: FeatureRun[]; pendingWrites?: DocumentWrite[] }
@@ -165,21 +166,28 @@ export class FeatureStore {
       const before = JSON.stringify(data), original = new Map(data.features.map(feature => [feature.id, JSON.stringify(feature)])), result = fn(data)
       if (legacy || JSON.stringify(data) !== before) {
         validateHierarchy(data.features)
-        const writes: DocumentWrite[] = []
+        const paths = featureDocumentPaths(workspace, docsDir, data.features, docs)
+        const contents = new Map<string, { path: string; content: string }>()
         for (const feature of data.features) {
-          if (!legacy && original.get(feature.id) === JSON.stringify(feature)) continue
-          if (legacy && docs.has(feature.id) && original.get(feature.id) === JSON.stringify(feature)) continue
-          const old = docs.get(feature.id), relative = old?.feature.documentPath ?? `${docsDir}/features/${feature.id}.md`
-          const content = serializeFeature(feature, old)
-          const parsed = parseFeatureDocument(relative, content, feature.updatedAt).feature
-          if (parsed.content !== feature.content.trim()) throw new FeatureError('요구사항에서 ## 구현 내용·## 검증은 결과용 제목입니다. 하위 제목(###)을 사용하세요.')
+          const old = docs.get(feature.id), relative = paths.get(feature.id)!
+          const changed = !old || original.get(feature.id) !== JSON.stringify(feature) || relative !== old.feature.documentPath
+          contents.set(feature.id, { path: relative, content: changed ? serializeFeature(feature, old) : old.raw })
+        }
+        const writes: DocumentWrite[] = featureTreeWrites(workspace, docsDir, docs, contents)
+        for (const feature of data.features) {
+          const next = contents.get(feature.id)!, parsed = parseFeatureDocument(next.path, next.content, feature.updatedAt).feature
+          parsed.parentId = feature.parentId
           for (const run of data.runs) if (run.featureId === feature.id && run.featureVersion === feature.version) run.featureVersion = parsed.version
           for (const run of data.runs) if (run.targetId === feature.id && run.targetVersion === feature.version) run.targetVersion = parsed.version
-          const status = feature.status
-          Object.assign(feature, parsed, { status: status === 'implementing' ? status : parsed.status })
-          if (content !== old?.raw) writes.push({ path: relative, before: old ? digest(old.raw) : null, content })
+          Object.assign(feature, parsed, { status: feature.status })
         }
-        if (writes.length) writes.push(...featureIndexWrites(workspace, docsDir, data.features))
+        if (writes.length) {
+          for (const index of featureIndexWrites(workspace, docsDir, data.features, new Map(writes.flatMap(write => write.content === null ? [] : [[write.path, write.content] as const])))) {
+            const existing = writes.find(write => write.path === index.path)
+            if (existing) existing.content = index.content
+            else writes.push(index)
+          }
+        }
         if (legacy) {
           try { fs.writeFileSync(`${file}.v1-backup`, JSON.stringify(legacy) + '\n', { flag: 'wx', mode: 0o600 }) }
           catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
