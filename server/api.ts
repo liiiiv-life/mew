@@ -91,6 +91,7 @@ import { createGitAiCommitRouter } from './git-ai-commit-routes.ts'
 import { acpRuntimeList, agentSetRuntimeList, isRuntime, probeModels, thinkingByRuntime } from './agentAcp.ts'
 import { isRuntimeLoginMethod, runtimeLoginSpec } from './agentRuntimes.ts'
 import { terminalAuthFromHost } from './agentHost.ts'
+import { saveAgentTabs } from './agent-tab-state.ts'
 import { authFailureMessageFromOutput, browserLoginDetailsFromOutput, prepareAgentAuthTerminal, readAgentAuthTerminalStatus } from './agentAuthTerminal.ts'
 import { resolveWorkspaceLink } from './workspaceLinks.ts'
 import { installRuntime, logoutRuntime, runtimeStatuses, RuntimeInstallError, uninstallRuntime } from './agentRuntimeInstall.ts'
@@ -101,7 +102,7 @@ import { AgentScheduledPromptError, cancelAgentScheduledPrompt, listAgentSchedul
 import { AgentTerminalError, startAgentTerminal, stopAgentTerminal } from './agentTerminal.ts'
 import { AgentCommandStore } from './agent-commands.ts'
 import { createAgentCommandRouter } from './agent-command-routes.ts'
-import { readAgentSessionClaims, readAgentTabs, readRootProjects, readWorkspaceUi, writeAgentTabs, writeRootProjects, writeWorkspaceUi } from './userUiState.ts'
+import { readAgentSessionClaims, readAgentTabs, readRootProjects, readWorkspaceUi, writeRootProjects, writeWorkspaceUi } from './userUiState.ts'
 import {
   AgentSettingError,
   deleteAgentSetting,
@@ -478,10 +479,10 @@ export function createApiApp() {
     }
   })
 
-  app.put('/user-ui/agent-tabs', requireAnyFeature('agent', 'terminal'), (req, res) => {
+  app.put('/user-ui/agent-tabs', requireAnyFeature('agent', 'terminal'), async (req, res) => {
     try {
       const workspacePath = typeof req.body?.workspacePath === 'string' ? req.body.workspacePath : ''
-      res.json({ state: writeAgentTabs(authOf(req).email!, workspacePath, req.body) })
+      res.json({ state: await saveAgentTabs(authOf(req).email!, workspacePath, req.body) })
     } catch (err) {
       handleError(res, err)
     }

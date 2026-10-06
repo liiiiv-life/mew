@@ -829,6 +829,22 @@ export async function terminalAuthFromHost(runtime: string, tab: string, cwd: st
   }
 }
 
+/** Close a saved tab's existing host without starting a new session when it is absent. */
+export async function closeExistingAgentHost(runtime: string, tab: string, cwd: string): Promise<boolean> {
+  if (!isAcpRuntime(runtime) || !TAB_ID.test(tab) || !path.isAbsolute(cwd)) return false
+  let client: AgentHostClient
+  try {
+    client = await openSocket(pathsFor(runtime, tab, cwd).socket, runtime, tab, cwd, {})
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ECONNREFUSED') return false
+    throw err
+  }
+  try { client.send({ type: 'close_session' }) }
+  finally { client.close() }
+  return true
+}
+
 /** The same host that serializes AI turns accepts CLI jobs into that queue. */
 export async function queueCommandInHost(owner: string, input: AgentCommandInput): Promise<AgentCommandRecord> {
   const client = await connectAgentHost(input.runtime, input.tab, input.cwd, {}, input.sessionId)

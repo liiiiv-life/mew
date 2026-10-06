@@ -104,7 +104,49 @@ process.env.MEW_AGENT_CODEX_CMD = process.execPath
 process.env.MEW_AGENT_CODEX_ARGS = `${stubPath} ${finishedFile} ${writerLockFile}`
 
 const { connectAgentHost, describeError, shutdownAgentHostsForWorkspace } = await import('./agentHost.ts')
+const { saveAgentTabs } = await import('./agent-tab-state.ts')
+const { writeAgentTabs, readAgentTabs } = await import('./userUiState.ts')
 type AgentEvent = import('./agentAcp.ts').AgentEvent
+
+test('연결되지 않은 탭을 원장에서 삭제하면 이전 runtime/cwd 감독도 종료한다', { timeout: 10_000 }, async t => {
+  const otherCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-agent-removed-tab-'))
+  t.after(async () => {
+    shutdownAgentHostsForWorkspace(workspace)
+    shutdownAgentHostsForWorkspace(otherCwd)
+    await new Promise(resolve => setTimeout(resolve, 200))
+    fs.rmSync(otherCwd, { recursive: true, force: true })
+  })
+  const start = async (tab: string, cwd: string) => {
+    let ready!: () => void
+    const started = new Promise<void>(resolve => { ready = resolve })
+    const client = await connectAgentHost('codex', tab, cwd, { onEvent: event => { if (event.type === 'meta') ready() } })
+    await started
+    client.close()
+  }
+  await start('removed-tab', workspace)
+  await start('removed-tab', otherCwd)
+  await start('retained-tab', workspace)
+  const hosts = () => fs.readdirSync(path.join(dataDir, 'agent')).filter(name => name.endsWith('.json'))
+    .map(name => JSON.parse(fs.readFileSync(path.join(dataDir, 'agent', name), 'utf8')) as { pid: number; tab: string })
+  const removedPids = hosts().filter(host => host.tab === 'removed-tab').map(host => host.pid)
+  const retainedPid = hosts().find(host => host.tab === 'retained-tab')!.pid
+  assert.equal(removedPids.length, 2)
+  const retained = { id: 'retained-tab', label: 'Keep', runtime: 'codex', cwd: workspace }
+  writeAgentTabs('removed@example.test', workspace, { tabs: [
+    { id: 'removed-tab', label: 'Closed', runtime: 'codex', cwd: otherCwd,
+      sessionIds: { [JSON.stringify(['codex', workspace])]: 'host-session', legacy: 'old' } },
+    { id: 'never-opened', label: 'Absent', runtime: 'codex', cwd: workspace }, retained,
+  ], activeId: 'removed-tab' })
+  await assert.rejects(saveAgentTabs('removed@example.test', workspace, null))
+  assert.ok(removedPids.every(alive), '잘못된 저장은 감독을 종료하지 않는다')
+  await saveAgentTabs('other@example.test', workspace, { tabs: [], activeId: null })
+  assert.ok(removedPids.every(alive), '다른 계정의 저장은 감독을 종료하지 않는다')
+  const saved = await saveAgentTabs('removed@example.test', workspace, { tabs: [retained], activeId: retained.id })
+  await waitFor(() => removedPids.every(pid => !alive(pid)))
+  assert.equal(alive(retainedPid), true, '남은 탭의 감독을 보존한다')
+  assert.deepEqual(readAgentTabs('removed@example.test', workspace), saved)
+  assert.equal(hosts().some(host => host.tab === 'never-opened'), false, '종료할 때 새 감독을 만들지 않는다')
+})
 
 test('ACP의 plain object 오류에서 메시지와 상세 원인을 보존한다', () => {
   const message = describeError({
