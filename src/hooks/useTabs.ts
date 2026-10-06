@@ -1,3 +1,4 @@
+import { mergeTaskFrontmatter } from '../../packages/editor/src/utils/task-frontmatter-merge'
 import { remapPagePath, rewritePageLinks, type DocumentPageMutation } from '../../shared/document-pages'
 import { editorTabPath } from '../utils/editor-files'
 import { useRefreshTasks } from './use-refresh-tasks'
@@ -11,6 +12,11 @@ import { externalAbsolutePath, externalTabPath, isExternalTabPath } from '../uti
 import { afterFirstPaint, markFileOpen, startFileOpen, type FileOpenTrace } from '../utils/fileOpenPerformance'
 import { isGitTabPath } from '../utils/gitTabs'
 import { editorFile, mergeEditorTabs } from '../utils/editor-files'
+
+function savedBuffer(current: string, submitted: string, saved: string): string {
+  if (saved === submitted) return current
+  try { return mergeTaskFrontmatter(submitted, current, saved, false) } catch { return current }
+}
 
 export type Tab = {
   path: string
@@ -449,11 +455,15 @@ export function useTabs(
         await Promise.all([...inFlightSaves.current])
         if (workspaceRequestRef.current.epoch !== epoch || pageMutationRef.current === epoch) return
         const file = editorFile(active.path, p), content = active.content
+        let saved = content
         if (isExternalTabPath(active.path)) await saveExternalFile(externalAbsolutePath(active.path), content, active.savedContent)
-        else await saveFile(file.path, content, false, file.project)
+        else {
+          const result = await saveFile(file.path, content, false, file.project, active.savedContent)
+          saved = result.content ?? content
+        }
         if (workspaceRequestRef.current.epoch !== epoch) return
-        if (!isExternalTabPath(active.path)) putCachedFile(p, active.path, { content, editable: active.editable })
-        mapTabsAtPath(p, active.path, tab => ({ ...tab, savedContent: content, status: 'saved' }))
+        if (!isExternalTabPath(active.path)) putCachedFile(p, active.path, { content: saved, editable: active.editable })
+        mapTabsAtPath(p, active.path, tab => ({ ...tab, content: savedBuffer(tab.content, content, saved), savedContent: saved, status: 'saved' }))
         if (fileNavigationRef.current === sequence && paneOf(p, paneId).activePath === active.path) openFileIn(p, paneId, path, opts)
       })().catch(error => onNoticeRef.current(error instanceof Error ? error.message : String(error)))
         .finally(() => inFlightSaves.current.delete(navigation))
@@ -608,14 +618,16 @@ export function useTabs(
       const content = tab.content
       mapTabsAtPath(p, path, (t) => ({ ...t, status: 'saving' }))
       const save = isExternalTabPath(path)
-        ? saveExternalFile(externalAbsolutePath(path), content, tab.savedContent).then(() => ({ ok: true as const, commit: null }))
-        : saveFile(file.path, content, false, file.project)
+        ? saveExternalFile(externalAbsolutePath(path), content, tab.savedContent).then(() => ({ ok: true as const, commit: null, content }))
+        : saveFile(file.path, content, false, file.project, tab.savedContent)
       const request = save
-        .then(() => {
-          if (!isExternalTabPath(path)) putCachedFile(p, path, { content, editable: tab.editable })
+        .then(result => {
+          const saved = result.content ?? content
+          if (!isExternalTabPath(path)) putCachedFile(p, path, { content: saved, editable: tab.editable })
           mapTabsAtPath(p, path, (t) =>
-            t.content === content ? { ...t, savedContent: content, status: 'saved', statusMessage: 'Saved' }
-              : isExternalTabPath(path) && t.savedContent === tab.savedContent ? { ...t, savedContent: content, status: 'idle' } : t,
+            t.content === content ? { ...t, content: saved, savedContent: saved, status: 'saved', statusMessage: 'Saved' }
+              : saved !== content ? { ...t, content: savedBuffer(t.content, content, saved), savedContent: saved, status: 'idle' }
+                : isExternalTabPath(path) && t.savedContent === tab.savedContent ? { ...t, savedContent: content, status: 'idle' } : t,
           )
         })
         .catch((err) => {
@@ -704,18 +716,20 @@ export function useTabs(
       try {
         const external = isExternalTabPath(tab.path)
         const request = external
-          ? saveExternalFile(externalAbsolutePath(tab.path), tab.content, tab.savedContent).then(result => ({ ...result, commit: null }))
-          : saveFile(file.path, tab.content, commit, file.project)
+          ? saveExternalFile(externalAbsolutePath(tab.path), tab.content, tab.savedContent).then(result => ({ ...result, commit: null, content: tab.content }))
+          : saveFile(file.path, tab.content, commit, file.project, tab.savedContent)
         inFlightSaves.current.add(request)
         const result = await request.finally(() => inFlightSaves.current.delete(request))
-        if (!external) putCachedFile(p, tab.path, { content: tab.content, editable: tab.editable })
+        const saved = result.content ?? tab.content
+        if (!external) putCachedFile(p, tab.path, { content: saved, editable: tab.editable })
         const message = commit
           ? `Committed${result.commit?.hash ? ' ' + result.commit.hash.slice(0, 7) : ''}`
           : 'Saved'
         mapTabsAtPath(p, tab.path, (t) => ({
           ...t,
-          savedContent: tab.content,
-          committedContent: commit ? tab.content : t.committedContent,
+          content: savedBuffer(t.content, tab.content, saved),
+          savedContent: saved,
+          committedContent: commit ? saved : t.committedContent,
           status: 'saved',
           statusMessage: message,
         }))
@@ -869,8 +883,9 @@ export function useTabs(
       const dirty = new Map(stateOf(p).panes.flatMap(pane => pane.tabs).filter(tab => editorFile(tab.path, p).project === 'docs' && tab.content !== tab.savedContent && tab.editable).map(tab => [tab.path, tab]))
       await Promise.all([...dirty.values()].map(async tab => {
         const file = editorFile(tab.path, p), content = tab.content
-        await saveFile(file.path, content, false, file.project)
-        mapTabsAtPath(p, tab.path, current => ({ ...current, savedContent: content, status: 'saved' }))
+        const result = await saveFile(file.path, content, false, file.project, tab.savedContent)
+        const saved = result.content ?? content
+        mapTabsAtPath(p, tab.path, current => ({ ...current, content: savedBuffer(current.content, content, saved), savedContent: saved, status: 'saved' }))
       }))
       if (workspaceRequestRef.current.epoch !== epoch) throw new Error('프로젝트가 변경되었습니다. 다시 시도하세요.')
       return release

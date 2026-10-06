@@ -1307,12 +1307,13 @@ export function saveFile(
   content: string,
   commit = false,
   project: string = currentProject,
-): Promise<{ ok: true; commit: CommitResult | null }> {
+  expectedContent?: string,
+): Promise<{ ok: true; commit: CommitResult | null; content?: string }> {
   return gitFetch('/api/file', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, content, commit, project }),
-  }, project).then(json<{ ok: true; commit: CommitResult | null }>)
+    body: JSON.stringify({ path, content, commit, project, expectedContent }),
+  }, project).then(json<{ ok: true; commit: CommitResult | null; content?: string }>)
 }
 
 export function deleteFile(path: string, project: string = currentProject): Promise<{ ok: true; commit: CommitResult | null }> {

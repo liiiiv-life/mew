@@ -1,3 +1,4 @@
+import { mergeTaskFrontmatter, TaskFrontmatterConflict } from '../packages/editor/src/utils/task-frontmatter-merge.ts'
 import { runAccountWorkspace } from './account-workspace.ts'
 import { recordChangeIp, requestIp } from './change-ip.ts'
 import { DocumentPages, DocumentPageError } from './document-pages.ts'
@@ -1413,7 +1414,8 @@ export function createApiApp() {
   }
 
   app.put('/file', async (req, res) => {
-    const { path: relPath, content, commit } = req.body as { path: string; content: string; commit?: boolean }
+    const { path: relPath, content: submittedContent, commit, expectedContent } = req.body as { path: string; content: string; commit?: boolean; expectedContent?: string }
+    let content = submittedContent
     const project = projectOf(req)
     if (!requireFileEdit(req, res, relPath)) return
     try {
@@ -1421,15 +1423,19 @@ export function createApiApp() {
         res.status(403).json({ error: 'archives/ 문서는 불변입니다 — 편집할 수 없습니다' })
         return
       }
+      const doCommit = commit && authOf(req).role !== 'guest'
+      if (doCommit) await requireGitConnection(projectRoot(project))
       const absPath = resolveProjectPath(project, relPath)
       const isNew = !fs.existsSync(absPath)
+      const taskPath = path.relative(workspacePaths.root, absPath).split(path.sep).join('/')
+      if (!isNew && typeof expectedContent === 'string' && /^(?:docs\/)?tasks\/[^/]+\.md$/.test(taskPath) && !['_tasks.md', 'moc.md', '_moc.md', 'readme.md'].includes(path.basename(taskPath).toLowerCase())) {
+        content = mergeTaskFrontmatter(expectedContent, content, fs.readFileSync(absPath, 'utf8'))
+      }
+      const saved = content !== submittedContent ? { content } : {}
       const contentChanged = isNew || fs.readFileSync(absPath, 'utf8') !== content
-      // 게스트는 부분 편집 권한을 받아도 명시적 git 커밋은 절대 트리거할 수 없다
-      const doCommit = commit && authOf(req).role !== 'guest'
       if (doCommit) {
-        await requireGitConnection(projectRoot(project))
         const result = await writeAndCommit(project, relPath, content, isNew ? 'add' : 'update', undefined, target => fileAccess(authOf(req), project, target).edit)
-        res.json({ ok: true, commit: result })
+        res.json({ ok: true, commit: result, ...saved })
       } else {
         fs.mkdirSync(path.dirname(absPath), { recursive: true })
         fs.writeFileSync(absPath, content, 'utf-8')
@@ -1438,7 +1444,7 @@ export function createApiApp() {
         noteAppWrite(absPath, content)
         noteFileContentChanged(project, relPath)
         if (isNew) await refreshCatalogPaths(project, [relPath])
-        res.json({ ok: true, commit: null })
+        res.json({ ok: true, commit: null, ...saved })
       }
     } catch (err) {
       handleError(res, err)
@@ -2705,6 +2711,7 @@ export function createApiApp() {
 }
 
 function handleError(res: express.Response, err: unknown) {
+  if (err instanceof TaskFrontmatterConflict) { res.status(409).json({ error: err.message }); return }
   if (err instanceof FrontmatterOptionsError) { res.status(400).json({ error: err.message }); return }
   if (err instanceof GitConnectionError) { res.status(err.status).json({ error: err.message, code: err.code, owner: authOf(res.req).email, workspace: gitRequestContext.getStore()?.workspace ?? workspacePaths.root }); return }
   if (err instanceof GuidanceError) {
