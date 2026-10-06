@@ -182,5 +182,36 @@ test('title-based Markdown paths preserve body, properties and identity through 
       assert.ok(!/[<>:"/\\|?*]/.test(path.basename(task.path!)))
       assert.ok(!fs.readFileSync(path.join(specialRoot, task.path!), 'utf8').includes('id: '))
     }
+
+    const propertyRoot = path.join(root, 'document-properties')
+    let propertyTasks = changeTaskList(propertyRoot, taskChanges([], [a]))
+    const propertyFile = path.join(propertyRoot, propertyTasks[0].path!)
+    const propertyRaw = '---\ntitle: "제목 #literal @literal"\ndone: "false"\ntags: ""\nstartDate: "2026-10-01"\ndate: "2026-10-06"\ncustom: keep # comment\n---\n원래 본문\n'
+    fs.writeFileSync(propertyFile, propertyRaw)
+    propertyTasks = readTaskList(propertyRoot)
+    assert.equal(propertyTasks[0].done, false)
+    assert.equal(propertyTasks[0].tags, undefined)
+    assert.equal(propertyTasks[0].id, a.id)
+    assert.equal(propertyTasks[0].startDate, a.startDate)
+    assert.equal(propertyTasks[0].date, a.date)
+    assert.deepEqual(changeTaskList(propertyRoot, []), propertyTasks)
+    assert.equal(fs.readFileSync(propertyFile, 'utf8'), propertyRaw, 'reading text properties does not rewrite the document')
+    propertyTasks = changeTaskList(propertyRoot, taskChanges(propertyTasks, propertyTasks.map(task => ({ ...task, done: true }))))
+    assert.equal(propertyTasks[0].done, true)
+    assert.ok(fs.readFileSync(propertyFile, 'utf8').includes('custom: keep # comment'))
+    assert.ok(fs.readFileSync(propertyFile, 'utf8').endsWith('원래 본문\n'))
+    for (const [rawTags, tags] of [['"작업"', ['작업']], ["'[작업, 검증]'", ['작업', '검증']], ["'[\"작업\",\"검증\"]'", ['작업', '검증']]] as const) {
+      fs.writeFileSync(propertyFile, propertyRaw.replace('done: "false"', 'done: "true"').replace('tags: ""', `tags: ${rawTags}`))
+      const parsed = readTaskList(propertyRoot)
+      assert.equal(parsed[0].done, true)
+      assert.deepEqual(parsed[0].tags, tags)
+      assert.deepEqual(changeTaskList(propertyRoot, []), parsed)
+    }
+    for (const invalid of ['done: "maybe"\ntags: ""', 'done: "false"\ntags: "[broken"', 'done: "false"\ntags: "[Bad Tag]"']) {
+      const raw = propertyRaw.replace('done: "false"\ntags: ""', invalid)
+      fs.writeFileSync(propertyFile, raw)
+      assert.throws(() => changeTaskList(propertyRoot, []), /태스크 저장 파일/)
+      assert.equal(fs.readFileSync(propertyFile, 'utf8'), raw, 'invalid properties still prevent destructive writes')
+    }
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })

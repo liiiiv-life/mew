@@ -18,6 +18,17 @@ function documentIdentity(workspace: string, relative: string, id: string): Task
 }
 type TaskDocument = { task: TaskItem; raw: string; body: string; yaml: ReturnType<typeof parseDocument> }
 
+function taskDocumentTags(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const text = value.trim()
+  if (!text) return undefined
+  if (!text.startsWith('[')) return [text]
+  const parsed = parseDocument(text)
+  if (parsed.errors.length) return value
+  const tags = parsed.toJS()
+  return Array.isArray(tags) ? tags : value
+}
+
 function directory(workspace: string, relative: string) {
   let dir = workspace
   for (const segment of relative.split('/')) {
@@ -48,8 +59,10 @@ export function readTaskDocuments(workspace: string): TaskDocument[] {
       const stat = fs.statSync(file)
       const identity = identities.find(item => item.path === relativePath) ?? identities.find(item => stat.ino !== 0 && item.device === stat.dev && item.inode === stat.ino)
       const id = identity?.id ?? value.id ?? createHash('sha256').update(stat.ino ? `${stat.dev}:${stat.ino}` : relativePath).digest('hex')
-      const task = { id, text: value.title, done: value.done,
-        ...(value.tags != null ? { tags: value.tags } : {}), ...(value.date != null ? { date: value.date } : {}),
+      const tags = taskDocumentTags(value.tags)
+      const done = value.done === 'true' ? true : value.done === 'false' ? false : value.done
+      const task = { id, text: value.title, done,
+        ...(tags != null ? { tags } : {}), ...(value.date != null ? { date: value.date } : {}),
         ...(value.startDate != null ? { startDate: value.startDate } : {}), path: relativePath } as TaskItem
       return { task, raw, body: raw.slice(match[0].length), yaml }
     })
