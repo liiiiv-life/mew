@@ -7,7 +7,7 @@ created: "2026-10-07"
 updated: "2026-10-07"
 files: ["src/components/debugger-panel.tsx", "src/components/debugger-settings.tsx", "server/debugger.ts", "server/debugger-dap.ts", "server/debugger-routes.ts"]
 commits: []
-description: "선택 설치하는 외부 DAP 디버거의 설정 탭·독 패널·계정별 세션, 브레이크포인트·스텝 실행·스택·변수·고정 감시와 CommonJS 설치 격리·기존 설치 보정·시작 오류 진단과 권한·검증 범위를 정의한다."
+description: "선택 설치하는 외부 DAP 디버거의 설정 탭·독 패널·계정별 세션, 브레이크포인트·스텝 실행·스택·변수·고정 감시와 CommonJS 설치 격리·기존 설치 보정·시작 오류 진단·성적 집계 연습 예제와 권한·검증 범위를 정의한다."
 ---
 
 ## 요구사항
@@ -67,3 +67,25 @@ Node.js 실행 설정 예:
 ### 2026-10-07 설치 위치에 따른 연결 실패 수정
 
 최초 실제 어댑터 검증은 임시 폴더에서 실행해 mew 내부 `.data` 설치가 상위 ES 모듈 설정을 상속하는 조건을 놓쳤다. 내부 설치의 조기 종료를 재현한 뒤 CommonJS 패키지 경계를 추가하고 기존 설치를 보정했다. 실제 내부 설치 경로로 Node.js 브레이크포인트·스택·변수 평가·계속 실행·일시정지·종료를 다시 검증했다. 회귀 테스트로 같은 설치 조건을 유지한다.
+
+### 디버깅 연습: 학생 성적 집계
+
+[examples/debugger/grades.cjs](../../../examples/debugger/grades.cjs)는 배열·객체·함수·반복문·조건문만 사용하는 1~2학년 수준의 Node.js 프로그램이다. 학생 세 명의 평균과 80점 이상 통과 여부를 집계한다. 외부 패키지·입력·파일 쓰기가 없으며 계산 후 종료한다. 기본 모드에는 연습용 평균 계산 오류가 하나 들어 있다.
+
+설정에서 js-debug와 launch를 선택하고 실행 설정에 아래 JSON을 넣어 저장한다. 아래 절대 경로는 현재 mew 저장소 위치이며 다른 서버에서는 실제 예제 경로로 바꾼다. 어댑터 인수가 아닌 **실행 설정**의 `args`가 예제 프로그램의 인수다.
+
+```json
+{
+  "type": "pwa-node",
+  "program": "/home/saens/dev/liiiiv/mew/examples/debugger/grades.cjs",
+  "cwd": "/home/saens/dev/liiiiv/mew",
+  "console": "internalConsole",
+  "args": []
+}
+```
+
+1. 디버거 패널에서 소스 `examples/debugger/grades.cjs`, 줄 **15**를 브레이크포인트로 추가한 뒤 시작한다. `index`, `score`, `total`을 관찰·고정하고 계속 실행하면 점수 합산 과정이 반복된다. 첫 두 중단에서 `score`는 85→90, `total`은 0→85로 바뀐다. 브레이크포인트는 해당 줄 실행 **전**에 멈춘다.
+2. 줄 **28**에서 시작하고 함수 안으로를 누르면 `analyzeStudents → calculateAverage` 호출과 스택·지역 변수의 차이를 확인할 수 있다. 줄 **19**에서는 `total`, `count`를 비교해 평균이 예상보다 낮은 이유를 찾는다.
+3. 세션을 종료하고 실행 설정의 `args`를 `["--fixed"]`로 바꾸면 정상 모드와 비교할 수 있다. 정상 평균은 민수 90, 지연 70, 서준 95이고 통과 인원은 2명이다. 기본 오류 모드는 평균 67.50, 52.50, 71.25와 통과 인원 0명을 출력한다. 프로그램의 잘못된 나누는 수를 직접 고쳐 확인해도 된다.
+
+터미널에서도 `node examples/debugger/grades.cjs`와 `node examples/debugger/grades.cjs --fixed`로 결과를 비교한다. 2026-10-07에 두 모드 실행·출력을 확인하고 실제 js-debug로 15줄 중단, 스택 조회와 두 반복의 `total`·`score` 변화를 검증했다. 실행할 파일만 추가했으므로 앱 빌드는 필요하지 않다.
