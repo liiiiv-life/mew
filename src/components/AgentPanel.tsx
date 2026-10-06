@@ -3777,6 +3777,18 @@ function AgentSessionView({
                     })}
                   </div>
                 )}
+                {open && (
+                  <div data-agent-turn-footer className="sticky -bottom-3 z-10 flex justify-end rounded-b-lg border-t border-edge bg-surface">
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => toggle(item.key)}
+                      className="flex min-h-9 items-center justify-center rounded-br-lg px-3 py-2 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
+                    >
+                      {uiText("접기")}
+                    </button>
+                  </div>
+                )}
               </div>
             )
           }
