@@ -7,7 +7,7 @@ created: "2026-10-07"
 updated: "2026-10-07"
 files: ["src/components/debugger-panel.tsx", "src/components/debugger-settings.tsx", "server/debugger.ts", "server/debugger-dap.ts", "server/debugger-routes.ts"]
 commits: []
-description: "선택 설치하는 외부 DAP 디버거의 설정 탭·독 패널·계정별 세션, 브레이크포인트·스텝 실행·스택·변수·고정 감시와 CommonJS 설치 격리·기존 설치 보정·시작 오류 진단·성적 집계 연습 예제와 권한·검증 범위를 정의한다."
+description: "선택 설치하는 외부 DAP 디버거의 설정 탭·독 패널·계정별 세션, 브레이크포인트·스텝 실행·스택·변수·고정 감시와 CommonJS 설치 격리·기존 설치 보정·시작 오류 진단·브라우저 연결 설정 복구·성적 집계 연습 예제와 권한·검증 범위를 정의한다."
 ---
 
 ## 요구사항
@@ -35,6 +35,14 @@ Node.js 실행 설정 예:
 ```
 
 `launch`는 새 프로그램을 실행하고, `attach`는 이미 실행 중인 대상에 연결한다. attach의 `port`·`processId` 등은 실행 설정에 넣는다. TCP 연결 포트 필드는 **어댑터** 포트이며 디버깅 대상의 포트와 다르다. 실행 설정은 어댑터에 그대로 전달하며 VS Code의 `${workspaceFolder}`나 launch.json 환경 변수 치환은 제공하지 않는다.
+
+### 브라우저 연결과 어댑터 포트 오류
+
+이미 열린 Chromium 탭은 js-debug의 `pwa-chrome` 실행 설정과 `attach`로 연결한다. 실행 설정의 `address`·`port`는 브라우저 CDP 주소·포트, `urlFilter`는 대상 앱 주소, `webRoot`는 앱 소스 루트다. 브라우저 포트는 재시작 시 달라질 수 있다. Vite 개발 서버는 TypeScript 소스 맵을 제공하며, 소스 맵 없는 빌드본에서는 원본 줄 브레이크포인트가 제한된다.
+
+‘어댑터 TCP 포트가 감지되지 않았습니다’는 브라우저에 연결하기 전 어댑터 시작 단계의 오류다. js-debug 실행 파일이 `node`, 인수가 `[]`, TCP 포트가 `0`이면 어댑터 대신 Node 입력 대기 상태가 되어 이 오류가 발생한다. **현재 프로젝트의 설정 → 디버거 → js-debug 설치**를 다시 누르면 설치된 파일을 재사용하면서 서버 Node 경로와 `[dapDebugServer.js 절대 경로, "0", "127.0.0.1"]` 인수·TCP 포트 `0`을 채운다. 그 뒤 실행 방식은 **연결(attach)**, 실행 설정은 `pwa-chrome`으로 확인하고 저장한다. 설치 여부 표시는 서버 공통 파일 존재 여부이며, 계정·프로젝트별 실행 인수가 설정되었다는 뜻은 아니다. 어댑터 선택을 다시 바꾸면 기본 인수로 초기화될 수 있으므로 설치 버튼으로 다시 적용한다. 시스템 Chrome 설치가 없고 Mew가 Playwright Chromium을 사용하는 환경에서는 실행 설정의 `runtimeExecutable`에 실제 Chromium 실행 파일 절대 경로도 지정한다. 그렇지 않으면 어댑터 초기 부팅에서 브라우저 설치를 찾지 못해 연결이 종료될 수 있다.
+
+외부에서 저장 설정을 보정한 경우 열려 있는 설정 화면은 이전 값을 가지고 있을 수 있다. 설정을 닫고 다시 열어 읽은 뒤 시작한다. 실제 환경 경로·브라우저 포트를 문서의 고정값으로 사용하지 않는다.
 
 ### 패널과 세션
 
