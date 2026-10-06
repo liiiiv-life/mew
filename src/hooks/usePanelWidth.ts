@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react'
 export function usePanelWidth(
   storageKey: string,
   opts: { min: number; max: number; initial: number; invert?: boolean },
-): { width: number; startResize: (e: React.PointerEvent) => void } {
+): { width: number; restoreWidth: (width: number) => void; startResize: (e: React.PointerEvent) => void } {
   const { min, max, initial, invert } = opts
   const clamp = useCallback((w: number) => Math.min(max, Math.max(min, w)), [min, max])
   const [width, setWidth] = useState(() => {
@@ -36,5 +36,9 @@ export function usePanelWidth(
     [width, clamp, invert, storageKey],
   )
 
-  return { width, startResize }
+  const restoreWidth = useCallback((next: number) => {
+    const value = clamp(next); setWidth(value)
+    try { localStorage.setItem(storageKey, String(value)) } catch { /* session setting */ }
+  }, [clamp, storageKey])
+  return { width, restoreWidth, startResize }
 }

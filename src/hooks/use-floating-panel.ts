@@ -1,19 +1,31 @@
 import { useEffect, useRef, useState, type PointerEvent, type CSSProperties } from 'react'
 type Geometry = { x: number; y: number; width: number; height: number }
 const initial: Geometry = { x: 24, y: 24, width: 420, height: 480 }
-function load(key: string): Geometry {
+export function loadFloatingRect(key: string): Geometry {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? 'null')
     if (saved && Object.values(saved).every(value => typeof value === 'number' && Number.isFinite(value)) && saved.width >= 240 && saved.height >= 160 && typeof saved.x === 'number' && typeof saved.y === 'number') return saved
   } catch { /* defaults */ }
   return initial
 }
+export function restoreFloatingRect(key: string, rect: Geometry) {
+  try { localStorage.setItem(key, JSON.stringify(rect)) } catch { /* session geometry */ }
+  window.dispatchEvent(new CustomEvent('mew:popup-layout', { detail: { key, rect } }))
+}
 let front = 60
 export function useFloatingPanel(key: string, host: HTMLElement | null, enabled = true) {
-  const [geometry, setGeometry] = useState(() => ({ key, rect: load(key) }))
-  const rect = geometry.key === key ? geometry.rect : load(key)
+  const [geometry, setGeometry] = useState(() => ({ key, rect: loadFloatingRect(key) }))
+  const rect = geometry.key === key ? geometry.rect : loadFloatingRect(key)
   const rectRef = useRef(rect)
   rectRef.current = rect
+  useEffect(() => {
+    const restore = (event: Event) => {
+      const detail = (event as CustomEvent<{ key: string; rect: Geometry }>).detail
+      if (detail.key === key) setGeometry({ key, rect: detail.rect })
+    }
+    window.addEventListener('mew:popup-layout', restore)
+    return () => window.removeEventListener('mew:popup-layout', restore)
+  }, [key])
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [layer, setLayer] = useState(60)
   const drag = useRef<{ pointer: number; x: number; y: number; mode: 'move' | 'resize'; rect: Geometry } | null>(null)

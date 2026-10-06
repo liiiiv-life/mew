@@ -10,7 +10,7 @@ import { dockIds, dockRects, insertDock, normalizeDock, pruneDock, closeDockGrou
 
 type Source = { group: string; tab?: string }
 type Target = { group: string; side: DockSide | 'center' }
-export type DockHandle = { restore: () => void; preview: (group: string, tab: string, x: number, y: number) => void; drop: (group: string, tab: string, x: number, y: number) => void; placeEditor: (id: string, target: string, side: DockSide) => void }
+export type DockHandle = { snapshot: () => DockState; restore: () => void; preview: (group: string, tab: string, x: number, y: number) => void; drop: (group: string, tab: string, x: number, y: number) => void; placeEditor: (id: string, target: string, side: DockSide) => void }
 type Registration = { kind: DockKind; visible: boolean; tabs: string[] }
 type DockContextValue = {
   host: HTMLDivElement | null; state: DockState; desktop: boolean; rects: Record<string, DockRect>; foreground: string | null; mobileGroups: Record<string, string>; focusGroup: (kind: DockKind, id: string) => void
@@ -151,7 +151,11 @@ export function DockWorkspace({ children, value, onChange, onEditorDrop, foregro
     } else if (target.side !== 'center') change({ tree: insertDock(tree, drag.group, target.group, target.side, groups) })
   }
   const drop = (group: string, tab: string, x: number, y: number) => { const drag = { group, tab }; performDrop(drag, at(drag, x, y)) }
-  useImperativeHandle(apiRef, () => ({ restore: () => setMaximizedGroup(null), preview, drop, placeEditor: (id, target, side) => { const nextGroups = [...groups, { id: `editor:${id}`, kind: 'editor' as const }]; change({ groups: nextGroups, tree: insertDock(tree, `editor:${id}`, `editor:${target}`, side, nextGroups) }) } }))
+  const snapshot = (): DockState => {
+    const existing = groups.filter(group => group.kind !== 'editor' || registered[group.id])
+    return { ...state, tree: pruneDock(tree, new Set(existing.map(group => group.id))), groups: existing }
+  }
+  useImperativeHandle(apiRef, () => ({ snapshot, restore: () => setMaximizedGroup(null), preview, drop, placeEditor: (id, target, side) => { const nextGroups = [...groups, { id: `editor:${id}`, kind: 'editor' as const }]; change({ groups: nextGroups, tree: insertDock(tree, `editor:${id}`, `editor:${target}`, side, nextGroups) }) } }))
   const dragProps = (group: string, tab?: string): React.HTMLAttributes<HTMLElement> => ({
     draggable: desktop,
     onDragStart: (event) => {

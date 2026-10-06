@@ -949,6 +949,17 @@ export function useTabs(
     })
   }, [])
 
+  const restoreEditorPanes = useCallback((ids: string[]) => {
+    if (!ids.length) return
+    const unique = [...new Set(ids)].slice(0, 64)
+    patch(projectRef.current, state => {
+      const panes = unique.map(id => state.panes.find(pane => pane.id === id) ?? { id, tabs: [], activePath: null })
+      const remaining = state.panes.filter(pane => !unique.includes(pane.id)).flatMap(pane => pane.tabs)
+      panes[0] = { ...panes[0], tabs: [...new Map([...panes[0].tabs, ...remaining].map(tab => [tab.path, tab])).values()], activePath: panes[0].activePath ?? remaining[0]?.path ?? null }
+      return { ...state, panes, layout: unique.length === 1 ? leaf(unique[0]) : { kind: 'split', dir: 'row', kids: unique.map(leaf) }, focusedPaneId: unique.includes(state.focusedPaneId) ? state.focusedPaneId : unique[0] }
+    })
+  }, [patch])
+
   return {
     /** 저장된 탭 복원이 끝났는지 — 복원 전의 잠깐 빈 상태를 진짜 빈 프로젝트로 오인하지 않게 한다 */
     hydrated: hydratedSession === sessionKey,
@@ -973,6 +984,7 @@ export function useTabs(
     moveTabToPane,
     splitWithTab,
     splitEmptyPane,
+    restoreEditorPanes,
     remapPaths,
     applyDocumentPageMutation,
     prepareDocumentPageMutation,

@@ -1,5 +1,8 @@
+import { LayoutPresets } from './components/layout-presets'
+import { factoryLayout, editorIds, layoutPresetsKey, normalizeLayoutSnapshot, type LayoutSnapshot } from './utils/layout-presets'
+import { loadFloatingRect, restoreFloatingRect } from './hooks/use-floating-panel'
 import { restoreDeviceLayout, saveDeviceLayout } from './utils/device-layout'
-import { useToolPresentation } from './hooks/use-tool-presentation'
+import { useToolPresentation, setToolPresentation } from './hooks/use-tool-presentation'
 import { PanelCloseButton } from './components/panel-close-button'
 import { Computer, Globe } from 'iconoir-react'
 import { UpdatesModal } from './components/updates-modal'
@@ -933,6 +936,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     closeTab,
     moveTabToPane,
     splitEmptyPane,
+    restoreEditorPanes,
     remapPaths,
     applyDocumentPageMutation,
     prepareDocumentPageMutation,
@@ -1082,17 +1086,51 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
   const editorPresence = useMemo(() => Object.fromEntries(Object.entries(tabPresence).map(([path, colors]) => [editorTabPath(activeFile.project, path, project), colors])), [tabPresence, activeFile.project, project])
 
-  const { width: sidebarWidth, startResize: startSidebarResize } = usePanelWidth('mew:sidebar-width', {
+  const { width: sidebarWidth, restoreWidth: restoreSidebarWidth, startResize: startSidebarResize } = usePanelWidth('mew:sidebar-width', {
     min: 180,
     max: 480,
     initial: 256,
   })
-  const { width: androidWidth, startResize: startAndroidResize } = usePanelWidth('mew:android-panel-width', {
+  const { width: androidWidth, restoreWidth: restoreAndroidWidth, startResize: startAndroidResize } = usePanelWidth('mew:android-panel-width', {
     min: 380,
     max: 1200,
     initial: 760,
     invert: true,
   })
+
+  const popupKey = (tool: 'memo' | 'tasks') => `mew:popup:${authEmail}:${rootProjectPath}:${tool}`
+  const captureLayout = (): LayoutSnapshot => normalizeLayoutSnapshot({
+    version: 1, dock: dockRef.current?.snapshot() ?? workspaceUi.dock,
+    open: { ...workspacePanelOpen, editor: editorOpen }, sidebarWidth, androidWidth,
+    tools: toolPresentation, popups: { memo: loadFloatingRect(popupKey('memo')), tasks: loadFloatingRect(popupKey('tasks')) },
+  })
+  const permitted: Record<WorkspacePanelId, boolean> = { sidebar: caps.filesRead, chat: caps.chat, android: caps.android, agent: caps.agent, terminal: canUseTerminal, git: caps.git, browser: caps.browser, features: caps.agent && !!rootProjectPath, tasks: caps.filesRead && !!auth.email, memo: caps.collaboration && !!auth.email }
+  const layoutFactory = factoryLayout(captureLayout())
+  for (const panel of WORKSPACE_PANEL_IDS) layoutFactory.open[panel] &&= permitted[panel]
+  const applyLayoutPreset = (next: LayoutSnapshot) => {
+    if (!desktopMode) return
+    const apply = () => {
+      dockRef.current?.restore()
+      const ids = editorIds(next)
+      restoreEditorPanes(ids.length ? ids : panes.map(pane => pane.id))
+      const current = dockRef.current?.snapshot()
+      const groups = next.dock.groups
+      const destination = (id: string) => {
+        const kind = current?.groups.find(group => group.id === id)?.kind
+        return groups.some(group => group.id === id) ? id : groups.find(group => group.kind === kind)?.id ?? id
+      }
+      saveDockLayout({ ...next.dock, tabs: Object.fromEntries(Object.entries(current?.tabs ?? {}).map(([tab, group]) => [tab, destination(group)])), active: Object.fromEntries(Object.entries(current?.active ?? {}).map(([group, tab]) => [destination(group), tab])) })
+      restoreSidebarWidth(next.sidebarWidth); restoreAndroidWidth(next.androidWidth)
+      for (const panel of WORKSPACE_PANEL_IDS) workspacePanelSetters[panel](next.open[panel] && permitted[panel])
+      setEditorOpen(next.open.editor)
+      for (const tool of ['memo', 'tasks'] as const) {
+        if (next.popups[tool]) restoreFloatingRect(popupKey(tool), next.popups[tool]!)
+        setToolPresentation(tool, next.tools[tool])
+      }
+    }
+    if (featuresOpen && !next.open.features && featureCloseRef.current) featureCloseRef.current(apply)
+    else apply()
+  }
 
   // Esc·안드로이드 뒤로가기로 열린 것을 한 겹씩 닫는다 — 모달·팝업도 같은 스택에 등록돼 있어
   // (useOverlayDismiss) 그쪽이 떠 있으면 언제나 먼저 닫히고, 패널은 마지막에 닫힌다.
@@ -2092,6 +2130,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
               <span className="select-text hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
             )}
             {!isGuest && <ActiveSessionsButton presence={activeSessions} />}
+            {desktopMode && rootProjectPath && workspaceUiLoaded && tabsHydrated && <LayoutPresets key={`${authEmail}:${rootProjectPath}`} storageKey={layoutPresetsKey(authEmail ?? 'guest', rootProjectPath)} factory={layoutFactory} capture={captureLayout} onApply={applyLayoutPreset} />}
             <HeaderMenu items={headerMenuItems} />
           </div>
         </header>
