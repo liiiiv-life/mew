@@ -1,5 +1,5 @@
 import { PanelCloseButton } from './panel-close-button'
-import { canAutoFocusInput } from '@mew/ui'
+import { PanelNotice, canAutoFocusInput } from '@mew/ui'
 import { historyCacheKey, readHistoryCache, writeHistoryCache, readQueueCache, writeQueueCache, type CachedQueue, type CachedHistory } from '../utils/agent-history-cache'
 import { mergeHistoryPage, appendHistoryEvent } from '../utils/agent-history-state'
 import { PanelTitle } from './panel-title'
@@ -1932,17 +1932,17 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
           onAdd={() => { focusGroup(group); if (terminal) addRuntimeTab('tmux', undefined, group); else { setPickerGroup(group); setPickerOpen(true) } }}
           onRename={renameTab} onReorder={(from, to) => { const a = tabs.findIndex((tab) => tab.id === list[from]?.id), b = tabs.findIndex((tab) => tab.id === list[to]?.id); if (a >= 0 && b >= 0) reorderTabs(a, b) }}
           onCloseTab={closeTab} onClosePanel={() => { if (!dock.desktop || !dock.closeGroup(group)) (terminal ? onCloseTerminal ?? onClose : onClose)() }} />
-        {(!tabsSynced || picking || terminal && (!list.length || openRuntimeError)) && <DockInlineBody group={group} className="flex min-h-0 flex-1 flex-col bg-surface-deep">
+        {(!tabsSynced || picking || terminal && (!list.length || openRuntimeError)) && <DockInlineBody group={group} className="relative flex min-h-0 flex-1 flex-col bg-surface-deep">
         {!tabsSynced && (() => {
           return !terminal ? <AgentRestoringView /> : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">{uiText("불러오는 중…")}</div>
         })()}
         {tabsSynced && terminal && !list.length && <div className="flex min-h-0 flex-1 items-center justify-center"><button type="button" className="rounded-md border border-edge-bright px-4 py-2 text-sm text-ink-secondary hover:bg-surface-raised" onClick={() => { focusGroup(group); addRuntimeTab('tmux', undefined, group) }}>{uiText("새 터미널")}</button></div>}
-        {picking && !terminal && <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-          {openRuntimeError && <div role="alert" className="px-4 pt-3 text-xs text-danger">{openRuntimeError}</div>}
+        {picking && !terminal && <div className="relative flex min-h-0 flex-1 flex-col overflow-auto">
+          {openRuntimeError && <PanelNotice>{openRuntimeError}</PanelNotice>}
           {openingRuntime && <div className="px-4 pt-3 text-xs text-ink-muted">{uiText("{name} 여는 중…", { name: runtimeOf(openingRuntime).label })}</div>}
           <RuntimePicker onSelect={(runtime) => addRuntimeTab(runtime, undefined, group)} onSelectSet={(set) => addSetTab(set, group)} />
         </div>}
-        {terminal && openRuntimeError && <div role="alert" className="px-4 py-3 text-xs text-danger">{openRuntimeError}</div>}
+        {terminal && openRuntimeError && <PanelNotice>{openRuntimeError}</PanelNotice>}
         </DockInlineBody>}
       </DockPanel>
     })}
@@ -1992,8 +1992,8 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
           )
         })}
       {pickerOpen && (
-        <div className="flex min-h-0 flex-1 flex-col">
-          {openRuntimeError && <div className="select-text shrink-0 px-4 pt-3 text-center text-xs text-danger">{openRuntimeError}</div>}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {openRuntimeError && <PanelNotice>{openRuntimeError}</PanelNotice>}
           {openingRuntime && <div className="shrink-0 px-4 pt-3 text-center text-xs text-ink-muted">{uiText("{name} 여는 중…", { name: runtimeOf(openingRuntime).label })}</div>}
           <RuntimePicker onSelect={addRuntimeTab} onSelectSet={addSetTab} />
         </div>
@@ -2045,12 +2045,12 @@ function AgentTerminalView({
 
   if (session) return <TmuxTerminal sessionName={session} inputPlaceholder={t('common.textInput')} activeFilePath={activeFilePath} getSelectedText={getSelectedText} renderCommandButtons={renderCommandButtons} insertRefTarget={active ? runtime === 'tmux' ? 'terminal' : 'agent' : null} />
   return (
-    <div className="flex h-full items-center justify-center bg-surface-deep p-4 text-center">
+    <div className="relative flex h-full items-center justify-center bg-surface-deep text-center">
       {error ? (
-        <div className="space-y-3">
-          <div className="select-text max-w-md whitespace-pre-wrap text-sm text-danger">{error}</div>
-          <button type="button" onClick={() => setRetry((value) => value + 1)} className="rounded border border-edge-bright px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-raised">{uiText("다시 연결")}</button>
-        </div>
+        <PanelNotice>
+          {error}
+          <button type="button" onClick={() => setRetry((value) => value + 1)} className="ml-2 rounded px-1.5 py-0.5 text-xs text-ink-secondary hover:bg-surface-raised">{uiText("다시 연결")}</button>
+        </PanelNotice>
       ) : <div className="text-sm text-ink-muted">{uiText("터미널 여는 중…")}</div>}
     </div>
   )
@@ -3811,10 +3811,10 @@ function AgentSessionView({
       {conversationLoading && <div data-agent-loading className="absolute inset-0 overflow-hidden bg-surface-deep">
         <AgentLoadingBubbles label={t(!connected ? 'agent.connecting' : 'common.loading')} active={visible} />
       </div>}
+      {cli.error && <PanelNotice>{cli.error}</PanelNotice>}
       </div>
 
       {errorDetail && <AgentErrorDialog title={errorDetail.title} detail={errorDetail.detail} onClose={() => setErrorDetail(null)} />}
-      {cli.error && <div role="alert" className="px-3 py-2 text-xs text-danger-strong">{cli.error}</div>}
       {commandPopup && <AgentCommandPopup key={commandPopup.id} command={commandPopup} onClose={() => setCommandPopupId(null)} onCancel={() => send({ type: 'cancel' })} onChanged={() => { void cli.refresh().catch(() => {}) }} />}
 
       {(queued.length > 0 || scheduled.length > 0) && (

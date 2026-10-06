@@ -5,7 +5,7 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { Check, Copy, FastArrowDown, FrameSelect, Lock, Xmark } from 'iconoir-react'
-import { HoverTipLayer, hasPathDrag, isTextareaCaretOnVisualBoundary, keepFocusOnPress, pathFromDrag } from '@mew/ui'
+import { PanelNotice, HoverTipLayer, hasPathDrag, isTextareaCaretOnVisualBoundary, keepFocusOnPress, pathFromDrag } from '@mew/ui'
 import { MobileKeyBar, useMobileLayout } from '@mew/mobile-keys'
 import { getBinding, matchesShortcut } from '@mew/shortcuts'
 import { readInputDraft, readInputHistory, recordInputHistory, writeInputDraft } from './inputDrafts'
@@ -718,18 +718,15 @@ export function TmuxTerminal({
             {selectSnapshot}
           </pre>
         )}
+        {connState !== 'open' && <PanelNotice tone="status">
+          {connState === 'connecting' ? uiText("연결 중…") : uiText("재연결 중…")}
+        </PanelNotice>}
       </div>
       {/* 이 줄의 버튼은 전부 아이콘 하나짜리라 이름이 안 보인다 — data-tip이 붙은 것에 마우스를
           올리면 HoverTipLayer가 곧바로 이름표를 띄운다(기본 title은 1초쯤 기다려야 나온다). */}
       <HoverTipLayer className="flex shrink-0 items-center gap-1.5 border-t border-edge bg-surface-deep px-2 py-1">
-        {/* 왼쪽: 연결 상태 + 호스트 앱의 명령어 버튼. 버튼이 많아지면 이 영역만 가로 스크롤된다 */}
+        {/* 왼쪽: 호스트 앱의 명령어 버튼. 버튼이 많아지면 이 영역만 가로 스크롤된다 */}
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
-          {connState !== 'open' && (
-            <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-ink-muted">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-strong" />
-              {connState === 'connecting' ? uiText("연결 중…") : uiText("재연결 중…")}
-            </span>
-          )}
           {renderCommandButtons?.(sendAsTyped)}
         </div>
         {/* 오른쪽 도구는 전부 아이콘 하나짜리다 — 좁은 화면에서 왼쪽 명령어 버튼 자리를 뺏지 않게.
