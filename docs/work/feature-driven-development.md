@@ -6,7 +6,7 @@ updated: 2026-09-17
 
 # 기능 기반 개발 GUI — 구현 기록과 기획 초안
 
-상위: [진행 작업](MOC.md). 상태: 구현·격리 검증 완료, 실행 서버 반영 전. 현재 동작의 기준본은 [기능 기반 개발](../specs/feature-development.md), 결정은 [ADR 0159](../../../.mew/docs/decisions/0159-mew-feature-driven-development.md)다. 아래 초안은 요구사항과 당시 검토 과정을 보존하며 현재 계약으로 사용하지 않는다.
+상위: [진행 작업](_work.md). 상태: 구현·격리 검증 완료, 실행 서버 반영 전. 현재 동작의 기준본은 [기능 기반 개발](../specs/feature-development.md), 결정은 [ADR 0159](../../../.mew/docs/decisions/0159-mew-feature-driven-development.md)다. 아래 초안은 요구사항과 당시 검토 과정을 보존하며 현재 계약으로 사용하지 않는다.
 
 ## 구현 결과
 

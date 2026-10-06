@@ -6,7 +6,7 @@ updated: 2026-10-01
 
 # 구현과 적용 확인
 
-[작업 지도](MOC.md) · [현재 아키텍처](../development/remote-desktop.md) · [ADR 0185](../../../.mew/docs/decisions/0185-mew-desktop-resident-direct-host.md)
+[작업 지도](_work.md) · [현재 아키텍처](../development/remote-desktop.md) · [ADR 0185](../../../.mew/docs/decisions/0185-mew-desktop-resident-direct-host.md)
 
 Windows/WSL 구현을 완료하고 사용자 적용·외부 네트워크 실측을 기다린다. Mac/Linux의 Electron 제거는 이번 구현 범위에 포함하지 않는다. 운영 서버·설치본을 바꾸거나 커밋하지 않았다.
 

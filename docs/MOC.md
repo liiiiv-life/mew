@@ -26,7 +26,7 @@ updated: "2026-10-06"
 
 - [제품 스펙](specs/MOC.md)
 
-- [진행 작업](work/MOC.md)
+- [진행 작업](work/_work.md)
 
 - [mew 중계 기능 만들기 — 계정 기반 P2P 원격 접속 설계 · 미구현](<tasks/mew 중계 기능 만들기.md>)
 

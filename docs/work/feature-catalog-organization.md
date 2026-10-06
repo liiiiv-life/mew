@@ -6,7 +6,7 @@ updated: 2026-09-18
 
 # Mew 기능 문서 정리 계획
 
-상위: [진행 작업](MOC.md). 요청: Mew 자체의 기능들을 기능 GUI에서 탐색·수정·재위임할 수 있도록 단계적으로 정리한다. 저장 계약은 [기능 기반 개발](../specs/feature-development.md), 문서 소유권은 [공통 규칙](../../../.mew/docs/README.md)을 따른다.
+상위: [진행 작업](_work.md). 요청: Mew 자체의 기능들을 기능 GUI에서 탐색·수정·재위임할 수 있도록 단계적으로 정리한다. 저장 계약은 [기능 기반 개발](../specs/feature-development.md), 문서 소유권은 [공통 규칙](../../../.mew/docs/README.md)을 따른다.
 
 ## 범위와 소유권
 
@@ -53,50 +53,50 @@ updated: 2026-09-18
 
 | README 항목 | 기능 문서 |
 | --- | --- |
-| 프로젝트 탭 / 클라우드 폴더 바로가기 / 새 프로젝트·Git clone | [프로젝트 열기·탭·그룹](../features/projects/tabs.md) |
-| Documents·하위 프로젝트·MOC | [하위 프로젝트 탭](../features/projects/subprojects.md) |
-| 에이전트 문서 안내·프로젝트 초기화 | [프로젝트 문서 안내·초기화](../features/projects/agent-context.md) |
-| Documents 관리 | [Documents·문서 지도 관리](../features/projects/documents.md) |
-| 파일·폴더 관리 / 서버 전체 파일 탐색 / 숨김 목록 | [파일·폴더 탐색과 조작](../features/projects/files.md) |
-| 파일명 검색 / 내용 검색·일괄 치환 | [파일명·내용 검색과 치환](../features/projects/search.md) |
+| 프로젝트 탭 / 클라우드 폴더 바로가기 / 새 프로젝트·Git clone | [프로젝트 열기·탭·그룹](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20%EC%97%B4%EA%B8%B0%C2%B7%ED%83%AD%C2%B7%EA%B7%B8%EB%A3%B9.md) |
+| Documents·하위 프로젝트·MOC | [하위 프로젝트 탭](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/%ED%95%98%EC%9C%84%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20%ED%83%AD.md) |
+| 에이전트 문서 안내·프로젝트 초기화 | [프로젝트 문서 안내·초기화](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20%EB%AC%B8%EC%84%9C%20%EC%95%88%EB%82%B4%C2%B7%EC%B4%88%EA%B8%B0%ED%99%94.md) |
+| Documents 관리 | [Documents·문서 지도 관리](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/Documents%C2%B7%EB%AC%B8%EC%84%9C%20%EC%A7%80%EB%8F%84%20%EA%B4%80%EB%A6%AC.md) |
+| 파일·폴더 관리 / 서버 전체 파일 탐색 / 숨김 목록 | [파일·폴더 탐색과 조작](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/%ED%8C%8C%EC%9D%BC%C2%B7%ED%8F%B4%EB%8D%94%20%ED%83%90%EC%83%89%EA%B3%BC%20%EC%A1%B0%EC%9E%91.md) |
+| 파일명 검색 / 내용 검색·일괄 치환 | [파일명·내용 검색과 치환](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/%ED%8C%8C%EC%9D%BC%EB%AA%85%C2%B7%EB%82%B4%EC%9A%A9%20%EA%B2%80%EC%83%89%EA%B3%BC%20%EC%B9%98%ED%99%98.md) |
 | 로컬 의미 검색(RAG) | [당시 RAG 기능 — 2026-09-28 제거](../history/rag-feature.md) |
-| Markdown Hotview·Plain / 문서 속성·목차 / 목록 들여쓰기 | [Markdown Hotview·원문·문서 속성](../features/editor/markdown.md) |
-| 코드·텍스트 편집 | [코드·텍스트 편집과 문서 내 검색](../features/editor/code.md) |
-| 링크·파일 참조 / 첨부·이미지 / 선택 위치 전달 | [링크·파일 참조·첨부](../features/editor/references.md) |
-| Markdown 표 | [Markdown 표 편집·복사](../features/editor/tables.md) |
-| 각주·참고문헌 | [각주·참고문헌](../features/editor/footnotes.md) |
-| 미디어·시트 보기 | [미디어·시트 미리보기](../features/editor/media.md) |
-| PDF 읽기·필기 | [PDF 읽기·필기·저장](../features/editor/pdf.md) |
-| 자동저장·실행 취소 | [자동저장·실행 취소](../features/editor/autosave.md) |
-| 문서 탭·분할 편집 / 패널 배치·상태 복원 / 모바일·전체화면·빠른 조작 | [패널 배치·모바일·상태 복원](../features/settings/layout-mobile.md) |
-| 현재 파일 커밋·이력 복원 | [현재 파일 커밋·이력 복원](../features/git/file-history.md) |
-| 저장소 탐색·그래프·diff / 작업트리 전체 커밋 / 브랜치·태그·과거 커밋 작업 / 프로젝트 Git 패널 | [현재 프로젝트 Git 작업 패널](../features/git/workbench.md) |
-| 실시간 공동 편집·참여자 | [실시간 공동 편집](../features/collaboration/editing.md) |
-| 활성 mew 세션 | [참여자·활성 세션 보기](../features/collaboration/presence.md) |
-| 댓글·답글·멤버 멘션 | [댓글·답글·멤버 멘션](../features/collaboration/comments.md) |
-| 단체 채팅·DM·읽음 확인 | [단체 채팅·DM·읽음 확인](../features/collaboration/chat.md) |
-| 게스트 열람·편집 공유 / 내 계정 / 사용자·역할 관리 | [계정·역할·기능 권한·게스트 공유](../features/settings/accounts-access.md) |
-| tmux 터미널 / 터미널 명령 버튼 | [tmux 셸 터미널](../features/agents/terminal.md) |
-| AI 런타임 선택 / 런타임 설치·인증·설정 / 모델·추론·권한·기본값 | [AI 런타임 설치·인증·실행 설정](../features/agents/runtimes.md) |
-| 에이전트셋·탭 관리 | [에이전트셋·탭 생성](../features/agents/presets.md) |
-| 프롬프트·스킬·파일 첨부 | [에이전트 입력·멘션·스킬·첨부](../features/agents/input.md) |
-| 대화·작업 기록·메시지 큐 / 히스토리·외부 CLI 이어쓰기 | [에이전트 대화·큐·복원](../features/agents/conversations.md) |
-| 대화의 CLI 명령 | [대화에서 CLI 명령 실행](../features/agents/cli-commands.md) |
-| 계정·구독·토큰·비용 | [연결 계정·구독·사용량 보기](../features/agents/account-usage.md) |
-| 예약 메시지 | [에이전트 예약 메시지](../features/agents/scheduled-messages.md) |
-| 기능 기반 개발 | [기능 기반 개발·Markdown 문서](../features/agents/features.md) |
-| 프로젝트 명령 버튼 | [프로젝트 명령 버튼](../features/agents/project-commands.md) |
-| 반복 예약 작업 | [반복 예약 작업](../features/agents/scheduled-jobs.md) |
-| 서버 웹 브라우저 / 브라우저 로그인·팝업 | [서버 브라우저·로그인·팝업](../features/remote/browser.md) |
-| Android | [Android 환경 점검·화면 연결](../features/remote/android.md) |
-| 원격 데스크톱 / 원격 입력·모바일 조이스틱 | [원격 데스크톱·터치 입력](../features/remote/desktop.md) |
-| 문서 안 표 DB / 프로젝트 DB 목록 / Postgres 연결 | [문서 데이터베이스·전체 목록](../features/database/document-tables.md) |
-| DB 참조·외부 테이블 | [기존 DB·외부 Postgres 참조](../features/database/references.md) |
-| 테마·언어·강조색·글꼴 / 단축키 맞춤 설정 | [화면·언어·글꼴·단축키 설정](../features/settings/appearance.md) |
-| Mewcat | [Mewcat 마스코트](../features/settings/mewcat.md) |
-| 시스템 자원 | [시스템 자원·프로세스 보기](../features/settings/system-resources.md) |
-| 서버 설정·시작·중지·로그 / 앱 업데이트·HTTPS·백업 | [앱 업데이트·운영 진입](../features/settings/updates.md) |
-| 스킬·MCP 관리(README 표 밖 안내) | [스킬·MCP 원본 관리](../features/agents/harness.md) |
+| Markdown Hotview·Plain / 문서 속성·목차 / 목록 들여쓰기 | [Markdown Hotview·원문·문서 속성](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/Markdown%20Hotview%C2%B7%EC%9B%90%EB%AC%B8%C2%B7%EB%AC%B8%EC%84%9C%20%EC%86%8D%EC%84%B1.md) |
+| 코드·텍스트 편집 | [코드·텍스트 편집과 문서 내 검색](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/%EC%BD%94%EB%93%9C%C2%B7%ED%85%8D%EC%8A%A4%ED%8A%B8%20%ED%8E%B8%EC%A7%91%EA%B3%BC%20%EB%AC%B8%EC%84%9C%20%EB%82%B4%20%EA%B2%80%EC%83%89.md) |
+| 링크·파일 참조 / 첨부·이미지 / 선택 위치 전달 | [링크·파일 참조·첨부](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/%EB%A7%81%ED%81%AC%C2%B7%ED%8C%8C%EC%9D%BC%20%EC%B0%B8%EC%A1%B0%C2%B7%EC%B2%A8%EB%B6%80.md) |
+| Markdown 표 | [Markdown 표 편집·복사](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/Markdown%20%ED%91%9C%20%ED%8E%B8%EC%A7%91%C2%B7%EB%B3%B5%EC%82%AC.md) |
+| 각주·참고문헌 | [각주·참고문헌](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/%EA%B0%81%EC%A3%BC%C2%B7%EC%B0%B8%EA%B3%A0%EB%AC%B8%ED%97%8C.md) |
+| 미디어·시트 보기 | [미디어·시트 미리보기](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/%EB%AF%B8%EB%94%94%EC%96%B4%C2%B7%EC%8B%9C%ED%8A%B8%20%EB%AF%B8%EB%A6%AC%EB%B3%B4%EA%B8%B0.md) |
+| PDF 읽기·필기 | [PDF 읽기·필기·저장](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/PDF%20%EC%9D%BD%EA%B8%B0%C2%B7%ED%95%84%EA%B8%B0%C2%B7%EC%A0%80%EC%9E%A5.md) |
+| 자동저장·실행 취소 | [자동저장·실행 취소](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/%EC%9E%90%EB%8F%99%EC%A0%80%EC%9E%A5%C2%B7%EC%8B%A4%ED%96%89%20%EC%B7%A8%EC%86%8C.md) |
+| 문서 탭·분할 편집 / 패널 배치·상태 복원 / 모바일·전체화면·빠른 조작 | [패널 배치·모바일·상태 복원](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%ED%8C%A8%EB%84%90%20%EB%B0%B0%EC%B9%98%C2%B7%EB%AA%A8%EB%B0%94%EC%9D%BC%C2%B7%EC%83%81%ED%83%9C%20%EB%B3%B5%EC%9B%90.md) |
+| 현재 파일 커밋·이력 복원 | [현재 파일 커밋·이력 복원](../features/Git%C2%B7%EB%B3%80%EA%B2%BD%20%EC%9D%B4%EB%A0%A5/%ED%98%84%EC%9E%AC%20%ED%8C%8C%EC%9D%BC%20%EC%BB%A4%EB%B0%8B%C2%B7%EC%9D%B4%EB%A0%A5%20%EB%B3%B5%EC%9B%90.md) |
+| 저장소 탐색·그래프·diff / 작업트리 전체 커밋 / 브랜치·태그·과거 커밋 작업 / 프로젝트 Git 패널 | [현재 프로젝트 Git 작업 패널](../features/Git%C2%B7%EB%B3%80%EA%B2%BD%20%EC%9D%B4%EB%A0%A5/%ED%98%84%EC%9E%AC%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20Git%20%EC%9E%91%EC%97%85%20%ED%8C%A8%EB%84%90.md) |
+| 실시간 공동 편집·참여자 | [실시간 공동 편집](../features/%ED%98%91%EC%97%85%C2%B7%EB%8C%93%EA%B8%80%C2%B7%EC%B1%84%ED%8C%85/%EC%8B%A4%EC%8B%9C%EA%B0%84%20%EA%B3%B5%EB%8F%99%20%ED%8E%B8%EC%A7%91.md) |
+| 활성 mew 세션 | [참여자·활성 세션 보기](../features/%ED%98%91%EC%97%85%C2%B7%EB%8C%93%EA%B8%80%C2%B7%EC%B1%84%ED%8C%85/%EC%B0%B8%EC%97%AC%EC%9E%90%C2%B7%ED%99%9C%EC%84%B1%20%EC%84%B8%EC%85%98%20%EB%B3%B4%EA%B8%B0.md) |
+| 댓글·답글·멤버 멘션 | [댓글·답글·멤버 멘션](../features/%ED%98%91%EC%97%85%C2%B7%EB%8C%93%EA%B8%80%C2%B7%EC%B1%84%ED%8C%85/%EB%8C%93%EA%B8%80%C2%B7%EB%8B%B5%EA%B8%80%C2%B7%EB%A9%A4%EB%B2%84%20%EB%A9%98%EC%85%98.md) |
+| 단체 채팅·DM·읽음 확인 | [단체 채팅·DM·읽음 확인](../features/%ED%98%91%EC%97%85%C2%B7%EB%8C%93%EA%B8%80%C2%B7%EC%B1%84%ED%8C%85/%EB%8B%A8%EC%B2%B4%20%EC%B1%84%ED%8C%85%C2%B7DM%C2%B7%EC%9D%BD%EC%9D%8C%20%ED%99%95%EC%9D%B8.md) |
+| 게스트 열람·편집 공유 / 내 계정 / 사용자·역할 관리 | [계정·역할·기능 권한·게스트 공유](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%EA%B3%84%EC%A0%95%C2%B7%EC%97%AD%ED%95%A0%C2%B7%EA%B8%B0%EB%8A%A5%20%EA%B6%8C%ED%95%9C%C2%B7%EA%B2%8C%EC%8A%A4%ED%8A%B8%20%EA%B3%B5%EC%9C%A0.md) |
+| tmux 터미널 / 터미널 명령 버튼 | [tmux 셸 터미널](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/tmux%20%EC%85%B8%20%ED%84%B0%EB%AF%B8%EB%84%90.md) |
+| AI 런타임 선택 / 런타임 설치·인증·설정 / 모델·추론·권한·기본값 | [AI 런타임 설치·인증·실행 설정](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/AI%20%EB%9F%B0%ED%83%80%EC%9E%84%20%EC%84%A4%EC%B9%98%C2%B7%EC%9D%B8%EC%A6%9D%C2%B7%EC%8B%A4%ED%96%89%20%EC%84%A4%EC%A0%95.md) |
+| 에이전트셋·탭 관리 | [에이전트셋·탭 생성](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%EC%85%8B%C2%B7%ED%83%AD%20%EC%83%9D%EC%84%B1.md) |
+| 프롬프트·스킬·파일 첨부 | [에이전트 입력·멘션·스킬·첨부](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EC%9E%85%EB%A0%A5%C2%B7%EB%A9%98%EC%85%98%C2%B7%EC%8A%A4%ED%82%AC%C2%B7%EC%B2%A8%EB%B6%80.md) |
+| 대화·작업 기록·메시지 큐 / 히스토리·외부 CLI 이어쓰기 | [에이전트 대화·큐·복원](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EB%8C%80%ED%99%94%C2%B7%ED%81%90%C2%B7%EB%B3%B5%EC%9B%90.md) |
+| 대화의 CLI 명령 | [대화에서 CLI 명령 실행](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EB%8C%80%ED%99%94%EC%97%90%EC%84%9C%20CLI%20%EB%AA%85%EB%A0%B9%20%EC%8B%A4%ED%96%89.md) |
+| 계정·구독·토큰·비용 | [연결 계정·구독·사용량 보기](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%97%B0%EA%B2%B0%20%EA%B3%84%EC%A0%95%C2%B7%EA%B5%AC%EB%8F%85%C2%B7%EC%82%AC%EC%9A%A9%EB%9F%89%20%EB%B3%B4%EA%B8%B0.md) |
+| 예약 메시지 | [에이전트 예약 메시지](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EC%98%88%EC%95%BD%20%EB%A9%94%EC%8B%9C%EC%A7%80.md) |
+| 기능 기반 개발 | [기능 기반 개발·Markdown 문서](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EA%B8%B0%EB%8A%A5%20%EA%B8%B0%EB%B0%98%20%EA%B0%9C%EB%B0%9C%C2%B7Markdown%20%EB%AC%B8%EC%84%9C.md) |
+| 프로젝트 명령 버튼 | [프로젝트 명령 버튼](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20%EB%AA%85%EB%A0%B9%20%EB%B2%84%ED%8A%BC.md) |
+| 반복 예약 작업 | [반복 예약 작업](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EB%B0%98%EB%B3%B5%20%EC%98%88%EC%95%BD%20%EC%9E%91%EC%97%85.md) |
+| 서버 웹 브라우저 / 브라우저 로그인·팝업 | [서버 브라우저·로그인·팝업](../features/%EB%B8%8C%EB%9D%BC%EC%9A%B0%EC%A0%80%C2%B7Android%C2%B7%EC%9B%90%EA%B2%A9%20%EB%8D%B0%EC%8A%A4%ED%81%AC%ED%86%B1/%EC%84%9C%EB%B2%84%20%EB%B8%8C%EB%9D%BC%EC%9A%B0%EC%A0%80%C2%B7%EB%A1%9C%EA%B7%B8%EC%9D%B8%C2%B7%ED%8C%9D%EC%97%85.md) |
+| Android | [Android 환경 점검·화면 연결](../features/%EB%B8%8C%EB%9D%BC%EC%9A%B0%EC%A0%80%C2%B7Android%C2%B7%EC%9B%90%EA%B2%A9%20%EB%8D%B0%EC%8A%A4%ED%81%AC%ED%86%B1/Android%20%ED%99%98%EA%B2%BD%20%EC%A0%90%EA%B2%80%C2%B7%ED%99%94%EB%A9%B4%20%EC%97%B0%EA%B2%B0.md) |
+| 원격 데스크톱 / 원격 입력·모바일 조이스틱 | [원격 데스크톱·터치 입력](../features/%EB%B8%8C%EB%9D%BC%EC%9A%B0%EC%A0%80%C2%B7Android%C2%B7%EC%9B%90%EA%B2%A9%20%EB%8D%B0%EC%8A%A4%ED%81%AC%ED%86%B1/%EC%9B%90%EA%B2%A9%20%EB%8D%B0%EC%8A%A4%ED%81%AC%ED%86%B1%C2%B7%ED%84%B0%EC%B9%98%20%EC%9E%85%EB%A0%A5.md) |
+| 문서 안 표 DB / 프로젝트 DB 목록 / Postgres 연결 | [문서 데이터베이스·전체 목록](../features/%EB%AC%B8%EC%84%9C%20%EB%8D%B0%EC%9D%B4%ED%84%B0%EB%B2%A0%EC%9D%B4%EC%8A%A4/%EB%AC%B8%EC%84%9C%20%EB%8D%B0%EC%9D%B4%ED%84%B0%EB%B2%A0%EC%9D%B4%EC%8A%A4%C2%B7%EC%A0%84%EC%B2%B4%20%EB%AA%A9%EB%A1%9D.md) |
+| DB 참조·외부 테이블 | [기존 DB·외부 Postgres 참조](../features/%EB%AC%B8%EC%84%9C%20%EB%8D%B0%EC%9D%B4%ED%84%B0%EB%B2%A0%EC%9D%B4%EC%8A%A4/%EA%B8%B0%EC%A1%B4%20DB%C2%B7%EC%99%B8%EB%B6%80%20Postgres%20%EC%B0%B8%EC%A1%B0.md) |
+| 테마·언어·강조색·글꼴 / 단축키 맞춤 설정 | [화면·언어·글꼴·단축키 설정](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%ED%99%94%EB%A9%B4%C2%B7%EC%96%B8%EC%96%B4%C2%B7%EA%B8%80%EA%BC%B4%C2%B7%EB%8B%A8%EC%B6%95%ED%82%A4%20%EC%84%A4%EC%A0%95.md) |
+| Mewcat | [Mewcat 마스코트](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/Mewcat%20%EB%A7%88%EC%8A%A4%EC%BD%94%ED%8A%B8%C2%B7%EC%95%8C%EB%A6%BC%C2%B7%ED%9C%B4%EC%8B%9D.md) |
+| 시스템 자원 | [시스템 자원·프로세스 보기](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%EC%8B%9C%EC%8A%A4%ED%85%9C%20%EC%9E%90%EC%9B%90%C2%B7%ED%94%84%EB%A1%9C%EC%84%B8%EC%8A%A4%20%EB%B3%B4%EA%B8%B0.md) |
+| 서버 설정·시작·중지·로그 / 앱 업데이트·HTTPS·백업 | [앱 업데이트·운영 진입](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%EC%95%B1%20%EC%97%85%EB%8D%B0%EC%9D%B4%ED%8A%B8%C2%B7%EC%9A%B4%EC%98%81%20%EC%A7%84%EC%9E%85.md) |
+| 스킬·MCP 관리(README 표 밖 안내) | [스킬·MCP 원본 관리](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%8A%A4%ED%82%AC%C2%B7MCP%20%EC%9B%90%EB%B3%B8%20%EA%B4%80%EB%A6%AC.md) |
 
 ## 검증 결과
 

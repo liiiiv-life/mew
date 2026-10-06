@@ -9,7 +9,7 @@ files: ["src/components/project-tasks.tsx", "server/project-tasks.ts", "server/p
 commits: []
 ---
 
-> 2026-10-01: 사용자 요청으로 태스크 패널과 API를 제거하고 [공통 메모 패널](../features/collaboration/shared-memo.md)로 대체했다. 아래는 제거 전 기록이며 현재 기능이 아니다. 기존 `DATA_DIR/project-tasks-*.json`은 삭제하거나 메모로 자동 이전하지 않는다. 사용자 요청 없이 재도입하지 않는다.
+> 2026-10-01: 사용자 요청으로 태스크 패널과 API를 제거하고 [공통 메모 패널](../features/%ED%98%91%EC%97%85%C2%B7%EB%8C%93%EA%B8%80%C2%B7%EC%B1%84%ED%8C%85/%EA%B3%B5%ED%86%B5%20%EB%A9%94%EB%AA%A8.md)로 대체했다. 아래는 제거 전 기록이며 현재 기능이 아니다. 기존 `DATA_DIR/project-tasks-*.json`은 삭제하거나 메모로 자동 이전하지 않는다. 사용자 요청 없이 재도입하지 않는다.
 
 ## 요구사항
 
@@ -33,7 +33,7 @@ commits: []
 ### 상세 계약
 
 - [사용·저장·API 계약](project-tasks-contract.md).
-- 상위: [분야 지도](../features/projects/MOC.md) · [상위 기능](../features/projects.md).
+- 상위: [분야 지도](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/MOC.md) · [상위 기능](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/_%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

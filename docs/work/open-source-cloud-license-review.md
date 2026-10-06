@@ -9,7 +9,7 @@ updated: 2026-10-02
 
 # Mew 오픈소스·클라우드 수익화 라이선스 검토
 
-[진행 작업 지도](MOC.md) · [공개 준비 계획](open-source-release-hardening-plan.md)
+[진행 작업 지도](_work.md) · [공개 준비 계획](open-source-release-hardening-plan.md)
 
 목표는 2026-09-30까지 오픈소스 홍보·배포를 준비하고 관리형 클라우드로 수익화하는 것이다. 이 문서는 현황·권고·미해결 사항을 기록하며 라이선스 변경 결정이나 출시 적합성 보증은 아니다. 현행 MIT 결정은 [ADR 0023](../../../.mew/docs/decisions/0023-mew-selfhost-packaging-repo.md)과 [ADR 0112](../../../.mew/docs/decisions/0112-mew-public-release-security-and-credential-boundaries.md)를 따른다.
 

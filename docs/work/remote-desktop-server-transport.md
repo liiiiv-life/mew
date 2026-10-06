@@ -6,7 +6,7 @@ updated: 2026-09-14
 
 # 원격 데스크톱 서버 전송
 
-[작업 지도](MOC.md) · [ADR 0139](../../../.mew/docs/decisions/0139-mew-desktop-server-transport.md)
+[작업 지도](_work.md) · [ADR 0139](../../../.mew/docs/decisions/0139-mew-desktop-server-transport.md)
 
 ## 목표와 범위
 

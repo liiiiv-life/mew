@@ -6,7 +6,7 @@ updated: 2026-09-16
 
 # 프로젝트 에이전트 컨텍스트
 
-상위: [진행 작업](MOC.md). 결정: [ADR 0155](../../../.mew/docs/decisions/0155-mew-project-agent-context.md).
+상위: [진행 작업](_work.md). 결정: [ADR 0155](../../../.mew/docs/decisions/0155-mew-project-agent-context.md).
 
 ## 계획
 

@@ -34,7 +34,7 @@ commits: []
 
 - [검색 설정·계약](../configuration/search.md)
 
-- 상위: [분야 지도](../features/projects/MOC.md) · [상위 기능](../features/projects.md).
+- 상위: [분야 지도](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/MOC.md) · [상위 기능](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/_%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

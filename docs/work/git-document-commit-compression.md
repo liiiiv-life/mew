@@ -6,7 +6,7 @@ updated: "2026-10-04"
 
 # 대량 문서 변경의 AI 커밋 압축 연구
 
-상위: [진행 작업](MOC.md). 선행 실측: [AI 커밋 토큰 절감 검토](git-ai-commit-token-efficiency.md). 현재 동작의 기준본: [AI 커밋 실행 계약](../development/agent-sessions.md#git-ai-commit-작업).
+상위: [진행 작업](_work.md). 선행 실측: [AI 커밋 토큰 절감 검토](git-ai-commit-token-efficiency.md). 현재 동작의 기준본: [AI 커밋 실행 계약](../development/agent-sessions.md#git-ai-commit-작업).
 
 **연구 결론은 문서 구조에 맞춘 변경 표현, 반복 수정의 공통화, 변경 시점의 의도 기록을 결합하는 것이다.** 임베딩만으로 diff를 대체하는 방식은 현재 ACP 입력과 맞지 않고, 발췌만 먼저 보내는 방식은 실제 실행에서 대량 스킵을 일으켰다. 의미가 다른 변경을 없애는 대신 같은 정보를 반복해서 읽는 비용을 줄여야 한다.
 

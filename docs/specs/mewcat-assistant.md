@@ -6,7 +6,7 @@ updated: 2026-10-02
 
 # 뮤캣 도우미
 
-상위: [제품 스펙](MOC.md) · [기능](../features/settings/mewcat-assistant.md). 결정: [ADR 0184](../../../.mew/docs/decisions/0184-mewcat-assistant-session-mcp.md).
+상위: [제품 스펙](MOC.md) · [기능](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%EB%AE%A4%EC%BA%A3%20%EB%8F%84%EC%9A%B0%EB%AF%B8%C2%B7%EB%8C%80%ED%99%94%C2%B7Mew%20%EC%A1%B0%EC%9E%91.md). 결정: [ADR 0184](../../../.mew/docs/decisions/0184-mewcat-assistant-session-mcp.md).
 
 ## 목적과 진입
 

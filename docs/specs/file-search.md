@@ -7,7 +7,7 @@ reviewed: 2026-09-02
 review-after-days: 90
 ---
 
-기능 항목: [파일 검색](../features/projects/search.md). 이 문서는 해당 기능의 세부 동작·표시 계약을 소유한다.
+기능 항목: [파일 검색](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/%ED%8C%8C%EC%9D%BC%EB%AA%85%C2%B7%EB%82%B4%EC%9A%A9%20%EA%B2%80%EC%83%89%EA%B3%BC%20%EC%B9%98%ED%99%98.md). 이 문서는 해당 기능의 세부 동작·표시 계약을 소유한다.
 
 사이드바 탭은 탐색기 다음에 **파일명 검색(돋보기)**, **파일 내용 검색(문서 돋보기)**을 나란히 둔다.
 Ctrl+P는 파일명 검색, Ctrl+Shift+F는 내용 검색을 연다. 두 검색 모두 로그인 사용자에게 현재 루트 프로젝트의 Documents와

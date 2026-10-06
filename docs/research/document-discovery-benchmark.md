@@ -48,9 +48,9 @@ updated: 2026-09-28
 
 | 문제 | 찾도록 요구한 필수 문서 | 사실 확인 기준 |
 | --- | --- | --- |
-| 목록 줄번호·내부 링크 | [링크 기능](../features/editor/references.md), [패키지 계약](../development/packages.md), [사용법](../guides/editor.md) | 중첩 거터·24px 일치, 인라인 줄바꿈·높이, Markdown 저장 보존 |
-| PDF 저장 충돌 | [PDF 기능](../features/editor/pdf.md), [PDF 계약](../development/pdf-viewer.md), [사용법](../guides/editor.md) | 충돌·초안 보존, 명시적 버전 검사 저장, 암호화·전자서명·인증 제한 |
-| /clear·큐·재접속 | [대화 기능](../features/agents/conversations.md), [세션 계약](../development/agent-sessions.md), [사용법](../guides/terminal-agents.md) | FIFO 세션 경계, Codex 종료 대기·실패 보존, 브라우저 재접속 |
+| 목록 줄번호·내부 링크 | [링크 기능](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/%EB%A7%81%ED%81%AC%C2%B7%ED%8C%8C%EC%9D%BC%20%EC%B0%B8%EC%A1%B0%C2%B7%EC%B2%A8%EB%B6%80.md), [패키지 계약](../development/packages.md), [사용법](../guides/editor.md) | 중첩 거터·24px 일치, 인라인 줄바꿈·높이, Markdown 저장 보존 |
+| PDF 저장 충돌 | [PDF 기능](../features/%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/PDF%20%EC%9D%BD%EA%B8%B0%C2%B7%ED%95%84%EA%B8%B0%C2%B7%EC%A0%80%EC%9E%A5.md), [PDF 계약](../development/pdf-viewer.md), [사용법](../guides/editor.md) | 충돌·초안 보존, 명시적 버전 검사 저장, 암호화·전자서명·인증 제한 |
+| /clear·큐·재접속 | [대화 기능](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EB%8C%80%ED%99%94%C2%B7%ED%81%90%C2%B7%EB%B3%B5%EC%9B%90.md), [세션 계약](../development/agent-sessions.md), [사용법](../guides/terminal-agents.md) | FIFO 세션 경계, Codex 종료 대기·실패 보존, 브라우저 재접속 |
 
 기대 문서 목록은 실행 전에 고정했다. 경로 회수는 자동 집계하고 답변·인용 줄 범위·명령 이력은 별도로 검토했다. **9개 답변 모두 필수 문서 3개와 핵심 사실 3개를 충족했고, 인용 경로·줄 범위도 유효했다.** 탐색 방식 위반이나 문서 수정은 없었다. 같은 문서를 여러 구간으로 인용한 것은 하나로 센다. 독립 평가자나 사용자 승인에 의한 품질 판정은 아니다.
 
