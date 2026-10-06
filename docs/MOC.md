@@ -1,7 +1,7 @@
 ---
 title: "mew"
 created: "2026-09-11"
-updated: "2026-10-06"
+updated: "2026-10-07"
 description: "Documents의 mew 문서 홈으로 기능·설정·배포·개발·사용법·운영과 연구·이전 기록의 주요 링크를 제공한다."
 ---
 
@@ -36,8 +36,6 @@ description: "Documents의 mew 문서 홈으로 기능·설정·배포·개발·
 - [원격 데스크톱 지연·대역폭 개선 연구 — 기준 조사](research/remote-desktop-latency.md)
 
 - [원격 데스크톱 최초 화면 표시 시간 단축 연구 — 일부 구현](research/remote-desktop-startup.md)
-
-- [하이](하이.md)
 
 ## History / raw
 
