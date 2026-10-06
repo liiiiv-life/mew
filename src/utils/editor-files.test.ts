@@ -1,6 +1,19 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { editorFile, editorTabPath, mergeEditorTabs } from './editor-files.ts'
+import { editorFile, editorTabPath, mergeEditorTabs, workspaceDocumentFile } from './editor-files.ts'
+
+test('task document paths share the Documents tab identity inside the configured folder', () => {
+  for (const docsDir of ['docs', 'notes', '.mew/docs']) {
+    const workspace = { path: '/projects/demo', docsPath: `/projects/demo/${docsDir}` }
+    const relative = 'tasks/한글 제목.md'
+    const file = workspaceDocumentFile(`${docsDir}/${relative}`, workspace)
+    assert.deepEqual(file, { project: 'docs', path: relative })
+    assert.equal(editorTabPath(file.project, file.path), editorTabPath('docs', relative))
+    assert.deepEqual(workspaceDocumentFile(`${docsDir}-other/task.md`, workspace), { project: '.workspace', path: `${docsDir}-other/task.md` })
+  }
+  assert.deepEqual(workspaceDocumentFile('docs/tasks/task.md', { path: '/projects/demo', docsPath: '/projects/demo/notes' }), { project: '.workspace', path: 'docs/tasks/task.md' })
+  assert.deepEqual(workspaceDocumentFile('tasks/legacy.md', null), { project: '.workspace', path: 'tasks/legacy.md' })
+})
 
 const state = (id: string, paths: string[]) => ({
   panes: [{ id, tabs: paths.map(path => ({ path, preview: false, viewMode: 'plain' as const })), activePath: paths[0] ?? null }],

@@ -104,7 +104,7 @@ import {
 } from './utils/mobile-panel-stack'
 import { pickRefTarget, type RefPanel } from './utils/refTarget'
 import { WORKSPACE_PROJECT } from './utils/active-project'
-import { editorFile, editorTabPath } from './utils/editor-files'
+import { editorFile, editorTabPath, workspaceDocumentFile } from './utils/editor-files'
 import { useWorkspacePanelDismissals } from './hooks/use-panel-dismissals'
 import { useI18n } from './i18n'
 import { applyFontPreferences, loadFontPreferences, normalizeFontPreferences, saveFontPreferences } from './utils/fontPreferences'
@@ -2331,7 +2331,10 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           }}
         />}</DockPanel>}
         {rootProjectPath && caps.filesRead && auth.email && <DockPanel id="tasks" kind="tasks" visible={tasksOpen} tabs={['tasks']} mobileSelected onFocus={() => { activeTabbedSurfaceRef.current = 'tasks'; bringWorkspacePanelToFront('tasks') }}>
-          <TaskPanel workspace={rootProjectPath} onOpenFile={path => openMentionedFile(WORKSPACE_PROJECT, path)} session={taskSession} nextTabSignal={taskNextTabSignal} previousTabSignal={taskPreviousTabSignal} onClose={() => closeWorkspacePanel('tasks')} />
+          <TaskPanel workspace={rootProjectPath} onOpenFile={path => {
+            const file = workspaceDocumentFile(path, workspaceInfoRef.current)
+            openMentionedFile(file.project, file.path)
+          }} session={taskSession} nextTabSignal={taskNextTabSignal} previousTabSignal={taskPreviousTabSignal} onClose={() => closeWorkspacePanel('tasks')} />
         </DockPanel>}
         {caps.collaboration && auth.email && <DockPanel id="memo" kind="memo" visible={memoOpen} tabs={['memo']} mobileSelected onFocus={() => bringWorkspacePanelToFront('memo')}>
           <SharedMemo session={memoSession} open={memoOpen} />

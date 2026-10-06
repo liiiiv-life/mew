@@ -3,6 +3,14 @@ import { leaf, splitLeaf } from './paneTree.ts'
 
 const SCOPED_FILE_PREFIX = 'mew:file:'
 
+export function workspaceDocumentFile(path: string, workspace: { path: string; docsPath?: string } | null): { project: string; path: string } {
+  const absolute = workspace ? `${workspace.path.replace(/\/$/, '')}/${path}` : path
+  const docsRoot = workspace?.docsPath?.replace(/\/$/, '')
+  return docsRoot && absolute.startsWith(`${docsRoot}/`)
+    ? { project: 'docs', path: absolute.slice(docsRoot.length + 1) }
+    : { project: '.workspace', path }
+}
+
 /** UI identity only. API requests retain the original project and relative path. */
 export function editorTabPath(project: string, path: string, workspaceProject = '.workspace'): string {
   return project === workspaceProject || path.startsWith('mew:') ? path : `${SCOPED_FILE_PREFIX}${encodeURIComponent(project)}/${path}`

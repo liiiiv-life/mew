@@ -18,6 +18,7 @@ import {EditorPane} from '${root}/src/components/EditorPane.tsx';
 import {DockWorkspace,DockPanel,DockGrip} from '${root}/src/components/DockWorkspace.tsx';
 import {useTabs} from '${root}/src/hooks/useTabs.ts';
 import {createEditorApi} from '${root}/src/api/client.ts';
+import {editorTabPath,workspaceDocumentFile} from '${root}/src/utils/editor-files.ts';
 const noop=()=>{};
 const callbacks=Object.fromEntries(['registerHandle','registerElement','registerTabBar','onFocus','onOpenLink','onOpenHistory','onSetTocOpen','onOpenSidebar','onTabDragMove','onTabDrop'].map(key=>[key,noop]));
 function Fixture(){
@@ -25,7 +26,8 @@ function Fixture(){
  const [dock,setDock]=React.useState(()=>JSON.parse(localStorage.getItem('test-dock')||'null'));
  window.tabs=tabs;window.dock=dock;window.docsApi=createEditorApi('docs');window.rootApi=createEditorApi('.workspace');
  const saveDock=value=>{setDock(value);localStorage.setItem('test-dock',JSON.stringify(value))};
- return <><nav><button onClick={()=>tabs.openFile('mew:file:docs/README.md',{preview:false,viewMode:'plain'})}>Open Documents</button><button onClick={()=>tabs.openFile('README.md',{preview:false,viewMode:'plain'})}>Open root</button></nav>
+ const openTask=()=>{const file=workspaceDocumentFile('docs/README.md',{path:'/fixture',docsPath:'/fixture/docs'});tabs.openFile(editorTabPath(file.project,file.path),{preview:false,viewMode:'plain'})};
+ return <><nav><button onClick={()=>tabs.openFile('mew:file:docs/README.md',{preview:false,viewMode:'plain'})}>Open Documents</button><button onClick={openTask}>Open task document</button><button onClick={()=>tabs.openFile('README.md',{preview:false,viewMode:'plain'})}>Open root</button></nav>
  <DockWorkspace value={dock} onChange={saveDock} foreground="editor" apiRef={null} onEditorDrop={()=>'main'}>
  <DockPanel id="editor:main" kind="editor" tabs={tabs.panes[0].tabs.map(t=>t.path)}><EditorPane {...callbacks} pane={tabs.panes[0]} role="owner" authEmail="owner@test" project=".workspace" tree={[]} presence={{}} focused isGuest={false} canCollaborate={false} showSidebarButton={false} tocOpen={false} dropZone={null} onActivate={tabs.setActivePath} onPin={tabs.pinTab} onCloseTab={tabs.closeTab} onReorder={tabs.reorderTabs} onChangeContent={tabs.updateTabContent} onSetViewMode={tabs.setTabViewMode}/></DockPanel>
  <DockPanel id="terminal:fixture" kind="terminal"><div data-dock-tab-bar className="flex h-9"><DockGrip group="terminal:fixture"/>Terminal</div><div>Other panel</div></DockPanel>
@@ -65,6 +67,14 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await page.goto('http://mew-unified.test/')
     await page.getByRole('button', { name: 'Open Documents', exact: true }).click().catch(error => { if (errors.length) throw new Error(errors.join('\n')); throw error })
     await page.locator('.cm-content').filter({ hasText: 'Documents original' }).waitFor()
+    await page.getByRole('button', { name: 'Open task document', exact: true }).click()
+    assert.equal(await page.getByRole('tab').count(), 1, 'Docs then task reuses the document tab')
+    await page.evaluate('window.tabs.closeTab("mew:file:docs/README.md")')
+    await page.getByRole('button', { name: 'Open task document', exact: true }).click()
+    await page.locator('.cm-content').filter({ hasText: 'Documents original' }).waitFor()
+    await page.getByRole('button', { name: 'Open Documents', exact: true }).click()
+    assert.equal(await page.getByRole('tab').count(), 1, 'Task then Docs reuses the document tab')
+    assert.equal(await page.evaluate('window.tabs.activeTab.path'), 'mew:file:docs/README.md')
     const panel = page.locator('[data-dock-panel="editor:main"]')
     const terminal = page.locator('[data-dock-panel="terminal:fixture"]')
     const target = (await terminal.boundingBox())!
