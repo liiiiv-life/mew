@@ -1,0 +1,59 @@
+---
+id: "mew-agents-features"
+parent: "mew-agents"
+title: "기능 기반 개발·Markdown 문서"
+status: "changed"
+created: "2026-09-18"
+updated: "2026-10-06"
+status_hash: "701eba69573a58c7cb0cae079dbdcc13ad3125808a1b999accc26f79d331606c"
+files: ["src/App.tsx", "src/components/DockWorkspace.tsx", "src/utils/dock-layout.ts", "src/components/feature-development.tsx", "src/utils/feature-panel-state.ts", "server/features.ts", "server/feature-documents.ts", "server/feature-document-tree.ts", "server/document-pages.ts", "server/feature-service.ts", "server/feature-agent-instructions.ts"]
+commits: []
+---
+
+## 요구사항
+
+- 기능 항목 하나를 Markdown 파일 하나로 관리하고, 제목은 실제 파일 이름을 사용한다.
+- Documents와 같은 `이름.md` ↔ `이름/_이름.md` 규칙으로 하위 항목을 관리한다. 마지막 자식을 제거하면 단일 파일로 돌아간다.
+- 기능 패널의 기존 타이틀바·행·상태 표시·정렬·새로고침·도킹·모바일 배치를 유지한다.
+- 패널에는 제목과 원본 문서 열기·하위 항목만 표시한다. 제목 클릭은 문서를 열고 화살표는 자식 목록만 접고 펼친다.
+- 요구사항·구현 내용·검증·관련 파일·커밋·요청과 작업 이력의 상세 표시는 사용자 요청으로 제거했다. 명시적 후속 요청 없이 재도입하지 않는다.
+- 읽기 전용 경계와 계정·프로젝트별 펼침·정렬·스크롤 복원을 유지한다. 변경 API·에이전트셋 조회는 호출하지 않는다.
+- 일반 Markdown과 구분자 앞 메모·빈 줄을 허용하며, 본문 구분자 예시나 불완전한 구분자 때문에 전체 목록 조회가 실패하지 않는다.
+- 문서 편집만으로 에이전트를 실행하지 않는다. 기존 API·CLI·실행 큐·보고·사용자 판정과 이력은 유지한다.
+
+### 상세 계약
+
+- [기능 GUI·저장·이전 계약](../../specs/feature-development.md)
+- [문서 페이지 저장·조작](../../development/document-pages.md)
+- 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94.md).
+
+<!-- mew:implementation:start -->
+## 구현 내용
+
+- 제목·부모 관계를 파일명·폴더에서 읽고, 상위 대표 파일은 별도 자식으로 중복 표시하지 않는다.
+- 파일 기반 항목 생성·개명·부모 이동은 본문·상대 링크·실행 버전 연결을 보존한다. 중복 이름·외부 변경은 덮어쓰지 않는다.
+- 패널 본문 섹션과 커밋 상세 팝업을 제거하고 제목·자식 전용 트리로 단순화했다. 문서 열기와 기존 화면 상태 복원은 유지한다.
+- 기존 기능 문서는 제목과 같은 파일명·상위 대표 구조로 이동하고 문서 지도·들어오는 링크를 보정한다.
+
+<!-- mew:implementation:end -->
+
+<!-- mew:validation:start -->
+## 검증
+
+- 2026-10-06: 기능·문서 페이지·실행 서비스·독립 감독·PC 다크/모바일 라이트 UI 검사 36개와 TypeScript·전체 lint·문서 허용목록 검사를 통과했다. 전체 문서 링크 검사는 기존 미추적 `docs/하이.md`의 MOC 미연결 1건만 남아 있다. 빌드·서버 반영은 수행하지 않았다.
+
+### 이전 UI·실행 검증 기록
+
+- 2026-10-04: 격리 Chromium에서 요구사항·하위 기능의 즉시 표시, 묶음별 접기 버튼 제거, 하위 기능 자체의 접기·펼치기, 요구사항의 12px 글자·보조 색상과 모바일 표시를 확인했다. 관련 UI·Markdown 테스트 5개, 타입·대상 린트·문서 링크 검사를 통과했다.
+
+- 2026-10-04: 격리 Chromium에서 읽기 전용 UI, 변경 API·에이전트셋 조회 미호출, 문서·파일·커밋·대화 열기, 접기·펼치기·화면 상태 복원·모바일을 확인했다. 타입·린트·문서 검사를 통과했다. 워크스페이스 전환 통합 검사는 기능 패널 진입 전 `extra.md` 선택 단계에서 시간 초과로 실패했다.
+
+- PC·모바일 타이틀바에서 제목 앞에 독과 같은 기능 아이콘이 표시되는지 확인한다.
+
+- 서버·Markdown·큐·독립 감독 테스트와 격리 Chromium UI 테스트로 인라인 요구사항/구현 편집·작업 접수, 셋 선택·충돌·실패 재시도·초안 보존, 관련 증거·하위 기능·모바일·권한을 확인했다.
+- 실제 유료 AI의 구현 품질은 별도 사용자 확인 대상이다.
+- 2026-09-25: Markdown 렌더링·원문 범위 보존·중복 탐색 정보 숨김을 단위 검사하고, 격리 Chromium에서 제목 직접 편집·아이콘 접기·초안 보호·링크 열기·읽기 전용·모바일 터치 동작을 확인한다.
+
+- 2026-09-29: 격리 Chromium에서 36px 타이틀바, 데스크톱 손잡이 이동·마우스 폭 조절·키보드 높이 조절, 이동 중 초안 보존, 모바일 손잡이 숨김, 닫기·모바일 전환·저장 완료 후 새로고침의 배치 복원을 확인했다. `feature-ui.test.ts`·`workspace-switch-ui.test.ts`·`dockWorkspaceUi.test.ts`·`dock-maximize-ui.test.ts`, 도킹 단위 검사와 타입·대상 린트·문서 검사를 통과했다.
+
+<!-- mew:validation:end -->

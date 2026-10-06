@@ -1,0 +1,24 @@
+---
+title: "터미널·에이전트·자동화"
+created: 2026-09-18
+updated: 2026-10-04
+---
+
+# 터미널·에이전트·자동화
+
+상위: [기능 홈](../MOC.md) · [터미널·에이전트·자동화 개요](_%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94.md).
+
+## Current
+
+- [tmux 셸 터미널](tmux%20%EC%85%B8%20%ED%84%B0%EB%AF%B8%EB%84%90.md)
+- [AI 런타임 설치·인증·실행 설정](AI%20%EB%9F%B0%ED%83%80%EC%9E%84%20%EC%84%A4%EC%B9%98%C2%B7%EC%9D%B8%EC%A6%9D%C2%B7%EC%8B%A4%ED%96%89%20%EC%84%A4%EC%A0%95.md)
+- [에이전트셋·탭 생성](%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%EC%85%8B%C2%B7%ED%83%AD%20%EC%83%9D%EC%84%B1.md)
+- [에이전트 대화·큐·복원](%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EB%8C%80%ED%99%94%C2%B7%ED%81%90%C2%B7%EB%B3%B5%EC%9B%90.md)
+- [에이전트 입력·멘션·스킬·첨부](%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EC%9E%85%EB%A0%A5%C2%B7%EB%A9%98%EC%85%98%C2%B7%EC%8A%A4%ED%82%AC%C2%B7%EC%B2%A8%EB%B6%80.md)
+- [연결 계정·구독·사용량 보기](%EC%97%B0%EA%B2%B0%20%EA%B3%84%EC%A0%95%C2%B7%EA%B5%AC%EB%8F%85%C2%B7%EC%82%AC%EC%9A%A9%EB%9F%89%20%EB%B3%B4%EA%B8%B0.md)
+- [에이전트 예약 메시지](%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EC%98%88%EC%95%BD%20%EB%A9%94%EC%8B%9C%EC%A7%80.md)
+- [대화에서 CLI 명령 실행](%EB%8C%80%ED%99%94%EC%97%90%EC%84%9C%20CLI%20%EB%AA%85%EB%A0%B9%20%EC%8B%A4%ED%96%89.md)
+- [스킬·MCP 원본 관리](%EC%8A%A4%ED%82%AC%C2%B7MCP%20%EC%9B%90%EB%B3%B8%20%EA%B4%80%EB%A6%AC.md)
+- [기능 기반 개발·Markdown 문서](%EA%B8%B0%EB%8A%A5%20%EA%B8%B0%EB%B0%98%20%EA%B0%9C%EB%B0%9C%C2%B7Markdown%20%EB%AC%B8%EC%84%9C.md)
+- [프로젝트 명령 버튼](%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20%EB%AA%85%EB%A0%B9%20%EB%B2%84%ED%8A%BC.md)
+- [반복 예약 작업](%EB%B0%98%EB%B3%B5%20%EC%98%88%EC%95%BD%20%EC%9E%91%EC%97%85.md)

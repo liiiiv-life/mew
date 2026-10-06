@@ -6,7 +6,7 @@ updated: 2026-10-04
 
 # Documents 페이지
 
-[개발 계약](MOC.md) · [사용법](../guides/projects.md) · [기능](../features/projects/documents.md) · [ADR 0191](../../../.mew/docs/decisions/0191-mew-documents-parent-and-child-pages.md)
+[개발 계약](MOC.md) · [사용법](../guides/projects.md) · [기능](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/Documents%C2%B7%EB%AC%B8%EC%84%9C%20%EC%A7%80%EB%8F%84%20%EA%B4%80%EB%A6%AC.md) · [ADR 0191](../../../.mew/docs/decisions/0191-mew-documents-parent-and-child-pages.md)
 
 ## 저장 구조
 

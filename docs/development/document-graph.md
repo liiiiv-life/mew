@@ -6,7 +6,7 @@ updated: 2026-10-03
 
 # Documents 링크 그래프
 
-상위: [개발 계약](MOC.md) · [Documents 기능](../features/projects/documents.md).
+상위: [개발 계약](MOC.md) · [Documents 기능](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/Documents%C2%B7%EB%AC%B8%EC%84%9C%20%EC%A7%80%EB%8F%84%20%EA%B4%80%EB%A6%AC.md).
 
 ## 범위와 API
 

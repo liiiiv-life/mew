@@ -6,7 +6,7 @@ updated: "2026-10-06"
 
 # 태스크 패널
 
-[개발 지도](MOC.md) · [기능](../features/projects/tasks.md) · [사용법](../guides/projects.md#태스크)
+[개발 지도](MOC.md) · [기능](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/%ED%83%9C%EC%8A%A4%ED%81%AC%20%ED%8C%A8%EB%84%90%C2%B7%EB%AA%A9%EB%A1%9D%C2%B7%EB%8B%AC%EB%A0%A5%C2%B7%EA%B0%84%ED%8A%B8.md) · [사용법](../guides/projects.md#태스크)
 
 ## 입력과 패널
 
