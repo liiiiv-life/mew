@@ -3634,7 +3634,6 @@ function AgentSessionView({
           }
           if (item.kind === 'turn') {
             const open = expanded.has(item.key)
-            const question = timeline.slice(0, index).findLast(candidate => candidate.kind === 'user')
             const state = turnState(item, meta?.activeTask === 'cli' ? false : meta?.busy ?? null)
             // 마지막 답변을 패널 폭에 맞춰 두 줄로 요약한다.
             const lastAgent = [...item.children].reverse().find((c) => c.kind === 'agent')
@@ -3689,7 +3688,6 @@ function AgentSessionView({
                     )}
                   </button>
                   <div className={`flex shrink-0 items-center ${open ? '' : 'absolute right-0 top-0'}`}>
-                  {open && question && <button type="button" onClick={() => scrollToQuestion(question.key)} className="my-1.5 rounded px-2 py-1 text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink">{t('agent.toQuestion')}</button>}
                   {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
                   {open && <CopyButton
                     text={answerText}
