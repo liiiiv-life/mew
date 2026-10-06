@@ -6,7 +6,7 @@ import type { PaneNode } from '../utils/paneTree'
 import { createContext, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@mew/ui'
-import { dockIds, dockRects, insertDock, normalizeDock, pruneDock, closeDockGroup, type DockKind, type DockNode, type DockRect, type DockSide, type DockState } from '../utils/dock-layout'
+import { dockIds, dockRects, insertDock, normalizeDock, pruneDock, closeDockGroup, defaultDockTree, addDockGroup, type DockKind, type DockNode, type DockRect, type DockSide, type DockState } from '../utils/dock-layout'
 
 type Source = { group: string; tab?: string }
 type Target = { group: string; side: DockSide | 'center' }
@@ -60,8 +60,10 @@ export function DockWorkspace({ children, value, onChange, onEditorDrop, foregro
       const combine = (kids: PaneNode[]): DockNode => kids.length === 1 ? fromEditor(kids[0]) : { axis: node.dir, ratio: 1 / kids.length, first: fromEditor(kids[0]), second: combine(kids.slice(1)) }
       return combine(node.kids)
     }
-    let tree = state.tree ?? (initialLayout ? fromEditor(initialLayout) : null)
-    for (const group of groups) if (registered[group.id]?.visible && !dockIds(tree).includes(group.id)) tree = tree ? { axis: 'row', ratio: dockIds(tree).length / (dockIds(tree).length + 1), first: tree, second: { id: group.id } } : { id: group.id }
+    const editorGroup = groups.find((group) => group.kind === 'editor')
+    const editor = initialLayout ? fromEditor(initialLayout) : editorGroup ? { id: editorGroup.id } : null
+    let tree = state.tree ?? defaultDockTree(editor, groups)
+    for (const group of groups) if (registered[group.id]?.visible && !dockIds(tree).includes(group.id)) tree = addDockGroup(tree, group, groups)
     return tree
   }, [state.tree, groups, initialLayout, registered])
   const visibleTree = useMemo(() => pruneDock(tree, new Set(Object.entries(registered).filter(([, r]) => r.visible).map(([id]) => id))), [tree, registered])

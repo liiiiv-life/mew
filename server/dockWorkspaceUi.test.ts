@@ -59,6 +59,14 @@ try{
  await page.goto('http://localhost:48973/')
  await page.locator('[data-session="a1"]').waitFor();await page.locator('[data-session="t1"]').waitFor()
  const bounds=async (id: string)=>{const panel=page.locator(`[data-dock-panel="${id}"]`);await panel.waitFor();const bounds=await panel.boundingBox();assert.ok(bounds);return bounds}
+ const editorBounds = await bounds('editor:main'), terminalBounds = await bounds('terminal'), agentBounds = await bounds('agent'), browserBounds = await bounds('browser')
+ assert.equal(editorBounds.x, terminalBounds.x)
+ assert.equal(editorBounds.width, terminalBounds.width)
+ assert.ok(terminalBounds.y > editorBounds.y, 'the default terminal belongs below the editor')
+ assert.ok(agentBounds.x > editorBounds.x, 'the default agent belongs in the right column')
+ assert.equal(agentBounds.y, editorBounds.y)
+ assert.equal(browserBounds.height, agentBounds.height, 'the browser remains full height beside the stacked editor and terminal')
+ await page.screenshot({ path: '/tmp/mew-default-desktop-layout.png' })
  const dragTab=async(locator: Locator,target: string,xpart: number,ypart: number)=>{await locator.scrollIntoViewIfNeeded();const b=await locator.boundingBox(),r=await bounds(target);assert.ok(b&&r);await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();await page.mouse.move(b.x+b.width/2+9,b.y+b.height/2+9);await page.mouse.move(r.x+r.width*xpart,r.y+r.height*ypart,{steps:12});await page.locator('[data-dock-preview]').waitFor();await page.mouse.up()}
  const mergeAtEmptyBar = async (locator: Locator, target: string) => {
   const r=await bounds(target)

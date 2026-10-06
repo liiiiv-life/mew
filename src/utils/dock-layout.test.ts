@@ -1,8 +1,55 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { closeDockGroup, dockIds, dockRects, emptyDock, insertDock, normalizeDock, pruneDock, removeDock, type DockGroup, type DockNode } from './dock-layout.ts'
+import { addDockGroup, defaultDockTree, closeDockGroup, dockIds, dockRects, emptyDock, insertDock, normalizeDock, pruneDock, removeDock, type DockGroup, type DockNode } from './dock-layout.ts'
 const groups: DockGroup[] = [{ id: 'editor', kind: 'editor' }, { id: 'agent', kind: 'agent' }, { id: 'terminal', kind: 'terminal' }, { id: 'browser', kind: 'browser' }]
 const stacked: DockNode = { axis: 'col', ratio: .6, first: { id: 'editor' }, second: { id: 'agent' } }
+test('desktop defaults stack terminal below editor, git above agent, and tasks below features', () => {
+  const all: DockGroup[] = [...groups.filter(g => g.kind !== 'browser'), { id: 'git', kind: 'git' }, { id: 'features', kind: 'features' }, { id: 'tasks', kind: 'tasks' }]
+  const tree = defaultDockTree({ id: 'editor' }, all)
+  const rects = dockRects(tree, { x: 0, y: 0, width: 1568, height: 900 })
+  assert.equal(rects.editor.x, rects.terminal.x)
+  assert.equal(rects.editor.width, rects.terminal.width)
+  assert.ok(rects.terminal.y > rects.editor.y)
+  assert.equal(rects.git.x, rects.agent.x)
+  assert.equal(rects.git.width, rects.agent.width)
+  assert.ok(rects.agent.y > rects.git.y)
+  assert.equal(rects.features.x, rects.tasks.x)
+  assert.ok(rects.tasks.y > rects.features.y)
+  assert.ok(rects.features.x > rects.git.x)
+  assert.ok(rects.editor.width > rects.git.width * 1.9)
+  const core = dockRects(pruneDock(tree, new Set(['editor', 'terminal', 'agent', 'git'])), { x: 0, y: 0, width: 1200, height: 900 })
+  assert.ok(Math.abs(core.editor.width - (1200 - 4) * 2 / 3) < 1e-9)
+  assert.deepEqual(normalizeDock({ ...emptyDock(), groups: all, tree }).tree, tree)
+})
+test('default geometry retains editor splits and hidden panel slots', () => {
+  const editors: DockNode = { axis: 'row', ratio: .6, first: { id: 'editor' }, second: { id: 'editor:second' } }
+  const tree = defaultDockTree(editors, groups)
+  const hidden = pruneDock(tree, new Set(['editor', 'editor:second', 'agent']))
+  const rects = dockRects(hidden, { x: 0, y: 0, width: 1200, height: 800 })
+  assert.equal(rects.editor.height, 800)
+  assert.equal(rects.agent.height, 800)
+  assert.deepEqual(pruneDock(tree, new Set(['editor', 'editor:second'])), editors)
+  assert.ok(dockIds(tree).includes('terminal'))
+})
+test('panels mounted after a saved layout use their default neighbor without rearranging saved branches', () => {
+  const coreGroups: DockGroup[] = [...groups, { id: 'git', kind: 'git' }, { id: 'features', kind: 'features' }, { id: 'tasks', kind: 'tasks' }]
+  const saved: DockNode = { axis: 'row', ratio: .72, first: { id: 'editor' }, second: { id: 'agent' } }
+  let tree = addDockGroup(saved, { id: 'terminal', kind: 'terminal' }, coreGroups)
+  tree = addDockGroup(tree, { id: 'git', kind: 'git' }, coreGroups)
+  assert.equal('ratio' in tree && tree.ratio, .72)
+  const rects = dockRects(tree, { x: 0, y: 0, width: 1200, height: 800 })
+  assert.equal(rects.editor.width, (1200 - 4) * .72)
+  assert.equal(rects.terminal.x, rects.editor.x)
+  assert.equal(rects.git.x, rects.agent.x)
+  assert.ok(rects.agent.y > rects.git.y)
+  tree = addDockGroup(tree, { id: 'tasks', kind: 'tasks' }, coreGroups)
+  tree = addDockGroup(tree, { id: 'features', kind: 'features' }, coreGroups)
+  tree = addDockGroup(tree, { id: 'browser', kind: 'browser' }, coreGroups)
+  const extended = dockRects(tree, { x: 0, y: 0, width: 1600, height: 800 })
+  assert.ok(extended.tasks.y > extended.features.y)
+  assert.equal(extended.browser.height, 800)
+  assert.deepEqual(saved, { axis: 'row', ratio: .72, first: { id: 'editor' }, second: { id: 'agent' } })
+})
 test('a panel moves without duplication and empty branches collapse', () => {
   const tree = insertDock(stacked, 'terminal', 'agent', 'right', groups)
   const moved = insertDock(tree, 'terminal', 'editor', 'top', groups)!

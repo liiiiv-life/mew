@@ -18,6 +18,37 @@ export function pruneDock(node: DockNode | null, visible: Set<string>): DockNode
   const first = pruneDock(node.first, visible), second = pruneDock(node.second, visible)
   return first && second ? { ...node, first, second } : first ?? second
 }
+export function defaultDockTree(editor: DockNode | null, groups: DockGroup[]): DockNode | null {
+  const panel = (kind: DockKind): DockNode | null => {
+    const group = groups.find((group) => group.kind === kind)
+    return group ? { id: group.id } : null
+  }
+  const split = (axis: 'row' | 'col', ratio: number, first: DockNode | null, second: DockNode | null): DockNode | null =>
+    first && second ? { axis, ratio, first, second } : first ?? second
+  const editing = split('col', .69, editor, panel('terminal'))
+  const tools = split('col', .4, panel('git'), panel('agent'))
+  const work = split('row', 2 / 3, editing, tools)
+  const planning = split('col', .57, panel('features'), panel('tasks'))
+  return split('row', .74, work, planning)
+}
+
+/** Place a newly mounted panel without rearranging any existing branches. */
+export function addDockGroup(tree: DockNode | null, group: DockGroup, groups: DockGroup[]): DockNode {
+  if (!tree) return { id: group.id }
+  const ids = dockIds(tree)
+  const anchorKind = group.kind === 'terminal' ? 'editor' : group.kind === 'git' ? 'agent' : group.kind === 'agent' ? 'git' : group.kind === 'tasks' ? 'features' : group.kind === 'features' ? 'tasks' : null
+  const anchor = groups.find((candidate) => candidate.kind === anchorKind && ids.includes(candidate.id))
+  if (anchor) {
+    const before = group.kind === 'git' || group.kind === 'features'
+    const ratio = group.kind === 'terminal' ? .69 : group.kind === 'git' || group.kind === 'agent' ? .4 : .57
+    const visit = (node: DockNode): DockNode => {
+      if ('id' in node) return node.id === anchor.id ? { axis: 'col', ratio, first: before ? { id: group.id } : node, second: before ? node : { id: group.id } } : node
+      return { ...node, first: visit(node.first), second: visit(node.second) }
+    }
+    return visit(tree)
+  }
+  return { axis: 'row', ratio: group.kind === 'agent' || group.kind === 'git' ? 2 / 3 : .74, first: tree, second: { id: group.id } }
+}
 function containsBrowser(node: DockNode, groups: DockGroup[]): boolean {
   return dockIds(node).some((id) => groups.some((group) => group.id === id && group.kind === 'browser'))
 }
