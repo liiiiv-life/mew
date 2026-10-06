@@ -7,6 +7,7 @@ import type { AgentAttachmentInput } from '../shared/agent-attachment.ts'
 // mew 서버는 로컬 소켓으로만 명령·이벤트를 중계한다. 따라서 브라우저가 닫히거나 mew가 재시작돼도
 // 감독과 그 아래 ACP/CLI는 그대로 작업을 마친다(ADR 0048).
 import './config.ts'
+import { agentGitEnv } from './agent-git-identity.ts'
 import { captureAgentContext } from './agent-context.ts'
 import type { AgentContextBinding } from '../shared/project-agent-context.ts'
 import crypto from 'node:crypto'
@@ -762,7 +763,7 @@ function spawnHost(
     fs.chmodSync(HOST_DIR, 0o700)
     const logFd = fs.openSync(files.log, 'a', 0o600)
     try {
-      const env: NodeJS.ProcessEnv = { ...process.env, MEW_WORKSPACE: cwd, MEW_AGENT_CONTEXT: JSON.stringify(context ?? captureAgentContext(cwd)) }
+      const env: NodeJS.ProcessEnv = { ...agentGitEnv(process.env), MEW_WORKSPACE: cwd, MEW_AGENT_CONTEXT: JSON.stringify(context ?? captureAgentContext(cwd)) }
       env.MEW_AGENT_MCP_SERVERS = JSON.stringify(mcpServers)
       if (resumeSessionId) env.MEW_AGENT_RESUME_SESSION = resumeSessionId
       else delete env.MEW_AGENT_RESUME_SESSION

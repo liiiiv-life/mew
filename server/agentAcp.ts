@@ -1,5 +1,6 @@
 import { HistoryIndex, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
 import { randomUUID } from 'node:crypto'
+import { agentGitEnv } from './agent-git-identity.ts'
 import type { AgentAttachmentInput, AgentAttachmentRef } from '../shared/agent-attachment.ts'
 import { splitCodexModelId } from '../shared/codex-models.ts'
 // ACP(Agent Client Protocol) 클라이언트 — 에이전트를 child process로 띄우고 **워크스페이스**에 묶는다.
@@ -395,6 +396,7 @@ export class AgentSession {
 
   #mcpServers: McpServer[] = []
   #context: AgentContextBinding
+  #gitEnv: NodeJS.ProcessEnv
 
   private constructor(runtime: string, spec: SpawnSpec, cwd = workspacePaths.root, idleKillMs = AGENT_IDLE_MS, context = captureAgentContext(cwd), readMemory: MemoryReader = readAgentMemory) {
     this.#context = context
@@ -402,6 +404,7 @@ export class AgentSession {
     this.cwd = cwd
     this.#idleKillMs = idleKillMs
     this.#spec = spec
+    this.#gitEnv = agentGitEnv({ ...process.env, ...spec.env })
     this.#readMemory = readMemory
     this.#spawn()
     this.#memoryTimer = setInterval(() => this.checkMemory(), 2_000)
@@ -416,7 +419,7 @@ export class AgentSession {
     this.#startupFailure = new Promise<never>((_resolve, reject) => {
       this.#rejectStartup = reject
     })
-    const env = { ...process.env, ...spec.env }
+    const env = { ...this.#gitEnv }
     // 주인 표식은 자손까지 그대로 상속된다 — 서버가 SIGKILL로 죽어도 다음 실행이 이걸 보고 걷어낸다
     env[OWNER_ENV] = String(process.pid)
     // CLAUDECODE가 켜져 있으면 Claude Code가 "중첩 세션"으로 보고 실행을 거부한다. mew 서버를 Claude Code
