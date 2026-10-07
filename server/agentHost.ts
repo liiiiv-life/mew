@@ -1,3 +1,4 @@
+import { agentSettingsEnv } from './agent-account-settings.ts'
 import type { McpServer } from '@agentclientprotocol/sdk'
 import { validHistoryRequest, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
 import type { AgentAttachmentInput } from '../shared/agent-attachment.ts'
@@ -763,7 +764,7 @@ function spawnHost(
     fs.chmodSync(HOST_DIR, 0o700)
     const logFd = fs.openSync(files.log, 'a', 0o600)
     try {
-      const env: NodeJS.ProcessEnv = { ...agentGitEnv(process.env), MEW_WORKSPACE: cwd, MEW_AGENT_CONTEXT: JSON.stringify(context ?? captureAgentContext(cwd)) }
+      const env: NodeJS.ProcessEnv = { ...agentSettingsEnv(agentGitEnv(process.env)), MEW_WORKSPACE: cwd, MEW_AGENT_CONTEXT: JSON.stringify(context ?? captureAgentContext(cwd)) }
       env.MEW_AGENT_MCP_SERVERS = JSON.stringify(mcpServers)
       if (resumeSessionId) env.MEW_AGENT_RESUME_SESSION = resumeSessionId
       else delete env.MEW_AGENT_RESUME_SESSION

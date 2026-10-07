@@ -1,3 +1,4 @@
+import { AGENT_ACCOUNT_ENV, agentSettingsAccount, runWithAgentAccount } from './agent-account-settings.ts'
 import { HistoryIndex, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
 import { randomUUID } from 'node:crypto'
 import { agentGitEnv } from './agent-git-identity.ts'
@@ -225,11 +226,14 @@ function thinkingFrom(configOptions: SessionConfigOption[] | null | undefined): 
  * 여기 한 곳에 모인다. ponytail: 메모리에만 산다 — 재시작하면 다시 빈다.
  */
 const knownThinking = new Map<string, ThinkingState | null>()
-export const thinkingByRuntime = (runtime: string) => knownThinking.get(runtime) ?? null
+export const thinkingByRuntime = (runtime: string) => knownThinking.get(`${agentSettingsAccount() ?? ''} ${runtime}`) ?? null
 
 const knownModels = new Map<string, ModelInfo[]>()
 
-export const modelsByRuntime = (): Record<string, ModelInfo[]> => Object.fromEntries(knownModels)
+export const modelsByRuntime = (): Record<string, ModelInfo[]> => {
+  const prefix = `${agentSettingsAccount() ?? ''} `
+  return Object.fromEntries([...knownModels].filter(([key]) => key.startsWith(prefix)).map(([key, models]) => [key.slice(prefix.length), models]))
+}
 
 export function describeError(err: unknown): string {
   if (err instanceof Error) {
@@ -395,6 +399,7 @@ export class AgentSession {
   busy = false
 
   #mcpServers: McpServer[] = []
+  #account = agentSettingsAccount()
   #context: AgentContextBinding
   #gitEnv: NodeJS.ProcessEnv
 
@@ -429,6 +434,7 @@ export class AgentSession {
     // 탭 복원 포인터는 감독 프로세스만 쓴다. 아래 ACP/CLI의 환경변수로 넘기지 않는다.
     delete env.MEW_AGENT_RESUME_SESSION
     delete env.MEW_AGENT_CONTEXT
+    delete env[AGENT_ACCOUNT_ENV]
     // detached — 어댑터를 프로세스 그룹 리더로 띄운다. 어댑터는 세션마다 CLI를 하나씩 밑에 두는데,
     // 어댑터만 죽이면 그 손자들이 고아로 남는다(#killTree가 그룹째 보낼 수 있어야 한다).
     const command = memoryScopeCommand(spec.cmd, spec.args)
@@ -640,7 +646,7 @@ export class AgentSession {
     this.#sessionId = sessionId
     this.#clearFailed = false
     this.#accessIssue = null
-    this.#reader = new UsageReader(this.cwd, sessionId)
+    this.#reader = runWithAgentAccount(this.#account, () => new UsageReader(this.cwd, sessionId))
     this.#usage = null
     if (models) this.#useModels(models)
     if (modes) {
@@ -660,7 +666,7 @@ export class AgentSession {
     // 계약 테스트·probe가 직접 넘기는 임시 런타임 id는 등록표 기본값의 대상이 아니다.
     if (RUNTIMES[this.runtime]) {
       try {
-        saved = readAgentDefault(this.runtime)
+        saved = runWithAgentAccount(this.#account, () => readAgentDefault(this.runtime))
       } catch (err) {
         // 기본값 파일 하나가 깨져도 에이전트 창 자체는 떠야 한다. 쓰기 API는 같은 오류를 숨기지 않고 돌려준다.
         console.error(`[mew:agent:${this.runtime}] 저장된 기본값을 읽지 못했습니다:`, err)
@@ -908,7 +914,7 @@ export class AgentSession {
 
   terminalAuthSpec(methodId: string): TerminalAuthSpec {
     if (isRuntimeLoginMethod(this.runtime, methodId)) {
-      const { cmd, args, env, label, completionFile } = runtimeLoginSpec(this.runtime, methodId)
+      const { cmd, args, env, label, completionFile } = runWithAgentAccount(this.#account, () => runtimeLoginSpec(this.runtime, methodId))
       return { cmd, args, env, label, completionFile }
     }
     const method = this.#authMethods.find((item) => item.id === methodId)
@@ -1121,7 +1127,7 @@ export class AgentSession {
 
   #run(text: string, promptText = text, images: AgentImage[] = [], imageRefs: AgentImageRef[] = [], settings?: AgentMessageSettings) {
     let context: string
-    try { context = agentContextText(this.#context, this.cwd) }
+    try { context = runWithAgentAccount(this.#account, () => agentContextText(this.#context, this.cwd)) }
     catch (error) {
       this.#emit({ type: 'error', message: describeError(error) })
       // Keep queued work available for editing/retry; do not silently discard CLI tasks.
@@ -1398,7 +1404,7 @@ export class AgentSession {
   #useModels(models: SessionModelState) {
     this.#models = models
     knownModels.set(
-      this.runtime,
+      `${this.#account ?? ''} ${this.runtime}`,
       models.availableModels.map(({ modelId, name }) => ({ modelId, name })),
     )
     this.#emit({ type: 'models', models })
@@ -1419,7 +1425,7 @@ export class AgentSession {
   }
 
   #useThinking(thinking: ThinkingState | null) {
-    knownThinking.set(this.runtime, thinking)
+    knownThinking.set(`${this.#account ?? ''} ${this.runtime}`, thinking)
     if (thinking === null && this.#thinking === null) return
     this.#thinking = thinking
     this.#emit({ type: 'thinking', thinking })
@@ -1663,7 +1669,7 @@ export class AgentSession {
 // 스코프는 여전히 워크스페이스라 프로젝트별로는 나누지 않는다.
 const sessions = new Map<string, Promise<AgentSession>>()
 
-const keyOf = (runtime: string, tab: string) => `${runtime} ${tab}`
+const keyOf = (runtime: string, tab: string) => `${agentSettingsAccount() ?? ''} ${runtime} ${tab}`
 
 /** 창을 닫았다 다시 열어도 탭마다 같은 대화가 이어진다(작업 완료 뒤 AGENT_IDLE_MS까지) */
 export function sessionFor(runtime: string, tab: string): Promise<AgentSession> {
@@ -1700,14 +1706,15 @@ const PROBE_TIMEOUT_MS = 20_000
  * 길이 따로 없다(spawn + handshake라 1~2초 걸린다. 셋 편집 창이 열릴 때만 부른다).
  */
 export function probeModels(runtime: string, spec?: SpawnSpec): Promise<ModelInfo[]> {
-  const known = knownModels.get(runtime)
+  const key = `${agentSettingsAccount() ?? ''} ${runtime}`
+  const known = knownModels.get(key)
   if (known) return Promise.resolve(known)
-  const running = probing.get(runtime)
+  const running = probing.get(key)
   if (running) return running
   const started = AgentSession.start(runtime, spec ?? resolvedSpec(runtime) ?? undefined).then((session) => {
     // 핸드셰이크의 #useModels가 이미 담았다 — 세션 자체는 쓸 데가 없다
     session.dispose()
-    return knownModels.get(runtime) ?? []
+    return knownModels.get(key) ?? []
   })
   // 실행 파일이 없거나(사용자가 깔아 둔 hermes) ACP를 말하지 않으면 핸드셰이크가 끝나지 않는다 —
   // 창을 무한정 세워 두지 않는다. 늦게 뜨더라도 위의 then이 그때 접으므로 프로세스는 남지 않는다
@@ -1717,8 +1724,8 @@ export function probeModels(runtime: string, spec?: SpawnSpec): Promise<ModelInf
       const timer = setTimeout(() => reject(new Error('에이전트가 응답하지 않습니다')), PROBE_TIMEOUT_MS)
       timer.unref?.()
     }),
-  ]).finally(() => probing.delete(runtime))
-  probing.set(runtime, probe)
+  ]).finally(() => probing.delete(key))
+  probing.set(key, probe)
   return probe
 }
 

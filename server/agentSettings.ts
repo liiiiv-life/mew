@@ -1,8 +1,10 @@
+import fs from 'node:fs'
+import path from 'node:path'
 // 에이전트 런타임별 사용자 설정 — 실행 파일·인자 오버라이드와 공급자 env(API 키·엔드포인트).
 // agent-defaults(모델·권한 모드)와 달리 spawn spec 자체를 바꾸는 값이라 agentRuntimes.spec()이
 // 여기 값을 섞어 내보낸다. 시크릿이므로 파일은 DATA_DIR(0o700)에 두고 브라우저 API는 마지막
 // 4자만 돌려준다 — 전체 값은 절대 화면으로 돌아오지 않는다.
-import path from 'node:path'
+import { agentSettingsPath } from './agent-account-settings.ts'
 import { DATA_DIR, readJsonRecord, writeFileAtomic } from './dataDir.ts'
 import { isRuntime } from './agentRuntimes.ts'
 
@@ -17,7 +19,7 @@ export interface AgentRuntimeSetting {
 
 export class AgentSettingError extends Error {}
 
-const SETTINGS_FILE = path.join(DATA_DIR, 'agent-settings.json')
+const settingsFile = () => agentSettingsPath('agent-settings.json')
 const MAX_CMD_LEN = 500
 const MAX_ARGS = 100
 const MAX_ENV_ENTRIES = 20
@@ -75,7 +77,20 @@ function cleanEnv(value: unknown): Record<string, string> | undefined {
 
 /** 공개 경계 전환 전에 저장된 OAuth bearer token을 보존하지 않는다. */
 export function purgeForbiddenAgentEnv(): boolean {
-  const parsed = readJsonRecord<unknown>(SETTINGS_FILE)
+  const root = path.join(DATA_DIR, 'agent-accounts')
+  const files = [path.join(DATA_DIR, 'agent-settings.json')]
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (entry.isDirectory() && /^[a-f0-9]{64}$/.test(entry.name)) files.push(path.join(root, entry.name, 'agent-settings.json'))
+    }
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+  let changed = false
+  for (const file of files) changed = purgeFile(file) || changed
+  return changed
+}
+
+function purgeFile(file: string): boolean {
+  const parsed = readJsonRecord<unknown>(file)
   if (parsed === null) return false
   let changed = false
   for (const value of Object.values(parsed)) {
@@ -89,7 +104,7 @@ export function purgeForbiddenAgentEnv(): boolean {
       }
     }
   }
-  if (changed) writeFileAtomic(SETTINGS_FILE, `${JSON.stringify(parsed, null, 2)}\n`)
+  if (changed) writeFileAtomic(file, `${JSON.stringify(parsed, null, 2)}\n`)
   return changed
 }
 
@@ -110,7 +125,7 @@ export function normalizeAgentSetting(input: unknown): AgentRuntimeSetting {
 }
 
 export function readAgentSettings(): Record<string, AgentRuntimeSetting> {
-  const parsed = readJsonRecord<unknown>(SETTINGS_FILE)
+  const parsed = readJsonRecord<unknown>(settingsFile())
   if (parsed === null) return {}
   const settings: Record<string, AgentRuntimeSetting> = {}
   for (const [runtime, value] of Object.entries(parsed)) {
@@ -158,7 +173,7 @@ export function writeAgentSetting(runtime: string, input: unknown): AgentRuntime
       Object.entries(merged).filter(([, v]) => v !== undefined && (typeof v !== 'object' || Object.keys(v).length > 0)),
     ) as AgentRuntimeSetting
   }
-  writeFileAtomic(SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`)
+  writeFileAtomic(settingsFile(), `${JSON.stringify(settings, null, 2)}\n`)
   return settings[runtime] ?? {}
 }
 
@@ -167,7 +182,7 @@ export function deleteAgentSetting(runtime: string): void {
   const settings = readAgentSettings()
   if (!settings[runtime]) return
   delete settings[runtime]
-  writeFileAtomic(SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`)
+  writeFileAtomic(settingsFile(), `${JSON.stringify(settings, null, 2)}\n`)
 }
 
 /** 브라우저로 내보내는 마스킹 뷰 — env 값은 키별 마지막 4자만. */

@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { AGENT_GUIDANCE_PATH, GuidanceError } from './agent-guidance.ts'
+import { agentGuidancePath, GuidanceError } from './agent-guidance.ts'
 import { COMMIT_SKILL_PATH } from './mew-skills.ts'
 import { writeFileAtomic } from './dataDir.ts'
 import type { MissingDirectory } from '../shared/external-path.ts'
@@ -161,7 +161,7 @@ export function writeExternalFile(input: unknown, content: unknown, expectedCont
   if (typeof content !== 'string') throw new BrowseError('파일 내용이 올바르지 않습니다')
   if (!fs.statSync(abs).isFile()) throw new BrowseError(`파일이 아닙니다: ${abs}`)
   // Detached agent hosts may read shared guidance while the editor saves it.
-  if ([AGENT_GUIDANCE_PATH, COMMIT_SKILL_PATH].some(file => abs === path.resolve(file))) {
+  if ([agentGuidancePath(), COMMIT_SKILL_PATH].some(file => abs === path.resolve(file))) {
     if (expectedContent !== undefined && expectedContent !== fs.readFileSync(abs, 'utf8') && content !== fs.readFileSync(abs, 'utf8')) throw new GuidanceError('지침 파일이 변경되었습니다. 편집 내용을 복사한 뒤 파일을 다시 열어 병합하세요.', 409)
     writeFileAtomic(abs, content)
   }

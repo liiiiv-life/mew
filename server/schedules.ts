@@ -1,3 +1,4 @@
+import { agentSettingsAccount } from './agent-account-settings.ts'
 // 예약 에이전트 작업 — "언제 / 어느 폴더에서 / 어떤 에이전트로 / 어떤 프롬프트를" 돌릴지의 목록.
 // 저장소는 <DATA_DIR>/schedules.json 이 단일 원본이고, crontab은 거기서 생성되는 파생물이다.
 // 프롬프트는 셸에 인라인하지 않고 <DATA_DIR>/schedules/<id>.prompt 파일로 떨어뜨린 뒤 명령이 읽어간다
@@ -22,6 +23,7 @@ import { normalizeSets, readSets, type AgentSet } from './agentSets.ts'
 export type AgentKind = string
 
 export interface AgentJob {
+  account?: string | null
   id: string
   name: string
   /** 표준 크론 5필드 — 분 시 일 월 요일 */
@@ -103,6 +105,7 @@ export function agentCommand(job: AgentJob): string {
   return [
     shQuote(resolveBin(process.execPath)),
     shQuote(RUNNER),
+    ...(job.account ? ['--account', shQuote(job.account)] : []),
     '--runtime',
     shQuote(job.agent),
     ...(job.agentSet ? ['--agent-set-file', shQuote(agentSetFile(job.id))] : []),
@@ -202,7 +205,10 @@ export function normalizeJobs(input: unknown, selection?: { sets: AgentSet[]; ex
     if (!prompt) throw new ScheduleError('프롬프트를 입력하세요')
     if (prompt.length > MAX_PROMPT_LEN) throw new ScheduleError(`프롬프트는 ${MAX_PROMPT_LEN}자 이하여야 합니다`)
 
-    out.push({ id, name, cron, project, agent, ...(agentSet ? { agentSet } : {}), prompt, enabled: rec.enabled !== false })
+    const account = selection
+      ? selection.existing.find(job => job.id === id)?.account ?? agentSettingsAccount()
+      : typeof rec.account === 'string' ? rec.account : null
+    out.push({ id, name, cron, project, agent, ...(account ? { account } : {}), ...(agentSet ? { agentSet } : {}), prompt, enabled: rec.enabled !== false })
   }
   return out
 }

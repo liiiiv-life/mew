@@ -1,3 +1,4 @@
+import { agentSettingsAccount } from './agent-account-settings.ts'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { RUNTIMES, claudeCliSpec, resolvedSpec, resolvedTerminalSpec, type SpawnSpec } from './agentRuntimes.ts'
@@ -182,11 +183,12 @@ async function probe(runtime: string, spec: SpawnSpec, claudeUsage = false): Pro
 const pending = new Map<string, Promise<RuntimeAccount>>()
 export function readRuntimeAccount(runtime: string): Promise<RuntimeAccount> {
   if (!Object.hasOwn(RUNTIMES, runtime)) return Promise.reject(new Error('지원하지 않는 런타임입니다'))
-  const existing = pending.get(runtime)
+  const key = `${agentSettingsAccount() ?? ''} ${runtime}`
+  const existing = pending.get(key)
   if (existing) return existing
   const spec = runtimeAccountSpec(runtime)
   if (!spec) return Promise.resolve({ ...base(runtime), note: '이 런타임은 계정·구독 자동 조회를 제공하지 않습니다.' })
-  const result = probe(runtime, spec).catch(() => ({ ...base(runtime), note: '계정 상태를 확인하지 못했습니다. CLI 설치·로그인 상태를 확인하거나 구독 페이지를 열어 주세요.' })).finally(() => pending.delete(runtime))
-  pending.set(runtime, result)
+  const result = probe(runtime, spec).catch(() => ({ ...base(runtime), note: '계정 상태를 확인하지 못했습니다. CLI 설치·로그인 상태를 확인하거나 구독 페이지를 열어 주세요.' })).finally(() => pending.delete(key))
+  pending.set(key, result)
   return result
 }

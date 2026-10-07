@@ -1,3 +1,4 @@
+import { runWithAgentAccount } from './agent-account-settings.ts'
 import { gitConnections } from './git-connections.ts'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -65,7 +66,7 @@ export async function runAutomaticCommit(directory: string, start: StartSession 
         try {
           if (halted) throw new Error('커밋 작업이 중단되었습니다')
           await Promise.race([interrupted, (async () => {
-            call.starting = start(input.agentSet.runtime, input.cwd)
+            call.starting = runWithAgentAccount(input.owner, () => start(input.agentSet.runtime, input.cwd))
             call.session = await call.starting
             const session = call.session
             if (halted) throw new Error('커밋 작업이 중단되었습니다')

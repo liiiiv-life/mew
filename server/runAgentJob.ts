@@ -1,3 +1,4 @@
+import { runWithAgentAccount } from './agent-account-settings.ts'
 // 예약 작업용 일회성 ACP runner. crontab/tmux는 이 파일만 실행하고, 실제 런타임 선택은 agentRuntimes.ts가 한다.
 import fs from 'node:fs'
 import { parseAgentContext } from './agent-context.ts'
@@ -39,6 +40,10 @@ function lineFromEvent(event: AgentEvent): string | null {
 }
 
 async function main() {
+  return runWithAgentAccount(process.argv.includes('--account') ? arg('account') : null, mainForAccount)
+}
+
+async function mainForAccount() {
   const runtime = arg('runtime')
   if (!isAcpRuntime(runtime)) throw new Error(`예약 실행을 지원하지 않는 에이전트 런타임입니다: ${runtime}`)
   const promptFile = arg('prompt-file')

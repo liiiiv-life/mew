@@ -1,3 +1,4 @@
+import { agentSettingsAccount, runWithAgentAccount } from './agent-account-settings.ts'
 // 에이전트 탭에 한 번만 보내는 예약 프롬프트. 브라우저 탭과 감독 프로세스가 모두 꺼져도
 // 실행되어야 하므로, 목록은 DATA_DIR에 저장하고 서버 시작 때 다시 타이머를 건다.
 import crypto from 'node:crypto'
@@ -11,7 +12,7 @@ const TAB_ID = /^[A-Za-z0-9_-]{1,64}$/
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/
 const MAX_PROMPT = 100_000
 
-export type AgentScheduledPrompt = { id: string; runtime: string; tab: string; cwd: string; sessionId: string; text: string; skills: string[]; at: string; createdAt: string }
+export type AgentScheduledPrompt = { account?: string | null; id: string; runtime: string; tab: string; cwd: string; sessionId: string; text: string; skills: string[]; at: string; createdAt: string }
 export class AgentScheduledPromptError extends Error {}
 type AgentScheduledPromptScope = Pick<AgentScheduledPrompt, 'runtime' | 'tab' | 'cwd'>
 
@@ -24,6 +25,9 @@ function read(): AgentScheduledPrompt[] {
     return typeof job?.id === 'string' && typeof job.runtime === 'string' && typeof job.tab === 'string' && typeof job.cwd === 'string'
       && typeof job.sessionId === 'string' && typeof job.text === 'string' && Array.isArray(job.skills) && typeof job.at === 'string' && typeof job.createdAt === 'string'
   })
+}
+function belongsToAccount(job: AgentScheduledPrompt): boolean {
+  return job.account === undefined || job.account === agentSettingsAccount()
 }
 function write(jobs: AgentScheduledPrompt[]) { writeFileAtomic(FILE, JSON.stringify(jobs, null, 2)) }
 
@@ -80,7 +84,7 @@ async function runDue() {
     const keep = jobs.filter((job) => !due.includes(job))
     for (const job of due) {
       try {
-        await dispatch(job)
+        await runWithAgentAccount(job.account ?? null, () => dispatch(job))
       } catch (err) {
         // 서버가 막 재시작했거나 런타임이 잠깐 준비 중이어도 예약을 잃지 않는다.
         console.error('[mew:agent-schedule] 실행 실패:', err)
@@ -91,7 +95,7 @@ async function runDue() {
   } finally { running = false; arm() }
 }
 export function scheduleAgentPrompt(input: unknown): AgentScheduledPrompt {
-  const job = { ...validate(input), id: crypto.randomUUID(), createdAt: new Date().toISOString() }
+  const job = { ...validate(input), account: agentSettingsAccount(), id: crypto.randomUUID(), createdAt: new Date().toISOString() }
   const jobs = read(); jobs.push(job); write(jobs); arm(); return job
 }
 
@@ -99,7 +103,7 @@ export function scheduleAgentPrompt(input: unknown): AgentScheduledPrompt {
 export function listAgentScheduledPrompts(input: unknown): AgentScheduledPrompt[] {
   const scope = validateScope(input)
   return read()
-    .filter((job) => job.runtime === scope.runtime && job.tab === scope.tab && job.cwd === scope.cwd)
+    .filter((job) => belongsToAccount(job) && job.runtime === scope.runtime && job.tab === scope.tab && job.cwd === scope.cwd)
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
 }
 
@@ -111,7 +115,7 @@ export function cancelAgentScheduledPrompt(input: unknown): boolean {
   if (!id) throw new AgentScheduledPromptError('예약 메시지를 찾을 수 없습니다')
   const scope = validateScope(value)
   const jobs = read()
-  const keep = jobs.filter((job) => !(job.id === id && job.runtime === scope.runtime && job.tab === scope.tab && job.cwd === scope.cwd))
+  const keep = jobs.filter((job) => !(job.id === id && belongsToAccount(job) && job.runtime === scope.runtime && job.tab === scope.tab && job.cwd === scope.cwd))
   if (keep.length === jobs.length) return false
   write(keep)
   arm()
@@ -130,9 +134,9 @@ export function updateAgentScheduledPrompt(input: unknown): AgentScheduledPrompt
   if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) throw new AgentScheduledPromptError('미래의 날짜와 시간을 고르세요')
   const scope = validateScope(value)
   const jobs = read()
-  const index = jobs.findIndex((job) => job.id === id && job.runtime === scope.runtime && job.tab === scope.tab && job.cwd === scope.cwd)
+  const index = jobs.findIndex((job) => job.id === id && belongsToAccount(job) && job.runtime === scope.runtime && job.tab === scope.tab && job.cwd === scope.cwd)
   if (index < 0) throw new AgentScheduledPromptError('예약 메시지를 찾을 수 없습니다')
-  const job = { ...jobs[index], text, skills: [...new Set(skills)], at: at.toISOString() }
+  const job = { ...jobs[index], account: jobs[index].account ?? agentSettingsAccount(), text, skills: [...new Set(skills)], at: at.toISOString() }
   jobs[index] = job
   write(jobs)
   arm()

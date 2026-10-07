@@ -1,8 +1,8 @@
 // 에이전트 런타임별 기본 모델·권한 모드. 에이전트 창 헤더의 저장 버튼이 현재 값을 여기 남기고,
 // 새 ACP 세션은 session/new·session/load 직후 이 값을 다시 적용한다.
-// 브라우저 localStorage가 아니라 <DATA_DIR>/agent-defaults.json에 두므로 브라우저·서버 재시작 뒤에도 남는다.
-import path from 'node:path'
-import { DATA_DIR, readJsonRecord, writeFileAtomic } from './dataDir.ts'
+// 계정별 서버 데이터 폴더에 저장하므로 브라우저·서버 재시작 뒤에도 남는다.
+import { agentSettingsPath } from './agent-account-settings.ts'
+import { readJsonRecord, writeFileAtomic } from './dataDir.ts'
 import { isRuntime } from './agentRuntimes.ts'
 
 export interface AgentRuntimeDefault {
@@ -13,7 +13,7 @@ export interface AgentRuntimeDefault {
 
 export class AgentDefaultError extends Error {}
 
-const DEFAULTS_FILE = path.join(DATA_DIR, 'agent-defaults.json')
+const settingsFile = () => agentSettingsPath('agent-defaults.json')
 const MAX_ID_LEN = 200
 
 function optionalId(value: unknown, label: string): string | undefined {
@@ -42,7 +42,7 @@ export function normalizeAgentDefault(input: unknown): AgentRuntimeDefault {
 }
 
 export function readAgentDefaults(): Record<string, AgentRuntimeDefault> {
-  const parsed = readJsonRecord<unknown>(DEFAULTS_FILE)
+  const parsed = readJsonRecord<unknown>(settingsFile())
   if (parsed === null) return {}
   const defaults: Record<string, AgentRuntimeDefault> = {}
   for (const [runtime, value] of Object.entries(parsed)) {
@@ -63,6 +63,6 @@ export function writeAgentDefault(runtime: string, input: unknown): AgentRuntime
   const value = normalizeAgentDefault(input)
   const defaults = readAgentDefaults()
   defaults[runtime] = value
-  writeFileAtomic(DEFAULTS_FILE, `${JSON.stringify(defaults, null, 2)}\n`)
+  writeFileAtomic(settingsFile(), `${JSON.stringify(defaults, null, 2)}\n`)
   return value
 }
