@@ -176,7 +176,7 @@ test('WSL installer uses Windows PowerShell and target, reports missing interop 
 test('PowerShell discovery handles Linux-only PATH, escaped custom mounts and unavailable drives', () => {
   const suffix = '/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
   const reads: string[] = []
-  const options = { env: { PATH: '/usr/bin:/bin' }, readMounts: () => 'D:\\134 /windows\\040drives/d 9p rw 0 0\nC:\\134tools /bind 9p rw 0 0', executable: (file: string) => { reads.push(file); return file === `/windows drives/d${suffix}` } }
+  const options = { env: { PATH: '/usr/bin:/bin' }, readInterop: () => 'enabled\n', readMounts: () => 'D:\\134 /windows\\040drives/d 9p rw 0 0\nC:\\134tools /bind 9p rw 0 0', executable: (file: string) => { reads.push(file); return file === `/windows drives/d${suffix}` } }
   assert.equal(wslPowerShell(options), `/windows drives/d${suffix}`)
   assert.ok(!reads.includes(`/bind${suffix}`), 'Windows subdirectory binds are not drive roots')
   assert.equal(wslPowerShell({ ...options, env: { PATH: '/custom/bin' }, executable: file => file === '/custom/bin/powershell.exe', readMounts: () => { throw new Error('unneeded') } }), '/custom/bin/powershell.exe')
@@ -258,4 +258,22 @@ test('Mac compiler failure leaves helper unready and a missing capture binary re
       access: async file => { if (String(file).endsWith('gpu-macos.dylib')) throw Object.assign(new Error('missing'), { code: 'ENOENT' }) } })
     assert.equal(result.ready, false); assert.equal(result.installable, true)
   } finally { await fs.rm(root, { recursive: true, force: true }) }
+})
+
+test('WSL readiness reports absent or disabled executable registration without running PowerShell', async () => {
+  for (const readInterop of [
+    () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }) },
+    () => 'disabled\n',
+    (file: string) => file.endsWith('/status') ? 'enabled\n' : 'disabled\n',
+  ]) {
+    let runs = 0
+    const status = await desktopHostStatus({ platform: 'wsl', env: {}, getSpec: options => desktopHostSpec({ ...options,
+      resolvePowerShell: () => wslPowerShell({ env: { PATH: '/windows' }, executable: () => true, readInterop }),
+      run: (async () => { runs++; throw new Error('must not execute') }) as never,
+    }) })
+    assert.equal(status.ready, false)
+    assert.equal(status.installable, false)
+    assert.match(status.message!, /WSL interop/)
+    assert.equal(runs, 0)
+  }
 })

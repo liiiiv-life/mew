@@ -2,7 +2,7 @@
 title: "원격 데스크톱 아키텍처와 검증"
 created: "2026-09-12"
 updated: "2026-10-07"
-description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, 세션 누적 네트워크 사용량, 전체화면 키보드 잠금·양방향 텍스트 클립보드·ESC 뷰어 유지, 인증 lease·화면 좌표·터치·OS 권한·세션 수명 및 원격 데스크톱 검증 계약을 정의한다."
+description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, WSL interop 준비 점검, 세션 누적 네트워크 사용량, 전체화면 키보드 잠금·양방향 텍스트 클립보드·ESC 뷰어 유지, 인증 lease·화면 좌표·터치·OS 권한·세션 수명 및 원격 데스크톱 검증 계약을 정의한다."
 ---
 
 # 원격 데스크톱
@@ -58,6 +58,8 @@ UI는 기존 `SessionTerminalPopup`을 전체 화면보다 높은 레이어의 �
 WSL 설치기는 PowerShell을 통해 Windows 복사본을 설치한다. npm 실행 전 Windows 대상 폴더로 이동해 WSL UNC 작업 폴더 문제를 피한다. native host와 설치기는 helper의 전용 Node/npm을 사용하며, 없으면 `windows-runtime.ps1`이 공식 Node 24.21.0 x64/arm64 ZIP을 고정 SHA-256으로 검증하여 helper의 `runtime/`에 압축 해제한다. 전용 런타임 다운로드·체크섬·실행은 임시 폴더에서 실기 검증했다. 전역 설치·PATH·레지스트리는 변경하지 않고 interop 자체도 변경하지 않는다. 모든 OS 설치기가 `MEW_DESKTOP_HELPER_DIR`을 런타임과 동일하게 사용한다.
 
 설치기와 연결 준비는 `native/remote-desktop/wsl-powershell.mjs`의 같은 PowerShell 탐색을 사용한다. PATH에 Windows 경로가 없어도 `/proc/mounts`에서 Windows 드라이브 루트를 찾아 `Windows/System32/WindowsPowerShell/v1.0/powershell.exe`의 실행 가능한 절대 경로를 사용한다. 사용자 지정 마운트 위치·공백 이스케이프를 처리하고 기본 `/mnt/c`도 확인한다. 실행 파일을 못 찾는 오류는 드라이브 마운트 안내로, 파일을 찾았지만 실행할 수 없는 오류는 WSL interop 안내로 구분한다. 설치 명령을 탐색용으로 실행하거나 실패 후 자동 재실행하지 않는다.
+
+PowerShell 경로를 찾은 뒤에는 `/proc/sys/fs/binfmt_misc/status`와 `WSLInterop` 등록의 활성화 상태를 읽기 전용으로 확인한다. 등록이 없으면 Windows exe가 POSIX 셸로 해석되어 `MZ`·구문 오류가 발생할 수 있으므로 실행 전에 중단하고 WSL interop 복구 안내를 표시한다. 등록 누락 시 Windows PowerShell에서 `wsl --shutdown` 후 WSL·mew를 다시 시작하도록 안내하며, 이 명령이 모든 실행 중인 WSL 배포판을 종료함을 함께 알린다. 비활성 상태는 interop 설정·등록 활성화 안내로 구분한다. 앱은 등록·소켓·시스템 설정을 자동 변경하지 않는다. 등록이 정상이어도 현재 세션의 소켓 등 추가 실행 조건 때문에 실패할 수 있다.
 
 Windows/WSL 설치는 `[1/3] npm ci` → `[2/3] node-datachannel·Koffi binding import 검증` → `[3/3] C++ GPU DLL 컴파일`이다. 전용 Windows Node·C++ Build Tools·Windows SDK가 필요하다. DLL이 없거나 ABI가 다르면 연결을 시작하지 않는다. 브라우저 자동 준비 경로는 상주 호스트를 먼저 종료하고 로그인 supervisor 정리 시간을 기다린 뒤 설치한다. 직접 실행하는 `desktop-setup`은 현재 호스트가 DLL을 사용 중이면 실패할 수 있으므로 서버 종료 후 준비하거나 뷰어 자동 준비를 사용한다.
 
