@@ -2,7 +2,7 @@
 title: "Windows 관리 앱 사용법"
 created: 2026-10-07
 updated: 2026-10-07
-description: "mew Manager exe의 실행 조건, 전용 WSL 설치와 재부팅 재개, 첫 로그인, 서버·업데이트·로그 사용 및 데이터 보존·복구를 안내한다."
+description: "mew Manager exe의 실행 조건, 전용 WSL 설치와 재부팅 재개, 첫 로그인, 서버·업데이트·로그 사용, WSL 준비 오류 진단 및 데이터 보존·복구를 안내한다."
 ---
 
 # Windows 관리 앱
@@ -29,6 +29,20 @@ Windows 10 빌드 19041 이상 또는 Windows 11의 64비트 환경, CPU 가상�
 - Manager 자체는 새 exe로 교체한다. mew 데이터와 WSL은 유지된다. 진행 중인 작업이 있으면 완료 후 창을 닫는다.
 
 원격 데스크톱 준비 버튼은 WSL 서버의 보조 구성 요소를 준비한다. Windows 바탕 화면을 공유하는 버튼은 아니다. Windows 화면 공유는 [원격 데스크톱 사용법](remote-desktop.md)을 따른다.
+
+## WSL 준비가 실패할 때
+
+0.1.1 이상은 WSL 준비 명령과 실제 오류 원문을 **작업 로그**에 표시한다. `종료 코드 -1`만 보이는 0.1.0 실행 파일이면 새 exe로 교체해 다시 확인한다. 이 숫자만으로 가상화·다운로드·Windows 구성 요소 중 원인을 판단할 수 없다.
+
+PowerShell에서 아래 읽기 전용 명령의 결과와 오류 직전 작업 로그를 함께 확인한다.
+
+```powershell
+Get-CimInstance Win32_OperatingSystem | Select-Object Caption, BuildNumber
+wsl --status
+wsl --help
+```
+
+구형 WSL에 `--web-download`가 없으면 앱이 해당 옵션을 제외한다. `--no-distribution`이 없으면 Windows 업데이트 또는 [Microsoft WSL 설치 안내](https://learn.microsoft.com/en-us/windows/wsl/install)에 따라 최신 WSL을 준비한 뒤 앱을 다시 연다. 앱은 기본 Ubuntu를 설치하는 방식으로 자동 우회하지 않는다.
 
 ## 파일과 복구
 

@@ -26,24 +26,28 @@ function WslProcess([string[]]$Arguments) {
     $process = [Diagnostics.Process]::new(); $process.StartInfo = $start
     $null = $process.Start(); return $process
 }
+function DecodeWslBytes([byte[]]$Bytes) {
+    $utf16 = $Bytes.Length -ge 2 -and $Bytes[0] -eq 255 -and $Bytes[1] -eq 254
+    if (!$utf16 -and $Bytes.Length -gt 3) {
+        $zeros = 0; for ($i = 1; $i -lt $Bytes.Length; $i += 2) { if ($Bytes[$i] -eq 0) { $zeros++ } }
+        $utf16 = $zeros -gt ($Bytes.Length / 8)
+    }
+    $encoding = $(if ($utf16) { [Text.Encoding]::Unicode } else { [Text.Encoding]::UTF8 })
+    return $encoding.GetString($Bytes).TrimStart([char]0xfeff).Replace([string][char]0, '')
+}
 function WslText([string[]]$Arguments, [int]$Timeout = 15000) {
     if (!(Test-Path $wsl)) { return @{ code = 127; text = 'WSL이 설치되지 않았습니다.' } }
     $process = WslProcess $Arguments
+    $buffer = [IO.MemoryStream]::new(); $errorBuffer = [IO.MemoryStream]::new()
     try {
-        $errors = $process.StandardError.ReadToEndAsync()
-        $buffer = [IO.MemoryStream]::new()
         $reading = $process.StandardOutput.BaseStream.CopyToAsync($buffer)
+        $errors = $process.StandardError.BaseStream.CopyToAsync($errorBuffer)
         if (!$process.WaitForExit($Timeout)) { $process.Kill(); $process.WaitForExit(); throw 'WSL 상태 응답 시간이 초과되었습니다. 작업 로그와 WSL 서비스를 확인하세요.' }
-        $reading.GetAwaiter().GetResult()
-        $bytes = $buffer.ToArray(); $buffer.Dispose()
-        $utf16 = $bytes.Length -ge 2 -and $bytes[0] -eq 255 -and $bytes[1] -eq 254
-        if (!$utf16 -and $bytes.Length -gt 3) {
-            $zeros = 0; for ($i = 1; $i -lt $bytes.Length; $i += 2) { if ($bytes[$i] -eq 0) { $zeros++ } }
-            $utf16 = $zeros -gt ($bytes.Length / 8)
-        }
-        $result = $(if ($utf16) { [Text.Encoding]::Unicode.GetString($bytes).TrimStart([char]0xfeff) } else { [Text.Encoding]::UTF8.GetString($bytes) })
-        return @{ code = $process.ExitCode; text = ($result + $errors.Result).Replace([string][char]0, '').Trim() }
-    } finally { $process.Dispose() }
+        $null = $reading.GetAwaiter().GetResult(); $null = $errors.GetAwaiter().GetResult()
+        $out = DecodeWslBytes $buffer.ToArray()
+        $err = DecodeWslBytes $errorBuffer.ToArray()
+        return @{ code = $process.ExitCode; text = (@($out.Trim(), $err.Trim()) | Where-Object { $_ }) -join "`n" }
+    } finally { $buffer.Dispose(); $errorBuffer.Dispose(); $process.Dispose() }
 }
 function Registrations {
     $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
@@ -123,21 +127,79 @@ function SaveJournal([bool]$Reboot, [string]$Status) {
     $journal | ConvertTo-Json | Set-Content -Encoding UTF8 $temporary
     Move-Item $temporary $journalPath -Force
 }
-function ElevateWsl([string]$Action) {
+function WslPrepareArguments([string]$Action, [string]$HelpText) {
+    if ($Action -notin @('install', 'update')) { throw '지원하지 않는 WSL 준비 작업입니다.' }
+    if ($Action -eq 'install' -and !$HelpText.Contains('--no-distribution')) {
+        throw '현재 WSL 명령은 배포판 없이 설치하는 옵션을 지원하지 않습니다. Windows 업데이트 또는 Microsoft의 최신 WSL 설치 후 다시 시도하세요. 기존 배포판은 변경하지 않았습니다.'
+    }
+    if ($Action -eq 'update' -and !$HelpText.Contains('--update')) { throw '현재 WSL 명령은 업데이트를 지원하지 않습니다. Windows 업데이트 또는 Microsoft의 최신 WSL 설치가 필요합니다.' }
+    [string[]]$arguments = $(if ($Action -eq 'install') { @('--install', '--no-distribution') } else { @('--update') })
+    if ($HelpText.Contains('--web-download')) { $arguments += '--web-download' }
+    return ,$arguments
+}
+function WslPreparationScript([string[]]$Arguments, [bool]$EnableFeatures, [string]$ResultPath) {
+    $helpers = (@('QuoteNative', 'WslProcess', 'DecodeWslBytes', 'WslText') | ForEach-Object { 'function ' + $_ + ' {' + (Get-Command $_ -CommandType Function).Definition + '}' }) -join "`n"
+    $argumentLiterals = ($Arguments | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }) -join ','
+    $pathLiteral = $ResultPath.Replace("'", "''")
+    return @"
+`$ErrorActionPreference = 'Stop'
+`$ProgressPreference = 'SilentlyContinue'
+`$wsl = Join-Path `$env:SystemRoot 'System32\wsl.exe'
+$helpers
+try {
+    if (`$$EnableFeatures) {
+        `$messages = @()
+        `$messages += Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -All -NoRestart -ErrorAction Stop | Out-String
+        `$messages += Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -All -NoRestart -ErrorAction Stop | Out-String
+        `$result = @{ code = 3010; text = (`$messages -join "`n") }
+    } else {
+        `$result = WslText @($argumentLiterals) 1800000
+    }
+} catch { `$result = @{ code = 1; text = `$_.Exception.Message } }
+[IO.File]::WriteAllText('$pathLiteral', (ConvertTo-Json -InputObject `$result -Compress), [Text.UTF8Encoding]::new(`$false))
+exit `$result.code
+"@
+}
+function CompleteWslPreparation($Result, [ref]$ExitCode) {
+    $code = [int]$Result.code
+    $text = [string]$Result.text
+    if ($text.Trim()) { Write-Output $text.Trim() }
+    if ($code -notin @(0, 3010)) {
+        $hex = '{0:X8}' -f ([long]$code -band 0xffffffffL)
+        $detail = $(if ($text.Length -gt 2000) { $text.Substring($text.Length - 2000) } else { $text }).Trim()
+        if (!$detail) { $detail = 'WSL이 오류 내용을 반환하지 않았습니다. Windows 버전과 wsl --status 출력을 확인하세요.' }
+        throw "WSL 준비가 실패했습니다 (종료 코드 $code / 0x$hex).`n$detail"
+    }
+    $ExitCode.Value = $code
+}
+function ElevateWsl([string]$Action, [ref]$ExitCode) {
     Write-Output '::mew-stage::wsl'
+    $enableFeatures = !(Test-Path $wsl)
+    $arguments = @()
+    if ($enableFeatures) {
+        if ($Action -ne 'install') { throw 'WSL이 설치되지 않았습니다.' }
+    } else {
+        $help = WslText @('--help')
+        $arguments = WslPrepareArguments $Action $help.text
+    }
+    Write-Output ('WSL 준비 명령: ' + $(if ($enableFeatures) { 'Windows 선택 기능 활성화' } else { 'wsl ' + ($arguments -join ' ') }))
     Write-Output 'Windows 권한 승인 창에서 WSL 준비를 허용하세요.'
-    $args = $(if ($Action -eq 'install') { @('--install', '--no-distribution', '--web-download') } else { @('--update', '--web-download') })
+    $tasks = Join-Path $base 'tasks'
+    New-Item -ItemType Directory -Path $tasks -Force | Out-Null
+    $resultPath = Join-Path $tasks ('wsl-prepare-' + [guid]::NewGuid() + '.json')
+    $script = WslPreparationScript $arguments $enableFeatures $resultPath
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     try {
-        if (!(Test-Path $wsl)) {
-            if ($Action -ne 'install') { throw 'WSL이 설치되지 않았습니다.' }
-            $enable = "Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -All -NoRestart -ErrorAction Stop; Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -All -NoRestart -ErrorAction Stop; exit 3010"
-            $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($enable))
-            $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-            $process = Start-Process -FilePath $powershell -ArgumentList @('-NoProfile', '-EncodedCommand', $encoded) -Verb RunAs -Wait -PassThru
-        } else { $process = Start-Process -FilePath $wsl -ArgumentList $args -Verb RunAs -Wait -PassThru }
-    } catch { throw '관리자 권한 승인이 취소되었거나 WSL을 실행하지 못했습니다. 다시 시도할 수 있습니다.' }
-    if ($process.ExitCode -notin @(0, 3010)) { throw "WSL 준비가 실패했습니다 (종료 코드 $($process.ExitCode))." }
-    return $process.ExitCode
+        try { $process = Start-Process -FilePath $powershell -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded) -Verb RunAs -Wait -PassThru }
+        catch {
+            if ($_.Exception.NativeErrorCode -eq 1223) { throw '관리자 권한 승인이 취소되었습니다. 다시 시도할 수 있습니다.' }
+            throw ('WSL 관리자 프로세스를 실행하지 못했습니다: ' + $_.Exception.Message)
+        }
+        if (Test-Path -LiteralPath $resultPath) { $result = Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+        else { $result = @{ code = $(if ($process.ExitCode) { $process.ExitCode } else { 1 }); text = '관리자 프로세스의 결과를 읽지 못했습니다. Windows 정책·보안 프로그램과 관리자 실행 상태를 확인하세요.' } }
+        CompleteWslPreparation $result $ExitCode
+    } finally { Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue }
 }
 function InstallDistribution {
     Write-Output '::mew-stage::ubuntu'
@@ -169,7 +231,7 @@ try {
             if (!$info.virtualization) { throw 'BIOS/UEFI에서 CPU 가상화를 활성화한 뒤 다시 실행하세요.' }
             if ($info.rebootRequired) { throw 'Windows를 재부팅한 후 설치를 이어서 진행하세요.' }
             if (!$info.wslInstalled) {
-                $code = ElevateWsl 'install'
+                $code = 0; ElevateWsl 'install' ([ref]$code)
                 SaveJournal $true 'reboot'
                 Write-Output '::mew-stage::reboot'
                 Write-Output 'Windows를 재부팅한 뒤 mew Manager를 다시 실행하고 설치를 이어서 진행하세요.'
@@ -186,7 +248,7 @@ try {
             Snapshot
             break
         }
-        'update-wsl' { $code = ElevateWsl 'update'; SaveJournal ($code -eq 3010) 'completed'; Snapshot; break }
+        'update-wsl' { $code = 0; ElevateWsl 'update' ([ref]$code); SaveJournal ($code -eq 3010) 'completed'; Snapshot; break }
         default {
             $info = NativeInfo
             if (!$info.distroInstalled -or !$info.managed) { throw '관리 앱에서 준비한 WSL 배포판이 필요합니다.' }

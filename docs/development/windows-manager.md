@@ -2,7 +2,7 @@
 title: "Windows 관리 앱 빌드·검증"
 created: 2026-10-07
 updated: 2026-10-07
-description: "독립 apps/manager Tauri 앱의 프런트엔드·Rust·PowerShell·GUI 검증, Windows 및 Linux 교차 exe 생성과 CI 산출물·실기 검증 경계를 설명한다."
+description: "독립 apps/manager Tauri 앱의 프런트엔드·Rust·PowerShell·GUI·승격 오류 전달 검증, Windows 및 Linux 교차 exe 생성과 CI 산출물·실기 검증 경계를 설명한다."
 ---
 
 # Windows 관리 앱 개발
@@ -37,6 +37,8 @@ bash -n apps/manager/src-tauri/scripts/install.sh
 ```
 
 GUI 테스트에는 Chromium이 필요하다. `apps/manager`에서 `npx playwright-core install chromium`을 실행하거나 `MEW_MANAGER_CHROMIUM`으로 설치된 실행 경로를 지정한다. 없으면 GUI 테스트만 skip한다. CI에서는 브라우저를 준비한다. GUI fixture는 Windows IPC를 모의하며 OS 작업을 실행하지 않는다. screenshots 환경 변수 `MEW_MANAGER_SCREENSHOTS`는 절대 경로를 사용한다. 캡처에는 테스트 데이터라는 표시를 넣고 `artifacts/` 등 무시된 경로에 저장한다.
+
+PowerShell 회귀 검사는 WSL 도움말 옵션 선택·UTF-8/UTF-16 출력·signed 실패 코드와 원문 보존·생성된 자식 wrapper를 확인한다. Windows에서는 UAC 호출만 모의해 부모의 로그 전달·재부팅 코드·임시 결과 정리도 검사한다. 실제 선택 기능 활성화/WSL 설치는 실행하지 않는다. `tests/windows.ps1`은 Windows PowerShell 5.1을 위해 UTF-8 BOM을 사용하고 스크립트 소스를 명시적으로 UTF-8로 읽는다.
 
 브라우저에서 UI만 확인하려면 `npm run dev --prefix apps/manager`를 사용한다(127.0.0.1:1420). 명시적 미리보기 안내와 비활성 설치 조작이 표시된다. 사용자 실행 파일의 설치 가능 상태를 위조하지 않는다.
 

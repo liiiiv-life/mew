@@ -4,7 +4,7 @@ status: implemented
 title: "Windows 설치·관리 앱"
 created: 2026-10-07
 updated: 2026-10-07
-description: "포터블 Windows GUI의 전용 WSL 2 준비·재부팅 재개·비관리자 mew 설치·계정 생성과 서버·업데이트·로그·설정 운영을 정의한다. 컴팩트한 화면·테마·접근성 계약과 독립 exe 빌드·검증 경계를 포함한다."
+description: "포터블 Windows GUI의 전용 WSL 2 준비·재부팅 재개·비관리자 mew 설치·계정 생성과 서버·업데이트·로그·설정 운영을 정의한다. WSL 명령 호환·승격 오류 원문 전달과 컴팩트한 UI·독립 exe 빌드·검증 경계를 포함한다."
 files:
   - apps/manager/src/App.tsx
   - apps/manager/src-tauri/src/desktop.rs
@@ -41,7 +41,7 @@ Windows에서 실행하는 `mew Manager`가 WSL·mew 설치와 운영 상태를 
 ### 설치
 
 1. Windows 빌드 19041 이상·64비트·가상화를 확인한다. BIOS/UEFI 설정이 필요하면 사유를 표시한다.
-2. WSL이 없으면 고정 Windows 준비 명령만 UAC로 승격한다. `wsl.exe`가 없으면 선택 기능을 활성화한다. 준비 뒤에는 Windows 재부팅을 요구한다.
+2. WSL이 없으면 고정 Windows 준비 명령만 UAC로 승격한다. `wsl.exe`가 없으면 선택 기능을 활성화한다. 기존 실행 파일은 `--help`로 지원 옵션을 확인해 `--web-download`가 없으면 제외한다. `--no-distribution`이 없는 구형 명령은 기본 Ubuntu를 설치하는 우회 없이 Windows/WSL 업데이트를 안내한다. 준비 뒤에는 Windows 재부팅을 요구한다.
 3. 작업 원장에 현재 부팅 시각을 기록한다. 같은 부팅에서는 재부팅 필요를 유지하고 새 부팅에서는 다시 현재 상태를 조회한다.
 4. Microsoft WSL 배포 목록이 지정한 공식 Ubuntu 24.04.5 `.wsl` 이미지를 내려받고 고정 SHA-256을 검증해 원래 Windows 사용자로 등록한다. 등록 저장소는 `%LOCALAPPDATA%\Mew\Manager\distros\<이름>`이다.
 5. 배포판 root는 apt 도구와 `mew` Linux 사용자 준비만 담당한다. Node 24는 해당 사용자의 전용 폴더에 공식 체크섬으로 설치한다. 앱 작업은 `mew` 사용자로 실행한다.
@@ -60,6 +60,8 @@ Windows에서 실행하는 `mew Manager`가 WSL·mew 설치와 운영 상태를 
 ### 저장과 실행 경계
 
 관리 설정은 `%LOCALAPPDATA%\Mew\Manager\settings.json`, 재부팅/작업 원장은 `last-operation.json`, 단계·출력은 `events.jsonl`에 둔다. 로그는 약 2MB마다 이전 한 파일로 회전한다. 초기 화면에는 최근 300행을 읽는다. Windows 제어 스크립트는 UTF-8 BOM을 가진 임시 파일로 실행하고 종료 후 지운다. 긴 셸 내용을 Windows 커맨드라인 길이 제한에 넣지 않는다. PowerShell 네이티브 인자를 명시적으로 인용해 Linux 스크립트의 따옴표와 공백을 보존한다.
+
+WSL 승격 준비는 고정 PowerShell wrapper에서 실제 stdout/stderr를 UTF-8 또는 UTF-16으로 읽고 GUID 임시 JSON에 결과를 전달한다. 부모는 원문을 로그에 출력하고 실패 시 signed 종료 코드·16진수 표현·마지막 오류 원문을 화면에도 표시한다. 임시 결과는 성공·실패 후 지운다. 로그 스트림과 종료 코드를 분리해 준비 단계 출력이 함수 반환값으로 삼켜지지 않게 한다. Windows 선택 기능 활성화 오류도 같은 결과 경로로 전달한다.
 
 Rust IPC는 고정 작업·검증된 설정·localhost 열기·관리 폴더 열기만 제공한다. 임의 명령·원격 URL·다른 배포판 삭제 API는 없다. 설정이 손상되면 작업을 거절하고 사용자가 설정 화면에서 확인·저장하도록 한다. 일반 오류·진행 로그는 비밀번호 프레임을 숨긴다.
 
@@ -82,3 +84,5 @@ OS 테마를 최초 선택으로 삼고 이 기기의 라이트·다크 선택�
 2026-10-07: Linux에서 Windows x64 GUI PE 실행 파일을 교차 빌드했다. Rust 인자·경로·계정 프레임, 모델의 재부팅/충돌/업데이트 판단, Chromium GUI의 IPC·진행 잠금·오류 보존·이메일 검증·일회성 비밀번호, PowerShell 구문·인자 인용·배포판 소유·재부팅 판단, Bash 구문을 검사했다. 실제 js-debug DAP 연결에서 breakpoint·스택·변수로 기존 배포판 충돌 시 설치 행동이 `null`임을 확인하고 연결·테스트 프로세스를 정리했다.
 
 Windows 호스트 연동으로 실제 PowerShell 5.1 검사·WSL 상태 조회와 최종 exe의 WebView2 시작·네이티브 IPC·설치 준비 화면 로딩을 확인했다. 임시 실행 파일·CDP 연결·테스트 앱 프로세스를 정리했다. **새 배포판을 준비하는 전체 설치 실기 검증은 아직 수행하지 않았다.** 다음 수락 조건은 별도 Windows VM/기기에서 확인해야 한다: WSL 미설치 → UAC → 재부팅 → 재개, Ubuntu 다운로드·import, 비관리자 설치·첫 로그인, WebView2 유무, localhost 전달, 창 닫은 뒤 서버 유지와 중지, 실제 Git 업데이트 실패/재시도. exe는 서명하지 않은 개발 배포본이며 Windows 신뢰 경고가 나타날 수 있다.
+
+0.1.1에서는 WSL 승격 오류 원문·단계 로그 누락을 수정하고 지원 옵션 확인을 추가했다. Windows PowerShell 5.1에서 생성된 자식 wrapper의 실패 결과 전달, 한글·공백·따옴표 경로, 부모의 로그/종료 코드 분리·임시 결과 정리를 검사했다. 승격 테스트는 OS 변경 없이 WSL 명령·UAC 호출을 모의한다. 실제 Windows 도움말 조회와 PowerShell breakpoint에서 옵션 선택·변수·호출 스택을 확인했으며, 비동기 읽기의 작업 객체가 반환값에 섞이던 문제를 수정했다. 실제 친구 PC의 실패 원인이나 첫 설치 성공을 확인한 것은 아니다.
