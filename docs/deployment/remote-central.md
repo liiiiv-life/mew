@@ -1,8 +1,8 @@
 ---
 title: "mewlink Cloudflare 배포"
-description: "Git에서 제외한 mewlink의 Workers·Static Assets·D1·Durable Objects 통합 배포, P2P UI의 내부 origin 분리, Google·GitHub·Apple OAuth 설정과 자동 배포 명령, 사용자가 수행할 최소 절차를 안내한다. 실제 배포·제공자 로그인·외부망 검증은 남아 있다."
+description: "공개 Git 이력에서 중앙 소스를 제외하는 관리 범위와 mewlink의 Workers·Static Assets·D1·Durable Objects 배포, origin 분리·OAuth 설정·사용자 절차를 안내한다. 실제 배포·제공자 로그인·외부망 검증은 남아 있다."
 created: 2026-10-07
-updated: 2026-10-07
+updated: 2026-10-08
 ---
 
 # mewlink Cloudflare 배포
@@ -14,6 +14,8 @@ updated: 2026-10-07
 ## 위치와 배포 구성
 
 중앙 프로젝트는 `mew/mewlink/`다. 부모 `.gitignore`의 `/mewlink/`와 npm workspace 제외를 유지하며 별도 Git 저장소는 아직 만들지 않았다. 공개 mew의 기본 설치·타입 검사·테스트는 이 폴더 없이 동작한다. 중앙 소스·의존성·잠금 파일은 이 폴더에만 남으므로 별도 저장소나 백업에 폴더를 보관해야 한다.
+
+공개 mew의 Git 이력에서도 이전 중앙 구현 `server/remote-central/`, 전용 테스트 `server/remote-central.test.ts`·`server/remote-access-authenticated.test.ts`, 이전 중앙 화면 `src/components/remote-dashboard.tsx`를 제외한다. 현재 파일 삭제와 `.gitignore`만으로 과거 커밋이 정리되지는 않는다. 공개 연결 클라이언트·공유 프로토콜은 유지하고, 중앙 소스와 이력 재작성 전 복구 백업은 공개 저장소 밖에서 보관한다. 복구 시 이 파일들이 공개 이력에 다시 들어오지 않도록 확인한다.
 
 | 구성 | 책임 |
 | --- | --- |
