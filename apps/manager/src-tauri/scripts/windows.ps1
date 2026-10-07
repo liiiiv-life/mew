@@ -234,7 +234,7 @@ try {
                 $code = 0; ElevateWsl 'install' ([ref]$code)
                 SaveJournal $true 'reboot'
                 Write-Output '::mew-stage::reboot'
-                Write-Output 'Windows를 재부팅한 뒤 mew Manager를 다시 실행하고 설치를 이어서 진행하세요.'
+                Write-Output 'Windows를 재부팅한 뒤 mewnager를 다시 실행하고 설치를 이어서 진행하세요.'
                 Snapshot
                 break
             }

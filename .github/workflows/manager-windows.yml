@@ -1,4 +1,4 @@
-name: Windows Manager
+name: mewnager Windows
 on:
   workflow_dispatch:
   push:
@@ -45,6 +45,6 @@ jobs:
       - run: npm run package --prefix apps/manager
       - uses: actions/upload-artifact@v4
         with:
-          name: mew-manager-windows-x64
-          path: apps/manager/artifacts/mew-manager-*-windows-x64.zip
+          name: mewnager-windows-x64
+          path: apps/manager/artifacts/mewnager-*-windows-x64.zip
           if-no-files-found: error

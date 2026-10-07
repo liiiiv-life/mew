@@ -4,7 +4,7 @@ status: implemented
 title: "Windows 설치·관리 앱"
 created: 2026-10-07
 updated: 2026-10-07
-description: "포터블 Windows GUI의 전용 WSL 2 준비·재부팅 재개·비관리자 mew 설치·계정 생성과 서버·업데이트·로그·설정 운영을 정의한다. WSL 명령 호환·승격 오류 원문 전달과 컴팩트한 UI·독립 exe 빌드·검증 경계를 포함한다."
+description: "mewnager(뮤니저) 포터블 Windows GUI의 전용 WSL 2 준비·재부팅 재개·비관리자 mew 설치·계정 생성과 서버·업데이트·로그·설정 운영을 정의한다. WSL 명령 호환·승격 오류 원문 전달과 컴팩트한 UI·독립 exe 빌드·검증 경계를 포함한다."
 files:
   - apps/manager/src/App.tsx
   - apps/manager/src-tauri/src/desktop.rs
@@ -13,7 +13,7 @@ files:
 
 # Windows 설치·관리 앱
 
-Windows에서 실행하는 `mew Manager`가 WSL·mew 설치와 운영 상태를 한 화면에서 관리한다. 실행 파일은 설치 없이 열며, 실제 서버·터미널·에이전트는 전용 WSL 2 Ubuntu에서 실행한다. [ADR 0201](../../../../.mew/docs/decisions/0201-mew-windows-manager-wsl.md)이 플랫폼·레포·권한 경계를 소유한다. [사용법](../../guides/windows-manager.md)과 [빌드·검증](../../development/windows-manager.md)을 따른다.
+Windows에서 실행하는 `mewnager`(뮤니저)가 WSL·mew 설치와 운영 상태를 한 화면에서 관리한다. 실행 파일은 설치 없이 열며, 실제 서버·터미널·에이전트는 전용 WSL 2 Ubuntu에서 실행한다. [ADR 0201](../../../../.mew/docs/decisions/0201-mew-windows-manager-wsl.md)이 플랫폼·레포·권한 경계를 소유한다. [사용법](../../guides/windows-manager.md)과 [빌드·검증](../../development/windows-manager.md)을 따른다.
 
 ## 요구사항과 범위
 
@@ -36,7 +36,7 @@ Windows에서 실행하는 `mew Manager`가 WSL·mew 설치와 운영 상태를 
 
 실행 파일에서만 시스템 작업을 허용한다. 브라우저에서는 미리보기라는 안내와 비활성 버튼을 표시하며 Windows 상태를 꾸며 내지 않는다. 상태 확인은 시작 시와 유휴 중 30초마다 실행한다. 조회 실패와 작업 오류를 자동 조회가 지우지 않는다.
 
-같은 사용자 세션에서 Manager는 한 인스턴스만 실행하며 재실행하면 기존 창을 앞으로 가져온다. 작업은 하나씩 실행한다. 설정 저장과 중복 클릭도 잠그며 실행 중 창 닫기를 막는다. 실제 단계·출력을 표시하고 다운로드·빌드의 가짜 백분율을 만들지 않는다. 상태 조회도 WSL 내부 probe를 위해 관리 배포판을 깨울 수 있다.
+같은 사용자 세션에서 mewnager는 한 인스턴스만 실행하며 재실행하면 기존 창을 앞으로 가져온다. 작업은 하나씩 실행한다. 설정 저장과 중복 클릭도 잠그며 실행 중 창 닫기를 막는다. 실제 단계·출력을 표시하고 다운로드·빌드의 가짜 백분율을 만들지 않는다. 상태 조회도 WSL 내부 probe를 위해 관리 배포판을 깨울 수 있다.
 
 ### 설치
 
@@ -58,6 +58,8 @@ Windows에서 실행하는 `mew Manager`가 WSL·mew 설치와 운영 상태를 
 업데이트 확인만 `git fetch origin main`을 실행한다. 적용 직전에 origin·main 브랜치·깨끗한 작업 트리·upstream보다 앞선 로컬 커밋 없음 조건을 다시 검사한다. 조건을 충족하면 기존 `./mew update`의 fast-forward·의존성 설치·빌드·재시작을 사용한다. 변경을 강제로 지우거나 stash·reset·병합하지 않는다. 실패 출력은 보존하고 다시 실행할 수 있게 작업 잠금을 해제한다. pull 후 HEAD가 최신이 되었더라도 뒤 단계가 실패한 경우 원장에 실패 상태를 보존해 앱을 다시 열거나 업데이트를 확인한 뒤에도 **업데이트 다시 시도**를 제공한다. 성공 후 이전 업데이트 비교 결과와 실패 상태를 비운다.
 
 ### 저장과 실행 경계
+
+기존 설치와 호환하기 위해 앱 식별자 `life.liiiiv.mew.manager`, 테마 키 `mew-manager-theme`, Linux Node 경로와 배포판 소유 표식은 유지한다.
 
 관리 설정은 `%LOCALAPPDATA%\Mew\Manager\settings.json`, 재부팅/작업 원장은 `last-operation.json`, 단계·출력은 `events.jsonl`에 둔다. 로그는 약 2MB마다 이전 한 파일로 회전한다. 초기 화면에는 최근 300행을 읽는다. Windows 제어 스크립트는 UTF-8 BOM을 가진 임시 파일로 실행하고 종료 후 지운다. 긴 셸 내용을 Windows 커맨드라인 길이 제한에 넣지 않는다. PowerShell 네이티브 인자를 명시적으로 인용해 Linux 스크립트의 따옴표와 공백을 보존한다.
 

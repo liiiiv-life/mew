@@ -6,5 +6,5 @@ fn main() {
     #[cfg(windows)]
     desktop::run();
     #[cfg(not(windows))]
-    eprintln!("mew Manager runs on Windows. Use npm run dev for the browser preview.");
+    eprintln!("mewnager runs on Windows. Use npm run dev for the browser preview.");
 }

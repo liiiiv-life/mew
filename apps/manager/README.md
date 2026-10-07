@@ -1,7 +1,7 @@
 ---
-description: "독립 Windows Tauri 관리 앱의 사용자 안내·기능 계약·빌드 문서로 연결하는 진입점."
+description: "mewnager 독립 Windows Tauri 관리 앱의 사용자 안내·기능 계약·빌드 문서로 연결하는 진입점."
 ---
-# mew Manager
+# mewnager
 
 Portable Windows GUI for installing and managing mew in a dedicated WSL 2 distribution.
 

@@ -345,5 +345,5 @@ pub fn run() {
             open_folder
         ])
         .run(tauri::generate_context!())
-        .expect("mew Manager를 시작하지 못했습니다.");
+        .expect("mewnager를 시작하지 못했습니다.");
 }

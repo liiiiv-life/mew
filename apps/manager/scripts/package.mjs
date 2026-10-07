@@ -8,14 +8,14 @@ import { zipSync, strToU8 } from 'fflate'
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const root = path.resolve(app, '../..')
 const { version } = JSON.parse(await fs.readFile(path.join(app, 'package.json'), 'utf8'))
-const name = `mew-manager-${version}-windows-x64`, out = path.join(app, 'artifacts', name)
-const exe = await fs.readFile(path.join(app, 'src-tauri/target/x86_64-pc-windows-msvc/release/mew-manager.exe'))
+const name = `mewnager-${version}-windows-x64`, out = path.join(app, 'artifacts', name)
+const exe = await fs.readFile(path.join(app, 'src-tauri/target/x86_64-pc-windows-msvc/release/mewnager.exe'))
 if (exe.toString('ascii',0,2) !== 'MZ') throw new Error('Expected a Windows PE executable.')
 const texts = [['mew', path.join(root, 'LICENSE')], ['IBM Plex', path.join(root, 'public/fonts/ibm-plex/LICENSE.txt')], ['Tauri API (MIT)',path.join(app,'node_modules/@tauri-apps/api/LICENSE-MIT')], ['Tauri API (Apache 2.0)',path.join(app,'node_modules/@tauri-apps/api/LICENSE-APACHE-2.0')], ...['react', 'react-dom', 'iconoir-react'].map(pkg => [pkg,path.join(app,'node_modules',pkg,'LICENSE')])]
-let notices = 'mew Manager — third-party license notices\n\n'
+let notices = 'mewnager — third-party license notices\n\n'
 for (const [label,file] of texts) notices += `===== ${label} =====\n${await fs.readFile(file,'utf8')}\n\n`
 const cargo = execFileSync('cargo',['tree','--locked','--manifest-path',path.join(app,'src-tauri/Cargo.toml'),'--target','x86_64-pc-windows-msvc','--edges','normal','--prefix','none'],{encoding:'utf8'})
-const packages = [...new Set(cargo.match(/^[\w-]+ v[\d][^\s]+/gm))].filter(pkg=>!pkg.startsWith('mew-manager '))
+const packages = [...new Set(cargo.match(/^[\w-]+ v[\d][^\s]+/gm))].filter(pkg=>!pkg.startsWith('mewnager '))
 const registry = path.join(process.env.CARGO_HOME || path.join(os.homedir(),'.cargo'),'registry/src')
 const registries = await fs.readdir(registry)
 for (const entry of packages.sort()) {
@@ -30,7 +30,7 @@ for (const entry of packages.sort()) {
  for (const file of licenseFiles) { if ((await fs.stat(path.join(dir,file))).isFile()) notices += `${file}\n${await fs.readFile(path.join(dir,file),'utf8')}\n` }
  notices += '\n'
 }
-const instructions = 'mew Manager '+version+' — Windows x64 development build\n\nExtract the folder and run the exe as a normal Windows user.\nWebView2 Runtime is required. Install it from Microsoft if missing.\nSet the first owner email in Settings, then choose Install.\nWhen requested, reboot Windows and reopen the exe to continue.\nWSL/Ubuntu/mew are installed separately; closing Manager keeps the server running.\nUnsigned build. Full fresh-WSL installation validation is still pending.\nDocumentation: https://github.com/liiiiv-life/mew/blob/main/docs/guides/windows-manager.md\n'
+const instructions = 'mewnager '+version+' — Windows x64 development build\n\nExtract the folder and run the exe as a normal Windows user.\nWebView2 Runtime is required. Install it from Microsoft if missing.\nSet the first owner email in Settings, then choose Install.\nWhen requested, reboot Windows and reopen the exe to continue.\nWSL/Ubuntu/mew are installed separately; closing mewnager keeps the server running.\nUnsigned build. Full fresh-WSL installation validation is still pending.\nDocumentation: https://github.com/liiiiv-life/mew/blob/main/docs/guides/windows-manager.md\n'
 const files = { [`${name}.exe`]:exe, 'THIRD-PARTY-NOTICES.txt':strToU8(notices), 'START-HERE.txt':strToU8(instructions) }
 files['SHA256SUMS.txt']=strToU8(Object.entries(files).map(([file,data])=>`${createHash('sha256').update(data).digest('hex')}  ${file}`).join('\n')+'\n')
 await fs.mkdir(out,{recursive:true})

@@ -2,7 +2,7 @@
 title: "Windows 관리 앱 빌드·검증"
 created: 2026-10-07
 updated: 2026-10-07
-description: "독립 apps/manager Tauri 앱의 프런트엔드·Rust·PowerShell·GUI·승격 오류 전달 검증, Windows 및 Linux 교차 exe 생성과 CI 산출물·실기 검증 경계를 설명한다."
+description: "mewnager 독립 apps/manager Tauri 앱의 프런트엔드·Rust·PowerShell·GUI·승격 오류 전달 검증, Windows 및 Linux 교차 exe 생성과 CI 산출물·실기 검증 경계를 설명한다."
 ---
 
 # Windows 관리 앱 개발
@@ -22,9 +22,9 @@ npm ci --prefix apps/manager
 npm run exe --prefix apps/manager
 ```
 
-결과는 `apps/manager/src-tauri/target/x86_64-pc-windows-msvc/release/mew-manager.exe`다. `--no-bundle`로 MSI/NSIS 설치기를 만들지 않는다. `npm run package --prefix apps/manager`는 배포 폴더에 버전 이름의 exe·고지문·SHA-256·zip을 모은다. WebView2는 exe에 번들하지 않으며 실행 기기에 필요하다. 코드 서명은 현재 포함하지 않는다.
+결과는 `apps/manager/src-tauri/target/x86_64-pc-windows-msvc/release/mewnager.exe`다. `--no-bundle`로 MSI/NSIS 설치기를 만들지 않는다. `npm run package --prefix apps/manager`는 배포 폴더에 `mewnager-<버전>-windows-x64` 이름의 exe·고지문·SHA-256·zip을 모은다. WebView2는 exe에 번들하지 않으며 실행 기기에 필요하다. 코드 서명은 현재 포함하지 않는다.
 
-`.github/workflows/manager-windows.yml`은 Windows 빌드와 검사 후 위 파일을 Actions 아티팩트로 올린다. 앱 소스·공유 폰트/마크·워크플로 변경 또는 수동 실행을 대상으로 한다. 리포지토리에 exe/target/dist/node_modules를 커밋하지 않는다. Manager 버전은 npm package와 Tauri config, Cargo package에서 함께 갱신한다.
+`.github/workflows/manager-windows.yml`은 Windows 빌드와 검사 후 위 파일을 Actions 아티팩트로 올린다. 앱 소스·공유 폰트/마크·워크플로 변경 또는 수동 실행을 대상으로 한다. 리포지토리에 exe/target/dist/node_modules를 커밋하지 않는다. mewnager 버전은 npm package와 Tauri config, Cargo package에서 함께 갱신한다.
 
 ## 검증
 
