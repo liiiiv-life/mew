@@ -8,7 +8,7 @@ updated: "2026-10-07"
 status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
 files: ["src/components/GitWorkbench.tsx", "src/components/git-diff-editor.tsx", "src/components/git-changes-menu.tsx", "src/utils/git-diff-tabs.ts", "src/components/git-branch-picker.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-commit-analysis.ts", "server/git-commit-packets.ts", "server/git-diff-codec.ts", "server/git-change-intent.ts", "server/git-change-intent-cli.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
-description: "현재 프로젝트의 변경 파일 와일드카드 검색·일반선택과 커밋대상선택·에디터 diff·커밋 그래프, 선택 변경 커밋·취소, 브랜치 전환과 Pull·Push를 다루는 기능 계약. 계정 연결과 AI 작업 단위 커밋의 승인·범위·복원 규칙을 포함한다."
+description: "현재 프로젝트의 변경 파일·커밋 기록 와일드카드 검색·일반선택과 커밋대상선택·에디터 diff·커밋 그래프, 선택 변경 커밋·취소, 브랜치 전환과 Pull·Push를 다루는 기능 계약. 계정 연결과 AI 작업 단위 커밋의 승인·범위·복원 규칙을 포함한다."
 ---
 
 ## 요구사항
@@ -23,6 +23,7 @@ description: "현재 프로젝트의 변경 파일 와일드카드 검색·일�
 - Changes(변경사항) 제목 오른쪽의 검색창에서 변경 파일을 즉시 필터링한다. 일반 입력은 대소문자를 구분하지 않는 경로 부분 검색이며, `*`는 경로 구분자를 포함한 0개 이상의 문자, `?`는 한 문자를 뜻한다. 와일드카드는 전체 상대 경로 또는 파일명과 일치해야 한다. 이름 변경 파일은 이전 경로도 검색한다. 예: `*.tsx`, `src/*`, `file-?.ts`.
 - 검색창은 기존 헤더 높이 안에 검색 아이콘·입력·결과 개수·지우기 버튼을 정렬하고 테마색 포커스 테두리를 적용한다. 좁은 패널에서는 검색 아이콘·결과 개수를 숨겨 입력 공간과 작업 버튼을 확보한다. X 또는 입력 중 Esc로 검색을 지우며 결과가 없으면 별도 빈 결과 상태를 표시한다.
 - 검색은 기존 선택과 커밋 초안을 유지한다. 전체 선택/해제와 드래그 선택은 표시된 검색 결과에만 적용하고 숨겨진 파일의 선택은 보존한다. 헤더의 선택 개수·커밋·AI 커밋·변경 취소는 숨겨진 선택까지 포함한 기존 전체 선택을 사용한다. diff 왕복·자동 새로고침·패널 닫기/재열기에도 검색을 유지하며 프로젝트·저장소를 바꾸면 초기화한다.
+- Commit History(커밋 기록) 제목 오른쪽에도 Changes와 같은 검색창을 제공한다. 현재 불러온 커밋의 제목·작성자·전체 해시·브랜치/태그(refs)를 대소문자 구분 없이 검색한다. 일반 입력은 부분 검색이고 `*`는 0개 이상의 문자, `?`는 Unicode 한 문자를 뜻하며 와일드카드는 각 검색 필드 전체와 일치해야 한다. 예: `*검색*`, `abc*`, `패널 작업 ?`. 결과 개수·X/Esc 지우기·빈 결과 상태를 제공한다. 검색 중에는 원래 커밋의 그래프 위치·색상과 점만 유지하고 연결선은 숨겨 생략된 커밋 사이의 관계를 오해하지 않게 한다. 상세·diff 왕복·자동 갱신·패널 재열기에는 검색어를 유지하고 프로젝트·저장소 전환에는 초기화한다. Changes 검색·선택·커밋 초안과 독립적이며 서버의 전체 이력을 검색하지 않는다.
 - 변경 파일 마크는 추가·새 파일(`A`·`?`) 초록, 삭제(`D`) 빨강, 변경·타입 변경(`M`·`T`) 노랑, 이름 변경·복사(`R`·`C`) 보라, 충돌(`U`) 빨강으로 구분한다. 복합 상태는 문자마다 색상을 적용하며 상태 문자와 원본 상태 툴팁을 유지한다.
 - 변경 파일을 한 번 누르면 **일반선택**으로 행을 하이라이트한다. 체크박스의 **커밋대상선택**과 독립적이며 일반선택만으로 diff를 열거나 커밋 포함 여부를 바꾸지 않는다. Ctrl/Cmd+클릭은 개별 일반선택을 토글하고 Shift+클릭은 마지막 기준 행부터 클릭한 행까지 표시된 검색 결과의 범위를 선택한다. Ctrl/Cmd+Shift는 기존 일반선택에 범위를 추가한다.
 - 일반선택된 행에서 우클릭하면 해당 일반선택 전체에 대한 메뉴를 연다. 일반선택 밖 행의 우클릭은 그 파일 하나만 일반선택하고 메뉴를 연다. **커밋 대상에 포함**·**커밋 대상에서 제외**는 해당 파일들의 커밋대상선택만 바꾸고, **취소 (Discard)**는 그 일반선택 파일 목록을 확인한 뒤 변경을 취소한다. 메뉴는 Esc/모바일 뒤로가기·외부 클릭으로 닫고 방향키·Home/End로 탐색한다. Shift+F10 또는 메뉴 키로도 열 수 있다.

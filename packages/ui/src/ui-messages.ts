@@ -218,6 +218,8 @@ export const uiMessages = {
 
   "브랜치 선택": ["Select branch", "选择分支", "ブランチを選択"],
   "브랜치 검색": ["Search branches", "搜索分支", "ブランチを検索"],
+  "커밋 기록 검색": ["Search commit history", "搜索提交历史", "コミット履歴を検索"],
+  "커밋 제목·작성자·해시·브랜치/태그 검색 (*, ?)": ["Search commit subjects, authors, hashes, branches/tags (*, ?)", "搜索提交标题、作者、哈希、分支/标签 (*, ?)", "コミット件名・作成者・ハッシュ・ブランチ/タグを検索 (*, ?)"],
   "변경 파일 검색": ["Search changed files", "搜索更改的文件", "変更ファイルを検索"],
   "파일 경로 검색 (*, ?)": ["Search file paths (*, ?)", "搜索文件路径 (*, ?)", "ファイルパスを検索 (*, ?)"],
   "검색 지우기": ["Clear search", "清除搜索", "検索をクリア"],

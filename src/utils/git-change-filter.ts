@@ -1,6 +1,6 @@
 import type { GitChangedFile } from '../api/client'
 
-function wildcardMatches(value: string, pattern: readonly string[]): boolean {
+export function wildcardMatches(value: string, pattern: readonly string[]): boolean {
   const characters = Array.from(value)
   let index = 0
   let token = 0

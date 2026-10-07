@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom'
 import { Copy, GitBranch, GitCherryPickCommit, Label, ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, NavArrowRight, Search, SendDiagonal, Undo, Xmark } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
 import { filterGitChanges } from '../utils/git-change-filter'
+import { filterGitHistory } from '../utils/git-history-filter'
 import type { GitWorkbenchNavigation, GitWorkbenchView } from '../utils/git-workbench-navigation'
 import type { GitDiffTarget } from '../utils/git-diff-tabs'
 import { GitChangesMenu } from './git-changes-menu'
@@ -67,16 +68,16 @@ function graphLayout(commits: GitLogEntry[]): { rows: GraphRow[]; lanes: number 
   return { rows, lanes: max }
 }
 
-function GraphCell({ row, width }: { row: GraphRow; width: number }) {
+function GraphCell({ row, width, isolated = false }: { row: GraphRow; width: number; isolated?: boolean }) {
   useUiLocale()
   const x = (lane: number) => 8 + lane * LANE_GAP
   const mid = ROW_HEIGHT / 2
   return (
     <svg width={width} height={ROW_HEIGHT} className="block shrink-0" aria-hidden="true">
-      {Array.from({ length: row.before }, (_, lane) => (
+      {Array.from({ length: isolated ? 0 : row.before }, (_, lane) => (
         <path key={`top-${lane}`} d={`M ${x(lane)} 0 L ${x(lane)} ${mid}`} stroke={GRAPH_COLORS[lane % GRAPH_COLORS.length]} strokeWidth="1.25" fill="none" />
       ))}
-      {row.edges.map((edge, index) => (
+      {(isolated ? [] : row.edges).map((edge, index) => (
         <path
           key={`${edge.from}-${edge.to}-${index}`}
           d={`M ${x(edge.from)} ${edge.commit ? mid : 0} C ${x(edge.from)} ${mid}, ${x(edge.to)} ${mid}, ${x(edge.to)} ${ROW_HEIGHT}`}
@@ -404,6 +405,10 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   const highlightAnchor = useRef<string | null>(null)
   const closeChangesMenu = useCallback(() => setChangesMenu(null), [])
   const [changesMenu, setChangesMenu] = useState<{ files: string[]; x: number; y: number } | null>(null)
+  const [historyQuery, setHistoryQuery] = useState('')
+  const historySearchRef = useRef<HTMLInputElement>(null)
+  const filteredCommits = useMemo(() => filterGitHistory(commits, historyQuery), [commits, historyQuery])
+  const commitIndices = useMemo(() => new Map(commits.map((entry, index) => [entry.hash, index])), [commits])
   const [changeQuery, setChangeQuery] = useState('')
   const changeSearchRef = useRef<HTMLInputElement>(null)
   const filteredFiles = useMemo(() => filterGitChanges(workingTree.files, changeQuery), [workingTree.files, changeQuery])
@@ -456,6 +461,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
     highlightAnchor.current = null
     setChangesMenu(null)
     setChangeQuery('')
+    setHistoryQuery('')
     setSplitRatio(0.2)
     setAiOpen(false)
     void refresh(true)
@@ -761,9 +767,27 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
         ) : (
           <div className="flex min-h-0 flex-1 flex-col" aria-busy={loading}>
             <section aria-label={uiText("커밋 기록")} className="flex min-h-0 flex-col overflow-hidden" style={{ flex: `${splitRatio} 1 0` }}>
-              <div className="flex h-8 shrink-0 items-center gap-2 border-b border-edge px-3 text-[11px]">
+              <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-edge px-2 text-[11px] @min-[400px]:px-3">
                 <span className="shrink-0 font-medium text-ink">{uiText("커밋 기록")}</span>
-                {info.branch && <span className="min-w-0 truncate text-accent" title={info.branch}>{info.branch}</span>}
+                <HoverTipLayer className="flex h-7 min-w-0 max-w-80 flex-1 items-center gap-1 rounded border border-edge bg-surface-deep px-1.5 text-ink-muted focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/20">
+                  <Search width={12} height={12} aria-hidden="true" className="hidden shrink-0 @min-[400px]:block" />
+                  <input ref={historySearchRef} type="text" role="searchbox" value={historyQuery} onChange={event => setHistoryQuery(event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Escape' && !event.nativeEvent.isComposing && historyQuery) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        setHistoryQuery('')
+                      }
+                    }}
+                    aria-label={uiText("커밋 기록 검색")} placeholder={uiText("검색")} title={uiText("커밋 제목·작성자·해시·브랜치/태그 검색 (*, ?)")} autoComplete="off" spellCheck={false}
+                    className="h-full w-full min-w-0 flex-1 bg-transparent text-[11px] text-ink outline-none placeholder:text-ink-muted" />
+                  {historyQuery.trim() && <span role="status" aria-label={uiText("{count}개 표시", { count: filteredCommits.length })} className="hidden shrink-0 text-[10px] tabular-nums @min-[480px]:inline">{filteredCommits.length}</span>}
+                  {historyQuery && <button type="button" onClick={() => { setHistoryQuery(''); historySearchRef.current?.focus() }} aria-label={uiText("검색 지우기")} data-tip={uiText("검색 지우기")}
+                    className="flex size-6 shrink-0 items-center justify-center rounded hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+                    <Xmark width={12} height={12} aria-hidden="true" />
+                  </button>}
+                </HoverTipLayer>
+                {info.branch && <span className="min-w-0 max-w-24 truncate text-accent" title={info.branch}>{info.branch}</span>}
                 {info.detached && <span className="shrink-0 text-warning-ink">detached</span>}
                 {!!info.ahead && <span className="shrink-0 text-ink-muted">↑{info.ahead}</span>}
                 {!!info.behind && <span className="shrink-0 text-ink-muted">↓{info.behind}</span>}
@@ -771,7 +795,9 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
               <div className="min-h-0 flex-1 overflow-auto overscroll-contain" data-git-scroll="history">
                 {commits.length === 0 ? (
                   <div className="p-5 text-center text-xs text-ink-muted">{uiText("아직 커밋이 없습니다")}</div>
-                ) : commits.map((entry, index) => (
+                ) : filteredCommits.length === 0 ? (
+                  <div role="status" className="p-5 text-center text-xs text-ink-muted">{uiText("검색 결과가 없습니다")}</div>
+                ) : filteredCommits.map((entry) => (
                   <button
                     key={entry.hash}
                     type="button"
@@ -781,7 +807,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
                     className="flex w-full items-center gap-2 pr-2 text-left text-[11px] hover:bg-surface-hover focus-visible:outline-accent"
                     style={{ height: ROW_HEIGHT, minWidth: graphWidth + 220 }}
                   >
-                    <GraphCell row={graph.rows[index]} width={graphWidth} />
+                    <GraphCell row={graph.rows[commitIndices.get(entry.hash)!]} width={graphWidth} isolated={!!historyQuery.trim()} />
                     <span className="min-w-16 flex-1 truncate text-ink">{entry.subject}</span>
                     {entry.refs.length > 0 && <span className="hidden max-w-24 shrink-0 truncate rounded bg-surface-deep px-1 text-[9px] text-accent @min-[480px]:inline">{entry.refs[0].replace(/^HEAD -> /, '')}{entry.refs.length > 1 ? ` +${entry.refs.length - 1}` : ''}</span>}
                     <time dateTime={entry.date} className="shrink-0 whitespace-nowrap text-[10px] tabular-nums text-ink-secondary">{relativeCommitTime(entry.date, now)}</time>
