@@ -3,6 +3,7 @@ import { validCursor, type DesktopCursor } from '../../native/remote-desktop/cur
 import { desktopInput } from './desktop-input.ts'
 import { prepareDesktop } from './desktop-preparation.ts'
 import { desktopDirect } from './desktop-direct.ts'
+import { desktopNetworkUsage, type DesktopNetworkUsage } from './desktop-network.ts'
 
 export type DesktopScreen = { id: string; label: string; width: number; height: number }
 export type DesktopState = 'preparing' | 'connecting' | 'connected' | 'error' | 'paused'
@@ -14,6 +15,7 @@ export type DesktopEvents = {
   transport?: (mode: 'direct' | 'server') => void
   relative: (value: boolean) => void
   stats: (value: string) => void
+  network?: (value: DesktopNetworkUsage) => void
   installable?: (value: boolean) => void
   cursor?: (value: DesktopCursor) => void
   localCursor?: (enabled: boolean) => void
@@ -23,6 +25,7 @@ export type DesktopEvents = {
 /** Owns preparation, authentication lease and direct-only media/input. */
 export function connectDesktop(events: DesktopEvents, preferredScreen?: string) {
   const input = desktopInput(message => fail(message), (x, y, joystick) => events.pointer?.(x, y, joystick)), abort = new AbortController()
+  const network = desktopNetworkUsage(), encoder = new TextEncoder()
   let socket: WebSocket | undefined, direct: ReturnType<typeof desktopDirect> | undefined
   let closed = false, connected = false, channelsReady = false, decoded = false
   let iceServers: RTCIceServer[] = [], candidates: Record<string, unknown>[] = [], offered = false
@@ -39,14 +42,15 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
   const send = (value: unknown) => {
     if (socket?.readyState !== WebSocket.OPEN) return
     if (socket.bufferedAmount > 64 * 1024) { fail(uiText("서버로 보내는 입력이 지연됐습니다. 다시 연결해 주세요.")); return }
-    socket.send(JSON.stringify(value))
+    const data = JSON.stringify(value)
+    socket.send(data); network.sent(encoder.encode(data).byteLength)
   }
   const close = () => {
     if (closed) return
     closed = true; cancelAnimationFrame(motionFrame)
     try { input.close() } catch { /* Native input watchdog also releases held keys. */ }
     abort.abort(); clearInterval(heartbeat); clearInterval(stats); clearTimeout(deadline); clearTimeout(directDeadline)
-    direct?.close(); socket?.close()
+    direct?.close(); socket?.close(); events.network?.(network.value())
   }
   const fail = (message: string) => { if (!closed) { close(); events.state('error', message) } }
   const markConnected = () => {
@@ -68,6 +72,7 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     const current = direct, generation = negotiation
     void current.stats().then(report => {
       if (closed || direct !== current || negotiation !== generation) return
+      events.network?.(network.sample(report))
       let rate = '', rtt = ''
       report.forEach(value => {
         if (value.type === 'inbound-rtp' && value.kind === 'video') {
@@ -105,7 +110,7 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     if (value.type === 'offer') {
       const next = Number(value.negotiation ?? 0)
       if (!Number.isInteger(next) || next < 0 || next > 2 || offered && (next !== negotiation + 1 || connected || channelsReady)) throw new Error(uiText("화면 연결 응답이 중복됐습니다."))
-      direct?.close(); input.close(); decoded = false; lastBytes = 0; lastTime = 0; networkStatus = {}; negotiation = next; offered = true
+      direct?.close(); network.resetPeer(); input.close(); decoded = false; lastBytes = 0; lastTime = 0; networkStatus = {}; negotiation = next; offered = true
       clearTimeout(directDeadline)
       directDeadline = setTimeout(directFailed, 20_000)
       try {
@@ -136,6 +141,7 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     socket.onmessage = event => {
       if (closed) return
       if (event.data instanceof ArrayBuffer) { fail(uiText("예상하지 못한 영상 응답입니다.")); return }
+      network.received(encoder.encode(event.data).byteLength)
       queue = queue.then(() => message(JSON.parse(event.data))).catch(error => fail(error instanceof Error ? error.message : uiText("화면 연결 응답을 읽지 못했습니다.")))
     }
     socket.onclose = () => fail(uiText("서버 연결이 종료됐습니다. 다시 연결해 주세요."))

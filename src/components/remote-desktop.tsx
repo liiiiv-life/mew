@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 import { SelectField, useOverlayDismiss } from '@mew/ui'
 import { desktopCursor } from '../utils/desktop-cursor.ts'
 import { connectDesktop, type DesktopScreen, type DesktopState } from '../utils/desktop-connection.ts'
+import { formatDesktopBytes, type DesktopNetworkUsage } from '../utils/desktop-network.ts'
 import { clampView, type DesktopInput } from '../utils/desktop-input.ts'
 import { KEY_CODES } from '../../native/remote-desktop/keys.mjs'
 import { DesktopFloating } from './desktop-floating.tsx'
@@ -25,6 +26,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
   const [cursorMode, setCursorMode] = useState<'local' | 'video' | null>(null)
   const session = useRef<ReturnType<typeof connectDesktop> | null>(null)
   const [state, setState] = useState<DesktopState>('preparing'), [message, setMessage] = useState(''), [stats, setStats] = useState('')
+  const [network, setNetwork] = useState<DesktopNetworkUsage>({ received: 0, sent: 0 })
   const [screens, setScreens] = useState<DesktopScreen[]>([]), [selected, setSelected] = useState(''), [attempt, setAttempt] = useState(0)
   const preferred = useRef(''), [input, setInput] = useState<DesktopInput | null>(null), [relative, setRelative] = useState(false)
   const [view, setView] = useState({ x: 0, y: 0, scale: 1 })
@@ -115,7 +117,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
     return () => { siblings.forEach((element, i) => { element.inert = inert[i] }); previousFocus?.focus() }
   }, [])
   useEffect(() => {
-    setStats(''); setRelative(false); setInstallable(false); setCursorMode(null); setView({ x: 0, y: 0, scale: 1 })
+    setStats(''); setNetwork({ received: 0, sent: 0 }); setRelative(false); setInstallable(false); setCursorMode(null); setView({ x: 0, y: 0, scale: 1 })
     setTransport('direct'); surface.current = 'direct'
     const element = video.current
     const local = desktopCursor(stage.current!, cursorImage.current!, () => surface.current === 'server' ? canvas.current : video.current, (x, y) => projection.current.project(x, y))
@@ -137,7 +139,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
         if (resized) { setNativeSize({ width: frame.displayWidth, height: frame.displayHeight }); local.refresh() }
       },
       transport: mode => { surface.current = mode; setTransport(mode); setStats(''); if (mode === 'server' && video.current) video.current.srcObject = null },
-      relative: setRelative, stats: setStats, installable: setInstallable,
+      relative: setRelative, stats: setStats, network: setNetwork, installable: setInstallable,
     }, preferred.current)
     session.current = connection; setInput(connection.input)
     const hide = () => {
@@ -187,7 +189,9 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
     <div ref={mewcatHostRef} data-desktop-mewcat-host onKeyDown={event => event.stopPropagation()} onKeyUp={event => event.stopPropagation()} />
     <div ref={panel} className="desktop-panel" data-rotation={rotation} style={{ width: swapped ? panelSize.height : panelSize.width, height: swapped ? panelSize.width : panelSize.height, transform: `translate(-50%, -50%) rotate(${rotation}deg)` }}>
     <header className="desktop-toolbar">
-      <div className="desktop-title"><DesktopIcon kind="screen" /><strong id="desktop-title">{uiText("원격 데스크톱")}</strong><span className="desktop-status" data-connected={connected}>{connected ? stats || uiText("연결됨") : state === 'error' ? uiText("연결 실패") : state === 'paused' ? uiText("연결 종료") : uiText("연결 중")}</span></div>
+      <div className="desktop-title"><DesktopIcon kind="screen" /><strong id="desktop-title">{uiText("원격 데스크톱")}</strong><span className="desktop-status" data-connected={connected}>{connected ? stats || uiText("연결됨") : state === 'error' ? uiText("연결 실패") : state === 'paused' ? uiText("연결 종료") : uiText("연결 중")}</span>
+        <span className="desktop-network" aria-label={uiText("세션 네트워크 사용량: 수신 {received}, 송신 {sent}", { received: formatDesktopBytes(network.received), sent: formatDesktopBytes(network.sent) })} title={uiText("세션 네트워크 사용량: 수신 {received}, 송신 {sent}", { received: formatDesktopBytes(network.received), sent: formatDesktopBytes(network.sent) })}>{uiText("누적 {total}", { total: formatDesktopBytes(network.received + network.sent) })}</span>
+      </div>
       <div ref={dockHostRef} hidden={fullscreen || dockHidden} className="desktop-dock-host" />
       <div className="desktop-tools">
         <button onClick={() => setView({ x: 0, y: 0, scale: 1 })} title={uiText("화면에 맞추기")}>{uiText("맞춤")}<span className="desktop-scale">{Math.round(view.scale * 100)}%</span></button>

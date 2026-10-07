@@ -1,8 +1,8 @@
 ---
 title: "원격 데스크톱 아키텍처와 검증"
 created: "2026-09-12"
-updated: "2026-10-05"
-description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, 인증 lease·화면 좌표·터치·OS 권한·세션 수명 및 원격 데스크톱 검증 계약을 정의한다."
+updated: "2026-10-07"
+description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, 세션 누적 네트워크 사용량, 인증 lease·화면 좌표·터치·OS 권한·세션 수명 및 원격 데스크톱 검증 계약을 정의한다."
 ---
 
 # 원격 데스크톱
@@ -78,6 +78,10 @@ Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-dire
 기본 ICE는 Google·Cloudflare의 공개 STUN이며 네이티브 agent를 교체해 제한적으로 재시도한다. 연결이 지연되면 OS 기본 게이트웨이에서 PCP/NAT-PMP/UPnP의 짧은 임시 매핑을 요청한다. 설치 시 Windows가 승인한 UDP 앱 규칙을 준비하며 기존 차단 정책은 보존한다. 상세 수명·진단·검증 범위는 [외부 직결 계약](remote-desktop-connectivity.md)을 따른다. HTTPS 터널은 인증·협상만 전달하므로 터널 접속 성공과 외부 영상 연결 성공은 구분한다.
 
 ## 뷰어 설정과 좌표
+
+전체화면 버튼이 있는 상단 바는 현재 세션의 수신·송신 합계를 `누적 12.3 MB`처럼 표시한다. 수신·송신별 값은 접근성 이름과 title에 제공한다. 기존 stats 조회에서 약 1초마다 갱신하며 준비 중에는 `0 B`, 종료·오류 뒤에는 마지막 집계값을 유지한다. 다시 연결·공유 화면 변경·뷰어를 다시 열면 새 세션으로 0부터 시작하며, 같은 세션의 ICE 협상 재시도·회전·전체화면 전환은 누적값을 유지한다.
+
+`desktop-network.ts`는 브라우저의 [WebRTC candidate-pair 바이트 통계](https://www.w3.org/TR/webrtc-stats/#dom-rtcicecandidatepairstats-bytesreceived)를 ID별 증분으로 합쳐 영상과 DataChannel 입력을 집계한다. RTP·DataChannel 통계를 다시 더하지 않는다. 이전 경로가 stats에서 사라져도 이미 센 값은 유지하고, 새 peer의 카운터는 별도로 시작한다. 인증 WebSocket의 송수신 문자열은 UTF-8 바이트 길이를 더한다. 설치·준비 HTTP와 다른 Mew 기능의 통신은 제외한다. WebRTC 통계에 없는 헤더·padding·ICE 연결 검사 및 WebSocket/TLS/IP 헤더는 포함하지 않으므로 운영체제·통신사의 전체 트래픽 청구량과 다를 수 있다. 종료 시 WebRTC 값은 마지막 stats 표본을 사용한다.
 
 입력 장치에 따른 컨트롤 표시는 서로 독립적이다. `(any-hover: hover) and (any-pointer: fine)`의 초기 값·`change` 알림으로 마우스·트랙패드 가용성을 추정하고, 원격 화면의 `pointerType=mouse` 입력으로도 가상 마우스 묶음(화면 이동·확대·핸들 포함)을 숨긴다. `pen`은 마우스로 판정하지 않는다. 미디어 조건이 해제되면 다시 표시하고, 조건이 false인 상태의 화면 터치도 다시 표시한다. 원격 화면·뷰어 루트에 들어온 trusted·비조합·지원 `code`의 첫 keydown으로 핫키 바 전체를 숨긴다. 설정·붙여넣기 필드·조이스틱의 키 입력과 합성 이벤트로는 키보드를 판정하지 않는다. 키보드 감지는 뷰어 수명 동안 재접속·회전·배치 초기화에도 유지한다. 브라우저가 범용 키보드 연결·분리 API를 제공하지 않으므로 연결만 된 키보드의 즉시 감지와 분리 후 자동 복원은 지원하지 않는다. `code`는 가상 키보드·접근성 장치에서도 생성될 수 있어 물리 장치 여부의 확정 근거는 아니다([MDN code](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code), [any-pointer](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/@media/any-pointer)). 숨기는 컨트롤은 unmount하여 터치·Tab 탐색 대상에서 제외하고 진행 중 조이스틱 입력을 정리한다.
 

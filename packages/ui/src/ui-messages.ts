@@ -327,6 +327,8 @@ export const uiMessages = {
   "서버 연결": ["Server connection","服务器连接","サーバー接続"],
   "왕복 {p0} ms": ["Round trip {p0} ms","往返 {p0} ms","往復 {p0} ms"],
   "직접 연결": ["Direct connection","直接连接","直接接続"],
+  "누적 {total}": ["Total {total}","累计 {total}","累計 {total}"],
+  "세션 네트워크 사용량: 수신 {received}, 송신 {sent}": ["Session network usage: received {received}, sent {sent}","会话网络用量：接收 {received}，发送 {sent}","セッションの通信量：受信 {received}、送信 {sent}"],
   "잘못된 원격 커서입니다.": ["Invalid remote cursor.","无效的远程光标。","無効なリモートカーソルです。"],
   "화면 정지": ["Screen idle","画面静止","画面停止中"],
   "표시 응답 {p0} ms": ["Display response {p0} ms","显示响应 {p0} ms","表示応答 {p0} ms"],

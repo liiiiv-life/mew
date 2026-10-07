@@ -95,6 +95,11 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.getByText('Open desktop').click()
     await page.waitForFunction(`document.querySelector('.desktop-status')?.dataset.connected==='true'`)
     await page.waitForFunction('window.notifications===1')
+    const usage = page.locator('.desktop-network')
+    await page.waitForFunction(`document.querySelector('.desktop-network')?.textContent !== '누적 0 B'`)
+    assert.match(await usage.getAttribute('aria-label') ?? '', /^세션 네트워크 사용량: 수신 .+, 송신 .+$/)
+    const firstUsage = await usage.textContent()
+    await page.waitForFunction(`document.querySelector('.desktop-network')?.textContent !== ${JSON.stringify(firstUsage)}`)
     await page.waitForFunction(transport === 'direct' ? `document.querySelector('video')?.videoWidth>0` : `document.querySelector('.desktop-stage canvas')?.width===1280`)
     if (nativeCapture) await page.waitForFunction(`document.querySelector('.desktop-cursor')?.hidden===false`, null, { timeout: 3000 })
     assert.equal(await page.evaluate('window.captureCount'), 1, 'fallback reuses the OS capture')
@@ -463,6 +468,9 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       await page.getByRole('button', { name: '설정 닫기', exact: true }).click()
     }
     await page.setViewportSize({ width: 320, height: 568 })
+    await page.waitForFunction(`document.querySelector('.desktop-panel')?.clientWidth === 320`)
+    const usageBounds = (await usage.boundingBox())!
+    assert.ok(usageBounds.x >= 0 && usageBounds.x + usageBounds.width <= 320, 'session usage fits the narrow toolbar')
     assert.equal(await page.locator('.desktop-tools').evaluate(el => el.scrollWidth > el.clientWidth), false)
     await page.setViewportSize({ width: 844, height: 390 })
     await page.waitForFunction(`document.querySelector('.desktop-panel')?.clientWidth === 844 && document.querySelector('.desktop-panel')?.clientHeight === 390`)
@@ -511,6 +519,7 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     ready = false
     await page.getByText('Open desktop').click()
     await page.getByText('원격 데스크톱을 준비하고 있습니다. 처음에는 다운로드에 몇 분 걸릴 수 있습니다.').waitFor()
+    assert.equal(await usage.textContent(), '누적 0 B', 'reopening starts a new usage total')
     await page.setViewportSize({ width: 390, height: 844 })
     await page.getByRole('button', { name: '준비 내역 보기', exact: true }).click()
     const popup = page.locator('[data-cmd-overlay]')
