@@ -4,7 +4,6 @@ import { fileCatalogStatus, listCatalogChildren, listCatalogFiles } from './file
 import { measureSync } from './perfMarks.ts'
 
 export interface FileNameSearchOptions {
-  regex: boolean
   caseSensitive: boolean
   scopes: string[]
   allowed?: (project: string, path: string) => boolean
@@ -40,19 +39,49 @@ function fuzzyScore(query: string, targetPath: string, caseSensitive: boolean): 
   return 1_000 + gaps * 100 + (offset - first) * 10 + first
 }
 
+function fileNameScorer(query: string, caseSensitive: boolean): (targetPath: string) => number | null {
+  if (!/[*?]/.test(query)) return targetPath => fuzzyScore(query, targetPath, caseSensitive)
+  const pattern = Array.from(caseSensitive ? query : query.toLowerCase())
+  const matches = (value: string): boolean => {
+    const characters = Array.from(value)
+    let index = 0
+    let token = 0
+    let star = -1
+    let retry = 0
+    while (index < characters.length) {
+      if (pattern[token] === '*') {
+        star = token++
+        retry = index
+      } else if (pattern[token] === '?' || pattern[token] === characters[index]) {
+        index++
+        token++
+      } else if (star !== -1) {
+        token = star + 1
+        index = ++retry
+      } else return false
+    }
+    while (pattern[token] === '*') token++
+    return token === pattern.length
+  }
+  return targetPath => {
+    const target = caseSensitive ? targetPath : targetPath.toLowerCase()
+    const basename = target.slice(target.lastIndexOf('/') + 1)
+    return matches(basename) ? 0 : matches(target) ? 1 : null
+  }
+}
+
 export function rankFileNamePaths(
   query: string,
   paths: string[],
-  opts: Pick<FileNameSearchOptions, 'regex' | 'caseSensitive'>,
+  opts: Pick<FileNameSearchOptions, 'caseSensitive'>,
   limit = 50,
 ): string[] {
   if (!query) return []
-  let regex: RegExp | null = null
-  if (opts.regex) regex = new RegExp(query, opts.caseSensitive ? '' : 'i')
+  const score = fileNameScorer(query, opts.caseSensitive)
   return measureSync('filename.rank', { candidates: paths.length }, () => paths
     .map((candidate) => ({
       candidate,
-      score: regex ? (regex.exec(candidate)?.index ?? null) : fuzzyScore(query, candidate, opts.caseSensitive),
+      score: score(candidate),
     }))
     .filter((row): row is { candidate: string; score: number } => row.score !== null)
     .sort((a, b) => a.score - b.score || a.candidate.localeCompare(b.candidate))
@@ -90,12 +119,12 @@ export async function searchFileNames(query: string, opts: FileNameSearchOptions
       candidates.push({ path: file.path, project: DEFAULT_PROJECT, scope: { id: 'docs', label: 'Documents', icon: 'i:notes' } })
     }
   }
-  const regex = opts.regex ? new RegExp(query, opts.caseSensitive ? '' : 'i') : null
+  const score = fileNameScorer(query, opts.caseSensitive)
   const ranked = measureSync('filename.rank', { candidates: candidates.length }, () => candidates
     .filter(item => !opts.allowed || opts.allowed(item.project, item.path))
     .map((item) => ({
       item,
-      score: regex ? (regex.exec(item.path)?.index ?? null) : fuzzyScore(query, item.path, opts.caseSensitive),
+      score: score(item.path),
     }))
     .filter((row): row is { item: FileNameSearchResult; score: number } => row.score !== null)
     .sort((a, b) => a.score - b.score || a.item.path.localeCompare(b.item.path) || a.item.project.localeCompare(b.item.project))

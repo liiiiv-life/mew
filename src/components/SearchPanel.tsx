@@ -243,7 +243,7 @@ export function SearchPanel({
               spellCheck={false}
             />
             <button type="button" onClick={() => setCaseSensitive((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${caseSensitive ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("대소문자 구분")}>Aa</button>
-            <button type="button" onClick={() => setRegex((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("정규식 사용")}>.*</button>
+            {mode === 'content' && <button type="button" onClick={() => setRegex((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("정규식 사용")}>.*</button>}
             {scopeMenuOpen && (
               <div className="absolute left-0 top-full z-30 mt-1 max-h-64 min-w-[15rem] overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl">
                 <div className="px-2.5 py-1 text-[10px] text-ink-faint">{uiText("검색할 범위 · 여러 개를 골라 OR로 검색")}</div>
@@ -299,7 +299,7 @@ export function SearchPanel({
             {uiText("검색 결과 {matches}개 · 파일 {files}개", { matches: totalMatches, files: results.length })}{truncated ? uiText(" (일부만 표시)") : ''}
           </div>
         )}
-        {mode === 'files' && fileResults.map((file) => <button key={`${file.project}:${file.path}`} type="button" onClick={() => onOpenFileNameResult?.(file)} className="group relative flex w-full items-center gap-1.5 px-2 py-1 text-left text-sm text-ink hover:bg-surface-hover"><ProjectIcon icon={file.scope.icon} size={14} /><span className="min-w-0 flex-1 truncate">{file.path}</span><FileNamePathTooltip file={file} /></button>)}
+        {mode === 'files' && fileResults.map((file) => <button key={`${file.project}:${file.path}`} type="button" onClick={() => onOpenFileNameResult?.(file)} className="group relative flex w-full items-center gap-1.5 px-2 py-1 text-left text-sm text-ink hover:bg-surface-hover"><ProjectIcon icon={file.scope.icon} size={14} /><span dir="rtl" className="min-w-0 flex-1 truncate text-left"><bdi dir="ltr">{file.path}</bdi></span><FileNamePathTooltip file={file} /></button>)}
         {mode === 'content' && results.map((file) => {
           const resultKey = searchResultKey(file, project)
           const isCollapsed = collapsed.has(resultKey)

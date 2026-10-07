@@ -1152,8 +1152,8 @@ export interface FileNameSearchResponse {
   results: FileNameSearchResult[]
 }
 
-export function searchFileNames(query: string, opts: SearchOptions, signal?: AbortSignal): Promise<FileNameSearchResponse> {
-  const params = new URLSearchParams({ q: query, regex: opts.regex ? '1' : '0', case: opts.caseSensitive ? '1' : '0' })
+export function searchFileNames(query: string, opts: Pick<SearchOptions, 'caseSensitive' | 'scopes'>, signal?: AbortSignal): Promise<FileNameSearchResponse> {
+  const params = new URLSearchParams({ q: query, case: opts.caseSensitive ? '1' : '0' })
   if (opts.scopes?.length) params.set('scopes', opts.scopes.join(','))
   return mewFetch(`/api/search/files?${params.toString()}`, { signal }).then(json<FileNameSearchResponse>)
 }
@@ -1470,6 +1470,7 @@ export interface ChatMessage {
 
 /** 내가 볼 수 있는 메시지 전부(단체 + 내 DM)와 대화별 안 읽은 수 */
 export interface ChatView {
+  canDeleteHistory?: boolean
   messages: ChatMessage[]
   unread: Record<string, number>
   /**
@@ -1482,7 +1483,7 @@ export interface ChatView {
 export function fetchChat(): Promise<ChatView> {
   return mewFetch('/api/chat')
     .then(json<Partial<ChatView>>)
-    .then((r) => ({ messages: r.messages ?? [], unread: r.unread ?? {}, dmSupported: r.unread !== undefined }))
+    .then((r) => ({ messages: r.messages ?? [], unread: r.unread ?? {}, dmSupported: r.unread !== undefined, canDeleteHistory: r.canDeleteHistory === true }))
 }
 
 /** to를 주면 그 사람들에게만 가는 DM이다 */
@@ -1494,6 +1495,16 @@ export function postChat(text: string, to?: string[]): Promise<ChatMessage> {
   })
     .then(json<{ ok: true; message: ChatMessage }>)
     .then((r) => r.message)
+}
+
+export function deleteChatHistory(conversation: string): Promise<void> {
+  return mewFetch('/api/chat', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation }),
+  })
+    .then(json<{ ok: true; deleted: number }>)
+    .then(() => undefined)
 }
 
 /** 이 대화를 여기까지 읽었다고 서버에 알린다 — 보낸 쪽 화면의 숫자가 줄어든다 */

@@ -23,7 +23,7 @@ test('1만 파일 fixture도 catalog 한 번 뒤 Ctrl+P 후보를 50개로 제�
     await readyFileCatalog(project)
     const files = await listCatalogFiles(project)
     assert.equal(files.length, 10_000)
-    const results = rankFileNamePaths('SearchPanel', files.map((node) => node.path), { regex: false, caseSensitive: false })
+    const results = rankFileNamePaths('SearchPanel', files.map((node) => node.path), { caseSensitive: false })
     assert.equal(results.length, 50)
 
     const paths = files.map((node) => node.path)

@@ -1,8 +1,11 @@
+import { ConfirmDialog } from '@mew/ui'
+import { Trash } from 'iconoir-react'
 import { PanelCloseButton } from './panel-close-button'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flattenFiles } from '@mew/editor'
 import {
   fetchChat,
+  deleteChatHistory,
   fetchMemberProfiles,
   markChatRead,
   postChat,
@@ -159,6 +162,9 @@ export function ChatPanel({
   const [active, setActive] = useState<string>(GROUP_CHAT)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const deleteInFlight = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
 
@@ -248,6 +254,24 @@ export function ChatPanel({
       })
   }
 
+  const clearHistory = async () => {
+    const conversation = confirmDelete
+    setConfirmDelete(null)
+    if (conversation === null || !view.canDeleteHistory || deleteInFlight.current) return
+    deleteInFlight.current = true
+    setDeleting(true)
+    setError(null)
+    try {
+      await deleteChatHistory(conversation)
+      refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('chat.deleteFailed'))
+    } finally {
+      deleteInFlight.current = false
+      setDeleting(false)
+    }
+  }
+
   const rail = (
     <div className="flex w-12 shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-edge py-2">
       <ConversationIcon
@@ -294,10 +318,32 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full w-full bg-surface-deep">
+      {confirmDelete !== null && view.canDeleteHistory && (
+        <ConfirmDialog
+          message={t('chat.deleteConfirm', { name: confirmDelete === GROUP_CHAT ? t('chat.groupConversation') : nameOf(confirmDelete) })}
+          detail={t('chat.deleteDetail')}
+          confirmLabel={t('chat.deleteHistory')}
+          danger
+          onConfirm={() => void clearHistory()}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
       {rail}
       <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-edge pl-2">
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-ink">{title}</span>
+        {view.canDeleteHistory && (
+          <button
+            type="button"
+            aria-label={t('chat.deleteHistory')}
+            title={t('chat.deleteHistory')}
+            disabled={deleting || messages.length === 0}
+            onClick={() => setConfirmDelete(active)}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-danger focus-visible:outline focus-visible:outline-accent disabled:opacity-40"
+          >
+            <Trash width={14} height={14} aria-hidden="true" />
+          </button>
+        )}
         <span className="shrink-0 text-[10px] text-ink-muted">Alt+C</span>
         <PanelCloseButton onClick={onClose} aria-label={t('chat.close')} />
       </div>

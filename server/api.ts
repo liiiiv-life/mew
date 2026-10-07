@@ -53,7 +53,7 @@ import { CmdButtonError, commandSessionName, normalizeCmdButtons, oneShotCommand
 import { normalizeTermButtons, readTermButtons, TermButtonError, writeTermButtons } from './termButtons.ts'
 import { readTableLayout, TableLayoutError, writeTableLayout } from './tableLayout.ts'
 import { readFrontmatterOptions, updateFrontmatterOptions, FrontmatterOptionsError } from './frontmatter-options.ts'
-import { ChatError, listChatFor, markChatRead, mentionedEmails, postChatMessage } from './chat.ts'
+import { ChatError, deleteChatHistory, listChatFor, markChatRead, mentionedEmails, postChatMessage } from './chat.ts'
 import { addComment, addThread, CommentsError, deleteComment, editComment, listThreads } from './comments.ts'
 import { createDbRouter } from './db/routes.ts'
 import { readProjectIcons, setProjectIcon, readRootProjectIcons, writeProjectIcon } from './projectIcons.ts'
@@ -1533,14 +1533,12 @@ export function createApiApp() {
     if (query.length > 2_000) { res.status(400).json({ error: '검색어가 너무 깁니다' }); return }
     try {
       res.json(await searchFileNames(query, {
-        regex: req.query.regex === '1',
         caseSensitive: req.query.case === '1',
         scopes: String(req.query.scopes ?? '').split(',').filter(Boolean),
         showAll: seesEveryFile(authOf(req).role),
         allowed: (project, relPath) => fileAccess(authOf(req), project, relPath).view,
       }))
     } catch (err) {
-      if (err instanceof SyntaxError) { res.status(400).json({ error: '잘못된 정규식입니다' }); return }
       handleError(res, err)
     }
   })
@@ -1905,7 +1903,21 @@ export function createApiApp() {
 
   // 단체방 + 내 DM을 한 번에 준다(원장이 500줄뿐이다). 남의 DM은 애초에 실리지 않는다
   app.get('/chat', requireFeature('chat'), (req, res) => {
-    res.json(listChatFor(authOf(req).email ?? '', memberEmails()))
+    res.json({ ...listChatFor(authOf(req).email ?? '', memberEmails()), canDeleteHistory: authOf(req).role === 'owner' })
+  })
+
+  app.delete('/chat', requireRole('owner'), requireFeature('chat'), (req, res) => {
+    try {
+      const deleted = deleteChatHistory(authOf(req).email ?? '', req.body?.conversation)
+      if (deleted > 0) broadcast({ type: 'chat' })
+      res.json({ ok: true, deleted })
+    } catch (err) {
+      if (err instanceof ChatError) {
+        res.status(400).json({ error: err.message })
+        return
+      }
+      handleError(res, err)
+    }
   })
 
   app.post('/chat', requireFeature('chat'), (req, res) => {

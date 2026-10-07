@@ -114,6 +114,18 @@ export function listChatFor(viewer: string, members: string[]): { messages: Chat
   return { messages, unread }
 }
 
+/** 현재 사용자가 참여한 대화의 기록을 원장에서 삭제한다. 권한 검사는 API가 담당한다. */
+export function deleteChatHistory(viewer: string, conversation: unknown): number {
+  if (!viewer || typeof conversation !== 'string' || !conversation.trim() || conversation === viewer)
+    throw new ChatError('대화가 필요합니다')
+  const data = load()
+  const before = data.messages.length
+  data.messages = data.messages.filter((message) => !conversationsOf(message, viewer).includes(conversation))
+  const deleted = before - data.messages.length
+  if (deleted > 0) save(data)
+  return deleted
+}
+
 /** 수신자 목록 정리 — 문자열만, 자기 자신 제외, 중복 제거. 빈 배열이면 단체방이다 */
 function sanitizeRecipients(to: unknown, author: string): string[] {
   if (to === undefined || to === null) return []
@@ -133,7 +145,8 @@ export function postChatMessage(author: string, text: unknown, to?: unknown): Ch
   const data = load()
   // 시각은 원장 안에서 **엄격히 증가**한다. 같은 밀리초에 둘이 들어오면 읽음 포인터(마지막 메시지
   // 시각)와 겹쳐, 화면에 뜬 적도 없는 메시지가 읽은 것으로 묻힌다
-  const time = Math.max(Date.now(), (data.messages.at(-1)?.time ?? 0) + 1)
+  const latestRead = Math.max(0, ...Object.values(data.reads).flatMap((reads) => Object.values(reads)))
+  const time = Math.max(Date.now(), (data.messages.at(-1)?.time ?? 0) + 1, latestRead + 1)
   const message: ChatMessage = { id: randomUUID(), author, time, text: text.trim() }
   if (recipients.length > 0) message.to = recipients
   data.messages.push(message)

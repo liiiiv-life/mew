@@ -12,7 +12,7 @@ export function DebuggerSourceField({ root, value, onChange, label }: { root: st
     if (!query) return
     const controller = new AbortController()
     const timer = setTimeout(() => {
-      void searchFileNames(query, { regex: false, caseSensitive: false }, controller.signal).then(response => {
+      void searchFileNames(query, { caseSensitive: false }, controller.signal).then(response => {
         if (!controller.signal.aborted) setResult({ query, root, paths: response.results.filter(file => file.project === WORKSPACE_PROJECT).map(file => file.path) })
       }, error => {
         if (!controller.signal.aborted) setResult({ query, root, paths: [], error: error instanceof Error ? error.message : String(error) })

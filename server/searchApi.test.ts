@@ -51,6 +51,11 @@ test('Ctrl+P와 정확 내용 검색은 전체 tree 응답 없이 통합 catalog
     const files = await filesResponse.json() as { results: Array<{ path: string; project: string }>; state: string }
     assert.deepEqual(files.results.map((row) => [row.project, row.path]), [[WORKSPACE_PROJECT, 'app/SearchPanel.tsx']])
 
+    const wildcardResponse = await fetch(`${base}/api/search/files?${new URLSearchParams({ q: '*.tsx', scopes: 'subproject:app' })}`)
+    assert.equal(wildcardResponse.status, 200)
+    const wildcard = await wildcardResponse.json() as { results: Array<{ path: string; project: string }> }
+    assert.deepEqual(wildcard.results.map(row => [row.project, row.path]), [[WORKSPACE_PROJECT, 'app/SearchPanel.tsx']])
+
     await waitForSearchIndex(WORKSPACE_PROJECT)
     await waitForSearchIndex(DEFAULT_PROJECT)
     const contentResponse = await fetch(`${base}/api/search?q=uniqueNeedle&project=${encodeURIComponent(WORKSPACE_PROJECT)}`)
