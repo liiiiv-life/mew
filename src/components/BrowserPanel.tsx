@@ -51,7 +51,7 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
   useOverlayDismiss(standalone && visible ? onClose : false, { closeOnBack: () => !navigateBack(), closeOnEscape: () => false, escapePhase: 'bubble' })
   const activate = (id: string) => { setActiveId(id); dock?.select(groupFor(id), id) }
   const addTab = (group: string) => {
-    if (!loaded || !groupTabs(group).length) return
+    if (!loaded) return
     const tab = { id: crypto.randomUUID(), url: '', title: '', streamUrl: '' }
     setTabs(current => [...current, tab]); setActiveId(tab.id); dock?.assign(group, tab.id)
   }
@@ -91,8 +91,8 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
   const startPage = (group: string, id?: string) => <div className="relative flex min-h-0 flex-1 flex-col">{loaded ? <BrowserStartPage shortcuts={shortcuts} onChange={(next: BrowserShortcut[]) => {
     if (!writeBrowserShortcuts(next)) return false
     setShortcuts(next); return true
-  }} onOpen={url => openTab(group, url, id)} onClose={id ? () => closeTab(id) : undefined} /> : <div role="status" className="m-auto p-6 text-sm text-ink-muted">{t('common.loading')}</div>}{panelNotice && <BrowserNotice {...panelNotice} />}</div>
-  const page = (tab: ServerBrowserTab) => !tab.streamUrl ? startPage(groupFor(tab.id), tab.id) : <BrowserPage tab={tab} notice={panelNotice} onClose={() => closeTab(tab.id)} onController={(control) => {
+  }} onOpen={url => openTab(group, url, id)} onAdd={() => addTab(group)} onClose={id ? () => closeTab(id) : undefined} /> : <div role="status" className="m-auto p-6 text-sm text-ink-muted">{t('common.loading')}</div>}{panelNotice && <BrowserNotice {...panelNotice} />}</div>
+  const page = (tab: ServerBrowserTab) => !tab.streamUrl ? startPage(groupFor(tab.id), tab.id) : <BrowserPage tab={tab} notice={panelNotice} onAdd={() => addTab(groupFor(tab.id))} onClose={() => closeTab(tab.id)} onController={(control) => {
     if (control) controls.current.set(tab.id, control)
     else { controls.current.delete(tab.id); history.current.delete(tab.id) }
   }} onStatus={(status) => {
@@ -123,7 +123,7 @@ function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, o
 }) {
   const { t } = useI18n(), dock = useDock()
   const scopeRef = useRef<HTMLDivElement>(null)
-  useFocusedShortcutScope(scopeRef, { closeTab: () => { if (!activeId || !onCloseTab) return false; onCloseTab(activeId); return true } })
+  useFocusedShortcutScope(scopeRef, { newTab: () => { onAdd(); return true }, closeTab: () => { if (!activeId || !onCloseTab) return false; onCloseTab(activeId); return true } })
   const drag = useDragReorder({ onReorder, immediateMouseDrag: true, onDragMove: (i, x, y) => { if (tabs[i]) dock?.preview(group, tabs[i].id, x, y) }, onDrop: (i, x, y) => { if (tabs[i]) dock?.drop(group, tabs[i].id, x, y) } })
   return <div data-dock-tab-bar ref={scopeRef} className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
     {dock && <DockGrip group={group} />}
@@ -143,12 +143,12 @@ function BrowserTabBar({ group, tabs, activeId, standalone, onActivate, onAdd, o
     <PanelCloseButton onClick={onClose} aria-label={standalone ? t('browser.closePopup') : t('browser.close')} />
   </div>
 }
-function BrowserPage({ tab, onStatus, onClose, onController, notice }: { tab: ServerBrowserTab; onStatus: (status: DomBrowserStatus) => void; onClose: () => void; onController: (controller: DomBrowserController | null) => void; notice?: { message: string; onDismiss: () => void } }) {
+function BrowserPage({ tab, onStatus, onAdd, onClose, onController, notice }: { tab: ServerBrowserTab; onStatus: (status: DomBrowserStatus) => void; onAdd: () => void; onClose: () => void; onController: (controller: DomBrowserController | null) => void; notice?: { message: string; onDismiss: () => void } }) {
   const { t } = useI18n()
   const scope = useRef<HTMLDivElement>(null), addressRef = useRef<HTMLInputElement>(null), controller = useRef<DomBrowserController | null>(null)
   const [draft, setDraft] = useState(tab.url), [frame, setFrame] = useState<DomBrowserStatus | null>(null), [error, setError] = useState<string | null>(null)
   const loading = frame?.state === 'connecting'
-  useFocusedShortcutScope(scope, { closeTab: () => { onClose(); return true } })
+  useFocusedShortcutScope(scope, { newTab: () => { onAdd(); return true }, closeTab: () => { onClose(); return true } })
   const command = (name: 'back' | 'forward' | 'reload' | 'stop') => controller.current?.command(name)
   return <div ref={scope} className="@container flex h-full min-h-0 flex-col">
     <form className="grid shrink-0 grid-cols-[2.25rem_2.25rem_2.25rem_minmax(0,1fr)_2.25rem] items-center gap-1 border-b border-edge bg-surface px-2 py-1 @max-[20rem]:grid-cols-[2.25rem_2.25rem_minmax(0,1fr)_2.25rem]" onSubmit={(event) => { event.preventDefault(); try { const url = normalizeUrl(draft); controller.current?.command('navigate', { url }); setDraft(url); setError(null); addressRef.current?.blur() } catch (error) { setError(error instanceof Error && error.message === 'http-only' ? t('browser.httpOnly') : t('browser.invalidAddress')) } }}>

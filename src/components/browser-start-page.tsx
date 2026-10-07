@@ -5,16 +5,17 @@ import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { useI18n } from '../i18n'
 import { normalizeBrowserUrl, type BrowserShortcut } from '../utils/browser-shortcuts'
 
-export function BrowserStartPage({ shortcuts, onChange, onOpen, onClose }: {
+export function BrowserStartPage({ shortcuts, onChange, onOpen, onClose, onAdd }: {
   shortcuts: BrowserShortcut[]
   onChange: (next: BrowserShortcut[]) => boolean
   onOpen: (url: string) => Promise<void>
   onClose?: () => void
+  onAdd?: () => void
 }) {
   const { t } = useI18n()
   const addressId = useId()
   const scope = useRef<HTMLDivElement>(null)
-  useFocusedShortcutScope(scope, { closeTab: () => { if (!onClose) return false; onClose(); return true } })
+  useFocusedShortcutScope(scope, { newTab: onAdd ? () => { onAdd(); return true } : undefined, closeTab: () => { if (!onClose) return false; onClose(); return true } })
   const [address, setAddress] = useState('')
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')

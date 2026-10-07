@@ -15,7 +15,8 @@ import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {AgentPanel} from '${root}/src/components/AgentPanel.tsx';
 import {DockWorkspace} from '${root}/src/components/DockWorkspace.tsx';
 import {I18nProvider} from '${root}/src/i18n.tsx';
-import {openFocusedTab,getBinding,matchesShortcut,setBinding} from '${root}/packages/shortcuts/src/index.ts';
+import {setBinding} from '${root}/packages/shortcuts/src/index.ts';
+import {captureAppTabShortcuts} from '${root}/src/utils/app-tab-shortcuts.ts';
 localStorage.setItem('mew:locale','ko');window.messages=[];window.sockets={};
 const tabs=['first','second'].map(id=>({id,label:id,renamed:true,runtime:'codex',cwd:'/workspace'}));
 localStorage.setItem('mew:agent-tabs:'+JSON.stringify('/workspace'),JSON.stringify(tabs));
@@ -30,24 +31,27 @@ class Socket {
 }
 window.WebSocket=Socket;
 window.fileCreates=0;window.setNewBinding=keys=>setBinding('newTab',keys);
-window.addEventListener('keydown',event=>{if(matchesShortcut(event,getBinding('newTab'))){if(!openFocusedTab(event))window.fileCreates++}},true);
-function Fixture(){
- const [layout,setLayout]=React.useState({version:1,groups:[{id:'agent:restored',kind:'agent'}],tabs:{'agent:first':'agent:restored','agent:second':'agent:restored'},active:{'agent:restored':'first'},tree:{id:'agent:restored'}});
- const panel=<AgentPanel project="test" workspacePath="/workspace" tree={[]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} />;
- return <><button id="outside" data-sidebar>Sidebar</button><input id="editor"/><div style={{height:'calc(100% - 40px)',position:'relative',display:'flex'}}>{matchMedia('(min-width:768px)').matches?<DockWorkspace value={layout} onChange={setLayout} foreground="agent" apiRef={null} onEditorDrop={()=>'main'}>{panel}</DockWorkspace>:panel}</div></>;
+captureAppTabShortcuts({closeEditorTab(){},create(){window.fileCreates++}});
+function Fixture({terminal=false}){
+ const group=terminal?'terminal:restored':'agent:restored',kind=terminal?'terminal':'agent';
+ const [layout,setLayout]=React.useState({version:1,groups:[{id:group,kind}],tabs:{[kind+':first']:group,[kind+':second']:group},active:{[group]:'first'},tree:{id:group}});
+ const panel=<AgentPanel terminalOpen={terminal} agentOpen={!terminal} project="test" workspacePath="/workspace" tree={[]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} />;
+ return <><button id="outside" data-sidebar>Sidebar</button><input id="editor"/><div style={{height:'calc(100% - 40px)',position:'relative',display:'flex'}}>{matchMedia('(min-width:768px)').matches?<DockWorkspace value={layout} onChange={setLayout} foreground={kind} apiRef={null} onEditorDrop={()=>'main'}>{panel}</DockWorkspace>:panel}</div></>;
 }
-createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
+let rootView=createRoot(document.getElementById('root'));
+rootView.render(<I18nProvider><Fixture/></I18nProvider>);
+window.showTerminal=()=>{rootView.unmount();rootView=createRoot(document.getElementById('root'));rootView.render(<I18nProvider><Fixture terminal/></I18nProvider>)};`
   const bundle = await build({ input: 'virtual:connection.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'fixture',
     async resolveId(id, importer) {
       if (id === 'virtual:connection.tsx') return id
-      if (id === '@mew/tmux-term') return 'virtual:terminal'
+      if (id === '@mew/tmux-term') return 'virtual:terminal.tsx'
       if (id.endsWith('.css')) return 'virtual:style'
       if (id.endsWith('?raw')) { const resolved = await this.resolve(id.slice(0, -4), importer, { skipSelf: true }); if (resolved) return `${resolved.id}?raw` }
     },
     async load(id) {
       if (id === 'virtual:connection.tsx') return source
-      if (id === 'virtual:terminal') return 'export const isHiddenTmuxSession=()=>false;export function TmuxTerminal(){return null}'
+      if (id === 'virtual:terminal.tsx') return 'export const isHiddenTmuxSession=()=>false;export function TmuxTerminal(){return <textarea data-test-terminal/>}'
       if (id === 'virtual:style') return ''
       if (id.endsWith('?raw')) return `export default ${JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8'))}`
     },
@@ -62,12 +66,14 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       const page = await browser.newPage({ viewport: { width, height: 844 } })
       page.setDefaultTimeout(5000)
       const errors: string[] = []
+      let terminalMode = false
       page.on('pageerror', error => errors.push(error.message))
       await page.route('http://mew-close.test/**', async route => {
         const pathname = new URL(route.request().url()).pathname
         if (pathname === '/app.js') return route.fulfill({ contentType: 'text/javascript', body: chunk.code })
-        if (pathname === '/api/user-ui/agent-tabs') return route.fulfill({ json: { state: { tabs: ['first', 'second'].map(id => ({ id, label: id, renamed: true, runtime: 'codex', cwd: '/workspace' })), activeId: 'first' }, claims: [] } })
-        if (pathname === '/api/agent-runtimes') return route.fulfill({ json: { runtimes: [{ id: 'codex', installed: true }] } })
+        if (pathname === '/api/user-ui/agent-tabs') return route.fulfill({ json: { state: { tabs: ['first', 'second'].map(id => ({ id, label: id, renamed: true, runtime: terminalMode ? 'tmux' : 'codex', cwd: '/workspace' })), activeId: 'first' }, claims: [] } })
+        if (pathname === '/api/agent-runtimes') return route.fulfill({ json: { runtimes: [{ id: 'codex', installed: true }, { id: 'tmux', installed: true }] } })
+        if (pathname.startsWith('/api/agent-runtimes/tmux/terminal/')) return route.fulfill({ json: { ok: true, session: 'fixture-shell' } })
         if (pathname === '/api/agent-cwd') return route.fulfill({ json: { cwd: '/workspace' } })
         if (pathname === '/api/projects') return route.fulfill({ json: [] })
         if (pathname === '/api/agent/commands') return route.fulfill({ json: { commands: [] } })
@@ -80,8 +86,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await page.evaluate('window.sockets.first.open()')
       const first = page.getByRole('tab', { name: /first/ })
       const add = page.getByRole('button', { name: '새 탭', exact: true })
-      for (const surface of [page.locator('[data-agent-composer] [contenteditable="true"]'), first]) {
-        await surface.focus(); await page.keyboard.press('Alt+n')
+      for (const surface of [page.locator('[data-agent-composer] [contenteditable="true"]'), first]) for (const combo of ['Alt+n', 'Control+n', 'Control+t', 'Meta+n']) {
+        await surface.focus(); await page.keyboard.press(combo)
         await page.waitForFunction("document.querySelector('[aria-label=\"새 탭\"]')?.getAttribute('aria-pressed')==='true'")
         assert.equal(await page.evaluate('window.fileCreates'), 0)
         await first.click()
@@ -113,6 +119,18 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await page.getByRole('button', { name: 'Codex', exact: true }).click()
       await page.waitForFunction("document.querySelectorAll('[role=tab]').length===3")
       assert.equal(await page.evaluate('window.fileCreates'), 2)
+      if (width === 1100 && dark) {
+        terminalMode = true
+        await page.evaluate('window.showTerminal()')
+        await page.locator('[data-test-terminal]:visible').waitFor()
+        await page.waitForFunction('document.querySelectorAll("[role=tab]").length===2')
+        let count = 2
+        for (const surface of [page.getByRole('tab', { name: /first/ }), page.locator('[data-test-terminal]:visible')]) {
+          await surface.focus(); await page.keyboard.press('Control+n')
+          await page.waitForFunction('document.querySelectorAll("[role=tab]").length===' + ++count)
+          assert.equal(await page.evaluate('window.fileCreates'), 2, 'terminal bar and PTY create terminal tabs instead of files')
+        }
+      }
       assert.deepEqual(errors, [])
       await page.close()
     }

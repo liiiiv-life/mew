@@ -169,16 +169,20 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
       await navigator.clipboard.writeText(value)
     } catch { if (session.current === connection) setClipboardError(uiText("클립보드를 공유하지 못했습니다. 브라우저 권한과 원격 텍스트 크기를 확인하세요.")) }
   }
-  const pasteClipboard = async () => {
+  const pasteClipboard = async (allowed: () => boolean = () => true) => {
     const connection = session.current
-    if (!connected || !connection) return
+    if (!connected || !connection) return false
     setClipboardError('')
     try {
       const value = await navigator.clipboard.readText()
-      if (session.current !== connection || document.hidden) return
+      if (session.current !== connection || document.hidden || !allowed()) return false
       if (value.length > 4096 || value.includes('\0')) throw new Error('Clipboard text too large')
       connection.input.paste(value)
-    } catch { if (session.current === connection) setClipboardError(uiText("클립보드를 공유하지 못했습니다. 브라우저 권한과 원격 텍스트 크기를 확인하세요.")) }
+      return true
+    } catch {
+      if (session.current === connection) setClipboardError(uiText("클립보드를 공유하지 못했습니다. 브라우저 권한과 원격 텍스트 크기를 확인하세요."))
+      return false
+    }
   }
   useEffect(() => {
     if (!connected || !input || install.open || settingsOpen || pasteOpen || helpOpen) { setKeyboardState('limited'); return }

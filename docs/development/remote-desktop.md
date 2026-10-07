@@ -2,7 +2,7 @@
 title: "원격 데스크톱 아키텍처와 검증"
 created: "2026-09-12"
 updated: "2026-10-07"
-description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, WSL interop 준비 점검, 세션 누적 네트워크 사용량, 전체화면 키보드 잠금·양방향 텍스트 클립보드·ESC 뷰어 유지, 인증 lease·화면 좌표·터치·OS 권한·세션 수명 및 원격 데스크톱 검증 계약을 정의한다."
+description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, WSL interop 준비 점검, 세션 누적 네트워크 사용량, 원격 키보드 우선권·전체화면 잠금 복원·키 반복·확장 키·클립보드 실패 폴백·ESC 뷰어 유지, 인증 lease·화면 좌표·터치·OS 권한·세션 수명 및 검증 계약을 정의한다."
 ---
 
 # 원격 데스크톱
@@ -132,13 +132,15 @@ Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-dire
 
 ## 키보드 잠금과 클립보드
 
-연결된 원격 화면 또는 뷰어 루트에 포커스가 있을 때 window capture 단계에서 모든 키의 기본 동작·전파를 막고, 지원되는 `KeyboardEvent.code`를 원격으로 전달한다. Escape·F6·Tab도 원격 키다. 도구·설정·입력·도움말·설치 터미널의 로컬 입력은 보존한다. 화면 포커스 이탈·window blur·뷰어 종료에서 눌린 키를 해제한다.
+연결된 원격 화면 또는 뷰어 루트에 포커스가 있을 때 `registerKeyboardCapture`의 공통 window capture 리스너에서 모든 키의 기본 동작·전파를 막고, 지원되는 `KeyboardEvent.code`를 원격으로 전달한다. 이 리스너는 App의 탭 닫기·생성·번호·좌우 이동과 오버레이보다 먼저 등록되므로 Ctrl/Cmd+W·N·Shift+N·T·숫자·Tab 및 Escape·F6도 원격 키다. keydown과 keyup의 소유자가 같으며 도구·설정·입력·도움말·설치 터미널의 로컬 입력은 보존한다. 화면 포커스 이탈·window blur·뷰어 종료에서 눌린 키를 해제한다.
 
-JavaScript 전체화면의 원격 화면 포커스에서는 지원 브라우저의 `navigator.keyboard.lock()`으로 전체 키 잠금을 요청한다. 포커스 이탈·전체화면 해제·보조 창·연결 종료에서 unlock하며 늦은 승인 응답도 수명 검사를 한다. API 미지원·비전체화면·권한 거부에서는 브라우저가 전달한 이벤트만 차단할 수 있다. 권한 거부는 안내로 표시하고 연결을 유지한다. OS 예약 키(Windows 키·Alt+Tab·Ctrl+Alt+Delete 등)의 완전 차단은 보장하지 않는다. Chrome의 Esc 길게 누르기 탈출은 유지한다([Keyboard Lock](https://developer.chrome.com/docs/capabilities/web-apis/keyboard-lock)).
+숫자패드(Enter·사칙연산 포함), Insert·PrintScreen·ScrollLock·Pause·ContextMenu, F13–F24, 국제 배열·한/영·한자 및 매핑 가능한 미디어·브라우저 키를 `keys.mjs`에 포함한다. 지원하는 네이티브 키 코드가 없는 Mac 키는 `null`로 명시해 0번 KeyA로 바뀌지 않게 한다. 클라이언트 OS가 브라우저로 보내지 않거나 호스트 OS/배열에 없는 키는 전달을 보장하지 않는다. 반복 keydown은 동일 키 해제·누름 두 reliable 스냅샷으로 전환해 상태 차이만 적용하는 수신기에서도 반복 입력을 보존한다. 키를 누른 채 원격 화면에 들어와 처음 받은 이벤트가 반복이면 먼저 누름 상태를 전달한다. 이미 누른 수정키 상태로 화면에 들어온 경우 이벤트 플래그로 누락된 수정키를 먼저 전달한다.
+
+JavaScript 전체화면의 원격 화면 포커스에서는 지원 브라우저의 `navigator.keyboard.lock()`으로 브라우저가 허용하는 전체 키 잠금을 요청한다. `keyboard-lock.ts`의 높은 우선순위 요청이 앱 예약키 잠금을 대체하고 포커스 이탈·보조 창·연결 종료 뒤에는 같은 전체화면의 앱 잠금을 복원한다. 전체화면 해제·window blur·화면 숨김에서는 해제하며 늦은 승인 응답이 새 소유자의 잠금을 해제하지 않게 수명을 검사한다. API 미지원·비전체화면·secure context 미충족·거부 상태에서는 브라우저가 전달한 이벤트만 차단할 수 있다. 거부는 안내로 표시하고 연결을 유지한다. Ctrl+Alt+Delete 같은 보안 키, 플랫폼에 따른 Windows 키·Alt+Tab, Chrome의 Esc 길게 누르기 탈출은 완전 차단을 보장하지 않는다. Keyboard Lock을 위해 클라이언트에 보조앱을 설치하지 않는다([Keyboard Lock](https://developer.chrome.com/docs/capabilities/web-apis/keyboard-lock)).
 
 텍스트 클립보드는 reliable WebRTC control 채널로만 요청·응답한다. `clipboard-read`의 양수 요청 ID를 `clipboard` 응답과 대조하며 3초 timeout, 브라우저 대기 요청 2개와 호스트 진행 요청 1개 상한을 둔다. 현재 세션·로그인 데스크톱 제어 권한을 읽기 전후에 검사하고 종료 뒤 응답은 폐기한다. 4096 UTF-16 코드 유닛과 16KB 응답 메시지 상한을 적용하고 NUL·비텍스트·초과 입력은 오류 또는 빈 텍스트로 처리한다. 클립보드 내용은 저장·로그·인증 WS로 전송하지 않는다.
 
-원격 화면에서 Ctrl/Cmd+C·X를 원격으로 보낸 뒤 200ms 후 클립보드 텍스트를 가져와 브라우저 클립보드에 쓴다. Ctrl/Cmd+V는 브라우저 클립보드를 읽고 기존 paste 경로로 원격 클립보드를 설정한 뒤 OS별 붙여넣기를 실행한다. 변경 감시·상시 polling·이미지·파일 클립보드는 제공하지 않는다. 입력 창의 **원격 클립보드 가져오기**·**내 클립보드 붙여넣기**로 명시적으로 재시도할 수 있으며 기존 텍스트 입력도 유지한다. 브라우저의 secure context·클립보드 권한·사용자 활성화 제한으로 자동 동작이 실패하면 안내를 표시한다([Clipboard API](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API)).
+원격 화면에서 Ctrl/Cmd+C·X를 원격으로 보낸 뒤 200ms 후 클립보드 텍스트를 가져와 브라우저 클립보드에 쓴다. Ctrl/Cmd+V는 브라우저 클립보드를 읽고 기존 paste 경로로 원격 클립보드를 설정한 뒤 OS별 붙여넣기를 실행한다. Shift/Alt가 추가된 붙여넣기 조합은 키 그대로 원격에 전달한다. 성공 후 아직 누른 키를 브라우저 스냅샷에 복원하고 네이티브 `keyChord`도 클립보드 쓰기가 끝난 시점의 최신 키 상태를 복원한다. 읽기·공유 실패 시 같은 포커스에서 원격 Ctrl/Cmd+V를 보내 기존 원격 클립보드로 붙여넣는다. 비동기 읽기 중 포커스·세션이 바뀌면 공유·폴백을 폐기한다. 변경 감시·상시 polling·이미지·파일 클립보드는 제공하지 않는다. 입력 창의 **원격 클립보드 가져오기**·**내 클립보드 붙여넣기**로 명시적으로 재시도할 수 있으며 기존 텍스트 입력도 유지한다. 브라우저의 secure context·클립보드 권한·사용자 활성화 제한으로 자동 동작이 실패하면 안내를 표시한다([Clipboard API](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API)).
 
 Windows는 CF_UNICODETEXT의 메모리를 한도 내에서 읽고 lock/clipboard handle을 항상 해제하며 OS 소유 메모리를 free하지 않는다. Mac은 NSPasteboard 문자열을 제한된 UTF-8 버퍼로 읽는다. Linux는 `wl-paste` 또는 `xclip`을 셸 없이 실행하며 2초·16KB 출력 상한을 둔다.
 

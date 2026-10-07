@@ -134,8 +134,7 @@ async function message(value) {
           void Promise.resolve().then(() => { if (session === active) return platform.clipboard(value.text) }).then(() => scoped(() => {
             if (!platform.allowed()) throw new Error('원격 입력 권한이 종료됐습니다.')
             const modifier = process.platform === 'darwin' ? 'MetaLeft' : 'ControlLeft'
-            try { active.adapter.key(modifier, true); active.adapter.key('KeyV', true) }
-            finally { try { active.adapter.key('KeyV', false) } finally { active.adapter.key(modifier, false) } }
+            active.receiver.keyChord([modifier, 'KeyV'])
           })).catch(error => scoped(() => fail(error)))
         } else active.receiver.accept(value, reliable)
       }),

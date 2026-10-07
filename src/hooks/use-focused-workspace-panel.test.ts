@@ -20,7 +20,7 @@ const [{ act }, { createRoot }, { useFocusedWorkspacePanel }] = await Promise.al
 ])
 function Harness() { useFocusedWorkspacePanel(); return null }
 
-test('Alt+숫자는 포커스된 분할 패널의 표시 순서로 전환하고 PTY 입력을 차단한다', async () => {
+test('Alt/Ctrl/Cmd+숫자는 포커스된 분할 패널의 표시 순서로 전환하고 PTY 입력을 차단한다', async () => {
   const host = document.createElement('div')
   document.body.append(host)
   host.innerHTML = `<section data-workspace-panel="editor" data-dock-panel="editor:a"><div data-dock-tab-bar><button role="tab">A1</button><button role="tab">A2</button></div><textarea></textarea></section>
@@ -59,6 +59,15 @@ test('Alt+숫자는 포커스된 분할 패널의 표시 순서로 전환하고 
       assert.equal(press(inputs[5]).defaultPrevented, false)
     })
     assert.deepEqual(selected, ['A2', 'B2', 'T2', 'Calendar', 'Search', 'T2'])
+    await act(async () => {
+      for (const extra of [{ ctrlKey: true }, { metaKey: true }, { ctrlKey: true, code: 'Numpad2' }]) {
+        assert.equal(press(inputs[1], { altKey: false, ...extra }).defaultPrevented, true)
+      }
+      const count = selected.length
+      assert.equal(press(inputs[5], { altKey: false, ctrlKey: true }).defaultPrevented, true, 'modal consumes browser selection without changing background')
+      assert.equal(selected.length, count)
+    })
+    assert.deepEqual(selected.slice(-3), ['B2', 'B2', 'B2'])
     // Closing or covering the remembered panel must not redirect to another one.
     const body = host.querySelector<HTMLElement>('[data-dock-body]')!
     body.hidden = true
@@ -66,6 +75,8 @@ test('Alt+숫자는 포커스된 분할 패널의 표시 순서로 전환하고 
     assert.equal(selected.at(-1), 'T2')
     body.setAttribute('inert', '')
     await act(async () => { assert.equal(press(inputs[2]).defaultPrevented, false) })
+    await act(async () => { assert.equal(press(inputs[2], { altKey: false, ctrlKey: true }).defaultPrevented, true) })
+    assert.equal(selected.at(-1), 'T2')
   } finally {
     await act(async () => root.unmount())
     host.remove()

@@ -47,6 +47,16 @@ export function createInputReceiver(adapter, now = Date.now) {
   }
   return {
     accept,
+    keyChord(keys) {
+      const held = [...appliedKeys]
+      let failure
+      const emit = (code, down) => { try { adapter.key(code, down) } catch (error) { failure ??= error } }
+      for (const code of held) emit(code, false)
+      if (!failure) for (const code of keys) emit(code, true)
+      for (const code of [...keys].reverse()) emit(code, false)
+      for (const code of held) emit(code, true)
+      if (failure) throw failure
+    },
     get sequence() { return previous.seq },
     get point() { return previous.point },
     release,

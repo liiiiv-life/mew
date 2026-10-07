@@ -15,5 +15,16 @@ const rows = [
   ['F7',98,118,'F7',65],['F8',100,119,'F8',66],['F9',101,120,'F9',67],['F10',109,121,'F10',68],['F11',103,122,'F11',87],['F12',111,123,'F12',88],
   ['Home',115,36,'Home',102],['PageUp',116,33,'Prior',104],['Delete',117,46,'Delete',111],['End',119,35,'End',107],['PageDown',121,34,'Next',109],
   ['ArrowLeft',123,37,'Left',105],['ArrowRight',124,39,'Right',106],['ArrowDown',125,40,'Down',108],['ArrowUp',126,38,'Up',103],
+  ['Insert',114,45,'Insert',110],['PrintScreen',null,44,'Print',99],['ScrollLock',null,145,'Scroll_Lock',70],['Pause',null,19,'Pause',119],['ContextMenu',110,93,'Menu',127],
+  ['NumLock',71,144,'Num_Lock',69],['NumpadDivide',75,111,'KP_Divide',98],['NumpadMultiply',67,106,'KP_Multiply',55],['NumpadSubtract',78,109,'KP_Subtract',74],['NumpadAdd',69,107,'KP_Add',78],['NumpadEnter',76,13,'KP_Enter',96],
+  ['Numpad0',82,96,'KP_0',82],['Numpad1',83,97,'KP_1',79],['Numpad2',84,98,'KP_2',80],['Numpad3',85,99,'KP_3',81],['Numpad4',86,100,'KP_4',75],
+  ['Numpad5',87,101,'KP_5',76],['Numpad6',88,102,'KP_6',77],['Numpad7',89,103,'KP_7',71],['Numpad8',91,104,'KP_8',72],['Numpad9',92,105,'KP_9',73],['NumpadDecimal',65,110,'KP_Decimal',83],['NumpadEqual',81,146,'KP_Equal',117],['NumpadComma',95,108,'KP_Separator',121],
+  ['F13',105,124,'F13',183],['F14',107,125,'F14',184],['F15',113,126,'F15',185],['F16',106,127,'F16',186],['F17',64,128,'F17',187],['F18',79,129,'F18',188],['F19',80,130,'F19',189],['F20',90,131,'F20',190],
+  ['F21',null,132,'F21',191],['F22',null,133,'F22',192],['F23',null,134,'F23',193],['F24',null,135,'F24',194],
+  ['IntlBackslash',10,226,'less',86],['IntlRo',94,226,'backslash',89],['IntlYen',93,220,'yen',124],['Convert',null,28,'Henkan',92],['NonConvert',null,29,'Muhenkan',94],['Lang1',104,21,'Hangul',122],['Lang2',102,25,'Hangul_Hanja',123],
+  ['AudioVolumeMute',74,173,'XF86AudioMute',113],['AudioVolumeUp',72,175,'XF86AudioRaiseVolume',115],['AudioVolumeDown',73,174,'XF86AudioLowerVolume',114],
+  ['MediaTrackNext',null,176,'XF86AudioNext',163],['MediaTrackPrevious',null,177,'XF86AudioPrev',165],['MediaStop',null,178,'XF86AudioStop',166],['MediaPlayPause',null,179,'XF86AudioPlay',164],['MediaSelect',null,181,'XF86AudioMedia',171],
+  ['BrowserBack',null,166,'XF86Back',158],['BrowserForward',null,167,'XF86Forward',159],['BrowserRefresh',null,168,'XF86Refresh',173],['BrowserStop',null,169,'XF86Stop',128],['BrowserSearch',null,170,'XF86Search',217],['BrowserFavorites',null,171,'XF86Favorites',156],['BrowserHome',null,172,'XF86HomePage',172],
+  ['LaunchMail',null,180,'XF86Mail',155],['LaunchApp1',null,182,'XF86Explorer',144],['LaunchApp2',null,183,'XF86Calculator',140],
 ]
 export const KEY_CODES = Object.fromEntries(rows.map(([code, mac, windows, x11, evdev]) => [code, { mac, windows, x11, evdev }]))

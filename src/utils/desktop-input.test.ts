@@ -66,6 +66,21 @@ test('release, timeout and invalid packets cannot leave keys/buttons pressed', (
   assert.throws(() => s.receiver.accept({ type: 'exec', command: 'anything' }))
 })
 
+test('paste chord restores the latest held keys after an asynchronous clipboard write', () => {
+  const s = setup()
+  s.input.key('ControlLeft', true); s.receiver.accept(s.reliable.shift())
+  s.input.release(); s.receiver.accept(s.reliable.shift()); s.receiver.release()
+  // Physical modifiers can be reasserted while the host writes the clipboard.
+  s.input.key('ControlLeft', true); s.input.key('ShiftLeft', true)
+  for (const packet of s.reliable.splice(0)) s.receiver.accept(packet)
+  s.events.length = 0
+  s.receiver.keyChord(['ControlLeft', 'KeyV'])
+  assert.deepEqual(s.events, [['key', 'ControlLeft', false], ['key', 'ShiftLeft', false], ['key', 'ControlLeft', true], ['key', 'KeyV', true], ['key', 'KeyV', false], ['key', 'ControlLeft', false], ['key', 'ControlLeft', true], ['key', 'ShiftLeft', true]])
+  s.input.key('ControlLeft', false); s.input.key('ShiftLeft', false)
+  for (const packet of s.reliable.splice(0)) s.receiver.accept(packet)
+  assert.deepEqual(s.events.slice(-2), [['key', 'ControlLeft', false], ['key', 'ShiftLeft', false]])
+})
+
 test('congested motion skips a packet and its next snapshot includes all distance', () => {
   const input = desktopInput(), packets: InputSnapshot[] = []
   const channel = { readyState: 'open' as const, bufferedAmount: 3000, send(value: string) { packets.push(JSON.parse(value)) } }

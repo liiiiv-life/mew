@@ -19,7 +19,7 @@ export function windowsInput(koffi, bounds) {
     moveTo(x, y) { setPosition(Math.round(bounds.x + x * (bounds.width - 1)), Math.round(bounds.y + y * (bounds.height - 1))) },
     button(bit, down) { packet(0, bit === 1 ? down ? 2 : 4 : bit === 2 ? down ? 32 : 64 : down ? 8 : 16) },
     wheel(dx, dy) { if (dy) packet(0, 0x0800, -dy); if (dx) packet(0, 0x1000, dx) },
-    key(code, down) { const key = KEY_CODES[code]; if (key) packet(1, (down ? 0 : 2) | (/^(Arrow|Home|End|Page|Delete|Meta|ControlRight|AltRight)/.test(code) ? 1 : 0), key.windows) },
+    key(code, down) { const key = KEY_CODES[code]; if (key) packet(1, (down ? 0 : 2) | (/^(Arrow|Home|End|Page|Delete|Insert|Meta|ControlRight|AltRight|NumpadEnter|NumpadDivide|NumLock|PrintScreen|ContextMenu|AudioVolume|Media|Browser|Launch)/.test(code) ? 1 : 0), key.windows) },
     close() {},
   }
 }
@@ -47,7 +47,7 @@ export function macInput(koffi, bounds) {
     moveTo(x, y) { moveTo({ x: bounds.x + x * (bounds.width - 1), y: bounds.y + y * (bounds.height - 1) }) },
     button(bit, down) { held = down ? held | bit : held & ~bit; emit(mouse(null, bit === 1 ? down ? 1 : 2 : bit === 4 ? down ? 3 : 4 : down ? 25 : 26, current(), bit === 1 ? 0 : bit === 4 ? 1 : 2)) },
     wheel(dx, dy) { emit(scroll(null, 0, 2, 'int32', Math.round(-dy), 'int32', Math.round(-dx))) },
-    key(code, down) { const key = KEY_CODES[code]; if (key) { if (down) modifiers.add(code); else modifiers.delete(code); emit(keyboard(null, key.mac, down)) } },
+    key(code, down) { const key = KEY_CODES[code]; if (key && key.mac !== null) { if (down) modifiers.add(code); else modifiers.delete(code); emit(keyboard(null, key.mac, down)) } },
     close() {},
   }
 }

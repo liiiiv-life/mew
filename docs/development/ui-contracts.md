@@ -1,5 +1,5 @@
 ---
-description: "Git diff 에디터 탭과 공통 UI의 정보 밀도·아이콘·드롭다운·날짜 입력·드래그 모션·번역·모바일 키보드·계정별 프로젝트 전환·데스크톱 왼쪽 독·레이아웃 프리셋·헤더 전체화면 버튼·메모/태스크 표시 전환·설정 최상단 레이어·디버거 설정·소스 파일 검색·에디터 거터와 고급 제어·독 진입·헤더 알림·오버레이·ESC 패널 유지·패널의 1px 경계선·탭 번호·좌우 이동·포커스별 새 파일/에이전트 탭 단축키 및 공용 작업 메뉴·파일 작업·에이전트/터미널 탭 우클릭 메뉴 동작을 정의한다."
+description: "Git diff 에디터 탭과 공통 UI의 정보 밀도·아이콘·드롭다운·날짜 입력·드래그 모션·번역·모바일 키보드·계정별 프로젝트 전환·데스크톱 왼쪽 독·레이아웃 프리셋·헤더 전체화면 버튼·메모/태스크 표시 전환·설정 최상단 레이어·디버거 설정·소스 파일 검색·에디터 거터와 고급 제어·독 진입·헤더 알림·오버레이·ESC 패널 유지·패널의 1px 경계선·포커스별 내부 탭 예약키·전체화면 잠금·원격 키보드 우선권 및 공용 작업 메뉴·파일 작업·에이전트/터미널 탭 우클릭 메뉴 동작을 정의한다."
 ---
 # 오버레이와 탭 단축키 계약
 
@@ -298,24 +298,29 @@ Documents는 [상위·하위 문서 계약](document-pages.md)을 따른다. 대
 
 ## 포커스 기반 탭 단축키
 
-`Alt+N`(재지정한 `newTab` 포함)은 에이전트 패널에서는 해당 그룹의 `+` 선택 화면을 열고 에디터·사이드바에서는 새 파일 이름 입력을 연다. App의 capture 리스너가 `openFocusedTab`으로 등록된 행동을 먼저 전달하므로 파일 쓰기 권한과 별개로 에이전트 새 탭을 열 수 있다. 모달·IME 조합·키 반복은 생성 행동을 차단한다. 중첩된 단축키 표면은 해당 행동을 등록한 가장 안쪽 표면을 사용하며, 행동이 없는 표면은 상위 등록을 사용한다. 명시적으로 `false`를 반환한 행동은 상위로 재전달하지 않는다. 상세 생성 흐름은 [에이전트셋·탭 생성](../features/터미널·에이전트·자동화/에이전트셋·탭%20생성.md)이 소유한다. 검증은 `server/agent-new-tab-ui.test.ts`에서 대화·탭 줄·선택기, 재지정, 모달·반복·IME 차단과 에디터·사이드바 폴백을 확인한다.
+`Ctrl/Cmd+N`·`Ctrl/Cmd+T`와 기존 `Alt+N`(재지정한 `newTab` 포함)은 포커스된 표면의 새 탭을 연다. 에이전트는 해당 그룹의 `+` 선택 화면, 일반 셸은 해당 그룹의 새 터미널, 내부 브라우저는 주소를 열기 전의 빈 탭을 만들며 에디터·사이드바는 새 파일 이름 입력을 연다. `Ctrl/Cmd+Shift+N`은 기존 새 폴더 흐름으로 연결한다(문서 트리는 기존 새 문서 규칙). 사이드바는 선택한 위치, 에디터는 활성 문서의 폴더를 사용하고 파일 읽기·쓰기 권한을 검사하며 `useSidebarCreate`의 프로젝트별 일회성 요청을 소비해 재마운트·프로젝트 전환에서 재생하지 않는다.
 
-`Alt+Q`는 왼쪽(이전) 탭, `Alt+E`는 오른쪽(다음) 탭으로 이동하며 양 끝에서 반대편 끝으로 순환한다. 번호 선택과 같은 포커스·분할 패널·모달 제외·입력 차단 계약을 사용한다. 이 두 조합은 고정이며 설정 목록에서 확인할 수 있다. 기존 `Ctrl+Alt+←/→`와 사용자 지정 이전·다음 탭 조합도 유지한다. 내부 브라우저 iframe은 좌우 이동 조합도 앱으로 전달한다. 사이드바는 `aria-pressed`, 다른 탭 줄은 `aria-selected`로 현재 위치를 판별한다.
+`captureAppTabShortcuts`가 capture 단계에서 `openFocusedTab`으로 등록된 행동을 먼저 전달하므로 파일 쓰기 권한과 별개로 에이전트·브라우저 새 탭을 열 수 있다. 모달·IME 조합·키 반복은 생성·닫기 행동을 실행하지 않고 키를 소비한다. 중첩된 단축키 표면은 해당 행동을 등록한 가장 안쪽 표면을 사용하며, 행동이 없는 표면은 상위 등록을 사용한다. 상세 생성 흐름은 [에이전트셋·탭 생성](../features/터미널·에이전트·자동화/에이전트셋·탭%20생성.md)이 소유한다.
 
-`Alt+1`…`Alt+9`는 현재 포커스된 패널의 표시 순서에 해당하는 탭을 선택한다. `useFocusedWorkspacePanel`은 window capture 단계에서 `numberedTabIndex`로 조합을 판정하고 `activateNumberedPanelTab`으로 기존 탭 클릭 동작을 실행한다. `data-dock-body`는 같은 그룹의 `data-dock-panel` 탭 줄에 연결하므로 다른 분할 패널의 탭을 선택하지 않는다. 탭 줄의 `role="tablist"`가 있으면 그 목록을 사용하고, 없으면 `data-dock-tab-bar`의 `role="tab"` 순서를 사용한다. 사이드바는 `data-numbered-tab`으로 전환 버튼 순서를 지정한다.
+`Ctrl/Cmd+Tab`·`Ctrl/Cmd+PageDown`·`Alt+E`는 다음 탭, `Ctrl/Cmd+Shift+Tab`·`Ctrl/Cmd+PageUp`·`Alt+Q`는 이전 탭으로 이동하며 양 끝에서 순환한다. 번호 선택과 같은 포커스·분할 패널·모달 제외·입력 차단 계약을 사용한다. 기존 `Ctrl+Alt+←/→`와 사용자 지정 이전·다음 탭 조합도 유지한다. `Ctrl+Tab`과 충돌하던 에이전트 입력의 CLI 전환은 `Ctrl+Alt+M`으로 옮긴다. 내부 브라우저 iframe은 생성·닫기·번호·좌우 이동 키를 앱으로 전달하고 앱에서 소비하면 원격 웹페이지 입력을 보내지 않는다. 사이드바는 `aria-pressed`, 다른 탭 줄은 `aria-selected`로 현재 위치를 판별한다.
 
-- 없는 번호는 현재 탭을 유지하며, 탭이 없는 패널에서도 다른 패널로 넘기지 않는다. 번호 단축키는 편집기·PTY로 전달하지 않는다. `Alt+0`, Ctrl/Cmd/Shift가 함께 눌린 조합, IME 조합 중 입력은 처리하지 않는다.
+`Ctrl/Cmd+1`…`Ctrl/Cmd+9`와 `Alt+1`…`Alt+9`는 현재 포커스된 패널의 표시 순서에 해당하는 탭을 선택한다(9는 아홉 번째 탭). `useFocusedWorkspacePanel`은 window capture 단계에서 `numberedTabIndex`로 조합을 판정하고 `activateNumberedPanelTab`으로 기존 탭 클릭 동작을 실행한다. `data-dock-body`는 같은 그룹의 `data-dock-panel` 탭 줄에 연결하므로 다른 분할 패널의 탭을 선택하지 않는다. 탭 줄의 `role="tablist"`가 있으면 그 목록을 사용하고, 없으면 `data-dock-tab-bar`의 `role="tab"` 순서를 사용한다. 사이드바는 `data-numbered-tab`으로 전환 버튼 순서를 지정한다.
+
+- 없는 번호는 현재 탭을 유지하며, 탭이 없는 패널에서도 다른 패널로 넘기지 않는다. 번호 단축키는 편집기·PTY로 전달하지 않는다. 0·Shift·Alt와 Ctrl/Cmd가 함께 눌린 조합·IME 입력은 번호 선택으로 처리하지 않는다.
 - macOS Option으로 `key`가 특수문자로 바뀌어도 `Digit1`…`Digit9`의 물리 키를 인식하며 숫자 키패드도 지원한다. 내부 브라우저 iframe은 번호 조합을 앱 window로 전달한다.
-- 키보드·포인터로 마지막 선택한 패널을 기억하되 닫힌·숨긴·inert 패널과 모달 입력에서는 배경 탭을 전환하지 않는다. 태스크는 제목을 제외한 목록·달력·간트 보기 목록을 사용한다.
-- 회귀 검증은 `src/hooks/use-focused-workspace-panel.test.ts`에서 분할 에디터·포털 터미널·사이드바·태스크 선택, 없는 번호, Option 키, 수정키·IME 제외, 모달과 inert 패널, 입력 전달 차단과 `Alt+Q/E`의 양끝 순환을 확인한다.
+- 키보드·포인터로 마지막 선택한 패널을 기억하되 닫힌·숨긴·inert 패널과 모달 입력에서는 배경 탭을 전환하지 않는다. Ctrl/Cmd 번호·이동 키는 이 경우에도 소비해 브라우저 탭으로 새지 않게 한다. 태스크는 제목을 제외한 목록·달력·간트 보기 목록을 사용한다.
+- 회귀 검증은 `src/hooks/use-focused-workspace-panel.test.ts`·`server/desktop-keyboard-ui.test.ts`에서 분할 에디터·포털 터미널·사이드바·태스크 선택, 없는 번호, Option·숫자패드, 수정키·IME 제외, 모달과 inert 패널, 입력 차단과 양끝 순환을 확인한다. 실제 패널과 iframe은 `agent-new-tab-ui.test.ts`·`browser-start-page.test.ts`·`browser-dom.test.ts`, 파일·폴더 생성은 실제 App의 `workspace-switch-ui.test.ts`로 검증한다.
 
 
-`Ctrl/Cmd+W`(기본 `closeTab`)와 `Alt+W`(기본 `closeTabAlt`)는 App의 window capture 리스너에서 조합을 판정한 뒤, `@mew/shortcuts`의 `closeFocusedTab`·`dispatchFocusedShortcut`으로 **포커스된 표면**에 전달한다. 터미널·에이전트 패널·브라우저처럼 자기 탭을 소유하는 창은 루트 ref와 `useFocusedShortcutScope(ref, { closeTab })`만 등록한다. 이 계약 덕분에 새 탭 창을 추가해도 App의 단축키 조건문을 고치지 않는다.
+`Ctrl/Cmd+W`·`Ctrl/Cmd+Shift+W`와 `Alt+W`(재지정한 닫기 조합 포함)는 `closeFocusedTab`·`dispatchFocusedShortcut`으로 **포커스된 표면의 탭 하나**를 닫는다. 터미널·에이전트·브라우저처럼 자기 탭을 소유하는 창은 루트 ref와 `useFocusedShortcutScope(ref, { closeTab, newTab })`을 등록한다.
 
 - 키가 앱에 전달되면 닫을 탭 유무와 관계없이 `preventDefault()`·`stopImmediatePropagation()`으로 브라우저 기본 동작과 편집기·PTY 전달을 막는다. 반복 keydown은 소비만 하고 추가 탭을 닫지 않는다. 마지막 내부 브라우저 탭과 주소를 열기 전의 빈 탭도 닫을 수 있다. 탭이 없는 시작 화면에서는 다른 표면의 탭으로 새지 않는다.
 - 확인창·모달에 포커스가 있으면 탭 닫기 키를 소비하고 배경 탭의 닫기 행동·편집기 폴백을 실행하지 않는다. 작업 중 에이전트 탭의 확인·취소는 [에이전트 대화 계약](../features/터미널·에이전트·자동화/에이전트%20대화·큐·복원.md#작업-중-탭-닫기-확인)을 따른다.
 - 등록된 창이 없고 편집기의 초점 칸에 활성 문서가 있을 때만 그 문서 탭을 닫는다. 터미널의 탭 닫기는 기존 `×` 버튼과 같은 경로로 해당 셸 세션을 종료한다.
-- 일반 브라우저 탭의 예약 `Ctrl/Cmd+W`는 keydown 자체가 전달되지 않을 수 있어 웹 코드만으로 차단을 보장할 수 없다. 앱 전체화면 진입 성공 후 지원되는 브라우저에서 `navigator.keyboard.lock(['KeyW'])`를 요청한다. 거부·미지원이면 기존 전체화면을 유지한다. 일반 탭 또는 잠금 불가 환경에서는 `Alt+W`를 사용한다. 두 조합은 설정에서 각각 변경할 수 있다. [Chrome Keyboard Lock 계약](https://developer.chrome.com/articles/keyboard-lock)을 따른다.
+
+`Ctrl/Cmd+W/N/T/숫자` 등의 표준 조합은 고정 별칭이며 기존 사용자 지정 단축키를 바꿔도 제공한다. 일반 Chrome 탭에서는 예약키의 keydown이 웹페이지에 전달되지 않을 수 있다. **mew의 전체화면 버튼 또는 Alt+Enter**로 JavaScript 전체화면에 들어가면 `captureAppKeyboardLock`이 생성·닫기·선택·이동 및 기존 앱 명령에 필요한 `APP_KEYBOARD_KEYS`를 잠근다. F11 전체화면만으로 이 조건을 대신하지 않는다. secure context(HTTPS/localhost)와 Keyboard Lock 지원이 필요하며 미지원·거부 상태에서는 전달된 이벤트만 소비한다. 잠금 불가 환경에는 기존 Alt 조합을 제공한다. Chrome 앱 창(메뉴의 **이 페이지를 앱으로 설치**)은 창 모드에서 Ctrl+W를 앱에 전달하는 선택 경로이며 클라이언트 키보드 보조앱을 추가하지 않는다. [Keyboard Lock](https://developer.chrome.com/docs/capabilities/web-apis/keyboard-lock)과 [Chrome 앱 설치](https://support.google.com/chrome/answer/9658361?hl=ko)를 따른다.
+
+`@mew/shortcuts`는 모듈 초기화 때 하나의 최우선 capture 리스너를 설치한다. 활성 원격 화면의 `registerKeyboardCapture`가 일반 탭 단축키·번호 선택·오버레이보다 먼저 keydown과 keyup을 함께 처리한다. `keyboard-lock.ts`는 앱 예약키 잠금과 원격 전체 키 잠금을 우선순위별로 관리한다. 원격 포커스 이탈·닫기 뒤 전체화면이 유지되면 앱 예약키 잠금을 복원하고, 전체화면 종료·window blur·화면 숨김·언마운트에서는 해제한다. 비동기 승인 결과가 새 소유자의 잠금을 해제하지 않게 수명을 검사한다. 원격 입력·OS 예외·클립보드는 [원격 키보드 계약](remote-desktop.md#키보드-잠금과-클립보드)을 따른다.
 
 ## 계정 관리 권한 표
 

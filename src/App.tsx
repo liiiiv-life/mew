@@ -90,7 +90,9 @@ import type { DockState } from './utils/dock-layout'
 import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
-import { closeFocusedTab, openFocusedTab, getBinding, matchesShortcut } from '@mew/shortcuts'
+import { getBinding, matchesShortcut } from '@mew/shortcuts'
+import { captureAppTabShortcuts } from './utils/app-tab-shortcuts'
+import { captureAppKeyboardLock } from './utils/keyboard-lock'
 import { ConfirmDialog, HoverTipLayer, SelectField, hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
@@ -128,11 +130,7 @@ import { normalizeDirectoryChildren, normalizeTreeCenterAnchor } from './utils/t
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
-  else document.documentElement.requestFullscreen().then(() => {
-    // 브라우저 예약 Ctrl/Cmd+W는 일반 탭에서 전달되지 않는다. 앱 전체화면에서만 잠근다.
-    const keyboard = (navigator as Navigator & { keyboard?: { lock: (keys: string[]) => Promise<void> } }).keyboard
-    return keyboard?.lock(['KeyW']).catch(() => {})
-  }).catch(() => {})
+  else document.documentElement.requestFullscreen().catch(() => {})
 }
 
 const DebuggerPanel = lazy(() => import('./components/debugger-panel'))
@@ -321,6 +319,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const mobilePanelStackRestoredRootRef = useRef<string | null>(null)
   const [treeInvalidation, setTreeInvalidation] = useState<{ n: number; project: string; version: number; parents: string[] }>({ n: 0, project: '', version: 0, parents: [] })
   const [focusedWorkspacePanel, setFocusedWorkspacePanel, focusWorkspacePanel] = useFocusedWorkspacePanel()
+  useEffect(() => captureAppKeyboardLock(), [])
   const [desktopMode, setDesktopMode] = useState(isDesktop)
   const [editorOpen, setEditorOpen] = useState(true)
   useEffect(() => {
@@ -520,9 +519,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     setSidebarView('files')
     setDocsExpanded(scope === 'docs')
   }, docsExpanded ? 'docs' : 'root')
-  // Alt+N 새 파일 신호 — parentPath가 있으면 그 폴더에(에디터 포커스였을 때 활성 문서 폴더),
-  // null이면 FileTree가 자기 선택 항목 기준으로 이름 입력을 연다
-  const [newFileSignal, setNewFileSignal] = useState<{ n: number; parentPath: string | null; project?: string }>({ n: 0, parentPath: null })
   // 사이드바에서 지금 문서 자리를 드러내라는 신호(부모 폴더 펼치기 + 스크롤). 경로가 아니라 신호인 이유는
   // **이미 열려 있는 탭을 다시 눌렀을 때**다 — 그때는 활성 경로가 그대로라 경로만 보면 아무 일도 안 일어난다
   const [revealSignal, setRevealSignal] = useState(0)
@@ -1597,14 +1593,19 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   )
 
   useEffect(() => {
-    function handleCloseTab(e: KeyboardEvent) {
-      if (!matchesShortcut(e, getBinding('closeTab')) && !matchesShortcut(e, getBinding('closeTabAlt'))) return
-      closeFocusedTab(e, () => { if (activePath) closeTab(activePath) })
-    }
-    function handleFocusedNewTab(e: KeyboardEvent) {
-      if (!matchesShortcut(e, getBinding('newTab'))) return
-      openFocusedTab(e)
-    }
+    const stopTabShortcuts = captureAppTabShortcuts({
+      closeEditorTab: () => { if (activePath) closeTab(activePath) },
+      create: (event, kind) => {
+        if (!caps.filesWrite || !caps.filesRead) return
+        const inSidebar = event.target instanceof HTMLElement && !!event.target.closest('[data-sidebar]')
+        setSidebarView('files')
+        openWorkspacePanel('sidebar')
+        sidebarCreate.create(kind, inSidebar ? undefined : {
+          scope: activeFile.project === DEFAULT_PROJECT ? 'docs' : 'root',
+          parentPath: activeTab?.path ? activeFile.path.split('/').slice(0, -1).join('/') : '',
+        })
+      },
+    })
     function handleKeyDown(e: KeyboardEvent) {
       // Esc는 모달·팝업 스택 또는 패널 콘텐츠에서 처리한다.
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
@@ -1690,18 +1691,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.xterm'))) return
         e.preventDefault()
         toggleWorkspacePanel('sidebar')
-      } else if (matchesShortcut(e, getBinding('newTab'))) {
-        if (!caps.filesWrite || !caps.filesRead) return
-        // Ctrl+N도 마찬가지로 브라우저 예약 단축키라 가로챌 수 없어 기본값은 Alt+N이다.
-        // 빈 탭이 아니라 새 파일 흐름 — 사이드바에 포커스면 거기 선택된 항목 기준(FileTree가
-        // 알고 있다), 에디터 등 다른 곳이면 활성 문서와 같은 폴더에 이름 입력을 연다
-        e.preventDefault()
-        const inSidebar = e.target instanceof HTMLElement && !!e.target.closest('[data-sidebar]')
-        const parentPath = !inSidebar && activeTab?.path ? activeFile.path.split('/').slice(0, -1).join('/') : null
-        setSidebarView('files')
-        openWorkspacePanel('sidebar')
-        if (!inSidebar) setDocsExpanded(activeFile.project === DEFAULT_PROJECT)
-        setNewFileSignal((s) => ({ n: s.n + 1, parentPath, project: !inSidebar ? activeFile.project : docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT }))
       } else if (matchesShortcut(e, getBinding('prevTab')) || matchesShortcut(e, getBinding('nextTab'))) {
         // Ctrl+Alt+←/→ 탭 이동 — 끝에 닿으면 반대편으로 감싼다. 터미널에 포커스가 있어도 동작한다
         // (TmuxTerminal이 이 조합을 PTY로 보내지 않고 통과시킨다)
@@ -1717,19 +1706,16 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
         toggleFullscreen()
       }
     }
-    window.addEventListener('keydown', handleCloseTab, true)
-    window.addEventListener('keydown', handleFocusedNewTab, true)
     window.addEventListener('keydown', handleKeyDown)
     return () => {
-      window.removeEventListener('keydown', handleCloseTab, true)
-      window.removeEventListener('keydown', handleFocusedNewTab, true)
+      stopTabShortcuts()
       window.removeEventListener('keydown', handleKeyDown)
     }
     // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다
   }, [
     saveCurrentTab, closeTab, activePath, activeTab, activeRelativePath, activeFile.path, activeFile.project, tabs, setActivePath,
     caps, canUseTerminal, focusedEditor, isGuest, isOwner, project, sidebarOpen, chatOpen, agentOpen, terminalOpen,
-    browserOpen, androidOpen, mobilePanelStack, openWorkspacePanel, docsExpanded,
+    browserOpen, androidOpen, mobilePanelStack, openWorkspacePanel, docsExpanded, sidebarCreate,
     toggleWorkspacePanel, switchCurrentWindowTabRight, switchCurrentWindowTabLeft,
   ])
 
@@ -2315,7 +2301,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                         </div>
                       ))}</>}
                       searchFocusSignal={searchFocusSignal}
-                      newFileSignal={newFileSignal.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? newFileSignal : { n: 0, parentPath: null }}
+                      newFileSignal={{ n: 0, parentPath: null }}
                       revealSignal={revealSignal}
                       presence={activeFile.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? tabPresence : {}}
                       documentPages={isGuest || docsExpanded}

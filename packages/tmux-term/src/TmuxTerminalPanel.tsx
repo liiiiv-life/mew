@@ -360,7 +360,7 @@ export function TmuxTerminalPanel({
   }
 
   // 탭 닫기는 tmux 세션 종료이므로 기존 × 버튼과 같은 확인 흐름을 쓴다.
-  useFocusedShortcutScope(shortcutScopeRef, { closeTab: () => {
+  useFocusedShortcutScope(shortcutScopeRef, { newTab: () => { startCreate(); return true }, closeTab: () => {
     if (!activeSession) return false
     setKillTarget(activeSession)
     return true

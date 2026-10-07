@@ -15,6 +15,8 @@ test('browser start page opens only requested URLs, closes the last tab and reta
     import {I18nProvider} from '${root}/src/i18n.tsx';
     import {BrowserPanel} from '${root}/src/components/BrowserPanel.tsx';
     import {DockWorkspace} from '${root}/src/components/DockWorkspace.tsx';
+    import {captureAppTabShortcuts} from '${root}/src/utils/app-tab-shortcuts.ts';
+    window.fileCreates=0;captureAppTabShortcuts({closeEditorTab(){},create(){window.fileCreates++}});
     const panel=<BrowserPanel onClose={()=>{}}/>;
     function Fixture(){const [state,setState]=useState(null);return <I18nProvider><div className="flex h-dvh flex-col bg-surface-deep text-ink">{location.search.includes('dock')?<DockWorkspace value={state} onChange={setState} foreground="browser">{panel}</DockWorkspace>:panel}</div></I18nProvider>}
     createRoot(document.getElementById('root')).render(<Fixture/>);`
@@ -59,6 +61,14 @@ test('browser start page opens only requested URLs, closes the last tab and reta
       await page.getByRole('button', { name: 'liiiiv-life dev', exact: true }).waitFor()
       assert.deepEqual(opened, [], 'opening the panel must not start localhost:3100')
       assert.equal(await page.getByRole('tab').count(), 0)
+      await page.getByRole('textbox', { name: '주소', exact: true }).focus()
+      await page.keyboard.press('Control+n')
+      await page.waitForFunction('document.querySelectorAll("[role=tab]").length===1')
+      assert.deepEqual(opened, [], 'shortcut creates a local blank tab')
+      await page.getByRole('textbox', { name: '주소', exact: true }).focus()
+      await page.keyboard.press('Control+w')
+      await page.waitForFunction('document.querySelectorAll("[role=tab]").length===0')
+      assert.equal(await page.evaluate('window.fileCreates'), 0)
       await page.getByRole('textbox', { name: '주소', exact: true }).fill('javascript:alert(1)')
       await page.getByRole('button', { name: '이동', exact: true }).click()
       await page.getByRole('alert').waitFor()
@@ -86,7 +96,8 @@ test('browser start page opens only requested URLs, closes the last tab and reta
       await page.getByRole('button', { name: 'Docs', exact: true }).click()
       await page.locator('[data-page]').waitFor()
       assert.equal(opened.at(-1), 'https://example.com/docs')
-      await page.getByRole('button', { name: '새 탭', exact: true }).click()
+      await page.getByRole('textbox', { name: '주소', exact: true }).focus()
+      await page.keyboard.press('Control+t')
       await page.getByRole('textbox', { name: '주소', exact: true }).waitFor()
       assert.equal(opened.length, 2, 'new tabs stay local until an address is submitted')
       await page.getByRole('textbox', { name: '주소', exact: true }).fill('localhost:4000')

@@ -44,6 +44,21 @@ test('Mac middle dragging and modifier flags are retained until release', () => 
   assert.deepEqual(calls.find(call => call.name === 'CGEventCreateScrollWheelEvent')!.args, [null, 0, 2, 'int32', -20, 'int32', -10])
 })
 
+test('extended keys and numpad distinguish navigation, keypad enter and host-specific key codes', () => {
+  const win = ffi(), windows = windowsInput(win.koffi, bounds)
+  for (const code of ['Enter', 'NumpadEnter', 'NumpadDivide', 'Insert', 'PrintScreen', 'ContextMenu', 'Numpad1', 'F24', 'Lang1', 'Lang2']) { windows.key(code, true); windows.key(code, false) }
+  const packets = win.calls.filter(call => call.name === 'SendInput').map(call => call.args[1] as Buffer)
+  assert.deepEqual(packets.filter((_, i) => i % 2 === 0).map(p => [p.readUInt16LE(8), p.readUInt32LE(12)]), [[13, 0], [13, 1], [111, 1], [45, 1], [44, 1], [93, 1], [97, 0], [135, 0], [21, 0], [25, 0]])
+  assert.deepEqual(packets.filter((_, i) => i % 2 === 1).map(p => p.readUInt32LE(12)), [2, 3, 3, 3, 3, 3, 2, 2, 2, 2])
+  const mac = ffi(), adapter = macInput(mac.koffi, bounds)
+  for (const code of ['KeyA', 'Numpad1', 'NumpadEnter', 'F20', 'Lang1', 'Lang2', 'PrintScreen', 'F24']) adapter.key(code, true)
+  assert.deepEqual(mac.calls.filter(call => call.name === 'CGEventCreateKeyboardEvent').map(call => call.args[1]), [0, 83, 76, 90, 104, 102], 'unsupported Mac keys cannot become KeyA (key code zero)')
+  const linux = ffi(), x11 = x11Input(linux.koffi, bounds)
+  for (const code of ['Numpad1', 'NumpadEnter', 'Insert', 'Lang1', 'Lang2']) x11.key(code, true)
+  assert.deepEqual(linux.calls.filter(call => call.name === 'XStringToKeysym').map(call => call.args[0]), ['KP_1', 'KP_Enter', 'Insert', 'Hangul', 'Hangul_Hanja'])
+  x11.close()
+})
+
 test('X11 wheel preserves sub-notch input and maps right/middle buttons', () => {
   const { koffi, calls } = ffi(), adapter = x11Input(koffi, bounds)
   adapter.wheel(0, 60); adapter.wheel(0, 60)
@@ -73,8 +88,8 @@ test('Wayland subscribes before permission responses, serializes input, and clos
   const { adapter, bus, calls, matches } = await portalFixture()
   assert.doesNotThrow(() => adapter.check())
   assert.equal(adapter.relativeOnly, true); assert.equal(adapter.moveTo, undefined)
-  adapter.button(2, true); adapter.move(10, 20); adapter.button(2, false); await adapter.close()
-  assert.deepEqual(calls.filter(call => String(call[0]).startsWith('Notify')), [['NotifyPointerButton', '/session/test', {}, 274, 1], ['NotifyPointerMotion', '/session/test', {}, 10, 20], ['NotifyPointerButton', '/session/test', {}, 274, 0]])
+  adapter.button(2, true); adapter.move(10, 20); adapter.button(2, false); adapter.key('NumpadEnter', true); adapter.key('NumpadEnter', false); adapter.key('Lang1', true); await adapter.close()
+  assert.deepEqual(calls.filter(call => String(call[0]).startsWith('Notify')), [['NotifyPointerButton', '/session/test', {}, 274, 1], ['NotifyPointerMotion', '/session/test', {}, 10, 20], ['NotifyPointerButton', '/session/test', {}, 274, 0], ['NotifyKeyboardKeycode', '/session/test', {}, 96, 1], ['NotifyKeyboardKeycode', '/session/test', {}, 96, 0], ['NotifyKeyboardKeycode', '/session/test', {}, 122, 1]])
   assert.equal(calls.at(-1)![0], 'Close'); assert.equal(bus.disconnected, true); assert.equal(matches.size, 0)
   assert.throws(() => adapter.check(), /종료/)
 })

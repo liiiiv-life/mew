@@ -8,7 +8,7 @@ updated: "2026-10-07"
 status_hash: "b19a2771f0bfb2f727bc14539350c69b524d222b67a2322b322f359fefd6a804"
 files: ["src/components/AgentPanel.tsx", "src/components/TermButtonBar.tsx", "server/termButtons.ts", "packages/tmux-term/src/TmuxTerminal.tsx", "packages/tmux-term/src/server/tmuxWs.ts"]
 commits: []
-description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·세션 종료와 명령 버튼을 다루는 기능 계약으로, 탭 우클릭의 아이콘 메뉴에서 이름 변경·닫기·데스크톱 최대화/복귀를 제공한다. 에이전트 TUI와의 구분, 테마 반영 및 패널 닫기와 세션 종료의 차이를 설명한다."
+description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·세션 종료와 명령 버튼을 다루는 기능 계약으로, Ctrl/Cmd+N/T·Alt+N의 포커스별 새 터미널과 탭 우클릭의 이름 변경·닫기·최대화/복귀를 제공한다. 에이전트 TUI 구분·테마 반영·패널 닫기와 세션 종료의 차이를 설명한다."
 ---
 
 ## 요구사항
@@ -36,6 +36,8 @@ description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- `Ctrl/Cmd+N/T`와 `Alt+N`은 일반 셸 탭 줄·본문의 포커스 등록으로 해당 그룹의 `+`와 같은 새 터미널 흐름을 사용한다. 공용 `TmuxTerminalPanel`은 같은 이름 입력을 연다. 키를 PTY·새 파일 생성으로 보내지 않으며 반복·IME·모달은 생성하지 않는다. 브라우저 예약키 조건·탭 닫기·순환은 [공통 단축키 계약](../../development/ui-contracts.md#포커스-기반-탭-단축키)을 따른다.
+
 - 공통 `AgentTabBar`의 우클릭 또는 Shift+F10으로 이름 변경·탭 닫기·데스크톱 탭 최대화/원래 크기로 복귀 메뉴를 연다. 최대화는 대상 탭을 선택한 뒤 해당 패널을 확대하며, 닫기는 기존 세션 종료·확인 흐름을 사용한다. 모바일에는 최대화 항목을 표시하지 않는다. 메뉴 외형과 배치·닫기는 파일탐색기와 공유하는 `ActionMenu`를 사용하며 각 항목은 Iconoir 아이콘과 번역된 텍스트를 표시한다.
 
 - 연결·재연결 상태와 터미널 열기 실패는 본문 상단의 작은 반투명 플로팅 알림으로 표시한다. 명령 버튼 바와 본문 크기를 밀지 않는다.
@@ -55,6 +57,8 @@ description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-07: `agent-new-tab-ui.test.ts`에서 실제 일반 셸 그룹의 탭 줄과 본문 포커스에 Ctrl+N을 보내 터미널 탭 증가·파일 생성 폴백 제외를 확인했다. PTY는 테스트용 입력으로 대체하며 실제 OS 키 가로채기는 확인하지 않았다.
 
 - 2026-10-07: `server/dock-maximize-ui.test.ts`에서 에이전트·터미널 우클릭 메뉴의 아이콘·이름 변경·확대/복귀·탭 종료, Shift+F10·방향키·Esc와 모바일의 최대화 항목 제외·viewport 경계를 확인했다. `server/sidebar-touch-ui.test.ts`의 파일탐색기 터치 메뉴 회귀, 타입·대상 린트·문서 검사도 통과했다.
 

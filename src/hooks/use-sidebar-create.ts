@@ -10,8 +10,8 @@ export function useSidebarCreate(workspacePath: string | null, reveal: (scope: s
   useEffect(() => { setTarget(null); setPending(null) }, [workspacePath])
 
   const selectDirectory = (scope: string, parentPath: string) => setTarget({ scope, parentPath, workspacePath })
-  const create = (kind: SidebarCreateRequest['kind']) => {
-    const destination = target?.workspacePath === workspacePath && (!activeScope || target.scope === activeScope) ? target : { scope: activeScope ?? 'root', parentPath: '' }
+  const create = (kind: SidebarCreateRequest['kind'], explicit?: Target) => {
+    const destination = explicit ?? (target?.workspacePath === workspacePath && (!activeScope || target.scope === activeScope) ? target : { scope: activeScope ?? 'root', parentPath: '' })
     reveal(destination.scope)
     setPending({ ...destination, kind, workspacePath })
   }

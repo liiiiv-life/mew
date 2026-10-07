@@ -985,7 +985,7 @@ function AgentTabBar({
   const scopeRef = useRef<HTMLDivElement>(null)
   useFocusedShortcutScope(scopeRef, {
     closeTab: () => { if (!activeId || pickerOpen) return false; onCloseTab(activeId); return true },
-    newTab: group?.startsWith('terminal') ? undefined : () => { onAdd(); return true },
+    newTab: () => { onAdd(); return true },
   })
   const dock = useDock()
   const drag = useDragReorder({ onReorder, onDragStart: () => setTabMenu(null), immediateMouseDrag: true, onDragMove: (index, x, y) => { if (group && tabs[index]) dock?.preview(group, tabs[index].id, x, y) }, onDrop: (index, x, y) => { if (group && tabs[index]) dock?.drop(group, tabs[index].id, x, y) } })
@@ -1994,7 +1994,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
           onRename={renameTab} onReorder={(from, to) => { const a = tabs.findIndex((tab) => tab.id === list[from]?.id), b = tabs.findIndex((tab) => tab.id === list[to]?.id); if (a >= 0 && b >= 0) reorderTabs(a, b) }}
           onCloseTab={closeTab} onClosePanel={() => { if (!dock.desktop || !dock.closeGroup(group)) (terminal ? onCloseTerminal ?? onClose : onClose)() }} />
         {(!tabsSynced || picking || terminal && (!list.length || openRuntimeError)) && <DockInlineBody group={group} className="relative flex min-h-0 flex-1 flex-col bg-surface-deep">
-        <AgentDockContent onAdd={terminal ? undefined : () => { focusGroup(group); setPickerGroup(group); setPickerOpen(true) }}>
+        <AgentDockContent onAdd={() => { focusGroup(group); if (terminal) addRuntimeTab('tmux', undefined, group); else { setPickerGroup(group); setPickerOpen(true) } }}>
         {!tabsSynced && (() => {
           return !terminal ? <AgentRestoringView /> : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">{uiText("불러오는 중…")}</div>
         })()}
@@ -2013,7 +2013,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
       const group = dock.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', tab.id)
       const active = (tab.runtime === 'tmux' ? terminalOpen : agentOpen) && groupActive(group) === tab.id && !(pickerOpen && pickerGroup === group)
       return <DockBody key={`${tab.id}:${tab.runtime}:${tab.cwd}`} group={group} active={active} onFocus={() => focusGroup(group)}>
-        <AgentDockContent onClose={() => closeTab(tab.id)} onAdd={tab.runtime === 'tmux' ? undefined : () => { focusGroup(group); setPickerGroup(group); setPickerOpen(true) }}>{renderSession(tab, active && focusedGroup === group, active)}</AgentDockContent>
+        <AgentDockContent onClose={() => closeTab(tab.id)} onAdd={() => { focusGroup(group); if (tab.runtime === 'tmux') addRuntimeTab('tmux', undefined, group); else { setPickerGroup(group); setPickerOpen(true) } }}>{renderSession(tab, active && focusedGroup === group, active)}</AgentDockContent>
       </DockBody>
     })}
   </>
@@ -3877,8 +3877,8 @@ function AgentSessionView({
           }
         }}
         onKeyDownCapture={(event) => {
-          if (event.target !== agentInputRef.current?.element || event.key !== 'Tab' || !event.ctrlKey
-            || event.altKey || event.metaKey || event.shiftKey || event.nativeEvent.isComposing) return
+          if (event.target !== agentInputRef.current?.element || event.code !== 'KeyM' || !event.ctrlKey || !event.altKey
+            || event.metaKey || event.shiftKey || event.nativeEvent.isComposing) return
           event.preventDefault()
           event.stopPropagation()
           if (!event.repeat) toggleCliMode()
@@ -3907,8 +3907,8 @@ function AgentSessionView({
           <div className="flex min-w-0 flex-1 items-center gap-1">
             <button type="button" onPointerDown={keepFocusOnPress} onClick={toggleCliMode}
               aria-label={uiText("CLI 명령 모드")} aria-pressed={composerCliMode}
-              aria-keyshortcuts="Control+Tab"
-              title={!allowTerminal ? uiText("터미널 권한이 필요합니다") : attaching || attachments.length ? uiText("첨부 파일을 제거한 뒤 CLI 모드를 켜세요") : composerCliMode ? uiText("CLI 명령 모드 켜짐 · 입력칸에서 Ctrl+Tab으로 전환") : uiText("CLI 명령 모드 · 입력칸에서 Ctrl+Tab으로 전환")}
+              aria-keyshortcuts="Control+Alt+M"
+              title={!allowTerminal ? uiText("터미널 권한이 필요합니다") : attaching || attachments.length ? uiText("첨부 파일을 제거한 뒤 CLI 모드를 켜세요") : composerCliMode ? uiText("CLI 명령 모드 켜짐 · 입력칸에서 Ctrl+Alt+M으로 전환") : uiText("CLI 명령 모드 · 입력칸에서 Ctrl+Alt+M으로 전환")}
               disabled={cliModeDisabled}
               className={`flex h-7 w-8 shrink-0 items-center justify-center rounded border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-secondary disabled:opacity-40 ${composerCliMode ? 'border-accent bg-accent text-ink-on-accent' : 'border-transparent text-ink-secondary hover:bg-surface-raised hover:text-ink'}`}>
               <TerminalIcon width={16} height={16} aria-hidden="true" />

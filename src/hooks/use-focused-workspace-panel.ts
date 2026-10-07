@@ -22,15 +22,16 @@ export function useFocusedWorkspacePanel() {
       const index = numberedTabIndex(event)
       const direction = adjacentPanelTabDirection(event)
       if (index === null && direction === null) return
+      const consume = () => { event.preventDefault(); event.stopImmediatePropagation() }
+      const browserShortcut = event.ctrlKey || event.metaKey
       const target = event.target instanceof Element ? event.target : document.activeElement
       // A modal has its own keyboard scope; do not switch the panel behind it.
-      if (target?.closest('[role="dialog"], [aria-modal="true"]')) return
+      if (target?.closest('[role="dialog"], [aria-modal="true"]')) { if (browserShortcut) consume(); return }
       const surface = target?.closest<HTMLElement>('[data-workspace-panel]') ?? lastSurface
       const panel = surface && numberedTabPanel(surface)
-      if (!surface?.isConnected || surface.closest('[inert]') || !panel?.isConnected || panel.closest('[inert]') || !panel.checkVisibility({ visibilityProperty: true })) return
+      if (!surface?.isConnected || surface.closest('[inert]') || !panel?.isConnected || panel.closest('[inert]') || !panel.checkVisibility({ visibilityProperty: true })) { if (browserShortcut) consume(); return }
       lastSurface = panel
-      event.preventDefault()
-      event.stopImmediatePropagation()
+      consume()
       if (index !== null) activateNumberedPanelTab(panel, index)
       else if (direction !== null) activateAdjacentPanelTab(panel, direction)
     }

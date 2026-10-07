@@ -10,7 +10,7 @@ import { applyTaskChanges, type TaskItem } from '../shared/task-list.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-test('App overlaps workspace metadata, restores warm roots and ignores duplicate handoffs', { skip: !domBrowserExecutable(), timeout: 45_000 }, async () => {
+for (const keyboardOnly of [true, false]) test(keyboardOnly ? 'App keyboard aliases create files and folders in the current explorer scope' : 'App overlaps workspace metadata, restores warm roots and ignores duplicate handoffs', { skip: !domBrowserExecutable(), timeout: 45_000 }, async () => {
   const appSource = await fs.readFile(`${root}/src/App.tsx`, 'utf8')
   // Keep App, useTabs, FileTree, root tabs and docking real. Unrelated panels and the
   // editor renderer are inert so this measures handoff work rather than editor startup.
@@ -162,6 +162,23 @@ test('App overlaps workspace metadata, restores warm roots and ignores duplicate
     assert.equal(await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"]').count(), 0)
     await page.keyboard.press('Home')
     assert.equal(await docsToggle.getAttribute('aria-pressed'), 'true')
+    if (keyboardOnly) {
+      for (const combo of ['Control+n', 'Control+t']) {
+        await docsToggle.focus(); await page.keyboard.press(combo)
+        await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"]').getByPlaceholder('새 문서 이름').waitFor()
+        await page.keyboard.press('Escape')
+      }
+      await filesToggle.click()
+      await filesToggle.focus(); await page.keyboard.press('Control+Shift+n')
+      await page.locator('[data-tree-key="sidebar-tree:root:/alpha"]').getByPlaceholder('새 폴더 이름').waitFor()
+      await page.keyboard.press('Escape'); await docsToggle.click()
+      await page.getByRole('button', { name: 'Select extra.md', exact: true }).click()
+      await page.getByRole('button', { name: 'Select extra.md', exact: true }).focus()
+      await page.keyboard.press('Control+w')
+      assert.equal(await page.getByRole('button', { name: 'Select extra.md', exact: true }).count(), 0, 'close applies to the active editor tab')
+      assert.deepEqual(errors, [])
+      return
+    }
     if (process.env.MEW_EXPLORER_SCREENSHOTS) {
       await fs.mkdir(process.env.MEW_EXPLORER_SCREENSHOTS, { recursive: true })
       await page.locator('[data-sidebar]').screenshot({ path: path.join(process.env.MEW_EXPLORER_SCREENSHOTS, 'desktop-documents.png') })
