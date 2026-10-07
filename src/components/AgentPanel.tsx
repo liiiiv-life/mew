@@ -3582,10 +3582,15 @@ function AgentSessionView({
         <>
       <div data-agent-conversation aria-busy={conversationLoading} className="relative isolate flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} tabIndex={0} onKeyDown={navigateQuestion} onScroll={handleScroll}
+        onPointerDownCapture={event => { event.currentTarget.dataset.pointerFocus = '' }}
+        onKeyDownCapture={event => { delete event.currentTarget.dataset.pointerFocus }}
+        onBlur={event => {
+          if (!event.currentTarget.contains(event.relatedTarget)) delete event.currentTarget.dataset.pointerFocus
+        }}
         onClick={event => {
           if (event.detail > 0 && event.target instanceof Element && !event.target.closest('a, input, textarea, select, [contenteditable]:not([contenteditable="false"])')) event.currentTarget.focus({ preventScroll: true })
         }}
-        inert={conversationLoading} style={{ visibility: conversationLoading ? 'hidden' : undefined }} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink">
+        inert={conversationLoading} style={{ visibility: conversationLoading ? 'hidden' : undefined }} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 text-sm outline-none focus-visible:not-data-[pointer-focus]:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink">
         {!conversationLoading && timeline.length === 0 && (
           <div className="flex min-h-full items-center justify-center text-center text-ink-muted">
             {t('agent.emptyConversation')}
