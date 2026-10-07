@@ -17,9 +17,11 @@ import React,{useState} from '${require.resolve('react')}';
 import {createRoot} from '${require.resolve('react-dom/client')}';
 import {MobileDock} from '${root}/src/components/mobile-dock.tsx';
 import {RemoteDesktop} from '${root}/src/components/remote-desktop.tsx';
+import {networkUsage} from '${root}/src/utils/network-usage.ts';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {createInputReceiver} from '${root}/native/remote-desktop/protocol.mjs';
 const events=window.inputEvents=[], packets=window.inputPackets=[];
+window.networkTotals=()=>networkUsage.getSnapshot();
 const Peer=window.RTCPeerConnection, peers=[];window.RTCPeerConnection=class extends Peer{constructor(...args){super(...args);peers.push(this)}};
 window.videoStats=async()=>{let result={frames:0,bytes:0};for(const p of peers){if(p.connectionState==='closed')continue;(await p.getStats()).forEach(s=>{if(s.type==='inbound-rtp'&&s.kind==='video')result={frames:s.framesDecoded??0,bytes:s.bytesReceived??0}})}return result};
 
@@ -98,6 +100,7 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     const usage = page.locator('.desktop-network')
     await page.waitForFunction(`document.querySelector('.desktop-network')?.textContent !== '누적 0 B'`)
     assert.match(await usage.getAttribute('aria-label') ?? '', /^세션 네트워크 사용량: 수신 .+, 송신 .+$/)
+    assert.ok(await page.evaluate('window.networkTotals().desktop.received > 0'), 'real WebRTC session bytes also reach the app header total')
     const firstUsage = await usage.textContent()
     await page.waitForFunction(`document.querySelector('.desktop-network')?.textContent !== ${JSON.stringify(firstUsage)}`)
     await page.waitForFunction(transport === 'direct' ? `document.querySelector('video')?.videoWidth>0` : `document.querySelector('.desktop-stage canvas')?.width===1280`)
@@ -520,6 +523,7 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await page.getByText('Open desktop').click()
     await page.getByText('원격 데스크톱을 준비하고 있습니다. 처음에는 다운로드에 몇 분 걸릴 수 있습니다.').waitFor()
     assert.equal(await usage.textContent(), '누적 0 B', 'reopening starts a new usage total')
+    assert.ok(await page.evaluate('window.networkTotals().desktop.received > 0'), 'app total survives closing and reopening the remote viewer')
     await page.setViewportSize({ width: 390, height: 844 })
     await page.getByRole('button', { name: '준비 내역 보기', exact: true }).click()
     const popup = page.locator('[data-cmd-overlay]')

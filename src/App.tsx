@@ -59,6 +59,7 @@ import { DocumentGraph } from './components/DocumentGraph'
 import { DocsSettingsModal } from './components/DocsSettingsModal'
 import { HeaderMenu, type HeaderMenuItem } from './components/HeaderMenu'
 import { ActiveSessionsButton } from './components/active-sessions-button'
+import { NetworkUsageButton } from './components/network-usage-button'
 import { MobileDock } from './components/mobile-dock'
 import { useMobileKeyboard } from './hooks/use-mobile-keyboard'
 import { adjacentDockPanel, type MobileDockPanel } from './utils/mobile-dock'
@@ -2133,6 +2134,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
               <span className="select-text hidden max-w-[12rem] truncate text-danger md:inline">{activeTab.statusMessage}</span>
             )}
             <HeaderNotifications />
+            <NetworkUsageButton />
             {!isGuest && <ActiveSessionsButton presence={activeSessions} />}
             {desktopMode && rootProjectPath && workspaceUiLoaded && tabsHydrated && <LayoutPresets key={`${authEmail}:${rootProjectPath}`} storageKey={layoutPresetsKey(authEmail ?? 'guest')} legacyStorageKey={legacyLayoutPresetsKey(authEmail ?? 'guest', rootProjectPath)} factory={layoutFactory} capture={captureLayout} onApply={applyLayoutPreset} />}
             {(!isGuest || canEditActiveTab) && <HoverTipLayer className="contents" placement="bottom">

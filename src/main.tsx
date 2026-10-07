@@ -7,6 +7,10 @@ import { I18nProvider } from './i18n.tsx'
 import { applyFontPreferences, loadFontPreferences } from './utils/fontPreferences.ts'
 import { applyThemeColor, loadThemeColor } from './utils/theme-color.ts'
 import { BrowserPopupPage } from './components/BrowserPopupPage.tsx'
+import { startNetworkTracking } from './utils/network-tracking.ts'
+
+const stopNetworkTracking = startNetworkTracking()
+if (import.meta.hot) import.meta.hot.dispose(stopNetworkTracking)
 
 // Migrate old disposable caches before any React effect persists workspace state.
 const stopStorageMaintenance = startBrowserStorageMaintenance()

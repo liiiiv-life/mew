@@ -4,6 +4,7 @@ import { desktopInput } from './desktop-input.ts'
 import { prepareDesktop } from './desktop-preparation.ts'
 import { desktopDirect } from './desktop-direct.ts'
 import { desktopNetworkUsage, type DesktopNetworkUsage } from './desktop-network.ts'
+import { desktopUsageReporter } from './network-usage.ts'
 
 export type DesktopScreen = { id: string; label: string; width: number; height: number }
 export type DesktopState = 'preparing' | 'connecting' | 'connected' | 'error' | 'paused'
@@ -26,6 +27,8 @@ export type DesktopEvents = {
 export function connectDesktop(events: DesktopEvents, preferredScreen?: string) {
   const input = desktopInput(message => fail(message), (x, y, joystick) => events.pointer?.(x, y, joystick)), abort = new AbortController()
   const network = desktopNetworkUsage(), encoder = new TextEncoder()
+  const reportUsage = desktopUsageReporter()
+  const publishNetwork = () => { const value = network.value(); reportUsage(value); events.network?.(value) }
   let socket: WebSocket | undefined, direct: ReturnType<typeof desktopDirect> | undefined
   let closed = false, connected = false, channelsReady = false, decoded = false
   let iceServers: RTCIceServer[] = [], candidates: Record<string, unknown>[] = [], offered = false
@@ -50,7 +53,7 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     closed = true; cancelAnimationFrame(motionFrame)
     try { input.close() } catch { /* Native input watchdog also releases held keys. */ }
     abort.abort(); clearInterval(heartbeat); clearInterval(stats); clearTimeout(deadline); clearTimeout(directDeadline)
-    direct?.close(); socket?.close(); events.network?.(network.value())
+    direct?.close(); socket?.close(); publishNetwork()
   }
   const fail = (message: string) => { if (!closed) { close(); events.state('error', message) } }
   const markConnected = () => {
@@ -72,7 +75,7 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     const current = direct, generation = negotiation
     void current.stats().then(report => {
       if (closed || direct !== current || negotiation !== generation) return
-      events.network?.(network.sample(report))
+      network.sample(report); publishNetwork()
       let rate = '', rtt = ''
       report.forEach(value => {
         if (value.type === 'inbound-rtp' && value.kind === 'video') {
