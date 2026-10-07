@@ -20,6 +20,8 @@ import { listSessionsFromDisk } from './agentSessionList.ts'
 import { workspacePaths } from './paths.ts'
 import { listSkills } from './skills.ts'
 import { resolveAgentCwd } from './agentCwd.ts'
+import { debuggerMcpServers } from './debugger-mcp.ts'
+import type { McpServer } from '@agentclientprotocol/sdk'
 
 export const AGENT_WS_PATH = '/api/agent/ws'
 
@@ -159,6 +161,7 @@ async function handleConnection(
   preset: { modelId: string; role: string; thinkingId: string; thinkingConfigId: string },
   history?: HistoryRequest,
   assistant?: MewcatBinding,
+  debuggerServers: McpServer[] = [],
 ) {
   const fail = (err: unknown) => send(ws, { type: 'error', message: describeError(err) })
 
@@ -297,7 +300,7 @@ async function handleConnection(
         // 유휴 종료도 이 길을 탄다. 재접속할 일시 단절을 대화 오류로 남기지 않는다.
         ws.close()
       },
-    }, resumeSessionId, undefined, assistant?.mcpServers)
+    }, resumeSessionId, undefined, assistant?.mcpServers ?? debuggerServers)
   } catch (err) {
     send(ws, { type: 'fatal', message: describeError(err) })
     ws.close()
@@ -380,8 +383,10 @@ export function attachAgentWebSocket(
           ws.on('close', () => { if (assistant?.options === bindingOptions) assistant.disconnect() })
           if (ws.readyState !== ws.OPEN) { assistant.disconnect(); return }
         }
+        const account = resolveAuth(req).email
+        const debuggerServers = !assistant && account ? await debuggerMcpServers(account, workspacePaths.root) : []
         await handleConnection(ws, runtime, tab, cwd, resumeSessionId, { modelId, role, thinkingId, thinkingConfigId }, url.searchParams.get('history') === '1'
-          ? validHistoryRequest({ generation: url.searchParams.get('generation'), after: url.searchParams.has('after') ? Number(url.searchParams.get('after')) : undefined }) : undefined, assistant)
+          ? validHistoryRequest({ generation: url.searchParams.get('generation'), after: url.searchParams.has('after') ? Number(url.searchParams.get('after')) : undefined }) : undefined, assistant, debuggerServers)
       })().catch(() => { send(ws, { type: 'fatal', message: 'MEWCAT_CONNECTION_FAILED' }); ws.close() })
     })
   }))

@@ -1,5 +1,5 @@
 ---
-description: "로그인 계정에 귀속하는 에이전트 커밋 작성자, 프로젝트 안내 전달과 기본 활성화 디버거 활용 설정, 에이전트 세션·탭 원장·삭제 시 감독 종료·큐·재접속, Git AI Commit 작업과 CLI·메모리·뮤캣 통신의 서버 계약을 정의한다."
+description: "로그인 계정에 귀속하는 에이전트 커밋 작성자, 프로젝트 안내 전달과 기본 활성화 디버거 활용 설정, 에이전트 세션·탭 원장·삭제 시 감독 종료·큐·재접속, Git AI Commit 작업과 CLI·메모리·뮤캣·선택적 디버거 MCP 통신의 서버 계약을 정의한다."
 ---
 # 에이전트 세션과 통신 계약
 
@@ -144,6 +144,14 @@ Antigravity는 Google 공식 ACP 서버를 직접 spawn한다. `initialize.authM
 URL 이벤트는 재접속한 인증 화면에만 재전송된다. 성공·실패·취소 시 `auth_url_done`으로 브라우저를 닫고 URL을 버린다. ACP에 authenticate 취소 메서드가 없으므로 취소·330초 시간 초과는 해당 연결의 프로세스를 종료하고 initialize부터 다시 진행한다. 이전 연결의 늦은 응답은 새 세션을 만들지 않는다. 공급자 CLI 자격증명은 읽거나 복사하지 않는다. 설치·환경변수·지원 범위는 [런타임 설정](../configuration/agent-runtimes.md#antigravity-공식-acp), 결정은 [ADR 0143](../../../.mew/docs/decisions/0143-mew-antigravity-official-acp.md)을 따른다.
 
 
+## 에이전트 디버거 MCP
+
+일반 에이전트 WS는 현재 계정·프로젝트의 디버거 공유 옵션이 활성화되어 있으면 `debuggerMcpServers`가 만든 `mew-debugger` 목록을 `AgentSession.start`에 전달한다. 기본값은 빈 목록이다. owner·manager, `agent`·`terminal`, 프로젝트 전체 파일 수정 권한을 검사하고 옵션을 켜기만으로 어댑터를 실행하거나 공급자 MCP 설정을 바꾸지 않는다. 뮤캣은 기존 도우미 MCP 목록을 그대로 사용한다.
+
+`server/debugger-mcp.ts`는 계정·프로젝트별 비공개 Unix 소켓을, `debugger-mcp-stdio.ts`는 ACP가 시작한 stdio JSON-RPC를 중계한다. 도구는 상태 조회·허용된 명령·저장 프로필 시작·정확한 세션 종료로 제한한다. 매 호출과 정책 변경·5초 주기에 권한·워크스페이스·공유 옵션을 확인하고 회수 시 소켓을 닫는다. 명령은 현재 세션·연결·중단 revision을 요구한다. DAP 참조와 실행 경계·사용법·응답 한도는 [외부 DAP 디버거](../features/터미널·에이전트·자동화/외부%20DAP%20디버거.md#에이전트-디버거-연결)를 따른다.
+
+MCP 목록은 독립 감독 시작 시 고정한다. 활성화 후 새 일반 에이전트 탭을 시작해야 전달되며 기존 탭의 재접속이나 실행 중인 감독의 `session/load`로 목록을 추가하지 않는다. 예약·단발 runner에는 이 WS 연결을 추가하지 않는다. `debugger-mcp.test.ts`는 비활성화·핸드셰이크·소켓 권한·오래된 참조·권한 회수를, 기존 `agentWs.test.ts`·`agentHost.test.ts`·`agentAcp.test.ts`는 WS·감독·ACP 회귀 동작을 검증한다.
+
 ## 뮤캣 도우미 세션과 MCP
 
-뮤캣은 계정·브라우저 탭·런타임별 별도 감독을 사용한다. `AgentSession.start`의 `mcpServers` 옵션을 독립 감독으로 전달하고 모든 session/new·session/load에 재사용한다. 일반 세션의 기본값은 빈 목록이다. 세션별 내장 MCP의 권한·현재 화면 맥락·작업 ID 왕복과 저장 경계는 [도우미 계약](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%EB%AE%A4%EC%BA%A3%20%EB%8F%84%EC%9A%B0%EB%AF%B8%C2%B7%EB%8C%80%ED%99%94%C2%B7Mew%20%EC%A1%B0%EC%9E%91.md)을 따른다.
+뮤캣은 계정·브라우저 탭·런타임별 별도 감독을 사용한다. `AgentSession.start`의 `mcpServers` 옵션을 독립 감독으로 전달하고 모든 session/new·session/load에 재사용한다. 일반 세션은 위의 선택적 디버거 MCP가 꺼져 있으면 빈 목록이다. 세션별 내장 MCP의 권한·현재 화면 맥락·작업 ID 왕복과 저장 경계는 [도우미 계약](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%EB%AE%A4%EC%BA%A3%20%EB%8F%84%EC%9A%B0%EB%AF%B8%C2%B7%EB%8C%80%ED%99%94%C2%B7Mew%20%EC%A1%B0%EC%9E%91.md)을 따른다.

@@ -5,9 +5,9 @@ title: "외부 DAP 디버거"
 status: "implemented"
 created: "2026-10-07"
 updated: "2026-10-07"
-files: ["src/components/debugger-panel.tsx", "src/components/debugger-source-field.tsx", "src/components/debugger-settings.tsx", "server/debugger.ts", "server/debugger-dap.ts", "server/debugger-routes.ts", "server/debugger-commands.ts", "server/debugger-profiles.ts", "server/debugger-browser.ts", "src/utils/debugger-editor.ts", "src/components/debugger-variable.tsx", "src/components/debugger-inspector.tsx", "src/components/debugger-browser.tsx", "src/components/debugger-artifacts.tsx"]
+files: ["src/components/debugger-panel.tsx", "src/components/debugger-source-field.tsx", "src/components/debugger-settings.tsx", "server/debugger.ts", "server/debugger-dap.ts", "server/debugger-routes.ts", "server/debugger-commands.ts", "server/debugger-profiles.ts", "server/debugger-browser.ts", "server/debugger-mcp.ts", "server/debugger-mcp-stdio.ts", "server/agentWs.ts", "src/utils/debugger-editor.ts", "src/components/debugger-variable.tsx", "src/components/debugger-inspector.tsx", "src/components/debugger-browser.tsx", "src/components/debugger-artifacts.tsx"]
 commits: []
-description: "외부 DAP 디버거의 설정·프로필·복합 세션, 에디터 중단점, 단계 실행·변수·메모리·중단 기록과 Chromium 분석·파일 가져오기의 사용법·지원 조건·검증 범위를 정의한다. Zed·DAP 조사 당시 계획과 현재 구현, 외부 엔진·협업·Wasm 등 남은 범위를 구분한다."
+description: "외부 DAP 디버거의 설정·프로필·복합 세션, 에디터 중단점, 단계 실행·변수·메모리·중단 기록과 Chromium 분석·파일 가져오기·선택적 에이전트 MCP 연결의 사용법·지원 조건·검증 범위를 정의한다. Zed·DAP 조사 당시 계획과 현재 구현, 외부 엔진·협업·Wasm 등 남은 범위를 구분한다."
 ---
 
 ## 요구사항
@@ -91,6 +91,16 @@ Node.js 실행 설정 예:
 
 실제 연결 계약은 [CDP Profiler](https://chromedevtools.github.io/devtools-protocol/tot/Profiler/), [HeapProfiler](https://chromedevtools.github.io/devtools-protocol/tot/HeapProfiler/), [DOMDebugger](https://chromedevtools.github.io/devtools-protocol/tot/DOMDebugger/)를 따른다. 정밀 커버리지나 메모리 수집의 실행 영향은 선택한 엔진의 계약을 따른다.
 
+### 에이전트 디버거 연결
+
+**설정 → 디버거 → 에이전트에 디버거 공유**를 켜고 새 일반 에이전트 탭을 시작하면 `mew-debugger` MCP를 ACP에 전달한다. 기본값은 꺼짐이며 켜기만으로 디버깅 대상을 시작하거나 어댑터를 설치하지 않는다. 이미 실행 중인 독립 감독의 MCP 목록은 교체하지 않으므로 기존 탭 재접속만으로는 추가되지 않는다. 공급자 MCP 설정 파일을 수정하지 않으며 뮤캣의 기존 MCP 목록은 유지한다. 예약·단발 runner의 연결은 이번 범위에 포함하지 않는다.
+
+- `debugger_state`: 계정·프로젝트의 세션 목록과 선택한 세션의 현재 capability·연결·중단 revision·스택 및 이미 읽은 기록을 조회한다. 표현식을 자동 평가하지 않는다.
+- `debugger_command`: `sessionId`와 직전에 조회한 `arguments.connectionId`·`arguments.stopRevision`으로 허용된 디버거 명령을 실행한다. 변수/스택 참조·명령별 capability·중단 상태 검사와 크기 한도는 HTTP 경로와 동일하다. 표현식 평가·값/메모리 쓰기·실행 제어는 대상의 상태를 바꿀 수 있으므로 에이전트도 기존 작업·실행 제한을 따른다. 임의 DAP·CDP 요청은 제공하지 않는다.
+- `debugger_start` / `debugger_stop`: 저장된 기본 설정 또는 이름으로 지정한 프로필을 시작하고 정확한 세션을 종료한다. 실행 설정 작성·도구 설치·복합 실행은 MCP 도구로 노출하지 않는다. launch/attach 종료 계약은 패널과 같다.
+
+MCP는 계정·프로젝트별 Unix 소켓(파일 `0600`, 디렉터리 `0700`)으로 서버에 중계한다. owner·manager, `agent`·`terminal`, 프로젝트 전체 파일 수정 권한과 공유 옵션을 매 호출 및 정책 변경·5초 주기로 확인한다. 공유 해제·권한 회수·프로젝트 변경에서 중계 연결을 닫는다. 응답은 1.5MB 이하, 상태 조회 출력은 최근 8,000자, 기록은 최근 8개·각 변수 100개로 제한한다. 에이전트 연결 자체와 세션 수명은 [에이전트 세션 계약](../../development/agent-sessions.md#에이전트-디버거-mcp)이 소유한다.
+
 ### 추가로 남은 범위
 
 하드웨어 중단점 레지스터·JTAG·커널 원격 디버깅·전체 프로세스 core dump·코드 injection·Wasm/DWARF 엔진·정적 분석 엔진은 mew 자체 기능으로 구현하지 않았다. 준비된 외부 DAP/네이티브 REPL의 기능은 현재 경로로 사용할 수 있지만 장비·OS·엔진 설치와 언어별 실제 검증이 필요하다. 협업의 세션 공유·제어권 이전, 테스트 목록/실패 탐지, E2E trace viewer, telemetry 수집 API는 별도 구현 범위다. 아래 조사 기록의 제안과 현재 지원을 구분한다.
@@ -108,6 +118,7 @@ Node.js 실행 설정 예:
 - `server/debugger-browser.test.ts`: 격리 Chromium에서 실제 CPU/힙 할당/커버리지·힙 스냅샷 수집, DOM 중단·호출 스택·객체 변수·스크립트 소스·참조 만료, 이벤트/XHR 중단점 생성·제거와 권한 회수 정리를 검증한다.
 - `shared/debugger-analysis.test.ts`: 프로파일 실제 sample/self size, heap snapshot의 self size, OTLP 시간·부모 관계, 커버리지 count, sanitizer 위치·크기/형식 거부를 검증한다.
 - 2026-10-07 확장: 기존 내부 설치의 실제 js-debug에서 자식 연결·중단점·스택·감시·계속·일시정지·종료와 `runInTerminal` stdin 입력/EOF를 확인했다. `npx tsc -b`와 디버거 관련 scoped oxlint를 실행했다. 최종 전체 타입 검사는 병행 작업 파일의 타입 오류로 통과하지 못했다. 같은 프로젝트 옵션으로 디버거 서버·UI·에디터 파일을 선택한 별도 타입 검사와 scoped lint는 통과했다. 앱 build·배포·서버 재시작은 수행하지 않았다.
+- `server/debugger-mcp.test.ts`: 공유 기본 비활성화, 계정별 소켓 권한·MCP 핸드셰이크, 정확한 세션·연결·중단 revision, 권한 회수 시 연결 거부를 검증한다. 기존 `agentWs.test.ts`·`agentHost.test.ts`·`agentAcp.test.ts` 40개 회귀 검사도 통과했다.
 - Python·LLDB·CodeLLDB·Go는 연결 프리셋과 공통 DAP 경로를 제공하며 각 실제 언어 환경의 실행 검증은 아직 수행하지 않았다.
 
 공식 계약: [DAP](https://microsoft.github.io/debug-adapter-protocol/overview.html), [js-debug](https://github.com/microsoft/vscode-js-debug), [debugpy](https://github.com/microsoft/debugpy), [CodeLLDB](https://github.com/vadimcn/codelldb), [Delve DAP](https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_dap.md).
