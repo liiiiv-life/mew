@@ -22,6 +22,10 @@ export const guidanceOptions = {
     explicit: 'Use subagents only when the user explicitly requests delegation or parallel agent work, and only if the runtime supports them.',
     never: 'Do not use subagents. Complete the work in the main agent.',
   },
+  debugger: {
+    enabled: 'Use an available debugger when logs and tests do not adequately explain a bug or runtime behavior. Inspect variables and call stacks at relevant breakpoints. Follow existing execution and permission restrictions, and clean up debug connections and temporary processes afterward.',
+    disabled: 'Use a debugger only when the user explicitly requests it.',
+  },
 } as const
 
 export type GuidanceKey = keyof typeof guidanceOptions

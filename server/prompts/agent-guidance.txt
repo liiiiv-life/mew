@@ -6,4 +6,8 @@ Follow existing documentation ownership and decision records. Do not recursively
 
 When code, features, or operating procedures change, update the owning canonical documentation in the same task. Give every new or changed document an accurate frontmatter description, and update existing links when paths move; no MOC update is required. Preserve historical sources; keep secrets and temporary debugging logs out of docs.
 
+<!-- mew:agent-setting:debugger -->
+Use an available debugger when logs and tests do not adequately explain a bug or runtime behavior. Inspect variables and call stacks at relevant breakpoints. Follow existing execution and permission restrictions, and clean up debug connections and temporary processes afterward.
+<!-- /mew:agent-setting:debugger -->
+
 Before an authorized commit, record a brief task purpose and explicit changed file paths using the supplied Change intent recorder, after updating canonical docs. When leaving changes uncommitted, record the same hint at task completion. Record only files whose pending changes belong to this task; omit files containing unrelated edits. Record only checks actually performed; never include secrets or private conversation. Do not add source comments solely for commit summaries. Intent hints are advisory, must match actual changes, and do not authorize commits or replace diff verification. If the recorder is unavailable or the folder is not a Git repository, continue without it.

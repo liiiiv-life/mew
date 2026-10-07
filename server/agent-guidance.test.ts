@@ -26,7 +26,8 @@ test('shared guidance survives initialization and editor changes reach every pro
 
   writeExternalFile(AGENT_GUIDANCE_PATH, 'Shared edited guidance')
   ensureAgentGuidance()
-  assert.equal(readAgentGuidance(), 'Shared edited guidance', 'initialization preserves edits')
+  assert.ok(readAgentGuidance().startsWith('Shared edited guidance'), 'initialization preserves edits')
+  assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), 'Shared edited guidance')
   writeProjectAgentSettings(a, { ...defaultAgentSettings(), instructions: 'Only project A' })
   for (const root of [a, b]) {
     const text = agentContextText(binding(root), root)
@@ -36,7 +37,8 @@ test('shared guidance survives initialization and editor changes reach every pro
     assert.ok(!text.includes('You are working through mew'))
   }
   writeExternalFile(AGENT_GUIDANCE_PATH, '')
-  assert.equal(readAgentGuidance(), '')
+  assert.ok(readAgentGuidance().includes(guidanceOptions.debugger.enabled))
+  assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), '')
   assert.match(agentContextText(binding(b), b), /Project root:/)
   fs.unlinkSync(AGENT_GUIDANCE_PATH)
   fs.mkdirSync(AGENT_GUIDANCE_PATH)
@@ -52,14 +54,16 @@ test('legacy guidance migrates without changing its content, and Markdown takes 
   fs.rmSync(AGENT_GUIDANCE_PATH, { force: true })
   const legacy = path.join(DATA_DIR, 'agent-guidance.txt')
   fs.writeFileSync(legacy, 'My instructions\n\nKeep this formatting.\n')
-  assert.equal(readAgentGuidance(), 'My instructions\n\nKeep this formatting.')
+  assert.ok(readAgentGuidance().startsWith('My instructions\n\nKeep this formatting.'))
   assert.equal(fs.existsSync(AGENT_GUIDANCE_PATH), false)
   ensureAgentGuidance()
   assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), fs.readFileSync(legacy, 'utf8'))
   fs.writeFileSync(AGENT_GUIDANCE_PATH, '')
-  assert.equal(readAgentGuidance(), '')
+  assert.ok(readAgentGuidance().includes(guidanceOptions.debugger.enabled))
+  assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), '')
   ensureAgentGuidance()
-  assert.equal(readAgentGuidance(), '')
+  assert.ok(readAgentGuidance().includes(guidanceOptions.debugger.enabled))
+  assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), '')
   fs.rmSync(legacy)
 })
 
@@ -150,4 +154,57 @@ test('description navigation replaces only former default guidance and does not 
   assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), stored, 'runtime migration must not rewrite custom state')
   const explicit = describeAgentContext({ projectRoot: root, docsRoot: path.join(root, 'docs') }, { ...defaultAgentSettings(), entrypoints: ['docs/MOC.md'] }, root)
   assert.match(explicit, /Configured entrypoints[\s\S]*docs\/MOC\.md/, 'explicit project choices stay reportable')
+})
+
+
+test('debugger guidance defaults on without rewriting existing instructions and honors saved preferences', async () => {
+  const { agentGuidanceSettings, updateAgentGuidance, GuidanceError } = await import('./agent-guidance.ts')
+  fs.rmSync(AGENT_GUIDANCE_PATH, { force: true })
+  assert.ok(readAgentGuidance().includes(guidanceOptions.debugger.enabled))
+  assert.equal(fs.existsSync(AGENT_GUIDANCE_PATH), false, 'preview stays read-only')
+  assert.equal(agentGuidanceSettings().settings.debugger, 'enabled')
+  const original = '# Handwritten instructions\n\nKeep existing rules.\n'
+  fs.writeFileSync(AGENT_GUIDANCE_PATH, original)
+  let state = agentGuidanceSettings()
+  assert.equal(state.settings.debugger, 'enabled')
+  assert.equal(state.content, original)
+  const roots = ['debugger-a', 'debugger-b'].map(name => path.join(DATA_DIR, name))
+  const contexts = () => roots.map(root => {
+    fs.mkdirSync(root, { recursive: true })
+    return agentContextText({ projectRoot: root, docsRoot: path.join(root, 'docs') }, root)
+  })
+  for (const context of contexts()) assert.ok(context.includes(guidanceOptions.debugger.enabled))
+  assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), original, 'defaults do not overwrite handwritten state')
+  for (const value of ['disabled', 'enabled', 'disabled'] as const) {
+    state = updateAgentGuidance({ key: 'debugger', value, revision: state.revision })
+    assert.equal(state.settings.debugger, value)
+    assert.ok(state.content.startsWith(original))
+    for (const context of contexts()) {
+      assert.ok(context.includes(guidanceOptions.debugger[value]))
+      assert.ok(!context.includes(guidanceOptions.debugger[value === 'enabled' ? 'disabled' : 'enabled']))
+    }
+    ensureAgentGuidance()
+    assert.equal(agentGuidanceSettings().settings.debugger, value)
+  }
+  state = updateAgentGuidance({ key: 'language', value: 'ko', revision: state.revision })
+  assert.equal(state.settings.debugger, 'disabled', 'other settings cannot re-enable debugger use')
+  const custom = state.content.replace(guidanceOptions.debugger.disabled, 'Use the debugger for integration failures only.')
+  fs.writeFileSync(AGENT_GUIDANCE_PATH, custom)
+  state = agentGuidanceSettings()
+  assert.equal(state.settings.debugger, 'custom')
+  assert.ok(!readAgentGuidance().includes(guidanceOptions.debugger.enabled))
+  state = updateAgentGuidance({ key: 'detail', value: 'concise', revision: state.revision })
+  assert.match(state.content, /Use the debugger for integration failures only/)
+  assert.equal(state.settings.debugger, 'custom')
+  for (const broken of [
+    '<!-- mew:agent-setting:debugger -->Missing end',
+    '<!-- /mew:agent-setting:debugger -->',
+    '<!-- mew:agent-setting:debugger --><!-- mew:agent-setting:language -->x<!-- /mew:agent-setting:debugger --><!-- /mew:agent-setting:language -->',
+  ]) {
+    fs.writeFileSync(AGENT_GUIDANCE_PATH, broken)
+    state = agentGuidanceSettings()
+    assert.ok(!readAgentGuidance().includes(guidanceOptions.debugger.enabled))
+    assert.throws(() => updateAgentGuidance({ key: 'debugger', value: 'enabled', revision: state.revision }), GuidanceError)
+    assert.equal(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8'), broken)
+  }
 })

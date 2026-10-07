@@ -17,7 +17,7 @@ import {I18nProvider} from '${root}/src/i18n.tsx';
 function Fixture(){return <I18nProvider><AgentGuidanceButton onOpenFile={p=>{window.opened=p}}/></I18nProvider>}
 createRoot(document.getElementById('root')).render(<Fixture/>);`
   const bundle = await build({ input: 'virtual:guidance.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
-    name: 'fixture', resolveId(id) { if (id === 'virtual:guidance.tsx') return id }, load(id) { if (id === 'virtual:guidance.tsx') return source },
+    name: 'fixture', resolveId(id) { if (id === 'virtual:guidance.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:guidance.tsx') return source; if (id === 'virtual:style') return '' },
   }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const content = (await Promise.all(['src/components/agent-guidance-settings.tsx', 'packages/ui/src/select-field.tsx'].map(file => fs.readFile(`${root}/${file}`, 'utf8')))).join('\n')
@@ -31,7 +31,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       let fail = true, conflict = false, updates = 0
       let releaseSave: (() => void) | undefined, releaseLoad: (() => void) | undefined
       let heldLoad = false
-      let state = { path: '/data/agent-guidance.md', content: '# Guidance', revision: 'first', settings: { commit: 'inherit', language: 'inherit', detail: 'custom', subagents: 'inherit' } }
+      let state = { path: '/data/agent-guidance.md', content: '# Guidance', revision: 'first', settings: { commit: 'inherit', language: 'inherit', detail: 'custom', subagents: 'inherit', debugger: 'enabled' } }
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       await page.route('http://mew-guidance.test/**', async route => {
@@ -102,6 +102,22 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
         assert.equal(state.settings.language, 'ko')
         assert.equal(state.settings.detail, 'custom')
       }
+      assert.equal(await field('디버거 활용').textContent(), '활성화')
+      for (const [option, value] of [['비활성화', 'disabled'], ['활성화', 'enabled']]) {
+        await choose('디버거 활용', option)
+        await page.getByRole('status').filter({ hasText: '저장했습니다.' }).waitFor()
+        assert.equal(state.settings.debugger, value)
+        assert.equal(state.settings.language, 'ko')
+        assert.equal(state.settings.detail, 'custom')
+      }
+      await field('디버거 활용').click()
+      for (const dark of [false, true]) {
+        await page.locator('html').evaluate((el, dark) => el.classList.toggle('dark', dark), dark)
+        const bounds = (await page.getByRole('listbox', { name: '디버거 활용' }).boundingBox())!
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width && bounds.y >= 0 && bounds.y + bounds.height <= 844)
+        await page.screenshot({ path: `/tmp/mew-debugger-guidance-${width}-${dark ? 'dark' : 'light'}.png` })
+      }
+      await page.keyboard.press('Escape')
       await field('서브에이전트 위임').click()
       for (const dark of [false, true]) {
         await page.locator('html').evaluate((el, dark) => el.classList.toggle('dark', dark), dark)
@@ -145,6 +161,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       await page.getByLabel('응답 언어', { exact: true }).waitFor()
       assert.equal(await field('응답 언어').textContent(), '한국어')
       assert.equal(await field('서브에이전트 위임').textContent(), '필요할 때 자동 위임')
+      assert.equal(await field('디버거 활용').textContent(), '활성화')
       await page.keyboard.press('Escape')
       assert.equal(await dialog.count(), 0)
       assert.equal(await button.evaluate(el => el === el.ownerDocument.activeElement), true)

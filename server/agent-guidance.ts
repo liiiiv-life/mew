@@ -33,10 +33,10 @@ export function ensureAgentGuidance(): string {
 
 /** No cache: edits apply to the next request. Preview alone does not create state. */
 export function readAgentGuidance(): string {
-  try { return currentDocumentationGuidance(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8').trim()) }
+  try { return withDebuggerDefault(currentDocumentationGuidance(fs.readFileSync(AGENT_GUIDANCE_PATH, 'utf8').trim())) }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    return currentDocumentationGuidance(seed().toString('utf8').trim())
+    return withDebuggerDefault(currentDocumentationGuidance(seed().toString('utf8').trim()))
   }
 }
 
@@ -55,6 +55,13 @@ export class GuidanceError extends Error {
 const revisionOf = (content: string) => createHash('sha256').update(content).digest('hex')
 const markers = (key: GuidanceKey) => [`<!-- mew:agent-setting:${key} -->`, `<!-- /mew:agent-setting:${key} -->`]
 
+function withDebuggerDefault(content: string): string {
+  const [start, end] = markers('debugger')
+  // Preserve explicit/custom blocks, including damaged markers, for editor repair.
+  if (content.includes(start) || content.includes(end)) return content
+  return `${content}${content ? '\n\n' : ''}${start}\n${guidanceOptions.debugger.enabled}\n${end}`
+}
+
 function region(content: string, key: GuidanceKey) {
   const [start, end] = markers(key)
   const from = content.indexOf(start), closing = content.indexOf(end)
@@ -70,7 +77,7 @@ function snapshot(content: string): GuidanceSnapshot {
   for (const key of Object.keys(guidanceOptions) as GuidanceKey[]) {
     try {
       const block = region(content, key)
-      settings[key] = block ? Object.entries(guidanceOptions[key]).find(([, text]) => text === block.text)?.[0] ?? 'custom' : 'inherit'
+      settings[key] = block ? Object.entries(guidanceOptions[key]).find(([, text]) => text === block.text)?.[0] ?? 'custom' : key === 'debugger' ? 'enabled' : 'inherit'
     } catch { settings[key] = 'custom' }
   }
   return { path: AGENT_GUIDANCE_PATH, content, revision: revisionOf(content), settings }
