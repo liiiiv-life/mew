@@ -1,6 +1,8 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  "탭 최대화": ["Maximize tab", "最大化标签页", "タブを最大化"],
+  "원래 크기로 복귀": ["Restore size", "还原大小", "元のサイズに戻す"],
   "클립보드를 공유하지 못했습니다. 브라우저 권한과 원격 텍스트 크기를 확인하세요.": ["Could not share the clipboard. Check browser permissions and remote text size.", "无法共享剪贴板。请检查浏览器权限和远程文本大小。", "クリップボードを共有できませんでした。ブラウザーの権限とリモートのテキストサイズを確認してください。"],
   "원격 클립보드 가져오기": ["Get remote clipboard", "获取远程剪贴板", "リモートのクリップボードを取得"],
   "내 클립보드 붙여넣기": ["Paste local clipboard", "粘贴本机剪贴板", "ローカルのクリップボードを貼り付け"],

@@ -50,7 +50,7 @@ function Fixture(){
  </div>
 }
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
-  const targets = ['DockWorkspace', 'TabBar', 'AgentPanel', 'BrowserPanel', 'git-panel', 'GitWorkbench', 'mobile-dock', 'github-account'].map(name => `src/components/${name}.tsx`)
+  const targets = ['DockWorkspace', 'TabBar', 'AgentPanel', 'BrowserPanel', 'git-panel', 'GitWorkbench', 'mobile-dock', 'github-account', 'action-menu', 'tab-action-menu'].map(name => `src/components/${name}.tsx`)
   const content = (await Promise.all(targets.map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const bundle = await build({ input: 'virtual:maximize.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'fixture',
@@ -100,7 +100,37 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.locator('[data-session="a1"]').waitFor()
     await page.locator('[data-session="t1"]').fill('KEEP TERMINAL')
     await page.locator('[data-session="editor"]').fill('KEEP EDITOR')
+    if (!await page.getByLabel('커밋 제목', { exact: true }).count()) await page.getByRole('button', { name: '커밋', exact: true }).click()
     await page.getByLabel('커밋 제목', { exact: true }).fill('KEEP COMMIT')
+    for (const group of ['agent', 'terminal']) {
+      await tab(group).click({ button: 'right' })
+      const menu = page.getByRole('menu')
+      await menu.waitFor()
+      if (process.env.MEW_MAXIMIZE_SCREENSHOTS) {
+        await fs.mkdir(process.env.MEW_MAXIMIZE_SCREENSHOTS, { recursive: true })
+        await page.screenshot({ path: path.join(process.env.MEW_MAXIMIZE_SCREENSHOTS, `menu-${group}.png`) })
+      }
+      assert.equal(await menu.getByRole('menuitem').count(), 3)
+      assert.equal(await menu.locator('svg').count(), 3)
+      assert.equal(await menu.evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).borderRadius), '0px')
+      await menu.getByRole('menuitem', { name: '탭 최대화', exact: true }).click()
+      assert.equal(await host.getAttribute('data-dock-maximized'), group)
+      await tab(group).click({ button: 'right' })
+      await page.getByRole('menuitem', { name: '원래 크기로 복귀', exact: true }).click()
+      assert.equal(await host.getAttribute('data-dock-maximized'), null)
+      await tab(group).focus()
+      await page.keyboard.press('Shift+F10')
+      await page.getByRole('menu').waitFor()
+      await page.keyboard.press('End')
+      assert.equal(await page.getByRole('menuitem', { name: '탭 닫기', exact: true }).evaluate(el => el === el.ownerDocument.activeElement), true)
+      await page.keyboard.press('Escape')
+      assert.equal(await page.getByRole('menu').count(), 0)
+      await tab(group).click({ button: 'right' })
+      await page.getByRole('menuitem', { name: '이름 변경', exact: true }).click()
+      const input = tab(group).getByRole('textbox', { name: '탭 이름' })
+      await input.fill(group === 'agent' ? 'Agent' : 'Terminal')
+      await input.press('Enter')
+    }
     const groups = ['editor:main', 'agent', 'terminal', 'browser']
     assert.equal(await tab('git').count(), 0, 'Git has no tab bar')
     const before = await Promise.all(groups.map(id => box(page.locator(`[data-dock-panel="${id}"]`))))
@@ -192,6 +222,16 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await tab('terminal').dblclick()
     await page.setViewportSize({ width: 390, height: 844 })
     await page.waitForFunction("!document.querySelector('[data-dock-maximized]')")
+    await page.evaluate("window.fixture.setForeground('terminal')")
+    await tab('terminal').click({ button: 'right' })
+    const mobileMenu = page.getByRole('menu')
+    await mobileMenu.waitFor()
+    assert.equal(await mobileMenu.getByRole('menuitem').count(), 2, 'mobile omits desktop maximization')
+    const menuBox = await box(mobileMenu)
+    const viewport = await mobileMenu.evaluate(el => ({ width: el.ownerDocument.defaultView!.visualViewport!.width, left: el.ownerDocument.defaultView!.visualViewport!.offsetLeft }))
+    assert.ok(menuBox.x >= viewport.left + 4 && menuBox.x + menuBox.width <= viewport.left + viewport.width - 4, JSON.stringify({ menuBox, viewport }))
+    if (process.env.MEW_MAXIMIZE_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.MEW_MAXIMIZE_SCREENSHOTS, 'menu-mobile.png') })
+    await page.keyboard.press('Escape')
     await page.evaluate("window.fixture.setForeground('editor')")
     await tab('editor:main').dblclick()
     assert.equal(await host.getAttribute('data-dock-maximized'), null, 'mobile double-click never enters desktop expansion')
@@ -209,6 +249,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await tab('editor:main').dblclick()
     await tab('editor:main').getByRole('button').click()
     await page.waitForFunction("!document.querySelector('[data-dock-maximized]')")
+    await tab('terminal').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: '탭 닫기', exact: true }).click()
+    await page.waitForFunction("!document.querySelector('[data-session=\"t1\"]')")
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })

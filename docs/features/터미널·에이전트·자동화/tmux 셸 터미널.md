@@ -4,11 +4,11 @@ parent: "mew-agents"
 title: "tmux 셸 터미널"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-06"
+updated: "2026-10-07"
 status_hash: "b19a2771f0bfb2f727bc14539350c69b524d222b67a2322b322f359fefd6a804"
 files: ["src/components/AgentPanel.tsx", "src/components/TermButtonBar.tsx", "server/termButtons.ts", "packages/tmux-term/src/TmuxTerminal.tsx", "packages/tmux-term/src/server/tmuxWs.ts"]
 commits: []
-description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·세션 종료와 명령 버튼을 다루는 기능 계약. 에이전트 TUI와의 구분, 테마 반영 및 패널 닫기와 세션 종료의 차이를 설명한다."
+description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·세션 종료와 명령 버튼을 다루는 기능 계약으로, 탭 우클릭의 아이콘 메뉴에서 이름 변경·닫기·데스크톱 최대화/복귀를 제공한다. 에이전트 TUI와의 구분, 테마 반영 및 패널 닫기와 세션 종료의 차이를 설명한다."
 ---
 
 ## 요구사항
@@ -36,6 +36,8 @@ description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·
 <!-- mew:implementation:start -->
 ## 구현 내용
 
+- 공통 `AgentTabBar`의 우클릭 또는 Shift+F10으로 이름 변경·탭 닫기·데스크톱 탭 최대화/원래 크기로 복귀 메뉴를 연다. 최대화는 대상 탭을 선택한 뒤 해당 패널을 확대하며, 닫기는 기존 세션 종료·확인 흐름을 사용한다. 모바일에는 최대화 항목을 표시하지 않는다. 메뉴 외형과 배치·닫기는 파일탐색기와 공유하는 `ActionMenu`를 사용하며 각 항목은 Iconoir 아이콘과 번역된 텍스트를 표시한다.
+
 - 연결·재연결 상태와 터미널 열기 실패는 본문 상단의 작은 반투명 플로팅 알림으로 표시한다. 명령 버튼 바와 본문 크기를 밀지 않는다.
 
 - xterm 초기 색상은 앱 토큰을 읽고, 루트 테마 변경 시 기존 터미널의 색상만 갱신한다. 라이트 모드에는 밝은 배경용 ANSI 팔레트를 사용한다. tmux 전역 설정과 내부 프로그램의 명시적인 RGB/256색 지정은 바꾸지 않는다.
@@ -53,6 +55,8 @@ description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-07: `server/dock-maximize-ui.test.ts`에서 에이전트·터미널 우클릭 메뉴의 아이콘·이름 변경·확대/복귀·탭 종료, Shift+F10·방향키·Esc와 모바일의 최대화 항목 제외·viewport 경계를 확인했다. `server/sidebar-touch-ui.test.ts`의 파일탐색기 터치 메뉴 회귀, 타입·대상 린트·문서 검사도 통과했다.
 
 - 2026-10-06: 연결·명령 UI 회귀 2개와 타입·대상 린트·문서 경계·링크 검사가 통과했다. 공통 알림은 격리 Chromium의 1100/390px·양 테마에서 반투명 배경, 최대 폭·높이, 긴 오류 스크롤과 알림 바깥 본문 클릭을 확인했다. 빌드·서버 재시작은 수행하지 않았다.
 

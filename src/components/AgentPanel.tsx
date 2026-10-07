@@ -1,6 +1,7 @@
 import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { openMewSocket } from '../utils/remote-transport.ts'
 import { PanelCloseButton } from './panel-close-button'
+import { TabActionMenu } from './tab-action-menu'
 import { ConfirmDialog, PanelNotice, canAutoFocusInput } from '@mew/ui'
 import { historyCacheKey, readHistoryCache, writeHistoryCache, readQueueCache, writeQueueCache, type CachedQueue, type CachedHistory } from '../utils/agent-history-cache'
 import { mergeHistoryPage, appendHistoryEventInPlace } from '../utils/agent-history-state'
@@ -980,13 +981,14 @@ function AgentTabBar({
   // Desktop double-click expands the panel; F2 edits its tab name. Mobile keeps double-tap rename.
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
   // 문서 탭·터미널 탭과 같은 훅 — 꾹 눌러 끌면 순서 바꾸기, 그냥 끌면 탭 줄 굴리기
+  const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number; trigger: HTMLElement } | null>(null)
   const scopeRef = useRef<HTMLDivElement>(null)
   useFocusedShortcutScope(scopeRef, {
     closeTab: () => { if (!activeId || pickerOpen) return false; onCloseTab(activeId); return true },
     newTab: group?.startsWith('terminal') ? undefined : () => { onAdd(); return true },
   })
   const dock = useDock()
-  const drag = useDragReorder({ onReorder, immediateMouseDrag: true, onDragMove: (index, x, y) => { if (group && tabs[index]) dock?.preview(group, tabs[index].id, x, y) }, onDrop: (index, x, y) => { if (group && tabs[index]) dock?.drop(group, tabs[index].id, x, y) } })
+  const drag = useDragReorder({ onReorder, onDragStart: () => setTabMenu(null), immediateMouseDrag: true, onDragMove: (index, x, y) => { if (group && tabs[index]) dock?.preview(group, tabs[index].id, x, y) }, onDrop: (index, x, y) => { if (group && tabs[index]) dock?.drop(group, tabs[index].id, x, y) } })
   return (
     <div data-dock-tab-bar data-agent-tab-bar={group ?? ''} tabIndex={-1} ref={scopeRef} className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       {group && <DockGrip group={group} />}
@@ -1003,7 +1005,11 @@ function AgentTabBar({
               role="tab" tabIndex={0} aria-selected={isActive} aria-keyshortcuts="Shift+Enter F2"
               onKeyDown={(event) => {
                 if (event.target !== event.currentTarget) return
-                if (event.key === 'F2') { event.preventDefault(); setEditing({ id: tab.id, text: tab.label }) }
+                if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                  event.preventDefault(); event.stopPropagation()
+                  const box = event.currentTarget.getBoundingClientRect()
+                  setTabMenu({ id: tab.id, x: box.left, y: box.bottom, trigger: event.currentTarget })
+                } else if (event.key === 'F2') { event.preventDefault(); setEditing({ id: tab.id, text: tab.label }) }
                 else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onActivate(tab.id) }
               }}
               draggable={false}
@@ -1013,8 +1019,9 @@ function AgentTabBar({
                 onActivate(tab.id)
               }}
               onContextMenu={(e) => {
-                // 터치 길게누르기가 드래그로 예약된 동안 Android 네이티브 메뉴가 끼어들지 않게
-                if (drag.dragIndex !== null) e.preventDefault()
+                e.preventDefault(); e.stopPropagation()
+                if (drag.dragIndex !== null) return
+                setTabMenu({ id: tab.id, x: e.clientX, y: e.clientY, trigger: e.currentTarget })
               }}
               className={`group flex h-full shrink-0 cursor-pointer items-center gap-1.5 border-r border-edge px-2.5 text-xs select-none [-webkit-touch-callout:none] ${
                 isActive ? 'bg-surface-raised text-ink' : 'text-ink-secondary hover:bg-surface-raised'
@@ -1081,6 +1088,17 @@ function AgentTabBar({
           <PlusGlyph />
         </button>}
       </div>
+      {tabMenu && tabs.some(tab => tab.id === tabMenu.id) && <TabActionMenu
+        x={tabMenu.x} y={tabMenu.y}
+        onClose={() => { setTabMenu(null); tabMenu.trigger.focus() }}
+        onRename={() => {
+          const tab = tabs.find(tab => tab.id === tabMenu.id)
+          if (tab) setEditing({ id: tab.id, text: tab.label })
+        }}
+        onCloseTab={() => onCloseTab(tabMenu.id)}
+        onMaximize={dock?.desktop && group ? () => { onActivate(tabMenu.id); dock.toggleMaximize(group) } : undefined}
+        maximized={dock?.maximized === group}
+      />}
       <PanelCloseButton onClick={onClosePanel} aria-label={group?.startsWith('terminal') ? uiText("터미널 닫기") : uiText("에이전트 닫기")} />
     </div>
   )
