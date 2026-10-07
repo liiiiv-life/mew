@@ -80,7 +80,7 @@ export function HoverTipLayer({ className, children, placement = 'top', portalTa
             // width:max-content가 없으면 폭이 `left`에 딸려 간다 — fixed 요소의 남는 자리는
             // (뷰포트 너비 − left)라, 오른쪽 끝 버튼에서는 이름표가 한 글자씩 접힌 기둥이 된다.
             // 내용만큼 펴 두고 아래 useLayoutEffect가 화면 안으로 밀어 넣는다.
-            style={{ left: tip.centerX, top: tip.top, transform: `translate(-50%, ${placement === 'bottom' ? '0%' : '-100%'})`, width: 'max-content' }}
+            style={{ left: tip.centerX, top: tip.top, transform: `translate(-50%, ${placement === 'bottom' ? '0%' : '-100%'})`, width: 'max-content', maxWidth: 'min(20rem, calc(100vw - 16px))', overflowWrap: 'anywhere' }}
             className="pointer-events-none fixed z-[1200] max-w-xs rounded border border-edge-bright bg-surface-raised px-2 py-1 text-xs whitespace-pre-line text-ink shadow-lg"
           >
             {tip.label}

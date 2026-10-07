@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { SelectField } from '@mew/ui'
+import { HoverTipLayer, SelectField } from '@mew/ui'
 import { normalizeSessionHistoryFilter, type MewSessionHistory } from '../../shared/active-sessions'
 import { downloadSessionHistory, fetchSessionHistory, sessionHistoryBounds, type SessionHistoryFilter } from '../api/session-history'
 import { useI18n } from '../i18n'
@@ -15,6 +15,7 @@ export function SessionHistory() {
   const { t, formatDate } = useI18n()
   const [filter, updateFilter] = useState<SessionHistoryFilter>(() => ({ day: localDay(), fromHour: 0, toHour: 24, person: '' }))
   const setFilter = (update: (previous: SessionHistoryFilter) => SessionHistoryFilter) => updateFilter(previous => normalizeSessionHistoryFilter(update(previous)))
+  const [timelineHost, setTimelineHost] = useState<HTMLElement | null>(null)
   const [history, setHistory] = useState<MewSessionHistory | null>(null)
   const [loading, setLoading] = useState(true), [error, setError] = useState(false), [exportError, setExportError] = useState(false)
   const [revision, setRevision] = useState(0), [exporting, setExporting] = useState(false), [page, setPage] = useState(0)
@@ -39,9 +40,7 @@ export function SessionHistory() {
       let person = people.get(key)
       if (!person) { person = { name: record.displayName ?? t('sessions.guest'), email: record.email, sessions: new Map() }; people.set(key, person) }
       const records = person.sessions.get(record.id) ?? []
-      const last = records.at(-1)
-      if (last && last.visible === record.visible && last.endedAt === record.startedAt) last.endedAt = record.endedAt
-      else records.push({ ...record })
+      records.push(record)
       person.sessions.set(record.id, records)
     }
     return [...people.values()]
@@ -123,24 +122,31 @@ export function SessionHistory() {
             </section>
             {!records.length ? <div className="py-6 text-center text-sm text-ink-secondary"><p>{t('sessions.history.empty')}</p><p className="mt-2 text-xs">{t('sessions.history.recordedSince', { date: formatDate(history.recordedSince, { dateStyle: 'medium' }) })}</p></div>
               : <>
-                <section aria-label={t('sessions.history.timeline')}>
+                <section ref={setTimelineHost} aria-label={t('sessions.history.timeline')}>
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                     <h3 className="font-medium text-ink">{t('sessions.history.timeline')}</h3>
                     <span className="flex items-center gap-3 text-ink-secondary"><span className="flex items-center gap-1"><i aria-hidden="true" className="h-2 w-2 rounded-sm bg-accent"/>{t('sessions.history.foreground')}</span><span className="flex items-center gap-1"><i aria-hidden="true" className="h-2 w-2 rounded-sm bg-ink-secondary/35"/>{t('sessions.background')}</span></span>
                   </div>
-                  {groups.map(person => <div key={person.email ?? 'guest'} className="mb-4">
-                    <div className="mb-1 flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs"><h4 className="font-medium text-ink">{person.name}</h4><span className="min-w-0 break-all text-ink-secondary">{person.email}</span><span className="ml-auto tabular-nums text-ink-secondary">{t('sessions.history.connectionCount', { count: person.sessions.size })}</span></div>
-                    {[...person.sessions.values()].slice(0, 100).map(intervals => <div key={intervals[0].id} className="flex items-center gap-2 py-0.5">
-                      <span className="w-20 shrink-0 text-[10px] text-ink-secondary"><span className="block truncate" title={[intervals[0].browser, intervals[0].device].filter(Boolean).join(' · ')}>{intervals[0].device ?? intervals[0].browser ?? t('sessions.browser')}</span><span className="block tabular-nums">{time(intervals[0].startedAt)}–{time(intervals.at(-1)!.endedAt)}</span></span>
-                      <div className="relative h-5 min-w-0 flex-1 rounded-sm bg-surface-raised" aria-label={`${person.name} ${time(intervals[0].startedAt)}–${time(intervals.at(-1)!.endedAt)}`}>
-                        {intervals.map(record => <span key={record.recordId} title={`${time(record.startedAt)}–${time(record.endedAt)} · ${record.visible ? t('sessions.history.foreground') : t('sessions.background')}`}
-                          className={`absolute top-1 h-3 min-w-px rounded-sm ${record.visible ? 'bg-accent' : 'bg-ink-secondary/35'}`}
-                          style={{ left: `${(record.startedAt - bounds.dayFrom) / (bounds.dayTo - bounds.dayFrom) * 100}%`, width: `${(record.endedAt - record.startedAt) / (bounds.dayTo - bounds.dayFrom) * 100}%` }} />)}
+                  <HoverTipLayer portalTarget={timelineHost}>
+                    {groups.map(person => <div key={person.email ?? 'guest'} className="mb-3">
+                      <div className="mb-1 flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs"><h4 className="font-medium text-ink">{person.name}</h4><span className="min-w-0 break-all text-ink-secondary">{person.email}</span><span className="ml-auto tabular-nums text-ink-secondary">{t('sessions.history.connectionCount', { count: person.sessions.size })}</span></div>
+                      <div className="relative h-5 min-w-0 rounded-sm bg-surface-raised" role="group" aria-label={person.name}>
+                        {[...person.sessions.values()].flatMap(intervals => intervals.map(record => ({ record, intervals }))).sort((a, b) => Number(a.record.visible) - Number(b.record.visible)).map(({ record, intervals }) => {
+                          const detail = [
+                            `${person.name} · ${time(intervals[0].startedAt)}–${time(intervals.at(-1)!.endedAt)}`,
+                            [record.browser, record.device].filter(Boolean).join(' · ') || t('sessions.browser'),
+                            `${time(record.startedAt)}–${time(record.endedAt)} · ${record.visible ? t('sessions.history.foreground') : t('sessions.background')} · ${duration(record.endedAt - record.startedAt)}`,
+                            [record.workspaceLabel, record.path].filter(Boolean).join(' · ') || t('sessions.noFile'),
+                            t('sessions.runningAgents', { count: record.agents?.running ?? '—' }),
+                          ].join('\n')
+                          return <span key={record.recordId} role="img" aria-label={detail} data-tip={detail}
+                            className={`absolute inset-y-0 min-w-px rounded-sm border-y-4 border-transparent bg-clip-padding hover:brightness-125 ${record.visible ? 'bg-accent' : 'bg-ink-secondary/35'}`}
+                            style={{ left: `${(record.startedAt - bounds.dayFrom) / (bounds.dayTo - bounds.dayFrom) * 100}%`, width: `${(record.endedAt - record.startedAt) / (bounds.dayTo - bounds.dayFrom) * 100}%` }} />
+                        })}
                       </div>
+                      <div aria-hidden="true" className="mt-1 flex justify-between text-[10px] tabular-nums text-ink-secondary"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
                     </div>)}
-                    <div aria-hidden="true" className="ml-22 mt-1 flex justify-between text-[10px] tabular-nums text-ink-secondary"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
-                    {person.sessions.size > 100 && <p className="mt-1 text-xs text-ink-secondary">{t('sessions.history.timelineLimit')}</p>}
-                  </div>)}
+                  </HoverTipLayer>
                 </section>
                 <details className="mt-4 border-t border-edge pt-3">
                   <summary className="cursor-pointer text-xs font-medium text-ink focus-visible:outline-2 focus-visible:outline-accent">{t('sessions.history.details', { count: records.length })}</summary>
