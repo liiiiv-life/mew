@@ -24,6 +24,8 @@ async function until(fn: () => boolean) { const deadline = Date.now() + 4000; wh
 test('remote request paths cannot reach arbitrary origins, local ports or auth mutation', () => {
   for (const path of ['//evil.test/api/file', 'https://evil.test/api/file', '/api/../auth/login', '/api/auth/login', '/api/remote-access/register', '/api/%2fsecret', '/__mew_browser/x', '/api/file\nX: true']) assert.equal(remotePath(path), false, path)
   assert.equal(remotePath('/api/file?project=docs'), true)
+  assert.equal(remotePath('/api/remote-ui/file?path=%2Fassets%2Fapp.js'), true)
+  assert.equal(remotePath('/api/%2fassets?path=app.js'), false)
   assert.throws(() => parseRemoteFrame(JSON.stringify({ type: 'request', id: 'x', method: 'PUT', path: '/api/file', headers: { cookie: [] } })))
   assert.throws(() => parseRemoteFrame(' '.repeat(REMOTE_LIMITS.frame + 1)))
   assert.throws(() => parseRemoteFrame(JSON.stringify({ type: 'chunk', id: 'x', data: Buffer.alloc(REMOTE_LIMITS.chunk + 1).toString('base64') })))

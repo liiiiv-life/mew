@@ -2,13 +2,14 @@ import { scopedBrowserStorage, remoteStorageName } from '@mew/ui/browser-storage
 import { SignJWT, exportJWK, generateKeyPair, importJWK, jwtVerify, type JWK } from 'jose'
 import { REMOTE_LIMITS, REMOTE_PROTOCOL, sdpFingerprint } from '../../shared/remote-access.ts'
 import { DataChannelTransport, setRemoteTransport } from './remote-transport.ts'
-export function connectRemote(instance: string, onState: (state: string, error?: string) => void) {
+export function connectRemote(instance: string, onState: (state: string, error?: string) => void, options: { centralOrigin?: string; launch?: string } = {}) {
+  const centralOrigin = options.centralOrigin ?? location.origin
   setRemoteTransport(null)
   if (typeof RTCPeerConnection === 'undefined' || !crypto.subtle) { onState('error', '이 브라우저는 안전한 원격 연결을 지원하지 않습니다. 최신 브라우저를 사용해 주세요.'); return () => {} }
   let stopped = false, authenticated = false, connection = '', ticket = '', privateKey: CryptoKey, claims: Record<string, any>, renew: ReturnType<typeof setInterval> | undefined
   const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }] })
   const channel = peer.createDataChannel('mew-app', { ordered: true })
-  const signal = new WebSocket(`${location.origin.replace('https:', 'wss:')}/central/signal`)
+  const signal = new WebSocket(`${location.origin.replace('https:', 'wss:')}/central/signal?instance=${encodeURIComponent(instance)}`)
   const candidates: RTCIceCandidateInit[] = [], localCandidates: RTCIceCandidateInit[] = []
   const emit = (value: Record<string, unknown>) => { if (signal.readyState === WebSocket.OPEN) signal.send(JSON.stringify({ ...value, instance })) }
   const close = () => { if (stopped) return; stopped = true; clearTimeout(timeout); clearInterval(renew); setRemoteTransport(null)
@@ -31,13 +32,13 @@ export function connectRemote(instance: string, onState: (state: string, error?:
         onState('connecting')
         const keys = await generateKeyPair('EdDSA', { extractable: true }); privateKey = keys.privateKey as CryptoKey
         const description = await peer.createOffer(); await peer.setLocalDescription(description); offer = description.sdp!
-        emit({ type: 'connect', instance, sdp: offer, publicKey: await exportJWK(keys.publicKey) }); return
+        emit({ type: 'connect', instance, sdp: offer, publicKey: await exportJWK(keys.publicKey), ...(options.launch ? { launch: options.launch } : {}) }); return
       }
       if (value.type === 'error') throw new Error(value.code === 'offline' ? '기기가 오프라인입니다.' : value.code === 'rtc-unavailable' ? '기기의 원격 연결 구성 요소를 확인해 주세요.' : '원격 접속이 거부되거나 연결이 종료됐습니다.')
       if (value.type === 'ticket') {
         const keyResponse = await fetch('/central/key', { cache: 'no-store' }); if (!keyResponse.ok) throw new Error('접속 인증 키를 확인하지 못했습니다.')
         const centralKey = await keyResponse.json() as JWK
-        const verified = await jwtVerify(value.ticket, await importJWK(centralKey, 'EdDSA'), { issuer: location.origin, audience: instance, algorithms: ['EdDSA'], maxTokenAge: '60s' })
+        const verified = await jwtVerify(value.ticket, await importJWK(centralKey, 'EdDSA'), { issuer: centralOrigin, audience: instance, algorithms: ['EdDSA'], maxTokenAge: '60s' })
         claims = verified.payload; if (claims.fingerprint !== sdpFingerprint(offer) || claims.connection !== value.connection || !claims.instanceKey) throw new Error('연결 증명이 일치하지 않습니다.')
         connection = value.connection; ticket = value.ticket
         for (const candidate of localCandidates) emit({ type: 'candidate', candidate }); localCandidates.length = 0

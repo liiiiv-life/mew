@@ -1,5 +1,5 @@
 ---
-description: "최상단 설정 창·독립 알림 탭·언어·글꼴·테마색·Dock·단축키 설정과 메모·태스크 헤더의 표시 전환, 포커스 패널의 번호·좌우 탭 전환, 계정 관리, 서버 환경변수 우선순위·계정 기반 P2P 중앙 주소 및 GitHub OAuth 설정을 안내한다."
+description: "로컬 A의 환경변수와 별도 Cloudflare mewlink 설정 경계를 안내하며, 최상단 설정 창·독립 알림 탭·언어·글꼴·테마색·Dock·단축키 설정과 메모·태스크 헤더의 표시 전환, 포커스 패널의 번호·좌우 탭 전환, 계정 관리, 서버 환경변수 우선순위·계정 기반 P2P 중앙 주소 및 GitHub OAuth 설정을 안내한다."
 ---
 # 환경변수와 계정 설정
 
@@ -76,7 +76,7 @@ Noto Serif KR은 기존처럼 Google Fonts에서 불러온다. 프로덕션 CSP�
 
 전부 선택이다 — 하나도 없어도 뜬다. 지금 값이 어디서 오는지는 `./mew status`.
 
-중앙 서비스는 로컬 A와 별도 프로세스이며 자체 환경변수·OAuth 자격증명을 사용한다. 로컬 GitHub Device Flow 설정과 공유하지 않는다. 전체 중앙 설정은 [중앙 서비스 운영](../deployment/remote-central.md)을 따른다.
+중앙 mewlink는 로컬 A와 별도 Cloudflare Worker이며 자체 vars·secret·OAuth 자격증명을 사용한다. 로컬 GitHub Device Flow 설정과 공유하지 않는다. 전체 중앙 설정은 [중앙 서비스 운영](../deployment/remote-central.md)을 따른다.
 
 ## 사용자 관리 (호스트에서)
 

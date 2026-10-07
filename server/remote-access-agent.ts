@@ -97,8 +97,11 @@ export function createRemoteAgent(server: Server) {
   function connect() {
     if (!registration || stopped) return
     status = { ...status, enabled: true, state: 'connecting' }
-    const socket = new WebSocket(`${registration.origin.replace('https:', 'wss:')}/central/signal`, { origin: registration.origin, maxPayload: REMOTE_LIMITS.signal })
+    const socket = new WebSocket(`${registration.origin.replace('https:', 'wss:')}/central/signal?instance=${encodeURIComponent(registration.instance)}`, { origin: registration.origin, maxPayload: REMOTE_LIMITS.signal })
     ws = socket
+    const heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send('{"type":"heartbeat"}') }, 20_000)
+    heartbeat.unref()
+    socket.once('close', () => clearInterval(heartbeat))
     let queue = Promise.resolve()
     ws.on('message', raw => { queue = queue.then(() => { if (ws === socket && registration && !stopped) return handle(JSON.parse(raw.toString())) }).catch(() => socket.close()) })
     ws.on('error', () => { if (ws === socket && registration && !stopped) status = { ...status, state: 'offline', error: '중앙 서비스에 연결하지 못했습니다.' } })

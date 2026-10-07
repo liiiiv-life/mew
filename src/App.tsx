@@ -1533,7 +1533,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
 
   // 옛 `/{프로젝트}` 주소로 들어왔으면 주소만 루트로 정리한다 — 프로젝트는 이미 그것으로 시작했다
   useEffect(() => {
-    if (location.pathname !== '/') history.replaceState(null, '', '/')
+    if (location.pathname !== '/' && !location.pathname.startsWith('/__mew_ui/')) history.replaceState(null, '', '/')
   }, [])
 
   // 모바일 뒤로가기가 전체화면 종료로 해석되지 않게, 전체화면 진입 중에는 히스토리 한 칸을 지킨다.

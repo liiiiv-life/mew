@@ -15,6 +15,7 @@ import { createSubproject, projectDirectory, subprojectToOpen } from './subproje
 import { discoverCloudStorage } from './cloud-storage.ts'
 import { changeFileFavorite, listFileFavorites } from './file-favorites.ts'
 import express from 'express'
+import { createRemoteUiRouter } from './remote-ui.ts'
 import { createTaskListRouter } from './task-list-routes.ts'
 import { createRemoteDesktopRoutes } from './remote-desktop.ts'
 import multer from 'multer'
@@ -394,6 +395,7 @@ function filePermissionMiddleware(req: express.Request, res: express.Response, n
 
 export function createApiApp() {
   const app = express()
+  app.use('/remote-ui', createRemoteUiRouter())
   app.use((req, _res, next) => runAccountWorkspace(authOf(req).email, next))
   app.use(express.json({ limit: '10mb' }))
   app.use('/admin/access', createAccessRouter())

@@ -1,5 +1,5 @@
 import { activeRemoteTransport } from './remote-transport.ts'
-export async function enableRemoteResources() {
+export async function enableRemoteResources(options: { centralOrigin?: string } = {}) {
   if (!('serviceWorker' in navigator)) throw new Error('이 브라우저는 원격 파일 미리보기를 지원하지 않습니다.')
   const onMessage = (event: MessageEvent) => {
     if (event.data?.type !== 'mew-resource' || !event.ports[0] || event.source !== navigator.serviceWorker.controller) return
@@ -15,7 +15,7 @@ export async function enableRemoteResources() {
     }
     void transport.fetch(event.data.path, { method: event.data.method, headers: event.data.headers, signal: abort.signal }).then(response => {
       reader = response.body?.getReader()
-      port.postMessage({ type: 'response', status: response.status, headers: [...response.headers] })
+      port.postMessage({ type: 'response', status: response.status, headers: [...response.headers], centralOrigin: options.centralOrigin })
       if (!reader) { port.postMessage({ type: 'end' }); close() }
     }).catch(() => { port.postMessage({ type: 'error' }); close() })
   }

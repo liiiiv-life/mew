@@ -15,7 +15,7 @@ export type RemoteFrame =
   | { type: 'close'; id: string; code?: number }
   | { type: 'error'; id: string; code: string }
 export function remotePath(path: unknown, socket = false): path is string {
-  if (typeof path !== 'string' || path.length > 8192 || /[\r\n\\#]/.test(path) || /%(?:2f|5c|00|0d|0a)/i.test(path)) return false
+  if (typeof path !== 'string' || path.length > 8192 || /[\r\n\\#]/.test(path) || /%(?:00|0d|0a)/i.test(path) || /%(?:2f|5c)/i.test(path.split('?')[0])) return false
   const url = new URL(path, 'https://mew.invalid')
   if (url.origin !== 'https://mew.invalid' || !path.startsWith('/api/') || url.pathname !== path.split('?')[0]) return false
   if (socket) return ['/api/tmux/ws', '/api/agent/ws', '/api/presence', '/api/collab', '/api/db/ws', '/api/browser-dom/ws', '/api/remote-desktop/ws'].includes(url.pathname)
