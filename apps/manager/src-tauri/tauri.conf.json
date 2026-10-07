@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "mew Manager",
+  "version": "0.1.0",
+  "identifier": "life.liiiiv.mew.manager",
+  "build": { "beforeDevCommand": "npm run dev", "beforeBuildCommand": "npm run build", "devUrl": "http://localhost:1420", "frontendDist": "../dist" },
+  "app": {
+    "windows": [{ "title": "mew Manager", "width": 1160, "height": 820, "minWidth": 760, "minHeight": 620, "backgroundColor": "#171717" }],
+    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: data:; connect-src ipc: http://ipc.localhost" }
+  },
+  "bundle": { "active": false, "icon": ["icons/icon.ico"] }
+}

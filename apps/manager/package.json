@@ -1,0 +1,31 @@
+{
+  "name": "@mew/manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "check": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "tauri": "tauri",
+    "exe": "tauri build --target x86_64-pc-windows-msvc --no-bundle",
+    "test": "node --test tests/*.test.ts",
+    "package": "node scripts/package.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.1",
+    "iconoir-react": "7.11.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "fflate": "0.8.3",
+    "playwright-core": "1.63.0",
+    "typescript": "6.0.2",
+    "vite": "8.1.1"
+  }
+}

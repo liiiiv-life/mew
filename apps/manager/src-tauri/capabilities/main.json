@@ -1,0 +1,1 @@
+{"identifier":"main","description":"Local manager window: events only; Windows operations use validated Rust commands.","windows":["main"],"permissions":["core:event:allow-listen","core:event:allow-unlisten"]}

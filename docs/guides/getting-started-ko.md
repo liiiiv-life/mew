@@ -1,5 +1,5 @@
 ---
-description: "한국어 mew 시작 안내로 Windows WSL·macOS·Linux 설치와 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
+description: "한국어 mew 시작 안내로 Windows WSL·포터블 관리 앱·macOS·Linux 설치와 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
 ---
 # mew 사용법
 
@@ -14,6 +14,8 @@ mew는 컴퓨터나 서버의 폴더를 브라우저에서 열어 쓸 수 있게
 <a id="windows-wsl-2"></a>
 
 ### Windows (WSL 2)
+
+GUI에서 WSL 준비와 설치·서버·업데이트를 관리하려면 [Windows 관리 앱](windows-manager.md)을 사용할 수 있습니다. 현재 Windows x64 개발 배포본이며 실기 검증 범위는 해당 안내를 확인하세요. 터미널 설치는 아래 절차를 따릅니다.
 
 WSL 2의 Ubuntu 안에서 mew를 실행한 다음 Windows 브라우저에서 엽니다.
 

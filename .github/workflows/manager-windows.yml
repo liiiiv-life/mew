@@ -1,0 +1,50 @@
+name: Windows Manager
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/manager/**'
+      - 'public/fonts/ibm-plex/**'
+      - 'public/favicon.svg'
+      - 'LICENSE'
+      - '.github/workflows/manager-windows.yml'
+  pull_request:
+    paths:
+      - 'apps/manager/**'
+      - 'public/fonts/ibm-plex/**'
+      - 'public/favicon.svg'
+      - 'LICENSE'
+      - '.github/workflows/manager-windows.yml'
+permissions:
+  contents: read
+concurrency:
+  group: manager-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/manager/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - run: npm ci --prefix apps/manager
+      - run: npx playwright-core install chromium
+        working-directory: apps/manager
+      - run: npm run build --prefix apps/manager
+      - run: npm test --prefix apps/manager
+      - run: cargo fmt --manifest-path apps/manager/src-tauri/Cargo.toml --check
+      - run: cargo test --locked --manifest-path apps/manager/src-tauri/Cargo.toml
+      - run: pwsh -NoProfile -File apps/manager/tests/windows.ps1
+      - run: npm run exe --prefix apps/manager
+      - run: npm run package --prefix apps/manager
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mew-manager-windows-x64
+          path: apps/manager/artifacts/mew-manager-*-windows-x64.zip
+          if-no-files-found: error
