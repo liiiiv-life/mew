@@ -21,7 +21,8 @@
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose stop postgres",
     "setup": "./mew setup",
-    "serve:central": "node server/remote-central/serve.ts"
+    "serve:central": "npm run serve:mewlink",
+    "serve:mewlink": "npm --prefix mewlink run start"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.65.0",
@@ -69,7 +70,6 @@
     "jsonc-parser": "3.3.1",
     "markdown-it": "^14.3.0",
     "multer": "^2.2.0",
-    "openid-client": "6.8.8",
     "parse5": "^8.0.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",

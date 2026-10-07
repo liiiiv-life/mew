@@ -4,11 +4,10 @@ import http from 'node:http'
 import express from 'express'
 import { WebSocketServer } from 'ws'
 import { REMOTE_LIMITS, parseRemoteFrame, remotePath, type RemoteFrame } from '../shared/remote-access.ts'
-import { remoteKeyPair, signRemoteToken, verifyRemoteToken } from './remote-access-crypto.ts'
+import { remoteKeyPair, signRemoteToken, verifyRemoteToken } from '../shared/remote-access-crypto.ts'
 import { remoteDispatcher } from './remote-access-dispatch.ts'
 import { resolveAuth, attachAuthContext } from './reqAuth.ts'
 import type { AuthenticatedSession } from './auth.ts'
-import { CentralStore } from './remote-central/store.ts'
 const account: AuthenticatedSession = { email: 'owner@example.test', user: { hash: '', role: 'owner', mustChangePassword: false, createdAt: 1, passwordChangedAt: 0 } }
 function harness() {
   const app = express(), server = http.createServer(app), frames: RemoteFrame[] = []
@@ -72,16 +71,4 @@ test('existing WebSocket handlers receive the same verified request identity', a
   h.setAuth(null)
   await h.dispatcher.receive(JSON.stringify({ type: 'message', id: 'ws', data: Buffer.from('denied').toString('base64'), binary: false }))
   assert.equal(h.closed(), true)
-})
-test('central identities are stable subjects and never merge matching names/emails', async () => {
-  const store = new CentralStore(':memory:')
-  try {
-    const owner = store.account('google', '123', 'same@example.test'), outsider = store.account('github', '123', 'same@example.test')
-    assert.notEqual(owner.id, outsider.id); assert.equal(store.account('google', '123', 'new name').id, owner.id)
-    const key = await remoteKeyPair(), instance = store.register(owner.id, 'home', key.publicKey)
-    assert.equal(store.allowed(instance.id, owner.id), true); assert.equal(store.allowed(instance.id, outsider.id), false)
-    const session = store.session(owner.id); assert.equal(store.authenticate(session.token)?.id, owner.id)
-    store.logout(session.token); assert.equal(store.authenticate(session.token), null)
-    assert.equal(store.revoke(instance.id, outsider.id), false); assert.equal(store.revoke(instance.id, owner.id), true); assert.equal(store.allowed(instance.id, owner.id), false)
-  } finally { store.close() }
 })

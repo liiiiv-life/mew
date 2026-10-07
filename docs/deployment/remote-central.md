@@ -1,15 +1,25 @@
 ---
-title: "계정 접속 중앙 서비스 설치"
-description: "중앙 Node 서비스의 별도 진입점·HTTPS·OAuth/OIDC 환경변수·키와 SQLite 보관, A의 owner 등록·멤버 승인·폐기와 배포 전 실제 로그인·외부망 검증을 안내한다. 중앙 서비스는 아직 배포하지 않았다."
+title: "mewlink 중앙 서비스 설치"
+description: "Git에서 제외한 로컬 mewlink의 폴더·별도 의존성·진입점·정적 UI 제공·HTTPS·OAuth/OIDC 환경변수·키와 SQLite 보관, A의 owner 등록·멤버 승인·폐기와 배포 전 실제 로그인·외부망 검증을 안내한다. 중앙 서비스는 아직 배포하지 않았다."
 created: 2026-10-07
 updated: 2026-10-07
 ---
 
-# 계정 접속 중앙 서비스
+# mewlink 중앙 서비스
 
 [구현·전송 계약](../development/remote-access.md) · [로컬 설치](native.md) · [작업과 출시 게이트](<../tasks/mew 중계 기능 만들기.md>)
 
 이 진입점은 계정·등록·시그널링과 정적 UI를 제공한다. 사용자 워크스페이스를 호스팅하지 않는다. **구현과 격리 테스트는 완료했고, `mew.saens.kr`의 실제 설치·DNS·인증서·로그인 제공자 설정은 수행하지 않았다.** 아래는 운영자가 적용할 절차다. 에이전트의 빌드·서버 실행 제한은 [실행 규칙](../development/getting-started.md)을 따른다.
+
+## 폴더와 관리 경계
+
+중앙 소스는 `mew/mewlink/server/`로 옮겼다. `mewlink/package.json`이 자체 의존성과 실행·테스트 명령을 관리한다. 부모 mew의 `.gitignore`는 `/mewlink/` 전체를 제외하며 npm workspace에도 등록하지 않는다. 공개 mew 체크아웃의 기본 설치·타입 검사·테스트는 이 폴더 없이 동작한다. 중앙 통합 테스트는 mewlink에서 별도로 실행한다. 아직 별도 Git 저장소를 만들지는 않았으며 로컬 중앙 코드는 부모 커밋에 포함되지 않는다. 이전 부모 커밋에 있던 중앙 코드의 이력은 유지한다.
+
+`shared/remote-access.ts`와 `shared/remote-access-crypto.ts`는 공개 mew와 mewlink가 사용하는 연결 규약·서명 도구다. 현재는 이 공통 코드와 같은 버전의 부모 `dist/`를 참조하므로 완전히 독립된 배포 패키지는 아니다. 향후 별도 저장소 분리 시 이 공통 계약과 UI 버전을 함께 관리한다.
+
+## 브라우저 UI를 제공하는 위치
+
+내 PC에서 `localhost:5000`(또는 설정한 `5001`)으로 열면 로컬 mew가 HTML·JS·CSS를 제공한다. 다른 PC·휴대폰의 localhost는 그 기기 자신을 가리킨다. 따라서 중앙 주소로 접속하는 브라우저에는 mewlink가 **같은 mew UI의 정적 빌드**를 제공하고, 인증 뒤 파일·터미널 등 작업 데이터는 로컬 A와 P2P로 전송한다. UI를 다시 구현하거나 워크스페이스를 중앙에 복사하는 절차는 없다. 현재 mewlink는 부모의 사용자 빌드 `dist/`를 읽으며 이름 변경만으로 새 UI 빌드를 수행하지 않는다.
 
 ## 중앙 운영자 설정
 
@@ -28,7 +38,7 @@ Node 22.18+ 또는 24+와 HTTPS를 종료하는 프록시가 필요하다. UI는
 
 각 제공자에 `${MEW_CENTRAL_ORIGIN}/auth/<google|github|apple|email>/callback`을 정확한 redirect URI로 등록한다. 설정된 제공자만 로그인 화면에 표시한다. email은 OIDC 제공자에서 이메일 로그인을 운영하며 자체 SMTP·비밀번호 저장·메일 링크 발송 서버는 구현하지 않았다. Apple은 `form_post`와 state cookie, nonce·ID token 검증 경로를 제공한다. 공급자의 실제 설정·심사·secret 만료와 로그인 성공은 운영 검증 대상이다. Apple 계약의 근거는 [공식 인증 요청](https://developer.apple.com/documentation/signinwithapplerestapi/request-an-authorization-to-the-sign-in-with-apple-server.)과 [공식 OIDC metadata](https://appleid.apple.com/.well-known/openid-configuration)를 따른다.
 
-설정은 중앙 서비스 관리자의 보호된 환경 파일/secret 주입으로 전달한다. 중앙 진입점은 A용 설정 파일이나 레포 `.env`를 자동으로 읽지 않는다. 운영자가 의존성을 설치하고 UI를 빌드한 뒤 `npm run serve:central`로 중앙 프로세스를 시작한다. 프로세스 감독·부팅 시 자동 시작은 운영 환경의 서비스 관리자가 담당한다.
+설정은 중앙 서비스 관리자의 보호된 환경 파일/secret 주입으로 전달한다. 중앙 진입점은 A용 설정 파일이나 레포 `.env`를 자동으로 읽지 않는다. 운영자가 의존성을 설치하고 UI를 빌드한 뒤 부모에서 `npm run serve:mewlink`, 또는 `mewlink/`에서 `npm start`로 중앙 프로세스를 시작한다. mewlink 의존성은 그 폴더에서 `npm install --ignore-scripts`로 별도 설치한다. 이전 부모 `serve:central` 명령은 호환용 별칭이다. 프로세스 감독·부팅 시 자동 시작은 운영 환경의 서비스 관리자가 담당한다.
 
 프록시는 동일 origin에서 정적 앱·`/auth`·`/central`·`/central/signal`을 전달하고 WS upgrade를 허용한다. OAuth callback query/form body·Cookie·등록 코드·SDP·ICE·접속 증명을 접근/오류 로그에 남기지 않는다. 원격 작업 API를 A로 HTTP proxy하는 경로를 만들지 않는다. 중앙 API·로그인 페이지와 HTML·worker는 장기 캐시하지 않는다. A와 B 모두 이 중앙 서비스에 HTTPS/WSS로 접속할 수 있어야 한다.
 

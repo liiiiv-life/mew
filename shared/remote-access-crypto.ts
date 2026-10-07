@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { SignJWT, exportJWK, generateKeyPair, importJWK, jwtVerify, calculateJwkThumbprint, type JWK } from 'jose'
-import { REMOTE_LIMITS, sdpFingerprint } from '../shared/remote-access.ts'
+import { REMOTE_LIMITS, sdpFingerprint } from './remote-access.ts'
 export const randomId = () => randomBytes(24).toString('base64url')
 export const hashSecret = (value: string) => createHash('sha256').update(value).digest('base64url')
 export async function remoteKeyPair() {

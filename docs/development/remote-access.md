@@ -1,6 +1,6 @@
 ---
 title: "계정 기반 P2P 원격 접속 계약"
-description: "중앙 계정·등록·시그널링과 A의 인증된 DataChannel을 연결한 구현, HTTP·WebSocket·자원 경로, 신원·권한·수명·메모리 제한과 자동 검증·미지원 범위를 정의한다. 실서비스 배포와 실제 외부망 검증은 남아 있다."
+description: "Git에서 제외한 로컬 mewlink 중앙 서비스와 A의 인증된 DataChannel을 연결한 구현, HTTP·WebSocket·자원 경로, 신원·권한·수명·메모리 제한과 자동 검증·미지원 범위를 정의한다. 실서비스 배포와 실제 외부망 검증은 남아 있다."
 created: 2026-10-07
 updated: 2026-10-07
 ---
@@ -13,7 +13,7 @@ updated: 2026-10-07
 
 ## 구성과 신원
 
-`server/remote-central/serve.ts`는 별도 중앙 진입점이다. 정적 앱, OAuth/OIDC, SQLite 계정·등록·세션·멤버십, WSS 시그널링을 제공한다. 로컬 API·워크스페이스·터미널·에이전트 모듈을 불러오지 않는다. 중앙 `/api`에는 작업 데이터를 제공하는 라우터가 없다.
+`mewlink/server/serve.ts`는 별도 중앙 진입점이다. 중앙 폴더는 부모 Git·npm workspace에서 제외하고 자체 package.json으로 관리한다. 공통 연결 규약과 서명 도구만 공개 `shared/`에 둔다. 정적 앱, OAuth/OIDC, SQLite 계정·등록·세션·멤버십, WSS 시그널링을 제공한다. 로컬 API·워크스페이스·터미널·에이전트 모듈을 불러오지 않는다. 중앙 `/api`에는 작업 데이터를 제공하는 라우터가 없다.
 
 중앙 HTML의 `mew-central` meta 표식으로 중앙 UI를 선택한다. URL 경로만으로 접속 모드를 추정하지 않으므로 A의 기존 프로젝트 경로를 중앙 계정·기기 주소로 오인하지 않는다.
 
@@ -80,8 +80,8 @@ A의 `<DATA_DIR>/remote-access.json`에는 버전 1, 서버 키, 고정 중앙 �
 ## 검증과 남은 게이트
 
 - `remote-access.test.ts`: 허용 경로·프레임 크기, 서명/만료/대상, 헤더 위조, JSON·바이너리, 기존 WS 문맥과 계정 회수.
-- `remote-central.test.ts`: 일회용 등록·키 소유·owner 승인·미허용 계정·Origin, ticket과 로그아웃, 서버 서명 등록 폐기.
-- `remote-access-authenticated.test.ts`: HTTPS 중앙 + 등록된 A + 실제 Chromium/네이티브 RTC의 서명된 접속과 로컬 owner 인증.
+- 로컬 `mewlink/server/service.test.ts`: 일회용 등록·키 소유·owner 승인·미허용 계정·Origin, ticket과 로그아웃, 서버 서명 등록 폐기.
+- 로컬 `mewlink/server/authenticated.test.ts`: HTTPS 중앙 + 등록된 A + 실제 Chromium/네이티브 RTC의 서명된 접속과 로컬 owner 인증.
 - `remote-access-files.test.ts`: 실제 파일 API의 읽기/저장, 읽기 전용·권한 회수·임시 비밀번호 차단, 계정별 작업 루트.
 - `remote-access-browser.test.ts`: 1MiB 다운로드·POST·조기 403·취소, native 이미지·Range, 큰 바이너리 WS, 중앙 작업 API 요청 0건.
 - `remote-access-storage.test.ts`와 공통 저장소 테스트: 같은 로컬 계정/세션 키의 서로 다른 중앙 계정·A 격리와 origin 캐시 예산·초안 보존.

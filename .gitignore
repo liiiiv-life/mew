@@ -44,3 +44,6 @@ native/collab/*.node
 
 # 재배포할 수 없는 원본 아트팩 — 공개 트리에 추가하지 않는다
 Oreo Cat - Aichan_owo.zip
+
+# 별도로 관리하는 로컬 중앙 서비스
+/mewlink/
