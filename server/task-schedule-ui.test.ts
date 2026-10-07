@@ -76,7 +76,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     const panel = desktop.locator('.task-panel')
     assert.equal(await panel.locator('[data-task-id=legacy]').count(), 0, 'completed tasks default to hidden')
     for (const page of [desktop, mobile]) await page.getByRole('checkbox', { name: '완료된 항목 보기', exact: true }).check()
-    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['parent', 'period', 'legacy', 'undated'], 'list applies date status sorting to independent rows')
+    assert.deepEqual(await panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id'))), ['legacy', 'parent', 'period', 'undated'], 'list applies default schedule proximity sorting to independent rows')
     assert.equal(await panel.locator('.task-disclosure').count(), 0)
     assert.equal(await panel.locator('[data-task-id=undated] .task-date-status').innerText(), '날짜 설정')
     assert.equal(await panel.locator('[data-task-id=period] .task-date-status').innerText(), 'D-3')

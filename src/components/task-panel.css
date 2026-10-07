@@ -10,6 +10,7 @@
 .task-check { display: flex; align-items: center; justify-content: center; width: 24px; height: 28px; flex-shrink: 0; cursor: pointer; }
 .task-check > input { width: 16px; height: 16px; margin: 0; accent-color: var(--color-accent); cursor: inherit; }
 .task-check:has(input:disabled) { cursor: default; }
+.task-panel[data-sort-active] .task-check:not(:has(input:disabled)) { touch-action: manipulation; cursor: pointer; }
 .task-line > textarea, .task-content > textarea { display: block; width: 100%; min-width: 0; resize: none; overflow: hidden; border: 0; border-radius: 3px; background: transparent; color: var(--color-ink); font: inherit; font-size: 14px; line-height: 22px; padding: 3px 2px; caret-color: var(--color-accent); }
 .task-line > textarea::placeholder, .task-content > textarea::placeholder { color: var(--color-ink-secondary); }
 .task-line > textarea:focus-visible, .task-content > textarea:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
@@ -132,6 +133,28 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
 .dark .task-tag-remove:hover { background: hsl(var(--task-tag-hue) 85% 86% / .12); }
 .task-tag button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; border-radius: 4px; }
 .task-filter { display: flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 3px 8px; border-bottom: 1px solid var(--color-edge); }
+.task-sort-trigger { flex-shrink: 0; }
+.task-sort-trigger[data-active] { background: var(--color-surface-raised); color: var(--color-ink); }
+.task-sort-popup { position: fixed; z-index: 80; overflow-y: auto; padding: 6px; border: 1px solid var(--color-edge-strong); border-radius: 10px; background: var(--color-surface-deep); color: var(--color-ink); font-size: 12px; }
+.task-sort-heading { display: flex; align-items: center; justify-content: space-between; padding-left: 4px; margin-bottom: 2px; }
+.task-sort-heading strong { font-weight: 600; }
+.task-sort-default { margin: 0; padding: 4px 6px; color: var(--color-ink-secondary); }
+.task-sort-row { display: flex; align-items: center; gap: 4px; margin-bottom: 2px; }
+.task-sort-priority { flex-shrink: 0; width: 18px; line-height: 20px; border-radius: 4px; background: var(--color-surface-raised); text-align: center; color: var(--color-ink-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.task-sort-field { flex: 1; min-width: 0; }
+.task-sort-direction { flex: 0 0 108px; min-width: 0; }
+.task-sort-select { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; min-width: 0; height: 28px; padding: 0 6px; border-radius: 6px; background: var(--color-surface-raised); color: var(--color-ink); font-size: 12px; text-align: left; }
+.task-sort-select > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-sort-select > svg { flex-shrink: 0; width: 12px; height: 12px; color: var(--color-ink-secondary); }
+.task-sort-select[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.task-sort-direction .task-sort-select { background: transparent; color: var(--color-ink-secondary); font-size: 11px; }
+.task-sort-direction-label { display: flex; align-items: center; gap: 3px; }
+.task-sort-direction-label > svg { flex-shrink: 0; }
+.task-sort-footer { border-top: 1px solid var(--color-edge); margin-top: 4px; padding-top: 4px; }
+.task-sort-add { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 28px; padding: 0 6px; border-radius: 4px; color: var(--color-ink-secondary); font-size: 12px; }
+.task-sort-select:hover, .task-sort-add:hover { background: var(--color-surface-hover); color: var(--color-ink); }
+.task-sort-select:focus-visible, .task-sort-add:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+@media (pointer: coarse) { .task-sort-select, .task-sort-add, .task-sort-trigger { min-height: 32px; } }
 .task-filter-completed { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; min-height: 26px; color: var(--color-ink-secondary); font-size: 11px; cursor: pointer; }
 .task-filter-completed input { width: 13px; height: 13px; margin: 0; accent-color: var(--color-accent); }
 .task-filter-completed:has(input:checked) { color: var(--color-ink); }

@@ -5,6 +5,7 @@ import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { SelectField, useOverlayDismiss } from '@mew/ui'
+import { captureDesktopKeyboard } from '../utils/desktop-keyboard.ts'
 import { desktopCursor } from '../utils/desktop-cursor.ts'
 import { connectDesktop, type DesktopScreen, type DesktopState } from '../utils/desktop-connection.ts'
 import { formatDesktopBytes, type DesktopNetworkUsage } from '../utils/desktop-network.ts'
@@ -48,6 +49,8 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
   const geometry = desktopGeometry(viewport.width, viewport.height, nativeSize.width, nativeSize.height, 0, view)
   const projection = useRef(geometry); projection.current = geometry
   const settingsButton = useRef<HTMLButtonElement>(null), settingsPanel = useRef<HTMLElement>(null)
+  const [keyboardState, setKeyboardState] = useState<'locked' | 'limited' | 'denied'>('limited')
+  const [clipboardError, setClipboardError] = useState('')
   const [pasteOpen, setPasteOpen] = useState(false), [text, setText] = useState(''), [helpOpen, setHelpOpen] = useState(false)
   const touches = useRef(new Map<number, { x: number; y: number }>())
   const connected = state === 'connected'
@@ -59,7 +62,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
     else return false
     return true
   }
-  useOverlayDismiss(() => { if (!dismissInner()) close() }, { closeOnBack: () => !dismissInner() })
+  useOverlayDismiss(() => { if (!dismissInner()) close() }, { closeOnBack: () => !dismissInner(), closeOnEscape: event => !(connected && !install.open && !settingsOpen && !pasteOpen && !helpOpen && (event.target === stage.current || event.target === root.current)) })
   const [installable, setInstallable] = useState(false)
   const install = useDesktopInstall(installable, () => setAttempt(value => value + 1))
   useEffect(() => {
@@ -94,11 +97,11 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
     setFullscreenError('')
     try {
       if (document.fullscreenElement) await document.exitFullscreen()
-      else if (document.documentElement.requestFullscreen) { ownsFullscreen.current = true; await document.documentElement.requestFullscreen() }
+      else if (document.documentElement.requestFullscreen) { ownsFullscreen.current = true; await document.documentElement.requestFullscreen(); stage.current?.focus() }
       else setFullscreenError(uiText("이 브라우저는 전체화면을 지원하지 않습니다. 홈 화면에 추가한 앱으로 열어 주세요."))
     } catch { ownsFullscreen.current = false; setFullscreenError(uiText("전체화면으로 전환하지 못했습니다. 브라우저 권한을 확인하고 다시 눌러 주세요.")) }
   }
-  const rotate = () => { input?.release(); touches.current.clear(); setRotation(value => ((value + 90) % 360) as Rotation); setView({ x: 0, y: 0, scale: 1 }); setLayout(value => value + 1) }
+  const rotate = () => { input?.release(); touches.current.clear(); setRotation(value => ((value + 90) % 360) as Rotation); setView({ x: 0, y: 0, scale: 1 }); setLayout(value => value + 1); stage.current?.focus() }
   const updateSensitivity = (value: number) => {
     const next = clampSensitivity(value); setSensitivity(next)
     try { scopedBrowserStorage().setItem(SENSITIVITY_KEY, JSON.stringify(next)) } catch { /* Session setting still works without storage. */ }
@@ -148,14 +151,43 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
     }
     const release = () => { try { connection.input.release() } catch { connection.fail(uiText("입력 연결이 지연됐습니다. 다시 연결해 주세요.")) } }
     window.addEventListener('blur', release); document.addEventListener('visibilitychange', hide)
-    return () => { local.close(); cursor.current = null; connection.close(); window.removeEventListener('blur', release); document.removeEventListener('visibilitychange', hide); if (element) element.srcObject = null }
+    return () => { local.close(); cursor.current = null; if (session.current === connection) session.current = null; connection.close(); window.removeEventListener('blur', release); document.removeEventListener('visibilitychange', hide); if (element) element.srcObject = null }
   }, [attempt])
   useEffect(() => { cursor.current?.refresh() }, [view, transport, rotation, viewport, nativeSize])
+
+  const copyClipboard = async () => {
+    const connection = session.current
+    if (!connected || !connection) return
+    setClipboardError('')
+    try {
+      const value = await connection.input.readClipboard()
+      if (session.current !== connection || document.hidden) return
+      await navigator.clipboard.writeText(value)
+    } catch { if (session.current === connection) setClipboardError(uiText("클립보드를 공유하지 못했습니다. 브라우저 권한과 원격 텍스트 크기를 확인하세요.")) }
+  }
+  const pasteClipboard = async () => {
+    const connection = session.current
+    if (!connected || !connection) return
+    setClipboardError('')
+    try {
+      const value = await navigator.clipboard.readText()
+      if (session.current !== connection || document.hidden) return
+      if (value.length > 4096 || value.includes('\0')) throw new Error('Clipboard text too large')
+      connection.input.paste(value)
+    } catch { if (session.current === connection) setClipboardError(uiText("클립보드를 공유하지 못했습니다. 브라우저 권한과 원격 텍스트 크기를 확인하세요.")) }
+  }
+  useEffect(() => {
+    if (!connected || !input || install.open || settingsOpen || pasteOpen || helpOpen) { setKeyboardState('limited'); return }
+    return captureDesktopKeyboard({ input, target: element => element === root.current || element === stage.current,
+      detected: () => setKeyboardDetected(true), copy: copyClipboard, paste: pasteClipboard, status: value => { setKeyboardState(value); if (value === 'denied') setFullscreenError(uiText("키보드 잠금이 거부됐습니다. 브라우저 권한을 확인하세요.")) } })
+    // Clipboard handlers use the connection captured for this effect's lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, input, install.open, settingsOpen, pasteOpen, helpOpen])
 
   const sendKey = (event: KeyboardEvent, down: boolean) => {
     event.stopPropagation()
     if (down && event.isTrusted && !event.nativeEvent.isComposing && KEY_CODES[event.code] && (event.target === stage.current || event.target === root.current)) setKeyboardDetected(true)
-    if (event.key === 'Escape') { if (down) close(); return }
+    if (event.key === 'Escape') { if (down) { if (!dismissInner()) close() }; return }
     if (event.key === 'F6') { event.preventDefault(); if (down) root.current?.querySelector<HTMLButtonElement>('.desktop-tools button')?.focus(); return }
     // Only the actual viewport takes remote keyboard input; the toolbar remains accessible.
     if (event.target !== stage.current && event.target !== root.current) return
@@ -195,7 +227,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
       </div>
       <div ref={dockHostRef} hidden={fullscreen || dockHidden} className="desktop-dock-host" />
       <div className="desktop-tools">
-        <button onClick={() => setView({ x: 0, y: 0, scale: 1 })} title={uiText("화면에 맞추기")}>{uiText("맞춤")}<span className="desktop-scale">{Math.round(view.scale * 100)}%</span></button>
+        <button onClick={() => { setView({ x: 0, y: 0, scale: 1 }); stage.current?.focus() }} title={uiText("화면에 맞추기")}>{uiText("맞춤")}<span className="desktop-scale">{Math.round(view.scale * 100)}%</span></button>
         <button disabled={!connected} onClick={() => { input?.release(); setPasteOpen(value => !value); setHelpOpen(false); setSettingsOpen(false) }} aria-expanded={pasteOpen}>{uiText("입력")}</button>
         <button onClick={() => { setHelpOpen(value => !value); setPasteOpen(false); setSettingsOpen(false) }} aria-expanded={helpOpen}>{uiText("도움말")}</button>
         <button className="desktop-tool-icon" onClick={rotate} aria-label={uiText("화면 90도 회전")} title={uiText("화면 90도 회전 · 현재 {p0}°", { p0: rotation })}><DesktopIcon kind="rotate" /></button>
@@ -205,6 +237,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
       </div>
     </header>
     {fullscreenError && <div className="desktop-notice" role="status">{fullscreenError}<button onClick={() => setFullscreenError('')} aria-label={uiText("전체화면 안내 닫기")}><DesktopIcon kind="close" /></button></div>}
+    {clipboardError && !pasteOpen && <div className="desktop-notice" role="status">{clipboardError}<button onClick={() => setClipboardError('')} aria-label={uiText("닫기")}><DesktopIcon kind="close" /></button></div>}
     <div ref={stage} className="desktop-stage" tabIndex={0} aria-label={uiText("원격 화면. 키보드 입력을 전달하려면 선택하세요.")}
       onBlur={() => input?.release()} onContextMenu={event => event.preventDefault()}
       onPointerDown={event => {
@@ -255,10 +288,11 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
       <SelectField id="desktop-modifier" label={uiText("핫키 보조키")} value={modifier} onChange={setModifier} portalContainer={panel.current}
         options={[{ value: 'ControlLeft', label: 'Ctrl · Windows / Linux' }, { value: 'MetaLeft', label: 'Cmd · Mac' }]} />
       <div className="desktop-settings-actions"><button onClick={() => { input?.release(); setLayout(value => value + 1) }}>{uiText("버튼 위치 초기화")}</button><button onClick={() => updateSensitivity(3)}>{uiText("감도 초기화")}</button><button onClick={() => { setSettingsOpen(false); setAttempt(value => value + 1) }}>{uiText("다시 연결")}</button></div>
+      <p role="status" data-keyboard-state={keyboardState}>{keyboardState === 'locked' ? uiText("키보드 잠금 활성화 · OS 예약 키는 제외될 수 있습니다.") : keyboardState === 'denied' ? uiText("키보드 잠금이 거부됐습니다. 브라우저 권한을 확인하세요.") : uiText("키보드 잠금은 지원 브라우저의 전체화면에서 원격 화면을 선택하면 활성화됩니다.")}</p>
       <p>{connected ? stats || uiText("연결됨") : message}</p>
     </aside>}
-    {helpOpen && <aside className="desktop-help"><strong>{uiText("터치패드처럼 움직여 조작")}</strong>{connected && cursorMode && <p data-cursor-mode={cursorMode}>{uiText("커서 표시:")}{cursorMode === 'local' ? uiText("이 기기에서 즉시 표시") : uiText("영상에 포함됨. 현재 화면에서는 커서 분리를 사용할 수 없습니다.")}</p>}<p>{uiText("마우스 모양 아래쪽의 커서 이동 영역은 터치패드처럼 손가락을 움직인 만큼 커서를 옮깁니다. 손가락을 멈추면 커서도 멈추고, 떼었다 다시 대서 이어 움직일 수 있습니다. 위쪽 좌클릭·우클릭은 탭하면 클릭하고, 밀면 바로 버튼을 누른 채 드래그합니다. 휠은 밀어서 세로 스크롤하고, 잠깐 꾹 누른 뒤 밀면 중간 버튼으로 드래그합니다.")}</p><p>{uiText("휠·화면 이동·확대는 중앙에서 멀리 밀수록 빨라지고, 밀어 둔 동안 계속 작동합니다. 중앙으로 돌아오거나 손을 떼면 멈춥니다. 화면 이동·확대는 내 화면에만 적용됩니다. 화면을 손가락으로 밀거나 두 손가락으로 확대할 수도 있습니다. 마지막 핸들로 조이스틱 전체를 옮기세요.")}</p>{relative && <p>{uiText("이 서버는 조이스틱으로 커서를 이동합니다.")}</p>}<p>{uiText("키보드: 화면 선택 후 입력 · F6: 도구로 이동 · Esc: 닫기")}</p></aside>}
-    {pasteOpen && <form className="desktop-paste" onSubmit={event => { event.preventDefault(); input?.paste(text); setText(''); setPasteOpen(false); stage.current?.focus() }}><label htmlFor="desktop-paste">{uiText("원격 컴퓨터에 붙여넣기")}</label><textarea id="desktop-paste" value={text} maxLength={4096} onChange={event => setText(event.target.value)} placeholder={uiText("전송할 텍스트")} /><div><button type="button" onClick={() => { input?.key('Escape', true); input?.key('Escape', false) }}>{uiText("원격 Esc")}</button><button type="submit" disabled={!connected || !text}>{uiText("붙여넣기")}</button></div></form>}
+    {helpOpen && <aside className="desktop-help"><strong>{uiText("터치패드처럼 움직여 조작")}</strong>{connected && cursorMode && <p data-cursor-mode={cursorMode}>{uiText("커서 표시:")}{cursorMode === 'local' ? uiText("이 기기에서 즉시 표시") : uiText("영상에 포함됨. 현재 화면에서는 커서 분리를 사용할 수 없습니다.")}</p>}<p>{uiText("마우스 모양 아래쪽의 커서 이동 영역은 터치패드처럼 손가락을 움직인 만큼 커서를 옮깁니다. 손가락을 멈추면 커서도 멈추고, 떼었다 다시 대서 이어 움직일 수 있습니다. 위쪽 좌클릭·우클릭은 탭하면 클릭하고, 밀면 바로 버튼을 누른 채 드래그합니다. 휠은 밀어서 세로 스크롤하고, 잠깐 꾹 누른 뒤 밀면 중간 버튼으로 드래그합니다.")}</p><p>{uiText("휠·화면 이동·확대는 중앙에서 멀리 밀수록 빨라지고, 밀어 둔 동안 계속 작동합니다. 중앙으로 돌아오거나 손을 떼면 멈춥니다. 화면 이동·확대는 내 화면에만 적용됩니다. 화면을 손가락으로 밀거나 두 손가락으로 확대할 수도 있습니다. 마지막 핸들로 조이스틱 전체를 옮기세요.")}</p>{relative && <p>{uiText("이 서버는 조이스틱으로 커서를 이동합니다.")}</p>}<p>{uiText("키보드는 원격 화면으로 전달됩니다. 도구와 닫기는 마우스로 선택하세요. 전체화면 키보드 잠금은 Esc를 길게 눌러 해제할 수 있습니다.")}</p></aside>}
+    {pasteOpen && <form className="desktop-paste" onSubmit={event => { event.preventDefault(); try { input?.paste(text); setText(''); setPasteOpen(false); stage.current?.focus() } catch { setClipboardError(uiText("클립보드를 공유하지 못했습니다. 브라우저 권한과 원격 텍스트 크기를 확인하세요.")) } }}><label htmlFor="desktop-paste">{uiText("원격 컴퓨터에 붙여넣기")}</label><textarea id="desktop-paste" value={text} maxLength={4096} onChange={event => setText(event.target.value)} placeholder={uiText("전송할 텍스트")} />{clipboardError && <p role="status">{clipboardError}</p>}<div><button type="button" disabled={!connected} onClick={() => void copyClipboard()}>{uiText("원격 클립보드 가져오기")}</button><button type="button" disabled={!connected} onClick={() => void pasteClipboard()}>{uiText("내 클립보드 붙여넣기")}</button><button type="button" onClick={() => { input?.key('Escape', true); input?.key('Escape', false) }}>{uiText("원격 Esc")}</button><button type="submit" disabled={!connected || !text}>{uiText("붙여넣기")}</button></div></form>}
     {!keyboardDetected && <DesktopFloating key={`keys-${layout}`} root={panel} stage={stage} rotation={rotation} className={`desktop-hotkeys${hotkeysExpanded ? '' : ' is-collapsed'}`} label={uiText("핫키")}>
       <button type="button" className="desktop-hotkey-toggle" aria-expanded={hotkeysExpanded} aria-controls="desktop-hotkey-buttons" aria-label={`${uiText("핫키")} ${hotkeysExpanded ? uiText("접기") : uiText("펼치기")}`} title={hotkeysExpanded ? uiText("접기") : uiText("펼치기")} onClick={() => setHotkeysExpanded(value => !value)}>
         <DesktopIcon kind={hotkeysExpanded ? 'collapse' : 'expand'} />

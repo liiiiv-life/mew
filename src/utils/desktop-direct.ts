@@ -20,7 +20,7 @@ export function desktopDirect({ iceServers, input, signal, stream, connected, fa
     const channel = event.channel
     if (closed || !['motion', 'control'].includes(channel.label)) { channel.close(); return }
     input.connect(channel.label, channel)
-    if (channel.label === 'control') control = channel
+    if (channel.label === 'control') { control = channel; channel.onmessage = event => { if (!closed) input.message(event.data) } }
     channel.onopen = () => { if (++channels === 2 && !closed) connected() }
     channel.onclose = channel.onerror = () => { if (!closed) failed() }
   }

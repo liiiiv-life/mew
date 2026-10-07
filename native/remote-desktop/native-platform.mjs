@@ -1,6 +1,7 @@
+import { promisify } from 'node:util'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
+import { spawn, execFile } from 'node:child_process'
 import { windowsInput, macInput, x11Input } from './input-native.mjs'
 import { windowsClipboard } from './clipboard-windows.mjs'
 import { windowsNotification } from './notification-windows.mjs'
@@ -11,8 +12,10 @@ export async function nativePlatform(koffi) {
   if (process.platform === 'win32') {
     const user = koffi.load('user32.dll'), open = user.func('void *OpenInputDesktop(uint32, bool, uint32)'), close = user.func('bool CloseDesktop(void *)')
     const name = user.func('bool GetUserObjectInformationW(void *, int, void *, uint32, void *)')
+    const clipboard = windowsClipboard(koffi)
     return {
-      localCursor: true, input: bounds => windowsInput(koffi, bounds), clipboard: windowsClipboard(koffi), notify: windowsNotification(koffi),
+      readClipboard: clipboard.read,
+      localCursor: true, input: bounds => windowsInput(koffi, bounds), clipboard, notify: windowsNotification(koffi),
       allowed() {
         const desktop = open(0, false, 1); if (!desktop) return false
         const buffer = Buffer.alloc(256), size = Buffer.alloc(4)
@@ -24,12 +27,14 @@ export async function nativePlatform(koffi) {
   if (process.platform === 'darwin') {
     const library = koffi.load(path.join(directory, 'gpu-macos.dylib'))
     const allowed = library.func('int mew_gpu_allowed()'), pump = library.func('void mew_gpu_pump()')
+    const readClipboard = library.func('int mew_gpu_clipboard_read(void *, int)')
     const clipboard = library.func('int mew_gpu_clipboard(const char *)'), notice = library.func('void mew_gpu_notice(int)')
     let loop
     return {
       localCursor: false, allowed: () => !!allowed(), pump, input: bounds => macInput(koffi, bounds),
       begin() { loop ??= setInterval(pump, 16) }, end() { clearInterval(loop); loop = undefined }, close() { clearInterval(loop) },
       prepare() { if (!allowed()) throw new Error('서버 Mac에서 Mew Desktop의 화면 기록·손쉬운 사용 권한을 허용해 주세요. ./mew desktop-setup으로 준비할 수 있습니다.') },
+      readClipboard() { const buffer = Buffer.alloc(16 * 1024); if (readClipboard(buffer, buffer.length) < 0) throw new Error('Mac 클립보드를 읽지 못했습니다.'); return buffer.toString('utf8').split('\0')[0] },
       clipboard(text) { if (clipboard(text) !== 0) throw new Error('Mac 붙여넣기에 실패했습니다.') },
       notify() { notice(1); return () => notice(0) },
     }
@@ -72,6 +77,10 @@ export async function nativePlatform(koffi) {
       }
     },
     input: bounds => x11Input(koffi, bounds),
+    async readClipboard() {
+      const { stdout } = await promisify(execFile)(wayland ? 'wl-paste' : 'xclip', wayland ? ['--no-newline', '--type', 'text'] : ['-selection', 'clipboard', '-o'], { timeout: 2000, maxBuffer: 16 * 1024, encoding: 'utf8' })
+      return stdout
+    },
     async clipboard(text) {
       releaseClipboard()
       const child = spawn(wayland ? 'wl-copy' : 'xclip', wayland ? ['--foreground', '--paste-once'] : ['-selection', 'clipboard', '-quiet', '-loops', '1'], { stdio: ['pipe', 'ignore', 'ignore'] })

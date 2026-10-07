@@ -69,6 +69,20 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, locale: 'ko-KR' })
     await page.addInitScript(`
+      window.localClipboard = ''; window.remoteClipboard = '원격 복사 텍스트'; window.clipboardDenied = false;
+      Object.defineProperty(navigator, 'clipboard', { value: {
+        async readText() { if (window.clipboardDenied) throw new Error('Permission denied'); return window.localClipboard; },
+        async writeText(text) { if (window.clipboardDenied) throw new Error('Permission denied'); window.localClipboard = text; }
+      } });
+      const sendChannel = RTCDataChannel.prototype.send;
+      RTCDataChannel.prototype.send = function(raw) {
+        if (typeof raw === 'string' && JSON.parse(raw).type === 'clipboard-read') {
+          const id = JSON.parse(raw).id;
+          setTimeout(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'clipboard', id, text: window.remoteClipboard }) })), 10);
+          return;
+        }
+        return sendChannel.call(this, raw);
+      };
       const originalMatchMedia = window.matchMedia.bind(window);
       const media = new EventTarget(); media.matches = false;
       window.matchMedia = query => query === '(any-hover: hover) and (any-pointer: fine)' ? media : originalMatchMedia(query);
@@ -511,10 +525,33 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       await page.waitForFunction(`(async()=>((await window.videoStats()).frames>${recovered}))()`)
     }
     await page.getByRole('button', { name: '입력' , exact: true }).click()
+    await page.getByRole('button', { name: '원격 클립보드 가져오기', exact: true }).click()
+    await page.waitForFunction('window.localClipboard === window.remoteClipboard')
+    await page.evaluate('window.localClipboard="내 클립보드 텍스트"')
+    await page.getByRole('button', { name: '내 클립보드 붙여넣기', exact: true }).click()
+    await page.waitForFunction('window.inputPackets.some(([v])=>v.type==="paste"&&v.text==="내 클립보드 텍스트")')
+    await page.evaluate('window.clipboardDenied=true')
+    await page.getByRole('button', { name: '내 클립보드 붙여넣기', exact: true }).click()
+    await page.getByRole('status').filter({ hasText: '클립보드를 공유하지 못했습니다.' }).waitFor()
+    await page.evaluate('window.clipboardDenied=false')
+    await page.getByRole('button', { name: '원격 클립보드 가져오기', exact: true }).click()
+    await page.getByRole('status').filter({ hasText: '클립보드를 공유하지 못했습니다.' }).waitFor({ state: 'hidden' })
+    const captures = process.env.MEW_DESKTOP_SCREENSHOTS
+    if (captures) {
+      await page.screenshot({ path: path.join(captures, 'clipboard-desktop.png') })
+      await page.setViewportSize({ width: 320, height: 568 })
+      await page.screenshot({ path: path.join(captures, 'clipboard-mobile.png') })
+      assert.equal(await page.locator('.desktop-paste').evaluate(el => el.scrollWidth > el.clientWidth), false)
+      await page.setViewportSize({ width: 1440, height: 900 })
+    }
     await page.getByLabel('원격 컴퓨터에 붙여넣기').fill('한글 input')
     await page.getByRole('button', { name: '붙여넣기', exact: true }).click()
     await page.waitForFunction('window.inputPackets.some(([v])=>v.type==="paste"&&v.text==="한글 input")')
+    await clear()
     await page.keyboard.press('Escape')
+    await page.waitForFunction('window.inputEvents.some(e=>e[0]==="key"&&e[1]==="Escape"&&e[2]===false)')
+    assert.equal(await page.locator('.remote-desktop').count(), 1, 'physical Escape belongs to the remote viewport')
+    await page.getByRole('button', { name: '원격 데스크톱 닫기', exact: true }).click()
     await page.getByRole('dialog').waitFor({ state: 'hidden' })
     await page.waitForFunction('window.syntheticStream.getTracks().every(track=>track.readyState==="ended")')
     assert.equal(await page.evaluate('document.querySelector("#root").inert'), false)

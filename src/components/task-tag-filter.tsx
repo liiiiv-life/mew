@@ -1,13 +1,14 @@
 import { useTaskTagColors } from './task-tag-color-context'
-import { useRef, type CSSProperties } from 'react'
+import { useRef, type CSSProperties, type ReactNode } from 'react'
 import { SelectField } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { Filter, Xmark } from 'iconoir-react'
 import { taskTagHue } from '../utils/task-tag-color'
 
 
-export function TaskTagFilter({ tags, selected, count, total, onChange, showCompleted, onShowCompletedChange }: {
+export function TaskTagFilter({ tags, selected, count, total, onChange, showCompleted, onShowCompletedChange, children }: {
   tags: string[]; selected: string[]; count: number; total: number; onChange: (tags: string[]) => void; showCompleted: boolean; onShowCompletedChange: (show: boolean) => void
+  children?: ReactNode
 }) {
   const { colors } = useTaskTagColors()
   const tagStyle = (tag: string) => ({ '--task-tag-hue': taskTagHue(tag, colors) }) as CSSProperties
@@ -18,6 +19,7 @@ export function TaskTagFilter({ tags, selected, count, total, onChange, showComp
     if (restoreFocus) requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>('[role="combobox"]')?.focus({ preventScroll: true }))
   }
   return <div ref={root} className="task-filter" data-active={selected.length > 0 || undefined}>
+    {children}
     {tags.length > 0 && <SelectField multiple compact label={uiText('태그 필터')} value={selected} onChange={onChange}
       className="task-filter-field" triggerClassName="task-filter-trigger" popupWidth={200} popupClassName="task-filter-menu"
       triggerContent={<><Filter width={14} height={14} aria-hidden="true" />{selected.length > 0 && <span>{selected.length}</span>}</>}

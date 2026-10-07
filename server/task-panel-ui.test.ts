@@ -174,6 +174,15 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     })
     assert.equal(readTaskList(WORKSPACE_ROOT).length, 5)
     const order = () => panel.locator('[data-task-id]').evaluateAll(elements => elements.map(el => el.getAttribute('data-task-id')))
+    const clearSorting = async (page: typeof one) => {
+      await page.getByRole('button', { name: '목록 정렬', exact: true }).click()
+      const sorting = page.getByRole('dialog', { name: '목록 정렬', exact: true })
+      await sorting.getByRole('button', { name: '정렬 조건 2 삭제', exact: true }).click()
+      await sorting.getByRole('button', { name: '정렬 조건 1 삭제', exact: true }).click()
+      await sorting.getByRole('button', { name: '닫기', exact: true }).click()
+    }
+    await clearSorting(one)
+    await clearSorting(two)
     const initialOrder = await order()
     const start = (await panel.locator('[data-task-id]').first().locator('.task-check').boundingBox())!
     const end = (await panel.locator('[data-task-id]').last().boundingBox())!
@@ -209,6 +218,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await panel.getByRole('checkbox', { name: '완료된 항목 보기', exact: true }).check()
     await panel.locator('[data-task-id]').nth(4).waitFor()
     assert.deepEqual(await order(), touchOrder, 'dragged order survives reload')
+    await clearSorting(one)
     const cancelStart = (await panel.locator('[data-task-id]').first().locator('.task-check').boundingBox())!
     const cancelTarget = (await panel.locator('[data-task-id]').nth(1).boundingBox())!
     await one.mouse.move(cancelStart.x + 12, cancelStart.y + 14); await one.mouse.down(); await one.mouse.move(cancelStart.x + 12, cancelTarget.y + cancelTarget.height / 2 + 8)

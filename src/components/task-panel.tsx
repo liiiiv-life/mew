@@ -5,6 +5,8 @@ import { TaskTagColorContext } from './task-tag-color-context'
 import { TaskDocumentProvider } from './task-document-context'
 import { TaskText } from './task-text'
 import { TaskTagFilter } from './task-tag-filter'
+import { TaskSortPicker } from './task-sort-picker'
+import { defaultTaskSortRules, sortTasks, type TaskSortRule } from '../utils/task-sort'
 import { collectTaskTags, taskTags, TASK_TAG_LIMIT } from '../../shared/task-tags'
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { Calendar, Xmark, RefreshDouble, Plus, List, StatsUpSquare } from 'iconoir-react'
@@ -36,13 +38,15 @@ const taskErrors = [
 ] as const
 
 export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSignal = 0, workspace, onOpenFile }: { workspace?: string | null; onOpenFile?: (path: string) => void; session: Session; onClose: () => void; nextTabSignal?: number; previousTabSignal?: number }) {
-  useUiLocale()
+  const locale = useUiLocale()
   const tabId = useId()
   const [menu, setMenu] = useState<(TaskMenuAnchor & { id: string }) | null>(null)
   const [dateId, setDateId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [filters, setFilters] = useState<string[]>([])
   const [showCompleted, setShowCompleted] = useState(false)
+  const [sortRules, setSortRules] = useState<TaskSortRule[]>(defaultTaskSortRules)
+  useEffect(() => { setSortRules(defaultTaskSortRules()) }, [workspace])
   const [view, setView] = useState<'list' | 'calendar' | 'gantt'>('list')
   const [selectedDate, setSelectedDate] = useState(localToday), [month, setMonth] = useState(() => localToday().slice(0, 7))
   const inputs = useRef(new Map<string, HTMLTextAreaElement>()).current
@@ -57,7 +61,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     document.addEventListener('visibilitychange', refresh)
     return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh) }
   }, [])
-  const sortedTasks = useMemo(() => sortTasksByDateStatus(tasks, today), [tasks, today])
+  const sortedTasks = useMemo(() => sortRules.length ? sortTasks(tasks, sortRules, locale, today) : sortTasksByDateStatus(tasks, today), [tasks, today, sortRules, locale])
   const knownTags = collectTaskTags(tasks, [...(session.tags ?? []), ...draftTags])
   useEffect(() => {
     setFilters(current => { const next = current.filter(tag => knownTags.includes(tag)); return next.length === current.length ? current : next })
@@ -65,7 +69,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   const matchesFilter = (task: TaskItem) => (showCompleted || !task.done) && (!filters.length || taskTags(task).some(tag => filters.includes(tag)))
   const filteredTasks = tasks.filter(matchesFilter)
   const sortedFiltered = sortedTasks.filter(matchesFilter)
-  const drag = useTaskDrag(sortedFiltered, canEdit, next => edit(mergeVisibleTasks(tasks, sortedFiltered, next)))
+  const drag = useTaskDrag(sortedFiltered, canEdit && !sortRules.length, next => edit(mergeVisibleTasks(tasks, sortedFiltered, next)))
   const createTask = (text: string, tags: string[] = [], assignees: string[] = []): TaskItem => ({ assignees, ...newTask(text, [...tags, ...filters]), ...(view === 'calendar' ? { startDate: selectedDate, date: selectedDate } : {}) })
   const visibleTasks = view === 'calendar' ? tasksOnDate(filteredTasks, selectedDate) : sortedFiltered
   const focus = (id: string, position: number | 'end' = 0) => {
@@ -136,13 +140,13 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
   }
   const menuTask = visibleTasks.find(item => item.id === menu?.id)
   const renderTask = (item: TaskItem) => { const index = tasks.findIndex(task => task.id === item.id); return <TaskSwipeRow key={`${workspace}:${item.id}`} enabled={canEdit} open={deleteId === item.id} onReveal={open => setDeleteId(open ? item.id : null)} onDelete={() => { remove(index); setDeleteId(null) }} onMenu={anchor => setMenu({ ...anchor, id: item.id })} id={item.id} done={item.done} dragging={view === 'list' && drag.preview?.item.id === item.id} dropBefore={view === 'list' && drag.preview?.beforeId === item.id}>
-          <label className="task-check" {...(view === 'list' ? drag.handle(item.id) : {})}><input type="checkbox" checked={item.done} disabled={!canEdit} aria-label={uiText('태스크 완료')} aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+          <label className="task-check" {...(view === 'list' ? drag.handle(item.id) : {})}><input type="checkbox" checked={item.done} disabled={!canEdit} aria-label={uiText('태스크 완료')} aria-keyshortcuts={view === 'list' && !sortRules.length ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
             onChange={event => edit(tasks.map(task => task.id === item.id ? { ...task, done: event.target.checked } : task))} /></label>
           <div className="task-content"><TaskText id={item.id} text={item.text} tags={item.tags} assignees={item.assignees} onAssigneesChange={assignees => edit(tasks.map(task => task.id === item.id ? { ...task, assignees } : task))} knownTags={knownTags} onFilter={tag => setFilters(current => current.includes(tag) ? current : [...current, tag])} disabled={!canEdit} inputs={inputs}
             onChange={(text, tags) => update(item.id, text, tags)} onKeyDown={event => keyDown(event, index)} onPaste={event => paste(event, index)} onBlur={() => void flush()} /></div>
           <TaskDateStatus task={item} isOpen={dateId === item.id} onOpenChange={open => setDateId(open ? item.id : null)} today={today} readOnly={!canEdit} onChange={(startDate, date) => { if (!canEdit) return; edit(tasks.map(task => task.id === item.id ? { ...task, startDate, date } : task)) }} />
         </TaskSwipeRow> }
-  const lines = <div ref={view === 'list' ? drag.list : undefined} {...(view === 'list' ? drag.events : {})} className="task-lines px-3 py-2">
+  const lines = <div ref={view === 'list' ? drag.list : undefined} {...(view === 'list' ? drag.events : {})} className="task-lines px-2 py-1">
         {(view === 'calendar' ? visibleTasks : drag.tasks.filter(matchesFilter)).map(renderTask)}
         {canEdit && tasks.length < TASK_LIMIT && <div data-drop-before={view === 'list' && !!drag.preview && drag.preview.beforeId === null || undefined} className="task-line task-draft" data-empty={!draft && !draftTags.length && !draftAssignees.length || undefined}>
           <span className="task-draft-plus" aria-hidden="true"><Plus width={18} height={18} /></span>
@@ -152,7 +156,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
             onBlur={commitDraft} />
         </div>}
       </div>
-  return <TaskAssigneeProvider key={workspace}><TaskTagColorContext.Provider value={{ colors: session.tagColors, onChange: session.setTagColor, onDelete: session.deleteTag }}><TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
+  return <TaskAssigneeProvider key={workspace}><TaskTagColorContext.Provider value={{ colors: session.tagColors, onChange: session.setTagColor, onDelete: session.deleteTag }}><TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} data-sort-active={view === 'list' && sortRules.length > 0 || undefined} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
     <header data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       <DockGrip group="tasks" />
       <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5">
@@ -175,7 +179,9 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
       <button type="button" onClick={onClose} aria-label={uiText('닫기')} data-tip={uiText('닫기')}
         className="mx-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"><Xmark width={14} height={14} aria-hidden="true" /></button>
     </header>
-    <TaskTagFilter tags={knownTags} selected={filters} count={filteredTasks.length} total={tasks.length} onChange={setFilters} showCompleted={showCompleted} onShowCompletedChange={setShowCompleted} />
+    <TaskTagFilter tags={knownTags} selected={filters} count={filteredTasks.length} total={tasks.length} onChange={setFilters} showCompleted={showCompleted} onShowCompletedChange={setShowCompleted}>
+      {view === 'list' && <TaskSortPicker rules={sortRules} onChange={setSortRules} />}
+    </TaskTagFilter>
     <DockInlineBody group="tasks" role="tabpanel" id={`${tabId}-body`} aria-labelledby={`${tabId}-${view}`} className={view === 'gantt' ? 'task-view-body min-h-0 flex-1 overflow-hidden' : 'task-view-body min-h-0 flex-1 overflow-auto'}>
       {error && <div role="alert" className="flex items-center gap-2 px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1">{uiText(taskErrors.find(message => message === error) ?? '태스크를 저장하지 못했습니다')}</span>
         <button type="button" onClick={() => void retry()} aria-label={uiText('다시 저장')} data-tip={uiText('다시 저장')} className="flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-ink"><RefreshDouble width={16} height={16} aria-hidden="true" /></button>

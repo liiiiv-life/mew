@@ -117,6 +117,12 @@ async function message(value) {
       fail: error => scoped(() => fail(error)), keyframe: () => capture('keyframe'),
       connected: () => { if (session === active && !shutting && active.receiver && platform.allowed()) return platform.notify() },
       bitrate: value => scoped(() => worker.postMessage({ type: 'bitrate', session: active.id, value })),
+      readClipboard: async () => {
+        if (session !== active || shutting || !active.receiver || !platform.allowed()) throw new Error('Clipboard access ended')
+        const text = await platform.readClipboard()
+        if (session !== active || shutting || !platform.allowed()) throw new Error('Clipboard access ended')
+        return text
+      },
       input: (value, reliable) => scoped(() => {
         if (!active.receiver) return
         if (!platform.allowed()) throw new Error('데스크톱이 잠겼거나 제어 권한이 종료됐습니다.')

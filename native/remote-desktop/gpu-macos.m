@@ -292,6 +292,13 @@ MEW_GPU_EXPORT int mew_gpu_clipboard(const char *text) {
         return [board setString:value forType:NSPasteboardTypeString] ? 0 : -1;
     }
 }
+MEW_GPU_EXPORT int mew_gpu_clipboard_read(void *buffer, int capacity) {
+    @autoreleasepool {
+        NSString *value = [NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] ?: @"";
+        if (value.length > 4096 || !buffer || capacity < 1) return -1;
+        return [value getCString:buffer maxLength:(NSUInteger)capacity encoding:NSUTF8StringEncoding] ? 0 : -1;
+    }
+}
 static _Atomic uint64_t noticeGeneration;
 MEW_GPU_EXPORT void mew_gpu_notice(int show) {
     @autoreleasepool {

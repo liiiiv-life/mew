@@ -4,7 +4,7 @@ import { publicV4 } from './nat-port-map.mjs'
 import { nativeConnectivity } from './native-connectivity.mjs'
 
 /** Hardware encoded Annex B frames enter RTP without a renderer or pixel copies. */
-function nativeAttempt(rtc, { iceServers, udpPort, emit, input, keyframe, bitrate, fail, connected = () => {}, now = Date.now, localCursor = true, relativeOnly = false, negotiation = 0, autoNat = true, connectivity = nativeConnectivity }) {
+function nativeAttempt(rtc, { iceServers, udpPort, emit, input, keyframe, bitrate, fail, connected = () => {}, readClipboard = async () => { throw new Error('Clipboard unavailable') }, now = Date.now, localCursor = true, relativeOnly = false, negotiation = 0, autoNat = true, connectivity = nativeConnectivity }) {
   let closed = false, opened = 0, remote = false, pending = [], waitingKey = true, rate = 6_000_000, lastFeedback = 0, lastKey = 0
   const notice = connectionNotice(connected)
   // Native channel wrappers close their SCTP channel when collected. Keep both
@@ -61,6 +61,17 @@ function nativeAttempt(rtc, { iceServers, udpPort, emit, input, keyframe, bitrat
           if (typeof raw !== 'string' || raw.length > 16 * 1024) throw new Error('Invalid desktop input')
           const value = JSON.parse(raw)
           if (label === 'control' && value.type === 'viewer-ready' && Object.keys(value).length === 1) notice.ready()
+          else if (label === 'control' && value.type === 'clipboard-read') {
+            if (!Number.isSafeInteger(value.id) || value.id < 1 || Object.keys(value).length !== 2) throw new Error('Invalid clipboard request')
+            if (channel.clipboardPending) return
+            channel.clipboardPending = true
+            void Promise.resolve().then(readClipboard).then(text => {
+              if (typeof text !== 'string' || text.length > 4096 || text.includes('\0')) throw new Error('Invalid clipboard text')
+              const response = JSON.stringify({ type: 'clipboard', id: value.id, text })
+              if (Buffer.byteLength(response) > 16 * 1024) throw new Error('Clipboard text too large')
+              if (!closed && channel.isOpen()) channel.sendMessage(response)
+            }).catch(() => { if (!closed && channel.isOpen()) { try { channel.sendMessage(JSON.stringify({ type: 'clipboard', id: value.id, error: true })) } catch { /* Channel closed. */ } } }).finally(() => { channel.clipboardPending = false })
+          }
           else if (label === 'control' && value.type === 'feedback') feedback(value)
           else input(value, label === 'control')
         } catch { fail(new Error('원격 입력을 처리하지 못했습니다. 다시 연결해 주세요.')) }

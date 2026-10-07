@@ -7,6 +7,8 @@ type Channel = { readyState: 'connecting' | 'open' | 'closing' | 'closed'; buffe
 export function desktopInput(onError: (message: string) => void = () => {}, onPoint: (x: number, y: number, joystick: boolean | undefined) => void = () => {}) {
   const state: InputSnapshot = { type: 'input', v: 1, seq: 0, epoch: 0, x: 0, y: 0, wheelX: 0, wheelY: 0, buttons: 0, keys: [] }
   let motion: Channel | null = null, control: Channel | null = null
+  let clipboardId = 0
+  const clipboardRequests = new Map<number, { resolve: (text: string) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   let pendingMotion = false, unconfirmedMotion = false, localCursor = false
   let remote: DesktopCursor | undefined, requiredSeq = 0, lastMotionAt = -Infinity, lastActivityAt = 0, lastWheelAt = -Infinity
   const activity = () => { pendingMotion = true; requiredSeq = state.seq + 1; lastActivityAt = performance.now() }
@@ -55,10 +57,38 @@ export function desktopInput(onError: (message: string) => void = () => {}, onPo
     button(bit: number, down: boolean) { state.buttons = down ? state.buttons | bit : state.buttons & ~bit; send(true, true) },
     key(code: string, down: boolean) { state.keys = state.keys.filter(key => key !== code); if (down && state.keys.length < 16) state.keys.push(code); send(true) },
     click(bit: number) { this.button(bit, true); this.button(bit, false) },
-    paste(text: string) { this.release(); if (control?.readyState === 'open' && text.length <= 4096) { try { control.send(JSON.stringify({ type: 'paste', text })) } catch { onError(uiText("텍스트를 보내지 못했습니다. 다시 연결해 주세요.")) } } },
+    paste(text: string) {
+      const packet = JSON.stringify({ type: 'paste', text })
+      if (text.length > 4096 || text.includes('\0') || new TextEncoder().encode(packet).byteLength > 16 * 1024) throw new Error('Clipboard text too large or invalid')
+      if (control?.readyState !== 'open') throw new Error('Clipboard connection unavailable')
+      this.release()
+      control.send(packet)
+    },
+    readClipboard(): Promise<string> {
+      if (control?.readyState !== 'open' || control.bufferedAmount > 64 * 1024 || clipboardRequests.size >= 2) return Promise.reject(new Error('Clipboard connection unavailable'))
+      const id = ++clipboardId
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { clipboardRequests.delete(id); reject(new Error('Clipboard request timed out')) }, 3000)
+        clipboardRequests.set(id, { resolve, reject, timer })
+        try { control!.send(JSON.stringify({ type: 'clipboard-read', id })) }
+        catch { clearTimeout(timer); clipboardRequests.delete(id); reject(new Error('Clipboard connection closed')) }
+      })
+    },
+    message(raw: unknown) {
+      if (typeof raw !== 'string' || raw.length > 16 * 1024) return
+      try {
+        const value = JSON.parse(raw)
+        if (value?.type !== 'clipboard' || !Number.isSafeInteger(value.id)) return
+        const request = clipboardRequests.get(value.id)
+        if (!request) return
+        clipboardRequests.delete(value.id); clearTimeout(request.timer)
+        if (typeof value.text === 'string' && value.text.length <= 4096 && !value.text.includes('\0')) request.resolve(value.text)
+        else request.reject(new Error('Remote clipboard unavailable'))
+      } catch { /* Ignore unrelated or malformed channel messages. */ }
+    },
     heartbeat() { send(true) },
     release() { state.buttons = 0; state.keys = []; send(true) },
-    close() { this.release(); motion = null; control = null },
+    close() { this.release(); motion = null; control = null; for (const request of clipboardRequests.values()) { clearTimeout(request.timer); request.reject(new Error('Clipboard connection closed')) }; clipboardRequests.clear() },
   }
 }
 export type DesktopInput = ReturnType<typeof desktopInput>
