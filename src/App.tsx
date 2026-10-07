@@ -1,6 +1,6 @@
 import { HeaderNotifications } from './components/header-notifications'
 import { LayoutPresets } from './components/layout-presets'
-import { factoryLayout, editorIds, layoutPresetsKey, normalizeLayoutSnapshot, type LayoutSnapshot } from './utils/layout-presets'
+import { factoryLayout, editorIds, layoutPresetsKey, legacyLayoutPresetsKey, normalizeLayoutSnapshot, type LayoutSnapshot } from './utils/layout-presets'
 import { loadFloatingRect, restoreFloatingRect } from './hooks/use-floating-panel'
 import { restoreDeviceLayout, saveDeviceLayout } from './utils/device-layout'
 import { useToolPresentation, setToolPresentation } from './hooks/use-tool-presentation'
@@ -2132,7 +2132,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
             )}
             <HeaderNotifications />
             {!isGuest && <ActiveSessionsButton presence={activeSessions} />}
-            {desktopMode && rootProjectPath && workspaceUiLoaded && tabsHydrated && <LayoutPresets key={`${authEmail}:${rootProjectPath}`} storageKey={layoutPresetsKey(authEmail ?? 'guest', rootProjectPath)} factory={layoutFactory} capture={captureLayout} onApply={applyLayoutPreset} />}
+            {desktopMode && rootProjectPath && workspaceUiLoaded && tabsHydrated && <LayoutPresets key={`${authEmail}:${rootProjectPath}`} storageKey={layoutPresetsKey(authEmail ?? 'guest')} legacyStorageKey={legacyLayoutPresetsKey(authEmail ?? 'guest', rootProjectPath)} factory={layoutFactory} capture={captureLayout} onApply={applyLayoutPreset} />}
             {(!isGuest || canEditActiveTab) && <HoverTipLayer className="contents" placement="bottom">
               <button type="button" aria-label={uiText("전체화면")} data-tip={uiText("전체화면")} onClick={toggleFullscreen}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-edge-strong text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-accent md:h-9 md:w-9">

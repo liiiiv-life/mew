@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { changeLayoutPreset, factoryLayout, initialLayoutPresets, layoutFingerprint, layoutIconRects, layoutIconSvg, normalizeLayoutSnapshot } from './layout-presets.ts'
+import { changeLayoutPreset, factoryLayout, initialLayoutPresets, layoutFingerprint, layoutIconRects, layoutIconSvg, normalizeLayoutSnapshot, readLayoutPresets, layoutPresetsKey, legacyLayoutPresetsKey } from './layout-presets.ts'
 
 const current = () => factoryLayout(normalizeLayoutSnapshot({ version: 1, dock: { version: 1, groups: [{ id: 'editor:main', kind: 'editor' }], tree: { id: 'editor:main' } } }))
 test('layout equality ignores sessions and IDs but respects visible topology, ratios and sidebar geometry', () => {
@@ -64,4 +64,31 @@ test('SVG geometry recursively respects splits, hidden panels and floating tools
   const invalid = spawnSync(process.execPath, ['server/layout-icon-cli.ts'], { input: '{}', encoding: 'utf8' })
   assert.equal(invalid.status, 1)
   assert.equal(invalid.stdout, '')
+})
+
+test('account presets merge old projects once, preserve names and isolate other accounts', t => {
+  const values = new Map<string, string>()
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    get length() { return values.size }, key: (index: number) => [...values.keys()][index] ?? null,
+    getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value),
+  } })
+  t.after(() => { if (original) Object.defineProperty(globalThis, 'localStorage', original); else Reflect.deleteProperty(globalThis, 'localStorage') })
+  const base = current(), a = initialLayoutPresets(base), b = initialLayoutPresets(base)
+  a[1].name = '開発 화면'
+  b[1].layout.sidebarWidth = 350
+  values.set(legacyLayoutPresetsKey('first', '/alpha'), JSON.stringify(a))
+  values.set(legacyLayoutPresetsKey('first', '/beta'), JSON.stringify(b))
+  values.set(legacyLayoutPresetsKey('second', '/alpha'), JSON.stringify([{ ...b[1], name: '다른 계정' }]))
+  const key = layoutPresetsKey('first')
+  const merged = readLayoutPresets(key, base, legacyLayoutPresetsKey('first', '/alpha'))
+  assert.equal(merged.length, 4)
+  assert.equal(merged[1].name, '開発 화면')
+  assert.equal(new Set(merged.map(preset => preset.id)).size, 4)
+  assert.equal(new Set(merged.map(preset => preset.number)).size, 4)
+  assert.deepEqual(readLayoutPresets(key, base, legacyLayoutPresetsKey('first', '/beta')), merged)
+  assert.equal(values.has(legacyLayoutPresetsKey('first', '/beta')), true, 'migration retains old records')
+  values.set(key, '[]')
+  assert.deepEqual(readLayoutPresets(key, base, legacyLayoutPresetsKey('first', '/beta')), [], 'deleted presets do not return from legacy keys')
+  assert.equal(readLayoutPresets(layoutPresetsKey('second'), base, legacyLayoutPresetsKey('second', '/alpha'))[0].name, '다른 계정')
 })

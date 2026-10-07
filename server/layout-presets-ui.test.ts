@@ -14,9 +14,9 @@ import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {useTabs} from '${root}/src/hooks/useTabs.ts';
 import {LayoutPresets} from '${root}/src/components/layout-presets.tsx';
-import {factoryLayout,normalizeLayoutSnapshot} from '${root}/src/utils/layout-presets.ts';
+import {factoryLayout,normalizeLayoutSnapshot,layoutPresetsKey,legacyLayoutPresetsKey} from '${root}/src/utils/layout-presets.ts';
 const factory=factoryLayout(normalizeLayoutSnapshot({version:1,dock:{version:1,groups:[{id:'editor:main',kind:'editor'}],tree:{id:'editor:main'}}}));
-function Fixture(){const editor=useTabs('.workspace',()=>{},()=>{},'/fixture');window.editor={panes:editor.panes,hydrated:editor.hydrated};window.openDocument=editor.openFile;window.splitDocument=()=>editor.splitEmptyPane(editor.panes[0].id,'right');window.editDocument=()=>editor.updateTabContent('b.md','DRAFT');window.restoreEditor=editor.restoreEditorPanes;const [current,setCurrent]=React.useState(factory),[scope,setScope]=React.useState('alpha');window.custom=()=>setCurrent({...factory,sidebarWidth:320});window.other=()=>setScope('beta');window.actions=[];window.current=current;return <header className="flex h-12 items-center justify-end gap-2 p-2"><div className="hidden md:block"><LayoutPresets key={scope} storageKey={'fixture:'+scope} factory={factory} capture={()=>current} onApply={next=>{window.applied=next;setCurrent(next)}}/></div><button>Menu</button></header>}
+function Fixture(){const editor=useTabs('.workspace',()=>{},()=>{},'/fixture');window.editor={panes:editor.panes,hydrated:editor.hydrated};window.openDocument=editor.openFile;window.splitDocument=()=>editor.splitEmptyPane(editor.panes[0].id,'right');window.editDocument=()=>editor.updateTabContent('b.md','DRAFT');window.restoreEditor=editor.restoreEditorPanes;const [current,setCurrent]=React.useState(factory),[scope,setScope]=React.useState('alpha'),[account,setAccount]=React.useState('first');window.otherAccount=()=>setAccount('second');window.custom=()=>setCurrent({...factory,sidebarWidth:320});window.other=()=>setScope('beta');window.actions=[];window.current=current;return <header className="flex h-12 items-center justify-end gap-2 p-2"><div className="hidden md:block"><LayoutPresets key={account+scope} storageKey={layoutPresetsKey(account)} legacyStorageKey={legacyLayoutPresetsKey(account,scope)} factory={factory} capture={()=>current} onApply={next=>{window.applied=next;setCurrent(next)}}/></div><button>Menu</button></header>}
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:presets.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:presets.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:presets.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const content = await fs.readFile(`${root}/src/components/layout-presets.tsx`, 'utf8')
@@ -68,7 +68,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await dialog.waitFor({ state: 'hidden' })
     assert.equal(await page.evaluate('window.applied.open.terminal'), false)
     await trigger.click(); await context('프리셋 2')
-    assert.equal(await page.getByRole('menuitem').count(), 3)
+    assert.equal(await page.getByRole('menuitem').count(), 4)
     await page.getByRole('menuitem', { name: '현재 상태로 설정' }).click()
     assert.equal(await dialog.locator('[data-layout-preset]').count(), 4)
     await page.getByRole('status').waitFor()
@@ -90,11 +90,19 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.equal(await preset('프리셋 1').locator('svg').innerHTML(), customIcon, 'current replacement regenerates SVG')
     await preset('프리셋 1').focus(); await page.keyboard.press('Shift+F10')
     await page.getByRole('menu').waitFor()
-    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown')
     assert.equal(await page.getByRole('menuitem', { name: '현재 상태로 설정' }).evaluate(el => el === el.ownerDocument.activeElement), true)
     await page.keyboard.press('Escape'); await page.getByRole('menu').waitFor({ state: 'hidden' })
     assert.equal(await dialog.isVisible(), true, 'Esc closes the context menu first')
     assert.equal(await preset('프리셋 1').evaluate(el => el === el.ownerDocument.activeElement), true)
+    await context('프리셋 1'); await page.getByRole('menuitem', { name: '이름 변경', exact: true }).click()
+    const name = page.getByRole('textbox', { name: '레이아웃 이름' })
+    await name.fill('취소할 이름'); await page.keyboard.press('Escape')
+    assert.equal(await preset('프리셋 1').isVisible(), true)
+    assert.equal(await preset('프리셋 1').evaluate(el => el === el.ownerDocument.activeElement), true)
+    await context('프리셋 1'); await page.getByRole('menuitem', { name: '이름 변경', exact: true }).click()
+    await name.fill(' 개발 화면 '); await page.keyboard.press('Enter')
+    await preset('개발 화면').waitFor()
     for (const dark of [true, false]) {
       await page.evaluate(`document.documentElement.classList.toggle('dark', ${dark})`)
       await page.screenshot({ path: `/tmp/mew-layout-presets-${dark ? 'dark' : 'light'}.png` })
@@ -105,9 +113,12 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.equal(await trigger.evaluate(el => el === el.ownerDocument.activeElement), true)
     await page.reload(); await trigger.click()
     assert.equal(await dialog.locator('[data-layout-preset]').count(), 2)
-    assert.equal(await preset('프리셋 1').locator('svg').innerHTML(), customIcon)
+    assert.equal(await preset('개발 화면').locator('svg').innerHTML(), customIcon)
     await page.evaluate('window.other()'); await dialog.waitFor({ state: 'hidden' }); await trigger.click()
-    assert.equal(await dialog.locator('[data-layout-preset]').count(), 3, 'another workspace has independent defaults')
+    assert.equal(await dialog.locator('[data-layout-preset]').count(), 2, 'another project shares the account presets')
+    await preset('개발 화면').waitFor()
+    await page.evaluate('window.otherAccount()'); await dialog.waitFor({ state: 'hidden' }); await trigger.click()
+    assert.equal(await dialog.locator('[data-layout-preset]').count(), 3, 'another account has independent defaults')
     await page.setViewportSize({ width: 768, height: 500 }); await dialog.waitFor({ state: 'hidden' }); await trigger.click()
     const bounds = (await dialog.boundingBox())!
     assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 768)

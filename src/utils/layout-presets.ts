@@ -12,7 +12,7 @@ export type LayoutSnapshot = {
   tools: { memo: 'tab' | 'popup'; tasks: 'tab' | 'popup' }
   popups: Partial<Record<'memo' | 'tasks', PopupRect>>
 }
-export type LayoutPreset = { id: string; number: number; layout: LayoutSnapshot }
+export type LayoutPreset = { id: string; number: number; name?: string; layout: LayoutSnapshot }
 const number = (value: unknown, fallback: number, min: number, max: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback
 export function normalizeLayoutSnapshot(value: unknown): LayoutSnapshot {
   const raw = (value && typeof value === 'object' ? value : {}) as Partial<LayoutSnapshot>
@@ -89,18 +89,44 @@ export function changeLayoutPreset(presets: LayoutPreset[], layout: LayoutSnapsh
   const nextNumber = Math.max(0, ...presets.map(preset => preset.number)) + 1
   return { presets: [...presets, { id: `preset-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`, number: nextNumber, layout: normalized }], duplicate: false }
 }
-export const layoutPresetsKey = (account: string, workspace: string) => `mew:layout-presets:${encodeURIComponent(account)}:${encodeURIComponent(workspace)}`
-export function readLayoutPresets(key: string, factory: LayoutSnapshot): LayoutPreset[] {
+export const layoutPresetsKey = (account: string) => `mew:layout-presets:${encodeURIComponent(account)}`
+export const legacyLayoutPresetsKey = (account: string, workspace: string) => `${layoutPresetsKey(account)}:${encodeURIComponent(workspace)}`
+function parseLayoutPresets(raw: unknown): LayoutPreset[] | null {
+  if (!Array.isArray(raw)) return null
+  const result: LayoutPreset[] = []
+  for (const item of raw) {
+    if (!item || typeof item.id !== 'string' || item.id.length > 100 || !Number.isSafeInteger(item.number) || item.number < 0 || item.layout?.version !== 1 || result.some(preset => preset.id === item.id)) continue
+    const layout = normalizeLayoutSnapshot(item.layout)
+    const name = typeof item.name === 'string' ? item.name.trim().slice(0, 60) : undefined
+    if (!result.some(preset => layoutFingerprint(preset.layout) === layoutFingerprint(layout))) result.push({ id: item.id, number: item.number, ...(name ? { name } : {}), layout })
+  }
+  return result
+}
+export function readLayoutPresets(key: string, factory: LayoutSnapshot, legacyKey?: string): LayoutPreset[] {
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(key) ?? 'null')
-    if (!Array.isArray(raw)) return initialLayoutPresets(factory)
-    const result: LayoutPreset[] = []
-    for (const item of raw) {
-      if (!item || typeof item.id !== 'string' || item.id.length > 100 || !Number.isSafeInteger(item.number) || item.number < 0 || item.layout?.version !== 1 || result.some(preset => preset.id === item.id)) continue
-      const layout = normalizeLayoutSnapshot(item.layout)
-      if (!result.some(preset => layoutFingerprint(preset.layout) === layoutFingerprint(layout))) result.push({ id: item.id, number: item.number, layout })
+    const stored = localStorage.getItem(key)
+    if (stored !== null) return parseLayoutPresets(JSON.parse(stored)) ?? initialLayoutPresets(factory)
+    if (!legacyKey) return initialLayoutPresets(factory)
+    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+      .filter((candidate): candidate is string => !!candidate && candidate.startsWith(key + ':'))
+      .sort((a, b) => a === legacyKey ? -1 : b === legacyKey ? 1 : a.localeCompare(b))
+    const merged: LayoutPreset[] = []
+    let found = false
+    for (const oldKey of keys) {
+      let old: LayoutPreset[] | null
+      try { old = parseLayoutPresets(JSON.parse(localStorage.getItem(oldKey) ?? 'null')) } catch { continue }
+      if (!old) continue
+      found = true
+      for (const preset of old) {
+        if (merged.some(saved => layoutFingerprint(saved.layout) === layoutFingerprint(preset.layout))) continue
+        const number = merged.some(saved => saved.number === preset.number) ? Math.max(0, ...merged.map(saved => saved.number)) + 1 : preset.number
+        const id = merged.some(saved => saved.id === preset.id) ? `migrated-${globalThis.crypto.randomUUID()}` : preset.id
+        merged.push({ ...preset, id, number })
+      }
     }
-    return result
+    if (!found) return initialLayoutPresets(factory)
+    try { localStorage.setItem(key, JSON.stringify(merged)) } catch { /* Original project presets remain available for a later retry. */ }
+    return merged
   } catch { return initialLayoutPresets(factory) }
 }
 
