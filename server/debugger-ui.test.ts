@@ -17,14 +17,14 @@ import {createRoot} from ${JSON.stringify(import.meta.resolve('react-dom/client'
 import {I18nProvider} from ${JSON.stringify(new URL('../src/i18n.tsx', import.meta.url).pathname)};
 import {SettingsModal} from ${JSON.stringify(new URL('../src/components/SettingsModal.tsx', import.meta.url).pathname)};
 import DebuggerPanel from ${JSON.stringify(new URL('../src/components/debugger-panel.tsx', import.meta.url).pathname)};
-function Fixture(){const [settings, setSettings] = useState(true); return <div className="h-dvh bg-surface text-ink"><DebuggerPanel root="/fixture" onClose={()=>{}} onSettings={()=>setSettings(true)} onOpenFile={(file,line)=>{window.openedFile=[file,line]}}/>{settings && <SettingsModal initialDebugger debuggerRoot="/fixture" onOpenDebugger={()=>setSettings(false)} email="one@example.test" displayName="One" avatarDataUrl={null} canEditIgnore={false} theme="dark" fontPreferences={{sans:'',mono:''}} themeColor="#808080" mewcatSkin={null} mewcatHideDesktop={false} onMewcatHideDesktopChange={()=>{}} onToggleTheme={()=>{}} onFontPreferencesChange={()=>{}} onThemeColorChange={()=>{}} onMewcatSkinChange={()=>{}} onClose={()=>setSettings(false)} onLoggedOut={()=>{}} onProfileChanged={()=>{}}/>}</div>}
+function Fixture(){const [settings, setSettings] = useState(true); return <div className="h-dvh bg-surface text-ink" style={{width:'min(100%, 480px)'}}><DebuggerPanel root="/fixture" onClose={()=>{}} onSettings={()=>setSettings(true)} onOpenFile={(file,line)=>{window.openedFile=[file,line]}}/>{settings && <SettingsModal initialDebugger debuggerRoot="/fixture" onOpenDebugger={()=>setSettings(false)} email="one@example.test" displayName="One" avatarDataUrl={null} canEditIgnore={false} theme="dark" fontPreferences={{sans:'',mono:''}} themeColor="#808080" mewcatSkin={null} mewcatHideDesktop={false} onMewcatHideDesktopChange={()=>{}} onToggleTheme={()=>{}} onFontPreferencesChange={()=>{}} onThemeColorChange={()=>{}} onMewcatSkinChange={()=>{}} onClose={()=>setSettings(false)} onLoggedOut={()=>{}} onProfileChanged={()=>{}}/>}</div>}
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const sources = ['../src/components/debugger-panel.tsx', '../src/components/debugger-source-field.tsx', '../src/components/debugger-settings.tsx', '../src/components/SettingsModal.tsx', '../packages/ui/src/select-field.tsx']
+  const sources = ['../src/components/debugger-panel.tsx', '../src/components/debugger-source-field.tsx', '../src/components/debugger-settings.tsx', '../src/components/debugger-controls.tsx', '../src/components/debugger-helpers.ts', '../src/components/debugger-variable.tsx', '../src/components/debugger-inspector.tsx', '../src/components/debugger-artifacts.tsx', '../src/components/debugger-browser.tsx', '../src/components/panel-close-button.tsx', '../src/components/SettingsModal.tsx', '../packages/ui/src/select-field.tsx']
   const cssSource = (await Promise.all(sources.map(file => fs.readFile(new URL(file, import.meta.url), 'utf8')))).join('\n') + ' h-dvh bg-surface text-ink'
   const compiler = await compile(await fs.readFile(new URL('../src/index.css', import.meta.url), 'utf8'), { base: new URL('../src', import.meta.url).pathname, onDependency() {} })
-  const css = compiler.build([...new Set(cssSource.match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))])
+  const css = compiler.build([...new Set(cssSource.match(/[A-Za-z0-9_@!&:/.[\]()%,-]+/g))])
   let config = defaultDebugConfig('js-debug', '/fixture'), counter = 1
   let snapshot: DebugSnapshot = { id: 'fixture', state: 'idle', reason: '', frames: [], output: '', breakpoints: [], capabilities: {} }
   const server = http.createServer(async (req, res) => {
@@ -62,7 +62,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   t.after(async () => { await browser.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())) })
   const address = server.address(); assert.ok(address && typeof address !== 'string')
-  for (const viewport of [{ width: 1366, height: 768 }, { width: 320, height: 640 }]) {
+  for (const viewport of [{ width: 1366, height: 768 }, { width: 768, height: 900 }, { width: 320, height: 640 }]) {
     config = defaultDebugConfig('js-debug', '/fixture'); counter = 1; snapshot = { ...snapshot, state: 'idle', frames: [], stopRevision: 0 }
     const context = await browser.newContext({ viewport, locale: 'en-US', isMobile: viewport.width === 320, hasTouch: viewport.width === 320 })
     const page = await context.newPage(), errors: string[] = []
@@ -70,6 +70,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.goto(`http://127.0.0.1:${address.port}`)
     if (viewport.width === 320) await page.locator('html').evaluate(el => el.classList.remove('dark'))
     const modal = page.getByRole('dialog', { name: 'Settings', exact: true })
+    await modal.getByRole('combobox', { name: 'Adapter', exact: true }).waitFor()
+    await page.screenshot({ path: `/tmp/mew-debugger-settings-top-${viewport.width}.png` })
     await modal.getByRole('textbox', { name: 'Adapter arguments (JSON)' }).fill('[broken')
     await modal.getByRole('button', { name: 'Save', exact: true }).click()
     await modal.getByRole('alert').waitFor()
@@ -108,10 +110,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await panel.getByRole('button', { name: 'Pin variable: counter', exact: true }).click()
     await panel.getByRole('button', { name: 'Step over', exact: true }).click()
     await panel.getByText('Changed', { exact: true }).first().waitFor()
-    const rows = panel.locator('details').filter({ has: page.locator('summary', { hasText: /^Variables$/ }) })
+    const rows = panel.locator('details').filter({ has: page.locator('summary[aria-label="Variables"]') })
     assert.ok((await rows.innerText()).indexOf('counter') < (await rows.innerText()).indexOf('fixed'), 'changed variables are first')
     assert.equal(await panel.evaluate(el => el.scrollWidth > el.clientWidth), false)
-    await page.screenshot({ path: `/tmp/mew-debugger-panel-${viewport.width}.png` })
+    await panel.screenshot({ path: `/tmp/mew-debugger-panel-${viewport.width}.png` })
     await panel.getByRole('button', { name: 'Disconnect', exact: true }).click()
     await panel.getByRole('status').filter({ hasText: 'Ended' }).waitFor()
     assert.deepEqual(errors, [])

@@ -5,9 +5,9 @@ title: "외부 DAP 디버거"
 status: "implemented"
 created: "2026-10-07"
 updated: "2026-10-07"
-files: ["src/components/debugger-panel.tsx", "src/components/debugger-source-field.tsx", "src/components/debugger-settings.tsx", "server/debugger.ts", "server/debugger-dap.ts", "server/debugger-routes.ts", "server/debugger-commands.ts", "server/debugger-profiles.ts", "server/debugger-browser.ts", "server/debugger-mcp.ts", "server/debugger-mcp-stdio.ts", "server/agentWs.ts", "src/utils/debugger-editor.ts", "src/components/debugger-variable.tsx", "src/components/debugger-inspector.tsx", "src/components/debugger-browser.tsx", "src/components/debugger-artifacts.tsx"]
+files: ["src/components/debugger-panel.tsx", "src/components/debugger-source-field.tsx", "src/components/debugger-settings.tsx", "src/components/debugger-controls.tsx", "src/components/debugger-helpers.ts", "server/debugger.ts", "server/debugger-dap.ts", "server/debugger-routes.ts", "server/debugger-commands.ts", "server/debugger-profiles.ts", "server/debugger-browser.ts", "server/debugger-mcp.ts", "server/debugger-mcp-stdio.ts", "server/agentWs.ts", "src/utils/debugger-editor.ts", "src/components/debugger-variable.tsx", "src/components/debugger-inspector.tsx", "src/components/debugger-browser.tsx", "src/components/debugger-artifacts.tsx"]
 commits: []
-description: "외부 DAP 디버거의 설정·프로필·복합 세션, 에디터 중단점, 단계 실행·변수·메모리·중단 기록과 Chromium 분석·파일 가져오기·선택적 에이전트 MCP 연결의 사용법·지원 조건·검증 범위를 정의한다. Zed·DAP 조사 당시 계획과 현재 구현, 외부 엔진·협업·Wasm 등 남은 범위를 구분한다."
+description: "외부 DAP 디버거의 설정·프로필·복합 세션, 실행 상태와 접는 도구 영역·목록 UI, 에디터 중단점, 단계 실행·변수·메모리·중단 기록과 Chromium 분석·파일 가져오기·선택적 에이전트 MCP 연결의 사용법·지원 조건·검증 범위를 정의한다. Zed·DAP 조사 당시 계획과 현재 구현, 외부 엔진·협업·Wasm 등 남은 범위를 구분한다."
 ---
 
 ## 요구사항
@@ -54,6 +54,14 @@ Node.js 실행 설정 예:
 - 변수의 핀 버튼이나 표현식 입력으로 감시 대상을 고정한다. 매 중단 시 현재 프레임에서 evaluate하고 값 변화도 표시한다. 표현식 오류는 해당 감시 값에 표시한다. 고정 목록은 세션 종료·문서 수정 뒤에도 유지한다.
 - 패널 닫기는 세션을 종료하지 않는다. **연결 종료**는 launch 대상 종료를 요청하고 attach 대상은 유지하도록 요청한다. mew가 시작한 어댑터와 터미널 자식 프로세스는 연결 종료·오류·권한 회수 시 정리한다. 서버 프로세스가 재시작되면 DAP 세션을 복원하지 않는다.
 
+### 패널의 표시와 조작
+
+- 헤더에 현재 실행 상태를 표시하고 바로 아래 실행 도구 줄을 본문 스크롤과 분리한다. 주 버튼은 준비 상태의 **시작**, 중단 상태의 **계속**, 실행 상태의 **일시정지**로 바뀐다. 연결 종료·단계 실행·재시작은 기존 capability와 실행 상태 검사를 따른다. 패널 닫기는 공용 `PanelCloseButton`을 사용한다.
+- **세션·실행 옵션**에서 프로필·복합 실행·독립 세션·대상·스레드·단계 단위·중단 기록·역방향 제어와 추가 세션을 선택한다. 기본 화면에서는 이 영역을 접어 둔다. 과거 기록을 선택하면 헤더에 과거 기록 상태를 표시하고 실행 제어를 비활성화한다.
+- 실행 전에는 소스 중단점 설정을 먼저 배치하고, 중단 중과 과거 기록에서는 호출 스택·변수 값을 먼저 배치한다. 함수·예외·데이터·명령어 중단점은 소스 중단점 안의 **고급 중단점**에서 관리한다. 기본 목록·설정·콘솔·메모리·브라우저·분석 파일의 접기 영역은 같은 헤더와 펼침 표시를 사용하며 키보드로도 조작할 수 있다.
+- 목록 제목에 항목 수를 표시한다. 소스 중단점은 파일명과 줄/열을 나누고 전체 경로는 툴팁과 접근성 이름으로 제공한다. 스택은 선택 프레임, 변수는 실제 변경 값과 자료형 색상을 구분하며 고정한 값은 중복 고정 버튼을 비활성화한다. 빈 목록·조회 중·실패·저장 완료를 표시하고 오류·주 버튼은 양 테마의 의미 색상 토큰을 따른다.
+- 좁은 패널에서도 실행 버튼·입력·긴 경로·값을 패널 안에 배치하고 분석 표·메모리 덤프는 해당 영역에서 스크롤한다. 설정은 어댑터·실행 JSON·프로필·복합 실행으로 묶으며 JSON 입력과 기존 저장·테스트·설치 동작을 유지한다.
+
 ### 구현과 경계
 
 - HTTP `/api/debugger` 아래 설정 조회·저장, 설치, 연결 테스트, 세션 시작·종료, 허용된 DAP 명령을 제공한다. 현재 프로젝트 헤더를 검사하며 명령·종료는 세션 ID도 비교한다. 계정·프로젝트별 설정 파일은 데이터 폴더에 원자적으로 저장한다. 어댑터가 TCP 포트를 알리기 전에 종료되면 stderr가 닫힐 때까지 기다려 종료 코드·시그널과 최근 오류 줄을 반환한다. 긴 번들 소스 줄은 오류 요약에서 제외하고 요약은 2,000자로 제한한다.
@@ -93,7 +101,7 @@ Node.js 실행 설정 예:
 
 ### 에이전트 디버거 연결
 
-**설정 → 디버거 → 에이전트에 디버거 공유**를 켜고 새 일반 에이전트 탭을 시작하면 `mew-debugger` MCP를 ACP에 전달한다. 기본값은 꺼짐이며 켜기만으로 디버깅 대상을 시작하거나 어댑터를 설치하지 않는다. 이미 실행 중인 독립 감독의 MCP 목록은 교체하지 않으므로 기존 탭 재접속만으로는 추가되지 않는다. 공급자 MCP 설정 파일을 수정하지 않으며 뮤캣의 기존 MCP 목록은 유지한다. 예약·단발 runner의 연결은 이번 범위에 포함하지 않는다.
+**설정 → 디버거 → 프로젝트 에이전트의 디버거 사용 허용**을 켜고 새 일반 에이전트 탭을 시작하면 `mew-debugger` MCP를 ACP에 전달한다. 기본값은 꺼짐이며 켜기만으로 디버깅 대상을 시작하거나 어댑터를 설치하지 않는다. 이미 실행 중인 독립 감독의 MCP 목록은 교체하지 않으므로 기존 탭 재접속만으로는 추가되지 않는다. 공급자 MCP 설정 파일을 수정하지 않으며 뮤캣의 기존 MCP 목록은 유지한다. 예약·단발 runner의 연결은 이번 범위에 포함하지 않는다.
 
 - `debugger_state`: 계정·프로젝트의 세션 목록과 선택한 세션의 현재 capability·연결·중단 revision·스택 및 이미 읽은 기록을 조회한다. 표현식을 자동 평가하지 않는다.
 - `debugger_command`: `sessionId`와 직전에 조회한 `arguments.connectionId`·`arguments.stopRevision`으로 허용된 디버거 명령을 실행한다. 변수/스택 참조·명령별 capability·중단 상태 검사와 크기 한도는 HTTP 경로와 동일하다. 표현식 평가·값/메모리 쓰기·실행 제어는 대상의 상태를 바꿀 수 있으므로 에이전트도 기존 작업·실행 제한을 따른다. 임의 DAP·CDP 요청은 제공하지 않는다.
@@ -119,6 +127,7 @@ MCP는 계정·프로젝트별 Unix 소켓(파일 `0600`, 디렉터리 `0700`)�
 - `shared/debugger-analysis.test.ts`: 프로파일 실제 sample/self size, heap snapshot의 self size, OTLP 시간·부모 관계, 커버리지 count, sanitizer 위치·크기/형식 거부를 검증한다.
 - 2026-10-07 확장: 기존 내부 설치의 실제 js-debug에서 자식 연결·중단점·스택·감시·계속·일시정지·종료와 `runInTerminal` stdin 입력/EOF를 확인했다. `npx tsc -b`와 디버거 관련 scoped oxlint를 실행했다. 최종 전체 타입 검사는 병행 작업 파일의 타입 오류로 통과하지 못했다. 같은 프로젝트 옵션으로 디버거 서버·UI·에디터 파일을 선택한 별도 타입 검사와 scoped lint는 통과했다. 앱 build·배포·서버 재시작은 수행하지 않았다.
 - `server/debugger-mcp.test.ts`: 공유 기본 비활성화, 계정별 소켓 권한·MCP 핸드셰이크, 정확한 세션·연결·중단 revision, 권한 회수 시 연결 거부를 검증한다. 기존 `agentWs.test.ts`·`agentHost.test.ts`·`agentAcp.test.ts` 40개 회귀 검사도 통과했다.
+- 2026-10-07 UI 정리: 기존 설정·패널 UI 검사와 고급 UI 검사 2개를 통과했다. 320px 모바일 라이트·768/1366px 데스크톱과 고급 기능의 모바일 다크를 확인하고 파일 검색·핀·값 변경·메모리·기록 선택·배열·소스 중단점 경로를 유지했다. `npx tsc -b`, 변경 범위 oxlint, description 검사, 변경 diff 공백 검사를 통과했다. Impeccable 기계 검사 결과는 지적 없음이었다. 빌드·서버 재시작·커밋은 수행하지 않았다.
 - Python·LLDB·CodeLLDB·Go는 연결 프리셋과 공통 DAP 경로를 제공하며 각 실제 언어 환경의 실행 검증은 아직 수행하지 않았다.
 
 공식 계약: [DAP](https://microsoft.github.io/debug-adapter-protocol/overview.html), [js-debug](https://github.com/microsoft/vscode-js-debug), [debugpy](https://github.com/microsoft/debugpy), [CodeLLDB](https://github.com/vadimcn/codelldb), [Delve DAP](https://github.com/go-delve/delve/blob/master/Documentation/usage/dlv_dap.md).

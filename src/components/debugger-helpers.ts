@@ -1,8 +1,12 @@
 import type { Locale } from '../i18n-locales'
 
-export const debugInput = 'min-w-0 rounded border border-edge bg-surface-deep px-2 py-1.5 text-xs text-ink focus:border-accent focus:outline-none'
-export const debugButton = 'flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-35'
+export const debugInput = 'min-w-0 rounded border border-edge-strong bg-surface-deep px-2 py-1.5 text-xs text-ink placeholder:text-ink-muted caret-accent focus:border-accent focus:outline-none disabled:opacity-50'
+export const debugButton = 'flex h-8 w-8 shrink-0 items-center justify-center rounded text-ink-secondary enabled:hover:bg-surface-raised enabled:hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-35'
+export const debugPrimaryButton = 'inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded bg-accent px-2 text-xs font-medium text-ink-on-accent enabled:hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40'
+export const debugError = 'break-words rounded border border-danger/30 bg-danger-surface px-2 py-1.5 text-xs text-danger-ink'
+export const debugTextButton = 'inline-flex min-h-7 items-center gap-1 rounded px-1 text-xs text-accent enabled:hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40'
 const en = {
+  sessionOptions: 'Session & execution', advancedBreakpoints: 'Advanced breakpoints', startShort: 'Start', continueShort: 'Continue', statement: 'Statement', noWatches: 'No pinned watches', noOutput: 'No output', verified: 'Verified breakpoint',
   locations: 'Breakable locations', heapSnapshot: 'Heap snapshot', session: 'Session', addSession: 'Start additional session', compounds: 'Compound launch', eof: 'Close input', type: 'Type', lazy: 'Evaluate on request', agentBridge: 'Allow project agents to use the debugger', browserAnalysis: 'Browser analysis', capture: 'Capture', coverage: 'Coverage', cpuProfile: 'CPU profile', heapProfile: 'Allocation samples', browserTab: 'Browser tab', domSelector: 'DOM selector', eventName: 'Event name', xhrUrl: 'XHR URL contains', browserBreakpoints: 'Browser breakpoints', detach: 'Disconnect analysis',
   condition: 'Condition', hitCondition: 'Hit count', logMessage: 'Log message', column: 'Column', options: 'Breakpoint options', trigger: 'Activate after breakpoint', none: 'None',
   functions: 'Function breakpoints', exceptions: 'Exception breakpoints', data: 'Data breakpoints', instructions: 'Instruction breakpoints', name: 'Name',
@@ -19,6 +23,7 @@ const en = {
 } as const
 export type DebugExtraCopy = { [K in keyof typeof en]: string }
 const ko: DebugExtraCopy = {
+  sessionOptions: '세션·실행 옵션', advancedBreakpoints: '고급 중단점', startShort: '시작', continueShort: '계속', statement: '문장', noWatches: '고정한 변수 없음', noOutput: '출력 없음', verified: '확인된 중단점',
   locations: '중단 가능한 위치', heapSnapshot: '힙 스냅샷', session: '세션', addSession: '추가 세션 시작', compounds: '복합 실행', eof: '입력 종료', type: '종류', lazy: '요청 시 평가', agentBridge: '프로젝트 에이전트의 디버거 사용 허용', browserAnalysis: '브라우저 분석', capture: '수집', coverage: '실행 커버리지', cpuProfile: 'CPU 프로파일', heapProfile: '할당 샘플', browserTab: '브라우저 탭', domSelector: 'DOM 선택자', eventName: '이벤트 이름', xhrUrl: 'XHR URL 포함 문자열', browserBreakpoints: '브라우저 중단점', detach: '분석 연결 해제',
   condition: '조건', hitCondition: '중단 횟수', logMessage: '로그 메시지', column: '열', options: '중단점 옵션', trigger: '이 중단점 이후 활성화', none: '없음',
   functions: '함수 중단점', exceptions: '예외 중단점', data: '데이터 중단점', instructions: '명령어 중단점', name: '이름',
@@ -34,6 +39,7 @@ const ko: DebugExtraCopy = {
   artifacts: '분석 파일', openArtifact: '분석 파일 열기', tests: '테스트 디버깅', testFile: '테스트 파일', testName: '테스트 이름', runner: '테스트 실행기', testTimeout: '디버깅 중 테스트 시간 제한 해제',
 }
 const ja: DebugExtraCopy = {
+  sessionOptions: 'セッション・実行', advancedBreakpoints: '高度な中断点', startShort: '開始', continueShort: '続行', statement: '文', noWatches: '固定した変数なし', noOutput: '出力なし', verified: '確認済みの中断点',
   locations: '中断可能な位置', heapSnapshot: 'ヒープスナップショット', session: 'セッション', addSession: '追加セッションを開始', compounds: '複合実行', eof: '入力を閉じる', type: '種類',
   lazy: '要求時に評価', agentBridge: 'プロジェクトエージェントのデバッガー使用を許可', browserAnalysis: 'ブラウザー分析', capture: '収集', coverage: '実行カバレッジ', cpuProfile: 'CPUプロファイル', heapProfile: '割り当てサンプル', browserTab: 'ブラウザータブ', domSelector: 'DOMセレクター', eventName: 'イベント名', xhrUrl: 'XHR URLに含む文字列', browserBreakpoints: 'ブラウザー中断点', detach: '分析接続を解除',
   condition: '条件', hitCondition: 'ヒット回数', logMessage: 'ログメッセージ', column: '列', options: '中断点オプション', trigger: '中断点の後に有効化', none: 'なし',
@@ -44,6 +50,7 @@ const ja: DebugExtraCopy = {
   noHistory: '記録された値なし', readOnly: '過去の停止記録', loading: '取得中', unsupported: 'このアダプターでは未対応', all: 'すべて', named: 'プロパティ', indexed: '要素', profiles: '実行プロファイル', defaultProfile: '既定の設定', import: 'launch.jsonを取り込む', skipFiles: 'スキップするファイル（1行に1パターン）', smartStep: '生成コードをスキップ', asyncStacks: '非同期呼び出しスタック', functionName: '関数名', instructionReference: '命令アドレス', clear: '消去', outputInput: 'プログラム入力', send: '入力を送信', cancel: '操作をキャンセル', artifacts: '分析ファイル', openArtifact: '分析ファイルを開く', tests: 'テストをデバッグ', testFile: 'テストファイル', testName: 'テスト名', runner: 'テストランナー', testTimeout: 'デバッグ中のテスト時間制限を解除',
 }
 const zh: DebugExtraCopy = {
+  sessionOptions: '会话与执行', advancedBreakpoints: '高级断点', startShort: '开始', continueShort: '继续', statement: '语句', noWatches: '没有固定变量', noOutput: '暂无输出', verified: '已验证断点',
   locations: '可中断的位置', heapSnapshot: '堆快照', session: '会话', addSession: '启动其他会话', compounds: '组合启动', eof: '关闭输入', type: '类型',
   lazy: '按需求值', agentBridge: '允许项目代理使用调试器', browserAnalysis: '浏览器分析', capture: '采集', coverage: '执行覆盖率', cpuProfile: 'CPU分析', heapProfile: '分配采样', browserTab: '浏览器标签页', domSelector: 'DOM选择器', eventName: '事件名称', xhrUrl: 'XHR URL包含', browserBreakpoints: '浏览器断点', detach: '断开分析连接',
   condition: '条件', hitCondition: '命中次数', logMessage: '日志消息', column: '列', options: '断点选项', trigger: '在此断点后启用', none: '无', functions: '函数断点', exceptions: '异常断点', data: '数据断点', instructions: '指令断点', name: '名称',
