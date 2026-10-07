@@ -236,6 +236,28 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
         assert.equal(await page.evaluate('window.value'), linkKindsContent)
         if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/link-kinds-${theme}-${viewport.width}.png` })
       }
+      for (const side of ['before', 'after', 'after-space']) {
+        await page.getByRole('button', { name: 'Load link navigation', exact: true }).click()
+        const link = page.locator('.tiptap a[data-file-link]').first()
+        const box = (await link.boundingBox())!
+        await page.mouse.click(side === 'before' ? box.x - 2 : box.x + box.width + (side === 'after' ? 3 : 40), box.y + box.height / 2)
+        const caret = await link.evaluate(el => {
+          const selection = el.ownerDocument.getSelection()!
+          const node = selection.focusNode
+          const parent = node?.nodeType === 3 ? node.parentElement : node as typeof el | null
+          const range = selection.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null
+          return { collapsed: selection.isCollapsed, insideLink: !!parent?.closest('a[data-file-link]'), height: range?.height ?? 0 }
+        })
+        assert.equal(caret.collapsed, true)
+        assert.equal(caret.insideLink, false, `click ${side} places the caret outside the link`)
+        assert.ok(caret.height > 0, `click ${side} leaves a visible caret`)
+        await page.keyboard.type('Z')
+        await page.waitForFunction(`side => window.value.startsWith(side === 'before' ? 'Z[문서 규칙](./rules.md)' : '[문서 규칙](./rules.md)Z')`, side)
+        await page.keyboard.insertText('한')
+        await page.waitForFunction(`side => window.value.startsWith(side === 'before' ? 'Z한[문서 규칙](./rules.md)' : '[문서 규칙](./rules.md)Z한')`, side)
+        assert.doesNotMatch(await page.evaluate('window.value') as string, /\u200b|mew-file-link-caret/)
+        assert.equal(await link.textContent(), '문서 규칙')
+      }
       for (const index of [0, 1, 2, 3]) {
         for (const direction of ['left', 'right']) {
           await page.getByRole('button', { name: 'Load link navigation', exact: true }).click()

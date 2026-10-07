@@ -3,6 +3,8 @@ import type { LinkOptions } from '@tiptap/extension-link'
 import { getMarkRange } from '@tiptap/core'
 import { Plugin, TextSelection } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { isExternalHref } from '../utils/fuzzy.ts'
 
 export const isFileLinkHref = (href: string) => {
@@ -11,6 +13,36 @@ export const isFileLinkHref = (href: string) => {
 }
 
 export interface FileLinkContext { path: string; docsRoot: string }
+
+function fileLinkRanges(doc: ProseMirrorNode, name: string) {
+  const ranges: { from: number; to: number; href: string }[] = []
+  doc.descendants((node, pos) => {
+    if (!node.isText) return
+    const link = node.marks.find(mark => mark.type.name === name)
+    if (!link || !isFileLinkHref(link.attrs.href ?? '')) return
+    const previous = ranges.at(-1)
+    if (previous?.to === pos && previous.href === link.attrs.href) previous.to += node.nodeSize
+    else ranges.push({ from: pos, to: pos + node.nodeSize, href: link.attrs.href })
+  })
+  return ranges
+}
+
+function placeFileLinkCaret(view: EditorView) {
+  if (!view.hasFocus() || !view.state.selection.empty) return false
+  const pos = view.state.selection.head
+  for (const slot of view.dom.querySelectorAll('.mew-file-link-caret')) {
+    if (view.posAtDOM(slot, 0) !== pos) continue
+    const native = view.dom.ownerDocument.getSelection()
+    if (!native || !slot.firstChild) return false
+    const caret = view.dom.ownerDocument.createRange()
+    caret.setStart(slot.firstChild, 0)
+    caret.collapse(true)
+    native.removeAllRanges()
+    native.addRange(caret)
+    return true
+  }
+  return false
+}
 
 function normalizePath(path: string): string {
   const parts: string[] = []
@@ -44,6 +76,8 @@ export const EditorLink = Link.extend<LinkOptions & { getFileLinkContext: () => 
     return { ...this.parent!(), getFileLinkContext: () => undefined }
   },
   addProseMirrorPlugins() {
+    let decoratedDoc: ProseMirrorNode | undefined
+    let decorations = DecorationSet.empty
     const deleteLink = (view: EditorView, backward: boolean) => {
       const { selection, doc } = view.state
       if (!view.editable || !selection.empty) return false
@@ -64,11 +98,37 @@ export const EditorLink = Link.extend<LinkOptions & { getFileLinkContext: () => 
               const kind = fileLinkKind(anchor.getAttribute('href') ?? '', this.options.getFileLinkContext())
               if (kind && anchor.getAttribute('data-file-link-kind') !== kind) anchor.setAttribute('data-file-link-kind', kind)
             }
+            placeFileLinkCaret(view)
           }
           update()
           return { update }
         },
         props: {
+          decorations: state => {
+            if (decoratedDoc === state.doc) return decorations
+            decoratedDoc = state.doc
+            decorations = DecorationSet.create(state.doc, fileLinkRanges(state.doc, this.name).flatMap(range =>
+              ([-1, 1] as const).map(side => Decoration.widget(side < 0 ? range.from : range.to, (view: EditorView) => {
+                // A noneditable mark alone has no browser caret slot at a paragraph
+                // edge. Editable, view-only text provides one without changing Markdown.
+                const slot = view.dom.ownerDocument.createElement('span')
+                slot.className = 'mew-file-link-caret'
+                slot.textContent = '\u200b'
+                slot.style.display = 'inline-block'
+                slot.style.width = '5px'
+                return slot
+              }, { side, marks: [], raw: true, key: `file-link-caret:${range.from}:${range.to}:${side}` }))))
+            return decorations
+          },
+          handleClick: (view, pos, event) => {
+            if (!view.editable || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return false
+            const target = event.target as typeof view.dom | null
+            if (target?.closest('a')) return false
+            if (!fileLinkRanges(view.state.doc, this.name).some(range => pos === range.from || pos === range.to)) return false
+            view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, pos)).removeStoredMark(this.type))
+            view.focus()
+            return placeFileLinkCaret(view)
+          },
           handleKeyDown: (view, event) => {
             if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.altKey && !event.ctrlKey && !event.metaKey) {
               const { selection, doc } = view.state
@@ -82,20 +142,7 @@ export const EditorLink = Link.extend<LinkOptions & { getFileLinkContext: () => 
               const next = backward ? range.from : range.to
               view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, event.shiftKey ? selection.anchor : next, next)).removeStoredMark(this.type).scrollIntoView())
               if (!event.shiftKey) {
-                // A mark boundary can resolve to its text DOM, even though the
-                // anchor is contenteditable=false. Keep the native caret outside.
-                const native = view.dom.ownerDocument.getSelection()
-                const node = native?.focusNode
-                const element = node?.nodeType === 1 ? node as typeof view.dom : node?.parentElement
-                const anchor = element?.closest('a[data-file-link]')
-                if (native && anchor && view.dom.contains(anchor)) {
-                  const caret = view.dom.ownerDocument.createRange()
-                  if (backward) caret.setStartBefore(anchor)
-                  else caret.setStartAfter(anchor)
-                  caret.collapse(true)
-                  native.removeAllRanges()
-                  native.addRange(caret)
-                }
+                placeFileLinkCaret(view)
               }
               return true
             }
@@ -115,15 +162,7 @@ export const EditorLink = Link.extend<LinkOptions & { getFileLinkContext: () => 
         appendTransaction: (_transactions, oldState, state) => {
           const selection = state.selection
           if (!(selection instanceof TextSelection)) return null
-          const ranges: { from: number; to: number; href: string }[] = []
-          state.doc.descendants((node, pos) => {
-            if (!node.isText) return
-            const link = node.marks.find((mark) => mark.type.name === this.name)
-            if (!link || !isFileLinkHref(link.attrs.href ?? '')) return
-            const previous = ranges.at(-1)
-            if (previous?.to === pos && previous.href === link.attrs.href) previous.to += node.nodeSize
-            else ranges.push({ from: pos, to: pos + node.nodeSize, href: link.attrs.href })
-          })
+          const ranges = fileLinkRanges(state.doc, this.name)
           const snap = (pos: number, lower: boolean) => {
             const range = ranges.find(({ from, to }) => from < pos && pos < to)
             return range ? (lower ? range.from : range.to) : pos

@@ -175,7 +175,7 @@ test('파일 링크 컨테이너는 내부 경로에만 표시하고 Markdown �
     assert.deepEqual(links.map((link) => link.hasAttribute('data-file-link')), [true, true, true, false, false, false, false, true, true])
     assert.ok(links.every((link) => link.getAttribute('href')))
     const saved = md(e)
-    assert.doesNotMatch(saved, /data-file-link|<a|<span|<svg/)
+    assert.doesNotMatch(saved, /data-file-link|<a|<span|<svg|\u200b/)
     assert.match(saved, /\[문서\]\(\.\.\/guide\.md#intro\)/)
     assert.match(saved, /\[\*\*굵은 파일\*\*\]\(\.\/guide\.md\)/)
     e.commands.setContent(saved)
