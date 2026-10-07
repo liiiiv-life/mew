@@ -1,8 +1,8 @@
 ---
 title: "History / raw"
 created: "2026-09-11"
-updated: "2026-10-04"
-description: "이전 README·RAG·태스크·보안 검토·Electron 원격 데스크톱의 보존 기록과 현재 계약 링크를 제공하는 역사 홈이다."
+updated: "2026-10-07"
+description: "이전 README·RAG·태스크·보안 검토와 Electron 원격 데스크톱의 계약·구현·측정·배포 기록을 연결한다. 현재 계약과 구분해 보존하는 이력 홈이다."
 ---
 
 # History / raw
@@ -28,3 +28,7 @@ description: "이전 README·RAG·태스크·보안 검토·Electron 원격 데�
 - [이전 Mac/Linux Electron 원격 데스크톱](remote-desktop-posix-electron.md)
 
 - [이전 Electron 배포·라이선스 검토](remote-desktop-electron-distribution.md)
+
+- [이전 원격 데스크톱 커서·지연 개선 구현·측정](remote-desktop-latency.md)
+
+- [이전 Electron·VP8 서버 전송 구현·검증](remote-desktop-server-transport.md)

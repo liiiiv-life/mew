@@ -1,8 +1,8 @@
 ---
 title: "개발 계약 홈"
 created: 2026-09-11
-updated: 2026-10-04
-description: "저장·권한·통신·UI·검증과 Documents·태스크·원격 데스크톱 등 구현 계약의 주요 링크를 제공하는 개발 홈이다."
+updated: "2026-10-07"
+description: "저장·권한·통신·UI·검증과 Documents·태스크·원격 데스크톱·Windows 관리 앱의 구현 계약을 연결하는 개발 홈이다."
 ---
 
 # 개발 계약 홈
@@ -10,6 +10,8 @@ description: "저장·권한·통신·UI·검증과 Documents·태스크·원격
 상위: [문서 홈](../MOC.md). 구현 중 지켜야 하는 저장·권한·UI·검증 계약을 고르는 입구다.
 
 ## Current
+
+- [Windows 설치·관리 앱의 개발·검증](windows-manager.md)
 
 - [Documents 상위·하위 문서와 대표 파일](document-pages.md)
 - [Documents 링크 그래프 엔진](document-graph.md)
