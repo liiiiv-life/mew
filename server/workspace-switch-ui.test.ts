@@ -176,6 +176,13 @@ for (const keyboardOnly of [true, false]) test(keyboardOnly ? 'App keyboard alia
       await page.getByRole('button', { name: 'Select extra.md', exact: true }).focus()
       await page.keyboard.press('Control+w')
       assert.equal(await page.getByRole('button', { name: 'Select extra.md', exact: true }).count(), 0, 'close applies to the active editor tab')
+      await page.keyboard.press('Alt+2')
+      await page.locator('[data-test-content]').getByText('Content of /beta', { exact: true }).waitFor()
+      const switches = requests.filter(r => r.path === '/api/workspace' && r.method === 'POST').length
+      await page.keyboard.press('Alt+9'); await page.keyboard.press('Alt+2')
+      assert.equal(requests.filter(r => r.path === '/api/workspace' && r.method === 'POST').length, switches, 'missing and current project positions do not repeat a workspace handoff')
+      await page.keyboard.press('Alt+1')
+      await page.locator('[data-test-content]').getByText('Content of /alpha', { exact: true }).waitFor()
       assert.deepEqual(errors, [])
       return
     }

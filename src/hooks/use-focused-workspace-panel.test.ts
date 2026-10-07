@@ -20,7 +20,7 @@ const [{ act }, { createRoot }, { useFocusedWorkspacePanel }] = await Promise.al
 ])
 function Harness() { useFocusedWorkspacePanel(); return null }
 
-test('Alt/Ctrl/Cmd+숫자는 포커스된 분할 패널의 표시 순서로 전환하고 PTY 입력을 차단한다', async () => {
+test('Ctrl/Cmd+숫자는 포커스된 분할 패널의 표시 순서로 전환하고 PTY 입력을 차단한다', async () => {
   const host = document.createElement('div')
   document.body.append(host)
   host.innerHTML = `<section data-workspace-panel="editor" data-dock-panel="editor:a"><div data-dock-tab-bar><button role="tab">A1</button><button role="tab">A2</button></div><textarea></textarea></section>
@@ -38,7 +38,7 @@ test('Alt/Ctrl/Cmd+숫자는 포커스된 분할 패널의 표시 순서로 전�
   host.addEventListener('keydown', () => received++)
   const press = (input: HTMLElement, init: KeyboardEventInit = {}) => {
     input.focus()
-    const event = new window.KeyboardEvent('keydown', { key: '2', code: 'Digit2', altKey: true, bubbles: true, cancelable: true, ...init })
+    const event = new window.KeyboardEvent('keydown', { key: '2', code: 'Digit2', ctrlKey: true, bubbles: true, cancelable: true, ...init })
     input.dispatchEvent(event)
     return event
   }
@@ -51,16 +51,19 @@ test('Alt/Ctrl/Cmd+숫자는 포커스된 분할 패널의 표시 순서로 전�
     assert.deepEqual(selected, ['A2', 'B2', 'T2', 'Calendar', 'Search'])
     assert.equal(received, 0)
     await act(async () => {
+      for (let i = 0; i < 5; i++) assert.equal(press(inputs[i], { ctrlKey: false, altKey: true }).defaultPrevented, false, 'Alt+number is reserved for project tabs')
+    })
+    await act(async () => {
       assert.equal(press(inputs[2], { key: '9', code: 'Digit9' }).defaultPrevented, true)
       assert.equal(press(inputs[2], { key: '™', code: 'Digit2' }).defaultPrevented, true)
-      for (const extra of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { isComposing: true }, { key: '0', code: 'Digit0' }]) {
+      for (const extra of [{ altKey: true }, { ctrlKey: false }, { shiftKey: true }, { isComposing: true }, { key: '0', code: 'Digit0' }]) {
         assert.equal(press(inputs[2], extra).defaultPrevented, false)
       }
-      assert.equal(press(inputs[5]).defaultPrevented, false)
+      assert.equal(press(inputs[5]).defaultPrevented, true)
     })
     assert.deepEqual(selected, ['A2', 'B2', 'T2', 'Calendar', 'Search', 'T2'])
     await act(async () => {
-      for (const extra of [{ ctrlKey: true }, { metaKey: true }, { ctrlKey: true, code: 'Numpad2' }]) {
+      for (const extra of [{ ctrlKey: true }, { ctrlKey: false, metaKey: true }, { ctrlKey: true, code: 'Numpad2' }]) {
         assert.equal(press(inputs[1], { altKey: false, ...extra }).defaultPrevented, true)
       }
       const count = selected.length
@@ -74,7 +77,7 @@ test('Alt/Ctrl/Cmd+숫자는 포커스된 분할 패널의 표시 순서로 전�
     await act(async () => { assert.equal(press(inputs[2]).defaultPrevented, true) })
     assert.equal(selected.at(-1), 'T2')
     body.setAttribute('inert', '')
-    await act(async () => { assert.equal(press(inputs[2]).defaultPrevented, false) })
+    await act(async () => { assert.equal(press(inputs[2]).defaultPrevented, true) })
     await act(async () => { assert.equal(press(inputs[2], { altKey: false, ctrlKey: true }).defaultPrevented, true) })
     assert.equal(selected.at(-1), 'T2')
   } finally {

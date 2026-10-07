@@ -14,11 +14,14 @@ test('project tabs group, reorder, restore and cancel with mouse, keyboard and r
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {RootProjectTabs} from '${root}/src/components/RootProjectTabs.tsx';
 import {I18nProvider} from '${root}/src/i18n.tsx';
+import {captureDesktopKeyboard} from '${root}/src/utils/desktop-keyboard.ts';
+window.activations=[];window.remoteKeys=[];
+window.startRemote=()=>captureDesktopKeyboard({input:{key:(...args)=>window.remoteKeys.push(args),release(){}},target:el=>el===document.querySelector('#remote-keys'),detected(){},copy:async()=>{},paste:async()=>{},status(){}});
 function Fixture(){
 const [layout,setLayout]=useState(()=>JSON.parse(localStorage.getItem('fixture')||'{"paths":["/alpha","/beta","/gamma","/delta"],"groups":[]}'));
-const [active,setActive]=useState('/alpha');const [enabled,setEnabled]=useState(true);
+const [active,setActive]=useState('/alpha');const [enabled,setEnabled]=useState(true);const [dialog,setDialog]=useState(false);window.setDialog=setDialog;
 window.setLayout=setLayout;window.layout=layout;window.active=active;window.setEnabled=setEnabled;
-return <main className="h-screen bg-surface text-ink"><header className="flex h-12 border-b border-edge"><RootProjectTabs {...layout} activePath={active} fallbackLabel="work" canOpen={enabled} canChangeIcon={enabled} icons={{}} onActivate={setActive} onClose={p=>setLayout(s=>({...s,paths:s.paths.filter(x=>x!==p)}))} onIconChange={()=>{}} onOpen={()=>{}} onLayoutChange={next=>{setLayout(next);localStorage.setItem('fixture',JSON.stringify(next))}}/></header></main>}
+return <main className="h-screen bg-surface text-ink"><header className="flex h-12 border-b border-edge"><RootProjectTabs {...layout} activePath={active} fallbackLabel="work" canOpen={enabled} canChangeIcon={enabled} icons={{}} onActivate={p=>{window.activations.push(p);setActive(p)}} onClose={p=>setLayout(s=>({...s,paths:s.paths.filter(x=>x!==p)}))} onIconChange={()=>{}} onOpen={()=>{}} onLayoutChange={next=>{setLayout(next);localStorage.setItem('fixture',JSON.stringify(next))}}/></header><textarea id="project-input"/><div role="dialog" hidden={!dialog}><input id="project-modal"/><div id="remote-keys" tabIndex={0}/></div></main>}
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:groups.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:groups.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, async load(id) { if (id === 'virtual:groups.tsx') return source; if (id === 'virtual:style') return ''; if (id.endsWith('?raw')) return 'export default ' + JSON.stringify(await fs.readFile(id.slice(0, -4), 'utf8')) } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
@@ -44,6 +47,39 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     async function over(locator: Locator, ratio = 0.5) { const p = await point(locator, ratio); await page.mouse.move(p.x, p.y); await page.waitForTimeout(30) }
     async function settle() { await page.waitForTimeout(60) }
 
+    await page.evaluate('window.setDialog(true)')
+    const active = () => page.evaluate('window.active')
+    for (const width of [1100, 390]) {
+      await page.setViewportSize({ width, height: 600 })
+      await page.locator('#project-input').focus()
+      await page.keyboard.press('Alt+3')
+      await page.waitForFunction('window.active==="/gamma"')
+      await page.keyboard.press('Alt+Numpad2')
+      await page.waitForFunction('window.active==="/beta"')
+      for (const combo of ['Alt+9', 'Alt+0', 'Alt+Shift+1', 'Control+Alt+1', 'Meta+Alt+1']) await page.keyboard.press(combo)
+      assert.equal(await active(), '/beta', 'missing positions and other modifier combinations do not select a project')
+      await page.evaluate('document.querySelector("#project-input").dispatchEvent(new KeyboardEvent("keydown",{key:"¡",code:"Digit1",altKey:true,repeat:true,bubbles:true,cancelable:true}))')
+      assert.equal(await active(), '/beta', 'repeat cannot keep switching during hydration')
+      await page.evaluate('document.querySelector("#project-input").dispatchEvent(new KeyboardEvent("keydown",{key:"¡",code:"Digit1",altKey:true,isComposing:true,bubbles:true,cancelable:true}))')
+      assert.equal(await active(), '/beta', 'composition leaves the project unchanged')
+      await page.locator('#project-modal').focus(); await page.keyboard.press('Alt+1')
+      assert.equal(await active(), '/beta', 'modal input cannot switch the project behind it')
+      await page.locator('#project-input').focus()
+      await page.evaluate('document.querySelector("#project-input").dispatchEvent(new KeyboardEvent("keydown",{key:"¡",code:"Digit1",altKey:true,bubbles:true,cancelable:true}))')
+      await page.waitForFunction('window.active==="/alpha"')
+      const activations = await page.evaluate('window.activations.length')
+      await page.keyboard.press('Alt+1')
+      assert.equal(await page.evaluate('window.activations.length'), activations, 'current project is not activated again')
+    }
+    await page.setViewportSize({ width: 1100, height: 600 })
+    await page.locator('#remote-keys').focus()
+    await page.evaluate('window.stopRemote=window.startRemote()')
+    await page.keyboard.press('Alt+2')
+    assert.equal(await active(), '/alpha', 'remote keyboard keeps priority over project selection')
+    assert.deepEqual(await page.evaluate('window.remoteKeys'), [['AltLeft', true], ['Digit2', true], ['Digit2', false], ['AltLeft', false]])
+    await page.evaluate('window.stopRemote();window.setDialog(false)')
+    await page.getByRole('dialog').waitFor({ state: 'hidden' })
+
     await hold('alpha')
     await over(tab('beta'))
     assert.equal((await state()).groups.length, 0, 'hover is only a preview')
@@ -52,6 +88,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.mouse.up(); await settle()
     assert.deepEqual((await state()).groups[0].paths, ['/beta', '/alpha'])
     assert.equal(await page.evaluate(() => (globalThis as unknown as { active: string }).active), '/alpha', 'drop never activates its target')
+    await page.locator('#project-input').focus(); await page.keyboard.press('Alt+1')
+    await page.waitForFunction('window.active==="/beta"')
+    await page.keyboard.press('Alt+2')
+    await page.waitForFunction('window.active==="/alpha"')
     await page.waitForTimeout(650)
     assert.equal(await page.locator('[data-project-group-toggle]').count(), 0)
     const stripBox = await page.locator('[data-project-tabs]').boundingBox()
@@ -131,6 +171,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.evaluate(() => (globalThis as unknown as { setEnabled: (v: boolean) => void }).setEnabled(false))
     await button('project-8').focus(); await page.keyboard.press('Alt+Shift+ArrowRight')
     assert.equal((await state()).groups.length, 0, 'non-owner cannot arrange')
+    await page.keyboard.press('Alt+2')
+    assert.equal(await active(), '/alpha', 'non-owner cannot switch projects')
     await page.evaluate(() => (globalThis as unknown as { setEnabled: (v: boolean) => void }).setEnabled(true))
     await settle()
     await page.locator('[data-project-tabs]').evaluate(el => { el.scrollLeft = 0 })

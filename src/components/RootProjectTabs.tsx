@@ -1,6 +1,7 @@
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { DialogFrame, useReorderAnimation, reorderLayoutRect } from '@mew/ui'
+import { projectTabIndex } from '@mew/shortcuts'
 import { useI18n } from '../i18n'
 import { IconPicker } from './IconPicker'
 import { ProjectIcon } from './ProjectIcon'
@@ -34,6 +35,22 @@ export function RootProjectTabs({ paths, groups, activePath, fallbackLabel, canO
   const helpId = useId()
   const iconTitleId = useId()
   const canArrange = !!onLayoutChange && canOpen
+
+  useEffect(() => {
+    const select = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      const index = projectTabIndex(event)
+      if (index === null) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      const target = event.target instanceof Element ? event.target : document.activeElement
+      if (!canOpen || event.repeat || target?.closest('[role="dialog"], [aria-modal="true"]')) return
+      const path = layout.paths[index]
+      if (path && path !== activePath) onActivate(path)
+    }
+    window.addEventListener('keydown', select, true)
+    return () => window.removeEventListener('keydown', select, true)
+  }, [layout.paths, activePath, canOpen, onActivate])
 
   function move(path: string, target: ProjectTabDrop) {
     if (!canArrange) return

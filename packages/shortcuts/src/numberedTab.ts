@@ -1,8 +1,20 @@
-/** Alt/Ctrl/Cmd+1…9 selects a tab by its one-based position, including macOS Option keys. */
-export function numberedTabIndex(event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'isComposing' | 'code' | 'key'>): number | null {
-  if (event.altKey === (event.ctrlKey || event.metaKey) || event.shiftKey || event.isComposing) return null
+type TabKeyEvent = Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'isComposing' | 'code' | 'key'>
+
+function digitIndex(event: TabKeyEvent): number | null {
   const digit = /^(?:Digit|Numpad)([1-9])$/.exec(event.code)?.[1] ?? (/^[1-9]$/.test(event.key) ? event.key : null)
   return digit === null ? null : Number(digit) - 1
+}
+
+/** Ctrl/Cmd+1…9 selects a tab in the focused panel by its one-based position. */
+export function numberedTabIndex(event: TabKeyEvent): number | null {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing) return null
+  return digitIndex(event)
+}
+
+/** Alt+1…9 selects a project tab, including physical Option keys and the keypad. */
+export function projectTabIndex(event: TabKeyEvent): number | null {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing) return null
+  return digitIndex(event)
 }
 
 /** Fixed aliases for moving within the focused panel; existing arrow shortcuts remain available. */

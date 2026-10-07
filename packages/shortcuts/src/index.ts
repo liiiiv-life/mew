@@ -160,5 +160,5 @@ export function useShortcutBindings(): Overrides {
   return useSyncExternalStore(subscribe, getBindings, getBindings)
 }
 export { closeFocusedTab, openFocusedTab, dispatchFocusedShortcut, useFocusedShortcutScope, type FocusedShortcutHandlers } from './focusedShortcutScope'
-export { numberedTabIndex, adjacentPanelTabDirection } from './numberedTab'
+export { numberedTabIndex, projectTabIndex, adjacentPanelTabDirection } from './numberedTab'
 export { registerKeyboardCapture } from './keyboardCapture'

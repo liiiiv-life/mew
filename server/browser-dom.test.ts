@@ -247,7 +247,7 @@ test('real Chromium DOM view relays input, cookie-backed submission and navigati
   app.get('/callback', (_req, res) => res.type('html').send('<html><head><title>Done</title></head><body><h1>Signed in on server</h1></body></html>'))
   app.get('/viewer.js', (_req, res) => res.type('js').send(code.type === 'chunk' ? code.code : ''))
   let streamUrl = ''
-  app.get('/viewer-init.js', (_req, res) => res.type('js').send(`import {mountDomBrowser,captureAppTabShortcuts} from '/viewer.js';window.commands=[];captureAppTabShortcuts({closeEditorTab(){window.commands.push('close')},create(event,kind){window.commands.push(kind)}});window.forwarded=[];window.addEventListener('keydown',event=>{if(event.ctrlKey&&(event.code==='Digit2'||event.code==='Tab')){window.forwarded.push(event.code);event.preventDefault();event.stopImmediatePropagation()}},true);window.dispose=mountDomBrowser(document.querySelector('#root'),${JSON.stringify(streamUrl)},s=>document.querySelector('#status').textContent=JSON.stringify(s));`))
+  app.get('/viewer-init.js', (_req, res) => res.type('js').send(`import {mountDomBrowser,captureAppTabShortcuts} from '/viewer.js';window.commands=[];captureAppTabShortcuts({closeEditorTab(){window.commands.push('close')},create(event,kind){window.commands.push(kind)}});window.forwarded=[];window.addEventListener('keydown',event=>{if((event.ctrlKey&&(event.code==='Digit2'||event.code==='Tab'))||(event.altKey&&event.code==='Digit2')){window.forwarded.push(event.altKey?'project:'+event.code:event.code);event.preventDefault();event.stopImmediatePropagation()}},true);window.dispose=mountDomBrowser(document.querySelector('#root'),${JSON.stringify(streamUrl)},s=>document.querySelector('#status').textContent=JSON.stringify(s));`))
   app.get('/viewer', (_req, res) => {
     res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self' ws: wss:; font-src 'self' data:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:")
     res.type('html').send('<!doctype html><html><body style="margin:0"><div id="status"></div><div id="root" style="width:100vw;height:600px"></div><script type="module" src="/viewer-init.js"></script></body></html>')
@@ -284,9 +284,9 @@ test('real Chromium DOM view relays input, cookie-backed submission and navigati
     assert.equal((await fetch(origin + logo)).status, 200)
     assert.equal((await fetch(origin + logo, { headers: { 'x-test-account': 'other' } })).status, 403)
     await frame.locator('#email').focus()
-    for (const combo of ['Control+w', 'Control+n', 'Control+Shift+n', 'Control+t', 'Alt+n', 'Control+2', 'Control+Tab', 'Control+Shift+Tab']) await page.keyboard.press(combo)
+    for (const combo of ['Control+w', 'Control+n', 'Control+Shift+n', 'Control+t', 'Alt+n', 'Control+2', 'Control+Tab', 'Control+Shift+Tab', 'Alt+2']) await page.keyboard.press(combo)
     assert.deepEqual(await page.evaluate('window.commands'), ['close', 'file', 'folder', 'file', 'file'], 'iframe forwards tab commands to the app capture handler')
-    assert.deepEqual(await page.evaluate('window.forwarded'), ['Digit2', 'Tab', 'Tab'])
+    assert.deepEqual(await page.evaluate('window.forwarded'), ['Digit2', 'Tab', 'Tab', 'project:Digit2'])
     assert.equal(await frame.locator('#email').evaluate(node => node.ownerDocument.activeElement === node), true, 'Ctrl+Tab must not become a remote form Tab')
     await page.setViewportSize({ width: 390, height: 844 })
     await page.locator('#root iframe[width="390"]').waitFor()
