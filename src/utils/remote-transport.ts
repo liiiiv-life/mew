@@ -9,7 +9,7 @@ export function mewFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 export function openMewSocket(url: string | URL, protocols?: string | string[]): WebSocket { if (remote) return remote.socket(String(url), protocols); if (remoteMode) throw new Error('기기 연결이 종료됐습니다.'); return new WebSocket(url, protocols) }
 const encode = (bytes: Uint8Array) => btoa(Array.from(bytes, value => String.fromCharCode(value)).join(''))
 const decode = (data: string) => Uint8Array.from(atob(data), char => char.charCodeAt(0))
-type PendingRequest = { resolve(response: Response): void; reject(error: Error): void; controller?: ReadableStreamDefaultController<Uint8Array>; cleanup(): void; responseStarted(): void; responded: boolean; creditResolve?: () => void }
+type PendingRequest = { resolve(response: Response): void; reject(error: Error): void; controller?: ReadableStreamDefaultController<Uint8Array>; cleanup(): void; responseStarted(): void; responded: boolean; window?: number; outstanding?: number }
 export class DataChannelTransport implements AppTransport {
   channel: RTCDataChannel
   requests = new Map<string, PendingRequest>()
@@ -39,7 +39,7 @@ export class DataChannelTransport implements AppTransport {
     if (this.requests.size + this.sockets.size >= REMOTE_LIMITS.streams) throw new Error('동시 요청 한도를 초과했습니다.')
     const id = crypto.randomUUID(), signal = request.signal
     return new Promise<Response>((resolve, reject) => {
-      const abort = () => { const pending = this.requests.get(id); pending?.creditResolve?.(); pending?.controller?.error(new DOMException('취소됐습니다.', 'AbortError')); pending?.reject(new DOMException('취소됐습니다.', 'AbortError')); this.requests.delete(id); cleanup(); void this.send({ type: 'cancel', id }).catch(() => {}) }
+      const abort = () => { const pending = this.requests.get(id); pending?.controller?.error(new DOMException('취소됐습니다.', 'AbortError')); pending?.reject(new DOMException('취소됐습니다.', 'AbortError')); this.requests.delete(id); cleanup(); void this.send({ type: 'cancel', id }).catch(() => {}) }
       let timer = setTimeout(abort, 30_000)
       const progress = () => { if (!this.requests.get(id)?.responded) { clearTimeout(timer); timer = setTimeout(abort, 30_000) } }
       const cleanup = () => { clearTimeout(timer); signal.removeEventListener('abort', abort) }
@@ -48,7 +48,7 @@ export class DataChannelTransport implements AppTransport {
       if (signal.aborted) { abort(); return }
       void (async () => {
         const headers = Object.fromEntries([...request.headers].filter(([key]) => (REMOTE_REQUEST_HEADERS as readonly string[]).includes(key)))
-        await this.send({ type: 'request', id, method: request.method, path: url.pathname + url.search, headers })
+        await this.send({ type: 'request', id, method: request.method, path: url.pathname + url.search, headers, responseWindow: REMOTE_LIMITS.responseWindow })
         if (!['GET', 'HEAD'].includes(request.method)) {
           const reader = request.body?.getReader(); let size = 0
           try {
@@ -90,19 +90,38 @@ export class DataChannelTransport implements AppTransport {
         if (pending.responded || !Number.isInteger(frame.status) || frame.status < 200 || frame.status > 599) throw new Error('invalid-response')
         pending.responded = true
         pending.responseStarted()
-        const stream = new ReadableStream<Uint8Array>({ start: controller => { pending.controller = controller }, pull: () => new Promise<void>((resolve, reject) => { pending.creditResolve = resolve; void this.send({ type: 'credit', id: frame.id }).catch(reject) }), cancel: () => { pending.cleanup(); this.requests.delete(frame.id); void this.send({ type: 'cancel', id: frame.id }).catch(() => {}) } }, { highWaterMark: 1 })
+        pending.window = frame.responseWindow ?? 1
+        pending.outstanding = frame.responseWindow ?? 0
+        const replenish = () => {
+          if (!this.requests.has(frame.id) || !pending.controller) return
+          const free = Math.floor((pending.controller.desiredSize ?? 0) / REMOTE_LIMITS.chunk)
+          const count = Math.max(0, Math.min(pending.window!, free) - pending.outstanding!)
+          pending.outstanding! += count
+          for (let i = 0; i < count; i++) void this.send({ type: 'credit', id: frame.id }).catch(() => this.close())
+        }
+        const stream = new ReadableStream<Uint8Array>({
+          start: controller => { pending.controller = controller },
+          pull: replenish,
+          cancel: () => { pending.cleanup(); this.requests.delete(frame.id); void this.send({ type: 'cancel', id: frame.id }).catch(() => {}) },
+        }, { highWaterMark: pending.window * REMOTE_LIMITS.chunk, size: bytes => bytes.byteLength })
         pending.resolve(new Response([204, 205, 304].includes(frame.status) ? null : stream, { status: frame.status, headers: frame.headers })); return
       }
-      if (frame.type === 'chunk') { if (!pending.controller || (pending.controller.desiredSize ?? 0) < 0) throw new Error('response-limit'); pending.controller.enqueue(decode(frame.data)); const resolve = pending.creditResolve; pending.creditResolve = undefined; resolve?.(); return }
-      if (frame.type === 'end') { pending.creditResolve?.(); pending.controller?.close(); pending.cleanup(); this.requests.delete(frame.id); return }
-      if (frame.type === 'error') { const error = new Error('원격 요청이 중단됐습니다. 결과를 확인한 뒤 다시 시도해 주세요.'); pending.creditResolve?.(); pending.controller?.error(error); pending.reject(error); pending.cleanup(); this.requests.delete(frame.id) }
+      if (frame.type === 'chunk') {
+        const bytes = decode(frame.data)
+        if (!pending.controller || !pending.outstanding || (pending.controller.desiredSize ?? 0) < bytes.byteLength) throw new Error('response-limit')
+        pending.outstanding--
+        pending.controller.enqueue(bytes)
+        return
+      }
+      if (frame.type === 'end') { pending.controller?.close(); pending.cleanup(); this.requests.delete(frame.id); return }
+      if (frame.type === 'error') { const error = new Error('원격 요청이 중단됐습니다. 결과를 확인한 뒤 다시 시도해 주세요.'); pending.controller?.error(error); pending.reject(error); pending.cleanup(); this.requests.delete(frame.id) }
     } catch { this.close() }
   }
   close() {
     if (this.closed) return
     this.closed = true
     this.channel.removeEventListener('message', this.receive)
-    for (const pending of this.requests.values()) { const error = new Error('원격 연결이 종료됐습니다.'); pending.creditResolve?.(); pending.controller?.error(error); pending.reject(error); pending.cleanup() }
+    for (const pending of this.requests.values()) { const error = new Error('원격 연결이 종료됐습니다.'); pending.controller?.error(error); pending.reject(error); pending.cleanup() }
     this.requests.clear()
     for (const socket of this.sockets.values()) socket.finish(1006)
     this.channel.close()

@@ -1,10 +1,10 @@
 export const REMOTE_PROTOCOL = 1
 export const REMOTE_REQUEST_HEADERS = ['accept', 'content-type', 'range', 'if-match', 'if-none-match', 'if-range', 'x-mew-task-owner', 'x-mew-git-owner', 'x-mew-git-workspace', 'x-mew-debug-workspace'] as const
-export const REMOTE_LIMITS = Object.freeze({ frame: 32 * 1024, chunk: 12 * 1024, queue: 512 * 1024, streams: 16, body: 25 * 1024 * 1024, uploads: 64 * 1024 * 1024, signal: 96 * 1024, lease: 60_000, renew: 20_000, ticket: 60_000 })
+export const REMOTE_LIMITS = Object.freeze({ frame: 32 * 1024, chunk: 12 * 1024, responseWindow: 8, queue: 512 * 1024, streams: 16, body: 25 * 1024 * 1024, uploads: 64 * 1024 * 1024, signal: 96 * 1024, lease: 60_000, renew: 20_000, ticket: 60_000 })
 export type RemoteStatus = { enabled: boolean; state: 'disabled' | 'connecting' | 'online' | 'offline' | 'registering' | 'error'; url?: string; registrationUrl?: string; expiresAt?: number; error?: string }
 export type RemoteFrame =
-  | { type: 'request'; id: string; method: string; path: string; headers: Record<string, string>; body?: string }
-  | { type: 'response'; id: string; status: number; headers: Record<string, string> }
+  | { type: 'request'; id: string; method: string; path: string; headers: Record<string, string>; body?: string; responseWindow?: number }
+  | { type: 'response'; id: string; status: number; headers: Record<string, string>; responseWindow?: number }
   | { type: 'chunk'; id: string; data: string }
   | { type: 'end'; id: string }
   | { type: 'cancel'; id: string }
@@ -27,6 +27,7 @@ export function parseRemoteFrame(raw: string): RemoteFrame {
   if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(value.id)) throw new Error('invalid-frame')
   if (!['request', 'response', 'chunk', 'end', 'cancel', 'credit', 'socket', 'open', 'message', 'close', 'error'].includes(value.type)) throw new Error('invalid-frame')
   if (value.type === 'request' && (!remotePath(value.path) || !['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(value.method) || !value.headers || typeof value.headers !== 'object' || Array.isArray(value.headers) || Object.values(value.headers).some(v => typeof v !== 'string' || v.length > 8192 || /[\r\n]/.test(v)) || (value.body !== undefined && typeof value.body !== 'string'))) throw new Error('invalid-request')
+  if ((value.type === 'request' || value.type === 'response') && value.responseWindow !== undefined && (!Number.isSafeInteger(value.responseWindow) || value.responseWindow < 1 || value.responseWindow > REMOTE_LIMITS.responseWindow)) throw new Error('invalid-response-window')
   if (value.type === 'socket' && !remotePath(value.path, true)) throw new Error('invalid-socket')
   if ((value.type === 'chunk' || value.type === 'message') && (typeof value.data !== 'string' || value.data.length > Math.ceil(REMOTE_LIMITS.chunk / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.data))) throw new Error('invalid-chunk')
   if (value.type === 'message' && (typeof value.binary !== 'boolean' || (value.sequence !== undefined && (!Number.isSafeInteger(value.sequence) || value.sequence < 0 || value.sequence > 4096 || typeof value.final !== 'boolean')))) throw new Error('invalid-message')

@@ -1,6 +1,6 @@
 ---
 title: "계정 기반 P2P 원격 접속 계약"
-description: "Workers·D1·Durable Objects의 비공개 mewlink와 A의 인증된 DataChannel, UI 전체·HTTP·WebSocket·자원 전송과 origin·신원·권한·수명·제한을 정의한다. 실제 배포·제공자 로그인·외부망 검증은 남아 있다."
+description: "Workers·D1·Durable Objects의 비공개 mewlink와 A의 인증된 DataChannel, UI 전체·HTTP·WebSocket·자원 전송, 협의된 응답 수신 창과 origin·신원·권한·수명·제한을 정의한다. 실제 배포·제공자 로그인·외부망 검증은 남아 있다."
 created: 2026-10-07
 updated: 2026-10-07
 ---
@@ -70,6 +70,7 @@ A의 `<DATA_DIR>/remote-access.json`에는 버전 1, 서버 키, 고정 중앙 �
 | 제한 | 현재 값 |
 | --- | --- |
 | 단일 JSON 프레임 / 바이너리 청크 | 32KiB / 12KiB(base64 전 크기) |
+| HTTP 응답 수신 창 | 최대 8청크 / 96KiB, 미협의 상대는 1청크 |
 | RTC 송신 대기열 | 512KiB 이상이면 대기, 10초 진행 불가 시 종료 |
 | HTTP·WS 동시 작업 | 브라우저 연결당 합계 16개 |
 | 브라우저 동시 연결 | A당 8개 |
@@ -78,13 +79,14 @@ A의 `<DATA_DIR>/remote-access.json`에는 버전 1, 서버 키, 고정 중앙 �
 | 시그널링 메시지 / 처리 대기 / ICE 개수 | 96KiB / 연결당 128개 / 앱 연결당 양방향 합계 256개 |
 | 초기 HTTP 응답·업로드 진행 없음 | 30초. 응답 이후 스트림은 취소·채널/인증 수명으로 종료 |
 
-응답 청크는 reader의 credit로 흐름을 제어한다. 파일 전체를 Blob에 모아 전달하지 않으며 다운로드 크기는 기존 파일 API와 스트림에 따른다. 큰 WS 메시지는 순서 번호로 나누어 복원한다. HTTP의 조기 403과 취소 뒤에 도착한 청크를 버려 다른 작업을 끊지 않는다. 쓰기·명령은 자동 재전송하지 않고 결과가 유실되면 확인 후 다시 시도하도록 오류를 표시한다. 모든 스트림·가상 socket·RTC 자식 프로세스는 종료 시 정리하며 자식 helper는 부모 heartbeat가 10초 동안 없으면 종료한다.
+응답 청크는 reader의 credit로 흐름을 제어한다. 버전 1의 선택 필드 `request.responseWindow`(1~8)를 `response.responseWindow`에 돌려주면 서버는 해당 수의 초기 credit로 바로 전송한다. 브라우저는 바이트 단위 ReadableStream 여유와 아직 도착하지 않은 credit를 합산해 최대 96KiB를 넘지 않도록 보충한다. 응답에 필드가 없는 이전 서버에는 1청크 credit 방식을 사용하며, 필드 없는 이전 클라이언트 요청에는 서버도 초기 credit를 부여하지 않는다. 같은 연결에서 작은 목록마다 청크 수만큼 왕복을 기다리지 않으면서 큰 다운로드의 소비자 역압을 유지한다. 파일 전체를 Blob에 모아 전달하지 않으며 다운로드 크기는 기존 파일 API와 스트림에 따른다. 큰 WS 메시지는 순서 번호로 나누어 복원한다. HTTP의 조기 403과 취소 뒤에 도착한 청크를 버려 다른 작업을 끊지 않는다. 쓰기·명령은 자동 재전송하지 않고 결과가 유실되면 확인 후 다시 시도하도록 오류를 표시한다. 모든 스트림·가상 socket·RTC 자식 프로세스는 종료 시 정리하며 자식 helper는 부모 heartbeat가 10초 동안 없으면 종료한다.
 
 `@mew/ui/browser-storage-scope`는 중앙 계정 ID와 instance ID를 localStorage·IndexedDB 이름에 포함한다. 파일·탭·초안·에이전트 기록을 A별로 분리하고 IndexedDB의 열린 연결도 범위가 바뀔 때 교체한다. 재생성 localStorage 캐시의 기존 origin 전체 예산·보관 기간은 여러 A에 공통 적용한다. 연결 종료는 현재 범위의 재생성 본문/전사/전송 기록을 정리하며 **미전송 초안·PDF 필기·열린 탭·설정은 보존**한다. [브라우저 저장 계약](browser-storage.md)을 따른다. 전역 fetch·WebSocket·localStorage를 교체하지 않는다.
 
 ## 검증과 남은 게이트
 
-- `remote-access.test.ts`: 허용 경로·프레임 크기, 서명/만료/대상, 헤더 위조, JSON·바이너리, 기존 WS 문맥과 계정 회수.
+- `remote-response-window-ui.test.ts`: 실제 브라우저 전송과 메모리 HTTP dispatcher, 왕복 100ms를 모사한 86,023B 응답의 이전 방식 약 937ms → 수신 창 약 110ms, 미소비 응답 8청크 상한과 이전 서버 호환. 실제 외부망 속도의 보장은 아니다.
+- `remote-access.test.ts`: 선택 수신 창 검증·8청크 역압·이전 클라이언트 호환, 허용 경로·프레임 크기, 서명/만료/대상, 헤더 위조, JSON·바이너리, 기존 WS 문맥과 계정 회수.
 - 로컬 `mewlink/test/worker.test.ts`: 실제 Workers/D1/DO의 원자적 등록·세션·기기 권한·origin·launch 재사용 차단·서명 시그널링·hibernation·로그아웃 회수.
 - 로컬 `mewlink/test/oauth.test.ts`: Google·GitHub·Apple·이메일 OIDC 응답 fixture의 state·PKCE(지원 흐름)·nonce·JWKS·호스트 전용 세션. 실제 제공자 로그인을 대신하지 않음.
 - 로컬 `mewlink/test/p2p.browser.test.ts`: HTTPS Workers 중앙 + 등록된 네이티브 A + 실제 Chromium, P2P HTML/CSS/JS/동적 import/이미지/worker와 작업 요청, 공개 주소 유지·새로고침·두 탭과 중앙 작업 요청 0건.

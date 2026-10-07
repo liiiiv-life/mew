@@ -60,13 +60,13 @@ export function remoteDispatcher(server: Server, wire: RemoteWire, current: () =
       for (const [key, val] of Object.entries(value.headers)) if (REQUEST_HEADERS.has(key.toLowerCase())) headers[key.toLowerCase()] = val
       delete headers['content-length']
       const req = http.request({ host: new URL(origin).hostname, port: 80, path: value.path, method: value.method, headers, createConnection: () => client as never })
-      let size = 0, ended = false, credits = 0, finished = false
+      let size = 0, ended = false, credits = value.responseWindow ?? 0, finished = false
       let wake: (() => void) | undefined
       const credit = async () => { while (!credits) { if (closed || !operations.has(value.id)) throw new Error('cancelled'); await new Promise<void>(resolve => { wake = resolve }) }; credits-- }
       const finish = () => { if (finished) return; finished = true; budget.bytes -= size; wake?.(); req.destroy(); client.destroy(); host.destroy(); operations.delete(value.id) }
       const write = (bytes: Buffer) => { if (size + bytes.length > REMOTE_LIMITS.body || budget.bytes + bytes.length > REMOTE_LIMITS.uploads || req.writableLength + bytes.length > REMOTE_LIMITS.queue) throw new Error('body-limit'); size += bytes.length; budget.bytes += bytes.length; req.write(bytes) }
       operations.set(value.id, { close: finish, write: frame => {
-        if (frame.type === 'credit') { if (++credits > 8) throw new Error('credit-limit'); wake?.(); wake = undefined; return }
+        if (frame.type === 'credit') { if (++credits > REMOTE_LIMITS.responseWindow) throw new Error('credit-limit'); wake?.(); wake = undefined; return }
         if (ended) throw new Error('request-ended')
         if (frame.type === 'end') { ended = true; req.end(); return }
         if (frame.type !== 'chunk') throw new Error('invalid-direction')
@@ -76,7 +76,7 @@ export function remoteDispatcher(server: Server, wire: RemoteWire, current: () =
         try {
           const responseHeaders: Record<string, string> = {}
           for (const [key, val] of Object.entries(res.headers)) if (RESPONSE_HEADERS.has(key) && typeof val === 'string') responseHeaders[key] = val
-          await send({ type: 'response', id: value.id, status: res.statusCode ?? 500, headers: responseHeaders })
+          await send({ type: 'response', id: value.id, status: res.statusCode ?? 500, headers: responseHeaders, ...(value.responseWindow ? { responseWindow: value.responseWindow } : {}) })
           for await (const chunk of res) {
             const bytes = Buffer.from(chunk)
             for (let i = 0; i < bytes.length; i += REMOTE_LIMITS.chunk) { await credit(); await send({ type: 'chunk', id: value.id, data: bytes.subarray(i, i + REMOTE_LIMITS.chunk).toString('base64') }) }
