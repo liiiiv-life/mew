@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { PanelCloseButton } from './panel-close-button'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
@@ -18,7 +19,7 @@ const GATEWAY_KEY = 'mew:android-gateway-url'
 const DEFAULT_GATEWAY = 'http://localhost:8080/'
 
 function loadGatewayUrl(): string {
-  return localStorage.getItem(GATEWAY_KEY) || DEFAULT_GATEWAY
+  return scopedBrowserStorage().getItem(GATEWAY_KEY) || DEFAULT_GATEWAY
 }
 
 type RunnableAndroidCommand = AndroidCommandItem & {
@@ -198,7 +199,7 @@ export function AndroidPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let alive = true
-    localStorage.setItem(GATEWAY_KEY, gatewayUrl)
+    scopedBrowserStorage().setItem(GATEWAY_KEY, gatewayUrl)
     fetchBrowserFrameUrl(gatewayUrl)
       .then(({ url }) => {
         if (alive) {

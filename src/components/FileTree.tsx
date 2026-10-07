@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { Download } from 'iconoir-react'
 import { useI18n } from '../i18n'
 import { pageRepresentative, documentPageLabel, documentPageTarget, remapPagePath, type DocumentPageMutation } from '../../shared/document-pages'
@@ -198,7 +199,7 @@ const openDirsKey = (project: string) => `mew:tree-open:${project}`
 /** 저장된 펼침 목록. 저장된 적이 없으면 null(= 처음 여는 프로젝트라 기본값을 쓴다) */
 function loadOpenDirs(project: string): Set<string> | null {
   try {
-    const raw = localStorage.getItem(openDirsKey(project))
+    const raw = scopedBrowserStorage().getItem(openDirsKey(project))
     if (raw === null) return null
     const parsed: unknown = JSON.parse(raw)
     return Array.isArray(parsed) ? new Set(parsed.filter((p): p is string => typeof p === 'string')) : null

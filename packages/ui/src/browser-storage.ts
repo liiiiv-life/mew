@@ -1,3 +1,4 @@
+import { scopedBrowserStorage, remoteStorageName } from './browser-storage-scope.ts'
 /** Only disposable data belongs here. Drafts, preferences and account-state fallbacks are never evicted. */
 const TIMES_KEY = 'mew:cache-times:v1'
 export const BROWSER_CACHE_MAX_BYTES = 2 * 1024 * 1024
@@ -9,10 +10,13 @@ const METADATA_RESERVE = 64 * 1024
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>
 type Times = Record<string, number>
+const scopePrefix = (key: string) => /^mew:remote:\["(?:[^"\\]|\\.)*","(?:[^"\\]|\\.)*"\]:/.exec(key)?.[0] ?? ''
+const logicalKey = (key: string) => key.slice(scopePrefix(key).length)
 export type StorageCleanup = { removed: number; freedBytes: number; remainingBytes: number }
 export const browserStorageBytes = (key: string, value: string): number => (key.length + value.length) * 2
 
 function itemLimit(key: string): number | null {
+  key = logicalKey(key)
   if (key.startsWith('mew:agent-events:')) return 512 * 1024
   if (key.startsWith('mew:agent-controls:')) return 32 * 1024
   if (key.startsWith('mew:content:')) return key.endsWith('@order') ? 32 * 1024 : 256 * 1024
@@ -23,11 +27,16 @@ function itemLimit(key: string): number | null {
 
 function readTimes(storage: Store): Times {
   try {
-    const parsed: unknown = JSON.parse(storage.getItem(TIMES_KEY) ?? '{}')
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    return Object.fromEntries(Object.entries(parsed).filter(([key, time]) => (
-      itemLimit(key) !== null && typeof time === 'number' && Number.isFinite(time)
-    )))
+    const result: Times = {}
+    const metadata = [TIMES_KEY, ...Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter((key): key is string => !!key && key !== TIMES_KEY && logicalKey(key) === TIMES_KEY)]
+    for (const metadataKey of metadata) {
+      let parsed: unknown
+      try { parsed = JSON.parse(storage.getItem(metadataKey) ?? '{}') } catch { continue }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+      const prefix = scopePrefix(metadataKey)
+      for (const [key, time] of Object.entries(parsed)) if (itemLimit(key) !== null && typeof time === 'number' && Number.isFinite(time)) result[prefix + key] = Math.max(time, result[prefix + key] ?? 0)
+    }
+    return result
   } catch { return {} }
 }
 
@@ -44,9 +53,11 @@ function saveTimes(storage: Store, times: Times) {
     }
     if (Object.keys(bounded).length) storage.setItem(TIMES_KEY, JSON.stringify(bounded))
     else storage.removeItem(TIMES_KEY)
+    return true
   } catch {
     // Missing timestamps make the next sweep expire caches; they never justify removing user state.
   }
+  return false
 }
 
 /** Size accounting uses UTF-16 bytes, including keys, across all roots and features. */
@@ -76,7 +87,7 @@ export function pruneBrowserStorage(options: {
       if (limit === null || key === options.replacingKey) continue
       // Old event caches already had savedAt; all other undated legacy caches are disposable.
       let time = times[key]
-      if (time === undefined && key.startsWith('mew:agent-events:') && bytes <= limit) {
+      if (time === undefined && logicalKey(key).startsWith('mew:agent-events:') && bytes <= limit) {
         try { time = JSON.parse(value)?.savedAt } catch { /* invalid cache */ }
       }
       if (options.aggressive || bytes > limit || !Number.isFinite(time) || time > now || now - time >= BROWSER_CACHE_MAX_AGE_MS) {
@@ -106,7 +117,7 @@ export function pruneBrowserStorage(options: {
       }
     }
     if (options.replacingKey && times[options.replacingKey] !== undefined) nextTimes[options.replacingKey] = times[options.replacingKey]
-    saveTimes(storage, nextTimes)
+    if (saveTimes(storage, nextTimes)) for (const key of keys) if (key !== TIMES_KEY && logicalKey(key) === TIMES_KEY) storage.removeItem(key)
     result.remainingBytes = 0
     for (let i = 0; i < storage.length; i++) {
       const key = storage.key(i)
@@ -142,24 +153,25 @@ export function trimInputHistory(histories: Record<string, string[]>): Record<st
 /** Ordinary state is retained. On failure, reclaim only known caches and retry once. */
 export function writeBrowserStorage(key: string, value: string): boolean {
   try {
-    const storage = localStorage
+    const storage = scopedBrowserStorage()
+    const physicalKey = remoteStorageName(key)
     const limit = itemLimit(key)
     if (limit !== null) {
       if (browserStorageBytes(key, value) > limit) {
         storage.removeItem(key)
         return false
       }
-      pruneBrowserStorage({ storage, replacingKey: key, reservedBytes: browserStorageBytes(key, value) })
+      pruneBrowserStorage({ replacingKey: physicalKey, reservedBytes: browserStorageBytes(physicalKey, value) })
       // Non-cache data can exceed the target on its own. Do not compete with it by adding more caches.
-      let bytes = browserStorageBytes(key, value) + METADATA_RESERVE
-      for (let i = 0; i < storage.length; i++) {
-        const other = storage.key(i)
-        if (other && other !== key) bytes += browserStorageBytes(other, storage.getItem(other) ?? '')
+      let bytes = browserStorageBytes(physicalKey, value) + METADATA_RESERVE
+      for (let i = 0; i < localStorage.length; i++) {
+        const other = localStorage.key(i)
+        if (other && other !== physicalKey) bytes += browserStorageBytes(other, localStorage.getItem(other) ?? '')
       }
       if (bytes > BROWSER_STORAGE_TARGET_BYTES) { storage.removeItem(key); return false }
     }
     try { storage.setItem(key, value) } catch {
-      pruneBrowserStorage({ storage, aggressive: true, replacingKey: key })
+      pruneBrowserStorage({ aggressive: true, replacingKey: physicalKey })
       storage.setItem(key, value)
     }
     if (limit !== null) {

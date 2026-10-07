@@ -1,3 +1,5 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
+import { openMewSocket } from '../utils/remote-transport.ts'
 import { PanelCloseButton } from './panel-close-button'
 import { ConfirmDialog, PanelNotice, canAutoFocusInput } from '@mew/ui'
 import { historyCacheKey, readHistoryCache, writeHistoryCache, readQueueCache, writeQueueCache, type CachedQueue, type CachedHistory } from '../utils/agent-history-cache'
@@ -189,7 +191,7 @@ const AGENT_INPUT_HEIGHT_KEY = 'mew:agent-input-height'
 const MOBILE_AGENT_INPUT_BOTTOM_GUARD_PX = 8
 function initialAgentInputHeight() {
   try {
-    const saved = Number(localStorage.getItem(AGENT_INPUT_HEIGHT_KEY))
+    const saved = Number(scopedBrowserStorage().getItem(AGENT_INPUT_HEIGHT_KEY))
     if (Number.isFinite(saved) && saved > 0) {
       return Math.min(agentInputMaxHeight(window.innerHeight), saved)
     }
@@ -417,10 +419,10 @@ async function imageForAgent(file: File): Promise<AgentAttachment['image']> {
 function loadTabs(workspacePath: string | null): AgentTab[] {
   try {
     const key = agentTabStorageKey(TABS_KEY, workspacePath)
-    const raw = localStorage.getItem(key)
+    const raw = scopedBrowserStorage().getItem(key)
     // 프로젝트 독립이던 이전 저장값은, 처음 완전히 식별된 루트 프로젝트 하나에만 귀속한다.
     // 그대로 두면 아직 탭이 없는 다음 프로젝트에도 같은 목록이 다시 나타난다.
-    const legacy = raw === null && workspacePath ? localStorage.getItem(TABS_KEY) : null
+    const legacy = raw === null && workspacePath ? scopedBrowserStorage().getItem(TABS_KEY) : null
     const saved: unknown = JSON.parse(raw ?? legacy ?? '[]')
     if (Array.isArray(saved)) {
       const tabs = saved.filter((entry): entry is AgentTab => {
@@ -431,7 +433,7 @@ function loadTabs(workspacePath: string | null): AgentTab[] {
       if (tabs.length > 0) {
         // ADR 0062 이전 탭에는 runtime이 없다. 마지막으로 쓴 런타임을 한 번만 승격해
         // 기존 runtime+tab 세션 키와 히스토리를 보전한다. 새 탭은 여전히 미선택으로 만든다.
-        const legacyRuntime = localStorage.getItem(RUNTIME_KEY)
+        const legacyRuntime = scopedBrowserStorage().getItem(RUNTIME_KEY)
         const migratedRuntime = RUNTIMES.some((runtime) => runtime.id === legacyRuntime) ? legacyRuntime! : DEFAULT_RUNTIME_ID
         const normalizedTabs = tabs.flatMap((tab) => {
           // 예전의 미선택 "새 대화" 탭은 이제 선택기 자체로 바뀌었으므로 복원하지 않는다.
@@ -450,7 +452,7 @@ function loadTabs(workspacePath: string | null): AgentTab[] {
             : [upgraded]
         })
         if (legacy !== null) {
-          if (writeBrowserStorage(key, JSON.stringify(normalizedTabs))) localStorage.removeItem(TABS_KEY)
+          if (writeBrowserStorage(key, JSON.stringify(normalizedTabs))) scopedBrowserStorage().removeItem(TABS_KEY)
         }
         return normalizedTabs
       }
@@ -463,11 +465,11 @@ function loadTabs(workspacePath: string | null): AgentTab[] {
 
 function loadActiveTabId(tabs: AgentTab[], workspacePath: string | null): string | null {
   const key = agentTabStorageKey(ACTIVE_TAB_KEY, workspacePath)
-  const stored = localStorage.getItem(key)
-  const legacy = stored === null && workspacePath ? localStorage.getItem(ACTIVE_TAB_KEY) : null
+  const stored = scopedBrowserStorage().getItem(key)
+  const legacy = stored === null && workspacePath ? scopedBrowserStorage().getItem(ACTIVE_TAB_KEY) : null
   const activeId = stored ?? legacy
   if (legacy !== null) {
-    if (activeId && tabs.some((tab) => tab.id === activeId) && writeBrowserStorage(key, activeId)) localStorage.removeItem(ACTIVE_TAB_KEY)
+    if (activeId && tabs.some((tab) => tab.id === activeId) && writeBrowserStorage(key, activeId)) scopedBrowserStorage().removeItem(ACTIVE_TAB_KEY)
   }
   return activeId && tabs.some((tab) => tab.id === activeId) ? activeId : (tabs[0]?.id ?? null)
 }
@@ -593,7 +595,7 @@ function agentControlCacheKey(runtime: string, tabId: string, cwd: string) {
 }
 function readAgentControlCache(runtime: string, tabId: string, cwd: string): AgentControlCache {
   try {
-    const saved = JSON.parse(localStorage.getItem(agentControlCacheKey(runtime, tabId, cwd)) ?? '') as Partial<AgentControlCache>
+    const saved = JSON.parse(scopedBrowserStorage().getItem(agentControlCacheKey(runtime, tabId, cwd)) ?? '') as Partial<AgentControlCache>
     return {
       models: saved.models && Array.isArray(saved.models.availableModels) && typeof saved.models.currentModelId === 'string' ? saved.models : null,
       modes: saved.modes && Array.isArray(saved.modes.availableModes) && typeof saved.modes.currentModeId === 'string' ? saved.modes : null,
@@ -1437,7 +1439,7 @@ function RuntimePicker({ onSelect, onSelectSet }: { onSelect: (runtime: string) 
   const [statuses, setStatuses] = useState<AgentRuntimeStatus[] | null>(cachedAgentRuntimes)
   const [installing, setInstalling] = useState<string | null>(null)
   const [error, setError] = useState<{ id: string; message: string } | null>(null)
-  const [view, setView] = useState<'runtime' | 'set'>(() => localStorage.getItem('mew:agent-picker-view') === 'set' ? 'set' : 'runtime')
+  const [view, setView] = useState<'runtime' | 'set'>(() => scopedBrowserStorage().getItem('mew:agent-picker-view') === 'set' ? 'set' : 'runtime')
 
   const refresh = useCallback(() => {
     void refreshAgentRuntimes()
@@ -1612,7 +1614,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
   useEffect(() => {
     try {
       if (activeId) writeBrowserStorage(activeTabKey, activeId)
-      else localStorage.removeItem(activeTabKey)
+      else scopedBrowserStorage().removeItem(activeTabKey)
     } catch { /* 마지막 활성 탭도 계정 탭 상태에서 복원할 수 있다 */ }
   }, [activeId, activeTabKey])
 
@@ -2065,7 +2067,7 @@ function AgentTerminalView({
     return () => { alive = false }
   }, [cwd, retry, runtime, tabId])
 
-  if (session) return <TmuxTerminal sessionName={session} inputPlaceholder={t('common.textInput')} activeFilePath={activeFilePath} getSelectedText={getSelectedText} renderCommandButtons={renderCommandButtons} insertRefTarget={active ? runtime === 'tmux' ? 'terminal' : 'agent' : null} />
+  if (session) return <TmuxTerminal socketFactory={openMewSocket} sessionName={session} inputPlaceholder={t('common.textInput')} activeFilePath={activeFilePath} getSelectedText={getSelectedText} renderCommandButtons={renderCommandButtons} insertRefTarget={active ? runtime === 'tmux' ? 'terminal' : 'agent' : null} />
   return (
     <div className="relative flex h-full items-center justify-center bg-surface-deep text-center">
       {error ? (
@@ -2533,7 +2535,7 @@ function AgentSessionView({
         ...(preset?.thinkingId && preset?.thinkingConfigId ? { thinking: preset.thinkingId, thinkingConfig: preset.thinkingConfigId } : {}),
         ...(preset?.role ? { role: preset.role } : {}),
       }).toString()
-      ws = new WebSocket(`${proto}//${location.host}/api/agent/ws?${query}`)
+      ws = openMewSocket(`${proto}//${location.host}/api/agent/ws?${query}`)
       wsRef.current = ws
       ws.onopen = () => {
         // 다시 붙었다 — 다음에 오는 대화는 이어 붙이는 것이 아니라 지금 화면을 대신할 것이다

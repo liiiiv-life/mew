@@ -197,6 +197,23 @@ prepare_desktop() {
   node "$APP/native/remote-desktop/permissions.mjs"
 }
 
+remote_access_guide() {
+  local method=${1:-}
+  if [ -z "$method" ]; then method=$(ask 'Remote access: account / cloudflare / tailscale / none' none); fi
+  case "$method" in
+    account)
+      say "Open $(url), sign in as the local owner, and change any temporary password first."
+      say "Menu > Account management > Remote access > Register device opens a one-time account login URL."
+      say "Finish login and choose a device name; the fixed address appears in Account management and the central dashboard."
+      say "The central service and a configured login provider must be available."
+      ;;
+    cloudflare) say "Use your existing Cloudflare Tunnel setup. See docs/deployment/native.md (HTTPS and proxy headers)." ;;
+    tailscale) say "Use your existing Tailscale network. See docs/deployment/native.md (binding and HTTPS)." ;;
+    none) say "Keep local access. Remove an existing account registration from Menu > Account management > Remote access." ;;
+    *) die "choose account, cloudflare, tailscale, or none" ;;
+  esac
+}
+
 cmd_setup() {
   need_node
   need_build_tools
@@ -243,6 +260,7 @@ cmd_setup() {
   create_first_owner
   say ""
   say "Next: open the URL above, log in, and change the temporary password."
+  if [ -t 0 ]; then remote_access_guide; fi
 }
 
 cmd_update() {
@@ -280,6 +298,7 @@ mew — a browser workspace for a folder on your machine
 
   ./mew setup           install, configure and start (safe to re-run)
   ./mew desktop-setup   prepare remote desktop and Mac permissions without rebuilding or restarting Mew
+  ./mew remote-access [account|cloudflare|tailscale|none]   show owner registration or existing network setup instructions
   ./mew start | stop    start / stop the server
   ./mew restart         restart it
   ./mew update          fast-forward origin/main, rebuild, restart
@@ -292,6 +311,7 @@ EOF
 case "${1:-setup}" in
   setup) cmd_setup ;;
   desktop-setup) load_config; need_node; prepare_desktop ;;
+  remote-access) load_config; remote_access_guide "${2:-account}" ;;
   update) cmd_update ;;
   status) cmd_status ;;
   start) load_config; start_server; say "$(url)" ;;

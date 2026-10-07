@@ -1,3 +1,4 @@
+import { remoteSession } from './remote-access-context.ts'
 import { capabilitiesFor, accessRevision } from './access-policy.ts'
 import express from 'express'
 import type { IncomingMessage } from 'node:http'
@@ -44,7 +45,8 @@ export function sessionTokenFromRequest(req: IncomingMessage): string | null {
 
 /** HTTP 라우트·WS 업그레이드 공용 — 쿠키의 세션 토큰을 검증한다 */
 export function sessionFromRequest(req: IncomingMessage): AuthenticatedSession | null {
-  return getSession(sessionTokenFromRequest(req))
+  const remote = remoteSession(req)
+  return remote === undefined ? getSession(sessionTokenFromRequest(req)) : remote
 }
 
 const LOOPBACK_ADDRS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
@@ -158,6 +160,8 @@ export function createAuthRouter() {
   router.get('/me', (req, res) => {
     const session = sessionFromRequest(req)
     const profile = session ? userProfile(session.email, session.user) : null
+    const capabilities = capabilitiesFor({ role: session?.user.role ?? 'guest', email: session?.email ?? null, mustChangePassword: session?.user.mustChangePassword ?? false })
+    if (remoteSession(req) !== undefined) capabilities.android = false
     res.json({
       authenticated: session !== null,
       email: session?.email ?? null,
@@ -166,7 +170,7 @@ export function createAuthRouter() {
       displayName: profile?.displayName ?? null,
       avatarDataUrl: profile?.avatarDataUrl ?? null,
       accessRevision: accessRevision(),
-      capabilities: capabilitiesFor({ role: session?.user.role ?? 'guest', email: session?.email ?? null, mustChangePassword: session?.user.mustChangePassword ?? false }),
+      capabilities,
     })
   })
 

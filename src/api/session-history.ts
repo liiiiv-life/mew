@@ -1,3 +1,4 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { sessionHistoryBounds, type MewSessionHistory, type SessionHistoryFilter } from '../../shared/active-sessions'
 export { sessionHistoryBounds, type SessionHistoryFilter } from '../../shared/active-sessions'
 
@@ -6,7 +7,7 @@ function historyQuery(filter: SessionHistoryFilter) {
   return new URLSearchParams({ ...Object.fromEntries(Object.entries(bounds).map(([key, value]) => [key, String(value)])), ...(filter.person ? { person: filter.person } : {}) }).toString()
 }
 async function response(url: string, signal?: AbortSignal) {
-  const result = await fetch(url, { signal, cache: 'no-store' })
+  const result = await mewFetch(url, { signal, cache: 'no-store' })
   if (!result.ok) throw new Error(`History request failed (${result.status})`)
   return result
 }

@@ -1,3 +1,4 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { uiText } from '@mew/ui/i18n-core'
 import type { HarnessDetail, HarnessInventory, HarnessKind, HarnessMutation } from '../../shared/agent-harness'
 
@@ -7,11 +8,11 @@ async function result<T>(response: Response): Promise<T> {
   return body
 }
 export function fetchHarness(cwd: string, kind: HarnessKind, signal?: AbortSignal) {
-  return fetch(`/api/agent/harness?${new URLSearchParams({ cwd, kind })}`, { signal }).then(result<HarnessInventory>)
+  return mewFetch(`/api/agent/harness?${new URLSearchParams({ cwd, kind })}`, { signal }).then(result<HarnessInventory>)
 }
 export function fetchHarnessDetail(cwd: string, kind: HarnessKind, id: string, signal?: AbortSignal) {
-  return fetch(`/api/agent/harness/detail?${new URLSearchParams({ cwd, kind, id })}`, { signal }).then(result<HarnessDetail>)
+  return mewFetch(`/api/agent/harness/detail?${new URLSearchParams({ cwd, kind, id })}`, { signal }).then(result<HarnessDetail>)
 }
 export function mutateHarness(input: HarnessMutation) {
-  return fetch('/api/agent/harness', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }).then(result<{ ok: boolean }>)
+  return mewFetch('/api/agent/harness', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }).then(result<{ ok: boolean }>)
 }

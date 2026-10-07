@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { clearHistoryTab } from './agent-history-cache.ts'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import type { AgentEvent } from './agentFold'
@@ -56,8 +57,8 @@ function controlCacheTabId(key: string): string | null {
 export function pruneAgentLocalCaches(liveTabIds?: ReadonlySet<string>, reservedBytes = 0): void {
   try {
     const keys: string[] = []
-    for (let index = 0; index < localStorage.length; index += 1) {
-      const key = localStorage.key(index)
+    for (let index = 0; index < scopedBrowserStorage().length; index += 1) {
+      const key = scopedBrowserStorage().key(index)
       if (key) keys.push(key)
     }
 
@@ -66,15 +67,15 @@ export function pruneAgentLocalCaches(liveTabIds?: ReadonlySet<string>, reserved
       const eventTabId = eventCacheTabId(key)
       const controlTabId = controlCacheTabId(key)
       if (liveTabIds && ((eventTabId && !liveTabIds.has(eventTabId)) || (controlTabId && !liveTabIds.has(controlTabId)))) {
-        localStorage.removeItem(key)
+        scopedBrowserStorage().removeItem(key)
         continue
       }
       if (!eventTabId) continue
-      const value = localStorage.getItem(key)
+      const value = scopedBrowserStorage().getItem(key)
       if (value === null) continue
       const bytes = storageBytes(key, value)
       if (bytes > AGENT_EVENT_CACHE_MAX_BYTES) {
-        localStorage.removeItem(key)
+        scopedBrowserStorage().removeItem(key)
         continue
       }
       let savedAt = 0
@@ -89,7 +90,7 @@ export function pruneAgentLocalCaches(liveTabIds?: ReadonlySet<string>, reserved
     let keptBytes = reservedBytes
     for (const cache of eventCaches) {
       keptBytes += cache.bytes
-      if (keptBytes > AGENT_EVENT_CACHE_TOTAL_MAX_BYTES) localStorage.removeItem(cache.key)
+      if (keptBytes > AGENT_EVENT_CACHE_TOTAL_MAX_BYTES) scopedBrowserStorage().removeItem(cache.key)
     }
   } catch {
     /* 사생활 모드·비활성 저장소에서는 캐시 없이 동작한다 */
@@ -99,7 +100,7 @@ export function pruneAgentLocalCaches(liveTabIds?: ReadonlySet<string>, reserved
 /** 탭을 다시 그리는 첫 프레임에 쓸 브라우저 전사. 깨졌거나 옛 형식이면 조용히 버린다. */
 export function readAgentEventCache(runtime: string, tabId: string, cwd: string): AgentEventCache | null {
   try {
-    const value = JSON.parse(localStorage.getItem(storageKey(runtime, tabId, cwd)) ?? 'null') as Partial<PersistedAgentEventCache> | null
+    const value = JSON.parse(scopedBrowserStorage().getItem(storageKey(runtime, tabId, cwd)) ?? 'null') as Partial<PersistedAgentEventCache> | null
     if (!value || value.version !== CACHE_VERSION || !Array.isArray(value.events) || !value.events.every(isAgentEvent)) return null
     if (value.sessionId !== null && typeof value.sessionId !== 'string') return null
     return { sessionId: value.sessionId ?? null, events: value.events }
@@ -138,7 +139,7 @@ export function writeAgentEventCache(
 
 export function clearAgentEventCache(runtime: string, tabId: string, cwd: string): void {
   try {
-    localStorage.removeItem(storageKey(runtime, tabId, cwd))
+    scopedBrowserStorage().removeItem(storageKey(runtime, tabId, cwd))
   } catch {
     /* 캐시 삭제 실패가 세션 종료를 막아서는 안 된다 */
   }
@@ -148,9 +149,9 @@ export function clearAgentEventCache(runtime: string, tabId: string, cwd: string
 export function clearAgentTabCaches(tabId: string, account?: string): void {
   void clearHistoryTab(tabId, account)
   try {
-    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
+    const keys = Array.from({ length: scopedBrowserStorage().length }, (_, i) => scopedBrowserStorage().key(i))
     for (const key of keys) {
-      if (key && (eventCacheTabId(key) === tabId || controlCacheTabId(key) === tabId)) localStorage.removeItem(key)
+      if (key && (eventCacheTabId(key) === tabId || controlCacheTabId(key) === tabId)) scopedBrowserStorage().removeItem(key)
     }
   } catch { /* Closing a tab must not depend on available storage. */ }
 }

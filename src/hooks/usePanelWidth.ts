@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { useCallback, useState } from 'react'
 
 // 좌우 도킹 패널의 드래그 리사이즈 + localStorage 폭 유지.
@@ -9,7 +10,7 @@ export function usePanelWidth(
   const { min, max, initial, invert } = opts
   const clamp = useCallback((w: number) => Math.min(max, Math.max(min, w)), [min, max])
   const [width, setWidth] = useState(() => {
-    const stored = Number(localStorage.getItem(storageKey))
+    const stored = Number(scopedBrowserStorage().getItem(storageKey))
     return Number.isFinite(stored) && stored > 0 ? clamp(stored) : initial
   })
 
@@ -26,7 +27,7 @@ export function usePanelWidth(
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
         setWidth((w) => {
-          localStorage.setItem(storageKey, String(w))
+          scopedBrowserStorage().setItem(storageKey, String(w))
           return w
         })
       }
@@ -38,7 +39,7 @@ export function usePanelWidth(
 
   const restoreWidth = useCallback((next: number) => {
     const value = clamp(next); setWidth(value)
-    try { localStorage.setItem(storageKey, String(value)) } catch { /* session setting */ }
+    try { scopedBrowserStorage().setItem(storageKey, String(value)) } catch { /* session setting */ }
   }, [clamp, storageKey])
   return { width, restoreWidth, startResize }
 }

@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 export type SidebarState = {
   explorerScope?: 'docs' | 'files'
@@ -15,7 +16,7 @@ export function sidebarStateKey(rootPath: string): string {
 export function loadSidebarState(rootPath: string | null): SidebarState {
   if (!rootPath) return { docsExpanded: false, expandedSubprojects: [] }
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(sidebarStateKey(rootPath)) ?? '{}')
+    const parsed: unknown = JSON.parse(scopedBrowserStorage().getItem(sidebarStateKey(rootPath)) ?? '{}')
     if (typeof parsed !== 'object' || parsed === null) return { docsExpanded: false, expandedSubprojects: [] }
     const value = parsed as Partial<SidebarState>
     return {

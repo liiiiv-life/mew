@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 export type Rotation = 0 | 90 | 180 | 270
 export type View = { x: number; y: number; scale: number }
 export const DEFAULT_SENSITIVITY = 3
@@ -8,7 +9,7 @@ export function sensitivity(value: unknown) {
 }
 
 export function readSensitivity() {
-  try { return sensitivity(JSON.parse(localStorage.getItem(SENSITIVITY_KEY) ?? 'null')) } catch { return DEFAULT_SENSITIVITY }
+  try { return sensitivity(JSON.parse(scopedBrowserStorage().getItem(SENSITIVITY_KEY) ?? 'null')) } catch { return DEFAULT_SENSITIVITY }
 }
 
 /** Quarter turns stay exact, including the inverse used by pointer input. */

@@ -1,7 +1,8 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import type { ProjectAgentSettings, ProjectSetupInput, ProjectSetupPlan } from '../../shared/project-agent-context'
 
 async function request<T>(body?: unknown): Promise<T> {
-  const response = await fetch('/api/docs/agent-context', body === undefined ? { cache: 'no-store' } : {
+  const response = await mewFetch('/api/docs/agent-context', body === undefined ? { cache: 'no-store' } : {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
   const value = await response.json()

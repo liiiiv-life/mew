@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 // 홈 탭에 세우는 위젯 목록 — 사용자가 넣고 빼고 순서를 바꾼다.
 //
 // 플러그인 런타임이 아니라 **정적 등록표**다. 위젯 하나를 더하는 일은 여기 한 줄을 더하는 것이고,
@@ -54,7 +55,7 @@ function isKnown(id: unknown): id is string {
 
 export function loadHomeLayout(): HomeLayout {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = scopedBrowserStorage().getItem(KEY)
     const parsed = raw ? (JSON.parse(raw) as Partial<HomeLayout>) : null
     return {
       order: Array.isArray(parsed?.order) ? parsed.order.filter(isKnown) : [],
@@ -67,7 +68,7 @@ export function loadHomeLayout(): HomeLayout {
 
 export function saveHomeLayout(layout: HomeLayout): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(layout))
+    scopedBrowserStorage().setItem(KEY, JSON.stringify(layout))
   } catch {
     // 사생활 보호 모드 등 — 이번 세션 화면에는 지장이 없다
   }

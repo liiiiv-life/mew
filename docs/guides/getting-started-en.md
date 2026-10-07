@@ -1,5 +1,5 @@
 ---
-description: "영어판 mew 시작 안내로 Windows WSL·macOS·Linux 설치와 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
+description: "영어판 mew 시작 안내로 Windows WSL·macOS·Linux 설치와 HTTPS·계정 기반 P2P 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
 ---
 # mew user guide
 
@@ -115,7 +115,7 @@ On other distributions, install the equivalent packages first. Follow [Finish se
 
 ### Remote access
 
-After setup, use either option below to open mew from a phone or another computer. Keep the host awake and mew running. Both options forward HTTPS traffic to the local mew server; keep `MEW_BIND=127.0.0.1` and replace `5000` with your setup port if different.
+After setup, Tailscale or Cloudflare Tunnel can expose local mew over HTTPS to a phone or another computer. Keep the host awake and mew running. Both options forward HTTPS traffic to the local mew server; keep `MEW_BIND=127.0.0.1` and replace `5000` with your setup port if different.
 
 #### 1. Tailscale (recommended)
 
@@ -145,6 +145,17 @@ Use this for a stable HTTPS address that works in a browser without installing T
 4. Keep `cloudflared` running, then open `https://mew.example.com` from another device and sign in to mew.
 
 This creates a public HTTPS entry point; mew's account permissions still apply. See [Security](../../SECURITY.md) and the [deployment guide](../deployment/native.md#2-https-%ED%94%84%EB%A1%9D%EC%8B%9C-%EB%98%90%EB%8A%94-%ED%84%B0%EB%84%90-%EC%97%B0%EA%B2%B0) for proxy requirements and connection checks.
+
+#### 3. mew account access (central service required)
+
+Use this after the central operator configures HTTPS and a sign-in provider. Connection code and local tests are implemented; service deployment and real external-network checks remain pending. Operators should follow [Central service setup](../deployment/remote-central.md).
+
+1. Sign in as owner on A's local mew and change the temporary password.
+2. Open **Menu → Account management → Remote access → Register device**. Follow the one-time URL, sign in centrally, and choose a device name.
+3. Wait for Online and copy the fixed URL. On another PC or phone, sign in at that URL or the central `/dashboard`. Connecting browsers do not need registration.
+4. To allow another account, use **Member access** to link its central account ID to an existing local account, then approve its local role, features and file scope.
+
+A must stay running and online. Networks that block direct connections show a connection error. Android iframe access is unavailable in this mode. Run `./mew remote-access account` to see the registration instructions again.
 
 ## Requirements and permissions
 

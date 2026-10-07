@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { HeaderNotifications } from './components/header-notifications'
 import { LayoutPresets } from './components/layout-presets'
 import { factoryLayout, editorIds, layoutPresetsKey, legacyLayoutPresetsKey, normalizeLayoutSnapshot, type LayoutSnapshot } from './utils/layout-presets'
@@ -147,7 +148,7 @@ function mobileForegroundPanelKey(rootProjectPath: string): string {
 
 function loadMobileForegroundPanel(rootProjectPath: string): MobileForeground | null {
   try {
-    const value = localStorage.getItem(mobileForegroundPanelKey(rootProjectPath))
+    const value = scopedBrowserStorage().getItem(mobileForegroundPanelKey(rootProjectPath))
     if (value === 'editor') return value
     return WORKSPACE_PANEL_IDS.includes(value as WorkspacePanelId) ? value as WorkspacePanelId : null
   } catch {
@@ -209,12 +210,12 @@ function accountTabs(value: unknown): Record<string, StoredTabs> {
   return Object.fromEntries(Object.entries(value).filter(([, state]) => state && typeof state === 'object' && !Array.isArray(state))) as Record<string, StoredTabs>
 }
 function loadTheme(): Theme {
-  return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
+  return scopedBrowserStorage().getItem(THEME_KEY) === 'light' ? 'light' : 'dark'
 }
 
 function loadOpenProjectPaths(): string[] {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(OPEN_PROJECTS_KEY) ?? '[]')
+    const parsed: unknown = JSON.parse(scopedBrowserStorage().getItem(OPEN_PROJECTS_KEY) ?? '[]')
     return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string' && value !== '') : []
   } catch {
     return []
@@ -223,7 +224,7 @@ function loadOpenProjectPaths(): string[] {
 
 function loadRootProjectGroups(): ProjectTabGroup[] {
   try {
-    return normalizeProjectTabLayout(loadOpenProjectPaths(), JSON.parse(localStorage.getItem(ROOT_PROJECT_GROUPS_KEY) ?? '[]')).groups
+    return normalizeProjectTabLayout(loadOpenProjectPaths(), JSON.parse(scopedBrowserStorage().getItem(ROOT_PROJECT_GROUPS_KEY) ?? '[]')).groups
   } catch {
     return []
   }
@@ -332,18 +333,18 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const [sidebarOpen, setSidebarOpen] = useState(isDesktop)
   // 터미널·에이전트의 기능 권한과 열림 상태는 독립이다.
   const dockRef = useRef<DockHandle>(null)
-  const [terminalOpen, setTerminalOpen] = useState(() => canUseTerminal && (localStorage.getItem(TERMINAL_OPEN_KEY) !== null ? localStorage.getItem(TERMINAL_OPEN_KEY) === '1' : localStorage.getItem(LEGACY_TMUX_OPEN_KEY) === '1' || localStorage.getItem(AGENT_OPEN_KEY) === '1'))
+  const [terminalOpen, setTerminalOpen] = useState(() => canUseTerminal && (scopedBrowserStorage().getItem(TERMINAL_OPEN_KEY) !== null ? scopedBrowserStorage().getItem(TERMINAL_OPEN_KEY) === '1' : scopedBrowserStorage().getItem(LEGACY_TMUX_OPEN_KEY) === '1' || scopedBrowserStorage().getItem(AGENT_OPEN_KEY) === '1'))
   const [featuresOpen, setFeaturesOpen] = useState(false)
   const [debuggerOpen, setDebuggerOpen] = useState(false)
   const featureCloseRef = useRef<((action?: () => void) => void) | null>(null)
   const [featureAgentTab, setFeatureAgentTab] = useState<AgentTab | null>(null)
-  const [agentOpen, setAgentOpen] = useState(() => caps.agent && localStorage.getItem(AGENT_OPEN_KEY) === '1')
+  const [agentOpen, setAgentOpen] = useState(() => caps.agent && scopedBrowserStorage().getItem(AGENT_OPEN_KEY) === '1')
   // 브라우저 창은 별도 기능 권한으로 검사한다.
   const browserMounted = useRef(false)
-  const [browserOpen, setBrowserOpen] = useState(() => caps.browser && localStorage.getItem(BROWSER_OPEN_KEY) === '1')
+  const [browserOpen, setBrowserOpen] = useState(() => caps.browser && scopedBrowserStorage().getItem(BROWSER_OPEN_KEY) === '1')
   if (browserOpen) browserMounted.current = true
   const gitMounted = useRef(false)
-  const [gitOpen, setGitOpen] = useState(() => caps.git && localStorage.getItem(GIT_OPEN_KEY) === '1')
+  const [gitOpen, setGitOpen] = useState(() => caps.git && scopedBrowserStorage().getItem(GIT_OPEN_KEY) === '1')
   const [remoteDesktopOpen, setRemoteDesktopOpen] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(false)
   const taskSession = useTaskList(rootProjectPath, caps.filesRead ? auth.email ?? '' : '', tasksOpen)
@@ -356,7 +357,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const [sidebarDockHost, setSidebarDockHost] = useState<HTMLDivElement | null>(null)
   if (gitOpen) gitMounted.current = true
   // Android 패널 — emulator는 외부 도구라 여기서는 상태 점검과 loopback gateway 표시만 한다
-  const [androidOpen, setAndroidOpen] = useState(() => caps.android && localStorage.getItem(ANDROID_OPEN_KEY) === '1')
+  const [androidOpen, setAndroidOpen] = useState(() => caps.android && scopedBrowserStorage().getItem(ANDROID_OPEN_KEY) === '1')
   // 멤버 채팅 창(Alt+C)은 채팅 기능 권한을 따른다.
   const [chatOpen, setChatOpen] = useState(false)
   // 모바일 보조창은 종류별 예외 없이 이 스택 하나로 전면 순서와 뒤로가기 순서를 공유한다.
@@ -381,11 +382,11 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const mewcatRuntimeRef = useRef(mewcatRuntime)
   mewcatRuntimeRef.current = mewcatRuntime
   useEffect(() => {
-    try { setMewcatRuntime(localStorage.getItem(`mew:assistant-runtime:${auth.email}`)) } catch { setMewcatRuntime(null) }
+    try { setMewcatRuntime(scopedBrowserStorage().getItem(`mew:assistant-runtime:${auth.email}`)) } catch { setMewcatRuntime(null) }
   }, [auth.email])
   const selectMewcatRuntime = useCallback((runtime: string) => {
     setMewcatRuntime(runtime)
-    try { localStorage.setItem(`mew:assistant-runtime:${auth.email}`, runtime) } catch { /* Memory-only setting. */ }
+    try { scopedBrowserStorage().setItem(`mew:assistant-runtime:${auth.email}`, runtime) } catch { /* Memory-only setting. */ }
   }, [auth.email])
   const adoptMewcatRuntime = useCallback((runtime: string) => {
     if (!mewcatRuntimeRef.current) selectMewcatRuntime(runtime)
@@ -503,7 +504,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   // 채팅 멘션·에이전트 답변의 파일 링크 — 다른 프로젝트면 옮긴 다음 렌더에서 파일과 줄을 연다
   const [pendingOpen, setPendingOpen] = useState<{ project: string; path: string; line: number | null; options?: { preview?: boolean; forceNewTab?: boolean; replaceActive?: boolean } } | null>(null)
   const [serverFileExplorerOpen, setServerFileExplorerOpen] = useState(false)
-  const [tocOpen, setTocOpen] = useState(() => localStorage.getItem(TOC_KEY) !== '0')
+  const [tocOpen, setTocOpen] = useState(() => scopedBrowserStorage().getItem(TOC_KEY) !== '0')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(loadTheme)
   const [fontPreferences, setFontPreferences] = useState(loadFontPreferences)
@@ -2597,8 +2598,8 @@ function App() {
     setContentIdentity(status.email)
     const permissionVersion = JSON.stringify([status.email, status.role, status.accessRevision, status.capabilities])
     try {
-      if (localStorage.getItem('mew:access-version') !== permissionVersion) clearFileContentCache()
-      localStorage.setItem('mew:access-version', permissionVersion)
+      if (scopedBrowserStorage().getItem('mew:access-version') !== permissionVersion) clearFileContentCache()
+      scopedBrowserStorage().setItem('mew:access-version', permissionVersion)
     } catch { clearFileContentCache() }
     setAuth(status)
   }, [])

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { downloadSize, formatDownloadSize, isLargeDownload, isMobileCellularConnection } from '../utils/largeDownload'
 import { useI18n } from '../i18n'
+import { isRemoteMode } from '../utils/remote-transport.ts'
 
 interface PendingDownload {
   href: string
@@ -56,7 +57,7 @@ export function DownloadLink({ href, name, className, children, onStarted, overl
 function beginDownload(href: string, name: string, onStarted?: () => void) {
   const link = document.createElement('a')
   link.href = href
-  link.download = name
+  if (!isRemoteMode()) link.download = name
   document.body.appendChild(link)
   link.click()
   link.remove()

@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 
 export type BrowserShortcut = { id: string; name: string; url: string }
@@ -16,7 +17,7 @@ export function normalizeBrowserUrl(raw: string): string {
 
 export function readBrowserShortcuts(): BrowserShortcut[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = scopedBrowserStorage().getItem(STORAGE_KEY)
     if (raw === null) return DEFAULT_SHORTCUTS
     const saved: unknown = JSON.parse(raw)
     if (!Array.isArray(saved)) return DEFAULT_SHORTCUTS

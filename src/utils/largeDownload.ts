@@ -1,3 +1,4 @@
+import { mewFetch } from './remote-transport.ts'
 /** 브라우저가 연결 종류를 명시했을 때만 셀룰러로 판단한다. 추측해서 경고하지 않는다. */
 export function isMobileCellularConnection(): boolean {
   if (!window.matchMedia('(max-width: 767px)').matches) return false
@@ -7,7 +8,7 @@ export function isMobileCellularConnection(): boolean {
 
 /** 응답이 파일 크기를 알리지 않거나 HEAD가 실패하면 경고할 근거가 없으므로 null을 돌려준다. */
 export async function downloadSize(url: string): Promise<number | null> {
-  const response = await fetch(url, { method: 'HEAD' })
+  const response = await mewFetch(url, { method: 'HEAD' })
   if (!response.ok) return null
   const size = Number(response.headers.get('content-length'))
   return Number.isFinite(size) && size >= 0 ? size : null

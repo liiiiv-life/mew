@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import type { InkStroke } from './pdf-geometry'
 
@@ -13,7 +14,7 @@ export class PdfDraft {
   constructor(key: string) {
     this.key = key
     try {
-      const stored = JSON.parse(localStorage.getItem(key) ?? 'null')
+      const stored = JSON.parse(scopedBrowserStorage().getItem(key) ?? 'null')
       if (stored && typeof stored.revision === 'string' && Array.isArray(stored.strokes) && stored.strokes.every((s: InkStroke) => typeof s.id === 'string' && Number.isInteger(s.page) && s.page > 0 && /^#[\da-f]{6}$/i.test(s.color) && Number.isFinite(s.width) && s.width > 0 && Number.isFinite(s.opacity) && s.opacity > 0 && s.opacity <= 1 && Array.isArray(s.points) && s.points.length && s.points.every(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)))) {
         this.state = { ...this.state, revision: stored.revision, strokes: stored.strokes }
       }
@@ -47,7 +48,7 @@ export class PdfDraft {
     clearTimeout(this.timer)
     let success = true
     if (this.state.strokes.length) success = writeBrowserStorage(this.key, JSON.stringify({ revision: this.state.revision, strokes: this.state.strokes }))
-    else { try { localStorage.removeItem(this.key) } catch { success = false } }
+    else { try { scopedBrowserStorage().removeItem(this.key) } catch { success = false } }
     if (this.state.storageFailed !== !success) { this.state = { ...this.state, storageFailed: !success }; this.emit() }
   }
 }

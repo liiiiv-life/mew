@@ -1,10 +1,11 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { useSyncExternalStore } from 'react'
 import { parseBreakPreferences, type BreakPreferences } from './mewcat-break-rules.ts'
 
 export const BREAK_PREFERENCES_KEY = 'mew:break-preferences'
 export const BREAK_PROGRESS_KEY = 'mew:break-progress'
 function read() {
-  try { return parseBreakPreferences(localStorage.getItem(BREAK_PREFERENCES_KEY)) }
+  try { return parseBreakPreferences(scopedBrowserStorage().getItem(BREAK_PREFERENCES_KEY)) }
   catch { return parseBreakPreferences(null) }
 }
 let preferences = read()
@@ -25,6 +26,6 @@ function subscribe(listener: () => void) {
 export const useBreakPreferences = () => useSyncExternalStore(subscribe, () => preferences)
 export function saveBreakPreferences(next: BreakPreferences) {
   preferences = parseBreakPreferences(JSON.stringify(next))
-  try { localStorage.setItem(BREAK_PREFERENCES_KEY, JSON.stringify(preferences)) } catch { /* session-only settings */ }
+  try { scopedBrowserStorage().setItem(BREAK_PREFERENCES_KEY, JSON.stringify(preferences)) } catch { /* session-only settings */ }
   listeners.forEach(listener => listener())
 }

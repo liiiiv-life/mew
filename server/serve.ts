@@ -1,4 +1,5 @@
 import './config.ts'
+import { createRemoteAgent } from './remote-access-agent.ts'
 import { watchSocketAccess } from './access-socket.ts' // 반드시 첫 줄 — 다른 모듈이 상수를 계산하기 전에 설정 파일을 읽어야 한다
 import { attachDomBrowserWebSocket, closeDomBrowsers, DOM_BROWSER_WS } from './browser-dom.ts'
 import { attachRemoteDesktopWebSocket, DESKTOP_WS } from './remote-desktop.ts'
@@ -97,16 +98,18 @@ function destroyUnknownUpgrades(server: http.Server, knownPaths: string[]) {
 }
 
 const app = express()
+const server = http.createServer(app)
+const remoteAgent = createRemoteAgent(server)
 app.disable('x-powered-by')
 app.use(securityHeaders)
 app.use(createBrowserPortProxyMiddleware())
 app.use('/__mew_browser', attachAuthContext, createBrowserProxyApp())
 app.use(checkOrigin)
 app.use('/api/auth', createAuthRouter())
+app.use('/api/remote-access', attachAuthContext, remoteAgent.router)
 app.use('/api', attachAuthContext, createApiApp())
 addStaticAndSpaFallback(app)
 
-const server = http.createServer(app)
 attachTmuxWebSocket(server, { cwd: WORKSPACE_ROOT, authorize: authorizeTmux, onConnection: (ws, req) => watchSocketAccess(ws, req, authorizeTmux) })
 attachPresenceWebSocket(server, { getAuth: resolveAuth })
 attachCollabWebSocket(server, { authorize: authorizeCollab })

@@ -1,3 +1,4 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { fetchTaskList, patchTaskList } from '../api/client'
 import { TaskListSession } from '../utils/task-list-session'
@@ -30,7 +31,7 @@ export function useTaskList(workspace: string | null, email: string, open: boole
     const controller = new AbortController()
     const stream = async () => {
       try {
-        const response = await fetch(`/api/task-list/events?workspace=${encodeURIComponent(workspace)}`, { headers: { 'X-Mew-Task-Owner': encodeURIComponent(email) }, signal: controller.signal })
+        const response = await mewFetch(`/api/task-list/events?workspace=${encodeURIComponent(workspace)}`, { headers: { 'X-Mew-Task-Owner': encodeURIComponent(email) }, signal: controller.signal })
         if (!response.ok || !response.body) return
         const reader = response.body.getReader(), decoder = new TextDecoder()
         let buffered = ''

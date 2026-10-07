@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 // 최근 연 파일의 본문 캐시 — 메모리(핫) + localStorage(콜드) 두 층.
 //
@@ -46,7 +47,7 @@ function key(project: string, path: string): string {
 
 function loadOrder(): string[] {
   try {
-    const raw = localStorage.getItem(scope + ORDER_SUFFIX)
+    const raw = scopedBrowserStorage().getItem(scope + ORDER_SUFFIX)
     const parsed = raw ? (JSON.parse(raw) as unknown) : null
     return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
   } catch {
@@ -66,13 +67,13 @@ function saveOrder() {
 export function clearPersistedContent(keepScope = false) {
   try {
     const doomed: string[] = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
+    for (let i = 0; i < scopedBrowserStorage().length; i++) {
+      const k = scopedBrowserStorage().key(i)
       if (!k || !k.startsWith(PREFIX)) continue
       if (keepScope && k.startsWith(scope)) continue
       doomed.push(k)
     }
-    for (const k of doomed) localStorage.removeItem(k)
+    for (const k of doomed) scopedBrowserStorage().removeItem(k)
   } catch {
     /* 저장소를 못 쓰는 브라우저 — 메모리 층만으로 돈다 */
   }
@@ -119,7 +120,7 @@ function remember(k: string, file: CachedFile) {
 
 function readDisk(k: string): CachedFile | undefined {
   try {
-    const raw = localStorage.getItem(scope + k)
+    const raw = scopedBrowserStorage().getItem(scope + k)
     if (!raw) return undefined
     const parsed = JSON.parse(raw) as Partial<CachedFile>
     if (typeof parsed?.content !== 'string') return undefined
@@ -131,7 +132,7 @@ function readDisk(k: string): CachedFile | undefined {
 
 function writeDisk(k: string, file: CachedFile) {
   if (file.content.length > MAX_BYTES) {
-    try { localStorage.removeItem(scope + k) } catch { /* Optional cache only. */ }
+    try { scopedBrowserStorage().removeItem(scope + k) } catch { /* Optional cache only. */ }
     return
   }
   const payload = JSON.stringify(file)
@@ -142,7 +143,7 @@ function writeDisk(k: string, file: CachedFile) {
     const oldest = order.shift()
     if (oldest === undefined) break
     try {
-      localStorage.removeItem(scope + oldest)
+      scopedBrowserStorage().removeItem(scope + oldest)
     } catch {
       /* 이미 없다 */
     }
@@ -173,7 +174,7 @@ export function dropCachedFile(project: string, path: string) {
   cache.delete(k)
   order = orderList().filter((x) => x !== k)
   try {
-    localStorage.removeItem(scope + k)
+    scopedBrowserStorage().removeItem(scope + k)
   } catch {
     /* 저장소를 못 쓴다 */
   }

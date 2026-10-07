@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { canAutoFocusInput } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
@@ -100,7 +101,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
   const rotate = () => { input?.release(); touches.current.clear(); setRotation(value => ((value + 90) % 360) as Rotation); setView({ x: 0, y: 0, scale: 1 }); setLayout(value => value + 1) }
   const updateSensitivity = (value: number) => {
     const next = clampSensitivity(value); setSensitivity(next)
-    try { localStorage.setItem(SENSITIVITY_KEY, JSON.stringify(next)) } catch { /* Session setting still works without storage. */ }
+    try { scopedBrowserStorage().setItem(SENSITIVITY_KEY, JSON.stringify(next)) } catch { /* Session setting still works without storage. */ }
   }
   const hotkey = (keys: string[]) => {
     if (!connected || !input) return

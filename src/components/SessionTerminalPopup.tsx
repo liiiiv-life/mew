@@ -1,3 +1,4 @@
+import { openMewSocket } from '../utils/remote-transport.ts'
 // tmux 세션 하나를 붙여 보여주는 팝업 — 명령어 버튼(mewcmd-*)과 예약 작업(mewcmd-job-*)이 함께 쓴다.
 // 두 기능 다 "전용 세션에서 무언가를 돌리고 그 화면을 들여다본다"가 같아서 창을 한 벌만 둔다.
 // [종료]는 세션을 죽이고 닫고, [닫기]는 세션을 살려둔 채 팝업만 닫는다(다음에 다시 열면 이어서 보인다).
@@ -156,7 +157,7 @@ export function SessionTerminalPopup({
         <div className="relative min-h-0 flex-1 bg-surface-deep">
           {completedContent !== undefined ? completedContent : started ? (
             <div className="h-full">
-              <TmuxTerminal sessionName={session} inputPlaceholder={t('common.textInput')} />
+              <TmuxTerminal socketFactory={openMewSocket} sessionName={session} inputPlaceholder={t('common.textInput')} />
             </div>
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">

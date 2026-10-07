@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 // 모바일 소프트 키보드 잠금 — 켜 두면 터미널이나 입력칸을 눌러도 키보드가 올라오지 않는다.
 // 출력을 읽거나 명령어 버튼만 누를 때 화면 절반을 키보드가 먹지 않게 하는 장치다.
 //
@@ -8,7 +9,7 @@ const LOCK_KEY = 'mew:tmux-keyboard-lock'
 
 export function readKeyboardLock(): boolean {
   try {
-    return localStorage.getItem(LOCK_KEY) === '1'
+    return scopedBrowserStorage().getItem(LOCK_KEY) === '1'
   } catch {
     return false
   }
@@ -16,8 +17,8 @@ export function readKeyboardLock(): boolean {
 
 export function writeKeyboardLock(locked: boolean): void {
   try {
-    if (locked) localStorage.setItem(LOCK_KEY, '1')
-    else localStorage.removeItem(LOCK_KEY)
+    if (locked) scopedBrowserStorage().setItem(LOCK_KEY, '1')
+    else scopedBrowserStorage().removeItem(LOCK_KEY)
   } catch {
     // 사파리 프라이빗 모드 등 저장 실패는 무시 — 이번 화면에서만 유지된다
   }

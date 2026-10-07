@@ -1,15 +1,16 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { useEffect, useRef, useState, type PointerEvent, type CSSProperties } from 'react'
 type Geometry = { x: number; y: number; width: number; height: number }
 const initial: Geometry = { x: 24, y: 24, width: 420, height: 480 }
 export function loadFloatingRect(key: string): Geometry {
   try {
-    const saved = JSON.parse(localStorage.getItem(key) ?? 'null')
+    const saved = JSON.parse(scopedBrowserStorage().getItem(key) ?? 'null')
     if (saved && Object.values(saved).every(value => typeof value === 'number' && Number.isFinite(value)) && saved.width >= 240 && saved.height >= 160 && typeof saved.x === 'number' && typeof saved.y === 'number') return saved
   } catch { /* defaults */ }
   return initial
 }
 export function restoreFloatingRect(key: string, rect: Geometry) {
-  try { localStorage.setItem(key, JSON.stringify(rect)) } catch { /* session geometry */ }
+  try { scopedBrowserStorage().setItem(key, JSON.stringify(rect)) } catch { /* session geometry */ }
   window.dispatchEvent(new CustomEvent('mew:popup-layout', { detail: { key, rect } }))
 }
 let front = 60
@@ -44,7 +45,7 @@ export function useFloatingPanel(key: string, host: HTMLElement | null, enabled 
   const update = (value: Geometry) => {
     const next = clamp(value)
     setGeometry({ key, rect: next })
-    try { localStorage.setItem(key, JSON.stringify(next)) } catch { /* session-only geometry */ }
+    try { scopedBrowserStorage().setItem(key, JSON.stringify(next)) } catch { /* session-only geometry */ }
   }
   const start = (event: PointerEvent<HTMLElement>, mode: 'move' | 'resize') => {
     if (event.button !== 0 || !event.isPrimary) return

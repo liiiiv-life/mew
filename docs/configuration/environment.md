@@ -1,5 +1,5 @@
 ---
-description: "최상단 설정 창·독립 알림 탭·언어·글꼴·테마색·Dock·단축키 설정과 메모·태스크 헤더의 표시 전환, 포커스 패널의 번호·좌우 탭 전환, 계정 관리, 서버 환경변수 우선순위 및 GitHub OAuth 설정을 안내한다."
+description: "최상단 설정 창·독립 알림 탭·언어·글꼴·테마색·Dock·단축키 설정과 메모·태스크 헤더의 표시 전환, 포커스 패널의 번호·좌우 탭 전환, 계정 관리, 서버 환경변수 우선순위·계정 기반 P2P 중앙 주소 및 GitHub OAuth 설정을 안내한다."
 ---
 # 환경변수와 계정 설정
 
@@ -64,6 +64,7 @@ Noto Serif KR은 기존처럼 Google Fonts에서 불러온다. 프로덕션 CSP�
 | `MEW_GITHUB_CLIENT_ID` | 내장 Mew OAuth 앱 | 자체 GitHub OAuth 앱 Client ID로 교체하는 선택 설정. 미설정·빈 값·공백은 기본 앱 사용 |
 | `MEW_DATA_DIR` | `~/.local/share/mew` (옛 설치의 `<앱>/.data`가 있으면 그것) | 계정·세션·기능/파일 권한·아이콘 |
 | `MEW_AGENT_MEMORY_SCOPE` | `auto` | 설치된 systemd slice에 ACP·CLI 작업 메모리 제한 적용. `required`는 미설치 시 실행 거부, `off`는 OS 제한만 해제. [설치·메모리 보호](../operations/agent-memory.md) |
+| `MEW_REMOTE_ORIGIN` | `https://mew.saens.kr` | 새 계정 기반 원격 등록에 사용할 중앙 HTTPS origin. 등록 후에는 저장된 origin을 사용하며 변경하려면 등록을 해제한 뒤 다시 등록한다. [중앙 서비스 운영](../deployment/remote-central.md) |
 | `MEW_TEAM_PORT` | 5000 | 서버 포트 |
 | `MEW_DESKTOP_HELPER_DIR` | 프로젝트의 `native/remote-desktop`, WSL은 Windows LocalAppData의 `Mew/remote-desktop` | [원격 데스크톱 보조 앱](../guides/remote-desktop.md) 설치 경로. WSL은 Windows 절대 경로 |
 | `MEW_DESKTOP_ICE_SERVERS` | `[{"urls":["stun:stun.l.google.com:19302","stun:stun.cloudflare.com:3478"]}]` | WebRTC 주소 발견용 STUN JSON 배열. `[]`로 외부 조회 비활성화. TURN·영상 중계는 지원하지 않으며 NAT/방화벽에 따라 직접 연결이 불가능할 수 있음 |
@@ -74,6 +75,8 @@ Noto Serif KR은 기존처럼 Google Fonts에서 불러온다. 프로덕션 CSP�
 | `DATABASE_URL` | 없음 | `/db`용 Postgres. 없거나 접속 불가면 `/db` API만 503 |
 
 전부 선택이다 — 하나도 없어도 뜬다. 지금 값이 어디서 오는지는 `./mew status`.
+
+중앙 서비스는 로컬 A와 별도 프로세스이며 자체 환경변수·OAuth 자격증명을 사용한다. 로컬 GitHub Device Flow 설정과 공유하지 않는다. 전체 중앙 설정은 [중앙 서비스 운영](../deployment/remote-central.md)을 따른다.
 
 ## 사용자 관리 (호스트에서)
 

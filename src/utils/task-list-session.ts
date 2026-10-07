@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { sameAssignees, taskAssignees, validAssignees } from '../../shared/task-assignees.ts'
 import { applyTagColorChanges, removeTagColors, tagColorChanges, tagColor, validTagColor, validTagColors, type TaskTagColors, type TaskTagColorChange } from '../../shared/task-tag-colors.ts'
 import { applyTaskChanges, taskChanges, taskParent, taskDate, taskStartDate, validTaskTree, TaskConflict, type TaskBoard, type TaskChange, type TaskItem } from '../../shared/task-list.ts'
@@ -26,7 +27,7 @@ export class TaskListSession {
     this.api = api
     this.draftKey = draftKey
     try {
-      const draft = draftKey ? JSON.parse(localStorage.getItem(draftKey) ?? 'null') : null
+      const draft = draftKey ? JSON.parse(scopedBrowserStorage().getItem(draftKey) ?? 'null') : null
       const validItems = (items: unknown): items is TaskItem[] => Array.isArray(items) && items.length <= 2000 && items.every(item => item && typeof item.id === 'string' && typeof item.text === 'string' && typeof item.done === 'boolean' && (item.parentId == null || typeof item.parentId === 'string')) && validTaskTree(items)
       if (validItems(draft?.baseline) && validItems(draft?.tasks)) {
         const flatten = (items: TaskItem[]) => { const rollups = taskRollups(items); return items.map(item => { const { parentId: _parentId, ...task } = taskWithRollup(item, rollups); return task }) }
@@ -44,7 +45,7 @@ export class TaskListSession {
     this.state = { ...this.state, ...patch }
     if (this.draftKey) try {
       if (this.state.draft || this.state.draftTags.length || this.state.draftAssignees.length || taskChanges(this.baseline, this.state.tasks).length || tagColorChanges(this.baselineColors, this.state.tagColors).length || this.deletedTags.size) writeBrowserStorage(this.draftKey, JSON.stringify({ deletedTags: [...this.deletedTags], baseline: this.baseline, baselineColors: this.baselineColors, tagColors: this.state.tagColors, tasks: this.state.tasks, draft: this.state.draft, draftTags: this.state.draftTags, draftAssignees: this.state.draftAssignees }))
-      else localStorage.removeItem(this.draftKey)
+      else scopedBrowserStorage().removeItem(this.draftKey)
     } catch { /* In-memory drafts remain available when storage is full. */ }
     for (const listener of this.listeners) listener()
   }

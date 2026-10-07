@@ -1,3 +1,4 @@
+import { scopedBrowserStorage, remoteStorageName } from '@mew/ui/browser-storage-scope'
 import { useSyncExternalStore } from 'react'
 import type { NoticeInput } from './mewcat-notification-rules.ts'
 
@@ -12,11 +13,12 @@ export function parseNotificationPreferences(raw: string | null): NotificationPr
   } catch { return { ...defaults } }
 }
 let preferences = { ...defaults }
-try { preferences = parseNotificationPreferences(localStorage.getItem(NOTIFICATION_KEY)) } catch { /* restricted storage */ }
+let notificationScope = remoteStorageName(NOTIFICATION_KEY)
+try { preferences = parseNotificationPreferences(scopedBrowserStorage().getItem(NOTIFICATION_KEY)) } catch { /* restricted storage */ }
 const dismissedUpdateKey = 'mew:dismissed-update-versions'
 const dismissedUpdates = new Set<string>()
 try {
-  const saved: unknown = JSON.parse(localStorage.getItem(dismissedUpdateKey) ?? '[]')
+  const saved: unknown = JSON.parse(scopedBrowserStorage().getItem(dismissedUpdateKey) ?? '[]')
   if (Array.isArray(saved)) for (const version of saved) if (typeof version === 'string') dismissedUpdates.add(version)
 } catch { /* session-only dismissal */ }
 let notices: MewcatNotice[] = []
@@ -24,16 +26,30 @@ let sequence = 0
 const recent = new Map<string, number>()
 const listeners = new Set<() => void>()
 const deliveries = new Set<(notice: MewcatNotice) => void>()
+function ensureNotificationScope() {
+  const scope = remoteStorageName(NOTIFICATION_KEY)
+  if (scope === notificationScope) return
+  notificationScope = scope
+  preferences = { ...defaults }; dismissedUpdates.clear(); notices = []; recent.clear()
+  try {
+    const storage = scopedBrowserStorage()
+    preferences = parseNotificationPreferences(storage.getItem(NOTIFICATION_KEY))
+    const saved: unknown = JSON.parse(storage.getItem(dismissedUpdateKey) ?? '[]')
+    if (Array.isArray(saved)) for (const version of saved) if (typeof version === 'string') dismissedUpdates.add(version)
+  } catch { /* restricted storage */ }
+}
 const emit = () => listeners.forEach(listener => listener())
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }
-export const useMewcatNotices = () => useSyncExternalStore(subscribe, () => notices)
-export const useNotificationPreferences = () => useSyncExternalStore(subscribe, () => preferences)
+export const useMewcatNotices = () => useSyncExternalStore(subscribe, () => { ensureNotificationScope(); return notices })
+export const useNotificationPreferences = () => useSyncExternalStore(subscribe, () => { ensureNotificationScope(); return preferences })
 export function setNotificationPreferences(patch: Partial<NotificationPreferences>) {
+  ensureNotificationScope()
   preferences = { ...preferences, ...patch }
-  try { localStorage.setItem(NOTIFICATION_KEY, JSON.stringify(preferences)) } catch { /* session settings still work */ }
+  try { scopedBrowserStorage().setItem(NOTIFICATION_KEY, JSON.stringify(preferences)) } catch { /* session settings still work */ }
   emit()
 }
 export function publishMewcatNotice(input: NoticeInput) {
+  ensureNotificationScope()
   if (input.kind === 'updates' && input.updateVersions?.length && input.updateVersions.every(version => dismissedUpdates.has(version))) return
   const now = Date.now()
   // Repeated errors / duplicate sockets must not flood the queue or audio output.
@@ -47,10 +63,11 @@ export function publishMewcatNotice(input: NoticeInput) {
   deliveries.forEach(deliver => deliver(notice))
 }
 export function dismissMewcatNotice(id: number) {
+  ensureNotificationScope()
   const notice = notices.find(item => item.id === id)
   if (notice?.kind === 'updates') {
     for (const version of notice.updateVersions ?? []) dismissedUpdates.add(version)
-    try { localStorage.setItem(dismissedUpdateKey, JSON.stringify([...dismissedUpdates].slice(-512))) } catch { /* session-only dismissal */ }
+    try { scopedBrowserStorage().setItem(dismissedUpdateKey, JSON.stringify([...dismissedUpdates].slice(-512))) } catch { /* session-only dismissal */ }
   }
   notices = notices.filter(notice => notice.id !== id); emit() }
 export function resolveMewcatNotice(key: string) { notices = notices.filter(notice => notice.key !== key); emit() }

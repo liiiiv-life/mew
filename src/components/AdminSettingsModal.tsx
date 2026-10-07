@@ -1,3 +1,4 @@
+import { RemoteAccessSettings } from './remote-access-settings'
 import { useEffect, useState } from 'react'
 import { SelectField, useOverlayDismiss } from '@mew/ui'
 import { addUser, fetchUsers, setUserRole, type AdminUser, type Role } from '../api/client'
@@ -89,6 +90,7 @@ export function AdminSettingsModal({ onClose }: AdminSettingsModalProps) {
           </button>
         </div>
 
+        <RemoteAccessSettings users={users} />
         <details className="mb-3 shrink-0"><summary className="cursor-pointer py-2 text-sm font-medium">{t('admin.addAllowedEmail')}</summary><form onSubmit={handleAddUser} className="mb-4 flex flex-col gap-2 border-b border-edge pb-4">
           <div className="text-sm font-medium">{t('admin.addAllowedEmail')}</div>
           <input

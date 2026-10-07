@@ -1,3 +1,4 @@
+import { isRemoteMode, mewFetch } from '../utils/remote-transport.ts'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState } from 'react'
@@ -57,14 +58,14 @@ export function ServerDomBrowser({ streamUrl, reopen, onStatus, onController, no
           const data = new FormData(); files.forEach((file) => data.append('files', file))
           const session = new URL(currentUrl, location.href).searchParams.get('session')
           setUploading(true)
-          void fetch(`/api/browser-dom/${encodeURIComponent(session ?? '')}/upload/${encodeURIComponent(fileChooser.id)}`, { method: 'POST', body: data }).then((response) => {
+          void mewFetch(`/api/browser-dom/${encodeURIComponent(session ?? '')}/upload/${encodeURIComponent(fileChooser.id)}`, { method: 'POST', body: data }).then((response) => {
             if (!response.ok) throw new Error(uiText("파일을 보내지 못했습니다. 다시 선택해 주세요."))
             setFileChooser(undefined)
           }).catch((error: unknown) => setNotice({ message: String(error) })).finally(() => setUploading(false))
         }} />
       </label>}
       {downloads.length > 0 && <div className="flex max-h-24 shrink-0 flex-wrap gap-2 overflow-auto border-b border-edge bg-surface p-2 text-xs">
-        {downloads.map((download) => <a key={download.id} href={download.url} download={download.name} className="text-accent underline">{download.name} ↓</a>)}
+        {downloads.map((download) => <a key={download.id} href={download.url} download={isRemoteMode() ? undefined : download.name} className="text-accent underline">{download.name} ↓</a>)}
       </div>}
       {dialog && <form className="shrink-0 border-b border-edge bg-surface p-3 text-sm text-ink" onSubmit={(event) => { event.preventDefault(); controller.current?.command('dialog', { accept: true, value: dialogValue }); setDialog(undefined) }}>
         <p className="select-text break-words whitespace-pre-wrap">{dialog.message}</p>

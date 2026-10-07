@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -14,7 +15,7 @@ const TAB_ORDER_KEY = 'mew:tmux-tab-order'
 
 function readTabOrder(): string[] {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(TAB_ORDER_KEY) ?? '[]')
+    const parsed: unknown = JSON.parse(scopedBrowserStorage().getItem(TAB_ORDER_KEY) ?? '[]')
     return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []
   } catch {
     return []
@@ -277,7 +278,7 @@ export function TmuxTerminalPanel({
   }, [previousTabSignal])
   function saveTabOrder(names: string[]) {
     setTabOrder(names)
-    localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(names))
+    scopedBrowserStorage().setItem(TAB_ORDER_KEY, JSON.stringify(names))
   }
 
   function reorderTabs(from: number, to: number) {
@@ -313,7 +314,7 @@ export function TmuxTerminalPanel({
           if (cur && list.some((s) => s.name === cur)) return cur
           if (!shouldAutoSelect) return null
           // 새로고침/재접속 시 이전에 보던 세션으로 복원 — 그 세션이 아직 있으면 우선
-          const remembered = localStorage.getItem(ACTIVE_SESSION_KEY)
+          const remembered = scopedBrowserStorage().getItem(ACTIVE_SESSION_KEY)
           if (remembered && list.some((s) => s.name === remembered)) return remembered
           return list[0].name
         })
@@ -322,7 +323,7 @@ export function TmuxTerminalPanel({
   }
 
   useEffect(() => {
-    if (activeSession) localStorage.setItem(ACTIVE_SESSION_KEY, activeSession)
+    if (activeSession) scopedBrowserStorage().setItem(ACTIVE_SESSION_KEY, activeSession)
   }, [activeSession])
 
   useEffect(() => {

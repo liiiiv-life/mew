@@ -1,5 +1,6 @@
 import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { setBrowserStorageScope, remoteStorageName, scopedBrowserStorage } from './browser-storage-scope.ts'
 import {
   BROWSER_CACHE_MAX_AGE_MS, BROWSER_CACHE_MAX_BYTES, BROWSER_STORAGE_TARGET_BYTES,
   BROWSER_CACHE_CHECK_INTERVAL_MS, browserStorageBytes, pruneBrowserStorage,
@@ -22,8 +23,29 @@ class MemoryStorage {
 }
 let storage: MemoryStorage
 beforeEach(() => {
+  setBrowserStorageScope()
   storage = new MemoryStorage()
   Object.assign(globalThis, { localStorage: storage })
+})
+
+test('remote server namespaces share the origin cache budget while preserving every server draft', t => {
+  let now = 1_000_000
+  t.mock.method(Date, 'now', () => now++)
+  const drafts: string[] = [], keys: string[] = []
+  try {
+    for (let i = 0; i < 18; i++) {
+      setBrowserStorageScope('account', `server-${i}`)
+      assert.equal(writeBrowserStorage('mew:agent-input-drafts', `draft-${i}`), true)
+      drafts.push(remoteStorageName('mew:agent-input-drafts'))
+      keys.push(remoteStorageName('mew:content:root:file'))
+      assert.equal(writeBrowserStorage('mew:content:root:file', 'x'.repeat(100_000)), true)
+      assert.ok(total() < BROWSER_CACHE_MAX_BYTES + 64 * 1024)
+    }
+    assert.equal(storage.getItem(keys[0]), null)
+    assert.ok(storage.getItem(keys.at(-1)!))
+    for (let i = 0; i < drafts.length; i++) assert.equal(storage.getItem(drafts[i]), `draft-${i}`)
+    assert.equal(scopedBrowserStorage().getItem('mew:agent-input-drafts'), 'draft-17')
+  } finally { setBrowserStorageScope() }
 })
 const total = () => [...storage.values].reduce((n, [k, v]) => n + browserStorageBytes(k, v), 0)
 

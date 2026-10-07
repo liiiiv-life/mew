@@ -1,5 +1,5 @@
 ---
-description: "중국어 간체판 mew 시작 안내로 Windows WSL·macOS·Linux 설치와 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
+description: "중국어 간체판 mew 시작 안내로 Windows WSL·macOS·Linux 설치와 HTTPS·계정 기반 P2P 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
 ---
 # 使用 mew
 
@@ -127,7 +127,7 @@ cd mew
 
 ### 远程访问
 
-设置完成后，可用以下任一方式从手机或另一台电脑打开 mew。保持主机唤醒且 mew 正在运行。两种方式都会将 HTTPS 流量转发到本地 mew 服务器；保持 `MEW_BIND=127.0.0.1`，如设置端口不是 `5000`，请替换命令中的端口。
+设置完成后，可用以下任一方式从手机或另一台电脑打开 mew。保持主机唤醒且 mew 正在运行。Tailscale 和 Cloudflare Tunnel 会将 HTTPS 流量转发到本地 mew 服务器；保持 `MEW_BIND=127.0.0.1`，如设置端口不是 `5000`，请替换命令中的端口。
 
 #### 1. Tailscale（推荐）
 
@@ -157,6 +157,15 @@ cd mew
 4. 保持 `cloudflared` 运行，然后从另一台设备打开 `https://mew.example.com` 并登录 mew。
 
 这会创建公开的 HTTPS 入口；mew 的账户权限仍然生效。有关代理要求和连接检查，请参阅 [Security](../../SECURITY.md) 和[部署指南](../deployment/native.md#2-https-%ED%94%84%EB%A1%9D%EC%8B%9C-%EB%98%90%EB%8A%94-%ED%84%B0%EB%84%90-%EC%97%B0%EA%B2%B0)。
+
+#### 3. 使用 mew 账户连接（需要配置中央服务）
+
+1. 在本机 mew 中以 owner 登录并修改临时密码，打开**账户管理 → 远程访问**。
+2. 打开注册 URL，登录中央服务并确认设备名称。每台主机只需注册一次。
+3. 在另一台设备打开生成的连接 URL 或 `/dashboard`，使用同一中央账户登录。连接端浏览器无需再次注册设备。
+4. 允许其他用户时，将其中央账户 ID 映射到已有的本地 mew 账户。本地权限和工作目录限制继续生效。
+
+中央服务部署、OAuth 配置以及真实网络测试仍需单独完成，详见[运营说明](../deployment/remote-central.md)。工作数据通过主机与浏览器之间的 WebRTC 直连传输；无法直连的网络会显示连接错误。此模式暂不支持 Android 面板或通用 iframe 代理。也可运行 `./mew remote-access account` 查看注册步骤。
 
 ## 系统要求与权限
 

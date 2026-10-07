@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 // 문서별 스크롤 위치 저장·복원 (ADR 0039). 새로고침·브라우저 재시작(ADR 0038)에 더해
 // 탭·창 전환에도 복원한다 — ADR 0029의 전환 복원 금지는 0039가 대체했다.
@@ -6,7 +7,7 @@ const storageKey = (project: string) => `mew:scroll:${project}`
 
 function loadMap(project: string): Record<string, number> {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(storageKey(project)) ?? '{}')
+    const parsed: unknown = JSON.parse(scopedBrowserStorage().getItem(storageKey(project)) ?? '{}')
     return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, number>) : {}
   } catch {
     return {}

@@ -1,3 +1,4 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { canAutoFocusInput } from '@mew/ui'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useId } from 'react'
 import { NavArrowLeft, NavArrowRight, Minus, Plus, Download, FloppyDisk, EditPencil, Erase, Undo, Redo, Text } from 'iconoir-react'
@@ -70,7 +71,7 @@ export default function PdfViewer({ src, download, name, identity, onEdit }: { s
     setPdf(null); setError(null); setPasswordNeeded(false); setProgress(null); setKnown(new Map())
     void (async () => {
       try {
-        const response = await fetch(url, { method: 'HEAD', cache: 'no-store', signal: controller.signal })
+        const response = await mewFetch(url, { method: 'HEAD', cache: 'no-store', signal: controller.signal })
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const nextRevision = response.headers.get('X-Mew-Pdf-Revision')
         if (!nextRevision) throw new Error('Missing PDF revision')
@@ -163,7 +164,7 @@ export default function PdfViewer({ src, download, name, identity, onEdit }: { s
         link.href = href; link.download = name.replace(/\.pdf$/i, '-annotated.pdf'); link.click()
         setTimeout(() => URL.revokeObjectURL(href), 60_000)
       } else {
-        const response = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/pdf', 'If-Match': revision.current }, body: bytes, signal: controller.signal })
+        const response = await mewFetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/pdf', 'If-Match': revision.current }, body: bytes, signal: controller.signal })
         if (!response.ok) { setSaveError(response.status === 409 ? 'pdf.conflict' : response.status === 403 ? 'pdf.forbidden' : response.status === 413 ? 'pdf.tooLarge' : 'pdf.saveFailed'); return }
         const result = await response.json() as { revision: string }
         draft.saved(result.revision, snapshot); setSaved(true)

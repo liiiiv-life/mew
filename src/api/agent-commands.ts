@@ -1,8 +1,9 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { uiText } from '@mew/ui/i18n-core'
 import type { AgentCommandRecord, AgentCommandScope } from '../../shared/agent-command'
 
 async function request<T>(suffix: string, body?: unknown): Promise<T> {
-  const response = await fetch(`/api/agent/commands${suffix}`, body === undefined ? { cache: 'no-store' } : {
+  const response = await mewFetch(`/api/agent/commands${suffix}`, body === undefined ? { cache: 'no-store' } : {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
   const value = await response.json()

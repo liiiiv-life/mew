@@ -1,3 +1,4 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { uiText } from '@mew/ui/i18n-core'
 import { useCallback, useEffect, useState } from 'react'
 import { SessionTerminalPopup } from './SessionTerminalPopup.tsx'
@@ -16,7 +17,7 @@ export function useDesktopInstall(enabled: boolean, retry: () => void) {
   const [job, setJob] = useState<InstallStatus | null>(null)
   const [open, setOpen] = useState(false), [error, setError] = useState('')
   const refresh = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch('/api/remote-desktop/install', { cache: 'no-store', signal })
+    const response = await mewFetch('/api/remote-desktop/install', { cache: 'no-store', signal })
     if (!response.ok) throw new Error(uiText("설치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."))
     const value: InstallStatus = await response.json()
     if (!signal?.aborted) { setJob(value); setError('') }

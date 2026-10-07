@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { defaultDockTree, dockIds, normalizeDock, pruneDock, type DockKind, type DockNode, type DockState } from './dock-layout.ts'
 
 export const layoutPanels = ['sidebar', 'editor', 'agent', 'terminal', 'git', 'browser', 'features', 'memo', 'tasks', 'debugger', 'chat', 'android'] as const
@@ -104,17 +105,17 @@ function parseLayoutPresets(raw: unknown): LayoutPreset[] | null {
 }
 export function readLayoutPresets(key: string, factory: LayoutSnapshot, legacyKey?: string): LayoutPreset[] {
   try {
-    const stored = localStorage.getItem(key)
+    const stored = scopedBrowserStorage().getItem(key)
     if (stored !== null) return parseLayoutPresets(JSON.parse(stored)) ?? initialLayoutPresets(factory)
     if (!legacyKey) return initialLayoutPresets(factory)
-    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+    const keys = Array.from({ length: scopedBrowserStorage().length }, (_, index) => scopedBrowserStorage().key(index))
       .filter((candidate): candidate is string => !!candidate && candidate.startsWith(key + ':'))
       .sort((a, b) => a === legacyKey ? -1 : b === legacyKey ? 1 : a.localeCompare(b))
     const merged: LayoutPreset[] = []
     let found = false
     for (const oldKey of keys) {
       let old: LayoutPreset[] | null
-      try { old = parseLayoutPresets(JSON.parse(localStorage.getItem(oldKey) ?? 'null')) } catch { continue }
+      try { old = parseLayoutPresets(JSON.parse(scopedBrowserStorage().getItem(oldKey) ?? 'null')) } catch { continue }
       if (!old) continue
       found = true
       for (const preset of old) {
@@ -125,7 +126,7 @@ export function readLayoutPresets(key: string, factory: LayoutSnapshot, legacyKe
       }
     }
     if (!found) return initialLayoutPresets(factory)
-    try { localStorage.setItem(key, JSON.stringify(merged)) } catch { /* Original project presets remain available for a later retry. */ }
+    try { scopedBrowserStorage().setItem(key, JSON.stringify(merged)) } catch { /* Original project presets remain available for a later retry. */ }
     return merged
   } catch { return initialLayoutPresets(factory) }
 }

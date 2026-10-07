@@ -8,7 +8,8 @@
     "./date-value": "./src/date-value.ts",
     "./i18n": "./src/i18n.ts",
     "./i18n-core": "./src/i18n-core.ts",
-    "./browser-storage": "./src/browser-storage.ts"
+    "./browser-storage": "./src/browser-storage.ts",
+    "./browser-storage-scope": "./src/browser-storage-scope.ts"
   },
   "peerDependencies": {
     "react": "^19.0.0"

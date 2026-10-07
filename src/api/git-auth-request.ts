@@ -1,3 +1,4 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { uiText } from '@mew/ui/i18n-core'
 /** One pending user action; closing/unmounting the login dialog cancels its continuation. */
 export const GIT_LOGIN_EVENT = 'mew:git-login-required'
@@ -5,7 +6,7 @@ export const GIT_CONNECTION_CHANGED = 'mew:git-connection-changed'
 export interface GitLoginRequest { project: string; finish: (connected: boolean) => void }
 let pending = false
 export async function gitFetch(url: string, init: RequestInit, project: string): Promise<Response> {
-  const response = await fetch(url, init)
+  const response = await mewFetch(url, init)
   if (response.status !== 428) return response
   const challenge = await response.clone().json().catch(() => ({}))
   if (challenge.code !== 'git-auth-required') return response
@@ -22,6 +23,6 @@ export async function gitFetch(url: string, init: RequestInit, project: string):
     const headers = new Headers(init.headers)
     if (challenge.owner) headers.set('X-Mew-Git-Owner', encodeURIComponent(challenge.owner))
     if (challenge.workspace) headers.set('X-Mew-Git-Workspace', encodeURIComponent(challenge.workspace))
-    return await fetch(url, { ...init, headers })
+    return await mewFetch(url, { ...init, headers })
   } finally { pending = false }
 }

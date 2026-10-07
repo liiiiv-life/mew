@@ -124,6 +124,8 @@ const TOOL_BUTTON_CLASS =
 const TOOL_BUTTON_ON_CLASS =
   'flex h-6 w-6 shrink-0 items-center justify-center rounded border border-accent bg-surface-raised text-accent'
 
+const defaultSocketFactory = (url: string) => new WebSocket(url)
+
 export function TmuxTerminal({
   sessionName,
   activeFilePath,
@@ -132,6 +134,7 @@ export function TmuxTerminal({
   insertRefTarget = 'tmux',
   inputPlaceholder = uiText("텍스트 입력"),
   wsPath = '/api/tmux/ws',
+  socketFactory = defaultSocketFactory,
 }: {
   sessionName: string
   activeFilePath?: string | null
@@ -147,6 +150,7 @@ export function TmuxTerminal({
   insertRefTarget?: 'tmux' | 'agent' | 'terminal' | null
   /** 호스트 앱의 언어 설정에 맞춘 하단 입력 힌트. */
   inputPlaceholder?: string
+  socketFactory?: (url: string) => WebSocket
   wsPath?: string
 }) {
   useUiLocale()
@@ -520,7 +524,7 @@ export function TmuxTerminal({
     function openSocket() {
       if (disposed) return
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const ws = new WebSocket(
+      const ws = socketFactory(
         `${protocol}//${location.host}${wsPath}?session=${encodeURIComponent(sessionName)}&cols=${term.cols}&rows=${term.rows}`,
       )
       wsRef.current = ws
@@ -661,7 +665,7 @@ export function TmuxTerminal({
       wsRef.current = null
       termRef.current = null
     }
-  }, [sessionName, wsPath])
+  }, [sessionName, wsPath, socketFactory])
 
   // 보조키 조작 뒤 포커스(=모바일 키보드)를 원래 있던 곳으로 되돌린다 — 하단 입력칸을 쓰던 중이면
   // 입력칸으로, 아니면 터미널로. 덕분에 입력칸에 포커스를 둔 채로 보조키만 termux로 쏠 수 있다.

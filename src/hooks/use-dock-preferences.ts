@@ -1,10 +1,11 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { useSyncExternalStore } from 'react'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { MOBILE_DOCK_HIDDEN_KEY, MOBILE_DOCK_ORDER_KEY, normalizeHiddenDockPanels, normalizeMobileDockOrder, type MobileDockPanel } from '../utils/mobile-dock'
 
 const listeners = new Set<() => void>()
 function read(key: string): unknown {
-  try { return JSON.parse(localStorage.getItem(key) ?? 'null') }
+  try { return JSON.parse(scopedBrowserStorage().getItem(key) ?? 'null') }
   catch { return null }
 }
 let value = { order: normalizeMobileDockOrder(read(MOBILE_DOCK_ORDER_KEY)), hidden: normalizeHiddenDockPanels(read(MOBILE_DOCK_HIDDEN_KEY)) }

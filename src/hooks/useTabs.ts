@@ -1,3 +1,5 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
+import { mewFetch } from '../utils/remote-transport.ts'
 import { mergeTaskFrontmatter } from '../../packages/editor/src/utils/task-frontmatter-merge'
 import { remapPagePath, rewritePageLinks, type DocumentPageMutation } from '../../shared/document-pages'
 import { editorTabPath } from '../utils/editor-files'
@@ -77,7 +79,7 @@ export type StoredTabs = {
 /** 저장분 읽기 — 분할 이전 형식(`{tabs, activePath}`)은 칸 하나짜리로 읽는다 */
 function loadStoredTabs(project: string, workspaceScope?: string): StoredTabs | null {
   try {
-    const raw = localStorage.getItem(openTabsKey(project, workspaceScope))
+    const raw = scopedBrowserStorage().getItem(openTabsKey(project, workspaceScope))
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<StoredTabs> & { tabs?: StoredTab[]; activePath?: string | null }
     const panes = Array.isArray(parsed?.panes)
@@ -256,7 +258,7 @@ export function useTabs(
           dropCachedFile(scopeProject, filePath)
           const diff = gitDiffTarget(filePath)
           const file = diff ? { project: diff.project, path: [diff.repositoryPath, diff.filePath].filter(Boolean).join('/') } : editorFile(filePath, scopeProject)
-          void trackRefresh(fetch(`/api/file-access?project=${encodeURIComponent(file.project)}&path=${encodeURIComponent(file.path)}${isExternalTabPath(filePath) ? '&external=1' : ''}`)
+          void trackRefresh(mewFetch(`/api/file-access?project=${encodeURIComponent(file.project)}&path=${encodeURIComponent(file.path)}${isExternalTabPath(filePath) ? '&external=1' : ''}`)
             .then(response => response.ok ? response.json() as Promise<{ view: boolean; edit: boolean }> : { view: false, edit: false })
             .then(access => patch(scopeProject, current => prunePanes({ ...current, panes: current.panes.map(pane => {
               const tabs = access.view ? pane.tabs.map(tab => tab.path === filePath ? { ...tab, editable: !diff && access.edit } : tab) : pane.tabs.filter(tab => tab.path !== filePath)

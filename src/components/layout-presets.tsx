@@ -1,3 +1,4 @@
+import { scopedBrowserStorage, remoteStorageName } from '@mew/ui/browser-storage-scope'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus } from 'iconoir-react'
@@ -79,7 +80,7 @@ export function LayoutPresets({ storageKey, legacyStorageKey, factory, capture, 
   }, [open, context, close, closeContext])
   useEffect(() => {
     const sync = (event: StorageEvent) => {
-      if (event.storageArea !== localStorage || event.key !== storageKey && event.key !== null) return
+      if (event.storageArea !== localStorage || event.key !== remoteStorageName(storageKey) && event.key !== null) return
       setPresets(readLayoutPresets(storageKey, factory, legacyStorageKey))
       setContext(null); setRenaming(null)
     }
@@ -89,7 +90,7 @@ export function LayoutPresets({ storageKey, legacyStorageKey, factory, capture, 
   const label = (preset: LayoutPreset) => preset.name || (preset.number === 0 ? t('layout.default') : t('layout.preset', { number: preset.number }))
   const save = (next: LayoutPreset[]) => {
     setPresets(next)
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); setNotice('') } catch { setNotice(t('layout.storageFailed')) }
+    try { scopedBrowserStorage().setItem(storageKey, JSON.stringify(next)); setNotice('') } catch { setNotice(t('layout.storageFailed')) }
   }
   const update = (layout: LayoutSnapshot, id?: string) => {
     const result = changeLayoutPreset(presets, layout, id)

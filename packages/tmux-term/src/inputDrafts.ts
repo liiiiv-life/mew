@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { trimInputHistory, writeBrowserStorage } from '@mew/ui/browser-storage'
 // 하단 입력칸(전송 전 임시 입력)을 tmux 세션별로 브라우저에 저장한다 — 탭을 옮기거나 터미널을
 // 닫았다 열어도, 새로고침해도 쓰던 내용이 남아 있게 한다. TmuxTerminal이 key={session}으로 세션마다
@@ -12,7 +13,7 @@ type HistoryMap = Record<string, string[]>
 
 function readAll(): DraftMap {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}')
+    const parsed: unknown = JSON.parse(scopedBrowserStorage().getItem(DRAFTS_KEY) ?? '{}')
     if (!parsed || typeof parsed !== 'object') return {}
     const out: DraftMap = {}
     for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
@@ -26,7 +27,7 @@ function readAll(): DraftMap {
 
 function writeAll(map: DraftMap): void {
   try {
-    if (Object.keys(map).length === 0) localStorage.removeItem(DRAFTS_KEY)
+    if (Object.keys(map).length === 0) scopedBrowserStorage().removeItem(DRAFTS_KEY)
     else writeBrowserStorage(DRAFTS_KEY, JSON.stringify(map))
   } catch {
     // 사파리 프라이빗 모드 등 저장 실패는 무시 — 초안 보존은 편의 기능이지 필수가 아니다
@@ -35,7 +36,7 @@ function writeAll(map: DraftMap): void {
 
 function readHistories(): HistoryMap {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(HISTORIES_KEY) ?? '{}')
+    const parsed: unknown = JSON.parse(scopedBrowserStorage().getItem(HISTORIES_KEY) ?? '{}')
     if (!parsed || typeof parsed !== 'object') return {}
     const out: HistoryMap = {}
     for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
@@ -49,7 +50,7 @@ function readHistories(): HistoryMap {
 
 function writeHistories(map: HistoryMap): void {
   try {
-    if (Object.keys(map).length === 0) localStorage.removeItem(HISTORIES_KEY)
+    if (Object.keys(map).length === 0) scopedBrowserStorage().removeItem(HISTORIES_KEY)
     else writeBrowserStorage(HISTORIES_KEY, JSON.stringify(trimInputHistory(map)))
   } catch { /* 히스토리는 편의 기능이다. */ }
 }

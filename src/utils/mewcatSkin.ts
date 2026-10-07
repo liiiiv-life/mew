@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { uiText } from '@mew/ui/i18n-core'
 /** 브라우저별 화면 취향이라 글꼴·액센트와 같이 localStorage에만 저장한다. */
 export const MEWCAT_SKIN_KEY = 'mew:mewcat-skin'
@@ -35,5 +36,5 @@ export function saveMewcatSkin(
 export const MEWCAT_HIDE_DESKTOP_KEY = 'mew:mewcat-hide-desktop'
 
 export function loadMewcatHideDesktop(): boolean {
-  try { return localStorage.getItem(MEWCAT_HIDE_DESKTOP_KEY) === '1' } catch { return false }
+  try { return scopedBrowserStorage().getItem(MEWCAT_HIDE_DESKTOP_KEY) === '1' } catch { return false }
 }

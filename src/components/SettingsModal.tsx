@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom'
+import { isRemoteMode } from '../utils/remote-transport.ts'
 import { DockSettingsPanel } from './dock-settings-panel'
 import type { MobileDockPanel } from '../utils/mobile-dock'
 import { useMewcatFurColor, setMewcatFurColor } from '../hooks/use-mewcat-fur-color'
@@ -335,7 +336,7 @@ function AccountPanel({
         </button>
       </form>
 
-      <form onSubmit={handleChangePassword} className="flex flex-col gap-3 border-t border-edge pt-4">
+      {!isRemoteMode() && <form onSubmit={handleChangePassword} className="flex flex-col gap-3 border-t border-edge pt-4">
         <div className="text-sm font-medium">{t('settings.changePassword')}</div>
         <input
           type="password"
@@ -375,7 +376,7 @@ function AccountPanel({
         >
           {busy ? t('settings.changing') : t('settings.change')}
         </button>
-      </form>
+      </form>}
 
       <div className="mt-4 border-t border-edge pt-4">
         <button

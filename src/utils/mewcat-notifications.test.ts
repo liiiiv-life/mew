@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createAgentNoticeTracker, createResourceNoticeTracker, type ResourceSample } from './mewcat-notification-rules.ts'
-import { clearMewcatNotices, dismissMewcatNotice, onMewcatNotice, parseNotificationPreferences, publishMewcatNotice } from './mewcat-notifications.ts'
+import { clearMewcatNotices, dismissMewcatNotice, onMewcatNotice, parseNotificationPreferences, publishMewcatNotice, setNotificationPreferences } from './mewcat-notifications.ts'
+import { setBrowserStorageScope, scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import type { AgentEvent } from './agentFold.ts'
 
 const target = { tabId: 'tab-1', cwd: '/workspace' }
@@ -113,4 +114,18 @@ test('duplicate delivery is suppressed and subscribers detach cleanly', () => {
   publishMewcatNotice({ ...input, key: 'different' })
   assert.equal(received.length, 1)
   clearMewcatNotices()
+})
+
+test('remote notification preferences reload for each server instead of copying another server settings', t => {
+  const values = new Map<string, string>()
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } } })
+  t.after(() => { if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor); else Reflect.deleteProperty(globalThis, 'localStorage') })
+  try {
+    setBrowserStorageScope('central', 'one'); setNotificationPreferences({ mewcat: false })
+    setBrowserStorageScope('central', 'two'); setNotificationPreferences({ sound: true })
+    assert.deepEqual(parseNotificationPreferences(scopedBrowserStorage().getItem('mew:notification-preferences')), { visual: true, mewcat: true, desktop: false, sound: true, resources: true })
+    setBrowserStorageScope('central', 'one'); setNotificationPreferences({ sound: true })
+    assert.equal(parseNotificationPreferences(scopedBrowserStorage().getItem('mew:notification-preferences')).mewcat, false)
+  } finally { setBrowserStorageScope() }
 })

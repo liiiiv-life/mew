@@ -1,3 +1,4 @@
+import { openMewSocket } from '../utils/remote-transport.ts'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import { useEffect, useRef, useState } from 'react'
 import { forgetSavedProject } from '../api/client'
@@ -68,7 +69,7 @@ export function usePresence(
     function connect() {
       if (cancelled) return
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      ws = new WebSocket(`${protocol}//${location.host}/api/presence`)
+      ws = openMewSocket(`${protocol}//${location.host}/api/presence`)
       wsRef.current = ws
       ws.onopen = () => {
         window.dispatchEvent(new Event('mew:permissions-changed'))

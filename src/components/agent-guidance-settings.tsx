@@ -1,3 +1,4 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Settings, Xmark, PageEdit } from 'iconoir-react'
@@ -14,7 +15,7 @@ const copy = {
 const button = 'inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded px-2.5 text-sm text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40'
 
 async function request(init?: RequestInit): Promise<GuidanceSnapshot> {
-  const response = await fetch('/api/fs/agent-guidance', { cache: 'no-store', ...init })
+  const response = await mewFetch('/api/fs/agent-guidance', { cache: 'no-store', ...init })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`)
   return body

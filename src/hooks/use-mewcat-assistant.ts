@@ -1,3 +1,5 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
+import { openMewSocket } from '../utils/remote-transport.ts'
 import { uuid } from '../utils/uuid'
 import { useEffect, useRef, useState } from 'react'
 import type { MewcatAction, MewcatActionRequest } from '../../shared/mewcat-assistant'
@@ -54,15 +56,15 @@ export function useMewcatAssistant(options: MewcatAssistantOptions) {
     browserIdentity.current = { account: options.account, id: browser }
     const sessionKey = `mew:mewcat-session:${options.account}:${browser}:${options.runtime}`
     const query = new URLSearchParams({ runtime: options.runtime, tab: 'mewcat', mewcat: browser })
-    try { const resume = localStorage.getItem(sessionKey); if (resume) query.set('resume', resume) } catch { /* No stored session. */ }
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/agent/ws?${query}`)
+    try { const resume = scopedBrowserStorage().getItem(sessionKey); if (resume) query.set('resume', resume) } catch { /* No stored session. */ }
+    const ws = openMewSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/agent/ws?${query}`)
     socket.current = ws
     const context = () => ({ type: 'mewcat_context', context: { projectRoot: latest.current.projectRoot, locale: latest.current.locale } })
     const receive = (event: AgentEvent) => {
       if (event.type === 'meta') {
         needsAuth.current = false
         setReady(true); setLogin(false); setBusy(event.meta.busy)
-        if (event.meta.sessionId) try { localStorage.setItem(sessionKey, event.meta.sessionId) } catch { /* No persistence. */ }
+        if (event.meta.sessionId) try { scopedBrowserStorage().setItem(sessionKey, event.meta.sessionId) } catch { /* No persistence. */ }
       }
       if (event.type === 'turn_start') { setBusy(true); setError(null) }
       if (event.type === 'turn_end') { setBusy(false); setAction(null) }

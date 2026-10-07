@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { writeBrowserStorage } from '@mew/ui/browser-storage'
 import type { TreeNode } from '../api/client'
 
@@ -55,7 +56,7 @@ export function childrenForOpenDirs(openDirs: Iterable<string>, directoryChildre
 
 export function loadDirectoryChildren(project: string): DirectoryChildren {
   try {
-    return normalizeDirectoryChildren(JSON.parse(localStorage.getItem(treeChildrenKey(project)) ?? '{}'))
+    return normalizeDirectoryChildren(JSON.parse(scopedBrowserStorage().getItem(treeChildrenKey(project)) ?? '{}'))
   } catch {
     return {}
   }

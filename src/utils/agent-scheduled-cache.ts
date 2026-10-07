@@ -1,3 +1,4 @@
+import { remoteStorageName } from '@mew/ui/browser-storage-scope'
 import type { AgentScheduledPrompt } from '../api/client.ts'
 
 const DB_NAME = 'mew-agent-scheduled-prompts'
@@ -5,21 +6,26 @@ const MAX_AGE = 7 * 24 * 60 * 60 * 1000
 const MAX_BYTES = 4 * 1024 * 1024
 type Snapshot = { key: string; jobs: AgentScheduledPrompt[]; savedAt: number; bytes: number }
 let opened: Promise<IDBDatabase> | undefined
+let openedName = ''
 
 function open(): Promise<IDBDatabase> {
-  if (opened) return opened
-  opened = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1)
+  const name = remoteStorageName(DB_NAME)
+  if (opened && openedName === name) return opened
+  void opened?.then(db => db.close()).catch(() => {})
+  openedName = name
+  const opening = new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(name, 1)
     request.onupgradeneeded = () => { request.result.createObjectStore('lists', { keyPath: 'key' }) }
-    request.onerror = () => { opened = undefined; reject(request.error) }
-    request.onblocked = () => { opened = undefined; reject(new Error('예약 저장소 업그레이드 대기')) }
+    request.onerror = () => { if (opened === opening) opened = undefined; reject(request.error) }
+    request.onblocked = () => { if (opened === opening) opened = undefined; reject(new Error('예약 저장소 업그레이드 대기')) }
     request.onsuccess = () => {
       const db = request.result
-      db.onversionchange = () => { db.close(); opened = undefined }
+      db.onversionchange = () => { db.close(); if (opened === opening) opened = undefined }
       resolve(db)
     }
   })
-  return opened
+  opened = opening
+  return opening
 }
 
 export async function readScheduledCache(key: string): Promise<AgentScheduledPrompt[] | null> {

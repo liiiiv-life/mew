@@ -1,3 +1,4 @@
+import { openMewSocket } from './remote-transport.ts'
 import { uiText } from '@mew/ui/i18n-core'
 import { validCursor, type DesktopCursor } from '../../native/remote-desktop/cursor-protocol.mjs'
 import { desktopInput } from './desktop-input.ts'
@@ -138,7 +139,7 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     if (closed) return
     events.state('connecting', uiText("로그인한 데스크톱에 연결하고 있습니다…"))
     deadline = setTimeout(() => fail(uiText("화면 연결 시간이 초과됐습니다. 서버의 화면 공유 권한을 확인해 주세요.")), 95_000)
-    socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/remote-desktop/ws${preferredScreen ? `?screen=${encodeURIComponent(preferredScreen)}` : ''}`)
+    socket = openMewSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/remote-desktop/ws${preferredScreen ? `?screen=${encodeURIComponent(preferredScreen)}` : ''}`)
     socket.binaryType = 'arraybuffer'
     let queue = Promise.resolve()
     socket.onmessage = event => {

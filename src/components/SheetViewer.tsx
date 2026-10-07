@@ -1,3 +1,4 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { useEffect, useState } from 'react'
 import { downloadUrl, rawUrl } from '../api/client'
 import { parseCsv } from '../utils/csv'
@@ -18,7 +19,7 @@ export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSr
     setSheets(null)
     setError(null)
     setActive(0)
-    fetch(rawSrc ?? rawUrl(path))
+    mewFetch(rawSrc ?? rawUrl(path))
       .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`HTTP ${res.status}`))))
       // xlsx는 ZIP이라 풀어야 하고(비동기), csv·tsv는 글자라 그 자리에서 갈라 놓는다
       .then((buf) => (path.toLowerCase().endsWith('.xlsx') ? parseXlsx(buf) : parseCsv(buf, path)))

@@ -1,3 +1,5 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
+import { mewFetch, isRemoteMode } from '../utils/remote-transport.ts'
 import type { UpdatesStatus } from '../../shared/updates'
 import type { GitRemoteProgress, GitRemoteEvent } from '../../shared/git-remote-progress'
 import { gitFetch } from './git-auth-request'
@@ -25,7 +27,7 @@ const PROJECT_KEY = 'mew:project'
 // 그래서 이 값은 상수가 아니라 런타임 상태이고, 요청을 보내는 순간에 읽어야 한다.
 // 옛 `/{프로젝트}` 주소로 들어와도 그 프로젝트로 시작한다 — 밖에 나가 있는 링크를 살려두기 위해서다.
 function detectProject(): string {
-  return detectInitialProject(location.pathname, localStorage.getItem(PROJECT_KEY))
+  return detectInitialProject(location.pathname, scopedBrowserStorage().getItem(PROJECT_KEY))
 }
 
 let currentProject = detectProject()
@@ -43,7 +45,7 @@ export function getProject(): string {
 export function setProject(name: string): void {
   currentProject = name
   try {
-    localStorage.setItem(PROJECT_KEY, name)
+    scopedBrowserStorage().setItem(PROJECT_KEY, name)
   } catch {
     // 사생활 보호 모드 등 — 저장 실패해도 이번 세션 동작에는 지장이 없다
   }
@@ -99,11 +101,11 @@ export type WorkspaceUiState = Record<string, unknown>
 
 /** 로그인 계정의 열린 루트 프로젝트와 아이콘(Owner 전용). */
 export function fetchRootProjectTabs(): Promise<{ state: RootProjectTabState | null }> {
-  return fetch('/api/user-ui/root-projects').then(json<{ state: RootProjectTabState | null }>)
+  return mewFetch('/api/user-ui/root-projects').then(json<{ state: RootProjectTabState | null }>)
 }
 
 export function saveRootProjectTabs(state: RootProjectTabState): Promise<{ state: RootProjectTabState }> {
-  return fetch('/api/user-ui/root-projects', {
+  return mewFetch('/api/user-ui/root-projects', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(state),
@@ -112,13 +114,13 @@ export function saveRootProjectTabs(state: RootProjectTabState): Promise<{ state
 
 /** Both navigation surfaces read the project's own .mew icon file. */
 export function fetchRootProjectIcons(paths: string[]): Promise<{ icons: Record<string, string> }> {
-  return fetch('/api/project-icons/read', {
+  return mewFetch('/api/project-icons/read', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }),
   }).then(json<{ icons: Record<string, string> }>)
 }
 
 export function saveRootProjectIcon(path: string, icon: string): Promise<{ icon: string | null }> {
-  return fetch('/api/project-icons', {
+  return mewFetch('/api/project-icons', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, icon }),
   }).then(json<{ icon: string | null }>)
 }
@@ -127,11 +129,11 @@ export function saveRootProjectIcon(path: string, icon: string): Promise<{ icon:
 export type AgentSessionClaim = { workspacePath: string; tabId: string; sessionId: string }
 
 export function fetchAgentTabs(workspacePath: string): Promise<{ state: AgentTabsState | null; claims: AgentSessionClaim[] }> {
-  return fetch(`/api/user-ui/agent-tabs?workspace=${encodeURIComponent(workspacePath)}`).then(json<{ state: AgentTabsState | null; claims: AgentSessionClaim[] }>)
+  return mewFetch(`/api/user-ui/agent-tabs?workspace=${encodeURIComponent(workspacePath)}`).then(json<{ state: AgentTabsState | null; claims: AgentSessionClaim[] }>)
 }
 
 export function saveAgentTabs(workspacePath: string, state: AgentTabsState): Promise<{ state: AgentTabsState }> {
-  return fetch('/api/user-ui/agent-tabs', {
+  return mewFetch('/api/user-ui/agent-tabs', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspacePath, ...state }),
@@ -139,11 +141,11 @@ export function saveAgentTabs(workspacePath: string, state: AgentTabsState): Pro
 }
 
 export function fetchWorkspaceUi(workspacePath: string): Promise<{ state: WorkspaceUiState | null }> {
-  return fetch(`/api/user-ui/workspace?workspace=${encodeURIComponent(workspacePath)}`).then(json<{ state: WorkspaceUiState | null }>)
+  return mewFetch(`/api/user-ui/workspace?workspace=${encodeURIComponent(workspacePath)}`).then(json<{ state: WorkspaceUiState | null }>)
 }
 
 export function saveWorkspaceUi(workspacePath: string, state: WorkspaceUiState): Promise<{ state: WorkspaceUiState }> {
-  return fetch('/api/user-ui/workspace', {
+  return mewFetch('/api/user-ui/workspace', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspacePath, state }),
@@ -151,11 +153,11 @@ export function saveWorkspaceUi(workspacePath: string, state: WorkspaceUiState):
 }
 
 export function fetchProjects(): Promise<ProjectInfo[]> {
-  return fetch('/api/projects').then(json<ProjectInfo[]>)
+  return mewFetch('/api/projects').then(json<ProjectInfo[]>)
 }
 
 export function fetchAgentSets(): Promise<{ sets: AgentSet[] }> {
-  return fetch('/api/agent-sets').then(json<{ sets: AgentSet[] }>)
+  return mewFetch('/api/agent-sets').then(json<{ sets: AgentSet[] }>)
 }
 
 export type AgentModelOption = { modelId: string; name: string }
@@ -163,12 +165,12 @@ export type AgentModelOption = { modelId: string; name: string }
 export type AgentThinkingOption = { configId: string; options: { id: string; name: string }[] }
 
 export function fetchAgentModels(runtime: string, signal?: AbortSignal): Promise<{ models: AgentModelOption[]; thinking?: AgentThinkingOption | null }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/models`, { signal })
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/models`, { signal })
     .then(json<{ models: AgentModelOption[]; thinking?: AgentThinkingOption | null }>)
 }
 
 export function saveAgentSets(sets: AgentSet[]): Promise<{ sets: AgentSet[] }> {
-  return fetch('/api/agent-sets', {
+  return mewFetch('/api/agent-sets', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sets }),
@@ -183,13 +185,13 @@ export interface WorkspaceFileLink {
 
 /** 에이전트 마크다운의 로컬 경로를 현재 워크스페이스 안의 파일로 검증·해석한다. */
 export function resolveAgentFileLink(href: string): Promise<{ target: WorkspaceFileLink | null }> {
-  return fetch(`/api/agent-file-link?href=${encodeURIComponent(href)}`).then(json<{ target: WorkspaceFileLink | null }>)
+  return mewFetch(`/api/agent-file-link?href=${encodeURIComponent(href)}`).then(json<{ target: WorkspaceFileLink | null }>)
 }
 
 /** 에이전트 주소창 경로를 서버 파일시스템 기준 절대 디렉터리로 검증·정규화한다. */
 export function resolveAgentCwd(path: string, base = ''): Promise<{ cwd: string }> {
   const query = new URLSearchParams({ path, base })
-  return fetch(`/api/agent-cwd?${query}`).then(json<{ cwd: string }>)
+  return mewFetch(`/api/agent-cwd?${query}`).then(json<{ cwd: string }>)
 }
 
 export interface AgentCwdSuggestions {
@@ -200,7 +202,7 @@ export interface AgentCwdSuggestions {
 
 export function fetchAgentCwdSuggestions(input: string, base: string, entered = false): Promise<AgentCwdSuggestions> {
   const query = new URLSearchParams({ input, base, entered: String(entered) })
-  return fetch(`/api/agent-cwd/suggestions?${query}`).then(json<AgentCwdSuggestions>)
+  return mewFetch(`/api/agent-cwd/suggestions?${query}`).then(json<AgentCwdSuggestions>)
 }
 
 export function scheduleAgentPrompt(input: {
@@ -212,7 +214,7 @@ export function scheduleAgentPrompt(input: {
   skills: string[]
   at: string
 }): Promise<{ job: AgentScheduledPrompt }> {
-  return fetch('/api/agent/scheduled-prompts', {
+  return mewFetch('/api/agent/scheduled-prompts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -233,16 +235,16 @@ type AgentScheduledPromptScope = Pick<AgentScheduledPrompt, 'runtime' | 'tab' | 
 
 export function fetchAgentScheduledPrompts(scope: AgentScheduledPromptScope): Promise<{ jobs: AgentScheduledPrompt[] }> {
   const params = new URLSearchParams(scope)
-  return fetch(`/api/agent/scheduled-prompts?${params.toString()}`).then(json<{ jobs: AgentScheduledPrompt[] }>)
+  return mewFetch(`/api/agent/scheduled-prompts?${params.toString()}`).then(json<{ jobs: AgentScheduledPrompt[] }>)
 }
 
 export function cancelAgentScheduledPrompt(id: string, scope: AgentScheduledPromptScope): Promise<{ ok: true }> {
   const params = new URLSearchParams(scope)
-  return fetch(`/api/agent/scheduled-prompts/${encodeURIComponent(id)}?${params.toString()}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+  return mewFetch(`/api/agent/scheduled-prompts/${encodeURIComponent(id)}?${params.toString()}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
 export function updateAgentScheduledPrompt(id: string, input: AgentScheduledPromptScope & { text: string; skills: string[]; at: string }): Promise<{ job: AgentScheduledPrompt }> {
-  return fetch(`/api/agent/scheduled-prompts/${encodeURIComponent(id)}`, {
+  return mewFetch(`/api/agent/scheduled-prompts/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -251,7 +253,7 @@ export function updateAgentScheduledPrompt(id: string, input: AgentScheduledProm
 
 /** 응답의 icon은 서버가 실제로 저장한 값 — 직접 넣은 SVG는 정리를 거치므로 보낸 값과 다를 수 있다 */
 export function setProjectIcon(project: string, icon: string | null): Promise<{ ok: true; icon: string | null }> {
-  return fetch('/api/project-icon', {
+  return mewFetch('/api/project-icon', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ project, icon }),
@@ -260,7 +262,7 @@ export function setProjectIcon(project: string, icon: string | null): Promise<{ 
 
 /** 프로젝트 타일 배치(이름 → 격자 칸 번호)를 통째로 저장한다 */
 export function setProjectLayout(layout: Record<string, number>): Promise<{ ok: true }> {
-  return fetch('/api/project-layout', {
+  return mewFetch('/api/project-layout', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ layout }),
@@ -269,7 +271,7 @@ export function setProjectLayout(layout: Record<string, number>): Promise<{ ok: 
 
 /** 새 프로젝트(워크스페이스 최상위 폴더)를 만든다 — owner 전용 */
 export function createProject(name: string): Promise<{ ok: true; name: string }> {
-  return fetch('/api/project', {
+  return mewFetch('/api/project', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -278,7 +280,7 @@ export function createProject(name: string): Promise<{ ok: true; name: string }>
 
 /** 프로젝트 폴더 이름을 바꾼다 — owner 전용 */
 export function renameProject(oldName: string, newName: string): Promise<{ ok: true; name: string }> {
-  return fetch('/api/project', {
+  return mewFetch('/api/project', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ oldName, newName }),
@@ -287,7 +289,7 @@ export function renameProject(oldName: string, newName: string): Promise<{ ok: t
 
 /** 프로젝트 폴더를 통째로 삭제한다 — owner 전용, 되돌릴 수 없음 */
 export function deleteProject(name: string): Promise<{ ok: true }> {
-  return fetch(`/api/project?name=${encodeURIComponent(name)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+  return mewFetch(`/api/project?name=${encodeURIComponent(name)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
 export interface BrowseResult {
@@ -299,17 +301,17 @@ export interface BrowseResult {
 
 /** 워크스페이스 밖 폴더를 훑는다 — owner 전용. 폴더만 돌아온다(파일 브라우저·워크스페이스 고르기) */
 export function browseDirs(path = ''): Promise<BrowseResult> {
-  return fetch(`/api/fs/dirs?path=${encodeURIComponent(path)}`).then(json<BrowseResult>)
+  return mewFetch(`/api/fs/dirs?path=${encodeURIComponent(path)}`).then(json<BrowseResult>)
 }
 
 export function fetchFileFavorites(): Promise<{ folders: FileFavorite[] }> {
-  return fetch('/api/fs/favorites').then(json<{ folders: FileFavorite[] }>)
+  return mewFetch('/api/fs/favorites').then(json<{ folders: FileFavorite[] }>)
 }
 
 export const FILE_FAVORITES_CHANGED = 'mew:file-favorites-changed'
 
 export function setFileFavorite(path: string, favorite: boolean): Promise<{ ok: true }> {
-  return fetch('/api/fs/favorites', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, favorite }) }).then(json<{ ok: true }>).then(result => {
+  return mewFetch('/api/fs/favorites', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, favorite }) }).then(json<{ ok: true }>).then(result => {
     window.dispatchEvent(new Event(FILE_FAVORITES_CHANGED))
     return result
   })
@@ -336,7 +338,7 @@ export class MissingDirectoryError extends Error {
 }
 
 export async function browseExternalEntries(path = ''): Promise<ExternalEntriesResult> {
-  const response = await fetch(`/api/fs/entries?path=${encodeURIComponent(path)}`)
+  const response = await mewFetch(`/api/fs/entries?path=${encodeURIComponent(path)}`)
   if (response.status === 404) {
     const body = await response.clone().json().catch(() => null)
     if (body?.code === 'MISSING_DIRECTORY' && typeof body.missing?.path === 'string'
@@ -348,19 +350,19 @@ export async function browseExternalEntries(path = ''): Promise<ExternalEntriesR
 }
 
 export function createExternalDirectory(path: string): Promise<{ ok: true; path: string }> {
-  return fetch('/api/fs/directory', {
+  return mewFetch('/api/fs/directory', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }),
   }).then(json<{ ok: true; path: string }>)
 }
 
 export function fetchExternalFile(path: string): Promise<{ path: string; content: string; editable: true }> {
-  return fetch(`/api/fs/file?path=${encodeURIComponent(path)}`)
+  return mewFetch(`/api/fs/file?path=${encodeURIComponent(path)}`)
     .then(json<{ path: string; content: string }>)
     .then((result) => ({ ...result, editable: true as const }))
 }
 
 export function saveExternalFile(path: string, content: string, expectedContent?: string): Promise<{ ok: true; path: string }> {
-  return fetch('/api/fs/file', {
+  return mewFetch('/api/fs/file', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content, expectedContent }),
@@ -368,7 +370,7 @@ export function saveExternalFile(path: string, content: string, expectedContent?
 }
 
 export function renameExternalPath(path: string, name: string): Promise<{ ok: true; path: string }> {
-  return fetch('/api/fs/rename', {
+  return mewFetch('/api/fs/rename', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, name }),
@@ -376,7 +378,7 @@ export function renameExternalPath(path: string, name: string): Promise<{ ok: tr
 }
 
 export function deleteExternalPath(path: string): Promise<{ ok: true }> {
-  return fetch(`/api/fs/path?path=${encodeURIComponent(path)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+  return mewFetch(`/api/fs/path?path=${encodeURIComponent(path)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
 export function pasteExternalPath(
@@ -384,7 +386,7 @@ export function pasteExternalPath(
   destination: string,
   mode: 'copy' | 'cut',
 ): Promise<{ ok: true; path: string }> {
-  return fetch('/api/fs/paste', {
+  return mewFetch('/api/fs/paste', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source, destination, mode }),
@@ -392,7 +394,7 @@ export function pasteExternalPath(
 }
 
 export function createExternalFolder(parent: string, name: string): Promise<{ ok: true; path: string }> {
-  return fetch('/api/fs/folder', {
+  return mewFetch('/api/fs/folder', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ parent, name }),
@@ -400,7 +402,7 @@ export function createExternalFolder(parent: string, name: string): Promise<{ ok
 }
 
 export function initializeExternalGit(path: string): Promise<{ ok: true; path: string }> {
-  return fetch('/api/fs/git/init', {
+  return mewFetch('/api/fs/git/init', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -408,7 +410,7 @@ export function initializeExternalGit(path: string): Promise<{ ok: true; path: s
 }
 
 export function cloneExternalGit(parent: string, url: string, name?: string): Promise<{ ok: true; path: string }> {
-  return fetch('/api/fs/git/clone', {
+  return mewFetch('/api/fs/git/clone', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ parent, url, name }),
@@ -447,50 +449,50 @@ export interface GitWorkingTreeCommitResult { info: GitRepositoryInfo; hash: str
 export type GitCommitAction = 'branch' | 'tag' | 'checkout' | 'cherry-pick' | 'revert'
 
 export function fetchGitRepository(path = '', project = currentProject): Promise<GitRepositoryInfo> {
-  return fetch(`/api/git/repository?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<GitRepositoryInfo>)
+  return mewFetch(`/api/git/repository?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<GitRepositoryInfo>)
 }
 
 export function fetchGitHubAuth(project: string): Promise<GitHubAuthStatus> {
-  return fetch(`/api/git-connections/github?${projectQs(project)}`).then(json<GitHubAuthStatus>)
+  return mewFetch(`/api/git-connections/github?${projectQs(project)}`).then(json<GitHubAuthStatus>)
 }
 
 export function disconnectGitHub(project: string): Promise<{ ok: true }> {
-  return fetch(`/api/git-connections/github?${projectQs(project)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+  return mewFetch(`/api/git-connections/github?${projectQs(project)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
 export function startGitHubLogin(project: string): Promise<{ job: GitHubLoginJob }> {
-  return fetch(`/api/git-connections/github?${projectQs(project)}`, { method: 'POST' }).then(json<{ job: GitHubLoginJob }>)
+  return mewFetch(`/api/git-connections/github?${projectQs(project)}`, { method: 'POST' }).then(json<{ job: GitHubLoginJob }>)
 }
 
 export function stopGitHubLogin(project: string, id: string): Promise<{ ok: true }> {
-  return fetch(`/api/git-connections/github/${encodeURIComponent(id)}/stop?${projectQs(project)}`, { method: 'POST' }).then(json<{ ok: true }>)
+  return mewFetch(`/api/git-connections/github/${encodeURIComponent(id)}/stop?${projectQs(project)}`, { method: 'POST' }).then(json<{ ok: true }>)
 }
 
 export function openGitHubLoginBrowser(project: string, id: string): Promise<{ streamUrl: string }> {
-  return fetch(`/api/git-connections/github/${encodeURIComponent(id)}/browser?${projectQs(project)}`, { method: 'POST' }).then(json<{ streamUrl: string }>)
+  return mewFetch(`/api/git-connections/github/${encodeURIComponent(id)}/browser?${projectQs(project)}`, { method: 'POST' }).then(json<{ streamUrl: string }>)
 }
 
 function gitAiCommitUrl(project: string, workspace: string, suffix = ''): string {
   return `/api/git/ai-commit${suffix}?${projectQs(project)}&workspace=${encodeURIComponent(workspace)}`
 }
 export function fetchGitAiCommit(project: string, workspace: string): Promise<{ job: GitAiCommitJob | null }> {
-  return fetch(gitAiCommitUrl(project, workspace)).then(json<{ job: GitAiCommitJob | null }>)
+  return mewFetch(gitAiCommitUrl(project, workspace)).then(json<{ job: GitAiCommitJob | null }>)
 }
 export function startGitAiCommit(project: string, workspace: string, id: string, agentSetId: string, files: string[]): Promise<{ job: GitAiCommitJob }> {
   return gitFetch(gitAiCommitUrl(project, workspace), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, agentSetId, files }) }, project).then(json<{ job: GitAiCommitJob }>)
 }
 export function stopGitAiCommit(project: string, workspace: string, id: string): Promise<{ ok: true }> {
-  return fetch(gitAiCommitUrl(project, workspace, `/${encodeURIComponent(id)}/stop`), { method: 'POST' }).then(json<{ ok: true }>)
+  return mewFetch(gitAiCommitUrl(project, workspace, `/${encodeURIComponent(id)}/stop`), { method: 'POST' }).then(json<{ ok: true }>)
 }
 
 export function createSubproject(path: string, project: string): Promise<{ ok: true }> {
-  return fetch(`/api/subprojects?${projectQs(project)}`, {
+  return mewFetch(`/api/subprojects?${projectQs(project)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }),
   }).then(json<{ ok: true }>)
 }
 
 export function initializeGitRepository(path = '', project = currentProject): Promise<GitRepositoryInfo> {
-  return fetch(`/api/git/init?${projectQs(project)}`, {
+  return mewFetch(`/api/git/init?${projectQs(project)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -498,27 +500,27 @@ export function initializeGitRepository(path = '', project = currentProject): Pr
 }
 
 export function fetchGitLog(path = '', project = currentProject, limit = 300): Promise<{ commits: GitLogEntry[] }> {
-  return fetch(`/api/git/log?path=${encodeURIComponent(path)}&limit=${limit}&${projectQs(project)}`).then(json<{ commits: GitLogEntry[] }>)
+  return mewFetch(`/api/git/log?path=${encodeURIComponent(path)}&limit=${limit}&${projectQs(project)}`).then(json<{ commits: GitLogEntry[] }>)
 }
 
 export function fetchGitRepositories(project = currentProject): Promise<{ repositories: GitRepositoryEntry[] }> {
-  return fetch(`/api/git/repositories?${projectQs(project)}`).then(json<{ repositories: GitRepositoryEntry[] }>)
+  return mewFetch(`/api/git/repositories?${projectQs(project)}`).then(json<{ repositories: GitRepositoryEntry[] }>)
 }
 
 export function fetchGitCommit(path: string, hash: string, project = currentProject): Promise<GitCommitDetail> {
-  return fetch(`/api/git/commit?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&${projectQs(project)}`).then(json<GitCommitDetail>)
+  return mewFetch(`/api/git/commit?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&${projectQs(project)}`).then(json<GitCommitDetail>)
 }
 
 export function fetchGitDiff(path: string, hash: string, file: string, project = currentProject): Promise<{ diff: string }> {
-  return fetch(`/api/git/diff?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&file=${encodeURIComponent(file)}&${projectQs(project)}`).then(json<{ diff: string }>)
+  return mewFetch(`/api/git/diff?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&file=${encodeURIComponent(file)}&${projectQs(project)}`).then(json<{ diff: string }>)
 }
 
 export function fetchGitWorkingTree(path = '', project = currentProject): Promise<GitWorkingTreeDetail> {
-  return fetch(`/api/git/working-tree?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<GitWorkingTreeDetail>)
+  return mewFetch(`/api/git/working-tree?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<GitWorkingTreeDetail>)
 }
 
 export function fetchGitWorkingTreeDiff(path: string, file: string, project = currentProject): Promise<{ diff: string }> {
-  return fetch(`/api/git/working-tree/diff?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}&${projectQs(project)}`).then(json<{ diff: string }>)
+  return mewFetch(`/api/git/working-tree/diff?path=${encodeURIComponent(path)}&file=${encodeURIComponent(file)}&${projectQs(project)}`).then(json<{ diff: string }>)
 }
 
 export function commitGitWorkingTree(path: string, title: string, description: string, project: string, files: string[]): Promise<GitWorkingTreeCommitResult> {
@@ -530,7 +532,7 @@ export function commitGitWorkingTree(path: string, title: string, description: s
 }
 
 export function discardGitWorkingTree(path: string, project: string, workspace: string, files: string[]): Promise<{ ok: true }> {
-  return fetch(`/api/git/discard?${projectQs(project)}`, {
+  return mewFetch(`/api/git/discard?${projectQs(project)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, workspace, files }),
@@ -548,7 +550,7 @@ export function runGitCommitAction(path: string, action: GitCommitAction, hash: 
 export interface GitBranchRef { name: string; ref: string; kind: 'local' | 'remote' | 'tag' }
 
 export function fetchGitBranches(path: string, project: string): Promise<{ branches: GitBranchRef[] }> {
-  return fetch(`/api/git/branches?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<{ branches: GitBranchRef[] }>)
+  return mewFetch(`/api/git/branches?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<{ branches: GitBranchRef[] }>)
 }
 
 export function runGitBranchAction(path: string, action: 'switch' | 'create', ref: string, name: string | undefined, project: string, workspace: string): Promise<GitRepositoryInfo> {
@@ -599,7 +601,7 @@ export function externalDownloadUrl(path: string): string {
 }
 
 export function openExternalProject(path: string): Promise<WorkspaceInfo & { project: string }> {
-  return fetch('/api/fs/open-project', {
+  return mewFetch('/api/fs/open-project', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -618,12 +620,12 @@ export interface WorkspaceInfo {
 
 /** 지금 열려 있는 워크스페이스 — owner 전용(서버 기계의 경로다) */
 export function fetchWorkspace(): Promise<WorkspaceInfo> {
-  return fetch('/api/workspace').then(json<WorkspaceInfo>)
+  return mewFetch('/api/workspace').then(json<WorkspaceInfo>)
 }
 
 /** 워크스페이스를 통째로 바꾼다 — owner 전용. 성공하면 클라이언트가 새 루트 상태로 교체한다. */
 export function switchWorkspace(path: string): Promise<WorkspaceInfo> {
-  return fetch('/api/workspace', {
+  return mewFetch('/api/workspace', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -631,7 +633,7 @@ export function switchWorkspace(path: string): Promise<WorkspaceInfo> {
 }
 
 export function openSubproject(path: string, project: string, workspace: string): Promise<WorkspaceInfo> {
-  return fetch(`/api/subprojects/open?project=${encodeURIComponent(project)}`, {
+  return mewFetch(`/api/subprojects/open?project=${encodeURIComponent(project)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, workspace }),
@@ -641,7 +643,7 @@ export function openSubproject(path: string, project: string, workspace: string)
 /** 기억해 둔 활성 프로젝트를 버린다 — 워크스페이스가 바뀌면 그 이름은 남의 폴더 것이라 docs부터 다시 시작한다 */
 export function forgetSavedProject(): void {
   try {
-    localStorage.removeItem(PROJECT_KEY)
+    scopedBrowserStorage().removeItem(PROJECT_KEY)
   } catch {
     // 저장소를 못 쓰는 브라우저 — 어차피 기억해 둔 것도 없다
   }
@@ -649,7 +651,7 @@ export function forgetSavedProject(): void {
 
 /** docs로 쓸 폴더를 워크스페이스 안에서 바꾼다 — owner 전용. 성공하면 **화면을 다시 띄워야 한다**(열린 docs 탭이 옛 폴더 것이다) */
 export function setDocsRoot(path: string): Promise<WorkspaceInfo> {
-  return fetch('/api/docs/root', {
+  return mewFetch('/api/docs/root', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -658,7 +660,7 @@ export function setDocsRoot(path: string): Promise<WorkspaceInfo> {
 
 /** 외부 폴더로 docs를 덮어쓴다 — owner 전용, **기존 docs 내용은 사라진다**(호출 전 확인 필수) */
 export function importDocs(path: string): Promise<{ ok: true }> {
-  return fetch('/api/docs/import', {
+  return mewFetch('/api/docs/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -667,7 +669,7 @@ export function importDocs(path: string): Promise<{ ok: true }> {
 
 /** docs 폴더를 대상 폴더 아래 `docs`로 복사한다 — owner 전용. 응답의 path는 만들어진 폴더 */
 export function exportDocs(path: string): Promise<{ ok: true; path: string }> {
-  return fetch('/api/docs/export', {
+  return mewFetch('/api/docs/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -675,18 +677,18 @@ export function exportDocs(path: string): Promise<{ ok: true; path: string }> {
 }
 
 export function fetchBrowserFrameUrl(url: string): Promise<{ url: string }> {
-  return fetch(`/api/browser-url?url=${encodeURIComponent(url)}`).then(json<{ url: string }>)
+  return mewFetch(`/api/browser-url?url=${encodeURIComponent(url)}`).then(json<{ url: string }>)
 }
 
 export type ServerBrowserTab = { id: string; url: string; title: string; streamUrl: string }
 export function listServerBrowserTabs(): Promise<ServerBrowserTab[]> {
-  return fetch('/api/browser-dom/tabs').then(json<ServerBrowserTab[]>)
+  return mewFetch('/api/browser-dom/tabs').then(json<ServerBrowserTab[]>)
 }
 export function openServerBrowserTab(id: string, url: string): Promise<ServerBrowserTab> {
-  return fetch('/api/browser-dom/tabs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, url }) }).then(json<ServerBrowserTab>)
+  return mewFetch('/api/browser-dom/tabs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, url }) }).then(json<ServerBrowserTab>)
 }
 export function closeServerBrowserTab(id: string): Promise<{ ok: true }> {
-  return fetch(`/api/browser-dom/tabs/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+  return mewFetch(`/api/browser-dom/tabs/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
 export interface AndroidEnvCheck {
@@ -715,11 +717,11 @@ export interface AndroidEnvStatus {
 }
 
 export function fetchAndroidEnvStatus(): Promise<AndroidEnvStatus> {
-  return fetch('/api/android/status').then(json<AndroidEnvStatus>)
+  return mewFetch('/api/android/status').then(json<AndroidEnvStatus>)
 }
 
 export function runAndroidCommand(id: string): Promise<{ ok: true; session: string }> {
-  return fetch(`/api/android/commands/${encodeURIComponent(id)}/run`, { method: 'POST' }).then(
+  return mewFetch(`/api/android/commands/${encodeURIComponent(id)}/run`, { method: 'POST' }).then(
     json<{ ok: true; session: string }>,
   )
 }
@@ -742,11 +744,11 @@ export interface MewUpdateStatus {
 }
 
 export function fetchMewUpdateStatus(refreshRemote = false): Promise<MewUpdateStatus> {
-  return fetch(`/api/mew-update/status${refreshRemote ? '?refresh=1' : ''}`).then(json<MewUpdateStatus>)
+  return mewFetch(`/api/mew-update/status${refreshRemote ? '?refresh=1' : ''}`).then(json<MewUpdateStatus>)
 }
 
 export function runMewAction(id: 'restart' | 'build' | 'update'): Promise<{ ok: true; session: string }> {
-  return fetch(`/api/mew-actions/${id}/run`, { method: 'POST' }).then(json<{ ok: true; session: string }>)
+  return mewFetch(`/api/mew-actions/${id}/run`, { method: 'POST' }).then(json<{ ok: true; session: string }>)
 }
 
 export interface SkillSummary {
@@ -759,7 +761,7 @@ export function fetchSkills(cwd?: string, runtime?: string): Promise<{ skills: S
   const query = new URLSearchParams()
   if (cwd) query.set('cwd', cwd)
   if (runtime) query.set('runtime', runtime)
-  return fetch(`/api/skills?${query}`).then(json<{ skills: SkillSummary[] }>)
+  return mewFetch(`/api/skills?${query}`).then(json<{ skills: SkillSummary[] }>)
 }
 
 export interface AgentRuntimeStatus {
@@ -774,11 +776,11 @@ export interface AgentRuntimeStatus {
 }
 
 export function fetchAgentRuntimes(): Promise<{ runtimes: AgentRuntimeStatus[] }> {
-  return fetch('/api/agent-runtimes').then(json<{ runtimes: AgentRuntimeStatus[] }>)
+  return mewFetch('/api/agent-runtimes').then(json<{ runtimes: AgentRuntimeStatus[] }>)
 }
 
 export function startAgentTerminal(runtime: string, tab: string, cwd: string): Promise<{ ok: true; session: string }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/terminal/${encodeURIComponent(tab)}`, {
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/terminal/${encodeURIComponent(tab)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cwd }),
@@ -786,32 +788,32 @@ export function startAgentTerminal(runtime: string, tab: string, cwd: string): P
 }
 
 export function stopAgentTerminal(runtime: string, tab: string): Promise<{ ok: true }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/terminal/${encodeURIComponent(tab)}`, {
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/terminal/${encodeURIComponent(tab)}`, {
     method: 'DELETE',
   }).then(json<{ ok: true }>)
 }
 
 export function installAgentRuntime(id: string): Promise<{ status: AgentRuntimeStatus; output: string }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/install`, { method: 'POST' }).then(
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(id)}/install`, { method: 'POST' }).then(
     json<{ status: AgentRuntimeStatus; output: string }>,
   )
 }
 
 export function uninstallAgentRuntime(id: string): Promise<{ status: AgentRuntimeStatus; output: string }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/install`, { method: 'DELETE' }).then(json<{ status: AgentRuntimeStatus; output: string }>)
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(id)}/install`, { method: 'DELETE' }).then(json<{ status: AgentRuntimeStatus; output: string }>)
 }
 
 export function logoutAgentRuntime(id: string): Promise<{ output: string }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/logout`, { method: 'POST' }).then(json<{ output: string }>)
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(id)}/logout`, { method: 'POST' }).then(json<{ output: string }>)
 }
 
 /** 런타임 설정 — env 값은 마스킹(마지막 4자)이라 원문을 되찾을 수 없다. 덮어쓸 때만 전송한다 */
 export function fetchAgentRuntimeSetting(id: string): Promise<{ settings: RuntimeSettingView | null }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`).then(json<{ settings: RuntimeSettingView | null }>)
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`).then(json<{ settings: RuntimeSettingView | null }>)
 }
 
 export function saveAgentRuntimeSetting(id: string, settings: RuntimeSettingInput): Promise<{ settings: RuntimeSettingView | null }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`, {
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
@@ -819,11 +821,11 @@ export function saveAgentRuntimeSetting(id: string, settings: RuntimeSettingInpu
 }
 
 export function deleteAgentRuntimeSetting(id: string): Promise<{ ok: boolean }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`, { method: 'DELETE' }).then(json<{ ok: boolean }>)
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(id)}/settings`, { method: 'DELETE' }).then(json<{ ok: boolean }>)
 }
 
 export function fetchAgentRuntimeAccount(id: string): Promise<{ account: import('../../shared/agent-access').RuntimeAccount }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(id)}/account`, { cache: 'no-store' }).then(json<{ account: import('../../shared/agent-access').RuntimeAccount }>)
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(id)}/account`, { cache: 'no-store' }).then(json<{ account: import('../../shared/agent-access').RuntimeAccount }>)
 }
 
 /** 저장된 런타임 설정의 마스킹 뷰 — 시크릿은 ****끝4자만 온다 */
@@ -859,7 +861,7 @@ export interface AgentAuthTerminalStatus {
 }
 
 export function runAgentAuthTerminal(runtime: string, tab: string, cwd: string, methodId: string): Promise<AgentAuthTerminal> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/run`, {
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tab, cwd }),
@@ -874,7 +876,7 @@ export function fetchAgentAuthTerminalStatus(
   methodId: string,
 ): Promise<AgentAuthTerminalStatus> {
   const query = new URLSearchParams({ tab })
-  return fetch(
+  return mewFetch(
     `/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/status?${query}`,
   ).then(json<AgentAuthTerminalStatus>)
 }
@@ -884,7 +886,7 @@ export function openAgentAuthServerBrowser(
   tab: string,
   methodId: string,
 ): Promise<{ url: string; streamUrl: string }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/browser`, {
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/browser`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tab }),
@@ -892,7 +894,7 @@ export function openAgentAuthServerBrowser(
 }
 
 export function submitAgentAuthBrowserInput(runtime: string, tab: string, methodId: string, input: string): Promise<{ ok: true }> {
-  return fetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/input`, {
+  return mewFetch(`/api/agent-runtimes/${encodeURIComponent(runtime)}/auth/${encodeURIComponent(methodId)}/input`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tab, input }),
@@ -906,11 +908,11 @@ export interface AgentRuntimeDefault {
 }
 
 export function fetchAgentDefault(id: string): Promise<{ settings: AgentRuntimeDefault | null }> {
-  return fetch(`/api/agent-defaults/${encodeURIComponent(id)}`).then(json<{ settings: AgentRuntimeDefault | null }>)
+  return mewFetch(`/api/agent-defaults/${encodeURIComponent(id)}`).then(json<{ settings: AgentRuntimeDefault | null }>)
 }
 
 export function saveAgentDefault(id: string, settings: AgentRuntimeDefault): Promise<{ settings: AgentRuntimeDefault }> {
-  return fetch(`/api/agent-defaults/${encodeURIComponent(id)}`, {
+  return mewFetch(`/api/agent-defaults/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
@@ -939,7 +941,7 @@ export type TodoStatus = 'open' | 'done' | 'canceled' | 'missed'
 
 /** 로그인 사용자의 할 일 — 홈 탭. 게스트에게는 닫혀 있다 */
 export function fetchTodos(): Promise<{ items: TodoItem[] }> {
-  return fetch('/api/todos').then(json<{ items: TodoItem[] }>)
+  return mewFetch('/api/todos').then(json<{ items: TodoItem[] }>)
 }
 
 export function createTodo(input: {
@@ -949,7 +951,7 @@ export function createTodo(input: {
   time?: string | null
   projects?: string[]
 }): Promise<{ item: TodoItem }> {
-  return fetch('/api/todos', {
+  return mewFetch('/api/todos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -968,7 +970,7 @@ export function updateTodo(
     projects?: string[]
   },
 ): Promise<{ item: TodoItem }> {
-  return fetch(`/api/todos/${encodeURIComponent(id)}`, {
+  return mewFetch(`/api/todos/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(change),
@@ -976,7 +978,7 @@ export function updateTodo(
 }
 
 export function deleteTodo(id: string): Promise<{ ok: true }> {
-  return fetch(`/api/todos/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+  return mewFetch(`/api/todos/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
 /** archives/ 불변 규칙은 docs 프로젝트 전용 — 다른 프로젝트의 같은 이름 폴더에는 적용하지 않는다 */
@@ -1003,14 +1005,14 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export async function fetchTaskList(workspace: string, email: string): Promise<import('../../shared/task-list').TaskBoard> {
-  return json(await fetch(`/api/task-list?workspace=${encodeURIComponent(workspace)}`, { headers: { 'X-Mew-Task-Owner': encodeURIComponent(email) } }))
+  return json(await mewFetch(`/api/task-list?workspace=${encodeURIComponent(workspace)}`, { headers: { 'X-Mew-Task-Owner': encodeURIComponent(email) } }))
 }
 async function taskListJson(res: Response): Promise<import('../../shared/task-list').TaskBoard> {
   try { return await json(res) }
   catch (error) { throw Object.assign(error as Error, { status: res.status }) }
 }
 export async function patchTaskList(workspace: string, changes: import('../../shared/task-list').TaskChange[], email: string, tagColorChanges: import('../../shared/task-tag-colors').TaskTagColorChange[] = [], deletedTags: string[] = []): Promise<import('../../shared/task-list').TaskBoard> {
-  return taskListJson(await fetch('/api/task-list', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Mew-Task-Owner': encodeURIComponent(email) }, body: JSON.stringify({ workspace, changes, tagColorChanges, deletedTags }) }))
+  return taskListJson(await mewFetch('/api/task-list', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Mew-Task-Owner': encodeURIComponent(email) }, body: JSON.stringify({ workspace, changes, tagColorChanges, deletedTags }) }))
 }
 
 export type Role = 'owner' | 'manager' | 'member' | 'guest'
@@ -1027,14 +1029,14 @@ export interface AuthStatus {
 }
 
 export function fetchAuthStatus(): Promise<AuthStatus> {
-  return fetch('/api/auth/me').then(json<AuthStatus>)
+  return mewFetch('/api/auth/me').then(json<AuthStatus>)
 }
 
 export function login(
   email: string,
   password: string,
 ): Promise<{ ok: true; email: string; role: Role; mustChangePassword: boolean }> {
-  return fetch('/api/auth/login', {
+  return mewFetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -1042,11 +1044,12 @@ export function login(
 }
 
 export function logout(): Promise<{ ok: true }> {
-  return fetch('/api/auth/logout', { method: 'POST' }).then(json<{ ok: true }>)
+  if (isRemoteMode()) return globalThis.fetch('/central/logout', { method: 'POST' }).then(json<{ ok: true }>).then(result => { location.assign('/dashboard'); return result })
+  return mewFetch('/api/auth/logout', { method: 'POST' }).then(json<{ ok: true }>)
 }
 
 export function changePassword(currentPassword: string, newPassword: string): Promise<{ ok: true }> {
-  return fetch('/api/auth/change-password', {
+  return mewFetch('/api/auth/change-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ currentPassword, newPassword }),
@@ -1060,7 +1063,7 @@ export interface MemberProfile {
 }
 
 export function updateProfile(displayName: string, avatarDataUrl: string | null): Promise<{ ok: true; profile: MemberProfile }> {
-  return fetch('/api/auth/profile', {
+  return mewFetch('/api/auth/profile', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ displayName, avatarDataUrl }),
@@ -1069,24 +1072,24 @@ export function updateProfile(displayName: string, avatarDataUrl: string | null)
 
 /** 프로젝트 루트 또는 지정한 폴더의 직접 자식만 읽는다. */
 export function fetchTree(project?: string, path = ''): Promise<TreeNode[]> {
-  return fetch(`/api/tree?${projectQs(project)}&path=${encodeURIComponent(path)}`).then(json<TreeNode[]>)
+  return mewFetch(`/api/tree?${projectQs(project)}&path=${encodeURIComponent(path)}`).then(json<TreeNode[]>)
 }
 
 export type TreeResponseV1 = { version: number; state: 'ready' | 'building' | 'stale'; entries: TreeNode[] }
 
 export function fetchTreeV1(project?: string, path = ''): Promise<TreeResponseV1> {
-  return fetch(`/api/tree?${projectQs(project)}&path=${encodeURIComponent(path)}&v=1`).then(json<TreeResponseV1>)
+  return mewFetch(`/api/tree?${projectQs(project)}&path=${encodeURIComponent(path)}&v=1`).then(json<TreeResponseV1>)
 }
 
 /** Ctrl+P처럼 전체 후보가 필요한 자리만 쓰는 완전 트리. 평상시 탐색기는 한 단계 지연 로드를 쓴다. */
 export function fetchFullTree(project?: string, signal?: AbortSignal): Promise<TreeNode[]> {
-  return fetch(`/api/tree?${projectQs(project)}`, { signal }).then(json<TreeNode[]>)
+  return mewFetch(`/api/tree?${projectQs(project)}`, { signal }).then(json<TreeNode[]>)
 }
 
 // 탭 상태를 다루는 호출(읽기·저장·규칙)은 프로젝트를 명시적으로 받는다 — 자동저장 디바운스처럼
 // 프로젝트 전환보다 오래 사는 작업이 엉뚱한 프로젝트에 쓰지 않도록.
 export function fetchFile(path: string, project?: string): Promise<{ path: string; content: string; editable: boolean }> {
-  return fetch(`/api/file?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(
+  return mewFetch(`/api/file?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(
     json<{ path: string; content: string; editable: boolean }>,
   )
 }
@@ -1109,7 +1112,7 @@ export type FileAnchorPreviewResponse = FileAnchorPreview | { path: string; cont
 /** 목표 줄이 있는 큰 plain 파일의 첫 조각. 작은 파일은 호환되는 전체 본문 응답을 돌려준다. */
 export function fetchFileAnchorPreview(path: string, anchorLine: number, project?: string): Promise<FileAnchorPreviewResponse> {
   const qs = `path=${encodeURIComponent(path)}&anchorLine=${anchorLine}&chunkLines=400&${projectQs(project)}`
-  return fetch(`/api/file?${qs}`).then(json<FileAnchorPreviewResponse>)
+  return mewFetch(`/api/file?${qs}`).then(json<FileAnchorPreviewResponse>)
 }
 
 export interface SearchMatch {
@@ -1152,7 +1155,7 @@ export interface FileNameSearchResponse {
 export function searchFileNames(query: string, opts: SearchOptions, signal?: AbortSignal): Promise<FileNameSearchResponse> {
   const params = new URLSearchParams({ q: query, regex: opts.regex ? '1' : '0', case: opts.caseSensitive ? '1' : '0' })
   if (opts.scopes?.length) params.set('scopes', opts.scopes.join(','))
-  return fetch(`/api/search/files?${params.toString()}`, { signal }).then(json<FileNameSearchResponse>)
+  return mewFetch(`/api/search/files?${params.toString()}`, { signal }).then(json<FileNameSearchResponse>)
 }
 
 /** 프로젝트 전체 파일 내용 검색(Ctrl+Shift+F) */
@@ -1164,7 +1167,7 @@ export function searchProject(query: string, opts: SearchOptions, project: strin
     case: opts.caseSensitive ? '1' : '0',
   })
   if (opts.scopes?.length) params.set('scopes', opts.scopes.join(','))
-  return fetch(`/api/search?${params.toString()}`).then(json<{ results: SearchFileResult[]; truncated: boolean }>)
+  return mewFetch(`/api/search?${params.toString()}`).then(json<{ results: SearchFileResult[]; truncated: boolean }>)
 }
 
 /** 서버가 찾은 파일을 SSE로 즉시 보낸다. 완료 전에도 onResult가 여러 번 호출된다. */
@@ -1177,7 +1180,7 @@ export async function searchProjectStream(
 ): Promise<{ truncated: boolean; state: 'ready' | 'building' | 'stale' | 'disabled'; version: number; scannedDirtyFiles: number }> {
   const params = new URLSearchParams({ q: query, project, regex: opts.regex ? '1' : '0', case: opts.caseSensitive ? '1' : '0' })
   if (opts.scopes?.length) params.set('scopes', opts.scopes.join(','))
-  const response = await fetch(`/api/search/stream?${params}`, { signal })
+  const response = await mewFetch(`/api/search/stream?${params}`, { signal })
   if (!response.ok || !response.body) throw new Error(uiText("검색 스트림을 열 수 없습니다"))
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -1219,7 +1222,7 @@ export function replaceInProjectFile(
   opts: SearchOptions,
   project: string = currentProject,
 ): Promise<{ ok: true; count: number; commit: CommitResult | null }> {
-  return fetch('/api/search/replace', {
+  return mewFetch('/api/search/replace', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, query, replace, regex: opts.regex, caseSensitive: opts.caseSensitive, project }),
@@ -1234,7 +1237,7 @@ export interface AdminUser {
 }
 
 export function fetchUsers(): Promise<AdminUser[]> {
-  return fetch('/api/admin/users').then(json<AdminUser[]>)
+  return mewFetch('/api/admin/users').then(json<AdminUser[]>)
 }
 
 export interface AccessPathSettings {
@@ -1245,19 +1248,19 @@ export interface AccessPathSettings {
   entries: TreeNode[]
   permissions: { subject: string; explicit: FileRule | null; effective: { view: boolean; edit: boolean } }[]
 }
-export function fetchAccessSettings(): Promise<AccessSettings> { return fetch('/api/admin/access').then(json<AccessSettings>) }
+export function fetchAccessSettings(): Promise<AccessSettings> { return mewFetch('/api/admin/access').then(json<AccessSettings>) }
 export function saveFeatureAccess(subject: string, feature: Feature, enabled: boolean | null): Promise<AccessSettings> {
-  return fetch('/api/admin/access/feature', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, feature, enabled }) }).then(json<AccessSettings>)
+  return mewFetch('/api/admin/access/feature', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, feature, enabled }) }).then(json<AccessSettings>)
 }
 export function fetchAccessPath(project: string, path: string): Promise<AccessPathSettings> {
-  return fetch(`/api/admin/access/path?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`).then(json<AccessPathSettings>)
+  return mewFetch(`/api/admin/access/path?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`).then(json<AccessPathSettings>)
 }
 export function saveFileAccess(subject: string, project: string, path: string, access: string, workspace: string): Promise<{ ok: true }> {
-  return fetch('/api/admin/access/path', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, project, path, access, workspace }) }).then(json<{ ok: true }>)
+  return mewFetch('/api/admin/access/path', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, project, path, access, workspace }) }).then(json<{ ok: true }>)
 }
 
 export function addUser(email: string, role: Role): Promise<{ ok: true; email: string; tempPassword: string }> {
-  return fetch('/api/admin/users', {
+  return mewFetch('/api/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, role }),
@@ -1265,7 +1268,7 @@ export function addUser(email: string, role: Role): Promise<{ ok: true; email: s
 }
 
 export function setUserRole(email: string, role: Role): Promise<{ ok: true }> {
-  return fetch(`/api/admin/users/${encodeURIComponent(email)}/role`, {
+  return mewFetch(`/api/admin/users/${encodeURIComponent(email)}/role`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ role }),
@@ -1279,13 +1282,13 @@ export interface FileHistoryEntry {
 }
 
 export function fetchFileHistory(path: string, project: string = currentProject): Promise<{ history: FileHistoryEntry[] }> {
-  return fetch(`/api/file-history?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(
+  return mewFetch(`/api/file-history?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(
     json<{ history: FileHistoryEntry[] }>,
   )
 }
 
 export function fetchFileAtCommit(path: string, hash: string, project: string = currentProject): Promise<{ content: string | null }> {
-  return fetch(`/api/file-at-commit?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&${projectQs(project)}`).then(
+  return mewFetch(`/api/file-at-commit?path=${encodeURIComponent(path)}&hash=${encodeURIComponent(hash)}&${projectQs(project)}`).then(
     json<{ content: string | null }>,
   )
 }
@@ -1317,7 +1320,7 @@ export function saveFile(
 }
 
 export function deleteFile(path: string, project: string = currentProject): Promise<{ ok: true; commit: CommitResult | null }> {
-  return fetch(`/api/file?path=${encodeURIComponent(path)}&${projectQs(project)}`, { method: 'DELETE' }).then(
+  return mewFetch(`/api/file?path=${encodeURIComponent(path)}&${projectQs(project)}`, { method: 'DELETE' }).then(
     json<{ ok: true; commit: CommitResult | null }>,
   )
 }
@@ -1335,7 +1338,7 @@ export interface FileOpResult {
 }
 
 export function renamePath(oldPath: string, newPath: string, project: string = currentProject): Promise<FileOpResult> {
-  return fetch('/api/rename', {
+  return mewFetch('/api/rename', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ oldPath, newPath, project }),
@@ -1343,7 +1346,7 @@ export function renamePath(oldPath: string, newPath: string, project: string = c
 }
 
 export function createFolder(relPath: string, project: string = currentProject): Promise<FileOpResult> {
-  return fetch('/api/new-folder', {
+  return mewFetch('/api/new-folder', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ relPath, project }),
@@ -1360,7 +1363,7 @@ export interface LintDiagnostic {
 
 /** 편집 중인 버퍼를 서버 oxlint로 검사한다 — 저장 여부와 무관 (뷰어 모드에서는 403) */
 export function lintFile(path: string, content: string, project: string = currentProject): Promise<{ diagnostics: LintDiagnostic[] }> {
-  return fetch('/api/lint', {
+  return mewFetch('/api/lint', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content, project }),
@@ -1368,7 +1371,7 @@ export function lintFile(path: string, content: string, project: string = curren
 }
 
 export function copyFile(path: string, project: string = currentProject): Promise<FileOpResult> {
-  return fetch('/api/copy', {
+  return mewFetch('/api/copy', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, project }),
@@ -1382,7 +1385,7 @@ export function copyInto(
   project: string = currentProject,
   sourceWorkspacePath: string | null = null,
 ): Promise<FileOpResult> {
-  return fetch('/api/copy-into', {
+  return mewFetch('/api/copy-into', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ srcPath, destDir, project, ...(sourceWorkspacePath ? { sourceWorkspacePath } : {}) }),
@@ -1398,7 +1401,7 @@ export function uploadInto(file: File, destDir: string, project: string = curren
   body.append('file', file)
   body.append('destDir', destDir)
   body.append('project', project)
-  return fetch('/api/upload-into', { method: 'POST', body }).then(json<FileOpResult>)
+  return mewFetch('/api/upload-into', { method: 'POST', body }).then(json<FileOpResult>)
 }
 
 export function downloadUrl(path: string, project: string = currentProject): string {
@@ -1418,11 +1421,11 @@ export interface DocRules {
 }
 
 export function fetchRules(path: string, project?: string): Promise<DocRules> {
-  return fetch(`/api/rules?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<DocRules>)
+  return mewFetch(`/api/rules?path=${encodeURIComponent(path)}&${projectQs(project)}`).then(json<DocRules>)
 }
 
 export function createNewDocument(relPath: string, title: string, project: string = currentProject): Promise<FileOpResult> {
-  return fetch('/api/new-document', {
+  return mewFetch('/api/new-document', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ relPath, title, project }),
@@ -1432,13 +1435,13 @@ export function createNewDocument(relPath: string, title: string, project: strin
 /** 외부 링크 미리보기 — 서버가 대신 fetch해서 제목·설명을 뽑아준다 (뷰어 모드에선 403) */
 /** 표 열 너비 — 본문 md에 담을 수 없어 프로젝트의 .mew/table-layout.json에 따로 저장된다 */
 export function fetchTableLayout(path: string, project: string = currentProject): Promise<TableWidths> {
-  return fetch(`/api/table-layout?path=${encodeURIComponent(path)}&${projectQs(project)}`)
+  return mewFetch(`/api/table-layout?path=${encodeURIComponent(path)}&${projectQs(project)}`)
     .then(json<{ tables: TableWidths }>)
     .then((r) => r.tables)
 }
 
 export function saveTableLayout(path: string, tables: TableWidths, project: string = currentProject): Promise<void> {
-  return fetch('/api/table-layout', {
+  return mewFetch('/api/table-layout', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, tables, project }),
@@ -1477,14 +1480,14 @@ export interface ChatView {
 }
 
 export function fetchChat(): Promise<ChatView> {
-  return fetch('/api/chat')
+  return mewFetch('/api/chat')
     .then(json<Partial<ChatView>>)
     .then((r) => ({ messages: r.messages ?? [], unread: r.unread ?? {}, dmSupported: r.unread !== undefined }))
 }
 
 /** to를 주면 그 사람들에게만 가는 DM이다 */
 export function postChat(text: string, to?: string[]): Promise<ChatMessage> {
-  return fetch('/api/chat', {
+  return mewFetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(to && to.length > 0 ? { text, to } : { text }),
@@ -1495,7 +1498,7 @@ export function postChat(text: string, to?: string[]): Promise<ChatMessage> {
 
 /** 이 대화를 여기까지 읽었다고 서버에 알린다 — 보낸 쪽 화면의 숫자가 줄어든다 */
 export function markChatRead(conversation: string): Promise<void> {
-  return fetch('/api/chat/read', {
+  return mewFetch('/api/chat/read', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ conversation }),
@@ -1506,13 +1509,13 @@ export function markChatRead(conversation: string): Promise<void> {
 
 /** 멘션 자동완성용 계정 이메일 목록 — 로그인 사용자 전용 */
 export function fetchMembers(): Promise<string[]> {
-  return fetch('/api/members')
+  return mewFetch('/api/members')
     .then(json<{ members: string[] }>)
     .then((r) => r.members)
 }
 
 export function fetchMemberProfiles(): Promise<MemberProfile[]> {
-  return fetch('/api/member-profiles')
+  return mewFetch('/api/member-profiles')
     .then(json<{ members: MemberProfile[] }>)
     .then((r) => r.members)
 }
@@ -1532,7 +1535,7 @@ export interface CommentThread {
 }
 
 export function fetchComments(path: string, project: string = currentProject): Promise<CommentThread[]> {
-  return fetch(`/api/comments?path=${encodeURIComponent(path)}&${projectQs(project)}`)
+  return mewFetch(`/api/comments?path=${encodeURIComponent(path)}&${projectQs(project)}`)
     .then(json<{ threads: CommentThread[] }>)
     .then((r) => r.threads)
 }
@@ -1543,7 +1546,7 @@ export function postComment(
   body: { threadId?: string; anchor?: import('@mew/editor').CommentAnchor; text: string },
   project: string = currentProject,
 ): Promise<CommentThread> {
-  return fetch('/api/comments', {
+  return mewFetch('/api/comments', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, project, ...body }),
@@ -1559,7 +1562,7 @@ export function updateComment(
   text: string,
   project: string = currentProject,
 ): Promise<CommentThread> {
-  return fetch('/api/comments', {
+  return mewFetch('/api/comments', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, project, threadId, commentId, text }),
@@ -1576,13 +1579,13 @@ export function deleteComment(
   project: string = currentProject,
 ): Promise<CommentThread | null> {
   const qs = `path=${encodeURIComponent(path)}&threadId=${encodeURIComponent(threadId)}&commentId=${encodeURIComponent(commentId)}&${projectQs(project)}`
-  return fetch(`/api/comments?${qs}`, { method: 'DELETE' })
+  return mewFetch(`/api/comments?${qs}`, { method: 'DELETE' })
     .then(json<{ ok: true; thread: CommentThread | null }>)
     .then((r) => r.thread)
 }
 
 export function fetchLinkPreview(url: string): Promise<{ title: string | null; description: string | null }> {
-  return fetch(`/api/link-preview?url=${encodeURIComponent(url)}`).then(
+  return mewFetch(`/api/link-preview?url=${encodeURIComponent(url)}`).then(
     json<{ title: string | null; description: string | null }>,
   )
 }
@@ -1593,7 +1596,7 @@ export async function uploadAsset(file: File, project: string = currentProject):
   const body = new FormData()
   body.append('file', await compressImage(file))
   body.append('project', project)
-  return fetch('/api/upload', { method: 'POST', body })
+  return mewFetch('/api/upload', { method: 'POST', body })
     .then(json<{ path: string; name: string; mimetype: string }>)
     .then(({ path, name, mimetype }) => ({
       url: `/api/asset?path=${encodeURIComponent(path)}&${projectQs(project)}`,
@@ -1604,7 +1607,7 @@ export async function uploadAsset(file: File, project: string = currentProject):
 
 export function fetchTmuxSessions(): Promise<TmuxSession[]> {
   // 명령어 버튼이 띄운 세션(mewcmd-*)은 터미널 탭 목록에서 감춘다 — 팝업으로만 본다
-  return fetch('/api/tmux/sessions')
+  return mewFetch('/api/tmux/sessions')
     .then(json<TmuxSession[]>)
     .then((sessions) => sessions.filter((s) => !isHiddenTmuxSession(s.name)))
 }
@@ -1639,7 +1642,7 @@ export interface SystemStats {
 }
 
 export function fetchSystemStats(signal?: AbortSignal): Promise<SystemStats> {
-  return fetch('/api/system-stats', { signal }).then(json<SystemStats>)
+  return mewFetch('/api/system-stats', { signal }).then(json<SystemStats>)
 }
 
 // ---- 예약 에이전트 작업 (crontab 생성원) ----
@@ -1674,11 +1677,11 @@ export interface SchedulesResponse {
 }
 
 export function fetchSchedules(): Promise<SchedulesResponse> {
-  return fetch('/api/schedules').then(json<SchedulesResponse>)
+  return mewFetch('/api/schedules').then(json<SchedulesResponse>)
 }
 
 export function saveSchedules(jobs: AgentJob[]): Promise<SchedulesResponse> {
-  return fetch('/api/schedules', {
+  return mewFetch('/api/schedules', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jobs }),
@@ -1687,7 +1690,7 @@ export function saveSchedules(jobs: AgentJob[]): Promise<SchedulesResponse> {
 
 /** 예약을 기다리지 않고 지금 한 번 돌린다 — 크론이 도는 것과 같은 세션·같은 명령이다 */
 export function runSchedule(id: string): Promise<{ ok: true; session: string }> {
-  return fetch('/api/schedules/run', {
+  return mewFetch('/api/schedules/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }),
@@ -1716,11 +1719,11 @@ export interface CmdButton {
 
 // 프로젝트 탭마다 자기 메뉴를 띄우므로(활성 프로젝트 것만 보는 게 아니다) 프로젝트를 명시적으로 받는다
 export function fetchCmdButtons(project: string, path = ''): Promise<{ buttons: CmdButtonState[] }> {
-  return fetch(`/api/cmd-buttons?${projectQs(project)}&path=${encodeURIComponent(path)}`).then(json<{ buttons: CmdButtonState[] }>)
+  return mewFetch(`/api/cmd-buttons?${projectQs(project)}&path=${encodeURIComponent(path)}`).then(json<{ buttons: CmdButtonState[] }>)
 }
 
 export function runCmdButton(project: string, name: string, path = ''): Promise<{ ok: true; session: string }> {
-  return fetch('/api/cmd-buttons/run', {
+  return mewFetch('/api/cmd-buttons/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, project, path }),
@@ -1729,7 +1732,7 @@ export function runCmdButton(project: string, name: string, path = ''): Promise<
 
 /** 목록 전체를 통째로 저장한다 — 추가·수정·삭제 모두 이 한 경로를 쓴다 (term-buttons와 같은 방식) */
 export function saveCmdButtons(project: string, buttons: CmdButton[], path = ''): Promise<{ buttons: CmdButtonState[] }> {
-  return fetch('/api/cmd-buttons', {
+  return mewFetch('/api/cmd-buttons', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ project, buttons, path }),
@@ -1748,12 +1751,12 @@ export interface TermButton {
 }
 
 export function fetchTermButtons(): Promise<{ buttons: TermButton[] }> {
-  return fetch('/api/term-buttons').then(json<{ buttons: TermButton[] }>)
+  return mewFetch('/api/term-buttons').then(json<{ buttons: TermButton[] }>)
 }
 
 /** 목록 전체를 통째로 저장한다 — 추가·수정·삭제 모두 이 한 경로를 쓴다 */
 export function saveTermButtons(buttons: TermButton[]): Promise<{ buttons: TermButton[] }> {
-  return fetch('/api/term-buttons', {
+  return mewFetch('/api/term-buttons', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ buttons }),
@@ -1772,12 +1775,12 @@ export interface IgnoreListState {
 }
 
 export function fetchIgnoreList(): Promise<IgnoreListState> {
-  return fetch('/api/ignore').then(json<IgnoreListState>)
+  return mewFetch('/api/ignore').then(json<IgnoreListState>)
 }
 
 /** 목록 전체를 통째로 저장한다 — 저장 즉시 모든 세션의 트리가 다시 그려진다 */
 export function saveIgnoreList(names: string[]): Promise<IgnoreListState> {
-  return fetch('/api/ignore', {
+  return mewFetch('/api/ignore', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ names }),
@@ -1785,7 +1788,7 @@ export function saveIgnoreList(names: string[]): Promise<IgnoreListState> {
 }
 
 export function createTmuxSession(name: string): Promise<{ ok: true; name: string }> {
-  return fetch('/api/tmux/sessions', {
+  return mewFetch('/api/tmux/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -1793,11 +1796,11 @@ export function createTmuxSession(name: string): Promise<{ ok: true; name: strin
 }
 
 export function killTmuxSession(name: string): Promise<{ ok: true }> {
-  return fetch(`/api/tmux/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
+  return mewFetch(`/api/tmux/sessions/${encodeURIComponent(name)}`, { method: 'DELETE' }).then(json<{ ok: true }>)
 }
 
 export function renameTmuxSession(name: string, newName: string): Promise<{ ok: true; name: string }> {
-  return fetch(`/api/tmux/sessions/${encodeURIComponent(name)}/rename`, {
+  return mewFetch(`/api/tmux/sessions/${encodeURIComponent(name)}/rename`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ newName }),
@@ -1810,11 +1813,11 @@ export function renameTmuxSession(name: string, newName: string): Promise<{ ok: 
 const DB_BASE = '/api/db'
 
 function dbList(project: string = currentProject): Promise<DbSummary[]> {
-  return fetch(`${DB_BASE}?${projectQs(project)}`).then(json<DbSummary[]>)
+  return mewFetch(`${DB_BASE}?${projectQs(project)}`).then(json<DbSummary[]>)
 }
 
 function dbCreate(title: string, project: string = currentProject): Promise<DbView> {
-  return fetch(DB_BASE, {
+  return mewFetch(DB_BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, project }),
@@ -1822,7 +1825,7 @@ function dbCreate(title: string, project: string = currentProject): Promise<DbVi
 }
 
 function dbAttachExternal(schema: string, table: string, title?: string, project: string = currentProject): Promise<DbView> {
-  return fetch(`${DB_BASE}/attach`, {
+  return mewFetch(`${DB_BASE}/attach`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ schema, table, title, project }),
@@ -1830,15 +1833,15 @@ function dbAttachExternal(schema: string, table: string, title?: string, project
 }
 
 function dbGetView(id: string, project: string = currentProject): Promise<DbView> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}?${projectQs(project)}`).then(json<DbView>)
+  return mewFetch(`${DB_BASE}/${encodeURIComponent(id)}?${projectQs(project)}`).then(json<DbView>)
 }
 
 function dbRemove(id: string, project: string = currentProject): Promise<void> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}?${projectQs(project)}`, { method: 'DELETE' }).then(json<{ ok: true }>).then(() => {})
+  return mewFetch(`${DB_BASE}/${encodeURIComponent(id)}?${projectQs(project)}`, { method: 'DELETE' }).then(json<{ ok: true }>).then(() => {})
 }
 
 function dbRename(id: string, title: string, project: string = currentProject): Promise<void> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}`, {
+  return mewFetch(`${DB_BASE}/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, project }),
@@ -1848,7 +1851,7 @@ function dbRename(id: string, title: string, project: string = currentProject): 
 }
 
 function dbInsertRow(id: string, project: string = currentProject): Promise<DbRow> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/rows`, {
+  return mewFetch(`${DB_BASE}/${encodeURIComponent(id)}/rows`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ project }),
@@ -1856,7 +1859,7 @@ function dbInsertRow(id: string, project: string = currentProject): Promise<DbRo
 }
 
 function dbUpdateCell(id: string, rowId: string, columnId: string, value: unknown, project: string = currentProject): Promise<unknown> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowId)}`, {
+  return mewFetch(`${DB_BASE}/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ columnId, value, project }),
@@ -1866,7 +1869,7 @@ function dbUpdateCell(id: string, rowId: string, columnId: string, value: unknow
 }
 
 function dbDeleteRow(id: string, rowId: string, project: string = currentProject): Promise<void> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowId)}?${projectQs(project)}`, {
+  return mewFetch(`${DB_BASE}/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowId)}?${projectQs(project)}`, {
     method: 'DELETE',
   })
     .then(json<{ ok: true }>)
@@ -1874,7 +1877,7 @@ function dbDeleteRow(id: string, rowId: string, project: string = currentProject
 }
 
 function dbAddColumn(id: string, name: string, type: DbColumnType, project: string = currentProject): Promise<DbColumn> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/columns`, {
+  return mewFetch(`${DB_BASE}/${encodeURIComponent(id)}/columns`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, type, project }),
@@ -1882,7 +1885,7 @@ function dbAddColumn(id: string, name: string, type: DbColumnType, project: stri
 }
 
 function dbRenameColumn(id: string, columnId: string, name: string, project: string = currentProject): Promise<DbColumn> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/columns/${encodeURIComponent(columnId)}`, {
+  return mewFetch(`${DB_BASE}/${encodeURIComponent(id)}/columns/${encodeURIComponent(columnId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, project }),
@@ -1890,7 +1893,7 @@ function dbRenameColumn(id: string, columnId: string, name: string, project: str
 }
 
 function dbDeleteColumn(id: string, columnId: string, project: string = currentProject): Promise<void> {
-  return fetch(`${DB_BASE}/${encodeURIComponent(id)}/columns/${encodeURIComponent(columnId)}?${projectQs(project)}`, {
+  return mewFetch(`${DB_BASE}/${encodeURIComponent(id)}/columns/${encodeURIComponent(columnId)}?${projectQs(project)}`, {
     method: 'DELETE',
   })
     .then(json<{ ok: true }>)
@@ -1930,9 +1933,9 @@ export function createEditorApi(project: string): EditorApi {
     fetchTableLayout: path => fetchTableLayout(path, project),
     saveTableLayout: (path, tables) => saveTableLayout(path, tables, project),
     frontmatterOptions: {
-      fetch: field => fetch(`/api/frontmatter-options?field=${encodeURIComponent(field)}&${projectQs(project)}`)
+      fetch: field => mewFetch(`/api/frontmatter-options?field=${encodeURIComponent(field)}&${projectQs(project)}`)
         .then(json<{ options: string[] | null }>).then(result => result.options),
-      update: (field, change) => fetch('/api/frontmatter-options', {
+      update: (field, change) => mewFetch('/api/frontmatter-options', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, field, ...change }),
       }).then(json<{ options: string[] }>).then(result => result.options),
     },
@@ -1948,16 +1951,16 @@ export const tmuxApi: TmuxPanelApi = {
 }
 
 export function fetchUpdatesStatus(refresh = false): Promise<UpdatesStatus> {
-  return fetch(`/api/updates/status${refresh ? '?refresh=1' : ''}`).then(json<UpdatesStatus>)
+  return mewFetch(`/api/updates/status${refresh ? '?refresh=1' : ''}`).then(json<UpdatesStatus>)
 }
 export function runUpdates(ids: string[]): Promise<UpdatesStatus> {
-  return fetch('/api/updates/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).then(json<UpdatesStatus>)
+  return mewFetch('/api/updates/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).then(json<UpdatesStatus>)
 }
 
 export function fetchDocumentGraph(signal?: AbortSignal): Promise<import('../../shared/document-graph').DocumentGraphData> {
-  return fetch('/api/docs/graph', { signal }).then(json<import('../../shared/document-graph').DocumentGraphData>)
+  return mewFetch('/api/docs/graph', { signal }).then(json<import('../../shared/document-graph').DocumentGraphData>)
 }
 
 export function mutateDocumentPage(action: 'create' | 'rename' | 'delete' | 'move' | 'copy', path: string, name = '', destination = ''): Promise<import('../../shared/document-pages').DocumentPageMutation> {
-  return fetch(`/api/docs/pages/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, name, destination }) }).then(json<import('../../shared/document-pages').DocumentPageMutation>)
+  return mewFetch(`/api/docs/pages/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, name, destination }) }).then(json<import('../../shared/document-pages').DocumentPageMutation>)
 }

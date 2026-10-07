@@ -1,3 +1,4 @@
+import { openMewSocket } from '../utils/remote-transport.ts'
 import { useEffect, useState } from 'react'
 import * as Y from 'yjs'
 import * as encoding from 'lib0/encoding'
@@ -105,7 +106,7 @@ export function useCollab(project: string, path: string | null, authEmail: strin
       retryTimer = null
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
       const roomKey = `${project}:${path}`
-      const socket = new WebSocket(`${protocol}//${location.host}/api/collab?room=${encodeURIComponent(roomKey)}`)
+      const socket = openMewSocket(`${protocol}//${location.host}/api/collab?room=${encodeURIComponent(roomKey)}`)
       ws = socket
       socket.binaryType = 'arraybuffer'
       // Bound both the WebSocket handshake and the first document response.

@@ -1,3 +1,4 @@
+import { mewFetch } from '../utils/remote-transport.ts'
 import { PanelCloseButton } from './panel-close-button'
 import { observeEditorViewport } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
@@ -247,7 +248,7 @@ export function EditorPane({
     if (!mediaPath) return
     let alive = true
     const url = isExternalTabPath(mediaPath) ? externalRawUrl(externalAbsolutePath(mediaPath)) : rawUrl(mediaPath, project)
-    fetch(url, { method: 'HEAD' })
+    mewFetch(url, { method: 'HEAD' })
       .then((res) => {
         const len = Number(res.headers.get('content-length'))
         if (alive && Number.isFinite(len)) setMediaBytes(len)

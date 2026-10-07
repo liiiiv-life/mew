@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { DialogFrame, useDialog } from '@mew/ui'
 import {
@@ -140,9 +141,9 @@ export function ServerFileExplorer({
     openExternalProject(path)
       .then((result) => {
         try {
-          const previous: unknown = JSON.parse(localStorage.getItem('mew:open-project-paths') ?? '[]')
+          const previous: unknown = JSON.parse(scopedBrowserStorage().getItem('mew:open-project-paths') ?? '[]')
           const paths = Array.isArray(previous) ? previous.filter((item): item is string => typeof item === 'string') : []
-          localStorage.setItem('mew:open-project-paths', JSON.stringify([...new Set([...paths, path])]))
+          scopedBrowserStorage().setItem('mew:open-project-paths', JSON.stringify([...new Set([...paths, path])]))
         } catch {
           // localStorage가 막혀도 이번 열기는 계속한다.
         }

@@ -1,3 +1,4 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { mewcatAssistantMessages } from './components/mewcat-assistant-copy'
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { setUiLocale } from '@mew/ui/i18n-core'
@@ -2240,7 +2241,7 @@ function isLocale(value: string | null): value is Locale {
 }
 
 function initialLocale(): Locale {
-  const saved = localStorage.getItem(LOCALE_KEY)
+  const saved = scopedBrowserStorage().getItem(LOCALE_KEY)
   return isLocale(saved) ? saved : preferredLocale(navigator.languages)
 }
 
@@ -2261,7 +2262,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   })
 
   useEffect(() => {
-    localStorage.setItem(LOCALE_KEY, locale)
+    scopedBrowserStorage().setItem(LOCALE_KEY, locale)
     document.documentElement.lang = locale
   }, [locale])
 

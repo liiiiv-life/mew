@@ -1,3 +1,4 @@
+import { openMewSocket } from '../utils/remote-transport.ts'
 import type { DbEvent } from '@mew/editor'
 import { getProject } from './client'
 
@@ -22,7 +23,7 @@ function send(type: 'subscribe' | 'unsubscribe', project: string, dbId: string) 
 function ensureSocket() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(`${protocol}//${location.host}/api/db/ws`)
+  ws = openMewSocket(`${protocol}//${location.host}/api/db/ws`)
   ws.onopen = () => {
     // 재연결 시 활성 룸을 모두 다시 구독한다
     for (const entry of listeners.values()) send('subscribe', entry.project, entry.dbId)

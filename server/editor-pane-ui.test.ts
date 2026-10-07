@@ -35,7 +35,9 @@ function Fixture() {
 createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvider><Fixture/></I18nProvider></React.StrictMode>);`
     } }],
   })
-  const chunk = bundle.output.find((item) => item.type === 'chunk')!
+  const chunks = bundle.output.filter(item => item.type === 'chunk')
+  const chunk = chunks.find(item => item.isEntry)!
+  const scripts = new Map(chunks.map(item => [`/${item.fileName}`, item.code]))
   const cssFiles = ['../src/components/EditorPane.tsx', '../src/components/TabBar.tsx']
   const cssSource = (await Promise.all(cssFiles.map(file => fs.readFile(new URL(file, import.meta.url), 'utf8')))).join('\n') + ' flex h-dvh flex-col'
   const compiler = await compile(await fs.readFile(new URL('../src/index.css', import.meta.url), 'utf8'), { base: new URL('../src', import.meta.url).pathname, onDependency() {} })
@@ -47,9 +49,9 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     return release
   }
   const server = http.createServer(async (req, res) => {
-    if (req.url === '/app.js') {
+    if (req.url === '/app.js' || scripts.has(req.url ?? '')) {
       res.setHeader('Content-Type', 'text/javascript')
-      res.end(chunk.type === 'chunk' ? chunk.code : '')
+      res.end(req.url === '/app.js' ? chunk.code : scripts.get(req.url!))
     } else if (req.url?.startsWith('/api/')) {
       res.setHeader('Content-Type', 'application/json')
       const file = new URL(req.url, 'http://fixture').searchParams.get('path') ?? ''
@@ -82,6 +84,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     localStorage.setItem('mew:agent-input-drafts', '{"tab":"unsent draft"}')
   })
   await page.goto(origin)
+  assert.deepEqual(errors, [], 'fixture scripts must load before storage checks')
   assert.equal(await page.evaluate(() => localStorage.getItem('mew:content:legacy:large.md')), null)
   assert.equal(await page.evaluate(() => localStorage.getItem('mew:tree-children:legacy')), null)
   assert.equal(await page.evaluate(() => localStorage.getItem('mew:agent-input-drafts')), '{"tab":"unsent draft"}')

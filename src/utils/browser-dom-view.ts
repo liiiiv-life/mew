@@ -1,3 +1,4 @@
+import { openMewSocket } from './remote-transport.ts'
 import { uiText } from '@mew/ui/i18n-core'
 import { getBinding, matchesShortcut, numberedTabIndex, adjacentPanelTabDirection } from '@mew/shortcuts'
 import { Replayer } from '@rrweb/replay'
@@ -19,7 +20,7 @@ export function mountDomBrowser(root: HTMLElement, streamUrl: string, status: (v
   const url = new URL(streamUrl, location.href)
   if (url.origin !== location.origin || url.pathname !== '/api/browser-dom/ws') throw new Error(uiText("브라우저 주소가 올바르지 않습니다"))
   url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const socket = new WebSocket(url)
+  const socket = openMewSocket(url)
   const surfaces = new Map<string, Surface>()
   let disposed = false
   let terminalError = false
