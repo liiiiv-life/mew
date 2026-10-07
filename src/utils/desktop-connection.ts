@@ -6,6 +6,7 @@ import { prepareDesktop } from './desktop-preparation.ts'
 import { desktopDirect } from './desktop-direct.ts'
 import { desktopNetworkUsage, type DesktopNetworkUsage } from './desktop-network.ts'
 import { desktopUsageReporter } from './network-usage.ts'
+import { DEFAULT_VIDEO, videoSettings, type DesktopVideoSettings } from '../../native/remote-desktop/video-settings.mjs'
 
 export type DesktopScreen = { id: string; label: string; width: number; height: number }
 export type DesktopState = 'preparing' | 'connecting' | 'connected' | 'error' | 'paused'
@@ -25,17 +26,19 @@ export type DesktopEvents = {
 }
 
 /** Owns preparation, authentication lease and direct-only media/input. */
-export function connectDesktop(events: DesktopEvents, preferredScreen?: string) {
+export function connectDesktop(events: DesktopEvents, preferredScreen?: string, video: DesktopVideoSettings = DEFAULT_VIDEO) {
+  video = videoSettings(video)
   const input = desktopInput(message => fail(message), (x, y, joystick) => events.pointer?.(x, y, joystick)), abort = new AbortController()
   const network = desktopNetworkUsage(), encoder = new TextEncoder()
   const reportUsage = desktopUsageReporter()
+  input.frameRate(video.fps)
   const publishNetwork = () => { const value = network.value(); reportUsage(value); events.network?.(value) }
   let socket: WebSocket | undefined, direct: ReturnType<typeof desktopDirect> | undefined
   let closed = false, connected = false, channelsReady = false, decoded = false
   let iceServers: RTCIceServer[] = [], candidates: Record<string, unknown>[] = [], offered = false
   let networkHint = '', negotiation = -1
   let networkStatus: { gathering?: string; srflx?: number; ipv6?: number; public4?: number; mapping?: string } = {}
-  let lastBytes = 0, lastTime = 0, motionFrame = 0, statsAt = 0, checkingStats = false
+  let lastBytes = 0, lastTime = 0, lastFrames = 0, motionFrame = 0, statsAt = 0, displayAt = 0, checkingStats = false
   let deadline: ReturnType<typeof setTimeout> | undefined, directDeadline: ReturnType<typeof setTimeout> | undefined
   const pumpMotion = (now: number) => {
     if (closed) return
@@ -71,22 +74,34 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
   }
   const heartbeat = setInterval(() => { try { input.heartbeat() } catch (error) { fail(String((error as Error).message)) } }, 250)
   const stats = setInterval(() => {
-    if (!direct || closed || checkingStats || performance.now() - statsAt < (connected ? 1000 : 100)) return
+    if (!direct || closed || checkingStats || performance.now() - statsAt < (connected ? 200 : 100)) return
     statsAt = performance.now(); checkingStats = true
     const current = direct, generation = negotiation
     void current.stats().then(report => {
       if (closed || direct !== current || negotiation !== generation) return
-      network.sample(report); publishNetwork()
-      let rate = '', rtt = ''
+      network.sample(report)
+      const display = performance.now() - displayAt >= 1000
+      let rate = '', rtt = '', received = '', dimensions = ''
       report.forEach(value => {
         if (value.type === 'inbound-rtp' && value.kind === 'video') {
           if (value.framesDecoded > 0) { decoded = true; markConnected() }
-          if (lastTime) rate = `${Math.max(0, (value.bytesReceived - lastBytes) * 8 / (value.timestamp - lastTime) / 1000).toFixed(1)} Mbps`
-          lastBytes = value.bytesReceived; lastTime = value.timestamp
+          if (display) {
+            if (lastTime && value.timestamp > lastTime) {
+              rate = `${Math.max(0, (value.bytesReceived - lastBytes) * 8 / (value.timestamp - lastTime) / 1000).toFixed(1)} Mbps`
+              if (Number.isFinite(value.framesDecoded)) received = uiText("수신 {p0} FPS / 목표 {p1} FPS", { p0: Math.round(Math.max(0, value.framesDecoded - lastFrames) * 1000 / (value.timestamp - lastTime)), p1: current.videoStatus()?.fps ?? video.fps })
+            }
+            if (value.frameWidth && value.frameHeight) dimensions = `${value.frameWidth} × ${value.frameHeight}`
+            lastBytes = value.bytesReceived; lastTime = value.timestamp; lastFrames = value.framesDecoded ?? 0
+          }
         }
         if (value.type === 'candidate-pair' && value.nominated && value.state === 'succeeded' && typeof value.currentRoundTripTime === 'number') rtt = uiText("왕복 {p0} ms", { p0: Math.round(value.currentRoundTripTime * 1000) })
       })
-      if (!closed) events.stats([uiText("직접 연결"), rtt, rate].filter(Boolean).join(' · '))
+      if (!closed && display) {
+        displayAt = performance.now()
+        publishNetwork()
+        const status = current.videoStatus(), queue = status ? uiText("전송 대기 {p0} ms", { p0: status.queueMs }) : ''
+        events.stats([uiText("직접 연결"), dimensions, received, rtt, rate, status ? `H.264 ${status.profile === 'high' ? 'High' : 'Baseline'}` : '', queue].filter(Boolean).join(' · '))
+      }
     }).catch(() => {}).finally(() => { checkingStats = false })
   }, 100)
   const message = async (value: Record<string, unknown>) => {
@@ -114,14 +129,14 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     if (value.type === 'offer') {
       const next = Number(value.negotiation ?? 0)
       if (!Number.isInteger(next) || next < 0 || next > 2 || offered && (next !== negotiation + 1 || connected || channelsReady)) throw new Error(uiText("화면 연결 응답이 중복됐습니다."))
-      direct?.close(); network.resetPeer(); input.close(); decoded = false; lastBytes = 0; lastTime = 0; networkStatus = {}; negotiation = next; offered = true
+      direct?.close(); network.resetPeer(); input.close(); decoded = false; lastBytes = 0; lastTime = 0; lastFrames = 0; networkStatus = {}; negotiation = next; offered = true
       clearTimeout(directDeadline)
       directDeadline = setTimeout(directFailed, 20_000)
       try {
         events.transport?.('direct')
         // The native host may replace a failed ICE agent before any input opens.
         // Keep signaling alive for its next offer; the attempt deadline stays bounded.
-        direct = desktopDirect({ iceServers, input, signal: send, stream: events.stream, connected: () => { channelsReady = true; markConnected() }, failed: () => { if (channelsReady || connected) directFailed() }, feedback: value.native === true, negotiation })
+        direct = desktopDirect({ iceServers, input, signal: send, stream: events.stream, connected: () => { channelsReady = true; markConnected() }, failed: () => { if (channelsReady || connected) directFailed() }, feedback: value.native === true, negotiation, video })
         await direct.message(value)
         for (const candidate of candidates) if ((candidate.negotiation ?? 0) === negotiation) await direct?.message(candidate)
         candidates = []
@@ -139,7 +154,9 @@ export function connectDesktop(events: DesktopEvents, preferredScreen?: string) 
     if (closed) return
     events.state('connecting', uiText("로그인한 데스크톱에 연결하고 있습니다…"))
     deadline = setTimeout(() => fail(uiText("화면 연결 시간이 초과됐습니다. 서버의 화면 공유 권한을 확인해 주세요.")), 95_000)
-    socket = openMewSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/remote-desktop/ws${preferredScreen ? `?screen=${encodeURIComponent(preferredScreen)}` : ''}`)
+    const query = new URLSearchParams({ resolution: video.resolution, fps: String(video.fps), quality: video.quality })
+    if (preferredScreen) query.set('screen', preferredScreen)
+    socket = openMewSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/remote-desktop/ws?${query}`)
     socket.binaryType = 'arraybuffer'
     let queue = Promise.resolve()
     socket.onmessage = event => {

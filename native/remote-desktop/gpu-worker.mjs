@@ -9,7 +9,7 @@ const user = koffi.load('user32.dll'), getDC = user.func('void *GetDC(void *)'),
 const setPower = koffi.load('kernel32.dll').func('uint32 SetThreadExecutionState(uint32)')
 const multimedia = koffi.load('winmm.dll'), beginPeriod = multimedia.func('uint32 timeBeginPeriod(uint32)'), endPeriod = multimedia.func('uint32 timeEndPeriod(uint32)')
 let preciseTimer = false
-let session, timer, leaseTimer, cursor, dc, waiting = false, lastCursor = '', lastCursorAt = 0, lease = 0
+let session, timer, leaseTimer, cursor, dc, negotiation, mode, waiting = false, lastCursor = '', lastCursorAt = 0, lease = 0
 const stop = () => {
   clearTimeout(timer); clearInterval(leaseTimer); timer = undefined; gpu.stop(); cursor = undefined; waiting = false; lastCursor = ''; session = undefined
   if (dc) releaseDC(null, dc); dc = undefined
@@ -30,21 +30,29 @@ const poll = () => {
       }
     }
     if (frame) {
-      const data = new Uint8Array(frame.data); waiting = true
-      parentPort.postMessage({ type: 'frame', session, ...frame, data }, [data.buffer])
-    } else timer = setTimeout(poll, 2)
+      const data = frame.data; waiting = true
+      parentPort.postMessage({ type: 'frame', session, negotiation, ...frame, data }, [data.buffer])
+    } else timer = setTimeout(poll, mode?.fps >= 120 ? 1 : 2)
   } catch (error) { fail(error) }
 }
 parentPort.on('message', message => {
   try {
     if (message.type === 'start') {
       stop(); session = message.session
+      negotiation = message.negotiation
       if (!gpu.screens().some(item => item.id === message.id)) throw new Error('공유할 화면이 바뀌었습니다. 다시 연결해 주세요.')
-      const screen = gpu.start(message.id); dc = getDC(null); cursor = windowsCursor(koffi, dc, screen)
+      let screen, error
+      const begun = Date.now()
+      for (const candidate of message.modes) {
+        if (Date.now() - begun > 2000) break
+        try { screen = gpu.start(message.id, candidate.bitrate, undefined, candidate); mode = candidate; break } catch (failure) { error = failure; gpu.stop() }
+      }
+      if (!screen) throw error ?? new Error('지원하는 영상 설정이 없습니다.')
+      dc = getDC(null); cursor = windowsCursor(koffi, dc, screen)
       preciseTimer = beginPeriod(1) === 0
       lease = Date.now(); leaseTimer = setInterval(() => { if (Date.now() - lease > 8000) fail(new Error('화면 공유 승인이 만료됐습니다.')) }, 250)
       setPower(0x80000003)
-      parentPort.postMessage({ type: 'started', session, screen }); poll()
+      parentPort.postMessage({ type: 'started', session, negotiation, screen, video: mode }); poll()
     } else if (message.type === 'list' && !session) {
       gpu.refresh()
       const screens = gpu.screens()
@@ -52,7 +60,7 @@ parentPort.on('message', message => {
       parentPort.postMessage({ type: 'listed', session: message.session, screens })
     } else if (message.type === 'stop' && (!session || message.session === session)) {
       const id = message.session; stop(); parentPort.postMessage({ type: 'stopped', session: id })
-    } else if (message.type === 'ack' && message.session === session) { waiting = false; poll() }
+    } else if (message.type === 'ack' && message.session === session && message.negotiation === negotiation) { waiting = false; poll() }
     else if (message.type === 'lease' && message.session === session) lease = Date.now()
     else if (message.type === 'keyframe' && message.session === session) gpu.keyframe()
     else if (message.type === 'bitrate' && message.session === session) gpu.bitrate(message.value)

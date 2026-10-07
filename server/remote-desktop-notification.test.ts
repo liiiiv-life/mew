@@ -40,7 +40,7 @@ function nativeFixture(show: () => unknown) {
   const inputs: unknown[] = [], failures: unknown[] = []
   class Video { addH264Codec() {} addSSRC() {} setBitrate() {} }
   class Packetizer { addToChain() {} }
-  class Config { timestamp = 0 }
+  class Config extends Packetizer { timestamp = 0 }
   const rtc = {
     Video, RtpPacketizationConfig: Config, H264RtpPacketizer: Packetizer,
     RtcpSrReporter: Config, RtcpNackResponder: Config,

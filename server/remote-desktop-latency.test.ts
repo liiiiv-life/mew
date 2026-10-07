@@ -28,14 +28,14 @@ test('local pointer updates precede network sends; stale corrections never rewin
   assert.deepEqual(packets.at(-1)!.point, [.9, .8], 'another monitor cannot put out-of-range coordinates on the input wire')
 })
 
-test('hover is capped at 30Hz; drag retains 60Hz; final lost motion and scroll arrive reliably', t => {
+test('motion follows the negotiated high frame rate; final lost motion and scroll arrive reliably', t => {
   let time = 0; t.mock.method(performance, 'now', () => time)
   const input = desktopInput(), motion: InputSnapshot[] = [], control: InputSnapshot[] = [], events: unknown[][] = []
   input.connect('motion', { readyState: 'open', bufferedAmount: 0, send: raw => motion.push(JSON.parse(raw)) })
   input.connect('control', { readyState: 'open', bufferedAmount: 0, send: raw => control.push(JSON.parse(raw)) })
   input.remoteCursor(cursor); input.localCursor(true)
   for (time = 0; time < 1000; time += 1000 / 240) { input.point(time / 2000, .5); input.flushMotion(time) }
-  assert.ok(motion.length >= 26 && motion.length <= 31, `hover messages: ${motion.length}`)
+  assert.ok(motion.length >= 45 && motion.length <= 61, `default motion messages: ${motion.length}`)
   const hovered = motion.length; input.button(1, true)
   for (; time < 2000; time += 1000 / 240) { input.point(time / 3000, .5); input.flushMotion(time) }
   assert.ok(motion.length - hovered > 45 && motion.length - hovered <= 61)
@@ -47,6 +47,20 @@ test('hover is capped at 30Hz; drag retains 60Hz; final lost motion and scroll a
   assert.deepEqual(events.slice(-2), [['point', .91, .72], ['wheel', 0, 120]])
   input.point(.95, .75); input.button(1, false); receiver.accept(control.at(-1), true)
   assert.deepEqual(events.slice(-2), [['point', .95, .75], ['button', 1, false]])
+})
+
+test('144Hz motion preserves its frame clock and reliable keys overtake coalesced movement', t => {
+  let time = 0; t.mock.method(performance, 'now', () => time)
+  const input = desktopInput(), motion: InputSnapshot[] = [], control: InputSnapshot[] = []
+  input.frameRate(144)
+  input.connect('motion', { readyState: 'open', bufferedAmount: 0, send: raw => motion.push(JSON.parse(raw)) })
+  input.connect('control', { readyState: 'open', bufferedAmount: 0, send: raw => control.push(JSON.parse(raw)) })
+  for (time = 0; time < 1000; time += 1000 / 240) { input.point(time / 2000,.5); input.flushMotion(time) }
+  assert.ok(motion.length >= 140 && motion.length <= 145, `144Hz motion: ${motion.length}`)
+  input.move(10,20); input.key('KeyA',true)
+  assert.deepEqual(control.at(-1)!.keys,['KeyA']); assert.equal(control.at(-1)!.x,10)
+  time += 5000; input.point(.9,.5); const before = motion.length; input.flushMotion(time)
+  assert.equal(motion.length,before + 1, 'a scheduler stall sends one current snapshot without a catch-up burst')
 })
 
 test('a stable high RTT does not collapse bitrate; additional delay and byte pressure do', () => {

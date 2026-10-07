@@ -97,6 +97,30 @@ test('signaling stops native capture after revocation/close, isolates controller
   }
 })
 
+test('video preferences reach the native host and invalid requests cannot launch it', { timeout: 5000 }, async () => {
+  const server = createServer(), hosts: ReturnType<typeof fakeHost>[] = [], clients: WebSocket[] = []
+  attachRemoteDesktopWebSocket(server, { getAuth: () => owner, iceServers: () => [], spawnHost: async () => { const value = fakeHost(); hosts.push(value); return value.host } })
+  server.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  const connect = (query: string) => { const ws = new WebSocket(`${origin.replace('http:','ws:')}/api/remote-desktop/ws${query}`, { origin }); clients.push(ws); return ws }
+  try {
+    for (const query of ['?fps=1000','?resolution=__proto__','?quality=lossless','?fps=0']) {
+      const ws = connect(query), [code] = await once(ws,'close')
+      assert.equal(code,1008); assert.equal(hosts.length,0)
+    }
+    for (const [query, video] of [
+      ['', { resolution: '1080p', fps: 60, quality: 'balanced' }],
+      ['?resolution=2160p&fps=240&quality=high', { resolution: '2160p', fps: 240, quality: 'high' }],
+    ] as const) {
+      const ws = connect(query)
+      await once(ws,'message')
+      const current = hosts.at(-1)!
+      assert.deepEqual(current.messages.find(value => value.type === 'init')?.video,video)
+      const exited = once(current.host,'exit'); ws.close(); await exited
+    }
+  } finally { clients.forEach(ws => ws.terminate()); await new Promise<void>(resolve => server.close(() => resolve())) }
+})
+
 test('unknown screen selection cannot reach the native helper', { timeout: 5000 }, async () => {
   const server = createServer(), fake = fakeHost()
   attachRemoteDesktopWebSocket(server, { getAuth: () => owner, iceServers: () => [], spawnHost: async () => fake.host })

@@ -1,6 +1,14 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  "영상 해상도": ["Video resolution","视频分辨率","映像の解像度"],
+  "목표 FPS": ["Target FPS","目标 FPS","目標 FPS"],
+  "영상 품질": ["Video quality","视频质量","映像品質"],
+  "균형": ["Balanced","均衡","バランス"],
+  "고화질": ["High quality","高画质","高画質"],
+  "변경하면 다시 연결합니다. 화면·GPU·브라우저가 지원하는 범위로 조정하며, 고화질은 더 많은 대역폭을 사용합니다.": ["Changes reconnect the session. Settings adjust to your display, GPU and browser; high quality uses more bandwidth.","更改后会重新连接。设置会根据屏幕、GPU 和浏览器支持的范围调整；高画质会使用更多带宽。","変更すると再接続します。画面・GPU・ブラウザーが対応する範囲に調整され、高画質ではより多くの帯域幅を使います。"],
+  "수신 {p0} FPS / 목표 {p1} FPS": ["Received {p0} FPS / target {p1} FPS","接收 {p0} FPS / 目标 {p1} FPS","受信 {p0} FPS / 目標 {p1} FPS"],
+  "전송 대기 {p0} ms": ["Send queue {p0} ms","发送队列 {p0} ms","送信待ち {p0} ms"],
   "탭 최대화": ["Maximize tab", "最大化标签页", "タブを最大化"],
   "원래 크기로 복귀": ["Restore size", "还原大小", "元のサイズに戻す"],
   "클립보드를 공유하지 못했습니다. 브라우저 권한과 원격 텍스트 크기를 확인하세요.": ["Could not share the clipboard. Check browser permissions and remote text size.", "无法共享剪贴板。请检查浏览器权限和远程文本大小。", "クリップボードを共有できませんでした。ブラウザーの権限とリモートのテキストサイズを確認してください。"],

@@ -15,6 +15,8 @@ import { DesktopFloating } from './desktop-floating.tsx'
 import { desktopGeometry, desktopLocalPoint, rotateDelta, readSensitivity, sensitivity as clampSensitivity, SENSITIVITY_KEY, type Rotation } from '../utils/desktop-view.ts'
 import { DesktopIcon, DesktopStick } from './desktop-stick.tsx'
 import { useDesktopInstall } from './desktop-install.tsx'
+import { readDesktopVideo, saveDesktopVideo } from '../utils/desktop-video.ts'
+import { VIDEO_FPS, type DesktopVideoSettings } from '../../native/remote-desktop/video-settings.mjs'
 import './remote-desktop.css'
 
 export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden = false }: { onClose: () => void; dockHostRef?: Ref<HTMLDivElement>; mewcatHostRef?: Ref<HTMLDivElement>; dockHidden?: boolean }) {
@@ -31,6 +33,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
   const [network, setNetwork] = useState<DesktopNetworkUsage>({ received: 0, sent: 0 })
   const [screens, setScreens] = useState<DesktopScreen[]>([]), [selected, setSelected] = useState(''), [attempt, setAttempt] = useState(0)
   const preferred = useRef(''), [input, setInput] = useState<DesktopInput | null>(null), [relative, setRelative] = useState(false)
+  const [videoSettings, setVideoSettings] = useState(readDesktopVideo)
   const [view, setView] = useState({ x: 0, y: 0, scale: 1 })
   const [rotation, setRotation] = useState<Rotation>(0), [sensitivity, setSensitivity] = useState(readSensitivity)
   const [settingsOpen, setSettingsOpen] = useState(false), [fullscreen, setFullscreen] = useState(!!document.fullscreenElement), [fullscreenError, setFullscreenError] = useState('')
@@ -110,6 +113,10 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
     const next = clampSensitivity(value); setSensitivity(next)
     try { scopedBrowserStorage().setItem(SENSITIVITY_KEY, JSON.stringify(next)) } catch { /* Session setting still works without storage. */ }
   }
+  const updateVideo = (patch: Partial<DesktopVideoSettings>) => {
+    const next = { ...videoSettings, ...patch }
+    saveDesktopVideo(next); setVideoSettings(next); setAttempt(value => value + 1)
+  }
   const hotkey = (keys: string[]) => {
     if (!connected || !input) return
     input.release()
@@ -148,7 +155,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
       },
       transport: mode => { surface.current = mode; setTransport(mode); setStats(''); if (mode === 'server' && video.current) video.current.srcObject = null },
       relative: setRelative, stats: setStats, network: setNetwork, installable: setInstallable,
-    }, preferred.current)
+    }, preferred.current, videoSettings)
     session.current = connection; setInput(connection.input)
     const hide = () => {
       if (document.hidden) { connection.close(); setState('paused'); setMessage(uiText("앱이 백그라운드로 이동해 연결을 종료했습니다.")) }
@@ -156,7 +163,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
     const release = () => { try { connection.input.release() } catch { connection.fail(uiText("입력 연결이 지연됐습니다. 다시 연결해 주세요.")) } }
     window.addEventListener('blur', release); document.addEventListener('visibilitychange', hide)
     return () => { local.close(); cursor.current = null; if (session.current === connection) session.current = null; connection.close(); window.removeEventListener('blur', release); document.removeEventListener('visibilitychange', hide); if (element) element.srcObject = null }
-  }, [attempt])
+  }, [attempt, videoSettings])
   useEffect(() => { cursor.current?.refresh() }, [view, transport, rotation, viewport, nativeSize])
 
   const copyClipboard = async () => {
@@ -292,6 +299,16 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
       <label className="desktop-setting-label" htmlFor="desktop-screen">{uiText("공유 화면")}</label>
       <SelectField id="desktop-screen" label={uiText("공유 화면")} disabled={!screens.length} value={selected} portalContainer={panel.current}
         onChange={value => { preferred.current = value; setAttempt(value => value + 1) }} options={screens.map(screen => ({ value: screen.id, label: screen.label }))} />
+      <label className="desktop-setting-label" htmlFor="desktop-resolution">{uiText("영상 해상도")}</label>
+      <SelectField id="desktop-resolution" label={uiText("영상 해상도")} value={videoSettings.resolution} portalContainer={panel.current}
+        onChange={value => updateVideo({ resolution: value as DesktopVideoSettings['resolution'] })} options={[{ value: '720p', label: 'HD · 720p' }, { value: '1080p', label: 'Full HD · 1080p' }, { value: '1440p', label: 'QHD · 1440p' }, { value: '2160p', label: '4K · 2160p' }]} />
+      <label className="desktop-setting-label" htmlFor="desktop-fps">{uiText("목표 FPS")}</label>
+      <SelectField id="desktop-fps" label={uiText("목표 FPS")} value={String(videoSettings.fps)} portalContainer={panel.current}
+        onChange={value => updateVideo({ fps: Number(value) as DesktopVideoSettings['fps'] })} options={VIDEO_FPS.map(fps => ({ value: String(fps), label: `${fps} FPS` }))} />
+      <label className="desktop-setting-label" htmlFor="desktop-quality">{uiText("영상 품질")}</label>
+      <SelectField id="desktop-quality" label={uiText("영상 품질")} value={videoSettings.quality} portalContainer={panel.current}
+        onChange={value => updateVideo({ quality: value as DesktopVideoSettings['quality'] })} options={[{ value: 'balanced', label: uiText("균형") }, { value: 'high', label: uiText("고화질") }]} />
+      <p>{uiText("변경하면 다시 연결합니다. 화면·GPU·브라우저가 지원하는 범위로 조정하며, 고화질은 더 많은 대역폭을 사용합니다.")}</p>
       <label className="desktop-setting-label" htmlFor="desktop-modifier">{uiText("핫키 보조키")}</label>
       <SelectField id="desktop-modifier" label={uiText("핫키 보조키")} value={modifier} onChange={setModifier} portalContainer={panel.current}
         options={[{ value: 'ControlLeft', label: 'Ctrl · Windows / Linux' }, { value: 'MetaLeft', label: 'Cmd · Mac' }]} />

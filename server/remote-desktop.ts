@@ -12,6 +12,7 @@ import type { TmuxManager } from '../packages/tmux-term/src/server/tmux.ts'
 import { hostReader } from '../native/remote-desktop/host-wire.mjs'
 import { validCursor } from '../native/remote-desktop/cursor-protocol.mjs'
 import { setTimeout as delay } from 'node:timers/promises'
+import { DEFAULT_VIDEO, videoSettings } from '../native/remote-desktop/video-settings.mjs'
 
 export const DESKTOP_WS = '/api/remote-desktop/ws'
 const MAX_BYTES = 128 * 1024
@@ -102,6 +103,11 @@ export function attachRemoteDesktopWebSocket(server: Server | Http2SecureServer,
       watchSocketAccess(ws, req, request => desktopConnectionAllowed(request, getAuth(request)))
       active = ws
       const account = getAuth(req).email
+      let video
+      try {
+        const query = new URL(req.url ?? '', 'http://localhost').searchParams
+        video = videoSettings({ resolution: query.get('resolution') ?? DEFAULT_VIDEO.resolution, fps: query.has('fps') ? Number(query.get('fps')) : DEFAULT_VIDEO.fps, quality: query.get('quality') ?? DEFAULT_VIDEO.quality })
+      } catch { ws.close(1008); if (active === ws) active = null; return }
       let child: Host | undefined, hostExited = false, disposed = false, alive = true, selected = false, answered = false, hasOffer = false, negotiation = 0, screens = new Set<string>(), signalCount = 0
       const send = (value: unknown) => { if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < MAX_BYTES * 2) ws.send(JSON.stringify(value)); else ws.close() }
       const write = (value: unknown) => {
@@ -178,7 +184,7 @@ export function attachRemoteDesktopWebSocket(server: Server | Http2SecureServer,
           if (['sources', 'offer', 'candidate', 'connected', 'direct-failed', 'network-status'].includes(message.type)) send(message)
         }, () => { throw new Error('Media cannot enter signaling') })
         child.stdout.on('data', (chunk: Buffer) => { try { read(chunk) } catch { fail('서버 영상 전송에 실패했습니다. 네트워크를 확인한 뒤 다시 연결해 주세요.') } })
-        write({ type: 'init', iceServers: config, udpPort: desktopUdpPort(), autoNat: desktopAutoNat() })
+        write({ type: 'init', iceServers: config, udpPort: desktopUdpPort(), autoNat: desktopAutoNat(), video })
       })().catch(error => fail(error instanceof DesktopHostLaunchError ? error.message : '원격 데스크톱 보조 앱과 ICE 설정을 확인해 주세요.'))
     })
   })

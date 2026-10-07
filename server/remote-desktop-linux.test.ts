@@ -12,6 +12,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 import { attachRemoteDesktopWebSocket } from './remote-desktop.ts'
 import { residentDesktopHost } from './desktop-resident-host.ts'
 import type { DesktopHostProcess } from './remote-desktop-host.ts'
+import { DEFAULT_VIDEO, videoSettings } from '../native/remote-desktop/video-settings.mjs'
 
 // Opt-in only under an isolated Xvfb display/private D-Bus. This injects test
 // input into that synthetic desktop; never run it on a user's actual display.
@@ -20,6 +21,8 @@ test('resident native Linux X11 host sends H.264, receives input, notifies and r
 }, async () => {
   assert.ok(process.env.DISPLAY && process.env.DBUS_SESSION_BUS_ADDRESS && !process.env.WAYLAND_DISPLAY)
   const helper = process.env.MEW_DESKTOP_TEST_LINUX_HELPER!, require = createRequire(path.join(helper, 'package.json'))
+  const video = videoSettings({ ...DEFAULT_VIDEO, fps: Number(process.env.MEW_DESKTOP_TEST_VIDEO_FPS ?? 60), quality: 'high' })
+  const expectedFps = Number(process.env.MEW_DESKTOP_TEST_VIDEO_EXPECTED_FPS ?? video.fps)
   const dbus = require('dbus-next'), koffi = require('koffi'), notices: { summary: string; body: string }[] = []
   const bus = dbus.sessionBus()
   class Notifications extends dbus.interface.Interface {
@@ -76,7 +79,7 @@ test('resident native Linux X11 host sends H.264, receives input, notifies and r
     if (req.url === '/api/remote-desktop/status') { res.setHeader('Content-Type', 'application/json'); res.end('{"ready":true}'); return }
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.end(`<video autoplay muted playsinline></video><script>${chunk.code}</script><script>
-      window.openDesktop=()=>{window.state='connecting';window.failure='';window.connection=Desktop.connectDesktop({state:(s,m)=>{window.state=s;if(s==='error')window.failure=m},screens(){},relative(){},stats(){},stream:s=>document.querySelector('video').srcObject=s})};window.openDesktop();
+      window.openDesktop=()=>{window.state='connecting';window.failure='';window.connection=Desktop.connectDesktop({state:(s,m)=>{window.state=s;if(s==='error')window.failure=m},screens(){},relative(){},stats(s){window.videoStatus=s},stream:s=>document.querySelector('video').srcObject=s},undefined,${JSON.stringify(video)})};window.openDesktop();
     </script>`)
   })
   attachRemoteDesktopWebSocket(server, {
@@ -92,11 +95,12 @@ test('resident native Linux X11 host sends H.264, receives input, notifies and r
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     server.listen(0, '127.0.0.1'); await once(server, 'listening')
-    const page = await browser.newPage()
+    const page = await browser.newPage({ locale: 'ko-KR' })
     await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`)
     await page.waitForFunction(`window.failure||window.state==='connected'`, null, { timeout: 12_000 })
     assert.equal(await page.evaluate('window.failure'), '')
     await page.waitForFunction(`document.querySelector('video').videoWidth>0`)
+    await page.waitForFunction(`window.videoStatus?.includes('목표 ${expectedFps} FPS')`, null, { timeout: 5000 }).catch(async () => assert.fail(await page.evaluate('window.videoStatus')))
     await wait(() => notices.length === 1, 'Linux notification service must receive a connection notice')
     assert.deepEqual(notices[0], { summary: 'mew 원격 데스크톱 연결됨', body: '이 PC에 원격으로 연결되었습니다.' })
     await page.evaluate('window.connection.input.point(.25,.75);window.connection.input.button(1,true);window.connection.input.key("KeyA",true)')

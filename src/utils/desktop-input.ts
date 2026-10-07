@@ -5,12 +5,13 @@ type Channel = { readyState: 'connecting' | 'open' | 'closing' | 'closed'; buffe
 
 /** Motion is cumulative, so an unreliable packet can be discarded without losing distance. */
 export function desktopInput(onError: (message: string) => void = () => {}, onPoint: (x: number, y: number, joystick: boolean | undefined) => void = () => {}) {
+  let motionFps = 60
   const state: InputSnapshot = { type: 'input', v: 1, seq: 0, epoch: 0, x: 0, y: 0, wheelX: 0, wheelY: 0, buttons: 0, keys: [] }
   let motion: Channel | null = null, control: Channel | null = null
   let clipboardId = 0
   const clipboardRequests = new Map<number, { resolve: (text: string) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
   let pendingMotion = false, unconfirmedMotion = false, localCursor = false
-  let remote: DesktopCursor | undefined, requiredSeq = 0, lastMotionAt = -Infinity, lastActivityAt = 0, lastWheelAt = -Infinity
+  let remote: DesktopCursor | undefined, requiredSeq = 0, nextMotionAt = -Infinity, lastActivityAt = 0
   const activity = () => { pendingMotion = true; requiredSeq = state.seq + 1; lastActivityAt = performance.now() }
   const point = (x: number, y: number, joystick: boolean) => {
     const next: [number, number] = [Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))]
@@ -30,11 +31,12 @@ export function desktopInput(onError: (message: string) => void = () => {}, onPo
       // Cursor feedback updates the local drawing position, without authorizing
       // an idle heartbeat or keyboard-only action to move the physical cursor.
       channel.send(JSON.stringify({ ...state, point: includePoint ? state.point : undefined, x: Math.trunc(state.x), y: Math.trunc(state.y), wheelX: Math.trunc(state.wheelX), wheelY: Math.trunc(state.wheelY) }))
-      pendingMotion = false; unconfirmedMotion = !reliable; lastMotionAt = performance.now()
+      pendingMotion = false; unconfirmedMotion = !reliable; nextMotionAt = performance.now() + 1000 / motionFps
     }
     catch { onError(uiText("입력 연결이 종료됐습니다. 다시 연결해 주세요.")) }
   }
   return {
+    frameRate(value: number) { if (Number.isFinite(value)) motionFps = Math.max(30, Math.min(240, value)) },
     connect(name: string, channel: Channel) { if (name === 'motion') motion = channel; if (name === 'control') control = channel },
     localCursor(enabled: boolean) { localCursor = enabled; if (enabled && remote && !pendingMotion && remote.seq >= requiredSeq) { if (remote.x >= 0 && remote.x <= 1 && remote.y >= 0 && remote.y <= 1) state.point = [remote.x, remote.y]; onPoint(remote.x, remote.y, undefined) } },
     remoteCursor(value: DesktopCursor) {
@@ -46,13 +48,17 @@ export function desktopInput(onError: (message: string) => void = () => {}, onPo
       delete state.point; state.x += x; state.y += y; activity()
     },
     point(x: number, y: number) { point(x, y, false) },
-    wheel(x: number, y: number) { state.wheelX += x; state.wheelY += y; lastWheelAt = performance.now(); activity() },
+    wheel(x: number, y: number) { state.wheelX += x; state.wheelY += y; activity() },
     flushMotion(now?: number) {
       // A final reliable snapshot recovers the last lossy movement/scroll, without
       // waiting for the 250ms lease heartbeat. No per-pointer-event timer.
       if (now !== undefined && (pendingMotion || unconfirmedMotion) && now - lastActivityAt >= 70) { send(true); return }
-      const interval = localCursor && !state.buttons && (now ?? performance.now()) - lastWheelAt > 100 ? 1000 / 30 : 1000 / 60
-      if (pendingMotion && (now === undefined || now - lastMotionAt >= interval)) send(false)
+      const interval = 1000 / motionFps
+      if (pendingMotion && (now === undefined || now + .001 >= nextMotionAt)) {
+        const deadline = nextMotionAt
+        send(false)
+        if (!pendingMotion && now !== undefined && Number.isFinite(deadline) && now - deadline < interval) nextMotionAt = deadline + interval
+      }
     },
     button(bit: number, down: boolean) { state.buttons = down ? state.buttons | bit : state.buttons & ~bit; send(true, true) },
     key(code: string, down: boolean) { state.keys = state.keys.filter(key => key !== code); if (down && state.keys.length < 16) state.keys.push(code); send(true) },

@@ -59,12 +59,17 @@ worker.on('message', value => {
   if (value.type === 'error' && listing) { const done = listing; listing = undefined; done.reject(new Error(value.message)); return }
   if (value.type === 'error' && value.session === stopping?.id) { emit({ type: 'error', message: value.message }, value.session); void shutdown(); return }
   if (!session || value.session !== session.id || shutting) return
+  if (['frame', 'started'].includes(value.type) && value.negotiation !== session.videoNegotiation) return
   try {
     if (value.type === 'started') {
       session.screen = value.screen
       session.adapter ??= platform.input(value.screen); session.receiver = createInputReceiver(session.adapter)
     }
-    if (value.type === 'frame') { session.direct?.frame(value); worker.postMessage({ type: 'ack', session: session.id }) }
+    if (value.type === 'started') session.direct?.configure(value.video)
+    if (value.type === 'frame') {
+      const active = session
+      active.direct?.frame(value, () => { if (session === active) worker.postMessage({ type: 'ack', session: active.id, negotiation: value.negotiation }) })
+    }
     if (value.type === 'cursor' && session.receiver) {
       const cursor = { type: 'cursor', ...value.value, seq: Math.max(0, session.receiver.sequence), width: session.screen.width, height: session.screen.height }
       if (!validCursor(cursor)) throw new Error('원격 커서를 읽지 못했습니다.')
@@ -114,6 +119,8 @@ async function message(value) {
     active.direct = nativeDirect(rtc, {
       iceServers: active.config.iceServers, udpPort: active.config.udpPort, emit: value => scoped(() => emit(value)),
       autoNat: active.config.autoNat !== false, localCursor: platform.localCursor, relativeOnly: !!platform.relativeOnly,
+      settings: active.config.video,
+      video: (modes, negotiation) => scoped(() => { active.videoNegotiation = negotiation; worker.postMessage({ type: 'start', session: active.id, id: screen.id, source: active.adapter?.source, modes, negotiation }) }),
       fail: error => scoped(() => fail(error)), keyframe: () => capture('keyframe'),
       connected: () => { if (session === active && !shutting && active.receiver && platform.allowed()) return platform.notify() },
       bitrate: value => scoped(() => worker.postMessage({ type: 'bitrate', session: active.id, value })),
@@ -126,8 +133,9 @@ async function message(value) {
       input: (value, reliable) => scoped(() => {
         if (!active.receiver) return
         if (!platform.allowed()) throw new Error('데스크톱이 잠겼거나 제어 권한이 종료됐습니다.')
-        if (Date.now() - active.inputAt > 1000) { active.inputAt = Date.now(); active.inputCount = 0 }
-        if (++active.inputCount > 240) throw new Error('원격 입력이 너무 많습니다.')
+        if (Date.now() - active.inputAt > 1000) { active.inputAt = Date.now(); active.inputCount = 0; active.motionCount = 0 }
+        if (!reliable && (active.motionCount = (active.motionCount ?? 0) + 1) > 300) return
+        if (reliable && ++active.inputCount > 256) throw new Error('원격 입력이 너무 많습니다.')
         if (reliable && value.type === 'paste') {
           if (typeof value.text !== 'string' || value.text.length > 4096 || value.text.includes('\0')) throw new Error('잘못된 붙여넣기입니다.')
           active.receiver.release()
@@ -139,7 +147,6 @@ async function message(value) {
         } else active.receiver.accept(value, reliable)
       }),
     })
-    worker.postMessage({ type: 'start', session: active.id, id: screen.id, source: active.adapter?.source })
   } else if (['answer', 'candidate'].includes(value.type)) session.direct?.signal(value)
   else throw new Error('잘못된 원격 데스크톱 신호입니다.')
 }

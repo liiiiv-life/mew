@@ -2,7 +2,7 @@
 title: "원격 데스크톱 아키텍처와 검증"
 created: "2026-09-12"
 updated: "2026-10-07"
-description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, WSL interop 준비 점검, 세션 누적 네트워크 사용량, 원격 키보드 우선권·전체화면 잠금 복원·키 반복·확장 키·클립보드 실패 폴백·ESC 뷰어 유지, 인증 lease·화면 좌표·터치·OS 권한·세션 수명 및 검증 계약을 정의한다."
+description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, 4K·최대 240FPS 요청의 H.264 능력 협상·유한 전송 대기열·적응 bitrate·GPU 표면 재사용, 수신 통계·키보드·클립보드·인증 lease·OS 권한·세션 수명과 검증 한계를 정의한다."
 ---
 
 # 원격 데스크톱
@@ -69,17 +69,25 @@ Mac/Linux는 현재 지원 Node의 전용 복사본·Node 고지를 설치하고
 
 ## 전송과 지연
 
-Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-direct.mjs`다. Desktop Duplication의 D3D11 텍스처를 GPU VideoProcessor에서 NV12로 축소·변환하고, 같은 어댑터의 Media Foundation 하드웨어 H.264 MFT에 DXGI surface로 전달한다. 비압축 화면을 CPU로 읽거나 Electron renderer·canvas로 복사하지 않는다. GPU 내부 복사·색 변환·프레임별 surface 할당은 남으므로 완전한 zero-copy라고 부르지 않는다.
+Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-direct.mjs`다. Windows Graphics Capture의 D3D11 텍스처를 GPU VideoProcessor에서 NV12로 축소·변환하고, 같은 어댑터의 Media Foundation 하드웨어 H.264 MFT에 DXGI surface로 전달한다. 비압축 화면을 CPU로 읽거나 Electron renderer·canvas로 복사하지 않는다. NV12 표면 3개와 VideoProcessor view·출력 버퍼를 재사용한다. `IMFTrackedSample`의 반환 콜백을 받아 인코더가 표면을 놓은 뒤에만 같은 슬롯에 쓴다([Microsoft 계약](https://learn.microsoft.com/en-us/windows/win32/api/mfidl/nn-mfidl-imftrackedsample)). GPU 내부 복사·색 변환·인코더 내부 복사는 남으므로 완전한 zero-copy라고 부르지 않는다.
 
-최대 1920×1080·60fps·초기 6Mbps, Baseline H.264·B-frame 0·저지연 모드를 사용한다. 활성 세션에만 `timeBeginPeriod(1)`을 요청하고 종료 시 같은 값의 `timeEndPeriod`를 호출한다. 짧은 polling이 Windows의 기본 timer 간격으로 늘어나는 문제를 줄이되 대기 전력 요청을 남기지 않는다([Microsoft 타이머 계약](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod)). 하드웨어 MFT의 입력 허용 이벤트를 개별 credit으로 세며, 작은 scheduler 지연은 프레임 시계에 누적하지 않고 긴 정지는 따라잡기 burst 없이 리셋한다. 하드웨어 인코더가 없거나 화면 회전·잠금·장치 변경으로 DXGI가 실패하면 안내 후 종료한다. CPU 인코더로 조용히 전환하지 않는다. 4K·HDR·세로 모니터의 native rotation은 이번 경로의 검증 범위 밖이다.
+`video-settings.mjs`는 해상도 720p·1080p·1440p·2160p, 목표 30·60·120·144·165·240FPS, 균형·고화질을 검증한다. 기본은 기존 1080p·60FPS·균형(6Mbps)이며 인코더 한도는 3840×2160·240FPS·50Mbps다. 해상도별 기본 bitrate 3.5·6·12·24Mbps에 `sqrt(FPS/60)`을 곱하고 고화질은 두 배로 요청하되 50Mbps로 제한한다. High H.264를 먼저 제안하고 브라우저가 받아들인 Baseline도 지원한다. B-frame 0·저지연·CBR를 유지하며 지원되는 인코더에만 약 두 프레임의 VBV를 설정한다. 이는 저지연 설정이지 동일 화질·지연의 실측 보장이 아니다.
 
-압축된 Annex B H.264만 worker IPC를 넘고 libdatachannel의 RTP packetizer·SR·NACK responder에서 암호화된 영상으로 전송한다. worker→호스트는 압축 프레임 하나, 인코더 입력은 최대 3개로 제한한다. binding이 송신 큐 크기를 제공하면 적체 시 프레임을 버리고 keyframe을 요청한다. 현재 prebuilt Track에는 해당 API가 없어 실제 송신 큐 크기 제한은 보장하지 않는다. PLI/FIR와 브라우저의 decode feedback으로 화면이 정지된 상태도 복구한다. 수신 손실·jitter-buffer 지연으로 350kbps–6Mbps 범위에서 bitrate를 조절한다. 이 제어는 libwebrtc의 완전한 GCC와 같지 않으며 혼잡·손실 환경의 추가 실측이 필요하다.
+브라우저 answer를 받은 뒤 캡처·인코더를 시작한다. answer의 payload·프로필·레벨·max-fs/max-mbps와 매크로블록 처리량·FPS 상한 안에서 모드를 고른다([RFC 6184](https://www.rfc-editor.org/rfc/rfc6184.html)). 기본 level 3.1로 answer하는 브라우저에서는 수락한 같은 프로필을 `MediaCapabilities.decodingInfo(type='webrtc')`로 조회한다. 해당 모드의 `supported`·`smooth`가 모두 참인 경우에만 answer의 수신 레벨을 올리며, 미지원·실패·500ms 초과는 원래 answer를 유지한다([W3C 계약](https://www.w3.org/TR/media-capabilities/)). level 6 이상이 필요한 요청에는 별도 level 5.2 payload를 함께 제안한다. 현재 libwebrtc는 5.2까지 인식하므로 FHD 240 요청이 FHD 165, QHD 165 요청이 QHD 144, 4K 144 요청이 4K 60으로 낮아질 수 있다([libwebrtc 파서](https://webrtc.googlesource.com/src/+/refs/heads/main/api/video_codecs/h264_profile_level_id.cc)). 네이티브 초기화 거부 시 협상 범위의 낮은 FPS·해상도 모드를 순서대로 시도하고, 인코더의 실제 SPS가 선택한 프로필·레벨을 초과하면 전송하지 않고 종료한다. CPU 인코더로 폴백하지 않는다.
+
+활성 세션에만 `timeBeginPeriod(1)`을 요청하고 종료 시 같은 값의 `timeEndPeriod`를 호출한다([Microsoft 타이머 계약](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod)). worker의 활성 polling은 120FPS 이상에서 1ms, 그 외에는 2ms이며 유휴 상태에서는 멈춘다. 하드웨어 MFT의 입력 허용 이벤트를 개별 credit으로 세며, 작은 scheduler 지연은 프레임 시계에 누적하지 않고 긴 정지는 따라잡기 burst 없이 리셋한다. 하드웨어 인코더가 없거나 화면 회전·잠금·장치 변경으로 DXGI가 실패하면 안내 후 종료한다. 실제 FPS는 소스 화면·인코더·수신 디코더·표시 장치에 제한되며 정지 화면은 새 프레임을 보내지 않는다. 가상 드라이버의 1920×1080·60Hz 모드는 이 설정으로 바뀌지 않는다. HDR·native rotation·4K와 고주사율 하드웨어 실측은 미검증이다.
+
+압축된 Annex B H.264만 worker IPC를 넘는다. 네이티브 버퍼에서 한 번 복사한 정확한 크기의 `Uint8Array`를 worker에서 transfer하며 호스트는 같은 메모리를 읽는다. 한 access unit은 최대 4MiB, worker→호스트는 프레임 하나, Windows 인코더 입력은 최대 3개다. `video-pacer.mjs`는 single NAL/FU-A RTP 패킷을 최대 1192바이트로 필요할 때만 생성하고 token bucket으로 보낸다. 네이티브 SR·NACK·DTLS-SRTP 처리는 유지하고 과거 무제한 pacing queue를 사용하지 않는다. 약 두 패킷 또는 2ms 분량의 burst만 허용하며 프레임 경계에서 budget을 다시 채우지 않는다. ACK는 전송 완료·폐기·종료 때 보낸다. 일반 프레임의 대기 한도는 `max(24ms, 2/FPS)`, IDR은 최대 500ms다. 적체·송신 실패로 예측 프레임을 버리면 IDR까지 후속 예측 프레임도 버리고 키프레임을 요청하며 SPS/PPS를 IDR에 붙인다. binding·OS·네트워크 내부 큐 전체를 측정하거나 제한한다는 의미는 아니다.
+
+브라우저 feedback은 약 200ms 간격의 수신·디코드 증분, 손실률, 평균 jitter-buffer 체류, RTT, 가능한 경우 평균 디코드 시간을 전달한다. bitrate는 손실·buffer 체류·최소 관측 RTT 대비 상승·자체 전송 적체에 반응해 20%씩 낮추고, 수신·디코드 진행이 지속되면 천천히 회복한다. 범위는 350kbps–선택 모드의 초기 bitrate다. PLI/FIR와 실제 수신 후 디코드 정체에는 키프레임을 요청하지만 프레임이 오지 않는 정지 화면에 주기적인 IDR을 요청하지 않는다. 이 제어는 libwebrtc의 완전한 GCC와 같지 않으며 혼잡·손실 환경의 실측은 남아 있다. HEVC·AV1·이벤트 기반 worker wake-up은 이 구현에 포함하지 않는다.
 
 브라우저는 `<video>`와 지원되는 `jitterBufferTarget=0`을 사용한다. 실제 최소 buffer는 브라우저가 정한다. 연결 실패 또는 offer 후 20초 안에 decode가 없으면 복구 안내를 표시한다. 기존 1.2초 서버 전송 전환은 제거했다. 커서 PNG·위치는 기존 별도 메타데이터로 보내 로컬 커서·입력 seq 보정을 유지한다. 마우스 motion은 unordered/retransmit 0, 버튼·키·붙여넣기·복구 feedback은 reliable DataChannel을 사용한다.
 
 기본 ICE는 Google·Cloudflare의 공개 STUN이며 네이티브 agent를 교체해 제한적으로 재시도한다. 연결이 지연되면 OS 기본 게이트웨이에서 PCP/NAT-PMP/UPnP의 짧은 임시 매핑을 요청한다. 설치 시 Windows가 승인한 UDP 앱 규칙을 준비하며 기존 차단 정책은 보존한다. 상세 수명·진단·검증 범위는 [외부 직결 계약](remote-desktop-connectivity.md)을 따른다. HTTPS 터널은 인증·협상만 전달하므로 터널 접속 성공과 외부 영상 연결 성공은 구분한다.
 
 ## 뷰어 설정과 좌표
+
+설정의 `SelectField`로 해상도·목표 FPS·영상 품질을 선택한다. 바꾸면 눌린 입력과 기존 연결을 정리하고 같은 공유 화면에 새 세션으로 연결한다. 설정은 scope가 적용된 `mew-desktop-video` 브라우저 저장소에 기록하며 잘못된 값·읽기 실패는 기본값으로 복구한다. 요청값과 실제 협상 모드는 구분한다. 설정 창과 상단 통계에는 실제 수신 해상도·초당 디코드 프레임·적용 목표 FPS·RTT·Mbps·H.264 프로필·자체 전송 대기 시간을 표시한다. 약 1초마다 UI를 갱신해 200ms feedback이 React 렌더 빈도를 높이지 않게 한다. RTT는 ICE 경로의 왕복 시간이고 입력 후 표시 지연이 아니며, 수신 FPS도 디스플레이에 표시한 FPS의 실측은 아니다([WebRTC 통계](https://www.w3.org/TR/webrtc-stats/)).
 
 전체화면 버튼이 있는 상단 바는 현재 세션의 수신·송신 합계를 `누적 12.3 MB`처럼 표시한다. 수신·송신별 값은 접근성 이름과 title에 제공한다. 기존 stats 조회에서 약 1초마다 갱신하며 준비 중에는 `0 B`, 종료·오류 뒤에는 마지막 집계값을 유지한다. 다시 연결·공유 화면 변경·뷰어를 다시 열면 새 세션으로 0부터 시작하며, 같은 세션의 ICE 협상 재시도·회전·전체화면 전환은 누적값을 유지한다.
 
@@ -91,7 +99,7 @@ Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-dire
 
 상단 도구 줄은 다른 패널 헤더와 같은 `surface-deep` 배경·`edge` 아래 경계·36px 높이를 사용한다. 닫기는 24px, 다른 도구는 28px 버튼으로 표시하고 제목·도구 글자는 12px이다. 폭 600px 이하에서는 제목과 도구를 각각 36px의 두 줄로 나누며 safe-area는 별도로 더한다. 데스크톱의 내부 독도 헤더 높이에 맞춘다.
 
-공유 화면과 핫키 보조키는 공통 `SelectField`로 선택한다. 목록은 회전하는 원격 데스크톱 패널에 portal해 영상·컨트롤과 함께 회전한다. `SelectField`는 변환된 portal 컨테이너의 로컬 좌표로 메뉴를 배치하고 컨테이너 크기·변환 변경을 추적한다. 일반 뷰어·브라우저 전체화면에서 같은 위치와 입력 경계를 사용한다. Esc는 목록 → 설정 순으로 닫고 원격 화면은 유지한다. 뒤로가기는 목록 → 설정 → 원격 화면 순으로 닫고, 보조키 선택은 원격 컴퓨터에 키 입력을 보내지 않는다. 공유 화면 변경 시 기존 재연결 경로로 선택한 화면 ID를 전달한다.
+공유 화면·영상 설정·핫키 보조키는 공통 `SelectField`로 선택한다. 목록은 회전하는 원격 데스크톱 패널에 portal해 영상·컨트롤과 함께 회전한다. `SelectField`는 변환된 portal 컨테이너의 로컬 좌표로 메뉴를 배치하고 컨테이너 크기·변환 변경을 추적한다. 일반 뷰어·브라우저 전체화면에서 같은 위치와 입력 경계를 사용한다. Esc는 목록 → 설정 순으로 닫고 원격 화면은 유지한다. 뒤로가기는 목록 → 설정 → 원격 화면 순으로 닫고, 보조키 선택은 원격 컴퓨터에 키 입력을 보내지 않는다. 공유 화면 변경 시 기존 재연결 경로로 선택한 화면 ID를 전달한다.
 
 기본 뷰어는 작업 독을 표시한다. 모바일에서는 하단 고정 바, 데스크톱에서는 이동 가능한 반투명 캡슐을 사용한다([독 계약](ui-contracts.md#독과-상단-메뉴)). App의 독 컴포넌트는 상태를 유지한 채 `dockHostRef`로 받은 뷰어 내부 DOM에 portal하여 배경 inert에 막히지 않는다. 모바일 영상 영역과 조이스틱은 독 높이 48px + safe-area를 비운다. 실제 브라우저 전체화면에서는 호스트를 숨기고 여백을 없애며, 해제하면 다시 표시한다. 모바일 키보드 중 독 숨김도 유지한다. 독에서 다른 패널을 누르거나 스와이프하면 뷰어를 닫고 연결·눌린 입력을 정리한 뒤 해당 패널로 이동한다. 같은 원격 데스크톱 버튼은 연결을 다시 만들지 않는다. 독 순서·터치 이름 토스트 상태는 portal 이동 때도 유지한다. 배경 편집기와 설치 터미널의 기존 모달/inert 경계는 유지한다. 기본 뷰어에서 독을 가리던 동작은 사용자 요청으로 제거했으며 요청 전 재도입하지 않는다.
 
@@ -120,13 +128,13 @@ Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-dire
 `desktop-input.ts`와 네이티브 `protocol.mjs`의 v1 스냅샷은 누적 이동/휠 카운터, 전체 버튼 비트셋(left=1, middle=2, right=4), 키 목록, 선택적 정규화 절대 위치를 담는다. 소수 이동을 누적한 뒤 정수로 전송해 미세 입력을 보존한다.
 
 - `motion`: unordered, maxRetransmits=0. 송신 큐가 2KB를 넘으면 건너뛰고 다음 누적 스냅샷으로 거리를 복구한다.
-- 로컬 커서가 활성화된 일반 포인터 이동은 최대 초당 30개, 드래그·휠·기존 캡처 입력은 최대 60개로 합친다. 마지막 이동/휠 이후 약 70ms의 첫 rAF에서 reliable 스냅샷으로 유실을 복구한다. 고주사율 화면·여러 조이스틱·고속 마우스도 입력 메시지를 과도하게 보내지 않는다. 버튼·키 전환은 프레임을 기다리지 않는다.
+- 일반 포인터 이동·드래그·휠은 선택한 목표 FPS를 따르고, 모드 협상 뒤에는 적용 FPS(30–240)를 상한으로 합친다. rAF가 늦어도 따라잡기 burst를 보내지 않는다. 마지막 이동/휠 이후 약 70ms의 첫 rAF에서 reliable 스냅샷으로 유실을 복구한다. 버튼·키 전환은 프레임을 기다리지 않는다.
 - `control`: ordered/reliable. 버튼·키 전환과 250ms heartbeat마다 epoch를 올린다. 큐가 64KB를 넘으면 연결을 종료한다. 커서 feedback만 받은 대기 heartbeat·키보드 입력·해제는 절대 좌표를 보내지 않는다. 실제 클릭·휠·이동과 마지막 유실 이동 복구에는 좌표를 동반한다.
 - seq로 오래된 패킷을 버린다. 미래 epoch의 motion은 최신 하나만 보관하고 해당 reliable 전환 뒤 적용한다. 빠른 이동 패킷이 클릭 down/up을 추월해 클릭 자체를 없애지 못한다.
 - 유실된 마지막 이동은 기존 버튼 상태로 먼저 복원하고 새 버튼 전환을 적용한다. down/up/wheel 모두 UI 이벤트의 좌표를 먼저 계산하고, 놓는 위치가 화면 밖이면 가장자리로 제한한다. 휠도 같은 좌표를 동반하며 수신기가 위치를 적용한 뒤 처리한다.
 - blur·pointercancel·lost capture·닫기에서 해제한다. 백그라운드 진입은 영상도 종료한다. 네이티브 입력 heartbeat가 1.5초 끊기면 해제 후 종료한다.
 - 서버는 3초마다 인증과 WS 생존을 검사한다. 계정·역할·세션 무효화는 연결을 종료한다. 보조 앱은 부모 lease가 8초 없거나 stdin이 닫히면 종료한다. 세션이 없을 때 상주 pool만 idle lease를 보낸다. 정상 종료가 지연되면 자신이 띄운 자식만 종료하며, native cleanup 확인 또는 기존 lease 만료 전 새 제어권을 주지 않는다.
-- 입력 초당 240개, 협상 메시지 3초당 128개 및 수신 WS 메시지 128KB 상한, Wayland 입력 대기 32개 상한을 둔다. WebSocket 입력·프레임 ACK는 받지 않는다. 세션 종료 시 DataChannel과 입력 수신기를 해제하며 새 세션은 새 seq/epoch 상태로 시작한다.
+- 입력은 초당 unreliable motion 300개와 reliable control 256개로 각각 제한해 고주사율 이동이 키·버튼의 수신 예산을 소진하지 않게 한다. 초과 motion은 다음 누적 스냅샷으로 복구하고 초과 reliable 입력은 연결을 종료한다. 협상 메시지 3초당 128개 및 수신 WS 메시지 128KB 상한, Wayland 입력 대기 32개 상한을 둔다. WebSocket 입력·프레임 ACK는 받지 않는다. 세션 종료 시 DataChannel과 입력 수신기를 해제하며 새 세션은 새 seq/epoch 상태로 시작한다.
 
 물리 데스크톱은 Mew 계정별로 격리되지 않는다. 한 서버 프로세스에 제어 연결 하나만 허용한다. 같은 OS 사용자로 서버 여러 개를 실행하면 서버 간 잠금은 공유되지 않으므로 원격 제어용 서버는 하나만 운영한다. 권한 기준본은 [SECURITY.md](../../SECURITY.md)다.
 
@@ -168,6 +176,8 @@ Windows는 CF_UNICODETEXT의 메모리를 한도 내에서 읽고 lock/clipboard
 `gpu-macos.m`의 ScreenCaptureKit NV12 surface를 VideoToolbox 하드웨어 인코더에 전달한다. 비압축 화면을 JS로 읽지 않는다. [GPU 경로와 제한](remote-desktop-posix.md#%EC%98%81%EC%83%81-%EA%B2%BD%EB%A1%9C)을 따른다.
 
 ## 검증
+
+2026-10-07 영상 최적화에서는 대상 회귀 검사 159개 중 153개를 통과하고 opt-in 6개를 건너뛰었다. 격리 Chromium 뷰어 2개·PC/모바일 영상 설정, Linux 네이티브 Xvfb의 144FPS 목표와 240→165FPS 대체 협상, Linux 네이티브의 격리 UDP NAT 연결도 확인했다. TypeScript·lint(기존 경고)·description·diff 검사를 통과했다. UI 정적 탐지는 기존의 동적으로 `src`를 설정하는 숨김 커서 이미지 한 개만 경고한다. Linux 운영/테스트 모듈을 임시 SDK에서 별도 컴파일하고 Windows 소스를 설치된 Windows SDK로 문법 검사했다. WSL interop이 비활성이라 새 Windows GPU 모듈의 실행은 확인하지 못했다. 고주사율 목표의 협상 성공은 해당 FPS의 물리 GPU 처리·표시나 고화질에서의 입력 후 표시 지연 실측을 뜻하지 않는다. 이번 변경의 Mac 실행·앱 빌드·설치본 갱신·운영 서버 재시작은 수행하지 않았다.
 
 상주 호스트 검사는 캡처 없는 예열, 종료 확인 후 재사용, 오래된 세션의 응답 격리와 종료 실패 시 제어권 재사용 금지를 확인한다. WebSocket 검사는 인증 회수·단일 제어권과 중계 거부를 확인한다. 합성 브라우저 검사는 실제 WebRTC의 첫 영상·입력 준비와 연결당 한 번의 알림 신호를 검사한다.
 

@@ -11,7 +11,7 @@ MEW_GPU_EXPORT int mew_gpu_abi(void);
 MEW_GPU_EXPORT void *mew_gpu_create(void);
 MEW_GPU_EXPORT int mew_gpu_screens(void *, MewGpuScreen *, int);
 MEW_GPU_EXPORT int mew_gpu_source(void *, int, int, int, int);
-MEW_GPU_EXPORT int mew_gpu_start(void *, int, int, int, int, int, int, uint32_t);
+MEW_GPU_EXPORT int mew_gpu_start(void *, int, int, int, int, int, int, uint32_t, int, int);
 MEW_GPU_EXPORT int mew_gpu_current(void *, MewGpuScreen *);
 MEW_GPU_EXPORT int mew_gpu_poll(void *, uint8_t *, int, MewGpuFrame *);
 MEW_GPU_EXPORT void mew_gpu_keyframe(void *);

@@ -47,7 +47,7 @@ window.notifications=0;
 window.desktopHost={capture,ready(){},onSignal(fn){listener=fn},signal(value){if(value.type==='viewer-ready'){window.notifications++;return}socket?.emit(value)},input:accept,frame(packet){window.frameCount++;window.frameBytes+=packet.byteLength;socket?.onmessage?.({data:packet.buffer.slice(packet.byteOffset,packet.byteOffset+packet.byteLength)})}};
 class Socket {
  static OPEN=1;readyState=1;bufferedAmount=0;
- constructor(){receiver=createInputReceiver(adapter);lastNativeFrame=-1;socket=this;window.socket=this;setTimeout(()=>{this.emit({type:'config',iceServers:[]});this.emit({type:'sources',screens:[{id:'screen:0:0',label:'Test display',width:1280,height:720}]})},20)}
+ constructor(url){window.desktopUrl=url;receiver=createInputReceiver(adapter);lastNativeFrame=-1;socket=this;window.socket=this;setTimeout(()=>{this.emit({type:'config',iceServers:[]});this.emit({type:'sources',screens:[{id:'screen:0:0',label:'Test display',width:1280,height:720}]})},20)}
  emit(value){if(value.type==='offer')window.offerAt=performance.now();if('${transport}'==='server'&&value.type==='candidate')return;if(this.readyState===1)this.onmessage?.({data:JSON.stringify('${transport}'==='server'?withoutCandidates(value):value)})}
  send(raw){let value=JSON.parse(raw);if(value.type==='frame-ack'&&window.pauseAcks){window.pendingAck=raw;return}if(value.type==='relay-input'){accept(value.value,value.reliable);return}if(value.type==='relay'){window.relayWait=performance.now()-window.offerAt;window.switches++;receiver.pause()}if('${transport}'==='server'){if(value.type==='candidate')return;value=withoutCandidates(value)}listener(value.type==='select'?{type:'start',source:value.id,iceServers:[],relativeOnly:false,nativeCapture:${nativeCapture}}:value)}
  close(){if(this.readyState!==1)return;this.readyState=3;listener({type:'stop'});receiver.release();this.onclose?.()}
@@ -239,6 +239,30 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     }
     await page.getByRole('button', { name: '원격 데스크톱 설정', exact: true }).click()
     assert.equal(await page.locator('select, datalist').count(), 0)
+    if (scenario === 'direct') {
+      const fpsField = page.getByRole('combobox', { name: '목표 FPS', exact: true })
+      await fpsField.click(); await page.getByRole('option', { name: '144 FPS', exact: true }).click()
+      await page.waitForFunction(`new URL(window.desktopUrl).searchParams.get('fps')==='144'`)
+      assert.equal(await fpsField.textContent(), '144 FPS')
+      const resolutionField = page.getByRole('combobox', { name: '영상 해상도', exact: true })
+      await resolutionField.click(); await page.getByRole('option', { name: 'QHD · 1440p', exact: true }).click()
+      await page.waitForFunction(`new URL(window.desktopUrl).searchParams.get('resolution')==='1440p'`)
+      const qualityField = page.getByRole('combobox', { name: '영상 품질', exact: true })
+      await qualityField.click(); await page.getByRole('option', { name: '고화질', exact: true }).click()
+      await page.waitForFunction(`new URL(window.desktopUrl).searchParams.get('quality')==='high'`)
+      if (process.env.MEW_DESKTOP_SCREENSHOTS) {
+        const captures = process.env.MEW_DESKTOP_SCREENSHOTS
+        await fs.mkdir(captures, { recursive: true })
+        await page.screenshot({ path: path.join(captures, 'video-settings-mobile.png') })
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.screenshot({ path: path.join(captures, 'video-settings-desktop.png') })
+        await page.setViewportSize({ width: 390, height: 844 })
+      }
+      await fpsField.click(); await page.getByRole('option', { name: '60 FPS', exact: true }).click()
+      await resolutionField.click(); await page.getByRole('option', { name: 'Full HD · 1080p', exact: true }).click()
+      await qualityField.click(); await page.getByRole('option', { name: '균형', exact: true }).click()
+      await page.waitForFunction(`new URL(window.desktopUrl).searchParams.get('fps')==='60'&&document.querySelector('.desktop-connection')===null`)
+    }
     const modifierField = page.getByRole('combobox', { name: '핫키 보조키', exact: true })
     await modifierField.click()
     await page.getByRole('option', { name: 'Cmd · Mac', exact: true }).tap()

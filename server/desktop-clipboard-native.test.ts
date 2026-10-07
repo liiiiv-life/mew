@@ -29,7 +29,7 @@ test('Windows text clipboard reads bounded UTF-16 and always unlocks/closes OS h
 test('native clipboard replies only on reliable control, bounds text and drops replies after closing', async () => {
   const handlers = new Map<string, (raw: string) => void>(), replies: Record<string, unknown>[] = [], failures: unknown[] = []
   let read: () => Promise<string> = async () => 'remote 텍스트'
-  class Config { timestamp = 0 }
+  class Config { timestamp = 0; addToChain() {} }
   const rtc = {
     Video: class { addH264Codec() {} addSSRC() {} setBitrate() {} }, RtpPacketizationConfig: Config,
     H264RtpPacketizer: class { addToChain() {} }, RtcpSrReporter: Config, RtcpNackResponder: Config,

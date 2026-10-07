@@ -2,10 +2,14 @@ import { randomBytes } from 'node:crypto'
 import { connectionNotice } from './connection-notice.mjs'
 import { publicV4 } from './nat-port-map.mjs'
 import { nativeConnectivity } from './native-connectivity.mjs'
+import { DEFAULT_VIDEO, videoOffer, videoModes, videoRate, videoSettings } from './video-settings.mjs'
+import { videoPacer } from './video-pacer.mjs'
+import { videoAdaptation } from './video-adaptation.mjs'
 
 /** Hardware encoded Annex B frames enter RTP without a renderer or pixel copies. */
-function nativeAttempt(rtc, { iceServers, udpPort, emit, input, keyframe, bitrate, fail, connected = () => {}, readClipboard = async () => { throw new Error('Clipboard unavailable') }, now = Date.now, localCursor = true, relativeOnly = false, negotiation = 0, autoNat = true, connectivity = nativeConnectivity }) {
-  let closed = false, opened = 0, remote = false, pending = [], waitingKey = true, rate = 6_000_000, lastFeedback = 0, lastKey = 0
+function nativeAttempt(rtc, { iceServers, udpPort, emit, input, keyframe, bitrate, fail, video: startVideo, settings = DEFAULT_VIDEO, connected = () => {}, readClipboard = async () => { throw new Error('Clipboard unavailable') }, now = Date.now, localCursor = true, relativeOnly = false, negotiation = 0, autoNat = true, connectivity = nativeConnectivity }) {
+  settings = videoSettings(settings)
+  let closed = false, opened = 0, remote = false, pending = [], lastKey = -Infinity, pacer, adaptation, mode
   const notice = connectionNotice(connected)
   // Native channel wrappers close their SCTP channel when collected. Keep both
   // reachable for this attempt, even though input only receives messages.
@@ -20,6 +24,7 @@ function nativeAttempt(rtc, { iceServers, udpPort, emit, input, keyframe, bitrat
     ...(udpPort ? { portRangeBegin: udpPort, portRangeEnd: udpPort } : {}),
   })
   const closePeer = () => {
+    pacer?.close()
     for (const channel of channels) { try { channel.close() } catch { /* Continue releasing the remaining native objects. */ } }
     channels.length = 0
     peer.close()
@@ -27,28 +32,25 @@ function nativeAttempt(rtc, { iceServers, udpPort, emit, input, keyframe, bitrat
   try {
     const ssrc = randomBytes(4).readUInt32BE() || 1, payload = 102
     const video = new rtc.Video('video', 'SendOnly')
-    video.addH264Codec(payload, 'profile-level-id=42e033;packetization-mode=1;level-asymmetry-allowed=1')
+    for (const codec of videoOffer(settings)) video.addH264Codec(codec.payload, codec.fmtp)
     video.addSSRC(ssrc, 'mew', 'mew-desktop', 'screen')
-    video.setBitrate(6000)
+    video.setBitrate(Math.ceil(videoRate(settings) / 1000))
     const track = peer.addTrack(video), config = new rtc.RtpPacketizationConfig(ssrc, 'mew', payload, 90_000)
-    // Some prebuilt bindings omit this despite declaring it in TypeScript.
-    const buffered = () => typeof track.bufferedAmount === 'function' ? track.bufferedAmount() : 0
-    const packetizer = new rtc.H264RtpPacketizer('StartSequence', config, 1180)
-    packetizer.addToChain(new rtc.RtcpSrReporter(config))
-    packetizer.addToChain(new rtc.RtcpNackResponder(512))
-    track.setMediaHandler(packetizer)
+    // RTP is packetized lazily in the bounded pacer. Keep native SR/NACK handling.
+    const reporter = new rtc.RtcpSrReporter(config)
+    reporter.addToChain(new rtc.RtcpNackResponder(Math.min(4096, Math.max(512, Math.ceil(videoRate(settings) / 8 / 1180 * .4)))))
+    track.setMediaHandler(reporter)
     const requestKey = () => { if (!closed && now() - lastKey >= 200) { lastKey = now(); keyframe() } }
+    pacer = videoPacer({ ssrc, payload, bitrate: videoRate(settings), fps: settings.fps, send: packet => !closed && track.isOpen() && track.sendMessageBinary(packet), keyframe: requestKey, congested: () => adaptation.congested(), unsupported: () => fail(new Error('GPU의 영상 프로필·레벨이 브라우저 협상 범위를 초과했습니다. 해상도와 FPS를 낮춰 다시 연결해 주세요.')) })
+    adaptation = videoAdaptation({ maximum: videoRate(settings), now, keyframe: requestKey, change: value => { pacer.bitrate(value); bitrate(value) } })
     const feedback = value => {
-      if (!Number.isFinite(value.loss) || value.loss < 0 || value.loss > 1 || !Number.isFinite(value.delay) || value.delay < 0 || value.delay > 10_000 || typeof value.decoded !== 'boolean') throw new Error('Invalid video feedback')
-      if (now() - lastFeedback < 750) return
-      lastFeedback = now()
-      if (!value.decoded) requestKey()
-      const congested = value.loss > .03 || value.delay > 80 || buffered() > 192 * 1024
-      const next = Math.round(Math.max(350_000, Math.min(6_000_000, congested ? rate * .75 : rate * 1.05)))
-      if (next !== rate) { rate = next; bitrate(rate) }
+      if (!adaptation.feedback(value)) return
+      const control = channels.find(channel => channel.desktopLabel === 'control')
+      if (mode && control?.isOpen?.()) control.sendMessage(JSON.stringify({ type: 'video-status', ...mode, bitrate: adaptation.rate(), ...pacer.stats() }))
     }
     for (const [label, options] of [['motion', { unordered: true, maxRetransmits: 0 }], ['control', {}]]) {
       const channel = peer.createDataChannel(label, options)
+      channel.desktopLabel = label
       channels.push(channel)
       channel.onOpen(() => {
         if (closed) return
@@ -107,17 +109,16 @@ function nativeAttempt(rtc, { iceServers, udpPort, emit, input, keyframe, bitrat
     return {
       signal(value) {
         if (closed || (value.negotiation ?? 0) !== negotiation) return
-        if (value.type === 'answer') { peer.setRemoteDescription(value.sdp, 'answer'); remote = true; for (const candidate of pending) peer.addRemoteCandidate(candidate.candidate, candidate.sdpMid ?? 'video'); pending = [] }
+        if (value.type === 'answer') {
+          const modes = startVideo ? videoModes(value.sdp, settings) : undefined
+          peer.setRemoteDescription(value.sdp, 'answer'); remote = true
+          for (const candidate of pending) peer.addRemoteCandidate(candidate.candidate, candidate.sdpMid ?? 'video'); pending = []
+          if (modes) startVideo(modes, negotiation)
+        }
         else if (value.type === 'candidate') { if (remote) peer.addRemoteCandidate(value.candidate.candidate, value.candidate.sdpMid ?? 'video'); else if (pending.length < 128) pending.push(value.candidate) }
       },
-      frame(value) {
-        if (closed || !track.isOpen()) return
-        if (buffered() > 256 * 1024) { waitingKey = true; requestKey(); return }
-        if (waitingKey && !value.key) { requestKey(); return }
-        config.timestamp = Math.floor(value.timestamp * .09) >>> 0
-        if (!track.sendMessageBinary(Buffer.from(value.data))) { waitingKey = true; requestKey() }
-        else waitingKey = false
-      },
+      configure(value) { if (closed) return; mode = value; pacer.configure(value); adaptation.configure(value.bitrate) },
+      frame(value, done = () => {}) { if (closed || !track.isOpen() || startVideo && !mode) { done(); return }; pacer.frame(value, done) },
       unopened() { return opened === 0 },
       close() { if (closed) return nat.close(); closed = true; notice.close(); pending = []; closePeer(); return nat.close() },
     }
@@ -146,7 +147,8 @@ export function nativeDirect(rtc, options) {
   }
   start()
   return {
-    signal(value) { current?.signal(value) }, frame(value) { current?.frame(value) },
+    signal(value) { current?.signal(value) }, configure(value) { current?.configure(value) },
+    frame(value, done = () => {}) { if (current) current.frame(value, done); else done() },
     async close() { if (closed) return pending; closed = true; clearTimeout(timer); await current?.close(); await pending },
   }
 }

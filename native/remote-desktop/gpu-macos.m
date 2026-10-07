@@ -22,7 +22,7 @@
     CGRect bounds;
     size_t physicalWidth, physicalHeight;
     double rotation, health, submittedAt;
-    int width, height;
+    int width, height, fps;
     BOOL closed, failed, starting, busy, forceKey, fresh;
     id activity;
 }
@@ -56,7 +56,7 @@ static void output(void *ref, void *source, OSStatus status, VTEncodeInfoFlags f
         }
         CMBlockBufferRef block = CMSampleBufferGetDataBuffer(sample);
         size_t length = block ? CMBlockBufferGetDataLength(block) : 0;
-        if (!length || length > 1024 * 1024) capture->failed = YES;
+        if (!length || length > 4 * 1024 * 1024) capture->failed = YES;
         NSMutableData *avcc = [NSMutableData dataWithLength:capture->failed ? 0 : length];
         if (!capture->failed && CMBlockBufferCopyDataBytes(block, 0, length, avcc.mutableBytes)) capture->failed = YES;
         const uint8_t *bytes = avcc.bytes;
@@ -67,7 +67,7 @@ static void output(void *ref, void *source, OSStatus status, VTEncodeInfoFlags f
             if (!nal || nal > length - offset) { capture->failed = YES; break; }
             [data appendBytes:prefix length:4]; [data appendBytes:bytes + offset length:nal]; offset += nal;
         }
-        if (data.length > 1024 * 1024 || capture->encoded) capture->failed = YES;
+        if (data.length > 4 * 1024 * 1024 || capture->encoded) capture->failed = YES;
         if (!capture->failed) {
             capture->encoded = data;
             capture->metadata = (MewGpuFrame){(int32_t)data.length, capture->width, capture->height, key,
@@ -120,7 +120,7 @@ static void output(void *ref, void *source, OSStatus status, VTEncodeInfoFlags f
 @end
 
 typedef struct { void *capture, *device; } MacHost;
-int mew_gpu_abi(void) { return 1; }
+int mew_gpu_abi(void) { return 2; }
 int mew_gpu_allowed(void) {
     @autoreleasepool {
         NSDictionary *session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
@@ -163,9 +163,9 @@ void mew_gpu_destroy(void *p) {
     if (host->device) CFRelease(host->device);
     free(p);
 }
-int mew_gpu_start(void *p, int id, int maxWidth, int maxHeight, int fps, int bitrate, int fd, uint32_t node) {
-    (void)fd; (void)node;
-    if (!p || !mew_gpu_allowed() || !CGDisplayIsActive((uint32_t)id) || maxWidth != 1920 || maxHeight != 1080 || fps != 60 || bitrate < 350000 || bitrate > 6000000) return -1;
+int mew_gpu_start(void *p, int id, int maxWidth, int maxHeight, int fps, int bitrate, int fd, uint32_t node, int profile, int level) {
+    (void)fd; (void)node; (void)level;
+    if (!p || !mew_gpu_allowed() || !CGDisplayIsActive((uint32_t)id) || maxWidth < 2 || maxWidth > 3840 || maxHeight < 2 || maxHeight > 2160 || fps < 1 || fps > 240 || bitrate < 350000 || bitrate > 50000000 || (profile != 66 && profile != 100)) return -1;
     if (mew_gpu_stop(p)) return -1;
     @autoreleasepool {
         MewGpuMac *capture = [MewGpuMac new];
@@ -177,6 +177,7 @@ int mew_gpu_start(void *p, int id, int maxWidth, int maxHeight, int fps, int bit
         double scale = fmin(1, fmin((double)maxWidth / capture->physicalWidth, (double)maxHeight / capture->physicalHeight));
         capture->width = MAX(2, (int)floor(capture->physicalWidth * scale) & ~1); capture->height = MAX(2, (int)floor(capture->physicalHeight * scale) & ~1);
         capture->firstTime = capture->submittedTime = kCMTimeInvalid; capture->forceKey = YES;
+        capture->fps = fps;
         NSDictionary *spec = @{(__bridge NSString *)kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: @YES,
                               (__bridge NSString *)kVTVideoEncoderSpecification_EnableLowLatencyRateControl: @YES};
         OSStatus error = VTCompressionSessionCreate(NULL, capture->width, capture->height, kCMVideoCodecType_H264,
@@ -184,10 +185,10 @@ int mew_gpu_start(void *p, int id, int maxWidth, int maxHeight, int fps, int bit
         if (error || !capture->encoder) { [capture stop]; return -1; }
         NSDictionary *properties = @{(__bridge NSString *)kVTCompressionPropertyKey_RealTime: @YES,
             (__bridge NSString *)kVTCompressionPropertyKey_AllowFrameReordering: @NO,
-            (__bridge NSString *)kVTCompressionPropertyKey_ProfileLevel: (__bridge NSString *)kVTProfileLevel_H264_Baseline_AutoLevel,
+            (__bridge NSString *)kVTCompressionPropertyKey_ProfileLevel: (__bridge NSString *)(profile == 100 ? kVTProfileLevel_H264_ConstrainedHigh_AutoLevel : kVTProfileLevel_H264_Baseline_AutoLevel),
             (__bridge NSString *)kVTCompressionPropertyKey_AverageBitRate: @(bitrate),
-            (__bridge NSString *)kVTCompressionPropertyKey_MaxKeyFrameInterval: @60,
-            (__bridge NSString *)kVTCompressionPropertyKey_ExpectedFrameRate: @60};
+            (__bridge NSString *)kVTCompressionPropertyKey_MaxKeyFrameInterval: @(fps * 5),
+            (__bridge NSString *)kVTCompressionPropertyKey_ExpectedFrameRate: @(fps)};
         error = VTSessionSetProperties(capture->encoder, (__bridge CFDictionaryRef)properties);
         if (!error) error = VTCompressionSessionPrepareToEncodeFrames(capture->encoder);
         CFTypeRef hardware = NULL;
@@ -252,13 +253,13 @@ int mew_gpu_poll(void *p, uint8_t *out, int capacity, MewGpuFrame *meta) {
             CVPixelBufferRef surface = CVPixelBufferRetain(capture->latest);
             if (!CMTIME_IS_NUMERIC(capture->firstTime)) capture->firstTime = capture->latestTime;
             CMTime time = CMTimeSubtract(capture->latestTime, capture->firstTime);
-            if (!capture->fresh && CMTIME_IS_NUMERIC(capture->submittedTime)) time = CMTimeAdd(capture->submittedTime, CMTimeMakeWithSeconds(fmax(1.0 / 60, now - capture->submittedAt), 1000000));
-            if (CMTIME_IS_NUMERIC(capture->submittedTime) && CMTimeCompare(time, capture->submittedTime) <= 0) time = CMTimeAdd(capture->submittedTime, CMTimeMake(1, 60));
+            if (!capture->fresh && CMTIME_IS_NUMERIC(capture->submittedTime)) time = CMTimeAdd(capture->submittedTime, CMTimeMakeWithSeconds(fmax(1.0 / capture->fps, now - capture->submittedAt), 1000000));
+            if (CMTIME_IS_NUMERIC(capture->submittedTime) && CMTimeCompare(time, capture->submittedTime) <= 0) time = CMTimeAdd(capture->submittedTime, CMTimeMake(1, capture->fps));
             capture->submittedTime = time; capture->submittedAt = now; capture->fresh = NO;
             NSDictionary *properties = capture->forceKey ? @{(__bridge NSString *)kVTEncodeFrameOptionKey_ForceKeyFrame: @YES} : nil;
             capture->forceKey = NO; capture->busy = YES;
             // No LockBaseAddress, BGRA readback, raw IPC or canvas conversion.
-            OSStatus error = VTCompressionSessionEncodeFrame(capture->encoder, surface, time, CMTimeMake(1, 60), (__bridge CFDictionaryRef)properties, NULL, NULL);
+            OSStatus error = VTCompressionSessionEncodeFrame(capture->encoder, surface, time, CMTimeMake(1, capture->fps), (__bridge CFDictionaryRef)properties, NULL, NULL);
             CVPixelBufferRelease(surface);
             if (error) { capture->failed = YES; capture->busy = NO; result = -1; }
         });
@@ -270,7 +271,7 @@ void mew_gpu_keyframe(void *p) {
     MewGpuMac *capture = (__bridge MewGpuMac *)host->capture; dispatch_sync(capture->queue, ^{ capture->forceKey = YES; });
 }
 void mew_gpu_bitrate(void *p, int bitrate) {
-    MacHost *host = p; if (!host || !host->capture || bitrate < 350000 || bitrate > 6000000) return;
+    MacHost *host = p; if (!host || !host->capture || bitrate < 350000 || bitrate > 50000000) return;
     MewGpuMac *capture = (__bridge MewGpuMac *)host->capture;
     dispatch_sync(capture->queue, ^{ if (!capture->closed && capture->encoder && VTSessionSetProperty(capture->encoder, kVTCompressionPropertyKey_AverageBitRate, (__bridge CFNumberRef)@(bitrate))) capture->failed = YES; });
 }

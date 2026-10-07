@@ -1,8 +1,8 @@
 ---
 title: "Mac/Linux 상주 네이티브 GPU 호스트"
 created: 2026-10-01
-updated: 2026-10-02
-description: "Mac/Linux 상주 Node 호스트의 GPU H.264 캡처·직접 입력, OS별 화면·입력 권한과 설치·세션 수명·검증 계약을 정의한다."
+updated: 2026-10-07
+description: "Mac/Linux 상주 Node 호스트의 하드웨어 H.264 High/Baseline·4K와 고주사율 요청, 직접 입력·압축 프레임 제한, OS별 권한·설치·세션 수명과 실제 검증 범위를 정의한다."
 ---
 
 # Mac/Linux 상주 네이티브 GPU 호스트
@@ -21,7 +21,11 @@ Mac은 `gpu-macos.m`의 ScreenCaptureKit NV12 CVPixelBuffer를 VideoToolbox에 �
 
 Linux는 `gpu-linux.cpp`의 GStreamer 파이프라인을 사용한다. VA-API `vah264enc` 또는 NVENC `nvh264enc`를 요구하며 B-frame·lookahead를 끈다. X11의 `ximagesrc`는 CPU 읽기와 GPU 업로드가 남는다. Wayland는 portal의 PipeWire FD를 캡처 파이프라인에 전달한다. VA 경로는 GPU 업로드·변환, NVENC Wayland 경로는 GL 가져오기·CUDA interop을 사용한다. compositor·플러그인의 실제 협상에 따라 복사가 달라지므로 Linux 전체를 zero-copy라고 부르지 않는다. [VA 인코더](https://gstreamer.freedesktop.org/documentation/va/vah264enc.html) · [NVENC 인코더](https://gstreamer.freedesktop.org/documentation/nvcodec/nvh264enc.html).
 
-최대 1920×1080·60fps·초기 6Mbps다. 첫 영상과 reliable/unreliable 입력 채널이 준비되면 한 번 연결 알림을 요청한다. Mac은 UserNotifications, Linux는 D-Bus Notifications다. OS 알림 거부·서비스 부재는 전송 실패로 처리하지 않는다. 현재 POSIX는 영상에 실제 커서를 포함하며 Windows의 독립 로컬 커서와 동일한 지연 특성을 주장하지 않는다.
+최대 3840×2160·240FPS·50Mbps를 요청할 수 있고 기본은 1080p·60FPS·균형(6Mbps)이다. 실제 모드는 브라우저 수신 레벨과 하드웨어 초기화 결과에 맞춘다. [공통 협상·전송 제어](remote-desktop.md#전송과-지연)가 High/Baseline 선택·level 5.2 대체 payload·유한 RTP pacing·수신 feedback·적응 bitrate를 소유한다. 압축 access unit은 최대 4MiB이며 worker에서 같은 버퍼를 transfer한다. POSIX ABI는 2로 올렸으며 기존 설치본은 새 모듈로 준비해야 한다.
+
+Mac은 협상한 FPS를 ScreenCaptureKit 최소 간격·VideoToolbox ExpectedFrameRate·프레임 duration에 적용하고 High 또는 Baseline AutoLevel을 선택한다. 실제 SPS는 공통 sender에서 확인한다. Linux X11은 캡처 caps의 framerate를 적용하고, Wayland는 compositor가 제공하는 PipeWire 빈도에 제한된다. Linux는 선택한 profile·level을 출력 caps에 고정하고 VA의 CABAC/8×8 transform을 High에서 허용한다. NVENC의 ultra-low-latency tune과 두 프레임 VBV는 해당 속성이 있을 때만 설정한다. GOP 목표 간격은 5초이며 즉시 IDR 요청은 유지한다. 설정은 물리 화면의 주사율이나 Wayland compositor의 소스 빈도를 바꾸지 않는다. 활성 worker만 120FPS 이상에서 1ms, 그 외에는 2ms polling하며 이는 이벤트 기반 wake-up 구현이 아니다.
+
+첫 영상과 reliable/unreliable 입력 채널이 준비되면 한 번 연결 알림을 요청한다. Mac은 UserNotifications, Linux는 D-Bus Notifications다. OS 알림 거부·서비스 부재는 전송 실패로 처리하지 않는다. 현재 POSIX는 영상에 실제 커서를 포함하며 Windows의 독립 로컬 커서와 동일한 지연 특성을 주장하지 않는다.
 
 ## 설치와 권한
 
@@ -55,9 +59,13 @@ Mac은 로그인 console UID·화면 기록·손쉬운 사용·세션 잠금·�
 
 ## 검증
 
+2026-10-07 영상 설정·pacing·능력 협상 검증에서 Linux 운영/테스트 C++ 모듈을 별도로 경고 없이 컴파일했다. 격리 Xvfb에서 144FPS 목표의 H.264 영상·입력·권한 회수·같은 PID 재접속을 확인했고, 240FPS 요청이 현재 Chromium의 level 5.2 대체 payload에서 165FPS 목표로 연결되는 것도 확인했다. 이는 설정과 실제 네이티브 전송의 통합 검사이며 물리 GPU의 초당 144/165개 표시·입력 후 표시 지연 측정은 아니다. 해당 변경의 Mac SDK·실기 실행은 수행하지 않았다.
+
 2026-10-01 설치·Mac 권한 모사·상주 수명·OS 경로·알림·직접 전송 검사 51개와 합성 브라우저 검사 2개를 통과했다. 격리 Linux X11 통합 검사 1개와 실제 Unix FD 전달 검사 1개도 통과했다. TypeScript(app/node)·lint·문서 링크·diff 검사를 통과했으며 lint에는 기존 경고 12개가 남아 있다. Linux 운영 및 테스트 전용 모듈은 분리해 경고를 오류로 처리하여 컴파일한다. Mac은 macOS 13.3 SDK로 Intel·Apple Silicon 소스를 문법 검사한다. Mac 실제 링크·TCC·VideoToolbox 실행과 Linux 물리 GPU 성능은 이 환경에서 확인하지 못했다.
 
 `server/remote-desktop-linux.test.ts`는 전용 Xvfb·D-Bus에서 실제 네이티브 X11 캡처·H.264 WebRTC 첫 화면·XTest 입력·알림 요청·인증 회수·OS 잠금 시 입력 없이 종료·같은 PID 재접속·정상 종료를 검사한다. 별도 `MEW_GPU_TEST` 빌드에서만 소프트웨어 x264 인코더를 허용한다. 운영 빌드는 하드웨어 인코더만 허용하며 이 테스트로 초저지연 실측을 주장하지 않는다.
+
+고주사율 협상 검사는 `MEW_DESKTOP_TEST_VIDEO_FPS=144`로 요청한다. 브라우저의 협상 상한과 요청이 다르면 `MEW_DESKTOP_TEST_VIDEO_EXPECTED_FPS`로 예상 적용값을 지정한다(현재 Chromium의 FHD 240 요청은 165). 이 변수는 격리 테스트의 기대값이며 운영 설정이 아니다.
 
 `server/remote-desktop-portal.test.ts`는 격리 D-Bus portal 모사 서비스와 실제 usocket SCM_RIGHTS를 사용한다. 같은 session의 승인·소스 크기·FD 복제·소유 FD 해제를 검사한다. 실제 Wayland compositor의 승인·DMABuf 협상·GPU 입력과 같지는 않다.
 

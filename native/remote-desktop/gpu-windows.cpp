@@ -23,6 +23,8 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#include <atomic>
+#include <memory>
 
 using Microsoft::WRL::ComPtr;
 using namespace winrt::Windows::Graphics::Capture;
@@ -31,6 +33,27 @@ using namespace winrt::Windows::Graphics::DirectX::Direct3D11;
 struct Screen { int32_t id, x, y, width, height, primary; };
 struct Frame { int32_t bytes, width, height, key; int64_t timestamp; };
 struct Monitor { ComPtr<IDXGIAdapter1> adapter; ComPtr<IDXGIOutput1> output; DXGI_OUTPUT_DESC desc; };
+struct Surface {
+    ComPtr<ID3D11Texture2D> texture;
+    ComPtr<ID3D11VideoProcessorOutputView> view;
+    std::atomic<bool> free{true};
+};
+// IMFTrackedSample calls back only after the encoder releases the input sample.
+class SurfaceReturn final : public IMFAsyncCallback {
+    std::atomic<ULONG> refs{1};
+    std::shared_ptr<Surface> surface;
+public:
+    explicit SurfaceReturn(std::shared_ptr<Surface> value) : surface(std::move(value)) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
+        if (!out) return E_POINTER; *out=nullptr;
+        if (id!=IID_IUnknown && id!=__uuidof(IMFAsyncCallback)) return E_NOINTERFACE;
+        *out=static_cast<IMFAsyncCallback*>(this); AddRef(); return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
+    ULONG STDMETHODCALLTYPE Release() override { const auto count=--refs; if(!count)delete this;return count; }
+    HRESULT STDMETHODCALLTYPE GetParameters(DWORD*,DWORD*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE Invoke(IMFAsyncResult*) override { surface->free.store(true);return S_OK; }
+};
 struct Engine {
     std::vector<Monitor> monitors;
     ComPtr<ID3D11Device> device;
@@ -48,13 +71,17 @@ struct Engine {
     ComPtr<ID3D11VideoProcessorEnumerator> enumerator;
     ComPtr<ID3D11VideoProcessor> processor;
     ComPtr<ID3D11Texture2D> latest;
+    ComPtr<ID3D11VideoProcessorInputView> inputView;
+    std::vector<std::shared_ptr<Surface>> surfaces;
+    ComPtr<IMFSample> outputSample;
+    ComPtr<IMFMediaBuffer> outputBuffer;
     ComPtr<IMFDXGIDeviceManager> manager;
     ComPtr<IMFTransform> encoder;
     ComPtr<IMFMediaEventGenerator> events;
     ComPtr<ICodecAPI> codec;
     HRESULT error = S_OK;
     LUID deviceLuid{};
-    int selected = -1, width = 0, height = 0, fps = 60, inFlight = 0, inputCredits = 0;
+    int selected = -1, width = 0, height = 0, fps = 60, profile = 66, level = 42, inFlight = 0, inputCredits = 0;
     bool active = false, refresh = true;
     LARGE_INTEGER frequency{}, origin{}, nextInput{};
     ~Engine() { stop(); context.Reset(); device.Reset();if(previousDpi)SetThreadDpiAwarenessContext(previousDpi);MFShutdown(); CoUninitialize(); }
@@ -67,6 +94,7 @@ struct Engine {
             encoder->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
         }
         codec.Reset(); events.Reset(); encoder.Reset(); manager.Reset();
+        surfaces.clear(); inputView.Reset(); outputSample.Reset(); outputBuffer.Reset();
         latest.Reset(); processor.Reset(); enumerator.Reset(); videoContext.Reset(); videoDevice.Reset();
         inputCredits = 0; inFlight = 0; refresh = true;
         if(virtualDisplay!=INVALID_HANDLE_VALUE){DWORD bytes=0;DeviceIoControl(virtualDisplay,mewDisplayRelease,nullptr,0,nullptr,0,&bytes,nullptr);CloseHandle(virtualDisplay);virtualDisplay=INVALID_HANDLE_VALUE;}
@@ -87,7 +115,7 @@ struct Engine {
     }
     HRESULT gpu(int index) { selected=index;return gpuAdapter(monitors[index].adapter.Get()); }
     HRESULT value(const GUID& property, ULONG number) {
-        if (!codec) return E_NOINTERFACE;
+        if (!codec || codec->IsSupported(&property)!=S_OK) return E_NOTIMPL;
         VARIANT v; VariantInit(&v); v.vt = VT_UI4; v.ulVal = number;
         return codec->SetValue(&property, &v);
     }
@@ -105,7 +133,7 @@ static bool unlocked() {
     bool ok = GetUserObjectInformationW(desktop, UOI_NAME, name, sizeof(name), &size) && _wcsicmp(name, L"Default") == 0;
     CloseDesktop(desktop); return ok;
 }
-static HRESULT type(IMFMediaType** result, GUID subtype, int width, int height, int fps, int bitrate) {
+static HRESULT type(IMFMediaType** result, GUID subtype, int width, int height, int fps, int bitrate, int profile, int level) {
     ComPtr<IMFMediaType> media; HRESULT hr = MFCreateMediaType(&media);
     if (FAILED(hr)) return hr;
     media->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video); media->SetGUID(MF_MT_SUBTYPE, subtype);
@@ -115,7 +143,8 @@ static HRESULT type(IMFMediaType** result, GUID subtype, int width, int height, 
     media->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
     if (subtype == MFVideoFormat_H264) {
         media->SetUINT32(MF_MT_AVG_BITRATE, bitrate);
-        media->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base);
+        media->SetUINT32(MF_MT_MPEG2_PROFILE, profile == 100 ? eAVEncH264VProfile_High : eAVEncH264VProfile_Base);
+        media->SetUINT32(MF_MT_MPEG2_LEVEL, level);
     }
     *result = media.Detach(); return S_OK;
 }
@@ -142,9 +171,9 @@ static HRESULT encoder(Engine* e, int bitrate) {
             if (SUCCEEDED(hr)) { attrs->SetUINT32(MF_TRANSFORM_ASYNC_UNLOCK, TRUE); attrs->SetUINT32(MF_LOW_LATENCY, TRUE); }
             if (SUCCEEDED(hr)) hr = candidate->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, reinterpret_cast<ULONG_PTR>(e->manager.Get()));
             ComPtr<IMFMediaType> out, in;
-            if (SUCCEEDED(hr)) hr = type(&out, MFVideoFormat_H264, e->width, e->height, e->fps, bitrate);
+            if (SUCCEEDED(hr)) hr = type(&out, MFVideoFormat_H264, e->width, e->height, e->fps, bitrate, e->profile, e->level);
             if (SUCCEEDED(hr)) hr = candidate->SetOutputType(0, out.Get(), 0);
-            if (SUCCEEDED(hr)) hr = type(&in, MFVideoFormat_NV12, e->width, e->height, e->fps, bitrate);
+            if (SUCCEEDED(hr)) hr = type(&in, MFVideoFormat_NV12, e->width, e->height, e->fps, bitrate, e->profile, e->level);
             if (SUCCEEDED(hr)) hr = candidate->SetInputType(0, in.Get(), 0);
             if (SUCCEEDED(hr)) hr = candidate.As(&e->events);
             if (SUCCEEDED(hr)) {
@@ -152,8 +181,9 @@ static HRESULT encoder(Engine* e, int bitrate) {
                 e->boolean(CODECAPI_AVLowLatencyMode, true);
                 e->value(CODECAPI_AVEncCommonRateControlMode, eAVEncCommonRateControlMode_CBR);
                 e->value(CODECAPI_AVEncCommonMeanBitRate, bitrate);
+                e->value(CODECAPI_AVEncCommonBufferSize, std::max(8192, bitrate / e->fps / 8 * 2));
                 e->value(CODECAPI_AVEncMPVDefaultBPictureCount, 0);
-                e->value(CODECAPI_AVEncMPVGOPSize, e->fps * 10);
+                e->value(CODECAPI_AVEncMPVGOPSize, e->fps * 5);
                 hr = candidate->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
                 if (SUCCEEDED(hr)) hr = candidate->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
                 if (SUCCEEDED(hr)) { last = S_OK; break; }
@@ -166,37 +196,48 @@ static HRESULT encoder(Engine* e, int bitrate) {
     return last;
 }
 static HRESULT convert(Engine* e, ID3D11Texture2D* source, IMFSample** result, int64_t timestamp) {
+    if(e->surfaces.empty())for(int i=0;i<3;i++)e->surfaces.push_back(std::make_shared<Surface>());
+    std::shared_ptr<Surface> slot;
+    for(auto& value:e->surfaces){bool free=true;if(value->free.compare_exchange_strong(free,false)){slot=value;break;}}
+    if(!slot)return S_FALSE;
+    auto run=[&]() -> HRESULT {
     D3D11_TEXTURE2D_DESC desc{}; desc.Width=e->width; desc.Height=e->height; desc.MipLevels=1; desc.ArraySize=1;
     desc.Format=DXGI_FORMAT_NV12; desc.SampleDesc.Count=1; desc.Usage=D3D11_USAGE_DEFAULT; desc.BindFlags=D3D11_BIND_RENDER_TARGET;
-    ComPtr<ID3D11Texture2D> texture; HRESULT hr = e->device->CreateTexture2D(&desc, nullptr, &texture);
+    HRESULT hr = slot->texture ? S_OK : e->device->CreateTexture2D(&desc, nullptr, &slot->texture);
     if (FAILED(hr)) return hr;
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC iv{}; iv.ViewDimension=D3D11_VPIV_DIMENSION_TEXTURE2D;
     D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC ov{}; ov.ViewDimension=D3D11_VPOV_DIMENSION_TEXTURE2D;
-    ComPtr<ID3D11VideoProcessorInputView> input; ComPtr<ID3D11VideoProcessorOutputView> output;
-    hr = e->videoDevice->CreateVideoProcessorInputView(source, e->enumerator.Get(), &iv, &input);
-    if (SUCCEEDED(hr)) hr = e->videoDevice->CreateVideoProcessorOutputView(texture.Get(), e->enumerator.Get(), &ov, &output);
+    if(!e->inputView)hr = e->videoDevice->CreateVideoProcessorInputView(source, e->enumerator.Get(), &iv, &e->inputView);
+    if (SUCCEEDED(hr) && !slot->view) hr = e->videoDevice->CreateVideoProcessorOutputView(slot->texture.Get(), e->enumerator.Get(), &ov, &slot->view);
     if (FAILED(hr)) return hr;
-    D3D11_VIDEO_PROCESSOR_STREAM stream{}; stream.Enable=TRUE; stream.pInputSurface=input.Get();
-    hr = e->videoContext->VideoProcessorBlt(e->processor.Get(), output.Get(), 0, 1, &stream);
+    D3D11_VIDEO_PROCESSOR_STREAM stream{}; stream.Enable=TRUE; stream.pInputSurface=e->inputView.Get();
+    hr = e->videoContext->VideoProcessorBlt(e->processor.Get(), slot->view.Get(), 0, 1, &stream);
     if (FAILED(hr)) return hr;
-    ComPtr<IMFMediaBuffer> buffer; ComPtr<IMFSample> sample;
-    hr = MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), texture.Get(), 0, FALSE, &buffer);
-    if (SUCCEEDED(hr)) hr = MFCreateSample(&sample);
+    ComPtr<IMFMediaBuffer> buffer; ComPtr<IMFSample> sample; ComPtr<IMFTrackedSample> tracked;
+    hr = MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), slot->texture.Get(), 0, FALSE, &buffer);
+    if (SUCCEEDED(hr)) hr = MFCreateTrackedSample(&tracked);
+    if (SUCCEEDED(hr)) hr = tracked.As(&sample);
     if (SUCCEEDED(hr)) hr = sample->AddBuffer(buffer.Get());
     if (SUCCEEDED(hr)) hr = sample->SetSampleTime(timestamp);
     if (SUCCEEDED(hr)) hr = sample->SetSampleDuration(10000000 / e->fps);
+    ComPtr<IMFAsyncCallback> released;released.Attach(new SurfaceReturn(slot));
+    if(SUCCEEDED(hr))hr=tracked->SetAllocator(released.Get(),nullptr);
     if (FAILED(hr)) return hr;
     *result=sample.Detach(); return S_OK;
+    };
+    HRESULT hr=run();if(FAILED(hr))slot->free.store(true);return hr;
 }
 static HRESULT output(Engine* e, unsigned char* data, int capacity, Frame* frame) {
     MFT_OUTPUT_STREAM_INFO info{}; HRESULT hr=e->encoder->GetOutputStreamInfo(0, &info);
     if (FAILED(hr)) return hr;
     ComPtr<IMFSample> supplied;
     if (!(info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES)) {
-        ComPtr<IMFMediaBuffer> buffer; hr=MFCreateSample(&supplied);
-        if (SUCCEEDED(hr)) hr=MFCreateMemoryBuffer(std::max<ULONG>(info.cbSize, 1024*1024), &buffer);
-        if (SUCCEEDED(hr)) hr=supplied->AddBuffer(buffer.Get());
+        if(info.cbSize>4*1024*1024)return E_OUTOFMEMORY;
+        if(!e->outputSample){hr=MFCreateSample(&e->outputSample);
+          if(SUCCEEDED(hr))hr=MFCreateMemoryBuffer(4*1024*1024,&e->outputBuffer);
+          if(SUCCEEDED(hr))hr=e->outputSample->AddBuffer(e->outputBuffer.Get());}
         if (FAILED(hr)) return hr;
+        e->outputSample->DeleteAllItems();e->outputBuffer->SetCurrentLength(0);supplied=e->outputSample;
     }
     MFT_OUTPUT_DATA_BUFFER out{}; out.pSample=supplied.Get(); DWORD status=0;
     hr=e->encoder->ProcessOutput(0, 1, &out, &status);
@@ -280,7 +321,7 @@ static HRESULT virtualScreen(Engine* e,HMONITOR* monitor) {
 }
 
 extern "C" {
-__declspec(dllexport) int mew_gpu_abi() { return 3; }
+__declspec(dllexport) int mew_gpu_abi() { return 4; }
 __declspec(dllexport) void* mew_gpu_create() {
     DWORD session=0;
     if (!ProcessIdToSessionId(GetCurrentProcessId(), &session) || !session || !unlocked()) return nullptr;
@@ -306,9 +347,9 @@ __declspec(dllexport) int mew_gpu_screens(void* handle, Screen* screens, int cap
     return count;
 }
 __declspec(dllexport) int mew_gpu_current(void* handle,Screen* screen) { auto e=static_cast<Engine*>(handle);if(!e || !e->active || !screen)return -1;*screen=e->current;return 0; }
-__declspec(dllexport) int mew_gpu_start(void* handle, int index, int maxWidth, int maxHeight, int fps, int bitrate) {
+__declspec(dllexport) int mew_gpu_start(void* handle, int index, int maxWidth, int maxHeight, int fps, int bitrate, int profile, int level) {
     auto e=static_cast<Engine*>(handle);
-    if (!e || index<0 || (index!=99 && index>=static_cast<int>(e->monitors.size())) || maxWidth<2 || maxWidth>4096 || maxHeight<2 || maxHeight>2160 || fps<1 || fps>120 || bitrate<350000 || bitrate>20000000) return -1;
+    if (!e || index<0 || (index!=99 && index>=static_cast<int>(e->monitors.size())) || maxWidth<2 || maxWidth>3840 || maxHeight<2 || maxHeight>2160 || fps<1 || fps>240 || bitrate<350000 || bitrate>50000000 || (profile!=66 && profile!=100) || level<31 || level>62) return -1;
     e->stop(); e->error=S_OK;
     auto run=[&]() -> HRESULT {
         if (!unlocked()) return E_ACCESSDENIED;
@@ -323,7 +364,7 @@ __declspec(dllexport) int mew_gpu_start(void* handle, int index, int maxWidth, i
         auto size=e->item.Size();e->sourceWidth=size.Width;e->sourceHeight=size.Height;
         if(size.Width<2 || size.Height<2)return DXGI_ERROR_NOT_FOUND;
         double ratio=std::min({1.0,static_cast<double>(maxWidth)/size.Width,static_cast<double>(maxHeight)/size.Height});
-        e->width=std::max(2,static_cast<int>(size.Width*ratio)/2*2); e->height=std::max(2,static_cast<int>(size.Height*ratio)/2*2); e->fps=fps;
+        e->width=std::max(2,static_cast<int>(size.Width*ratio)/2*2); e->height=std::max(2,static_cast<int>(size.Height*ratio)/2*2); e->fps=fps;e->profile=profile;e->level=level;
         ComPtr<IDXGIDevice> dxgi;hr=e->device.As(&dxgi);if(FAILED(hr))return hr;
         winrt::com_ptr<IInspectable> inspectable;winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(dxgi.Get(),inspectable.put()));
         auto captureDevice=inspectable.as<IDirect3DDevice>();
@@ -389,6 +430,7 @@ __declspec(dllexport) int mew_gpu_poll(void* handle, unsigned char* data, int ca
         const int64_t elapsed=now.QuadPart-e->origin.QuadPart;
         const int64_t timestamp=(elapsed/e->frequency.QuadPart)*10000000+(elapsed%e->frequency.QuadPart)*10000000/e->frequency.QuadPart;
         ComPtr<IMFSample> sample; hr=convert(e,e->latest.Get(),&sample,timestamp);
+        if(hr==S_FALSE)return S_FALSE;
         if(FAILED(hr))return hr;
         hr=e->encoder->ProcessInput(0,sample.Get(),0);
         if(hr==MF_E_NOTACCEPTING)return S_FALSE;
@@ -409,7 +451,7 @@ __declspec(dllexport) int mew_gpu_keyframe(void* handle) {
     e->refresh=true; return SUCCEEDED(e->value(CODECAPI_AVEncVideoForceKeyFrame,1)) ? 0 : -1;
 }
 __declspec(dllexport) int mew_gpu_bitrate(void* handle,int bitrate) {
-    auto e=static_cast<Engine*>(handle); if(!e || !e->active || bitrate<350000 || bitrate>20000000)return -1;
+    auto e=static_cast<Engine*>(handle); if(!e || !e->active || bitrate<350000 || bitrate>50000000)return -1;
     return SUCCEEDED(e->value(CODECAPI_AVEncCommonMeanBitRate,bitrate)) ? 0 : -1;
 }
 __declspec(dllexport) uint32_t mew_gpu_error(void* handle) { auto e=static_cast<Engine*>(handle);return e ? static_cast<uint32_t>(e->error) : static_cast<uint32_t>(E_POINTER); }

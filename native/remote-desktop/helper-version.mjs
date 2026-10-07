@@ -14,6 +14,7 @@ HELPER_FILES.push('native-platform.mjs', 'gpu-posix.mjs', 'gpu-posix-worker.mjs'
 HELPER_FILES.push('native-connectivity.mjs', 'nat-port-map.mjs', 'nat-upnp.mjs', 'prepare-windows-network.ps1')
 HELPER_FILES.push('network-support.mjs', 'windows-network.mjs')
 HELPER_FILES.push('host-shutdown.mjs')
+HELPER_FILES.push('video-settings.mjs', 'video-pacer.mjs', 'video-adaptation.mjs')
 export function helperVersion(directory) {
   const hash = createHash('sha256')
   for (const file of HELPER_FILES) hash.update(file).update('\0').update(readFileSync(path.join(directory, file)))

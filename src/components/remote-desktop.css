@@ -8,6 +8,7 @@
 .desktop-title, .desktop-tools { display: flex; align-items: center; gap: 6px; min-width: 0; height: 35px; }
 .desktop-title strong { white-space: nowrap; font-size: 12px; font-weight: 400; }
 .desktop-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+@container desktop-panel (min-width: 601px) { .desktop-title { flex: 1 1 0; } }
 .desktop-tools { gap: 2px; margin-left: auto; }
 .desktop-network { flex-shrink: 0; color: var(--color-ink-secondary); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .desktop-tools button { height: 28px; min-height: 0; padding: 0 6px; border-radius: 4px; background: transparent; border: 0; white-space: nowrap; font-size: 12px; color: var(--color-ink-secondary); }
