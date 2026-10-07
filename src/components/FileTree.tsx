@@ -1600,7 +1600,7 @@ export function FileTree({
           }
           onDownload={
             popover.type === 'file'
-              ? <DownloadLink href={downloadUrl(popover.path, project)} name={popover.path.split('/').pop() ?? popover.path} onStarted={() => setPopover(null)} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover"><Download width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.download')}</DownloadLink>
+              ? <DownloadLink href={downloadUrl(popover.path, project)} name={popover.path.split('/').pop() ?? popover.path} onStarted={() => setPopover(null)} menuIcon={<Download />}>{t('fileExplorer.download')}</DownloadLink>
               : undefined
           }
           onDelete={

@@ -50,7 +50,7 @@ function Fixture(){
  </div>
 }
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
-  const targets = ['DockWorkspace', 'TabBar', 'AgentPanel', 'BrowserPanel', 'git-panel', 'GitWorkbench', 'mobile-dock', 'github-account', 'action-menu', 'tab-action-menu'].map(name => `src/components/${name}.tsx`)
+  const targets = ['DockWorkspace', 'TabBar', 'AgentPanel', 'BrowserPanel', 'git-panel', 'GitWorkbench', 'mobile-dock', 'github-account', 'tab-action-menu'].map(name => `src/components/${name}.tsx`)
   const content = (await Promise.all(targets.map(file => fs.readFile(path.join(root, file), 'utf8')))).join('\n')
   const bundle = await build({ input: 'virtual:maximize.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'fixture',

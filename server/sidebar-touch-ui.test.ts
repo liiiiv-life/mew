@@ -44,7 +44,7 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><I18nProvid
     await page.goto('http://mew-touch.test/')
     const file = page.locator('button[data-path="note.md"]')
     const folder = page.locator('button[data-path="folder"]')
-    const menu = page.getByRole('button', { name: '잘라내기', exact: true })
+    const menu = page.getByRole('menuitem', { name: '잘라내기', exact: true })
     const center = async (el: Locator) => { const box = await el.boundingBox(); assert.ok(box); return { x: box.x + box.width / 2, y: box.y + box.height / 2 } }
     const cdp = await context.newCDPSession(page)
     const touch = async (type: 'touchStart' | 'touchMove' | 'touchEnd' | 'touchCancel', point?: { x: number; y: number }) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: point ? [{ ...point, id: 1 }] : [] })

@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import '@mew/ui/action-menu.css';
 @plugin '@tailwindcss/typography';
 @variant dark (&:where(.dark, .dark *));
 

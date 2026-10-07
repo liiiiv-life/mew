@@ -216,14 +216,6 @@ button.task-tag-name:hover { text-decoration: underline; text-underline-offset: 
   .task-tag-picker-menu [role="option"] { min-height: 32px; }
 }
 
-.task-action-menu { position: fixed; z-index: 1300; width: 176px; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid var(--color-edge); border-radius: 8px; background: var(--color-surface-deep); color: var(--color-ink); box-shadow: 0 6px 18px #0002; }
-.task-action-menu > button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 3px 8px; border-radius: 4px; font-size: 12px; text-align: left; touch-action: manipulation; }
-.task-action-menu > button:hover, .task-action-menu > button:focus-visible { background: var(--color-surface-hover); }
-.task-action-menu > button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-.task-action-menu > button > svg { flex-shrink: 0; }
-.task-action-menu > [aria-checked="true"] { color: var(--color-accent); }
-.task-action-menu > .task-action-danger { color: var(--color-danger); }
-@media (pointer: coarse) { .task-action-menu > button { min-height: 32px; } }
 
 .task-tag-option { display: flex; align-items: center; gap: 0; }
 .task-tag-option > [role="option"] { flex: 1; min-width: 0; }

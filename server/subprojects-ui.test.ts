@@ -57,7 +57,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     })
     await page.addInitScript("localStorage.setItem('mew:locale','ko')")
     await page.goto('http://mew-projects.test/')
-    const menu = page.getByRole('button', { name: '하위 프로젝트로 만들기', exact: true })
+    const menu = page.getByRole('menuitem', { name: '하위 프로젝트로 만들기', exact: true })
     const row = (path: string) => page.locator(`button[data-path="${path}"]`)
     await row('abc').click()
     await row('abc/def').click({ button: 'right' })

@@ -2,7 +2,8 @@ import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import type { Editor } from '@tiptap/react'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { useOverlayDismiss } from '@mew/ui'
+import { ActionMenu, ActionMenuItem } from '@mew/ui'
+import { Copy, MediaImage, Table2Columns } from 'iconoir-react'
 
 // 표 우클릭 복사 메뉴 — md(기본)·csv·이미지. pos는 표 노드 시작 위치(문서 좌표),
 // tableDom은 이미지 복사용 실제 렌더 엘리먼트(계산된 스타일을 그대로 베낀다).
@@ -145,7 +146,6 @@ export function TableCopyMenu({
   onError: (message: string) => void
 }) {
   useUiLocale()
-  useOverlayDismiss(onClose)
 
   const run = (fn: () => Promise<void>) => {
     // 실패 원인(NotAllowedError 등)을 그대로 보여준다 — "권한 확인" 같은 추측 문구는 디버깅을 막는다
@@ -175,35 +175,8 @@ export function TableCopyMenu({
     [uiText("이미지로 복사"), () => copyAsImage(tableDom)],
   ]
 
-  return (
-    <>
-      {/* 바깥 클릭·우클릭 모두 닫기 — 뒤 에디터로 이벤트가 새지 않게 투명 백드롭으로 받는다 */}
-      <div
-        className="fixed inset-0 z-40"
-        onMouseDown={onClose}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          onClose()
-        }}
-      />
-      <div
-        className="fixed z-50 flex min-w-36 flex-col rounded-lg border border-edge-strong bg-surface-deep/90 py-1 shadow-lg backdrop-blur-sm"
-        style={{ top: position.top, left: position.left }}
-      >
-        {items.map(([label, action], i) => (
-          <button
-            key={label}
-            type="button"
-            onClick={() => run(action)}
-            className={`px-3 py-1.5 text-left text-xs hover:bg-surface-raised ${
-              i === 0 ? 'font-semibold text-ink' : 'text-ink-secondary'
-            }`}
-          >
-            {label}
-            {i === 0 && <span className="ml-2 text-[10px] text-ink-muted">{uiText("기본")}</span>}
-          </button>
-        ))}
-      </div>
-    </>
-  )
+  const icons = [Copy, Table2Columns, MediaImage]
+  return <ActionMenu x={position.left} y={position.top} onClose={onClose}>
+    {items.map(([label, action], i) => { const Icon = icons[i]; return <ActionMenuItem key={label} icon={<Icon />} hint={i === 0 ? uiText('기본') : undefined} onClick={() => run(action)}>{label}</ActionMenuItem> })}
+  </ActionMenu>
 }

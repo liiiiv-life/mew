@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Copy, EditPencil, Folder, FolderPlus, FolderSettings, GitBranch, MultiplePagesPlus, PagePlus, PasteClipboard, Scissor, Star, Trash, Upload } from 'iconoir-react'
-import { ActionMenu } from './action-menu'
+import { ActionMenu, ActionMenuItem } from '@mew/ui'
 import { useI18n } from '../i18n'
 
 export function FileActionMenu({
@@ -46,66 +46,20 @@ export function FileActionMenu({
   onClose: () => void
 }) {
   const { t } = useI18n()
-  return (
-    <ActionMenu x={x} y={y} onClose={onClose} fileMenu>
-      {onRename && (
-        <button type="button" onClick={onRename} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <EditPencil width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.rename')}
-        </button>
-      )}
-      {onDuplicate && (
-        <button type="button" onClick={onDuplicate} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <MultiplePagesPlus width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.duplicate')}
-        </button>
-      )}
-      {onCopyClip && (
-        <button type="button" onClick={onCopyClip} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <Copy width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.copy')}
-        </button>
-      )}
-      {onCutClip && (
-        <button type="button" onClick={onCutClip} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <Scissor width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.cut')}
-        </button>
-      )}
-      {onPasteClip && (
-        <button type="button" onClick={onPasteClip} disabled={pasteDisabled} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <PasteClipboard width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.paste')}
-        </button>
-      )}
-      {onDownload}
-      {onNewFile && (
-        <button type="button" onClick={onNewFile} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <PagePlus width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('sidebar.newFile')}
-        </button>
-      )}
-      {onNewFolder && (
-        <button type="button" onClick={onNewFolder} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <FolderPlus width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('sidebar.newFolder')}
-        </button>
-      )}
-      {onUpload && (
-        <button type="button" onClick={onUpload} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <Upload width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.upload')}
-        </button>
-      )}
-      {onCreateSubproject && (
-        <button type="button" onClick={onCreateSubproject} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <FolderSettings width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.createSubproject')}
-        </button>
-      )}
-      {onInitGit && (
-        <button type="button" onClick={onInitGit} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover disabled:opacity-40">
-          <GitBranch width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.initGit')}
-        </button>
-      )}
-      {onAddFavorite && <button type="button" onClick={onAddFavorite} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover"><Star width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('favorites.add')}</button>}
-      {onOpenProject && <button type="button" onClick={onOpenProject} className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-surface-hover"><Folder width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.openProject')}</button>}
-      {onDelete && (
-        <button type="button" onClick={onDelete} className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-danger hover:bg-surface-hover">
-          <Trash width={16} height={16} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />{t('fileExplorer.delete')}
-        </button>
-      )}
-    </ActionMenu>
-  )
+  return <ActionMenu x={x} y={y} onClose={onClose} fileMenu>
+    {onRename && <ActionMenuItem icon={<EditPencil />} onClick={onRename}>{t('fileExplorer.rename')}</ActionMenuItem>}
+    {onDuplicate && <ActionMenuItem icon={<MultiplePagesPlus />} onClick={onDuplicate}>{t('fileExplorer.duplicate')}</ActionMenuItem>}
+    {onCopyClip && <ActionMenuItem icon={<Copy />} onClick={onCopyClip}>{t('fileExplorer.copy')}</ActionMenuItem>}
+    {onCutClip && <ActionMenuItem icon={<Scissor />} onClick={onCutClip}>{t('fileExplorer.cut')}</ActionMenuItem>}
+    {onPasteClip && <ActionMenuItem icon={<PasteClipboard />} onClick={onPasteClip} disabled={pasteDisabled}>{t('fileExplorer.paste')}</ActionMenuItem>}
+    {onDownload}
+    {onNewFile && <ActionMenuItem icon={<PagePlus />} onClick={onNewFile}>{t('sidebar.newFile')}</ActionMenuItem>}
+    {onNewFolder && <ActionMenuItem icon={<FolderPlus />} onClick={onNewFolder}>{t('sidebar.newFolder')}</ActionMenuItem>}
+    {onUpload && <ActionMenuItem icon={<Upload />} onClick={onUpload}>{t('fileExplorer.upload')}</ActionMenuItem>}
+    {onCreateSubproject && <ActionMenuItem icon={<FolderSettings />} onClick={onCreateSubproject}>{t('fileExplorer.createSubproject')}</ActionMenuItem>}
+    {onInitGit && <ActionMenuItem icon={<GitBranch />} onClick={onInitGit}>{t('fileExplorer.initGit')}</ActionMenuItem>}
+    {onAddFavorite && <ActionMenuItem icon={<Star />} onClick={onAddFavorite}>{t('favorites.add')}</ActionMenuItem>}
+    {onOpenProject && <ActionMenuItem icon={<Folder />} onClick={onOpenProject}>{t('fileExplorer.openProject')}</ActionMenuItem>}
+    {onDelete && <ActionMenuItem icon={<Trash />} danger onClick={onDelete}>{t('fileExplorer.delete')}</ActionMenuItem>}
+  </ActionMenu>
 }

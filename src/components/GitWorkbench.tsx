@@ -2,9 +2,9 @@ import type { GitRemoteProgress } from '../../shared/git-remote-progress'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
+import { ActionMenu, ActionMenuItem, HoverTipLayer, useDialog } from '@mew/ui'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, NavArrowRight, Search, SendDiagonal, Undo, Xmark } from 'iconoir-react'
+import { Copy, GitBranch, GitCherryPickCommit, Label, ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, NavArrowRight, Search, SendDiagonal, Undo, Xmark } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
 import { filterGitChanges } from '../utils/git-change-filter'
 import type { GitWorkbenchNavigation, GitWorkbenchView } from '../utils/git-workbench-navigation'
@@ -419,7 +419,6 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   const refreshVersion = useRef(0)
   const polling = useRef(false)
   const [menu, setMenu] = useState<{ commit: GitLogEntry; x: number; y: number } | null>(null)
-  useOverlayDismiss(menu ? () => setMenu(null) : false)
   const graph = useMemo(() => graphLayout(commits), [commits])
   const graphWidth = 16 + (graph.lanes - 1) * LANE_GAP
 
@@ -515,13 +514,6 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
       document.removeEventListener('visibilitychange', visibilityChanged)
     }
   }, [visible, loading, busy, info?.repository, project, repositoryPath, view])
-
-  useEffect(() => {
-    if (!menu) return
-    const close = () => setMenu(null)
-    window.addEventListener('pointerdown', close, { once: true })
-    return () => window.removeEventListener('pointerdown', close)
-  }, [menu])
 
   useEffect(() => {
     if (view.kind !== 'commit') return
@@ -890,16 +882,14 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
         onExclude={() => { setSelectedFiles(current => new Set([...current].filter(path => !changesMenu.files.includes(path)))); setChangesMenu(null) }}
         onDiscard={() => { void discard(changesMenu.files) }} />}
 
-      {menu && (
-        <div className="fixed z-[1200] min-w-52 overflow-hidden rounded-lg border border-edge-bright bg-surface-raised py-1 text-xs shadow-xl" style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 250) }} onPointerDown={(event) => event.stopPropagation()}>
-          <button type="button" onClick={() => { void navigator.clipboard.writeText(menu.commit.hash); setMenu(null) }} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("커밋 해시 복사")}</button>
-          <button type="button" onClick={() => void act('branch', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("여기서 브랜치 생성")}</button>
-          <button type="button" onClick={() => void act('tag', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("여기에 태그 생성")}</button>
-          <button type="button" onClick={() => void act('checkout', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("이 커밋 checkout")}</button>
-          <button type="button" onClick={() => void act('cherry-pick', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">Cherry-pick</button>
-          <button type="button" onClick={() => void act('revert', menu.commit)} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">{uiText("Revert 커밋 생성")}</button>
-        </div>
-      )}
+      {menu && <ActionMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+        <ActionMenuItem icon={<Copy />} onClick={() => { void navigator.clipboard.writeText(menu.commit.hash) }}>{uiText('커밋 해시 복사')}</ActionMenuItem>
+        <ActionMenuItem icon={<GitBranch />} onClick={() => void act('branch', menu.commit)}>{uiText('여기서 브랜치 생성')}</ActionMenuItem>
+        <ActionMenuItem icon={<Label />} onClick={() => void act('tag', menu.commit)}>{uiText('여기에 태그 생성')}</ActionMenuItem>
+        <ActionMenuItem icon={<GitCommit />} onClick={() => void act('checkout', menu.commit)}>{uiText('이 커밋 checkout')}</ActionMenuItem>
+        <ActionMenuItem icon={<GitCherryPickCommit />} onClick={() => void act('cherry-pick', menu.commit)}>Cherry-pick</ActionMenuItem>
+        <ActionMenuItem icon={<Undo />} onClick={() => void act('revert', menu.commit)}>{uiText('Revert 커밋 생성')}</ActionMenuItem>
+      </ActionMenu>}
     </div>
   )
 }

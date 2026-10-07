@@ -24,3 +24,5 @@ export { observeEditorViewport, visibleEditorBounds } from './editor-viewport'
 export { useReorderAnimation, reorderLayoutRect, REORDER_DURATION, REORDER_EASING } from './reorder-animation'
 
 export { DateCalendar } from './date-calendar'
+
+export { ActionMenu, ActionMenuItem, ActionMenuSeparator, type ActionMenuProps, type ActionMenuItemProps } from './action-menu'

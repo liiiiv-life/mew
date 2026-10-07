@@ -2,8 +2,9 @@ import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ConfirmDialog, keepFocusOnPress, useDragReorder, type DragItemProps } from '@mew/ui'
+import { ActionMenu, ActionMenuItem, ConfirmDialog, keepFocusOnPress, useDragReorder, type DragItemProps } from '@mew/ui'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
+import { EditPencil } from 'iconoir-react'
 import type { TmuxPanelApi, TmuxSession } from './types'
 import { TmuxTerminal } from './TmuxTerminal'
 import { clearInputDraft, renameInputDraft } from './inputDrafts'
@@ -108,40 +109,11 @@ function InlineTabInput({
   )
 }
 
-// FileTree.tsx의 ActionPopover와 동일한 패턴: 바깥을 누르면 닫히고, 그 상호작용이 아래
-// 요소의 클릭(탭 전환 등)까지 이어지지 않도록 뒤따라올 click 하나를 삼킨다.
 function TabContextMenu({ x, y, onRename, onClose }: { x: number; y: number; onRename: () => void; onClose: () => void }) {
   useUiLocale()
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function onDown(e: PointerEvent) {
-      if (!ref.current || ref.current.contains(e.target as Node)) return
-      onClose()
-      function swallowClick(ce: MouseEvent) {
-        ce.preventDefault()
-        ce.stopPropagation()
-      }
-      document.addEventListener('click', swallowClick, { capture: true, once: true })
-      setTimeout(() => document.removeEventListener('click', swallowClick, true), 0)
-    }
-    document.addEventListener('pointerdown', onDown, true)
-    return () => document.removeEventListener('pointerdown', onDown, true)
-  }, [onClose])
-
-  const left = Math.min(x, window.innerWidth - 160)
-  const top = Math.min(y, window.innerHeight - 80)
-
-  return (
-    <div
-      ref={ref}
-      style={{ position: 'fixed', top, left, zIndex: 1000 }}
-      className="min-w-[9rem] overflow-hidden rounded-lg border border-edge-bright bg-surface-raised text-sm shadow-xl"
-    >
-      <button type="button" onClick={onRename} className="block w-full px-3 py-2 text-left hover:bg-surface-hover">
-        {uiText("✎ 이름 변경")}</button>
-    </div>
-  )
+  return <ActionMenu x={x} y={y} onClose={onClose}>
+    <ActionMenuItem icon={<EditPencil />} onClick={onRename}>{uiText('이름 변경')}</ActionMenuItem>
+  </ActionMenu>
 }
 
 function TabButton({
