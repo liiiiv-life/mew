@@ -21,7 +21,7 @@ function Fixture(){const [settings, setSettings] = useState(true); return <div c
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
-  const sources = ['../src/components/debugger-panel.tsx', '../src/components/debugger-settings.tsx', '../src/components/SettingsModal.tsx', '../packages/ui/src/select-field.tsx']
+  const sources = ['../src/components/debugger-panel.tsx', '../src/components/debugger-source-field.tsx', '../src/components/debugger-settings.tsx', '../src/components/SettingsModal.tsx', '../packages/ui/src/select-field.tsx']
   const cssSource = (await Promise.all(sources.map(file => fs.readFile(new URL(file, import.meta.url), 'utf8')))).join('\n') + ' h-dvh bg-surface text-ink'
   const compiler = await compile(await fs.readFile(new URL('../src/index.css', import.meta.url), 'utf8'), { base: new URL('../src', import.meta.url).pathname, onDependency() {} })
   const css = compiler.build([...new Set(cssSource.match(/[A-Za-z0-9_@!:/.[\]()%,-]+/g))])
@@ -33,6 +33,15 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       const chunks = []; for await (const chunk of req) chunks.push(chunk)
       const raw = Buffer.concat(chunks).toString(), body = raw ? JSON.parse(raw) : {}
       res.setHeader('Content-Type', 'application/json')
+      if (req.url?.startsWith('/api/search/files?')) {
+        const query = new URL(req.url, 'http://fixture').searchParams.get('q')
+        if (query === 'error') { res.statusCode = 500; res.end('{"error":"Search unavailable"}'); return }
+        const paths = query === 'missing' ? [] : ['src/main.js', 'main.js', 'src/a-very-long-folder-name/a-very-long-source-file-name.js']
+        res.end(JSON.stringify({ version: 1, state: 'ready', results: [
+          ...paths.map(path => ({ path, project: '.workspace', scope: { id: 'root', label: 'Fixture', icon: 'i:folder' } })),
+          { path: 'outside.js', project: 'docs', scope: { id: 'docs', label: 'Documents', icon: 'i:notes' } },
+        ] })); return
+      }
       if (req.url === '/api/debugger/config') { config = body; res.end(JSON.stringify(config)); return }
       if (req.url === '/api/debugger/test') { res.end('{"ok":true}'); return }
       if (req.url === '/api/debugger/start') snapshot = { ...snapshot, state: 'stopped', stopRevision: 1, frames: [{ id: 1, name: 'main', line: 3, source: { path: '/fixture/main.js' } }], breakpoints: config.breakpoints.map(bp => ({ ...bp, file: '/fixture/' + bp.file, verified: true })) }
@@ -55,7 +64,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
   const address = server.address(); assert.ok(address && typeof address !== 'string')
   for (const viewport of [{ width: 1366, height: 768 }, { width: 320, height: 640 }]) {
     config = defaultDebugConfig('js-debug', '/fixture'); counter = 1; snapshot = { ...snapshot, state: 'idle', frames: [], stopRevision: 0 }
-    const context = await browser.newContext({ viewport, locale: 'en-US' })
+    const context = await browser.newContext({ viewport, locale: 'en-US', isMobile: viewport.width === 320, hasTouch: viewport.width === 320 })
     const page = await context.newPage(), errors: string[] = []
     page.on('pageerror', error => errors.push(error.message)); page.setDefaultTimeout(7000)
     await page.goto(`http://127.0.0.1:${address.port}`)
@@ -73,7 +82,25 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.screenshot({ path: `/tmp/mew-debugger-settings-${viewport.width}.png` })
     await modal.getByRole('button', { name: 'Open debugger', exact: true }).click()
     const panel = page.getByRole('region', { name: 'Debugger', exact: true })
-    await panel.getByRole('textbox', { name: 'Source file', exact: true }).fill('main.js')
+    const source = panel.getByRole('combobox', { name: 'Source file', exact: true })
+    await source.fill('@mai')
+    const files = page.getByRole('listbox', { name: 'Source file', exact: true })
+    await files.getByRole('option', { name: 'main.js', exact: true }).waitFor()
+    assert.equal(await files.getByRole('option', { name: 'outside.js', exact: true }).count(), 0)
+    const bounds = await files.boundingBox(); assert.ok(bounds)
+    assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= viewport.width, 'file suggestions fit viewport')
+    await page.screenshot({ path: `/tmp/mew-debugger-source-search-${viewport.width}.png` })
+    if (viewport.width === 320) await files.getByRole('option', { name: 'main.js', exact: true }).tap()
+    else { await source.press('ArrowDown'); await source.press('ArrowDown'); await source.press('Enter') }
+    assert.equal(await source.inputValue(), 'main.js')
+    assert.equal(config.breakpoints.length, 0, 'selecting a file does not submit a breakpoint')
+    await source.fill('missing')
+    await files.getByRole('option', { name: 'No matching entries', exact: true }).waitFor()
+    await source.press('Escape')
+    assert.equal(await files.count(), 0, 'Escape closes only the file menu')
+    await source.fill('error')
+    await files.getByRole('option', { name: 'Search unavailable', exact: true }).waitFor()
+    await source.fill('main.js')
     await panel.getByRole('spinbutton', { name: 'Line', exact: true }).fill('3')
     await panel.getByRole('button', { name: 'Add', exact: true }).first().click()
     await panel.getByRole('button', { name: 'Start debugging', exact: true }).click()

@@ -9,11 +9,12 @@ type SelectFieldProps = {
   id?: string; label: string; options: readonly SelectOption[]; disabled?: boolean
   compact?: boolean; className?: string; portalContainer?: HTMLElement | null
   triggerContent?: ReactNode; triggerClassName?: string; popupWidth?: number; popupClassName?: string
+  placeholder?: string
 } & ({ multiple?: false; editable?: boolean; value: string; onChange: (value: string) => void }
   | { multiple: true; editable?: false; value: string[]; onChange: (value: string[]) => void })
 
 /** Themed selection. Focus stays on the trigger, including inside dialogs. */
-export function SelectField({ id: fieldId, label, value, options, disabled = false, editable = false, compact = false, className = 'w-full min-w-0', portalContainer, onChange, multiple, triggerContent, triggerClassName, popupWidth, popupClassName }: SelectFieldProps) {
+export function SelectField({ id: fieldId, label, value, options, disabled = false, editable = false, compact = false, className = 'w-full min-w-0', portalContainer, onChange, multiple, triggerContent, triggerClassName, popupWidth, popupClassName, placeholder }: SelectFieldProps) {
   const id = useId()
   const trigger = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null), field = useRef<HTMLDivElement>(null)
@@ -137,13 +138,13 @@ export function SelectField({ id: fieldId, label, value, options, disabled = fal
   const chevron = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" className="shrink-0"><path d={expanded ? 'm6 15 6-6 6 6' : 'm6 9 6 6 6-6'} /></svg>
   return <>
     <div ref={field} className={className}>
-      {editable ? <div className="flex min-h-11 rounded border border-edge-strong bg-surface text-sm text-ink focus-within:border-edge-bright">
-        <input ref={input} {...accessibility} value={value} disabled={disabled} autoComplete="off" spellCheck={false}
+      {editable ? <div className={`flex rounded border border-edge-strong bg-surface text-ink focus-within:border-edge-bright ${compact ? 'min-h-8 text-xs pointer-coarse:min-h-11' : 'min-h-11 text-sm'}`}>
+        <input ref={input} {...accessibility} value={value} placeholder={placeholder} disabled={disabled} autoComplete="off" spellCheck={false}
           className="min-w-0 flex-1 rounded bg-transparent px-2.5 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60"
           onClick={() => { if (!expanded) show() }} onKeyDown={onKeyDown}
           onChange={event => { if (!multiple) { setActive(-1); setOpen(true); onChange(event.target.value) } }} />
         <button type="button" tabIndex={-1} aria-label={label} aria-expanded={expanded} aria-controls={expanded ? id : undefined}
-          disabled={disabled} className="flex w-11 shrink-0 items-center justify-center rounded hover:bg-surface-hover disabled:opacity-60"
+          disabled={disabled} className={`flex shrink-0 items-center justify-center rounded hover:bg-surface-hover disabled:opacity-60 ${compact ? 'w-8 pointer-coarse:w-11' : 'w-11'}`}
           onPointerDown={event => event.preventDefault()}
           onClick={() => {
             if (canAutoFocusInput()) input.current?.focus({ preventScroll: true })
