@@ -3,7 +3,7 @@ import { observeEditorViewport } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useShortcutBindings } from '@mew/shortcuts'
-import { DockGrip, DockInlineBody } from './DockWorkspace'
+import { useDock, DockGrip, DockInlineBody } from './DockWorkspace'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteComment,
@@ -25,6 +25,8 @@ import { CommentComposer, CommentListPopover, CommentPopover, CommentThreadView 
 import { MediaViewer } from './MediaViewer'
 import { SvgPreview } from './SvgPreview'
 import { TableOfContents } from './TableOfContents'
+import { gitDiffTarget } from '../utils/git-diff-tabs'
+import { GitDiffEditor } from './git-diff-editor'
 import { TabBar } from './TabBar'
 import { mediaKind } from '../utils/media'
 import { editorFile, editorTabPath } from '../utils/editor-files'
@@ -131,6 +133,8 @@ export interface EditorPaneProps {
   focused: boolean
   canCollaborate?: boolean
   isGuest: boolean
+  diffVisible?: boolean
+  onOpenDiffFile?: (project: string, path: string) => void
   /** 사이드바 여는 버튼을 이 칸이 맡는지 (사이드바 닫힘 + 맨 앞 칸) */
   showSidebarButton: boolean
   tocOpen: boolean
@@ -188,14 +192,18 @@ export function EditorPane({
   onOpenHistory,
   onSetTocOpen,
   onOpenSidebar,
+  diffVisible = true,
+  onOpenDiffFile,
   onTabDragMove,
   onTabDrop,
 }: EditorPaneProps) {
   useUiLocale()
+  const dock = useDock()
   const { t } = useI18n()
   const shortcutBindings = useShortcutBindings()
   const selectedTab = pane.tabs.find((t) => t.path === pane.activePath) ?? null
   const file = editorFile(pane.activePath ?? '', tabProject)
+  const diffTarget = gitDiffTarget(pane.activePath ?? '')
   const project = file.project
   const activeTab = useMemo(() => selectedTab ? { ...selectedTab, path: file.path } : null, [selectedTab, file.path])
   const activeKeyRef = useRef(pane.activePath)
@@ -261,7 +269,7 @@ export function EditorPane({
   // 본문에는 아무것도 남기지 않는다 — 하이라이트는 에디터가 앵커를 다시 풀어 그리는 장식이다.
   // 미디어·SVG 미리보기처럼 텍스트 편집기가 없는 화면과 게스트에게는 아예 뜨지 않는다.
   const isTextPane =
-    !!activeTab && !isExternalTabPath(activeTab.path) && !mediaKind(activeTab.path) && !(activeTab.path.endsWith('.svg') && activeTab.viewMode === 'hotview')
+    !!activeTab && !diffTarget && !isExternalTabPath(activeTab.path) && !mediaKind(activeTab.path) && !(activeTab.path.endsWith('.svg') && activeTab.viewMode === 'hotview')
   const canComment = canCollaborate && !isGuest && isTextPane && !activeTab?.anchorPreview
   const canCommentRef = useRef(canComment)
   canCommentRef.current = canComment
@@ -528,6 +536,8 @@ export function EditorPane({
         <DockGrip group={`editor:${pane.id}`} />
         <TabBar
           tabs={pane.tabs.map(tab => {
+            const diff = gitDiffTarget(tab.path)
+            if (diff) return { ...tab, label: `${diff.filePath.split('/').pop()} · diff${diff.source.kind === 'commit' ? ` · ${diff.source.hash.slice(0, 7)}` : ''}` }
             const entry = editorFile(tab.path, tabProject)
             const logical = documentPageTarget(entry.path)
             return entry.project === 'docs' && entry.path.endsWith('.md') ? { ...tab, label: documentPageLabel(logical) || uiText('문서 홈') } : tab
@@ -557,7 +567,11 @@ export function EditorPane({
         className="relative flex min-h-0 flex-1 bg-surface-deep"
       >
         <div inert={loading} className="relative flex min-h-0 min-w-0 flex-1">
-        {activeTab ? (
+        {diffTarget && pane.activePath ? (
+          <GitDiffEditor key={pane.activePath} path={pane.activePath}
+            visible={diffVisible && (!dock || (dock.desktop ? !dock.maximized || dock.maximized === `editor:${pane.id}` : !dock.foreground || dock.foreground === 'editor'))}
+            onOpenFile={(project, path) => onOpenDiffFile?.(project, path)} />
+        ) : activeTab ? (
           <>
             {isArchivedPath(activeTab.path, project) && !isGuest && (
               <div className="absolute inset-x-0 top-0 z-10 bg-warning-surface px-4 py-1 text-center text-sm text-warning-ink">

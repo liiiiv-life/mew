@@ -10,6 +10,7 @@ import { dropCachedFile, getCachedFile, putCachedFile } from '../utils/contentCa
 import { leaf, normalizeLayout, removeLeaf, splitLeaf, type DropSide, type PaneNode } from '../utils/paneTree'
 import { externalAbsolutePath, externalTabPath, isExternalTabPath } from '../utils/externalFiles'
 import { afterFirstPaint, markFileOpen, startFileOpen, type FileOpenTrace } from '../utils/fileOpenPerformance'
+import { gitDiffTarget } from '../utils/git-diff-tabs'
 import { isGitTabPath } from '../utils/gitTabs'
 import { editorFile, mergeEditorTabs } from '../utils/editor-files'
 
@@ -253,11 +254,12 @@ export function useTabs(
       for (const [scopeProject, state] of Object.entries(statesRef.current)) {
         for (const filePath of new Set(state.panes.flatMap(pane => pane.tabs.map(tab => tab.path)))) {
           dropCachedFile(scopeProject, filePath)
-          const file = editorFile(filePath, scopeProject)
+          const diff = gitDiffTarget(filePath)
+          const file = diff ? { project: diff.project, path: [diff.repositoryPath, diff.filePath].filter(Boolean).join('/') } : editorFile(filePath, scopeProject)
           void trackRefresh(fetch(`/api/file-access?project=${encodeURIComponent(file.project)}&path=${encodeURIComponent(file.path)}${isExternalTabPath(filePath) ? '&external=1' : ''}`)
             .then(response => response.ok ? response.json() as Promise<{ view: boolean; edit: boolean }> : { view: false, edit: false })
             .then(access => patch(scopeProject, current => prunePanes({ ...current, panes: current.panes.map(pane => {
-              const tabs = access.view ? pane.tabs.map(tab => tab.path === filePath ? { ...tab, editable: access.edit } : tab) : pane.tabs.filter(tab => tab.path !== filePath)
+              const tabs = access.view ? pane.tabs.map(tab => tab.path === filePath ? { ...tab, editable: !diff && access.edit } : tab) : pane.tabs.filter(tab => tab.path !== filePath)
               return { ...pane, tabs, activePath: pane.activePath === filePath && !access.view ? tabs[0]?.path ?? null : pane.activePath }
             }) })))
             .catch(() => mapTabsAtPath(scopeProject, filePath, tab => ({ ...tab, editable: false }))))
@@ -288,6 +290,7 @@ export function useTabs(
     // forceNewTab: 이미 열려 있지 않은 문서라도 미리보기 탭 자리를 재사용하지 않고 항상 새 탭으로 연다
     // (에디터 안에서 Ctrl+클릭으로 내부 링크를 열 때 — 사이드바 클릭의 미리보기 재사용 동작과는 별개)
     (p: string, paneId: string, path: string, opts?: { preview?: boolean; forceNewTab?: boolean; replaceActive?: boolean; deferLoad?: boolean; restoring?: boolean; viewMode?: Tab['viewMode']; anchorLine?: number }) => {
+      const diffTarget = gitDiffTarget(path)
       const file = editorFile(path, p)
       const preview = opts?.preview ?? true
       const existing = paneOf(p, paneId).tabs.find((t) => t.path === path)
@@ -302,7 +305,7 @@ export function useTabs(
           tabs: pane.tabs.map((t) =>
             t.path !== path
               ? t
-              : { ...t, preview: !preview && t.preview ? false : t.preview, deferredLoad: loadDeferred ? false : t.deferredLoad, loading: loadDeferred ? !mediaKind(path) : t.loading, openTrace: trace ?? t.openTrace },
+              : { ...t, preview: !preview && t.preview ? false : t.preview, deferredLoad: loadDeferred ? false : t.deferredLoad, loading: loadDeferred ? !diffTarget && !mediaKind(path) : t.loading, openTrace: trace ?? t.openTrace },
           ),
           activePath: path,
         }))
@@ -314,16 +317,17 @@ export function useTabs(
       const previewFirst = !external && (path.endsWith('.md') || path.endsWith('.svg'))
       // 최근 연 파일이면 캐시된 본문으로 탭을 즉시 채운다 — 아래 fetch가 백그라운드에서
       // 최신본으로 재조정하지만 그 사이 빈 화면·"처음부터 로딩" 깜빡임을 없앤다
-      const cached = external ? undefined : getCachedFile(p, path)
-      if (!existing && !opts?.deferLoad) trace = startFileOpen()
+      const cached = external || diffTarget ? undefined : getCachedFile(p, path)
+      if (!existing && !opts?.deferLoad && !diffTarget) trace = startFileOpen()
       markFileOpen(trace, 'cache-ready')
       const newTab: Tab = {
         ...blankTab(),
         path,
+        editable: diffTarget ? false : true,
         preview,
         viewMode: opts?.viewMode ?? (previewFirst ? 'hotview' : 'plain'),
         deferredLoad: opts?.deferLoad === true,
-        loading: !mediaKind(path),
+        loading: !diffTarget && !mediaKind(path),
         openTrace: trace,
         ...(cached
           ? { content: cached.content, savedContent: cached.content, committedContent: cached.content, editable: cached.editable }
@@ -347,7 +351,7 @@ export function useTabs(
       }
       // 세션 복원은 활성 탭 외에는 본문·규칙 요청을 만들지 않는다. 탭 순서·배치·캐시 본문은
       // 위에서 이미 복원됐고, 비활성 탭을 고르면 existing 분기의 deferredLoad가 여기로 이어진다.
-      if (opts?.deferLoad) return
+      if (opts?.deferLoad || diffTarget) return
       // 바이너리 미디어는 뷰어가 /api/raw로 직접 스트리밍한다 — utf-8 fetch도 규칙 검사도 없음
       if (mediaKind(path)) return
       const requestEpoch = workspaceRequestRef.current.epoch
@@ -510,9 +514,9 @@ export function useTabs(
         id: pane.id,
         activePath: pane.activePath,
         tabs: pane.tabs.map(tab => {
-          const cached = isExternalTabPath(tab.path) ? undefined : getCachedFile(project, tab.path)
+          const cached = isExternalTabPath(tab.path) || gitDiffTarget(tab.path) ? undefined : getCachedFile(project, tab.path)
           return {
-            ...blankTab(), ...tab, deferredLoad: true, loading: !mediaKind(tab.path),
+            ...blankTab(), ...tab, editable: !gitDiffTarget(tab.path), deferredLoad: true, loading: !gitDiffTarget(tab.path) && !mediaKind(tab.path),
             ...(cached ? { content: cached.content, savedContent: cached.content, committedContent: cached.content, editable: cached.editable } : {}),
           }
         }),

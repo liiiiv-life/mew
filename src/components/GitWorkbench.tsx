@@ -1,24 +1,24 @@
 import type { GitRemoteProgress } from '../../shared/git-remote-progress'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { HoverTipLayer, useDialog, useOverlayDismiss } from '@mew/ui'
 import { createPortal } from 'react-dom'
-import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, Page, Search, SendDiagonal, Undo, Xmark } from 'iconoir-react'
+import { ArrowDown, ArrowUp, Check, GitCommit, Github, OpenNewWindow, NavArrowRight, Search, SendDiagonal, Undo, Xmark } from 'iconoir-react'
 import { relativeCommitTime } from '../utils/git-time'
 import { filterGitChanges } from '../utils/git-change-filter'
 import type { GitWorkbenchNavigation, GitWorkbenchView } from '../utils/git-workbench-navigation'
+import type { GitDiffTarget } from '../utils/git-diff-tabs'
+import { GitChangesMenu } from './git-changes-menu'
 import { GitBranchPicker } from './git-branch-picker'
 import { GitAiCommitDialog } from './git-ai-commit-dialog'
 import {
   commitGitWorkingTree,
   discardGitWorkingTree,
   fetchGitCommit,
-  fetchGitDiff,
   fetchGitLog,
   fetchGitRepository,
   fetchGitWorkingTree,
-  fetchGitWorkingTreeDiff,
   runGitCommitAction,
   runGitRemoteAction,
   runGitBranchAction,
@@ -96,54 +96,6 @@ function shortDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
-type ParsedDiffLine = { content: string; kind: 'add' | 'delete' | 'hunk' | 'meta' | 'context'; oldLine: number | null; newLine: number | null }
-
-function parseDiff(diff: string): ParsedDiffLine[] {
-  let oldLine: number | null = null
-  let newLine: number | null = null
-  return diff.split('\n').map((content) => {
-    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(content)
-    if (hunk) {
-      oldLine = Number(hunk[1])
-      newLine = Number(hunk[2])
-      return { content, kind: 'hunk', oldLine: null, newLine: null }
-    }
-    if (oldLine === null || newLine === null || content === '' || content.startsWith('\\')) return { content, kind: 'meta', oldLine: null, newLine: null }
-    if (content.startsWith('+')) {
-      const line = { content, kind: 'add' as const, oldLine: null, newLine }
-      newLine += 1
-      return line
-    }
-    if (content.startsWith('-')) {
-      const line = { content, kind: 'delete' as const, oldLine, newLine: null }
-      oldLine += 1
-      return line
-    }
-    const line = { content, kind: 'context' as const, oldLine, newLine }
-    oldLine += 1
-    newLine += 1
-    return line
-  })
-}
-
-function DiffView({ diff, loading }: { diff: string; loading: boolean }) {
-  useUiLocale()
-  const lines = useMemo(() => parseDiff(diff), [diff])
-  if (loading) return <div className="p-5 text-center text-xs text-ink-muted">{uiText("diff를 불러오는 중…")}</div>
-  if (!diff) return <div className="p-5 text-center text-xs text-ink-muted">{uiText("표시할 변경 내용이 없습니다.")}</div>
-  return (
-    <div className="w-max min-w-full py-2 font-mono text-[11px] leading-5 text-ink-secondary">
-      {lines.map((line, index) => (
-        <div key={index} className={`grid min-w-full grid-cols-[3.25rem_3.25rem_minmax(max-content,1fr)] ${line.kind === 'add' ? 'bg-emerald-500/10 text-emerald-500' : line.kind === 'delete' ? 'bg-red-500/10 text-red-400' : line.kind === 'hunk' ? 'bg-accent/5 text-accent' : ''}`}>
-          <span className="select-none border-r border-edge px-2 text-right text-ink-muted">{line.oldLine ?? ''}</span>
-          <span className="select-none border-r border-edge px-2 text-right text-ink-muted">{line.newLine ?? ''}</span>
-          <code className="whitespace-pre px-3">{line.content || ' '}</code>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 function statusLabel(status: string): string {
   if (status === '??') return '?'
   const [index = ' ', working = ' '] = status
@@ -162,7 +114,12 @@ function statusColor(mark: string): string {
   }
 }
 
-function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, disabled }: { files: GitChangedFile[]; onSelect: (file: GitChangedFile) => void; compact?: boolean; selected?: Set<string>; onToggle?: (path: string) => void; disabled?: boolean }) {
+function ChangedFiles({ files, onOpen, compact = false, selected, onToggle, disabled, highlighted, onHighlight, onMenu }: {
+  files: GitChangedFile[]; onOpen: (file: GitChangedFile) => void; compact?: boolean
+  selected?: Set<string>; onToggle?: (path: string) => void; disabled?: boolean
+  highlighted?: Set<string>; onHighlight?: (path: string, event: ReactMouseEvent) => void
+  onMenu?: (path: string, x: number, y: number) => void
+}) {
   useUiLocale()
   const selectionDrag = useRef<{ pointerId: number; startY: number; startX: number; startIndex: number; checked: boolean; dragging: boolean; y: number; visited: Set<string> } | null>(null)
   const suppressClick = useRef(false)
@@ -247,7 +204,16 @@ function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, di
     <div className="divide-y divide-edge" onPointerMove={moveSelection} onPointerUp={event => { moveSelection(event); finishSelection(event) }} onPointerCancel={finishSelection} onLostPointerCapture={finishSelection}
       onClickCapture={event => { if (suppressClick.current && event.detail > 0) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false } }}>
       {files.map((file, index) => (
-        <div key={file.path} data-git-selection-row className="flex items-center">
+        <div key={file.path} data-git-selection-row data-git-highlighted={highlighted?.has(file.path) || undefined}
+          className={`flex items-center ${highlighted?.has(file.path) ? 'bg-accent/15' : ''}`}
+          onContextMenu={event => { if (onMenu) { event.preventDefault(); onMenu(file.path, event.clientX, event.clientY) } }}
+          onKeyDown={event => {
+            if (onMenu && (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10')) {
+              event.preventDefault()
+              const bounds = event.currentTarget.getBoundingClientRect()
+              onMenu(file.path, bounds.left + 24, bounds.bottom)
+            }
+          }}>
           {selected && onToggle && <label className="flex shrink-0 cursor-pointer touch-none items-center self-stretch pl-3 pr-1"
             onPointerDown={event => {
               if (disabled || !event.isPrimary || event.button !== 0) return
@@ -257,13 +223,21 @@ function ChangedFiles({ files, onSelect, compact = false, selected, onToggle, di
             }}>
             <input type="checkbox" checked={selected.has(file.path)} disabled={disabled} onChange={() => onToggle(file.path)} aria-label={uiText("{p0} 커밋에 포함", { p0: file.path })} className="h-4 w-4 accent-accent focus-visible:outline-2 focus-visible:outline-accent" />
           </label>}
-          <button type="button" onClick={() => onSelect(file)} className={`flex min-w-0 flex-1 items-center text-left text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink ${compact ? 'gap-2 pr-3 py-1.5' : 'gap-3 pr-4 py-3'} ${selected && onToggle ? compact ? 'pl-1.5' : 'pl-2.5' : compact ? 'pl-3' : 'pl-4'}`}>
+          <button type="button" data-git-file-button aria-pressed={highlighted ? highlighted.has(file.path) : undefined}
+            onClick={event => { if (onHighlight) onHighlight(file.path, event); else onOpen(file) }}
+            onDoubleClick={() => { if (onHighlight) onOpen(file) }}
+            onKeyDown={event => { if (onHighlight && event.key === 'Enter') { event.preventDefault(); onOpen(file) } }} className={`flex min-w-0 flex-1 items-center text-left text-xs text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent select-none ${compact ? 'gap-2 pr-3 py-1.5' : 'gap-3 pr-4 py-3'} ${selected && onToggle ? compact ? 'pl-1.5' : 'pl-2.5' : compact ? 'pl-3' : 'pl-4'}`}>
             <span className="shrink-0 rounded bg-surface-deep px-1 py-0.5 text-center font-mono text-[9px]" title={file.status}>
               {statusLabel(file.status).split('').map((mark, index) => <span key={index} className={statusColor(mark)}>{mark}</span>)}
             </span>
             <span className="min-w-0 flex-1 truncate" title={file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}>{file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}</span>
-            <span className="text-ink-muted" aria-hidden="true">›</span>
           </button>
+          <HoverTipLayer className="flex shrink-0 self-stretch items-center pr-1">
+            <button type="button" onClick={() => onOpen(file)} aria-label={uiText("{p0} diff 열기", { p0: file.path })} data-tip={uiText("diff 열기")}
+              className="flex size-7 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+              <NavArrowRight width={14} height={14} aria-hidden="true" />
+            </button>
+          </HoverTipLayer>
         </div>
       ))}
     </div>
@@ -378,12 +352,12 @@ function GitComposer({ id, children, onSubmit }: { id: string; children: ReactNo
   </form>
 }
 
-export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpenFile, branchHost, actionsHost, visible = true, navigation }: {
+export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpenDiff, branchHost, actionsHost, visible = true, navigation }: {
   project: string
   repositoryPath: string
   onNotice: (message: string) => void
   onBack?: () => void
-  onOpenFile?: (project: string, path: string) => void
+  onOpenDiff?: (target: GitDiffTarget) => void
   branchHost?: HTMLElement | null
   actionsHost?: HTMLElement | null
   visible?: boolean
@@ -403,10 +377,8 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   const view = navigation?.view ?? localView
   const setView = navigation?.onChange ?? setLocalView
   const [detail, setDetail] = useState<GitCommitDetail | null>(null)
-  const [diff, setDiff] = useState('')
   const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [diffLoading, setDiffLoading] = useState(false)
   const [committing, setCommitting] = useState(false)
   const [remoteAction, setRemoteAction] = useState<'pull' | 'push' | null>(null)
   const [remoteFeedback, setRemoteFeedback] = useState<{ action: 'pull' | 'push'; progress: GitRemoteProgress | null; complete: boolean } | null>(null)
@@ -428,6 +400,10 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   const [actionRunning, setActionRunning] = useState(false)
   const busy = committing || actionRunning || remoteAction !== null
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
+  const [highlightedFiles, setHighlightedFiles] = useState<Set<string>>(new Set())
+  const highlightAnchor = useRef<string | null>(null)
+  const closeChangesMenu = useCallback(() => setChangesMenu(null), [])
+  const [changesMenu, setChangesMenu] = useState<{ files: string[]; x: number; y: number } | null>(null)
   const [changeQuery, setChangeQuery] = useState('')
   const changeSearchRef = useRef<HTMLInputElement>(null)
   const filteredFiles = useMemo(() => filterGitChanges(workingTree.files, changeQuery), [workingTree.files, changeQuery])
@@ -441,7 +417,6 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   const [error, setError] = useState<string | null>(null)
   const [refreshError, setRefreshError] = useState<string | null>(null)
   const refreshVersion = useRef(0)
-  const diffVersion = useRef(0)
   const polling = useRef(false)
   const [menu, setMenu] = useState<{ commit: GitLogEntry; x: number; y: number } | null>(null)
   useOverlayDismiss(menu ? () => setMenu(null) : false)
@@ -478,6 +453,9 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
     setCommitDescription('')
     setComposerOpen(false)
     setSelectedFiles(new Set())
+    setHighlightedFiles(new Set())
+    highlightAnchor.current = null
+    setChangesMenu(null)
     setChangeQuery('')
     setSplitRatio(0.2)
     setAiOpen(false)
@@ -514,19 +492,6 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
           const kept = [...previous].filter(file => paths.has(file))
           return kept.length === previous.size ? previous : new Set(kept)
         })
-        if (view.kind === 'diff' && view.source.kind === 'working') {
-          // An already modified file can change again without changing its status.
-          const request = ++diffVersion.current
-          try {
-            const result = next.files.some(file => file.path === view.file.path)
-              ? await fetchGitWorkingTreeDiff(repositoryPath, view.file.path, project)
-              : { diff: '' }
-            if (!current() || request !== diffVersion.current) return
-            setDiff(result.diff)
-          } finally {
-            if (current() && request === diffVersion.current) setDiffLoading(false)
-          }
-        }
         if (current()) setRefreshError(null)
       } catch (err) {
         if (current()) setRefreshError(err instanceof Error ? err.message : String(err))
@@ -572,31 +537,53 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   }, [project, repositoryPath, view])
 
   useEffect(() => {
+    const paths = new Set(workingTree.files.map(file => file.path))
+    setHighlightedFiles(previous => {
+      const kept = [...previous].filter(path => paths.has(path))
+      return kept.length === previous.size ? previous : new Set(kept)
+    })
+    if (highlightAnchor.current && !paths.has(highlightAnchor.current)) highlightAnchor.current = null
+    setChangesMenu(null)
+  }, [workingTree.files, changeQuery, busy, visible])
+
+  const openDiff = (file: GitChangedFile, source: GitDiffTarget['source']) => {
+    onOpenDiff?.({ project, repositoryPath, source, file })
+  }
+  // Consume old navigation snapshots without bringing diff back into the Git panel.
+  useEffect(() => {
     if (view.kind !== 'diff') return
-    let alive = true
-    const requestVersion = ++diffVersion.current
-    setDiff('')
-    setDiffLoading(true)
-    setError(null)
-    const request = view.source.kind === 'working'
-      ? fetchGitWorkingTreeDiff(repositoryPath, view.file.path, project)
-      : fetchGitDiff(repositoryPath, view.source.hash, view.file.path, project)
-    request
-      .then((result) => { if (alive && requestVersion === diffVersion.current) setDiff(result.diff) })
-      .catch((err: unknown) => { if (alive && requestVersion === diffVersion.current) setError(err instanceof Error ? err.message : String(err)) })
-      .finally(() => { if (alive && requestVersion === diffVersion.current) setDiffLoading(false) })
-    return () => { alive = false }
-  }, [project, repositoryPath, view])
+    onOpenDiff?.({ project, repositoryPath, source: view.source, file: view.file })
+    setView(view.source.kind === 'commit' ? { kind: 'commit', hash: view.source.hash } : { kind: 'graph' })
+  }, [view, project, repositoryPath, onOpenDiff, setView])
 
   const goBack = () => {
     setError(null)
-    if (navigation?.back()) return
-    setView(view.kind === 'diff' && view.source.kind === 'commit' ? { kind: 'commit', hash: view.source.hash } : { kind: 'graph' })
+    if (!navigation?.back()) setView({ kind: 'graph' })
   }
 
-  const selectCommitFile = (file: GitChangedFile) => {
-    if (view.kind !== 'commit') return
-    setView({ kind: 'diff', source: { kind: 'commit', hash: view.hash }, file })
+  const highlightFile = (path: string, event: ReactMouseEvent) => {
+    const additive = event.ctrlKey || event.metaKey
+    const anchorIndex = filteredFiles.findIndex(file => file.path === highlightAnchor.current)
+    const index = filteredFiles.findIndex(file => file.path === path)
+    if (event.shiftKey && anchorIndex >= 0 && index >= 0) {
+      const range = filteredFiles.slice(Math.min(anchorIndex, index), Math.max(anchorIndex, index) + 1).map(file => file.path)
+      setHighlightedFiles(current => new Set([...(additive ? current : []), ...range]))
+    } else {
+      highlightAnchor.current = path
+      setHighlightedFiles(current => {
+        if (!additive) return new Set([path])
+        const next = new Set(current)
+        if (next.has(path)) next.delete(path); else next.add(path)
+        return next
+      })
+    }
+  }
+
+  const showChangesMenu = (path: string, x: number, y: number) => {
+    if (busy) return
+    const files = highlightedFiles.has(path) ? workingTree.files.filter(file => highlightedFiles.has(file.path)).map(file => file.path) : [path]
+    if (!highlightedFiles.has(path)) { setHighlightedFiles(new Set(files)); highlightAnchor.current = path }
+    setChangesMenu({ files, x, y })
   }
 
   const commit = async () => {
@@ -622,10 +609,10 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
   const dialogs = useDialog()
 
   const discardPending = useRef(false)
-  const discard = async () => {
-    if (busy || discardPending.current || !selectedFiles.size || !info?.workspace) return
+  const discard = async (files = [...selectedFiles]) => {
+    if (busy || discardPending.current || !files.length || !info?.workspace) return
     discardPending.current = true
-    const files = [...selectedFiles]
+    setChangesMenu(null)
     const workspace = info.workspace
     setActionRunning(true)
     try {
@@ -767,11 +754,6 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
       {(view.kind !== 'graph' || onBack) && <div className="flex h-11 shrink-0 items-center gap-2 border-b border-edge bg-surface-deep px-3">
         {(view.kind !== 'graph' || onBack) && <button type="button" onClick={view.kind === 'graph' ? onBack : goBack} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink" aria-label={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")} title={view.kind === 'graph' ? uiText("저장소 목록") : uiText("뒤로 가기")}><BackIcon /></button>}
         <span className={`min-w-0 flex-1 truncate font-semibold text-ink ${view.kind === 'diff' ? 'text-[10px]' : 'text-sm'}`} title={heading}>{heading}</span>
-        {view.kind === 'diff' && onOpenFile && <button type="button" onClick={() => onOpenFile(project, [repositoryPath, view.file.path].filter(Boolean).join('/'))}
-          disabled={view.file.status.includes('D')} aria-label={uiText("파일 열기")} title={uiText("파일 열기")}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:pointer-events-none">
-          <Page width={16} height={16} aria-hidden="true" />
-        </button>}
       </div>}
 
       {(error || refreshError) && <div className="flex shrink-0 items-center gap-2 border-b border-edge bg-danger/10 px-3 py-2 text-xs text-danger"><span className="select-text min-w-0 flex-1">{error || refreshError}</span><button type="button" onClick={() => { setError(null); setRefreshError(null) }} aria-label={uiText("오류 닫기")}>×</button></div>}
@@ -867,7 +849,7 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-scroll="changes">
                 {changeQuery.trim() && filteredFiles.length === 0
                   ? <div role="status" className="px-3 py-5 text-center text-xs text-ink-muted">{uiText("검색 결과가 없습니다.")}</div>
-                  : <ChangedFiles compact files={filteredFiles} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onSelect={(file) => setView({ kind: 'diff', source: { kind: 'working' }, file })} />}
+                  : <ChangedFiles compact files={filteredFiles} highlighted={highlightedFiles} onHighlight={highlightFile} onMenu={showChangesMenu} selected={selectedFiles} disabled={busy} onToggle={path => setSelectedFiles(current => { const next = new Set(current); if (next.has(path)) next.delete(path); else next.add(path); return next })} onOpen={file => openDiff(file, { kind: 'working' })} />}
               </div>
               {composerOpen && <GitComposer id={commitFormId} onSubmit={() => { void commit() }}>
                 <HoverTipLayer className="flex shrink-0 items-center gap-1.5">
@@ -897,13 +879,16 @@ export function GitWorkbench({ project, repositoryPath, onNotice, onBack, onOpen
                 {detail.body && <div className="select-text mt-2 whitespace-pre-wrap text-xs text-ink-secondary">{detail.body}</div>}
                 <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-ink-muted"><span>{detail.author} &lt;{detail.email}&gt;</span><span>{shortDate(detail.date)}</span><button type="button" className="font-mono hover:text-ink" onClick={() => void navigator.clipboard.writeText(detail.hash)}>{detail.hash}</button></div>
               </div>
-              <ChangedFiles files={detail.files} onSelect={selectCommitFile} />
+              <ChangedFiles files={detail.files} onOpen={file => openDiff(file, { kind: 'commit', hash: detail.hash })} />
             </>
           )}
         </div>
       )}
 
-      {view.kind === 'diff' && <div className="min-h-0 flex-1 overflow-auto bg-surface-raised"><DiffView diff={diff} loading={diffLoading} /></div>}
+      {changesMenu && <GitChangesMenu x={changesMenu.x} y={changesMenu.y} onClose={closeChangesMenu}
+        onInclude={() => { setSelectedFiles(current => new Set([...current, ...changesMenu.files])); setChangesMenu(null) }}
+        onExclude={() => { setSelectedFiles(current => new Set([...current].filter(path => !changesMenu.files.includes(path)))); setChangesMenu(null) }}
+        onDiscard={() => { void discard(changesMenu.files) }} />}
 
       {menu && (
         <div className="fixed z-[1200] min-w-52 overflow-hidden rounded-lg border border-edge-bright bg-surface-raised py-1 text-xs shadow-xl" style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 250) }} onPointerDown={(event) => event.stopPropagation()}>

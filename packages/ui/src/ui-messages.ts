@@ -1,6 +1,12 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  "{p0} diff 열기": ["Open diff for {p0}", "打开 {p0} 的差异", "{p0} の差分を開く"],
+  "diff 열기": ["Open diff", "打开差异", "差分を開く"],
+  "변경 파일 작업": ["Changed file actions", "变更文件操作", "変更ファイルの操作"],
+  "커밋 대상에 포함": ["Include in commit", "包含在提交中", "コミット対象に含める"],
+  "커밋 대상에서 제외": ["Exclude from commit", "从提交中排除", "コミット対象から除外"],
+  "취소 (Discard)": ["Discard", "放弃更改", "変更を破棄"],
   '털색': ['Fur color', '毛色', '毛色'],
   '털색 HEX': ['Fur color HEX', '毛色 HEX', '毛色 HEX'],
   '위치 이동': ['Move', '移动位置', '位置を移動'],

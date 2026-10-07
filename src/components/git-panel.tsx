@@ -5,16 +5,17 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { restoreGitPanel, type GitPanelState } from '../utils/git-panel-state'
 import { DockBody, DockGrip, DockPanel, useDock } from './DockWorkspace'
+import type { GitDiffTarget } from '../utils/git-diff-tabs'
 import { GitWorkbench } from './GitWorkbench'
 import type { GitWorkbenchNavigation } from '../utils/git-workbench-navigation'
 import { GitHubAccount } from './github-account'
 
-export function GitPanel({ visible, initialState, onChange, onNotice, onOpenFile, onClose, onPanelFocus, closeTabSignal = 0, navigation }: {
+export function GitPanel({ visible, initialState, onChange, onNotice, onOpenDiff, onClose, onPanelFocus, closeTabSignal = 0, navigation }: {
   visible: boolean
   initialState: unknown
   onChange: (state: GitPanelState) => void
   onNotice: (message: string) => void
-  onOpenFile?: (project: string, path: string) => void
+  onOpenDiff?: (target: GitDiffTarget) => void
   onClose: () => void
   onPanelFocus: () => void
   nextTabSignal?: number
@@ -50,7 +51,7 @@ export function GitPanel({ visible, initialState, onChange, onNotice, onOpenFile
     </DockPanel>
     <DockBody group={group} active onFocus={onPanelFocus}>
       <GitShortcutScope onClose={onClose} className="flex h-full min-h-0 min-w-0 flex-col">
-        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} onOpenFile={onOpenFile} branchHost={branchHost} actionsHost={actionsHost} navigation={navigation}
+        <GitWorkbench project={tab.project} repositoryPath={tab.path} onNotice={onNotice} onOpenDiff={onOpenDiff} branchHost={branchHost} actionsHost={actionsHost} navigation={navigation}
           visible={visible && (!dock || (dock.desktop ? !dock.maximized || dock.maximized === group : dock.foreground === 'git'))} />
       </GitShortcutScope>
     </DockBody>

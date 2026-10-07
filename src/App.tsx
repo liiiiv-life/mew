@@ -119,6 +119,7 @@ import { loadThemeColor, applyThemeColor, saveThemeColor } from './utils/theme-c
 import { loadMewcatSkin, saveMewcatSkin, loadMewcatHideDesktop, MEWCAT_HIDE_DESKTOP_KEY, type MewcatSkinSelection } from './utils/mewcatSkin'
 import { externalTabPath, isExternalTabPath } from './utils/externalFiles'
 import { loadSidebarState, saveSidebarState } from './utils/sidebarState'
+import { gitDiffTabPath, gitDiffTarget } from './utils/git-diff-tabs'
 import { GitPanel } from './components/git-panel'
 import { gitWorkbenchScreenKey, type GitWorkbenchView } from './utils/git-workbench-navigation'
 import { RemoteDesktop } from './components/remote-desktop'
@@ -1087,7 +1088,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   }, [rootProjectPath])
   const { participants: tabPresence, activeSessions } = usePresence(
     activeFile.project,
-    activePath && !isExternalTabPath(activePath) ? activeFile.path : null,
+    activePath && !isExternalTabPath(activePath) && !gitDiffTarget(activePath) ? activeFile.path : null,
     authEmail,
     refreshTree,
     handleWorkspaceBroadcast,
@@ -1177,7 +1178,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     },
   })
 
-  const activeRelativePath = activeTab ? activeFile.path : null
+  const activeRelativePath = activeTab && !gitDiffTarget(activeTab.path) ? activeFile.path : null
 
   // Ctrl+L 참조는 **마지막으로 연 보조창 하나**에만 간다(예전엔 열려 있는 창 전부가 받아 적었다).
   // 여는 순간을 기억해 두고, 그 창이 닫혀 있으면 지금 열려 있는 다른 창으로 흘려보낸다.
@@ -1887,7 +1888,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           onActivate={(path) => {
             focusPane(pane.id)
             setActivePath(path, pane.id)
-            if (isExternalTabPath(path)) return
+            if (isExternalTabPath(path) || gitDiffTarget(path)) return
             const file = editorFile(path, project)
             setPendingSidebarReveal({ root: rootProjectPath, ...file })
             setSidebarView('files')
@@ -1902,6 +1903,11 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           onReorder={(from, to) => reorderTabs(from, to, pane.id)}
           onSetViewMode={(path, viewMode) => setTabViewMode(path, viewMode, pane.id)}
           onChangeContent={updateTabContent}
+          diffVisible={!desktopMode || editorOpen}
+          onOpenDiffFile={(fileProject, path) => {
+            openFile(editorTabPath(fileProject, path, project), { preview: false, forceNewTab: true, paneId: pane.id })
+            showMobileEditor()
+          }}
           onOpenLink={(linkPath) => openFile(linkPath, { preview: false, forceNewTab: true, paneId: pane.id })}
           onOpenHistory={() => setHistoryOpen(true)}
           onSetTocOpen={setTocOpen}
@@ -2374,7 +2380,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           key={rootProjectPath ?? 'pending-workspace'} project={activeFile.project} workspacePath={rootProjectPath} tree={activeFileTree}
           trackRestore={trackRefresh}
           preparedTabs={preparedAgentTabs} requestedTab={featureAgentTab} onRequestedTabHandled={() => { mewcatHandledTab.current = featureAgentTab?.id ?? null; setFeatureAgentTab(null) }}
-          focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) ? activeFile.path : null}
+          focusedFilePath={activeTab && !isExternalTabPath(activeTab.path) && !gitDiffTarget(activeTab.path) ? activeFile.path : null}
           getSelectedText={getSelectedText} renderCommandButtons={renderTermButtons} onOpenFile={openMentionedFile}
           onOpenGuidanceFile={caps.serverFiles ? (path) => { showMobileEditor(); openExternalFile(path) } : undefined}
           allowAgent={caps.agent} allowTerminal={caps.terminal} agentOpen={caps.agent && agentOpen} terminalOpen={caps.terminal && terminalOpen} foregroundKind={mobileForegroundPanel}
@@ -2387,7 +2393,13 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           nextTabSignal={browserNextTabSignal} previousTabSignal={browserPreviousTabSignal} />}
         {caps.git && workspaceUiLoaded && gitMounted.current && <GitPanel visible={gitOpen} initialState={workspaceUi.git} onChange={saveGitPanelState}
           navigation={{ view: gitView, onChange: changeGitView, back: navigateWorkspaceBack }}
-          onNotice={showToast} onOpenFile={openMentionedFile} onClose={() => closeWorkspacePanel('git')}
+          onNotice={showToast} onOpenDiff={target => {
+            openFile(gitDiffTabPath(target), { preview: false, forceNewTab: true })
+            showMobileEditor()
+            dockRef.current?.restore()
+            activeTabbedSurfaceRef.current = 'editor'
+            setFocusedWorkspacePanel('editor')
+          }} onClose={() => closeWorkspacePanel('git')}
           onPanelFocus={() => { activeTabbedSurfaceRef.current = 'git'; bringWorkspacePanelToFront('git') }}
           nextTabSignal={gitNextTabSignal} previousTabSignal={gitPreviousTabSignal} />}
         {rootProjectPath && canDebug && auth.email && <DockPanel id="debugger" kind="debugger" visible={debuggerOpen} mobileSelected onFocus={() => bringWorkspacePanelToFront('debugger')}>

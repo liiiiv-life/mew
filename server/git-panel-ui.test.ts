@@ -10,14 +10,17 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..'), require = createRequire(`${root}/package.json`)
 
-test('Git opens only the current project, migrates saved tabs, docks and preserves drafts', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
-  const files = ['src/components/git-panel.tsx', 'src/components/GitWorkbench.tsx', 'src/components/git-branch-picker.tsx', 'packages/ui/src/select-field.tsx', 'packages/ui/src/ConfirmDialog.tsx', 'packages/ui/src/dialog-frame.tsx', 'src/components/github-account.tsx', 'src/components/DockWorkspace.tsx']
+test('Git opens only the current project, migrates saved tabs, docks and preserves drafts', { skip: !domBrowserExecutable(), timeout: 90_000 }, async () => {
+  const files = ['src/components/git-diff-editor.tsx', 'src/components/git-diff-view.tsx', 'src/components/git-changes-menu.tsx', 'src/components/EditorPane.tsx', 'src/components/TabBar.tsx', 'src/components/git-panel.tsx', 'src/components/GitWorkbench.tsx', 'src/components/git-branch-picker.tsx', 'packages/ui/src/select-field.tsx', 'packages/ui/src/ConfirmDialog.tsx', 'packages/ui/src/dialog-frame.tsx', 'src/components/github-account.tsx', 'src/components/DockWorkspace.tsx']
   const content = (await Promise.all(files.map((file) => fs.readFile(`${root}/${file}`, 'utf8')))).join('\n')
   const source = `
 import React,{useCallback,useEffect,useRef,useState} from '${require.resolve('react')}';
 import {createRoot} from '${require.resolve('react-dom/client')}';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {DockWorkspace,DockPanel} from '${root}/src/components/DockWorkspace.tsx';
+import {useTabs} from '${root}/src/hooks/useTabs.ts';
+import {gitDiffTabPath} from '${root}/src/utils/git-diff-tabs.ts';
+import {EditorPane} from '${root}/src/components/EditorPane.tsx';
 import {GitPanel} from '${root}/src/components/git-panel.tsx';
 import {gitWorkbenchScreenKey} from '${root}/src/utils/git-workbench-navigation.ts';
 import {useWorkspacePanelDismissals} from '${root}/src/hooks/use-panel-dismissals.ts';
@@ -35,6 +38,8 @@ window.fetch=(input,init)=>{
 };
 window.notices=[];
 function Fixture(){
+  const editor=useTabs('.workspace',()=>{},()=>{},'git-fixture');
+  const noop=()=>{};
   const [dock,setDock]=useState(JSON.parse(localStorage.getItem('fixture:dock')||'null'));
   const [git,setGit]=useState(JSON.parse(localStorage.getItem('fixture:git')||'null'));
   const [open,setOpen]=useState(true),[foreground,setForeground]=useState('git');
@@ -50,12 +55,15 @@ function Fixture(){
     show:panel=>{setForeground(panel==='editor'?null:panel);if(panel==='git')setOpen(true)}
   });
   useEffect(()=>{const key=event=>{if(event.ctrlKey&&event.key==='w'&&dispatchFocusedShortcut('closeTab',event)==='handled')event.preventDefault()};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[]);
-  window.fixture={dock,git,screen,setOpen,setForeground,setNext,setPrevious,setClose};
+  window.fixture={dock,git,screen,setOpen,setForeground,setNext,setPrevious,setClose,editor};
   return <div className="flex h-dvh flex-col bg-surface-deep text-ink">
     <header className="flex h-10 shrink-0 items-center gap-4 px-3"><button onClick={()=>{setOpen(true);setForeground('git')}}>Git 열기</button><button onClick={()=>setForeground(null)}>편집기 보기</button></header>
     <DockWorkspace apiRef={ref} value={dock} onChange={saveDock} onEditorDrop={()=>''} foreground={foreground}>
-      <DockPanel id="editor:main" kind="editor"><div className="h-9 shrink-0 border-b border-edge px-3 text-xs">README.md</div><textarea aria-label="편집기" className="h-full w-full bg-surface-deep p-3" defaultValue="문서 편집 중"/></DockPanel>
-      <GitPanel visible={open} initialState={git} onChange={saveGit} navigation={{view:screen,onChange:setScreen,back}} onOpenFile={(project,path)=>{window.openedFile={project,path};setForeground(null)}} onNotice={message=>window.notices.push(message)} onClose={dismiss} onPanelFocus={()=>setForeground('git')} nextTabSignal={next} previousTabSignal={previous} closeTabSignal={close}/>
+      <DockPanel id="editor:main" kind="editor">{editor.activePath ? <EditorPane pane={editor.panes[0]} role="owner" authEmail={null} project=".workspace" tree={[]} presence={{}} focused canCollaborate={false} isGuest={false} showSidebarButton={false} tocOpen={false} dropZone={null}
+        registerHandle={noop} registerElement={noop} registerTabBar={noop} onFocus={noop} onActivate={editor.setActivePath} onPin={editor.pinTab} onCloseTab={editor.closeTab} onReorder={editor.reorderTabs} onSetViewMode={editor.setTabViewMode} onChangeContent={editor.updateTabContent}
+        onOpenLink={noop} onOpenHistory={noop} onSetTocOpen={noop} onOpenSidebar={noop} onTabDragMove={noop} onTabDrop={noop}
+        onOpenDiffFile={(project,path)=>{window.openedFile={project,path};editor.setActivePath(null);setForeground(null)}} /> : <><div className="h-9 shrink-0 border-b border-edge px-3 text-xs">README.md</div><textarea aria-label="편집기" className="h-full w-full bg-surface-deep p-3" defaultValue="문서 편집 중"/></>}</DockPanel>
+      <GitPanel visible={open} initialState={git} onChange={saveGit} navigation={{view:screen,onChange:setScreen,back}} onOpenDiff={target=>{window.openedDiff=target;editor.openFile(gitDiffTabPath(target),{preview:false,forceNewTab:true});setForeground(null)}} onNotice={message=>window.notices.push(message)} onClose={dismiss} onPanelFocus={()=>setForeground('git')} nextTabSignal={next} previousTabSignal={previous} closeTabSignal={close}/>
     </DockWorkspace>
   </div>
 }
@@ -127,6 +135,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
           : p === '/api/git/repositories' ? { repositories: url.searchParams.get('project') === 'docs' ? [{ path: '' }] : [{ path: '' }, { path: 'tools/a-very-long-repository-name-for-layout-checking' }] }
           : p === '/api/git/repository' ? { repository: repositoryExists, workspace: '/fixture', remotes: ['origin'], originUrl: 'https://github.com/owner/repo', branch: repositoryBranch, ahead: 0, behind: 0 }
             : p === '/api/git/log' ? { commits: Array.from({ length: 80 }, (_, index) => ({ hash: `abc12345${index}`, parents: index < 79 ? [`abc12345${index + 1}`] : [], subject: index === 0 && externalCommit ? '외부 터미널에서 만든 새 커밋' : index === 0 ? '패널 작업: 긴 커밋 제목도 메타데이터를 밀어내지 않고 한 줄로 표시합니다' : `패널 작업 ${index}`, author: 'Tester with a long name', date: new Date(Date.now() - index * 3_600_000 - 10_000).toISOString(), refs: index === 0 ? ['main', 'tag: v1'] : [] })) }
+              : p === '/api/git/commit' ? { hash: 'abc123450', subject: 'fixture commit', body: '', author: 'Tester', email: 'test@example.com', date: new Date().toISOString(), files: workingFiles }
               : p.endsWith('/diff') ? { diff: `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+${diffLine}\n` }
                 : { files: workingFiles }
         return route.fulfill({ json: payload })
@@ -215,9 +224,56 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await selectVisible.uncheck()
     assert.equal(await selectedCount(), '1', 'deselecting results preserves the hidden file selection')
     await changes.getByRole('checkbox').first().check()
-    await changes.getByRole('button', { name: 'changed-file-1.tsx', exact: false }).first().click()
-    await pick('뒤로 가기')
+    await changes.locator('[data-git-file-button]').filter({ hasText: 'changed-file-1.tsx' }).dblclick()
+    await page.locator('[data-git-diff-editor]').waitFor()
+    assert.equal(await panel().locator('[data-git-diff-editor]').count(), 0)
+    await page.evaluate('window.fixture.editor.setActivePath(null)')
     assert.equal(await changeSearch.inputValue(), '*.tsx', 'diff navigation keeps the filter')
+    await changeSearch.fill('')
+    const fileButtons = changes.locator('[data-git-file-button]')
+    const highlights = changes.locator('[data-git-highlighted]')
+    const checkedBefore = await changes.getByRole('checkbox', { checked: true }).count()
+    await fileButtons.nth(0).click()
+    assert.equal(await highlights.count(), 1)
+    assert.equal(await fileButtons.nth(0).getAttribute('aria-pressed'), 'true')
+    assert.equal(await page.locator('[data-git-diff-editor]').count(), 0, 'single click only highlights')
+    await fileButtons.nth(2).click({ modifiers: ['Control'] })
+    await fileButtons.nth(4).click({ modifiers: ['Meta'] })
+    assert.equal(await highlights.count(), 3, 'Ctrl and Cmd add ordinary selection')
+    await fileButtons.nth(2).click({ modifiers: ['Control'] })
+    assert.equal(await highlights.count(), 2, 'Ctrl toggles ordinary selection off')
+    await fileButtons.nth(5).click({ modifiers: ['Shift'] })
+    assert.equal(await highlights.count(), 4, 'Shift uses the previous anchor and replaces the range')
+    await fileButtons.nth(7).click({ modifiers: ['Control', 'Shift'] })
+    assert.equal(await highlights.count(), 6, 'Ctrl+Shift adds the visible range')
+    assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), checkedBefore, 'ordinary selection never changes commit targets')
+    await fileButtons.nth(4).click({ button: 'right' })
+    const changesMenu = page.getByRole('menu', { name: '변경 파일 작업' })
+    await changesMenu.waitFor()
+    await screenshot('desktop-ordinary-selection-menu')
+    assert.equal(await highlights.count(), 6, 'right click preserves the selected group')
+    await changesMenu.getByRole('menuitem', { name: '커밋 대상에 포함', exact: true }).click()
+    assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), checkedBefore + 6)
+    await fileButtons.nth(4).click({ button: 'right' })
+    await changesMenu.getByRole('menuitem', { name: '커밋 대상에서 제외', exact: true }).click()
+    assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), checkedBefore)
+    await fileButtons.nth(8).click({ button: 'right' })
+    assert.equal(await highlights.count(), 1, 'right click on another file selects only that file')
+    await page.keyboard.press('Escape')
+    await changesMenu.waitFor({ state: 'hidden' })
+    await fileButtons.nth(3).focus()
+    await page.keyboard.press('Shift+F10')
+    await changesMenu.waitFor()
+    await page.keyboard.press('End')
+    assert.equal(await changesMenu.getByRole('menuitem', { name: '취소 (Discard)', exact: true }).evaluate(el => el === el.ownerDocument.activeElement), true)
+    await page.keyboard.press('Escape')
+    await changesMenu.waitFor({ state: 'hidden' })
+    // Shift ranges are based on visible search results.
+    await changeSearch.fill('changed-file-?.tsx')
+    await fileButtons.nth(0).click()
+    await fileButtons.nth(2).click({ modifiers: ['Shift'] })
+    assert.equal(await highlights.count(), 3)
+    await changeSearch.fill('*.tsx')
     await screenshot('desktop-search-dark')
     await changeSearch.fill('no-matching-file.*')
     await changes.getByText('검색 결과가 없습니다.', { exact: true }).waitFor()
@@ -457,15 +513,23 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await changes.evaluate(el => { el.scrollTop = 120 })
     await history.evaluate(el => { el.scrollTop = 160 })
     const preservedComposerHeight = await composerHandle.getAttribute('aria-valuenow')
-    await changes.getByRole('button').nth(6).click()
+    await changes.locator('[data-git-selection-row]').nth(6).getByRole('button', { name: 'diff 열기', exact: false }).click()
     await page.getByText('+new', { exact: true }).waitFor()
+    await screenshot('desktop-editor-diff')
+    const openedDiffPath = await page.evaluate<string>('window.openedDiff.file.path')
+    assert.equal(await panel().locator('[data-git-diff-editor]').count(), 0, 'diff belongs to the editor panel')
+    assert.ok(await page.locator('[data-dock-panel="editor:main"]').getByRole('tab').count())
+    assert.equal(await page.evaluate('window.fixture.editor.activeTab.editable'), false)
+    assert.equal(reads.some(url => url.startsWith('/api/file?') || url.startsWith('/api/rules?')), false, 'diff tabs never load file or rules APIs')
     diffLine = 'edited-again'
     await page.getByText('+edited-again', { exact: true }).waitFor()
-    workingFiles = originalFiles.filter((_, index) => index !== 6)
+    workingFiles = originalFiles.filter(file => file.path !== openedDiffPath)
     await page.getByText('표시할 변경 내용이 없습니다.', { exact: true }).waitFor()
     workingFiles = originalFiles
     diffLine = 'new'
     await page.getByText('+new', { exact: true }).waitFor()
+    const preservedDiffTab = await page.evaluate<string>('window.fixture.editor.activePath')
+    await page.evaluate('window.fixture.editor.setActivePath(null)')
     delayWorking = true
     await page.waitForRequest('**/api/git/working-tree?*')
     await page.waitForTimeout(100)
@@ -477,12 +541,13 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await panel().waitFor({ state: 'hidden' })
     delayWorking = false
     finishWorking()
-    const hiddenReads = reads.length
+    const hiddenReads = reads.filter(url => url.startsWith('/api/git/repository?') || url.startsWith('/api/git/log?')).length
     await page.waitForTimeout(2_200)
-    assert.equal(reads.length, hiddenReads, 'closing the panel stops polling, including a late response')
+    assert.equal(reads.filter(url => url.startsWith('/api/git/repository?') || url.startsWith('/api/git/log?')).length, hiddenReads, 'closing Git stops its polling while the visible editor diff keeps refreshing')
     await pick('Git 열기')
+    await page.evaluate(`window.fixture.editor.setActivePath(${JSON.stringify(preservedDiffTab)})`)
     await page.getByText('+new', { exact: true }).waitFor()
-    await pick('뒤로 가기')
+    await page.evaluate('window.fixture.editor.setActivePath(null)')
     await separator.waitFor()
     assert.equal(await changes.evaluate(el => el.scrollTop), 120, 'returning from diff preserves changes scroll')
     assert.equal(await history.evaluate(el => el.scrollTop), 160, 'returning from diff preserves history scroll')
@@ -564,7 +629,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await touch.send('Emulation.setTouchEmulationEnabled', { enabled: false })
     await touch.detach()
     await pick('편집기 보기')
-    await page.getByLabel('편집기', { exact: true }).waitFor()
+    await page.locator('[data-git-diff-editor]').waitFor()
     await pick('Git 열기')
     assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'MOBILE DRAFT')
     for (const action of ['pull', 'push', 'push'] as const) {
@@ -593,7 +658,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await pick('Git 열기')
     assert.equal(await page.getByLabel('커밋 제목', { exact: true }).inputValue(), 'MOBILE DRAFT')
     assert.ok(reads.length > 0)
-    assert.ok(reads.every(raw => { const url = new URL(raw, 'http://fixture'); return url.pathname !== '/api/git/repositories' && url.searchParams.get('project') === '.workspace' && (url.pathname === '/api/git-connections/github' || url.searchParams.get('path') === '') }), JSON.stringify(reads))
+    assert.ok(reads.filter(raw => new URL(raw, 'http://fixture').pathname.startsWith('/api/git')).every(raw => { const url = new URL(raw, 'http://fixture'); return url.pathname !== '/api/git/repositories' && url.searchParams.get('project') === '.workspace' && (url.pathname === '/api/git-connections/github' || url.searchParams.get('path') === '') }), JSON.stringify(reads))
     const branchButton = header().getByRole('button', { name: '브랜치 선택', exact: true })
     assert.ok((await bounds(branchButton)).x < (await bounds(pull)).x, 'branch picker precedes pull and push')
     for (const width of [1440, 320]) {
@@ -692,6 +757,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     await page.getByText('Git 진행 상황 연결이 끊겼습니다. 저장소 상태를 확인하세요.', { exact: true }).waitFor()
     assert.equal(await push.getByText('완료', { exact: true }).count(), 0, 'truncated stream never claims success or automatically replays push')
     await page.evaluate('window.remoteStream=false')
+    await page.evaluate('window.fixture.editor.tabs.forEach(tab => window.fixture.editor.closeTab(tab.path))')
     repositoryExists = false; reads.length = 0
     await page.reload()
     await page.getByText('현재 프로젝트에 Git 저장소가 없습니다.', { exact: true }).waitFor()
@@ -753,53 +819,64 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
     assert.deepEqual(discardRequests.at(-1), { path: '', workspace: '/fixture', files: [selectedPath] })
     assert.ok(workingFiles.length > 0, 'unselected changes remain')
 
+    // Context Discard uses ordinary selection, even with no checked commit targets.
+    await selectVisible.uncheck()
+    await changes.evaluate(el => { el.scrollTop = 0 })
+    const ordinaryPaths = await changes.locator('[data-git-file-button]').evaluateAll(buttons => buttons.slice(0, 2).map(button => button.querySelector('span.min-w-0')?.getAttribute('title')))
+    const ordinaryButtons = changes.locator('[data-git-file-button]')
+    await ordinaryButtons.nth(0).click()
+    await ordinaryButtons.nth(1).click({ modifiers: ['Control'] })
+    await ordinaryButtons.nth(0).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: '취소 (Discard)', exact: true }).click()
+    await confirmation.waitFor()
+    await screenshot('desktop-ordinary-discard')
+    assert.equal(await changes.getByRole('checkbox', { checked: true }).count(), 0)
+    const beforeOrdinaryDiscard = discardRequests.length
+    await confirmation.getByRole('button', { name: '취소', exact: true }).click()
+    assert.equal(discardRequests.length, beforeOrdinaryDiscard)
+    await ordinaryButtons.nth(0).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: '취소 (Discard)', exact: true }).click()
+    await confirmation.getByRole('button', { name: '변경사항 취소', exact: true }).click()
+    await page.waitForFunction('!window.fixture.editor.activePath')
+    assert.deepEqual(discardRequests.at(-1)?.files, ordinaryPaths)
+    await changes.locator('[data-git-highlighted]').first().waitFor({ state: 'hidden' })
+
     await page.setViewportSize({ width: 390, height: 844 })
-    const back = async () => { await page.evaluate('history.back()'); await page.waitForTimeout(60) }
-    const viewKind = (kind: string) => page.waitForFunction(`window.fixture.screen.kind === '${kind}'`)
+    const back = async () => { await page.evaluate('history.back()'); await page.waitForTimeout(100) }
     await pick('편집기 보기')
+    await page.evaluate('window.fixture.editor.setActivePath(null)')
     await pick('Git 열기')
-    await changes.getByRole('button').first().click()
-    await viewKind('diff')
-    const openedPath = await page.evaluate<string>('window.fixture.screen.file.path')
-    // An overlay still consumes Back before a registered screen does.
+    await changes.locator('[data-git-file-button]').first().click({ button: 'right' })
+    await page.getByRole('menu', { name: '변경 파일 작업' }).waitFor()
+    await screenshot('mobile-ordinary-selection-menu')
+    await page.keyboard.press('Escape')
+    await changes.locator('[data-git-file-button]').first().dblclick()
+    await page.locator('[data-git-diff-editor]').waitFor()
+    assert.equal(await page.evaluate('window.fixture.screen.kind'), 'graph', 'Git stays on the list while editor shows diff')
+    const openedPath = await page.evaluate<string>('window.openedDiff.file.path')
+    await screenshot('mobile-editor-diff')
+    await back()
+    await changes.waitFor()
     await branchButton.click()
     await branchPopup.waitFor()
     await back()
     await branchPopup.waitFor({ state: 'hidden' })
-    await viewKind('diff')
-    await back()
-    await viewKind('graph')
-    await changes.waitFor()
-    assert.equal(await page.getByLabel('편집기', { exact: true }).isVisible(), false, 'diff Back returns to Git before the previous panel')
-
-    await changes.getByRole('button').first().click()
-    await viewKind('diff')
+    await changes.locator('[data-git-selection-row]').first().getByRole('button', { name: 'diff 열기', exact: false }).click()
+    await page.locator('[data-git-diff-editor]').waitFor()
     await pick('파일 열기')
     await page.getByLabel('편집기', { exact: true }).waitFor()
     assert.deepEqual(await page.evaluate('window.openedFile'), { project: '.workspace', path: openedPath })
     await back()
-    await page.getByRole('button', { name: '파일 열기', exact: true }).waitFor()
-    assert.equal(await page.evaluate('window.fixture.screen.file.path'), openedPath, 'editor Back restores the exact diff')
-    await back()
-    await viewKind('graph')
     await changes.waitFor()
-
     await history.getByRole('button').first().click()
-    await viewKind('commit')
-    await page.locator('[data-dock-body="git"]').getByRole('button', { name: openedPath }).click()
-    await viewKind('diff')
-    await pick('파일 열기')
-    await page.getByLabel('편집기', { exact: true }).waitFor()
+    await page.waitForFunction("window.fixture.screen.kind === 'commit'")
+    await page.locator('[data-dock-body="git"]').locator('[data-git-file-button]:visible').first().click()
+    await page.locator('[data-git-diff-editor]').waitFor()
+    assert.equal(await page.evaluate('window.openedDiff.source.kind'), 'commit')
     await back()
-    await page.getByRole('button', { name: '파일 열기', exact: true }).waitFor()
-    assert.equal(await page.evaluate('window.fixture.screen.source.kind'), 'commit')
-    await back()
-    await viewKind('commit')
+    await page.waitForFunction("window.fixture.screen.kind === 'commit'")
     await pick('뒤로 가기')
-    await viewKind('graph')
-    await back()
-    await page.getByLabel('편집기', { exact: true }).waitFor()
-    assert.equal(await page.getByRole('button', { name: '뒤로 가기', exact: true }).isVisible(), false, 'toolbar Back consumes history instead of creating another diff visit')
+    await changes.waitFor()
     assert.deepEqual(errors, [])
   } finally { await browser.close() }
 })
