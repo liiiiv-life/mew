@@ -47,7 +47,7 @@ test('debug sessions configure before launch, inspect and preserve account/proje
   assert.equal(variables.variables[0].value, '1')
   const revision = session.snapshot.stopRevision!
   await session.command('next')
-  await waitFor(() => session.snapshot.state === 'stopped' && session.snapshot.stopRevision! > revision)
+  await waitFor(() => session.snapshot.state === 'stopped' && session.snapshot.stopRevision! > revision && session.snapshot.frames.length > 0)
   assert.equal((await session.command('evaluate', { expression: 'counter', frameId: 1 })).result, '2')
   await saveDebugConfig('first@example.test', temp, { ...config, breakpoints: [] })
   assert.equal(session.snapshot.breakpoints.length, 0)
@@ -105,4 +105,17 @@ test('adapter startup failures report exit code and drained stderr', async t => 
   await assert.rejects(session.start(true), /종료 코드 7.*\nfixture startup failed/)
   assert.equal(session.snapshot.state, 'error')
   assert.match(session.snapshot.reason, /fixture startup failed/)
+})
+
+test('real js-debug runInTerminal accepts pipe input and EOF only for owned targets', { skip: !process.env.MEW_TEST_JS_DEBUG, timeout: 30000 }, async t => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'mew-debugger-input-')), program = path.join(temp, 'input.cjs')
+  const { DebugSession } = await import('./debugger.ts')
+  await fs.writeFile(program, "process.stdin.on('data', data => process.stdout.write('echo:' + data)); process.stdin.resume();\n")
+  const session = new DebugSession({ ...defaultDebugConfig('js-debug', temp), command: process.execPath, args: [process.env.MEW_TEST_JS_DEBUG!, '0', '127.0.0.1'], configuration: { type: 'pwa-node', program, cwd: temp, console: 'integratedTerminal' } }, temp)
+  t.after(async () => { await session.stop(); await fs.rm(temp, { recursive: true, force: true }) })
+  await session.start(); await waitFor(() => !!session.snapshot.inputProcesses?.length, 15000)
+  const processId = session.snapshot.inputProcesses![0].id
+  await assert.rejects(session.command('input', { processId: -1, text: 'wrong' }), /입력/)
+  await session.command('input', { processId, text: 'fixture\n' }); await waitFor(() => session.snapshot.output.includes('echo:fixture'), 10000)
+  await session.command('input', { processId, text: '', end: true }); await waitFor(() => !session.snapshot.inputProcesses?.length)
 })

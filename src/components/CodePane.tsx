@@ -36,6 +36,7 @@ import { properties } from '@codemirror/legacy-modes/mode/properties'
 import { sCSS } from '@codemirror/legacy-modes/mode/css'
 import { lintFile } from '../api/client'
 import { codeSearchExtensions, refreshCodeSearchLanguage } from '../utils/codeSearch'
+import { debuggerEditorExtension } from '../utils/debugger-editor'
 import { makeCommentAnchor, resolveCommentAnchor, type CommentAnchor, type CommentThreadInput, type EditorViewAnchor } from '@mew/editor'
 
 // value prop 동기화로 들어온 트랜잭션 표시 — 이걸 다시 onChange로 올리면 열기만 한
@@ -304,8 +305,9 @@ export const CodePane = forwardRef<
     onCommentClick?: (id: string, x: number, y: number) => void
     /** 부분 preview는 문서 전체 줄 번호를 유지한다. 일반 문서는 0이다. */
     lineOffset?: number
+    debuggerContext?: { root: string; account: string }
   }
->(function CodePane({ path, project, value, onChange, readOnly, collab, commentThreads, onCommentClick, lineOffset = 0 }, ref) {
+>(function CodePane({ path, project, value, onChange, readOnly, collab, commentThreads, onCommentClick, lineOffset = 0, debuggerContext }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
@@ -317,9 +319,11 @@ export const CodePane = forwardRef<
   commentThreadsRef.current = commentThreads ?? []
   onCommentClickRef.current = onCommentClick
 
+  const debugRoot = debuggerContext?.root, debugAccount = debuggerContext?.account
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    const debug = debugRoot && debugAccount ? debuggerEditorExtension(debugRoot, debugAccount, path, lineOffset, !readOnly) : undefined
     const state = EditorState.create({
       // collab 모드는 yCollab의 ySync가 마운트 즉시 Y.Text 내용을 반영하므로 빈 문서로 시작한다
       doc: collab ? '' : valueRef.current,
@@ -327,6 +331,7 @@ export const CodePane = forwardRef<
         lineNumbers({ formatNumber: (line) => String(line + lineOffset) }),
         highlightActiveLineGutter(),
         highlightActiveLine(),
+        ...(debug ? [debug.extension] : []),
         drawSelection(),
         bracketMatching(),
         // collab 모드에서는 CodeMirror 기본 history() 대신 Yjs 인지 undo(yUndoManagerKeymap)를 쓴다 —
@@ -379,6 +384,7 @@ export const CodePane = forwardRef<
     })
     const view = new EditorView({ state, parent: container })
     viewRef.current = view
+    const unsubscribeDebug = debug?.attach(view)
     const stopViewport = observeEditorViewport(container, () => view.requestMeasure({
       key: container,
       read: () => {
@@ -398,11 +404,12 @@ export const CodePane = forwardRef<
     return () => {
       stopViewport()
       unsubscribeLocale()
+      unsubscribeDebug?.()
       view.destroy()
       viewRef.current = null
     }
     // 파일이 바뀌면 언어·lint 구성이 달라지므로 뷰를 새로 만든다 (문서 내용은 valueRef로 최신값 사용)
-  }, [project, path, readOnly, collab?.ydoc, lineOffset])
+  }, [project, path, readOnly, collab?.ydoc, lineOffset, debugRoot, debugAccount])
 
   // 방을 처음 만든 클라이언트가 이미 로드해 둔 탭 내용으로 Y.Text를 시딩한다 (디스크 재조회 아님) —
   // 이미 누군가 협업 중이던 방이면 ytext가 비어 있지 않으므로 아무 일도 하지 않는다

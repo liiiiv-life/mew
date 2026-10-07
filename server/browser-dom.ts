@@ -600,6 +600,14 @@ export async function createDomBrowserAuthSession(account: string, job: string, 
 }
 
 function generalTabs(account: string): DomBrowserSession[] { return [...sessions.values()].filter((session) => session.general && !session.authJob && session.account === account) }
+export function debuggableDomTabs(account: string) {
+  return generalTabs(account).filter(s => s.page && !s.page.isClosed()).map(s => ({ id: s.job, url: s.page!.url() }))
+}
+export function debuggableDomPage(account: string, tab: string): Page {
+  const session = generalTabs(account).find(s => s.job === tab)
+  if (!session?.page || session.page.isClosed()) throw new Error('본인 계정에서 열린 브라우저 탭을 선택하세요')
+  return session.page
+}
 
 export function openDomBrowserTab(account: string, tabId: string, url: string): DomBrowserSession {
   if (!account || !/^[\w-]{1,64}$/.test(tabId)) throw new Error('탭 정보가 올바르지 않습니다')

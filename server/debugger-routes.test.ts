@@ -33,6 +33,8 @@ test('debugger endpoints enforce OS tool permission and isolate accounts and wor
   setFeature(email, 'terminal', false)
   assert.equal((await request('/test', {})).status, 403)
   setFeature(email, 'terminal', true)
+  setFeature(email, 'browser', false); assert.equal((await request('/browser')).status, 403); setFeature(email, 'browser', true)
+  assert.equal((await request('/browser/connect', { tab: 'other-account-tab' })).status, 400)
   setFileRule(email, WORKSPACE_PROJECT, 'private', 'deny')
   assert.equal((await request('/start', {})).status, 403)
   setFileRule(email, WORKSPACE_PROJECT, 'private', 'inherit')
@@ -47,6 +49,8 @@ test('debugger endpoints enforce OS tool permission and isolate accounts and wor
   const started = await request('/start', {}); assert.equal(started.status, 200)
   const snapshot = await started.json() as DebugSnapshot
   assert.equal((await request('/start', {})).status, 400)
+  assert.equal((await request('/bridge', { enabled: true })).status, 200)
+  assert.equal((await request('/bridge', { enabled: false })).status, 200)
   assert.equal((await request('/config', { ...config, request: 'attach' }, 'PUT')).status, 400)
   assert.equal((await request('/command', { sessionId: 'stale', command: 'continue' })).status, 409)
   assert.equal((await request('/stop', { sessionId: 'stale' })).status, 409)

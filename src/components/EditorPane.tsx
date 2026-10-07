@@ -694,6 +694,7 @@ export function EditorPane({
                     ref={codePaneRef}
                     path={activeTab.path}
                     project={project}
+                    debuggerContext={workspace?.path && authEmail && (role === 'owner' || role === 'manager') && (project === '.workspace' || activeTab.path.startsWith('/')) ? { root: workspace.path, account: authEmail } : undefined}
                     value={activeTab.content}
                     onChange={(content) => onChangeContent(activeTab.path, content)}
                     readOnly={loading || !activeTab.editable || isArchivedPath(activeTab.path, project) || !!activeTab.anchorPreview}

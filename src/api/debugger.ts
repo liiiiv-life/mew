@@ -5,4 +5,4 @@ export async function debuggerRequest<T>(root: string, endpoint = '', body?: unk
   if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`)
   return data as T
 }
-export interface DebuggerStatus { config: DebugConfig; session: DebugSnapshot; adapter: { installed: boolean; version: string } }
+export interface DebuggerStatus { config: DebugConfig; session: DebugSnapshot; adapter: { installed: boolean; version: string }; sessions?: { id: string; name: string; state: DebugSnapshot['state'] }[] }
