@@ -1,12 +1,16 @@
 ---
 title: "mew 중계 기능 만들기"
-done: "false"
+done: true
 tags:
   - 기능
 startDate: "2026-10-10"
 date: "2026-10-13"
 updated: "2026-10-07"
-description: "Cloudflare용 비공개 mewlink와 Google·GitHub·Apple OAuth, UI 전체의 P2P 전송·공개 기기 주소·origin 분리·자동 배포 구현과 검증 결과를 정리한다. 실제 배포·제공자 로그인·외부망과 출시 게이트는 남아 있다."
+description: "Cloudflare용 비공개 mewlink와 Google·GitHub·Apple OAuth, UI 전체의 P2P
+  전송·공개 기기 주소·origin 분리·자동 배포 구현과 검증 결과를 정리한다. 실제 배포·제공자 로그인·외부망과 출시 게이트는 남아
+  있다."
+assignees:
+  - songsh5775@gmail.com
 ---
 
 # mew 중계 기능 만들기

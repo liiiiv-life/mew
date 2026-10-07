@@ -1,7 +1,7 @@
 ---
 title: Windows용 설치·관리 GUI
 description: "태스크: Windows용 설치·관리 GUI"
-done: false
+done: true
 tags:
   - 기능
 assignees:
