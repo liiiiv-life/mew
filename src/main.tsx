@@ -21,7 +21,7 @@ if (import.meta.hot) import.meta.hot.dispose(stopStorageMaintenance)
 applyFontPreferences(loadFontPreferences())
 applyThemeColor(loadThemeColor(), document.documentElement.classList.contains('dark') ? 'dark' : 'light')
 
-const centralPage = !!document.querySelector('meta[name="mew-central"]') || location.pathname === '/dashboard' || location.pathname.startsWith('/register/') || /^\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+\/?$/.test(location.pathname)
+const centralPage = !!document.querySelector('meta[name="mew-central"]')
 const browserPopup = location.pathname === '/browser'
 if (browserPopup) document.title = 'Browser · mew'
 

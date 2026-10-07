@@ -15,6 +15,8 @@ updated: 2026-10-07
 
 `server/remote-central/serve.ts`는 별도 중앙 진입점이다. 정적 앱, OAuth/OIDC, SQLite 계정·등록·세션·멤버십, WSS 시그널링을 제공한다. 로컬 API·워크스페이스·터미널·에이전트 모듈을 불러오지 않는다. 중앙 `/api`에는 작업 데이터를 제공하는 라우터가 없다.
 
+중앙 HTML의 `mew-central` meta 표식으로 중앙 UI를 선택한다. URL 경로만으로 접속 모드를 추정하지 않으므로 A의 기존 프로젝트 경로를 중앙 계정·기기 주소로 오인하지 않는다.
+
 A의 `server/remote-access-agent.ts`는 로컬 owner가 시작한 5분짜리 등록 요청을 확인한다. A가 생성한 Ed25519 키의 소유 증명과 중앙 서명 영수증을 검증하고 불변 instance ID·중앙 계정 ID·기기 이름·키를 저장한다. 로컬 `serve.ts`와 Vite plugin은 등록이 있을 때만 중앙으로 WSS를 연결한다. 지수 backoff는 최대 30초에 jitter를 더하며, 재시작은 저장한 키를 사용한다.
 
 중앙 신원은 **제공자 ID + 검증된 issuer + 불변 subject**다. GitHub는 고정 issuer 아래 숫자 사용자 ID를 쓴다. 동일 이메일·표시 이름이나 다른 제공자의 동일 subject를 합치지 않는다. 로그인 제공자 변경·이메일 OIDC issuer 교체는 별도 계정이 된다. 제공자 간 계정 연결 UI는 아직 제공하지 않는다.
