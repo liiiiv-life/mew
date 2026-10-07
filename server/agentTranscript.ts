@@ -2,12 +2,13 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { DATA_DIR, readJsonFile } from './dataDir.ts'
 import type { AgentEvent } from './agentAcp.ts'
 
 const TRANSCRIPT_DIR = path.join(DATA_DIR, 'agent-transcripts')
 let database: DatabaseSync | null = null
+const statements = new Map<string, StatementSync>()
 const written = new WeakMap<AgentEvent[], { key: string; count: number; revision: string }>()
 
 export function transcriptKey(runtime: string, cwd: string, sessionId: string): string {
@@ -37,7 +38,13 @@ function db(): DatabaseSync {
   } catch (error) { opened.close(); throw error }
 }
 
-export function closeTranscriptDatabase(): void { database?.close(); database = null }
+export function closeTranscriptDatabase(): void { statements.clear(); database?.close(); database = null }
+
+function prepare(store: DatabaseSync, sql: string): StatementSync {
+  let statement = statements.get(sql)
+  if (!statement) { statement = store.prepare(sql); statements.set(sql, statement) }
+  return statement
+}
 
 /** Same append-only array: serialize/insert only its new tail. A restored array replaces atomically. */
 export function writeAgentTranscript(runtime: string, cwd: string, sessionId: string, events: AgentEvent[], onlyIfMissing = false): boolean {
@@ -48,7 +55,7 @@ export function writeAgentTranscript(runtime: string, cwd: string, sessionId: st
     store.exec('BEGIN IMMEDIATE')
     let count = 0, revision = crypto.randomUUID() as string
     try {
-      const current = store.prepare('SELECT count, revision FROM sessions WHERE key=?').get(key)
+      const current = prepare(store, 'SELECT count, revision FROM sessions WHERE key=?').get(key)
       if (onlyIfMissing && current) { store.exec('COMMIT'); return true }
       if (previous?.key === key && current && (current.revision !== previous.revision || current.count !== previous.count)) {
         throw new Error('다른 writer가 변경한 전사를 오래된 버퍼로 덮어쓸 수 없습니다')
@@ -59,11 +66,11 @@ export function writeAgentTranscript(runtime: string, cwd: string, sessionId: st
         revision = previous.revision
         if (count === events.length) { store.exec('COMMIT'); return true }
       } else {
-        store.prepare('DELETE FROM events WHERE session_key=?').run(key)
+        prepare(store, 'DELETE FROM events WHERE session_key=?').run(key)
       }
-      const insert = store.prepare('INSERT INTO events(session_key,seq,payload) VALUES(?,?,?)')
+      const insert = prepare(store, 'INSERT INTO events(session_key,seq,payload) VALUES(?,?,?)')
       for (let i = count; i < events.length; i++) insert.run(key, i, JSON.stringify(events[i]))
-      store.prepare(`INSERT INTO sessions VALUES(?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET
+      prepare(store, `INSERT INTO sessions VALUES(?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET
         revision=excluded.revision, count=excluded.count, updated_at=excluded.updated_at`)
         .run(key, runtime, cwd, sessionId, revision, events.length, Date.now())
       store.exec('COMMIT')
@@ -78,7 +85,7 @@ export function writeAgentTranscript(runtime: string, cwd: string, sessionId: st
 
 function importLegacy(runtime: string, cwd: string, sessionId: string): void {
   const key = transcriptKey(runtime, cwd, sessionId)
-  if (db().prepare('SELECT key FROM sessions WHERE key=?').get(key)) return
+  if (prepare(db(), 'SELECT key FROM sessions WHERE key=?').get(key)) return
   const value = readJsonFile<unknown>(path.join(TRANSCRIPT_DIR, `${key}.json`))
   if (!value || typeof value !== 'object' || Array.isArray(value)) return
   const stored = value as { version?: number; runtime?: string; cwd?: string; sessionId?: string; events?: AgentEvent[] }
@@ -92,7 +99,7 @@ export function readAgentTranscript(runtime: string, cwd: string, sessionId: str
   try {
     importLegacy(runtime, cwd, sessionId)
     const key = transcriptKey(runtime, cwd, sessionId)
-    if (!db().prepare('SELECT key FROM sessions WHERE key=?').get(key)) return null
+    if (!prepare(db(), 'SELECT key FROM sessions WHERE key=?').get(key)) return null
     return readAgentTranscriptRange(runtime, cwd, sessionId, 0, Number.MAX_SAFE_INTEGER)
   } catch (error) {
     console.error('[mew:agent] 전사 읽기 실패:', error)
@@ -102,7 +109,7 @@ export function readAgentTranscript(runtime: string, cwd: string, sessionId: str
 
 /** Indexed half-open range, without parsing the rest of the conversation. */
 export function readAgentTranscriptRange(runtime: string, cwd: string, sessionId: string, start: number, end: number): AgentEvent[] {
-  return db().prepare('SELECT payload FROM events WHERE session_key=? AND seq>=? AND seq<? ORDER BY seq')
+  return prepare(db(), 'SELECT payload FROM events WHERE session_key=? AND seq>=? AND seq<? ORDER BY seq')
     .all(transcriptKey(runtime, cwd, sessionId), start, end).map(row => JSON.parse(String(row.payload)) as AgentEvent)
 }
 

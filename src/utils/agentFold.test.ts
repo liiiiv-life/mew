@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { foldEvents, formatDuration, isTurnComplete, type AgentEvent } from './agentFold.ts'
+import { appendEventFold, createEventFold, foldEvents, formatDuration, isTurnComplete, type AgentEvent } from './agentFold.ts'
 
-const user = (text: string): AgentEvent => ({
+const user = (text: string): Extract<AgentEvent, { type: 'update' }> => ({
   type: 'update',
   update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text } },
 })
@@ -150,4 +150,72 @@ test('formatDuration은 0인 윗 단위를 떼고 초 단위로 끝낸다', () =
   assert.equal(formatDuration(2 * 3_600_000 + 5 * 60_000 + 4_000), '2시간 5분 4초')
   assert.equal(formatDuration(59_900), '1분') // 반올림 — 59.9초는 1분이 된다
   assert.equal(formatDuration(0), '0초')
+})
+
+test('프레임 경계가 청크·사진·도구·승인 사이에 있어도 같은 대화를 복원한다', () => {
+  const events: AgentEvent[] = [
+    user('질문'), user('이어지는 내용'), { type: 'user_images', images: [{ path: 'photo.png', mimeType: 'image/png' }] },
+    { type: 'turn_start', startedAt: 100 }, agent('첫 '), agent('답변'),
+    { type: 'update', update: { sessionUpdate: 'tool_call', toolCallId: 'tool', title: '도구', status: 'pending' } },
+    { type: 'permission', id: 'permission', toolCall: {}, options: [] },
+    { type: 'update', update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: '생각' } } },
+    { type: 'turn_end', stopReason: 'end_turn', durationMs: 1000 },
+    user('다음 질문'), { type: 'turn_start' }, agent('다음 답변'),
+    { type: 'permission_done', id: 'permission' },
+    { type: 'update', update: { sessionUpdate: 'tool_call_update', toolCallId: 'tool', status: 'failed', title: '늦은 갱신' } },
+  ]
+  const expected = foldEvents(events, 'ko', 80)
+  for (let size = 1; size <= events.length; size++) {
+    let state = createEventFold('ko', 80)
+    for (let start = 0; start < events.length; start += size) state = appendEventFold(state, events.slice(start, start + size))
+    assert.deepEqual(state.items, expected, `프레임 크기 ${size}`)
+  }
+  const firstTurn = expected[1]
+  assert.ok(firstTurn.kind === 'turn')
+  assert.deepEqual(firstTurn.children.find(child => child.kind === 'tool_group'), {
+    key: 'tg86', kind: 'tool_group', tools: [{ id: 'tool', title: '늦은 갱신', status: 'failed' }],
+  })
+  assert.equal(firstTurn.children.find(child => child.kind === 'permission')?.answered, true)
+})
+
+test('새 스트리밍 프레임과 늦은 도구 갱신은 이전 렌더의 객체를 변경하지 않는다', () => {
+  const frozen = (value: unknown): void => {
+    if (!value || typeof value !== 'object' || Object.isFrozen(value)) return
+    for (const child of Object.values(value)) frozen(child)
+    Object.freeze(value)
+  }
+  const first = appendEventFold(createEventFold(), [user('첫 질문'), agent('첫 답변'),
+    { type: 'update', update: { sessionUpdate: 'tool_call', toolCallId: 'old', title: '도구', status: 'pending' } },
+    { type: 'turn_end', stopReason: 'end_turn' }, user('두번째'), agent('둘째 답변')])
+  const snapshot = structuredClone(first.items)
+  frozen(first.items)
+  const second = appendEventFold(first, [agent(' 꼬리')])
+  assert.deepEqual(first.items, snapshot)
+  assert.equal(second.items[0], first.items[0])
+  assert.equal(second.items[1], first.items[1], '완료한 턴은 재사용한다')
+  assert.notEqual(second.items[3], first.items[3], '진행 중 턴만 교체한다')
+  frozen(second.items)
+  const third = appendEventFold(second, [
+    { type: 'update', update: { sessionUpdate: 'tool_call_update', toolCallId: 'old', status: 'failed' } },
+  ])
+  assert.equal(third.items[3], second.items[3], '늦은 도구 갱신이 현재 답변을 교체하지 않는다')
+  assert.deepEqual(first.items, snapshot)
+  assert.notEqual(third.items[1], second.items[1])
+})
+
+test('메시지 ID·첨부의 프레임 간 경계와 무시되는 이벤트의 순번을 보존한다', () => {
+  let state = appendEventFold(createEventFold('ko', 30), [
+    { ...user('첫 질문'), update: { ...user('첫 질문').update, messageId: 'one' } } as AgentEvent,
+  ])
+  const first = state
+  state = appendEventFold(state, [{ type: 'user_images', images: [{ path: 'photo.png', mimeType: 'image/png' }] }])
+  assert.equal(first.items[0].kind === 'user' && first.items[0].images.length, 0)
+  state = appendEventFold(state, [
+    { ...user('둘째 질문'), update: { ...user('둘째 질문').update, messageId: 'two' } } as AgentEvent,
+    { type: 'ready', cwd: '/workspace' }, agent('답변'),
+  ])
+  assert.deepEqual(state.items.map(item => item.key), ['m30', 'm32', 'turn34'])
+  const previous = state.items
+  state = appendEventFold(state, [{ type: 'ready', cwd: '/workspace' }])
+  assert.equal(state.items, previous, '화면을 바꾸지 않는 이벤트는 버블을 재생성하지 않는다')
 })

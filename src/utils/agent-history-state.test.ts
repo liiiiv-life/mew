@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { HistoryIndex } from '../../shared/agent-history.ts'
-import { mergeHistoryPage, appendHistoryEvent } from './agent-history-state.ts'
+import { mergeHistoryPage, appendHistoryEvent, appendHistoryEventInPlace } from './agent-history-state.ts'
 import { recentHistory } from './agent-history-cache.ts'
 import { foldEvents, type AgentEvent } from './agentFold.ts'
 const events: AgentEvent[] = Array.from({ length: 100 }, (_, i) => [
@@ -53,4 +53,38 @@ test('prepend during a live append retains the new tail; question chunks stay to
   const chunks = new HistoryIndex<AgentEvent>('chunks')
   for (let i = 0; i < 50; i++) chunks.push(events[0])
   assert.equal(chunks.boundaries.length, 1)
+})
+
+test('socket buffer appends advance the reconnect cursor before rendering without changing snapshots', () => {
+  const source = index()
+  const state = mergeHistoryPage(null, source.page(events, 'session'))!
+  const snapshot = state.events.slice()
+  const cached = recentHistory(state)
+  const event: AgentEvent = { type: 'error', message: 'streamed tail' }
+  const position = { generation: state.generation, seq: state.end }
+  const original = state.events
+  assert.equal(appendHistoryEventInPlace(state, event, position), 'append')
+  assert.equal(state.events, original, 'one owned buffer replaces per-event array copies')
+  assert.equal(state.end, position.seq + 1)
+  assert.equal(snapshot.length, 80)
+  assert.equal(cached.events.length, 80, 'a pending cache write keeps its original snapshot')
+  assert.equal(appendHistoryEventInPlace(state, event, position), 'duplicate')
+  assert.equal(appendHistoryEventInPlace(state, event, { ...position, seq: state.end + 1 }), 'gap')
+  assert.equal(appendHistoryEventInPlace(state, event, { ...position, generation: 'other' }), 'gap')
+  assert.equal(state.events.length, 81)
+  assert.equal(recentHistory(state).events.at(-1), event, 'the cached index includes the new tail')
+})
+
+test('incremental cache indexing keeps complete questions as its twenty-turn window advances', () => {
+  const state = mergeHistoryPage(null, index().page(events, 'session'))!
+  for (let i = 0; i < 5; i++) {
+    recentHistory(state)
+    for (const event of events.slice(i * 4, i * 4 + 4)) {
+      appendHistoryEventInPlace(state, event, { generation: state.generation, seq: state.end })
+    }
+    const cached = recentHistory(state)
+    assert.equal(cached.events.length, 80)
+    assert.equal(cached.usersBefore, 81 + i)
+    assert.equal(cached.start, 324 + i * 4)
+  }
 })

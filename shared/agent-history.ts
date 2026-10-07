@@ -34,22 +34,30 @@ export class HistoryIndex<T extends EventShape> {
     this.length++
   }
   range(request: HistoryRequest = {}) {
+    const boundaryIndex = (seq: number) => {
+      let lo = 0, hi = this.boundaries.length
+      while (lo < hi) {
+        const middle = (lo + hi) >>> 1
+        if (this.boundaries[middle] < seq) lo = middle + 1
+        else hi = middle
+      }
+      return lo
+    }
     const recent = this.boundaries.length > HISTORY_PAGE_TURNS ? this.boundaries[this.boundaries.length - HISTORY_PAGE_TURNS] : 0
     let start = recent, end = this.length, mode: HistoryPage<T>['mode'] = 'replace'
     if (request.generation === this.generation) {
       if (Number.isSafeInteger(request.after) && request.after! >= recent && request.after! <= end) {
         start = request.after!; mode = 'append'
       } else if (Number.isSafeInteger(request.before) && request.before! > 0 && request.before! <= end) {
-        const boundary = this.boundaries.indexOf(request.before!)
-        if (boundary >= 0) {
+        const boundary = boundaryIndex(request.before!)
+        if (this.boundaries[boundary] === request.before) {
           end = request.before!
           start = boundary > HISTORY_PAGE_TURNS ? this.boundaries[boundary - HISTORY_PAGE_TURNS] : 0
           mode = 'prepend'
         }
       }
     }
-    let usersBefore = 0
-    while (usersBefore < this.boundaries.length && this.boundaries[usersBefore] < start) usersBefore++
+    const usersBefore = boundaryIndex(start)
     return { generation: this.generation, start, end, total: this.length, usersBefore, mode }
   }
   page(events: T[], sessionId: string, request: HistoryRequest = {}): HistoryPage<T> {

@@ -142,27 +142,69 @@ export function isTurnComplete(item: Pick<Extract<Item, { kind: 'turn' }>, 'done
   return item.done || busy === false
 }
 
-/** 이벤트 목록을 화면에 그릴 항목으로 접는다 — 질문·턴(답변+작업 묶음)·에러의 세 종류로 나뉜다 */
-export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseIndex = 0): Item[] {
-  const items: Item[] = []
-  // toolCallId -> 위치 — turn 안의 children 배열 기준
-  const toolIndex = new Map<string, { turn: number; child: number; entry: number }>()
+type TurnItem = Extract<Item, { kind: 'turn' }>
+type ChildLocation = { turn: number; child: number }
 
-  type TurnItem = {
-    key: string
-    kind: 'turn'
-    children: InnerItem[]
-    done: boolean
-    stopReason: string | null
-    startedAt: number | null
-    durationMs: number | null
+export type EventFold = {
+  items: Item[]
+  toolIndex: Map<string, ChildLocation & { entry: number }>
+  permissionIndex: Map<string, ChildLocation>
+  turnIdx: number
+  length: number
+  locale: ReturnType<typeof getUiLocale>
+  baseIndex: number
+  hasError: boolean
+  lastAccessError: Extract<AgentEvent, { type: 'error' }> | null
+}
+
+export function createEventFold(locale = getUiLocale(), baseIndex = 0): EventFold {
+  return { items: [], toolIndex: new Map(), permissionIndex: new Map(), turnIdx: -1,
+    length: 0, locale, baseIndex, hasError: false, lastAccessError: null }
+}
+
+/** Append a frame without replaying old events or mutating an earlier render's items. */
+export function appendEventFold(previous: EventFold, events: AgentEvent[]): EventFold {
+  let items = previous.items
+  let toolIndex = previous.toolIndex
+  let permissionIndex = previous.permissionIndex
+  let turnIdx = previous.turnIdx
+  let hasError = previous.hasError
+  let lastAccessError = previous.lastAccessError
+  const { locale, baseIndex } = previous
+  const editedItems = new Set<number>()
+  const editedChildren = new Set<string>()
+  const writableItems = () => {
+    if (items === previous.items) items = items.slice()
+    return items
   }
-  let turnIdx = -1
+  const pushItem = (item: Item) => {
+    editedItems.add(items.length)
+    writableItems().push(item)
+  }
+  const editItem = (index: number): Item => {
+    if (!editedItems.has(index)) {
+      const item = items[index]
+      writableItems()[index] = item.kind === 'turn' ? { ...item, children: item.children.slice() }
+        : item.kind === 'user' ? { ...item, images: item.images.slice() } : { ...item }
+      editedItems.add(index)
+    }
+    return items[index]
+  }
+  const editChild = (turn: number, child: number): InnerItem => {
+    const item = editItem(turn) as TurnItem
+    const key = `${turn}:${child}`
+    if (!editedChildren.has(key)) {
+      const old = item.children[child]
+      item.children[child] = old.kind === 'tool_group' ? { ...old, tools: old.tools.slice() } : { ...old }
+      editedChildren.add(key)
+    }
+    return item.children[child]
+  }
 
   const currentTurn = (): TurnItem | null => {
     if (turnIdx < 0) return null
     const t = items[turnIdx]
-    return t && t.kind === 'turn' ? t : null
+    return t && t.kind === 'turn' ? editItem(turnIdx) as TurnItem : null
   }
 
   const ensureTurn = (eventIdx: number): TurnItem => {
@@ -170,7 +212,7 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
     if (t) return t
     const turn: TurnItem = { key: `turn${eventIdx}`, kind: 'turn', children: [], done: false, stopReason: null, startedAt: null, durationMs: null }
     turnIdx = items.length
-    items.push(turn)
+    pushItem(turn)
     return turn
   }
 
@@ -178,9 +220,11 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
     const turn = ensureTurn(eventIdx)
     const kids = turn.children
     const last = kids.at(-1)
+    if (toolIndex === previous.toolIndex) toolIndex = new Map(toolIndex)
     if (last && last.kind === 'tool_group') {
       toolIndex.set(id, { turn: turnIdx, child: kids.length - 1, entry: last.tools.length })
-      last.tools.push({ id, title, status })
+      const group = editChild(turnIdx, kids.length - 1)
+      if (group.kind === 'tool_group') group.tools.push({ id, title, status })
     } else {
       toolIndex.set(id, { turn: turnIdx, child: kids.length, entry: 0 })
       kids.push({ key: `tg${eventIdx}`, kind: 'tool_group', tools: [{ id, title, status }] })
@@ -188,7 +232,7 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
   }
 
   for (const [offset, event] of events.entries()) {
-    const i = baseIndex + offset
+    const i = baseIndex + previous.length + offset
     if (event.type === 'turn_start') {
       const turn = ensureTurn(i)
       if (event.startedAt != null) turn.startedAt = event.startedAt
@@ -196,7 +240,7 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
     }
     if (event.type === 'user_images') {
       const last = items.at(-1)
-      if (last?.kind === 'user') last.images.push(...event.images)
+      if (last?.kind === 'user') (editItem(items.length - 1) as typeof last).images.push(...event.images)
       continue
     }
     if (event.type === 'turn_end') {
@@ -206,10 +250,13 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
         t.stopReason = event.stopReason
         // 일부 ACP 어댑터는 마지막 tool_call_update를 흘리지 않는다. 턴이 끝난 뒤에도
         // pending/in_progress를 그대로 두면 끝난 버블이 영구히 "작업 중"으로 보인다.
-        for (const child of t.children) {
+        for (const [childIndex, child] of t.children.entries()) {
           if (child.kind !== 'tool_group') continue
-          for (const tool of child.tools) {
-            if (tool.status === 'pending' || tool.status === 'in_progress') tool.status = 'completed'
+          for (const [entry, tool] of child.tools.entries()) {
+            if (tool.status === 'pending' || tool.status === 'in_progress') {
+              const group = editChild(turnIdx, childIndex)
+              if (group.kind === 'tool_group') group.tools[entry] = { ...tool, status: 'completed' }
+            }
           }
         }
         // 서버가 새긴 걸린 시간. 옛 이벤트(필드 없음)면 startedAt으로 계산하고, 그것도 없으면 null
@@ -220,14 +267,22 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
       continue
     }
     if (event.type === 'error' || event.type === 'fatal') {
+      if (event.type === 'error') {
+        hasError = true
+        if (event.accessIssue) lastAccessError = event
+      }
       const text = ('message' in event && event.message) || uiText("알 수 없는 오류", undefined, locale)
       const t = currentTurn()
       if (t) t.children.push({ key: `e${i}`, kind: 'error', text })
-      else items.push({ key: `e${i}`, kind: 'error', text })
+      else pushItem({ key: `e${i}`, kind: 'error', text })
       continue
     }
     if (event.type === 'permission') {
       const turn = ensureTurn(i)
+      if (!permissionIndex.has(event.id)) {
+        if (permissionIndex === previous.permissionIndex) permissionIndex = new Map(permissionIndex)
+        permissionIndex.set(event.id, { turn: turnIdx, child: turn.children.length })
+      }
       turn.children.push({
         key: `p${event.id}`,
         kind: 'permission',
@@ -239,11 +294,10 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
       continue
     }
     if (event.type === 'permission_done') {
-      // 모든 턴의 children에서 찾는다
-      for (const item of items) {
-        if (item.kind !== 'turn') continue
-        const target = item.children.find((c) => c.kind === 'permission' && c.id === event.id)
-        if (target && target.kind === 'permission') { target.answered = true; break }
+      const loc = permissionIndex.get(event.id)
+      if (loc) {
+        const target = editChild(loc.turn, loc.child)
+        if (target.kind === 'permission') target.answered = true
       }
       continue
     }
@@ -256,8 +310,10 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
       // ID가 바뀌면 연속 프레임이어도 반드시 새 질문 버블로 나눈다.
       const sameMessage = last?.kind === 'user'
         && (!update.messageId || update.messageId === last.messageId)
-      if (last && last.kind === 'user' && sameMessage) last.text += (last.text ? '\n' : '') + text
-      else items.push({ key: `m${i}`, kind: 'user', text, images: [], ...(event.settings ? { settings: event.settings } : {}), ...(update.messageId ? { messageId: update.messageId } : {}) })
+      if (last && last.kind === 'user' && sameMessage) {
+        const user = editItem(items.length - 1) as typeof last
+        user.text += (user.text ? '\n' : '') + text
+      } else pushItem({ key: `m${i}`, kind: 'user', text, images: [], ...(event.settings ? { settings: event.settings } : {}), ...(update.messageId ? { messageId: update.messageId } : {}) })
       // 새 질문은 앞 턴을 닫는다 — 불러온 히스토리에는 turn_end가 없어서 여기서 끊지 않으면
       // 지난 대화 전체가 턴 하나로 뭉친다
       const open = currentTurn()
@@ -273,7 +329,10 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
       // 같은 답변의 청크만 합친다. 히스토리 속 별도 답변을 마지막 답변 버블에 합치지 않는다.
       const sameMessage = last?.kind === kind
         && (!update.messageId || update.messageId === last.messageId)
-      if (last && last.kind === kind && sameMessage) last.text += text
+      if (last && last.kind === kind && sameMessage) {
+        const child = editChild(turnIdx, turn.children.length - 1)
+        if (child.kind === kind) child.text += text
+      }
       else turn.children.push({ key: `m${i}`, kind, text, ...(update.messageId ? { messageId: update.messageId } : {}) })
       continue
     }
@@ -284,17 +343,19 @@ export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseInd
     if (update.sessionUpdate === 'tool_call_update') {
       const loc = toolIndex.get(update.toolCallId)
       if (loc) {
-        const turnItem = items[loc.turn]
-        if (turnItem && turnItem.kind === 'turn') {
-          const group = turnItem.children[loc.child]
-          if (group && group.kind === 'tool_group') {
-            const entry = group.tools[loc.entry]
-            if (update.title) entry.title = update.title
-            if (update.status) entry.status = update.status
-          }
+        const group = editChild(loc.turn, loc.child)
+        if (group.kind === 'tool_group') {
+          const entry = group.tools[loc.entry]
+          group.tools[loc.entry] = { ...entry, ...(update.title ? { title: update.title } : {}), ...(update.status ? { status: update.status } : {}) }
         }
       }
     }
   }
-  return items
+  return { ...previous, items, toolIndex, permissionIndex, turnIdx, hasError, lastAccessError,
+    length: previous.length + events.length }
+}
+
+/** Full reconstruction for a replaced transcript, locale change or earlier history page. */
+export function foldEvents(events: AgentEvent[], locale = getUiLocale(), baseIndex = 0): Item[] {
+  return appendEventFold(createEventFold(locale, baseIndex), events).items
 }

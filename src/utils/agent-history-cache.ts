@@ -14,6 +14,7 @@ const queues = new Map<string, Promise<void>>()
 const pending = new Map<string, { tab: string; value: CachedHistory }>()
 let opened: Promise<IDBDatabase> | undefined
 let openedName = ''
+const historyIndexes = new WeakMap<AgentEvent[], HistoryIndex<AgentEvent>>()
 
 export function historyCacheKey(account: string, runtime: string, tab: string, cwd: string) {
   return JSON.stringify([account, runtime, tab, cwd])
@@ -87,8 +88,12 @@ export async function readHistoryCache(key: string): Promise<CachedHistory | nul
 }
 
 export function recentHistory(value: CachedHistory): CachedHistory {
-  const index = new HistoryIndex<AgentEvent>(value.generation)
-  for (const event of value.events) index.push(event)
+  let index = historyIndexes.get(value.events)
+  if (!index || index.generation !== value.generation || index.length > value.events.length) {
+    index = new HistoryIndex<AgentEvent>(value.generation)
+    historyIndexes.set(value.events, index)
+  }
+  for (let i = index.length; i < value.events.length; i++) index.push(value.events[i])
   const range = index.range()
   return { ...value, start: value.start + range.start, usersBefore: value.usersBefore + range.usersBefore, events: value.events.slice(range.start) }
 }
@@ -113,24 +118,40 @@ export function writeHistoryCache(key: string, tab: string, input: CachedHistory
               const all = request.result as Meta[]
               const old = all.find(meta => meta.key === key)
               const same = old?.generation === value.generation && old.sessionId === value.sessionId
-                && old.start === value.start && old.end <= value.end
-              const queueBytes = value.queue ? JSON.stringify(value.queue).length * 2 : 0
-              let bytes = (same ? old.bytes - (old.queue ? JSON.stringify(old.queue).length * 2 : 0) : 0) + queueBytes
-              if (bytes > MAX_ENTRY_BYTES) { drop(tx, key); return }
-              if (!same) drop(tx, key)
-              for (let seq = same ? old.end : value.start; seq < value.end; seq++) {
-                const event = value.events[seq - value.start]
-                bytes += JSON.stringify(event).length * 2 + 64
-                if (bytes > MAX_ENTRY_BYTES) { drop(tx, key); return }
-                events.put({ key, seq, event })
+                && old.start <= value.start && old.end >= value.start && old.end <= value.end
+              const save = (removedBytes = 0) => {
+                try {
+                  const queueBytes = value.queue ? JSON.stringify(value.queue).length * 2 : 0
+                  let bytes = (same ? old.bytes - (old.queue ? JSON.stringify(old.queue).length * 2 : 0) - removedBytes : 0) + queueBytes
+                  if (bytes > MAX_ENTRY_BYTES) { drop(tx, key); return }
+                  if (!same) drop(tx, key)
+                  for (let seq = same ? old.end : value.start; seq < value.end; seq++) {
+                    const event = value.events[seq - value.start]
+                    const rowBytes = JSON.stringify(event).length * 2 + 64
+                    bytes += rowBytes
+                    if (bytes > MAX_ENTRY_BYTES) { drop(tx, key); return }
+                    events.put({ key, seq, event, bytes: rowBytes })
+                  }
+                  let total = bytes, count = 1
+                  for (const meta of all.filter(item => item.key !== key).sort((a, b) => b.savedAt - a.savedAt)) {
+                    if (Date.now() - meta.savedAt > MAX_AGE || total + meta.bytes > MAX_BYTES || count >= 128) drop(tx, meta.key)
+                    else { total += meta.bytes; count++ }
+                  }
+                  const { events: _events, ...metadata } = value
+                  sessions.put({ ...metadata, key, tab, bytes, savedAt: Date.now() } satisfies Meta)
+                } catch { tx.abort() }
               }
-              let total = bytes, count = 1
-              for (const meta of all.filter(item => item.key !== key).sort((a, b) => b.savedAt - a.savedAt)) {
-                if (Date.now() - meta.savedAt > MAX_AGE || total + meta.bytes > MAX_BYTES || count >= 128) drop(tx, meta.key)
-                else { total += meta.bytes; count++ }
-              }
-              const { events: _events, ...metadata } = value
-              sessions.put({ ...metadata, key, tab, bytes, savedAt: Date.now() } satisfies Meta)
+              if (same && old.start < value.start) {
+                const removed = events.getAll(rows(key, old.start, value.start))
+                removed.onsuccess = () => {
+                  try {
+                    const bytes = (removed.result as { event: AgentEvent; bytes?: number }[])
+                      .reduce((sum, row) => sum + (row.bytes ?? JSON.stringify(row.event).length * 2 + 64), 0)
+                    events.delete(rows(key, old.start, value.start))
+                    save(bytes)
+                  } catch { tx.abort() }
+                }
+              } else save()
             } catch { tx.abort() }
           }
           tx.oncomplete = () => resolve()

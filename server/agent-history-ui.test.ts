@@ -23,11 +23,11 @@ const meta={type:'meta',meta:{sessionId:'conversation',startedAt:new Date().toIS
 class Socket {
  static OPEN=1;readyState=0;
  constructor(url){window.socket=this;this.url=url;window.requests.push(url);setTimeout(()=>{this.readyState=1;this.onopen?.();const query=new URL(url).searchParams;this.emit({type:'history',page:index.page(events,'conversation',{generation:query.get('generation'),after:query.has('after')?Number(query.get('after')):undefined})});this.emit(meta)},location.search.includes('slow')?1500:20)}
- emit(event){this.onmessage?.({data:JSON.stringify(event)})}
+ emit(event){if(['update','user_images','turn_start','turn_end','permission','permission_done','error','fatal'].includes(event.type)){const position={generation:index.generation,seq:events.length};events.push(event);index.push(event);event={type:'history_event',event,position}}this.onmessage?.({data:JSON.stringify(event)})}
  send(raw){const message=JSON.parse(raw);window.requests.push(message);if(message.type==='history')setTimeout(()=>this.emit({type:'history',page:index.page(events,'conversation',message.range)}),20)}
  close(){this.readyState=3;this.onclose?.()}
 }
-window.WebSocket=Socket;
+window.WebSocket=Socket;window.historyIndex=index;
 createRoot(document.getElementById('root')).render(<I18nProvider><div style={{height:'100vh',display:'flex'}}><AgentPanel cacheAccount="alice" project="test" workspacePath="/workspace" tree={[]} focusedFilePath={null} onOpenFile={()=>{}} onClose={()=>{}} /></div></I18nProvider>);`
   const bundle = await build({ input: 'virtual:history.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{
     name: 'history-fixture',
@@ -281,6 +281,48 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
         })
         assert.equal(result, 'browser-generation', 'quota failure preserves the previous committed cache')
         assert.equal(await page.getByText('Question 44', { exact: true }).count(), 1)
+        const rolling = await page.evaluate(async () => {
+          const cache = (globalThis as any).cache
+          const key = cache.historyCacheKey('alice', 'codex', 'rolling', '/workspace')
+          const events = Array.from({ length: 22 }, (_, i) => [
+            { type: 'update', update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: `q${i}` } } },
+            { type: 'turn_start' },
+            { type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `a${i}` } } },
+            { type: 'turn_end', stopReason: 'end_turn' },
+          ]).flat()
+          const value = { generation: 'rolling', sessionId: 'rolling', start: 0, end: events.length, total: events.length, usersBefore: 0, events }
+          const store = (globalThis as any).IDBObjectStore
+          const original = store.prototype.put
+          let puts = 0
+          // Existing version-1 cache rows do not have the optional byte count.
+          store.prototype.put = function (row: any, ...args: any[]) {
+            return original.call(this, this.name === 'events' && row.key === key ? { ...row, bytes: undefined } : row, ...args)
+          }
+          try { await cache.writeHistoryCache(key, 'rolling', value) }
+          finally { store.prototype.put = original }
+          events.push(...events.slice(-4))
+          store.prototype.put = function (row: any, ...args: any[]) {
+            if (this.name === 'events' && row.key === key) puts++
+            return original.call(this, row, ...args)
+          }
+          try { await cache.writeHistoryCache(key, 'rolling', { ...value, end: events.length, total: events.length }) }
+          finally { store.prototype.put = original }
+          const saved = await cache.readHistoryCache(key)
+          const writes = puts
+          store.prototype.put = function (row: any, ...args: any[]) {
+            if (this.name === 'events' && row.key === key) throw new DOMException('injected rolling quota', 'QuotaExceededError')
+            return original.call(this, row, ...args)
+          }
+          events.push(...events.slice(-4))
+          try { await cache.writeHistoryCache(key, 'rolling', { ...value, end: events.length, total: events.length }) }
+          finally { store.prototype.put = original }
+          const rollback = await cache.readHistoryCache(key)
+          await cache.clearHistoryTab('rolling')
+          return { writes, start: saved.start, count: saved.events.length, usersBefore: saved.usersBefore,
+            rollback: rollback.start === saved.start && rollback.end === saved.end && JSON.stringify(rollback.events) === JSON.stringify(saved.events) }
+        })
+        assert.deepEqual(rolling, { writes: 4, start: 12, count: 80, usersBefore: 3, rollback: true },
+          'the rolling cache writes only the new turn, reads legacy rows and rolls pruning back on quota failure')
       }
       await page.evaluate(`window.cache.clearHistoryTab('history')`)
       assert.equal(await page.evaluate(`window.cache.readHistoryCache(window.cache.historyCacheKey('alice','codex','history','/workspace'))`), null)
@@ -310,6 +352,19 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await scroll.focus()
       await scroll.press('ArrowUp')
       await assertAtQuestion(45)
+      await page.evaluate(() => {
+        const socket = (globalThis as any).socket
+        for (let i = 0; i < 200; i++) socket.emit({ type: 'update', update: {
+          sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ` chunk-${i}` },
+        } })
+        const index = (globalThis as any).historyIndex
+        socket.emit({ type: 'history_event', position: { generation: index.generation, seq: index.length - 1 },
+          event: { type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'DUPLICATED' } } } })
+      })
+      await runningHeader.locator('..').locator('.mew-agent-markdown').filter({ hasText: 'chunk-199' }).waitFor()
+      assert.equal(await page.getByText('DUPLICATED', { exact: false }).count(), 0)
+      assert.equal(await page.getByText('Question 45', { exact: true }).count(), 1)
+      await page.waitForFunction(`window.cache.readHistoryCache(${queueKey}).then(value=>value?.events.at(-1)?.update?.content?.text===' chunk-199')`)
       assert.deepEqual(errors, [])
       await page.close()
     }

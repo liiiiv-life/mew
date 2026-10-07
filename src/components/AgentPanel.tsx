@@ -3,7 +3,7 @@ import { openMewSocket } from '../utils/remote-transport.ts'
 import { PanelCloseButton } from './panel-close-button'
 import { ConfirmDialog, PanelNotice, canAutoFocusInput } from '@mew/ui'
 import { historyCacheKey, readHistoryCache, writeHistoryCache, readQueueCache, writeQueueCache, type CachedQueue, type CachedHistory } from '../utils/agent-history-cache'
-import { mergeHistoryPage, appendHistoryEvent } from '../utils/agent-history-state'
+import { mergeHistoryPage, appendHistoryEventInPlace } from '../utils/agent-history-state'
 import { PanelTitle } from './panel-title'
 import type { AgentAttachmentInput } from '../../shared/agent-attachment'
 import { panelModelState, splitCodexModelId } from '../../shared/codex-models'
@@ -21,6 +21,7 @@ import { ServerDomBrowserTabs } from './server-dom-browser'
 // 탭별 이벤트 캐시가 그리고, 서버 replay가 오면 같은 세션의 최신 꼬리를 중복 없이 합친다.
 // 정보줄(세션·토큰·턴 수)은 이벤트가 아니라 서버가 보내는 meta 스냅샷을 그대로 그린다.
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -39,6 +40,7 @@ import { Terminal as TerminalIcon } from 'iconoir-react'
 import { AgentCommandBubble, AgentCommandPopup } from './agent-command-bubble'
 import { AgentLoadingBubbles } from './agent-loading-bubbles'
 import { useAgentCommands } from '../hooks/use-agent-commands'
+import { useAgentEventState } from '../hooks/use-agent-event-state'
 import { useScheduledPrompts } from '../hooks/use-scheduled-prompts'
 import { stopAgentTabCommands } from '../api/agent-commands'
 import { commandTimeline } from '../utils/agent-command-timeline'
@@ -122,7 +124,6 @@ import {
 } from '../utils/agentInputLayout'
 import { nextLocalMinuteValue } from '../utils/scheduleTime'
 import {
-  foldEvents,
   formatDuration,
   isTurnComplete,
   type AgentAuthState,
@@ -2186,7 +2187,7 @@ function AgentSessionView({
   const [historyStart, setHistoryStart] = useState(0)
   const [usersBefore, setUsersBefore] = useState(0)
   const prependScrollRef = useRef<{ height: number; top: number } | null>(null)
-  const [events, setEvents] = useState<AgentEvent[]>([])
+  const { events, items, hasError, lastAccessError, setEvents, appendEvents } = useAgentEventState(uiLocale, historyStart)
   const [connected, setConnected] = useState(false)
   const [draft, setDraft] = useState(() => readAgentInputDraft(tabId))
   const [cliMode, setCliMode] = useState(false)
@@ -2489,7 +2490,7 @@ function AgentSessionView({
   useEffect(() => () => inputResizeCleanupRef.current?.(), [])
 
   // 들어오는 이벤트는 **한 프레임에 모아** 한 번만 그린다. 이벤트마다 setState하면 스트리밍 청크
-  // 하나하나가 foldEvents 한 번 + 목록 전체 다시 그리기 한 번이 되어(청크는 초당 수십 개다) 창이 굳는다.
+  // 청크마다 전체 기록을 복사하지 않고, 한 프레임의 새 이벤트만 화면 항목에 반영한다.
   const pendingRef = useRef<AgentEvent[]>([])
   const frameRef = useRef<number | null>(null)
   // 붙자마자 오는 첫 덩어리는 되감기다 — 지금 그린 대화에 **덧붙이지 말고 갈아끼운다**.
@@ -2507,18 +2508,9 @@ function AgentSessionView({
       // 갈아끼우기 여부는 여기서 소비한다 — setEvents 콜백 안에서 ref를 건드리면 순수하지 않다
       const swap = swapRef.current
       swapRef.current = false
-      // reset도 순서대로 처리한다 — 히스토리를 불러올 때 "비우기"와 "새 대화"가 같은 프레임에 들어와
-      // 중간의 빈 화면이 뜨지 않는다
-      setEvents((prev) => {
-        const next = swap ? [] : [...prev]
-        for (const item of batch) {
-          if (item.type === 'reset') next.length = 0
-          else next.push(item)
-        }
-        return next
-      })
+      appendEvents(batch, swap)
     })
-  }, [])
+  }, [appendEvents])
 
   useEffect(() => () => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
@@ -2595,7 +2587,7 @@ function AgentSessionView({
           setUsersBefore(next.usersBefore)
           pendingRef.current = []
           swapRef.current = false
-          setEvents(next.events)
+          setEvents(next.events.slice())
           for (const control of event.page.controls) {
             if (control.type === 'models') adoptModels(control.models)
             if (control.type === 'modes') adoptModes(control.modes)
@@ -2605,16 +2597,15 @@ function AgentSessionView({
         }
         if (event.type === 'history_event') {
           if (restoreFailureRef.current) return
-          const next = appendHistoryEvent(historyRef.current, event.event, event.position)
-          if (!next) {
+          const result = appendHistoryEventInPlace(historyRef.current, event.event, event.position)
+          if (result === 'gap') {
             if (!historyPendingRef.current) {
               historyPendingRef.current = true
               ws?.send(JSON.stringify({ type: 'history', range: {} }))
             }
             return
           }
-          if (next === historyRef.current) return
-          historyRef.current = next
+          if (result === 'duplicate') return
           event = event.event
           queueEvent(event)
         }
@@ -2746,7 +2737,7 @@ function AgentSessionView({
         cacheSessionIdRef.current = cached.sessionId
         setHistoryStart(cached.start)
         setUsersBefore(cached.usersBefore)
-        setEvents(cached.events)
+        setEvents(cached.events.slice())
       }
       if (queue?.sessionId === resumeSessionIdRef.current) setCachedQueue(queue)
       connect()
@@ -2760,7 +2751,7 @@ function AgentSessionView({
     }
     // 런타임을 바꾸면 저쪽 세션으로 갈아탄다 — 이쪽 세션은 서버에 그대로 남아 돌아오면 이어진다
     // (queueEvent는 값이 바뀌지 않는 useCallback이라 여기 있어도 재접속을 부르지 않는다)
-  }, [cacheKey, runtime, tabId, cwd, notificationWorkspace, preset?.modelId, preset?.thinkingId, preset?.thinkingConfigId, preset?.role, queueEvent, adoptModels, adoptModes, adoptThinking, closeAuthBrowser, closeAcpBrowserTabs])
+  }, [cacheKey, runtime, tabId, cwd, notificationWorkspace, preset?.modelId, preset?.thinkingId, preset?.thinkingConfigId, preset?.role, queueEvent, setEvents, adoptModels, adoptModes, adoptThinking, closeAuthBrowser, closeAcpBrowserTabs])
 
   // 경과 시간만 흐르게 한다 — 나머지 값은 서버 meta가 밀어 준다
   useEffect(() => {
@@ -2775,8 +2766,18 @@ function AgentSessionView({
   // Info는 대화 흐름을 밀지 않는 팝업이다. 트리거까지 같은 경계에 넣어 버튼을 다시 눌러 닫을 수 있다.
   useOverlayDismiss(showInfo ? closeInfo : false, { outside: () => infoOverlayRef.current })
 
-  const items = useMemo(() => foldEvents(events, uiLocale, historyStart), [events, uiLocale, historyStart])
-  const timeline = useMemo(() => commandTimeline(items, cli.records.filter(command => command.state !== 'queued'), usersBefore), [items, cli.records, usersBefore])
+  const timeline = useMemo(() => commandTimeline(items, cli.records, usersBefore), [items, cli.records, usersBefore])
+  const settingsChanges = useMemo(() => {
+    const keys = new Set<string>()
+    let previous: AgentMessageSettings | undefined
+    for (const item of items) {
+      if (item.kind !== 'user') continue
+      if (item.settings && (!previous || previous.model !== item.settings.model
+        || previous.thinking !== item.settings.thinking || previous.permission !== item.settings.permission)) keys.add(item.key)
+      previous = item.settings
+    }
+    return keys
+  }, [items])
 
   // 돌고 있는 턴의 걸린 시간을 1초마다 흘린다 — 끝난 턴은 서버가 새긴 durationMs로 고정이다
   const anyTurnRunning = items.some((item) => item.kind === 'turn' && !item.done)
@@ -2957,7 +2958,6 @@ function AgentSessionView({
     [infos, tabId, takenSessionIds],
   )
 
-  const lastAccessError = events.findLast((event) => event.type === 'error' && event.accessIssue)
   const currentAccessIssue = meta ? meta.accessIssue : lastAccessError?.type === 'error' ? lastAccessError.accessIssue : null
   const busy = meta?.busy ?? false
   const queueMeta = meta ?? cachedQueue
@@ -3061,7 +3061,7 @@ function AgentSessionView({
     })
     send({ type: 'close_session' })
     clearAgentEventCache(runtime, tabId, cwd)
-  }, [busy, cwd, onForgetSession, runtime, send, tabId])
+  }, [busy, cwd, onForgetSession, runtime, send, setEvents, tabId])
 
   const submit = () => {
     if (editingQueued) {
@@ -3286,7 +3286,7 @@ function AgentSessionView({
             : ''
   const totalTokens = usage ? usage.input + usage.output + usage.cacheWrite + usage.cacheRead : 0
   const conversationLoading = loadingSession !== null || (!newConversationPending && !historyRef.current && (!connected
-    || (!meta && !auth && !events.some(event => event.type === 'error'))))
+    || (!meta && !auth && !hasError)))
   useEffect(() => {
     let alive = true
     const load = () => fetchSkills(cwd, runtime)
@@ -3622,230 +3622,11 @@ function AgentSessionView({
             {t('agent.emptyConversation')}
           </div>
         )}
-        {timeline.map((item, index) => {
-          if (item.kind === 'command') return <AgentCommandBubble key={item.key} command={item.command} onOpen={() => setCommandPopupId(item.command.id)} />
-          if (item.kind === 'user') {
-            // 내가 쓴 말이라 이미 아는 내용이다 — 턴 버블과 같게 접어 두고, 눌러야 다 보인다
-            const open = expanded.has(item.key)
-            return (
-              <div key={item.key} data-agent-question={item.key} className="space-y-2">
-                {item.settings && (() => {
-                  const previous = timeline.slice(0, index).reverse().find((candidate) => candidate.kind === 'user')
-                  const changed = previous?.kind !== 'user'
-                    || previous.settings?.model !== item.settings.model
-                    || previous.settings?.thinking !== item.settings.thinking
-                    || previous.settings?.permission !== item.settings.permission
-                  return changed ? (
-                    <div className="flex items-center gap-2 py-0.5 text-[11px] text-ink-muted" aria-label={uiText("실행 설정: {p0} · {p1} · {p2}", { p0: item.settings.model, p1: item.settings.thinking, p2: item.settings.permission })}>
-                      <span className="h-px flex-1 bg-edge" />
-                      <span className="shrink-0">{item.settings.model} · {item.settings.thinking} · {item.settings.permission}</span>
-                      <span className="h-px flex-1 bg-edge" />
-                    </div>
-                  ) : null
-                })()}
-                {/* 설정줄은 작업 버블과 같은 전체 폭, 사용자 발화만 오른쪽으로 들여쓴다. */}
-                <div className="ml-6 space-y-2">
-                {item.images.length > 0 && (
-                  <div className="flex flex-col items-end gap-2" aria-label={uiText("첨부 사진 {p0}장", { p0: item.images.length })}>
-                    {item.images.map((image, index) => (
-                      <a
-                        key={`${image.path}-${index}`}
-                        href={rawUrl(image.path, project)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block overflow-hidden rounded-lg bg-surface-raised"
-                        title={uiText("사진 크게 보기")}
-                      >
-                        <img
-                          src={rawUrl(image.path, project)}
-                          alt={uiText("첨부한 사진")}
-                          className="max-h-64 max-w-56 object-contain"
-                        />
-                      </a>
-                    ))}
-                  </div>
-                )}
-                {item.text && (
-                  <div className="flex items-start gap-1">
-                    <CopyButton text={item.text} label={uiText("이 질문 복사")} />
-                    <button
-                      type="button"
-                      aria-expanded={open}
-                      onClick={() => {
-                        if (hasSelection()) return
-                        toggle(item.key)
-                      }}
-                      className="flex min-w-0 flex-1 items-start gap-2 rounded-lg rounded-tr-none bg-surface-raised px-3 py-2 text-left text-ink"
-                    >
-                      <span className={`min-w-0 flex-1 break-words [overflow-wrap:anywhere] select-text ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
-                    </button>
-                  </div>
-                )}
-                </div>
-              </div>
-            )
-          }
-          if (item.kind === 'turn') {
-            const open = expanded.has(item.key)
-            const state = turnState(item, meta?.activeTask === 'cli' ? false : meta?.busy ?? null)
-            // 마지막 답변을 패널 폭에 맞춰 두 줄로 요약한다.
-            const lastAgent = [...item.children].reverse().find((c) => c.kind === 'agent')
-            const summary = lastAgent && lastAgent.kind === 'agent'
-              ? lastAgent.text
-              : state === 'cancelled'
-                ? uiText("중단됨")
-                : state === 'failed'
-                  ? uiText("실패함")
-                  : state === 'done'
-                    ? uiText("완료")
-                    : uiText("작업 중…")
-            const answerText = item.children
-              .filter((c) => c.kind === 'agent')
-              .map((c) => (c.kind === 'agent' ? c.text : ''))
-              .join('\n\n')
-            // 걸린 시간 — 끝난 턴은 서버가 새긴 durationMs, 돌고 있는 턴은 startedAt부터 지금까지(now가 1초마다 흘러 갱신)
-            const durationMs = item.done
-              ? item.durationMs
-              : item.startedAt != null
-                ? Math.max(0, now - item.startedAt)
-                : null
-            const canStop = busy && meta?.activeTask !== 'cli' && !item.done
-            const actionSpace = canStop ? 30 : 0
-            return (
-              <div key={item.key} className="rounded-lg rounded-tl-none border border-edge bg-surface">
-                <div data-agent-turn-header className={open ? 'sticky -top-3 z-20 flex h-6.5 items-center rounded-tr-lg border-b border-edge bg-surface' : 'relative min-h-9'}>
-                  <button
-                    type="button"
-                    aria-expanded={open}
-                    onClick={() => {
-                      if (hasSelection()) return
-                      toggle(item.key)
-                    }}
-                    className={`flex min-w-0 text-left text-xs text-ink-secondary hover:text-ink ${open ? 'flex-1 self-stretch items-center gap-1.5 px-2.5' : 'w-full items-start gap-2 px-3 py-2'}`}
-                  >
-                    <span
-                      className={`shrink-0 rounded-full ${open ? 'size-1.25' : 'mt-1 h-1.5 w-1.5'} ${BUBBLE_DOT[state]}`}
-                      title={BUBBLE_LABEL[state]}
-                      aria-label={BUBBLE_LABEL[state]}
-                    />
-                    {open ? <>
-                      <span className="sr-only">{summary}</span>
-                    </> : (
-                      <span className="min-w-0 flex-1 line-clamp-2 break-words [overflow-wrap:anywhere] text-ink">
-                        <span aria-hidden="true" className="float-right h-[1lh]" style={{ width: actionSpace }} />
-                        <span data-agent-summary className="select-text">{summary}</span>
-                      </span>
-                    )}
-                  </button>
-                  <div className={`flex shrink-0 items-center ${open ? '' : 'absolute right-0 top-0'}`}>
-                  {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
-                  {open && <CopyButton
-                    text={answerText}
-                    compact
-                    label={uiText("이 답변 복사")}
-                  />}
-                  {/* 돌고 있는 턴만 중단할 수 있다 — 지난 턴에는 버튼이 없다 */}
-                  {canStop && (
-                    <button
-                      type="button"
-                      onClick={() => send({ type: 'cancel' })}
-                      className={`flex shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink ${open ? 'm-0.5 size-5' : 'm-1.5 h-6 w-6'}`}
-                      aria-label={uiText("중단")}
-                      title={uiText("중단")}
-                    >
-                      <span className={`rounded-[1px] bg-current ${open ? 'size-2' : 'h-2.5 w-2.5'}`} />
-                    </button>
-                  )}
-                  </div>
-                </div>
-                {open && (
-                  <div className="space-y-2 px-3 py-2">
-                    {item.children.map((child) => {
-                      if (child.kind === 'agent')
-                        // 답변은 마크다운이다 — 목록·굵기·코드블럭을 글자 그대로 두지 않고 그린다
-                        // (prose = @tailwindcss/typography, 다크는 index.css의 .dark 변형을 그대로 탄다)
-                        return (
-                          <div
-                            key={child.key}
-                            className="select-text mew-agent-markdown prose prose-sm max-w-none break-words [overflow-wrap:anywhere] text-ink dark:prose-invert prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:[overflow-wrap:anywhere] prose-pre:bg-surface-deep prose-code:text-ink-secondary"
-                            onClick={(event) => handleMarkdownClick(event, onOpenFile)}
-                            dangerouslySetInnerHTML={{ __html: renderMarkdown(child.text) }}
-                          />
-                        )
-                      if (child.kind === 'thought')
-                        return <div key={child.key} className="select-text whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs text-ink-muted italic">{child.text}</div>
-                      if (child.kind === 'tool_group') {
-                        const tOpen = expanded.has(child.key)
-                        const failed = child.tools.filter((t) => t.status === 'failed').length
-                        const running = child.tools.some((t) => t.status === 'in_progress' || t.status === 'pending')
-                        const tSummary = uiText("{p0} · {p1}개 작업", { p0: running ? uiText("작업 중") : failed ? uiText("{p0}개 실패", { p0: failed }) : uiText("완료"), p1: child.tools.length })
-                        const gState: BubbleState = failed ? 'failed' : running ? 'running' : 'done'
-                        return (
-                          <div key={child.key} className="rounded border border-edge bg-surface-deep px-2 py-1">
-                            <button type="button" aria-expanded={tOpen} onClick={() => toggle(child.key)} className="flex w-full items-center gap-2 text-xs text-ink-secondary hover:text-ink">
-                              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[gState]}`} />
-                              <span>{tSummary}</span>
-                            </button>
-                            {tOpen && (
-                              <div className="mt-1 space-y-0.5 border-t border-edge pt-1">
-                                {child.tools.map((t) => (
-                                  <div key={t.id} className="flex items-center gap-2 text-xs text-ink-secondary">
-                                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[toolState(t.status)]}`} />
-                                    <span className="select-text min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{t.title}</span>
-                                    <span className="shrink-0 text-ink-muted">{STATUS_LABEL[t.status] ?? t.status}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      }
-                      if (child.kind === 'permission')
-                        return (
-                          <div key={child.key} className="rounded border border-edge-bright bg-surface-deep px-2 py-1.5">
-                            <div className="select-text mb-1.5 break-words [overflow-wrap:anywhere] text-xs text-ink-secondary">{child.title}</div>
-                            {child.answered ? (
-                              <div className="text-xs text-ink-muted">{uiText("응답함")}</div>
-                            ) : (
-                              <div className="flex flex-wrap gap-1.5">
-                                {child.options.map((option) => (
-                                  <button
-                                    key={option.optionId}
-                                    type="button"
-                                    onClick={() => send({ type: 'permission', id: child.id, optionId: option.optionId })}
-                                    className={`rounded px-2 py-1 text-xs ${option.kind.startsWith('allow') ? 'bg-accent text-ink' : 'bg-surface-raised text-ink-secondary'} hover:bg-surface-hover`}
-                                  >
-                                    {option.name}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      return <AgentErrorButton key={child.key} text={child.text} onOpen={setErrorDetail} />
-                    })}
-                  </div>
-                )}
-                {open && (
-                  <div data-agent-turn-footer className="sticky -bottom-3 z-10 flex h-6.5 items-center justify-end gap-1 rounded-b-lg border-t border-edge bg-surface px-1">
-                    {durationMs != null && <span data-agent-duration className="min-w-0 truncate pl-1.5 text-[11px] leading-4 tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>}
-                    <button
-                      type="button"
-                      aria-expanded={open}
-                      onClick={() => toggle(item.key)}
-                      className="flex h-5 items-center justify-center rounded px-2 text-[11px] leading-4 text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
-                    >
-                      {uiText("접기")}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )
-          }
-          return (
-            <AgentErrorButton key={item.key} text={item.text} onOpen={setErrorDetail} block />
-          )
-        })}
+        {timeline.map(item => item.kind === 'command'
+          ? <AgentCommandBubble key={item.key} command={item.command} onOpen={() => setCommandPopupId(item.command.id)} />
+          : <AgentConversationItem key={item.key} item={item} expanded={expanded} showSettings={settingsChanges.has(item.key)}
+            project={project} busy={item.kind === 'turn' && !item.done ? meta?.activeTask === 'cli' ? false : meta?.busy ?? null : false}
+            now={item.kind === 'turn' && !item.done ? now : 0} toggle={toggle} send={send} onOpenFile={onOpenFile} onOpenError={setErrorDetail} />)}
         {/* 올려 읽는 동안 밑에서 대화가 자랐다는 표시 — 누르면 바닥으로 간다(바닥에 닿으면 스스로 사라진다).
             찾기 바(에디터)와 같은 수법: 스크롤 컨테이너에 sticky로 붙는 높이 0짜리 앵커라 본문을 밀지 않는다.
             marginTop은 인라인으로 지운다 — 부모의 space-y-3가 이 앵커에도 간격을 넣기 때문 */}
@@ -4519,6 +4300,242 @@ function errorTitle(text: string): string {
   const first = text.split(/\r?\n/, 1)[0]?.trim()
   return first || 'Internal Error'
 }
+
+const AgentMarkdownText = memo(function AgentMarkdownText({ text, onOpenFile }: {
+  text: string; onOpenFile: OpenWorkspaceFile
+}) {
+  const locale = useUiLocale()
+  const html = useMemo(() => ({ __html: renderMarkdown(text, locale) }), [text, locale])
+  return <div
+    className="select-text mew-agent-markdown prose prose-sm max-w-none break-words [overflow-wrap:anywhere] text-ink dark:prose-invert prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:[overflow-wrap:anywhere] prose-pre:bg-surface-deep prose-code:text-ink-secondary"
+    onClick={event => handleMarkdownClick(event, onOpenFile)} dangerouslySetInnerHTML={html}
+  />
+})
+
+const AgentConversationItem = memo(function AgentConversationItem({ item, expanded, showSettings, project, busy, now,
+  toggle, send, onOpenFile, onOpenError }: {
+  item: Item
+  expanded: Set<string>
+  showSettings: boolean
+  project: string
+  busy: boolean | null
+  now: number
+  toggle: (key: string) => void
+  send: (payload: Record<string, unknown>) => void
+  onOpenFile: OpenWorkspaceFile
+  onOpenError: (detail: { title: string; detail: string }) => void
+}) {
+  useUiLocale()
+  if (item.kind === 'user') {
+    // 내가 쓴 말이라 이미 아는 내용이다 — 턴 버블과 같게 접어 두고, 눌러야 다 보인다
+    const open = expanded.has(item.key)
+    return (
+      <div key={item.key} data-agent-question={item.key} className="space-y-2">
+        {item.settings && showSettings && (
+          <div className="flex items-center gap-2 py-0.5 text-[11px] text-ink-secondary" aria-label={uiText("실행 설정: {p0} · {p1} · {p2}", { p0: item.settings.model, p1: item.settings.thinking, p2: item.settings.permission })}>
+            <span className="h-px flex-1 bg-edge" />
+            <span className="shrink-0">{item.settings.model} · {item.settings.thinking} · {item.settings.permission}</span>
+            <span className="h-px flex-1 bg-edge" />
+          </div>
+        )}
+        {/* 설정줄은 작업 버블과 같은 전체 폭, 사용자 발화만 오른쪽으로 들여쓴다. */}
+        <div className="ml-6 space-y-2">
+        {item.images.length > 0 && (
+          <div className="flex flex-col items-end gap-2" aria-label={uiText("첨부 사진 {p0}장", { p0: item.images.length })}>
+            {item.images.map((image, index) => (
+              <a
+                key={`${image.path}-${index}`}
+                href={rawUrl(image.path, project)}
+                target="_blank"
+                rel="noreferrer"
+                className="block overflow-hidden rounded-lg bg-surface-raised"
+                title={uiText("사진 크게 보기")}
+              >
+                <img
+                  src={rawUrl(image.path, project)}
+                  alt={uiText("첨부한 사진")}
+                  className="max-h-64 max-w-56 object-contain"
+                />
+              </a>
+            ))}
+          </div>
+        )}
+        {item.text && (
+          <div className="flex items-start gap-1">
+            <CopyButton text={item.text} label={uiText("이 질문 복사")} />
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => {
+                if (hasSelection()) return
+                toggle(item.key)
+              }}
+              className="flex min-w-0 flex-1 items-start gap-2 rounded-lg rounded-tr-none bg-surface-raised px-3 py-2 text-left text-ink"
+            >
+              <span className={`min-w-0 flex-1 break-words [overflow-wrap:anywhere] select-text ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{item.text}</span>
+            </button>
+          </div>
+        )}
+        </div>
+      </div>
+    )
+  }
+  if (item.kind === 'turn') {
+    const open = expanded.has(item.key)
+    const state = turnState(item, busy)
+    // 마지막 답변을 패널 폭에 맞춰 두 줄로 요약한다.
+    const lastAgent = item.children.findLast((c) => c.kind === 'agent')
+    const summary = lastAgent && lastAgent.kind === 'agent'
+      ? lastAgent.text
+      : state === 'cancelled'
+        ? uiText("중단됨")
+        : state === 'failed'
+          ? uiText("실패함")
+          : state === 'done'
+            ? uiText("완료")
+            : uiText("작업 중…")
+    const answerText = open ? item.children
+      .filter((c) => c.kind === 'agent')
+      .map((c) => (c.kind === 'agent' ? c.text : ''))
+      .join('\n\n') : ''
+    // 걸린 시간 — 끝난 턴은 서버가 새긴 durationMs, 돌고 있는 턴은 startedAt부터 지금까지(now가 1초마다 흘러 갱신)
+    const durationMs = item.done
+      ? item.durationMs
+      : item.startedAt != null
+        ? Math.max(0, now - item.startedAt)
+        : null
+    const canStop = busy === true && !item.done
+    const actionSpace = canStop ? 30 : 0
+    return (
+      <div key={item.key} className="rounded-lg rounded-tl-none border border-edge bg-surface">
+        <div data-agent-turn-header className={open ? 'sticky -top-3 z-20 flex h-6.5 items-center rounded-tr-lg border-b border-edge bg-surface' : 'relative min-h-9'}>
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => {
+              if (hasSelection()) return
+              toggle(item.key)
+            }}
+            className={`flex min-w-0 text-left text-xs text-ink-secondary hover:text-ink ${open ? 'flex-1 self-stretch items-center gap-1.5 px-2.5' : 'w-full items-start gap-2 px-3 py-2'}`}
+          >
+            <span
+              className={`shrink-0 rounded-full ${open ? 'size-1.25' : 'mt-1 h-1.5 w-1.5'} ${BUBBLE_DOT[state]}`}
+              title={BUBBLE_LABEL[state]}
+              aria-label={BUBBLE_LABEL[state]}
+            />
+            {open ? <>
+              <span className="sr-only">{summary}</span>
+            </> : (
+              <span className="min-w-0 flex-1 line-clamp-2 break-words [overflow-wrap:anywhere] text-ink">
+                <span aria-hidden="true" className="float-right h-[1lh]" style={{ width: actionSpace }} />
+                <span data-agent-summary className="select-text">{summary}</span>
+              </span>
+            )}
+          </button>
+          <div className={`flex shrink-0 items-center ${open ? '' : 'absolute right-0 top-0'}`}>
+          {/* 답변만 모아 복사한다 — 생각·도구 기록은 빼고 사람이 읽으라고 쓴 글만 */}
+          {open && <CopyButton
+            text={answerText}
+            compact
+            label={uiText("이 답변 복사")}
+          />}
+          {/* 돌고 있는 턴만 중단할 수 있다 — 지난 턴에는 버튼이 없다 */}
+          {canStop && (
+            <button
+              type="button"
+              onClick={() => send({ type: 'cancel' })}
+              className={`flex shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-raised hover:text-ink ${open ? 'm-0.5 size-5' : 'm-1.5 h-6 w-6'}`}
+              aria-label={uiText("중단")}
+              title={uiText("중단")}
+            >
+              <span className={`rounded-[1px] bg-current ${open ? 'size-2' : 'h-2.5 w-2.5'}`} />
+            </button>
+          )}
+          </div>
+        </div>
+        {open && (
+          <div className="space-y-2 px-3 py-2">
+            {item.children.map((child) => {
+              if (child.kind === 'agent')
+                // 답변은 마크다운이다 — 목록·굵기·코드블럭을 글자 그대로 두지 않고 그린다
+                // (prose = @tailwindcss/typography, 다크는 index.css의 .dark 변형을 그대로 탄다)
+                return (
+                  <AgentMarkdownText key={child.key} text={child.text} onOpenFile={onOpenFile} />
+                )
+              if (child.kind === 'thought')
+                return <div key={child.key} className="select-text whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs text-ink-muted italic">{child.text}</div>
+              if (child.kind === 'tool_group') {
+                const tOpen = expanded.has(child.key)
+                const failed = child.tools.filter((t) => t.status === 'failed').length
+                const running = child.tools.some((t) => t.status === 'in_progress' || t.status === 'pending')
+                const tSummary = uiText("{p0} · {p1}개 작업", { p0: running ? uiText("작업 중") : failed ? uiText("{p0}개 실패", { p0: failed }) : uiText("완료"), p1: child.tools.length })
+                const gState: BubbleState = failed ? 'failed' : running ? 'running' : 'done'
+                return (
+                  <div key={child.key} className="rounded border border-edge bg-surface-deep px-2 py-1">
+                    <button type="button" aria-expanded={tOpen} onClick={() => toggle(child.key)} className="flex w-full items-center gap-2 text-xs text-ink-secondary hover:text-ink">
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[gState]}`} />
+                      <span>{tSummary}</span>
+                    </button>
+                    {tOpen && (
+                      <div className="mt-1 space-y-0.5 border-t border-edge pt-1">
+                        {child.tools.map((t) => (
+                          <div key={t.id} className="flex items-center gap-2 text-xs text-ink-secondary">
+                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${BUBBLE_DOT[toolState(t.status)]}`} />
+                            <span className="select-text min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{t.title}</span>
+                            <span className="shrink-0 text-ink-muted">{STATUS_LABEL[t.status] ?? t.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+              if (child.kind === 'permission')
+                return (
+                  <div key={child.key} className="rounded border border-edge-bright bg-surface-deep px-2 py-1.5">
+                    <div className="select-text mb-1.5 break-words [overflow-wrap:anywhere] text-xs text-ink-secondary">{child.title}</div>
+                    {child.answered ? (
+                      <div className="text-xs text-ink-muted">{uiText("응답함")}</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {child.options.map((option) => (
+                          <button
+                            key={option.optionId}
+                            type="button"
+                            onClick={() => send({ type: 'permission', id: child.id, optionId: option.optionId })}
+                            className={`rounded px-2 py-1 text-xs ${option.kind.startsWith('allow') ? 'bg-accent text-ink' : 'bg-surface-raised text-ink-secondary'} hover:bg-surface-hover`}
+                          >
+                            {option.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              return <AgentErrorButton key={child.key} text={child.text} onOpen={onOpenError} />
+            })}
+          </div>
+        )}
+        {open && (
+          <div data-agent-turn-footer className="sticky -bottom-3 z-10 flex h-6.5 items-center justify-end gap-1 rounded-b-lg border-t border-edge bg-surface px-1">
+            {durationMs != null && <span data-agent-duration className="min-w-0 truncate pl-1.5 text-[11px] leading-4 tabular-nums text-ink-muted">{formatDuration(durationMs)}</span>}
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => toggle(item.key)}
+              className="flex h-5 items-center justify-center rounded px-2 text-[11px] leading-4 text-ink-secondary hover:bg-surface-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"
+            >
+              {uiText("접기")}
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+  return (
+    <AgentErrorButton key={item.key} text={item.text} onOpen={onOpenError} block />
+  )
+})
 
 function AgentErrorButton({
   text,

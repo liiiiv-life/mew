@@ -39,16 +39,16 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const rendered = fence
     ? fence(tokens, idx, options, env, self)
     : self.renderToken(tokens, idx, options)
-  return `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, uiText("코드 복사"))}${rendered}</div>`
+  return `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, uiText("코드 복사", undefined, env.locale))}${rendered}</div>`
 }
 md.renderer.rules.code_block = (tokens, idx, options, _env, self) =>
-  `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, uiText("코드 복사"))}${
+  `<div class="mew-agent-code-copy">${copyButton(tokens[idx].content, uiText("코드 복사", undefined, _env.locale))}${
     codeBlock ? codeBlock(tokens, idx, options, _env, self) : `<pre><code>${md.utils.escapeHtml(tokens[idx].content)}</code></pre>`
   }</div>`
-md.renderer.rules.table_open = (tokens, idx, options, env: { source?: string }, self) => {
+md.renderer.rules.table_open = (tokens, idx, options, env: { source?: string; lines?: string[]; locale?: ReturnType<typeof getUiLocale> }, self) => {
   const range = tokens[idx].map
-  const source = env.source && range ? env.source.split('\n').slice(range[0], range[1]).join('\n') : ''
-  return `<div class="mew-agent-table-scroll">${copyButton(source, uiText("표 복사"))}${self.renderToken(tokens, idx, options)}`
+  const source = env.source && range ? (env.lines ??= env.source.split('\n')).slice(range[0], range[1]).join('\n') : ''
+  return `<div class="mew-agent-table-scroll">${copyButton(source, uiText("표 복사", undefined, env.locale))}${self.renderToken(tokens, idx, options)}`
 }
 md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
   `${self.renderToken(tokens, idx, options)}</div>`
@@ -86,16 +86,30 @@ export function markAgentMarkdownCopied(target: EventTarget | null) {
 /**
  * 같은 본문을 두 번 파싱하지 않는다 — 대화가 길어지면 상태가 하나 바뀔 때마다(meta·스크롤·읽음 표시)
  * 펼쳐 둔 버블 전부가 다시 그려지고, 그때마다 markdown-it이 같은 글을 처음부터 다시 읽는다.
- * ponytail: 200개 넘으면 통째로 비우는 단순 상한 — 문자열 키라 LRU가 필요할 만큼 크지 않다.
+ * Cache only bounded entries and evict the least recently used, preserving hot older answers.
  */
-const rendered = new Map<string, string>()
+const rendered = new Map<string, { html: string; bytes: number }>()
+const MAX_RENDERED_BYTES = 4 * 1024 * 1024
+const MAX_RENDERED_ENTRY_BYTES = 512 * 1024
+let renderedBytes = 0
 
-export function renderMarkdown(text: string): string {
-  const key = `${getUiLocale()}\0${text}`
+export function renderMarkdown(text: string, locale = getUiLocale()): string {
+  const key = `${locale}\0${text}`
   const hit = rendered.get(key)
-  if (hit !== undefined) return hit
-  const html = md.render(text, { source: text })
-  if (rendered.size > 200) rendered.clear()
-  rendered.set(key, html)
+  if (hit !== undefined) {
+    rendered.delete(key)
+    rendered.set(key, hit)
+    return hit.html
+  }
+  const html = md.render(text, { source: text, locale })
+  const bytes = (key.length + html.length) * 2
+  if (bytes > MAX_RENDERED_ENTRY_BYTES) return html
+  while (rendered.size >= 128 || renderedBytes + bytes > MAX_RENDERED_BYTES) {
+    const oldest = rendered.keys().next().value!
+    renderedBytes -= rendered.get(oldest)!.bytes
+    rendered.delete(oldest)
+  }
+  rendered.set(key, { html, bytes })
+  renderedBytes += bytes
   return html
 }

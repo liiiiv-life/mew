@@ -25,3 +25,15 @@ export function appendHistoryEvent(current: CachedHistory | null, event: AgentEv
   if (position.seq !== current.end) return null
   return { ...current, end: current.end + 1, total: current.end + 1, events: [...current.events, event] }
 }
+
+/** Only for the socket-owned buffer; render state must receive a separate array snapshot. */
+export function appendHistoryEventInPlace(current: CachedHistory | null, event: AgentEvent,
+  position: HistoryPosition): 'append' | 'duplicate' | 'gap' {
+  if (!current || current.generation !== position.generation) return 'gap'
+  if (position.seq < current.end) return 'duplicate'
+  if (position.seq !== current.end) return 'gap'
+  current.events.push(event)
+  current.end++
+  current.total = current.end
+  return 'append'
+}
