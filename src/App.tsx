@@ -1867,6 +1867,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
           role={role}
           authEmail={authEmail}
           project={project}
+          workspace={workspaceInfoRef.current}
           tree={editorFile(pane.activePath ?? '', project).project === DEFAULT_PROJECT ? docsTree : tree}
           presence={editorPresence}
           focused={pane.id === focusedPaneId}

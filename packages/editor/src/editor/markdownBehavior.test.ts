@@ -19,6 +19,48 @@ for (const k of ['window', 'document', 'DOMParser', 'Node', 'Element', 'HTMLElem
 const { Editor } = await import('@tiptap/core')
 const { serverEditorExtensions } = await import('../serverExtensions.ts')
 const { unwrapOpenListWrappers } = await import('../utils/clipboardList.ts')
+const { EditorLink, fileLinkKind } = await import('./file-link.ts')
+
+test('파일 링크는 문서 계층과 설정된 Docs 루트로 표시를 구분한다', () => {
+  const context = { path: '/project/notes/guide/_guide.md', docsRoot: '/project/notes' }
+  for (const [href, expected] of [
+    ['./child.md', 'subdocument'], ['./nested/_nested.md#intro', 'subdocument'],
+    ['./%ED%95%98%EC%9C%84%20%EB%AC%B8%EC%84%9C.md', 'subdocument'],
+    ['./_guide.md', 'document'], ['../other.md', 'document'], ['./image.png', 'document'],
+    ['../../src/main.ts', 'outside-docs'], ['../../notes-other/file.md', 'outside-docs'],
+    ['/project/notes/guide/child.md?mode=read#intro', 'subdocument'],
+    ['https://example.com', null], ['#intro', null], ['?mode=read', null],
+  ] as const) assert.equal(fileLinkKind(href, context), expected, href)
+  assert.equal(fileLinkKind('guide/child.md', { ...context, path: '/project/notes/guide.md' }), 'subdocument')
+  assert.equal(fileLinkKind('child.md', { ...context, path: '/project/notes/guide/MOC.md' }), 'subdocument')
+  assert.equal(fileLinkKind('child.md', { ...context, path: '/project/notes/guide/_MOC.md' }), 'subdocument')
+  assert.equal(fileLinkKind('/project/notes/guide.md', { ...context, path: '/project/src/main.md' }), 'document')
+})
+
+test('링크 표시는 대상 수정·Docs 설정 변경에 따라 갱신되고 Markdown에는 저장되지 않는다', () => {
+  let context = { path: '/project/notes/guide/_guide.md', docsRoot: '/project/notes' }
+  const e = new Editor({
+    element: document.createElement('div'),
+    extensions: serverEditorExtensions().map(extension => extension.name === 'link'
+      ? EditorLink.configure({ getFileLinkContext: () => context }) : extension),
+    content: '[하위](./child.md) · [코드](../../src/main.ts) · [다른 문서](../other.md)',
+  })
+  const kinds = () => [...e.view.dom.querySelectorAll('a')].map(link => link.getAttribute('data-file-link-kind'))
+  try {
+    assert.deepEqual(kinds(), ['subdocument', 'outside-docs', 'document'])
+    const saved = md(e)
+    assert.doesNotMatch(saved, /data-file-link|<a|<svg/)
+    e.commands.setContent(saved)
+    assert.deepEqual(kinds(), ['subdocument', 'outside-docs', 'document'])
+    context = { ...context, docsRoot: '/project/other' }
+    e.view.dispatch(e.state.tr)
+    assert.deepEqual(kinds(), ['outside-docs', 'outside-docs', 'outside-docs'])
+    assert.equal(md(e), saved)
+    e.commands.setTextSelection({ from: 1, to: 3 })
+    e.commands.setLink({ href: 'https://example.com' })
+    assert.equal(e.view.dom.querySelector('a')?.getAttribute('data-file-link-kind'), null)
+  } finally { e.destroy() }
+})
 
 type Ed = InstanceType<typeof Editor>
 

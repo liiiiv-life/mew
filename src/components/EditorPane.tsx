@@ -124,6 +124,7 @@ export interface EditorPaneProps {
   role: Role
   authEmail: string | null
   project: string
+  workspace?: { path: string; docsPath?: string } | null
   tree: TreeNode[]
   presence: Record<string, string[]>
   /** 지금 포커스된 칸인지 — 커밋·단축키·터미널이 가리키는 칸이다 */
@@ -163,6 +164,7 @@ export function EditorPane({
   role,
   authEmail,
   project: tabProject,
+  workspace,
   tree,
   presence,
   focused,
@@ -712,6 +714,10 @@ export function EditorPane({
                       onChange={(content) => onChangeContent(activeTab.path, content)}
                       readOnly={loading || !activeTab.editable || isArchivedPath(activeTab.path, project)}
                       path={activeTab.path}
+                      fileLinkContext={workspace?.docsPath ? {
+                        path: `${project === 'docs' ? workspace.docsPath : workspace.path}/${activeTab.path}`,
+                        docsRoot: workspace.docsPath,
+                      } : undefined}
                       tree={tree}
                       onOpenLink={onOpenLink}
                       onSelectionChars={setSelChars}

@@ -17,6 +17,7 @@ import OrderedList from '@tiptap/extension-ordered-list'
 import Blockquote from '@tiptap/extension-blockquote'
 import HorizontalRule from '@tiptap/extension-horizontal-rule'
 import { EditorLink as Link } from './editor/file-link'
+import type { FileLinkContext } from './editor/file-link'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { TableKit } from '@tiptap/extension-table'
 import { MarkdownTable } from './editor/tableMarkdown'
@@ -277,6 +278,7 @@ export const Editor = forwardRef<
     api: EditorApi
     readOnly?: boolean
     path?: string
+    fileLinkContext?: FileLinkContext
     tree?: TreeNode[]
     onOpenLink?: (path: string) => void
     /** 선택 글자 수를 호스트 상태줄에 넘긴다 — 상태줄은 파일 종류를 가리지 않으므로 에디터 밖(EditorPane)에 있다 */
@@ -292,7 +294,7 @@ export const Editor = forwardRef<
     showMobileKeyBar?: boolean
   }
 >(function Editor(
-  { value, onChange, api, readOnly, path = '', tree = [], onOpenLink, onSelectionChars, collab, commentThreads, onCommentClick, onStartComment, showMobileKeyBar = true },
+  { value, onChange, api, readOnly, path = '', fileLinkContext, tree = [], onOpenLink, onSelectionChars, collab, commentThreads, onCommentClick, onStartComment, showMobileKeyBar = true },
   ref,
 ) {
   useUiLocale()
@@ -316,6 +318,8 @@ export const Editor = forwardRef<
   bodyRef.current = body
   // 비동기 작업이 항상 현재 문서를 참조하도록 하는 최신 path
   const pathRef = useRef(path)
+  const fileLinkContextRef = useRef(fileLinkContext)
+  fileLinkContextRef.current = fileLinkContext
   // 표 열 너비 동기화 상태 — 어느 문서의 것인지(path), 서버에서 받은 값(baseline), 복원을 마쳤는지.
   // 복원 전에는 절대 저장하지 않는다 — 시딩 직후의 "너비 없음"을 저장해 원래 값을 지워버리기 때문.
   const tableSyncRef = useRef<{ path: string; baseline: string; restored: boolean } | null>(null)
@@ -590,7 +594,7 @@ export const Editor = forwardRef<
       }),
       // target: null — Chromium/Brave는 contenteditable 안의 target="_blank" 링크를 클릭하면
       // preventDefault()를 호출해도 새 탭을 강제로 연다 (Ctrl+Click 여부 무관). 속성 자체를 없애야 함.
-      Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-link underline', target: null, rel: null } }),
+      Link.configure({ getFileLinkContext: () => fileLinkContextRef.current, openOnClick: false, HTMLAttributes: { class: 'text-link underline', target: null, rel: null } }),
       // allowTableNodeSelection: 테이블 NodeSelection이 CellSelection으로 강제 변환되지 않게 함 (테두리 클릭 선택용)
       // resizable: 세로선(열 너비) 드래그 조절만 지원 — prosemirror-tables는 행 높이 조절 기능이 없음
       // table 노드는 md 직렬화를 고친 MarkdownTable로 등록한다 (editor/tableMarkdown.ts, 서버와 공유)
@@ -1633,6 +1637,10 @@ export const Editor = forwardRef<
   useEffect(() => {
     pathRef.current = path
   }, [path])
+
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr)
+  }, [editor, fileLinkContext?.path, fileLinkContext?.docsRoot])
 
   useEffect(() => {
     if (editor) {

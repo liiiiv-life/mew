@@ -14,6 +14,7 @@ test('Hotview gutter follows typing, trailing paragraphs and frontmatter on desk
   const tableContent = '앞 문단\n\n| 이름 | 설명 |\n| --- | --- |\n| 항목 | 내용 |\n\n뒤 문단'
   const listContent = '# Current\n\n기준 문단\n\n- 일반 항목\n- [설정](configuration/MOC.md)\n- [원격 데스크톱 지연·대역폭 개선 연구 — 기준 조사와 세부 구현 확인](research/remote-desktop-latency.md)\n- 상위 항목\n  - [하위](child.md)\n    - 둘째\n      - 셋째\n        - [넷째](deep.md)\n\n앞 문장 [문장 안에서 여러 줄에 걸쳐 자연스럽게 이어지는 긴 내부 파일 링크 설명과 줄바꿈 확인](long.md) 뒤 문장\n\n1. [순서 목록](ordered.md)\n2. 다음 항목\n\n[외부 링크](https://example.com)'
   const navigationContent = '[문서 규칙](./rules.md)\n\n앞 [문서 규칙](./rules.md) 뒤\n\n[첫 문서](./one.md)[둘째 문서](./two.md)'
+  const linkKindsContent = '- [하위문서](./child.md)\n- [다른 내부문서](../other.md)\n- [Docs 밖 소스 파일](../../src/main.ts)\n- [웹](https://example.com)'
   const taskContent = '- [ ] 첫 항목\n- [x] 완료\n  - [ ] 하위 할 일'
   const editorPath = new URL('../packages/editor/src/Editor.tsx', import.meta.url).pathname
   const source = `
@@ -31,12 +32,13 @@ function Fixture(){
     <button onClick={()=>setValue(${JSON.stringify(ruleContent)})}>Load rule</button>
     <button onClick={()=>setValue(${JSON.stringify(listContent)})}>Load list</button>
     <button onClick={()=>setValue(${JSON.stringify(navigationContent)})}>Load link navigation</button>
+    <button onClick={()=>setValue(${JSON.stringify(linkKindsContent)})}>Load link kinds</button>
     <button onClick={()=>setValue('- Tail item')}>Load bullet tail</button>
     <button onClick={()=>setValue('- [ ] Tail item')}>Load checkbox tail</button>
     <button onClick={()=>setValue('')}>New task document</button>
     <button onClick={()=>setValue(${JSON.stringify(taskContent)})}>Load tasks</button>
     <button onClick={()=>setReadOnly(v=>!v)}>Read-only tasks</button>
-    <div style={{height:600}}><Editor readOnly={readOnly} value={value} onChange={setValue} api={api} path="fixture.md"/></div></>;
+    <div style={{height:600}}><Editor readOnly={readOnly} value={value} onChange={setValue} api={api} path="fixture.md" fileLinkContext={{path:'/project/notes/guide/_guide.md',docsRoot:'/project/notes'}}/></div></>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);`
   const styles: string[] = []
@@ -212,6 +214,27 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
         assert.equal(layout.overflow, false)
         assert.equal(await page.evaluate('window.value'), listContent, 'presentation changes preserve Markdown')
         if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/list-links-${theme}-${viewport.width}.png` })
+      }
+      await page.getByRole('button', { name: 'Load link kinds', exact: true }).click()
+      await page.locator('a[data-file-link-kind="outside-docs"]').waitFor()
+      for (const theme of ['dark', 'light']) {
+        await page.locator('html').evaluate((el, theme) => { el.className = theme }, theme)
+        const kinds = await page.locator('.tiptap a').evaluateAll(links => links.map(link => {
+          const win = link.ownerDocument.defaultView!
+          return { kind: link.getAttribute('data-file-link-kind'), border: win.getComputedStyle(link).borderTopWidth,
+            arrow: win.getComputedStyle(link, '::after').maskImage, decoration: win.getComputedStyle(link).textDecorationLine }
+        }))
+        assert.deepEqual(kinds.map(link => link.kind), ['subdocument', 'document', 'outside-docs', null])
+        assert.equal(kinds[0].border, '0px')
+        assert.equal(kinds[1].border, '1px')
+        assert.equal(kinds[2].border, '1px')
+        assert.notEqual(kinds[2].arrow, 'none')
+        assert.equal(kinds[1].arrow, 'none')
+        assert.equal(kinds[3].decoration, 'underline')
+        await page.locator('a[data-file-link-kind="subdocument"]').hover()
+        assert.equal(await page.locator('a[data-file-link-kind="subdocument"]').evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).borderTopWidth), '0px')
+        assert.equal(await page.evaluate('window.value'), linkKindsContent)
+        if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/link-kinds-${theme}-${viewport.width}.png` })
       }
       for (const index of [0, 1, 2, 3]) {
         for (const direction of ['left', 'right']) {

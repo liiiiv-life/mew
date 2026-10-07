@@ -1,4 +1,5 @@
 import Link from '@tiptap/extension-link'
+import type { LinkOptions } from '@tiptap/extension-link'
 import { getMarkRange } from '@tiptap/core'
 import { Plugin, TextSelection } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
@@ -9,8 +10,39 @@ export const isFileLinkHref = (href: string) => {
   return value !== '' && !value.startsWith('#') && !value.startsWith('?') && !isExternalHref(value)
 }
 
+export interface FileLinkContext { path: string; docsRoot: string }
+
+function normalizePath(path: string): string {
+  const parts: string[] = []
+  for (const part of path.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') parts.pop()
+    else parts.push(part)
+  }
+  return '/' + parts.join('/')
+}
+
+export function fileLinkKind(href: string, context?: FileLinkContext): 'document' | 'subdocument' | 'outside-docs' | null {
+  if (!isFileLinkHref(href)) return null
+  if (!context) return 'document'
+  let decoded: string
+  try { decoded = decodeURIComponent(href.trim().split(/[?#]/)[0]) } catch { return 'document' }
+  const source = normalizePath(context.path)
+  const directory = source.slice(0, source.lastIndexOf('/'))
+  const target = normalizePath(decoded.startsWith('/') ? decoded : `${directory}/${decoded}`)
+  const docsRoot = normalizePath(context.docsRoot)
+  if (!target.startsWith(`${docsRoot === '/' ? '' : docsRoot}/`)) return 'outside-docs'
+  const name = source.slice(source.lastIndexOf('/') + 1)
+  const representative = name === `_${directory.split('/').at(-1)}.md` || name === 'MOC.md' || name === '_MOC.md'
+  const childRoot = representative ? directory : source.replace(/\.md$/i, '')
+  return target !== source && /\.md$/i.test(target) && target.startsWith(`${childRoot}/`) ? 'subdocument' : 'document'
+}
+
 // Derive presentation from href without adding persisted mark attributes or changing Markdown.
-export const EditorLink = Link.extend({
+export const EditorLink = Link.extend<LinkOptions & { getFileLinkContext: () => FileLinkContext | undefined }>({
+  addOptions() {
+    return { ...this.parent!(), getFileLinkContext: () => undefined }
+  },
   addProseMirrorPlugins() {
     const deleteLink = (view: EditorView, backward: boolean) => {
       const { selection, doc } = view.state
@@ -26,6 +58,16 @@ export const EditorLink = Link.extend({
     return [
       ...(this.parent?.() ?? []),
       new Plugin({
+        view: (view) => {
+          const update = () => {
+            for (const anchor of view.dom.querySelectorAll('a[data-file-link]')) {
+              const kind = fileLinkKind(anchor.getAttribute('href') ?? '', this.options.getFileLinkContext())
+              if (kind && anchor.getAttribute('data-file-link-kind') !== kind) anchor.setAttribute('data-file-link-kind', kind)
+            }
+          }
+          update()
+          return { update }
+        },
         props: {
           handleKeyDown: (view, event) => {
             if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.altKey && !event.ctrlKey && !event.metaKey) {
@@ -106,6 +148,7 @@ export const EditorLink = Link.extend({
       HTMLAttributes: {
         ...props.HTMLAttributes,
         'data-file-link': fileLink ? '' : null,
+        'data-file-link-kind': fileLinkKind(href, this.options.getFileLinkContext()),
         contenteditable: fileLink ? 'false' : null,
       },
     })
