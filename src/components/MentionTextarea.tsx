@@ -14,6 +14,8 @@ export interface MentionOption {
   label: string
   /** 목록에서 이름 옆에 흐리게 붙는 부가 정보(경로 등) */
   hint?: string
+  /** 긴 경로 힌트는 앞을 생략하고 끝부분을 보여 준다. */
+  hintTruncateStart?: boolean
   /** 골랐을 때 '@검색어' 자리에 들어갈 문자열 */
   insert: string
   /** 삽입 뒤에 붙일 구분자. 기본은 다음 말을 이어 쓸 공백 하나다. */
@@ -234,7 +236,9 @@ export function MentionTextarea({
               }`}
             >
               <span className="truncate">{option.label}</span>
-              {option.hint && <span className="min-w-0 flex-1 truncate text-right text-ink-faint">{option.hint}</span>}
+              {option.hint && <span className="min-w-0 flex-1 truncate text-right text-ink-faint" dir={option.hintTruncateStart ? 'rtl' : undefined}>
+                {option.hintTruncateStart ? <bdi dir="ltr">{option.hint}</bdi> : option.hint}
+              </span>}
             </button>
           ))}
         </div>

@@ -23,6 +23,7 @@ export function agentInputMentionOptions(tree: TreeNode[], project: string, proj
       id: `file:${project}:${focusedFilePath}`,
       label: focusedFilePath.split('/').pop() ?? focusedFilePath,
       hint: project === 'docs' ? `Documents/${focusedFilePath}` : focusedFilePath,
+      hintTruncateStart: true,
       insert: `[[${project}:${focusedFilePath}]]`,
       sortPriority: FOCUSED_FILE,
     })
@@ -62,6 +63,7 @@ export function agentInputMentionOptions(tree: TreeNode[], project: string, proj
             id,
             label: node.name,
             hint: `${scope === 'docs' ? 'Documents/' : ''}${node.path}${node.type === 'dir' ? '/' : ''}`,
+            hintTruncateStart: true,
             insert: `[[${scope}:${node.path}]]`,
             sortPriority: node.type === 'dir' ? FOLDER : FILE,
           })
