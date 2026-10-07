@@ -33,3 +33,13 @@ test('와일드카드는 경로·연속 별표·빈 매치·결과 상한을 지
   assert.equal(rankFileNamePaths('*', paths, { caseSensitive: false }, 2).length, 2)
   assert.deepEqual(rankFileNamePaths('', paths, { caseSensitive: false }), [])
 })
+
+
+test('파일명 정규식 옵션은 기본 와일드카드·퍼지보다 우선한다', () => {
+  const paths = ['src/App.tsx', 'src/App.test.tsx', 'docs/app.md', 'file😀.txt']
+  assert.deepEqual(rankFileNamePaths('^App\\.tsx$', paths, { regex: true, caseSensitive: true }), ['src/App.tsx'])
+  assert.deepEqual(rankFileNamePaths('^app', paths, { regex: true, caseSensitive: false }), ['docs/app.md', 'src/App.test.tsx', 'src/App.tsx'])
+  assert.deepEqual(rankFileNamePaths('^src/.*test', paths, { regex: true, caseSensitive: false }), ['src/App.test.tsx'])
+  assert.deepEqual(rankFileNamePaths('*.tsx', paths, { regex: false, caseSensitive: false }), ['src/App.test.tsx', 'src/App.tsx'])
+  assert.throws(() => rankFileNamePaths('(', paths, { regex: true, caseSensitive: false }), SyntaxError)
+})

@@ -37,10 +37,13 @@ function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** 잘못된 정규식이면 SyntaxError를 던진다 (라우트가 400으로 매핑) */
+/** 와일드카드는 줄 안의 부분 문자열에 적용하고, 나머지 문자는 리터럴로 취급한다. */
 function buildRegex(query: string, opts: SearchOptions): RegExp {
-  const flags = opts.caseSensitive ? 'g' : 'gi'
-  return new RegExp(opts.regex ? query : escapeRegExp(query), flags)
+  const flags = (opts.caseSensitive ? 'g' : 'gi') + (opts.regex ? '' : 'u')
+  const pattern = opts.regex
+    ? query
+    : query.split(/(\*+|\?)/).map(token => /^\*+$/.test(token) ? '[^\\r\\n]*' : token === '?' ? '[^\\r\\n]' : escapeRegExp(token)).join('')
+  return new RegExp(pattern, flags)
 }
 
 /** 트리에서 검색 가능한 텍스트 파일의 상대경로만 평탄화한다 — 미디어·다운로드(바이너리)는 제외 */
@@ -91,7 +94,7 @@ export function searchInProject(
       let m: RegExpExecArray | null
       while ((m = regex.exec(line)) !== null) {
         if (m[0].length === 0) {
-          regex.lastIndex++
+          regex.lastIndex += regex.unicode && (line.codePointAt(regex.lastIndex) ?? 0) > 0xffff ? 2 : 1
           continue
         }
         matches.push({
@@ -138,7 +141,7 @@ export async function searchInProjectProgressively(
       regex.lastIndex = 0
       let match: RegExpExecArray | null
       while ((match = regex.exec(line)) !== null) {
-        if (!match[0].length) { regex.lastIndex++; continue }
+        if (!match[0].length) { regex.lastIndex += regex.unicode && (line.codePointAt(regex.lastIndex) ?? 0) > 0xffff ? 2 : 1; continue }
         matches.push({ line: lineIndex + 1, column: match.index, text: line.length > MAX_LINE_LEN ? `${line.slice(0, MAX_LINE_LEN)}…` : line, matchStart: match.index, matchEnd: match.index + match[0].length })
         total++
         if (matches.length >= MAX_MATCHES_PER_FILE || total >= MAX_TOTAL_MATCHES) break
@@ -153,7 +156,7 @@ export async function searchInProjectProgressively(
 }
 
 /** 한 파일 안의 모든 매치를 치환한 새 내용과 치환 건수를 돌려준다 (디스크 쓰기는 호출자가 담당).
- * 정규식 모드면 $1 등 캡처 그룹 확장을 지원하고, 비정규식 모드는 리터럴로 치환한다. */
+ * 기본 와일드카드 모드는 치환 문자열을 그대로 사용하고, 정규식 모드는 캡처 그룹을 확장한다. */
 export function replaceInFile(
   project: string,
   relPath: string,
@@ -167,9 +170,8 @@ export function replaceInFile(
   let count = 0
   const single = opts.regex ? new RegExp(query, opts.caseSensitive ? '' : 'i') : null
   const next = content.replace(regex, (matched: string) => {
+    if (!matched.length) return matched
     count++
-    // 정규식 모드는 매치 하나에 대해 네이티브 문자열 치환에 위임해 $1 확장을 살린다.
-    // 비정규식 모드는 replace를 리터럴로 취급한다(콜백 반환값이라 $ 특수해석이 없다).
     return single ? matched.replace(single, replace) : replace
   })
   return { content: next, count }

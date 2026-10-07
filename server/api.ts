@@ -299,7 +299,7 @@ function indexedSearchPaths(
 ): { paths: string[]; state: SearchIndexState; version: number; scannedDirtyFiles: number } {
   const initial = ensureSearchIndex(scope.project, scope.all)
   const version = fileCatalogStatus(scope.project).version
-  if (opts.regex || query.length < 3) return { paths: scope.allowed, state: initial, version, scannedDirtyFiles: 0 }
+  if (opts.regex || /[*?]/.test(query) || query.length < 3) return { paths: scope.allowed, state: initial, version, scannedDirtyFiles: 0 }
   const allowed = new Set(scope.allowed)
   const indexed = exactSearchCandidates(scope.project, query, allowed)
   if (!indexed.paths) return { paths: scope.allowed, state: indexed.state, version, scannedDirtyFiles: 0 }
@@ -1534,11 +1534,16 @@ export function createApiApp() {
     try {
       res.json(await searchFileNames(query, {
         caseSensitive: req.query.case === '1',
+        regex: req.query.regex === '1',
         scopes: String(req.query.scopes ?? '').split(',').filter(Boolean),
         showAll: seesEveryFile(authOf(req).role),
         allowed: (project, relPath) => fileAccess(authOf(req), project, relPath).view,
       }))
     } catch (err) {
+      if (err instanceof SyntaxError) {
+        res.status(400).json({ error: '잘못된 정규식입니다' })
+        return
+      }
       handleError(res, err)
     }
   })

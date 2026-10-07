@@ -65,6 +65,26 @@ test('Ctrl+P와 정확 내용 검색은 전체 tree 응답 없이 통합 catalog
     assert.equal(content.state, 'ready')
     assert.ok(content.version >= 1)
 
+    for (const route of ['/search', '/search/stream']) {
+      const response = await fetch(`${base}/api${route}?${new URLSearchParams({ q: 'unique*workspace phrase', project: WORKSPACE_PROJECT, scopes: 'subproject:app' })}`)
+      assert.equal(response.status, 200)
+      if (route.endsWith('/stream')) {
+        const stream = await response.text()
+        assert.match(stream, /event: result/)
+        assert.match(stream, /app\/SearchPanel.tsx/)
+        assert.match(stream, /event: done/)
+      } else {
+        const result = await response.json() as { results: Array<{ path: string }> }
+        assert.deepEqual(result.results.map(row => row.path), ['app/SearchPanel.tsx'])
+      }
+    }
+    const regexFiles = await fetch(`${base}/api/search/files?${new URLSearchParams({ q: '^SearchPanel\\.tsx$', regex: '1', scopes: 'subproject:app' })}`)
+    assert.equal(regexFiles.status, 200)
+    const regexResult = await regexFiles.json() as { results: Array<{ path: string }> }
+    assert.deepEqual(regexResult.results.map(row => row.path), ['app/SearchPanel.tsx'])
+    const invalidRegex = await fetch(`${base}/api/search/files?${new URLSearchParams({ q: '(', regex: '1' })}`)
+    assert.equal(invalidRegex.status, 400)
+
     setFileRule('guest', WORKSPACE_PROJECT, 'app/public.md', 'view')
     setFileRule('guest', WORKSPACE_PROJECT, 'app/private.md', 'inherit')
     role = 'guest'

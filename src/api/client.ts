@@ -1152,8 +1152,8 @@ export interface FileNameSearchResponse {
   results: FileNameSearchResult[]
 }
 
-export function searchFileNames(query: string, opts: Pick<SearchOptions, 'caseSensitive' | 'scopes'>, signal?: AbortSignal): Promise<FileNameSearchResponse> {
-  const params = new URLSearchParams({ q: query, case: opts.caseSensitive ? '1' : '0' })
+export function searchFileNames(query: string, opts: Pick<SearchOptions, 'caseSensitive' | 'scopes'> & Partial<Pick<SearchOptions, 'regex'>>, signal?: AbortSignal): Promise<FileNameSearchResponse> {
+  const params = new URLSearchParams({ q: query, regex: opts.regex ? '1' : '0', case: opts.caseSensitive ? '1' : '0' })
   if (opts.scopes?.length) params.set('scopes', opts.scopes.join(','))
   return mewFetch(`/api/search/files?${params.toString()}`, { signal }).then(json<FileNameSearchResponse>)
 }

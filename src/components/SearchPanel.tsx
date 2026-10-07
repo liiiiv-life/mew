@@ -21,7 +21,7 @@ export interface SearchScopeOption {
   icon: string
 }
 
-// VSCode식 프로젝트 전체 검색 패널(Ctrl+Shift+F) — 사이드바에 뜨며 찾기·바꾸기·정규식을 지원한다.
+// VSCode식 프로젝트 전체 검색 패널(Ctrl+Shift+F) — 사이드바에 뜨며 찾기·바꾸기·와일드카드·정규식을 지원한다.
 // 파일별로 매치를 접을 수 있고, 매치를 클릭하면 해당 파일을 열어 그 위치를 강조한다.
 
 export function SearchPanel({
@@ -243,7 +243,7 @@ export function SearchPanel({
               spellCheck={false}
             />
             <button type="button" onClick={() => setCaseSensitive((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${caseSensitive ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("대소문자 구분")}>Aa</button>
-            {mode === 'content' && <button type="button" onClick={() => setRegex((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("정규식 사용")}>.*</button>}
+            <button type="button" onClick={() => setRegex((v) => !v)} className={`m-0.5 rounded px-1 py-0.5 text-xs font-mono ${regex ? 'bg-accent text-ink-on-accent' : 'text-ink-muted hover:bg-surface-hover'}`} title={uiText("정규식 사용")} aria-label={uiText("정규식 사용")} aria-pressed={regex}>.*</button>
             {scopeMenuOpen && (
               <div className="absolute left-0 top-full z-30 mt-1 max-h-64 min-w-[15rem] overflow-y-auto rounded-lg border border-edge-bright bg-surface-raised py-1 shadow-xl">
                 <div className="px-2.5 py-1 text-[10px] text-ink-faint">{uiText("검색할 범위 · 여러 개를 골라 OR로 검색")}</div>

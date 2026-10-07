@@ -5,6 +5,7 @@ import { measureSync } from './perfMarks.ts'
 
 export interface FileNameSearchOptions {
   caseSensitive: boolean
+  regex?: boolean
   scopes: string[]
   allowed?: (project: string, path: string) => boolean
   showAll: boolean
@@ -39,7 +40,11 @@ function fuzzyScore(query: string, targetPath: string, caseSensitive: boolean): 
   return 1_000 + gaps * 100 + (offset - first) * 10 + first
 }
 
-function fileNameScorer(query: string, caseSensitive: boolean): (targetPath: string) => number | null {
+function fileNameScorer(query: string, caseSensitive: boolean, regex = false): (targetPath: string) => number | null {
+  if (regex) {
+    const pattern = new RegExp(query, caseSensitive ? '' : 'i')
+    return targetPath => pattern.test(path.posix.basename(targetPath)) ? 0 : pattern.test(targetPath) ? 1 : null
+  }
   if (!/[*?]/.test(query)) return targetPath => fuzzyScore(query, targetPath, caseSensitive)
   const pattern = Array.from(caseSensitive ? query : query.toLowerCase())
   const matches = (value: string): boolean => {
@@ -73,11 +78,11 @@ function fileNameScorer(query: string, caseSensitive: boolean): (targetPath: str
 export function rankFileNamePaths(
   query: string,
   paths: string[],
-  opts: Pick<FileNameSearchOptions, 'caseSensitive'>,
+  opts: Pick<FileNameSearchOptions, 'caseSensitive' | 'regex'>,
   limit = 50,
 ): string[] {
   if (!query) return []
-  const score = fileNameScorer(query, opts.caseSensitive)
+  const score = fileNameScorer(query, opts.caseSensitive, opts.regex)
   return measureSync('filename.rank', { candidates: paths.length }, () => paths
     .map((candidate) => ({
       candidate,
@@ -119,7 +124,7 @@ export async function searchFileNames(query: string, opts: FileNameSearchOptions
       candidates.push({ path: file.path, project: DEFAULT_PROJECT, scope: { id: 'docs', label: 'Documents', icon: 'i:notes' } })
     }
   }
-  const score = fileNameScorer(query, opts.caseSensitive)
+  const score = fileNameScorer(query, opts.caseSensitive, opts.regex)
   const ranked = measureSync('filename.rank', { candidates: candidates.length }, () => candidates
     .filter(item => !opts.allowed || opts.allowed(item.project, item.path))
     .map((item) => ({
