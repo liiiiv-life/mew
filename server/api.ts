@@ -837,7 +837,7 @@ export function createApiApp() {
 
   app.get('/fs/entries', requireFeature('serverFiles'), async (req, res) => {
     try {
-      res.json(await listEntries(String(req.query.path ?? '')))
+      res.json(await listEntries(String(req.query.path ?? ''), { includeSize: req.query.size !== '0' }))
     } catch (err) {
       if (err instanceof MissingDirectoryError) {
         res.status(404).json({ error: err.message, code: 'MISSING_DIRECTORY', missing: err.missing })

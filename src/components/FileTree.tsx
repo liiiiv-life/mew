@@ -24,11 +24,13 @@ import { readFileClipboard, writeFileClipboard, type FileClipboard } from '../ut
 import { SubprojectLink } from './subproject-link'
 import { ProjectIcon } from './ProjectIcon'
 import { GitButton } from './GitButton'
+import { VirtualTreeRows } from './virtual-tree-rows'
 import {
   childrenForOpenDirs,
   visibleOpenDirectories,
   readTreeCenter,
   restoreTreeCenter,
+  materializeTreePath,
   loadDirectoryChildren,
   saveDirectoryChildren,
   type DirectoryChildren,
@@ -410,8 +412,8 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
       {(open || creating) && <TreeChildren depth={depth} documentPages>
         {creating && <InlineInput value={creating.value} onChange={ctx.setEditValue} onCommit={ctx.submitEdit} onCancel={ctx.cancelEdit} error={creating.error} placeholder={uiText('새 문서 이름')} paddingLeft={(depth + 1) * 14 + 24} />}
         {open && <>
-          {ctx.loadingDirs.has(node.path) && <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 24 }}>{uiText('불러오는 중…')}</div>}
-          {children.map(child => <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />)}
+          {ctx.loadingDirs.has(node.path) && loadedChildren === undefined && <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 24 }}>{uiText('불러오는 중…')}</div>}
+          <NodeList nodes={children} depth={depth + 1} ctx={ctx} />
         </>}
       </TreeChildren>}
     </div>
@@ -541,16 +543,30 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
               paddingLeft={(depth + 1) * 14 + 8}
             />
           )}
-          {ctx.loadingDirs.has(node.path) && (
+          {ctx.loadingDirs.has(node.path) && nodeChildren === undefined && (
             <div className="py-1 text-xs text-ink-muted" style={{ paddingLeft: (depth + 1) * 14 + 8 }}>{uiText("불러오는 중…")}</div>
           )}
-          {children?.map((child) => (
-            <Node key={child.path} node={child} depth={depth + 1} ctx={ctx} />
-          ))}
+          {children && <NodeList nodes={children} depth={depth + 1} ctx={ctx} />}
         </TreeChildren>
       )}
     </div>
   )
+}
+
+function NodeList({ nodes, depth, ctx }: { nodes: TreeNode[]; depth: number; ctx: NodeCtx }) {
+  const groups = useMemo(() => {
+    const result: TreeNode[][] = []
+    const leaf = (node: TreeNode) => node.type === 'file' || (!node.project && !ctx.openDirs.has(node.path))
+    for (const node of nodes) {
+      if (leaf(node) && result.at(-1)?.[0] && leaf(result.at(-1)![0])) result.at(-1)!.push(node)
+      else result.push([node])
+    }
+    return result
+  }, [nodes, ctx.openDirs])
+  return <>{groups.map(group => group.length >= 200 && !group.some(node => ctx.editing?.mode === 'rename' ? ctx.editing.path === node.path : ctx.editing?.parentPath === node.path)
+    ? <VirtualTreeRows key={group[0].path} nodes={group} pinned={[ctx.focused?.path, ctx.menuPath]}
+        render={node => <Node node={node} depth={depth} ctx={ctx} />} />
+    : group.map(node => <Node key={node.path} node={node} depth={depth} ctx={ctx} />))}</>
 }
 
 export function FileTree({
@@ -580,6 +596,7 @@ export function FileTree({
   commands,
   loadChildren,
   treeInvalidation,
+  refreshSignal = 0,
   searchFocusSignal,
   newFileSignal,
   revealSignal,
@@ -633,6 +650,7 @@ export function FileTree({
   loadChildren?: (path: string) => Promise<TreeNode[]>
   /** watcher가 알려 준 영향 부모만 자식 캐시를 다시 읽는다. */
   treeInvalidation?: { n: number; project: string; version: number; parents: string[] }
+  refreshSignal?: number
   searchFocusSignal: number
   /** Alt+N — 새 파일 이름 입력 열기. parentPath가 null이면 트리의 선택 항목 기준 */
   newFileSignal: { n: number; parentPath: string | null }
@@ -779,9 +797,12 @@ export function FileTree({
   }
   // 드래그 중인 항목 — dragover가 초당 여러 번 발화하므로 상태 대신 ref로 들고 다닌다
   const draggingRef = useRef<{ path: string; type: 'file' | 'dir' } | null>(null)
-  const receivedInitialTreeRef = useRef(false)
+  const previousRootRef = useRef<TreeNode[] | null>(null)
+  const pendingDirsRef = useRef(new Map<string, { promise: Promise<TreeNode[] | undefined>; dirty: boolean }>())
+  const mountedTreeRef = useRef(true)
   const revalidatedRestoredChildrenRef = useRef(new Set<string>())
   const lastTreeInvalidationRef = useRef(0)
+  const lastRefreshSignalRef = useRef(refreshSignal)
   // 마운트 시점 값으로 초기화 — "처음 한 번은 건너뛰기" 식 불리언 가드는 StrictMode가
   // 마운트 이펙트를 두 번 실행할 때(두 번째 호출에서 가드가 이미 소진됨) 무력화돼 사이드바를
   // 열기만 해도 검색창에 포커스가 가는(모바일 키보드가 뜨는) 버그가 있었다. 값 비교면
@@ -824,51 +845,6 @@ export function FileTree({
     onCreateRequestHandled?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Each request is consumed once, including StrictMode.
   }, [createRequest])
-
-  // 첫 루트 응답은 저장된 자식 스냅샷 위에 얹어 즉시 보이게 한다. 그 뒤 루트 목록이 다시 오면
-  // 파일 조작·watcher 갱신이므로 기존 계약대로 자식 캐시를 버리고 열린 폴더부터 다시 읽는다.
-  useEffect(() => {
-    if (tree.length === 0) return
-    if (!receivedInitialTreeRef.current) {
-      receivedInitialTreeRef.current = true
-      return
-    }
-    directoryChildrenRef.current = {}
-    loadingDirsRef.current = new Set()
-    setDirectoryChildren({})
-    setLoadingDirs(new Set())
-  }, [tree])
-
-  useEffect(() => {
-    if (!treeInvalidation?.n || treeInvalidation.project !== project || !loadChildren) return
-    if (treeInvalidation.n === lastTreeInvalidationRef.current) return
-    lastTreeInvalidationRef.current = treeInvalidation.n
-    const parents = treeInvalidation.parents.filter(Boolean)
-    if (!parents.length) return
-    const stale = new Set(parents)
-    directoryChildrenRef.current = Object.fromEntries(
-      Object.entries(directoryChildrenRef.current).filter(([key]) => !stale.has(key)),
-    )
-    setDirectoryChildren(directoryChildrenRef.current)
-    const visible = new Set(visibleOpenDirectories(tree, openDirs, directoryChildrenRef.current, !!onOpenProject))
-    for (const parent of parents) {
-      if (!visible.has(parent)) continue
-      loadingDirsRef.current = new Set(loadingDirsRef.current).add(parent)
-      setLoadingDirs(loadingDirsRef.current)
-      void loadChildren(parent)
-        .then((children) => {
-          directoryChildrenRef.current = { ...directoryChildrenRef.current, [parent]: children }
-          setDirectoryChildren(directoryChildrenRef.current)
-        })
-        .catch((err: unknown) => onNotice(err instanceof Error ? err.message : String(err)))
-        .finally(() => {
-          const next = new Set(loadingDirsRef.current)
-          next.delete(parent)
-          loadingDirsRef.current = next
-          setLoadingDirs(next)
-        })
-    }
-  }, [treeInvalidation, project, loadChildren, onNotice, openDirs, tree, onOpenProject])
 
   useEffect(() => {
     const savedChildren = childrenForOpenDirs(openDirs, directoryChildren)
@@ -936,7 +912,11 @@ export function FileTree({
     }
     const reveal = () => {
       const row = list.querySelector<HTMLElement>(`[data-path="${CSS.escape(selectedPath)}"], [data-page-file="${CSS.escape(selectedPath)}"]`)
-      if (!row || !row.getClientRects().length) return
+      if (!row) {
+        materializeTreePath(list, { tree: persistedProject, path: selectedPath })
+        return
+      }
+      if (!row.getClientRects().length) return
       row.scrollIntoView({ block: 'nearest' })
       stop()
     }
@@ -960,26 +940,113 @@ export function FileTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPath, tree, revealSignal])
 
-  const requestDir = useCallback((path: string, refresh = false) => {
-    if (onOpenProject && [...projectPaths].some(parent => path === parent || path.startsWith(`${parent}/`))) return
-    if (!loadChildren || (!refresh && directoryChildrenRef.current[path] !== undefined) || loadingDirsRef.current.has(path)) return
+  const requestDir = useCallback((path: string, refresh = false): Promise<TreeNode[] | undefined> => {
+    if (onOpenProject && [...projectPaths].some(parent => path === parent || path.startsWith(`${parent}/`))) return Promise.resolve(undefined)
+    if (!loadChildren) return Promise.resolve(undefined)
+    const existing = pendingDirsRef.current.get(path)
+    if (existing) {
+      if (refresh) existing.dirty = true
+      revalidatedRestoredChildrenRef.current.add(path)
+      return existing.promise
+    }
+    if (!refresh && directoryChildrenRef.current[path] !== undefined) return Promise.resolve(directoryChildrenRef.current[path])
+    const pending = { promise: Promise.resolve<TreeNode[] | undefined>(undefined), dirty: false }
+    pendingDirsRef.current.set(path, pending)
+    revalidatedRestoredChildrenRef.current.add(path)
     loadingDirsRef.current = new Set(loadingDirsRef.current).add(path)
     setLoadingDirs(loadingDirsRef.current)
-    void loadChildren(path)
-      .then((children) => {
-        directoryChildrenRef.current = { ...directoryChildrenRef.current, [path]: children }
-        setDirectoryChildren(directoryChildrenRef.current)
-      })
-      .catch((err: unknown) => onNotice(err instanceof Error ? err.message : String(err)))
-      .finally(() => {
-        const next = new Set(loadingDirsRef.current)
-        next.delete(path)
-        loadingDirsRef.current = next
-        setLoadingDirs(next)
-      })
+    pending.promise = Promise.resolve().then(async () => {
+      while (pendingDirsRef.current.get(path) === pending) {
+        pending.dirty = false
+        const children = await loadChildren(path)
+        if (!mountedTreeRef.current || pendingDirsRef.current.get(path) !== pending) return undefined
+        if (pending.dirty) continue
+        const old = directoryChildrenRef.current[path] ?? []
+        const directories = new Set(children.filter(node => node.type === 'dir').map(node => node.path))
+        const removed = old.filter(node => node.type === 'dir' && !directories.has(node.path))
+        const cache = { ...directoryChildrenRef.current, [path]: children }
+        const loading = new Set(loadingDirsRef.current)
+        for (const key of new Set([...Object.keys(cache), ...pendingDirsRef.current.keys()])) if (removed.some(node => key === node.path || key.startsWith(node.path + '/'))) {
+          delete cache[key]
+          pendingDirsRef.current.delete(key)
+          revalidatedRestoredChildrenRef.current.delete(key)
+          loading.delete(key)
+        }
+        loadingDirsRef.current = loading
+        setLoadingDirs(loading)
+        directoryChildrenRef.current = cache
+        setDirectoryChildren(cache)
+        return children
+      }
+      return undefined
+    }).catch((err: unknown) => {
+      if (pendingDirsRef.current.get(path) === pending) onNotice(err instanceof Error ? err.message : String(err))
+      return undefined
+    }).finally(() => {
+      if (pendingDirsRef.current.get(path) !== pending) return
+      pendingDirsRef.current.delete(path)
+      const next = new Set(loadingDirsRef.current)
+      next.delete(path)
+      loadingDirsRef.current = next
+      setLoadingDirs(next)
+    })
+    return pending.promise
   }, [loadChildren, onNotice, onOpenProject, projectPaths])
 
+  useEffect(() => {
+    mountedTreeRef.current = true
+    const requests = pendingDirsRef.current
+    return () => {
+      mountedTreeRef.current = false
+      // StrictMode immediately mounts effects again; keep its shared in-flight reads.
+      queueMicrotask(() => { if (!mountedTreeRef.current) requests.clear() })
+    }
+  }, [persistedProject])
+
+  // A new root array is a refreshed listing, not a reason to discard unchanged subtrees.
+  useEffect(() => {
+    const previous = previousRootRef.current
+    if (!previous && tree.length === 0) return
+    previousRootRef.current = tree
+    if (!previous) return
+    const directories = new Set(tree.filter(node => node.type === 'dir').map(node => node.path))
+    const removed = previous.filter(node => node.type === 'dir' && !directories.has(node.path))
+    if (!removed.length) return
+    const cache = { ...directoryChildrenRef.current }
+    const loading = new Set(loadingDirsRef.current)
+    for (const key of new Set([...Object.keys(cache), ...pendingDirsRef.current.keys()])) if (removed.some(node => key === node.path || key.startsWith(node.path + '/'))) {
+      delete cache[key]
+      pendingDirsRef.current.delete(key)
+      revalidatedRestoredChildrenRef.current.delete(key)
+      loading.delete(key)
+    }
+    loadingDirsRef.current = loading
+    setLoadingDirs(loading)
+    directoryChildrenRef.current = cache
+    setDirectoryChildren(cache)
+  }, [tree])
+
+  useEffect(() => {
+    if (!treeInvalidation?.n || treeInvalidation.project !== project || !loadChildren) return
+    if (treeInvalidation.n === lastTreeInvalidationRef.current) return
+    lastTreeInvalidationRef.current = treeInvalidation.n
+    const visible = visibleOpenDirectories(tree, openDirs, directoryChildrenRef.current, !!onOpenProject)
+    const parents = treeInvalidation.parents.includes('') ? visible : treeInvalidation.parents
+    for (const parent of parents) {
+      revalidatedRestoredChildrenRef.current.delete(parent)
+      if (visible.includes(parent)) void requestDir(parent, true)
+    }
+  }, [treeInvalidation, project, loadChildren, openDirs, tree, onOpenProject, requestDir])
+
   const loadDir = useCallback((path: string) => requestDir(path), [requestDir])
+
+  useEffect(() => {
+    if (lastRefreshSignalRef.current === refreshSignal) return
+    lastRefreshSignalRef.current = refreshSignal
+    for (const path of visibleOpenDirectories(tree, openDirs, directoryChildrenRef.current, !!onOpenProject)) {
+      void requestDir(path, true)
+    }
+  }, [refreshSignal, tree, openDirs, onOpenProject, requestDir])
 
   // Only request directories reachable through expanded ancestors. Cached rows render
   // immediately; each restored directory is refreshed once, without a timed waterfall.
@@ -1266,6 +1333,7 @@ export function FileTree({
   }
 
   function beginDrag(path: string, type: 'file' | 'dir') {
+    focusNode(path, type)
     draggingRef.current = { path, type }
     // 드래그 동안 스크롤 저장 잠금 — 브라우저 자동 스크롤이 저장값을 오염시킨다 (scrollMemory 주석 참고)
     setScrollSaveSuppressed(true)
@@ -1399,16 +1467,13 @@ export function FileTree({
         if (sequence !== pageOpenSequence.current) return
         const representative = pageRepresentative(node.path, children)
         if (representative) onSelect(representative.path, opts)
-        else if (!openDirs.has(node.path)) toggleDir(node.path)
+        else ensureOpenChain(node.path)
       }
       const cached = node.children ?? directoryChildrenRef.current[node.path]
       if (cached) resolve(cached)
-      else if (loadChildren) void loadChildren(node.path).then(children => {
-        if (sequence !== pageOpenSequence.current) return
-        directoryChildrenRef.current = { ...directoryChildrenRef.current, [node.path]: children }
-        setDirectoryChildren(directoryChildrenRef.current)
-        resolve(children)
-      }).catch(error => onNotice(error instanceof Error ? error.message : String(error)))
+      else void requestDir(node.path).then(children => {
+        if (children && sequence === pageOpenSequence.current) resolve(children)
+      })
     },
     selectedPath,
     openPaths,
@@ -1548,9 +1613,7 @@ export function FileTree({
                 paddingLeft={8}
               />
             )}
-            {rootNodes.map((node) => (
-              <Node key={node.path} node={node} depth={0} ctx={ctx} />
-            ))}
+            <NodeList nodes={rootNodes} depth={0} ctx={ctx} />
           </>
         )}
       </div>

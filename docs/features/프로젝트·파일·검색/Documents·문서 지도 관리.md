@@ -4,11 +4,11 @@ parent: "mew-projects"
 title: "Documents·문서 지도 관리"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-06"
+updated: "2026-10-07"
 status_hash: "67f36d128f8ff98f55ff2f44e2197710413f6968309439a998bd606dad06b477"
 files: ["src/components/DocsSettingsModal.tsx", "src/components/FileTree.tsx", "server/docsRepo.ts", "src/components/DocumentGraph.tsx", "server/document-graph.ts", "src/utils/document-graph-layout.ts", "server/document-pages.ts", "src/hooks/useTabs.ts"]
 commits: []
-description: "Documents 대표 문서·하위 문서 탐색과 단일 파일·폴더 구조 전환, 그래프 보기와 가져오기·내보내기를 다루는 기능 계약. 일반 파일과 에디터 탭·배치 공유 및 현재 프로젝트 경계를 설명한다."
+description: "Documents 대표 문서·하위 문서의 요청 공유·캐시 유지·대량 목록 가상화와 단일 파일·폴더 구조 전환, 그래프 보기와 가져오기·내보내기를 다루는 기능 계약. 일반 파일과 에디터 탭·배치 공유 및 현재 프로젝트 경계를 설명한다."
 ---
 
 ## 요구사항
@@ -16,6 +16,8 @@ description: "Documents 대표 문서·하위 문서 탐색과 단일 파일·�
 - Documents에서 상위 문서와 하위 문서를 탐색하고 같은 에디터에서 연다.
 
 ### 범위
+
+- 상위 문서 이름과 펼침 화살표는 같은 하위 목록 캐시·진행 중 요청을 공유한다. 재조회 중에도 기존 문서를 유지하고, 대량 목록은 화면 주변 행을 표시한다. 대표 본문·고정 행·계층선·키보드 탐색과 화면 밖 탭 위치 표시의 동작은 [탐색기 구현 계약](파일·폴더%20탐색과%20조작.md#구현-내용)을 따른다.
 
 - 펼친 폴더·상위 문서 행은 스크롤 목록 상단에 단계별로 쌓이며 각 하위 목록 끝에서 밀려난다. 고정 행 사이에 틈을 두지 않고 조상 계층 세로선도 계속 표시한다.
 

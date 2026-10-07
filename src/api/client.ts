@@ -338,7 +338,7 @@ export class MissingDirectoryError extends Error {
 }
 
 export async function browseExternalEntries(path = ''): Promise<ExternalEntriesResult> {
-  const response = await mewFetch(`/api/fs/entries?path=${encodeURIComponent(path)}`)
+  const response = await mewFetch(`/api/fs/entries?path=${encodeURIComponent(path)}&size=0`)
   if (response.status === 404) {
     const body = await response.clone().json().catch(() => null)
     if (body?.code === 'MISSING_DIRECTORY' && typeof body.missing?.path === 'string'

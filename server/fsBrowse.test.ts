@@ -108,3 +108,19 @@ test('프로젝트 브라우저는 새 폴더를 만들고 Git 저장소를 표�
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+
+test('explorer listing skips regular-file stat while preserving symlink type and default sizes', async t => {
+  const root = fixture()
+  try {
+    const note = path.join(root, 'note.txt')
+    fs.symlinkSync(note, path.join(root, 'linked-note'))
+    const original = fs.promises.stat.bind(fs.promises)
+    const stat = t.mock.method(fs.promises, 'stat', async (...args: Parameters<typeof fs.promises.stat>) => original(...args))
+    const result = await listEntries(root, { includeSize: false })
+    assert.equal(result.entries.find(entry => entry.name === 'note.txt')?.size, null)
+    assert.equal(result.entries.find(entry => entry.name === 'linked-note')?.type, 'file')
+    assert.equal(stat.mock.calls.filter(call => call.arguments[0] === note).length, 0)
+    assert.equal((await listEntries(root)).entries.find(entry => entry.name === 'note.txt')?.size, 5)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})

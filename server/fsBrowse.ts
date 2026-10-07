@@ -89,7 +89,7 @@ export function listDirs(dir: string): BrowseResult {
 }
 
 /** 서버 파일 탐색기용 한 단계 목록. 숨김·빌드 폴더를 포함해 OS 사용자가 볼 수 있는 항목을 그대로 돌려준다. */
-export async function listEntries(input: string): Promise<BrowseEntriesResult> {
+export async function listEntries(input: string, options: { includeSize?: boolean } = {}): Promise<BrowseEntriesResult> {
   const dir = resolveBrowsePath(input)
   let entries: fs.Dirent[]
   try {
@@ -114,7 +114,7 @@ export async function listEntries(input: string): Promise<BrowseEntriesResult> {
       } catch {
         type = null
       }
-    } else if (type === 'file') {
+    } else if (type === 'file' && options.includeSize !== false) {
       try { size = (await fs.promises.stat(abs)).size } catch { size = null }
     }
     if (type) result.push({ name: entry.name, path: abs, type, size, ...(type === 'dir' ? { git: fs.existsSync(path.join(abs, '.git')) } : {}) })

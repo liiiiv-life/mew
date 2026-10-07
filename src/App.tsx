@@ -318,6 +318,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const mobilePanelStackRestorePendingRef = useRef<string | null>(null)
   const mobilePanelStackRestoredRootRef = useRef<string | null>(null)
   const [treeInvalidation, setTreeInvalidation] = useState<{ n: number; project: string; version: number; parents: string[] }>({ n: 0, project: '', version: 0, parents: [] })
+  const [treeRefreshSignal, setTreeRefreshSignal] = useState(0)
   const [focusedWorkspacePanel, setFocusedWorkspacePanel, focusWorkspacePanel] = useFocusedWorkspacePanel()
   useEffect(() => captureAppKeyboardLock(), [])
   const [desktopMode, setDesktopMode] = useState(isDesktop)
@@ -695,7 +696,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       return (signal.parents.includes('') ? read(signal.project) : Promise.resolve()).catch(console.error)
     }
     const scopes = new Set([WORKSPACE_PROJECT, DEFAULT_PROJECT, project])
-    return Promise.all([...scopes].map(read)).then(() => undefined).catch(console.error)
+    return Promise.all([...scopes].map(read)).then(() => {
+      if (epoch === workspaceEpochRef.current) setTreeRefreshSignal(value => value + 1)
+    }).catch(console.error)
   }, [project])
 
   useEffect(() => {
@@ -2281,6 +2284,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                       canUseGit={caps.git}
                       loadChildren={isGuest || docsExpanded ? loadDocsTreeChildren : loadWorkspaceTreeChildren}
                       treeInvalidation={treeInvalidation}
+                      refreshSignal={treeRefreshSignal}
                       roots={!isGuest && !docsExpanded && <>
                         <button type="button" data-path="@docs" title={workspaceInfoRef.current?.docsPath}
                           onClick={() => { setDocsExpanded(true); sidebarCreate.selectDirectory('docs', '') }}

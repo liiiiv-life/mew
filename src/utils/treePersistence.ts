@@ -112,11 +112,21 @@ export function readTreeCenter(list: HTMLElement): TreeCenterAnchor | undefined 
   }
 }
 
+export const TREE_MATERIALIZE_EVENT = 'mew:tree-materialize'
+export type TreeMaterializeDetail = { tree: string; path: string; fraction?: number }
+
+export function materializeTreePath(list: HTMLElement, detail: TreeMaterializeDetail): boolean {
+  const event = new CustomEvent(TREE_MATERIALIZE_EVENT, { detail, cancelable: true })
+  list.dispatchEvent(event)
+  return event.defaultPrevented
+}
+
 export function restoreTreeCenter(list: HTMLElement, anchor: TreeCenterAnchor): boolean {
   const row = [...list.querySelectorAll<HTMLElement>('[data-path]')].find((item) => (
     item.dataset.path === anchor.path && item.closest<HTMLElement>('[data-tree-key]')?.dataset.treeKey === anchor.tree
   ))
-  if (!row || !row.getBoundingClientRect().height || !list.clientHeight) return false
+  if (!row) return materializeTreePath(list, anchor)
+  if (!row.getBoundingClientRect().height || !list.clientHeight) return false
   const rect = row.getBoundingClientRect()
   list.scrollTop += rect.top + rect.height * anchor.fraction - list.getBoundingClientRect().top - list.clientHeight / 2
   return true

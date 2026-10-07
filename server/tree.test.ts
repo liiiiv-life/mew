@@ -77,12 +77,22 @@ test('비동기 트리는 동기 트리와 같은 가시성·정렬 결과를 �
 })
 
 test('한 단계 트리는 요청한 폴더의 직접 자식만 돌려준다', async () => {
-  const root = await listTreeDirAsync(DOCS)
-  assert.ok(root.every((node) => !node.path.includes('/')))
-  const decisions = await listTreeDirAsync(DOCS, 'decisions')
-  assert.ok(decisions.length > 0)
-  assert.ok(decisions.every((node) => node.path.startsWith('decisions/') && node.path.split('/').length === 2))
-  assert.ok(decisions.every((node) => node.children === undefined), '자식 재귀 탐색은 하지 않는다')
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-lazy-tree-'))
+  fs.mkdirSync(path.join(workspace, 'docs', 'folder', 'nested'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'docs', 'folder', 'note.md'), '# note')
+  fs.writeFileSync(path.join(workspace, 'docs', 'folder', 'nested', 'deep.md'), '# deep')
+  setWorkspaceRoot(workspace)
+  try {
+    const root = await listTreeDirAsync(DOCS)
+    assert.ok(root.every(node => !node.path.includes('/')))
+    const children = await listTreeDirAsync(DOCS, 'folder')
+    assert.equal(children.length, 2)
+    assert.ok(children.every(node => node.path.startsWith('folder/') && node.path.split('/').length === 2))
+    assert.ok(children.every(node => node.children === undefined), '자식 재귀 탐색은 하지 않는다')
+  } finally {
+    setWorkspaceRoot(WORKSPACE_ROOT)
+    fs.rmSync(workspace, { recursive: true, force: true })
+  }
 })
 
 // ── GET /tree 배선 ────────────────────────────────────────────────────────────
