@@ -62,7 +62,11 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
     else return false
     return true
   }
-  useOverlayDismiss(() => { if (!dismissInner()) close() }, { closeOnBack: () => !dismissInner(), closeOnEscape: event => !(connected && !install.open && !settingsOpen && !pasteOpen && !helpOpen && (event.target === stage.current || event.target === root.current)) })
+  useOverlayDismiss(() => { if (!dismissInner()) close() }, { closeOnBack: () => !dismissInner(), closeOnEscape: event => {
+    if (connected && !install.open && !settingsOpen && !pasteOpen && !helpOpen && (event.target === stage.current || event.target === root.current)) return false
+    if (dismissInner()) { event.preventDefault(); event.stopPropagation() }
+    return false
+  } })
   const [installable, setInstallable] = useState(false)
   const install = useDesktopInstall(installable, () => setAttempt(value => value + 1))
   useEffect(() => {
@@ -187,7 +191,7 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
   const sendKey = (event: KeyboardEvent, down: boolean) => {
     event.stopPropagation()
     if (down && event.isTrusted && !event.nativeEvent.isComposing && KEY_CODES[event.code] && (event.target === stage.current || event.target === root.current)) setKeyboardDetected(true)
-    if (event.key === 'Escape') { if (down) { if (!dismissInner()) close() }; return }
+    if (event.key === 'Escape') { if (down) dismissInner(); return }
     if (event.key === 'F6') { event.preventDefault(); if (down) root.current?.querySelector<HTMLButtonElement>('.desktop-tools button')?.focus(); return }
     // Only the actual viewport takes remote keyboard input; the toolbar remains accessible.
     if (event.target !== stage.current && event.target !== root.current) return

@@ -267,6 +267,10 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
     await slider.fill('3')
     await page.keyboard.press('Escape')
     assert.equal(await page.locator('.remote-desktop').count(), 1, 'Escape closes settings before the desktop')
+    await page.locator('.desktop-tools button').first().focus()
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    assert.equal(await page.locator('.remote-desktop').count(), 1, 'repeated toolbar Escape keeps the desktop open')
     await clear(); await timedStroke(10, 50)
     if (!nativeCapture) assert.ok(await page.evaluate('window.inputEvents.some(e=>e[0]==="move"&&Math.abs(e[1]-60)<=1)'), 'default gain is three times the old movement')
 

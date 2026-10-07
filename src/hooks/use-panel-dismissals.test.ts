@@ -28,7 +28,7 @@ const [{ createElement, useState, act }, { createRoot }, { useWorkspacePanelDism
   import('./use-panel-dismissals.ts'),
 ])
 
-const ids = ['sidebar', 'chat', 'agent', 'terminal', 'browser', 'git', 'android', 'features'] as const
+const ids = ['sidebar', 'chat', 'agent', 'terminal', 'browser', 'git', 'android', 'features', 'memo', 'tasks', 'debugger'] as const
 type PanelId = (typeof ids)[number]
 
 function Harness({ closed }: { closed: PanelId[] }) {
@@ -52,7 +52,7 @@ function Harness({ closed }: { closed: PanelId[] }) {
     browser: panel('browser'),
     android: panel('android'),
     git: panel('git'),
-    features: panel('features'),
+    features: panel('features'), memo: panel('memo'), tasks: panel('tasks'), debugger: panel('debugger'),
   }, stack.at(-1) ?? null)
   return null
 }
@@ -69,11 +69,7 @@ function SidebarSearchHarness({ closed }: { closed: string[] }) {
     sidebar: {
       open,
       close: shut,
-      closeOnEscape: () => {
-        if (!query) return true
-        setQuery('')
-        return false
-      },
+      onEscape: () => { setQuery('') },
     },
     chat: closedPanel,
     agent: closedPanel,
@@ -81,14 +77,14 @@ function SidebarSearchHarness({ closed }: { closed: string[] }) {
     browser: closedPanel,
     android: closedPanel,
     git: closedPanel,
-    features: closedPanel,
+    features: closedPanel, memo: closedPanel, tasks: closedPanel, debugger: closedPanel,
   }, 'sidebar')
   return createElement('span', { 'data-query': query })
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-test('only the foreground browser delegates Back; other panels and Escape still close', async () => {
+test('only the foreground browser delegates Back; Escape keeps panels open', async () => {
   const closed: string[] = []
   let navigations = 0
   function BrowserBackHarness({ foreground, canGoBack }: { foreground: 'browser' | 'agent'; canGoBack: boolean }) {
@@ -96,6 +92,7 @@ test('only the foreground browser delegates Back; other panels and Escape still 
     useWorkspacePanelDismissals({
       sidebar: panel('sidebar'), chat: panel('chat'), terminal: panel('terminal'),
       agent: panel('agent'), git: panel('git'), android: panel('android'), features: panel('features'),
+      memo: panel('memo'), tasks: panel('tasks'), debugger: panel('debugger'),
       browser: { ...panel('browser'), closeOnBack: () => {
         if (!canGoBack) return true
         navigations++
@@ -118,7 +115,7 @@ test('only the foreground browser delegates Back; other panels and Escape still 
     assert.equal(navigations, 2)
     await act(async () => { root.render(createElement(BrowserBackHarness, { foreground: 'browser', canGoBack: true })); await settle() })
     await act(async () => { document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await settle() })
-    assert.deepEqual(closed, ['agent', 'browser'])
+    assert.deepEqual(closed, ['agent'])
     assert.equal(navigations, 2)
   } finally {
     await act(async () => { root.unmount(); await settle() })
@@ -126,7 +123,7 @@ test('only the foreground browser delegates Back; other panels and Escape still 
   }
 })
 
-test('App 보조 패널은 뒤로가기·Esc로 시각적 맨 위부터 하나씩 닫힌다', async () => {
+test('모든 App 패널은 Esc로 유지되고 모바일 뒤로가기로만 하나씩 닫힌다', async () => {
   const closed: PanelId[] = []
   const host = document.createElement('div')
   document.body.appendChild(host)
@@ -137,21 +134,17 @@ test('App 보조 패널은 뒤로가기·Esc로 시각적 맨 위부터 하나�
     await settle()
   })
 
-  await act(async () => {
-    window.dispatchEvent(new window.Event('popstate'))
-    await settle()
-  })
-  assert.deepEqual(closed, ['features'], '모바일 뒤로가기는 맨 위 기능 패널 하나만 닫는다')
-
-  for (const expected of ['android', 'git', 'browser', 'terminal', 'agent', 'chat', 'sidebar'] as PanelId[]) {
-    await act(async () => {
-      document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-      await settle()
-    })
-    assert.equal(closed.at(-1), expected)
+  for (const expected of [...ids].reverse()) {
+    for (let i = 0; i < 2; i++) {
+      const event = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      await act(async () => { document.body.dispatchEvent(event); await settle() })
+      assert.equal(event.defaultPrevented, false, '콘텐츠가 Esc를 계속 받을 수 있어야 한다')
+    }
+    assert.equal(closed.includes(expected), false, `${expected} 패널은 Esc로 닫히지 않는다`)
+    await act(async () => { window.dispatchEvent(new window.Event('popstate')); await settle() })
+    assert.equal(closed.at(-1), expected, '뒤로가기는 전면 패널 하나만 닫는다')
   }
-
-  assert.deepEqual(closed, ['features', 'android', 'git', 'browser', 'terminal', 'agent', 'chat', 'sidebar'])
+  assert.deepEqual(closed, [...ids].reverse())
   await act(async () => {
     root.unmount()
     await settle()
@@ -159,7 +152,7 @@ test('App 보조 패널은 뒤로가기·Esc로 시각적 맨 위부터 하나�
   host.remove()
 })
 
-test('파일 검색 중 첫 Esc는 검색만 취소하고, 다음 Esc가 사이드바를 닫는다', async () => {
+test('Esc는 파일 검색만 취소하고 반복해도 사이드바를 유지한다', async () => {
   const closed: string[] = []
   const host = document.createElement('div')
   document.body.appendChild(host)
@@ -181,7 +174,7 @@ test('파일 검색 중 첫 Esc는 검색만 취소하고, 다음 Esc가 사이�
     document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
     await settle()
   })
-  assert.deepEqual(closed, ['sidebar'])
+  assert.deepEqual(closed, [])
 
   await act(async () => {
     root.unmount()

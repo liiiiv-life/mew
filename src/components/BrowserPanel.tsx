@@ -48,7 +48,7 @@ export function BrowserPanel({ onClose, standalone = false, visible = true, next
     return true
   }
   useImperativeHandle(backNavigationRef, () => navigateBack)
-  useOverlayDismiss(standalone && visible ? onClose : false, { closeOnBack: () => !navigateBack(), escapePhase: 'bubble' })
+  useOverlayDismiss(standalone && visible ? onClose : false, { closeOnBack: () => !navigateBack(), closeOnEscape: () => false, escapePhase: 'bubble' })
   const activate = (id: string) => { setActiveId(id); dock?.select(groupFor(id), id) }
   const addTab = (group: string) => {
     if (!loaded || !groupTabs(group).length) return

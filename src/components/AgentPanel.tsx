@@ -120,7 +120,6 @@ import {
   agentQueueEditMaxHeight,
   resizedHeightFromTop,
 } from '../utils/agentInputLayout'
-import { outsideTerminal } from '../utils/terminalFocus'
 import { nextLocalMinuteValue } from '../utils/scheduleTime'
 import {
   foldEvents,
@@ -1586,8 +1585,8 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
   // 탭을 닫을 때 그 탭의 WS로 close_session을 보내야 한다 — 창을 닫는 것과 달리 세션을 끝내는 뜻이다
   const sendersRef = useRef(new Map<string, (payload: Record<string, unknown>) => void>())
 
-  // 셸/TUI 안의 Esc는 프로그램 입력이다. 터미널 밖에 포커스가 있을 때만 패널 닫기로 쓴다.
-  useOverlayDismiss(!dock && onClose, { escapePhase: 'bubble', closeOnEscape: outsideTerminal })
+  // Esc는 콘텐츠 입력으로 남기고 패널은 모바일 뒤로가기로 닫는다.
+  useOverlayDismiss(!dock && onClose, { escapePhase: 'bubble', closeOnEscape: () => false })
 
   useEffect(() => {
     // 계정 원장이 SSoT이고 localStorage는 첫 화면용 fallback뿐이다. 전사·본문 캐시가 브라우저

@@ -100,7 +100,6 @@ import { useTabs, type StoredTabs } from './hooks/useTabs'
 import { dropZoneAt, paneIds, type DropSide, type DropZone } from './utils/paneTree'
 import { usePresence } from './hooks/usePresence'
 import { usePanelWidth } from './hooks/usePanelWidth'
-import { outsideTerminal } from './utils/terminalFocus'
 import {
   WORKSPACE_PANEL_IDS,
   bringMobilePanelToFront,
@@ -535,7 +534,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   const paneEls = useRef(new Map<string, HTMLElement>())
   // 탭 줄도 드롭 자리다 — 다른 칸의 탭 줄에 놓으면 그 칸으로 **옮기기**(분할 아님)
   const paneBarEls = useRef(new Map<string, HTMLElement>())
-  // 파일 검색어는 FileTree가 소유하지만, Esc로 사이드바를 닫을지는 App의 오버레이 스택이 결정한다.
+  // 파일 검색어는 FileTree가 소유하고, App의 오버레이 스택에서 Esc 검색 취소를 연결한다.
   const sidebarSearchCancelRef = useRef<(() => boolean) | null>(null)
   // 프로젝트 검색 결과를 클릭해 파일을 연 뒤, 그 파일 내용이 로드되면 해당 위치로 점프시키기 위한 대기 정보
   const [pendingReveal, setPendingReveal] = useState<{ path: string; line: number; query?: string } | null>(null)
@@ -1145,21 +1144,18 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     else apply()
   }
 
-  // Esc·안드로이드 뒤로가기로 열린 것을 한 겹씩 닫는다 — 모달·팝업도 같은 스택에 등록돼 있어
-  // (useOverlayDismiss) 그쪽이 떠 있으면 언제나 먼저 닫히고, 패널은 마지막에 닫힌다.
-  // App이 직접 소유하는 보조 패널은 여기 한 번에 등록한다. 모달·드롭다운은 각 컴포넌트가 같은 전역
-  // 오버레이 스택에 등록하므로, Esc·모바일 뒤로가기는 가장 나중에 연 창 하나만 닫는다.
+  // App 소유 패널은 모바일 뒤로가기 스택에 함께 등록한다.
+  // Esc는 패널을 유지하며, 위에 열린 모달·드롭다운이나 콘텐츠 취소에만 사용한다.
   const browserBackRef = useRef<(() => boolean) | null>(null)
   const navigateWorkspaceBack = useWorkspacePanelDismissals({
     sidebar: {
       open: sidebarOpen,
       close: () => closeWorkspacePanel('sidebar'),
-      // 검색 중이면 첫 Esc는 FileTree가 소비한다. 검색이 비어 있을 때 다음 Esc가 패널을 닫는다.
-      closeOnEscape: () => !(sidebarSearchCancelRef.current?.() ?? false),
+      onEscape: () => { sidebarSearchCancelRef.current?.() },
     },
     chat: { open: chatOpen, close: () => closeWorkspacePanel('chat') },
-    terminal: { open: terminalOpen, close: () => closeWorkspacePanel('terminal'), closeOnEscape: outsideTerminal },
-    agent: { open: agentOpen, close: () => closeWorkspacePanel('agent'), closeOnEscape: outsideTerminal },
+    terminal: { open: terminalOpen, close: () => closeWorkspacePanel('terminal') },
+    agent: { open: agentOpen, close: () => closeWorkspacePanel('agent') },
     browser: { open: browserOpen, close: () => closeWorkspacePanel('browser'), closeOnBack: () => !browserBackRef.current?.() },
     git: { open: gitOpen, close: () => closeWorkspacePanel('git') },
     android: { open: androidOpen, close: () => closeWorkspacePanel('android') },
@@ -1610,7 +1606,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       openFocusedTab(e)
     }
     function handleKeyDown(e: KeyboardEvent) {
-      // Esc는 useOverlayDismiss 스택이 capture 단계에서 처리한다 (모달 → 터미널 → 사이드바 순)
+      // Esc는 모달·팝업 스택 또는 패널 콘텐츠에서 처리한다.
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
         if (!isOwner) return
         e.preventDefault()
