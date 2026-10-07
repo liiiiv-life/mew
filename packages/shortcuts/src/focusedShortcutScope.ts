@@ -26,14 +26,16 @@ function scopeContainsFocus(scope: FocusedShortcutScope, event: KeyboardEvent): 
 }
 
 /**
- * 포커스를 가진 가장 안쪽 등록 표면에 shortcut을 전달한다.
+ * 포커스를 가진 표면 중 해당 행동을 등록한 가장 안쪽 표면에 shortcut을 전달한다.
  * false여도 해당 표면에 포커스가 있다는 사실은 유지한다. 다른 표면의 탭을 닫지 않는다.
  */
 export function dispatchFocusedShortcut(shortcut: string, event: KeyboardEvent): 'handled' | 'unhandled-in-scope' | 'no-scope' {
   const matching = [...focusedShortcutScopes].filter((scope) => scopeContainsFocus(scope, event))
   if (matching.length === 0) return 'no-scope'
-  const scope = matching.find((candidate) => !matching.some((other) => other !== candidate && candidate.element.contains(other.element)))
-    ?? matching[matching.length - 1]
+  const registered = matching.filter((scope) => scope.handlers()[shortcut])
+  if (registered.length === 0) return 'unhandled-in-scope'
+  const scope = registered.find((candidate) => !registered.some((other) => other !== candidate && candidate.element.contains(other.element)))
+    ?? registered[registered.length - 1]
   return scope.handlers()[shortcut]?.(event) ? 'handled' : 'unhandled-in-scope'
 }
 
@@ -45,6 +47,16 @@ export function closeFocusedTab(event: KeyboardEvent, closeEditorTab: () => void
   const target = event.target instanceof HTMLElement ? event.target : document.activeElement
   if (target instanceof HTMLElement && target.closest('[role="dialog"], [aria-modal="true"]')) return
   if (dispatchFocusedShortcut('closeTab', event) === 'no-scope') closeEditorTab()
+}
+
+/** 새 탭 행동이 등록된 표면에서는 편집기·PTY에 키를 전달하지 않는다. */
+export function openFocusedTab(event: KeyboardEvent): boolean {
+  const target = event.target instanceof HTMLElement ? event.target : document.activeElement
+  const blocked = event.repeat || event.isComposing || target?.closest('[role="dialog"], [aria-modal="true"]')
+  if (!blocked && dispatchFocusedShortcut('newTab', event) !== 'handled') return false
+  event.preventDefault()
+  event.stopImmediatePropagation()
+  return true
 }
 
 /** React 표면의 루트 ref를 포커스 기반 단축키 대상으로 등록한다. */

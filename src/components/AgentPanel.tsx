@@ -981,11 +981,14 @@ function AgentTabBar({
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
   // 문서 탭·터미널 탭과 같은 훅 — 꾹 눌러 끌면 순서 바꾸기, 그냥 끌면 탭 줄 굴리기
   const scopeRef = useRef<HTMLDivElement>(null)
-  useFocusedShortcutScope(scopeRef, { closeTab: () => { if (!activeId || pickerOpen) return false; onCloseTab(activeId); return true } })
+  useFocusedShortcutScope(scopeRef, {
+    closeTab: () => { if (!activeId || pickerOpen) return false; onCloseTab(activeId); return true },
+    newTab: group?.startsWith('terminal') ? undefined : () => { onAdd(); return true },
+  })
   const dock = useDock()
   const drag = useDragReorder({ onReorder, immediateMouseDrag: true, onDragMove: (index, x, y) => { if (group && tabs[index]) dock?.preview(group, tabs[index].id, x, y) }, onDrop: (index, x, y) => { if (group && tabs[index]) dock?.drop(group, tabs[index].id, x, y) } })
   return (
-    <div data-dock-tab-bar ref={scopeRef} className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
+    <div data-dock-tab-bar data-agent-tab-bar={group ?? ''} tabIndex={-1} ref={scopeRef} className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       {group && <DockGrip group={group} />}
       <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center overflow-x-auto">
         {tabs.length === 0 && <PanelTitle kind={group?.startsWith('terminal') ? 'terminal' : 'agent'} />}
@@ -1535,9 +1538,22 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
     if (foregroundKind === 'agent' || foregroundKind === 'terminal') setFocusedGroup((group) => dock?.desktop !== false && group.startsWith(foregroundKind) ? group : foregroundKind)
   }, [foregroundKind, dock?.desktop])
   const shortcutScopeRef = useRef<HTMLDivElement>(null)
+  const closingFocusGroup = useRef<string | null>(null)
   const tabsKey = agentTabStorageKey(TABS_KEY, workspacePath)
   const activeTabKey = agentTabStorageKey(ACTIVE_TAB_KEY, workspacePath)
   const [tabs, setTabs] = useState<AgentTab[]>(() => loadTabs(workspacePath))
+  useEffect(() => {
+    const group = closingFocusGroup.current
+    if (group === null) return
+    const host = dock?.host ?? shortcutScopeRef.current
+    const bars = Array.from(host?.querySelectorAll<HTMLElement>('[data-agent-tab-bar]') ?? [])
+    const kind = group.startsWith('terminal') ? 'terminal' : 'agent'
+    const target = bars.find(bar => bar.dataset.agentTabBar === group)
+      ?? bars.find(bar => bar.dataset.agentTabBar === kind)
+    if (!target?.checkVisibility({ visibilityProperty: true }) || target.closest('[inert]')) return
+    closingFocusGroup.current = null
+    target.focus({ preventScroll: true })
+  }, [tabs, dock?.host, dock?.rects])
   const [pickerRequested, setPickerOpen] = useState(false)
   const [tabsSynced, setTabsSynced] = useState(false)
   const pickerOpen = pickerRequested || (!docked && tabsSynced && tabs.length === 0)
@@ -1742,6 +1758,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
   const finishCloseTab = (id: string) => {
     const closing = tabs.find((tab) => tab.id === id)
     if (!closing) return
+    closingFocusGroup.current = dock?.groupFor(closing.runtime === 'tmux' ? 'terminal' : 'agent', id) ?? ''
     if (closing.runtime && runtimeOf(closing.runtime).surface === 'terminal') {
       void stopAgentTerminal(closing.runtime, closing.id).catch(console.error)
     } else {
@@ -1809,12 +1826,15 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
     setOpened((previous) => ids.every((id) => previous.has(id)) ? previous : new Set([...previous, ...ids]))
   }, [visibleTabIds, tabsSynced])
 
-  // App은 키 조합만 판정하고, 실제 닫을 탭은 포커스된 표면이 맡는다.
-  useFocusedShortcutScope(shortcutScopeRef, { closeTab: () => {
-    if (!focusedActiveId) return false
-    closeTab(focusedActiveId)
-    return true
-  } })
+  // App은 키 조합만 판정하고, 실제 탭 행동은 포커스된 표면이 맡는다.
+  useFocusedShortcutScope(shortcutScopeRef, {
+    newTab: () => { addTab(); return true },
+    closeTab: () => {
+      if (!focusedActiveId) return false
+      closeTab(focusedActiveId)
+      return true
+    },
+  })
 
   // 화면 위 40% 좌우 스와이프로 탭 전환 — 터미널·에디터와 같은 손짓 (우→좌면 오른쪽 탭, 좌→우면 왼쪽 탭)
   const switchTab = (dir: 'left' | 'right') => {
@@ -1956,6 +1976,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
           onRename={renameTab} onReorder={(from, to) => { const a = tabs.findIndex((tab) => tab.id === list[from]?.id), b = tabs.findIndex((tab) => tab.id === list[to]?.id); if (a >= 0 && b >= 0) reorderTabs(a, b) }}
           onCloseTab={closeTab} onClosePanel={() => { if (!dock.desktop || !dock.closeGroup(group)) (terminal ? onCloseTerminal ?? onClose : onClose)() }} />
         {(!tabsSynced || picking || terminal && (!list.length || openRuntimeError)) && <DockInlineBody group={group} className="relative flex min-h-0 flex-1 flex-col bg-surface-deep">
+        <AgentDockContent onAdd={terminal ? undefined : () => { focusGroup(group); setPickerGroup(group); setPickerOpen(true) }}>
         {!tabsSynced && (() => {
           return !terminal ? <AgentRestoringView /> : <div className="px-4 py-3 text-xs text-ink-muted" aria-busy="true">{uiText("불러오는 중…")}</div>
         })()}
@@ -1966,6 +1987,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
           <RuntimePicker onSelect={(runtime) => addRuntimeTab(runtime, undefined, group)} onSelectSet={(set) => addSetTab(set, group)} />
         </div>}
         {terminal && openRuntimeError && <PanelNotice>{openRuntimeError}</PanelNotice>}
+        </AgentDockContent>
         </DockInlineBody>}
       </DockPanel>
     })}
@@ -1973,7 +1995,7 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
       const group = dock.groupFor(tab.runtime === 'tmux' ? 'terminal' : 'agent', tab.id)
       const active = (tab.runtime === 'tmux' ? terminalOpen : agentOpen) && groupActive(group) === tab.id && !(pickerOpen && pickerGroup === group)
       return <DockBody key={`${tab.id}:${tab.runtime}:${tab.cwd}`} group={group} active={active} onFocus={() => focusGroup(group)}>
-        <AgentDockContent onClose={() => closeTab(tab.id)}>{renderSession(tab, active && focusedGroup === group, active)}</AgentDockContent>
+        <AgentDockContent onClose={() => closeTab(tab.id)} onAdd={tab.runtime === 'tmux' ? undefined : () => { focusGroup(group); setPickerGroup(group); setPickerOpen(true) }}>{renderSession(tab, active && focusedGroup === group, active)}</AgentDockContent>
       </DockBody>
     })}
   </>
@@ -2026,10 +2048,13 @@ export function AgentPanel({ requestedPicker = false, onPickerRuntimeChosen, onR
   )
 }
 
-function AgentDockContent({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+function AgentDockContent({ children, onClose, onAdd }: { children: ReactNode; onClose?: () => void; onAdd?: () => void }) {
   useUiLocale()
   const ref = useRef<HTMLDivElement>(null)
-  useFocusedShortcutScope(ref, { closeTab: () => { onClose(); return true } })
+  useFocusedShortcutScope(ref, {
+    closeTab: () => { if (!onClose) return false; onClose(); return true },
+    newTab: onAdd ? () => { onAdd(); return true } : undefined,
+  })
   return <div ref={ref} className="flex h-full min-h-0 flex-col" onMouseDown={dropOutsideFocus} onClick={dropInputFocusAfterPress}>{children}</div>
 }
 

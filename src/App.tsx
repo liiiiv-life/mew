@@ -90,7 +90,7 @@ import type { DockState } from './utils/dock-layout'
 import { AndroidPanel } from './components/AndroidPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { FileHistoryModal } from './components/FileHistoryModal'
-import { closeFocusedTab, getBinding, matchesShortcut } from '@mew/shortcuts'
+import { closeFocusedTab, openFocusedTab, getBinding, matchesShortcut } from '@mew/shortcuts'
 import { ConfirmDialog, HoverTipLayer, SelectField, hasDirPathDrag, hasPathDrag, pathFromDrag, useToast } from '@mew/ui'
 import { EditorPane, type PaneHandle } from './components/EditorPane'
 import { TermButtonBar } from './components/TermButtonBar'
@@ -1605,6 +1605,10 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       if (!matchesShortcut(e, getBinding('closeTab')) && !matchesShortcut(e, getBinding('closeTabAlt'))) return
       closeFocusedTab(e, () => { if (activePath) closeTab(activePath) })
     }
+    function handleFocusedNewTab(e: KeyboardEvent) {
+      if (!matchesShortcut(e, getBinding('newTab'))) return
+      openFocusedTab(e)
+    }
     function handleKeyDown(e: KeyboardEvent) {
       // Esc는 useOverlayDismiss 스택이 capture 단계에서 처리한다 (모달 → 터미널 → 사이드바 순)
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
@@ -1718,9 +1722,11 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
       }
     }
     window.addEventListener('keydown', handleCloseTab, true)
+    window.addEventListener('keydown', handleFocusedNewTab, true)
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleCloseTab, true)
+      window.removeEventListener('keydown', handleFocusedNewTab, true)
       window.removeEventListener('keydown', handleKeyDown)
     }
     // 보조창 열림 상태는 Ctrl+L이 어디로 보낼지 고를 때 읽는다 — 닫힌 창으로 보내지 않게 최신 값이어야 한다

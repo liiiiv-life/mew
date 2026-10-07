@@ -110,3 +110,36 @@ test('확인창에서 탭 닫기 키를 다시 눌러도 배경 탭을 닫지 �
     assert.equal(closed, false)
   } finally { dialog.remove() }
 })
+
+
+test('중첩된 표면은 없는 새 탭 행동을 상위에서 처리하고 명시적 거부는 유지한다', async () => {
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  let opened = 0
+  let childHandler: (() => boolean) | undefined
+  function Child() {
+    const ref = createRef<HTMLDivElement>()
+    useFocusedShortcutScope(ref, { closeTab: () => true, newTab: childHandler })
+    return createElement('div', { ref }, createElement('input'))
+  }
+  function Parent() {
+    const ref = createRef<HTMLDivElement>()
+    useFocusedShortcutScope(ref, { newTab: () => { opened++; return true } })
+    return createElement('div', { ref }, createElement(Child))
+  }
+  try {
+    await act(async () => root.render(createElement(Parent)))
+    host.querySelector('input')!.focus()
+    assert.equal(dispatchFocusedShortcut('newTab', new window.KeyboardEvent('keydown')), 'handled')
+    assert.equal(opened, 1)
+    childHandler = () => false
+    await act(async () => root.render(createElement(Parent)))
+    host.querySelector('input')!.focus()
+    assert.equal(dispatchFocusedShortcut('newTab', new window.KeyboardEvent('keydown')), 'unhandled-in-scope')
+    assert.equal(opened, 1)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
