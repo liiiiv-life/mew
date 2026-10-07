@@ -1227,6 +1227,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   if (caps.agent) mobileDockPanels.push('agent')
   if (caps.terminal) mobileDockPanels.push('terminal')
   if (caps.git) mobileDockPanels.push('git')
+  if (caps.browser) mobileDockPanels.push('browser')
   if (caps.agent && rootProjectPath) mobileDockPanels.push('features')
   if (canDebug && auth.email && rootProjectPath) mobileDockPanels.push('debugger')
   if (caps.filesRead && auth.email && rootProjectPath) mobileDockPanels.push('tasks')
