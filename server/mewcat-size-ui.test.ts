@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { mewpetUiFixture } from './mewpet-ui-fixture.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -69,6 +70,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
   const content = (await Promise.all(files.map(file => fs.readFile(`${root}/${file}`, 'utf8')))).join('\n')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build(content.match(/[A-Za-z0-9_@:/.[\]()%,-]+/g) ?? [])
+  const petFiles = await mewpetUiFixture()
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     for (const mobile of [false, true]) {
@@ -81,9 +83,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       const page = await context.newPage()
       page.setDefaultTimeout(5000)
       await page.clock.install()
+      await petFiles.route(context)
       await page.goto('http://mewcat-size.test/')
       const openMewcat = async () => {
-        await page.getByRole('dialog').getByRole('button', { name: '뮤캣', exact: true }).click()
+        await page.getByRole('dialog').getByRole('button', { name: '뮤펫', exact: true }).click()
         await page.getByRole('slider', { name: '기본 크기' }).waitFor()
       }
       await openMewcat()
@@ -198,5 +201,5 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.deepEqual(errors, [])
       await context.close()
     }
-  } finally { await browser.close() }
+  } finally { await browser.close(); await petFiles.close() }
 })

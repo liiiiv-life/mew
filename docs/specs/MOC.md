@@ -16,5 +16,5 @@ description: "기능 문서로 통합한 이전 Specs의 경로를 유지하고 
 - [에이전트 예약 메시지 — 이동 안내](agent-scheduled-prompts.md)
 - [기능 기반 개발·Markdown 문서 — 이동 안내](feature-development.md)
 - [파일명·내용 검색과 치환 — 이동 안내](file-search.md)
-- [Mewcat 마스코트·알림·휴식 — 이동 안내](mewcat.md)
-- [뮤캣 도우미·대화·Mew 조작 — 이동 안내](mewcat-assistant.md)
+- [Mewpet 마스코트·알림·휴식 — 이동 안내](mewcat.md)
+- [뮤펫 도우미·대화·Mew 조작 — 이동 안내](mewcat-assistant.md)

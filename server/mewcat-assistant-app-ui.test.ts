@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { mewpetUiFixture } from './mewpet-ui-fixture.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -40,6 +41,7 @@ test('Mewcat tools use real App project switching, Documents tabs and reviewed w
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const css = compiler.build([...new Set(app.match(/[A-Za-z0-9_@:/.[\]()%,-]+/g))])
+  const petFiles = await mewpetUiFixture()
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), headless: true, args: ['--no-sandbox'] })
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 700 } })
@@ -78,6 +80,7 @@ test('Mewcat tools use real App project switching, Documents tabs and reviewed w
       return route.fulfill(url.pathname === '/app.js' ? { contentType: 'text/javascript', body: chunk.code } : { contentType: 'text/html', body: `<!doctype html><html><meta charset="utf-8"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>` })
     })
     await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
+    await petFiles.route(page)
     await page.goto('http://helper-app.test/')
     await page.waitForFunction(() => (globalThis as unknown as Fixture).assistant?.projectRoot === '/alpha')
     const run = (action: MewcatAction) => page.evaluate(action => (globalThis as unknown as Fixture).assistant.onAction(action), action)
@@ -96,5 +99,5 @@ test('Mewcat tools use real App project switching, Documents tabs and reviewed w
     await assert.rejects(run({ kind: 'open_project', path: '/missing' }), /MEWCAT_ACTION_FAILED/)
     assert.equal(active, '/beta')
     assert.deepEqual(errors, [])
-  } finally { await browser.close() }
+  } finally { await browser.close(); await petFiles.close() }
 })

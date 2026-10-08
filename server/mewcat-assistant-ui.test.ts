@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { mewpetUiFixture } from './mewpet-ui-fixture.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -44,6 +45,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
   const uiSource = (await Promise.all(['mewcat-assistant.tsx', 'mewcat-resources.tsx', 'mewcat-notifications.tsx'].map(file => fs.readFile(`${root}/src/components/${file}`, 'utf8')))).join(' ')
   const selectionSource = await fs.readFile(`${root}/packages/ui/src/select-field.tsx`, 'utf8')
   const css = compiler.build([...new Set((uiSource + selectionSource).match(/[\w:/.[\]()%,-]+/g) ?? [])])
+  const petFiles = await mewpetUiFixture()
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), headless: true, args: ['--no-sandbox'] })
   try {
     for (const mobile of [false, true]) {
@@ -57,6 +59,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html ${mobile ? '' : 'class="dark"'}><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` })
       })
       await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
+      await petFiles.route(page)
       await page.goto('http://assistant.test/')
       await page.locator('.mewcat-sprite').waitFor()
       await page.locator('.mewcat').click({ position: { x: 24, y: 35 } })
@@ -71,7 +74,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await popup.getByRole('button', { name: '에이전트 연결', exact: true }).click()
       await page.getByRole('button', { name: 'Choose Codex' }).click()
       await page.locator('.mewcat').click({ position: { x: 24, y: 35 } })
-      const input = popup.getByRole('textbox', { name: '뮤 도우미에게 질문' })
+      const input = popup.getByRole('textbox', { name: '뮤펫 도우미에게 질문' })
       await input.waitFor()
       await page.waitForFunction(() => (globalThis as unknown as Fixture).connections === 1)
       await input.fill('메모 앱을 만들고 싶어')
@@ -129,5 +132,5 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.deepEqual(errors, [])
       await page.close()
     }
-  } finally { await browser.close() }
+  } finally { await browser.close(); await petFiles.close() }
 })

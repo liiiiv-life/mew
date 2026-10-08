@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { mewpetUiFixture } from './mewpet-ui-fixture.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -34,6 +35,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const ui = await fs.readFile(`${root}/src/components/mewcat-break.tsx`, 'utf8')
   const css = compiler.build(ui.match(/[A-Za-z0-9_:[\]/.%!#()-]+/g) ?? [])
+  const petFiles = await mewpetUiFixture()
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     for (const mobile of [false, true]) for (const light of [false, true]) {
@@ -44,6 +46,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
       await page.clock.install({ time: new Date('2026-09-18T00:00:00Z') })
       await page.route('http://mewcat-break.test/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html ${light ? '' : 'class="dark"'}><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
       await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
+      await petFiles.route(page)
       await page.goto('http://mewcat-break.test/')
       const toggle = page.getByRole('checkbox', { name: '강제 휴식 사용' })
       await toggle.waitFor()
@@ -148,5 +151,5 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
       assert.deepEqual(errors, [])
       await page.close()
     }
-  } finally { await browser.close() }
+  } finally { await browser.close(); await petFiles.close() }
 })

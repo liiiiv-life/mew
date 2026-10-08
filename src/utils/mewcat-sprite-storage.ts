@@ -1,7 +1,8 @@
 import { remoteStorageName } from '@mew/ui/browser-storage-scope'
 import { uiText } from '@mew/ui/i18n-core'
-import { MEWCAT_ALL_SPRITE_ACTIONS, MEWCAT_SPRITE_ACTIONS, MEWCAT_TRANSITION_ACTIONS, MAX_SPRITE_BYTES, validSpriteDimensions, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from './mewcat-sprites'
-import { MEWCAT_SKINS, type MewcatBuiltinSkin } from './mewcatSkin'
+import { MAX_SPRITE_BYTES, validSpriteDimensions, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from './mewcat-sprites'
+import { MEWPET_ACTIONS, MEWPET_ANIMATIONS, MEWPET_MAX_PACK_BYTES, validMewpetSkinId, type MewpetFileSkin, type MewpetSkinCatalog, type MewpetSprites } from '../../shared/mewpet-skins.ts'
+import { activeRemoteTransport, isRemoteMode, mewFetch } from './remote-transport'
 
 export async function readSpriteImage(blob: Blob, frames = 8): Promise<SpriteImage> {
   if (!['image/png', 'image/webp'].includes(blob.type) || blob.size > MAX_SPRITE_BYTES) throw new Error(uiText('PNG·WebP 이미지를 선택하세요. 파일당 최대 4MB입니다.'))
@@ -51,19 +52,19 @@ export function releaseSpriteSkin(skin: SpriteSkin): void {
 async function prepareSkin(saved: SavedSpriteSkin): Promise<SpriteSkin> {
   const prepared: SpriteStrip[] = []
   try {
-    const sources = { ...saved.sprites }
+    const sources = { ...saved.sprites } as MewpetSprites<SpriteImage>
     for (const action of ['jump', 'fall'] as const) {
       if (!sources[action]) sources[action] = await legacyAirborneImage(sources.struggle, action)
     }
     const entries = []
-    for (const action of MEWCAT_ALL_SPRITE_ACTIONS) {
+    for (const action of MEWPET_ANIMATIONS) {
       const source = sources[action]
       if (!source) continue
       const strip = await prepareSpriteStrip(source)
       prepared.push(strip)
       entries.push([action, strip])
     }
-    if (MEWCAT_SPRITE_ACTIONS.some(action => !sources[action])) throw new Error('missing required sprite')
+    if (MEWPET_ACTIONS.some(action => !sources[action])) throw new Error('missing required sprite')
     return { id: saved.id, name: saved.name, sprites: Object.fromEntries(entries) as SpriteSkin['sprites'] }
   } catch (error) {
     for (const sprite of prepared) URL.revokeObjectURL(sprite.src)
@@ -90,13 +91,14 @@ async function legacyAirborneImage(source: SpriteImage, action: 'jump' | 'fall')
   } finally { image.close() }
 }
 
-type Snapshot = { skins: SpriteSkin[]; loading: boolean; failed: boolean }
-type Store = { snapshot: Snapshot; listeners: Set<() => void>; pending?: Promise<void> }
+export type RegisteredSpriteSkin = SpriteSkin & Pick<MewpetFileSkin, 'revision' | 'managed' | 'translated'> & { sprites: MewpetSprites<SpriteStrip>; sampleUrls: Partial<Record<typeof MEWPET_ANIMATIONS[number], string>>; legacy?: boolean }
+type Snapshot = { skins: RegisteredSpriteSkin[]; loading: boolean; failed: boolean; canManage: boolean; migrationFailed: boolean }
+type Store = { name: string; snapshot: Snapshot; listeners: Set<() => void>; pending?: Promise<void>; watchers: number; generation: number; stop?: () => void }
 const stores = new Map<string, Store>()
 export function spriteStore(): Store {
   const name = remoteStorageName('mewcat-sprite-skins')
   let store = stores.get(name)
-  if (!store) { store = { snapshot: { skins: [], loading: true, failed: false }, listeners: new Set() }; stores.set(name, store) }
+  if (!store) { store = { name, snapshot: { skins: [], loading: true, failed: false, canManage: false, migrationFailed: false }, listeners: new Set(), watchers: 0, generation: 0 }; stores.set(name, store) }
   return store
 }
 function emit(store: Store, snapshot: Snapshot) {
@@ -104,109 +106,179 @@ function emit(store: Store, snapshot: Snapshot) {
   for (const listener of store.listeners) listener()
 }
 
-function openDatabase(): Promise<IDBDatabase> {
-  const name = remoteStorageName('mewcat-sprite-skins')
+function openDatabase(name: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(name, 1)
     request.onupgradeneeded = () => { request.result.createObjectStore('skins', { keyPath: 'id' }) }
-    request.onsuccess = () => {
-      request.result.onversionchange = () => request.result.close()
-      resolve(request.result)
-    }
+    request.onsuccess = () => { request.result.onversionchange = () => request.result.close(); resolve(request.result) }
     request.onerror = () => reject(request.error)
     request.onblocked = () => reject(new Error(uiText('스킨 저장소를 열 수 없습니다.')))
   })
 }
 
-export function loadSpriteSkins(): Promise<void> {
-  const store = spriteStore()
-  if (store.pending) return store.pending
-  if (!store.snapshot.loading && !store.snapshot.failed) return Promise.resolve()
-  store.pending = (async () => {
-    let db: IDBDatabase | undefined
-    try {
-      db = await openDatabase()
-      const saved = await new Promise<SavedSpriteSkin[]>((resolve, reject) => {
-        const tx = db!.transaction('skins', 'readonly')
-        const request = tx.objectStore('skins').getAll()
-        tx.oncomplete = () => resolve(request.result)
-        tx.onerror = tx.onabort = () => reject(tx.error)
-      })
-      const skins: SpriteSkin[] = []
-      let failed = false
-      for (const item of saved) {
-        try {
-          if (!/^custom:[\w-]{1,80}$/.test(item.id) || !item.name?.trim()) throw new Error('invalid skin')
-          skins.push(await prepareSkin(item))
-        } catch { failed = true }
+function captureFetch(): typeof mewFetch {
+  const transport = activeRemoteTransport()
+  if (transport) return (input, init) => transport.fetch(input, init)
+  if (isRemoteMode()) return mewFetch
+  return (input, init) => globalThis.fetch(input, init)
+}
+
+async function requireResponse(response: Response): Promise<Response> {
+  if (response.ok) return response
+  const code = await response.json().then(body => body.error).catch(() => '') as string
+  if (code === 'SKIN_PACK_LIMIT') throw new Error(uiText('스킨 이미지의 합계는 최대 24MB입니다.'))
+  if (code === 'SKIN_FILE_LIMIT') throw new Error(uiText('PNG·WebP 이미지를 선택하세요. 파일당 최대 4MB입니다.'))
+  if (code === 'SKIN_IMAGE_INVALID') throw new Error(uiText('이미지를 읽을 수 없습니다.'))
+  if (code === 'SKIN_MANIFEST_INVALID') throw new Error(uiText('스킨 이름과 일곱 동작의 이미지를 입력하세요.'))
+  throw new Error(uiText('스킨을 저장하지 못했습니다. 서버 연결과 권한을 확인하세요.'))
+}
+
+async function uploadSkin(saved: SavedSpriteSkin, request: typeof mewFetch): Promise<MewpetFileSkin> {
+  const body = new FormData(), frames: Record<string, number> = {}
+  let total = 0
+  for (const action of MEWPET_ANIMATIONS) {
+    const image = (saved.sprites as MewpetSprites<SpriteImage>)[action]
+    if (!image) continue
+    total += image.blob.size
+    frames[action] = image.frames
+    body.append(action, image.blob, `${action}.${image.blob.type === 'image/webp' ? 'webp' : 'png'}`)
+  }
+  if (total > MEWPET_MAX_PACK_BYTES) throw new Error(uiText('스킨 이미지의 합계는 최대 24MB입니다.'))
+  body.append('manifest', JSON.stringify({ name: saved.name, frames }))
+  const response = await requireResponse(await request(`/api/mewpet/skins/${encodeURIComponent(saved.id)}`, { method: 'PUT', body }))
+  return response.json() as Promise<MewpetFileSkin>
+}
+
+function registeredSkin(skin: SpriteSkin, descriptor: MewpetFileSkin): RegisteredSpriteSkin {
+  return { ...skin, sprites: skin.sprites as MewpetSprites<SpriteStrip>, revision: descriptor.revision, managed: descriptor.managed, translated: descriptor.translated, sampleUrls: Object.fromEntries(Object.entries(descriptor.sprites).map(([action, image]) => [action, image.url])) }
+}
+
+async function downloadSkin(descriptor: MewpetFileSkin, request: typeof mewFetch): Promise<RegisteredSpriteSkin> {
+  if (!validMewpetSkinId(descriptor.id) || !descriptor.name?.trim()) throw new Error('invalid skin')
+  const sprites = {} as MewpetSprites<SpriteImage>
+  for (const action of MEWPET_ANIMATIONS) {
+    const source = descriptor.sprites[action]
+    if (!source) continue
+    if (!source.url.startsWith(`/api/mewpet/skins/${encodeURIComponent(descriptor.id)}/${action}?`)) throw new Error('invalid sprite URL')
+    const response = await request(source.url, { cache: 'no-store' })
+    if (!response.ok) throw new Error('sprite unavailable')
+    const image = await readSpriteImage(await response.blob(), source.frames)
+    if (image.width !== source.width || image.height !== source.height) throw new Error('invalid sprite dimensions')
+    sprites[action] = image
+  }
+  return registeredSkin(await prepareSkin({ id: descriptor.id, name: descriptor.name, sprites }), descriptor)
+}
+
+type LegacySkin = SavedSpriteSkin & { mewpetImported?: boolean }
+async function migrateLegacySkins(store: Store, catalog: MewpetSkinCatalog, request: typeof mewFetch): Promise<{ skins: RegisteredSpriteSkin[]; failed: boolean }> {
+  let db: IDBDatabase | undefined
+  const skins: RegisteredSpriteSkin[] = []
+  let failed = false
+  try {
+    if (typeof indexedDB.databases === 'function' && !(await indexedDB.databases()).some(item => item.name === store.name)) return { skins, failed }
+    db = await openDatabase(store.name)
+    const saved = await new Promise<LegacySkin[]>((resolve, reject) => {
+      const tx = db!.transaction('skins', 'readonly'), read = tx.objectStore('skins').getAll()
+      tx.oncomplete = () => resolve(read.result)
+      tx.onerror = tx.onabort = () => reject(tx.error)
+    })
+    for (const item of saved) {
+      if (item.mewpetImported) continue
+      let skin: SpriteSkin | undefined
+      try {
+        if (!validMewpetSkinId(item.id) || !item.id.startsWith('custom:')) throw new Error('invalid legacy skin')
+        if (!catalog.skins.some(candidate => candidate.id === item.id)) {
+          skin = await prepareSkin(item)
+          if (!catalog.canManage) { skins.push({ ...skin, revision: 'legacy', managed: false, sampleUrls: {}, legacy: true }); failed = true; continue }
+          const descriptor = await uploadSkin({ id: item.id, name: item.name, sprites: skin.sprites }, request)
+          skins.push(registeredSkin(skin, descriptor)); catalog.skins.push(descriptor)
+        }
+        await new Promise<void>((resolve, reject) => {
+          const tx = db!.transaction('skins', 'readwrite')
+          tx.objectStore('skins').put({ ...item, mewpetImported: true })
+          tx.oncomplete = () => resolve()
+          tx.onerror = tx.onabort = () => reject(tx.error)
+        })
+      } catch {
+        failed = true
+        if (skin && !skins.some(candidate => candidate.id === item.id)) skins.push({ ...skin, revision: 'legacy', managed: false, sampleUrls: {}, legacy: true })
       }
-      const previous = store.snapshot.skins
-      emit(store, { skins, loading: false, failed })
-      for (const skin of previous) releaseSpriteSkin(skin)
-    } catch { emit(store, { skins: [], loading: false, failed: true }) }
-    finally { db?.close(); store.pending = undefined }
+    }
+  } catch { failed = true }
+  finally { db?.close() }
+  return { skins, failed }
+}
+
+function releaseReplaced(previous: RegisteredSpriteSkin[], next: RegisteredSpriteSkin[]) {
+  const replaced = previous.filter(skin => !next.includes(skin))
+  if (replaced.length) setTimeout(() => { for (const skin of replaced) releaseSpriteSkin(skin) }, 1000)
+}
+
+export function loadSpriteSkins(force = false, store = spriteStore()): Promise<void> {
+  if (store.pending) return store.pending
+  if (!force && !store.snapshot.loading && !store.snapshot.failed) return Promise.resolve()
+  const request = captureFetch()
+  const generation = store.generation
+  store.pending = (async () => {
+    const previous = store.snapshot.skins
+    try {
+      const response = await request('/api/mewpet/skins', { cache: 'no-store' })
+      if (!response.ok) throw new Error('catalog unavailable')
+      const catalog = await response.json() as MewpetSkinCatalog
+      if (!Array.isArray(catalog.skins)) throw new Error('invalid catalog')
+      const legacy = await migrateLegacySkins(store, catalog, request)
+      const skins: RegisteredSpriteSkin[] = []
+      let failed = catalog.failed
+      for (const descriptor of catalog.skins) {
+        const old = previous.find(skin => skin.id === descriptor.id && skin.revision === descriptor.revision && !skin.legacy)
+        const imported = legacy.skins.find(skin => skin.id === descriptor.id)
+        try { skins.push(old && old.managed === descriptor.managed && old.translated === descriptor.translated ? old : imported ?? await downloadSkin(descriptor, request)) }
+        catch { failed = true; const fallback = previous.find(skin => skin.id === descriptor.id); if (fallback) skins.push(fallback) }
+      }
+      for (const skin of legacy.skins) if (!skins.some(item => item.id === skin.id)) skins.push(skin)
+      if (generation !== store.generation) { releaseReplaced(skins.filter(skin => !previous.some(old => old.sprites === skin.sprites)), []); return }
+      emit(store, { skins, loading: false, failed, canManage: catalog.canManage, migrationFailed: legacy.failed })
+      releaseReplaced(previous.filter(old => !skins.some(skin => skin.sprites === old.sprites)), skins)
+    } catch { if (generation === store.generation) emit(store, { ...store.snapshot, loading: false, failed: true }) }
+    finally { store.pending = undefined }
   })()
   return store.pending
 }
 
-export async function saveSpriteSkin(saved: SavedSpriteSkin): Promise<SpriteSkin> {
-  await loadSpriteSkins()
-  const store = spriteStore()
+export function watchSpriteSkins(store: Store): () => void {
+  if (store.watchers++ === 0) {
+    const refresh = () => { if (document.visibilityState === 'visible') void loadSpriteSkins(true, store) }
+    const timer = setInterval(refresh, 30_000)
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    store.stop = () => { clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh) }
+  }
+  void loadSpriteSkins(true, store)
+  return () => { if (--store.watchers === 0) { store.stop?.(); store.stop = undefined } }
+}
+
+export async function saveSpriteSkin(saved: SavedSpriteSkin): Promise<RegisteredSpriteSkin> {
+  const store = spriteStore(), request = captureFetch()
+  await store.pending
+  store.generation++
   const skin = await prepareSkin(saved)
-  let db: IDBDatabase | undefined
   try {
-    db = await openDatabase()
-    await new Promise<void>((resolve, reject) => {
-      const tx = db!.transaction('skins', 'readwrite')
-      tx.objectStore('skins').put(saved)
-      tx.oncomplete = () => resolve()
-      tx.onerror = tx.onabort = () => reject(tx.error)
-    })
-    const old = store.snapshot.skins.find(item => item.id === saved.id)
-    emit(store, { ...store.snapshot, skins: [...store.snapshot.skins.filter(item => item.id !== saved.id), skin] })
-    if (old) releaseSpriteSkin(old)
-    return skin
-  } catch {
-    releaseSpriteSkin(skin)
-    throw new Error(uiText('스킨을 저장하지 못했습니다. 브라우저 저장 공간을 확인하세요.'))
-  } finally { db?.close() }
+    const descriptor = await uploadSkin(saved, request), registered = registeredSkin(skin, descriptor)
+    store.generation++
+    const previous = store.snapshot.skins
+    const next = [...previous.filter(item => item.id !== saved.id), registered]
+    emit(store, { ...store.snapshot, skins: next, failed: false })
+    releaseReplaced(previous, next)
+    return registered
+  } catch (error) { releaseSpriteSkin(skin); throw error }
 }
 
 export async function deleteSpriteSkin(id: string): Promise<void> {
-  const store = spriteStore()
-  const db = await openDatabase()
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('skins', 'readwrite')
-      tx.objectStore('skins').delete(id)
-      tx.oncomplete = () => resolve()
-      tx.onerror = tx.onabort = () => reject(tx.error)
-    })
-    const old = store.snapshot.skins.find(item => item.id === id)
-    emit(store, { ...store.snapshot, skins: store.snapshot.skins.filter(item => item.id !== id) })
-    if (old) releaseSpriteSkin(old)
-  } catch { throw new Error(uiText('스킨을 삭제하지 못했습니다.')) }
-  finally { db.close() }
-}
-
-const builtins = new Map<MewcatBuiltinSkin, Promise<SpriteSkin>>()
-export function loadBuiltinSpriteSkin(id: MewcatBuiltinSkin): Promise<SpriteSkin> {
-  let pending = builtins.get(id)
-  if (!pending) {
-    pending = (async () => {
-      const definition = MEWCAT_SKINS.find(skin => skin.id === id)!
-      const entries = await Promise.all(MEWCAT_ALL_SPRITE_ACTIONS.map(async action => {
-        const response = await fetch(`/mewcat/${definition.folder}/${action}.png`)
-        if (!response.ok) {
-          if (MEWCAT_TRANSITION_ACTIONS.some(transition => transition === action) && response.status === 404) return [action, undefined] as const
-          throw new Error('sprite unavailable')
-        }
-        return [action, await readSpriteImage(await response.blob(), 8)] as const
-      }))
-      const sprites = Object.fromEntries(entries.filter(([, image]) => image)) as SavedSpriteSkin['sprites']
-      return prepareSkin({ id, name: definition.name, sprites })
-    })().catch(error => { builtins.delete(id); throw error })
-    builtins.set(id, pending)
-  }
-  return pending
+  const store = spriteStore(), request = captureFetch()
+  store.generation++
+  const response = await request(`/api/mewpet/skins/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!response.ok) throw new Error(uiText('스킨을 삭제하지 못했습니다.'))
+  store.generation++
+  await store.pending
+  await loadSpriteSkins(true, store)
 }

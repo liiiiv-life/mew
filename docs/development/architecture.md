@@ -1,6 +1,6 @@
 ---
 title: "서버 구조와 상태 파일"
-description: "서버 주요 모듈과 인증·권한 경계, 계정별 활성 프로젝트와 요청 경로, DATA_DIR의 상태·대화 저장 및 프로젝트 아이콘 기준본의 책임을 설명한다."
+description: "서버 주요 모듈과 인증·권한 경계, 계정별 활성 프로젝트와 요청 경로, DATA_DIR의 상태·대화·뮤펫 전역 파일 스킨 저장 및 프로젝트 아이콘 기준본의 책임을 설명한다."
 상위파일:
   - "../MOC.md"
   - "MOC.md"
@@ -41,3 +41,7 @@ Owner 전용 `POST /api/project-icons/read`는 절대경로 목록의 현재 아
 `POST /api/workspace`, `/api/fs/open-project`, `/api/subprojects/open`은 기존 owner 권한을 유지하고 요청 계정의 루트만 저장한다. `workspace` presence 알림은 같은 인증 계정에만 전달한다. 서버 기본 루트·`MEW_WORKSPACE` 설정·다른 계정의 watcher·공동 편집 방은 바꾸지 않는다. 기존 에이전트 작업 경로는 고정된 채 유지하고 새 터미널의 기본 경로는 요청 계정의 루트를 따른다. Documents 폴더 설정은 기존처럼 프로젝트 설정 파일이 소유한다.
 
 파일 카탈로그와 검색 상태·트리 감시자는 실제 프로젝트 경로, 검색 SQLite 핸들은 루트별 DB 경로로 분리한다. 프로젝트 WebSocket 연결은 연결 시 계정 루트를 사용하며 공동 편집 방은 서버 내부 키에 루트를 포함한다. 와이어의 `프로젝트:상대경로`와 서버 공통 메모 방은 유지한다. 같은 실제 루트를 보는 계정끼리는 공동 편집을 공유하며 다른 루트의 동명 파일과는 분리한다.
+
+## 뮤펫 전역 스킨
+
+`DATA_DIR/mewpet/skins/<스킨 폴더>/skin.json`과 PNG·WebP가 프로젝트와 독립된 스킨 기준본이다. `server/mewpet-skins.ts`는 전역 폴더와 앱 소스의 `public/mewcat/*/skin.json`을 런타임에 읽고 전역 같은 ID를 우선한다. 이미지 교체·새 폴더는 빌드·재시작 없이 목록 조회에 반영된다. `/api/mewpet/skins`는 활성 프로젝트·Documents 파일 ACL 바깥에 두고 쓰기는 owner만 허용한다. API 저장은 새 버전 이미지 전체를 기록한 후 manifest를 원자적으로 교체하며 직전 버전도 보존한다. 상세 schema·브라우저 이관은 [뮤펫 기능 계약](../features/화면·계정·운영/Mewpet%20마스코트·알림·휴식.md#파일로-스킨-등록)을 따른다.

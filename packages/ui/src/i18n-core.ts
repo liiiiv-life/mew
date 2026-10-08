@@ -6,6 +6,7 @@ let locale: UiLocale = 'ko'
 const listeners = new Set<() => void>()
 
 export function getUiLocale(): UiLocale { return locale }
+export function hasUiMessage(message: string): message is UiMessage { return Object.hasOwn(uiMessages, message) }
 
 /** Shared by React, editor node views and event-time utility messages. */
 export function setUiLocale(next: UiLocale): void {

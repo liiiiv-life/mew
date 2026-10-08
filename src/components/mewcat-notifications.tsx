@@ -80,7 +80,7 @@ export function MewcatNotificationSettings({ hasCat = false }: { hasCat?: boolea
       </label>)}
     </div>
     {hasCat && <label className="flex min-h-11 cursor-pointer items-center justify-between gap-4 border-t border-edge py-2 text-sm text-ink">
-      {uiText('뮤캣으로도 알림 표시')}<input type="checkbox" className="h-4 w-4 shrink-0 accent-accent" checked={preferences.mewcat} onChange={event => setNotificationPreferences({ mewcat: event.target.checked })} />
+      {uiText('뮤펫으로도 알림 표시')}<input type="checkbox" className="h-4 w-4 shrink-0 accent-accent" checked={preferences.mewcat} onChange={event => setNotificationPreferences({ mewcat: event.target.checked })} />
     </label>}
     <p className="mt-2 text-xs leading-relaxed text-ink-secondary">{t(`mewcat.${permission}`)}</p>
     {permission === 'default' && <button type="button" className="mt-2 min-h-9 rounded border border-edge px-3 text-xs text-ink hover:bg-surface-raised" onClick={() => { void allow() }}>{t('mewcat.enable')}</button>}
@@ -90,7 +90,7 @@ export function MewcatNotificationSettings({ hasCat = false }: { hasCat?: boolea
         if (preferences.sound) void unlockNotificationAudio().then(ok => { if (!ok) setError(t('mewcat.audioBlocked')) })
         setTesting(true)
         timer.current = window.setTimeout(() => {
-          publishMewcatNotice({ key: `test:${Date.now()}`, kind: 'test', level: 'success', source: 'Mewcat' })
+          publishMewcatNotice({ key: `test:${Date.now()}`, kind: 'test', level: 'success', source: 'Mewpet' })
           setTesting(false)
         }, 3000)
       }}>{testing ? t('mewcat.testing') : t('mewcat.test')}</button>

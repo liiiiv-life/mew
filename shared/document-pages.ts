@@ -14,7 +14,7 @@ const titleWords = new Map([
   ['ai', 'AI'], ['api', 'API'], ['cli', 'CLI'], ['db', 'DB'], ['dom', 'DOM'], ['gpu', 'GPU'], ['json', 'JSON'],
   ['mcp', 'MCP'], ['nat', 'NAT'], ['oauth', 'OAuth'], ['os', 'OS'], ['pdf', 'PDF'], ['posix', 'POSIX'], ['rag', 'RAG'],
   ['ui', 'UI'], ['ux', 'UX'], ['wsl', 'WSL'], ['android', 'Android'], ['github', 'GitHub'], ['google', 'Google'],
-  ['hotview', 'Hotview'], ['linux', 'Linux'], ['mac', 'Mac'], ['markdown', 'Markdown'], ['mew', 'mew'], ['mewcat', 'Mewcat'],
+  ['hotview', 'Hotview'], ['linux', 'Linux'], ['mac', 'Mac'], ['markdown', 'Markdown'], ['mew', 'mew'], ['mewcat', 'Mewpet'], ['mewpet', 'Mewpet'],
   ['postgres', 'Postgres'], ['tmux', 'tmux'], ['windows', 'Windows'],
 ])
 export function documentPageLabel(path: string): string {

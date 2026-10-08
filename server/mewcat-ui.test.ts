@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { mewpetUiFixture } from './mewpet-ui-fixture.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -47,6 +48,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const uiSource = (await Promise.all(['mewcat-notifications.tsx', 'mewcat-resources.tsx', 'SystemStatsModal.tsx'].map(file => fs.readFile(`${root}/src/components/${file}`, 'utf8')))).join('\n')
   const css = compiler.build(uiSource.match(/[A-Za-z0-9_:[\]/.%!#()-]+/g) ?? [])
+  const petFiles = await mewpetUiFixture()
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     for (const mobile of [false, true]) for (const light of [false, true]) {
@@ -64,6 +66,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html ${light ? '' : 'class="dark"'}><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` })
       })
       await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
+      await petFiles.route(page)
       await page.goto('http://mewcat.test/')
       await page.waitForSelector('.mewcat-sprite')
       const noticeOrigin = await page.evaluate(`(() => {
@@ -121,7 +124,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await bubble.getByRole('button', { name: mewcatNotificationCopy.ko.updateOpen, exact: true }).click()
       assert.equal(await page.evaluate('window.openedTarget'), 'updates')
       await bubble.waitFor({ state: 'detached' })
-      const cat = page.getByRole('button', { name: '뮤캣', exact: true })
+      const cat = page.getByRole('button', { name: '뮤펫', exact: true })
       await cat.evaluate(el => el.addEventListener('pointerdown', () => { (el.ownerDocument.defaultView as unknown as { tappedCatX: number }).tappedCatX = el.getBoundingClientRect().x }, { once: true }))
       if (mobile) await cat.tap({ force: true, position: { x: 24, y: 35 } }); else await cat.click({ force: true, position: { x: 24, y: 35 } })
       const summary = page.getByRole('complementary', { name: '최근 알림', exact: true })
@@ -145,7 +148,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
           assert.equal(await bubble.getByText(copy[kind], { exact: true }).count(), 1)
         }
         assert.equal(await bubble.getByText('Original agent', { exact: true }).count(), 8, 'user source remains unchanged')
-        const catName = locale === 'ko' ? '뮤캣' : 'Mewcat'
+        const catName = locale === 'ko' ? '뮤펫' : 'Mewpet'
         assert.equal(await bubble.getByRole('button', { name: `${copy.dismiss}: ${catName}`, exact: true }).count(), 1)
         assert.equal(await page.locator('.mewcat').getAttribute('aria-label'), catName)
         assert.equal(await page.evaluate('document.documentElement.lang'), locale)
@@ -233,5 +236,5 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.deepEqual(errors, [])
       await page.close()
     }
-  } finally { await browser.close() }
+  } finally { await browser.close(); await petFiles.close() }
 })

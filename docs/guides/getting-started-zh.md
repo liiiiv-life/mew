@@ -307,7 +307,7 @@ cd mew
 | 在手机上工作 | 用底部 dock 切换面板；长按可重新排序。输入时 dock 会隐藏。长按项目打开上下文菜单，使用返回键或 `Esc` 关闭最前方的覆盖层。**Menu → Fullscreen** 或 `Alt+Enter` 切换全屏。桌面端 dock 位于页眉菜单正左侧，图标提示显示在图标下方。 | [手机与全屏](../guides/editor.md#%EB%AA%A8%EB%B0%94%EC%9D%BC%EA%B3%BC-%EC%A0%84%EC%B2%B4%ED%99%94%EB%A9%B4) |
 | 更改外观 | **Settings → Appearance** 控制浅色/深色主题、强调色、界面/文档/代码字体，以及韩文、英文、日文或中文。 | [外观](../configuration/environment.md#%ED%99%94%EB%A9%B4-%EC%84%A4%EC%A0%95) |
 | 自定义快捷键 | **Settings → Shortcuts** 修改绑定，或重置单个或全部快捷键。 | [快捷键](../configuration/environment.md#%EB%8B%A8%EC%B6%95%ED%82%A4-%EC%84%A4%EC%A0%95) |
-| 查看 Mewcat | 点击猫查看最近通知。气泡每半秒更新 CPU、RAM 和 GPU 使用率；点击读数查看系统资源。**Settings → Mewcat** 控制皮肤、声音、通知及工作/休息计时器。可选的强制休息会在工作区上放置一只可拖动的猫；默认关闭。 | [Mewcat](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/Mewcat%20%EB%A7%88%EC%8A%A4%EC%BD%94%ED%8A%B8%C2%B7%EC%95%8C%EB%A6%BC%C2%B7%ED%9C%B4%EC%8B%9D.md) |
+| 查看 Mewpet | 点击猫查看最近通知。气泡每半秒更新 CPU、RAM 和 GPU 使用率；点击读数查看系统资源。**Settings → Mewpet** 控制皮肤、声音、通知及工作/休息计时器。可选的强制休息会在工作区上放置一只可拖动的猫；默认关闭。 | [Mewpet](../features/%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/Mewpet%20%EB%A7%88%EC%8A%A4%EC%BD%94%ED%8A%B8%C2%B7%EC%95%8C%EB%A6%BC%C2%B7%ED%9C%B4%EC%8B%9D.md) |
 | 管理自己的账户 | **Settings → Account** 可修改显示名称、头像和密码，或退出登录。 | [账户设置](../configuration/environment.md#%EB%82%B4-%EA%B3%84%EC%A0%95%EA%B3%BC-%EA%B3%84%EC%A0%95-%EA%B4%80%EB%A6%AC) |
 | 管理用户 | owner 使用 **Menu → Account management** 添加账户和更改角色。主机 CLI 也可列出用户、重置密码和删除账户。 | [用户管理](../configuration/environment.md#%EB%82%B4-%EA%B3%84%EC%A0%95%EA%B3%BC-%EA%B3%84%EC%A0%95-%EA%B4%80%EB%A6%AC) |
 | 检查服务器 | **Menu → System resources** 显示 CPU、内存、GPU、温度、进程和近期用量（manager 或 owner）。 | [系统资源](../guides/commands.md#%EC%8B%9C%EC%8A%A4%ED%85%9C-%EC%9E%90%EC%9B%90-%ED%8C%9D%EC%97%85) |

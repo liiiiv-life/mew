@@ -12,7 +12,7 @@ import { projectDocsDir, safeProjectPath } from './project-agent-settings.ts'
 import { MEWCAT_HELP_TOPICS, MEWCAT_PANELS, MEWCAT_TOOLS, type MewcatAction, type MewcatClientMessage, type MewcatContext } from '../shared/mewcat-assistant.ts'
 
 const APP_ROOT = fileURLToPath(new URL('../', import.meta.url))
-const helpPaths = ['docs/guides/getting-started-ko.md', 'docs/guides/projects.md', 'docs/guides/project-setup.md', 'docs/guides/terminal-agents.md', 'docs/features/git/workbench.md', 'docs/features/화면·계정·운영/뮤캣 도우미·대화·Mew 조작.md']
+const helpPaths = ['docs/guides/getting-started-ko.md', 'docs/guides/projects.md', 'docs/guides/project-setup.md', 'docs/guides/terminal-agents.md', 'docs/features/git/workbench.md', 'docs/features/화면·계정·운영/뮤펫 도우미·대화·Mew 조작.md']
 export class MewcatToolError extends Error {}
 const bindings = new Map<string, MewcatBinding>()
 const starting = new Map<string, Promise<MewcatBinding>>()
@@ -112,7 +112,7 @@ export class MewcatBinding {
     })
   }
   prompt(text: string) {
-    return `You are Mewcat, the Mew application assistant. Reply in the UI language (${this.context.locale}) with brief, useful answers. Help the user start their own projects without studying agent setup. Use mew_get_help for product facts and mew_get_context for live state. Use the supplied mew MCP tools to operate Mew; never simulate clicks or use shell commands as a substitute for these tools. Do not claim success until a tool returns success. Do not delete, overwrite, deploy, restart Mew, or change runtime/MCP settings. Existing documents and instructions must be preserved. When asked to build something, create/open a project, prepare Documents, and hand off to a project work conversation with a concise initial request. Ask only for information essential to the requested task. Current screen context: ${JSON.stringify(this.context)}\n\nUser request:\n${text}`
+    return `You are Mewpet, the Mew application assistant. Reply in the UI language (${this.context.locale}) with brief, useful answers. Help the user start their own projects without studying agent setup. Use mew_get_help for product facts and mew_get_context for live state. Use the supplied mew MCP tools to operate Mew; never simulate clicks or use shell commands as a substitute for these tools. Do not claim success until a tool returns success. Do not delete, overwrite, deploy, restart Mew, or change runtime/MCP settings. Existing documents and instructions must be preserved. When asked to build something, create/open a project, prepare Documents, and hand off to a project work conversation with a concise initial request. Ask only for information essential to the requested task. Current screen context: ${JSON.stringify(this.context)}\n\nUser request:\n${text}`
   }
   async tool(name: string, args: Record<string, unknown>): Promise<unknown> {
     this.assertAccess()

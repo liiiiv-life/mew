@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { mewpetUiFixture } from './mewpet-ui-fixture.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -29,6 +30,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
   const bundle = await build({ input: 'virtual:grab.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:grab.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:grab.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
+  const petFiles = await mewpetUiFixture()
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     for (const skin of ['mew', 'kitten', 'russian-blue', 'korean-shorthair', 'capybara']) for (const remote of [false, true]) for (const touch of [false, true]) {
@@ -37,6 +39,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
       await page.clock.pauseAt(new Date('2026-09-22T00:00:01Z'))
       await page.route('http://mewcat-grab.test/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${compiler.build([])}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
       await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
+      await petFiles.route(page)
       await page.goto(`http://mewcat-grab.test/?skin=${skin}${remote ? '&remote' : ''}`)
       const cat = page.locator('.mewcat')
       await cat.locator('.mewcat-sprite').waitFor()
@@ -149,5 +152,5 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
       }
       await page.close()
     }
-  } finally { await browser.close() }
+  } finally { await browser.close(); await petFiles.close() }
 })

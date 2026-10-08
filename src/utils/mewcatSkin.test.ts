@@ -8,8 +8,9 @@ test('Mewcat 기본·옛 oreo 선택은 실루엣의 mew ID로 이어받는다',
   assert.equal(loadMewcatSkin({ getItem: () => 'oreo' }), 'mew')
 })
 
-test('Mewcat 스킨 선택은 허용 목록만 저장하고 없음은 명시적으로 남긴다', () => {
-  assert.equal(normalizeMewcatSkin('unknown'), null)
+test('Mewcat 스킨 선택은 유효한 파일 스킨 ID를 저장하고 없음은 명시적으로 남긴다', () => {
+  assert.equal(normalizeMewcatSkin('file-pet'), 'file-pet')
+  assert.equal(normalizeMewcatSkin('../invalid'), null)
   assert.equal(normalizeMewcatSkin('kitten'), 'kitten')
   assert.equal(normalizeMewcatSkin('custom:my-kitten'), 'custom:my-kitten')
   assert.equal(normalizeMewcatSkin('custom:../../other'), null)

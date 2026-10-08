@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { mewpetUiFixture } from './mewpet-ui-fixture.ts'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -13,6 +14,7 @@ const require = createRequire(`${root}/package.json`)
 
 test('startup fullscreen guide fits desktop/mobile and Mewcat stays on the viewport floor over the dock', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const source = `
+Math.random=()=>0.45;
 import React from '${require.resolve('react')}';
 import {createRoot} from '${require.resolve('react-dom/client')}';
 import {I18nProvider,useI18n} from '${root}/src/i18n.tsx';
@@ -40,6 +42,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const ui = await fs.readFile(`${root}/src/components/mewcat-fullscreen-guide.tsx`, 'utf8')
   const css = compiler.build(ui.match(/[A-Za-z0-9_:[\]/.%!#()-]+/g) ?? [])
+  const petFiles = await mewpetUiFixture()
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
     for (const mobile of [false, true]) {
@@ -47,6 +50,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       page.setDefaultTimeout(4000)
       await page.route('http://guide.test/**', route => route.fulfill({ contentType: 'text/html', body: `<html class="${mobile ? '' : 'dark'}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
       await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
+      await petFiles.route(page)
       await page.goto(`http://guide.test/${mobile ? '?mac=1' : ''}`)
       const cat = page.locator('.mewcat')
       await cat.locator('.mewcat-sprite').waitFor()
@@ -67,11 +71,13 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
           assert.equal(await cat.evaluate(el => {
             const path = el.querySelector('path')!
             const view = el.ownerDocument.defaultView!
-            for (let x = 0; x < 48; x++) {
-              const local = new view.DOMPoint(x + .25, 47.25)
-              if (!path.isPointInFill(local)) continue
-              const paw = local.matrixTransform(path.getScreenCTM()!)
-              return el.ownerDocument.elementFromPoint(paw.x, paw.y)?.closest('.mewcat') === el
+            for (let y = 47; y >= 0; y--) {
+              for (let x = 0; x < 48; x++) {
+                const local = new view.DOMPoint(x + .25, y + .25)
+                if (!path.isPointInFill(local)) continue
+                const paw = local.matrixTransform(path.getScreenCTM()!)
+                return el.ownerDocument.elementFromPoint(paw.x, paw.y)?.closest('.mewcat') === el
+              }
             }
             return false
           }), true, 'painted paws receive input above the dock')
@@ -116,5 +122,5 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.equal(await guide.count(), 0)
       await page.close()
     }
-  } finally { await browser.close() }
+  } finally { await browser.close(); await petFiles.close() }
 })

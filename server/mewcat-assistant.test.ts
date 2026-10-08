@@ -28,7 +28,7 @@ test('Mewcat MCP isolates accounts, checks revoked access, awaits browser result
   assert.equal(list.result.tools.length, MEWCAT_TOOLS.length)
   assert.ok(!list.result.tools.some((tool: { name: string }) => /delete|restart|deploy/.test(tool.name)))
   const help = await binding.tool('mew_get_help', { topic: 'mewcat' }) as { source: string; text: string }
-  assert.equal(help.source, 'docs/features/화면·계정·운영/뮤캣 도우미·대화·Mew 조작.md')
+  assert.equal(help.source, 'docs/features/화면·계정·운영/뮤펫 도우미·대화·Mew 조작.md')
   assert.match(help.text, /## 상세 동작/)
   assert.match(help.text, /### 자동 MCP/)
   const created = await binding.tool('mew_create_project', { parent: dir, name: 'notes' }) as { path: string }
