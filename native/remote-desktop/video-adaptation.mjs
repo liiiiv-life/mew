@@ -1,5 +1,5 @@
 /** Receiver deltas and our bounded RTP queue control the encoder and pacer together. */
-export function videoAdaptation({ maximum = 6_000_000, change, keyframe, now = Date.now }) {
+export function videoAdaptation({ maximum = 6_000_000, priority = 'speed', change, keyframe, now = Date.now }) {
   let rate = maximum, last = -Infinity, increased = -Infinity, minimumRtt = Infinity, lastCongestion = -Infinity
   const set = value => { const next = Math.round(Math.max(350_000, Math.min(maximum, value))); if (next !== rate) { rate = next; change(rate) } }
   return {
@@ -14,7 +14,7 @@ export function videoAdaptation({ maximum = 6_000_000, change, keyframe, now = D
       // A static desktop has no incoming frames. Do not mistake it for a decoder stall.
       if (!value.decoded || value.received > 0 && value.decodedFrames === 0) keyframe()
       if (value.rtt !== undefined) minimumRtt = Math.min(minimumRtt, value.rtt)
-      if (value.loss > .02 || value.delay > 40 || value.rtt > minimumRtt + 25) this.congested()
+      if (value.loss > .02 || priority === 'speed' && value.delay > 40 || value.rtt > minimumRtt + 25) this.congested()
       else if (time - increased >= 500 && time - lastCongestion >= 1500 && value.received > 0 && value.decodedFrames > 0) { increased = time; set(rate * 1.04) }
       return true
     },

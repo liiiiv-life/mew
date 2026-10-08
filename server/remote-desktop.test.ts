@@ -104,13 +104,15 @@ test('video preferences reach the native host and invalid requests cannot launch
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   const connect = (query: string) => { const ws = new WebSocket(`${origin.replace('http:','ws:')}/api/remote-desktop/ws${query}`, { origin }); clients.push(ws); return ws }
   try {
-    for (const query of ['?fps=1000','?resolution=__proto__','?quality=lossless','?fps=0']) {
+    for (const query of ['?fps=1000','?resolution=__proto__','?quality=lossless','?fps=0','?priority=unknown']) {
       const ws = connect(query), [code] = await once(ws,'close')
       assert.equal(code,1008); assert.equal(hosts.length,0)
     }
     for (const [query, video] of [
-      ['', { resolution: '1080p', fps: 60, quality: 'balanced' }],
-      ['?resolution=2160p&fps=240&quality=high', { resolution: '2160p', fps: 240, quality: 'high' }],
+      ['', { resolution: '1080p', fps: 60, quality: 'balanced', priority: 'speed' }],
+      ['?resolution=2160p&fps=240&quality=high', { resolution: '2160p', fps: 240, quality: 'high', priority: 'quality' }],
+      ['?quality=high&priority=speed', { resolution: '1080p', fps: 60, quality: 'high', priority: 'speed' }],
+      ['?priority=quality', { resolution: '1080p', fps: 60, quality: 'balanced', priority: 'quality' }],
     ] as const) {
       const ws = connect(query)
       await once(ws,'message')

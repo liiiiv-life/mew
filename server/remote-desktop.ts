@@ -106,7 +106,7 @@ export function attachRemoteDesktopWebSocket(server: Server | Http2SecureServer,
       let video
       try {
         const query = new URL(req.url ?? '', 'http://localhost').searchParams
-        video = videoSettings({ resolution: query.get('resolution') ?? DEFAULT_VIDEO.resolution, fps: query.has('fps') ? Number(query.get('fps')) : DEFAULT_VIDEO.fps, quality: query.get('quality') ?? DEFAULT_VIDEO.quality })
+        video = videoSettings({ resolution: query.get('resolution') ?? DEFAULT_VIDEO.resolution, fps: query.has('fps') ? Number(query.get('fps')) : DEFAULT_VIDEO.fps, quality: query.get('quality') ?? DEFAULT_VIDEO.quality, priority: query.get('priority') ?? undefined })
       } catch { ws.close(1008); if (active === ws) active = null; return }
       let child: Host | undefined, hostExited = false, disposed = false, alive = true, selected = false, answered = false, hasOffer = false, negotiation = 0, screens = new Set<string>(), signalCount = 0
       const send = (value: unknown) => { if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < MAX_BYTES * 2) ws.send(JSON.stringify(value)); else ws.close() }

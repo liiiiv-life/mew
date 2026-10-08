@@ -1,11 +1,13 @@
 export const VIDEO_FPS = [30, 60, 120, 144, 165, 240]
 export const VIDEO_SIZES = { '720p': [1280, 720], '1080p': [1920, 1080], '1440p': [2560, 1440], '2160p': [3840, 2160] }
-export const DEFAULT_VIDEO = Object.freeze({ resolution: '1080p', fps: 60, quality: 'balanced' })
+export const DEFAULT_VIDEO = Object.freeze({ resolution: '1080p', fps: 60, quality: 'balanced', priority: 'speed' })
 export const MAX_VIDEO_BYTES = 4 * 1024 * 1024
 
 export function videoSettings(value = DEFAULT_VIDEO) {
   if (!value || !Object.hasOwn(VIDEO_SIZES, value.resolution) || !VIDEO_FPS.includes(value.fps) || !['balanced', 'high'].includes(value.quality)) throw new Error('Invalid desktop video settings')
-  return { resolution: value.resolution, fps: value.fps, quality: value.quality }
+  const priority = value.priority ?? (value.quality === 'high' ? 'quality' : 'speed')
+  if (!['quality', 'speed'].includes(priority)) throw new Error('Invalid desktop video priority')
+  return { resolution: value.resolution, fps: value.fps, quality: value.quality, priority }
 }
 export function videoRate(settings) {
   const base = { '720p': 3_500_000, '1080p': 6_000_000, '1440p': 12_000_000, '2160p': 24_000_000 }[settings.resolution]

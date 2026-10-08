@@ -3,6 +3,10 @@
 export const uiMessages = {
   "영상 해상도": ["Video resolution","视频分辨率","映像の解像度"],
   "목표 FPS": ["Target FPS","目标 FPS","目標 FPS"],
+  "전송 우선순위": ["Streaming priority","传输优先级","転送の優先順位"],
+  "품질 우선": ["Quality first","画质优先","画質優先"],
+  "속도 우선": ["Speed first","速度优先","速度優先"],
+  "품질 우선은 화질을 유지하며 FPS가 낮아질 수 있습니다. 속도 우선은 화질을 낮춰 지연을 줄입니다.": ["Quality first preserves image quality and may reduce FPS. Speed first lowers image quality to reduce latency.","画质优先会保持画质，但帧率可能降低。速度优先会降低画质以减少延迟。","画質優先では画質を維持し、FPSが下がる場合があります。速度優先では画質を下げて遅延を減らします。"],
   "영상 품질": ["Video quality","视频质量","映像品質"],
   "균형": ["Balanced","均衡","バランス"],
   "고화질": ["High quality","高画质","高画質"],

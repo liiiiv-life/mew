@@ -250,6 +250,11 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
       const qualityField = page.getByRole('combobox', { name: '영상 품질', exact: true })
       await qualityField.click(); await page.getByRole('option', { name: '고화질', exact: true }).click()
       await page.waitForFunction(`new URL(window.desktopUrl).searchParams.get('quality')==='high'`)
+      const priorityField = page.getByRole('combobox', { name: '전송 우선순위', exact: true })
+      await priorityField.click(); await priorityField.press('Home'); await priorityField.press('Enter')
+      await page.waitForFunction(`new URL(window.desktopUrl).searchParams.get('priority')==='quality'`)
+      assert.equal(await priorityField.textContent(), '품질 우선')
+      assert.equal(await priorityField.evaluate(el => JSON.parse(el.ownerDocument.defaultView!.localStorage.getItem('mew-desktop-video')!).priority), 'quality')
       if (process.env.MEW_DESKTOP_SCREENSHOTS) {
         const captures = process.env.MEW_DESKTOP_SCREENSHOTS
         await fs.mkdir(captures, { recursive: true })
@@ -258,6 +263,8 @@ import('/sender.mjs').then(()=>createRoot(document.getElementById('root')).rende
         await page.screenshot({ path: path.join(captures, 'video-settings-desktop.png') })
         await page.setViewportSize({ width: 390, height: 844 })
       }
+      await priorityField.click(); await page.getByRole('option', { name: '속도 우선', exact: true }).tap()
+      await page.waitForFunction(`new URL(window.desktopUrl).searchParams.get('priority')==='speed'`)
       await fpsField.click(); await page.getByRole('option', { name: '60 FPS', exact: true }).click()
       await resolutionField.click(); await page.getByRole('option', { name: 'Full HD · 1080p', exact: true }).click()
       await qualityField.click(); await page.getByRole('option', { name: '균형', exact: true }).click()

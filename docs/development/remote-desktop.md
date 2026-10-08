@@ -1,8 +1,8 @@
 ---
 title: "원격 데스크톱 아키텍처와 검증"
 created: "2026-09-12"
-updated: "2026-10-07"
-description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, 4K·최대 240FPS 요청의 H.264 능력 협상·유한 전송 대기열·적응 bitrate·GPU 표면 재사용, 수신 통계·키보드·클립보드·인증 lease·OS 권한·세션 수명과 검증 한계를 정의한다."
+updated: "2026-10-08"
+description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, 4K·최대 240FPS 요청의 H.264 능력 협상·품질/속도 우선·유한 전송 대기열·적응 bitrate·GPU 표면 재사용, 수신 통계·키보드·클립보드·인증 lease·OS 권한·세션 수명과 검증 한계를 정의한다."
 상위파일: "MOC.md"
 ---
 
@@ -70,15 +70,15 @@ Mac/Linux는 현재 지원 Node의 전용 복사본·Node 고지를 설치하고
 
 Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-direct.mjs`다. Windows Graphics Capture의 D3D11 텍스처를 GPU VideoProcessor에서 NV12로 축소·변환하고, 같은 어댑터의 Media Foundation 하드웨어 H.264 MFT에 DXGI surface로 전달한다. 비압축 화면을 CPU로 읽거나 Electron renderer·canvas로 복사하지 않는다. NV12 표면 3개와 VideoProcessor view·출력 버퍼를 재사용한다. `IMFTrackedSample`의 반환 콜백을 받아 인코더가 표면을 놓은 뒤에만 같은 슬롯에 쓴다([Microsoft 계약](https://learn.microsoft.com/en-us/windows/win32/api/mfidl/nn-mfidl-imftrackedsample)). GPU 내부 복사·색 변환·인코더 내부 복사는 남으므로 완전한 zero-copy라고 부르지 않는다.
 
-`video-settings.mjs`는 해상도 720p·1080p·1440p·2160p, 목표 30·60·120·144·165·240FPS, 균형·고화질을 검증한다. 기본은 기존 1080p·60FPS·균형(6Mbps)이며 인코더 한도는 3840×2160·240FPS·50Mbps다. 해상도별 기본 bitrate 3.5·6·12·24Mbps에 `sqrt(FPS/60)`을 곱하고 고화질은 두 배로 요청하되 50Mbps로 제한한다. High H.264를 먼저 제안하고 브라우저가 받아들인 Baseline도 지원한다. B-frame 0·저지연·CBR를 유지하며 지원되는 인코더에만 약 두 프레임의 VBV를 설정한다. 이는 저지연 설정이지 동일 화질·지연의 실측 보장이 아니다.
+`video-settings.mjs`는 해상도 720p·1080p·1440p·2160p, 목표 30·60·120·144·165·240FPS, 균형·고화질과 전송 우선순위 `quality`·`speed`를 검증한다. 기본 우선순위는 속도이며, 우선순위가 없는 이전 고화질 설정·요청은 품질 우선으로 복원한다. 기본은 기존 1080p·60FPS·균형(6Mbps)이며 인코더 한도는 3840×2160·240FPS·50Mbps다. 해상도별 기본 bitrate 3.5·6·12·24Mbps에 `sqrt(FPS/60)`을 곱하고 고화질은 두 배로 요청하되 50Mbps로 제한한다. High H.264를 먼저 제안하고 브라우저가 받아들인 Baseline도 지원한다. B-frame 0·저지연·CBR를 유지하며 지원되는 인코더에만 약 두 프레임의 VBV를 설정한다. 이는 저지연 설정이지 동일 화질·지연의 실측 보장이 아니다.
 
 브라우저 answer를 받은 뒤 캡처·인코더를 시작한다. answer의 payload·프로필·레벨·max-fs/max-mbps와 매크로블록 처리량·FPS 상한 안에서 모드를 고른다([RFC 6184](https://www.rfc-editor.org/rfc/rfc6184.html)). 기본 level 3.1로 answer하는 브라우저에서는 수락한 같은 프로필을 `MediaCapabilities.decodingInfo(type='webrtc')`로 조회한다. 해당 모드의 `supported`·`smooth`가 모두 참인 경우에만 answer의 수신 레벨을 올리며, 미지원·실패·500ms 초과는 원래 answer를 유지한다([W3C 계약](https://www.w3.org/TR/media-capabilities/)). level 6 이상이 필요한 요청에는 별도 level 5.2 payload를 함께 제안한다. 현재 libwebrtc는 5.2까지 인식하므로 FHD 240 요청이 FHD 165, QHD 165 요청이 QHD 144, 4K 144 요청이 4K 60으로 낮아질 수 있다([libwebrtc 파서](https://webrtc.googlesource.com/src/+/refs/heads/main/api/video_codecs/h264_profile_level_id.cc)). 네이티브 초기화 거부 시 협상 범위의 낮은 FPS·해상도 모드를 순서대로 시도하고, 인코더의 실제 SPS가 선택한 프로필·레벨을 초과하면 전송하지 않고 종료한다. CPU 인코더로 폴백하지 않는다.
 
 활성 세션에만 `timeBeginPeriod(1)`을 요청하고 종료 시 같은 값의 `timeEndPeriod`를 호출한다([Microsoft 타이머 계약](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod)). worker의 활성 polling은 120FPS 이상에서 1ms, 그 외에는 2ms이며 유휴 상태에서는 멈춘다. 하드웨어 MFT의 입력 허용 이벤트를 개별 credit으로 세며, 작은 scheduler 지연은 프레임 시계에 누적하지 않고 긴 정지는 따라잡기 burst 없이 리셋한다. 하드웨어 인코더가 없거나 화면 회전·잠금·장치 변경으로 DXGI가 실패하면 안내 후 종료한다. 실제 FPS는 소스 화면·인코더·수신 디코더·표시 장치에 제한되며 정지 화면은 새 프레임을 보내지 않는다. 가상 드라이버의 1920×1080·60Hz 모드는 이 설정으로 바뀌지 않는다. HDR·native rotation·4K와 고주사율 하드웨어 실측은 미검증이다.
 
-압축된 Annex B H.264만 worker IPC를 넘는다. 네이티브 버퍼에서 한 번 복사한 정확한 크기의 `Uint8Array`를 worker에서 transfer하며 호스트는 같은 메모리를 읽는다. 한 access unit은 최대 4MiB, worker→호스트는 프레임 하나, Windows 인코더 입력은 최대 3개다. `video-pacer.mjs`는 single NAL/FU-A RTP 패킷을 최대 1192바이트로 필요할 때만 생성하고 token bucket으로 보낸다. 네이티브 SR·NACK·DTLS-SRTP 처리는 유지하고 과거 무제한 pacing queue를 사용하지 않는다. 약 두 패킷 또는 2ms 분량의 burst만 허용하며 프레임 경계에서 budget을 다시 채우지 않는다. ACK는 전송 완료·폐기·종료 때 보낸다. 일반 프레임의 대기 한도는 `max(24ms, 2/FPS)`, IDR은 최대 500ms다. 적체·송신 실패로 예측 프레임을 버리면 IDR까지 후속 예측 프레임도 버리고 키프레임을 요청하며 SPS/PPS를 IDR에 붙인다. binding·OS·네트워크 내부 큐 전체를 측정하거나 제한한다는 의미는 아니다.
+압축된 Annex B H.264만 worker IPC를 넘는다. 네이티브 버퍼에서 한 번 복사한 정확한 크기의 `Uint8Array`를 worker에서 transfer하며 호스트는 같은 메모리를 읽는다. 한 access unit은 최대 4MiB, worker→호스트는 프레임 하나, Windows 인코더 입력은 최대 3개다. `video-pacer.mjs`는 single NAL/FU-A RTP 패킷을 최대 1192바이트로 필요할 때만 생성하고 token bucket으로 보낸다. 네이티브 SR·NACK·DTLS-SRTP 처리는 유지하고 과거 무제한 pacing queue를 사용하지 않는다. 약 두 패킷 또는 2ms 분량의 burst만 허용하며 프레임 경계에서 budget을 다시 채우지 않는다. ACK는 전송 완료·폐기·종료 때 보낸다. 속도 우선의 일반 프레임 대기 한도는 `max(24ms, 2/FPS)`, IDR은 최대 500ms다. 품질 우선은 RTP 오버헤드를 포함한 프레임 크기와 현재 전송 bitrate로 예상 전송 시간을 계산해 `min(2000ms, max(500ms, 예상시간×1.5+100ms))`까지 허용한다. 한 프레임의 전송 ACK가 끝나야 worker가 다음 프레임을 꺼내므로 낮은 전송량은 화질 설정 유지와 실제 FPS 감소로 처리한다. 대기열 크기와 burst 제한은 동일하다. 적체·송신 실패로 예측 프레임을 버리면 IDR까지 후속 예측 프레임도 버리고 키프레임을 요청하며 SPS/PPS를 IDR에 붙인다. binding·OS·네트워크 내부 큐 전체를 측정하거나 제한한다는 의미는 아니다.
 
-브라우저 feedback은 약 200ms 간격의 수신·디코드 증분, 손실률, 평균 jitter-buffer 체류, RTT, 가능한 경우 평균 디코드 시간을 전달한다. bitrate는 손실·buffer 체류·최소 관측 RTT 대비 상승·자체 전송 적체에 반응해 20%씩 낮추고, 수신·디코드 진행이 지속되면 천천히 회복한다. 범위는 350kbps–선택 모드의 초기 bitrate다. PLI/FIR와 실제 수신 후 디코드 정체에는 키프레임을 요청하지만 프레임이 오지 않는 정지 화면에 주기적인 IDR을 요청하지 않는다. 이 제어는 libwebrtc의 완전한 GCC와 같지 않으며 혼잡·손실 환경의 실측은 남아 있다. HEVC·AV1·이벤트 기반 worker wake-up은 이 구현에 포함하지 않는다.
+브라우저 feedback은 약 200ms 간격의 수신·디코드 증분, 손실률, 평균 jitter-buffer 체류, RTT, 가능한 경우 평균 디코드 시간을 전달한다. bitrate는 손실·buffer 체류·최소 관측 RTT 대비 상승·자체 전송 적체에 반응해 20%씩 낮추고, 수신·디코드 진행이 지속되면 천천히 회복한다. 전송 bitrate 범위는 350kbps–선택 모드의 초기 bitrate다. 속도 우선은 인코더 bitrate도 함께 낮춘다. 품질 우선은 인코더 bitrate·해상도를 협상한 모드에 유지하고 pacer 전송 예산만 조정한다. 품질 우선에서 의도적으로 길어진 프레임 전송을 혼잡으로 오판하지 않도록 jitter-buffer 체류만으로는 감속하지 않고 손실·RTT 상승·전송 실패·대기 한도 초과에는 계속 반응한다. 극단적인 저속·손실에서는 2초 한도 뒤 IDR 복구가 필요하며 무손실 화질이나 안정적인 FPS를 보장하지 않는다. PLI/FIR와 실제 수신 후 디코드 정체에는 키프레임을 요청하지만 프레임이 오지 않는 정지 화면에 주기적인 IDR을 요청하지 않는다. 이 제어는 libwebrtc의 완전한 GCC와 같지 않으며 혼잡·손실 환경의 실측은 남아 있다. HEVC·AV1·이벤트 기반 worker wake-up은 이 구현에 포함하지 않는다.
 
 브라우저는 `<video>`와 지원되는 `jitterBufferTarget=0`을 사용한다. 실제 최소 buffer는 브라우저가 정한다. 연결 실패 또는 offer 후 20초 안에 decode가 없으면 복구 안내를 표시한다. 기존 1.2초 서버 전송 전환은 제거했다. 커서 PNG·위치는 기존 별도 메타데이터로 보내 로컬 커서·입력 seq 보정을 유지한다. 마우스 motion은 unordered/retransmit 0, 버튼·키·붙여넣기·복구 feedback은 reliable DataChannel을 사용한다.
 
@@ -86,7 +86,7 @@ Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-dire
 
 ## 뷰어 설정과 좌표
 
-설정의 `SelectField`로 해상도·목표 FPS·영상 품질을 선택한다. 바꾸면 눌린 입력과 기존 연결을 정리하고 같은 공유 화면에 새 세션으로 연결한다. 설정은 scope가 적용된 `mew-desktop-video` 브라우저 저장소에 기록하며 잘못된 값·읽기 실패는 기본값으로 복구한다. 요청값과 실제 협상 모드는 구분한다. 설정 창과 상단 통계에는 실제 수신 해상도·초당 디코드 프레임·적용 목표 FPS·RTT·Mbps·H.264 프로필·자체 전송 대기 시간을 표시한다. 약 1초마다 UI를 갱신해 200ms feedback이 React 렌더 빈도를 높이지 않게 한다. RTT는 ICE 경로의 왕복 시간이고 입력 후 표시 지연이 아니며, 수신 FPS도 디스플레이에 표시한 FPS의 실측은 아니다([WebRTC 통계](https://www.w3.org/TR/webrtc-stats/)).
+설정의 `SelectField`로 해상도·목표 FPS·영상 품질·전송 우선순위를 선택한다. 바꾸면 눌린 입력과 기존 연결을 정리하고 같은 공유 화면에 새 세션으로 연결한다. 설정은 scope가 적용된 `mew-desktop-video` 브라우저 저장소에 기록하며 잘못된 값·읽기 실패는 기본값으로 복구한다. 요청값과 실제 협상 모드는 구분한다. 설정 창과 상단 통계에는 실제 수신 해상도·초당 디코드 프레임·적용 목표 FPS·RTT·Mbps·H.264 프로필·자체 전송 대기 시간을 표시한다. 약 1초마다 UI를 갱신해 200ms feedback이 React 렌더 빈도를 높이지 않게 한다. RTT는 ICE 경로의 왕복 시간이고 입력 후 표시 지연이 아니며, 수신 FPS도 디스플레이에 표시한 FPS의 실측은 아니다([WebRTC 통계](https://www.w3.org/TR/webrtc-stats/)).
 
 전체화면 버튼이 있는 상단 바는 현재 세션의 수신·송신 합계를 `누적 12.3 MB`처럼 표시한다. 수신·송신별 값은 접근성 이름과 title에 제공한다. 기존 stats 조회에서 약 1초마다 갱신하며 준비 중에는 `0 B`, 종료·오류 뒤에는 마지막 집계값을 유지한다. 다시 연결·공유 화면 변경·뷰어를 다시 열면 새 세션으로 0부터 시작하며, 같은 세션의 ICE 협상 재시도·회전·전체화면 전환은 누적값을 유지한다.
 

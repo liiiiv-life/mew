@@ -32,7 +32,7 @@ export function* h264Packets(nals, { ssrc, payload, timestamp, sequence }) {
 }
 
 /** One in-flight access unit; late reference frames recover at an IDR boundary. */
-export function videoPacer({ send, keyframe, congested = () => {}, unsupported = () => {}, now = () => performance.now(), schedule = setTimeout, cancel = clearTimeout, ssrc, payload = 102, bitrate = 6_000_000, fps = 60 }) {
+export function videoPacer({ send, keyframe, congested = () => {}, unsupported = () => {}, now = () => performance.now(), schedule = setTimeout, cancel = clearTimeout, ssrc, payload = 102, bitrate = 6_000_000, fps = 60, priority = 'speed' }) {
   let closed = false, current, timer, waitingKey = true, sps, pps, lastKey = -Infinity
   let rate = bitrate, lastTick = now(), credit = Math.max(2400, bitrate * 1.15 / 4000), maxAge = Math.max(24, 2000 / fps), drops = 0, queuePeak = 0
   const sequence = { next: randomBytes(2).readUInt16BE() }, timestampBase = randomBytes(4).readUInt32BE()
@@ -45,7 +45,10 @@ export function videoPacer({ send, keyframe, congested = () => {}, unsupported =
     if (closed || !current) return
     const time = now(), age = Math.max(0, time - current.at)
     queuePeak = Math.max(queuePeak, age)
-    if (age > (current.key ? 500 : maxAge)) { drop(); return }
+    // Quality mode keeps encoder compression fixed. Waiting for this AU's ack
+    // backpressures capture instead of abandoning frames at a two-frame deadline.
+    const deadline = priority === 'quality' ? Math.min(2000, Math.max(500, current.bytes * 8000 / rate * 1.5 + 100)) : current.key ? 500 : maxAge
+    if (age > deadline) { drop(); return }
     const bytesPerMs = rate * 1.15 / 8000, burst = Math.max(2400, bytesPerMs * 2)
     credit = Math.min(burst, credit + Math.max(0, time - lastTick) * bytesPerMs); lastTick = time
     try {
@@ -62,7 +65,7 @@ export function videoPacer({ send, keyframe, congested = () => {}, unsupported =
     if (current) timer = schedule(tick, 1)
   }
   return {
-    configure(value) { mode = value; payload = value.payload; fps = value.fps; maxAge = Math.max(24, 2000 / fps); this.bitrate(value.bitrate); waitingKey = true; sps = pps = undefined },
+    configure(value) { mode = value; priority = value.priority ?? priority; payload = value.payload; fps = value.fps; maxAge = Math.max(24, 2000 / fps); this.bitrate(value.bitrate); waitingKey = true; sps = pps = undefined },
     bitrate(value) { rate = Math.max(350_000, Math.min(50_000_000, value)) },
     frame(value, done = () => {}) {
       if (closed) { done(); return }
@@ -85,7 +88,7 @@ export function videoPacer({ send, keyframe, congested = () => {}, unsupported =
         nals = [sps, pps, ...nals.filter(nal => ![7, 8].includes(nal[0] & 31))]
       }
       const time = now()
-      current = { at: time, key, done, packets: h264Packets(nals, { ssrc, payload, timestamp: (timestampBase + Math.floor(value.timestamp * .09)) >>> 0, sequence }) }
+      current = { at: time, bytes: nals.reduce((size, nal) => size + nal.length + Math.ceil(nal.length / 1178) * 62, 0), key, done, packets: h264Packets(nals, { ssrc, payload, timestamp: (timestampBase + Math.floor(value.timestamp * .09)) >>> 0, sequence }) }
       tick()
     },
     stats() { const queueMs = Math.max(queuePeak, current ? now() - current.at : 0); queuePeak = 0; return { queueMs: Math.round(queueMs), drops } },

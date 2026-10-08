@@ -1,4 +1,4 @@
-export type DesktopVideoSettings = { resolution: '720p' | '1080p' | '1440p' | '2160p'; fps: 30 | 60 | 120 | 144 | 165 | 240; quality: 'balanced' | 'high' }
+export type DesktopVideoSettings = { resolution: '720p' | '1080p' | '1440p' | '2160p'; fps: 30 | 60 | 120 | 144 | 165 | 240; quality: 'balanced' | 'high'; priority?: 'quality' | 'speed' }
 export type DesktopVideoMode = DesktopVideoSettings & { width: number; height: number; bitrate: number; profile: 'high' | 'baseline'; payload: number; level: number }
 export const VIDEO_FPS: DesktopVideoSettings['fps'][]
 export const VIDEO_SIZES: Record<DesktopVideoSettings['resolution'], [number, number]>

@@ -305,6 +305,10 @@ export function RemoteDesktop({ onClose, dockHostRef, mewcatHostRef, dockHidden 
       <label className="desktop-setting-label" htmlFor="desktop-fps">{uiText("목표 FPS")}</label>
       <SelectField id="desktop-fps" label={uiText("목표 FPS")} value={String(videoSettings.fps)} portalContainer={panel.current}
         onChange={value => updateVideo({ fps: Number(value) as DesktopVideoSettings['fps'] })} options={VIDEO_FPS.map(fps => ({ value: String(fps), label: `${fps} FPS` }))} />
+      <label className="desktop-setting-label" htmlFor="desktop-priority">{uiText("전송 우선순위")}</label>
+      <SelectField id="desktop-priority" label={uiText("전송 우선순위")} value={videoSettings.priority ?? 'speed'} portalContainer={panel.current}
+        onChange={value => updateVideo({ priority: value as DesktopVideoSettings['priority'] })} options={[{ value: 'quality', label: uiText("품질 우선") }, { value: 'speed', label: uiText("속도 우선") }]} />
+      <p>{uiText("품질 우선은 화질을 유지하며 FPS가 낮아질 수 있습니다. 속도 우선은 화질을 낮춰 지연을 줄입니다.")}</p>
       <label className="desktop-setting-label" htmlFor="desktop-quality">{uiText("영상 품질")}</label>
       <SelectField id="desktop-quality" label={uiText("영상 품질")} value={videoSettings.quality} portalContainer={panel.current}
         onChange={value => updateVideo({ quality: value as DesktopVideoSettings['quality'] })} options={[{ value: 'balanced', label: uiText("균형") }, { value: 'high', label: uiText("고화질") }]} />
