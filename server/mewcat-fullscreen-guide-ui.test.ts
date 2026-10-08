@@ -11,7 +11,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 const root = path.resolve(import.meta.dirname, '..')
 const require = createRequire(`${root}/package.json`)
 
-test('startup fullscreen guide fits desktop/mobile, uses client OS, retries failures and returns on reload', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
+test('startup fullscreen guide fits desktop/mobile and Mewcat stays on the viewport floor over the dock', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const source = `
 import React from '${require.resolve('react')}';
 import {createRoot} from '${require.resolve('react-dom/client')}';
@@ -32,7 +32,7 @@ window.exitFullscreen=()=>{
   Object.defineProperty(document,'fullscreenElement',{value:null,configurable:true});
   document.dispatchEvent(new Event('fullscreenchange'));
 };
-function Fixture(){window.setLocale=useI18n().setLocale;return <Mewcat skin={query.has('noCat')?null:'mew'}/>}
+function Fixture(){window.setLocale=useI18n().setLocale;return <><nav className="mobile-dock" style={{position:'fixed',bottom:0,width:'100%',height:60}}><button>Dock action</button></nav><Mewcat skin={query.has('noCat')?null:'mew'}/></>}
 createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:guide.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:guide.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:guide.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')
@@ -47,6 +47,30 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       page.setDefaultTimeout(4000)
       await page.route('http://guide.test/**', route => route.fulfill({ contentType: 'text/html', body: `<html class="${mobile ? '' : 'dark'}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
       await page.goto(`http://guide.test/${mobile ? '?mac=1' : ''}`)
+      const cat = page.locator('.mewcat')
+      await cat.waitFor()
+      const assertGround = async () => {
+        await cat.evaluate(el => new Promise<void>(resolve => {
+          const view = el.ownerDocument.defaultView!
+          view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve()))
+        }))
+        const bounds = (await cat.boundingBox())!
+        const viewportBottom = await cat.evaluate(el => {
+          const view = el.ownerDocument.defaultView!
+          return (view.visualViewport?.offsetTop ?? 0) + (view.visualViewport?.height ?? view.innerHeight)
+        })
+        assert.ok(Math.abs(bounds.y + bounds.height - 1 - viewportBottom) < 1, 'cat feet stay on the visual viewport floor')
+        if (mobile && await page.locator('.mobile-dock').isVisible()) {
+          const dock = (await page.locator('.mobile-dock').boundingBox())!
+          assert.ok(bounds.y < dock.y + dock.height && bounds.y + bounds.height > dock.y, 'cat overlaps the mobile dock')
+          assert.equal(await cat.evaluate(el => {
+            const svg = el.querySelector('svg')!
+            const paw = svg.lastElementChild!.lastElementChild!.getBoundingClientRect()
+            return el.ownerDocument.elementFromPoint(paw.x + paw.width / 2, paw.y + paw.height / 2)?.closest('.mewcat') === el
+          }), true, 'painted paws receive input above the dock')
+        }
+      }
+      await assertGround()
       const guide = page.locator('aside.mewcat-notifications')
       const action = guide.getByRole('button', { name: `전체화면으로 전환 (${mobile ? 'Option' : 'Alt'}+Enter)`, exact: true })
       await action.waitFor({ state: 'visible' })
@@ -61,7 +85,14 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await action.click()
       await guide.waitFor({ state: 'detached' })
       assert.equal(await page.evaluate('window.requests'), 2)
+      await page.setViewportSize({ width: mobile ? 390 : 1100, height: 900 })
+      await assertGround()
+      await page.screenshot({ path: `/tmp/mewcat-floor-${mobile ? 'mobile' : 'desktop'}-fullscreen.png` })
       await page.evaluate('window.exitFullscreen()')
+      await page.setViewportSize({ width: mobile ? 390 : 1100, height: 780 })
+      await assertGround()
+      await page.locator('.mobile-dock').evaluate(el => { el.hidden = true })
+      await assertGround()
       assert.equal(await guide.count(), 0, 'fullscreen exit does not repeat the startup guide')
       await page.reload()
       await action.waitFor({ state: 'visible' })

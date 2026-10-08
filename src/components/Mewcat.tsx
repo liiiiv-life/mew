@@ -29,10 +29,7 @@ function movementBounds(giant: boolean) {
   const top = viewport?.offsetTop ?? 0
   const size = giant ? Math.min(width * 1.18, height * 1.08) : CAT_SIZE
   const overflow = giant ? size * 0.18 : 0
-  const dock = !giant && !window.matchMedia('(min-width: 768px)').matches
-    ? document.querySelector('.mobile-dock')?.getBoundingClientRect() : undefined
-  const bottom = dock?.height ? Math.min(top + height, dock.top - 6) : top + height
-  const ground = giant ? top + height - size + size / CAT_SIZE : Math.max(top, bottom - size + 1)
+  const ground = giant ? top + height - size + size / CAT_SIZE : Math.max(top, top + height - size + 1)
   return {
     size, ground,
     minX: left - overflow,
@@ -290,9 +287,6 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
     // the browser suppressing the first tap after a fast touch drag.
     const onTouchStart = (event: TouchEvent) => event.preventDefault()
     const viewport = window.visualViewport
-    const dock = document.querySelector('.mobile-dock')
-    const dockObserver = new ResizeObserver(resize)
-    if (dock && !giant) dockObserver.observe(dock)
     cat.addEventListener('pointerdown', onPointerDown)
     cat.addEventListener('pointermove', onPointerMove)
     cat.addEventListener('pointerup', onPointerUp)
@@ -300,12 +294,12 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
     cat.addEventListener('lostpointercapture', onPointerCancel)
     cat.addEventListener('touchstart', onTouchStart, { passive: false })
     window.addEventListener('resize', resize)
+    document.addEventListener('fullscreenchange', resize)
     viewport?.addEventListener('resize', resize)
     viewport?.addEventListener('scroll', resize)
     resize()
     animationFrame = window.requestAnimationFrame(tick)
     return () => {
-      dockObserver.disconnect()
       window.cancelAnimationFrame(animationFrame)
       cat.removeEventListener('pointerdown', onPointerDown)
       cat.removeEventListener('pointermove', onPointerMove)
@@ -315,6 +309,7 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
       cat.removeEventListener('touchstart', onTouchStart)
       if (pointerId !== undefined && cat.hasPointerCapture(pointerId)) cat.releasePointerCapture(pointerId)
       window.removeEventListener('resize', resize)
+      document.removeEventListener('fullscreenchange', resize)
       viewport?.removeEventListener('resize', resize)
       viewport?.removeEventListener('scroll', resize)
     }
