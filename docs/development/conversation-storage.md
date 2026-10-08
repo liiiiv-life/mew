@@ -3,9 +3,10 @@ title: "대화 저장과 구간 동기화"
 created: 2026-09-30
 updated: 2026-10-08
 description: "SQLite의 증분 대화 저장과 기존 JSON 이전, 순번 기반 구간 동기화와 별도 읽기 스레드의 복원 전사 선표시, 프레임별 증분 대화 조합·버블 재사용과 IndexedDB 이동 구간 캐시의 계약·측정 결과를 정의한다."
+상위파일: "MOC.md"
 ---
 
-[개발 지도](MOC.md) · [세션 계약](agent-sessions.md) · [ADR 0182](../../../.mew/docs/decisions/0182-mew-incremental-conversation-storage.md)
+[세션 계약](agent-sessions.md) · [ADR 0182](../../../.mew/docs/decisions/0182-mew-incremental-conversation-storage.md)
 
 ## 서버 저장
 

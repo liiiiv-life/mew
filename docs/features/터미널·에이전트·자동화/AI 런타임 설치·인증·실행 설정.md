@@ -9,6 +9,9 @@ status_hash: "ce50d3fa70fce93520dfd200e419db9b718cebd2b370a52a9250e624fc80aed1"
 files: ["src/components/RuntimeSettingsModal.tsx", "src/components/agentRuntimes.tsx", "server/agentRuntimes.ts", "server/agentRuntimeInstall.ts", "server/agentDefaults.ts"]
 commits: []
 description: "지원 에이전트 런타임 선택·설치·제거·인증과 모델·노력도·권한 기본값을 다루는 기능 계약. ACP와 공식 CLI 표면 및 공급자별 설정·인증 지원 범위를 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_터미널·에이전트·자동화.md"
 ---
 
 ## 요구사항
@@ -28,8 +31,6 @@ description: "지원 에이전트 런타임 선택·설치·제거·인증과 �
 ### 상세 계약
 
 - [런타임 설정](../../configuration/agent-runtimes.md) · [패널·로그인 표시 계약](%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%20%EB%8C%80%ED%99%94%C2%B7%ED%81%90%C2%B7%EB%B3%B5%EC%9B%90.md)
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

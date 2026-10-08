@@ -9,6 +9,9 @@ status_hash: "b749b40de63eb8c6d48b59612004c55dac7bc042f3883af412cbf26f08966f92"
 files: ["src/components/pdf-viewer.tsx", "src/components/pdf-page.tsx", "server/pdf.ts"]
 commits: []
 description: "PDF 페이지 이동·확대·텍스트 선택·전체화면과 펜·형광펜 주석을 다루는 기능 계약. 원본 저장·사본 다운로드, 파일 권한과 주석·실기기 제약을 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_문서·코드·미디어 편집.md"
 ---
 
 ## 요구사항
@@ -28,8 +31,6 @@ description: "PDF 페이지 이동·확대·텍스트 선택·전체화면과 �
 ### 상세 계약
 
 - [편집 사용법](../../guides/editor.md) · [PDF 개발 계약](../../development/pdf-viewer.md)
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

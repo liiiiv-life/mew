@@ -3,9 +3,10 @@ title: "브라우저·Android·원격 데스크톱"
 created: 2026-09-18
 updated: "2026-10-08"
 description: "서버 브라우저와 Android 환경 준비·gateway 화면 및 원격 데스크톱 입력 기능 문서를 연결하는 분야 소개와 화면용 링크 목록."
+상위파일:
+  - "../MOC.md"
+  - "_브라우저·Android·원격 데스크톱.md"
 ---
-
-상위: [기능 홈](../MOC.md) · [브라우저·Android·원격 데스크톱 개요](_%EB%B8%8C%EB%9D%BC%EC%9A%B0%EC%A0%80%C2%B7Android%C2%B7%EC%9B%90%EA%B2%A9%20%EB%8D%B0%EC%8A%A4%ED%81%AC%ED%86%B1.md).
 
 ## 하위파일
 

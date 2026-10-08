@@ -3,9 +3,10 @@ title: "기능 기반 개발 GUI — 구현 기록과 기획 초안"
 created: 2026-09-17
 updated: 2026-09-17
 description: "기능별 요청·분류·감독 큐·구현 기록·사용자 판정 GUI와 Markdown 저장 전환의 구현 결과 및 이전 기획 초안을 보존한다."
+상위파일: "_work.md"
 ---
 
-상위: [진행 작업](_work.md). 상태: 구현·격리 검증 완료, 실행 서버 반영 전. 현재 동작의 기준본은 [기능 기반 개발](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EA%B8%B0%EB%8A%A5%20%EA%B8%B0%EB%B0%98%20%EA%B0%9C%EB%B0%9C%C2%B7Markdown%20%EB%AC%B8%EC%84%9C.md), 결정은 [ADR 0159](../../../.mew/docs/decisions/0159-mew-feature-driven-development.md)다. 아래 초안은 요구사항과 당시 검토 과정을 보존하며 현재 계약으로 사용하지 않는다.
+상태: 구현·격리 검증 완료, 실행 서버 반영 전. 현재 동작의 기준본은 [기능 기반 개발](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EA%B8%B0%EB%8A%A5%20%EA%B8%B0%EB%B0%98%20%EA%B0%9C%EB%B0%9C%C2%B7Markdown%20%EB%AC%B8%EC%84%9C.md), 결정은 [ADR 0159](../../../.mew/docs/decisions/0159-mew-feature-driven-development.md)다. 아래 초안은 요구사항과 당시 검토 과정을 보존하며 현재 계약으로 사용하지 않는다.
 
 ## 구현 결과
 

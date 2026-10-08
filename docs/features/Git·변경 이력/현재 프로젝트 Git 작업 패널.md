@@ -9,6 +9,9 @@ status_hash: "ad2d450aae96362a9d082f3989ccd04643632b17559700c16044ef32ca54d690"
 files: ["src/components/GitWorkbench.tsx", "src/components/git-diff-editor.tsx", "src/components/git-changes-menu.tsx", "src/utils/git-diff-tabs.ts", "src/components/git-branch-picker.tsx", "src/components/git-panel.tsx", "src/components/github-account.tsx", "server/github-auth.ts", "server/github-auth-routes.ts", "src/components/git-ai-commit-dialog.tsx", "server/gitWorkbench.ts", "server/git-ai-commit.ts", "server/git-commit-analysis.ts", "server/git-commit-packets.ts", "server/git-diff-codec.ts", "server/git-change-intent.ts", "server/git-change-intent-cli.ts", "server/git-ai-commit-runner.ts", "server/git-ai-commit-routes.ts"]
 commits: []
 description: "현재 프로젝트의 변경 파일·커밋 기록 와일드카드 검색·일반선택과 커밋대상선택·에디터 diff·커밋 그래프, 선택 변경 커밋·취소, 브랜치 전환과 Pull·Push를 다루는 기능 계약. 계정 연결과 AI 작업 단위 커밋의 승인·범위·복원 규칙을 포함한다."
+상위파일:
+  - "MOC.md"
+  - "_Git·변경 이력.md"
 ---
 
 ## 요구사항
@@ -62,8 +65,6 @@ description: "현재 프로젝트의 변경 파일·커밋 기록 와일드카�
 ### 상세 계약
 
 - [프로젝트·파일 사용법](../../guides/projects.md)
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_Git%C2%B7%EB%B3%80%EA%B2%BD%20%EC%9D%B4%EB%A0%A5.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

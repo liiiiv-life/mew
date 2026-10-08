@@ -1,8 +1,11 @@
 ---
 title: "브라우저 저장소와 자동 정리"
 description: "탐색기 가상 행의 중앙 앵커 복원을 포함해 P2P 앱 시작 전 중앙 계정·인스턴스별 저장소 범위 설정과 origin 전체 브라우저 캐시 예산·7일 수명·정리 시점, 초안·설정·열린 탭을 보존하는 저장소 계약을 정의한다."
+상위파일:
+  - "../MOC.md"
+  - "MOC.md"
 ---
-[문서 지도](../MOC.md) · [개발 계약](MOC.md) · [ADR 0133](../../../.mew/docs/decisions/0133-mew-browser-cache-budget-and-retention.md)
+[ADR 0133](../../../.mew/docs/decisions/0133-mew-browser-cache-budget-and-retention.md)
 
 `@mew/ui/browser-storage`가 서버에서 재생성할 수 있는 localStorage 캐시의 공통 예산과 수명을 관리한다. 설정·열린 탭·분할·작성 중 초안은 캐시 정리 대상이 아니다. 인증 쿠키·다른 앱의 키·서버 세션·실제 파일도 지우지 않는다. 정리는 `localStorage.clear()`를 사용하지 않는다.
 

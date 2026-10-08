@@ -9,6 +9,9 @@ status_hash: "b9b25fb50a126dd475ca2e6bae99f42419f210afd46114df41118c8d3543c502"
 files: ["src/components/agent-harness-modal.tsx", "server/agent-harness.ts", "server/harness-config.ts"]
 commits: []
 description: "전역·프로젝트·하위 프로젝트의 스킬과 MCP 원본 설정 검색·생성·수정·이동·삭제를 다루는 기능 계약. 시스템·플러그인 캐시·심볼릭 링크의 읽기 전용 경계와 런타임 적용 한계를 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_터미널·에이전트·자동화.md"
 ---
 
 ## 요구사항
@@ -27,8 +30,6 @@ description: "전역·프로젝트·하위 프로젝트의 스킬과 MCP 원본 
 ### 상세 계약
 
 - [원본 위치·충돌·적용 계약](../../configuration/agent-harness.md)
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

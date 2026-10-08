@@ -3,9 +3,10 @@ title: "원격 데스크톱 Electron·서버 전송 이전 계약"
 created: 2026-10-01
 updated: 2026-10-01
 description: "상주 GPU 직접 연결 전환 이전 Electron·VP8·서버 전송, 커서·수명·프로토콜과 최초 연결 최적화의 구현·검증 기록을 보존한다."
+상위파일: "MOC.md"
 ---
 
-[현재 계약](../development/remote-desktop.md) · [역사 지도](MOC.md)
+[현재 계약](../development/remote-desktop.md)
 
 2026-10-01 ADR 0185 적용 전 구현·검증 기록이다. 현재 Windows 상주 GPU 호스트와 직접 연결 정책에는 적용하지 않는다.
 

@@ -9,6 +9,9 @@ status_hash: "bed0a9e331155081546a5580d1b26a16663266c47fe7472e00f82e8352aff86c"
 files: ["src/components/AndroidPanel.tsx", "server/androidEnv.ts", "server/browserProxy.ts"]
 commits: []
 description: "Android SDK·가속·system image·AVD 상태 점검, 준비 명령 실행과 기존 WebRTC gateway 화면 연결을 다루는 기능 계약. 조회만으로 설치·다운로드·프로세스 시작을 하지 않는 경계를 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_브라우저·Android·원격 데스크톱.md"
 ---
 
 ## 요구사항
@@ -28,8 +31,6 @@ description: "Android SDK·가속·system image·AVD 상태 점검, 준비 명�
 ### 상세 계약
 
 - [Android 지원 범위](../../guides/browser.md)
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%EB%B8%8C%EB%9D%BC%EC%9A%B0%EC%A0%80%C2%B7Android%C2%B7%EC%9B%90%EA%B2%A9%20%EB%8D%B0%EC%8A%A4%ED%81%AC%ED%86%B1.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

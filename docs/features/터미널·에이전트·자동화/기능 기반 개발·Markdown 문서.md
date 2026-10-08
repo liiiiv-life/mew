@@ -9,6 +9,9 @@ status_hash: "701eba69573a58c7cb0cae079dbdcc13ad3125808a1b999accc26f79d331606c"
 files: ["src/App.tsx", "src/components/DockWorkspace.tsx", "src/utils/dock-layout.ts", "src/components/feature-development.tsx", "src/components/feature-development.css", "src/utils/feature-panel-state.ts", "server/features.ts", "server/feature-documents.ts", "server/feature-document-tree.ts", "server/document-pages.ts", "server/feature-service.ts", "server/feature-agent-instructions.ts"]
 commits: []
 description: "파일 이름과 Documents 폴더 구조를 기준으로 기능 항목을 관리하는 기능 계약. 제목 인라인 수정·문서 아이콘 열기·계층 표시와 상태 해시, 기존 API·CLI 실행 큐·보고·사용자 판정의 보존 규칙을 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_터미널·에이전트·자동화.md"
 ---
 
 ## 요구사항
@@ -27,8 +30,6 @@ description: "파일 이름과 Documents 폴더 구조를 기준으로 기능 �
 ### 관련 문서
 
 - [문서 페이지 저장·조작](../../development/document-pages.md)
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94.md).
-
 ## 상세 동작
 
 결정: [ADR 0159 — 실행](../../../../.mew/docs/decisions/0159-mew-feature-driven-development.md) · [ADR 0161 — Markdown 기준본](../../../../.mew/docs/decisions/0161-mew-feature-markdown-source.md) · [ADR 0173 — 인라인 편집과 작업 접수](../../../../.mew/docs/decisions/0173-mew-inline-feature-edit-dispatch.md). 후속 결정: [ADR 0194 — 읽기 전용 패널](../../../../.mew/docs/decisions/0194-mew-readonly-feature-panel.md) · [ADR 0196 — 파일 기반 기능 트리](../../../../.mew/docs/decisions/0196-mew-file-backed-feature-tree.md) · [ADR 0198 — 제목 인라인 수정](../../../../.mew/docs/decisions/0198-mew-inline-feature-title.md). 실행 기반: [에이전트 세션](../../development/agent-sessions.md).

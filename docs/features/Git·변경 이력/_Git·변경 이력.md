@@ -9,6 +9,7 @@ status_hash: "be98a5da301e8a6d4a72e5909779ab2d912575aeb6bbb60a258035c4ed2aee21"
 files: []
 commits: []
 description: "파일별 커밋·과거 내용 복원과 현재 프로젝트 Git 작업 패널을 묶는 상위 기능 문서. 하위 기능의 범위와 상세 계약 링크를 안내하며 개별 구현·검증의 소유권을 구분한다."
+상위파일: "../MOC.md"
 ---
 
 ## 요구사항
@@ -26,8 +27,6 @@ description: "파일별 커밋·과거 내용 복원과 현재 프로젝트 Git 
 ### 상세 계약
 
 - [프로젝트·파일 사용법](../../guides/projects.md) · [편집 사용법](../../guides/editor.md)
-
-- 상위: [기능 문서 지도](../MOC.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

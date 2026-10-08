@@ -9,6 +9,9 @@ status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
 description: "시작 시 전체화면 안내와 자체 SVG 뮤캣의 색상·스킨·이동·끌기, 에이전트 작업·오류·자원 과부하 알림을 다루는 기능 계약. 뮤캣 없는 헤더 알림·독립 알림 설정, 데스크톱 알림·소리와 선택적 거대 뮤캣 휴식의 타이머·저장·입력 유지 규칙을 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_화면·계정·운영.md"
 ---
 
 ## 요구사항
@@ -45,8 +48,6 @@ description: "시작 시 전체화면 안내와 자체 SVG 뮤캣의 색상·스
 ### 관련 문서
 
 - 팝업의 대화 기능은 [뮤캣 도우미](%EB%AE%A4%EC%BA%A3%20%EB%8F%84%EC%9A%B0%EB%AF%B8%C2%B7%EB%8C%80%ED%99%94%C2%B7Mew%20%EC%A1%B0%EC%9E%91.md)가 소유한다.
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81.md).
 
 ## 상세 동작
 

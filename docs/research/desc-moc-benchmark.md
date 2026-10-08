@@ -3,9 +3,10 @@ title: "desc 목록·MOC 문서 탐색 비용 비교"
 created: 2026-10-06
 updated: 2026-10-06
 description: "2026-10-06 desc 목록과 MOC의 실제 AI 문서 탐색을 비교한 토큰·시간·품질 결과, 동일 입력 조건·질문·실행별 수치·재현 방법과 한계를 기록한다."
+상위파일: "../MOC.md"
 ---
 
-[문서 지도](../MOC.md) · [이전 RAG·MOC·일반 검색 실험](document-discovery-benchmark.md)
+[이전 RAG·MOC·일반 검색 실험](document-discovery-benchmark.md)
 
 ## 최종 결과
 

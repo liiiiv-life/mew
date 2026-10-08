@@ -9,6 +9,9 @@ status_hash: "67f36d128f8ff98f55ff2f44e2197710413f6968309439a998bd606dad06b477"
 files: ["src/components/DocsSettingsModal.tsx", "src/components/FileTree.tsx", "server/docsRepo.ts", "src/components/DocumentGraph.tsx", "server/document-graph.ts", "src/utils/document-graph-layout.ts", "server/document-pages.ts", "src/hooks/useTabs.ts"]
 commits: []
 description: "Documents 대표 문서·하위 문서의 요청 공유·캐시 유지·대량 목록 가상화와 단일 파일·폴더 구조 전환, 그래프 보기와 가져오기·내보내기를 다루는 기능 계약. 일반 파일과 에디터 탭·배치 공유 및 현재 프로젝트 경계를 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_프로젝트·파일·검색.md"
 ---
 
 ## 요구사항
@@ -43,8 +46,6 @@ description: "Documents 대표 문서·하위 문서의 요청 공유·캐시 �
 - [프로젝트·파일 사용법](../../guides/projects.md)
 - [Documents 링크 그래프 엔진](../../development/document-graph.md)
 - [Documents 상위·하위 문서 계약](../../development/document-pages.md)
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

@@ -1,8 +1,11 @@
 ---
 title: "네이티브 서버 배포"
 description: "Linux·macOS 네이티브 서버 설치, 전용 사용자·HTTPS·systemd 운영과 계정 기반 P2P 등록·별도 중앙 서비스, 업데이트·백업 절차와 하위 경로·앱 컨테이너의 지원 제한을 안내한다."
+상위파일:
+  - "../MOC.md"
+  - "MOC.md"
 ---
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
+[설치·실행](../guides/getting-started-ko.md)
 
 ## 배포 경로와 전제
 

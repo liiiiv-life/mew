@@ -9,6 +9,9 @@ status_hash: "b19a2771f0bfb2f727bc14539350c69b524d222b67a2322b322f359fefd6a804"
 files: ["src/components/AgentPanel.tsx", "src/components/TermButtonBar.tsx", "server/termButtons.ts", "packages/tmux-term/src/TmuxTerminal.tsx", "packages/tmux-term/src/server/tmuxWs.ts"]
 commits: []
 description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·세션 종료와 명령 버튼을 다루는 기능 계약으로, Ctrl/Cmd+N/T·Alt+N의 포커스별 새 터미널과 탭 우클릭의 이름 변경·닫기·최대화/복귀를 제공한다. 에이전트 TUI 구분·테마 반영·패널 닫기와 세션 종료의 차이를 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_터미널·에이전트·자동화.md"
 ---
 
 ## 요구사항
@@ -30,8 +33,6 @@ description: "프로젝트별 tmux 일반 셸 탭의 생성·입력·재연결·
 ### 상세 계약
 
 - [터미널·에이전트 사용법](../../guides/terminal-agents.md) · [명령·예약 작업](../../guides/commands.md)
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

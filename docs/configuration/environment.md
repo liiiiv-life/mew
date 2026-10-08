@@ -1,8 +1,11 @@
 ---
 title: "환경변수와 계정 설정"
 description: "로컬 A의 환경변수와 별도 Cloudflare mewlink 설정 경계를 안내하며, 최상단 설정 창·독립 알림 탭·언어·글꼴·테마색·Dock·단축키 설정과 메모·태스크 표시 전환, Alt+숫자 프로젝트 전환·내부 탭의 Ctrl/Cmd 예약키·전체화면 잠금·원격 입력 우선권, 계정 관리·환경변수 우선순위·P2P 중앙 주소 및 GitHub OAuth 설정을 안내한다."
+상위파일:
+  - "../MOC.md"
+  - "MOC.md"
 ---
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
+[설치·실행](../guides/getting-started-ko.md)
 
 ## 화면 설정
 

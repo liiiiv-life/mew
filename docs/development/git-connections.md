@@ -3,9 +3,10 @@ title: "계정별 Git 연결과 실행"
 created: 2026-09-29
 updated: 2026-10-07
 description: "Mew 계정별 GitHub 연결의 암호화 저장·기기 승인·작성자 식별과 인증 분리, 일반 에이전트 자동 커밋의 로그인 계정 귀속, Git 실행 환경 및 보안 검증 계약을 정의한다."
+상위파일: "MOC.md"
 ---
 
-[개발 계약](MOC.md) · [사용법](../guides/projects.md#github-로그인) · [결정 0179](../../../.mew/docs/decisions/0179-mew-account-git-connections.md)
+[사용법](../guides/projects.md#github-로그인) · [결정 0179](../../../.mew/docs/decisions/0179-mew-account-git-connections.md)
 
 ## 소유권과 저장
 

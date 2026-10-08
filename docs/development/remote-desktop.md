@@ -3,9 +3,10 @@ title: "원격 데스크톱 아키텍처와 검증"
 created: "2026-09-12"
 updated: "2026-10-07"
 description: "상주 네이티브 GPU 호스트와 WebRTC 직접 영상·입력, 4K·최대 240FPS 요청의 H.264 능력 협상·유한 전송 대기열·적응 bitrate·GPU 표면 재사용, 수신 통계·키보드·클립보드·인증 lease·OS 권한·세션 수명과 검증 한계를 정의한다."
+상위파일: "MOC.md"
 ---
 
-[개발 지도](MOC.md) · [설치·사용법](../guides/remote-desktop.md) · [배포 라이선스](remote-desktop-distribution.md) · [ADR 0185](../../../.mew/docs/decisions/0185-mew-desktop-resident-direct-host.md) · [ADR 0189](../../../.mew/docs/decisions/0189-mew-desktop-external-direct-connectivity.md) · [ADR 0144](../../../.mew/docs/decisions/0144-mew-desktop-local-cursor.md)
+[설치·사용법](../guides/remote-desktop.md) · [배포 라이선스](remote-desktop-distribution.md) · [ADR 0185](../../../.mew/docs/decisions/0185-mew-desktop-resident-direct-host.md) · [ADR 0189](../../../.mew/docs/decisions/0189-mew-desktop-external-direct-connectivity.md) · [ADR 0144](../../../.mew/docs/decisions/0144-mew-desktop-local-cursor.md)
 
 ## 경계와 수명
 

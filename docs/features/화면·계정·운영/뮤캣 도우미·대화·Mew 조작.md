@@ -8,6 +8,9 @@ updated: "2026-10-06"
 files: ["src/components/mewcat-assistant.tsx", "src/hooks/use-mewcat-assistant.ts", "server/mewcat-assistant.ts", "server/mewcat-mcp-stdio.ts", "src/App.tsx"]
 commits: []
 description: "뮤캣 팝업의 독립 에이전트 대화·스트리밍·중지·기록 초기화·복원과 자동 내장 MCP를 다루는 기능 계약. 프로젝트 생성·Documents 준비·화면 열기·작업 초안, 권한과 실제 UI 결과 확인을 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_화면·계정·운영.md"
 ---
 
 ## 요구사항
@@ -33,8 +36,6 @@ description: "뮤캣 팝업의 독립 에이전트 대화·스트리밍·중지�
 ### 관련 문서
 
 - [기존 뮤캣](Mewcat%20%EB%A7%88%EC%8A%A4%EC%BD%94%ED%8A%B8%C2%B7%EC%95%8C%EB%A6%BC%C2%B7%ED%9C%B4%EC%8B%9D.md)
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81.md).
-
 ## 상세 동작
 
 결정: [ADR 0184](../../../../.mew/docs/decisions/0184-mewcat-assistant-session-mcp.md).

@@ -3,9 +3,10 @@ title: "mew 배포 준비·보안·사용성 검토"
 created: 2026-09-13
 updated: 2026-09-13
 description: "2026-09-13 코드 기준의 설치 재현성·업로드 실행 경계·복구·문서 일치 등 배포 준비 문제와 개선 우선순위를 검토한다. 현재 출시 적합성 판정이 아니다."
+상위파일: "_work.md"
 ---
 
-[진행 작업 지도](_work.md) · [기능 안내](../guides/getting-started-ko.md) · [배포 계약](../deployment/native.md)
+[기능 안내](../guides/getting-started-ko.md) · [배포 계약](../deployment/native.md)
 
 상태: **검토·제안**. 현재 동작과 개선안을 구분한 문서이며 구현 완료나 새 정책 채택을 뜻하지 않는다. 기준은 `80c126b`와 검토 당시 작업 트리다. 기존 작업 중인 원격 데스크톱·Git·에이전트 변경도 포함했다.
 

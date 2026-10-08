@@ -9,6 +9,9 @@ status_hash: "a4d3adb2072291555b6bd681a8a5b7e3b9de108e056a15951673f169dd30caf7"
 files: ["packages/editor/src/editor/TableTooltip.tsx", "packages/editor/src/editor/TableCopyMenu.tsx", "server/tableLayout.ts"]
 commits: []
 description: "Markdown 표의 행·열 편집과 열 너비 조절, Markdown·CSV·이미지 복사를 다루는 기능 계약. 표 너비 저장 방식과 Postgres 문서 데이터베이스와의 구분을 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_문서·코드·미디어 편집.md"
 ---
 
 ## 요구사항
@@ -27,8 +30,6 @@ description: "Markdown 표의 행·열 편집과 열 너비 조절, Markdown·CS
 ### 상세 계약
 
 - [편집 사용법](../../guides/editor.md)
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

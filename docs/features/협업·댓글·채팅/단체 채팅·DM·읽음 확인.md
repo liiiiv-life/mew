@@ -11,6 +11,9 @@ files:
   - server/chat.ts
 commits: []
 description: "로그인 멤버의 단체방·DM·읽지 않은 대화·메시지별 읽음과 파일 참조를 다루는 기능 계약으로, 사용자 판정은 수정 필요 상태다. 관리자(owner)의 대화별 기록 삭제, 채팅 권한과 DM 전달 범위·서버 관리자 접근의 경계를 설명한다."
+상위파일:
+  - "MOC.md"
+  - "_협업·댓글·채팅.md"
 ---
 
 ## 요구사항
@@ -37,8 +40,6 @@ description: "로그인 멤버의 단체방·DM·읽지 않은 대화·메시지
 ### 상세 계약
 
 - [협업 사용법](../../guides/collaboration.md) · [채팅 저장·전달 계약](../../development/collaboration.md)
-
-- 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%98%91%EC%97%85%C2%B7%EB%8C%93%EA%B8%80%C2%B7%EC%B1%84%ED%8C%85.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

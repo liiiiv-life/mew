@@ -1,8 +1,11 @@
 ---
 title: "공용 패키지"
 description: "공용 ActionMenu의 단일 스타일·항목·배치·접근성 계약과 editor·ui 등 공용 소스 패키지의 책임, YAML 다중행 속성·태그 보존, 호스트 API 주입과 UI 번역 공유, Mermaid 다이어그램 편집·렌더링 경계를 설명한다."
+상위파일:
+  - "../MOC.md"
+  - "MOC.md"
 ---
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
+[설치·실행](../guides/getting-started-ko.md)
 
 재사용 가능한 부분은 `packages/*`의 소스 패키지로 분리되어 있다 (빌드 없음 — vite·node가 소스를 직접 소비). 컴포넌트는 fetch 경로·인증을 모르고, 호스트 앱이 `api` prop으로 서버 연동을 주입한다 (앱 쪽 구현은 `src/api/client.ts`).
 

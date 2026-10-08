@@ -9,6 +9,7 @@ status_hash: "fa171a4c0dd4125f3b1ab4b9b1719541e1dfad7e8c2588d363eaf72c977f2e9f"
 files: []
 commits: []
 description: "서버 브라우저와 Android 환경 준비·gateway 화면 및 원격 데스크톱 입력을 묶는 상위 기능 문서. 하위 기능의 범위와 상세 계약 링크를 안내하며 개별 구현·검증의 소유권을 구분한다."
+상위파일: "../MOC.md"
 ---
 
 ## 요구사항
@@ -27,8 +28,6 @@ description: "서버 브라우저와 Android 환경 준비·gateway 화면 및 �
 ### 상세 계약
 
 - [브라우저·Android](../../guides/browser.md) · [원격 데스크톱](../../guides/remote-desktop.md)
-
-- 상위: [기능 문서 지도](../MOC.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

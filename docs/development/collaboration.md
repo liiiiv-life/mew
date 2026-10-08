@@ -1,8 +1,11 @@
 ---
 title: "협업 방과 멤버 채팅"
 description: "루트별 Yjs 협업 방과 계정별 프로젝트 전환 알림의 와이어 형식·권한·디스크 반영, 공통 메모·presence·접속 기록과 멤버 채팅 저장·관리자 전용 대화 기록 삭제·방송 계약을 정의한다."
+상위파일:
+  - "../MOC.md"
+  - "MOC.md"
 ---
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
+[설치·실행](../guides/getting-started-ko.md)
 
 ## 협업 방 (Yjs 릴레이)
 

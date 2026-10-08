@@ -3,9 +3,10 @@ title: "대화 저장·구간 동기화 구현 계획"
 created: 2026-09-30
 updated: 2026-09-30
 description: "대화를 SQLite·IndexedDB로 증분 저장하고 구간별 전송하는 구현 계획·격리 검증 결과와 운영 적용 제한·합성 성능 측정을 기록한다."
+상위파일: "_work.md"
 ---
 
-[작업 지도](_work.md) · [결정](../../../.mew/docs/decisions/0182-mew-incremental-conversation-storage.md) · [현재 계약](../development/conversation-storage.md)
+[결정](../../../.mew/docs/decisions/0182-mew-incremental-conversation-storage.md) · [현재 계약](../development/conversation-storage.md)
 
 ## 계획
 

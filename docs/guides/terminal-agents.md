@@ -1,8 +1,11 @@
 ---
 title: "터미널과 에이전트 탭"
 description: "터미널·에이전트 탭 만들기·배치, 대화·큐·기록 복원과 포커스별 Ctrl/Cmd+N/T 새 탭과 Ctrl+Alt+M CLI 전환 및 외부 CLI 대화 이어 쓰는 방법을 안내한다."
+상위파일:
+  - "../MOC.md"
+  - "MOC.md"
 ---
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
+[설치·실행](../guides/getting-started-ko.md)
 
 터미널의 기본 배경·글자·커서·선택 색상은 mew의 라이트·다크 모드를 따르며, 열린 터미널에도 테마 변경이 즉시 반영된다. tmux 상태줄이나 내부 프로그램이 별도로 지정한 색상은 해당 프로그램의 테마 설정을 따른다.
 

@@ -1,8 +1,11 @@
 ---
 title: "공동 편집·댓글·채팅·게스트 공유"
 description: "공동 편집·참여자·공통 메모·접속 기록, 댓글·멘션·단체 채팅·DM과 게스트 문서 공유의 사용자 조작을 안내한다."
+상위파일:
+  - "../MOC.md"
+  - "MOC.md"
 ---
-[문서 지도](../MOC.md) · [사용법 지도](MOC.md) · [기능 안내](../guides/getting-started-ko.md)
+[기능 안내](../guides/getting-started-ko.md)
 
 ## 공동 편집과 참여자
 

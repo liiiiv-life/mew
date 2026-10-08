@@ -1,8 +1,11 @@
 ---
 title: "프로젝트와 파일 탐색"
 description: "프로젝트·하위 프로젝트 탭과 Alt+숫자 전환, 폴더 탐색·문서 폴더의 파일 보기와 이동 화살표·즐겨찾기·클라우드 바로가기·Documents, 파일 관리·GitHub·Git 작업 패널의 일반선택·커밋대상선택·에디터 diff와 태스크·담당자 지정 사용법을 안내한다."
+상위파일:
+  - "../MOC.md"
+  - "MOC.md"
 ---
-[문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
+[설치·실행](../guides/getting-started-ko.md)
 
 ## 프로젝트 탭
 

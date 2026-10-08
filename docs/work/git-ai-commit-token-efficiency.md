@@ -3,9 +3,10 @@ title: "AI 커밋 토큰 절감 검토"
 created: 2026-10-04
 updated: 2026-10-04
 description: "AI 커밋 전체 diff·분할 요약·변경 목록의 입력 토큰 실측과 로컬 색인·선택 읽기 제안을 기록한다. 후속 전량 압축 연구와 현재 실행 계약으로 연결한다."
+상위파일: "_work.md"
 ---
 
-[진행 작업 지도](_work.md) · [Git 기능](../features/Git%C2%B7%EB%B3%80%EA%B2%BD%20%EC%9D%B4%EB%A0%A5/%ED%98%84%EC%9E%AC%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20Git%20%EC%9E%91%EC%97%85%20%ED%8C%A8%EB%84%90.md) · [현재 실행 계약](../development/agent-sessions.md#git-ai-commit-작업)
+[Git 기능](../features/Git%C2%B7%EB%B3%80%EA%B2%BD%20%EC%9D%B4%EB%A0%A5/%ED%98%84%EC%9E%AC%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20Git%20%EC%9E%91%EC%97%85%20%ED%8C%A8%EB%84%90.md) · [현재 실행 계약](../development/agent-sessions.md#git-ai-commit-작업)
 
 후속 실행에서 제한된 발췌·재확인이 대량 스킵을 일으킨 것을 확인했다. 대량 문서의 전량 변경 표현·반복 수정·변경 의도 기록을 다시 검토한 [후속 압축 연구](git-document-commit-compression.md)가 이 문서의 초기 제안을 보완한다. 아래 실측과 당시 구현 기록은 그대로 보존한다.
 

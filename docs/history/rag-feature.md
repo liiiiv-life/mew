@@ -9,6 +9,9 @@ status_hash: "834df5b74f90a8f7d616052f4adefcaf6f580bb94d9a5703cbf2c39ef63a0fe1"
 files: ["src/components/rag-panel.tsx", "server/rag/settings.ts", "server/rag/guidance.ts", "server/rag/cli.ts", "server/rag/index.ts", "server/rag/embeddings.ts", "server/rag/chunking.ts"]
 commits: []
 description: "2026-09-28 제거된 로컬 RAG의 기능 요구사항·색인·검색·설정·구현·검증을 보존한다. 현재 실행이나 모델 재다운로드 지침이 아니다."
+상위파일:
+  - "../features/프로젝트·파일·검색/MOC.md"
+  - "../features/프로젝트·파일·검색/_프로젝트·파일·검색.md"
 ---
 
 > 2026-09-28: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)에 따라 RAG를 제거했다. 아래는 당시 기록이며 현재 실행 지침이 아니다. 사용자 요청 없이 재도입·재색인·모델 다운로드를 재시도하지 않는다.
@@ -34,8 +37,6 @@ description: "2026-09-28 제거된 로컬 RAG의 기능 요구사항·색인·�
 ### 상세 계약
 
 - [검색 설정·계약](../configuration/search.md)
-
-- 상위: [분야 지도](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/MOC.md) · [상위 기능](../features/%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/_%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89.md).
 
 <!-- mew:implementation:start -->
 ## 구현 내용

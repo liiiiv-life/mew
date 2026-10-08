@@ -3,9 +3,10 @@ title: "프로젝트 문서 연결과 에이전트 자동 안내"
 created: 2026-09-16
 updated: "2026-10-07"
 description: "프로젝트 Documents 연결과 계정별 에이전트 기본 지침·자동 안내, 기본 활성화되는 디버거 활용 옵션을 설정하고, 기존 파일을 보존하며 문서·외부 도구 진입점을 초기화하는 방법을 안내한다."
+상위파일: "MOC.md"
 ---
 
-상위: [사용법](MOC.md). 결정: [ADR 0155](../../../.mew/docs/decisions/0155-mew-project-agent-context.md).
+결정: [ADR 0155](../../../.mew/docs/decisions/0155-mew-project-agent-context.md).
 
 ## 자동으로 전달되는 내용
 

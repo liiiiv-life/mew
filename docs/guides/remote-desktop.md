@@ -3,9 +3,10 @@ title: "원격 데스크톱 설치와 조작"
 created: 2026-09-12
 updated: "2026-10-07"
 description: "PC·모바일 원격 데스크톱의 설치·OS 권한, 해상도·고화질·144/165/240FPS 목표와 실제 수신 통계·지원 한계, 화면·키보드·클립보드·회전·감도·터치 조작 및 직결 설정을 안내한다."
+상위파일: "MOC.md"
 ---
 
-[사용법 지도](MOC.md) · [아키텍처·검증 범위](../development/remote-desktop.md)
+[아키텍처·검증 범위](../development/remote-desktop.md)
 
 PC·모바일 햄버거 메뉴의 **원격 데스크톱**을 누른다. Dock에는 표시하지 않는다. manager·owner만 사용할 수 있으며, 작업 패널과 독립적으로 화면 전체를 채운다. 서버가 Mac/Linux면 로그인한 데스크톱을, WSL이면 Windows 데스크톱을 공유한다. 서버 전체에 한 연결만 사용할 수 있다.
 
