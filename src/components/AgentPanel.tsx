@@ -1,4 +1,5 @@
 import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
+import { workspaceViewportBottom } from '../utils/workspace-viewport'
 import { openMewSocket } from '../utils/remote-transport.ts'
 import { PanelCloseButton } from './panel-close-button'
 import { TabActionMenu } from './tab-action-menu'
@@ -2377,10 +2378,7 @@ function AgentSessionView({
     const measure = () => {
       const bounds = sessionRef.current?.getBoundingClientRect()
       const panelHeight = Math.round(bounds?.height || window.innerHeight)
-      const visualViewport = window.visualViewport
-      const visibleBottom = visualViewport
-        ? visualViewport.offsetTop + visualViewport.height
-        : window.innerHeight
+      const visibleBottom = workspaceViewportBottom()
       const bottomGuard = isDesktop() ? 0 : MOBILE_AGENT_INPUT_BOTTOM_GUARD_PX
       const viewportOverlap = bounds ? Math.max(0, bounds.bottom - visibleBottom) : 0
       // 평상시에는 p-2만 남겨 네 방향 여백을 같게 한다. 안전 간격은 소프트 키보드가

@@ -21,7 +21,7 @@ test('workspace keeps bottom controls within fullscreen and keyboard viewport bo
     }))
     await page.goto('http://mew-viewport.test/')
     const workspace = page.locator('main')
-    const setViewport = async (height: number, offset: number, innerHeight: number, event: string) => {
+    const setViewport = async (height: number, offset: number, innerHeight: number, event: string, bottom = Math.min(innerHeight, height + offset)) => {
       await workspace.evaluate((el, values) => {
         const win = el.ownerDocument.defaultView!
         Object.defineProperty(win, 'innerHeight', { configurable: true, value: values.innerHeight })
@@ -33,7 +33,6 @@ test('workspace keeps bottom controls within fullscreen and keyboard viewport bo
         else if (values.event === 'window') win.dispatchEvent(new win.Event('resize'))
         else win.visualViewport!.dispatchEvent(new win.Event(values.event))
       }, { height, offset, innerHeight, event })
-      const bottom = Math.min(innerHeight, height + offset)
       await page.waitForFunction(`document.querySelector('main').getBoundingClientRect().bottom === ${bottom}`)
       for (const control of [page.getByRole('textbox'), page.getByRole('button', { name: 'Send' })]) {
         const box = (await control.boundingBox())!
@@ -50,6 +49,30 @@ test('workspace keeps bottom controls within fullscreen and keyboard viewport bo
     // Both viewports resize, then keyboard closes and fullscreen exits.
     await setViewport(480, 0, 480, 'window')
     await setViewport(844, 0, 844, 'fullscreenchange')
+    // Pinch zoom and panning alone must not detach the panel from a fixed dock.
+    for (const scale of [1.25, 1.5, 2]) {
+      await workspace.evaluate((el, scale) => {
+        const win = el.ownerDocument.defaultView!
+        Object.defineProperties(win.visualViewport!, {
+          height: { configurable: true, value: 844 / scale },
+          scale: { configurable: true, value: scale },
+          offsetTop: { configurable: true, value: 80 },
+        })
+        win.visualViewport!.dispatchEvent(new win.Event('scroll'))
+      }, scale)
+      await page.waitForTimeout(40)
+      await page.waitForFunction('document.querySelector("main").getBoundingClientRect().bottom === 844')
+      const send = (await page.getByRole('button', { name: 'Send' }).boundingBox())!
+      assert.equal(send.y + send.height, 844)
+    }
+    // Keyboard coverage still shrinks the workspace while zoomed.
+    await setViewport(440 / 2, 80, 844, 'resize', 440)
+    await page.waitForFunction('document.querySelector("main").getBoundingClientRect().bottom === 440')
+    await workspace.evaluate(el => {
+      const win = el.ownerDocument.defaultView!
+      Object.defineProperty(win.visualViewport!, 'scale', { configurable: true, value: 1 })
+    })
+    await setViewport(844, 0, 844, 'resize')
     await page.screenshot({ path: '/tmp/mew-workspace-viewport-mobile.png' })
     await page.setViewportSize({ width: 1280, height: 844 })
     await setViewport(844, 0, 844, 'resize')

@@ -97,6 +97,21 @@ createRoot(document.getElementById('root')).render(<I18nProvider><div style={{he
       await timedHeader.locator('button[aria-expanded]').press('Enter')
       const composer = page.locator('[data-keep-keyboard] [contenteditable="true"]')
       await composer.focus()
+      if (width < 768) {
+        const cdp = await page.context().newCDPSession(page)
+        try {
+          const composerPanel = page.locator('[data-agent-composer]')
+          const original = (await composerPanel.boundingBox())!
+          for (const scale of [1.25, 1.5, 2, 1]) {
+            await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: scale })
+            await page.waitForFunction(`window.visualViewport.scale === ${scale}`)
+            await page.waitForTimeout(80)
+            assert.equal(await composerPanel.evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).marginBottom), '0px', 'pinch zoom does not insert a keyboard gap below the composer')
+            const bounds = (await composerPanel.boundingBox())!
+            assert.ok(Math.abs(bounds.y + bounds.height - original.y - original.height) < 1, 'zoom preserves the composer bottom in layout coordinates')
+          }
+        } finally { await cdp.detach() }
+      }
       const answerBody = timedHeader.locator('..').locator('.mew-agent-markdown')
       await answerBody.click({ position: { x: 12, y: 12 } })
       assert.equal(await scroll.evaluate(el => el === el.ownerDocument.activeElement), true, 'answer clicks focus the conversation for question navigation')
