@@ -19,7 +19,9 @@ import {createRoot} from '${require.resolve('react-dom/client')}';
 import {I18nProvider} from '${root}/src/i18n.tsx';
 import {Mewcat} from '${root}/src/components/Mewcat.tsx';
 import {MewcatBreakSettings} from '${root}/src/components/mewcat-break.tsx';
+import {setMewcatSize} from '${root}/src/utils/mewcat-size-preferences.ts';
 localStorage.setItem('mew:locale','ko');
+setMewcatSize(144);window.setMewcatSize=setMewcatSize;
 Math.random=()=>0.7;
 window.focused=true;window.visible=true;window.keys=0;
 Object.defineProperty(document,'hasFocus',{value:()=>window.focused});
@@ -79,6 +81,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
       assert.equal(await page.locator(':modal').count(), 0)
       // Fake JS timers do not advance compositor animations; finish the entrance before measuring it.
       await page.evaluate('document.getAnimations().filter(animation => animation.effect.getTiming().iterations !== Infinity).forEach(animation => animation.finish())')
+      await page.clock.pauseAt(new Date(Number(await page.evaluate('Date.now()')) + 1000))
       const cat = await page.locator('.mewcat-break-cat').boundingBox()
       const graphic = await page.locator('.mewcat-break-cat svg').boundingBox()
       assert.ok(cat && graphic && graphic.width >= cat.width * .99)
@@ -113,8 +116,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
       const held = (await roaming.boundingBox())!
       assert.ok(Math.abs(held.x - beforeGrab.x - shift) < 2, 'horizontal drag preserves the grab point')
       assert.ok(Math.abs(held.y - beforeGrab.y + 70) < 2, 'vertical drag preserves the grab point')
+      await page.evaluate('window.setMewcatSize(24)')
       await page.clock.runFor(600)
       const stillHeld = (await roaming.boundingBox())!
+      assert.ok(Math.abs(stillHeld.width - held.width) < 1, 'normal size preferences do not shrink the giant cat')
       assert.ok(Math.abs(stillHeld.x - held.x) < 1 && Math.abs(stillHeld.y - held.y) < 1, 'holding stops roaming')
       await page.mouse.up()
       assert.equal(await roaming.getAttribute('data-activity'), 'fall')

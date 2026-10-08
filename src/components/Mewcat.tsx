@@ -2,7 +2,7 @@ import { createPortal } from 'react-dom'
 import { useMewcatAssistant, type MewcatAssistantOptions } from '../hooks/use-mewcat-assistant'
 import { MewcatAssistant } from './mewcat-assistant'
 import { useI18n } from '../i18n'
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useMewcatNotices, useNotificationPreferences } from '../utils/mewcat-notifications'
 import { MewcatNotifications } from './mewcat-notifications'
 import { MewcatFullscreenGuide } from './mewcat-fullscreen-guide'
@@ -14,20 +14,20 @@ import { useMewcatSpriteSkin } from '../hooks/use-mewcat-sprite-skins'
 import { MEWCAT_CYCLE_MS, spriteAction, spriteFrameAt, type MewcatActivity as Activity, type SpriteSkin } from '../utils/mewcat-sprites'
 import { MewcatSprite } from './mewcat-sprite'
 import { paintSpriteFrame } from '../utils/mewcat-sprite-render'
+import { useMewcatSize } from '../utils/mewcat-size-preferences'
 
-const CAT_SIZE = 48
 const MAX_THROW_SPEED = 1_400
 const THROW_SPEED_SCALE = 0.5
 const WALL_BOUNCE = 0.5
-function movementBounds(giant: boolean, groundInset = 1) {
+function movementBounds(giant: boolean, normalSize: number, groundInset: number) {
   const viewport = window.visualViewport
   const width = viewport?.width ?? window.innerWidth
   const height = viewport?.height ?? window.innerHeight
   const left = viewport?.offsetLeft ?? 0
   const top = viewport?.offsetTop ?? 0
-  const size = giant ? Math.min(width * 1.18, height * 1.08) : CAT_SIZE
+  const size = giant ? Math.min(width * 1.18, height * 1.08) : normalSize
   const overflow = giant ? size * 0.18 : 0
-  const ground = giant ? top + height - size + groundInset * size / CAT_SIZE : Math.max(top, top + height - size + groundInset)
+  const ground = giant ? top + height - size + groundInset * size : Math.max(top, top + height - size + groundInset * size)
   return {
     size, ground,
     minX: left - overflow,
@@ -70,6 +70,13 @@ export function Mewcat({ skin, hidden = false, portalTarget, onOpenSystemStats, 
 
 function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = false, onTap, onDrag, expanded }: { spriteSkin?: SpriteSkin; anchorRef?: RefObject<HTMLDivElement | null>; attention: boolean; noticeId?: number; giant?: boolean; onTap?: () => void; onDrag?: () => void; expanded?: boolean }) {
   const { t } = useI18n()
+  const size = useMewcatSize()
+  const sizeRef = useRef(size)
+  const resizeRef = useRef<(() => void) | null>(null)
+  useLayoutEffect(() => {
+    sizeRef.current = size
+    resizeRef.current?.()
+  }, [size])
   const attentionRef = useRef(attention)
   attentionRef.current = attention
   const interactionRef = useRef({ onTap, onDrag })
@@ -95,9 +102,9 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
     let activity: Activity = nextActivity()
     const groundInset = () => {
       const strip = spriteSkin?.sprites[spriteAction(activity)]
-      return strip ? strip.bottomPadding * CAT_SIZE / Math.max(strip.width / strip.frames, strip.height) : 0
+      return strip ? strip.bottomPadding / Math.max(strip.width / strip.frames, strip.height) : 0
     }
-    let bounds = movementBounds(giant, groundInset())
+    let bounds = movementBounds(giant, sizeRef.current, groundInset())
     let x = giant ? (bounds.minX + bounds.maxX) / 2 : clamp(window.innerWidth * 0.3, bounds.minX, bounds.maxX)
     let y = bounds.ground
     let direction = 1
@@ -120,7 +127,7 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
       activity = next
       activityStarted = now
       activityEnds = duration ? now + duration : 0
-      bounds = movementBounds(giant, groundInset())
+      bounds = movementBounds(giant, sizeRef.current, groundInset())
     }
     const chooseRoam = (now: number) => {
       const next = nextActivity()
@@ -139,7 +146,7 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
       y = clamp(lastPointerY - grabY * bounds.size, bounds.minY, bounds.ground)
     }
     const resize = () => {
-      bounds = movementBounds(giant, groundInset())
+      bounds = movementBounds(giant, sizeRef.current, groundInset())
       cat.style.width = `${bounds.size}px`
       cat.style.height = `${bounds.size}px`
       x = clamp(x, bounds.minX, bounds.maxX)
@@ -276,9 +283,11 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
     document.addEventListener('fullscreenchange', resize)
     viewport?.addEventListener('resize', resize)
     viewport?.addEventListener('scroll', resize)
+    resizeRef.current = resize
     resize()
     animationFrame = window.requestAnimationFrame(tick)
     return () => {
+      resizeRef.current = null
       window.cancelAnimationFrame(animationFrame)
       cat.removeEventListener('pointerdown', onPointerDown)
       cat.removeEventListener('pointermove', onPointerMove)

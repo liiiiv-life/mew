@@ -6,9 +6,9 @@ status: "implemented"
 created: "2026-09-18"
 updated: "2026-10-08"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
-files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-skin-settings.tsx", "src/utils/mewcat-sprites.ts", "src/utils/mewcat-sprite-storage.ts", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
+files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-skin-settings.tsx", "src/components/mewcat-size-settings.tsx", "src/utils/mewcat-size-preferences.ts", "src/utils/mewcat-sprites.ts", "src/utils/mewcat-sprite-storage.ts", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
-description: "뮤캣의 화면 바닥 배치·모바일 독 겹침, 실루엣·아기 고양이·러시안블루·코리안 숏헤어·카피바라 내장 스킨과 상승·하강을 분리한 일곱 동작의 커스텀 스킨, 이동·끌기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤캣 휴식의 저장·입력 유지 규칙도 설명한다."
+description: "뮤캣의 화면 바닥 배치·모바일 독 겹침·기본 크기 조절, 실루엣·아기 고양이·러시안블루·코리안 숏헤어·카피바라 내장 스킨과 상승·하강을 분리한 일곱 동작의 커스텀 스킨, 이동·끌기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤캣 휴식의 저장·입력 유지 규칙도 설명한다."
 상위파일:
   - "MOC.md"
   - "_화면·계정·운영.md"
@@ -17,7 +17,7 @@ description: "뮤캣의 화면 바닥 배치·모바일 독 겹침, 실루엣·�
 ## 요구사항
 
 - 뮤캣 스킨이 없거나 고양이를 숨겨도 알림을 수집하고, 앱 내 알림이 켜져 있고 미확인 알림이 있으면 상단 활성 세션 버튼 왼쪽에 종 아이콘과 개수를 표시한다. 누르면 같은 알림 목록에서 해당 화면 이동·개별 닫기·모두 확인을 제공한다.
-- 알림 채널·자원 감시·테스트는 설정의 독립 **알림** 탭으로 옮긴다. 뮤캣 스킨이 켜진 경우 **뮤캣으로도 알림 표시** 옵션을 추가하며 이 옵션을 꺼도 헤더·OS 알림·소리를 유지한다. 뮤캣 탭은 스킨·원격 뷰어 숨김·휴식 설정을 소유한다.
+- 알림 채널·자원 감시·테스트는 설정의 독립 **알림** 탭으로 옮긴다. 뮤캣 스킨이 켜진 경우 **뮤캣으로도 알림 표시** 옵션을 추가하며 이 옵션을 꺼도 헤더·OS 알림·소리를 유지한다. 뮤캣 탭은 스킨·기본 크기·원격 뷰어 숨김·휴식 설정을 소유한다.
 
 - 화면 하단의 고양이와 상호작용하고, 에이전트 작업·오류·서버 과부하를 시각 알림과 선택적인 PC 데스크톱 알림·소리로 확인한다.
 - 원하면 사용 시간 뒤 뮤캣 자체가 거대하게 커져 작업 화면을 가리고 휴식을 유도한다.
@@ -70,8 +70,12 @@ mew를 열거나 새로고침할 때 전체화면이 아니면 뮤캣 말풍선�
 
 일반 표시 모드의 Mewcat은 화면 **맨 아래**에서만 움직이며, 벽·천장을 타지 않는다. 데스크톱·모바일·전체화면 모두 현재 visual viewport의 화면 아래를 바닥으로 삼는다. 독의 위치·높이·표시 여부와 관계없이 같은 바닥을 유지하며, 모바일에서는 독 위에 겹쳐 표시한다. 기본 행동은 idle, walk,
 run 중 하나를 무작위로 골라 수행한다. 스프라이트의 동작별 프레임과 좌우 반전으로 표현한다.
-48px 정사각형 안에 비율을 유지해 표시하며, 기본 실루엣은 둥근 얼굴·짧은 발·말린 꼬리에 완전 검정 몸통과 흰 눈만 보인다. love 상태에서는 눈을 접어 웃는다. 그림의 색은 테마·강조색과 무관하게 유지하며 설정 미리보기·휴식용 큰 고양이·원격 뷰어에도 같은 스킨을 적용한다.
+기본 48px 정사각형 안에 비율을 유지해 표시하며, 기본 실루엣은 둥근 얼굴·짧은 발·말린 꼬리에 완전 검정 몸통과 흰 눈만 보인다. love 상태에서는 눈을 접어 웃는다. 그림의 색은 테마·강조색과 무관하게 유지하며 설정 미리보기·휴식용 큰 고양이·원격 뷰어에도 같은 스킨을 적용한다.
 각 스프라이트의 공통 하단 투명 여백을 보정해 실제 발바닥이 화면 맨 아래에 닿게 한다.
+
+설정 → 뮤캣의 **기본 크기** 슬라이더는 24–144px 범위를 1px씩 조절하며 현재 크기를 표시한다. 되돌리기 버튼은 48px로 복원한다. 변경은 내장·커스텀 스킨과 원격 뷰어에 즉시 적용하며 기존 위치·동작·잡힌 상태를 유지한다. 바닥·벽 경계·투명 여백 보정·그림의 포인터 경로도 새 크기에 맞춘다. 스킨 미리보기는 기존 크기를 유지하며 휴식용 거대 뮤캣의 크기는 visual viewport에서 계산한다.
+
+일반 크기는 scoped localStorage `mew:mewcat-size`에 브라우저별로 저장하며 P2P의 중앙 계정·인스턴스별 범위를 따른다. 다른 창에서 같은 범위의 값을 바꾸면 반영하고 새로고침 후 복원한다. 저장된 값이 없거나 숫자가 아니면 48px, 유효한 숫자가 범위를 벗어나면 가장 가까운 경계값을 사용한다. 저장 실패 시 현재 화면에는 적용하고 설정에 오류를 표시한다. 사용자 설정이므로 자동 캐시 정리 대상이 아니다.
 
 짧게 클릭하면 이동을 멈추고 love 모션을 한 번 재생한다. 최근 알림 말풍선을 열고, 시스템 자원 권한이 있으면 하단에 자원 사용률도 표시한다. 고양이를 누른 뒤 곧바로 움직이면
 마우스·터치로 끌 수 있고, 그동안 struggle 모션을 반복한다.
@@ -381,6 +385,7 @@ node --test src/utils/mewcat-break-rules.test.ts server/mewcat-break-ui.test.ts
 - 실제 Windows 알림·음성 출력은 사용자 PC의 테스트 버튼으로 확인한다.
 - 강제 휴식은 기본값·시/분 입력·비활성 일시정지·타이머 단독 표시·거대 뮤캣 이동/끌기/놓기/공중에서 잡기·그림 포인터 가로막기·투명 영역 통과·키보드 유지·새로고침 복원·휴식 종료를 단위/실제 브라우저 테스트로 확인한다.
 - 기존 상호작용 확인 기준: 클릭·드래그·던지기·화면 경계와 숨기기 설정이 데스크톱·터치에서 동작하는지 확인한다.
+- `server/mewcat-size-ui.test.ts`는 PC 다크·모바일 라이트에서 기본 크기의 키보드·터치 조절, 즉시 반영·바닥과 visual viewport 경계, 잡힌 상태 유지·스킨 변경·원격 뷰어, 새로고침·같은 범위의 창 간 반영·다른 범위 격리, 잘못된 저장값·저장 실패·언어 전환과 초기화를 검사한다. `server/mewcat-break-ui.test.ts`는 일반 크기를 144px에서 24px로 바꿔도 잡고 있던 거대 뮤캣의 크기·위치가 유지되는지 검사한다.
 
 - 네 언어 전환 시 빈 상태·모든 알림 문구·접근성 이름·메모리 표기가 즉시 갱신되고 사용자 출처는 보존되는지 검사한다.
 

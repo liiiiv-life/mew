@@ -1,6 +1,8 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  "기본 크기": ["Default size", "默认大小", "基本サイズ"],
+  "크기를 저장하지 못했습니다. 브라우저 저장 공간을 확인하세요.": ["Could not save the size. Check browser storage.", "无法保存大小，请检查浏览器存储空间。", "サイズを保存できませんでした。ブラウザーの保存容量を確認してください。"],
   "아기 고양이": ["Little kitten", "小猫咪", "子猫"],
   "실루엣 고양이": ["Silhouette kitten", "剪影小猫", "シルエット子猫"],
   "러시안블루": ["Russian Blue", "俄罗斯蓝猫", "ロシアンブルー"],
