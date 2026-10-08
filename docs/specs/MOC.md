@@ -1,6 +1,6 @@
 ---
 title: "이전 Specs 경로 — 이동 안내"
-updated: "2026-10-06"
+updated: "2026-10-08"
 description: "기능 문서로 통합한 이전 Specs의 경로를 유지하고 각 주제의 현재 상세 계약으로 연결하는 이동 안내 목록이다."
 ---
 
@@ -8,7 +8,9 @@ description: "기능 문서로 통합한 이전 Specs의 경로를 유지하고 
 
 상위: [문서 홈](../MOC.md). 상세 명세는 [기능](../features/MOC.md)에 통합했다. 아래 파일은 기존 ADR·외부 링크를 유지하기 위한 이동 안내이며 별도 명세를 관리하지 않는다.
 
-## History / raw
+## 하위파일
+
+### History / raw
 
 - [에이전트 입력·멘션·스킬·첨부 — 이동 안내](agent-input-mentions.md)
 - [에이전트 대화·큐·복원 — 이동 안내](agent-panel.md)

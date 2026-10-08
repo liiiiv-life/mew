@@ -1,7 +1,7 @@
 ---
 title: "사용법 홈"
 created: "2026-09-11"
-updated: "2026-10-07"
+updated: "2026-10-08"
 description: "네 언어의 설치·시작 안내와 Windows 관리 앱, 프로젝트·편집·협업·에이전트·브라우저·원격 데스크톱·DB 사용법을 연결한다."
 ---
 
@@ -11,7 +11,7 @@ description: "네 언어의 설치·시작 안내와 Windows 관리 앱, 프로�
 
 네 언어의 시작 안내는 같은 사용법의 언어판이다. 설치·기능·운영 절차가 바뀌면 함께 갱신하며, 세부 계약은 각 주제 문서를 따른다.
 
-## Current
+## 하위파일
 
 - 설치·사용·업데이트: [한국어](getting-started-ko.md) · [English](getting-started-en.md) · [简体中文](getting-started-zh.md) · [日本語](getting-started-ja.md)
 

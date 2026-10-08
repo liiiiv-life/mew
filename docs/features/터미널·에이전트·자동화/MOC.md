@@ -1,15 +1,15 @@
 ---
 title: "터미널·에이전트·자동화"
 created: 2026-09-18
-updated: 2026-10-04
-description: "셸 터미널·AI 런타임·에이전트 대화·입력·스킬·MCP·예약과 기능 기반 개발 기능 문서를 연결하는 분야 소개와 화면용 링크 목록."
+updated: "2026-10-08"
+description: "셸 터미널·AI 런타임·에이전트 대화·입력·스킬·MCP·예약·외부 DAP 디버거와 기능 기반 개발 기능 문서를 연결하는 분야 소개와 화면용 링크 목록."
 ---
 
 # 터미널·에이전트·자동화
 
 상위: [기능 홈](../MOC.md) · [터미널·에이전트·자동화 개요](_%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94.md).
 
-## Current
+## 하위파일
 
 - [tmux 셸 터미널](tmux%20%EC%85%B8%20%ED%84%B0%EB%AF%B8%EB%84%90.md)
 - [AI 런타임 설치·인증·실행 설정](AI%20%EB%9F%B0%ED%83%80%EC%9E%84%20%EC%84%A4%EC%B9%98%C2%B7%EC%9D%B8%EC%A6%9D%C2%B7%EC%8B%A4%ED%96%89%20%EC%84%A4%EC%A0%95.md)
@@ -23,3 +23,4 @@ description: "셸 터미널·AI 런타임·에이전트 대화·입력·스킬·
 - [기능 기반 개발·Markdown 문서](%EA%B8%B0%EB%8A%A5%20%EA%B8%B0%EB%B0%98%20%EA%B0%9C%EB%B0%9C%C2%B7Markdown%20%EB%AC%B8%EC%84%9C.md)
 - [프로젝트 명령 버튼](%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20%EB%AA%85%EB%A0%B9%20%EB%B2%84%ED%8A%BC.md)
 - [반복 예약 작업](%EB%B0%98%EB%B3%B5%20%EC%98%88%EC%95%BD%20%EC%9E%91%EC%97%85.md)
+- [외부 DAP 디버거](%EC%99%B8%EB%B6%80%20DAP%20%EB%94%94%EB%B2%84%EA%B1%B0.md)

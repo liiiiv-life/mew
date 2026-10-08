@@ -1,7 +1,7 @@
 ---
 title: "문서·코드·미디어 편집"
 created: 2026-09-18
-updated: 2026-10-04
+updated: "2026-10-08"
 description: "Markdown·원문·문서 속성·코드·링크·표·각주·미디어·PDF 편집과 자동저장 기능 문서를 연결하는 분야 소개와 화면용 링크 목록."
 ---
 
@@ -9,7 +9,7 @@ description: "Markdown·원문·문서 속성·코드·링크·표·각주·미�
 
 상위: [기능 홈](../MOC.md) · [문서·코드·미디어 편집 개요](_%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91.md).
 
-## Current
+## 하위파일
 
 - [Markdown Hotview·원문·문서 속성](Markdown%20Hotview%C2%B7%EC%9B%90%EB%AC%B8%C2%B7%EB%AC%B8%EC%84%9C%20%EC%86%8D%EC%84%B1.md)
 - [코드·텍스트 편집과 문서 내 검색](%EC%BD%94%EB%93%9C%C2%B7%ED%85%8D%EC%8A%A4%ED%8A%B8%20%ED%8E%B8%EC%A7%91%EA%B3%BC%20%EB%AC%B8%EC%84%9C%20%EB%82%B4%20%EA%B2%80%EC%83%89.md)

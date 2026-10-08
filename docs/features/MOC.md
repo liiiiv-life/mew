@@ -1,7 +1,7 @@
 ---
 title: "기능 홈"
 created: 2026-09-18
-updated: "2026-10-06"
+updated: "2026-10-08"
 description: "Mew 기능 분야와 개별 요구사항·상세 동작·구현·확인 기준 문서를 연결하는 화면용 기능 홈. 기능 패널의 파일 기반 목록과 관리 기준을 안내한다."
 ---
 
@@ -11,7 +11,7 @@ description: "Mew 기능 분야와 개별 요구사항·상세 동작·구현·�
 
 [기능 문서 관리 기준](README.md) · [정리 계획과 범위](../work/feature-catalog-organization.md)
 
-## Current
+## 하위파일
 
 - [프로젝트·파일·검색](%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/MOC.md) · [개요](%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89/_%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89.md)
 - [문서·코드·미디어 편집](%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/MOC.md) · [개요](%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91/_%EB%AC%B8%EC%84%9C%C2%B7%EC%BD%94%EB%93%9C%C2%B7%EB%AF%B8%EB%94%94%EC%96%B4%20%ED%8E%B8%EC%A7%91.md)
@@ -79,4 +79,8 @@ description: "Mew 기능 분야와 개별 요구사항·상세 동작·구현·�
 - [협업·댓글·채팅](%ED%98%91%EC%97%85%C2%B7%EB%8C%93%EA%B8%80%C2%B7%EC%B1%84%ED%8C%85/_%ED%98%91%EC%97%85%C2%B7%EB%8C%93%EA%B8%80%C2%B7%EC%B1%84%ED%8C%85.md)
 - [화면·계정·운영](%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/_%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81.md)
 - [화면·언어·글꼴·단축키 설정](%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%ED%99%94%EB%A9%B4%C2%B7%EC%96%B8%EC%96%B4%C2%B7%EA%B8%80%EA%BC%B4%C2%B7%EB%8B%A8%EC%B6%95%ED%82%A4%20%EC%84%A4%EC%A0%95.md)
+- [외부 DAP 디버거](%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EC%99%B8%EB%B6%80%20DAP%20%EB%94%94%EB%B2%84%EA%B1%B0.md)
+- [Windows 설치·관리 앱](%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/Windows%20%EC%84%A4%EC%B9%98%C2%B7%EA%B4%80%EB%A6%AC%20%EC%95%B1.md)
+- [네트워크 사용량](%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81/%EB%84%A4%ED%8A%B8%EC%9B%8C%ED%81%AC%20%EC%82%AC%EC%9A%A9%EB%9F%89.md)
+
 <!-- mew:features:end -->

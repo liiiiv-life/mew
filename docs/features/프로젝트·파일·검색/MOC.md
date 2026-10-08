@@ -1,7 +1,7 @@
 ---
 title: "프로젝트·파일·검색"
 created: 2026-09-18
-updated: "2026-10-04"
+updated: "2026-10-08"
 description: "프로젝트·하위 프로젝트 탭, Documents·파일 탐색·검색·치환과 태스크 문서 기능 문서를 연결하는 분야 소개와 화면용 링크 목록."
 ---
 
@@ -9,7 +9,7 @@ description: "프로젝트·하위 프로젝트 탭, Documents·파일 탐색·�
 
 상위: [기능 홈](../MOC.md) · [프로젝트·파일·검색 개요](_%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%C2%B7%ED%8C%8C%EC%9D%BC%C2%B7%EA%B2%80%EC%83%89.md).
 
-## Current
+## 하위파일
 
 
 - [프로젝트 열기·탭·그룹](%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8%20%EC%97%B4%EA%B8%B0%C2%B7%ED%83%AD%C2%B7%EA%B7%B8%EB%A3%B9.md)
