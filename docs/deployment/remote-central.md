@@ -1,6 +1,6 @@
 ---
 title: "mewlink Cloudflare 배포"
-description: "Google·GitHub·Apple 로그인 값 받기, 설정 파일에 저장하기, Cloudflare 배포와 로컬 기기 등록을 짧은 실행 순서로 안내한다. 뒤에는 발급·운영 상세 참고를 보존하며 실제 배포·외부망 검증은 남아 있다."
+description: "Google·GitHub·Apple 로그인 값 받기, 내부 링크로 설정 파일 열기, Cloudflare 배포와 로컬 기기 등록을 짧은 실행 순서로 안내한다. 발급·운영 상세 참고를 보존하며 실제 배포·외부망 검증은 남아 있다."
 created: 2026-10-07
 updated: "2026-10-08"
 ---
@@ -62,7 +62,7 @@ npm run setup
 
 ### 3. 받은 값 저장하기
 
-`mewlink/.secrets.json`을 열고, 사용하는 로그인 방식의 항목만 추가한다.
+[mewlink/.secrets.json](../../mewlink/.secrets.json)을 열고, 사용하는 로그인 방식의 항목만 추가한다.
 
 | 복사한 값 | 파일에 넣을 이름 |
 | --- | --- |
@@ -118,14 +118,14 @@ npm run deploy
 
 ## 위치와 배포 구성
 
-중앙 프로젝트는 `mew/mewlink/`다. 부모 `.gitignore`의 `/mewlink/`와 npm workspace 제외를 유지하며 별도 Git 저장소는 아직 만들지 않았다. 공개 mew의 기본 설치·타입 검사·테스트는 이 폴더 없이 동작한다. 중앙 소스·의존성·잠금 파일은 이 폴더에만 남으므로 별도 저장소나 백업에 폴더를 보관해야 한다.
+중앙 프로젝트는 `mew/mewlink/`다. 부모 [.gitignore](../../.gitignore)의 `/mewlink/`와 npm workspace 제외를 유지하며 별도 Git 저장소는 아직 만들지 않았다. 공개 mew의 기본 설치·타입 검사·테스트는 이 폴더 없이 동작한다. 중앙 소스·의존성·잠금 파일은 이 폴더에만 남으므로 별도 저장소나 백업에 폴더를 보관해야 한다.
 
-공개 mew의 Git 이력에서도 이전 중앙 구현 `server/remote-central/`, 전용 테스트 `server/remote-central.test.ts`·`server/remote-access-authenticated.test.ts`, 이전 중앙 화면 `src/components/remote-dashboard.tsx`를 제외한다. 현재 파일 삭제와 `.gitignore`만으로 과거 커밋이 정리되지는 않는다. 공개 연결 클라이언트·공유 프로토콜은 유지하고, 중앙 소스와 이력 재작성 전 복구 백업은 공개 저장소 밖에서 보관한다. 복구 시 이 파일들이 공개 이력에 다시 들어오지 않도록 확인한다.
+공개 mew의 Git 이력에서도 이전 중앙 구현 `server/remote-central/`, 전용 테스트 `server/remote-central.test.ts`·`server/remote-access-authenticated.test.ts`, 이전 중앙 화면 `src/components/remote-dashboard.tsx`를 제외한다. 현재 파일 삭제와 [.gitignore](../../.gitignore)만으로 과거 커밋이 정리되지는 않는다. 공개 연결 클라이언트·공유 프로토콜은 유지하고, 중앙 소스와 이력 재작성 전 복구 백업은 공개 저장소 밖에서 보관한다. 복구 시 이 파일들이 공개 이력에 다시 들어오지 않도록 확인한다.
 
 | 구성 | 책임 |
 | --- | --- |
-| `mewlink/src/worker.ts` | OAuth 콜백·세션·등록·멤버십·일회용 launch·접속 증명 |
-| `mewlink/src/client.ts`, `public/index.html` | 로그인·기기 선택·P2P 연결용 작은 프론트 |
+| [mewlink/src/worker.ts](../../mewlink/src/worker.ts) | OAuth 콜백·세션·등록·멤버십·일회용 launch·접속 증명 |
+| [mewlink/src/client.ts](../../mewlink/src/client.ts), [mewlink/public/index.html](../../mewlink/public/index.html) | 로그인·기기 선택·P2P 연결용 작은 프론트 |
 | Worker의 `ASSETS` | mewlink의 `dist/`만 제공. 부모 mew 빌드 제외 |
 | D1 `DB` | 계정·등록·해시 세션·멤버십·일회용 요청·만료 정리 |
 | 기기별 Durable Object `SIGNAL` | A의 상시 WSS, 승인된 연결의 SDP·ICE, lease·회수 |
@@ -145,7 +145,7 @@ npm run deploy
 
 ### OAuth 발급값
 
-| 제공자 | `mewlink/.secrets.json` 항목 | 정확한 콜백 |
+| 제공자 | [mewlink/.secrets.json](../../mewlink/.secrets.json) 항목 | 정확한 콜백 |
 | --- | --- | --- |
 | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | `https://mew.saens.kr/auth/google/callback` |
 | GitHub | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | `https://mew.saens.kr/auth/github/callback` |
@@ -211,7 +211,7 @@ Google·GitHub·Apple 중 하나로 먼저 사용할 수 있다. 별도 이메�
 
 ### 5. 설정 파일에 옮기기
 
-`npm run setup`은 빈 `.secrets.json`만 만들고 제공자 자격증명을 발급하지 않는다. JSON은 문자열 값과 쉼표로 구성하며 주석을 넣지 않는다. 아래는 **Google·GitHub만 활성화하는 가짜 값 예시**다. 처음 설정할 때 구조를 참고하고, 기존 파일에 `SIGNING_KEY`가 있으면 파일 전체를 덮어쓰지 말고 필요한 항목만 추가한다.
+`npm run setup`은 빈 [mewlink/.secrets.json](../../mewlink/.secrets.json)만 만들고 제공자 자격증명을 발급하지 않는다. JSON은 문자열 값과 쉼표로 구성하며 주석을 넣지 않는다. 아래는 **Google·GitHub만 활성화하는 가짜 값 예시**다. 처음 설정할 때 구조를 참고하고, 기존 파일에 `SIGNING_KEY`가 있으면 파일 전체를 덮어쓰지 말고 필요한 항목만 추가한다.
 
 ```json
 {
@@ -230,12 +230,12 @@ Apple을 추가할 때는 위 네 항목을, 이메일 OIDC를 추가할 때는 
 
 | 값 | 얻는 곳·처리 방식 | 저장 위치 |
 | --- | --- | --- |
-| Cloudflare Account ID | 여러 계정 중 대상 지정이 필요하면 Dashboard에서 대상 계정의 ID를 복사한다. `saens.kr` zone의 Overview에서도 Account ID를 확인할 수 있다. 배포 환경의 `CLOUDFLARE_ACCOUNT_ID`로 지정한다. | 배포 셸 환경변수. `.secrets.json`에 넣지 않음 |
+| Cloudflare Account ID | 여러 계정 중 대상 지정이 필요하면 Dashboard에서 대상 계정의 ID를 복사한다. `saens.kr` zone의 Overview에서도 Account ID를 확인할 수 있다. 배포 환경의 `CLOUDFLARE_ACCOUNT_ID`로 지정한다. | 배포 셸 환경변수. [mewlink/.secrets.json](../../mewlink/.secrets.json)에 넣지 않음 |
 | Cloudflare Zone ID | `saens.kr` Overview의 Zone ID. 현재 배포 스크립트는 직접 입력받지 않는다. | 수동 설정 불필요 |
 | `CLOUDFLARE_API_TOKEN` | CI 등 비대화형 배포가 필요할 때 Dashboard의 프로필 → API Tokens → Create Token에서 발급한다. 대상 계정·zone의 Workers·D1·도메인 작업을 허용해야 한다. 로컬 브라우저 로그인 방식에서는 생략한다. | CI 비밀 저장소 또는 배포 셸 환경변수. Worker OAuth 설정 파일에 넣지 않음 |
-| D1 `database_id` | `npm run deploy`가 이름 `mewlink`로 조회하고 없으면 생성해 UUID를 기록한다. 이미 다른 ID가 있으면 중단한다. | `mewlink/wrangler.jsonc` |
-| `SIGNING_KEY` | 최초 배포에서 기존 원격·로컬 키가 모두 없을 때 Ed25519 private JWK를 자동 생성한다. OAuth 제공자가 발급하는 값이 아니다. | `.secrets.json`의 JSON 문자열과 Worker secret |
-| 중앙·앱 origin | 현재 도메인으로 이미 설정된 `CENTRAL_ORIGIN`·`APP_ORIGIN`. ID나 secret이 아니다. | `mewlink/wrangler.jsonc`의 `vars` |
+| D1 `database_id` | `npm run deploy`가 이름 `mewlink`로 조회하고 없으면 생성해 UUID를 기록한다. 이미 다른 ID가 있으면 중단한다. | [mewlink/wrangler.jsonc](../../mewlink/wrangler.jsonc) |
+| `SIGNING_KEY` | 최초 배포에서 기존 원격·로컬 키가 모두 없을 때 Ed25519 private JWK를 자동 생성한다. OAuth 제공자가 발급하는 값이 아니다. | [mewlink/.secrets.json](../../mewlink/.secrets.json)의 JSON 문자열과 Worker secret |
+| 중앙·앱 origin | 현재 도메인으로 이미 설정된 `CENTRAL_ORIGIN`·`APP_ORIGIN`. ID나 secret이 아니다. | [mewlink/wrangler.jsonc](../../mewlink/wrangler.jsonc)의 `vars` |
 | 중앙 계정 ID·기기 주소 | 제공자 로그인·기기 등록 후 mewlink에서 생성한다. OAuth Client ID나 Cloudflare Account ID와 다르다. | 대시보드·기기 링크에서 확인 |
 
 [Account·Zone ID 확인](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/), [배포 환경변수](https://developers.cloudflare.com/workers/wrangler/system-environment-variables/), [API token 발급](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/). Cloudflare 인증값은 배포 도구의 인증이고, Google 등의 OAuth secret은 사용자 로그인용이므로 서로 대신할 수 없다. 이미 등록된 A가 있으면 `SIGNING_KEY`를 새로 만들지 말고 기존 키·백업을 유지한다.
@@ -246,9 +246,9 @@ Google/GitHub/이메일은 Authorization Code + PKCE, Apple은 공식 confidenti
 
 ## 상태·키·복구
 
-D1 마이그레이션은 `mewlink/migrations/0001_accounts.sql`이다. 세션 7일, 로그인/등록 요청 5분, launch 60초, 재사용 방지 증명·rate limit은 각각 만료값을 가진다. 매시간 Cron이 만료 행을 정리한다. DO는 WebSocket attachment로 인증·협상 상태를 보존하고 hibernation 이후 재검증한다. A의 20초 heartbeat는 자동 응답으로 처리하며 60초 무응답·10초 간격 만료 검사로 오프라인을 판정한다. 열린 작업 연결의 lease는 60초·20초 갱신이고 로그아웃·멤버 회수·등록 폐기 시 해당 DO와 A에 종료를 보낸다.
+D1 마이그레이션은 [mewlink/migrations/0001_accounts.sql](../../mewlink/migrations/0001_accounts.sql)이다. 세션 7일, 로그인/등록 요청 5분, launch 60초, 재사용 방지 증명·rate limit은 각각 만료값을 가진다. 매시간 Cron이 만료 행을 정리한다. DO는 WebSocket attachment로 인증·협상 상태를 보존하고 hibernation 이후 재검증한다. A의 20초 heartbeat는 자동 응답으로 처리하며 60초 무응답·10초 간격 만료 검사로 오프라인을 판정한다. 열린 작업 연결의 lease는 60초·20초 갱신이고 로그아웃·멤버 회수·등록 폐기 시 해당 DO와 A에 종료를 보낸다.
 
-중앙 Ed25519 `SIGNING_KEY`는 최초 배포 때 생성하여 보호된 `.secrets.json`과 Worker secret에 보관한다. `.deployment-state.json`은 배포된 공개 키 지문만 기록한다. 기존 Worker의 키를 다른 값으로 자동 교체하지 않는다. 로컬 키가 없으면 이미 배포된 Worker secret을 유지한다. 키를 잃고 Worker secret도 지웠다면 새 키는 기존 A에 고정된 공개 키와 달라지므로 복구 또는 명시적 재등록이 필요하다. 자동 키 회전은 제공하지 않는다.
+중앙 Ed25519 `SIGNING_KEY`는 최초 배포 때 생성하여 보호된 [mewlink/.secrets.json](../../mewlink/.secrets.json)과 Worker secret에 보관한다. `.deployment-state.json`은 배포된 공개 키 지문만 기록한다. 기존 Worker의 키를 다른 값으로 자동 교체하지 않는다. 로컬 키가 없으면 이미 배포된 Worker secret을 유지한다. 키를 잃고 Worker secret도 지웠다면 새 키는 기존 A에 고정된 공개 키와 달라지므로 복구 또는 명시적 재등록이 필요하다. 자동 키 회전은 제공하지 않는다.
 
 D1의 일관된 export/복구와 서명 키를 함께 백업한다. 과거 Node 중앙의 `central.sqlite`와 `signing-key.json` 자동 이관은 제공하지 않는다. 실제 과거 등록이 있다면 키·계정·등록을 확인하고 별도 이관 또는 owner 승인 재등록을 수행한다. 보관/개인정보 안내·계정 삭제·재해 복구 실습은 출시 전 운영 게이트다.
 
