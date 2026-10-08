@@ -14,7 +14,7 @@ test('manager IPC, setup validation, operation locks, recovery and responsive la
   const server = http.createServer(async (req, res) => {
     const pathname = decodeURIComponent(new URL(req.url!, 'http://localhost').pathname)
     const file = path.resolve(dist, '.' + (pathname === '/' ? '/index.html' : pathname))
-    if (!file.startsWith(dist + '/')) { res.writeHead(403); res.end(); return }
+    if (!file.startsWith(dist + path.sep)) { res.writeHead(403); res.end(); return }
     try {
       res.setHeader('Content-Type', ({ '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.woff2':'font/woff2' } as Record<string,string>)[path.extname(file)] || 'application/octet-stream')
       res.end(await fs.readFile(file))
@@ -60,7 +60,8 @@ test('manager IPC, setup validation, operation locks, recovery and responsive la
       }
     }
   }, fixture)
-  await page.goto(`http://127.0.0.1:${(server.address() as any).port}`)
+  const response = await page.goto(`http://127.0.0.1:${(server.address() as any).port}`)
+  assert.equal(response?.status(), 200, 'The fixture server must serve the manager page successfully.')
   await page.getByRole('button', { name: 'mew 열기', exact: true }).waitFor()
   await page.evaluate(async () => { await document.fonts.ready; const tag=document.createElement('div'); tag.textContent='테스트용 가상 데이터'; tag.style.cssText='position:fixed;bottom:5px;left:12px;color:#686373;font-size:9px;z-index:999;pointer-events:none'; document.body.append(tag) })
   const review = process.env.MEW_MANAGER_SCREENSHOTS ? path.resolve(process.env.MEW_MANAGER_SCREENSHOTS) : ''
