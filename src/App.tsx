@@ -1597,9 +1597,9 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   useEffect(() => {
     const stopTabShortcuts = captureAppTabShortcuts({
       closeEditorTab: () => { if (activePath) closeTab(activePath) },
-      create: (event, kind) => {
+      create: (_event, kind, target) => {
         if (!caps.filesWrite || !caps.filesRead) return
-        const inSidebar = event.target instanceof HTMLElement && !!event.target.closest('[data-sidebar]')
+        const inSidebar = !!target.closest('[data-sidebar]')
         setSidebarView('files')
         openWorkspacePanel('sidebar')
         sidebarCreate.create(kind, inSidebar ? undefined : {

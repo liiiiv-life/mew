@@ -16,7 +16,8 @@ type FocusedShortcutScope = {
 
 const focusedShortcutScopes = new Set<FocusedShortcutScope>()
 
-function scopeContainsFocus(scope: FocusedShortcutScope, event: KeyboardEvent): boolean {
+function scopeContainsFocus(scope: FocusedShortcutScope, event: KeyboardEvent, focusTarget?: Element | null): boolean {
+  if (focusTarget !== undefined) return scope.element.contains(focusTarget)
   const path = typeof event.composedPath === 'function' ? event.composedPath() : []
   if (path.includes(scope.element)) return true
   const target = event.target
@@ -29,8 +30,8 @@ function scopeContainsFocus(scope: FocusedShortcutScope, event: KeyboardEvent): 
  * 포커스를 가진 표면 중 해당 행동을 등록한 가장 안쪽 표면에 shortcut을 전달한다.
  * false여도 해당 표면에 포커스가 있다는 사실은 유지한다. 다른 표면의 탭을 닫지 않는다.
  */
-export function dispatchFocusedShortcut(shortcut: string, event: KeyboardEvent): 'handled' | 'unhandled-in-scope' | 'no-scope' {
-  const matching = [...focusedShortcutScopes].filter((scope) => scopeContainsFocus(scope, event))
+export function dispatchFocusedShortcut(shortcut: string, event: KeyboardEvent, target?: Element | null): 'handled' | 'unhandled-in-scope' | 'no-scope' {
+  const matching = [...focusedShortcutScopes].filter((scope) => scopeContainsFocus(scope, event, target))
   if (matching.length === 0) return 'no-scope'
   const registered = matching.filter((scope) => scope.handlers()[shortcut])
   if (registered.length === 0) return 'unhandled-in-scope'
@@ -50,10 +51,9 @@ export function closeFocusedTab(event: KeyboardEvent, closeEditorTab: () => void
 }
 
 /** 새 탭 행동이 등록된 표면에서는 편집기·PTY에 키를 전달하지 않는다. */
-export function openFocusedTab(event: KeyboardEvent): boolean {
-  const target = event.target instanceof HTMLElement ? event.target : document.activeElement
+export function openFocusedTab(event: KeyboardEvent, target: Element | null = event.target instanceof HTMLElement ? event.target : document.activeElement): boolean {
   const blocked = event.repeat || event.isComposing || target?.closest('[role="dialog"], [aria-modal="true"]')
-  if (!blocked && dispatchFocusedShortcut('newTab', event) !== 'handled') return false
+  if (!blocked && dispatchFocusedShortcut('newTab', event, target) === 'no-scope') return false
   event.preventDefault()
   event.stopImmediatePropagation()
   return true
