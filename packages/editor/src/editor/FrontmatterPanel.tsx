@@ -167,10 +167,13 @@ export function FrontmatterPanel({ data, lineNumbers, onChange, readOnly, docPat
       <input value={data.title} onChange={event => onChange({ ...data, title: event.target.value })} readOnly={readOnly}
         placeholder={uiText('제목')} aria-label={uiText('제목')}
         className="min-w-0 flex-1 border-none bg-transparent text-3xl leading-tight font-bold text-ink-bright outline-none placeholder:text-ink-faint" />
-      {fetchBacklinks && onOpenLink && docPath && <DocumentBacklinks path={docPath} fetchBacklinks={fetchBacklinks} onOpenLink={onOpenLink} />}
+      {fetchBacklinks && onOpenLink && docPath && <>
+        {data.fields.some(field => field.key === '상위파일') && <DocumentBacklinks mode="parents" path={docPath} fetchBacklinks={fetchBacklinks} onOpenLink={onOpenLink} />}
+        <DocumentBacklinks path={docPath} fetchBacklinks={fetchBacklinks} onOpenLink={onOpenLink} />
+      </>}
     </div>
     <div className="mt-3 flex flex-col gap-1">
-      {data.fields.map((rawField, i) => { const field = effectiveField(rawField); return <div key={i} ref={el => { if (el) rows.current.set(i, el); else rows.current.delete(i) }}
+      {data.fields.map((rawField, i) => { if (rawField.key === '상위파일') return null; const field = effectiveField(rawField); return <div key={i} ref={el => { if (el) rows.current.set(i, el); else rows.current.delete(i) }}
         data-mew-line-numbers={lineNumbers?.fields[i] ?? i + 3}
         className={`frontmatter-line frontmatter-property group flex min-h-8 items-center gap-1 border-y-2 border-transparent ${dragIndex === i ? 'opacity-40' : ''} ${over && over.index === i && dragIndex !== i ? over.after ? 'border-b-accent' : 'border-t-accent' : ''}`}>
         {!readOnly && <button type="button" aria-label={uiText('필드 순서 변경')} aria-haspopup="dialog" aria-expanded={menu?.index === i}

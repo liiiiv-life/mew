@@ -1,6 +1,9 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  "상위파일": ["Parent documents", "上级文档", "親文書"],
+  "상위파일을 불러오지 못했습니다": ["Could not load parent documents", "无法加载上级文档", "親文書を読み込めませんでした"],
+  "열 수 있는 상위파일이 없습니다": ["No parent documents can be opened", "没有可打开的上级文档", "開ける親文書がありません"],
   "백링크": ["Backlinks", "反向链接", "バックリンク"],
   "백링크를 불러오지 못했습니다": ["Could not load backlinks", "无法加载反向链接", "バックリンクを読み込めませんでした"],
   "이 문서를 참조하는 문서가 없습니다": ["No documents reference this document", "没有文档引用此文档", "この文書を参照する文書はありません"],

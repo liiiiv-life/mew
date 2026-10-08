@@ -19,7 +19,7 @@ import {editorLinkTabPath} from ${JSON.stringify(path.join(root, 'src/utils/edit
 const noop=()=>{}, api=createEditorApi('docs'), workspace={path:'/projects/current',docsPath:'/projects/current/docs'};
 function Fixture(){const [docPath,setDocPath]=React.useState('target.md');window.changePath=setDocPath;
 const tabs=useTabs('.workspace',noop,noop,'/projects/current');window.tabs=tabs;
-return <div style={{height:650}}>{tabs.activeTab&&!tabs.activeTab.loading?<pre>{tabs.activeTab.content}</pre>:<div className="editor-root"><FrontmatterPanel data={{title:'Current document',fields:[]}} docPath={docPath} readOnly onChange={noop} fetchBacklinks={api.fetchBacklinks} onOpenLink={p=>tabs.openFile(editorLinkTabPath('docs',p,workspace),{preview:false})}/></div>}</div>}
+return <div style={{height:650}}>{tabs.activeTab&&!tabs.activeTab.loading&&<pre>{tabs.activeTab.content}</pre>}<div className="editor-root"><FrontmatterPanel data={{title:'Current document',fields:[{key:'상위파일',value:'parent.md'}]}} docPath={docPath} readOnly onChange={noop} fetchBacklinks={api.fetchBacklinks} onOpenLink={p=>tabs.openFile(editorLinkTabPath('docs',p,workspace),{preview:false})}/></div></div>}
 createRoot(document.getElementById('root')).render(<Fixture/>);`
   const bundle = await build({ input: 'virtual:backlinks.tsx', write: false, platform: 'browser', output: { format: 'iife' }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:backlinks.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:backlinks.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const compiler = await compile(await fs.readFile(path.join(root, 'src/index.css'), 'utf8'), { base: path.join(root, 'src'), onDependency() {} })
@@ -33,6 +33,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       page.setDefaultTimeout(4000)
       const errors: string[] = [], requested: string[] = []
       page.on('pageerror', error => errors.push(error.message))
+      let parentCount = 1
       let mode: 'normal' | 'empty' | 'error' | 'slow' = 'normal'
       await page.route('http://mew-backlinks.test/**', async route => {
         const url = new URL(route.request().url())
@@ -43,7 +44,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
           return route.fulfill({ json: { documents: mode === 'empty' ? [] : [
             { title: 'External source', path: '/projects/other/read me.md' },
             { title: 'Local source', path: '/projects/current/docs/source.md' },
-          ], skipped: 0 } })
+          ], parents: Array.from({length:parentCount},(_,i)=>({title:'Parent '+(i+1),path:'/projects/other/parent'+(i+1)+'.md'})), skipped: 0 } })
         }
         if (url.pathname === '/api/fs/file') return route.fulfill({ json: { path: url.searchParams.get('path'), content: 'Opened external document' } })
         if (url.pathname.startsWith('/api/')) return route.fulfill({ json: [] })
@@ -53,6 +54,7 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       await page.goto('http://mew-backlinks.test/')
       const arrow = page.getByRole('button', { name: '백링크', exact: true }), popup = page.getByRole('dialog', { name: '백링크', exact: true })
       assert.equal(await page.getByRole('textbox', { name: '제목' }).getAttribute('readonly'), '')
+      assert.equal(await page.locator('input[value="상위파일"]').count(), 0, 'parent metadata is hidden from property rows')
       const titleBox = (await page.getByRole('textbox', { name: '제목' }).boundingBox())!, arrowBox = (await arrow.boundingBox())!
       assert.ok(arrowBox.x >= titleBox.x + titleBox.width && arrowBox.y < titleBox.y + titleBox.height)
       for (const theme of ['dark', 'light']) {
@@ -88,6 +90,26 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
       await popup.getByRole('button', { name: /External source/ }).click()
       await page.getByText('Opened external document', { exact: true }).waitFor()
       assert.equal(await page.evaluate('window.tabs.activeTab.path'), '@fs:/projects/other/read me.md')
+      const parentArrow = page.getByRole('button', { name: '상위파일', exact: true })
+      const parentPopup = page.getByRole('dialog', { name: '상위파일', exact: true })
+      await parentArrow.click()
+      await page.waitForFunction('window.tabs.activeTab.path === "@fs:/projects/other/parent1.md"')
+      assert.equal(await parentPopup.count(), 0, 'a single parent opens directly')
+      parentCount = 2
+      await parentArrow.click()
+      await parentPopup.getByRole('button', { name: /Parent 2/ }).waitFor()
+      const parentBox = (await parentPopup.boundingBox())!
+      assert.ok(parentBox.x >= 0 && parentBox.x + parentBox.width <= width + 1)
+      await parentPopup.getByRole('button', { name: /Parent 2/ }).click()
+      await page.waitForFunction('window.tabs.activeTab.path === "@fs:/projects/other/parent2.md"')
+      parentCount = 0
+      await parentArrow.click()
+      await parentPopup.getByText('열 수 있는 상위파일이 없습니다').waitFor()
+      await page.keyboard.press('Escape')
+      mode = 'error'
+      await parentArrow.click()
+      await parentPopup.getByRole('alert').getByText('상위파일을 불러오지 못했습니다').waitFor()
+      await page.keyboard.press('Escape')
       assert.deepEqual(errors, [])
       await page.close()
     }

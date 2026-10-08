@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { DocumentLinkIndex, documentLinks, type DocumentLinkEntry } from './document-link-index.ts'
 
 export type DocumentBacklink = { path: string; title: string }
-export type DocumentBacklinks = { documents: DocumentBacklink[]; skipped: number }
+export type DocumentBacklinks = { documents: DocumentBacklink[]; parents: DocumentBacklink[]; skipped: number }
 const EXCLUDED = new Set(['.git', 'node_modules', '.data', 'dist', 'build', '.next', '.venv', 'venv'])
 
 function linkTarget(source: string, href: string): string | null {
@@ -29,7 +29,7 @@ export class DocumentBacklinkIndex {
   private index: DocumentLinkIndex
   constructor(index = new DocumentLinkIndex()) { this.index = index }
 
-  async read(target: string, roots: string[], mayRead: (absolute: string) => boolean): Promise<DocumentBacklinks> {
+  async read(target: string, roots: string[], mayRead: (absolute: string) => boolean, mayReadParent = mayRead): Promise<DocumentBacklinks> {
     const wanted = await fs.realpath(target)
     const files = new Set<string>(), seen = new Set<string>()
     let skipped = 0
@@ -104,11 +104,19 @@ export class DocumentBacklinkIndex {
     this.networks.set(key, { entries, outgoing, incoming })
     const targetEntry = entries.get(wanted) ?? await this.index.read(wanted)
     const parentLinks = targetEntry?.parents.flatMap(value => documentLinks(value).links.length ? documentLinks(value).links : [value]) ?? []
-    const parents = await destinations(wanted, parentLinks)
+    const parentPaths = await destinations(wanted, parentLinks)
+    const parents: DocumentBacklink[] = []
+    for (const parent of parentPaths) {
+      if (!mayReadParent(parent)) continue
+      try {
+        const entry = entries.get(parent) ?? await this.index.read(parent)
+        if (entry && mayReadParent(parent)) parents.push({ path: parent, title: entry.title })
+      } catch { /* Missing parents do not create navigation targets. */ }
+    }
     const documents = [...(incoming.get(wanted) ?? [])]
-      .filter(source => !parents.has(source) && mayRead(source))
+      .filter(source => !parentPaths.has(source) && mayRead(source))
       .map(source => ({ path: source, title: entries.get(source)!.title }))
       .sort((a, b) => a.title.localeCompare(b.title) || a.path.localeCompare(b.path))
-    return { documents, skipped }
+    return { documents, parents, skipped }
   }
 }

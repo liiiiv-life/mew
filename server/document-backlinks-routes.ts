@@ -40,13 +40,14 @@ export function createDocumentBacklinksRouter(links = new DocumentLinkIndex()): 
         })
       }
       const realTarget = await fs.realpath(target)
-      const targetReadable = () => {
-        const known = scopes.some(scope => scope && (realTarget.startsWith(scope.root + path.sep) || realTarget.startsWith(scope.docs + path.sep)))
-        return known ? readable(realTarget) : external && canUse(auth, 'serverFiles') && !realTarget.split(path.sep).some(isDeniedSegment)
+      const parentReadable = (absolute: string) => {
+        const known = scopes.some(scope => scope && (absolute.startsWith(scope.root + path.sep) || absolute.startsWith(scope.docs + path.sep)))
+        return known ? readable(absolute) : canUse(auth, 'serverFiles') && !absolute.split(path.sep).some(isDeniedSegment)
       }
+      const targetReadable = () => external ? parentReadable(realTarget) : readable(realTarget)
       if (!targetReadable() || !external && !fileAccess(auth, project, input).view) { res.status(403).json({ error: '파일 열람 권한이 없습니다' }); return }
       if (!(await fs.stat(realTarget)).isFile()) { res.status(400).json({ error: '문서 파일을 선택하세요' }); return }
-      const result = await index.read(realTarget, scopes.flatMap(scope => scope ? [scope.root, scope.docs] : []), readable)
+      const result = await index.read(realTarget, scopes.flatMap(scope => scope ? [scope.root, scope.docs] : []), readable, parentReadable)
       if (!targetReadable()) { res.status(403).json({ error: '파일 열람 권한이 없습니다' }); return }
       res.set('Cache-Control', 'no-store').json(result)
     } catch (error) {

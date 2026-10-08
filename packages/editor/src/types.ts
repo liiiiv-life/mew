@@ -94,6 +94,7 @@ export interface FrontmatterOptionsApi {
 
 export interface DocumentBacklinksData {
   documents: { path: string; title: string }[]
+  parents: { path: string; title: string }[]
   skipped: number
 }
 
