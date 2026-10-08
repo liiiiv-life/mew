@@ -8,7 +8,7 @@ updated: "2026-10-08"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-skin-settings.tsx", "src/components/mewcat-size-settings.tsx", "src/utils/mewcat-size-preferences.ts", "src/utils/mewcat-sprites.ts", "src/utils/mewcat-sprite-storage.ts", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
-description: "뮤캣의 화면 바닥 배치·모바일 독 겹침·기본 크기 조절, 실루엣·아기 고양이·러시안블루·코리안 숏헤어·카피바라 내장 스킨과 상승·하강을 분리한 일곱 동작의 커스텀 스킨, 이동·끌기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤캣 휴식의 저장·입력 유지 규칙도 설명한다."
+description: "뮤캣의 화면 바닥 배치·모바일 독 겹침·기본 크기 조절, 실루엣·아기 고양이·러시안블루·코리안 숏헤어·카피바라 내장 스킨과 상승·하강을 분리한 일곱 동작의 커스텀 스킨, 이동·끌기·던지는 방향으로 바라보기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤캣 휴식의 저장·입력 유지 규칙도 설명한다."
 상위파일:
   - "MOC.md"
   - "_화면·계정·운영.md"
@@ -80,6 +80,7 @@ run 중 하나를 무작위로 골라 수행한다. 스프라이트의 동작별
 짧게 클릭하면 이동을 멈추고 love 모션을 한 번 재생한다. 최근 알림 말풍선을 열고, 시스템 자원 권한이 있으면 하단에 자원 사용률도 표시한다. 고양이를 누른 뒤 곧바로 움직이면
 마우스·터치로 끌 수 있고, 그동안 struggle 모션을 반복한다.
 놓으면 마지막 포인터 이동의 수평·수직 속도를 운동량으로 이어 받아 중력이 적용된 궤적으로 날아간다.
+일반·휴식용 뮤캣 모두 놓는 순간 실제 수평 운동량의 방향을 바라본다. 잡기 전 바라보던 방향과 관계없이 왼쪽으로 던지면 왼쪽, 오른쪽으로 던지면 오른쪽을 본다. 수평 운동량이 없으면 기존 바라보는 방향을 유지한다. 마지막 이동 뒤 120ms를 넘겨 놓거나 포인터 입력이 취소되면 운동량 없이 떨어지고 기존 바라보는 방향을 유지한다.
 공중에 떠 있는 중에도 다시 눌러 붙잡을 수 있으며, 이때 기존 운동량은 멈춘다. 마우스·터치 모두
 잡은 순간의 포인터와 캐릭터 사이 간격을 유지하며, 포인터를 움직이지 않아도 잡힌 위치에 머문다.
 포인터를 잡고 있는 프레임은 마지막 포인터 좌표만 반영하고 이동·중력·바닥 보정을 건너뛴다.
@@ -265,6 +266,7 @@ npm run lint
 센터·OS 방해 금지·스피커 출력은 지원 PC에서 위 테스트 알림으로 확인한다.
 `mewcat-grab-ui.test.ts`는 시간을 고정한 Chromium에서 일반 크기 고양이를 던지고 마우스·실제
 터치 입력으로 반복해서 붙잡아, 누르는 순간·정지 유지 중 좌표와 움직인 뒤 잡은 간격을 검사한다.
+다섯 내장 스킨의 일반·원격 portal에서 마우스·터치로 좌우로 던질 때 놓는 순간부터 비행 방향을 바라보는지, 오래 잡았다가 놓으면 수평 운동량 없이 기존 방향으로 떨어지는지도 검사한다.
 낙하 중 고양이 밖·투명한 부분의 배경 버튼 클릭/터치와 그림 부분의 재잡기도 함께 검사한다.
 390px 모바일 뷰포트·실제 터치 입력에서 시간을 다시 흐르게 한 뒤 빠르게 던지고, 공중에 있는 동안
 첫 배경 탭으로 버튼이 즉시 작동하는 회귀 조건도 검사한다.

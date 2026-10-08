@@ -97,13 +97,49 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
         assert.equal(await cat.getAttribute('data-activity'), 'fall')
         await page.clock.runFor(40)
       }
+      const paintedPoint = () => cat.evaluate(el => {
+        const box = el.getBoundingClientRect()
+        for (const y of [30, 28, 32, 26, 34, 24, 36]) for (const x of [24, 22, 26, 20, 28]) {
+          const point = { x: box.x + x, y: box.y + y }
+          if ([-3, 0, 3].every(dx => [-3, 0, 3].every(dy => el.ownerDocument.elementFromPoint(point.x + dx, point.y + dy)?.closest('.mewcat') === el))) return point
+        }
+        throw new Error('No painted grab point found')
+      })
+      for (const direction of [-1, 1]) {
+        const reposition = await paintedPoint()
+        await down(reposition.x, reposition.y)
+        await move(page.viewportSize()!.width / 2, 350)
+        await page.clock.runFor(150)
+        await up()
+        const beforeThrow = await paintedPoint()
+        await down(beforeThrow.x, beforeThrow.y)
+        await move(beforeThrow.x + direction * 40, beforeThrow.y - 60)
+        await up()
+        assert.equal(await cat.evaluate(el => Number(el.style.transform.match(/scaleX\((-?1)\)/)?.[1])), direction, 'release immediately faces the horizontal throw direction')
+        const released = (await cat.boundingBox())!
+        await page.clock.runFor(32)
+        const flying = (await cat.boundingBox())!
+        assert.ok((flying.x - released.x) * direction > 0, `flight moves in the direction faced: ${JSON.stringify({ skin, remote, touch, direction, released, flying })}`)
+        assert.equal(await cat.evaluate(el => Number(el.style.transform.match(/scaleX\((-?1)\)/)?.[1])), direction, 'flight keeps facing the throw direction')
+
+        const catchPoint = await paintedPoint()
+        await down(catchPoint.x, catchPoint.y)
+        assert.equal(await cat.getAttribute('data-activity'), 'struggle', `catch before stale release: ${JSON.stringify({ skin, remote, touch, direction })}`)
+        await move(catchPoint.x - direction * 20, catchPoint.y - 20)
+        await page.clock.runFor(150)
+        await up()
+        assert.equal(await cat.evaluate(el => Number(el.style.transform.match(/scaleX\((-?1)\)/)?.[1])), direction, `a stale flick drops without changing the facing direction: ${JSON.stringify({ skin, remote, touch, direction, activity: await cat.getAttribute('data-activity') })}`)
+        const dropped = (await cat.boundingBox())!
+        await page.clock.runFor(16)
+        assert.ok(Math.abs((await cat.boundingBox())!.x - dropped.x) < 1, 'a stale flick has no horizontal momentum')
+      }
       // Native tap suppression after a fast drag only reproduces with a running
       // clock; frozen physics alone misses the first background tap being lost.
       if (touch) {
         await page.clock.resume()
-        const live = (await cat.boundingBox())!
-        await down(live.x + 24, live.y + 35)
-        await move(live.x + 40, live.y - 180)
+        const live = await paintedPoint()
+        await down(live.x, live.y)
+        await move(live.x + 16, live.y - 215)
         await up()
         assert.equal(await cat.getAttribute('data-activity'), 'jump')
         const clicks = await page.evaluate('window.backgroundClicks')

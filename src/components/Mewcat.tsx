@@ -260,6 +260,7 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
         const scale = cancelled || performance.now() - lastPointerAt > 120 ? 0 : THROW_SPEED_SCALE
         horizontalVelocity *= scale
         verticalVelocity *= scale
+        if (horizontalVelocity !== 0) direction = horizontalVelocity < 0 ? -1 : 1
         setActivity(verticalVelocity < 0 ? 'jump' : 'fall', performance.now())
       } else {
         setActivity('love', performance.now(), MEWCAT_CYCLE_MS.love)
