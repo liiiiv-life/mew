@@ -17,6 +17,13 @@ async function expectSize(page: Page, size: number) {
 }
 
 async function expectFloor(page: Page) {
+  await page.waitForFunction(`(() => {
+    const path = document.querySelector('.mewcat .mewcat-sprite-hit')
+    if (!path) return false
+    const box = path.getBBox()
+    const bottom = new DOMPoint(box.x, box.y + box.height).matrixTransform(path.getScreenCTM()).y
+    return Math.abs(bottom - (visualViewport.offsetTop + visualViewport.height)) < 1
+  })()`, undefined, { polling: 50 })
   const feet = await page.locator('.mewcat .mewcat-sprite-hit').evaluate(path => {
     const view = path.ownerDocument.defaultView!
     const box = path.getBBox()
@@ -35,9 +42,29 @@ async function changeRange(page: Page, size: number) {
   await expectSize(page, size)
 }
 
+async function petPoint(page: Page) {
+  return page.locator('.mewcat .mewcat-sprite-hit').evaluate(path => {
+    const view = path.ownerDocument.defaultView!
+    const point = new view.DOMPoint(24, 35).matrixTransform(path.getScreenCTM()!)
+    return { x: point.x, y: point.y }
+  })
+}
+
+async function expectSettingsLayer(page: Page, mobile: boolean) {
+  const point = await petPoint(page)
+  const layer = await page.locator('.mewcat').evaluate((cat, point) => {
+    const doc = cat.ownerDocument
+    const hit = doc.elementFromPoint(point.x, point.y)
+    return { pet: cat.contains(hit), inSettings: !!cat.closest('[data-settings-mewcat-host]'), settings: !!hit?.closest('[role="dialog"]') }
+  }, point)
+  assert.equal(layer.inSettings, mobile)
+  assert.equal(layer.pet, mobile, 'mobile settings leave painted pet pixels visible and interactive')
+  assert.equal(layer.settings, true, 'settings stay above the underlying workspace')
+}
+
 test('Mewcat size settings apply live, preserve dragging and floor bounds, and persist per browser scope', { skip: !domBrowserExecutable(), timeout: 90_000 }, async () => {
   const source = `
-import React,{useState} from '${root}/node_modules/react/index.js';
+import React,{useEffect,useState} from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {I18nProvider,useI18n} from '${root}/src/i18n.tsx';
 import {Mewcat} from '${root}/src/components/Mewcat.tsx';
@@ -56,14 +83,17 @@ const write=Storage.prototype.setItem;
 Storage.prototype.setItem=function(key,value){if(window.blockSizeWrites&&key.endsWith('mew:mewcat-size'))throw new DOMException('Blocked','QuotaExceededError');return write.call(this,key,value)};
 function Fixture(){
  const [skin,setSkin]=useState(loadMewcatSkin),[open,setOpen]=useState(true);
+ const [settingsHost,setSettingsHost]=useState(null),[desktop,setDesktop]=useState(()=>matchMedia('(min-width:768px)').matches);
+ useEffect(()=>{const query=matchMedia('(min-width:768px)'),update=()=>setDesktop(query.matches);query.addEventListener('change',update);return()=>query.removeEventListener('change',update)},[]);
  const {setLocale}=useI18n();window.changeLanguage=setLocale;
  const change=value=>{saveMewcatSkin(value);setSkin(value)};
  return <><button id="settings" onClick={()=>setOpen(true)}>Settings</button>
  <nav style={{position:'fixed',bottom:0,height:48,width:'100%',background:'var(--color-surface-raised)'}}>Dock</nav>
- <Mewcat skin={skin} portalTarget={new URLSearchParams(location.search).has('portal')?document.getElementById('viewer'):null}/>
- {open&&<SettingsModal email={null} displayName={null} avatarDataUrl={null} canEditIgnore={false} theme="dark" themeColor="#4432a8" fontPreferences={loadFontPreferences()} mewcatSkin={skin} mewcatHideDesktop={false} onMewcatSkinChange={change} onMewcatHideDesktopChange={()=>{}} onFontPreferencesChange={()=>{}} onThemeColorChange={()=>{}} onToggleTheme={()=>{}} onClose={()=>setOpen(false)} onLoggedOut={()=>{}} onProfileChanged={()=>{}}/>}</>
+ <Mewcat skin={skin} portalTarget={open&&!desktop?settingsHost:new URLSearchParams(location.search).has('portal')?document.getElementById('viewer'):null}/>
+ {open&&<SettingsModal mewcatHostRef={setSettingsHost} email={null} displayName={null} avatarDataUrl={null} canEditIgnore={false} theme="dark" themeColor="#4432a8" fontPreferences={loadFontPreferences()} mewcatSkin={skin} mewcatHideDesktop={false} onMewcatSkinChange={change} onMewcatHideDesktopChange={()=>{}} onFontPreferencesChange={()=>{}} onThemeColorChange={()=>{}} onToggleTheme={()=>{}} onClose={()=>setOpen(false)} onLoggedOut={()=>{}} onProfileChanged={()=>{}}/>}</>
 }
-createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);`
+createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18nProvider>);
+if(new URLSearchParams(location.search).has('portal'))document.getElementById('root').inert=true;`
   const bundle = await build({ input: 'virtual:size.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:size.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:size.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const files = ['src/components/SettingsModal.tsx', 'src/components/mewcat-skin-settings.tsx', 'src/components/mewcat-size-settings.tsx', 'src/components/mewcat-break.tsx', 'packages/ui/src/color-picker.tsx']
@@ -86,12 +116,26 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await petFiles.route(context)
       await page.goto('http://mewcat-size.test/')
       const openMewcat = async () => {
-        await page.getByRole('dialog').getByRole('button', { name: '뮤펫', exact: true }).click()
+        await page.getByRole('dialog').locator('nav').getByRole('button', { name: '뮤펫', exact: true }).click()
         await page.getByRole('slider', { name: '기본 크기' }).waitFor()
       }
       await openMewcat()
       await page.locator('.mewcat .mewcat-sprite').waitFor()
       await expectSize(page, 48)
+      await expectSettingsLayer(page, mobile)
+      if (mobile) {
+        await page.setViewportSize({ width: 320, height: 720 })
+        await expectFloor(page)
+        await expectSettingsLayer(page, true)
+        await page.setViewportSize({ width: 844, height: 390 })
+        await page.waitForFunction("!document.querySelector('[data-settings-mewcat-host] .mewcat')", undefined, { polling: 50 })
+        await expectFloor(page)
+        await expectSettingsLayer(page, false)
+        await page.setViewportSize({ width: 390, height: 844 })
+        await page.locator('[data-settings-mewcat-host] .mewcat-sprite').waitFor()
+        await expectFloor(page)
+        await expectSettingsLayer(page, true)
+      }
       const slider = page.getByRole('slider', { name: '기본 크기' })
       const reset = slider.locator('..').getByRole('button', { name: '초기화' })
       assert.equal(await slider.inputValue(), '48')
@@ -115,7 +159,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await expectFloor(page)
       await page.screenshot({ path: `/tmp/mewcat-size-${mobile ? 'mobile-light' : 'desktop-dark'}.png` })
       assert.equal(await slider.evaluate(input => input.ownerDocument.documentElement.scrollWidth > input.ownerDocument.defaultView!.innerWidth), false)
-      await page.keyboard.press('Escape')
+      if (!mobile) await page.keyboard.press('Escape')
       const before = (await page.locator('.mewcat').boundingBox())!
       const pointer = { x: before.x + before.width / 2 + 20, y: before.y + before.height * .72 - 120 }
       const cdp = await context.newCDPSession(page)
@@ -141,6 +185,23 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await cdp.detach()
       await page.clock.runFor(1500)
       await expectFloor(page)
+      if (mobile) {
+        assert.equal(await page.getByRole('dialog').count(), 1, 'grabbing and releasing the pet does not close settings')
+        await expectSettingsLayer(page, true)
+        const point = await petPoint(page)
+        await page.touchscreen.tap(point.x, point.y)
+        const bubble = page.locator('.mewcat-notifications')
+        await bubble.waitFor()
+        assert.equal(await bubble.evaluate(el => {
+          const box = el.getBoundingClientRect()
+          return el.contains(el.ownerDocument.elementFromPoint(box.x + box.width / 2, box.y + 20))
+        }), true, 'the pet bubble also appears above settings')
+        await page.keyboard.press('Escape')
+        assert.equal(await page.getByRole('dialog').count(), 1, 'Escape closes the pet bubble before settings')
+        await page.keyboard.press('Escape')
+        await page.locator('[data-settings-mewcat-host]').waitFor({ state: 'detached' })
+        assert.equal(await page.locator('.mewcat').count(), 1, 'closing settings restores one workspace pet')
+      }
       await page.evaluate(`(() => {
         const viewport=window.visualViewport;
         for(const [key,value] of Object.entries({width:320,height:500,offsetLeft:20,offsetTop:80})) Object.defineProperty(viewport,key,{value,configurable:true});
@@ -153,7 +214,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await expectFloor(page)
       await page.goto('http://mewcat-size.test/?scope=one&portal=1')
       await openMewcat()
-      await page.locator('#viewer .mewcat-sprite').waitFor()
+      await page.locator(`${mobile ? '[data-settings-mewcat-host]' : '#viewer'} .mewcat-sprite`).waitFor()
+      await expectSettingsLayer(page, mobile)
       await expectSize(page, 72)
       assert.equal(await slider.inputValue(), '72')
       const silhouetteImage = await page.locator('.mewcat image').getAttribute('href')

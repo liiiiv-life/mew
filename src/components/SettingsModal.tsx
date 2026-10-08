@@ -4,7 +4,7 @@ import { DockSettingsPanel } from './dock-settings-panel'
 import type { MobileDockPanel } from '../utils/mobile-dock'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type Ref } from 'react'
 import { ColorPicker, SelectField, useOverlayDismiss } from '@mew/ui'
 import { changePassword, fetchIgnoreList, logout, saveIgnoreList, updateProfile } from '../api/client'
 import { DEFAULT_SHORTCUTS, formatKeyCombo, resetAllBindings, resetBinding, setBinding, useShortcutBindings } from '@mew/shortcuts'
@@ -25,6 +25,7 @@ type Section = 'debugger' | 'account' | 'appearance' | 'notifications' | 'dock' 
 type Theme = 'dark' | 'light'
 
 interface SettingsModalProps {
+  mewcatHostRef?: Ref<HTMLDivElement>
   initialDebugger?: boolean
   debuggerRoot?: string
   onOpenDebugger?: () => void
@@ -62,7 +63,7 @@ const SECTION_LABEL: Record<Section, TranslationKey> = {
 }
 
 /** 헤더의 계정 버튼(게스트는 톱니 버튼)으로 여는 설정 창 — 계정·화면(테마)·단축키·숨김 목록을 한곳에서 관리한다 */
-export function SettingsModal({ initialDebugger, debuggerRoot, onOpenDebugger, dockAvailable, email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, mewcatHideDesktop, onMewcatHideDesktopChange, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
+export function SettingsModal({ mewcatHostRef, initialDebugger, debuggerRoot, onOpenDebugger, dockAvailable, email, displayName, avatarDataUrl, canEditIgnore, theme, fontPreferences, themeColor, mewcatSkin, mewcatHideDesktop, onMewcatHideDesktopChange, onToggleTheme, onFontPreferencesChange, onThemeColorChange, onMewcatSkinChange, onClose, onLoggedOut, onProfileChanged }: SettingsModalProps) {
   useUiLocale()
   const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null)
   const [section, setSection] = useState<Section>(debuggerRoot && initialDebugger ? 'debugger' : email ? 'account' : 'appearance')
@@ -163,6 +164,7 @@ export function SettingsModal({ initialDebugger, debuggerRoot, onOpenDebugger, d
           </div>
         </div>
       </div>
+      <div ref={mewcatHostRef} data-settings-mewcat-host className="contents" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()} onKeyUp={event => event.stopPropagation()} />
     </div>, document.body
   )
 }

@@ -8,7 +8,7 @@ updated: "2026-10-08"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["server/mewpet-skins.ts", "server/mewpet-skin-routes.ts", "shared/mewpet-skins.ts", "src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-skin-settings.tsx", "src/components/mewcat-size-settings.tsx", "src/utils/mewcat-size-preferences.ts", "src/utils/mewcat-sprites.ts", "src/utils/mewcat-sprite-storage.ts", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
-description: "뮤펫의 전역 파일 기반 스킨 등록·브라우저 스킨 이관·빌드 없는 갱신, 화면 바닥 배치·모바일 독 겹침·기본 크기 조절, 고양이 네 종류와 점눈·투박한 그림체의 카피바라 내장 스킨, 일곱 필수 모션·아홉 선택 전환 모션과 자동 점프, 이동·끌기·던지는 방향으로 바라보기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤펫 휴식의 저장·입력 유지 규칙도 설명한다."
+description: "뮤펫의 전역 파일 기반 스킨 등록·브라우저 스킨 이관·빌드 없는 갱신, 화면 바닥 배치·모바일 독 겹침·설정창 위 표시·기본 크기 조절, 고양이 네 종류와 점눈·투박한 그림체의 카피바라 내장 스킨, 일곱 필수 모션·아홉 선택 전환 모션과 자동 점프, 이동·끌기·던지는 방향으로 바라보기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤펫 휴식의 저장·입력 유지 규칙도 설명한다."
 상위파일:
   - "MOC.md"
   - "_화면·계정·운영.md"
@@ -65,6 +65,8 @@ mew를 열거나 새로고침할 때 전체화면이 아니면 뮤펫 말풍선�
 설정 → 뮤펫의 **원격 데스크톱에서 뮤펫 숨기기**를 켜면 원격 뷰어가 열린 동안 고양이·말풍선·휴식 표시를 숨기고 닫으면 복원한다. 기본값은 꺼짐이며 브라우저별 `mew:mewcat-hide-desktop`에 저장한다. 알림 수집·OS 알림과 휴식 타이머는 계속 동작한다.
 
 원격 데스크톱에서 표시하는 뮤펫·말풍선은 뷰어 내부 호스트에 portal하여 배경 `inert`의 영향을 받지 않는다. 클릭·드래그·키보드 조작은 뮤펫에서 처리하고 원격 입력으로 전달하지 않는다.
+
+모바일(768px 미만)에서 설정을 열면 뮤펫·말풍선을 설정 내부 전용 호스트로 옮겨 설정창 위에 표시한다. 스킨·기본 크기를 바꾸면서 실제 뮤펫을 바로 확인하고 클릭·끌기·놓기를 할 수 있다. 그림 밖의 설정 입력·스크롤은 유지하며 뮤펫을 조작해도 설정을 닫지 않는다. 말풍선이 열려 있으면 Esc·뒤로가기로 말풍선을 먼저 닫고 다음 입력에서 설정을 닫는다. 설정 종료·데스크톱 폭 전환 시 원래 작업 영역 또는 원격 뷰어 호스트로 돌아가며, 원격 뷰어 숨김 설정은 계속 적용한다. 데스크톱에서는 설정이 일반 뮤펫보다 앞에 표시된다.
 
 기능 항목: [Mewpet](Mewpet%20%EB%A7%88%EC%8A%A4%EC%BD%94%ED%8A%B8%C2%B7%EC%95%8C%EB%A6%BC%C2%B7%ED%9C%B4%EC%8B%9D.md). 이 문서는 해당 기능의 세부 동작·표시 계약을 소유한다.
 
@@ -440,6 +442,7 @@ node --test src/utils/mewcat-break-rules.test.ts server/mewcat-break-ui.test.ts
 - 강제 휴식은 기본값·시/분 입력·비활성 일시정지·타이머 단독 표시·거대 뮤펫 이동/끌기/놓기/공중에서 잡기·그림 포인터 가로막기·투명 영역 통과·키보드 유지·새로고침 복원·휴식 종료를 단위/실제 브라우저 테스트로 확인한다.
 - 기존 상호작용 확인 기준: 클릭·드래그·던지기·화면 경계와 숨기기 설정이 데스크톱·터치에서 동작하는지 확인한다.
 - `server/mewcat-size-ui.test.ts`는 PC 다크·모바일 라이트에서 기본 크기의 키보드·터치 조절, 즉시 반영·바닥과 visual viewport 경계, 잡힌 상태 유지·스킨 변경·원격 뷰어, 새로고침·같은 범위의 창 간 반영·다른 범위 격리, 잘못된 저장값·저장 실패·언어 전환과 초기화를 검사한다. `server/mewcat-break-ui.test.ts`는 일반 크기를 144px에서 24px로 바꿔도 잡고 있던 거대 뮤펫의 크기·위치가 유지되는지 검사한다.
+- 모바일 설정창에서는 뮤펫·말풍선의 실제 포인터 전면 표시, 설정을 유지한 채 끌기·잡힌 크기 변경, 말풍선 먼저 닫기·작업 영역 복귀를 같은 크기 UI 테스트로 검사한다. 320px·390px·844px 폭 전환과 원격 뷰어의 배경 `inert` 상태도 확인한다. PC 설정창 레이어·스킨 등록 UI 회귀, 타입·대상 린트·문서 검사를 통과했다. 앱 빌드·재시작은 하지 않았다.
 
 - 네 언어 전환 시 빈 상태·모든 알림 문구·접근성 이름·메모리 표기가 즉시 갱신되고 사용자 출처는 보존되는지 검사한다.
 
