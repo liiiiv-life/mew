@@ -116,8 +116,9 @@ export const EditorLink = Link.extend<LinkOptions & { getFileLinkContext: () => 
                 slot.textContent = '\u200b'
                 slot.style.display = 'inline-block'
                 slot.style.width = '5px'
+                // ignoreSelection preserves this native caret through selectionchange.
                 return slot
-              }, { side, marks: [], raw: true, key: `file-link-caret:${range.from}:${range.to}:${side}` }))))
+              }, { side, marks: [], raw: true, ignoreSelection: true, key: `file-link-caret:${range.from}:${range.to}:${side}` }))))
             return decorations
           },
           handleClick: (view, pos, event) => {
