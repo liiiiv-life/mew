@@ -1,0 +1,19 @@
+{
+  "generator": "built-in image_gen",
+  "created": "2026-10-08",
+  "reference": "../kitten/source.json",
+  "style": "Flat black kitten silhouette with white eyes only; no shading or interior body marks.",
+  "prompt": "Use case: style-transfer\nAsset type: Mewcat game sprite atlas, a NEW silhouette skin variation of the supplied kitten animation atlas.\nInput image 1: edit/reference target for character proportions, animation poses, frame sequence and exact 8-column, 5-row composition.\nPrimary request: simplify this very cute round baby kitten into a completely flat BLACK SILHOUETTE with WHITE EYES ONLY. Retain the adorable oversized round head, tiny plump body, short feet, soft triangular ears and expressive curved tail. Smooth simple contours, less fluffy detail.\nPalette: all character bodies, heads, ears, legs and tails must be pure solid #000000; the only interior visible marks are simple pure white #FFFFFF eyes. Eyes may be open oval eyes or white curved closed blinking eyes. NO shading, NO gray fill, NO highlights, NO fur strokes, NO mouth, nose, whiskers, pink ears, cheeks or pawpads, NO colored details. No separate outline color. A graphic silhouette, not a rendered or shaded black cat.\nComposition invariants: exactly 8 equal columns and 5 animation rows, 40 kittens total; one complete kitten in every cell, no touching neighbors or cropping. Preserve the original poses, right-facing direction, consistent scale and loop ordering. Transparent background with real alpha, no printed checkerboard, no grid lines, text or labels, no ground shadows.\nRow 1: 8-frame seated idle breathing/blinking cycle.\nRow 2: 8-frame WALK cycle facing RIGHT, alternating short legs.\nRow 3: 8-frame RUN cycle facing RIGHT, gathered and stretched legs.\nRow 4: 8-frame happy PETTING reaction, gentle head tilt and eyes closing then reopening, no hand, no symbols.\nRow 5: 8-frame SCRUFF-HELD dangling kitten, forepaws and hindpaws gently wiggling, no hand.\nKeep the cute personality and proportions of the source. Change only the graphic simplification and black/white palette. This will be sliced into five horizontal transparent sprite strips.",
+  "actions": [
+    "idle",
+    "walk",
+    "run",
+    "love",
+    "struggle"
+  ],
+  "frameCount": 8,
+  "frameWidth": 128,
+  "frameHeight": 128,
+  "stripWidth": 1024,
+  "normalization": "Quantize the generated black/white palette before resizing; keep alpha edges and make near-opaque pixels opaque. Extract the main connected character bounds per frame with uniform maximum scale 0.56; center in 128px cells with foot baseline 127px."
+}

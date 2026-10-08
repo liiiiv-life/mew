@@ -46,9 +46,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       const page = await browser.newPage({ viewport: { width: mobile ? 390 : 1100, height: 780 }, hasTouch: mobile })
       page.setDefaultTimeout(4000)
       await page.route('http://guide.test/**', route => route.fulfill({ contentType: 'text/html', body: `<html class="${mobile ? '' : 'dark'}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
+      await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
       await page.goto(`http://guide.test/${mobile ? '?mac=1' : ''}`)
       const cat = page.locator('.mewcat')
-      await cat.waitFor()
+      await cat.locator('.mewcat-sprite').waitFor()
       const assertGround = async () => {
         await cat.evaluate(el => new Promise<void>(resolve => {
           const view = el.ownerDocument.defaultView!
@@ -59,14 +60,20 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
           const view = el.ownerDocument.defaultView!
           return (view.visualViewport?.offsetTop ?? 0) + (view.visualViewport?.height ?? view.innerHeight)
         })
-        assert.ok(Math.abs(bounds.y + bounds.height - 1 - viewportBottom) < 1, 'cat feet stay on the visual viewport floor')
+        assert.ok(Math.abs(bounds.y + bounds.height - viewportBottom) < 1, 'cat feet stay on the visual viewport floor')
         if (mobile && await page.locator('.mobile-dock').isVisible()) {
           const dock = (await page.locator('.mobile-dock').boundingBox())!
           assert.ok(bounds.y < dock.y + dock.height && bounds.y + bounds.height > dock.y, 'cat overlaps the mobile dock')
           assert.equal(await cat.evaluate(el => {
-            const svg = el.querySelector('svg')!
-            const paw = svg.lastElementChild!.lastElementChild!.getBoundingClientRect()
-            return el.ownerDocument.elementFromPoint(paw.x + paw.width / 2, paw.y + paw.height / 2)?.closest('.mewcat') === el
+            const path = el.querySelector('path')!
+            const view = el.ownerDocument.defaultView!
+            for (let x = 0; x < 48; x++) {
+              const local = new view.DOMPoint(x + .25, 47.25)
+              if (!path.isPointInFill(local)) continue
+              const paw = local.matrixTransform(path.getScreenCTM()!)
+              return el.ownerDocument.elementFromPoint(paw.x, paw.y)?.closest('.mewcat') === el
+            }
+            return false
           }), true, 'painted paws receive input above the dock')
         }
       }

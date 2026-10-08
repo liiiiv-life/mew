@@ -4,18 +4,19 @@ import { uiText } from '@mew/ui/i18n-core'
 export const MEWCAT_SKIN_KEY = 'mew:mewcat-skin'
 
 export const MEWCAT_SKINS = [
-  { id: 'mew', get name() { return uiText("기본") } },
+  { id: 'mew', get name() { return uiText('실루엣 고양이') } },
   { id: 'kitten', get name() { return uiText('아기 고양이') } },
 ] as const
 
-export type MewcatSkin = (typeof MEWCAT_SKINS)[number]['id'] | `custom:${string}`
+export type MewcatBuiltinSkin = (typeof MEWCAT_SKINS)[number]['id']
+export type MewcatSkin = MewcatBuiltinSkin | `custom:${string}`
 export type MewcatSkinSelection = MewcatSkin | null
 
 export function normalizeMewcatSkin(value: unknown): MewcatSkinSelection {
   return MEWCAT_SKINS.some((skin) => skin.id === value) || (typeof value === 'string' && /^custom:[\w-]{1,80}$/.test(value)) ? value as MewcatSkin : null
 }
 
-/** 저장값이 없으면 기본 스킨을 쓴다. 재배포 불가했던 oreo 값은 자체 기본 스킨으로 이관한다. */
+/** mew ID는 실루엣 스킨으로 이어받는다. 저장값이 없거나 옛 oreo 값이면 같은 기본값을 쓴다. */
 export function loadMewcatSkin(storage?: Pick<Storage, 'getItem'>): MewcatSkinSelection {
   try {
     let value = (storage ?? scopedBrowserStorage()).getItem(MEWCAT_SKIN_KEY)

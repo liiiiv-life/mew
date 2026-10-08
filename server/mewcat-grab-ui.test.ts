@@ -36,9 +36,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
       await page.clock.install({ time: new Date('2026-09-22T00:00:00Z') })
       await page.clock.pauseAt(new Date('2026-09-22T00:00:01Z'))
       await page.route('http://mewcat-grab.test/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${compiler.build([])}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
+      await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
       await page.goto(`http://mewcat-grab.test/?skin=${skin}${remote ? '&remote' : ''}`)
       const cat = page.locator('.mewcat')
-      await cat.waitFor()
+      await cat.locator('.mewcat-sprite').waitFor()
       if (remote) {
         assert.equal(await page.locator('#root').evaluate(el => el.inert), true)
         assert.equal(await page.getByRole('dialog').locator('.mewcat').count(), 1)
@@ -57,7 +58,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
         else await page.mouse.up()
       }
       const start = (await cat.boundingBox())!
-      await down(start.x + 20, start.y + 20)
+      await down(start.x + 24, start.y + 35)
       await move(start.x + 60, start.y - 180)
       await page.clock.runFor(16)
       await move(start.x + 80, start.y - 220)
@@ -80,7 +81,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
       for (let catchIndex = 0; catchIndex < 3; catchIndex++) {
         const flying = (await cat.boundingBox())!
         assert.ok(flying.y < start.y - 100, 'cat is well above the ground')
-        await down(flying.x + 20, flying.y + 20)
+        await down(flying.x + 24, flying.y + 35)
         assert.equal(await page.evaluate('window.backgroundClicks'), 2, 'the painted cat still catches the pointer')
         const caught = (await cat.boundingBox())!
         assert.ok(Math.abs(caught.x - flying.x) < 1 && Math.abs(caught.y - flying.y) < 1, `pointerdown must not snap the cat to the floor: ${JSON.stringify({ touch, catchIndex, flying, caught, activity: await cat.getAttribute('data-activity') })}`)
@@ -88,7 +89,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
         await page.clock.runFor(500)
         const held = (await cat.boundingBox())!
         assert.ok(Math.abs(held.x - caught.x) < 1 && Math.abs(held.y - caught.y) < 1, 'stationary pointer holds both coordinates')
-        await move(flying.x + 45, flying.y + 35)
+        await move(flying.x + 49, flying.y + 50)
         const moved = (await cat.boundingBox())!
         assert.ok(Math.abs(moved.x - flying.x - 25) < 1 && Math.abs(moved.y - flying.y - 15) < 1, 'moving preserves the original grab offset')
         await page.clock.runFor(150)
@@ -101,7 +102,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
       if (touch) {
         await page.clock.resume()
         const live = (await cat.boundingBox())!
-        await down(live.x + 20, live.y + 20)
+        await down(live.x + 24, live.y + 35)
         await move(live.x + 40, live.y - 180)
         await up()
         assert.equal(await cat.getAttribute('data-activity'), 'jump')

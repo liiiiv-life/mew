@@ -41,6 +41,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
       page.on('pageerror', error => errors.push(error.message))
       await page.clock.install({ time: new Date('2026-09-18T00:00:00Z') })
       await page.route('http://mewcat-break.test/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html ${light ? '' : 'class="dark"'}><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
+      await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
       await page.goto('http://mewcat-break.test/')
       const toggle = page.getByRole('checkbox', { name: '강제 휴식 사용' })
       await toggle.waitFor()
@@ -85,7 +86,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
       assert.equal(await page.evaluate(`(() => {
         const svg = document.querySelector('.mewcat-break-cat svg')
         const box = svg.getBoundingClientRect()
-        const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+        const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height * .72)
         return !!hit?.closest('.mewcat-break-cat')
       })()`), true)
       assert.equal(await page.evaluate(`(() => {
@@ -103,7 +104,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
       assert.ok(Math.max(...positions) - Math.min(...positions) > 5, 'the giant cat should roam')
       const beforeGrab = (await roaming.boundingBox())!
       const grabX = beforeGrab.x + beforeGrab.width / 2
-      const grabY = beforeGrab.y + beforeGrab.height * .55
+      const grabY = beforeGrab.y + beforeGrab.height * .72
       await page.mouse.move(grabX, grabY)
       await page.mouse.down()
       const shift = grabX > (mobile ? 390 : 1280) / 2 ? -35 : 35
@@ -119,7 +120,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><main style={{p
       assert.equal(await roaming.getAttribute('data-activity'), 'fall')
       await page.clock.runFor(50)
       const falling = (await roaming.boundingBox())!
-      await page.mouse.move(falling.x + falling.width / 2, falling.y + falling.height * .55)
+      await page.mouse.move(falling.x + falling.width / 2, falling.y + falling.height * .72)
       await page.mouse.down()
       assert.equal(await roaming.getAttribute('data-activity'), 'struggle')
       const caught = (await roaming.boundingBox())!

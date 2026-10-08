@@ -1,6 +1,7 @@
 import { remoteStorageName } from '@mew/ui/browser-storage-scope'
 import { uiText } from '@mew/ui/i18n-core'
 import { MEWCAT_SPRITE_ACTIONS, MAX_SPRITE_BYTES, validSpriteDimensions, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from './mewcat-sprites'
+import { MEWCAT_SKINS, type MewcatBuiltinSkin } from './mewcatSkin'
 
 export async function readSpriteImage(blob: Blob, frames = 8): Promise<SpriteImage> {
   if (!['image/png', 'image/webp'].includes(blob.type) || blob.size > MAX_SPRITE_BYTES) throw new Error(uiText('PNG·WebP 이미지를 선택하세요. 파일당 최대 4MB입니다.'))
@@ -180,16 +181,21 @@ export async function deleteSpriteSkin(id: string): Promise<void> {
   finally { db.close() }
 }
 
-let kitten: Promise<SpriteSkin> | undefined
-export function loadKittenSkin(): Promise<SpriteSkin> {
-  if (!kitten) kitten = (async () => {
-    const sprites = {} as SavedSpriteSkin['sprites']
-    for (const action of MEWCAT_SPRITE_ACTIONS) {
-      const response = await fetch(`/mewcat/kitten/${action}.png`)
-      if (!response.ok) throw new Error('sprite unavailable')
-      sprites[action] = await readSpriteImage(await response.blob(), 8)
-    }
-    return prepareSkin({ id: 'kitten', name: uiText('아기 고양이'), sprites })
-  })().catch(error => { kitten = undefined; throw error })
-  return kitten
+const builtins = new Map<MewcatBuiltinSkin, Promise<SpriteSkin>>()
+export function loadBuiltinSpriteSkin(id: MewcatBuiltinSkin): Promise<SpriteSkin> {
+  let pending = builtins.get(id)
+  if (!pending) {
+    pending = (async () => {
+      const folder = id === 'mew' ? 'silhouette' : 'kitten'
+      const entries = await Promise.all(MEWCAT_SPRITE_ACTIONS.map(async action => {
+        const response = await fetch(`/mewcat/${folder}/${action}.png`)
+        if (!response.ok) throw new Error('sprite unavailable')
+        return [action, await readSpriteImage(await response.blob(), 8)] as const
+      }))
+      const sprites = Object.fromEntries(entries) as SavedSpriteSkin['sprites']
+      return prepareSkin({ id, name: MEWCAT_SKINS.find(skin => skin.id === id)!.name, sprites })
+    })().catch(error => { builtins.delete(id); throw error })
+    builtins.set(id, pending)
+  }
+  return pending
 }

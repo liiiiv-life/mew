@@ -63,8 +63,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         }
         return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html ${light ? '' : 'class="dark"'}><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` })
       })
+      await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
       await page.goto('http://mewcat.test/')
-      await page.waitForSelector('.mewcat')
+      await page.waitForSelector('.mewcat-sprite')
       const noticeOrigin = await page.evaluate(`(() => {
         const box = document.querySelector('.mewcat').getBoundingClientRect();
         window.notify();
@@ -122,7 +123,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await bubble.waitFor({ state: 'detached' })
       const cat = page.getByRole('button', { name: '뮤캣', exact: true })
       await cat.evaluate(el => el.addEventListener('pointerdown', () => { (el.ownerDocument.defaultView as unknown as { tappedCatX: number }).tappedCatX = el.getBoundingClientRect().x }, { once: true }))
-      if (mobile) await cat.tap({ force: true }); else await cat.click({ force: true })
+      if (mobile) await cat.tap({ force: true, position: { x: 24, y: 35 } }); else await cat.click({ force: true, position: { x: 24, y: 35 } })
       const summary = page.getByRole('complementary', { name: '최근 알림', exact: true })
       await summary.getByText('CPU-24%', { exact: true }).waitFor()
       assert.equal(await summary.getByText('메모리-50%', { exact: true }).count(), 1)
@@ -196,9 +197,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await page.clock.pauseAt(new Date(Date.now() + 1000))
       for (const targetX of [0, (width - 48) / 2, width - 48]) {
         const before = (await cat.boundingBox())!
-        await page.mouse.move(before.x + 24, before.y + 24)
+        await page.mouse.move(before.x + 24, before.y + 35)
         await page.mouse.down()
-        await page.mouse.move(targetX + 24, before.y + 24)
+        await page.mouse.move(targetX + 24, before.y + 35)
         await page.clock.runFor(160)
         await page.mouse.up()
         await page.clock.runFor(32)
@@ -223,7 +224,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         await summary.waitFor({ state: 'detached' })
       }
       await page.evaluate('window.setAllowed(false)')
-      await page.locator('.mewcat').click({ force: true })
+      await page.locator('.mewcat').click({ force: true, position: { x: 24, y: 35 } })
       await summary.waitFor()
       assert.equal(await summary.getByRole('button', { name: '시스템 자원 보기', exact: true }).count(), 0, 'notifications remain available without resource permission')
       const deniedSamples = samples

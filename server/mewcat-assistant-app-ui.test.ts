@@ -77,6 +77,7 @@ test('Mewcat tools use real App project switching, Documents tabs and reviewed w
       if (url.pathname.startsWith('/api/')) return json({})
       return route.fulfill(url.pathname === '/app.js' ? { contentType: 'text/javascript', body: chunk.code } : { contentType: 'text/html', body: `<!doctype html><html><meta charset="utf-8"><style>${css}</style><div id="root"></div><script src="/app.js"></script></html>` })
     })
+    await page.route('**/mewcat/**', async route => route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${new URL(route.request().url()).pathname}`) }))
     await page.goto('http://helper-app.test/')
     await page.waitForFunction(() => (globalThis as unknown as Fixture).assistant?.projectRoot === '/alpha')
     const run = (action: MewcatAction) => page.evaluate(action => (globalThis as unknown as Fixture).assistant.onAction(action), action)

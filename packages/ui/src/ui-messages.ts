@@ -2,6 +2,7 @@
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
   "아기 고양이": ["Little kitten", "小猫咪", "子猫"],
+  "실루엣 고양이": ["Silhouette kitten", "剪影小猫", "シルエット子猫"],
   "스킨 추가": ["Add skin", "添加皮肤", "スキンを追加"],
   "스킨 이름": ["Skin name", "皮肤名称", "スキン名"],
   "스킨 수정": ["Edit skin", "编辑皮肤", "スキンを編集"],
@@ -93,8 +94,6 @@ export const uiMessages = {
   "커밋 대상에 포함": ["Include in commit", "包含在提交中", "コミット対象に含める"],
   "커밋 대상에서 제외": ["Exclude from commit", "从提交中排除", "コミット対象から除外"],
   "취소 (Discard)": ["Discard", "放弃更改", "変更を破棄"],
-  '털색': ['Fur color', '毛色', '毛色'],
-  '털색 HEX': ['Fur color HEX', '毛色 HEX', '毛色 HEX'],
   '위치 이동': ['Move', '移动位置', '位置を移動'],
   '크기 조절': ['Resize', '调整大小', 'サイズ変更'],
   '알림': ['Notifications', '通知', '通知'],

@@ -1,16 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { ColorPicker } from '@mew/ui'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { Download, EditPencil, Plus, Refresh, Trash, Upload, Xmark } from 'iconoir-react'
 import { useI18n } from '../i18n'
-import { useMewcatFurColor, setMewcatFurColor } from '../hooks/use-mewcat-fur-color'
 import { useCustomSpriteSkins, useMewcatSpriteSkin } from '../hooks/use-mewcat-sprite-skins'
-import { DEFAULT_MEWCAT_FUR_COLOR } from '../utils/mewcat-fur-color'
 import { MEWCAT_SKINS, type MewcatSkin, type MewcatSkinSelection } from '../utils/mewcatSkin'
 import { MEWCAT_CYCLE_MS, MEWCAT_SPRITE_ACTIONS, MAX_SPRITE_FRAMES, validSpriteDimensions, type MewcatSpriteAction, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from '../utils/mewcat-sprites'
 import { deleteSpriteSkin, loadSpriteSkins, prepareSpriteStrip, readSpriteImage, saveSpriteSkin } from '../utils/mewcat-sprite-storage'
-import { MewcatMark } from './Mewcat'
 import { MewcatSprite } from './mewcat-sprite'
 import { uuid } from '../utils/uuid'
 
@@ -29,15 +25,15 @@ function createDraft(skin?: SpriteSkin): Draft {
 export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelection; onChange: (skin: MewcatSkinSelection) => void }) {
   const { t } = useI18n()
   useUiLocale()
-  const furColor = useMewcatFurColor()
   const custom = useCustomSpriteSkins()
+  const silhouette = useMewcatSpriteSkin('mew')
   const kitten = useMewcatSpriteSkin('kitten')
   const [draft, setDraft] = useState<Draft>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const options: { id: MewcatSkinSelection; name: string; sprite?: SpriteStrip }[] = [
     { id: null, name: t('settings.mewcatNone') },
-    ...MEWCAT_SKINS.map(item => ({ ...item, sprite: item.id === 'kitten' ? kitten?.sprites.idle : undefined })),
+    ...MEWCAT_SKINS.map(item => ({ ...item, sprite: (item.id === 'kitten' ? kitten : silhouette)?.sprites.idle })),
     ...custom.skins.map(item => ({ id: item.id as MewcatSkin, name: item.name, sprite: item.sprites.idle })),
   ]
   const save = async () => {
@@ -81,7 +77,7 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
         <button type="button" disabled={busy} onClick={() => onChange(option.id)} aria-pressed={skin === option.id}
           className={`w-full min-w-0 rounded border p-2 text-left disabled:opacity-40 ${skin === option.id ? 'border-accent bg-accent/10 text-ink' : 'border-edge-strong bg-surface text-ink-secondary hover:bg-surface-raised'}`}>
           <span className="flex h-14 items-end justify-center rounded bg-surface-deep">
-            {option.id === 'mew' ? <MewcatMark className="h-12 w-12" /> : option.sprite ? <span className="h-12 w-12"><MewcatSprite strip={option.sprite} /></span> : <span className="self-center text-sm text-ink-muted">—</span>}
+            {option.sprite ? <span className="h-12 w-12"><MewcatSprite strip={option.sprite} /></span> : <span className="self-center text-sm text-ink-muted">—</span>}
           </span>
           <span className="mt-1 block truncate text-sm font-medium" title={option.name}>{option.name}</span>
         </button>
@@ -99,7 +95,7 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
       </div>
       <p className="mt-2 text-xs leading-relaxed text-ink-muted">{uiText('같은 크기의 프레임을 가로 한 줄로 나열한 PNG·WebP를 넣으세요. 착지는 공중 하강 이미지의 후반 프레임을 사용합니다.')}</p>
       <div className="mt-2 divide-y divide-edge">
-        {MEWCAT_SPRITE_ACTIONS.map(action => <SpriteEditorRow key={action} action={action} value={draft.actions[action]} disabled={busy} onError={setError}
+        {MEWCAT_SPRITE_ACTIONS.map(action => <SpriteEditorRow key={action} action={action} sampleFolder={skin === 'kitten' ? 'kitten' : 'silhouette'} value={draft.actions[action]} disabled={busy} onError={setError}
           onAttach={(image, fileName) => setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: { ...current.actions[action], image, fileName } } } : current)}
           onChange={value => { setError(''); setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: value } } : current) }} />)}
       </div>
@@ -109,14 +105,10 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
       </div>
     </div>}
     {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
-    {skin === 'mew' && <div className="mt-3 border-t border-edge pt-3">
-      <ColorPicker value={furColor} onChange={setMewcatFurColor} defaultValue={DEFAULT_MEWCAT_FUR_COLOR}
-        labels={{ color: uiText('털색'), hex: uiText('털색 HEX'), hue: t('settings.colorHue'), saturation: t('settings.colorSaturation'), brightness: t('settings.colorBrightness'), reset: t('common.reset'), close: t('common.close') }} />
-    </div>}
   </div>
 }
 
-function SpriteEditorRow({ action, value, disabled, onAttach, onChange, onError }: { action: MewcatSpriteAction; value: DraftAction; disabled: boolean; onAttach: (image: SpriteImage, fileName: string) => void; onChange: (value: DraftAction) => void; onError: (error: string) => void }) {
+function SpriteEditorRow({ action, sampleFolder, value, disabled, onAttach, onChange, onError }: { action: MewcatSpriteAction; sampleFolder: 'kitten' | 'silhouette'; value: DraftAction; disabled: boolean; onAttach: (image: SpriteImage, fileName: string) => void; onChange: (value: DraftAction) => void; onError: (error: string) => void }) {
   const [preview, setPreview] = useState<SpriteStrip>()
   const [reading, setReading] = useState(false)
   const uploadGeneration = useRef(0)
@@ -160,7 +152,7 @@ function SpriteEditorRow({ action, value, disabled, onAttach, onChange, onError 
       <label className={`${iconButton} relative overflow-hidden ${disabled || reading ? 'pointer-events-none opacity-40' : ''}`} title={uiText('이미지 첨부')}>
         <Upload /><input type="file" accept="image/png,image/webp" disabled={disabled || reading} aria-label={uiText('{action} 스프라이트', { action: name })} className="absolute inset-0 cursor-pointer opacity-0" onChange={event => { void attach(event.target.files?.[0]); event.target.value = '' }} />
       </label>
-      <a href={`/mewcat/kitten/${action}.png`} download={`mewcat-${action}.png`} className={iconButton} title={uiText('예제 이미지 다운로드')} aria-label={`${name}: ${uiText('예제 이미지 다운로드')}`}><Download /></a>
+      <a href={`/mewcat/${sampleFolder}/${action}.png`} download={`mewcat-${action}.png`} className={iconButton} title={uiText('예제 이미지 다운로드')} aria-label={`${name}: ${uiText('예제 이미지 다운로드')}`}><Download /></a>
     </div>
     {invalid && <p className="mt-1 text-xs text-danger">{uiText('프레임 수는 1~256이며 이미지 너비를 균등하게 나눌 수 있어야 합니다.')}</p>}
   </div>
