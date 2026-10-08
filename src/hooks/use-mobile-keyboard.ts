@@ -7,6 +7,9 @@ export function useMobileKeyboard() {
     let width = window.innerWidth
     let baseline = Math.max(window.innerHeight, window.visualViewport?.height ?? 0)
     let editingSession = false
+    let fullscreen = Boolean(document.fullscreenElement)
+    const baselines = new Map([[fullscreen, baseline]])
+    let restoredBaseline = false
     const update = () => {
       const viewport = window.visualViewport
       // Focus zoom and pinch zoom shorten CSS pixels without covering more of the screen.
@@ -14,11 +17,29 @@ export function useMobileKeyboard() {
       const height = (viewport?.height ?? window.innerHeight) * (viewport?.scale ?? 1)
       const active = document.activeElement
       const editing = active instanceof HTMLElement && (active.isContentEditable || active.matches('textarea, input:not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="range"]):not([readonly])'))
-      if (width !== window.innerWidth) { width = window.innerWidth; baseline = window.innerHeight; editingSession = false }
-      baseline = Math.max(baseline, window.innerHeight, height)
+      const nextFullscreen = Boolean(document.fullscreenElement)
+      if (width !== window.innerWidth) {
+        width = window.innerWidth
+        baseline = Math.max(window.innerHeight, height)
+        editingSession = false
+        fullscreen = nextFullscreen
+        baselines.clear()
+        restoredBaseline = false
+      }
+      if (fullscreen !== nextFullscreen) {
+        baselines.set(fullscreen, baseline)
+        fullscreen = nextFullscreen
+        const remembered = baselines.get(fullscreen)
+        baseline = remembered ?? Math.max(baseline, window.innerHeight, height)
+        // Browser chrome changes the unobscured height. Keep the destination's
+        // baseline even if fullscreenchange precedes the viewport resize.
+        restoredBaseline = remembered !== undefined && editingSession
+      }
+      if (!restoredBaseline) baseline = Math.max(baseline, window.innerHeight, height)
       editingSession ||= editing
       const keyboard = editingSession && baseline - height > 150
-      if (!keyboard && !editing) { baseline = height; editingSession = false }
+      if (!keyboard && !editing) { baseline = height; editingSession = false; restoredBaseline = false }
+      baselines.set(fullscreen, baseline)
       setHidden(keyboard)
     }
     update()
