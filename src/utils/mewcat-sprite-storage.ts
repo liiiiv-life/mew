@@ -1,6 +1,6 @@
 import { remoteStorageName } from '@mew/ui/browser-storage-scope'
 import { uiText } from '@mew/ui/i18n-core'
-import { MEWCAT_SPRITE_ACTIONS, MAX_SPRITE_BYTES, validSpriteDimensions, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from './mewcat-sprites'
+import { MEWCAT_ALL_SPRITE_ACTIONS, MEWCAT_SPRITE_ACTIONS, MEWCAT_TRANSITION_ACTIONS, MAX_SPRITE_BYTES, validSpriteDimensions, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from './mewcat-sprites'
 import { MEWCAT_SKINS, type MewcatBuiltinSkin } from './mewcatSkin'
 
 export async function readSpriteImage(blob: Blob, frames = 8): Promise<SpriteImage> {
@@ -55,8 +55,16 @@ async function prepareSkin(saved: SavedSpriteSkin): Promise<SpriteSkin> {
     for (const action of ['jump', 'fall'] as const) {
       if (!sources[action]) sources[action] = await legacyAirborneImage(sources.struggle, action)
     }
-    for (const action of MEWCAT_SPRITE_ACTIONS) prepared.push(await prepareSpriteStrip(sources[action]))
-    return { id: saved.id, name: saved.name, sprites: Object.fromEntries(MEWCAT_SPRITE_ACTIONS.map((action, index) => [action, prepared[index]])) as SpriteSkin['sprites'] }
+    const entries = []
+    for (const action of MEWCAT_ALL_SPRITE_ACTIONS) {
+      const source = sources[action]
+      if (!source) continue
+      const strip = await prepareSpriteStrip(source)
+      prepared.push(strip)
+      entries.push([action, strip])
+    }
+    if (MEWCAT_SPRITE_ACTIONS.some(action => !sources[action])) throw new Error('missing required sprite')
+    return { id: saved.id, name: saved.name, sprites: Object.fromEntries(entries) as SpriteSkin['sprites'] }
   } catch (error) {
     for (const sprite of prepared) URL.revokeObjectURL(sprite.src)
     throw error
@@ -187,12 +195,15 @@ export function loadBuiltinSpriteSkin(id: MewcatBuiltinSkin): Promise<SpriteSkin
   if (!pending) {
     pending = (async () => {
       const definition = MEWCAT_SKINS.find(skin => skin.id === id)!
-      const entries = await Promise.all(MEWCAT_SPRITE_ACTIONS.map(async action => {
+      const entries = await Promise.all(MEWCAT_ALL_SPRITE_ACTIONS.map(async action => {
         const response = await fetch(`/mewcat/${definition.folder}/${action}.png`)
-        if (!response.ok) throw new Error('sprite unavailable')
+        if (!response.ok) {
+          if (MEWCAT_TRANSITION_ACTIONS.some(transition => transition === action) && response.status === 404) return [action, undefined] as const
+          throw new Error('sprite unavailable')
+        }
         return [action, await readSpriteImage(await response.blob(), 8)] as const
       }))
-      const sprites = Object.fromEntries(entries) as SavedSpriteSkin['sprites']
+      const sprites = Object.fromEntries(entries.filter(([, image]) => image)) as SavedSpriteSkin['sprites']
       return prepareSkin({ id, name: definition.name, sprites })
     })().catch(error => { builtins.delete(id); throw error })
     builtins.set(id, pending)

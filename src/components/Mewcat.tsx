@@ -11,7 +11,7 @@ import { MewcatBreak } from './mewcat-break'
 import { useMewcatBreak } from '../hooks/use-mewcat-break'
 import type { MewcatSkin } from '../utils/mewcatSkin'
 import { useMewcatSpriteSkin } from '../hooks/use-mewcat-sprite-skins'
-import { MEWCAT_CYCLE_MS, spriteAction, spriteFrameAt, type MewcatActivity as Activity, type SpriteSkin } from '../utils/mewcat-sprites'
+import { MEWCAT_CYCLE_MS, roamActivity, spriteAction, spriteFrameAt, transitionAction, type MewcatActivity as Activity, type MewcatTransitionAction, type SpriteSkin } from '../utils/mewcat-sprites'
 import { MewcatSprite } from './mewcat-sprite'
 import { paintSpriteFrame } from '../utils/mewcat-sprite-render'
 import { useMewcatSize } from '../utils/mewcat-size-preferences'
@@ -99,9 +99,12 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
   useEffect(() => {
     const cat = catRef.current
     if (!cat) return
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let activity: Activity = nextActivity()
+    let transition: { action: MewcatTransitionAction; from: Activity; started: number } | undefined
+    const currentStrip = () => spriteSkin?.sprites[transition?.action ?? spriteAction(activity)]
     const groundInset = () => {
-      const strip = spriteSkin?.sprites[spriteAction(activity)]
+      const strip = currentStrip()
       return strip ? strip.bottomPadding / Math.max(strip.width / strip.frames, strip.height) : 0
     }
     let bounds = movementBounds(giant, sizeRef.current, groundInset())
@@ -123,23 +126,37 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
     let lastPointerX = 0
     let lastPointerY = 0
     let lastPointerAt = 0
-    const setActivity = (next: Activity, now: number, duration = 0) => {
+    const setActivity = (next: Activity, now: number, duration = 0, animate = true) => {
+      const action = animate && !reducedMotion ? transitionAction(activity, next) : undefined
+      transition = action && spriteSkin?.sprites[action] ? { action, from: activity, started: now } : undefined
       activity = next
       activityStarted = now
       activityEnds = duration ? now + duration : 0
       bounds = movementBounds(giant, sizeRef.current, groundInset())
+      if (pointerId === undefined && next !== 'jump' && next !== 'fall' && next !== 'struggle') y = bounds.ground
+    }
+    const launch = (now: number) => {
+      horizontalVelocity = direction * 90
+      verticalVelocity = -640
+      setActivity('jump', now)
     }
     const chooseRoam = (now: number) => {
-      const next = nextActivity()
+      const next = roamActivity(Math.random(), reducedMotion)
+      if (next === 'jump') {
+        if (spriteSkin?.sprites.takeoff) setActivity('takeoff', now, MEWCAT_CYCLE_MS.takeoff)
+        else launch(now)
+        return
+      }
       setActivity(next, now, next === 'idle' ? 900 + Math.random() * 1800 : next === 'walk' ? 2200 + Math.random() * 2400 : 1000 + Math.random() * 1500)
     }
     const spriteSvg = cat.querySelector<SVGSVGElement>('.mewcat-sprite')
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const render = () => {
       cat.dataset.activity = activity
+      if (transition) cat.dataset.transition = transition.action
+      else delete cat.dataset.transition
       cat.style.transform = `translate3d(${x}px, ${y}px, 0) scaleX(${direction < 0 ? -1 : 1})`
-      const strip = spriteSkin?.sprites[spriteAction(activity)]
-      if (spriteSvg && strip) paintSpriteFrame(spriteSvg, strip, reducedMotion ? 0 : spriteFrameAt(activity, performance.now() - activityStarted, strip.frames))
+      const strip = currentStrip()
+      if (spriteSvg && strip) paintSpriteFrame(spriteSvg, strip, reducedMotion ? 0 : spriteFrameAt(transition?.action ?? activity, performance.now() - (transition?.started ?? activityStarted), strip.frames))
     }
     const followPointer = () => {
       x = clamp(lastPointerX - grabX * bounds.size, bounds.minX, bounds.maxX)
@@ -164,6 +181,10 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
     const tick = (now: number) => {
       const delta = Math.min(0.05, (now - lastFrame) / 1000)
       lastFrame = now
+      if (transition && now - transition.started >= MEWCAT_CYCLE_MS[transition.action]) {
+        transition = undefined
+        bounds = movementBounds(giant, sizeRef.current, groundInset())
+      }
       // A captured pointer owns position, even before the mouse sends its next move.
       // Never let roaming, gravity or ground correction run while the cat is held.
       if (pointerId !== undefined) {
@@ -172,15 +193,18 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
         animationFrame = window.requestAnimationFrame(tick)
         return
       }
-      if (activity === 'idle' || activity === 'walk' || activity === 'run') {
+      if (activity === 'idle' || activity === 'walk' || activity === 'run' || activity === 'takeoff') {
         if (attentionRef.current && (activity !== 'idle' || activityEnds)) {
           setActivity('idle', now)
         } else if (!attentionRef.current && activity === 'idle' && !activityEnds) chooseRoam(now)
       }
-      if (activity === 'walk' || activity === 'run') {
+      if (activity === 'idle' || activity === 'walk' || activity === 'run') {
         y = bounds.ground
-        x += direction * (activity === 'walk' ? 48 : 115) * delta
-        if (x <= bounds.minX || x >= bounds.maxX) {
+        const speed = (state: Activity) => state === 'walk' ? 48 : state === 'run' ? 115 : 0
+        const progress = transition ? Math.min(1, (now - transition.started) / MEWCAT_CYCLE_MS[transition.action]) : 1
+        const velocity = attentionRef.current ? 0 : transition ? speed(transition.from) + (speed(activity) - speed(transition.from)) * progress : speed(activity)
+        x += direction * velocity * delta
+        if (velocity && (x <= bounds.minX || x >= bounds.maxX)) {
           x = clamp(x, bounds.minX, bounds.maxX)
           direction *= -1
         }
@@ -205,7 +229,11 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
           setActivity('land', now, MEWCAT_CYCLE_MS.land)
         }
       } else if (activity !== 'struggle') y = bounds.ground
-      if (activityEnds && now >= activityEnds) chooseRoam(now)
+      if (activityEnds && now >= activityEnds) {
+        if (activity === 'takeoff') launch(now)
+        else if (attentionRef.current) setActivity('idle', now)
+        else chooseRoam(now)
+      }
       render()
       animationFrame = window.requestAnimationFrame(tick)
     }
@@ -222,7 +250,7 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
       grabX = (event.clientX - x) / bounds.size
       grabY = (event.clientY - y) / bounds.size
       lastPointerAt = performance.now()
-      setActivity(dragging ? 'struggle' : 'idle', lastPointerAt)
+      setActivity(dragging ? 'struggle' : 'idle', lastPointerAt, 0, false)
       cat.setPointerCapture(event.pointerId)
       render()
     }

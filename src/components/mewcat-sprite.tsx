@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { spriteFrameAt, type MewcatSpriteAction, type SpriteStrip } from '../utils/mewcat-sprites'
+import { MEWCAT_CYCLE_MS, spriteFrameAt, type MewcatAnimation, type SpriteStrip } from '../utils/mewcat-sprites'
 import { paintSpriteFrame } from '../utils/mewcat-sprite-render'
 
-export function MewcatSprite({ strip, action = 'idle', playing = false, className = '' }: { strip: SpriteStrip; action?: MewcatSpriteAction; playing?: boolean; className?: string }) {
+export function MewcatSprite({ strip, action = 'idle', playing = false, className = '' }: { strip: SpriteStrip; action?: MewcatAnimation; playing?: boolean; className?: string }) {
   const ref = useRef<SVGSVGElement>(null)
   useEffect(() => {
     const svg = ref.current!
@@ -11,7 +11,7 @@ export function MewcatSprite({ strip, action = 'idle', playing = false, classNam
     const started = performance.now()
     let frame = 0
     const tick = (now: number) => {
-      paintSpriteFrame(svg, strip, spriteFrameAt(action, now - started, strip.frames))
+      paintSpriteFrame(svg, strip, spriteFrameAt(action, (now - started) % MEWCAT_CYCLE_MS[action], strip.frames))
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)

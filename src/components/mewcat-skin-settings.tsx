@@ -5,20 +5,23 @@ import { Download, EditPencil, Plus, Refresh, Trash, Upload, Xmark } from 'icono
 import { useI18n } from '../i18n'
 import { useBuiltinSpriteSkins, useCustomSpriteSkins } from '../hooks/use-mewcat-sprite-skins'
 import { MEWCAT_SKINS, type MewcatSkin, type MewcatSkinSelection } from '../utils/mewcatSkin'
-import { MEWCAT_CYCLE_MS, MEWCAT_SPRITE_ACTIONS, MAX_SPRITE_FRAMES, validSpriteDimensions, type MewcatSpriteAction, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from '../utils/mewcat-sprites'
+import { MEWCAT_ALL_SPRITE_ACTIONS, MEWCAT_CYCLE_MS, MEWCAT_SPRITE_ACTIONS, MEWCAT_TRANSITION_ACTIONS, MAX_SPRITE_FRAMES, validSpriteDimensions, type MewcatAnimation, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from '../utils/mewcat-sprites'
 import { deleteSpriteSkin, loadSpriteSkins, prepareSpriteStrip, readSpriteImage, saveSpriteSkin } from '../utils/mewcat-sprite-storage'
 import { MewcatSprite } from './mewcat-sprite'
 import { uuid } from '../utils/uuid'
 
-const actionNames = { idle: '가만히 있기', walk: '걷기', run: '뛰기', jump: '공중 상승', fall: '공중 하강', love: '쓰다듬기', struggle: '목덜미 잡기' } as const
+const actionNames = { idle: '가만히 있기', walk: '걷기', run: '뛰기', jump: '공중 상승', fall: '공중 하강', love: '쓰다듬기', struggle: '목덜미 잡기',
+  'run-walk': '뛰기 → 걷기', 'walk-run': '걷기 → 뛰기', 'run-idle': '뛰기 → 가만히 있기', 'idle-run': '가만히 있기 → 뛰기',
+  'walk-idle': '걷기 → 가만히 있기', 'idle-walk': '가만히 있기 → 걷기', takeoff: '바닥 → 점프', landing: '낙하 → 착지', apex: '상승 → 하강',
+} as const
 const iconButton = 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 [&_svg]:h-4 [&_svg]:w-4'
 const inputClass = 'h-9 min-w-0 rounded border border-edge-strong bg-surface-deep px-2 text-sm text-ink focus:outline-2 focus:outline-accent'
 type DraftAction = { image: SpriteImage | null; frames: string; fileName: string }
-type Draft = { id?: string; name: string; actions: Record<MewcatSpriteAction, DraftAction> }
+type Draft = { id?: string; name: string; actions: Record<MewcatAnimation, DraftAction> }
 
 function createDraft(skin?: SpriteSkin): Draft {
-  return { id: skin?.id, name: skin?.name ?? '', actions: Object.fromEntries(MEWCAT_SPRITE_ACTIONS.map(action => [action, {
-    image: skin?.sprites[action] ?? null, frames: String(skin?.sprites[action].frames ?? 8), fileName: skin ? `${action}.png` : '',
+  return { id: skin?.id, name: skin?.name ?? '', actions: Object.fromEntries(MEWCAT_ALL_SPRITE_ACTIONS.map(action => [action, {
+    image: skin?.sprites[action] ?? null, frames: String(skin?.sprites[action]?.frames ?? 8), fileName: skin?.sprites[action] ? `${action}.png` : '',
   }])) as Draft['actions'] }
 }
 
@@ -43,12 +46,13 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
       setError(uiText('스킨 이름과 일곱 동작의 이미지를 입력하세요.')); return
     }
     const sprites = {} as SavedSpriteSkin['sprites']
-    for (const action of MEWCAT_SPRITE_ACTIONS) {
+    for (const action of MEWCAT_ALL_SPRITE_ACTIONS) {
       const { image, frames } = draft.actions[action]
-      if (!validSpriteDimensions(image!.width, image!.height, Number(frames))) {
+      if (!image) continue
+      if (!validSpriteDimensions(image.width, image.height, Number(frames))) {
         setError(`${uiText(actionNames[action])}: ${uiText('프레임 수는 1~256이며 이미지 너비를 균등하게 나눌 수 있어야 합니다.')}`); return
       }
-      sprites[action] = { blob: image!.blob, width: image!.width, height: image!.height, frames: Number(frames) }
+      sprites[action] = { blob: image.blob, width: image.width, height: image.height, frames: Number(frames) }
     }
     setBusy(true)
     try {
@@ -67,6 +71,9 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
     } catch (error) { setError(error instanceof Error ? error.message : uiText('스킨을 삭제하지 못했습니다.')) }
     finally { setBusy(false) }
   }
+  const editorRow = (action: MewcatAnimation) => draft && <SpriteEditorRow key={action} action={action} sampleFolder={sampleFolder} value={draft.actions[action]} disabled={busy} onError={setError}
+    onAttach={(image, fileName) => setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: { ...current.actions[action], image, fileName } } } : current)}
+    onChange={value => { setError(''); setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: value } } : current) }} />
   return <div className="mewcat-skin-settings">
     <div className="flex items-center justify-between gap-2">
       <div className="text-sm font-medium text-ink">{t('settings.mewcat')}</div>
@@ -93,12 +100,15 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
         <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-ink">{uiText('스킨 이름')}<input className={`${inputClass} flex-1`} value={draft.name} maxLength={40} disabled={busy} onChange={event => { setError(''); setDraft({ ...draft, name: event.target.value }) }} /></label>
         <button type="button" className={iconButton} disabled={busy} title={t('common.cancel')} aria-label={t('common.cancel')} onClick={() => { setDraft(undefined); setError('') }}><Xmark /></button>
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-ink-muted">{uiText('같은 크기의 프레임을 가로 한 줄로 나열한 PNG·WebP를 넣으세요. 착지는 공중 하강 이미지의 후반 프레임을 사용합니다.')}</p>
+      <p className="mt-2 text-xs leading-relaxed text-ink-muted">{uiText('PNG·WebP · 같은 크기의 프레임을 가로 한 줄로')}</p>
+      <div className="mt-2 text-sm font-medium text-ink">{uiText('필수 모션')}</div>
       <div className="mt-2 divide-y divide-edge">
-        {MEWCAT_SPRITE_ACTIONS.map(action => <SpriteEditorRow key={action} action={action} sampleFolder={sampleFolder} value={draft.actions[action]} disabled={busy} onError={setError}
-          onAttach={(image, fileName) => setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: { ...current.actions[action], image, fileName } } } : current)}
-          onChange={value => { setError(''); setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: value } } : current) }} />)}
+        {MEWCAT_SPRITE_ACTIONS.map(editorRow)}
       </div>
+      <details className="mt-2 border-t border-edge pt-2">
+        <summary className="cursor-pointer text-sm font-medium text-ink focus-visible:outline-2 focus-visible:outline-accent">{uiText('전환 모션 (선택)')} <span className="text-xs font-normal text-ink-muted">{MEWCAT_TRANSITION_ACTIONS.filter(action => draft.actions[action].image).length}/9</span></summary>
+        <div className="mt-1 divide-y divide-edge">{MEWCAT_TRANSITION_ACTIONS.map(editorRow)}</div>
+      </details>
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="text-xs text-ink-muted">{uiText('이 브라우저에 저장')}</span>
         <button type="button" disabled={busy} onClick={() => void save()} className="min-h-9 rounded bg-accent px-3 text-sm font-medium text-white disabled:opacity-40">{busy ? uiText('저장 중…') : uiText('저장')}</button>
@@ -108,12 +118,13 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
   </div>
 }
 
-function SpriteEditorRow({ action, sampleFolder, value, disabled, onAttach, onChange, onError }: { action: MewcatSpriteAction; sampleFolder: (typeof MEWCAT_SKINS)[number]['folder']; value: DraftAction; disabled: boolean; onAttach: (image: SpriteImage, fileName: string) => void; onChange: (value: DraftAction) => void; onError: (error: string) => void }) {
+function SpriteEditorRow({ action, sampleFolder, value, disabled, onAttach, onChange, onError }: { action: MewcatAnimation; sampleFolder: (typeof MEWCAT_SKINS)[number]['folder']; value: DraftAction; disabled: boolean; onAttach: (image: SpriteImage, fileName: string) => void; onChange: (value: DraftAction) => void; onError: (error: string) => void }) {
   const [preview, setPreview] = useState<SpriteStrip>()
   const [reading, setReading] = useState(false)
   const uploadGeneration = useRef(0)
   useEffect(() => () => { uploadGeneration.current++ }, [])
   const name = uiText(actionNames[action])
+  const optional = MEWCAT_TRANSITION_ACTIONS.some(transition => transition === action)
   const invalid = !!value.image && !validSpriteDimensions(value.image.width, value.image.height, Number(value.frames))
   useEffect(() => {
     let active = true
@@ -143,16 +154,17 @@ function SpriteEditorRow({ action, sampleFolder, value, disabled, onAttach, onCh
       <span className="h-12 w-12 shrink-0 rounded bg-surface-deep">{preview && <MewcatSprite strip={preview} action={action} playing />}</span>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-ink">{name}</div>
-        <div className="text-xs text-ink-muted">{uiText('한 바퀴 {seconds}초', { seconds: MEWCAT_CYCLE_MS[action] / 1000 })}</div>
+        <div className="text-xs text-ink-muted">{uiText(optional ? '전환 {seconds}초' : '한 바퀴 {seconds}초', { seconds: MEWCAT_CYCLE_MS[action] / 1000 })}</div>
         <div className="truncate text-xs text-ink-muted" title={value.fileName}>{value.fileName || 'PNG · WebP'}</div>
       </div>
       <label className="flex shrink-0 flex-col gap-0.5 text-xs text-ink-muted">{uiText('프레임 수')}
         <input type="number" inputMode="numeric" min={1} max={MAX_SPRITE_FRAMES} step={1} value={value.frames} disabled={disabled} aria-label={uiText('{action} 프레임 수', { action: name })} aria-invalid={invalid || undefined} className={`${inputClass} w-16`} onChange={event => onChange({ ...value, frames: event.target.value })} />
       </label>
-      <label className={`${iconButton} relative overflow-hidden ${disabled || reading ? 'pointer-events-none opacity-40' : ''}`} title={uiText('이미지 첨부')}>
-        <Upload /><input type="file" accept="image/png,image/webp" disabled={disabled || reading} aria-label={uiText('{action} 스프라이트', { action: name })} className="absolute inset-0 cursor-pointer opacity-0" onChange={event => { void attach(event.target.files?.[0]); event.target.value = '' }} />
+      <label className={`${iconButton} relative overflow-hidden ${disabled || reading ? 'pointer-events-none opacity-40' : ''}`} data-tip={uiText('이미지 첨부')}>
+        <Upload aria-hidden="true" /><input type="file" accept="image/png,image/webp" disabled={disabled || reading} aria-label={uiText('{action} 스프라이트', { action: name })} className="absolute inset-0 cursor-pointer opacity-0" onChange={event => { void attach(event.target.files?.[0]); event.target.value = '' }} />
       </label>
-      <a href={`/mewcat/${sampleFolder}/${action}.png`} download={`mewcat-${action}.png`} className={iconButton} title={uiText('예제 이미지 다운로드')} aria-label={`${name}: ${uiText('예제 이미지 다운로드')}`}><Download /></a>
+      {optional && value.image ? <button type="button" className={iconButton} disabled={disabled || reading} data-tip={uiText('이미지 제거')} aria-label={uiText('{action} 이미지 제거', { action: name })} onClick={() => onChange({ ...value, image: null, fileName: '' })}><Xmark aria-hidden="true" /></button>
+        : <a href={`/mewcat/${sampleFolder}/${action}.png`} download={`mewcat-${action}.png`} className={iconButton} data-tip={uiText('예제 이미지 다운로드')} aria-label={`${name}: ${uiText('예제 이미지 다운로드')}`}><Download aria-hidden="true" /></a>}
     </div>
     {invalid && <p className="mt-1 text-xs text-danger">{uiText('프레임 수는 1~256이며 이미지 너비를 균등하게 나눌 수 있어야 합니다.')}</p>}
   </div>

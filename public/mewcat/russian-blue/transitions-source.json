@@ -1,0 +1,30 @@
+{
+  "generator": "built-in image_gen",
+  "created": "2026-10-08",
+  "prompt": "Use case: identity-preserve game sprite atlas extension. Generate a NEW companion TRANSITION animation sprite atlas, keeping the exact character identity, colors, proportions and drawing style from the attached existing idle sprite strip. The reference strip is a style and identity reference, not the output layout. All characters face RIGHT or three-quarter RIGHT; absolutely no left-facing poses. Genuine transparent background, no floor/shadow, props, hands, hearts, text, labels, borders or grid lines. Exactly 8 equal columns and 9 equal rows: 72 full animal drawings, one complete animal centered in each regular cell. Generous transparent gutters between every cell. SAME scale throughout all frames, full ears, paws and tail inside cell, ground poses share a foot baseline. Each ROW is a short ONE-WAY 8-frame motion transition, with clear progressive intermediate drawings from its first pose to final pose; not repeated cycles. Composition ideally 1024x1152, 8:9 atlas. Rows in EXACT order: 1 RUN TO WALK: fast stretched gallop settles to shorter walking steps. 2 WALK TO RUN: small walking stride accelerates and stretches into gallop. 3 RUN TO IDLE: slowing run, feet collect and body settles into calm seated idle. 4 IDLE TO RUN: seated rest, stands, leans forward and accelerates into first run stride. 5 WALK TO IDLE: small walking steps decelerate, folds hindquarters into seated rest. 6 IDLE TO WALK: seated rest rises to standing, first gentle walking steps. 7 GROUND TAKEOFF: begins grounded, crouches in anticipation, extends hind legs and lifts forepaws, ends in rising airborne pose angled up-right. Do not move the whole body vertically inside each cell: animation runtime supplies flight movement. 8 LANDING: begins descending with forefeet reaching, paws contact ground, body compresses into a soft squat, recovers to seated idle. 9 ASCENT TO DESCENT AT APEX: upward-leaning airborne body tucks paws, levels at apex, rotates gently toward down-right with forepaws reaching; no ground poses in this row. Keep all 72 drawings one consistent animal at same scale, high legibility at 48px. Do not introduce visual features absent from the reference.\nCharacter: Existing blue-gray Russian Blue kitten with green eyes and pink inner ears, curled tail, soft hand-drawn dark outlines. No stripes.",
+  "references": [
+    "public/mewcat/russian-blue/idle.png"
+  ],
+  "actions": [
+    "run-walk",
+    "walk-run",
+    "run-idle",
+    "idle-run",
+    "walk-idle",
+    "idle-walk",
+    "takeoff",
+    "landing",
+    "apex"
+  ],
+  "frameCount": 8,
+  "frameWidth": 128,
+  "frameHeight": 128,
+  "stripWidth": 1024,
+  "sourceAtlas": {
+    "width": 1182,
+    "height": 1330,
+    "columns": 8,
+    "rows": 9
+  },
+  "normalization": "Extract 72 complete alpha-connected animals, sort by nine rows and eight columns; crop with 2px antialiased margins, apply one uniform scale across all frames with maximum extent 104px, center horizontally in 128px cells at foot baseline 127px. Preserve generated alpha. Pack each row as an independent 1024×128 PNG."
+}

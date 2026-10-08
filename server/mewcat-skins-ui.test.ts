@@ -6,10 +6,11 @@ import { build } from 'rolldown'
 import { compile } from '@tailwindcss/node'
 import { chromium } from 'playwright-core'
 import { domBrowserExecutable } from './browser-dom-executable.ts'
+import { MEWCAT_ALL_SPRITE_ACTIONS } from '../src/utils/mewcat-sprites.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-test('Mewcat settings select five builtins, upload seven strips, restore and edit skins on desktop/mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
+test('Mewcat settings preserve seven required strips and save, remove and restore optional transitions', { skip: !domBrowserExecutable(), timeout: 90_000 }, async () => {
   const source = `
 import React,{useState} from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
@@ -48,7 +49,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       page.on('pageerror', error => errors.push(error.message))
       await page.route('http://skins.test/**', async route => {
         const pathname = new URL(route.request().url()).pathname
-        if (/^\/mewcat\/(kitten|silhouette|russian-blue|korean-shorthair|capybara)\/[a-z]+\.png$/.test(pathname)) return route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${pathname}`) })
+        if (/^\/mewcat\/(kitten|silhouette|russian-blue|korean-shorthair|capybara)\/[a-z-]+\.png$/.test(pathname)) return route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${pathname}`) })
         return route.fulfill({ contentType: 'text/html', body: `<html class="${mobile ? '' : 'dark'}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` })
       })
       await page.clock.install()
@@ -83,6 +84,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         await settings.getByRole('button', { name: '스킨 추가', exact: true }).click()
         const samples = await settings.getByRole('link', { name: /예제 이미지 다운로드$/ }).evaluateAll(links => links.map(link => link.getAttribute('href')))
         assert.deepEqual(samples, ['idle', 'walk', 'run', 'jump', 'fall', 'love', 'struggle'].map(action => `/mewcat/${animal.folder}/${action}.png`))
+        await settings.locator('summary').filter({ hasText: '전환 모션 (선택)' }).click()
+        const allSamples = await settings.getByRole('link', { name: /예제 이미지 다운로드$/ }).evaluateAll(links => links.map(link => link.getAttribute('href')))
+        assert.deepEqual(allSamples, MEWCAT_ALL_SPRITE_ACTIONS.map(action => `/mewcat/${animal.folder}/${action}.png`))
         await settings.getByRole('button', { name: '취소', exact: true }).click()
       }
       await page.reload()
@@ -126,6 +130,22 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await settings.getByRole('button', { name: '저장', exact: true }).click()
       await settings.getByRole('button', { name: 'My kitten', exact: true }).waitFor().catch(async error => { throw new Error(`${error.message}\n${await settings.innerText()}`) })
       assert.equal(await settings.getByRole('button', { name: 'My kitten', exact: true }).getAttribute('aria-pressed'), 'true')
+      await settings.getByRole('button', { name: '스킨 수정: My kitten', exact: true }).click()
+      await settings.locator('summary').filter({ hasText: '전환 모션 (선택)' }).click()
+      for (const [name, action] of [['뛰기 → 걷기', 'run-walk'], ['바닥 → 점프', 'takeoff'], ['낙하 → 착지', 'landing'], ['상승 → 하강', 'apex']]) {
+        await settings.getByLabel(`${name} 스프라이트`, { exact: true }).setInputFiles(`${root}/public/mewcat/kitten/${action}.png`)
+        await settings.getByRole('button', { name: `${name} 이미지 제거`, exact: true }).waitFor()
+      }
+      await settings.getByLabel('상승 → 하강 프레임 수', { exact: true }).fill('11')
+      await settings.getByRole('button', { name: '저장', exact: true }).click()
+      assert.match(await settings.getByRole('alert').innerText(), /상승 → 하강.*프레임 수는 1~256/)
+      await settings.getByLabel('상승 → 하강 프레임 수', { exact: true }).fill('8')
+      await settings.getByRole('button', { name: '뛰기 → 걷기 이미지 제거', exact: true }).click()
+      assert.match(await settings.locator('summary').innerText(), /3\/9/)
+      assert.equal(await settings.evaluate(el => el.scrollWidth <= el.clientWidth), true)
+      await page.screenshot({ path: `/tmp/mewcat-transitions-editor-${mobile ? 'mobile-light' : 'desktop-dark'}.png` })
+      await settings.getByRole('button', { name: '저장', exact: true }).click()
+      await settings.getByRole('textbox', { name: '스킨 이름', exact: true }).waitFor({ state: 'detached' })
       await settings.getByRole('button', { name: '닫기', exact: true }).last().click()
       const cat = page.locator('.mewcat')
       const sprite = cat.locator('.mewcat-sprite')
@@ -180,6 +200,10 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await sprite.waitFor()
       await settings.getByRole('button', { name: '뮤캣', exact: true }).click()
       await settings.getByRole('button', { name: '스킨 수정: My kitten', exact: true }).click()
+      await settings.locator('summary').filter({ hasText: '전환 모션 (선택)' }).click()
+      assert.match(await settings.locator('summary').innerText(), /3\/9/, 'optional strips survive global reload and legacy required-strip migration')
+      assert.equal(await settings.getByRole('button', { name: '뛰기 → 걷기 이미지 제거', exact: true }).count(), 0, 'removed transitions remain absent')
+      assert.equal(await settings.getByLabel('바닥 → 점프 프레임 수', { exact: true }).inputValue(), '8')
       assert.equal(await settings.getByLabel('걷기 프레임 수', { exact: true }).inputValue(), '10')
       assert.equal(await settings.getByLabel('공중 상승 프레임 수', { exact: true }).inputValue(), '1', 'legacy custom skins receive a separate ascent pose')
       assert.equal(await settings.getByLabel('공중 하강 프레임 수', { exact: true }).inputValue(), '1', 'legacy custom skins receive a separate descent pose')
