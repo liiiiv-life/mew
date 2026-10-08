@@ -8,7 +8,8 @@ import { TaskTagFilter } from './task-tag-filter'
 import { TaskSortPicker } from './task-sort-picker'
 import { defaultTaskSortRules, sortTasks, type TaskSortRule } from '../utils/task-sort'
 import { collectTaskTags, taskTags, TASK_TAG_LIMIT } from '../../shared/task-tags'
-import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type ComponentProps, type KeyboardEvent } from 'react'
+import { useFocusedShortcutScope } from '@mew/shortcuts'
 import { Calendar, Xmark, RefreshDouble, Plus, List, StatsUpSquare } from 'iconoir-react'
 import { TaskDateStatus } from './task-date-status'
 import { TaskActionMenu, type TaskMenuAnchor } from './task-action-menu'
@@ -89,6 +90,12 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     edit([...tasks, createTask(draft, draftTags, draftAssignees)])
     setDraft(''); setDraftTags([]); setDraftAssignees([])
   }
+  const startCreate = () => {
+    if (!canEdit || loading || tasks.length >= TASK_LIMIT) return false
+    if (view === 'gantt') edit([...tasks, createTask(uiText('새 태스크'))])
+    else focus('draft', 'end')
+    return true
+  }
   const switchView = (next: typeof view) => { if (next !== view) { commitDraft(); setDeleteId(null); setView(next) } }
   const navigateView = useRef<(direction: -1 | 1) => void>(() => {})
   navigateView.current = direction => {
@@ -156,7 +163,7 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
             onBlur={commitDraft} />
         </div>}
       </div>
-  return <TaskAssigneeProvider key={workspace}><TaskTagColorContext.Provider value={{ colors: session.tagColors, onChange: session.setTagColor, onDelete: session.deleteTag }}><TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><section aria-label={uiText('태스크')} data-sort-active={view === 'list' && sortRules.length > 0 || undefined} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
+  return <TaskAssigneeProvider key={workspace}><TaskTagColorContext.Provider value={{ colors: session.tagColors, onChange: session.setTagColor, onDelete: session.deleteTag }}><TaskDocumentProvider key={workspace} workspace={workspace} onOpen={onOpenFile}><TaskShortcutScope onCreate={startCreate} data-workspace-panel="tasks" aria-label={uiText('태스크')} data-sort-active={view === 'list' && sortRules.length > 0 || undefined} className="task-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface text-ink">
     <header data-dock-tab-bar className="flex h-9 shrink-0 items-center border-b border-edge bg-surface-deep">
       <DockGrip group="tasks" />
       <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5">
@@ -197,5 +204,11 @@ export function TaskPanel({ session, onClose, nextTabSignal = 0, previousTabSign
     {drag.preview && createPortal(<div aria-hidden="true" data-task-drag-preview className="task-drag-preview" style={{ left: drag.preview.x, top: drag.preview.y, width: drag.preview.width }}>
       <span className="task-check"><input type="checkbox" checked={drag.preview.item.done} readOnly tabIndex={-1} /></span><span className="task-drag-text">{drag.preview.item.text}</span>
     </div>, document.body)}
-  </section></TaskDocumentProvider></TaskTagColorContext.Provider></TaskAssigneeProvider>
+  </TaskShortcutScope></TaskDocumentProvider></TaskTagColorContext.Provider></TaskAssigneeProvider>
+}
+
+function TaskShortcutScope({ onCreate, ...props }: ComponentProps<'section'> & { onCreate: () => boolean }) {
+  const ref = useRef<HTMLElement>(null)
+  useFocusedShortcutScope(ref, { newTab: onCreate })
+  return <section {...props} ref={ref} />
 }
