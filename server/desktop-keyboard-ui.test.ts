@@ -32,6 +32,32 @@ function keyboardBundle() {
   }).then(result => result.output.find(item => item.type === 'chunk')!.code)
 }
 
+test('app fullscreen locks Escape and restores it after a remote all-key lock', { skip: !domBrowserExecutable() }, async () => {
+  const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
+  try {
+    const page = await browser.newPage()
+    await page.route('http://localhost/keyboard', route => route.fulfill({ contentType: 'text/html', body: '<div id="stage" tabindex="0">Remote</div>' }))
+    await page.goto('http://localhost/keyboard')
+    await page.addScriptTag({ content: await keyboardBundle() })
+    await page.evaluate(`
+      window.locks=[];window.full=true;
+      Object.defineProperty(document,'fullscreenElement',{get:()=>window.full?document.documentElement:null});
+      window.keyboard={lock:async keys=>window.locks.push(keys??'all'),unlock(){}};
+      window.stopAppLock=KeyboardCapture.captureAppKeyboardLock(window.keyboard);
+    `)
+    assert.ok((await page.evaluate('window.locks.at(-1)') as string[]).includes('Escape'))
+    await page.locator('#stage').focus()
+    await page.evaluate(`window.stopRemote=KeyboardCapture.captureDesktopKeyboard({
+      input:{key(){},release(){}},target:el=>el===document.querySelector('#stage'),detected(){},
+      copy:async()=>{},paste:async()=>{},status(){},keyboard:window.keyboard
+    })`)
+    assert.equal(await page.evaluate('window.locks.at(-1)'), 'all')
+    await page.evaluate('window.stopRemote()')
+    assert.ok((await page.evaluate('window.locks.at(-1)') as string[]).includes('Escape'))
+    await page.evaluate('window.stopAppLock()')
+  } finally { await browser.close() }
+})
+
 test('remote viewport captures shortcuts, locks fullscreen keys and releases on focus/close', { skip: !domBrowserExecutable() }, async () => {
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
