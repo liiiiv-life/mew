@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { editorFile, editorTabPath, mergeEditorTabs, workspaceDocumentFile } from './editor-files.ts'
+import { editorFile, editorTabPath, editorLinkTabPath, mergeEditorTabs, workspaceDocumentFile } from './editor-files.ts'
 
 test('task document paths share the Documents tab identity inside the configured folder', () => {
   for (const docsDir of ['docs', 'notes', '.mew/docs']) {
@@ -47,4 +47,19 @@ test('Documents-only and split legacy states retain pane identities used by dock
   assert.equal(only.panes[0].activePath, 'mew:file:docs/README.md')
   const merged = mergeEditorTabs(state('main', ['main.ts']), docs)!
   assert.deepEqual(merged.panes.map(pane => pane.id), ['main', 'moved-docs'])
+})
+
+
+test('document links open files beyond Documents and the project through external tabs', () => {
+  const workspace = { path: '/projects/mew', docsPath: '/projects/mew/docs' }
+  assert.equal(editorLinkTabPath('docs', '../README.md', workspace), 'README.md')
+  assert.equal(editorLinkTabPath('docs', '../../other/start.md', workspace), '@fs:/projects/other/start.md')
+  assert.equal(editorLinkTabPath('.workspace', '../other/start.md', workspace), '@fs:/projects/other/start.md')
+  assert.equal(editorLinkTabPath('docs', '/etc/hosts', workspace), '@fs:/etc/hosts')
+  assert.equal(editorLinkTabPath('docs', '/projects/mew/docs/guide.md', workspace), 'mew:file:docs/guide.md')
+  assert.equal(editorLinkTabPath('.workspace', '/projects/mew/docs/guide.md', workspace), 'docs/guide.md')
+  assert.equal(editorLinkTabPath('.workspace', '/projects/third/code.ts', workspace), '@fs:/projects/third/code.ts')
+  assert.equal(editorLinkTabPath('docs', '../../other/a#b?c%20.md', workspace), '@fs:/projects/other/a#b?c%20.md')
+  assert.equal(editorTabPath('docs', '@fs:/etc/hosts'), '@fs:/etc/hosts')
+  assert.equal(editorLinkTabPath('app', '../README.md', workspace), 'README.md')
 })

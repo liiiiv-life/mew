@@ -316,7 +316,7 @@ export function useTabs(
       // 마크다운이 아닌 파일(코드·설정 등)은 tiptap이 본문을 훼손하므로 plain 편집이 기본
       // svg는 md처럼 이미지 미리보기(hotview)로 먼저 연다
       const external = isExternalTabPath(path)
-      const previewFirst = !external && (path.endsWith('.md') || path.endsWith('.svg'))
+      const previewFirst = path.endsWith('.md') || path.endsWith('.svg')
       // 최근 연 파일이면 캐시된 본문으로 탭을 즉시 채운다 — 아래 fetch가 백그라운드에서
       // 최신본으로 재조정하지만 그 사이 빈 화면·"처음부터 로딩" 깜빡임을 없앤다
       const cached = external || diffTarget ? undefined : getCachedFile(p, path)

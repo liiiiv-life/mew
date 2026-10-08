@@ -11,7 +11,7 @@ export function flattenFiles(tree: TreeNode[]): string[] {
 
 /** 절대 URL(스킴 있음) 여부 — 내부 문서 상대 경로와 구분해서 새 탭/내부 탭을 가른다 */
 export function isExternalHref(href: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')
+  return !/^file:\/\/(?:localhost)?\//i.test(href) && (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//'))
 }
 
 /** fromDocPath가 속한 문서에서 toDocPath로 향하는 상대 경로 (마크다운 링크용) */
@@ -26,14 +26,19 @@ export function relativeLinkPath(fromDocPath: string, toDocPath: string): string
 
 /** relativeLinkPath의 역연산 — fromDocPath가 속한 문서 기준 상대 href가 가리키는 절대 문서 경로 */
 export function resolveRelativePath(fromDocPath: string, relativeHref: string): string {
-  const [hrefPath] = relativeHref.split('#')
-  const stack = fromDocPath.split('/').slice(0, -1)
+  let hrefPath = relativeHref.split(/[?#]/)[0]
+  if (/^file:/i.test(hrefPath)) hrefPath = new URL(hrefPath).pathname
+  try { hrefPath = decodeURIComponent(hrefPath) } catch { /* Keep malformed escapes literal. */ }
+  const absolute = hrefPath.startsWith('/') || fromDocPath.startsWith('/')
+  const stack = hrefPath.startsWith('/') ? [] : fromDocPath.split('/').slice(0, -1).filter(Boolean)
   for (const part of hrefPath.split('/')) {
     if (!part || part === '.') continue
-    if (part === '..') stack.pop()
-    else stack.push(part)
+    if (part === '..') {
+      if (stack.length && stack.at(-1) !== '..') stack.pop()
+      else if (!absolute) stack.push('..')
+    } else stack.push(part)
   }
-  return stack.join('/')
+  return (absolute ? '/' : '') + stack.join('/')
 }
 
 export function fuzzyScore(query: string, target: string): number | null {

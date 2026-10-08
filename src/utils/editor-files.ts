@@ -1,3 +1,5 @@
+import { resolveRelativePath } from '../../packages/editor/src/utils/fuzzy.ts'
+import { externalTabPath, isExternalTabPath } from './externalFiles.ts'
 import type { StoredTabs } from '../hooks/useTabs'
 import { leaf, splitLeaf } from './paneTree.ts'
 
@@ -13,7 +15,7 @@ export function workspaceDocumentFile(path: string, workspace: { path: string; d
 
 /** UI identity only. API requests retain the original project and relative path. */
 export function editorTabPath(project: string, path: string, workspaceProject = '.workspace'): string {
-  return project === workspaceProject || path.startsWith('mew:') ? path : `${SCOPED_FILE_PREFIX}${encodeURIComponent(project)}/${path}`
+  return project === workspaceProject || (path.startsWith('mew:') || isExternalTabPath(path)) ? path : `${SCOPED_FILE_PREFIX}${encodeURIComponent(project)}/${path}`
 }
 
 export function editorFile(path: string, workspaceProject = '.workspace'): { project: string; path: string } {
@@ -24,6 +26,23 @@ export function editorFile(path: string, workspaceProject = '.workspace'): { pro
     }
   }
   return { project: workspaceProject, path }
+}
+
+/** Route resolved document links without losing paths beyond the current project. */
+export function editorLinkTabPath(project: string, path: string, workspace: { path: string; docsPath?: string } | null | undefined, workspaceProject = '.workspace'): string {
+  if (isExternalTabPath(path)) return path
+  if (!workspace) return editorTabPath(project, path, workspaceProject)
+  const root = project === 'docs' ? workspace.docsPath : project === '.workspace' ? workspace.path : `${workspace.path}/${project}`
+  if (!root) return editorTabPath(project, path, workspaceProject)
+  const absolute = resolveRelativePath(`${root}/_`, path.split('/').map(encodeURIComponent).join('/'))
+  const normalizedRoot = resolveRelativePath(`${root}/_`, '.').replace(/\/$/, '')
+  if (absolute.startsWith(`${normalizedRoot}/`)) return editorTabPath(project, absolute.slice(normalizedRoot.length + 1), workspaceProject)
+  const workspaceRoot = workspace.path.replace(/\/$/, '')
+  if (absolute.startsWith(`${workspaceRoot}/`)) {
+    const file = workspaceDocumentFile(absolute.slice(workspaceRoot.length + 1), workspace)
+    return editorTabPath(file.project, file.path, workspaceProject)
+  }
+  return externalTabPath(absolute)
 }
 
 /** Merge the old Documents state once; retain pane IDs used by the root's dock layout. */

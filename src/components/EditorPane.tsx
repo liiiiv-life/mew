@@ -10,6 +10,8 @@ import {
   deleteComment,
   createEditorApi,
   externalRawUrl,
+  fetchExternalFile,
+  fetchFile,
   fetchComments,
   fetchMembers,
   isArchivedPath,
@@ -30,7 +32,7 @@ import { gitDiffTarget } from '../utils/git-diff-tabs'
 import { GitDiffEditor } from './git-diff-editor'
 import { TabBar } from './TabBar'
 import { mediaKind } from '../utils/media'
-import { editorFile, editorTabPath } from '../utils/editor-files'
+import { editorFile, editorTabPath, editorLinkTabPath } from '../utils/editor-files'
 import { saveScroll, getScroll } from '../utils/scrollMemory'
 import { useCollab } from '../hooks/useCollab'
 import type { Pane, Tab } from '../hooks/useTabs'
@@ -213,8 +215,16 @@ export function EditorPane({
   const onPin = (path: string) => pinTab(toTabPath(path))
   const onSetViewMode = (path: string, mode: Tab['viewMode']) => setViewMode(toTabPath(path), mode)
   const onChangeContent = (path: string, content: string) => changeContent(toTabPath(path), content)
-  const onOpenLink = (path: string) => openLink(toTabPath(path))
-  const editorApi = useMemo(() => createEditorApi(project), [project])
+  const onOpenLink = (path: string) => openLink(editorLinkTabPath(project, path, workspace, tabProject))
+  const editorApi = useMemo(() => ({
+    ...createEditorApi(project),
+    fetchFile: (path: string) => {
+      const target = editorLinkTabPath(project, path, workspace, tabProject)
+      if (isExternalTabPath(target)) return fetchExternalFile(externalAbsolutePath(target))
+      const file = editorFile(target, tabProject)
+      return fetchFile(file.path, file.project)
+    },
+  }), [project, workspace, tabProject])
   const loading = activeTab?.loading === true
   const editorRef = useRef<EditorHandle>(null)
   const codePaneRef = useRef<CodePaneHandle>(null)
@@ -729,9 +739,9 @@ export function EditorPane({
                       api={editorApi}
                       onChange={(content) => onChangeContent(activeTab.path, content)}
                       readOnly={loading || !activeTab.editable || isArchivedPath(activeTab.path, project)}
-                      path={activeTab.path}
+                      path={externalAbsolutePath(activeTab.path)}
                       fileLinkContext={workspace?.docsPath ? {
-                        path: `${project === 'docs' ? workspace.docsPath : workspace.path}/${activeTab.path}`,
+                        path: isExternalTabPath(activeTab.path) ? externalAbsolutePath(activeTab.path) : `${project === 'docs' ? workspace.docsPath : project === '.workspace' ? workspace.path : `${workspace.path}/${project}`}/${activeTab.path}`,
                         docsRoot: workspace.docsPath,
                       } : undefined}
                       tree={tree}

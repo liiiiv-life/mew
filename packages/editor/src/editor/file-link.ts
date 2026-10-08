@@ -1,3 +1,4 @@
+import type MarkdownIt from 'markdown-it'
 import Link from '@tiptap/extension-link'
 import type { LinkOptions } from '@tiptap/extension-link'
 import { getMarkRange } from '@tiptap/core'
@@ -5,7 +6,7 @@ import { Plugin, TextSelection } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
-import { isExternalHref } from '../utils/fuzzy.ts'
+import { isExternalHref, resolveRelativePath } from '../utils/fuzzy.ts'
 
 export const isFileLinkHref = (href: string) => {
   const value = href.trim()
@@ -57,11 +58,10 @@ function normalizePath(path: string): string {
 export function fileLinkKind(href: string, context?: FileLinkContext): 'document' | 'subdocument' | 'outside-docs' | null {
   if (!isFileLinkHref(href)) return null
   if (!context) return 'document'
-  let decoded: string
-  try { decoded = decodeURIComponent(href.trim().split(/[?#]/)[0]) } catch { return 'document' }
+  try { decodeURIComponent(href.trim().split(/[?#]/)[0]) } catch { return 'document' }
   const source = normalizePath(context.path)
   const directory = source.slice(0, source.lastIndexOf('/'))
-  const target = normalizePath(decoded.startsWith('/') ? decoded : `${directory}/${decoded}`)
+  const target = resolveRelativePath(source, href)
   const docsRoot = normalizePath(context.docsRoot)
   if (!target.startsWith(`${docsRoot === '/' ? '' : docsRoot}/`)) return 'outside-docs'
   const name = source.slice(source.lastIndexOf('/') + 1)
@@ -71,9 +71,26 @@ export function fileLinkKind(href: string, context?: FileLinkContext): 'document
 }
 
 // Derive presentation from href without adding persisted mark attributes or changing Markdown.
+const localFileParsers = new WeakSet<MarkdownIt>()
+
 export const EditorLink = Link.extend<LinkOptions & { getFileLinkContext: () => FileLinkContext | undefined }>({
   addOptions() {
-    return { ...this.parent!(), getFileLinkContext: () => undefined }
+    return { ...this.parent!(), protocols: ['file'], getFileLinkContext: () => undefined }
+  },
+  addStorage() {
+    return {
+      ...this.parent?.(),
+      markdown: {
+        parse: {
+          setup(md: MarkdownIt) {
+            if (localFileParsers.has(md)) return
+            const validate = md.validateLink.bind(md)
+            md.validateLink = href => /^file:\/\/(?:localhost)?\//i.test(href) || validate(href)
+            localFileParsers.add(md)
+          },
+        },
+      },
+    }
   },
   addProseMirrorPlugins() {
     let decoratedDoc: ProseMirrorNode | undefined
