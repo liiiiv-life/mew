@@ -12,16 +12,16 @@ import { MewcatResources } from './mewcat-resources'
 import { MewcatBreak } from './mewcat-break'
 import { useMewcatBreak } from '../hooks/use-mewcat-break'
 import type { MewcatSkin } from '../utils/mewcatSkin'
+import { useMewcatSpriteSkin } from '../hooks/use-mewcat-sprite-skins'
+import { MEWCAT_CYCLE_MS, spriteAction, spriteFrameAt, type MewcatActivity as Activity, type SpriteSkin } from '../utils/mewcat-sprites'
+import { MewcatSprite } from './mewcat-sprite'
+import { paintSpriteFrame } from '../utils/mewcat-sprite-render'
 
 const CAT_SIZE = 48
 const MAX_THROW_SPEED = 1_400
 const THROW_SPEED_SCALE = 0.5
 const WALL_BOUNCE = 0.5
-type Activity = 'idle' | 'walk' | 'run' | 'love' | 'struggle' | 'fall' | 'land'
-const animation: Record<Activity, { row: number; frames: number[]; frameMs: number }> = {
-  idle: { row: 6, frames: [0, 1, 2, 3], frameMs: 220 }, walk: { row: 8, frames: [0, 1, 2, 3, 4, 5, 6, 7], frameMs: 110 }, run: { row: 9, frames: [0, 1, 2, 3], frameMs: 85 }, love: { row: 7, frames: [0, 1, 2, 3], frameMs: 140 }, struggle: { row: 15, frames: [0, 1, 2, 3, 4, 5], frameMs: 100 }, fall: { row: 9, frames: [1, 2], frameMs: 90 }, land: { row: 9, frames: [2, 3], frameMs: 120 },
-}
-function movementBounds(giant: boolean) {
+function movementBounds(giant: boolean, groundInset = 1) {
   const viewport = window.visualViewport
   const width = viewport?.width ?? window.innerWidth
   const height = viewport?.height ?? window.innerHeight
@@ -29,7 +29,7 @@ function movementBounds(giant: boolean) {
   const top = viewport?.offsetTop ?? 0
   const size = giant ? Math.min(width * 1.18, height * 1.08) : CAT_SIZE
   const overflow = giant ? size * 0.18 : 0
-  const ground = giant ? top + height - size + size / CAT_SIZE : Math.max(top, top + height - size + 1)
+  const ground = giant ? top + height - size + groundInset * size / CAT_SIZE : Math.max(top, top + height - size + groundInset)
   return {
     size, ground,
     minX: left - overflow,
@@ -42,6 +42,7 @@ function nextActivity(): Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'
 
 /** 화면 맨 아래를 자유롭게 오가며, 눌러서 잠깐 놀아 줄 수 있는 Mew의 고양이. */
 export function Mewcat({ skin, hidden = false, portalTarget, onOpenSystemStats, assistant }: { hidden?: boolean; portalTarget?: HTMLElement | null; skin: MewcatSkin | null; onOpenSystemStats?: () => void; assistant?: MewcatAssistantOptions & { onConnect: () => void; onRuntimeChange: (runtime: string) => void } }) {
+  const spriteSkin = useMewcatSpriteSkin(skin)
   const [activated, setActivated] = useState(false)
   const [fullscreenGuide, setFullscreenGuide] = useState(() => !document.fullscreenElement && document.fullscreenEnabled !== false && typeof document.documentElement.requestFullscreen === 'function')
   useEffect(() => {
@@ -62,7 +63,7 @@ export function Mewcat({ skin, hidden = false, portalTarget, onOpenSystemStats, 
     if (hidden || remainingMs !== null || skin === null) setBubbleOpen(false)
   }, [hidden, remainingMs, skin])
   if (hidden) return null
-  const content = remainingMs !== null ? <MewcatBreak remainingMs={remainingMs}><MewcatActive attention={false} giant /></MewcatBreak> : <>{skin !== null && <MewcatActive anchorRef={anchorRef} attention={attention} noticeId={attention ? notices.at(-1)?.id : undefined}
+  const content = remainingMs !== null ? <MewcatBreak remainingMs={remainingMs}><MewcatActive spriteSkin={spriteSkin} attention={false} giant /></MewcatBreak> : <>{skin !== null && <MewcatActive spriteSkin={spriteSkin} anchorRef={anchorRef} attention={attention} noticeId={attention ? notices.at(-1)?.id : undefined}
     onTap={() => { setActivated(true); setBubbleOpen(open => !open) }} onDrag={closeBubble} expanded={showBubble} />}
     {fullscreenGuide ? <MewcatFullscreenGuide anchorRef={skin !== null ? anchorRef : undefined} onClose={() => setFullscreenGuide(false)} /> : showBubble ? <MewcatResources anchorRef={anchorRef} assistant={assistant?.enabled ? <MewcatAssistant state={helper} runtime={assistant.runtime} onConnect={() => { closeBubble(); assistant.onConnect() }} onRuntimeChange={assistant.onRuntimeChange} /> : undefined} onClose={closeBubble} onOpen={onOpenSystemStats ? () => { closeBubble(); onOpenSystemStats() } : undefined} /> : <MewcatNotifications anchorRef={anchorRef} hasCat={skin !== null} />}
   </>
@@ -101,7 +102,7 @@ export function MewcatMark({ className = '' }: { className?: string }) {
   )
 }
 
-function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, onDrag, expanded }: { anchorRef?: RefObject<HTMLDivElement | null>; attention: boolean; noticeId?: number; giant?: boolean; onTap?: () => void; onDrag?: () => void; expanded?: boolean }) {
+function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = false, onTap, onDrag, expanded }: { spriteSkin?: SpriteSkin; anchorRef?: RefObject<HTMLDivElement | null>; attention: boolean; noticeId?: number; giant?: boolean; onTap?: () => void; onDrag?: () => void; expanded?: boolean }) {
   const { t } = useI18n()
   const attentionRef = useRef(attention)
   attentionRef.current = attention
@@ -125,11 +126,16 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
   useEffect(() => {
     const cat = catRef.current
     if (!cat) return
-    let bounds = movementBounds(giant)
+    let activity: Activity = nextActivity()
+    const groundInset = () => {
+      const strip = spriteSkin?.sprites[spriteAction(activity)]
+      return strip ? strip.bottomPadding * CAT_SIZE / Math.max(strip.width / strip.frames, strip.height) : 1
+    }
+    let bounds = movementBounds(giant, groundInset())
     let x = giant ? (bounds.minX + bounds.maxX) / 2 : clamp(window.innerWidth * 0.3, bounds.minX, bounds.maxX)
     let y = bounds.ground
     let direction = 1
-    let activity: Activity = nextActivity()
+    let activityStarted = performance.now()
     let activityEnds = performance.now() + 1000
     let horizontalVelocity = 0
     let verticalVelocity = 0
@@ -146,22 +152,28 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
     let lastPointerAt = 0
     const setActivity = (next: Activity, now: number, duration = 0) => {
       activity = next
+      activityStarted = now
       activityEnds = duration ? now + duration : 0
+      bounds = movementBounds(giant, groundInset())
     }
     const chooseRoam = (now: number) => {
-      activity = nextActivity()
-      activityEnds = now + (activity === 'idle' ? 900 + Math.random() * 1800 : activity === 'walk' ? 2200 + Math.random() * 2400 : 1000 + Math.random() * 1500)
+      const next = nextActivity()
+      setActivity(next, now, next === 'idle' ? 900 + Math.random() * 1800 : next === 'walk' ? 2200 + Math.random() * 2400 : 1000 + Math.random() * 1500)
     }
+    const spriteSvg = cat.querySelector<SVGSVGElement>('.mewcat-sprite')
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const render = () => {
       cat.dataset.activity = activity
       cat.style.transform = `translate3d(${x}px, ${y}px, 0) scaleX(${direction < 0 ? -1 : 1})`
+      const strip = spriteSkin?.sprites[spriteAction(activity)]
+      if (spriteSvg && strip) paintSpriteFrame(spriteSvg, strip, reducedMotion ? 0 : spriteFrameAt(activity, performance.now() - activityStarted, strip.frames))
     }
     const followPointer = () => {
       x = clamp(lastPointerX - grabX * bounds.size, bounds.minX, bounds.maxX)
       y = clamp(lastPointerY - grabY * bounds.size, bounds.minY, bounds.ground)
     }
     const resize = () => {
-      bounds = movementBounds(giant)
+      bounds = movementBounds(giant, groundInset())
       cat.style.width = `${bounds.size}px`
       cat.style.height = `${bounds.size}px`
       x = clamp(x, bounds.minX, bounds.maxX)
@@ -171,7 +183,7 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
         if (y >= bounds.ground) {
           y = bounds.ground
           verticalVelocity = 0
-          setActivity('land', performance.now(), animation.land.frames.length * animation.land.frameMs)
+          setActivity('land', performance.now(), MEWCAT_CYCLE_MS.land)
         }
       } else y = bounds.ground
       render()
@@ -188,9 +200,9 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
         return
       }
       if (activity === 'idle' || activity === 'walk' || activity === 'run') {
-        if (attentionRef.current) {
+        if (attentionRef.current && (activity !== 'idle' || activityEnds)) {
           setActivity('idle', now)
-        } else if (activity === 'idle' && !activityEnds) chooseRoam(now)
+        } else if (!attentionRef.current && activity === 'idle' && !activityEnds) chooseRoam(now)
       }
       if (activity === 'walk' || activity === 'run') {
         y = bounds.ground
@@ -216,7 +228,7 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
           y = bounds.ground
           horizontalVelocity = 0
           verticalVelocity = 0
-          setActivity('land', now, animation.land.frames.length * animation.land.frameMs)
+          setActivity('land', now, MEWCAT_CYCLE_MS.land)
         }
       } else if (activity !== 'struggle') y = bounds.ground
       if (activityEnds && now >= activityEnds) chooseRoam(now)
@@ -255,7 +267,7 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
       if (!giant && !dragging && dy > 4) {
         horizontalVelocity = verticalVelocity = 0
         y = bounds.ground
-        if (activity !== 'love') setActivity('love', now, animation.love.frames.length * animation.love.frameMs)
+        if (activity !== 'love') setActivity('love', now, MEWCAT_CYCLE_MS.love)
       } else if (dragging || Math.hypot(dx, dy) > 4) {
         if (!dragging) interactionRef.current.onDrag?.()
         dragging = true
@@ -276,7 +288,7 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
         verticalVelocity *= scale
         setActivity('fall', performance.now())
       } else {
-        setActivity('love', performance.now(), animation.love.frames.length * animation.love.frameMs)
+        setActivity('love', performance.now(), MEWCAT_CYCLE_MS.love)
         if (!cancelled && Math.hypot(event.clientX - grabStartX, event.clientY - grabStartY) <= 4) interactionRef.current.onTap?.()
       }
       render()
@@ -313,10 +325,10 @@ function MewcatActive({ anchorRef, attention, noticeId, giant = false, onTap, on
       viewport?.removeEventListener('resize', resize)
       viewport?.removeEventListener('scroll', resize)
     }
-  }, [giant, catRef])
+  }, [giant, catRef, spriteSkin])
   return <div ref={catRef} className={`mewcat text-accent${giant ? ' mewcat-break-cat' : ''}`} data-notification={attention ? 'true' : undefined} aria-label={t('settings.mewcat')}
     role={onTap ? 'button' : undefined} tabIndex={onTap ? 0 : undefined} aria-expanded={onTap ? expanded : undefined}
     onKeyDown={event => { if (onTap && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onTap() } }}>
-    <div className="mewcat-art"><MewcatMark className="mewcat-mark" /></div>
+    <div className="mewcat-art">{spriteSkin ? <MewcatSprite strip={spriteSkin.sprites.idle} /> : <MewcatMark className="mewcat-mark" />}</div>
   </div>
 }

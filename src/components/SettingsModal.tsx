@@ -2,8 +2,6 @@ import { createPortal } from 'react-dom'
 import { isRemoteMode } from '../utils/remote-transport.ts'
 import { DockSettingsPanel } from './dock-settings-panel'
 import type { MobileDockPanel } from '../utils/mobile-dock'
-import { useMewcatFurColor, setMewcatFurColor } from '../hooks/use-mewcat-fur-color'
-import { DEFAULT_MEWCAT_FUR_COLOR } from '../utils/mewcat-fur-color'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { lazy, Suspense, useEffect, useState } from 'react'
@@ -13,8 +11,8 @@ import { DEFAULT_SHORTCUTS, formatKeyCombo, resetAllBindings, resetBinding, setB
 import { LOCALES, LOCALE_NAMES, localizeShortcut, useI18n, type Locale, type TranslationKey } from '../i18n'
 import { DEFAULT_FONT_PREFERENCES, type FontPreferences } from '../utils/fontPreferences'
 import { DEFAULT_THEME_COLOR } from '../utils/theme-color'
-import { MEWCAT_SKINS, type MewcatSkinSelection } from '../utils/mewcatSkin'
-import { MewcatMark } from './Mewcat'
+import type { MewcatSkinSelection } from '../utils/mewcatSkin'
+import { MewcatSkinSettings } from './mewcat-skin-settings'
 import { MewcatNotificationSettings } from './mewcat-notifications'
 import { MewcatBreakSettings } from './mewcat-break'
 
@@ -158,48 +156,13 @@ export function SettingsModal({ initialDebugger, debuggerRoot, onOpenDebugger, d
             {section === 'notifications' && <MewcatNotificationSettings hasCat={mewcatSkin !== null} />}
             {section === 'debugger' && debuggerRoot && <Suspense fallback={<div role="status">…</div>}><DebuggerSettings key={debuggerRoot} root={debuggerRoot} portalContainer={portalContainer} onOpen={onOpenDebugger ?? onClose} /></Suspense>}
             {section === 'dock' && <DockSettingsPanel available={dockAvailable} />}
-            {section === 'mewcat' && <><MewcatPanel skin={mewcatSkin} onChange={onMewcatSkinChange} /><label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink"><input type="checkbox" checked={mewcatHideDesktop} onChange={event => onMewcatHideDesktopChange(event.target.checked)} className="accent-accent" />{uiText("원격 데스크톱에서 뮤캣 숨기기")}</label><MewcatBreakSettings /></>}
+            {section === 'mewcat' && <><MewcatSkinSettings skin={mewcatSkin} onChange={onMewcatSkinChange} /><label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2 text-sm text-ink"><input type="checkbox" checked={mewcatHideDesktop} onChange={event => onMewcatHideDesktopChange(event.target.checked)} className="accent-accent" />{uiText("원격 데스크톱에서 뮤캣 숨기기")}</label><MewcatBreakSettings /></>}
             {section === 'shortcuts' && <ShortcutsPanel />}
             {section === 'ignore' && <IgnorePanel />}
           </div>
         </div>
       </div>
     </div>, document.body
-  )
-}
-
-function MewcatPanel({ skin, onChange }: { skin: MewcatSkinSelection; onChange: (skin: MewcatSkinSelection) => void }) {
-  const furColor = useMewcatFurColor()
-  useUiLocale()
-  const { t } = useI18n()
-  const options = [{ id: null, name: t('settings.mewcatNone') }, ...MEWCAT_SKINS]
-  return (
-    <div>
-      <div className="text-sm font-medium text-ink">{t('settings.mewcat')}</div>
-      <div className="mt-3 grid w-2/3 grid-cols-2 gap-2">
-        {options.map((option) => {
-          const selected = skin === option.id
-          return (
-            <button
-              key={option.id ?? 'none'}
-              type="button"
-              onClick={() => onChange(option.id)}
-              className={`overflow-hidden rounded-lg border p-2 text-left transition-colors ${selected ? 'border-accent bg-accent/10 text-ink' : 'border-edge-strong bg-surface hover:bg-surface-raised text-ink-secondary'}`}
-              aria-pressed={selected}
-            >
-              <span className="flex h-16 items-center justify-center rounded bg-surface-deep">
-                {option.id === 'mew' ? <MewcatMark className="h-8 w-8 text-accent" /> : <span className="text-sm text-ink-muted">—</span>}
-              </span>
-              <span className="mt-1.5 block text-sm font-medium">{option.name}</span>
-            </button>
-          )
-        })}
-      </div>
-      <div className="mt-3 border-t border-edge pt-3">
-        <ColorPicker value={furColor} onChange={setMewcatFurColor} defaultValue={DEFAULT_MEWCAT_FUR_COLOR}
-          labels={{ color: uiText('털색'), hex: uiText('털색 HEX'), hue: t('settings.colorHue'), saturation: t('settings.colorSaturation'), brightness: t('settings.colorBrightness'), reset: t('common.reset'), close: t('common.close') }} />
-      </div>
-    </div>
   )
 }
 

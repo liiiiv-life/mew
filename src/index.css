@@ -230,7 +230,7 @@ body {
 }
 .mewcat-head { transform-box: fill-box; transform-origin: 50% 85%; }
 
-/* Mewcat은 레포 안 벡터 마크만 쓴다. */
+/* Mewcat artwork receives input only on painted pixels. */
 .mewcat {
   position: fixed;
   /* 앱 안의 패널·모달·팝업은 물론, 포털로 렌더한 레이어보다도 위에 둔다. */
@@ -255,6 +255,16 @@ body {
 /* Only the painted cat receives input; its transparent box never blocks the workspace. */
 .mewcat-mark > g { pointer-events: visiblePainted; cursor: grab; }
 .mewcat[data-activity="struggle"] .mewcat-mark > g { cursor: grabbing; }
+.mewcat-sprite { display: block; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
+.mewcat-sprite image { pointer-events: none; }
+.mewcat-sprite-hit { pointer-events: none; }
+.mewcat .mewcat-sprite-hit { pointer-events: fill; cursor: grab; }
+.mewcat[data-activity="struggle"] .mewcat-sprite-hit { cursor: grabbing; }
+.mewcat-skin-settings label:has(> input[type="file"]):focus-within { outline: 2px solid var(--color-accent); }
+@media (pointer: coarse) {
+  .mewcat-skin-settings button, .mewcat-skin-settings a, .mewcat-skin-settings input { min-height: 44px; }
+  .mewcat-skin-settings a, .mewcat-skin-settings label:has(> input[type="file"]) { min-width: 44px; min-height: 44px; }
+}
 .mewcat-happy-eyes { display: none; }
 .mewcat[data-activity="love"] .mewcat-eyes { display: none; }
 .mewcat[data-activity="love"] .mewcat-happy-eyes { display: inline; }

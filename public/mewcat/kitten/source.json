@@ -1,0 +1,17 @@
+{
+  "generator": "built-in image_gen",
+  "created": "2026-10-08",
+  "prompt": "Use case: stylized-concept\nAsset type: production sprite animation atlas for a small desktop companion named Mewcat.\nPrimary request: Draw an original very cute tiny charcoal-black kitten with a round oversized face, short plump paws, little blush cheeks, warm golden eyes and pink inner ears, more adorable than a simple flat black SVG cat. Clear friendly silhouette readable at 48 pixels. Clean hand-drawn game sprite look, crisp outlines, soft restrained highlights, no existing copyrighted mascot.\nComposition: EXACT regular rectangular atlas, 8 equal columns and 5 equal rows, preferably 128 pixels per cell, 1024 by 640 image. Each cell has only ONE full kitten. Keep identical character design and size across all 40 frames, consistent center and foot baseline in each cell. All cells have transparent background and generous clear margins; no labels, numbers, grid lines or shadows outside character.\nRow 1, 8 frames: idle breathing and blinking, front three-quarter view turned toward right; tiny ear/tail motion.\nRow 2, 8 frames: walk cycle facing right, side/three-quarter view, small alternating feet, all feet on same baseline, first and last frames loop seamlessly.\nRow 3, 8 frames: run cycle facing right, compact bouncy kitten run with clearly alternating gathered and stretched little legs, same size and baseline, seamless loop.\nRow 4, 8 frames: happy reaction to being petted, front three-quarter right, eyes gently closing, cheeks blushing, head leaning in affection, no hand, no heart symbols, starts and ends normal.\nRow 5, 8 frames: held by scruff, kitten dangling with forepaws and hindpaws gently wiggling, ears slightly lowered, endearingly surprised NOT distressed, NO human hand, scruff point anchored consistently at top center, body same scale, seamless loop.\nConstraints: EXACTLY 8 columns times 5 rows, 40 distinct animation drawings total, one kitten per cell, no text, genuine alpha transparency, character never touches any cell edge, consistent frame alignment. This is meant to be sliced into five horizontal strip images.",
+  "actions": [
+    "idle",
+    "walk",
+    "run",
+    "love",
+    "struggle"
+  ],
+  "frameCount": 8,
+  "frameWidth": 128,
+  "frameHeight": 128,
+  "stripWidth": 1024,
+  "normalization": "Extract the main connected character bounds per frame, preserve alpha and uniform maximum scale 0.56; center each drawing in a 128px square with foot baseline 127px."
+}

@@ -6,9 +6,9 @@ status: "implemented"
 created: "2026-09-18"
 updated: "2026-10-08"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
-files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
+files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-skin-settings.tsx", "src/utils/mewcat-sprites.ts", "src/utils/mewcat-sprite-storage.ts", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
-description: "시작 시 전체화면 안내와 자체 SVG 뮤캣의 화면 바닥 배치·모바일 독 겹침·색상·스킨·이동·끌기, 에이전트 작업·오류·자원 과부하 알림을 다루는 기능 계약. 뮤캣 없는 헤더 알림·독립 알림 설정, 데스크톱 알림·소리와 선택적 거대 뮤캣 휴식의 타이머·저장·입력 유지 규칙을 설명한다."
+description: "뮤캣의 화면 바닥 배치·모바일 독 겹침, 다섯 동작의 이미지·가변 프레임 수·고정 재생 주기를 갖는 커스텀 스킨과 아기 고양이 스프라이트, 이동·끌기·색상·전체화면 안내를 정의한다. 에이전트·자원 알림, 헤더·OS 알림과 선택적 거대 뮤캣 휴식의 저장·입력 유지 규칙도 설명한다."
 상위파일:
   - "MOC.md"
   - "_화면·계정·운영.md"
@@ -26,6 +26,7 @@ description: "시작 시 전체화면 안내와 자체 SVG 뮤캣의 화면 바�
 
 - 색상 선택기·HEX로 털색 변경과 기본 검은색 초기화를 제공한다. 밝은 털색에서도 눈·입이 보이도록 대비를 조정한다.
 - 자체 SVG 고양이의 걷기·달리기·클릭·끌기·던지기와 설정에서 숨기기·스킨 선택을 제공한다.
+- 설정 → 뮤캣에서 가만히 있기·걷기·뛰기·쓰다듬기·목덜미 잡기 다섯 동작의 스프라이트 이미지와 프레임 수를 등록하고 이름별로 저장·수정·삭제한다. 동작별 전체 재생 시간은 프레임 수와 무관하게 고정하며, 낙하·착지는 뛰기 프레임을 재사용한다.
 - 작업 완료·오류·승인과 지속적인 서버 자원 과부하를 말풍선으로 알리고 해당 화면으로 이동한다.
 - 현재 보고 있는 에이전트 탭의 작업 완료 알림은 생략한다. 다른 탭·패널·브라우저 창에 있을 때의 완료 알림과 오류·승인 요청 알림은 유지한다.
 - 클릭·자동 말풍선의 문구와 접근성 이름은 화면 언어 설정을 따르며, 열린 상태에서도 언어 변경을 즉시 반영한다.
@@ -84,7 +85,7 @@ run 중 하나를 무작위로 골라 수행한다. 레포 안의 자체 SVG 캐
 50%로 줄어든다. 바닥에 닿을 때는 run의 마지막 두 프레임을 한 번 재생한 뒤 다시 기본 행동을 무작위로
 고른다.
 
-일반·휴식용 Mewcat 모두 실제 SVG 그림 부분만 포인터 입력을 받는다. 그림 밖이나 사각형 경계
+일반·휴식용 Mewcat 모두 실제 그림 부분만 포인터 입력을 받는다. 기본 SVG는 그려진 도형을, 스프라이트는 프레임별 알파에서 추출한 48×48 포인터 경로를 사용한다. 그림 밖이나 사각형 경계
 안의 투명한 부분을 누르면 뒤쪽 버튼·편집기로 입력이 전달된다. 던지거나 놓은 직후 포인터 캡처를
 해제하며, 낙하 중에도 배경 조작을 막는 덮개를 두지 않는다. 그림에서 시작한 `touchstart`는
 비수동 리스너에서 기본 동작을 취소해 브라우저의 터치 제스처가 던진 뒤 첫 배경 탭의 클릭을
@@ -129,10 +130,33 @@ run 중 하나를 무작위로 골라 수행한다. 레포 안의 자체 SVG 캐
 ### 스킨 선택
 
 설정 창의 **뮤캣** 카테고리에서 화면별 스킨을 고른다. 첫 카드는 **없음**이며, 선택하면 Mewcat을
-렌더링하지 않는다. 나머지 카드는 실제 캐릭터와 같은 SVG를 정적 미리보기로 쓴다. 현재 자체 기본
-Mew 스킨 하나만 제공하고, 새 스킨은 클라이언트의 `MEWCAT_SKINS` 등록표에 추가해 같은 그리드에
-자동으로 나타난다. 선택은 브라우저 localStorage에만 저장된다. 이전의 `oreo` 저장값은 자체 기본
-스킨으로 이관한다.
+렌더링하지 않는다. **기본** SVG와 **아기 고양이** 스프라이트, 사용자가 등록한 스킨을 실제 그림의 정적 미리보기로 선택한다. 기존 기본 스킨 선택은 보존한다. 기본 SVG에만 털색 설정을 제공하며 업로드한 이미지와 아기 고양이의 색은 이미지 그대로 표시한다. 선택 ID는 scoped localStorage의 `mew:mewcat-skin`에 저장하며 이전 `oreo` 값은 기본 SVG로 이관한다. scoped 선택이 아직 없으면 기존 origin 공통 설정의 없음·기본 선택을 이어받으며 커스텀 ID는 다른 인스턴스로 이관하지 않는다.
+
+**스킨 추가**에서 이름과 아래 다섯 동작의 이미지를 넣고 프레임 수를 입력한다. 저장하면 새 스킨을 바로 적용한다. 이름별 수정·삭제를 제공하며 활성 스킨을 삭제하면 기본 SVG로 복귀한다. 입력 중에는 동작별 미리보기를 재생하고, 예제 다운로드 버튼으로 해당 아기 고양이 이미지를 받을 수 있다.
+
+| 동작 | 이미지 키 | 한 바퀴 재생 시간 |
+| --- | --- | --- |
+| 가만히 있기 | `idle` | 880ms |
+| 걷기 · 한 방향 | `walk` | 880ms |
+| 뛰기 · 한 방향 | `run` | 340ms |
+| 쓰다듬기 | `love` | 560ms |
+| 목덜미 잡기 | `struggle` | 600ms |
+
+- 같은 크기의 프레임을 **가로 한 줄**로 나열한 PNG·WebP를 받는다. 이미지 하나당 4MiB, 16메가픽셀 이하이며 너비 최대 32768px·높이 최대 4096px다. 프레임 수는 1~256인 정수이고 이미지 너비를 균등하게 나눌 수 있어야 한다. 투명한 배경을 권장한다. 손상되거나 전체가 투명한 이미지는 저장하지 않고 오류를 표시한다.
+- 걷기가 10프레임이면 각 프레임을 88ms씩 표시해 모두 재생한다. 5프레임이면 각 176ms이며 같은 880ms에 한 바퀴를 마친다. 걷기·뛰기의 이동 속도는 기존 48px/s·115px/s를 유지하고 반대 방향은 좌우 반전한다.
+- 별도 낙하·착지 이미지 입력은 없다. 기존 4프레임 뛰기에서 낙하는 가운데 2장(0 기반 1·2), 착지는 마지막 2장(2·3)을 쓰던 규칙을 입력 프레임 수에 비례해 적용한다. 주기는 낙하 180ms·착지 240ms로 유지한다. 1프레임 이미지도 지원한다.
+- 스프라이트는 비율을 유지해 48px 정사각형 안에 표시한다. 모든 프레임의 공통 하단 투명 여백을 바닥 위치에 보정하며, 그림 밖 포인터 입력은 배경으로 통과시킨다. 거대 휴식용 뮤캣과 원격 뷰어에도 같은 선택을 적용한다. 모션 감소 환경에서는 스프라이트 프레임을 고정한다.
+- 커스텀 이미지 Blob·프레임 수·이름은 현재 브라우저의 scoped IndexedDB `mewcat-sprite-skins`에 보관한다. 서버 업로드·다른 기기 동기화는 하지 않는다. P2P에서는 중앙 계정·인스턴스별로 격리한다. 설정 데이터이므로 캐시 자동 정리 대상이 아니다. 저장 실패 시 입력과 이전 스킨을 유지한다. [브라우저 저장 계약](../../development/browser-storage.md)을 따른다.
+
+`src/utils/mewcat-sprites.ts`가 프레임·재생 주기 계약을, `mewcat-sprite-storage.ts`가 이미지 검사·IndexedDB·포인터 알파 경로를, `mewcat-skin-settings.tsx`가 등록·수정 UI를 소유한다. `Mewcat.tsx`의 기존 물리·포인터 처리에서 상태별 프레임을 진행한다.
+
+아기 고양이의 다섯 이미지는 `public/mewcat/kitten/`의 1024×128 PNG이며 각각 8프레임이다. 내장 image_gen으로 제작한 원본에서 각 캐릭터를 추출해 동일한 128px 셀·발바닥 기준선으로 정렬했다. 생성 프롬프트와 산출물 규격은 같은 폴더의 `source.json`에 남긴다. 외부 오레오캣 자산은 사용하지 않는다.
+
+```bash
+node --test src/utils/mewcat-sprites.test.ts src/utils/mewcatSkin.test.ts server/mewcat-skins-ui.test.ts
+```
+
+단위 검사는 1·5·8·10·256프레임의 고정 주기·전체 프레임 진행과 낙하·착지 재사용·이미지 규격을 확인한다. Chromium fixture는 실제 설정 창의 다섯 이미지 등록·손상 이미지와 잘못된 프레임 수 거부·미리보기·적용·10프레임 걷기·투명 영역 클릭 통과·목덜미 잡기·낙하·바닥 복귀·새로고침 복원·수정·삭제·원격 인스턴스별 저장 격리를 데스크톱·모바일에서 확인한다. 실제 운영 빌드·배포와 실기기 파일 선택은 사용자 적용 단계다.
 
 
 ### 작업·오류·자원 알림
