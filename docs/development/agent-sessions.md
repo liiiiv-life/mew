@@ -1,5 +1,6 @@
 ---
-description: "계정별 에이전트 지침·런타임 설정·모델 기본값과 로그인 계정에 귀속하는 에이전트 커밋 작성자, 프로젝트 안내 전달과 기본 활성화 디버거 활용 설정, 에이전트 세션·탭 원장·삭제 시 감독 종료·큐·재접속, Git AI Commit 작업과 CLI 모드 Ctrl+Alt+M 전환·메모리·뮤캣·선택적 디버거 MCP 통신의 서버 계약을 정의한다."
+description: "계정별 에이전트 지침·런타임 설정·모델 기본값과 로그인 계정에 귀속하는 에이전트 커밋 작성자, 프로젝트 안내 전달과 기본 활성화 디버거 활용 설정, 에이전트 세션·복원 전사 선표시·탭 원장·삭제 시 감독 종료·큐·재접속, Git AI Commit 작업과 CLI 모드 Ctrl+Alt+M 전환·메모리·뮤캣·선택적 디버거 MCP 통신의 서버 계약을 정의한다."
+updated: "2026-10-08"
 ---
 # 에이전트 세션과 통신 계약
 
@@ -64,6 +65,7 @@ description: "계정별 에이전트 지침·런타임 설정·모델 기본값�
 - 살아 있는 감독에 재접속하면 감독의 현재 전사를 구간 동기화하므로 외부 CLI 변경을 실시간 감시하지 않는다. Codex **히스토리 → 현재 대화 새로고침**은 같은 세션 ID를 기존 `load_session` 경로로 다시 읽는다. 진행 중인 턴·승인·큐와 겹칠 수 없고, 어댑터 교체는 ADR 0122를 따른다. 다른 탭이 같은 세션을 소유한 경우 새로고침을 허용하지 않는다.
 - 어댑터 교체는 종료 요청 뒤 `disposeAndWait()`로 실제 종료를 기다린다. 히스토리 전환뿐 아니라 자동 복원 실패 후 새 세션 생성과 선택한 기록 실패 후 이전 대화 복구에도 적용한다. `session/load`가 writer를 얻고 전사 재생 중 실패할 수 있으므로 실패한 어댑터도 종료 경계를 거쳐야 한다. 감독 로그에는 선택한 기록의 최초 불러오기 오류와 이전 대화 복구 오류를 각각 남긴다.
 - 자동 복원과 Codex 히스토리 전환·현재 대화 새로고침은 `initialize`가 `loadSession` 지원을 알리면 빈 `session/new`와 그 기본값 적용을 생략하고 바로 기존 세션을 불러온다. 기본값은 복원된 세션에 적용한다. load 미지원 런타임은 기존 새 세션·인증 경로를 사용한다. 자동 복원 실패는 원래 포인터를 보존하며 새 연결로 폴백하고, Codex 선택 기록·이전 대화 복구가 모두 실패하면 실패한 writer 종료 후에만 새 세션을 만든다. 살아 있는 감독에 단순 재접속할 때는 ACP 초기화나 load 없이 현재 전사의 구간 동기화를 사용한다(구 클라이언트는 replay).
+- 저장된 복원 대상의 표시 전사는 별도 읽기 Worker에서 조회해 ACP 초기화·전체 복원과 동시에 `history_preview`로 선표시한다. 표시만 먼저 준비하며 세션 포인터·writer·최신 전사 채택은 기존 복원 성공 경계를 따른다. 용량·시간 상한, 읽기 전용 조작과 실패/늦은 결과 처리는 [대화 저장 계약](conversation-storage.md#acp-복원-중-서버-전사-선표시)을 따른다.
 - `<DATA_DIR>/agent/<runtime>-<hash>.log`의 `[mew:agent-timing:<runtime>]`는 `initialize`·`session/new`·`session/load`·`defaults`의 경과 ms와 호출 성공/실패를 기록한다. 타이밍 항목에는 프롬프트·세션 ID·인증 응답을 담지 않는다. `initialize`에는 어댑터가 응답하기까지의 준비 시간, `session/load`에는 ACP 전사 재생 시간이 포함되며 브라우저 렌더링 시간은 포함되지 않는다. `agent-startup.test.ts`는 모의 ACP의 불필요한 new/기본값 호출 제거와 load 미지원·인증을, `agentHost.test.ts`는 writer 반납·복원 실패·인증 만료 폴백을 검증한다.
 - `agentHost.test.ts`는 WS가 없는 탭을 원장에서 삭제할 때 현재·이전 cwd 감독 종료, 남은 탭 보존, 다른 계정 저장·잘못된 입력의 비종료와 없는 감독 미생성을 격리 프로세스로 검증한다.
 
@@ -72,7 +74,7 @@ description: "계정별 에이전트 지침·런타임 설정·모델 기본값�
 | 방향 | 메시지 |
 | --- | --- |
 | 클라이언트 → 서버 | `{type:'history', range:{generation,before}}` · `{type:'prompt', text, settings?: {model, thinking, permission}}` · `{type:'cancel'}` · `{type:'permission', id, optionId}` (`optionId`는 문자열 또는 `null`) |
-| 서버 → 클라이언트 | `history`(구간·커서·controls) · `history_event`(이벤트·순번) · `{type:'ready', cwd}` · `{type:'replay', events, restored?, restoreFailure?}` · `{type:'update', update, settings?}`(ACP `session/update` 원본 + 사용자 발화 설정) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · `{type:'error', message, accessIssue?}` |
+| 서버 → 클라이언트 | `history`(구간·커서·controls) · `history_preview`(복원 대상 ID·시작 순번·저장 이벤트, 표시 전용) · `history_event`(이벤트·순번) · `{type:'ready', cwd}` · `{type:'replay', events, restored?, restoreFailure?}` · `{type:'update', update, settings?}`(ACP `session/update` 원본 + 사용자 발화 설정) · `{type:'permission', id, toolCall, options}` · `{type:'permission_done', id}` · `{type:'turn_start', startedAt}` · `{type:'turn_end', stopReason, durationMs}` · `{type:'error', message, accessIssue?}` |
 
 - **새 연결은 구간 동기화를 사용한다.** 최근 20개 질문을 먼저 보내고, 같은 generation의 재접속에는 마지막 수신 순번 이후만 보낸다. 위로 스크롤하면 이전 구간을 조회하며 질문·답변 중간을 자르지 않는다. 기기 캐시는 계정별 IndexedDB이고 서버 표시 전사는 SQLite에 증분 저장한다. 구 감독/클라이언트에는 전체 `replay`를 유지한다. 프로토콜·용량·이전·실패 복구·검증은 [대화 저장 계약](conversation-storage.md)을 따른다. 소켓 단절은 대화를 지우지 않는다.
 

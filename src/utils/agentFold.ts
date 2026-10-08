@@ -1,4 +1,4 @@
-import type { HistoryPage, HistoryPosition } from '../../shared/agent-history.ts'
+import type { HistoryPage, HistoryPosition, HistoryPreview } from '../../shared/agent-history.ts'
 import type { AgentAttachmentRef } from '../../shared/agent-attachment.ts'
 import { uiText, getUiLocale } from '@mew/ui/i18n-core'
 // 에이전트 창이 받은 이벤트 흐름을 화면 항목으로 접는다. 그리는 쪽은 components/AgentPanel.tsx.
@@ -81,6 +81,7 @@ export type SessionUpdate =
 
 export type AgentEvent =
   | { type: 'history'; page: HistoryPage<AgentEvent>; restoreFailure?: { sessionId: string; message: string } }
+  | { type: 'history_preview'; preview: HistoryPreview<AgentEvent> }
   | { type: 'history_event'; event: AgentEvent; position: HistoryPosition }
   | { type: 'update'; update: SessionUpdate; settings?: AgentMessageSettings }
   | { type: 'user_images'; images: { path: string; mimeType: string }[] }

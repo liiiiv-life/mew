@@ -6,6 +6,8 @@ export type HistoryPage<T> = {
   usersBefore: number; mode: 'replace' | 'append' | 'prepend'; events: T[]; controls: T[]
 }
 export type HistoryPosition = { generation: string; seq: number }
+/** Display-only saved records; never a session pointer or a reconnect cursor. */
+export type HistoryPreview<T> = { sessionId: string; start: number; events: T[] }
 export const HISTORY_PAGE_TURNS = 20
 
 type EventShape = { type: string; update?: { sessionUpdate: string; messageId?: string } }

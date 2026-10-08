@@ -5,6 +5,7 @@ import { TabActionMenu } from './tab-action-menu'
 import { ConfirmDialog, PanelNotice, canAutoFocusInput } from '@mew/ui'
 import { historyCacheKey, readHistoryCache, writeHistoryCache, readQueueCache, writeQueueCache, type CachedQueue, type CachedHistory } from '../utils/agent-history-cache'
 import { mergeHistoryPage, appendHistoryEventInPlace } from '../utils/agent-history-state'
+import type { HistoryPreview } from '../../shared/agent-history'
 import { PanelTitle } from './panel-title'
 import type { AgentAttachmentInput } from '../../shared/agent-attachment'
 import { panelModelState, splitCodexModelId } from '../../shared/codex-models'
@@ -125,6 +126,7 @@ import {
 } from '../utils/agentInputLayout'
 import { nextLocalMinuteValue } from '../utils/scheduleTime'
 import {
+  foldEvents,
   formatDuration,
   isTurnComplete,
   type AgentAuthState,
@@ -2200,6 +2202,8 @@ function AgentSessionView({
   notificationFocusedRef.current = notificationFocused
   const cacheKey = historyCacheKey(cacheAccount, runtime, tabId, cwd)
   const historyRef = useRef<CachedHistory | null>(null)
+  const [historyPreview, setHistoryPreview] = useState<HistoryPreview<AgentEvent> | null>(null)
+  const previewTargetRef = useRef<string | null>(resumeSessionId)
   const historyPendingRef = useRef(false)
   const cacheWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [historyStart, setHistoryStart] = useState(0)
@@ -2543,6 +2547,12 @@ function AgentSessionView({
     const trackNotice = createAgentNoticeTracker(source, target)
     pendingRef.current = []
     replayRef.current = null
+    previewTargetRef.current = resumeSessionIdRef.current
+    setHistoryPreview(null)
+    const clearPreview = () => {
+      previewTargetRef.current = null
+      setHistoryPreview(null)
+    }
     // 연결·ACP 초기화보다 먼저 직전 값을 보여 주고, 아래 이벤트가 최신값으로 조용히 바꾼다.
     const cachedControls = readAgentControlCache(runtime, tabId, cwd)
     setModels(cachedControls.models)
@@ -2578,11 +2588,18 @@ function AgentSessionView({
       }
       ws.onmessage = (raw) => {
         let event = JSON.parse(String(raw.data)) as AgentEvent
+        if (event.type === 'history_preview') {
+          if (event.preview.sessionId === previewTargetRef.current
+            && Number.isSafeInteger(event.preview.start) && event.preview.start >= 0) setHistoryPreview(event.preview)
+          return
+        }
         const sequenced = event.type === 'history_event'
         if (event.type === 'history') {
+          if (previewTargetRef.current && event.page.mode === 'prepend') return
           historyPendingRef.current = false
-          setLoadingSession(null)
           if (event.restoreFailure) {
+            clearPreview()
+            setLoadingSession(null)
             restoreFailureRef.current = event.restoreFailure
             replayRef.current = { events: [], restored: true, restoreFailure: event.restoreFailure }
             return
@@ -2594,6 +2611,8 @@ function AgentSessionView({
             ws?.send(JSON.stringify({ type: 'history', range: {} }))
             return
           }
+          clearPreview()
+          setLoadingSession(null)
           if (event.page.mode === 'prepend' && scrollRef.current) {
             prependScrollRef.current = { height: scrollRef.current.scrollHeight, top: scrollRef.current.scrollTop }
           }
@@ -2635,6 +2654,7 @@ function AgentSessionView({
         if (event.type === 'modes') return adoptModes(event.modes)
         if (event.type === 'thinking') return adoptThinking(event.thinking)
         if (event.type === 'meta') {
+          clearPreview()
           setNewConversationPending(false)
           setCachedQueue(event.meta)
           if (!restoreFailureRef.current && !replayRef.current?.restoreFailure) void writeQueueCache(cacheKey, tabId, event.meta)
@@ -2662,6 +2682,7 @@ function AgentSessionView({
           return setMeta(event.meta)
         }
         if (event.type === 'auth') {
+          clearPreview()
           setMeta(null)
           return setAuth({ methods: event.methods, authenticating: event.authenticating, error: event.error })
         }
@@ -2684,6 +2705,7 @@ function AgentSessionView({
         if (event.type === 'sessions') return setSessions(event.sessions)
         // 재접속 되감기 — 지나간 대화가 한 덩어리로 온다. 그린 것을 통째로 갈아끼우므로 중간에 비지 않는다
         if (event.type === 'replay') {
+          clearPreview()
           historyRef.current = null
           setHistoryStart(0)
           setUsersBefore(0)
@@ -2723,6 +2745,7 @@ function AgentSessionView({
         // 히스토리 불러오기 — 지금까지 그린 대화를 버린다. 새 대화는 바닥에서 시작한다.
         // 비우는 것 자체는 아래 줄 세우기가 순서대로 처리한다(뒤따라 오는 히스토리와 같은 프레임에 그려진다)
         if (event.type === 'reset') {
+          clearPreview()
           historyRef.current = null
           historyPendingRef.current = false
           setHistoryStart(0)
@@ -2732,12 +2755,18 @@ function AgentSessionView({
           stickRef.current = true
         }
         // session/load가 reset 전에 실패하면 오류만 온다. 선택기를 계속 "불러오는 중"에 가두지 않는다.
-        if (event.type === 'error') { historyPendingRef.current = false; setLoadingSession(null) }
+        if (event.type === 'error' || event.type === 'fatal') {
+          clearPreview()
+          historyPendingRef.current = false
+          setLoadingSession(null)
+        }
         if (!sequenced) queueEvent(event)
       }
       ws.onclose = () => {
         if (closed) return
         historyPendingRef.current = false
+        previewTargetRef.current = resumeSessionIdRef.current
+        setHistoryPreview(null)
         setConnected(false)
         // 대화는 지우지 않는다 — 잠깐 끊긴 사이 화면이 빈 탭(히스토리 드롭다운)으로 보이던 원인이다.
         // 다시 붙으면 서버가 보내는 replay가 통째로 갈아끼운다
@@ -2784,18 +2813,21 @@ function AgentSessionView({
   // Info는 대화 흐름을 밀지 않는 팝업이다. 트리거까지 같은 경계에 넣어 버튼을 다시 눌러 닫을 수 있다.
   useOverlayDismiss(showInfo ? closeInfo : false, { outside: () => infoOverlayRef.current })
 
-  const timeline = useMemo(() => commandTimeline(items, cli.records, usersBefore), [items, cli.records, usersBefore])
+  const displayItems = useMemo(() => historyPreview ? foldEvents(historyPreview.events, uiLocale, historyPreview.start) : items,
+    [historyPreview, items, uiLocale])
+  const timeline = useMemo(() => historyPreview ? displayItems : commandTimeline(displayItems, cli.records, usersBefore),
+    [historyPreview, displayItems, cli.records, usersBefore])
   const settingsChanges = useMemo(() => {
     const keys = new Set<string>()
     let previous: AgentMessageSettings | undefined
-    for (const item of items) {
+    for (const item of displayItems) {
       if (item.kind !== 'user') continue
       if (item.settings && (!previous || previous.model !== item.settings.model
         || previous.thinking !== item.settings.thinking || previous.permission !== item.settings.permission)) keys.add(item.key)
       previous = item.settings
     }
     return keys
-  }, [items])
+  }, [displayItems])
 
   // 돌고 있는 턴의 걸린 시간을 1초마다 흘린다 — 끝난 턴은 서버가 새긴 durationMs로 고정이다
   const anyTurnRunning = items.some((item) => item.kind === 'turn' && !item.done)
@@ -2843,7 +2875,7 @@ function AgentSessionView({
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 48
     if (stickRef.current) setUnread(false)
     const history = historyRef.current
-    if (el.scrollTop < 80 && history && history.start > 0 && !historyPendingRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+    if (!previewTargetRef.current && el.scrollTop < 80 && history && history.start > 0 && !historyPendingRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
       historyPendingRef.current = true
       wsRef.current.send(JSON.stringify({ type: 'history', range: { generation: history.generation, before: history.start } }))
     }
@@ -3058,6 +3090,8 @@ function AgentSessionView({
       resumeSessionIdRef.current = null
       cacheSessionIdRef.current = null
       historyRef.current = null
+      previewTargetRef.current = null
+      setHistoryPreview(null)
       historyPendingRef.current = false
       replayRef.current = null
       swapRef.current = false
@@ -3082,6 +3116,7 @@ function AgentSessionView({
   }, [busy, cwd, onForgetSession, runtime, send, setEvents, tabId])
 
   const submit = () => {
+    if (historyPreview) return
     if (editingQueued) {
       commitQueuedEdit(editingQueued)
       return
@@ -3303,8 +3338,8 @@ function AgentSessionView({
             ? uiText("진행 중")
             : ''
   const totalTokens = usage ? usage.input + usage.output + usage.cacheWrite + usage.cacheRead : 0
-  const conversationLoading = loadingSession !== null || (!newConversationPending && !historyRef.current && (!connected
-    || (!meta && !auth && !hasError)))
+  const conversationLoading = !historyPreview && (loadingSession !== null || (!newConversationPending && !historyRef.current && (!connected
+    || (!meta && !auth && !hasError))))
   useEffect(() => {
     let alive = true
     const load = () => fetchSkills(cwd, runtime)
@@ -3434,6 +3469,8 @@ function AgentSessionView({
             send({ type: 'list_sessions' })
           }}
           onPick={(session) => {
+            previewTargetRef.current = session.sessionId
+            setHistoryPreview(null)
             setLoadingSession(session.sessionId)
             onLabel(tabId, session.title || session.sessionId.slice(0, 8))
             send({ type: 'load_session', sessionId: session.sessionId })
@@ -3443,6 +3480,8 @@ function AgentSessionView({
           refreshDisabled={busy || (meta?.queued.length ?? 0) > 0 || takenIds.includes(meta?.sessionId ?? '')}
           onRefresh={runtime === 'codex' && meta?.canLoad ? () => {
             if (!meta.sessionId) return
+            previewTargetRef.current = meta.sessionId
+            setHistoryPreview(null)
             setLoadingSession(meta.sessionId)
             send({ type: 'load_session', sessionId: meta.sessionId })
           } : undefined}
@@ -3624,7 +3663,7 @@ function AgentSessionView({
         />
       ) : (
         <>
-      <div data-agent-conversation aria-busy={conversationLoading} className="relative isolate flex min-h-0 flex-1 flex-col">
+      <div data-agent-conversation data-agent-history-preview={historyPreview ? '' : undefined} aria-busy={conversationLoading || !!historyPreview} className="relative isolate flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} tabIndex={0} onKeyDown={navigateQuestion} onScroll={handleScroll}
         onPointerDownCapture={event => { event.currentTarget.dataset.pointerFocus = '' }}
         onKeyDownCapture={event => { delete event.currentTarget.dataset.pointerFocus }}
@@ -3643,7 +3682,7 @@ function AgentSessionView({
         {timeline.map(item => item.kind === 'command'
           ? <AgentCommandBubble key={item.key} command={item.command} onOpen={() => setCommandPopupId(item.command.id)} />
           : <AgentConversationItem key={item.key} item={item} expanded={expanded} showSettings={settingsChanges.has(item.key)}
-            project={project} busy={item.kind === 'turn' && !item.done ? meta?.activeTask === 'cli' ? false : meta?.busy ?? null : false}
+            project={project} readOnly={!!historyPreview} busy={!historyPreview && item.kind === 'turn' && !item.done ? meta?.activeTask === 'cli' ? false : meta?.busy ?? null : false}
             now={item.kind === 'turn' && !item.done ? now : 0} toggle={toggle} send={send} onOpenFile={onOpenFile} onOpenError={setErrorDetail} />)}
         {/* 올려 읽는 동안 밑에서 대화가 자랐다는 표시 — 누르면 바닥으로 간다(바닥에 닿으면 스스로 사라진다).
             찾기 바(에디터)와 같은 수법: 스크롤 컨테이너에 sticky로 붙는 높이 0짜리 앵커라 본문을 밀지 않는다.
@@ -4006,7 +4045,7 @@ function AgentSessionView({
             <button
               type="button"
               onClick={submit}
-              disabled={!connected || !!loadingSession || composerAttaching || (composerCliMode && (cli.submitting || !meta?.sessionId || !allowTerminal)) || (!composerDraft.trim() && composerAttachments.length === 0)}
+              disabled={!connected || !!loadingSession || !!historyPreview || composerAttaching || (composerCliMode && (cli.submitting || !meta?.sessionId || !allowTerminal)) || (!composerDraft.trim() && composerAttachments.length === 0)}
               className="flex h-8 w-8 items-center justify-center rounded bg-accent text-ink-on-accent disabled:opacity-40"
               aria-label={editingQueued ? uiText("저장") : composerCliMode ? uiText("명령 실행") : uiText("전송")}
               title={editingQueued ? uiText("저장") : composerCliMode ? uiText("명령 실행 (Ctrl+Enter)") : uiText("전송 (Ctrl+Enter)")}
@@ -4331,7 +4370,7 @@ const AgentMarkdownText = memo(function AgentMarkdownText({ text, onOpenFile }: 
 })
 
 const AgentConversationItem = memo(function AgentConversationItem({ item, expanded, showSettings, project, busy, now,
-  toggle, send, onOpenFile, onOpenError }: {
+  toggle, send, onOpenFile, onOpenError, readOnly }: {
   item: Item
   expanded: Set<string>
   showSettings: boolean
@@ -4342,6 +4381,7 @@ const AgentConversationItem = memo(function AgentConversationItem({ item, expand
   send: (payload: Record<string, unknown>) => void
   onOpenFile: OpenWorkspaceFile
   onOpenError: (detail: { title: string; detail: string }) => void
+  readOnly: boolean
 }) {
   useUiLocale()
   if (item.kind === 'user') {
@@ -4520,8 +4560,9 @@ const AgentConversationItem = memo(function AgentConversationItem({ item, expand
                           <button
                             key={option.optionId}
                             type="button"
+                            disabled={readOnly}
                             onClick={() => send({ type: 'permission', id: child.id, optionId: option.optionId })}
-                            className={`rounded px-2 py-1 text-xs ${option.kind.startsWith('allow') ? 'bg-accent text-ink' : 'bg-surface-raised text-ink-secondary'} hover:bg-surface-hover`}
+                            className={`rounded px-2 py-1 text-xs ${option.kind.startsWith('allow') ? 'bg-accent text-ink' : 'bg-surface-raised text-ink-secondary'} hover:bg-surface-hover disabled:opacity-40`}
                           >
                             {option.name}
                           </button>

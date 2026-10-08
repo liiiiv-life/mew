@@ -1,6 +1,7 @@
 import { agentSettingsEnv } from './agent-account-settings.ts'
 import type { McpServer } from '@agentclientprotocol/sdk'
-import { validHistoryRequest, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
+import { validHistoryRequest, type HistoryRequest, type HistoryPage, type HistoryPosition, type HistoryPreview } from '../shared/agent-history.ts'
+import { readAgentHistoryPreview } from './agent-history-preview.ts'
 import type { AgentAttachmentInput } from '../shared/agent-attachment.ts'
 // 에이전트 탭의 독립 감독 프로세스와 mew 쪽 유닉스 소켓 클라이언트.
 //
@@ -78,6 +79,7 @@ type HostOutbound =
   | { type: 'hello'; runtime: string; tab: string; cwd: string; history?: boolean }
   | { type: 'replay'; events: AgentEvent[]; restored?: boolean; restoreFailure?: { sessionId: string; message: string } }
   | { type: 'history'; page: HistoryPage<AgentEvent>; restoreFailure?: { sessionId: string; message: string } }
+  | { type: 'history_preview'; preview: HistoryPreview<AgentEvent> }
   | { type: 'event'; event: AgentEvent; position?: HistoryPosition }
   | { type: 'response'; id: string; ok: true; value: unknown }
   | { type: 'response'; id: string; ok: false; error: string }
@@ -213,6 +215,15 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
   let initialResumeSessionId = resumeSessionId
   // 복원 실패 뒤 만든 빈 세션이 원래 탭 포인터를 덮지 않도록 브라우저에 실패한 ID를 함께 알린다.
   let restoreFailure: { sessionId: string; message: string } | null = null
+  let preparing = resumeSessionId ? { sessionId: resumeSessionId } : null
+
+  const previewPeer = (peer: Peer) => {
+    const target = preparing
+    if (!target || !peer.history || !peer.subscribed) return
+    void readAgentHistoryPreview(runtime, cwd, target.sessionId).then(preview => {
+      if (preview && preparing === target && !peer.socket.destroyed) sendLine(peer.socket, { type: 'history_preview', preview })
+    })
+  }
 
   const fallbackTerminalSpec = (methodId: string): TerminalAuthSpec => {
     const { cmd, args, env, label, completionFile } = runtimeLoginSpec(runtime, methodId)
@@ -240,6 +251,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
   let stop: (code?: number) => void
 
   const attachPeer = (peer: Peer, restored = false) => {
+    if (preparing) { previewPeer(peer); return }
     if (!session || peer.socket.destroyed || !peer.subscribed) return
     peer.detach?.()
     if (peer.history) sendLine(peer.socket, { type: 'history', page: session.historyPage(peer.history), ...(restoreFailure ? { restoreFailure } : {}) })
@@ -396,6 +408,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
         return
       }
       session = started
+      preparing = null
       startupError = null
       started.onDispose(() => {
         if (session === started) stop()
@@ -404,6 +417,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
       for (const peer of peers) attachPeer(peer, restored)
       for (const item of early.splice(0)) void handleHostMessage(started, item.peer, item.message, stop, () => { restoreFailure = null }, switchSession)
     } catch (err) {
+      preparing = null
       startupError = describeError(err)
       broadcastEvent(runtimeLoginAuthEvent(runtime, startupError))
     } finally {
@@ -428,17 +442,22 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
 
   switchSession = async (sessionId, peer) => {
     if (!session || sessionStarting || stopping) return
+    if (!SESSION_ID.test(sessionId)) throw new Error('올바르지 않은 에이전트 세션 ID입니다')
+    session.assertCanLoadSession()
+    preparing = { sessionId }
+    for (const attached of peers) previewPeer(attached)
     if (runtime !== 'codex') {
-      session.assertCanLoadSession()
       for (const attached of peers) { attached.detach?.(); attached.detach = null }
       try { await session.loadSession(sessionId) }
-      finally { for (const attached of peers) attachPeer(attached, true) }
+      finally {
+        preparing = null
+        for (const attached of peers) attachPeer(attached, true)
+      }
       return
     }
     // Codex app-server는 session/new 뒤에도 이 어댑터가 열었던 thread의 writer를
     // 붙든다. 같은 프로세스에서 그 thread를 다시 load하면 자기 writer와 충돌하므로,
     // 히스토리를 갈아탈 때 프로세스를 내려 writer를 반납한 뒤 새 프로세스에서 load한다.
-    session.assertCanLoadSession()
     const previous = session
     const previousSessionId = previous.sessionId
     session = null
@@ -479,6 +498,7 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
           return
         }
         session = started
+        preparing = null
         startupError = null
         restoreFailure = null
         started.onDispose(() => {
@@ -489,12 +509,14 @@ async function runHost(runtime: string, tab: string, cwd: string, resumeSessionI
           sendLine(peer.socket, { type: 'event', event: { type: 'error', message: loadError } })
         }
       } catch (err) {
+        preparing = null
         startupError = describeError(err)
         if (!peer.socket.destroyed) {
           sendLine(peer.socket, { type: 'event', event: { type: 'error', message: startupError } })
         }
       }
     } finally {
+      preparing = null
       sessionStarting = false
       if (session) {
         for (const item of early.splice(0)) {
@@ -601,6 +623,7 @@ async function handleHostMessage(
 export type AgentHostCallbacks = {
   history?: HistoryRequest
   onHistory?: (page: HistoryPage<AgentEvent>, restoreFailure: { sessionId: string; message: string } | null) => void
+  onHistoryPreview?: (preview: HistoryPreview<AgentEvent>) => void
   onReplay?: (events: AgentEvent[], restored: boolean, restoreFailure: { sessionId: string; message: string } | null) => void
   onEvent?: (event: AgentEvent, replayed?: boolean, position?: HistoryPosition) => void
   onFatal?: (message: string) => void
@@ -642,6 +665,7 @@ export class AgentHostClient {
     const message = raw as HostOutbound
     if (message.type === 'replay') this.#callbacks.onReplay?.(message.events, message.restored === true, message.restoreFailure ?? null)
     else if (message.type === 'history') this.#callbacks.onHistory?.(message.page, message.restoreFailure ?? null)
+    else if (message.type === 'history_preview') this.#callbacks.onHistoryPreview?.(message.preview)
     else if (message.type === 'event') this.#callbacks.onEvent?.(message.event, undefined, message.position)
     else if (message.type === 'fatal') this.#callbacks.onFatal?.(message.message)
     else if (message.type === 'response') {

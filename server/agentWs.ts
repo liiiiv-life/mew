@@ -2,7 +2,7 @@ import { withWorkspaceUpgrade } from './reqAuth.ts'
 import { bindMewcat, type MewcatBinding } from './mewcat-assistant.ts'
 import { resolveAuth } from './reqAuth.ts'
 import type { MewcatClientMessage, MewcatActionRequest } from '../shared/mewcat-assistant.ts'
-import { validHistoryRequest, type HistoryRequest, type HistoryPage, type HistoryPosition } from '../shared/agent-history.ts'
+import { validHistoryRequest, type HistoryRequest, type HistoryPage, type HistoryPosition, type HistoryPreview } from '../shared/agent-history.ts'
 import { attachmentPrompt, type AgentAttachmentInput } from '../shared/agent-attachment.ts'
 import { watchSocketAccess } from './access-socket.ts'
 // 에이전트 창 WS 릴레이 — ACP 세션의 이벤트를 브라우저로 흘리고, 브라우저의 프롬프트·취소·승인을 되돌려 준다.
@@ -113,6 +113,7 @@ function validSettings(value: unknown): AgentMessageSettings | undefined {
 
 type ServerMessage =
   | { type: 'history'; page: HistoryPage<AgentEvent>; restoreFailure?: { sessionId: string; message: string } }
+  | { type: 'history_preview'; preview: HistoryPreview<AgentEvent> }
   | { type: 'history_event'; event: AgentEvent; position: HistoryPosition }
   | AgentEvent
   | MewcatActionRequest
@@ -284,6 +285,7 @@ async function handleConnection(
     started = await connectAgentHost(runtime, tab, cwd, {
       history,
       onHistory: (page, restoreFailure) => send(ws, { type: 'history', page, ...(restoreFailure ? { restoreFailure } : {}) }),
+      onHistoryPreview: (preview) => send(ws, { type: 'history_preview', preview }),
       onReplay: (events, restored, restoreFailure) => send(ws, {
         type: 'replay',
         events,
