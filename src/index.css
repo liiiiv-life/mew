@@ -451,6 +451,7 @@ strong {
   color: var(--color-ink);
 }
 .mewcat-notifications-content { max-height: inherit; overflow-y: auto; border-radius: inherit; }
+.mewcat-assistant-menu { z-index: 2147483647; }
 .mewcat-notifications-auto { max-height: none; }
 .mewcat-notifications-auto > .mewcat-notifications-content { max-height: none; overflow: clip; }
 .mewcat-notification-header {

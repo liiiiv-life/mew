@@ -42,7 +42,7 @@ export function MewcatAssistant({ state, runtime, onConnect, onRuntimeChange }: 
       </>}
     </div>
     {settings && <div className="mb-2 flex flex-col gap-2">
-      <SelectField compact label={t('mewcat.assistant.agent')} value={runtime ?? ''} options={runtimes.map(item => ({ value: item.id, label: item.label }))} onChange={value => { onRuntimeChange(value); setSettings(false) }} />
+      <SelectField compact popupClassName="mewcat-assistant-menu" label={t('mewcat.assistant.agent')} value={runtime ?? ''} options={runtimes.map(item => ({ value: item.id, label: item.label }))} onChange={value => { onRuntimeChange(value); setSettings(false) }} />
       <button type="button" className="min-h-9 rounded border border-edge px-2 text-xs text-ink hover:bg-surface-raised" onClick={onConnect}>{t('mewcat.assistant.connect')}</button>
     </div>}
     {!runtime || state.login ? <div className="flex flex-col items-start gap-2">

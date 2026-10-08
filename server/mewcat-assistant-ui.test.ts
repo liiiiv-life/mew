@@ -42,7 +42,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
   assert.ok(chunk && chunk.type === 'chunk')
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const uiSource = (await Promise.all(['mewcat-assistant.tsx', 'mewcat-resources.tsx', 'mewcat-notifications.tsx'].map(file => fs.readFile(`${root}/src/components/${file}`, 'utf8')))).join(' ')
-  const css = compiler.build([...new Set(uiSource.match(/[\w:/.[\]()%,-]+/g) ?? [])])
+  const selectionSource = await fs.readFile(`${root}/packages/ui/src/select-field.tsx`, 'utf8')
+  const css = compiler.build([...new Set((uiSource + selectionSource).match(/[\w:/.[\]()%,-]+/g) ?? [])])
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), headless: true, args: ['--no-sandbox'] })
   try {
     for (const mobile of [false, true]) {
