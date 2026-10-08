@@ -126,6 +126,7 @@ import { gitWorkbenchScreenKey, type GitWorkbenchView } from './utils/git-workbe
 import { RemoteDesktop } from './components/remote-desktop'
 import type { GitPanelState } from './utils/git-panel-state'
 import { normalizeDirectoryChildren, normalizeTreeCenterAnchor } from './utils/treePersistence'
+import { observeWorkspaceViewport } from './utils/workspace-viewport'
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen()
@@ -1486,21 +1487,7 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
     writeBrowserStorage(TOC_KEY, tocOpen ? '1' : '0')
   }, [tocOpen])
 
-  // 모바일 키보드가 뜨면 visualViewport만 줄어들고 레이아웃 뷰포트(100dvh)는 그대로인 브라우저가 있어
-  // (iOS Safari 등, interactive-widget 메타 태그 미지원) 실제 보이는 높이를 직접 재서 반영한다
-  useEffect(() => {
-    function updateAppHeight() {
-      const height = window.visualViewport?.height ?? window.innerHeight
-      document.documentElement.style.setProperty('--app-height', `${height}px`)
-    }
-    updateAppHeight()
-    window.visualViewport?.addEventListener('resize', updateAppHeight)
-    window.addEventListener('resize', updateAppHeight)
-    return () => {
-      window.visualViewport?.removeEventListener('resize', updateAppHeight)
-      window.removeEventListener('resize', updateAppHeight)
-    }
-  }, [])
+  useEffect(observeWorkspaceViewport, [])
 
   useEffect(() => {
     if (isGuest) return
