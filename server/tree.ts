@@ -115,8 +115,8 @@ function filtersFor(project: string, opts: TreeOptions): Filters {
     // showAll이면 숨김 목록을 읽지도 않는다 — 정렬 규칙(docsOnly)은 역할과 무관하므로 그대로 둔다
     ignore: showAll ? (NOTHING_IGNORED as Set<string>) : readIgnoreSet(),
     showAll,
-    // 루트 프로젝트의 하위 폴더는 더 이상 프로젝트 탭이 맡지 않는다. Documents만 가상 폴더와
-    // 중복되지 않도록 실제 위치를 숨긴다.
+    // Documents는 파일 보기 맨 위에 실제 경로의 폴더로 따로 표시한다.
+    // 루트 목록에서만 중복을 제외하고 하위 경로의 파일 탐색은 허용한다.
     hideAtRoot: project === WORKSPACE_PROJECT ? new Set([docsTopSegment()]) : NOTHING_IGNORED,
   }
 }
@@ -277,7 +277,6 @@ export function isPathVisible(
   for (let i = 0; i < segments.length; i++) {
     const name = segments[i]
     if (f.ignore.has(name) || isDeniedSegment(name)) return false
-    if (i === 0 && f.hideAtRoot.has(name)) return false
     if (i === segments.length - 1 && opts.type !== 'dir') return fileVisible(name, f, downloadOnly)
     if (DOWNLOAD_ONLY_DIRS.has(name)) downloadOnly = true
   }

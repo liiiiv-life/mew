@@ -202,7 +202,7 @@ test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러�
 // 루트 폴더 자신이 프로젝트다. 하위 폴더와 숨김 폴더도 그대로 보이되 Documents만
 // 사이드바의 가상 폴더와 중복되지 않게 실제 위치를 뺀다.
 
-test('루트 프로젝트 트리: Documents만 제외하고 .mew 하위 프로젝트를 표시한다', () => {
+test('루트 프로젝트 트리: Documents는 별도 행으로 표시하되 파일시스템 탐색을 허용한다', async () => {
   const original = WORKSPACE_ROOT
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-ws-')))
   fs.mkdirSync(path.join(root, 'some-project'))
@@ -212,6 +212,7 @@ test('루트 프로젝트 트리: Documents만 제외하고 .mew 하위 프로�
   fs.mkdirSync(path.join(root, '.agents', 'some-project'), { recursive: true })
   fs.writeFileSync(path.join(root, 'some-project', 'app.ts'), 'export {}\n')
   fs.writeFileSync(path.join(root, 'docs', 'MOC.md'), '# moc\n')
+  fs.writeFileSync(path.join(root, 'docs', 'example.ts'), 'export {}\n')
   fs.writeFileSync(path.join(root, '.mew', 'cmd-button.json'), '[]\n')
   fs.writeFileSync(path.join(root, '.agents', 'some-project', 'note.md'), '# note\n')
   fs.writeFileSync(path.join(root, 'AGENTS.md'), '# rules\n')
@@ -223,7 +224,11 @@ test('루트 프로젝트 트리: Documents만 제외하고 .mew 하위 프로�
     assert.deepEqual(all, ['.agents', '.agents/some-project', '.agents/some-project/note.md', '.mew', '.mew/cmd-button.json', 'AGENTS.md', 'some-project', 'some-project/.mew', 'some-project/app.ts'].sort())
     assert.equal(tree.find((node) => node.name === 'some-project')?.project, true)
     assert.equal(isPathVisible(WORKSPACE_PROJECT, 'some-project', { type: 'dir', showAll: true }), true)
-    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs', { type: 'dir', showAll: true }), false)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs', { type: 'dir', showAll: true }), true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs/MOC.md', { showAll: true }), true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs/example.ts', { showAll: true }), true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs/node_modules/file.js', { showAll: true }), false)
+    assert.deepEqual((await listTreeDirAsync(WORKSPACE_PROJECT, 'docs', { showAll: true })).map(node => node.path).sort(), ['docs/MOC.md', 'docs/example.ts'].sort())
     // 깊은 곳의 같은 이름은 그냥 폴더다
     assert.equal(isPathVisible(WORKSPACE_PROJECT, '.agents/some-project/note.md', { showAll: true }), true)
   } finally {

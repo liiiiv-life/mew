@@ -47,7 +47,6 @@ import {
   type WorkspaceUiState,
 } from './api/client'
 import { SubprojectLink } from './components/subproject-link'
-import { ProjectIcon } from './components/ProjectIcon'
 import { RootProjectTabs } from './components/RootProjectTabs'
 import { ProjectLoadingOverlay } from './components/project-loading-overlay'
 import { TaskPanel } from './components/task-panel'
@@ -1912,7 +1911,11 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
   }
 
   const rootSubprojects = useMemo(() => rootTree.filter((node) => node.project), [rootTree])
-  const rootNodes = useMemo(() => rootTree.filter((node) => !node.project), [rootTree])
+  const docsFolderPath = workspaceInfoRef.current?.docsPath?.slice((rootProjectPath?.length ?? 0) + 1)
+  const rootNodes = useMemo(() => {
+    const nodes = rootTree.filter((node) => !node.project)
+    return docsFolderPath ? [{ name: docsFolderPath.split('/').at(-1) ?? 'docs', path: docsFolderPath, type: 'dir' as const }, ...nodes] : nodes
+  }, [rootTree, docsFolderPath])
   const accountTreeStates = useMemo(() => accountTrees(workspaceUi.trees), [workspaceUi.trees])
   const saveAccountTreeState = useCallback((key: string, value: TreePersistenceState) => {
     if (isGuest) return
@@ -2286,12 +2289,6 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                       treeInvalidation={treeInvalidation}
                       refreshSignal={treeRefreshSignal}
                       roots={!isGuest && !docsExpanded && <>
-                        <button type="button" data-path="@docs" title={workspaceInfoRef.current?.docsPath}
-                          onClick={() => { setDocsExpanded(true); sidebarCreate.selectDirectory('docs', '') }}
-                          className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-sm text-ink-secondary hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
-                          <ProjectIcon icon="i:folder" size={14} />
-                          <span className="min-w-0 flex-1 truncate">{workspaceInfoRef.current?.docsPath?.split('/').filter(Boolean).at(-1) ?? 'docs'}</span>
-                        </button>
                         {rootSubprojects.map((subproject) => (
                         <div key={subproject.path} className="flex border-b border-edge">
                           <SubprojectLink
@@ -2308,6 +2305,10 @@ function EditorApp({ auth, refreshing, onLoggedOut, onRequestLogin, onProfileCha
                       newFileSignal={{ n: 0, parentPath: null }}
                       revealSignal={revealSignal}
                       presence={activeFile.project === (isGuest || docsExpanded ? DEFAULT_PROJECT : WORKSPACE_PROJECT) ? tabPresence : {}}
+                      documentsFolder={!isGuest && !docsExpanded && docsFolderPath ? {
+                        path: docsFolderPath,
+                        onOpen: () => { setDocsExpanded(true); sidebarCreate.selectDirectory('docs', '') },
+                      } : undefined}
                       documentPages={isGuest || docsExpanded}
                       onBeforePageMutation={prepareDocumentPageMutation}
                       onPageMutation={result => { applyDocumentPageMutation(result); void refreshTree() }}

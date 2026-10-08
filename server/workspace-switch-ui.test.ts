@@ -10,7 +10,8 @@ import { applyTaskChanges, type TaskItem } from '../shared/task-list.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-for (const keyboardOnly of [true, false]) test(keyboardOnly ? 'App keyboard aliases create files and folders in the current explorer scope' : 'App overlaps workspace metadata, restores warm roots and ignores duplicate handoffs', { skip: !domBrowserExecutable(), timeout: 45_000 }, async () => {
+for (const mode of ['keyboard', 'workspace', 'documents'] as const) test(mode === 'documents' ? 'Files opens Documents as a filesystem folder with a separate navigation arrow' : mode === 'keyboard' ? 'App keyboard aliases create files and folders in the current explorer scope' : 'App overlaps workspace metadata, restores warm roots and ignores duplicate handoffs', { skip: !domBrowserExecutable(), timeout: 45_000 }, async () => {
+  const keyboardOnly = mode === 'keyboard'
   const appSource = await fs.readFile(`${root}/src/App.tsx`, 'utf8')
   // Keep App, useTabs, FileTree, root tabs and docking real. Unrelated panels and the
   // editor renderer are inert so this measures handoff work rather than editor startup.
@@ -111,6 +112,12 @@ for (const keyboardOnly of [true, false]) test(keyboardOnly ? 'App keyboard alia
       if (url.pathname === '/api/tree') {
         if (blockTree) await new Promise<void>(resolve => treeWaiters.push(resolve))
         if (failTree) return route.fulfill({ status: 500, json: { error: 'refresh failed' } })
+        if (url.searchParams.get('project') === '.workspace' && url.searchParams.get('path') === 'docs') {
+          return json({ version: 1, state: 'ready', entries: [
+            { name: 'MOC.md', path: 'docs/MOC.md', type: 'file' },
+            { name: 'example.ts', path: 'docs/example.ts', type: 'file' },
+          ] })
+        }
         return json({ version: 1, state: 'ready', entries: [...(url.searchParams.get('project') === 'docs' ? [{ name: 'MOC.md', path: 'MOC.md', type: 'file' }] : []), { name: captured.slice(1) + '.md', path: captured.slice(1) + '.md', type: 'file' }] })
       }
       if (url.pathname === '/api/file') {
@@ -142,7 +149,18 @@ for (const keyboardOnly of [true, false]) test(keyboardOnly ? 'App keyboard alia
     const docsToggle = explorerToggle.getByRole('button', { name: '문서', exact: true })
     const filesToggle = explorerToggle.getByRole('button', { name: '파일', exact: true })
     assert.equal(await filesToggle.getAttribute('aria-pressed'), 'true')
-    await page.locator('[data-path="@docs"]').click()
+    const docsFolder = page.locator('[data-tree-key="sidebar-tree:root:/alpha"] [data-path="docs"]')
+    await docsFolder.click()
+    assert.equal(await filesToggle.getAttribute('aria-pressed'), 'true', 'folder expansion stays in Files')
+    await page.locator('[data-path="docs/MOC.md"]').waitFor()
+    assert.equal(await page.locator('[data-path="docs/MOC.md"]').innerText(), 'MOC.md')
+    await page.locator('[data-path="docs/example.ts"]').click()
+    await page.getByRole('button', { name: 'Close docs/example.ts', exact: true }).waitFor()
+    assert.equal(await filesToggle.getAttribute('aria-pressed'), 'true', 'raw document files open in Files')
+    await page.getByRole('button', { name: 'Close docs/example.ts', exact: true }).click()
+    await docsFolder.click()
+    assert.equal(await page.locator('[data-path="docs/MOC.md"]').count(), 0, 'folder can collapse')
+    await page.locator('[data-documents-link]').click()
     assert.equal(await docsToggle.getAttribute('aria-pressed'), 'true')
     const graphEntry = page.locator('[data-docs-graph-entry]')
     assert.equal(await graphEntry.count(), 1)
@@ -151,7 +169,7 @@ for (const keyboardOnly of [true, false]) test(keyboardOnly ? 'App keyboard alia
     await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"]').getByPlaceholder('새 문서 이름').waitFor()
     await page.keyboard.press('Escape')
     assert.equal(await page.locator('[data-tree-key="sidebar-tree:root:/alpha"]').count(), 0)
-    assert.equal(await page.locator('[data-path="@docs"]').count(), 0)
+    assert.equal(await page.locator('[data-documents-link]').count(), 0)
     await docsToggle.focus()
     await page.keyboard.press('ArrowRight')
     assert.equal(await filesToggle.getAttribute('aria-pressed'), 'true')
@@ -162,6 +180,23 @@ for (const keyboardOnly of [true, false]) test(keyboardOnly ? 'App keyboard alia
     assert.equal(await page.locator('[data-tree-key="sidebar-tree:docs:/alpha"]').count(), 0)
     await page.keyboard.press('Home')
     assert.equal(await docsToggle.getAttribute('aria-pressed'), 'true')
+    if (mode === 'documents') {
+      for (const width of [1100, 390]) {
+        await page.setViewportSize({ width, height: 700 })
+        await page.evaluate(`document.documentElement.classList.toggle('dark', ${width === 390})`)
+        await filesToggle.click()
+        await docsFolder.click()
+        await page.locator('[data-path="docs/example.ts"]').waitFor()
+        await page.screenshot({ path: `/tmp/mew-docs-folder-${width}.png` })
+        await page.locator('[data-documents-link]').click()
+        assert.equal(await docsToggle.getAttribute('aria-pressed'), 'true')
+        await filesToggle.click()
+        await page.locator('[data-path="docs/example.ts"]').waitFor()
+        await docsFolder.click()
+      }
+      assert.deepEqual(errors, [])
+      return
+    }
     if (keyboardOnly) {
       for (const combo of ['Control+n', 'Control+t']) {
         await docsToggle.focus(); await page.keyboard.press(combo)

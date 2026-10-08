@@ -1,5 +1,5 @@
 import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
-import { Download } from 'iconoir-react'
+import { ArrowUpRight, Download } from 'iconoir-react'
 import { useI18n } from '../i18n'
 import { pageRepresentative, documentPageLabel, documentPageTarget, remapPagePath, type DocumentPageMutation } from '../../shared/document-pages'
 import { canAutoFocusInput } from '@mew/ui'
@@ -92,6 +92,7 @@ interface NodeCtx {
   /** 바깥(파일 탐색기)에서 끌어온 파일을 그 폴더에 업로드 */
   onDropFiles: (dir: string, files: FileList) => void
   openGit?: (path: string) => void
+  documentsFolder?: { path: string; onOpen: () => void }
 }
 
 /**
@@ -449,7 +450,8 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
   const isDropTarget = ctx.dropDir === node.path
   // 이 폴더의 MOC는 파일 목록에서 빼고, 펼쳤을 때 맨 첫 줄에 따로 세운다
   const nodeChildren = node.children ?? ctx.directoryChildren[node.path]
-  const moc = nodeChildren?.find(isMocNode) ?? null
+  const rawDocuments = ctx.documentsFolder && (node.path === ctx.documentsFolder.path || node.path.startsWith(`${ctx.documentsFolder.path}/`))
+  const moc = rawDocuments ? null : nodeChildren?.find(isMocNode) ?? null
   const children = moc ? nodeChildren?.filter((c) => !isMocNode(c)) : nodeChildren
   const createEditing =
     (ctx.editing?.mode === 'create-file' || ctx.editing?.mode === 'create-folder') && ctx.editing.parentPath === node.path
@@ -505,7 +507,7 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
             onDragEnd={ctx.endDrag}
             onClick={handleClick}
             {...touchProps}
-            className={`flex min-w-0 flex-1 items-center gap-1.5 rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] ${holdHighlight} data-[touch-dragging=true]:bg-accent/15 data-[touch-dragging=true]:ring-1 data-[touch-dragging=true]:ring-accent hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : isMenuTarget ? 'bg-surface-raised' : ''}`}
+            className={`flex min-w-0 ${node.path === ctx.documentsFolder?.path ? 'max-w-[calc(100%-28px)]' : 'flex-1'} items-center gap-1.5 rounded px-2 py-1 text-left text-sm font-medium text-ink-secondary select-none [-webkit-touch-callout:none] ${holdHighlight} data-[touch-dragging=true]:bg-accent/15 data-[touch-dragging=true]:ring-1 data-[touch-dragging=true]:ring-accent hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-accent ${isDropTarget ? 'bg-accent/15 ring-1 ring-accent' : isMenuTarget ? 'bg-surface-raised' : ''}`}
             style={{ paddingLeft: `${depth * 14 + 8}px`, scrollMarginTop: `${depth * 1.75}rem` }}
           >
             <FolderIcon open={isOpen} />
@@ -515,6 +517,12 @@ function Node({ node, depth, ctx }: { node: TreeNode; depth: number; ctx: NodeCt
                 Project
               </span>
             )}
+          </button>}
+          {node.path === ctx.documentsFolder?.path && <button type="button"
+            aria-label={uiText('문서')} data-tip={uiText('문서')} data-documents-link
+            onClick={ctx.documentsFolder.onOpen}
+            className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-accent">
+            <ArrowUpRight width={14} height={14} aria-hidden="true" />
           </button>}
           {node.git && !projectLink && ctx.openGit && <GitButton onClick={() => ctx.openGit?.(node.path)} title={uiText("{p0} Git 열기", { p0: node.name })} />}
           {node.project && !projectLink && ctx.canUseCommands && <CommandButtonMenu project={ctx.project} directory={node.path} />}
@@ -591,6 +599,7 @@ export function FileTree({
   roots,
   onOpenGraph,
   documentPages = false,
+  documentsFolder,
   onPageMutation,
   onBeforePageMutation,
   commands,
@@ -642,6 +651,8 @@ export function FileTree({
   /** Docs root only: graph entry above its MOC. */
   onOpenGraph?: () => void
   documentPages?: boolean
+  /** Pinned filesystem folder with a separate Documents navigation action. */
+  documentsFolder?: { path: string; onOpen: () => void }
   onBeforePageMutation?: () => Promise<void | (() => void)>
   onPageMutation?: (result: DocumentPageMutation) => void
   /** 파일 목록 흐름에 끼우는 루트 프로젝트 명령 등 추가 항목 */
@@ -1437,7 +1448,8 @@ export function FileTree({
   // 최상위 MOC는 담을 폴더가 없으니 여기서 직접 세운다 — 프로젝트 전체의 입구라서 어떤 폴더보다 위에.
   // 하위 폴더의 MOC는 각 Node가 자기 첫 줄에 같은 모양으로 세운다.
   const rootMoc = useMemo(() => tree.find(isMocNode) ?? null, [tree])
-  const rootNodes = useMemo(() => (rootMoc ? tree.filter((n) => !isMocNode(n)) : tree), [tree, rootMoc])
+  const documentsNode = tree.find(node => node.path === documentsFolder?.path)
+  const rootNodes = useMemo(() => tree.filter(node => (!rootMoc || !isMocNode(node)) && node.path !== documentsFolder?.path), [tree, rootMoc, documentsFolder?.path])
 
   const filteredPaths = useMemo((): FileSearchResult[] | null => {
     if (!query.trim()) return null
@@ -1506,6 +1518,7 @@ export function FileTree({
     onDropDir,
     onDropFiles: (dir, files) => void uploadFilesInto(dir, files),
     openGit: onOpenGit,
+    documentsFolder,
   }
 
   return (
@@ -1559,6 +1572,7 @@ export function FileTree({
         }}
         className={`${compact ? 'py-1' : 'min-h-0 flex-1 overflow-y-auto pt-0.5 pb-[300px] [--tree-sticky-inset:2px]'} outline-none ${dropDir === '' ? 'ring-1 ring-inset ring-accent' : ''}`}
       >
+        {documentsNode && <Node node={documentsNode} depth={0} ctx={ctx} />}
         {roots}
         {commands}
         {filteredPaths !== null ? (
