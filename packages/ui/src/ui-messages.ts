@@ -5,6 +5,7 @@ export const uiMessages = {
   "크기를 저장하지 못했습니다. 브라우저 저장 공간을 확인하세요.": ["Could not save the size. Check browser storage.", "无法保存大小，请检查浏览器存储空间。", "サイズを保存できませんでした。ブラウザーの保存容量を確認してください。"],
   "아기 고양이": ["Little kitten", "小猫咪", "子猫"],
   "뮤펫": ["Mewpet", "Mewpet", "Mewpet"],
+  "뮤펫 로드중..": ["Loading Mewpet..", "正在加载 Mewpet..", "Mewpetを読み込み中.."],
   "{name} (기본)": ["{name} (default)", "{name}（默认）", "{name}（既定）"],
   "러시안블루": ["Russian Blue", "俄罗斯蓝猫", "ロシアンブルー"],
   "코리안 숏헤어": ["Korean Shorthair", "韩国短毛猫", "コリアンショートヘア"],

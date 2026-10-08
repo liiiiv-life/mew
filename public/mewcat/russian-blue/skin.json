@@ -5,67 +5,67 @@
   "order": 2,
   "sprites": {
     "idle": {
-      "file": "idle.png",
+      "file": "idle.webp",
       "frames": 8
     },
     "walk": {
-      "file": "walk.png",
+      "file": "walk.webp",
       "frames": 8
     },
     "run": {
-      "file": "run.png",
+      "file": "run.webp",
       "frames": 8
     },
     "jump": {
-      "file": "jump.png",
+      "file": "jump.webp",
       "frames": 8
     },
     "fall": {
-      "file": "fall.png",
+      "file": "fall.webp",
       "frames": 8
     },
     "love": {
-      "file": "love.png",
+      "file": "love.webp",
       "frames": 8
     },
     "struggle": {
-      "file": "struggle.png",
+      "file": "struggle.webp",
       "frames": 8
     },
     "run-walk": {
-      "file": "run-walk.png",
+      "file": "run-walk.webp",
       "frames": 8
     },
     "walk-run": {
-      "file": "walk-run.png",
+      "file": "walk-run.webp",
       "frames": 8
     },
     "run-idle": {
-      "file": "run-idle.png",
+      "file": "run-idle.webp",
       "frames": 8
     },
     "idle-run": {
-      "file": "idle-run.png",
+      "file": "idle-run.webp",
       "frames": 8
     },
     "walk-idle": {
-      "file": "walk-idle.png",
+      "file": "walk-idle.webp",
       "frames": 8
     },
     "idle-walk": {
-      "file": "idle-walk.png",
+      "file": "idle-walk.webp",
       "frames": 8
     },
     "takeoff": {
-      "file": "takeoff.png",
+      "file": "takeoff.webp",
       "frames": 8
     },
     "landing": {
-      "file": "landing.png",
+      "file": "landing.webp",
       "frames": 8
     },
     "apex": {
-      "file": "apex.png",
+      "file": "apex.webp",
       "frames": 8
     }
   }

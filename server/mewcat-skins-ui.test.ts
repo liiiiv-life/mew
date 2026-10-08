@@ -244,7 +244,9 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       const manifest = JSON.parse(await fs.readFile(`${root}/public/mewcat/kitten/skin.json`, 'utf8'))
       manifest.id = 'hot-pet'; manifest.name = 'Hot pet'; manifest.translated = false
       for (const action of MEWCAT_ALL_SPRITE_ACTIONS) {
-        try { await fs.copyFile(`${root}/public/mewcat/kitten/${action}.png`, `${directory}/${action}.png`) }
+        const file = manifest.sprites[action]?.file
+        if (!file) continue
+        try { await fs.copyFile(`${root}/public/mewcat/kitten/${file}`, `${directory}/${file}`) }
         catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
       }
       await fs.writeFile(`${directory}/skin.json`, JSON.stringify(manifest))
@@ -253,7 +255,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await page.locator('.mewcat > .mewcat-art > .mewcat-sprite image').waitFor()
       const oldImage = await page.locator('.mewcat > .mewcat-art > .mewcat-sprite image').getAttribute('href')
       manifest.name = 'Updated pet'
-      await fs.copyFile(`${root}/public/mewcat/capybara/idle.png`, `${directory}/idle.png`)
+      await fs.copyFile(`${root}/public/mewcat/capybara/${manifest.sprites.idle.file}`, `${directory}/${manifest.sprites.idle.file}`)
       await fs.writeFile(`${directory}/skin.json`, JSON.stringify(manifest))
       await settings.getByRole('button', { name: '새로고침', exact: true }).click()
       await settings.getByRole('button', { name: 'Updated pet', exact: true }).waitFor()

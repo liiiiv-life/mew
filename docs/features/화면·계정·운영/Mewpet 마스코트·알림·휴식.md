@@ -8,7 +8,7 @@ updated: "2026-10-08"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["server/mewpet-skins.ts", "server/mewpet-skin-routes.ts", "shared/mewpet-skins.ts", "src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-skin-settings.tsx", "src/components/mewcat-size-settings.tsx", "src/utils/mewcat-size-preferences.ts", "src/utils/mewcat-sprites.ts", "src/utils/mewcat-sprite-storage.ts", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
-description: "뮤펫의 전역 파일 기반 스킨 등록·브라우저 스킨 이관·빌드 없는 갱신, 화면 바닥 배치·모바일 독 겹침·설정창 위 표시·기본 크기 조절, 고양이 네 종류와 점눈·투박한 그림체의 카피바라 내장 스킨, 일곱 필수 모션·아홉 선택 전환 모션과 자동 점프, 이동·끌기·던지는 방향으로 바라보기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤펫 휴식의 저장·입력 유지 규칙도 설명한다."
+description: "뮤펫의 전역 파일 기반 스킨 등록·WebP 압축·선택 스킨 우선 로드와 점선 예비 고양이·브라우저 스킨 이관·빌드 없는 갱신, 화면 바닥 배치·모바일 독 겹침·설정창 위 표시·기본 크기 조절, 고양이 네 종류와 점눈·투박한 그림체의 카피바라 내장 스킨, 일곱 필수 모션·아홉 선택 전환 모션과 자동 점프, 이동·끌기·던지는 방향으로 바라보기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤펫 휴식의 저장·입력 유지 규칙도 설명한다."
 상위파일:
   - "MOC.md"
   - "_화면·계정·운영.md"
@@ -191,6 +191,16 @@ node --test src/utils/mewcat-sprites.test.ts src/utils/mewcatSkin.test.ts server
 
 단위 검사는 1·5·8·10·256프레임의 고정 주기·전체 프레임 진행과 상승·하강 분리·하강 후반 착지·이미지 규격·추가 동물 스킨 ID의 저장과 복원을 확인한다. Chromium fixture는 다섯 내장 스킨의 미리보기·선택·동작별 예제 다운로드·동물 선택 복원, 이전 기본과 털색 설정 제거, 실제 설정 창의 일곱 이미지 등록·손상 이미지와 잘못된 프레임 수 거부·미리보기·적용·10프레임 걷기·투명 영역 클릭 통과·목덜미 잡기·상승에서 정점 뒤 하강 전환·바닥 복귀·이전 다섯 동작 스킨 보완·수정·삭제·전역 파일 저장·브라우저 선택 범위 유지를 데스크톱·모바일에서 확인한다. 실제 운영 빌드·배포와 실기기 파일 선택은 사용자 적용 단계다.
 
+
+### 첫 표시와 비동기 로딩
+
+새로고침 직후 선택 스킨이 준비되기 전에는 별도 이미지 요청 없는 인라인 SVG로 앉아 있는 예비 고양이를 표시한다. 그림은 채움 없는 점선 윤곽 하나이며 라이트에서는 검정, 다크에서는 흰색이다. 옆의 **뮤펫 로드중..** 문구는 캐릭터를 따라가되 화면 밖으로 나가지 않고 좌우 반전의 영향을 받지 않는다. 알림·전체화면 안내·클릭 말풍선은 이 고양이에 즉시 연결하며, 잡기·끌기·던지기·벽 반사·중력·착지는 실제 펫과 같은 물리를 사용한다. 스킨 없음·화면 숨김 취향은 그대로 따른다. 실제 이미지가 준비되면 그림만 교체하고 위치·속도·행동·포인터 캡처는 유지한다. 같은 동작을 다시 선택해도 프레임 재생 주기를 끊지 않는다.
+
+스킨 목록을 받은 뒤 설정된 ID를 가장 먼저, 기본 `mew`를 다음으로 가져온다. 한 펫 안의 이미지는 최대 네 개씩 비동기로 받고, 한 펫이 모두 준비될 때마다 바로 게시한 뒤 다음 펫을 가져온다. 선택 펫의 표시는 다른 펫·미리보기·옛 IndexedDB 이관 완료를 기다리지 않는다. 나머지 로딩 중에는 이미 표시한 그림을 유지하고 최종 목록 순서는 서버 순서로 복원한다. 선택 ID의 파일 교체가 실패하면 이전 정상 그림을 계속 사용한다. 선택 ID를 아직 로드하는 동안 다른 기본 펫을 잠깐 표시하지 않는다.
+
+내장 5종의 필수·전환 80개 이미지는 같은 1024×128 규격·투명도·프레임을 유지한 무손실 WebP로 전송하며 `skin.json`의 파일명을 해당 `.webp`로 연결한다. 생성 원본 PNG와 프롬프트는 보존한다. 변환은 FFmpeg의 `libwebp`, `lossless=1`, `quality=100`, `compression_level=6`으로 수행했다. 80개 전체를 다시 디코딩해 알파와 보이는 RGB 픽셀이 동일함을 확인했으며, 전송 파일 합계는 7,710,232바이트에서 4,847,846바이트로 37.1% 줄었다. API·프레임 검사·예제 다운로드·사용자 PNG·WebP 업로드 규칙은 유지한다.
+
+`server/mewpet-loading-ui.test.ts`는 PC 다크·모바일 라이트에서 목록 응답을 지연시켜 예비 그림·문구·알림·던지기를 확인한다. 준비 중 잡고 있는 예비 고양이가 실제 펫으로 바뀌어도 위치·입력이 유지되는지, 다른 네 펫의 응답을 막아도 선택 펫이 먼저 표시되는지, 네 이미지 동시 요청 상한과 최종 목록 순서·교체 실패 시 이전 그림 유지를 검사한다.
 
 ### 파일로 스킨 등록
 

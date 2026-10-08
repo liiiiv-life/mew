@@ -3,6 +3,7 @@ import { uiText } from '@mew/ui/i18n-core'
 import { MAX_SPRITE_BYTES, validSpriteDimensions, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from './mewcat-sprites'
 import { MEWPET_ACTIONS, MEWPET_ANIMATIONS, MEWPET_MAX_PACK_BYTES, validMewpetSkinId, type MewpetFileSkin, type MewpetSkinCatalog, type MewpetSprites } from '../../shared/mewpet-skins.ts'
 import { activeRemoteTransport, isRemoteMode, mewFetch } from './remote-transport'
+import { loadMewcatSkin } from './mewcatSkin'
 
 export async function readSpriteImage(blob: Blob, frames = 8): Promise<SpriteImage> {
   if (!['image/png', 'image/webp'].includes(blob.type) || blob.size > MAX_SPRITE_BYTES) throw new Error(uiText('PNG·WebP 이미지를 선택하세요. 파일당 최대 4MB입니다.'))
@@ -93,7 +94,7 @@ async function legacyAirborneImage(source: SpriteImage, action: 'jump' | 'fall')
 
 export type RegisteredSpriteSkin = SpriteSkin & Pick<MewpetFileSkin, 'revision' | 'managed' | 'translated'> & { sprites: MewpetSprites<SpriteStrip>; sampleUrls: Partial<Record<typeof MEWPET_ANIMATIONS[number], string>>; legacy?: boolean }
 type Snapshot = { skins: RegisteredSpriteSkin[]; loading: boolean; failed: boolean; canManage: boolean; migrationFailed: boolean }
-type Store = { name: string; snapshot: Snapshot; listeners: Set<() => void>; pending?: Promise<void>; watchers: number; generation: number; stop?: () => void }
+type Store = { name: string; snapshot: Snapshot; listeners: Set<() => void>; pending?: Promise<void>; preferredId?: string; watchers: number; generation: number; stop?: () => void }
 const stores = new Map<string, Store>()
 export function spriteStore(): Store {
   const name = remoteStorageName('mewcat-sprite-skins')
@@ -156,16 +157,22 @@ function registeredSkin(skin: SpriteSkin, descriptor: MewpetFileSkin): Registere
 async function downloadSkin(descriptor: MewpetFileSkin, request: typeof mewFetch): Promise<RegisteredSpriteSkin> {
   if (!validMewpetSkinId(descriptor.id) || !descriptor.name?.trim()) throw new Error('invalid skin')
   const sprites = {} as MewpetSprites<SpriteImage>
-  for (const action of MEWPET_ANIMATIONS) {
-    const source = descriptor.sprites[action]
-    if (!source) continue
-    if (!source.url.startsWith(`/api/mewpet/skins/${encodeURIComponent(descriptor.id)}/${action}?`)) throw new Error('invalid sprite URL')
-    const response = await request(source.url, { cache: 'no-store' })
-    if (!response.ok) throw new Error('sprite unavailable')
-    const image = await readSpriteImage(await response.blob(), source.frames)
-    if (image.width !== source.width || image.height !== source.height) throw new Error('invalid sprite dimensions')
-    sprites[action] = image
-  }
+  const actions = MEWPET_ANIMATIONS.filter(action => descriptor.sprites[action])
+  let cursor = 0
+  const downloads = await Promise.allSettled(Array.from({ length: Math.min(4, actions.length) }, async () => {
+    while (cursor < actions.length) {
+      const action = actions[cursor++]
+      const source = descriptor.sprites[action]!
+      if (!source.url.startsWith(`/api/mewpet/skins/${encodeURIComponent(descriptor.id)}/${action}?`)) throw new Error('invalid sprite URL')
+      const response = await request(source.url, { cache: 'no-store' })
+      if (!response.ok) throw new Error('sprite unavailable')
+      const image = await readSpriteImage(await response.blob(), source.frames)
+      if (image.width !== source.width || image.height !== source.height) throw new Error('invalid sprite dimensions')
+      sprites[action] = image
+    }
+  }))
+  const failure = downloads.find(result => result.status === 'rejected')
+  if (failure?.status === 'rejected') throw failure.reason
   return registeredSkin(await prepareSkin({ id: descriptor.id, name: descriptor.name, sprites }), descriptor)
 }
 
@@ -226,26 +233,37 @@ export function loadSpriteSkins(force = false, store = spriteStore()): Promise<v
       if (!response.ok) throw new Error('catalog unavailable')
       const catalog = await response.json() as MewpetSkinCatalog
       if (!Array.isArray(catalog.skins)) throw new Error('invalid catalog')
-      const legacy = await migrateLegacySkins(store, catalog, request)
+      const selected = store.preferredId ?? loadMewcatSkin() ?? 'mew'
+      const descriptors = [...catalog.skins].sort((a, b) => Number(b.id === selected) - Number(a.id === selected) || Number(b.id === 'mew') - Number(a.id === 'mew'))
+      const legacyPending = migrateLegacySkins(store, catalog, request)
       const skins: RegisteredSpriteSkin[] = []
       let failed = catalog.failed
-      for (const descriptor of catalog.skins) {
+      for (const descriptor of descriptors) {
         const old = previous.find(skin => skin.id === descriptor.id && skin.revision === descriptor.revision && !skin.legacy)
-        const imported = legacy.skins.find(skin => skin.id === descriptor.id)
-        try { skins.push(old && old.managed === descriptor.managed && old.translated === descriptor.translated ? old : imported ?? await downloadSkin(descriptor, request)) }
+        try { skins.push(old && old.managed === descriptor.managed && old.translated === descriptor.translated ? old : await downloadSkin(descriptor, request)) }
         catch { failed = true; const fallback = previous.find(skin => skin.id === descriptor.id); if (fallback) skins.push(fallback) }
+        if (generation === store.generation) {
+          const current = store.snapshot.skins
+          const next = [...skins, ...previous.filter(skin => !skins.some(item => item.id === skin.id))]
+          emit(store, { ...store.snapshot, skins: next, loading: true, failed, canManage: catalog.canManage })
+          releaseReplaced(current.filter(old => !next.some(skin => skin.sprites === old.sprites)), next)
+        }
       }
+      const legacy = await legacyPending
       for (const skin of legacy.skins) if (!skins.some(item => item.id === skin.id)) skins.push(skin)
-      if (generation !== store.generation) { releaseReplaced(skins.filter(skin => !previous.some(old => old.sprites === skin.sprites)), []); return }
+      if (generation !== store.generation) { releaseReplaced(skins.filter(skin => !store.snapshot.skins.some(current => current.sprites === skin.sprites)), []); return }
+      skins.sort((a, b) => catalog.skins.findIndex(skin => skin.id === a.id) - catalog.skins.findIndex(skin => skin.id === b.id))
+      const current = store.snapshot.skins
       emit(store, { skins, loading: false, failed, canManage: catalog.canManage, migrationFailed: legacy.failed })
-      releaseReplaced(previous.filter(old => !skins.some(skin => skin.sprites === old.sprites)), skins)
+      releaseReplaced(current.filter(old => !skins.some(skin => skin.sprites === old.sprites)), skins)
     } catch { if (generation === store.generation) emit(store, { ...store.snapshot, loading: false, failed: true }) }
     finally { store.pending = undefined }
   })()
   return store.pending
 }
 
-export function watchSpriteSkins(store: Store): () => void {
+export function watchSpriteSkins(store: Store, preferredId?: string): () => void {
+  if (preferredId) store.preferredId = preferredId
   if (store.watchers++ === 0) {
     const refresh = () => { if (document.visibilityState === 'visible') void loadSpriteSkins(true, store) }
     const timer = setInterval(refresh, 30_000)
