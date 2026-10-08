@@ -169,7 +169,7 @@ export function FrontmatterPanel({ data, lineNumbers, onChange, readOnly, docPat
     <div className="mt-3 flex flex-col gap-1">
       {data.fields.map((rawField, i) => { const field = effectiveField(rawField); return <div key={i} ref={el => { if (el) rows.current.set(i, el); else rows.current.delete(i) }}
         data-mew-line-numbers={lineNumbers?.fields[i] ?? i + 3}
-        className={`frontmatter-line frontmatter-property group flex items-center gap-1 border-y-2 border-transparent ${dragIndex === i ? 'opacity-40' : ''} ${over && over.index === i && dragIndex !== i ? over.after ? 'border-b-accent' : 'border-t-accent' : ''}`}>
+        className={`frontmatter-line frontmatter-property group flex min-h-8 items-center gap-1 border-y-2 border-transparent ${dragIndex === i ? 'opacity-40' : ''} ${over && over.index === i && dragIndex !== i ? over.after ? 'border-b-accent' : 'border-t-accent' : ''}`}>
         {!readOnly && <button type="button" aria-label={uiText('필드 순서 변경')} aria-haspopup="dialog" aria-expanded={menu?.index === i}
           title={uiText('드래그해서 순서 변경')} className="frontmatter-handle cursor-grab rounded text-ink-muted hover:text-ink active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-accent"
           onPointerDown={event => startDrag(event, i)} onPointerMove={dragMove}

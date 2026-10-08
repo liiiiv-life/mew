@@ -4,11 +4,11 @@ parent: "mew-editor"
 title: "Markdown Hotview·원문·문서 속성"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-07"
+updated: "2026-10-08"
 status_hash: "2741d359b18c61eecb53b8ce0ba2862f0f42c088d7d02cf55c88a23d1d44a98e"
 files: ["packages/editor/src/editor/FrontmatterSelect.tsx", "server/frontmatter-options.ts", "src/hooks/useTabs.ts", "src/components/EditorPane.tsx", "src/components/markdown-error-boundary.tsx", "packages/editor/src/Editor.tsx", "packages/editor/src/editor/FrontmatterPanel.tsx", "src/components/TableOfContents.tsx"]
 commits: []
-description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유지, 체크박스·문서 목차·프론트매터 속성과 날짜·선택 필드 편집을 다루는 기능 계약. YAML 다중행 태그·담당자 보존, 모바일 키보드와 원문 저장 경계를 포함한다."
+description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유지, 체크박스·문서 목차·프론트매터 속성의 균일한 행 간격과 날짜·선택 필드 편집을 다루는 기능 계약. YAML 다중행 태그·담당자 보존, 모바일 키보드와 원문 저장 경계를 포함한다."
 ---
 
 ## 요구사항
@@ -24,6 +24,7 @@ description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유�
 - 공용 날짜 선택 달력은 좌우 터치 스와이프로 월을 바꾸며 선택값은 유지한다. 세로 스크롤과 날짜 탭은 그대로 지원한다.
 - 프론트매터 제목과 각 속성 행에도 Markdown 원문의 줄번호를 표시한다.
 - 속성 필드의 들여쓰기는 핸들 아이콘과 오른쪽 여백을 포함한 12px만 확보한다.
+- 속성 행은 타입과 관계없이 최소 32px 높이와 행 사이 4px 간격을 유지한다. 한 줄 값은 같은 높이에 가운데 정렬하며, 다중선택 값이 줄바꿈되면 행 높이가 내용에 맞춰 늘어난다.
 - 단일·다중선택 창에서 검색·새 이름 입력·Enter로 항목 생성과 선택을 함께 처리한다. 항목 목록은 같은 프로젝트의 동일한 필드명끼리 공유한다.
 - 속성 왼쪽 핸들로 순서를 바꾸고 타입 메뉴에서 글 링크·단일선택·다중선택·날짜·텍스트·숫자를 지정한다. 각 타입 항목은 이름 왼쪽에 타입 아이콘을 표시한다.
 - Hotview·Plain 전환 시 화면에 보이는 커서 줄 또는 읽던 본문 줄을 유지한다.
@@ -79,6 +80,8 @@ description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유�
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-08: 기존 프론트매터 UI fixture를 이용한 임시 브라우저 검증에서 PC(1280px)·모바일(390px)의 텍스트·링크·단일/다중선택·날짜 행 높이 32px, 행 사이 간격 4px와 읽기 전용 높이를 확인했다. 대상 lint·문서 description·문서 허용목록 검사도 통과했다. 기존 전체 프론트매터 UI 회귀 검사는 링크 경로 기대값 `guide.md`와 실제 `../guide.md`의 불일치로 중단됐다.
 
 - 2026-10-05: `server/date-calendar-ui.test.ts`와 `server/frontmatter-ui.test.ts`에서 PC·모바일 구간 직접 입력·자동 이동·단일 팝업 유지·기간 역전 보정·없는 날짜 보존·삭제·읽기 전용을 검증했다. 기존 `server/date-field-ui.test.ts`와 대상 lint도 통과했다. 전체 타입 검사는 작업 밖 `server/task-schedule-ui.test.ts`의 미사용 변수 오류로 실패했다.
 
