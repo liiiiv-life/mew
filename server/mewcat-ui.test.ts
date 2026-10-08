@@ -21,6 +21,8 @@ type MewcatFixture = {
 test('Mewcat notices and resource summaries fit themes, open targets and stop polling after dismissal', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   // In-memory fixture only: no app build, server, authenticated workspace or dist changes.
   const source = `
+// This fixture covers cat behavior in a fullscreen-unavailable client.
+Object.defineProperty(document,'fullscreenEnabled',{value:false});
 import React from '${require.resolve('react')}';
 import {createRoot} from '${require.resolve('react-dom/client')}';
 import {I18nProvider,useI18n} from '${root}/src/i18n.tsx';

@@ -4,11 +4,11 @@ parent: "mew-settings"
 title: "Mewcat 마스코트·알림·휴식"
 status: "implemented"
 created: "2026-09-18"
-updated: "2026-10-07"
+updated: "2026-10-08"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
-files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
+files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
-description: "자체 SVG 뮤캣의 색상·스킨·이동·끌기와 에이전트 작업·오류·자원 과부하 알림을 다루는 기능 계약. 뮤캣 없는 헤더 알림·독립 알림 설정, 데스크톱 알림·소리와 선택적 거대 뮤캣 휴식의 타이머·저장·입력 유지 규칙을 설명한다."
+description: "시작 시 전체화면 안내와 자체 SVG 뮤캣의 색상·스킨·이동·끌기, 에이전트 작업·오류·자원 과부하 알림을 다루는 기능 계약. 뮤캣 없는 헤더 알림·독립 알림 설정, 데스크톱 알림·소리와 선택적 거대 뮤캣 휴식의 타이머·저장·입력 유지 규칙을 설명한다."
 ---
 
 ## 요구사항
@@ -49,6 +49,16 @@ description: "자체 SVG 뮤캣의 색상·스킨·이동·끌기와 에이전�
 - 상위: [분야 지도](MOC.md) · [상위 기능](_%ED%99%94%EB%A9%B4%C2%B7%EA%B3%84%EC%A0%95%C2%B7%EC%9A%B4%EC%98%81.md).
 
 ## 상세 동작
+
+### 시작 시 전체화면 안내
+
+mew를 열거나 새로고침할 때 전체화면이 아니면 뮤캣 말풍선으로 **전체화면으로 사용하면 mew 단축키가 안정적으로 작동해요.**와 **전체화면으로 전환 (Alt+Enter)** 버튼을 표시한다. 클라이언트가 Mac이면 `Option+Enter`로 표기하며 서버 OS와 무관하다. 사용자가 전체화면 단축키를 재지정하면 버튼도 실제 바인딩을 표시한다. 문구는 앱의 네 언어 설정을 따르고 열린 상태에서도 변경한다.
+
+버튼은 클릭 제스처에서 앱 루트의 Fullscreen API를 호출한다. 기존 전체화면 단축키나 다른 화면의 버튼으로 진입해도 안내를 닫는다. 실패하면 안내를 유지하고 오류와 재시도를 제공한다. 닫기 또는 전체화면 진입 후 같은 앱 수명에서는 반복하지 않으며, 다음 로드에서 다시 표시한다. 영구 숨김 설정이나 자동 전체화면 진입은 하지 않는다.
+
+기존 뮤캣 말풍선 위치·테마를 재사용하고 안내 중에는 고양이를 멈춘다. 스킨이 없으면 하단의 같은 안내를 표시한다. 일반 알림 채널 설정과 독립된 시작 안내이며, 원격 뷰어의 뮤캣 숨김·휴식 표시 계약은 유지한다. Fullscreen API를 지원하지 않거나 문서의 전체화면 사용이 금지된 클라이언트에서는 표시하지 않는다.
+
+`server/mewcat-fullscreen-guide-ui.test.ts`는 격리 Chromium의 PC 다크·모바일 라이트에서 말풍선의 화면 경계·넘침, 클라이언트 OS 표기·언어 변경, 실패 후 재시도·닫기·새로고침·전체화면 종료 뒤 반복 없음·스킨 없음·미지원 상태를 검증한다. Fullscreen API는 성공·실패와 이벤트를 대역하며 실제 OS 키 선점이나 기기별 전체화면 동작을 검증하지 않는다.
 
 설정 → 뮤캣의 **원격 데스크톱에서 뮤캣 숨기기**를 켜면 원격 뷰어가 열린 동안 고양이·말풍선·휴식 표시를 숨기고 닫으면 복원한다. 기본값은 꺼짐이며 브라우저별 `mew:mewcat-hide-desktop`에 저장한다. 알림 수집·OS 알림과 휴식 타이머는 계속 동작한다.
 

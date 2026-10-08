@@ -16,6 +16,8 @@ type Fixture = { setLocale: (locale: string) => void; current: { receive: (messa
 
 test('Mewcat assistant supports translated connection, chat, IME, actions, replay and agent switching on desktop and mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const source = `
+// This fixture covers cat behavior in a fullscreen-unavailable client.
+Object.defineProperty(document,'fullscreenEnabled',{value:false});
 import React from '${require.resolve('react')}';
 import {createRoot} from '${require.resolve('react-dom/client')}';
 import {I18nProvider,useI18n} from '${root}/src/i18n.tsx';

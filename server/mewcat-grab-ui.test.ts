@@ -10,7 +10,10 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 const root = path.resolve(import.meta.dirname, '..')
 
 test('a thrown Mewcat keeps background input accessible and can be caught without jumping', { skip: !domBrowserExecutable(), timeout: 30_000 }, async () => {
-  const source = `import React from '${root}/node_modules/react/index.js';
+  const source = `
+// This fixture covers cat behavior in a fullscreen-unavailable client.
+Object.defineProperty(document,'fullscreenEnabled',{value:false});
+import React from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
 import {createPortal} from '${root}/node_modules/react-dom/index.js';
 import {I18nProvider} from '${root}/src/i18n.tsx';
