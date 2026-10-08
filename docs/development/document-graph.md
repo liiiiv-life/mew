@@ -1,8 +1,8 @@
 ---
-title: "Documents 링크 그래프 엔진"
+title: "Documents 링크 그래프·백링크 엔진"
 created: 2026-10-02
-updated: 2026-10-03
-description: "Documents의 Markdown 링크 그래프 API와 문서 선택·열기, 권한 필터·파일 제한·분석 캐시 및 검증 계약을 정의한다."
+updated: 2026-10-08
+description: "Documents 그래프와 제목 옆 백링크의 공용 Markdown 분석·역방향 색인, 프로젝트 간 참조·상위파일 제외와 권한 필터·검증 계약을 정의한다."
 상위파일:
   - "MOC.md"
   - "../features/프로젝트·파일·검색/Documents·문서 지도 관리.md"
@@ -20,14 +20,28 @@ Markdown 인라인·참조형 링크를 Markdown 파서로 읽는다. 상대경�
 
 ## 처리·성능 계약
 
-- `server/document-graph.ts`는 기존 파일 카탈로그를 사용하며 최대 12개 파일 I/O를 병렬 처리한다. 활성 Docs 루트 하나의 링크·제목만 메모리에 캐시하며 mtime·ctime·크기와 카탈로그 변경 신호로 변경된 문서만 다시 파싱한다. 삭제된 항목과 루트 전환 시 낡은 캐시를 제거한다.
+- `server/document-link-index.ts`의 `DocumentLinkIndex`는 그래프와 백링크가 공유하는 파일별 제목·본문 링크·상위파일 분석 캐시다. mtime·ctime·크기와 파일 카탈로그 변경 신호로 변경된 파일만 다시 파싱하며, 권한 판단은 캐시하지 않는다. 캐시는 최대 50,000개이며 초과 시 기존 항목을 제거할 뿐 응답 문서 수를 제한하지 않는다. `server/document-graph.ts`는 기존 파일 카탈로그를 사용하고 최대 12개 파일 I/O를 병렬 처리한다.
 - `src/utils/document-graph-layout.ts`는 직접 구현한 결정적 힘 기반 배치다. 사분 트리의 Barnes–Hut 반발력은 평균 `O(n log n)`, 간선 스프링은 `O(e)`다. 동일 위치의 노드와 빈 그래프를 처리하고, 감쇠 뒤에는 계산을 멈춘다.
 - `document-graph-worker.ts`는 짧은 작업 묶음으로 배치를 계산한다. Float32 좌표를 transferable buffer로 전달하고 노드 드래그 때만 다시 가열한다. 그래프를 닫거나 새 데이터로 교체하면 Worker를 종료한다.
 - `document-graph-canvas.ts`는 Canvas 하나로 간선·노드를 그린다. 그리기는 `requestAnimationFrame`으로 병합하고 DPR은 2로 제한한다. 공간 그리드로 포인터의 가까운 노드를 찾고 화면 밖 요소와 겹치는 라벨을 줄인다. 라벨은 최대 65개이며 선택한 노드와 이웃을 우선한다.
 - 휠·버튼·두 손가락으로 확대하고 빈 영역 드래그로 이동한다. 노드를 드래그하면 그 위치를 잠시 고정한다. 키보드 방향키는 이동, +/-는 확대·축소, Home은 전체 보기, Enter는 선택 문서 열기다. 검색과 페이지 단위 목록은 Canvas를 사용할 수 없는 환경에서도 문서 접근을 제공한다.
 - 그래프 화면은 기존 `DialogFrame`의 포커스 복원·Esc/뒤로가기 닫기를 사용한다. 검색·새로고침·문서 목록·크기/읽기 오류 및 Worker 실패 상태를 제공하며 데스크톱과 모바일의 기존 테마를 따른다.
 
+## 백링크
+
+프론트매터 `title` 오른쪽의 대각선 화살표를 누르면 현재 문서를 참조하는 문서 목록을 연다. 각 항목은 제목과 절대 경로를 보여주며 선택하면 기존 파일 열기 경로로 해당 문서를 연다. 현재 프로젝트 밖의 문서도 열 수 있다. 읽기 전용에서도 탐색할 수 있으며 로딩·빈 목록·실패와 재시도·일부 문서 제외 상태를 표시한다. Esc·뒤로가기·바깥 누름·화살표 재클릭으로 닫고 포커스를 복원한다. 문서 전환이나 팝업 닫기 시 요청을 취소한다.
+
+`GET /api/docs/backlinks?project=...&path=...`는 `{ documents: [{ path, title }], skipped }`를 `no-store`로 반환한다. 상대 `path`는 프로젝트 기준이며 절대 경로는 `serverFiles` 권한이 필요하다. 참조 원문을 탐색하는 범위는 현재 워크스페이스와 연결된 Documents다. `serverFiles` 권한이 있는 계정은 등록된 루트 프로젝트와 각각의 연결된 Documents도 포함한다. 외부 대상 문서를 열었다고 그 문서의 상위 디렉터리를 새 탐색 범위로 추가하지 않는다.
+
+본문의 Markdown 인라인·참조형·위키 링크만 참조로 센다. 상대 경로·절대 로컬 경로·`file://`·URI 인코딩·fragment/query·생략된 `.md`를 해석하고 같은 원문 문서는 한 번만 표시한다. 프로젝트 간 위키 파일명이 모호하면 추측하지 않는다. 이미지·코드·외부 웹 URL·frontmatter는 참조를 만들지 않는다. 현재 문서의 `상위파일` 문자열/배열에 적힌 문서는 본문에서 현재 문서를 링크하더라도 백링크 목록에서 제외한다. 기능 `parent` ID는 이 제외 규칙과 별개다.
+
+`server/document-backlinks.ts`는 탐색 범위의 Markdown 파일 목록을 확인하고 공용 캐시로 분석한다. 의존성·빌드·Git·내부 데이터 디렉터리와 하위 심볼릭 링크는 탐색하지 않는다. 최대 12개 파일 I/O를 병렬 처리하며 8 MiB 초과·읽기 오류는 `skipped`로 알린다. 범위별 역방향 색인에서 변경된 원문의 간선만 갱신하고 파일 추가·삭제·권한 변화로 보이는 파일 집합이 바뀌면 경로와 위키 모호성을 다시 계산한다. 최근 4개 범위의 색인을 유지한다.
+
+API는 `filesRead`와 대상 열람 권한을 확인하고 각 원문의 워크스페이스 문맥에서 파일 열람 권한을 적용한다. 권한이 없는 원문의 제목·경로는 반환하지 않으며 요청마다 다시 판단한다. 일반 사용자는 현재 범위의 허용된 문서만 볼 수 있다. 등록 범위 밖의 절대 대상도 `serverFiles` 권한으로 조회할 수 있지만 참조 원문 범위는 위 계약을 유지한다.
+
 ## 검증
+
+`server/document-backlinks.test.ts`는 공용 캐시 재사용, 실제 링크와 프로젝트 간 경로, 상위파일 제외 및 변경·삭제·이름 변경·권한 필터·용량 제한을 검증한다. `server/document-backlinks-access.test.ts`는 실제 API의 계정별 탐색 범위·파일 권한·절대 경로 권한·잘못된 요청을 확인한다. `server/document-backlinks-ui.test.ts`는 PC·모바일과 양 테마에서 화살표 배치·팝업 경계·키보드 탐색·닫기·빈 목록·재시도·전환 중 요청 취소와 외부 문서 탭 열기를 검증한다.
 
 링크 파싱·경로 경계·중복/모호한 링크·권한 projection·파일 변경/삭제·루트 교체는 `server/document-graph.test.ts`, 실제 API 권한 적용은 `server/document-graph-access.test.ts`에서 확인한다. 배치의 수렴·겹친 좌표·드래그 고정·대규모 계산은 `src/utils/document-graph-layout.test.ts`에서 검증한다. 실제 Worker/Canvas의 데스크톱·모바일 동작은 `server/document-graph-ui.test.ts`, Docs 루트 버튼 배치는 `server/workspace-switch-ui.test.ts`에서 확인한다.
 

@@ -1938,6 +1938,8 @@ export const editorApi: EditorApi = { fetchFile, uploadAsset, fetchLinkPreview, 
 /** Capture a pane's file scope so background callbacks cannot follow another pane's focus. */
 export function createEditorApi(project: string): EditorApi {
   return {
+    fetchBacklinks: (path, signal) => mewFetch(`/api/docs/backlinks?path=${encodeURIComponent(path)}&${projectQs(project)}`, { signal })
+      .then(json<import('@mew/editor').DocumentBacklinksData>),
     fetchFile: path => fetchFile(path, project),
     uploadAsset: file => uploadAsset(file, project),
     fetchLinkPreview,

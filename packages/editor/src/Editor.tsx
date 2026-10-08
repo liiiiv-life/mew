@@ -1964,6 +1964,7 @@ export const Editor = forwardRef<
           readOnly={readOnly}
           docPath={path}
           optionsApi={api.frontmatterOptions}
+          fetchBacklinks={api.fetchBacklinks}
           onOpenLink={onOpenLink}
         />
       )}

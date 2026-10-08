@@ -8,7 +8,7 @@ updated: "2026-10-08"
 status_hash: "2741d359b18c61eecb53b8ce0ba2862f0f42c088d7d02cf55c88a23d1d44a98e"
 files: ["packages/editor/src/editor/FrontmatterSelect.tsx", "server/frontmatter-options.ts", "src/hooks/useTabs.ts", "src/components/EditorPane.tsx", "src/components/markdown-error-boundary.tsx", "packages/editor/src/Editor.tsx", "packages/editor/src/editor/FrontmatterPanel.tsx", "src/components/TableOfContents.tsx"]
 commits: []
-description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유지, 체크박스·문서 목차·프론트매터 속성의 균일한 행 간격과 날짜·선택 필드 편집을 다루는 기능 계약. YAML 다중행 태그·담당자 보존, 모바일 키보드와 원문 저장 경계를 포함한다."
+description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유지, 체크박스·문서 목차·프론트매터 속성과 제목 옆 백링크 탐색을 다루는 기능 계약. 상위파일 제외·프로젝트 간 참조, YAML 보존, 모바일 키보드와 원문 저장 경계를 포함한다."
 상위파일:
   - "MOC.md"
   - "_문서·코드·미디어 편집.md"
@@ -23,6 +23,7 @@ description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유�
 - Hotview·Plain 전환과 제목·목록·체크박스·인용·코드 블록·강조를 제공한다.
 - 줄 맨 앞의 `[] `·`[ ] ` 입력으로 체크박스 줄을 만들며, 클릭으로 완료 상태를 바꾸고 Enter로 이어 쓰거나 빈 항목에서 일반 문단으로 돌아온다.
 - 프론트매터 속성 편집·문서 목차·목록 들여쓰기를 제공한다.
+- 프론트매터 제목 오른쪽 대각선 화살표로 참조 문서 목록을 열고 선택한 문서로 이동한다. 허용된 외부 프로젝트 문서도 포함하며 현재 문서의 `상위파일`은 목록에서 제외한다.
 - 날짜 속성은 태스크 패널과 같은 공용 달력을 사용하며 날짜 하나를 선택·삭제한다. 연도·월 직접 변경과 키보드 탐색을 지원하고 저장값은 `YYYY-MM-DD`를 유지한다.
 - 공용 날짜 선택 달력은 좌우 터치 스와이프로 월을 바꾸며 선택값은 유지한다. 세로 스크롤과 날짜 탭은 그대로 지원한다.
 - 프론트매터 제목과 각 속성 행에도 Markdown 원문의 줄번호를 표시한다.
@@ -45,6 +46,8 @@ description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유�
 
 <!-- mew:implementation:start -->
 ## 구현 내용
+
+- 제목 옆 백링크는 공용 팝업으로 제목·경로 목록과 로딩·빈 목록·실패·재시도를 제공한다. 읽기 전용에서도 열 수 있고, 문서 전환 시 진행 중인 요청을 취소한다. 호스트의 선택적 `EditorApi.fetchBacklinks`를 통해 조회하며 기존 파일 링크 열기로 프로젝트 밖의 문서도 연다. 그래프와 공용 분석 캐시를 사용하고 본문 링크만 집계하며 프론트매터와 상위파일을 제외한다. 탐색 범위·권한·역방향 색인은 [그래프·백링크 엔진](../../development/document-graph.md#백링크)을 따른다.
 
 - 프론트매터의 YAML 블록·인라인 배열/객체와 여러 줄 문자열을 전체 속성으로 읽는다. 본문이나 다른 속성 저장 시 수정하지 않은 원래 YAML·주석을 보존해 태스크 태그와 담당자 목록의 초기화를 방지한다. 값·키·타입의 명시적 수정과 필드 삭제는 그대로 적용하며 상세 저장 계약은 [에디터 패키지](../../development/packages.md)를 따른다.
 
@@ -81,6 +84,8 @@ description: "Markdown Hotview·Plain 편집, 보기 전환 시 읽던 줄 유�
 
 <!-- mew:validation:start -->
 ## 검증
+
+- 2026-10-08: `server/document-backlinks.test.ts`·`server/document-backlinks-access.test.ts`·`server/document-backlinks-ui.test.ts`에서 상위파일 제외·외부 참조·변경 반영·API 권한과 PC/모바일·양 테마의 팝업·키보드·닫기·재시도·요청 취소·외부 문서 탭 열기를 통과했다. 그래프 분석·API 권한, 공용 오버레이 단위 검사와 뒤로가기 UI, 전체 타입·lint·문서 검사도 통과했다. 추가 회귀 중 `server/frontmatter-ui.test.ts`는 기존 `guide.md`/`../guide.md` 기대값 불일치, `server/overlay-layer-ui.test.ts`는 팝업을 열기 전 도크 구분선의 클릭 영역 기대값 불일치로 실패했다.
 
 - 2026-10-08: 기존 프론트매터 UI fixture를 이용한 임시 브라우저 검증에서 PC(1280px)·모바일(390px)의 텍스트·링크·단일/다중선택·날짜 행 높이 32px, 행 사이 간격 4px와 읽기 전용 높이를 확인했다. 대상 lint·문서 description·문서 허용목록 검사도 통과했다. 기존 전체 프론트매터 UI 회귀 검사는 링크 경로 기대값 `guide.md`와 실제 `../guide.md`의 불일치로 중단됐다.
 

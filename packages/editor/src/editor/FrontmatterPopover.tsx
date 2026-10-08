@@ -3,13 +3,13 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { createPortal } from 'react-dom'
 
 /** Field menus share viewport placement, dismissal and keyboard navigation. */
-export function FrontmatterPopover({ anchor, label, onClose, children, initialFocus }: {
-  anchor: HTMLElement; label: string; onClose: () => void; children: ReactNode; initialFocus?: 'input'
+export function FrontmatterPopover({ anchor, label, onClose, children, initialFocus, ignoreAnchor = false }: {
+  anchor: HTMLElement; label: string; onClose: () => void; children: ReactNode; initialFocus?: 'input'; ignoreAnchor?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ left: 0, top: 0, maxHeight: 280, visibility: 'hidden' as 'hidden' | 'visible' })
   const close = () => { onClose(); if (anchor.isConnected) anchor.focus({ preventScroll: true }) }
-  useOverlayDismiss(close, { outside: () => ref.current })
+  useOverlayDismiss(close, { outside: () => ref.current, outsideIgnore: () => ignoreAnchor ? anchor : null })
   useLayoutEffect(() => {
     const place = () => {
       const viewport = window.visualViewport

@@ -1,6 +1,10 @@
 // Source-message keys keep shared UI packages independent of the host app.
 // Every entry supplies English, Simplified Chinese and Japanese; the key is Korean.
 export const uiMessages = {
+  "백링크": ["Backlinks", "反向链接", "バックリンク"],
+  "백링크를 불러오지 못했습니다": ["Could not load backlinks", "无法加载反向链接", "バックリンクを読み込めませんでした"],
+  "이 문서를 참조하는 문서가 없습니다": ["No documents reference this document", "没有文档引用此文档", "この文書を参照する文書はありません"],
+  "일부 문서를 확인하지 못했습니다": ["Some documents could not be checked", "部分文档无法检查", "一部の文書を確認できませんでした"],
   "영상 해상도": ["Video resolution","视频分辨率","映像の解像度"],
   "목표 FPS": ["Target FPS","目标 FPS","目標 FPS"],
   "전송 우선순위": ["Streaming priority","传输优先级","転送の優先順位"],

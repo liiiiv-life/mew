@@ -1,28 +1,8 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import MarkdownIt from 'markdown-it'
-import { parseTitle } from './frontmatter.ts'
+import { DocumentLinkIndex } from './document-link-index.ts'
+export { documentLinks } from './document-link-index.ts'
 import type { DocumentGraphData, DocumentGraphNode } from '../shared/document-graph.ts'
-
-const markdown = new MarkdownIt({ html: false, linkify: false })
-const MAX_BYTES = 8 * 1024 * 1024
-
-/** Parse Markdown, including reference links; code and images never create edges. */
-export function documentLinks(content: string): { title: string | null; links: string[] } {
-  const links = new Set<string>()
-  const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
-  for (const block of markdown.parse(body, {})) {
-    for (const token of block.children ?? []) {
-      if (token.type === 'link_open') {
-        const href = token.attrGet('href')
-        if (href) links.add(href)
-      }
-      // Wiki-style links are optional syntax; only ordinary text is scanned.
-      if (token.type === 'text') for (const match of token.content.matchAll(/\[\[([^\]\n]+)\]\]/g)) links.add(`wiki:${match[1].split('|')[0]}`)
-    }
-  }
-  return { title: parseTitle(content), links: [...links] }
-}
 
 function localTarget(source: string, raw: string): string | null {
   if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(raw) || raw.includes('\\')) return null
@@ -61,51 +41,36 @@ export function connectDocuments(documents: { node: DocumentGraphNode; links: st
   return { nodes: documents.map(doc => doc.node), edges, skipped }
 }
 
-type Entry = { stamp: string; node: DocumentGraphNode; links: string[] }
-
-/** One bounded, incremental cache per active docs root. Contents are never returned. */
+/** Docs graph projects the shared absolute-path link index into relative nodes. */
 export class DocumentGraphIndex {
   private root = ''
-  private cache = new Map<string, Entry>()
-  private dirty = new Set<string>()
-  invalidate(paths: string[]): void { for (const rel of paths) this.dirty.add(rel) }
+  private index: DocumentLinkIndex
+  constructor(index = new DocumentLinkIndex()) { this.index = index }
+  invalidate(paths: string[]): void { this.index.invalidate(paths.map(rel => path.resolve(this.root || '.', rel))) }
 
   async read(root: string, files: string[], mayRead: (rel: string) => boolean): Promise<DocumentGraphData> {
-    if (this.root !== root) { this.root = root; this.cache = new Map(); this.dirty = new Set() }
-    // Capture each request's root/cache so a workspace handoff cannot mix graphs.
-    const cache = this.cache, dirty = this.dirty
+    this.root = root
     const visible = files.filter(rel => /\.md$/i.test(rel) && mayRead(rel)).sort()
-    const existing = new Set(files)
-    for (const rel of cache.keys()) if (!existing.has(rel)) cache.delete(rel)
-    const result: (Entry | null)[] = new Array(visible.length).fill(null)
+    const result: ({ node: DocumentGraphNode; links: string[] } | null)[] = new Array(visible.length).fill(null)
     const realRoot = await fs.realpath(root)
     let cursor = 0, skipped = 0
     await Promise.all(Array.from({ length: Math.min(12, visible.length) }, async () => {
       while (cursor < visible.length) {
-        const index = cursor++, rel = visible[index]
+        const i = cursor++, rel = visible[i]
         try {
           const absolute = path.resolve(root, rel)
           if (!absolute.startsWith(path.resolve(root) + path.sep)) continue
           const real = await fs.realpath(absolute)
           if (!real.startsWith(realRoot + path.sep)) continue
-          const stat = await fs.stat(real)
-          if (!stat.isFile() || stat.size > MAX_BYTES) { skipped++; continue }
-          const stamp = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`
-          let entry = cache.get(rel)
-          if (!entry || entry.stamp !== stamp || dirty.has(rel)) {
-            dirty.delete(rel)
-            const content = await fs.readFile(real, 'utf8')
-            const parsed = documentLinks(content)
-            entry = { stamp, node: { path: rel, title: parsed.title || path.posix.basename(rel, '.md'), group: rel.includes('/') ? rel.split('/')[0] : '' }, links: parsed.links }
-            cache.set(rel, entry)
-          }
-          if (mayRead(rel)) result[index] = entry
+          const entry = await this.index.read(real)
+          if (!entry) { skipped++; continue }
+          if (mayRead(rel)) result[i] = { node: { path: rel, title: entry.title, group: rel.includes('/') ? rel.split('/')[0] : '' }, links: entry.links }
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') skipped++
-          cache.delete(rel)
+          this.index.remove(path.resolve(root, rel))
         }
       }
     }))
-    return connectDocuments(result.filter((doc): doc is Entry => doc !== null && mayRead(doc.node.path)), skipped)
+    return connectDocuments(result.filter((doc): doc is { node: DocumentGraphNode; links: string[] } => doc !== null && mayRead(doc.node.path)), skipped)
   }
 }

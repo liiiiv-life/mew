@@ -1,14 +1,15 @@
+import { DocumentBacklinks } from './DocumentBacklinks'
 import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { frontmatterType, nextFieldKey, type FrontmatterData, type FrontmatterField } from '../utils/frontmatter'
-import type { FrontmatterOptionsApi } from '../types'
+import type { EditorApi, FrontmatterOptionsApi } from '../types'
 import { isExternalHref, resolveRelativePath } from '../utils/fuzzy'
 import { FrontmatterFieldMenu } from './FrontmatterFieldMenu'
 import { FrontmatterFieldValue } from './FrontmatterFieldValue'
 
 // Properties live outside TipTap so editing a value cannot break the YAML structure.
-export function FrontmatterPanel({ data, lineNumbers, onChange, readOnly, docPath = '', onOpenLink, optionsApi }: {
+export function FrontmatterPanel({ data, lineNumbers, onChange, readOnly, docPath = '', onOpenLink, optionsApi, fetchBacklinks }: {
   data: FrontmatterData
   lineNumbers?: { title: number; fields: number[] }
   onChange: (next: FrontmatterData) => void
@@ -16,6 +17,7 @@ export function FrontmatterPanel({ data, lineNumbers, onChange, readOnly, docPat
   docPath?: string
   onOpenLink?: (path: string) => void
   optionsApi?: FrontmatterOptionsApi
+  fetchBacklinks?: EditorApi['fetchBacklinks']
 }) {
   useUiLocale()
   const rows = useRef(new Map<number, HTMLDivElement>())
@@ -161,10 +163,11 @@ export function FrontmatterPanel({ data, lineNumbers, onChange, readOnly, docPat
   }
 
   return <div className="frontmatter-panel mx-8 mt-12 mb-2 border-b border-edge pb-3">
-    <div className="frontmatter-line" data-mew-line-numbers={lineNumbers?.title ?? 2}>
+    <div className="frontmatter-line flex items-center gap-1" data-mew-line-numbers={lineNumbers?.title ?? 2}>
       <input value={data.title} onChange={event => onChange({ ...data, title: event.target.value })} readOnly={readOnly}
         placeholder={uiText('제목')} aria-label={uiText('제목')}
-        className="w-full border-none bg-transparent text-3xl leading-tight font-bold text-ink-bright outline-none placeholder:text-ink-faint" />
+        className="min-w-0 flex-1 border-none bg-transparent text-3xl leading-tight font-bold text-ink-bright outline-none placeholder:text-ink-faint" />
+      {fetchBacklinks && onOpenLink && docPath && <DocumentBacklinks path={docPath} fetchBacklinks={fetchBacklinks} onOpenLink={onOpenLink} />}
     </div>
     <div className="mt-3 flex flex-col gap-1">
       {data.fields.map((rawField, i) => { const field = effectiveField(rawField); return <div key={i} ref={el => { if (el) rows.current.set(i, el); else rows.current.delete(i) }}

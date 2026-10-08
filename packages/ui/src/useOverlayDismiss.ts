@@ -17,6 +17,7 @@ type Entry = {
   escapePhase: EscapePhase
   /** 주면 이 요소 **바깥**을 누를 때도 닫는다 — Esc·뒤로가기가 없는 터치 화면의 유일한 탈출구 */
   outside?: () => Element | null
+  outsideIgnore?: () => Element | null
 }
 
 /** 열린 순서대로 쌓인다 — 맨 뒤가 "가장 위" */
@@ -45,7 +46,7 @@ function onPointerDownCapture(event: Event) {
   const el = top?.outside?.()
   if (!el) return
   const target = event.target
-  if (target instanceof Node && el.contains(target)) return
+  if (target instanceof Node && (el.contains(target) || top?.outsideIgnore?.()?.contains(target))) return
   top.close()
 }
 
@@ -128,6 +129,7 @@ export interface OverlayDismissOptions {
    * 이걸 주지 않으면 뒤로가기 말고는 빠져나갈 길이 없다.
    */
   outside?: () => Element | null
+  outsideIgnore?: () => Element | null
 }
 
 /** React 없이도 쓸 수 있는 등록 함수 — 훅은 이걸 감싼 것뿐이고, 테스트도 여기로 붙는다 */
@@ -167,6 +169,7 @@ export function useOverlayDismiss(close: (() => void) | null | false, options?: 
             closeOnBack: () => optionsRef.current?.closeOnBack?.() ?? true,
             escapePhase: optionsRef.current?.escapePhase ?? 'capture',
             outside: () => optionsRef.current?.outside?.() ?? null,
+            outsideIgnore: () => optionsRef.current?.outsideIgnore?.() ?? null,
           })
         : undefined,
     [active],

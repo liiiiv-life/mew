@@ -92,7 +92,13 @@ export interface FrontmatterOptionsApi {
   update: (field: string, change: { add: string[]; remove: string[]; seed: string[] }) => Promise<string[]>
 }
 
+export interface DocumentBacklinksData {
+  documents: { path: string; title: string }[]
+  skipped: number
+}
+
 export interface EditorApi {
+  fetchBacklinks?: (path: string, signal?: AbortSignal) => Promise<DocumentBacklinksData>
   fetchFile: (path: string) => Promise<{ path: string; content: string; editable: boolean }>
   uploadAsset: (file: File) => Promise<{ url: string; name: string; mimetype: string }>
   fetchLinkPreview: (url: string) => Promise<{ title: string | null; description: string | null }>
