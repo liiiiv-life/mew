@@ -222,17 +222,20 @@ createRoot(document.getElementById('root')).render(<Fixture/>);`
         const kinds = await page.locator('.tiptap a').evaluateAll(links => links.map(link => {
           const win = link.ownerDocument.defaultView!
           return { kind: link.getAttribute('data-file-link-kind'), border: win.getComputedStyle(link).borderTopWidth,
+            icon: win.getComputedStyle(link, '::before').maskImage,
             arrow: win.getComputedStyle(link, '::after').maskImage, decoration: win.getComputedStyle(link).textDecorationLine }
         }))
         assert.deepEqual(kinds.map(link => link.kind), ['subdocument', 'document', 'outside-docs', null])
-        assert.equal(kinds[0].border, '0px')
+        assert.equal(kinds[0].border, '1px')
         assert.equal(kinds[1].border, '1px')
         assert.equal(kinds[2].border, '1px')
+        assert.notEqual(kinds[0].icon, kinds[1].icon)
+        assert.equal(kinds[1].icon, kinds[2].icon)
         assert.notEqual(kinds[2].arrow, 'none')
         assert.equal(kinds[1].arrow, 'none')
         assert.equal(kinds[3].decoration, 'underline')
         await page.locator('a[data-file-link-kind="subdocument"]').hover()
-        assert.equal(await page.locator('a[data-file-link-kind="subdocument"]').evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).borderTopWidth), '0px')
+        assert.equal(await page.locator('a[data-file-link-kind="subdocument"]').evaluate(el => el.ownerDocument.defaultView!.getComputedStyle(el).borderTopWidth), '1px')
         assert.equal(await page.evaluate('window.value'), linkKindsContent)
         if (process.env.MEW_EDITOR_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.MEW_EDITOR_SCREENSHOT_DIR}/link-kinds-${theme}-${viewport.width}.png` })
       }

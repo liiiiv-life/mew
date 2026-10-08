@@ -229,8 +229,8 @@
   border-color: var(--color-edge-bright);
   background: var(--color-surface-raised);
 }
-.tiptap a[data-file-link-kind="subdocument"] {
-  border: none;
+.tiptap a[data-file-link-kind="subdocument"]::before {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.25 19.25 16.75 15.75 13.25 12.25M16.75 15.75h-6a4 4 0 0 1-4-4v-7'/%3E%3C/svg%3E");
 }
 .tiptap a[data-file-link-kind="outside-docs"]::after {
   content: '';
