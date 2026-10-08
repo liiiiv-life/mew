@@ -90,7 +90,7 @@ export function AgentGuidanceSettings({ onClose, onOpenFile }: { onClose: () => 
   }
   const labels: Record<string, string> = { ...text, ko: '한국어', en: 'English', ja: '日本語', zh: '简体中文' }
   return createPortal(<div data-cmd-overlay className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-3" onMouseDown={event => { if (event.target === event.currentTarget) close() }}>
-    <div ref={dialog} role="dialog" aria-modal="true" aria-label={text.title} className="flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-lg bg-surface text-ink shadow-xl" onKeyDown={event => {
+    <div ref={dialog} role="dialog" aria-modal="true" aria-label={text.title} className="flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface text-ink shadow-xl" onKeyDown={event => {
       if (event.key !== 'Tab') return
       const nodes = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])
       const first = nodes[0], last = nodes.at(-1)

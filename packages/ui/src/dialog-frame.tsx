@@ -45,7 +45,7 @@ export function DialogFrame({ children, labelledBy, describedBy, onClose, classN
       if (event.target === event.currentTarget && !busy) onClose()
     }} onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy} aria-describedby={describedBy} aria-busy={busy || undefined} tabIndex={-1}
-        className={`mew-dialog w-full overflow-hidden rounded-xl bg-surface shadow-2xl outline-none ${className}`}
+        className={`mew-dialog w-full overflow-hidden rounded-xl border border-edge-bright bg-surface shadow-2xl outline-none ${className}`}
         onKeyDown={(event) => {
           event.stopPropagation()
           if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault()

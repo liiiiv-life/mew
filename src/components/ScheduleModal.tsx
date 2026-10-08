@@ -213,7 +213,7 @@ export function ScheduleModal({ onClose }: { onClose: () => void }) {
         if (e.target === e.currentTarget && !busy) onClose()
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label={uiText("예약 작업")} className="flex max-h-[90dvh] w-full max-w-2xl flex-col rounded-lg bg-surface-raised p-2.5 sm:p-3 shadow-xl">
+      <div role="dialog" aria-modal="true" aria-label={uiText("예약 작업")} className="flex max-h-[90dvh] w-full max-w-2xl flex-col rounded-lg border border-edge-bright bg-surface-raised p-2.5 sm:p-3 shadow-xl">
         <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-ink">{uiText("예약 작업")}</h2>
           <button

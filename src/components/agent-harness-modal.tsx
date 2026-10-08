@@ -120,7 +120,7 @@ export function AgentHarnessModal({ cwd, initialKind, onClose }: { cwd: string; 
     hadDetail.current = showingDetail
   }, [showingDetail, selected?.id, creating])
   return createPortal(<div data-cmd-overlay className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-2 sm:p-5" onMouseDown={event => { if (event.target === event.currentTarget) close() }}>
-    <div ref={dialog} role="dialog" aria-modal="true" aria-label={uiText("에이전트 확장 관리")} className="flex h-[90dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-surface text-ink shadow-xl" onKeyDown={event => {
+    <div ref={dialog} role="dialog" aria-modal="true" aria-label={uiText("에이전트 확장 관리")} className="flex h-[90dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-edge-bright bg-surface text-ink shadow-xl" onKeyDown={event => {
       if (event.key !== 'Tab') return
       const focusRoot = confirmation ? dialog.current?.querySelector('[role="alertdialog"]') : dialog.current
       const nodes = Array.from(focusRoot?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]') ?? []).filter(node => node.getClientRects().length && !node.closest('[inert]'))
