@@ -116,11 +116,14 @@
 .task-gantt-label[data-done="true"] .task-disclosure { text-decoration: none; }
 
 .task-text { position: relative; display: flex; align-items: flex-start; gap: 6px; flex: 1; min-width: 0; }
-.task-text:has(.task-tags) > textarea { flex: 1 1 0; width: 0; min-width: 32px; }
-.task-text > textarea { display: block; width: 100%; min-width: 0; resize: none; overflow: hidden; border: 0; border-radius: 3px; background: transparent; color: var(--color-ink); font: inherit; font-size: 14px; line-height: 22px; padding: 3px 2px; caret-color: var(--color-accent); }
-.task-text > textarea:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
-.task-text > textarea::selection { background: var(--color-accent); color: var(--color-ink-on-accent); }
-.task-line[data-done="true"] .task-text > textarea { text-decoration: line-through; color: var(--color-ink-secondary); }
+.task-text-input { position: relative; flex: 1; min-width: 0; }
+.task-text-preview { position: absolute; inset: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; padding: 3px 2px; font-size: 14px; line-height: 22px; color: var(--color-ink); }
+.task-text-input:has(textarea:focus) > .task-text-preview { display: none; }
+.task-text-input > textarea { display: block; width: 100%; opacity: 0; min-width: 0; height: 28px; white-space: nowrap; text-overflow: ellipsis; resize: none; overflow: hidden; border: 0; border-radius: 3px; background: transparent; color: var(--color-ink); font: inherit; font-size: 14px; line-height: 22px; padding: 3px 2px; caret-color: var(--color-accent); }
+.task-text-input > textarea:focus { opacity: 1; white-space: pre-wrap; text-overflow: clip; }
+.task-text-input > textarea:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
+.task-text-input > textarea::selection { background: var(--color-accent); color: var(--color-ink-on-accent); }
+.task-line[data-done="true"] .task-text-input > textarea, .task-line[data-done="true"] .task-text-preview { text-decoration: line-through; color: var(--color-ink-secondary); }
 .task-tags { display: flex; align-items: center; flex: 0 1 auto; max-width: 50%; min-width: 0; gap: 4px; overflow-x: auto; scrollbar-width: thin; padding: 4px 0; }
 .task-tag { display: inline-flex; flex-shrink: 0; max-width: 100%; align-items: center; border-radius: 9px; background: hsl(var(--task-tag-hue) 80% 92%); color: hsl(var(--task-tag-hue) 65% 25%); font-size: 12px; line-height: 20px; }
 .task-tags > .task-tag { height: 20px; }

@@ -30,7 +30,7 @@ test('future start labels follow the UI locale', () => {
   const previous = getUiLocale()
   try {
     for (const [locale, labels] of [
-      ['en', ['Starts in 2d', 'Starts in 2w', 'Starts in 2mo']],
+      ['en', ['In 2d', 'In 2w', 'In 2mo']],
       ['zh-CN', ['2天后开始', '2周后开始', '2个月后开始']],
       ['ja', ['2日後に開始', '2週間後に開始', '2か月後に開始']],
     ] as const) {
