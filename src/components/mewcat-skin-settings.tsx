@@ -3,7 +3,7 @@ import { uiText } from '@mew/ui/i18n-core'
 import { useUiLocale } from '@mew/ui/i18n'
 import { Download, EditPencil, Plus, Refresh, Trash, Upload, Xmark } from 'iconoir-react'
 import { useI18n } from '../i18n'
-import { useCustomSpriteSkins, useMewcatSpriteSkin } from '../hooks/use-mewcat-sprite-skins'
+import { useBuiltinSpriteSkins, useCustomSpriteSkins } from '../hooks/use-mewcat-sprite-skins'
 import { MEWCAT_SKINS, type MewcatSkin, type MewcatSkinSelection } from '../utils/mewcatSkin'
 import { MEWCAT_CYCLE_MS, MEWCAT_SPRITE_ACTIONS, MAX_SPRITE_FRAMES, validSpriteDimensions, type MewcatSpriteAction, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from '../utils/mewcat-sprites'
 import { deleteSpriteSkin, loadSpriteSkins, prepareSpriteStrip, readSpriteImage, saveSpriteSkin } from '../utils/mewcat-sprite-storage'
@@ -26,14 +26,14 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
   const { t } = useI18n()
   useUiLocale()
   const custom = useCustomSpriteSkins()
-  const silhouette = useMewcatSpriteSkin('mew')
-  const kitten = useMewcatSpriteSkin('kitten')
+  const builtins = useBuiltinSpriteSkins()
+  const sampleFolder = MEWCAT_SKINS.find(item => item.id === skin)?.folder ?? 'silhouette'
   const [draft, setDraft] = useState<Draft>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const options: { id: MewcatSkinSelection; name: string; sprite?: SpriteStrip }[] = [
     { id: null, name: t('settings.mewcatNone') },
-    ...MEWCAT_SKINS.map(item => ({ ...item, sprite: (item.id === 'kitten' ? kitten : silhouette)?.sprites.idle })),
+    ...MEWCAT_SKINS.map(item => ({ ...item, sprite: builtins[item.id]?.sprites.idle })),
     ...custom.skins.map(item => ({ id: item.id as MewcatSkin, name: item.name, sprite: item.sprites.idle })),
   ]
   const save = async () => {
@@ -95,7 +95,7 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
       </div>
       <p className="mt-2 text-xs leading-relaxed text-ink-muted">{uiText('같은 크기의 프레임을 가로 한 줄로 나열한 PNG·WebP를 넣으세요. 착지는 공중 하강 이미지의 후반 프레임을 사용합니다.')}</p>
       <div className="mt-2 divide-y divide-edge">
-        {MEWCAT_SPRITE_ACTIONS.map(action => <SpriteEditorRow key={action} action={action} sampleFolder={skin === 'kitten' ? 'kitten' : 'silhouette'} value={draft.actions[action]} disabled={busy} onError={setError}
+        {MEWCAT_SPRITE_ACTIONS.map(action => <SpriteEditorRow key={action} action={action} sampleFolder={sampleFolder} value={draft.actions[action]} disabled={busy} onError={setError}
           onAttach={(image, fileName) => setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: { ...current.actions[action], image, fileName } } } : current)}
           onChange={value => { setError(''); setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: value } } : current) }} />)}
       </div>
@@ -108,7 +108,7 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
   </div>
 }
 
-function SpriteEditorRow({ action, sampleFolder, value, disabled, onAttach, onChange, onError }: { action: MewcatSpriteAction; sampleFolder: 'kitten' | 'silhouette'; value: DraftAction; disabled: boolean; onAttach: (image: SpriteImage, fileName: string) => void; onChange: (value: DraftAction) => void; onError: (error: string) => void }) {
+function SpriteEditorRow({ action, sampleFolder, value, disabled, onAttach, onChange, onError }: { action: MewcatSpriteAction; sampleFolder: (typeof MEWCAT_SKINS)[number]['folder']; value: DraftAction; disabled: boolean; onAttach: (image: SpriteImage, fileName: string) => void; onChange: (value: DraftAction) => void; onError: (error: string) => void }) {
   const [preview, setPreview] = useState<SpriteStrip>()
   const [reading, setReading] = useState(false)
   const uploadGeneration = useRef(0)

@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { loadBuiltinSpriteSkin, loadSpriteSkins, spriteStore } from '../utils/mewcat-sprite-storage'
 import type { SpriteSkin } from '../utils/mewcat-sprites'
-import type { MewcatSkinSelection } from '../utils/mewcatSkin'
+import { MEWCAT_SKINS, type MewcatBuiltinSkin, type MewcatSkinSelection } from '../utils/mewcatSkin'
 
 export function useCustomSpriteSkins() {
   const store = spriteStore()
@@ -13,9 +13,23 @@ export function useCustomSpriteSkins() {
   return snapshot
 }
 
+export function useBuiltinSpriteSkins() {
+  const [skins, setSkins] = useState<Partial<Record<MewcatBuiltinSkin, SpriteSkin>>>({})
+  useEffect(() => {
+    let active = true
+    for (const definition of MEWCAT_SKINS) {
+      void loadBuiltinSpriteSkin(definition.id).then(skin => {
+        if (active) setSkins(current => ({ ...current, [definition.id]: skin }))
+      }).catch(() => {})
+    }
+    return () => { active = false }
+  }, [])
+  return skins
+}
+
 export function useMewcatSpriteSkin(id: MewcatSkinSelection): SpriteSkin | undefined {
   const custom = useCustomSpriteSkins()
-  const builtinId = id === 'kitten' ? 'kitten' : 'mew'
+  const builtinId = MEWCAT_SKINS.find(skin => skin.id === id)?.id ?? 'mew'
   const [builtin, setBuiltin] = useState<SpriteSkin>()
   useEffect(() => {
     let active = true

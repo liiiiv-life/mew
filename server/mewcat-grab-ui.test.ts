@@ -9,7 +9,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-test('a thrown Mewcat keeps background input accessible and can be caught without jumping', { skip: !domBrowserExecutable(), timeout: 30_000 }, async () => {
+test('a thrown Mewcat keeps background input accessible and can be caught without jumping', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const source = `
 // This fixture covers cat behavior in a fullscreen-unavailable client.
 Object.defineProperty(document,'fullscreenEnabled',{value:false});
@@ -31,7 +31,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
-    for (const skin of ['mew', 'kitten']) for (const remote of [false, true]) for (const touch of [false, true]) {
+    for (const skin of ['mew', 'kitten', 'russian-blue', 'korean-shorthair', 'capybara']) for (const remote of [false, true]) for (const touch of [false, true]) {
       const page = await browser.newPage({ viewport: { width: touch ? 390 : 800, height: 700 }, hasTouch: touch, isMobile: touch })
       await page.clock.install({ time: new Date('2026-09-22T00:00:00Z') })
       await page.clock.pauseAt(new Date('2026-09-22T00:00:01Z'))

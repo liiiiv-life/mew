@@ -186,14 +186,14 @@ export function loadBuiltinSpriteSkin(id: MewcatBuiltinSkin): Promise<SpriteSkin
   let pending = builtins.get(id)
   if (!pending) {
     pending = (async () => {
-      const folder = id === 'mew' ? 'silhouette' : 'kitten'
+      const definition = MEWCAT_SKINS.find(skin => skin.id === id)!
       const entries = await Promise.all(MEWCAT_SPRITE_ACTIONS.map(async action => {
-        const response = await fetch(`/mewcat/${folder}/${action}.png`)
+        const response = await fetch(`/mewcat/${definition.folder}/${action}.png`)
         if (!response.ok) throw new Error('sprite unavailable')
         return [action, await readSpriteImage(await response.blob(), 8)] as const
       }))
       const sprites = Object.fromEntries(entries) as SavedSpriteSkin['sprites']
-      return prepareSkin({ id, name: MEWCAT_SKINS.find(skin => skin.id === id)!.name, sprites })
+      return prepareSkin({ id, name: definition.name, sprites })
     })().catch(error => { builtins.delete(id); throw error })
     builtins.set(id, pending)
   }

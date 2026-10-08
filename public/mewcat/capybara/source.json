@@ -1,0 +1,28 @@
+{
+  "generator": "built-in image_gen",
+  "created": "2026-10-08",
+  "prompt": "Use case: production game sprite animation atlas for a tiny desktop companion in Mew. Use the attached existing kitten strip only as a reference for the soft hand-drawn chibi game-sprite style, crisp dark outlines, restrained highlights and expressive big head. Make an ORIGINAL new animal of the species requested, preserve the species anatomy and markings. It must read clearly when rendered at 48 pixels. Genuine transparent alpha background, no floor, shadows, props, lettering, numbers, grid lines or margins larger than half a cell. EXACTLY 8 equal columns and 7 equal rows: 56 distinct full-animal drawings, one animal centered entirely inside each equal rectangular cell. All 56 animals MUST use identical design, scale and consistent cell-relative alignment with clear transparent gutters, no overlapping cells. All animals face RIGHT or three-quarter RIGHT, never left. Compose like a precise sprite sheet with even grid spacing. Rows in this exact order: Row 1 (8 frames) IDLE sitting and gentle breathing/blinking, subtle ear/tail movement, loop. Row 2 (8 frames) WALK: a real quadruped walk cycle with alternating small feet at the same baseline, seamless loop. Row 3 (8 frames) RUN: a bouncy compact quadruped run with distinct collected and stretched limbs, seamless loop. Row 4 (8 frames) ASCENDING JUMP: airborne body leaning UP toward upper right, front feet lifted, hind feet tucked or trailing downward, expressive uplift; absolutely distinct from running and descending. Row 5 (8 frames) DESCENDING FALL: airborne body leaning DOWN toward lower right, front feet reaching toward landing and hind feet behind; front half of row is clear descent, last four frames ease into a soft squat/landing pose. This MUST be visibly different from the ascent row, never a reused run pose. Row 6 (8 frames) BEING PETTED: happy gentle closed eyes and relaxed posture, head leaning affectionately, no human hand, no hearts. Row 7 (8 frames) BEING HELD: cute slightly surprised dangling upright body with gentle paw wiggles, shoulders anchored at the top of the animal; no human hands, no distress. Ground poses share baseline and airborne poses fit in the same cell, never clip ears, tail or paws. Aim for a rectangular atlas with width:height ratio 8:7, preferably 1536x1344 or 1024x896. Exact 8 by 7 regular layout is more important than pixel dimensions. Species: CAPYBARA. An unmistakable real CAPYBARA made into a cute chibi mascot: warm caramel-brown short fur, a broad rectangular rounded BLUNT MUZZLE, two SMALL ROUND ears high on the head, calm small dark eyes, broad brown nostrils, stocky barrel-shaped body, SHORT strong legs with simple little toes, NO visible tail. No feline features, no pointed cat ears, no feline nose, no long tail, no stripes, no whiskers, no mane. Preserve capybara proportions while fitting the existing adorable outlined sprite style. The muzzle and round ears must remain unmistakable in ALL 56 drawings.",
+  "references": [
+    "public/mewcat/kitten/idle.png"
+  ],
+  "actions": [
+    "idle",
+    "walk",
+    "run",
+    "jump",
+    "fall",
+    "love",
+    "struggle"
+  ],
+  "frameCount": 8,
+  "frameWidth": 128,
+  "frameHeight": 128,
+  "stripWidth": 1024,
+  "sourceAtlas": {
+    "width": 1340,
+    "height": 1174,
+    "columns": 8,
+    "rows": 7
+  },
+  "normalization": "Extract all 56 complete alpha-connected animals from the 8×7 atlas; assign by seven ordered rows and eight ordered columns without cropping at approximate grid boundaries; retain each animal and its 2px antialiased edge; apply one uniform scale across all frames with maximum extent 104px; center in each 128px cell with foot baseline 127px. Preserve transparent alpha."
+}

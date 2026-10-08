@@ -17,3 +17,12 @@ test('Mewcat 스킨 선택은 허용 목록만 저장하고 없음은 명시적�
   assert.equal(saveMewcatSkin(null, { setItem: (key, value) => { saved = [key, value] } }), null)
   assert.deepEqual(saved, [MEWCAT_SKIN_KEY, 'none'])
 })
+
+test('추가 동물 스킨의 선택은 각 ID를 저장하고 그대로 복원한다', () => {
+  for (const id of ['russian-blue', 'korean-shorthair', 'capybara'] as const) {
+    let saved = ''
+    assert.equal(normalizeMewcatSkin(id), id)
+    assert.equal(saveMewcatSkin(id, { setItem: (_key, value) => { saved = value } }), id)
+    assert.equal(loadMewcatSkin({ getItem: () => saved }), id)
+  }
+})

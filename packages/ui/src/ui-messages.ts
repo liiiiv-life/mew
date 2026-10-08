@@ -3,6 +3,9 @@
 export const uiMessages = {
   "아기 고양이": ["Little kitten", "小猫咪", "子猫"],
   "실루엣 고양이": ["Silhouette kitten", "剪影小猫", "シルエット子猫"],
+  "러시안블루": ["Russian Blue", "俄罗斯蓝猫", "ロシアンブルー"],
+  "코리안 숏헤어": ["Korean Shorthair", "韩国短毛猫", "コリアンショートヘア"],
+  "카피바라": ["Capybara", "水豚", "カピバラ"],
   "스킨 추가": ["Add skin", "添加皮肤", "スキンを追加"],
   "스킨 이름": ["Skin name", "皮肤名称", "スキン名"],
   "스킨 수정": ["Edit skin", "编辑皮肤", "スキンを編集"],

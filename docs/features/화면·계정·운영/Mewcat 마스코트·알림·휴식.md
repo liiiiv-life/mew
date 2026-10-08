@@ -8,7 +8,7 @@ updated: "2026-10-08"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-skin-settings.tsx", "src/utils/mewcat-sprites.ts", "src/utils/mewcat-sprite-storage.ts", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
-description: "뮤캣의 화면 바닥 배치·모바일 독 겹침, 검정 실루엣·아기 고양이와 상승·하강을 분리한 일곱 동작의 가변 프레임·고정 재생 주기 커스텀 스킨, 이동·끌기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤캣 휴식의 저장·입력 유지 규칙도 설명한다."
+description: "뮤캣의 화면 바닥 배치·모바일 독 겹침, 실루엣·아기 고양이·러시안블루·코리안 숏헤어·카피바라 내장 스킨과 상승·하강을 분리한 일곱 동작의 커스텀 스킨, 이동·끌기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤캣 휴식의 저장·입력 유지 규칙도 설명한다."
 상위파일:
   - "MOC.md"
   - "_화면·계정·운영.md"
@@ -24,7 +24,7 @@ description: "뮤캣의 화면 바닥 배치·모바일 독 겹침, 검정 실�
 
 ### 범위
 
-- 음영 없는 검정 몸통과 흰 눈만 가진 실루엣 고양이를 기본 스킨으로 제공하며 기존 아기 고양이도 유지한다.
+- 음영 없는 검정 몸통과 흰 눈만 가진 실루엣 고양이를 기본 스킨으로 제공하며 아기 고양이·러시안블루·코리안 숏헤어·카피바라도 선택할 수 있다.
 - 스프라이트 고양이의 걷기·달리기·클릭·끌기·던지기와 설정에서 숨기기·스킨 선택을 제공한다.
 - 설정 → 뮤캣에서 가만히 있기·걷기·뛰기·공중 상승·공중 하강·쓰다듬기·목덜미 잡기 일곱 동작의 스프라이트 이미지와 프레임 수를 등록하고 이름별로 저장·수정·삭제한다. 동작별 전체 재생 시간은 프레임 수와 무관하게 고정하며, 공중 상승·하강은 독립 이미지를 사용하고 착지는 하강 이미지의 후반 프레임을 재사용한다.
 - 작업 완료·오류·승인과 지속적인 서버 자원 과부하를 말풍선으로 알리고 해당 화면으로 이동한다.
@@ -128,7 +128,9 @@ run 중 하나를 무작위로 골라 수행한다. 스프라이트의 동작별
 ### 스킨 선택
 
 설정 창의 **뮤캣** 카테고리에서 화면별 스킨을 고른다. 첫 카드는 **없음**이며, 선택하면 Mewcat을
-렌더링하지 않는다. **실루엣 고양이**와 **아기 고양이**, 사용자가 등록한 스킨을 실제 그림의 정적 미리보기로 선택한다. 실루엣이 기본값이며 내부 ID `mew`를 유지해 이전 기본 선택도 새 그림을 표시한다. 아기 고양이·커스텀 스킨·없음 선택은 유지한다. 선택 ID는 scoped localStorage의 `mew:mewcat-skin`에 저장하며 이전 `oreo` 값도 실루엣으로 이관한다. scoped 선택이 아직 없으면 기존 origin 공통 설정의 없음·기본 선택을 이어받으며 커스텀 ID는 다른 인스턴스로 이관하지 않는다.
+렌더링하지 않는다. **실루엣 고양이**, **아기 고양이**, **러시안블루**, **코리안 숏헤어**, **카피바라**와 사용자가 등록한 스킨을 실제 그림의 정적 미리보기로 선택한다. 실루엣이 기본값이며 내부 ID `mew`를 유지해 이전 기본 선택도 새 그림을 표시한다. 다른 스킨·없음 선택은 유지한다. 선택 ID는 scoped localStorage의 `mew:mewcat-skin`에 저장하며 이전 `oreo` 값도 실루엣으로 이관한다. scoped 선택이 아직 없으면 기존 origin 공통 설정의 없음·기본 선택을 이어받으며 커스텀 ID는 다른 인스턴스로 이관하지 않는다.
+
+러시안블루(`russian-blue`)는 청회색 털과 초록 눈, 코리안 숏헤어(`korean-shorthair`)는 주황 줄무늬와 흰 주둥이·가슴·발, 카피바라(`capybara`)는 갈색 몸통·둥근 귀·넓은 주둥이로 구분한다. 세 스킨 모두 다른 내장 스킨과 같은 일곱 동작·상승과 하강 분리·좌우 반전·끌기·휴식·원격 표시를 지원한다.
 
 이전 기본 SVG 고양이와 전용 털색 선택기·HEX·초기화는 사용자 요청으로 제거했다. 기존 `mew:mewcat-fur-color` 값은 사용하지 않으며 사용자 요청 전 이전 캐릭터·털색 설정을 재도입하지 않는다. 내장·업로드 스킨의 색은 이미지 그대로 표시한다.
 
@@ -152,13 +154,13 @@ run 중 하나를 무작위로 골라 수행한다. 스프라이트의 동작별
 
 `src/utils/mewcat-sprites.ts`가 프레임·재생 주기 계약을, `mewcat-sprite-storage.ts`가 이미지 검사·IndexedDB·포인터 알파 경로를, `mewcat-skin-settings.tsx`가 등록·수정 UI를 소유한다. `Mewcat.tsx`의 기존 물리·포인터 처리에서 상태별 프레임을 진행한다.
 
-아기 고양이는 `public/mewcat/kitten/`, 검정 실루엣은 `public/mewcat/silhouette/`의 일곱 1024×128 PNG이며 각각 8프레임이다. 상승·하강도 기존 캐릭터를 참조한 별도 이미지로 제공한다. 내장 image_gen으로 원본과 실루엣 변형을 제작한 뒤 동일한 128px 셀·발바닥 기준선으로 정렬했다. 실루엣은 흑백 팔레트로 정규화하고 투명 배경을 유지한다. 생성 프롬프트와 산출물 규격은 각 폴더의 `source.json`과 상승·하강 전용 `airborne-source.json`에 남긴다. 외부 오레오캣 자산은 사용하지 않는다.
+아기 고양이는 `public/mewcat/kitten/`, 검정 실루엣은 `public/mewcat/silhouette/`, 추가 동물은 `public/mewcat/russian-blue/`·`public/mewcat/korean-shorthair/`·`public/mewcat/capybara/`에 보관한다. 각 스킨은 일곱 1024×128 투명 PNG이며 동작당 8프레임이다. 상승·하강도 별도 이미지로 제공한다. 내장 image_gen으로 제작한 뒤 동일한 128px 셀·발바닥 기준선으로 정렬했다. 실루엣은 흑백 팔레트로 정규화한다. 생성 프롬프트와 산출물 규격은 각 폴더의 `source.json`에, 기존 두 스킨의 별도 상승·하강 생성 기록은 `airborne-source.json`에 남긴다. 내장 ID·이름·폴더는 `mewcatSkin.ts`에서 함께 관리하여 미리보기·실제 렌더링·예제 다운로드가 같은 스킨을 사용한다. 외부 오레오캣 자산은 사용하지 않는다.
 
 ```bash
-node --test src/utils/mewcat-sprites.test.ts src/utils/mewcatSkin.test.ts server/mewcat-skins-ui.test.ts
+node --test src/utils/mewcat-sprites.test.ts src/utils/mewcatSkin.test.ts server/mewcat-skins-ui.test.ts server/mewcat-grab-ui.test.ts
 ```
 
-단위 검사는 1·5·8·10·256프레임의 고정 주기·전체 프레임 진행과 상승·하강 분리·하강 후반 착지·이미지 규격을 확인한다. Chromium fixture는 두 내장 스킨·이전 기본과 털색 설정 제거, 실제 설정 창의 일곱 이미지 등록·손상 이미지와 잘못된 프레임 수 거부·미리보기·적용·10프레임 걷기·투명 영역 클릭 통과·목덜미 잡기·상승에서 정점 뒤 하강 전환·바닥 복귀·새로고침 복원·이전 다섯 동작 스킨 보완·수정·삭제·원격 인스턴스별 저장 격리를 데스크톱·모바일에서 확인한다. 실제 운영 빌드·배포와 실기기 파일 선택은 사용자 적용 단계다.
+단위 검사는 1·5·8·10·256프레임의 고정 주기·전체 프레임 진행과 상승·하강 분리·하강 후반 착지·이미지 규격·추가 동물 스킨 ID의 저장과 복원을 확인한다. Chromium fixture는 다섯 내장 스킨의 미리보기·선택·동작별 예제 다운로드·동물 선택 복원, 이전 기본과 털색 설정 제거, 실제 설정 창의 일곱 이미지 등록·손상 이미지와 잘못된 프레임 수 거부·미리보기·적용·10프레임 걷기·투명 영역 클릭 통과·목덜미 잡기·상승에서 정점 뒤 하강 전환·바닥 복귀·이전 다섯 동작 스킨 보완·수정·삭제·원격 인스턴스별 저장 격리를 데스크톱·모바일에서 확인한다. 실제 운영 빌드·배포와 실기기 파일 선택은 사용자 적용 단계다.
 
 
 ### 작업·오류·자원 알림
@@ -392,4 +394,4 @@ node --test src/utils/mewcat-break-rules.test.ts server/mewcat-break-ui.test.ts
 
 <!-- mew:validation:end -->
 
-내장 스킨 확인 기준: PC·모바일에서 실루엣 기본값·두 스킨 선택과 미리보기·기존 `mew`·`oreo` 값 호환·이전 기본 및 털색 설정 제거·선택별 예제 다운로드를 확인한다. 프레임 수·저장·상호작용 검사는 위 스킨 선택 계약을 따른다.
+내장 스킨 확인 기준: PC·모바일에서 실루엣 기본값·다섯 스킨 선택과 미리보기·동물 선택 복원·기존 `mew`·`oreo` 값 호환·이전 기본 및 털색 설정 제거·선택별 일곱 동작 예제 다운로드를 확인한다. 프레임 수·저장·상호작용 검사는 위 스킨 선택 계약을 따른다.

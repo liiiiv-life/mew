@@ -9,7 +9,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-test('Mewcat settings upload seven strips, keep fixed cycles, preserve input, restore and edit skins on desktop/mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
+test('Mewcat settings select five builtins, upload seven strips, restore and edit skins on desktop/mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const source = `
 import React,{useState} from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
@@ -48,7 +48,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       page.on('pageerror', error => errors.push(error.message))
       await page.route('http://skins.test/**', async route => {
         const pathname = new URL(route.request().url()).pathname
-        if (/^\/mewcat\/(kitten|silhouette)\/[a-z]+\.png$/.test(pathname)) return route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${pathname}`) })
+        if (/^\/mewcat\/(kitten|silhouette|russian-blue|korean-shorthair|capybara)\/[a-z]+\.png$/.test(pathname)) return route.fulfill({ contentType: 'image/png', body: await fs.readFile(`${root}/public${pathname}`) })
         return route.fulfill({ contentType: 'text/html', body: `<html class="${mobile ? '' : 'dark'}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>${chunk.code}</script></html>` })
       })
       await page.clock.install()
@@ -60,11 +60,35 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await silhouette.locator('.mewcat-sprite').waitFor()
       await page.locator('.mewcat > .mewcat-art > .mewcat-sprite').waitFor()
       await settings.getByRole('button', { name: '아기 고양이', exact: true }).locator('.mewcat-sprite').waitFor()
+      const animals = [
+        { name: '러시안블루', folder: 'russian-blue' },
+        { name: '코리안 숏헤어', folder: 'korean-shorthair' },
+        { name: '카피바라', folder: 'capybara' },
+      ]
+      for (const animal of animals) await settings.getByRole('button', { name: animal.name, exact: true }).locator('.mewcat-sprite').waitFor()
       const silhouetteImage = await page.locator('.mewcat > .mewcat-art > .mewcat-sprite image').getAttribute('href')
       assert.equal(await settings.getByRole('button', { name: '기본', exact: true }).count(), 0)
       assert.equal(await settings.getByText('털색', { exact: true }).count(), 0)
       assert.equal(await page.locator('.mewcat-mark').count(), 0)
       await page.screenshot({ path: `/tmp/mewcat-builtins-${mobile ? 'mobile' : 'desktop'}.png` })
+      const animalImages = new Set<string | null>([silhouetteImage])
+      for (const animal of animals) {
+        const option = settings.getByRole('button', { name: animal.name, exact: true })
+        await option.click()
+        assert.equal(await option.getAttribute('aria-pressed'), 'true')
+        await page.locator('.mewcat > .mewcat-art > .mewcat-sprite').waitFor()
+        const animalImage = await page.locator('.mewcat > .mewcat-art > .mewcat-sprite image').getAttribute('href')
+        assert.ok(animalImage && !animalImages.has(animalImage), 'each animal renders its own artwork')
+        animalImages.add(animalImage)
+        await settings.getByRole('button', { name: '스킨 추가', exact: true }).click()
+        const samples = await settings.getByRole('link', { name: /예제 이미지 다운로드$/ }).evaluateAll(links => links.map(link => link.getAttribute('href')))
+        assert.deepEqual(samples, ['idle', 'walk', 'run', 'jump', 'fall', 'love', 'struggle'].map(action => `/mewcat/${animal.folder}/${action}.png`))
+        await settings.getByRole('button', { name: '취소', exact: true }).click()
+      }
+      await page.reload()
+      await settings.getByRole('button', { name: '뮤캣', exact: true }).click()
+      assert.equal(await settings.getByRole('button', { name: '카피바라', exact: true }).getAttribute('aria-pressed'), 'true', 'animal selection survives reload')
+      assert.equal(await settings.evaluate(el => el.scrollWidth <= el.clientWidth), true)
       await settings.getByRole('button', { name: '아기 고양이', exact: true }).click()
       await page.locator('.mewcat > .mewcat-art > .mewcat-sprite').waitFor()
       assert.notEqual(await page.locator('.mewcat > .mewcat-art > .mewcat-sprite image').getAttribute('href'), silhouetteImage, 'the existing kitten remains a separate skin')
