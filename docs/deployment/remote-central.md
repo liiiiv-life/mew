@@ -1,11 +1,116 @@
 ---
 title: "mewlink Cloudflare 배포"
-description: "공개 Git 이력의 중앙 소스 제외 범위와 Workers 통합 배포를 안내하고, Google·GitHub·Apple·이메일 OIDC의 ID·secret·키 발급 메뉴, 설정 파일 입력과 Cloudflare 자동 생성값을 설명한다. 실제 배포·제공자 로그인·외부망 검증은 남아 있다."
+description: "Google·GitHub·Apple 로그인 값 받기, 설정 파일에 저장하기, Cloudflare 배포와 로컬 기기 등록을 짧은 실행 순서로 안내한다. 뒤에는 발급·운영 상세 참고를 보존하며 실제 배포·외부망 검증은 남아 있다."
 created: 2026-10-07
 updated: "2026-10-08"
 ---
 
 # mewlink Cloudflare 배포
+
+## 내가 할 일
+
+**처음에는 Google 또는 GitHub 하나만 설정해도 된다.** Apple은 나중에 추가해도 된다.
+
+### 1. 설정 파일 만들기
+
+터미널에서 실행한다.
+
+```bash
+cd /home/saens/dev/liiiiv/mew/mewlink
+npm ci --ignore-scripts
+npm run setup
+```
+
+### 2. 로그인 버튼에 쓸 값 받기
+
+**Google을 쓰려면**
+
+1. [Google 콘솔](https://console.cloud.google.com/) → 프로젝트 선택 또는 생성.
+2. **Google Auth platform → Branding → Get started** → 앱 이름 `mewlink`와 이메일 입력.
+3. **Audience → External** 선택 → **Test users**에 내 Google 계정 추가.
+4. **Clients → Create client → Web application** 선택. **Authorized redirect URIs**에 아래 주소 입력.
+
+   `https://mew.saens.kr/auth/google/callback`
+
+5. 생성된 **Client ID**와 **Client secret** 복사.
+
+**GitHub를 쓰려면**
+
+1. [GitHub 설정](https://github.com/settings/developers) → **OAuth apps → New OAuth App**.
+2. 아래처럼 입력하고 **Register application** 클릭.
+
+   | 입력칸 | 넣을 값 |
+   | --- | --- |
+   | Application name | `mewlink` |
+   | Homepage URL | `https://mew.saens.kr` |
+   | Authorization callback URL | `https://mew.saens.kr/auth/github/callback` |
+
+3. **Client ID** 복사 → **Generate a new client secret** 클릭 → 나온 secret 복사.
+
+**Apple도 쓰려면 — Apple Developer Program 가입 필요**
+
+1. [Apple 개발자 계정](https://developer.apple.com/account/) → **Membership details**에서 **Team ID** 복사.
+2. **Certificates, Identifiers & Profiles → Identifiers**에서 앱 ID의 **Sign in with Apple**을 켠다.
+3. **Identifiers → + → Services IDs**로 웹 로그인 ID를 만든다. **Sign in with Apple → Configure**에서 2번 앱을 선택하고 다음 주소를 저장한다.
+
+   | 입력칸 | 넣을 값 |
+   | --- | --- |
+   | Domains and Subdomains | `mew.saens.kr` |
+   | Return URLs | `https://mew.saens.kr/auth/apple/callback` |
+
+4. **Keys → + → Sign in with Apple**에서 같은 앱을 선택하고 키를 만든다. **Key ID**를 복사하고 **Download**로 `.p8` 파일을 받는다.
+
+### 3. 받은 값 저장하기
+
+`mewlink/.secrets.json`을 열고, 사용하는 로그인 방식의 항목만 추가한다.
+
+| 복사한 값 | 파일에 넣을 이름 |
+| --- | --- |
+| Google Client ID | `GOOGLE_CLIENT_ID` |
+| Google Client secret | `GOOGLE_CLIENT_SECRET` |
+| GitHub Client ID | `GITHUB_CLIENT_ID` |
+| GitHub Client secret | `GITHUB_CLIENT_SECRET` |
+| Apple 웹 로그인 ID(Services ID) | `APPLE_CLIENT_ID` |
+| Apple Team ID | `APPLE_TEAM_ID` |
+| Apple Key ID | `APPLE_KEY_ID` |
+| Apple `.p8` 파일 내용 | `APPLE_PRIVATE_KEY` |
+
+예를 들어 **GitHub만 사용하면** 이렇게 넣는다. 따옴표 안을 실제 값으로 바꾼다.
+
+```json
+{
+  "GITHUB_CLIENT_ID": "복사한 Client ID",
+  "GITHUB_CLIENT_SECRET": "복사한 Client secret"
+}
+```
+
+기존 값이 있으면 지우지 말고 추가한다. Apple 파일 내용 넣기는 아래 [Apple 상세 안내](#3-apple-services-id-team-id-key-id-p8)의 명령을 사용한다. 실제 값은 이 문서나 채팅에 붙여 넣지 않는다.
+
+### 4. Cloudflare에 올리기
+
+같은 터미널에서 실행한다. 브라우저가 열리면 **`saens.kr`를 관리하는 Cloudflare 계정**으로 로그인한다.
+
+```bash
+npx wrangler login
+npm run deploy
+```
+
+데이터베이스와 서버용 키는 이 명령이 자동으로 준비한다.
+
+### 5. 내 mew 연결하기
+
+1. 로컬 mew를 새 버전으로 빌드·적용한다. 방법은 [로컬 설치 안내](native.md)를 따른다.
+2. 로컬 mew의 **계정 설정 → 원격 접속 → 기기 등록** 클릭.
+3. 열린 `mew.saens.kr`에서 로그인 → 기기 이름 입력 → 등록 승인.
+4. 다른 PC나 휴대폰에서 등록된 기기 링크를 열어 연결 확인.
+
+현재는 실제 서비스에 배포하기 전이다. **이 문서에 적힌 명령은 사용자가 실행한다.**
+
+---
+
+## 상세 참고
+
+아래는 추가 로그인 설정·문제 해결·운영 정보를 확인할 때 읽는다.
 
 [구현·전송 계약](../development/remote-access.md) · [로컬 설치](native.md) · [작업·출시 게이트](<../tasks/mew 중계 기능 만들기.md>) · [ADR 0203](../../../.mew/docs/decisions/0203-mewlink-workers-p2p-ui.md)
 
@@ -37,16 +142,6 @@ updated: "2026-10-08"
 `mew-ui.saens.kr`는 같은 Worker에 붙는 **내부 실행 origin**이다. 전체 mew UI를 별도 배포하는 사이트가 아니다. 로그인 호스트의 `__Host-mew_central` cookie와 인증·계정 API를 P2P 앱 코드에서 분리하기 위한 경계다. 한 origin 아래 `/user/device` 경로만 나누면 같은 origin의 JS가 인증 API를 호출할 수 있다. 중앙에서 발급한 60초·일회용 launch 증명은 정확한 내부 프레임에만 전달하며 실제 앱에는 중앙 cookie·launch 증명을 전달하지 않는다.
 
 자원 Service Worker는 정확히 대응하는 연결 페이지·탭의 전송만 사용한다. 브라우저 저장 범위는 중앙 계정·instance ID로 나눈다. 공유 앱 origin을 서로 불신하는 기기 간 보안 격리로 표현하지 않는다. A가 오프라인이거나 직접 연결할 수 없으면 UI와 작업 요청은 실패하며 중앙 HTTP 프록시·TURN으로 대체하지 않는다.
-
-## 사용자가 할 일
-
-이 세 단계만 직접 수행한다. 이번 세션에는 Cloudflare 관리 MCP가 없었고, Wrangler의 기존 로그인은 읽기 전용으로 확인했다. OAuth 앱의 신규 등록·Apple 계정 승인은 사용할 수 있는 도구로 대신할 수 없다. 빌드·배포는 [실행 규칙](../development/getting-started.md)의 사용자 적용 범위다.
-
-1. **OAuth 앱 등록.** 사용할 제공자만 아래 표의 콜백을 등록하고 발급값을 로컬 `mewlink/.secrets.json`에 넣는다. `cd mewlink && npm ci --ignore-scripts && npm run setup`으로 권한 `0600`인 빈 설정 파일을 준비한다. 값은 문서·채팅·Git에 남기지 않는다. Apple은 Services ID, Team ID, Key ID, `.p8` 비공개 키가 필요하다. Worker가 client secret JWT를 요청마다 5분 수명으로 서명하므로 수동 JWT 갱신은 필요 없다.
-2. **Cloudflare 배포.** `saens.kr` zone을 해당 Cloudflare 계정에서 관리할 수 있는지 확인한 뒤 `cd mewlink && npm run deploy`를 실행한다. 다른 계정이라면 먼저 `npx wrangler login`한다. 이 명령은 작은 프론트 빌드 → 기존 D1 조회/필요 시 생성 → ID 기록 → 원격 마이그레이션 → 서명 키 생성·보관 → secret 주입과 두 custom domain 배포를 수행한다. 기존 DNS 충돌이나 계정 권한 오류는 정리 후 재실행한다. 기존 레코드를 임의 삭제하지 않는다.
-3. **로컬 적용·등록.** 사용자가 로컬 mew를 새 버전으로 빌드·적용한 뒤(구버전 UI 빌드는 연결 전에 거부한다) owner의 계정 설정 → 원격 접속 → 기기 등록을 누른다. 열린 중앙 페이지에서 로그인·기기 이름 승인을 끝낸다. 다른 PC/휴대폰에서 고정 URL을 열어 실제 로그인과 외부망 직접 연결을 확인한다.
-
-Cloudflare·D1·도메인·서명 키를 화면에서 따로 생성하거나 Supabase 프로젝트를 만들 필요는 없다. 위 명령은 정상 계정·zone 권한을 전제로 자동화하며, 이번 작업에서는 원격 리소스를 생성하거나 배포하지 않았다.
 
 ### OAuth 발급값
 
