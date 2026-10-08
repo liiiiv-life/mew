@@ -1,0 +1,20 @@
+{
+  "generator": "built-in image_gen",
+  "created": "2026-10-08",
+  "reference": "source.json",
+  "prompt": "Use case: stylized-concept. Asset type: production Mewcat airborne animation atlas, EXACTLY 4 columns by 4 rows, 16 equal square cells, one complete character per cell, transparent background with real alpha. Use the supplied strips as character identity/style references only. Preserve the exact cute oversized head, tiny plump body, eyes, ears and tail shape of this existing kitten. Face RIGHT in every cell, same 3/4-side view, consistent character size and alignment. NO text, numbers, cell lines, shadows, symbols, hands or other objects. Rows 1 and 2 form an eight-frame ASCENDING JUMP animation read left to right: all four paws gathered/tucked underneath the body, head and gaze raised slightly upwards toward right, tail following below/back; clear upward-flight posture with subtle ear and tail motion, NO walking/running stride. Rows 3 and 4 form an eight-frame DESCENDING/FALL animation read left to right: head/gaze tilts downwards toward right, front paws gently extending down to brace for landing, hind paws below/back, tail swept upward; clear downward-flight posture, no running stride, last two poses slightly gathered for touching down. The two animations must be visibly different when displayed at 48px. Keep the same character anatomy in all sixteen frames, no cropping, generous transparent margin in each square. Prefer 1024x1024 atlas. Do not add new costume or colors. Style: match the reference PURE BLACK flat kitten silhouette with WHITE EYES ONLY. All heads, bodies, ears, paws and tails pure #000000, only interior visible marks are pure #FFFFFF eyes. Absolutely NO gray, shading, highlights, separate outline color, fur marks, nose, mouth, whiskers or pink/colored details. Smooth rounded silhouette, not fluffy or realistic.",
+  "actions": [
+    "jump",
+    "fall"
+  ],
+  "frameCount": 8,
+  "frameWidth": 128,
+  "frameHeight": 128,
+  "stripWidth": 1024,
+  "atlas": {
+    "columns": 4,
+    "rows": 4,
+    "order": "First 8 frames: jump; last 8 frames: fall."
+  },
+  "normalization": "Crop the largest connected alpha component in each cell, use one uniform scale so the largest dimension is 96px, center horizontally with foot baseline 127px in 128px cells. Preserve alpha; silhouette pixels use pure black and white."
+}

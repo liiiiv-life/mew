@@ -1,10 +1,10 @@
-export const MEWCAT_SPRITE_ACTIONS = ['idle', 'walk', 'run', 'love', 'struggle'] as const
+export const MEWCAT_SPRITE_ACTIONS = ['idle', 'walk', 'run', 'jump', 'fall', 'love', 'struggle'] as const
 export type MewcatSpriteAction = typeof MEWCAT_SPRITE_ACTIONS[number]
-export type MewcatActivity = MewcatSpriteAction | 'fall' | 'land'
+export type MewcatActivity = MewcatSpriteAction | 'land'
 
 // One complete cycle has the same duration regardless of the number of frames.
 export const MEWCAT_CYCLE_MS: Record<MewcatActivity, number> = {
-  idle: 880, walk: 880, run: 340, love: 560, struggle: 600, fall: 180, land: 240,
+  idle: 880, walk: 880, run: 340, jump: 560, fall: 560, love: 560, struggle: 600, land: 240,
 }
 export const MAX_SPRITE_FRAMES = 256
 export const MAX_SPRITE_BYTES = 4 * 1024 * 1024
@@ -22,12 +22,12 @@ export function validSpriteDimensions(width: number, height: number, frames: num
 
 export function spriteFrameAt(activity: MewcatActivity, elapsed: number, frames: number): number {
   if (!Number.isInteger(frames) || frames < 1) return 0
-  const start = activity === 'fall' ? Math.floor(frames / 4) : activity === 'land' ? Math.floor(frames / 2) : 0
-  const count = activity === 'fall' ? Math.max(1, Math.ceil(frames / 2)) : frames - start
+  const start = activity === 'land' ? Math.floor(frames / 2) : 0
+  const count = frames - start
   const phase = Math.max(0, elapsed) % MEWCAT_CYCLE_MS[activity]
   return Math.min(frames - 1, start + Math.floor(phase / MEWCAT_CYCLE_MS[activity] * count))
 }
 
 export function spriteAction(activity: MewcatActivity): MewcatSpriteAction {
-  return activity === 'fall' || activity === 'land' ? 'run' : activity
+  return activity === 'land' ? 'fall' : activity
 }

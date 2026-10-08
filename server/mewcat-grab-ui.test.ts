@@ -21,21 +21,22 @@ import {Mewcat} from '${root}/src/components/Mewcat.tsx';
 Math.random=()=>0.7;
 window.backgroundClicks=0;
 const remote = location.search.includes('remote');
+const skin = new URLSearchParams(location.search).get('skin') || 'mew';
 const host = remote ? document.body.appendChild(document.createElement('div')) : null;
 if(host) { host.setAttribute('role','dialog'); document.getElementById('root').inert=true; }
 const background=<button id="background" type="button" style={{position:'fixed',inset:0,width:'100%',height:'100%'}} onClick={()=>window.backgroundClicks++}>Background action</button>;
-createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPortal(background,host):background}<Mewcat skin="mew" portalTarget={host} onOpenSystemStats={()=>{}}/></I18nProvider>);`
+createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPortal(background,host):background}<Mewcat skin={skin} portalTarget={host} onOpenSystemStats={()=>{}}/></I18nProvider>);`
   const bundle = await build({ input: 'virtual:grab.tsx', write: false, platform: 'browser', output: { format: 'iife', codeSplitting: false }, transform: { jsx: 'react-jsx', define: { 'process.env.NODE_ENV': JSON.stringify('test') } }, plugins: [{ name: 'fixture', resolveId(id) { if (id === 'virtual:grab.tsx') return id; if (id.endsWith('.css')) return 'virtual:style' }, load(id) { if (id === 'virtual:grab.tsx') return source; if (id === 'virtual:style') return '' } }] })
   const chunk = bundle.output.find(item => item.type === 'chunk')!
   const compiler = await compile(await fs.readFile(`${root}/src/index.css`, 'utf8'), { base: `${root}/src`, onDependency() {} })
   const browser = await chromium.launch({ executablePath: domBrowserExecutable(), chromiumSandbox: true })
   try {
-    for (const remote of [false, true]) for (const touch of [false, true]) {
+    for (const skin of ['mew', 'kitten']) for (const remote of [false, true]) for (const touch of [false, true]) {
       const page = await browser.newPage({ viewport: { width: touch ? 390 : 800, height: 700 }, hasTouch: touch, isMobile: touch })
       await page.clock.install({ time: new Date('2026-09-22T00:00:00Z') })
       await page.clock.pauseAt(new Date('2026-09-22T00:00:01Z'))
       await page.route('http://mewcat-grab.test/**', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${compiler.build([])}</style><div id="root"></div><script>${chunk.code}</script></html>` }))
-      await page.goto(`http://mewcat-grab.test/${remote ? '?remote' : ''}`)
+      await page.goto(`http://mewcat-grab.test/?skin=${skin}${remote ? '&remote' : ''}`)
       const cat = page.locator('.mewcat')
       await cat.waitFor()
       if (remote) {
@@ -61,17 +62,21 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
       await page.clock.runFor(16)
       await move(start.x + 80, start.y - 220)
       await up()
-      assert.equal(await cat.getAttribute('data-activity'), 'fall')
+      assert.equal(await cat.getAttribute('data-activity'), 'jump')
+      const ascentSource = await cat.locator('.mewcat-sprite').getAttribute('data-source')
       await page.clock.runFor(80)
       // The pointer was released: unrelated controls remain usable during the fall.
       await down(20, 20); await up()
       assert.equal(await page.evaluate('window.backgroundClicks'), 1)
-      assert.equal(await cat.getAttribute('data-activity'), 'fall')
+      assert.equal(await cat.getAttribute('data-activity'), 'jump')
       const airborne = (await cat.boundingBox())!
       // This point is inside the SVG's rectangular box, outside its painted body.
       await down(airborne.x + 1, airborne.y + 1); await up()
       assert.equal(await page.evaluate('window.backgroundClicks'), 2, 'transparent cat space passes clicks and taps to the background')
-      assert.equal(await cat.getAttribute('data-activity'), 'fall')
+      assert.equal(await cat.getAttribute('data-activity'), 'jump')
+      await page.clock.runFor(450)
+      assert.equal(await cat.getAttribute('data-activity'), 'fall', 'ascent switches to descent after the apex')
+      assert.notEqual(await cat.locator('.mewcat-sprite').getAttribute('data-source'), ascentSource, 'ascent and descent use distinct sprite images')
       for (let catchIndex = 0; catchIndex < 3; catchIndex++) {
         const flying = (await cat.boundingBox())!
         assert.ok(flying.y < start.y - 100, 'cat is well above the ground')
@@ -99,7 +104,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider>{host?createPor
         await down(live.x + 20, live.y + 20)
         await move(live.x + 40, live.y - 180)
         await up()
-        assert.equal(await cat.getAttribute('data-activity'), 'fall')
+        assert.equal(await cat.getAttribute('data-activity'), 'jump')
         const clicks = await page.evaluate('window.backgroundClicks')
         await down(20, 20); await up()
         await page.waitForFunction(`window.backgroundClicks === ${Number(clicks) + 1}`)

@@ -9,7 +9,7 @@ import { domBrowserExecutable } from './browser-dom-executable.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 
-test('Mewcat settings upload five strips, keep fixed cycles, preserve input, restore and edit skins on desktop/mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
+test('Mewcat settings upload seven strips, keep fixed cycles, preserve input, restore and edit skins on desktop/mobile', { skip: !domBrowserExecutable(), timeout: 60_000 }, async () => {
   const source = `
 import React,{useState} from '${root}/node_modules/react/index.js';
 import {createRoot} from '${root}/node_modules/react-dom/client.js';
@@ -59,7 +59,7 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       await page.locator('.mewcat > .mewcat-art > .mewcat-sprite').waitFor()
       await settings.getByRole('button', { name: '스킨 추가', exact: true }).click()
       await settings.getByRole('button', { name: '저장', exact: true }).click()
-      await settings.getByRole('alert').getByText('스킨 이름과 다섯 동작의 이미지를 입력하세요.', { exact: true }).waitFor()
+      await settings.getByRole('alert').getByText('스킨 이름과 일곱 동작의 이미지를 입력하세요.', { exact: true }).waitFor()
       await settings.getByRole('textbox', { name: '스킨 이름', exact: true }).fill('My kitten')
       await settings.getByLabel('가만히 있기 스프라이트', { exact: true }).setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('broken image') })
       await settings.getByRole('alert').getByText('이미지를 읽을 수 없습니다.', { exact: true }).waitFor()
@@ -73,8 +73,8 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
         }
         return canvas.toDataURL('image/png').split(',')[1]
       })
-      const actions = ['가만히 있기', '걷기', '뛰기', '쓰다듬기', '목덜미 잡기']
-      const files = ['idle', 'walk', 'run', 'love', 'struggle']
+      const actions = ['가만히 있기', '걷기', '뛰기', '공중 상승', '공중 하강', '쓰다듬기', '목덜미 잡기']
+      const files = ['idle', 'walk', 'run', 'jump', 'fall', 'love', 'struggle']
       for (let index = 0; index < actions.length; index++) {
         await settings.getByLabel(`${actions[index]} 스프라이트`, { exact: true }).setInputFiles(index === 1
           ? { name: 'walk-10.png', mimeType: 'image/png', buffer: Buffer.from(walkPng, 'base64') }
@@ -115,15 +115,38 @@ createRoot(document.getElementById('root')).render(<I18nProvider><Fixture/></I18
       assert.ok(Math.abs(held.x - stillHeld.x) < 1 && Math.abs(held.y - stillHeld.y) < 1)
       await page.mouse.up()
       assert.equal(await cat.getAttribute('data-activity'), 'fall')
-      assert.equal(await sprite.getAttribute('viewBox'), '0 0 128 128', 'falling reuses the run strip')
+      assert.equal(await sprite.getAttribute('viewBox'), '0 0 128 128', 'falling uses its own descent strip')
       await page.clock.runFor(1800)
       assert.ok(Math.abs((await cat.boundingBox())!.y + 48 - 900) < 2, 'sprite lands on the viewport floor over the dock')
       await page.clock.resume()
+      await page.locator('#root').evaluate(async el => {
+        const storage = el.ownerDocument.defaultView!.indexedDB
+        const name = (await storage.databases()).find((database: { name?: string }) => database.name?.includes('mewcat-sprite-skins'))!.name!
+        await new Promise<void>((resolve, reject) => {
+          const request = storage.open(name)
+          request.onerror = () => reject(request.error)
+          request.onsuccess = () => {
+            const db = request.result, tx = db.transaction('skins', 'readwrite'), store = tx.objectStore('skins')
+            const cursor = store.openCursor()
+            cursor.onsuccess = () => {
+              const entry = cursor.result
+              if (!entry) return
+              const skin = entry.value
+              delete skin.sprites.jump; delete skin.sprites.fall
+              entry.update(skin); entry.continue()
+            }
+            tx.oncomplete = () => { db.close(); resolve() }
+            tx.onerror = tx.onabort = () => { db.close(); reject(tx.error) }
+          }
+        })
+      })
       await page.reload()
       await sprite.waitFor()
       await settings.getByRole('button', { name: '뮤캣', exact: true }).click()
       await settings.getByRole('button', { name: '스킨 수정: My kitten', exact: true }).click()
       assert.equal(await settings.getByLabel('걷기 프레임 수', { exact: true }).inputValue(), '10')
+      assert.equal(await settings.getByLabel('공중 상승 프레임 수', { exact: true }).inputValue(), '1', 'legacy custom skins receive a separate ascent pose')
+      assert.equal(await settings.getByLabel('공중 하강 프레임 수', { exact: true }).inputValue(), '1', 'legacy custom skins receive a separate descent pose')
       await settings.getByLabel('걷기 프레임 수', { exact: true }).fill('5')
       await settings.getByRole('button', { name: '저장', exact: true }).click()
       await settings.getByRole('textbox', { name: '스킨 이름', exact: true }).waitFor({ state: 'detached' })

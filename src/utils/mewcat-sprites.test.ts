@@ -12,10 +12,11 @@ test('variable frame counts play every frame once in the same fixed cycle', () =
   }
 })
 
-test('falling and landing reuse run frames, including single-frame skins', () => {
-  assert.equal(spriteAction('fall'), 'run')
-  assert.equal(spriteAction('land'), 'run')
-  assert.deepEqual([0, 90].map(time => spriteFrameAt('fall', time, 4)), [1, 2])
+test('ascent and descent have separate strips; landing uses the descent ending', () => {
+  assert.equal(spriteAction('jump'), 'jump')
+  assert.equal(spriteAction('fall'), 'fall')
+  assert.equal(spriteAction('land'), 'fall')
+  assert.deepEqual([0, 280].map(time => spriteFrameAt('fall', time, 4)), [0, 2])
   assert.deepEqual([0, 120].map(time => spriteFrameAt('land', time, 4)), [2, 3])
   for (const action of ['fall', 'land'] as const) for (const frames of [1, 3, 10]) {
     assert.ok(spriteFrameAt(action, 50, frames) < frames)

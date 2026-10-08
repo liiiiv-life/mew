@@ -50,12 +50,35 @@ export function releaseSpriteSkin(skin: SpriteSkin): void {
 async function prepareSkin(saved: SavedSpriteSkin): Promise<SpriteSkin> {
   const prepared: SpriteStrip[] = []
   try {
-    for (const action of MEWCAT_SPRITE_ACTIONS) prepared.push(await prepareSpriteStrip(saved.sprites[action]))
+    const sources = { ...saved.sprites }
+    for (const action of ['jump', 'fall'] as const) {
+      if (!sources[action]) sources[action] = await legacyAirborneImage(sources.struggle, action)
+    }
+    for (const action of MEWCAT_SPRITE_ACTIONS) prepared.push(await prepareSpriteStrip(sources[action]))
     return { id: saved.id, name: saved.name, sprites: Object.fromEntries(MEWCAT_SPRITE_ACTIONS.map((action, index) => [action, prepared[index]])) as SpriteSkin['sprites'] }
   } catch (error) {
     for (const sprite of prepared) URL.revokeObjectURL(sprite.src)
     throw error
   }
+}
+
+async function legacyAirborneImage(source: SpriteImage, action: 'jump' | 'fall'): Promise<SpriteImage> {
+  if (!source || !(source.blob instanceof Blob) || source.blob.size > MAX_SPRITE_BYTES
+    || !['image/png', 'image/webp'].includes(source.blob.type)
+    || !validSpriteDimensions(source.width, source.height, source.frames)) throw new Error(uiText('이미지를 읽을 수 없습니다.'))
+  const image = await createImageBitmap(source.blob)
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 128
+    const context = canvas.getContext('2d')!
+    const frameWidth = source.width / source.frames
+    const scale = 96 / Math.max(frameWidth, source.height)
+    context.translate(64, 64)
+    context.rotate((action === 'jump' ? -15 : 15) * Math.PI / 180)
+    context.drawImage(image, 0, 0, frameWidth, source.height, -frameWidth * scale / 2, -source.height * scale / 2, frameWidth * scale, source.height * scale)
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error(uiText('이미지를 읽을 수 없습니다.'))), 'image/png'))
+    return { blob, width: 128, height: 128, frames: 1 }
+  } finally { image.close() }
 }
 
 type Snapshot = { skins: SpriteSkin[]; loading: boolean; failed: boolean }

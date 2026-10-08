@@ -14,7 +14,7 @@ import { MewcatMark } from './Mewcat'
 import { MewcatSprite } from './mewcat-sprite'
 import { uuid } from '../utils/uuid'
 
-const actionNames = { idle: '가만히 있기', walk: '걷기', run: '뛰기', love: '쓰다듬기', struggle: '목덜미 잡기' } as const
+const actionNames = { idle: '가만히 있기', walk: '걷기', run: '뛰기', jump: '공중 상승', fall: '공중 하강', love: '쓰다듬기', struggle: '목덜미 잡기' } as const
 const iconButton = 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 [&_svg]:h-4 [&_svg]:w-4'
 const inputClass = 'h-9 min-w-0 rounded border border-edge-strong bg-surface-deep px-2 text-sm text-ink focus:outline-2 focus:outline-accent'
 type DraftAction = { image: SpriteImage | null; frames: string; fileName: string }
@@ -44,7 +44,7 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
     if (!draft || busy) return
     setError('')
     if (!draft.name.trim() || MEWCAT_SPRITE_ACTIONS.some(action => !draft.actions[action].image)) {
-      setError(uiText('스킨 이름과 다섯 동작의 이미지를 입력하세요.')); return
+      setError(uiText('스킨 이름과 일곱 동작의 이미지를 입력하세요.')); return
     }
     const sprites = {} as SavedSpriteSkin['sprites']
     for (const action of MEWCAT_SPRITE_ACTIONS) {
@@ -97,7 +97,7 @@ export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelecti
         <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-ink">{uiText('스킨 이름')}<input className={`${inputClass} flex-1`} value={draft.name} maxLength={40} disabled={busy} onChange={event => { setError(''); setDraft({ ...draft, name: event.target.value }) }} /></label>
         <button type="button" className={iconButton} disabled={busy} title={t('common.cancel')} aria-label={t('common.cancel')} onClick={() => { setDraft(undefined); setError('') }}><Xmark /></button>
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-ink-muted">{uiText('같은 크기의 프레임을 가로 한 줄로 나열한 PNG·WebP를 넣으세요. 낙하·착지는 뛰기 이미지를 사용합니다.')}</p>
+      <p className="mt-2 text-xs leading-relaxed text-ink-muted">{uiText('같은 크기의 프레임을 가로 한 줄로 나열한 PNG·WebP를 넣으세요. 착지는 공중 하강 이미지의 후반 프레임을 사용합니다.')}</p>
       <div className="mt-2 divide-y divide-edge">
         {MEWCAT_SPRITE_ACTIONS.map(action => <SpriteEditorRow key={action} action={action} value={draft.actions[action]} disabled={busy} onError={setError}
           onAttach={(image, fileName) => setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: { ...current.actions[action], image, fileName } } } : current)}

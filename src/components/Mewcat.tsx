@@ -38,7 +38,7 @@ function movementBounds(giant: boolean, groundInset = 1) {
   }
 }
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
-function nextActivity(): Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'> { const options: Array<Exclude<Activity, 'love' | 'struggle' | 'fall' | 'land'>> = ['idle', 'walk', 'run']; return options[Math.floor(Math.random() * options.length)] }
+function nextActivity(): 'idle' | 'walk' | 'run' { const options = ['idle', 'walk', 'run'] as const; return options[Math.floor(Math.random() * options.length)] }
 
 /** 화면 맨 아래를 자유롭게 오가며, 눌러서 잠깐 놀아 줄 수 있는 Mew의 고양이. */
 export function Mewcat({ skin, hidden = false, portalTarget, onOpenSystemStats, assistant }: { hidden?: boolean; portalTarget?: HTMLElement | null; skin: MewcatSkin | null; onOpenSystemStats?: () => void; assistant?: MewcatAssistantOptions & { onConnect: () => void; onRuntimeChange: (runtime: string) => void } }) {
@@ -178,7 +178,7 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
       cat.style.height = `${bounds.size}px`
       x = clamp(x, bounds.minX, bounds.maxX)
       if (dragging) followPointer()
-      else if (activity === 'fall') {
+      else if (activity === 'jump' || activity === 'fall') {
         y = Math.max(bounds.minY, y)
         if (y >= bounds.ground) {
           y = bounds.ground
@@ -211,7 +211,7 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
           x = clamp(x, bounds.minX, bounds.maxX)
           direction *= -1
         }
-      } else if (activity === 'fall') {
+      } else if (activity === 'jump' || activity === 'fall') {
         x += horizontalVelocity * delta
         verticalVelocity += 1600 * delta
         y += verticalVelocity * delta
@@ -224,6 +224,7 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
           y = bounds.minY
           verticalVelocity = Math.max(0, -verticalVelocity * WALL_BOUNCE)
         }
+        if (activity === 'jump' && verticalVelocity >= 0) setActivity('fall', now)
         if (y >= bounds.ground) {
           y = bounds.ground
           horizontalVelocity = 0
@@ -239,7 +240,7 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
       if (pointerId !== undefined || event.button !== 0) return
       event.preventDefault()
       pointerId = event.pointerId
-      dragging = activity === 'fall' || y < bounds.ground
+      dragging = activity === 'jump' || activity === 'fall' || y < bounds.ground
       if (dragging) interactionRef.current.onDrag?.()
       horizontalVelocity = verticalVelocity = 0
       grabStartX = lastPointerX = event.clientX
@@ -286,7 +287,7 @@ function MewcatActive({ spriteSkin, anchorRef, attention, noticeId, giant = fals
         const scale = cancelled || performance.now() - lastPointerAt > 120 ? 0 : THROW_SPEED_SCALE
         horizontalVelocity *= scale
         verticalVelocity *= scale
-        setActivity('fall', performance.now())
+        setActivity(verticalVelocity < 0 ? 'jump' : 'fall', performance.now())
       } else {
         setActivity('love', performance.now(), MEWCAT_CYCLE_MS.love)
         if (!cancelled && Math.hypot(event.clientX - grabStartX, event.clientY - grabStartY) <= 4) interactionRef.current.onTap?.()
