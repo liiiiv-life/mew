@@ -8,7 +8,7 @@ updated: "2026-10-08"
 status_hash: "8b1758c7281118da18b267a2c001213bb7c463d4dbd018bb221e192d83f43ec3"
 files: ["src/components/header-notifications.tsx", "src/utils/mewcat-notifications.ts", "src/components/Mewcat.tsx", "src/components/mewcat-skin-settings.tsx", "src/components/mewcat-size-settings.tsx", "src/utils/mewcat-size-preferences.ts", "src/utils/mewcat-sprites.ts", "src/utils/mewcat-sprite-storage.ts", "src/components/mewcat-fullscreen-guide.tsx", "src/components/mewcat-resources.tsx", "src/components/SettingsModal.tsx", "src/components/mewcat-notifications.tsx", "src/hooks/use-mewcat-notifications.ts", "src/utils/mewcat-notification-rules.ts", "src/components/mewcat-break.tsx", "src/hooks/use-mewcat-break.ts", "src/utils/mewcat-break-rules.ts"]
 commits: []
-description: "뮤캣의 화면 바닥 배치·모바일 독 겹침·기본 크기 조절, 실루엣·아기 고양이·러시안블루·코리안 숏헤어·카피바라 내장 스킨과 상승·하강을 분리한 일곱 동작의 커스텀 스킨, 이동·끌기·던지는 방향으로 바라보기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤캣 휴식의 저장·입력 유지 규칙도 설명한다."
+description: "뮤캣의 화면 바닥 배치·모바일 독 겹침·기본 크기 조절, 고양이 네 종류와 점눈·투박한 그림체의 카피바라 내장 스킨, 상승·하강을 분리한 일곱 동작의 커스텀 스킨, 이동·끌기·던지는 방향으로 바라보기·전체화면 안내를 정의한다. 이전 기본 SVG·털색 설정 제거와 에이전트·자원·헤더·OS 알림, 선택적 거대 뮤캣 휴식의 저장·입력 유지 규칙도 설명한다."
 상위파일:
   - "MOC.md"
   - "_화면·계정·운영.md"
@@ -135,7 +135,7 @@ run 중 하나를 무작위로 골라 수행한다. 스프라이트의 동작별
 설정 창의 **뮤캣** 카테고리에서 화면별 스킨을 고른다. 첫 카드는 **없음**이며, 선택하면 Mewcat을
 렌더링하지 않는다. **실루엣 고양이**, **아기 고양이**, **러시안블루**, **코리안 숏헤어**, **카피바라**와 사용자가 등록한 스킨을 실제 그림의 정적 미리보기로 선택한다. 실루엣이 기본값이며 내부 ID `mew`를 유지해 이전 기본 선택도 새 그림을 표시한다. 다른 스킨·없음 선택은 유지한다. 선택 ID는 scoped localStorage의 `mew:mewcat-skin`에 저장하며 이전 `oreo` 값도 실루엣으로 이관한다. scoped 선택이 아직 없으면 기존 origin 공통 설정의 없음·기본 선택을 이어받으며 커스텀 ID는 다른 인스턴스로 이관하지 않는다.
 
-러시안블루(`russian-blue`)는 청회색 털과 초록 눈, 코리안 숏헤어(`korean-shorthair`)는 주황 줄무늬와 흰 주둥이·가슴·발, 카피바라(`capybara`)는 갈색 몸통·둥근 귀·넓은 주둥이로 구분한다. 세 스킨 모두 다른 내장 스킨과 같은 일곱 동작·상승과 하강 분리·좌우 반전·끌기·휴식·원격 표시를 지원한다.
+러시안블루(`russian-blue`)는 청회색 털과 초록 눈, 코리안 숏헤어(`korean-shorthair`)는 주황 줄무늬와 흰 주둥이·가슴·발로 구분한다. 카피바라(`capybara`)는 넓고 둔한 주둥이·둥근 귀·큰 갈색 몸통에 작은 가로 점눈과 멍한 표정을 유지한다. 일곱 동작 모두 굵고 조금 삐뚤한 선과 단순한 갈색 면으로 대충 그린 듯한 그림체를 사용하며 눈 반짝임·광택·세밀한 털 묘사를 넣지 않는다. 세 스킨 모두 다른 내장 스킨과 같은 일곱 동작·상승과 하강 분리·좌우 반전·끌기·휴식·원격 표시를 지원한다.
 
 이전 기본 SVG 고양이와 전용 털색 선택기·HEX·초기화는 사용자 요청으로 제거했다. 기존 `mew:mewcat-fur-color` 값은 사용하지 않으며 사용자 요청 전 이전 캐릭터·털색 설정을 재도입하지 않는다. 내장·업로드 스킨의 색은 이미지 그대로 표시한다.
 
@@ -159,7 +159,7 @@ run 중 하나를 무작위로 골라 수행한다. 스프라이트의 동작별
 
 `src/utils/mewcat-sprites.ts`가 프레임·재생 주기 계약을, `mewcat-sprite-storage.ts`가 이미지 검사·IndexedDB·포인터 알파 경로를, `mewcat-skin-settings.tsx`가 등록·수정 UI를 소유한다. `Mewcat.tsx`의 기존 물리·포인터 처리에서 상태별 프레임을 진행한다.
 
-아기 고양이는 `public/mewcat/kitten/`, 검정 실루엣은 `public/mewcat/silhouette/`, 추가 동물은 `public/mewcat/russian-blue/`·`public/mewcat/korean-shorthair/`·`public/mewcat/capybara/`에 보관한다. 각 스킨은 일곱 1024×128 투명 PNG이며 동작당 8프레임이다. 상승·하강도 별도 이미지로 제공한다. 내장 image_gen으로 제작한 뒤 동일한 128px 셀·발바닥 기준선으로 정렬했다. 실루엣은 흑백 팔레트로 정규화한다. 생성 프롬프트와 산출물 규격은 각 폴더의 `source.json`에, 기존 두 스킨의 별도 상승·하강 생성 기록은 `airborne-source.json`에 남긴다. 내장 ID·이름·폴더는 `mewcatSkin.ts`에서 함께 관리하여 미리보기·실제 렌더링·예제 다운로드가 같은 스킨을 사용한다. 외부 오레오캣 자산은 사용하지 않는다.
+아기 고양이는 `public/mewcat/kitten/`, 검정 실루엣은 `public/mewcat/silhouette/`, 추가 동물은 `public/mewcat/russian-blue/`·`public/mewcat/korean-shorthair/`·`public/mewcat/capybara/`에 보관한다. 각 스킨은 일곱 1024×128 투명 PNG이며 동작당 8프레임이다. 상승·하강도 별도 이미지로 제공한다. 내장 image_gen으로 제작한 뒤 동일한 128px 셀·발바닥 기준선으로 정렬했다. 실루엣은 흑백 팔레트로 정규화한다. 생성 프롬프트와 산출물 규격은 각 폴더의 `source.json`에, 기존 두 스킨의 별도 상승·하강 생성 기록은 `airborne-source.json`에 남긴다. 카피바라의 이전 생성 기록은 같은 `source.json`의 `previousSources`에 보존한다. 내장 ID·이름·폴더는 `mewcatSkin.ts`에서 함께 관리하여 미리보기·실제 렌더링·예제 다운로드가 같은 스킨을 사용한다. 외부 오레오캣 자산은 사용하지 않는다.
 
 ```bash
 node --test src/utils/mewcat-sprites.test.ts src/utils/mewcatSkin.test.ts server/mewcat-skins-ui.test.ts server/mewcat-grab-ui.test.ts
