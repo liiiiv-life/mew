@@ -222,6 +222,21 @@ body {
   }
 }
 
+.debugger-source-menu > [role="option"] {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 16px;
+}
+.debugger-source-menu > [role="option"] > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  .debugger-source-menu > [role="option"] { min-height: 32px; }
+}
+
 /* Shared black-cat palette for the character and skin preview. */
 :root {
   --mewcat-fur: #171717;

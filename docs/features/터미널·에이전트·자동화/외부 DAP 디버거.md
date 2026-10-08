@@ -4,10 +4,10 @@ parent: "mew-agents"
 title: "외부 DAP 디버거"
 status: "implemented"
 created: "2026-10-07"
-updated: "2026-10-07"
+updated: "2026-10-08"
 files: ["src/components/debugger-panel.tsx", "src/components/debugger-source-field.tsx", "src/components/debugger-settings.tsx", "src/components/debugger-controls.tsx", "src/components/debugger-helpers.ts", "server/debugger.ts", "server/debugger-dap.ts", "server/debugger-routes.ts", "server/debugger-commands.ts", "server/debugger-profiles.ts", "server/debugger-browser.ts", "server/debugger-mcp.ts", "server/debugger-mcp-stdio.ts", "server/agentWs.ts", "src/utils/debugger-editor.ts", "src/components/debugger-variable.tsx", "src/components/debugger-inspector.tsx", "src/components/debugger-browser.tsx", "src/components/debugger-artifacts.tsx"]
 commits: []
-description: "외부 DAP 디버거의 설정·프로필·복합 세션, 실행 상태와 접는 도구 영역·목록 UI, 에디터 중단점, 단계 실행·변수·메모리·중단 기록과 Chromium 분석·파일 가져오기·선택적 에이전트 MCP 연결의 사용법·지원 조건·검증 범위를 정의한다. Zed·DAP 조사 당시 계획과 현재 구현, 외부 엔진·협업·Wasm 등 남은 범위를 구분한다."
+description: "외부 DAP 디버거의 설정·프로필·복합 세션, 실행 상태와 접는 도구 영역·컴팩트 소스 파일 선택 목록, 에디터 중단점, 단계 실행·변수·메모리·중단 기록과 Chromium 분석·파일 가져오기·선택적 에이전트 MCP 연결의 사용법·지원 조건·검증 범위를 정의한다. Zed·DAP 조사 당시 계획과 현재 구현, 외부 엔진·협업·Wasm 등 남은 범위를 구분한다."
 ---
 
 ## 요구사항
@@ -60,6 +60,7 @@ Node.js 실행 설정 예:
 - **세션·실행 옵션**에서 프로필·복합 실행·독립 세션·대상·스레드·단계 단위·중단 기록·역방향 제어와 추가 세션을 선택한다. 기본 화면에서는 이 영역을 접어 둔다. 과거 기록을 선택하면 헤더에 과거 기록 상태를 표시하고 실행 제어를 비활성화한다.
 - 실행 전에는 소스 중단점 설정을 먼저 배치하고, 중단 중과 과거 기록에서는 호출 스택·변수 값을 먼저 배치한다. 함수·예외·데이터·명령어 중단점은 소스 중단점 안의 **고급 중단점**에서 관리한다. 기본 목록·설정·콘솔·메모리·브라우저·분석 파일의 접기 영역은 같은 헤더와 펼침 표시를 사용하며 키보드로도 조작할 수 있다.
 - 목록 제목에 항목 수를 표시한다. 소스 중단점은 파일명과 줄/열을 나누고 전체 경로는 툴팁과 접근성 이름으로 제공한다. 스택은 선택 프레임, 변수는 실제 변경 값과 자료형 색상을 구분하며 고정한 값은 중복 고정 버튼을 비활성화한다. 빈 목록·조회 중·실패·저장 완료를 표시하고 오류·주 버튼은 양 테마의 의미 색상 토큰을 따른다.
+- 소스 파일·테스트 파일 선택 목록의 후보 행은 데스크톱 28px, 터치 32px 높이와 12px 글자를 사용한다. 긴 경로는 한 줄 말줄임으로 표시하고 전체 경로는 접근성 이름과 선택 값에 유지한다. 목록은 공용 `SelectField`의 화면 경계·내부 스크롤·키보드 선택·닫기 동작을 따른다.
 - 좁은 패널에서도 실행 버튼·입력·긴 경로·값을 패널 안에 배치하고 분석 표·메모리 덤프는 해당 영역에서 스크롤한다. 설정은 어댑터·실행 JSON·프로필·복합 실행으로 묶으며 JSON 입력과 기존 저장·테스트·설치 동작을 유지한다.
 
 ### 구현과 경계

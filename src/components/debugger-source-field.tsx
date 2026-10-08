@@ -24,5 +24,5 @@ export function DebuggerSourceField({ root, value, onChange, label }: { root: st
   const options = current?.paths.length
     ? current.paths.map(path => ({ value: path, label: path }))
     : query ? [{ value: '', label: current?.error ?? t(current ? 'fileExplorer.noMatches' : 'common.loading'), disabled: true }] : []
-  return <SelectField editable compact label={label} placeholder={label} value={value} onChange={onChange} options={options} className="min-w-0 flex-1" />
+  return <SelectField editable compact label={label} placeholder={label} value={value} onChange={onChange} options={options} className="min-w-0 flex-1" popupClassName="debugger-source-menu" />
 }
