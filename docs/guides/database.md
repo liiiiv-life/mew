@@ -1,8 +1,7 @@
 ---
+title: "표 데이터베이스 (/db)"
 description: "/db Postgres 표의 컬럼·셀·협업·전체 DB 팝업과 읽기 전용 참조, 프로젝트 격리·선택적 Postgres 실행·보안 경계를 안내한다."
 ---
-# 표 데이터베이스 (/db)
-
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 에디터에서 `/db`를 치면 노션식 표 데이터베이스를 삽입한다 (v1은 표 보기만). 본문에는 참조 id만 저장되고(`<div data-mew-db="uuid">`), 실제 데이터는 **Postgres가 SSoT**다.

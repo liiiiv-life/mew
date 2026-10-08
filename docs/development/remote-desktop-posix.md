@@ -5,8 +5,6 @@ updated: 2026-10-07
 description: "Mac/Linux 상주 Node 호스트의 하드웨어 H.264 High/Baseline·4K와 고주사율 요청, 직접 입력·압축 프레임 제한, OS별 권한·설치·세션 수명과 실제 검증 범위를 정의한다."
 ---
 
-# Mac/Linux 상주 네이티브 GPU 호스트
-
 [개발 지도](MOC.md) · [공통 전송·입력 계약](remote-desktop.md) · [ADR 0188](../../../.mew/docs/decisions/0188-mew-posix-native-desktop.md)
 
 ## 공통 아키텍처

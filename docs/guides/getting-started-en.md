@@ -1,8 +1,7 @@
 ---
+title: "mew user guide"
 description: "영어판 mew 시작 안내로 Windows WSL·macOS·Linux 설치와 HTTPS·계정 기반 P2P 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
 ---
-# mew user guide
-
 [한국어](getting-started-ko.md) · [English](getting-started-en.md) · [简体中文](getting-started-zh.md) · [日本語](getting-started-ja.md)
 
 mew opens folders on your computer or server in a browser. Edit Markdown and code, run terminals and AI agents, review Git changes, and work on documents together. You can use it from your phone, too.

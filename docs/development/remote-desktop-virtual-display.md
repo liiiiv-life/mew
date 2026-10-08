@@ -5,8 +5,6 @@ updated: 2026-10-01
 description: "Windows 자체 UMDF·IddCx 가상 화면의 드라이버·WGC 캡처·설치·서명·수명 계약과 정식 배포·헤드리스 실기 검증의 남은 조건을 설명한다."
 ---
 
-# Windows 가상 화면
-
 [개발 지도](MOC.md) · [원격 데스크톱 계약](remote-desktop.md) · [사용법](../guides/remote-desktop.md) · [ADR 0187](../../../.mew/docs/decisions/0187-mew-independent-virtual-display.md)
 
 ## 현재 제공 범위

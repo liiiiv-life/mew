@@ -5,8 +5,6 @@ updated: 2026-10-07
 description: "mewnager 독립 apps/manager Tauri 앱의 프런트엔드·Rust·PowerShell·GUI·승격 오류 전달 검증, Windows 및 Linux 교차 exe 생성과 CI 산출물·실기 검증 경계를 설명한다."
 ---
 
-# Windows 관리 앱 개발
-
 제품 동작·UI·실행 경계는 [기능 문서](../features/화면·계정·운영/Windows%20설치·관리%20앱.md), 사용자 설치는 [사용법](../guides/windows-manager.md), 플랫폼 선택은 [ADR 0201](../../../.mew/docs/decisions/0201-mew-windows-manager-wsl.md)이 소유한다.
 
 ## 독립 빌드

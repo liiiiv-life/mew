@@ -5,8 +5,6 @@ updated: "2026-10-07"
 description: "이전 Electron 원격 데스크톱의 지연·대역폭·커서 비용을 조사하고 개선·실측 계획을 제안한 연구 원문이다. 당시 구현 결과는 history, 현재 계약은 상주 GPU 직접 연결 개발 문서를 따른다."
 ---
 
-# 원격 데스크톱 지연·대역폭 개선 연구
-
 [문서 지도](../MOC.md) · [현재 구현 계약](../development/remote-desktop.md)
 
 상태: **구현 전 기준 조사.** 후속 [당시 구현 결과](../history/remote-desktop-latency.md)는 이전 기록이며, 최신 상태는 [현재 계약](../development/remote-desktop.md)을 따른다. 아래 제안·미실측 표기는 조사 당시의 범위를 보존한다. 조사 기준은 mew `5c4ec7e`, helper Electron 44.3.0이다. 사용자는 연결 성공과 커서 끊김을 보고했다. 당시 직접/서버 경로, 호스트·클라이언트 OS, RTT는 확인되지 않았으므로 특정 병목을 실측 원인으로 단정하지 않는다.

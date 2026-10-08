@@ -5,8 +5,6 @@ updated: 2026-10-02
 description: "외부 네트워크의 원격 데스크톱 직접 연결, STUN 제한 재시도·NAT 준비·Windows 방화벽과 Mac/Linux 네트워크 권한·실측 경계를 정의한다."
 ---
 
-# 외부 네트워크 직결
-
 [개발 지도](MOC.md) · [공통 계약](remote-desktop.md) · [ADR 0189](../../../.mew/docs/decisions/0189-mew-desktop-external-direct-connectivity.md)
 
 ## 연결 경로

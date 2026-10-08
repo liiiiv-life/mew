@@ -8,8 +8,6 @@ description: "Zed ACP 통합과 Mew 외부 에이전트·이전 RAG 모델·Elec
 > 2026-09-28 후속: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)으로 RAG와 전용 모델·의존성을 제거했다. 아래 RAG 관련 구현·검토 항목은 당시 기록이며 현재 도입·배포 과제가 아니다.
 
 
-# Zed 외부 에이전트 비교와 Mew RAG 모델의 상업 이용 검토
-
 [진행 작업](_work.md) · [전체 라이선스 검토](open-source-cloud-license-review.md) · [Electron 상세](../development/remote-desktop-distribution.md)
 
 검토일은 2026-09-14다. 사용자는 다른 프로젝트의 코드를 직접 복사한 적이 없다고 확인했다. 이를 출처에 관한 사용자 진술로 기록하며, 미확인 수동 복사 프로젝트를 가정해 출시 조건을 추가하지 않는다. 패키지·모델·런타임의 원래 라이선스 확인은 계속 적용된다. 이 검토 후 사용자가 Claude ACP 복원을 요청했고 [ADR 0142](../../../.mew/docs/decisions/0142-mew-claude-acp-and-cli-authentication.md)로 반영했다. 아래 초기 비교의 terminal 상태는 변경 전 기준이며, 현행 인증·설정은 [런타임 설정](../configuration/agent-runtimes.md)을 따른다. 유료 클라우드 계약에 대한 미확인 범위는 그대로다.

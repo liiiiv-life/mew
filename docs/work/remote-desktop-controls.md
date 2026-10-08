@@ -5,8 +5,6 @@ updated: "2026-10-02"
 description: "원격 데스크톱 전체화면·회전·설정·감도·핫키·연결 시작 개선과 커서 가속·패널 회전의 구현 범위·검증·남은 실기 조건을 기록한다."
 ---
 
-# 원격 데스크톱 화면·설정·핫키·연결 시작 개선
-
 [작업 지도](_work.md) · [기능](../features/%EB%B8%8C%EB%9D%BC%EC%9A%B0%EC%A0%80%C2%B7Android%C2%B7%EC%9B%90%EA%B2%A9%20%EB%8D%B0%EC%8A%A4%ED%81%AC%ED%86%B1/%EC%9B%90%EA%B2%A9%20%EB%8D%B0%EC%8A%A4%ED%81%AC%ED%86%B1%C2%B7%ED%84%B0%EC%B9%98%20%EC%9E%85%EB%A0%A5.md) · [사용법](../guides/remote-desktop.md) · [개발 계약](../development/remote-desktop.md)
 
 ## 목표와 구현 순서

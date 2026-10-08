@@ -5,8 +5,6 @@ created: 2026-10-07
 updated: "2026-10-08"
 ---
 
-# mewlink Cloudflare 배포
-
 ## 내가 할 일
 
 **처음에는 Google 또는 GitHub 하나만 설정해도 된다.** Apple은 나중에 추가해도 된다.

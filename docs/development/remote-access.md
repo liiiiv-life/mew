@@ -5,8 +5,6 @@ created: 2026-10-07
 updated: 2026-10-07
 ---
 
-# 계정 기반 P2P 원격 접속
-
 [작업·출시 기준](<../tasks/mew 중계 기능 만들기.md>) · [중앙 서비스 설치](../deployment/remote-central.md) · [ADR 0195](../../../.mew/docs/decisions/0195-mew-account-based-p2p-remote-access.md) · [후속 ADR 0203](../../../.mew/docs/decisions/0203-mewlink-workers-p2p-ui.md) · [권한](access-control.md)
 
 중앙 계정·서버 등록·멤버 승인·시그널링과 브라우저 ↔ A의 앱 DataChannel을 구현했다. 로컬 Chromium과 네이티브 RTC, 실제 파일 API를 사용한 자동 검증을 완료했다. **중앙 배포·실제 제공자 로그인·WSL ↔ 외부 Android/LTE 실측은 완료하지 않았다.** 이 문서는 현재 코드 계약이며 출시 승인 기록은 아니다.

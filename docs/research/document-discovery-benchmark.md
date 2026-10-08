@@ -5,8 +5,6 @@ updated: 2026-09-28
 description: "2026-09-28 RAG·MOC·일반 파일 검색의 실제 AI 탐색 시간·토큰·정확도 비교를 보존한다. 제거된 RAG를 현재 앱에서 재실행할 수는 없다."
 ---
 
-# 문서 탐색 비교 측정
-
 [문서 지도](../MOC.md) · [당시 실행 절차](../history/rag-operations.md#문서-탐색-방식-비교)
 
 > 후속 결정: [ADR 0176](../../../.mew/docs/decisions/0176-mew-remove-local-rag.md)으로 RAG를 제거했다. 측정 결과는 그대로 보존한다. 실행 스크립트는 앱에서 제거하고 이 설치의 원시 결과 폴더 `.data/benchmarks/doc-discovery-20260928/benchmark-discovery.py`에 보존했다. 현재 앱에서 과거 RAG 측정을 그대로 재실행할 수는 없다.

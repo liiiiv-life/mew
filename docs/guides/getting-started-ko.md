@@ -1,8 +1,7 @@
 ---
+title: "mew 사용법"
 description: "한국어 mew 시작 안내로 Windows WSL·포터블 관리 앱·macOS·Linux 설치와 HTTPS·계정 기반 P2P 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
 ---
-# mew 사용법
-
 [한국어](getting-started-ko.md) · [English](getting-started-en.md) · [简体中文](getting-started-zh.md) · [日本語](getting-started-ja.md)
 
 mew는 컴퓨터나 서버의 폴더를 브라우저에서 열어 쓸 수 있게 합니다. Markdown과 코드를 편집하고, 터미널과 AI 에이전트를 실행하며, Git 변경을 검토하고, 문서를 함께 작업할 수 있습니다. 휴대폰에서도 사용할 수 있습니다.

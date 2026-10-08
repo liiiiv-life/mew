@@ -5,8 +5,6 @@ created: 2026-10-06
 updated: "2026-10-07"
 ---
 
-# 문서 작성과 탐색
-
 mew의 기준 문서는 이 `docs/`에 둔다. 공통 소유권과 중앙 결정 기록은 [워크스페이스 지침](../../AGENTS.md)을 따른다. [ADR 0199](../../.mew/docs/decisions/0199-mew-description-discovery.md)에 따라 mew에서는 MOC를 통한 AI 탐색과 새 문서의 MOC 등록 의무를 description 탐색으로 대체한다.
 
 ## 필요한 문서 찾기

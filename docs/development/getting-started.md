@@ -5,8 +5,6 @@ updated: 2026-10-06
 description: "개발 명령과 타입·테스트·린트 검증, 에이전트의 빌드·서버 실행 제한, 문서 갱신과 필수 UI 구현 규칙을 정한다."
 ---
 
-# Development
-
 [Document map](../MOC.md) · [Development docs](MOC.md) · [Installation and usage](../guides/getting-started-en.md)
 
 Run commands from the repository root:

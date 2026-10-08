@@ -1,8 +1,7 @@
 ---
+title: "使用 mew"
 description: "중국어 간체판 mew 시작 안내로 Windows WSL·macOS·Linux 설치와 HTTPS·계정 기반 P2P 원격 접속, 주요 기능·권한·실행·업데이트 방법을 설명한다."
 ---
-# 使用 mew
-
 [한국어](getting-started-ko.md) · [English](getting-started-en.md) · [简体中文](getting-started-zh.md) · [日本語](getting-started-ja.md)
 
 mew 可在浏览器中打开电脑或服务器上的文件夹。你可以编辑 Markdown 和代码，运行终端和 AI agent，审查 Git 更改，并与他人一起处理文档；也可在手机上使用。

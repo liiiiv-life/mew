@@ -5,8 +5,6 @@ updated: 2026-09-14
 description: "이전 Electron 원격 화면을 직접 연결 실패 시 WSS·VP8 서버 전송으로 전환한 설계·이진 프로토콜·흐름 제어·구현 결과를 기록한다. 현재 직접 연결 정책과 구분한다."
 ---
 
-# 원격 데스크톱 서버 전송
-
 [이전 기록 홈](MOC.md) · [ADR 0139](../../../.mew/docs/decisions/0139-mew-desktop-server-transport.md)
 
 ## 목표와 범위

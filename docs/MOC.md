@@ -5,8 +5,6 @@ updated: "2026-10-08"
 description: "Documents의 mew 문서 홈이다. 사용법·기능·설정·개발·배포·운영, 태스크·연구·중앙 결정과 이전 기록을 용도별로 연결한다."
 ---
 
-# mew 문서 홈
-
 처음 쓰는 사람은 [소개·언어 선택](../README.md) 또는 [한국어 시작 안내](guides/getting-started-ko.md)에서 시작한다. Documents 화면에서는 이 파일이 `docs`의 대표 문서다.
 
 에이전트는 [탐색 진입점](AGENT.md)과 [문서 규칙](README.md)을 확인하고, `node server/document-descriptions.ts`의 경로·description에서 필요한 현재 문서를 고른다. 코드 작업 전에는 [실행·검증 규칙](development/getting-started.md)을 읽는다.

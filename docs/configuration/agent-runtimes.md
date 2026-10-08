@@ -1,8 +1,7 @@
 ---
+title: "에이전트 런타임 설정"
 description: "Mew 계정별 런타임 설정·모델 기본값 저장과 ACP·터미널 에이전트의 설치·인증·계정·구독 구분, 모델·권한 기본값과 Antigravity·Prime 등 런타임별 설정 범위를 설명한다."
 ---
-# 에이전트 런타임 설정
-
 [문서 지도](../MOC.md) · [이 분야](MOC.md) · [설치·실행](../guides/getting-started-ko.md)
 
 ## 설치·로그인·구독

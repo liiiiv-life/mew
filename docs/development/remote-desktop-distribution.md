@@ -5,8 +5,6 @@ updated: 2026-10-01
 description: "네이티브 원격 데스크톱 설치본의 OS별 구성 요소와 라이선스·고지·소스 제공 조건, STUN 및 런타임 재배포 경계를 정한다."
 ---
 
-# 원격 데스크톱 배포
-
 [개발 지도](MOC.md) · [전송 계약](remote-desktop.md) · [ADR 0185](../../../.mew/docs/decisions/0185-mew-desktop-resident-direct-host.md)
 
 ## 배포 형태

@@ -5,8 +5,6 @@ updated: 2026-09-15
 description: "PDF.js의 Range 렌더링·가상화, 색 반전·전체화면·필기 도구와 원본 조건부 저장, 초안 수명·파일 제한·검증 계약을 정의한다."
 ---
 
-# PDF 뷰어
-
 [개발 지도](MOC.md) · [사용법](../guides/editor.md#pdf-읽기와-필기) · [ADR 0147](../../../.mew/docs/decisions/0147-mew-canvas-pdf-and-ink-annotations.md)
 
 ## 실행과 렌더링

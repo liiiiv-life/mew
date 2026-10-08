@@ -11,8 +11,6 @@ files:
   - apps/manager/src-tauri/scripts/windows.ps1
 ---
 
-# Windows 설치·관리 앱
-
 Windows에서 실행하는 `mewnager`(뮤니저)가 WSL·mew 설치와 운영 상태를 한 화면에서 관리한다. 실행 파일은 설치 없이 열며, 실제 서버·터미널·에이전트는 전용 WSL 2 Ubuntu에서 실행한다. [ADR 0201](../../../../.mew/docs/decisions/0201-mew-windows-manager-wsl.md)이 플랫폼·레포·권한 경계를 소유한다. [사용법](../../guides/windows-manager.md)과 [빌드·검증](../../development/windows-manager.md)을 따른다.
 
 ## 요구사항과 범위

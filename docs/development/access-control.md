@@ -5,8 +5,6 @@ updated: "2026-10-07"
 description: "계정별 기능 권한과 경로별 파일 권한의 역할 기본값·상속·저장 방식, 서버 검사 및 접속 중 권한 변경과 외부 DAP·Chromium 디버거와 선택적 에이전트 MCP의 실행·쓰기·소유권 경계를 정의한다."
 ---
 
-# 계정별 기능·파일 권한
-
 상위: [개발 계약](MOC.md). 정책: [SECURITY](../../SECURITY.md), 결정: [ADR 0150](../../../.mew/docs/decisions/0150-mew-account-feature-and-file-permissions.md).
 
 ## 관리 화면과 기본값

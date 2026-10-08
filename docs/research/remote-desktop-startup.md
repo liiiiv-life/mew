@@ -5,8 +5,6 @@ updated: 2026-09-23
 description: "원격 데스크톱 첫 화면까지의 설치·호스트·캡처·협상 지연과 최적화 순서를 조사하고 일부 후속 구현을 기록한다. 상주 호스트 전환 이전 기준을 포함한다."
 ---
 
-# 원격 데스크톱 최초 화면 표시 시간 단축 연구
-
 [문서 지도](../MOC.md) · [현재 구현 계약](../development/remote-desktop.md) · [설치·사용법](../guides/remote-desktop.md)
 
 상태: **기준 조사; 일부 후속 구현 완료.** 2026-09-23에 전용 Windows Node 직접 탐색·bridge 경로 캐시, DXGI 빈 프레임 대기 단축, 설치 초기 폴링 단축을 구현했다. 최신 수치·검증 범위는 [현재 계약](../history/remote-desktop-electron-transport.md#최초-연결-최적화-검증--2026-09-23)을 따른다. 2026-10-01 상주 GPU 호스트·직결 전환은 [ADR 0185](../../../.mew/docs/decisions/0185-mew-desktop-resident-direct-host.md)와 [구현 기록](../work/remote-desktop-resident-direct.md)을 따른다. 아래 분석·미구현 제안은 조사 당시 내용을 보존한다.

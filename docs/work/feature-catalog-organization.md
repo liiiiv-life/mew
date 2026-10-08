@@ -5,8 +5,6 @@ updated: 2026-10-06
 description: "Mew 기능을 Documents/features의 고정 ID·계층으로 정리하고 기존 명세를 통합한 계획·소유권·이전 대응·검증 기록을 남긴다."
 ---
 
-# Mew 기능 문서 정리 계획
-
 상위: [진행 작업](_work.md). 요청: Mew 자체의 기능들을 기능 GUI에서 탐색·수정·재위임할 수 있도록 단계적으로 정리한다. 저장 계약은 [기능 기반 개발](../features/%ED%84%B0%EB%AF%B8%EB%84%90%C2%B7%EC%97%90%EC%9D%B4%EC%A0%84%ED%8A%B8%C2%B7%EC%9E%90%EB%8F%99%ED%99%94/%EA%B8%B0%EB%8A%A5%20%EA%B8%B0%EB%B0%98%20%EA%B0%9C%EB%B0%9C%C2%B7Markdown%20%EB%AC%B8%EC%84%9C.md), 문서 소유권은 [공통 규칙](../../../.mew/docs/README.md)을 따른다.
 
 ## 범위와 소유권

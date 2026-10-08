@@ -5,8 +5,6 @@ updated: 2026-10-01
 description: "네이티브 호스트 전환 전 Electron·Chromium·VP8 배포물의 라이선스·고지·상업 이용 검토를 보존한다. 현재 배포 계약은 별도 문서를 따른다."
 ---
 
-# 이전 Electron 배포 검토
-
 ADR 0188 이전 배포물의 검토 기록이다. 현재 기준은 [배포 계약](../development/remote-desktop-distribution.md)이다.
 
 ## 고지와 확인한 조건

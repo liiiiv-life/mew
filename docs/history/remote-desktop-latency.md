@@ -5,8 +5,6 @@ updated: 2026-10-01
 description: "이전 원격 데스크톱 로컬 커서·네이티브 캡처·유휴 영상 개선의 구현·측정과 macOS 확장을 기록한다. 상주 GPU 직접 연결 전환 후 현재 계약과 구분한다."
 ---
 
-# 원격 데스크톱 커서·지연 개선 구현
-
 [이전 기록 홈](MOC.md) · [ADR 0144](../../../.mew/docs/decisions/0144-mew-desktop-local-cursor.md) · [ADR 0146](../../../.mew/docs/decisions/0146-mew-desktop-cursor-capture-fallback.md) · [연구](../research/remote-desktop-latency.md)
 
 2026-10-01 후속: 아래는 기존 구현·측정 기록이다. Windows/WSL 캡처·호스트 수명과 전체 영상 전송은 [ADR 0185](../../../.mew/docs/decisions/0185-mew-desktop-resident-direct-host.md)·[상주 직접 연결 구현](../work/remote-desktop-resident-direct.md)이 대체한다. 커서·터치 입력의 유지 범위는 현재 [개발 계약](../development/remote-desktop.md)을 따른다.
