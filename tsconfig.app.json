@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "allowArbitraryExtensions": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  // 테스트는 node:test로 돌린다(브라우저 번들이 아니다) — packages/의 테스트와 같은 취급
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

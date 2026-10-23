@@ -1,0 +1,36 @@
+.mew-date-field { position: relative; display: flex; width: 126px; max-width: 100%; height: 28px; flex-shrink: 0; align-items: center; border-radius: 5px; color: var(--color-ink-secondary); font-variant-numeric: tabular-nums; }
+.mew-date-field:focus-within { background: var(--color-surface-raised); }
+.mew-date-field input { min-width: 0; width: 98px; height: 28px; padding: 0 5px; font: inherit; font-size: 12px; border: 0; background: transparent; color: inherit; caret-color: var(--color-accent); border-radius: 4px; }
+.mew-date-field input::placeholder { color: var(--color-ink-secondary); }
+.mew-date-field[data-has-date] { color: var(--color-ink); }
+.mew-date-field input:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.mew-date-field[data-invalid] { height: auto; flex-wrap: wrap; }
+.mew-date-field[data-invalid] input { outline: 1px solid var(--color-danger); outline-offset: -1px; }
+.mew-date-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; border: 0; border-radius: 5px; background: transparent; color: var(--color-ink-secondary); cursor: pointer; }
+.mew-date-icon:hover:not(:disabled) { background: var(--color-surface-hover); color: var(--color-ink); }
+.mew-date-icon:disabled { opacity: .4; cursor: default; }
+.mew-date-icon:focus-visible, .mew-calendar button:focus-visible { outline: 2px solid var(--color-accent-strong); outline-offset: 2px; }
+.mew-date-error { flex-basis: 100%; padding: 3px 5px; color: var(--color-danger); font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
+.mew-calendar { position: fixed; z-index: 1201; overflow: auto; overscroll-behavior: contain; padding: 14px; border-radius: 14px; background: var(--color-surface-deep); color: var(--color-ink); box-shadow: 0 8px 24px #0003, 0 24px 64px #0002; font: 13px/1.4 var(--font-sans); font-variant-numeric: tabular-nums; scrollbar-width: thin; scrollbar-color: var(--color-edge-bright) transparent; }
+.mew-calendar-header { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 14px; }
+.mew-calendar-month { font-size: 17px; font-weight: 600; letter-spacing: -.02em; color: var(--color-ink-bright); }
+.mew-calendar-nav { display: flex; gap: 2px; }
+.mew-calendar-weekdays, .mew-calendar-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.mew-calendar-weekdays { padding: 0 0 8px; text-align: center; color: var(--color-ink-secondary); font-size: 11px; }
+.mew-calendar-week { margin-bottom: 3px; }
+.mew-calendar-day { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--color-ink); cursor: pointer; font: inherit; font-size: 13px; transition: background-color 120ms ease-out; }
+.mew-calendar-day[data-outside] { color: var(--color-ink-secondary); }
+.mew-calendar-day:hover:not(:disabled):not([data-selected]) { background: var(--color-surface-raised); }
+.mew-calendar-day[aria-current="date"] { color: var(--color-accent-strong); font-weight: 600; }
+.mew-calendar-day[aria-current="date"]::after { content: ''; position: absolute; bottom: 4px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+.mew-calendar-day[data-selected] { background: var(--color-accent); color: var(--color-ink-on-accent); font-weight: 600; }
+.mew-calendar-day:disabled { opacity: .3; cursor: default; }
+.mew-calendar-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--color-edge); }
+.mew-calendar-shortcuts { display: flex; gap: 4px; }
+.mew-calendar-shortcuts button { padding: 5px 10px; border: 0; border-radius: 5px; background: var(--color-surface); color: var(--color-ink); font: inherit; cursor: pointer; }
+.mew-calendar-shortcuts button:hover { background: var(--color-surface-raised); }
+.mew-calendar-grid { --calendar-shift: 6px; animation: calendar-month-in 160ms cubic-bezier(.16, 1, .3, 1); }
+.mew-calendar-grid[data-direction="-1"] { --calendar-shift: -6px; }
+@keyframes calendar-month-in { from { transform: translateX(var(--calendar-shift)); opacity: .6; } to { transform: translateX(0); opacity: 1; } }
+@media (pointer: coarse) { .mew-calendar-day { height: 40px; } .mew-calendar .mew-date-icon { width: 32px; height: 32px; } .mew-calendar-shortcuts button { min-height: 32px; } }
+@media (prefers-reduced-motion: reduce) { .mew-calendar-grid { animation: none; } .mew-calendar-day { transition: none; } }

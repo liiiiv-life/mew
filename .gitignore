@@ -1,0 +1,52 @@
+# Logs
+logs
+*.log
+nohup.out
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+/.worktrees/
+native/remote-desktop/.mew-ready*
+native/remote-desktop/.mew-dependencies*
+native/remote-desktop/runtime/
+native/remote-desktop/capture-macos.dylib*
+dist
+dist-ssr
+dist-demo
+*.local
+
+# Secrets
+.env
+.env.*
+!.env.example
+.data/
+
+.tokensave/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+native/collab/target/
+native/collab/*.node
+native/windows/*.exe
+native/windows/*.obj
+
+/mewlink/
+
+Oreo Cat - Aichan_owo.zip
+
+# 프로젝트 첨부·그림 임시 데이터와 기존 그림 원본
+/.mew/temp/
+/.mew/drawings/

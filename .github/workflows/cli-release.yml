@@ -1,0 +1,183 @@
+name: mew CLI release
+
+on:
+  push:
+    tags: ['mew-cli-v*']
+  workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: Publish the CLI to npm after verifying the tagged runtime release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mew-cli-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - id: version
+        env:
+          PUBLISH_NPM: ${{ inputs.publish_npm }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const {version} = JSON.parse(fs.readFileSync('apps/cli/package.json', 'utf8'));
+          const tag = `mew-cli-v${version}`;
+          if (process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== tag) throw new Error(`Tag must be ${tag}`);
+          if (process.env.PUBLISH_NPM === 'true' && process.env.GITHUB_REF_TYPE !== 'tag') throw new Error('Run npm publishing on a matching release tag');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\n`);
+          JS
+
+  runtime:
+    if: inputs.publish_npm != true
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            platform: linux
+            arch: x64
+          - runner: ubuntu-22.04-arm
+            platform: linux
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: windows-2025
+            platform: win32
+            arch: x64
+          - runner: windows-11-arm
+            platform: win32
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: matrix.platform == 'win32'
+        with:
+          arch: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
+      - run: npm ci
+      - run: npm ci --prefix apps/cli
+      - run: node --test server/release-runtime.test.ts
+        if: matrix.platform != 'win32'
+      - run: npm test --prefix apps/cli
+      - run: npm run build
+      - run: node server/release-runtime.ts --output artifacts
+      - name: Validate Windows native runtime fixtures
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          $env:MEW_TEST_WINDOWS_NATIVE = '1'
+          $env:MEW_DATA_DIR = Join-Path $env:RUNNER_TEMP 'mew-windows-test-data'
+          node server/release-windows-verify.ts artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mew-runtime-${{ matrix.platform }}-${{ matrix.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  release:
+    if: always() && github.ref_type == 'tag' && needs.metadata.result == 'success' && (needs.runtime.result == 'success' || inputs.publish_npm == true)
+    needs: [metadata, runtime]
+    runs-on: ubuntu-22.04
+    environment: cli-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        if: inputs.publish_npm != true
+        with:
+          merge-multiple: true
+          path: artifacts
+      - name: Create immutable runtime release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          PUBLISH_NPM: ${{ inputs.publish_npm }}
+        run: |
+          mkdir -p artifacts
+          cd artifacts
+          if [ "$PUBLISH_NPM" != 'true' ]; then
+            cat ./*.sha256 > SHA256SUMS
+            sha256sum --check --strict SHA256SUMS
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$REPOSITORY" > /dev/null 2>&1; then
+            mkdir published
+            gh release download "$RELEASE_TAG" --repo "$REPOSITORY" --pattern 'mew-runtime-*.tar.gz' --pattern SHA256SUMS --dir published
+            cd published
+            printf '%s\n' mew-runtime-linux-x64.tar.gz mew-runtime-linux-arm64.tar.gz mew-runtime-darwin-x64.tar.gz mew-runtime-darwin-arm64.tar.gz mew-runtime-win32-x64.tar.gz mew-runtime-win32-arm64.tar.gz | sort > expected-assets
+            awk '{print $2}' SHA256SUMS | sort > actual-assets
+            cmp expected-assets actual-assets
+            sha256sum --check --strict SHA256SUMS
+          else
+            if [ "$PUBLISH_NPM" = 'true' ]; then
+              echo 'Publish the tagged runtime release before publishing its CLI to npm.' >&2
+              exit 1
+            fi
+            gh release create "$RELEASE_TAG" --repo "$REPOSITORY" --verify-tag --title "mew CLI ${RELEASE_TAG#mew-cli-v}" --generate-notes ./*.tar.gz SHA256SUMS
+          fi
+
+  npm:
+    if: inputs.publish_npm == true
+    needs: [metadata, release]
+    runs-on: ubuntu-22.04
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --prefix apps/cli
+      - run: npm test --prefix apps/cli
+      - name: Verify immutable npm version
+        id: package
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {spawnSync} from 'node:child_process';
+          const {name, version} = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const packed = spawnSync('npm', ['pack', '--json'], {encoding: 'utf8'});
+          if (packed.status !== 0) throw new Error(packed.stderr);
+          const [artifact] = JSON.parse(packed.stdout);
+          const existing = spawnSync('npm', ['view', `${name}@${version}`, 'dist.integrity', '--json'], {encoding: 'utf8'});
+          let publish = true;
+          if (existing.status === 0) {
+            if (JSON.parse(existing.stdout) !== artifact.integrity) throw new Error('This npm version already contains different package bytes. Bump the CLI version.');
+            publish = false;
+          } else {
+            let error;
+            try { error = JSON.parse(existing.stderr); } catch { error = JSON.parse(existing.stdout || '{}'); }
+            if (error.error?.code !== 'E404') throw new Error(existing.stderr || existing.stdout);
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `publish=${publish}\n`);
+          JS
+        working-directory: apps/cli
+      # Configure this repository, workflow and npm-publish environment as the
+      # package's npm trusted publisher. The first package publication is manual.
+      - run: npm publish --access public
+        if: steps.package.outputs.publish == 'true'
+        working-directory: apps/cli

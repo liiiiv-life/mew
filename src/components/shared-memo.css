@@ -1,0 +1,12 @@
+.shared-memo .editor-root > div:has(> .tiptap) { flex: 1; }
+.shared-memo .editor-root .tiptap { padding-top: 16px; }
+.shared-memo .tiptap > :first-child { margin-top: 0; }
+[data-floating-panel] .shared-memo > header { cursor: move; touch-action: none; user-select: none; }
+[data-floating-panel] .shared-memo [data-dock-grip] { display: none; }
+[data-dock-workspace]:has(> [data-floating-panel][data-workspace-panel="memo"]) { overflow: visible; }
+[data-floating-panel][data-workspace-panel="memo"]:not(:focus-within) { opacity: .2; }
+[data-floating-panel][data-workspace-panel="memo"]:not(:focus-within),
+[data-floating-panel][data-workspace-panel="memo"]:not(:focus-within) * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}

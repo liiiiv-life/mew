@@ -1,0 +1,14 @@
+{
+  "name": "mew-remote-desktop-host",
+  "version": "0.1.0",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "main": "native-host.mjs",
+  "overrides": { "usocket": { "node-gyp": "11.5.0" }, "dbus-next": { "xml2js": "0.6.2" } },
+  "dependencies": {
+    "koffi": "3.2.1",
+    "dbus-next": "0.10.2",
+    "node-datachannel": "0.33.4"
+  }
+}

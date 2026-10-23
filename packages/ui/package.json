@@ -1,0 +1,19 @@
+{
+  "name": "@mew/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./date-value": "./src/date-value.ts",
+    "./i18n": "./src/i18n.ts",
+    "./i18n-core": "./src/i18n-core.ts",
+    "./browser-storage": "./src/browser-storage.ts",
+    "./browser-storage-scope": "./src/browser-storage-scope.ts",
+    "./virtual-keyboard": "./src/virtual-keyboard.ts",
+    "./action-menu.css": "./src/action-menu.css"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
+}

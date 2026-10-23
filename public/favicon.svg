@@ -1,0 +1,13 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    mew 마크 — 사각 테두리 안의 m.
+    탭 배경은 브라우저·OS 테마에 따라 밝기도 어둡기도 해서 흰 획만 쓰면 한쪽에서 통째로 사라진다.
+    그래서 획 색을 prefers-color-scheme로 뒤집는다 (SVG 파비콘은 문서 안 미디어 쿼리를 따른다).
+  -->
+  <style>
+    svg { --stroke: #111111; }
+    @media (prefers-color-scheme: dark) { svg { --stroke: #ffffff; } }
+  </style>
+  <rect x="2" y="2" width="60" height="60" stroke="var(--stroke)" stroke-width="4"/>
+  <path d="M46 29.75C46 18.5 46 14 39 14C32 14 32 18.5 32 29.75C32 18.5 32 14 25 14C18 14 18 18.5 18 29.75L21.5 32L18 34.25C18.0002 45.5 18 50 25 50C32 50 32 45.5 32 34.25C32 45.5 32 50 39 50C46 50 46 45.5 46 34.25" stroke="var(--stroke)" stroke-width="4"/>
+</svg>

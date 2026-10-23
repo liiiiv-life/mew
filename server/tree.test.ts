@@ -1,0 +1,273 @@
+// 역할별 트리 가시성 — owner·manager(showAll)는 확장자·숨김 목록에 걸리지 않고 그대로 보고,
+// member 이하는 문서용으로 걸러 본다. 어느 역할이든 차단 경로(.git·node_modules·.data)와
+// build/ 산출물은 그대로 막힌다. 정책 기준본은 docs/ops/mew/access-model.md.
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import http from 'node:http'
+import os from 'node:os'
+import path from 'node:path'
+import express from 'express'
+import { WORKSPACE_PROJECT, WORKSPACE_ROOT, setWorkspaceRoot } from './paths.ts'
+import type { Role } from './reqAuth.ts'
+import { buildTree, buildTreeAsync, isPathVisible, listTreeDirAsync, type TreeNode } from './tree.ts'
+import { createApiApp } from './api.ts'
+import { resetTreeWatchers } from './watcher.ts'
+import { readyFileCatalog } from './fileCatalog.ts'
+
+const DOCS = 'docs'
+const CODE = 'some-code-project' // docs가 아닌 아무 프로젝트 (판정은 이름 규칙만 본다)
+
+test('docs 프로젝트: 기본 눈에는 .md와 미디어만 뜬다', () => {
+  assert.equal(isPathVisible(DOCS, 'ops/mew/access-model.md'), true)
+  assert.equal(isPathVisible(DOCS, 'assets/screenshot.png'), true)
+  assert.equal(isPathVisible(DOCS, 'ops/notes.txt'), false)
+  assert.equal(isPathVisible(DOCS, 'ops/server.ts'), false)
+})
+
+test('showAll: docs에서도 확장자를 가리지 않는다', () => {
+  assert.equal(isPathVisible(DOCS, 'ops/notes.txt', { showAll: true }), true)
+  assert.equal(isPathVisible(DOCS, 'ops/server.ts', { showAll: true }), true)
+  assert.equal(isPathVisible(DOCS, 'ops/weird.zip', { showAll: true }), true)
+  assert.equal(isPathVisible(DOCS, 'ops/no-extension-at-all', { showAll: true }), true)
+})
+
+test('코드 프로젝트: 기본 눈은 텍스트 화이트리스트, showAll은 무엇이든 통과', () => {
+  assert.equal(isPathVisible(CODE, 'src/App.tsx'), true)
+  assert.equal(isPathVisible(CODE, '.env'), true) // 시크릿은 로그인 역할에 열려 있다 (게스트는 guestAccess가 거른다)
+  assert.equal(isPathVisible(CODE, 'tools/report.zip'), false)
+  assert.equal(isPathVisible(CODE, 'tools/report.zip', { showAll: true }), true)
+  assert.equal(isPathVisible(CODE, 'tools/report.xlsx'), true) // 뷰어가 있는 바이너리는 화이트리스트다
+})
+
+test('숨김 목록은 showAll에서만 풀린다', () => {
+  assert.equal(isPathVisible(CODE, 'dist/index.js'), false)
+  assert.equal(isPathVisible(CODE, 'dist/index.js', { showAll: true }), true)
+  assert.equal(isPathVisible(CODE, '.next/server/page.js'), false)
+  assert.equal(isPathVisible(CODE, '.next/server/page.js', { showAll: true }), true)
+})
+
+test('차단 경로는 showAll이어도 뚫리지 않는다 — API가 경로 자체를 거부하므로', () => {
+  for (const p of ['.git/config', 'node_modules/react/index.js', '.data/users.json']) {
+    assert.equal(isPathVisible(CODE, p), false, `${p}는 기본 눈에서 막혀야 한다`)
+    assert.equal(isPathVisible(CODE, p, { showAll: true }), false, `${p}는 showAll에서도 막혀야 한다`)
+  }
+})
+
+test('.worktrees는 부모 트리에서 제외하고 워크트리 자체를 루트로 열면 탐색한다', async () => {
+  const original = WORKSPACE_ROOT
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-worktree-tree-'))
+  const worktree = path.join(root, '.worktrees', 'task')
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true })
+  fs.mkdirSync(path.join(worktree, 'src'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'src', 'main.ts'), 'export {}\n')
+  fs.writeFileSync(path.join(worktree, 'src', 'task.ts'), 'export {}\n')
+  try {
+    setWorkspaceRoot(root)
+    for (const showAll of [false, true]) {
+      const opts = { showAll }
+      const tree = buildTree(WORKSPACE_PROJECT, opts)
+      assert.deepEqual(paths(tree), ['src', 'src/main.ts'])
+      assert.deepEqual(await buildTreeAsync(WORKSPACE_PROJECT, opts), tree)
+      assert.deepEqual((await listTreeDirAsync(WORKSPACE_PROJECT, '', opts)).map(node => node.path), ['src'])
+      assert.deepEqual(await listTreeDirAsync(WORKSPACE_PROJECT, '.worktrees/task/src', opts), [])
+      assert.equal(isPathVisible(WORKSPACE_PROJECT, '.worktrees', { ...opts, type: 'dir' }), false)
+      assert.equal(isPathVisible(WORKSPACE_PROJECT, '.worktrees/task/src/task.ts', opts), false)
+    }
+
+    setWorkspaceRoot(worktree)
+    const tree = buildTree(WORKSPACE_PROJECT, { showAll: true })
+    assert.deepEqual(paths(tree), ['src', 'src/task.ts'])
+    assert.deepEqual(await buildTreeAsync(WORKSPACE_PROJECT, { showAll: true }), tree)
+    assert.deepEqual((await listTreeDirAsync(WORKSPACE_PROJECT, 'src', { showAll: true })).map(node => node.path), ['src/task.ts'])
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'src/task.ts', { showAll: true }), true)
+  } finally {
+    setWorkspaceRoot(original)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('build/ 안은 showAll이어도 APK·AAB만 — 산출물 홍수 방지 규칙은 숨김 목록이 아니다', () => {
+  assert.equal(isPathVisible(CODE, 'build/app/outputs/flutter-apk/app-debug.apk', { showAll: true }), true)
+  assert.equal(isPathVisible(CODE, 'build/app/intermediates/classes.dex', { showAll: true }), false)
+  assert.equal(isPathVisible(CODE, 'build/app/outputs/logs/build.txt', { showAll: true }), false)
+})
+
+test('폴더 판정은 확장자를 보지 않는다', () => {
+  assert.equal(isPathVisible(CODE, 'src/components', { type: 'dir' }), true)
+  assert.equal(isPathVisible(CODE, 'dist/assets', { type: 'dir' }), false)
+  assert.equal(isPathVisible(CODE, 'dist/assets', { type: 'dir', showAll: true }), true)
+  assert.equal(isPathVisible(CODE, 'node_modules/react', { type: 'dir', showAll: true }), false)
+})
+
+test('빈 경로(프로젝트 루트)는 트리의 항목이 아니다', () => {
+  assert.equal(isPathVisible(CODE, ''), false)
+  assert.equal(isPathVisible(CODE, '', { type: 'dir', showAll: true }), false)
+})
+
+test('비동기 트리는 동기 트리와 같은 가시성·정렬 결과를 만든다', async () => {
+  assert.deepEqual(await buildTreeAsync(DOCS), buildTree(DOCS))
+})
+
+test('한 단계 트리는 요청한 폴더의 직접 자식만 돌려준다', async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-lazy-tree-'))
+  fs.mkdirSync(path.join(workspace, 'docs', 'folder', 'nested'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'docs', 'folder', 'note.md'), '# note')
+  fs.writeFileSync(path.join(workspace, 'docs', 'folder', 'nested', 'deep.md'), '# deep')
+  setWorkspaceRoot(workspace)
+  try {
+    const root = await listTreeDirAsync(DOCS)
+    assert.ok(root.every(node => !node.path.includes('/')))
+    const children = await listTreeDirAsync(DOCS, 'folder')
+    assert.equal(children.length, 2)
+    assert.ok(children.every(node => node.path.startsWith('folder/') && node.path.split('/').length === 2))
+    assert.ok(children.every(node => node.children === undefined), '자식 재귀 탐색은 하지 않는다')
+  } finally {
+    setWorkspaceRoot(WORKSPACE_ROOT)
+    fs.rmSync(workspace, { recursive: true, force: true })
+  }
+})
+
+// ── GET /tree 배선 ────────────────────────────────────────────────────────────
+// 임시 프로젝트 폴더를 실제로 만들고 라우터를 bare express에 마운트해(인증은 스텁) 역할별로 두드린다.
+// 여기서 보는 것은 "역할 → showAll" 배선 하나다. 규칙 자체는 위 isPathVisible 테스트가 본다.
+
+/** 트리를 납작하게 편 경로 목록 */
+function paths(nodes: TreeNode[]): string[] {
+  return nodes.flatMap((n) => [n.path, ...(n.children ? paths(n.children) : [])])
+}
+
+test('GET /tree: owner·manager는 거르지 않은 트리를, member는 걸러진 트리를 받는다', async (t) => {
+  const project = `ztree${process.pid}${Math.random().toString(36).slice(2, 6)}`
+  const dir = path.join(WORKSPACE_ROOT, project)
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true })
+  fs.mkdirSync(path.join(dir, 'dist'), { recursive: true })
+  fs.mkdirSync(path.join(dir, 'node_modules', 'left-pad'), { recursive: true })
+
+  fs.writeFileSync(path.join(dir, 'note.md'), '# hi\n')
+  fs.writeFileSync(path.join(dir, 'archive.zip'), 'not really an archive')
+  fs.writeFileSync(path.join(dir, 'src', 'app.ts'), 'export {}\n')
+  fs.writeFileSync(path.join(dir, 'dist', 'bundle.js'), '// built\n')
+  fs.writeFileSync(path.join(dir, 'node_modules', 'left-pad', 'index.js'), '// dep\n')
+  // 512 KiB를 넘겨야 anchor preview 경로를 탄다. 줄마다 식별자를 넣어 목표 줄과 앞 여백을 함께 검증한다.
+  fs.writeFileSync(path.join(dir, 'large.txt'), Array.from({ length: 12_000 }, (_, i) => `line-${i + 1} ${'x'.repeat(48)}\n`).join(''))
+
+  let role: Role = 'member'
+  const app = express()
+  app.use(express.json())
+  // 인증 스텁 — 실서버에선 attachAuthContext가 채운다
+  app.use((req, _res, next) => {
+    ;(req as express.Request & { auth?: unknown }).auth = { role, email: 'tester@x.com', mustChangePassword: false }
+    next()
+  })
+  app.use('/api', createApiApp())
+  const server = http.createServer(app)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const addr = server.address()
+  const base = typeof addr === 'object' && addr ? `http://127.0.0.1:${addr.port}` : ''
+
+  const treeFor = async (as: Role): Promise<string[]> => {
+    role = as
+    const res = await fetch(`${base}/api/tree?project=${project}`)
+    assert.equal(res.status, 200, `${as} 트리 조회는 성공해야 한다`)
+    return paths((await res.json()) as TreeNode[])
+  }
+
+  const oneLevelFor = async (as: Role, relPath: string): Promise<TreeNode[]> => {
+    role = as
+    const res = await fetch(`${base}/api/tree?project=${project}&path=${encodeURIComponent(relPath)}`)
+    assert.equal(res.status, 200, `${as} 한 단계 트리 조회는 성공해야 한다`)
+    return (await res.json()) as TreeNode[]
+  }
+
+  try {
+    const previewRes = await fetch(`${base}/api/file?path=large.txt&project=${project}&anchorLine=1536&chunkLines=400`)
+    assert.equal(previewRes.status, 200, '큰 파일 anchor preview 요청은 성공해야 한다')
+    const preview = (await previewRes.json()) as { partial: boolean; content: string; anchorLine: number; lineStart: number; lineEnd: number; totalLines: number | null }
+    assert.equal(preview.partial, true)
+    assert.equal(preview.anchorLine, 1536)
+    assert.equal(preview.lineStart, 1496, '목표 줄은 첫 조각의 약 10% 아래에 놓인다')
+    assert.equal(preview.lineEnd, 1895)
+    assert.equal(preview.totalLines, null, '첫 조각을 위해 파일 끝까지 스캔하지 않는다')
+    assert.ok(preview.content.startsWith('line-1496 '))
+    assert.ok(preview.content.includes('line-1536 '))
+    assert.ok(!preview.content.includes('line-1897 '), '요청 범위 밖 텍스트를 보내지 않는다')
+
+    const member = await treeFor('member')
+    assert.ok(member.includes('note.md'), 'member도 .md는 본다')
+    assert.ok(member.includes('src/app.ts'), 'member도 소스 파일은 본다')
+    assert.ok(!member.includes('archive.zip'), 'member에게 화이트리스트 밖 확장자는 안 보인다')
+    assert.ok(!member.some((p) => p.startsWith('dist')), 'member에게 숨김 목록(dist)은 안 보인다')
+
+    const rootOnly = await oneLevelFor('member', '')
+    assert.ok(rootOnly.some((node) => node.path === 'src'), '루트 목록에는 직접 자식 폴더가 보인다')
+    assert.ok(rootOnly.every((node) => node.children === undefined), '루트 목록이 하위 트리를 함께 보내지 않는다')
+    const srcOnly = await oneLevelFor('member', 'src')
+    assert.deepEqual(srcOnly.map((node) => node.path), ['src/app.ts'], '폴더를 펼칠 때 그 직접 자식만 읽는다')
+    await readyFileCatalog(project)
+    const v1Response = await fetch(`${base}/api/tree?project=${project}&path=src&v=1`)
+    const v1 = await v1Response.json() as { version: number; state: string; entries: TreeNode[] }
+    assert.ok(v1.version >= 1)
+    assert.equal(v1.state, 'ready')
+    assert.deepEqual(v1.entries.map((node) => node.path), ['src/app.ts'])
+
+    for (const as of ['owner', 'manager'] as const) {
+      const all = await treeFor(as)
+      assert.ok(all.includes('archive.zip'), `${as}는 확장자를 가리지 않고 본다`)
+      assert.ok(all.includes('dist/bundle.js'), `${as}는 숨김 목록도 뚫고 본다`)
+      assert.ok(
+        !all.some((p) => p.startsWith('node_modules')),
+        `${as}에게도 차단 경로(node_modules)는 안 보인다`,
+      )
+    }
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    // GET /tree가 이 임시 프로젝트에 fs.watch를 걸어뒀다 — 접지 않으면 이벤트 루프가 살아 있어
+    // 테스트가 끝나도 프로세스가 종료되지 않는다
+    resetTreeWatchers()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+
+  t.diagnostic(`임시 프로젝트 ${project} 정리 완료`)
+})
+
+// ── 홈(.workspace) 스코프 ─────────────────────────────────────────────────────
+// 루트 폴더 자신이 프로젝트다. Documents도 실제 위치의 일반 폴더로 탐색한다.
+
+test('루트 프로젝트 트리: Documents도 실제 위치와 일반 정렬로 파일시스템 탐색을 허용한다', async () => {
+  const original = WORKSPACE_ROOT
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'mew-ws-')))
+  fs.mkdirSync(path.join(root, 'some-project'))
+  fs.mkdirSync(path.join(root, 'some-project', '.mew'))
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true })
+  fs.mkdirSync(path.join(root, '.mew'), { recursive: true })
+  fs.mkdirSync(path.join(root, '.agents', 'some-project'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'some-project', 'app.ts'), 'export {}\n')
+  fs.writeFileSync(path.join(root, 'docs', 'MOC.md'), '# moc\n')
+  fs.writeFileSync(path.join(root, 'docs', 'example.ts'), 'export {}\n')
+  fs.writeFileSync(path.join(root, '.mew', 'cmd-button.json'), '[]\n')
+  fs.writeFileSync(path.join(root, '.agents', 'some-project', 'note.md'), '# note\n')
+  fs.writeFileSync(path.join(root, 'AGENTS.md'), '# rules\n')
+
+  try {
+    setWorkspaceRoot(root)
+    const tree = buildTree(WORKSPACE_PROJECT, { showAll: true })
+    assert.deepEqual(await buildTreeAsync(WORKSPACE_PROJECT, { showAll: true }), tree)
+    assert.deepEqual((await listTreeDirAsync(WORKSPACE_PROJECT, '', { showAll: true })).map(node => node.path), tree.map(node => node.path))
+    assert.deepEqual(tree.filter(node => node.type === 'dir').map(node => node.name), ['.agents', '.mew', 'docs', 'some-project'])
+    const all = paths(tree).sort()
+    assert.deepEqual(all, ['.agents', '.agents/some-project', '.agents/some-project/note.md', '.mew', '.mew/cmd-button.json', 'AGENTS.md', 'docs', 'docs/MOC.md', 'docs/example.ts', 'some-project', 'some-project/.mew', 'some-project/app.ts'].sort())
+    assert.equal(tree.find((node) => node.name === 'some-project')?.project, true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'some-project', { type: 'dir', showAll: true }), true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs', { type: 'dir', showAll: true }), true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs/MOC.md', { showAll: true }), true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs/example.ts', { showAll: true }), true)
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, 'docs/node_modules/file.js', { showAll: true }), false)
+    assert.deepEqual((await listTreeDirAsync(WORKSPACE_PROJECT, 'docs', { showAll: true })).map(node => node.path).sort(), ['docs/MOC.md', 'docs/example.ts'].sort())
+    // 깊은 곳의 같은 이름은 그냥 폴더다
+    assert.equal(isPathVisible(WORKSPACE_PROJECT, '.agents/some-project/note.md', { showAll: true }), true)
+  } finally {
+    setWorkspaceRoot(original)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})

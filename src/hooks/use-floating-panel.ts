@@ -1,0 +1,99 @@
+import { scopedBrowserStorage } from '@mew/ui/browser-storage-scope'
+import { useEffect, useRef, useState, type PointerEvent, type CSSProperties } from 'react'
+type Geometry = { x: number; y: number; width: number; height: number }
+const initial: Geometry = { x: 24, y: 24, width: 420, height: 480 }
+export function loadFloatingRect(key: string): Geometry {
+  try {
+    const saved = JSON.parse(scopedBrowserStorage().getItem(key) ?? 'null')
+    if (saved && Object.values(saved).every(value => typeof value === 'number' && Number.isFinite(value)) && saved.width >= 240 && saved.height >= 160 && typeof saved.x === 'number' && typeof saved.y === 'number') return saved
+  } catch { /* defaults */ }
+  return initial
+}
+export function restoreFloatingRect(key: string, rect: Geometry) {
+  try { scopedBrowserStorage().setItem(key, JSON.stringify(rect)) } catch { /* session geometry */ }
+  window.dispatchEvent(new CustomEvent('mew:popup-layout', { detail: { key, rect } }))
+}
+const floatingLayers: Array<(layer: number) => void> = []
+function focusFloatingPanel(update: (layer: number) => void) {
+  const index = floatingLayers.indexOf(update)
+  if (index !== -1) floatingLayers.splice(index, 1)
+  floatingLayers.push(update)
+  floatingLayers.forEach((setLayer, index) => setLayer(60 + index))
+}
+export function useFloatingPanel(key: string, host: HTMLElement | null, enabled = true, workspaceBounds = false) {
+  const [geometry, setGeometry] = useState(() => ({ key, rect: loadFloatingRect(key) }))
+  const rect = geometry.key === key ? geometry.rect : loadFloatingRect(key)
+  const rectRef = useRef(rect)
+  rectRef.current = rect
+  useEffect(() => {
+    const restore = (event: Event) => {
+      const detail = (event as CustomEvent<{ key: string; rect: Geometry }>).detail
+      if (detail.key === key) setGeometry({ key, rect: detail.rect })
+    }
+    window.addEventListener('mew:popup-layout', restore)
+    return () => window.removeEventListener('mew:popup-layout', restore)
+  }, [key])
+  const [size, setSize] = useState({ x: 0, y: 0, width: 0, height: 0 })
+  const [layer, setLayer] = useState(60)
+  useEffect(() => {
+    if (!enabled) return
+    focusFloatingPanel(setLayer)
+    return () => {
+      const index = floatingLayers.indexOf(setLayer)
+      if (index !== -1) floatingLayers.splice(index, 1)
+    }
+  }, [enabled])
+  const drag = useRef<{ pointer: number; x: number; y: number; mode: 'move' | 'resize'; rect: Geometry } | null>(null)
+  useEffect(() => {
+    if (!host || !enabled) return
+    const area = workspaceBounds ? host.closest<HTMLElement>('.mew-workspace-content') ?? host : host
+    const measure = () => {
+      const bounds = host.getBoundingClientRect(), outer = area.getBoundingClientRect()
+      setSize({ x: outer.left - bounds.left, y: outer.top - bounds.top, width: area.clientWidth, height: area.clientHeight })
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(host)
+    if (area !== host) observer.observe(area)
+    measure()
+    return () => observer.disconnect()
+  }, [host, enabled, workspaceBounds])
+  const clamp = (value: Geometry) => {
+    const width = Math.min(Math.max(240, value.width), Math.max(1, size.width))
+    const height = Math.min(Math.max(160, value.height), Math.max(1, size.height))
+    return { width, height, x: Math.max(size.x, Math.min(value.x, size.x + size.width - width)), y: Math.max(size.y, Math.min(value.y, size.y + size.height - height)) }
+  }
+  const update = (value: Geometry) => {
+    const next = clamp(value)
+    setGeometry({ key, rect: next })
+    try { scopedBrowserStorage().setItem(key, JSON.stringify(next)) } catch { /* session-only geometry */ }
+  }
+  const start = (event: PointerEvent<HTMLElement>, mode: 'move' | 'resize') => {
+    if (event.button !== 0 || !event.isPrimary) return
+    event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId)
+    drag.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, mode, rect: clamp(rectRef.current) }
+  }
+  const move = (event: PointerEvent<HTMLElement>) => {
+    const active = drag.current
+    if (!active || active.pointer !== event.pointerId) return
+    const dx = event.clientX - active.x, dy = event.clientY - active.y
+    update(active.mode === 'move' ? { ...active.rect, x: active.rect.x + dx, y: active.rect.y + dy } : { ...active.rect, width: active.rect.width + dx, height: active.rect.height + dy })
+  }
+  const end = (event: PointerEvent<HTMLElement>) => {
+    if (drag.current?.pointer !== event.pointerId) return
+    drag.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+  const controls = (mode: 'move' | 'resize') => ({
+    onPointerDown: (event: PointerEvent<HTMLElement>) => start(event, mode), onPointerMove: move, onPointerUp: end, onPointerCancel: end, onLostPointerCapture: end,
+    onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
+      const dx = event.key === 'ArrowRight' ? 12 : event.key === 'ArrowLeft' ? -12 : 0
+      const dy = event.key === 'ArrowDown' ? 12 : event.key === 'ArrowUp' ? -12 : 0
+      if (!dx && !dy) return
+      event.preventDefault()
+      const current = clamp(rectRef.current)
+      update(mode === 'move' ? { ...current, x: current.x + dx, y: current.y + dy } : { ...current, width: current.width + dx, height: current.height + dy })
+    },
+  })
+  const bounded = clamp(rect)
+  return { style: { position: 'absolute', left: bounded.x, top: bounded.y, width: bounded.width, height: bounded.height, zIndex: layer } as CSSProperties, focus: () => { if (enabled) focusFloatingPanel(setLayer) }, controls }
+}

@@ -1,0 +1,36 @@
+{
+  "generator": "built-in image_gen",
+  "created": "2026-10-09",
+  "action": "fall",
+  "reference": {
+    "path": "public/mewcat/capybara/fall.png",
+    "archivedAtCommit": "8496c92"
+  },
+  "sourceAtlas": "fall-source-atlas.png",
+  "prompt": "Preserve the reference capybara drawing and redraw eight airborne down-right poses, staying at 40–45 degrees. Four columns by two rows, transparent alpha; intended reading-order angles 45,44,42.5,41,40,41,42.5,44. Keep the same crude flat tan marker drawing, vacant face, character scale and tiny feet. Never include horizontal or landing poses.",
+  "frameCount": 8,
+  "frameWidth": 128,
+  "frameHeight": 128,
+  "cycleMs": 560,
+  "anglesDegrees": [
+    45,
+    44,
+    42.5,
+    41,
+    40,
+    41,
+    42.5,
+    44
+  ],
+  "normalization": "Keep the largest alpha-connected animal per cell. Align its alpha principal axis to the intended angle; retain original drawing and alpha. Register all poses at the alpha centroid, then use one union crop and common scale with maximum extent 104px, horizontal center 64px and bottom boundary 127px. Export PNG and WebP.",
+  "measuredPrincipalAxisDegrees": [
+    44.872014779524996,
+    43.96969506551742,
+    42.51461454422598,
+    40.98588343182335,
+    40.02323613561604,
+    41.047217524862,
+    42.52776425422653,
+    43.97224448283374
+  ]
+}

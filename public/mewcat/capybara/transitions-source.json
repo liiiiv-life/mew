@@ -1,0 +1,64 @@
+{
+  "generator": "built-in image_gen",
+  "created": "2026-10-09",
+  "prompt": "Use case: identity-preserve. Asset type: production Mewpet CAPYBARA transition animation atlas.\nInput 1 capybara idle strip and input 2 capybara walk strip are exact character STYLE AND IDENTITY references. Redraw this same very simple deadpan tan capybara in eighteen new key poses, for NINE transitions with exactly TWO frames each.\nMatch flat solid tan body, tiny widely spaced dark dot/dash eyes, broad blunt rounded rectangular muzzle, tiny round ears and stubby feet, huge bean-shaped body, no tail. Thick subtly uneven wobbly dark-brown hand-drawn marker outlines. No shading, gradients, glossy highlights, big cute eyes, fur detail or color fringes. Casual crude quick doodle rather than polished chibi. Keep original proportions and vacant expression.\nSTRICT atlas layout: SIX columns by THREE rows, 18 complete animals total, one per equal square cell, ideally1536x768. Every consecutive pair is one animation, read row-major left to right. Same character scale and ample transparent gutters, every ear/foot stays inside the cell, right-facing or3/4right for every pose. True transparent alpha backdrop, NO text/labels/grid/floor/shadow/props/hands/hearts.\nRow1 pair1 RUN TO WALK: low stretched running body brakes into short walking stride; pair2 WALK TO RUN: upright step tilts forward and extends hind feet to push into run; pair3 RUN TO IDLE: braking step gathers feet and ends in squat seated rest.\nRow2 pair1 IDLE TO RUN: squat seated body rises leaning forward and pushes into first run stride; pair2 WALK TO IDLE: slow short step folds hindquarters down and ends seated; pair3 IDLE TO WALK: seated body rises then starts a gentle walking step.\nRow3 pair1 TAKEOFF: low grounded crouch then hind-leg push extending upward with forefeet raised; pair2 LANDING: forefeet touch in low soft squat then recover to stable seated rest; pair3 APEX: upward-leaning airborne body with gathered feet then slightly downward-leaning airborne body with forefeet reaching down-right. Both apex drawings airborne, neither grounded.\nExactly two DISTINCT purposeful readable key poses per transition, never eight frames, no extra drawings. Physics moves the body at runtime, so use consistent cell-relative scale and foot baseline with full visible animal. Preserve genuine transparent alpha.",
+  "references": [
+    "public/mewcat/capybara/idle.png",
+    "public/mewcat/capybara/walk.png"
+  ],
+  "actions": [
+    "run-walk",
+    "walk-run",
+    "run-idle",
+    "idle-run",
+    "walk-idle",
+    "idle-walk",
+    "takeoff",
+    "landing",
+    "apex"
+  ],
+  "frameCount": 2,
+  "frameWidth": 128,
+  "frameHeight": 128,
+  "stripWidth": 256,
+  "sourceAtlas": {
+    "width": 1774,
+    "height": 887,
+    "columns": 6,
+    "rows": 3,
+    "file": "transitions-atlas.png"
+  },
+  "normalization": "Extract complete alpha-connected animals in row-major pairs, crop with 2px alpha edges, normalize with one uniform scale and maximum extent104px, center in128px cells at foot baseline127px. Preserve alpha. Encode PNG sources and lossless WebP delivery.",
+  "previousSources": [
+    {
+      "generator": "built-in image_gen",
+      "created": "2026-10-08",
+      "prompt": "Use case: identity-preserve game sprite atlas extension. Generate a NEW companion TRANSITION animation sprite atlas, keeping the exact character identity, colors, proportions and drawing style from the attached existing idle sprite strip. The reference strip is a style and identity reference, not the output layout. All characters face RIGHT or three-quarter RIGHT; absolutely no left-facing poses. Genuine transparent background, no floor/shadow, props, hands, hearts, text, labels, borders or grid lines. Exactly 8 equal columns and 9 equal rows: 72 full animal drawings, one complete animal centered in each regular cell. Generous transparent gutters between every cell. SAME scale throughout all frames, full ears, paws and tail inside cell, ground poses share a foot baseline. Each ROW is a short ONE-WAY 8-frame motion transition, with clear progressive intermediate drawings from its first pose to final pose; not repeated cycles. Composition ideally 1024x1152, 8:9 atlas. Rows in EXACT order: 1 RUN TO WALK: fast stretched gallop settles to shorter walking steps. 2 WALK TO RUN: small walking stride accelerates and stretches into gallop. 3 RUN TO IDLE: slowing run, feet collect and body settles into calm seated idle. 4 IDLE TO RUN: seated rest, stands, leans forward and accelerates into first run stride. 5 WALK TO IDLE: small walking steps decelerate, folds hindquarters into seated rest. 6 IDLE TO WALK: seated rest rises to standing, first gentle walking steps. 7 GROUND TAKEOFF: begins grounded, crouches in anticipation, extends hind legs and lifts forepaws, ends in rising airborne pose angled up-right. Do not move the whole body vertically inside each cell: animation runtime supplies flight movement. 8 LANDING: begins descending with forefeet reaching, paws contact ground, body compresses into a soft squat, recovers to seated idle. 9 ASCENT TO DESCENT AT APEX: upward-leaning airborne body tucks paws, levels at apex, rotates gently toward down-right with forepaws reaching; no ground poses in this row. Keep all 72 drawings one consistent animal at same scale, high legibility at 48px. Do not introduce visual features absent from the reference.\nCharacter: Exact existing very simple dopey tan capybara: heavy wide bean-shaped body, blunt broad muzzle, tiny round ears and short stubby feet, NO tail, small dark dash/dot eyes, vacant expression throughout, thick subtly uneven dark-brown marker outlines, flat solid tan fill, no highlights, no glossy eyes, no detailed fur. Deliberately casual simple doodle style, not polished chibi.",
+      "references": [
+        "public/mewcat/capybara/idle.png"
+      ],
+      "actions": [
+        "run-walk",
+        "walk-run",
+        "run-idle",
+        "idle-run",
+        "walk-idle",
+        "idle-walk",
+        "takeoff",
+        "landing",
+        "apex"
+      ],
+      "frameCount": 8,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "stripWidth": 1024,
+      "sourceAtlas": {
+        "width": 1182,
+        "height": 1330,
+        "columns": 8,
+        "rows": 9
+      },
+      "normalization": "Extract 72 complete alpha-connected animals, sort by nine rows and eight columns; crop with 2px antialiased margins, apply one uniform scale across all frames with maximum extent 104px, center horizontally in 128px cells at foot baseline 127px. Preserve generated alpha. Pack each row as an independent 1024×128 PNG."
+    }
+  ]
+}

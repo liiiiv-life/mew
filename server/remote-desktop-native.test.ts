@@ -1,0 +1,124 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
+// @ts-expect-error Native helper modules run as JavaScript in Electron.
+import { windowsInput, macInput, x11Input } from '../native/remote-desktop/input-native.mjs'
+// @ts-expect-error Native helper modules run as JavaScript in Electron.
+import { portalInput } from '../native/remote-desktop/input-portal.mjs'
+
+function ffi() {
+  const calls: { name: string; args: unknown[] }[] = []
+  const koffi = { struct: (value: unknown) => value, pointer: (value: unknown) => value, out: (value: unknown) => value, load: () => ({ func: (signature: string) => {
+    const name = signature.includes('(') ? signature.match(/(\w+)\s*\(/)![1] : signature
+    return (...args: unknown[]) => {
+      calls.push({ name, args: args.map(arg => Buffer.isBuffer(arg) ? Buffer.from(arg) : arg) })
+      if (name === 'GetCursorPos') Object.assign(args[0] as object, { x: 100, y: 200 })
+      if (name === 'MapVirtualKeyW') return ({ 13: 0x1c, 32: 0x39, 65: 0x1e, 68: 0x20, 69: 0x12, 70: 0x21, 71: 0x22, 81: 0x10, 83: 0x1f, 87: 0x11, 163: 0xe01d, 111: 0xe035, 45: 0xe052, 44: 0xe037, 93: 0xe05d, 97: 0x4f, 135: 0x76, 19: 0xe11d, 21: 0x72, 25: 0x71 } as Record<number, number>)[Number(args[0])] ?? 0
+      if (name === 'CGEventGetLocation') return { x: 100, y: 200 }
+      if (name.startsWith('CGEventCreate')) return {}
+      return 1
+    }
+  } }) }
+  return { koffi, calls }
+}
+const bounds = { x: -1920, y: 0, width: 1920, height: 1080 }
+
+test('Windows input uses correctly aligned SendInput packets and physical display coordinates', () => {
+  const { koffi, calls } = ffi(), adapter = windowsInput(koffi, bounds)
+  adapter.moveTo(1, 1); adapter.button(1, true); adapter.button(2, true); adapter.button(4, false); adapter.wheel(0, 120); adapter.key('ControlRight', true); adapter.key('ControlRight', false)
+  assert.deepEqual(calls.find(call => call.name === 'SetCursorPos')!.args, [-1, 1079])
+  const packets = calls.filter(call => call.name === 'SendInput').map(call => { assert.equal(call.args[2], 40); return call.args[1] as Buffer })
+  assert.deepEqual(packets.slice(0, 4).map(packet => packet.readUInt32LE(20)), [2, 32, 16, 0x800])
+  assert.equal(packets[3].readInt32LE(16), -120)
+  assert.equal(packets[4].readUInt32LE(0), 1)
+  assert.equal(packets[4].readUInt32LE(12), 9)
+  assert.equal(packets[4].readUInt16LE(8), 0)
+  assert.equal(packets[4].readUInt16LE(10), 0x1d)
+  assert.equal(packets[5].readUInt32LE(12), 11)
+})
+
+test('Windows game keys supply physical scan codes on both press and release with virtual-key fallback', () => {
+  const { koffi, calls } = ffi(), adapter = windowsInput(koffi, bounds)
+  const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyF', 'KeyG', 'Space']
+  const scans = [0x11, 0x1e, 0x1f, 0x20, 0x10, 0x12, 0x21, 0x22, 0x39]
+  for (const code of keys) { adapter.key(code, true); adapter.key(code, false) }
+  const packets = calls.filter(call => call.name === 'SendInput').map(call => call.args[1] as Buffer)
+  assert.deepEqual(packets.map(p => [p.readUInt16LE(8), p.readUInt16LE(10), p.readUInt32LE(12)]), scans.flatMap(scan => [[0, scan, 8], [0, scan, 10]]))
+  assert.ok(calls.filter(call => call.name === 'MapVirtualKeyW').every(call => call.args[1] === 4))
+  for (const code of ['Pause', 'LaunchMail', 'not-a-key']) { adapter.key(code, true); adapter.key(code, false) }
+  const fallback = calls.filter(call => call.name === 'SendInput').slice(packets.length).map(call => call.args[1] as Buffer)
+  assert.deepEqual(fallback.map(p => [p.readUInt16LE(8), p.readUInt16LE(10), p.readUInt32LE(12)]), [[19, 0, 0], [19, 0, 2], [180, 0, 1], [180, 0, 3]])
+})
+
+test('Mac middle dragging and modifier flags are retained until release', () => {
+  const { koffi, calls } = ffi(), adapter = macInput(koffi, bounds)
+  adapter.button(2, true); adapter.move(10, -10); adapter.button(2, false); adapter.move(1, 1)
+  assert.deepEqual(calls.filter(call => call.name === 'CGEventCreateMouseEvent').map(call => call.args[1]), [25, 27, 26, 5])
+  adapter.key('MetaLeft', true); adapter.key('KeyV', true); adapter.key('KeyV', false); adapter.key('MetaLeft', false)
+  assert.deepEqual(calls.filter(call => call.name === 'CGEventSetFlags').slice(-4).map(call => call.args[1]), [1 << 20, 1 << 20, 1 << 20, 0])
+  adapter.wheel(10, 20)
+  assert.deepEqual(calls.find(call => call.name === 'CGEventCreateScrollWheelEvent')!.args, [null, 0, 2, 'int32', -20, 'int32', -10])
+})
+
+test('extended keys and numpad distinguish navigation, keypad enter and host-specific key codes', () => {
+  const win = ffi(), windows = windowsInput(win.koffi, bounds)
+  for (const code of ['Enter', 'NumpadEnter', 'NumpadDivide', 'Insert', 'PrintScreen', 'ContextMenu', 'Numpad1', 'F24', 'Lang1', 'Lang2']) { windows.key(code, true); windows.key(code, false) }
+  const packets = win.calls.filter(call => call.name === 'SendInput').map(call => call.args[1] as Buffer)
+  assert.deepEqual(packets.filter((_, i) => i % 2 === 0).map(p => [p.readUInt16LE(8), p.readUInt16LE(10), p.readUInt32LE(12)]), [[0, 0x1c, 8], [0, 0x1c, 9], [0, 0x35, 9], [0, 0x52, 9], [0, 0x37, 9], [0, 0x5d, 9], [0, 0x4f, 8], [0, 0x76, 8], [21, 0, 0], [25, 0, 0]])
+  assert.deepEqual(packets.filter((_, i) => i % 2 === 1).map(p => p.readUInt32LE(12)), [10, 11, 11, 11, 11, 11, 10, 10, 2, 2])
+  const mac = ffi(), adapter = macInput(mac.koffi, bounds)
+  for (const code of ['KeyA', 'Numpad1', 'NumpadEnter', 'F20', 'Lang1', 'Lang2', 'PrintScreen', 'F24']) adapter.key(code, true)
+  assert.deepEqual(mac.calls.filter(call => call.name === 'CGEventCreateKeyboardEvent').map(call => call.args[1]), [0, 83, 76, 90, 104, 102], 'unsupported Mac keys cannot become KeyA (key code zero)')
+  const linux = ffi(), x11 = x11Input(linux.koffi, bounds)
+  for (const code of ['Numpad1', 'NumpadEnter', 'Insert', 'Lang1', 'Lang2']) x11.key(code, true)
+  assert.deepEqual(linux.calls.filter(call => call.name === 'XStringToKeysym').map(call => call.args[0]), ['KP_1', 'KP_Enter', 'Insert', 'Hangul', 'Hangul_Hanja'])
+  x11.close()
+})
+
+test('X11 wheel preserves sub-notch input and maps right/middle buttons', () => {
+  const { koffi, calls } = ffi(), adapter = x11Input(koffi, bounds)
+  adapter.wheel(0, 60); adapter.wheel(0, 60)
+  adapter.button(2, true); adapter.button(4, true); adapter.close()
+  assert.deepEqual(calls.filter(call => call.name === 'XTestFakeButtonEvent').map(call => call.args.slice(1, 3)), [[5, true], [5, false], [2, true], [3, true]])
+  assert.ok(calls.some(call => call.name === 'XCloseDisplay'))
+})
+
+async function portalFixture() {
+  const bus = Object.assign(new EventEmitter(), { name: ':1.42', disconnected: false, disconnect() { this.disconnected = true }, getProxyObject: async (_destination: string, location: string) => ({ getInterface: () => location === '/org/freedesktop/DBus' ? daemon : location === '/session/test' ? session : desktop }) })
+  const calls: unknown[][] = [], matches = new Set<string>()
+  const daemon = { async AddMatch(rule: string) { matches.add(rule) }, async RemoveMatch(rule: string) { matches.delete(rule) } }
+  const session = Object.assign(new EventEmitter(), { async Close() { calls.push(['Close']) } })
+  const request = async (method: string, ...args: unknown[]) => {
+    const options = args.at(-1) as { handle_token: { value: string } }, path = `/org/freedesktop/portal/desktop/request/1_42/${options.handle_token.value}`
+    assert.ok([...matches].some(match => match.includes(path)))
+    calls.push([method, ...args])
+    bus.emit('message', { path, member: 'Response', body: [0, method === 'CreateSession' ? { session_handle: { value: '/session/test' } } : { devices: { value: 3 } }] })
+    return path
+  }
+  const desktop = Object.fromEntries(['CreateSession', 'SelectDevices', 'Start', 'NotifyPointerMotion', 'NotifyPointerButton', 'NotifyKeyboardKeycode', 'NotifyPointerAxis'].map(method => [method, (...args: unknown[]) => method.startsWith('Notify') ? Promise.resolve(calls.push([method, ...args])) : request(method, ...args)]))
+  const adapter = await portalInput({ load: async () => ({ default: { sessionBus: () => bus, Variant: class { signature: string; value: unknown; constructor(signature: string, value: unknown) { this.signature = signature; this.value = value } } } }) })
+  return { adapter, session, bus, calls, matches }
+}
+
+test('Wayland subscribes before permission responses, serializes input, and closes its portal session', async () => {
+  const { adapter, bus, calls, matches } = await portalFixture()
+  assert.doesNotThrow(() => adapter.check())
+  assert.equal(adapter.relativeOnly, true); assert.equal(adapter.moveTo, undefined)
+  adapter.button(2, true); adapter.move(10, 20); adapter.button(2, false); adapter.key('NumpadEnter', true); adapter.key('NumpadEnter', false); adapter.key('Lang1', true); await adapter.close()
+  assert.deepEqual(calls.filter(call => String(call[0]).startsWith('Notify')), [['NotifyPointerButton', '/session/test', {}, 274, 1], ['NotifyPointerMotion', '/session/test', {}, 10, 20], ['NotifyPointerButton', '/session/test', {}, 274, 0], ['NotifyKeyboardKeycode', '/session/test', {}, 96, 1], ['NotifyKeyboardKeycode', '/session/test', {}, 96, 0], ['NotifyKeyboardKeycode', '/session/test', {}, 122, 1]])
+  assert.equal(calls.at(-1)![0], 'Close'); assert.equal(bus.disconnected, true); assert.equal(matches.size, 0)
+  assert.throws(() => adapter.check(), /종료/)
+})
+
+test('Wayland revocation or a broken session bus is visible to the host watchdog without further user input', async () => {
+  for (const reason of ['revoked', 'bus']) {
+    const { adapter, session, bus } = await portalFixture()
+    assert.doesNotThrow(() => adapter.check())
+    if (reason === 'revoked') session.emit('Closed')
+    else bus.emit('error', new Error('Session bus lost'))
+    assert.throws(() => adapter.check(), /종료|끊겼/)
+    assert.throws(() => adapter.move(1, 1), /종료|끊겼/)
+    await adapter.close()
+    assert.equal(bus.disconnected, true)
+  }
+})

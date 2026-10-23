@@ -1,0 +1,847 @@
+@import 'tailwindcss';
+@import './components/overlay-layers.css';
+@import '@mew/ui/action-menu.css';
+@import './components/header-control.css';
+@plugin '@tailwindcss/typography';
+@variant dark (&:where(.dark, .dark *));
+
+.agent-loading-bubbles {
+  padding: 12px;
+}
+.agent-loading-bubbles__shapes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.agent-loading-bubbles__bubble {
+  position: relative;
+  overflow: hidden;
+  width: 66%;
+  height: 40px;
+  flex-shrink: 0;
+  align-self: flex-end;
+  border-radius: 8px;
+  background: var(--color-surface-raised);
+}
+.agent-loading-bubbles__bubble:nth-child(2) {
+  width: 92%;
+  height: 72px;
+  align-self: flex-start;
+}
+.agent-loading-bubbles__bubble:nth-child(3) { width: 52%; }
+.agent-loading-bubbles__bubble:nth-child(4) {
+  width: 82%;
+  height: 96px;
+  align-self: flex-start;
+}
+.agent-loading-bubbles__bubble::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-ink) 11%, transparent) 25%,
+    color-mix(in srgb, var(--color-ink) 22%, transparent) 50%,
+    color-mix(in srgb, var(--color-ink) 11%, transparent) 75%,
+    transparent 100%);
+  animation: agent-bubble-shimmer 1.4s ease-in-out infinite alternate;
+}
+.agent-loading-bubbles__bubble:nth-child(2)::after { animation-delay: -200ms; }
+.agent-loading-bubbles__bubble:nth-child(3)::after { animation-delay: -400ms; }
+.agent-loading-bubbles__bubble:nth-child(4)::after { animation-delay: -600ms; }
+.agent-loading-bubbles[data-active='false'] .agent-loading-bubbles__bubble::after { animation-play-state: paused; }
+.agent-loading-bubbles[data-compact='true'] .agent-loading-bubbles__bubble { height: 28px; }
+@keyframes agent-bubble-shimmer {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(150%); }
+}
+@keyframes agent-bubble-breathe {
+  from { opacity: .35; }
+  to { opacity: .8; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-loading-bubbles__bubble::after {
+    transform: translateX(75%);
+    animation-name: agent-bubble-breathe;
+    animation-duration: 2s;
+  }
+}
+
+/*
+ * 시맨틱 디자인 토큰 (SSoT)
+ * - 색은 여기서만 정의한다. 컴포넌트는 생성된 유틸리티(bg-surface, text-ink 등)를,
+ *   런타임 <style> 블록은 var(--color-*)를 사용한다.
+ * - 여기 있는 값은 다크 테마(기본값). 라이트 테마 오버라이드는 아래 `:root:not(.dark)` 참고.
+ */
+@theme {
+  --font-sans: var(--mew-font-ui, 'IBM Plex Sans KR', ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--mew-font-mono, 'IBM Plex Mono', 'IBM Plex Sans KR', ui-monospace, monospace);
+
+  /* 배경 */
+  --color-surface-deep: #0a0a0a; /* 에디터 본문·탭바·사이드바 */
+  --color-surface: #171717; /* 앱 기본 배경 */
+  --color-workspace: #171717;
+  --color-surface-raised: #262626; /* 패널·배지·활성 탭·호버 */
+  --color-surface-hover: #404040; /* 한 단계 더 밝은 호버 */
+  --color-surface-inverse: #ffffff; /* 밝은 솔리드 버튼(Save 등) */
+
+  /* 테두리 */
+  --color-edge: #262626; /* 구조 구분선 */
+  --color-edge-strong: #404040; /* 컨트롤·테이블 테두리 */
+  --color-edge-bright: #525252; /* 포커스·강조 테두리 */
+  --color-scrollbar-start: color-mix(in srgb, color-mix(in srgb, var(--color-surface-deep) 65%, var(--color-ink)) 70%, transparent);
+  --color-scrollbar-end: color-mix(in srgb, color-mix(in srgb, var(--color-surface-deep) 82%, var(--color-ink)) 70%, transparent);
+  --color-scrollbar-hover-start: color-mix(in srgb, color-mix(in srgb, var(--color-surface-deep) 55%, var(--color-ink)) 70%, transparent);
+  --color-scrollbar-hover-end: color-mix(in srgb, color-mix(in srgb, var(--color-surface-deep) 75%, var(--color-ink)) 70%, transparent);
+
+  /* 텍스트 */
+  --color-ink-bright: #fafafa; /* 제목 */
+  --color-ink: #e5e5e5; /* 본문 */
+  --color-ink-soft: #d4d4d4;
+  --color-ink-secondary: #a3a3a3;
+  --color-ink-muted: #737373; /* 힌트·보조 설명 */
+  --color-ink-faint: #525252; /* 플레이스홀더 */
+  --color-ink-inverse: #171717; /* 밝은 배경 위 텍스트 */
+  --color-ink-on-accent: #171717; /* 모드별 액센트 배경 위 텍스트 */
+  --color-ink-on-danger: #ffffff; /* 경고·삭제 버튼은 테마색과 독립 */
+
+  /* 기본 테마색의 파생값 — utils/theme-color.ts와 테스트로 일치 확인 */
+  --color-accent: #9082da;
+  --color-accent-strong: #a297e0;
+  --color-link: #9082da;
+
+  /* 상태 */
+  --color-warning: #f59e0b;
+  --color-warning-surface: #78350f;
+  --color-warning-ink: #fef3c7;
+  --color-danger: #ef4444;
+  --color-danger-strong: #dc2626;
+  --color-danger-surface: #450a0a;
+  --color-danger-ink: #fca5a5;
+  --color-success: #059669;
+  --color-success-surface: #022c22;
+  --color-success-ink: #6ee7b7;
+
+  /* 에디터 전용 */
+  --color-code: #f97316; /* 인라인 코드 텍스트 */
+
+  /* 코드 구문강조 (CodePane) — GitHub Dark 계열 */
+  --color-syntax-keyword: #ff7b72;
+  --color-syntax-string: #a5d6ff;
+  --color-syntax-comment: #8b949e;
+  --color-syntax-number: #79c0ff; /* 숫자·불리언·상수 */
+  --color-syntax-property: #d2a8ff; /* 속성명·함수명 */
+  --color-syntax-type: #7ee787; /* 타입·클래스·태그명 */
+}
+
+:root {
+  color-scheme: dark;
+  /* Runtime-selected status dots use these directly; keep them outside pruned @theme tokens. */
+  --color-feature-implementing: #3687ee;
+  --color-feature-implemented: #42cbb3;
+  --color-feature-verified: #249344;
+  --color-feature-needs-fix: #df495b;
+  --color-feature-changed: #e18a26;
+}
+
+/* 라이트 테마 — html에서 .dark 클래스를 빼면 여기로 떨어진다 (SSoT 주석에서 예고된 방식) */
+:root:not(.dark) {
+  color-scheme: light;
+
+  --color-surface-deep: #ffffff;
+  --color-workspace: #f5f5f5;
+  --color-surface: #f8f8f8;
+  --color-surface-raised: #efefef;
+  --color-surface-hover: #e1e1e1;
+  --color-surface-inverse: #171717;
+
+  --color-edge: #e5e5e5;
+  --color-edge-strong: #d4d4d4;
+  --color-edge-bright: #a3a3a3;
+
+  --color-ink-bright: #171717;
+  --color-ink: #262626;
+  --color-ink-soft: #404040;
+  --color-ink-secondary: #525252;
+  --color-ink-muted: #737373;
+  --color-ink-faint: #a3a3a3;
+  --color-ink-inverse: #fafafa;
+  --color-ink-on-accent: #ffffff;
+
+  --color-accent: #5642c7;
+  --color-accent-strong: #3f2f9d;
+  --color-link: #5642c7;
+
+  --color-warning: #f59e0b;
+  --color-warning-surface: #fef3c7;
+  --color-warning-ink: #78350f;
+  --color-danger: #dc2626;
+  --color-danger-strong: #b91c1c;
+  --color-danger-surface: #fee2e2;
+  --color-danger-ink: #991b1b;
+  --color-success: #059669;
+  --color-success-surface: #d1fae5;
+  --color-success-ink: #065f46;
+
+  --color-code: #c2410c;
+
+  /* 코드 구문강조 — GitHub Light 계열 */
+  --color-syntax-keyword: #cf222e;
+  --color-syntax-string: #0a3069;
+  --color-syntax-comment: #6e7781;
+  --color-syntax-number: #0550ae;
+  --color-syntax-property: #8250df;
+  --color-syntax-type: #116329;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-workspace);
+  color: var(--color-ink);
+  font-weight: 300;
+}
+
+.mew-workspace {
+  background-color: var(--color-workspace);
+}
+
+:root.theme-gradient body {
+  isolation: isolate;
+  background-color: var(--color-surface-deep);
+}
+
+:root.theme-gradient body::before,
+.theme-background-sample::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -8%;
+  pointer-events: none;
+  background-image: var(--theme-background-image, none);
+  animation: var(--theme-background-animation, none);
+}
+
+:root.theme-gradient body::before {
+  position: fixed;
+}
+
+.theme-background-sample {
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* Share one moving backdrop across the workspace and floating panel bodies. */
+:root.theme-gradient .mew-workspace,
+:root.theme-gradient .mew-workspace [data-dock-workspace],
+:root.theme-gradient .mew-workspace [data-sidebar],
+:root.theme-gradient .mew-workspace .desktop-dock-rail,
+:root.theme-gradient .mew-workspace .mew-panel-surface,
+:root.theme-gradient .mew-workspace [data-dock-tab-bar],
+:root.theme-gradient .mew-workspace :where(div, section, main, aside, article, header, footer).bg-surface-deep:not(.absolute, .fixed, .sticky, .mew-overlay-surface, [data-tree-sticky-depth], [data-floating-panel], [role='dialog'], [role='dialog'] *, [role='menu'], [role='menu'] *, [role='listbox'], [role='listbox'] *, [data-agent-loading], [data-agent-loading] *),
+:root.theme-gradient .mew-workspace .cm-editor:not([role='dialog'] *) {
+  background-color: transparent;
+}
+
+@keyframes theme-background-drift {
+  from { transform: translate(-2%, -1%) scale(1); opacity: .72; }
+  to { transform: translate(2%, 1%) scale(1.03); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root.theme-gradient body::before,
+  .theme-background-sample::before {
+    animation: none;
+  }
+}
+
+/* App chrome is not document text. Opt content back in at its own boundary,
+   including portals under body; never disable selection with a universal rule. */
+@layer base {
+  body,
+  :where(button, [role='button'], summary, label) {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  :where(input, textarea, [contenteditable='true'], [contenteditable='plaintext-only'],
+    .tiptap, .cm-content, .pdf-text-layer, pre, code,
+    .select-text, .select-all, [role='alert']) {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+}
+
+.debugger-source-menu > [role="option"] {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 16px;
+}
+.debugger-source-menu > [role="option"] > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  .debugger-source-menu > [role="option"] { min-height: 32px; }
+}
+
+/* Mewcat artwork receives input only on painted pixels. */
+.mewcat {
+  position: fixed;
+  z-index: var(--layer-notice);
+  left: 0;
+  top: 0;
+  width: 48px;
+  height: 48px;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  will-change: transform;
+}
+.mewcat-art { width: 100%; height: 100%; transform-origin: center bottom; }
+.mewcat-sprite { display: block; width: 100%; height: 100%; overflow: hidden; pointer-events: none; }
+.mewcat-sprite image { pointer-events: none; }
+.mewcat-sprite-hit { pointer-events: none; }
+.mewcat .mewcat-sprite-hit { pointer-events: fill; cursor: grab; }
+.mewcat[data-activity="struggle"] .mewcat-sprite-hit { cursor: grabbing; }
+.mewcat-skin-settings label:has(> input[type="file"]):focus-within { outline: 2px solid var(--color-accent); }
+@media (pointer: coarse) {
+  .mewcat-skin-settings button, .mewcat-skin-settings a, .mewcat-skin-settings input { min-height: 44px; }
+  .mewcat-skin-settings a, .mewcat-skin-settings label:has(> input[type="file"]) { min-width: 44px; min-height: 44px; }
+}
+/* 앱 전역 스크롤바 — 테마 배경색 기반의 70% 불투명도 그라데이션(에디터·목차·사이드바·터미널·표 전부).
+   Chromium은 ::-webkit-scrollbar, 그걸 모르는 엔진(Firefox)만 표준 속성으로 폴백 —
+   Chromium에 scrollbar-color를 같이 주면 webkit 커스텀이 통째로 무시되므로 @supports로 가른다. */
+* {
+  --mew-scrollbar-y: 0%;
+  --mew-scrollbar-x: 0%;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(var(--mew-scrollbar-direction, to bottom),
+    var(--color-scrollbar-end) 0%,
+    var(--color-scrollbar-start) var(--mew-scrollbar-peak, var(--mew-scrollbar-y)),
+    var(--color-scrollbar-end) 100%);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:horizontal {
+  --mew-scrollbar-direction: to right;
+  --mew-scrollbar-peak: var(--mew-scrollbar-x);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(var(--mew-scrollbar-direction, to bottom),
+    var(--color-scrollbar-hover-end) 0%,
+    var(--color-scrollbar-hover-start) var(--mew-scrollbar-peak, var(--mew-scrollbar-y)),
+    var(--color-scrollbar-hover-end) 100%);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-scrollbar-end) transparent;
+  }
+}
+
+/* 프로젝트 탭 줄처럼 높이가 빠듯한 가로 스크롤 영역 — 스크롤바가 줄 높이를 잡아먹지 않게 감춘다.
+   (스크롤은 그대로 된다: 손가락·트랙패드·shift+휠) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 에이전트 답변 마크다운 표 — 긴 열은 말풍선을 밀지 않고 표 안에서만 가로로 굴러간다. */
+.mew-agent-markdown .mew-agent-code-copy,
+.mew-agent-markdown .mew-agent-table-scroll {
+  position: relative;
+}
+.mew-agent-markdown .mew-agent-code-copy {
+  margin: 1.7142857em 0;
+}
+.mew-agent-markdown .mew-agent-code-copy pre {
+  margin: 0;
+}
+.mew-agent-markdown .mew-agent-code-language {
+  padding: 0.35rem 2.1rem 0.35rem 0.75rem;
+  border-radius: 0.375rem 0.375rem 0 0;
+  background: var(--color-surface-raised);
+  color: var(--color-ink-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35rem;
+  overflow-wrap: anywhere;
+}
+.mew-agent-markdown .mew-agent-code-language ~ pre {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.mew-agent-markdown .mew-agent-code-runnable .mew-agent-code-language {
+  padding-right: 3.75rem;
+}
+.mew-agent-markdown .mew-agent-code-runnable:not(:has(.mew-agent-code-language)) pre {
+  padding-top: 2.1rem;
+}
+.mew-agent-markdown :not(pre) > code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.mew-agent-markdown .mew-agent-table-scroll {
+  margin: 1.7142857em 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-top: 1.65rem;
+}
+.mew-agent-markdown .mew-agent-table-scroll table {
+  margin: 0;
+  width: max-content;
+  min-width: 100%;
+}
+.mew-agent-markdown .mew-agent-copy-button {
+  position: absolute;
+  right: 0.35rem;
+  top: 0.35rem;
+  z-index: 1;
+  display: inline-flex;
+  height: 1.35rem;
+  width: 1.35rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-edge-strong);
+  border-radius: 0.25rem;
+  background: var(--color-surface-raised);
+  color: var(--color-ink-secondary);
+  opacity: 0.86;
+}
+.mew-agent-markdown .mew-agent-copy-button:not(:disabled):hover,
+.mew-agent-markdown .mew-agent-copy-button[data-copied='1'] {
+  background: var(--color-surface-hover);
+  color: var(--color-ink);
+  opacity: 1;
+}
+.mew-agent-markdown .mew-agent-run-button {
+  right: 1.95rem;
+}
+.mew-agent-markdown .mew-agent-run-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.mew-agent-markdown .mew-agent-run-button:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+.mew-agent-markdown .mew-agent-copy-button[data-copied='1'] {
+  border-color: var(--color-success);
+  color: var(--color-success-ink);
+}
+
+/* 노션식 블록 드래그 핸들 (@tiptap/extension-drag-handle이 위치를 잡아 주는 엘리먼트).
+   **그림이 없는 투명한 손잡이**다 — 눈에 보이는 것은 그 자리에 늘 떠 있는 줄 번호이고
+   (LineFocus 장식과 packages/editor/src/editor/editor.css), 이 상자는 그 위에 포개져 잡히기만 한다.
+   클릭은 블록 선택, 드래그는 블록 이동, 호버 표시는 번호가 밝아지는 것(mew-line--hover)으로 낸다 */
+.mew-drag-handle {
+  width: 32px;
+  height: 24px;
+  cursor: grab;
+  z-index: 30;
+  touch-action: none;
+}
+.mew-drag-handle[data-line-handle-mode='scroll'] {
+  cursor: ns-resize;
+}
+.mew-drag-handle[data-line-handle-mode='move'] {
+  cursor: grabbing;
+}
+/* 리스트 항목 위에서는 Editor.tsx가 중첩 깊이만큼(한 단 24px) transform으로 직접 밀어 준다 —
+   숫자도 같은 만큼 되돌아가 있으므로(editor.css의 li::before) 손잡이가 계속 숫자 위에 포개진다 */
+
+/* Tailwind preflight는 b/strong을 "bolder"(부모 대비 상대값)로 리셋하는데,
+   본문이 300(Light)일 때 상대 계산 결과가 400에 그쳐 볼드 대비가 흐려진다.
+   실제 로드된 Bold(700) 글꼴 파일을 쓰도록 절대값으로 덮어쓴다. */
+b,
+strong {
+  font-weight: 700;
+}
+
+/* 파일 댓글 하이라이트 — hotview(장식)·plain(CodeMirror mark) 공용. 노션처럼 노란 형광펜이고,
+   커서(선택 없음) 댓글은 글자 대신 작은 네모 하나가 자리를 표시한다. 색은 라이트·다크 공용으로
+   반투명 노랑 — 어느 배경에서든 글자가 살아 있어야 해서 진하게 칠하지 않는다. */
+/* References 목록은 화면에서 `1)`로 보인다. 파일에는 표준 순서 목록(`1.`)으로 저장된다 —
+   문단에 `1) 내용`이라고 적으면 마크다운이 그걸 목록으로 되읽어 구역이 어긋나기 때문이다.
+   그 `1)`은 ::marker가 아니라 각주 위젯이 그린다(footnoteSync.ts) — ::marker는 눌리지 않아
+   각주 자리로 갈 수 없기 때문이다. 목록 자체 번호는 그래서 끈다. 들여쓰기는 두 자리 번호(`10)`)가
+   본문을 침범하지 않을 만큼 준다 */
+.mew-references {
+  list-style: none;
+  padding-left: 2.5em;
+}
+/* 번호는 항목 왼쪽 들여쓰기 자리에 걸어 둔다 — 본문은 줄이 넘어가도 같은 왼쪽에서 이어진다
+   (li의 position: relative는 editor.css의 줄 번호 규칙이 이미 걸어 둔다) */
+.mew-references .mew-footnote-ref {
+  position: absolute;
+  right: 100%;
+  /* 왼쪽 여백은 손가락용 — 오른쪽에 붙어 있어 늘려도 번호는 제자리다 */
+  padding: 0 0.35em 0 0.6em;
+  user-select: none;
+}
+
+/* 각주 — 본문 마커(아래첨자 글자 그대로)와 References의 번호. 둘 다 눌러서 오갈 수 있다.
+   항목 본문은 평범한 글이다 — 누르는 자리는 번호뿐 */
+.mew-footnote,
+.mew-footnote-ref {
+  color: var(--color-link, #2563eb);
+  cursor: pointer;
+}
+.mew-footnote:hover,
+.mew-footnote-ref:hover {
+  text-decoration: underline;
+}
+
+.mew-comment {
+  background-color: color-mix(in srgb, #eab308 32%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, #eab308 70%, transparent);
+  cursor: pointer;
+}
+.mew-comment:hover {
+  background-color: color-mix(in srgb, #eab308 48%, transparent);
+}
+
+/* App dialogs share theme-aware focus and input affordances. */
+.mew-dialog :is(button, input, textarea, a):focus-visible {
+  outline: 2px solid var(--color-link);
+  outline-offset: 2px;
+}
+.mew-dialog :is(input, textarea) { caret-color: var(--color-link); }
+.mew-dialog input::placeholder { color: var(--color-ink-secondary); }
+.mew-dialog button { transition: background-color 120ms ease-out, color 120ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .mew-dialog button { transition: none; }
+}
+
+/* Theme-aware speech bubbles share controls with the hidden-cat notification panel. */
+.mewcat-notifications {
+  position: fixed;
+  z-index: var(--layer-notice);
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  width: min(300px, calc(100vw - 24px));
+  max-height: calc(100dvh - 80px);
+  overflow: visible;
+  border: 1px solid var(--color-edge-strong);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  filter: drop-shadow(0 4px 10px rgb(0 0 0 / 24%));
+}
+.mewcat-notifications-content { max-height: inherit; overflow-y: auto; border-radius: inherit; }
+.mewcat-assistant-menu { z-index: var(--layer-popover); }
+.mewcat-notifications-auto { max-height: none; }
+.mewcat-notifications-auto > .mewcat-notifications-content { max-height: none; overflow: clip; }
+.mewcat-notification-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.mewcat-notification-list { padding: 0 12px; }
+.mewcat-notification-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-edge);
+}
+.mewcat-notification-row-plain { grid-template-columns: minmax(0, 1fr) auto; }
+.mewcat-notification-status { align-self: start; margin-top: 2px; }
+.mewcat-notification-empty { padding: 12px; }
+.mewcat-notification-clear { margin: 8px 0; }
+.mewcat-notification-summary {
+  --notice-button-size: 28px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 12px;
+}
+.mewcat-notification-footer {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+/* Align visible contents, rather than invisible button boxes, to the 12px inset. */
+.mewcat-notification-summary > .mewcat-notification-button {
+  margin-right: calc((16px - var(--notice-button-size)) / 2);
+}
+.mewcat-notification-summary .mewcat-notification-footer {
+  margin-bottom: calc((18px - var(--notice-button-size)) / 2);
+}
+.mewcat-notification-summary .mewcat-notification-footer > .mewcat-notification-button:last-child {
+  margin-right: -8px;
+}
+.mewcat-notifications-with-cat { visibility: hidden; }
+.mewcat-notifications-with-cat::after {
+  content: '';
+  position: absolute;
+  left: var(--mewcat-tail-x, 50%);
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid var(--color-edge-strong);
+  border-bottom: 1px solid var(--color-edge-strong);
+  background: var(--mew-overlay-background, var(--color-surface));
+  pointer-events: none;
+}
+.mewcat-notifications-with-cat[data-placement="below"]::after {
+  top: -7px;
+  bottom: auto;
+  transform: translateX(-50%) rotate(225deg);
+}
+.mewcat-notification-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 6px;
+}
+.mewcat-notification-button:hover { background: var(--color-surface-raised); }
+.mewcat-notification-button:active { background: var(--color-surface-hover); }
+.mewcat-notification-button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.mewcat-notification-action {
+  gap: 4px;
+  min-height: 28px;
+  max-width: 100%;
+  padding: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.mewcat-notification-action:hover,
+.mewcat-notification-action:active { background: transparent; color: var(--color-link); }
+.mewcat-notification-action:hover span { text-decoration: underline; text-underline-offset: 3px; }
+@media (pointer: coarse) {
+  .mewcat-notification-summary { --notice-button-size: 44px; }
+  .mewcat-notification-button { min-width: 44px; min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+}
+
+/* Only the expanded panel's tab bar stays above its body and below the dock. */
+[data-dock-expanded] {
+  overflow: visible;
+  pointer-events: none;
+}
+[data-dock-expanded] [data-dock-tab-bar] {
+  position: relative;
+  z-index: 30;
+  pointer-events: auto;
+}
+
+[data-tab-drag-placeholder] {
+  background: var(--color-surface-hover);
+  outline: 1px dashed var(--color-edge-bright);
+  outline-offset: -3px;
+  cursor: grabbing;
+}
+[data-tab-drag-placeholder] > * { opacity: 0; }
+
+.mobile-dock:not([hidden]) {
+  position: fixed;
+  z-index: var(--layer-dock);
+  display: flex;
+  align-items: center;
+  color: var(--color-ink-secondary);
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.mobile-dock button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 44px;
+  touch-action: none;
+  transition: background-color 120ms ease-out, color 120ms ease-out, transform 120ms ease-out;
+}
+.mobile-dock button[aria-current] { color: var(--color-ink-bright); }
+.mobile-dock button[aria-current] svg { stroke-width: 2.5; }
+.mobile-dock button:hover { color: var(--color-ink); }
+.mobile-dock button:active { background: var(--color-surface-hover); }
+.mobile-dock button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.mobile-dock[data-reordering], .mobile-dock[data-reordering] button { cursor: grabbing; }
+.mobile-dock button[data-dragging] { background: var(--color-surface-hover); outline: 1px dashed var(--color-edge-strong); outline-offset: -3px; }
+.mobile-dock button[data-dragging] svg { opacity: 0; }
+.dock-drag-preview {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border-radius: 12px;
+  background: var(--color-surface-raised);
+  color: var(--color-ink-bright);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
+}
+.desktop-dock-rail { display: none; }
+/* Preserve panel geometry and mounted state while the maximized tab owns the workspace. */
+.mew-workspace-content:has(> [data-dock-maximized]) > :not([data-dock-workspace]) {
+  visibility: hidden;
+  pointer-events: none;
+}
+@media (width >= 768px) {
+  .mew-workspace { --desktop-dock-width: 44px; }
+  .desktop-dock-rail {
+    display: flex;
+    order: -9999;
+    flex: 0 0 var(--desktop-dock-width);
+    min-height: 0;
+    border-right: 1px solid var(--color-edge);
+    background: var(--color-surface-deep);
+  }
+  .mobile-dock[data-vertical]:not([hidden]) {
+    flex-direction: column;
+    width: 100%;
+    padding: 4px 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .mobile-dock[data-vertical] button { flex: 0 0 36px; }
+  .mobile-dock:not([hidden]) {
+    position: relative;
+    gap: 2px;
+  }
+  .mobile-dock button { flex: 0 0 32px; width: 32px; height: 36px; border-radius: 5px; }
+  .mobile-dock button svg { width: 20px; height: 20px; }
+  .mobile-dock button[aria-pressed="true"] { background: var(--color-surface-raised); }
+  .mobile-dock button[aria-current] { background: var(--color-surface-hover); }
+}
+@media (width >= 768px) and (pointer: coarse) {
+  .mew-workspace { --desktop-dock-width: 48px; }
+  .mobile-dock[data-vertical] button { flex-basis: 44px; }
+  .mobile-dock button { flex-basis: 44px; width: 44px; height: 44px; }
+}
+@media (width < 768px) {
+  .mew-workspace { --mobile-dock-space: calc(48px + env(safe-area-inset-bottom, 0px)); }
+  .mew-workspace[data-mobile-keyboard] { --mobile-dock-space: 0px; }
+  .mew-workspace-content { margin-bottom: var(--mobile-dock-space); }
+  .mew-workspace-content > .fixed { bottom: var(--mobile-dock-space); }
+  .mobile-dock:not([hidden]) {
+    position: fixed;
+    z-index: var(--layer-dock);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 0;
+    padding: 1px max(6px, env(safe-area-inset-right, 0px)) calc(2px + env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left, 0px));
+    border-top: 1px solid var(--color-edge);
+    background: var(--color-surface);
+    color: var(--color-ink-secondary);
+    touch-action: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .mobile-dock button { flex: 1; border-radius: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .mobile-dock button { transition: none; } }
+
+/* Only the giant cat obstructs the workspace; transparent space passes pointer input through. */
+.mewcat-break {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-tooltip);
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: transparent;
+  color: var(--color-ink);
+  pointer-events: none;
+}
+.mewcat-break::backdrop { background: transparent; pointer-events: none; }
+.mewcat-break-cat { z-index: 0; }
+.mewcat-break-cat .mewcat-art { animation: mewcat-break-arrive 650ms cubic-bezier(.16, 1, .3, 1); }
+.mewcat-break-caption {
+  z-index: 1;
+  position: absolute;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 18px;
+  border: 1px solid var(--color-edge-strong);
+  border-radius: 12px;
+  background: var(--color-surface);
+  text-align: center;
+}
+.mewcat-break-caption [role="timer"] { font-size: 28px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+@keyframes mewcat-break-arrive { from { transform: scale(.06); } to { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .mewcat-break-cat .mewcat-art { animation: none; } }
+
+.dock-setting-switch {
+  appearance: none;
+  width: 32px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-edge-strong);
+  cursor: pointer;
+  position: relative;
+  transition: background-color 150ms ease-out;
+}
+.dock-setting-switch::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  top: 2px;
+  border-radius: 50%;
+  background: var(--color-ink-secondary);
+  transition: transform 150ms ease-out;
+}
+.dock-setting-switch:checked { background: var(--color-accent); border-color: var(--color-accent); }
+.dock-setting-switch:checked::after { transform: translateX(12px); background: var(--color-ink-on-accent); }
+.dock-setting-switch:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .dock-setting-switch, .dock-setting-switch::after { transition: none; }
+}

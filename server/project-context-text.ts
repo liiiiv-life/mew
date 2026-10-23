@@ -1,0 +1,44 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { readAgentGuidance } from './agent-guidance.ts'
+import { withDocumentationSkillGuidance } from './documentation-skills.ts'
+import { commitSkillGuidance } from './mew-skills.ts'
+import type { AgentContextBinding, ProjectAgentSettings } from '../shared/project-agent-context.ts'
+
+export const CONTEXT_START = '<mew-context version="1">'
+export const CONTEXT_END = '</mew-context>'
+
+export function describeAgentContext(binding: AgentContextBinding, settings: ProjectAgentSettings, cwd: string, locale?: string): string {
+  if (!settings.enabled) return ''
+  const candidates = [path.join(binding.projectRoot, 'AGENTS.md'), path.join(binding.projectRoot, 'README.md'),
+    ...['AGENT.md', 'README.md'].map(p => path.join(binding.docsRoot, p)),
+    ...settings.entrypoints.map(p => path.join(binding.projectRoot, p))]
+  if (cwd !== binding.projectRoot) candidates.push(path.join(cwd, 'AGENTS.md'), path.join(cwd, 'README.md'), path.join(cwd, 'docs/AGENT.md'), path.join(cwd, 'docs/README.md'))
+  const entries = [...new Set(candidates)].filter(p => { try { return fs.statSync(p).isFile() } catch { return false } })
+  return [
+    withDocumentationSkillGuidance(readAgentGuidance(locale)),
+    commitSkillGuidance(),
+    `Change intent recorder: run ${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL('./git-change-intent-cli.ts', import.meta.url)))} --cwd ${shellQuote(binding.projectRoot)} with JSON on stdin: {"purpose":"brief reason for this task's changes","files":["repository-root-relative changed paths"],"verification":"checks actually performed (optional)"}. This writes disposable Git metadata only; it does not stage, commit or authorize a commit.`,
+    `Branch work panel: for implementation tasks on a task branch, record a concise title and current work notes at the start, and actual validation results at completion, using ${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL('./branch-feature-cli.ts', import.meta.url)))} --cwd '<actual-task-worktree>' with JSON on stdin: {"title":"feature name","notes":"current work","validation":"checks actually performed"}. Replace the cwd placeholder with the task's actual working directory, including any worktree created after this context was captured. The CLI detects its current branch; omit fields you are not changing. If a preview app is already running or starting it was separately authorized, also record {"previewPort":5101,"previewPath":"/"} using its actual port. Clear an obsolete port with null. This records local Git metadata only and grants no permission to build, start a server, deploy, or merge. Never mark user review as verified yourself.`,
+    `Project root: ${JSON.stringify(binding.projectRoot)}`,
+    `Working directory: ${JSON.stringify(cwd)}`,
+    `Documents folder: ${JSON.stringify(binding.docsRoot)}`,
+    `Documentation boot paths (read if present):\n${['AGENT.md', 'README.md'].map(p => `- ${JSON.stringify(path.join(binding.docsRoot, p))}`).join('\n')}`,
+    entries.length ? `Existing entrypoints (paths, not document contents):\n${entries.map(p => `- ${JSON.stringify(p)}`).join('\n')}` : 'No entrypoint documents found yet. Use the existing project structure; Documents setup is available from its settings in mew.',
+    settings.entrypoints.length ? `Configured entrypoints (report missing files):\n${settings.entrypoints.map(p => `- ${JSON.stringify(path.join(binding.projectRoot, p))}`).join('\n')}` : '',
+    settings.instructions ? `Additional project guidance:\n${settings.instructions}` : '',
+  ].filter(Boolean).join('\n\n')
+}
+
+export function contextBlock(text: string): string {
+  return `${CONTEXT_START}\n${text}\n${CONTEXT_END}`
+}
+
+/** Adapters may concatenate ACP text blocks when replaying history. */
+export function stripMewContext(text: string): string {
+  if (!text.includes(CONTEXT_START)) return text
+  return text.replace(/\s*<mew-context version="1">[\s\S]*?<\/mew-context>/g, '').trimEnd()
+}
+
+function shellQuote(value: string): string { return "'" + value.replaceAll("'", "'\\''") + "'" }

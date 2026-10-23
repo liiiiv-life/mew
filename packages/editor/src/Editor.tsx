@@ -1,0 +1,2211 @@
+import { uiText } from '@mew/ui/i18n-core'
+import { observeEditorViewport, visibleEditorBounds } from '@mew/ui'
+import { useUiLocale } from '@mew/ui/i18n'
+import { useEditor, EditorContent, type Editor as TiptapEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Placeholder from '@tiptap/extension-placeholder'
+import Document from '@tiptap/extension-document'
+import Text from '@tiptap/extension-text'
+import Bold from '@tiptap/extension-bold'
+import Italic from '@tiptap/extension-italic'
+import Strike from '@tiptap/extension-strike'
+import Code from '@tiptap/extension-code'
+import { CodeBlockWithCopy } from './editor/CodeBlockWithCopy'
+import Heading from '@tiptap/extension-heading'
+import BulletList from '@tiptap/extension-bullet-list'
+import OrderedList from '@tiptap/extension-ordered-list'
+import Blockquote from '@tiptap/extension-blockquote'
+import HorizontalRule from '@tiptap/extension-horizontal-rule'
+import { EditorLink as Link, isFileLinkHref } from './editor/file-link'
+import type { FileLinkContext } from './editor/file-link'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { TableKit } from '@tiptap/extension-table'
+import { MarkdownTable } from './editor/tableMarkdown'
+import DragHandle from '@tiptap/extension-drag-handle'
+import { Collaboration } from '@tiptap/extension-collaboration'
+import { CollaborationCaret } from '@tiptap/extension-collaboration-caret'
+import { NodeSelection, TextSelection } from '@tiptap/pm/state'
+import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
+import { findTable, selectionCell, TableMap } from '@tiptap/pm/tables'
+import type { EditorView } from '@tiptap/pm/view'
+import { Markdown } from 'tiptap-markdown'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import type { EditorApi, EditorCollab, EditorOpenLink, TableWidths, TreeNode } from './types'
+import { ResizableImage } from './ResizableImage'
+import { ImageSourceContext } from './editor/image-source-context'
+import { AudioNode, VideoNode, Youtube, YOUTUBE_URL_RE } from './MediaNodes'
+import { Database } from './database/Database'
+import { DbReferencePicker } from './database/DbReferencePicker'
+import { flattenFiles, prefixMatch, isExternalHref, relativeLinkPath, resolveRelativePath } from './utils/fuzzy'
+import { splitFrontmatter, joinFrontmatter, todayDate, type FrontmatterData } from './utils/frontmatter'
+import { sourceLineOfPos } from './utils/sourceLine'
+import { unwrapOpenListWrappers } from './utils/clipboardList'
+import { selectedTableCellText } from './utils/clipboardTable'
+import { isSvgMarkup, svgFileName } from './utils/svgPaste'
+import { MobileKeyBar, useMobileLayout } from '@mew/mobile-keys'
+import { pathFromDrag } from '@mew/ui'
+import { FrontmatterPanel } from './editor/FrontmatterPanel'
+import { TableTooltip } from './editor/TableTooltip'
+import { TableCopyMenu } from './editor/TableCopyMenu'
+import { LinkTooltip } from './editor/LinkTooltip'
+import { MentionTooltip, type MentionResult } from './editor/MentionTooltip'
+import { SlashMenu, type SlashCommand } from './editor/SlashMenu'
+import { ListConversion } from './editor/listConversion'
+import { IndentableListItem, liftFirstListItemTransaction, sinkFirstListItemTransaction } from './editor/listIndent'
+import { HeadingEnter } from './editor/headingEnter'
+import { HeadingShortcut } from './editor/headingShortcut'
+import { Footnotes, scanFootnotes } from './editor/footnoteSync'
+import { DeleteLine } from './editor/deleteLine'
+import { LineFocus, lineFocusPositionAtLine, lineFocusSourceKey, listLevel } from './editor/lineFocus'
+import { getIncrementalMarkdown, IncrementalMarkdown } from './editor/incrementalMarkdown'
+import { VirtualBlocks, materializeVirtualPosition } from './editor/virtualBlocks'
+import { changedCaretPos } from './editor/undoCaret'
+import { SearchAndReplace } from './editor/searchExtension'
+import { CommentHighlight, commentRefreshKey, docTextWithMap, indexOfPos, type CommentThreadInput } from './editor/commentHighlight'
+import { makeCommentAnchor, resolveCommentAnchor, type CommentAnchor } from './utils/commentAnchor'
+import { docHasTable, readTableWidths, tableWidthsTransaction } from './editor/tableWidths'
+import { EditorSearchBar } from './editor/EditorSearchBar'
+import { EmptyParagraph } from './editor/emptyParagraph'
+import { AnnotationMarker, Annotations, insertAnnotation, updateAnnotation, deleteAnnotation, scanAnnotations } from './editor/annotations'
+import { prepareProseMirrorContext } from './editor/prosemirrorContext'
+import type { EditorContextTarget } from './editor/contextTarget'
+import './editor/editor.css'
+
+export interface EditorViewAnchor {
+  line: number
+  /** 줄 시작의 스크롤 영역 상단 기준 위치(px). */
+  offset: number
+}
+
+export interface EditorHandle {
+  prepareContextMenu: (x: number, y: number) => EditorContextTarget | null
+  startAnnotation: () => void
+  getAnnotationIdentity: (num: number) => string | null
+  findAnnotationNumber: (identity: string) => number | null
+  updateAnnotation: (num: number, text: string) => boolean
+  deleteAnnotation: (num: number) => boolean
+  revealAnnotation: (num: number) => { x: number; y: number } | null
+  getViewAnchor: () => EditorViewAnchor | null
+  restoreViewAnchor: (anchor: EditorViewAnchor) => boolean
+  scrollToHeading: (index: number) => void
+  /** frontmatter+본문 전체를 통째로 교체 — collab 방이 있으면 그 Y.XmlFragment도 정상적인 로컬
+   * 트랜잭션으로 갱신되어(ySyncPlugin이 가로챔) 다른 세션에도 그대로 반영된다. 되돌리기(revert)용. */
+  setRawContent: (content: string) => void
+  /** 현재 선택된 텍스트 — 선택이 없으면 null (터미널/에이전트로 선택 텍스트를 보내는 단축키용) */
+  getSelectedText: () => string | null
+  /** 선택 시작·끝의 파일 줄 번호(1부터, frontmatter 줄 포함) — [경로:줄] 참조 삽입용 */
+  getSelectedLineRange: () => { start: number; end: number } | null
+  /** 문서 내 찾기 바를 연다 — seedQuery가 있으면 그 검색어로 채우고 첫 매치로 이동 (프로젝트 검색 연동용) */
+  openSearch: (seedQuery?: string) => void
+  /** 현재 선택(없으면 커서)의 댓글 앵커 — 텍스트 공간은 렌더된 본문(docTextWithMap) */
+  getCommentAnchor: () => CommentAnchor | null
+  /** 앵커 자리로 스크롤하고 그 화면 좌표를 준다 — 댓글 목록에서 스레드로 점프할 때. 고아면 null */
+  revealCommentAnchor: (anchor: CommentAnchor) => { x: number; y: number } | null
+}
+
+// Collaboration.configure()의 field 기본값과 맞춰야 시딩 시 같은 Y.XmlFragment를 본다
+const COLLAB_FIELD = 'default'
+// 블록 이동은 짧은 드래그와 구분한다. 0.7초 동안 제자리에 눌러야만 native drag를 허용한다.
+const LINE_HANDLE_LONG_PRESS_MS = 700
+const LINE_HANDLE_SCROLL_SLOP = 3
+const LINE_HANDLE_GUTTER_WIDTH = 88
+
+// y-tiptap의 yUndoPlugin은 로컬 PM 편집을 전부 origin=ySyncPluginKey인 Y 트랜잭션으로 감싸서
+// undo 스택에 올린다 (trackedOrigins 기본값이 ySyncPluginKey만 포함). Yjs는 이미 진행 중인
+// 트랜잭션 안에서 transact()가 다시 호출되면 새 origin을 무시하고 기존 트랜잭션을 그대로 쓰므로,
+// 초기 시딩(setContent)을 이 origin으로 감싸면 undo 스택에 올라가지 않는 "무시된" 편집이 된다 —
+// 그렇지 않으면 시딩된 본문 전체가 사용자의 첫 undo 몇 번 만에 통째로 사라질 수 있다
+const SEED_ORIGIN = Symbol('editor-seed')
+
+function markdownForAsset(url: string, name: string, mimetype: string): string {
+  const alt = name.replace(/\.[^.]+$/, '')
+  if (mimetype.startsWith('image/')) return `![${alt}](${url})`
+  if (mimetype.startsWith('audio/')) return `<audio src="${url}" controls></audio>`
+  if (mimetype.startsWith('video/')) return `<video src="${url}" controls></video>`
+  return `[${name}](${url})`
+}
+
+// paste로 붙일 수 없는 파일 타입용 — 항상 순수 링크로 삽입 (/upload 커맨드 전용)
+function markdownForLink(url: string, name: string): string {
+  return `[${name}](${url})`
+}
+
+function isPasteableMedia(mimetype: string): boolean {
+  return mimetype.startsWith('image/') || mimetype.startsWith('audio/') || mimetype.startsWith('video/')
+}
+
+// updated는 필드가 이미 있을 때만 오늘 날짜로 갱신한다 — 없으면(사용자가 지웠으면) 되살리지 않는다.
+// desc는 자동으로 채우지 않는다 — 작성자(사람·AI)가 직접 쓰는 필드다.
+function bumpUpdated(frontmatter: FrontmatterData): FrontmatterData {
+  if (frontmatter.fields.some((field) => field.key === '_mew_database')) return frontmatter
+  const today = todayDate()
+  const idx = frontmatter.fields.findIndex((f) => f.key === 'updated')
+  if (idx === -1 || frontmatter.fields[idx].value === today) return frontmatter
+  return { ...frontmatter, fields: frontmatter.fields.map((f, i) => (i === idx ? { ...f, value: today } : f)) }
+}
+
+function isListNode(node: PMNode): boolean {
+  return node.type.name === 'bulletList' || node.type.name === 'orderedList'
+}
+
+function domPos(view: EditorView, el: HTMLElement): number {
+  let found = -1
+  view.state.doc.descendants((_node, pos) => {
+    if (found < 0 && view.nodeDOM(pos) === el) found = pos
+    return found < 0
+  })
+  return found
+}
+
+function lineHandleTargetAt(view: EditorView, event: MouseEvent): { pos: number; el: HTMLElement } | null {
+  const lineHeight = Number.parseFloat(getComputedStyle(view.dom).getPropertyValue('--mew-body-line-height')) || 25.5
+  const candidates = Array.from(
+    view.dom.querySelectorAll(':scope > :not(ul, ol, .ProseMirror-gapcursor), li'),
+  ) as HTMLElement[]
+  let best: { pos: number; el: HTMLElement; depth: number } | null = null
+
+  for (const el of candidates) {
+    const rect = el.getBoundingClientRect()
+    if (event.clientY < rect.top || event.clientY > Math.min(rect.bottom, rect.top + lineHeight)) continue
+    if (event.clientX < rect.left - LINE_HANDLE_GUTTER_WIDTH || event.clientX > rect.left + 2) continue
+    const pos = domPos(view, el)
+    if (pos < 0) continue
+    const depth = view.state.doc.resolve(pos).depth
+    if (!best || depth > best.depth) best = { pos, el, depth }
+  }
+
+  return best ? { pos: best.pos, el: best.el } : null
+}
+
+/** 저장된 표 열 너비를 현재 문서에 입힌다 — 자세한 규칙은 editor/tableWidths.ts */
+function applyTableWidths(editor: TiptapEditor, widths: TableWidths): void {
+  const tr = tableWidthsTransaction(editor.state, widths)
+  if (tr) editor.view.dispatch(tr)
+}
+
+// Tab 중첩 — sinkListItem은 "같은 리스트 안"에서만 동작해서, 앞줄이 다른 형태의 리스트일 때
+// (불렛줄 다음 숫자줄, 리스트 다음 코드블럭 등)는 중첩이 안 된다. 그런 경우 현재 블록(숫자리스트
+// 전체·코드블록 등)을 통째로 "바로 앞 형제 리스트"의 마지막 항목 안으로 옮겨 중첩시킨다.
+// 옮길 수 없는 상황이면 false를 돌려 기본 처리(줄 앞 \t)로 넘긴다.
+function nestBlockIntoPrevList(editor: TiptapEditor): boolean {
+  const { state } = editor
+  const { $from, $to } = state.selection
+  for (let d = $from.depth; d >= 1; d--) {
+    const index = $from.index(d - 1)
+    if (index === 0) continue
+    const parent = $from.node(d - 1)
+    const prev = parent.child(index - 1)
+    if (!isListNode(prev)) continue
+
+    const blockBefore = $from.before(d) // == prev(리스트)의 after
+    const blockAfter = $from.after(d)
+    if ($to.pos > blockAfter) return false // 선택이 이 블록을 벗어나면 건드리지 않는다
+
+    // prev 리스트의 마지막 항목 content 끝: prev.after==blockBefore, 리스트 close 1 + 마지막 li close 1
+    const insertPos = blockBefore - 2
+    if (insertPos <= 0) return false
+    const content = state.doc.slice(blockBefore, blockAfter).content
+    const tr = state.tr
+    tr.delete(blockBefore, blockAfter)
+    tr.insert(insertPos, content) // insertPos < blockBefore 라 삭제 영향 없음
+    const newPos = insertPos + ($from.pos - blockBefore)
+    tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(Math.max(newPos, 1), tr.doc.content.size))))
+    editor.view.dispatch(tr.scrollIntoView())
+    return true
+  }
+  return false
+}
+
+// Alt+Backspace — 현재 리스트 줄(항목)을 통째로 지운다. 그 항목에 하위 항목이 딸려 있으면
+// 바로 앞 형제 항목의 끝으로 흡수시켜 나머지를 자연스럽게 당긴다 (독스 예시의 동작). 앞 형제가
+// 없으면 하위 리스트 항목들을 이 항목 자리로 한 단계 승격시킨다.
+function deleteListLine(editor: TiptapEditor): boolean {
+  const { state } = editor
+  const { $from } = state.selection
+  let liDepth = -1
+  for (let d = $from.depth; d >= 1; d--) {
+    if ($from.node(d).type.name === 'listItem') {
+      liDepth = d
+      break
+    }
+  }
+  if (liDepth === -1) return false
+
+  const li = $from.node(liDepth)
+  const liBefore = $from.before(liDepth)
+  const liAfter = $from.after(liDepth)
+  const liIndex = $from.index(liDepth - 1)
+  const first = li.firstChild
+  const paraSize = first ? first.nodeSize : 0
+  const restStart = liBefore + 1 + paraSize
+  const restEnd = liAfter - 1
+  const hasRest = restEnd > restStart
+
+  const tr = state.tr
+  if (!hasRest) {
+    tr.delete(liBefore, liAfter)
+  } else if (liIndex > 0) {
+    // 하위 블록을 이전 형제 항목(block* content)의 끝으로 흡수 — liBefore-1 == 이전 항목 content 끝
+    const content = state.doc.slice(restStart, restEnd).content
+    tr.delete(liBefore, liAfter)
+    tr.insert(liBefore - 1, content)
+  } else {
+    // 앞 형제가 없으면 하위 리스트의 항목들만 승격 (부모 리스트엔 listItem만 넣을 수 있으므로)
+    let items = Fragment.empty
+    let ok = true
+    state.doc.slice(restStart, restEnd).content.forEach((child) => {
+      if (isListNode(child)) items = items.append(child.content)
+      else ok = false
+    })
+    if (!ok) return false
+    tr.delete(liBefore, liAfter)
+    tr.insert(liBefore, items)
+  }
+  tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(tr.mapping.map(liBefore), tr.doc.content.size))))
+  editor.view.dispatch(tr.scrollIntoView())
+  return true
+}
+
+// 2벌식 한글 낱자 → QWERTY 글쇠 위치. 모바일에서 한글 IME가 켜진 채로 보조키바의 Ctrl을 켜고
+// 단축키 글쇠(예: undo=z 자리)를 누르면 실제로 들어오는 값은 'ㅋ' 같은 호환 자모라, 그걸 원래
+// 영문 글쇠로 되돌려 단축키를 매핑한다 (쌍자음·이중모음은 shift 위치의 같은 글쇠로 묶는다).
+const KO_JAMO_TO_QWERTY: Record<string, string> = {
+  ㅂ: 'q', ㅈ: 'w', ㄷ: 'e', ㄱ: 'r', ㅅ: 't', ㅛ: 'y', ㅕ: 'u', ㅑ: 'i', ㅐ: 'o', ㅔ: 'p',
+  ㅁ: 'a', ㄴ: 's', ㅇ: 'd', ㄹ: 'f', ㅎ: 'g', ㅗ: 'h', ㅓ: 'j', ㅏ: 'k', ㅣ: 'l',
+  ㅋ: 'z', ㅌ: 'x', ㅊ: 'c', ㅍ: 'v', ㅠ: 'b', ㅜ: 'n', ㅡ: 'm',
+  ㅃ: 'q', ㅉ: 'w', ㄸ: 'e', ㄲ: 'r', ㅆ: 't', ㅒ: 'o', ㅖ: 'p',
+}
+
+// beforeinput으로 들어오려던 글자를 단축키용 영문 소문자 한 글자로 환원한다 (영문/한글자모 지원).
+// 단축키 대상이 아니면 null.
+function toShortcutLetter(data: string): string | null {
+  if (data.length !== 1) return null
+  if (/[a-zA-Z]/.test(data)) return data.toLowerCase()
+  return KO_JAMO_TO_QWERTY[data] ?? null
+}
+
+export const Editor = forwardRef<
+  EditorHandle,
+  {
+    value: string
+    onChange: (value: string) => void
+    /** 호스트 앱의 서버 연동 — 렌더 간 identity가 안정적인 객체를 넘길 것 */
+    api: EditorApi
+    readOnly?: boolean
+    path?: string
+    fileLinkContext?: FileLinkContext
+    tree?: TreeNode[]
+    onOpenLink?: EditorOpenLink
+    onCreateChildPage?: () => Promise<void>
+    /** 선택 글자 수를 호스트 상태줄에 넘긴다 — 상태줄은 파일 종류를 가리지 않으므로 에디터 밖(EditorPane)에 있다 */
+    onSelectionChars?: (count: number) => void
+    /** 있으면 이 방의 Y.XmlFragment가 본문의 진실 원천이 된다 — value/onChange는 그 결과를 반영만 한다 */
+    collab?: EditorCollab | null
+    /** 파일 댓글 스레드 — 본문 위 장식(하이라이트)으로만 그린다. 저장·해석은 호스트 몫 */
+    commentThreads?: CommentThreadInput[]
+    onCommentClick?: (id: string, x: number, y: number) => void
+    onAnnotationOpen?: (num: number, x: number, y: number) => void
+    /** 주면 모바일 보조키에 댓글 아이콘이 뜬다 — 폰에는 Alt+Shift+C가 없다. 호스트가 앵커를 만든다 */
+    onStartComment?: () => void
+    /** 호스트가 보조키 표시를 제한할 수 있다. 기본값은 모바일 폭·편집기 포커스를 따른다. */
+    showMobileKeyBar?: boolean
+  }
+>(function Editor(
+  { value, onChange, api, readOnly, path = '', fileLinkContext, tree = [], onOpenLink, onCreateChildPage, onSelectionChars, collab, commentThreads, onCommentClick, onAnnotationOpen, onStartComment, showMobileKeyBar = true },
+  ref,
+) {
+  useUiLocale()
+  const resolveImageSource = useCallback((src: string) => api.resolveImageUrl?.(src, path) ?? src, [api, path])
+  const { frontmatter, body, lineNumbers: frontmatterLineNumbers } = useMemo(() => splitFrontmatter(value), [value])
+  const lineNumberOffset = useMemo(() => {
+    if (!frontmatter) return 0
+    const bodyStart = value.length - body.length
+    return value.slice(0, bodyStart).match(/\n/g)?.length ?? 0
+  }, [body.length, frontmatter, value])
+  function handleFrontmatterChange(next: FrontmatterData) {
+    onChange(joinFrontmatter(next, body))
+  }
+  const containerRef = useRef<HTMLDivElement>(null)
+  // ProseMirror의 기본 scrollIntoView는 문서 스크롤만 대상으로 삼는다. Hotview는 이 컴포넌트
+  // 자체가 스크롤 컨테이너라서, Enter·자동 줄바꿈 뒤 캐럿이 아래로 밀려도 바깥 화면은 그대로일 수 있다.
+  // 입력 DOM이 반영된 다음 프레임에 이 컨테이너를 직접 맞춘다.
+  const caretScrollFrameRef = useRef<number | null>(null)
+  const lineNumberOffsetRef = useRef(lineNumberOffset)
+  lineNumberOffsetRef.current = lineNumberOffset
+  const bodyRef = useRef(body)
+  bodyRef.current = body
+  const localMarkdownRef = useRef<{ editor: TiptapEditor; doc: PMNode; body: string } | null>(null)
+  // 비동기 작업이 항상 현재 문서를 참조하도록 하는 최신 path
+  const pathRef = useRef(path)
+  const openLinkRef = useRef(onOpenLink)
+  openLinkRef.current = onOpenLink
+  const fileLinkContextRef = useRef(fileLinkContext)
+  fileLinkContextRef.current = fileLinkContext
+  // 표 열 너비 동기화 상태 — 어느 문서의 것인지(path), 서버에서 받은 값(baseline), 복원을 마쳤는지.
+  // 복원 전에는 절대 저장하지 않는다 — 시딩 직후의 "너비 없음"을 저장해 원래 값을 지워버리기 때문.
+  const tableSyncRef = useRef<{ path: string; baseline: string; restored: boolean } | null>(null)
+  const [tableWidths, setTableWidths] = useState<TableWidths | null>(null)
+  // useEditor의 editorProps는 deps 배열이 바뀌는 순간의 렌더에서 클로저가 그대로 얼어붙는다
+  // (@tiptap/react의 EditorInstanceManager가 그 시점 options.current만 읽고 이후 갱신을 반영 안 함).
+  // collab이 생기며 에디터가 재생성될 때 handleKeyDown이 그 직전(곧 destroy될) editor를 계속
+  // 가리키게 되므로, editor.commands 등은 이 ref로 항상 최신 인스턴스를 참조해야 한다
+  const editorRef = useRef<TiptapEditor | null>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
+  const uploadPosRef = useRef<number | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const creatingPageRef = useRef(false)
+  const [tooltip, setTooltip] = useState<{
+    show: boolean
+    position: { top: number; left: number }
+    mode: 'add' | 'remove'
+  } | null>(null)
+  // 각주 마커를 눌렀을 때 뜨는 쪽지 — References에 적힌 그 번호의 내용을 보여 준다
+  const [footnoteTip, setFootnoteTip] = useState<{ num: number; content: string; left: number; top: number } | null>(null)
+  const [linkTooltip, setLinkTooltip] = useState<{
+    mode: 'view' | 'edit'
+    position: { top: number; left: number }
+    href: string
+    text: string
+    range: { from: number; to: number }
+  } | null>(null)
+  const [mention, setMention] = useState<{
+    from: number
+    query: string
+    position: { top: number; left: number }
+    selectedIndex: number
+  } | null>(null)
+  // 슬래시(/) 커맨드 메뉴 — from은 '/'의 위치, query는 그 뒤에 입력된 검색어
+  const [slash, setSlash] = useState<{
+    from: number
+    query: string
+    position: { top: number; bottom: number; left: number }
+    selectedIndex: number
+  } | null>(null)
+  const [editorFocused, setEditorFocused] = useState(false)
+  // /db 참조 커맨드로 여는 데이터베이스 선택 모달 — pos는 삽입 위치(문서 좌표)
+  const [dbPicker, setDbPicker] = useState<{ pos: number } | null>(null)
+  // 표 우클릭 메뉴 — pos는 표 노드 시작 위치, cellDom은 행·열 삽입 기준 셀
+  const [tableCopyMenu, setTableCopyMenu] = useState<{
+    position: { top: number; left: number }
+    pos: number
+    dom: HTMLTableElement
+    cellDom: HTMLTableCellElement | null
+  } | null>(null)
+  // 드래그 핸들이 지금 가리키는 블록의 문서 위치 — 핸들 클릭 시 NodeSelection 대상
+  const dragHandlePosRef = useRef(-1)
+  const dragHandleElRef = useRef<HTMLDivElement | null>(null)
+  // 지금 핸들이 잡고 있는 줄의 DOM — 그 줄의 번호만 밝히려고 클래스를 옮겨 붙인다
+  const hoverLineElRef = useRef<HTMLElement | null>(null)
+  const [keyBarCtrl, setKeyBarCtrl] = useState(false)
+  const [keyBarShift, setKeyBarShift] = useState(false)
+  // Ctrl+F 찾기 바 — seed는 열 때 미리 채울 검색어, nonce는 이미 열려 있어도 새 seed로 다시 실행시키는 신호
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchSeed, setSearchSeed] = useState<{ q?: string; n: number }>({ n: 0 })
+  const mobileLayout = useMobileLayout()
+  const mobileKeyBarVisible = mobileLayout && editorFocused && showMobileKeyBar
+  useEffect(() => {
+    if (showMobileKeyBar) return
+    setKeyBarCtrl(false)
+    setKeyBarShift(false)
+  }, [showMobileKeyBar])
+
+  const scheduleCaretVisibility = useCallback((ed: TiptapEditor) => {
+    if (caretScrollFrameRef.current !== null) cancelAnimationFrame(caretScrollFrameRef.current)
+    caretScrollFrameRef.current = requestAnimationFrame(() => {
+      caretScrollFrameRef.current = null
+      const scroller = containerRef.current
+      if (!scroller || !ed.isFocused) return
+      try {
+        const caret = ed.view.coordsAtPos(ed.state.selection.head)
+        const { top, bottom } = visibleEditorBounds(scroller)
+        if (bottom <= top) return
+        if (caret.top < top) scroller.scrollTop -= top - caret.top
+        else if (caret.bottom > bottom) scroller.scrollTop += caret.bottom - bottom
+      } catch {
+        // 에디터가 전환 중이거나 아직 렌더되지 않은 위치면 다음 입력에서 다시 맞춘다.
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    return observeEditorViewport(container, () => {
+      const ed = editorRef.current
+      if (ed) scheduleCaretVisibility(ed)
+    })
+  }, [scheduleCaretVisibility])
+
+  useEffect(
+    () => () => {
+      if (caretScrollFrameRef.current !== null) cancelAnimationFrame(caretScrollFrameRef.current)
+    },
+    [],
+  )
+
+  // 외부(프로젝트 검색 등)에서도 찾기 바를 열 수 있게 하는 헬퍼 — imperative handle과 아래 keydown이 공유
+  const openSearchBar = useCallback((seedQuery?: string) => {
+    setSearchSeed((prev) => ({ q: seedQuery, n: prev.n + 1 }))
+    setSearchOpen(true)
+  }, [])
+
+  // 블록 경계는 공백 한 칸으로 세어 여러 문단을 걸쳐 잡아도 대략 눈에 보이는 글자 수와 맞춘다.
+  // 이미지처럼 텍스트가 없는 NodeSelection이면 0이 되어 상태줄에 글자 수가 안 뜬다.
+  // 호출부(onSelectionUpdate 등)는 에디터 생성 시점 클로저라 콜백은 ref로 최신 것을 읽는다.
+  const selectionCharsRef = useRef(onSelectionChars)
+  selectionCharsRef.current = onSelectionChars
+  const updateSelectedChars = useCallback((ed: any) => {
+    const { from, to, empty } = ed.state.selection
+    selectionCharsRef.current?.(empty ? 0 : ed.state.doc.textBetween(from, to, ' ').length)
+  }, [])
+
+  // editorProps 핸들러(handleKeyDown·handlePaste 등)는 에디터 생성 시점의 클로저에 얼어붙는다 —
+  // deps 배열이 비어있지 않아(collab.ydoc) @tiptap/react가 이후 렌더에서 setOptions로 갱신하지 않기
+  // 때문이다(위 editorRef 선언부 주석 참고). 그래서 핸들러가 slash·mention·tooltip 같은 React
+  // 상태나 그때그때 계산되는 결과·콜백을 직접 읽으면 항상 "생성 당시"의 낡은 값(대부분 null·빈배열)을
+  // 본다 — 슬래시 메뉴에서 Enter를 눌러도 커맨드가 아니라 개행이 되던 원인이다. 아래 ref들로 최신
+  // 값을 참조해 키보드 내비게이션(슬래시·멘션·표 툴팁)이 정상 동작하게 한다. 렌더마다 아래
+  // "핸들러가 참조하는 ref 동기화" 블록에서 갱신한다.
+  const slashRef = useRef<typeof slash>(null)
+  const mentionRef = useRef<typeof mention>(null)
+  const tooltipRef = useRef<typeof tooltip>(null)
+  const slashResultsRef = useRef<SlashCommand[]>([])
+  const mentionResultsRef = useRef<MentionResult[]>([])
+  const runSlashCommandRef = useRef<(command: SlashCommand) => void>(() => {})
+  const selectMentionRef = useRef<(result: MentionResult) => void>(() => {})
+  const readOnlyRef = useRef(readOnly)
+  // 댓글 스레드·클릭 콜백 — 확장 옵션은 에디터 생성 시 한 번 잡히므로 ref 게터로 최신 값을 본다
+  const commentThreadsRef = useRef<CommentThreadInput[]>(commentThreads ?? [])
+  const onCommentClickRef = useRef(onCommentClick)
+  const onAnnotationOpenRef = useRef(onAnnotationOpen)
+  onAnnotationOpenRef.current = onAnnotationOpen
+  // 보조키바 Ctrl/Shift 토글 — beforeinput 리스너가 매 렌더 재등록 없이 최신 값을 읽도록 ref로도 둔다
+  const keyBarCtrlRef = useRef(keyBarCtrl)
+  const keyBarShiftRef = useRef(keyBarShift)
+
+  // 커서 바로 앞의 "@query" 패턴을 감지해 멘션 팝업 상태를 갱신
+  const updateMentionState = useCallback((ed: any) => {
+    const { $from, empty } = ed.state.selection
+    if (!empty) {
+      setMention(null)
+      return
+    }
+    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(textBefore)
+    if (!match) {
+      setMention(null)
+      return
+    }
+    const query = match[1]
+    const from = $from.start() + $from.parentOffset - query.length - 1
+    const coords = ed.view.coordsAtPos(from)
+    setMention((prev) =>
+      prev && prev.from === from && prev.query === query
+        ? prev
+        : { from, query, position: { top: coords.bottom + 6, left: coords.left }, selectedIndex: 0 },
+    )
+  }, [])
+
+  // 커서 바로 앞의 "/query" 패턴을 감지해 슬래시 커맨드 메뉴 상태를 갱신 (노션식) —
+  // '/'는 줄 시작이나 공백 뒤에서만 인식하므로 URL·경로(docs/foo) 안에서는 뜨지 않는다.
+  const updateSlashState = useCallback((ed: any) => {
+    const { $from, empty } = ed.state.selection
+    if (!empty) {
+      setSlash(null)
+      return
+    }
+    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
+    const match = /(?:^|\s)\/([^\s/]*)$/.exec(textBefore)
+    if (!match) {
+      setSlash(null)
+      return
+    }
+    const query = match[1]
+    const from = $from.start() + $from.parentOffset - query.length - 1
+    const coords = ed.view.coordsAtPos(from)
+    setSlash((prev) =>
+      prev && prev.from === from && prev.query === query
+        ? prev
+        : { from, query, position: { top: coords.top, bottom: coords.bottom, left: coords.left }, selectedIndex: 0 },
+    )
+  }, [])
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      Document,
+      Text,
+      EmptyParagraph,
+      // StarterKit이 기본 제공하는 확장 중 아래에서 개별 등록·설정하는 것들은 전부 꺼야 한다.
+      // 켠 채로 같은 이름을 또 등록하면 tiptap이 "Duplicate extension names found"를 경고하고,
+      // 플러그인이 두 벌 돌아간다 — 특히 Link는 StarterKit 기본값(openOnClick: true)이 함께
+      // 살아 있어 링크 클릭이 새 탭으로 새고, ListItem은 내부 listItemBranchingDeleteKeymap까지
+      // 중복돼 Delete 키가 두 번 처리된다.
+      StarterKit.configure({
+        document: false,
+        text: false,
+        paragraph: false,
+        // codeBlock은 복사 버튼을 붙인 CodeBlockWithCopy로 따로 등록한다
+        codeBlock: false,
+        bold: false,
+        italic: false,
+        strike: false,
+        code: false,
+        heading: false,
+        bulletList: false,
+        orderedList: false,
+        listItem: false,
+        blockquote: false,
+        horizontalRule: false,
+        link: false,
+        // collab 모드에서는 Collaboration 확장의 Yjs 인지 undo/redo를 쓴다 — 기본 history()와
+        // 같이 두면 서로의 undo 스택이 충돌한다 (tiptap 자체 경고 대상)
+        ...(collab ? { undoRedo: false } : {}),
+      }),
+      Bold,
+      Italic,
+      Strike,
+      Code,
+      CodeBlockWithCopy.configure({ HTMLAttributes: { class: 'code-block' } }),
+      Heading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
+      BulletList,
+      OrderedList,
+      TaskList,
+      TaskItem.configure({
+        nested: true,
+        HTMLAttributes: { 'data-type': 'taskItem' },
+        a11y: { checkboxLabel: node => `${uiText('체크박스')}: ${node.textContent}` },
+      }),
+      // 첫 자식으로 리스트를 허용하는 ListItem — 첫 항목 Tab 들여쓰기가 성립하는 스키마(listIndent.ts).
+      // serverExtensions.ts와 반드시 같은 것을 써야 협업 병합에서 문서가 갈라지지 않는다
+      IndentableListItem,
+      // 이미 리스트 항목 안에서 `- `/`1. `를 치면 그 줄만 반대 타입으로 변환한다 (기본 규칙은 중첩만 함)
+      ListConversion,
+      // 제목 중간 Enter → 뒷부분은 제목이 아니라 본문
+      HeadingEnter,
+      // Alt+1~6 — 커서가 있는 줄을 제목으로
+      HeadingShortcut,
+      // Shift+Ctrl+Backspace — 커서가 있는 줄(블록·리스트 항목·코드 한 줄)을 통째로 삭제
+      DeleteLine,
+      // 커서가 있는 줄에 클래스 — 왼쪽 거터의 줄 번호를 그 줄만 밝게 한다(editor.css)
+      LineFocus.configure({
+        getLineOffset: () => lineNumberOffsetRef.current,
+        getSource: () => bodyRef.current,
+      }),
+      // Ctrl+F 문서 내 찾기·바꾸기 (정규식·대소문자) — 매치를 데코레이션으로 하이라이트
+      SearchAndReplace,
+      AnnotationMarker,
+      Annotations.configure({ canInsert: () => !!onAnnotationOpenRef.current, onOpen: (num, x, y) => onAnnotationOpenRef.current?.(num, x, y) }),
+      // 파일 댓글 하이라이트 — 옵션이 생성 시 한 번 잡히므로 ref 게터로 최신 스레드를 본다
+      CommentHighlight.configure({
+        getThreads: () => commentThreadsRef.current,
+        onClick: (id, x, y) => onCommentClickRef.current?.(id, x, y),
+      }),
+      // 각주(Alt+E) — 마커를 누르면 내용 툴팁, References 줄 번호를 누르면 그 마커 자리로
+      Footnotes.configure({
+        onMarkerClick: (num, x, y) => footnoteHandlersRef.current.onMarker(num, x, y),
+        onEntryClick: (num) => footnoteHandlersRef.current.onEntry(num),
+      }),
+      Blockquote,
+      HorizontalRule.extend({
+        addNodeView() {
+          return ({ HTMLAttributes }) => {
+            const dom = document.createElement('div')
+            dom.className = 'mew-horizontal-rule'
+            const rule = document.createElement('hr')
+            for (const [name, value] of Object.entries(HTMLAttributes)) rule.setAttribute(name, String(value))
+            dom.append(rule)
+            return { dom }
+          }
+        },
+      }),
+      // target: null — Chromium/Brave는 contenteditable 안의 target="_blank" 링크를 클릭하면
+      // preventDefault()를 호출해도 새 탭을 강제로 연다 (Ctrl+Click 여부 무관). 속성 자체를 없애야 함.
+      Link.configure({ getFileLinkContext: () => fileLinkContextRef.current, openOnClick: false, HTMLAttributes: { class: 'text-link underline', target: null, rel: null } }),
+      // allowTableNodeSelection: 테이블 NodeSelection이 CellSelection으로 강제 변환되지 않게 함 (테두리 클릭 선택용)
+      // resizable: 세로선(열 너비) 드래그 조절만 지원 — prosemirror-tables는 행 높이 조절 기능이 없음
+      // table 노드는 md 직렬화를 고친 MarkdownTable로 등록한다 (editor/tableMarkdown.ts, 서버와 공유)
+      TableKit.configure({ table: false }),
+      MarkdownTable.configure({ allowTableNodeSelection: true, resizable: true }),
+      // 노션식 블록 드래그 핸들 — **눈에 보이는 것은 줄 번호**(LineFocus 장식으로 줄마다 늘 떠 있다)이고,
+      // 이 엘리먼트는 그 번호 위에 포개지는 투명한 손잡이다: 끌면 블록 이동, 클릭하면 그 블록을
+      // NodeSelection으로 통째로 선택한다 (아래 onNodeChange가 추적한 pos 사용).
+      // 호버 표시도 그립이 아니라 번호가 낸다 — onNodeChange가 그 줄에 mew-line--hover를 붙인다.
+      DragHandle.configure({
+        render: () => {
+          const el = document.createElement('div')
+          el.className = 'mew-drag-handle'
+          let gesture: {
+            startX: number
+            startY: number
+            lastY: number
+            mode: 'pending' | 'scroll' | 'move'
+            timer: ReturnType<typeof window.setTimeout>
+          } | null = null
+          let suppressNextClick = false
+
+          const resetLineHandleGesture = () => {
+            if (gesture) window.clearTimeout(gesture.timer)
+            gesture = null
+            el.draggable = true
+            el.dataset.lineHandleMode = ''
+            window.removeEventListener('mousemove', onLineHandleMove)
+            window.removeEventListener('mouseup', onLineHandleUp)
+          }
+          const onLineHandleMove = (event: MouseEvent) => {
+            if (!gesture) return
+            const dy = event.clientY - gesture.lastY
+            const totalDx = event.clientX - gesture.startX
+            const totalDy = event.clientY - gesture.startY
+
+            // 대기 중에는 어느 방향으로든 드래그를 시작하면 이동 모드가 될 수 없다.
+            // 수직 이동만 직접 스크롤하지만, 수평 이동도 long press 승격은 취소해야 한다.
+            if (gesture.mode === 'pending' && Math.hypot(totalDx, totalDy) > LINE_HANDLE_SCROLL_SLOP) {
+              window.clearTimeout(gesture.timer)
+              gesture.mode = 'scroll'
+              suppressNextClick = true
+              el.dataset.lineHandleMode = 'scroll'
+            }
+
+            if (gesture.mode === 'scroll') {
+              event.preventDefault()
+              const scroller = containerRef.current
+              if (scroller) scroller.scrollTop -= dy
+              gesture.lastY = event.clientY
+            }
+          }
+          const onLineHandleUp = () => {
+            resetLineHandleGesture()
+            window.setTimeout(() => {
+              suppressNextClick = false
+            }, 0)
+          }
+
+          el.addEventListener('mousedown', (event) => {
+            if (event.button !== 0 || readOnlyRef.current) return
+            resetLineHandleGesture()
+            const timer = window.setTimeout(() => {
+              if (!gesture || gesture.mode !== 'pending') return
+              gesture.mode = 'move'
+              el.dataset.lineHandleMode = 'move'
+            }, LINE_HANDLE_LONG_PRESS_MS)
+            gesture = { startX: event.clientX, startY: event.clientY, lastY: event.clientY, mode: 'pending', timer }
+            window.addEventListener('mousemove', onLineHandleMove, { passive: false })
+            window.addEventListener('mouseup', onLineHandleUp, { once: true })
+          })
+          el.addEventListener(
+            'dragstart',
+            (event) => {
+              if (gesture?.mode === 'move') return
+              if (gesture) {
+                window.clearTimeout(gesture.timer)
+                gesture.mode = 'scroll'
+                gesture.lastY = event.clientY
+                suppressNextClick = true
+                el.dataset.lineHandleMode = 'scroll'
+              }
+              event.preventDefault()
+              event.stopImmediatePropagation()
+            },
+            true,
+          )
+          el.addEventListener('dragend', resetLineHandleGesture)
+          el.addEventListener('click', (event) => {
+            if (suppressNextClick) {
+              event.preventDefault()
+              event.stopPropagation()
+              return
+            }
+            const ed = editorRef.current
+            const pos = dragHandlePosRef.current
+            if (!ed || pos < 0) return
+            ed.chain().setNodeSelection(pos).focus().run()
+          })
+          dragHandleElRef.current = el
+          return el
+        },
+        // 옵션 타입에는 node·editor만 있지만 런타임은 pos도 넘긴다 (플러그인 레벨 시그니처와 동일)
+        onNodeChange: (opts) => {
+          const { node, pos } = opts as unknown as { node: PMNode | null; pos: number }
+          dragHandlePosRef.current = pos
+          // 리스트 항목은 중첩 한 단(24px)마다 오른쪽으로 들여쓰인다 — 손잡이를 그만큼 되돌려
+          // 왼쪽 거터의 줄 번호 위에 포갠다 (같은 계산이 editor.css의 li::before에 있다)
+          const doc = editorRef.current?.state.doc
+          if (dragHandleElRef.current)
+            dragHandleElRef.current.style.transform = `translateX(-${24 * (doc ? listLevel(doc, pos) : 0)}px)`
+          // 지금 잡히는 줄의 번호를 밝힌다 — 핸들이 투명하므로 호버 표시는 번호가 낸다.
+          // 편집으로 그 블록의 DOM이 새로 그려지면 클래스가 날아가지만 다음 마우스 이동이 다시 붙인다
+          hoverLineElRef.current?.classList.remove('mew-line--hover')
+          const dom = node && pos >= 0 ? editorRef.current?.view.nodeDOM(pos) : null
+          hoverLineElRef.current = dom instanceof HTMLElement ? dom : null
+          hoverLineElRef.current?.classList.add('mew-line--hover')
+        },
+        nested: {
+          rules: [
+            {
+              // 표 내부는 전부 제외 — 핸들이 항상 표 전체를 잡아 하나의 오브젝트로 선택·이동되게.
+              // $pos는 모든 후보가 공유하므로 반드시 depth로 "이 후보보다 얕은 조상"만 봐야 한다 —
+              // 조상 전체를 보면 표 자신까지 제외돼 표 위에서 핸들이 아예 안 뜬다
+              id: 'table-as-one-object',
+              evaluate: ({ node, depth, $pos }) => {
+                if (node.type.name === 'table') return 0
+                for (let d = 1; d < depth && d <= $pos.depth; d++)
+                  if ($pos.node(d).type.name === 'table') return 1000
+                return 0
+              },
+            },
+          ],
+        },
+      }),
+      ResizableImage,
+      AudioNode,
+      VideoNode,
+      Youtube,
+      // /db 데이터베이스 노드 — api를 주입해 노드뷰가 서버(Postgres)와 실시간으로 연동한다
+      Database.configure({ api, onOpenPage: (target, options) => openLinkRef.current?.(target, options) }),
+      Placeholder.configure({ placeholder: () => uiText("내용 입력 · / 명령어") }),
+      Markdown.configure({
+        transformCopiedText: true,
+        transformPastedText: true,
+      }),
+      IncrementalMarkdown,
+      VirtualBlocks,
+      // 방을 처음 만든 클라이언트가 이미 로드해 둔 탭 내용으로 fragment를 시딩하는 건 아래
+      // useEffect가 담당한다 — 여기 content는 collab이 없을 때만 유효한 초기값
+      ...(collab
+        ? [
+            Collaboration.configure({ document: collab.ydoc, field: COLLAB_FIELD }),
+            CollaborationCaret.configure({
+              provider: { awareness: collab.awareness },
+              user: collab.awareness.getLocalState()?.user ?? { name: '?', color: '#94a3b8' },
+            }),
+          ]
+        : []),
+    ],
+    // collab 모드에서는 ySyncPlugin이 마운트 즉시 문서를 fragment 내용으로 강제 교체한다
+    // (fragment가 비어 있으면 빈 문서로). body를 그대로 넘기면 그 교체가 "진짜 편집"으로
+    // onUpdate에 잡혀 방금 불러온 실제 내용을 onChange('')로 덮어써 버린다 — CodePane과
+    // 동일하게 collab일 때는 빈 값으로 시작하고, 실제 시딩은 아래 별도 effect가 담당한다
+    content: collab ? '' : body,
+    editable: !readOnly,
+    onUpdate: ({ editor }) => {
+      const markdownInstance = (editor.storage as any).markdown
+      const markdown = markdownInstance ? markdownInstance.getMarkdown() : ''
+      if (markdown !== undefined) {
+        const previousBody = localMarkdownRef.current?.editor === editor ? localMarkdownRef.current.body : bodyRef.current
+        localMarkdownRef.current = { editor, doc: editor.state.doc, body: markdown }
+        // Collaboration-only annotation identities do not change file contents.
+        if (markdown !== previousBody) {
+          if (frontmatter) {
+            onChange(joinFrontmatter(bumpUpdated(frontmatter), markdown))
+          } else {
+            onChange(markdown)
+          }
+        }
+      }
+      updateMentionState(editor)
+      updateSlashState(editor)
+      updateSelectedChars(editor)
+      scheduleCaretVisibility(editor)
+    },
+    onFocus: () => setEditorFocused(true),
+    onBlur: () => setEditorFocused(false),
+    onSelectionUpdate: ({ editor }) => {
+      updateMentionState(editor)
+      updateSlashState(editor)
+      updateSelectedChars(editor)
+      scheduleCaretVisibility(editor)
+    },
+    editorProps: {
+      // 복사 text/plain의 md 직렬화 — tiptap-markdown의 것(플러그인 레벨)을 view 레벨에서 덮는다.
+      // 중첩 리스트 중간을 잘라 복사하면 slice에 열린 조상 리스트 래퍼가 남아 마커가 겹친
+      // "- - - 항목"이 나온다 — 래퍼를 벗기고 직렬화해 선택한 항목들 층의 마커만 남긴다
+      clipboardTextSerializer: (slice, view) => {
+        const cellText = selectedTableCellText(view.state.selection)
+        if (cellText !== null) return cellText
+        const content = unwrapOpenListWrappers(slice.content, slice.openStart, slice.openEnd)
+        const serializer = (editorRef.current?.storage as unknown as {
+          markdown?: { serializer?: { serialize: (c: Fragment) => string } }
+        })?.markdown?.serializer
+        return serializer ? serializer.serialize(content) : content.textBetween(0, content.size, '\n\n')
+      },
+      handleClick: (view, _pos, event) => {
+        if (readOnlyRef.current) return false
+        const target = event.target as HTMLElement
+        if (!(target instanceof HTMLElement)) return false
+
+        // 코드블럭 왼쪽 여백(거터)을 클릭하면 블럭 전체를 NodeSelection으로 선택한다.
+        // 이 상태로 복사해야 ``` 펜스까지 포함된다 — 코드 텍스트(<code>) 안 클릭은 커서만 이동.
+        const codeWrap = target.closest('.code-block-wrap') as HTMLElement | null
+        if (codeWrap && !target.closest('code') && !target.closest('.code-block-copy')) {
+          const rect = codeWrap.getBoundingClientRect()
+          const GUTTER = 12
+          if (event.clientX - rect.left <= GUTTER) {
+            try {
+              const codeEl = codeWrap.querySelector('code')
+              if (codeEl) {
+                const inside = view.posAtDOM(codeEl, 0)
+                const $pos = view.state.doc.resolve(inside)
+                for (let d = $pos.depth; d > 0; d--) {
+                  if ($pos.node(d).type.name === 'codeBlock') {
+                    view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, $pos.before(d))))
+                    return true
+                  }
+                }
+              }
+            } catch {
+              return false
+            }
+          }
+        }
+
+        const tableEl = target.classList.contains('tableWrapper')
+          ? target.querySelector('table')
+          : target.closest('table')
+        if (!tableEl) return false
+
+        // 테이블 바깥 테두리 근처 클릭이면 테이블 전체 선택 (복사/잘라내기/삭제 가능)
+        const rect = tableEl.getBoundingClientRect()
+        const EDGE = 6
+        const nearEdge =
+          Math.abs(event.clientX - rect.left) <= EDGE ||
+          Math.abs(event.clientX - rect.right) <= EDGE ||
+          Math.abs(event.clientY - rect.top) <= EDGE ||
+          Math.abs(event.clientY - rect.bottom) <= EDGE
+        if (!nearEdge && target.tagName !== 'TABLE') return false
+
+        try {
+          const inside = view.posAtDOM(tableEl, 0)
+          const $pos = view.state.doc.resolve(inside)
+          for (let d = $pos.depth; d > 0; d--) {
+            if ($pos.node(d).type.name === 'table') {
+              view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, $pos.before(d))))
+              return true
+            }
+          }
+        } catch {
+          return false
+        }
+        return false
+      },
+      handleKeyDown: (_view, event) => {
+        // editorRef로 최신 인스턴스를 가리키는 이유는 위 editorRef 선언부 주석 참고 —
+        // 아래 코드는 전부 이 지역 변수 editor를 참조하므로 나머지는 그대로 둔다
+        const editor = editorRef.current
+
+        // undo/redo는 스택이 비어 있으면 tiptap 커맨드가 false를 반환하는데, prosemirror-keymap은
+        // 그럴 때 preventDefault를 안 해서 브라우저 네이티브 undo/redo가 대신 실행돼 버린다.
+        // 그 네이티브 편집은 PM의 MutationObserver에 "진짜 로컬 편집"으로 잡혀 문서를 지우거나
+        // redo 스택을 오염시킨다 — 성공 여부와 무관하게 여기서 항상 막는다.
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && (event.key === 'z' || event.key === 'Z' || event.key === 'y' || event.key === 'Y')) {
+          event.preventDefault()
+          if (editor) {
+            const redo = event.key === 'y' || event.key === 'Y' || (event.shiftKey && (event.key === 'z' || event.key === 'Z'))
+            runUndoRedoKeepingView(redo ? 'redo' : 'undo')
+          }
+          return true
+        }
+
+        // Alt+Backspace: 리스트 줄이면 그 줄(항목)만 통째로 지우고 하위 항목은 앞 항목으로 흡수
+        // (기본 단어 삭제 대신). 리스트가 아니면 false로 넘겨 브라우저 기본 단어 삭제를 살린다.
+        if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'Backspace') {
+          if (editor && editor.isActive('listItem') && deleteListLine(editor)) {
+            event.preventDefault()
+            return true
+          }
+        }
+
+        // @ 멘션 팝업이 열려있을 때 키보드 내비게이션 (상태·결과·콜백은 ref로 — 위 ref 동기화 주석 참고)
+        if (mentionRef.current) {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            event.stopPropagation()
+            setMention((m) =>
+              m ? { ...m, selectedIndex: Math.min(m.selectedIndex + 1, Math.max(mentionResultsRef.current.length - 1, 0)) } : m,
+            )
+            return true
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            event.stopPropagation()
+            setMention((m) => (m ? { ...m, selectedIndex: Math.max(m.selectedIndex - 1, 0) } : m))
+            return true
+          }
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            event.stopPropagation()
+            const result = mentionResultsRef.current[mentionRef.current.selectedIndex]
+            if (result) selectMentionRef.current(result)
+            else setMention(null)
+            return true
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            setMention(null)
+            return true
+          }
+        }
+
+        // 슬래시(/) 커맨드 메뉴가 열려있을 때 키보드 내비게이션 (선택은 탭으로도 가능 — 모바일)
+        if (slashRef.current) {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            event.stopPropagation()
+            setSlash((s) =>
+              s ? { ...s, selectedIndex: Math.min(s.selectedIndex + 1, Math.max(slashResultsRef.current.length - 1, 0)) } : s,
+            )
+            return true
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            event.stopPropagation()
+            setSlash((s) => (s ? { ...s, selectedIndex: Math.max(s.selectedIndex - 1, 0) } : s))
+            return true
+          }
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            event.stopPropagation()
+            const command = slashResultsRef.current[slashRef.current.selectedIndex]
+            if (command) runSlashCommandRef.current(command)
+            else setSlash(null)
+            return true
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            setSlash(null)
+            return true
+          }
+        }
+
+        // Tab 키 처리: 리스트 중첩/내어쓰기 + 그 외엔 줄 맨 앞 \t 들여쓰기.
+        // 실제 로직은 applyEditorTab로 빼서 모바일 보조키바의 Tab 버튼과 공유한다.
+        if (event.key === 'Tab') {
+          event.preventDefault()
+          applyEditorTab(event.shiftKey)
+          return true
+        }
+
+        // 테이블 관련 키보드 처리
+        if (!readOnlyRef.current && editor) {
+          const state = editor.state
+          const { from } = state.selection
+          const doc = state.doc
+
+          // 현재 위치의 노드 확인 (테이블 셀인지)
+          let inTable = false
+          for (let i = from; i >= 0; i--) {
+            const node = doc.nodeAt(i)
+            if (node && node.type.name === 'table') {
+              inTable = true
+              break
+            }
+            if (i === 0) break
+          }
+
+          // Ctrl+Enter: 현재 셀이 속한 행 바로 아래에 새 행 추가, 새 행의 첫 번째 셀(가장 왼쪽)로 포커스 이동
+          if (event.ctrlKey && event.key === 'Enter' && inTable) {
+            event.preventDefault()
+            event.stopPropagation()
+            const $cell = selectionCell(state)
+            const table = findTable($cell)
+            if (table) {
+              const map = TableMap.get(table.node)
+              const targetRow = map.findCell($cell.pos - table.start).bottom
+              editor.chain().focus().addRowAfter().run()
+              const newTable = findTable(editor.state.selection.$from)
+              if (newTable) {
+                const newMap = TableMap.get(newTable.node)
+                const cellPos = newTable.start + newMap.positionAt(targetRow, 0, newTable.node)
+                const nextSelection = TextSelection.near(editor.state.doc.resolve(cellPos + 1))
+                editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
+              }
+            }
+            return true
+          }
+
+          // Insert 키 또는 Ctrl+Shift+'=' 키 (추가 모드 툴팁)
+          if ((event.key === 'Insert' || (event.ctrlKey && event.shiftKey && event.key === '=')) && inTable) {
+            event.preventDefault()
+            event.stopPropagation()
+
+            // 커서(텍스트 포커스) 위치의 viewport 좌표 (툴팁은 fixed 포지셔닝)
+            const coords = _view.coordsAtPos(from)
+            const tooltipPos = {
+              top: (coords.top + coords.bottom) / 2,
+              left: coords.left,
+            }
+            setTooltip({ show: true, position: tooltipPos, mode: 'add' })
+            return true
+          }
+
+          // Ctrl+Shift+D 키 (제거 모드 툴팁)
+          if (event.ctrlKey && event.shiftKey && event.key === 'D' && inTable) {
+            event.preventDefault()
+            event.stopPropagation()
+
+            // 커서(텍스트 포커스) 위치의 viewport 좌표 (툴팁은 fixed 포지셔닝)
+            const coords = _view.coordsAtPos(from)
+            const tooltipPos = {
+              top: (coords.top + coords.bottom) / 2,
+              left: coords.left,
+            }
+            setTooltip({ show: true, position: tooltipPos, mode: 'remove' })
+            return true
+          }
+
+          // 툴팁이 열려있을 때 방향키 처리 (실행 후 툴팁 닫힘)
+          if (tooltipRef.current?.show) {
+            const arrowCommands: Record<string, (() => void) | undefined> =
+              tooltipRef.current.mode === 'add'
+                ? {
+                    ArrowUp: () => editor.chain().focus().addRowBefore().run(),
+                    ArrowDown: () => editor.chain().focus().addRowAfter().run(),
+                    ArrowLeft: () => editor.chain().focus().addColumnBefore().run(),
+                    ArrowRight: () => editor.chain().focus().addColumnAfter().run(),
+                  }
+                : {
+                    ArrowUp: () => editor.chain().focus().deleteRow().run(),
+                    ArrowDown: () => editor.chain().focus().deleteRow().run(),
+                    ArrowLeft: () => editor.chain().focus().deleteColumn().run(),
+                    ArrowRight: () => editor.chain().focus().deleteColumn().run(),
+                  }
+            const run = arrowCommands[event.key]
+            if (run) {
+              event.preventDefault()
+              event.stopPropagation()
+              run()
+              setTooltip(null)
+              return true
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              setTooltip(null)
+              return true
+            }
+          }
+        }
+
+        // 링크 툴팁 열기 (Ctrl+K) — 텍스트를 선택했거나 커서가 기존 링크 위일 때
+        if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+          event.preventDefault()
+          if (!readOnlyRef.current && editor) {
+            // 커서가 기존 링크 위에 있을 뿐 선택 범위가 없으면 링크 전체로 확장
+            editor.chain().extendMarkRange('link').run()
+            const { empty, from, to } = editor.state.selection
+            const href = editor.getAttributes('link').href ?? ''
+            if (!empty || href) {
+              const text = editor.state.doc.textBetween(from, to, ' ')
+              const coords = _view.coordsAtPos(from)
+              setLinkTooltip({
+                mode: 'edit',
+                position: { top: coords.bottom + 6, left: coords.left },
+                href,
+                text,
+                range: { from, to },
+              })
+            }
+          }
+          return true
+        }
+
+        return false
+      },
+      handlePaste: (_view, event) => {
+        if (readOnlyRef.current) return false
+        // editorRef로 최신 인스턴스를 가리키는 이유는 위 editorRef 선언부 주석 참고
+        const editor = editorRef.current
+        const dt = event.clipboardData
+        if (!dt) return false
+
+        // 유튜브 링크를 통째로 붙여넣으면 임베드로 변환
+        const text = dt.getData('text/plain')?.trim()
+        if (text) {
+          const match = YOUTUBE_URL_RE.exec(text)
+          if (match) {
+            event.preventDefault()
+            event.stopPropagation()
+            editor?.chain().focus().insertContent({ type: 'youtube', attrs: { videoId: match[1] } }).run()
+            return true
+          }
+
+          // SVG 소스를 통째로 붙여넣으면(피그마 "Copy as SVG" 등) .svg 파일로 만들어 이미지 파일을
+          // 붙여넣은 것과 똑같이 업로드한다 — 인라인 <svg>로 두면 저장 시 통째로 사라진다(svgPaste.ts).
+          // 코드블록 안에서는 SVG 코드 자체가 목적이므로 변환하지 않는다.
+          if (isSvgMarkup(text) && !editor?.isActive('codeBlock')) {
+            event.preventDefault()
+            event.stopPropagation()
+            const file = new File([text], svgFileName(text), { type: 'image/svg+xml' })
+            // ProseMirror의 이벤트 처리가 끝난 뒤로 미룬다 (아래 파일 붙여넣기와 같은 이유)
+            setTimeout(() => insertUpload(file), 0)
+            return true
+          }
+        }
+
+        for (let i = 0; i < dt.items.length; i++) {
+          const item = dt.items[i]
+          if (item.kind !== 'file' || !isPasteableMedia(item.type)) continue
+          event.preventDefault()
+          // Prevent the container-level onPaste fallback from uploading again
+          event.stopPropagation()
+          const file = item.getAsFile()
+          if (file) {
+            // Defer to after ProseMirror finishes event handling
+            setTimeout(() => insertUpload(file), 0)
+          }
+          return true
+        }
+        return false
+      },
+      handleDrop: (view, event) => {
+        if (readOnlyRef.current) return false
+        const dt = event.dataTransfer
+        if (!dt) return false
+        // 사이드바에서 끌어온 파일 항목 — 놓은 자리에 그 파일의 프로젝트 상대경로를 글자 그대로 적는다.
+        // 전용 MIME이 있을 때만 가로챈다 (바깥에서 끌어온 텍스트·이미지는 아래 원래 경로로)
+        const draggedPath = pathFromDrag(dt)
+        if (draggedPath) {
+          event.preventDefault()
+          event.stopPropagation()
+          const dropPos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos
+          // ProseMirror가 이 이벤트 처리를 마친 뒤로 미룬다 (아래 업로드와 같은 이유)
+          setTimeout(() => insertPathText(draggedPath, dropPos), 0)
+          return true
+        }
+        if (!dt.files || dt.files.length === 0) return false
+        const file = dt.files[0]
+        event.preventDefault()
+        event.stopPropagation()
+        // 마우스를 놓은 위치에 정확히 삽입 (기본 커서 위치가 아님)
+        const dropPos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos
+        setTimeout(() => insertUpload(file, dropPos), 0)
+        return true
+      },
+      handleDOMEvents: {
+        // 표 우클릭 → 셀 기준 행·열 추가와 복사 메뉴. readOnly에서도 복사는 된다
+        contextmenu: (view, event) => {
+          const e = event as MouseEvent
+          const target = e.target as HTMLElement | null
+          if (!(target instanceof HTMLElement)) return false
+          const tableEl = target.closest('table')
+          if (!tableEl || !view.dom.contains(tableEl)) return false
+          try {
+            const $pos = view.state.doc.resolve(view.posAtDOM(tableEl, 0))
+            for (let d = $pos.depth; d > 0; d--) {
+              if ($pos.node(d).type.name === 'table') {
+                e.preventDefault()
+                setTableCopyMenu({
+                  position: { top: e.clientY, left: e.clientX },
+                  pos: $pos.before(d),
+                  dom: tableEl as HTMLTableElement,
+                  cellDom: target.closest<HTMLTableCellElement>('td, th'),
+                })
+                return true
+              }
+            }
+          } catch {
+            // posAtDOM 실패 — 브라우저 기본 메뉴로
+          }
+          return false
+        },
+        // 내부 문서는 같은 탭으로 이동하고 Ctrl/Cmd 클릭은 새 에디터 탭으로 연다.
+        // 외부 웹 링크의 일반 클릭은 보기 툴팁을 연다.
+        mousedown: (view, event) => {
+          if (readOnlyRef.current) return false
+          const e = event as MouseEvent
+          const target = e.target as HTMLElement | null
+          if (!(target instanceof HTMLElement)) return false
+
+          const lineTarget = lineHandleTargetAt(view, e)
+          if (lineTarget) {
+            e.preventDefault()
+            let mode: 'pending' | 'scroll' = 'pending'
+            let lastY = e.clientY
+            const onMove = (moveEvent: MouseEvent) => {
+              const dy = moveEvent.clientY - lastY
+              if (mode === 'pending' && Math.abs(moveEvent.clientY - e.clientY) > LINE_HANDLE_SCROLL_SLOP) mode = 'scroll'
+              if (mode === 'scroll') {
+                moveEvent.preventDefault()
+                const scroller = containerRef.current
+                if (scroller) scroller.scrollTop -= dy
+                lastY = moveEvent.clientY
+              }
+            }
+            const onUp = () => {
+              window.removeEventListener('mousemove', onMove)
+              if (mode === 'pending') {
+                try {
+                  view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, lineTarget.pos)).scrollIntoView())
+                  view.focus()
+                } catch {
+                  // 선택 불가 노드면 기본 처리 없이 무시
+                }
+              }
+            }
+            window.addEventListener('mousemove', onMove, { passive: false })
+            window.addEventListener('mouseup', onUp, { once: true })
+            return true
+          }
+
+          const anchor = target.closest('a')
+          if (!anchor || !view.dom.contains(anchor)) return false
+          if (!(e.ctrlKey || e.metaKey)) {
+            e.preventDefault()
+          }
+          return false
+        },
+        // readOnly(뷰어)에서도 내부 파일 링크를 앱 안에서 연다.
+        click: (view, event) => {
+          // editorRef로 최신 인스턴스를 가리키는 이유는 위 editorRef 선언부 주석 참고
+          const editor = editorRef.current
+          const e = event as MouseEvent
+          const target = e.target as HTMLElement | null
+          if (!(target instanceof HTMLElement)) return false
+          const anchor = target.closest('a')
+          if (!anchor || !view.dom.contains(anchor)) return false
+
+          const href = anchor.getAttribute('href') ?? ''
+          if (isFileLinkHref(href)) {
+            e.preventDefault()
+            setLinkTooltip(null)
+            openLinkRef.current?.(resolveRelativePath(pathRef.current, href), { newTab: e.ctrlKey || e.metaKey })
+            return true
+          }
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            if (href) {
+              if (isExternalHref(href)) window.open(href, '_blank', 'noopener,noreferrer')
+              else openLinkRef.current?.(resolveRelativePath(pathRef.current, href), { newTab: true })
+            }
+            return true
+          }
+          e.preventDefault()
+          if (!href || !editor) return true
+          try {
+            // 클릭한 앵커의 문서 내 범위를 구한다 (편집 모드 전환 시 그대로 사용)
+            const inside = Math.min(view.posAtDOM(anchor, 0) + 1, view.state.doc.content.size)
+            editor.chain().setTextSelection(inside).extendMarkRange('link').run()
+            const { from, to } = editor.state.selection
+            const text = editor.state.doc.textBetween(from, to, ' ')
+            const rect = anchor.getBoundingClientRect()
+            setLinkTooltip({
+              mode: 'view',
+              position: { top: rect.bottom + 6, left: rect.left },
+              href,
+              text,
+              range: { from, to },
+            })
+          } catch {
+            // posAtDOM 실패 등 — 툴팁 없이 무시
+          }
+          return true
+        },
+      },
+    },
+    // collab.ydoc이 바뀌면(파일 전환으로 새 방에 들어가면) 에디터를 통째로 새로 만든다 —
+    // Y.XmlFragment 바인딩은 파일마다 따로 필요해서 tiptap 확장을 런타임에 갈아끼울 수 없다.
+    // collab이 없을 때는 undefined 하나뿐인 안정된 배열이라 기존처럼 인스턴스가 유지된다.
+  }, [collab?.ydoc])
+
+  // handleKeyDown 안의 editorRef.current를 항상 최신 인스턴스로 유지 (위 editorRef 선언부 주석 참고)
+  useEffect(() => {
+    editorRef.current = editor
+  }, [editor])
+
+  // 각주 클릭 처리 — 확장 옵션은 생성 시 한 번 잡히므로 ref로 최신 함수를 본다
+  const footnoteHandlersRef = useRef({
+    onMarker: (_num: number, _x: number, _y: number) => {},
+    onEntry: (_num: number) => {},
+  })
+  footnoteHandlersRef.current = {
+    // 마커 → 그 번호의 References 내용을 쪽지로
+    onMarker: (num, x, y) => {
+      const ed = editorRef.current
+      if (!ed) return
+      const entry = scanFootnotes(ed.state.doc).entries.find((e) => e.num === num)
+      setFootnoteTip({ num, content: entry?.content?.trim() || uiText("아직 내용이 없습니다 — References에 적어 주세요"), left: x, top: y })
+    },
+    // References 줄 → 그 번호의 마커 자리로 커서를 옮기고 화면을 그리로 끌어온다
+    onEntry: (num) => {
+      const ed = editorRef.current
+      if (!ed) return
+      const marker = scanFootnotes(ed.state.doc).markers.find((m) => m.num === num)
+      if (!marker) return
+      setFootnoteTip(null)
+      ed.chain().focus().setTextSelection({ from: marker.from, to: marker.to }).scrollIntoView().run()
+    },
+  }
+
+  // 각주 쪽지는 다음 클릭·Esc·스크롤에 닫는다. 오버레이 스택에는 올리지 않는다 —
+  // 링크·표 툴팁과 같은 이유로, 수시로 떴다 사라지는 것에 History를 밀고 당기면 안 된다
+  useEffect(() => {
+    if (!footnoteTip) return
+    const close = () => setFootnoteTip(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [footnoteTip])
+
+  // 툴팁 닫기 핸들러
+  const closeTooltip = useCallback(() => {
+    setTooltip(null)
+  }, [])
+
+  // 링크 툴팁 닫기 핸들러
+  const closeLinkTooltip = useCallback(() => {
+    setLinkTooltip(null)
+  }, [])
+
+  // 모바일 보조키 바 — 열려 있는 팝업이 있으면 그것만 닫고, 없으면 에디터에서 blur(키보드 닫기)
+  function handleKeyBarEsc() {
+    if (tooltip || linkTooltip || mention || slash) {
+      closeTooltip()
+      closeLinkTooltip()
+      setMention(null)
+      setSlash(null)
+      return
+    }
+    editor?.commands.blur()
+  }
+
+  // Ctrl+Z/Ctrl+Y — y-tiptap은 undo/redo 때마다 문서 전체를 replace한 뒤 복원한 커서로
+  // scrollIntoView를 부른다. 커서 복원이 어긋나면(상대 위치가 이미 지워진 Y 아이템을 가리키면 그
+  // 전체 replace를 통과하며 문서 끝으로 매핑된다) 화면이 엉뚱한 곳으로 튄다. 복원된 커서는 믿지 않고,
+  // 되돌리기 전후 문서를 diff해 **실제 바뀐 자리**에 커서를 놓는다 — 그 자리가 화면 밖이면 따라간다.
+  // (제거된 "문서별 스크롤 위치 저장·복원"(ADR 0029)과 무관하다 — 저장하지도, 전환 때 되돌리지도 않는다.)
+  function runUndoRedoKeepingView(action: 'undo' | 'redo') {
+    const editor = editorRef.current
+    if (!editor) return
+    const el = containerRef.current
+    if (!el) {
+      editor.commands[action]()
+      return
+    }
+    const before = editor.state.doc
+    const top = el.scrollTop
+    editor.commands[action]()
+    el.scrollTop = top // dispatch가 동기라 여기서 되돌리면 튀는 게 화면에 그려지지 않는다
+    const pos = changedCaretPos(before, editor.state.doc)
+    if (pos !== null) {
+      const view = editor.view
+      view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
+      view.focus()
+    }
+    try {
+      const caret = editor.view.coordsAtPos(editor.state.selection.head)
+      const box = el.getBoundingClientRect()
+      if (caret.top < box.top || caret.bottom > box.bottom) {
+        el.scrollTop = top + caret.top - box.top - el.clientHeight / 3
+      }
+    } catch {
+      // coordsAtPos 실패(그 위치가 아직 렌더되지 않음 등) — 기억한 스크롤을 그대로 둔다
+    }
+  }
+
+  // Tab/Shift-Tab 실제 동작 — keydown 핸들러와 모바일 보조키바가 공유한다. editorRef로 최신
+  // 인스턴스를 읽으므로 얼어붙은 클로저 걱정이 없다. 모바일에선 합성 keydown이 신뢰되지 않아
+  // ProseMirror 기본 동작이 안 먹는 경우가 있어(특히 Tab), 여기서 직접 트랜잭션을 만든다.
+  function applyEditorTab(shift: boolean) {
+    const editor = editorRef.current
+    if (!editor) return
+    const view = editor.view
+
+    // 리스트 항목은 텍스트 앞에 \t를 넣어도 불렛이 안 움직이므로 중첩 리스트로 처리
+    if (editor.isActive('taskItem')) {
+      if (shift) editor.chain().focus().liftListItem('taskItem').run()
+      else editor.chain().focus().sinkListItem('taskItem').run()
+      return
+    }
+    if (editor.isActive('listItem')) {
+      if (shift) {
+        // 기본 lift가 안 되는 자리(자기 줄 없는 부모 항목 안)는 직접 꺼낸다 — 아니면 들여쓴 걸 되돌릴 수 없다
+        if (!editor.chain().focus().liftListItem('listItem').run()) {
+          const tr = liftFirstListItemTransaction(editor.state)
+          if (tr) editor.view.dispatch(tr)
+        }
+      } else if (editor.can().sinkListItem('listItem')) editor.chain().focus().sinkListItem('listItem').run()
+      else if (!nestBlockIntoPrevList(editor)) {
+        // 앞줄이 다른 형태(불렛↔숫자)면 앞 형제 리스트로 통째 중첩(nest), 그것도 아니면
+        // 앞 형제 항목이 없는 첫 항목이라 빈 부모 항목을 만들어 들여쓴다
+        const tr = sinkFirstListItemTransaction(editor.state)
+        if (tr) editor.view.dispatch(tr)
+      }
+      return
+    }
+
+    // 리스트 밖 코드블록: 앞줄이 리스트면 그 리스트의 마지막 항목 안으로 중첩 (중첩 뒤엔 앞 형제가
+    // 본문 줄이라 nest 실패 → 아래 \t로 코드 안 들여쓰기가 된다)
+    if (!shift && editor.isActive('codeBlock') && nestBlockIntoPrevList(editor)) return
+
+    const { $from, from } = view.state.selection
+    const blockStart = $from.start()
+    // 코드블록의 개행·하드브레이크 뒤를 줄 시작으로 취급
+    const textBefore = view.state.doc.textBetween(blockStart, from, '\n', '\n')
+    const lineStart = blockStart + textBefore.lastIndexOf('\n') + 1
+    if (shift) {
+      if (view.state.doc.textBetween(lineStart, lineStart + 1) === '\t') {
+        view.dispatch(view.state.tr.delete(lineStart, lineStart + 1))
+      }
+    } else {
+      view.dispatch(view.state.tr.insertText('\t', lineStart, lineStart))
+    }
+  }
+
+  function handleKeyBarTab() {
+    editorRef.current?.view.focus()
+    applyEditorTab(keyBarShift)
+    setKeyBarShift(false)
+  }
+
+  // 보조키바 Ctrl을 켜고 글쇠를 누를 때 실행할 에디터 단축키 (undo/redo/굵게/기울임/전체선택).
+  // 실제 글쇠 감지는 아래 beforeinput 리스너가 하고, 여기선 커맨드만 실행한다.
+  function runCtrlShortcut(letter: string, shift: boolean) {
+    const editor = editorRef.current
+    if (!editor) return
+    switch (letter) {
+      case 'z':
+        runUndoRedoKeepingView(shift ? 'redo' : 'undo')
+        break
+      case 'y':
+        runUndoRedoKeepingView('redo')
+        break
+      case 'b':
+        editor.chain().focus().toggleBold().run()
+        break
+      case 'i':
+        editor.chain().focus().toggleItalic().run()
+        break
+      case 'a':
+        editor.chain().focus().selectAll().run()
+        break
+      default:
+        break
+    }
+  }
+
+  // 화살표는 합성 keydown으로 안 됨(브라우저가 신뢰되지 않은 이벤트엔 커서 이동 같은 기본 동작을
+  // 수행하지 않음) — Selection.modify로 직접 캐럿을 옮긴다 (Chromium/WebKit 지원, Firefox는 미지원)
+  function handleKeyBarArrow(dir: 'up' | 'down' | 'left' | 'right') {
+    const sel = window.getSelection() as (Selection & { modify?: (a: string, d: string, g: string) => void }) | null
+    const alter = keyBarShift ? 'extend' : 'move'
+    if (dir === 'left') sel?.modify?.(alter, 'backward', keyBarCtrl ? 'word' : 'character')
+    else if (dir === 'right') sel?.modify?.(alter, 'forward', keyBarCtrl ? 'word' : 'character')
+    else if (dir === 'up') sel?.modify?.(alter, 'backward', 'line')
+    else sel?.modify?.(alter, 'forward', 'line')
+    setKeyBarCtrl(false)
+    setKeyBarShift(false)
+  }
+
+  // 코드블럭 버튼 — 커서 문단을 코드블럭으로 바꾸거나 되돌린다(toggle). 마크다운 단축어 ```와 같은 결과.
+  function handleKeyBarCodeBlock() {
+    editorRef.current?.chain().focus().toggleCodeBlock().run()
+  }
+
+  // 표 버튼 — 슬래시 메뉴 '표'와 같은 3×3 표를 삽입한다.
+  function handleKeyBarTable() {
+    editorRef.current?.chain().focus().insertTable({ rows: 3, cols: 3 }).run()
+  }
+
+  // 되돌리기·다시 실행 버튼 — Ctrl+Z/Y 단축키와 같은 경로(runUndoRedoKeepingView)라 커서가
+  // 바뀐 자리로 옮겨지고 화면이 튀지 않는다. 폰에는 Ctrl 토글 + Z 조합이 두 손이라 바로 닿기 어렵다.
+  const handleKeyBarUndo = () => runUndoRedoKeepingView('undo')
+  const handleKeyBarRedo = () => runUndoRedoKeepingView('redo')
+
+  // 모바일 보조키바의 Ctrl 단축키 — 온스크린 키보드로 친 글자는 keydown이 아니라 beforeinput
+  // (insertText/insertCompositionText)으로 들어와 ctrlKey가 실리지 않는다. Ctrl 토글이 켜져 있으면
+  // 그 입력을 가로채 글자 삽입을 막고, 글쇠를 단축키로 실행한다 (한글 자모는 QWERTY 위치로 환원).
+  // editor가 재생성될 때만 재등록하고, 토글 상태는 ref로 읽어 매 토글마다 재등록하지 않는다.
+  useEffect(() => {
+    const dom = editor?.view.dom
+    if (!dom) return
+    const onBeforeInput = (e: Event) => {
+      if (!keyBarCtrlRef.current) return
+      const ie = e as InputEvent
+      if (ie.inputType !== 'insertText' && ie.inputType !== 'insertCompositionText') return
+      const letter = toShortcutLetter(ie.data ?? '')
+      if (!letter) return
+      e.preventDefault()
+      runCtrlShortcut(letter, keyBarShiftRef.current)
+      setKeyBarCtrl(false)
+      setKeyBarShift(false)
+    }
+    dom.addEventListener('beforeinput', onBeforeInput)
+    return () => dom.removeEventListener('beforeinput', onBeforeInput)
+  }, [editor])
+
+  // 툴팁 클릭 방지
+  useEffect(() => {
+    const handleClick = () => setTooltip(null)
+    if (tooltip?.show) {
+      document.addEventListener('mousedown', handleClick)
+      return () => document.removeEventListener('mousedown', handleClick)
+    }
+  }, [tooltip])
+
+  const mentionResults = useMemo<MentionResult[]>(() => {
+    if (!mention) return []
+    return flattenFiles(tree)
+      // 목록에 보이는 파일명 기준의 접두어 자동완성이다. 프로젝트 전체를 찾는 파일 트리 검색은
+      // 별도로 fuzzyScore를 써서 부분 일치를 계속 지원한다.
+      .filter((p) => prefixMatch(mention.query, p.split('/').pop() ?? p))
+      .sort((a, b) => a.localeCompare(b, 'ko-KR'))
+      .slice(0, 8)
+      .map((p) => ({ path: p, label: p.split('/').pop()?.replace(/\.[^.]+$/, '') ?? p }))
+  }, [tree, mention])
+
+  const selectMention = useCallback(
+    (result: MentionResult) => {
+      if (!mention || !editor) return
+      const { from } = mention
+      const to = from + 1 + mention.query.length
+      const href = relativeLinkPath(path, result.path)
+      setMention(null)
+      // 내부 링크의 표시 텍스트는 대상 문서의 title — 파일명은 title을 못 읽을 때의 폴백
+      api.fetchFile(result.path)
+        .then(({ content }) => splitFrontmatter(content).frontmatter?.title || result.label)
+        .catch(() => result.label)
+        .then((label) => {
+          editor.chain().focus().deleteRange({ from, to }).insertContent(`[${label}](${href}) `).run()
+        })
+    },
+    [mention, editor, path, api],
+  )
+
+  // 슬래시 커맨드 목록 — run은 항상 최신 에디터(editorRef)를 받고, 메뉴 텍스트(/query)는 range로 넘겨 미리 지운다.
+  // openUploadPicker는 refs만 읽는 안정 참조라 매 렌더 재생성돼도 문제없다.
+  // 슬래시 커맨드는 데이터·삽입 관련 명령만 노출한다 (제목·목록·인용 등 글 형식은 마크다운
+  // 단축어 `#`·`-`·`1.`·```` ``` ````로 그대로 쓸 수 있으므로 메뉴에서 뺐다).
+  const slashCommands: SlashCommand[] = [
+    ...(onCreateChildPage && !readOnly ? [{
+      id: 'page', title: uiText("하위 페이지"), description: uiText("새 하위 페이지 만들기"), keywords: ['page', '페이지', '하위', '문서'],
+      run: (e: TiptapEditor, r: { from: number; to: number }) => {
+        if (creatingPageRef.current) return
+        creatingPageRef.current = true
+        e.chain().focus().deleteRange(r).run()
+        setUploadError(null)
+        void onCreateChildPage().catch(error => {
+          setUploadError(error instanceof Error ? error.message : uiText("하위 페이지 생성 실패"))
+        }).finally(() => { creatingPageRef.current = false })
+      },
+    }] : []),
+    { id: 'diagram', title: uiText("다이어그램"), description: uiText("Mermaid 다이어그램 삽입"), keywords: ['diagram', 'mermaid', '다이어그램', '흐름도'], run: (e, r) => e.chain().focus().deleteRange(r).insertContent({ type: 'codeBlock', attrs: { language: 'mermaid' }, content: [{ type: 'text', text: 'flowchart LR\n  A[시작] --> B[완료]' }] }).run() },
+    { id: 'db', title: uiText("데이터베이스"), description: uiText("노션식 표 데이터베이스 (실시간 협업)"), keywords: ['db', 'database', '데이터베이스', 'notion', '노션'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); insertDatabase(r.from) } },
+    { id: 'db-ref', title: uiText("데이터베이스 참조"), description: uiText("기존 데이터베이스를 읽기 전용 뷰로 삽입"), keywords: ['ref', 'reference', '참조', 'link', 'linked', 'db참조', 'db-ref', 'database', '데이터베이스'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); setDbPicker({ pos: r.from }) } },
+    { id: 'table', title: uiText("표"), description: uiText("3×3 표 삽입"), keywords: ['table', '표', '테이블'], run: (e, r) => e.chain().focus().deleteRange(r).insertTable({ rows: 3, cols: 3 }).run() },
+    { id: 'upload', title: uiText("파일 업로드"), description: uiText("파일 첨부"), keywords: ['upload', '업로드', 'file', '파일', '첨부', 'attach'], run: (e, r) => { e.chain().focus().deleteRange(r).run(); openUploadPicker(r.from) } },
+  ]
+
+  // query로 시작하는 title·keywords만 보여 주는 인라인 자동완성 (빈 query면 전체).
+  const slashResults: SlashCommand[] = !slash
+    ? []
+    : !slash.query
+      ? slashCommands
+      : slashCommands
+          .filter((cmd) => [cmd.title, ...cmd.keywords].some((keyword) => prefixMatch(slash.query, keyword)))
+          .sort((a, b) => a.title.localeCompare(b.title, 'ko-KR'))
+
+  const runSlashCommand = useCallback(
+    (command: SlashCommand) => {
+      const ed = editorRef.current
+      if (!slash || !ed) return
+      const range = { from: slash.from, to: slash.from + 1 + slash.query.length }
+      setSlash(null)
+      command.run(ed, range)
+    },
+    [slash],
+  )
+
+  // 슬래시 메뉴 바깥 클릭 시 닫기
+  useEffect(() => {
+    const handleClick = () => setSlash(null)
+    if (slash) {
+      document.addEventListener('mousedown', handleClick)
+      return () => document.removeEventListener('mousedown', handleClick)
+    }
+  }, [slash])
+
+  // 멘션 팝업 바깥 클릭 시 닫기
+  useEffect(() => {
+    const handleClick = () => setMention(null)
+    if (mention) {
+      document.addEventListener('mousedown', handleClick)
+      return () => document.removeEventListener('mousedown', handleClick)
+    }
+  }, [mention])
+
+  // 에러 토스트 자동 닫기 — 새로고침 전까지 계속 떠 있지 않도록 6초 뒤 사라진다 (클릭 시 즉시 닫힘)
+  useEffect(() => {
+    if (!uploadError) return
+    const t = setTimeout(() => setUploadError(null), 6000)
+    return () => clearTimeout(t)
+  }, [uploadError])
+
+  useEffect(() => {
+    // collab 모드에서는 Y.XmlFragment가 본문의 진실 원천 — ySyncPlugin이 마운트 때 이미
+    // 로드해 두므로 여기서 건드리면 원격 내용을 덮어써버린다. 시딩은 아래 별도 effect가 담당.
+    if (collab) return
+    if (editor && body !== undefined) {
+      const local = localMarkdownRef.current
+      if (local?.editor === editor && local.doc === editor.state.doc && local.body === body) return
+      const current = (editor.storage as any).markdown?.getMarkdown() ?? ''
+      if (current !== body) {
+        // 프로그램적 로드는 onUpdate를 발생시키지 않아야 함 (탭 dirty/승격 오작동 방지)
+        editor.commands.setContent(body, { emitUpdate: false })
+      }
+      localMarkdownRef.current = null
+      editor.view.dispatch(editor.state.tr.setMeta(lineFocusSourceKey, { source: body }))
+    }
+  }, [editor, body, collab])
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    // 원문 echo 뒤에도 native caret DOM을 맞춘다. 줄 번호는 plugin state 캐시를 재사용한다.
+    editor.view.dispatch(editor.state.tr.setMeta(lineFocusSourceKey, { offset: lineNumberOffset }))
+  }, [editor, body, lineNumberOffset])
+
+  // 방을 처음 만든 클라이언트가 이미 로드해 둔 탭 내용(body)으로 Y.XmlFragment를 시딩한다
+  // (디스크 재조회 아님) — 이미 누군가 협업 중이던 방이면 fragment가 비어 있지 않으므로
+  // _forceRerender가 이미 그 내용을 로드해 둔 상태고, 여기서는 아무 일도 하지 않는다
+  useEffect(() => {
+    if (!editor || !collab || !collab.synced) return
+    const fragment = collab.ydoc.getXmlFragment(COLLAB_FIELD)
+    if (fragment.length === 0 && body) {
+      // SEED_ORIGIN으로 감싸 이 시딩이 undo 스택에 올라가지 않게 한다 (위 SEED_ORIGIN 선언부 주석 참고)
+      collab.ydoc.transact(() => {
+        editor.commands.setContent(body, { emitUpdate: false })
+      }, SEED_ORIGIN)
+    }
+  }, [editor, collab?.synced, collab?.ydoc, body])
+
+  useEffect(() => {
+    pathRef.current = path
+  }, [path])
+
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr)
+  }, [editor, fileLinkContext?.path, fileLinkContext?.docsRoot])
+
+  useEffect(() => {
+    if (editor) {
+      // emitUpdate=false: editable 토글이 onUpdate를 발생시켜 탭 상태를 오염시키지 않도록
+      editor.setEditable(!readOnly, false)
+    }
+    // 블록 이동은 편집이다 — 읽기 전용에서는 드래그 핸들 자체를 숨긴다
+    if (dragHandleElRef.current) dragHandleElRef.current.style.display = readOnly ? 'none' : ''
+  }, [editor, readOnly])
+
+  // ── 표 열 너비 복원·저장 (md 밖 레이아웃, .mew/table-layout.json) ─────────────
+  // 문서가 바뀌면 저장된 너비를 불러온다. 실패하면 tableSyncRef가 null로 남아 저장도 하지 않는다
+  // — 못 읽은 것을 "없음"으로 오해해 덮어쓰지 않기 위해서다.
+  useEffect(() => {
+    tableSyncRef.current = null
+    setTableWidths(null)
+    const fetchLayout = api.fetchTableLayout
+    if (!fetchLayout || !path) return
+    let cancelled = false
+    fetchLayout(path)
+      .then((tables) => {
+        if (cancelled) return
+        // 저장된 게 없으면 복원할 것도 없으니 곧바로 저장 가능 상태로 둔다
+        tableSyncRef.current = { path, baseline: JSON.stringify(tables), restored: tables.length === 0 }
+        setTableWidths(tables)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [api, path])
+
+  // 본문이 들어온 뒤에 입힌다 — 시딩 전이면 표가 없으므로 다음 body 변경에서 다시 시도한다
+  useEffect(() => {
+    const sync = tableSyncRef.current
+    if (!editor || !tableWidths?.length || !sync || sync.path !== path || sync.restored) return
+    if (collab && !collab.synced) return
+    if (!docHasTable(editor.state.doc)) return
+    const apply = () => applyTableWidths(editor, tableWidths)
+    // collab에서는 시딩과 같은 이유로 SEED_ORIGIN으로 감싼다 — 복원이 사용자의 undo 스택에 올라가면
+    // Ctrl+Z 한 번에 표 너비가 통째로 되돌아간다
+    if (collab) collab.ydoc.transact(apply, SEED_ORIGIN)
+    else apply()
+    sync.restored = true
+  }, [editor, tableWidths, path, body, collab, collab?.synced])
+
+  // 열을 끌어 놓으면(=셀 colwidth가 바뀌면) 저장한다. 타이핑 등 다른 변경에서는 값이 같아 저장되지 않는다.
+  useEffect(() => {
+    const saveLayout = api.saveTableLayout
+    if (!editor || !saveLayout || readOnly) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (!transaction.docChanged) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        const sync = tableSyncRef.current
+        if (!sync || sync.path !== pathRef.current || !sync.restored) return
+        const widths = readTableWidths(editor.state.doc)
+        const serialized = JSON.stringify(widths)
+        if (serialized === sync.baseline) return
+        sync.baseline = serialized
+        saveLayout(sync.path, widths).catch(() => {})
+      }, 500)
+    }
+    editor.on('transaction', onTransaction)
+    return () => {
+      editor.off('transaction', onTransaction)
+      if (timer) clearTimeout(timer)
+    }
+  }, [editor, api, readOnly])
+
+  // Ctrl/Cmd+F(문서 내 찾기)를 에디터 컨테이너에서 가로챈다 — 브라우저 기본 찾기를 막고 우리 바를 연다.
+  // Ctrl+Shift+F(프로젝트 전체 검색)는 여기서 잡지 않고 App으로 흘려보낸다.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'f' || e.key === 'F')) {
+        // 이미 찾기 바 안에서 눌렀으면 그대로 두고(입력 유지), 그 외에는 선택 텍스트를 seed로 연다
+        if (e.target instanceof HTMLElement && e.target.closest('.editor-search-bar')) return
+        e.preventDefault()
+        e.stopPropagation()
+        const ed = editorRef.current
+        let seed: string | undefined
+        if (ed && !ed.state.selection.empty) {
+          const text = ed.state.doc.textBetween(ed.state.selection.from, ed.state.selection.to, '\n')
+          if (text && !text.includes('\n')) seed = text
+        }
+        openSearchBar(seed)
+      }
+    }
+    el.addEventListener('keydown', onKeyDown)
+    return () => el.removeEventListener('keydown', onKeyDown)
+  }, [openSearchBar])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      prepareContextMenu(x, y) {
+        if (!editor) return null
+        const target = prepareProseMirrorContext(editor, x, y)
+        if (!target) return null
+        const element = editor.view.dom.ownerDocument.elementFromPoint(x, y)
+        const table = element?.closest('table')
+        if (table && editor.view.dom.contains(table)) {
+          try {
+            const $pos = editor.state.doc.resolve(editor.view.posAtDOM(table, 0))
+            for (let depth = $pos.depth; depth > 0; depth--) if ($pos.node(depth).type.name === 'table') {
+              target.extraItems = <TableCopyMenu inline editor={editor} pos={$pos.before(depth)} tableDom={table as HTMLTableElement} cellDom={element?.closest<HTMLTableCellElement>('td, th') ?? null} readOnly={readOnlyRef.current} position={{ top: y, left: x }} onClose={() => {}} onError={setUploadError} />
+              break
+            }
+          } catch { /* Generic editor actions remain available if the table DOM was replaced. */ }
+        }
+        setTableCopyMenu(null)
+        return target
+      },
+      getViewAnchor() {
+        const root = containerRef.current
+        if (!editor || !root) return null
+        const bounds = root.getBoundingClientRect()
+        const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-mew-line-numbers]'))
+        const visible = (el: HTMLElement) => {
+          const rect = el.getBoundingClientRect()
+          return rect.bottom > bounds.top && rect.top < bounds.bottom
+        }
+        const block = blocks.find(el => el.classList.contains('mew-line--focus') && visible(el))
+          ?? blocks.find(visible)
+        if (!block) return null
+        return { line: Number(block.dataset.mewLineNumbers), offset: Math.max(0, block.getBoundingClientRect().top - bounds.top) }
+      },
+      restoreViewAnchor(anchor) {
+        const root = containerRef.current
+        if (!editor || editor.isDestroyed || !root) return false
+        const blocks = Array.from(root.querySelectorAll<HTMLElement>('[data-mew-line-numbers]'))
+        // Plain의 빈 줄·표 내부·코드 내부는 그 줄을 포함하는 렌더 블록으로 돌아간다.
+        let block = blocks.findLast(el => Number(el.dataset.mewLineNumbers) <= anchor.line) ?? blocks[0]
+        const position = lineFocusPositionAtLine(editor.state, anchor.line)
+        if (position !== null) {
+          materializeVirtualPosition(editor.view, position)
+          const rendered = editor.view.nodeDOM(position)
+          if (rendered instanceof HTMLElement) block = rendered
+        }
+        if (!block) return false
+        // 속성 패널도 원문 줄번호를 갖지만 ProseMirror 본문 밖이므로 커서 위치로 변환할 수 없다.
+        if (editor.view.dom.contains(block)) {
+          const pos = editor.view.posAtDOM(block, 0)
+          const selection = TextSelection.near(editor.state.doc.resolve(pos))
+          if (!selection.eq(editor.state.selection)) editor.view.dispatch(editor.state.tr.setSelection(selection))
+        }
+        root.scrollTop += block.getBoundingClientRect().top - root.getBoundingClientRect().top - anchor.offset
+        return true
+      },
+      scrollToHeading(index: number) {
+        if (!editor) return
+        let heading = 0
+        let position: number | undefined
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === 'heading' && heading++ === index) position = pos
+        })
+        if (position === undefined) return
+        materializeVirtualPosition(editor.view, position)
+        const el = editor.view.nodeDOM(position) as HTMLElement | undefined
+        el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      },
+      openSearch(seedQuery?: string) {
+        openSearchBar(seedQuery)
+      },
+      setRawContent(content: string) {
+        if (!editor) return
+        const { body: newBody } = splitFrontmatter(content)
+        bodyRef.current = newBody
+        // emitUpdate: false — 우리가 onChange(content)를 직접, 정확한 전체 문자열로 호출하므로
+        // onUpdate의 bumpUpdated·현재(구) frontmatter 기반 재조합을 거치지 않게 한다. collab
+        // 방이 있어도 Y.XmlFragment는 이 트랜잭션을 정상적으로 반영한다(ySyncPlugin이 가로챔).
+        editor.commands.setContent(newBody, { emitUpdate: false })
+        localMarkdownRef.current = null
+        editor.view.dispatch(editor.state.tr.setMeta(lineFocusSourceKey, { source: newBody }))
+        onChange(content)
+      },
+      getSelectedText() {
+        if (!editor) return null
+        const { from, to, empty } = editor.state.selection
+        if (empty) return null
+        return editor.state.doc.textBetween(from, to, '\n')
+      },
+      getSelectedLineRange() {
+        const serializer = (editor?.storage as unknown as {
+          markdown?: { serializer?: { serialize: (c: Fragment) => string } }
+        })?.markdown?.serializer
+        if (!editor || !serializer) return null
+        // 파일 줄 번호 = frontmatter가 차지하는 줄 수(닫는 --- 뒤 빈 줄 포함) + 본문 줄 번호
+        const offset = frontmatter ? joinFrontmatter(frontmatter, '').split('\n').length - 1 : 0
+        const { from, to } = editor.state.selection
+        const incremental = getIncrementalMarkdown(editor)
+        return {
+          start: offset + (incremental?.sourceLineOfPos(editor.state.doc, from) ?? sourceLineOfPos(editor.state.doc, (c) => serializer.serialize(c), from)),
+          end: offset + (incremental?.sourceLineOfPos(editor.state.doc, to) ?? sourceLineOfPos(editor.state.doc, (c) => serializer.serialize(c), to)),
+        }
+      },
+      startAnnotation() {
+        if (!editor || !editor.isEditable || !onAnnotationOpenRef.current) return
+        const num = insertAnnotation(editor)
+        if (num === null) return
+        const marker = scanAnnotations(editor.state.doc).markers.find(marker => marker.num === num)
+        if (!marker) return
+        materializeVirtualPosition(editor.view, marker.from)
+        const rect = editor.view.coordsAtPos(marker.from)
+        onAnnotationOpenRef.current?.(num, rect.left, rect.bottom)
+      },
+      getAnnotationIdentity(num) {
+        if (!editor) return null
+        const scan = scanAnnotations(editor.state.doc)
+        return scan.markers.find(marker => marker.num === num)?.id ?? scan.entries.find(entry => entry.num === num)?.id ?? null
+      },
+      findAnnotationNumber(identity) {
+        if (!editor) return null
+        const scan = scanAnnotations(editor.state.doc)
+        return scan.markers.find(marker => marker.id === identity)?.num ?? scan.entries.find(entry => entry.id === identity)?.num ?? null
+      },
+      updateAnnotation(num, text) { return editor ? updateAnnotation(editor, num, text) : false },
+      deleteAnnotation(num) { return editor ? deleteAnnotation(editor, num) : false },
+      revealAnnotation(num) {
+        if (!editor) return null
+        const marker = scanAnnotations(editor.state.doc).markers.find(marker => marker.num === num)
+        if (!marker) return null
+        materializeVirtualPosition(editor.view, marker.from)
+        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(marker.from))).scrollIntoView())
+        const rect = editor.view.coordsAtPos(marker.from)
+        return { x: rect.left, y: rect.bottom }
+      },
+      getCommentAnchor() {
+        if (!editor) return null
+        const { text, map } = docTextWithMap(editor.state.doc)
+        const { from, to } = editor.state.selection
+        return makeCommentAnchor(text, indexOfPos(map, from), indexOfPos(map, to))
+      },
+      revealCommentAnchor(anchor) {
+        if (!editor) return null
+        const { text, map } = docTextWithMap(editor.state.doc)
+        const range = resolveCommentAnchor(text, anchor)
+        if (!range) return null
+        const pos = Math.min(map[range.from] ?? editor.state.doc.content.size, editor.state.doc.content.size)
+        editor.view.dispatch(
+          editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(pos))).scrollIntoView(),
+        )
+        const coords = editor.view.coordsAtPos(pos)
+        return { x: coords.left, y: coords.bottom }
+      },
+    }),
+    [editor, onChange, openSearchBar, frontmatter],
+  )
+
+  // 스레드 목록이 바뀌면 하이라이트를 다시 푼다 — 문서 편집 쪽은 플러그인이 docChanged로 스스로 다시 푼다
+  useEffect(() => {
+    if (!editor) return
+    editor.view.dispatch(editor.state.tr.setMeta(commentRefreshKey, true))
+  }, [editor, commentThreads])
+
+  // editorRef.current를 쓰는 이유는 위 editorRef 선언부 주석 참고 — handlePaste·handleDrop이
+  // 생성 시점 클로저에 얼어붙어 이 함수를 호출하는데, 그때 캡처된 editor는 아직 null이거나
+  // 곧 파괴될 이전 인스턴스라 editor.chain()이 "Cannot read properties of null" 크래시를 냈다.
+  async function insertUpload(file: File, pos?: number) {
+    setUploading(true)
+    setUploadError(null)
+    try {
+      const { url, name, mimetype } = await api.uploadAsset(file)
+      const markdown = markdownForAsset(url, name, mimetype)
+      const ed = editorRef.current
+      if (pos != null && ed) ed.chain().focus().insertContentAt(pos, markdown).run()
+      else ed?.chain().focus().insertContent(markdown).run()
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : uiText("업로드 실패"))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // 사이드바에서 끌어다 놓은 파일 경로를 놓은 자리에 적는다. 마크다운으로 해석되지 않게 텍스트 노드로
+  // 넣는다 — 경로의 밑줄·별표가 서식으로 먹히면 안 되기 때문이다. (editorRef를 쓰는 이유는 위 참고)
+  function insertPathText(text: string, pos?: number) {
+    const ed = editorRef.current
+    if (!ed) return
+    const content = [{ type: 'text', text }]
+    if (pos != null) ed.chain().focus().insertContentAt(pos, content).run()
+    else ed.chain().focus().insertContent(content).run()
+  }
+
+  // /upload 커맨드 전용 — 어떤 파일이든 항상 순수 링크로 삽입
+  async function insertUploadAsLink(file: File, pos: number | null) {
+    setUploading(true)
+    setUploadError(null)
+    try {
+      const { url, name } = await api.uploadAsset(file)
+      const markdown = markdownForLink(url, name)
+      const ed = editorRef.current
+      if (pos != null && ed) ed.chain().focus().insertContentAt(pos, markdown).run()
+      else ed?.chain().focus().insertContent(markdown).run()
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : uiText("업로드 실패"))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function openUploadPicker(pos: number) {
+    uploadPosRef.current = pos
+    uploadInputRef.current?.click()
+  }
+
+  // /db 커맨드 — 새 데이터베이스를 서버(Postgres)에 만들고 그 참조 노드를 삽입한다.
+  // 실제 표는 DatabaseView가 dbId로 불러와 렌더하고, 본문에는 참조 id만 남는다.
+  async function insertDatabase(pos: number) {
+    setUploadError(null)
+    try {
+      const view = await api.db.create(uiText("제목 없음"))
+      editorRef.current?.chain().focus().insertContentAt(pos, { type: 'database', attrs: { dbId: view.id } }).run()
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : uiText("데이터베이스 생성 실패"))
+    }
+  }
+
+  // /db 참조 — 기존 데이터베이스를 뷰 전용(readonly)으로 삽입한다 (실시간으로 원본과 동기화되지만 편집은 불가)
+  function insertDbReference(dbId: string) {
+    const pos = dbPicker?.pos
+    setDbPicker(null)
+    if (pos == null) return
+    editorRef.current?.chain().focus().insertContentAt(pos, { type: 'database', attrs: { dbId, readonly: true } }).run()
+  }
+
+  // /db 참조 — 외부 Postgres 테이블을 external(읽기 전용)로 붙여 삽입한다
+  async function attachExternalDb(schema: string, table: string) {
+    const pos = dbPicker?.pos
+    setDbPicker(null)
+    if (pos == null) return
+    setUploadError(null)
+    try {
+      const view = await api.db.attachExternal(schema, table)
+      editorRef.current?.chain().focus().insertContentAt(pos, { type: 'database', attrs: { dbId: view.id } }).run()
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : uiText("외부 테이블 참조 실패"))
+    }
+  }
+
+  function handleUploadInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    const pos = uploadPosRef.current
+    event.target.value = ''
+    uploadPosRef.current = null
+    if (file) insertUploadAsLink(file, pos)
+  }
+
+  // 핸들러가 참조하는 ref 동기화 — editorProps 핸들러는 생성 시점 클로저에 얼어붙어(위 ref 선언부
+  // 주석 참고) 이 최신 값들을 직접 못 읽으므로, 렌더마다 ref에 흘려 넣어 handleKeyDown이
+  // slashRef.current 등으로 최신 상태·결과·콜백을 보게 한다. 렌더 중 동기 대입이라
+  // 다음 키 입력(다음 이벤트 루프) 전에 항상 반영된다.
+  slashRef.current = slash
+  mentionRef.current = mention
+  tooltipRef.current = tooltip
+  readOnlyRef.current = readOnly
+  slashResultsRef.current = slashResults
+  mentionResultsRef.current = mentionResults
+  runSlashCommandRef.current = runSlashCommand
+  selectMentionRef.current = selectMention
+  commentThreadsRef.current = commentThreads ?? []
+  onCommentClickRef.current = onCommentClick
+  keyBarCtrlRef.current = keyBarCtrl
+  keyBarShiftRef.current = keyBarShift
+
+  return (
+    <div
+      ref={containerRef}
+      className={`editor-root relative flex h-full flex-col overflow-auto bg-surface-deep${frontmatter ? ' has-frontmatter' : ''}`}
+    >
+      {/* /upload 커맨드 전용 숨은 파일 인풋 — accept 없이 모든 타입, 모바일에서도 네이티브 피커가 뜬다 */}
+      <input ref={uploadInputRef} type="file" onChange={handleUploadInputChange} style={{ display: 'none' }} />
+      {/* 찾기 바는 스크롤 컨테이너(.editor-root)에 sticky로 붙는 높이 0짜리 앵커 안에 둔다 — 본문을 밀지
+          않으면서 스크롤을 내려도 화면 위에 남는다. 앵커 없이 absolute만 쓰면 문서 맨 위에 박혀 같이 밀려 올라간다.
+          프론트매터 패널보다 앞에 둬야 문서 최상단에서도 지금과 같은 위치에 뜬다. */}
+      {searchOpen && editor && (
+        <div className="sticky top-0 z-40 h-0">
+          <EditorSearchBar editor={editor} seed={searchSeed.q} seedNonce={searchSeed.n} onClose={() => setSearchOpen(false)} />
+        </div>
+      )}
+      {frontmatter && (
+        <FrontmatterPanel
+          data={frontmatter}
+          lineNumbers={frontmatterLineNumbers}
+          onChange={handleFrontmatterChange}
+          readOnly={readOnly}
+          docPath={path}
+          fileLinkContext={fileLinkContext}
+          optionsApi={frontmatter.fields.some(field => field.key === '_mew_database') ? undefined : api.frontmatterOptions}
+          databaseApi={api.db}
+          fetchBacklinks={api.fetchBacklinks}
+          onOpenLink={onOpenLink}
+        />
+      )}
+      <ImageSourceContext.Provider value={resolveImageSource}>
+        <EditorContent editor={editor} />
+      </ImageSourceContext.Provider>
+      {uploading && (
+        <div className="absolute bottom-2 right-2 rounded bg-surface-inverse px-2 py-1 text-xs text-ink-inverse">
+          {uiText("업로드 중…")}</div>
+      )}
+      {/* 에러 토스트(toast) — 클릭하면 닫히고, 6초 뒤 자동으로 사라진다 (아래 auto-dismiss effect) */}
+      {uploadError && (
+        <div
+          role="alert"
+          onClick={() => setUploadError(null)}
+          title={uiText("클릭하면 닫힘")}
+          className="absolute bottom-2 right-2 flex max-w-xs cursor-pointer items-start gap-2 rounded bg-danger-strong px-2 py-1 text-xs text-ink-on-danger shadow-lg"
+        >
+          <span className="select-text min-w-0 break-words">{uploadError}</span>
+          <span aria-hidden className="shrink-0 opacity-70">✕</span>
+        </div>
+      )}
+      {tableCopyMenu && editor && (
+        <TableCopyMenu
+          editor={editor}
+          pos={tableCopyMenu.pos}
+          tableDom={tableCopyMenu.dom}
+          cellDom={tableCopyMenu.cellDom}
+          readOnly={readOnly}
+          position={tableCopyMenu.position}
+          onClose={() => setTableCopyMenu(null)}
+          onError={setUploadError}
+        />
+      )}
+      {tooltip?.show && (
+        <TableTooltip
+          editor={editor}
+          position={tooltip.position}
+          onClose={closeTooltip}
+          mode={tooltip.mode}
+        />
+      )}
+      {linkTooltip && (
+        <LinkTooltip
+          editor={editor}
+          api={api}
+          position={linkTooltip.position}
+          initialHref={linkTooltip.href}
+          initialText={linkTooltip.text}
+          range={linkTooltip.range}
+          docPath={path}
+          readOnly={readOnly}
+          initialMode={linkTooltip.mode}
+          onClose={closeLinkTooltip}
+          onOpenInternal={(target, options) => {
+            closeLinkTooltip()
+            onOpenLink?.(target, options)
+          }}
+        />
+      )}
+      {mention && (
+        <MentionTooltip
+          position={mention.position}
+          results={mentionResults}
+          selectedIndex={mention.selectedIndex}
+          onSelect={selectMention}
+        />
+      )}
+      {slash && (
+        <SlashMenu
+          position={slash.position}
+          getAnchor={() => editorRef.current?.view.coordsAtPos(slash.from) ?? slash.position}
+          commands={slashResults}
+          selectedIndex={slash.selectedIndex}
+          onSelect={runSlashCommand}
+        />
+      )}
+      {dbPicker && (
+        <DbReferencePicker
+          api={api.db}
+          onPickExisting={insertDbReference}
+          onAttachExternal={attachExternalDb}
+          onClose={() => setDbPicker(null)}
+        />
+      )}
+      {footnoteTip && (
+        <div
+          className="fixed z-50 max-w-[22rem] rounded-lg border border-edge-bright bg-surface-raised px-2.5 py-1.5 text-xs text-ink shadow-xl"
+          style={{ left: Math.min(footnoteTip.left, window.innerWidth - 360), top: footnoteTip.top + 12 }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <span className="mr-1.5 text-ink-muted">{footnoteTip.num})</span>
+          {footnoteTip.content}
+        </div>
+      )}
+      {/* 보조키 바는 스크롤 컨테이너 바닥에 붙는다. 상태줄은 파일 종류를 가리지 않아야 해서
+          이 컴포넌트 밖(EditorPane)으로 나갔다 — 여기 남기면 md 문서에만 뜬다. */}
+      <div className="sticky bottom-0 z-20 shrink-0">
+        {/* 기본은 모바일 폭·포커스를 따르며, 팝업 등 호스트가 키보드 상태로 제한할 수 있다. */}
+        {mobileKeyBarVisible && (
+          <MobileKeyBar
+            ctrlActive={keyBarCtrl}
+            shiftActive={keyBarShift}
+            onToggleCtrl={() => setKeyBarCtrl((v) => !v)}
+            onToggleShift={() => setKeyBarShift((v) => !v)}
+            onEsc={handleKeyBarEsc}
+            onTab={handleKeyBarTab}
+            onArrow={handleKeyBarArrow}
+            onComment={onStartComment}
+            onCodeBlock={readOnly ? undefined : handleKeyBarCodeBlock}
+            onTable={readOnly ? undefined : handleKeyBarTable}
+            onUndo={readOnly ? undefined : handleKeyBarUndo}
+            onRedo={readOnly ? undefined : handleKeyBarRedo}
+          />
+        )}
+      </div>
+    </div>
+  )
+})

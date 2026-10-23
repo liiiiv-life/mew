@@ -1,0 +1,53 @@
+.desktop-screen-keyboard { position: relative; z-index: 5; flex-shrink: 0; min-height: 0; max-height: 45%; display: flex; flex-direction: column; border-top: 1px solid var(--color-edge-strong); background: var(--color-surface); color: var(--color-ink); }
+.desktop-screen-keyboard-tools { display: flex; flex-shrink: 0; align-items: center; gap: 2px; padding: 2px 4px; }
+.desktop-screen-keyboard-tools button { height: 28px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; font-size: 12px; white-space: nowrap; }
+.desktop-screen-keyboard-tools button[aria-pressed="true"] { background: var(--color-surface-raised); color: var(--color-ink-bright); }
+.desktop-screen-keyboard-spacer { flex: 1; }
+.desktop-screen-keyboard .desktop-screen-keyboard-icon { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; padding: 0; border: 0; border-radius: 4px; background: transparent; }
+.desktop-screen-keyboard-icon svg, .desktop-game-key-actions svg { width: 14px; height: 14px; }
+.desktop-screen-keyboard-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px; }
+.desktop-full-keyboard { display: grid; grid-template-columns: minmax(0,1fr) 144px 120px; align-items: start; gap: 8px; }
+.desktop-keyboard-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.desktop-keyboard-row { min-width: 0; display: flex; gap: 2px; }
+.desktop-keyboard-navigation, .desktop-keyboard-numpad { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 3px; }
+.desktop-keyboard-numpad { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.desktop-keyboard-numpad [data-screen-key="NumpadAdd"] { grid-column: 4; grid-row: 2 / span 2; }
+.desktop-keyboard-numpad [data-screen-key="NumpadEnter"] { grid-column: 4; grid-row: 4 / span 2; }
+.desktop-keyboard-numpad [data-screen-key="Numpad0"] { grid-column: 1 / span 2; grid-row: 5; }
+.desktop-keyboard-numpad [data-screen-key="NumpadDecimal"] { grid-column: 3; grid-row: 5; }
+.desktop-screen-keyboard .desktop-screen-key { min-width: 0; min-height: 32px; flex: 1; padding: 2px 1px; border: 1px solid var(--color-edge-strong); border-radius: 4px; background: var(--color-surface-raised); color: var(--color-ink); font-size: 11px; line-height: 1.2; overflow-wrap: anywhere; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.desktop-screen-key[data-wide="wide"] { flex-grow: 1.5; }
+.desktop-screen-key[data-wide="space"] { flex-grow: 5; }
+.desktop-screen-keyboard .desktop-screen-key[aria-pressed="true"] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-ink-on-accent); }
+.desktop-screen-keyboard.is-game { position: absolute; left: max(8px,env(safe-area-inset-left)); bottom: calc(12px + var(--desktop-dock-space)); width: 204px; max-height: calc(100% - 92px - var(--desktop-dock-space)); border: 1px solid var(--color-edge-strong); border-radius: 6px; }
+.desktop-screen-keyboard.is-game .desktop-screen-keyboard-tools { padding-inline: 2px; }
+.desktop-screen-keyboard.is-game .desktop-screen-keyboard-tools > button:not(.desktop-screen-keyboard-icon) { padding-inline: 5px; }
+.desktop-game-key-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; }
+.desktop-game-key-grid .desktop-screen-key { min-height: 44px; font-size: 14px; }
+.desktop-game-key-grid .desktop-screen-key[data-wide="space"] { font-size: 11px; }
+.desktop-screen-keyboard.is-editing { width: min(380px,calc(100% - 16px)); }
+.desktop-game-key-editor { display: flex; flex-direction: column; gap: 4px; }
+.desktop-game-key-field { display: flex; align-items: center; gap: 4px; }
+.desktop-game-key-field > span { width: 20px; text-align: center; color: var(--color-ink-secondary); font-size: 11px; }
+.desktop-game-key-field > :nth-child(2) { flex: 1; min-width: 0; }
+.desktop-game-key-actions { display: flex; justify-content: space-between; gap: 4px; margin-top: 4px; }
+.desktop-game-key-actions button { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 2px 6px; border: 0; border-radius: 4px; background: var(--color-surface-raised); }
+.desktop-panel[data-screen-keyboard="full"] :is(.desktop-control-strip,.desktop-view-controls) { bottom: calc(var(--desktop-keyboard-height,0px) + 16px + var(--desktop-dock-space)); }
+@container desktop-panel (max-width: 900px) {
+  .desktop-full-keyboard { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+  .desktop-keyboard-main { grid-column: 1 / -1; }
+  .desktop-keyboard-navigation { grid-template-columns: repeat(5,minmax(0,1fr)); }
+}
+@container desktop-panel (max-width: 420px) {
+  .desktop-screen-keyboard.is-game { top: calc(80px + env(safe-area-inset-top)); bottom: auto; width: 184px; }
+  .desktop-screen-keyboard.is-editing { width: calc(100% - 16px); }
+  .desktop-screen-keyboard .desktop-screen-key { font-size: 9px; }
+  .desktop-game-key-grid .desktop-screen-key { font-size: 14px; }
+}
+@media (hover:hover) { .desktop-screen-keyboard button:not(:disabled):not([aria-pressed="true"]):hover { background: var(--color-surface-hover); } }
+
+.desktop-panel[data-keyboard-only] .desktop-stage { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+.desktop-panel[data-keyboard-only] .desktop-screen-keyboard { position: relative; inset: auto; width: 100%; max-height: none; flex: 1; border: 0; border-radius: 0; }
+.desktop-panel[data-keyboard-only] .desktop-screen-keyboard-body { flex: 1; display: flex; flex-direction: column; justify-content: safe center; }
+.desktop-panel[data-keyboard-only] .desktop-game-key-grid { width: min(100%,640px); min-height: min(60vh,360px); margin-inline: auto; }
+.desktop-panel[data-keyboard-only] .desktop-game-key-editor { width: min(100%,380px); margin-inline: auto; }

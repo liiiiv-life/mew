@@ -1,0 +1,4 @@
+interface:
+  display_name: "日本語の技術文書作成"
+  short_description: "技術文書の構成と日本語表現を整え、内容確認と依頼された翻訳を行う"
+  default_prompt: "$japanese-technical-docsで指定した文書の構成と日本語表現を改善してください。"

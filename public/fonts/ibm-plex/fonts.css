@@ -1,0 +1,32 @@
+/* IBM Plex — SIL Open Font License 1.1; see LICENSE.txt and sources.json. */
+@font-face {
+  font-family: 'IBM Plex Sans KR';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./plex-sans-kr-1.1.0-regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans KR';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./plex-sans-kr-1.1.0-bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./plex-mono-2.5.0-regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./plex-mono-2.5.0-bold.woff2') format('woff2');
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "简体中文技术文档"
+  short_description: "设计技术文档的结构和信息顺序，润色简体中文并核对所请求的翻译"
+  default_prompt: "$chinese-technical-docs：改进指定文档的结构和简体中文表达。"

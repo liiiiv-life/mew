@@ -1,0 +1,14 @@
+{
+  "name": "@liiiiv/mew-cli",
+  "version": "0.1.0",
+  "description": "Run a prebuilt mew workspace locally and connect through Mewlink.",
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "bin": { "mew": "bin/mew.mjs" },
+  "files": ["bin", "src", "LICENSE"],
+  "engines": { "node": ">=24 <25" },
+  "repository": { "type": "git", "url": "git+https://github.com/s-saens/mew.git", "directory": "apps/cli" },
+  "publishConfig": { "access": "public" },
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "dependencies": { "qrcode-terminal": "0.12.0", "tar": "7.5.22" }
+}

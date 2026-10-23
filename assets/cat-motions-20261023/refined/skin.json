@@ -1,0 +1,114 @@
+{
+  "id": "mew-silhouette-cat-v2",
+  "name": "까만 고양이 · 관절 모션",
+  "order": 10,
+  "motion": {
+    "durations": {
+      "idle": 2400,
+      "walk": 640,
+      "run": 320,
+      "jump": 640,
+      "fall": 640,
+      "love": 1280,
+      "struggle": 960,
+      "idle-walk": 320,
+      "walk-idle": 420,
+      "idle-run": 400,
+      "run-idle": 400,
+      "walk-run": 400,
+      "run-walk": 400,
+      "takeoff": 320,
+      "apex": 320,
+      "landing": 400
+    },
+    "enabled": {
+      "idle": true,
+      "walk": true,
+      "run": true,
+      "jump": true,
+      "fall": true,
+      "love": true,
+      "struggle": true,
+      "idle-walk": true,
+      "walk-idle": true,
+      "idle-run": true,
+      "run-idle": true,
+      "walk-run": true,
+      "run-walk": true,
+      "takeoff": true,
+      "apex": true,
+      "landing": true
+    },
+    "movementSpeed": 0.5,
+    "stride": {
+      "walk": 40.96,
+      "run": 49.06666666666667
+    }
+  },
+  "sprites": {
+    "idle": {
+      "file": "strips/idle.png",
+      "frames": 48
+    },
+    "walk": {
+      "file": "strips/walk.png",
+      "frames": 32
+    },
+    "run": {
+      "file": "strips/run.png",
+      "frames": 16
+    },
+    "jump": {
+      "file": "strips/jump.png",
+      "frames": 16
+    },
+    "fall": {
+      "file": "strips/fall.png",
+      "frames": 16
+    },
+    "love": {
+      "file": "strips/love.png",
+      "frames": 32
+    },
+    "struggle": {
+      "file": "strips/struggle.png",
+      "frames": 24
+    },
+    "idle-walk": {
+      "file": "strips/idle-walk.png",
+      "frames": 16
+    },
+    "walk-idle": {
+      "file": "strips/walk-idle.png",
+      "frames": 21
+    },
+    "idle-run": {
+      "file": "strips/idle-run.png",
+      "frames": 20
+    },
+    "run-idle": {
+      "file": "strips/run-idle.png",
+      "frames": 20
+    },
+    "walk-run": {
+      "file": "strips/walk-run.png",
+      "frames": 20
+    },
+    "run-walk": {
+      "file": "strips/run-walk.png",
+      "frames": 20
+    },
+    "takeoff": {
+      "file": "strips/takeoff.png",
+      "frames": 16
+    },
+    "apex": {
+      "file": "strips/apex.png",
+      "frames": 16
+    },
+    "landing": {
+      "file": "strips/landing.png",
+      "frames": 20
+    }
+  }
+}

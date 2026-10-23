@@ -1,0 +1,69 @@
+/* Global overlays must portal to body; z-index cannot escape a panel context. */
+:root {
+  --layer-dock: 40;
+  --layer-notice: 1100;
+  --layer-modal: 1200;
+  --layer-popover: 1300;
+  --layer-viewer: 1750;
+  --layer-settings: 1800;
+  --layer-tooltip: 1900;
+}
+
+/* Keep nested controls solid while the overlay's outer surface lets light through. */
+:root.theme-gradient :is(
+  [role='dialog'], [role='menu'], [role='listbox']:not(:where([data-inline-listbox])), [role='tooltip'],
+  .mew-overlay-surface, .mewcat-notifications,
+  [data-floating-panel], [data-tree-sticky-depth], [data-agent-loading], .cm-tooltip,
+  :where(:root:not(.dark) .fixed.inset-0[class*='bg-black/']) > :is(.bg-surface-deep, .bg-surface, .bg-surface-raised),
+  :where(.absolute, .fixed, .sticky):is(.bg-surface-deep, .bg-surface, .bg-surface-raised, .bg-surface-hover):not([data-sidebar])
+) {
+  --color-surface: var(--color-surface-solid);
+  --color-surface-raised: var(--color-surface-raised-solid);
+  --color-surface-hover: var(--color-surface-hover-solid);
+}
+
+:root:is(.theme-gradient, :not(.dark)) :is([role='dialog'], [role='menu'], [role='listbox']:not(:where([data-inline-listbox])), [role='tooltip'], [data-floating-panel], .cm-tooltip, .mew-overlay-surface) {
+  --mew-overlay-fill: var(--color-surface-raised-solid, var(--color-surface-raised));
+}
+:root:is(.theme-gradient, :not(.dark)) .bg-surface-deep { --mew-overlay-fill: var(--color-surface-deep); }
+:root:is(.theme-gradient, :not(.dark)) .bg-surface { --mew-overlay-fill: var(--color-surface-solid, var(--color-surface)); }
+:root:is(.theme-gradient, :not(.dark)) .bg-surface-raised { --mew-overlay-fill: var(--color-surface-raised-solid, var(--color-surface-raised)); }
+:root:is(.theme-gradient, :not(.dark)) .bg-surface-hover { --mew-overlay-fill: var(--color-surface-hover-solid, var(--color-surface-hover)); }
+:root:is(.theme-gradient, :not(.dark)) .mewcat-notifications { --mew-overlay-fill: var(--color-surface-solid, var(--color-surface)); }
+
+:root:is(.theme-gradient, :not(.dark)) :is(
+  [role='menu'], [role='listbox']:not(:where([data-inline-listbox])), [role='tooltip'], [data-floating-panel], .cm-tooltip,
+  .mew-overlay-surface, .mewcat-notifications,
+  [role='dialog']:is(.bg-surface-deep, .bg-surface, .bg-surface-raised),
+  [role='dialog']:not(.bg-surface-deep, .bg-surface, .bg-surface-raised, .bg-surface-hover) > :is(.bg-surface-deep, .bg-surface, .bg-surface-raised),
+  :where(:root:not(.dark) .fixed.inset-0[class*='bg-black/']) > :is(.bg-surface-deep, .bg-surface, .bg-surface-raised),
+  :where(.absolute, .fixed):is(.bg-surface-deep, .bg-surface, .bg-surface-raised, .bg-surface-hover):not([data-sidebar])
+) {
+  --mew-overlay-tint: color-mix(in srgb, var(--color-surface-deep) var(--mew-overlay-background-weight, 0%), var(--mew-overlay-fill, var(--color-surface-raised-solid, var(--color-surface-raised))));
+  --mew-overlay-background: color-mix(in srgb, var(--mew-overlay-tint) 75%, transparent);
+  background-color: var(--mew-overlay-background);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* Bright themes retain their background hue instead of using a dark raised tint. */
+:root:not(.dark) {
+  --mew-overlay-background-weight: 70%;
+}
+
+/* A spread shadow paints only outside the rounded panel, leaving its backdrop clear. */
+:root:not(.dark) :where(.fixed.inset-0[class*='bg-black/']):has(> :is(.bg-surface-deep, .bg-surface, .bg-surface-raised)) {
+  --mew-modal-scrim: rgb(0 0 0 / 50%);
+  background-color: transparent;
+}
+:root:not(.dark) .fixed.inset-0.bg-black\/30 { --mew-modal-scrim: rgb(0 0 0 / 30%); }
+:root:not(.dark) .fixed.inset-0.bg-black\/35 { --mew-modal-scrim: rgb(0 0 0 / 35%); }
+:root:not(.dark) .fixed.inset-0.bg-black\/40 { --mew-modal-scrim: rgb(0 0 0 / 40%); }
+:root:not(.dark) .fixed.inset-0.bg-black\/60 { --mew-modal-scrim: rgb(0 0 0 / 60%); }
+/* A wider modal must not reveal the previous modal's outer scrim through its glass. */
+:root:not(.dark) .fixed.inset-0[class*='bg-black/']:has(~ .fixed.inset-0[class*='bg-black/'] > :is(.bg-surface-deep, .bg-surface, .bg-surface-raised)) {
+  --mew-modal-scrim: transparent;
+}
+:root:not(.dark) .fixed.inset-0[class*='bg-black/'] > :is(.bg-surface-deep, .bg-surface, .bg-surface-raised) {
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000), 0 0 0 100vmax var(--mew-modal-scrim);
+}

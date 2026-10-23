@@ -1,0 +1,1576 @@
+{
+  "description": "검은 고양이 16개 모션의 프레임 규격·제안 재생 시간과 픽셀 검사 결과. 생성 완료와 동작 품질 합격은 별도 상태다.",
+  "generationComplete": true,
+  "qualityApproved": false,
+  "processing": "모든 원본 셀을 동일하게 112px로 축소해 128px 투명 프레임 안에 배치했다. 개별 자세별 확대·축소는 없다. 지상 동작 접지선을 y=110px로 맞추고 공중 동작의 머리 위치와 전환 시트의 행 경계 오프셋을 평행 이동으로 보정했다.",
+  "motions": [
+    {
+      "name": "idle",
+      "durationMs": 1600,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": true,
+      "bounds": [
+        {
+          "minX": 18,
+          "minY": 27,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3560,
+          "centerX": 66.4,
+          "centerY": 72
+        },
+        {
+          "minX": 17,
+          "minY": 25,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3572,
+          "centerX": 66.2,
+          "centerY": 71.8
+        },
+        {
+          "minX": 17,
+          "minY": 27,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3559,
+          "centerX": 66.1,
+          "centerY": 72
+        },
+        {
+          "minX": 18,
+          "minY": 28,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 3523,
+          "centerX": 66.1,
+          "centerY": 72.2
+        },
+        {
+          "minX": 18,
+          "minY": 27,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3531,
+          "centerX": 66.4,
+          "centerY": 72.1
+        },
+        {
+          "minX": 17,
+          "minY": 27,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3511,
+          "centerX": 66.2,
+          "centerY": 72.2
+        },
+        {
+          "minX": 18,
+          "minY": 27,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3538,
+          "centerX": 66.4,
+          "centerY": 72
+        },
+        {
+          "minX": 17,
+          "minY": 27,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3541,
+          "centerX": 66.2,
+          "centerY": 71.9
+        }
+      ],
+      "frameAlphaDifferences": [
+        133,
+        145,
+        227,
+        185,
+        63,
+        91,
+        64,
+        58
+      ]
+    },
+    {
+      "name": "walk",
+      "durationMs": 960,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": true,
+      "bounds": [
+        {
+          "minX": 19,
+          "minY": 36,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3266,
+          "centerX": 67,
+          "centerY": 76.7
+        },
+        {
+          "minX": 18,
+          "minY": 33,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3295,
+          "centerX": 66.3,
+          "centerY": 75.7
+        },
+        {
+          "minX": 18,
+          "minY": 33,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3265,
+          "centerX": 66.5,
+          "centerY": 76.1
+        },
+        {
+          "minX": 18,
+          "minY": 34,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3277,
+          "centerX": 66.3,
+          "centerY": 75.7
+        },
+        {
+          "minX": 19,
+          "minY": 37,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3155,
+          "centerX": 67.9,
+          "centerY": 77
+        },
+        {
+          "minX": 19,
+          "minY": 36,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3213,
+          "centerX": 67.6,
+          "centerY": 76.8
+        },
+        {
+          "minX": 19,
+          "minY": 37,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3173,
+          "centerX": 66.1,
+          "centerY": 77.4
+        },
+        {
+          "minX": 19,
+          "minY": 36,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3191,
+          "centerX": 66.9,
+          "centerY": 76.9
+        }
+      ],
+      "frameAlphaDifferences": [
+        689,
+        421,
+        670,
+        1100,
+        705,
+        690,
+        434,
+        258
+      ]
+    },
+    {
+      "name": "run",
+      "durationMs": 560,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": true,
+      "bounds": [
+        {
+          "minX": 19,
+          "minY": 38,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 2887,
+          "centerX": 67.1,
+          "centerY": 76.6
+        },
+        {
+          "minX": 19,
+          "minY": 38,
+          "maxX": 111,
+          "maxY": 102,
+          "area": 2398,
+          "centerX": 64.3,
+          "centerY": 73
+        },
+        {
+          "minX": 13,
+          "minY": 36,
+          "maxX": 119,
+          "maxY": 108,
+          "area": 2836,
+          "centerX": 65.3,
+          "centerY": 74.5
+        },
+        {
+          "minX": 8,
+          "minY": 35,
+          "maxX": 113,
+          "maxY": 109,
+          "area": 2809,
+          "centerX": 66,
+          "centerY": 75
+        },
+        {
+          "minX": 19,
+          "minY": 36,
+          "maxX": 112,
+          "maxY": 108,
+          "area": 2726,
+          "centerX": 64,
+          "centerY": 74
+        },
+        {
+          "minX": 18,
+          "minY": 35,
+          "maxX": 111,
+          "maxY": 107,
+          "area": 2863,
+          "centerX": 64.7,
+          "centerY": 74.5
+        },
+        {
+          "minX": 18,
+          "minY": 36,
+          "maxX": 112,
+          "maxY": 106,
+          "area": 2703,
+          "centerX": 67.1,
+          "centerY": 73.4
+        },
+        {
+          "minX": 18,
+          "minY": 34,
+          "maxX": 113,
+          "maxY": 105,
+          "area": 2828,
+          "centerX": 66.7,
+          "centerY": 72.2
+        }
+      ],
+      "frameAlphaDifferences": [
+        860,
+        1099,
+        1027,
+        945,
+        780,
+        1045,
+        931,
+        1197
+      ]
+    },
+    {
+      "name": "jump",
+      "durationMs": 480,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": true,
+      "bounds": [
+        {
+          "minX": 21,
+          "minY": 31,
+          "maxX": 116,
+          "maxY": 107,
+          "area": 2745,
+          "centerX": 69.9,
+          "centerY": 66.9
+        },
+        {
+          "minX": 20,
+          "minY": 30,
+          "maxX": 114,
+          "maxY": 106,
+          "area": 2744,
+          "centerX": 68,
+          "centerY": 65.8
+        },
+        {
+          "minX": 19,
+          "minY": 30,
+          "maxX": 113,
+          "maxY": 107,
+          "area": 2686,
+          "centerX": 65.4,
+          "centerY": 66.2
+        },
+        {
+          "minX": 18,
+          "minY": 32,
+          "maxX": 108,
+          "maxY": 105,
+          "area": 2533,
+          "centerX": 64.3,
+          "centerY": 65.9
+        },
+        {
+          "minX": 19,
+          "minY": 28,
+          "maxX": 117,
+          "maxY": 99,
+          "area": 2525,
+          "centerX": 68,
+          "centerY": 63.4
+        },
+        {
+          "minX": 21,
+          "minY": 29,
+          "maxX": 111,
+          "maxY": 95,
+          "area": 2251,
+          "centerX": 65.6,
+          "centerY": 63.5
+        },
+        {
+          "minX": 19,
+          "minY": 26,
+          "maxX": 113,
+          "maxY": 94,
+          "area": 2357,
+          "centerX": 64.6,
+          "centerY": 61.4
+        },
+        {
+          "minX": 19,
+          "minY": 27,
+          "maxX": 112,
+          "maxY": 101,
+          "area": 2631,
+          "centerX": 67.4,
+          "centerY": 64.5
+        }
+      ],
+      "frameAlphaDifferences": [
+        549,
+        677,
+        761,
+        1067,
+        887,
+        660,
+        586,
+        1034
+      ]
+    },
+    {
+      "name": "fall",
+      "durationMs": 480,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": true,
+      "bounds": [
+        {
+          "minX": 22,
+          "minY": 27,
+          "maxX": 113,
+          "maxY": 102,
+          "area": 2997,
+          "centerX": 67.6,
+          "centerY": 67.2
+        },
+        {
+          "minX": 22,
+          "minY": 27,
+          "maxX": 113,
+          "maxY": 104,
+          "area": 3103,
+          "centerX": 67.6,
+          "centerY": 68.2
+        },
+        {
+          "minX": 21,
+          "minY": 28,
+          "maxX": 113,
+          "maxY": 107,
+          "area": 3204,
+          "centerX": 67.6,
+          "centerY": 69.5
+        },
+        {
+          "minX": 21,
+          "minY": 28,
+          "maxX": 112,
+          "maxY": 108,
+          "area": 3225,
+          "centerX": 67.1,
+          "centerY": 70.1
+        },
+        {
+          "minX": 20,
+          "minY": 26,
+          "maxX": 112,
+          "maxY": 105,
+          "area": 3173,
+          "centerX": 66.6,
+          "centerY": 68.6
+        },
+        {
+          "minX": 19,
+          "minY": 27,
+          "maxX": 112,
+          "maxY": 105,
+          "area": 3180,
+          "centerX": 66.2,
+          "centerY": 69
+        },
+        {
+          "minX": 19,
+          "minY": 26,
+          "maxX": 112,
+          "maxY": 105,
+          "area": 3235,
+          "centerX": 66.2,
+          "centerY": 68.9
+        },
+        {
+          "minX": 19,
+          "minY": 27,
+          "maxX": 112,
+          "maxY": 105,
+          "area": 3270,
+          "centerX": 66.5,
+          "centerY": 69.2
+        }
+      ],
+      "frameAlphaDifferences": [
+        389,
+        439,
+        410,
+        499,
+        307,
+        139,
+        270,
+        844
+      ]
+    },
+    {
+      "name": "love",
+      "durationMs": 1600,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": true,
+      "bounds": [
+        {
+          "minX": 18,
+          "minY": 31,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3826,
+          "centerX": 68.1,
+          "centerY": 72.9
+        },
+        {
+          "minX": 18,
+          "minY": 31,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3859,
+          "centerX": 67.3,
+          "centerY": 72.4
+        },
+        {
+          "minX": 17,
+          "minY": 31,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3949,
+          "centerX": 67.1,
+          "centerY": 72.4
+        },
+        {
+          "minX": 16,
+          "minY": 31,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3860,
+          "centerX": 66.8,
+          "centerY": 72.7
+        },
+        {
+          "minX": 21,
+          "minY": 31,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3900,
+          "centerX": 68.3,
+          "centerY": 72.2
+        },
+        {
+          "minX": 18,
+          "minY": 32,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3824,
+          "centerX": 67.3,
+          "centerY": 72.8
+        },
+        {
+          "minX": 16,
+          "minY": 32,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3786,
+          "centerX": 67,
+          "centerY": 73.5
+        },
+        {
+          "minX": 15,
+          "minY": 31,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3815,
+          "centerX": 65.9,
+          "centerY": 73.2
+        }
+      ],
+      "frameAlphaDifferences": [
+        351,
+        260,
+        263,
+        539,
+        449,
+        296,
+        392,
+        692
+      ]
+    },
+    {
+      "name": "struggle",
+      "durationMs": 800,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": true,
+      "bounds": [
+        {
+          "minX": 21,
+          "minY": 20,
+          "maxX": 114,
+          "maxY": 106,
+          "area": 3711,
+          "centerX": 68.9,
+          "centerY": 65
+        },
+        {
+          "minX": 21,
+          "minY": 18,
+          "maxX": 114,
+          "maxY": 104,
+          "area": 3658,
+          "centerX": 68.8,
+          "centerY": 63.5
+        },
+        {
+          "minX": 21,
+          "minY": 19,
+          "maxX": 114,
+          "maxY": 104,
+          "area": 3609,
+          "centerX": 67.4,
+          "centerY": 62.7
+        },
+        {
+          "minX": 19,
+          "minY": 18,
+          "maxX": 113,
+          "maxY": 103,
+          "area": 3642,
+          "centerX": 67.7,
+          "centerY": 63.4
+        },
+        {
+          "minX": 22,
+          "minY": 19,
+          "maxX": 115,
+          "maxY": 103,
+          "area": 3619,
+          "centerX": 69,
+          "centerY": 63.6
+        },
+        {
+          "minX": 21,
+          "minY": 19,
+          "maxX": 116,
+          "maxY": 105,
+          "area": 3609,
+          "centerX": 68.7,
+          "centerY": 63.7
+        },
+        {
+          "minX": 19,
+          "minY": 18,
+          "maxX": 113,
+          "maxY": 104,
+          "area": 3583,
+          "centerX": 67.2,
+          "centerY": 62.8
+        },
+        {
+          "minX": 18,
+          "minY": 18,
+          "maxX": 111,
+          "maxY": 104,
+          "area": 3590,
+          "centerX": 66.4,
+          "centerY": 63.7
+        }
+      ],
+      "frameAlphaDifferences": [
+        740,
+        823,
+        1110,
+        791,
+        434,
+        898,
+        821,
+        1223
+      ]
+    },
+    {
+      "name": "idle-walk",
+      "durationMs": 640,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": false,
+      "bounds": [
+        {
+          "minX": 20,
+          "minY": 33,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3360,
+          "centerX": 67.4,
+          "centerY": 75.2
+        },
+        {
+          "minX": 20,
+          "minY": 33,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3286,
+          "centerX": 67.7,
+          "centerY": 74.6
+        },
+        {
+          "minX": 19,
+          "minY": 33,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3397,
+          "centerX": 67.2,
+          "centerY": 75.5
+        },
+        {
+          "minX": 20,
+          "minY": 34,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3371,
+          "centerX": 67.1,
+          "centerY": 75.7
+        },
+        {
+          "minX": 20,
+          "minY": 34,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3241,
+          "centerX": 67.6,
+          "centerY": 76
+        },
+        {
+          "minX": 20,
+          "minY": 33,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3286,
+          "centerX": 67.5,
+          "centerY": 76
+        },
+        {
+          "minX": 19,
+          "minY": 33,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3275,
+          "centerX": 67.4,
+          "centerY": 76
+        },
+        {
+          "minX": 20,
+          "minY": 33,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3238,
+          "centerX": 66.6,
+          "centerY": 76.2
+        }
+      ],
+      "frameAlphaDifferences": [
+        350,
+        443,
+        646,
+        677,
+        443,
+        490,
+        611,
+        876
+      ]
+    },
+    {
+      "name": "walk-idle",
+      "durationMs": 640,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": false,
+      "bounds": [
+        {
+          "minX": 19,
+          "minY": 33,
+          "maxX": 116,
+          "maxY": 110,
+          "area": 3509,
+          "centerX": 68,
+          "centerY": 75.5
+        },
+        {
+          "minX": 19,
+          "minY": 33,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3363,
+          "centerX": 68.7,
+          "centerY": 75.2
+        },
+        {
+          "minX": 19,
+          "minY": 32,
+          "maxX": 116,
+          "maxY": 110,
+          "area": 3415,
+          "centerX": 67.9,
+          "centerY": 75
+        },
+        {
+          "minX": 18,
+          "minY": 33,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3359,
+          "centerX": 69.1,
+          "centerY": 75.3
+        },
+        {
+          "minX": 19,
+          "minY": 34,
+          "maxX": 116,
+          "maxY": 110,
+          "area": 3338,
+          "centerX": 68.2,
+          "centerY": 75.4
+        },
+        {
+          "minX": 19,
+          "minY": 33,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3356,
+          "centerX": 68.3,
+          "centerY": 75.7
+        },
+        {
+          "minX": 18,
+          "minY": 33,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3295,
+          "centerX": 67.3,
+          "centerY": 75.5
+        },
+        {
+          "minX": 18,
+          "minY": 33,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3333,
+          "centerX": 67.3,
+          "centerY": 75.4
+        }
+      ],
+      "frameAlphaDifferences": [
+        1051,
+        780,
+        802,
+        854,
+        392,
+        577,
+        302,
+        1218
+      ]
+    },
+    {
+      "name": "idle-run",
+      "durationMs": 480,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": false,
+      "bounds": [
+        {
+          "minX": 18,
+          "minY": 32,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3422,
+          "centerX": 66.6,
+          "centerY": 74.4
+        },
+        {
+          "minX": 17,
+          "minY": 34,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3314,
+          "centerX": 66.7,
+          "centerY": 76.5
+        },
+        {
+          "minX": 14,
+          "minY": 36,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3199,
+          "centerX": 63.6,
+          "centerY": 77
+        },
+        {
+          "minX": 17,
+          "minY": 33,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3185,
+          "centerX": 65.5,
+          "centerY": 75.4
+        },
+        {
+          "minX": 17,
+          "minY": 28,
+          "maxX": 113,
+          "maxY": 103,
+          "area": 3022,
+          "centerX": 66.1,
+          "centerY": 68.9
+        },
+        {
+          "minX": 16,
+          "minY": 31,
+          "maxX": 114,
+          "maxY": 104,
+          "area": 2913,
+          "centerX": 66.5,
+          "centerY": 69
+        },
+        {
+          "minX": 16,
+          "minY": 29,
+          "maxX": 112,
+          "maxY": 104,
+          "area": 3003,
+          "centerX": 66.4,
+          "centerY": 69.9
+        },
+        {
+          "minX": 16,
+          "minY": 29,
+          "maxX": 115,
+          "maxY": 102,
+          "area": 2823,
+          "centerX": 65.2,
+          "centerY": 67.5
+        }
+      ],
+      "frameAlphaDifferences": [
+        780,
+        900,
+        1179,
+        1795,
+        909,
+        740,
+        1070,
+        1581
+      ]
+    },
+    {
+      "name": "run-idle",
+      "durationMs": 640,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": false,
+      "bounds": [
+        {
+          "minX": 17,
+          "minY": 36,
+          "maxX": 119,
+          "maxY": 110,
+          "area": 3156,
+          "centerX": 69.6,
+          "centerY": 76.9
+        },
+        {
+          "minX": 8,
+          "minY": 36,
+          "maxX": 117,
+          "maxY": 110,
+          "area": 3313,
+          "centerX": 68.3,
+          "centerY": 78.7
+        },
+        {
+          "minX": 19,
+          "minY": 36,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 3304,
+          "centerX": 68.4,
+          "centerY": 79.3
+        },
+        {
+          "minX": 19,
+          "minY": 36,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3055,
+          "centerX": 67.2,
+          "centerY": 78.8
+        },
+        {
+          "minX": 19,
+          "minY": 35,
+          "maxX": 116,
+          "maxY": 110,
+          "area": 3214,
+          "centerX": 68.5,
+          "centerY": 76.3
+        },
+        {
+          "minX": 19,
+          "minY": 35,
+          "maxX": 116,
+          "maxY": 110,
+          "area": 3178,
+          "centerX": 67.8,
+          "centerY": 76.2
+        },
+        {
+          "minX": 18,
+          "minY": 35,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 3229,
+          "centerX": 67.3,
+          "centerY": 76.3
+        },
+        {
+          "minX": 18,
+          "minY": 35,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 3181,
+          "centerX": 66.9,
+          "centerY": 76.4
+        }
+      ],
+      "frameAlphaDifferences": [
+        1090,
+        909,
+        867,
+        1344,
+        198,
+        533,
+        310,
+        1175
+      ]
+    },
+    {
+      "name": "walk-run",
+      "durationMs": 480,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": false,
+      "bounds": [
+        {
+          "minX": 18,
+          "minY": 36,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 2992,
+          "centerX": 68.2,
+          "centerY": 78.6
+        },
+        {
+          "minX": 19,
+          "minY": 36,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 2915,
+          "centerX": 68.3,
+          "centerY": 78.3
+        },
+        {
+          "minX": 18,
+          "minY": 36,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 2938,
+          "centerX": 66.3,
+          "centerY": 78.9
+        },
+        {
+          "minX": 14,
+          "minY": 34,
+          "maxX": 111,
+          "maxY": 110,
+          "area": 3024,
+          "centerX": 64.8,
+          "centerY": 78.1
+        },
+        {
+          "minX": 16,
+          "minY": 34,
+          "maxX": 113,
+          "maxY": 105,
+          "area": 2781,
+          "centerX": 65.7,
+          "centerY": 74.4
+        },
+        {
+          "minX": 18,
+          "minY": 35,
+          "maxX": 113,
+          "maxY": 106,
+          "area": 2597,
+          "centerX": 65.8,
+          "centerY": 74.4
+        },
+        {
+          "minX": 16,
+          "minY": 35,
+          "maxX": 116,
+          "maxY": 106,
+          "area": 2558,
+          "centerX": 66.8,
+          "centerY": 73.4
+        },
+        {
+          "minX": 13,
+          "minY": 35,
+          "maxX": 113,
+          "maxY": 105,
+          "area": 2523,
+          "centerX": 64.6,
+          "centerY": 72.4
+        }
+      ],
+      "frameAlphaDifferences": [
+        713,
+        805,
+        895,
+        1003,
+        811,
+        1070,
+        584,
+        1450
+      ]
+    },
+    {
+      "name": "run-walk",
+      "durationMs": 640,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": false,
+      "bounds": [
+        {
+          "minX": 18,
+          "minY": 39,
+          "maxX": 116,
+          "maxY": 110,
+          "area": 2701,
+          "centerX": 67.5,
+          "centerY": 77.3
+        },
+        {
+          "minX": 19,
+          "minY": 37,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 2794,
+          "centerX": 66.6,
+          "centerY": 76.4
+        },
+        {
+          "minX": 18,
+          "minY": 36,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 2967,
+          "centerX": 66,
+          "centerY": 77.1
+        },
+        {
+          "minX": 18,
+          "minY": 36,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 2917,
+          "centerX": 65.5,
+          "centerY": 76.7
+        },
+        {
+          "minX": 17,
+          "minY": 35,
+          "maxX": 114,
+          "maxY": 110,
+          "area": 2902,
+          "centerX": 65.4,
+          "centerY": 77.4
+        },
+        {
+          "minX": 17,
+          "minY": 34,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 2977,
+          "centerX": 65,
+          "centerY": 77.7
+        },
+        {
+          "minX": 18,
+          "minY": 36,
+          "maxX": 116,
+          "maxY": 110,
+          "area": 2967,
+          "centerX": 66,
+          "centerY": 77.4
+        },
+        {
+          "minX": 18,
+          "minY": 33,
+          "maxX": 115,
+          "maxY": 110,
+          "area": 2881,
+          "centerX": 64.8,
+          "centerY": 76.7
+        }
+      ],
+      "frameAlphaDifferences": [
+        816,
+        924,
+        422,
+        412,
+        516,
+        649,
+        814,
+        1131
+      ]
+    },
+    {
+      "name": "takeoff",
+      "durationMs": 480,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": false,
+      "bounds": [
+        {
+          "minX": 20,
+          "minY": 28,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 3507,
+          "centerX": 67.3,
+          "centerY": 73.1
+        },
+        {
+          "minX": 19,
+          "minY": 32,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 3279,
+          "centerX": 66.3,
+          "centerY": 74.7
+        },
+        {
+          "minX": 16,
+          "minY": 34,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 3127,
+          "centerX": 64.1,
+          "centerY": 77.6
+        },
+        {
+          "minX": 15,
+          "minY": 35,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 2995,
+          "centerX": 63.3,
+          "centerY": 78.6
+        },
+        {
+          "minX": 20,
+          "minY": 29,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 3156,
+          "centerX": 70,
+          "centerY": 69.5
+        },
+        {
+          "minX": 19,
+          "minY": 29,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 2889,
+          "centerX": 69,
+          "centerY": 69.2
+        },
+        {
+          "minX": 17,
+          "minY": 29,
+          "maxX": 112,
+          "maxY": 106,
+          "area": 2825,
+          "centerX": 68,
+          "centerY": 67.4
+        },
+        {
+          "minX": 20,
+          "minY": 27,
+          "maxX": 110,
+          "maxY": 98,
+          "area": 2633,
+          "centerX": 66,
+          "centerY": 65.4
+        }
+      ],
+      "frameAlphaDifferences": [
+        883,
+        1254,
+        676,
+        2802,
+        756,
+        781,
+        859,
+        1295
+      ]
+    },
+    {
+      "name": "apex",
+      "durationMs": 320,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": false,
+      "bounds": [
+        {
+          "minX": 22,
+          "minY": 27,
+          "maxX": 113,
+          "maxY": 107,
+          "area": 3030,
+          "centerX": 69.7,
+          "centerY": 66.2
+        },
+        {
+          "minX": 22,
+          "minY": 27,
+          "maxX": 113,
+          "maxY": 101,
+          "area": 2832,
+          "centerX": 67.1,
+          "centerY": 65.3
+        },
+        {
+          "minX": 23,
+          "minY": 28,
+          "maxX": 114,
+          "maxY": 92,
+          "area": 2772,
+          "centerX": 65.7,
+          "centerY": 64.8
+        },
+        {
+          "minX": 24,
+          "minY": 30,
+          "maxX": 112,
+          "maxY": 92,
+          "area": 2711,
+          "centerX": 66.3,
+          "centerY": 64.8
+        },
+        {
+          "minX": 22,
+          "minY": 26,
+          "maxX": 113,
+          "maxY": 101,
+          "area": 2754,
+          "centerX": 66.7,
+          "centerY": 65
+        },
+        {
+          "minX": 22,
+          "minY": 26,
+          "maxX": 113,
+          "maxY": 104,
+          "area": 2892,
+          "centerX": 66.8,
+          "centerY": 66.3
+        },
+        {
+          "minX": 22,
+          "minY": 27,
+          "maxX": 113,
+          "maxY": 104,
+          "area": 2937,
+          "centerX": 66.6,
+          "centerY": 67.6
+        },
+        {
+          "minX": 22,
+          "minY": 26,
+          "maxX": 113,
+          "maxY": 104,
+          "area": 3007,
+          "centerX": 66.1,
+          "centerY": 67.7
+        }
+      ],
+      "frameAlphaDifferences": [
+        672,
+        544,
+        366,
+        866,
+        341,
+        241,
+        201,
+        846
+      ]
+    },
+    {
+      "name": "landing",
+      "durationMs": 640,
+      "frames": 8,
+      "frameSize": [
+        128,
+        128
+      ],
+      "stripSize": [
+        1024,
+        128
+      ],
+      "loop": false,
+      "bounds": [
+        {
+          "minX": 21,
+          "minY": 30,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 3079,
+          "centerX": 66,
+          "centerY": 71.6
+        },
+        {
+          "minX": 22,
+          "minY": 30,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 3083,
+          "centerX": 68.3,
+          "centerY": 74.8
+        },
+        {
+          "minX": 21,
+          "minY": 30,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 3138,
+          "centerX": 68,
+          "centerY": 76.1
+        },
+        {
+          "minX": 21,
+          "minY": 30,
+          "maxX": 111,
+          "maxY": 110,
+          "area": 3229,
+          "centerX": 68,
+          "centerY": 76.7
+        },
+        {
+          "minX": 22,
+          "minY": 33,
+          "maxX": 112,
+          "maxY": 110,
+          "area": 3069,
+          "centerX": 68,
+          "centerY": 77.2
+        },
+        {
+          "minX": 23,
+          "minY": 36,
+          "maxX": 113,
+          "maxY": 110,
+          "area": 2991,
+          "centerX": 69,
+          "centerY": 80.1
+        },
+        {
+          "minX": 22,
+          "minY": 35,
+          "maxX": 111,
+          "maxY": 110,
+          "area": 3107,
+          "centerX": 67.5,
+          "centerY": 77.1
+        },
+        {
+          "minX": 21,
+          "minY": 35,
+          "maxX": 111,
+          "maxY": 110,
+          "area": 3075,
+          "centerX": 67.5,
+          "centerY": 77.4
+        }
+      ],
+      "frameAlphaDifferences": [
+        1128,
+        392,
+        490,
+        721,
+        845,
+        906,
+        244,
+        1538
+      ]
+    }
+  ]
+}

@@ -1,0 +1,187 @@
+{
+  "samplesPerMotion": 2001,
+  "minPawSeparationRequired": 6.5,
+  "motions": [
+    {
+      "name": "idle",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 0,
+      "maxContactDrift": 0,
+      "minPawSeparation": 8,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "walk",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 0,
+      "maxContactDrift": 1.4210854715202004e-14,
+      "minPawSeparation": 6.617842565597655,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "run",
+      "maxBoneError": 2.4868995751603507e-14,
+      "maxTorsoError": 0,
+      "maxContactDrift": 2.842170943040401e-14,
+      "minPawSeparation": 6.5444589101199755,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0.239880059970015,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "jump",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 0,
+      "maxContactDrift": 0,
+      "minPawSeparation": 6.800735254367722,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 1,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "fall",
+      "maxBoneError": 1.7763568394002505e-14,
+      "maxTorsoError": 0,
+      "maxContactDrift": 0,
+      "minPawSeparation": 8.06225774829855,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 1,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "love",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 0,
+      "maxContactDrift": 0,
+      "minPawSeparation": 8,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "struggle",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 0,
+      "maxContactDrift": 0,
+      "minPawSeparation": 6.578834236267043,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 1,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "idle-walk",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 7.105427357601002e-15,
+      "maxContactDrift": 1.4210854715202004e-14,
+      "minPawSeparation": 6.548969547639495,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "walk-idle",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 7.105427357601002e-15,
+      "maxContactDrift": 7.105427357601002e-15,
+      "minPawSeparation": 7.872,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "idle-run",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 7.105427357601002e-15,
+      "maxContactDrift": 0,
+      "minPawSeparation": 7.856342153337367,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0.33933033483258374,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "run-idle",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 7.105427357601002e-15,
+      "maxContactDrift": 7.105427357601002e-15,
+      "minPawSeparation": 6.935566050661989,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "walk-run",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 7.105427357601002e-15,
+      "maxContactDrift": 1.4210854715202004e-14,
+      "minPawSeparation": 7.533541731114722,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0.2993503248375812,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "run-walk",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 7.105427357601002e-15,
+      "maxContactDrift": 7.105427357601002e-15,
+      "minPawSeparation": 7.259576699262503,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "takeoff",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 7.105427357601002e-15,
+      "maxContactDrift": 0,
+      "minPawSeparation": 6.800913673791483,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0.19990004997501248,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "apex",
+      "maxBoneError": 2.1316282072803006e-14,
+      "maxTorsoError": 7.105427357601002e-15,
+      "maxContactDrift": 0,
+      "minPawSeparation": 6.800735254367722,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 1,
+      "unreachableSamples": 0
+    },
+    {
+      "name": "landing",
+      "maxBoneError": 2.4868995751603507e-14,
+      "maxTorsoError": 7.105427357601002e-15,
+      "maxContactDrift": 0,
+      "minPawSeparation": 8,
+      "closePawSamples": 0,
+      "firstClosePaws": [],
+      "aerialRatio": 0.0004997501249375312,
+      "unreachableSamples": 0
+    }
+  ],
+  "failures": [],
+  "maxBoneError": 2.4868995751603507e-14,
+  "maxTorsoError": 7.105427357601002e-15,
+  "maxContactDrift": 2.842170943040401e-14,
+  "minPawSeparation": 6.5444589101199755
+}

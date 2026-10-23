@@ -1,0 +1,455 @@
+// 에이전트 런타임 등록표 — 대화형 탭과 예약 작업이 모두 이 표를 본다.
+// 탭 표면은 ACP 채팅 또는 공식 CLI의 tmux TUI이며, 실행 명령은 서버에만 둔다.
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { terminalBackend } from '../packages/tmux-term/src/server/backends/index.ts'
+import { fileURLToPath } from 'node:url'
+import { readAgentSetting } from './agentSettings.ts'
+import { antigravityCommand } from './antigravityAcp.ts'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
+
+/** 기본 Claude Code ACP 백엔드 — 버전 고정된 로컬 설치본. `npx @latest`로 띄우지 않는다(ADR 0034). */
+const DEFAULT_CLAUDE_ACP_CMD = path.resolve(here, '../node_modules/.bin/claude-agent-acp' + (process.platform === 'win32' ? '.cmd' : ''))
+const DEFAULT_CODEX_ACP_CMD = path.resolve(here, '../node_modules/.bin/codex-acp' + (process.platform === 'win32' ? '.cmd' : ''))
+const LOCAL_NODE_MODULES = path.resolve(here, '../node_modules')
+const DEFAULT_HOST_CODEX_CLI_CMD = path.join(os.homedir(), '.local/bin/codex')
+const PRIME_ADAPTER_CMD = path.resolve(here, 'primeAdapter.ts')
+
+/** ACP가 인증 전에 뜨지 못해도 브라우저 터미널에서 실행할 수 있는 공통 로그인 method id. */
+export const RUNTIME_LOGIN_METHOD_ID = 'mew-runtime-login'
+/** Kimi Code의 글로벌(.ai) OAuth는 기본 mainland-cn(.com) 로그인과 별도 리전으로 실행한다. */
+export const KIMI_GLOBAL_LOGIN_METHOD_ID = 'mew-kimi-global-login'
+export const CLAUDE_CONSOLE_LOGIN_METHOD_ID = 'mew-claude-console-login'
+
+export interface SpawnSpec {
+  cmd: string
+  args: string[]
+  env?: Record<string, string | undefined>
+}
+
+export interface RuntimeSkill {
+  name: string
+  description: string
+  path: string
+}
+
+/** 브라우저에는 id/name/description/surface만 보내고 실행 spec은 owner/manager 전용 서버 경계 안에 둔다. */
+export interface RuntimeLoginSpec extends SpawnSpec {
+  id: string
+  name: string
+  description: string
+  label: string
+  surface: 'browser' | 'terminal'
+  verificationHosts?: string[]
+  /** browser 표면은 공통 내부 서버 브라우저를 사용한다. */
+  serverBrowser?: boolean
+  /** 브라우저 승인 뒤 CLI가 돌려받아야 하는 짧은 일회용 입력. */
+  browserInput?: 'authorization-code'
+  /** 명령이 TUI로 남아도 이 파일이 바뀌면 인증 완료로 본다. 경로는 브라우저에 보내지 않는다. */
+  completionFile?: string
+  /** 외부 CLI가 자격증명을 쓴 뒤 살아 있는 ACP에 호출해 선택한 인증 방식까지 저장한다. */
+  acpMethodId?: string
+}
+
+export interface RuntimeAuthentication {
+  /** ACP initialize 이전 실패까지 복구하는 런타임 고정 로그인/초기 설정 명령. */
+  methods: () => RuntimeLoginSpec[]
+  /** 구형 SDK가 terminal `type`/`args`를 지우는 method는 이 GUI 터미널 하나로 치환한다. */
+  replaceMethodIds?: string[]
+  /** 공급자마다 다른 ACP API-key `_meta` wire shape. */
+  apiKeyMeta?: (secret: string) => Record<string, unknown>
+}
+
+export interface AgentRuntime {
+  id: string
+  label: string
+  /** 대화형 에이전트 탭의 화면. terminal은 공식 TUI를 전용 tmux에서 그대로 실행한다. */
+  surface: 'acp' | 'terminal'
+  /** ACP stdio 서버. ACP 채팅 또는 예약 작업에서 쓴다. */
+  spec?: () => SpawnSpec
+  /** terminal 표면이 탭별 tmux에서 실행할 공식 CLI. */
+  terminal?: () => SpawnSpec
+  /** 명령을 입력하지 않고 tmux의 기본 셸 자체를 탭 표면으로 쓴다. */
+  terminalLaunch?: 'shell'
+  /** UI 설치 버튼이 실행하는 고정 명령. 요청 값을 인자에 섞지 않는다. */
+  install?: () => SpawnSpec
+  /** 설치를 되돌리는 고정 명령. 선언하지 않으면 UI가 임의 파일 삭제를 하지 않는다. */
+  uninstall?: () => SpawnSpec
+  /** 설치와 별개인 ACP 인증 계약. terminal 표면은 공식 TUI 안의 로그인을 그대로 쓴다. */
+  auth: RuntimeAuthentication
+  /** 공급자 CLI가 보장하는 비대화형 로그아웃 명령. */
+  logout?: () => SpawnSpec
+  /** 런타임이 스킬을 해석하는 방법. 없으면 모든 ACP 에이전트가 읽을 수 있는 일반 지시문을 쓴다. */
+  skillPrompt?: (skills: RuntimeSkill[]) => string
+}
+
+function splitArgs(value: string | undefined, fallback: string[] = []): string[] {
+  return value === undefined ? fallback : value.split(' ').filter(Boolean)
+}
+
+/** PATH에서 실행 파일을 찾는다. 없으면 null */
+export function executableCandidates(name: string, env = process.env, platform = process.platform): string[] {
+  const paths = platform === 'win32' ? path.win32 : path.posix
+  const extensions = platform === 'win32' && !paths.extname(name) ? (env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';') : ['']
+  if (paths.isAbsolute(name)) return extensions.map(extension => name + extension.toLowerCase())
+  return (env.PATH || env.Path || '').split(paths.delimiter).filter(Boolean).flatMap(dir => extensions.map(extension => paths.join(dir, name + extension.toLowerCase())))
+}
+export function findExecutable(name: string): string | null {
+  for (const candidate of executableCandidates(name)) {
+    try { fs.accessSync(candidate, fs.constants.X_OK); return candidate } catch { /* next candidate */ }
+  }
+  return null
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
+/** Mew의 npm 의존성에 딸려 온 CLI를 제외하고 호스트에 설치된 실행 파일만 찾는다. */
+function findHostExecutable(name: string): string | null {
+  for (const candidate of executableCandidates(name)) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK)
+      const realCandidate = fs.realpathSync(candidate)
+      if (isInside(LOCAL_NODE_MODULES, candidate) || isInside(LOCAL_NODE_MODULES, realCandidate)) continue
+      return candidate
+    } catch {
+      /* 다음 디렉터리 */
+    }
+  }
+  return null
+}
+
+/** ACP 엔진과 인증 명령이 함께 쓰는 호스트 Codex. 번들된 transitive CLI로 후퇴하지 않는다. */
+function hostCodexCliCommand(): string {
+  return process.env.MEW_AGENT_CODEX_CLI_CMD
+    || process.env.CODEX_PATH
+    || findHostExecutable('codex')
+    || DEFAULT_HOST_CODEX_CLI_CMD
+}
+
+function claudeSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_CMD || process.env.MEW_AGENT_CLAUDE_CMD || DEFAULT_CLAUDE_ACP_CMD
+  const args = splitArgs(process.env.MEW_AGENT_ARGS ?? process.env.MEW_AGENT_CLAUDE_ARGS)
+  const env: Record<string, string | undefined> = { CLAUDECODE: undefined }
+  // CLAUDE_CONFIG_DIR을 넘기면 에이전트가 mew 서버 사용자의 자격증명을 보지 않는다(2단계 준비).
+  if (process.env.MEW_AGENT_CONFIG_DIR) env.CLAUDE_CONFIG_DIR = process.env.MEW_AGENT_CONFIG_DIR
+  // 어댑터가 번들한 CLI는 어댑터 버전 핀에 묶여 모델 목록이 낡는다(새 모델이 안 보인다).
+  // 시스템에 설치된 claude가 있으면 그걸 쓰게 해 모델 목록이 사용자의 설치본을 따라가게 한다.
+  const executable = process.env.MEW_AGENT_CLAUDE_CLI_CMD || process.env.CLAUDE_CODE_EXECUTABLE || findHostExecutable('claude')
+  if (executable) env.CLAUDE_CODE_EXECUTABLE = executable
+  return { cmd, args, env }
+}
+
+/** 인증·계정 조회도 ACP와 동일한 공식 CLI 엔진/환경을 사용한다. */
+export function claudeCliSpec(args: string[]): SpawnSpec {
+  const spec = resolvedSpec('claude')!
+  const executable = spec.env?.CLAUDE_CODE_EXECUTABLE
+  return executable
+    ? { cmd: executable, args, env: spec.env }
+    : { cmd: spec.cmd, args: ['--cli', ...args], env: spec.env }
+}
+
+function antigravitySpawnSpec(): SpawnSpec {
+  return {
+    cmd: process.env.MEW_AGENT_ANTIGRAVITY_ACP_CMD || antigravityCommand(),
+    args: splitArgs(process.env.MEW_AGENT_ANTIGRAVITY_ACP_ARGS, process.platform === 'linux' ? ['--uid='] : []),
+    env: { PYTHONUNBUFFERED: '1', BROWSER: 'true' },
+  }
+}
+
+function tmuxShellSpec(): SpawnSpec {
+  // 셸 자체는 tmux의 default-shell 계약으로 고른다. 이 spec은 설치 여부 판정에만 쓴다.
+  return { cmd: findExecutable(terminalBackend.binary) || terminalBackend.binary, args: [] }
+}
+
+/** Codex — 버전 고정된 로컬 어댑터(@agentclientprotocol/codex-acp). */
+function codexSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_CODEX_CMD || DEFAULT_CODEX_ACP_CMD
+  // CLI가 OS 브라우저를 직접 열지 않게 하고, 출력 URL을 Mew 내부 서버 브라우저로 연결한다.
+  return {
+    cmd,
+    args: splitArgs(process.env.MEW_AGENT_CODEX_ARGS),
+    env: {
+      NO_BROWSER: process.env.NO_BROWSER ?? '1',
+      CODEX_PATH: hostCodexCliCommand(),
+    },
+  }
+}
+
+function hermesSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_HERMES_CMD || 'hermes'
+  return { cmd, args: splitArgs(process.env.MEW_AGENT_HERMES_ARGS, ['acp']) }
+}
+
+function kimiSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_KIMI_CMD || 'kimi'
+  return { cmd, args: splitArgs(process.env.MEW_AGENT_KIMI_ARGS, ['acp']) }
+}
+
+function openclawSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_OPENCLAW_CMD || 'openclaw'
+  return { cmd, args: splitArgs(process.env.MEW_AGENT_OPENCLAW_ARGS, ['acp']) }
+}
+
+function opencodeSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_OPENCODE_CMD || 'opencode'
+  return { cmd, args: splitArgs(process.env.MEW_AGENT_OPENCODE_ARGS, ['acp']) }
+}
+
+/** Cursor CLI는 기본 실행 파일 이름이 `agent`다. ACP 진입점이 달라지면 env로 덮어쓴다. */
+function cursorSpawnSpec(): SpawnSpec {
+  const cmd = process.env.MEW_AGENT_CURSOR_CMD || 'agent'
+  return {
+    cmd,
+    args: splitArgs(process.env.MEW_AGENT_CURSOR_ARGS, ['acp']),
+    env: { NO_OPEN_BROWSER: process.env.NO_OPEN_BROWSER ?? '1' },
+  }
+}
+
+function primeSpawnSpec(): SpawnSpec {
+  // Prime ACP에는 session/list·load·모델·mode 계약이 없으므로, mew가 공식 CLI의 RPC를 ACP로 번역한다.
+  // `MEW_AGENT_PRIME_CMD`는 예전 로컬 ACP 포크 설정이므로 의도적으로 읽지 않는다.
+  return { cmd: process.execPath, args: [PRIME_ADAPTER_CMD, ...splitArgs(process.env.MEW_AGENT_PRIME_ARGS)] }
+}
+
+const login = (
+  id: string,
+  spec: SpawnSpec,
+  args: string[],
+  name: string,
+  description: string,
+  label = name,
+  surface: RuntimeLoginSpec['surface'] = 'terminal',
+  verificationHosts?: string[],
+  browserInput?: RuntimeLoginSpec['browserInput'],
+  completionFile?: string,
+  acpMethodId?: string,
+): RuntimeLoginSpec => ({ id, cmd: spec.cmd, args, env: spec.env, name, description, label, surface, verificationHosts, serverBrowser: surface === 'browser', browserInput, completionFile, acpMethodId })
+
+export const RUNTIMES: Record<string, AgentRuntime> = {
+  claude: {
+    id: 'claude', label: 'Claude Agent', surface: 'acp', spec: claudeSpawnSpec,
+    install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/claude-agent-acp@0.65.0'] }),
+    logout: () => claudeCliSpec(['auth', 'logout']),
+    auth: {
+      methods: () => {
+        const method = (id: string, kind: '--claudeai' | '--console', name: string, description: string) => {
+          const spec = claudeCliSpec(['auth', 'login', kind])
+          return login(id, { ...spec, env: { ...spec.env, NO_BROWSER: '1' } }, spec.args, name, description,
+            undefined, 'browser', ['claude.ai', 'claude.com', 'platform.claude.com', 'console.anthropic.com'], 'authorization-code')
+        }
+        return [
+          method(RUNTIME_LOGIN_METHOD_ID, '--claudeai', 'Claude 계정으로 로그인', '공식 Claude 로그인에서 본인 계정으로 인증합니다.'),
+          method(CLAUDE_CONSOLE_LOGIN_METHOD_ID, '--console', 'Anthropic Console로 로그인', 'API 사용량을 결제하는 Console 계정으로 인증합니다.'),
+        ]
+      },
+      replaceMethodIds: ['claude-login', 'claude-ai-login', 'console-login'],
+    },
+  },
+  codex: {
+    id: 'codex', label: 'Codex', surface: 'acp', spec: codexSpawnSpec,
+    install: () => ({ cmd: 'npm', args: ['install', '--no-save', '@agentclientprotocol/codex-acp@1.6.0'] }),
+    logout: () => ({ cmd: hostCodexCliCommand(), args: ['logout'] }),
+    auth: {
+      methods: () => [login(
+        RUNTIME_LOGIN_METHOD_ID,
+        { cmd: hostCodexCliCommand(), args: [], env: codexSpawnSpec().env },
+        ['login'],
+        'Codex 로그인',
+        '내장 브라우저에서 ChatGPT OAuth를 완료합니다.',
+        undefined,
+        'browser',
+        ['auth.openai.com'],
+      )],
+      // ACP의 device-code 항목은 기본 OAuth 작업 하나로 치환한다.
+      replaceMethodIds: ['chat-gpt-device-code'],
+    },
+  },
+  hermes: {
+    id: 'hermes', label: 'Hermes', surface: 'acp', spec: hermesSpawnSpec,
+    install: () => ({ cmd: 'uv', args: ['tool', 'install', '--force', 'hermes-agent[acp]'] }),
+    uninstall: () => ({ cmd: 'uv', args: ['tool', 'uninstall', 'hermes-agent'] }),
+    auth: {
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, hermesSpawnSpec(), ['acp', '--setup'], 'Hermes 로그인/설정', '사용할 모델과 계정을 선택하세요.')],
+      replaceMethodIds: ['hermes-setup'],
+    },
+  },
+  kimi: {
+    id: 'kimi', label: 'Kimi Code', surface: 'acp', spec: kimiSpawnSpec,
+    install: () => ({ cmd: 'npm', args: ['install', '-g', '@moonshot-ai/kimi-code@latest'] }),
+    uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', '@moonshot-ai/kimi-code'] }),
+    auth: {
+      methods: () => [
+        login(
+          RUNTIME_LOGIN_METHOD_ID,
+          kimiSpawnSpec(),
+          ['login'],
+          'Kimi Code 로그인 (.com)',
+          '내장 브라우저에서 Kimi.com 기기 코드 로그인을 진행합니다.',
+          undefined,
+          'browser',
+          ['auth.kimi.com', 'kimi.com', 'www.kimi.com'],
+        ),
+        login(
+          KIMI_GLOBAL_LOGIN_METHOD_ID,
+          kimiSpawnSpec(),
+          ['login', '--region', 'global'],
+          'Kimi Code 로그인 (.ai)',
+          '내장 브라우저에서 Kimi.ai 글로벌 기기 코드 로그인을 진행합니다.',
+          undefined,
+          'browser',
+          ['auth.kimi.ai', 'kimi.ai', 'www.kimi.ai'],
+        ),
+      ],
+      replaceMethodIds: ['login'],
+    },
+  },
+  antigravity: {
+    id: 'antigravity', label: 'Antigravity', surface: 'acp', spec: antigravitySpawnSpec,
+    install: process.platform === 'win32' ? undefined : () => ({ cmd: process.execPath, args: [path.join(here, 'installAntigravityAcp.ts')] }),
+    auth: { methods: () => [] },
+  },
+  tmux: {
+    id: 'tmux', label: 'tmux 터미널', surface: 'terminal', terminal: tmuxShellSpec, terminalLaunch: 'shell',
+    auth: { methods: () => [] },
+  },
+  openclaw: {
+    id: 'openclaw', label: 'OpenClaw', surface: 'acp', spec: openclawSpawnSpec,
+    install: () => ({ cmd: 'npm', args: ['install', '-g', 'openclaw@latest'] }),
+    uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', 'openclaw'] }),
+    auth: {
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, openclawSpawnSpec(), ['onboard', '--tui'], 'OpenClaw 로그인/설정', '공급자 인증과 게이트웨이를 대화형으로 설정합니다.')],
+    },
+  },
+  opencode: {
+    id: 'opencode', label: 'OpenCode', surface: 'acp', spec: opencodeSpawnSpec,
+    install: () => ({ cmd: 'npm', args: ['install', '-g', 'opencode-ai@latest'] }),
+    uninstall: () => ({ cmd: 'npm', args: ['uninstall', '-g', 'opencode-ai'] }),
+    logout: () => ({ cmd: 'opencode', args: ['auth', 'logout'] }),
+    auth: {
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, opencodeSpawnSpec(), ['auth', 'login'], 'OpenCode 로그인', '사용할 서비스를 선택해 로그인하세요.')],
+    },
+  },
+  cursor: {
+    id: 'cursor', label: 'Cursor CLI', surface: 'acp', spec: cursorSpawnSpec,
+    install: process.platform === 'win32' ? undefined : () => ({ cmd: 'bash', args: ['-lc', 'curl https://cursor.com/install -fsS | bash'] }),
+    auth: {
+      methods: () => [login(
+        RUNTIME_LOGIN_METHOD_ID,
+        cursorSpawnSpec(),
+        ['login'],
+        'Cursor CLI 로그인',
+        '내장 브라우저에서 Cursor 계정으로 로그인합니다.',
+        undefined,
+        'browser',
+        ['cursor.com', 'www.cursor.com'],
+      )],
+      replaceMethodIds: ['cursor_login'],
+    },
+  },
+  prime: {
+    id: 'prime', label: 'Prime Agent', surface: 'acp', spec: primeSpawnSpec,
+    // 공식 인스톨러 — Linux·macOS 공통. 버전 있는 릴리스를 내려받아 검증 후 prime-agent 명령을 심는다.
+    install: process.platform === 'win32' ? undefined : () => ({ cmd: 'sh', args: ['-lc', 'curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh'] }),
+    auth: {
+      // /login은 Prime Agent TUI의 슬래시 명령이다 — 터미널 팝업에서 대화형으로 공급자를 고른다.
+      methods: () => [login(RUNTIME_LOGIN_METHOD_ID, { cmd: process.env.MEW_PRIME_AGENT_EXECUTABLE || 'prime-agent', args: [] }, [], 'Prime Agent 로그인/설정', '터미널에서 /login을 입력하세요. 설정을 마치면 터미널을 닫으세요.')],
+      replaceMethodIds: ['login'],
+    },
+  },
+}
+
+export const DEFAULT_RUNTIME = 'claude'
+
+export function isRuntime(id: string): boolean {
+  return Object.hasOwn(RUNTIMES, id)
+}
+
+export function isAcpRuntime(id: string): boolean {
+  return typeof RUNTIMES[id]?.spec === 'function'
+}
+
+export function acpRuntimeList(): { id: string; label: string }[] {
+  return Object.values(RUNTIMES).filter((runtime) => runtime.spec).map(({ id, label }) => ({ id, label }))
+}
+
+export function agentSetRuntimeList(): { id: string; label: string }[] {
+  return Object.values(RUNTIMES).filter((runtime) => runtime.surface === 'acp').map(({ id, label }) => ({ id, label }))
+}
+
+/**
+ * 저장된 런타임 설정(agentSettings.ts)을 등록표 spec에 얹는다. 모든 spawn 경로(창·예약 작업·
+ * 설치 판정)가 spec() 값을 쓰므로, 설정 화면에서 바꾼 실행 파일·env가 다음 세션부터 곧바로 적용된다.
+ * 파일을 못 읽어도 등록표 기본값으로 에이전트는 띄울 수 있어야 하므로 실패는 조용히 무시한다.
+ */
+function applySetting(base: SpawnSpec, runtime: string): SpawnSpec {
+  try {
+    const setting = readAgentSetting(runtime)
+    if (!setting) return base
+    // Saved cmd/extraArgs belonged to the agy TUI. Only explicit ACP env overrides select this server.
+    if (runtime === 'antigravity') return { ...base, env: { ...base.env, ...setting.env } }
+    // 0117 때 저장한 Claude cmd는 공식 CLI 경로다. ACP 어댑터 명령으로 재해석하지 않는다.
+    // TUI 전용 추가 인자는 보존만 하며 ACP에는 넘기지 않는다(0142). 모델/권한은 ACP 설정으로 선택한다.
+    if (runtime === 'claude') return {
+      ...base,
+      env: { ...base.env, ...setting.env, ...(setting.cmd ? { CLAUDE_CODE_EXECUTABLE: setting.cmd } : {}), CLAUDECODE: undefined },
+    }
+    return {
+      // Prime의 cmd override는 폐기된 로컬 ACP 포크 경로다. Prime은 항상 Mew 어댑터 → 공식 CLI를 탄다.
+      cmd: runtime === 'prime' ? base.cmd : setting.cmd ?? base.cmd,
+      args: [...base.args, ...(setting.extraArgs ?? [])],
+      env: { ...base.env, ...setting.env },
+    }
+  } catch {
+    return base
+  }
+}
+
+/** ACP 등록표 기본값 + 저장된 사용자 설정. terminal 표면의 별도 ACP는 예약 작업용 고정 계약이다. */
+export function resolvedSpec(id: string): SpawnSpec | null {
+  const entry = RUNTIMES[id]
+  if (!entry?.spec) return null
+  // terminal 표면의 실행 파일 설정은 공식 CLI에 적용한다. Claude 예약 작업의 ACP 어댑터는 고정한다.
+  return entry.surface === 'terminal' ? entry.spec() : applySetting(entry.spec(), id)
+}
+
+export function resolvedTerminalSpec(id: string): SpawnSpec | null {
+  const entry = RUNTIMES[id]
+  if (entry?.surface !== 'terminal' || !entry.terminal) return null
+  return applySetting(entry.terminal(), id)
+}
+
+/** 요청값으로 명령을 만들지 않는다. 등록표에 박힌 로그인 spec만 돌려준다. */
+export function runtimeLoginSpec(runtime: string, methodId = RUNTIME_LOGIN_METHOD_ID): RuntimeLoginSpec {
+  const entry = RUNTIMES[runtime]
+  if (!entry) throw new Error('지원하지 않는 에이전트 런타임입니다')
+  const method = entry.auth.methods().find((item) => item.id === methodId)
+  if (!method) throw new Error('지원하지 않는 런타임 로그인 방법입니다')
+  return method
+}
+
+export function isRuntimeLoginMethod(runtime: string, methodId: string): boolean {
+  return RUNTIMES[runtime]?.auth.methods().some((item) => item.id === methodId) ?? false
+}
+
+function defaultSkillPrompt(skills: RuntimeSkill[]): string {
+  const lines = skills.map((skill) => {
+    const desc = skill.description ? ` — ${skill.description}` : ''
+    return `- ${skill.name}${desc}\n  SKILL.md: ${skill.path}`
+  })
+  return [
+    'Use the following local skill instructions for this request.',
+    'For each selected skill, read its SKILL.md before acting and follow that workflow. These skills apply regardless of the agent runtime.',
+    ...lines,
+  ].join('\n')
+}
+
+export function composeRuntimePrompt(runtime: string, text: string, skills: RuntimeSkill[] = []): string {
+  if (skills.length === 0) return text
+  const makeSkillPrompt = RUNTIMES[runtime]?.skillPrompt ?? defaultSkillPrompt
+  return `${makeSkillPrompt(skills)}\n\nUser request:\n${text}`
+}

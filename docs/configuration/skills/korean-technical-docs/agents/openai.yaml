@@ -1,0 +1,4 @@
+interface:
+  display_name: "한국어 기술 문서화"
+  short_description: "문서 구조 설계와 한국어 교정, 정확성 검수 및 다국어 번역"
+  default_prompt: "$korean-technical-docs로 지정한 문서의 구조와 한국어 표현을 개선해 주세요."

@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Canonical structured translation review artifact vocabulary",
+  "schema_version": 2,
+  "classifications": [
+    "no_issue_detected",
+    "change_recommended",
+    "blocked_by_source",
+    "unresolved"
+  ],
+  "request": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["schema_version", "review_id", "source_locale", "targets"],
+    "properties": {
+      "schema_version": {"const": 2},
+      "review_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+      "source_locale": {"$ref": "#/$defs/locale"},
+      "targets": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"$ref": "#/$defs/request_target"}
+      }
+    }
+  },
+  "result": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["schema_version", "review_id", "source_locale", "locales", "summary"],
+    "properties": {
+      "schema_version": {"const": 2},
+      "review_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+      "source_locale": {"$ref": "#/$defs/locale"},
+      "locales": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"$ref": "#/$defs/result_locale"}
+      },
+      "summary": {"$ref": "#/$defs/summary"}
+    }
+  },
+  "$defs": {
+    "locale": {
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$"
+    },
+    "string_list": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "pattern": "\\S"}
+    },
+    "review_depth": {
+      "enum": ["single", "selective_challenge", "full_challenge"]
+    },
+    "request_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_locale",
+        "review_depth",
+        "selected_capabilities",
+        "missing_capabilities",
+        "runtime_ui_review",
+        "units"
+      ],
+      "properties": {
+        "target_locale": {"$ref": "#/$defs/locale"},
+        "review_depth": {"$ref": "#/$defs/review_depth"},
+        "selected_capabilities": {"$ref": "#/$defs/string_list"},
+        "missing_capabilities": {"$ref": "#/$defs/string_list"},
+        "runtime_ui_review": {"$ref": "#/$defs/runtime_ui_review_request"},
+        "units": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/request_unit"}
+        }
+      }
+    },
+    "request_unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit_id",
+        "source",
+        "current_target",
+        "protected_terms",
+        "automatic_checks"
+      ],
+      "properties": {
+        "unit_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "source": {"type": "string"},
+        "current_target": {"type": "string"},
+        "source_invariant": {"type": "boolean", "default": false},
+        "protected_terms": {"$ref": "#/$defs/string_list"},
+        "automatic_checks": {
+          "type": "array",
+          "items": {"type": "object"}
+        }
+      }
+    },
+    "result_locale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_locale",
+        "review_depth",
+        "execution_mode",
+        "selected_capabilities",
+        "missing_capabilities",
+        "runtime_ui_review",
+        "units"
+      ],
+      "properties": {
+        "target_locale": {"$ref": "#/$defs/locale"},
+        "review_depth": {"$ref": "#/$defs/review_depth"},
+        "execution_mode": {"enum": ["sequential", "parallel"]},
+        "selected_capabilities": {"$ref": "#/$defs/string_list"},
+        "missing_capabilities": {"$ref": "#/$defs/string_list"},
+        "runtime_ui_review": {"$ref": "#/$defs/runtime_ui_review_result"},
+        "research": {
+          "anyOf": [
+            {"$ref": "#/$defs/research"},
+            {"type": "null"}
+          ]
+        },
+        "units": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/result_unit"}
+        }
+      }
+    },
+    "runtime_ui_review_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "required", "reasons"],
+      "properties": {
+        "decision": {"enum": ["run", "skip", "ask"]},
+        "required": {"type": "boolean"},
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "pattern": "\\S"}
+        }
+      }
+    },
+    "runtime_ui_review_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "evidence"],
+      "properties": {
+        "status": {
+          "enum": ["completed", "not_run", "unavailable", "not_applicable"]
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "evidence": {"$ref": "#/$defs/string_list"}
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dimension", "issue", "owner", "affected_segment"],
+      "properties": {
+        "dimension": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "issue": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "owner": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "affected_segment": {"type": "string", "minLength": 1, "pattern": "\\S"}
+      }
+    },
+    "review_pass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issues", "confidence", "native_review_required", "native_review_reason"],
+      "properties": {
+        "issues": {"type": "array", "items": {"$ref": "#/$defs/issue"}},
+        "confidence": {"enum": ["low", "medium", "high"]},
+        "native_review_required": {"type": "boolean"},
+        "native_review_reason": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      }
+    },
+    "adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "rationale"],
+      "properties": {
+        "status": {
+          "enum": [
+            "not_required",
+            "accepted_primary",
+            "accepted_challenge",
+            "merged",
+            "unresolved"
+          ]
+        },
+        "rationale": {"type": ["string", "null"], "minLength": 1, "pattern": "\\S"}
+      }
+    },
+    "recommendation": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["text", "owner"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "owner": {"type": "string", "minLength": 1, "pattern": "\\S"}
+      }
+    },
+    "recommendation_qa": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["status", "issues"],
+      "properties": {
+        "status": {"enum": ["passed", "unresolved"]},
+        "issues": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "pattern": "\\S"}
+        }
+      }
+    },
+    "source_issue": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["issue", "blocks_decision"],
+      "properties": {
+        "issue": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "blocks_decision": {"type": "boolean"}
+      }
+    },
+    "research": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question", "source"],
+      "properties": {
+        "question": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "source": {"type": "string", "minLength": 1, "pattern": "\\S"}
+      }
+    },
+    "human_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "decision", "correction", "notes", "severity", "reviewer"],
+      "properties": {
+        "status": {"enum": ["not_requested", "pending", "completed"]},
+        "decision": {"enum": [null, "no_issue_detected", "change_required"]},
+        "correction": {"type": ["string", "null"], "minLength": 1, "pattern": "\\S"},
+        "notes": {"type": ["string", "null"]},
+        "severity": {"enum": [null, "minor", "major", "critical"]},
+        "reviewer": {"type": ["string", "null"], "minLength": 1, "pattern": "\\S"}
+      }
+    },
+    "result_unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit_id",
+        "source",
+        "current_target",
+        "classification",
+        "primary",
+        "challenge",
+        "adjudication",
+        "recommendation",
+        "recommendation_qa",
+        "source_issue",
+        "human_review"
+      ],
+      "properties": {
+        "unit_id": {"type": "string", "minLength": 1, "pattern": "\\S"},
+        "source": {"type": "string"},
+        "current_target": {"type": "string"},
+        "classification": {
+          "enum": ["no_issue_detected", "change_recommended", "blocked_by_source", "unresolved"]
+        },
+        "primary": {"$ref": "#/$defs/review_pass"},
+        "challenge": {
+          "anyOf": [
+            {"$ref": "#/$defs/review_pass"},
+            {"type": "null"}
+          ]
+        },
+        "adjudication": {"$ref": "#/$defs/adjudication"},
+        "recommendation": {"$ref": "#/$defs/recommendation"},
+        "recommendation_qa": {"$ref": "#/$defs/recommendation_qa"},
+        "source_issue": {"$ref": "#/$defs/source_issue"},
+        "human_review": {"$ref": "#/$defs/human_review"}
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["no_issue_detected", "change_recommended", "blocked_by_source", "unresolved"],
+      "properties": {
+        "no_issue_detected": {"type": "integer", "minimum": 0},
+        "change_recommended": {"type": "integer", "minimum": 0},
+        "blocked_by_source": {"type": "integer", "minimum": 0},
+        "unresolved": {"type": "integer", "minimum": 0}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locales", "units", "counts"],
+      "properties": {
+        "locales": {"type": "integer", "minimum": 0},
+        "units": {"type": "integer", "minimum": 0},
+        "counts": {"$ref": "#/$defs/counts"}
+      }
+    }
+  }
+}

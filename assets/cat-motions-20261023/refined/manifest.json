@@ -1,0 +1,166 @@
+{
+  "description": "공통 관절 리그로 제작한 검은 고양이 16개 모션. 128px 투명 셀·고정 체격·관절 길이와 재생·접지 정보.",
+  "version": 2,
+  "sourceDirection": "right",
+  "frameSize": 128,
+  "groundLine": 110,
+  "rig": {
+    "ground": 110,
+    "ankleY": 107,
+    "fore": [
+      17,
+      18
+    ],
+    "hind": [
+      18,
+      20
+    ],
+    "torsoLength": 37
+  },
+  "motions": [
+    {
+      "name": "idle",
+      "frames": 48,
+      "durationMs": 2400,
+      "loop": true,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/idle.png"
+    },
+    {
+      "name": "walk",
+      "frames": 32,
+      "durationMs": 640,
+      "loop": true,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/walk.png"
+    },
+    {
+      "name": "run",
+      "frames": 16,
+      "durationMs": 320,
+      "loop": true,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/run.png"
+    },
+    {
+      "name": "jump",
+      "frames": 16,
+      "durationMs": 640,
+      "loop": true,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/jump.png"
+    },
+    {
+      "name": "fall",
+      "frames": 16,
+      "durationMs": 640,
+      "loop": true,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/fall.png"
+    },
+    {
+      "name": "love",
+      "frames": 32,
+      "durationMs": 1280,
+      "loop": true,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/love.png"
+    },
+    {
+      "name": "struggle",
+      "frames": 24,
+      "durationMs": 960,
+      "loop": true,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/struggle.png"
+    },
+    {
+      "name": "idle-walk",
+      "frames": 16,
+      "durationMs": 320,
+      "loop": false,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/idle-walk.png"
+    },
+    {
+      "name": "walk-idle",
+      "frames": 21,
+      "durationMs": 420,
+      "loop": false,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/walk-idle.png"
+    },
+    {
+      "name": "idle-run",
+      "frames": 20,
+      "durationMs": 400,
+      "loop": false,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/idle-run.png"
+    },
+    {
+      "name": "run-idle",
+      "frames": 20,
+      "durationMs": 400,
+      "loop": false,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/run-idle.png"
+    },
+    {
+      "name": "walk-run",
+      "frames": 20,
+      "durationMs": 400,
+      "loop": false,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/walk-run.png"
+    },
+    {
+      "name": "run-walk",
+      "frames": 20,
+      "durationMs": 400,
+      "loop": false,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/run-walk.png"
+    },
+    {
+      "name": "takeoff",
+      "frames": 16,
+      "durationMs": 320,
+      "loop": false,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/takeoff.png"
+    },
+    {
+      "name": "apex",
+      "frames": 16,
+      "durationMs": 320,
+      "loop": false,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/apex.png"
+    },
+    {
+      "name": "landing",
+      "frames": 20,
+      "durationMs": 400,
+      "loop": false,
+      "frameWidth": 128,
+      "frameHeight": 128,
+      "strip": "strips/landing.png"
+    }
+  ]
+}

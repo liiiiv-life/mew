@@ -1,0 +1,522 @@
+/* tiptap 본문 스타일 — Tailwind로 처리되지 않는 ProseMirror 내부 DOM 대상이라 순수 CSS */
+.tiptap {
+  outline: none;
+  font-family: var(--mew-font-markdown, 'Noto Serif KR', ui-serif, Georgia, serif);
+  /* 좌우 여백은 표의 줄 번호가 거터 위치를 되짚는 데 쓴다(아래 .tableWrapper::before) */
+  --mew-pad-x: 2rem;
+  --mew-body-line-height: calc(15px * 1.7);
+  padding: var(--mew-pad-x);
+  min-height: 100%;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: var(--mew-body-line-height);
+}
+/* frontmatter 패널이 위에 있을 때는 본문 상단 여백을 줄인다 (패널 자체 여백과 중복되므로) */
+.editor-root.has-frontmatter .tiptap {
+  padding-top: 0.75rem;
+}
+/* Windowed blocks keep scroll geometry while their editable descendants are unmounted. */
+.tiptap > .mew-virtual-block {
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+}
+.tiptap > .mew-virtual-block::before {
+  display: none;
+}
+/* 왼쪽 거터의 줄 번호 — 호버와 무관하게 늘 떠 있고, 노션식 드래그 핸들의 자리를 대신한다
+   (핸들은 이 숫자 위에 포개지는 투명한 손잡이다: src/index.css의 .mew-drag-handle).
+   세는 단위는 핸들이 잡는 단위와 같아야 한다 — 최상위 블록 하나가 한 줄, 리스트는 항목이 한 줄이고
+   ul/ol 같은 담는 상자 자체는 줄이 아니다. 번호는 LineFocus가 계산한 Markdown 시작 줄이다.
+   밝기 3단: 평소(흐림) < 호버(mew-line--hover, Editor.tsx가 붙임) < 커서가 있는 줄(mew-line--focus,
+   editor/lineFocus.ts의 장식). */
+.tiptap {
+  /* 표의 줄 번호가 스크롤 상자 밖에서 기준으로 삼는 박스(아래 .tableWrapper::before) */
+  position: relative;
+}
+.tiptap > :not(ul, ol, .ProseMirror-gapcursor),
+.tiptap li {
+  position: relative;
+}
+/* 빈 문단도 번호를 표시한다. 입력 안내는 별도의 ::after를 사용한다. */
+.tiptap > :not(ul, ol, .ProseMirror-gapcursor)[data-mew-line-numbers]::before,
+.tiptap li[data-mew-line-numbers]::before {
+  content: attr(data-mew-line-numbers);
+  position: absolute;
+  top: 0;
+  left: -1.9rem;
+  width: 1.4rem;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: var(--mew-body-line-height);
+  color: var(--mew-line-color, var(--color-ink-muted));
+  opacity: var(--mew-line-opacity, 0.62);
+  pointer-events: none;
+  user-select: none;
+}
+/* LineFocus가 계산한 중첩 깊이만큼 되돌린다. 위 번호 규칙과 specificity를 맞춰야 한다.
+   목록 padding과 Editor.tsx의 투명 핸들도 한 단 24px을 사용한다. */
+.tiptap li[data-mew-line-numbers]::before {
+  left: calc(-1.9rem - var(--mew-list-depth, 1) * 24px);
+}
+/* 표는 wrapper가 가로 스크롤(overflow-x: auto) 상자라 바깥으로 나간 번호가 잘린다. 상자를 거터만큼
+   넓혀 번호를 안에 넣으면(옛 방식: margin-left -1.9rem + padding-left 1.9rem) 스크롤바가 표보다
+   1.9rem 왼쪽에서 시작한다 — 스크롤바는 스크롤 상자(패딩 박스) 전체 폭을 차지하기 때문이다.
+   그래서 상자는 표에 딱 맞추고, 번호만 상자 밖으로 뺀다: wrapper를 static으로 두면 abs-pos인
+   ::before의 컨테이닝 블록이 .tiptap이 되어 overflow 클리핑에 걸리지 않는다(스크롤해도 번호가
+   따라 움직이지 않는 것은 덤). 기준이 .tiptap의 패딩 박스이므로 왼쪽은 좌우 여백에서 거터만큼
+   되짚고, 위쪽은 top: auto로 정적 위치(표의 첫 줄)를 그대로 쓴다. */
+.tiptap > .tableWrapper {
+  position: static;
+}
+.tiptap > div.tableWrapper[data-mew-line-numbers]::before {
+  left: calc(var(--mew-pad-x) - 1.9rem);
+  top: auto;
+  margin-top: 0;
+}
+.tiptap .mew-line--hover {
+  --mew-line-opacity: 0.82;
+  --mew-line-color: var(--color-ink-muted);
+}
+.tiptap .mew-line--focus {
+  --mew-line-opacity: 1;
+  --mew-line-color: var(--color-ink-secondary);
+}
+.tiptap p.is-editor-empty:first-child::after {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--color-ink-faint);
+  pointer-events: none;
+  height: 0;
+}
+.tiptap h1 { font-size: 2em; font-weight: 700; margin: 0.5em 0; color: var(--color-ink-bright); }
+.tiptap h2 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0; color: var(--color-ink-bright); }
+.tiptap h3 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0; color: var(--color-ink-bright); }
+.tiptap h4 { font-size: 1.1em; font-weight: 600; margin: 0.5em 0; color: var(--color-ink-bright); }
+.tiptap h5 { font-size: 1em; font-weight: 600; margin: 0.5em 0; color: var(--color-ink-bright); }
+.tiptap h6 { font-size: 0.9em; font-weight: 600; margin: 0.5em 0; color: var(--color-ink-secondary); }
+/* 제목 위 여백만 4px 더 — 0.5em은 제목마다 실제 크기가 다르므로 고정값을 얹는다 */
+.tiptap :is(h1, h2, h3, h4, h5, h6) { margin-top: calc(1em + 6px); }
+.tiptap ul, .tiptap ol { padding-left: 24px; margin: 0.5em 0; list-style: revert; }
+.tiptap ul li::marker { color: var(--color-ink-muted); font-size: 1.2em; }
+.tiptap ol li::marker { color: var(--color-ink-muted); font-weight: 600; }
+.tiptap li { margin: 0.25em 0; }
+.tiptap li p { margin: 0; }
+.tiptap ul[data-type="taskList"] { list-style: none; }
+.tiptap li[data-type="taskItem"] { position: relative; }
+.tiptap li[data-type="taskItem"] > label {
+  position: absolute;
+  left: -22px;
+  top: 0;
+  width: 20px;
+  height: var(--mew-body-line-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.tiptap li[data-type="taskItem"] > label input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.tiptap blockquote {
+  border-left: 3px solid var(--color-edge-bright);
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: var(--color-ink-secondary);
+  font-style: italic;
+}
+.tiptap code {
+  background: var(--color-surface-raised);
+  color: var(--color-code);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: var(--font-mono);
+}
+.code-block-wrap {
+  position: relative;
+}
+.code-block-copy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3em;
+  color: var(--color-ink-secondary);
+  background: var(--color-surface);
+  border: 1px solid var(--color-edge-strong);
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+.code-block-copy svg {
+  display: block;
+}
+.code-block-wrap:hover .code-block-copy,
+.code-block-copy:focus-visible {
+  opacity: 1;
+}
+.code-block-copy:hover {
+  color: var(--color-ink);
+}
+.code-block-copy.is-copied {
+  opacity: 1;
+  color: var(--color-accent, var(--color-ink));
+}
+/* 코드블럭 노드 선택 표시는 아래 범용 .ProseMirror-selectednode 규칙이 담당한다 */
+.tiptap pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-edge-strong);
+  border-radius: 6px;
+  padding: 1em;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.tiptap pre code {
+  background: transparent;
+  color: var(--color-ink);
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.875em;
+}
+.tiptap hr {
+  border: none;
+  border-top: 1px solid var(--color-edge-strong);
+  margin: 1.5em 0;
+}
+/* hr는 void 요소여서 줄번호 가상 요소를 표시할 래퍼가 필요하다. */
+.tiptap .mew-horizontal-rule {
+  margin: 1.5em 0;
+}
+.tiptap .mew-horizontal-rule hr {
+  margin: 0;
+}
+.tiptap > div.mew-horizontal-rule[data-mew-line-numbers]::before {
+  top: calc(var(--mew-body-line-height) / -2);
+}
+.tiptap a { color: var(--color-link); text-decoration: underline; }
+/* 인라인 코드처럼 문장 안에서 줄바꿈하고, 세로 padding 없이 테두리 높이를 줄인다. */
+:is(.tiptap, .frontmatter-panel) a[data-file-link] {
+  display: inline;
+  margin-inline-end: 2px;
+  padding: 0 0.3em;
+  border: 1px solid var(--color-edge-strong);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  text-decoration: none;
+  line-height: inherit;
+  -webkit-box-decoration-break: slice;
+  box-decoration-break: slice;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+:is(.tiptap, .frontmatter-panel) a[data-file-link]::before {
+  content: '';
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-inline-end: 0.25em;
+  vertical-align: -0.1em;
+  background: var(--color-ink-secondary);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z'/%3E%3Cpath d='M14 3v5h5M9 13h6M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
+  pointer-events: none;
+}
+:is(.tiptap, .frontmatter-panel) a[data-file-link]:hover {
+  border-color: var(--color-edge-bright);
+  background: var(--color-surface-raised);
+}
+:is(.tiptap, .frontmatter-panel) a[data-file-link-kind="subdocument"]::before {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13.25 19.25 16.75 15.75 13.25 12.25M16.75 15.75h-6a4 4 0 0 1-4-4v-7'/%3E%3C/svg%3E");
+}
+:is(.tiptap, .frontmatter-panel) a[data-file-link-kind="outside-docs"]::after {
+  content: '';
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-inline-start: 0.25em;
+  vertical-align: -0.1em;
+  background: var(--color-ink-secondary);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 18 18 6M6 6h12v12'/%3E%3C/svg%3E") center / contain no-repeat;
+  pointer-events: none;
+}
+:is(.tiptap, .frontmatter-panel) a[data-file-link]:focus-visible {
+  outline: 2px solid var(--color-link);
+  outline-offset: 2px;
+}
+:is(.tiptap, .frontmatter-panel) a[data-file-link]:active {
+  background: var(--color-surface-hover);
+}
+.tiptap p { margin: 0.4em 0; }
+.tiptap img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+.tiptap audio, .tiptap video {
+  max-width: 100%;
+  margin: 0.5em 0;
+}
+.tiptap iframe.youtube-embed {
+  display: block;
+  width: 100%;
+  max-width: 560px;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  margin: 0.5em 0;
+  border-radius: 6px;
+}
+/* 넓은 표(리사이즈로 min-width가 커진 표)는 문서가 아니라 표 안에서 좌우 스크롤한다 —
+   문서 화면에 가로 스크롤이 생기면 안 된다.
+   overflow-y는 명시적으로 hidden — 한 축만 auto면 다른 축의 visible이 auto로 강제 계산돼
+   (CSS overflow 규칙) 리사이즈 핸들의 bottom: -2px 삐져나옴만으로 세로 스크롤바가 생긴다. */
+.tiptap .tableWrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+/* 스크롤바 스타일은 앱 전역 규칙(src/index.css의 *::-webkit-scrollbar)이 담당한다 —
+   여기 있던 표 전용 스크롤바 정의를 그쪽으로 승격했다. */
+/* 아직 폭을 조절하지 않은 표는 내용에 맞춰 늘어난다(hug) — width:100% + fixed였을 때는 좁은
+   화면에서 표가 항상 화면 폭에 갇혀 글자만 세로로 터졌다. 좌우 스크롤(위 wrapper)이 정작 모바일에서
+   전혀 걸리지 않던 이유다. table-layout도 auto여야 첫 행뿐 아니라 모든 행 내용이 열 폭에 반영된다.
+   폭을 다 조절한 표는 prosemirror-tables가 인라인 width(px)를 박으므로 저장된 폭이 그대로 이긴다. */
+.tiptap table:not(.mew-database-table) {
+  border-collapse: collapse;
+  table-layout: auto;
+  width: max-content;
+  margin: 0;
+  font-size: 0.95em;
+}
+/* 한 열이 끝없이 넓어지는 것만 막는 상한 — 좁은 화면에선 뷰포트 기준으로 더 죈다 */
+.tiptap th:not(.mew-database-table th),
+.tiptap td:not(.mew-database-table td) {
+  position: relative;
+  border: 1px solid var(--color-edge-strong);
+  padding: 0.4em 0.75em;
+  vertical-align: top;
+  max-width: min(28em, 60vw);
+}
+.tiptap .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background-color: var(--color-link);
+  pointer-events: none;
+}
+.tiptap.resize-cursor {
+  cursor: col-resize;
+}
+.tiptap th:not(.mew-database-table th) {
+  background: var(--color-surface-raised);
+  color: var(--color-ink-bright);
+  font-weight: 600;
+  text-align: left;
+}
+.tiptap td.selectedCell, .tiptap th.selectedCell {
+  background: color-mix(in srgb, var(--color-link) 15%, transparent);
+}
+/* NodeSelection(핸들 클릭·거터 클릭 등)은 브라우저 기본 선택 표시가 없다 — 하이라이트를 직접
+   그린다. 배경만 칠하면 코드블럭처럼 불투명한 블록에선 안 보여 outline을 같이 쓴다.
+   이미지(.node-image)는 노드뷰가 자체 링(ring-accent)을 그리므로 여기서 빼 이중 표시를 막는다 */
+.tiptap .ProseMirror-selectednode:not(.node-image) {
+  outline: 2px solid var(--color-link);
+  outline-offset: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-link) 10%, transparent);
+}
+/* 선택 테두리는 wrapper에 — 안쪽 table에 그리면 overflow 클리핑에 잘린다 */
+.tiptap .tableWrapper.ProseMirror-selectednode,
+.tiptap table.ProseMirror-selectednode {
+  outline: 2px solid var(--color-link);
+  outline-offset: 1px;
+}
+.tiptap table p { margin: 0; }
+
+/* 실시간 협업 원격 캐럿 — CollaborationCaret 기본 render()가 만드는 .collaboration-carets__caret
+   (span) + .collaboration-carets__label (div)은 스타일이 없으면 인라인 위젯 안의 block 요소인
+   label이 줄바꿈을 강제해 한 줄을 통째로 차지해버린다. label을 캐럿 기준 absolute로 띄워서
+   문서 줄 흐름·line-height에 전혀 영향을 주지 않는 반투명 말풍선으로 만든다. */
+.collaboration-carets__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 1.5px solid;
+  border-right: 1px solid;
+  word-break: normal;
+  pointer-events: none;
+}
+.collaboration-carets__label {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px 6px 6px 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: white;
+  white-space: nowrap;
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+  z-index: 20;
+}
+
+/* 문서 내 찾기(Ctrl+F) 매치 하이라이트 — searchExtension이 인라인 데코레이션으로 붙인다 */
+.tiptap .search-match {
+  background: rgba(245, 158, 11, 0.35);
+  border-radius: 2px;
+}
+.tiptap .search-match-current {
+  background: var(--color-warning);
+  color: #1a1200;
+}
+
+/* Mermaid stays a standard fenced code block in Markdown and collaboration. */
+.diagram-source-toggle {
+  position: absolute;
+  top: 4px;
+  right: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+.diagram-source-toggle:hover, .diagram-dialog-close:hover { background: var(--color-surface-hover); }
+.diagram-source-toggle:focus-visible, .diagram-dialog-close:focus-visible { outline: 2px solid var(--color-accent, var(--color-ink)); outline-offset: 2px; }
+.diagram-dialog { max-width: 1100px; max-height: 90dvh; display: flex; flex-direction: column; }
+.diagram-dialog-content { display: flex; flex-direction: column; min-height: 0; }
+.diagram-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; color: var(--color-ink); }
+.diagram-dialog-close { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; border: 0; border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
+.diagram-preview {
+  overflow: auto;
+  min-height: 0;
+  padding: 12px;
+  background: #fff;
+  color: #1f2937;
+}
+.diagram-preview svg { display: block; max-width: none; margin: 0 auto; }
+.diagram-source-toggle[hidden] { display: none; }
+
+/* 속성 행도 본문과 같은 원문 줄번호 거터를 사용한다. */
+.frontmatter-line {
+  position: relative;
+}
+.frontmatter-line[data-mew-line-numbers]::before {
+  content: attr(data-mew-line-numbers);
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: -1.9rem;
+  width: 1.4rem;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--color-ink-muted);
+  opacity: 0.62;
+  pointer-events: none;
+  user-select: none;
+}
+.frontmatter-line:hover::before { opacity: 0.82; }
+.frontmatter-line:focus-within::before {
+  opacity: 1;
+  color: var(--color-ink-secondary);
+}
+/* 번호는 본문 거터에 고정하고, 핸들과 필드 내용만 오른쪽에 공간을 둔다. */
+.frontmatter-property {
+  --frontmatter-handle-width: 12px;
+  padding-left: var(--frontmatter-handle-width);
+}
+.frontmatter-handle {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--frontmatter-handle-width);
+  height: 1.8rem;
+  padding-right: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  touch-action: none;
+  opacity: 0;
+}
+.frontmatter-property:hover .frontmatter-handle,
+.frontmatter-property:focus-within .frontmatter-handle { opacity: 1; }
+.frontmatter-popover { width: min(240px, calc(100vw - 16px)); }
+.frontmatter-choice-tag, .frontmatter-option-colors > button { background: hsl(var(--option-hue) 80% 92%); color: hsl(var(--option-hue) 65% 25%); }
+.dark .frontmatter-choice-tag, .dark .frontmatter-option-colors > button { background: hsl(var(--option-hue) 40% 23%); color: hsl(var(--option-hue) 85% 86%); }
+.frontmatter-choice-dot { width: 10px; height: 10px; border-radius: 50%; background: hsl(var(--option-hue) 60% 45%); }
+.dark .frontmatter-choice-dot { background: hsl(var(--option-hue) 70% 70%); }
+.frontmatter-popover .frontmatter-option-tool { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 20px; height: 20px; min-height: 20px; border-radius: 3px; }
+.frontmatter-option-tool:hover { background: var(--color-surface-hover); }
+.frontmatter-option-tool:focus-visible, .frontmatter-option-colors > button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
+.frontmatter-option-colors { display: grid; grid-template-columns: repeat(4, 28px); gap: 4px; }
+.frontmatter-popover .frontmatter-option-colors > button { display: flex; align-items: center; justify-content: center; min-height: 28px; height: 28px; border-radius: 50%; }
+.frontmatter-option-colors > button[aria-pressed="true"] { outline: 2px solid currentColor; outline-offset: -2px; }
+@media (pointer: coarse) {
+  .frontmatter-handle { opacity: 1; }
+  .frontmatter-popover button { min-height: 36px; }
+  .frontmatter-popover button[role="option"] { min-height: 24px; }
+  .frontmatter-popover .frontmatter-option-tool { width: 24px; min-height: 24px; height: 24px; }
+  .frontmatter-popover .frontmatter-option-colors > button { height: 32px; min-height: 32px; }
+}
+
+.tiptap .mew-annotation-section {
+  display: none !important;
+}
+
+.tiptap [data-annotation-number] {
+  position: relative;
+  top: -.35em;
+  display: inline;
+  padding: 0 .12em;
+  color: var(--color-accent);
+  font-size: .7em;
+  font-weight: 600;
+  line-height: 0;
+  vertical-align: baseline;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tiptap [data-annotation-number]:hover {
+  text-decoration: underline;
+  text-underline-offset: .15em;
+}
+
+.tiptap [data-annotation-number]::after {
+  content: ')';
+}
+
+.tiptap [data-annotation-number]:focus-visible,
+.mew-annotation-popover button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

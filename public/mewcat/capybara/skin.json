@@ -1,0 +1,72 @@
+{
+  "id": "capybara",
+  "name": "카피바라",
+  "translated": true,
+  "order": 4,
+  "sprites": {
+    "idle": {
+      "file": "idle.webp",
+      "frames": 8
+    },
+    "walk": {
+      "file": "walk.webp",
+      "frames": 8
+    },
+    "run": {
+      "file": "run.webp",
+      "frames": 8
+    },
+    "jump": {
+      "file": "jump.webp",
+      "frames": 8
+    },
+    "fall": {
+      "file": "fall.webp",
+      "frames": 8
+    },
+    "love": {
+      "file": "love.webp",
+      "frames": 8
+    },
+    "struggle": {
+      "file": "struggle.webp",
+      "frames": 8
+    },
+    "run-walk": {
+      "file": "run-walk.webp",
+      "frames": 2
+    },
+    "walk-run": {
+      "file": "walk-run.webp",
+      "frames": 2
+    },
+    "run-idle": {
+      "file": "run-idle.webp",
+      "frames": 2
+    },
+    "idle-run": {
+      "file": "idle-run.webp",
+      "frames": 2
+    },
+    "walk-idle": {
+      "file": "walk-idle.webp",
+      "frames": 2
+    },
+    "idle-walk": {
+      "file": "idle-walk.webp",
+      "frames": 2
+    },
+    "takeoff": {
+      "file": "takeoff.webp",
+      "frames": 2
+    },
+    "landing": {
+      "file": "landing.webp",
+      "frames": 2
+    },
+    "apex": {
+      "file": "apex.webp",
+      "frames": 2
+    }
+  }
+}

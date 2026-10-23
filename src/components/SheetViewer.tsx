@@ -1,0 +1,106 @@
+import { mewFetch } from '../utils/remote-transport.ts'
+import { useEffect, useState } from 'react'
+import { downloadUrl, rawUrl } from '../api/client'
+import { parseCsv } from '../utils/csv'
+import { parseXlsx, type SheetData } from '../utils/xlsx'
+import { DownloadLink } from './DownloadLink'
+import { useI18n } from '../i18n'
+
+/** 표 탭 본문(xlsx·csv·tsv) — 바이트는 /api/raw에서 받아 브라우저에서 직접 푼다. 읽기 전용이다(편집·수식·서식 없음) */
+export function SheetViewer({ path, rawSrc, downloadSrc }: { path: string; rawSrc?: string; downloadSrc?: string }) {
+  const { t } = useI18n()
+  const [sheets, setSheets] = useState<SheetData[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [active, setActive] = useState(0)
+  const name = path.split('/').pop() ?? path
+
+  useEffect(() => {
+    let alive = true
+    setSheets(null)
+    setError(null)
+    setActive(0)
+    mewFetch(rawSrc ?? rawUrl(path))
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      // xlsx는 ZIP이라 풀어야 하고(비동기), csv·tsv는 글자라 그 자리에서 갈라 놓는다
+      .then((buf) => (path.toLowerCase().endsWith('.xlsx') ? parseXlsx(buf) : parseCsv(buf, path)))
+      .then((parsed) => {
+        if (alive) setSheets(parsed)
+      })
+      .catch((err: Error) => {
+        if (!alive) return
+        const status = /^HTTP (\d+)$/.exec(err.message)?.[1]
+        setError(status ? t('sheet.loadFailed', { status }) : err.message)
+      })
+    return () => {
+      alive = false
+    }
+  }, [path, rawSrc, t])
+
+  if (error) {
+    return (
+      <div className="mew-panel-surface flex h-full w-full flex-col items-center justify-center gap-3 bg-surface p-6 text-center">
+        <span className="max-w-md truncate text-sm text-ink-muted">{name}</span>
+        <span className="select-text text-sm text-danger">{error}</span>
+        <DownloadLink href={downloadSrc ?? downloadUrl(path)} name={name} className="text-xs text-accent hover:underline">
+          {t('media.download')}
+        </DownloadLink>
+      </div>
+    )
+  }
+
+  if (!sheets) {
+    return <div className="mew-panel-surface flex h-full w-full items-center justify-center bg-surface text-sm text-ink-muted">{t('sheet.opening')}</div>
+  }
+
+  const sheet = sheets[active]
+  const [head, ...body] = sheet?.rows ?? []
+
+  return (
+    <div className="mew-panel-surface flex h-full w-full flex-col bg-surface">
+      <div className="no-scrollbar flex shrink-0 items-center gap-2 overflow-x-auto px-3 py-1.5 text-xs">
+        {sheets.map((s, i) => (
+          <button
+            key={s.name}
+            type="button"
+            onClick={() => setActive(i)}
+            className={`shrink-0 rounded px-2 py-1 ${i === active ? 'bg-surface-raised text-ink' : 'text-ink-muted hover:text-ink'}`}
+          >
+            {s.name}
+          </button>
+        ))}
+        <DownloadLink href={downloadSrc ?? downloadUrl(path)} name={name} className="ml-auto shrink-0 text-accent hover:underline">
+          {t('media.download')}
+        </DownloadLink>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {head ? (
+          <table className="select-text border-collapse text-xs text-ink">
+            <thead>
+              <tr>
+                {head.map((cell, i) => (
+                  // 셀 값은 중복될 수 있어 키는 위치로 잡는다
+                  <th key={i} className="sticky top-0 z-10 whitespace-nowrap border border-edge-strong bg-surface-raised px-2 py-1 text-left font-medium">
+                    {cell}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {body.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td key={c} className="whitespace-pre border border-edge-strong px-2 py-1 align-top">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="p-6 text-sm text-ink-muted">{t('sheet.empty')}</div>
+        )}
+      </div>
+    </div>
+  )
+}

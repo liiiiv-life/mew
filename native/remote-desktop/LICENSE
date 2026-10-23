@@ -1,0 +1,128 @@
+Mew Source Available License 1.0
+Effective for releases first distributed under this license on or after 2026-10-23.
+
+Copyright (c) 2026 mew contributors
+All rights reserved except as expressly granted below.
+
+1. Scope and definitions
+
+"Software" means the Mew project code and accompanying documentation made
+available under this license, including the CLI and remote desktop host.
+"Modified Version" means any modification, fork, translation, or derivative
+work of the Software. The restrictions below also apply to Modified Versions.
+"Project Owner" means s-saens, the Mew project owner. This designation does
+not transfer ownership of anyone else's copyright to the Project Owner.
+"You" means the individual or legal entity exercising rights under this license.
+
+2. Permissions
+
+Subject to these conditions, each copyright holder grants You a worldwide,
+non-exclusive, royalty-free right to use, reproduce, inspect, modify, and
+redistribute the Software and Modified Versions without charging recipients.
+Personal use and internal business use are permitted, including use by an
+organization's employees and contractors solely for that organization's work.
+You may keep internal modifications private. You may use the Software in
+revenue-generating work and sell the documents, code, and other output You
+create using it. Such output does not become subject to this license merely
+because the Software was used to create it; embedded Software code remains
+subject to its applicable license.
+
+3. Restrictions on sale and paid hosting
+
+Without a separate written license from the relevant copyright holders,
+You must not:
+
+(a) sell, rent, sublicense for a fee, or otherwise provide copies of the
+Software or Modified Versions in exchange for monetary or other commercial
+consideration; or
+(b) provide the Software or Modified Versions to third parties as a paid
+hosted, managed, cloud, or software-as-a-service offering, whether running
+on Your infrastructure or infrastructure operated for a customer.
+
+These restrictions apply to source and binary distributions, renamed or
+rebranded versions, and offerings bundled with another product or service.
+A subscription, membership, bundle fee, or other indirect payment that is
+required to obtain the Software or access its functionality counts as payment.
+Free redistribution must preserve these restrictions for recipients.
+An organization's internal use under section 2 is not paid hosting merely
+because the organization pays its employees or contractors or purchases
+general-purpose infrastructure for its own use. Fees solely for advice or
+support are permitted only when they do not include a Software sale or a
+paid hosted or managed offering prohibited above.
+
+4. Notices and redistribution
+
+Keep this license and all applicable copyright, attribution, and third-party
+notices with every copy or substantial portion of the Software. Clearly
+identify modifications and do not represent a Modified Version as an official
+Mew release. You may not grant recipients rights to the Software that this
+license does not grant. No trademark or endorsement rights are granted.
+
+5. Project Owner and separate commercial permissions
+
+This public license does not restrict a copyright holder's use or commercial
+licensing of code they own. The Project Owner reserves the right to sell,
+provide paid hosting for, and offer separate commercial licenses for the
+Software to the extent the Project Owner owns or has obtained those rights.
+This clause does not grant the Project Owner rights in third-party code or
+contributions they have not otherwise received. No recipient obtains an
+exception to section 3 merely by contributing to the project.
+
+6. Third-party materials and earlier MIT releases
+
+Third-party code, libraries, fonts, assets, and other materials carrying
+separate license terms remain governed by those terms. This license does
+not replace, restrict, or revoke rights granted under those separate licenses,
+including rights to obtain corresponding source or replace covered libraries.
+Preserve their required notices and comply with their distribution obligations.
+
+This license does not revoke rights already granted for copies or portions
+previously distributed under the MIT License. Those copies or portions may
+continue to be used under MIT, subject to its conditions. New code distributed
+only under this license is not licensed under MIT merely because it appears
+alongside previously MIT-licensed code. The prior MIT notice and terms are
+preserved at the end of this file for the earlier MIT-licensed material.
+
+7. Termination
+
+Rights granted under this license terminate automatically if You breach its
+conditions. Termination does not affect rights You independently hold under
+third-party licenses or an earlier MIT grant. Obtain written permission from
+the relevant copyright holders before resuming use under this license.
+
+8. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE, TO THE EXTENT PERMITTED BY APPLICABLE LAW.
+
+This is a source-available license with commercial restrictions, not an
+OSI-approved open source license.
+
+--- Prior MIT notice (earlier MIT-licensed material only) ---
+
+MIT License
+
+Copyright (c) 2026 mew contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

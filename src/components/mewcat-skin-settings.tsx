@@ -1,0 +1,190 @@
+import { mewpetMotionEnabled, parseMewpetMotion, requiredMewpetAction, type MewpetStride } from '../../shared/mewpet-motion'
+import { useEffect, useRef, useState } from 'react'
+import { hasUiMessage, uiText } from '@mew/ui/i18n-core'
+import { useUiLocale } from '@mew/ui/i18n'
+import { Download, EditPencil, Plus, Refresh, Trash, Upload, Xmark } from 'iconoir-react'
+import { useI18n } from '../i18n'
+import { useCustomSpriteSkins } from '../hooks/use-mewcat-sprite-skins'
+import { type MewcatSkin, type MewcatSkinSelection } from '../utils/mewcatSkin'
+import { MEWCAT_ALL_SPRITE_ACTIONS, MEWCAT_SPRITE_ACTIONS, MEWCAT_TRANSITION_ACTIONS, MAX_SPRITE_FRAMES, validSpriteDimensions, type MewcatAnimation, type SavedSpriteSkin, type SpriteImage, type SpriteSkin, type SpriteStrip } from '../utils/mewcat-sprites'
+import { deleteSpriteSkin, loadSpriteSkins, prepareSpriteStrip, readSpriteImage, saveSpriteSkin } from '../utils/mewcat-sprite-storage'
+import { MewcatSprite } from './mewcat-sprite'
+import { uuid } from '../utils/uuid'
+import { mewFetch } from '../utils/remote-transport'
+import { MEWPET_DEFAULT_SKIN_ID } from '../../shared/mewpet-skins'
+
+const actionNames = { idle: '가만히 있기', walk: '걷기', run: '뛰기', jump: '공중 상승', fall: '공중 하강', love: '쓰다듬기', struggle: '목덜미 잡기',
+  'run-walk': '뛰기 → 걷기', 'walk-run': '걷기 → 뛰기', 'run-idle': '뛰기 → 가만히 있기', 'idle-run': '가만히 있기 → 뛰기',
+  'walk-idle': '걷기 → 가만히 있기', 'idle-walk': '가만히 있기 → 걷기', takeoff: '바닥 → 점프', landing: '낙하 → 착지', apex: '상승 → 하강',
+} as const
+const iconButton = 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-ink-secondary hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 [&_svg]:h-4 [&_svg]:w-4'
+const inputClass = 'h-9 min-w-0 rounded border border-edge-strong bg-surface-deep px-2 text-sm text-ink focus:outline-2 focus:outline-accent'
+type DraftAction = { image: SpriteImage | null; frames: string; duration: string; enabled: boolean; fileName: string }
+type Draft = { id?: string; name: string; movementSpeed: string; stride?: MewpetStride; actions: Record<MewcatAnimation, DraftAction> }
+
+function createDraft(skin?: SpriteSkin): Draft {
+  const motion = parseMewpetMotion(skin?.motion)
+  return { id: skin?.id, name: skin?.name ?? '', movementSpeed: String(motion.movementSpeed), stride: motion.stride, actions: Object.fromEntries(MEWCAT_ALL_SPRITE_ACTIONS.map(action => [action, {
+    image: skin?.sprites[action] ?? null, duration: String(motion.durations[action] / 1000), enabled: motion.enabled[action], frames: String(skin?.sprites[action]?.frames ?? (MEWCAT_TRANSITION_ACTIONS.some(transition => transition === action) ? 2 : 8)), fileName: skin?.sprites[action] ? `${action}.png` : '',
+  }])) as Draft['actions'] }
+}
+
+export function MewcatSkinSettings({ skin, onChange }: { skin: MewcatSkinSelection; onChange: (skin: MewcatSkinSelection) => void }) {
+  const { t } = useI18n()
+  useUiLocale()
+  const custom = useCustomSpriteSkins()
+  const sampleSkin = custom.skins.find(item => item.id === skin) ?? custom.skins.find(item => item.id === MEWPET_DEFAULT_SKIN_ID)
+  const [draft, setDraft] = useState<Draft>()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const options: { id: MewcatSkinSelection; name: string; sprite?: SpriteStrip; managed?: boolean }[] = [
+    { id: null, name: t('settings.mewcatNone') },
+    ...custom.skins.map(item => ({ id: item.id as MewcatSkin, name: item.translated && hasUiMessage(item.name) ? uiText(item.name) : item.name, sprite: item.sprites.idle, managed: item.managed })),
+  ]
+  const save = async () => {
+    if (!draft || busy) return
+    setError('')
+    let motion
+    try { motion = parseMewpetMotion({ movementSpeed: Number(draft.movementSpeed), stride: draft.stride, durations: Object.fromEntries(MEWCAT_ALL_SPRITE_ACTIONS.map(action => [action, Math.round(Number(draft.actions[action].duration) * 1000)])), enabled: Object.fromEntries(MEWCAT_ALL_SPRITE_ACTIONS.map(action => [action, draft.actions[action].enabled])) }) }
+    catch { setError(uiText('재생 시간은 0.05~60초, 이동 속도는 0.1~5배로 입력하세요.')); return }
+    if (!draft.name.trim() || MEWCAT_SPRITE_ACTIONS.some(action => mewpetMotionEnabled(action, motion) && !draft.actions[action].image)) {
+      setError(uiText('스킨 이름과 활성화한 동작의 이미지를 입력하세요.')); return
+    }
+    const sprites = {} as SavedSpriteSkin['sprites']
+    for (const action of MEWCAT_ALL_SPRITE_ACTIONS) {
+      const { image, frames } = draft.actions[action]
+      if (!image) continue
+      if (!validSpriteDimensions(image.width, image.height, Number(frames))) {
+        setError(`${uiText(actionNames[action])}: ${uiText('프레임 수는 1~256이며 이미지 너비를 균등하게 나눌 수 있어야 합니다.')}`); return
+      }
+      sprites[action] = { blob: image.blob, width: image.width, height: image.height, frames: Number(frames) }
+    }
+    setBusy(true)
+    try {
+      const saved = await saveSpriteSkin({ id: draft.id ?? `custom:${uuid()}`, name: draft.name.trim(), motion, sprites })
+      onChange(saved.id as MewcatSkin)
+      setDraft(undefined)
+    } catch (error) { setError(error instanceof Error ? error.message : uiText('저장 실패')) }
+    finally { setBusy(false) }
+  }
+  const remove = async (id: string) => {
+    setBusy(true); setError('')
+    try {
+      await deleteSpriteSkin(id)
+      if (skin === id) onChange(MEWPET_DEFAULT_SKIN_ID)
+      if (draft?.id === id) setDraft(undefined)
+    } catch (error) { setError(error instanceof Error ? error.message : uiText('스킨을 삭제하지 못했습니다.')) }
+    finally { setBusy(false) }
+  }
+  const editorRow = (action: MewcatAnimation) => draft && <SpriteEditorRow key={action} action={action} sampleUrl={sampleSkin?.sampleUrls[action]} value={draft.actions[action]} disabled={busy} onError={setError}
+    onAttach={(image, fileName) => setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: { ...current.actions[action], image, fileName } } } : current)}
+    onChange={value => { setError(''); setDraft(current => current ? { ...current, actions: { ...current.actions, [action]: value } } : current) }} />
+  return <div className="mewcat-skin-settings">
+    <div className="flex items-center justify-between gap-2">
+      <div className="text-sm font-medium text-ink">{t('settings.mewcat')}</div>
+      <div className="flex items-center gap-1">
+        <button type="button" className={iconButton} disabled={busy || custom.loading} title={t('common.refresh')} aria-label={t('common.refresh')} onClick={() => void loadSpriteSkins(true)}><Refresh /></button>
+        {custom.canManage && <button type="button" className="inline-flex min-h-9 items-center gap-1 rounded px-2 text-sm text-ink hover:bg-surface-hover disabled:opacity-40" disabled={busy || !!draft} onClick={() => { setDraft(createDraft()); setError('') }}><Plus className="h-4 w-4" />{uiText('스킨 추가')}</button>}
+      </div>
+    </div>
+    <div className="mt-2 grid grid-cols-3 gap-2">
+      {options.map(option => <div key={option.id ?? 'none'} className="min-w-0">
+        <button type="button" disabled={busy} onClick={() => onChange(option.id)} aria-pressed={skin === option.id} aria-label={option.id === MEWPET_DEFAULT_SKIN_ID ? uiText('{name} (기본)', { name: option.name }) : undefined}
+          className={`w-full min-w-0 rounded border p-2 text-left disabled:opacity-40 ${skin === option.id ? 'border-accent bg-accent/10 text-ink' : 'border-edge-strong bg-surface text-ink-secondary hover:bg-surface-raised'}`}>
+          <span className="flex h-14 items-end justify-center rounded bg-surface-hover">
+            {option.sprite ? <span className="h-12 w-12"><MewcatSprite strip={option.sprite} /></span> : <span className="self-center text-sm text-ink-muted">—</span>}
+          </span>
+          <span className="mt-1 block truncate text-sm font-medium" title={option.name}>{option.name}</span>
+        </button>
+        {option.id && custom.canManage && <div className="flex justify-end">
+          <button type="button" className={iconButton} disabled={busy} title={uiText('스킨 수정')} aria-label={`${uiText('스킨 수정')}: ${option.name}`} onClick={() => { setDraft(createDraft(custom.skins.find(item => item.id === option.id))); setError('') }}><EditPencil /></button>
+          {option.managed && <button type="button" className={iconButton} disabled={busy} title={uiText('스킨 삭제')} aria-label={`${uiText('스킨 삭제')}: ${option.name}`} onClick={() => void remove(option.id!)}><Trash /></button>}
+        </div>}
+      </div>)}
+    </div>
+    {custom.failed && <p className="mt-2 text-sm text-ink-muted">{uiText('일부 스킨을 불러오지 못했습니다.')}</p>}
+    {custom.migrationFailed && <p className="mt-2 text-sm text-ink-muted">{uiText('기존 브라우저 스킨을 전역으로 옮기지 못했습니다. 소유자 계정과 서버 연결을 확인하세요.')}</p>}
+    {draft && <div className="mt-3 border-t border-edge pt-3">
+      <div className="flex items-center gap-2">
+        <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-ink">{uiText('스킨 이름')}<input className={`${inputClass} flex-1`} value={draft.name} maxLength={40} disabled={busy} onChange={event => { setError(''); setDraft({ ...draft, name: event.target.value }) }} /></label>
+        <button type="button" className={iconButton} disabled={busy} title={t('common.cancel')} aria-label={t('common.cancel')} onClick={() => { setDraft(undefined); setError('') }}><Xmark /></button>
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-sm text-ink">{uiText('이동 속도 (배)')}<input type="number" min={0.1} max={5} step={0.1} className={`${inputClass} w-20`} value={draft.movementSpeed} disabled={busy} onChange={event => setDraft({ ...draft, movementSpeed: event.target.value })} /></label>
+      <p className="mt-2 text-xs leading-relaxed text-ink-muted">{uiText('PNG·WebP · 같은 크기의 프레임을 가로 한 줄로')}</p>
+      <div className="mt-2 text-sm font-medium text-ink">{uiText('기본 모션')}</div>
+      <div className="mt-2 divide-y divide-edge">
+        {MEWCAT_SPRITE_ACTIONS.map(editorRow)}
+      </div>
+      <details className="mt-2 border-t border-edge pt-2">
+        <summary className="cursor-pointer text-sm font-medium text-ink focus-visible:outline-2 focus-visible:outline-accent">{uiText('전환 모션 (선택)')} <span className="text-xs font-normal text-ink-muted">{MEWCAT_TRANSITION_ACTIONS.filter(action => draft.actions[action].image).length}/9</span></summary>
+        <div className="mt-1 divide-y divide-edge">{MEWCAT_TRANSITION_ACTIONS.map(editorRow)}</div>
+      </details>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-xs text-ink-muted">{uiText('모든 프로젝트에서 사용')}</span>
+        <button type="button" disabled={busy} onClick={() => void save()} className="min-h-9 rounded bg-accent px-3 text-sm font-medium text-white disabled:opacity-40">{busy ? uiText('저장 중…') : uiText('저장')}</button>
+      </div>
+    </div>}
+    {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
+  </div>
+}
+
+function SpriteEditorRow({ action, sampleUrl, value, disabled, onAttach, onChange, onError }: { action: MewcatAnimation; sampleUrl?: string; value: DraftAction; disabled: boolean; onAttach: (image: SpriteImage, fileName: string) => void; onChange: (value: DraftAction) => void; onError: (error: string) => void }) {
+  const [preview, setPreview] = useState<SpriteStrip>()
+  const [reading, setReading] = useState(false)
+  const uploadGeneration = useRef(0)
+  useEffect(() => () => { uploadGeneration.current++ }, [])
+  const name = uiText(actionNames[action])
+  const optional = !requiredMewpetAction(action)
+  const invalid = !!value.image && !validSpriteDimensions(value.image.width, value.image.height, Number(value.frames))
+  useEffect(() => {
+    let active = true
+    let strip: SpriteStrip | undefined
+    setPreview(undefined)
+    if (value.image && !invalid) void prepareSpriteStrip({ ...value.image, frames: Number(value.frames) }).then(result => {
+      strip = result
+      if (active) setPreview(result)
+      else URL.revokeObjectURL(result.src)
+    }).catch(() => {})
+    return () => { active = false; if (strip) URL.revokeObjectURL(strip.src) }
+  }, [value.image, value.frames, invalid])
+  const attach = async (file?: File) => {
+    if (!file) return
+    const generation = ++uploadGeneration.current
+    setReading(true)
+    try {
+      const image = await readSpriteImage(file, Number(value.frames))
+      if (generation !== uploadGeneration.current) return
+      onAttach(image, file.name)
+      onError('')
+    } catch (error) { if (generation === uploadGeneration.current) onError(error instanceof Error ? error.message : uiText('이미지를 읽을 수 없습니다.')) }
+    finally { if (generation === uploadGeneration.current) setReading(false) }
+  }
+  return <div className="py-2">
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="h-12 w-12 shrink-0 rounded bg-surface-hover">{preview && <MewcatSprite strip={preview} action={action} duration={Number(value.duration) * 1000} playing={value.enabled && Number(value.duration) >= 0.05 && Number(value.duration) <= 60} />}</span>
+      <div className="min-w-0 flex-1 basis-[calc(100%-3.5rem)] sm:basis-0">
+        <label className="flex items-center gap-1 text-sm font-medium text-ink"><input type="checkbox" className="h-4 w-4 accent-accent" checked={value.enabled} disabled={disabled || !optional} aria-label={uiText('{action} 활성화', { action: name })} onChange={event => onChange({ ...value, enabled: event.target.checked })} />{name}{!optional && <span className="text-xs text-ink-muted">{uiText('필수')}</span>}</label>
+        <div className="truncate text-xs text-ink-muted" title={value.fileName}>{value.fileName || 'PNG · WebP'}</div>
+      </div>
+      <label className="flex shrink-0 flex-col gap-0.5 text-xs text-ink-muted">{uiText('재생 시간 (초)')}<input type="number" inputMode="decimal" min={0.05} max={60} step={0.01} value={value.duration} disabled={disabled} aria-label={uiText('{action} 재생 시간 (초)', { action: name })} className={`${inputClass} w-20`} onChange={event => onChange({ ...value, duration: event.target.value })} /></label>
+      <label className="flex shrink-0 flex-col gap-0.5 text-xs text-ink-muted">{uiText('프레임 수')}
+        <input type="number" inputMode="numeric" min={1} max={MAX_SPRITE_FRAMES} step={1} value={value.frames} disabled={disabled} aria-label={uiText('{action} 프레임 수', { action: name })} aria-invalid={invalid || undefined} className={`${inputClass} w-16`} onChange={event => onChange({ ...value, frames: event.target.value })} />
+      </label>
+      <label className={`${iconButton} relative overflow-hidden ${disabled || reading ? 'pointer-events-none opacity-40' : ''}`} data-tip={uiText('이미지 첨부')}>
+        <Upload aria-hidden="true" /><input type="file" accept="image/png,image/webp" disabled={disabled || reading} aria-label={uiText('{action} 스프라이트', { action: name })} className="absolute inset-0 cursor-pointer opacity-0" onChange={event => { void attach(event.target.files?.[0]); event.target.value = '' }} />
+      </label>
+      {optional && value.image ? <button type="button" className={iconButton} disabled={disabled || reading} data-tip={uiText('이미지 제거')} aria-label={uiText('{action} 이미지 제거', { action: name })} onClick={() => onChange({ ...value, image: null, fileName: '' })}><Xmark aria-hidden="true" /></button>
+        : sampleUrl && <a href={sampleUrl} download={`mewpet-${action}.png`} onClick={event => { event.preventDefault(); void downloadExample(sampleUrl, action).catch(() => onError(uiText('이미지를 읽을 수 없습니다.'))) }} className={iconButton} data-tip={uiText('예제 이미지 다운로드')} aria-label={`${name}: ${uiText('예제 이미지 다운로드')}`}><Download aria-hidden="true" /></a>}
+    </div>
+    {invalid && <p className="mt-1 text-xs text-danger">{uiText('프레임 수는 1~256이며 이미지 너비를 균등하게 나눌 수 있어야 합니다.')}</p>}
+  </div>
+}
+
+async function downloadExample(url: string, action: string): Promise<void> {
+  const response = await mewFetch(url)
+  if (!response.ok) throw new Error('image unavailable')
+  const blob = await response.blob(), src = URL.createObjectURL(blob), link = document.createElement('a')
+  link.href = src; link.download = `mewpet-${action}.${blob.type === 'image/webp' ? 'webp' : 'png'}`
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(src), 1000)
+}

@@ -1,0 +1,68 @@
+import { parentPort } from 'node:worker_threads'
+import koffi from 'koffi'
+import { windowsGpu } from './gpu-windows.mjs'
+import { windowsCursor } from './cursor-windows.mjs'
+import { cursorPng } from './cursor-png.mjs'
+import { videoPump } from './video-pump.mjs'
+
+const gpu = windowsGpu(koffi)
+const user = koffi.load('user32.dll'), getDC = user.func('void *GetDC(void *)'), releaseDC = user.func('int ReleaseDC(void *, void *)')
+const setPower = koffi.load('kernel32.dll').func('uint32 SetThreadExecutionState(uint32)')
+const multimedia = koffi.load('winmm.dll'), beginPeriod = multimedia.func('uint32 timeBeginPeriod(uint32)'), endPeriod = multimedia.func('uint32 timeEndPeriod(uint32)')
+let preciseTimer = false
+let session, cursorTimer, leaseTimer, cursor, dc, negotiation, mode, lastCursor = '', lease = 0
+const pump = videoPump({ read: () => gpu.next(), interval: () => mode?.fps >= 120 ? 1 : 2,
+  write: frame => parentPort.postMessage({ type: 'frame', session, negotiation, ...frame }, [frame.data.buffer]), failed: error => fail(error) })
+const stop = () => {
+  pump.stop(); clearInterval(cursorTimer); clearInterval(leaseTimer); gpu.stop(); cursor = undefined; lastCursor = ''; session = undefined
+  if (dc) releaseDC(null, dc); dc = undefined
+  if (preciseTimer) endPeriod(1); preciseTimer = false
+  setPower(0x80000000)
+}
+const fail = error => { const id = session; stop(); parentPort.postMessage({ type: 'error', session: id, message: error.message }) }
+const pollCursor = () => {
+  if (!session || !cursor) return
+  try {
+    const value = cursor(), identity = JSON.stringify({ ...value, shape: undefined })
+    if (identity !== lastCursor || value.shape) {
+      if (value.shape) value.shape = { ...value.shape, pixels: undefined, png: cursorPng(value.shape) }
+      parentPort.postMessage({ type: 'cursor', session, value }); lastCursor = identity
+    }
+  } catch (error) { fail(error) }
+}
+parentPort.on('message', message => {
+  try {
+    if (message.type === 'start') {
+      stop(); session = message.session
+      negotiation = message.negotiation
+      if (!gpu.screens().some(item => item.id === message.id)) throw new Error('공유할 화면이 바뀌었습니다. 다시 연결해 주세요.')
+      let screen, error
+      const begun = Date.now()
+      for (const candidate of message.modes) {
+        if (Date.now() - begun > 2000) break
+        try { screen = gpu.start(message.id, candidate.bitrate, undefined, candidate); mode = candidate; break } catch (failure) { error = failure; gpu.stop() }
+      }
+      if (!screen) throw error ?? new Error('지원하는 영상 설정이 없습니다.')
+      dc = getDC(null); cursor = windowsCursor(koffi, dc, screen)
+      preciseTimer = beginPeriod(1) === 0
+      lease = Date.now(); leaseTimer = setInterval(() => { if (Date.now() - lease > 8000) fail(new Error('화면 공유 승인이 만료됐습니다.')) }, 250)
+      setPower(0x80000003)
+      parentPort.postMessage({ type: 'started', session, negotiation, screen, video: mode })
+      pollCursor()
+      if (!session) return
+      cursorTimer = setInterval(pollCursor, Math.max(8, Math.ceil(1000 / Math.min(mode.fps, 120)))); pump.start()
+    } else if (message.type === 'list' && !session) {
+      gpu.refresh()
+      const screens = gpu.screens()
+      if (!screens.length) throw new Error('Windows에 활성 화면이 없습니다. 모니터 없이 사용하려면 서명된 Mew 가상 디스플레이 드라이버를 설치해 주세요.')
+      parentPort.postMessage({ type: 'listed', session: message.session, screens })
+    } else if (message.type === 'stop' && (!session || message.session === session)) {
+      const id = message.session; stop(); parentPort.postMessage({ type: 'stopped', session: id })
+    } else if (message.type === 'ack' && message.session === session && message.negotiation === negotiation) pump.ack(message.frameId)
+    else if (message.type === 'lease' && message.session === session) lease = Date.now()
+    else if (message.type === 'keyframe' && message.session === session) gpu.keyframe()
+    else if (message.type === 'bitrate' && message.session === session) gpu.bitrate(message.value)
+    else if (message.type === 'close') { stop(); gpu.close(); parentPort.close() }
+  } catch (error) { fail(error) }
+})
+parentPort.postMessage({ type: 'ready', screens: gpu.screens() })

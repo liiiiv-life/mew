@@ -1,0 +1,233 @@
+---
+title: "원격 데스크톱 아키텍처와 검증"
+created: "2026-09-12"
+updated: "2026-10-20"
+description: "상주 GPU·WebRTC 직접 영상·입력과 FHD 크기를 유지하는 최대 두 프레임의 인코딩·송신 중첩, 유한 pacing·RTT 재학습·시간 기반 bitrate 회복을 정의한다. Windows 인코더 설정 적용 확인·단계별 진단, 화면 키보드·입력·인증 lease·OS 권한과 실기 검증 한계를 포함한다."
+상위파일: "MOC.md"
+---
+
+[설치·사용법](../guides/remote-desktop.md) · [배포 라이선스](remote-desktop-distribution.md) · [ADR 0185](../history/decisions/0185-mew-desktop-resident-direct-host.md) · [ADR 0189](../history/decisions/0189-mew-desktop-external-direct-connectivity.md) · [ADR 0144](../history/decisions/0144-mew-desktop-local-cursor.md)
+
+## 경계와 수명
+
+[ADR 0185](../history/decisions/0185-mew-desktop-resident-direct-host.md)에 따라 영상·입력은 WebRTC 직접 연결만 사용한다. Mew의 인증 WebSocket은 협상·접속 승인·수명과 커서 메타데이터만 전달한다. TURN과 WebSocket 영상 중계는 거부한다. 기존 Electron·서버 전송의 구현·검증은 [이전 기록](../history/remote-desktop-electron-transport.md)에 보존한다.
+
+```mermaid
+flowchart LR
+  V[브라우저 video] <-->|인증·협상·lease| S[Mew 서버]
+  S <-->|접속별 session ID| H[상주 Windows Node 호스트]
+  H --> G[WGC GPU 캡처 → NV12 → 하드웨어 H.264]
+  G -->|DTLS-SRTP 직접 연결| V
+  V -->|암호화 DataChannel 입력| H
+  H --> I[Windows 입력 어댑터]
+```
+
+`server/desktop-resident-host.ts`는 지원 OS에서 설치본이 준비되어 있으면 서버 시작 시 로그인 호스트를 미리 실행한다. 준비 중에는 D3D 장치·화면 목록만 유지한다. 캡처·인코더·GPU polling·절전 방지 요청과 타이머 해상도 요청은 활성 세션에만 존재한다. 닫기·공유 화면 변경은 새 세션이며 호스트 프로세스는 재사용한다. 영구 Windows 서비스나 로그인 자동 실행을 설치하지 않는다. Mac/Linux도 상주 Node·네이티브 하드웨어 H.264를 사용한다. [POSIX 상세 계약](remote-desktop-posix.md)을 따른다. Windows 화면 목록·물리 좌표는 접속마다 다시 조회하며 기본/선호 화면을 서버가 바로 선택해 브라우저 선택 왕복을 생략한다.
+
+Windows 실행은 같은 사용자 SID의 최소 권한 InteractiveToken 임시 작업과 인증한 named pipe를 유지한다. 고정 진입점은 `native-host.mjs`, 실행 파일은 설치한 `runtime/node.exe`다. 파이프는 실행별 256bit 토큰, 현재 사용자 SID 허용·Network SID 거부, 실제 클라이언트 로그인 세션 검사를 사용한다. 토큰은 환경에서 인증 후 제거하며 디스크에 저장하지 않는다. 부모가 사라지면 로그인 supervisor가 보관한 프로세스 핸들로 종료한다. WSLg·세션 0·잠금 화면·UAC로 권한을 확장하지 않는다.
+
+접속마다 무작위 128bit session ID를 내부 메시지에 붙인다. 이전 세션의 응답·입력·worker 콜백은 새 세션으로 전달하지 않는다. 네이티브 `stopped` 확인을 받은 뒤 제어권을 넘긴다. 3.5초 안에 확인하지 못하면 호스트를 폐기하고 부모의 8초·가상 모니터의 10초 lease를 고려해 11.25초 동안 다음 호스트 실행을 지연한다. Mew의 인증·Origin·단일 제어 연결·권한 회수 검사는 유지한다. 활성 입력은 1.5초, 부모 승인은 8초 timeout을 적용하며 worker도 독립적으로 캡처 승인을 확인한다. 입력 주입 전에도 Default desktop인지 검사한다.
+
+Windows 물리·가상 출력의 캡처는 WGC의 GPU 표면을 사용한다. 자체 가상 모니터·권한·서명·설치·미검증 범위는 [가상 디스플레이 계약](remote-desktop-virtual-display.md)이 소유한다. 모니터가 없는 경우에도 GPU 장치는 예열하며, 가상 출력의 실제 좌표가 확정된 뒤 입력을 준비한다. 두 입력 채널과 첫 영상 디코드가 모두 확인돼야 연결 완료를 표시한다.
+
+실행 경로 탐색은 30초 동안 진행 요청·성공 결과만 재사용한다. 설치 버전·권한·접속 승인은 캐시하지 않는다. 방화벽 진단은 호스트 실행을 막지 않는 읽기 전용 조회다. 차단된 `runtime/node.exe`와 명시적 수신 허용 규칙 부재를 발견하면 복구 안내를 전달한다. 설치 단계의 Windows UAC 승인·활성 연결의 임시 NAT 준비는 [외부 직결 계약](remote-desktop-connectivity.md)을 따른다. `ready`는 설치 준비 상태이며 로그인·직접 네트워크 연결 성공을 보장하지 않는다. 영상·클립보드·키 입력·SDP·ICE 자격증명을 파일에 기록하지 않는다.
+
+## 호스트 연결 알림
+
+브라우저에서 첫 영상 디코드와 두 입력 DataChannel의 준비를 모두 확인한 뒤 reliable `control` 채널로 고정 `viewer-ready` 메시지를 한 번 보낸다. 호스트도 두 채널의 준비를 확인하고 현재 연결에서만 **mew 원격 데스크톱 연결됨** 알림을 한 번 표시한다. 예열·협상만 성공한 연결·영상 없는 연결·이전 세션의 늦은 응답에는 표시하지 않는다. 다시 연결하거나 공유 화면을 바꿔 새 세션을 만들면 새 알림을 허용한다.
+
+Windows는 `notification-windows.cpp`를 GPU DLL에 함께 컴파일한다. 캡처·입력 스레드와 분리된 짧은 네이티브 스레드에서 `Shell_NotifyIconW`를 호출하며, 종료 신호 또는 최대 30초 뒤 임시 아이콘·숨은 창·스레드를 정리한다. 대기 중 알림 polling과 별도 실행 프로세스를 만들지 않는다. `NIF_REALTIME`으로 뒤늦은 알림 대기를 피하고 소리를 내지 않으며 OS의 알림 설정을 따른다([Microsoft API](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-notifyicondataw)). Mac은 UserNotifications, Linux는 D-Bus Notifications를 사용한다. 알림 서비스·권한·API 오류는 영상·입력 연결을 실패시키지 않는다. 알림 표시 여부는 OS 설정과 알림 서비스 제공 여부에 따라 달라진다.
+
+## 자동 준비와 내부 tmux
+
+`./mew setup`은 설정을 로드하고 앱의 `npm ci`가 끝난 뒤, 빌드·서버 시작 전에 기존 `native/remote-desktop/install.mjs`와 `permissions.mjs`를 순서대로 실행한다. OS 판별·WSL의 Windows 설치·`MEW_DESKTOP_HELPER_DIR`·의존성 재사용·설치 검증은 같은 설치기가 소유한다. 설치·권한 준비 실패는 경고하고 Mew 설치를 계속하되 SIGINT/SIGTERM은 중단한다. `./mew desktop-setup`은 같은 설정·준비 경로만 실행하고 실패 코드를 보존하며 빌드·Mew 서버 시작/중지를 하지 않는다. 출력은 호출한 터미널에 남고 내부 tmux 설치 상태로 기록하지 않는다. 캡처·입력·로그인 자동 시작·상주 helper를 활성화하지 않는다. `./mew update` 뒤 구성 요소 갱신은 기존처럼 다음 뷰어 연결에서 수행한다.
+
+setup 통합은 Bash 구문 검사와 설치·권한 실행을 모사한 성공·실패·중단 후 진행 검사로 확인한다. 실제 setup·다운로드·빌드·서버 시작은 에이전트 검증에서 실행하지 않는다.
+
+`desktop-preparation.ts`는 `/api/remote-desktop/status`가 준비 가능하다고 응답하면 `POST /api/remote-desktop/install`을 한 번 호출하고 완료까지 `GET`으로 기다린다. manager·owner만 사용할 수 있다. 실패 시 자동 반복하지 않으며 준비 후 상태를 다시 확인한 뒤 WS를 연다. 설치 완료 조회는 250 → 500 → 1000 → 최대 1500ms 간격으로 늘려 짧은 코드 업데이트는 빨리 감지하고 긴 다운로드는 요청 빈도를 제한한다. 준비 대기는 최대 20분, 영상 연결 제한 시간은 준비가 끝난 다음부터 계산한다. 뷰어 종료는 요청·폴링만 취소한다. `server/remote-desktop-install.ts`가 고정 `mewcmd-desktop-install` 세션을 소유하며 HTTP 입력으로 명령·폴더·세션을 지정할 수 없다.
+
+서버의 Node 실행 파일과 mew 앱 루트의 `native/remote-desktop/install.mjs`를 사용한다. 프로젝트 cwd와 독립적이며, POSIX 셸로 감싸 사용자의 fish/zsh 설정과 무관하게 종료 코드를 기록한다. 현재 서버의 PATH·WSL_INTEROP·MEW_DESKTOP_HELPER_DIR을 전달한다. 동시에 들어온 시작 요청은 하나로 합치고 진행 중인 설치는 재사용한다. 완료한 작업을 재시도할 때만 이전 터미널을 교체한다.
+
+설치 작업은 tmux manager의 `startCommand`로 새 세션의 첫 프로세스에서 시작한다. 대화형 셸에 `send-keys`로 명령을 입력하지 않아 셸 초기화 중 입력 유실·지연을 피한다. 완료 후 `/bin/sh -i`를 남겨 출력을 유지하며, 세션 시작 자체가 실패하면 종료 코드 125를 기록해 영구 실행 중으로 남지 않게 한다. 일반 터미널의 기존 `runCommand` 동작은 유지한다.
+
+`MEW_DATA_DIR/desktop-install/`에는 시작 표시와 종료 코드만 저장한다. npm 출력은 tmux에 남고 별도 로그로 복사하지 않는다. 세션이 남아 있어도 종료 코드로 설치 완료·실패를 구분하며, 결과 없이 세션이 사라지면 중단으로 표시한다. 서버 재시작 뒤에도 상태와 터미널을 다시 읽는다.
+
+UI는 기존 `SessionTerminalPopup`을 전체 화면보다 높은 레이어의 별도 portal로 사용한다. 열려 있는 동안 원격 화면을 inert 처리하고, 터미널 Esc가 원격 화면을 닫지 않게 한다. 준비·오류 화면의 **준비 내역 보기**로 열며, 닫기는 설치를 종료하지 않는다. 준비 완료 후 자동 연결한다. 내역이나 준비 화면이 활성화된 동안만 상태를 반복 확인한다.
+
+WSL 설치기는 PowerShell을 통해 Windows 복사본을 설치한다. npm 실행 전 Windows 대상 폴더로 이동해 WSL UNC 작업 폴더 문제를 피한다. native host와 설치기는 helper의 전용 Node/npm을 사용하며, 없으면 `windows-runtime.ps1`이 공식 Node 24.21.0 x64/arm64 ZIP을 고정 SHA-256으로 검증하여 helper의 `runtime/`에 압축 해제한다. 전용 런타임 다운로드·체크섬·실행은 임시 폴더에서 실기 검증했다. 전역 설치·PATH·레지스트리는 변경하지 않고 interop 자체도 변경하지 않는다. 모든 OS 설치기가 `MEW_DESKTOP_HELPER_DIR`을 런타임과 동일하게 사용한다.
+
+설치기와 연결 준비는 `native/remote-desktop/wsl-powershell.mjs`의 같은 PowerShell 탐색을 사용한다. PATH에 Windows 경로가 없어도 `/proc/mounts`에서 Windows 드라이브 루트를 찾아 `Windows/System32/WindowsPowerShell/v1.0/powershell.exe`의 실행 가능한 절대 경로를 사용한다. 사용자 지정 마운트 위치·공백 이스케이프를 처리하고 기본 `/mnt/c`도 확인한다. 실행 파일을 못 찾는 오류는 드라이브 마운트 안내로, 파일을 찾았지만 실행할 수 없는 오류는 WSL interop 안내로 구분한다. 설치 명령을 탐색용으로 실행하거나 실패 후 자동 재실행하지 않는다.
+
+PowerShell 경로를 찾은 뒤에는 `/proc/sys/fs/binfmt_misc/status`와 `WSLInterop` 등록의 활성화 상태를 읽기 전용으로 확인한다. 등록이 없으면 Windows exe가 POSIX 셸로 해석되어 `MZ`·구문 오류가 발생할 수 있으므로 실행 전에 중단하고 WSL interop 복구 안내를 표시한다. 등록 누락 시 Windows PowerShell에서 `wsl --shutdown` 후 WSL·mew를 다시 시작하도록 안내하며, 이 명령이 모든 실행 중인 WSL 배포판을 종료함을 함께 알린다. 비활성 상태는 interop 설정·등록 활성화 안내로 구분한다. 앱은 등록·소켓·시스템 설정을 자동 변경하지 않는다. 등록이 정상이어도 현재 세션의 소켓 등 추가 실행 조건 때문에 실패할 수 있다.
+
+Windows/WSL 설치는 `[1/3] npm ci` → `[2/3] node-datachannel·Koffi binding import 검증` → `[3/3] C++ GPU DLL 컴파일`이다. 전용 Windows Node·C++ Build Tools·Windows SDK가 필요하다. DLL이 없거나 ABI가 다르면 연결을 시작하지 않는다. 브라우저 자동 준비 경로는 상주 호스트를 먼저 종료하고 로그인 supervisor 정리 시간을 기다린 뒤 설치한다. 직접 실행하는 `desktop-setup`은 현재 호스트가 DLL을 사용 중이면 실패할 수 있으므로 서버 종료 후 준비하거나 뷰어 자동 준비를 사용한다.
+
+Mac/Linux는 현재 지원 Node의 전용 복사본·Node 고지를 설치하고 네이티브 binding을 검사한다. 자체 GPU 모듈 컴파일과 Mac 앱 로컬 서명까지 성공해야 준비 완료로 기록한다. 다운로드·컴파일 실패에 성공 마커를 남기지 않으며 설치 검증은 화면 캡처나 GUI 실행을 하지 않는다.
+
+준비 상태 API는 경로 탐색/interop 오류와 파일 접근 권한 오류에 재설치를 권하지 않는다. `helper-version.mjs`의 공통 파일 목록과 콘텐츠 해시를 `.mew-ready`에 기록하며 실행 파일 누락·마커 없음·소스 버전 변경이면 자동 준비한다. `.mew-dependencies`는 lockfile·OS·아키텍처 지문이며 코드만 바뀌면 npm 재설치를 생략한다. 성공 마커는 OS 런타임 검증과 네이티브 모듈 준비 후에만 기록한다. Windows DLL·Mac dylib가 없으면 다시 준비한다. 실행 중인 서버에 로드된 연결 코드 수정은 서버 재시작 후 적용되며, 설치 스크립트 수정은 새 설치 시 읽는다.
+
+## 전송과 지연
+
+Windows 경로는 `gpu-worker.mjs` → 자체 `gpu-windows.dll` → `native-direct.mjs`다. Windows Graphics Capture의 D3D11 텍스처를 GPU VideoProcessor에서 NV12로 축소·변환하고, 같은 어댑터의 Media Foundation 하드웨어 H.264 MFT에 DXGI surface로 전달한다. 비압축 화면을 CPU로 읽거나 Electron renderer·canvas로 복사하지 않는다. NV12 표면 3개와 VideoProcessor view·출력 버퍼를 재사용한다. `IMFTrackedSample`의 반환 콜백을 받아 인코더가 표면을 놓은 뒤에만 같은 슬롯에 쓴다([Microsoft 계약](https://learn.microsoft.com/en-us/windows/win32/api/mfidl/nn-mfidl-imftrackedsample)). GPU 내부 복사·색 변환·인코더 내부 복사는 남으므로 완전한 zero-copy라고 부르지 않는다.
+
+Windows ABI는 5다. 초기 CBR·bitrate 설정은 `S_OK`를 요구하고, 선택적 저지연·VBV·B-frame·GOP 속성은 미지원을 구분한다. 지원한다고 응답한 속성의 설정 실패나 읽기 전용 `S_FALSE`는 성공으로 간주하지 않는다. 실제 적용에 성공한 속성은 비트마스크로 보고한다. 동적 bitrate 변경 실패도 worker 오류로 전달하며 초기와 같은 값을 중복 설정하지 않는다. bitrate 변경 때 적용 가능한 VBV도 다시 계산하고 실패하면 해당 적용 플래그를 해제한다. [SetValue 반환값](https://learn.microsoft.com/en-us/windows/win32/api/strmif/nf-strmif-icodecapi-setvalue) · [H.264 버퍼 크기의 바이트 단위](https://learn.microsoft.com/en-us/windows/win32/codecapi/avenccommonbuffersize-property).
+
+`video-settings.mjs`는 해상도 720p·1080p·1440p·2160p, 목표 30·60·120·144·165·240FPS, 균형·고화질과 전송 우선순위 `quality`·`speed`를 검증한다. 기본 우선순위는 속도이며, 우선순위가 없는 이전 고화질 설정·요청은 품질 우선으로 복원한다. 기본은 기존 1080p·60FPS·균형(6Mbps)이며 인코더 한도는 3840×2160·240FPS·50Mbps다. 해상도별 기본 bitrate 3.5·6·12·24Mbps에 `sqrt(FPS/60)`을 곱하고 고화질은 두 배로 요청하되 50Mbps로 제한한다. High H.264를 먼저 제안하고 브라우저가 받아들인 Baseline도 지원한다. B-frame 0·저지연·CBR를 유지하며 지원되는 인코더에만 약 두 프레임의 VBV를 설정한다. 이는 저지연 설정이지 동일 화질·지연의 실측 보장이 아니다.
+
+브라우저 answer를 받은 뒤 캡처·인코더를 시작한다. answer의 payload·프로필·레벨·max-fs/max-mbps와 매크로블록 처리량·FPS 상한 안에서 모드를 고른다([RFC 6184](https://www.rfc-editor.org/rfc/rfc6184.html)). 기본 level 3.1로 answer하는 브라우저에서는 수락한 같은 프로필을 `MediaCapabilities.decodingInfo(type='webrtc')`로 조회한다. 해당 모드의 `supported`·`smooth`가 모두 참인 경우에만 answer의 수신 레벨을 올리며, 미지원·실패·500ms 초과는 원래 answer를 유지한다([W3C 계약](https://www.w3.org/TR/media-capabilities/)). level 6 이상이 필요한 요청에는 별도 level 5.2 payload를 함께 제안한다. 현재 libwebrtc는 5.2까지 인식하므로 FHD 240 요청이 FHD 165, QHD 165 요청이 QHD 144, 4K 144 요청이 4K 60으로 낮아질 수 있다([libwebrtc 파서](https://webrtc.googlesource.com/src/+/refs/heads/main/api/video_codecs/h264_profile_level_id.cc)). 네이티브 초기화 거부 시 협상 범위의 낮은 FPS·해상도 모드를 순서대로 시도하고, 인코더의 실제 SPS가 선택한 프로필·레벨을 초과하면 전송하지 않고 종료한다. CPU 인코더로 폴백하지 않는다.
+
+활성 세션에만 `timeBeginPeriod(1)`을 요청하고 종료 시 같은 값의 `timeEndPeriod`를 호출한다([Microsoft 타이머 계약](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod)). worker의 활성 polling은 120FPS 이상에서 1ms, 그 외에는 2ms이며 유휴 상태에서는 멈춘다. 하드웨어 MFT의 입력 허용 이벤트를 개별 credit으로 세며, 작은 scheduler 지연은 프레임 시계에 누적하지 않고 긴 정지는 따라잡기 burst 없이 리셋한다. 하드웨어 인코더가 없거나 화면 회전·잠금·장치 변경으로 DXGI가 실패하면 안내 후 종료한다. 실제 FPS는 소스 화면·인코더·수신 디코더·표시 장치에 제한되며 정지 화면은 새 프레임을 보내지 않는다. 가상 드라이버의 1920×1080·60Hz 모드는 이 설정으로 바뀌지 않는다. HDR·native rotation·4K와 고주사율 하드웨어 실측은 미검증이다.
+
+압축된 Annex B H.264만 worker IPC를 넘는다. 네이티브 버퍼에서 한 번 복사한 정확한 크기의 `Uint8Array`를 worker에서 transfer하며 호스트는 같은 메모리를 읽는다. 한 access unit은 최대 4MiB, worker→호스트는 송신 중 하나와 대기 하나를 합쳐 최대 두 프레임, Windows 인코더 입력은 최대 3개다. 공통 `video-pump.mjs`가 프레임별 ID·세션·협상에 맞는 ACK로 생산량을 제한하고 송신 중에도 다음 프레임을 준비한다. IDR을 인계하면 완료·폐기까지 다음 프레임 생산을 기다려 큰 복구 프레임 뒤에 오래된 P-frame이 쌓이지 않게 한다. `video-pacer.mjs`는 참조 순서를 보존하고 single NAL/FU-A RTP 패킷을 최대 1192바이트로 필요할 때만 생성한다. 전송 예산은 인코더 bitrate의 1.15배이며 패킷마다 UDP/IP/SRTP 여유 48바이트도 차감한다. burst 상한은 최대 패킷 두 개 또는 전송 예산 5ms분 중 큰 값이다. 짧은 타이머 지연을 흡수하되 프레임 경계에서 예산을 다시 채우지 않는다. 네이티브 SR·NACK·DTLS-SRTP 처리는 유지한다.
+
+ACK는 전송 완료·폐기·종료 때 보낸다. 속도 우선의 일반 프레임 대기 한도는 `max(24ms, 2/FPS)`, 품질 우선은 `max(100ms, 2/FPS)`이며 현재 지원 FPS에서 100ms다. 두 모드 모두 IDR에는 최대 500ms를 허용한다. 대기 프레임도 worker 출력부터의 IPC·송신 대기 시간을 이어서 세며 송신 순서가 됐다고 한도를 새로 부여하지 않는다. 두 프레임 중 참조가 끊기면 대기 프레임까지 정리하고 IDR을 요청하며 SPS/PPS를 IDR에 붙인다. 종료·재설정도 모든 ACK를 한 번씩 해제한다. 해상도·요청 품질 모드는 유지하되 실제 혼잡에서는 인코더와 pacer를 함께 감속하므로 압축 화질과 FPS가 낮아질 수 있다. FHD 원본을 줄여 속도를 얻는 정책은 추가하지 않는다. [ADR 0024](../decisions/0024-remote-desktop-fhd-pipeline.md)가 기존 한 프레임 직렬 처리를 대체하며, 프레임 한도는 캡처부터 표시까지의 총지연이나 OS·binding의 모든 큐를 제한하는 값은 아니다.
+
+브라우저 feedback은 약 200ms 간격의 수신·디코드 증분, 손실률, 평균 jitter-buffer 체류, RTT, 가능한 경우 평균 디코드 시간을 전달한다. 손실 2% 초과·수신 버퍼 증가·계속 증가하는 RTT·자체 전송 적체에는 최소 200ms 간격으로 20%씩 감속한다. RTT가 기준보다 25ms 높아진 첫 표본과 해당 상승 구간의 최고값보다 5ms 넘게 증가하는 표본을 구분해, 높은 RTT가 일정하거나 그 주변에서 흔들리는 것만으로 반복 감속하지 않는다. 정상 수신·디코드가 진행하고 손실·버퍼 증가·최근 자체 적체가 없는 2초의 안정 구간에서 RTT 기준을 다시 학습한다. 이는 경로 변경과 혼잡을 구분하려는 휴리스틱이며 완전한 대역폭 추정은 아니다.
+
+수신 버퍼는 관측 최소 체류 시간보다 속도 우선 40ms, 품질 우선 80ms 넘게 증가했는지 판단한다. 기준은 영상 진행 근거가 있고 손실·RTT 상승 신호가 없는 표본에서만 갱신한다. 수신·디코드 증분이 생략되면 최초 디코드 확인과 양수인 구간 버퍼 체류 시간을 대체 근거로 쓴다. 유휴·명시적 디코드 정체의 0ms는 기준에 넣지 않는다. 마지막 감속 후 1.5초가 지나고 영상 진행과 RTT 안정이 확인되면 `dR/dt = 0.25R + 0.05M`으로 회복한다(`M`은 선택 모드의 최대 bitrate, 시간 단위는 초). 표본당 반영 시간은 500ms 이하이고 상한은 `M`이며 유휴 표본은 화질을 회복시키지 않는다. 모드 재설정은 모든 기준과 시계를 초기화한다. 처음부터 높은 수신 버퍼가 일정하면 이를 기준으로 학습할 수 있으므로 절대 지연이 낮다는 보장은 아니다.
+
+전송 bitrate 범위는 350kbps–선택 모드의 초기 bitrate이며 두 우선순위 모두 인코더와 pacer를 같은 값으로 조절한다. 품질 우선은 더 긴 일반 프레임 전송 예산과 수신 버퍼 증가 허용치로 선명도를 우선하고, 무제한 화질 유지나 안정적인 FPS를 보장하지 않는다. 극단적인 저속·손실에서는 유한 전송 한도 뒤 IDR 복구가 필요하다. PLI/FIR와 실제 수신 후 디코드 정체에는 키프레임을 요청하지만 프레임이 오지 않는 정지 화면에 주기적인 IDR을 요청하지 않는다. HEVC·AV1·동적 인코더 FPS·이벤트 기반 worker wake-up은 포함하지 않으며, 디코드 비용을 사용한 수신기 과부하 제어와 완전한 GCC도 후속 검증 대상이다.
+
+큰 IDR을 전송 중일 때는 수신 통계에 따른 중복 IDR 요청을 억제한다. 송신 완료·폐기 후에는 통계에 따른 디코드 정체 복구를 다시 허용한다. pacer의 폐기·PLI/FIR·트랙 열림에 따른 키프레임 요청은 이 억제로 막지 않는다. 이미 큰 키프레임을 전송 중이라는 이유만으로 후속 키프레임이 연속 예약되는 일을 줄인다.
+
+Windows 커서 조회는 영상 생산과 분리된 활성 타이머를 사용한다. 주기는 목표 FPS에 맞추되 최소 8ms·최대 120Hz이며, 두 영상 프레임이 송신을 기다려도 커서 메타데이터를 조회한다. 변경 없는 커서 데이터는 다시 보내지 않고 종료 시 타이머를 정리한다.
+
+### 단계별 진단과 FHD 검증
+
+`connectDesktop()`의 선택적 `diagnostics` callback으로 `sender`와 `receiver` 집계를 받을 수 있다. 기존 화면 통계와 별개이며 기본 UI에 새 안내나 로그 저장을 추가하지 않는다. 현재 peer·협상의 `getStats()` 결과만 약 200ms 주기로 전달하고 종료 뒤 늦은 결과는 버린다.
+
+송신 `video-status`에는 현재 대기 프레임 수, 구간 최대 프레임 크기·송신 처리 시간·native poll 비용·생산 backpressure, 구간 인계 프레임률과 압축 Mbps를 포함한다. `queueMs`는 worker 출력 후 IPC·대기·송신의 구간 최대 체류다. Windows는 WGC의 원본 QPC 시각부터 입력 처리까지의 `captureMs`, 입력 처리부터 출력 배출까지의 `encodeMs`, 적용 속성 `encoderOptions`, 읽을 수 있는 bitrate 속성 `encoderBitrate`를 추가한다. `encodeMs`는 GPU 변환·인코더 내부·poll 배출 대기를 포함하므로 GPU 인코딩 작업만의 시간이 아니다. 읽기 값은 실제 압축 출력률과 구분하며 미지원 값은 생략한다. 속성 비트는 저지연 1·CBR 2·bitrate 4·VBV 8·B-frame 0 설정 16·GOP 32다.
+
+수신 집계는 해상도, 누적 디코드/폐기 프레임·디코드 시간·수신 버퍼 시간과 방출 프레임·freeze 수·표본 시각을 전달한다. 누적값은 구간 증분으로 계산한다. 모드·진단 범위를 벗어난 숫자는 거부하거나 생략하며 미지원 값을 0으로 대체하지 않는다. 호스트·브라우저 시각을 직접 빼지 않고 각 시계 안에서 측정한 기간을 사용한다. Windows native 지표는 QPC 안에서, IPC 체류는 같은 Node 프로세스의 performance origin을 사용한다.
+
+FHD의 우선 비교 조건은 실제 소스 1920×1080, 요청 FHD·60FPS·고화질(12Mbps), 같은 표시 배율·네트워크다. 해상도를 낮추거나 프레임 데이터를 재압축하지 않은 상태에서 비교한다. 2026-10-20 fake-clock 검사에서 25KB AU·8ms 합성 인코더·2ms polling의 2초 처리량은 직렬 105→중첩 117프레임이며 양쪽 폐기는 0이다. RTT 10→40ms·정상 수신의 4초 사례는 이전 12Mbps→350kbps 붕괴 대신 12Mbps로 복구한다. 혼잡 30회 이후 200ms 간격의 정상 feedback에서는 FHD 12Mbps 회복이 55.6→8.2초다. 실제 GPU·회선·StarDesk 대비 FPS나 입력 후 표시 지연 측정은 아니다.
+
+2026-10-16 결정론적 feedback 재현에서 손실 0·RTT 10ms·수신 버퍼 45ms·지속 디코드 조건을 200ms마다 전달했다. 이전 제어는 2.4초에 6Mbps에서 350kbps까지 감속했고, 수정 후에는 같은 조건에서 6Mbps를 유지했다. 고정 45/80ms와 유휴 표본 교차, 디코드 정체·손실 표본의 기준 오염 방지, 기준 대비 버퍼 증가·손실·RTT 상승에 대한 감속과 모드 재설정은 단위 검사로 확인한다. 실제 기기에서의 화질·FPS·입력 후 표시 지연 개선이나 StarDesk와의 성능 비교를 측정한 결과는 아니다.
+
+같은 날 100KB IDR·콜백 간격 4ms의 결정론적 전송 재현에서 6Mbps 모드의 완료 시간은 332→120ms, 12Mbps는 168→60ms로 줄었다. 이는 fake clock으로 pacing 정책만 비교한 값이며 실제 네트워크 처리량이나 입력 후 화면 표시 지연이 아니다. 실제 타이머 지연 분포·GPU 인코딩·외부망·수신 디코더 성능은 별도로 측정해야 한다.
+
+브라우저는 `<video>`와 지원되는 `jitterBufferTarget=0`을 사용한다. 실제 최소 buffer는 브라우저가 정한다. 연결 실패 또는 offer 후 20초 안에 decode가 없으면 복구 안내를 표시한다. 기존 1.2초 서버 전송 전환은 제거했다. 커서 PNG·위치는 기존 별도 메타데이터로 보내 로컬 커서·입력 seq 보정을 유지한다. 마우스 motion은 unordered/retransmit 0, 버튼·키·붙여넣기·복구 feedback은 reliable DataChannel을 사용한다.
+
+기본 ICE는 Google·Cloudflare의 공개 STUN이며 네이티브 agent를 교체해 제한적으로 재시도한다. 연결이 지연되면 OS 기본 게이트웨이에서 PCP/NAT-PMP/UPnP의 짧은 임시 매핑을 요청한다. 설치 시 Windows가 승인한 UDP 앱 규칙을 준비하며 기존 차단 정책은 보존한다. 상세 수명·진단·검증 범위는 [외부 직결 계약](remote-desktop-connectivity.md)을 따른다. HTTPS 터널은 인증·협상만 전달하므로 터널 접속 성공과 외부 영상 연결 성공은 구분한다.
+
+## 뷰어 설정과 좌표
+
+설정의 `SelectField`로 해상도·목표 FPS·영상 품질·전송 우선순위를 선택한다. 바꾸면 눌린 입력과 기존 연결을 정리하고 같은 공유 화면에 새 세션으로 연결한다. 설정은 scope가 적용된 `mew-desktop-video` 브라우저 저장소에 기록하며 잘못된 값·읽기 실패는 기본값으로 복구한다. 요청값과 실제 협상 모드는 구분한다. 설정 창과 상단 통계에는 실제 수신 해상도·초당 디코드 프레임·적용 목표 FPS·RTT·Mbps·H.264 프로필·자체 전송 대기 시간을 표시한다. 약 1초마다 UI를 갱신해 200ms feedback이 React 렌더 빈도를 높이지 않게 한다. RTT는 ICE 경로의 왕복 시간이고 입력 후 표시 지연이 아니며, 수신 FPS도 디스플레이에 표시한 FPS의 실측은 아니다([WebRTC 통계](https://www.w3.org/TR/webrtc-stats/)).
+
+전체화면 버튼이 있는 상단 바는 현재 세션의 수신·송신 합계를 `누적 12.3 MB`처럼 표시한다. 수신·송신별 값은 접근성 이름과 title에 제공한다. 기존 stats 조회에서 약 1초마다 갱신하며 준비 중에는 `0 B`, 종료·오류 뒤에는 마지막 집계값을 유지한다. 다시 연결·공유 화면 변경·뷰어를 다시 열면 새 세션으로 0부터 시작하며, 같은 세션의 ICE 협상 재시도·회전·전체화면 전환은 누적값을 유지한다.
+
+`desktop-network.ts`는 브라우저의 [WebRTC candidate-pair 바이트 통계](https://www.w3.org/TR/webrtc-stats/#dom-rtcicecandidatepairstats-bytesreceived)를 ID별 증분으로 합쳐 영상과 DataChannel 입력을 집계한다. RTP·DataChannel 통계를 다시 더하지 않는다. 이전 경로가 stats에서 사라져도 이미 센 값은 유지하고, 새 peer의 카운터는 별도로 시작한다. 인증 WebSocket의 송수신 문자열은 UTF-8 바이트 길이를 더한다. 설치·준비 HTTP와 다른 Mew 기능의 통신은 제외한다. WebRTC 통계에 없는 헤더·padding·ICE 연결 검사 및 WebSocket/TLS/IP 헤더는 포함하지 않으므로 운영체제·통신사의 전체 트래픽 청구량과 다를 수 있다. 종료 시 WebRTC 값은 마지막 stats 표본을 사용한다.
+
+접속별 값의 증분은 [앱 헤더의 누적 네트워크 사용량](network-usage.md)에도 반영한다. 헤더는 여러 원격 세션의 값을 연결 종료 후에도 유지하고 설치·준비 HTTP도 원격 데스크톱 범주에 포함한다. 공통 추적기는 인증 WebSocket을 중복해서 세지 않는다.
+
+입력 장치에 따른 컨트롤 표시는 서로 독립적이다. `(any-hover: hover) and (any-pointer: fine)`의 초기 값·`change` 알림으로 마우스·트랙패드 가용성을 추정하고, 원격 화면의 `pointerType=mouse` 입력으로도 가상 마우스 묶음(화면 이동·확대·핸들 포함)을 숨긴다. `pen`은 마우스로 판정하지 않는다. 미디어 조건이 해제되면 다시 표시하고, 조건이 false인 상태의 화면 터치도 다시 표시한다. 원격 화면·뷰어 루트에 들어온 trusted·비조합·지원 `code`의 첫 keydown으로 핫키 바 전체를 숨긴다. 설정·붙여넣기 필드·조이스틱의 키 입력과 합성 이벤트로는 키보드를 판정하지 않는다. 키보드 감지는 뷰어 수명 동안 재접속·회전·배치 초기화에도 유지한다. 브라우저가 범용 키보드 연결·분리 API를 제공하지 않으므로 연결만 된 키보드의 즉시 감지와 분리 후 자동 복원은 지원하지 않는다. `code`는 가상 키보드·접근성 장치에서도 생성될 수 있어 물리 장치 여부의 확정 근거는 아니다([MDN code](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code), [any-pointer](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/@media/any-pointer)). 숨기는 컨트롤은 unmount하여 터치·Tab 탐색 대상에서 제외하고 진행 중 조이스틱 입력을 정리한다.
+
+상단 도구 줄은 다른 패널 헤더와 같은 `surface-deep` 배경·`edge` 아래 경계·36px 높이를 사용한다. 닫기는 24px, 다른 도구는 28px 버튼으로 표시하고 제목·도구 글자는 12px이다. 폭 600px 이하에서는 제목과 도구를 각각 36px의 두 줄로 나누며 safe-area는 별도로 더한다. 데스크톱의 내부 독도 헤더 높이에 맞춘다.
+
+공유 화면·영상 설정·핫키 보조키는 공통 `SelectField`로 선택한다. 목록은 회전하는 원격 데스크톱 패널에 portal해 영상·컨트롤과 함께 회전한다. `SelectField`는 변환된 portal 컨테이너의 로컬 좌표로 메뉴를 배치하고 컨테이너 크기·변환 변경을 추적한다. 일반 뷰어·브라우저 전체화면에서 같은 위치와 입력 경계를 사용한다. Esc는 목록 → 설정 순으로 닫고 원격 화면은 유지한다. 뒤로가기는 목록 → 설정 → 원격 화면 순으로 닫고, 보조키 선택은 원격 컴퓨터에 키 입력을 보내지 않는다. 공유 화면 변경 시 기존 재연결 경로로 선택한 화면 ID를 전달한다.
+
+기본 뷰어는 작업 독을 표시한다. 모바일에서는 하단 고정 바, 데스크톱에서는 이동 가능한 반투명 캡슐을 사용한다([독 계약](ui-contracts.md#독과-상단-메뉴)). App의 독 컴포넌트는 상태를 유지한 채 `dockHostRef`로 받은 뷰어 내부 DOM에 portal하여 배경 inert에 막히지 않는다. 모바일 영상 영역과 조이스틱은 독 높이 48px + safe-area를 비운다. 실제 브라우저 전체화면에서는 호스트를 숨기고 여백을 없애며, 해제하면 다시 표시한다. 모바일 키보드 중 독 숨김도 유지한다. 독에서 다른 패널을 누르거나 스와이프하면 뷰어를 닫고 연결·눌린 입력을 정리한 뒤 해당 패널로 이동한다. 같은 원격 데스크톱 버튼은 연결을 다시 만들지 않는다. 독 순서·터치 이름 토스트 상태는 portal 이동 때도 유지한다. 배경 편집기와 설치 터미널의 기존 모달/inert 경계는 유지한다. 기본 뷰어에서 독을 가리던 동작은 사용자 요청으로 제거했으며 요청 전 재도입하지 않는다.
+
+- 상단 전체화면은 `document.documentElement.requestFullscreen()`과 `fullscreenchange`로 실제 브라우저 상태를 동기화한다. 설치 터미널이 별도 body portal이므로 문서 전체를 대상으로 한다. 뷰어가 시작한 전체화면만 unmount에서 정리한다. 거절·미지원은 상태 안내로 처리한다([Fullscreen API](https://developer.mozilla.org/en-US/docs/Web/API/Element/requestFullscreen)).
+- `.desktop-panel`이 영상·로컬 커서·마우스·핫키·도구 모음·설정·작업 독을 함께 90도씩 회전한다. 90/270도에서는 패널의 레이아웃 폭·높이를 바꾸고 컨테이너 쿼리로 내부 UI를 배치한다. video/canvas는 회전 전 패널 좌표에서 contain·줌·pan을 계산해 중복 회전을 피한다. `desktopLocalPoint`와 `rotateDelta`가 직접 클릭·터치 이동·조이스틱 입력·핸들 이동을 패널 로컬 좌표로 역변환한다. 로컬 커서와 조이스틱 손잡이는 부모 패널과 함께 회전한다. 회전 시 눌린 입력·터치를 해제하고 줌·pan·컨트롤 배치를 초기화한다. 전역 video `max-width` 제한은 해제한다. 직접 영상의 `loadedmetadata`와 `resize`에서 양수 크기를 동기화하여 같은 track의 원격 해상도 변경에도 투영을 갱신한다.
+- `DesktopStick`의 감도 배율은 기본 3, 범위 0.5–6, 간격 0.1이다. `desktopStick`의 속도 비례 이동량에 곱한다. 기준 속도 200 CSS px/s에서는 초기 감도 3배일 때 CSS 1px당 원격 6px, 키보드 방향키는 속도 가속 없이 기존 16px의 3배다. wheel·pan·zoom에는 곱하지 않는다. `mew.desktop.sensitivity` localStorage 값은 숫자만 인정하고 범위를 제한한다. 저장 불가 시 현재 창에서만 적용한다.
+- `DesktopFloating`은 마우스와 세로 핫키의 pointer capture·방향키 이동·취소·크기 변경 시 경계 제한을 공유한다. 위치는 현재 뷰어 수명 안에서만 유지하고 설정에서 함께 초기화한다. 핫키 목록은 짧은 가로 화면에서 스크롤하고 핸들은 남긴다.
+- 핫키 바는 폭 56px·바깥 여백 2px·항목 높이 24px·글자 9px의 밀집 배치다. 위쪽 화살표로 목록을 접고 펼친다. 접으면 폭 32px으로 줄고 펼치기 버튼·이동 핸들만 남으며 숨긴 항목은 포커스·터치 대상에서 제외된다. 접힘 상태는 뷰어 수명 안에서 회전·위치 초기화·재접속에도 유지하고, 펼칠 때 변경된 크기로 화면 경계를 다시 제한한다.
+- 핫키는 연결 중에만 보낼 수 있다. 기존 눌린 입력을 해제하고 조합을 순서대로 누른 뒤 역순으로 해제하고 마지막 release를 보낸다. Ctrl/Cmd 선택은 현재 뷰어에 적용한다. OS가 예약하거나 지원하지 않는 키 조합의 처리는 기존 네이티브 입력 어댑터를 따른다.
+- 설정을 열면 감도 입력으로 포커스를 이동한다. 도구에 포커스가 있을 때 Esc는 보조 창 → 전체화면만 정리하고 반복해도 뷰어를 닫지 않는다. 모바일 뒤로가기는 보조 창 → 전체화면 → 뷰어 순으로 정리하며, 닫기 버튼은 연결을 바로 끝낸다. 보조 창/전체화면만 닫은 Back은 `closeOnBack`에서 false를 반환해 history guard를 다시 등록한다. 화면 자체에 포커스가 있을 때만 일반 키보드를 원격으로 전송한다.
+
+## 입력과 권한
+
+마우스 UI의 전체 폭은 132px, 높이는 184.8px이다. 상단 세 영역의 가로 비율은 2:1:2이고 높이는 전체 폭의 2/5(52.8px)다. 좌클릭·우클릭 각각은 52.8×52.8px 정사각형이며 휠은 26.4×52.8px이다. 하단 커서 이동 영역은 132×132px 정사각형이다. 오른쪽 화면 이동·확대 컨테이너 아래에는 같은 폭의 44px 높이 이동 핸들을 8px 간격으로 놓는다. 두 열은 CSS Grid로 위·아래를 맞춰 오른쪽 컨테이너·간격·핸들의 전체 높이가 왼쪽 마우스와 같도록 한다. 패널 회전 시에도 같은 비율을 유지한다. 연결 안내는 플로팅 컨트롤 위에 표시해 크기·이동 위치와 관계없이 재연결·설치 버튼을 누를 수 있게 한다.
+
+[ADR 0145](../history/decisions/0145-mew-desktop-mouse-controls.md)에 따라 상단 좌클릭·휠·우클릭과 하단 전체 너비의 커서 전용 패드를 마우스 형태로 묶는다. 화면 이동·확대는 옆의 별도 열에 두며 기존 핸들로 전체를 옮긴다. 좌·우 조이스틱은 3px 이동 문턱에서 첫 이동보다 먼저 button-down을 보내고, up/cancel/blur에서 해제한다. 커서 패드는 탭·hold 모두 버튼을 보내지 않는다. 휠만 일반 세로 스크롤과 320ms hold 후 중간 버튼 드래그를 구분한다. 방향키 드래그도 모든 방향키 해제·blur·비활성화에서 button-up을 보낸다.
+
+[ADR 0154](../history/decisions/0154-mew-desktop-touchpad-motion.md)의 커서·버튼 드래그는 직전 입력과의 위치 차이를 즉시 처리한다. 기본 이득 2px × 속도 가속 × 설정 감도를 적용한다. 최초 3px 문턱을 넘으면 시작 거리도 포함하고 이후 미세 이동·방향 반전을 보존한다. 손잡이의 8px 시각 반경은 터치패드 입력 거리를 제한하지 않으며 새 터치에서 기준점을 초기화한다.
+
+[ADR 0169](../history/decisions/0169-mew-desktop-view-velocity-controls.md)에 따라 일반 휠·화면 이동·확대는 속도 조이스틱이다. 탭/hold 구분을 위해 최초 3px 이동 뒤 시작하며, 이후에는 최초 접촉점이 아닌 `.desktop-stick-ring` 중앙 기준 변위를 사용한다. 반경 3px은 정지 영역, 32px은 최대 속도다. 정지 영역 밖 거리 / 29px을 0–1의 t로 제한한 뒤 t / (1 + t) 곡선을 휠 900px/s·pan 600 CSS px/s·zoom 로그 배율 1.5/s에 곱한다. 중앙 근처의 미세 조작을 유지하면서 멀리 밀수록 추가 속도 증가폭을 줄인다. 실제 최대 속도는 휠 450px/s·pan 300 CSS px/s·zoom 로그 배율 0.75/s로 기존 선형 응답의 절반이다. 손잡이의 시각적 이동은 기존 선형 비율을 유지한다. 휠·zoom은 세로 축만, pan은 방사형으로 정규화한 두 축을 사용한다. rAF와 입력 표본 사이 경과 시간을 적분해 밀어 둔 동안 계속 조절하며 한 번의 적분은 50ms로 제한한다. 중앙 복귀·up/cancel/blur·비활성화·unmount에서는 멈춘다. 휠 hold 후 중간 버튼 드래그는 터치패드 방식을 유지하고 일반 스크롤 도중 hold 드래그로 전환하지 않는다. 방향키는 기존 반복 입력을 유지한다.
+
+마우스·화면 조절 열·이동 핸들·왼쪽 핫키 바는 테마 surface 78%와 투명색을 혼합한 배경 및 4px backdrop blur를 사용한다. 컨테이너 opacity는 적용하지 않아 글자·아이콘·포커스 표시는 선명하게 유지한다.
+
+속도 가속은 `min(16, hypot(Δx, Δy) / Δt / 0.2)`이며 Δt 단위는 ms다. 브라우저 이벤트의 `timeStamp`와 지원되는 `getCoalescedEvents()` 표본을 사용해 React 처리 지연을 손가락 속도로 오해하지 않는다. 양수 소수 시간 간격은 그대로 사용하고, 같거나 역행하는 timestamp만 1ms로 계산한다. 비정상 좌표/시각은 무시한다. 극단적으로 빠른 이동에는 가속 16배 상한을 두되 저속 하한은 두지 않아 정밀 이동을 유지한다. 같은 일정 속도라면 표본 분할 수와 무관하게 같은 거리를 보낸다. 커서·버튼 드래그에서 손가락을 멈춘 rAF는 이동을 생성하지 않으며 새 터치에서 시각·위치 기준을 초기화한다. wheel의 중간 버튼 드래그에도 가속을 적용하지만 일반 스크롤·pan·zoom·물리 마우스 절대 좌표·키보드 반복 속도에는 적용하지 않는다. 예시의 100px/50ms와 100px/500ms는 상한 이내여서 이동량이 정확히 10배다. 원격 화면 경계에서는 기존 좌표 clamp가 우선한다.
+
+Windows 키 입력은 `MapVirtualKeyW(vk, MAPVK_VK_TO_VSC_EX)`로 변환한 스캔 코드를 `SendInput`의 `wScan`에 기록하고 `KEYEVENTF_SCANCODE`로 전송한다. E0 접두사는 `KEYEVENTF_EXTENDEDKEY`로 분리하며 누름·해제에 같은 형식을 사용한다. 일반 Enter와 가상 키 값이 같은 숫자패드 Enter는 E0 1C로 구분한다. E1/Pause·한/영·한자와 변환 불가 키는 가상 키 경로를 유지한다. 이는 기존 `wScan=0` 가상 키 전송의 게임 입력 호환성 문제를 개선하기 위한 변경이다([KEYBDINPUT](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-keybdinput), [MapVirtualKeyW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mapvirtualkeyw)). `remote-desktop-native.test.ts`는 WASD/Q/E/F/G/Space의 실제 패킷 바이트와 수정키·확장키·숫자패드·폴백을 FFI 대역으로 검사한다. Roblox 실기 성공이나 모든 게임의 입력 허용을 보장하는 검증은 아니다.
+
+`desktop-input.ts`와 네이티브 `protocol.mjs`의 v1 스냅샷은 누적 이동/휠 카운터, 전체 버튼 비트셋(left=1, middle=2, right=4), 키 목록, 선택적 정규화 절대 위치를 담는다. 소수 이동을 누적한 뒤 정수로 전송해 미세 입력을 보존한다.
+
+- `motion`: unordered, maxRetransmits=0. 송신 큐가 2KB를 넘으면 건너뛰고 다음 누적 스냅샷으로 거리를 복구한다.
+- 일반 포인터 이동·드래그·휠은 선택한 목표 FPS를 따르고, 모드 협상 뒤에는 적용 FPS(30–240)를 상한으로 합친다. rAF가 늦어도 따라잡기 burst를 보내지 않는다. 마지막 이동/휠 이후 약 70ms의 첫 rAF에서 reliable 스냅샷으로 유실을 복구한다. 버튼·키 전환은 프레임을 기다리지 않는다.
+- `control`: ordered/reliable. 버튼·키 전환과 250ms heartbeat마다 epoch를 올린다. 큐가 64KB를 넘으면 연결을 종료한다. 커서 feedback만 받은 대기 heartbeat·키보드 입력·해제는 절대 좌표를 보내지 않는다. 실제 클릭·휠·이동과 마지막 유실 이동 복구에는 좌표를 동반한다.
+- seq로 오래된 패킷을 버린다. 미래 epoch의 motion은 최신 하나만 보관하고 해당 reliable 전환 뒤 적용한다. 빠른 이동 패킷이 클릭 down/up을 추월해 클릭 자체를 없애지 못한다.
+- 유실된 마지막 이동은 기존 버튼 상태로 먼저 복원하고 새 버튼 전환을 적용한다. down/up/wheel 모두 UI 이벤트의 좌표를 먼저 계산하고, 놓는 위치가 화면 밖이면 가장자리로 제한한다. 휠도 같은 좌표를 동반하며 수신기가 위치를 적용한 뒤 처리한다.
+- blur·pointercancel·lost capture·닫기에서 해제한다. 백그라운드 진입은 영상도 종료한다. 네이티브 입력 heartbeat가 1.5초 끊기면 해제 후 종료한다.
+- 서버는 3초마다 인증과 WS 생존을 검사한다. 계정·역할·세션 무효화는 연결을 종료한다. 보조 앱은 부모 lease가 8초 없거나 stdin이 닫히면 종료한다. 세션이 없을 때 상주 pool만 idle lease를 보낸다. 정상 종료가 지연되면 자신이 띄운 자식만 종료하며, native cleanup 확인 또는 기존 lease 만료 전 새 제어권을 주지 않는다.
+- 입력은 초당 unreliable motion 300개와 reliable control 256개로 각각 제한해 고주사율 이동이 키·버튼의 수신 예산을 소진하지 않게 한다. 초과 motion은 다음 누적 스냅샷으로 복구하고 초과 reliable 입력은 연결을 종료한다. 협상 메시지 3초당 128개 및 수신 WS 메시지 128KB 상한, Wayland 입력 대기 32개 상한을 둔다. WebSocket 입력·프레임 ACK는 받지 않는다. 세션 종료 시 DataChannel과 입력 수신기를 해제하며 새 세션은 새 seq/epoch 상태로 시작한다.
+
+물리 데스크톱은 Mew 계정별로 격리되지 않는다. 한 서버 프로세스에 제어 연결 하나만 허용한다. 같은 OS 사용자로 서버 여러 개를 실행하면 서버 간 잠금은 공유되지 않으므로 원격 제어용 서버는 하나만 운영한다. 권한 기준본은 [security.md](../operations/security.md)다.
+
+## 화면 키보드
+
+`DesktopScreenKeyboard`는 뷰어 도구의 명시적 토글로 열며 `full`·`game` 모드를 제공한다. 풀키는 표준 영문 키보드와 한/영·한자 총 106개 키를 표시하고 Ctrl·Shift·Alt·Meta를 탭으로 고정/해제한다. 게임 모드는 Q/W/E, A/S/D, F/G/Space의 3열 배치로 시작하며 포인터별 누름/해제를 보낸다. 게임 수정키도 일반 키처럼 누르는 동안만 유지한다. 여러 포인터가 같은 키를 누르면 마지막 포인터를 뗄 때만 해제한다.
+
+게임 키 편집은 공통 `SelectField`에서 `KEY_CODES`에 있는 키를 선택하며 자리별 변경·추가·삭제·기본값 복원을 제공한다. 중복 키와 모르는 키를 제외하고 1~24개를 허용한다. `mew-desktop-screen-keyboard`에 모드·키 코드 배열·키보드 전용 보기 여부를 계정/인스턴스 범위의 브라우저 저장소로 저장한다. 손상된 저장값은 기본 풀키/게임 배치로 복구하며 저장 불가 시 현재 뷰어 안에서 동작한다. 열린 상태는 영구 저장하지 않는다.
+
+풀키는 영상 아래 공간을 사용하며 키보드 높이만큼 가상 마우스/뷰 컨트롤의 하단 위치를 보정한다. 좁거나 낮은 패널에서는 키보드 내부를 스크롤한다. 게임 패드는 영상 위에 표시하고 좁은 세로 화면에서는 왼쪽 위로 옮겨 오른쪽 아래 가상 마우스와 구분한다. 패널 회전을 함께 따르고 회전 시 눌림을 해제한다. 설정·입력·도움말·설치 창이 열리면 키보드를 제거하고 키를 해제한다.
+
+`키보드만 보기`는 연결된 상태에서 영상 영역과 가상 마우스를 숨기고 두 키보드 모드가 패널의 남은 공간을 사용하게 한다. 영상 요소·수신 스트림·입력 연결은 유지하며 전송을 중단하지 않는다. 숨긴 영상 영역은 포커스·접근성 탐색에서도 제외한다. 토글 해제·키보드 닫기·다른 도구 열기에서 화면을 복원하고, 연결 종료 시에는 연결 안내를 다시 표시한다. 이전 저장값에 `keyboardOnly`가 없으면 `false`로 복원한다. 보기 전환에서도 눌린 화면 키를 해제한다.
+
+화면 키는 `DesktopInput.key`의 `screen` 소유자로 등록하며 기존 물리 입력은 `physical`을 사용한다. 두 소유자의 합집합을 기존 최대 16키 스냅샷에 담아 같은 키의 한 소유자가 해제되어도 다른 소유자의 누름을 보존한다. 키보드 닫기·모드/배치 변경·터치 취소·disabled·회전·전체화면 전환·window blur·다른 도구로 포커스 이동·unmount에서 화면 소유 키를 해제한다. 원격 화면과 화면 키보드·가상 마우스 사이의 포커스 이동 및 화면 포인터 캡처 해제는 `releasePhysical()`로 물리 키·마우스 버튼만 정리하여 다른 손가락이 누르는 게임 키를 유지한다. 전체 `input.release()`는 두 소유자를 비우고 `onRelease` 구독으로 화면의 포인터·수정키 표시도 초기화한다. 전송 형식과 네이티브 입력 제한은 바꾸지 않는다.
+
+검증: `desktop-screen-keyboard.test.ts`·`desktop-input.test.ts`에서 저장값 정규화·공유 키 소유권·멀티터치 상태·수정키·해제를 검사한다. `server/desktop-screen-keyboard-ui.test.ts`는 PC/모바일 양 테마, 실제 멀티터치 누름 유지·취소, 편집·재열기·새로고침과 연결/회전/전체화면/blur/닫기 해제를 확인한다. `server/remote-desktop-ui.test.ts`는 기존 합성 WebRTC 호스트에 화면 키를 전달한다. 실제 게임의 입력 호환성과 물리 OS 보안 키는 보장하지 않는다.
+
+## 키보드 잠금과 클립보드
+
+연결된 원격 화면 또는 뷰어 루트에 포커스가 있을 때 `registerKeyboardCapture`의 공통 window capture 리스너에서 모든 키의 기본 동작·전파를 막고, 지원되는 `KeyboardEvent.code`를 원격으로 전달한다. 이 리스너는 App의 탭 닫기·생성·번호·좌우 이동과 오버레이보다 먼저 등록되므로 Ctrl/Cmd+W·N·Shift+N·T·숫자·Tab 및 Escape·F6도 원격 키다. keydown과 keyup의 소유자가 같으며 도구·설정·입력·도움말·설치 터미널의 로컬 입력은 보존한다. 화면 포커스 이탈·window blur·뷰어 종료에서 눌린 키를 해제한다.
+
+숫자패드(Enter·사칙연산 포함), Insert·PrintScreen·ScrollLock·Pause·ContextMenu, F13–F24, 국제 배열·한/영·한자 및 매핑 가능한 미디어·브라우저 키를 `keys.mjs`에 포함한다. 지원하는 네이티브 키 코드가 없는 Mac 키는 `null`로 명시해 0번 KeyA로 바뀌지 않게 한다. 클라이언트 OS가 브라우저로 보내지 않거나 호스트 OS/배열에 없는 키는 전달을 보장하지 않는다. 반복 keydown은 동일 키 해제·누름 두 reliable 스냅샷으로 전환해 상태 차이만 적용하는 수신기에서도 반복 입력을 보존한다. 키를 누른 채 원격 화면에 들어와 처음 받은 이벤트가 반복이면 먼저 누름 상태를 전달한다. 이미 누른 수정키 상태로 화면에 들어온 경우 이벤트 플래그로 누락된 수정키를 먼저 전달한다.
+
+JavaScript 전체화면의 원격 화면 포커스에서는 지원 브라우저의 `navigator.keyboard.lock()`으로 브라우저가 허용하는 전체 키 잠금을 요청한다. `keyboard-lock.ts`의 높은 우선순위 요청이 앱 예약키 잠금을 대체하고 포커스 이탈·보조 창·연결 종료 뒤에는 같은 전체화면의 앱 잠금을 복원한다. 전체화면 해제·window blur·화면 숨김에서는 해제하며 늦은 승인 응답이 새 소유자의 잠금을 해제하지 않게 수명을 검사한다. API 미지원·비전체화면·secure context 미충족·거부 상태에서는 브라우저가 전달한 이벤트만 차단할 수 있다. 거부는 안내로 표시하고 연결을 유지한다. Ctrl+Alt+Delete 같은 보안 키, 플랫폼에 따른 Windows 키·Alt+Tab, Chrome의 Esc 길게 누르기 탈출은 완전 차단을 보장하지 않는다. Keyboard Lock을 위해 클라이언트에 보조앱을 설치하지 않는다([Keyboard Lock](https://developer.chrome.com/docs/capabilities/web-apis/keyboard-lock)).
+
+텍스트 클립보드는 reliable WebRTC control 채널로만 요청·응답한다. `clipboard-read`의 양수 요청 ID를 `clipboard` 응답과 대조하며 3초 timeout, 브라우저 대기 요청 2개와 호스트 진행 요청 1개 상한을 둔다. 현재 세션·로그인 데스크톱 제어 권한을 읽기 전후에 검사하고 종료 뒤 응답은 폐기한다. 4096 UTF-16 코드 유닛과 16KB 응답 메시지 상한을 적용하고 NUL·비텍스트·초과 입력은 오류 또는 빈 텍스트로 처리한다. 클립보드 내용은 저장·로그·인증 WS로 전송하지 않는다.
+
+원격 화면에서 Ctrl/Cmd+C·X를 원격으로 보낸 뒤 200ms 후 클립보드 텍스트를 가져와 브라우저 클립보드에 쓴다. Ctrl/Cmd+V는 브라우저 클립보드를 읽고 기존 paste 경로로 원격 클립보드를 설정한 뒤 OS별 붙여넣기를 실행한다. Shift/Alt가 추가된 붙여넣기 조합은 키 그대로 원격에 전달한다. 성공 후 아직 누른 키를 브라우저 스냅샷에 복원하고 네이티브 `keyChord`도 클립보드 쓰기가 끝난 시점의 최신 키 상태를 복원한다. 읽기·공유 실패 시 같은 포커스에서 원격 Ctrl/Cmd+V를 보내 기존 원격 클립보드로 붙여넣는다. 비동기 읽기 중 포커스·세션이 바뀌면 공유·폴백을 폐기한다. 변경 감시·상시 polling·이미지·파일 클립보드는 제공하지 않는다. 입력 창의 **원격 클립보드 가져오기**·**내 클립보드 붙여넣기**로 명시적으로 재시도할 수 있으며 기존 텍스트 입력도 유지한다. 브라우저의 secure context·클립보드 권한·사용자 활성화 제한으로 자동 동작이 실패하면 안내를 표시한다([Clipboard API](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API)).
+
+Windows는 CF_UNICODETEXT의 메모리를 한도 내에서 읽고 lock/clipboard handle을 항상 해제하며 OS 소유 메모리를 free하지 않는다. Mac은 NSPasteboard 문자열을 제한된 UTF-8 버퍼로 읽는다. Linux는 `wl-paste` 또는 `xclip`을 셸 없이 실행하며 2초·16KB 출력 상한을 둔다.
+
+## OS 어댑터
+
+모든 지원 OS에서 `native-host.mjs`·`native-direct.mjs`와 상주 호스트 수명 관리를 공유한다. 영상은 하드웨어 H.264의 WebRTC 직결이며 Electron·VP8·서버 영상 중계로 폴백하지 않는다.
+
+| 호스트 | 캡처·인코딩 | 입력 |
+| --- | --- | --- |
+| Windows/WSL | D3D11·Media Foundation | SendInput |
+| macOS 13+, x64/arm64 | ScreenCaptureKit·VideoToolbox | CoreGraphics·손쉬운 사용 권한 |
+| Linux X11, x64/arm64 | GStreamer X11 캡처·VA-API/NVENC | XTest |
+| Linux Wayland, x64/arm64 | ScreenCast portal·PipeWire·VA-API/NVENC | 같은 RemoteDesktop portal 세션 |
+
+설치 요구 사항, OS 승인·잠금·캡처 종료 확인과 실제 검증 범위는 [POSIX 네이티브 계약](remote-desktop-posix.md)을 따른다. 대기 중 화면을 캡처하거나 인코딩하지 않는다. 하드웨어·권한이 부족하면 명시적으로 실패한다.
+
+## macOS 캡처·설치 계약
+
+### Mac 터미널 권한 준비
+
+자체 `MewDesktop.app`의 같은 실행 파일에서 권한을 확인하고 누락된 손쉬운 사용·화면 기록 권한만 요청한다. 기존 Electron 권한은 새 앱의 승인을 대신하지 않는다. [권한 준비 상세](remote-desktop-posix.md#%EC%84%A4%EC%B9%98%EC%99%80-%EA%B6%8C%ED%95%9C)를 따른다.
+
+### 캡처 모듈
+
+`gpu-macos.m`의 ScreenCaptureKit NV12 surface를 VideoToolbox 하드웨어 인코더에 전달한다. 비압축 화면을 JS로 읽지 않는다. [GPU 경로와 제한](remote-desktop-posix.md#%EC%98%81%EC%83%81-%EA%B2%BD%EB%A1%9C)을 따른다.
+
+## 검증
+
+2026-10-07 영상 최적화에서는 대상 회귀 검사 159개 중 153개를 통과하고 opt-in 6개를 건너뛰었다. 격리 Chromium 뷰어 2개·PC/모바일 영상 설정, Linux 네이티브 Xvfb의 144FPS 목표와 240→165FPS 대체 협상, Linux 네이티브의 격리 UDP NAT 연결도 확인했다. TypeScript·lint(기존 경고)·description·diff 검사를 통과했다. UI 정적 탐지는 기존의 동적으로 `src`를 설정하는 숨김 커서 이미지 한 개만 경고한다. Linux 운영/테스트 모듈을 임시 SDK에서 별도 컴파일하고 Windows 소스를 설치된 Windows SDK로 문법 검사했다. WSL interop이 비활성이라 새 Windows GPU 모듈의 실행은 확인하지 못했다. 고주사율 목표의 협상 성공은 해당 FPS의 물리 GPU 처리·표시나 고화질에서의 입력 후 표시 지연 실측을 뜻하지 않는다. 이번 변경의 Mac 실행·앱 빌드·설치본 갱신·운영 서버 재시작은 수행하지 않았다.
+
+상주 호스트 검사는 캡처 없는 예열, 종료 확인 후 재사용, 오래된 세션의 응답 격리와 종료 실패 시 제어권 재사용 금지를 확인한다. WebSocket 검사는 인증 회수·단일 제어권과 중계 거부를 확인한다. 합성 브라우저 검사는 실제 WebRTC의 첫 영상·입력 준비와 연결당 한 번의 알림 신호를 검사한다.
+
+Linux X11의 네이티브 캡처·H.264 직접 전송·XTest 입력·인증 회수·같은 프로세스 재접속은 격리된 Xvfb에서 검사한다. 해당 검사의 소프트웨어 인코더는 별도 테스트 빌드에만 존재하며 운영 하드웨어 성능의 증거가 아니다. Wayland는 격리 D-Bus에서 실제 Unix FD 전달과 portal 수명을 검사한다. 실제 Mac·Linux GPU 및 Wayland compositor 실기는 미검증이다. [구체적 검증 범위](remote-desktop-posix.md#%EA%B2%80%EC%A6%9D)를 따른다.
+
+이전 Windows 검증과 Mac/Linux Electron 검증은 [이전 전송 기록](../history/remote-desktop-electron-transport.md)·[이전 POSIX 기록](../history/remote-desktop-posix-electron.md)에 보존한다.
+
+Windows pipe의 opt-in 검사는 별도 임시 native host로 인증한 입출력·로그인 세션·JS가 멈춘 자식의 부모 종료 처리를 확인한다. 기존 설치본의 launcher·진입점을 덮어쓰지 않는다.
+
+실제 Windows 하드웨어 검증은 `server/remote-desktop-gpu-windows.test.ts`의 opt-in으로 실행한다. 설치본을 덮어쓰지 않는 별도 helper 복사본과 컴파일한 DLL·Windows npm 의존성이 필요하다. `MEW_DESKTOP_TEST_WINDOWS_HELPER`(Windows 절대 경로), `MEW_DESKTOP_TEST_WINDOWS_NODE`(WSL에서 실행할 Windows Node 절대 경로)를 지정한다. 선택한 `MEW_DESKTOP_TEST_WINDOWS_CHROME`은 Windows Chrome 실행 파일 경로이며 테스트 복사본에 Playwright가 필요하다. 실제 화면은 메모리에서만 수신하고 스크린샷·클립보드 변경·포인터/키 입력을 보내지 않으며 성공한 연결은 호스트 연결 알림을 표시할 수 있다. 같은 호스트의 두 세션에서 최초 표시 시간을 측정한다. 이 값은 해당 테스트 환경의 첫 화면 시간이고 인터넷·휴대폰·click-to-photon 보장값이 아니다.
+
+운영 서버 빌드·재시작·실제 helper 설치는 사용자가 수행한다. 과거 검증 수치·서버 전송 실측은 [이전 기록](../history/remote-desktop-electron-transport.md)을 따른다. WSL의 선택적 방화벽 진단은 Windows Node 실행 파일의 명시적 수신 차단과 허용 규칙 부재를 구분해 실패 안내에 전달한다. 조회 실패는 안내를 생략하고 호스트 시작을 막지 않는다. 규칙 부재만으로 실제 패킷 차단을 단정하지 않는다. 설치기의 OS 승인 절차는 [외부 직결 계약](remote-desktop-connectivity.md)을 따른다.

@@ -1,0 +1,65 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { editorFile, editorTabPath, editorLinkTabPath, mergeEditorTabs, workspaceDocumentFile } from './editor-files.ts'
+
+test('task document paths share the Documents tab identity inside the configured folder', () => {
+  for (const docsDir of ['docs', 'notes', '.mew/docs']) {
+    const workspace = { path: '/projects/demo', docsPath: `/projects/demo/${docsDir}` }
+    const relative = 'tasks/한글 제목.md'
+    const file = workspaceDocumentFile(`${docsDir}/${relative}`, workspace)
+    assert.deepEqual(file, { project: 'docs', path: relative })
+    assert.equal(editorTabPath(file.project, file.path), editorTabPath('docs', relative))
+    assert.deepEqual(workspaceDocumentFile(`${docsDir}-other/task.md`, workspace), { project: '.workspace', path: `${docsDir}-other/task.md` })
+  }
+  assert.deepEqual(workspaceDocumentFile('docs/tasks/task.md', { path: '/projects/demo', docsPath: '/projects/demo/notes' }), { project: '.workspace', path: 'docs/tasks/task.md' })
+  assert.deepEqual(workspaceDocumentFile('tasks/legacy.md', null), { project: '.workspace', path: 'tasks/legacy.md' })
+})
+
+const state = (id: string, paths: string[]) => ({
+  panes: [{ id, tabs: paths.map(path => ({ path, preview: false, viewMode: 'plain' as const })), activePath: paths[0] ?? null }],
+  layout: { kind: 'leaf' as const, pane: id }, focusedPaneId: id,
+})
+
+test('Documents and root names have separate identities and retain API scopes', () => {
+  assert.equal(editorTabPath('.workspace', 'README.md'), 'README.md')
+  assert.equal(editorTabPath('docs', 'README.md'), 'mew:file:docs/README.md')
+  assert.deepEqual(editorFile(editorTabPath('docs', 'folder/한글.md')), { project: 'docs', path: 'folder/한글.md' })
+  assert.deepEqual(editorFile('README.md'), { project: '.workspace', path: 'README.md' })
+  assert.equal(editorTabPath('docs', 'README.md', 'docs'), 'README.md', 'guest scope remains unchanged')
+})
+
+test('legacy tabs merge once without losing pane IDs, view modes or same-named files', () => {
+  const root = state('main', ['README.md'])
+  const docs = state('main', ['README.md', 'MOC.md'])
+  const merged = mergeEditorTabs(root, docs)!
+  assert.deepEqual(merged.panes[0].tabs.map(tab => tab.path), ['README.md', 'mew:file:docs/README.md', 'mew:file:docs/MOC.md'])
+  assert.equal(merged.panes[0].activePath, 'README.md')
+  assert.deepEqual(merged.layout, root.layout)
+  const closed = { ...merged, panes: root.panes }
+  assert.equal(mergeEditorTabs(closed, docs), closed, 'closed legacy tabs must not return after reload')
+})
+
+test('Documents-only and split legacy states retain pane identities used by docking', () => {
+  const docs = state('moved-docs', ['README.md'])
+  const only = mergeEditorTabs(state('main', []), docs)!
+  assert.equal(only.focusedPaneId, 'moved-docs')
+  assert.deepEqual(only.layout, docs.layout)
+  assert.equal(only.panes[0].activePath, 'mew:file:docs/README.md')
+  const merged = mergeEditorTabs(state('main', ['main.ts']), docs)!
+  assert.deepEqual(merged.panes.map(pane => pane.id), ['main', 'moved-docs'])
+})
+
+
+test('document links open files beyond Documents and the project through external tabs', () => {
+  const workspace = { path: '/projects/mew', docsPath: '/projects/mew/docs' }
+  assert.equal(editorLinkTabPath('docs', '../README.md', workspace), 'README.md')
+  assert.equal(editorLinkTabPath('docs', '../../other/start.md', workspace), '@fs:/projects/other/start.md')
+  assert.equal(editorLinkTabPath('.workspace', '../other/start.md', workspace), '@fs:/projects/other/start.md')
+  assert.equal(editorLinkTabPath('docs', '/etc/hosts', workspace), '@fs:/etc/hosts')
+  assert.equal(editorLinkTabPath('docs', '/projects/mew/docs/guide.md', workspace), 'mew:file:docs/guide.md')
+  assert.equal(editorLinkTabPath('.workspace', '/projects/mew/docs/guide.md', workspace), 'docs/guide.md')
+  assert.equal(editorLinkTabPath('.workspace', '/projects/third/code.ts', workspace), '@fs:/projects/third/code.ts')
+  assert.equal(editorLinkTabPath('docs', '../../other/a#b?c%20.md', workspace), '@fs:/projects/other/a#b?c%20.md')
+  assert.equal(editorTabPath('docs', '@fs:/etc/hosts'), '@fs:/etc/hosts')
+  assert.equal(editorLinkTabPath('app', '../README.md', workspace), 'README.md')
+})

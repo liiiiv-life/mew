@@ -1,0 +1,4 @@
+interface:
+  display_name: "English technical documentation"
+  short_description: "Structure and refine English docs, then review translations"
+  default_prompt: "$english-technical-docs: Improve the structure and English prose of the specified document."

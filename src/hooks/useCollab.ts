@@ -1,0 +1,183 @@
+import { openMewSocket } from '../utils/remote-transport.ts'
+import { getAppRuntime, type CollaborationSession } from '../runtime/app-runtime.ts'
+import { useEffect, useState } from 'react'
+import * as Y from 'yjs'
+import * as encoding from 'lib0/encoding'
+import * as decoding from 'lib0/decoding'
+import { messageYjsSyncStep1, readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync'
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
+import { guestName, identityColor } from '../utils/collabColor'
+
+const MESSAGE_SYNC = 0
+const MESSAGE_AWARENESS = 1
+const RETRY_MIN_MS = 300
+const RETRY_MAX_MS = 3000
+const SYNC_TIMEOUT_MS = 10_000
+
+export type Collab = CollaborationSession
+
+// path가 null이면 협업 연결을 하지 않는다 — 호출부(App)가 "지금 활성 탭·뷰모드가 주 편집화면인지"를
+// 판단해서 넘긴다. 문서 내용 시딩은 이 훅이 하지 않는다 — Y.Text냐 Y.XmlFragment냐에 따라 방식이
+// 달라서 CodePane·Editor 각자가 synced 플래그를 보고 알아서 한다.
+export function useCollab(project: string, path: string | null, authEmail: string | null): Collab | null {
+  const [doc, setDoc] = useState<{ ydoc: Y.Doc; awareness: Awareness; project: string; path: string; authEmail: string | null } | null>(null)
+  const [synced, setSynced] = useState(false)
+  const [connected, setConnected] = useState(false)
+
+  useEffect(() => {
+    if (!path) {
+      setDoc(null)
+      setSynced(false)
+      setConnected(false)
+      return
+    }
+
+    const provider = getAppRuntime().collaboration
+    if (provider) {
+      let closed = false
+      const connection = provider.open({ project, path, authEmail }, session => {
+        if (closed) return
+        setDoc({ ydoc: session.ydoc, awareness: session.awareness, project, path, authEmail })
+        setSynced(session.synced)
+        setConnected(session.connected)
+      })
+      return () => { closed = true; connection.close() }
+    }
+
+    let cancelled = false
+    let ws: WebSocket | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let syncTimer: ReturnType<typeof setTimeout> | null = null
+    // 순간 끊김(랩탑 깨어남·와이파이 전환)은 곧바로 다시 붙는 게 맞다 — 3초를 그냥 기다리면 그동안 내
+    // 편집이 방에 안 올라간다. 반면 서버가 죽었거나 인증이 막힌 경우엔 300ms 재시도가 두들기는 셈이라
+    // 붙을 때까지 두 배씩 늘린다. 문서 동기화까지 성공하면 다시 300ms로 되돌린다.
+    let retryDelay = RETRY_MIN_MS
+    // 서버에서 온 메시지를 적용할 때 이 값을 origin으로 넘겨, 되돌려 보내지 않게 걸러낸다
+    const remoteOrigin = {}
+
+    const ydoc = new Y.Doc()
+    const awareness = new Awareness(ydoc)
+    setDoc({ ydoc, awareness, project, path, authEmail })
+    setSynced(false)
+    setConnected(false)
+
+    const name = authEmail ? authEmail.split('@')[0] : guestName()
+    awareness.setLocalStateField('user', { name, color: identityColor(authEmail) })
+
+    function send(buf: Uint8Array<ArrayBuffer>) {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(buf)
+    }
+
+    ydoc.on('update', (update: Uint8Array, origin: unknown) => {
+      if (origin === remoteOrigin) return
+      const encoder = encoding.createEncoder()
+      encoding.writeVarUint(encoder, MESSAGE_SYNC)
+      writeUpdate(encoder, update)
+      send(encoding.toUint8Array(encoder))
+    })
+
+    awareness.on(
+      'update',
+      ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
+        if (origin === remoteOrigin) return
+        const changed = added.concat(updated, removed)
+        const encoder = encoding.createEncoder()
+        encoding.writeVarUint(encoder, MESSAGE_AWARENESS)
+        encoding.writeVarUint8Array(encoder, encodeAwarenessUpdate(awareness, changed))
+        send(encoding.toUint8Array(encoder))
+      },
+    )
+
+    function clearSyncTimer() {
+      if (syncTimer !== null) clearTimeout(syncTimer)
+      syncTimer = null
+    }
+
+    function reconnect(socket: WebSocket) {
+      if (cancelled || ws !== socket) return
+      clearSyncTimer()
+      // A stalled transport may never emit close. Retire it before scheduling the retry,
+      // and ignore late events so they cannot affect the replacement connection.
+      ws = null
+      socket.onopen = socket.onmessage = socket.onclose = null
+      socket.close()
+      setConnected(false)
+      removeAwarenessStates(awareness, [...awareness.getStates().keys()].filter(id => id !== awareness.clientID), remoteOrigin)
+      retryTimer = setTimeout(connect, retryDelay)
+      retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
+    }
+
+    function connect() {
+      if (cancelled) return
+      retryTimer = null
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const roomKey = `${project}:${path}`
+      const socket = openMewSocket(`${protocol}//${location.host}/api/collab?room=${encodeURIComponent(roomKey)}`)
+      ws = socket
+      socket.binaryType = 'arraybuffer'
+      // Bound both the WebSocket handshake and the first document response.
+      syncTimer = setTimeout(() => reconnect(socket), SYNC_TIMEOUT_MS)
+
+      socket.onopen = () => {
+        if (cancelled || ws !== socket) return
+        const syncEncoder = encoding.createEncoder()
+        encoding.writeVarUint(syncEncoder, MESSAGE_SYNC)
+        writeSyncStep1(syncEncoder, ydoc)
+        send(encoding.toUint8Array(syncEncoder))
+
+        // 재연결 시 서버 쪽 방이 (마지막 클라이언트가 나가서) 새로 생겼을 수 있으니 내 상태를 다시 알린다
+        const localState = awareness.getLocalState()
+        if (localState !== null) {
+          const awarenessEncoder = encoding.createEncoder()
+          encoding.writeVarUint(awarenessEncoder, MESSAGE_AWARENESS)
+          encoding.writeVarUint8Array(awarenessEncoder, encodeAwarenessUpdate(awareness, [awareness.clientID]))
+          send(encoding.toUint8Array(awarenessEncoder))
+        }
+      }
+
+      socket.onmessage = (event) => {
+        if (cancelled || ws !== socket) return
+        const decoder = decoding.createDecoder(new Uint8Array(event.data as ArrayBuffer))
+        const messageType = decoding.readVarUint(decoder)
+        switch (messageType) {
+          case MESSAGE_SYNC: {
+            const encoder = encoding.createEncoder()
+            encoding.writeVarUint(encoder, MESSAGE_SYNC)
+            const syncMessageType = readSyncMessage(decoder, encoder, ydoc, remoteOrigin)
+            if (encoding.length(encoder) > 1) send(encoding.toUint8Array(encoder))
+            // syncStep1은 상대의 상태 벡터 "요청"일 뿐 문서 내용을 담지 않는다 — 서버가 접속 즉시
+            // 보내는 이 메시지를 sync 완료로 착각하면, 아직 비어 있는 로컬 ydoc을 "빈 문서"로 오판해
+            // 실제 원격 내용(뒤이어 오는 syncStep2)과 로컬 콘텐츠를 이중으로 시딩해버린다.
+            if (syncMessageType !== messageYjsSyncStep1) {
+              clearSyncTimer()
+              retryDelay = RETRY_MIN_MS
+              setSynced(true)
+              setConnected(true)
+            }
+            break
+          }
+          case MESSAGE_AWARENESS: {
+            applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), remoteOrigin)
+            break
+          }
+        }
+      }
+
+      socket.onclose = () => reconnect(socket)
+    }
+    connect()
+
+    return () => {
+      cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
+      clearSyncTimer()
+      awareness.setLocalState(null)
+      ws?.close()
+      awareness.destroy()
+      ydoc.destroy()
+    }
+  }, [project, path, authEmail])
+
+  return doc && doc.project === project && doc.path === path && doc.authEmail === authEmail
+    ? { ydoc: doc.ydoc, awareness: doc.awareness, synced, connected } : null
+}

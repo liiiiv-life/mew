@@ -1,0 +1,140 @@
+{
+  "description": "검수한 16개 고양이 스트립의 Mewpet 전역 파일 스킨 등록 및 라이브 HTTP 검증. 활성 브라우저 선택과 재생 코드 배포는 별도다.",
+  "id": "mew-silhouette-cat-v2",
+  "name": "까만 고양이 · 관절 모션",
+  "revision": "49189e2d817c0587f357",
+  "registered": true,
+  "verifiedImages": 16,
+  "previousSkinsPreserved": true,
+  "selectedInUserBrowser": null,
+  "runtimeCodeLoaded": false,
+  "selection": "설정 → 뮤펫 → 까만 고양이 · 관절 모션",
+  "runtime": "프로젝트 규칙에 따라 에이전트는 앱 빌드·서버 재시작을 수행하지 않았다. 재생 코드 보정은 사용자 반영 후 동작한다.",
+  "verification": {
+    "checkedAt": "2026-10-23T03:51:55.603Z",
+    "revisionMatchesLive": true,
+    "sourceMotionMatchesInstalledManifest": true,
+    "currentWorkspaceStripsMatch": true,
+    "installedStripsMatch": true,
+    "httpStripsMatch": true,
+    "frameCountsAndDimensionsMatch": true,
+    "editableSourcesMirrored": true,
+    "otherSkinsUnchangedDuringVerification": true,
+    "liveHttpExposesStride": false,
+    "selectionObserved": false,
+    "images": [
+      {
+        "action": "idle",
+        "frames": 48,
+        "width": 6144,
+        "height": 128,
+        "sha256": "d69cd58ecdb4d764d50e136c2a8a6d91928892f8171ab883238705a4aaa609c2"
+      },
+      {
+        "action": "walk",
+        "frames": 32,
+        "width": 4096,
+        "height": 128,
+        "sha256": "dcac6a2814ae1641fd10ef616268ac3fecd9518b5708876765dd8d73ffae7af4"
+      },
+      {
+        "action": "run",
+        "frames": 16,
+        "width": 2048,
+        "height": 128,
+        "sha256": "b4a8aa6c9a18ed6ac8b1d02ed8cc59caf796937b06a8b484f9083ec1db76d58a"
+      },
+      {
+        "action": "jump",
+        "frames": 16,
+        "width": 2048,
+        "height": 128,
+        "sha256": "7f18c8ec74ce0cbeb5b421e2457de7a9e8a7ceb23e39187f0ee53e47c9814579"
+      },
+      {
+        "action": "fall",
+        "frames": 16,
+        "width": 2048,
+        "height": 128,
+        "sha256": "ad0c05897f6c8d6428027d9faa7fb001329f83a971475c1e108a6c377ad92a19"
+      },
+      {
+        "action": "love",
+        "frames": 32,
+        "width": 4096,
+        "height": 128,
+        "sha256": "9ea26d66b2fa286b80d8b0f57562b61c7b9603b255af0f0ea94cd792718085a5"
+      },
+      {
+        "action": "struggle",
+        "frames": 24,
+        "width": 3072,
+        "height": 128,
+        "sha256": "9aa5985bf2c41394ffc7fbedc984ad1190d706a682a8fde596d5a03ae4b88d95"
+      },
+      {
+        "action": "run-walk",
+        "frames": 20,
+        "width": 2560,
+        "height": 128,
+        "sha256": "50a6c4cf0e13035c2c928aa48670368788f19f8267338a7d05b36d157641442e"
+      },
+      {
+        "action": "walk-run",
+        "frames": 20,
+        "width": 2560,
+        "height": 128,
+        "sha256": "6e9096587aea77654a48e663f27ae8fd2ec7474a23486ca05879c5a6eacdf119"
+      },
+      {
+        "action": "run-idle",
+        "frames": 20,
+        "width": 2560,
+        "height": 128,
+        "sha256": "61528a8e4f76095bb6aa40d922bf1372c0528e8228e60dd7fbd1bf769a65552b"
+      },
+      {
+        "action": "idle-run",
+        "frames": 20,
+        "width": 2560,
+        "height": 128,
+        "sha256": "5d165910d5b599c74d44005760bc5e651a3d6a9d302fd42d3e85b48a0df656ae"
+      },
+      {
+        "action": "walk-idle",
+        "frames": 21,
+        "width": 2688,
+        "height": 128,
+        "sha256": "89ee27b540bdd951ff37ea1ea4a9e3036a9b5658c22dc74d4c515da9a9942808"
+      },
+      {
+        "action": "idle-walk",
+        "frames": 16,
+        "width": 2048,
+        "height": 128,
+        "sha256": "2086f0930178932622e33900c56ec818999dcdfc603f8432acb4a7b068925f51"
+      },
+      {
+        "action": "takeoff",
+        "frames": 16,
+        "width": 2048,
+        "height": 128,
+        "sha256": "35e4e35fa3994c59b76e9938ce91cb4ba8ef21421f5bcb8eef201e3e2814899a"
+      },
+      {
+        "action": "landing",
+        "frames": 20,
+        "width": 2560,
+        "height": 128,
+        "sha256": "04cfc23eb65bf3d001b4e62b5ce212e5822c67c40996b3181390b6920423e036"
+      },
+      {
+        "action": "apex",
+        "frames": 16,
+        "width": 2048,
+        "height": 128,
+        "sha256": "a24adb9ea5c4b196d53d74473db42d4647356a42779864d9dc3813182015a3e8"
+      }
+    ]
+  }
+}

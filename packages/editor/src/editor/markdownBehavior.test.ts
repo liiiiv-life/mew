@@ -1,0 +1,336 @@
+// md 직렬화 동작 회귀 테스트: 표(문단 여러 개 셀·colwidth·병합 셀 폴백)와
+// 중첩 리스트 복사(clipboardTextSerializer의 unwrap) — 실제 스키마·직렬화기로 검증한다.
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { Window } from 'happy-dom'
+
+// tiptap/ProseMirror가 전역 DOM을 보도록 happy-dom 셧을 먼저 깐다 (serverExtensions.test.ts와 동일)
+const win = new Window({ url: 'http://localhost' })
+const w = win as unknown as Record<string, unknown>
+for (const k of ['window', 'document', 'DOMParser', 'Node', 'Element', 'HTMLElement', 'Text', 'DocumentFragment', 'getComputedStyle', 'MutationObserver']) {
+  if (k in globalThis) continue
+  try {
+    ;(globalThis as Record<string, unknown>)[k] = w[k]
+  } catch {
+    Object.defineProperty(globalThis, k, { value: w[k], configurable: true })
+  }
+}
+
+const { Editor } = await import('@tiptap/core')
+const { serverEditorExtensions } = await import('../serverExtensions.ts')
+const { unwrapOpenListWrappers } = await import('../utils/clipboardList.ts')
+const { selectedTableCellText } = await import('../utils/clipboardTable.ts')
+const { NodeSelection } = await import('@tiptap/pm/state')
+const { CellSelection } = await import('@tiptap/pm/tables')
+const { EditorLink, fileLinkKind } = await import('./file-link.ts')
+
+test('파일 링크는 문서 계층과 설정된 Docs 루트로 표시를 구분한다', () => {
+  const context = { path: '/project/notes/guide/_guide.md', docsRoot: '/project/notes' }
+  for (const [href, expected] of [
+    ['./child.md', 'subdocument'], ['./nested/_nested.md#intro', 'subdocument'],
+    ['./%ED%95%98%EC%9C%84%20%EB%AC%B8%EC%84%9C.md', 'subdocument'],
+    ['./_guide.md', 'document'], ['../other.md', 'document'], ['./image.png', 'document'],
+    ['../../src/main.ts', 'outside-docs'], ['../../notes-other/file.md', 'outside-docs'],
+    ['/project/notes/guide/child.md?mode=read#intro', 'subdocument'],
+    ['https://example.com', null], ['#intro', null], ['?mode=read', null],
+  ] as const) assert.equal(fileLinkKind(href, context), expected, href)
+  assert.equal(fileLinkKind('guide/child.md', { ...context, path: '/project/notes/guide.md' }), 'subdocument')
+  assert.equal(fileLinkKind('child.md', { ...context, path: '/project/notes/guide/MOC.md' }), 'subdocument')
+  assert.equal(fileLinkKind('child.md', { ...context, path: '/project/notes/guide/_MOC.md' }), 'subdocument')
+  assert.equal(fileLinkKind('/project/notes/guide.md', { ...context, path: '/project/src/main.md' }), 'document')
+})
+
+test('링크 표시는 대상 수정·Docs 설정 변경에 따라 갱신되고 Markdown에는 저장되지 않는다', () => {
+  let context = { path: '/project/notes/guide/_guide.md', docsRoot: '/project/notes' }
+  const e = new Editor({
+    element: document.createElement('div'),
+    extensions: serverEditorExtensions().map(extension => extension.name === 'link'
+      ? EditorLink.configure({ getFileLinkContext: () => context }) : extension),
+    content: '[하위](./child.md) · [코드](../../src/main.ts) · [다른 문서](../other.md)',
+  })
+  const kinds = () => [...e.view.dom.querySelectorAll('a')].map(link => link.getAttribute('data-file-link-kind'))
+  try {
+    assert.deepEqual(kinds(), ['subdocument', 'outside-docs', 'document'])
+    const saved = md(e)
+    assert.doesNotMatch(saved, /data-file-link|<a|<svg/)
+    e.commands.setContent(saved)
+    assert.deepEqual(kinds(), ['subdocument', 'outside-docs', 'document'])
+    context = { ...context, docsRoot: '/project/other' }
+    e.view.dispatch(e.state.tr)
+    assert.deepEqual(kinds(), ['outside-docs', 'outside-docs', 'outside-docs'])
+    assert.equal(md(e), saved)
+    e.commands.setTextSelection({ from: 1, to: 3 })
+    e.commands.setLink({ href: 'https://example.com' })
+    assert.equal(e.view.dom.querySelector('a')?.getAttribute('data-file-link-kind'), null)
+  } finally { e.destroy() }
+})
+
+type Ed = InstanceType<typeof Editor>
+
+function makeEditor(content: string): Ed {
+  return new Editor({ element: document.createElement('div'), extensions: serverEditorExtensions(), content })
+}
+
+const md = (e: Ed) => (e.storage as any).markdown.getMarkdown() as string
+
+const TABLE = `| A | B |\n| --- | --- |\n| 1 | 2 |`
+
+test('표 헤더·본문 셀의 부분·전체 텍스트 복사는 HTML과 서식 없이 선택한 글자만 담는다', () => {
+  const e = makeEditor('| **헤더 텍스트** | B |\n| --- | --- |\n| [셀 텍스트](https://example.com) | 2 |')
+  e.view.setProps({
+    clipboardTextSerializer: (slice, view) => selectedTableCellText(view.state.selection)
+      ?? (e.storage as any).markdown.serializer.serialize(unwrapOpenListWrappers(slice.content, slice.openStart, slice.openEnd)),
+  })
+  try {
+    for (const text of ['헤더 텍스트', '셀 텍스트']) {
+      let start = -1
+      e.state.doc.descendants((node, pos) => { if (node.isText && node.text === text) start = pos })
+      assert.ok(start > 0)
+      for (const [from, to] of [[start, start + text.length], [start + 1, start + 3]]) {
+        e.commands.setTextSelection({ from, to })
+        assert.equal(e.view.serializeForClipboard(e.state.selection.content()).text, text.slice(from - start, to - start))
+      }
+    }
+  } finally { e.destroy() }
+})
+
+test('한 셀의 여러 문단과 강제 줄바꿈은 텍스트 복사에서 줄바꿈으로 보존한다', () => {
+  const e = makeEditor(TABLE)
+  try {
+    const cellPos = findPos(e, name => name === 'tableCell')[0]
+    const cell = e.state.doc.nodeAt(cellPos)!
+    const paragraph = e.schema.nodes.paragraph.create(null, [
+      e.schema.text('둘째'), e.schema.nodes.hardBreak.create(), e.schema.text('셋째'),
+    ])
+    e.view.dispatch(e.state.tr.insert(cellPos + cell.nodeSize - 1, paragraph))
+    const updated = e.state.doc.nodeAt(cellPos)!
+    e.commands.setTextSelection({ from: cellPos + 2, to: cellPos + updated.nodeSize - 2 })
+    assert.equal(selectedTableCellText(e.state.selection), '1\n둘째\n셋째')
+  } finally { e.destroy() }
+})
+
+test('셀 간 텍스트 선택·셀 선택·표 전체 선택·일반 본문은 기존 복사 경로를 유지한다', () => {
+  const e = makeEditor(TABLE + '\n\n일반 본문')
+  try {
+    const cells = findPos(e, name => name === 'tableCell')
+    e.commands.setTextSelection({ from: cells[0] + 2, to: cells[1] + 3 })
+    assert.equal(selectedTableCellText(e.state.selection), null)
+    e.view.dispatch(e.state.tr.setSelection(CellSelection.create(e.state.doc, cells[0])))
+    assert.equal(selectedTableCellText(e.state.selection), null)
+    e.view.dispatch(e.state.tr.setSelection(NodeSelection.create(e.state.doc, 0)))
+    assert.equal(selectedTableCellText(e.state.selection), null)
+    assert.equal(((e.storage as any).markdown.serializer.serialize(e.state.selection.content().content) as string).trim(), TABLE)
+    e.commands.setTextSelection({ from: e.state.doc.content.size - 6, to: e.state.doc.content.size - 1 })
+    assert.equal(selectedTableCellText(e.state.selection), null)
+    e.commands.setTextSelection(cells[0] + 2)
+    assert.equal(selectedTableCellText(e.state.selection), null)
+  } finally { e.destroy() }
+})
+
+test('체크 목록은 완료 상태·중첩과 Markdown 왕복 저장을 보존한다', () => {
+  const e = makeEditor('- [ ] 할 일\n- [x] 완료\n  - [ ] 하위 할 일')
+  try {
+    const states: boolean[] = []
+    e.state.doc.descendants(node => { if (node.type.name === 'taskItem') states.push(node.attrs.checked) })
+    assert.deepEqual(states, [false, true, false])
+    e.commands.setTextSelection(3)
+    const saved = md(e)
+    assert.match(saved, /- \[ \] 할 일/)
+    assert.match(saved, /- \[x\] 완료/)
+    assert.doesNotMatch(saved, /<input|data-type/)
+    e.commands.setContent(saved)
+    assert.equal(md(e), saved)
+  } finally { e.destroy() }
+})
+
+test('일반 항목과 체크 항목이 섞인 Markdown에서도 본문을 잃지 않는다', () => {
+  const e = makeEditor('- 일반 항목\n- [ ] 할 일\n- [x] 완료')
+  try {
+    assert.match(md(e), /^- 일반 항목/m)
+    assert.match(md(e), /\[ \] 할 일/)
+    assert.match(md(e), /\[x\] 완료/)
+  } finally { e.destroy() }
+})
+
+test('내부 링크는 글자 사이 커서를 막고 전체 선택·삭제와 주변 입력을 허용한다', () => {
+  const e = makeEditor('앞 [문서 지도](./guide.md) 뒤')
+  try {
+    assert.equal(e.view.dom.querySelector('a')?.getAttribute('contenteditable'), 'false')
+    e.commands.setTextSelection(1)
+    e.commands.setTextSelection(5)
+    assert.equal(e.state.selection.from, 8)
+    e.view.dispatch(e.state.tr.insertText('!'))
+    assert.match(md(e), /\[문서 지도\]\(\.\/guide.md\)!/)
+    e.commands.setTextSelection(10)
+    e.commands.setTextSelection(5)
+    assert.equal(e.state.selection.from, 3)
+    e.commands.setTextSelection({ from: 4, to: 6 })
+    assert.equal(e.state.selection.from, 3)
+    assert.equal(e.state.selection.to, 8)
+    e.commands.deleteSelection()
+    assert.equal(e.view.dom.querySelector('a'), null)
+    assert.match(md(e), /앞 ! 뒤/)
+  } finally {
+    e.destroy()
+  }
+})
+
+test('외부 링크 텍스트는 계속 편집할 수 있다', () => {
+  const e = makeEditor('[웹 사이트](https://example.com)')
+  try {
+    assert.equal(e.view.dom.querySelector('a')?.getAttribute('contenteditable'), null)
+    e.commands.setTextSelection(3)
+    assert.equal(e.state.selection.from, 3)
+    e.view.dispatch(e.state.tr.insertText('새'))
+    assert.match(md(e), /\[웹 새사이트\]\(https:\/\/example.com\)/)
+  } finally {
+    e.destroy()
+  }
+})
+
+test('링크 경계에서 Backspace·Delete는 글자 대신 링크 전체를 삭제한다', () => {
+  for (const [key, pos] of [['Backspace', 8], ['Delete', 3]] as const) {
+    const e = makeEditor('앞 [문서 지도](./guide.md) 뒤')
+    try {
+      e.commands.setTextSelection(pos)
+      const event = new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      e.view.dom.dispatchEvent(event as unknown as Event)
+      assert.equal(e.view.dom.querySelector('a'), null)
+      assert.equal(md(e), '앞  뒤\n')
+    } finally {
+      e.destroy()
+    }
+  }
+})
+
+test('방향키는 내부 링크를 한 번에 건너뛰고 Shift 선택은 링크 전체를 포함한다', () => {
+  const e = makeEditor('앞 [문서 규칙](./rules.md) 뒤')
+  const press = (key: string, shiftKey = false) => e.view.dom.dispatchEvent(new win.KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }) as unknown as Event)
+  try {
+    e.commands.setTextSelection(8)
+    press('ArrowLeft')
+    assert.equal(e.state.selection.head, 3)
+    press('ArrowRight')
+    assert.equal(e.state.selection.head, 8)
+    press('ArrowLeft', true)
+    assert.equal(e.state.selection.from, 3)
+    assert.equal(e.state.selection.to, 8)
+    assert.equal(e.state.doc.textBetween(e.state.selection.from, e.state.selection.to), '문서 규칙')
+  } finally { e.destroy() }
+})
+
+test('파일 링크 컨테이너는 내부 경로에만 표시하고 Markdown 왕복 저장을 보존한다', () => {
+  const content = '[문서](../guide.md#intro) · [코드](./src/main.ts) · [한글](./가이드.md)\n\n'
+    + '[웹](https://example.com) · [웹2](//example.com) · [메일](mailto:hello@example.com) · [앵커](#intro)\n\n'
+    + '- [**굵은 파일**](./guide.md)\n\n'
+    + '| 파일 |\n| --- |\n| [설정](./config.json) |'
+  const e = makeEditor(content)
+  try {
+    const links = [...e.view.dom.querySelectorAll('a')]
+    assert.deepEqual(links.map((link) => link.hasAttribute('data-file-link')), [true, true, true, false, false, false, false, true, true])
+    assert.ok(links.every((link) => link.getAttribute('href')))
+    const saved = md(e)
+    assert.doesNotMatch(saved, /data-file-link|<a|<span|<svg|\u200b/)
+    assert.match(saved, /\[문서\]\(\.\.\/guide\.md#intro\)/)
+    assert.match(saved, /\[\*\*굵은 파일\*\*\]\(\.\/guide\.md\)/)
+    e.commands.setContent(saved)
+    assert.equal(md(e), saved)
+    assert.equal(e.view.dom.querySelectorAll('a[data-file-link]').length, 5)
+    assert.ok(e.view.dom.querySelector('td a[data-file-link]'))
+  } finally {
+    e.destroy()
+  }
+})
+
+test('링크 대상을 편집하면 내부 파일 컨테이너 표시도 즉시 바뀐다', () => {
+  const e = makeEditor('[문서](./guide.md)')
+  try {
+    e.commands.setTextSelection({ from: 1, to: 3 })
+    e.commands.setLink({ href: 'https://example.com' })
+    assert.equal(e.view.dom.querySelector('a')?.hasAttribute('data-file-link'), false)
+    assert.equal(md(e).trim(), '[문서](https://example.com)')
+    e.commands.setLink({ href: '../other.md' })
+    assert.ok(e.view.dom.querySelector('a[data-file-link]'))
+    assert.equal(md(e).trim(), '[문서](../other.md)')
+    e.commands.unsetLink()
+    assert.equal(e.view.dom.querySelector('a'), null)
+    assert.equal(md(e).trim(), '문서')
+  } finally {
+    e.destroy()
+  }
+})
+
+/** 문서에서 조건에 맞는 노드들의 pos 목록 */
+function findPos(e: Ed, pred: (name: string) => boolean): number[] {
+  const out: number[] = []
+  e.state.doc.descendants((node, pos) => {
+    if (pred(node.type.name)) out.push(pos)
+    return true
+  })
+  return out
+}
+
+test('셀 안 문단 여러 개는 <br>로 이어 파이프 표를 유지한다 — HTML 덤프 금지', () => {
+  const e = makeEditor(TABLE)
+  const cellPos = findPos(e, (n) => n === 'tableCell')[0]
+  const cell = e.state.doc.nodeAt(cellPos)!
+  const para = e.schema.nodes.paragraph.create(null, e.schema.text('둘째 문단'))
+  e.view.dispatch(e.state.tr.insert(cellPos + cell.nodeSize - 1, para))
+  const out = md(e)
+  assert.match(out, /\| 1<br>둘째 문단 \| 2 \|/)
+  assert.doesNotMatch(out, /<table/)
+})
+
+test('colwidth(열 리사이즈)는 md 파이프 표에 아무 흔적을 남기지 않는다', () => {
+  const e = makeEditor(TABLE)
+  const tr = e.state.tr
+  for (const pos of findPos(e, (n) => n === 'tableHeader' || n === 'tableCell')) {
+    tr.setNodeAttribute(pos, 'colwidth', [240])
+  }
+  e.view.dispatch(tr)
+  assert.equal(md(e).trim(), TABLE)
+})
+
+test('병합 셀 때문에 HTML로 갈 때도 colwidth는 벗겨서 낸다', () => {
+  const e = makeEditor(TABLE)
+  const headerPos = findPos(e, (n) => n === 'tableHeader')[0]
+  const tr = e.state.tr
+  tr.setNodeAttribute(headerPos, 'colspan', 2)
+  tr.setNodeAttribute(headerPos, 'colwidth', [120, 120])
+  e.view.dispatch(tr)
+  const out = md(e)
+  assert.match(out, /<table/)
+  assert.doesNotMatch(out, /colwidth/)
+})
+
+test('핫뷰의 빈 문단은 plain 뷰에서 <br/>로 남는다', () => {
+  const e = makeEditor('첫 줄\n\n셋째 줄')
+  e.view.dispatch(e.state.tr.insert(e.state.doc.child(0).nodeSize, e.schema.nodes.paragraph.create()))
+  assert.match(md(e), /첫 줄\n\n<br\/>\n\n셋째 줄/)
+})
+
+test('중첩 리스트 중간만 복사하면 그 층의 마커로 시작한다 — "- - -" 금지', () => {
+  const e = makeEditor(`- 부모\n  - 자식1\n  - 자식2\n  - 자식3`)
+  // 자식1 텍스트 시작부터 자식3 텍스트 끝까지 — 에디터에서 세 항목을 긁은 선택과 같다
+  let from = -1
+  let to = -1
+  e.state.doc.descendants((node, pos) => {
+    if (node.isText && node.text === '자식1') from = pos
+    if (node.isText && node.text === '자식3') to = pos + node.nodeSize
+    return true
+  })
+  assert.ok(from > 0 && to > from)
+  // 세 번째 인자 true = 조상 포함 — 실제 복사(Selection.content)가 만드는 slice와 같은 형태
+  const slice = e.state.doc.slice(from, to, true)
+  const content = unwrapOpenListWrappers(slice.content, slice.openStart, slice.openEnd)
+  const out = ((e.storage as any).markdown.serializer.serialize(content) as string).trim()
+  assert.equal(out, '- 자식1\n- 자식2\n- 자식3')
+})
+
+test('리스트가 아닌 일반 문단 부분 복사는 예전과 같다', () => {
+  const e = makeEditor('문단 하나')
+  const slice = e.state.doc.slice(1, 4, true) // "문단 "쯤 — 문단 내부 부분 선택
+  const content = unwrapOpenListWrappers(slice.content, slice.openStart, slice.openEnd)
+  const out = ((e.storage as any).markdown.serializer.serialize(content) as string).trim()
+  assert.equal(out, e.state.doc.textBetween(1, 4).trim())
+})

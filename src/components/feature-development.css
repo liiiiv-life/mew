@@ -1,0 +1,61 @@
+.branch-feature-icon-button { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; color: var(--color-ink-secondary); }
+.branch-feature-icon-button:hover { background: var(--color-surface-hover); color: var(--color-ink); }
+.branch-feature-icon-button:focus-visible, .branch-feature-heading:focus-visible, .branch-feature-button:focus-visible, .branch-feature-filters button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.branch-feature-icon-button:disabled { opacity: .4; }
+.branch-feature-toolbar { display: flex; flex-direction: column; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--color-edge); }
+.branch-feature-filters { display: flex; align-items: center; gap: 2px; font-size: 12px; }
+.branch-feature-filters button { padding: 4px 7px; border-radius: 4px; color: var(--color-ink-secondary); }
+.branch-feature-filters button:hover { background: var(--color-surface-hover); }
+.branch-feature-filters button[aria-pressed="true"] { background: var(--color-surface-raised); color: var(--color-ink); }
+.branch-feature-count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--color-ink-muted); }
+.branch-feature-search { display: flex; align-items: center; gap: 6px; color: var(--color-ink-muted); }
+.branch-feature-search input { width: 100%; min-width: 0; padding: 3px 0; background: transparent; color: var(--color-ink); font-size: 12px; }
+.branch-feature-search input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.branch-feature-list { margin: 0; padding: 0; list-style: none; }
+.branch-feature-row { padding: 8px 10px; border-bottom: 1px solid var(--color-edge); }
+.branch-feature-summary { display: flex; align-items: center; gap: 6px; }
+.branch-feature-heading { display: flex; flex: 1; align-items: flex-start; min-width: 0; gap: 5px; border-radius: 3px; text-align: left; }
+.branch-feature-heading > svg { margin-top: 3px; flex-shrink: 0; color: var(--color-ink-secondary); }
+.branch-feature-heading-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.branch-feature-name { overflow-wrap: anywhere; color: var(--color-ink); font-size: 13px; line-height: 20px; font-weight: 500; }
+.branch-feature-branch { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; overflow-wrap: anywhere; color: var(--color-ink-secondary); font-size: 11px; line-height: 17px; }
+.branch-feature-tag { font-size: 10px; color: var(--color-ink-muted); }
+.branch-feature-review { flex-shrink: 0; color: var(--color-ink-secondary); font-size: 11px; }
+.branch-feature-review-verified { color: var(--color-accent); }
+.branch-feature-review-needs-fix { color: var(--color-danger); }
+.branch-feature-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px; margin: 5px 0 0 19px; font-size: 11px; color: var(--color-ink-secondary); }
+.branch-feature-port { display: inline-flex; align-items: center; gap: 4px; }
+.branch-feature-port::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--color-ink-muted); }
+.branch-feature-port-running::before { background: var(--color-accent); }
+.branch-feature-changes { font-variant-numeric: tabular-nums; }
+.branch-feature-notes { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 5px 0 0 19px; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; color: var(--color-ink); }
+.branch-feature-commit { margin: 4px 0 0 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--color-ink-muted); }
+.branch-feature-commit code { margin-right: 3px; }
+.branch-feature-detail { margin: 8px 0 0 19px; padding-top: 7px; border-top: 1px solid var(--color-edge); }
+.branch-feature-worktree { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--color-ink-secondary); }
+.branch-feature-worktree code { overflow-wrap: anywhere; color: var(--color-ink); }
+.branch-feature-editor fieldset { display: flex; flex-direction: column; gap: 5px; min-width: 0; margin-top: 9px; }
+.branch-feature-editor label, .branch-feature-label { font-size: 12px; color: var(--color-ink-secondary); }
+.branch-feature-editor input, .branch-feature-editor textarea { width: 100%; min-width: 0; border: 1px solid var(--color-edge-strong); border-radius: 4px; padding: 5px 7px; background: var(--color-surface-deep); color: var(--color-ink); font-size: 12px; }
+.branch-feature-editor textarea { resize: vertical; }
+.branch-feature-editor input:focus-visible, .branch-feature-editor textarea:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
+.branch-feature-editor fieldset:disabled { opacity: .6; }
+.branch-feature-preview-fields { display: grid; grid-template-columns: minmax(70px, 1fr) minmax(90px, 2fr); gap: 8px; }
+.branch-feature-preview-fields > div { display: flex; flex-direction: column; min-width: 0; gap: 5px; }
+.branch-feature-hint { margin: 0; color: var(--color-ink-muted); font-size: 11px; line-height: 1.5; }
+.branch-feature-actions { display: flex; justify-content: flex-end; gap: 4px; }
+.branch-feature-button { min-height: 28px; padding: 4px 9px; border-radius: 4px; color: var(--color-ink-secondary); font-size: 12px; }
+.branch-feature-button:disabled { opacity: .4; }
+.branch-feature-button:hover { background: var(--color-surface-hover); }
+.branch-feature-save { background: var(--color-accent); color: var(--color-ink-on-accent); }
+.branch-feature-save:hover { background: var(--color-accent-strong); }
+.branch-feature-empty { padding: 16px 12px; color: var(--color-ink-secondary); font-size: 12px; }
+.branch-feature-empty .branch-feature-hint { margin-top: 4px; }
+.branch-feature-error { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-danger); font-size: 12px; }
+.branch-feature-record { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: var(--color-ink); }
+@media (pointer: coarse) {
+  .branch-feature-icon-button { width: 36px; height: 36px; }
+  .branch-feature-heading { min-height: 36px; }
+  .branch-feature-filters button, .branch-feature-button { min-height: 36px; }
+  .branch-feature-editor input { min-height: 36px; }
+}

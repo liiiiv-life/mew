@@ -1,0 +1,803 @@
+import test, { after } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import crypto from 'node:crypto'
+import { execFileSync } from 'node:child_process'
+import { once } from 'node:events'
+import express from 'express'
+import { simpleGit } from 'simple-git'
+import { createTmuxManager } from '@mew/tmux-term/server'
+import type { AgentEvent } from './agentAcp.ts'
+import type { GitCommitPlan } from '../shared/git-ai-commit.ts'
+
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'mew-git-ai-'))
+process.env.MEW_DATA_DIR = path.join(temp, 'data')
+process.env.MEW_WORKSPACE = temp
+const { GitAiCommitStore, captureCommitChanges, parseCommitPlan } = await import('./git-ai-commit.ts')
+const { runAutomaticCommit } = await import('./git-ai-commit-runner.ts')
+const { createGitAiCommitRouter } = await import('./git-ai-commit-routes.ts')
+const { captureAnalysisChunks, requestedDetails, ANALYSIS_CHUNK_SIZE } = await import('./git-commit-analysis.ts')
+const { packDiffChunks } = await import('./git-commit-packets.ts')
+const { recordChangeIntent } = await import('./git-change-intent.ts')
+const { writeSets } = await import('./agentSets.ts')
+const { setFeature } = await import('./access-policy.ts')
+const { gitConnections } = await import('./git-connections.ts')
+const owner = 'git-ai@example.test'
+const preset = { id: crypto.randomUUID(), name: '커밋 작성', runtime: 'codex', modelId: 'selected-model', role: 'Write concise Korean commit messages.' }
+after(() => fs.rmSync(temp, { recursive: true, force: true }))
+
+async function fixture() {
+  gitConnections.set(owner, { provider: 'github', host: 'github.com', login: 'alice', identity: { name: 'Alice', email: '123+alice@users.noreply.github.com' }, accessToken: 'test-token' })
+  const cwd = fs.mkdtempSync(path.join(temp, 'repo-'))
+  const git = simpleGit(cwd)
+  await git.init(); await git.addConfig('user.name', 'Test'); await git.addConfig('user.email', owner)
+  fs.writeFileSync(path.join(cwd, 'file.txt'), 'before\n')
+  await git.add('-A'); await git.commit('initial')
+  fs.writeFileSync(path.join(cwd, 'file.txt'), 'after\n')
+  fs.writeFileSync(path.join(cwd, 'new.txt'), 'new file\n')
+  const manager = createTmuxManager({ cwd })
+  let launches = 0
+  manager.startCommand = async () => { launches++ }
+  manager.list = async () => []
+  const store = new GitAiCommitStore(manager, path.join(temp, 'jobs'))
+  return { cwd, git, store, manager, launches: () => launches }
+}
+
+test('snapshot includes tracked, untracked, renamed and unborn changes without staging or committing', async () => {
+  const { cwd, git } = await fixture()
+  await git.raw(['mv', 'file.txt', 'renamed.txt'])
+  const head = await git.revparse('HEAD'), index = await git.diff(['--cached'])
+  const snapshot = await captureCommitChanges(cwd)
+  assert.match(snapshot.text, /after/); assert.match(snapshot.text, /new file/); assert.match(snapshot.text, /renamed.txt/)
+  assert.equal(await git.revparse('HEAD'), head); assert.equal(await git.diff(['--cached']), index)
+  const unborn = fs.mkdtempSync(path.join(temp, 'unborn-'))
+  const fresh = simpleGit(unborn); await fresh.init()
+  fs.writeFileSync(path.join(unborn, 'first.txt'), 'staged\n'); await fresh.add('-A')
+  fs.writeFileSync(path.join(unborn, 'first.txt'), 'newest\n')
+  const first = await captureCommitChanges(unborn)
+  assert.match(first.text, /newest/); assert.match(first.text, /staged/)
+  assert.throws(() => parseCommitPlan('{"commits":[{"title":"bad","description":"","files":["other"]}],"skipped":[]}', ['file.txt']))
+  assert.throws(() => parseCommitPlan('{"commits":[],"skipped":[]}', ['file.txt']))
+  assert.throws(() => parseCommitPlan('done', []))
+})
+
+test('large staged diff is streamed completely from immutable objects, without model summarization', async () => {
+  const { cwd, git } = await fixture()
+  const content = 'large change\n'.repeat(340_000) + 'FINAL_SENTINEL\n'
+  fs.writeFileSync(path.join(cwd, 'file.txt'), content)
+  await git.add('file.txt')
+  const index = await git.diff(['--cached'])
+  const snapshot = await captureCommitChanges(cwd, ['file.txt'])
+  assert.equal(snapshot.truncated, true)
+  fs.writeFileSync(path.join(cwd, 'file.txt'), 'racing edit')
+  const directory = fs.mkdtempSync(path.join(temp, 'chunks-'))
+  const chunks = await captureAnalysisChunks(cwd, snapshot, directory)
+  const all = chunks.map(chunk => fs.readFileSync(chunk.file, 'utf8'))
+  assert.ok(all.every(text => text.length <= ANALYSIS_CHUNK_SIZE))
+  assert.match(all.at(-1)!, /FINAL_SENTINEL/)
+  assert.doesNotMatch(all.join(''), /racing edit/)
+  const reconstructed = all.join('').replaceAll('\nPath: "file.txt"\n', '')
+  const expected = execFileSync('git', ['diff', '--no-renames', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3', snapshot.head, snapshot.tree, '--', 'file.txt'], { cwd, encoding: 'utf8', maxBuffer: 6_000_000 })
+  assert.equal(reconstructed, expected)
+  assert.equal(requestedDetails('{"needsDetails":[0]}', chunks)![0], chunks[0])
+  assert.throws(() => requestedDetails('{"needsDetails":[-1]}', chunks))
+  assert.throws(() => requestedDetails('{"needsDetails":[0,1]}', chunks))
+  assert.equal(await git.diff(['--cached']), index)
+})
+
+test('diff fragments preserve long Unicode lines and literal filenames in an unborn repository', async () => {
+  const cwd = fs.mkdtempSync(path.join(temp, 'unicode-'))
+  const git = simpleGit(cwd); await git.init()
+  const file = '한글 " [file].txt'
+  fs.writeFileSync(path.join(cwd, file), '🙂'.repeat(60_000) + '\nEND\n')
+  const snapshot = await captureCommitChanges(cwd)
+  const chunks = await captureAnalysisChunks(cwd, snapshot, fs.mkdtempSync(path.join(temp, 'unicode-chunks-')))
+  const heading = `\nPath: ${JSON.stringify(file)}\n`
+  const reconstructed = chunks.map(chunk => {
+    assert.deepEqual(chunk.paths, [file])
+    const text = fs.readFileSync(chunk.file, 'utf8')
+    assert.ok(text.length <= ANALYSIS_CHUNK_SIZE)
+    return text.replaceAll(heading, '')
+  }).join('')
+  assert.equal(reconstructed.split('🙂').length - 1, 60_000)
+  assert.match(reconstructed, /END/)
+  assert.equal((await git.status()).staged.length, 0)
+})
+
+test('large repeated automatic commits use one complete compressed input and commit full content', async () => {
+  const { cwd, git, store } = await fixture()
+  const content = 'new implementation\n'.repeat(12_000) + 'FINAL_SENTINEL\n'
+  fs.writeFileSync(path.join(cwd, 'file.txt'), content)
+  fs.writeFileSync(path.join(cwd, 'excluded.txt'), 'unrelated stage')
+  await git.add('excluded.txt')
+  const index = await git.diff(['--cached', '--', 'excluded.txt'])
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+  assert.equal(job.truncated, true)
+  let starts = 0, disposals = 0, plans = 0
+  await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+    starts++
+    let listener: (event: AgentEvent) => void = () => {}
+    let calls = 0
+    return {
+      attach: callback => { listener = callback; return () => {} },
+      setModel: async () => {},
+      runOnce: async prompt => {
+        assert.equal(++calls, 1, 'each bounded call gets a fresh context')
+        let output: object
+        plans++
+        assert.ok(prompt.length < 80_000)
+        assert.doesNotMatch(prompt, /Mode: mew-commit-summary/)
+        assert.match(prompt, /COMPLETE DIFF, lossless/)
+        assert.match(prompt, /FINAL_SENTINEL/)
+        assert.doesNotMatch(prompt, /PARTIAL DIFF/)
+        output = { commits: [{ title: 'feat: large change', description: '', files: ['file.txt'] }], skipped: [] }
+        listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(output) } } })
+        return 'end_turn'
+      },
+      answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => { disposals++ },
+    }
+  })
+  const result = store.read(owner, cwd, job.id)
+  assert.equal(result.state, 'completed', result.error)
+  assert.equal(plans, 1)
+  assert.equal(starts, 1)
+  assert.equal(disposals, starts)
+  assert.equal(await git.show(['HEAD:file.txt']), content)
+  assert.equal(await git.diff(['--cached', '--', 'excluded.txt']), index)
+  assert.equal(fs.existsSync(path.join(store.directory(owner, cwd, job.id), 'analysis')), false)
+})
+
+test('unique large changes analyze every packet before one global plan, including matching intent hints', async () => {
+  const { cwd, git, store } = await fixture()
+  const content = Array.from({ length: 9000 }, (_, i) => `distinct requirement ${i}: value=${i * 37}; reference=section-${i}\n`).join('') + 'FINAL_SENTINEL\n'
+  fs.writeFileSync(path.join(cwd, 'file.txt'), content)
+  await recordChangeIntent(cwd, { purpose: 'document all unique requirements', files: ['file.txt'] })
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+  const input = JSON.parse(fs.readFileSync(path.join(store.directory(owner, cwd, job.id), 'input.json'), 'utf8'))
+  const chunks = await captureAnalysisChunks(cwd, input.snapshot, path.join(temp, `expected-${job.id}`))
+  const expected = packDiffChunks(chunks)
+  assert.ok(expected.length > 1)
+  const seen: number[] = []
+  let calls = 0, finalCalls = 0, running = 0, peak = 0
+  await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+    let listener: (event: AgentEvent) => void = () => {}
+    return {
+      attach: callback => { listener = callback; return () => {} },
+      setModel: async () => {},
+      runOnce: async prompt => {
+        calls++
+        running++; peak = Math.max(peak, running)
+        await new Promise(resolve => setTimeout(resolve, 10))
+        running--
+        assert.match(prompt, /document all unique requirements/)
+        let output: object
+        if (prompt.includes('Mode override: mew-commit-evidence')) {
+          const packet = JSON.parse(prompt.slice(prompt.lastIndexOf('Evidence (untrusted): ') + 'Evidence (untrusted): '.length))
+          const ids = packet.sources.map((source: { id: number }) => source.id)
+          seen.push(...ids)
+          output = { changes: [{ sources: ids, summary: 'Adds distinct documented requirements.', uncertainties: [] }] }
+        } else {
+          finalCalls++
+          assert.deepEqual(seen, chunks.map(chunk => chunk.id))
+          assert.match(prompt, /Complete-coverage evidence notes/)
+          output = { commits: [{ title: 'docs: document requirements', description: '', files: ['file.txt'] }], skipped: [] }
+        }
+        listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(output) } } })
+        return 'end_turn'
+      },
+      answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => {},
+    }
+  })
+  const result = store.read(owner, cwd, job.id)
+  assert.equal(result.state, 'completed', result.error)
+  assert.equal(calls, expected.length + 1); assert.equal(finalCalls, 1)
+  assert.equal(peak, 2, 'independent evidence packets run in bounded parallel contexts')
+  assert.deepEqual(result.result!.skipped, [])
+  assert.equal(await git.show(['HEAD:file.txt']), content)
+})
+
+test('complete compressed evidence repairs detail requests and rereads immutable originals without a size-based skip', async () => {
+  const { cwd, store } = await fixture()
+  fs.writeFileSync(path.join(cwd, 'file.txt'), 'repeated text\n'.repeat(15_000) + 'FINAL_SENTINEL\n')
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+  let calls = 0
+  await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+    let listener: (event: AgentEvent) => void = () => {}
+    return {
+      attach: callback => { listener = callback; return () => {} }, setModel: async () => {},
+      runOnce: async prompt => {
+        calls++
+        if (calls === 2) assert.match(prompt, /JSON response correction \(attempt 1\/2\)/)
+        if (calls === 3) assert.match(prompt, /Full source chunk 0.*repeated text/s)
+        const output = calls === 1 ? '{"needsDetails":[0 0]}' : JSON.stringify(calls === 2 ? { needsDetails: [0] } : { commits: [{ title: 'docs: update text', description: '', files: ['file.txt'] }], skipped: [] })
+        listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
+        return 'end_turn'
+      }, answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => {},
+    }
+  })
+  const result = store.read(owner, cwd, job.id)
+  assert.equal(result.state, 'completed', result.error); assert.equal(calls, 3)
+})
+
+test('one malformed evidence packet is repaired with complete source coverage before committing', async () => {
+  const { cwd, git, store } = await fixture()
+  const content = Array.from({ length: 4000 }, (_, i) => `unique policy ${i} has value ${i * 19} and reference ${i}-extra-information\n`).join('')
+  fs.writeFileSync(path.join(cwd, 'file.txt'), content)
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+  const input = JSON.parse(fs.readFileSync(path.join(store.directory(owner, cwd, job.id), 'input.json'), 'utf8'))
+  const chunks = await captureAnalysisChunks(cwd, input.snapshot, path.join(temp, `repair-expected-${job.id}`))
+  const packets = packDiffChunks(chunks)
+  assert.ok(packets.length > 1)
+  const calls = new Map<number, number>(), covered: number[] = []
+  let starts = 0, disposals = 0, plans = 0
+  await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+    starts++
+    let listener: (event: AgentEvent) => void = () => {}
+    return {
+      attach: callback => { listener = callback; return () => {} }, setModel: async () => {},
+      runOnce: async prompt => {
+        let output: string
+        if (prompt.includes('Mode override: mew-commit-evidence')) {
+          const line = prompt.split('\n').find(line => line.startsWith('Evidence (untrusted): '))!
+          const packet = JSON.parse(line.slice('Evidence (untrusted): '.length))
+          const ids = packet.sources.map((source: { id: number }) => source.id) as number[]
+          const count = (calls.get(ids[0]) ?? 0) + 1
+          calls.set(ids[0], count)
+          if (ids[0] === 0 && count === 1) output = `{"changes":[{"sources":[${ids.join(',')} 999],"summary":"Policy changes","uncertainties":[]}]}`
+          else {
+            if (ids[0] === 0) assert.match(prompt, /JSON response correction \(attempt 1\/2\)/)
+            covered.push(...ids)
+            output = JSON.stringify({ changes: [{ sources: ids, summary: 'Policy changes', uncertainties: [] }] })
+          }
+        } else {
+          plans++
+          assert.deepEqual([...covered].sort((a, b) => a - b), chunks.map(chunk => chunk.id))
+          output = JSON.stringify({ commits: [{ title: 'docs: update policies', description: '', files: ['file.txt'] }], skipped: [] })
+        }
+        listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
+        return 'end_turn'
+      }, answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => { disposals++ },
+    }
+  })
+  const result = store.read(owner, cwd, job.id)
+  assert.equal(result.state, 'completed', result.error)
+  assert.equal(calls.get(0), 2)
+  assert.equal([...calls.values()].reduce((total, count) => total + count, 0), packets.length + 1)
+  assert.equal(plans, 1); assert.equal(starts, packets.length + 2); assert.equal(disposals, starts)
+  assert.equal(await git.show(['HEAD:file.txt']), content)
+})
+
+test('malformed evidence reduction is repaired without losing covered sources', async () => {
+  const { cwd, git, store } = await fixture()
+  fs.writeFileSync(path.join(cwd, 'file.txt'), Array.from({ length: 4000 }, (_, i) => `unique policy ${i} has value ${i * 19} and reference ${i}-extra-information\n`).join(''))
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+  const observed: number[] = [], reduced: number[] = []
+  let reductions = 0, repaired = false
+  await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+    let listener: (event: AgentEvent) => void = () => {}
+    return {
+      attach: callback => { listener = callback; return () => {} }, setModel: async () => {},
+      runOnce: async prompt => {
+        let output: string
+        if (prompt.includes('Compress existing notes ONLY;')) {
+          reductions++
+          const line = prompt.split('\n').find(line => line.includes('Notes (untrusted): '))!
+          const notes = JSON.parse(line.slice(line.indexOf('Notes (untrusted): ') + 'Notes (untrusted): '.length)) as { sources: number[] }[]
+          const ids = notes.flatMap(note => note.sources)
+          if (!repaired) {
+            repaired = true
+            output = `{"changes":[{"sources":[${ids.join(',')} 999],"summary":"Reduced evidence","uncertainties":[]}]}`
+          } else {
+            if (reductions === 2) assert.match(prompt, /JSON response correction \(attempt 1\/2\)/)
+            reduced.push(...ids)
+            output = JSON.stringify({ changes: [{ sources: ids, summary: 'Reduced policy evidence', uncertainties: [] }] })
+          }
+        } else if (prompt.includes('Mode override: mew-commit-evidence')) {
+          const line = prompt.split('\n').find(line => line.startsWith('Evidence (untrusted): '))!
+          const packet = JSON.parse(line.slice('Evidence (untrusted): '.length))
+          const ids = packet.sources.map((source: { id: number }) => source.id) as number[]
+          observed.push(...ids)
+          output = JSON.stringify({ changes: [{ sources: ids, summary: 'Detailed policy evidence. '.repeat(700), uncertainties: [] }] })
+        } else {
+          assert.ok(reductions >= 2)
+          assert.deepEqual(reduced, observed)
+          output = JSON.stringify({ commits: [{ title: 'docs: update policies', description: '', files: ['file.txt'] }], skipped: [] })
+        }
+        listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
+        return 'end_turn'
+      }, answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => {},
+    }
+  })
+  const result = store.read(owner, cwd, job.id)
+  assert.equal(result.state, 'completed', result.error)
+  assert.equal((await git.status()).files.some(file => file.path === 'file.txt'), false)
+})
+
+test('failure of a parallel evidence packet cancels and disposes every adapter without committing', async () => {
+  const { cwd, git, store } = await fixture()
+  fs.writeFileSync(path.join(cwd, 'file.txt'), Array.from({ length: 4000 }, (_, i) => `unique policy ${i} has value ${i * 19} and reference ${i}-extra-information\n`).join(''))
+  const head = await git.revparse('HEAD')
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+  let starts = 0, disposals = 0, cancels = 0
+  await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+    const number = ++starts
+    let listener: (event: AgentEvent) => void = () => {}
+    return {
+      attach: callback => { listener = callback; return () => {} }, setModel: async () => {},
+      runOnce: async () => {
+        if (number === 1) {
+          listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '{"changes":[]}' } } })
+        } else await new Promise(resolve => setTimeout(resolve, 40))
+        return 'end_turn'
+      }, answerPermission: () => {}, cancel: () => { cancels++ }, disposeAndWait: async () => { disposals++ },
+    }
+  })
+  assert.equal(store.read(owner, cwd, job.id).state, 'failed')
+  assert.equal(starts, 2); assert.equal(disposals, 2); assert.ok(cancels >= 1)
+  assert.equal(await git.revparse('HEAD'), head)
+})
+
+test('invalid plans, permission requests, cancellation and racing edits leave large changes uncommitted', async () => {
+  for (const scenario of ['invalid', 'permission', 'cancel', 'edit'] as const) {
+    const { cwd, git, store } = await fixture()
+    fs.writeFileSync(path.join(cwd, 'file.txt'), 'large change\n'.repeat(15_000))
+    await git.add('file.txt')
+    const head = await git.revparse('HEAD'), index = await git.diff(['--cached'])
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+    let changed = false
+    await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+      let listener: (event: AgentEvent) => void = () => {}
+      return {
+        attach: callback => { listener = callback; return () => {} },
+        setModel: async () => {},
+        runOnce: async () => {
+          if (scenario === 'permission') listener({ type: 'permission', id: 'p', toolCall: { toolCallId: 't', title: 'write' }, options: [] })
+          if (scenario === 'cancel') {
+            store.stop(owner, cwd, job.id)
+            await new Promise(resolve => setTimeout(resolve, 300))
+          }
+          if (scenario === 'edit' && !changed) { changed = true; fs.appendFileSync(path.join(cwd, 'file.txt'), 'racing edit') }
+          const output = scenario === 'invalid' ? '{}' : JSON.stringify({ commits: [{ title: 'fix: large change', description: '', files: ['file.txt'] }], skipped: [] })
+          listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
+          return 'end_turn'
+        },
+        answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => {},
+      }
+    })
+    const result = store.read(owner, cwd, job.id)
+    assert.equal(result.state, scenario === 'cancel' ? 'cancelled' : 'failed')
+    if (scenario === 'edit') assert.match(result.error!, /달라졌습니다/)
+    assert.equal(await git.revparse('HEAD'), head)
+    assert.equal(await git.diff(['--cached']), index)
+    assert.equal(fs.existsSync(path.join(store.directory(owner, cwd, job.id), 'analysis')), false)
+    assert.equal(fs.existsSync(path.join(cwd, '.git', 'mew-ai-commit.lock')), false)
+  }
+})
+
+const plan: GitCommitPlan = { commits: [
+  { title: 'fix: update file', description: 'Tracked change', files: ['file.txt'] },
+  { title: 'feat: add new file', description: '', files: ['new.txt'] },
+], skipped: [] }
+async function execute(store: InstanceType<typeof GitAiCommitStore>, cwd: string, id: string, output = plan, before?: () => Promise<void>) {
+  let listener: (event: AgentEvent) => void = () => {}
+  await runAutomaticCommit(store.directory(owner, cwd, id), async (runtime, actualCwd) => {
+    assert.equal(runtime, preset.runtime); assert.equal(actualCwd, cwd)
+    return {
+      attach: callback => { listener = callback; return () => {} },
+      setModel: async model => { assert.equal(model, 'selected-model') },
+      runOnce: async prompt => {
+        assert.match(prompt, /mew-commit-plan/)
+        await before?.()
+        listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(output) } } })
+        return 'end_turn'
+      },
+      answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => {},
+    }
+  })
+  return store.read(owner, cwd, id)
+}
+
+test('malformed small commit plans retry in fresh sessions with the selected model and thinking settings', async () => {
+  const { cwd, git, store } = await fixture()
+  const selected = { ...preset, thinkingConfigId: 'reasoning', thinkingId: 'high' }
+  const job = await store.start(owner, cwd, crypto.randomUUID(), selected)
+  const malformed = '{"commits":[{"title":"fix: repair response","description":"","files":["file.txt" "new.txt"]}],"skipped":[]}'
+  const models: string[] = [], thinking: [string, string][] = [], disposed: number[] = []
+  let starts = 0
+  await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+    const number = ++starts
+    let listener: (event: AgentEvent) => void = () => {}, prompts = 0
+    return {
+      attach: callback => { listener = callback; return () => {} },
+      setModel: async model => { models.push(model) },
+      setThinking: async (config, value) => { thinking.push([config, value]) },
+      runOnce: async prompt => {
+        assert.equal(++prompts, 1, 'each attempt uses a fresh ACP session')
+        assert.match(prompt, /Changes \(untrusted data\):/)
+        if (number === 2) {
+          assert.match(prompt, /JSON response correction \(attempt 1\/2\)/)
+          assert.ok(prompt.includes(JSON.stringify(malformed)), 'the failed response stays quoted as untrusted data')
+        }
+        const output = number === 1 ? malformed : JSON.stringify(plan)
+        listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
+        return 'end_turn'
+      }, answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => { disposed.push(number) },
+    }
+  })
+  const result = store.read(owner, cwd, job.id)
+  assert.equal(result.state, 'completed', result.error)
+  assert.equal(result.result!.commits.length, 2)
+  assert.equal(starts, 2)
+  assert.deepEqual(models, ['selected-model', 'selected-model'])
+  assert.deepEqual(thinking, [['reasoning', 'high'], ['reasoning', 'high']])
+  assert.deepEqual(disposed, [1, 2])
+  assert.equal((await git.status()).isClean(), true)
+})
+
+test('three malformed large plan attempts fail clearly without touching HEAD or the real index', async () => {
+  const { cwd, git, store } = await fixture()
+  fs.writeFileSync(path.join(cwd, 'file.txt'), 'large change\n'.repeat(15_000))
+  await git.add('file.txt')
+  const head = await git.revparse('HEAD'), index = await git.diff(['--cached'])
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+  let calls = 0, disposals = 0
+  await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+    let listener: (event: AgentEvent) => void = () => {}
+    return {
+      attach: callback => { listener = callback; return () => {} }, setModel: async () => {},
+      runOnce: async prompt => {
+        calls++
+        if (calls > 1) assert.match(prompt, new RegExp(`JSON response correction \\(attempt ${calls - 1}/2\\)`))
+        const output = '{"commits":[{"title":"fix: malformed","description":"","files":["file.txt" "file.txt"]}],"skipped":[]}'
+        listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
+        return 'end_turn'
+      }, answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => { disposals++ },
+    }
+  })
+  const result = store.read(owner, cwd, job.id)
+  assert.equal(result.state, 'failed')
+  assert.equal(calls, 3); assert.equal(disposals, 3)
+  assert.match(result.error!, /응답|형식|JSON/)
+  assert.doesNotMatch(result.error!, /Expected|at position|line \d+ column/)
+  assert.equal(result.result, undefined)
+  assert.equal(await git.revparse('HEAD'), head)
+  assert.equal(await git.diff(['--cached']), index)
+  assert.equal(fs.existsSync(path.join(cwd, '.git', 'mew-ai-commit.lock')), false)
+  assert.equal(fs.existsSync(path.join(store.directory(owner, cwd, job.id), 'analysis')), false)
+})
+
+test('corrected JSON still rejects out-of-scope or duplicate plan files without further retries', async () => {
+  for (const files of [['file.txt', 'other.txt'], ['file.txt', 'file.txt']]) {
+    const { cwd, git, store } = await fixture()
+    const head = await git.revparse('HEAD'), index = await git.diff(['--cached'])
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+    let calls = 0, disposals = 0
+    await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+      let listener: (event: AgentEvent) => void = () => {}
+      return {
+        attach: callback => { listener = callback; return () => {} }, setModel: async () => {},
+        runOnce: async () => {
+          const output = ++calls === 1 ? '{"commits":[}' : JSON.stringify({ commits: [{ title: 'fix: invalid scope', description: '', files }], skipped: [{ file: 'new.txt', reason: 'Separate change' }] })
+          listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
+          return 'end_turn'
+        }, answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => { disposals++ },
+      }
+    })
+    const result = store.read(owner, cwd, job.id)
+    assert.equal(result.state, 'failed')
+    assert.match(result.error!, /범위|중복/)
+    assert.equal(calls, 2); assert.equal(disposals, 2)
+    assert.equal(await git.revparse('HEAD'), head)
+    assert.equal(await git.diff(['--cached']), index)
+  }
+})
+
+test('cancellation or racing edits during JSON correction keep changes uncommitted', async () => {
+  for (const scenario of ['cancel', 'edit'] as const) {
+    const { cwd, git, store } = await fixture()
+    await git.add('file.txt')
+    const head = await git.revparse('HEAD'), index = await git.diff(['--cached'])
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+    let calls = 0, disposals = 0
+    await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+      let listener: (event: AgentEvent) => void = () => {}
+      return {
+        attach: callback => { listener = callback; return () => {} }, setModel: async () => {},
+        runOnce: async () => {
+          calls++
+          if (calls === 2) {
+            if (scenario === 'cancel') {
+              store.stop(owner, cwd, job.id)
+              await new Promise(resolve => setTimeout(resolve, 300))
+            } else fs.appendFileSync(path.join(cwd, 'file.txt'), 'racing edit\n')
+          }
+          const output = calls === 1 ? '{"commits":[}' : JSON.stringify(plan)
+          listener({ type: 'update', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } } })
+          return 'end_turn'
+        }, answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => { disposals++ },
+      }
+    })
+    const result = store.read(owner, cwd, job.id)
+    assert.equal(result.state, scenario === 'cancel' ? 'cancelled' : 'failed')
+    if (scenario === 'edit') assert.match(result.error!, /달라졌습니다/)
+    assert.equal(calls, 2); assert.equal(disposals, 2)
+    assert.equal(await git.revparse('HEAD'), head)
+    assert.equal(await git.diff(['--cached']), index)
+    assert.equal(fs.existsSync(path.join(cwd, '.git', 'mew-ai-commit.lock')), false)
+  }
+})
+
+test('jobs create logical commits, preserve unrelated stage, are idempotent and recoverable', async () => {
+  const { cwd, git, store, manager, launches } = await fixture()
+  fs.writeFileSync(path.join(cwd, 'excluded.txt'), 'staged unrelated')
+  await git.add('excluded.txt')
+  fs.appendFileSync(path.join(cwd, 'excluded.txt'), ' plus working changes')
+  const index = await git.diff(['--cached', '--', 'excluded.txt'])
+  const id = crypto.randomUUID()
+  const [first, second] = await Promise.all([store.start(owner, cwd, id, preset, ['file.txt', 'new.txt']), store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])])
+  assert.equal(first.id, second.id); assert.equal(launches(), 1)
+  assert.equal((await store.start(owner, cwd, id, preset)).id, id)
+  assert.equal((await new GitAiCommitStore(manager, store.root).latest(owner, cwd))?.id, id)
+  assert.equal(await store.latest('other', cwd), null)
+  assert.throws(() => store.read('other', cwd, id))
+  const result = await execute(store, cwd, id)
+  assert.equal(result.state, 'completed', result.error)
+  assert.equal(result.result!.commits.length, 2)
+  const history = await git.log()
+  assert.deepEqual(history.all.slice(0, 2).map(c => c.message), ['feat: add new file', 'fix: update file'])
+  for (const commit of result.result!.commits) {
+    assert.deepEqual((await git.raw(['diff-tree', '--no-commit-id', '--name-only', '-r', commit.hash])).trim().split('\n'), commit.files)
+  }
+  assert.equal(await git.diff(['--cached', '--', 'excluded.txt']), index)
+  assert.match(fs.readFileSync(path.join(cwd, 'excluded.txt'), 'utf8'), /working changes/)
+  assert.equal(fs.existsSync(path.join(store.directory(owner, cwd, id), 'input.json')), false)
+})
+
+test('selected snapshots exclude other files and reject tree, HEAD or index changes before committing', async () => {
+  for (const kind of ['working', 'index', 'head', 'binary'] as const) {
+    const { cwd, git, store } = await fixture()
+    if (kind === 'binary') fs.writeFileSync(path.join(cwd, 'new.txt'), Buffer.from([0, 1, 2]))
+    const head = await git.revparse('HEAD')
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt', 'new.txt'])
+    const result = await execute(store, cwd, job.id, plan, async () => {
+      if (kind === 'working') fs.appendFileSync(path.join(cwd, 'file.txt'), 'changed again')
+      if (kind === 'binary') fs.writeFileSync(path.join(cwd, 'new.txt'), Buffer.from([0, 1, 3]))
+      if (kind === 'index') await git.add('file.txt')
+      if (kind === 'head') await git.commit('other commit', { '--allow-empty': null })
+    })
+    assert.equal(result.state, 'failed')
+    assert.match(result.error!, /달라졌습니다/)
+    assert.equal(result.result?.commits.length, 0)
+    if (kind !== 'head') assert.equal(await git.revparse('HEAD'), head)
+  }
+  const { cwd, git, store } = await fixture()
+  await git.add('new.txt')
+  const index = await git.diff(['--cached'])
+  const snapshot = await captureCommitChanges(cwd, ['file.txt'])
+  assert.doesNotMatch(snapshot.text, /new file|new\.txt/)
+  await assert.rejects(captureCommitChanges(cwd, []), /선택/)
+  await assert.rejects(captureCommitChanges(cwd, ['missing.txt']), /달라졌습니다/)
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['file.txt'])
+  const result = await execute(store, cwd, job.id, { commits: [plan.commits[0]], skipped: [] }, async () => { fs.appendFileSync(path.join(cwd, 'new.txt'), 'unselected edit') })
+  assert.equal(result.state, 'completed', result.error)
+  assert.equal(await git.diff(['--cached']), index)
+})
+
+test('plans reject duplicates and missing files, and preserve explicit skipped files', async () => {
+  assert.throws(() => parseCommitPlan(JSON.stringify({ commits: [plan.commits[0], plan.commits[0]], skipped: [] }), ['file.txt']), /중복/)
+  const { cwd, git, store } = await fixture()
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+  const output = { commits: [plan.commits[0]], skipped: [{ file: 'new.txt', reason: '검토 필요' }] }
+  const result = await execute(store, cwd, job.id, output)
+  assert.equal(result.state, 'completed', result.error)
+  assert.deepEqual(result.result!.skipped, output.skipped)
+  assert.deepEqual((await git.status()).not_added, ['new.txt'])
+})
+
+test('automatic commits support unborn repositories, renames, deletions and literal filenames', async () => {
+  const { cwd, git, store } = await fixture()
+  await git.raw(['mv', 'file.txt', 'renamed.txt'])
+  const strange = 'literal[1]*.txt'
+  fs.writeFileSync(path.join(cwd, strange), 'literal content')
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset, ['renamed.txt', strange])
+  const result = await execute(store, cwd, job.id, { commits: [
+    { title: 'refactor: rename', description: '', files: ['renamed.txt'] },
+    { title: 'feat: literal path', description: '', files: [strange] },
+  ], skipped: [] })
+  assert.equal(result.state, 'completed', result.error)
+  assert.equal((await git.status()).files.some(file => file.path === 'renamed.txt'), false)
+  fs.unlinkSync(path.join(cwd, strange))
+  const deletion = await store.start(owner, cwd, crypto.randomUUID(), preset, [strange])
+  assert.equal((await execute(store, cwd, deletion.id, { commits: [{ title: 'chore: remove', description: '', files: [strange] }], skipped: [] })).state, 'completed')
+  const fresh = fs.mkdtempSync(path.join(temp, 'fresh-'))
+  const unborn = simpleGit(fresh); await unborn.init(); await unborn.addConfig('user.name', 'Test'); await unborn.addConfig('user.email', owner)
+  fs.writeFileSync(path.join(fresh, 'file.txt'), 'first')
+  fs.writeFileSync(path.join(fresh, 'new.txt'), 'second')
+  const first = await store.start(owner, fresh, crypto.randomUUID(), preset)
+  const created = await execute(store, fresh, first.id)
+  assert.equal(created.state, 'completed', created.error)
+  assert.equal((await unborn.log()).total, 2)
+})
+
+test('partial failure and cancellation keep committed hashes; hook-time edits stay uncommitted', async () => {
+  for (const scenario of ['failure', 'cancel', 'edit'] as const) {
+    const { cwd, git, store } = await fixture()
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+    const directory = store.directory(owner, cwd, job.id)
+    if (scenario === 'failure') {
+      fs.writeFileSync(path.join(cwd, '.git/hooks/pre-commit'), '#!/bin/sh\nif git diff --cached --name-only | grep -q new.txt; then exit 1; fi\n', { mode: 0o700 })
+    } else if (scenario === 'cancel') {
+      fs.writeFileSync(path.join(cwd, '.git/hooks/post-commit'), `#!/bin/sh\ntouch '${directory}/stop'\n`, { mode: 0o700 })
+    } else {
+      fs.writeFileSync(path.join(cwd, '.git/hooks/pre-commit'), '#!/bin/sh\nprintf "late edit\\n" >> file.txt\n', { mode: 0o700 })
+    }
+    const result = await execute(store, cwd, job.id, scenario === 'edit' ? { commits: [plan.commits[0]], skipped: [{ file: 'new.txt', reason: 'not part of change' }] } : plan)
+    assert.equal(result.state, scenario === 'edit' ? 'completed' : scenario === 'cancel' ? 'cancelled' : 'failed', result.error)
+    assert.equal(result.result!.commits.length, 1)
+    assert.equal((await git.log()).total, 2)
+    assert.equal(await git.diff(['--cached']), '', 'failed or cancelled groups never stage new files')
+    if (scenario === 'edit') {
+      assert.equal(await git.show(['HEAD:file.txt']), 'after\n')
+      assert.match(await git.diff(), /late edit/)
+    }
+  }
+})
+
+test('cancellation during initialize never sends a prompt; timeout and permission requests fail visibly', async () => {
+  for (const scenario of ['cancel', 'timeout', 'permission', 'invalid', 'model-error'] as const) {
+    const { cwd, store } = await fixture()
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+    let prompts = 0, disposed = false, denied = false
+    let listener: (event: AgentEvent) => void = () => {}
+    const running = runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+      if (scenario === 'cancel') await new Promise(resolve => setTimeout(resolve, 350))
+      return {
+        attach: callback => { listener = callback; return () => {} },
+        setModel: async () => { if (scenario === 'model-error') throw new Error('unknown model') },
+        runOnce: async () => {
+          prompts++
+          if (scenario === 'permission') listener({ type: 'permission', id: 'permission', toolCall: { toolCallId: 'tool', title: 'write' }, options: [] })
+          if (scenario === 'invalid') return 'end_turn'
+          return new Promise<string>(() => {})
+        },
+        answerPermission: (_id, option) => { denied = option === null }, cancel: () => {}, disposeAndWait: async () => { disposed = true },
+      }
+    }, 600)
+    if (scenario === 'cancel') store.stop(owner, cwd, job.id)
+    await running
+    const result = store.read(owner, cwd, job.id)
+    assert.equal(result.state, scenario === 'cancel' ? 'cancelled' : 'failed')
+    assert.equal(result.result, undefined); assert.ok(result.error); assert.ok(disposed)
+    if (scenario === 'cancel' || scenario === 'model-error') assert.equal(prompts, 0)
+    if (scenario === 'permission') assert.ok(denied)
+  }
+})
+
+test('structured ACP startup and model errors preserve the phase and detailed cause without committing', async () => {
+  for (const phase of ['start', 'model'] as const) {
+    const { cwd, git, store } = await fixture()
+    const head = await git.revparse('HEAD')
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+    const error = { code: -32603, message: 'Internal error', data: { details: 'Unsupported format of modelId: selected-model. Expected: modelId[effort].' } }
+    let disposed = false
+    await runAutomaticCommit(store.directory(owner, cwd, job.id), async () => {
+      if (phase === 'start') throw error
+      return {
+        attach: () => () => {},
+        setModel: async () => { throw error },
+        runOnce: async () => { assert.fail('must not prompt after a model error') },
+        answerPermission: () => {}, cancel: () => {}, disposeAndWait: async () => { disposed = true },
+      }
+    })
+    const result = store.read(owner, cwd, job.id)
+    assert.equal(result.state, 'failed')
+    assert.match(result.error!, phase === 'start' ? /에이전트 준비/ : /모델 설정/)
+    assert.match(result.error!, /Unsupported format of modelId/)
+    assert.match(result.output, /modelId\[effort\]/)
+    assert.doesNotMatch(result.error!, /\[object Object\]/)
+    assert.equal(await git.revparse('HEAD'), head)
+    assert.equal(await git.diff(['--cached']), '')
+    assert.equal(disposed, phase === 'model')
+    assert.equal(fs.existsSync(path.join(cwd, '.git', 'mew-ai-commit.lock')), false)
+  }
+})
+
+test('HTTP requires Git + agent capabilities and validates workspace and ownership', async () => {
+  const { cwd, store } = await fixture()
+  writeSets([preset])
+  const app = express(); app.use(express.json())
+  app.use((req, _res, next) => { req.auth = { role: 'manager', email: String(req.headers['x-account'] ?? owner), mustChangePassword: false }; next() })
+  app.use('/ai', createGitAiCommitRouter(store))
+  const server = app.listen(0, '127.0.0.1'); await once(server, 'listening')
+  const address = server.address(); assert.ok(address && typeof address !== 'string')
+  const base = `http://127.0.0.1:${address.port}/ai`
+  const query = `?${new URLSearchParams({ project: path.basename(cwd), workspace: temp })}`
+  const post = (url: string, body: unknown, account = owner) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-account': account }, body: JSON.stringify(body) })
+  try {
+    for (const feature of ['git', 'agent'] as const) {
+      setFeature(owner, feature, false)
+      assert.equal((await fetch(base + query)).status, 403)
+      assert.equal((await post(base + query, {})).status, 403)
+      setFeature(owner, feature, true)
+    }
+    assert.equal((await fetch(base + '?project=.workspace&workspace=wrong')).status, 400)
+    assert.equal((await post(base + query, { id: crypto.randomUUID(), agentSetId: 'missing' })).status, 400)
+    const id = crypto.randomUUID()
+    assert.equal((await post(base + query, { id, agentSetId: preset.id })).status, 400)
+    assert.equal((await post(base + query, { id, agentSetId: preset.id, files: ['file.txt'] })).status, 202)
+    assert.equal((await post(base + `/${id}/stop` + query, {}, 'other@example.test')).status, 400)
+    assert.equal((await post(base + `/${id}/stop` + query, {})).status, 200)
+  } finally { server.close(); await once(server, 'close') }
+})
+
+test('failed launch and lost tmux are recoverable and remove the temporary diff input', async () => {
+  const { cwd, store, manager } = await fixture()
+  manager.startCommand = async () => { throw new Error('tmux unavailable') }
+  const failed = await store.start(owner, cwd, crypto.randomUUID(), preset)
+  assert.equal(failed.state, 'failed'); assert.match(failed.error!, /tmux unavailable/)
+  assert.equal(fs.existsSync(path.join(store.directory(owner, cwd, failed.id), 'input.json')), false)
+  manager.startCommand = async () => {}
+  const lost = await store.start(owner, cwd, crypto.randomUUID(), preset)
+  const directory = store.directory(owner, cwd, lost.id)
+  fs.writeFileSync(path.join(directory, 'state.json'), JSON.stringify({ ...lost, startedAt: Date.now() - 20_000 }))
+  assert.equal((await store.latest(owner, cwd))?.state, 'failed')
+  assert.equal(fs.existsSync(path.join(directory, 'input.json')), false)
+})
+
+let tmux: string | undefined
+try { tmux = execFileSync('which', ['tmux'], { encoding: 'utf8' }).trim() } catch { /* optional */ }
+test('real isolated tmux runs a separate ACP session and saves the result without a live browser', { skip: !tmux, timeout: 30_000 }, async () => {
+  const { cwd } = await fixture()
+  const socket = `mew-git-ai-test-${crypto.randomBytes(6).toString('hex')}`
+  const bin = path.join(temp, 'bin'); fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, 'tmux'), `#!/bin/sh\nexec '${tmux}' -L '${socket}' "$@"\n`, { mode: 0o700 })
+  const adapter = path.join(temp, 'fake-acp.mjs')
+  fs.writeFileSync(adapter, `
+import {AgentSideConnection,ndJsonStream,PROTOCOL_VERSION} from ${JSON.stringify(import.meta.resolve('@agentclientprotocol/sdk'))};
+import {Readable,Writable} from 'node:stream';
+let model='';
+new AgentSideConnection(conn=>({
+ initialize:async()=>({protocolVersion:PROTOCOL_VERSION,agentCapabilities:{}}),
+ newSession:async()=>({sessionId:'commit-only',models:{currentModelId:'default[medium]',availableModels:[{modelId:'selected-model[medium]',name:'Selected'}]}}),
+ unstable_setSessionModel:async p=>{model=p.modelId;return {}},
+ prompt:async({sessionId,prompt})=>{
+ if(model!=='selected-model[medium]') throw Error('legacy preset model not resolved');
+ if(!prompt.some(p=>p.text?.includes('new file'))) throw Error('missing diff');
+ await conn.sessionUpdate({sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify({commits:[{title:'feat: isolated commit',description:'From tmux',files:['file.txt','new.txt']}],skipped:[]})}}});
+ return {stopReason:'end_turn'};
+ },cancel:async()=>{}
+}),ndJsonStream(Writable.toWeb(process.stdout),Readable.toWeb(process.stdin)));
+`)
+  const saved = { PATH: process.env.PATH, MEW_AGENT_CODEX_CMD: process.env.MEW_AGENT_CODEX_CMD, MEW_AGENT_CODEX_ARGS: process.env.MEW_AGENT_CODEX_ARGS, MEW_AGENT_MEMORY_SCOPE: process.env.MEW_AGENT_MEMORY_SCOPE }
+  Object.assign(process.env, { PATH: `${bin}:${saved.PATH}`, MEW_AGENT_CODEX_CMD: process.execPath, MEW_AGENT_CODEX_ARGS: adapter, MEW_AGENT_MEMORY_SCOPE: 'off' })
+  try {
+    const manager = createTmuxManager({ cwd }), store = new GitAiCommitStore(manager, path.join(temp, 'real-jobs'))
+    const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+    const deadline = Date.now() + 20_000
+    let result = job
+    while (result.state === 'starting' || result.state === 'running' || result.state === 'committing') {
+      assert.ok(Date.now() < deadline, `job timeout: ${result.output}`)
+      await new Promise(resolve => setTimeout(resolve, 100))
+      result = store.read(owner, cwd, job.id)
+    }
+    assert.equal(result.state, 'completed', result.error)
+    assert.equal(result.result?.commits[0]?.title, 'feat: isolated commit')
+    assert.equal((await new GitAiCommitStore(manager, store.root).latest(owner, cwd))?.id, job.id)
+  } finally {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
+    try { execFileSync(tmux!, ['-L', socket, 'kill-server']) } catch { /* exited */ }
+  }
+})
+
+
+test('disconnect during AI analysis stops before creating commits', async () => {
+  const { cwd, git, store } = await fixture()
+  const head = await git.revparse('HEAD')
+  const job = await store.start(owner, cwd, crypto.randomUUID(), preset)
+  const result = await execute(store, cwd, job.id, plan, async () => { gitConnections.remove(owner) })
+  assert.equal(result.state, 'failed')
+  assert.equal(await git.revparse('HEAD'), head)
+  assert.match(result.error!, /Git 계정/)
+})

@@ -1,0 +1,79 @@
+{
+  "description": "공통 관절 리그로 수정한 16개 모션의 제작·품질 검수·실행 반영 상태를 구분한 최종 기록.",
+  "generation": {
+    "complete": true,
+    "motions": 16,
+    "frames": 353,
+    "canvas": [
+      128,
+      128
+    ],
+    "transparentRgba": true,
+    "direction": "right",
+    "missingMotions": []
+  },
+  "qualityReview": {
+    "complete": true,
+    "method": [
+      "16개 모션 및 두 연결의 프레임 접촉표 육안 확인",
+      "모션당 2001개 연속 리그 표본·반복 및 전환 끝점 검사",
+      "353개 PNG 셀의 RGBA·규격·모서리 투명 여백 확인",
+      "데스크톱·모바일 HTML 재생·16개 프레임 탐색·스크립트 없는 GIF 대체 표시 확인"
+    ],
+    "fixed": [
+      "모션별 확대·축소와 머리·몸통 체격 변화",
+      "발 개수·고정 관절 길이 및 접지발 미끄러짐",
+      "반복 이음새와 전환 양끝 자세·지지발 위상 불일치",
+      "동작별 하단 여백에 따른 화면 바닥 위치 튐",
+      "이동 속도와 프레임 재생 속도·보폭 불일치",
+      "이동 중 자동 점프 전의 정지 자세 누락",
+      "짧은 위쪽 던지기에서 정점 모션이 하강 자세를 덮는 문제",
+      "HTML 스크립트 차단 환경의 빈 미리보기"
+    ],
+    "unresolvedMotions": [],
+    "measurements": {
+      "samplesPerMotion": 2001,
+      "unreachableSamples": 0,
+      "maxBoneLengthErrorPx": 2.4868995751603507e-14,
+      "maxTorsoLengthErrorPx": 7.105427357601002e-15,
+      "maxContinuousPlantDriftPx": 2.842170943040401e-14,
+      "minPawCenterSeparationPx": 6.5444589101199755,
+      "renderedAlphaBoundsInclusive": [
+        17,
+        36,
+        115,
+        109
+      ],
+      "groundLine": 110
+    },
+    "limits": [
+      "접지 오차 수치는 연속 리그 모델 기준이다. 실제 PNG 재생에는 정수 프레임·픽셀 양자화가 있다.",
+      "화면 이동은 프레임 적분이므로 전환 중 수치 오차가 남는다. 16ms 갱신·0.5배의 검토 예에서 48px 표시는 약 0.23px, 144px 표시는 약 0.69px다.",
+      "순간 잡기·알림 등 즉시 상호작용은 자발적 이동의 주기 대기를 생략한다."
+    ]
+  },
+  "verification": {
+    "rigParserStoreMotionTests": "20 passed",
+    "runtimeUnitTests": "11 passed",
+    "transitionBrowserTest": "passed; PC/mobile, stride size/speed, short-throw and restored-apex cases",
+    "interactionRegression": "animation, grab and size: 3 passed",
+    "skinSettingsBrowserTest": "passed; PC/mobile and stride preservation",
+    "typecheck": "passed",
+    "documentation": "440 descriptions; 0 errors; 0 link errors",
+    "independentRuntimeReview": "추가 수정이 필요한 버그·회귀 발견 없음"
+  },
+  "application": {
+    "skinRegistered": true,
+    "liveImageBytesVerified": 16,
+    "otherSkinsPreserved": true,
+    "selectedInUserBrowser": null,
+    "runtimeCodeLoaded": false,
+    "remaining": "브라우저에서 새 스킨 선택 여부는 미관찰. 보폭·바닥·전환 재생 코드 전체는 사용자 빌드 및 서버 재시작 후 반영."
+  },
+  "timing": {
+    "stripTiming": "manifest.json의 durationMs는 이동 배율 적용 전 원본 시간. 기본 스킨 movementSpeed는 0.5.",
+    "previewTiming": "걷기·달리기와 여섯 지상 전환은 원본의 2배, 나머지는 원본 시간.",
+    "groundSequenceMs": 11720,
+    "airSequenceMs": 7120
+  }
+}

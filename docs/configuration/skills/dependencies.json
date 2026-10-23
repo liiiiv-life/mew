@@ -1,0 +1,451 @@
+{
+  "version": 1,
+  "structure": "documentation",
+  "translation": {
+    "core": "translating-core",
+    "surface": "translating-documentation",
+    "review": "reviewing-translations"
+  },
+  "languages": {
+    "ko": {
+      "editor": "korean-writing-reviewer",
+      "translator": "translating-korean",
+      "targetLocale": "ko-KR"
+    },
+    "en": {
+      "editor": "writing-clearly-and-concisely",
+      "translator": "translating-core",
+      "targetLocale": "en"
+    },
+    "ja": {
+      "editor": "yomiyasu",
+      "translator": "translating-japanese",
+      "targetLocale": "ja-JP"
+    },
+    "zh-CN": {
+      "editor": "tech-doc-style-chinese",
+      "translator": "translating-chinese",
+      "targetLocale": "zh-CN"
+    }
+  },
+  "packages": [
+    {
+      "name": "documentation",
+      "role": "structure",
+      "repository": "mcollina/skills",
+      "revision": "72b72751477157ebda36203eaffac701ac5df5ae",
+      "sourcePath": "skills/documentation",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "55b21f8286eae11ad53f43c3e3ae5bc2797efbfda786087fb547b9a54655947e"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "5c5a5a169459a5be92966c41e6128cc537990d647a495a7755ba72b10bc833ca"
+        },
+        {
+          "path": "tile.json",
+          "sha256": "b4378f41ca1099220c69ff4b6249ced5f688a184ed868e0f05832589c6e7026c"
+        }
+      ]
+    },
+    {
+      "name": "writing-clearly-and-concisely",
+      "role": "editing",
+      "repository": "softaworks/agent-toolkit",
+      "revision": "3027f20f3181758385a1bb8c022d4041dfb4de84",
+      "sourcePath": "skills/writing-clearly-and-concisely",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "4b4447da5344f8b2d3a8a19ba8366d1ac7a24d9ab4690bd04576dc772ddf8321"
+        },
+        {
+          "path": "README.md",
+          "sha256": "cd8241146abf3e7514fdb07a6db2e06c8535a4f78dd1ab471901b2e7fe4db089"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "c5f4ecc8bfa7984d0df70d30cea3bfeb824f7b24d31db111d5a1a9a959880575"
+        },
+        {
+          "path": "elements-of-style/01-introductory.md",
+          "sha256": "248b18596fa18cf63605182688565d25d115c859f602068185f6014c26addbfe"
+        },
+        {
+          "path": "elements-of-style/02-elementary-rules-of-usage.md",
+          "sha256": "8cead3fc56b54ab5fc22e52c14423182fdce2d9535d4c1dda1f8319cac542027"
+        },
+        {
+          "path": "elements-of-style/03-elementary-principles-of-composition.md",
+          "sha256": "3867f33512ff2f0e965386dbb558579aab43ca10f070bd48d732584b9b5119e0"
+        },
+        {
+          "path": "elements-of-style/04-a-few-matters-of-form.md",
+          "sha256": "150feae0c201def056a96dd25fa5d23e015f53632b21f3bcd7b7266f8197c563"
+        },
+        {
+          "path": "elements-of-style/05-words-and-expressions-commonly-misused.md",
+          "sha256": "60db286f5166b1b6f4d85a0cc39471b375fbd62d6057d3844533551fb09f2c2d"
+        },
+        {
+          "path": "signs-of-ai-writing.md",
+          "sha256": "06d135c200e1bbfdbe90f433dfbdffeb9c4ea07f028a9a880f4026622e5c10fd"
+        }
+      ]
+    },
+    {
+      "name": "korean-writing-reviewer",
+      "role": "editing",
+      "repository": "CreatoonForge/korean-writing-reviewer",
+      "revision": "8f37444fa5ce7237602606c3e325e272fff3622e",
+      "sourcePath": "skills/general-agent",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "fceb6a7000ab600f6a1ac961f60cc3983957e727c7ec150e70628bbbb564928f"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "f2a7e1328f1edd49bcf5335d08269b22e625c86bbf296716478aca7f31902a26"
+        },
+        {
+          "path": "references/common-criteria.md",
+          "sha256": "55c4a6704db034ed8473eb6f80e577a5e5f04401a624ada8325b08ae6730c7b8"
+        },
+        {
+          "path": "references/document-profiles.md",
+          "sha256": "b978c78375cde22267e2617eb6252aa34b07f2a275823336bbfc35b006ca65ac"
+        },
+        {
+          "path": "references/editor-protection.md",
+          "sha256": "6e062d2daaedb197d7f766a5d6b822d2d16ba09ca7d2c4987ebd688b45fec632"
+        },
+        {
+          "path": "references/evaluation-workflow.md",
+          "sha256": "864b2ee07caa54e09a2ac97e777ee40a2ed3f09a84ac7f7adf5570b94a8b22ac"
+        },
+        {
+          "path": "references/examples.md",
+          "sha256": "b7c382eb99e7f958ff766df9130e95ccd023b29c4ed92f07b1a73714e3c4f5ac"
+        },
+        {
+          "path": "references/korean-ai-patterns.md",
+          "sha256": "a0f1fe0209915060c409daad41a9ad36ba55b74b0e059243bd45a55011c7421e"
+        },
+        {
+          "path": "references/long-document-workflow.md",
+          "sha256": "e792f8e8c26c3080d0882336ecd9becdfa3a894466aba3776f3d47895fa4461f"
+        },
+        {
+          "path": "references/scoring-common.md",
+          "sha256": "76deca9a935ac7a6e7ecf5c97fb4f121c0b9c097e5c3be053e860124e8135715"
+        },
+        {
+          "path": "references/scoring-examples.md",
+          "sha256": "0f9a9879fcf5a0cc155590be6794900f4622620379b3591c2ffd3fd21de7a469"
+        },
+        {
+          "path": "references/scoring-explanation.md",
+          "sha256": "0c6c6b9713c6ed4252ec616213abd6c162e437195c7b81a187bb6982bd59e4f8"
+        },
+        {
+          "path": "references/scoring-meeting.md",
+          "sha256": "42d91509a6cccdeec28a24bcbcfcb11cb3d4fb85462f0a0caf4dbf88c580cbe4"
+        },
+        {
+          "path": "references/scoring-message.md",
+          "sha256": "af2dc97dd164f1caec6292f53e5195344cce7a96252cbb9f981db210dba057d1"
+        },
+        {
+          "path": "references/scoring-note.md",
+          "sha256": "ed923714646e5ab6eb71231e2f7d698cffbd69784d33995af2b249a668f4d061"
+        },
+        {
+          "path": "references/scoring-post.md",
+          "sha256": "ffb987ebc711fbd997a5c3d65cd464146c38e3e46a351e6771d203de4223ec1b"
+        },
+        {
+          "path": "references/scoring-report.md",
+          "sha256": "bb5fd6925230920cf90f327f42c214b1d7e775bb62711aeac9fc1039f1e0c1ff"
+        },
+        {
+          "path": "references/scoring-research.md",
+          "sha256": "2ee41fa8b1d8555abcfe3087988718edab9a41afefbda24ae8d6ce45b711750d"
+        },
+        {
+          "path": "references/scoring-script.md",
+          "sha256": "57deac52dfc03da92d8eff9233dbf5c7e474b5ff19812509a6089d91032e84b7"
+        },
+        {
+          "path": "references/scoring-technical.md",
+          "sha256": "fbd8d87eaa2ff84a5f066dcd5dcaa60c717a5b68d443e70aadd5dedef4caaed4"
+        },
+        {
+          "path": "references/source-basis.md",
+          "sha256": "43eef4bc14d856769892cdc755103caa88e89268c814b6ee9f80d6d0fb2a58a9"
+        }
+      ]
+    },
+    {
+      "name": "yomiyasu",
+      "role": "editing",
+      "repository": "nanaism/yomiyasu",
+      "revision": "60bf877acebc86651e0b67d70112a66245f87758",
+      "sourcePath": "skills/yomiyasu",
+      "license": "MIT",
+      "files": [
+        {
+          "path": ".claude-plugin/marketplace.json",
+          "sha256": "1d563e4a0e24d8a419d01f4cd729ec2577f189f9dd61a1d4a8ab22119aef1d35"
+        },
+        {
+          "path": ".claude-plugin/plugin.json",
+          "sha256": "8cde4dc0893bc46827776a45610356f8997100bff0cc6e3e8699372f90316129"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "79d802f15bc8caf67f1a83c1bdbe214ccb41a0a0275f9046b329b89c65ee1fca"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "0a8915986b0228abdf137d00f8e35959336f1914d36dfb73f1e8c053357209cf"
+        },
+        {
+          "path": "UNICODE-LICENSE.txt",
+          "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+        },
+        {
+          "path": "assets/algo-artis.png",
+          "sha256": "57c7c204d43d0e2873e3b61221db3ac4ba75a7ce29271a6deaeb3bd09f26fdec"
+        },
+        {
+          "path": "references/domains/business.md",
+          "sha256": "b9970281b5005bbbc998d5de9b9e6b2bc1bb83976b3862c0556425a142f4352c"
+        },
+        {
+          "path": "references/domains/essay.md",
+          "sha256": "8c0dc2afe132299ad111d4e3bc004d75da6291dc4857328717dc63ba5c9c6740"
+        },
+        {
+          "path": "references/domains/tech.md",
+          "sha256": "255b1bcbf42a0c7ea7f42c7293cd964e541d70f6f5079ebcbffc332ce6b7b0dd"
+        },
+        {
+          "path": "references/gemini-syntax.md",
+          "sha256": "7685424e9f63cd0d45c0fca673eabd10d7879f29e220b7d8517e73fcd2a9b6e7"
+        },
+        {
+          "path": "references/slop-catalog.md",
+          "sha256": "e7791d123db2573f50ee922c51f7d50694ab7e6b81f318713e9f405fe3c6daf2"
+        },
+        {
+          "path": "scripts/markdown_visibility.py",
+          "sha256": "7e6f739114bc28b132aa8e2bcfb51c7de7f441c12a54431c7248b5353a9966bb"
+        },
+        {
+          "path": "scripts/yomiyasu_diff.py",
+          "sha256": "b704e088fd6e1b01c21fb6b97373cc21d441cb14e976f3a47a95c3ba1c73a964"
+        },
+        {
+          "path": "scripts/yomiyasu_lint.py",
+          "sha256": "299a61970e8c30092f947e2ace95e80ff8a513fac87824363f89ba77e6cac468"
+        }
+      ]
+    },
+    {
+      "name": "tech-doc-style-chinese",
+      "role": "editing",
+      "repository": "Fenng/Tech-Doc-Style-Chinese",
+      "revision": "b119d01c9bb7cd132b3c62fafdff34227c4410d1",
+      "sourcePath": ".",
+      "license": "MIT",
+      "files": [
+        {
+          "path": ".github/workflows/skill-lint.yml",
+          "sha256": "b2f9afa99df8645f8584855179445c8cdd447a70a2da0215588ee062e4f3fffa"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "fda04396a285dacbc12b03fa41c9a3a1c791944cb3ba6147b6a7a00bccf4b20f"
+        },
+        {
+          "path": "NoCode-Skill.md",
+          "sha256": "ee56ca6ad16d77c72bd8cdefa6e751bf1b090b67865bb9209a8b90181bb1c419"
+        },
+        {
+          "path": "README.md",
+          "sha256": "dd384b98751077708abeba66ae7362a0ecaecd73a8c2a05289f21ca739ef086f"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "63449e740544d0b8b03f38f3e0adeec544baf63bfdca27af51996a8b2f43e0af"
+        },
+        {
+          "path": "agents/openai.yaml",
+          "sha256": "77ba19eacbd6520bf1f7ddd0c22087bbfa08ee7670feb560de0d772281c2be67"
+        },
+        {
+          "path": "references/api-status-copy.md",
+          "sha256": "2d8a429db092dc9679fce6b2b44e14b11ab1c861764c91a4eaee203fcebbe0cc"
+        },
+        {
+          "path": "references/controlled-technical-chinese.md",
+          "sha256": "24306b6cb882916f2fdff543ef459f65111310d32a2ceca4b38e12487ed03449"
+        },
+        {
+          "path": "references/project-overrides-example.md",
+          "sha256": "f3c28871305dcbdca0f450cf276831cc74d8cd192a9cf63df2fbff43b10d02b1"
+        },
+        {
+          "path": "references/terminology-and-typography.md",
+          "sha256": "b489aaf362c8a80a18c74d8c878d23ea15a6b9064609691e69f2661ef818dd91"
+        },
+        {
+          "path": "scripts/lint_copy_rules.py",
+          "sha256": "1171782dcaba2d0e153613afe47dd720aab18704aaa9cdcb4fdc73f765e793c2"
+        },
+        {
+          "path": "scripts/unwrap_md_paragraphs.py",
+          "sha256": "6afb09d660aa7cb9042abb8c82123de5df9545aefd1a445fe6b54238d1ec8636"
+        },
+        {
+          "path": "tests/test_lint_copy_rules.py",
+          "sha256": "8711a87cec6f28f579143ad9cc0e2e277f80c1e7e244ac39154639e721803ef9"
+        },
+        {
+          "path": "tests/test_skill_structure.py",
+          "sha256": "9db26b54581715e4dcfa680a7e3fd5afd12eb236ca4e861f57da4dd82b793c39"
+        },
+        {
+          "path": "tests/test_unwrap_md_paragraphs.py",
+          "sha256": "5fd9c5cadcebbcc9b60064a6a413cb2aecdaca1da6229ca30cf953253762dcc2"
+        }
+      ]
+    },
+    {
+      "name": "translating-core",
+      "role": "translation",
+      "repository": "BrunoMiguens/translating-products-skill",
+      "revision": "b1810d5d5b5626673b0fe0d7cb39a65911adeae9",
+      "sourcePath": "skills/translating-core",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "3b1ba8abdc17edf1da6305d5914e62bc0efe18738b4a13e0f2a9cb466ba2d6bc"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "d955637ccfa2a4db55f0776b7057ef179a4e4c0d9cc65573b1c615dda375f2a6"
+        }
+      ]
+    },
+    {
+      "name": "translating-documentation",
+      "role": "translation",
+      "repository": "BrunoMiguens/translating-products-skill",
+      "revision": "b1810d5d5b5626673b0fe0d7cb39a65911adeae9",
+      "sourcePath": "skills/translating-documentation",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "3b1ba8abdc17edf1da6305d5914e62bc0efe18738b4a13e0f2a9cb466ba2d6bc"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "6d8ac8473932a8d77bdf338779a985b091c6342e2e7e838edb371d60d31b27b1"
+        }
+      ]
+    },
+    {
+      "name": "translating-korean",
+      "role": "translation",
+      "repository": "BrunoMiguens/translating-products-skill",
+      "revision": "b1810d5d5b5626673b0fe0d7cb39a65911adeae9",
+      "sourcePath": "skills/translating-korean",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "3b1ba8abdc17edf1da6305d5914e62bc0efe18738b4a13e0f2a9cb466ba2d6bc"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "6e92cda2bcb406ed91bcea35e36451d8a274daf62fb8979d2d71e89b4eb3c55b"
+        }
+      ]
+    },
+    {
+      "name": "translating-japanese",
+      "role": "translation",
+      "repository": "BrunoMiguens/translating-products-skill",
+      "revision": "b1810d5d5b5626673b0fe0d7cb39a65911adeae9",
+      "sourcePath": "skills/translating-japanese",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "3b1ba8abdc17edf1da6305d5914e62bc0efe18738b4a13e0f2a9cb466ba2d6bc"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "812e59daeab6f2ec868b3d527ec0a56ede838000bb26442efe81cb68bdc2e9e1"
+        }
+      ]
+    },
+    {
+      "name": "translating-chinese",
+      "role": "translation",
+      "repository": "BrunoMiguens/translating-products-skill",
+      "revision": "b1810d5d5b5626673b0fe0d7cb39a65911adeae9",
+      "sourcePath": "skills/translating-chinese",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "3b1ba8abdc17edf1da6305d5914e62bc0efe18738b4a13e0f2a9cb466ba2d6bc"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "33f97a06707047efdbdeb0ee4819f2123ee87b9f6c9cb7bdee1931420ecff802"
+        }
+      ]
+    },
+    {
+      "name": "reviewing-translations",
+      "role": "translation",
+      "repository": "BrunoMiguens/translating-products-skill",
+      "revision": "b1810d5d5b5626673b0fe0d7cb39a65911adeae9",
+      "sourcePath": "skills/reviewing-translations",
+      "license": "MIT",
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "3b1ba8abdc17edf1da6305d5914e62bc0efe18738b4a13e0f2a9cb466ba2d6bc"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "91a19b6b363e483c2155b8340f8759efca2f71cd4df5a90bab791de1dc1c11ee"
+        },
+        {
+          "path": "references/review-artifact-schema.json",
+          "sha256": "360313e8859788815c103f6492d83f30939bc724d8bece6a539aa887603fb6b2"
+        },
+        {
+          "path": "scripts/invariants.py",
+          "sha256": "d3962489843404822fc2b664a95149deb19e9577ccb86ed412fd49e6f86c883b"
+        },
+        {
+          "path": "scripts/validate_review_artifact.py",
+          "sha256": "53a22a62d31ea7b34a9288f043ae5046f3dd7793c5cc9573764688339eb42d35"
+        }
+      ]
+    }
+  ]
+}

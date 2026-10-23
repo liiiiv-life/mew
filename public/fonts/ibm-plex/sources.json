@@ -1,0 +1,32 @@
+{
+  "plex-sans-kr": {
+    "package": "@ibm/plex-sans-kr",
+    "version": "1.1.0",
+    "source": "https://registry.npmjs.org/@ibm/plex-sans-kr/-/plex-sans-kr-1.1.0.tgz",
+    "files": {
+      "plex-sans-kr-1.1.0-regular.woff2": {
+        "upstream": "fonts/complete/woff2/hinted/IBMPlexSansKR-Regular.woff2",
+        "sha256": "055a35664c3c3965161c92292504c5633ba9604ec904edc1ed799bf2a436276d"
+      },
+      "plex-sans-kr-1.1.0-bold.woff2": {
+        "upstream": "fonts/complete/woff2/hinted/IBMPlexSansKR-Bold.woff2",
+        "sha256": "cf874a368dc2c2c0e4d1933c35611b849e48942023bfdd1fa11128475dbc4860"
+      }
+    }
+  },
+  "plex-mono": {
+    "package": "@ibm/plex-mono",
+    "version": "2.5.0",
+    "source": "https://registry.npmjs.org/@ibm/plex-mono/-/plex-mono-2.5.0.tgz",
+    "files": {
+      "plex-mono-2.5.0-regular.woff2": {
+        "upstream": "fonts/complete/woff2/IBMPlexMono-Regular.woff2",
+        "sha256": "ba204497f16b6d334cee9d1e963a831b73e3a56e1d6300a8489d18df7214b350"
+      },
+      "plex-mono-2.5.0-bold.woff2": {
+        "upstream": "fonts/complete/woff2/IBMPlexMono-Bold.woff2",
+        "sha256": "ea576f38d05cc44cca48c45314984beb8cc1d2b886f58e1dce99f15dc344eb1d"
+      }
+    }
+  }
+}
